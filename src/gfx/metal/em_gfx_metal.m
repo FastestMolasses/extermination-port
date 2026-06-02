@@ -15,17 +15,63 @@
 #import <AppKit/AppKit.h>
 #include "em_gfx.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 struct EmGfx {
-    NSView                 *view;     /* layer-backed, layer is CAMetalLayer */
-    CAMetalLayer           *layer;
-    id<MTLDevice>           device;
-    id<MTLCommandQueue>     queue;
+    NSView                      *view;     /* layer-backed, layer is CAMetalLayer */
+    CAMetalLayer                *layer;
+    id<MTLDevice>                device;
+    id<MTLCommandQueue>          queue;
+    id<MTLRenderPipelineState>   testPipeline; /* lazily built for the test draw */
     /* per-frame */
-    NSAutoreleasePool      *pool;
-    id<CAMetalDrawable>     drawable;
-    id<MTLCommandBuffer>    cmd;
+    NSAutoreleasePool           *pool;
+    id<CAMetalDrawable>          drawable;
+    id<MTLCommandBuffer>         cmd;
+    id<MTLRenderCommandEncoder>  enc;       /* open from begin_frame to end_frame */
 };
+
+/* Minimal MSL shader, compiled at RUNTIME (newLibraryWithSource) — no offline
+ * Metal toolchain / .metallib step required. Vertex buffer 0 holds, per vertex,
+ * a float4 position followed by a float4 color (2 float4s/vertex). */
+static NSString *const kTestShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct VOut { float4 pos [[position]]; float4 color; };\n"
+"vertex VOut v_main(uint vid [[vertex_id]],\n"
+"                   const device float4 *data [[buffer(0)]]) {\n"
+"    VOut o;\n"
+"    o.pos   = float4(data[vid*2].xy, 0.0, 1.0);\n"
+"    o.color = data[vid*2 + 1];\n"
+"    return o;\n"
+"}\n"
+"fragment float4 f_main(VOut in [[stage_in]]) { return in.color; }\n";
+
+static id<MTLRenderPipelineState> build_test_pipeline(EmGfx *g)
+{
+    NSError *err = nil;
+    id<MTLLibrary> lib = [g->device newLibraryWithSource:kTestShaderSrc
+                                                 options:nil
+                                                   error:&err];
+    if (!lib) {
+        fprintf(stderr, "metal: runtime shader compile failed: %s\n",
+                err ? err.localizedDescription.UTF8String : "(unknown)");
+        return nil;
+    }
+    id<MTLFunction> vfn = [lib newFunctionWithName:@"v_main"];
+    id<MTLFunction> ffn = [lib newFunctionWithName:@"f_main"];
+    MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
+    pd.vertexFunction   = vfn;
+    pd.fragmentFunction  = ffn;
+    pd.colorAttachments[0].pixelFormat = g->layer.pixelFormat;
+    id<MTLRenderPipelineState> pso =
+        [g->device newRenderPipelineStateWithDescriptor:pd error:&err];
+    [pd release];
+    if (!pso) {
+        fprintf(stderr, "metal: pipeline build failed: %s\n",
+                err ? err.localizedDescription.UTF8String : "(unknown)");
+    }
+    return pso; /* +1 retain count owned by caller */
+}
 
 EmGfx *em_gfx_create(EmWindow *win)
 {
@@ -52,6 +98,7 @@ EmGfx *em_gfx_create(EmWindow *win)
 void em_gfx_destroy(EmGfx *g)
 {
     if (!g) return;
+    [g->testPipeline release];
     [g->queue release];
     [g->device release];
     [g->layer release];
@@ -80,15 +127,32 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     rp.colorAttachments[0].storeAction = MTLStoreActionStore;
     rp.colorAttachments[0].clearColor  = MTLClearColorMake(r, gr, b, a);
 
-    id<MTLRenderCommandEncoder> enc =
-        [g->cmd renderCommandEncoderWithDescriptor:rp];
-    /* clear-only for now: open and immediately close the pass */
-    [enc endEncoding];
+    /* Keep the encoder open so draw calls can run between begin and end. */
+    g->enc = [[g->cmd renderCommandEncoderWithDescriptor:rp] retain];
+}
+
+void em_gfx_draw_test_triangle(EmGfx *g)
+{
+    if (!g || !g->enc) return;
+    if (!g->testPipeline) {
+        g->testPipeline = build_test_pipeline(g); /* lazily, once */
+        if (!g->testPipeline) return;             /* compile failed; skip */
+    }
+    /* 3 vertices: each is a float4 position (clip-space xy used) + float4 color. */
+    static const float verts[] = {
+         0.0f,  0.6f, 0.0f, 1.0f,   1.0f, 0.2f, 0.2f, 1.0f,  /* top    - red   */
+        -0.6f, -0.5f, 0.0f, 1.0f,   0.2f, 1.0f, 0.3f, 1.0f,  /* left   - green */
+         0.6f, -0.5f, 0.0f, 1.0f,   0.3f, 0.4f, 1.0f, 1.0f,  /* right  - blue  */
+    };
+    [g->enc setRenderPipelineState:g->testPipeline];
+    [g->enc setVertexBytes:verts length:sizeof(verts) atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 }
 
 void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
+    if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
     if (g->drawable && g->cmd) {
         [g->cmd presentDrawable:g->drawable];
         [g->cmd commit];

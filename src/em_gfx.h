@@ -29,6 +29,12 @@ void   em_gfx_destroy(EmGfx *gfx);
  * clears the framebuffer to (r,g,b,a), each in [0,1]. */
 void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a);
 
+/* Draw a test triangle (gradient-colored) inside the current frame. Proves the
+ * draw path: a render pipeline built from a RUNTIME-COMPILED shader (no offline
+ * shader toolchain) + a vertex buffer + a draw call. A scaffold for the real
+ * draw API (the translated PS2 GS/VU1 pipeline) that grows on top. */
+void em_gfx_draw_test_triangle(EmGfx *gfx);
+
 /* End the frame: present the swapchain image. */
 void em_gfx_end_frame(EmGfx *gfx);
 

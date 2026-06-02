@@ -52,6 +52,7 @@ int main(void)
         float g = 0.15f + 0.15f * (float)sin(t + 2.0944);  /* +120 deg */
         float b = 0.20f + 0.20f * (float)sin(t + 4.1888);  /* +240 deg */
         em_gfx_begin_frame(gfx, r, g, b, 1.0f);
+        em_gfx_draw_test_triangle(gfx);   /* gradient triangle over the clear */
         em_gfx_end_frame(gfx);
 
         t += 0.02;
