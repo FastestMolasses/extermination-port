@@ -1,0 +1,25 @@
+# Build output
+build/
+*.o
+*.obj
+*.app
+*.exe
+*.pdb
+*.dSYM/
+
+# Disc-derived material — NEVER commit (see CLAUDE.md). The port consumes the
+# user's own decompiled code + their own legally-dumped disc assets at build
+# time; none of it is redistributed here.
+assets/
+data/
+*.iso
+*.bin
+*.BIN
+*.dat
+*.DAT
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
