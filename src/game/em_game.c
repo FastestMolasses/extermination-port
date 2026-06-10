@@ -124,8 +124,9 @@
 #include "game/em_weapon.h"
 
 #define MODEL_PATH     "assets/player.emdl"
-#define SCENE_DIR      "assets/scene"
-#define SCENE_MANIFEST "assets/scene/scene.txt"
+#define SCENE_DIR      "assets/scene"   /* boot default; g.scene_dir is
+                                         * the ACTIVE scene (runtime
+                                         * switch: em_game_scene_switch) */
 #define COLL_DEFAULT   "office.emcl"
 #define SCENE_MAX      16
 
@@ -390,13 +391,16 @@ static struct {
     /* EM_BGM=<path.wav>: loop this cue WAV as level music (see boot task) */
     const char *bgm_path;
 
-    /* SCENE MANIFEST (assets/scene/scene.txt) — per-scene boot config,
+    /* SCENE MANIFEST (<scene_dir>/scene.txt) — per-scene boot config,
      * written by the exporters. Defaults = the office values, so a
-     * missing manifest keeps the historical behavior bit-for-bit. */
+     * missing manifest keeps the historical behavior bit-for-bit.
+     * scene_dir is the ACTIVE scene (boot: SCENE_DIR; changed at
+     * runtime by em_game_scene_switch — the goto-door area loader). */
+    char        scene_dir[224];  /* active scene directory */
     float       spawn[3];        /* "spawn x y z yaw" — TRUE world coords */
     float       spawn_yaw;       /* facing about +Y, radians; 0 = +Z */
-    char        coll_path[288];  /* "collision <file.emcl>" in SCENE_DIR */
-    char        bgm_file[256];   /* "bgm <file.wav>" in SCENE_DIR; "" = none */
+    char        coll_path[288];  /* "collision <file.emcl>" in scene_dir */
+    char        bgm_file[256];   /* "bgm <file.wav>" in scene_dir; "" = none */
 
     /* EM_CAPTURE / EM_MOVE_TEST / EM_DOOR_TEST debug instrumentation */
     const char *capture_path;
@@ -408,6 +412,12 @@ static struct {
     int         move_legs[2];    /* EM_MOVE_LEGS=fwd,strafe frame counts */
     int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
     float       move_expect[3];
+    int         transit_test;    /* EM_TRANSIT_TEST=1 — scene-switch test */
+    int         tt_door;         /* test door index (the goto west door) */
+    int         tt_ok_trigger;   /* X press put the goto door in OPENING */
+    int         tt_ok_lock;      /* input locked mid-transit */
+    int         tt_switch_frame; /* frame the active scene dir changed */
+    float       tt_max_fade;     /* peak fade level (must reach 1.0) */
     int         door_test;       /* EM_DOOR_TEST=1 — door interaction test */
     int         dt_door;         /* test door index (the west doorway) */
     int         dt_ok_trigger;   /* X press put the door in OPENING */
@@ -453,11 +463,20 @@ static struct {
  *   collision <file.emcl>     collision world filename inside the scene dir
  *   bgm <file.wav>            optional looping level-music cue WAV (scene
  *                             dir); the EM_BGM env override still wins
- *   door <file> <x> <y> <z> <yaw> <r>
+ *   door <file> <x> <y> <z> <yaw> <r> [goto <scene-dir> <sx> <sy> <sz> <syaw>]
  *                             one INTERACTIVE DOOR instance (file under
  *                             the scene dir, e.g. doors/door_m03.emdl;
  *                             r = use-scan trigger radius) — written by
- *                             export_props.py --doors, owned by em_door.c
+ *                             export_props.py --doors, owned by em_door.c.
+ *                             The OPTIONAL goto tail (export_level.py
+ *                             --door-goto, the decoded dest+spawn
+ *                             tables) makes the door's transition
+ *                             commit SWITCH THE ACTIVE SCENE at full
+ *                             black (em_game_scene_switch) and place
+ *                             the player at the decoded arrival spawn —
+ *                             see em_door.h. EM_DOOR_TEST ignores the
+ *                             tail (it asserts same-scene re-place
+ *                             geometry on the west door).
  *   enemy crawler <x> <y> <z> <yaw>
  *                             one placed CRAWLER (the func_001551B0
  *                             placement records); owned by em_enemy.c.
@@ -488,15 +507,17 @@ static void scene_manifest_load(void)
     g.spawn[1]  = kPlayerPos[1];
     g.spawn[2]  = kPlayerPos[2];
     g.spawn_yaw = 0.0f;
-    snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", SCENE_DIR,
+    snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", g.scene_dir,
              COLL_DEFAULT);
     g.bgm_file[0] = '\0';
 
-    FILE *f = fopen(SCENE_MANIFEST, "r");
+    char mf[256 + 16];
+    snprintf(mf, sizeof mf, "%s/scene.txt", g.scene_dir);
+    FILE *f = fopen(mf, "r");
     if (!f) return;
 
-    char line[512], name[256];
-    float x, y, z, yaw, r;
+    char line[512], name[256], gname[64];
+    float x, y, z, yaw, r, gx, gy, gz, gyaw;
     int gn, gk, gl;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
@@ -506,7 +527,7 @@ static void scene_manifest_load(void)
             g.spawn[2]  = z;
             g.spawn_yaw = yaw;
         } else if (sscanf(line, "collision %255s", name) == 1) {
-            snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", SCENE_DIR,
+            snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", g.scene_dir,
                      name);
         } else if (sscanf(line, "bgm %255s", name) == 1) {
             snprintf(g.bgm_file, sizeof g.bgm_file, "%s", name);
@@ -515,8 +536,25 @@ static void scene_manifest_load(void)
             /* Interactive door instance (em_door.c). The manifest is
              * parsed inside the boot task, so the gfx device exists. */
             float p[3] = { x, y, z };
-            if (em_door_add(em_frame_gfx(), SCENE_DIR, name, p, yaw, r))
+            if (em_door_add(em_frame_gfx(), g.scene_dir, name, p, yaw, r)) {
                 printf("manifest: door line failed to load: %s", line);
+            } else if (sscanf(line,
+                              "door %*s %*f %*f %*f %*f %*f goto "
+                              "%63s %f %f %f %f",
+                              gname, &gx, &gy, &gz, &gyaw) == 5) {
+                /* Decoded destination tail (em_door.h): the commit
+                 * scene-switches instead of re-placing. EM_DOOR_TEST
+                 * asserts the same-scene re-place geometry on this
+                 * very door, so it runs with goto tails ignored. */
+                if (g.door_test) {
+                    printf("manifest: EM_DOOR_TEST — goto tail ignored "
+                           "(same-scene transit asserted)\n");
+                } else {
+                    float gp[3] = { gx, gy, gz };
+                    em_door_set_goto(em_door_count() - 1, gname, gp,
+                                     gyaw);
+                }
+            }
         } else if ((gn = sscanf(line, "enemy generator %f %f %f %f "
                                 "kind %d link %d",
                                 &x, &y, &z, &yaw, &gk, &gl)) >= 4) {
@@ -550,7 +588,7 @@ static void scene_manifest_load(void)
     }
     fclose(f);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
-           "collision %s%s%s, %d door(s), %d enem%s\n", SCENE_MANIFEST,
+           "collision %s%s%s, %d door(s), %d enem%s\n", mf,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
            g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count(),
            em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies");
@@ -561,10 +599,11 @@ static int cmp_str(const void *a, const void *b)
     return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
 
-/* Load assets/scene EMDL files (alphabetical). Returns the number loaded. */
+/* Load the active scene dir's EMDL files (alphabetical). Returns the
+ * number loaded. */
 static int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
 {
-    DIR *dir = opendir(SCENE_DIR);
+    DIR *dir = opendir(g.scene_dir);
     if (!dir) return 0;
 
     char *names[SCENE_MAX];
@@ -584,7 +623,7 @@ static int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
     int n = 0;
     for (int i = 0; i < n_names; i++) {
         char path[1024];
-        snprintf(path, sizeof(path), "%s/%s", SCENE_DIR, names[i]);
+        snprintf(path, sizeof(path), "%s/%s", g.scene_dir, names[i]);
         free(names[i]);
         SceneItem *it = &items[n];
         if (em_model_load(&it->model, path) != 0) continue;
@@ -612,6 +651,68 @@ static int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
         n++;
     }
     return n;
+}
+
+/* Free the ACTIVE scene: level meshes, collision world, door + enemy
+ * actors (the engine's actor-pool free at an area change). The player
+ * model/mesh, the BGM stream and the sfx registry are NOT touched —
+ * they persist across the switch (em_game.h em_game_scene_switch). */
+static void scene_unload(EmGfx *gfx)
+{
+    for (int i = 0; i < g.n_scene; i++) {
+        em_gfx_mesh_destroy(gfx, g.scene[i].mesh);
+        em_model_free(&g.scene[i].model);
+        free(g.scene[i].palette);
+    }
+    g.n_scene = 0;
+    em_collision_free(&g.coll);
+    em_door_scene_clear(gfx);   /* keeps the in-flight transit lock */
+    em_enemy_shutdown(gfx);
+    em_enemy_reset();
+}
+
+int em_game_scene_switch(const char *dir)
+{
+    EmGfx *gfx = em_frame_gfx();
+    char   path[sizeof g.scene_dir];
+
+    if (strchr(dir, '/')) {
+        snprintf(path, sizeof path, "%s", dir);
+    } else {
+        /* sibling of the current scene dir (manifest goto tails carry
+         * sibling names: "scene_office0" next to "assets/scene") */
+        const char *slash = strrchr(g.scene_dir, '/');
+        int plen = slash ? (int)(slash - g.scene_dir) + 1 : 0;
+        snprintf(path, sizeof path, "%.*s%s", plen, g.scene_dir, dir);
+    }
+
+    /* Validate BEFORE tearing the running scene down. */
+    char mf[sizeof path + 16];
+    snprintf(mf, sizeof mf, "%s/scene.txt", path);
+    FILE *probe = fopen(mf, "r");
+    if (!probe) {
+        printf("scene switch: %s has no scene.txt — staying in %s\n",
+               path, g.scene_dir);
+        return -1;
+    }
+    fclose(probe);
+
+    scene_unload(gfx);
+    snprintf(g.scene_dir, sizeof g.scene_dir, "%s", path);
+    scene_manifest_load();      /* doors + enemies of the new scene */
+    g.n_scene = scene_load(gfx, g.scene, SCENE_MAX);
+    if (em_collision_load(&g.coll, g.coll_path) == 0) {
+        printf("collision: %s — %u polys (%u verts), grid %s\n",
+               g.coll_path, g.coll.poly_count, g.coll.vert_count,
+               (g.coll.flags & 1) ? "decoded" : "absent (flat-floor)");
+    } else {
+        printf("no %s — movement uses the room-bbox clamp\n",
+               g.coll_path);
+    }
+    printf("scene switch: %s — %d part(s), %d door(s), %d enem%s\n",
+           g.scene_dir, g.n_scene, em_door_count(), em_enemy_count(),
+           em_enemy_count() == 1 ? "y" : "ies");
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1398,7 +1499,7 @@ static void frame_close_out(void)
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
     if (g.capture_path && !g.move_test && !g.weapon_test && !g.door_test &&
-        g.frame_no > g.capture_frame + 1)
+        !g.transit_test && g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();
 }
 
@@ -1606,6 +1707,111 @@ static void door_test_script(void)
         g.dt_min_x = g.pos[0];
     if (em_frame_fade_level() > g.dt_max_fade)
         g.dt_max_fade = em_frame_fade_level();
+}
+
+/* EM_TRANSIT_TEST=1 — deterministic SCENE-SWITCH transit self-test.
+ * Exercises the goto-door path end to end: the office scene's west door
+ * (57, 0, -220.5) carries the manifest goto tail written by the decomp
+ * repo's export_level.py --door-goto --synthetic-link (the decoded
+ * AREA02 tables prove NO real door pair links sub-state 1 <-> 0 — both
+ * doors' real destinations are other, unexported areas — so the link is
+ * the FLAGGED synthetic one wiring the two exported scenes' nearest
+ * doors; the ARRIVAL spawn is real: sub-state 0's spawn-table entry 0 =
+ * (-35, 0, -178) yaw 0, the record other areas use to enter through the
+ * partner door).
+ *
+ *   frame    0      spawn (66, 0, -220.5) facing -X — inside the use
+ *                   scan radius (dist 9), outside the 2 u auto ring
+ *   frame    5      CROSS -> use scan arms the goto door; kickoff locks
+ *                   input, walks to staging (62, -220.5), open script
+ *                   (back side: anim 0x43, 70-frame wait), commit,
+ *                   64-frame fade-out
+ *   at black        em_door posts the GOTO; em_game_scene_switch frees
+ *                   the office sub-1 scene and loads scene_office0
+ *                   (parts, office0.emcl, its 2 doors, its enemies);
+ *                   player placed at (-35, 0, -178) yaw 0; fade-in
+ *   frame  380      assert: trigger OK, locked mid-transit, the ACTIVE
+ *                   SCENE changed to assets/scene_office0 (switch frame
+ *                   recorded), player at the arrival spawn, fade peaked
+ *                   1.0 and back at 0, input unlocked, the NEW scene's
+ *                   2 doors present + CLOSED, collision = office0.emcl
+ *                   (loaded), enemies of the new scene populated, and
+ *                   the player model still owns its palette (persists).
+ */
+static void transit_test_script(void)
+{
+    int n = g.frame_no;
+    if (n == 0) {
+        g.tt_door         = -1;
+        g.tt_ok_trigger   = 0;
+        g.tt_ok_lock      = 0;
+        g.tt_switch_frame = 0;
+        g.tt_max_fade     = 0.0f;
+    } else if (n == 3) {
+        /* the goto door = nearest instance to the west doorway */
+        float best = 1e30f;
+        for (int i = 0; i < em_door_count(); i++) {
+            float p[3];
+            em_door_pos(i, p);
+            float dx = p[0] - 57.0f, dz = p[2] + 220.5f;
+            float d2 = dx * dx + dz * dz;
+            if (d2 < best) { best = d2; g.tt_door = i; }
+        }
+    } else if (n == 5) {
+        move_test_inject('k', 1);   /* CROSS — the use-scan trigger */
+    } else if (n == 7) {
+        move_test_inject('k', 0);
+    } else if (n == 12) {
+        g.tt_ok_trigger = g.tt_door >= 0 &&
+                          em_door_state(g.tt_door) == EM_DOOR_OPENING;
+    } else if (n == 150) {
+        g.tt_ok_lock = em_door_input_locked();   /* mid fade-out */
+    } else if (n == 380) {
+        int ok_scene  = g.tt_switch_frame > 0 &&
+                        strcmp(g.scene_dir, "assets/scene_office0") == 0;
+        int ok_pos    = fabsf(g.pos[0] + 35.0f)  <= 0.1f &&
+                        fabsf(g.pos[1])          <= 0.6f &&
+                        fabsf(g.pos[2] + 178.0f) <= 0.1f &&
+                        fabsf(g.yaw)             <= 0.01f;
+        int ok_fade   = g.tt_max_fade >= 0.999f &&
+                        em_frame_fade_level() <= 0.001f;
+        int ok_unlock = !em_door_input_locked();
+        int closed    = 0;
+        for (int i = 0; i < em_door_count(); i++)
+            closed += em_door_state(i) == EM_DOOR_CLOSED;
+        int ok_doors  = em_door_count() == 2 && closed == 2;
+        int ok_coll   = g.coll.poly_count > 0 &&
+                        strstr(g.coll_path, "office0.emcl") != NULL;
+        int ok_enemy  = em_enemy_count() >= 1;
+        int ok_player = g.mesh != NULL;
+        int ok = g.tt_ok_trigger && g.tt_ok_lock && ok_scene && ok_pos &&
+                 ok_fade && ok_unlock && ok_doors && ok_coll && ok_enemy &&
+                 ok_player;
+        printf("transit test: trigger->OPENING %s, locked mid-transit %s, "
+               "scene switched at frame %d -> %s: %s, player (%.3f, %.3f, "
+               "%.3f) yaw %.4f at the arrival spawn: %s, fade peak %.3f / "
+               "final %.3f: %s, unlocked %s, new scene doors %d (closed "
+               "%d): %s, collision %s (%u polys): %s, enemies %d: %s, "
+               "player model kept: %s — %s\n",
+               g.tt_ok_trigger ? "ok" : "FAILED",
+               g.tt_ok_lock ? "ok" : "FAILED",
+               g.tt_switch_frame, g.scene_dir,
+               ok_scene ? "ok" : "FAILED",
+               g.pos[0], g.pos[1], g.pos[2], g.yaw,
+               ok_pos ? "ok" : "FAILED",
+               g.tt_max_fade, em_frame_fade_level(),
+               ok_fade ? "ok" : "FAILED",
+               ok_unlock ? "ok" : "FAILED",
+               em_door_count(), closed, ok_doors ? "ok" : "FAILED",
+               g.coll_path, g.coll.poly_count, ok_coll ? "ok" : "FAILED",
+               em_enemy_count(), ok_enemy ? "ok" : "FAILED",
+               ok_player ? "ok" : "FAILED",
+               ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+    if (em_frame_fade_level() > g.tt_max_fade)
+        g.tt_max_fade = em_frame_fade_level();
 }
 
 /* EM_WEAPON_TEST=1 — deterministic firing-loop self-test (em_weapon.c).
@@ -2170,6 +2376,7 @@ static void gameplay_frame(void)
 {
     if (g.move_test) move_test_script();    /* debug instrumentation only */
     if (g.door_test) door_test_script();    /* debug instrumentation only */
+    if (g.transit_test) transit_test_script(); /* debug instrumentation  */
     if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
     /* EM_CAPTURE_AIM=1: hold R1 (key E) from frame 0 — by the default
      * capture frame (60) the draw has finished and the capture shows the
@@ -2205,6 +2412,36 @@ static void gameplay_frame(void)
      * (func_00184BA0) and articulation live in em_door_update.
      * func_0015C160 / func_001F0360 — still untranslated. */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
+    /* GOTO-DOOR SCENE SWITCH (one-shot, at fade-out completion — screen
+     * fully black): the runtime area/sub-state load. Free + reload the
+     * scene (em_game_scene_switch), place the player at the decoded
+     * arrival spawn with the exit yaw, re-seat the camera, and RE-RECORD
+     * the render chain — the chain built earlier this frame points into
+     * the freed scene/door/enemy tables (the close-out flush must see
+     * the new scene's draws). All invisible: the fade is at full black
+     * and the fade-in was armed by the door before posting. */
+    {
+        char  gdir[64];
+        float gp[3], gyaw;
+        if (em_door_goto_pending(gdir, sizeof gdir, gp, &gyaw)) {
+            if (em_game_scene_switch(gdir) == 0) {
+                if (g.transit_test && !g.tt_switch_frame)
+                    g.tt_switch_frame = g.frame_no;
+                g.pos[0] = gp[0];
+                g.pos[1] = gp[1];
+                g.pos[2] = gp[2];
+                g.yaw    = gyaw;
+                g.cam.yaw = gyaw;
+                g.cam.tgt_des[0] = g.pos[0];
+                g.cam.tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+                g.cam.tgt_des[2] = g.pos[2];
+                camera_desired_eye(&g.cam);
+                memcpy(g.cam.eye, g.cam.eye_des, sizeof g.cam.eye);
+                memcpy(g.cam.tgt, g.cam.tgt_des, sizeof g.cam.tgt);
+            }
+            render_chain_build();   /* drop the freed-scene draw records */
+        }
+    }
     /* DOOR-TRANSIT RE-PLACE (one-shot, at fade-out completion — screen
      * fully black): set the player at the spawn point behind the door
      * with the exit yaw (the engine's spawn-table placement,
@@ -2314,6 +2551,14 @@ static void ingame_frame_machine(EmTask *self)
                 g.pos[0] = 72.0f;
                 g.pos[1] = 0.0f;
                 g.pos[2] = -225.0f;
+                g.yaw    = -EM_PI * 0.5f;
+            }
+            if (g.transit_test) {
+                /* EM_TRANSIT_TEST spawn: on the west door's own z line,
+                 * 9 u east of it, facing it (see transit_test_script). */
+                g.pos[0] = 66.0f;
+                g.pos[1] = 0.0f;
+                g.pos[2] = -220.5f;
                 g.yaw    = -EM_PI * 0.5f;
             }
             memset(&g.cam, 0, sizeof g.cam);
@@ -2518,6 +2763,7 @@ static void game_boot_task(void)
 void em_game_install(void)
 {
     memset(&g, 0, sizeof g);
+    snprintf(g.scene_dir, sizeof g.scene_dir, "%s", SCENE_DIR);
     /* Player status — static demo values matching the live test save
      * (FINDINGS.md "INVENTORY LOCATED": health 75/100, infection 60%,
      * mag 4/30, reserve 120, battery 04/06) until the weapon/health
@@ -2551,6 +2797,8 @@ void em_game_install(void)
         g.move_expect_set = 1;
     const char *dt = getenv("EM_DOOR_TEST");
     g.door_test    = dt && dt[0] == '1';
+    const char *tt = getenv("EM_TRANSIT_TEST");
+    g.transit_test = tt && tt[0] == '1';
     const char *wt = getenv("EM_WEAPON_TEST");
     g.weapon_test  = wt && wt[0] == '1';
     const char *et = getenv("EM_ENEMY_TEST");

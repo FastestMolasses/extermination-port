@@ -35,6 +35,25 @@ void em_game_install(void);
  * em_frame_run() returns, before the gfx device is destroyed. */
 void em_game_shutdown(void);
 
+/* RUNTIME SCENE SWITCH — the native area/sub-state loader slice
+ * (FINDINGS "AREA TRANSITION LIFECYCLE" s22, the B8==1 commit's
+ * load-at-black sequence). Frees the ACTIVE scene (level meshes,
+ * collision world, door + enemy actors — the engine's actor-pool free)
+ * and reloads everything from `dir`'s scene manifest (level parts,
+ * collision, doors, enemies). The PLAYER model, the BGM stream and the
+ * sfx registry PERSIST (the shipped goto links are intra-area
+ * sub-state moves — room-move audio semantics: no fade, no restart).
+ * `dir` with no '/' resolves as a SIBLING of the current scene dir
+ * (manifest goto tails name sibling dirs). The caller places the
+ * player afterwards (the spawn-table placement is the transition's,
+ * not the scene's). Returns 0 on success; on failure nothing is torn
+ * down. Normally consumed from em_door_goto_pending() while the
+ * screen is fully black (an invisible cut, like the engine's loader).
+ * NOTE: under main.c's EM_SCENE staging the default scene dir name
+ * maps to the staged override — sibling goto targets still resolve,
+ * but a link BACK to the default-named dir lands on the staged scene. */
+int em_game_scene_switch(const char *dir);
+
 /* SCRIPTED PLAYER ANIM — the engine's anim-request mailbox, natively
  * (FINDINGS.md "ANIM ID MAPPING" + "DOOR SCRIPTS DECODED", s23).
  *

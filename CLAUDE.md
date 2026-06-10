@@ -119,6 +119,9 @@ files map each native stage to the PS2 function it stands in for.
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
   `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife-vs-crates run: light kill,
   heavy kill, whiff-combo chain — see melee_test_script),
+  `EM_TRANSIT_TEST=1` (goto-door SCENE-SWITCH run: west-door transit ->
+  runtime reload of scene_office0 at full black, player at the decoded
+  arrival spawn — see transit_test_script / em_game_scene_switch),
   `make test-input` (OS-free pad-model unit test).
 
 ## Build

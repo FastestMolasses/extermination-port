@@ -143,6 +143,12 @@ typedef struct {
                               * anim + door clip + sound, one-shot) */
     float    spawn_pt[3];    /* re-place point door_pos - 5.0 * n, far side
                               * (the spawn-table record's pose) */
+    /* manifest goto tail (decoded dest+spawn tables — em_door.h): the
+     * commit switches scenes instead of the same-scene re-place. */
+    int      has_goto;
+    char     goto_dir[64];   /* target scene dir (sibling name or path) */
+    float    goto_pos[3];    /* arrival spawn record: pos */
+    float    goto_yaw;       /*                       exit yaw */
     int      did_warp;       /* sub 5: re-place already posted this transit */
     float    aabb_lo[3];     /* world AABB of the CLOSED door (hull box) */
     float    aabb_hi[3];
@@ -161,11 +167,17 @@ static struct {
     int       warp_pending;  /* one-shot re-place request for em_game */
     float     warp_pos[3];
     float     warp_yaw;
+    /* one-shot scene-switch request (goto doors; warp_pos/yaw carry the
+     * arrival spawn) */
+    int       goto_pending;
+    char      goto_dir[64];
     /* door sound pair (see DOOR_SFX_KEYWORD above) */
     int       sfx_scanned;   /* scene.txt scanned once for doorsfx */
     int       sfx_real;      /* doorsfx line found: engine pair active */
     unsigned  sfx_pair[2];   /* D_0024DB80 pair [0]=front, [1]=back */
 } s;
+
+static void door_build_palette(Door *d);
 
 void em_door_reset(void)
 {
@@ -311,12 +323,33 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
     d->aabb_lo[1] = d->pos[1] + dm->lo[1];
     d->aabb_hi[1] = d->pos[1] + dm->hi[1];
 
+    /* Closed pose now: a door added mid-frame (scene switch while black)
+     * is draw-recorded before its first em_door_update pass. */
+    door_build_palette(d);
+
     printf("door %d: %s at (%.1f, %.1f, %.1f) yaw %.3f r %.1f — hull "
            "(%.1f, %.1f, %.1f)..(%.1f, %.1f, %.1f)\n", s.n_doors, file,
            pos[0], pos[1], pos[2], yaw, radius,
            d->aabb_lo[0], d->aabb_lo[1], d->aabb_lo[2],
            d->aabb_hi[0], d->aabb_hi[1], d->aabb_hi[2]);
     s.n_doors++;
+    return 0;
+}
+
+int em_door_set_goto(int i, const char *target, const float spawn[3],
+                     float spawn_yaw)
+{
+    if (i < 0 || i >= s.n_doors || !target || !target[0])
+        return -1;
+    Door *d = &s.doors[i];
+    snprintf(d->goto_dir, sizeof d->goto_dir, "%s", target);
+    d->goto_pos[0] = spawn[0];
+    d->goto_pos[1] = spawn[1];
+    d->goto_pos[2] = spawn[2];
+    d->goto_yaw    = spawn_yaw;
+    d->has_goto    = 1;
+    printf("door %d: goto %s spawn (%.1f, %.1f, %.1f) yaw %.4f\n", i,
+           target, spawn[0], spawn[1], spawn[2], spawn_yaw);
     return 0;
 }
 
@@ -514,7 +547,7 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
 
     /* Input unlocks when the fade-in completes — the re-place already
      * happened at black; the door is still closing behind the player. */
-    if (s.lock && s.unlock_armed && !s.warp_pending &&
+    if (s.lock && s.unlock_armed && !s.warp_pending && !s.goto_pending &&
         !em_frame_fade_active() && em_frame_fade_level() <= 0.0f) {
         s.lock         = 0;
         s.unlock_armed = 0;
@@ -602,11 +635,27 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                  * cleared" moment. */
                 if (!em_frame_fade_active() &&
                     em_frame_fade_level() >= 1.0f) {
-                    s.warp_pending = 1;
-                    s.warp_pos[0]  = d->spawn_pt[0];
-                    s.warp_pos[1]  = d->spawn_pt[1];
-                    s.warp_pos[2]  = d->spawn_pt[2];
-                    s.warp_yaw     = d->transit_yaw;
+                    if (d->has_goto) {
+                        /* GOTO door: post the SCENE SWITCH instead of
+                         * the same-scene re-place — em_game runs
+                         * em_game_scene_switch + the spawn placement
+                         * while black (this door is freed by the
+                         * switch; the transit-wide lock + armed
+                         * unlock survive em_door_scene_clear). */
+                        s.goto_pending = 1;
+                        snprintf(s.goto_dir, sizeof s.goto_dir, "%s",
+                                 d->goto_dir);
+                        s.warp_pos[0] = d->goto_pos[0];
+                        s.warp_pos[1] = d->goto_pos[1];
+                        s.warp_pos[2] = d->goto_pos[2];
+                        s.warp_yaw    = d->goto_yaw;
+                    } else {
+                        s.warp_pending = 1;
+                        s.warp_pos[0]  = d->spawn_pt[0];
+                        s.warp_pos[1]  = d->spawn_pt[1];
+                        s.warp_pos[2]  = d->spawn_pt[2];
+                        s.warp_yaw     = d->transit_yaw;
+                    }
                     d->did_warp    = 1;
                     s.unlock_armed = 1;
                     /* Script teardown under black: the player anim
@@ -660,6 +709,30 @@ int em_door_warp_pending(float out_pos[3], float *out_yaw)
     *out_yaw       = s.warp_yaw;
     s.warp_pending = 0;     /* one-shot */
     return 1;
+}
+
+int em_door_goto_pending(char *dir, unsigned dir_size, float out_pos[3],
+                         float *out_yaw)
+{
+    if (!s.goto_pending) return 0;
+    snprintf(dir, dir_size, "%s", s.goto_dir);
+    out_pos[0]     = s.warp_pos[0];
+    out_pos[1]     = s.warp_pos[1];
+    out_pos[2]     = s.warp_pos[2];
+    *out_yaw       = s.warp_yaw;
+    s.goto_pending = 0;     /* one-shot */
+    return 1;
+}
+
+void em_door_scene_clear(EmGfx *gfx)
+{
+    /* The transit that triggered the switch is still mid-flight: keep
+     * the input lock + the armed fade-in unlock alive across the door
+     * teardown (the new scene's doors arrive CLOSED and idle). */
+    int lock = s.lock, unlock_armed = s.unlock_armed;
+    em_door_shutdown(gfx);     /* frees + memsets s */
+    s.lock         = lock;
+    s.unlock_armed = unlock_armed;
 }
 
 int em_door_transit_active(float out_target[3], float *out_yaw)
