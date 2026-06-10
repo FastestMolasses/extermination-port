@@ -14,6 +14,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <AppKit/AppKit.h>
 #include "em_gfx.h"
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -44,6 +45,20 @@ struct EmGfx {
      * end_frame after all 3D draws. */
     float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
     uint32_t                     overlayRects;
+    /* World-space beam pass (em_gfx_beam / em_gfx_beam_dot): primitives
+     * queued during the frame as raw records; the camera-plane extrusion
+     * needs the camera, so vertices are built at flush time from the
+     * viewproj of the frame's LAST skinned draw. */
+    struct EmGfxBeamRec {
+        float a[3], b[3];   /* segment ends (dot: a == b == anchor)     */
+        float w;            /* width (dot: the square's size)           */
+        float ca[4], cb[4]; /* per-end colors (dot: ca only)            */
+        int   dot;          /* 1 = camera-facing square at a            */
+    }                            beams[EM_GFX_BEAM_MAX];
+    uint32_t                     beamCount;
+    float                        lastViewProj[16]; /* column-major P*V  */
+    bool                         hasViewProj;      /* a 3D draw ran     */
+    id<MTLRenderPipelineState>   beamPipeline;     /* additive, depth-on */
 };
 
 struct EmGfxMesh {
@@ -79,6 +94,26 @@ static NSString *const kTestShaderSrc =
 "    return o;\n"
 "}\n"
 "fragment float4 f_main(VOut in [[stage_in]]) { return in.color; }\n";
+
+/* Beam shader — world-space position + color through the camera, compiled
+ * at runtime like the others. Buffer 0 holds float4 world position +
+ * float4 color per vertex; buffer 1 the column-major viewproj. Going
+ * through viewproj (not pre-projected NDC) keeps real depth, so the
+ * laser is occluded by geometry exactly like the GS LINE pass (ZTE=1,
+ * ZMSK=1 — depth test on, write off, bound at draw time). */
+static NSString *const kBeamShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct VOut { float4 pos [[position]]; float4 color; };\n"
+"vertex VOut v_beam(uint vid [[vertex_id]],\n"
+"                   const device float4 *data [[buffer(0)]],\n"
+"                   constant float4x4 &viewproj [[buffer(1)]]) {\n"
+"    VOut o;\n"
+"    o.pos   = viewproj * float4(data[vid*2].xyz, 1.0);\n"
+"    o.color = data[vid*2 + 1];\n"
+"    return o;\n"
+"}\n"
+"fragment float4 f_beam(VOut in [[stage_in]]) { return in.color; }\n";
 
 /* Skinning shader — the translated PS2 vertex pipeline. Buffer 0 holds
  * 10-word vertex records (float pos[3], float normal[3], float uv[2],
@@ -283,6 +318,7 @@ void em_gfx_destroy(EmGfx *g)
     [g->testPipeline release];
     [g->skinPipeline release];
     [g->glowPipeline release];
+    [g->beamPipeline release];
     [g->repeatSampler release];
     [g->depthOn release];
     [g->depthOff release];
@@ -299,6 +335,8 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
 {
     if (!g) return;
     g->pool = [[NSAutoreleasePool alloc] init];
+    g->beamCount   = 0;       /* world-space beams are per-frame */
+    g->hasViewProj = false;   /* set again by the frame's 3D draws */
 
     /* keep the swapchain sized to the backing store */
     NSSize sz = g->view.bounds.size;
@@ -463,6 +501,9 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                          const float *palette, uint32_t bone_count)
 {
     if (!g || !g->enc || !m || !viewproj || !palette || !bone_count) return;
+    /* Remember the frame's camera for the beam flush (world-space pass). */
+    memcpy(g->lastViewProj, viewproj, sizeof(g->lastViewProj));
+    g->hasViewProj = true;
     if (!g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin", false);
@@ -556,6 +597,148 @@ void em_gfx_overlay_rect(EmGfx *g, float x, float y, float w, float h,
     g->overlayRects++;
 }
 
+/* Queue one world-space beam segment (em_gfx.h). Stored raw; vertices are
+ * built at flush time because the camera-plane extrusion needs the
+ * frame's camera. */
+void em_gfx_beam(EmGfx *g, const float a[3], const float b[3], float width,
+                 const float rgba_a[4], const float rgba_b[4])
+{
+    if (!g || !a || !b || !rgba_a || !rgba_b ||
+        g->beamCount >= EM_GFX_BEAM_MAX)
+        return;
+    struct EmGfxBeamRec *r = &g->beams[g->beamCount++];
+    memcpy(r->a,  a,      sizeof(r->a));
+    memcpy(r->b,  b,      sizeof(r->b));
+    memcpy(r->ca, rgba_a, sizeof(r->ca));
+    memcpy(r->cb, rgba_b, sizeof(r->cb));
+    r->w   = width;
+    r->dot = 0;
+}
+
+/* Queue one camera-facing square glow (em_gfx.h). */
+void em_gfx_beam_dot(EmGfx *g, const float p[3], float size,
+                     const float rgba[4])
+{
+    if (!g || !p || !rgba || g->beamCount >= EM_GFX_BEAM_MAX) return;
+    struct EmGfxBeamRec *r = &g->beams[g->beamCount++];
+    memcpy(r->a,  p,    sizeof(r->a));
+    memcpy(r->b,  p,    sizeof(r->b));
+    memcpy(r->ca, rgba, sizeof(r->ca));
+    memcpy(r->cb, rgba, sizeof(r->cb));
+    r->w   = size;
+    r->dot = 1;
+}
+
+static void beam_norm3(float v[3])
+{
+    float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (l > 1e-6f) { v[0] /= l; v[1] /= l; v[2] /= l; }
+    else           { v[0] = 1.0f; v[1] = 0.0f; v[2] = 0.0f; }
+}
+
+/* Flush the queued world-space beams: one additive draw inside the open
+ * render pass, AFTER the 3D scene (em_weapon queues during close-out) and
+ * BEFORE the overlay pass. Camera basis comes from the rows of the
+ * frame's last viewproj (column-major m[col*4+row]): row r of P*V is the
+ * view rotation's r-row scaled by a positive projection factor, so the
+ * normalized xyz of rows 0/1/3 are camera right / up / forward in world
+ * space (row 3 = the w row = view z, because w_clip = z_view). Each
+ * segment becomes a quad extruded half a width to each side along
+ * normalize(cross(axis, camera_fwd)) — the axial billboard; dots become
+ * camera-plane squares on right/up. Depth state: TEST on, WRITE off
+ * (depthGlow) — the GS laser draws keep ZTE=1 with ZMSK=1. */
+static void beam_flush(EmGfx *g)
+{
+    uint32_t count = g->beamCount;
+    g->beamCount = 0;
+    if (!count || !g->enc) return;
+    if (!g->hasViewProj) return;   /* no camera this frame: drop */
+    if (!g->beamPipeline) {
+        g->beamPipeline = build_pipeline(g, kBeamShaderSrc, @"v_beam",
+                                         @"f_beam", true /* additive */);
+        if (!g->beamPipeline) return;
+    }
+    ensure_depth_states(g);
+
+    const float *m = g->lastViewProj;
+    float right[3] = { m[0], m[4], m[8]  };
+    float up[3]    = { m[1], m[5], m[9]  };
+    float fwd[3]   = { m[3], m[7], m[11] };
+    beam_norm3(right);
+    beam_norm3(up);
+    beam_norm3(fwd);
+
+    /* 6 verts per primitive, float4 pos + float4 color each. */
+    float *verts = (float *)malloc((size_t)count * 6 * 8 * sizeof(float));
+    if (!verts) return;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const struct EmGfxBeamRec *r = &g->beams[i];
+        float h = r->w * 0.5f;
+        float c0[3], c1[3], c2[3], c3[3]; /* a-side0 a-side1 b-side0 b-side1 */
+        if (r->dot) {
+            for (int k = 0; k < 3; k++) {
+                c0[k] = r->a[k] - right[k] * h - up[k] * h;
+                c1[k] = r->a[k] + right[k] * h - up[k] * h;
+                c2[k] = r->a[k] - right[k] * h + up[k] * h;
+                c3[k] = r->a[k] + right[k] * h + up[k] * h;
+            }
+        } else {
+            float axis[3] = { r->b[0] - r->a[0], r->b[1] - r->a[1],
+                              r->b[2] - r->a[2] };
+            float side[3] = { axis[1] * fwd[2] - axis[2] * fwd[1],
+                              axis[2] * fwd[0] - axis[0] * fwd[2],
+                              axis[0] * fwd[1] - axis[1] * fwd[0] };
+            float sl = sqrtf(side[0] * side[0] + side[1] * side[1] +
+                             side[2] * side[2]);
+            if (sl > 1e-6f) {
+                side[0] *= h / sl; side[1] *= h / sl; side[2] *= h / sl;
+            } else {           /* segment along the view axis: use right */
+                side[0] = right[0] * h;
+                side[1] = right[1] * h;
+                side[2] = right[2] * h;
+            }
+            for (int k = 0; k < 3; k++) {
+                c0[k] = r->a[k] - side[k];
+                c1[k] = r->a[k] + side[k];
+                c2[k] = r->b[k] - side[k];
+                c3[k] = r->b[k] + side[k];
+            }
+        }
+        const float *quad[6][2] = {
+            { c0, r->ca }, { c1, r->ca }, { c2, r->cb },   /* tri 1 */
+            { c1, r->ca }, { c3, r->cb }, { c2, r->cb },   /* tri 2 */
+        };
+        for (int v = 0; v < 6; v++) {
+            float *o = verts + (size_t)(n + v) * 8;
+            o[0] = quad[v][0][0];
+            o[1] = quad[v][0][1];
+            o[2] = quad[v][0][2];
+            o[3] = 1.0f;
+            memcpy(o + 4, quad[v][1], 4 * sizeof(float));
+        }
+        n += 6;
+    }
+
+    /* Can exceed the 4 KB setVertexBytes ceiling (64 beams = 12 KB), so a
+     * per-flush buffer; the in-flight command buffer keeps it alive. */
+    id<MTLBuffer> vbuf =
+        [g->device newBufferWithBytes:verts
+                               length:(NSUInteger)n * 8 * sizeof(float)
+                              options:MTLResourceStorageModeShared];
+    free(verts);
+    if (!vbuf) return;
+    [g->enc setRenderPipelineState:g->beamPipeline];
+    [g->enc setDepthStencilState:g->depthGlow];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
+    [g->enc setVertexBytes:g->lastViewProj length:64 atIndex:1];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+               vertexStart:0
+               vertexCount:n];
+    [vbuf release];
+}
+
 /* Flush the queued overlay rects: one draw at the END of the open render
  * pass (post-3D, so the HUD composites over the scene), depth test OFF,
  * standard alpha blend. Reuses the position+color passthrough pipeline
@@ -637,6 +820,7 @@ static void write_bmp(const char *path, const uint8_t *bgra,
 void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
+    beam_flush(g);      /* world-space beams: after 3D, under the overlay */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 

@@ -57,15 +57,43 @@
  *                 keyboard map has no L3 key; SQUARE is the only face
  *                 button with no gameplay role in the port yet.
  *
- * VISUAL FEEDBACK — PLACEHOLDER for the real beam/flash pass (the gun
- * actor's per-frame drawers func_001854E0/func_00185760 + muzzle FX
- * func_00187CC0 + tracer func_001860A0, none translated yet): the port
- * draws screen-space overlay rects (em_gfx_overlay_rect, 640x448 canvas) —
+ * LASER SIGHT (translated 2026-06-10 s23 — live capture + disasm of the
+ * gun actor's per-frame drawers func_001854E0 / func_00185760, selected
+ * by player +0x318 while the aim-pose anim is in phase): every aim frame
+ * the gun raycasts muzzle -> muzzle + dir*260 with the SAME segment
+ * query as the bullet (func_0019A570, mode 7, mask 0x20) and clips the
+ * laser at the hit point (no hit: the full 260-unit endpoint — the
+ * laser still draws). Render, via em_gfx's world-space beam pass:
+ *   BEAM (func_00185760 -> func_001E2BA0): 32 consecutive segments
+ *     muzzle -> endpoint with per-vertex color = base * max(sin(ph), 0),
+ *     ph starting RANDOM each frame and advancing 0.025*len per segment
+ *     (the dashed shimmer in the reference capture). Base color
+ *     (0.7, 0, 0, 1); with a LOCKED target (D_008106E0, aim option 1)
+ *     the engine switches to (1.0, 0.6, 0.2, 1) — pending lock-on.
+ *   DOT (func_001CD520 billboard at the endpoint): 3.0-unit additive
+ *     glow, color R = (0x50 + rand5)/0x80, G = B = 0 (locked: 5.0-unit,
+ *     R/G/B = (0x70/0x40/0x20 + rand5)/0x80).
+ * Both draws are additive with depth test on / write off, exactly the
+ * GS states of the original pass (em_gfx_beam / em_gfx_beam_dot).
+ *
+ * MUZZLE/FLASH FEEDBACK — still PLACEHOLDER (muzzle FX func_00187CC0 +
+ * tracer func_001860A0 not translated): screen-space overlay rects —
  * a 3-frame muzzle-flash flare at the lower center and a center-screen
  * crosshair that pulses bright/large on a ray HIT and dim/small on a
  * miss. Sounds (0x162 draw / 0x163 holster / 0x164-0x165 fire / 0x169
  * dry click) and anims (0x110/0x111/0x31../0x33) are recorded in
  * em_weapon.c as comments until an SFX/anim hookup exists.
+ *
+ * AIM CAMERA HOOKUP (em_game owns the camera — apply there, one line):
+ * the engine lowers the camera's follow target while aiming (camera
+ * struct +0x8C target-height offset, default 6.0 — FINDINGS "CAMERA
+ * SYSTEM"; the live s23 aim capture ran camera mode 1 with +0x8C = 2.0
+ * in AREA02). em_weapon exposes em_weapon_is_aiming(); em_game's
+ * camera_mode_dispatch() applies it by replacing its target-height term:
+ *
+ *   cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
+ *       g.pos[1] + (em_weapon_is_aiming() ? cam->aim_h : CAM_TGT_HEIGHT),
+ *       CAM_TGT_CAP);
  *
  * Holstered (the default) the module queues nothing and touches nothing,
  * so default-run frame output stays byte-identical to pre-weapon builds.
@@ -117,9 +145,18 @@ void em_weapon_reset(uint8_t mag, int16_t reserve);
 void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                       float player_yaw, const EmFrameInput *in);
 
-/* Queue this frame's placeholder feedback (crosshair + muzzle flash)
- * into the overlay pass. Queues nothing while holstered. */
+/* Queue this frame's weapon visuals: the LASER SIGHT (world-space beam +
+ * hit dot through em_gfx_beam/em_gfx_beam_dot — header block above) in
+ * the AIM state, plus the placeholder overlay feedback (crosshair +
+ * muzzle flash). Queues nothing while holstered, so the default frame
+ * stays byte-identical. */
 void em_weapon_render(EmGfx *gfx);
+
+/* 1 while the weapon is in the armed stance (DRAW / AIM / RELOAD — the
+ * engine's player weapon modes 0x1D..0x20), 0 holstered/holstering. The
+ * camera consumes this for the aim-state target-height offset (struct
+ * +0x8C) — see "AIM CAMERA HOOKUP" above for the one-line em_game use. */
+int em_weapon_is_aiming(void);
 
 /* Live ammo state — the HUD's EmPlayerStatus mirrors these. */
 uint8_t em_weapon_mag(void);

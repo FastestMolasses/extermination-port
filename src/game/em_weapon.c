@@ -37,6 +37,23 @@
                                  * |y|<=45+45s on the GS canvas) until a
                                  * projection-space acquisition lands      */
 
+/* --- LASER SIGHT (em_weapon.h header block; s23 disasm) ---------------- */
+#define WPN_LASER_SEGS  32      /* func_001E2BA0: the beam is 32 GS LINE
+                                 * segments muzzle -> endpoint             */
+#define WPN_LASER_PHASE 0.025f  /* per-segment flicker-phase step factor:
+                                 * f21 = (0.1 * len) / 4.0 radians         */
+#define WPN_DOT_SIZE    3.0f    /* func_001854E0/760: endpoint dot sprite
+                                 * 3.0 units (locked-on uses 5.0)          */
+#define WPN_LASER_WIDTH 0.12f   /* PORT VALUE: the engine beam is a GS
+                                 * LINE prim = 1 screen pixel at 512x448;
+                                 * ~0.12 world units reads as ~1 px at the
+                                 * aim camera's typical 25-35 u depth
+                                 * (1 px ~= z / 240 at zoom s = 480)       */
+/* func_00185760 beam base color: unlocked (0.7, 0, 0, 1). With a locked
+ * target (D_008106E0 nonzero, aim option 1) the engine switches to
+ * (1.0, 0.6, 0.2, 1) and a 5.0-unit warm dot — pending native lock-on. */
+static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
+
 /* --- Port placeholders (flagged; engine values are anim-clip lengths
  *     that are not exported yet) ---------------------------------------- */
 #define WPN_DRAW_FRAMES    15   /* anim 0x110 length stand-in (0.25 s)     */
@@ -74,7 +91,23 @@ static struct {
 
     int     shots;       /* introspection: rounds fired since reset       */
     int     reloads;     /* introspection: reloads since reset            */
+
+    /* LASER SIGHT — the gun-side per-frame raycast result (the engine
+     * stores the clipped endpoint + flags in the gun actor's +0x1F0
+     * block; func_001854E0/760 refresh it every aim frame). */
+    int      laser_on;     /* gun +0x210 "laser active" flag              */
+    float    laser_a[3];   /* beam start = muzzle (gun +0x1F0 vec)        */
+    float    laser_b[3];   /* clipped endpoint (gun +0x200 vec)           */
+    uint32_t rng;          /* flicker LCG (engine: func_00122BB8 rand)    */
 } w;
+
+/* The flicker random source — engine func_00122BB8 is the C-library
+ * rand(); a freestanding LCG keeps the port deterministic per run. */
+static uint32_t wpn_rand(void)
+{
+    w.rng = w.rng * 1103515245u + 12345u;
+    return (w.rng >> 16) & 0x7FFF;
+}
 
 void em_weapon_reset(uint8_t mag, int16_t reserve)
 {
@@ -144,6 +177,61 @@ static void weapon_shot(void)
     em_sfx_play(EM_SFX_WPN_FIRE);         /* 0x164, the per-shot block    */
 }
 
+/* Muzzle point + fire direction from the player placement. The engine
+ * derives both from the hand-bone matrix every gun tick (func_00188630:
+ * muzzle +0xA0 = M(0x810550)*(-3, tbl.y, 0), dir +0xC0 = normalized
+ * second-point delta); with no hand bone wired natively the port uses
+ * chest height above the feet along the facing yaw. */
+static void weapon_muzzle_ray(const float pos[3], float yaw,
+                              float muzzle[3], float dir[3])
+{
+    muzzle[0] = pos[0];
+    muzzle[1] = pos[1] + WPN_MUZZLE_HEIGHT;
+    muzzle[2] = pos[2];
+    dir[0]    = sinf(yaw);
+    dir[1]    = 0.0f;
+    dir[2]    = cosf(yaw);
+}
+
+/* LASER SIGHT raycast — the per-aim-frame half of func_001854E0/760:
+ * the SAME segment query as the bullet (mode 7, mask 0x20) from the
+ * muzzle along the fire direction, range 260; the laser clips at the
+ * hit point and keeps drawing to the full 260-unit endpoint on a miss.
+ * The engine's query reports the hit ACTOR in the scratchpad result
+ * (*0x700031D4 — it even tags the victim's +0x0A "laser on me" byte);
+ * the port's split runs em_enemy_ray_test beside the world query and
+ * the NEAREST of enemy-vs-world clips the beam, exactly like the
+ * bullet's victim test. */
+static void laser_update(const EmCollision *coll, const float pos[3],
+                         float yaw)
+{
+    float muzzle[3], dir[3];
+    weapon_muzzle_ray(pos, yaw, muzzle, dir);
+
+    float end[3] = { muzzle[0] + dir[0] * WPN_RANGE,
+                     muzzle[1] + dir[1] * WPN_RANGE,
+                     muzzle[2] + dir[2] * WPN_RANGE };
+
+    EmCollHit h;
+    if (coll && coll->poly_count &&
+        em_collision_segment_query(coll, muzzle, end, WPN_RAY_MASK,
+                                   WPN_RAY_ID, &h)) {
+        end[0] = h.point[0];
+        end[1] = h.point[1];
+        end[2] = h.point[2];
+    }
+    float epoint[3];
+    if (em_enemy_ray_test(muzzle, end, epoint) >= 0) {
+        /* enemy inside the (already world-clipped) segment: it is the
+         * nearer hit by construction — clip the laser on the victim */
+        end[0] = epoint[0];
+        end[1] = epoint[1];
+        end[2] = epoint[2];
+    }
+    memcpy(w.laser_a, muzzle, sizeof w.laser_a);
+    memcpy(w.laser_b, end,    sizeof w.laser_b);
+}
+
 /* The gun-side fire-event consumption — func_001861C0, the BULLET.
  *
  * 1. ENDPOINT: with an acquired target the ray aims at its AIM POINT,
@@ -165,10 +253,10 @@ static void weapon_shot(void)
 static void weapon_resolve_fire(const EmCollision *coll,
                                 const float pos[3], float yaw)
 {
-    float muzzle[3] = { pos[0], pos[1] + WPN_MUZZLE_HEIGHT, pos[2] };
-    float dir[3]    = { sinf(yaw), 0.0f, cosf(yaw) };
+    float muzzle[3], dir[3];
     float end[3];
     float aim[3];
+    weapon_muzzle_ray(pos, yaw, muzzle, dir);
 
     if (em_enemy_acquire(muzzle, yaw, WPN_RANGE, WPN_AIM_CONE, aim) >= 0) {
         /* targeted shot: endpoint = aim point + 5-unit overshoot */
@@ -338,6 +426,14 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             w.state = EM_WPN_HOLSTERED;
             break;
     }
+
+    /* LASER SIGHT refresh — the engine's drawers run only while the
+     * AIM-POSE anim is in phase (player +0x1F0 anim 0x31/0x34 with
+     * +0x1F1 == 1), i.e. in the AIM/FIRE loop: not during the draw,
+     * reload (anim 0x33) or holster clips. */
+    w.laser_on = (w.state == EM_WPN_AIM);
+    if (w.laser_on)
+        laser_update(coll, player_pos, player_yaw);
 }
 
 /* --- Placeholder overlay feedback (em_weapon.h "VISUAL FEEDBACK") ------ */
@@ -357,6 +453,43 @@ static void rect_centered(EmGfx *gfx, float cx, float cy, float w_, float h_,
 void em_weapon_render(EmGfx *gfx)
 {
     if (!gfx || w.state == EM_WPN_HOLSTERED) return;
+
+    /* LASER SIGHT — the translated func_00185760 pass (em_weapon.h).
+     * Beam: 32 segments muzzle -> clipped endpoint, per-vertex color =
+     * base * max(sin(phase), 0) with a random phase start each frame
+     * and a 0.025*len step per segment (func_001E2BA0: phase0 =
+     * rand/2^31 * 2pi, f21 = 0.1*len/4; negative sine clamps to 0 in
+     * the engine's float->color conversion — the dashed shimmer).
+     * func_001E2BA0 zero-initializes the previous-vertex color, so the
+     * first segment fades up from black. Dot: 3.0-unit additive glow
+     * at the endpoint, R = (0x50 + rand5)/0x80 of the GS 0x80 = 1.0
+     * scale, G = B = 0 (func_00185760's unlocked arm). */
+    if (w.laser_on) {
+        float d[3] = { w.laser_b[0] - w.laser_a[0],
+                       w.laser_b[1] - w.laser_a[1],
+                       w.laser_b[2] - w.laser_a[2] };
+        float len   = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        float phase = (float)wpn_rand() / 32768.0f * 6.2831853f;
+        float dph   = WPN_LASER_PHASE * len;
+        float pa[3] = { w.laser_a[0], w.laser_a[1], w.laser_a[2] };
+        float ca[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        for (int i = 1; i <= WPN_LASER_SEGS; i++) {
+            float t     = (float)i / (float)WPN_LASER_SEGS;
+            float pb[3] = { w.laser_a[0] + d[0] * t,
+                            w.laser_a[1] + d[1] * t,
+                            w.laser_a[2] + d[2] * t };
+            float s  = sinf(phase + dph * (float)i);
+            float in = s > 0.0f ? s : 0.0f;
+            float cb[4] = { kLaserColor[0] * in, kLaserColor[1] * in,
+                            kLaserColor[2] * in, kLaserColor[3] };
+            em_gfx_beam(gfx, pa, pb, WPN_LASER_WIDTH, ca, cb);
+            memcpy(pa, pb, sizeof pa);
+            memcpy(ca, cb, sizeof ca);
+        }
+        float dr = (float)(0x50 + (wpn_rand() & 0x1F)) / 128.0f;
+        float dot[4] = { dr, 0.0f, 0.0f, 1.0f };
+        em_gfx_beam_dot(gfx, w.laser_b, WPN_DOT_SIZE, dot);
+    }
 
     const float cx = EM_GFX_OVERLAY_W * 0.5f;   /* 320 */
     const float cy = EM_GFX_OVERLAY_H * 0.5f;   /* 224 */
@@ -393,6 +526,15 @@ int     em_weapon_state(void)    { return w.state; }
 int     em_weapon_shots(void)    { return w.shots; }
 int     em_weapon_reloads(void)  { return w.reloads; }
 int     em_weapon_last_hit(void) { return w.last_hit; }
+
+/* Armed-stance query for the camera's aim-state target-height offset
+ * (em_weapon.h "AIM CAMERA HOOKUP"): 1 across DRAW/AIM/RELOAD — the
+ * engine's weapon modes 0x1D..0x20 — not while holstering out. */
+int em_weapon_is_aiming(void)
+{
+    return w.state == EM_WPN_DRAW || w.state == EM_WPN_AIM ||
+           w.state == EM_WPN_RELOAD;
+}
 
 void em_weapon_set_fire_mode(uint8_t mode)
 {

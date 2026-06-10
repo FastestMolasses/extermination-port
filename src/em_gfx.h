@@ -109,8 +109,37 @@ void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
 void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
                          const float rgba[4]);
 
-/* End the frame: flush the queued overlay rects, then present the
- * swapchain image. */
+/* --- World-space beam pass (laser sight) ------------------------------ */
+
+/* Queue one world-space BEAM SEGMENT for this frame: a thin quad from `a`
+ * to `b` (world coords), `width` units across, extruded perpendicular to
+ * the segment in the camera plane (axial billboard), with one RGBA per
+ * end (a gradient along the segment). The native stand-in for the
+ * engine's laser-sight line pass: func_001E2BA0 draws the SPR4 laser as
+ * 32 consecutive GS LINE segments with per-vertex colors (see
+ * em_weapon.c for the per-segment flicker rule that feeds this).
+ *
+ * Queued beams are flushed inside em_gfx_end_frame BEFORE the overlay
+ * pass, as one draw: ADDITIVE blend (GS ALPHA Cv = Cs + Cd — alpha is
+ * ignored), depth TEST on / depth WRITE off (ZMSK=1, like the glow
+ * pass), using the camera of this frame's LAST em_gfx_draw_skinned call
+ * (a world-space pass needs a camera; if no 3D draw ran this frame the
+ * queue is dropped). With nothing queued the pass does not run — frame
+ * output stays bit-identical to pre-beam builds. At most EM_GFX_BEAM_MAX
+ * primitives per frame; overflow is dropped. */
+#define EM_GFX_BEAM_MAX 64
+void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
+                 float width, const float rgba_a[4], const float rgba_b[4]);
+
+/* Queue a small camera-facing SQUARE glow (size x size world units) at
+ * `p` — the laser hit-point dot (the engine's func_001CD520 billboard
+ * sprite at the clipped ray endpoint). Same pass, blend and depth state
+ * as em_gfx_beam; counts against the same EM_GFX_BEAM_MAX budget. */
+void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
+                     const float rgba[4]);
+
+/* End the frame: flush the queued world-space beams, then the overlay
+ * rects, then present the swapchain image. */
 void em_gfx_end_frame(EmGfx *gfx);
 
 /* Capture the NEXT completed frame to a 24-bit BMP at `path`. Returns
