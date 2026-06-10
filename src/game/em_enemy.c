@@ -142,18 +142,18 @@
  * 0x42F breathing / 0x430 worm emerge go through em_sfx and are
  * silent until the user's sfx.txt maps them).
  *
- * MANIFEST SHIM (flagged): em_game.c owns scene.txt parsing but its
- * enemy-kind table only knows crawler/crate, and this change owns only
- * em_enemy.* — so on the FIRST update tick this module re-scans
- * assets/scene/scene.txt for `enemy generator x y z yaw [kind k]
- * [link n]` lines (defaults kind 1, link 2 — port defaults; engine
- * placements always carry explicit values) and places them itself.
- * Scenes without generator lines are untouched (the scan finds
- * nothing, no output), keeping the default capture byte-identical.
+ * Manifest placement: em_game.c's scene_manifest_load parses the
+ * `enemy generator x y z yaw [kind k] [link n]` lines (defaults
+ * kind 1, link 2 for bare lines — port defaults; engine placements
+ * always carry explicit values) and dispatches each to
+ * em_enemy_add_generator at scene-load time, like every other enemy
+ * kind.
  *
- * EM_ENEMY_TEST=4 (generator run — owned here, em_game.c ignores
- * values outside 1..3): frame 0 places a kind-2 generator 14 u ahead
- * of the idle player (inside the 25-u box), FORCES mode 2 (the link-2
+ * EM_ENEMY_TEST=4 (generator run — owned here; em_game.c only arms
+ * values 1..3 and skips manifest generator lines while this test is
+ * on, so the run is self-contained): frame 0 places a kind-2
+ * generator 14 u ahead of the idle player (inside the 25-u box),
+ * FORCES mode 2 (the link-2
  * table draw is RNG; the test pins the interesting outcome) and
  * divides the spawn delays by 60 (test acceleration — 30/60/90 s is
  * the shipped pacing). The script then asserts: no worm before the
@@ -172,8 +172,8 @@
 #include <string.h>
 
 #include "em_model.h"
-#include "game/em_frame.h"   /* em_frame_gfx (manifest shim + test 4),
-                              * em_frame_request_quit (test 4)         */
+#include "game/em_frame.h"   /* em_frame_gfx + em_frame_request_quit
+                              * (the EM_ENEMY_TEST=4 harness)          */
 #include "game/em_sfx.h"
 
 #define ENEMY_ASSET      "assets/enemy_crawler.emdl"
@@ -460,10 +460,10 @@ static struct {
     Gen        gen[EM_GENERATOR_MAX];
     int        gen_n;
     uint8_t    gen_cursor[2];/* D_008106EC/ED — global per-link column   */
-    int        gen_scanned;  /* manifest shim ran (first update tick)    */
 
     /* EM_ENEMY_TEST=4 harness (file header; -1 = off) */
     int        gt_on;
+    int        gt_armed;     /* test pad placed (first update tick)      */
     int        gt_fail;      /* failed checkpoints                       */
     int        gt_gen;       /* generator index                          */
     int        gt_last_n;    /* s.n watermark for worm-spawn detection   */
@@ -1410,30 +1410,6 @@ static void gen_tick(Gen *g, const float pp[3])
     gen_build_palette(g);
 }
 
-/* MANIFEST SHIM (file header): `enemy generator x y z yaw [kind k]
- * [link n]` lines, scanned once from the same manifest em_game.c
- * parses ("assets/scene/scene.txt" — its SCENE_MANIFEST constant,
- * mirrored here because this change owns only em_enemy.*). */
-static void gen_manifest_scan(void)
-{
-    FILE *f = fopen("assets/scene/scene.txt", "r");
-    if (!f) return;
-    char line[512];
-    while (fgets(line, sizeof line, f)) {
-        if (line[0] == '#') continue;
-        float x, y, z, yaw;
-        int   k = 1, l = 2;   /* PORT defaults for bare lines (flagged:
-                               * engine placements always carry both) */
-        int   n = sscanf(line, "enemy generator %f %f %f %f kind %d "
-                         "link %d", &x, &y, &z, &yaw, &k, &l);
-        if (n < 4) continue;
-        float p[3] = { x, y, z };
-        if (em_enemy_add_generator(em_frame_gfx(), p, yaw, k, l) < 0)
-            printf("manifest(shim): generator line failed: %s", line);
-    }
-    fclose(f);
-}
-
 /* --- EM_ENEMY_TEST=4 harness (file header) ------------------------- */
 
 static void gt_check(int cond, const char *what)
@@ -1711,38 +1687,33 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 void em_enemy_update(const EmCollision *coll, const float player_pos[3])
 {
     if (!player_pos) return;
-    /* First tick: generator placement — the manifest shim, or the
-     * EM_ENEMY_TEST=4 arm (which replaces the scan so the run is
-     * self-contained; see the file header). Scenes without generator
-     * lines spawn nothing here — default output is untouched. */
-    if (!s.gen_scanned) {
-        s.gen_scanned = 1;
-        if (s.gt_on) {
-            /* kind-2 pad (25-u box) 14 u ahead of the idle player:
-             * the player stands inside the box without moving; worms
-             * emerge a safe steer-and-hop away. Mode is PINNED to 2
-             * after the add's RNG table draw (deterministic anyway,
-             * but the table also holds 0/1 outcomes). */
-            float gp[3] = { player_pos[0], player_pos[1],
-                            player_pos[2] + 14.0f };
-            s.gt_gen = em_enemy_add_generator(em_frame_gfx(), gp,
-                                              0.0f, 2, 2);
-            if (s.gt_gen >= 0) {
-                Gen *g = &s.gen[s.gt_gen];
-                g->mode    = 2;
-                g->sub     = 0;
-                g->timer   = 0.0f;
-                g->spawned = 0;
-                printf("generator test: pad %d at (%.1f, %.1f, %.1f), "
-                       "FORCED mode 2, delays /%g\n", s.gt_gen,
-                       gp[0], gp[1], gp[2], s.gt_delay_div);
-            } else {
-                gt_check(0, "generator spawn at arm time");
-            }
-            s.gt_last_n = s.n;
+    /* EM_ENEMY_TEST=4 arm — first update tick (needs player_pos; see
+     * the file header). Manifest generators are placed at scene-load
+     * time by em_game.c's parser, not here. */
+    if (s.gt_on && !s.gt_armed) {
+        s.gt_armed = 1;
+        /* kind-2 pad (25-u box) 14 u ahead of the idle player:
+         * the player stands inside the box without moving; worms
+         * emerge a safe steer-and-hop away. Mode is PINNED to 2
+         * after the add's RNG table draw (deterministic anyway,
+         * but the table also holds 0/1 outcomes). */
+        float gp[3] = { player_pos[0], player_pos[1],
+                        player_pos[2] + 14.0f };
+        s.gt_gen = em_enemy_add_generator(em_frame_gfx(), gp,
+                                          0.0f, 2, 2);
+        if (s.gt_gen >= 0) {
+            Gen *g = &s.gen[s.gt_gen];
+            g->mode    = 2;
+            g->sub     = 0;
+            g->timer   = 0.0f;
+            g->spawned = 0;
+            printf("generator test: pad %d at (%.1f, %.1f, %.1f), "
+                   "FORCED mode 2, delays /%g\n", s.gt_gen,
+                   gp[0], gp[1], gp[2], s.gt_delay_div);
         } else {
-            gen_manifest_scan();
+            gt_check(0, "generator spawn at arm time");
         }
+        s.gt_last_n = s.n;
     }
     /* EM_ENEMY_GIBDEMO debug hook: lethal mailbox to enemy 0 at the
      * requested tick (see the file header). */

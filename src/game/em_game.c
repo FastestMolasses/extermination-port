@@ -415,6 +415,10 @@ static struct {
     int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
                                   * run, 2 = let-it-reach-the-player run,
                                   * 3 = walk-at-the-crate burst run */
+    int         enemy_test4;     /* EM_ENEMY_TEST=4 armed (the generator
+                                  * run, owned by em_enemy.c) — the
+                                  * manifest parser skips generator lines
+                                  * so the run stays self-contained */
     int         sfx_test;        /* EM_SFX_TEST=1 — one-shot mixer test */
     int         et_spawned;      /* test enemy placed at scene init */
     int         et_fail;         /* failed checkpoints */
@@ -452,7 +456,18 @@ static struct {
  *                             "CRATE KIND"): idles as the office crate
  *                             mesh, bursts into gibs + a crawler on a
  *                             bullet hit or ~10-u player proximity.
- *                             Other kinds are reported and skipped.
+ *   enemy generator <x> <y> <z> <yaw> [kind <k>] [link <n>]
+ *                             one GENERATOR pad (engine class 0x0D /
+ *                             func_0015A2C0 — em_enemy.h "GENERATOR");
+ *                             kind/link are the decoded placement
+ *                             fields (bare lines default to kind 1 /
+ *                             link 2 — port defaults; engine placements
+ *                             always carry both). EM_ENEMY_TEST=4 arms
+ *                             its own pad inside em_enemy.c and skips
+ *                             these lines so the run stays
+ *                             self-contained.
+ *                             Other enemy kinds are reported and
+ *                             skipped.
  *
  * A missing file or missing key leaves the office defaults in place, so
  * the default scene needs no manifest to keep its exact behavior. */
@@ -471,6 +486,7 @@ static void scene_manifest_load(void)
 
     char line[512], name[256];
     float x, y, z, yaw, r;
+    int gn, gk, gl;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
         if (sscanf(line, "spawn %f %f %f %f", &x, &y, &z, &yaw) == 4) {
@@ -490,6 +506,22 @@ static void scene_manifest_load(void)
             float p[3] = { x, y, z };
             if (em_door_add(em_frame_gfx(), SCENE_DIR, name, p, yaw, r))
                 printf("manifest: door line failed to load: %s", line);
+        } else if ((gn = sscanf(line, "enemy generator %f %f %f %f "
+                                "kind %d link %d",
+                                &x, &y, &z, &yaw, &gk, &gl)) >= 4) {
+            /* Generator pad (em_enemy.c). This match must precede the
+             * generic enemy match below, which would otherwise eat the
+             * line as kind "generator". */
+            if (gn < 5) gk = 1;  /* bare-line port defaults (engine
+                                  * placements always carry both) */
+            if (gn < 6) gl = 2;
+            if (!g.enemy_test4) {
+                float p[3] = { x, y, z };
+                if (em_enemy_add_generator(em_frame_gfx(), p, yaw,
+                                           gk, gl) < 0)
+                    printf("manifest: generator line failed to load: %s",
+                           line);
+            }
         } else if (sscanf(line, "enemy %255s %f %f %f %f", name,
                           &x, &y, &z, &yaw) == 5) {
             /* Placed enemy instance (em_enemy.c). */
@@ -2269,6 +2301,7 @@ void em_game_install(void)
     const char *et = getenv("EM_ENEMY_TEST");
     if (et && et[0] >= '1' && et[0] <= '3')
         g.enemy_test = et[0] - '0';
+    g.enemy_test4 = et && et[0] == '4' && et[1] == '\0';
     const char *st = getenv("EM_SFX_TEST");
     g.sfx_test     = st && st[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */

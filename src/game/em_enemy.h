@@ -169,16 +169,16 @@
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
  * <yaw>` / `enemy crate <x> <y> <z> <yaw>` lines (parsed by em_game.c
  * next to the door lines), plus `enemy generator <x> <y> <z> <yaw>
- * [kind <k>] [link <n>]` lines — em_game.c's parser does not know the
- * generator kind yet (this change owns only em_enemy.*), so em_enemy.c
- * scans the same manifest for those lines on its first update tick
- * (integration shim, flagged; em_game.c prints a cosmetic "unknown
- * enemy kind, skipped" for each until its parser learns the word).
+ * [kind <k>] [link <n>]` lines — all parsed natively by em_game.c's
+ * scene_manifest_load and dispatched here (em_enemy_add_kind /
+ * em_enemy_add_generator) at scene-load time.
  * No enemy lines = this module never loads, updates or draws anything,
  * keeping default-run frame output byte-identical.
  *
  * EM_ENEMY_TEST=4 (generator run) is owned by this module (em_game.c
- * only handles 1..3): spawns one forced-mode-2 generator 14 u ahead of
+ * only arms 1..3, and skips manifest generator lines while this test is
+ * on so the run stays self-contained): spawns one forced-mode-2
+ * generator 14 u ahead of
  * the idle player (inside the kind-2 box), with the 1800/3600/5400
  * delays divided by 60 (test-only acceleration, flagged); asserts the
  * 121-frame charge, worm-at-origin spawns, a mailbox kill mid-stream,
@@ -231,9 +231,12 @@ int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw);
 int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
 
 /* Place one GENERATOR pad (engine class 0x0D / func_0015A2C0 — see
- * "GENERATOR" above). `cfg` = the engine kind 0..6 (the D_00248120
- * footprint row); `link` = the placement link 0/1/2 (0 = inert pad,
- * 1/2 = draw the runtime mode from the decoded count table at init).
+ * "GENERATOR" above; em_game.c's manifest parser dispatches
+ * `enemy generator x y z yaw [kind k] [link n]` lines here, defaults
+ * kind 1 / link 2 for bare lines). `cfg` = the engine kind 0..6 (the
+ * D_00248120 footprint row); `link` = the placement link 0/1/2 (0 =
+ * inert pad, 1/2 = draw the runtime mode from the decoded count table
+ * at init).
  * Generators occupy their own pool (EM_GENERATOR_MAX), NOT crawler
  * slots; the worms a mode-2 pad emits go through the normal crawler
  * spawn path and DO consume slots. Returns the generator index or -1. */
