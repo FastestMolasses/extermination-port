@@ -112,6 +112,7 @@
 #include "em_model.h"
 #include "game/em_bgm.h"
 #include "game/em_collision.h"
+#include "game/em_door.h"
 #include "game/em_frame.h"
 #include "game/em_task.h"
 
@@ -311,7 +312,7 @@ static struct {
     float      viewproj[16];
 
     /* render chain (this frame's recorded draws) */
-    ChainDraw  chain[SCENE_MAX + 1];
+    ChainDraw  chain[SCENE_MAX + 1 + EM_DOOR_MAX];
     int        chain_len;
     int        chain_test_triangle;
 
@@ -326,13 +327,17 @@ static struct {
     char        coll_path[288];  /* "collision <file.emcl>" in SCENE_DIR */
     char        bgm_file[256];   /* "bgm <file.wav>" in SCENE_DIR; "" = none */
 
-    /* EM_CAPTURE / EM_MOVE_TEST debug instrumentation */
+    /* EM_CAPTURE / EM_MOVE_TEST / EM_DOOR_TEST debug instrumentation */
     const char *capture_path;
     int         capture_frame;
     int         move_test;
     int         move_legs[2];    /* EM_MOVE_LEGS=fwd,strafe frame counts */
     int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
     float       move_expect[3];
+    int         door_test;       /* EM_DOOR_TEST=1 — door interaction test */
+    int         dt_door;         /* test door index (the west doorway) */
+    int         dt_ok_trigger;   /* X press put the door in OPENING */
+    float       dt_min_x;        /* min player x while the door not OPEN */
 } g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
@@ -344,6 +349,11 @@ static struct {
  *   collision <file.emcl>     collision world filename inside the scene dir
  *   bgm <file.wav>            optional looping level-music cue WAV (scene
  *                             dir); the EM_BGM env override still wins
+ *   door <file> <x> <y> <z> <yaw> <r>
+ *                             one INTERACTIVE DOOR instance (file under
+ *                             the scene dir, e.g. doors/door_m03.emdl;
+ *                             r = use-scan trigger radius) — written by
+ *                             export_props.py --doors, owned by em_door.c
  *
  * A missing file or missing key leaves the office defaults in place, so
  * the default scene needs no manifest to keep its exact behavior. */
@@ -361,7 +371,7 @@ static void scene_manifest_load(void)
     if (!f) return;
 
     char line[512], name[256];
-    float x, y, z, yaw;
+    float x, y, z, yaw, r;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
         if (sscanf(line, "spawn %f %f %f %f", &x, &y, &z, &yaw) == 4) {
@@ -374,13 +384,20 @@ static void scene_manifest_load(void)
                      name);
         } else if (sscanf(line, "bgm %255s", name) == 1) {
             snprintf(g.bgm_file, sizeof g.bgm_file, "%s", name);
+        } else if (sscanf(line, "door %255s %f %f %f %f %f", name,
+                          &x, &y, &z, &yaw, &r) == 6) {
+            /* Interactive door instance (em_door.c). The manifest is
+             * parsed inside the boot task, so the gfx device exists. */
+            float p[3] = { x, y, z };
+            if (em_door_add(em_frame_gfx(), SCENE_DIR, name, p, yaw, r))
+                printf("manifest: door line failed to load: %s", line);
         }
     }
     fclose(f);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
-           "collision %s%s%s\n", SCENE_MANIFEST,
+           "collision %s%s%s, %d door(s)\n", SCENE_MANIFEST,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
-           g.bgm_file[0] ? ", bgm " : "", g.bgm_file);
+           g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count());
 }
 
 static int cmp_str(const void *a, const void *b)
@@ -505,7 +522,7 @@ static void palette_apply_placement(float *pal, uint32_t bone_count,
  * Walkable crossings are stepped past and the probe re-runs for anything
  * solid beyond them. Returns 1 with *hit staged on the first wall-class
  * hit, else 0. */
-static int move_probe_wall(const float target[3], EmCollHit *hit)
+static int move_probe_wall_static(const float target[3], EmCollHit *hit)
 {
     const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID;
     float from[3] = { g.pos[0], g.pos[1], g.pos[2] };
@@ -526,6 +543,36 @@ static int move_probe_wall(const float target[3], EmCollHit *hit)
         from[2] = hit->point[2] + dz / len * 1e-3f;
     }
     return 0;
+}
+
+/* The full wall probe: static sets (above) + the MOVABLE-HULL set (mask
+ * bit 0) — natively the interactive doors (em_door_probe; a closed or
+ * moving door blocks, a fully open one does not). Nearest hit wins,
+ * mirroring the engine hub's per-set segment clamping. With no doors the
+ * static path is bit-for-bit the old behavior. */
+static int move_probe_wall(const float target[3], EmCollHit *hit)
+{
+    int sres = move_probe_wall_static(target, hit);
+    if (!em_door_count())
+        return sres;
+
+    EmCollHit dhit;
+    const float from[3] = { g.pos[0], g.pos[1], g.pos[2] };
+    if (!em_door_probe(from, target, &dhit))
+        return sres;
+    if (sres) {
+        float sd2 = 0.0f, dd2 = 0.0f;
+        for (int k = 0; k < 3; k++) {
+            float ds = hit->point[k] - from[k];
+            float dd = dhit.point[k] - from[k];
+            sd2 += ds * ds;
+            dd2 += dd * dd;
+        }
+        if (sd2 <= dd2)
+            return 1;          /* the static wall is nearer */
+    }
+    *hit = dhit;
+    return 1;
 }
 
 static void player_move_collide(float mx, float mz)
@@ -600,6 +647,34 @@ static void player_move_collide(float mx, float mz)
  * old room-bbox clamp keeps the repo runnable standalone. */
 static void player_move(void)
 {
+    /* DOOR TRANSIT (the engine's gameplay-frame selector 3, spad
+     * 0x70003B8D, armed by the use scan): a scripted MOVE-TO carries
+     * the player to the door's far-side point with yaw snapped to the
+     * door normal (func_001BBE40 -> func_00182F90). Runs collision-free
+     * — the doorways are statically sealed by the grid room-boundary
+     * planes, and this scripted move is exactly how the engine crosses
+     * them. Stick input is ignored while it runs (the selector-3 frame
+     * variant does not run the free-move spine). */
+    {
+        float tt[3], tyaw;
+        if (em_door_transit_active(tt, &tyaw)) {
+            float dx   = tt[0] - g.pos[0];
+            float dz   = tt[2] - g.pos[2];
+            float len  = sqrtf(dx * dx + dz * dz);
+            float step = WALK_SPEED * FRAME_DT;
+            g.move_speed = WALK_SPEED;     /* drive the walk clip */
+            g.yaw        = tyaw;
+            if (len <= step || len < 1e-6f) {
+                g.pos[0] = tt[0];
+                g.pos[2] = tt[2];
+            } else {
+                g.pos[0] += dx / len * step;
+                g.pos[2] += dz / len * step;
+            }
+            return;
+        }
+    }
+
     const EmFrameInput *in = em_frame_input();
     float sx  = stick_axis(in->lx);
     float sy  = stick_axis(in->ly);
@@ -706,6 +781,14 @@ static void render_chain_build(void)
         g.chain[g.chain_len++] = (ChainDraw){ g.scene[i].mesh,
                                               g.scene[i].palette,
                                               g.scene[i].model.bone_count };
+    }
+    /* Interactive doors (actor draws — func_001BC300's publish). The
+     * chain records palette POINTERS; em_door_update (the world-services
+     * slot, after this build) writes this frame's pose into them before
+     * the close-out flush. */
+    for (int i = 0; i < em_door_count(); i++) {
+        ChainDraw *cd = &g.chain[g.chain_len++];
+        em_door_draw(i, &cd->mesh, &cd->palette, &cd->bone_count);
     }
     if (g.mesh) {
         g.chain[g.chain_len++] = (ChainDraw){ g.mesh, g.player_palette,
@@ -1025,17 +1108,106 @@ static void move_test_script(void)
     }
 }
 
+/* EM_DOOR_TEST=1 — deterministic door-interaction self-test (the first
+ * interactive object). Spawns the player on the z = -225 corridor line
+ * facing the WEST double door at (57, 0, -220.5) (placement-table record
+ * [5], AREA02 state 1) and exercises the s17 contract end to end through
+ * the real input API:
+ *
+ *   frames  1..24   walk -X to x ~= 66 (inside the 12 u use-scan radius,
+ *                   outside the 2 u auto-open ring; no button — the door
+ *                   must stay CLOSED)
+ *   frames 29..58   keep walking -X. The doorway is statically SEALED by
+ *                   the grid room-boundary plane at x = 60 (the engine's
+ *                   sealed-room-box world): free movement must BLOCK at
+ *                   x ~= 60.01 (tracked as dt_min_x while CLOSED) — the
+ *                   "previously blocked plane".
+ *   frame   60      CROSS press -> the use scan arms the door (dist 5.4,
+ *                   facing-dot 0.56); assert state == OPENING soon after.
+ *                   The kickoff's MOVE-TO then walks the player through
+ *                   the doorway to the far-side point (52, 0, -220.5),
+ *                   crossing the boundary plane + the x = 57 door plane
+ *                   exactly like func_001BBE40's scripted transit.
+ *   frame  150      assert: trigger OK, blocked min x >= 59.9 while
+ *                   closed, final x <= 53 (through the doorway), door
+ *                   reached OPEN.
+ *
+ * (Geometry verified against the office EMCL: corridor floor along the
+ * whole approach, boundary wall at x = 60, no other static blocker.) */
+static void door_test_script(void)
+{
+    int n = g.frame_no;
+    if (n == 0) {
+        g.dt_door       = -1;
+        g.dt_min_x      = 1e9f;
+        g.dt_ok_trigger = 0;
+        move_test_inject('w', 1);
+    } else if (n == 24) {
+        move_test_inject('w', 0);
+        /* the test door = nearest instance to the west doorway */
+        float best = 1e30f;
+        for (int i = 0; i < em_door_count(); i++) {
+            float p[3];
+            em_door_pos(i, p);
+            float dx = p[0] - 57.0f, dz = p[2] + 220.5f;
+            float d2 = dx * dx + dz * dz;
+            if (d2 < best) { best = d2; g.dt_door = i; }
+        }
+    } else if (n == 28) {
+        move_test_inject('w', 1);   /* push into the sealed doorway */
+    } else if (n == 58) {
+        move_test_inject('w', 0);   /* ~6 frames pinned on the boundary */
+    } else if (n == 60) {
+        move_test_inject('k', 1);   /* CROSS — the use-scan trigger */
+    } else if (n == 61) {
+        move_test_inject('k', 0);
+    } else if (n == 64) {
+        g.dt_ok_trigger = g.dt_door >= 0 &&
+                          em_door_state(g.dt_door) == EM_DOOR_OPENING;
+    } else if (n == 150) {
+        int ok_open  = g.dt_door >= 0 &&
+                       em_door_state(g.dt_door) == EM_DOOR_OPEN;
+        int ok_block = g.dt_min_x >= 59.9f && g.dt_min_x < 61.0f;
+        int ok_pass  = g.pos[0] <= 53.0f &&
+                       fabsf(g.pos[2] + 220.5f) <= 0.6f;
+        int ok = g.dt_ok_trigger && ok_open && ok_block && ok_pass;
+        printf("door test: trigger->OPENING %s, blocked min x %.3f while "
+               "closed (boundary 60.0: %s), final pos (%.3f, %.3f, %.3f) "
+               "through the doorway: %s, door state %d (OPEN %d): %s — "
+               "%s\n",
+               g.dt_ok_trigger ? "ok" : "FAILED", g.dt_min_x,
+               ok_block ? "ok" : "FAILED",
+               g.pos[0], g.pos[1], g.pos[2], ok_pass ? "ok" : "FAILED",
+               g.dt_door >= 0 ? em_door_state(g.dt_door) : -1,
+               EM_DOOR_OPEN, ok_open ? "ok" : "FAILED",
+               ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+    /* Track how far -X free movement reaches while the door is CLOSED
+     * (the boundary plane must hold the player at ~60.01). */
+    if (n > 0 && n <= 60 && g.dt_door >= 0 &&
+        em_door_state(g.dt_door) == EM_DOOR_CLOSED &&
+        g.pos[0] < g.dt_min_x)
+        g.dt_min_x = g.pos[0];
+}
+
 /* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
 static void gameplay_frame(void)
 {
     if (g.move_test) move_test_script();  /* debug instrumentation only */
+    if (g.door_test) door_test_script();  /* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
     render_chain_build();    /* func_001D1C50 — render chain build    */
     render_env_init();       /* func_001C1D00(0x008101D0)             */
-    /* func_001AFD70(0) / func_0015C160 / func_001F0360 — world
-     * services: not yet translated. */
+    /* func_001AFD70(0) — the actor-pool tick (world services). The
+     * port's first pooled actors are the DOORS: per-frame behavior
+     * (func_001BC350 state machine), the player use scan
+     * (func_00184BA0) and articulation live in em_door_update.
+     * func_0015C160 / func_001F0360 — still untranslated. */
+    em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
     camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
                               * func_0018B9C0 camera state machine    */
     frame_close_out();       /* func_001CB5A0/001AAD00/001D1EA0(1)    */
@@ -1079,6 +1251,15 @@ static void ingame_frame_machine(EmTask *self)
             g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
             g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
             g.yaw    = g.n_scene ? g.spawn_yaw : 0.0f;
+            if (g.door_test) {
+                /* EM_DOOR_TEST spawn: the z = -225 corridor line in
+                 * front of the west double door, facing -X (see
+                 * door_test_script). */
+                g.pos[0] = 72.0f;
+                g.pos[1] = 0.0f;
+                g.pos[2] = -225.0f;
+                g.yaw    = -EM_PI * 0.5f;
+            }
             memset(&g.cam, 0, sizeof g.cam);
             g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
             self->user[GAME_BYTE_FRAME] = 1;
@@ -1177,7 +1358,8 @@ static void game_boot_task(void)
     }
 
     /* Optional scene (level parts, world-space) + its manifest (spawn /
-     * collision filename / bgm — office defaults when absent). */
+     * collision filename / bgm / doors — office defaults when absent). */
+    em_door_reset();
     scene_manifest_load();
     g.n_scene = scene_load(gfx, g.scene, SCENE_MAX);
 
@@ -1239,6 +1421,8 @@ void em_game_install(void)
     if (me && sscanf(me, "%f,%f,%f", &g.move_expect[0], &g.move_expect[1],
                      &g.move_expect[2]) == 3)
         g.move_expect_set = 1;
+    const char *dt = getenv("EM_DOOR_TEST");
+    g.door_test    = dt && dt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
@@ -1256,6 +1440,7 @@ void em_game_shutdown(void)
         free(g.scene[i].palette);
     }
     g.n_scene = 0;
+    em_door_shutdown(gfx);
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
 }
