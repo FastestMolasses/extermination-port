@@ -79,12 +79,35 @@
  *    background-tile/legend anchors are flagged ASSUMED in the
  *    exporter; sheet-only records (no statically known position) are
  *    skipped. Page INTERIORS (item lists, map cursor, weapon
- *    customization, database records) are NOT modeled: every page view
- *    carries an amber "CONTENT TBD" strip, and a missing page asset
- *    falls back to a flagged placeholder panel. The engine's passcode
- *    keypad pages 4/5 (chunks 0x25/0x26, entered only via the external
- *    request byte D_008106C5, never from the diamond) are not
- *    reachable in the port either.
+ *    customization, database records) are mostly NOT modeled: every
+ *    page view carries an amber flag strip ("CONTENT TBD", or
+ *    "PARTIAL: AMMO/BATTERY ONLY" on the ITEM page when its basic
+ *    interior renders), and a missing page asset falls back to a
+ *    flagged placeholder panel. The engine's passcode keypad pages 4/5
+ *    (chunks 0x25/0x26, entered only via the external request byte
+ *    D_008106C5, never from the diamond) are not reachable in the
+ *    port either.
+ *  - MESSAGE-BANK TEXT renders when assets/messages.emsg is present
+ *    (decomp repo tools/export_ui.py --messages, run by the user
+ *    against their own extract/chunk00; the engine's group/line text
+ *    bank, FINDINGS.md "STATUS SUB-PAGES" -> "The message bank"):
+ *      - the hub HELP PANEL shows the engine's real help line
+ *        (func_0020CDC0 selection): the hovered page's name (group-0
+ *        lines 0/9/2/1 for hover down/right/up/left) or, idle, the
+ *        infection-graded diary line (100−infection thresholds
+ *        0x51/0x33/0x1F/0xB; infection 0 = no line, 100 = "Dennis
+ *        Infected"), tall font at the engine's (138,336) anchor,
+ *        24 px '\n' steps;
+ *      - the ITEM page renders a basic real interior: the engine's
+ *        category labels (bank group 1 — BATTERY/EQUIPMENT/EVENT/
+ *        HEALING ITEMS + MAIN MENU; row layout ASSUMED) plus the only
+ *        item counts the port models: the carried battery pack (bank
+ *        catalog name by capacity, charge from EmPlayerStatus) and
+ *        "SPR4 MAGAZINE" x reserve/30 (PORT LABEL, derived count —
+ *        the engine's per-type inventory array D_00810C64 is not
+ *        translated yet; everything else stays flagged).
+ *    Missing bank (or font) => none of this queues — frames identical
+ *    to the pre-bank build.
  *  - Not yet composed: the page-tab strips, the spinning cyan double
  *    ring + sparkle emitter (animated; cadence unverified), page
  *    sub-screen interiors (see above), the rotating player model.

@@ -19,7 +19,10 @@
  *              were port inventions and are gone).
  *   (296,260)  INFECTION — text only on the real screen (there is no
  *              bar); placeholder blocks until a font renderer lands.
- *   (128,336)  help panel — translucent gray rect to (384,432), exact.
+ *   (128,336)  help panel — translucent gray rect to (384,432), exact;
+ *              with assets/messages.emsg + the font it carries the REAL
+ *              engine help line (hovered page name / infection diary,
+ *              message bank group 0 — see hub_help_line).
  *
  * DECOR renders through the REAL game textures when assets/ui.emui is
  * present (see the "UI decor sheet" block below): the "MAIN" title art
@@ -31,7 +34,9 @@
  * hover among the pager diamonds (green hovered marker), X enters the
  * hovered page (ITEM/MAP/SPR4/DATABASE via the engine's remap), the
  * page view draws its exported ui_pageN.emui background textures plus
- * an amber CONTENT TBD strip, Circle/Triangle exits back to the hub.
+ * an amber flag strip, Circle/Triangle exits back to the hub. The ITEM
+ * page additionally renders a basic real interior (bank category
+ * labels + the two modeled item counts — see page_render).
  *
  * TEXT renders through the REAL game fonts when assets/font.emfn is
  * present (see the "UI font" block below): every label/number ("HEALTH",
@@ -265,6 +270,108 @@ int em_hud_font_ready(void)
 {
     font_parse();
     return s_font.state == 1;
+}
+
+/* --- message bank (assets/messages.emsg) ------------------------------
+ *
+ * The status screen's text lines (hub help, ITEM categories, SPR4
+ * components, prompts, map names, item names/descriptions) come from
+ * ONE engine bank file: boot chunk asset slot 2 (runtime pointer
+ * D_0028A498), resolved by group + line (func_001FCB90 ->
+ * func_001FE070; FINDINGS.md "STATUS SUB-PAGES" -> "The message
+ * bank"). The decomp repo's tools/export_ui.py --messages flattens the
+ * user's own extract/chunk00/f02_id02.bin into this simple form.
+ *
+ * .emsg v1 layout (little-endian; must match export_ui.py):
+ *   0   "EMSG"            12  u32 line_count (total)
+ *   4   u32 version (= 1) 16  u32 blob_size
+ *   8   u32 group_count
+ *   then group_count * { u32 first (line-table index), u32 count }
+ *   then line_count * u32 blob offsets
+ *   then blob_size bytes of NUL-terminated strings ('\n' = in-entry
+ *   line break)
+ *
+ * Missing/invalid asset => every bank-driven draw (hub help text, the
+ * ITEM page interior) queues nothing — no regression. */
+static struct {
+    int       state;        /* 0 = untried, 1 = parsed, -1 = unavailable */
+    uint32_t  group_count, line_count, blob_size;
+    uint32_t *groups;       /* 2 u32 per group: first, count */
+    uint32_t *offsets;      /* line index -> blob offset */
+    char     *blob;
+} s_msg;
+
+static void msg_parse(void)
+{
+    if (s_msg.state) return;
+    s_msg.state = -1;                        /* sticky failure default */
+    FILE *f = fopen("assets/messages.emsg", "rb");
+    if (!f) return;                          /* missing = no bank text */
+    uint8_t hdr[20];
+    if (fread(hdr, 1, 20, f) != 20 || memcmp(hdr, "EMSG", 4) != 0 ||
+        font_u32(hdr + 4) != 1) {
+        fprintf(stderr, "hud: assets/messages.emsg: bad header\n");
+        fclose(f);
+        return;
+    }
+    s_msg.group_count = font_u32(hdr + 8);
+    s_msg.line_count  = font_u32(hdr + 12);
+    s_msg.blob_size   = font_u32(hdr + 16);
+    if (!s_msg.group_count || !s_msg.line_count || !s_msg.blob_size ||
+        s_msg.group_count > 64 || s_msg.line_count > 4096 ||
+        s_msg.blob_size > (1u << 20)) {
+        fprintf(stderr, "hud: assets/messages.emsg: implausible sizes\n");
+        fclose(f);
+        return;
+    }
+    size_t gb = (size_t)s_msg.group_count * 8;
+    size_t lb = (size_t)s_msg.line_count * 4;
+    uint8_t *raw = (uint8_t *)malloc(gb + lb);
+    s_msg.groups  = (uint32_t *)calloc(s_msg.group_count, 8);
+    s_msg.offsets = (uint32_t *)calloc(s_msg.line_count, 4);
+    s_msg.blob    = (char *)malloc(s_msg.blob_size);
+    int ok = raw && s_msg.groups && s_msg.offsets && s_msg.blob &&
+             fread(raw, 1, gb + lb, f) == gb + lb &&
+             fread(s_msg.blob, 1, s_msg.blob_size, f) == s_msg.blob_size &&
+             s_msg.blob[s_msg.blob_size - 1] == '\0';
+    fclose(f);
+    if (ok) {
+        for (uint32_t g = 0; g < s_msg.group_count; g++) {
+            s_msg.groups[g * 2]     = font_u32(raw + (size_t)g * 8);
+            s_msg.groups[g * 2 + 1] = font_u32(raw + (size_t)g * 8 + 4);
+            if (s_msg.groups[g * 2] + s_msg.groups[g * 2 + 1] >
+                s_msg.line_count)
+                ok = 0;
+        }
+        for (uint32_t i = 0; i < s_msg.line_count; i++) {
+            s_msg.offsets[i] = font_u32(raw + gb + (size_t)i * 4);
+            if (s_msg.offsets[i] >= s_msg.blob_size) ok = 0;
+        }
+    }
+    free(raw);
+    if (ok) {
+        s_msg.state = 1;
+        fprintf(stderr, "hud: message bank: %u groups, %u lines\n",
+                s_msg.group_count, s_msg.line_count);
+    } else {
+        if (raw)
+            fprintf(stderr,
+                    "hud: assets/messages.emsg: truncated/inconsistent\n");
+        free(s_msg.groups);  s_msg.groups  = NULL;
+        free(s_msg.offsets); s_msg.offsets = NULL;
+        free(s_msg.blob);    s_msg.blob    = NULL;
+    }
+}
+
+/* Bank line `line` of `group` (the engine's func_001FCB90 indexing), or
+ * NULL when out of range / the asset is missing. Strings may carry '\n'
+ * in-entry line breaks (draw with msg_text). */
+static const char *msg_line(uint32_t group, uint32_t line)
+{
+    msg_parse();
+    if (s_msg.state != 1 || group >= s_msg.group_count) return NULL;
+    if (line >= s_msg.groups[group * 2 + 1]) return NULL;
+    return s_msg.blob + s_msg.offsets[s_msg.groups[group * 2] + line];
 }
 
 /* --- UI decor sheet (assets/ui.emui) ----------------------------------
@@ -505,6 +612,27 @@ float em_hud_text_width(const char *str, EmHudTextStyle style)
     return w;
 }
 
+/* Multi-line bank text: draw `str` at (x, y), starting a new line at
+ * each '\n'. Line advance 24 px = the engine's func_001FE070 newline
+ * step ((D_00264CD8 20 + D_00264CE0 4) / 2 field lines = 24 canvas
+ * px). No-op without the font, like em_hud_text. */
+static void msg_text(EmGfx *gfx, float x, float y, const char *str,
+                     EmHudTextStyle style)
+{
+    char seg[96];
+    if (!str) return;
+    while (*str) {
+        size_t n = 0;
+        while (str[n] && str[n] != '\n') n++;
+        size_t c = n < sizeof seg - 1 ? n : sizeof seg - 1;
+        memcpy(seg, str, c);
+        seg[c] = '\0';
+        if (c) em_hud_text(gfx, x, y, seg, style);
+        y   += 24.0f;
+        str += n + (str[n] == '\n');
+    }
+}
+
 /* Placeholder block for an unrenderable text run: `glyphs` cells of
  * `cell_w` x `cell_h` at (x, y), in the real style color at low alpha —
  * marks the position/extent without pretending to be text. */
@@ -563,6 +691,28 @@ static const int kHoverToPage[5] = { -1, 3, 2, 1, 0 };
 static const char *kPageNames[4] = {
     "ITEM SCREEN", "MAP SCREEN", "SPR4 SCREEN", "DATABASE SCREEN"
 };
+
+/* Hub help line — the engine's selection in func_0020CDC0: a hover
+ * shows the hovered page's name (group-0 lines: 1 down -> 0 DATABASE
+ * SCREEN, 2 right -> 9 SPR4 SCREEN, 3 up -> 2 MAP SCREEN, 4 left -> 1
+ * ITEM SCREEN); idle shows the infection-graded diary line keyed on
+ * v = 100 - (int)displayed-infection (.L0020D1AC thresholds): v == 100
+ * -> NO line (D_002821B4 = 0), v >= 0x51 -> 4, >= 0x33 -> 5, >= 0x1F
+ * -> 6, >= 0xB -> 7, > 0 -> 8, else (infection 100) -> 3 "Dennis
+ * Infected". Returns the group-0 line id, or -1 = no help text. */
+static int hub_help_line(float inf_disp)
+{
+    static const int kHoverLine[5] = { -1, 0, 9, 2, 1 };
+    if (s_hover > 0) return kHoverLine[s_hover];
+    int v = 100 - (int)inf_disp;
+    if (v == 100)  return -1;
+    if (v >= 0x51) return 4;
+    if (v >= 0x33) return 5;
+    if (v >= 0x1F) return 6;
+    if (v >= 0xB)  return 7;
+    if (v > 0)     return 8;
+    return 3;
+}
 
 /* EM_HUD_FORCE=1 — force the status screen visible (checked once; test
  * hook for headless overlay captures, see em_hud.h). */
@@ -939,9 +1089,10 @@ static void decor(EmGfx *gfx)
  * as a clearly flagged placeholder: the dark panel fill and the amber
  * CONTENT TBD strip are deliberate non-authentic markers, not guesses
  * at the real layout. */
-static void page_render(EmGfx *gfx, int page)
+static void page_render(EmGfx *gfx, int page, const EmPlayerStatus *st)
 {
     UiSheet *ui = slot_ensure(gfx, page);
+    int      partial = 0;       /* page 0: real interior rows drawn */
 
     if (ui) {
         for (uint32_t i = 0; i < ui->sprite_count; i++) {
@@ -960,16 +1111,88 @@ static void page_render(EmGfx *gfx, int page)
                          kTextWhite);
     }
 
-    /* CONTENT TBD flag — page interiors (lists, map cursor, weapon
-     * customization, database records) are not modeled yet. */
+    /* ITEM page (0) basic interior — the engine's category hub
+     * (view func_0020EE50, drawer func_0020F2A0) titles its banners
+     * with the message bank's group-1 entries; the port draws those
+     * REAL labels (first in-entry line of each) as a list. Row order
+     * and positions are ASSUMED (the engine's banner anchors exported
+     * sheet-only). Item COUNTS: the engine keeps a per-type u8 count
+     * array (D_00810C64, FINDINGS "INVENTORY LOCATED") which the port
+     * does not model yet — only the ammo/battery state in
+     * EmPlayerStatus exists, so exactly two item rows render, flagged:
+     *  - BATTERY ITEMS: the carried pack as the bank's catalog name
+     *    (group 3 lines 27/28/29 = 6/18/24 GAUGE, picked by the pack's
+     *    display capacity) + its charge "cur/max";
+     *  - EQUIPMENT ITEMS: "SPR4 MAGAZINE" (PORT LABEL — the engine's
+     *    catalog has no magazine entry; ammo types are "\" placeholder
+     *    lines) x full-magazine equivalents = reserve / 30 (the
+     *    engine tracks the pack count separately in D_00810C63; this
+     *    is a derived stand-in). */
+    if (page == 0 && st && em_hud_font_ready()) {
+        static const int kCatRows[5] = { 0, 1, 2, 4, 3 };  /* BATTERY,
+            EQUIPMENT, EVENT, HEALING, MAIN MENU (group-1 lines;
+            display order ASSUMED) */
+        float y = 88.0f;
+        for (int i = 0; i < 5; i++) {
+            const char *cat = msg_line(1, (uint32_t)kCatRows[i]);
+            if (!cat) break;                 /* bank missing: no rows */
+            partial = 1;
+            /* label = the entry's first '\n' line */
+            char label[40];
+            size_t n = 0;
+            while (cat[n] && cat[n] != '\n' && n < sizeof label - 1) {
+                label[n] = cat[n];
+                n++;
+            }
+            label[n] = '\0';
+            em_hud_text(gfx, 48.0f, y, label, EM_HUD_TEXT_TALL);
+            y += 24.0f;
+            char row[48];
+            row[0] = '\0';
+            if (kCatRows[i] == 0) {          /* BATTERY ITEMS */
+                const char *pk =
+                    st->battery_max ==  6 ? msg_line(3, 27) :
+                    st->battery_max == 18 ? msg_line(3, 28) :
+                    st->battery_max == 24 ? msg_line(3, 29) : NULL;
+                char name[28] = "BATTERY PACK";   /* fallback */
+                if (pk) {
+                    size_t m = 0;
+                    while (pk[m] && pk[m] != '\n' && m < sizeof name - 1) {
+                        name[m] = pk[m];
+                        m++;
+                    }
+                    name[m] = '\0';
+                }
+                snprintf(row, sizeof row, "%s x01 %02u/%02u", name,
+                         (unsigned)st->battery,
+                         (unsigned)st->battery_max);
+            } else if (kCatRows[i] == 1) {   /* EQUIPMENT ITEMS */
+                int mags = st->reserve > 0 ? st->reserve / 30 : 0;
+                snprintf(row, sizeof row, "SPR4 MAGAZINE x%02d", mags);
+            }
+            if (row[0]) {
+                em_hud_text(gfx, 64.0f, y, row, EM_HUD_TEXT_NUM16);
+                y += 24.0f;
+            }
+            y += 16.0f;
+        }
+    }
+
+    /* Amber flag strip — page interiors are placeholder (CONTENT TBD)
+     * or, on the ITEM page with the bank loaded, deliberately partial
+     * (only the modeled ammo/battery rows). */
     {
         const float strip[4] = { kTbdAmber[0], kTbdAmber[1], kTbdAmber[2],
                                  0.25f };
         em_gfx_overlay_rect(gfx, 128.0f, 392.0f, 256.0f, 24.0f, strip);
         if (em_hud_font_ready()) {
             char label[48];
-            snprintf(label, sizeof label, "%s - CONTENT TBD",
-                     kPageNames[page]);
+            if (partial)
+                snprintf(label, sizeof label,
+                         "PARTIAL: AMMO/BATTERY ONLY");
+            else
+                snprintf(label, sizeof label, "%s - CONTENT TBD",
+                         kPageNames[page]);
             float w = em_hud_text_width(label, EM_HUD_TEXT_TALL);
             em_hud_text(gfx, 256.0f - w * 0.5f, 394.0f, label,
                         EM_HUD_TEXT_TALL);
@@ -996,7 +1219,7 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
      * replaces the hub composition entirely, exactly like the engine's
      * controller state 3. */
     if (s_page >= 0) {
-        page_render(gfx, s_page);
+        page_render(gfx, s_page, st);
         s_frames++;
         em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
         return;
@@ -1010,9 +1233,19 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
     float hp  = count_up(&s_disp_health, st->health);
     float inf = count_up(&s_disp_infection, st->infection);
 
-    /* Help panel (128,336)-(384,432) — exact (the per-page help text on
-     * it is unrenderable without a font). */
+    /* Help panel (128,336)-(384,432) — exact. The help LINE on it is
+     * the real engine text (message bank group 0, hub_help_line above),
+     * drawn tall-font white at the engine's anchor: func_001FCA10
+     * passes (0x8A, 0xA8) = canvas x 138, field y 168 -> canvas y 336.
+     * Needs both assets/messages.emsg and the font; missing either
+     * queues nothing (the bare panel, the pre-bank frame). */
     em_gfx_overlay_rect(gfx, 128.0f, 336.0f, 256.0f, 96.0f, kHelpPanel);
+    {
+        int line = hub_help_line(inf);
+        if (line >= 0)
+            msg_text(gfx, 138.0f, 336.0f, msg_line(0, (uint32_t)line),
+                     EM_HUD_TEXT_TALL);
+    }
 
     battery_block(gfx, st->battery, st->battery_max);
     spr4_block(gfx, st->reserve);
