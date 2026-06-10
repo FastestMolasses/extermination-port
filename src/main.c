@@ -14,12 +14,42 @@
 #include "em_gfx.h"
 #include "em_math.h"
 #include "em_model.h"
+#include "em_audio.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #define MODEL_PATH "assets/player.emdl"
+
+/* Audio smoke test (EM_AUDIO_TEST=1): synthesize a quiet 440 Hz sine from the
+ * audio thread and count delivered frames. Per the em_audio.h contract the
+ * callback runs on the OS audio thread, so the counter the main thread reads
+ * at exit is atomic; the phase is touched only by the audio thread. */
+#define AUDIO_TEST_RATE 48000
+
+typedef struct {
+    double      phase;   /* audio thread only */
+    atomic_long frames;  /* written by audio thread, read at exit */
+} AudioTest;
+
+static void audio_test_cb(void *user, float *out, int frames)
+{
+    AudioTest *at = user;
+    const double step =
+        2.0 * 3.14159265358979323846 * 440.0 / (double)AUDIO_TEST_RATE;
+    for (int i = 0; i < frames; i++) {
+        float s = 0.1f * (float)sin(at->phase);
+        at->phase += step;
+        if (at->phase > 2.0 * 3.14159265358979323846)
+            at->phase -= 2.0 * 3.14159265358979323846;
+        out[i * 2 + 0] = s;
+        out[i * 2 + 1] = s;
+    }
+    atomic_fetch_add_explicit(&at->frames, (long)frames,
+                              memory_order_relaxed);
+}
 
 int main(void)
 {
@@ -54,6 +84,18 @@ int main(void)
      * frame to the given BMP, and exits. Used for screenshot regression. */
     const char *capture_path = getenv("EM_CAPTURE");
     int frame_no = 0;
+
+    /* Audio smoke test: EM_AUDIO_TEST=1 opens the output device with the
+     * sine callback above. When unset, no audio object exists at all. */
+    AudioTest audio_test = { 0.0, 0 };
+    EmAudio  *audio = NULL;
+    const char *audio_env = getenv("EM_AUDIO_TEST");
+    if (audio_env && audio_env[0] == '1') {
+        audio = em_audio_create(AUDIO_TEST_RATE, audio_test_cb, &audio_test);
+        if (!audio)
+            fprintf(stderr, "warning: EM_AUDIO_TEST set but audio device "
+                            "creation failed\n");
+    }
 
     bool running = true;
     double t = 0.0;
@@ -107,6 +149,12 @@ int main(void)
         if (capture_path && ++frame_no > 61) running = false;
     }
 
+    if (audio) {
+        em_audio_destroy(audio); /* blocks: no callback after this */
+        printf("audio test: %ld frames delivered\n",
+               atomic_load_explicit(&audio_test.frames,
+                                    memory_order_relaxed));
+    }
     if (mesh) {
         em_gfx_mesh_destroy(gfx, mesh);
         em_model_free(&model);

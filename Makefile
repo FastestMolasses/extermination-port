@@ -16,8 +16,10 @@ ifeq ($(UNAME),Darwin)
 CC        := clang
 SRC       := $(COMMON) \
              src/platform/mac/em_platform_mac.m \
-             src/gfx/metal/em_gfx_metal.m
-FRAMEWORKS := -framework Cocoa -framework Metal -framework QuartzCore
+             src/gfx/metal/em_gfx_metal.m \
+             src/audio/mac/em_audio_mac.c
+FRAMEWORKS := -framework Cocoa -framework Metal -framework QuartzCore \
+              -framework AudioToolbox
 LDFLAGS   := $(FRAMEWORKS)
 endif
 
@@ -26,7 +28,8 @@ ifeq ($(UNAME),Linux)
 CC        := cc
 SRC       := $(COMMON) \
              src/platform/linux/em_platform_linux.c \
-             src/gfx/vulkan/em_gfx_vk.c
+             src/gfx/vulkan/em_gfx_vk.c \
+             src/audio/linux/em_audio_linux.c
 LDFLAGS   := -lX11 -lvulkan -lm
 endif
 
