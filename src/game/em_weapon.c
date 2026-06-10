@@ -64,11 +64,33 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 #define WPN_ANIM_HOLSTER 0x111  /* holster, 25 fr, rate 1.0              */
 #define WPN_ANIM_RELOAD  0x33   /* reload, 57 fr, rate 1.0               */
 #define WPN_ANIM_AIM     0x112  /* SPR4 sub-0 aim-pose ladder BASE (the
-                                 * level-pitch step of D_00248B88[0]);
-                                 * HELD while in the AIM state via
-                                 * em_game_anim_hold — the pitch-step
-                                 * blend (+0x278) is not translated yet  */
+                                 * level-pitch step of D_00248B70[0] ->
+                                 * 0x112..0x11A); HELD while in the AIM
+                                 * state via em_game_anim_hold — the
+                                 * pitch-step blend (+0x278) is not
+                                 * translated yet                        */
 #define WPN_DRAW_RATE    1.4f   /* D_00248C90[0x110].rate_scale          */
+/* FIRE RECOIL (decoded s25 — FINDINGS "FIRE ANIM MECHANISM"; corrects
+ * the s23 guess that 0x31/0x32/0x34/0x35 name fire CLIPS): the engine
+ * has NO separate fire clip. Those four values are the armed-stance
+ * ACTION CODES at player +0x1F0 (stance +0x05 0x1D->0x31, 0x1E->0x32,
+ * 0x1F->0x34, 0x20->0x35 — set by func_0016F600 on stance entry, NOT
+ * by the semi/burst/auto fire families, which only READ the code to
+ * pick the fire sound: 0x164 for 0x31/0x34, 0x165 for 0x32/0x35).
+ * Containers 49/50/52/53 in the clip library are unrelated neighbors
+ * (49/50 are 110/79-frame root-travel locomotion clips — verified, not
+ * recoil snaps). The recoil: while the code is 0x31/0x34 the per-bone
+ * publisher (bone_matrix_publish -> anim_clip_arbiter, f13 = (float)
+ * lh(+0x276)) re-seeds the COMMITTED aim-ladder clip every frame with
+ * sample time = the fire counter — 0 at every shot, +2/frame. The
+ * snap is baked into the FRONT frames of the aim-pose clip (0x112:
+ * 4.0 deg/frame over frames 0..4 decaying to a 0.9 deg/frame static
+ * tail), so each shot replays the clip from frame 0 at 2 frames/tick
+ * and settles back into the clamped hold. The property-table rate
+ * (D_00248C90[0x112].rate_scale = 1.0, extracted) does not drive this
+ * path — the counter step does. */
+#define WPN_FIRE_RATE    2.0f   /* +0x276 counter step: the recoil
+                                 * playhead gains 2 clip-frames/tick    */
 
 /* --- Fallback state windows (flagged; used ONLY when the loaded player
  *     EMDL lacks the clip — anim_ticks() prefers the honest clip
@@ -217,7 +239,10 @@ static void weapon_enter_reload(void)
  * re-selection. */
 static void weapon_enter_aim(void)
 {
-    em_game_anim_hold(WPN_ANIM_AIM, 1.0f);          /* aim pose 0x112 */
+    /* The hold plays the clip's front settle once at the counter rate
+     * (the engine zeroes +0x276 on stance entry, so the pose clip's
+     * recoil/settle frames run at 2/tick there too) and clamps. */
+    em_game_anim_hold(WPN_ANIM_AIM, WPN_FIRE_RATE); /* aim pose 0x112 */
     w.state   = EM_WPN_AIM;
     w.counter = WPN_INTERVAL;       /* first shot is immediate */
 }
@@ -226,9 +251,11 @@ static void weapon_enter_aim(void)
  * fire sub-machine, states 0xB/0x15/0x1F). Dry mag -> auto-reload
  * func_0017B300(.,0); reserve also empty -> dry click (engine sound
  * 0x169). A live round: mag-- AND reserve-- (the TOTAL-pool consume
- * path), post the fire event to the gun (+0x2E = 1; engine sounds
- * 0x164/0x165, anims 0x31/0x32/0x34/0x35 — 0x164 is the native pick
- * until the stance pairs that select 0x165 are translated). */
+ * path), post the fire event to the gun (+0x2E = 1), reset the fire
+ * counter (+0x276 = 0 — which IS the recoil restart, see WPN_FIRE_RATE)
+ * and play the stance fire sound (the block reads the +0x1F0 stance
+ * code: 0x164 for 0x31/0x34, 0x165 for 0x32/0x35; the port's single
+ * stance is the 0x1D family -> code 0x31 -> 0x164). */
 static void weapon_shot(void)
 {
     if (w.mag == 0) {
@@ -247,6 +274,14 @@ static void weapon_shot(void)
     w.shots++;
     w.fire_event = 1;     /* gun +0x2E — resolved next update             */
     w.counter    = 0;
+    /* RECOIL: the counter reset rewinds the held aim clip to frame 0 —
+     * the engine's publisher samples the committed ladder clip at
+     * frame = +0x276 every tick (FIRE RECOIL block above). The replay
+     * runs 25 frames @ 2/tick = 12.5 ticks; at the 6-tick full-auto
+     * cadence the next shot restarts it from frame 12, so sustained
+     * fire only ever shows the clip's front half — engine-identical
+     * overlap by construction (the counter never passes the interval). */
+    em_game_anim_hold_restart(WPN_ANIM_AIM, WPN_FIRE_RATE);
     em_sfx_play(EM_SFX_WPN_FIRE);         /* 0x164, the per-shot block    */
 }
 
@@ -493,10 +528,12 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             break;
     }
 
-    /* LASER SIGHT refresh — the engine's drawers run only while the
-     * AIM-POSE anim is in phase (player +0x1F0 anim 0x31/0x34 with
-     * +0x1F1 == 1), i.e. in the AIM/FIRE loop: not during the draw,
-     * reload (anim 0x33) or holster clips. */
+    /* LASER SIGHT refresh — the engine's drawers gate on the armed-
+     * stance CODE (player +0x1F0 in {0x31, 0x34} with phase +0x1F1 ==
+     * 1), which is held for the ENTIRE aim including the fire/recoil
+     * ticks (FINDINGS "LASER SIGHT DECODED": the laser runs the whole
+     * time the player aims) — i.e. the AIM/FIRE loop, but not the
+     * draw, reload (code 0x33) or holster clips. */
     w.laser_on = (w.state == EM_WPN_AIM);
     if (w.laser_on)
         laser_update(coll, player_pos, player_yaw);

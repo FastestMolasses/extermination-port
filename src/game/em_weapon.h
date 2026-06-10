@@ -76,15 +76,26 @@
  * Both draws are additive with depth test on / write off, exactly the
  * GS states of the original pass (em_gfx_beam / em_gfx_beam_dot).
  *
- * PLAYER ANIMS (wired 2026-06-10 s24 — FINDINGS "ANIM ID MAPPING"):
- * the state entries drive the real clips through em_game's scripted-anim
- * mailbox (the +0x1F2 request / +0x20C commit path; the anim id is the
- * clip-table id in the re-exported player.emdl):
+ * PLAYER ANIMS (wired 2026-06-10 s24, fire recoil s25 — FINDINGS "ANIM
+ * ID MAPPING" + "FIRE ANIM MECHANISM"): the state entries drive the
+ * real clips through em_game's scripted-anim mailbox (the +0x1F2
+ * request / +0x20C commit path; the anim id is the clip-table id in
+ * the re-exported player.emdl):
  *   DRAW    anim 0x110 once at rate 1.4 (D_00248C90 rate_scale)
- *   AIM     anim 0x112 HELD (em_game_anim_hold — the SPR4 sub-0 stance-
- *           table pose D_00248B88[0]; the aim-pitch ladder blend +0x278
- *           and the per-shot fire anims 0x31/0x32/0x34/0x35 are NOT
- *           translated yet — the held level pose persists across shots)
+ *   AIM     anim 0x112 HELD (em_game_anim_hold — the SPR4 sub-0 aim
+ *           ladder base, D_00248B70[0][0]; the pitch-step blend +0x278
+ *           is not translated yet). FIRE = each shot REWINDS the held
+ *           clip to frame 0 at 2 frames/tick (em_game_anim_hold_restart
+ *           — the engine's bone_matrix_publish samples the committed
+ *           ladder clip at frame = fire counter +0x276, which resets
+ *           per shot; the recoil snap is baked into the clip's front
+ *           frames). There is NO separate fire clip: 0x31/0x32/0x34/
+ *           0x35 are the four armed-stance ACTION CODES at +0x1F0
+ *           (stance 0x1D/0x1E/0x1F/0x20 respectively — fire-mode
+ *           INDEPENDENT; the fire families only read the code for the
+ *           shot sound 0x164 vs 0x165), and library containers
+ *           49/50/52/53 are unrelated clips (s23's id=index guess for
+ *           them is corrected in FINDINGS).
  *   RELOAD  anim 0x33 once; the state window IS the clip length
  *   HOLSTER anim 0x111 once, then locomotion resumes by itself
  * Every state window gates on the committed clip's honest length

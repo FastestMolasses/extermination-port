@@ -1472,12 +1472,40 @@ static void door_test_script(void)
  *                    12) = 6 rounds -> 23/109
  *   C = B+50         manual top-up (J = SQUARE; engine: L3) -> 30/109,
  *                    reserve again untouched
- *   D = C+rld+10     release E -> holster (anim 0x111) -> HOLSTERED
- *                    checked one holster window later
+ *   D = C+rld+24     RECOIL-SETTLE check: by D the post-reload aim hold
+ *                    has been quiet for > ceil(25/2) ticks, so the 0x112
+ *                    playhead must be CLAMPED at the last frame (the
+ *                    +24 window exists for this — the recoil replay
+ *                    needs 12.5 ticks to settle); then release E ->
+ *                    holster (anim 0x111) -> HOLSTERED checked one
+ *                    holster window later
+ *
+ * RECOIL checks (s25): a shot rewinds the held 0x112 clip to frame 0
+ * at 2 frames/tick (em_game_anim_hold_restart — the engine's fire
+ * counter re-seed, FINDINGS "FIRE ANIM MECHANISM"); the A+6 and B+6
+ * checkpoints additionally assert the playhead is MID-REPLAY (0 <
+ * frame < last) while the committed clip stays 0x112, and D asserts
+ * the clamp. Skipped when the player EMDL carries no clip 0x112 (the
+ * clip-less fallback build).
  *
  * Checkpoints sample a few frames after each action so the input-inject
  * latency (events land in the NEXT frame's snapshot) and the fire-event
  * one-frame latency are absorbed. */
+
+/* Recoil introspection helper: 1 = the committed scripted clip is the
+ * aim pose 0x112 with its playhead mid-replay (a shot rewound it and
+ * it has not yet clamped); 2 = committed 0x112 clamped at the last
+ * frame (the settled hold); 0 = anything else. -1 = the EMDL carries
+ * no 0x112 (recoil checks skipped honestly). */
+static int wt_recoil_state(void)
+{
+    int frames = em_game_anim_frames(0x112);
+    if (frames <= 0) return -1;
+    if (em_game_anim_active() != 0x112) return 0;
+    int f = em_game_anim_frame();
+    if (f <= 0) return 0;              /* not yet evaluated / at start */
+    return f < frames - 1 ? 1 : 2;
+}
 static void wt_check(int cond, const char *what)
 {
     if (cond) return;
@@ -1496,7 +1524,9 @@ static void weapon_test_script(void)
         A = em_weapon_draw_ticks() + 5;
         B = A + 34 + em_weapon_reload_ticks() + 8;
         C = B + 50;
-        D = C + em_weapon_reload_ticks() + 10;
+        D = C + em_weapon_reload_ticks() + 24;  /* +24: recoil-settle
+                                                 * window (12.5 ticks
+                                                 * to clamp) */
         printf("weapon test: windows draw %d / reload %d / holster %d "
                "ticks -> anchors A=%d B=%d C=%d D=%d\n",
                em_weapon_draw_ticks(), em_weapon_reload_ticks(),
@@ -1514,6 +1544,9 @@ static void weapon_test_script(void)
                  em_weapon_reserve() == 119 &&
                  em_weapon_shots() == 1,
                  "shot 1: 4/120 -> 3/119");
+        int rs = wt_recoil_state();
+        wt_check(rs == 1 || rs == -1,
+                 "recoil replay mid-flight after shot 1 (0x112 rewound)");
     } else if (n == A + 8 || n == A + 16 || n == A + 24) {
         move_test_inject('k', 1);                           /* semi 2..4 */
     } else if (n == A + 30) {
@@ -1545,6 +1578,9 @@ static void weapon_test_script(void)
                  em_weapon_reserve() == 115 &&
                  em_weapon_shots() == 5,
                  "5th shot after reload: 29/115");
+        int rs = wt_recoil_state();
+        wt_check(rs == 1 || rs == -1,
+                 "recoil replay mid-flight after shot 5");
     } else if (n == B + 10) {
         em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
         move_test_inject('k', 1);                           /* auto hold */
@@ -1566,6 +1602,9 @@ static void weapon_test_script(void)
                  em_weapon_reloads() == 2,
                  "manual top-up: 30/109, reserve untouched");
     } else if (n == D) {
+        int rs = wt_recoil_state();
+        wt_check(rs == 2 || rs == -1,
+                 "0x112 settled back into the clamped hold by D");
         move_test_inject('e', 0);                           /* holster   */
     } else if (n == D + em_weapon_holster_ticks() + 6) {
         wt_check(em_weapon_state() == EM_WPN_HOLSTERED,
@@ -1722,11 +1761,20 @@ static void gameplay_frame(void)
      * held aim pose, the laser pass and the lowered camera target. A
      * short turn-in-place (frames 28..44, ~27 deg) angles the laser off
      * the camera axis so the beam and hit dot are not occluded by the
-     * player's own torso in the capture. */
+     * player's own torso in the capture.
+     * EM_CAPTURE_AIM=2: same, plus ONE semi shot (K) pressed at frame
+     * 57 — it lands at 58, so the default capture frame 60 samples the
+     * 0x112 recoil replay ~2 frames in (the clip's max-delta snap zone,
+     * 4 deg/frame) with the muzzle flash still up: the aim+fire
+     * reference against the =1 static hold. */
     if (g.capture_aim) {
         if      (g.frame_no == 0)  move_test_inject('e', 1);
         else if (g.frame_no == 28) move_test_inject('a', 1);
         else if (g.frame_no == 44) move_test_inject('a', 0);
+        if (g.capture_aim >= 2) {
+            if      (g.frame_no == 57) move_test_inject('k', 1);
+            else if (g.frame_no == 59) move_test_inject('k', 0);
+        }
     }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
@@ -2026,7 +2074,7 @@ void em_game_install(void)
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
                                                regression frame */
     const char *ca = getenv("EM_CAPTURE_AIM");
-    g.capture_aim  = ca && ca[0] == '1';
+    g.capture_aim  = ca ? atoi(ca) : 0;     /* 1 = aim, 2 = aim + shot */
     const char *mt = getenv("EM_MOVE_TEST");
     g.move_test    = mt && mt[0] == '1';
     g.move_legs[0] = 60;   /* the historical office legs */
@@ -2107,6 +2155,24 @@ int em_game_anim_hold(unsigned clip_id, float rate)
     return anim_request_common(clip_id, rate, 1);
 }
 
+/* FIRE-RECOIL rewind (em_game.h): the native bone_matrix_publish
+ * counter re-seed — the committed hold's playhead snaps back to frame
+ * 0 (the engine's per-shot `+0x276 = 0` write) and replays the clip's
+ * front-loaded recoil at `rate` frames/tick back into the clamped
+ * hold. Not yet committed (or a different clip): plain hold request. */
+int em_game_anim_hold_restart(unsigned clip_id, float rate)
+{
+    if (g.sa_cur == clip_id && g.sa_clip >= 0) {
+        g.sa_t        = 0.0;        /* fire counter reset (+0x276 = 0) */
+        g.sa_rate     = rate;
+        g.sa_hold     = 1;
+        g.sa_req      = clip_id;    /* keep request == commit: no re-init */
+        g.sa_req_hold = 1;
+        return 1;
+    }
+    return anim_request_common(clip_id, rate, 1);
+}
+
 int em_game_anim_frames(unsigned clip_id)
 {
     int ci;
@@ -2125,4 +2191,12 @@ void em_game_anim_cancel(void)
 unsigned em_game_anim_active(void)
 {
     return g.sa_cur;                /* +0x20C */
+}
+
+int em_game_anim_frame(void)
+{
+    if (!g.sa_cur || g.sa_clip < 0)
+        return -1;
+    double end = (double)(g.model.clips[g.sa_clip].frame_count - 1);
+    return (int)(g.sa_t < end ? g.sa_t : end);
 }

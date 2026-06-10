@@ -70,13 +70,33 @@ void em_game_shutdown(void);
  * keeps requesting it). The hold ends on the next em_game_anim_request
  * / em_game_anim_hold of a different id, or em_game_anim_cancel.
  *
+ * em_game_anim_hold_restart is the FIRE-RECOIL variant (decoded s25,
+ * FINDINGS "FIRE ANIM MECHANISM"): the engine plays NO separate fire
+ * clip — while the player carries a firing stance code (+0x1F0 in
+ * {0x31, 0x34}) the per-bone publisher bone_matrix_publish re-seeds
+ * the COMMITTED aim-ladder clip every frame with sample time = the
+ * fire counter (+0x276: 0 at every shot, +2/frame). The recoil snap
+ * is baked into the FRONT frames of the aim-pose clip itself, so each
+ * shot replays the clip from frame 0 and it settles back into the
+ * clamped hold. Natively: if `clip_id` is already the committed hold,
+ * rewind its playhead to frame 0 at `rate` (no re-request — the
+ * engine's counter write, not a mailbox transaction); otherwise it
+ * degrades to em_game_anim_hold.
+ *
  * em_game_anim_frames returns the frame count of `clip_id` in the
  * loaded player EMDL (0 = model not loaded / clip absent) — the honest
  * clip-length source for state windows that gate on an anim (the
- * weapon draw/reload/holster timers). */
+ * weapon draw/reload/holster timers).
+ *
+ * em_game_anim_frame returns the committed clip's playhead in frames
+ * (clamped to the last frame; -1 = no committed clip). It reports the
+ * time of the NEXT actor_update evaluation (the commit advances after
+ * evaluating) — introspection for the self-tests. */
 int      em_game_anim_request(unsigned clip_id, float rate);
 int      em_game_anim_hold(unsigned clip_id, float rate);
+int      em_game_anim_hold_restart(unsigned clip_id, float rate);
 int      em_game_anim_frames(unsigned clip_id);
+int      em_game_anim_frame(void);
 void     em_game_anim_cancel(void);
 unsigned em_game_anim_active(void);
 
