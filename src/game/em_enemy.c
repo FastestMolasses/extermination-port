@@ -94,6 +94,33 @@
  * EM_ENEMY_GIBDEMO=<frame>: debug hook — posts a lethal 0x400A mailbox
  * to enemy 0 at that update tick, so EM_CAPTURE (frame 60) can
  * photograph the scatter without scripting a full kill run.
+ *
+ * CRATE KIND (em_enemy.h "CRATE KIND"; FINDINGS "CRAWLER RESOLVED" +
+ * the s26 office model-table carve): the engine crawler's IDLE disguise
+ * as its own spawn kind. Lifecycle reuses the engine state values:
+ *
+ *   0 INIT    HP = 1 -> 4.
+ *   4 IDLE    render the crate mesh with the PROCEDURAL jitter (the
+ *             documented D_002468B0/B4/B8 x/z world-matrix perturbation
+ *             — implemented as deterministic sines of the update tick:
+ *             a slow chitter envelope gating a small x/z wiggle + yaw
+ *             wobble; amplitudes/periods are flagged port constants).
+ *             Poll the +0x36 mailbox (HP 1: any bullet hit is lethal,
+ *             hit_dir = player -> crate) OR the player within the
+ *             CRATE_TRIGGER_R ~10 u (flagged port stand-in for the
+ *             engine's state-4 wake) -> 2. The group alarm is IGNORED
+ *             (port: the disguise holds until its own trigger).
+ *   2 BURST   free the slot (no sink: the husk replaces it visually),
+ *             spawn the WORM at the crate position through the normal
+ *             spawn path (emerge clip 1; yaw toward the player — the
+ *             engine's leech init yaw), then launch the husk gibs with
+ *             the shared gib launcher (proximity bursts scatter away
+ *             from the player; bullet kills along the hit vector).
+ *   3 FREE    slot inactive.
+ *
+ * The crate never enters state 1, never hops, ignores anim clips
+ * (1-node static mesh) and never touches the crawler code paths, so
+ * crawler-only runs (tests 1/2, the gib demo) are byte-identical.
  */
 #include "game/em_enemy.h"
 
@@ -106,6 +133,7 @@
 #include "game/em_sfx.h"
 
 #define ENEMY_ASSET      "assets/enemy_crawler.emdl"
+#define CRATE_ASSET      "assets/enemy_crate.emdl"
 #define ENEMY_BONE_MAX   32
 #define ENEMY_PI         3.14159265f
 
@@ -177,6 +205,17 @@ static const char *const GIB_FILES[GIB_MODEL_MAX] = {
     "assets/gibs/gib_1e.emdl",    /* shard A3 (husk-A skin)     */
 };
 
+/* --- Crate kind (see "CRATE KIND" in the file header) -------------------
+ * Engine values: HP 1 and the jitter MECHANISM (x/z world-matrix
+ * perturbation). The trigger radius, amplitudes and periods are flagged
+ * port constants (the D_002468B0 tables are not exported). */
+#define CRATE_BONE_MAX   4        /* exporter writes 1+1 palette slots    */
+#define CRATE_TRIGGER_R  10.0f    /* PORT: proximity burst trigger (~10u) */
+#define CRATE_HIT_R      3.5f     /* PORT: bullet hit-sphere (6x4x5 box)  */
+#define CRATE_AIM_Y      2.0f     /* box center above the feet            */
+#define CRATE_JIT_POS    0.08f    /* PORT: x/z wiggle amplitude, units    */
+#define CRATE_JIT_YAW    0.02f    /* PORT: yaw wobble amplitude, rad      */
+
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
 #define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
@@ -190,6 +229,8 @@ static const char *const GIB_FILES[GIB_MODEL_MAX] = {
 
 typedef struct {
     int     active;       /* slot in use AND not yet FREE'd              */
+    uint8_t kind;         /* EM_ENEMY_KIND_* (crawler / crate disguise)  */
+    uint8_t seed;         /* spawn slot index: jitter phase offset       */
     uint8_t state;        /* actor +0x04 lifecycle (engine values)       */
     uint8_t sub;          /* attack sub-state: 0 steer / 1 hop           */
     uint8_t alarm;        /* actor +0x0A group-alarm flag                */
@@ -272,6 +313,15 @@ static struct {
     int        anim_on;
     int        clip_crawl, clip_emerge, clip_windup, clip_lunge;
     float      blend_pal[ENEMY_BONE_MAX * 16]; /* crossfade scratch */
+
+    /* crate disguise mesh (loaded only when a crate is placed, so
+     * crawler-only runs keep byte-identical output) */
+    int        crate_tried;
+    EmGfxMesh *crate_mesh;
+    EmModel    crate_model;
+    int        crate_has_model;
+    uint32_t   crate_bones;
+    float      crate_base[CRATE_BONE_MAX * 16];
 
     Enemy      e[EM_ENEMY_MAX];
     int        n;
@@ -434,6 +484,63 @@ static int enemy_mesh_get(EmGfx *gfx)
     return 0;
 }
 
+/* Load the crate disguise mesh once (first CRATE spawn only): the EMDL
+ * asset (the office model-table entry 0x0D — decomp repo
+ * tools/export_props.py --crate) when present, else a PLACEHOLDER box
+ * with the office crate's 6x4x5 footprint (runtime-generated, original
+ * vertices, NOT disc data). Returns 0 ok. */
+static int crate_mesh_get(EmGfx *gfx)
+{
+    if (s.crate_mesh) return 0;
+    if (s.crate_tried) return -1;
+    s.crate_tried = 1;
+
+    if (em_model_load(&s.crate_model, CRATE_ASSET) == 0) {
+        if (s.crate_model.bone_count > CRATE_BONE_MAX) {
+            fprintf(stderr, "enemy: %s: %u bones > %d\n", CRATE_ASSET,
+                    s.crate_model.bone_count, CRATE_BONE_MAX);
+            em_model_free(&s.crate_model);
+            return -1;
+        }
+        s.crate_mesh = em_gfx_mesh_create(gfx, s.crate_model.verts,
+                                          s.crate_model.vert_count,
+                                          s.crate_model.indices,
+                                          s.crate_model.index_count,
+                                          (const EmGfxTexDesc *)
+                                          s.crate_model.texs,
+                                          s.crate_model.tex_count,
+                                          s.crate_model.texels,
+                                          s.crate_model.flags);
+        if (!s.crate_mesh) {
+            em_model_free(&s.crate_model);
+            return -1;
+        }
+        s.crate_has_model = 1;
+        s.crate_bones     = s.crate_model.bone_count;
+        em_model_palette_at(&s.crate_model, 0, 0.0, s.crate_base);
+        printf("crate model: %s — %u verts, %u tris, %u texture(s)\n",
+               CRATE_ASSET, s.crate_model.vert_count,
+               s.crate_model.index_count / 3, s.crate_model.tex_count);
+        return 0;
+    }
+
+    /* PLACEHOLDER crate: the office disguise box footprint. */
+    float    verts[24 * 10];
+    uint32_t indices[36];
+    uint32_t nv = 0, ni = 0;
+    const float lo[3] = { -3.0f, 0.0f, -2.5f };
+    const float hi[3] = {  3.0f, 4.0f,  2.5f };
+    box_emit(verts, &nv, indices, &ni, lo, hi);
+    s.crate_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
+                                      NULL, 0, NULL, 0);
+    if (!s.crate_mesh) return -1;
+    s.crate_bones = 1;
+    mat4_identity(s.crate_base);
+    printf("crate model: no %s — PLACEHOLDER box (export with the decomp "
+           "repo's tools/export_props.py --crate)\n", CRATE_ASSET);
+    return 0;
+}
+
 /* Load the burst set once (first crawler spawn — the only entry point
  * with a gfx handle; em_enemy_update can't create GPU meshes). Missing
  * files shrink the pool silently; an empty pool = sink fallback. */
@@ -475,25 +582,29 @@ static void gib_models_load(EmGfx *gfx)
                "tools/export_props.py --gibs)\n");
 }
 
-int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw)
+/* Slot setup shared by the public adds and the crate-burst worm spawn
+ * (which runs inside em_enemy_update, without a gfx handle — every
+ * mesh a burst needs is preloaded by em_enemy_add_kind). */
+static int enemy_spawn(int kind, const float pos[3], float yaw)
 {
     if (s.n >= EM_ENEMY_MAX) return -1;
-    if (enemy_mesh_get(gfx) != 0) return -1;
-    gib_models_load(gfx);
 
     Enemy *e = &s.e[s.n];
     memset(e, 0, sizeof *e);
     e->active = 1;
+    e->kind   = (uint8_t)kind;
+    e->seed   = (uint8_t)s.n;
     e->state  = EM_ENEMY_INIT;
     e->pos[0] = pos[0];
     e->pos[1] = pos[1];
     e->pos[2] = pos[2];
     e->yaw    = yaw;
-    /* Anim layer: spawn plays the emerge clip once (clip 1), falling
-     * back to the crawl loop if the asset lacks it. */
+    /* Anim layer (crawler only — the crate is a 1-node static mesh):
+     * spawn plays the emerge clip once (clip 1), falling back to the
+     * crawl loop if the asset lacks it. */
     e->acur  = -1;
     e->aprev = -1;
-    if (s.anim_on) {
+    if (kind == EM_ENEMY_KIND_CRAWLER && s.anim_on) {
         e->aphase = ANIM_EMERGE;
         e->acur   = s.clip_emerge >= 0 ? s.clip_emerge : s.clip_crawl;
         e->arate  = s.clip_emerge >= 0 ? 1.0f : ENEMY_IDLE_RATE;
@@ -502,9 +613,32 @@ int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw)
     /* Stage a valid pose immediately: the render chain may record this
      * instance's palette pointer before the first em_enemy_update. */
     enemy_build_palette(e);
-    printf("enemy %d: crawler at (%.1f, %.1f, %.1f) yaw %.3f\n", s.n,
+    printf("enemy %d: %s at (%.1f, %.1f, %.1f) yaw %.3f\n", s.n,
+           kind == EM_ENEMY_KIND_CRATE ? "crate" : "crawler",
            pos[0], pos[1], pos[2], yaw);
     return s.n++;
+}
+
+int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw)
+{
+    if (s.n >= EM_ENEMY_MAX) return -1;
+    if (enemy_mesh_get(gfx) != 0) return -1;
+    gib_models_load(gfx);
+    return enemy_spawn(EM_ENEMY_KIND_CRAWLER, pos, yaw);
+}
+
+int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
+{
+    if (kind == EM_ENEMY_KIND_CRAWLER)
+        return em_enemy_add(gfx, pos, yaw);
+    if (kind != EM_ENEMY_KIND_CRATE) return -1;
+    if (s.n >= EM_ENEMY_MAX) return -1;
+    if (crate_mesh_get(gfx) != 0) return -1;
+    /* The burst will need the worm mesh + the husk gibs; this is the
+     * only moment with a gfx handle, so preload them now. */
+    if (enemy_mesh_get(gfx) != 0) return -1;
+    gib_models_load(gfx);
+    return enemy_spawn(EM_ENEMY_KIND_CRATE, pos, yaw);
 }
 
 /* ------------------------------------------------------------------ */
@@ -660,7 +794,7 @@ static void enemy_anim_set(Enemy *e, int clip, float rate)
  * the play heads and the crossfade weight. */
 static void enemy_anim_update(Enemy *e, float dist)
 {
-    if (!s.anim_on) return;
+    if (!s.anim_on || e->kind != EM_ENEMY_KIND_CRAWLER) return;
 
     switch (e->state) {
     case EM_ENEMY_INIT:
@@ -736,10 +870,35 @@ static void enemy_anim_update(Enemy *e, float dist)
  * a fade would need per-draw alpha the renderer doesn't expose yet. */
 static void enemy_build_palette(Enemy *e)
 {
-    const float c = cosf(e->yaw), sn = sinf(e->yaw);
-    float       y = e->pos[1];
+    float yaw = e->yaw;
+    float x   = e->pos[0];
+    float y   = e->pos[1];
+    float z   = e->pos[2];
+    uint32_t bones = e->kind == EM_ENEMY_KIND_CRATE ? s.crate_bones
+                                                    : s.bone_count;
 
-    if (s.anim_on && e->acur >= 0) {
+    /* CRATE IDLE jitter — the documented procedural disguise wiggle
+     * (D_002468B0/B4/B8 perturb the world-matrix x/z translation; s23:
+     * no skeletal clips exist for the 1-node rig). Deterministic pure
+     * function of the update tick + the spawn slot, so runs and
+     * captures reproduce: a slow chitter envelope gates a small x/z
+     * wiggle and a yaw wobble (amplitudes/periods = flagged port
+     * constants; the engine's table values are not exported). */
+    if (e->kind == EM_ENEMY_KIND_CRATE && e->active) {
+        float t   = (float)s.frame;
+        float ph  = (float)e->seed * 1.7f;
+        float env = sinf(t * 0.037f + ph * 3.1f);
+        if (env < 0.0f) env = 0.0f;          /* chitter ~half the time */
+        x   += env * CRATE_JIT_POS * sinf(t * 0.83f + ph);
+        z   += env * CRATE_JIT_POS * sinf(t * 0.67f + ph * 2.0f);
+        yaw += env * CRATE_JIT_YAW * sinf(t * 0.49f + ph);
+    }
+
+    const float c = cosf(yaw), sn = sinf(yaw);
+
+    if (e->kind == EM_ENEMY_KIND_CRATE) {
+        memcpy(e->palette, s.crate_base, bones * 16 * sizeof(float));
+    } else if (s.anim_on && e->acur >= 0) {
         em_model_palette_at(&s.model, (uint32_t)e->acur,
                             anim_eval_time(e->acur, e->at), e->palette);
         if (e->aprev >= 0 && e->ablend < 1.0f) {
@@ -760,16 +919,16 @@ static void enemy_build_palette(Enemy *e)
         y -= ENEMY_SINK_DEPTH *
              (1.0f - (float)e->sink / (float)ENEMY_SINK_FRAMES);
 
-    for (uint32_t b = 0; b < s.bone_count; b++) {
+    for (uint32_t b = 0; b < bones; b++) {
         float *m = e->palette + b * 16;
         for (int col = 0; col < 4; col++) {
-            float x = m[col * 4 + 0], z = m[col * 4 + 2];
-            m[col * 4 + 0] =  c * x + sn * z;
-            m[col * 4 + 2] = -sn * x + c * z;
+            float mx = m[col * 4 + 0], mz = m[col * 4 + 2];
+            m[col * 4 + 0] =  c * mx + sn * mz;
+            m[col * 4 + 2] = -sn * mx + c * mz;
         }
-        m[12] += e->pos[0];
+        m[12] += x;
         m[13] += y;
-        m[14] += e->pos[2];
+        m[14] += z;
     }
 }
 
@@ -881,6 +1040,33 @@ static void gib_update(const EmCollision *coll)
 /* State machine                                                        */
 /* ------------------------------------------------------------------ */
 
+/* Crate BURST (state 2, crate kind): free the slot, spawn the worm at
+ * the crate position through the normal spawn path (emerge clip 1;
+ * yaw toward the player — the engine's leech init yaw, func_00154040's
+ * atan2 at (D_00810350, D_00810358)), then scatter the husk gibs with
+ * the shared launcher. Worm first: gib_burst budgets its virtual draw
+ * slots against the LIVE instance count. The crate never sinks — the
+ * husk gibs replace it visually (no gibs loaded = it just vanishes,
+ * matching the immediate gameplay despawn). */
+static void crate_burst(Enemy *e, const float pp[3])
+{
+    e->state  = EM_ENEMY_FREE;
+    e->active = 0;
+    e->sink   = 0;
+
+    float dx = pp[0] - e->pos[0];
+    float dz = pp[2] - e->pos[2];
+    float wyaw = (fabsf(dx) + fabsf(dz) > 1e-4f) ? atan2f(dx, dz)
+                                                 : e->yaw;
+    int wi = enemy_spawn(EM_ENEMY_KIND_CRAWLER, e->pos, wyaw);
+    if (wi < 0)
+        printf("enemy: crate burst — no free slot for the worm\n");
+    int ng = gib_burst(e);
+    printf("enemy: crate burst at (%.1f, %.1f, %.1f) — %d gib(s), "
+           "worm %s\n", e->pos[0], e->pos[1], e->pos[2], ng,
+           wi >= 0 ? "spawned" : "skipped");
+}
+
 static void enemy_tick(const EmCollision *coll, Enemy *e,
                        const float pp[3])
 {
@@ -897,6 +1083,28 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         break;
 
     case EM_ENEMY_IDLE:
+        if (e->kind == EM_ENEMY_KIND_CRATE) {
+            /* Disguised crate: a bullet hit (lethal — HP 1; hit_dir =
+             * player -> crate from the mailbox poll) OR the player
+             * inside the ~10-u trigger bursts it. The group alarm is
+             * ignored (file header). */
+            if (enemy_mailbox_poll(e, pp)) {
+                e->state = EM_ENEMY_DEATH;
+            } else if (dist <= CRATE_TRIGGER_R) {
+                /* proximity burst: gibs scatter away from the player */
+                float hx = e->pos[0] - pp[0], hz = e->pos[2] - pp[2];
+                float hl = sqrtf(hx * hx + hz * hz);
+                if (hl > 1e-4f) {
+                    e->hit_dir[0] = hx / hl;
+                    e->hit_dir[1] = hz / hl;
+                } else {
+                    e->hit_dir[0] = -sinf(e->yaw);
+                    e->hit_dir[1] = -cosf(e->yaw);
+                }
+                e->state = EM_ENEMY_DEATH;
+            }
+            break;
+        }
         if (enemy_mailbox_poll(e, pp)) {   /* any damage kills (HP=1) */
             e->state = EM_ENEMY_DEATH;
             break;
@@ -990,6 +1198,10 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         break;
 
     case EM_ENEMY_DEATH:
+        if (e->kind == EM_ENEMY_KIND_CRATE) {
+            crate_burst(e, pp);   /* husk gibs + the worm (file header) */
+            break;
+        }
         /* Engine sub-machine: nest-child spawns, gore sounds/FX pairs,
          * a gib-model rebind and a knockback corpse-slide. The GAMEPLAY
          * slot frees immediately (alive/state/hit-tests identical to
@@ -1062,6 +1274,18 @@ int em_enemy_player_hit_take(void)
     return code;
 }
 
+/* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
+ * and the gib demo stay byte-identical). */
+static float kind_aim_y(const Enemy *e)
+{
+    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y : ENEMY_AIM_Y;
+}
+
+static float kind_hit_r(const Enemy *e)
+{
+    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R : ENEMY_HIT_R;
+}
+
 int em_enemy_acquire(const float from[3], float yaw, float max_dist,
                      float cone_cos, float aim_out[3])
 {
@@ -1082,7 +1306,7 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
     }
     if (best >= 0 && aim_out) {
         aim_out[0] = s.e[best].pos[0];
-        aim_out[1] = s.e[best].pos[1] + ENEMY_AIM_Y;
+        aim_out[1] = s.e[best].pos[1] + kind_aim_y(&s.e[best]);
         aim_out[2] = s.e[best].pos[2];
     }
     return best;
@@ -1100,11 +1324,12 @@ int em_enemy_ray_test(const float from[3], const float to[3],
     for (int i = 0; i < s.n; i++) {
         const Enemy *e = &s.e[i];
         if (!e->active) continue;
-        float c[3] = { e->pos[0], e->pos[1] + ENEMY_AIM_Y, e->pos[2] };
+        float r    = kind_hit_r(e);
+        float c[3] = { e->pos[0], e->pos[1] + kind_aim_y(e), e->pos[2] };
         float m[3] = { from[0] - c[0], from[1] - c[1], from[2] - c[2] };
         float b    = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
         float cc   = m[0] * m[0] + m[1] * m[1] + m[2] * m[2]
-                   - ENEMY_HIT_R * ENEMY_HIT_R;
+                   - r * r;
         float disc = b * b - dd * cc;
         if (disc < 0.0f) continue;
         float t = (-b - sqrtf(disc)) / dd;   /* entry point */
@@ -1147,8 +1372,15 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
         *bone_count = gm->bone_count;
         return 1;
     }
-    if (!s.mesh) return 0;
     if (!s.e[i].active && s.e[i].sink <= 0) return 0;  /* sink visual */
+    if (s.e[i].kind == EM_ENEMY_KIND_CRATE) {
+        if (!s.crate_mesh) return 0;
+        *mesh       = s.crate_mesh;
+        *palette    = s.e[i].palette;
+        *bone_count = s.crate_bones;
+        return 1;
+    }
+    if (!s.mesh) return 0;
     *mesh       = s.mesh;
     *palette    = s.e[i].palette;
     *bone_count = s.bone_count;
@@ -1166,6 +1398,11 @@ int em_enemy_alive(void)
 int em_enemy_state(int i)
 {
     return (i >= 0 && i < s.n) ? s.e[i].state : -1;
+}
+
+int em_enemy_kind(int i)
+{
+    return (i >= 0 && i < s.n) ? s.e[i].kind : -1;
 }
 
 int em_enemy_hp(int i)
@@ -1187,6 +1424,11 @@ void em_enemy_shutdown(EmGfx *gfx)
         em_gfx_mesh_destroy(gfx, s.mesh);
         if (s.has_model)
             em_model_free(&s.model);
+    }
+    if (s.crate_mesh) {
+        em_gfx_mesh_destroy(gfx, s.crate_mesh);
+        if (s.crate_has_model)
+            em_model_free(&s.crate_model);
     }
     for (int i = 0; i < s.gibm_n; i++) {
         em_gfx_mesh_destroy(gfx, s.gibm[i].mesh);

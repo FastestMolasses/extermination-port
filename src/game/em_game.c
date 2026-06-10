@@ -379,14 +379,20 @@ static struct {
     int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
     int         wt_fail;         /* weapon test: failed checkpoints */
     int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
-                                  * run, 2 = let-it-reach-the-player run */
+                                  * run, 2 = let-it-reach-the-player run,
+                                  * 3 = walk-at-the-crate burst run */
     int         sfx_test;        /* EM_SFX_TEST=1 — one-shot mixer test */
-    int         et_spawned;      /* test crawler placed at scene init */
+    int         et_spawned;      /* test enemy placed at scene init */
     int         et_fail;         /* failed checkpoints */
-    float       et_d0;           /* spawn distance to the test crawler */
+    float       et_d0;           /* spawn distance to the test enemy */
     float       et_health0;      /* player health at frame 0 */
     int         et_fired;        /* frame the kill-run shot was injected */
     int         et_hit_frame;    /* frame the contact run lost health */
+    int         et_burst_frame;  /* crate run: frame the crate burst */
+    float       et_bd;           /* crate run: crate distance at burst */
+    float       et_wd0;          /* crate run: worm distance at burst */
+    float       et_wd_min;       /* crate run: min worm distance since */
+    int         et_worm_atk;     /* crate run: worm reached ATTACK */
 } g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
@@ -406,8 +412,13 @@ static struct {
  *   enemy crawler <x> <y> <z> <yaw>
  *                             one placed CRAWLER (the func_001551B0
  *                             placement records); owned by em_enemy.c.
- *                             Only the "crawler" kind exists natively;
- *                             other kinds are reported and skipped.
+ *   enemy crate <x> <y> <z> <yaw>
+ *                             one DISGUISED CRATE (the crawler's IDLE
+ *                             disguise as its own kind — em_enemy.h
+ *                             "CRATE KIND"): idles as the office crate
+ *                             mesh, bursts into gibs + a crawler on a
+ *                             bullet hit or ~10-u player proximity.
+ *                             Other kinds are reported and skipped.
  *
  * A missing file or missing key leaves the office defaults in place, so
  * the default scene needs no manifest to keep its exact behavior. */
@@ -448,11 +459,14 @@ static void scene_manifest_load(void)
         } else if (sscanf(line, "enemy %255s %f %f %f %f", name,
                           &x, &y, &z, &yaw) == 5) {
             /* Placed enemy instance (em_enemy.c). */
-            if (strcmp(name, "crawler") != 0) {
+            int kind = strcmp(name, "crawler") == 0 ? EM_ENEMY_KIND_CRAWLER
+                     : strcmp(name, "crate") == 0   ? EM_ENEMY_KIND_CRATE
+                                                    : -1;
+            if (kind < 0) {
                 printf("manifest: unknown enemy kind, skipped: %s", line);
             } else {
                 float p[3] = { x, y, z };
-                if (em_enemy_add(em_frame_gfx(), p, yaw) < 0)
+                if (em_enemy_add_kind(em_frame_gfx(), kind, p, yaw) < 0)
                     printf("manifest: enemy line failed to load: %s", line);
             }
         }
@@ -1638,7 +1652,15 @@ static void weapon_test_script(void)
  *     crawler reach the player. The radius-6 lunge writes the player
  *     mailbox (0x400A -> amount 10) and the crawler bursts (the
  *     suicide-attack path) -> assert health dropped by exactly 10 and
- *     the crawler despawned. */
+ *     the crawler despawned.
+ *   EM_ENEMY_TEST=3 (crate run): spawn a DISGUISED CRATE 25 units ahead
+ *     instead (em_enemy.h "CRATE KIND"); weapon stays holstered, walk
+ *     forward (W) at it. Assert the crate BURSTS at the ~10-u proximity
+ *     trigger with no shot fired, that the WORM spawned at the crate
+ *     position (the burst's gibs occupy virtual draw slots), and that
+ *     the worm wakes (ATTACK) and CLOSES distance on the now-standing
+ *     player. (The worm may finish its suicide lunge inside the
+ *     window — health/alive are reported, not asserted.) */
 static void et_check(int cond, const char *what)
 {
     if (cond) return;
@@ -1646,12 +1668,17 @@ static void et_check(int cond, const char *what)
     printf("enemy test: CHECK FAILED — %s\n", what);
 }
 
-static float et_dist(void)
+static float et_dist_i(int i)
 {
     float p[3] = { 0.0f, 0.0f, 0.0f };
-    em_enemy_pos(0, p);
+    em_enemy_pos(i, p);
     float dx = p[0] - g.pos[0], dz = p[2] - g.pos[2];
     return sqrtf(dx * dx + dz * dz);
+}
+
+static float et_dist(void)
+{
+    return et_dist_i(0);
 }
 
 static void et_finish(const char *run)
@@ -1673,9 +1700,11 @@ static void enemy_test_script(void)
         g.et_health0 = g.status.health;
         if (g.enemy_test == 1)
             move_test_inject('e', 1);   /* R1 hold — draw the rifle */
+        if (g.enemy_test == 3)
+            move_test_inject('w', 1);   /* walk at the crate */
         return;
     }
-    if (n == 20)
+    if (n == 20 && g.enemy_test != 3)   /* the disguised crate stays IDLE */
         et_check(em_enemy_state(0) == EM_ENEMY_ATTACK,
                  "crawler awake (ATTACK) by frame 20");
 
@@ -1703,6 +1732,48 @@ static void enemy_test_script(void)
             et_check(g.status.health == g.et_health0,
                      "player health untouched");
             et_finish("kill run");
+        }
+    } else if (g.enemy_test == 3) {
+        if (!g.et_burst_frame) {
+            if (em_enemy_state(0) == EM_ENEMY_FREE) {
+                /* the crate burst this frame (slot 0 freed) */
+                g.et_burst_frame = n;
+                g.et_bd          = et_dist();
+                move_test_inject('w', 0);    /* stop: the worm comes */
+                et_check(g.et_bd <= 10.5f && g.et_bd >= 8.0f,
+                         "burst at the ~10-u proximity trigger");
+                et_check(em_weapon_shots() == 0,
+                         "no shot fired (proximity, not damage)");
+                et_check(em_enemy_alive() == 1 &&
+                         em_enemy_kind(1) == EM_ENEMY_KIND_CRAWLER,
+                         "worm spawned by the burst");
+                float cp[3] = { 0, 0, 0 }, wp[3] = { 0, 0, 0 };
+                em_enemy_pos(0, cp);
+                em_enemy_pos(1, wp);
+                et_check(fabsf(wp[0] - cp[0]) + fabsf(wp[1] - cp[1]) +
+                         fabsf(wp[2] - cp[2]) < 0.01f,
+                         "worm emerged at the crate position");
+                g.et_wd0 = g.et_wd_min = et_dist_i(1);
+            } else if (n >= 600) {
+                et_check(0, "crate burst by frame 600");
+                et_finish("crate run");
+            }
+        } else {
+            float wd = et_dist_i(1);
+            if (wd < g.et_wd_min) g.et_wd_min = wd;
+            if (em_enemy_state(1) == EM_ENEMY_ATTACK)
+                g.et_worm_atk = 1;   /* sampled: it may lunge-burst
+                                      * before a fixed checkpoint */
+            if (n == g.et_burst_frame + 120) {
+                et_check(g.et_worm_atk,
+                         "worm woke (ATTACK) after the burst");
+                et_check(g.et_wd_min <= g.et_wd0 - 3.0f,
+                         "worm closed distance on the player");
+                printf("enemy test (crate run): burst dist %.1f, worm "
+                       "dist %.1f -> min %.1f, draw slots %d\n",
+                       g.et_bd, g.et_wd0, g.et_wd_min, em_enemy_count());
+                et_finish("crate run");
+            }
         }
     } else {
         if (!g.et_hit_frame) {
@@ -1905,15 +1976,31 @@ static void ingame_frame_machine(EmTask *self)
              * mag 4, reserve 120). The HUD mirrors the weapon live from
              * here on (frame_close_out). */
             em_weapon_reset(g.status.mag, g.status.reserve);
-            /* EM_ENEMY_TEST spawn: one crawler 30 units ahead of the
-             * player spawn along the spawn facing, turned to face the
-             * player (see enemy_test_script). */
+            /* EM_ENEMY_TEST spawn: tests 1/2 place one crawler 30
+             * units ahead of the player spawn along the spawn facing,
+             * turned to face the player; test 3 places a DISGUISED
+             * CRATE 25 units ahead instead (see enemy_test_script). */
             if (g.enemy_test && !g.et_spawned) {
                 g.et_spawned = 1;
-                float ep[3] = { g.pos[0] + sinf(g.yaw) * 30.0f,
+                int   ek = g.enemy_test == 3 ? EM_ENEMY_KIND_CRATE
+                                             : EM_ENEMY_KIND_CRAWLER;
+                float ed = g.enemy_test == 3 ? 25.0f : 30.0f;
+                /* Crate run only: the office spawn faces a wall plane
+                 * 14 u ahead (see the kill-run wall note), so a walking
+                 * player could never reach the 10-u proximity trigger
+                 * of a crate 25 u beyond it. About-face the spawn pose
+                 * (player + chase camera — the one-shot camera arm
+                 * reads g.cam.yaw next frame) so the crate goes 25 u
+                 * down the OPEN south corridor, still dead ahead. */
+                if (g.enemy_test == 3) {
+                    g.yaw    += EM_PI;
+                    g.cam.yaw = g.yaw;
+                }
+                float ep[3] = { g.pos[0] + sinf(g.yaw) * ed,
                                 g.pos[1],
-                                g.pos[2] + cosf(g.yaw) * 30.0f };
-                if (em_enemy_add(em_frame_gfx(), ep, g.yaw + EM_PI) < 0)
+                                g.pos[2] + cosf(g.yaw) * ed };
+                if (em_enemy_add_kind(em_frame_gfx(), ek, ep,
+                                      g.yaw + EM_PI) < 0)
                     printf("enemy test: spawn failed\n");
             }
             self->user[GAME_BYTE_FRAME] = 1;
@@ -2096,7 +2183,7 @@ void em_game_install(void)
     const char *wt = getenv("EM_WEAPON_TEST");
     g.weapon_test  = wt && wt[0] == '1';
     const char *et = getenv("EM_ENEMY_TEST");
-    if (et && (et[0] == '1' || et[0] == '2'))
+    if (et && et[0] >= '1' && et[0] <= '3')
         g.enemy_test = et[0] - '0';
     const char *st = getenv("EM_SFX_TEST");
     g.sfx_test     = st && st[0] == '1';

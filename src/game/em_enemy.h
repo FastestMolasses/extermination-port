@@ -78,10 +78,38 @@
  * frame-0 pose. The layer never feeds back into the gameplay state
  * machine, so spawn/wake/lunge/death TIMING is identical either way.
  *
+ * CRATE KIND (FINDINGS "CRAWLER RESOLVED" sections 2/3 + the s26
+ * office-table carve): in the engine the placed crawler IS a disguised
+ * prop — its IDLE state renders the per-area model-table entry bound by
+ * the placement param (office AREA02: entry 0x0D = a plain 6x4x5
+ * cardboard box, three 64x64 PSMT4 skins; NOT the AREA11 14u beveled
+ * crate — per-area skins), wiggling in place with a PROCEDURAL jitter
+ * (float tables D_002468B0/B4/B8 perturb the world-matrix x/z
+ * translation at actor +0x100/+0x108; there are no skeletal clips for
+ * the 1-node rig). The port models that disguise as its own spawn KIND:
+ *
+ *   - `enemy crate <x> <y> <z> <yaw>` manifest lines (or
+ *     em_enemy_add_kind with EM_ENEMY_KIND_CRATE) place one;
+ *   - IDLE renders assets/enemy_crate.emdl (decomp repo
+ *     tools/export_props.py --crate; placeholder box when absent) with
+ *     a deterministic small x/z + yaw perturbation (the documented
+ *     jitter MECHANISM; the amplitudes/periods are flagged port
+ *     constants — the D_002468B0 table values are not exported);
+ *   - HP 1: a bullet hit (the +0x36 mailbox) OR the player closing
+ *     within ~10 u (flagged port trigger, the state-4 wake stand-in)
+ *     BURSTS it — husk gibs fly through the same gib launcher as the
+ *     crawler death, and the real creature (the worm/leech) spawns at
+ *     the crate position through the normal spawn path (emerge clip 1),
+ *     yaw toward the player (the engine's leech init yaw), then attacks;
+ *   - the crate ignores the group alarm (port: the disguise holds until
+ *     its own trigger; the engine's alarmed crawler hops as the crate —
+ *     untranslated).
+ *
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
- * <yaw>` lines (parsed by em_game.c next to the door lines). No enemy
- * lines = this module never loads, updates or draws anything, keeping
- * default-run frame output byte-identical.
+ * <yaw>` / `enemy crate <x> <y> <z> <yaw>` lines (parsed by em_game.c
+ * next to the door lines). No enemy lines = this module never loads,
+ * updates or draws anything, keeping default-run frame output
+ * byte-identical.
  */
 #ifndef EM_ENEMY_H
 #define EM_ENEMY_H
@@ -107,6 +135,14 @@ enum {
     EM_ENEMY_IDLE   = 4    /* dormant on the nest                       */
 };
 
+/* Spawn kinds (port-side: the engine's one crawler behavior covers
+ * both — the crate is its IDLE disguise; see "CRATE KIND" above). */
+enum {
+    EM_ENEMY_KIND_CRAWLER = 0,   /* the worm/leech creature            */
+    EM_ENEMY_KIND_CRATE   = 1    /* disguised crate: bursts into gibs +
+                                  * a crawler on hit / ~10-u proximity */
+};
+
 /* Reset the instance list (boot / scene reload). Does not free GPU
  * resources — pair with em_enemy_shutdown for that. */
 void em_enemy_reset(void);
@@ -115,6 +151,11 @@ void em_enemy_reset(void);
  * script). Loads the shared mesh on first use (asset, else the runtime
  * placeholder). Returns the instance index, or -1. */
 int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw);
+
+/* Kind-aware spawn (manifest dispatch): EM_ENEMY_KIND_CRAWLER is
+ * em_enemy_add; EM_ENEMY_KIND_CRATE places the disguised crate (and
+ * preloads the crawler + gib assets its burst will need). */
+int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
 
 /* Per-frame update: every crawler's state machine (idle/alarm wake,
  * steer + hop toward the player, lunge, mailbox-driven death). `coll`
@@ -159,6 +200,7 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
 /* Introspection (debug / self-tests). */
 int  em_enemy_alive(void);        /* live instances (INIT/IDLE/ATTACK) */
 int  em_enemy_state(int i);       /* engine lifecycle value, or -1     */
+int  em_enemy_kind(int i);        /* EM_ENEMY_KIND_*, or -1            */
 int  em_enemy_hp(int i);          /* the +0x34 halfword                */
 void em_enemy_pos(int i, float out[3]);
 
