@@ -5,18 +5,24 @@
  * disc-derived and live under assets/ (git-ignored, never redistributed).
  *
  * Layout (little-endian) — see export_native.py for the producer:
- *   char  magic[4]   "EMD2"
+ *   char  magic[4]   "EMD3"  ("EMD2" = the same file without clip_count
+ *                            and the clip table; still loadable — the
+ *                            loader synthesizes one whole-range clip)
  *   u32   bone_count
  *   u32   vert_count
  *   u32   index_count
- *   u32   frame_count
+ *   u32   frame_count   (total baked frames across ALL clips)
  *   f32   fps
  *   u32   tex_count
  *   u32   flags        (bit 0: the "normal" slot carries a baked vertex
  *                       COLOR, not a normal — static level geometry ships
  *                       its lighting prebaked; see tools/export_level.py)
+ *   u32   clip_count    (EMD3 only, >= 1)
  *   i32   parents[bone_count]
  *   tex   { u32 width, height, byte_offset, reserved } x tex_count
+ *   clip  { u32 id, first_frame, frame_count; f32 fps } x clip_count
+ *         (EMD3 only; id = source container index in the disc's id 0x74
+ *         animation library, frames index the shared palette blob)
  *   vert  { f32 px,py,pz; f32 nx,ny,nz; f32 u,v; u32 bone; u32 tex }
  *         x vert_count       (tex 0xFFFFFFFF = untextured)
  *   u32   indices[index_count]
@@ -44,6 +50,16 @@ typedef struct {
     uint32_t width, height, offset, reserved;
 } EmModelTex;
 
+/* One named clip: a frame range into the shared palette blob. `id` is the
+ * source container index in the disc's id 0x74 animation library (player:
+ * 346 = idle/look-around, 2 = walk, 3 = run — identified by stride scan,
+ * see export_native.py). Locomotion clips are baked IN PLACE (the
+ * exporter strips the root's XZ travel); the game re-applies movement. */
+typedef struct {
+    uint32_t id, first_frame, frame_count;
+    float    fps;
+} EmModelClip;
+
 #define EM_MODEL_VERT_WORDS 10u  /* pos3, nrm3, uv2, bone, tex */
 #define EM_MODEL_NO_TEX     0xFFFFFFFFu
 #define EM_MODEL_FLAG_VCOLOR 1u  /* nrm slot = baked vertex color */
@@ -56,8 +72,11 @@ typedef struct {
     float       fps;
     uint32_t    tex_count;
     uint32_t    flags;
+    uint32_t    clip_count;
     int32_t    *parents;   /* bone_count */
     EmModelTex *texs;      /* tex_count */
+    EmModelClip *clips;    /* clip_count (>= 1; EMD2 gets one synthetic
+                              clip spanning every frame, id 0) */
     float      *verts;     /* vert_count * EM_MODEL_VERT_WORDS 32-bit words */
     uint32_t   *indices;   /* index_count */
     float      *palette;   /* frame_count * bone_count * 16 floats */
@@ -70,11 +89,17 @@ typedef struct {
 int  em_model_load(EmModel *m, const char *path);
 void em_model_free(EmModel *m);
 
-/* Write the bone palette for a (possibly fractional) frame time into
- * out[bone_count*16], linearly blending the two surrounding baked frames
- * (the engine itself interpolates between animation samples each tick).
- * time_frames wraps, so any monotonically growing value loops the clip. */
-void em_model_palette_at(const EmModel *m, double time_frames, float *out);
+/* Write the bone palette of clip index `clip` for a (possibly fractional)
+ * frame time into out[bone_count*16], linearly blending the two
+ * surrounding baked frames (the engine itself interpolates between
+ * animation samples each tick). time_frames is CLIP-RELATIVE and wraps,
+ * so any monotonically growing value loops the clip; the last frame
+ * blends back into the first. An out-of-range clip index uses clip 0. */
+void em_model_palette_at(const EmModel *m, uint32_t clip,
+                         double time_frames, float *out);
+
+/* Clip index for a library clip id; -1 if this model doesn't carry it. */
+int em_model_clip_index(const EmModel *m, uint32_t id);
 
 #ifdef __cplusplus
 }

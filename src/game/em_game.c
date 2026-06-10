@@ -74,8 +74,9 @@
  * orbits it around the player. Esc still quits (em_frame.c step C).
  *
  * Debug instrumentation (port-side): EM_CAPTURE=<path.bmp> requests a BMP
- * capture at gameplay frame 60 and quits after frame 61, preserving the
- * pre-architecture shell's headless regression behavior bit-for-bit.
+ * capture at gameplay frame 60 (override with EM_CAPTURE_FRAME=<n>) and
+ * quits one frame later, preserving the pre-architecture shell's headless
+ * regression behavior bit-for-bit at the default frame.
  * EM_MOVE_TEST=1 runs a deterministic movement self-test: a scripted key
  * sequence (60 frames forward, 30 frames right) is injected through the
  * real em_input event API, then the final position/yaw is printed and the
@@ -123,6 +124,21 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define FRAME_DT        (1.0f / 60.0f)
 #define WALK_SPEED      15.0f   /* units/sec */
 #define TURN_SPEED      12.0f   /* rad/sec — facing seeks the move dir */
+
+/* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c,
+ * identified 2026-06-10 by stride scan — see tools/export_native.py):
+ * 346 = idle/look-around (the clip the port has played since EMDL v2),
+ * 2 = walk, 3 = run (in the asset for later). The walk clip is baked
+ * IN PLACE; its natural ground speed at 60 fps is 24.07 u/s (printed by
+ * the exporter), so playback rate = move_speed / that keeps the feet
+ * tracking the ground. Idle<->walk is a 0.15 s LINEAR palette blend —
+ * the engine cross-fades clip transitions the same way (PROGRESS.md:
+ * mid-blend live captures match no single clip). */
+#define CLIP_ID_IDLE    346u
+#define CLIP_ID_WALK    2u
+#define CLIP_ID_RUN     3u
+#define WALK_CLIP_SPEED 24.07f  /* units/sec at the baked 60 fps */
+#define ANIM_BLEND_TIME 0.15f   /* seconds, idle<->walk crossfade */
 #define STICK_DEADZONE  0.25f
 #define CAM_DIST        30.0f   /* chase eye distance behind the player */
 #define CAM_HEIGHT      15.0f   /* chase eye height above the floor */
@@ -159,9 +175,17 @@ static struct {
     float      player_palette[1024 * 16]; /* bone_count <= 1024 (loader) */
 
     /* gameplay-frame state */
-    double     t;                /* clip time, seconds (60 ticks/s) */
+    double     t;                /* idle clip time, seconds (60 ticks/s) */
     int        frame_no;         /* gameplay frames run */
     uint8_t    frame_selector;   /* scratchpad 0x70003B8D: 0 = gameplay */
+
+    /* animation clips + idle<->walk crossfade */
+    int        clip_idle;        /* clip indices into model.clips */
+    int        clip_walk;        /* -1 = no walk clip (EMD2 asset) */
+    double     walk_t;           /* walk clip time, seconds (rate-scaled) */
+    float      walk_w;           /* walk blend weight 0..1 */
+    float      move_speed;       /* this frame's ground speed, units/sec */
+    float      walk_palette[1024 * 16];  /* scratch for the blend */
 
     /* player world placement (the actor's position + facing) */
     float      pos[3];           /* world position, feet on the floor */
@@ -182,6 +206,7 @@ static struct {
 
     /* EM_CAPTURE / EM_MOVE_TEST debug instrumentation */
     const char *capture_path;
+    int         capture_frame;
     int         move_test;
 } g;
 
@@ -234,7 +259,7 @@ static int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
             em_model_free(&it->model);
             continue;
         }
-        em_model_palette_at(&it->model, 0.0, it->palette);
+        em_model_palette_at(&it->model, 0, 0.0, it->palette);
         printf("scene: %s — %u verts, %u tris, %u textures\n", path,
                it->model.vert_count, it->model.index_count / 3,
                it->model.tex_count);
@@ -297,8 +322,10 @@ static void player_move(void)
     float sx  = stick_axis(in->lx);
     float sy  = stick_axis(in->ly);
     float len = sqrtf(sx * sx + sy * sy);
+    g.move_speed = 0.0f;
     if (len < STICK_DEADZONE) return;
-    if (len > 1.0f) { sx /= len; sy /= len; }
+    if (len > 1.0f) { sx /= len; sy /= len; len = 1.0f; }
+    g.move_speed = len * WALK_SPEED;
 
     /* Camera basis on XZ: forward f points from the eye towards the
      * player, screen-right is f x up = (-fz, 0, fx). Stick up (sy = -1)
@@ -333,14 +360,42 @@ static void player_move(void)
  * port's slice of it is movement (frame input -> position/yaw) plus the
  * anim side: evaluate the bone palette at the current clip time, then
  * compose the world placement onto it.
- * TODO(anim): the EMDL carries a single baked clip, so the character
- * plays it whether moving or not — swap to a walk clip while moving once
- * the exporter ships multiple clips. */
+ *
+ * Idle<->walk crossfade (the anim-evaluator slice): the walk blend
+ * weight seeks move_speed / WALK_SPEED linearly over ANIM_BLEND_TIME,
+ * and the in-place walk clip advances at move_speed / WALK_CLIP_SPEED
+ * so the stride tracks the ground (it freezes while standing). At
+ * weight 0 the idle path is bit-exactly the old single-clip evaluation,
+ * keeping EM_CAPTURE idle output stable. */
 static void actor_update(void)
 {
     player_move();
     if (!g.mesh) return;
-    em_model_palette_at(&g.model, g.t * g.model.fps, g.player_palette);
+
+    float target = 0.0f;
+    if (g.clip_walk >= 0) {
+        target = g.move_speed / WALK_SPEED;
+        if (target > 1.0f) target = 1.0f;
+        float step = FRAME_DT / ANIM_BLEND_TIME;
+        if      (g.walk_w < target - step) g.walk_w += step;
+        else if (g.walk_w > target + step) g.walk_w -= step;
+        else                               g.walk_w  = target;
+        g.walk_t += (double)(FRAME_DT * g.move_speed / WALK_CLIP_SPEED);
+    }
+
+    const EmModelClip *ci = &g.model.clips[g.clip_idle];
+    em_model_palette_at(&g.model, (uint32_t)g.clip_idle,
+                        g.t * ci->fps, g.player_palette);
+    if (g.walk_w > 0.0f) {
+        const EmModelClip *cw = &g.model.clips[g.clip_walk];
+        em_model_palette_at(&g.model, (uint32_t)g.clip_walk,
+                            g.walk_t * cw->fps, g.walk_palette);
+        uint32_t n = g.model.bone_count * 16;
+        float    w = g.walk_w;
+        for (uint32_t i = 0; i < n; i++)
+            g.player_palette[i] += (g.walk_palette[i] -
+                                    g.player_palette[i]) * w;
+    }
     palette_apply_placement(g.player_palette, g.model.bone_count,
                             g.pos, g.yaw);
 }
@@ -428,14 +483,14 @@ static void frame_close_out(void)
         }
     }
 
-    if (g.capture_path && g.frame_no == 60)
+    if (g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
 
     g.t += 1.0 / 60.0;
     g.frame_no++;
     /* The move test owns the quit (frame 91) when both modes are set, so
      * a mid-walk capture doesn't cut the scripted walk short. */
-    if (g.capture_path && !g.move_test && g.frame_no > 61)
+    if (g.capture_path && !g.move_test && g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();
 }
 
@@ -524,6 +579,8 @@ static void ingame_frame_machine(EmTask *self)
              * with no scene loaded) facing +Z, and the chase camera arms
              * behind it; the camera block is rebuilt every frame. */
             g.t              = 0.0;
+            g.walk_t         = 0.0;
+            g.walk_w         = 0.0f;
             g.frame_no       = 0;
             g.frame_selector = 0;
             g.pos[0] = g.n_scene ? kPlayerPos[0] : 0.0f;
@@ -606,10 +663,21 @@ static void game_boot_task(void)
                                     g.model.tex_count, g.model.texels,
                                     g.model.flags);
         printf("loaded %s: %u bones, %u verts, %u tris, %u frames @ %.0f fps, "
-               "%u textures\n",
+               "%u clips, %u textures\n",
                MODEL_PATH, g.model.bone_count, g.model.vert_count,
                g.model.index_count / 3, g.model.frame_count, g.model.fps,
-               g.model.tex_count);
+               g.model.clip_count, g.model.tex_count);
+        /* Resolve the named clips; an old single-clip (EMD2) asset keeps
+         * exactly the previous behavior: idle = clip 0, no crossfade. */
+        g.clip_idle = em_model_clip_index(&g.model, CLIP_ID_IDLE);
+        if (g.clip_idle < 0) g.clip_idle = 0;
+        g.clip_walk = em_model_clip_index(&g.model, CLIP_ID_WALK);
+        if (g.clip_walk == g.clip_idle) g.clip_walk = -1;
+        printf("clips: idle #%d (id %u)%s\n", g.clip_idle,
+               g.model.clips[g.clip_idle].id,
+               g.clip_walk >= 0 ? ", walk found — idle<->walk crossfade on"
+                                : " only — crossfade off (re-export with "
+                                  "--clips 346,2,3)");
     } else {
         printf("no %s — showing the test triangle. Generate it with the "
                "decomp repo's tools/export_native.py\n", MODEL_PATH);
@@ -625,6 +693,9 @@ void em_game_install(void)
 {
     memset(&g, 0, sizeof g);
     g.capture_path = getenv("EM_CAPTURE");
+    const char *cf = getenv("EM_CAPTURE_FRAME");
+    g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
+                                               regression frame */
     const char *mt = getenv("EM_MOVE_TEST");
     g.move_test    = mt && mt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */

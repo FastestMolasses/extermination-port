@@ -6,8 +6,10 @@
  * (func_001AE040) -> gameplay frame (func_001AE5E0). See em_game.c for the
  * per-function mapping. Today the gameplay frame drives the port's
  * scene/character rendering, interactive player movement (left stick,
- * camera-relative) and a lerped chase camera (d-pad orbits it); real game
- * logic replaces the skeleton arms as the decomp repo recovers it.
+ * camera-relative) with an idle<->walk animation crossfade (0.15 s linear
+ * palette blend, walk stride rate-scaled to ground speed) and a lerped
+ * chase camera (d-pad orbits it); real game logic replaces the skeleton
+ * arms as the decomp repo recovers it.
  */
 #ifndef EM_GAME_H
 #define EM_GAME_H
