@@ -19,13 +19,19 @@
  *                                        translated; slot kept in order.
  *  E  func_001AB6A0 TASK DISPATCH        em_task_dispatch() — ALL game
  *                                        logic, exactly as on PS2.
- *  F  func_001FCA10 audio service        NO-OP — em_audio is pull-model
- *                                        (the OS audio thread calls the
- *                                        mixer); the PS2 needed a per-frame
- *                                        EE-side service pump for IOP RPC.
+ *  F  func_001FCA10 audio service        em_bgm_service() — em_audio is
+ *                                        pull-model (the OS audio thread
+ *                                        mixes), so the per-frame call is
+ *                                        only the game-thread half of the
+ *                                        BGM stream: retire swapped-out
+ *                                        tracks the audio thread has
+ *                                        acked. The PS2 pumped IOP RPC
+ *                                        here.
  *  G  func_001AEE70 transition/          NO-OP HOOK — same family as D.
  *     brightness machine
- *  H  func_001FB100 audio service        NO-OP — as F.
+ *  H  func_001FB100 audio service        folded into F — one native
+ *                                        service call covers all three
+ *                                        PS2 pumps (no RPC to drain).
  *  I  func_001B5B70 input post-process   folded into C — pressed/released
  *                                        edges are computed at snapshot
  *                                        time; nothing left to do here.
@@ -37,7 +43,7 @@
  *  L  func_001AB590 DMA CHCR watchdog    NO-OP — guards against wedged
  *                                        D0/D1/D2 DMA channels; no DMA
  *                                        controller exists natively.
- *  M  conditional func_00203350 audio    NO-OP — as F.
+ *  M  conditional func_00203350 audio    folded into F — as H.
  *  N  func_001D1C10 frame-end render     NO-OP — closes the per-frame
  *     bookkeeping                        packet arena; natively the command
  *                                        stream is closed by end_frame (P).
@@ -78,6 +84,7 @@
 #include <stdlib.h>
 
 #include "em_input.h"
+#include "game/em_bgm.h"
 #include "game/em_task.h"
 
 static struct {
@@ -209,11 +216,15 @@ void em_frame_run(void)
         /* E: TASK DISPATCH — all game logic. */
         em_task_dispatch();
 
-        /* F, G, H: audio service / transition machine / audio service —
-         * no-op (pull-model audio; machines not yet translated). */
+        /* F: audio service — the game-thread half of the pull-model BGM
+         * stream (em_bgm.c); the PS2's H and M pumps are folded in. */
+        em_bgm_service();
+
+        /* G, H: transition machine / audio service — no-op hook /
+         * folded into F. */
 
         /* J, K, L, M: VU sync / GS readback / DMA watchdog / audio —
-         * no-op (PS2 hardware paths; see mapping table). */
+         * no-op + folded into F (PS2 hardware paths; see mapping table). */
 
         /* N, O: frame-end render bookkeeping / second fade tick — no-op. */
 

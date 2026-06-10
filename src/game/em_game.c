@@ -105,6 +105,7 @@
 #include "em_input.h"
 #include "em_math.h"
 #include "em_model.h"
+#include "game/em_bgm.h"
 #include "game/em_collision.h"
 #include "game/em_frame.h"
 #include "game/em_task.h"
@@ -289,6 +290,9 @@ static struct {
     ChainDraw  chain[SCENE_MAX + 1];
     int        chain_len;
     int        chain_test_triangle;
+
+    /* EM_BGM=<path.wav>: loop this cue WAV as level music (see boot task) */
+    const char *bgm_path;
 
     /* EM_CAPTURE / EM_MOVE_TEST debug instrumentation */
     const char *capture_path;
@@ -1034,12 +1038,23 @@ static void game_boot_task(void)
                COLL_PATH);
     }
 
+    /* BGM at the boot->game handoff — the native func_001FB0B0 moment:
+     * on the PS2 the area flow writes the level's cue id to the
+     * current-BGM global D_00810D38 and func_001FAE70 fades the stream
+     * in (the in-level cues carry the loop flag in the D_0025DD30 table).
+     * Natively EM_BGM=<path.wav> names a locally exported cue WAV and
+     * stands in for the cue id until the native cue table lands; no env
+     * = silent, exactly as before (em_bgm never opens a device). */
+    if (g.bgm_path)
+        em_bgm_play(g.bgm_path, 1);  /* func_001FB0B0(cue) — looping BGM */
+
     em_task_register(0, game_task);  /* func_001AB740(0, func_001ACEC0) */
 }
 
 void em_game_install(void)
 {
     memset(&g, 0, sizeof g);
+    g.bgm_path     = getenv("EM_BGM");
     g.capture_path = getenv("EM_CAPTURE");
     const char *cf = getenv("EM_CAPTURE_FRAME");
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
@@ -1064,4 +1079,5 @@ void em_game_shutdown(void)
     }
     g.n_scene = 0;
     em_collision_free(&g.coll);
+    em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
 }

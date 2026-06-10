@@ -11,7 +11,9 @@
  * engine's AUTHENTIC chase camera (struct 0x008101E0 mirror, clamped
  * proportional follow per FINDINGS.md "CAMERA SYSTEM"; d-pad feeds its
  * yaw); real game logic replaces the skeleton arms as the decomp repo
- * recovers it.
+ * recovers it. EM_BGM=<path.wav> makes the boot->game handoff start
+ * looping level music through em_bgm (the engine's func_001FB0B0 BGM
+ * model); unset = silent, behavior unchanged.
  */
 #ifndef EM_GAME_H
 #define EM_GAME_H
