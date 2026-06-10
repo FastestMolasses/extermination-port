@@ -84,6 +84,11 @@
  * d-pad (arrow keys) LEFT/RIGHT feeds a yaw input into the camera
  * struct. Esc still quits (em_frame.c step C).
  *
+ * SCENE MANIFEST: assets/scene/scene.txt (see scene_manifest_load) gives
+ * each scene its own spawn, collision filename and optional bgm in TRUE
+ * world coordinates — written by the decomp repo's exporters, read once
+ * at boot. No manifest = the office defaults (historical behavior).
+ *
  * Debug instrumentation (port-side): EM_CAPTURE=<path.bmp> requests a BMP
  * capture at gameplay frame 60 (override with EM_CAPTURE_FRAME=<n>) and
  * quits one frame later, preserving the pre-architecture shell's headless
@@ -110,15 +115,18 @@
 #include "game/em_frame.h"
 #include "game/em_task.h"
 
-#define MODEL_PATH "assets/player.emdl"
-#define SCENE_DIR  "assets/scene"
-#define COLL_PATH  "assets/scene/office.emcl"
-#define SCENE_MAX  16
+#define MODEL_PATH     "assets/player.emdl"
+#define SCENE_DIR      "assets/scene"
+#define SCENE_MANIFEST "assets/scene/scene.txt"
+#define COLL_DEFAULT   "office.emcl"
+#define SCENE_MAX      16
 
-/* Player spawn placement in the office room (chunk06.n1 level): the live
+/* DEFAULT player spawn — the office room (chunk06.n1 level): the live
  * GS-dump capture has the character standing at ~(107.4, 0, -184); the
  * level floor there is y = 0 and the player EMDL is recentred at the
- * origin with its feet at y ~= 0. */
+ * origin with its feet at y ~= 0. A scene manifest (scene.txt, below)
+ * overrides this per scene; the office values stay as the no-manifest
+ * defaults so an unmanifested assets/scene behaves exactly as before. */
 static const float kPlayerPos[3] = { 107.4f, 0.0f, -184.0f };
 
 /* Walkable-bounds FALLBACK: the office room's collision bbox (the id 0x44
@@ -138,6 +146,22 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * port probes from step-height above the feet to a drop window below. */
 #define FLOOR_PROBE_UP    8.0f
 #define FLOOR_PROBE_DOWN  8.0f
+
+/* Horizontal wall-probe height above the feet (knee height; the
+ * character is ~15 units tall). Probing at exactly y = feet is fragile
+ * against coarse outdoor collision tris whose bottom edge sits ON the
+ * ground (snow-scene gate walls): at foot level the wall cross-section
+ * thins to an epsilon sliver and the probe slips under it. Office
+ * geometry is vertical and floor-seated, so the lift does not move any
+ * office hit point. */
+#define WALL_PROBE_LIFT   1.0f
+
+/* Contact skin: rest a blocked actor a hair IN FRONT of the hit plane.
+ * Landing exactly ON the plane makes the next frame's probe start on /
+ * fp-behind it, where the walkers' t >= 0 interval test goes blind and
+ * the wall stops registering (tunneling while sliding along the snow
+ * gate). Within the move test's 0.05 position tolerance. */
+#define WALL_SKIN         0.01f
 
 /* Movement / camera tuning. The character is ~15 units tall; roughly one
  * body height per second reads as a natural walk at room scale (the room
@@ -294,11 +318,70 @@ static struct {
     /* EM_BGM=<path.wav>: loop this cue WAV as level music (see boot task) */
     const char *bgm_path;
 
+    /* SCENE MANIFEST (assets/scene/scene.txt) — per-scene boot config,
+     * written by the exporters. Defaults = the office values, so a
+     * missing manifest keeps the historical behavior bit-for-bit. */
+    float       spawn[3];        /* "spawn x y z yaw" — TRUE world coords */
+    float       spawn_yaw;       /* facing about +Y, radians; 0 = +Z */
+    char        coll_path[288];  /* "collision <file.emcl>" in SCENE_DIR */
+    char        bgm_file[256];   /* "bgm <file.wav>" in SCENE_DIR; "" = none */
+
     /* EM_CAPTURE / EM_MOVE_TEST debug instrumentation */
     const char *capture_path;
     int         capture_frame;
     int         move_test;
+    int         move_legs[2];    /* EM_MOVE_LEGS=fwd,strafe frame counts */
+    int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
+    float       move_expect[3];
 } g;
+
+/* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
+ * there by the decomp repo's exporters (tools/export_level.py --spawn /
+ * --bgm, tools/export_collision.py). Zero-dependency parser; "key value"
+ * lines, '#' starts a comment, unknown keys are ignored:
+ *
+ *   spawn <x> <y> <z> <yaw>   player spawn, TRUE world coords + facing (rad)
+ *   collision <file.emcl>     collision world filename inside the scene dir
+ *   bgm <file.wav>            optional looping level-music cue WAV (scene
+ *                             dir); the EM_BGM env override still wins
+ *
+ * A missing file or missing key leaves the office defaults in place, so
+ * the default scene needs no manifest to keep its exact behavior. */
+static void scene_manifest_load(void)
+{
+    g.spawn[0]  = kPlayerPos[0];
+    g.spawn[1]  = kPlayerPos[1];
+    g.spawn[2]  = kPlayerPos[2];
+    g.spawn_yaw = 0.0f;
+    snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", SCENE_DIR,
+             COLL_DEFAULT);
+    g.bgm_file[0] = '\0';
+
+    FILE *f = fopen(SCENE_MANIFEST, "r");
+    if (!f) return;
+
+    char line[512], name[256];
+    float x, y, z, yaw;
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#') continue;
+        if (sscanf(line, "spawn %f %f %f %f", &x, &y, &z, &yaw) == 4) {
+            g.spawn[0]  = x;
+            g.spawn[1]  = y;
+            g.spawn[2]  = z;
+            g.spawn_yaw = yaw;
+        } else if (sscanf(line, "collision %255s", name) == 1) {
+            snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", SCENE_DIR,
+                     name);
+        } else if (sscanf(line, "bgm %255s", name) == 1) {
+            snprintf(g.bgm_file, sizeof g.bgm_file, "%s", name);
+        }
+    }
+    fclose(f);
+    printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
+           "collision %s%s%s\n", SCENE_MANIFEST,
+           g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
+           g.bgm_file[0] ? ", bgm " : "", g.bgm_file);
+}
 
 static int cmp_str(const void *a, const void *b)
 {
@@ -409,17 +492,55 @@ static void palette_apply_placement(float *pal, uint32_t bone_count,
  * func_001A4030/func_0019ED80) makes motion parallel to the hit plane
  * free, so the second probe slides. The exact PS2 iteration count lives
  * in the untranslated spine; one slide pass reproduces the behavior for
- * single-wall contact. */
+ * single-wall contact (player_move_collide below).
+ *
+ * move_probe_wall: the horizontal probe, reporting only WALL-class hits.
+ * Outdoor terrain (the snow scene's grid world) is near-flat but tilted,
+ * so the knee-height segment can clip the very ground the player stands
+ * on — front-facing by a hair (n.z ~= -0.001) — and a naive block turns
+ * into sideways drift along the terrain. The engine's result block
+ * carries the surface class (SPR 0x700030CA) for exactly this split:
+ * walkable ground (FLOOR/SLOPE) never blocks the actor spine's
+ * horizontal motion (the floor query owns it); walls/ceilings do.
+ * Walkable crossings are stepped past and the probe re-runs for anything
+ * solid beyond them. Returns 1 with *hit staged on the first wall-class
+ * hit, else 0. */
+static int move_probe_wall(const float target[3], EmCollHit *hit)
+{
+    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID;
+    float from[3] = { g.pos[0], g.pos[1], g.pos[2] };
+
+    for (int i = 0; i < 8; i++) {
+        if (!em_collision_move_probe(&g.coll, from, target, mask, hit))
+            return 0;
+        if (hit->surf_class != EM_SURF_FLOOR &&
+            hit->surf_class != EM_SURF_SLOPE)
+            return 1;                       /* a real wall (or ceiling) */
+        /* Walkable ground — nudge the probe start just past the
+         * crossing and look again for solid geometry beyond it. */
+        float dx  = target[0] - hit->point[0];
+        float dz  = target[2] - hit->point[2];
+        float len = sqrtf(dx * dx + dz * dz);
+        if (len <= 1e-3f) return 0;         /* crossing at the target */
+        from[0] = hit->point[0] + dx / len * 1e-3f;
+        from[2] = hit->point[2] + dz / len * 1e-3f;
+    }
+    return 0;
+}
+
 static void player_move_collide(float mx, float mz)
 {
-    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID |
-                          EM_COLL_SLIDE;
-    float target[3] = { g.pos[0] + mx, g.pos[1], g.pos[2] + mz };
+    float target[3] = { g.pos[0] + mx, g.pos[1] + WALL_PROBE_LIFT,
+                        g.pos[2] + mz };
     EmCollHit hit;
 
-    if (em_collision_move_probe(&g.coll, g.pos, target, mask, &hit)) {
-        /* Slide: project the blocked remainder onto the wall plane
-         * (XZ only — the probe is horizontal) and re-probe once. */
+    if (move_probe_wall(target, &hit)) {
+        /* Block: correct x/z back to the hit point (the engine's mask-
+         * bit31 response) plus the contact skin, then slide — project
+         * the blocked remainder onto the wall plane (XZ only — the
+         * probe is horizontal) and re-probe once. */
+        g.pos[0] = hit.point[0] + hit.normal[0] * WALL_SKIN;
+        g.pos[2] = hit.point[2] + hit.normal[2] * WALL_SKIN;
         float rx = target[0] - hit.point[0];
         float rz = target[2] - hit.point[2];
         float nx = hit.normal[0], nz = hit.normal[2];
@@ -429,20 +550,46 @@ static void player_move_collide(float mx, float mz)
             rx -= nx * d;
             rz -= nz * d;
             if (rx * rx + rz * rz > 1e-8f) {
-                float slide[3] = { g.pos[0] + rx, g.pos[1], g.pos[2] + rz };
-                em_collision_move_probe(&g.coll, g.pos, slide, mask, NULL);
+                float slide[3] = { g.pos[0] + rx,
+                                   g.pos[1] + WALL_PROBE_LIFT,
+                                   g.pos[2] + rz };
+                EmCollHit shit;
+                if (move_probe_wall(slide, &shit)) {
+                    g.pos[0] = shit.point[0] + shit.normal[0] * WALL_SKIN;
+                    g.pos[2] = shit.point[2] + shit.normal[2] * WALL_SKIN;
+                } else {
+                    g.pos[0] = slide[0];
+                    g.pos[2] = slide[2];
+                }
             }
         }
+    } else {
+        g.pos[0] = target[0];
+        g.pos[2] = target[2];
     }
 
     /* Floor: vertical segment query through the same worlds (the grid
-     * world owns the walkable floor — FINDINGS "COLLISION WORLD"). */
+     * world owns the walkable floor — FINDINGS "COLLISION WORLD"). The
+     * same class split applies downward: a leaning wall face (e.g. the
+     * snow scene's gate posts, n.y slightly > 0) front-faces the probe
+     * from above, and accepting it ratchets the player up the wall while
+     * sliding along it — step past non-walkable crossings instead. */
     float from[3] = { g.pos[0], g.pos[1] + FLOOR_PROBE_UP,    g.pos[2] };
     float down[3] = { g.pos[0], g.pos[1] - FLOOR_PROBE_DOWN,  g.pos[2] };
-    if (em_collision_segment_query(&g.coll, from, down,
-                                   EM_COLL_SET_CELLS | EM_COLL_SET_GRID,
-                                   0, &hit))
-        g.pos[1] = hit.point[1];
+    for (int i = 0; i < 8; i++) {
+        if (!em_collision_segment_query(&g.coll, from, down,
+                                        EM_COLL_SET_CELLS |
+                                        EM_COLL_SET_GRID, 0, &hit))
+            break;
+        if (hit.surf_class == EM_SURF_FLOOR ||
+            hit.surf_class == EM_SURF_SLOPE) {
+            g.pos[1] = hit.point[1];
+            break;
+        }
+        if (hit.point[1] - 1e-3f <= down[1])
+            break;
+        from[1] = hit.point[1] - 1e-3f;
+    }
 }
 
 /* Player movement (the port's first slice of the actor spine's physics
@@ -824,12 +971,18 @@ static void frame_close_out(void)
  * The forward leg is a WALL TEST: 60 frames * 0.25 u = 15 u of motion,
  * but the office collision world has a wall n-gon at z = -170 (grid poly
  * with plane n = (0,0,-1), d = 170 — 14 u ahead of the spawn), so with
- * collision loaded the move probe must stop the walk ON the plane and
- * the slide pass must add no lateral drift. The right leg then slides
- * free along that wall (motion parallel to the plane fails the walkers'
+ * collision loaded the move probe must stop the walk on the plane (plus
+ * the WALL_SKIN contact offset, inside the 0.05 tolerance) and the slide
+ * pass must add no lateral drift. The right leg then slides free along
+ * that wall (motion parallel to the plane fails the walkers'
  * front-facing test, so it never re-hits):
  *   collision world:  (99.900, 0.000, -170.000), yaw -pi/2
- *   bbox fallback:    (99.900, 0.000, -169.000), yaw -pi/2  */
+ *   bbox fallback:    (99.900, 0.000, -169.000), yaw -pi/2
+ * Those built-in expectations (and the 60/30-frame legs) are the OFFICE
+ * scene's; for other scenes (manifest spawns) EM_MOVE_LEGS=fwd,strafe
+ * resizes the two legs to reach that scene's wall and EM_MOVE_EXPECT=
+ * x,y,z overrides the expected final position (the yaw expectation,
+ * -pi/2, is scene-independent). */
 static void move_test_inject(int key, int down)
 {
     EmEvent ev;
@@ -841,35 +994,34 @@ static void move_test_inject(int key, int down)
 
 static void move_test_script(void)
 {
-    switch (g.frame_no) {
-        case 0:
-            move_test_inject('w', 1);
-            break;
-        case 60:
-            move_test_inject('w', 0);
-            move_test_inject('d', 1);
-            break;
-        case 90:
-            move_test_inject('d', 0);
-            break;
-        case 91: {
-            const float ez   = g.coll.poly_count ? -170.0f : -169.0f;
-            const float tol  = 0.05f;  /* +- slide/fp drift allowance */
-            int ok = fabsf(g.pos[0] - 99.9f)        <= tol &&
-                     fabsf(g.pos[1] - 0.0f)         <= tol &&
-                     fabsf(g.pos[2] - ez)           <= tol &&
-                     fabsf(g.yaw + EM_PI * 0.5f)    <= 0.01f;
-            printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad — "
-                   "expected (99.900, 0.000, %.3f)%s: %s\n",
-                   g.pos[0], g.pos[1], g.pos[2], g.yaw, ez,
-                   g.coll.poly_count ? " [wall stop]" : " [bbox clamp]",
-                   ok ? "PASS" : "FAIL");
-            fflush(stdout);
-            em_frame_request_quit();
-            break;
+    int n = g.frame_no;
+    if (n == 0) {
+        move_test_inject('w', 1);
+    } else if (n == g.move_legs[0]) {
+        move_test_inject('w', 0);
+        move_test_inject('d', 1);
+    } else if (n == g.move_legs[0] + g.move_legs[1]) {
+        move_test_inject('d', 0);
+    } else if (n == g.move_legs[0] + g.move_legs[1] + 1) {
+        float ex = 99.9f, ey = 0.0f;
+        float ez = g.coll.poly_count ? -170.0f : -169.0f;
+        if (g.move_expect_set) {
+            ex = g.move_expect[0];
+            ey = g.move_expect[1];
+            ez = g.move_expect[2];
         }
-        default:
-            break;
+        const float tol  = 0.05f;  /* +- slide/fp drift allowance */
+        int ok = fabsf(g.pos[0] - ex)           <= tol &&
+                 fabsf(g.pos[1] - ey)           <= tol &&
+                 fabsf(g.pos[2] - ez)           <= tol &&
+                 fabsf(g.yaw + EM_PI * 0.5f)    <= 0.01f;
+        printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad — "
+               "expected (%.3f, %.3f, %.3f)%s: %s\n",
+               g.pos[0], g.pos[1], g.pos[2], g.yaw, ex, ey, ez,
+               g.coll.poly_count ? " [wall stop]" : " [bbox clamp]",
+               ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
     }
 }
 
@@ -913,20 +1065,22 @@ static void ingame_frame_machine(EmTask *self)
             /* Scene-init arm: the engine resets per-frame flags, builds
              * the difficulty map, places the player against the area
              * spawn tables, and initializes camera + HUD/weapon contexts.
-             * Natively the spawn-table stand-in is kPlayerPos (origin
-             * with no scene loaded) facing +Z, and the camera struct is
-             * zeroed back to its init state (state 0 -> the one-shot
-             * setup arms it behind the player on the next frame). */
+             * Natively the spawn-table stand-in is the scene manifest's
+             * spawn (the office kPlayerPos default; origin with no scene
+             * loaded), and the camera struct is zeroed back to its init
+             * state (state 0 -> the one-shot setup arms it behind the
+             * player on the next frame, along the spawn facing). */
             g.t              = 0.0;
             g.walk_t         = 0.0;
             g.walk_w         = 0.0f;
             g.frame_no       = 0;
             g.frame_selector = 0;
-            g.pos[0] = g.n_scene ? kPlayerPos[0] : 0.0f;
-            g.pos[1] = g.n_scene ? kPlayerPos[1] : 0.0f;
-            g.pos[2] = g.n_scene ? kPlayerPos[2] : 0.0f;
-            g.yaw    = 0.0f;
+            g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
+            g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
+            g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
+            g.yaw    = g.n_scene ? g.spawn_yaw : 0.0f;
             memset(&g.cam, 0, sizeof g.cam);
+            g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
@@ -1022,20 +1176,23 @@ static void game_boot_task(void)
                "decomp repo's tools/export_native.py\n", MODEL_PATH);
     }
 
-    /* Optional scene (level parts, world-space). */
+    /* Optional scene (level parts, world-space) + its manifest (spawn /
+     * collision filename / bgm — office defaults when absent). */
+    scene_manifest_load();
     g.n_scene = scene_load(gfx, g.scene, SCENE_MAX);
 
     /* Optional collision world (id 0x44 -> EMCL, disc-derived, generated
-     * locally by the decomp repo's tools/export_collision.py). Without it
-     * movement falls back to the room-bbox clamp. */
-    if (em_collision_load(&g.coll, COLL_PATH) == 0) {
-        printf("collision: %s — %u polys (%u verts), grid %s\n", COLL_PATH,
-               g.coll.poly_count, g.coll.vert_count,
+     * locally by the decomp repo's tools/export_collision.py; filename
+     * from the scene manifest). Without it movement falls back to the
+     * room-bbox clamp. */
+    if (em_collision_load(&g.coll, g.coll_path) == 0) {
+        printf("collision: %s — %u polys (%u verts), grid %s\n",
+               g.coll_path, g.coll.poly_count, g.coll.vert_count,
                (g.coll.flags & 1) ? "decoded" : "absent (flat-floor)");
     } else {
         printf("no %s — movement uses the room-bbox clamp. Generate it "
                "with the decomp repo's tools/export_collision.py\n",
-               COLL_PATH);
+               g.coll_path);
     }
 
     /* BGM at the boot->game handoff — the native func_001FB0B0 moment:
@@ -1043,10 +1200,17 @@ static void game_boot_task(void)
      * current-BGM global D_00810D38 and func_001FAE70 fades the stream
      * in (the in-level cues carry the loop flag in the D_0025DD30 table).
      * Natively EM_BGM=<path.wav> names a locally exported cue WAV and
-     * stands in for the cue id until the native cue table lands; no env
-     * = silent, exactly as before (em_bgm never opens a device). */
-    if (g.bgm_path)
+     * stands in for the cue id until the native cue table lands; without
+     * the env, the scene manifest's optional "bgm <file.wav>" (a cue WAV
+     * in the scene dir) plays instead; neither = silent, exactly as
+     * before (em_bgm never opens a device). */
+    if (g.bgm_path) {
         em_bgm_play(g.bgm_path, 1);  /* func_001FB0B0(cue) — looping BGM */
+    } else if (g.bgm_file[0]) {
+        char path[560];
+        snprintf(path, sizeof path, "%s/%s", SCENE_DIR, g.bgm_file);
+        em_bgm_play(path, 1);
+    }
 
     em_task_register(0, game_task);  /* func_001AB740(0, func_001ACEC0) */
 }
@@ -1061,6 +1225,20 @@ void em_game_install(void)
                                                regression frame */
     const char *mt = getenv("EM_MOVE_TEST");
     g.move_test    = mt && mt[0] == '1';
+    g.move_legs[0] = 60;   /* the historical office legs */
+    g.move_legs[1] = 30;
+    const char *ml = getenv("EM_MOVE_LEGS");
+    if (ml) {
+        int l0, l1;
+        if (sscanf(ml, "%d,%d", &l0, &l1) == 2 && l0 > 0 && l1 > 0) {
+            g.move_legs[0] = l0;
+            g.move_legs[1] = l1;
+        }
+    }
+    const char *me = getenv("EM_MOVE_EXPECT");
+    if (me && sscanf(me, "%f,%f,%f", &g.move_expect[0], &g.move_expect[1],
+                     &g.move_expect[2]) == 3)
+        g.move_expect_set = 1;
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
