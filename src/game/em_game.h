@@ -4,9 +4,10 @@
  * FRAME ANATOMY"): boot/flow task (func_001AB7E0) -> game task machine
  * (func_001ACEC0) -> sub-machine (func_001AD250) -> in-game frame machine
  * (func_001AE040) -> gameplay frame (func_001AE5E0). See em_game.c for the
- * per-function mapping. Today the gameplay frame drives the port's existing
- * scene/character rendering and orbit camera; real game logic replaces the
- * skeleton arms as the decomp repo recovers it.
+ * per-function mapping. Today the gameplay frame drives the port's
+ * scene/character rendering, interactive player movement (left stick,
+ * camera-relative) and a lerped chase camera (d-pad orbits it); real game
+ * logic replaces the skeleton arms as the decomp repo recovers it.
  */
 #ifndef EM_GAME_H
 #define EM_GAME_H

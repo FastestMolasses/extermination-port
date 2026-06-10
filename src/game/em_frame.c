@@ -66,7 +66,10 @@
  *
  * Debug instrumentation (port-side, not engine structure): EM_INPUT_TEST=1
  * prints one line per pad-state change from step C, exactly as the
- * pre-architecture shell did.
+ * pre-architecture shell did. EM_MOVE_TEST=1 (the game-side scripted
+ * movement self-test, em_game.c) makes step C stop feeding REAL key events
+ * into em_input, so stray keystrokes hitting the focused window can't
+ * perturb the deterministic script; window-quit and Esc still work.
  */
 #include "game/em_frame.h"
 
@@ -88,6 +91,8 @@ static struct {
     /* EM_INPUT_TEST bookkeeping */
     bool         input_test;
     EmPadState   prev_pad;
+    /* EM_MOVE_TEST: pad is script-driven; ignore real key events */
+    bool         input_scripted;
 } s_frame;
 
 void em_frame_init(EmWindow *win, EmGfx *gfx)
@@ -105,6 +110,8 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
 
     const char *env    = getenv("EM_INPUT_TEST");
     s_frame.input_test = env && env[0] == '1';
+    env                    = getenv("EM_MOVE_TEST");
+    s_frame.input_scripted = env && env[0] == '1';
     em_input_pad(&s_frame.prev_pad);
 }
 
@@ -154,7 +161,7 @@ static void frame_input_read(void)
 {
     EmEvent ev;
     while (em_window_poll(s_frame.win, &ev)) {
-        em_input_handle_event(&ev);
+        if (!s_frame.input_scripted) em_input_handle_event(&ev);
         switch (ev.type) {
             case EM_EVENT_QUIT:
                 s_frame.quit = true;

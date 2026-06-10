@@ -53,8 +53,9 @@
  *                                        flushed after camera apply, at
  *                                        close-out.
  *   func_001C1D00 camera apply           camera_apply() — computes the
- *                  (block 0x008101D0)    orbit camera into the camera
- *                                        block (view-projection matrix).
+ *                  (block 0x008101D0)    follow/chase camera into the
+ *                                        camera block (view-projection
+ *                                        matrix).
  *   func_001AFD70 / func_0015C160 /      world services — skeleton no-ops.
  *   func_001F0360
  *   func_001CB590(HUD ctx) /             HUD context + view-target —
@@ -63,9 +64,23 @@
  *   func_001D1EA0(1) close-out           draw chain with the applied
  *                                        camera and advances clip time.
  *
+ * INTERACTIVE MOVEMENT (first slice of the real actor spine): the frame
+ * input block drives the player around the room. Left stick (WASD) walks
+ * camera-relative on the XZ plane; the facing yaw seeks the movement
+ * direction (smooth turn). The placement is composed onto the evaluated
+ * anim palette each frame (rotation about Y by yaw, then translation —
+ * AFTER the animation pose; see palette_apply_placement). The camera is a
+ * lerped chase camera behind the character; d-pad (arrow keys) LEFT/RIGHT
+ * orbits it around the player. Esc still quits (em_frame.c step C).
+ *
  * Debug instrumentation (port-side): EM_CAPTURE=<path.bmp> requests a BMP
  * capture at gameplay frame 60 and quits after frame 61, preserving the
  * pre-architecture shell's headless regression behavior bit-for-bit.
+ * EM_MOVE_TEST=1 runs a deterministic movement self-test: a scripted key
+ * sequence (60 frames forward, 30 frames right) is injected through the
+ * real em_input event API, then the final position/yaw is printed and the
+ * loop quits (see move_test_script). Combine with EM_CAPTURE to grab a
+ * mid-walk frame (the move test suppresses the capture path's early quit).
  */
 #include "game/em_game.h"
 
@@ -75,6 +90,7 @@
 #include <string.h>
 
 #include "em_gfx.h"
+#include "em_input.h"
 #include "em_math.h"
 #include "em_model.h"
 #include "game/em_frame.h"
@@ -84,11 +100,36 @@
 #define SCENE_DIR  "assets/scene"
 #define SCENE_MAX  16
 
-/* Player world placement in the office room (chunk06.n1 level): the live
+/* Player spawn placement in the office room (chunk06.n1 level): the live
  * GS-dump capture has the character standing at ~(107.4, 0, -184); the
  * level floor there is y = 0 and the player EMDL is recentred at the
  * origin with its feet at y ~= 0. */
 static const float kPlayerPos[3] = { 107.4f, 0.0f, -184.0f };
+
+/* Walkable bounds: the office room's collision bbox (the id 0x44 file —
+ * FINDINGS.md "COLLISION WORLD", chunk06.n1: X[-3.6,120.5] Z[-296,2.4],
+ * floor y = 0).
+ * TODO(collision): replace this clamp with the documented query API once
+ * the level_world cluster is translated — func_0019AD00 (actor move-probe
+ * with collide-and-slide response) / func_0019A570 (segment query) over
+ * the id 0x44 cell n-gons + s16-grid heightfield. */
+static const float kRoomMin[2] = { -3.6f,  -296.0f };  /* x, z */
+static const float kRoomMax[2] = { 120.5f,    2.4f };
+
+/* Movement / camera tuning. The character is ~15 units tall; roughly one
+ * body height per second reads as a natural walk at room scale (the room
+ * spans ~124 x ~298 units). The loop is vsync-locked at 60 Hz exactly
+ * like the PS2 original, so a fixed dt keeps everything deterministic. */
+#define FRAME_DT        (1.0f / 60.0f)
+#define WALK_SPEED      15.0f   /* units/sec */
+#define TURN_SPEED      12.0f   /* rad/sec — facing seeks the move dir */
+#define STICK_DEADZONE  0.25f
+#define CAM_DIST        30.0f   /* chase eye distance behind the player */
+#define CAM_HEIGHT      15.0f   /* chase eye height above the floor */
+#define CAM_LOOK_H      8.0f    /* look-at height (chest of a 15u body) */
+#define CAM_ORBIT_SPEED 1.8f    /* rad/sec — d-pad LEFT/RIGHT orbit */
+#define CAM_LERP        0.12f   /* eye seek factor per frame */
+#define EM_PI           3.14159265f
 
 /* Task user-byte indices — mirror the live slot-0 record (state bytes
  * observed at record +8 / +9 / +0xB, i.e. user[0] / user[1] / user[3]). */
@@ -122,6 +163,15 @@ static struct {
     int        frame_no;         /* gameplay frames run */
     uint8_t    frame_selector;   /* scratchpad 0x70003B8D: 0 = gameplay */
 
+    /* player world placement (the actor's position + facing) */
+    float      pos[3];           /* world position, feet on the floor */
+    float      yaw;              /* facing about +Y, radians; 0 = +Z */
+
+    /* chase camera */
+    float      cam_yaw;          /* orbit angle around the player */
+    float      cam_eye[3];       /* lerped eye position */
+    int        cam_snapped;      /* eye seeded at its desired point */
+
     /* camera block — the native 0x008101D0 */
     float      viewproj[16];
 
@@ -130,8 +180,9 @@ static struct {
     int        chain_len;
     int        chain_test_triangle;
 
-    /* EM_CAPTURE debug instrumentation */
+    /* EM_CAPTURE / EM_MOVE_TEST debug instrumentation */
     const char *capture_path;
+    int         move_test;
 } g;
 
 static int cmp_str(const void *a, const void *b)
@@ -205,23 +256,93 @@ static void actor_context_begin(void) {}
 /* func_001CB5A0 — actor-context end. */
 static void actor_context_end(void) {}
 
+/* Decode a raw 0x80-centered stick byte to [-1, 1]; full deflection hits
+ * exactly +/-1 on both sides (the raw range is asymmetric: 0x00..0xFF). */
+static float stick_axis(uint8_t b)
+{
+    int d = (int)b - 0x80;
+    return (d >= 0) ? (float)d / 127.0f : (float)d / 128.0f;
+}
+
+/* Compose the player's world placement onto an evaluated anim palette:
+ * every bone matrix M becomes T(pos) * R_y(yaw) * M — rotation about Y by
+ * the facing yaw, then translation, applied AFTER the animation pose. At
+ * yaw = 0 this reduces bit-exactly to the old static translation bake
+ * (cos 0 = 1, sin 0 = 0), keeping EM_CAPTURE output stable. */
+static void palette_apply_placement(float *pal, uint32_t bone_count,
+                                    const float pos[3], float yaw)
+{
+    const float c = cosf(yaw), s = sinf(yaw);
+    for (uint32_t b = 0; b < bone_count; b++) {
+        float *m = pal + b * 16;
+        for (int col = 0; col < 4; col++) {
+            float x = m[col * 4 + 0], z = m[col * 4 + 2];
+            m[col * 4 + 0] =  c * x + s * z;
+            m[col * 4 + 2] = -s * x + c * z;
+        }
+        m[12] += pos[0];
+        m[13] += pos[1];
+        m[14] += pos[2];
+    }
+}
+
+/* Player movement (the port's first slice of the actor spine's physics
+ * side): left stick = camera-relative walk on the XZ plane; the facing
+ * yaw seeks the movement direction at TURN_SPEED (smooth turn). Position
+ * is clamped to the room's collision bbox; real collision comes later
+ * (see the kRoomMin TODO above). */
+static void player_move(void)
+{
+    const EmFrameInput *in = em_frame_input();
+    float sx  = stick_axis(in->lx);
+    float sy  = stick_axis(in->ly);
+    float len = sqrtf(sx * sx + sy * sy);
+    if (len < STICK_DEADZONE) return;
+    if (len > 1.0f) { sx /= len; sy /= len; }
+
+    /* Camera basis on XZ: forward f points from the eye towards the
+     * player, screen-right is f x up = (-fz, 0, fx). Stick up (sy = -1)
+     * walks away from the camera. */
+    float fx = sinf(g.cam_yaw), fz = cosf(g.cam_yaw);
+    float mx = fx * -sy - fz * sx;
+    float mz = fz * -sy + fx * sx;
+
+    g.pos[0] += mx * WALK_SPEED * FRAME_DT;
+    g.pos[2] += mz * WALK_SPEED * FRAME_DT;
+    if (g.pos[0] < kRoomMin[0]) g.pos[0] = kRoomMin[0];
+    if (g.pos[0] > kRoomMax[0]) g.pos[0] = kRoomMax[0];
+    if (g.pos[2] < kRoomMin[1]) g.pos[2] = kRoomMin[1];
+    if (g.pos[2] > kRoomMax[1]) g.pos[2] = kRoomMax[1];
+    g.pos[1] = 0.0f;  /* flat floor until the heightfield query lands */
+
+    /* Smooth-turn the facing towards the move direction (shortest arc). */
+    float target = atan2f(mx, mz);
+    float diff   = target - g.yaw;
+    while (diff >  EM_PI) diff -= 2.0f * EM_PI;
+    while (diff < -EM_PI) diff += 2.0f * EM_PI;
+    float step = TURN_SPEED * FRAME_DT;
+    if (diff >  step) diff =  step;
+    if (diff < -step) diff = -step;
+    g.yaw += diff;
+    if (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
+    if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+}
+
 /* func_0015BCF0 — player actor update. The engine's per-actor spine
  * (state/AI, anim-evaluator selection, physics, sound triggers); the
- * port's slice of it is the anim side: evaluate the bone palette at the
- * current clip time and place the actor in the world. */
+ * port's slice of it is movement (frame input -> position/yaw) plus the
+ * anim side: evaluate the bone palette at the current clip time, then
+ * compose the world placement onto it.
+ * TODO(anim): the EMDL carries a single baked clip, so the character
+ * plays it whether moving or not — swap to a walk clip while moving once
+ * the exporter ships multiple clips. */
 static void actor_update(void)
 {
+    player_move();
     if (!g.mesh) return;
     em_model_palette_at(&g.model, g.t * g.model.fps, g.player_palette);
-    if (g.n_scene) {
-        /* Place the recentred character at its world spot by offsetting
-         * every palette matrix translation. */
-        for (uint32_t b = 0; b < g.model.bone_count; b++) {
-            g.player_palette[b * 16 + 12] += kPlayerPos[0];
-            g.player_palette[b * 16 + 13] += kPlayerPos[1];
-            g.player_palette[b * 16 + 14] += kPlayerPos[2];
-        }
-    }
+    palette_apply_placement(g.player_palette, g.model.bone_count,
+                            g.pos, g.yaw);
 }
 
 /* func_001D1C50 — render chain build. Records the frame's draws (the
@@ -249,38 +370,43 @@ static void render_chain_build(void)
 }
 
 /* func_001C1D00(0x008101D0) — camera apply: fill the camera block the
- * recorded chain consumes. Slow orbit: without a scene it circles the
- * character at the origin; with one it circles the character's world
- * position inside the room. */
+ * recorded chain consumes. Follow/chase camera: the eye seeks (lerped) a
+ * point CAM_DIST behind the player along the camera yaw, looking at chest
+ * height; d-pad (arrow keys) LEFT/RIGHT orbits the yaw around the player.
+ * The yaw otherwise holds still, so stick directions stay stable while
+ * walking. */
 static void camera_apply(void)
 {
-    float ang = (float)(g.t * 0.5);
-    float cx = 0.0f, cy = 7.0f, cz = 0.0f;
-    float radius = 28.0f, eye_h = 12.0f, far_clip = 500.0f;
-    if (g.n_scene) {
-        /* The character stands near the room's +X wall; phase the orbit so
-         * the camera starts inside the open part of the room (towards
-         * -X/+Z) instead of inside that wall. */
-        ang += 4.82f;
-        cx = kPlayerPos[0];
-        cy = kPlayerPos[1] + 7.0f;
-        cz = kPlayerPos[2];
-        radius = 20.0f;
-        eye_h  = cy + 8.0f;
-        far_clip = 800.0f;
+    const EmFrameInput *in = em_frame_input();
+    if (in->held & EM_PAD_LEFT)  g.cam_yaw += CAM_ORBIT_SPEED * FRAME_DT;
+    if (in->held & EM_PAD_RIGHT) g.cam_yaw -= CAM_ORBIT_SPEED * FRAME_DT;
+
+    float fx = sinf(g.cam_yaw), fz = cosf(g.cam_yaw);
+    float des[3] = { g.pos[0] - fx * CAM_DIST,
+                     g.pos[1] + CAM_HEIGHT,
+                     g.pos[2] - fz * CAM_DIST };
+    if (!g.cam_snapped) {
+        /* First frame: seed the eye at its desired point (no lerp-in). */
+        g.cam_eye[0] = des[0];
+        g.cam_eye[1] = des[1];
+        g.cam_eye[2] = des[2];
+        g.cam_snapped = 1;
+    } else {
+        for (int i = 0; i < 3; i++)
+            g.cam_eye[i] += (des[i] - g.cam_eye[i]) * CAM_LERP;
     }
-    float eye[3]    = { cx + radius * sinf(ang), eye_h,
-                        cz + radius * cosf(ang) };
-    float center[3] = { cx, cy, cz };
+
+    float center[3] = { g.pos[0], g.pos[1] + CAM_LOOK_H, g.pos[2] };
     float up[3]     = { 0.0f, 1.0f, 0.0f };
+    float far_clip  = g.n_scene ? 800.0f : 500.0f;
 
     int dw, dh;
     em_window_drawable_size(em_frame_window(), &dw, &dh);
     float aspect = (dh > 0) ? (float)dw / (float)dh : 4.0f / 3.0f;
 
     float view[16], proj[16];
-    em_mat4_lookat(view, eye, center, up);
-    em_mat4_perspective(proj, 50.0f * 3.14159265f / 180.0f, aspect,
+    em_mat4_lookat(view, g.cam_eye, center, up);
+    em_mat4_perspective(proj, 50.0f * EM_PI / 180.0f, aspect,
                         0.5f, far_clip);
     em_mat4_mul(g.viewproj, proj, view);
 }
@@ -306,12 +432,58 @@ static void frame_close_out(void)
         em_gfx_request_capture(gfx, g.capture_path);
 
     g.t += 1.0 / 60.0;
-    if (g.capture_path && ++g.frame_no > 61) em_frame_request_quit();
+    g.frame_no++;
+    /* The move test owns the quit (frame 91) when both modes are set, so
+     * a mid-walk capture doesn't cut the scripted walk short. */
+    if (g.capture_path && !g.move_test && g.frame_no > 61)
+        em_frame_request_quit();
+}
+
+/* EM_MOVE_TEST=1 — deterministic movement self-test. Injects a scripted
+ * key sequence through the real em_input event API (an injected event
+ * lands in the NEXT frame's input snapshot, exactly like a real key, so
+ * the test exercises the full step-C unpack path): 'w' held for frames
+ * 1..60 (walk forward, +Z at cam_yaw 0), 'd' for frames 61..90 (walk
+ * screen-right, -X), then print the final placement and quit.
+ * Expected: pos (107.4, 0, -184) + (0,0,+15) + (-7.5,0,0)
+ *         = (99.900, 0.000, -169.000), yaw -pi/2 (facing -X). */
+static void move_test_inject(int key, int down)
+{
+    EmEvent ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = down ? EM_EVENT_KEY_DOWN : EM_EVENT_KEY_UP;
+    ev.key  = key;
+    em_input_handle_event(&ev);
+}
+
+static void move_test_script(void)
+{
+    switch (g.frame_no) {
+        case 0:
+            move_test_inject('w', 1);
+            break;
+        case 60:
+            move_test_inject('w', 0);
+            move_test_inject('d', 1);
+            break;
+        case 90:
+            move_test_inject('d', 0);
+            break;
+        case 91:
+            printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad\n",
+                   g.pos[0], g.pos[1], g.pos[2], g.yaw);
+            fflush(stdout);
+            em_frame_request_quit();
+            break;
+        default:
+            break;
+    }
 }
 
 /* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
 static void gameplay_frame(void)
 {
+    if (g.move_test) move_test_script();  /* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
@@ -348,12 +520,18 @@ static void ingame_frame_machine(EmTask *self)
             /* Scene-init arm: the engine resets per-frame flags, builds
              * the difficulty map, places the player against the area
              * spawn tables, and initializes camera + HUD/weapon contexts.
-             * Natively the player position is fixed (kPlayerPos) and the
-             * camera block is rebuilt every frame, so only the clip clock
-             * needs arming. */
+             * Natively the spawn-table stand-in is kPlayerPos (origin
+             * with no scene loaded) facing +Z, and the chase camera arms
+             * behind it; the camera block is rebuilt every frame. */
             g.t              = 0.0;
             g.frame_no       = 0;
             g.frame_selector = 0;
+            g.pos[0] = g.n_scene ? kPlayerPos[0] : 0.0f;
+            g.pos[1] = g.n_scene ? kPlayerPos[1] : 0.0f;
+            g.pos[2] = g.n_scene ? kPlayerPos[2] : 0.0f;
+            g.yaw         = 0.0f;
+            g.cam_yaw     = 0.0f;
+            g.cam_snapped = 0;
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
@@ -447,6 +625,8 @@ void em_game_install(void)
 {
     memset(&g, 0, sizeof g);
     g.capture_path = getenv("EM_CAPTURE");
+    const char *mt = getenv("EM_MOVE_TEST");
+    g.move_test    = mt && mt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
