@@ -82,9 +82,18 @@ files map each native stage to the PS2 function it stands in for.
   keeps running) and door use runs the full captured transit sequence (input
   lock, walk to staging, door clip, 64-frame fade-out, re-place behind the
   door, fade-in, unlock — FINDINGS.md "AREA TRANSITION LIFECYCLE").
+- The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
+  needs a player.emdl exported with `--clips 346,2,3,69,67,75,272,273,51,274`):
+  draw 0x110 @1.4, HELD aim pose 0x112 (em_game_anim_hold), reload 0x33,
+  holster 0x111 — each state window gates on the honest clip length. Aiming
+  is PLANTED (movement locks to turn-in-place; engine evidence in
+  em_game.c player_move) and lowers the camera follow target to the aim
+  offset (struct +0x8C), the over-shoulder cut's mode-0 stand-in.
 - Headless checks: `EM_CAPTURE=<path.bmp>` (renders ~1 s, captures gameplay
   frame 60, exits; the default frame is the HUD-free one — `EM_HUD_FORCE=1`
-  forces the status screen visible for overlay captures), `EM_AUDIO_TEST=1`
+  forces the status screen visible for overlay captures; `EM_CAPTURE_AIM=1`
+  holds R1 from frame 0 + a short turn so the capture shows the armed
+  stance, laser and aim camera), `EM_AUDIO_TEST=1`
   (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
   (full door-transit sequence self-test), `EM_SFX_TEST=1` (3 overlapping
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see

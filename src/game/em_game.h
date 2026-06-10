@@ -59,8 +59,24 @@ void em_game_shutdown(void);
  * committed state, locomotion resumes on the next actor_update.
  *
  * em_game_anim_active returns the committed clip id (0 = none) — the
- * native +0x20C, for the door sequence and the self-tests. */
+ * native +0x20C, for the door sequence and the self-tests.
+ *
+ * em_game_anim_hold is the HELD-POSE variant (the weapon system's aim
+ * pose): same request mailbox, but the committed clip CLAMPS at its
+ * last frame and KEEPS owning the palette — the engine analog is the
+ * armed-stance tops re-selecting the same aim-pose id through the
+ * arbiter every frame (FINDINGS "ANIM ID MAPPING": the commit only
+ * fires on an id CHANGE, so the pose persists for as long as the state
+ * keeps requesting it). The hold ends on the next em_game_anim_request
+ * / em_game_anim_hold of a different id, or em_game_anim_cancel.
+ *
+ * em_game_anim_frames returns the frame count of `clip_id` in the
+ * loaded player EMDL (0 = model not loaded / clip absent) — the honest
+ * clip-length source for state windows that gate on an anim (the
+ * weapon draw/reload/holster timers). */
 int      em_game_anim_request(unsigned clip_id, float rate);
+int      em_game_anim_hold(unsigned clip_id, float rate);
+int      em_game_anim_frames(unsigned clip_id);
 void     em_game_anim_cancel(void);
 unsigned em_game_anim_active(void);
 

@@ -178,6 +178,10 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define FRAME_DT        (1.0f / 60.0f)
 #define WALK_SPEED      15.0f   /* units/sec */
 #define TURN_SPEED      12.0f   /* rad/sec — facing seeks the move dir */
+#define AIM_TURN_SPEED  1.8f    /* rad/sec — PORT CONSTANT: turn-in-place
+                                   rate while aiming (stand-in for the
+                                   engine's aim-yaw blend steer; see the
+                                   planted-aiming block in player_move) */
 
 /* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c,
  * identified 2026-06-10 by stride scan — see tools/export_native.py):
@@ -308,11 +312,16 @@ static struct {
     /* scripted-anim mailbox (em_game.h em_game_anim_request): the
      * native player+0x1F2 request / +0x20C commit pair. sa_req/sa_cur
      * hold library clip IDS (0 = none); sa_clip is the committed
-     * model clip-table index; sa_t the clip time in FRAMES. */
+     * model clip-table index; sa_t the clip time in FRAMES. sa_hold
+     * (riding the request as sa_req_hold) marks a HELD POSE: the clip
+     * clamps at its last frame instead of returning to locomotion
+     * (em_game_anim_hold — the weapon aim pose). */
     unsigned   sa_req;           /* requested clip id   (+0x1F2) */
     float      sa_rate;          /* requested rate      (+0x1F8) */
+    int        sa_req_hold;      /* request is a hold (aim pose) */
     unsigned   sa_cur;           /* committed clip id   (+0x20C) */
     int        sa_clip;          /* committed clip index, -1 = none */
+    int        sa_hold;          /* committed clip holds its end pose */
     double     sa_t;             /* scripted clip time, frames */
 
     /* player world placement (the actor's position + facing) */
@@ -351,6 +360,9 @@ static struct {
     /* EM_CAPTURE / EM_MOVE_TEST / EM_DOOR_TEST debug instrumentation */
     const char *capture_path;
     int         capture_frame;
+    int         capture_aim;     /* EM_CAPTURE_AIM=1 — hold R1 from frame
+                                  * 0 so the capture shows the armed
+                                  * stance (aim pose + laser + camera) */
     int         move_test;
     int         move_legs[2];    /* EM_MOVE_LEGS=fwd,strafe frame counts */
     int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
@@ -736,6 +748,31 @@ static void player_move(void)
         return;
     }
 
+    /* PLANTED AIMING — PORT DECISION (flagged). The armed stance holds
+     * position; the stick only TURNS the player in place. Engine
+     * evidence (FINDINGS "ANIM ID MAPPING" + "WEAPON SYSTEM"): the
+     * armed modes 0x1D..0x20 replace the locomotion modes outright and
+     * their tops run no free-move spine; the aim poses are FULL-BODY
+     * pose-clip ladders (pitch steps) with NO aim-walk clip family and
+     * ZERO footstep-trigger frames in the D_00248C90 property table
+     * (walk/run/scripted walks all have them) — the engine never
+     * expects the feet to move while aiming, and the live s23 aim
+     * capture shows the planted shouldered stance. The turn-in-place
+     * is the port stand-in for the engine's aim-yaw steer (the
+     * +0x27C blend, <= 0.02/frame, + the mode-0x66 yaw smoothing);
+     * AIM_TURN_SPEED is a PORT CONSTANT. */
+    if (em_weapon_is_aiming()) {
+        g.move_speed = 0.0f;
+        const EmFrameInput *ain = em_frame_input();
+        float tsx = stick_axis(ain->lx);
+        if (fabsf(tsx) > STICK_DEADZONE) {
+            g.yaw -= tsx * AIM_TURN_SPEED * FRAME_DT;
+            if (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
+            if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+        }
+        return;
+    }
+
     const EmFrameInput *in = em_frame_input();
     float sx  = stick_axis(in->lx);
     float sy  = stick_axis(in->ly);
@@ -816,6 +853,7 @@ static void actor_update(void)
         g.sa_clip = g.sa_req
                   ? em_model_clip_index(&g.model, (uint32_t)g.sa_req)
                   : -1;
+        g.sa_hold = g.sa_req_hold;
         g.sa_t    = 0.0;
     }
     if (g.sa_cur && g.sa_clip >= 0) {
@@ -830,8 +868,13 @@ static void actor_update(void)
                                 g.pos, g.yaw);
         g.sa_t += (double)g.sa_rate;
         if (g.sa_t >= end + 1.0) {     /* played through: clip-end flag */
-            g.sa_req = g.sa_cur = 0;   /* (+0x200 & 0x1000 analog) */
-            g.sa_clip = -1;
+            if (g.sa_hold) {
+                g.sa_t = end;          /* HELD POSE: clamp and keep the
+                                        * palette (em_game_anim_hold) */
+            } else {
+                g.sa_req = g.sa_cur = 0;  /* (+0x200 & 0x1000 analog) */
+                g.sa_clip = -1;
+            }
         }
         g.walk_w = 0.0f;               /* locomotion parked at idle */
         return;
@@ -973,14 +1016,21 @@ static void camera_mode_dispatch(EmCamera *cam)
     if (in->held & EM_PAD_RIGHT) cam->yaw -= CAM_ORBIT_SPEED * FRAME_DT;
 
     /* Mode 0 generic follow: desired target chases the player on x/z at
-     * <= 0.8 u/frame; y seeks player.y + 15.0 (player aim state 5 would
-     * use +cam->aim_h = 6.0 instead — TODO with the player state
-     * machine). Settles to exactly player x/z when idle, matching the
+     * <= 0.8 u/frame; y seeks player.y + 15.0 — EXCEPT in the armed
+     * stance, where the engine swaps in the camera struct's +0x8C
+     * target-height offset (cam->aim_h, default 6.0; the live s23 aim
+     * capture ran mode 1 with 2.0 in AREA02) — the documented "AIM
+     * CAMERA HOOKUP" of em_weapon.h. The target drops toward the aim
+     * line and the unchanged eye height pitches the view down over the
+     * shoulder. Settles to exactly player x/z when idle, matching the
      * live capture. */
     cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP);
     cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP);
     cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
-                                  g.pos[1] + CAM_TGT_HEIGHT, CAM_TGT_CAP);
+                                  g.pos[1] + (em_weapon_is_aiming()
+                                              ? cam->aim_h
+                                              : CAM_TGT_HEIGHT),
+                                  CAM_TGT_CAP);
 
     camera_desired_eye(cam);
 }
@@ -1400,21 +1450,30 @@ static void door_test_script(void)
 
 /* EM_WEAPON_TEST=1 — deterministic firing-loop self-test (em_weapon.c).
  * Exercises the whole weapon contract through the real input API from
- * the demo ammo state mag 4 / reserve 120 (the live test save):
+ * the demo ammo state mag 4 / reserve 120 (the live test save).
  *
- *   frame    0     hold E (R1) — draw; AIM by frame 16 (15-frame draw)
- *   20/28/36/44    four SEMI presses of K (CROSS): each shot decrements
- *                  mag AND reserve (TOTAL-pool rule) -> 4/120 .. 0/116
- *   frame   52     5th press on the EMPTY mag: must NOT fire — the
- *                  mode-0 auto-reload triggers instead (func_0017B300:
- *                  mag = min(30, 116) = 30, reserve UNTOUCHED at 116)
- *   frame  100     press after the reload anim: 5th real shot -> 29/115
- *   110..141       FULL-AUTO stretch: mode 2, K held 31 frames -> shots
- *                  at the 6-frame cadence (+2/frame vs interval 12) =
- *                  6 rounds -> 23/109
- *   frame  150     manual top-up (J = SQUARE; engine: L3) -> 30/109,
- *                  reserve again untouched
- *   frame  200     release E -> holster -> HOLSTERED
+ * The schedule is computed at frame 0 from the weapon's HONEST state
+ * windows (em_weapon_draw_ticks/reload_ticks/holster_ticks — the real
+ * anim-clip lengths when the player EMDL carries them, the flagged
+ * fallbacks otherwise), anchored at A/B/C/D:
+ *
+ *   frame    0       hold E (R1) — draw (anim 0x110 @1.4)
+ *   A = draw+5       AIM reached; four SEMI presses of K (CROSS) at
+ *   A/A+8/A+16/A+24  8-frame spacing: each shot decrements mag AND
+ *                    reserve (TOTAL-pool rule) -> 4/120 .. 0/116
+ *   A+32             5th press on the EMPTY mag: must NOT fire — the
+ *                    mode-0 auto-reload triggers instead (func_0017B300:
+ *                    mag = min(30, 116) = 30, reserve UNTOUCHED at 116;
+ *                    anim 0x33 holds the RELOAD state for its length)
+ *   B = A+34+rld+8   press after the reload window: 5th real shot
+ *                    -> 29/115
+ *   B+10..B+41       FULL-AUTO stretch: mode 2, K held 31 frames ->
+ *                    shots at the 6-frame cadence (+2/frame vs interval
+ *                    12) = 6 rounds -> 23/109
+ *   C = B+50         manual top-up (J = SQUARE; engine: L3) -> 30/109,
+ *                    reserve again untouched
+ *   D = C+rld+10     release E -> holster (anim 0x111) -> HOLSTERED
+ *                    checked one holster window later
  *
  * Checkpoints sample a few frames after each action so the input-inject
  * latency (events land in the NEXT frame's snapshot) and the fire-event
@@ -1431,72 +1490,95 @@ static void wt_check(int cond, const char *what)
 
 static void weapon_test_script(void)
 {
+    static int A, B, C, D;        /* checkpoint anchors (see the doc) */
     int n = g.frame_no;
-    switch (n) {
-        case 0:   move_test_inject('e', 1); break;          /* R1 hold  */
-        case 20:  wt_check(em_weapon_state() == EM_WPN_AIM, "drawn by 20");
-                  move_test_inject('k', 1); break;          /* semi #1  */
-        case 22:  move_test_inject('k', 0); break;
-        case 26:  wt_check(em_weapon_mag() == 3 &&
-                           em_weapon_reserve() == 119 &&
-                           em_weapon_shots() == 1,
-                           "shot 1: 4/120 -> 3/119");       break;
-        case 28: case 36: case 44:
-                  move_test_inject('k', 1); break;          /* semi 2..4 */
-        case 30: case 38: case 46:
-                  move_test_inject('k', 0); break;
-        case 50:  wt_check(em_weapon_mag() == 0 &&
-                           em_weapon_reserve() == 116 &&
-                           em_weapon_shots() == 4,
-                           "shots 2-4: mag empty at 0/116"); break;
-        case 52:  move_test_inject('k', 1); break;          /* dry press */
-        case 54:  move_test_inject('k', 0); break;
-        case 58:  wt_check(em_weapon_state() == EM_WPN_RELOAD &&
-                           em_weapon_mag() == 30 &&
-                           em_weapon_reserve() == 116 &&
-                           em_weapon_shots() == 4 &&
-                           em_weapon_reloads() == 1,
-                           "empty-mag press auto-reloads: mag = min(30, "
-                           "reserve) = 30, reserve untouched (116), no "
-                           "round fired");                  break;
-        case 100: wt_check(em_weapon_state() == EM_WPN_AIM,
-                           "reload anim over by 100");
-                  move_test_inject('k', 1); break;          /* semi #5  */
-        case 102: move_test_inject('k', 0); break;
-        case 106: wt_check(em_weapon_mag() == 29 &&
-                           em_weapon_reserve() == 115 &&
-                           em_weapon_shots() == 5,
-                           "5th shot after reload: 29/115"); break;
-        case 110: em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
-                  move_test_inject('k', 1); break;          /* auto hold */
-        case 141: move_test_inject('k', 0); break;
-        case 146: wt_check(em_weapon_mag() == 23 &&
-                           em_weapon_reserve() == 109 &&
-                           em_weapon_shots() == 11,
-                           "auto 31-frame hold = 6 rounds: 23/109"); break;
-        case 150: move_test_inject('j', 1); break;          /* manual    */
-        case 152: move_test_inject('j', 0); break;
-        case 160: wt_check(em_weapon_state() == EM_WPN_RELOAD &&
-                           em_weapon_mag() == 30 &&
-                           em_weapon_reserve() == 109 &&
-                           em_weapon_reloads() == 2,
-                           "manual top-up: 30/109, reserve untouched");
-                  break;
-        case 200: move_test_inject('e', 0); break;          /* holster   */
-        case 220:
-            wt_check(em_weapon_state() == EM_WPN_HOLSTERED,
-                     "holstered after R1 release");
-            printf("weapon test: %d shots, %d reloads, mag %u, reserve "
-                   "%d, last ray %s — %s\n", em_weapon_shots(),
-                   em_weapon_reloads(), em_weapon_mag(),
-                   em_weapon_reserve(),
-                   em_weapon_last_hit() < 0 ? "none"
-                       : em_weapon_last_hit() ? "hit" : "miss",
-                   g.wt_fail == 0 ? "PASS" : "FAIL");
-            fflush(stdout);
-            em_frame_request_quit();
-            break;
-        default: break;
+    if (n == 0) {
+        A = em_weapon_draw_ticks() + 5;
+        B = A + 34 + em_weapon_reload_ticks() + 8;
+        C = B + 50;
+        D = C + em_weapon_reload_ticks() + 10;
+        printf("weapon test: windows draw %d / reload %d / holster %d "
+               "ticks -> anchors A=%d B=%d C=%d D=%d\n",
+               em_weapon_draw_ticks(), em_weapon_reload_ticks(),
+               em_weapon_holster_ticks(), A, B, C, D);
+        move_test_inject('e', 1);                           /* R1 hold  */
+        return;
+    }
+    if (n == A) {
+        wt_check(em_weapon_state() == EM_WPN_AIM, "drawn by A");
+        move_test_inject('k', 1);                           /* semi #1  */
+    } else if (n == A + 2 || n == A + 10 || n == A + 18 || n == A + 26) {
+        move_test_inject('k', 0);
+    } else if (n == A + 6) {
+        wt_check(em_weapon_mag() == 3 &&
+                 em_weapon_reserve() == 119 &&
+                 em_weapon_shots() == 1,
+                 "shot 1: 4/120 -> 3/119");
+    } else if (n == A + 8 || n == A + 16 || n == A + 24) {
+        move_test_inject('k', 1);                           /* semi 2..4 */
+    } else if (n == A + 30) {
+        wt_check(em_weapon_mag() == 0 &&
+                 em_weapon_reserve() == 116 &&
+                 em_weapon_shots() == 4,
+                 "shots 2-4: mag empty at 0/116");
+    } else if (n == A + 32) {
+        move_test_inject('k', 1);                           /* dry press */
+    } else if (n == A + 34) {
+        move_test_inject('k', 0);
+    } else if (n == A + 38) {
+        wt_check(em_weapon_state() == EM_WPN_RELOAD &&
+                 em_weapon_mag() == 30 &&
+                 em_weapon_reserve() == 116 &&
+                 em_weapon_shots() == 4 &&
+                 em_weapon_reloads() == 1,
+                 "empty-mag press auto-reloads: mag = min(30, "
+                 "reserve) = 30, reserve untouched (116), no "
+                 "round fired");
+    } else if (n == B) {
+        wt_check(em_weapon_state() == EM_WPN_AIM,
+                 "reload anim over by B");
+        move_test_inject('k', 1);                           /* semi #5  */
+    } else if (n == B + 2) {
+        move_test_inject('k', 0);
+    } else if (n == B + 6) {
+        wt_check(em_weapon_mag() == 29 &&
+                 em_weapon_reserve() == 115 &&
+                 em_weapon_shots() == 5,
+                 "5th shot after reload: 29/115");
+    } else if (n == B + 10) {
+        em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
+        move_test_inject('k', 1);                           /* auto hold */
+    } else if (n == B + 41) {
+        move_test_inject('k', 0);
+    } else if (n == B + 46) {
+        wt_check(em_weapon_mag() == 23 &&
+                 em_weapon_reserve() == 109 &&
+                 em_weapon_shots() == 11,
+                 "auto 31-frame hold = 6 rounds: 23/109");
+    } else if (n == C) {
+        move_test_inject('j', 1);                           /* manual    */
+    } else if (n == C + 2) {
+        move_test_inject('j', 0);
+    } else if (n == C + 8) {
+        wt_check(em_weapon_state() == EM_WPN_RELOAD &&
+                 em_weapon_mag() == 30 &&
+                 em_weapon_reserve() == 109 &&
+                 em_weapon_reloads() == 2,
+                 "manual top-up: 30/109, reserve untouched");
+    } else if (n == D) {
+        move_test_inject('e', 0);                           /* holster   */
+    } else if (n == D + em_weapon_holster_ticks() + 6) {
+        wt_check(em_weapon_state() == EM_WPN_HOLSTERED,
+                 "holstered after R1 release");
+        printf("weapon test: %d shots, %d reloads, mag %u, reserve "
+               "%d, last ray %s — %s\n", em_weapon_shots(),
+               em_weapon_reloads(), em_weapon_mag(),
+               em_weapon_reserve(),
+               em_weapon_last_hit() < 0 ? "none"
+                   : em_weapon_last_hit() ? "hit" : "miss",
+               g.wt_fail == 0 ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
     }
 }
 
@@ -1635,6 +1717,17 @@ static void gameplay_frame(void)
     if (g.move_test) move_test_script();    /* debug instrumentation only */
     if (g.door_test) door_test_script();    /* debug instrumentation only */
     if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
+    /* EM_CAPTURE_AIM=1: hold R1 (key E) from frame 0 — by the default
+     * capture frame (60) the draw has finished and the capture shows the
+     * held aim pose, the laser pass and the lowered camera target. A
+     * short turn-in-place (frames 28..44, ~27 deg) angles the laser off
+     * the camera axis so the beam and hit dot are not occluded by the
+     * player's own torso in the capture. */
+    if (g.capture_aim) {
+        if      (g.frame_no == 0)  move_test_inject('e', 1);
+        else if (g.frame_no == 28) move_test_inject('a', 1);
+        else if (g.frame_no == 44) move_test_inject('a', 0);
+    }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
@@ -1742,6 +1835,8 @@ static void ingame_frame_machine(EmTask *self)
             g.sa_req         = 0;     /* scripted-anim mailbox cleared */
             g.sa_cur         = 0;     /* (player anim re-init state)   */
             g.sa_clip        = -1;
+            g.sa_req_hold    = 0;
+            g.sa_hold        = 0;
             g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
             g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
             g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
@@ -1930,6 +2025,8 @@ void em_game_install(void)
     const char *cf = getenv("EM_CAPTURE_FRAME");
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
                                                regression frame */
+    const char *ca = getenv("EM_CAPTURE_AIM");
+    g.capture_aim  = ca && ca[0] == '1';
     const char *mt = getenv("EM_MOVE_TEST");
     g.move_test    = mt && mt[0] == '1';
     g.move_legs[0] = 60;   /* the historical office legs */
@@ -1984,7 +2081,7 @@ void em_game_shutdown(void)
 /* Scripted-anim mailbox (see em_game.h for the engine mapping)        */
 /* ------------------------------------------------------------------ */
 
-int em_game_anim_request(unsigned clip_id, float rate)
+static int anim_request_common(unsigned clip_id, float rate, int hold)
 {
     if (!g.mesh || clip_id == 0)
         return 0;
@@ -1994,14 +2091,35 @@ int em_game_anim_request(unsigned clip_id, float rate)
                clip_id);
         return 0;
     }
-    g.sa_req  = clip_id;            /* +0x1F2 */
-    g.sa_rate = rate;               /* +0x1F8 */
+    g.sa_req      = clip_id;        /* +0x1F2 */
+    g.sa_rate     = rate;           /* +0x1F8 */
+    g.sa_req_hold = hold;
     return 1;
+}
+
+int em_game_anim_request(unsigned clip_id, float rate)
+{
+    return anim_request_common(clip_id, rate, 0);
+}
+
+int em_game_anim_hold(unsigned clip_id, float rate)
+{
+    return anim_request_common(clip_id, rate, 1);
+}
+
+int em_game_anim_frames(unsigned clip_id)
+{
+    int ci;
+    if (!g.mesh || clip_id == 0)
+        return 0;
+    ci = em_model_clip_index(&g.model, (uint32_t)clip_id);
+    return ci < 0 ? 0 : (int)g.model.clips[ci].frame_count;
 }
 
 void em_game_anim_cancel(void)
 {
-    g.sa_req = 0;                   /* op 0x18 teardown: +0x1F2 = 0 */
+    g.sa_req      = 0;              /* op 0x18 teardown: +0x1F2 = 0 */
+    g.sa_req_hold = 0;
 }
 
 unsigned em_game_anim_active(void)

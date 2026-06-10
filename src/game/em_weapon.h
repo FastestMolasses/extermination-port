@@ -76,20 +76,35 @@
  * Both draws are additive with depth test on / write off, exactly the
  * GS states of the original pass (em_gfx_beam / em_gfx_beam_dot).
  *
+ * PLAYER ANIMS (wired 2026-06-10 s24 — FINDINGS "ANIM ID MAPPING"):
+ * the state entries drive the real clips through em_game's scripted-anim
+ * mailbox (the +0x1F2 request / +0x20C commit path; the anim id is the
+ * clip-table id in the re-exported player.emdl):
+ *   DRAW    anim 0x110 once at rate 1.4 (D_00248C90 rate_scale)
+ *   AIM     anim 0x112 HELD (em_game_anim_hold — the SPR4 sub-0 stance-
+ *           table pose D_00248B88[0]; the aim-pitch ladder blend +0x278
+ *           and the per-shot fire anims 0x31/0x32/0x34/0x35 are NOT
+ *           translated yet — the held level pose persists across shots)
+ *   RELOAD  anim 0x33 once; the state window IS the clip length
+ *   HOLSTER anim 0x111 once, then locomotion resumes by itself
+ * Every state window gates on the committed clip's honest length
+ * (em_game_anim_frames -> ceil(frames / rate) ticks); the old fixed
+ * frame counts remain only as flagged fallbacks for a clip-less EMDL.
+ * While aiming the player is PLANTED (movement locked to turn-in-place;
+ * the decision + engine evidence live in em_game.c player_move).
+ *
  * MUZZLE/FLASH FEEDBACK — still PLACEHOLDER (muzzle FX func_00187CC0 +
  * tracer func_001860A0 not translated): screen-space overlay rects —
  * a 3-frame muzzle-flash flare at the lower center and a center-screen
  * crosshair that pulses bright/large on a ray HIT and dim/small on a
- * miss. Sounds (0x162 draw / 0x163 holster / 0x164-0x165 fire / 0x169
- * dry click) and anims (0x110/0x111/0x31../0x33) are recorded in
- * em_weapon.c as comments until an SFX/anim hookup exists.
+ * miss.
  *
- * AIM CAMERA HOOKUP (em_game owns the camera — apply there, one line):
- * the engine lowers the camera's follow target while aiming (camera
- * struct +0x8C target-height offset, default 6.0 — FINDINGS "CAMERA
- * SYSTEM"; the live s23 aim capture ran camera mode 1 with +0x8C = 2.0
- * in AREA02). em_weapon exposes em_weapon_is_aiming(); em_game's
- * camera_mode_dispatch() applies it by replacing its target-height term:
+ * AIM CAMERA HOOKUP (APPLIED 2026-06-10 s24): the engine lowers the
+ * camera's follow target while aiming (camera struct +0x8C target-height
+ * offset, default 6.0 — FINDINGS "CAMERA SYSTEM"; the live s23 aim
+ * capture ran camera mode 1 with +0x8C = 2.0 in AREA02). em_weapon
+ * exposes em_weapon_is_aiming(); em_game's camera_mode_dispatch()
+ * applies it by replacing its target-height term:
  *
  *   cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
  *       g.pos[1] + (em_weapon_is_aiming() ? cam->aim_h : CAM_TGT_HEIGHT),
@@ -171,6 +186,15 @@ int em_weapon_state(void);    /* EM_WPN_* */
 int em_weapon_shots(void);    /* rounds actually fired since reset */
 int em_weapon_reloads(void);  /* reloads (auto + manual) since reset */
 int em_weapon_last_hit(void); /* last resolved shot: 1 hit, 0 miss, -1 none */
+
+/* The honest state windows, in gameplay ticks: ceil(clip frames / rate)
+ * for the committed anim (draw 0x110 @1.4, reload 0x33 @1.0, holster
+ * 0x111 @1.0), or the flagged fallback constants when the loaded player
+ * EMDL lacks the clip. The weapon self-test derives its checkpoint
+ * schedule from these, so the test stays honest for any asset. */
+int em_weapon_draw_ticks(void);
+int em_weapon_reload_ticks(void);
+int em_weapon_holster_ticks(void);
 
 #ifdef __cplusplus
 }

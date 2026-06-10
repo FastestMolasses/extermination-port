@@ -11,6 +11,7 @@
 
 #include "em_input.h"
 #include "game/em_enemy.h"
+#include "game/em_game.h"
 #include "game/em_sfx.h"
 
 /* --- Engine constants (FINDINGS "WEAPON SYSTEM") ----------------------- */
@@ -54,8 +55,24 @@
  * (1.0, 0.6, 0.2, 1) and a 5.0-unit warm dot — pending native lock-on. */
 static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 
-/* --- Port placeholders (flagged; engine values are anim-clip lengths
- *     that are not exported yet) ---------------------------------------- */
+/* --- PLAYER ANIMS (wired 2026-06-10 s24 — FINDINGS "ANIM ID MAPPING":
+ *     the anim id IS the container index in the player clip library
+ *     chunk28/f01_id3c, so these ids are the EMDL clip-table ids the
+ *     re-exported player.emdl carries; requests go through em_game's
+ *     anim mailbox, the native +0x1F2/+0x20C commit path) ------------- */
+#define WPN_ANIM_DRAW    0x110  /* draw, 25 fr — property-table rate 1.4 */
+#define WPN_ANIM_HOLSTER 0x111  /* holster, 25 fr, rate 1.0              */
+#define WPN_ANIM_RELOAD  0x33   /* reload, 57 fr, rate 1.0               */
+#define WPN_ANIM_AIM     0x112  /* SPR4 sub-0 aim-pose ladder BASE (the
+                                 * level-pitch step of D_00248B88[0]);
+                                 * HELD while in the AIM state via
+                                 * em_game_anim_hold — the pitch-step
+                                 * blend (+0x278) is not translated yet  */
+#define WPN_DRAW_RATE    1.4f   /* D_00248C90[0x110].rate_scale          */
+
+/* --- Fallback state windows (flagged; used ONLY when the loaded player
+ *     EMDL lacks the clip — anim_ticks() prefers the honest clip
+ *     length from em_game_anim_frames) --------------------------------- */
 #define WPN_DRAW_FRAMES    15   /* anim 0x110 length stand-in (0.25 s)     */
 #define WPN_HOLSTER_FRAMES 15   /* anim 0x111 length stand-in              */
 #define WPN_RELOAD_FRAMES  40   /* anim 0x33 length stand-in (0.67 s)      */
@@ -118,6 +135,35 @@ void em_weapon_reset(uint8_t mag, int16_t reserve)
     w.last_hit = -1;
 }
 
+/* HONEST state windows from the committed clip lengths: the scripted
+ * clip plays at `rate` frames/tick and em_game's commit clears it when
+ * the clip time passes (frames - 1) + 1, i.e. after ceil(frames / rate)
+ * ticks — the state timer matches that exactly, so the state machine
+ * and the visible anim end together (one frame of request->commit
+ * latency aside, the engine's own mailbox latency). A player EMDL
+ * without the clip falls back to the flagged stand-in window. */
+static int anim_ticks(unsigned clip_id, float rate, int fallback)
+{
+    int fc = em_game_anim_frames(clip_id);
+    if (fc <= 0) return fallback;
+    return (int)ceilf((float)fc / rate);
+}
+
+int em_weapon_draw_ticks(void)
+{
+    return anim_ticks(WPN_ANIM_DRAW, WPN_DRAW_RATE, WPN_DRAW_FRAMES);
+}
+
+int em_weapon_reload_ticks(void)
+{
+    return anim_ticks(WPN_ANIM_RELOAD, 1.0f, WPN_RELOAD_FRAMES);
+}
+
+int em_weapon_holster_ticks(void)
+{
+    return anim_ticks(WPN_ANIM_HOLSTER, 1.0f, WPN_HOLSTER_FRAMES);
+}
+
 /* func_0017B300(_, mode) — MATCHED 100% in the decomp repo. mode 0 = only
  * if the mag is empty; mode 1 = unconditional; else top-up (only if
  * mag < 30 AND reserve > mag). All modes: mag = min(30, reserve), the
@@ -136,12 +182,44 @@ static int weapon_reload(int mode)
 
 /* HOLSTER entry (engine major state 0x65): anim 0x111 + sound 0x163 —
  * every transition into the holster ramp goes through here, exactly the
- * single state-entry the engine plays the sound on. */
+ * single state-entry the engine plays the sound and anim on. */
 static void weapon_enter_holster(void)
 {
     em_sfx_play(EM_SFX_WPN_HOLSTER);    /* 0x163, state-0x65 entry */
+    em_game_anim_request(WPN_ANIM_HOLSTER, 1.0f);   /* anim 0x111 */
     w.state = EM_WPN_HOLSTER;
-    w.timer = WPN_HOLSTER_FRAMES;
+    w.timer = em_weapon_holster_ticks();
+}
+
+/* RELOAD entry (engine major state 3): anim 0x33 gates firing for the
+ * clip's length; the ammo move (func_0017B300) already happened at the
+ * call site. Both entries (dry-mag auto-reload and the manual top-up)
+ * go through here. */
+static void weapon_enter_reload(void)
+{
+    /* EM_SFX_WPN_RELOAD is a flagged PLACEHOLDER id — the engine pins
+     * only the anim (0x33), no reload sound id yet. */
+    em_sfx_play(EM_SFX_WPN_RELOAD);
+    em_game_anim_request(WPN_ANIM_RELOAD, 1.0f);    /* anim 0x33 */
+    w.reloads++;
+    w.pending = 0;
+    w.burst   = 0;
+    w.state   = EM_WPN_RELOAD;
+    w.timer   = em_weapon_reload_ticks();
+}
+
+/* AIM entry (engine major state 2, and the post-reload re-entry): HOLD
+ * the aim pose — the per-sub-weapon stance-table clip (sub 0 -> 0x112,
+ * D_00248B88[0]), which the engine's armed tops keep re-selecting every
+ * frame through the arbiter. em_game_anim_hold clamps the clip at its
+ * last frame and keeps it committed until the next request replaces it
+ * (the holster/reload clips) — the native equivalent of that persistent
+ * re-selection. */
+static void weapon_enter_aim(void)
+{
+    em_game_anim_hold(WPN_ANIM_AIM, 1.0f);          /* aim pose 0x112 */
+    w.state   = EM_WPN_AIM;
+    w.counter = WPN_INTERVAL;       /* first shot is immediate */
 }
 
 /* One trigger-accepted SHOT attempt (the common per-shot block of the
@@ -157,13 +235,8 @@ static void weapon_shot(void)
         w.pending = 0;
         w.burst   = 0;
         if (weapon_reload(0) == 0) {
-            /* anim 0x33 gates firing; the mag is already refilled.
-             * EM_SFX_WPN_RELOAD is a flagged PLACEHOLDER id — the engine
-             * pins only the anim (0x33), no reload sound id yet. */
-            em_sfx_play(EM_SFX_WPN_RELOAD);
-            w.reloads++;
-            w.state = EM_WPN_RELOAD;
-            w.timer = WPN_RELOAD_FRAMES;
+            /* anim 0x33 gates firing; the mag is already refilled. */
+            weapon_enter_reload();
         } else {
             em_sfx_play(EM_SFX_WPN_DRY);  /* 0x169 — reserve also empty */
         }
@@ -350,14 +423,8 @@ static void weapon_fire_logic(const EmFrameInput *in)
     /* Manual reload — engine: L3, func_0017B300(.,2) top-up; port key
      * SQUARE (em_weapon.h "KEY MAPPING" deviation note). */
     if (w.state == EM_WPN_AIM && (in->pressed & EM_PAD_SQUARE)) {
-        if (weapon_reload(2) == 0) {
-            em_sfx_play(EM_SFX_WPN_RELOAD);  /* flagged PLACEHOLDER id */
-            w.reloads = w.reloads + 1;
-            w.pending = 0;
-            w.burst   = 0;
-            w.state   = EM_WPN_RELOAD;
-            w.timer   = WPN_RELOAD_FRAMES;
-        }
+        if (weapon_reload(2) == 0)
+            weapon_enter_reload();
     }
 }
 
@@ -380,22 +447,23 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
     switch (w.state) {
         case EM_WPN_HOLSTERED:
             if (draw_held) {
-                /* major 0 ENTER: reload-if-empty, anim 0x110, sound
-                 * 0x162 @vol150 (func_0016F530). The ENTER reload is
-                 * covered by the draw anim — no RELOAD state, but it
-                 * counts as a reload. */
+                /* major 0 ENTER: reload-if-empty, anim 0x110 at the
+                 * property-table rate 1.4, sound 0x162 @vol150
+                 * (func_0016F530). The ENTER reload is covered by the
+                 * draw anim — no RELOAD state, but it counts as a
+                 * reload. */
                 if (weapon_reload(0) == 0) w.reloads++;
                 em_sfx_play(EM_SFX_WPN_DRAW);
+                em_game_anim_request(WPN_ANIM_DRAW, WPN_DRAW_RATE);
                 w.state = EM_WPN_DRAW;
-                w.timer = WPN_DRAW_FRAMES;
+                w.timer = em_weapon_draw_ticks();
             }
             break;
         case EM_WPN_DRAW:
             if (!draw_held) {
                 weapon_enter_holster();     /* 0x65: anim 0x111, 0x163 */
             } else if (--w.timer <= 0) {
-                w.state   = EM_WPN_AIM;     /* major 2 */
-                w.counter = WPN_INTERVAL;   /* first shot is immediate */
+                weapon_enter_aim();         /* major 2: hold pose 0x112 */
                 w.pending = 0;
                 w.burst   = 0;
             }
@@ -411,10 +479,8 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             break;
         case EM_WPN_RELOAD:
             /* anim 0x33 wait (major 3); the ammo move already happened */
-            if (--w.timer <= 0) {
-                w.state   = EM_WPN_AIM;
-                w.counter = WPN_INTERVAL;
-            }
+            if (--w.timer <= 0)
+                weapon_enter_aim();         /* re-hold the aim pose */
             if (!draw_held)                 /* stance drop mid-reload */
                 weapon_enter_holster();
             break;
