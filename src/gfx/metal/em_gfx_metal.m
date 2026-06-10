@@ -112,17 +112,22 @@ static NSString *const kSkinShaderSrc =
 "                       texture2d_array<float> texs [[texture(0)]],\n"
 "                       sampler smp [[sampler(0)]],\n"
 "                       constant uint &mode [[buffer(0)]]) {\n"
-"    float3 base = float3(0.55, 0.62, 0.70);\n"
-"    if (in.slice != 0xFFFFFFFFu)\n"
-"        base = texs.sample(smp, in.uv, in.slice).rgb;\n"
+"    float4 base = float4(0.55, 0.62, 0.70, 1.0);\n"
+"    if (in.slice != 0xFFFFFFFFu) {\n"
+"        base = texs.sample(smp, in.uv, in.slice);\n"
+"        /* PS2 CLUT alpha is mostly binary (0 / 0x80): alpha-test the\n"
+"         * cutout texels (grates, glass edges) so depth stays correct;\n"
+"         * residual partial alpha goes through the blend stage. */\n"
+"        if (base.a < 0.5) discard_fragment();\n"
+"    }\n"
 "    if (mode & 1u) {\n"
 "        /* baked vertex color (GS modulate) */\n"
-"        return float4(base * clamp(in.nrm, 0.0, 1.0), 1.0);\n"
+"        return float4(base.rgb * clamp(in.nrm, 0.0, 1.0), base.a);\n"
 "    }\n"
 "    float3 N = normalize(in.nrm);\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
-"    return float4(base * (0.30 + 0.70 * d), 1.0);\n"
+"    return float4(base.rgb * (0.30 + 0.70 * d), base.a);\n"
 "}\n";
 
 /* Compile MSL source at runtime and build a pipeline for the swapchain +
@@ -146,6 +151,14 @@ static id<MTLRenderPipelineState> build_pipeline(EmGfx *g, NSString *src,
     pd.vertexFunction   = vfn;
     pd.fragmentFunction  = ffn;
     pd.colorAttachments[0].pixelFormat = g->layer.pixelFormat;
+    /* Standard alpha blending: most PS2 texels are fully opaque (alpha-test
+     * in the shader handles cutouts), so this only softens the few
+     * partial-alpha texels (window glass) without needing draw sorting. */
+    pd.colorAttachments[0].blendingEnabled             = YES;
+    pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+    pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+    pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorOne;
+    pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorZero;
     pd.depthAttachmentPixelFormat      = EM_DEPTH_FORMAT;
     id<MTLRenderPipelineState> pso =
         [g->device newRenderPipelineStateWithDescriptor:pd error:&err];
