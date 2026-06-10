@@ -66,6 +66,7 @@ int main(void)
         { 'e',           EM_PAD_R1       },
         { 'u',           EM_PAD_L2       },
         { 'o',           EM_PAD_R2       },
+        { 'r',           EM_PAD_L3       },
         { EM_KEY_RETURN, EM_PAD_START    },
         { EM_KEY_TAB,    EM_PAD_SELECT   },
         { EM_KEY_UP,     EM_PAD_UP       },

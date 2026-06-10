@@ -196,6 +196,22 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define CLIP_ID_WALK    2u
 #define CLIP_ID_RUN     3u
 #define WALK_CLIP_SPEED 24.07f  /* units/sec at the baked 60 fps */
+
+/* FOOTSTEP TRIGGER FRAMES — the engine's per-anim-id property table
+ * D_00248C90 (FINDINGS "ANIM ID MAPPING": frameA/frameB per row; the
+ * per-frame func_00187350 fires the step sound + decal when the
+ * committed clip time crosses them). Rows read from the user's local
+ * boot ELF this session: id 2 (the port's locomotion clip, 45 fr) ->
+ * 26/3; id 3 (run, 40 fr) -> 21/2. (The engine's DEFAULT walk is anim
+ * id 1 with frames 72/21 — the pair the s29 live capture metered; the
+ * port asset ships the id-2 cycle, so its own row applies.) Each
+ * trigger plays the s29 two-layer step (surface pair + gear pair, both
+ * alternating per step — footstep_play below). */
+#define WALK_STEP_FRAME_A 26.0f /* D_00248C90[2].frameA */
+#define WALK_STEP_FRAME_B 3.0f  /* D_00248C90[2].frameB */
+#define RUN_STEP_FRAME_A  21.0f /* D_00248C90[3].frameA — for the run
+                                 * clip when locomotion drives it */
+#define RUN_STEP_FRAME_B  2.0f  /* D_00248C90[3].frameB */
 #define ANIM_BLEND_TIME 0.15f   /* seconds, idle<->walk crossfade */
 #define STICK_DEADZONE  0.25f
 #define EM_PI           3.14159265f
@@ -306,6 +322,10 @@ static struct {
     int        clip_walk;        /* -1 = no walk clip (EMD2 asset) */
     double     walk_t;           /* walk clip time, seconds (rate-scaled) */
     float      walk_w;           /* walk blend weight 0..1 */
+    double     step_prev;        /* last frame's walk-cycle position in
+                                  * clip FRAMES (footstep edge detect) */
+    int        step_parity;      /* s29 per-step L/R alternation (flips
+                                  * both footstep layers together) */
     float      move_speed;       /* this frame's ground speed, units/sec */
     float      walk_palette[1024 * 16];  /* scratch for the blend */
 
@@ -831,6 +851,39 @@ static void player_move(void)
     if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
 }
 
+/* FOOTSTEPS — the native func_00187350 slice (FINDINGS "ANIM ID
+ * MAPPING" property table + the s29 live sound capture): when the
+ * locomotion clip's cycle position crosses a trigger frame (frameA/
+ * frameB of its D_00248C90 row), the engine submits TWO positional
+ * sounds back-to-back — a SURFACE pair member + the constant GEAR/cloth
+ * layer — and BOTH pairs alternate strictly per step.
+ *
+ * SURFACE SET — FLAGGED PORT LIMIT: the engine picks the surface pair
+ * by floor material (s29 observed storage floor A 0x15/0x16 and floor B
+ * 0x1A/0x1B), presumably keyed off the collision hit record's
+ * surface-type byte (+0x1A, s22); that per-surface table is NOT located
+ * yet, so the port plays set A everywhere. FUTURE HOOK: route the
+ * player's floor-probe EmCollHit attribute through here once the
+ * surface table is pinned (the decal half of func_00187350 — step
+ * decals via func_00187EE0 — is also untranslated). */
+static void footstep_play(void)
+{
+    em_sfx_play(g.step_parity ? EM_SFX_STEP_SURF_A2
+                              : EM_SFX_STEP_SURF_A1);
+    em_sfx_play(g.step_parity ? EM_SFX_STEP_GEAR_2
+                              : EM_SFX_STEP_GEAR_1);
+    g.step_parity ^= 1;
+}
+
+/* Cyclic edge test: did the looping clip playhead cross `trig` going
+ * prev -> cur (both in frames, cur may have wrapped past 0)? */
+static int step_crossed(double prev, double cur, double trig)
+{
+    if (cur == prev) return 0;                    /* standing: frozen */
+    if (cur > prev) return prev < trig && trig <= cur;
+    return trig > prev || trig <= cur;            /* wrapped the loop */
+}
+
 /* func_0015BCF0 — player actor update. The engine's per-actor spine
  * (state/AI, anim-evaluator selection, physics, sound triggers); the
  * port's slice of it is movement (frame input -> position/yaw) plus the
@@ -903,6 +956,20 @@ static void actor_update(void)
         else if (g.walk_w > target + step) g.walk_w -= step;
         else                               g.walk_w  = target;
         g.walk_t += (double)(FRAME_DT * g.move_speed / WALK_CLIP_SPEED);
+
+        /* FOOTSTEP triggers (footstep_play above): the walk-cycle
+         * playhead in clip FRAMES — wrapping exactly like the palette
+         * evaluation — against the clip's D_00248C90 trigger frames.
+         * The playhead only advances while moving (rate-scaled to the
+         * ground speed), so standing is silent and slower walks space
+         * their steps out, exactly like the engine's clip-time test. */
+        const EmModelClip *cw = &g.model.clips[g.clip_walk];
+        double cyc = fmod(g.walk_t * (double)cw->fps,
+                          (double)cw->frame_count);
+        if (step_crossed(g.step_prev, cyc, (double)WALK_STEP_FRAME_A) ||
+            step_crossed(g.step_prev, cyc, (double)WALK_STEP_FRAME_B))
+            footstep_play();
+        g.step_prev = cyc;
     }
 
     const EmModelClip *ci = &g.model.clips[g.clip_idle];
@@ -1472,8 +1539,9 @@ static void door_test_script(void)
  * fallbacks otherwise), anchored at A/B/C/D:
  *
  *   frame    0       hold E (R1) — draw (anim 0x110 @1.4)
- *   A = draw+5       AIM reached; four SEMI presses of K (CROSS) at
- *   A/A+8/A+16/A+24  8-frame spacing: each shot decrements mag AND
+ *   A = draw+5       AIM reached; four SEMI presses of L (CIRCLE — the
+ *   A/A+8/A+16/A+24  engine's default-config fire button, s29) at
+ *                    8-frame spacing: each shot decrements mag AND
  *                    reserve (TOTAL-pool rule) -> 4/120 .. 0/116
  *   A+32             5th press on the EMPTY mag: must NOT fire — the
  *                    mode-0 auto-reload triggers instead (func_0017B300:
@@ -1481,11 +1549,11 @@ static void door_test_script(void)
  *                    anim 0x33 holds the RELOAD state for its length)
  *   B = A+34+rld+8   press after the reload window: 5th real shot
  *                    -> 29/115
- *   B+10..B+41       FULL-AUTO stretch: mode 2, K held 31 frames ->
+ *   B+10..B+41       FULL-AUTO stretch: mode 2, L held 31 frames ->
  *                    shots at the 6-frame cadence (+2/frame vs interval
  *                    12) = 6 rounds -> 23/109
- *   C = B+50         manual top-up (J = SQUARE; engine: L3) -> 30/109,
- *                    reserve again untouched
+ *   C = B+50         manual top-up (R = L3, the engine's raw reload
+ *                    bit) -> 30/109, reserve again untouched
  *   D = C+rld+24     RECOIL-SETTLE check: by D the post-reload aim hold
  *                    has been quiet for > ceil(25/2) ticks, so the 0x112
  *                    playhead must be CLAMPED at the last frame (the
@@ -1550,9 +1618,9 @@ static void weapon_test_script(void)
     }
     if (n == A) {
         wt_check(em_weapon_state() == EM_WPN_AIM, "drawn by A");
-        move_test_inject('k', 1);                           /* semi #1  */
+        move_test_inject('l', 1);                           /* semi #1  */
     } else if (n == A + 2 || n == A + 10 || n == A + 18 || n == A + 26) {
-        move_test_inject('k', 0);
+        move_test_inject('l', 0);
     } else if (n == A + 6) {
         wt_check(em_weapon_mag() == 3 &&
                  em_weapon_reserve() == 119 &&
@@ -1562,16 +1630,16 @@ static void weapon_test_script(void)
         wt_check(rs == 1 || rs == -1,
                  "recoil replay mid-flight after shot 1 (0x112 rewound)");
     } else if (n == A + 8 || n == A + 16 || n == A + 24) {
-        move_test_inject('k', 1);                           /* semi 2..4 */
+        move_test_inject('l', 1);                           /* semi 2..4 */
     } else if (n == A + 30) {
         wt_check(em_weapon_mag() == 0 &&
                  em_weapon_reserve() == 116 &&
                  em_weapon_shots() == 4,
                  "shots 2-4: mag empty at 0/116");
     } else if (n == A + 32) {
-        move_test_inject('k', 1);                           /* dry press */
+        move_test_inject('l', 1);                           /* dry press */
     } else if (n == A + 34) {
-        move_test_inject('k', 0);
+        move_test_inject('l', 0);
     } else if (n == A + 38) {
         wt_check(em_weapon_state() == EM_WPN_RELOAD &&
                  em_weapon_mag() == 30 &&
@@ -1584,9 +1652,9 @@ static void weapon_test_script(void)
     } else if (n == B) {
         wt_check(em_weapon_state() == EM_WPN_AIM,
                  "reload anim over by B");
-        move_test_inject('k', 1);                           /* semi #5  */
+        move_test_inject('l', 1);                           /* semi #5  */
     } else if (n == B + 2) {
-        move_test_inject('k', 0);
+        move_test_inject('l', 0);
     } else if (n == B + 6) {
         wt_check(em_weapon_mag() == 29 &&
                  em_weapon_reserve() == 115 &&
@@ -1597,18 +1665,18 @@ static void weapon_test_script(void)
                  "recoil replay mid-flight after shot 5");
     } else if (n == B + 10) {
         em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
-        move_test_inject('k', 1);                           /* auto hold */
+        move_test_inject('l', 1);                           /* auto hold */
     } else if (n == B + 41) {
-        move_test_inject('k', 0);
+        move_test_inject('l', 0);
     } else if (n == B + 46) {
         wt_check(em_weapon_mag() == 23 &&
                  em_weapon_reserve() == 109 &&
                  em_weapon_shots() == 11,
                  "auto 31-frame hold = 6 rounds: 23/109");
     } else if (n == C) {
-        move_test_inject('j', 1);                           /* manual    */
+        move_test_inject('r', 1);                           /* manual L3 */
     } else if (n == C + 2) {
-        move_test_inject('j', 0);
+        move_test_inject('r', 0);
     } else if (n == C + 8) {
         wt_check(em_weapon_state() == EM_WPN_RELOAD &&
                  em_weapon_mag() == 30 &&
@@ -1715,14 +1783,14 @@ static void enemy_test_script(void)
                          "closed distance before the shot");
                 et_check(em_weapon_state() == EM_WPN_AIM,
                          "rifle drawn (AIM) at fire time");
-                move_test_inject('k', 1);   /* CROSS — one semi shot */
+                move_test_inject('l', 1);   /* CIRCLE — one semi shot */
                 g.et_fired = n;
             } else if (n >= 400) {
                 et_check(0, "crawler closed to 12 u by frame 400");
                 et_finish("kill run");
             }
         } else if (n == g.et_fired + 2) {
-            move_test_inject('k', 0);
+            move_test_inject('l', 0);
         } else if (n == g.et_fired + 15) {
             et_check(em_weapon_shots() == 1, "exactly one round fired");
             et_check(em_weapon_last_hit() == 1, "the shot resolved HIT");
@@ -1833,7 +1901,7 @@ static void gameplay_frame(void)
      * short turn-in-place (frames 28..44, ~27 deg) angles the laser off
      * the camera axis so the beam and hit dot are not occluded by the
      * player's own torso in the capture.
-     * EM_CAPTURE_AIM=2: same, plus ONE semi shot (K) pressed at frame
+     * EM_CAPTURE_AIM=2: same, plus ONE semi shot (L = CIRCLE) at frame
      * 57 — it lands at 58, so the default capture frame 60 samples the
      * 0x112 recoil replay ~2 frames in (the clip's max-delta snap zone,
      * 4 deg/frame) with the muzzle flash still up: the aim+fire
@@ -1843,8 +1911,8 @@ static void gameplay_frame(void)
         else if (g.frame_no == 28) move_test_inject('a', 1);
         else if (g.frame_no == 44) move_test_inject('a', 0);
         if (g.capture_aim >= 2) {
-            if      (g.frame_no == 57) move_test_inject('k', 1);
-            else if (g.frame_no == 59) move_test_inject('k', 0);
+            if      (g.frame_no == 57) move_test_inject('l', 1);
+            else if (g.frame_no == 59) move_test_inject('l', 0);
         }
     }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
@@ -1949,6 +2017,8 @@ static void ingame_frame_machine(EmTask *self)
             g.t              = 0.0;
             g.walk_t         = 0.0;
             g.walk_w         = 0.0f;
+            g.step_prev      = 0.0;   /* footstep edge state re-armed */
+            g.step_parity    = 0;
             g.frame_no       = 0;
             g.frame_selector = 0;
             g.sa_req         = 0;     /* scripted-anim mailbox cleared */

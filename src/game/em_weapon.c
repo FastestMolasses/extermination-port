@@ -98,6 +98,10 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 #define WPN_DRAW_FRAMES    15   /* anim 0x110 length stand-in (0.25 s)     */
 #define WPN_HOLSTER_FRAMES 15   /* anim 0x111 length stand-in              */
 #define WPN_RELOAD_FRAMES  40   /* anim 0x33 length stand-in (0.67 s)      */
+#define WPN_RELOAD_MAG_TICK 30  /* MAG-ACTION sound 0x168 offset into the
+                                 * reload window: ~0.5 s after the reload
+                                 * start (s29 live capture) = 30 ticks at
+                                 * 60 Hz; clamped inside a shorter window  */
 #define WPN_MUZZLE_HEIGHT  12.0f /* chest height; the engine derives the
                                   * muzzle from the hand-bone matrix
                                   * (gun +0xA0 = M(0x810550)*(-3,y,0)) —
@@ -113,6 +117,8 @@ static struct {
     int16_t reserve;     /* D_00810CB4 — TOTAL pool including the mag     */
 
     int     timer;       /* DRAW/RELOAD/HOLSTER frames remaining          */
+    int     mag_sfx;     /* RELOAD ticks until the mag-action sound 0x168
+                          * (0 = none pending; cancelled by a stance drop) */
     int     counter;     /* +0x276 fire counter (+2/frame, shot >= 12)    */
     int     pending;     /* +0x2A queued-shot flag (semi press latched
                           * while the cadence counter is still cooling)   */
@@ -207,10 +213,12 @@ static int weapon_reload(int mode)
  * single state-entry the engine plays the sound and anim on. */
 static void weapon_enter_holster(void)
 {
-    em_sfx_play(EM_SFX_WPN_HOLSTER);    /* 0x163, state-0x65 entry */
+    em_sfx_play(EM_SFX_WPN_HANDLE);     /* 0x163, state-0x65 entry (the
+                                         * shared weapon-handling foley) */
     em_game_anim_request(WPN_ANIM_HOLSTER, 1.0f);   /* anim 0x111 */
-    w.state = EM_WPN_HOLSTER;
-    w.timer = em_weapon_holster_ticks();
+    w.state   = EM_WPN_HOLSTER;
+    w.timer   = em_weapon_holster_ticks();
+    w.mag_sfx = 0;      /* stance drop mid-reload: no mag action played */
 }
 
 /* RELOAD entry (engine major state 3): anim 0x33 gates firing for the
@@ -219,15 +227,20 @@ static void weapon_enter_holster(void)
  * go through here. */
 static void weapon_enter_reload(void)
 {
-    /* EM_SFX_WPN_RELOAD is a flagged PLACEHOLDER id — the engine pins
-     * only the anim (0x33), no reload sound id yet. */
-    em_sfx_play(EM_SFX_WPN_RELOAD);
+    /* RELOAD SOUNDS (live-pinned s29): 0x163 at the reload START (the
+     * shared weapon-handling foley — same id the holster plays), then
+     * 0x168 at the MAG ACTION ~0.5 s in (the distinctive reload sound),
+     * scheduled below and ticked by the RELOAD state. */
+    em_sfx_play(EM_SFX_WPN_HANDLE);
     em_game_anim_request(WPN_ANIM_RELOAD, 1.0f);    /* anim 0x33 */
     w.reloads++;
     w.pending = 0;
     w.burst   = 0;
     w.state   = EM_WPN_RELOAD;
     w.timer   = em_weapon_reload_ticks();
+    w.mag_sfx = WPN_RELOAD_MAG_TICK < w.timer ? WPN_RELOAD_MAG_TICK
+                                              : w.timer - 1;
+    if (w.mag_sfx < 1) w.mag_sfx = 1;
 }
 
 /* AIM entry (engine major state 2, and the post-reload re-entry): HOLD
@@ -429,16 +442,19 @@ static void weapon_fire_logic(const EmFrameInput *in)
     if (w.counter < WPN_INTERVAL) w.counter += WPN_COUNT_STEP;
     if (w.burst_pause > 0) w.burst_pause--;
 
+    /* The trigger is CIRCLE — the engine's default-config fire button
+     * (config slot spad 0x3B78 = 0x0020 = CIRCLE, live-pinned s29;
+     * em_input.h "ENGINE DEFAULT BUTTON CONFIG"). */
     switch (w.fire_mode) {
         case EM_WPN_MODE_SEMI:
-            if (in->pressed & EM_PAD_CROSS) w.pending = 1;
+            if (in->pressed & EM_PAD_CIRCLE) w.pending = 1;
             if (w.pending && w.counter >= WPN_INTERVAL) {
                 w.pending = 0;
                 weapon_shot();
             }
             break;
         case EM_WPN_MODE_BURST:
-            if ((in->pressed & EM_PAD_CROSS) && w.burst == 0 &&
+            if ((in->pressed & EM_PAD_CIRCLE) && w.burst == 0 &&
                 w.burst_pause == 0)
                 w.burst = WPN_BURST_LEN;
             if (w.burst > 0 && w.counter >= WPN_INTERVAL) {
@@ -448,16 +464,16 @@ static void weapon_fire_logic(const EmFrameInput *in)
             }
             break;
         case EM_WPN_MODE_AUTO:
-            if ((in->held & EM_PAD_CROSS) && w.counter >= WPN_INTERVAL)
+            if ((in->held & EM_PAD_CIRCLE) && w.counter >= WPN_INTERVAL)
                 weapon_shot();
             break;
         default:
             break;
     }
 
-    /* Manual reload — engine: L3, func_0017B300(.,2) top-up; port key
-     * SQUARE (em_weapon.h "KEY MAPPING" deviation note). */
-    if (w.state == EM_WPN_AIM && (in->pressed & EM_PAD_SQUARE)) {
+    /* Manual reload — the engine's raw L3 pad bit (NOT config-mapped),
+     * func_0017B300(.,2) top-up; keyboard key R (em_input.h). */
+    if (w.state == EM_WPN_AIM && (in->pressed & EM_PAD_L3)) {
         if (weapon_reload(2) == 0)
             weapon_enter_reload();
     }
@@ -513,7 +529,10 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             }
             break;
         case EM_WPN_RELOAD:
-            /* anim 0x33 wait (major 3); the ammo move already happened */
+            /* anim 0x33 wait (major 3); the ammo move already happened.
+             * MAG ACTION (s29): 0x168 fires ~0.5 s into the window. */
+            if (w.mag_sfx > 0 && --w.mag_sfx == 0)
+                em_sfx_play(EM_SFX_WPN_MAG);
             if (--w.timer <= 0)
                 weapon_enter_aim();         /* re-hold the aim pose */
             if (!draw_held)                 /* stance drop mid-reload */

@@ -37,6 +37,7 @@ static uint16_t key_to_button(int key)
         case 'e':           return EM_PAD_R1;
         case 'u':           return EM_PAD_L2;
         case 'o':           return EM_PAD_R2;
+        case 'r':           return EM_PAD_L3;
         case EM_KEY_RETURN: return EM_PAD_START;
         case EM_KEY_TAB:    return EM_PAD_SELECT;
         default:            return 0;

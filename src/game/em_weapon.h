@@ -44,18 +44,27 @@
  * (+0x276) gains 2/frame and a shot needs >= 12.0 (+0x2F4) — one shot
  * every 6 frames, 10/s at 60 Hz.
  *
- * KEY MAPPING (port choices, via the em_input.h keyboard map):
- *   R1 (E) HELD   draw + stay in the armed stance; release = holster.
- *                 Authentic: the engine's action mask +0x200 bit 0x1000
- *                 ("weapon-draw hold") is R1 in the default config.
- *   CROSS (K)     trigger. The engine's fire trigger is config-mapped
- *                 (held mask D_00810E74 & *0x70003B78); the default-config
- *                 button is not pinned in FINDINGS yet — CROSS is the
- *                 port's stand-in until the config table is decoded.
- *   SQUARE (J)    manual reload (top-up). DEVIATION: the engine uses L3
- *                 (raw pad bit 0x200, func_0017B300(.,2)), but the
- *                 keyboard map has no L3 key; SQUARE is the only face
- *                 button with no gameplay role in the port yet.
+ * KEY MAPPING (engine-faithful since the s29 live decode of the default
+ * config block — em_input.h "ENGINE DEFAULT BUTTON CONFIG" has the full
+ * spad 0x70003B70..7E table):
+ *   R1 (E) HELD   draw + stay in the armed stance; release = holster
+ *                 (config slot 0x3B7C = R1, the weapon-draw hold).
+ *   CIRCLE (L)    FIRE — the real default-config trigger (config slot
+ *                 0x3B78 = 0x0020 = CIRCLE, live-verified s29). CROSS
+ *                 stays USE/confirm (slot 0x3B76 — the door use scan).
+ *   L3 (R)        manual reload (top-up) — the engine's raw L3 pad bit
+ *                 (NOT config-mapped), func_0017B300(.,2). The keyboard
+ *                 map gained an L3 key (R) so the port no longer needs
+ *                 the old SQUARE deviation; SQUARE's real default-config
+ *                 action (slot 0x3B74, sound 0x179) is unidentified and
+ *                 unbound in the port.
+ *
+ * RELOAD SOUNDS (live-pinned s29 — replaces the old 0xF002 placeholder
+ * alias): reload START plays 0x163 (the shared weapon-handling foley,
+ * same id as holster) and the MAG ACTION plays 0x168 ~0.5 s into the
+ * 0x33 reload anim (the distinctive reload sound, snd_0351). em_weapon
+ * schedules the mag-action tick from the reload entry; dropping the
+ * stance mid-reload (holster) cancels the pending mag sound.
  *
  * LASER SIGHT (translated 2026-06-10 s23 — live capture + disasm of the
  * gun actor's per-frame drawers func_001854E0 / func_00185760, selected
