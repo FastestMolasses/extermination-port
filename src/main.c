@@ -15,6 +15,7 @@
 #include "em_math.h"
 #include "em_model.h"
 #include "em_audio.h"
+#include "em_input.h"
 
 #include <math.h>
 #include <stdatomic.h>
@@ -49,6 +50,29 @@ static void audio_test_cb(void *user, float *out, int frames)
     }
     atomic_fetch_add_explicit(&at->frames, (long)frames,
                               memory_order_relaxed);
+}
+
+/* Pad debug print (EM_INPUT_TEST=1): one compact line per state change. */
+static void input_test_print(const EmPadState *pad)
+{
+    printf("pad 0x%04x [", pad->buttons);
+    const char *sep = "";
+    for (int b = 0; b < 16; b++) {
+        if (pad->buttons & (1u << b)) {
+            printf("%s%s", sep, em_pad_button_name(b));
+            sep = " ";
+        }
+    }
+    printf("] L(%+.1f,%+.1f) R(%+.1f,%+.1f)\n",
+           pad->lx, pad->ly, pad->rx, pad->ry);
+    fflush(stdout);
+}
+
+static bool pad_changed(const EmPadState *a, const EmPadState *b)
+{
+    return a->buttons != b->buttons ||
+           a->lx != b->lx || a->ly != b->ly ||
+           a->rx != b->rx || a->ry != b->ry;
 }
 
 int main(void)
@@ -97,11 +121,20 @@ int main(void)
                             "creation failed\n");
     }
 
+    /* Pad model: always fed (cheap, side-effect-free); printed per change
+     * only when EM_INPUT_TEST=1 so default output is untouched. */
+    em_input_init();
+    const char *input_env = getenv("EM_INPUT_TEST");
+    bool input_test = input_env && input_env[0] == '1';
+    EmPadState prev_pad;
+    em_input_pad(&prev_pad);
+
     bool running = true;
     double t = 0.0;
     while (running) {
         EmEvent ev;
         while (em_window_poll(win, &ev)) {
+            em_input_handle_event(&ev);
             switch (ev.type) {
                 case EM_EVENT_QUIT:
                     running = false;
@@ -111,6 +144,15 @@ int main(void)
                     break;
                 default:
                     break;
+            }
+        }
+
+        if (input_test) {
+            EmPadState pad;
+            em_input_pad(&pad);
+            if (pad_changed(&pad, &prev_pad)) {
+                input_test_print(&pad);
+                prev_pad = pad;
             }
         }
 

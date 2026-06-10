@@ -37,19 +37,31 @@ struct EmWindow {
     EmWindowDelegate *delegate;
 };
 
-static int map_keycode(unsigned short kc)
+static int map_key(NSEvent *ev)
 {
-    /* macOS virtual key codes -> EmKey. Minimal set; expand as needed. */
-    switch (kc) {
+    /* macOS virtual key codes -> EmKey for the non-printable keys. */
+    switch (ev.keyCode) {
         case 53:  return EM_KEY_ESCAPE;
         case 49:  return EM_KEY_SPACE;
         case 36:  return EM_KEY_RETURN;
+        case 76:  return EM_KEY_RETURN;   /* keypad enter */
+        case 48:  return EM_KEY_TAB;
         case 123: return EM_KEY_LEFT;
         case 124: return EM_KEY_RIGHT;
         case 126: return EM_KEY_UP;
         case 125: return EM_KEY_DOWN;
-        default:  return EM_KEY_UNKNOWN;
+        default:  break;
     }
+    /* Printable keys: per the EmKey contract they carry their ASCII value.
+     * Use the layout-resolved character (ignoring modifiers) and fold
+     * letters to lowercase so 'A' and 'a' are the same key to the game. */
+    NSString *chars = ev.charactersIgnoringModifiers;
+    if (chars.length > 0) {
+        unichar c = [chars characterAtIndex:0];
+        if (c >= 'A' && c <= 'Z') c = (unichar)(c - 'A' + 'a');
+        if (c >= 32 && c < 127) return (int)c;
+    }
+    return EM_KEY_UNKNOWN;
 }
 
 EmWindow *em_window_create(const char *title, int width, int height)
@@ -126,10 +138,10 @@ bool em_window_poll(EmWindow *w, EmEvent *out)
             int key = 0;
             if (ev.type == NSEventTypeKeyDown && !ev.isARepeat) {
                 type = EM_EVENT_KEY_DOWN;
-                key  = map_keycode(ev.keyCode);
+                key  = map_key(ev);
             } else if (ev.type == NSEventTypeKeyUp) {
                 type = EM_EVENT_KEY_UP;
-                key  = map_keycode(ev.keyCode);
+                key  = map_key(ev);
             }
 
             [NSApp sendEvent:ev];

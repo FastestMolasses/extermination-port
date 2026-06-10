@@ -9,7 +9,7 @@ UNAME := $(shell uname)
 
 BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
-COMMON  := src/main.c src/em_model.c
+COMMON  := src/main.c src/em_model.c src/em_input.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -37,7 +37,7 @@ endif
 # and src/gfx/d3d12. A nmake/msbuild project will be added when that backend
 # is implemented.
 
-.PHONY: all clean run
+.PHONY: all clean run test-input
 all: $(BIN)
 
 $(BIN): $(SRC)
@@ -46,6 +46,13 @@ $(BIN): $(SRC)
 
 run: $(BIN)
 	$(BIN)
+
+# Unit test for the OS-free input model: links only em_input.c + the test,
+# no platform/gfx/audio objects, so it runs headless on any host.
+test-input: tests/input_test.c src/em_input.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) tests/input_test.c src/em_input.c -o build/input_test
+	./build/input_test
 
 clean:
 	rm -rf build

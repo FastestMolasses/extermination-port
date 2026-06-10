@@ -35,6 +35,7 @@ typedef enum {
     EM_KEY_SPACE   = 32,
     EM_KEY_ESCAPE  = 256,
     EM_KEY_RETURN,
+    EM_KEY_TAB,
     EM_KEY_LEFT,
     EM_KEY_RIGHT,
     EM_KEY_UP,
