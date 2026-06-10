@@ -88,7 +88,8 @@
  * tiny deterministic LCG so test runs and captures reproduce. Gib
  * instances are VISUAL ONLY: they draw through the same em_enemy_draw
  * chain contract as live crawlers (virtual indices >= the real slot
- * count, budgeted so the total never exceeds EM_ENEMY_MAX — em_game.c
+ * count, budgeted so the total never exceeds ENEMY_SLOT_MAX (16) —
+ * em_game.c
  * sizes its render chain with it) and never touch gameplay state.
  *
  * EM_ENEMY_GIBDEMO=<frame>: debug hook — posts a lethal 0x400A mailbox
@@ -130,10 +131,11 @@
  * (the leech yaw-to-player applied at spawn, exactly like the crate
  * burst), per-tick trigger = player inside the config box (Y tolerance
  * +1.5), indestructibility (no mailbox, no hit sphere, excluded from
- * acquire/ray_test/alive). Flagged port stand-ins — the LCG replaces
- * the engine frame RNG for the mode draw and delay pick; the mode-1
- * breather's kind-0xE pair spawn is untranslated (the brain
- * func_001546C0 is uncharacterized); the open-trap player hit is a
+ * acquire/ray_test/alive), and the mode-1 breather's immediate
+ * kind-0xE TENDRIL-FIELD pair (see "TENDRIL FIELD" below). Flagged
+ * port stand-ins — the LCG replaces
+ * the engine frame RNG for the mode draw and delay pick; the open-trap
+ * player hit is a
  * one-shot mailbox 5 per box entry (engine: event-3 knockdown carrying
  * 5.0); the visual is an original placeholder mound scaled to the
  * decoded footprint with the +0x80 phase as a Y swell (the engine's
@@ -141,6 +143,72 @@
  * binds NO model-table entry, so there is nothing to export; sounds
  * 0x42F breathing / 0x430 worm emerge go through em_sfx and are
  * silent until the user's sfx.txt maps them).
+ *
+ * TENDRIL FIELD (em_enemy.h "TENDRIL FIELD"; FINDINGS "KIND-0xE
+ * COMPANION RESOLVED" — brain func_001546C0, init func_00154740, tick
+ * func_001549C0, render func_00154F00, trigger gate func_00154460):
+ * the mode-1 pad's companion PAIR (func_0015A200(pad, 0xE, 0/1) at
+ * generator init — the engine's only other dynamic generator child).
+ * Each field actor owns 12 spike records and runs the decoded
+ * SCAN -> DEPLOY -> HOLD -> RETRACT -> RESET machine:
+ *
+ *   SCAN     gameplay-frame gate (native: em_enemy_update only runs in
+ *            gameplay frames) + player inside 3x the parent pad
+ *            footprint, |dy| <= 3 + recY. Trigger: anchor = (player X,
+ *            pad Y, player Z); 12 targets = anchor + polar(r, theta),
+ *            theta uniform, r = 5.5 +- 2.0 u (pair idx 0) / 7.0 +-
+ *            2.5 u (idx 1) — concentric rings; valid = target inside
+ *            the 0.92x pad ellipse (the engine's atan2 + radius-at-
+ *            angle formula == the normalized point-in-ellipse test);
+ *            phase = rand 48..127, vel/ramp = 0, girth = the cycling
+ *            {0xB4,0xDA,0xFF,0x180}/256 table (random start row);
+ *            sound 0x42D if ANY target valid (engine range 300 —
+ *            em_sfx has no positional attenuation, same note as
+ *            0x42F); falls through to DEPLOY the same tick.
+ *   DEPLOY   all 12 ramps += 37/tick clamp 300; 8-tick timer -> HOLD
+ *            (ramps land on 296).
+ *   HOLD     retract (timer 8) when the player leaves the Y band or
+ *            moves dist^2 >= 4.0 (idx 0) / 16.0 (idx 1) from the
+ *            anchor — the field stays up only while the player stands
+ *            within 2 u / 4 u of where they triggered it.
+ *   RETRACT  ramps -= 37/tick floor 0; 8 ticks -> RESET.
+ *   RESET    one tick, back to SCAN (re-deploys indefinitely).
+ *
+ * Render tail (every tick while sub != 0): per VALID record the s16
+ * bob integrator — phase += vel; parent breather phase > 0.5 (pad
+ * opening) = violent thrash (vel -= 8/tick, kick +28..41 while phase
+ * < 128) vs closed = gentle bob (vel -= 1/tick, kick +3..7 below 128,
+ * vel halved at >= 8); floor clamp phase < 100 -> 100 with a fresh
+ * 3..7 vel. Then the per-spike TRS: scale X/Z = girth/256, scale Y =
+ * phase*ramp/65536, position = the record's world X/Z at pad Y — 12
+ * re-posed draws of the ONE static spike mesh (assets/tendril.emdl,
+ * the chunk03/f13_id15.bin export; load-if-present, else a logged
+ * draw skip — the machine still runs), through the same virtual-slot
+ * chain contract as the gibs. The field deals NO damage (the pad's
+ * mailbox hit covers mode 1), has no HP/mailbox, and is excluded from
+ * acquire/ray_test/alive exactly like its parent. Flagged port
+ * simplifications: the module LCG stands in for the engine frame RNG
+ * (scatter/phase/girth/kicks); the room-tint -> green RGB blend and
+ * the ramp alpha fade-in are skipped (no per-draw color/alpha in the
+ * renderer — the FINDINGS port contract flags this as acceptable);
+ * sound 0x42D is UNMAPPED in the generated sfx.txt (soundmap pins it
+ * to sfx/snd_0615.wav — noted in the registry, silent until mapped).
+ *
+ * EM_ENEMY_TEST=5 (tendril run — owned here like test 4; em_game.c
+ * arms only 1..3): frame 0 places a link-1 pad (kind 1, the 30x30
+ * footprint) at the player spawn and FORCES the runtime mode to 1
+ * (the link-1 table draw is RNG 0/1; the test pins the breather
+ * outcome — test-only, documented). A SYNTHETIC walker then
+ * substitutes the player position THIS module sees (the run is
+ * self-contained; the real player, camera and other modules are
+ * untouched): it walks in from outside the 46.5-u start mark to the
+ * pad center (the field pulses while it moves — each deploy's HOLD
+ * breaks as the walker leaves the 2/4-u anchor radius), stands 50
+ * ticks (steady HOLD: both fields sub 2, 12/12 valid targets, every
+ * ramp at 296 = the 8-tick deploy, 24 spike draws when the mesh is
+ * present), walks off (both fields RETRACT within the hold radii),
+ * and exits the box (both fields rest at sub 0, all ramps 0).
+ * PASS/FAIL line + quit, like tests 1..4.
  *
  * Manifest placement: em_game.c's scene_manifest_load parses the
  * `enemy generator x y z yaw [kind k] [link n]` lines (defaults
@@ -180,6 +248,12 @@
 #define CRATE_ASSET      "assets/enemy_crate.emdl"
 #define ENEMY_BONE_MAX   32
 #define ENEMY_PI         3.14159265f
+
+/* The crawler/gib SLOT pool — the original 16-slot budget (EM_ENEMY_MAX
+ * grew into the render-chain DRAW capacity when the tendril fields
+ * landed; the gameplay pools below are unchanged, so tests 1..4 and the
+ * gib RNG stream stay byte-identical). */
+#define ENEMY_SLOT_MAX   16
 
 /* --- Engine constants (FINDINGS "ENEMY AI ARCHITECTURE") --------------- */
 #define ENEMY_HP_INIT    1        /* crawler init HP (+0x34)              */
@@ -312,6 +386,40 @@ static const float GEN_DELAY[3] = { 1800.0f, 3600.0f, 5400.0f };
 #define GEN_PAD_SWELL     0.6f    /* Y scale grows to 1+this at phase 1 */
 #define GEN_BONES         1
 
+/* --- Tendril field (see "TENDRIL FIELD" in the file header) -------------
+ * Engine values decoded in FINDINGS "KIND-0xE COMPANION RESOLVED"; the
+ * only PORT items are the LCG (vs the engine frame RNG) and the pool
+ * cap (the engine allocs from the global actor pool). */
+#define TF_ASSET         "assets/tendril.emdl" /* chunk03/f13_id15.bin —
+                                                * 96 verts, 1 node, spike
+                                                * r~1.6 base, ~9.9 tall  */
+#define TF_BONE_MAX      4
+#define TF_SPIKES        12       /* records per field actor             */
+#define EM_TENDRIL_MAX   8        /* field-actor pool = 4 pad pairs
+                                   * (PORT cap; extra pads get a logged
+                                   * skip, like an exhausted actor pool) */
+#define TF_TRIG_MULT     3.0f     /* SCAN box: 3x the parent footprint   */
+#define TF_TRIG_Y        3.0f     /* Y band: 3 + recY (GEN_BOX_Y)        */
+#define TF_ELLIPSE       0.92f    /* validity ellipse vs pad half-extents*/
+#define TF_RAMP_STEP     37       /* deploy/retract ramp step per tick   */
+#define TF_RAMP_CAP      300      /* clamp (the 8-tick deploy lands 296) */
+#define TF_TICKS         8        /* +0x28 deploy/retract countdown      */
+#define TF_PHASE_FLOOR   100      /* render bob floor (fresh vel 3..7)   */
+#define TF_SFX_TRIGGER   0x42Du   /* scan-success squelch, engine range
+                                   * 300 (em_sfx: no positional
+                                   * attenuation — same note as 0x42F).
+                                   * UNMAPPED in the generated sfx.txt;
+                                   * soundmap = sfx/snd_0615.wav (88 ms
+                                   * squelch) — noted in the registry,
+                                   * silent until the user maps it.      */
+static const float TF_RING_BASE[2] = { 5.5f, 7.0f };  /* pair idx 0 / 1 */
+static const float TF_RING_SPAN[2] = { 2.0f, 2.5f };  /* +- ring spread */
+static const float TF_HOLD_R2[2]   = { 4.0f, 16.0f }; /* hold dist^2:
+                                                        * 2 u / 4 u      */
+/* D_0026D320 — the cycling girth table: scale-X/Z numerators / 256
+ * (0.70 / 0.85 / 1.00 / 1.50), random start row, then sequential. */
+static const int16_t TF_GIRTH[4] = { 0xB4, 0xDA, 0xFF, 0x180 };
+
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
 #define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
@@ -404,6 +512,35 @@ typedef struct {
     float   palette[GEN_BONES * 16];
 } Gen;
 
+/* One tendril spike record (the scratch +0x1C {X,Z} pair + the +0x7C
+ * {phase, vel, ramp, girth, valid} block, stride 0xA — engine s16
+ * widths kept so the integrator wraps identically). */
+typedef struct {
+    float   x, z;         /* world target (scattered at SCAN)            */
+    int16_t phase;        /* +0x7C bob phase (the scale-Y numerator)     */
+    int16_t vel;          /* +0x7E bob velocity                          */
+    int16_t ramp;         /* +0x80 deploy ramp 0..296                    */
+    int16_t girth;        /* +0x82 scale-X/Z numerator (/256)            */
+    uint8_t valid;        /* +0x84 target inside the 0.92x pad ellipse   */
+} TfSpike;
+
+/* One tendril-field actor (one member of a mode-1 pad's pair). Engine
+ * actor offsets noted; fields live outside every other pool (no HP, no
+ * mailbox, no hit sphere — see the file header). */
+typedef struct {
+    uint8_t active;
+    uint8_t pair;         /* +0x2E pair index 0/1 (ring + hold radius)   */
+    uint8_t sub;          /* +0x05: 0 SCAN 1 DEPLOY 2 HOLD 3 RETRACT
+                           * 4 RESET (engine sub-state values)           */
+    uint8_t gcur;         /* girth-table cursor (random start row, then
+                           * sequential — the engine's cycling seed)     */
+    int     timer;        /* +0x28 deploy/retract countdown              */
+    int     pad;          /* parent generator index (the +0x20 link)     */
+    float   anchor[3];    /* scratch +0x10: (player X, pad Y, player Z)  */
+    TfSpike sp[TF_SPIKES];
+    float   pal[TF_SPIKES][TF_BONE_MAX * 16];
+} Tendril;
+
 /* Anim-layer phases (port-side, NOT engine state values — the engine
  * picks clips inside func_00154040/func_00154120). */
 enum {
@@ -438,7 +575,7 @@ static struct {
     uint32_t   crate_bones;
     float      crate_base[CRATE_BONE_MAX * 16];
 
-    Enemy      e[EM_ENEMY_MAX];
+    Enemy      e[ENEMY_SLOT_MAX];
     int        n;
 
     int        player_hit;   /* player-side damage mailbox (+0x36 shape) */
@@ -447,7 +584,7 @@ static struct {
     int        gib_tried;
     GibModel   gibm[GIB_MODEL_MAX];
     int        gibm_n;       /* loaded burst-set models (0 = sink only)  */
-    Gib        gib[EM_ENEMY_MAX];
+    Gib        gib[ENEMY_SLOT_MAX];
     int        gib_tail;     /* virtual draw slots in use (compact top)  */
     int        gib_next;     /* round-robin model cursor                 */
     uint32_t   rng;          /* deterministic LCG state                  */
@@ -473,6 +610,30 @@ static struct {
     int        gt_kill1_f;   /* frame worm 1 was killed (0 = not yet)    */
     int        gt_post;      /* frames since exhaustion (silence window) */
     float      gt_delay_div; /* delay divisor (60 — test acceleration)   */
+
+    /* tendril fields (file header "TENDRIL FIELD") */
+    int        tf_tried;     /* spike mesh load attempted                */
+    EmGfxMesh *tf_mesh;
+    EmModel    tf_model;
+    int        tf_has_model;
+    uint32_t   tf_bones;
+    float      tf_base[TF_BONE_MAX * 16];
+    Tendril    tf[EM_TENDRIL_MAX];
+    int        tf_n;
+
+    /* EM_ENEMY_TEST=5 harness (file header) */
+    int        tt_on;
+    int        tt_armed;     /* pad placed + walker started              */
+    int        tt_fail;      /* failed checkpoints                       */
+    int        tt_pad;       /* test generator index (-1 = spawn failed) */
+    int        tt_f[2];      /* the pair's field indices (-1 = missing)  */
+    float      tt_w[3];      /* the synthetic walker                     */
+    int        tt_stage;     /* 0 walk-in, 1 hold, 2 leave, 3 quiet,
+                              * 99 done                                  */
+    int        tt_stage_f;   /* frame the stage was entered              */
+    int        tt_trigs;     /* SCAN->DEPLOY edges seen (field 0)        */
+    int        tt_retract[2];/* RETRACT entries seen since stage 2       */
+    uint8_t    tt_psub[2];   /* previous-tick sub (edge detection)       */
 } s;
 
 static void enemy_build_palette(Enemy *e);
@@ -495,6 +656,13 @@ void em_enemy_reset(void)
         s.gt_gen       = -1;
         s.gt_kill_i    = -1;
         s.gt_delay_div = 60.0f;
+    }
+    /* EM_ENEMY_TEST=5 — the tendril-field run is owned HERE too. */
+    if (et && et[0] == '5' && et[1] == '\0') {
+        s.tt_on   = 1;
+        s.tt_pad  = -1;
+        s.tt_f[0] = -1;
+        s.tt_f[1] = -1;
     }
 }
 
@@ -747,7 +915,7 @@ static void gib_models_load(EmGfx *gfx)
  * mesh a burst needs is preloaded by em_enemy_add_kind). */
 static int enemy_spawn(int kind, const float pos[3], float yaw)
 {
-    if (s.n >= EM_ENEMY_MAX) return -1;
+    if (s.n >= ENEMY_SLOT_MAX) return -1;
 
     Enemy *e = &s.e[s.n];
     memset(e, 0, sizeof *e);
@@ -781,7 +949,7 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
 
 int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw)
 {
-    if (s.n >= EM_ENEMY_MAX) return -1;
+    if (s.n >= ENEMY_SLOT_MAX) return -1;
     if (enemy_mesh_get(gfx) != 0) return -1;
     gib_models_load(gfx);
     return enemy_spawn(EM_ENEMY_KIND_CRAWLER, pos, yaw);
@@ -792,7 +960,7 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
     if (kind == EM_ENEMY_KIND_CRAWLER)
         return em_enemy_add(gfx, pos, yaw);
     if (kind != EM_ENEMY_KIND_CRATE) return -1;
-    if (s.n >= EM_ENEMY_MAX) return -1;
+    if (s.n >= ENEMY_SLOT_MAX) return -1;
     if (crate_mesh_get(gfx) != 0) return -1;
     /* The burst will need the worm mesh + the husk gibs; this is the
      * only moment with a gfx handle, so preload them now. */
@@ -1120,15 +1288,18 @@ static void gib_build_palette(Gib *g)
 
 /* Burst: launch 3-5 gib instances from a lethally-hit crawler with the
  * documented knockback shape (file header). Budgeted so the virtual
- * draw slots never push em_enemy_count past EM_ENEMY_MAX (em_game.c's
- * chain reservation). Returns the number launched (0 = caller keeps
- * the sink placeholder). */
+ * draw slots never push the crawler+gib total past ENEMY_SLOT_MAX (the
+ * original budget; EM_ENEMY_MAX is now the chain reservation). Returns
+ * the number launched (0 = caller keeps the sink placeholder). */
 static int gib_burst(const Enemy *e)
 {
     if (s.gibm_n == 0) return 0;
 
     int want   = GIB_COUNT_MIN + (int)(gib_rng() % GIB_COUNT_SPAN);
-    int budget = EM_ENEMY_MAX - s.n;   /* virtual slots we may occupy */
+    int budget = ENEMY_SLOT_MAX - s.n; /* virtual slots we may occupy
+                                        * (the original 16-slot budget —
+                                        * keeps the gib RNG stream and
+                                        * counts byte-identical)        */
     int spawned = 0;
 
     for (int k = 0; k < budget && spawned < want; k++) {
@@ -1258,6 +1429,242 @@ static int gen_mesh_get(EmGfx *gfx)
     return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Tendril field (file header "TENDRIL FIELD")                          */
+/* ------------------------------------------------------------------ */
+
+/* Load the shared spike mesh once (the static EMDL path, like the
+ * gibs). ABSENT asset = a logged skip: the field machine still runs
+ * (trigger/sound/state), only the 12 draws are skipped. */
+static int tf_mesh_get(EmGfx *gfx)
+{
+    if (s.tf_mesh) return 0;
+    if (s.tf_tried) return -1;
+    s.tf_tried = 1;
+
+    if (em_model_load(&s.tf_model, TF_ASSET) != 0) {
+        printf("tendril field: no %s — the field runs, spikes are not "
+               "drawn (export chunk03/f13_id15.bin as a static EMDL "
+               "with the decomp repo's exporter)\n", TF_ASSET);
+        return -1;
+    }
+    if (s.tf_model.bone_count > TF_BONE_MAX) {
+        fprintf(stderr, "enemy: %s: %u bones > %d\n", TF_ASSET,
+                s.tf_model.bone_count, TF_BONE_MAX);
+        em_model_free(&s.tf_model);
+        return -1;
+    }
+    s.tf_mesh = em_gfx_mesh_create(gfx, s.tf_model.verts,
+                                   s.tf_model.vert_count,
+                                   s.tf_model.indices,
+                                   s.tf_model.index_count,
+                                   (const EmGfxTexDesc *)s.tf_model.texs,
+                                   s.tf_model.tex_count, s.tf_model.texels,
+                                   s.tf_model.flags);
+    if (!s.tf_mesh) {
+        em_model_free(&s.tf_model);
+        return -1;
+    }
+    s.tf_has_model = 1;
+    s.tf_bones     = s.tf_model.bone_count;
+    em_model_palette_at(&s.tf_model, 0, 0.0, s.tf_base);
+    printf("tendril model: %s — %u verts, %u tris, %u texture(s)\n",
+           TF_ASSET, s.tf_model.vert_count, s.tf_model.index_count / 3,
+           s.tf_model.tex_count);
+    return 0;
+}
+
+/* Attach a mode-1 pad's field PAIR (engine: func_0015A200(pad, 0xE, 0)
+ * + (pad, 0xE, 1) at generator init — always a pair, exactly once).
+ * Pool exhaustion skips with a log (the engine's full-actor-pool
+ * NULL alloc — and unlike the worm path there is no retry). */
+static void tf_attach(EmGfx *gfx, int pad)
+{
+    int first = s.tf_n;
+
+    tf_mesh_get(gfx);            /* load-if-present (absent = logged) */
+    for (int idx = 0; idx < 2; idx++) {
+        if (s.tf_n >= EM_TENDRIL_MAX) {
+            printf("tendril field: pool full (%d) — generator %d pair "
+                   "member %d skipped\n", EM_TENDRIL_MAX, pad, idx);
+            break;
+        }
+        Tendril *t = &s.tf[s.tf_n];
+        memset(t, 0, sizeof *t);
+        t->active = 1;
+        t->pair   = (uint8_t)idx;
+        t->pad    = pad;
+        /* random start row of the cycling girth table (PORT: module
+         * LCG stands in for the engine frame RNG, flagged) */
+        t->gcur   = (uint8_t)(gib_rng() & 3u);
+        s.tf_n++;
+    }
+    if (s.tf_n > first)
+        printf("tendril field: %d field(s) attached to generator %d "
+               "(rings %.1f+-%.1f / %.1f+-%.1f u, 12 spikes each)\n",
+               s.tf_n - first, pad, TF_RING_BASE[0], TF_RING_SPAN[0],
+               TF_RING_BASE[1], TF_RING_SPAN[1]);
+}
+
+/* SCAN gate (func_00154460): player inside 3x the parent pad footprint
+ * and the (3 + recY) Y band. The engine's gameplay-frame gate (spad
+ * 0x70003B8D == 0) holds natively because em_enemy_update only runs in
+ * gameplay frames. */
+static int tf_trigger(const Tendril *t, const float pp[3])
+{
+    const Gen *g = &s.gen[t->pad];
+    return fabsf(pp[0] - g->pos[0]) <= TF_TRIG_MULT * GEN_CFG[g->cfg][0] &&
+           fabsf(pp[2] - g->pos[2]) <= TF_TRIG_MULT * GEN_CFG[g->cfg][1] &&
+           fabsf(pp[1] - g->pos[1]) <= TF_TRIG_Y + GEN_BOX_Y;
+}
+
+/* Scatter the 12 targets around the trigger anchor (the SCAN body):
+ * polar ring per pair index, validity = inside the 0.92x pad ellipse
+ * (the engine's func_001545B0 heading + radius-at-angle formula is the
+ * same predicate as this normalized point-in-ellipse test). Plays the
+ * 0x42D squelch when any target survives. */
+static void tf_scatter(Tendril *t, const float pp[3])
+{
+    const Gen *g  = &s.gen[t->pad];
+    float      ex = TF_ELLIPSE * GEN_CFG[g->cfg][0];
+    float      ez = TF_ELLIPSE * GEN_CFG[g->cfg][1];
+    int        any = 0;
+
+    t->anchor[0] = pp[0];
+    t->anchor[1] = g->pos[1];
+    t->anchor[2] = pp[2];
+    for (int i = 0; i < TF_SPIKES; i++) {
+        TfSpike *sp = &t->sp[i];
+        float th = (float)(gib_rng() % 65536u) *
+                   (2.0f * ENEMY_PI / 65536.0f);
+        float r  = TF_RING_BASE[t->pair] - TF_RING_SPAN[t->pair] +
+                   (float)(gib_rng() % 65536u) / 65536.0f *
+                   (2.0f * TF_RING_SPAN[t->pair]);
+        sp->x = t->anchor[0] + sinf(th) * r;
+        sp->z = t->anchor[2] + cosf(th) * r;
+        {
+            float nx = (sp->x - g->pos[0]) / ex;
+            float nz = (sp->z - g->pos[2]) / ez;
+            sp->valid = nx * nx + nz * nz <= 1.0f;
+        }
+        sp->phase = (int16_t)(48 + (int)(gib_rng() % 80u));
+        sp->vel   = 0;
+        sp->ramp  = 0;
+        sp->girth = TF_GIRTH[t->gcur++ & 3];
+        any      |= sp->valid;
+    }
+    if (any)
+        em_sfx_play(TF_SFX_TRIGGER);   /* 0x42D, engine range 300 */
+}
+
+/* World palette of one spike: the static base pose scaled (X/Z =
+ * girth/256, Y = phase*ramp/65536 — the deploy ramp times the bob)
+ * and translated to the record's target at pad height. Same column
+ * composition as the gib palette (scale instead of tumble). */
+static void tf_pal_build(Tendril *t, int i)
+{
+    const TfSpike *sp = &t->sp[i];
+    float sx = (float)sp->girth / 256.0f;
+    float sy = (float)sp->phase * (float)sp->ramp / 65536.0f;
+    float *m = t->pal[i];
+
+    if (!s.tf_has_model) return;        /* nothing will draw anyway */
+    memcpy(m, s.tf_base, s.tf_bones * 16 * sizeof(float));
+    for (uint32_t b = 0; b < s.tf_bones; b++) {
+        float *bm = m + b * 16;
+        for (int col = 0; col < 4; col++) {
+            bm[col * 4 + 0] *= sx;
+            bm[col * 4 + 1] *= sy;
+            bm[col * 4 + 2] *= sx;      /* girth scales X and Z      */
+        }
+        bm[12] += sp->x;
+        bm[13] += t->anchor[1];
+        bm[14] += sp->z;
+    }
+}
+
+/* Render-tail bob integrator (func_00154F00, s16 arithmetic kept):
+ * runs once per tick while sub != 0, exactly the engine cadence (the
+ * brain tail submits the 12 draws each tick). The engine's room-tint
+ * -> green RGB blend (base (6,92,1) vs the parent open phase) and the
+ * ramp-0..16 alpha fade-in are SKIPPED — no per-draw color/alpha in
+ * the renderer yet; the FINDINGS port contract flags this
+ * simplification as acceptable. */
+static void tf_animate(Tendril *t)
+{
+    const Gen *g    = &s.gen[t->pad];
+    int        open = g->phase > 0.5f;  /* parent +0x80 breather phase */
+
+    for (int i = 0; i < TF_SPIKES; i++) {
+        TfSpike *sp = &t->sp[i];
+        if (!sp->valid) continue;
+        sp->phase = (int16_t)(sp->phase + sp->vel);
+        if (open) {                     /* violent thrash (pad open)   */
+            sp->vel = (int16_t)(sp->vel - 8);
+            if (sp->phase < 128)
+                sp->vel = (int16_t)(sp->vel + 28 + (int)(gib_rng() % 14u));
+        } else {                        /* gentle bob (pad closed)     */
+            sp->vel = (int16_t)(sp->vel - 1);
+            if (sp->phase < 128)
+                sp->vel = (int16_t)(sp->vel + 3 + (int)(gib_rng() % 5u));
+            if (sp->vel >= 8)
+                sp->vel = (int16_t)(sp->vel / 2);
+        }
+        if (sp->phase < TF_PHASE_FLOOR) {
+            sp->phase = TF_PHASE_FLOOR;
+            sp->vel   = (int16_t)(3 + (int)(gib_rng() % 5u));
+        }
+        tf_pal_build(t, i);
+    }
+}
+
+/* Per-tick field machine (func_001549C0 sub-states, engine values). */
+static void tf_tick(Tendril *t, const float pp[3])
+{
+    switch (t->sub) {
+    case 0:                             /* SCAN                        */
+        if (!tf_trigger(t, pp))
+            return;                     /* idle: no render tail        */
+        tf_scatter(t, pp);
+        t->timer = TF_TICKS;
+        t->sub   = 1;
+        /* FALLTHROUGH — the engine deploys on the trigger tick */
+    case 1:                             /* DEPLOY                      */
+        for (int i = 0; i < TF_SPIKES; i++) {
+            t->sp[i].ramp = (int16_t)(t->sp[i].ramp + TF_RAMP_STEP);
+            if (t->sp[i].ramp > TF_RAMP_CAP)
+                t->sp[i].ramp = TF_RAMP_CAP;
+        }
+        if (--t->timer <= 0)
+            t->sub = 2;
+        break;
+    case 2: {                           /* HOLD                        */
+        const Gen *g  = &s.gen[t->pad];
+        float      dx = pp[0] - t->anchor[0];
+        float      dz = pp[2] - t->anchor[2];
+        if (fabsf(pp[1] - g->pos[1]) > TF_TRIG_Y + GEN_BOX_Y ||
+            dx * dx + dz * dz >= TF_HOLD_R2[t->pair]) {
+            t->timer = TF_TICKS;
+            t->sub   = 3;
+        }
+        break;
+    }
+    case 3:                             /* RETRACT                     */
+        for (int i = 0; i < TF_SPIKES; i++) {
+            t->sp[i].ramp = (int16_t)(t->sp[i].ramp - TF_RAMP_STEP);
+            if (t->sp[i].ramp < 0)
+                t->sp[i].ramp = 0;
+        }
+        if (--t->timer <= 0)
+            t->sub = 4;
+        break;
+    default:                            /* 4 RESET -> rescan next tick */
+        t->sub = 0;
+        return;                         /* engine: no render at sub 0  */
+    }
+    tf_animate(t);     /* the brain tail renders whenever sub != 0 */
+}
+
 int em_enemy_add_generator(EmGfx *gfx, const float pos[3], float yaw,
                            int cfg, int link)
 {
@@ -1292,11 +1699,9 @@ int em_enemy_add_generator(EmGfx *gfx, const float pos[3], float yaw,
         g->mode = GEN_TBL[link - 1][row][col];
         if (g->mode == 1)
             /* engine: mode 1 ALSO spawns an immediate pair of kind-0xE
-             * enemies (func_0015A200(actor, 0xE, 0/1) -> brain
-             * func_001546C0) — UNTRANSLATED (the brain is
-             * uncharacterized); the breather/trap arm still runs. */
-            printf("generator %d: mode-1 kind-0xE pair untranslated "
-                   "(func_001546C0)\n", s.gen_n);
+             * TENDRIL FIELDS (func_0015A200(actor, 0xE, 0/1) -> brain
+             * func_001546C0 — file header "TENDRIL FIELD"). */
+            tf_attach(gfx, s.gen_n);
     }
     gen_build_palette(g);
     printf("enemy generator %d: at (%.1f, %.1f, %.1f) yaw %.3f, cfg %d "
@@ -1308,7 +1713,7 @@ int em_enemy_add_generator(EmGfx *gfx, const float pos[3], float yaw,
 
 /* Per-tick generator behavior (func_0015A2C0 state 1; engine sub-state
  * values kept in g->sub). Worm spawns route through enemy_spawn, so
- * EM_ENEMY_MAX is the same wall the engine's full actor pool is:
+ * ENEMY_SLOT_MAX is the same wall the engine's full actor pool is:
  * a failed alloc does NOT consume the cap (func_0015A200 returns 0 ->
  * no +0x2E++) — the pad retries after the next delay. */
 static void gen_tick(Gen *g, const float pp[3])
@@ -1515,6 +1920,170 @@ static void gen_test_script(void)
     }
 }
 
+/* --- EM_ENEMY_TEST=5 harness (file header) ------------------------- */
+
+#define TT_STEP 1.0f   /* synthetic walker speed, units per tick */
+
+static void tt_check(int cond, const char *what)
+{
+    if (cond) return;
+    s.tt_fail++;
+    printf("tendril test: CHECK FAILED — %s\n", what);
+}
+
+static void tt_finish(void)
+{
+    const Tendril *a = s.tt_f[0] >= 0 ? &s.tf[s.tt_f[0]] : NULL;
+    const Tendril *b = s.tt_f[1] >= 0 ? &s.tf[s.tt_f[1]] : NULL;
+    printf("tendril test: pad %d, fields [%d,%d], %d trigger(s), "
+           "retracts %d+%d, final sub %d/%d — %s\n",
+           s.tt_pad, s.tt_f[0], s.tt_f[1], s.tt_trigs,
+           s.tt_retract[0], s.tt_retract[1],
+           a ? a->sub : -1, b ? b->sub : -1,
+           s.tt_fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    s.tt_stage = 99;
+    em_frame_request_quit();
+}
+
+/* Arm: the link-1 test pad at the player spawn, mode FORCED to 1, the
+ * walker staged outside the 3x trigger box. First update tick only. */
+static void tt_arm(const float player_pos[3])
+{
+    s.tt_armed = 1;
+    float gp[3] = { player_pos[0], player_pos[1], player_pos[2] };
+    s.tt_pad = em_enemy_add_generator(em_frame_gfx(), gp, 0.0f, 1, 1);
+    if (s.tt_pad < 0) {
+        tt_check(0, "generator spawn at arm time");
+        tt_finish();
+        return;
+    }
+    Gen *g = &s.gen[s.tt_pad];
+    if (g->mode != 1) {
+        /* TEST-ONLY override (documented in the file header): the
+         * link-1 table draw is RNG 0/1 — force the breather outcome so
+         * the run always exercises the field, and attach the pair the
+         * skipped draw would have spawned. */
+        g->mode = 1;
+        tf_attach(em_frame_gfx(), s.tt_pad);
+        printf("tendril test: link-1 mode draw FORCED to 1\n");
+    }
+    for (int i = 0; i < s.tf_n; i++)
+        if (s.tf[i].pad == s.tt_pad && s.tf[i].pair < 2)
+            s.tt_f[s.tf[i].pair] = i;
+    tt_check(s.tt_f[0] >= 0 && s.tt_f[1] >= 0,
+             "field pair attached to the mode-1 pad");
+    if (s.tt_f[0] < 0 || s.tt_f[1] < 0) {
+        tt_finish();
+        return;
+    }
+    /* walker: outside the 3x box (kind 1: 3 * 15 = 45 u), walking +X */
+    s.tt_w[0] = gp[0] - (TF_TRIG_MULT * GEN_CFG[1][0] + 1.5f);
+    s.tt_w[1] = gp[1];
+    s.tt_w[2] = gp[2];
+    printf("tendril test: pad %d at (%.1f, %.1f, %.1f), walker from "
+           "%.1f u out\n", s.tt_pad, gp[0], gp[1], gp[2],
+           TF_TRIG_MULT * GEN_CFG[1][0] + 1.5f);
+}
+
+/* Advance the synthetic walker (runs BEFORE the field ticks, so the
+ * machine sees this tick's position — the engine's own ordering: the
+ * player moves in the frame phases before the actor-pool tick). */
+static void tt_walker(void)
+{
+    const Gen *g = &s.gen[s.tt_pad];
+
+    switch (s.tt_stage) {
+    case 0:                            /* walk onto the pad center     */
+        s.tt_w[0] += TT_STEP;
+        if (s.tt_w[0] >= g->pos[0]) {
+            s.tt_w[0]    = g->pos[0];
+            s.tt_stage   = 1;
+            s.tt_stage_f = s.frame;
+        }
+        break;
+    case 2:                            /* leave: walk off in +Z        */
+        s.tt_w[2] += TT_STEP;
+        if (s.tt_w[2] - g->pos[2] >
+            TF_TRIG_MULT * GEN_CFG[g->cfg][1] + 1.5f) {
+            s.tt_stage   = 3;
+            s.tt_stage_f = s.frame;
+        }
+        break;
+    default:                           /* 1 stand still / 3 wait / 99  */
+        break;
+    }
+}
+
+/* Per-tick monitor + staged asserts (runs AFTER the field ticks). */
+static void tt_script(void)
+{
+    Tendril *a = &s.tf[s.tt_f[0]];
+    Tendril *b = &s.tf[s.tt_f[1]];
+
+    /* edges: SCAN->DEPLOY triggers (field 0) + RETRACT entries */
+    if (a->sub != 0 && a->sub != 4 &&
+        (s.tt_psub[0] == 0 || s.tt_psub[0] == 4))
+        s.tt_trigs++;
+    for (int k = 0; k < 2; k++) {
+        const Tendril *t = k == 0 ? a : b;
+        if (s.tt_stage >= 2 && t->sub == 3 && s.tt_psub[k] != 3)
+            s.tt_retract[k]++;
+        s.tt_psub[k] = t->sub;
+    }
+
+    if (s.tt_stage == 1 && s.frame == s.tt_stage_f + 50) {
+        /* steady-HOLD checkpoint: the walker has stood at the pad
+         * center long enough for the last walking pulse to settle. */
+        tt_check(a->sub == 2 && b->sub == 2,
+                 "both fields in HOLD while standing on the anchor");
+        int va = 0, vb = 0, ramp_ok = 1;
+        for (int i = 0; i < TF_SPIKES; i++) {
+            va += a->sp[i].valid;
+            vb += b->sp[i].valid;
+            ramp_ok &= a->sp[i].ramp == 8 * TF_RAMP_STEP &&
+                       b->sp[i].ramp == 8 * TF_RAMP_STEP;
+        }
+        tt_check(va == TF_SPIKES && vb == TF_SPIKES,
+                 "all 12 targets valid in both fields (anchor on the "
+                 "pad)");
+        tt_check(ramp_ok, "every ramp at 296 (the 8-tick x37 deploy)");
+        tt_check(s.tt_trigs >= 2,
+                 "field triggered while walking AND re-anchored after "
+                 "the stop");
+        /* spike draws through the chain contract (asset-dependent) */
+        int drawn = 0;
+        EmGfxMesh   *mm;
+        const float *pl;
+        uint32_t     bc;
+        for (int i = s.n + s.gib_tail + s.gen_n; i < em_enemy_count();
+             i++)
+            drawn += em_enemy_draw(i, &mm, &pl, &bc);
+        if (s.tf_mesh)
+            tt_check(drawn == 2 * TF_SPIKES,
+                     "24 spike draws at HOLD (both pair members)");
+        printf("tendril test: HOLD — valid %d+%d, ramp %d, %d spike "
+               "draw(s)%s\n", va, vb, a->sp[0].ramp, drawn,
+               s.tf_mesh ? "" : " (no tendril.emdl — drawing skipped, "
+                                "logged above)");
+        s.tt_stage   = 2;
+        s.tt_stage_f = s.frame;
+    } else if (s.tt_stage == 2 && s.frame == s.tt_stage_f + 20) {
+        /* both hold radii (2 u / 4 u) are behind the walker by now */
+        tt_check(s.tt_retract[0] > 0 && s.tt_retract[1] > 0,
+                 "both fields RETRACTED after leaving the hold radius");
+    } else if (s.tt_stage == 3 && s.frame == s.tt_stage_f + 30) {
+        int quiet = a->sub == 0 && b->sub == 0;
+        int rest  = 1;
+        for (int i = 0; i < TF_SPIKES; i++)
+            rest &= a->sp[i].ramp == 0 && b->sp[i].ramp == 0;
+        tt_check(quiet, "both fields rescanning (sub 0) outside the "
+                        "trigger box");
+        tt_check(rest, "all ramps retracted to 0");
+        tt_finish();
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* State machine                                                        */
 /* ------------------------------------------------------------------ */
@@ -1703,6 +2272,19 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 void em_enemy_update(const EmCollision *coll, const float player_pos[3])
 {
     if (!player_pos) return;
+    /* EM_ENEMY_TEST=5 arm + synthetic walker (file header): the test
+     * substitutes its own deterministic walker for the player position
+     * THIS MODULE sees, so the run is self-contained — the real
+     * player, camera and every other module are untouched. */
+    const float *pp = player_pos;
+    if (s.tt_on) {
+        if (!s.tt_armed)
+            tt_arm(player_pos);
+        if (s.tt_pad >= 0 && s.tt_stage != 99) {
+            tt_walker();
+            pp = s.tt_w;
+        }
+    }
     /* EM_ENEMY_TEST=4 arm — first update tick (needs player_pos; see
      * the file header). Manifest generators are placed at scene-load
      * time by em_game.c's parser, not here. */
@@ -1749,13 +2331,13 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
             continue;
         }
         float px = e->pos[0], pz = e->pos[2];
-        enemy_tick(coll, e, player_pos);
+        enemy_tick(coll, e, pp);
         /* actual ground speed this tick — drives the attack-loop rate */
         float mx = e->pos[0] - px, mz = e->pos[2] - pz;
         e->speed = sqrtf(mx * mx + mz * mz) * 60.0f;
         if (e->active) {
-            float dx = player_pos[0] - e->pos[0];
-            float dz = player_pos[2] - e->pos[2];
+            float dx = pp[0] - e->pos[0];
+            float dz = pp[2] - e->pos[2];
             enemy_anim_update(e, sqrtf(dx * dx + dz * dz));
         }
         enemy_build_palette(e);   /* died this tick: freeze the pose
@@ -1766,9 +2348,17 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
      * tick). Worms they spawn appear after this frame's enemy loop —
      * first updated next tick, the engine's own one-frame latency. */
     for (int i = 0; i < s.gen_n; i++)
-        gen_tick(&s.gen[i], player_pos);
+        gen_tick(&s.gen[i], pp);
+    /* TENDRIL FIELDS tick after their parent pads (the engine's pool
+     * order: the pair is alloc'd after the generator). */
+    for (int i = 0; i < s.tf_n; i++)
+        if (s.tf[i].active)
+            tf_tick(&s.tf[i], pp);
     if (s.gt_on)
         gen_test_script();
+    if (s.tt_on && s.tt_pad >= 0 && s.tt_f[0] >= 0 && s.tt_f[1] >= 0 &&
+        s.tt_stage != 99)
+        tt_script();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1872,7 +2462,7 @@ int em_enemy_ray_test(const float from[3], const float to[3],
  * the office set is link-0 inert anyway). */
 int em_enemy_count(void)
 {
-    int n = s.n + s.gib_tail + s.gen_n;
+    int n = s.n + s.gib_tail + s.gen_n + s.tf_n * TF_SPIKES;
     return n > EM_ENEMY_MAX ? EM_ENEMY_MAX : n;
 }
 
@@ -1880,11 +2470,29 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
                   uint32_t *bone_count)
 {
     if (i < 0) return 0;
-    if (i >= s.n) {                        /* virtual gib / pad slot */
+    if (i >= s.n) {                        /* virtual gib/pad/spike slot */
         int k = i - s.n;
-        if (k >= s.gib_tail) {             /* generator pad */
+        if (k >= s.gib_tail) {
             int gi = k - s.gib_tail;
-            if (gi >= s.gen_n || !s.gen_mesh) return 0;
+            if (gi >= s.gen_n) {           /* tendril spike */
+                int ti = gi - s.gen_n;
+                int f  = ti / TF_SPIKES;
+                int sp = ti % TF_SPIKES;
+                if (f >= s.tf_n || !s.tf_mesh) return 0;
+                const Tendril *t = &s.tf[f];
+                /* the engine draws only VALID records while the field
+                 * machine is out of SCAN; a zero ramp is a zero-height
+                 * spike — skipped instead of submitting degenerate
+                 * geometry */
+                if (!t->active || t->sub == 0 || !t->sp[sp].valid ||
+                    t->sp[sp].ramp <= 0)
+                    return 0;
+                *mesh       = s.tf_mesh;
+                *palette    = t->pal[sp];
+                *bone_count = s.tf_bones;
+                return 1;
+            }
+            if (!s.gen_mesh) return 0;     /* generator pad */
             *mesh       = s.gen_mesh;
             *palette    = s.gen[gi].palette;
             *bone_count = GEN_BONES;
@@ -1976,5 +2584,10 @@ void em_enemy_shutdown(EmGfx *gfx)
     }
     if (s.gen_mesh)
         em_gfx_mesh_destroy(gfx, s.gen_mesh);
+    if (s.tf_mesh) {
+        em_gfx_mesh_destroy(gfx, s.tf_mesh);
+        if (s.tf_has_model)
+            em_model_free(&s.tf_model);
+    }
     memset(&s, 0, sizeof s);
 }

@@ -119,7 +119,8 @@
  *                  per-link counter & 7, post-incremented) and stores
  *                  it back into +0x56 as the RUNTIME MODE: 0 = inert
  *                  pad, 1 = breather/trap (+ an immediate pair of
- *                  kind-0xE enemies — func_001546C0, untranslated),
+ *                  kind-0xE TENDRIL FIELDS — func_001546C0, see
+ *                  "TENDRIL FIELD" below),
  *                  2 = WORM EMITTER. link 0 = mode locked 0 (inert).
  *   trigger        +0x0A = "player inside my box THIS frame" — the
  *                  pair pass func_001A8BE0 -> func_001A8840 box-tests
@@ -155,16 +156,74 @@
  *
  * PORT FIDELITY (deviations flagged in em_enemy.c): the mode draw and
  * delay pick use the module's deterministic LCG, not the engine frame
- * RNG; the mode-1 kind-0xE pair and the second box pass (generators
- * waking nearby D_00275BB0-list actors) are untranslated; the open-trap
+ * RNG; the second box pass (generators waking nearby D_00275BB0-list
+ * actors) is untranslated; the open-trap
  * hit is a one-shot 5-damage player-mailbox write per entry (the
  * engine's event-3 knockdown path is untranslated); worms spawned past
- * EM_ENEMY_MAX fail the alloc exactly like the engine's full actor
- * pool (the cap is NOT consumed — the engine retries after the delay).
+ * the 16 crawler slots fail the alloc exactly like the engine's full
+ * actor pool (the cap is NOT consumed — the engine retries after the
+ * delay).
  * Generators live OUTSIDE the crawler slot array (the engine keeps
  * them on the HAZARD list, not the damage-target list): they are not
  * shootable, not acquirable, not counted by em_enemy_alive, and they
  * draw through the same chain budget only when free slots remain.
+ *
+ * TENDRIL FIELD (FINDINGS "KIND-0xE COMPANION RESOLVED", session 33 —
+ * brain func_001546C0, init func_00154740, tick func_001549C0, render
+ * func_00154F00, trigger gate func_00154460): the kind-0xE PAIR a
+ * mode-1 (breather) pad emits at init is a STATIONARY AREA-EFFECT
+ * actor — a field of 12 tapering organic spikes that erupt out of the
+ * infested floor around the PLAYER whenever the player lingers near
+ * the pad. It deals NO damage (the pad's box pass does that), has no
+ * HP, no mailbox, no hit sphere, never moves and never publishes to
+ * the target lists: not shootable, not acquirable, not counted by
+ * em_enemy_alive. Decoded machine (sub-state +0x05):
+ *
+ *   spawn       a mode-1 generator attaches the pair (idx 0/1 —
+ *               concentric rings) at pad init, parent-linked; nothing
+ *               kills them but the scene reset.
+ *   0 SCAN      trigger = player inside 3x the parent pad footprint
+ *               (|dy| <= 3 + recY). On trigger: anchor = (player X,
+ *               pad Y, player Z); scatter 12 targets on the ring
+ *               r = 5.5 +- 2.0 u (idx 0) / 7.0 +- 2.5 u (idx 1)
+ *               around the player, REJECTING points outside the
+ *               0.92x pad ellipse; per record phase = rand 48..127,
+ *               ramp 0, girth from the cycling {180,218,255,384}/256
+ *               table; sound 0x42D if ANY target survived; falls
+ *               through to DEPLOY the same tick.
+ *   1 DEPLOY    all 12 ramps += 37/tick clamp 300, 8 ticks (-> 296).
+ *   2 HOLD      while the player stays within 2 u (idx 0) / 4 u
+ *               (idx 1) of the trigger anchor and inside the Y band;
+ *               leaving -> RETRACT.
+ *   3 RETRACT   ramps -= 37/tick floor 0, 8 ticks.
+ *   4 RESET     back to SCAN (the field re-deploys indefinitely).
+ *
+ *   visual      12 re-posed draws of ONE static spike mesh
+ *               (assets/tendril.emdl = chunk03/f13_id15.bin, 96 verts,
+ *               1 node — load-if-present, else the field runs with a
+ *               logged draw skip); per spike scale X/Z = girth/256,
+ *               scale Y = phase*ramp/65536 with the engine's s16 bob
+ *               integrator (gentle bob while the pad is closed,
+ *               violent thrash while the parent breather phase > 0.5:
+ *               gravity 1 vs 8/tick, kicks 3..7 vs 28..41 below phase
+ *               128, vel halved at >= 8 when closed, floor clamp at
+ *               phase 100 with a fresh 3..7 vel). The engine's
+ *               room-tint -> green RGB blend and the ramp alpha
+ *               fade-in are SKIPPED (no per-draw color/alpha in the
+ *               renderer yet — the FINDINGS port contract flags this
+ *               simplification as acceptable).
+ *
+ * EM_ENEMY_TEST=5 (tendril run, owned by em_enemy.c like test 4):
+ * places a link-1 pad at the player spawn with the mode draw FORCED
+ * to 1 (the link-1 table draw is RNG 0/1; the test pins the breather
+ * outcome — documented test-only override), then drives a SYNTHETIC
+ * deterministic walker (substituting the player position THIS module
+ * sees, so the run is self-contained) onto the pad: asserts the pair
+ * attached, the field triggers while walking in, reaches steady HOLD
+ * with all 12 targets valid and every ramp at 296 (= the 8-tick
+ * deploy), 24 spike draws when the mesh is present, RETRACTS once the
+ * walker leaves the hold radius, and rests at sub 0 / ramp 0 outside
+ * the trigger box. PASS/FAIL line + quit.
  *
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
  * <yaw>` / `enemy crate <x> <y> <z> <yaw>` lines (parsed by em_game.c
@@ -196,8 +255,12 @@
 extern "C" {
 #endif
 
-/* Instance-list capacity (em_game.c sizes its render chain with this). */
-#define EM_ENEMY_MAX 16
+/* Render-chain draw-slot capacity (em_game.c sizes its chain with
+ * this): the 16 crawler/gib slots (the internal slot pool, unchanged)
+ * + the generator pool + the tendril-field spike instances (8 fields
+ * x 12 spikes). em_enemy_count() never exceeds it; em_enemy_draw()
+ * returns 0 for the unused tail, so em_game's chain build skips it. */
+#define EM_ENEMY_MAX (16 + 12 + 8 * 12)
 
 /* Lifecycle states — the ENGINE's values for the actor byte +0x04. */
 enum {
@@ -239,8 +302,10 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
  * at init).
  * Generators occupy their own pool (EM_GENERATOR_MAX), NOT crawler
  * slots; the worms a mode-2 pad emits go through the normal crawler
- * spawn path and DO consume slots. Returns the generator index or -1. */
-#define EM_GENERATOR_MAX 8
+ * spawn path and DO consume slots. Returns the generator index or -1.
+ * (12 = the 8-pad office floor + headroom for the EM_ENEMY_TEST=5 pad
+ * even on a fully-padded scene.) */
+#define EM_GENERATOR_MAX 12
 int em_enemy_add_generator(EmGfx *gfx, const float pos[3], float yaw,
                            int cfg, int link);
 
