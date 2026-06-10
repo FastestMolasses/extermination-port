@@ -7,7 +7,7 @@
  *     table (note-on event scripts; func_001152D8 status 0x90 ->
  *     func_00115E50 voice setup). Gameplay code asks for ids — 0x162 weapon
  *     draw, 0x163 holster/reload-start, 0x164/0x165 fire, 0x168 reload mag
- *     action, 0x169 dry click, 0x15/0x16 + 0x139/0x13A footstep layers,
+ *     action, 0x169 dry click, the footstep surface + gear layers,
  *     0x7D8 the canonical hurt-helper death (func_00153B50) — and the
  *     sequencer mixes the voices over the streamed BGM on the SPU2.
  *   - Natively the bank's id -> sample resolution is a small text registry,
@@ -109,21 +109,24 @@ extern "C" {
                                      * own gore set — burst 0x434 etc. — is
                                      * not pinned per-state yet)              */
 
-/* FOOTSTEPS (s29 live capture): each step submits TWO ids back-to-back —
- * a SURFACE pair member (changes with the floor material) + a GEAR/cloth
- * foley member (constant across surfaces); both pairs alternate strictly
- * per step. Only two surface sets are observed so far (storage-room
- * floors A and B); the engine presumably keys the set off the collision
- * hit record's surface-type byte (+0x1A, s22) — that per-surface table
- * is NOT located yet, so the port plays set A and flags the hook
- * (em_game.c footstep_play). 0x138 is a third gear-family id observed
- * once (likely a stop/scuff or run variant — trigger unresolved). */
-#define EM_SFX_STEP_SURF_A1 0x015u  /* floor A surface pair (snd_0042)     */
-#define EM_SFX_STEP_SURF_A2 0x016u  /*                      (snd_0052)     */
-#define EM_SFX_STEP_SURF_B1 0x01Au  /* floor B surface pair (snd_0050)     */
-#define EM_SFX_STEP_SURF_B2 0x01Bu  /*                      (snd_0048)     */
-#define EM_SFX_STEP_GEAR_1  0x139u  /* gear/cloth layer     (snd_0308)     */
-#define EM_SFX_STEP_GEAR_2  0x13Au  /*                      (snd_0309)     */
+/* FOOTSTEPS (s37 static decode — decomp FINDINGS.md "FOOTSTEP SURFACE
+ * TABLE"; replaces the s29 fixed-pair reading): each step submits TWO
+ * ids back-to-back, both with an independent random variant —
+ *
+ *   surface_id = BLOCK(attr) + GAIT_SUB(gait) + rand5()
+ *   gear_id    = EM_SFX_STEP_GEAR_BASE       + rand5()
+ *
+ * There is NO id table in the engine: the mapping is compiled-in
+ * immediates in the func_00182430 mapper (the per-material 17-id BLOCK
+ * bases live in em_game.c footstep_block; attr 0/unmapped -> 0x10, the
+ * office floor), GAIT_SUB is gait 3 -> +0xA, gait 2 -> +5, else +0,
+ * and rand5 = (rand() & 7) with 5..7 folded to 0..2. The s29 "floor A
+ * 0x15/0x16 vs floor B 0x1A/0x1B pairs, alternating L/R" were the SAME
+ * material at walk vs run gait with the rand bias toward 0..2; neither
+ * layer alternates. The office registry ships the full variant sets
+ * 0x15..0x19 (walk), 0x1A..0x1E (run), 0x138..0x13C (gear). */
+#define EM_SFX_STEP_GEAR_BASE 0x138u  /* gear/cloth foley (snd_0311/0308/
+                                       * 0309/0310/0306 = base + 0..4)  */
 
 /* --- PLACEHOLDER ids (flagged — NOT engine-documented; chosen far above
  *     the observed bank id range so they can never collide).

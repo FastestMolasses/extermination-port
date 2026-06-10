@@ -219,9 +219,9 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * committed clip time crosses them). Rows re-read from the user's
  * local boot ELF for the authentic ids: walk id 1 (120 fr) -> 72/21 —
  * the exact pair the s29 live capture metered while stick-walking;
- * run id 2 (45 fr) -> 26/3. Each trigger plays the s29 two-layer step
- * (surface pair + gear pair, both alternating per step —
- * footstep_play below). */
+ * run id 2 (45 fr) -> 26/3. Each trigger plays the two-layer step —
+ * surface variant (material block + gait sub-base) + gear/cloth
+ * variant, each with its own rand5 draw (footstep_play below). */
 #define WALK_STEP_FRAME_A 72.0f /* D_00248C90[1].frameA */
 #define WALK_STEP_FRAME_B 21.0f /* D_00248C90[1].frameB */
 #define RUN_STEP_FRAME_A  26.0f /* D_00248C90[2].frameA — for the run
@@ -346,8 +346,6 @@ static struct {
     float      walk_w;           /* walk blend weight 0..1 */
     double     step_prev;        /* last frame's walk-cycle position in
                                   * clip FRAMES (footstep edge detect) */
-    int        step_parity;      /* s29 per-step L/R alternation (flips
-                                  * both footstep layers together) */
     float      move_speed;       /* this frame's ground speed, units/sec */
     float      walk_palette[1024 * 16];  /* scratch for the blend */
 
@@ -1019,28 +1017,114 @@ static void player_move(void)
     if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
 }
 
-/* FOOTSTEPS — the native func_00187350 slice (FINDINGS "ANIM ID
- * MAPPING" property table + the s29 live sound capture): when the
- * locomotion clip's cycle position crosses a trigger frame (frameA/
- * frameB of its D_00248C90 row), the engine submits TWO positional
- * sounds back-to-back — a SURFACE pair member + the constant GEAR/cloth
- * layer — and BOTH pairs alternate strictly per step.
+/* FOOTSTEPS — the native func_00187350 sound slice + its func_00182430
+ * surface mapper (decomp FINDINGS.md "FOOTSTEP SURFACE TABLE", s37
+ * static decode of the full call tree): when the locomotion clip's
+ * cycle position crosses a trigger frame (frameA/frameB of its
+ * D_00248C90 row), the engine submits TWO positional sounds
+ * back-to-back, each with its OWN random variant draw:
  *
- * SURFACE SET — FLAGGED PORT LIMIT: the engine picks the surface pair
- * by floor material (s29 observed storage floor A 0x15/0x16 and floor B
- * 0x1A/0x1B), presumably keyed off the collision hit record's
- * surface-type byte (+0x1A, s22); that per-surface table is NOT located
- * yet, so the port plays set A everywhere. FUTURE HOOK: route the
- * player's floor-probe EmCollHit attribute through here once the
- * surface table is pinned (the decal half of func_00187350 — step
- * decals via func_00187EE0 — is also untranslated). */
-static void footstep_play(void)
+ *   surface_id = BLOCK(attr) + GAIT_SUB(gait) + rand5()
+ *   gear_id    = EM_SFX_STEP_GEAR_BASE       + rand5()
+ *
+ * There is NO per-surface id table in the engine — the mapping is
+ * compiled-in immediates inside func_00182430: a 17-id block per floor
+ * material (footstep_block below) + the gait sub-base (a1==3 -> +0xA,
+ * a1==2 -> +5, else +0; a1 = actor +0x25C, the gait byte) + rand5 =
+ * func_00179B90 = (rand() & 7) with 5..7 folded to 0..2 (0..4, the low
+ * three values twice as likely). This REPLACES the s29-era port guess
+ * (fixed pairs 0x15/0x16 + 0x139/0x13A, both alternating L/R): the s29
+ * "floor A vs floor B" capture was the SAME material at walk vs run
+ * gait (block 0x10 + 5 -> 0x15.. walk, + 0xA -> 0x1A.. run), and the
+ * observed "pairs" were the rand bias toward 0..2 — neither layer
+ * alternates. (The decal half of func_00187350 — step decals/FX via
+ * func_00187EE0 — is still untranslated.) */
+
+/* rand5 — func_00179B90. PORT NOTE: a private deterministic LCG (ANSI
+ * minimal-standard constants, high bits) stands in for the EE libc
+ * rand() the engine draws from, so the self-tests reproduce run to
+ * run; the engine never seeds rand either. */
+static unsigned footstep_rand5(void)
 {
-    em_sfx_play(g.step_parity ? EM_SFX_STEP_SURF_A2
-                              : EM_SFX_STEP_SURF_A1);
-    em_sfx_play(g.step_parity ? EM_SFX_STEP_GEAR_2
-                              : EM_SFX_STEP_GEAR_1);
-    g.step_parity ^= 1;
+    static uint32_t s = 0x00187350u;   /* seed: the slice's own vaddr */
+    s = s * 1103515245u + 12345u;
+    unsigned v = (s >> 16) & 7u;
+    return v >= 5u ? v - 5u : v;
+}
+
+/* Floor surface attr — the footing update func_00175900's attr copy:
+ * after its own down-probe hits, the engine stores the collision
+ * result record's surface-attr byte (+0x1A of the grid poly node) in
+ * actor +0x23A every frame; a probe miss writes 0. The port probes at
+ * step time instead (same result for a grounded player), reusing the
+ * player height-resolve probe walk: step past non-walkable crossings,
+ * take the first FLOOR/SLOPE hit's attr (EmCollHit.attr — the native
+ * mirror of the poly node's +0x1A). No collision world -> attr 0,
+ * which footstep_block maps to the default block 0x10 anyway. (The
+ * movable-object override — standing on a crate forces attr 2/4 — and
+ * the 0x5A/0x5B/0x5C first-contact one-shots are untranslated.) */
+static uint8_t footstep_floor_attr(void)
+{
+    if (!g.coll.poly_count) return 0;
+    float from[3] = { g.pos[0], g.pos[1] + FLOOR_PROBE_UP,   g.pos[2] };
+    float down[3] = { g.pos[0], g.pos[1] - FLOOR_PROBE_DOWN, g.pos[2] };
+    EmCollHit hit;
+    for (int i = 0; i < 8; i++) {
+        if (!em_collision_segment_query(&g.coll, from, down,
+                                        EM_COLL_SET_CELLS |
+                                        EM_COLL_SET_GRID, 0, &hit))
+            return 0;                  /* probe miss: +0x23A = 0 */
+        if (hit.surf_class == EM_SURF_FLOOR ||
+            hit.surf_class == EM_SURF_SLOPE)
+            return hit.attr;
+        if (hit.point[1] - 1e-3f <= down[1])
+            return 0;
+        from[1] = hit.point[1] - 1e-3f;
+    }
+    return 0;
+}
+
+/* BLOCK(attr) — func_00182430's compiled-in material bases (FINDINGS
+ * table; stride 0x11 = 17 ids per material: 3 gait sub-bases x 5
+ * variants + 2 spare landing/scuff slots). */
+static unsigned footstep_block(uint8_t attr)
+{
+    switch (attr) {
+    case 1:    return 0x21u;
+    case 2:    return 0x32u;
+    case 3:    return 0x43u;
+    case 4:    return 0x54u;
+    case 5:    return 0x65u;
+    case 6: case 7: return 0xA9u;
+    case 8:    return 0x87u;
+    case 0xD:  return 0xDCu;
+    case 0xE:  return 0xEDu;
+    case 0x5A: return 0x76u;  /* wet/puddle surface */
+    case 0x5B: return 0xBAu;  /* water SHALLOW; DEEP (0xCB) needs the
+                               * +0x23C depth state — untranslated */
+    case 0x5C: return 0x98u;
+    default:   return 0x10u;  /* attr 0 + any unmapped material — the
+                               * office floor (grid attr 0, FINDINGS
+                               * office cross-check) */
+    }
+}
+
+/* One footstep at `gait` (the engine mapper's a1; the locomotion paths
+ * pass actor +0x25C, the melee impact gates a scripted 1..3).
+ * EM_STEP_TRACE=1 prints each step's resolved attr/ids (debug). */
+static void footstep_play(int gait)
+{
+    uint8_t  attr = footstep_floor_attr();
+    unsigned sub  = gait == 3 ? 0xAu : gait == 2 ? 5u : 0u;
+    unsigned surf = footstep_block(attr) + sub + footstep_rand5();
+    unsigned gear = EM_SFX_STEP_GEAR_BASE + footstep_rand5();
+    static int trace = -1;
+    if (trace < 0) trace = getenv("EM_STEP_TRACE") != NULL;
+    if (trace)
+        printf("step: gait %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
+               gait, attr, surf, gear);
+    em_sfx_play(surf);
+    em_sfx_play(gear);
 }
 
 /* Cyclic edge test: did the looping clip playhead cross `trig` going
@@ -1136,7 +1220,9 @@ static void actor_update(void)
                           (double)cw->frame_count);
         if (step_crossed(g.step_prev, cyc, (double)WALK_STEP_FRAME_A) ||
             step_crossed(g.step_prev, cyc, (double)WALK_STEP_FRAME_B))
-            footstep_play();
+            footstep_play(2);   /* the walk clip IS engine gait 2 (+5
+                                 * sub-base); run (gait 3, +0xA) lands
+                                 * when locomotion drives clip id 2 */
         g.step_prev = cyc;
     }
 
@@ -2532,7 +2618,6 @@ static void ingame_frame_machine(EmTask *self)
             g.walk_t         = 0.0;
             g.walk_w         = 0.0f;
             g.step_prev      = 0.0;   /* footstep edge state re-armed */
-            g.step_parity    = 0;
             g.frame_no       = 0;
             g.frame_selector = 0;
             g.sa_req         = 0;     /* scripted-anim mailbox cleared */
