@@ -87,7 +87,30 @@ void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
 void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
                          const float *palette, uint32_t bone_count);
 
-/* End the frame: present the swapchain image. */
+/* --- 2D overlay pass (HUD) ------------------------------------------- */
+
+/* Overlay coordinates live on a VIRTUAL CANVAS of 640x448 — the PS2's
+ * NTSC full frame — origin top-left, y down, stretched to the drawable.
+ * Resolution-independent and period-faithful: HUD code lays out in the
+ * same screen space the original GS sprites used. */
+#define EM_GFX_OVERLAY_W 640.0f
+#define EM_GFX_OVERLAY_H 448.0f
+
+/* Queue one solid screen-space rectangle for this frame's overlay pass.
+ * (x, y, w, h) in virtual-canvas units; `rgba` each in [0,1] (alpha
+ * blended). Queued rects are flushed automatically inside
+ * em_gfx_end_frame, AFTER every 3D draw: one orthographic pass, depth
+ * test off, standard alpha blend — the native stand-in for the engine's
+ * GS sprite HUD pass at the end of the frame's packet chain. Call
+ * between begin_frame and end_frame; with nothing queued the pass does
+ * not run (frame output is bit-identical to pre-overlay builds). At most
+ * EM_GFX_OVERLAY_MAX rects per frame; overflow is dropped. */
+#define EM_GFX_OVERLAY_MAX 512
+void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
+                         const float rgba[4]);
+
+/* End the frame: flush the queued overlay rects, then present the
+ * swapchain image. */
 void em_gfx_end_frame(EmGfx *gfx);
 
 /* Capture the NEXT completed frame to a 24-bit BMP at `path`. Returns

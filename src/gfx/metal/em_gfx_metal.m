@@ -38,6 +38,12 @@ struct EmGfx {
     /* headless capture (see em_gfx_request_capture) */
     char                         capturePath[1024];
     bool                         captureRequested;
+    /* 2D overlay pass (em_gfx_overlay_rect): rects queued during the
+     * frame as ready-to-draw NDC vertices (6 per rect, float4 pos +
+     * float4 color each — the kTestShaderSrc layout), flushed by
+     * end_frame after all 3D draws. */
+    float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
+    uint32_t                     overlayRects;
 };
 
 struct EmGfxMesh {
@@ -520,6 +526,70 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     }
 }
 
+/* Queue one overlay rect: convert the virtual-canvas box (640x448,
+ * origin top-left, y down — em_gfx.h) to NDC on the CPU and append two
+ * triangles in the kTestShaderSrc vertex layout (float4 pos + float4
+ * color). The pass itself runs in end_frame. */
+void em_gfx_overlay_rect(EmGfx *g, float x, float y, float w, float h,
+                         const float rgba[4])
+{
+    if (!g || !rgba || g->overlayRects >= EM_GFX_OVERLAY_MAX) return;
+    float x0 = x / EM_GFX_OVERLAY_W * 2.0f - 1.0f;
+    float x1 = (x + w) / EM_GFX_OVERLAY_W * 2.0f - 1.0f;
+    float y0 = 1.0f - y / EM_GFX_OVERLAY_H * 2.0f;
+    float y1 = 1.0f - (y + h) / EM_GFX_OVERLAY_H * 2.0f;
+    const float corners[6][2] = {
+        { x0, y0 }, { x1, y0 }, { x0, y1 },   /* tri 1 */
+        { x1, y0 }, { x1, y1 }, { x0, y1 },   /* tri 2 */
+    };
+    float *v = g->overlayVerts + (size_t)g->overlayRects * 6 * 8;
+    for (int i = 0; i < 6; i++) {
+        v[i * 8 + 0] = corners[i][0];
+        v[i * 8 + 1] = corners[i][1];
+        v[i * 8 + 2] = 0.0f;
+        v[i * 8 + 3] = 1.0f;
+        v[i * 8 + 4] = rgba[0];
+        v[i * 8 + 5] = rgba[1];
+        v[i * 8 + 6] = rgba[2];
+        v[i * 8 + 7] = rgba[3];
+    }
+    g->overlayRects++;
+}
+
+/* Flush the queued overlay rects: one draw at the END of the open render
+ * pass (post-3D, so the HUD composites over the scene), depth test OFF,
+ * standard alpha blend. Reuses the position+color passthrough pipeline
+ * (kTestShaderSrc, runtime-compiled) — overlay vertices are pre-converted
+ * NDC, exactly that shader's input. The vertex data can exceed Metal's
+ * 4 KB setVertexBytes ceiling (a HUD is ~40 rects = ~7.5 KB), so it goes
+ * through a per-flush MTLBuffer; the command buffer retains it until the
+ * GPU is done, so releasing right after the draw is safe. */
+static void overlay_flush(EmGfx *g)
+{
+    uint32_t rects = g->overlayRects;
+    g->overlayRects = 0;
+    if (!rects || !g->enc) return;
+    if (!g->testPipeline) {
+        g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
+                                         @"f_main", false);
+        if (!g->testPipeline) return;
+    }
+    ensure_depth_states(g);
+    id<MTLBuffer> vbuf =
+        [g->device newBufferWithBytes:g->overlayVerts
+                               length:(NSUInteger)rects * 6 * 8 * sizeof(float)
+                              options:MTLResourceStorageModeShared];
+    if (!vbuf) return;
+    [g->enc setRenderPipelineState:g->testPipeline];
+    [g->enc setDepthStencilState:g->depthOff];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+               vertexStart:0
+               vertexCount:(NSUInteger)rects * 6];
+    [vbuf release];   /* the in-flight command buffer keeps it alive */
+}
+
 void em_gfx_request_capture(EmGfx *g, const char *path)
 {
     if (!g || !path) return;
@@ -567,6 +637,7 @@ static void write_bmp(const char *path, const uint8_t *bgra,
 void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
+    overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 
     id<MTLBuffer> shot = nil;

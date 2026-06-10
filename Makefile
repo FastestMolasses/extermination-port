@@ -11,7 +11,8 @@ BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c \
-           src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c
+           src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
+           src/game/em_hud.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)

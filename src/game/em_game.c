@@ -114,6 +114,7 @@
 #include "game/em_collision.h"
 #include "game/em_door.h"
 #include "game/em_frame.h"
+#include "game/em_hud.h"
 #include "game/em_task.h"
 
 #define MODEL_PATH     "assets/player.emdl"
@@ -307,6 +308,10 @@ static struct {
 
     /* camera (struct 0x008101E0 + vector pool — see EmCamera above) */
     EmCamera   cam;
+
+    /* player status (the engine globals em_hud.h documents; static demo
+     * values until the weapon/health systems are translated) */
+    EmPlayerStatus status;
 
     /* the camera block the recorded chain consumes (native K = P*V) */
     float      viewproj[16];
@@ -1033,6 +1038,11 @@ static void frame_close_out(void)
         }
     }
 
+    /* HUD over the flushed 3D frame (the engine's GS-sprite status pass;
+     * em_hud queues overlay rects, em_gfx_end_frame draws them last).
+     * EM_NO_HUD=1 disables inside em_hud_render. */
+    em_hud_render(gfx, &g.status);
+
     if (g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
 
@@ -1400,6 +1410,14 @@ static void game_boot_task(void)
 void em_game_install(void)
 {
     memset(&g, 0, sizeof g);
+    /* Player status — static demo values matching the live test save
+     * (FINDINGS.md "INVENTORY LOCATED": health 75/100, infection 60%,
+     * mag 4/30, reserve 120, battery 04/06) until the weapon/health
+     * systems are translated. */
+    g.status = (EmPlayerStatus){ .health = 75.0f, .health_max = 100.0f,
+                                 .infection = 60.0f, .mag = 4,
+                                 .mag_max = 30, .reserve = 120,
+                                 .battery = 4, .battery_max = 6 };
     g.bgm_path     = getenv("EM_BGM");
     g.capture_path = getenv("EM_CAPTURE");
     const char *cf = getenv("EM_CAPTURE_FRAME");
