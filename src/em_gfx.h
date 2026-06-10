@@ -118,8 +118,10 @@ void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h);
  * between begin_frame and end_frame; with nothing queued the pass does
  * not run (frame output is bit-identical to pre-overlay builds). The
  * per-frame budget is EM_GFX_OVERLAY_MAX quads (one rect = one quad, one
- * arc = one quad per tessellation segment); overflow is dropped. */
-#define EM_GFX_OVERLAY_MAX 512
+ * arc = one quad per tessellation segment); overflow is dropped. (1024:
+ * the status hub's pager-diamond markers are 12 full-circle arcs on top
+ * of the ring gauge — ~900 quads on the busiest frame.) */
+#define EM_GFX_OVERLAY_MAX 1024
 void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
                          const float rgba[4]);
 
@@ -151,30 +153,48 @@ void em_gfx_overlay_arc(EmGfx *gfx, float cx, float cy,
                         float r_in, float r_out, float a0, float a1,
                         const float rgba[4]);
 
-/* --- textured overlay (the UI font path) ------------------------------ */
+/* --- textured overlay (UI font + UI decor sheets) ---------------------- */
 
-/* Register THE overlay texture (single slot — the engine's UI text path
- * has exactly one live font strip). `rgba` is w*h RGBA8 texels, rows
+/* TWO overlay texture slots, mirroring the engine's two resident UI
+ * texture sources: the streamed font strip (GS block 0x1B00) and the
+ * boot-resident status-screen decor sprites (title/legend/icons, GS
+ * blocks 0x1D40..0x22F6 — FINDINGS.md "STATUS SCREEN UI TEXTURES"). */
+#define EM_GFX_OVERLAY_TEX_FONT 0   /* sampled by em_gfx_overlay_glyph  */
+#define EM_GFX_OVERLAY_TEX_UI   1   /* sampled by em_gfx_overlay_sprite */
+
+/* Register one overlay texture slot. `rgba` is w*h RGBA8 texels, rows
  * top-down; the data is copied into a GPU texture (the caller may free
- * it). Replaces any previously registered texture. Returns 1 on success,
- * 0 on failure (no device / bad args) — callers fall back to untextured
- * primitives so a missing font never regresses the frame. */
-int em_gfx_overlay_texture_set(EmGfx *gfx, const uint8_t *rgba,
+ * it). Replaces any texture previously registered in that slot. Returns
+ * 1 on success, 0 on failure (no device / bad slot / bad args) —
+ * callers fall back to untextured primitives so a missing asset never
+ * regresses the frame. */
+int em_gfx_overlay_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
                                uint32_t w, uint32_t h);
 
-/* Queue one TEXTURED overlay quad sampling the registered overlay
- * texture: (x, y, w, h) in virtual-canvas units like
- * em_gfx_overlay_rect; (u0, v0)-(u1, v1) in TEXELS of the registered
- * texture (the engine's text vocabulary — its glyph sprites carry 12.4
- * texel UVs). Sampled BILINEAR and modulated by `rgba` (the GS draws the
- * font strip with TEX1 MMAG/MMIN=1 + TFX modulate), standard alpha
- * blend. Counts against its own EM_GFX_OVERLAY_MAX quad budget;
- * textured quads flush in one draw AFTER the untextured overlay
- * primitives (text composites over panels/gauges queued the same
- * frame). No-op without a registered texture. */
+/* Queue one TEXTURED overlay quad sampling the FONT slot: (x, y, w, h)
+ * in virtual-canvas units like em_gfx_overlay_rect; (u0, v0)-(u1, v1)
+ * in TEXELS of the registered texture (the engine's text vocabulary —
+ * its glyph sprites carry 12.4 texel UVs). Sampled BILINEAR and
+ * modulated by `rgba` (the GS draws the font strip with TEX1
+ * MMAG/MMIN=1 + TFX modulate), standard alpha blend. Counts against its
+ * own EM_GFX_OVERLAY_MAX quad budget; glyph quads flush in one draw
+ * LAST in the overlay pass (text composites over panels/gauges AND
+ * decor sprites queued the same frame). No-op without a registered
+ * texture. */
 void em_gfx_overlay_glyph(EmGfx *gfx, float x, float y, float w, float h,
                           float u0, float v0, float u1, float v1,
                           const float rgba[4]);
+
+/* Queue one TEXTURED overlay quad sampling the UI-DECOR slot — same
+ * parameters, sampling and blend as em_gfx_overlay_glyph, own
+ * EM_GFX_OVERLAY_MAX quad budget. Decor sprites flush in one draw AFTER
+ * the untextured overlay primitives (so the title/legend/icons sit over
+ * the scene dim and the pager-diamond arcs, the engine's hub draw
+ * order) and BEFORE the glyph quads (text stays on top). No-op without
+ * a registered UI texture. */
+void em_gfx_overlay_sprite(EmGfx *gfx, float x, float y, float w, float h,
+                           float u0, float v0, float u1, float v1,
+                           const float rgba[4]);
 
 /* --- World-space beam pass (laser sight) ------------------------------ */
 
@@ -206,7 +226,8 @@ void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
                      const float rgba[4]);
 
 /* End the frame: flush the queued world-space beams, then the overlay
- * rects, then present the swapchain image. */
+ * (untextured rects/arcs, then decor sprites, then font glyphs), then
+ * present the swapchain image. */
 void em_gfx_end_frame(EmGfx *gfx);
 
 /* Capture the NEXT completed frame to a 24-bit BMP at `path`. Returns

@@ -49,16 +49,20 @@ struct EmGfx {
     float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
     uint32_t                     overlayVertCount;
     float                        overlayW, overlayH;
-    /* Textured overlay (em_gfx_overlay_glyph): ONE texture slot — the UI
-     * font sheet — plus its own quad queue (float4 NDC pos + float4 color
-     * + float4 uv, uv.xy normalized at queue time). Flushed right after
-     * the untextured overlay primitives so text composites over panels. */
-    id<MTLTexture>               overlayTex;
-    float                        overlayTexW, overlayTexH;
+    /* Textured overlay: TWO texture slots (EM_GFX_OVERLAY_TEX_FONT /
+     * _UI), each with its own quad queue (float4 NDC pos + float4 color
+     * + float4 uv, uv.xy normalized at queue time) and its own
+     * EM_GFX_OVERLAY_MAX budget. Flush order after the untextured
+     * primitives: UI decor sprites first, font glyphs last — decor sits
+     * over the scene dim and the diamond arcs, text over everything. */
+    id<MTLTexture>               overlayTex[2];
+    float                        overlayTexW[2], overlayTexH[2];
     id<MTLRenderPipelineState>   glyphPipeline;  /* textured overlay PSO  */
     id<MTLSamplerState>          clampSampler;   /* linear, clamp-to-edge */
     float                        glyphVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
     uint32_t                     glyphVertCount;
+    float                        spriteVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
+    uint32_t                     spriteVertCount;
     /* World-space beam pass (em_gfx_beam / em_gfx_beam_dot): primitives
      * queued during the frame as raw records; the camera-plane extrusion
      * needs the camera, so vertices are built at flush time from the
@@ -357,7 +361,8 @@ void em_gfx_destroy(EmGfx *g)
     [g->glowPipeline release];
     [g->beamPipeline release];
     [g->glyphPipeline release];
-    [g->overlayTex release];
+    [g->overlayTex[0] release];
+    [g->overlayTex[1] release];
     [g->clampSampler release];
     [g->repeatSampler release];
     [g->depthOn release];
@@ -697,12 +702,14 @@ void em_gfx_overlay_arc4(EmGfx *g, float cx, float cy,
     }
 }
 
-/* Register the single overlay texture slot (em_gfx.h — the UI font
- * sheet). RGBA8 rows top-down, copied into a GPU texture. */
-int em_gfx_overlay_texture_set(EmGfx *g, const uint8_t *rgba,
+/* Register one overlay texture slot (em_gfx.h — slot 0 = the UI font
+ * sheet, slot 1 = the status-screen decor sheet). RGBA8 rows top-down,
+ * copied into a GPU texture. */
+int em_gfx_overlay_texture_set(EmGfx *g, int slot, const uint8_t *rgba,
                                uint32_t w, uint32_t h)
 {
-    if (!g || !g->device || !rgba || !w || !h) return 0;
+    if (!g || !g->device || !rgba || !w || !h || slot < 0 || slot > 1)
+        return 0;
     MTLTextureDescriptor *td = [MTLTextureDescriptor
         texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                      width:w
@@ -715,19 +722,21 @@ int em_gfx_overlay_texture_set(EmGfx *g, const uint8_t *rgba,
            mipmapLevel:0
              withBytes:rgba
            bytesPerRow:(NSUInteger)w * 4];
-    [g->overlayTex release];
-    g->overlayTex  = tex;          /* +1 from newTextureWithDescriptor */
-    g->overlayTexW = (float)w;
-    g->overlayTexH = (float)h;
+    [g->overlayTex[slot] release];
+    g->overlayTex[slot]  = tex;    /* +1 from newTextureWithDescriptor */
+    g->overlayTexW[slot] = (float)w;
+    g->overlayTexH[slot] = (float)h;
     return 1;
 }
 
 /* Append one textured-overlay vertex (NDC pos + color + normalized uv —
- * the kGlyphShaderSrc layout). Capacity checked by the caller. */
-static void glyph_push(EmGfx *g, float x, float y, float u, float v,
-                       const float rgba[4])
+ * the kGlyphShaderSrc layout) to `verts`. Capacity checked by the
+ * caller; texel UVs normalize against the given slot's texture. */
+static void texquad_push(EmGfx *g, float *verts, uint32_t *count, int slot,
+                         float x, float y, float u, float v,
+                         const float rgba[4])
 {
-    float *o = g->glyphVerts + (size_t)g->glyphVertCount * 12;
+    float *o = verts + (size_t)*count * 12;
     o[0]  = x / g->overlayW * 2.0f - 1.0f;
     o[1]  = 1.0f - y / g->overlayH * 2.0f;
     o[2]  = 0.0f;
@@ -736,28 +745,51 @@ static void glyph_push(EmGfx *g, float x, float y, float u, float v,
     o[5]  = rgba[1];
     o[6]  = rgba[2];
     o[7]  = rgba[3];
-    o[8]  = u / g->overlayTexW;
-    o[9]  = v / g->overlayTexH;
+    o[8]  = u / g->overlayTexW[slot];
+    o[9]  = v / g->overlayTexH[slot];
     o[10] = 0.0f;
     o[11] = 1.0f;
-    g->glyphVertCount++;
+    (*count)++;
 }
 
-/* Queue one textured overlay quad (em_gfx.h): canvas-space rect sampling
- * the registered overlay texture at texel UVs (u0,v0)-(u1,v1). */
+/* Queue one textured overlay quad into a slot's queue: canvas-space rect
+ * sampling the slot's texture at texel UVs (u0,v0)-(u1,v1). */
+static void texquad_queue(EmGfx *g, float *verts, uint32_t *count, int slot,
+                          float x, float y, float w, float h,
+                          float u0, float v0, float u1, float v1,
+                          const float rgba[4])
+{
+    if (!g || !rgba || !g->overlayTex[slot] ||
+        *count + 6 > EM_GFX_OVERLAY_MAX * 6)
+        return;
+    texquad_push(g, verts, count, slot, x,     y,     u0, v0, rgba);
+    texquad_push(g, verts, count, slot, x + w, y,     u1, v0, rgba);
+    texquad_push(g, verts, count, slot, x,     y + h, u0, v1, rgba);
+    texquad_push(g, verts, count, slot, x + w, y,     u1, v0, rgba);
+    texquad_push(g, verts, count, slot, x + w, y + h, u1, v1, rgba);
+    texquad_push(g, verts, count, slot, x,     y + h, u0, v1, rgba);
+}
+
+/* Queue one font-slot quad (em_gfx.h). */
 void em_gfx_overlay_glyph(EmGfx *g, float x, float y, float w, float h,
                           float u0, float v0, float u1, float v1,
                           const float rgba[4])
 {
-    if (!g || !rgba || !g->overlayTex ||
-        g->glyphVertCount + 6 > EM_GFX_OVERLAY_MAX * 6)
-        return;
-    glyph_push(g, x,     y,     u0, v0, rgba);   /* tri 1 */
-    glyph_push(g, x + w, y,     u1, v0, rgba);
-    glyph_push(g, x,     y + h, u0, v1, rgba);
-    glyph_push(g, x + w, y,     u1, v0, rgba);   /* tri 2 */
-    glyph_push(g, x + w, y + h, u1, v1, rgba);
-    glyph_push(g, x,     y + h, u0, v1, rgba);
+    if (!g) return;
+    texquad_queue(g, g->glyphVerts, &g->glyphVertCount,
+                  EM_GFX_OVERLAY_TEX_FONT,
+                  x, y, w, h, u0, v0, u1, v1, rgba);
+}
+
+/* Queue one UI-decor-slot quad (em_gfx.h). */
+void em_gfx_overlay_sprite(EmGfx *g, float x, float y, float w, float h,
+                           float u0, float v0, float u1, float v1,
+                           const float rgba[4])
+{
+    if (!g) return;
+    texquad_queue(g, g->spriteVerts, &g->spriteVertCount,
+                  EM_GFX_OVERLAY_TEX_UI,
+                  x, y, w, h, u0, v0, u1, v1, rgba);
 }
 
 /* Flat-color arc (em_gfx.h). */
@@ -946,16 +978,17 @@ static void overlay_flush(EmGfx *g)
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
-/* Flush the queued TEXTURED overlay quads (em_gfx_overlay_glyph): one
- * draw right after overlay_flush — same pass position (post-3D, depth
- * off, standard alpha blend), so text composites over the untextured
- * panels/gauges of the same frame. Linear clamp sampling = the GS font
- * strip state (TEX1 MMAG/MMIN=1). */
-static void glyph_flush(EmGfx *g)
+/* Flush one slot's queued TEXTURED overlay quads: one draw after
+ * overlay_flush — same pass position (post-3D, depth off, standard
+ * alpha blend). Linear clamp sampling = the GS UI-sprite state (TEX1
+ * MMAG/MMIN=1). Called for the UI-decor slot first, the font slot last
+ * (decor under text — see em_gfx.h). */
+static void texquad_flush(EmGfx *g, int slot, float *verts_data,
+                          uint32_t *count)
 {
-    uint32_t verts = g->glyphVertCount;
-    g->glyphVertCount = 0;
-    if (!verts || !g->enc || !g->overlayTex) return;
+    uint32_t verts = *count;
+    *count = 0;
+    if (!verts || !g->enc || !g->overlayTex[slot]) return;
     if (!g->glyphPipeline) {
         g->glyphPipeline = build_pipeline(g, kGlyphShaderSrc, @"v_glyph",
                                           @"f_glyph", false);
@@ -973,7 +1006,7 @@ static void glyph_flush(EmGfx *g)
     }
     ensure_depth_states(g);
     id<MTLBuffer> vbuf =
-        [g->device newBufferWithBytes:g->glyphVerts
+        [g->device newBufferWithBytes:verts_data
                                length:(NSUInteger)verts * 12 * sizeof(float)
                               options:MTLResourceStorageModeShared];
     if (!vbuf) return;
@@ -981,7 +1014,7 @@ static void glyph_flush(EmGfx *g)
     [g->enc setDepthStencilState:g->depthOff];
     [g->enc setCullMode:MTLCullModeNone];
     [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
-    [g->enc setFragmentTexture:g->overlayTex atIndex:0];
+    [g->enc setFragmentTexture:g->overlayTex[slot] atIndex:0];
     [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
                vertexStart:0
@@ -1038,7 +1071,10 @@ void em_gfx_end_frame(EmGfx *g)
     if (!g) return;
     beam_flush(g);      /* world-space beams: after 3D, under the overlay */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
-    glyph_flush(g);     /* textured overlay (font glyphs) over the rects */
+    texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,     /* decor over the rects  */
+                  g->spriteVerts, &g->spriteVertCount);
+    texquad_flush(g, EM_GFX_OVERLAY_TEX_FONT,   /* text over everything  */
+                  g->glyphVerts, &g->glyphVertCount);
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 
     id<MTLBuffer> shot = nil;

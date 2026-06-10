@@ -45,9 +45,26 @@
  *    12x16 numbers). WITHOUT the asset, every label and number falls
  *    back to the old positioned placeholder rect at the real glyph
  *    metrics — a missing font never regresses the frame.
- *  - Not yet composed: profile bio block, portrait, title art, the
- *    page-selector diamond/rings/sparkles and page sub-screens (all
- *    texture- or text-dependent, or pending their own decode passes).
+ *  - DECOR renders through the REAL game textures when assets/ui.emui
+ *    is present (produced by the decomp repo's tools/export_ui.py from
+ *    the user's own GS-VRAM dump — FINDINGS.md "STATUS SCREEN UI
+ *    TEXTURES"): the "MAIN" title art at (16,0), the 128x128 button
+ *    legend at (0,320) (the session-25 audit's "portrait" slot — the
+ *    texture is the triangle-EXIT/circle-BACK/cross-OK legend), and the
+ *    four 32x32 page-arrow icons at (11,304)/(484,304)/(417,10)/
+ *    (417,406). With the asset present the hub also composes the
+ *    PAGER-DIAMOND markers around (432,320) (white fading disc r0-16 +
+ *    blue gradient rings r10-12/r14-16 per marker, the engine's arc
+ *    blocks 0x265270/0x2652D0/0x265330, idle blue — hover/green needs
+ *    page input, not yet modeled) and the PROFILE bio block ("DENNIS
+ *    RILEY" 12x16 blue at (16,56); gray 10x10 rows at (24,74/86/98);
+ *    4x6 blue ticks at x=18) when the font is also loaded. WITHOUT
+ *    ui.emui none of this queues — the frame is identical to the
+ *    pre-decor build (missing asset = no regression). Engine blend
+ *    mode 3 on the icons is approximated with standard alpha blend.
+ *  - Not yet composed: the page-tab strips, the spinning cyan double
+ *    ring + sparkle emitter (animated; cadence unverified), hover/enter
+ *    page navigation, page sub-screens, the rotating player model.
  *
  * EmPlayerStatus mirrors the engine's canonical status storage:
  *
@@ -101,13 +118,19 @@ typedef struct {
  *   NUM16        small font, 12x16 cell, white  — numbers ("075 / 100")
  *   NUM16_RED    small font, 12x16 cell, red    — low-health value
  *   TALL         tall font, 1:1 (h 20), white   — "INFECTION"
- *   TALL_DARKRED tall font, 1:1 (h 20), dark red— "INFECTED" */
+ *   TALL_DARKRED tall font, 1:1 (h 20), dark red— "INFECTED"
+ *   NAME12_BLUE  small font, 12x16 cell, blue   — "DENNIS RILEY"
+ *                (style 0x265538; the marker/name blue 0,96,206)
+ *   PROFILE10    small font, 10x10 cell, gray   — profile bio rows
+ *                (style 0x265530; gray 80,80,80) */
 typedef enum {
     EM_HUD_TEXT_LABEL12,
     EM_HUD_TEXT_NUM16,
     EM_HUD_TEXT_NUM16_RED,
     EM_HUD_TEXT_TALL,
-    EM_HUD_TEXT_TALL_DARKRED
+    EM_HUD_TEXT_TALL_DARKRED,
+    EM_HUD_TEXT_NAME12_BLUE,
+    EM_HUD_TEXT_PROFILE10
 } EmHudTextStyle;
 
 /* Draw `str` at (x, y) on the current overlay canvas in `style`, through

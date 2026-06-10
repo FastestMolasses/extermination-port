@@ -21,6 +21,12 @@
  *              bar); placeholder blocks until a font renderer lands.
  *   (128,336)  help panel — translucent gray rect to (384,432), exact.
  *
+ * DECOR renders through the REAL game textures when assets/ui.emui is
+ * present (see the "UI decor sheet" block below): the "MAIN" title art
+ * at (16,0), the button legend at (0,320), the four page-arrow icons,
+ * plus the pager-diamond marker rings and the profile bio block.
+ * Without the asset the decor pass queues nothing (no regression).
+ *
  * TEXT renders through the REAL game fonts when assets/font.emfn is
  * present (see the "UI font" block below): every label/number ("HEALTH",
  * "075 / 100", "04/06", "INFECTION 60%", reserve count) draws as
@@ -77,6 +83,17 @@ static const float kBattYellow[4]  = GS(255, 230,  52, 128);
 
 /* Help panel (64,64,64,0x40) — exact. */
 static const float kHelpPanel[4]   = GS(64, 64, 64, 64);
+
+/* Pager-diamond marker colors (engine arc blocks 0x265270 disc r0-16,
+ * 0x2652D0 ring r10-12, 0x265330 ring r14-16 — inner->outer radial
+ * gradients read from the live param blocks; idle BLUE state). */
+static const float kDiscWhite[4]   = GS(255, 255, 255, 128);
+static const float kDiscFade[4]    = GS(  0,   0,   0,   0);
+static const float kRingIn[4]      = GS(  0, 128, 255, 128);
+static const float kRingOut[4]     = GS(  0,  64,  64, 128);
+
+/* Decor sprites draw white-modulated (the engine passes 0x80808080). */
+static const float kSpriteWhite[4] = GS(255, 255, 255, 128);
 
 /* Text-style colors (8-byte style records at 0x265510..) — used at
  * PLACEHOLDER_ALPHA for the unrenderable text blocks. */
@@ -215,7 +232,9 @@ static int font_ensure(EmGfx *gfx)
     font_parse();
     if (s_font.state != 1) return 0;
     if (!s_font.registered) {
-        if (!gfx || !em_gfx_overlay_texture_set(gfx, s_font.sheet,
+        if (!gfx || !em_gfx_overlay_texture_set(gfx,
+                                                EM_GFX_OVERLAY_TEX_FONT,
+                                                s_font.sheet,
                                                 s_font.sheet_w,
                                                 s_font.sheet_h))
             return 0;
@@ -230,6 +249,122 @@ int em_hud_font_ready(void)
 {
     font_parse();
     return s_font.state == 1;
+}
+
+/* --- UI decor sheet (assets/ui.emui) ----------------------------------
+ *
+ * The status hub's textured decor sprites (title art, button legend,
+ * page-arrow icons) are PSMT4 textures resident in GS VRAM with
+ * 16-entry CLUTs (FINDINGS.md "STATUS SCREEN UI TEXTURES"); the decomp
+ * repo's tools/export_ui.py decodes them from the user's own GS-VRAM
+ * dump into one RGBA8 sheet plus per-sprite records that carry BOTH the
+ * sheet UVs and the audited 512x448-canvas draw anchors — so the layout
+ * travels with the asset and this loader just draws every record.
+ *
+ * .emui v1 layout (little-endian; must match export_ui.py):
+ *   0   "EMUI"            12  u32 sheet_h
+ *   4   u32 version (= 1) 16  u32 sprite_count
+ *   8   u32 sheet_w
+ *   then sprite_count * { u16 u, v, w, h; s16 x, y; u16 dw, dh }
+ *   then sheet_w * sheet_h * 4 RGBA8 texels (rows top-down)
+ *
+ * Missing/invalid asset => s_ui.state = -1 and the WHOLE decor pass
+ * (sprites, pager-diamond arcs, profile text) queues nothing — the
+ * frame stays identical to the pre-decor build. */
+typedef struct {
+    uint16_t u, v, w, h;
+    int16_t  x, y;
+    uint16_t dw, dh;
+} UiSprite;
+
+static struct {
+    int       state;        /* 0 = untried, 1 = parsed, -1 = unavailable */
+    int       registered;   /* sheet handed to the UI texture slot */
+    UiSprite *sprites;
+    uint32_t  sprite_count;
+    uint8_t  *sheet;        /* RGBA8, freed after GPU registration */
+    uint32_t  sheet_w, sheet_h;
+} s_ui;
+
+static void ui_parse(void)
+{
+    if (s_ui.state) return;
+    s_ui.state = -1;                         /* sticky failure default */
+    FILE *f = fopen("assets/ui.emui", "rb");
+    if (!f) return;                          /* missing = no decor pass */
+    uint8_t hdr[20];
+    if (fread(hdr, 1, 20, f) != 20 || memcmp(hdr, "EMUI", 4) != 0 ||
+        font_u32(hdr + 4) != 1) {
+        fprintf(stderr, "hud: assets/ui.emui: bad header\n");
+        fclose(f);
+        return;
+    }
+    s_ui.sheet_w      = font_u32(hdr + 8);
+    s_ui.sheet_h      = font_u32(hdr + 12);
+    s_ui.sprite_count = font_u32(hdr + 16);
+    if (!s_ui.sheet_w || !s_ui.sheet_h || !s_ui.sprite_count ||
+        s_ui.sheet_w > 4096 || s_ui.sheet_h > 4096 ||
+        s_ui.sprite_count > 256) {
+        fprintf(stderr, "hud: assets/ui.emui: implausible sizes\n");
+        fclose(f);
+        return;
+    }
+    size_t   rec_bytes   = (size_t)s_ui.sprite_count * 16;
+    size_t   sheet_bytes = (size_t)s_ui.sheet_w * s_ui.sheet_h * 4;
+    uint8_t *rraw = (uint8_t *)malloc(rec_bytes);
+    s_ui.sprites = (UiSprite *)calloc(s_ui.sprite_count, sizeof(UiSprite));
+    s_ui.sheet   = (uint8_t *)malloc(sheet_bytes);
+    int ok = rraw && s_ui.sprites && s_ui.sheet &&
+             fread(rraw, 1, rec_bytes, f) == rec_bytes &&
+             fread(s_ui.sheet, 1, sheet_bytes, f) == sheet_bytes;
+    fclose(f);
+    if (ok) {
+        for (uint32_t i = 0; i < s_ui.sprite_count; i++) {
+            const uint8_t *p = rraw + (size_t)i * 16;
+            UiSprite      *s = &s_ui.sprites[i];
+            s->u  = (uint16_t)(p[0]  | p[1]  << 8);
+            s->v  = (uint16_t)(p[2]  | p[3]  << 8);
+            s->w  = (uint16_t)(p[4]  | p[5]  << 8);
+            s->h  = (uint16_t)(p[6]  | p[7]  << 8);
+            s->x  = (int16_t)(p[8]   | p[9]  << 8);
+            s->y  = (int16_t)(p[10]  | p[11] << 8);
+            s->dw = (uint16_t)(p[12] | p[13] << 8);
+            s->dh = (uint16_t)(p[14] | p[15] << 8);
+            if ((uint32_t)s->u + s->w > s_ui.sheet_w ||
+                (uint32_t)s->v + s->h > s_ui.sheet_h)
+                ok = 0;
+        }
+    }
+    if (ok) {
+        s_ui.state = 1;
+        fprintf(stderr, "hud: ui sheet %ux%u, %u decor sprites\n",
+                s_ui.sheet_w, s_ui.sheet_h, s_ui.sprite_count);
+    } else if (rraw) {
+        fprintf(stderr, "hud: assets/ui.emui: truncated/inconsistent\n");
+    }
+    free(rraw);
+    if (s_ui.state != 1) {
+        free(s_ui.sprites); s_ui.sprites = NULL;
+        free(s_ui.sheet);   s_ui.sheet   = NULL;
+    }
+}
+
+/* Parse the asset and (once a gfx exists) register the sheet in the UI
+ * texture slot. Returns 1 when the decor pass can draw. */
+static int ui_ensure(EmGfx *gfx)
+{
+    ui_parse();
+    if (s_ui.state != 1) return 0;
+    if (!s_ui.registered) {
+        if (!gfx || !em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI,
+                                                s_ui.sheet,
+                                                s_ui.sheet_w, s_ui.sheet_h))
+            return 0;
+        s_ui.registered = 1;
+        free(s_ui.sheet);            /* GPU owns a copy now */
+        s_ui.sheet = NULL;
+    }
+    return 1;
 }
 
 /* Style table — font face + glyph cell + engine style color (8-byte
@@ -252,6 +387,12 @@ static const struct {
     [EM_HUD_TEXT_TALL_DARKRED] = { FONT_TALL,  0.0f, 20.0f,
                                    { 96.0f / 128.0f, 8.0f / 128.0f,
                                      16.0f / 128.0f, 1.0f } },
+    [EM_HUD_TEXT_NAME12_BLUE]  = { FONT_SMALL, 12.0f, 16.0f,
+                                   { 0.0f, 96.0f / 128.0f,
+                                     206.0f / 128.0f, 1.0f } },
+    [EM_HUD_TEXT_PROFILE10]    = { FONT_SMALL, 10.0f, 10.0f,
+                                   { 80.0f / 128.0f, 80.0f / 128.0f,
+                                     80.0f / 128.0f, 1.0f } },
 };
 
 /* Engine glyph rule: index = ascii - 0x20; '$' remaps to the extended
@@ -506,6 +647,11 @@ static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
     }
 }
 
+/* Did this frame's decor pass draw (ui.emui loaded + registered)? Set by
+ * decor(); spr4_block uses it to drop the bullet-icon placeholder when
+ * the real icon sprite (a ui.emui record at (16,262)) is on screen. */
+static int s_decor_active = 0;
+
 /* SPR4 block at (16,190) (engine func_00209860): reserve count ONLY —
  * the real screen shows no magazine state at all. */
 static void spr4_block(EmGfx *gfx, int16_t reserve)
@@ -516,9 +662,11 @@ static void spr4_block(EmGfx *gfx, int16_t reserve)
     else
         text_placeholder(gfx, 28.0f, 190.0f, 4, 12.0f, 12.0f, kTextWhite);
 
-    /* bullet icon 24x24 at (16,262) — texture unresolved (needs a VRAM
-     * capture); neutral placeholder block. */
-    text_placeholder(gfx, 16.0f, 262.0f, 1, 24.0f, 24.0f, kTextWhite);
+    /* bullet icon 24x24 at (16,262): the real sprite is a ui.emui decor
+     * record (token ..2196, GS-scaled 32->24 — drawn by decor());
+     * without the asset, the old neutral placeholder block. */
+    if (!s_decor_active)
+        text_placeholder(gfx, 16.0f, 262.0f, 1, 24.0f, 24.0f, kTextWhite);
 
     /* reserve count, 16 px digits at (42,266), 4 digits trimmed (no
      * leading zeros — func_001C5FB0 digits=4 with trim). */
@@ -566,6 +714,68 @@ static void infection_block(EmGfx *gfx, float infection)
     }
 }
 
+/* DECOR pass — only when assets/ui.emui is loaded (missing asset = the
+ * exact pre-decor frame). Queue order mirrors the engine hub drawer
+ * func_00209DF0: pager-diamond markers (arcs, untextured queue), then
+ * the textured sprites (title/legend/icons — their queue flushes after
+ * the untextured one, so the icons composite over the marker rings the
+ * way the engine's later draw does), then the profile text (glyph
+ * queue, flushes last). */
+static void decor(EmGfx *gfx)
+{
+    s_decor_active = ui_ensure(gfx);
+    if (!s_decor_active) return;
+
+    /* Page-selector diamond around (432,320): markers bottom/right/top/
+     * left, each = white fading disc r0-16 + two blue gradient rings
+     * (idle state; hover swaps a marker to green — page navigation is
+     * not modeled yet). */
+    static const float kMarker[4][2] = {
+        { 432.0f, 376.0f },   /* page 1 (bottom) */
+        { 476.0f, 320.0f },   /* page 2 (right)  */
+        { 432.0f, 264.0f },   /* page 3 (top)    */
+        { 388.0f, 320.0f },   /* page 4 (left)   */
+    };
+    for (int i = 0; i < 4; i++) {
+        const float cx = kMarker[i][0], cy = kMarker[i][1];
+        em_gfx_overlay_arc4(gfx, cx, cy,  0.0f, 16.0f, 0.0f, 360.0f,
+                            kDiscWhite, kDiscFade, kDiscWhite, kDiscFade);
+        em_gfx_overlay_arc4(gfx, cx, cy, 10.0f, 12.0f, 0.0f, 360.0f,
+                            kRingIn, kRingOut, kRingIn, kRingOut);
+        em_gfx_overlay_arc4(gfx, cx, cy, 14.0f, 16.0f, 0.0f, 360.0f,
+                            kRingIn, kRingOut, kRingIn, kRingOut);
+    }
+
+    /* Textured decor sprites — every .emui record carries its sheet UVs
+     * AND its audited canvas anchor, drawn 1:1 white-modulated. */
+    for (uint32_t i = 0; i < s_ui.sprite_count; i++) {
+        const UiSprite *s = &s_ui.sprites[i];
+        em_gfx_overlay_sprite(gfx, (float)s->x, (float)s->y,
+                              (float)s->dw, (float)s->dh,
+                              (float)s->u, (float)s->v,
+                              (float)(s->u + s->w), (float)(s->v + s->h),
+                              kSpriteWhite);
+    }
+
+    /* Profile bio block under the title art (strings from the engine's
+     * label table 0x267290 entries 5..8; name blue 12x16 at (16,56),
+     * gray 10x10 rows at (24,74/86/98), 4x6 blue slant-tick stand-ins
+     * (drawn square) at x=18 beside each row). Needs the font. */
+    if (font_ensure(gfx)) {
+        em_hud_text(gfx, 16.0f, 56.0f, "DENNIS RILEY",
+                    EM_HUD_TEXT_NAME12_BLUE);
+        em_hud_text(gfx, 24.0f, 74.0f, "BIRTHDAY     :10.25.1981",
+                    EM_HUD_TEXT_PROFILE10);
+        em_hud_text(gfx, 24.0f, 86.0f, "HEIGHT/WEIGHT:5'11\"/154lbs",
+                    EM_HUD_TEXT_PROFILE10);
+        em_hud_text(gfx, 24.0f, 98.0f, "NATIONALITY  :USA",
+                    EM_HUD_TEXT_PROFILE10);
+        em_gfx_overlay_rect(gfx, 18.0f,  78.0f, 4.0f, 6.0f, kMarkerBlue);
+        em_gfx_overlay_rect(gfx, 18.0f,  90.0f, 4.0f, 6.0f, kMarkerBlue);
+        em_gfx_overlay_rect(gfx, 18.0f, 102.0f, 4.0f, 6.0f, kMarkerBlue);
+    }
+}
+
 void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
 {
     /* Hidden (the default): queue NOTHING — the frame is byte-identical
@@ -580,6 +790,10 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
     /* Scene dim — STAND-IN for the engine's UI-camera swap (see top). */
     em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_STATUS_W,
                         EM_GFX_STATUS_H, kSceneDim);
+
+    /* Decor: title art, button legend, page icons, pager diamond,
+     * profile block — only with assets/ui.emui (see decor above). */
+    decor(gfx);
 
     /* Count-up display copies (0x810858/0x81085C semantics). */
     float hp  = count_up(&s_disp_health, st->health);
