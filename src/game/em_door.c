@@ -82,6 +82,31 @@
 #define DOOR_WAIT_FRONT       90.0f
 #define DOOR_WAIT_BACK        70.0f
 
+/* Door SOUND pair — FINDINGS "DOOR SCRIPTS DECODED" s23: the open
+ * script's op 0x0B sub 6 record is patched by func_001BBD60 with
+ * D_0024DB80[link >> 8][side], a [front_id, back_id] halfword pair
+ * table indexed by the placement LINK halfword's high byte (door
+ * family ids 0x3FB..0x40E). The port's manifest does not carry the
+ * per-door link yet (export_props owns the door lines), so the pair
+ * arrives as ONE optional GLOBAL scene.txt line, generated alongside
+ * the registry by the decomp repo's tools/gen_sfx_registry.py:
+ *
+ *     doorsfx <front-id> <back-id>     (e.g. office: doorsfx 0x3FD 0x3FE
+ *                                       = D_0024DB80[2], both office
+ *                                       doors' links are 0x02xx)
+ *
+ * em_game's manifest parser skips unknown keywords, so em_door scans
+ * scene.txt itself (once, at the first em_door_add). With the line
+ * present the open chain plays the side-correct pair id exactly like
+ * the engine record, and the legacy close-at-black placeholder play is
+ * dropped (the decoded open script D_0024DE40 carries a SINGLE sound
+ * record; no close sound is decoded — func_001BBD20 is a possible
+ * close path, revisit). Without the line, the previous PLACEHOLDER
+ * behavior is preserved bit-for-bit (EM_SFX_DOOR_OPEN/CLOSE, which an
+ * unmapped registry turns into silent no-ops). FLAGGED simplification
+ * until the manifest door lines grow the link halfword. */
+#define DOOR_SFX_KEYWORD  "doorsfx"
+
 /* Fade speed for the transit fades — the captured func_001AEDE0 speed
  * (4 -> 64-frame ramp), see em_frame.h. */
 #define DOOR_FADE_SPEED   EM_FADE_SPEED_DOOR
@@ -136,6 +161,10 @@ static struct {
     int       warp_pending;  /* one-shot re-place request for em_game */
     float     warp_pos[3];
     float     warp_yaw;
+    /* door sound pair (see DOOR_SFX_KEYWORD above) */
+    int       sfx_scanned;   /* scene.txt scanned once for doorsfx */
+    int       sfx_real;      /* doorsfx line found: engine pair active */
+    unsigned  sfx_pair[2];   /* D_0024DB80 pair [0]=front, [1]=back */
 } s;
 
 void em_door_reset(void)
@@ -148,6 +177,35 @@ void em_door_reset(void)
 /* ------------------------------------------------------------------ */
 /* Loading                                                              */
 /* ------------------------------------------------------------------ */
+
+/* One-shot scan of <scene_dir>/scene.txt for the optional global
+ * "doorsfx <front-id> <back-id>" line (see DOOR_SFX_KEYWORD). em_door
+ * owns this keyword; em_game's parser skips lines it does not know. */
+static void door_sfx_manifest_scan(const char *scene_dir)
+{
+    if (s.sfx_scanned) return;
+    s.sfx_scanned = 1;
+
+    char path[512];
+    snprintf(path, sizeof path, "%s/scene.txt", scene_dir);
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+
+    char line[512];
+    unsigned front, back;
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#') continue;
+        if (sscanf(line, DOOR_SFX_KEYWORD " %x %x", &front, &back) == 2) {
+            s.sfx_pair[0] = front;   /* D_0024DB80 pair[link>>8][0] */
+            s.sfx_pair[1] = back;    /*                        [1] */
+            s.sfx_real    = 1;
+            printf("door sfx: manifest pair front 0x%03X / back 0x%03X "
+                   "(D_0024DB80)\n", front, back);
+            break;
+        }
+    }
+    fclose(f);
+}
 
 static int door_model_get(EmGfx *gfx, const char *scene_dir,
                           const char *file)
@@ -216,6 +274,7 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
                 const float pos[3], float yaw, float radius)
 {
     if (s.n_doors >= DOOR_MAX) return -1;
+    door_sfx_manifest_scan(scene_dir);
     int mi = door_model_get(gfx, scene_dir, file);
     if (mi < 0) return -1;
 
@@ -501,11 +560,20 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 em_game_anim_request(d->front ? DOOR_ANIM_OPEN_FRONT
                                               : DOOR_ANIM_OPEN_BACK,
                                      1.0f);
-                /* PLACEHOLDER id (flagged): the engine's id comes from
-                 * the D_0024DB80 pair table via the door LINK halfword
-                 * (op 0x0B sub 6 record, patched by func_001BBD60); the
-                 * port's manifest does not carry the link yet. */
-                em_sfx_play(EM_SFX_DOOR_OPEN);
+                /* Door sound (op 0x0B sub 6): the engine plays
+                 * pair[side] — D_0024DB80[link>>8] patched in by
+                 * func_001BBD60. The pair arrives via the doorsfx
+                 * manifest line (see DOOR_SFX_KEYWORD); without it the
+                 * legacy PLACEHOLDER id fires as before. */
+                if (s.sfx_real) {
+                    unsigned id = s.sfx_pair[d->front ? 0 : 1];
+                    printf("door sfx: open id 0x%03X (%s side, "
+                           "D_0024DB80 pair)\n", id,
+                           d->front ? "front" : "back");
+                    em_sfx_play(id);
+                } else {
+                    em_sfx_play(EM_SFX_DOOR_OPEN);  /* PLACEHOLDER */
+                }
             }
             /* Clip pump (1.0/frame) + the script's op 0x02 wait: the
              * phase runs 90 (front) / 70 (back) frames, then the script
@@ -546,9 +614,15 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                      * +0x1F2 = 0) — locomotion resumes standing. */
                     em_game_anim_cancel();
                     em_frame_fade_start(-1, DOOR_FADE_SPEED);
-                    /* PLACEHOLDER id (flagged) — script-driven, like
-                     * open; fires at black, behind the player. */
-                    em_sfx_play(EM_SFX_DOOR_CLOSE);
+                    /* Close sound: the decoded open script D_0024DE40
+                     * carries a SINGLE sound record — no close sound is
+                     * engine-documented (func_001BBD20 is a possible
+                     * close path, undecoded). With the real pair active
+                     * the port stays faithful and plays NOTHING here;
+                     * the legacy PLACEHOLDER fires only in the
+                     * no-doorsfx configuration, as before. */
+                    if (!s.sfx_real)
+                        em_sfx_play(EM_SFX_DOOR_CLOSE);  /* PLACEHOLDER */
                 }
                 break;
             }
