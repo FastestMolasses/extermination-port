@@ -62,9 +62,32 @@
  *    ui.emui none of this queues — the frame is identical to the
  *    pre-decor build (missing asset = no regression). Engine blend
  *    mode 3 on the icons is approximated with standard alpha blend.
+ *  - PAGE NAVIGATION (FINDINGS.md "STATUS SUB-PAGES", session 31) is
+ *    modeled as a skeleton: left-stick hover among the pager diamonds
+ *    (deflection > 0.8, quadrant -> hover 1 down / 2 right / 3 up /
+ *    4 left, engine func_0020D930; the hovered marker's rings render
+ *    the engine's GREEN state), X enters the hovered page through the
+ *    controller's remap (func_0020CDC0: down->DATABASE, right->SPR4,
+ *    up->MAP, left->ITEM; X with no hover enters nothing — the engine
+ *    buzzes), Circle or Triangle returns to the hub, and at the hub
+ *    Triangle/Start/Circle (engine edge mask 0x830) closes the screen.
+ *    An entered page draws its exported background/decor textures from
+ *    assets/ui_pageN.emui (decomp repo tools/export_ui.py --page N,
+ *    run by the user against their own extract/ chunks; page 0 ITEM =
+ *    chunk 0x1F, 1 MAP = 0x1E, 2 SPR4 = 0x2C, 3 DATABASE = 0x24) at
+ *    the recorded anchors — title art is asm-anchored at (8,0);
+ *    background-tile/legend anchors are flagged ASSUMED in the
+ *    exporter; sheet-only records (no statically known position) are
+ *    skipped. Page INTERIORS (item lists, map cursor, weapon
+ *    customization, database records) are NOT modeled: every page view
+ *    carries an amber "CONTENT TBD" strip, and a missing page asset
+ *    falls back to a flagged placeholder panel. The engine's passcode
+ *    keypad pages 4/5 (chunks 0x25/0x26, entered only via the external
+ *    request byte D_008106C5, never from the diamond) are not
+ *    reachable in the port either.
  *  - Not yet composed: the page-tab strips, the spinning cyan double
- *    ring + sparkle emitter (animated; cadence unverified), hover/enter
- *    page navigation, page sub-screens, the rotating player model.
+ *    ring + sparkle emitter (animated; cadence unverified), page
+ *    sub-screen interiors (see above), the rotating player model.
  *
  * EmPlayerStatus mirrors the engine's canonical status storage:
  *
@@ -86,6 +109,10 @@
  * forces the status screen VISIBLE regardless of the toggle — for
  * headless capture tests of the overlay itself. Hidden is the default,
  * so the default frame is already the status-screen-free one.
+ * EM_HUD_PAGE=<0..3> (with FORCE) starts with that page entered;
+ * EM_HUD_HOVER=<1..4> (with FORCE) holds that pager hover at the hub —
+ * both are capture hooks; without them navigation only changes on
+ * input, so the forced hub capture is byte-identical to pre-nav builds.
  */
 #ifndef EM_HUD_H
 #define EM_HUD_H

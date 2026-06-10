@@ -27,6 +27,12 @@
  * plus the pager-diamond marker rings and the profile bio block.
  * Without the asset the decor pass queues nothing (no regression).
  *
+ * PAGE NAVIGATION (skeleton — see the nav block + em_hud.h): stick
+ * hover among the pager diamonds (green hovered marker), X enters the
+ * hovered page (ITEM/MAP/SPR4/DATABASE via the engine's remap), the
+ * page view draws its exported ui_pageN.emui background textures plus
+ * an amber CONTENT TBD strip, Circle/Triangle exits back to the hub.
+ *
  * TEXT renders through the REAL game fonts when assets/font.emfn is
  * present (see the "UI font" block below): every label/number ("HEALTH",
  * "075 / 100", "04/06", "INFECTION 60%", reserve count) draws as
@@ -86,11 +92,21 @@ static const float kHelpPanel[4]   = GS(64, 64, 64, 64);
 
 /* Pager-diamond marker colors (engine arc blocks 0x265270 disc r0-16,
  * 0x2652D0 ring r10-12, 0x265330 ring r14-16 — inner->outer radial
- * gradients read from the live param blocks; idle BLUE state). */
+ * gradients read from the live param blocks; idle BLUE state, hovered
+ * GREEN state — FINDINGS "STATUS SCREEN LAYOUT" item 2). */
 static const float kDiscWhite[4]   = GS(255, 255, 255, 128);
 static const float kDiscFade[4]    = GS(  0,   0,   0,   0);
 static const float kRingIn[4]      = GS(  0, 128, 255, 128);
 static const float kRingOut[4]     = GS(  0,  64,  64, 128);
+static const float kRingHovIn[4]   = GS(  0, 240,   0, 128);
+static const float kRingHovOut[4]  = GS(  0, 200,   0, 128);
+
+/* Page-view placeholder fill (flagged stand-in — used when the page's
+ * ui_pageN.emui asset is missing, and as the keypad page's permanent
+ * fill until its data-driven textures are decoded). */
+static const float kPagePanel[4]   = GS( 16,  20,  48, 96);
+/* "Content TBD" flag strip color (amber, clearly non-authentic). */
+static const float kTbdAmber[3]    = { 1.0f, 0.75f, 0.2f };
 
 /* Decor sprites draw white-modulated (the engine passes 0x80808080). */
 static const float kSpriteWhite[4] = GS(255, 255, 255, 128);
@@ -277,51 +293,63 @@ typedef struct {
     uint16_t dw, dh;
 } UiSprite;
 
-static struct {
+typedef struct {
     int       state;        /* 0 = untried, 1 = parsed, -1 = unavailable */
-    int       registered;   /* sheet handed to the UI texture slot */
     UiSprite *sprites;
     uint32_t  sprite_count;
-    uint8_t  *sheet;        /* RGBA8, freed after GPU registration */
+    uint8_t  *sheet;        /* RGBA8 — KEPT after registration so the
+                             * single UI slot can swap hub<->page sheets
+                             * on navigation (the engine's transient
+                             * per-page texture re-stream, s27) */
     uint32_t  sheet_w, sheet_h;
-} s_ui;
+} UiSheet;
 
-static void ui_parse(void)
+static UiSheet s_ui;                 /* hub decor (assets/ui.emui) */
+static UiSheet s_page_ui[4];         /* pages 0-3 (assets/ui_pageN.emui) */
+
+/* Which sheet the EM_GFX_OVERLAY_TEX_UI slot currently holds:
+ * -2 = none yet, -1 = hub decor, 0..3 = that page's sheet. */
+#define SLOT_NONE (-2)
+#define SLOT_HUB  (-1)
+static int s_slot_owner = SLOT_NONE;
+
+/* Parse one .emui file (same v1 format for the hub and page sheets). */
+static void emui_parse(UiSheet *ui, const char *path, uint32_t max_dim)
 {
-    if (s_ui.state) return;
-    s_ui.state = -1;                         /* sticky failure default */
-    FILE *f = fopen("assets/ui.emui", "rb");
+    if (ui->state) return;
+    ui->state = -1;                          /* sticky failure default */
+    FILE *f = fopen(path, "rb");
     if (!f) return;                          /* missing = no decor pass */
     uint8_t hdr[20];
     if (fread(hdr, 1, 20, f) != 20 || memcmp(hdr, "EMUI", 4) != 0 ||
         font_u32(hdr + 4) != 1) {
-        fprintf(stderr, "hud: assets/ui.emui: bad header\n");
+        fprintf(stderr, "hud: %s: bad header\n", path);
         fclose(f);
         return;
     }
-    s_ui.sheet_w      = font_u32(hdr + 8);
-    s_ui.sheet_h      = font_u32(hdr + 12);
-    s_ui.sprite_count = font_u32(hdr + 16);
-    if (!s_ui.sheet_w || !s_ui.sheet_h || !s_ui.sprite_count ||
-        s_ui.sheet_w > 4096 || s_ui.sheet_h > 4096 ||
-        s_ui.sprite_count > 256) {
-        fprintf(stderr, "hud: assets/ui.emui: implausible sizes\n");
+    ui->sheet_w      = font_u32(hdr + 8);
+    ui->sheet_h      = font_u32(hdr + 12);
+    ui->sprite_count = font_u32(hdr + 16);
+    if (!ui->sheet_w || !ui->sheet_h || !ui->sprite_count ||
+        ui->sheet_w > max_dim || ui->sheet_h > max_dim ||
+        ui->sprite_count > 256) {
+        fprintf(stderr, "hud: %s: implausible sizes\n", path);
         fclose(f);
         return;
     }
-    size_t   rec_bytes   = (size_t)s_ui.sprite_count * 16;
-    size_t   sheet_bytes = (size_t)s_ui.sheet_w * s_ui.sheet_h * 4;
+    size_t   rec_bytes   = (size_t)ui->sprite_count * 16;
+    size_t   sheet_bytes = (size_t)ui->sheet_w * ui->sheet_h * 4;
     uint8_t *rraw = (uint8_t *)malloc(rec_bytes);
-    s_ui.sprites = (UiSprite *)calloc(s_ui.sprite_count, sizeof(UiSprite));
-    s_ui.sheet   = (uint8_t *)malloc(sheet_bytes);
-    int ok = rraw && s_ui.sprites && s_ui.sheet &&
+    ui->sprites = (UiSprite *)calloc(ui->sprite_count, sizeof(UiSprite));
+    ui->sheet   = (uint8_t *)malloc(sheet_bytes);
+    int ok = rraw && ui->sprites && ui->sheet &&
              fread(rraw, 1, rec_bytes, f) == rec_bytes &&
-             fread(s_ui.sheet, 1, sheet_bytes, f) == sheet_bytes;
+             fread(ui->sheet, 1, sheet_bytes, f) == sheet_bytes;
     fclose(f);
     if (ok) {
-        for (uint32_t i = 0; i < s_ui.sprite_count; i++) {
+        for (uint32_t i = 0; i < ui->sprite_count; i++) {
             const uint8_t *p = rraw + (size_t)i * 16;
-            UiSprite      *s = &s_ui.sprites[i];
+            UiSprite      *s = &ui->sprites[i];
             s->u  = (uint16_t)(p[0]  | p[1]  << 8);
             s->v  = (uint16_t)(p[2]  | p[3]  << 8);
             s->w  = (uint16_t)(p[4]  | p[5]  << 8);
@@ -330,41 +358,56 @@ static void ui_parse(void)
             s->y  = (int16_t)(p[10]  | p[11] << 8);
             s->dw = (uint16_t)(p[12] | p[13] << 8);
             s->dh = (uint16_t)(p[14] | p[15] << 8);
-            if ((uint32_t)s->u + s->w > s_ui.sheet_w ||
-                (uint32_t)s->v + s->h > s_ui.sheet_h)
+            if ((uint32_t)s->u + s->w > ui->sheet_w ||
+                (uint32_t)s->v + s->h > ui->sheet_h)
                 ok = 0;
         }
     }
     if (ok) {
-        s_ui.state = 1;
-        fprintf(stderr, "hud: ui sheet %ux%u, %u decor sprites\n",
-                s_ui.sheet_w, s_ui.sheet_h, s_ui.sprite_count);
+        ui->state = 1;
+        fprintf(stderr, "hud: %s: sheet %ux%u, %u sprites\n",
+                path, ui->sheet_w, ui->sheet_h, ui->sprite_count);
     } else if (rraw) {
-        fprintf(stderr, "hud: assets/ui.emui: truncated/inconsistent\n");
+        fprintf(stderr, "hud: %s: truncated/inconsistent\n", path);
     }
     free(rraw);
-    if (s_ui.state != 1) {
-        free(s_ui.sprites); s_ui.sprites = NULL;
-        free(s_ui.sheet);   s_ui.sheet   = NULL;
+    if (ui->state != 1) {
+        free(ui->sprites); ui->sprites = NULL;
+        free(ui->sheet);   ui->sheet   = NULL;
     }
 }
 
-/* Parse the asset and (once a gfx exists) register the sheet in the UI
- * texture slot. Returns 1 when the decor pass can draw. */
+/* Make `owner`'s sheet the resident UI-slot texture (re-registering on
+ * hub<->page transitions, the port's version of the engine's per-page
+ * texture re-stream). Returns the parsed sheet, or NULL if its asset is
+ * unavailable / the slot could not be (re)registered. */
+static UiSheet *slot_ensure(EmGfx *gfx, int owner)
+{
+    UiSheet *ui;
+    if (owner == SLOT_HUB) {
+        ui = &s_ui;
+        emui_parse(ui, "assets/ui.emui", 4096);
+    } else {
+        char path[64];
+        ui = &s_page_ui[owner];
+        snprintf(path, sizeof path, "assets/ui_page%d.emui", owner);
+        emui_parse(ui, path, 4096);
+    }
+    if (ui->state != 1) return NULL;
+    if (s_slot_owner != owner) {
+        if (!gfx || !em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI,
+                                                ui->sheet,
+                                                ui->sheet_w, ui->sheet_h))
+            return NULL;
+        s_slot_owner = owner;
+    }
+    return ui;
+}
+
+/* Hub decor availability (compat wrapper for the hub pass). */
 static int ui_ensure(EmGfx *gfx)
 {
-    ui_parse();
-    if (s_ui.state != 1) return 0;
-    if (!s_ui.registered) {
-        if (!gfx || !em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI,
-                                                s_ui.sheet,
-                                                s_ui.sheet_w, s_ui.sheet_h))
-            return 0;
-        s_ui.registered = 1;
-        free(s_ui.sheet);            /* GPU owns a copy now */
-        s_ui.sheet = NULL;
-    }
-    return 1;
+    return slot_ensure(gfx, SLOT_HUB) != NULL;
 }
 
 /* Style table — font face + glyph cell + engine style color (8-byte
@@ -491,6 +534,73 @@ static int decimal_digits(int v)
  * open the same screen — verified identical memory diff, FINDINGS). */
 static int s_shown = 0;
 
+/* --- page navigation (FINDINGS "STATUS SUB-PAGES", session 31) --------
+ *
+ * Hub hover = left stick (engine func_0020D930 mode 0): deflection
+ * > 0.8, quadrant -> ctx +0x11: 1 down, 2 right, 3 up, 4 left; releases
+ * back to 0 (hover, not latch). The hovered marker's rings swap blue ->
+ * green. X (engine internal bit 0x40) enters the hovered page through
+ * the controller's REMAP at func_0020CDC0 .L0020D294:
+ *
+ *     hover 1 (down)  -> page 3  DATABASE SCREEN  (chunk 0x24)
+ *     hover 2 (right) -> page 2  SPR4 SCREEN      (chunk 0x2C)
+ *     hover 3 (up)    -> page 1  MAP SCREEN       (chunk 0x1E)
+ *     hover 4 (left)  -> page 0  ITEM SCREEN      (chunk 0x1F)
+ *
+ * X with NO hover buzzes (func_0020CD80) and enters nothing. Inside a
+ * page, Circle (0x20) returns to the hub (page views' exit path,
+ * +0x10 <- 0x63); at the hub, Triangle/Start/Circle (mask 0x830)
+ * closes the screen. The port adds Triangle as a page->hub back too
+ * (the engine's per-page Triangle behavior is page-specific and not
+ * fully decoded; flagged). Pages 4/5 (passcode keypads, chunks
+ * 0x25/0x26) are NOT diamond-reachable — only the external request
+ * byte D_008106C5 enters them — so the port's nav covers pages 0-3. */
+static int s_hover = 0;     /* 0 none, 1 down, 2 right, 3 up, 4 left */
+static int s_page  = -1;    /* -1 = hub, 0..3 = entered page */
+
+static const int kHoverToPage[5] = { -1, 3, 2, 1, 0 };
+
+static const char *kPageNames[4] = {
+    "ITEM SCREEN", "MAP SCREEN", "SPR4 SCREEN", "DATABASE SCREEN"
+};
+
+/* EM_HUD_FORCE=1 — force the status screen visible (checked once; test
+ * hook for headless overlay captures, see em_hud.h). */
+static int hud_forced(void)
+{
+    static int force = -1;
+    if (force < 0) {
+        const char *e = getenv("EM_HUD_FORCE");
+        force = (e && e[0] == '1') ? 1 : 0;
+    }
+    return force;
+}
+
+/* EM_HUD_PAGE=<0..3> — start with that page entered (test hook for
+ * page-view captures; meaningful together with EM_HUD_FORCE=1). */
+static int hud_forced_page(void)
+{
+    static int page = -2;
+    if (page == -2) {
+        const char *e = getenv("EM_HUD_PAGE");
+        page = (e && e[0] >= '0' && e[0] <= '3' && !e[1]) ? e[0] - '0'
+                                                          : -1;
+    }
+    return page;
+}
+
+/* EM_HUD_HOVER=<1..4> — hold that pager hover at the hub (test hook for
+ * the green hovered-marker state; meaningful with EM_HUD_FORCE=1). */
+static int hud_forced_hover(void)
+{
+    static int hov = -1;
+    if (hov < 0) {
+        const char *e = getenv("EM_HUD_HOVER");
+        hov = (e && e[0] >= '1' && e[0] <= '4' && !e[1]) ? e[0] - '0' : 0;
+    }
+    return hov;
+}
+
 /* Display copies of health/infection (the engine's 0x810858/0x81085C):
  * step +-1 per frame toward the player-actor targets — the screen's
  * count-up animation. Sentinel < 0 = snap to target on first sight. */
@@ -503,20 +613,61 @@ static uint32_t s_frames = 0;
 
 void em_hud_update(const EmFrameInput *in)
 {
-    if (in && (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)))
-        s_shown = !s_shown;
-}
-
-/* EM_HUD_FORCE=1 — force the status screen visible (checked once; test
- * hook for headless overlay captures, see em_hud.h). */
-static int hud_forced(void)
-{
-    static int force = -1;
-    if (force < 0) {
-        const char *e = getenv("EM_HUD_FORCE");
-        force = (e && e[0] == '1') ? 1 : 0;
+    /* One-time nav init for forced captures: EM_HUD_FORCE bypasses the
+     * open edge, so apply EM_HUD_PAGE here. */
+    static int nav_init = 0;
+    if (!nav_init) {
+        nav_init = 1;
+        if (hud_forced()) s_page = hud_forced_page();
     }
-    return force;
+
+    if (!in) return;
+
+    if (!em_hud_visible()) {
+        /* Closed: Triangle or Start opens the screen at the hub. */
+        if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)) {
+            s_shown = 1;
+            s_hover = 0;
+            s_page  = hud_forced_page();   /* -1 unless EM_HUD_PAGE */
+        }
+        return;
+    }
+
+    if (s_page >= 0) {
+        /* Page view: Circle (engine exit path) or Triangle returns to
+         * the hub; page content input is not modeled yet. */
+        if (in->pressed & (EM_PAD_CIRCLE | EM_PAD_TRIANGLE))
+            s_page = -1;
+        return;
+    }
+
+    /* Hub: Triangle/Start/Circle (engine edge mask 0x830) closes. */
+    if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START | EM_PAD_CIRCLE)) {
+        s_shown = 0;
+        s_hover = 0;
+        return;
+    }
+
+    /* Stick hover among the pager diamonds (engine func_0020D930
+     * mode 0: deflection > 0.8, atan2 quadrant; raw bytes are
+     * 0x80-centered, 0x00 = left/up). */
+    {
+        float dx = ((float)in->lx - 128.0f) / 128.0f;
+        float dy = ((float)in->ly - 128.0f) / 128.0f;
+        if (dx * dx + dy * dy > 0.8f * 0.8f) {
+            if (dx >  0.0f && dx >=  dy && dx >= -dy)      s_hover = 2;
+            else if (dx < 0.0f && -dx >= dy && -dx >= -dy) s_hover = 4;
+            else if (dy > 0.0f)                            s_hover = 1;
+            else                                           s_hover = 3;
+        } else {
+            s_hover = hud_forced_hover();   /* 0 unless EM_HUD_HOVER */
+        }
+    }
+
+    /* X enters the hovered page (no hover = the engine buzzes and
+     * enters nothing). */
+    if ((in->pressed & EM_PAD_CROSS) && s_hover > 0)
+        s_page = kHoverToPage[s_hover];
 }
 
 int em_hud_visible(void)
@@ -727,23 +878,26 @@ static void decor(EmGfx *gfx)
     if (!s_decor_active) return;
 
     /* Page-selector diamond around (432,320): markers bottom/right/top/
-     * left, each = white fading disc r0-16 + two blue gradient rings
-     * (idle state; hover swaps a marker to green — page navigation is
-     * not modeled yet). */
+     * left (= stick hover ids 1/2/3/4), each = white fading disc r0-16
+     * + two gradient rings — blue idle, GREEN while stick-hovered (the
+     * engine's live hover state, FINDINGS item 2). */
     static const float kMarker[4][2] = {
-        { 432.0f, 376.0f },   /* page 1 (bottom) */
-        { 476.0f, 320.0f },   /* page 2 (right)  */
-        { 432.0f, 264.0f },   /* page 3 (top)    */
-        { 388.0f, 320.0f },   /* page 4 (left)   */
+        { 432.0f, 376.0f },   /* hover 1 (bottom) -> DATABASE */
+        { 476.0f, 320.0f },   /* hover 2 (right)  -> SPR4     */
+        { 432.0f, 264.0f },   /* hover 3 (top)    -> MAP      */
+        { 388.0f, 320.0f },   /* hover 4 (left)   -> ITEM     */
     };
     for (int i = 0; i < 4; i++) {
-        const float cx = kMarker[i][0], cy = kMarker[i][1];
+        const float  cx = kMarker[i][0], cy = kMarker[i][1];
+        const int    hov = (s_hover == i + 1);
+        const float *rin  = hov ? kRingHovIn  : kRingIn;
+        const float *rout = hov ? kRingHovOut : kRingOut;
         em_gfx_overlay_arc4(gfx, cx, cy,  0.0f, 16.0f, 0.0f, 360.0f,
                             kDiscWhite, kDiscFade, kDiscWhite, kDiscFade);
         em_gfx_overlay_arc4(gfx, cx, cy, 10.0f, 12.0f, 0.0f, 360.0f,
-                            kRingIn, kRingOut, kRingIn, kRingOut);
+                            rin, rout, rin, rout);
         em_gfx_overlay_arc4(gfx, cx, cy, 14.0f, 16.0f, 0.0f, 360.0f,
-                            kRingIn, kRingOut, kRingIn, kRingOut);
+                            rin, rout, rin, rout);
     }
 
     /* Textured decor sprites — every .emui record carries its sheet UVs
@@ -776,6 +930,53 @@ static void decor(EmGfx *gfx)
     }
 }
 
+/* PAGE VIEW (skeleton) — the entered sub-screen. Draws the page's
+ * exported background/decor records (assets/ui_pageN.emui, produced by
+ * the decomp repo's tools/export_ui.py --page N from the user's own
+ * extract/ chunks) at their recorded anchors; records exported
+ * sheet-only (x = -32768, no statically known canvas position) are
+ * skipped. Pages without an asset — and page content itself — render
+ * as a clearly flagged placeholder: the dark panel fill and the amber
+ * CONTENT TBD strip are deliberate non-authentic markers, not guesses
+ * at the real layout. */
+static void page_render(EmGfx *gfx, int page)
+{
+    UiSheet *ui = slot_ensure(gfx, page);
+
+    if (ui) {
+        for (uint32_t i = 0; i < ui->sprite_count; i++) {
+            const UiSprite *s = &ui->sprites[i];
+            if (s->x == -32768) continue;        /* sheet-only record */
+            em_gfx_overlay_sprite(gfx, (float)s->x, (float)s->y,
+                                  (float)s->dw, (float)s->dh,
+                                  (float)s->u, (float)s->v,
+                                  (float)(s->u + s->w),
+                                  (float)(s->v + s->h), kSpriteWhite);
+        }
+    } else {
+        /* No asset: flagged placeholder fill + title-area block. */
+        em_gfx_overlay_rect(gfx, 8.0f, 8.0f, 496.0f, 432.0f, kPagePanel);
+        text_placeholder(gfx, 8.0f, 0.0f, 8, 16.0f, 64.0f / 4.0f,
+                         kTextWhite);
+    }
+
+    /* CONTENT TBD flag — page interiors (lists, map cursor, weapon
+     * customization, database records) are not modeled yet. */
+    {
+        const float strip[4] = { kTbdAmber[0], kTbdAmber[1], kTbdAmber[2],
+                                 0.25f };
+        em_gfx_overlay_rect(gfx, 128.0f, 392.0f, 256.0f, 24.0f, strip);
+        if (em_hud_font_ready()) {
+            char label[48];
+            snprintf(label, sizeof label, "%s - CONTENT TBD",
+                     kPageNames[page]);
+            float w = em_hud_text_width(label, EM_HUD_TEXT_TALL);
+            em_hud_text(gfx, 256.0f - w * 0.5f, 394.0f, label,
+                        EM_HUD_TEXT_TALL);
+        }
+    }
+}
+
 void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
 {
     /* Hidden (the default): queue NOTHING — the frame is byte-identical
@@ -790,6 +991,16 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
     /* Scene dim — STAND-IN for the engine's UI-camera swap (see top). */
     em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_STATUS_W,
                         EM_GFX_STATUS_H, kSceneDim);
+
+    /* Entered page (stick hover + X on the hub diamond): the page view
+     * replaces the hub composition entirely, exactly like the engine's
+     * controller state 3. */
+    if (s_page >= 0) {
+        page_render(gfx, s_page);
+        s_frames++;
+        em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+        return;
+    }
 
     /* Decor: title art, button legend, page icons, pager diamond,
      * profile block — only with assets/ui.emui (see decor above). */
