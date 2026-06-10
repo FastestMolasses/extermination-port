@@ -35,7 +35,12 @@
  *             assets/gibs/ — see "GIB LAYER" below) with exactly that
  *             knockback shape; the contact/suicide burst (mailbox
  *             empty, engine takes the no-knockback arm) and the
- *             missing-assets case keep the old sink placeholder.
+ *             missing-assets case keep the corpse placeholder: the
+ *             frozen pose now ALPHA-FADES out in place (white tint,
+ *             1 -> 0 over ENEMY_FADE_FRAMES through
+ *             em_gfx_draw_skinned_tinted — the engine fades dead
+ *             actors by walking the actor alpha down before freeing;
+ *             replaces the old sink-below-the-floor stand-in).
  *   3 FREE    slot inactive.
  *
  * ANIMATION LAYER (FINDINGS "CRAWLER RESOLVED" section 4 — the leech
@@ -54,8 +59,7 @@
  *                the lunge clip is playing when the radius-6 suicide
  *                burst lands (trigger range is port-tuned, flagged)
  *   DEATH        no clip exists (engine rebinds gib MODELS instead) —
- *                fast sink placeholder, anim frozen (flagged; a fade
- *                needs renderer per-draw alpha we don't have yet)
+ *                frozen pose alpha-fades out (the per-draw tint path)
  *
  * Clip transitions crossfade over 0.15 s with the same linear palette
  * blend as the player path (em_game.c ANIM_BLEND_TIME — PROGRESS.md:
@@ -80,9 +84,12 @@
  *                separate;
  *   vertical   = launch pop + the engine's 0.052/tick gravity;
  *   landing    = the same floor query as the hop, then rest;
- *   exit       = no per-draw alpha in the renderer yet, so instead of
- *                a fade each gib SINKS after ~3 s (180 ticks), like
- *                the corpse placeholder, and frees.
+ *   exit       = after the ~3 s rest (180 ticks) the gib ALPHA-FADES
+ *                in place over GIB_FADE_FRAMES (white tint, alpha
+ *                1 -> 0 via em_gfx_draw_skinned_tinted — translucent
+ *                draws disable the depth write, so a fading gib never
+ *                occludes the scene) and frees. Same total lifetime
+ *                as the old sink-despawn it replaces (180 + 30).
  *
  * Speeds/spin/jitter are port constants (flagged below); the RNG is a
  * tiny deterministic LCG so test runs and captures reproduce. Gib
@@ -111,7 +118,7 @@
  *             CRATE_TRIGGER_R ~10 u (flagged port stand-in for the
  *             engine's state-4 wake) -> 2. The group alarm is IGNORED
  *             (port: the disguise holds until its own trigger).
- *   2 BURST   free the slot (no sink: the husk replaces it visually),
+ *   2 BURST   free the slot (no fade: the husk replaces it visually),
  *             spawn the WORM at the crate position through the normal
  *             spawn path (emerge clip 1; yaw toward the player — the
  *             engine's leech init yaw), then launch the husk gibs with
@@ -186,13 +193,15 @@
  * draw skip — the machine still runs), through the same virtual-slot
  * chain contract as the gibs. The field deals NO damage (the pad's
  * mailbox hit covers mode 1), has no HP/mailbox, and is excluded from
- * acquire/ray_test/alive exactly like its parent. Flagged port
- * simplifications: the module LCG stands in for the engine frame RNG
- * (scatter/phase/girth/kicks); the room-tint -> green RGB blend and
- * the ramp alpha fade-in are skipped (no per-draw color/alpha in the
- * renderer — the FINDINGS port contract flags this as acceptable);
- * sound 0x42D is UNMAPPED in the generated sfx.txt (soundmap pins it
- * to sfx/snd_0615.wav — noted in the registry, silent until mapped).
+ * acquire/ray_test/alive exactly like its parent. The engine's render
+ * tail TINT now applies (em_gfx_draw_skinned_tinted through the chain
+ * tint contract): RGB blends the room tint toward the vivid
+ * (6,92,1)/128 green as the parent pad's open phase rises, alpha =
+ * ramp/300 (the deploy fade-in/out) — see TF_TINT_* below for the
+ * room-tint TODO. Flagged port simplifications: the module LCG stands
+ * in for the engine frame RNG (scatter/phase/girth/kicks); sound
+ * 0x42D is UNMAPPED in the generated sfx.txt (soundmap pins it to
+ * sfx/snd_0615.wav — noted in the registry, silent until mapped).
  *
  * EM_ENEMY_TEST=5 (tendril run — owned here like test 4; em_game.c
  * arms only 1..3): frame 0 places a link-1 pad (kind 1, the 30x30
@@ -287,8 +296,11 @@
 #define ENEMY_WINDUP_RANGE 20.0f  /* start the windup anim here so the
                                    * 45-f windup ends near the radius-6
                                    * contact at the ~19 u/s hop pace      */
-#define ENEMY_SINK_FRAMES  20     /* DEATH placeholder: sink duration     */
-#define ENEMY_SINK_DEPTH   5.0f   /* DEATH placeholder: sink distance     */
+#define ENEMY_FADE_FRAMES  30     /* DEATH placeholder: corpse alpha fade
+                                   * 1 -> 0 (em_gfx_draw_skinned_tinted —
+                                   * replaces the old sink-below-the-floor
+                                   * stand-in from the no-per-draw-alpha
+                                   * era)                                 */
 
 /* --- Gib layer (see "GIB LAYER" in the file header) --------------------
  * Engine values: the rotation choice set and gravity. Everything else is
@@ -303,17 +315,17 @@
 #define GIB_VY           0.45f    /* PORT: vertical pop (0.052 gravity)   */
 #define GIB_SPIN_MAX     0.25f    /* PORT: yaw tumble, rad/frame          */
 #define GIB_LAUNCH_LIFT  1.5f     /* PORT: spawn height above the feet    */
-#define GIB_REST_FRAMES  180      /* ~3 s total before the sink (the
-                                   * documented no-alpha fade stand-in)   */
-#define GIB_SINK_FRAMES  30
-#define GIB_SINK_DEPTH   3.0f
+#define GIB_REST_FRAMES  180      /* ~3 s rest on the floor               */
+#define GIB_FADE_FRAMES  30       /* then alpha 1 -> 0 over the last 30
+                                   * frames (white tint, translucent
+                                   * depth-write-off draw) and free       */
 
 /* The exported burst set this module launches (decomp repo
  * tools/export_props.py --gibs; library entry in the name). Order
  * matters: the half-size husk B (0x28, the documented rebind target
  * closest to the worm's scale) first, then the texture-paired chunks/
  * shards round-robin. Missing files just shrink the pool; an empty
- * pool falls back to the sink placeholder (no regression). */
+ * pool falls back to the corpse-fade placeholder (no regression). */
 static const char *const GIB_FILES[GIB_MODEL_MAX] = {
     "assets/gibs/gib_28.emdl",    /* husk B, half size (7x7x4)  */
     "assets/gibs/gib_26.emdl",    /* chunk 1 (husk-B skin)      */
@@ -420,6 +432,27 @@ static const float TF_HOLD_R2[2]   = { 4.0f, 16.0f }; /* hold dist^2:
  * (0.70 / 0.85 / 1.00 / 1.50), random start row, then sequential. */
 static const int16_t TF_GIRTH[4] = { 0xB4, 0xDA, 0xFF, 0x180 };
 
+/* Render-tail TINT (the engine's every-tick RGB blend, FINDINGS
+ * "KIND-0xE COMPANION RESOLVED"):
+ *
+ *   rgb = (BASE + (1 - ph) * (ROOM - BASE)) / 128,  ph = parent +0x80
+ *
+ * BASE = the vivid green (6, 92, 1) the field reaches at full pad
+ * open; ROOM = this room's rec from the engine's 22-rec room-tint
+ * table D_00246800 (key = AREA<<8|ROOM, u8 c0..c3).
+ * TODO(room-tint): D_00246800 is UNDECODED port-side — decode the
+ * table in the decomp repo and key it per scene. Until then the port
+ * uses the NEUTRAL rec (128, 128, 128): the office AREA02 rows are
+ * (128,128,128,2)/(128,102,122,2), so neutral white is the right rest
+ * blend for the captured scene (spikes sit room-colored while the pad
+ * is closed and turn green as it opens).
+ * ALPHA = ramp/300 — the deploy fade-in/out tied to the ramp (engine:
+ * roomC.w/128 reached over the first 16 ramp units; the ramp/cap form
+ * keeps the fade on the same deploy timeline without the undecoded
+ * room alpha target — flagged with the TODO above). */
+static const float TF_TINT_BASE[3] = {   6.0f, 92.0f,   1.0f };
+static const float TF_TINT_ROOM[3] = { 128.0f, 128.0f, 128.0f };
+
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
 #define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
@@ -460,8 +493,11 @@ typedef struct {
                            * player-path crossfade blends two LIVE clips)*/
     float   ablend;       /* crossfade weight of acur, 0..1              */
     float   speed;        /* actual XZ ground speed this tick, u/s       */
-    int     sink;         /* DEATH placeholder: sink frames left (draws
-                           * while > 0 even though the slot is inactive) */
+    int     fade;         /* DEATH placeholder: corpse-fade frames left
+                           * (draws while > 0 even though the slot is
+                           * inactive; tint alpha = fade/30)             */
+    float   tint[4];      /* per-draw RGBA for the corpse fade (white,
+                           * alpha walks 1 -> 0) — em_enemy_draw_tint    */
 
     /* lethal-hit record (engine: +0x36 nonzero + the +0x70 hit-source
      * position decide the knockback arm; port: the gib launch) */
@@ -489,7 +525,9 @@ typedef struct {
     float yaw, spin;      /* tumble (PORT visual)                        */
     float y0;             /* launch height = floor fallback (same rule
                            * as the hop's hop_y0)                        */
-    int   age;            /* ticks since launch -> rest -> sink -> free  */
+    int   age;            /* ticks since launch -> rest -> fade -> free  */
+    float tint[4];        /* per-draw RGBA: white, alpha 1 while live /
+                           * resting, 1 -> 0 over the fade window        */
     float palette[GIB_BONE_MAX * 16];
 } Gib;
 
@@ -537,6 +575,10 @@ typedef struct {
     int     timer;        /* +0x28 deploy/retract countdown              */
     int     pad;          /* parent generator index (the +0x20 link)     */
     float   anchor[3];    /* scratch +0x10: (player X, pad Y, player Z)  */
+    float   tint[4];      /* actor RGB mult +0x80..8C: room tint ->
+                           * green by the parent open phase, alpha =
+                           * ramp/300 (shared by the 12 spikes — the
+                           * ramps move in lockstep)                     */
     TfSpike sp[TF_SPIKES];
     float   pal[TF_SPIKES][TF_BONE_MAX * 16];
 } Tendril;
@@ -583,7 +625,7 @@ static struct {
     /* gib layer (visual only; see the file header) */
     int        gib_tried;
     GibModel   gibm[GIB_MODEL_MAX];
-    int        gibm_n;       /* loaded burst-set models (0 = sink only)  */
+    int        gibm_n;       /* loaded burst-set models (0 = fade only)  */
     Gib        gib[ENEMY_SLOT_MAX];
     int        gib_tail;     /* virtual draw slots in use (compact top)  */
     int        gib_next;     /* round-robin model cursor                 */
@@ -871,7 +913,7 @@ static int crate_mesh_get(EmGfx *gfx)
 
 /* Load the burst set once (first crawler spawn — the only entry point
  * with a gfx handle; em_enemy_update can't create GPU meshes). Missing
- * files shrink the pool silently; an empty pool = sink fallback. */
+ * files shrink the pool silently; an empty pool = fade fallback. */
 static void gib_models_load(EmGfx *gfx)
 {
     if (s.gib_tried) return;
@@ -906,7 +948,7 @@ static void gib_models_load(EmGfx *gfx)
                s.gibm_n, GIB_MODEL_MAX);
     else
         printf("enemy gibs: none of assets/gibs/ present — death keeps "
-               "the sink placeholder (export with the decomp repo's "
+               "the corpse-fade placeholder (export with the decomp repo's "
                "tools/export_props.py --gibs)\n");
 }
 
@@ -1167,7 +1209,7 @@ static void enemy_anim_update(Enemy *e, float dist)
         }
         break;
 
-    default:                    /* DEATH/FREE: pose frozen (sink only) */
+    default:                    /* DEATH/FREE: pose frozen (fade only) */
         return;
     }
 
@@ -1192,10 +1234,11 @@ static void enemy_anim_update(Enemy *e, float dist)
  * shared because exporting it would touch em_game.h, which this module
  * doesn't own. Fold all three into a common helper when one moves.
  *
- * DEATH placeholder (flagged): a despawned-but-sinking slot draws its
- * frozen last pose translated down by the sink progress — there is no
- * death clip in the bank (the engine REBINDS gib models instead), and
- * a fade would need per-draw alpha the renderer doesn't expose yet. */
+ * DEATH placeholder (flagged): a despawned-but-fading slot keeps its
+ * frozen last pose — there is no death clip in the bank (the engine
+ * REBINDS gib models instead); the exit is the per-draw alpha fade
+ * (Enemy.tint via em_enemy_draw_tint), not a pose change, so the
+ * palette is not rebuilt while the corpse fades. */
 static void enemy_build_palette(Enemy *e)
 {
     float yaw = e->yaw;
@@ -1243,10 +1286,6 @@ static void enemy_build_palette(Enemy *e)
         memcpy(e->palette, s.base, s.bone_count * 16 * sizeof(float));
     }
 
-    if (!e->active && e->sink > 0)
-        y -= ENEMY_SINK_DEPTH *
-             (1.0f - (float)e->sink / (float)ENEMY_SINK_FRAMES);
-
     for (uint32_t b = 0; b < bones; b++) {
         float *m = e->palette + b * 16;
         for (int col = 0; col < 4; col++) {
@@ -1290,7 +1329,7 @@ static void gib_build_palette(Gib *g)
  * documented knockback shape (file header). Budgeted so the virtual
  * draw slots never push the crawler+gib total past ENEMY_SLOT_MAX (the
  * original budget; EM_ENEMY_MAX is now the chain reservation). Returns
- * the number launched (0 = caller keeps the sink placeholder). */
+ * the number launched (0 = caller keeps the corpse-fade placeholder). */
 static int gib_burst(const Enemy *e)
 {
     if (s.gibm_n == 0) return 0;
@@ -1326,6 +1365,9 @@ static int gib_burst(const Enemy *e)
         g->spin   = ((float)(gib_rng() % 2001) / 1000.0f - 1.0f)
                     * GIB_SPIN_MAX;
         g->y0     = e->pos[1];
+        /* white tint, opaque — alpha 1.0 takes the renderer's exact
+         * untinted path until the exit fade walks it down */
+        g->tint[0] = g->tint[1] = g->tint[2] = g->tint[3] = 1.0f;
         gib_build_palette(g);
         if (k >= s.gib_tail) s.gib_tail = k + 1;
         spawned++;
@@ -1334,7 +1376,8 @@ static int gib_burst(const Enemy *e)
 }
 
 /* Per-tick gib integration: arc under the 0.052 gravity, land on the
- * floor query, rest, then sink and free (file header timings). */
+ * floor query, rest, then alpha-fade out and free (file header
+ * timings; the fade replaces the old sink-despawn — same lifetime). */
 static void gib_update(const EmCollision *coll)
 {
     int tail = 0;
@@ -1354,9 +1397,11 @@ static void gib_update(const EmCollision *coll)
                 g->vel[0] = g->vel[1] = g->vel[2] = 0.0f;
                 g->spin   = 0.0f;
             }
-        } else if (g->age > GIB_REST_FRAMES) {           /* sink + free */
-            g->pos[1] -= GIB_SINK_DEPTH / (float)GIB_SINK_FRAMES;
-            if (g->age > GIB_REST_FRAMES + GIB_SINK_FRAMES) {
+        } else if (g->age > GIB_REST_FRAMES) {           /* fade + free */
+            g->tint[3] = (float)(GIB_REST_FRAMES + GIB_FADE_FRAMES
+                                 - g->age) / (float)GIB_FADE_FRAMES;
+            if (g->tint[3] < 0.0f) g->tint[3] = 0.0f;
+            if (g->age > GIB_REST_FRAMES + GIB_FADE_FRAMES) {
                 g->active = 0;
                 continue;
             }
@@ -1585,15 +1630,28 @@ static void tf_pal_build(Tendril *t, int i)
 
 /* Render-tail bob integrator (func_00154F00, s16 arithmetic kept):
  * runs once per tick while sub != 0, exactly the engine cadence (the
- * brain tail submits the 12 draws each tick). The engine's room-tint
- * -> green RGB blend (base (6,92,1) vs the parent open phase) and the
- * ramp-0..16 alpha fade-in are SKIPPED — no per-draw color/alpha in
- * the renderer yet; the FINDINGS port contract flags this
- * simplification as acceptable. */
+ * brain tail submits the 12 draws each tick). Also rebuilds the
+ * field's per-draw TINT — the engine's every-tick RGB blend from the
+ * room tint toward green by the parent open phase, plus the ramp
+ * alpha (TF_TINT_* above; rides the chain via em_enemy_draw_tint into
+ * em_gfx_draw_skinned_tinted). */
 static void tf_animate(Tendril *t)
 {
     const Gen *g    = &s.gen[t->pad];
     int        open = g->phase > 0.5f;  /* parent +0x80 breather phase */
+
+    {
+        float ph = g->phase;            /* 0 closed .. 1 fully open    */
+        if (ph < 0.0f) ph = 0.0f;
+        if (ph > 1.0f) ph = 1.0f;
+        for (int c = 0; c < 3; c++)
+            t->tint[c] = (TF_TINT_BASE[c] +
+                          (1.0f - ph) *
+                          (TF_TINT_ROOM[c] - TF_TINT_BASE[c])) / 128.0f;
+        /* ramps move in lockstep (deploy/retract walk all 12), so
+         * record 0 carries the shared alpha */
+        t->tint[3] = (float)t->sp[0].ramp / (float)TF_RAMP_CAP;
+    }
 
     for (int i = 0; i < TF_SPIKES; i++) {
         TfSpike *sp = &t->sp[i];
@@ -2093,14 +2151,14 @@ static void tt_script(void)
  * yaw toward the player — the engine's leech init yaw, func_00154040's
  * atan2 at (D_00810350, D_00810358)), then scatter the husk gibs with
  * the shared launcher. Worm first: gib_burst budgets its virtual draw
- * slots against the LIVE instance count. The crate never sinks — the
+ * slots against the LIVE instance count. The crate never fades — the
  * husk gibs replace it visually (no gibs loaded = it just vanishes,
  * matching the immediate gameplay despawn). */
 static void crate_burst(Enemy *e, const float pp[3])
 {
     e->state  = EM_ENEMY_FREE;
     e->active = 0;
-    e->sink   = 0;
+    e->fade   = 0;
 
     float dx = pp[0] - e->pos[0];
     float dz = pp[2] - e->pos[2];
@@ -2257,11 +2315,13 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
          * burst (the engine's damage-kill knockback arm — see "GIB
          * LAYER"); the contact/suicide burst (mailbox empty: the
          * engine's no-knockback arm) and a missing assets/gibs/ keep
-         * the old sink placeholder. */
+         * the corpse placeholder — the frozen pose alpha-fades out
+         * (white tint; the update loop walks the alpha down). */
         e->state  = EM_ENEMY_FREE;
         e->active = 0;
-        e->sink   = (e->hit_lethal && gib_burst(e) > 0)
-                    ? 0 : ENEMY_SINK_FRAMES;
+        e->fade   = (e->hit_lethal && gib_burst(e) > 0)
+                    ? 0 : ENEMY_FADE_FRAMES;
+        e->tint[0] = e->tint[1] = e->tint[2] = e->tint[3] = 1.0f;
         break;
 
     default:
@@ -2322,11 +2382,12 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
     for (int i = 0; i < s.n; i++) {
         Enemy *e = &s.e[i];
         if (!e->active) {
-            /* DEATH sink placeholder: keep lowering the frozen pose
-             * for the few frames the corpse stays visible. */
-            if (e->sink > 0) {
-                e->sink--;
-                enemy_build_palette(e);
+            /* DEATH fade placeholder: the frozen pose stays put and
+             * only the tint alpha walks 1 -> 0 (no palette rebuild —
+             * the pose was frozen on the death tick). */
+            if (e->fade > 0) {
+                e->fade--;
+                e->tint[3] = (float)e->fade / (float)ENEMY_FADE_FRAMES;
             }
             continue;
         }
@@ -2341,7 +2402,7 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
             enemy_anim_update(e, sqrtf(dx * dx + dz * dz));
         }
         enemy_build_palette(e);   /* died this tick: freeze the pose
-                                   * the sink placeholder starts from */
+                                   * the corpse fade starts from */
     }
     gib_update(coll);
     /* GENERATOR pads (engine: hazard-list actors in the same pool
@@ -2505,7 +2566,7 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
         *bone_count = gm->bone_count;
         return 1;
     }
-    if (!s.e[i].active && s.e[i].sink <= 0) return 0;  /* sink visual */
+    if (!s.e[i].active && s.e[i].fade <= 0) return 0;  /* fade visual */
     if (s.e[i].kind == EM_ENEMY_KIND_CRATE) {
         if (!s.crate_mesh) return 0;
         *mesh       = s.crate_mesh;
@@ -2518,6 +2579,37 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
     *palette    = s.e[i].palette;
     *bone_count = s.bone_count;
     return 1;
+}
+
+/* Per-draw RGBA tint for slot `i` (same index mapping as em_enemy_draw;
+ * pointer contract identical to the palette: recorded at chain-build
+ * time, the VALUES read at flush are this frame's — em_enemy_update
+ * runs in between). NULL = untinted (em_gfx_draw_skinned — live
+ * crawlers, crates and generator pads keep the exact pre-tint draw).
+ * Non-NULL consumers:
+ *   - tendril spikes: room tint -> (6,92,1)/128 green by the parent
+ *     pad's open phase, alpha = ramp/300 (the deploy fade);
+ *   - gibs: white at alpha 1.0 (the renderer's opaque path —
+ *     bit-identical to untinted) until the exit fade walks it to 0;
+ *   - the no-gib corpse fade: white, alpha = fade/30. */
+const float *em_enemy_draw_tint(int i)
+{
+    if (i < 0) return NULL;
+    if (i >= s.n) {                        /* virtual gib/pad/spike slot */
+        int k = i - s.n;
+        if (k >= s.gib_tail) {
+            int gi = k - s.gib_tail;
+            if (gi >= s.gen_n) {           /* tendril spike */
+                int f = (gi - s.gen_n) / TF_SPIKES;
+                return f < s.tf_n ? s.tf[f].tint : NULL;
+            }
+            return NULL;                   /* generator pad: untinted */
+        }
+        return s.gib[k].tint;              /* gib rest/fade */
+    }
+    if (!s.e[i].active && s.e[i].fade > 0)
+        return s.e[i].tint;                /* corpse fade-out */
+    return NULL;                           /* live crawler/crate */
 }
 
 int em_enemy_alive(void)

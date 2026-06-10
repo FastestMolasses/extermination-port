@@ -274,11 +274,18 @@ typedef struct {
     float     *palette;   /* static pose (frame 0), bone_count * 16 */
 } SceneItem;
 
-/* One recorded draw — the native render-chain element. */
+/* One recorded draw — the native render-chain element. `tint` is the
+ * optional per-draw RGBA modulation (the engine's actor RGB multiplier
+ * — em_gfx_draw_skinned_tinted, e34bd29): NULL = the opaque untinted
+ * draw. Same pointer contract as `palette`: recorded at chain-build
+ * time, the values the flush reads are the owning module's
+ * current-frame ones. Today only em_enemy publishes tints (tendril
+ * spikes + the gib/corpse death fades — em_enemy_draw_tint). */
 typedef struct {
     EmGfxMesh   *mesh;
     const float *palette;
     uint32_t     bone_count;
+    const float *tint;
 } ChainDraw;
 
 /* CAMERA state — the native mirror of the engine's camera struct at
@@ -1065,7 +1072,8 @@ static void render_chain_build(void)
     for (int i = 0; i < g.n_scene; i++) {
         g.chain[g.chain_len++] = (ChainDraw){ g.scene[i].mesh,
                                               g.scene[i].palette,
-                                              g.scene[i].model.bone_count };
+                                              g.scene[i].model.bone_count,
+                                              NULL };
     }
     /* Interactive doors (actor draws — func_001BC300's publish). The
      * chain records palette POINTERS; em_door_update (the world-services
@@ -1074,19 +1082,24 @@ static void render_chain_build(void)
     for (int i = 0; i < em_door_count(); i++) {
         ChainDraw *cd = &g.chain[g.chain_len++];
         em_door_draw(i, &cd->mesh, &cd->palette, &cd->bone_count);
+        cd->tint = NULL;          /* doors draw untinted */
     }
     /* Enemies (the actor-pool draws). Same pointer contract as the
      * doors: em_enemy_update (after this build) writes this frame's
-     * pose before the close-out flush. A dead slot keeps drawing only
-     * while em_enemy's death-sink placeholder runs, then drops out. */
+     * pose — and the per-draw tint for the tinted slots (tendril
+     * spikes, death fades) — before the close-out flush. A dead slot
+     * keeps drawing only while em_enemy's corpse fade runs, then
+     * drops out. */
     for (int i = 0; i < em_enemy_count(); i++) {
         ChainDraw *cd = &g.chain[g.chain_len];
-        if (em_enemy_draw(i, &cd->mesh, &cd->palette, &cd->bone_count))
+        if (em_enemy_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
+            cd->tint = em_enemy_draw_tint(i);
             g.chain_len++;
+        }
     }
     if (g.mesh) {
         g.chain[g.chain_len++] = (ChainDraw){ g.mesh, g.player_palette,
-                                              g.model.bone_count };
+                                              g.model.bone_count, NULL };
     }
 }
 
@@ -1333,8 +1346,14 @@ static void frame_close_out(void)
         em_gfx_draw_test_triangle(gfx);
     } else {
         for (int i = 0; i < g.chain_len; i++) {
-            em_gfx_draw_skinned(gfx, g.chain[i].mesh, g.viewproj,
-                                g.chain[i].palette, g.chain[i].bone_count);
+            const ChainDraw *cd = &g.chain[i];
+            if (cd->tint)         /* per-draw RGBA modulate (ChainDraw) */
+                em_gfx_draw_skinned_tinted(gfx, cd->mesh, g.viewproj,
+                                           cd->palette, cd->bone_count,
+                                           cd->tint);
+            else
+                em_gfx_draw_skinned(gfx, cd->mesh, g.viewproj,
+                                    cd->palette, cd->bone_count);
         }
     }
 

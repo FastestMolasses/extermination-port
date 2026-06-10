@@ -48,13 +48,18 @@
  *    instances from the exported burst set (assets/gibs/gib_*.emdl,
  *    decomp tools/export_props.py --gibs) with that documented
  *    knockback shape — arc under the 0.052 gravity, settle on the
- *    floor query, sink after ~3 s (the no-per-draw-alpha fade
- *    stand-in) — drawn through the same chain contract as live
- *    crawlers (virtual indices in em_enemy_count/em_enemy_draw,
- *    budgeted to EM_ENEMY_MAX). Nest children and the gore particle
- *    FX remain untranslated. Missing gib assets, and the contact/
- *    suicide burst (the engine's no-knockback arm), keep the old
- *    VISUAL-ONLY sink placeholder (flagged in em_enemy.c). Debug:
+ *    floor query, rest ~3 s, then ALPHA-FADE out over the last 30
+ *    frames (white tint, alpha 1 -> 0 through the chain's per-draw
+ *    tint: em_gfx_draw_skinned_tinted, the engine's faded-actor
+ *    ZMSK=1 state; replaces the old sink-despawn stand-in from the
+ *    no-per-draw-alpha era, same total lifetime) — drawn through the
+ *    same chain contract as live crawlers (virtual indices in
+ *    em_enemy_count/em_enemy_draw/em_enemy_draw_tint, budgeted to
+ *    EM_ENEMY_MAX). Nest children and the gore particle FX remain
+ *    untranslated. Missing gib assets, and the contact/suicide burst
+ *    (the engine's no-knockback arm), keep the VISUAL-ONLY corpse
+ *    placeholder — the frozen pose now fades out the same way
+ *    instead of sinking (flagged in em_enemy.c). Debug:
  *    EM_ENEMY_GIBDEMO=<frame> posts a lethal mailbox to enemy 0 at
  *    that tick so EM_CAPTURE can photograph the scatter.
  *  - SPEED/RANGES: hop forward speed, hop airtime, the burst-on-player
@@ -207,11 +212,16 @@
  *               violent thrash while the parent breather phase > 0.5:
  *               gravity 1 vs 8/tick, kicks 3..7 vs 28..41 below phase
  *               128, vel halved at >= 8 when closed, floor clamp at
- *               phase 100 with a fresh 3..7 vel). The engine's
- *               room-tint -> green RGB blend and the ramp alpha
- *               fade-in are SKIPPED (no per-draw color/alpha in the
- *               renderer yet — the FINDINGS port contract flags this
- *               simplification as acceptable).
+ *               phase 100 with a fresh 3..7 vel). The spikes draw
+ *               TINTED (em_gfx_draw_skinned_tinted via the chain's
+ *               em_enemy_draw_tint contract): RGB blends the room
+ *               tint toward the vivid (6,92,1)/128 green as the
+ *               parent pad's open phase rises, alpha = ramp/300 (the
+ *               deploy fade-in/out; translucent draws disable the
+ *               depth write — the engine's GS ZMSK=1 faded-actor
+ *               state). The per-room tint table D_00246800 is
+ *               undecoded port-side: the rest blend uses the NEUTRAL
+ *               (128,128,128) rec (TODO flagged in em_enemy.c).
  *
  * EM_ENEMY_TEST=5 (tendril run, owned by em_enemy.c like test 4):
  * places a link-1 pad at the player spawn with the mode draw FORCED
@@ -348,11 +358,22 @@ int em_enemy_ray_test(const float from[3], const float to[3],
                       float hit_out[3]);
 
 /* Draw accessors for the render chain. em_enemy_draw returns 0 for an
- * inactive slot, EXCEPT while the death-sink placeholder is still
- * lowering the frozen corpse pose (a few frames after the burst). */
+ * inactive slot, EXCEPT while the death placeholder is still fading
+ * the frozen corpse pose out (a few frames after the burst).
+ *
+ * em_enemy_draw_tint: the slot's per-draw RGBA modulation for
+ * em_gfx_draw_skinned_tinted, or NULL = draw untinted via
+ * em_gfx_draw_skinned (the exact pre-tint state). Same index space
+ * and pointer contract as the palette: em_game.c records the pointer
+ * at chain-build time and em_enemy_update writes this frame's values
+ * before the close-out flush. Tinted slots: tendril spikes (room
+ * tint -> green by the parent pad's open phase, alpha = ramp/300),
+ * gibs (white, alpha 1 -> 0 over the exit fade) and the no-gib
+ * corpse fade. Live crawlers, crates and generator pads return NULL. */
 int em_enemy_count(void);
 int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
                   uint32_t *bone_count);
+const float *em_enemy_draw_tint(int i);
 
 /* Introspection (debug / self-tests). */
 int  em_enemy_alive(void);        /* live instances (INIT/IDLE/ATTACK) */
