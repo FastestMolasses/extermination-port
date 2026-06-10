@@ -29,6 +29,7 @@
 
 #include "em_input.h"   /* EM_PAD_CROSS — the frame input button mask */
 #include "em_model.h"
+#include "game/em_sfx.h"
 
 #define DOOR_MAX        EM_DOOR_MAX
 #define DOOR_MODEL_MAX  4
@@ -406,6 +407,10 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 d->clip_t = 0.0f;
                 d->state  = EM_DOOR_OPENING;
                 door_transit_kickoff(d, player_pos);
+                /* PLACEHOLDER id (flagged): on the PS2 the open sound
+                 * is fired by the door SCRIPT of the func_001BBE40
+                 * kickoff (s17 open item) — the real id is undecoded. */
+                em_sfx_play(EM_SFX_DOOR_OPEN);
             }
             break;
         case EM_DOOR_OPENING:      /* func_001BC0E0: clip 1.0/frame */
@@ -421,8 +426,11 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                                     * player (the engine walks the player
                                     * through before its close) */
             if (d->hold > 0) d->hold--;
-            if (d->hold == 0 && !door_player_inside(d, player_pos))
+            if (d->hold == 0 && !door_player_inside(d, player_pos)) {
                 d->state = EM_DOOR_CLOSING;
+                /* PLACEHOLDER id (flagged) — script-driven, like open. */
+                em_sfx_play(EM_SFX_DOOR_CLOSE);
+            }
             break;
         case EM_DOOR_CLOSING:      /* func_001BC290: clip back to rest,
                                     * then re-arm (+0x0B = 0) -> sub 0 */

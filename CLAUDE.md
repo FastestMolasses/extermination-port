@@ -79,7 +79,9 @@ files map each native stage to the PS2 function it stands in for.
   the same interface; not yet implemented.
 - Headless checks: `EM_CAPTURE=<path.bmp>` (renders ~1 s, captures gameplay
   frame 60, exits), `EM_AUDIO_TEST=1` (sine smoke test), `EM_INPUT_TEST=1`
-  (pad-change prints), `make test-input` (OS-free pad-model unit test).
+  (pad-change prints), `EM_SFX_TEST=1` (3 overlapping one-shots through the
+  shared BGM mixer — needs `assets/sfx/sfx.txt`; see `src/game/em_sfx.h`),
+  `make test-input` (OS-free pad-model unit test).
 
 ## Build
 

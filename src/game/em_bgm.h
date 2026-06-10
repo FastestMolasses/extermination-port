@@ -29,6 +29,8 @@
 #ifndef EM_BGM_H
 #define EM_BGM_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -60,6 +62,35 @@ void em_bgm_service(void);
  * ever ran (the audio-test-style exit line). Game thread only; safe when
  * nothing was ever played. */
 void em_bgm_shutdown(void);
+
+/* ------------------------------------------------------------------
+ * Shared-audio hooks for em_sfx (see em_sfx.h "DEVICE OWNERSHIP"):
+ * em_bgm owns the single em_audio device; the SFX one-shots are summed
+ * into the same render callback rather than opening a second device.
+ * ------------------------------------------------------------------ */
+
+/* Decoded PCM16 WAV — the module's shared zero-dependency reader output
+ * (whole file preloaded; the audio thread only ever reads memory). */
+typedef struct {
+    int16_t *pcm;       /* malloc'd interleaved s16; caller frees */
+    long     nframes;
+    int      channels;  /* 1 or 2 */
+    int      rate;
+} EmBgmWav;
+
+/* Read a PCM16 mono/stereo RIFF/WAVE file whole. `tag` prefixes the
+ * stderr diagnostics ("bgm"/"sfx"). Returns 0 and fills *out (pcm
+ * malloc'd) on success, -1 on failure. Game thread only. */
+int em_bgm_wav_read(const char *path, EmBgmWav *out, const char *tag);
+
+/* Make sure the shared output device exists (created at `sample_rate`
+ * with the BGM render callback — which also mixes the SFX voices — when
+ * no music has started yet). Returns 0 when a device is running, -1 on
+ * creation failure. Game thread only. */
+int em_bgm_device_ensure(int sample_rate);
+
+/* The running device's sample rate; 0 = no device yet. Game thread. */
+int em_bgm_device_rate(void);
 
 #ifdef __cplusplus
 }

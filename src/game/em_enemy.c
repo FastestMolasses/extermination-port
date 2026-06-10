@@ -34,6 +34,7 @@
 #include <string.h>
 
 #include "em_model.h"
+#include "game/em_sfx.h"
 
 #define ENEMY_ASSET      "assets/enemy_crawler.emdl"
 #define ENEMY_BONE_MAX   32
@@ -252,7 +253,10 @@ static void enemy_alarm_broadcast(void)
 
 /* Consume the +0x36 mailbox. Returns 1 if the hit was lethal (HP=1
  * crawlers: any nonzero damage). Low bits = amount (below the 0x2000
- * type flag), matching the documented code layout. */
+ * type flag), matching the documented code layout. A lethal hit plays
+ * the death-sub-state sound 0x7D8 — the canonical hurt-helper's
+ * (func_00153B50) HP<=0 arm; the crawler's own per-state gore set
+ * (burst 0x434 etc.) is not pinned to this transition yet. */
 static int enemy_mailbox_poll(Enemy *e)
 {
     if (e->mailbox == 0) return 0;
@@ -260,7 +264,9 @@ static int enemy_mailbox_poll(Enemy *e)
     e->mailbox = 0;
     e->hp      = (int16_t)(e->hp - amount);
     enemy_alarm_broadcast();      /* a shot crawler wakes the pack */
-    return e->hp <= 0;
+    if (e->hp > 0) return 0;
+    em_sfx_play(EM_SFX_ENEMY_DEATH);   /* 0x7D8 */
+    return 1;
 }
 
 /* Knee-height directional probe (func_0019AB20 stand-in over the static
@@ -440,6 +446,9 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
                 s.player_hit = ENEMY_HIT_CODE;
                 e->mailbox   = 0;          /* engine: cleared pre-burst */
                 e->state     = EM_ENEMY_DEATH;
+                /* Engine: the suicide BURST has its own sound (the
+                 * crawler gore set, 0x434 family) — unmapped; silent
+                 * natively until the per-state ids are pinned. */
             }
         }
         break;

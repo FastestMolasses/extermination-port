@@ -119,6 +119,7 @@
 #include "game/em_enemy.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
+#include "game/em_sfx.h"
 #include "game/em_task.h"
 #include "game/em_weapon.h"
 
@@ -352,6 +353,7 @@ static struct {
     int         wt_fail;         /* weapon test: failed checkpoints */
     int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
                                   * run, 2 = let-it-reach-the-player run */
+    int         sfx_test;        /* EM_SFX_TEST=1 — one-shot mixer test */
     int         et_spawned;      /* test crawler placed at scene init */
     int         et_fail;         /* failed checkpoints */
     float       et_d0;           /* spawn distance to the test crawler */
@@ -1455,6 +1457,34 @@ static void enemy_test_script(void)
     }
 }
 
+/* EM_SFX_TEST=1 — one-shot SFX mixer self-test (em_sfx.c). Fires THREE
+ * one-shots 10 frames (1/6 s) apart — weapon draw 0x162, fire 0x164,
+ * enemy death 0x7D8, all mapped by the user's assets/sfx/sfx.txt — so
+ * their voices OVERLAP in the shared render callback (over the BGM when
+ * EM_BGM / the manifest started one), then prints the audio thread's
+ * mixed-voice counters and quits. Needs the registry: without sfx.txt
+ * the module is disabled by design and the test reports the FAIL. */
+static void sfx_test_script(void)
+{
+    int n = g.frame_no;
+    if (n == 10 || n == 20 || n == 30) {
+        static const unsigned ids[3] = { EM_SFX_WPN_DRAW, EM_SFX_WPN_FIRE,
+                                         EM_SFX_ENEMY_DEATH };
+        em_sfx_play(ids[n / 10 - 1]);
+    } else if (n == 120) {
+        long mixed = em_sfx_frames_mixed();
+        int  peak  = em_sfx_max_concurrent();
+        int  ok    = em_sfx_sound_count() > 0 && em_sfx_plays() == 3 &&
+                     em_sfx_drops() == 0 && mixed > 0 && peak >= 2;
+        printf("sfx test: %d sound(s) loaded, %d play(s) (%d dropped), "
+               "%ld voice frames mixed, peak %d concurrent voice(s) — "
+               "%s\n", em_sfx_sound_count(), em_sfx_plays(),
+               em_sfx_drops(), mixed, peak, ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+}
+
 /* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
 static void gameplay_frame(void)
 {
@@ -1462,6 +1492,7 @@ static void gameplay_frame(void)
     if (g.door_test) door_test_script();    /* debug instrumentation only */
     if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
+    if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
@@ -1680,6 +1711,11 @@ static void game_boot_task(void)
                g.coll_path);
     }
 
+    /* SFX registry preload (assets/sfx/sfx.txt) — the native stand-in
+     * for the area's SShd bank load. No registry = the module stays a
+     * silent no-op (zero behavior change); see em_sfx.h. */
+    em_sfx_init();
+
     /* BGM at the boot->game handoff — the native func_001FB0B0 moment:
      * on the PS2 the area flow writes the level's cue id to the
      * current-BGM global D_00810D38 and func_001FAE70 fades the stream
@@ -1739,6 +1775,8 @@ void em_game_install(void)
     const char *et = getenv("EM_ENEMY_TEST");
     if (et && (et[0] == '1' || et[0] == '2'))
         g.enemy_test = et[0] - '0';
+    const char *st = getenv("EM_SFX_TEST");
+    g.sfx_test     = st && st[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
@@ -1760,4 +1798,6 @@ void em_game_shutdown(void)
     em_enemy_shutdown(gfx);
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
+    em_sfx_shutdown();  /* AFTER em_bgm_shutdown — the device-teardown
+                         * guarantee makes the sample memory freeable */
 }

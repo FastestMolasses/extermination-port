@@ -33,6 +33,7 @@
 #include <string.h>
 
 #include "em_audio.h"
+#include "game/em_sfx.h"
 
 /* ~1 s fade, the shape of the engine's func_001FAE70(1) fade-out-then-
  * start transition (and the fade-in on the far side). */
@@ -140,6 +141,13 @@ static void bgm_render(void *user, float *out, int frames)
         atomic_fetch_add_explicit(&s.played, mixed, memory_order_relaxed);
     atomic_fetch_add_explicit(&s.delivered, (long)frames,
                               memory_order_relaxed);
+
+    /* One-shot SFX voices are SUMMED over the BGM in the same callback —
+     * em_bgm owns the only device (em_sfx.h "DEVICE OWNERSHIP"). A no-op
+     * while no voices are live, so BGM-only output is untouched.
+     * s.device_rate is written before em_audio_create and never changes
+     * while the device exists, so this read is race-free. */
+    em_sfx_mix(out, frames, s.device_rate);
 }
 
 /* ------------------------------------------------------------------ */
@@ -149,18 +157,19 @@ static void bgm_render(void *user, float *out, int frames)
 /* Minimal RIFF/WAVE reader: PCM16 only, mono/stereo, zero dependencies.
  * The whole file is loaded so the audio thread never touches the disk.
  * Little-endian host assumed (every port target is). Returns 0 and fills
- * *t (pcm malloc'd) on success. */
-static int bgm_wav_load(const char *path, BgmTrack *t)
+ * *out (pcm malloc'd) on success. SHARED with em_sfx (em_bgm.h): `tag`
+ * keeps each caller's diagnostics prefix ("bgm"/"sfx") byte-identical. */
+int em_bgm_wav_read(const char *path, EmBgmWav *out, const char *tag)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "bgm: cannot open %s\n", path);
+        fprintf(stderr, "%s: cannot open %s\n", tag, path);
         return -1;
     }
     unsigned char hdr[12];
     if (fread(hdr, 1, 12, f) != 12 || memcmp(hdr, "RIFF", 4) != 0 ||
         memcmp(hdr + 8, "WAVE", 4) != 0) {
-        fprintf(stderr, "bgm: %s is not a RIFF/WAVE file\n", path);
+        fprintf(stderr, "%s: %s is not a RIFF/WAVE file\n", tag, path);
         fclose(f);
         return -1;
     }
@@ -201,16 +210,27 @@ static int bgm_wav_load(const char *path, BgmTrack *t)
 
     if (fmt != 1 || bits != 16 || (channels != 1 && channels != 2) ||
         rate == 0 || !pcm || data_size < (uint32_t)(channels * 2u)) {
-        fprintf(stderr, "bgm: %s unsupported (need PCM16 mono/stereo; "
+        fprintf(stderr, "%s: %s unsupported (need PCM16 mono/stereo; "
                         "got fmt=%u bits=%u ch=%u rate=%u data=%u)\n",
-                path, fmt, bits, channels, rate, data_size);
+                tag, path, fmt, bits, channels, rate, data_size);
         free(pcm);
         return -1;
     }
-    t->pcm      = pcm;
-    t->nframes  = (long)(data_size / (channels * 2u));
-    t->channels = channels;
-    t->rate     = (int)rate;
+    out->pcm      = pcm;
+    out->nframes  = (long)(data_size / (channels * 2u));
+    out->channels = channels;
+    out->rate     = (int)rate;
+    return 0;
+}
+
+static int bgm_wav_load(const char *path, BgmTrack *t)
+{
+    EmBgmWav w;
+    if (em_bgm_wav_read(path, &w, "bgm") != 0) return -1;
+    t->pcm      = w.pcm;
+    t->nframes  = w.nframes;
+    t->channels = w.channels;
+    t->rate     = w.rate;
     return 0;
 }
 
@@ -249,6 +269,31 @@ static void bgm_publish(BgmTrack *t, int cut)
     atomic_fetch_add_explicit(&s.serial, 1u, memory_order_release);
 }
 
+/* Open the shared device once. Both fields must be set before create —
+ * the callback may fire before create returns. */
+static int bgm_device_open(int rate)
+{
+    if (s.audio) return 0;
+    s.device_rate = rate;
+    s.fade_step   = 1.0f / (BGM_FADE_SECONDS * (float)rate);
+    s.audio = em_audio_create(rate, bgm_render, NULL);
+    if (!s.audio) {
+        fprintf(stderr, "bgm: audio device creation failed\n");
+        return -1;
+    }
+    return 0;
+}
+
+int em_bgm_device_ensure(int sample_rate)
+{
+    return bgm_device_open(sample_rate);
+}
+
+int em_bgm_device_rate(void)
+{
+    return s.audio ? s.device_rate : 0;
+}
+
 int em_bgm_play(const char *path, int loop)
 {
     BgmTrack *t = malloc(sizeof *t);
@@ -261,14 +306,8 @@ int em_bgm_play(const char *path, int loop)
 
     if (!s.audio) {
         /* First play: open the device at the track's rate (the engine
-         * streams at 48 kHz; whatever the export used wins here). Both
-         * fields must be set before create — the callback may fire
-         * before create returns. */
-        s.device_rate = t->rate;
-        s.fade_step   = 1.0f / (BGM_FADE_SECONDS * (float)t->rate);
-        s.audio = em_audio_create(t->rate, bgm_render, NULL);
-        if (!s.audio) {
-            fprintf(stderr, "bgm: audio device creation failed\n");
+         * streams at 48 kHz; whatever the export used wins here). */
+        if (bgm_device_open(t->rate) != 0) {
             bgm_track_free(t);
             return -1;
         }

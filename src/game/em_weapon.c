@@ -11,6 +11,7 @@
 
 #include "em_input.h"
 #include "game/em_enemy.h"
+#include "game/em_sfx.h"
 
 /* --- Engine constants (FINDINGS "WEAPON SYSTEM") ----------------------- */
 #define WPN_MAG_MAX     30      /* func_0017B300: mag = min(30, reserve)   */
@@ -100,24 +101,39 @@ static int weapon_reload(int mode)
     return 0;
 }
 
+/* HOLSTER entry (engine major state 0x65): anim 0x111 + sound 0x163 —
+ * every transition into the holster ramp goes through here, exactly the
+ * single state-entry the engine plays the sound on. */
+static void weapon_enter_holster(void)
+{
+    em_sfx_play(EM_SFX_WPN_HOLSTER);    /* 0x163, state-0x65 entry */
+    w.state = EM_WPN_HOLSTER;
+    w.timer = WPN_HOLSTER_FRAMES;
+}
+
 /* One trigger-accepted SHOT attempt (the common per-shot block of the
  * fire sub-machine, states 0xB/0x15/0x1F). Dry mag -> auto-reload
  * func_0017B300(.,0); reserve also empty -> dry click (engine sound
- * 0x169 — no native SFX hookup yet). A live round: mag-- AND reserve--
- * (the TOTAL-pool consume path), post the fire event to the gun
- * (+0x2E = 1; engine sounds 0x164/0x165, anims 0x31/0x32/0x34/0x35). */
+ * 0x169). A live round: mag-- AND reserve-- (the TOTAL-pool consume
+ * path), post the fire event to the gun (+0x2E = 1; engine sounds
+ * 0x164/0x165, anims 0x31/0x32/0x34/0x35 — 0x164 is the native pick
+ * until the stance pairs that select 0x165 are translated). */
 static void weapon_shot(void)
 {
     if (w.mag == 0) {
         w.pending = 0;
         w.burst   = 0;
         if (weapon_reload(0) == 0) {
-            /* anim 0x33 gates firing; the mag is already refilled */
+            /* anim 0x33 gates firing; the mag is already refilled.
+             * EM_SFX_WPN_RELOAD is a flagged PLACEHOLDER id — the engine
+             * pins only the anim (0x33), no reload sound id yet. */
+            em_sfx_play(EM_SFX_WPN_RELOAD);
             w.reloads++;
             w.state = EM_WPN_RELOAD;
             w.timer = WPN_RELOAD_FRAMES;
+        } else {
+            em_sfx_play(EM_SFX_WPN_DRY);  /* 0x169 — reserve also empty */
         }
-        /* else: dry click 0x169 — nothing to fire from */
         return;
     }
     w.mag--;
@@ -125,6 +141,7 @@ static void weapon_shot(void)
     w.shots++;
     w.fire_event = 1;     /* gun +0x2E — resolved next update             */
     w.counter    = 0;
+    em_sfx_play(EM_SFX_WPN_FIRE);         /* 0x164, the per-shot block    */
 }
 
 /* The gun-side fire-event consumption — func_001861C0, the BULLET.
@@ -246,6 +263,7 @@ static void weapon_fire_logic(const EmFrameInput *in)
      * SQUARE (em_weapon.h "KEY MAPPING" deviation note). */
     if (w.state == EM_WPN_AIM && (in->pressed & EM_PAD_SQUARE)) {
         if (weapon_reload(2) == 0) {
+            em_sfx_play(EM_SFX_WPN_RELOAD);  /* flagged PLACEHOLDER id */
             w.reloads = w.reloads + 1;
             w.pending = 0;
             w.burst   = 0;
@@ -275,17 +293,18 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
         case EM_WPN_HOLSTERED:
             if (draw_held) {
                 /* major 0 ENTER: reload-if-empty, anim 0x110, sound
-                 * 0x162. The ENTER reload is covered by the draw anim —
-                 * no RELOAD state, but it counts as a reload. */
+                 * 0x162 @vol150 (func_0016F530). The ENTER reload is
+                 * covered by the draw anim — no RELOAD state, but it
+                 * counts as a reload. */
                 if (weapon_reload(0) == 0) w.reloads++;
+                em_sfx_play(EM_SFX_WPN_DRAW);
                 w.state = EM_WPN_DRAW;
                 w.timer = WPN_DRAW_FRAMES;
             }
             break;
         case EM_WPN_DRAW:
             if (!draw_held) {
-                w.state = EM_WPN_HOLSTER;   /* 0x65: anim 0x111, 0x163 */
-                w.timer = WPN_HOLSTER_FRAMES;
+                weapon_enter_holster();     /* 0x65: anim 0x111, 0x163 */
             } else if (--w.timer <= 0) {
                 w.state   = EM_WPN_AIM;     /* major 2 */
                 w.counter = WPN_INTERVAL;   /* first shot is immediate */
@@ -295,8 +314,7 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             break;
         case EM_WPN_AIM:
             if (!draw_held) {
-                w.state = EM_WPN_HOLSTER;
-                w.timer = WPN_HOLSTER_FRAMES;
+                weapon_enter_holster();
                 w.pending = 0;
                 w.burst   = 0;
             } else {
@@ -309,10 +327,8 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 w.state   = EM_WPN_AIM;
                 w.counter = WPN_INTERVAL;
             }
-            if (!draw_held) {               /* stance drop mid-reload */
-                w.state = EM_WPN_HOLSTER;
-                w.timer = WPN_HOLSTER_FRAMES;
-            }
+            if (!draw_held)                 /* stance drop mid-reload */
+                weapon_enter_holster();
             break;
         case EM_WPN_HOLSTER:
             if (--w.timer <= 0)

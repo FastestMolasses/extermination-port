@@ -1,0 +1,121 @@
+/* em_sfx.h — one-shot sound effects mixed over the BGM stream: the native
+ * mirror of the engine's SShd bank trigger path (FINDINGS.md "Audio — VAG
+ * ADPCM" / "SShd bank format", 2026-06-10).
+ *
+ * Engine model being mirrored:
+ *   - The PS2 triggers an SFX by SOUND ID through the bank's trigger-script
+ *     table (note-on event scripts; func_001152D8 status 0x90 ->
+ *     func_00115E50 voice setup). Gameplay code asks for ids — 0x162 weapon
+ *     draw, 0x163 holster, 0x164/0x165 fire, 0x169 dry click, 0x7D8 the
+ *     canonical hurt-helper death (func_00153B50) — and the sequencer mixes
+ *     the voices over the streamed BGM on the SPU2.
+ *   - Natively the bank's id -> sample resolution is a small text registry,
+ *     assets/sfx/sfx.txt: one "<id-hex> <wav-path>" line per sound (the
+ *     WAVs are the user's own local audio_export.py decodes; '#' starts a
+ *     comment). NO registry file = the whole module is a silent no-op —
+ *     byte-for-byte the pre-SFX behavior. An id that is not listed (or
+ *     whose WAV failed to load) is likewise a silent no-op per play.
+ *   - Per-sound playback rate: the engine repitches per trigger note
+ *     (44100 * 2^(dnote/12)); the per-sound center notes are NOT decoded
+ *     yet, so each WAV plays at its own stored rate, resampled to the
+ *     device rate in the mixer. When the decomp pins the tone records, the
+ *     registry grows a pitch column.
+ *
+ * DEVICE OWNERSHIP: em_bgm owns the single em_audio device (em_audio.h pull
+ * model). em_sfx NEVER opens a device — em_bgm's render callback calls
+ * em_sfx_mix() to sum the one-shot voices into the same buffer, and
+ * em_sfx_play() asks em_bgm to bring the shared device up (at the BGM
+ * default 48 kHz) if music has not already done so.
+ *
+ * THREADING (per the em_audio.h contract): single producer (game thread) /
+ * single consumer (the OS audio thread). Samples are preloaded PCM16 at
+ * registry-load time and immutable until shutdown, so the audio thread only
+ * ever reads memory. Each voice slot carries an atomic state word:
+ *
+ *      game thread                      audio thread (inside bgm_render)
+ *      -----------                      --------------------------------
+ *      CAS FREE -> STAGING
+ *      write sound ptr, pos = 0
+ *      store READY      (release) --->  load (acquire): READY -> adopt
+ *                                       (PLAYING), resample-mix, sum;
+ *                                       sample exhausted ->
+ *                                 <---  store FREE (release)
+ *
+ * The game thread touches only FREE slots (the CAS), the audio thread only
+ * non-FREE ones; no locks, no allocation, no I/O on the audio thread. All
+ * slots busy = the play is dropped (counted) — the engine's 48-channel
+ * sequencer steals voices instead; stealing lands with the pitch work.
+ *
+ * Call ordering (game thread): em_sfx_init() at boot (after the manifest,
+ * before plays), em_sfx_play() during gameplay, em_sfx_shutdown() AFTER
+ * em_bgm_shutdown() (which tears down the device and guarantees the
+ * callback can no longer fire — only then is the sample memory freeable).
+ */
+#ifndef EM_SFX_H
+#define EM_SFX_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* --- Engine sound ids (FINDINGS.md "WEAPON SYSTEM" section 8 sound list;
+ *     "ENEMY AI" damage-pipeline consumption) ---------------------------- */
+#define EM_SFX_WPN_DRAW     0x162u  /* major-0 ENTER, vol 150 (func_0016F530) */
+#define EM_SFX_WPN_HOLSTER  0x163u  /* state 0x65 HOLSTER entry               */
+#define EM_SFX_WPN_FIRE     0x164u  /* per-shot block (anims 0x31/0x34)       */
+#define EM_SFX_WPN_FIRE_ALT 0x165u  /* per-shot block (anims 0x32/0x35) —
+                                     * stance-keyed; not selected natively
+                                     * until the stance pairs are translated  */
+#define EM_SFX_WPN_DRY      0x169u  /* empty mag + empty reserve click        */
+#define EM_SFX_ENEMY_DEATH  0x7D8u  /* canonical hurt-helper death
+                                     * (func_00153B50 HP<=0; the crawler's
+                                     * own gore set — burst 0x434 etc. — is
+                                     * not pinned per-state yet)              */
+
+/* --- PLACEHOLDER ids (flagged — NOT engine-documented; chosen far above
+ *     the observed bank id range so they can never collide). The door
+ *     open/close sounds are SCRIPT-DRIVEN on the PS2 (the s17 door scripts
+ *     of the func_001BBE40 kickoff are undecoded) and the reload has only
+ *     its anim (0x33) pinned, no sound id. Replace these the session the
+ *     decomp recovers the real ids. ------------------------------------- */
+#define EM_SFX_DOOR_OPEN    0xF000u /* PLACEHOLDER — script-driven on PS2 */
+#define EM_SFX_DOOR_CLOSE   0xF001u /* PLACEHOLDER — script-driven on PS2 */
+#define EM_SFX_WPN_RELOAD   0xF002u /* PLACEHOLDER — engine reload sound id
+                                     * not yet located (anim 0x33 only)    */
+
+/* Load the id -> WAV registry (assets/sfx/sfx.txt) and preload every
+ * listed PCM16 WAV. Missing registry = SFX disabled (silent no-ops
+ * everywhere, zero behavior change); a bad line/WAV skips that entry with
+ * a stderr note. Returns the number of sounds loaded. Game thread, once,
+ * at boot. */
+int em_sfx_init(void);
+
+/* Fire one one-shot voice for the engine sound id. Unknown/unloaded id or
+ * disabled module = silent no-op. Brings the shared audio device up
+ * through em_bgm if no music has started yet. Game thread only. */
+void em_sfx_play(unsigned id);
+
+/* AUDIO-THREAD mixer half: SUM all live one-shot voices into the
+ * interleaved stereo buffer (which already holds the BGM frames),
+ * resampling each voice from its WAV rate to `device_rate`. Called by
+ * em_bgm's render callback only — real-time safe per the em_audio.h
+ * contract (no locks/allocation/IO). A no-op while no voices are live. */
+void em_sfx_mix(float *out_interleaved_stereo, int frames, int device_rate);
+
+/* Free the preloaded samples. Game thread, AFTER em_bgm_shutdown() (the
+ * device-teardown guarantee is what makes the sample memory safe to
+ * free). Prints the mixed-voice counters if any one-shot ever played. */
+void em_sfx_shutdown(void);
+
+/* Introspection (EM_SFX_TEST / debugging; game thread). */
+int  em_sfx_sound_count(void);    /* registry entries loaded            */
+int  em_sfx_plays(void);          /* accepted em_sfx_play calls         */
+int  em_sfx_drops(void);          /* plays dropped (no free voice slot) */
+long em_sfx_frames_mixed(void);   /* summed voice frames mixed so far   */
+int  em_sfx_max_concurrent(void); /* peak simultaneous live voices      */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* EM_SFX_H */
