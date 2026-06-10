@@ -105,11 +105,84 @@
  *     its own trigger; the engine's alarmed crawler hops as the crate —
  *     untranslated).
  *
+ * GENERATOR (FINDINGS "GENERATOR — func_0015A2C0 RESOLVED", session
+ * 28): the engine's most-placed creature behavior (class 0x0D, model 3,
+ * 129 placements) — an organic infected-growth FLOOR PAD that charges
+ * while the player stands on it and births worms. Decoded machine
+ * (boot-ELF .data tables read locally; constants below are the decoded
+ * values, recorded in the decomp FINDINGS like every other datum):
+ *
+ *   placement      kind(+0x54) 0..6 -> config rec D_00248120 (box
+ *                  half-extents X/Z, Y = 1.0); link(+0x56) 0/1/2.
+ *   INIT           link 1/2 draws ONE BYTE from count table D_002481B0
+ *                  / D_002481D0 (row = frame RNG & 3, column = global
+ *                  per-link counter & 7, post-incremented) and stores
+ *                  it back into +0x56 as the RUNTIME MODE: 0 = inert
+ *                  pad, 1 = breather/trap (+ an immediate pair of
+ *                  kind-0xE enemies — func_001546C0, untranslated),
+ *                  2 = WORM EMITTER. link 0 = mode locked 0 (inert).
+ *   trigger        +0x0A = "player inside my box THIS frame" — the
+ *                  pair pass func_001A8BE0 -> func_001A8840 box-tests
+ *                  the player against the config extents (Y tolerance
+ *                  +1.5); the behavior consumes and clears it each
+ *                  tick. NOT the group alarm the crawlers use.
+ *   mode 2         sub 0: 121 CONSECUTIVE in-box frames (+0x20 charge,
+ *                  reset on exit) -> spawn ONE kind-0xD worm AT THE
+ *                  GENERATOR ORIGIN (func_0015A200 copies +0xB0
+ *                  verbatim; the leech brain then yaws it toward the
+ *                  player) -> +0x2E++; >= 4 -> sub 2 EXHAUSTED forever;
+ *                  else sub 1 = delay D_002481F0[RNG%3] frames
+ *                  ({1800, 3600, 5400} = 30/60/90 s), counted down
+ *                  WITHOUT needing the player, then sub 0 again.
+ *   mode 1         sub 0: 100-frame in-box charge driving the morph
+ *                  phase +0x80 -> OPEN (+0x0B=1, 60-frame hold,
+ *                  refreshed while the player stays): breathing sound
+ *                  0x42F every 128 frames, particle fountain
+ *                  func_0015A750, and the box pass HURTS the standing
+ *                  player (event 3, magnitude 5.0).
+ *   destructible?  NO — the behavior never reads +0x34/+0x36, the
+ *                  laser/bullet victim filter func_00183AC0 rejects
+ *                  class 0x0D, and the pair-pass model whitelist skips
+ *                  model 3. The only way it stops is the 4-worm cap.
+ *   visual         NOT a model-table entry: func_001E9580/001E9E60
+ *                  build a PROCEDURAL VU-morphed pad into a private
+ *                  0xA060-byte buffer (pool D_00275C1C, slot = the
+ *                  placement uid), blending a rest shape by the +0x80
+ *                  phase. Nothing to export — the port uses an ORIGINAL
+ *                  placeholder mound scaled to the decoded footprint,
+ *                  with the phase as a swell (flagged stand-in until
+ *                  the morph pipeline is reimplemented).
+ *
+ * PORT FIDELITY (deviations flagged in em_enemy.c): the mode draw and
+ * delay pick use the module's deterministic LCG, not the engine frame
+ * RNG; the mode-1 kind-0xE pair and the second box pass (generators
+ * waking nearby D_00275BB0-list actors) are untranslated; the open-trap
+ * hit is a one-shot 5-damage player-mailbox write per entry (the
+ * engine's event-3 knockdown path is untranslated); worms spawned past
+ * EM_ENEMY_MAX fail the alloc exactly like the engine's full actor
+ * pool (the cap is NOT consumed — the engine retries after the delay).
+ * Generators live OUTSIDE the crawler slot array (the engine keeps
+ * them on the HAZARD list, not the damage-target list): they are not
+ * shootable, not acquirable, not counted by em_enemy_alive, and they
+ * draw through the same chain budget only when free slots remain.
+ *
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
  * <yaw>` / `enemy crate <x> <y> <z> <yaw>` lines (parsed by em_game.c
- * next to the door lines). No enemy lines = this module never loads,
- * updates or draws anything, keeping default-run frame output
- * byte-identical.
+ * next to the door lines), plus `enemy generator <x> <y> <z> <yaw>
+ * [kind <k>] [link <n>]` lines — em_game.c's parser does not know the
+ * generator kind yet (this change owns only em_enemy.*), so em_enemy.c
+ * scans the same manifest for those lines on its first update tick
+ * (integration shim, flagged; em_game.c prints a cosmetic "unknown
+ * enemy kind, skipped" for each until its parser learns the word).
+ * No enemy lines = this module never loads, updates or draws anything,
+ * keeping default-run frame output byte-identical.
+ *
+ * EM_ENEMY_TEST=4 (generator run) is owned by this module (em_game.c
+ * only handles 1..3): spawns one forced-mode-2 generator 14 u ahead of
+ * the idle player (inside the kind-2 box), with the 1800/3600/5400
+ * delays divided by 60 (test-only acceleration, flagged); asserts the
+ * 121-frame charge, worm-at-origin spawns, a mailbox kill mid-stream,
+ * continued emission to the 4-worm cap, and silence after exhaustion.
  */
 #ifndef EM_ENEMY_H
 #define EM_ENEMY_H
@@ -156,6 +229,22 @@ int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw);
  * em_enemy_add; EM_ENEMY_KIND_CRATE places the disguised crate (and
  * preloads the crawler + gib assets its burst will need). */
 int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
+
+/* Place one GENERATOR pad (engine class 0x0D / func_0015A2C0 — see
+ * "GENERATOR" above). `cfg` = the engine kind 0..6 (the D_00248120
+ * footprint row); `link` = the placement link 0/1/2 (0 = inert pad,
+ * 1/2 = draw the runtime mode from the decoded count table at init).
+ * Generators occupy their own pool (EM_GENERATOR_MAX), NOT crawler
+ * slots; the worms a mode-2 pad emits go through the normal crawler
+ * spawn path and DO consume slots. Returns the generator index or -1. */
+#define EM_GENERATOR_MAX 8
+int em_enemy_add_generator(EmGfx *gfx, const float pos[3], float yaw,
+                           int cfg, int link);
+
+/* Generator introspection (debug / self-tests). */
+int em_enemy_generator_count(void);
+int em_enemy_generator_mode(int i);     /* runtime +0x56 mode, or -1   */
+int em_enemy_generator_spawned(int i);  /* worms emitted (+0x2E), or -1 */
 
 /* Per-frame update: every crawler's state machine (idle/alarm wake,
  * steer + hop toward the player, lunge, mailbox-driven death). `coll`

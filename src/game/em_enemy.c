@@ -121,6 +121,48 @@
  * The crate never enters state 1, never hops, ignores anim clips
  * (1-node static mesh) and never touches the crawler code paths, so
  * crawler-only runs (tests 1/2, the gib demo) are byte-identical.
+ *
+ * GENERATOR KIND (em_enemy.h "GENERATOR"; FINDINGS "GENERATOR —
+ * func_0015A2C0 RESOLVED", session 28): the engine's organic floor pad
+ * that births worms while the player stands on it. Faithful pieces —
+ * the decoded config footprints, count tables, 121-frame charge, the
+ * 1800/3600/5400-frame delays, the 4-worm cap, worm-at-origin spawning
+ * (the leech yaw-to-player applied at spawn, exactly like the crate
+ * burst), per-tick trigger = player inside the config box (Y tolerance
+ * +1.5), indestructibility (no mailbox, no hit sphere, excluded from
+ * acquire/ray_test/alive). Flagged port stand-ins — the LCG replaces
+ * the engine frame RNG for the mode draw and delay pick; the mode-1
+ * breather's kind-0xE pair spawn is untranslated (the brain
+ * func_001546C0 is uncharacterized); the open-trap player hit is a
+ * one-shot mailbox 5 per box entry (engine: event-3 knockdown carrying
+ * 5.0); the visual is an original placeholder mound scaled to the
+ * decoded footprint with the +0x80 phase as a Y swell (the engine's
+ * procedural VU morph — func_001E9580/001E9E60 per-instance buffers —
+ * binds NO model-table entry, so there is nothing to export; sounds
+ * 0x42F breathing / 0x430 worm emerge go through em_sfx and are
+ * silent until the user's sfx.txt maps them).
+ *
+ * MANIFEST SHIM (flagged): em_game.c owns scene.txt parsing but its
+ * enemy-kind table only knows crawler/crate, and this change owns only
+ * em_enemy.* — so on the FIRST update tick this module re-scans
+ * assets/scene/scene.txt for `enemy generator x y z yaw [kind k]
+ * [link n]` lines (defaults kind 1, link 2 — port defaults; engine
+ * placements always carry explicit values) and places them itself.
+ * Scenes without generator lines are untouched (the scan finds
+ * nothing, no output), keeping the default capture byte-identical.
+ *
+ * EM_ENEMY_TEST=4 (generator run — owned here, em_game.c ignores
+ * values outside 1..3): frame 0 places a kind-2 generator 14 u ahead
+ * of the idle player (inside the 25-u box), FORCES mode 2 (the link-2
+ * table draw is RNG; the test pins the interesting outcome) and
+ * divides the spawn delays by 60 (test acceleration — 30/60/90 s is
+ * the shipped pacing). The script then asserts: no worm before the
+ * 121-frame charge completes; each worm spawns AT the generator
+ * origin; a 0x400A mailbox kill 15 frames after worm 1 (the same code
+ * a real shot writes — test 1 already proves the weapon->mailbox
+ * path); the generator KEEPS emitting after the kill; exactly 4 worms
+ * then EXHAUSTED (mode-2 sub 2), with a 240-frame silence window
+ * proving no 5th spawn. PASS/FAIL line + quit, like tests 1..3.
  */
 #include "game/em_enemy.h"
 
@@ -130,6 +172,8 @@
 #include <string.h>
 
 #include "em_model.h"
+#include "game/em_frame.h"   /* em_frame_gfx (manifest shim + test 4),
+                              * em_frame_request_quit (test 4)         */
 #include "game/em_sfx.h"
 
 #define ENEMY_ASSET      "assets/enemy_crawler.emdl"
@@ -216,6 +260,58 @@ static const char *const GIB_FILES[GIB_MODEL_MAX] = {
 #define CRATE_JIT_POS    0.08f    /* PORT: x/z wiggle amplitude, units    */
 #define CRATE_JIT_YAW    0.02f    /* PORT: yaw wobble amplitude, rad      */
 
+/* --- Generator kind (see "GENERATOR KIND" in the file header) -----------
+ * Engine values decoded from the boot ELF's .data this session (FINDINGS
+ * "GENERATOR — func_0015A2C0 RESOLVED"); each table below is the decoded
+ * CONTENT of the named engine datum. */
+#define GEN_CHARGE_WORM   120.0f  /* mode-2 charge: spawn when +0x20+1
+                                   * exceeds this = 121 in-box frames    */
+#define GEN_CHARGE_OPEN   100.0f  /* mode-1 charge frames to OPEN        */
+#define GEN_OPEN_HOLD     60.0f   /* mode-1 open hold (+0x20 = 60)       */
+#define GEN_WORM_CAP      4       /* +0x2E limit (hardcoded slti 4)      */
+#define GEN_BOX_Y         1.0f    /* config Y extent (1.0 in all 7 recs) */
+#define GEN_BOX_Y_TOL     1.5f    /* func_001A8840 adds 1.5 to the Y test*/
+#define GEN_TRAP_HIT      5       /* open-trap player damage (engine:
+                                   * +0x22C = 5.0 with event 3; PORT:
+                                   * one-shot mailbox write, flagged)    */
+#define GEN_SFX_BREATH    0x42Fu  /* breathing, every 128 frames (open)  */
+#define GEN_SFX_WORM      0x430u  /* leech init/emerge sound             */
+
+/* D_00248120 — 7 config recs (engine kind 0..6): box half-extents X/Z
+ * (field 1 = Y extent is 1.0 throughout; fields 3/4 zero). The same X/Z
+ * doubled feed the engine's procedural pad geometry — the port scales
+ * its placeholder mound by them. */
+static const float GEN_CFG[7][2] = {
+    {  5.0f,  5.0f }, { 15.0f, 15.0f }, { 25.0f, 25.0f }, { 10.0f, 15.0f },
+    { 15.0f, 30.0f }, { 15.0f, 10.0f }, { 30.0f, 15.0f },
+};
+
+/* D_002481B0 (link 1) / D_002481D0 (link 2) — the mode draw: row =
+ * frame RNG & 3, column = a global per-link counter & 7 (incremented
+ * every draw). Byte = the runtime mode stored back into +0x56:
+ * 0 inert, 1 breather/trap, 2 worm emitter. Link-1 placements can
+ * never become worm emitters (table 1 holds only 0/1). */
+static const uint8_t GEN_TBL[2][4][8] = {
+    { { 0, 1, 0, 1, 0, 1, 0, 1 },
+      { 1, 1, 0, 0, 0, 1, 0, 1 },
+      { 0, 1, 0, 1, 0, 0, 0, 0 },
+      { 1, 0, 1, 1, 0, 1, 0, 1 } },
+    { { 0, 1, 2, 1, 0, 2, 0, 1 },
+      { 1, 2, 1, 0, 2, 2, 0, 2 },
+      { 0, 1, 0, 1, 2, 0, 2, 0 },
+      { 2, 2, 1, 2, 0, 1, 0, 1 } },
+};
+
+/* D_002481F0 — inter-worm delay pool, frames (30/60/90 s at 60 Hz). */
+static const float GEN_DELAY[3] = { 1800.0f, 3600.0f, 5400.0f };
+
+/* Placeholder-mound visual (PORT, flagged): height of the unit mound
+ * mesh and the phase-driven swell factor standing in for the engine's
+ * +0x80 VU-morph blend. Original geometry, NOT disc data. */
+#define GEN_PAD_HEIGHT    1.6f
+#define GEN_PAD_SWELL     0.6f    /* Y scale grows to 1+this at phase 1 */
+#define GEN_BONES         1
+
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
 #define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
@@ -289,6 +385,25 @@ typedef struct {
     float palette[GIB_BONE_MAX * 16];
 } Gib;
 
+/* One placed generator pad (engine class 0x0D / func_0015A2C0 actor).
+ * Engine actor offsets noted; generators live OUTSIDE the Enemy slot
+ * array (hazard-list actors, not damage targets — file header). */
+typedef struct {
+    uint8_t cfg;        /* +0x54 placement kind 0..6 -> GEN_CFG row     */
+    uint8_t link;       /* placement link 0/1/2 (the table selector)    */
+    uint8_t mode;       /* +0x56 AFTER the init draw: the runtime mode  */
+    uint8_t sub;        /* +0x05 sub-state                              */
+    uint8_t in_box;     /* +0x0A player-inside-box, recomputed per tick */
+    uint8_t open;       /* +0x0B breather OPEN flag                     */
+    uint8_t trap_armed; /* PORT: one-shot trap hit edge per box entry   */
+    int16_t spawned;    /* +0x2E worms emitted (capped at GEN_WORM_CAP) */
+    float   timer;      /* +0x20 charge / hold / delay float            */
+    float   phase;      /* +0x80 morph phase 0..1 (port: pad swell)     */
+    float   pos[3];     /* +0xB0..B8                                    */
+    float   yaw;        /* +0xC4 (placement; pads are all yaw 0)        */
+    float   palette[GEN_BONES * 16];
+} Gen;
+
 /* Anim-layer phases (port-side, NOT engine state values — the engine
  * picks clips inside func_00154040/func_00154120). */
 enum {
@@ -338,6 +453,26 @@ static struct {
     uint32_t   rng;          /* deterministic LCG state                  */
     int        frame;        /* update ticks (EM_ENEMY_GIBDEMO hook)     */
     int        demo;         /* parsed EM_ENEMY_GIBDEMO (-1 = off)       */
+
+    /* generator pool (file header "GENERATOR KIND") */
+    int        gen_tried;    /* placeholder pad mesh load attempted      */
+    EmGfxMesh *gen_mesh;
+    Gen        gen[EM_GENERATOR_MAX];
+    int        gen_n;
+    uint8_t    gen_cursor[2];/* D_008106EC/ED — global per-link column   */
+    int        gen_scanned;  /* manifest shim ran (first update tick)    */
+
+    /* EM_ENEMY_TEST=4 harness (file header; -1 = off) */
+    int        gt_on;
+    int        gt_fail;      /* failed checkpoints                       */
+    int        gt_gen;       /* generator index                          */
+    int        gt_last_n;    /* s.n watermark for worm-spawn detection   */
+    int        gt_worms;     /* worms seen                               */
+    int        gt_kill_i;    /* pending kill: worm slot (-1 none)        */
+    int        gt_kill_f;    /* pending kill: frame to inject the hit    */
+    int        gt_kill1_f;   /* frame worm 1 was killed (0 = not yet)    */
+    int        gt_post;      /* frames since exhaustion (silence window) */
+    float      gt_delay_div; /* delay divisor (60 — test acceleration)   */
 } s;
 
 static void enemy_build_palette(Enemy *e);
@@ -352,6 +487,15 @@ void em_enemy_reset(void)
     const char *gd = getenv("EM_ENEMY_GIBDEMO");
     if (gd && *gd)
         s.demo = atoi(gd);
+    /* EM_ENEMY_TEST=4 — the generator run is owned HERE (em_game.c only
+     * arms values 1..3; see the file header). */
+    const char *et = getenv("EM_ENEMY_TEST");
+    if (et && et[0] == '4' && et[1] == '\0') {
+        s.gt_on        = 1;
+        s.gt_gen       = -1;
+        s.gt_kill_i    = -1;
+        s.gt_delay_div = 60.0f;
+    }
 }
 
 /* Deterministic LCG (Numerical-Recipes constants — our own tiny RNG,
@@ -1037,6 +1181,349 @@ static void gib_update(const EmCollision *coll)
 }
 
 /* ------------------------------------------------------------------ */
+/* Generator pads (file header "GENERATOR KIND")                        */
+/* ------------------------------------------------------------------ */
+
+/* World palette of one pad: local scale (the decoded config footprint
+ * in X/Z, the phase swell in Y — the PORT stand-in for the engine's
+ * +0x80 VU-morph blend) * R_y(yaw), translated to the placement. */
+static void gen_build_palette(Gen *g)
+{
+    const float ex = GEN_CFG[g->cfg][0];
+    const float ez = GEN_CFG[g->cfg][1];
+    const float ys = 1.0f + GEN_PAD_SWELL * g->phase;
+    const float c  = cosf(g->yaw), sn = sinf(g->yaw);
+    float *m = g->palette;
+
+    memset(m, 0, sizeof g->palette);
+    m[0]  =  c * ex;
+    m[2]  = -sn * ex;
+    m[5]  =  ys;
+    m[8]  =  sn * ez;
+    m[10] =  c * ez;
+    m[15] =  1.0f;
+    m[12] = g->pos[0];
+    m[13] = g->pos[1];
+    m[14] = g->pos[2];
+}
+
+/* PLACEHOLDER pad mesh (runtime-generated, our own original vertices,
+ * NOT disc data — the engine's pad is procedural VU-morph geometry,
+ * func_001E9580/001E9E60, and binds NO model-table entry, so there is
+ * nothing to export; see the file header): a low three-tier mound on a
+ * UNIT footprint (+-1), scaled per instance by the decoded config
+ * extents in gen_build_palette. */
+static int gen_mesh_get(EmGfx *gfx)
+{
+    if (s.gen_mesh) return 0;
+    if (s.gen_tried) return -1;
+    s.gen_tried = 1;
+
+    float    verts[72 * 10];
+    uint32_t indices[108];
+    uint32_t nv = 0, ni = 0;
+    const float h = GEN_PAD_HEIGHT;
+    const float t0_lo[3] = { -1.00f, 0.0f,      -1.00f };
+    const float t0_hi[3] = {  1.00f, h * 0.40f,  1.00f };
+    const float t1_lo[3] = { -0.72f, h * 0.40f, -0.72f };
+    const float t1_hi[3] = {  0.72f, h * 0.78f,  0.72f };
+    const float t2_lo[3] = { -0.42f, h * 0.78f, -0.42f };
+    const float t2_hi[3] = {  0.42f, h,          0.42f };
+    box_emit(verts, &nv, indices, &ni, t0_lo, t0_hi);
+    box_emit(verts, &nv, indices, &ni, t1_lo, t1_hi);
+    box_emit(verts, &nv, indices, &ni, t2_lo, t2_hi);
+
+    s.gen_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
+                                    NULL, 0, NULL, 0);
+    if (!s.gen_mesh) return -1;
+    printf("generator pad: PLACEHOLDER mound (%u verts, %u tris, "
+           "runtime-generated — the engine pad is procedural VU-morph "
+           "geometry, no model-table entry to export)\n", nv, ni / 3);
+    return 0;
+}
+
+int em_enemy_add_generator(EmGfx *gfx, const float pos[3], float yaw,
+                           int cfg, int link)
+{
+    if (s.gen_n >= EM_GENERATOR_MAX) return -1;
+    if (cfg < 0 || cfg > 6 || link < 0 || link > 2) return -1;
+    if (gen_mesh_get(gfx) != 0) return -1;
+    /* A mode-2 pad's worms spawn later, inside em_enemy_update (no gfx
+     * handle there) — preload the crawler mesh + gibs now, exactly the
+     * crate rule. */
+    if (enemy_mesh_get(gfx) != 0) return -1;
+    gib_models_load(gfx);
+
+    Gen *g = &s.gen[s.gen_n];
+    memset(g, 0, sizeof *g);
+    g->cfg    = (uint8_t)cfg;
+    g->link   = (uint8_t)link;
+    g->pos[0] = pos[0];
+    g->pos[1] = pos[1];
+    g->pos[2] = pos[2];
+    g->yaw    = yaw;
+
+    /* INIT mode draw (func_0015A2C0 state 0): link 1/2 pulls one byte
+     * from the decoded count table — row = RNG & 3 (PORT: the module
+     * LCG stands in for the engine frame RNG at spad 0x70003B68,
+     * flagged), column = the global per-link cursor & 7 (D_008106EC/ED,
+     * post-incremented) — and stores it as the runtime mode (+0x56).
+     * link 0 (the office sub-state-0 set) stays mode 0: an inert pad. */
+    if (link == 1 || link == 2) {
+        int row = (int)(gib_rng() & 3u);
+        int col = s.gen_cursor[link - 1] & 7;
+        s.gen_cursor[link - 1]++;
+        g->mode = GEN_TBL[link - 1][row][col];
+        if (g->mode == 1)
+            /* engine: mode 1 ALSO spawns an immediate pair of kind-0xE
+             * enemies (func_0015A200(actor, 0xE, 0/1) -> brain
+             * func_001546C0) — UNTRANSLATED (the brain is
+             * uncharacterized); the breather/trap arm still runs. */
+            printf("generator %d: mode-1 kind-0xE pair untranslated "
+                   "(func_001546C0)\n", s.gen_n);
+    }
+    gen_build_palette(g);
+    printf("enemy generator %d: at (%.1f, %.1f, %.1f) yaw %.3f, cfg %d "
+           "(box %gx%g), link %d -> mode %d\n", s.gen_n,
+           pos[0], pos[1], pos[2], yaw, cfg,
+           GEN_CFG[cfg][0] * 2.0f, GEN_CFG[cfg][1] * 2.0f, link, g->mode);
+    return s.gen_n++;
+}
+
+/* Per-tick generator behavior (func_0015A2C0 state 1; engine sub-state
+ * values kept in g->sub). Worm spawns route through enemy_spawn, so
+ * EM_ENEMY_MAX is the same wall the engine's full actor pool is:
+ * a failed alloc does NOT consume the cap (func_0015A200 returns 0 ->
+ * no +0x2E++) — the pad retries after the next delay. */
+static void gen_tick(Gen *g, const float pp[3])
+{
+    /* Trigger: player inside the config box THIS tick. Engine: the
+     * pair pass func_001A8BE0 -> func_001A8840 writes +0x0A during
+     * frame close-out and the behavior consumes+clears it next tick;
+     * natively computed in place (the one-frame phase is immaterial). */
+    g->in_box = fabsf(pp[0] - g->pos[0]) <= GEN_CFG[g->cfg][0] &&
+                fabsf(pp[2] - g->pos[2]) <= GEN_CFG[g->cfg][1] &&
+                fabsf(pp[1] - g->pos[1]) <= GEN_BOX_Y + GEN_BOX_Y_TOL;
+
+    switch (g->mode) {
+    case 1:
+        /* BREATHER/TRAP. sub 0 closed: the in-box charge drives the
+         * morph phase; leaving resets it. */
+        if (g->sub == 0) {
+            g->phase = g->timer / GEN_CHARGE_OPEN;
+            if (!g->in_box) {
+                g->timer = 0.0f;
+                break;
+            }
+            g->timer += 1.0f;
+            if (g->timer >= GEN_CHARGE_OPEN) {
+                g->sub   = 1;
+                g->open  = 1;
+                g->timer = GEN_OPEN_HOLD;
+                g->phase = 1.0f;
+            }
+            break;
+        }
+        /* sub 1 OPEN: breathing sound every 128 frames (the engine
+         * gates on the global frame counter), hold while the player
+         * stays, decay to closed when they leave. The open pad hurts
+         * the standing player — engine: func_001A8840 fires event 3
+         * with magnitude 5.0; PORT: a one-shot mailbox write per box
+         * entry (flagged stand-in). */
+        if ((s.frame & 127) == 0)
+            em_sfx_play(GEN_SFX_BREATH);
+        g->phase = g->timer / GEN_OPEN_HOLD;
+        if (g->in_box) {
+            g->timer = GEN_OPEN_HOLD;
+            if (!g->trap_armed) {
+                s.player_hit = GEN_TRAP_HIT;
+                g->trap_armed = 1;
+            }
+        } else {
+            g->trap_armed = 0;
+            g->timer -= 1.0f;
+            if (g->timer <= 0.0f) {
+                g->sub   = 0;
+                g->open  = 0;
+                g->timer = 0.0f;
+                g->phase = 0.0f;
+            }
+        }
+        break;
+
+    case 2:
+        /* WORM EMITTER. sub 0: charge needs CONSECUTIVE in-box frames
+         * (engine: +0x20 += 1 while +0x0A, reset to 0 without it; the
+         * spawn fires when +0x20+1 exceeds 120 = the 121st frame). */
+        if (g->sub == 0) {
+            if (!g->in_box) {
+                g->timer = 0.0f;
+                break;
+            }
+            g->timer += 1.0f;
+            if (g->timer <= GEN_CHARGE_WORM)
+                break;
+            /* spawn ONE worm AT THE GENERATOR ORIGIN (func_0015A200
+             * copies the parent +0xB0 verbatim — no offsets); the
+             * engine zeroes the child yaw and the leech brain init
+             * yaws it toward the player, so the port applies that yaw
+             * at spawn (same rule as the crate burst). */
+            {
+                float dx   = pp[0] - g->pos[0];
+                float dz   = pp[2] - g->pos[2];
+                float wyaw = (fabsf(dx) + fabsf(dz) > 1e-4f)
+                             ? atan2f(dx, dz) : g->yaw;
+                int   wi   = enemy_spawn(EM_ENEMY_KIND_CRAWLER,
+                                         g->pos, wyaw);
+                if (wi >= 0) {
+                    g->spawned++;     /* engine: +0x2E++ only on alloc */
+                    em_sfx_play(GEN_SFX_WORM);
+                }
+            }
+            if (g->spawned >= GEN_WORM_CAP) {
+                g->sub = 2;           /* EXHAUSTED — permanent */
+                printf("generator: exhausted (cap %d worms)\n",
+                       GEN_WORM_CAP);
+            } else {
+                g->sub   = 1;
+                g->timer = GEN_DELAY[gib_rng() % 3u];
+                if (s.gt_on)
+                    g->timer /= s.gt_delay_div;  /* test acceleration */
+            }
+            break;
+        }
+        if (g->sub == 1) {
+            /* delay counts down WITHOUT needing the player */
+            g->timer -= 1.0f;
+            if (g->timer <= 0.0f) {
+                g->sub   = 0;
+                g->timer = 0.0f;
+            }
+        }
+        /* sub 2: exhausted — still renders, never reacts again */
+        break;
+
+    default:
+        /* mode 0: inert pad (the whole office sub-state-0 set) */
+        break;
+    }
+    gen_build_palette(g);
+}
+
+/* MANIFEST SHIM (file header): `enemy generator x y z yaw [kind k]
+ * [link n]` lines, scanned once from the same manifest em_game.c
+ * parses ("assets/scene/scene.txt" — its SCENE_MANIFEST constant,
+ * mirrored here because this change owns only em_enemy.*). */
+static void gen_manifest_scan(void)
+{
+    FILE *f = fopen("assets/scene/scene.txt", "r");
+    if (!f) return;
+    char line[512];
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#') continue;
+        float x, y, z, yaw;
+        int   k = 1, l = 2;   /* PORT defaults for bare lines (flagged:
+                               * engine placements always carry both) */
+        int   n = sscanf(line, "enemy generator %f %f %f %f kind %d "
+                         "link %d", &x, &y, &z, &yaw, &k, &l);
+        if (n < 4) continue;
+        float p[3] = { x, y, z };
+        if (em_enemy_add_generator(em_frame_gfx(), p, yaw, k, l) < 0)
+            printf("manifest(shim): generator line failed: %s", line);
+    }
+    fclose(f);
+}
+
+/* --- EM_ENEMY_TEST=4 harness (file header) ------------------------- */
+
+static void gt_check(int cond, const char *what)
+{
+    if (cond) return;
+    s.gt_fail++;
+    printf("generator test: CHECK FAILED — %s\n", what);
+}
+
+static void gen_test_finish(void)
+{
+    const Gen *g = s.gt_gen >= 0 ? &s.gen[s.gt_gen] : NULL;
+    printf("generator test: %d worm(s) emitted (cap %d), pad mode %d "
+           "sub %d spawned %d, worm-1 kill frame %d, %d live enem%s — "
+           "%s\n", s.gt_worms, GEN_WORM_CAP,
+           g ? g->mode : -1, g ? g->sub : -1, g ? g->spawned : -1,
+           s.gt_kill1_f, em_enemy_alive(),
+           em_enemy_alive() == 1 ? "y" : "ies",
+           s.gt_fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    em_frame_request_quit();
+}
+
+static void gen_test_script(void)
+{
+    if (s.gt_gen < 0) {       /* spawn failed at arm time — reported */
+        gen_test_finish();
+        return;
+    }
+    Gen *g = &s.gen[s.gt_gen];
+
+    /* worm-spawn watermark: slots are append-only, so every new index
+     * past gt_last_n is a generator worm (no other spawner runs) */
+    if (s.n > s.gt_last_n) {
+        for (int i = s.gt_last_n; i < s.n; i++) {
+            s.gt_worms++;
+            float d = fabsf(s.e[i].pos[0] - g->pos[0]) +
+                      fabsf(s.e[i].pos[1] - g->pos[1]) +
+                      fabsf(s.e[i].pos[2] - g->pos[2]);
+            gt_check(d < 0.01f, "worm emerged at the generator origin");
+            gt_check(s.e[i].kind == EM_ENEMY_KIND_CRAWLER,
+                     "the spawn is a worm");
+            if (s.gt_worms == 1) {
+                gt_check(s.frame >= 121,
+                         "no worm before the 121-frame charge");
+                s.gt_kill_i = i;            /* schedule the player kill */
+                s.gt_kill_f = s.frame + 15; /* ~9 u out: before the
+                                             * radius-6 suicide lunge  */
+            } else if (s.gt_worms == 2) {
+                gt_check(s.gt_kill1_f > 0,
+                         "kept emitting after the worm-1 kill");
+            }
+            printf("generator test: worm %d at frame %d\n",
+                   s.gt_worms, s.frame);
+        }
+        s.gt_last_n = s.n;
+    }
+
+    /* the kill: the same +0x36 code a real shot writes (test 1 proves
+     * the weapon -> mailbox path; this run isolates the generator) */
+    if (s.gt_kill_i >= 0) {
+        if (s.frame == s.gt_kill_f) {
+            em_enemy_damage(s.gt_kill_i, 0x400A);
+        } else if (s.frame == s.gt_kill_f + 5) {
+            gt_check(!s.e[s.gt_kill_i].active &&
+                     s.e[s.gt_kill_i].state == EM_ENEMY_FREE,
+                     "worm 1 dead + despawned after the mailbox kill");
+            s.gt_kill1_f = s.frame;
+            s.gt_kill_i  = -1;
+        }
+    }
+
+    /* exhaustion, then a 240-frame silence window (no 5th worm) */
+    if (g->mode == 2 && g->sub == 2) {
+        if (s.gt_post == 0)
+            gt_check(s.gt_worms == GEN_WORM_CAP &&
+                     g->spawned == GEN_WORM_CAP,
+                     "exactly 4 worms at exhaustion");
+        if (++s.gt_post == 240) {
+            gt_check(s.gt_worms == GEN_WORM_CAP,
+                     "no 5th worm after exhaustion");
+            gen_test_finish();
+        }
+    } else if (s.frame > 2400) {
+        gt_check(0, "generator reached the 4-worm cap by frame 2400");
+        gen_test_finish();
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* State machine                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1224,6 +1711,39 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 void em_enemy_update(const EmCollision *coll, const float player_pos[3])
 {
     if (!player_pos) return;
+    /* First tick: generator placement — the manifest shim, or the
+     * EM_ENEMY_TEST=4 arm (which replaces the scan so the run is
+     * self-contained; see the file header). Scenes without generator
+     * lines spawn nothing here — default output is untouched. */
+    if (!s.gen_scanned) {
+        s.gen_scanned = 1;
+        if (s.gt_on) {
+            /* kind-2 pad (25-u box) 14 u ahead of the idle player:
+             * the player stands inside the box without moving; worms
+             * emerge a safe steer-and-hop away. Mode is PINNED to 2
+             * after the add's RNG table draw (deterministic anyway,
+             * but the table also holds 0/1 outcomes). */
+            float gp[3] = { player_pos[0], player_pos[1],
+                            player_pos[2] + 14.0f };
+            s.gt_gen = em_enemy_add_generator(em_frame_gfx(), gp,
+                                              0.0f, 2, 2);
+            if (s.gt_gen >= 0) {
+                Gen *g = &s.gen[s.gt_gen];
+                g->mode    = 2;
+                g->sub     = 0;
+                g->timer   = 0.0f;
+                g->spawned = 0;
+                printf("generator test: pad %d at (%.1f, %.1f, %.1f), "
+                       "FORCED mode 2, delays /%g\n", s.gt_gen,
+                       gp[0], gp[1], gp[2], s.gt_delay_div);
+            } else {
+                gt_check(0, "generator spawn at arm time");
+            }
+            s.gt_last_n = s.n;
+        } else {
+            gen_manifest_scan();
+        }
+    }
     /* EM_ENEMY_GIBDEMO debug hook: lethal mailbox to enemy 0 at the
      * requested tick (see the file header). */
     if (s.demo >= 0 && s.frame == s.demo)
@@ -1255,6 +1775,13 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
                                    * the sink placeholder starts from */
     }
     gib_update(coll);
+    /* GENERATOR pads (engine: hazard-list actors in the same pool
+     * tick). Worms they spawn appear after this frame's enemy loop —
+     * first updated next tick, the engine's own one-frame latency. */
+    for (int i = 0; i < s.gen_n; i++)
+        gen_tick(&s.gen[i], player_pos);
+    if (s.gt_on)
+        gen_test_script();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1351,11 +1878,14 @@ int em_enemy_ray_test(const float from[3], const float to[3],
 /* ------------------------------------------------------------------ */
 
 /* Draw-slot count: the real instances plus the gib layer's virtual
- * slots (gib_burst budgets them so this never exceeds EM_ENEMY_MAX —
- * em_game.c reserves exactly that many render-chain entries). */
+ * slots plus the generator pads, clamped to EM_ENEMY_MAX — em_game.c
+ * reserves exactly that many render-chain entries, so pads past the
+ * budget (e.g. the fully-crated office floor) simply don't draw until
+ * slots free up (documented port limitation; gameplay unaffected —
+ * the office set is link-0 inert anyway). */
 int em_enemy_count(void)
 {
-    int n = s.n + s.gib_tail;
+    int n = s.n + s.gib_tail + s.gen_n;
     return n > EM_ENEMY_MAX ? EM_ENEMY_MAX : n;
 }
 
@@ -1363,9 +1893,17 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
                   uint32_t *bone_count)
 {
     if (i < 0) return 0;
-    if (i >= s.n) {                        /* virtual gib slot */
+    if (i >= s.n) {                        /* virtual gib / pad slot */
         int k = i - s.n;
-        if (k >= s.gib_tail || !s.gib[k].active) return 0;
+        if (k >= s.gib_tail) {             /* generator pad */
+            int gi = k - s.gib_tail;
+            if (gi >= s.gen_n || !s.gen_mesh) return 0;
+            *mesh       = s.gen_mesh;
+            *palette    = s.gen[gi].palette;
+            *bone_count = GEN_BONES;
+            return 1;
+        }
+        if (!s.gib[k].active) return 0;
         const GibModel *gm = &s.gibm[s.gib[k].model];
         *mesh       = gm->mesh;
         *palette    = s.gib[k].palette;
@@ -1418,6 +1956,21 @@ void em_enemy_pos(int i, float out[3])
     out[2] = s.e[i].pos[2];
 }
 
+int em_enemy_generator_count(void)
+{
+    return s.gen_n;
+}
+
+int em_enemy_generator_mode(int i)
+{
+    return (i >= 0 && i < s.gen_n) ? s.gen[i].mode : -1;
+}
+
+int em_enemy_generator_spawned(int i)
+{
+    return (i >= 0 && i < s.gen_n) ? s.gen[i].spawned : -1;
+}
+
 void em_enemy_shutdown(EmGfx *gfx)
 {
     if (s.mesh) {
@@ -1434,5 +1987,7 @@ void em_enemy_shutdown(EmGfx *gfx)
         em_gfx_mesh_destroy(gfx, s.gibm[i].mesh);
         em_model_free(&s.gibm[i].model);
     }
+    if (s.gen_mesh)
+        em_gfx_mesh_destroy(gfx, s.gen_mesh);
     memset(&s, 0, sizeof s);
 }
