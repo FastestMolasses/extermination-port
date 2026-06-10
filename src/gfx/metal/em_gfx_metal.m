@@ -24,9 +24,11 @@ struct EmGfx {
     id<MTLCommandQueue>          queue;
     id<MTLRenderPipelineState>   testPipeline; /* lazily built for the test draw */
     id<MTLRenderPipelineState>   skinPipeline; /* lazily built for skinned draws */
+    id<MTLRenderPipelineState>   glowPipeline; /* additive (ONE/ONE) glow pass */
     id<MTLSamplerState>          repeatSampler; /* linear, REPEAT (PS2 tiling) */
     id<MTLDepthStencilState>     depthOn;      /* less-equal, write */
     id<MTLDepthStencilState>     depthOff;     /* always, no write */
+    id<MTLDepthStencilState>     depthGlow;    /* less-equal, NO write (ZMSK=1) */
     id<MTLTexture>               depthTex;     /* sized to the drawable */
     /* per-frame */
     NSAutoreleasePool           *pool;
@@ -40,8 +42,10 @@ struct EmGfx {
 
 struct EmGfxMesh {
     id<MTLBuffer>  vbuf;
-    id<MTLBuffer>  ibuf;
+    id<MTLBuffer>  ibuf;       /* indices reordered: [opaque..., glow...] */
     uint32_t       index_count;
+    uint32_t       opaque_count; /* leading non-glow indices */
+    uint32_t       glow_count;   /* trailing EM_GFX_VERT_BILLBOARD indices */
     /* Embedded PS2 textures as a 2D array: every texture is TILED to fill
      * a common pow-2 slice, so REPEAT addressing reproduces the GS wrap
      * for any sub-size (all sizes are powers of two). scaleBuf holds one
@@ -83,7 +87,16 @@ static NSString *const kTestShaderSrc =
  * (fragment buffer 0) selects shading: 0 = directional stand-in light from
  * the normal; bit 0 set = the "normal" slot is a baked RGB vertex color
  * (static level geometry ships its lighting prebaked) and the fragment is
- * texture * color, the GS modulate path. */
+ * texture * color, the GS modulate path; bit 1 set = the GLOW pass (drawn
+ * additively): the fragment is the texture sample alone, no alpha-test
+ * cutout (the GS glow draws never update alpha or Z).
+ *
+ * Vertex bone word: low 24 bits = palette slot, bit 31 = BILLBOARD glow
+ * vertex (EM_GFX_VERT_BILLBOARD). For those the position is the anchor
+ * point (bone-local) and the "normal" slot the camera-plane corner offset;
+ * camera right/up come from the view rows of viewproj (rows 0/1 of P*V are
+ * the view rotation's rows up to a positive projection scale, so their
+ * normalized xyz IS the camera basis in world space). */
 static NSString *const kSkinShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
@@ -100,10 +113,23 @@ static NSString *const kSkinShaderSrc =
 "    float3 n = float3(fw[vid*10+3], fw[vid*10+4], fw[vid*10+5]);\n"
 "    float2 uv = float2(fw[vid*10+6], fw[vid*10+7]);\n"
 "    uint  tex = vdata[vid*10+9];\n"
-"    float4x4 M = palette[vdata[vid*10+8]];\n"
+"    uint  bw  = vdata[vid*10+8];\n"
+"    float4x4 M = palette[bw & 0x00FFFFFFu];\n"
 "    VOut o;\n"
-"    o.pos = viewproj * (M * float4(p, 1.0));\n"
-"    o.nrm = (mode & 1u) ? n : (M * float4(n, 0.0)).xyz;\n"
+"    if (bw & 0x80000000u) {\n"
+"        /* camera-facing glow quad: anchor + corner along camera right/up\n"
+"         * (viewproj row r = float3(vp[0][r], vp[1][r], vp[2][r])). */\n"
+"        float3 c = (M * float4(p, 1.0)).xyz;\n"
+"        float3 right = normalize(float3(viewproj[0].x, viewproj[1].x,\n"
+"                                        viewproj[2].x));\n"
+"        float3 up    = normalize(float3(viewproj[0].y, viewproj[1].y,\n"
+"                                        viewproj[2].y));\n"
+"        o.pos = viewproj * float4(c + right * n.x + up * n.y, 1.0);\n"
+"        o.nrm = float3(1.0);\n"
+"    } else {\n"
+"        o.pos = viewproj * (M * float4(p, 1.0));\n"
+"        o.nrm = (mode & 1u) ? n : (M * float4(n, 0.0)).xyz;\n"
+"    }\n"
 "    o.slice = tex;\n"
 "    o.uv = (tex == 0xFFFFFFFFu) ? float2(0.0) : uv * tscale[tex];\n"
 "    return o;\n"
@@ -117,8 +143,14 @@ static NSString *const kSkinShaderSrc =
 "        base = texs.sample(smp, in.uv, in.slice);\n"
 "        /* PS2 CLUT alpha is mostly binary (0 / 0x80): alpha-test the\n"
 "         * cutout texels (grates, glass edges) so depth stays correct;\n"
-"         * residual partial alpha goes through the blend stage. */\n"
-"        if (base.a < 0.5) discard_fragment();\n"
+"         * residual partial alpha goes through the blend stage. The glow\n"
+"         * pass skips the test: additive draws never punch holes. */\n"
+"        if (!(mode & 2u) && base.a < 0.5) discard_fragment();\n"
+"    }\n"
+"    if (mode & 2u) {\n"
+"        /* additive glow: Cv = Cs + Cd (GS ALPHA FIX=0x80); the layer\n"
+"         * tint is pre-multiplied into the texels by the exporter. */\n"
+"        return float4(base.rgb, 1.0);\n"
 "    }\n"
 "    if (mode & 1u) {\n"
 "        /* baked vertex color (GS modulate) */\n"
@@ -134,7 +166,8 @@ static NSString *const kSkinShaderSrc =
  * depth formats. Returns +1-retained PSO or nil (with the error printed). */
 static id<MTLRenderPipelineState> build_pipeline(EmGfx *g, NSString *src,
                                                  NSString *vfn_name,
-                                                 NSString *ffn_name)
+                                                 NSString *ffn_name,
+                                                 bool additive)
 {
     NSError *err = nil;
     id<MTLLibrary> lib = [g->device newLibraryWithSource:src
@@ -153,12 +186,22 @@ static id<MTLRenderPipelineState> build_pipeline(EmGfx *g, NSString *src,
     pd.colorAttachments[0].pixelFormat = g->layer.pixelFormat;
     /* Standard alpha blending: most PS2 texels are fully opaque (alpha-test
      * in the shader handles cutouts), so this only softens the few
-     * partial-alpha texels (window glass) without needing draw sorting. */
-    pd.colorAttachments[0].blendingEnabled             = YES;
-    pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
-    pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
-    pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorOne;
-    pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorZero;
+     * partial-alpha texels (window glass) without needing draw sorting.
+     * `additive` builds the glow-pass variant instead: Cv = Cs + Cd, the
+     * GS ALPHA (A=Cs, B=0, C=FIX 0x80, D=Cd) of the live glow draws; dest
+     * alpha is left untouched (the GS never updates A on those draws). */
+    pd.colorAttachments[0].blendingEnabled = YES;
+    if (additive) {
+        pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorOne;
+        pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOne;
+        pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorZero;
+        pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+    } else {
+        pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+        pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+        pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorOne;
+        pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorZero;
+    }
     pd.depthAttachmentPixelFormat      = EM_DEPTH_FORMAT;
     id<MTLRenderPipelineState> pso =
         [g->device newRenderPipelineStateWithDescriptor:pd error:&err];
@@ -180,6 +223,12 @@ static void ensure_depth_states(EmGfx *g)
     dd.depthCompareFunction = MTLCompareFunctionAlways;
     dd.depthWriteEnabled    = NO;
     g->depthOff = [g->device newDepthStencilStateWithDescriptor:dd];
+    /* glow pass: depth TEST on, depth WRITE off — the GS glow draws keep
+     * ZTE=1/ZTST=GEQUAL with ZMSK=1, so geometry still occludes the glow
+     * but the glow never occludes anything. */
+    dd.depthCompareFunction = MTLCompareFunctionLessEqual;
+    dd.depthWriteEnabled    = NO;
+    g->depthGlow = [g->device newDepthStencilStateWithDescriptor:dd];
     [dd release];
 }
 
@@ -227,9 +276,11 @@ void em_gfx_destroy(EmGfx *g)
     if (!g) return;
     [g->testPipeline release];
     [g->skinPipeline release];
+    [g->glowPipeline release];
     [g->repeatSampler release];
     [g->depthOn release];
     [g->depthOff release];
+    [g->depthGlow release];
     [g->depthTex release];
     [g->queue release];
     [g->device release];
@@ -274,8 +325,8 @@ void em_gfx_draw_test_triangle(EmGfx *g)
 {
     if (!g || !g->enc) return;
     if (!g->testPipeline) {
-        g->testPipeline = build_pipeline(g, kTestShaderSrc,
-                                         @"v_main", @"f_main"); /* lazily, once */
+        g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
+                                         @"f_main", false); /* lazily, once */
         if (!g->testPipeline) return;             /* compile failed; skip */
     }
     ensure_depth_states(g);
@@ -303,10 +354,35 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *g, const float *verts,
     m->vbuf = [g->device newBufferWithBytes:verts
                                      length:(NSUInteger)vert_count * 10 * 4
                                     options:MTLResourceStorageModeShared];
-    m->ibuf = [g->device newBufferWithBytes:indices
+
+    /* Partition triangles: EM_GFX_VERT_BILLBOARD (additive glow) triangles
+     * move to the END of the index buffer so draw_skinned can issue them
+     * as a second, additive, no-depth-write pass after the opaque set.
+     * Within each class the original order is kept. A triangle is a glow
+     * triangle iff its first vertex carries the flag (the exporter flags
+     * whole parts uniformly). */
+    const uint32_t *vw = (const uint32_t *)verts;
+    uint32_t *sorted = (uint32_t *)malloc((size_t)index_count * 4);
+    uint32_t  n_glow = 0;
+    for (uint32_t i = 0; i + 2 < index_count; i += 3)
+        if (vw[(size_t)indices[i] * 10 + 8] & EM_GFX_VERT_BILLBOARD)
+            n_glow += 3;
+    uint32_t op = 0, gl = index_count - n_glow;
+    for (uint32_t i = 0; i + 2 < index_count; i += 3) {
+        bool glow = vw[(size_t)indices[i] * 10 + 8] & EM_GFX_VERT_BILLBOARD;
+        uint32_t *dst = sorted + (glow ? gl : op);
+        dst[0] = indices[i]; dst[1] = indices[i + 1]; dst[2] = indices[i + 2];
+        if (glow) gl += 3; else op += 3;
+    }
+    for (uint32_t i = index_count - (index_count % 3); i < index_count; i++)
+        sorted[op++] = indices[i];   /* non-triple tail (none in practice) */
+    m->ibuf = [g->device newBufferWithBytes:sorted
                                      length:(NSUInteger)index_count * 4
                                     options:MTLResourceStorageModeShared];
-    m->index_count = index_count;
+    free(sorted);
+    m->index_count  = index_count;
+    m->glow_count   = n_glow;
+    m->opaque_count = index_count - n_glow;
 
     /* Texture array: common slice size = max texture dims (all pow-2 in
      * the PS2 data); each texture is tiled across its slice so REPEAT
@@ -383,8 +459,13 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     if (!g || !g->enc || !m || !viewproj || !palette || !bone_count) return;
     if (!g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
-                                         @"v_skin", @"f_skin");
+                                         @"v_skin", @"f_skin", false);
         if (!g->skinPipeline) return;
+    }
+    if (m->glow_count && !g->glowPipeline) {
+        g->glowPipeline = build_pipeline(g, kSkinShaderSrc,
+                                         @"v_skin", @"f_skin", true);
+        if (!g->glowPipeline) return;
     }
     ensure_depth_states(g);
     if (!g->repeatSampler) {
@@ -413,11 +494,30 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
-    [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                       indexCount:m->index_count
-                        indexType:MTLIndexTypeUInt32
-                      indexBuffer:m->ibuf
-                indexBufferOffset:0];
+    if (m->opaque_count)
+        [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                           indexCount:m->opaque_count
+                            indexType:MTLIndexTypeUInt32
+                          indexBuffer:m->ibuf
+                    indexBufferOffset:0];
+
+    /* Glow pass: the trailing EM_GFX_VERT_BILLBOARD triangles, additively
+     * blended (Cv = Cs + Cd), depth test on / depth write off — the
+     * translation of the engine's aura draws (GS ALPHA FIX=0x80, ZMSK=1).
+     * Mode bit 1 tells the fragment shader to skip the alpha-test cutout
+     * and emit the texture sample alone. */
+    if (m->glow_count && g->glowPipeline) {
+        uint32_t glow_mode = mode | 2u;
+        [g->enc setRenderPipelineState:g->glowPipeline];
+        [g->enc setDepthStencilState:g->depthGlow];
+        [g->enc setVertexBytes:&glow_mode length:4 atIndex:4];
+        [g->enc setFragmentBytes:&glow_mode length:4 atIndex:0];
+        [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                           indexCount:m->glow_count
+                            indexType:MTLIndexTypeUInt32
+                          indexBuffer:m->ibuf
+                    indexBufferOffset:(NSUInteger)m->opaque_count * 4];
+    }
 }
 
 void em_gfx_request_capture(EmGfx *g, const char *path)

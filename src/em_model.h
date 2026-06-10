@@ -25,6 +25,16 @@
  *         animation library, frames index the shared palette blob)
  *   vert  { f32 px,py,pz; f32 nx,ny,nz; f32 u,v; u32 bone; u32 tex }
  *         x vert_count       (tex 0xFFFFFFFF = untextured)
+ *         bone bits 0..23 = palette slot; bits 24..31 = per-vertex flags.
+ *         Bit 31 (EM_MODEL_VERT_BILLBOARD) marks a BILLBOARD+ADDITIVE glow
+ *         vertex: the position is the anchor point (bone-local), the
+ *         "normal" slot carries the camera-plane corner offset in world
+ *         units (x = right, y = up, z unused), and the renderer draws the
+ *         part camera-facing with additive blending, depth test on and
+ *         depth write off — the translation of the PS2 glow draws (GS
+ *         ALPHA Cs*FIX(0x80)+Cd, ZMSK=1; see the decomp repo's
+ *         export_props.py "PLAYER AURA"). Old files carry 0 there, so
+ *         EMD2/EMD3 stay fully compatible.
  *   u32   indices[index_count]
  *   f32   palette[frame_count][bone_count][16]   (column-major world mats)
  *   u8    texels[]   RGBA8 rows top-down, per texture at byte_offset
@@ -63,6 +73,10 @@ typedef struct {
 #define EM_MODEL_VERT_WORDS 10u  /* pos3, nrm3, uv2, bone, tex */
 #define EM_MODEL_NO_TEX     0xFFFFFFFFu
 #define EM_MODEL_FLAG_VCOLOR 1u  /* nrm slot = baked vertex color */
+
+/* Vertex bone-word layout: low 24 bits = palette slot, high 8 = flags. */
+#define EM_MODEL_VERT_BONE_MASK 0x00FFFFFFu
+#define EM_MODEL_VERT_BILLBOARD 0x80000000u /* camera-facing additive glow */
 
 typedef struct {
     uint32_t    bone_count;

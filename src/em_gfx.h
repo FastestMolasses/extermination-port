@@ -50,6 +50,18 @@ typedef struct {
                                   level data ships prebaked lighting)
                                   instead of the directional stand-in. */
 
+/* Per-vertex bone-word layout (mirrors EM_MODEL_VERT_* in em_model.h):
+ * low 24 bits = palette slot, bit 31 = BILLBOARD+ADDITIVE glow vertex.
+ * For glow vertices the position is the anchor point (bone-local) and the
+ * "normal" slot is the camera-plane corner offset in world units (x =
+ * camera right, y = camera up). Mesh creation partitions triangles so the
+ * glow set draws LAST in a second pass: additive blend (the PS2 draws
+ * these with GS ALPHA Cv = Cs*(FIX 0x80/128) + Cd), depth test on, depth
+ * write off (ZMSK=1) — camera right/up are extracted from the view rows
+ * of the draw's viewproj matrix. */
+#define EM_GFX_VERT_BONE_MASK 0x00FFFFFFu
+#define EM_GFX_VERT_BILLBOARD 0x80000000u
+
 /* Create a static skinned mesh. `verts` is vert_count records of 10 32-bit
  * words: float pos[3], float normal[3], float uv[2], uint32 bone, uint32
  * tex — the layout the EMDL asset stores (see em_model.h). Indices are u32
