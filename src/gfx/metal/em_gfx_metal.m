@@ -171,7 +171,10 @@ static NSString *const kBeamShaderSrc =
  * (static level geometry ships its lighting prebaked) and the fragment is
  * texture * color, the GS modulate path; bit 1 set = the GLOW pass (drawn
  * additively): the fragment is the texture sample alone, no alpha-test
- * cutout (the GS glow draws never update alpha or Z).
+ * cutout (the GS glow draws never update alpha or Z). Fragment buffer 1 is
+ * the per-draw RGBA tint (em_gfx_draw_skinned_tinted — the GS RGBAQ actor
+ * color multiplier): every shading path's output is multiplied by it;
+ * em_gfx_draw_skinned binds opaque white, the exact identity.
  *
  * Vertex bone word: low 24 bits = palette slot, bit 31 = BILLBOARD glow
  * vertex (EM_GFX_VERT_BILLBOARD). For those the position is the anchor
@@ -219,7 +222,8 @@ static NSString *const kSkinShaderSrc =
 "fragment float4 f_skin(VOut in [[stage_in]],\n"
 "                       texture2d_array<float> texs [[texture(0)]],\n"
 "                       sampler smp [[sampler(0)]],\n"
-"                       constant uint &mode [[buffer(0)]]) {\n"
+"                       constant uint &mode [[buffer(0)]],\n"
+"                       constant float4 &tint [[buffer(1)]]) {\n"
 "    float4 base = float4(0.55, 0.62, 0.70, 1.0);\n"
 "    if (in.slice != 0xFFFFFFFFu) {\n"
 "        base = texs.sample(smp, in.uv, in.slice);\n"
@@ -231,17 +235,18 @@ static NSString *const kSkinShaderSrc =
 "    }\n"
 "    if (mode & 2u) {\n"
 "        /* additive glow: Cv = Cs + Cd (GS ALPHA FIX=0x80); the layer\n"
-"         * tint is pre-multiplied into the texels by the exporter. */\n"
-"        return float4(base.rgb, 1.0);\n"
+"         * tint is pre-multiplied into the texels by the exporter. The\n"
+"         * per-draw tint still applies (additive blend ignores alpha). */\n"
+"        return float4(base.rgb, 1.0) * tint;\n"
 "    }\n"
 "    if (mode & 1u) {\n"
 "        /* baked vertex color (GS modulate) */\n"
-"        return float4(base.rgb * clamp(in.nrm, 0.0, 1.0), base.a);\n"
+"        return float4(base.rgb * clamp(in.nrm, 0.0, 1.0), base.a) * tint;\n"
 "    }\n"
 "    float3 N = normalize(in.nrm);\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
-"    return float4(base.rgb * (0.30 + 0.70 * d), base.a);\n"
+"    return float4(base.rgb * (0.30 + 0.70 * d), base.a) * tint;\n"
 "}\n";
 
 /* Compile MSL source at runtime and build a pipeline for the swapchain +
@@ -544,10 +549,35 @@ void em_gfx_mesh_destroy(EmGfx *g, EmGfxMesh *m)
     free(m);
 }
 
+/* Wrapper: a skinned draw with no color modulation is a tinted draw with
+ * opaque white — the multiply-by-1.0 identity, so output stays
+ * bit-identical to the pre-tint pipeline. */
 void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                          const float *palette, uint32_t bone_count)
 {
-    if (!g || !g->enc || !m || !viewproj || !palette || !bone_count) return;
+    static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    em_gfx_draw_skinned_tinted(g, m, viewproj, palette, bone_count, white);
+}
+
+/* Tinted skinned draw (em_gfx.h — the GS RGBAQ per-draw modulate). Same
+ * pipeline as em_gfx_draw_skinned: the tint rides as ONE extra
+ * setFragmentBytes (fragment buffer 1) into the same PSO — no PSO variant
+ * is needed because the skin pipeline already runs with standard alpha
+ * blending (opaque texels carry alpha 1, so the blend is the identity for
+ * the opaque case). THRESHOLD RULE: rgba[3] >= 1.0 → opaque draw, depth
+ * write ON (the em_gfx_draw_skinned state, byte-identical with a white
+ * tint); rgba[3] < 1.0 → translucent draw: the fragment alpha drops below
+ * 1 so the existing blend takes over, and depth WRITE goes off (ZMSK=1,
+ * test kept on) like the GS state of the engine's faded actor draws — a
+ * fading gib must not occlude what shows through it. The texture
+ * alpha-test cutout (base.a < 0.5 discard) still applies under any tint:
+ * cutout holes stay holes while fading. */
+void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
+                                const float *palette, uint32_t bone_count,
+                                const float rgba[4])
+{
+    if (!g || !g->enc || !m || !viewproj || !palette || !bone_count || !rgba)
+        return;
     /* Remember the frame's camera for the beam flush (world-space pass). */
     memcpy(g->lastViewProj, viewproj, sizeof(g->lastViewProj));
     g->hasViewProj = true;
@@ -572,7 +602,10 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         [sd release];
     }
     [g->enc setRenderPipelineState:g->skinPipeline];
-    [g->enc setDepthStencilState:g->depthOn];
+    /* Threshold rule (see the comment above): a tint alpha below 1.0
+     * selects the translucent state — depth test on, write off. */
+    bool translucent = rgba[3] < 1.0f;
+    [g->enc setDepthStencilState:(translucent ? g->depthGlow : g->depthOn)];
     /* Strip winding from the PS2 data is not normalised yet — draw
      * double-sided until the translated GS context supplies cull state. */
     [g->enc setCullMode:MTLCullModeNone];
@@ -586,6 +619,7 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     uint32_t mode = m->flags;
     [g->enc setVertexBytes:&mode length:4 atIndex:4];
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
+    [g->enc setFragmentBytes:rgba length:16 atIndex:1];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
     if (m->opaque_count)

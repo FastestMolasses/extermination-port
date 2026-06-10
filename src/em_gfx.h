@@ -87,6 +87,31 @@ void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
 void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
                          const float *palette, uint32_t bone_count);
 
+/* em_gfx_draw_skinned with a per-draw RGBA color modulation — the native
+ * translation of the engine's actor RGB multiplier (the GS RGBAQ
+ * vertex-color modulate path, FINDINGS.md): the fragment output of every
+ * shading mode (textured, baked vertex color, flat lit, glow) is
+ * multiplied by `rgba` (each component in [0,1]).
+ *
+ * Consumers:
+ *   - TENDRIL SPIKE tint: the spike mesh is colored entirely by the
+ *     engine's actor RGB multiplier — room tint (6,92,1)/128 green —
+ *     plus an alpha fade.
+ *   - GIB / CORPSE DESPAWN fade: the engine fades dead-actor pieces out
+ *     by walking the actor alpha down before freeing them.
+ *
+ * THRESHOLD RULE: rgba[3] >= 1.0 draws OPAQUE — the exact
+ * em_gfx_draw_skinned state (depth write on; with opaque white the output
+ * is bit-identical to the untinted call). rgba[3] < 1.0 draws TRANSLUCENT:
+ * fragment alpha < 1 goes through standard alpha blending, and the depth
+ * WRITE is disabled for the draw (depth TEST stays on) — the GS ZMSK=1
+ * state of the engine's faded actor draws, so a fading gib never occludes
+ * the scene behind it. The texture alpha-test cutout applies under any
+ * tint. em_gfx_draw_skinned is a wrapper passing opaque white. */
+void em_gfx_draw_skinned_tinted(EmGfx *gfx, EmGfxMesh *mesh,
+                                const float *viewproj, const float *palette,
+                                uint32_t bone_count, const float rgba[4]);
+
 /* --- 2D overlay pass (HUD) ------------------------------------------- */
 
 /* Overlay coordinates live on a VIRTUAL CANVAS — origin top-left, y
