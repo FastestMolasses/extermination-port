@@ -17,10 +17,101 @@
 #include "game/em_frame.h"
 #include "game/em_game.h"
 
+#include <dirent.h>
+#include <limits.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+/* EM_SCENE=<dir> — switch the loaded level scene without touching the game
+ * task code. The game code's asset paths are compile-time relative
+ * constants ("assets/scene", "assets/scene/office.emcl",
+ * "assets/player.emdl"), so the switch happens at the filesystem level:
+ * stage a shadow tree in a temp directory — a symlink for every entry of
+ * ./assets plus the requested directory linked AS "scene" — and chdir into
+ * it before anything opens a file. The scene directory supplies its level
+ * parts as *.emdl and its collision world as "office.emcl" (the loader's
+ * compile-time name; a per-scene name needs a src/game change).
+ *
+ * Default behavior is BYTE-IDENTICAL: with EM_SCENE unset (or naming the
+ * default directory) this function does nothing at all.
+ *
+ * Relative paths in EM_CAPTURE / EM_AUDIO_FILE / EM_BGM are absolutized
+ * against the original cwd first, so their files keep landing where the
+ * caller expects despite the chdir. POSIX-only (mac/linux); the Windows
+ * backend does not exist yet — revisit alongside it. */
+static void env_make_absolute(const char *name, const char *cwd)
+{
+    const char *v = getenv(name);
+    if (!v || !v[0] || v[0] == '/')
+        return;
+    char abs[PATH_MAX];
+    snprintf(abs, sizeof abs, "%s/%s", cwd, v);
+    setenv(name, abs, 1);
+}
+
+static void scene_redirect(void)
+{
+    const char *scene = getenv("EM_SCENE");
+    if (!scene || !scene[0])
+        return;                                  /* default — no-op */
+
+    char cwd[PATH_MAX], scene_abs[PATH_MAX], def_abs[PATH_MAX];
+    if (!getcwd(cwd, sizeof cwd))
+        return;
+    if (!realpath(scene, scene_abs)) {
+        fprintf(stderr, "scene: EM_SCENE=%s does not resolve — keeping the "
+                        "default scene\n", scene);
+        return;
+    }
+    if (realpath("assets/scene", def_abs) && strcmp(def_abs, scene_abs) == 0)
+        return;                                  /* the default dir — no-op */
+
+    env_make_absolute("EM_CAPTURE", cwd);
+    env_make_absolute("EM_AUDIO_FILE", cwd);
+    env_make_absolute("EM_BGM", cwd);
+
+    char stage_tmpl[] = "/tmp/em_scene_XXXXXX";
+    char *stage = mkdtemp(stage_tmpl);
+    char sub[PATH_MAX];
+    if (!stage) {
+        fprintf(stderr, "scene: mkdtemp failed — keeping the default "
+                        "scene\n");
+        return;
+    }
+    snprintf(sub, sizeof sub, "%s/assets", stage);
+    if (mkdir(sub, 0700) != 0) {
+        fprintf(stderr, "scene: cannot stage %s — keeping the default "
+                        "scene\n", sub);
+        return;
+    }
+
+    DIR *dir = opendir("assets");                /* may not exist: fine */
+    if (dir) {
+        struct dirent *de;
+        while ((de = readdir(dir)) != NULL) {
+            if (de->d_name[0] == '.' || strcmp(de->d_name, "scene") == 0)
+                continue;
+            char from[PATH_MAX], to[PATH_MAX];
+            snprintf(from, sizeof from, "%s/assets/%s", cwd, de->d_name);
+            snprintf(to, sizeof to, "%s/%s", sub, de->d_name);
+            (void)symlink(from, to);
+        }
+        closedir(dir);
+    }
+    char link[PATH_MAX];
+    snprintf(link, sizeof link, "%s/scene", sub);
+    if (symlink(scene_abs, link) != 0 || chdir(stage) != 0) {
+        fprintf(stderr, "scene: staging failed — keeping the default "
+                        "scene\n");
+        return;
+    }
+    printf("scene: EM_SCENE=%s (staged at %s)\n", scene_abs, stage);
+}
 
 /* Audio smoke test (EM_AUDIO_TEST=1): synthesize a quiet 440 Hz sine from the
  * audio thread and count delivered frames. Per the em_audio.h contract the
@@ -29,7 +120,6 @@
 #define AUDIO_TEST_RATE 48000
 
 #include <stdint.h>
-#include <string.h>
 
 typedef struct {
     double      phase;   /* audio thread only */
@@ -168,6 +258,8 @@ static int wav_load_pcm16(const char *path, AudioWavTest *wt)
 
 int main(void)
 {
+    scene_redirect();   /* EM_SCENE — must precede every file open */
+
     EmWindow *win = em_window_create("Extermination (native port)", 960, 720);
     if (!win) {
         fprintf(stderr, "fatal: could not create window\n");
