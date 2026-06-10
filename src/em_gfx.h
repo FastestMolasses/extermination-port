@@ -44,6 +44,12 @@ typedef struct {
     uint32_t width, height, offset, reserved;
 } EmGfxTexDesc;
 
+/* Mesh creation flags (mirrors EM_MODEL_FLAG_* in em_model.h). */
+#define EM_GFX_MESH_VCOLOR 1u  /* "normal" slot carries a baked RGB vertex
+                                  color: shade = texture * color (the PS2
+                                  level data ships prebaked lighting)
+                                  instead of the directional stand-in. */
+
 /* Create a static skinned mesh. `verts` is vert_count records of 10 32-bit
  * words: float pos[3], float normal[3], float uv[2], uint32 bone, uint32
  * tex — the layout the EMDL asset stores (see em_model.h). Indices are u32
@@ -54,7 +60,7 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts,
                               uint32_t vert_count, const uint32_t *indices,
                               uint32_t index_count,
                               const EmGfxTexDesc *texs, uint32_t tex_count,
-                              const uint8_t *texels);
+                              const uint8_t *texels, uint32_t flags);
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
 
 /* Draw a skinned mesh inside the current frame.

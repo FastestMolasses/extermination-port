@@ -49,6 +49,7 @@ struct EmGfxMesh {
     id<MTLTexture> texArray;
     id<MTLBuffer>  scaleBuf;
     uint32_t       tex_count;
+    uint32_t       flags;      /* EM_GFX_MESH_* */
 };
 
 #define EM_DEPTH_FORMAT MTLPixelFormatDepth32Float
@@ -78,7 +79,11 @@ static NSString *const kTestShaderSrc =
  * reproduces GS wrap). This mirrors the VU1 soft-skinner: vertex positions
  * are bone-local, world = palette[bone] * pos. Fragment = texture sample
  * (per-triangle slice via [[flat]]) modulated by directional light;
- * untextured vertices (tex == ~0u) keep the flat grey. */
+ * untextured vertices (tex == ~0u) keep the flat grey. A per-draw mode word
+ * (fragment buffer 0) selects shading: 0 = directional stand-in light from
+ * the normal; bit 0 set = the "normal" slot is a baked RGB vertex color
+ * (static level geometry ships its lighting prebaked) and the fragment is
+ * texture * color, the GS modulate path. */
 static NSString *const kSkinShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
@@ -88,7 +93,8 @@ static NSString *const kSkinShaderSrc =
 "                   const device uint *vdata [[buffer(0)]],\n"
 "                   const device float4x4 *palette [[buffer(1)]],\n"
 "                   constant float4x4 &viewproj [[buffer(2)]],\n"
-"                   const device float2 *tscale [[buffer(3)]]) {\n"
+"                   const device float2 *tscale [[buffer(3)]],\n"
+"                   constant uint &mode [[buffer(4)]]) {\n"
 "    const device float *fw = (const device float *)vdata;\n"
 "    float3 p = float3(fw[vid*10+0], fw[vid*10+1], fw[vid*10+2]);\n"
 "    float3 n = float3(fw[vid*10+3], fw[vid*10+4], fw[vid*10+5]);\n"
@@ -97,20 +103,25 @@ static NSString *const kSkinShaderSrc =
 "    float4x4 M = palette[vdata[vid*10+8]];\n"
 "    VOut o;\n"
 "    o.pos = viewproj * (M * float4(p, 1.0));\n"
-"    o.nrm = (M * float4(n, 0.0)).xyz;\n"
+"    o.nrm = (mode & 1u) ? n : (M * float4(n, 0.0)).xyz;\n"
 "    o.slice = tex;\n"
 "    o.uv = (tex == 0xFFFFFFFFu) ? float2(0.0) : uv * tscale[tex];\n"
 "    return o;\n"
 "}\n"
 "fragment float4 f_skin(VOut in [[stage_in]],\n"
 "                       texture2d_array<float> texs [[texture(0)]],\n"
-"                       sampler smp [[sampler(0)]]) {\n"
-"    float3 N = normalize(in.nrm);\n"
-"    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
-"    float  d = max(dot(N, L), 0.0);\n"
+"                       sampler smp [[sampler(0)]],\n"
+"                       constant uint &mode [[buffer(0)]]) {\n"
 "    float3 base = float3(0.55, 0.62, 0.70);\n"
 "    if (in.slice != 0xFFFFFFFFu)\n"
 "        base = texs.sample(smp, in.uv, in.slice).rgb;\n"
+"    if (mode & 1u) {\n"
+"        /* baked vertex color (GS modulate) */\n"
+"        return float4(base * clamp(in.nrm, 0.0, 1.0), 1.0);\n"
+"    }\n"
+"    float3 N = normalize(in.nrm);\n"
+"    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
+"    float  d = max(dot(N, L), 0.0);\n"
 "    return float4(base * (0.30 + 0.70 * d), 1.0);\n"
 "}\n";
 
@@ -271,10 +282,11 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *g, const float *verts,
                               uint32_t vert_count, const uint32_t *indices,
                               uint32_t index_count,
                               const EmGfxTexDesc *texs, uint32_t tex_count,
-                              const uint8_t *texels)
+                              const uint8_t *texels, uint32_t flags)
 {
     if (!g || !verts || !indices || !vert_count || !index_count) return NULL;
     EmGfxMesh *m = (EmGfxMesh *)calloc(1, sizeof(EmGfxMesh));
+    m->flags = flags;
     m->vbuf = [g->device newBufferWithBytes:verts
                                      length:(NSUInteger)vert_count * 10 * 4
                                     options:MTLResourceStorageModeShared];
@@ -383,6 +395,9 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                    atIndex:1];
     [g->enc setVertexBytes:viewproj length:64 atIndex:2];
     [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
+    uint32_t mode = m->flags;
+    [g->enc setVertexBytes:&mode length:4 atIndex:4];
+    [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
     [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle

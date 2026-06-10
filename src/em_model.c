@@ -54,6 +54,7 @@ int em_model_load(EmModel *m, const char *path)
     m->frame_count = hdr.frame_count;
     m->fps         = hdr.fps;
     m->tex_count   = hdr.tex_count;
+    m->flags       = hdr.reserved;   /* v2 producers wrote 0 here */
 
     m->parents = read_block(f, (size_t)hdr.bone_count * 4, "parents");
     m->texs    = read_block(f, (size_t)hdr.tex_count * 16, "textures");

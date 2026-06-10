@@ -12,7 +12,9 @@
  *   u32   frame_count
  *   f32   fps
  *   u32   tex_count
- *   u32   reserved
+ *   u32   flags        (bit 0: the "normal" slot carries a baked vertex
+ *                       COLOR, not a normal — static level geometry ships
+ *                       its lighting prebaked; see tools/export_level.py)
  *   i32   parents[bone_count]
  *   tex   { u32 width, height, byte_offset, reserved } x tex_count
  *   vert  { f32 px,py,pz; f32 nx,ny,nz; f32 u,v; u32 bone; u32 tex }
@@ -44,6 +46,7 @@ typedef struct {
 
 #define EM_MODEL_VERT_WORDS 10u  /* pos3, nrm3, uv2, bone, tex */
 #define EM_MODEL_NO_TEX     0xFFFFFFFFu
+#define EM_MODEL_FLAG_VCOLOR 1u  /* nrm slot = baked vertex color */
 
 typedef struct {
     uint32_t    bone_count;
@@ -52,6 +55,7 @@ typedef struct {
     uint32_t    frame_count;
     float       fps;
     uint32_t    tex_count;
+    uint32_t    flags;
     int32_t    *parents;   /* bone_count */
     EmModelTex *texs;      /* tex_count */
     float      *verts;     /* vert_count * EM_MODEL_VERT_WORDS 32-bit words */

@@ -17,12 +17,83 @@
 #include "em_audio.h"
 #include "em_input.h"
 
+#include <dirent.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define MODEL_PATH "assets/player.emdl"
+
+/* Scene: a small list of static EMDL parts (level geometry exported in
+ * WORLD space by the decomp repo's tools/export_level.py) loaded from
+ * assets/scene EMDL files in alphabetical order. When present, the player is
+ * placed at its known world position in the room and the camera orbits
+ * there; without a scene the original single-model behavior is kept. */
+#define SCENE_DIR   "assets/scene"
+#define SCENE_MAX   16
+
+/* Player world placement in the office room (chunk06.n1 level): the live
+ * GS-dump capture has the character standing at ~(107.4, 0, -184); the
+ * level floor there is y = 0 and the player EMDL is recentred at the
+ * origin with its feet at y ~= 0. */
+static const float kPlayerPos[3] = { 107.4f, 0.0f, -184.0f };
+
+typedef struct {
+    EmModel    model;
+    EmGfxMesh *mesh;
+} SceneItem;
+
+static int cmp_str(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* Load assets/scene EMDL files (alphabetical). Returns the number loaded. */
+static int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
+{
+    DIR *dir = opendir(SCENE_DIR);
+    if (!dir) return 0;
+
+    char *names[SCENE_MAX];
+    int   n_names = 0;
+    struct dirent *de;
+    while ((de = readdir(dir)) != NULL && n_names < max_items) {
+        const char *dot = strrchr(de->d_name, '.');
+        if (!dot || strcmp(dot, ".emdl") != 0) continue;
+        names[n_names] = malloc(strlen(de->d_name) + 1);
+        if (!names[n_names]) break;
+        strcpy(names[n_names], de->d_name);
+        n_names++;
+    }
+    closedir(dir);
+    qsort(names, n_names, sizeof(names[0]), cmp_str);
+
+    int n = 0;
+    for (int i = 0; i < n_names; i++) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", SCENE_DIR, names[i]);
+        free(names[i]);
+        SceneItem *it = &items[n];
+        if (em_model_load(&it->model, path) != 0) continue;
+        it->mesh = em_gfx_mesh_create(gfx, it->model.verts,
+                                      it->model.vert_count, it->model.indices,
+                                      it->model.index_count,
+                                      (const EmGfxTexDesc *)it->model.texs,
+                                      it->model.tex_count, it->model.texels,
+                                      it->model.flags);
+        if (!it->mesh) {
+            em_model_free(&it->model);
+            continue;
+        }
+        printf("scene: %s — %u verts, %u tris, %u textures\n", path,
+               it->model.vert_count, it->model.index_count / 3,
+               it->model.tex_count);
+        n++;
+    }
+    return n;
+}
 
 /* Audio smoke test (EM_AUDIO_TEST=1): synthesize a quiet 440 Hz sine from the
  * audio thread and count delivered frames. Per the em_audio.h contract the
@@ -97,7 +168,7 @@ int main(void)
         mesh = em_gfx_mesh_create(gfx, model.verts, model.vert_count,
                                   model.indices, model.index_count,
                                   (const EmGfxTexDesc *)model.texs,
-                                  model.tex_count, model.texels);
+                                  model.tex_count, model.texels, model.flags);
         printf("loaded %s: %u bones, %u verts, %u tris, %u frames @ %.0f fps, "
                "%u textures\n",
                MODEL_PATH, model.bone_count, model.vert_count,
@@ -107,6 +178,10 @@ int main(void)
         printf("no %s — showing the test triangle. Generate it with the "
                "decomp repo's tools/export_native.py\n", MODEL_PATH);
     }
+
+    /* Optional scene (level parts, world-space). */
+    SceneItem scene[SCENE_MAX];
+    int n_scene = scene_load(gfx, scene, SCENE_MAX);
 
     /* Headless verification: EM_CAPTURE=<path.bmp> renders ~1s, captures a
      * frame to the given BMP, and exits. Used for screenshot regression. */
@@ -162,12 +237,28 @@ int main(void)
 
         em_gfx_begin_frame(gfx, 0.08f, 0.09f, 0.12f, 1.0f);
 
-        if (mesh) {
-            /* Slow orbit camera around the character (game units: the
-             * player stands ~15 units tall, recentred at the origin). */
+        if (mesh || n_scene) {
+            /* Slow orbit camera. Without a scene it circles the character
+             * at the origin (the original single-model framing); with one
+             * it circles the character's world position inside the room. */
             float ang = (float)(t * 0.5);
-            float eye[3]    = { 28.0f * sinf(ang), 12.0f, 28.0f * cosf(ang) };
-            float center[3] = { 0.0f, 7.0f, 0.0f };
+            float cx = 0.0f, cy = 7.0f, cz = 0.0f;
+            float radius = 28.0f, eye_h = 12.0f, far_clip = 500.0f;
+            if (n_scene) {
+                /* The character stands near the room's +X wall; phase the
+                 * orbit so the camera starts inside the open part of the
+                 * room (towards -X/+Z) instead of inside that wall. */
+                ang += 4.82f;
+                cx = kPlayerPos[0];
+                cy = kPlayerPos[1] + 7.0f;
+                cz = kPlayerPos[2];
+                radius = 20.0f;
+                eye_h  = cy + 8.0f;
+                far_clip = 800.0f;
+            }
+            float eye[3]    = { cx + radius * sinf(ang), eye_h,
+                                cz + radius * cosf(ang) };
+            float center[3] = { cx, cy, cz };
             float up[3]     = { 0.0f, 1.0f, 0.0f };
 
             int dw, dh;
@@ -177,12 +268,28 @@ int main(void)
             float view[16], proj[16], viewproj[16];
             em_mat4_lookat(view, eye, center, up);
             em_mat4_perspective(proj, 50.0f * 3.14159265f / 180.0f, aspect,
-                                0.5f, 500.0f);
+                                0.5f, far_clip);
             em_mat4_mul(viewproj, proj, view);
 
-            em_model_palette_at(&model, t * model.fps, palette);
-            em_gfx_draw_skinned(gfx, mesh, viewproj, palette,
-                                model.bone_count);
+            for (int i = 0; i < n_scene; i++) {
+                em_model_palette_at(&scene[i].model, 0.0, palette);
+                em_gfx_draw_skinned(gfx, scene[i].mesh, viewproj, palette,
+                                    scene[i].model.bone_count);
+            }
+            if (mesh) {
+                em_model_palette_at(&model, t * model.fps, palette);
+                if (n_scene) {
+                    /* Place the recentred character at its world spot by
+                     * offsetting every palette matrix translation. */
+                    for (uint32_t b = 0; b < model.bone_count; b++) {
+                        palette[b * 16 + 12] += kPlayerPos[0];
+                        palette[b * 16 + 13] += kPlayerPos[1];
+                        palette[b * 16 + 14] += kPlayerPos[2];
+                    }
+                }
+                em_gfx_draw_skinned(gfx, mesh, viewproj, palette,
+                                    model.bone_count);
+            }
         } else {
             em_gfx_draw_test_triangle(gfx);
         }
@@ -204,6 +311,10 @@ int main(void)
     if (mesh) {
         em_gfx_mesh_destroy(gfx, mesh);
         em_model_free(&model);
+    }
+    for (int i = 0; i < n_scene; i++) {
+        em_gfx_mesh_destroy(gfx, scene[i].mesh);
+        em_model_free(&scene[i].model);
     }
     em_gfx_destroy(gfx);
     em_window_destroy(win);
