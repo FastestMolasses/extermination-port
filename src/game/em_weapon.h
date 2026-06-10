@@ -69,6 +69,17 @@
  * schedules the mag-action tick from the reload entry; dropping the
  * stance mid-reload (holster) cancels the pending mag sound.
  *
+ * FIRE-CHAIN TAIL (live-pinned s29, wired with the same scheduling
+ * pattern): a shot that ray-hits the WORLD (not an enemy) plays the
+ * wall impact/ricochet 0x189 two frames after the fire sound (the
+ * fire event's one-frame mailbox latency + one armed tick), and EVERY
+ * shot ejects a casing whose floor bounce 0x16A plays 42 ticks
+ * (~0.7 s) after the shot — the casing countdowns keep ticking through
+ * reloads/holsters (the brass is already in the air). An ENEMY hit
+ * plays no impact sound — the victim's flinch/death path owns that
+ * audio. Surface-variant impact ids are NOT pinned (see the em_sfx.h
+ * flag on the 0x188/0x18A/0x18B family): 0x189 plays for every wall.
+ *
  * LASER SIGHT (translated 2026-06-10 s23 — live capture + disasm of the
  * gun actor's per-frame drawers func_001854E0 / func_00185760, selected
  * by player +0x318 while the aim-pose anim is in phase): every aim frame

@@ -102,6 +102,16 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
                                  * reload window: ~0.5 s after the reload
                                  * start (s29 live capture) = 30 ticks at
                                  * 60 Hz; clamped inside a shorter window  */
+/* FIRE-CHAIN TAIL (s29 live capture — scheduled like the reload's 0x168):
+ * the wall impact 0x189 lands ~2 frames after the fire sound. The fire
+ * event already spends one frame in the gun mailbox (shot at T, ray
+ * resolved at T+1), so the resolve arms ONE more tick and the sound
+ * plays at T+2 — the engine's observed latency by construction. */
+#define WPN_IMPACT_SFX_TICKS 1  /* resolve(T+1) + 1 tick -> 0x189 at T+2  */
+#define WPN_CASING_TICKS    42  /* shell casing 0x16A hits the floor
+                                 * ~0.7 s = 42 ticks after EACH shot      */
+#define WPN_CASING_SLOTS     8  /* pending casings: the 6-tick full-auto
+                                 * cadence keeps ceil(42/6) = 7 in flight */
 #define WPN_MUZZLE_HEIGHT  12.0f /* chest height; the engine derives the
                                   * muzzle from the hand-bone matrix
                                   * (gun +0xA0 = M(0x810550)*(-3,y,0)) —
@@ -170,6 +180,14 @@ static struct {
     int     fire_event;  /* gun actor +0x2E: posted by the player SM,
                           * consumed (ray + FX) on the NEXT update — the
                           * contract's mandatory one-frame latency        */
+
+    int     impact_sfx;  /* ticks until the wall-impact sound 0x189
+                          * (0 = none pending; armed by a WALL ray hit)   */
+    int     casing[WPN_CASING_SLOTS];
+                         /* per-shot countdowns to the shell-casing
+                          * sound 0x16A (0 = slot free); the casing is
+                          * already in the air, so these keep ticking
+                          * through reloads/holsters/stance drops        */
 
     int     flash;       /* muzzle-flash overlay frames remaining         */
     int     pulse;       /* crosshair pulse frames remaining              */
@@ -359,6 +377,16 @@ static void weapon_shot(void)
      * overlap by construction (the counter never passes the interval). */
     em_game_anim_hold_restart(WPN_ANIM_AIM, WPN_FIRE_RATE);
     em_sfx_play(EM_SFX_WPN_FIRE);         /* 0x164, the per-shot block    */
+    /* SHELL CASING (s29): every shot ejects a casing that hits the
+     * floor ~0.7 s later — arm a 42-tick countdown to 0x16A (a free
+     * slot always exists: 8 slots vs 7 in flight at the auto cadence;
+     * a saturated table drops the oldest-pending overlap harmlessly). */
+    for (int k = 0; k < WPN_CASING_SLOTS; k++) {
+        if (w.casing[k] == 0) {
+            w.casing[k] = WPN_CASING_TICKS;
+            break;
+        }
+    }
 }
 
 /* Muzzle point + fire direction from the player placement. The engine
@@ -485,10 +513,19 @@ static void weapon_resolve_fire(const EmCollision *coll,
             victim = -1;           /* the wall is in front of the enemy */
     }
     if (victim >= 0) {
+        /* ENEMY hit: no impact sound here — the flinch/death path owns
+         * the victim's audio (the +0x36 mailbox consumer / 0x7D8). */
         em_enemy_damage(victim, WPN_HIT_DMG);  /* victim +0x36 mailbox */
         hit = 1;
     } else {
         hit = world_hit;
+        /* WALL hit: arm the impact/ricochet 0x189 one tick out — with
+         * the fire event's own one-frame latency the sound lands fire
+         * +2 frames, the s29-observed chain (WPN_IMPACT_SFX_TICKS).
+         * SURFACE VARIANTS: unpinned — 0x189 for every wall (the
+         * em_sfx.h flag on the 0x188/0x18A/0x18B family). */
+        if (world_hit)
+            w.impact_sfx = WPN_IMPACT_SFX_TICKS;
     }
 
     w.last_hit  = hit;
@@ -704,6 +741,16 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                       float player_yaw, const EmFrameInput *in)
 {
     if (!in || !player_pos) return;
+
+    /* Scheduled fire-chain tail (ticked BEFORE the fire-event resolve,
+     * so an impact armed by this frame's resolve waits a full tick and
+     * 0x189 lands exactly fire +2 frames — the s29 chain): */
+    if (w.impact_sfx > 0 && --w.impact_sfx == 0)
+        em_sfx_play(EM_SFX_WPN_IMPACT);     /* 0x189 wall impact      */
+    for (int k = 0; k < WPN_CASING_SLOTS; k++) {
+        if (w.casing[k] > 0 && --w.casing[k] == 0)
+            em_sfx_play(EM_SFX_WPN_CASING); /* 0x16A casing, shot+42  */
+    }
 
     /* Gun-side tick FIRST: an event posted last frame resolves now —
      * the contract's one-frame fire-event latency, kept exactly. */

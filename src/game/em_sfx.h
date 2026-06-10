@@ -74,6 +74,25 @@ extern "C" {
                                      * 0x33 reload anim (s29 live capture;
                                      * snd_0351, 39006 Hz, global bank)       */
 #define EM_SFX_WPN_DRY      0x169u  /* empty mag + empty reserve click        */
+/* FIRE-CHAIN TAIL (live-pinned s29, FINDINGS "GAMEPLAY SOUND IDS PINNED
+ * LIVE"): each shot is followed by the wall impact/ricochet ~2 frames
+ * after the fire sound (office wall hit) and the shell casing hitting
+ * the floor ~0.7 s after the shot. em_weapon schedules both off the
+ * shot tick (the reload-mag-action pattern).
+ * SURFACE-VARIANT FLAG: the soundmap's 0x188/0x18A/0x18B neighbors
+ * (snd_0423/0422/0420 — consecutive tones 26..29 of the same program)
+ * look like the per-surface impact family the engine's surface-keyed
+ * impact resolver would pick from (the hit record's +0x1A attr; the
+ * decoded FX side keys 0x5A/0x5B/0x5C the same way), but NO surface ->
+ * sound-id mapping is pinned in FINDINGS yet — the port plays 0x189
+ * (the one live-observed variant) for every wall, flagged. */
+#define EM_SFX_WPN_IMPACT   0x189u  /* bullet WALL impact/ricochet, fire
+                                     * +2 frames (s29 live; snd_0421)         */
+#define EM_SFX_WPN_CASING   0x16Au  /* shell casing floor bounce, ~0.7 s
+                                     * (42 ticks) after each shot (s29
+                                     * live; 2-event, snd_0347 — em_sfx
+                                     * plays the first event until the
+                                     * multi-event trigger scripts land)      */
 /* KNIFE / MELEE (s36 decode — em_weapon.h "KNIFE / MELEE"): the swing/
  * impact sounds fire at each attack's impact gate, vol 300, hit or
  * whiff (func_001735C0 / func_00173E60; the heavy stab reuses 0x17F).
