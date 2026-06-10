@@ -151,6 +151,31 @@ void em_gfx_overlay_arc(EmGfx *gfx, float cx, float cy,
                         float r_in, float r_out, float a0, float a1,
                         const float rgba[4]);
 
+/* --- textured overlay (the UI font path) ------------------------------ */
+
+/* Register THE overlay texture (single slot — the engine's UI text path
+ * has exactly one live font strip). `rgba` is w*h RGBA8 texels, rows
+ * top-down; the data is copied into a GPU texture (the caller may free
+ * it). Replaces any previously registered texture. Returns 1 on success,
+ * 0 on failure (no device / bad args) — callers fall back to untextured
+ * primitives so a missing font never regresses the frame. */
+int em_gfx_overlay_texture_set(EmGfx *gfx, const uint8_t *rgba,
+                               uint32_t w, uint32_t h);
+
+/* Queue one TEXTURED overlay quad sampling the registered overlay
+ * texture: (x, y, w, h) in virtual-canvas units like
+ * em_gfx_overlay_rect; (u0, v0)-(u1, v1) in TEXELS of the registered
+ * texture (the engine's text vocabulary — its glyph sprites carry 12.4
+ * texel UVs). Sampled BILINEAR and modulated by `rgba` (the GS draws the
+ * font strip with TEX1 MMAG/MMIN=1 + TFX modulate), standard alpha
+ * blend. Counts against its own EM_GFX_OVERLAY_MAX quad budget;
+ * textured quads flush in one draw AFTER the untextured overlay
+ * primitives (text composites over panels/gauges queued the same
+ * frame). No-op without a registered texture. */
+void em_gfx_overlay_glyph(EmGfx *gfx, float x, float y, float w, float h,
+                          float u0, float v0, float u1, float v1,
+                          const float rgba[4]);
+
 /* --- World-space beam pass (laser sight) ------------------------------ */
 
 /* Queue one world-space BEAM SEGMENT for this frame: a thin quad from `a`

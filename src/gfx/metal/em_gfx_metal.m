@@ -49,6 +49,16 @@ struct EmGfx {
     float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
     uint32_t                     overlayVertCount;
     float                        overlayW, overlayH;
+    /* Textured overlay (em_gfx_overlay_glyph): ONE texture slot — the UI
+     * font sheet — plus its own quad queue (float4 NDC pos + float4 color
+     * + float4 uv, uv.xy normalized at queue time). Flushed right after
+     * the untextured overlay primitives so text composites over panels. */
+    id<MTLTexture>               overlayTex;
+    float                        overlayTexW, overlayTexH;
+    id<MTLRenderPipelineState>   glyphPipeline;  /* textured overlay PSO  */
+    id<MTLSamplerState>          clampSampler;   /* linear, clamp-to-edge */
+    float                        glyphVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
+    uint32_t                     glyphVertCount;
     /* World-space beam pass (em_gfx_beam / em_gfx_beam_dot): primitives
      * queued during the frame as raw records; the camera-plane extrusion
      * needs the camera, so vertices are built at flush time from the
@@ -98,6 +108,29 @@ static NSString *const kTestShaderSrc =
 "    return o;\n"
 "}\n"
 "fragment float4 f_main(VOut in [[stage_in]]) { return in.color; }\n";
+
+/* Textured-overlay shader (em_gfx_overlay_glyph) — runtime-compiled like
+ * the others. Buffer 0 holds 3 float4s per vertex: pre-converted NDC
+ * position, modulate color, uv (xy, normalized). The fragment samples the
+ * registered overlay texture BILINEAR and modulates — the GS state of the
+ * engine's font-strip sprites (TEX1 MMAG/MMIN=1, TFX modulate). */
+static NSString *const kGlyphShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct VOut { float4 pos [[position]]; float4 color; float2 uv; };\n"
+"vertex VOut v_glyph(uint vid [[vertex_id]],\n"
+"                    const device float4 *data [[buffer(0)]]) {\n"
+"    VOut o;\n"
+"    o.pos   = float4(data[vid*3].xy, 0.0, 1.0);\n"
+"    o.color = data[vid*3 + 1];\n"
+"    o.uv    = data[vid*3 + 2].xy;\n"
+"    return o;\n"
+"}\n"
+"fragment float4 f_glyph(VOut in [[stage_in]],\n"
+"                        texture2d<float> tex [[texture(0)]],\n"
+"                        sampler smp [[sampler(0)]]) {\n"
+"    return tex.sample(smp, in.uv) * in.color;\n"
+"}\n";
 
 /* Beam shader — world-space position + color through the camera, compiled
  * at runtime like the others. Buffer 0 holds float4 world position +
@@ -323,6 +356,9 @@ void em_gfx_destroy(EmGfx *g)
     [g->skinPipeline release];
     [g->glowPipeline release];
     [g->beamPipeline release];
+    [g->glyphPipeline release];
+    [g->overlayTex release];
+    [g->clampSampler release];
     [g->repeatSampler release];
     [g->depthOn release];
     [g->depthOff release];
@@ -661,6 +697,69 @@ void em_gfx_overlay_arc4(EmGfx *g, float cx, float cy,
     }
 }
 
+/* Register the single overlay texture slot (em_gfx.h — the UI font
+ * sheet). RGBA8 rows top-down, copied into a GPU texture. */
+int em_gfx_overlay_texture_set(EmGfx *g, const uint8_t *rgba,
+                               uint32_t w, uint32_t h)
+{
+    if (!g || !g->device || !rgba || !w || !h) return 0;
+    MTLTextureDescriptor *td = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                     width:w
+                                    height:h
+                                 mipmapped:NO];
+    td.usage = MTLTextureUsageShaderRead;
+    id<MTLTexture> tex = [g->device newTextureWithDescriptor:td];
+    if (!tex) return 0;
+    [tex replaceRegion:MTLRegionMake2D(0, 0, w, h)
+           mipmapLevel:0
+             withBytes:rgba
+           bytesPerRow:(NSUInteger)w * 4];
+    [g->overlayTex release];
+    g->overlayTex  = tex;          /* +1 from newTextureWithDescriptor */
+    g->overlayTexW = (float)w;
+    g->overlayTexH = (float)h;
+    return 1;
+}
+
+/* Append one textured-overlay vertex (NDC pos + color + normalized uv —
+ * the kGlyphShaderSrc layout). Capacity checked by the caller. */
+static void glyph_push(EmGfx *g, float x, float y, float u, float v,
+                       const float rgba[4])
+{
+    float *o = g->glyphVerts + (size_t)g->glyphVertCount * 12;
+    o[0]  = x / g->overlayW * 2.0f - 1.0f;
+    o[1]  = 1.0f - y / g->overlayH * 2.0f;
+    o[2]  = 0.0f;
+    o[3]  = 1.0f;
+    o[4]  = rgba[0];
+    o[5]  = rgba[1];
+    o[6]  = rgba[2];
+    o[7]  = rgba[3];
+    o[8]  = u / g->overlayTexW;
+    o[9]  = v / g->overlayTexH;
+    o[10] = 0.0f;
+    o[11] = 1.0f;
+    g->glyphVertCount++;
+}
+
+/* Queue one textured overlay quad (em_gfx.h): canvas-space rect sampling
+ * the registered overlay texture at texel UVs (u0,v0)-(u1,v1). */
+void em_gfx_overlay_glyph(EmGfx *g, float x, float y, float w, float h,
+                          float u0, float v0, float u1, float v1,
+                          const float rgba[4])
+{
+    if (!g || !rgba || !g->overlayTex ||
+        g->glyphVertCount + 6 > EM_GFX_OVERLAY_MAX * 6)
+        return;
+    glyph_push(g, x,     y,     u0, v0, rgba);   /* tri 1 */
+    glyph_push(g, x + w, y,     u1, v0, rgba);
+    glyph_push(g, x,     y + h, u0, v1, rgba);
+    glyph_push(g, x + w, y,     u1, v0, rgba);   /* tri 2 */
+    glyph_push(g, x + w, y + h, u1, v1, rgba);
+    glyph_push(g, x,     y + h, u0, v1, rgba);
+}
+
 /* Flat-color arc (em_gfx.h). */
 void em_gfx_overlay_arc(EmGfx *g, float cx, float cy,
                         float r_in, float r_out, float a0, float a1,
@@ -847,6 +946,49 @@ static void overlay_flush(EmGfx *g)
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
+/* Flush the queued TEXTURED overlay quads (em_gfx_overlay_glyph): one
+ * draw right after overlay_flush — same pass position (post-3D, depth
+ * off, standard alpha blend), so text composites over the untextured
+ * panels/gauges of the same frame. Linear clamp sampling = the GS font
+ * strip state (TEX1 MMAG/MMIN=1). */
+static void glyph_flush(EmGfx *g)
+{
+    uint32_t verts = g->glyphVertCount;
+    g->glyphVertCount = 0;
+    if (!verts || !g->enc || !g->overlayTex) return;
+    if (!g->glyphPipeline) {
+        g->glyphPipeline = build_pipeline(g, kGlyphShaderSrc, @"v_glyph",
+                                          @"f_glyph", false);
+        if (!g->glyphPipeline) return;
+    }
+    if (!g->clampSampler) {
+        MTLSamplerDescriptor *sd = [[MTLSamplerDescriptor alloc] init];
+        sd.minFilter    = MTLSamplerMinMagFilterLinear;
+        sd.magFilter    = MTLSamplerMinMagFilterLinear;
+        sd.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
+        g->clampSampler = [g->device newSamplerStateWithDescriptor:sd];
+        [sd release];
+        if (!g->clampSampler) return;
+    }
+    ensure_depth_states(g);
+    id<MTLBuffer> vbuf =
+        [g->device newBufferWithBytes:g->glyphVerts
+                               length:(NSUInteger)verts * 12 * sizeof(float)
+                              options:MTLResourceStorageModeShared];
+    if (!vbuf) return;
+    [g->enc setRenderPipelineState:g->glyphPipeline];
+    [g->enc setDepthStencilState:g->depthOff];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
+    [g->enc setFragmentTexture:g->overlayTex atIndex:0];
+    [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+               vertexStart:0
+               vertexCount:(NSUInteger)verts];
+    [vbuf release];   /* the in-flight command buffer keeps it alive */
+}
+
 void em_gfx_request_capture(EmGfx *g, const char *path)
 {
     if (!g || !path) return;
@@ -896,6 +1038,7 @@ void em_gfx_end_frame(EmGfx *g)
     if (!g) return;
     beam_flush(g);      /* world-space beams: after 3D, under the overlay */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
+    glyph_flush(g);     /* textured overlay (font glyphs) over the rects */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 
     id<MTLBuffer> shot = nil;
