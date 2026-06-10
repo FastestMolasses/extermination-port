@@ -39,28 +39,47 @@ emulated or recompiled.
 ```
 src/
   em_platform.h          cross-platform windowing + input contract
-  em_gfx.h               cross-platform graphics contract (clear/present today;
-                         the translated PS2 draw pipeline grows on top)
-  main.c                 platform-agnostic bootstrap loop
+  em_gfx.h               cross-platform graphics contract (clear/present +
+                         the translated PS2 skinned-draw path)
+  em_input.h/.c          OS-free DualShock 2 pad model (keyboard-fed today)
+  em_model.h/.c          EMDL asset loading (our own interchange format)
+  em_audio.h             pull-model audio output contract
+  main.c                 bring-up only: platform/gfx/audio init -> em_frame_run
+  game/
+    em_task.h/.c         the engine's 3-slot frame-task table (state byte +
+                         fn per slot; START/WAKE->RUN promotion; dispatch)
+    em_frame.h/.c        the per-frame phase sequence (PS2 main loop steps
+                         A..W; the mapping table lives in em_frame.c) + the
+                         frame input block (current/pressed/released + analog)
+    em_game.h/.c         slot-0 game task chain: boot task -> game task ->
+                         in-game frame machine -> gameplay frame (actor
+                         update -> render chain build -> camera -> flush)
   platform/{mac,win,linux}/   native windowing per OS
   gfx/{metal,d3d12,vulkan}/   native renderer per API
 ```
 
-Layering: `main.c` and the future game code talk only to `em_platform.h` /
-`em_gfx.h`. The platform layer never touches a GPU API; the gfx layer attaches
-to the window's native surface handle. This keeps the game/renderer split clean
-and each platform swappable.
+Layering: `main.c` and the game code talk only to the `em_*` contracts. The
+platform layer never touches a GPU API; the gfx layer attaches to the window's
+native surface handle. `src/game/` holds the faithful structural translation
+of the engine's game-loop architecture (decomp repo
+`Extermination/docs/FINDINGS.md` "ENGINE FRAME ANATOMY" is the spec); its
+files map each native stage to the PS2 function it stands in for.
 
 ## State
 
-- macOS shell (Cocoa window + Metal clear/present + input/quit loop) is the
-  first working target — build with `make`, run with `make run`.
+- macOS target works: Cocoa window + Metal, textured skinned character +
+  level scene through the engine-shaped frame loop — build with `make`, run
+  with `make run`.
+- The game loop now has the engine's structure: em_frame runs the documented
+  per-frame phases, em_task dispatches the slot-0 game task, and the gameplay
+  frame stages (actor update, render chain build, camera apply, close-out
+  flush) host today's rendering. Game logic fills the skeleton arms as the
+  decomp recovers it.
 - Windows (Win32 + D3D12) and Linux (X11 + Vulkan) backends are skeletoned with
   the same interface; not yet implemented.
-- The renderer is clear-and-present only. The PS2 GS/VU1 draw pipeline is
-  reimplemented incrementally as the decomp repo reverse-engineers it (the
-  bone/anim/skinning/CLUT/GS-packet characterization in `Extermination/docs/`
-  is the renderer spec).
+- Headless checks: `EM_CAPTURE=<path.bmp>` (renders ~1 s, captures gameplay
+  frame 60, exits), `EM_AUDIO_TEST=1` (sine smoke test), `EM_INPUT_TEST=1`
+  (pad-change prints), `make test-input` (OS-free pad-model unit test).
 
 ## Build
 

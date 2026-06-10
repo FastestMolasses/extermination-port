@@ -9,7 +9,8 @@ UNAME := $(shell uname)
 
 BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
-COMMON  := src/main.c src/em_model.c src/em_input.c
+COMMON  := src/main.c src/em_model.c src/em_input.c \
+           src/game/em_task.c src/game/em_frame.c src/game/em_game.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
