@@ -33,7 +33,13 @@
  *      there in one frame; the port drives the same point through the
  *      scripted MOVE-TO walk (em_door_transit_active -> em_game
  *      player_move), per the walk-to semantics of func_001BBE40.
- *   2. door clip plays (sub 3; captured 77..97 vsyncs) -> commit
+ *   2. OPEN phase (sub 3) — the door script D_0024DE40 (FINDINGS.md
+ *      "DOOR SCRIPTS DECODED" s23), run on walk-to arrival: the player
+ *      faces the door (the kickoff yaw snap) and plays anim 0x45
+ *      (front) / 0x43 (back) at rate 1.0 through em_game's scripted-
+ *      anim mailbox (op 0x0A sub 0) while the door clip + sound run
+ *      (op 0x0B sub 6; captured clip window 77..97 vsyncs); the script
+ *      waits 90 (front) / 70 (back) frames (op 0x02 STOP) -> commit
  *      (sub 4, func_001BC240 -> func_001BC150): 64-frame fade-out
  *      (func_001AEDE0(4,0) -> em_frame_fade_start). Room moves do NOT
  *      fade audio (only area changes do — s22).

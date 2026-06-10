@@ -5,13 +5,16 @@
  * LIFECYCLE" s22, func_001BC350 RUN sub-states, engine numbering kept):
  *
  *   0 CLOSED   armed (+0x0B != 0, by the use scan or a neighbor panel)
- *              -> transit kickoff (func_001BBE40: side latch, INPUT
- *              LOCK, walk-to the staging point door + 5*n) -> 3.
+ *              -> transit kickoff (func_001BBE40: SIDE LATCH +0x2E,
+ *              INPUT LOCK, walk-to the staging point door + 5*n) -> 3.
  *              The locked sequence (subs 1/2, model 0x15 + unlock
  *              bitmask) is not in the port yet.
- *   3 OPENING  advance the clip 1.0/frame (func_001BC0E0; captured clip
- *              window 77..97 vsyncs); clip done AND the player at the
- *              staging point -> 4
+ *   3 OPENING  walk-to arrival, then the OPEN script D_0024DE40
+ *              (FINDINGS "DOOR SCRIPTS DECODED" s23): player anim
+ *              0x45 front / 0x43 back at rate 1.0 (op 0x0A sub 0, via
+ *              em_game_anim_request), door sound + clip start (op 0x0B
+ *              sub 6; pump func_001BC0E0 advances 1.0/frame), wait 90
+ *              front / 70 back frames (op 0x02 STOP) -> 4
  *   4 OPEN     one-frame transition COMMIT (func_001BC240 ->
  *              func_001BC150): arm the 64-frame fade-out
  *              (func_001AEDE0(4,0)); room moves do NOT fade audio -> 5
@@ -39,6 +42,7 @@
 
 #include "em_input.h"   /* EM_PAD_CROSS — the frame input button mask */
 #include "em_model.h"
+#include "game/em_game.h"   /* scripted player anim (op 0x0A sub 0) */
 #include "game/em_sfx.h"
 
 #define DOOR_MAX        EM_DOOR_MAX
@@ -63,6 +67,20 @@
  * e.g. -247.2 = door z + 5) and the spawn-table records flank the door
  * at ~+-5 with exit yaw. */
 #define DOOR_POINT_DIST   5.0f
+
+/* OPEN-phase script values (FINDINGS "DOOR SCRIPTS DECODED" s23 — the
+ * D_0024DE40 open script, records patched by side at kickoff):
+ *  - player anim id (op 0x0A sub 0, rate 1.0): 0x45 front / 0x43 back
+ *    — the reach-out/walk-through clips, played through the scripted-
+ *    anim mailbox (em_game_anim_request; id == library container).
+ *  - phase duration (the op 0x02 STOP wait): 90.0 front / 70.0 back
+ *    frames, then the script ends and the transition COMMIT runs.
+ * SIDE: the s17 front test — bearing(player - door) within pi/2 of the
+ * door yaw (i.e. the player stands on the side the door faces, +n). */
+#define DOOR_ANIM_OPEN_FRONT  0x45
+#define DOOR_ANIM_OPEN_BACK   0x43
+#define DOOR_WAIT_FRONT       90.0f
+#define DOOR_WAIT_BACK        70.0f
 
 /* Fade speed for the transit fades — the captured func_001AEDE0 speed
  * (4 -> 64-frame ramp), see em_frame.h. */
@@ -91,6 +109,13 @@ typedef struct {
     float    transit_to[3];  /* STAGING point door_pos + 5.0 * n, near side */
     float    transit_yaw;    /* player yaw snapped to the door normal
                               * (travel direction = the exit yaw) */
+    int      front;          /* side latch (actor +0x2E): 1 = front (the
+                              * +n side the door faces), 0 = back */
+    float    open_wait;      /* scripted open-phase length, frames (the
+                              * op 0x02 wait: 90 front / 70 back) */
+    float    phase_t;        /* open-phase frame counter */
+    int      anim_started;   /* open-phase script chain fired (player
+                              * anim + door clip + sound, one-shot) */
     float    spawn_pt[3];    /* re-place point door_pos - 5.0 * n, far side
                               * (the spawn-table record's pose) */
     int      did_warp;       /* sub 5: re-place already posted this transit */
@@ -394,6 +419,16 @@ static void door_transit_kickoff(Door *d, const float pp[3])
     float nx = sinf(d->yaw), nz = cosf(d->yaw);
     float side = (pp[0] - d->pos[0]) * nx + (pp[2] - d->pos[2]) * nz;
     float dir  = (side < 0.0f) ? 1.0f : -1.0f;   /* far side of player */
+    /* SIDE LATCH (+0x2E, the s17 front test): the player is FRONT when
+     * the bearing of (player - door) is within pi/2 of the door yaw —
+     * equivalently dot(player - door, n) >= 0 (the +n side the door
+     * faces). The latch patches the open script's per-side values:
+     * player anim 0x45/0x43, wait 90/70 (yaw snap: front = yaw + pi,
+     * back = yaw — which is exactly transit_yaw below). */
+    d->front        = side >= 0.0f;
+    d->open_wait    = d->front ? DOOR_WAIT_FRONT : DOOR_WAIT_BACK;
+    d->phase_t      = 0.0f;
+    d->anim_started = 0;
     /* staging point: the player's OWN side (-dir), 5 u off the door */
     d->transit_to[0] = d->pos[0] - DOOR_POINT_DIST * dir * nx;
     d->transit_to[1] = d->pos[1];
@@ -444,22 +479,45 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 d->clip_t = 0.0f;
                 d->state  = EM_DOOR_OPENING;
                 door_transit_kickoff(d, player_pos);
-                /* PLACEHOLDER id (flagged): on the PS2 the open sound
-                 * is fired by the door SCRIPT of the func_001BBE40
-                 * kickoff (s17 open item) — the real id is undecoded. */
-                em_sfx_play(EM_SFX_DOOR_OPEN);
             }
             break;
-        case EM_DOOR_OPENING:      /* func_001BC0E0: clip 1.0/frame */
+        case EM_DOOR_OPENING:      /* the OPEN script D_0024DE40 + the
+                                    * clip pump func_001BC0E0 */
+            /* Walk-to staging still in flight: the engine SNAPPED here,
+             * so its script ran immediately; the port's walk replaces
+             * the snap (flagged deviation) and the script chain fires
+             * on arrival. The walk-through keeps the normal locomotion
+             * walk anim. */
+            if (d->transit)
+                break;
+            if (!d->anim_started) {
+                /* Arrival = the script's anim/sound/clip records run
+                 * back to back: player anim 0x45/0x43 rate 1.0 (op 0x0A
+                 * sub 0, patched by the side latch), door sound + door
+                 * clip start (op 0x0B sub 6). The player already faces
+                 * the door — the kickoff's yaw snap (transit_yaw) IS
+                 * the front/back snap of func_001BBE40. */
+                d->anim_started = 1;
+                em_game_anim_request(d->front ? DOOR_ANIM_OPEN_FRONT
+                                              : DOOR_ANIM_OPEN_BACK,
+                                     1.0f);
+                /* PLACEHOLDER id (flagged): the engine's id comes from
+                 * the D_0024DB80 pair table via the door LINK halfword
+                 * (op 0x0B sub 6 record, patched by func_001BBD60); the
+                 * port's manifest does not carry the link yet. */
+                em_sfx_play(EM_SFX_DOOR_OPEN);
+            }
+            /* Clip pump (1.0/frame) + the script's op 0x02 wait: the
+             * phase runs 90 (front) / 70 (back) frames, then the script
+             * STOPs and the transition COMMIT follows. The back-side
+             * commit leaves the PLACEHOLDER 90-frame swing at 70/90 —
+             * the engine's back clip (index 0) is its own, shorter,
+             * animation; honest until the real door clips are found. */
             if (d->clip_t < door_clip_total(d))
                 d->clip_t += 1.0f;
-            /* Commit gate: clip done (the engine's only condition — it
-             * SNAPPED to staging at kickoff) AND, port-side, the walk
-             * that replaced the snap has arrived. */
-            if (d->clip_t >= door_clip_total(d) && !d->transit) {
-                d->clip_t = door_clip_total(d);
-                d->state  = EM_DOOR_OPEN;
-            }
+            d->phase_t += 1.0f;
+            if (d->phase_t >= d->open_wait)
+                d->state = EM_DOOR_OPEN;
             break;
         case EM_DOOR_OPEN:         /* one-frame COMMIT (func_001BC240 ->
                                     * func_001BC150): arm the 64-frame
@@ -483,6 +541,10 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                     s.warp_yaw     = d->transit_yaw;
                     d->did_warp    = 1;
                     s.unlock_armed = 1;
+                    /* Script teardown under black: the player anim
+                     * resets with the re-place (the op 0x18 family's
+                     * +0x1F2 = 0) — locomotion resumes standing. */
+                    em_game_anim_cancel();
                     em_frame_fade_start(-1, DOOR_FADE_SPEED);
                     /* PLACEHOLDER id (flagged) — script-driven, like
                      * open; fires at black, behind the player. */

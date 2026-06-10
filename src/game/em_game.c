@@ -305,6 +305,16 @@ static struct {
     float      move_speed;       /* this frame's ground speed, units/sec */
     float      walk_palette[1024 * 16];  /* scratch for the blend */
 
+    /* scripted-anim mailbox (em_game.h em_game_anim_request): the
+     * native player+0x1F2 request / +0x20C commit pair. sa_req/sa_cur
+     * hold library clip IDS (0 = none); sa_clip is the committed
+     * model clip-table index; sa_t the clip time in FRAMES. */
+    unsigned   sa_req;           /* requested clip id   (+0x1F2) */
+    float      sa_rate;          /* requested rate      (+0x1F8) */
+    unsigned   sa_cur;           /* committed clip id   (+0x20C) */
+    int        sa_clip;          /* committed clip index, -1 = none */
+    double     sa_t;             /* scripted clip time, frames */
+
     /* player world placement (the actor's position + facing) */
     float      pos[3];           /* world position, feet on the floor */
     float      yaw;              /* facing about +Y, radians; 0 = +Z */
@@ -350,6 +360,8 @@ static struct {
     int         dt_ok_trigger;   /* X press put the door in OPENING */
     int         dt_ok_lock;      /* input locked during the transit */
     int         dt_ok_inputdead; /* held stick did NOT move the player */
+    int         dt_ok_anim;      /* scripted door anim 0x43 committed
+                                  * mid-open (back side of the test door) */
     float       dt_min_x;        /* min player x while the door not OPEN */
     float       dt_max_fade;     /* peak fade level seen (must reach 1.0) */
     int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
@@ -779,11 +791,51 @@ static void player_move(void)
  * and the in-place walk clip advances at move_speed / WALK_CLIP_SPEED
  * so the stride tracks the ground (it freezes while standing). At
  * weight 0 the idle path is bit-exactly the old single-clip evaluation,
- * keeping EM_CAPTURE idle output stable. */
+ * keeping EM_CAPTURE idle output stable.
+ *
+ * SCRIPTED ANIM (em_game.h em_game_anim_request): the commit slice of
+ * the spine. If the request mailbox (sa_req, the native +0x1F2)
+ * differs from the committed id (sa_cur, +0x20C), commit it — the
+ * engine's func_00183090 "copy +0x1F2 -> +0x20C, anim_clip_init" path,
+ * one frame after the request, exactly the original latency (requests
+ * land from the world-services slot AFTER this update ran). While
+ * committed, the scripted clip OWNS the palette: it plays once at
+ * sa_rate frames/tick, holds its last frame, and ends back into
+ * locomotion (clip over, or em_game_anim_cancel — the script
+ * teardown's +0x1F2 = 0). The locomotion blend state is parked at
+ * idle while suspended, so the return is the plain idle pose (the
+ * door sequence re-places the player standing). */
 static void actor_update(void)
 {
     player_move();
     if (!g.mesh) return;
+
+    /* scripted-anim COMMIT (func_00183090: +0x1F2 != +0x20C). */
+    if (g.sa_req != g.sa_cur) {
+        g.sa_cur  = g.sa_req;
+        g.sa_clip = g.sa_req
+                  ? em_model_clip_index(&g.model, (uint32_t)g.sa_req)
+                  : -1;
+        g.sa_t    = 0.0;
+    }
+    if (g.sa_cur && g.sa_clip >= 0) {
+        const EmModelClip *cs = &g.model.clips[g.sa_clip];
+        /* Evaluate, then advance; clamp at the LAST frame (one-shot —
+         * em_model_palette_at would loop-blend back into frame 0). */
+        double end = (double)(cs->frame_count - 1);
+        double t   = g.sa_t < end ? g.sa_t : end;
+        em_model_palette_at(&g.model, (uint32_t)g.sa_clip, t,
+                            g.player_palette);
+        palette_apply_placement(g.player_palette, g.model.bone_count,
+                                g.pos, g.yaw);
+        g.sa_t += (double)g.sa_rate;
+        if (g.sa_t >= end + 1.0) {     /* played through: clip-end flag */
+            g.sa_req = g.sa_cur = 0;   /* (+0x200 & 0x1000 analog) */
+            g.sa_clip = -1;
+        }
+        g.walk_w = 0.0f;               /* locomotion parked at idle */
+        return;
+    }
 
     float target = 0.0f;
     if (g.clip_walk >= 0) {
@@ -1135,7 +1187,7 @@ static void frame_close_out(void)
     g.frame_no++;
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
-    if (g.capture_path && !g.move_test && !g.weapon_test &&
+    if (g.capture_path && !g.move_test && !g.weapon_test && !g.door_test &&
         g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();
 }
@@ -1220,21 +1272,33 @@ static void move_test_script(void)
  *                   "previously blocked plane".
  *   frame   60      CROSS press -> the use scan arms the door (dist 5.4,
  *                   facing-dot 0.56); assert state == OPENING soon after.
- *                   The kickoff LOCKS input and WALKS the player to the
+ *                   The kickoff LOCKS input, latches the side (the test
+ *                   approach is the BACK side: bearing(player - door)
+ *                   is pi off the door yaw) and WALKS the player to the
  *                   staging point (62, 0, -220.5) = door + 5*n on his
- *                   own side while the 90-frame door clip plays.
- *   frame  100      assert em_door_input_locked() == 1 (mid-transit);
+ *                   own side (arrival ~frame 80; the walk keeps the
+ *                   locomotion walk anim).
+ *   ~frame  80      OPEN phase: the door script chain fires on arrival
+ *                   — scripted player anim 0x43 (door-open BACK, rate
+ *                   1.0) replaces locomotion, door sound + clip start;
+ *                   the script waits 70 frames (back-side op 0x02).
+ *   frame  100      assert em_door_input_locked() == 1 (mid-transit)
+ *                   AND em_game_anim_active() == 0x43 (the reach-out
+ *                   pose, NOT the walk);
  *   100..140        hold forward ('w') — locked input must NOT move the
  *                   player off the staging point (checked at 145).
- *   ~frame 151      commit -> 64-frame fade-out (peak level tracked);
- *                   at black: re-place at the spawn point (52, 0,
- *                   -220.5) = door - 5*n, exit yaw -pi/2; door closes;
- *                   64-frame fade-in; unlock at fade-in end.
+ *   ~frame 150      commit (arrival ~80 + 70-frame wait) -> 64-frame
+ *                   fade-out (peak level tracked); at black: re-place
+ *                   at the spawn point (52, 0, -220.5) = door - 5*n,
+ *                   exit yaw -pi/2, scripted anim CANCELLED (script
+ *                   teardown); door closes; 64-frame fade-in; unlock at
+ *                   fade-in end.
  *   frame  340      assert: trigger OK, blocked min x >= 59.9, lock
- *                   seen, locked input dead, fade reached 1.0 and is
- *                   back at 0, input UNLOCKED, final pos (52, -220.5)
- *                   +- tol with yaw -pi/2 (behind the door, exit pose),
- *                   door re-armed CLOSED.
+ *                   seen, locked input dead, scripted anim seen at 100
+ *                   and idle (0) again at the end, fade reached 1.0 and
+ *                   is back at 0, input UNLOCKED, final pos (52,
+ *                   -220.5) +- tol with yaw -pi/2 (behind the door,
+ *                   exit pose), door re-armed CLOSED.
  *
  * (Geometry verified against the office EMCL: corridor floor along the
  * whole approach, boundary wall at x = 60, no other static blocker.) */
@@ -1248,6 +1312,7 @@ static void door_test_script(void)
         g.dt_ok_trigger   = 0;
         g.dt_ok_lock      = 0;
         g.dt_ok_inputdead = 0;
+        g.dt_ok_anim      = 0;
         move_test_inject('w', 1);
     } else if (n == 24) {
         move_test_inject('w', 0);
@@ -1273,6 +1338,9 @@ static void door_test_script(void)
                           em_door_state(g.dt_door) == EM_DOOR_OPENING;
     } else if (n == 100) {
         g.dt_ok_lock = em_door_input_locked();
+        /* Mid-open: the scripted door anim must own the player — the
+         * BACK-side clip 0x43 committed (+0x20C analog), not the walk. */
+        g.dt_ok_anim = em_game_anim_active() == 0x43;
         move_test_inject('w', 1);   /* locked: must be ignored */
     } else if (n == 140) {
         move_test_inject('w', 0);
@@ -1288,14 +1356,17 @@ static void door_test_script(void)
         int ok_fade   = g.dt_max_fade >= 0.999f &&
                         em_frame_fade_level() <= 0.001f;
         int ok_unlock = !em_door_input_locked();
+        int ok_animend = em_game_anim_active() == 0;  /* teardown reset */
         int ok_pass   = fabsf(g.pos[0] - 52.0f)   <= 0.1f &&
                         fabsf(g.pos[2] + 220.5f)  <= 0.6f &&
                         fabsf(g.yaw + EM_PI * 0.5f) <= 0.01f;
         int ok = g.dt_ok_trigger && g.dt_ok_lock && g.dt_ok_inputdead &&
+                 g.dt_ok_anim && ok_animend &&
                  ok_fade && ok_unlock && ok_pass && ok_block && ok_closed;
         printf("door test: trigger->OPENING %s, blocked min x %.3f while "
                "closed (boundary 60.0: %s), input locked mid-transit %s, "
-               "locked stick ignored %s, fade peak %.3f / final %.3f: %s, "
+               "locked stick ignored %s, scripted anim 0x43 mid-open %s / "
+               "reset at end %s, fade peak %.3f / final %.3f: %s, "
                "unlocked at end %s, final pos (%.3f, %.3f, %.3f) yaw "
                "%.4f behind the door: %s, door state %d (CLOSED %d, "
                "re-armed): %s — %s\n",
@@ -1303,6 +1374,8 @@ static void door_test_script(void)
                ok_block ? "ok" : "FAILED",
                g.dt_ok_lock ? "ok" : "FAILED",
                g.dt_ok_inputdead ? "ok" : "FAILED",
+               g.dt_ok_anim ? "ok" : "FAILED",
+               ok_animend ? "ok" : "FAILED",
                g.dt_max_fade, em_frame_fade_level(),
                ok_fade ? "ok" : "FAILED",
                ok_unlock ? "ok" : "FAILED",
@@ -1666,6 +1739,9 @@ static void ingame_frame_machine(EmTask *self)
             g.walk_w         = 0.0f;
             g.frame_no       = 0;
             g.frame_selector = 0;
+            g.sa_req         = 0;     /* scripted-anim mailbox cleared */
+            g.sa_cur         = 0;     /* (player anim re-init state)   */
+            g.sa_clip        = -1;
             g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
             g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
             g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
@@ -1786,7 +1862,7 @@ static void game_boot_task(void)
                g.model.clips[g.clip_idle].id,
                g.clip_walk >= 0 ? ", walk found — idle<->walk crossfade on"
                                 : " only — crossfade off (re-export with "
-                                  "--clips 346,2,3)");
+                                  "--clips 346,2,3,69,67,75)");
     } else {
         printf("no %s — showing the test triangle. Generate it with the "
                "decomp repo's tools/export_native.py\n", MODEL_PATH);
@@ -1902,4 +1978,33 @@ void em_game_shutdown(void)
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
     em_sfx_shutdown();  /* AFTER em_bgm_shutdown — the device-teardown
                          * guarantee makes the sample memory freeable */
+}
+
+/* ------------------------------------------------------------------ */
+/* Scripted-anim mailbox (see em_game.h for the engine mapping)        */
+/* ------------------------------------------------------------------ */
+
+int em_game_anim_request(unsigned clip_id, float rate)
+{
+    if (!g.mesh || clip_id == 0)
+        return 0;
+    if (em_model_clip_index(&g.model, (uint32_t)clip_id) < 0) {
+        printf("anim request: player EMDL carries no clip id %u "
+               "(0x%X) — re-export with it in --clips\n", clip_id,
+               clip_id);
+        return 0;
+    }
+    g.sa_req  = clip_id;            /* +0x1F2 */
+    g.sa_rate = rate;               /* +0x1F8 */
+    return 1;
+}
+
+void em_game_anim_cancel(void)
+{
+    g.sa_req = 0;                   /* op 0x18 teardown: +0x1F2 = 0 */
+}
+
+unsigned em_game_anim_active(void)
+{
+    return g.sa_cur;                /* +0x20C */
 }

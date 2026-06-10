@@ -35,6 +35,35 @@ void em_game_install(void);
  * em_frame_run() returns, before the gfx device is destroyed. */
 void em_game_shutdown(void);
 
+/* SCRIPTED PLAYER ANIM — the engine's anim-request mailbox, natively
+ * (FINDINGS.md "ANIM ID MAPPING" + "DOOR SCRIPTS DECODED", s23).
+ *
+ * Engine model: a request writes the clip id halfword to player+0x1F2
+ * and the playback rate float to +0x1F8 (door scripts do it through
+ * op 0x0A sub 0; the weapon arbiters and the locomotion defaults use
+ * the same mailbox). The per-frame COMMIT (func_00183090) copies
+ * +0x1F2 -> +0x20C when they differ and calls anim_clip_init(actor,
+ * id, rate): the id IS the container index in the actor's bound clip
+ * library (player: chunk28/f01_id3c — anim id == EMDL clip-table id).
+ *
+ * Natively: em_game_anim_request latches the request; actor_update
+ * commits it on its next run (the engine's own one-frame request ->
+ * commit latency), suspends the idle<->walk locomotion blend, and
+ * plays the clip ONCE at `rate` frames/tick, holding the last frame
+ * until it ends — then locomotion resumes by itself. Returns 1 if the
+ * loaded player EMDL carries `clip_id`, else 0 (no state change; the
+ * caller decides how to degrade).
+ *
+ * em_game_anim_cancel is the script-teardown reset (the op 0x18 end
+ * marker / mode-exit family writes +0x1F2 = 0): clears request +
+ * committed state, locomotion resumes on the next actor_update.
+ *
+ * em_game_anim_active returns the committed clip id (0 = none) — the
+ * native +0x20C, for the door sequence and the self-tests. */
+int      em_game_anim_request(unsigned clip_id, float rate);
+void     em_game_anim_cancel(void);
+unsigned em_game_anim_active(void);
+
 #ifdef __cplusplus
 }
 #endif
