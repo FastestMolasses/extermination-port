@@ -9,7 +9,7 @@ UNAME := $(shell uname)
 
 BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
-COMMON  := src/main.c
+COMMON  := src/main.c src/em_model.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)

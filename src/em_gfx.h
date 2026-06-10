@@ -14,11 +14,14 @@
 
 #include "em_platform.h"
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct EmGfx EmGfx;
+typedef struct EmGfx     EmGfx;
+typedef struct EmGfxMesh EmGfxMesh;
 
 /* Create a graphics device bound to the window's native surface. NULL on
  * failure. */
@@ -35,8 +38,34 @@ void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a);
  * draw API (the translated PS2 GS/VU1 pipeline) that grows on top. */
 void em_gfx_draw_test_triangle(EmGfx *gfx);
 
+/* Create a static skinned mesh. `verts` is vert_count records of 7 32-bit
+ * words: float pos[3], float normal[3], uint32 bone index — the layout the
+ * EMDL asset stores (see em_model.h). Indices are u32 triangle lists. The
+ * vertex/index data is copied into GPU buffers; the caller may free it. */
+EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts,
+                              uint32_t vert_count, const uint32_t *indices,
+                              uint32_t index_count);
+void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
+
+/* Draw a skinned mesh inside the current frame.
+ *
+ * This is the translated PS2 skinning model: per-bone object-space vertices
+ * transformed by a bone-matrix palette (what the game DMAs into VU1 dmem),
+ * then by the camera. `palette` is bone_count column-major 4x4 world
+ * matrices (16 floats each); `viewproj` is one column-major 4x4. The
+ * fragment side is flat-lit from the vertex normal for now — textures/CLUT
+ * colour arrive once the GS-side material capture is wired up. */
+void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
+                         const float *palette, uint32_t bone_count);
+
 /* End the frame: present the swapchain image. */
 void em_gfx_end_frame(EmGfx *gfx);
+
+/* Capture the NEXT completed frame to a 24-bit BMP at `path`. Returns
+ * immediately; the write happens inside that frame's end_frame. Intended
+ * for headless verification (screenshot-based regression checks) — not a
+ * gameplay feature. */
+void em_gfx_request_capture(EmGfx *gfx, const char *path);
 
 #ifdef __cplusplus
 }

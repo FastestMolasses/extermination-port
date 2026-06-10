@@ -1,17 +1,25 @@
 /* main.c — entry point for the Extermination native port shell.
  *
  * Cross-platform: talks only to em_platform.h + em_gfx.h. No OS or GPU API
- * appears here. This is the bootstrap loop — open a window, clear the screen
- * to an animated colour, present, handle quit/Esc — that proves the
- * clean-room platform + graphics layers work end to end on each target. The
- * game logic (decompiled C) and the translated renderer plug in on top of
- * this later.
+ * appears here.
+ *
+ * Current milestone: render the PLAYER CHARACTER through the translated PS2
+ * skinning pipeline — per-bone object-space vertices (decoded from the
+ * user's own disc dump by the decomp repo's tools/export_native.py into
+ * assets/player.emdl) posed by a baked bone-matrix palette and drawn with a
+ * runtime-compiled shader. If no asset file is present the shell falls back
+ * to the gradient test triangle, so the repo still runs standalone.
  */
 #include "em_platform.h"
 #include "em_gfx.h"
+#include "em_math.h"
+#include "em_model.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#define MODEL_PATH "assets/player.emdl"
 
 int main(void)
 {
@@ -27,8 +35,25 @@ int main(void)
         return 1;
     }
 
-    printf("Extermination native port shell: window + renderer up. "
-           "Close the window or press Esc to quit.\n");
+    /* Optional character asset (disc-derived, generated locally). */
+    EmModel    model;
+    EmGfxMesh *mesh = NULL;
+    float      palette[1024 * 16]; /* bone_count <= 1024 enforced by loader */
+    if (em_model_load(&model, MODEL_PATH) == 0) {
+        mesh = em_gfx_mesh_create(gfx, model.verts, model.vert_count,
+                                  model.indices, model.index_count);
+        printf("loaded %s: %u bones, %u verts, %u tris, %u frames @ %.0f fps\n",
+               MODEL_PATH, model.bone_count, model.vert_count,
+               model.index_count / 3, model.frame_count, model.fps);
+    } else {
+        printf("no %s — showing the test triangle. Generate it with the "
+               "decomp repo's tools/export_native.py\n", MODEL_PATH);
+    }
+
+    /* Headless verification: EM_CAPTURE=<path.bmp> renders ~1s, captures a
+     * frame to the given BMP, and exits. Used for screenshot regression. */
+    const char *capture_path = getenv("EM_CAPTURE");
+    int frame_no = 0;
 
     bool running = true;
     double t = 0.0;
@@ -47,17 +72,45 @@ int main(void)
             }
         }
 
-        /* animated clear colour so it's visibly alive */
-        float r = 0.15f + 0.15f * (float)sin(t);
-        float g = 0.15f + 0.15f * (float)sin(t + 2.0944);  /* +120 deg */
-        float b = 0.20f + 0.20f * (float)sin(t + 4.1888);  /* +240 deg */
-        em_gfx_begin_frame(gfx, r, g, b, 1.0f);
-        em_gfx_draw_test_triangle(gfx);   /* gradient triangle over the clear */
-        em_gfx_end_frame(gfx);
+        em_gfx_begin_frame(gfx, 0.08f, 0.09f, 0.12f, 1.0f);
 
-        t += 0.02;
+        if (mesh) {
+            /* Slow orbit camera around the character (game units: the
+             * player stands ~15 units tall, recentred at the origin). */
+            float ang = (float)(t * 0.5);
+            float eye[3]    = { 28.0f * sinf(ang), 12.0f, 28.0f * cosf(ang) };
+            float center[3] = { 0.0f, 7.0f, 0.0f };
+            float up[3]     = { 0.0f, 1.0f, 0.0f };
+
+            int dw, dh;
+            em_window_drawable_size(win, &dw, &dh);
+            float aspect = (dh > 0) ? (float)dw / (float)dh : 4.0f / 3.0f;
+
+            float view[16], proj[16], viewproj[16];
+            em_mat4_lookat(view, eye, center, up);
+            em_mat4_perspective(proj, 50.0f * 3.14159265f / 180.0f, aspect,
+                                0.5f, 500.0f);
+            em_mat4_mul(viewproj, proj, view);
+
+            em_model_palette_at(&model, t * model.fps, palette);
+            em_gfx_draw_skinned(gfx, mesh, viewproj, palette,
+                                model.bone_count);
+        } else {
+            em_gfx_draw_test_triangle(gfx);
+        }
+
+        if (capture_path && frame_no == 60)
+            em_gfx_request_capture(gfx, capture_path);
+
+        em_gfx_end_frame(gfx);
+        t += 1.0 / 60.0;
+        if (capture_path && ++frame_no > 61) running = false;
     }
 
+    if (mesh) {
+        em_gfx_mesh_destroy(gfx, mesh);
+        em_model_free(&model);
+    }
     em_gfx_destroy(gfx);
     em_window_destroy(win);
     return 0;
