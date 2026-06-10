@@ -830,8 +830,8 @@ static void render_chain_build(void)
     }
     /* Enemies (the actor-pool draws). Same pointer contract as the
      * doors: em_enemy_update (after this build) writes this frame's
-     * pose before the close-out flush. A slot that died this frame is
-     * skipped at the NEXT build (death has no corpse yet). */
+     * pose before the close-out flush. A dead slot keeps drawing only
+     * while em_enemy's death-sink placeholder runs, then drops out. */
     for (int i = 0; i < em_enemy_count(); i++) {
         ChainDraw *cd = &g.chain[g.chain_len];
         if (em_enemy_draw(i, &cd->mesh, &cd->palette, &cd->bone_count))

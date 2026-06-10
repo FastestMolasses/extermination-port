@@ -39,9 +39,13 @@
  *    code 0x400A (type 0x4000 | amount 10, the func_001A9480 swipe/
  *    contact pass) into a player-side mailbox with the same +0x36
  *    semantics. em_game.c consumes it into EmPlayerStatus.health.
- *  - DEATH: the engine's state 2 spawns nest children, gore FX and a
- *    knockback corpse-slide (anim clips 0x22/0x29). None of that is
- *    translated: the port despawns immediately — corpse = none yet.
+ *  - DEATH: the engine's state 2 spawns nest children, gore FX, a
+ *    MODEL REBIND to the gib models (library entries 0x22/0x29 — the
+ *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED")
+ *    and a knockback corpse-slide. None of that is translated: the
+ *    gameplay slot despawns immediately, and a VISUAL-ONLY placeholder
+ *    draws the frozen last pose sinking for a few frames (flagged in
+ *    em_enemy.c — a fade needs renderer per-draw alpha, not yet there).
  *  - SPEED/RANGES: hop forward speed, hop airtime, the burst-on-player
  *    radius and the per-model hit-sphere radius are not exported from
  *    the disc; the port constants are flagged in em_enemy.c (the lunge
@@ -50,9 +54,18 @@
  * MESH: assets/enemy_crawler.emdl (EMD2/EMD3 via the em_model API,
  * disc-derived, generated locally, git-ignored) when present; otherwise
  * a PLACEHOLDER box-ish crawler built procedurally at runtime (original
- * vertices, NOT disc data) through em_gfx_mesh_create. Either way the
- * pose is the static frame-0 palette — no enemy anim hookup yet (the
- * idle/death clip tables D_002468B0 / D_0028A56C are not exported).
+ * vertices, NOT disc data) through em_gfx_mesh_create.
+ *
+ * ANIMATION: with the EMD3 multi-clip asset (the leech clip bank, 4
+ * clips: 0 crawl loop / 1 emerge / 2 windup / 3 lunge — FINDINGS
+ * "CRAWLER RESOLVED" section 4) the state machine drives a visual-only
+ * anim layer with 0.15 s crossfades: emerge on spawn, the crawl loop
+ * slow in IDLE and ground-speed-scaled in ATTACK (the loco clips are
+ * baked in place; root motion = the entity's own hop integration), and
+ * windup -> lunge at close range under the suicide burst. An EMD2 or
+ * single-clip asset (and the placeholder mesh) keeps the old static
+ * frame-0 pose. The layer never feeds back into the gameplay state
+ * machine, so spawn/wake/lunge/death TIMING is identical either way.
  *
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
  * <yaw>` lines (parsed by em_game.c next to the door lines). No enemy
@@ -126,7 +139,8 @@ int em_enemy_ray_test(const float from[3], const float to[3],
                       float hit_out[3]);
 
 /* Draw accessors for the render chain. em_enemy_draw returns 0 for an
- * inactive slot (nothing to draw — death has no corpse yet). */
+ * inactive slot, EXCEPT while the death-sink placeholder is still
+ * lowering the frozen corpse pose (a few frames after the burst). */
 int em_enemy_count(void);
 int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
                   uint32_t *bone_count);

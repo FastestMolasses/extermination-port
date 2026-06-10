@@ -23,9 +23,35 @@
  *             Within the radius-6 lunge contact of the player -> write
  *             the player mailbox (0x400A) -> 2: the suicide-attack
  *             burst. (Port deviation: the mailbox is also polled here.)
- *   2 DEATH   engine: nest-child spawns + gore FX + knockback corpse
- *             slide. Port: despawn immediately — corpse = none yet.
+ *   2 DEATH   engine: nest-child spawns + gore FX + a MODEL REBIND to
+ *             the burst-husk/gib models (library 0x22/0x29 — there is
+ *             NO death clip in the leech clip bank). Port: gameplay
+ *             despawns immediately; a visual-only sink placeholder
+ *             draws for a few frames (flagged below).
  *   3 FREE    slot inactive.
+ *
+ * ANIMATION LAYER (FINDINGS "CRAWLER RESOLVED" section 4 — the leech
+ * clip bank, 4 clips at 60 fps): a VISUAL-ONLY layer driven BY the
+ * state machine above; it never feeds back into gameplay (state
+ * transitions, positions and mailbox timing are bit-identical to the
+ * static-pose build, keeping EM_ENEMY_TEST output stable):
+ *
+ *   spawn        clip 1 (emerge, 90 f) once, then the state's loop
+ *   IDLE         clip 0 (crawl/stalk, 239 f, in-place) looped SLOWLY
+ *   ATTACK       clip 0 looped at the entity's ACTUAL ground speed
+ *                (21.27 u/s = 1.0x — the lunge clip's authored root
+ *                speed; the loco clips are baked in place, so all root
+ *                motion comes from the entity's own hop integration)
+ *   close range  clip 2 (windup, 45 f) then clip 3 (lunge, 120 f) so
+ *                the lunge clip is playing when the radius-6 suicide
+ *                burst lands (trigger range is port-tuned, flagged)
+ *   DEATH        no clip exists (engine rebinds gib MODELS instead) —
+ *                fast sink placeholder, anim frozen (flagged; a fade
+ *                needs renderer per-draw alpha we don't have yet)
+ *
+ * Clip transitions crossfade over 0.15 s with the same linear palette
+ * blend as the player path (em_game.c ANIM_BLEND_TIME — PROGRESS.md:
+ * mid-blend live captures match no single clip).
  */
 #include "game/em_enemy.h"
 
@@ -54,6 +80,27 @@
                                    * the documented contact-damage code
                                    * (crawler amount unpinned; flagged)   */
 
+/* --- Animation (the leech clip bank — FINDINGS "CRAWLER RESOLVED" §4,
+ * clip ids = source container indices in the EMD3 clip table) --------- */
+#define ENEMY_CLIP_CRAWL   0u     /* crawl/stalk loop, 239 f, in-place    */
+#define ENEMY_CLIP_EMERGE  1u     /* spawn/emerge, 90 f, one-shot         */
+#define ENEMY_CLIP_WINDUP  2u     /* lunge windup, 45 f, one-shot         */
+#define ENEMY_CLIP_LUNGE   3u     /* lunge, 120 f, baked in-place; the
+                                   * authored root travel = 21.27 u/s     */
+#define ENEMY_LUNGE_SPEED  21.27f /* u/s at playback rate 1.0 (above)     */
+#define ENEMY_ANIM_BLEND   0.15f  /* crossfade seconds (= em_game.c's
+                                   * ANIM_BLEND_TIME player crossfade)    */
+
+/* Anim-layer port tunings (visual only; flagged — not engine values) */
+#define ENEMY_IDLE_RATE    0.25f  /* IDLE crawl-loop playback rate        */
+#define ENEMY_ATTACK_MIN   0.35f  /* rate floor while steering in place
+                                   * (ground speed 0 must not freeze it)  */
+#define ENEMY_WINDUP_RANGE 20.0f  /* start the windup anim here so the
+                                   * 45-f windup ends near the radius-6
+                                   * contact at the ~19 u/s hop pace      */
+#define ENEMY_SINK_FRAMES  20     /* DEATH placeholder: sink duration     */
+#define ENEMY_SINK_DEPTH   5.0f   /* DEATH placeholder: sink distance     */
+
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
 #define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
@@ -79,8 +126,33 @@ typedef struct {
     float   hop_y0;       /* launch height — the landing plane when the
                            * floor query finds nothing under the hop
                            * (e.g. outside the decoded grid floor)       */
+
+    /* anim layer (VISUAL ONLY — never read by the state machine) */
+    uint8_t aphase;       /* AnimPhase below                             */
+    int     acur;         /* current clip index (into model.clips); -1 =
+                           * no clip data, static base pose              */
+    int     aprev;        /* fading-out clip index, -1 = no blend        */
+    double  at;           /* current clip time, frames (60/s baked)      */
+    double  aprev_t;      /* fading-out clip time, frames                */
+    float   arate;        /* current clip frames-per-tick playback rate  */
+    float   aprev_rate;   /* fading-out clip rate (keeps advancing, the
+                           * player-path crossfade blends two LIVE clips)*/
+    float   ablend;       /* crossfade weight of acur, 0..1              */
+    float   speed;        /* actual XZ ground speed this tick, u/s       */
+    int     sink;         /* DEATH placeholder: sink frames left (draws
+                           * while > 0 even though the slot is inactive) */
+
     float   palette[ENEMY_BONE_MAX * 16];
 } Enemy;
+
+/* Anim-layer phases (port-side, NOT engine state values — the engine
+ * picks clips inside func_00154040/func_00154120). */
+enum {
+    ANIM_EMERGE = 0,   /* clip 1 once (spawn)                       */
+    ANIM_CRAWL  = 1,   /* clip 0 loop (idle slow / attack speed)    */
+    ANIM_WINDUP = 2,   /* clip 2 once (close range)                 */
+    ANIM_LUNGE  = 3    /* clip 3 once, the burst lands during it    */
+};
 
 static struct {
     /* shared mesh: the asset (preferred) or the runtime placeholder */
@@ -90,6 +162,13 @@ static struct {
     int        has_model;
     uint32_t   bone_count;
     float      base[ENEMY_BONE_MAX * 16];  /* frame-0 pose (or identity) */
+
+    /* resolved clip indices (-1 = the asset doesn't carry it); anim is
+     * enabled only for a real multi-clip EMD3 asset (clip_crawl >= 0
+     * and clip_count > 1 — an EMD2 fallback keeps the static pose) */
+    int        anim_on;
+    int        clip_crawl, clip_emerge, clip_windup, clip_lunge;
+    float      blend_pal[ENEMY_BONE_MAX * 16]; /* crossfade scratch */
 
     Enemy      e[EM_ENEMY_MAX];
     int        n;
@@ -188,9 +267,21 @@ static int enemy_mesh_get(EmGfx *gfx)
         s.has_model  = 1;
         s.bone_count = s.model.bone_count;
         em_model_palette_at(&s.model, 0, 0.0, s.base); /* frame-0 pose */
-        printf("enemy model: %s — %u verts, %u tris, %u bones (static "
-               "frame-0 pose; clip tables not exported yet)\n", ENEMY_ASSET,
-               s.model.vert_count, s.model.index_count / 3, s.bone_count);
+        s.clip_crawl  = em_model_clip_index(&s.model, ENEMY_CLIP_CRAWL);
+        s.clip_emerge = em_model_clip_index(&s.model, ENEMY_CLIP_EMERGE);
+        s.clip_windup = em_model_clip_index(&s.model, ENEMY_CLIP_WINDUP);
+        s.clip_lunge  = em_model_clip_index(&s.model, ENEMY_CLIP_LUNGE);
+        s.anim_on = (s.clip_crawl >= 0 && s.model.clip_count > 1);
+        printf("enemy model: %s — %u verts, %u tris, %u bones, %u clip(s)",
+               ENEMY_ASSET, s.model.vert_count, s.model.index_count / 3,
+               s.bone_count, s.model.clip_count);
+        if (s.anim_on)
+            printf(" — anim on (crawl #%d, emerge #%d, windup #%d, "
+                   "lunge #%d)\n", s.clip_crawl, s.clip_emerge,
+                   s.clip_windup, s.clip_lunge);
+        else
+            printf(" — static frame-0 pose (re-export the EMD3 clip "
+                   "bank for animation)\n");
         return 0;
     }
 
@@ -229,6 +320,16 @@ int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw)
     e->pos[1] = pos[1];
     e->pos[2] = pos[2];
     e->yaw    = yaw;
+    /* Anim layer: spawn plays the emerge clip once (clip 1), falling
+     * back to the crawl loop if the asset lacks it. */
+    e->acur  = -1;
+    e->aprev = -1;
+    if (s.anim_on) {
+        e->aphase = ANIM_EMERGE;
+        e->acur   = s.clip_emerge >= 0 ? s.clip_emerge : s.clip_crawl;
+        e->arate  = s.clip_emerge >= 0 ? 1.0f : ENEMY_IDLE_RATE;
+        e->ablend = 1.0f;
+    }
     /* Stage a valid pose immediately: the render chain may record this
      * instance's palette pointer before the first em_enemy_update. */
     enemy_build_palette(e);
@@ -321,13 +422,153 @@ static float wrap_pi(float a)
     return a;
 }
 
-/* Build the instance's world palette: base pose composed with
- * T(pos) * R_y(yaw) — the same placement composition as em_door.c /
- * em_game.c (palette_apply_placement). */
+/* ------------------------------------------------------------------ */
+/* Animation layer (visual only — see the file header)                  */
+/* ------------------------------------------------------------------ */
+
+/* Clip time for evaluation: every clip except the crawl LOOP is a
+ * one-shot — clamp to the last baked frame so em_model_palette_at's
+ * wrap (last blends into first) never plays a one-shot backwards. */
+static double anim_eval_time(int clip, double t)
+{
+    const EmModelClip *c = &s.model.clips[clip];
+    if (clip != s.clip_crawl && t > (double)(c->frame_count - 1))
+        t = (double)(c->frame_count - 1);
+    return t;
+}
+
+/* One-shot completion: the play head reached the last baked frame. */
+static int anim_done(const Enemy *e)
+{
+    const EmModelClip *c = &s.model.clips[e->acur];
+    return e->at >= (double)(c->frame_count - 1);
+}
+
+/* Switch the current clip, starting a 0.15 s crossfade from the old
+ * one (which keeps advancing at its own rate — the player path blends
+ * two LIVE clips the same way). Same clip = just retune the rate (the
+ * attack loop rescales every tick with the ground speed). */
+static void enemy_anim_set(Enemy *e, int clip, float rate)
+{
+    if (clip < 0) return;
+    if (clip == e->acur) {
+        e->arate = rate;
+        return;
+    }
+    e->aprev      = e->acur;
+    e->aprev_t    = e->at;
+    e->aprev_rate = e->arate;
+    e->acur       = clip;
+    e->at         = 0.0;
+    e->arate      = rate;
+    e->ablend     = e->aprev >= 0 ? 0.0f : 1.0f;
+}
+
+/* Pick this tick's clip + rate from the GAMEPLAY state (one-way: the
+ * anim layer reads the state machine, never the reverse), then advance
+ * the play heads and the crossfade weight. */
+static void enemy_anim_update(Enemy *e, float dist)
+{
+    if (!s.anim_on) return;
+
+    switch (e->state) {
+    case EM_ENEMY_INIT:
+    case EM_ENEMY_IDLE:
+        /* spawn: let the one-shot emerge finish, then the slow loop */
+        if (e->aphase == ANIM_EMERGE && !anim_done(e))
+            break;
+        e->aphase = ANIM_CRAWL;
+        enemy_anim_set(e, s.clip_crawl, ENEMY_IDLE_RATE);
+        break;
+
+    case EM_ENEMY_ATTACK:
+        /* close range: windup once -> lunge once; the radius-6 suicide
+         * burst (gameplay) lands while the lunge clip plays. An attack
+         * wake also cuts the emerge short (the crossfade hides it). */
+        if (e->aphase == ANIM_WINDUP) {
+            if (anim_done(e) && s.clip_lunge >= 0) {
+                e->aphase = ANIM_LUNGE;
+                enemy_anim_set(e, s.clip_lunge, 1.0f);
+            }
+            break;
+        }
+        if (e->aphase == ANIM_LUNGE) {
+            if (!anim_done(e))
+                break;          /* ran out without contact: re-approach */
+            e->aphase = ANIM_CRAWL;
+            /* fall through to the speed-scaled loop below */
+        }
+        if (dist <= ENEMY_WINDUP_RANGE && s.clip_windup >= 0) {
+            e->aphase = ANIM_WINDUP;
+            enemy_anim_set(e, s.clip_windup, 1.0f);
+            break;
+        }
+        {
+            /* the loop tracks the entity's ACTUAL ground speed; the
+             * authored 21.27 u/s = rate 1.0. Floor it so the steer
+             * phase (speed 0) keeps writhing instead of freezing. */
+            float rate = e->speed / ENEMY_LUNGE_SPEED;
+            if (rate < ENEMY_ATTACK_MIN) rate = ENEMY_ATTACK_MIN;
+            e->aphase = ANIM_CRAWL;
+            enemy_anim_set(e, s.clip_crawl, rate);
+        }
+        break;
+
+    default:                    /* DEATH/FREE: pose frozen (sink only) */
+        return;
+    }
+
+    /* advance the play heads (clips are baked at 60 fps = 1 frame per
+     * 60 Hz tick at rate 1.0) and the 0.15 s crossfade */
+    e->at += (double)e->arate;
+    if (e->aprev >= 0) {
+        e->aprev_t += (double)e->aprev_rate;
+        e->ablend  += (1.0f / 60.0f) / ENEMY_ANIM_BLEND;
+        if (e->ablend >= 1.0f) {
+            e->ablend = 1.0f;
+            e->aprev  = -1;
+        }
+    }
+}
+
+/* Build the instance's world palette: the anim-evaluated pose (or the
+ * static base) composed with T(pos) * R_y(yaw).
+ *
+ * The placement composition is a LOCAL COPY of em_game.c's static
+ * palette_apply_placement (same math, also copied by em_door.c) — not
+ * shared because exporting it would touch em_game.h, which this module
+ * doesn't own. Fold all three into a common helper when one moves.
+ *
+ * DEATH placeholder (flagged): a despawned-but-sinking slot draws its
+ * frozen last pose translated down by the sink progress — there is no
+ * death clip in the bank (the engine REBINDS gib models instead), and
+ * a fade would need per-draw alpha the renderer doesn't expose yet. */
 static void enemy_build_palette(Enemy *e)
 {
     const float c = cosf(e->yaw), sn = sinf(e->yaw);
-    memcpy(e->palette, s.base, s.bone_count * 16 * sizeof(float));
+    float       y = e->pos[1];
+
+    if (s.anim_on && e->acur >= 0) {
+        em_model_palette_at(&s.model, (uint32_t)e->acur,
+                            anim_eval_time(e->acur, e->at), e->palette);
+        if (e->aprev >= 0 && e->ablend < 1.0f) {
+            em_model_palette_at(&s.model, (uint32_t)e->aprev,
+                                anim_eval_time(e->aprev, e->aprev_t),
+                                s.blend_pal);
+            uint32_t n = s.bone_count * 16;
+            float    w = e->ablend;
+            for (uint32_t i = 0; i < n; i++)
+                e->palette[i] = s.blend_pal[i] +
+                                (e->palette[i] - s.blend_pal[i]) * w;
+        }
+    } else {
+        memcpy(e->palette, s.base, s.bone_count * 16 * sizeof(float));
+    }
+
+    if (!e->active && e->sink > 0)
+        y -= ENEMY_SINK_DEPTH *
+             (1.0f - (float)e->sink / (float)ENEMY_SINK_FRAMES);
+
     for (uint32_t b = 0; b < s.bone_count; b++) {
         float *m = e->palette + b * 16;
         for (int col = 0; col < 4; col++) {
@@ -336,7 +577,7 @@ static void enemy_build_palette(Enemy *e)
             m[col * 4 + 2] = -sn * x + c * z;
         }
         m[12] += e->pos[0];
-        m[13] += e->pos[1];
+        m[13] += y;
         m[14] += e->pos[2];
     }
 }
@@ -455,10 +696,13 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 
     case EM_ENEMY_DEATH:
         /* Engine sub-machine: nest-child spawns, gore sounds/FX pairs,
-         * knockback corpse-slide. None translated — despawn (corpse =
-         * none yet; see em_enemy.h). */
+         * a gib-model rebind and a knockback corpse-slide. None
+         * translated — the GAMEPLAY slot frees immediately (alive/
+         * state/hit-tests identical to the pre-anim build); only the
+         * visual sink placeholder lingers (see enemy_build_palette). */
         e->state  = EM_ENEMY_FREE;
         e->active = 0;
+        e->sink   = ENEMY_SINK_FRAMES;
         break;
 
     default:
@@ -471,10 +715,27 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
     if (!player_pos) return;
     for (int i = 0; i < s.n; i++) {
         Enemy *e = &s.e[i];
-        if (!e->active) continue;
+        if (!e->active) {
+            /* DEATH sink placeholder: keep lowering the frozen pose
+             * for the few frames the corpse stays visible. */
+            if (e->sink > 0) {
+                e->sink--;
+                enemy_build_palette(e);
+            }
+            continue;
+        }
+        float px = e->pos[0], pz = e->pos[2];
         enemy_tick(coll, e, player_pos);
-        if (e->active)
-            enemy_build_palette(e);
+        /* actual ground speed this tick — drives the attack-loop rate */
+        float mx = e->pos[0] - px, mz = e->pos[2] - pz;
+        e->speed = sqrtf(mx * mx + mz * mz) * 60.0f;
+        if (e->active) {
+            float dx = player_pos[0] - e->pos[0];
+            float dz = player_pos[2] - e->pos[2];
+            enemy_anim_update(e, sqrtf(dx * dx + dz * dz));
+        }
+        enemy_build_palette(e);   /* died this tick: freeze the pose
+                                   * the sink placeholder starts from */
     }
 }
 
@@ -563,7 +824,8 @@ int em_enemy_count(void) { return s.n; }
 int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
                   uint32_t *bone_count)
 {
-    if (i < 0 || i >= s.n || !s.e[i].active || !s.mesh) return 0;
+    if (i < 0 || i >= s.n || !s.mesh) return 0;
+    if (!s.e[i].active && s.e[i].sink <= 0) return 0;  /* sink visual */
     *mesh       = s.mesh;
     *palette    = s.e[i].palette;
     *bone_count = s.bone_count;
