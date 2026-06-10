@@ -98,6 +98,9 @@
  * real em_input event API, then the final position/yaw is printed and the
  * loop quits (see move_test_script). Combine with EM_CAPTURE to grab a
  * mid-walk frame (the move test suppresses the capture path's early quit).
+ * EM_WEAPON_TEST=1 runs the scripted firing-loop self-test (draw, semi
+ * fire, the empty-mag auto-reload, full-auto cadence, manual top-up,
+ * holster — see weapon_test_script / em_weapon.h).
  */
 #include "game/em_game.h"
 
@@ -116,6 +119,7 @@
 #include "game/em_frame.h"
 #include "game/em_hud.h"
 #include "game/em_task.h"
+#include "game/em_weapon.h"
 
 #define MODEL_PATH     "assets/player.emdl"
 #define SCENE_DIR      "assets/scene"
@@ -343,6 +347,8 @@ static struct {
     int         dt_door;         /* test door index (the west doorway) */
     int         dt_ok_trigger;   /* X press put the door in OPENING */
     float       dt_min_x;        /* min player x while the door not OPEN */
+    int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
+    int         wt_fail;         /* weapon test: failed checkpoints */
 } g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
@@ -1038,9 +1044,18 @@ static void frame_close_out(void)
         }
     }
 
+    /* Weapon feedback overlays (crosshair / muzzle-flash placeholders —
+     * em_weapon.h "VISUAL FEEDBACK"); queues nothing while holstered, so
+     * the default frame stays byte-identical. */
+    em_weapon_render(gfx);
+
     /* HUD over the flushed 3D frame (the engine's GS-sprite status pass;
      * em_hud queues overlay rects, em_gfx_end_frame draws them last).
-     * EM_NO_HUD=1 disables inside em_hud_render. */
+     * EM_NO_HUD=1 disables inside em_hud_render. The ammo readout is LIVE:
+     * mag/reserve mirror the weapon state (D_00810C62 / D_00810CB4)
+     * every frame, exactly like the engine UI re-reading the globals. */
+    g.status.mag     = em_weapon_mag();
+    g.status.reserve = em_weapon_reserve();
     em_hud_render(gfx, &g.status);
 
     if (g.capture_path && g.frame_no == g.capture_frame)
@@ -1048,9 +1063,10 @@ static void frame_close_out(void)
 
     g.t += 1.0 / 60.0;
     g.frame_no++;
-    /* The move test owns the quit (frame 91) when both modes are set, so
-     * a mid-walk capture doesn't cut the scripted walk short. */
-    if (g.capture_path && !g.move_test && g.frame_no > g.capture_frame + 1)
+    /* A scripted self-test owns the quit when combined with a capture,
+     * so a mid-script capture doesn't cut the script short. */
+    if (g.capture_path && !g.move_test && !g.weapon_test &&
+        g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();
 }
 
@@ -1202,11 +1218,114 @@ static void door_test_script(void)
         g.dt_min_x = g.pos[0];
 }
 
+/* EM_WEAPON_TEST=1 — deterministic firing-loop self-test (em_weapon.c).
+ * Exercises the whole weapon contract through the real input API from
+ * the demo ammo state mag 4 / reserve 120 (the live test save):
+ *
+ *   frame    0     hold E (R1) — draw; AIM by frame 16 (15-frame draw)
+ *   20/28/36/44    four SEMI presses of K (CROSS): each shot decrements
+ *                  mag AND reserve (TOTAL-pool rule) -> 4/120 .. 0/116
+ *   frame   52     5th press on the EMPTY mag: must NOT fire — the
+ *                  mode-0 auto-reload triggers instead (func_0017B300:
+ *                  mag = min(30, 116) = 30, reserve UNTOUCHED at 116)
+ *   frame  100     press after the reload anim: 5th real shot -> 29/115
+ *   110..141       FULL-AUTO stretch: mode 2, K held 31 frames -> shots
+ *                  at the 6-frame cadence (+2/frame vs interval 12) =
+ *                  6 rounds -> 23/109
+ *   frame  150     manual top-up (J = SQUARE; engine: L3) -> 30/109,
+ *                  reserve again untouched
+ *   frame  200     release E -> holster -> HOLSTERED
+ *
+ * Checkpoints sample a few frames after each action so the input-inject
+ * latency (events land in the NEXT frame's snapshot) and the fire-event
+ * one-frame latency are absorbed. */
+static void wt_check(int cond, const char *what)
+{
+    if (cond) return;
+    g.wt_fail++;
+    printf("weapon test: CHECK FAILED — %s (state %d, mag %u, reserve %d, "
+           "shots %d, reloads %d)\n", what, em_weapon_state(),
+           em_weapon_mag(), em_weapon_reserve(), em_weapon_shots(),
+           em_weapon_reloads());
+}
+
+static void weapon_test_script(void)
+{
+    int n = g.frame_no;
+    switch (n) {
+        case 0:   move_test_inject('e', 1); break;          /* R1 hold  */
+        case 20:  wt_check(em_weapon_state() == EM_WPN_AIM, "drawn by 20");
+                  move_test_inject('k', 1); break;          /* semi #1  */
+        case 22:  move_test_inject('k', 0); break;
+        case 26:  wt_check(em_weapon_mag() == 3 &&
+                           em_weapon_reserve() == 119 &&
+                           em_weapon_shots() == 1,
+                           "shot 1: 4/120 -> 3/119");       break;
+        case 28: case 36: case 44:
+                  move_test_inject('k', 1); break;          /* semi 2..4 */
+        case 30: case 38: case 46:
+                  move_test_inject('k', 0); break;
+        case 50:  wt_check(em_weapon_mag() == 0 &&
+                           em_weapon_reserve() == 116 &&
+                           em_weapon_shots() == 4,
+                           "shots 2-4: mag empty at 0/116"); break;
+        case 52:  move_test_inject('k', 1); break;          /* dry press */
+        case 54:  move_test_inject('k', 0); break;
+        case 58:  wt_check(em_weapon_state() == EM_WPN_RELOAD &&
+                           em_weapon_mag() == 30 &&
+                           em_weapon_reserve() == 116 &&
+                           em_weapon_shots() == 4 &&
+                           em_weapon_reloads() == 1,
+                           "empty-mag press auto-reloads: mag = min(30, "
+                           "reserve) = 30, reserve untouched (116), no "
+                           "round fired");                  break;
+        case 100: wt_check(em_weapon_state() == EM_WPN_AIM,
+                           "reload anim over by 100");
+                  move_test_inject('k', 1); break;          /* semi #5  */
+        case 102: move_test_inject('k', 0); break;
+        case 106: wt_check(em_weapon_mag() == 29 &&
+                           em_weapon_reserve() == 115 &&
+                           em_weapon_shots() == 5,
+                           "5th shot after reload: 29/115"); break;
+        case 110: em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
+                  move_test_inject('k', 1); break;          /* auto hold */
+        case 141: move_test_inject('k', 0); break;
+        case 146: wt_check(em_weapon_mag() == 23 &&
+                           em_weapon_reserve() == 109 &&
+                           em_weapon_shots() == 11,
+                           "auto 31-frame hold = 6 rounds: 23/109"); break;
+        case 150: move_test_inject('j', 1); break;          /* manual    */
+        case 152: move_test_inject('j', 0); break;
+        case 160: wt_check(em_weapon_state() == EM_WPN_RELOAD &&
+                           em_weapon_mag() == 30 &&
+                           em_weapon_reserve() == 109 &&
+                           em_weapon_reloads() == 2,
+                           "manual top-up: 30/109, reserve untouched");
+                  break;
+        case 200: move_test_inject('e', 0); break;          /* holster   */
+        case 220:
+            wt_check(em_weapon_state() == EM_WPN_HOLSTERED,
+                     "holstered after R1 release");
+            printf("weapon test: %d shots, %d reloads, mag %u, reserve "
+                   "%d, last ray %s — %s\n", em_weapon_shots(),
+                   em_weapon_reloads(), em_weapon_mag(),
+                   em_weapon_reserve(),
+                   em_weapon_last_hit() < 0 ? "none"
+                       : em_weapon_last_hit() ? "hit" : "miss",
+                   g.wt_fail == 0 ? "PASS" : "FAIL");
+            fflush(stdout);
+            em_frame_request_quit();
+            break;
+        default: break;
+    }
+}
+
 /* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
 static void gameplay_frame(void)
 {
-    if (g.move_test) move_test_script();  /* debug instrumentation only */
-    if (g.door_test) door_test_script();  /* debug instrumentation only */
+    if (g.move_test) move_test_script();    /* debug instrumentation only */
+    if (g.door_test) door_test_script();    /* debug instrumentation only */
+    if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
@@ -1218,6 +1337,11 @@ static void gameplay_frame(void)
      * (func_00184BA0) and articulation live in em_door_update.
      * func_0015C160 / func_001F0360 — still untranslated. */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
+    /* WEAPON: the player-side armed-stance/fire state machine (engine:
+     * part of the player actor update, modes 0x1D..0x20) plus the
+     * gun-actor fire-event consumption (engine: pool tick, one-frame
+     * latency) — both in em_weapon_update; see em_weapon.h. */
+    em_weapon_update(&g.coll, g.pos, g.yaw, em_frame_input());
     camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
                               * func_0018B9C0 camera state machine    */
     frame_close_out();       /* func_001CB5A0/001AAD00/001D1EA0(1)    */
@@ -1272,6 +1396,11 @@ static void ingame_frame_machine(EmTask *self)
             }
             memset(&g.cam, 0, sizeof g.cam);
             g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
+            /* Weapon context init (the engine's HUD/weapon-context arm):
+             * holstered, ammo from the demo status (live test save:
+             * mag 4, reserve 120). The HUD mirrors the weapon live from
+             * here on (frame_close_out). */
+            em_weapon_reset(g.status.mag, g.status.reserve);
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
@@ -1441,6 +1570,8 @@ void em_game_install(void)
         g.move_expect_set = 1;
     const char *dt = getenv("EM_DOOR_TEST");
     g.door_test    = dt && dt[0] == '1';
+    const char *wt = getenv("EM_WEAPON_TEST");
+    g.weapon_test  = wt && wt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
