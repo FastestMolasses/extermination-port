@@ -73,10 +73,16 @@
  * camera-relative on the XZ plane; the facing yaw seeks the movement
  * direction (smooth turn). The placement is composed onto the evaluated
  * anim palette each frame (rotation about Y by yaw, then translation —
- * AFTER the animation pose; see palette_apply_placement). The camera is
+ * AFTER the animation pose; see palette_apply_placement). Movement runs
+ * through the engine's COLLISION WORLD (src/game/em_collision.[hc] over
+ * the id 0x44 EMCL bake): func_0019AD00-style move probes stop/slide the
+ * player at walls and a vertical segment query sets the floor height;
+ * with no collision asset the old room-bbox clamp remains. The camera is
  * the engine's own chase camera (clamped proportional follow, FINDINGS.md
- * "CAMERA SYSTEM" port contract); d-pad (arrow keys) LEFT/RIGHT feeds a
- * yaw input into the camera struct. Esc still quits (em_frame.c step C).
+ * "CAMERA SYSTEM" port contract) with its desired-eye solver running
+ * func_0018D7B0-style segment queries (mask 6) against the same world;
+ * d-pad (arrow keys) LEFT/RIGHT feeds a yaw input into the camera
+ * struct. Esc still quits (em_frame.c step C).
  *
  * Debug instrumentation (port-side): EM_CAPTURE=<path.bmp> requests a BMP
  * capture at gameplay frame 60 (override with EM_CAPTURE_FRAME=<n>) and
@@ -99,11 +105,13 @@
 #include "em_input.h"
 #include "em_math.h"
 #include "em_model.h"
+#include "game/em_collision.h"
 #include "game/em_frame.h"
 #include "game/em_task.h"
 
 #define MODEL_PATH "assets/player.emdl"
 #define SCENE_DIR  "assets/scene"
+#define COLL_PATH  "assets/scene/office.emcl"
 #define SCENE_MAX  16
 
 /* Player spawn placement in the office room (chunk06.n1 level): the live
@@ -112,15 +120,23 @@
  * origin with its feet at y ~= 0. */
 static const float kPlayerPos[3] = { 107.4f, 0.0f, -184.0f };
 
-/* Walkable bounds: the office room's collision bbox (the id 0x44 file —
- * FINDINGS.md "COLLISION WORLD", chunk06.n1: X[-3.6,120.5] Z[-296,2.4],
- * floor y = 0).
- * TODO(collision): replace this clamp with the documented query API once
- * the level_world cluster is translated — func_0019AD00 (actor move-probe
- * with collide-and-slide response) / func_0019A570 (segment query) over
- * the id 0x44 cell n-gons + s16-grid heightfield. */
+/* Walkable-bounds FALLBACK: the office room's collision bbox (the id 0x44
+ * file — FINDINGS.md "COLLISION WORLD", chunk06.n1). Used only when no
+ * EMCL collision world is generated (assets/scene/office.emcl, from the
+ * decomp repo's tools/export_collision.py); with the world loaded the
+ * real engine queries run instead — em_collision_move_probe
+ * (func_0019AD00 collide-and-slide) for movement and
+ * em_collision_segment_query (func_0019A570) for the floor and the
+ * camera solver. */
 static const float kRoomMin[2] = { -3.6f,  -296.0f };  /* x, z */
 static const float kRoomMax[2] = { 120.5f,    2.4f };
+
+/* Vertical floor-probe window: the engine's actor spine resolves height
+ * with separate vertical segment queries through the same hub (e.g. the
+ * frozen scratchpad query in FINDINGS, a y+200..y-200 down-probe). The
+ * port probes from step-height above the feet to a drop window below. */
+#define FLOOR_PROBE_UP    8.0f
+#define FLOOR_PROBE_DOWN  8.0f
 
 /* Movement / camera tuning. The character is ~15 units tall; roughly one
  * body height per second reads as a natural walk at room scale (the room
@@ -260,6 +276,9 @@ static struct {
     float      pos[3];           /* world position, feet on the floor */
     float      yaw;              /* facing about +Y, radians; 0 = +Z */
 
+    /* collision world (id 0x44 -> EMCL; 0 polys = not loaded) */
+    EmCollision coll;
+
     /* camera (struct 0x008101E0 + vector pool — see EmCamera above) */
     EmCamera   cam;
 
@@ -378,11 +397,56 @@ static void palette_apply_placement(float *pal, uint32_t bone_count,
     }
 }
 
+/* The engine's wall response for one frame of motion. The actor spine's
+ * movement callers (func_0016EBA0 and family) run func_0019AD00 with
+ * mask bit31: probe pos -> target, and on a hit correct x/z back to the
+ * hit point. The spine then re-attempts the blocked remainder along the
+ * wall — the walkers' FRONT-FACING rule (dot(dir, n) <= -1e-5,
+ * func_001A4030/func_0019ED80) makes motion parallel to the hit plane
+ * free, so the second probe slides. The exact PS2 iteration count lives
+ * in the untranslated spine; one slide pass reproduces the behavior for
+ * single-wall contact. */
+static void player_move_collide(float mx, float mz)
+{
+    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID |
+                          EM_COLL_SLIDE;
+    float target[3] = { g.pos[0] + mx, g.pos[1], g.pos[2] + mz };
+    EmCollHit hit;
+
+    if (em_collision_move_probe(&g.coll, g.pos, target, mask, &hit)) {
+        /* Slide: project the blocked remainder onto the wall plane
+         * (XZ only — the probe is horizontal) and re-probe once. */
+        float rx = target[0] - hit.point[0];
+        float rz = target[2] - hit.point[2];
+        float nx = hit.normal[0], nz = hit.normal[2];
+        float nl = nx * nx + nz * nz;
+        if (nl > 1e-8f) {
+            float d = (rx * nx + rz * nz) / nl;
+            rx -= nx * d;
+            rz -= nz * d;
+            if (rx * rx + rz * rz > 1e-8f) {
+                float slide[3] = { g.pos[0] + rx, g.pos[1], g.pos[2] + rz };
+                em_collision_move_probe(&g.coll, g.pos, slide, mask, NULL);
+            }
+        }
+    }
+
+    /* Floor: vertical segment query through the same worlds (the grid
+     * world owns the walkable floor — FINDINGS "COLLISION WORLD"). */
+    float from[3] = { g.pos[0], g.pos[1] + FLOOR_PROBE_UP,    g.pos[2] };
+    float down[3] = { g.pos[0], g.pos[1] - FLOOR_PROBE_DOWN,  g.pos[2] };
+    if (em_collision_segment_query(&g.coll, from, down,
+                                   EM_COLL_SET_CELLS | EM_COLL_SET_GRID,
+                                   0, &hit))
+        g.pos[1] = hit.point[1];
+}
+
 /* Player movement (the port's first slice of the actor spine's physics
  * side): left stick = camera-relative walk on the XZ plane; the facing
- * yaw seeks the movement direction at TURN_SPEED (smooth turn). Position
- * is clamped to the room's collision bbox; real collision comes later
- * (see the kRoomMin TODO above). */
+ * yaw seeks the movement direction at TURN_SPEED (smooth turn). With a
+ * collision world loaded, movement goes through the engine's move probe
+ * (walls stop/slide, the floor query sets the height); without one, the
+ * old room-bbox clamp keeps the repo runnable standalone. */
 static void player_move(void)
 {
     const EmFrameInput *in = em_frame_input();
@@ -403,13 +467,18 @@ static void player_move(void)
     float mx = fx * -sy - fz * sx;
     float mz = fz * -sy + fx * sx;
 
-    g.pos[0] += mx * WALK_SPEED * FRAME_DT;
-    g.pos[2] += mz * WALK_SPEED * FRAME_DT;
-    if (g.pos[0] < kRoomMin[0]) g.pos[0] = kRoomMin[0];
-    if (g.pos[0] > kRoomMax[0]) g.pos[0] = kRoomMax[0];
-    if (g.pos[2] < kRoomMin[1]) g.pos[2] = kRoomMin[1];
-    if (g.pos[2] > kRoomMax[1]) g.pos[2] = kRoomMax[1];
-    g.pos[1] = 0.0f;  /* flat floor until the heightfield query lands */
+    if (g.coll.poly_count) {
+        player_move_collide(mx * WALK_SPEED * FRAME_DT,
+                            mz * WALK_SPEED * FRAME_DT);
+    } else {
+        g.pos[0] += mx * WALK_SPEED * FRAME_DT;
+        g.pos[2] += mz * WALK_SPEED * FRAME_DT;
+        if (g.pos[0] < kRoomMin[0]) g.pos[0] = kRoomMin[0];
+        if (g.pos[0] > kRoomMax[0]) g.pos[0] = kRoomMax[0];
+        if (g.pos[2] < kRoomMin[1]) g.pos[2] = kRoomMin[1];
+        if (g.pos[2] > kRoomMax[1]) g.pos[2] = kRoomMax[1];
+        g.pos[1] = 0.0f;  /* flat floor (no collision world loaded) */
+    }
 
     /* Smooth-turn the facing towards the move direction (shortest arc). */
     float target = atan2f(mx, mz);
@@ -572,21 +641,57 @@ static void camera_mode_dispatch(EmCamera *cam)
     camera_desired_eye(cam);
 }
 
-/* func_0018D7B0 (style 0) — the desired-eye solver. The PS2 version
- * first collision-resolves the desired eye against the world (segment
- * queries over collision-set mask 6/7 — static cells + heightfield
- * [+ movable hulls]; result byte -> struct +0x07).
- * TODO(collision): run the id-0x44 cell/heightfield queries here once
- * the level_world cluster (func_0019A910 hub) is translated.
- * Then the actual eye (D_008105D0) smooth-chases the desired eye per
- * axis, capped at 4.0 u/frame; the actual target is a straight copy of
- * the desired target (func_0018C0C0). */
+/* Eye pull-in margin: how far in front of the hit plane the solved eye
+ * sits, along the blocked sight line. The PS2 solver's exact inset is
+ * inside func_0018DD20 (6984 B, unread — FINDINGS confidence "medium");
+ * the commit's view position adds another 4.0 * forward away from the
+ * wall (CAM_NEAR_PUSH), so a small margin suffices. */
+#define CAM_WALL_MARGIN 0.5f
+
+/* func_0018D7B0 (style 0) — the desired-eye solver. Collision-resolves
+ * the desired eye against the world: segment queries (the func_0019A910
+ * hub — same walkers/eps as the documented func_0019A570 family) from
+ * the look target toward the desired eye over collision-set mask 6
+ * (static cells + grid; 7 would add movable hulls, which the port has
+ * none of yet). A wall between them pulls the eye in front of the hit;
+ * the result byte lands in struct +0x07 (cam->hit). Then the actual eye
+ * (D_008105D0) smooth-chases the solved desired eye per axis, capped at
+ * 4.0 u/frame; the actual target is a straight copy of the desired
+ * target (func_0018C0C0). */
 static void camera_solve(EmCamera *cam)
 {
-    cam->hit = 0;  /* no native collision world yet */
-    cam->eye[0] = cam_chase_h(cam->eye[0], cam->eye_des[0], CAM_EYE_CAP);
-    cam->eye[2] = cam_chase_h(cam->eye[2], cam->eye_des[2], CAM_EYE_CAP);
-    cam->eye[1] = cam_chase_v(cam->eye[1], cam->eye_des[1], CAM_EYE_CAP);
+    float eye_des[3] = { cam->eye_des[0], cam->eye_des[1], cam->eye_des[2] };
+
+    cam->hit = 0;
+    if (g.coll.poly_count) {
+        EmCollHit hit;
+        int kind = em_collision_segment_query(
+            &g.coll, cam->tgt_des, eye_des,
+            EM_COLL_SET_CELLS | EM_COLL_SET_GRID,  /* solver mask 6 */
+            EM_COLL_ID_NONE, &hit);
+        if (kind) {
+            /* Pull the eye in front of the wall, back toward the
+             * target along the blocked sight line. */
+            float dx = cam->tgt_des[0] - hit.point[0];
+            float dy = cam->tgt_des[1] - hit.point[1];
+            float dz = cam->tgt_des[2] - hit.point[2];
+            float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (dl > 1e-3f) {
+                float s = CAM_WALL_MARGIN / dl;
+                if (s > 1.0f) s = 1.0f;
+                dx *= s; dy *= s; dz *= s;
+            } else {
+                dx = dy = dz = 0.0f;
+            }
+            eye_des[0] = hit.point[0] + dx;
+            eye_des[1] = hit.point[1] + dy;
+            eye_des[2] = hit.point[2] + dz;
+            cam->hit = (uint8_t)kind;          /* struct +0x07 */
+        }
+    }
+    cam->eye[0] = cam_chase_h(cam->eye[0], eye_des[0], CAM_EYE_CAP);
+    cam->eye[2] = cam_chase_h(cam->eye[2], eye_des[2], CAM_EYE_CAP);
+    cam->eye[1] = cam_chase_v(cam->eye[1], eye_des[1], CAM_EYE_CAP);
     cam->tgt[0] = cam->tgt_des[0];
     cam->tgt[1] = cam->tgt_des[1];
     cam->tgt[2] = cam->tgt_des[2];
@@ -710,9 +815,17 @@ static void frame_close_out(void)
  * lands in the NEXT frame's input snapshot, exactly like a real key, so
  * the test exercises the full step-C unpack path): 'w' held for frames
  * 1..60 (walk forward, +Z at cam_yaw 0), 'd' for frames 61..90 (walk
- * screen-right, -X), then print the final placement and quit.
- * Expected: pos (107.4, 0, -184) + (0,0,+15) + (-7.5,0,0)
- *         = (99.900, 0.000, -169.000), yaw -pi/2 (facing -X). */
+ * screen-right, -X), then assert the final placement and quit.
+ *
+ * The forward leg is a WALL TEST: 60 frames * 0.25 u = 15 u of motion,
+ * but the office collision world has a wall n-gon at z = -170 (grid poly
+ * with plane n = (0,0,-1), d = 170 — 14 u ahead of the spawn), so with
+ * collision loaded the move probe must stop the walk ON the plane and
+ * the slide pass must add no lateral drift. The right leg then slides
+ * free along that wall (motion parallel to the plane fails the walkers'
+ * front-facing test, so it never re-hits):
+ *   collision world:  (99.900, 0.000, -170.000), yaw -pi/2
+ *   bbox fallback:    (99.900, 0.000, -169.000), yaw -pi/2  */
 static void move_test_inject(int key, int down)
 {
     EmEvent ev;
@@ -735,12 +848,22 @@ static void move_test_script(void)
         case 90:
             move_test_inject('d', 0);
             break;
-        case 91:
-            printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad\n",
-                   g.pos[0], g.pos[1], g.pos[2], g.yaw);
+        case 91: {
+            const float ez   = g.coll.poly_count ? -170.0f : -169.0f;
+            const float tol  = 0.05f;  /* +- slide/fp drift allowance */
+            int ok = fabsf(g.pos[0] - 99.9f)        <= tol &&
+                     fabsf(g.pos[1] - 0.0f)         <= tol &&
+                     fabsf(g.pos[2] - ez)           <= tol &&
+                     fabsf(g.yaw + EM_PI * 0.5f)    <= 0.01f;
+            printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad — "
+                   "expected (99.900, 0.000, %.3f)%s: %s\n",
+                   g.pos[0], g.pos[1], g.pos[2], g.yaw, ez,
+                   g.coll.poly_count ? " [wall stop]" : " [bbox clamp]",
+                   ok ? "PASS" : "FAIL");
             fflush(stdout);
             em_frame_request_quit();
             break;
+        }
         default:
             break;
     }
@@ -898,6 +1021,19 @@ static void game_boot_task(void)
     /* Optional scene (level parts, world-space). */
     g.n_scene = scene_load(gfx, g.scene, SCENE_MAX);
 
+    /* Optional collision world (id 0x44 -> EMCL, disc-derived, generated
+     * locally by the decomp repo's tools/export_collision.py). Without it
+     * movement falls back to the room-bbox clamp. */
+    if (em_collision_load(&g.coll, COLL_PATH) == 0) {
+        printf("collision: %s — %u polys (%u verts), grid %s\n", COLL_PATH,
+               g.coll.poly_count, g.coll.vert_count,
+               (g.coll.flags & 1) ? "decoded" : "absent (flat-floor)");
+    } else {
+        printf("no %s — movement uses the room-bbox clamp. Generate it "
+               "with the decomp repo's tools/export_collision.py\n",
+               COLL_PATH);
+    }
+
     em_task_register(0, game_task);  /* func_001AB740(0, func_001ACEC0) */
 }
 
@@ -927,4 +1063,5 @@ void em_game_shutdown(void)
         free(g.scene[i].palette);
     }
     g.n_scene = 0;
+    em_collision_free(&g.coll);
 }
