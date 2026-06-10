@@ -639,9 +639,25 @@ static int crate_mesh_get(EmGfx *gfx)
     if (s.crate_tried) return -1;
     s.crate_tried = 1;
 
-    if (em_model_load(&s.crate_model, CRATE_ASSET) == 0) {
+    /* Per-scene crate probe (decomp FINDINGS s34 §3): under the EM_SCENE
+     * shadow stage "assets/scene" IS the active scene directory, so a scene
+     * may carry props/enemy_crate.emdl (props/ is a subdir, never slurped
+     * by scene_load as level geometry); scenes without one — and the
+     * default scene — fall back to the global CRATE_ASSET box, keeping
+     * default behavior byte-identical (the existence check keeps the
+     * loader's cannot-open noise out of default logs). Both crates are
+     * 1-bone, so CRATE_BONE_MAX needs no change. */
+    static const char SCENE_CRATE[] = "assets/scene/props/enemy_crate.emdl";
+    const char *path = NULL;
+    FILE *sc = fopen(SCENE_CRATE, "rb");
+    if (sc) fclose(sc);
+    if (sc && em_model_load(&s.crate_model, SCENE_CRATE) == 0)
+        path = SCENE_CRATE;
+    else if (em_model_load(&s.crate_model, CRATE_ASSET) == 0)
+        path = CRATE_ASSET;
+    if (path) {
         if (s.crate_model.bone_count > CRATE_BONE_MAX) {
-            fprintf(stderr, "enemy: %s: %u bones > %d\n", CRATE_ASSET,
+            fprintf(stderr, "enemy: %s: %u bones > %d\n", path,
                     s.crate_model.bone_count, CRATE_BONE_MAX);
             em_model_free(&s.crate_model);
             return -1;
@@ -663,7 +679,7 @@ static int crate_mesh_get(EmGfx *gfx)
         s.crate_bones     = s.crate_model.bone_count;
         em_model_palette_at(&s.crate_model, 0, 0.0, s.crate_base);
         printf("crate model: %s — %u verts, %u tris, %u texture(s)\n",
-               CRATE_ASSET, s.crate_model.vert_count,
+               path, s.crate_model.vert_count,
                s.crate_model.index_count / 3, s.crate_model.tex_count);
         return 0;
     }
