@@ -89,25 +89,67 @@ void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
 
 /* --- 2D overlay pass (HUD) ------------------------------------------- */
 
-/* Overlay coordinates live on a VIRTUAL CANVAS of 640x448 — the PS2's
- * NTSC full frame — origin top-left, y down, stretched to the drawable.
- * Resolution-independent and period-faithful: HUD code lays out in the
- * same screen space the original GS sprites used. */
+/* Overlay coordinates live on a VIRTUAL CANVAS — origin top-left, y
+ * down, stretched to the drawable. Resolution-independent and
+ * period-faithful: HUD code lays out in the same screen space the
+ * original GS sprites used. The DEFAULT canvas is 640x448 (the PS2's
+ * NTSC full frame); the engine's STATUS SCREEN composes on a 512x448
+ * canvas (GS offsets 0x700/0x790 — FINDINGS.md "STATUS SCREEN LAYOUT"),
+ * selectable per-frame with em_gfx_overlay_canvas below. */
 #define EM_GFX_OVERLAY_W 640.0f
 #define EM_GFX_OVERLAY_H 448.0f
+#define EM_GFX_STATUS_W  512.0f   /* the status screen's UI canvas */
+#define EM_GFX_STATUS_H  448.0f
+
+/* Select the virtual canvas that SUBSEQUENT overlay primitives lay out
+ * on (it only changes the queue-time coordinate mapping — already-queued
+ * primitives keep theirs, so one frame can mix canvases). Reset to the
+ * 640x448 default at every em_gfx_begin_frame; a caller that switches
+ * (em_hud uses 512x448) restores the default when done so later callers
+ * (crosshair, screen fade) are unaffected. Non-positive sizes ignored. */
+void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h);
 
 /* Queue one solid screen-space rectangle for this frame's overlay pass.
  * (x, y, w, h) in virtual-canvas units; `rgba` each in [0,1] (alpha
- * blended). Queued rects are flushed automatically inside
+ * blended). Queued primitives are flushed automatically inside
  * em_gfx_end_frame, AFTER every 3D draw: one orthographic pass, depth
  * test off, standard alpha blend — the native stand-in for the engine's
  * GS sprite HUD pass at the end of the frame's packet chain. Call
  * between begin_frame and end_frame; with nothing queued the pass does
- * not run (frame output is bit-identical to pre-overlay builds). At most
- * EM_GFX_OVERLAY_MAX rects per frame; overflow is dropped. */
+ * not run (frame output is bit-identical to pre-overlay builds). The
+ * per-frame budget is EM_GFX_OVERLAY_MAX quads (one rect = one quad, one
+ * arc = one quad per tessellation segment); overflow is dropped. */
 #define EM_GFX_OVERLAY_MAX 512
 void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
                          const float rgba[4]);
+
+/* Queue one ANNULAR-ARC segment (ring sector) — the native translation
+ * of the engine's UI arc primitive func_002082B0, which consumes a
+ * 0x60-byte block: center, start/end angle, inner/outer radius, and a
+ * 4-color gradient (FINDINGS.md "STATUS SCREEN LAYOUT"). Drives the
+ * status screen's circular health gauge and the pager-diamond rings.
+ *
+ * (cx, cy) center and r_in/r_out radii in virtual-canvas units; a0/a1
+ * angles in DEGREES, 0 = straight up (12 o'clock), increasing CLOCKWISE
+ * on screen (y-down canvas); a1 may exceed 360 for wrapped sweeps (the
+ * engine passes 180..540 for a full ring). The four colors sit at the
+ * arc's corners: rgba_is/rgba_os = inner/outer edge at the START angle,
+ * rgba_ie/rgba_oe at the END angle — radial and angular gradients in one
+ * (matching the block's 4 RGBA slots). Triangulated on the CPU as a fan
+ * of quads (<= 6 degrees per segment) through the same overlay vertex
+ * path and budget as em_gfx_overlay_rect; same pass, blend and flush
+ * rules. Degenerate sweeps/radii (a1 <= a0 or r_out <= r_in) queue
+ * nothing. */
+void em_gfx_overlay_arc4(EmGfx *gfx, float cx, float cy,
+                         float r_in, float r_out, float a0, float a1,
+                         const float rgba_is[4], const float rgba_os[4],
+                         const float rgba_ie[4], const float rgba_oe[4]);
+
+/* Flat-color convenience wrapper: em_gfx_overlay_arc4 with all four
+ * gradient corners set to `rgba`. */
+void em_gfx_overlay_arc(EmGfx *gfx, float cx, float cy,
+                        float r_in, float r_out, float a0, float a1,
+                        const float rgba[4]);
 
 /* --- World-space beam pass (laser sight) ------------------------------ */
 

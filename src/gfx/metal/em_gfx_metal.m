@@ -39,12 +39,16 @@ struct EmGfx {
     /* headless capture (see em_gfx_request_capture) */
     char                         capturePath[1024];
     bool                         captureRequested;
-    /* 2D overlay pass (em_gfx_overlay_rect): rects queued during the
-     * frame as ready-to-draw NDC vertices (6 per rect, float4 pos +
+    /* 2D overlay pass (em_gfx_overlay_rect / _arc): primitives queued
+     * during the frame as ready-to-draw NDC vertices (float4 pos +
      * float4 color each — the kTestShaderSrc layout), flushed by
-     * end_frame after all 3D draws. */
+     * end_frame after all 3D draws. Budget = EM_GFX_OVERLAY_MAX quads
+     * (6 verts each); rects take one quad, arcs one per segment.
+     * overlayW/H is the SELECTED virtual canvas (em_gfx_overlay_canvas)
+     * used for the queue-time NDC mapping; reset each begin_frame. */
     float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
-    uint32_t                     overlayRects;
+    uint32_t                     overlayVertCount;
+    float                        overlayW, overlayH;
     /* World-space beam pass (em_gfx_beam / em_gfx_beam_dot): primitives
      * queued during the frame as raw records; the camera-plane extrusion
      * needs the camera, so vertices are built at flush time from the
@@ -337,6 +341,8 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->pool = [[NSAutoreleasePool alloc] init];
     g->beamCount   = 0;       /* world-space beams are per-frame */
     g->hasViewProj = false;   /* set again by the frame's 3D draws */
+    g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
+    g->overlayH    = EM_GFX_OVERLAY_H;
 
     /* keep the swapchain sized to the backing store */
     NSSize sz = g->view.bounds.size;
@@ -567,34 +573,101 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     }
 }
 
-/* Queue one overlay rect: convert the virtual-canvas box (640x448,
- * origin top-left, y down — em_gfx.h) to NDC on the CPU and append two
- * triangles in the kTestShaderSrc vertex layout (float4 pos + float4
- * color). The pass itself runs in end_frame. */
+/* Select the virtual canvas for subsequent overlay queueing (em_gfx.h —
+ * the status screen lays out on 512x448, everything else on the 640x448
+ * default; begin_frame resets to the default). */
+void em_gfx_overlay_canvas(EmGfx *g, float w, float h)
+{
+    if (!g || w <= 0.0f || h <= 0.0f) return;
+    g->overlayW = w;
+    g->overlayH = h;
+}
+
+/* Append one overlay vertex: virtual-canvas point -> NDC on the CPU, in
+ * the kTestShaderSrc layout (float4 pos + float4 color). Capacity is
+ * checked by the callers (whole primitives are dropped, never split). */
+static void overlay_push(EmGfx *g, float x, float y, const float rgba[4])
+{
+    float *v = g->overlayVerts + (size_t)g->overlayVertCount * 8;
+    v[0] = x / g->overlayW * 2.0f - 1.0f;
+    v[1] = 1.0f - y / g->overlayH * 2.0f;
+    v[2] = 0.0f;
+    v[3] = 1.0f;
+    v[4] = rgba[0];
+    v[5] = rgba[1];
+    v[6] = rgba[2];
+    v[7] = rgba[3];
+    g->overlayVertCount++;
+}
+
+/* Queue one overlay rect: two triangles through overlay_push. The pass
+ * itself runs in end_frame. */
 void em_gfx_overlay_rect(EmGfx *g, float x, float y, float w, float h,
                          const float rgba[4])
 {
-    if (!g || !rgba || g->overlayRects >= EM_GFX_OVERLAY_MAX) return;
-    float x0 = x / EM_GFX_OVERLAY_W * 2.0f - 1.0f;
-    float x1 = (x + w) / EM_GFX_OVERLAY_W * 2.0f - 1.0f;
-    float y0 = 1.0f - y / EM_GFX_OVERLAY_H * 2.0f;
-    float y1 = 1.0f - (y + h) / EM_GFX_OVERLAY_H * 2.0f;
-    const float corners[6][2] = {
-        { x0, y0 }, { x1, y0 }, { x0, y1 },   /* tri 1 */
-        { x1, y0 }, { x1, y1 }, { x0, y1 },   /* tri 2 */
-    };
-    float *v = g->overlayVerts + (size_t)g->overlayRects * 6 * 8;
-    for (int i = 0; i < 6; i++) {
-        v[i * 8 + 0] = corners[i][0];
-        v[i * 8 + 1] = corners[i][1];
-        v[i * 8 + 2] = 0.0f;
-        v[i * 8 + 3] = 1.0f;
-        v[i * 8 + 4] = rgba[0];
-        v[i * 8 + 5] = rgba[1];
-        v[i * 8 + 6] = rgba[2];
-        v[i * 8 + 7] = rgba[3];
+    if (!g || !rgba ||
+        g->overlayVertCount + 6 > EM_GFX_OVERLAY_MAX * 6)
+        return;
+    overlay_push(g, x,     y,     rgba);   /* tri 1 */
+    overlay_push(g, x + w, y,     rgba);
+    overlay_push(g, x,     y + h, rgba);
+    overlay_push(g, x + w, y,     rgba);   /* tri 2 */
+    overlay_push(g, x + w, y + h, rgba);
+    overlay_push(g, x,     y + h, rgba);
+}
+
+/* Queue one annular-arc segment (em_gfx.h — the translation of the
+ * engine's 0x60-block arc primitive func_002082B0): CPU-triangulated fan
+ * of quads, <= 6 degrees each, through the same overlay vertex path.
+ * Angle 0 = up, clockwise on the y-down canvas; the 4 colors interpolate
+ * radially (inner->outer) and angularly (start->end) per vertex. */
+void em_gfx_overlay_arc4(EmGfx *g, float cx, float cy,
+                         float r_in, float r_out, float a0, float a1,
+                         const float rgba_is[4], const float rgba_os[4],
+                         const float rgba_ie[4], const float rgba_oe[4])
+{
+    if (!g || !rgba_is || !rgba_os || !rgba_ie || !rgba_oe) return;
+    if (a1 <= a0 || r_out <= r_in || r_in < 0.0f) return;
+    uint32_t segs = (uint32_t)ceilf((a1 - a0) / 6.0f);
+    if (segs < 1) segs = 1;
+    if (g->overlayVertCount + segs * 6 > EM_GFX_OVERLAY_MAX * 6)
+        return;                       /* over budget: drop whole arc */
+    const float deg2rad = 0.01745329252f;
+    for (uint32_t i = 0; i < segs; i++) {
+        float t0 = (float)i / (float)segs;
+        float t1 = (float)(i + 1) / (float)segs;
+        float r0 = (a0 + (a1 - a0) * t0) * deg2rad;
+        float r1 = (a0 + (a1 - a0) * t1) * deg2rad;
+        /* canvas direction for angle a: (sin a, -cos a) — 0 = up, cw */
+        float s0 = sinf(r0), c0 = cosf(r0);
+        float s1 = sinf(r1), c1 = cosf(r1);
+        float ci0[4], co0[4], ci1[4], co1[4];
+        for (int k = 0; k < 4; k++) {
+            ci0[k] = rgba_is[k] + (rgba_ie[k] - rgba_is[k]) * t0;
+            co0[k] = rgba_os[k] + (rgba_oe[k] - rgba_os[k]) * t0;
+            ci1[k] = rgba_is[k] + (rgba_ie[k] - rgba_is[k]) * t1;
+            co1[k] = rgba_os[k] + (rgba_oe[k] - rgba_os[k]) * t1;
+        }
+        float i0x = cx + r_in  * s0, i0y = cy - r_in  * c0;
+        float o0x = cx + r_out * s0, o0y = cy - r_out * c0;
+        float i1x = cx + r_in  * s1, i1y = cy - r_in  * c1;
+        float o1x = cx + r_out * s1, o1y = cy - r_out * c1;
+        overlay_push(g, i0x, i0y, ci0);   /* tri 1: i0 o0 i1 */
+        overlay_push(g, o0x, o0y, co0);
+        overlay_push(g, i1x, i1y, ci1);
+        overlay_push(g, o0x, o0y, co0);   /* tri 2: o0 o1 i1 */
+        overlay_push(g, o1x, o1y, co1);
+        overlay_push(g, i1x, i1y, ci1);
     }
-    g->overlayRects++;
+}
+
+/* Flat-color arc (em_gfx.h). */
+void em_gfx_overlay_arc(EmGfx *g, float cx, float cy,
+                        float r_in, float r_out, float a0, float a1,
+                        const float rgba[4])
+{
+    em_gfx_overlay_arc4(g, cx, cy, r_in, r_out, a0, a1,
+                        rgba, rgba, rgba, rgba);
 }
 
 /* Queue one world-space beam segment (em_gfx.h). Stored raw; vertices are
@@ -739,19 +812,20 @@ static void beam_flush(EmGfx *g)
     [vbuf release];
 }
 
-/* Flush the queued overlay rects: one draw at the END of the open render
- * pass (post-3D, so the HUD composites over the scene), depth test OFF,
- * standard alpha blend. Reuses the position+color passthrough pipeline
- * (kTestShaderSrc, runtime-compiled) — overlay vertices are pre-converted
- * NDC, exactly that shader's input. The vertex data can exceed Metal's
- * 4 KB setVertexBytes ceiling (a HUD is ~40 rects = ~7.5 KB), so it goes
- * through a per-flush MTLBuffer; the command buffer retains it until the
- * GPU is done, so releasing right after the draw is safe. */
+/* Flush the queued overlay primitives (rects + arcs): one draw at the
+ * END of the open render pass (post-3D, so the HUD composites over the
+ * scene), depth test OFF, standard alpha blend. Reuses the
+ * position+color passthrough pipeline (kTestShaderSrc, runtime-compiled)
+ * — overlay vertices are pre-converted NDC, exactly that shader's input.
+ * The vertex data can exceed Metal's 4 KB setVertexBytes ceiling (the
+ * status screen is hundreds of quads), so it goes through a per-flush
+ * MTLBuffer; the command buffer retains it until the GPU is done, so
+ * releasing right after the draw is safe. */
 static void overlay_flush(EmGfx *g)
 {
-    uint32_t rects = g->overlayRects;
-    g->overlayRects = 0;
-    if (!rects || !g->enc) return;
+    uint32_t verts = g->overlayVertCount;
+    g->overlayVertCount = 0;
+    if (!verts || !g->enc) return;
     if (!g->testPipeline) {
         g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
                                          @"f_main", false);
@@ -760,7 +834,7 @@ static void overlay_flush(EmGfx *g)
     ensure_depth_states(g);
     id<MTLBuffer> vbuf =
         [g->device newBufferWithBytes:g->overlayVerts
-                               length:(NSUInteger)rects * 6 * 8 * sizeof(float)
+                               length:(NSUInteger)verts * 8 * sizeof(float)
                               options:MTLResourceStorageModeShared];
     if (!vbuf) return;
     [g->enc setRenderPipelineState:g->testPipeline];
@@ -769,7 +843,7 @@ static void overlay_flush(EmGfx *g)
     [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
                vertexStart:0
-               vertexCount:(NSUInteger)rects * 6];
+               vertexCount:(NSUInteger)verts];
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
