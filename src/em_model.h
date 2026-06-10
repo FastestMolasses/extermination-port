@@ -5,21 +5,28 @@
  * disc-derived and live under assets/ (git-ignored, never redistributed).
  *
  * Layout (little-endian) — see export_native.py for the producer:
- *   char  magic[4]   "EMD1"
+ *   char  magic[4]   "EMD2"
  *   u32   bone_count
  *   u32   vert_count
  *   u32   index_count
  *   u32   frame_count
  *   f32   fps
- *   u32   reserved[2]
+ *   u32   tex_count
+ *   u32   reserved
  *   i32   parents[bone_count]
- *   vert  { f32 px,py,pz; f32 nx,ny,nz; u32 bone } x vert_count
+ *   tex   { u32 width, height, byte_offset, reserved } x tex_count
+ *   vert  { f32 px,py,pz; f32 nx,ny,nz; f32 u,v; u32 bone; u32 tex }
+ *         x vert_count       (tex 0xFFFFFFFF = untextured)
  *   u32   indices[index_count]
  *   f32   palette[frame_count][bone_count][16]   (column-major world mats)
+ *   u8    texels[]   RGBA8 rows top-down, per texture at byte_offset
  *
  * Vertices are bone-local (the PS2 stores per-bone object-space packets);
  * posing = palette[frame][bone] * position, exactly the engine's skinning
  * model (a matrix palette uploaded to VU1 + per-bone vertex packets).
+ * UVs are normalized with REPEAT addressing (the PS2 data tiles: values
+ * run past 1). The texel blob is the runtime-built PS2 texture content
+ * (PSMT4/PSMT8 indices + CLUTs resolved by the exporter from a GS dump).
  */
 #ifndef EM_MODEL_H
 #define EM_MODEL_H
@@ -30,16 +37,28 @@
 extern "C" {
 #endif
 
+/* One embedded texture: RGBA8 rows top-down at `offset` into texels[]. */
 typedef struct {
-    uint32_t  bone_count;
-    uint32_t  vert_count;
-    uint32_t  index_count;
-    uint32_t  frame_count;
-    float     fps;
-    int32_t  *parents;   /* bone_count */
-    float    *verts;     /* vert_count * 7 floats (pos3, nrm3, bone-as-u32) */
-    uint32_t *indices;   /* index_count */
-    float    *palette;   /* frame_count * bone_count * 16 floats */
+    uint32_t width, height, offset, reserved;
+} EmModelTex;
+
+#define EM_MODEL_VERT_WORDS 10u  /* pos3, nrm3, uv2, bone, tex */
+#define EM_MODEL_NO_TEX     0xFFFFFFFFu
+
+typedef struct {
+    uint32_t    bone_count;
+    uint32_t    vert_count;
+    uint32_t    index_count;
+    uint32_t    frame_count;
+    float       fps;
+    uint32_t    tex_count;
+    int32_t    *parents;   /* bone_count */
+    EmModelTex *texs;      /* tex_count */
+    float      *verts;     /* vert_count * EM_MODEL_VERT_WORDS 32-bit words */
+    uint32_t   *indices;   /* index_count */
+    float      *palette;   /* frame_count * bone_count * 16 floats */
+    uint8_t    *texels;    /* RGBA8 blob, texel_bytes long */
+    uint32_t    texel_bytes;
 } EmModel;
 
 /* Load an EMDL file. Returns 0 on success, nonzero on error (and prints the

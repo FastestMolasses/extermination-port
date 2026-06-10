@@ -24,6 +24,7 @@ struct EmGfx {
     id<MTLCommandQueue>          queue;
     id<MTLRenderPipelineState>   testPipeline; /* lazily built for the test draw */
     id<MTLRenderPipelineState>   skinPipeline; /* lazily built for skinned draws */
+    id<MTLSamplerState>          repeatSampler; /* linear, REPEAT (PS2 tiling) */
     id<MTLDepthStencilState>     depthOn;      /* less-equal, write */
     id<MTLDepthStencilState>     depthOff;     /* always, no write */
     id<MTLTexture>               depthTex;     /* sized to the drawable */
@@ -38,9 +39,16 @@ struct EmGfx {
 };
 
 struct EmGfxMesh {
-    id<MTLBuffer> vbuf;
-    id<MTLBuffer> ibuf;
-    uint32_t      index_count;
+    id<MTLBuffer>  vbuf;
+    id<MTLBuffer>  ibuf;
+    uint32_t       index_count;
+    /* Embedded PS2 textures as a 2D array: every texture is TILED to fill
+     * a common pow-2 slice, so REPEAT addressing reproduces the GS wrap
+     * for any sub-size (all sizes are powers of two). scaleBuf holds one
+     * float2 per texture: uv * scale maps native UVs into the slice. */
+    id<MTLTexture> texArray;
+    id<MTLBuffer>  scaleBuf;
+    uint32_t       tex_count;
 };
 
 #define EM_DEPTH_FORMAT MTLPixelFormatDepth32Float
@@ -62,34 +70,48 @@ static NSString *const kTestShaderSrc =
 "fragment float4 f_main(VOut in [[stage_in]]) { return in.color; }\n";
 
 /* Skinning shader — the translated PS2 vertex pipeline. Buffer 0 holds
- * 7-word vertex records (float pos[3], float normal[3], uint bone); buffer 1
- * is the bone-matrix palette (column-major, same layout the game stages for
- * VU1 dmem); buffer 2 the camera. This mirrors the VU1 soft-skinner: vertex
- * positions are bone-local, world = palette[bone] * pos. Flat directional
- * shading stands in for textures until GS material capture is wired up. */
+ * 10-word vertex records (float pos[3], float normal[3], float uv[2],
+ * uint bone, uint tex); buffer 1 is the bone-matrix palette (column-major,
+ * same layout the game stages for VU1 dmem); buffer 2 the camera; buffer 3
+ * one float2 UV scale per texture (native size / array-slice size — the
+ * slices hold each texture TILED to a common pow-2 size so sampler REPEAT
+ * reproduces GS wrap). This mirrors the VU1 soft-skinner: vertex positions
+ * are bone-local, world = palette[bone] * pos. Fragment = texture sample
+ * (per-triangle slice via [[flat]]) modulated by directional light;
+ * untextured vertices (tex == ~0u) keep the flat grey. */
 static NSString *const kSkinShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
-"struct VOut { float4 pos [[position]]; float3 nrm; };\n"
+"struct VOut { float4 pos [[position]]; float3 nrm; float2 uv;\n"
+"              uint slice [[flat]]; };\n"
 "vertex VOut v_skin(uint vid [[vertex_id]],\n"
 "                   const device uint *vdata [[buffer(0)]],\n"
 "                   const device float4x4 *palette [[buffer(1)]],\n"
-"                   constant float4x4 &viewproj [[buffer(2)]]) {\n"
+"                   constant float4x4 &viewproj [[buffer(2)]],\n"
+"                   const device float2 *tscale [[buffer(3)]]) {\n"
 "    const device float *fw = (const device float *)vdata;\n"
-"    float3 p = float3(fw[vid*7+0], fw[vid*7+1], fw[vid*7+2]);\n"
-"    float3 n = float3(fw[vid*7+3], fw[vid*7+4], fw[vid*7+5]);\n"
-"    float4x4 M = palette[vdata[vid*7+6]];\n"
+"    float3 p = float3(fw[vid*10+0], fw[vid*10+1], fw[vid*10+2]);\n"
+"    float3 n = float3(fw[vid*10+3], fw[vid*10+4], fw[vid*10+5]);\n"
+"    float2 uv = float2(fw[vid*10+6], fw[vid*10+7]);\n"
+"    uint  tex = vdata[vid*10+9];\n"
+"    float4x4 M = palette[vdata[vid*10+8]];\n"
 "    VOut o;\n"
 "    o.pos = viewproj * (M * float4(p, 1.0));\n"
 "    o.nrm = (M * float4(n, 0.0)).xyz;\n"
+"    o.slice = tex;\n"
+"    o.uv = (tex == 0xFFFFFFFFu) ? float2(0.0) : uv * tscale[tex];\n"
 "    return o;\n"
 "}\n"
-"fragment float4 f_skin(VOut in [[stage_in]]) {\n"
+"fragment float4 f_skin(VOut in [[stage_in]],\n"
+"                       texture2d_array<float> texs [[texture(0)]],\n"
+"                       sampler smp [[sampler(0)]]) {\n"
 "    float3 N = normalize(in.nrm);\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
-"    float3 c = float3(0.55, 0.62, 0.70) * (0.30 + 0.70 * d);\n"
-"    return float4(c, 1.0);\n"
+"    float3 base = float3(0.55, 0.62, 0.70);\n"
+"    if (in.slice != 0xFFFFFFFFu)\n"
+"        base = texs.sample(smp, in.uv, in.slice).rgb;\n"
+"    return float4(base * (0.30 + 0.70 * d), 1.0);\n"
 "}\n";
 
 /* Compile MSL source at runtime and build a pipeline for the swapchain +
@@ -181,6 +203,7 @@ void em_gfx_destroy(EmGfx *g)
     if (!g) return;
     [g->testPipeline release];
     [g->skinPipeline release];
+    [g->repeatSampler release];
     [g->depthOn release];
     [g->depthOff release];
     [g->depthTex release];
@@ -246,18 +269,72 @@ void em_gfx_draw_test_triangle(EmGfx *g)
 
 EmGfxMesh *em_gfx_mesh_create(EmGfx *g, const float *verts,
                               uint32_t vert_count, const uint32_t *indices,
-                              uint32_t index_count)
+                              uint32_t index_count,
+                              const EmGfxTexDesc *texs, uint32_t tex_count,
+                              const uint8_t *texels)
 {
     if (!g || !verts || !indices || !vert_count || !index_count) return NULL;
     EmGfxMesh *m = (EmGfxMesh *)calloc(1, sizeof(EmGfxMesh));
     m->vbuf = [g->device newBufferWithBytes:verts
-                                     length:(NSUInteger)vert_count * 7 * 4
+                                     length:(NSUInteger)vert_count * 10 * 4
                                     options:MTLResourceStorageModeShared];
     m->ibuf = [g->device newBufferWithBytes:indices
                                      length:(NSUInteger)index_count * 4
                                     options:MTLResourceStorageModeShared];
     m->index_count = index_count;
-    if (!m->vbuf || !m->ibuf) {
+
+    /* Texture array: common slice size = max texture dims (all pow-2 in
+     * the PS2 data); each texture is tiled across its slice so REPEAT
+     * sampling wraps at the native period. With no textures, a 1x1 white
+     * slice keeps the pipeline's bindings valid. */
+    uint32_t sw = 1, sh = 1;
+    for (uint32_t i = 0; i < tex_count; i++) {
+        if (texs[i].width  > sw) sw = texs[i].width;
+        if (texs[i].height > sh) sh = texs[i].height;
+    }
+    uint32_t slices = tex_count ? tex_count : 1;
+    MTLTextureDescriptor *td = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                     width:sw
+                                    height:sh
+                                 mipmapped:NO];
+    td.textureType = MTLTextureType2DArray;
+    td.arrayLength = slices;
+    m->texArray = [g->device newTextureWithDescriptor:td];
+
+    float   *scales = (float *)malloc((size_t)slices * 2 * sizeof(float));
+    uint8_t *slice  = (uint8_t *)malloc((size_t)sw * sh * 4);
+    for (uint32_t i = 0; i < slices; i++) {
+        uint32_t w = 1, h = 1;
+        const uint8_t *src = (const uint8_t *)"\xff\xff\xff\xff";
+        if (i < tex_count && texels) {
+            w = texs[i].width;
+            h = texs[i].height;
+            src = texels + texs[i].offset;
+        }
+        for (uint32_t y = 0; y < sh; y++) {
+            const uint8_t *srow = src + (size_t)(y % h) * w * 4;
+            uint8_t *drow = slice + (size_t)y * sw * 4;
+            for (uint32_t x = 0; x < sw; x++)
+                memcpy(drow + x * 4, srow + (x % w) * 4, 4);
+        }
+        [m->texArray replaceRegion:MTLRegionMake2D(0, 0, sw, sh)
+                       mipmapLevel:0
+                             slice:i
+                         withBytes:slice
+                       bytesPerRow:(NSUInteger)sw * 4
+                     bytesPerImage:(NSUInteger)sw * sh * 4];
+        scales[i * 2 + 0] = (float)w / (float)sw;
+        scales[i * 2 + 1] = (float)h / (float)sh;
+    }
+    free(slice);
+    m->scaleBuf = [g->device newBufferWithBytes:scales
+                                         length:(NSUInteger)slices * 8
+                                        options:MTLResourceStorageModeShared];
+    free(scales);
+    m->tex_count = tex_count;
+
+    if (!m->vbuf || !m->ibuf || !m->texArray || !m->scaleBuf) {
         em_gfx_mesh_destroy(g, m);
         return NULL;
     }
@@ -270,6 +347,8 @@ void em_gfx_mesh_destroy(EmGfx *g, EmGfxMesh *m)
     if (!m) return;
     [m->vbuf release];
     [m->ibuf release];
+    [m->texArray release];
+    [m->scaleBuf release];
     free(m);
 }
 
@@ -283,6 +362,15 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         if (!g->skinPipeline) return;
     }
     ensure_depth_states(g);
+    if (!g->repeatSampler) {
+        MTLSamplerDescriptor *sd = [[MTLSamplerDescriptor alloc] init];
+        sd.minFilter = MTLSamplerMinMagFilterLinear;
+        sd.magFilter = MTLSamplerMinMagFilterLinear;
+        sd.sAddressMode = MTLSamplerAddressModeRepeat;
+        sd.tAddressMode = MTLSamplerAddressModeRepeat;
+        g->repeatSampler = [g->device newSamplerStateWithDescriptor:sd];
+        [sd release];
+    }
     [g->enc setRenderPipelineState:g->skinPipeline];
     [g->enc setDepthStencilState:g->depthOn];
     /* Strip winding from the PS2 data is not normalised yet — draw
@@ -294,6 +382,9 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setVertexBytes:palette length:(NSUInteger)bone_count * 64
                    atIndex:1];
     [g->enc setVertexBytes:viewproj length:64 atIndex:2];
+    [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
+    [g->enc setFragmentTexture:m->texArray atIndex:0];
+    [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
     [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                        indexCount:m->index_count
                         indexType:MTLIndexTypeUInt32

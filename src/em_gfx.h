@@ -38,13 +38,23 @@ void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a);
  * draw API (the translated PS2 GS/VU1 pipeline) that grows on top. */
 void em_gfx_draw_test_triangle(EmGfx *gfx);
 
-/* Create a static skinned mesh. `verts` is vert_count records of 7 32-bit
- * words: float pos[3], float normal[3], uint32 bone index — the layout the
- * EMDL asset stores (see em_model.h). Indices are u32 triangle lists. The
- * vertex/index data is copied into GPU buffers; the caller may free it. */
+/* Texture descriptor for mesh creation: RGBA8 rows top-down at `offset`
+ * into the texel blob (matches EmModelTex in em_model.h). */
+typedef struct {
+    uint32_t width, height, offset, reserved;
+} EmGfxTexDesc;
+
+/* Create a static skinned mesh. `verts` is vert_count records of 10 32-bit
+ * words: float pos[3], float normal[3], float uv[2], uint32 bone, uint32
+ * tex — the layout the EMDL asset stores (see em_model.h). Indices are u32
+ * triangle lists. `texs`/`texels` carry tex_count embedded RGBA8 textures
+ * (may be NULL/0: the mesh draws with flat lit shading). All data is
+ * copied into GPU objects; the caller may free it. */
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts,
                               uint32_t vert_count, const uint32_t *indices,
-                              uint32_t index_count);
+                              uint32_t index_count,
+                              const EmGfxTexDesc *texs, uint32_t tex_count,
+                              const uint8_t *texels);
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
 
 /* Draw a skinned mesh inside the current frame.
@@ -52,9 +62,10 @@ void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
  * This is the translated PS2 skinning model: per-bone object-space vertices
  * transformed by a bone-matrix palette (what the game DMAs into VU1 dmem),
  * then by the camera. `palette` is bone_count column-major 4x4 world
- * matrices (16 floats each); `viewproj` is one column-major 4x4. The
- * fragment side is flat-lit from the vertex normal for now — textures/CLUT
- * colour arrive once the GS-side material capture is wired up. */
+ * matrices (16 floats each); `viewproj` is one column-major 4x4. Textured
+ * vertices sample the mesh's embedded textures (REPEAT addressing — the
+ * PS2 data tiles past 1) modulated by directional lighting; untextured
+ * ones fall back to flat lit grey. */
 void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
                          const float *palette, uint32_t bone_count);
 

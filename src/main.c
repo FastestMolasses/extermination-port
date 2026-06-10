@@ -95,10 +95,14 @@ int main(void)
     float      palette[1024 * 16]; /* bone_count <= 1024 enforced by loader */
     if (em_model_load(&model, MODEL_PATH) == 0) {
         mesh = em_gfx_mesh_create(gfx, model.verts, model.vert_count,
-                                  model.indices, model.index_count);
-        printf("loaded %s: %u bones, %u verts, %u tris, %u frames @ %.0f fps\n",
+                                  model.indices, model.index_count,
+                                  (const EmGfxTexDesc *)model.texs,
+                                  model.tex_count, model.texels);
+        printf("loaded %s: %u bones, %u verts, %u tris, %u frames @ %.0f fps, "
+               "%u textures\n",
                MODEL_PATH, model.bone_count, model.vert_count,
-               model.index_count / 3, model.frame_count, model.fps);
+               model.index_count / 3, model.frame_count, model.fps,
+               model.tex_count);
     } else {
         printf("no %s — showing the test triangle. Generate it with the "
                "decomp repo's tools/export_native.py\n", MODEL_PATH);
