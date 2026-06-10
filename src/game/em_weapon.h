@@ -18,6 +18,20 @@
  *                        keeps this exact one-frame latency (contract:
  *                        required for animation/FX sync).
  *
+ * ENEMY HITS (design choice, documented): on the PS2 the segment query
+ * itself reports the hit ACTOR (*0x700031D4 in the scratchpad result
+ * block) because movable hulls live in collision set 0. The port keeps
+ * the em_collision world-geometry API untouched; instead the bullet (a)
+ * acquires a target through em_enemy_acquire (distance + facing-cone
+ * stand-in for the engine's screen-cone acquisition func_00199220) so
+ * the ray aims at the victim's aim point (+5-unit overshoot, the
+ * engine's targeted-endpoint rule), and (b) runs em_enemy_ray_test —
+ * segment vs every live enemy's hit sphere — BEFORE crediting the world
+ * hit; the nearest of enemy-vs-world wins. An enemy hit writes damage
+ * code 5 into the victim's +0x36 mailbox (func_001B41F0's contract);
+ * the enemy behavior consumes it in its own tick (crawler HP 1 =
+ * one-shot kill) and the crosshair pulses the HIT shape.
+ *
  * AMMO MODEL (the engine's TOTAL-pool rule, FINDINGS "INVENTORY LOCATED"):
  *   mag      D_00810C62, u8  — rounds in the magazine, max 30
  *   reserve  D_00810CB4, s16 — TOTAL rounds INCLUDING the mag

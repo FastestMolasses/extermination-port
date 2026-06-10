@@ -116,6 +116,7 @@
 #include "game/em_bgm.h"
 #include "game/em_collision.h"
 #include "game/em_door.h"
+#include "game/em_enemy.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
 #include "game/em_task.h"
@@ -321,7 +322,7 @@ static struct {
     float      viewproj[16];
 
     /* render chain (this frame's recorded draws) */
-    ChainDraw  chain[SCENE_MAX + 1 + EM_DOOR_MAX];
+    ChainDraw  chain[SCENE_MAX + 1 + EM_DOOR_MAX + EM_ENEMY_MAX];
     int        chain_len;
     int        chain_test_triangle;
 
@@ -349,6 +350,14 @@ static struct {
     float       dt_min_x;        /* min player x while the door not OPEN */
     int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
     int         wt_fail;         /* weapon test: failed checkpoints */
+    int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
+                                  * run, 2 = let-it-reach-the-player run */
+    int         et_spawned;      /* test crawler placed at scene init */
+    int         et_fail;         /* failed checkpoints */
+    float       et_d0;           /* spawn distance to the test crawler */
+    float       et_health0;      /* player health at frame 0 */
+    int         et_fired;        /* frame the kill-run shot was injected */
+    int         et_hit_frame;    /* frame the contact run lost health */
 } g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
@@ -365,6 +374,11 @@ static struct {
  *                             the scene dir, e.g. doors/door_m03.emdl;
  *                             r = use-scan trigger radius) — written by
  *                             export_props.py --doors, owned by em_door.c
+ *   enemy crawler <x> <y> <z> <yaw>
+ *                             one placed CRAWLER (the func_001551B0
+ *                             placement records); owned by em_enemy.c.
+ *                             Only the "crawler" kind exists natively;
+ *                             other kinds are reported and skipped.
  *
  * A missing file or missing key leaves the office defaults in place, so
  * the default scene needs no manifest to keep its exact behavior. */
@@ -402,13 +416,24 @@ static void scene_manifest_load(void)
             float p[3] = { x, y, z };
             if (em_door_add(em_frame_gfx(), SCENE_DIR, name, p, yaw, r))
                 printf("manifest: door line failed to load: %s", line);
+        } else if (sscanf(line, "enemy %255s %f %f %f %f", name,
+                          &x, &y, &z, &yaw) == 5) {
+            /* Placed enemy instance (em_enemy.c). */
+            if (strcmp(name, "crawler") != 0) {
+                printf("manifest: unknown enemy kind, skipped: %s", line);
+            } else {
+                float p[3] = { x, y, z };
+                if (em_enemy_add(em_frame_gfx(), p, yaw) < 0)
+                    printf("manifest: enemy line failed to load: %s", line);
+            }
         }
     }
     fclose(f);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
-           "collision %s%s%s, %d door(s)\n", SCENE_MANIFEST,
+           "collision %s%s%s, %d door(s), %d enem%s\n", SCENE_MANIFEST,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
-           g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count());
+           g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count(),
+           em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies");
 }
 
 static int cmp_str(const void *a, const void *b)
@@ -800,6 +825,15 @@ static void render_chain_build(void)
     for (int i = 0; i < em_door_count(); i++) {
         ChainDraw *cd = &g.chain[g.chain_len++];
         em_door_draw(i, &cd->mesh, &cd->palette, &cd->bone_count);
+    }
+    /* Enemies (the actor-pool draws). Same pointer contract as the
+     * doors: em_enemy_update (after this build) writes this frame's
+     * pose before the close-out flush. A slot that died this frame is
+     * skipped at the NEXT build (death has no corpse yet). */
+    for (int i = 0; i < em_enemy_count(); i++) {
+        ChainDraw *cd = &g.chain[g.chain_len];
+        if (em_enemy_draw(i, &cd->mesh, &cd->palette, &cd->bone_count))
+            g.chain_len++;
     }
     if (g.mesh) {
         g.chain[g.chain_len++] = (ChainDraw){ g.mesh, g.player_palette,
@@ -1320,12 +1354,114 @@ static void weapon_test_script(void)
     }
 }
 
+/* EM_ENEMY_TEST — deterministic crawler-vs-player self-tests (em_enemy.c).
+ * Both runs spawn ONE crawler 30 units ahead of the player spawn along
+ * the spawn facing (scene-init arm, et_spawned) and adapt to the
+ * crawler's actual pace (steer pauses vary with the scene's collision
+ * world) instead of fixed frame numbers:
+ *
+ *   EM_ENEMY_TEST=1 (kill run): hold R1 from frame 0 (draw). Assert the
+ *     crawler WAKES (the 32-u distance sense covers the 30-u spawn) and
+ *     CLOSES distance; once it is within 12 u (inside the office's wall
+ *     plane 14 u ahead of the spawn, so the world ray cannot outrank
+ *     the victim test) fire ONE semi shot -> +0x36 mailbox, HP 1 =
+ *     one-shot kill -> assert death/despawn, exactly one round spent,
+ *     ray resolved HIT, and the player's health untouched.
+ *   EM_ENEMY_TEST=2 (contact run): weapon stays holstered; let the
+ *     crawler reach the player. The radius-6 lunge writes the player
+ *     mailbox (0x400A -> amount 10) and the crawler bursts (the
+ *     suicide-attack path) -> assert health dropped by exactly 10 and
+ *     the crawler despawned. */
+static void et_check(int cond, const char *what)
+{
+    if (cond) return;
+    g.et_fail++;
+    printf("enemy test: CHECK FAILED — %s\n", what);
+}
+
+static float et_dist(void)
+{
+    float p[3] = { 0.0f, 0.0f, 0.0f };
+    em_enemy_pos(0, p);
+    float dx = p[0] - g.pos[0], dz = p[2] - g.pos[2];
+    return sqrtf(dx * dx + dz * dz);
+}
+
+static void et_finish(const char *run)
+{
+    printf("enemy test (%s): spawn dist %.1f, final dist %.1f, shots %d, "
+           "crawler alive %d (state %d), health %.0f (start %.0f) — %s\n",
+           run, g.et_d0, et_dist(), em_weapon_shots(), em_enemy_alive(),
+           em_enemy_state(0), g.status.health, g.et_health0,
+           g.et_fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    em_frame_request_quit();
+}
+
+static void enemy_test_script(void)
+{
+    int n = g.frame_no;
+    if (n == 0) {
+        g.et_d0      = et_dist();
+        g.et_health0 = g.status.health;
+        if (g.enemy_test == 1)
+            move_test_inject('e', 1);   /* R1 hold — draw the rifle */
+        return;
+    }
+    if (n == 20)
+        et_check(em_enemy_state(0) == EM_ENEMY_ATTACK,
+                 "crawler awake (ATTACK) by frame 20");
+
+    if (g.enemy_test == 1) {
+        if (!g.et_fired) {
+            if (n > 20 && et_dist() <= 12.0f) {
+                et_check(et_dist() < g.et_d0 - 5.0f,
+                         "closed distance before the shot");
+                et_check(em_weapon_state() == EM_WPN_AIM,
+                         "rifle drawn (AIM) at fire time");
+                move_test_inject('k', 1);   /* CROSS — one semi shot */
+                g.et_fired = n;
+            } else if (n >= 400) {
+                et_check(0, "crawler closed to 12 u by frame 400");
+                et_finish("kill run");
+            }
+        } else if (n == g.et_fired + 2) {
+            move_test_inject('k', 0);
+        } else if (n == g.et_fired + 15) {
+            et_check(em_weapon_shots() == 1, "exactly one round fired");
+            et_check(em_weapon_last_hit() == 1, "the shot resolved HIT");
+            et_check(em_enemy_alive() == 0 &&
+                     em_enemy_state(0) == EM_ENEMY_FREE,
+                     "crawler dead + despawned (mailbox one-shot kill)");
+            et_check(g.status.health == g.et_health0,
+                     "player health untouched");
+            et_finish("kill run");
+        }
+    } else {
+        if (!g.et_hit_frame) {
+            if (g.status.health < g.et_health0) {
+                g.et_hit_frame = n;
+            } else if (n >= 600) {
+                et_check(0, "crawler reached the player by frame 600");
+                et_finish("contact run");
+            }
+        } else if (n == g.et_hit_frame + 5) {
+            et_check(g.status.health == g.et_health0 - 10.0f,
+                     "lunge dealt the 0x400A amount (10)");
+            et_check(em_enemy_alive() == 0,
+                     "crawler burst on the lunge (suicide path)");
+            et_finish("contact run");
+        }
+    }
+}
+
 /* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
 static void gameplay_frame(void)
 {
     if (g.move_test) move_test_script();    /* debug instrumentation only */
     if (g.door_test) door_test_script();    /* debug instrumentation only */
     if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
+    if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
@@ -1337,6 +1473,22 @@ static void gameplay_frame(void)
      * (func_00184BA0) and articulation live in em_door_update.
      * func_0015C160 / func_001F0360 — still untranslated. */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
+    /* ENEMIES: the crawler state machines (func_001551B0 — also part of
+     * the actor-pool tick). Runs BEFORE the weapon update so this
+     * frame's shot resolves against current positions. */
+    em_enemy_update(&g.coll, g.pos);
+    /* Player-side damage mailbox (the crawler lunge writes it with the
+     * actor +0x36 code layout: low bits = amount, high = type flags).
+     * The engine's own player-damage path (latch byte D_008102BF +
+     * drain magnitude D_008104D4) is untranslated; consuming the
+     * mailbox into the status health is the port stand-in. */
+    {
+        int hitcode = em_enemy_player_hit_take();
+        if (hitcode) {
+            g.status.health -= (float)(hitcode & 0x1FFF);
+            if (g.status.health < 0.0f) g.status.health = 0.0f;
+        }
+    }
     /* WEAPON: the player-side armed-stance/fire state machine (engine:
      * part of the player actor update, modes 0x1D..0x20) plus the
      * gun-actor fire-event consumption (engine: pool tick, one-frame
@@ -1401,6 +1553,17 @@ static void ingame_frame_machine(EmTask *self)
              * mag 4, reserve 120). The HUD mirrors the weapon live from
              * here on (frame_close_out). */
             em_weapon_reset(g.status.mag, g.status.reserve);
+            /* EM_ENEMY_TEST spawn: one crawler 30 units ahead of the
+             * player spawn along the spawn facing, turned to face the
+             * player (see enemy_test_script). */
+            if (g.enemy_test && !g.et_spawned) {
+                g.et_spawned = 1;
+                float ep[3] = { g.pos[0] + sinf(g.yaw) * 30.0f,
+                                g.pos[1],
+                                g.pos[2] + cosf(g.yaw) * 30.0f };
+                if (em_enemy_add(em_frame_gfx(), ep, g.yaw + EM_PI) < 0)
+                    printf("enemy test: spawn failed\n");
+            }
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
@@ -1499,6 +1662,7 @@ static void game_boot_task(void)
     /* Optional scene (level parts, world-space) + its manifest (spawn /
      * collision filename / bgm / doors — office defaults when absent). */
     em_door_reset();
+    em_enemy_reset();
     scene_manifest_load();
     g.n_scene = scene_load(gfx, g.scene, SCENE_MAX);
 
@@ -1572,6 +1736,9 @@ void em_game_install(void)
     g.door_test    = dt && dt[0] == '1';
     const char *wt = getenv("EM_WEAPON_TEST");
     g.weapon_test  = wt && wt[0] == '1';
+    const char *et = getenv("EM_ENEMY_TEST");
+    if (et && (et[0] == '1' || et[0] == '2'))
+        g.enemy_test = et[0] - '0';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
@@ -1590,6 +1757,7 @@ void em_game_shutdown(void)
     }
     g.n_scene = 0;
     em_door_shutdown(gfx);
+    em_enemy_shutdown(gfx);
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
 }

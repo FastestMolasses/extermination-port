@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "em_input.h"
+#include "game/em_enemy.h"
 
 /* --- Engine constants (FINDINGS "WEAPON SYSTEM") ----------------------- */
 #define WPN_MAG_MAX     30      /* func_0017B300: mag = min(30, reserve)   */
@@ -23,6 +24,17 @@
 #define WPN_RAY_MASK    0x7u    /* func_001861C0: set mask 7 (hulls +
                                  * cells + grid)                           */
 #define WPN_RAY_ID      0x20    /* func_001861C0: query id 0x20            */
+#define WPN_HIT_DMG     5       /* func_001B41F0(victim, ..., 5, 0): the
+                                 * bullet's damage written into the
+                                 * victim's +0x36 mailbox (crawler HP 1
+                                 * = one-shot kill)                        */
+#define WPN_OVERSHOOT   5.0f    /* targeted rays overshoot the aim point
+                                 * by 5 units (func_001861C0 step 1)       */
+#define WPN_AIM_CONE    0.9848f /* cos ~10 deg — acquisition facing cone.
+                                 * PORT STAND-IN for the engine's SCREEN-
+                                 * space cone (func_00199220: |x|<=66+50s,
+                                 * |y|<=45+45s on the GS canvas) until a
+                                 * projection-space acquisition lands      */
 
 /* --- Port placeholders (flagged; engine values are anim-clip lengths
  *     that are not exported yet) ---------------------------------------- */
@@ -116,24 +128,80 @@ static void weapon_shot(void)
 }
 
 /* The gun-side fire-event consumption — func_001861C0, the BULLET.
- * Hitscan: one segment query, muzzle -> muzzle + dir*260 (no native
- * target acquisition yet, so always the untargeted endpoint). Tracer /
- * impact-marker / shell-eject / rumble are pending; the overlay flash +
- * crosshair pulse stand in (em_weapon.h "VISUAL FEEDBACK"). */
+ *
+ * 1. ENDPOINT: with an acquired target the ray aims at its AIM POINT,
+ *    overshot by 5 units (the engine cycles 3 screen-cone targets from
+ *    func_00199220; the port's em_enemy_acquire is a distance + facing-
+ *    cone stand-in — see WPN_AIM_CONE). No target: muzzle + dir*260.
+ * 2. One world segment query (mask 7, id 0x20).
+ * 3. VICTIM TEST before crediting the world hit: the segment against
+ *    every live enemy's hit sphere (em_enemy_ray_test); the NEAREST of
+ *    enemy-vs-world wins. An enemy hit applies damage through the
+ *    victim's +0x36 mailbox (func_001B41F0's contract: code 5) — the
+ *    enemy's own behavior consumes it next tick. Design note: the
+ *    world-geometry API (em_collision) stays untouched; actor hits go
+ *    through em_enemy's own ray test, the native split of the engine's
+ *    "hit actor pointer in the scratchpad result block" (*0x700031D4).
+ *
+ * Tracer / impact-marker / shell-eject / rumble / gore FX are pending;
+ * the overlay flash + crosshair pulse stand in (em_weapon.h). */
 static void weapon_resolve_fire(const EmCollision *coll,
                                 const float pos[3], float yaw)
 {
     float muzzle[3] = { pos[0], pos[1] + WPN_MUZZLE_HEIGHT, pos[2] };
     float dir[3]    = { sinf(yaw), 0.0f, cosf(yaw) };
-    float end[3]    = { muzzle[0] + dir[0] * WPN_RANGE,
-                        muzzle[1] + dir[1] * WPN_RANGE,
-                        muzzle[2] + dir[2] * WPN_RANGE };
-    int hit = 0;
-    if (coll && coll->poly_count) {
-        EmCollHit h;
-        hit = em_collision_segment_query(coll, muzzle, end, WPN_RAY_MASK,
-                                         WPN_RAY_ID, &h) != 0;
+    float end[3];
+    float aim[3];
+
+    if (em_enemy_acquire(muzzle, yaw, WPN_RANGE, WPN_AIM_CONE, aim) >= 0) {
+        /* targeted shot: endpoint = aim point + 5-unit overshoot */
+        float dx = aim[0] - muzzle[0];
+        float dy = aim[1] - muzzle[1];
+        float dz = aim[2] - muzzle[2];
+        float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (dl > 1e-4f) {
+            dir[0] = dx / dl;
+            dir[1] = dy / dl;
+            dir[2] = dz / dl;
+        }
+        end[0] = aim[0] + dir[0] * WPN_OVERSHOOT;
+        end[1] = aim[1] + dir[1] * WPN_OVERSHOOT;
+        end[2] = aim[2] + dir[2] * WPN_OVERSHOOT;
+    } else {
+        end[0] = muzzle[0] + dir[0] * WPN_RANGE;
+        end[1] = muzzle[1] + dir[1] * WPN_RANGE;
+        end[2] = muzzle[2] + dir[2] * WPN_RANGE;
     }
+
+    int       hit = 0;
+    int       world_hit = 0;
+    EmCollHit h;
+    if (coll && coll->poly_count)
+        world_hit = em_collision_segment_query(coll, muzzle, end,
+                                               WPN_RAY_MASK, WPN_RAY_ID,
+                                               &h) != 0;
+
+    float epoint[3];
+    int   victim = em_enemy_ray_test(muzzle, end, epoint);
+    if (victim >= 0 && world_hit) {
+        /* nearest hit wins (the engine clamps the segment per set) */
+        float wd2 = 0.0f, ed2 = 0.0f;
+        for (int k = 0; k < 3; k++) {
+            float dw = h.point[k] - muzzle[k];
+            float de = epoint[k] - muzzle[k];
+            wd2 += dw * dw;
+            ed2 += de * de;
+        }
+        if (wd2 < ed2)
+            victim = -1;           /* the wall is in front of the enemy */
+    }
+    if (victim >= 0) {
+        em_enemy_damage(victim, WPN_HIT_DMG);  /* victim +0x36 mailbox */
+        hit = 1;
+    } else {
+        hit = world_hit;
+    }
+
     w.last_hit  = hit;
     w.flash     = WPN_FLASH_FRAMES;
     w.pulse     = hit ? WPN_PULSE_HIT : WPN_PULSE_MISS;
