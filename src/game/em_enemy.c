@@ -25,9 +25,17 @@
  *             burst. (Port deviation: the mailbox is also polled here.)
  *   2 DEATH   engine: nest-child spawns + gore FX + a MODEL REBIND to
  *             the burst-husk/gib models (library 0x22/0x29 — there is
- *             NO death clip in the leech clip bank). Port: gameplay
- *             despawns immediately; a visual-only sink placeholder
- *             draws for a few frames (flagged below).
+ *             NO death clip in the leech clip bank), and — when killed
+ *             by DAMAGE (+0x36 nonzero, variants 6/0x1E) — knockback:
+ *             the hit vector in scratch D_700036E0 RNG-rotated
+ *             (90/180/270 deg), velocity set from it, then a corpse
+ *             slide that settles on the floor. Port: gameplay despawns
+ *             immediately; on a LETHAL HIT the visual layer launches
+ *             3-5 GIB instances (the exported library burst set,
+ *             assets/gibs/ — see "GIB LAYER" below) with exactly that
+ *             knockback shape; the contact/suicide burst (mailbox
+ *             empty, engine takes the no-knockback arm) and the
+ *             missing-assets case keep the old sink placeholder.
  *   3 FREE    slot inactive.
  *
  * ANIMATION LAYER (FINDINGS "CRAWLER RESOLVED" section 4 — the leech
@@ -52,11 +60,46 @@
  * Clip transitions crossfade over 0.15 s with the same linear palette
  * blend as the player path (em_game.c ANIM_BLEND_TIME — PROGRESS.md:
  * mid-blend live captures match no single clip).
+ *
+ * GIB LAYER (FINDINGS "GIB SET", decomp tools/export_props.py --gibs):
+ * the burst-death visual. The engine rebinds the dead actor's model to
+ * library entry 0x22 or 0x29 of chunk27/f01_id37.bin — the burst-husk
+ * models — and knocks the corpse along the RNG-rotated hit vector.
+ * The exported set (one static 1-node EMDL per library entry, textures
+ * from the office GS dump) also carries the husks' texture-paired small
+ * chunk/shard meshes (0x1C/0x1D/0x1E share husk A's skin, 0x26/0x27
+ * husk B's, 0x28 = husk B at half size). On a lethal hit the port
+ * spawns 3-5 instances from that set (the half husk first — the
+ * documented rebind target nearest the worm's ~11-u scale — then
+ * chunks/shards round-robin), each launched with:
+ *
+ *   planar dir = the hit vector (attacker -> victim, port stand-in:
+ *                player -> crawler) rotated by RNG in {90, 180, 270}
+ *                deg — the DOCUMENTED choice set — plus a flagged
+ *                +-30 deg port jitter so instances sharing a rotation
+ *                separate;
+ *   vertical   = launch pop + the engine's 0.052/tick gravity;
+ *   landing    = the same floor query as the hop, then rest;
+ *   exit       = no per-draw alpha in the renderer yet, so instead of
+ *                a fade each gib SINKS after ~3 s (180 ticks), like
+ *                the corpse placeholder, and frees.
+ *
+ * Speeds/spin/jitter are port constants (flagged below); the RNG is a
+ * tiny deterministic LCG so test runs and captures reproduce. Gib
+ * instances are VISUAL ONLY: they draw through the same em_enemy_draw
+ * chain contract as live crawlers (virtual indices >= the real slot
+ * count, budgeted so the total never exceeds EM_ENEMY_MAX — em_game.c
+ * sizes its render chain with it) and never touch gameplay state.
+ *
+ * EM_ENEMY_GIBDEMO=<frame>: debug hook — posts a lethal 0x400A mailbox
+ * to enemy 0 at that update tick, so EM_CAPTURE (frame 60) can
+ * photograph the scatter without scripting a full kill run.
  */
 #include "game/em_enemy.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "em_model.h"
@@ -101,6 +144,39 @@
 #define ENEMY_SINK_FRAMES  20     /* DEATH placeholder: sink duration     */
 #define ENEMY_SINK_DEPTH   5.0f   /* DEATH placeholder: sink distance     */
 
+/* --- Gib layer (see "GIB LAYER" in the file header) --------------------
+ * Engine values: the rotation choice set and gravity. Everything else is
+ * a flagged port constant (launch speeds are not exported from the disc). */
+#define GIB_MODEL_MAX    6        /* loadable burst-set models            */
+#define GIB_BONE_MAX     4        /* exporter writes 1+1 palette slots    */
+#define GIB_COUNT_MIN    3        /* instances per burst: 3..5            */
+#define GIB_COUNT_SPAN   3
+#define GIB_ROT_STEP     1.5707963f /* the documented 90-deg RNG steps    */
+#define GIB_JITTER_DEG   30       /* PORT: +-30 deg spread inside a step  */
+#define GIB_SPEED        0.28f    /* PORT: planar launch, units/frame     */
+#define GIB_VY           0.45f    /* PORT: vertical pop (0.052 gravity)   */
+#define GIB_SPIN_MAX     0.25f    /* PORT: yaw tumble, rad/frame          */
+#define GIB_LAUNCH_LIFT  1.5f     /* PORT: spawn height above the feet    */
+#define GIB_REST_FRAMES  180      /* ~3 s total before the sink (the
+                                   * documented no-alpha fade stand-in)   */
+#define GIB_SINK_FRAMES  30
+#define GIB_SINK_DEPTH   3.0f
+
+/* The exported burst set this module launches (decomp repo
+ * tools/export_props.py --gibs; library entry in the name). Order
+ * matters: the half-size husk B (0x28, the documented rebind target
+ * closest to the worm's scale) first, then the texture-paired chunks/
+ * shards round-robin. Missing files just shrink the pool; an empty
+ * pool falls back to the sink placeholder (no regression). */
+static const char *const GIB_FILES[GIB_MODEL_MAX] = {
+    "assets/gibs/gib_28.emdl",    /* husk B, half size (7x7x4)  */
+    "assets/gibs/gib_26.emdl",    /* chunk 1 (husk-B skin)      */
+    "assets/gibs/gib_27.emdl",    /* chunk 2 (husk-B skin)      */
+    "assets/gibs/gib_1c.emdl",    /* shard A1 (husk-A skin)     */
+    "assets/gibs/gib_1d.emdl",    /* shard A2 (husk-A skin)     */
+    "assets/gibs/gib_1e.emdl",    /* shard A3 (husk-A skin)     */
+};
+
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
 #define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
@@ -142,8 +218,35 @@ typedef struct {
     int     sink;         /* DEATH placeholder: sink frames left (draws
                            * while > 0 even though the slot is inactive) */
 
+    /* lethal-hit record (engine: +0x36 nonzero + the +0x70 hit-source
+     * position decide the knockback arm; port: the gib launch) */
+    int     hit_lethal;   /* this death came from the damage mailbox     */
+    float   hit_dir[2];   /* XZ hit vector, attacker -> victim, unit     */
+
     float   palette[ENEMY_BONE_MAX * 16];
 } Enemy;
+
+/* One loaded burst-set model (static 1-node EMDL; the exporter writes a
+ * 1+1-slot palette, so bone_count is 2 with both slots identity). */
+typedef struct {
+    EmGfxMesh *mesh;
+    EmModel    model;
+    uint32_t   bone_count;
+    float      base[GIB_BONE_MAX * 16];   /* frame-0 (identity) palette */
+} GibModel;
+
+/* One airborne/resting gib instance (visual only). */
+typedef struct {
+    int   active;
+    int   model;          /* index into s.gibm                           */
+    float pos[3];
+    float vel[3];         /* 0.052/tick gravity on [1]                   */
+    float yaw, spin;      /* tumble (PORT visual)                        */
+    float y0;             /* launch height = floor fallback (same rule
+                           * as the hop's hop_y0)                        */
+    int   age;            /* ticks since launch -> rest -> sink -> free  */
+    float palette[GIB_BONE_MAX * 16];
+} Gib;
 
 /* Anim-layer phases (port-side, NOT engine state values — the engine
  * picks clips inside func_00154040/func_00154120). */
@@ -174,6 +277,17 @@ static struct {
     int        n;
 
     int        player_hit;   /* player-side damage mailbox (+0x36 shape) */
+
+    /* gib layer (visual only; see the file header) */
+    int        gib_tried;
+    GibModel   gibm[GIB_MODEL_MAX];
+    int        gibm_n;       /* loaded burst-set models (0 = sink only)  */
+    Gib        gib[EM_ENEMY_MAX];
+    int        gib_tail;     /* virtual draw slots in use (compact top)  */
+    int        gib_next;     /* round-robin model cursor                 */
+    uint32_t   rng;          /* deterministic LCG state                  */
+    int        frame;        /* update ticks (EM_ENEMY_GIBDEMO hook)     */
+    int        demo;         /* parsed EM_ENEMY_GIBDEMO (-1 = off)       */
 } s;
 
 static void enemy_build_palette(Enemy *e);
@@ -183,6 +297,19 @@ void em_enemy_reset(void)
     /* Mesh/model survive a reset only through shutdown (mirrors
      * em_door_reset: boot resets once before adding). */
     memset(&s, 0, sizeof s);
+    s.rng  = 0x2A5613u;   /* fixed LCG seed: deterministic runs/captures */
+    s.demo = -1;
+    const char *gd = getenv("EM_ENEMY_GIBDEMO");
+    if (gd && *gd)
+        s.demo = atoi(gd);
+}
+
+/* Deterministic LCG (Numerical-Recipes constants — our own tiny RNG,
+ * NOT the engine's frame RNG at spad 0x70003B68; flagged port choice). */
+static uint32_t gib_rng(void)
+{
+    s.rng = s.rng * 1664525u + 1013904223u;
+    return s.rng >> 8;
 }
 
 /* ------------------------------------------------------------------ */
@@ -307,10 +434,52 @@ static int enemy_mesh_get(EmGfx *gfx)
     return 0;
 }
 
+/* Load the burst set once (first crawler spawn — the only entry point
+ * with a gfx handle; em_enemy_update can't create GPU meshes). Missing
+ * files shrink the pool silently; an empty pool = sink fallback. */
+static void gib_models_load(EmGfx *gfx)
+{
+    if (s.gib_tried) return;
+    s.gib_tried = 1;
+
+    for (int i = 0; i < GIB_MODEL_MAX; i++) {
+        GibModel *gm = &s.gibm[s.gibm_n];
+        if (em_model_load(&gm->model, GIB_FILES[i]) != 0)
+            continue;
+        if (gm->model.bone_count > GIB_BONE_MAX) {
+            em_model_free(&gm->model);
+            continue;
+        }
+        gm->mesh = em_gfx_mesh_create(gfx, gm->model.verts,
+                                      gm->model.vert_count,
+                                      gm->model.indices,
+                                      gm->model.index_count,
+                                      (const EmGfxTexDesc *)gm->model.texs,
+                                      gm->model.tex_count, gm->model.texels,
+                                      gm->model.flags);
+        if (!gm->mesh) {
+            em_model_free(&gm->model);
+            continue;
+        }
+        gm->bone_count = gm->model.bone_count;
+        em_model_palette_at(&gm->model, 0, 0.0, gm->base);
+        s.gibm_n++;
+    }
+    if (s.gibm_n > 0)
+        printf("enemy gibs: %d/%d burst-set models loaded from "
+               "assets/gibs/ (lethal hits scatter them)\n",
+               s.gibm_n, GIB_MODEL_MAX);
+    else
+        printf("enemy gibs: none of assets/gibs/ present — death keeps "
+               "the sink placeholder (export with the decomp repo's "
+               "tools/export_props.py --gibs)\n");
+}
+
 int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw)
 {
     if (s.n >= EM_ENEMY_MAX) return -1;
     if (enemy_mesh_get(gfx) != 0) return -1;
+    gib_models_load(gfx);
 
     Enemy *e = &s.e[s.n];
     memset(e, 0, sizeof *e);
@@ -358,7 +527,7 @@ static void enemy_alarm_broadcast(void)
  * the death-sub-state sound 0x7D8 — the canonical hurt-helper's
  * (func_00153B50) HP<=0 arm; the crawler's own per-state gore set
  * (burst 0x434 etc.) is not pinned to this transition yet. */
-static int enemy_mailbox_poll(Enemy *e)
+static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
     int amount = e->mailbox & 0x1FFF;
@@ -367,6 +536,21 @@ static int enemy_mailbox_poll(Enemy *e)
     enemy_alarm_broadcast();      /* a shot crawler wakes the pack */
     if (e->hp > 0) return 0;
     em_sfx_play(EM_SFX_ENEMY_DEATH);   /* 0x7D8 */
+    /* Lethal: record the hit vector for the gib knockback. The engine
+     * copies the attacker position into victim +0x70 (pair pass /
+     * func_001B41F0); the port's only attacker is the player, so the
+     * stand-in hit vector is player -> crawler in XZ. Degenerate
+     * (same spot): knock straight back along the facing. */
+    float hx = e->pos[0] - pp[0], hz = e->pos[2] - pp[2];
+    float hl = sqrtf(hx * hx + hz * hz);
+    if (hl > 1e-4f) {
+        e->hit_dir[0] = hx / hl;
+        e->hit_dir[1] = hz / hl;
+    } else {
+        e->hit_dir[0] = -sinf(e->yaw);
+        e->hit_dir[1] = -cosf(e->yaw);
+    }
+    e->hit_lethal = 1;
     return 1;
 }
 
@@ -388,17 +572,19 @@ static int enemy_probe(const EmCollision *coll, const Enemy *e,
            hit.surf_class != EM_SURF_SLOPE;
 }
 
-/* Floor height under the crawler (the same vertical-query pattern AND
- * query id 0 as the player spine in em_game.c — the walkable grid floor
+/* Floor height under a point (the same vertical-query pattern AND query
+ * id 0 as the player spine in em_game.c — the walkable grid floor
  * carries conditional attrs that a -1 id query skips). Falls back to
- * the hop's launch height when nothing is found (no collision world, or
- * the spot lies outside the decoded grid floor) so a failed query can
- * never ratchet the crawler upward. */
-static float enemy_floor(const EmCollision *coll, const Enemy *e)
+ * `fallback` (the launch height) when nothing is found (no collision
+ * world, or the spot lies outside the decoded grid floor) so a failed
+ * query can never ratchet the querier upward. Shared by the crawler's
+ * hop and the gib landings. */
+static float floor_at(const EmCollision *coll, const float pos[3],
+                      float fallback)
 {
-    if (!coll || !coll->poly_count) return e->hop_y0;
-    float from[3] = { e->pos[0], e->pos[1] + ENEMY_FLOOR_UP,   e->pos[2] };
-    float down[3] = { e->pos[0], e->pos[1] - ENEMY_FLOOR_DOWN, e->pos[2] };
+    if (!coll || !coll->poly_count) return fallback;
+    float from[3] = { pos[0], pos[1] + ENEMY_FLOOR_UP,   pos[2] };
+    float down[3] = { pos[0], pos[1] - ENEMY_FLOOR_DOWN, pos[2] };
     EmCollHit hit;
     for (int i = 0; i < 8; i++) {
         if (!em_collision_segment_query(coll, from, down,
@@ -412,7 +598,12 @@ static float enemy_floor(const EmCollision *coll, const Enemy *e)
             break;
         from[1] = hit.point[1] - 1e-3f;
     }
-    return e->hop_y0;
+    return fallback;
+}
+
+static float enemy_floor(const EmCollision *coll, const Enemy *e)
+{
+    return floor_at(coll, e->pos, e->hop_y0);
 }
 
 static float wrap_pi(float a)
@@ -583,6 +774,110 @@ static void enemy_build_palette(Enemy *e)
 }
 
 /* ------------------------------------------------------------------ */
+/* Gib layer (visual only — see "GIB LAYER" in the file header)         */
+/* ------------------------------------------------------------------ */
+
+/* World palette of one gib: the model's identity base pose rotated by
+ * the tumble yaw and translated to the instance position (the same
+ * column rotation + translate composition as enemy_build_palette). */
+static void gib_build_palette(Gib *g)
+{
+    const GibModel *gm = &s.gibm[g->model];
+    const float c = cosf(g->yaw), sn = sinf(g->yaw);
+
+    memcpy(g->palette, gm->base, gm->bone_count * 16 * sizeof(float));
+    for (uint32_t b = 0; b < gm->bone_count; b++) {
+        float *m = g->palette + b * 16;
+        for (int col = 0; col < 4; col++) {
+            float x = m[col * 4 + 0], z = m[col * 4 + 2];
+            m[col * 4 + 0] =  c * x + sn * z;
+            m[col * 4 + 2] = -sn * x + c * z;
+        }
+        m[12] += g->pos[0];
+        m[13] += g->pos[1];
+        m[14] += g->pos[2];
+    }
+}
+
+/* Burst: launch 3-5 gib instances from a lethally-hit crawler with the
+ * documented knockback shape (file header). Budgeted so the virtual
+ * draw slots never push em_enemy_count past EM_ENEMY_MAX (em_game.c's
+ * chain reservation). Returns the number launched (0 = caller keeps
+ * the sink placeholder). */
+static int gib_burst(const Enemy *e)
+{
+    if (s.gibm_n == 0) return 0;
+
+    int want   = GIB_COUNT_MIN + (int)(gib_rng() % GIB_COUNT_SPAN);
+    int budget = EM_ENEMY_MAX - s.n;   /* virtual slots we may occupy */
+    int spawned = 0;
+
+    for (int k = 0; k < budget && spawned < want; k++) {
+        Gib *g = &s.gib[k];
+        if (g->active) continue;
+
+        /* the documented rotation: hit vector turned by 90/180/270 deg
+         * (RNG), plus the flagged +-30 deg port jitter */
+        float ang = atan2f(e->hit_dir[0], e->hit_dir[1])
+                  + GIB_ROT_STEP * (float)(1 + gib_rng() % 3)
+                  + (float)((int)(gib_rng() % (2 * GIB_JITTER_DEG + 1))
+                            - GIB_JITTER_DEG) * (ENEMY_PI / 180.0f);
+
+        memset(g, 0, sizeof *g);
+        g->active = 1;
+        g->model  = s.gib_next++ % s.gibm_n;
+        g->pos[0] = e->pos[0];
+        g->pos[1] = e->pos[1] + GIB_LAUNCH_LIFT;
+        g->pos[2] = e->pos[2];
+        g->vel[0] = sinf(ang) * GIB_SPEED;
+        g->vel[1] = GIB_VY;
+        g->vel[2] = cosf(ang) * GIB_SPEED;
+        g->yaw    = ang;
+        g->spin   = ((float)(gib_rng() % 2001) / 1000.0f - 1.0f)
+                    * GIB_SPIN_MAX;
+        g->y0     = e->pos[1];
+        gib_build_palette(g);
+        if (k >= s.gib_tail) s.gib_tail = k + 1;
+        spawned++;
+    }
+    return spawned;
+}
+
+/* Per-tick gib integration: arc under the 0.052 gravity, land on the
+ * floor query, rest, then sink and free (file header timings). */
+static void gib_update(const EmCollision *coll)
+{
+    int tail = 0;
+    for (int k = 0; k < s.gib_tail; k++) {
+        Gib *g = &s.gib[k];
+        if (!g->active) continue;
+        g->age++;
+        if (g->vel[0] != 0.0f || g->vel[1] != 0.0f || g->vel[2] != 0.0f) {
+            g->pos[0] += g->vel[0];
+            g->pos[2] += g->vel[2];
+            g->vel[1] -= ENEMY_GRAVITY;
+            g->pos[1] += g->vel[1];
+            g->yaw    += g->spin;
+            float fy = floor_at(coll, g->pos, g->y0);
+            if (g->vel[1] < 0.0f && g->pos[1] <= fy) {   /* settle */
+                g->pos[1] = fy;
+                g->vel[0] = g->vel[1] = g->vel[2] = 0.0f;
+                g->spin   = 0.0f;
+            }
+        } else if (g->age > GIB_REST_FRAMES) {           /* sink + free */
+            g->pos[1] -= GIB_SINK_DEPTH / (float)GIB_SINK_FRAMES;
+            if (g->age > GIB_REST_FRAMES + GIB_SINK_FRAMES) {
+                g->active = 0;
+                continue;
+            }
+        }
+        gib_build_palette(g);
+        tail = k + 1;
+    }
+    s.gib_tail = tail;
+}
+
+/* ------------------------------------------------------------------ */
 /* State machine                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -602,7 +897,7 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         break;
 
     case EM_ENEMY_IDLE:
-        if (enemy_mailbox_poll(e)) {       /* any damage kills (HP=1) */
+        if (enemy_mailbox_poll(e, pp)) {   /* any damage kills (HP=1) */
             e->state = EM_ENEMY_DEATH;
             break;
         }
@@ -621,7 +916,7 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
     case EM_ENEMY_ATTACK:
         /* PORT DEVIATION (flagged in em_enemy.h): the mailbox is polled
          * mid-attack too — the engine's state 1 poll is an open item. */
-        if (enemy_mailbox_poll(e)) {
+        if (enemy_mailbox_poll(e, pp)) {
             e->state = EM_ENEMY_DEATH;
             break;
         }
@@ -696,13 +991,17 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 
     case EM_ENEMY_DEATH:
         /* Engine sub-machine: nest-child spawns, gore sounds/FX pairs,
-         * a gib-model rebind and a knockback corpse-slide. None
-         * translated — the GAMEPLAY slot frees immediately (alive/
-         * state/hit-tests identical to the pre-anim build); only the
-         * visual sink placeholder lingers (see enemy_build_palette). */
+         * a gib-model rebind and a knockback corpse-slide. The GAMEPLAY
+         * slot frees immediately (alive/state/hit-tests identical to
+         * the pre-gib build). Visuals: a LETHAL HIT launches the gib
+         * burst (the engine's damage-kill knockback arm — see "GIB
+         * LAYER"); the contact/suicide burst (mailbox empty: the
+         * engine's no-knockback arm) and a missing assets/gibs/ keep
+         * the old sink placeholder. */
         e->state  = EM_ENEMY_FREE;
         e->active = 0;
-        e->sink   = ENEMY_SINK_FRAMES;
+        e->sink   = (e->hit_lethal && gib_burst(e) > 0)
+                    ? 0 : ENEMY_SINK_FRAMES;
         break;
 
     default:
@@ -713,6 +1012,12 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 void em_enemy_update(const EmCollision *coll, const float player_pos[3])
 {
     if (!player_pos) return;
+    /* EM_ENEMY_GIBDEMO debug hook: lethal mailbox to enemy 0 at the
+     * requested tick (see the file header). */
+    if (s.demo >= 0 && s.frame == s.demo)
+        em_enemy_damage(0, 0x400A);
+    s.frame++;
+
     for (int i = 0; i < s.n; i++) {
         Enemy *e = &s.e[i];
         if (!e->active) {
@@ -737,6 +1042,7 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
         enemy_build_palette(e);   /* died this tick: freeze the pose
                                    * the sink placeholder starts from */
     }
+    gib_update(coll);
 }
 
 /* ------------------------------------------------------------------ */
@@ -819,12 +1125,29 @@ int em_enemy_ray_test(const float from[3], const float to[3],
 /* Draw + introspection accessors                                       */
 /* ------------------------------------------------------------------ */
 
-int em_enemy_count(void) { return s.n; }
+/* Draw-slot count: the real instances plus the gib layer's virtual
+ * slots (gib_burst budgets them so this never exceeds EM_ENEMY_MAX —
+ * em_game.c reserves exactly that many render-chain entries). */
+int em_enemy_count(void)
+{
+    int n = s.n + s.gib_tail;
+    return n > EM_ENEMY_MAX ? EM_ENEMY_MAX : n;
+}
 
 int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
                   uint32_t *bone_count)
 {
-    if (i < 0 || i >= s.n || !s.mesh) return 0;
+    if (i < 0) return 0;
+    if (i >= s.n) {                        /* virtual gib slot */
+        int k = i - s.n;
+        if (k >= s.gib_tail || !s.gib[k].active) return 0;
+        const GibModel *gm = &s.gibm[s.gib[k].model];
+        *mesh       = gm->mesh;
+        *palette    = s.gib[k].palette;
+        *bone_count = gm->bone_count;
+        return 1;
+    }
+    if (!s.mesh) return 0;
     if (!s.e[i].active && s.e[i].sink <= 0) return 0;  /* sink visual */
     *mesh       = s.mesh;
     *palette    = s.e[i].palette;
@@ -864,6 +1187,10 @@ void em_enemy_shutdown(EmGfx *gfx)
         em_gfx_mesh_destroy(gfx, s.mesh);
         if (s.has_model)
             em_model_free(&s.model);
+    }
+    for (int i = 0; i < s.gibm_n; i++) {
+        em_gfx_mesh_destroy(gfx, s.gibm[i].mesh);
+        em_model_free(&s.gibm[i].model);
     }
     memset(&s, 0, sizeof s);
 }

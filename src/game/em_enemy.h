@@ -42,10 +42,21 @@
  *  - DEATH: the engine's state 2 spawns nest children, gore FX, a
  *    MODEL REBIND to the gib models (library entries 0x22/0x29 — the
  *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED")
- *    and a knockback corpse-slide. None of that is translated: the
- *    gameplay slot despawns immediately, and a VISUAL-ONLY placeholder
- *    draws the frozen last pose sinking for a few frames (flagged in
- *    em_enemy.c — a fade needs renderer per-draw alpha, not yet there).
+ *    and, when killed by damage, a knockback corpse-slide along the
+ *    RNG-rotated (90/180/270 deg) hit vector. The gameplay slot still
+ *    despawns immediately; VISUALLY a lethal hit now launches 3-5 gib
+ *    instances from the exported burst set (assets/gibs/gib_*.emdl,
+ *    decomp tools/export_props.py --gibs) with that documented
+ *    knockback shape — arc under the 0.052 gravity, settle on the
+ *    floor query, sink after ~3 s (the no-per-draw-alpha fade
+ *    stand-in) — drawn through the same chain contract as live
+ *    crawlers (virtual indices in em_enemy_count/em_enemy_draw,
+ *    budgeted to EM_ENEMY_MAX). Nest children and the gore particle
+ *    FX remain untranslated. Missing gib assets, and the contact/
+ *    suicide burst (the engine's no-knockback arm), keep the old
+ *    VISUAL-ONLY sink placeholder (flagged in em_enemy.c). Debug:
+ *    EM_ENEMY_GIBDEMO=<frame> posts a lethal mailbox to enemy 0 at
+ *    that tick so EM_CAPTURE can photograph the scatter.
  *  - SPEED/RANGES: hop forward speed, hop airtime, the burst-on-player
  *    radius and the per-model hit-sphere radius are not exported from
  *    the disc; the port constants are flagged in em_enemy.c (the lunge
