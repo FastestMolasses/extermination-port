@@ -55,9 +55,12 @@
  *   L3 (R)        manual reload (top-up) — the engine's raw L3 pad bit
  *                 (NOT config-mapped), func_0017B300(.,2). The keyboard
  *                 map gained an L3 key (R) so the port no longer needs
- *                 the old SQUARE deviation; SQUARE's real default-config
- *                 action (slot 0x3B74, sound 0x179) is unidentified and
- *                 unbound in the port.
+ *                 the old SQUARE deviation.
+ *   CIRCLE (L) / SQUARE (J) while HOLSTERED = the KNIFE attacks (light
+ *                 combo / heavy stab — the s36 melee decode; the
+ *                 "KNIFE / MELEE" block below). SQUARE while AIMING =
+ *                 the attachment-0 sub-weapon toggle (sound 0x179) —
+ *                 the s29 "unidentified action" open item, now decoded.
  *
  * RELOAD SOUNDS (live-pinned s29 — replaces the old 0xF002 placeholder
  * alias): reload START plays 0x163 (the shared weapon-handling foley,
@@ -132,6 +135,91 @@
  *
  * Holstered (the default) the module queues nothing and touches nothing,
  * so default-run frame output stays byte-identical to pre-weapon builds.
+ *
+ * ------------------------------------------------------------------------
+ * KNIFE / MELEE (decoded 2026-06-10 s36 — decomp FINDINGS "KNIFE/MELEE
+ * DECODED"; retires the s29 "SQUARE = unidentified action" open item).
+ *
+ * Engine architecture: the knife is permanent equipment with TWO attacks
+ * on TWO DIFFERENT BUTTONS (NOT tap-vs-hold), dispatched by the action
+ * machine func_001607D0 from the unarmed actions (+0x1F0 codes 0..7):
+ *
+ *   CIRCLE press (config slot 0x3B78 — the FIRE button) while no rifle
+ *     is drawn -> player mode 0x21 (action code 0x36) = func_001735C0,
+ *     the LIGHT 3-HIT COMBO machine;
+ *   SQUARE press (config slot 0x3B74) while no rifle is drawn ->
+ *     player mode 0x22 (action code 0x37) = func_00173E60, the HEAVY
+ *     single stab.
+ *
+ * While the rifle IS drawn (armed stances 0x31/0x32/0x34/0x35), SQUARE
+ * routes to the SUB-WEAPON action func_0017A970 instead; with attachment
+ * 0 (no underbarrel mounted, D_00810CA6 == 0) it just TOGGLES the global
+ * D_00810D3C with sound 0x179 on toggle-ON — this is exactly the s29
+ * live observation ("0x179, no ammo use, no state change"). What
+ * D_00810D3C arms is still open (it replays 0x179 + a voice-line latch
+ * on the next rifle draw; cleared by the inventory reset func_001AF2C0).
+ * The port mirrors the toggle (sound + latched flag, no further effect).
+ *
+ * LIGHT COMBO (mode 0x21, func_001735C0; per-attack rows idx 0 of the
+ * boot-ELF tables — idx 1 is an alternate-context row, anim ids
+ * 0x1BD..0x1C1, selected by player +0x236, untranslated):
+ *
+ *   hit  anim   len  dmg  sound  gate(+0x3C vs T)  chain window
+ *   1    0x10B  50   3    0x17D  T=24 (D_002486A0) open at len-19 (D0)
+ *   2    0x10C  25   3    0x17E  T=26 (D_002486A8) open at len-19 (D4)
+ *   3    0x10D  20   5    0x17F  T=41 (D_002486B0) none (combo ends)
+ *
+ *   - The swing sound + the damage-mailbox write fire together at the
+ *     IMPACT gate, unconditionally (range gating is the TARGET's job,
+ *     below). +0x25E hit-marker codes 0x81/0x82/0x82 feed the per-swing
+ *     effect dispatcher (func_00187350 -> func_00182430, untranslated).
+ *   - COMBO: a FIRE-button press during the swing buffers in +0x2E; at
+ *     the chain window the next attack starts (blend 1.0). The buffered
+ *     chain is checked on the WHIFF path — a CONFIRMED hit instead
+ *     EARLY-EXITS to the recover states (engine: the target's +0x0A
+ *     flag read back the tick after the mailbox write -> state 0x50).
+ *   - RECOVER (states 0x50/0x51/0x52, hit-confirm only): 4-tick pause,
+ *     then anim 0x10F (25 fr, blend 4.0), then the 0x63/0x64 exit ramp.
+ *     A whiffed swing exits at clip end with NO recover anim.
+ *
+ * HEAVY (mode 0x22, func_00173E60): anim 0x10E (20 fr, via the
+ * D_002754A8 row), damage 0xF = 15 at gate T=43 (D_00248700), sound
+ * 0x17F, marker 0x83, release T=29 (D_00248704), then clip-end exit /
+ * the same hit-confirm recover. During the swing func_00173DD0 steers
+ * yaw toward the goal at D_002486F0[gait] deg-style rates (PORT: the
+ * player stays planted — steer untranslated, flagged).
+ *
+ * TIMING NOTE (flagged open item): the gates compare the clip time
+ * +0x3C (counts UP per the property-table footstep semantics) with
+ * c.le.s — read literally the impact lands right after the blend-in
+ * for every attack except light hit 1, whose T=24 on a 50-frame clip
+ * only fits a count-down (remaining-frames) reading = impact at frame
+ * 26. The port uses impact_tick = max(3, len - T) — the down-count
+ * reading, which both readings agree on for hits 2/3 and the heavy
+ * (T >= len there) — pending a live capture.
+ *
+ * DAMAGE / RANGE: the engine machines write the damage to the melee
+ * target link (player +0x18) +0x36 mailbox and let the TARGET-side
+ * polls do the range work (e.g. func_00219870 state-1 reads the link's
+ * status byte and runs its own func_0019AA80 segment/proximity test) —
+ * there is NO global knife-range constant in the player code. The port
+ * resolves the victim at the impact tick: nearest live enemy within
+ * EM_MELEE_REACH (12.0 — the engine's documented hands-reach, the
+ * use-scan dist^2 <= 144 of func_0019A910 mode 6; PORT STAND-IN) inside
+ * a 60-degree frontal cone (PORT constant), damaged through the same
+ * +0x36 mailbox as the bullet (em_enemy_damage).
+ *
+ * VISUAL (flagged): the knife model (106) stays bound to the hip
+ * HOLSTER node 14 (s9 attach decode). No draw-to-hand rebind was found
+ * statically in the melee machines or their helpers — if the engine
+ * re-binds the knife to the hand for the swing it happens in the
+ * equipment-draw selection (the player-blob attach table), which needs
+ * a live melee capture to pin. The port leaves the knife holstered
+ * during attacks (the swing anims carry the read) — flagged note.
+ *
+ * KEY MAPPING: CIRCLE = L (light, holstered only), SQUARE = J (heavy
+ * holstered / sub-toggle while aiming) — both per the engine default
+ * config; the old "SQUARE unbound" note above is retired.
  */
 #ifndef EM_WEAPON_H
 #define EM_WEAPON_H
@@ -192,6 +280,34 @@ void em_weapon_render(EmGfx *gfx);
  * camera consumes this for the aim-state target-height offset (struct
  * +0x8C) — see "AIM CAMERA HOOKUP" above for the one-line em_game use. */
 int em_weapon_is_aiming(void);
+
+/* --- KNIFE / MELEE (header block above; engine modes 0x21/0x22) -------- */
+
+/* Melee phases — native names; engine mapping in the comments. */
+enum {
+    EM_MELEE_IDLE = 0,   /* not in a melee mode (+0x05 not 0x21/0x22)   */
+    EM_MELEE_SWING,      /* a light hit 1..3 or the heavy stab playing
+                          * (engine majors 1..3 of func_001735C0, or
+                          * 1..4 of func_00173E60)                      */
+    EM_MELEE_RECOVER     /* hit-confirm recover (engine 0x50/0x51/0x52:
+                          * 4-tick pause + anim 0x10F)                  */
+};
+
+/* 1 while a melee attack (swing or recover) owns the player — em_game's
+ * player_move plants the player exactly like the armed stance (the
+ * engine's melee modes replace the locomotion modes outright; the heavy
+ * yaw steer func_00173DD0 is untranslated, flagged). */
+int em_weapon_is_melee(void);
+
+/* Introspection (debug / self-tests). */
+int em_weapon_melee_state(void);  /* EM_MELEE_*                          */
+int em_weapon_melee_combo(void);  /* current light combo hit 1..3, or 0
+                                   * (the heavy reports 0; see _heavy)   */
+int em_weapon_melee_heavy(void);  /* 1 = the active swing is the heavy   */
+int em_weapon_melee_swings(void); /* attacks started since reset         */
+int em_weapon_melee_hits(void);   /* impact-tick victims since reset     */
+int em_weapon_sub_toggle(void);   /* the D_00810D3C mirror (SQUARE while
+                                   * aiming, attachment 0)               */
 
 /* Live ammo state — the HUD's EmPlayerStatus mirrors these. */
 uint8_t em_weapon_mag(void);

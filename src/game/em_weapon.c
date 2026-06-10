@@ -110,6 +110,48 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 #define WPN_PULSE_HIT      6    /* crosshair pulse frames on a ray hit     */
 #define WPN_PULSE_MISS     3    /* ... and on a miss                       */
 
+/* --- KNIFE / MELEE constants (em_weapon.h "KNIFE / MELEE"; decoded
+ *     2026-06-10 s36 — FINDINGS "KNIFE/MELEE DECODED". All table values
+ *     are the boot-ELF row idx 0; idx 1 is the alternate-context row
+ *     (+0x236), untranslated) ------------------------------------------ */
+#define MELEE_ANIM_L1     0x10B  /* light hit 1, 50 fr (D_00248690[0][0]) */
+#define MELEE_ANIM_L2     0x10C  /* light hit 2, 25 fr (D_00248690[0][1]) */
+#define MELEE_ANIM_L3     0x10D  /* light hit 3, 20 fr (D_00248690[0][2]) */
+#define MELEE_ANIM_HEAVY  0x10E  /* heavy stab, 20 fr  (D_002754A8[0])    */
+#define MELEE_ANIM_RECOV  0x10F  /* hit-confirm recover, 25 fr (state
+                                  * 0x51 idx-0 arm; blend 4.0)            */
+/* Impact gates T (the +0x3C c.le.s thresholds; impact_tick =
+ * max(3, len - T) — the down-count reading, see the header's TIMING
+ * NOTE; 3 covers the request->commit mailbox latency + blend-in). */
+#define MELEE_GATE_L1     24.0f  /* D_002486A0[0]                         */
+#define MELEE_GATE_L2     26.0f  /* D_002486A8[0]                         */
+#define MELEE_GATE_L3     41.0f  /* D_002486B0[0]                         */
+#define MELEE_GATE_HEAVY  43.0f  /* D_00248700[0]                         */
+/* Chain windows: the buffered (+0x2E) next hit starts when the clip
+ * time passes len - 19 (D_002486D0/D4 idx 0, both 19.0). */
+#define MELEE_CHAIN_TAIL  19.0f
+#define MELEE_DMG_L1      3      /* func_001735C0 state-1 +0x36 write     */
+#define MELEE_DMG_L2      3      /* state-2 write                         */
+#define MELEE_DMG_L3      5      /* state-3 write                         */
+#define MELEE_DMG_HEAVY   15     /* func_00173E60 (0xF)                   */
+#define MELEE_RECOV_PAUSE 4      /* engine state 0x50: +0x28 = 4 ticks    */
+#define MELEE_RECOV_RATE  1.0f   /* property-table rate (1.0; the 4.0 the
+                                  * engine passes the arbiter is BLEND)   */
+/* Fallback clip lengths (flagged; used only when the player EMDL lacks
+ * the clip — the values ARE the disc clip lengths, baked as stand-ins). */
+#define MELEE_L1_FRAMES    50
+#define MELEE_L2_FRAMES    25
+#define MELEE_L3_FRAMES    20
+#define MELEE_HEAVY_FRAMES 20
+#define MELEE_RECOV_FRAMES 25
+/* RANGE — PORT STAND-IN (the engine has no player-side knife range: the
+ * damage goes to the melee-target link's +0x36 mailbox and the TARGET-
+ * side polls do the range work, e.g. func_00219870's func_0019AA80
+ * probe). 12.0 = the engine's documented hands-reach (the use-scan
+ * dist^2 <= 144, func_0019A910 mode 6, s17); the cone is a port value. */
+#define EM_MELEE_REACH    12.0f
+#define MELEE_CONE        0.5f   /* cos 60 deg frontal arc                */
+
 static struct {
     uint8_t state;       /* EM_WPN_* (player major-state byte +0x06)      */
     uint8_t fire_mode;   /* D_00810C61: 0 semi / 1 burst-3 / 2 full-auto  */
@@ -146,6 +188,26 @@ static struct {
     uint32_t rng;          /* flicker LCG (engine: func_00122BB8 rand)    */
 } w;
 
+/* KNIFE / MELEE state (engine player modes 0x21/0x22 — see the header
+ * block; the engine keeps this in the player struct, the port in the
+ * same module-level singleton style as the rifle). */
+static struct {
+    int state;       /* EM_MELEE_* (the engine's +0x05 mode + +0x06
+                      * major collapsed: IDLE / SWING / RECOVER)        */
+    int heavy;       /* 1 = mode 0x22 (heavy stab), 0 = mode 0x21      */
+    int combo;       /* light combo hit 1..3 (engine major +0x06)      */
+    int tick;        /* ticks into the current swing / recover window  */
+    int len;         /* current swing window, ticks (= clip frames)    */
+    int impact;      /* impact tick (max(3, len - T))                  */
+    int chain_at;    /* chain-window tick (len - 19); 0 = no chain     */
+    int buffered;    /* +0x2E: FIRE pressed during the swing           */
+    int confirm;     /* target +0x0A read-back: a victim was struck    */
+    int recov_pause; /* engine 0x50/0x51 countdown before anim 0x10F   */
+    int swings;      /* introspection: attacks started since reset     */
+    int hits;        /* introspection: impact-tick victims since reset */
+    int sub_toggle;  /* D_00810D3C mirror (SQUARE while armed, att. 0) */
+} m;
+
 /* The flicker random source — engine func_00122BB8 is the C-library
  * rand(); a freestanding LCG keeps the port deterministic per run. */
 static uint32_t wpn_rand(void)
@@ -157,6 +219,7 @@ static uint32_t wpn_rand(void)
 void em_weapon_reset(uint8_t mag, int16_t reserve)
 {
     memset(&w, 0, sizeof w);
+    memset(&m, 0, sizeof m);
     w.state    = EM_WPN_HOLSTERED;
     w.mag      = mag;
     w.reserve  = reserve;
@@ -479,6 +542,164 @@ static void weapon_fire_logic(const EmFrameInput *in)
     }
 }
 
+/* --- KNIFE / MELEE (engine modes 0x21/0x22 — em_weapon.h header) ------- */
+
+/* Per-attack parameters: anim id, fallback length, impact gate T,
+ * damage, sound. attack = 1..3 light combo hits, 0 = the heavy stab. */
+static void melee_attack_params(int attack, unsigned *anim, int *fallback,
+                                float *gate, int *dmg, unsigned *snd)
+{
+    switch (attack) {
+        case 1:  *anim = MELEE_ANIM_L1;    *fallback = MELEE_L1_FRAMES;
+                 *gate = MELEE_GATE_L1;    *dmg = MELEE_DMG_L1;
+                 *snd  = EM_SFX_MELEE_HIT1; break;
+        case 2:  *anim = MELEE_ANIM_L2;    *fallback = MELEE_L2_FRAMES;
+                 *gate = MELEE_GATE_L2;    *dmg = MELEE_DMG_L2;
+                 *snd  = EM_SFX_MELEE_HIT2; break;
+        case 3:  *anim = MELEE_ANIM_L3;    *fallback = MELEE_L3_FRAMES;
+                 *gate = MELEE_GATE_L3;    *dmg = MELEE_DMG_L3;
+                 *snd  = EM_SFX_MELEE_HIT3; break;
+        default: *anim = MELEE_ANIM_HEAVY; *fallback = MELEE_HEAVY_FRAMES;
+                 *gate = MELEE_GATE_HEAVY; *dmg = MELEE_DMG_HEAVY;
+                 *snd  = EM_SFX_MELEE_HIT3; break; /* heavy shares 0x17F */
+    }
+}
+
+/* Start one attack (the engine's mode-0x21 state-N / mode-0x22 entry:
+ * anim through the clip arbiter at the property rate 1.0, +0x2E combo
+ * buffer cleared, the per-attack window timers armed). attack = 1..3
+ * light, 0 = heavy. */
+static void melee_start_attack(int attack)
+{
+    unsigned anim, snd;
+    int      fallback, dmg;
+    float    gate;
+    melee_attack_params(attack, &anim, &fallback, &gate, &dmg, &snd);
+
+    em_game_anim_request(anim, 1.0f);   /* rate 1.0 (D_00248C90 rows)  */
+    m.state    = EM_MELEE_SWING;
+    m.heavy    = attack == 0;
+    m.combo    = attack;
+    m.tick     = 0;
+    m.len      = anim_ticks(anim, 1.0f, fallback);
+    m.impact   = (int)((float)m.len - gate);
+    if (m.impact < 3) m.impact = 3;     /* mailbox latency + blend-in  */
+    /* Chain window (light hits 1/2 only): opens at len - 19
+     * (D_002486D0/D4); hit 3 and the heavy end the string. */
+    m.chain_at = (attack == 1 || attack == 2)
+                     ? m.len - (int)MELEE_CHAIN_TAIL : 0;
+    if (m.chain_at && m.chain_at <= m.impact) m.chain_at = m.impact + 1;
+    m.buffered = 0;
+    m.confirm  = 0;
+    m.swings++;
+}
+
+/* The impact gate: swing sound + damage-mailbox write (engine: both
+ * fire together, unconditionally — the sound is NOT hit-gated; the
+ * mailbox lands on the melee-target link and the TARGET-side polls do
+ * the range work). The port resolves the victim here with the reach
+ * stand-in (header note) and reads the hit back immediately — the
+ * native +0x0A confirm, consumed next tick exactly like the engine. */
+static void melee_impact(const float pos[3], float yaw)
+{
+    unsigned anim, snd;
+    int      fallback, dmg;
+    float    gate, aim[3];
+    melee_attack_params(m.heavy ? 0 : m.combo, &anim, &fallback, &gate,
+                        &dmg, &snd);
+    (void)anim; (void)fallback; (void)gate;  /* window params (start) */
+
+    em_sfx_play(snd);                   /* 0x17D/0x17E/0x17F, vol 300  */
+    int victim = em_enemy_acquire(pos, yaw, EM_MELEE_REACH, MELEE_CONE,
+                                  aim);
+    if (victim >= 0) {
+        em_enemy_damage(victim, (int16_t)dmg);  /* victim +0x36        */
+        m.confirm = 1;                  /* target +0x0A read-back      */
+        m.hits++;
+    }
+}
+
+/* The melee per-frame machine — func_001735C0 (light combo) +
+ * func_00173E60 (heavy) collapsed to the port shape; engine states in
+ * the comments. Runs only while the rifle is HOLSTERED (the engine
+ * dispatches modes 0x21/0x22 from the unarmed action codes 0..7). */
+static void melee_update(const float pos[3], float yaw,
+                         const EmFrameInput *in)
+{
+    switch (m.state) {
+        case EM_MELEE_IDLE:
+            if (w.state != EM_WPN_HOLSTERED) return;
+            /* Engine dispatch order (func_001607D0 action 0..7): the
+             * draw masks first, then FIRE -> mode 0x21, SQUARE ->
+             * mode 0x22. The R1 draw is handled by the rifle machine
+             * before this runs (em_weapon_update orders it so). */
+            if (in->pressed & EM_PAD_CIRCLE)
+                melee_start_attack(1);          /* mode 0x21, code 0x36 */
+            else if (in->pressed & EM_PAD_SQUARE)
+                melee_start_attack(0);          /* mode 0x22, code 0x37 */
+            break;
+
+        case EM_MELEE_SWING:
+            m.tick++;
+            /* +0x2E combo buffer: a FIRE press during the swing (the
+             * engine samples it from the damage phase on; the phases
+             * open within a tick or two of the start). */
+            if (!m.heavy && (in->pressed & EM_PAD_CIRCLE))
+                m.buffered = 1;
+            if (m.tick == m.impact) {
+                melee_impact(pos, yaw);         /* sound + mailbox      */
+                break;
+            }
+            if (m.tick > m.impact && m.confirm) {
+                /* Hit confirmed (the engine reads the target's +0x0A
+                 * the tick after the write): EARLY EXIT to the recover
+                 * states — a landed hit SKIPS the combo chain. */
+                m.state       = EM_MELEE_RECOVER;
+                m.recov_pause = MELEE_RECOV_PAUSE;  /* state 0x50/0x51 */
+                break;
+            }
+            if (m.chain_at && m.tick >= m.chain_at && m.buffered) {
+                /* WHIFF chain: the buffered next hit starts at the
+                 * chain window (blend 1.0 through the arbiter). */
+                melee_start_attack(m.combo + 1);
+                break;
+            }
+            if (m.tick >= m.len) {
+                /* Clip end on a whiff: the 0x63/0x64 exit ramp — NO
+                 * recover anim; locomotion resumes by itself. */
+                m.state = EM_MELEE_IDLE;
+                m.heavy = 0;
+                m.combo = 0;
+            }
+            break;
+
+        case EM_MELEE_RECOVER:
+            /* Engine 0x50/0x51: 4-tick pause, then the recover anim
+             * 0x10F (idx-0 arm; blend 4.0 — the port plays it at the
+             * property rate), then 0x52 waits the clip out -> exit. */
+            if (m.recov_pause > 0) {
+                if (--m.recov_pause == 0) {
+                    em_game_anim_request(MELEE_ANIM_RECOV,
+                                         MELEE_RECOV_RATE);
+                    m.tick = 0;
+                    m.len  = anim_ticks(MELEE_ANIM_RECOV, MELEE_RECOV_RATE,
+                                        MELEE_RECOV_FRAMES);
+                }
+                break;
+            }
+            if (++m.tick >= m.len) {
+                m.state = EM_MELEE_IDLE;
+                m.heavy = 0;
+                m.combo = 0;
+            }
+            break;
+
+        default:
+            m.state = EM_MELEE_IDLE;
+            break;
+    }
+}
+
 void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                       float player_yaw, const EmFrameInput *in)
 {
@@ -497,7 +718,7 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
 
     switch (w.state) {
         case EM_WPN_HOLSTERED:
-            if (draw_held) {
+            if (draw_held && m.state == EM_MELEE_IDLE) {
                 /* major 0 ENTER: reload-if-empty, anim 0x110 at the
                  * property-table rate 1.4, sound 0x162 @vol150
                  * (func_0016F530). The ENTER reload is covered by the
@@ -526,6 +747,17 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 w.burst   = 0;
             } else {
                 weapon_fire_logic(in);
+                /* SQUARE while armed = the SUB-WEAPON action
+                 * (func_0017A970). Attachment 0 (the only one
+                 * translated): toggle the D_00810D3C mirror, sound
+                 * 0x179 on toggle-ON only — exactly the s29 live
+                 * observation (no ammo use, no state change). What
+                 * the flag arms is an open item (em_weapon.h). */
+                if (in->pressed & EM_PAD_SQUARE) {
+                    m.sub_toggle ^= 1;
+                    if (m.sub_toggle)
+                        em_sfx_play(EM_SFX_SUB_TOGGLE);
+                }
             }
             break;
         case EM_WPN_RELOAD:
@@ -546,6 +778,12 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             w.state = EM_WPN_HOLSTERED;
             break;
     }
+
+    /* KNIFE / MELEE — the unarmed attack machine (engine modes
+     * 0x21/0x22, dispatched from the unarmed action codes AFTER the
+     * draw masks — the rifle switch above ran first, so a same-frame
+     * R1 draw correctly wins over a melee press). */
+    melee_update(player_pos, player_yaw, in);
 
     /* LASER SIGHT refresh — the engine's drawers gate on the armed-
      * stance CODE (player +0x1F0 in {0x31, 0x34} with phase +0x1F1 ==
@@ -662,3 +900,17 @@ void em_weapon_set_fire_mode(uint8_t mode)
 {
     if (mode <= EM_WPN_MODE_AUTO) w.fire_mode = mode;
 }
+
+/* --- KNIFE / MELEE accessors (em_weapon.h) ------------------------------ */
+
+/* Movement plant for em_game's player_move: the engine's melee modes
+ * 0x21/0x22 replace the locomotion modes outright (the heavy yaw steer
+ * func_00173DD0 is untranslated — flagged in the header). */
+int em_weapon_is_melee(void)      { return m.state != EM_MELEE_IDLE; }
+
+int em_weapon_melee_state(void)   { return m.state; }
+int em_weapon_melee_combo(void)   { return m.heavy ? 0 : m.combo; }
+int em_weapon_melee_heavy(void)   { return m.heavy; }
+int em_weapon_melee_swings(void)  { return m.swings; }
+int em_weapon_melee_hits(void)    { return m.hits; }
+int em_weapon_sub_toggle(void)    { return m.sub_toggle; }

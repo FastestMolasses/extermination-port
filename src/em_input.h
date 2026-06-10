@@ -45,11 +45,15 @@
  * Default config block (slot -> engine mask -> button -> action):
  *   spad 0x3B70  0x0800  START   (action not pinned)
  *   spad 0x3B72  0x0800  START   (action not pinned)
- *   spad 0x3B74  0x0080  SQUARE  sub-weapon/melee-class action (sound
- *                                0x179; the action itself is unidentified)
+ *   spad 0x3B74  0x0080  SQUARE  HEAVY knife stab when unarmed (mode
+ *                                0x22); sub-weapon action while armed
+ *                                (attachment 0 = the 0x179 toggle) —
+ *                                decoded s36, em_weapon.h "KNIFE / MELEE"
  *   spad 0x3B76  0x0040  CROSS   USE / confirm (the use-scan gate
  *                                0x810E74 & spad3B76 — doors)
- *   spad 0x3B78  0x0020  CIRCLE  FIRE (the trigger — NOT Cross)
+ *   spad 0x3B78  0x0020  CIRCLE  FIRE (the trigger — NOT Cross); the
+ *                                LIGHT knife combo when unarmed (mode
+ *                                0x21 — s36)
  *   spad 0x3B7A  0x0010  TRI     status screen
  *   spad 0x3B7C  0x0008  R1      weapon-draw hold
  *   spad 0x3B7E  0x0002  R2      (action not pinned)

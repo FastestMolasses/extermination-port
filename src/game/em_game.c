@@ -420,6 +420,10 @@ static struct {
                                   * manifest parser skips generator lines
                                   * so the run stays self-contained */
     int         sfx_test;        /* EM_SFX_TEST=1 — one-shot mixer test */
+    int         melee_test;      /* EM_MELEE_TEST=1 — knife-vs-crate run */
+    int         mt_fail;         /* melee test: failed checkpoints */
+    int         mt_phase;        /* melee test: script phase */
+    int         mt_mark;         /* melee test: phase anchor frame */
     int         et_spawned;      /* test enemy placed at scene init */
     int         et_fail;         /* failed checkpoints */
     float       et_d0;           /* spawn distance to the test enemy */
@@ -850,6 +854,16 @@ static void player_move(void)
             if (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
             if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
         }
+        return;
+    }
+
+    /* KNIFE / MELEE plant: the engine's melee modes 0x21/0x22 replace
+     * the locomotion modes outright (em_weapon.h "KNIFE / MELEE") —
+     * the player stands for the swing + recover. The heavy's in-swing
+     * yaw steer (func_00173DD0, D_002486F0 rates) is untranslated
+     * (flagged in em_weapon.h), so no turn-in-place here either. */
+    if (em_weapon_is_melee()) {
+        g.move_speed = 0.0f;
         return;
     }
 
@@ -1935,6 +1949,203 @@ static void sfx_test_script(void)
     }
 }
 
+/* EM_MELEE_TEST=1 — deterministic knife-vs-crate self-test (the s36
+ * melee decode, em_weapon.h "KNIFE / MELEE"). Scene init spawns TWO
+ * DISGUISED CRATES (slots 0/1, see the spawn block): inside the knife
+ * reach (12) but outside the crate's ~10-u proximity-burst trigger, so
+ * only the melee damage mailbox can pop them. Adaptive phase machine:
+ *
+ *   phase 0  frame 8: assert both crates still IDLE (no proximity
+ *            burst), then tap L (CIRCLE) — the LIGHT combo (engine
+ *            mode 0x21). Impact = swing tick 26 (len 50 - gate 24);
+ *            the acquire resolves the nearest crate (A, slot 0).
+ *   phase 1  crate A dies: assert melee hit count 1, ZERO rifle shots
+ *            (the kill is the +0x36 mailbox write) and the worm
+ *            spawned at the crate position (the burst contract).
+ *   phase 2  HIT-CONFIRM path: recover anim 0x10F must commit (a
+ *            landed hit SKIPS the combo — engine states 0x50..0x52).
+ *            Wait out the recover AND worm A's suicide run (it closes
+ *            ~0.3 u/tick and lunge-bursts on the player — health is
+ *            reported, not asserted), then tap J (SQUARE) — the HEAVY
+ *            stab (mode 0x22, damage 15, immediate gate) at crate B.
+ *   phase 3  crate B dies: melee hits 2, heavy seen, worm B spawned.
+ *   phase 4  wait for worm B + the heavy recover to clear.
+ *   phase 5  WHIFF COMBO (nothing left in reach): tap L, re-tap L
+ *            during each swing — assert the committed clip chains
+ *            0x10B -> 0x10C -> 0x10D (the buffered +0x2E chain), NO
+ *            recover anim on a whiff (clip-end exit), and the final
+ *            counts (5 swings, 2 hits).
+ *
+ * PASS = all checks green; any phase timing out fails the run. */
+static void melee_test_script(void)
+{
+    static int saw_recov_anim, saw_heavy, chain12, chain23, whiff_recov;
+    static int dbg = -1;
+    static unsigned prev_anim;
+    int n = g.frame_no;
+    unsigned anim = em_game_anim_active();
+
+    if (dbg < 0) dbg = getenv("EM_MELEE_DEBUG") != NULL;
+    if (dbg)
+        printf("mt f%d ph%d melee(st%d cb%d hv%d sw%d hit%d) anim 0x%X "
+               "alive %d st0 %d st1 %d d0 %.1f d1 %.1f\n", n, g.mt_phase,
+               em_weapon_melee_state(), em_weapon_melee_combo(),
+               em_weapon_melee_heavy(), em_weapon_melee_swings(),
+               em_weapon_melee_hits(), anim, em_enemy_alive(),
+               em_enemy_state(0), em_enemy_state(1), et_dist(),
+               et_dist_i(1));
+    /* transition trackers (sampled every frame) */
+    if (anim == 0x10F && g.mt_phase <= 2)
+        saw_recov_anim = 1;
+    if (em_weapon_melee_heavy()) saw_heavy = 1;
+    if (g.mt_phase == 5) {
+        if (prev_anim == 0x10B && anim == 0x10C) chain12 = 1;
+        if (prev_anim == 0x10C && anim == 0x10D) chain23 = 1;
+        if (anim == 0x10F) whiff_recov = 1;
+    }
+    prev_anim = anim;
+
+    if (n >= 1500) {
+        g.mt_fail++;
+        printf("melee test: CHECK FAILED — timed out in phase %d\n",
+               g.mt_phase);
+        goto finish;
+    }
+
+    switch (g.mt_phase) {
+        case 0:
+            if (n == 8) {
+                if (!(em_enemy_alive() == 2 &&
+                      em_enemy_state(0) == EM_ENEMY_IDLE &&
+                      em_enemy_state(1) == EM_ENEMY_IDLE &&
+                      et_dist() > 10.0f && et_dist() < 12.0f)) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — crates not idle "
+                           "in reach (alive %d states %d/%d dist %.1f/"
+                           "%.1f)\n", em_enemy_alive(), em_enemy_state(0),
+                           em_enemy_state(1), et_dist(), et_dist_i(1));
+                }
+                move_test_inject('l', 1);       /* CIRCLE — light combo */
+            } else if (n == 10) {
+                move_test_inject('l', 0);
+                g.mt_phase = 1;
+                g.mt_mark  = n;
+            }
+            break;
+        case 1:
+            if (em_enemy_state(0) == EM_ENEMY_FREE) {
+                /* slot 0 freed = the burst frame (enemy test 3's
+                 * trigger); the worm spawns the same tick */
+                if (!(em_weapon_melee_hits() == 1 &&
+                      em_weapon_shots() == 0)) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — crate kill not "
+                           "the knife mailbox (melee hits %d, shots "
+                           "%d)\n", em_weapon_melee_hits(),
+                           em_weapon_shots());
+                }
+                /* worm A (slot 2) emerges at crate A's position */
+                float cp[3] = { 0, 0, 0 }, wp[3] = { 0, 0, 0 };
+                em_enemy_pos(0, cp);
+                em_enemy_pos(2, wp);
+                if (!(em_enemy_alive() == 2 &&
+                      em_enemy_kind(2) == EM_ENEMY_KIND_CRAWLER &&
+                      fabsf(wp[0] - cp[0]) + fabsf(wp[2] - cp[2])
+                          < 0.01f)) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — worm not at the "
+                           "burst crate (alive %d kind %d)\n",
+                           em_enemy_alive(), em_enemy_kind(2));
+                }
+                g.mt_phase = 2;
+                g.mt_mark  = n;
+            }
+            break;
+        case 2:
+            /* recover (hit-confirm) must complete; worm A suicide-
+             * bursts on the player meanwhile. Strike crate B once
+             * melee is idle and the worm is gone. */
+            if (em_weapon_is_melee()) break;
+            if (!saw_recov_anim) {
+                g.mt_fail++;
+                printf("melee test: CHECK FAILED — recover anim 0x10F "
+                       "never committed after the confirmed hit\n");
+                saw_recov_anim = -1;            /* report once */
+            }
+            if (em_enemy_alive() == 1 &&
+                em_enemy_state(1) == EM_ENEMY_IDLE) {
+                move_test_inject('j', 1);       /* SQUARE — heavy stab */
+                g.mt_phase = 3;
+                g.mt_mark  = n;
+            }
+            break;
+        case 3:
+            if (n == g.mt_mark + 2) move_test_inject('j', 0);
+            if (em_enemy_state(1) == EM_ENEMY_FREE) {
+                if (!(em_weapon_melee_hits() == 2 && saw_heavy &&
+                      em_weapon_shots() == 0)) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — heavy crate kill "
+                           "(hits %d, heavy seen %d, shots %d)\n",
+                           em_weapon_melee_hits(), saw_heavy,
+                           em_weapon_shots());
+                }
+                g.mt_phase = 4;
+                g.mt_mark  = n;
+            }
+            break;
+        case 4:
+            /* worm B's run + the heavy recover clear the field. */
+            if (em_enemy_alive() == 0 && !em_weapon_is_melee()) {
+                g.mt_phase = 5;
+                g.mt_mark  = n;
+            }
+            break;
+        case 5:
+            /* whiff combo: tap L now and during each swing (the chain
+             * windows are forgiving — any in-swing press buffers). */
+            if (n == g.mt_mark + 2 || n == g.mt_mark + 14 ||
+                n == g.mt_mark + 44)
+                move_test_inject('l', 1);
+            else if (n == g.mt_mark + 4 || n == g.mt_mark + 16 ||
+                     n == g.mt_mark + 46)
+                move_test_inject('l', 0);
+            else if (n > g.mt_mark + 50 && !em_weapon_is_melee()) {
+                if (!(chain12 && chain23)) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — whiff combo did "
+                           "not chain (0x10B->0x10C %d, 0x10C->0x10D "
+                           "%d)\n", chain12, chain23);
+                }
+                if (whiff_recov) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — recover anim "
+                           "played on a whiff (clip-end exit "
+                           "expected)\n");
+                }
+                if (em_weapon_melee_swings() != 5 ||
+                    em_weapon_melee_hits() != 2) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — counts (swings "
+                           "%d expected 5: light + heavy + 3 whiffs; "
+                           "hits %d expected 2)\n",
+                           em_weapon_melee_swings(),
+                           em_weapon_melee_hits());
+                }
+                goto finish;
+            }
+            break;
+    }
+    return;
+finish:
+    printf("melee test: %d swing(s), %d hit(s), %d shot(s), enemies "
+           "alive %d, health %.0f — %s\n", em_weapon_melee_swings(),
+           em_weapon_melee_hits(), em_weapon_shots(), em_enemy_alive(),
+           g.status.health, g.mt_fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    em_frame_request_quit();
+}
+
 /* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
 static void gameplay_frame(void)
 {
@@ -1962,6 +2173,7 @@ static void gameplay_frame(void)
         }
     }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
+    if (g.melee_test) melee_test_script();  /* debug instrumentation only */
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
@@ -2096,6 +2308,30 @@ static void ingame_frame_machine(EmTask *self)
              * units ahead of the player spawn along the spawn facing,
              * turned to face the player; test 3 places a DISGUISED
              * CRATE 25 units ahead instead (see enemy_test_script). */
+            /* EM_MELEE_TEST spawn: TWO DISGUISED CRATES — A 11.0 u dead
+             * ahead (slot 0, the LIGHT-combo kill) and B 11.3 u ahead
+             * + 3 u right (slot 1, dist ~11.7, bearing ~15 deg — the
+             * HEAVY kill). Both sit INSIDE the knife reach (12,
+             * em_weapon.h) but OUTSIDE the crate's ~10-u proximity-
+             * burst trigger, so only the melee mailbox can pop them;
+             * both also sit inside the office spawn's 14-u wall
+             * plane, so no about-face is needed. The acquire picks
+             * the NEAREST in the cone, so the light strike resolves
+             * crate A first. */
+            if (g.melee_test && !g.et_spawned) {
+                g.et_spawned = 1;
+                float fx = sinf(g.yaw), fz = cosf(g.yaw);
+                float pa[3] = { g.pos[0] + fx * 11.0f, g.pos[1],
+                                g.pos[2] + fz * 11.0f };
+                float pb[3] = { g.pos[0] + fx * 11.3f + fz * 3.0f,
+                                g.pos[1],
+                                g.pos[2] + fz * 11.3f - fx * 3.0f };
+                if (em_enemy_add_kind(em_frame_gfx(), EM_ENEMY_KIND_CRATE,
+                                      pa, g.yaw + EM_PI) < 0 ||
+                    em_enemy_add_kind(em_frame_gfx(), EM_ENEMY_KIND_CRATE,
+                                      pb, g.yaw + EM_PI) < 0)
+                    printf("melee test: spawn failed\n");
+            }
             if (g.enemy_test && !g.et_spawned) {
                 g.et_spawned = 1;
                 int   ek = g.enemy_test == 3 ? EM_ENEMY_KIND_CRATE
@@ -2304,6 +2540,8 @@ void em_game_install(void)
     g.enemy_test4 = et && et[0] == '4' && et[1] == '\0';
     const char *st = getenv("EM_SFX_TEST");
     g.sfx_test     = st && st[0] == '1';
+    const char *kt = getenv("EM_MELEE_TEST");
+    g.melee_test   = kt && kt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 

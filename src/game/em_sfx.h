@@ -74,6 +74,17 @@ extern "C" {
                                      * 0x33 reload anim (s29 live capture;
                                      * snd_0351, 39006 Hz, global bank)       */
 #define EM_SFX_WPN_DRY      0x169u  /* empty mag + empty reserve click        */
+/* KNIFE / MELEE (s36 decode — em_weapon.h "KNIFE / MELEE"): the swing/
+ * impact sounds fire at each attack's impact gate, vol 300, hit or
+ * whiff (func_001735C0 / func_00173E60; the heavy stab reuses 0x17F).
+ * 0x179 is the armed-stance SQUARE sub-weapon toggle-ON sound
+ * (func_0017A970 attachment-0 arm — the s29 "unidentified action"). */
+#define EM_SFX_MELEE_HIT1   0x17Du  /* light combo hit 1 (damage 3)           */
+#define EM_SFX_MELEE_HIT2   0x17Eu  /* light combo hit 2 (damage 3)           */
+#define EM_SFX_MELEE_HIT3   0x17Fu  /* light hit 3 (damage 5) AND the
+                                     * heavy stab (damage 15) — shared id     */
+#define EM_SFX_SUB_TOGGLE   0x179u  /* D_00810D3C toggle-ON (SQUARE while
+                                     * armed, attachment 0; snd_0436)         */
 #define EM_SFX_ENEMY_DEATH  0x7D8u  /* canonical hurt-helper death
                                      * (func_00153B50 HP<=0; the crawler's
                                      * own gore set — burst 0x434 etc. — is

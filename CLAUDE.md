@@ -83,7 +83,9 @@ files map each native stage to the PS2 function it stands in for.
   lock, walk to staging, door clip, 64-frame fade-out, re-place behind the
   door, fade-in, unlock — FINDINGS.md "AREA TRANSITION LIFECYCLE").
 - The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
-  needs a player.emdl exported with `--clips 346,2,3,69,67,75,272,273,51,274`):
+  needs a player.emdl exported with
+  `--clips 346,2,3,69,67,75,272,273,51,274,1,267,268,269,270,271` — the s36
+  superset adds the knife clips 0x10B..0x10F):
   draw 0x110 @1.4, HELD aim pose 0x112 (em_game_anim_hold), reload 0x33,
   holster 0x111 — each state window gates on the honest clip length. FIRE
   RECOIL (s25, FINDINGS "FIRE ANIM MECHANISM"): the engine has NO separate
@@ -94,6 +96,17 @@ files map each native stage to the PS2 function it stands in for.
   6). Aiming is PLANTED (movement locks to turn-in-place; engine evidence in
   em_game.c player_move) and lowers the camera follow target to the aim
   offset (struct +0x8C), the over-shoulder cut's mode-0 stand-in.
+- KNIFE / MELEE (s36 decode — em_weapon.h "KNIFE / MELEE", FINDINGS
+  "KNIFE/MELEE DECODED"): while HOLSTERED, CIRCLE (L) = the LIGHT 3-hit
+  combo (engine mode 0x21: anims 0x10B/0x10C/0x10D, damage 3/3/5, sounds
+  0x17D/0x17E/0x17F, FIRE-press chain buffering, hit-confirm recover 0x10F)
+  and SQUARE (J) = the HEAVY stab (mode 0x22: anim 0x10E, damage 15).
+  The two attacks are on TWO BUTTONS in the engine (not tap-vs-hold).
+  Victims take the +0x36 mailbox at the impact tick (reach 12 = the
+  engine's documented hands-reach, flagged stand-in). SQUARE while AIMING
+  = the attachment-0 sub-weapon toggle (sound 0x179 — the decoded s29
+  "unidentified action"). The knife model stays on the hip holster (node
+  14) during attacks — no rebind found statically; flagged note.
 - Headless checks: `EM_CAPTURE=<path.bmp>` (renders ~1 s, captures gameplay
   frame 60, exits; the default frame is the HUD-free one — `EM_HUD_FORCE=1`
   forces the status screen visible for overlay captures; `EM_CAPTURE_AIM=1`
@@ -104,7 +117,9 @@ files map each native stage to the PS2 function it stands in for.
   (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
   (full door-transit sequence self-test), `EM_SFX_TEST=1` (3 overlapping
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
-  `src/game/em_sfx.h`), `make test-input` (OS-free pad-model unit test).
+  `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife-vs-crates run: light kill,
+  heavy kill, whiff-combo chain — see melee_test_script),
+  `make test-input` (OS-free pad-model unit test).
 
 ## Build
 
