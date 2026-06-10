@@ -183,35 +183,49 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
                                    engine's aim-yaw blend steer; see the
                                    planted-aiming block in player_move) */
 
-/* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c,
- * identified 2026-06-10 by stride scan — see tools/export_native.py):
- * 346 = idle/look-around (the clip the port has played since EMDL v2),
- * 2 = walk, 3 = run (in the asset for later). The walk clip is baked
- * IN PLACE; its natural ground speed at 60 fps is 24.07 u/s (printed by
- * the exporter), so playback rate = move_speed / that keeps the feet
- * tracking the ground. Idle<->walk is a 0.15 s LINEAR palette blend —
- * the engine cross-fades clip transitions the same way (PROGRESS.md:
- * mid-blend live captures match no single clip). */
+/* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c —
+ * for the player the anim id IS the container index, FINDINGS "ANIM ID
+ * MAPPING"). The AUTHENTIC stick-locomotion ids, decoded 2026-06-10
+ * from the boot ELF's selection chain (replaces the s10-era stride-scan
+ * guess of clips 2/3):
+ *
+ *   stick deflection -> func_001B5CC0 quantizer (rings r=48/88/122) ->
+ *   gait byte 0..3 (pad struct +0x17 = 0x810E57) -> player +0x23F ->
+ *   locomotion top func_001612D0: locIdx = gait-1, speed =
+ *   D_00248870[locIdx] = {0.0, 0.1, 0.3, 0.8} u/tick, anim id =
+ *   D_00248AB0[mode 1][family*4 + locIdx] (func_0017B490/func_0017B460;
+ *   unarmed family 0 row = {0, 1, 2, 3}).
+ *
+ * So gait 1 = turn-in-place (id 0, speed 0), gait 2 = WALK (id 1,
+ * 0.1 u/tick = 6 u/s), gait 3 (full stick) = RUN (id 2, 0.3 u/tick).
+ * The quantizer never returns 4, so id 3 (0.8 u/tick row) is a sprint
+ * data slot the stick cannot reach — not shipped. The walk clip is
+ * baked IN PLACE; its natural ground speed at 60 fps is 6.11 u/s
+ * (exporter-printed; the engine's own 0.1 u/tick = 6.0 u/s at 60 Hz
+ * cross-checks it), so playback rate = move_speed / that keeps the
+ * feet tracking the ground. Idle<->walk is a 0.15 s LINEAR palette
+ * blend — the engine cross-fades clip transitions the same way
+ * (PROGRESS.md: mid-blend live captures match no single clip). */
 #define CLIP_ID_IDLE    346u
-#define CLIP_ID_WALK    2u
-#define CLIP_ID_RUN     3u
-#define WALK_CLIP_SPEED 24.07f  /* units/sec at the baked 60 fps */
+#define CLIP_ID_WALK    1u      /* engine walk (was library clip 2) */
+#define CLIP_ID_RUN     2u      /* engine run — in the asset for later
+                                 * (natural speed 24.07 u/s, 45 fr) */
+#define WALK_CLIP_SPEED 6.11f   /* units/sec at the baked 60 fps */
 
 /* FOOTSTEP TRIGGER FRAMES — the engine's per-anim-id property table
  * D_00248C90 (FINDINGS "ANIM ID MAPPING": frameA/frameB per row; the
  * per-frame func_00187350 fires the step sound + decal when the
- * committed clip time crosses them). Rows read from the user's local
- * boot ELF this session: id 2 (the port's locomotion clip, 45 fr) ->
- * 26/3; id 3 (run, 40 fr) -> 21/2. (The engine's DEFAULT walk is anim
- * id 1 with frames 72/21 — the pair the s29 live capture metered; the
- * port asset ships the id-2 cycle, so its own row applies.) Each
- * trigger plays the s29 two-layer step (surface pair + gear pair, both
- * alternating per step — footstep_play below). */
-#define WALK_STEP_FRAME_A 26.0f /* D_00248C90[2].frameA */
-#define WALK_STEP_FRAME_B 3.0f  /* D_00248C90[2].frameB */
-#define RUN_STEP_FRAME_A  21.0f /* D_00248C90[3].frameA — for the run
+ * committed clip time crosses them). Rows re-read from the user's
+ * local boot ELF for the authentic ids: walk id 1 (120 fr) -> 72/21 —
+ * the exact pair the s29 live capture metered while stick-walking;
+ * run id 2 (45 fr) -> 26/3. Each trigger plays the s29 two-layer step
+ * (surface pair + gear pair, both alternating per step —
+ * footstep_play below). */
+#define WALK_STEP_FRAME_A 72.0f /* D_00248C90[1].frameA */
+#define WALK_STEP_FRAME_B 21.0f /* D_00248C90[1].frameB */
+#define RUN_STEP_FRAME_A  26.0f /* D_00248C90[2].frameA — for the run
                                  * clip when locomotion drives it */
-#define RUN_STEP_FRAME_B  2.0f  /* D_00248C90[3].frameB */
+#define RUN_STEP_FRAME_B  3.0f  /* D_00248C90[2].frameB */
 #define ANIM_BLEND_TIME 0.15f   /* seconds, idle<->walk crossfade */
 #define STICK_DEADZONE  0.25f
 #define EM_PI           3.14159265f
