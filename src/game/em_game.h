@@ -7,9 +7,11 @@
  * per-function mapping. Today the gameplay frame drives the port's
  * scene/character rendering, interactive player movement (left stick,
  * camera-relative) with an idle<->walk animation crossfade (0.15 s linear
- * palette blend, walk stride rate-scaled to ground speed) and a lerped
- * chase camera (d-pad orbits it); real game logic replaces the skeleton
- * arms as the decomp repo recovers it.
+ * palette blend, walk stride rate-scaled to ground speed) and the
+ * engine's AUTHENTIC chase camera (struct 0x008101E0 mirror, clamped
+ * proportional follow per FINDINGS.md "CAMERA SYSTEM"; d-pad feeds its
+ * yaw); real game logic replaces the skeleton arms as the decomp repo
+ * recovers it.
  */
 #ifndef EM_GAME_H
 #define EM_GAME_H

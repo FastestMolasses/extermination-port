@@ -52,16 +52,20 @@
  *                                        natively the recorded chain is
  *                                        flushed after camera apply, at
  *                                        close-out.
- *   func_001C1D00 camera apply           camera_apply() — computes the
- *                  (block 0x008101D0)    follow/chase camera into the
- *                                        camera block (view-projection
- *                                        matrix).
+ *   func_001C1D00 render-env init        render_env_init() — once-per-
+ *                  (flag block           area render-env setup (GS regs,
+ *                  0x008101D0)           per-area specials). NOT camera
+ *                                        math (corrected by FINDINGS.md
+ *                                        "CAMERA SYSTEM"); skeleton no-op.
  *   func_001AFD70 / func_0015C160 /      world services — skeleton no-ops.
  *   func_001F0360
- *   func_001CB590(HUD ctx) /             HUD context + view-target —
- *   func_0018B9C0 view-target            skeleton no-ops.
+ *   func_001CB590(0x008101E0, 0xD0, 0)   camera_update() — THE CAMERA:
+ *   + func_0018B9C0 camera machine       camera-context begin + the
+ *                                        camera state machine (struct
+ *                                        0x008101E0; see the CAMERA
+ *                                        section below).
  *   func_001CB5A0 / func_001AAD00 /      frame_close_out() — flushes the
- *   func_001D1EA0(1) close-out           draw chain with the applied
+ *   func_001D1EA0(1) close-out           draw chain with the committed
  *                                        camera and advances clip time.
  *
  * INTERACTIVE MOVEMENT (first slice of the real actor spine): the frame
@@ -69,9 +73,10 @@
  * camera-relative on the XZ plane; the facing yaw seeks the movement
  * direction (smooth turn). The placement is composed onto the evaluated
  * anim palette each frame (rotation about Y by yaw, then translation —
- * AFTER the animation pose; see palette_apply_placement). The camera is a
- * lerped chase camera behind the character; d-pad (arrow keys) LEFT/RIGHT
- * orbits it around the player. Esc still quits (em_frame.c step C).
+ * AFTER the animation pose; see palette_apply_placement). The camera is
+ * the engine's own chase camera (clamped proportional follow, FINDINGS.md
+ * "CAMERA SYSTEM" port contract); d-pad (arrow keys) LEFT/RIGHT feeds a
+ * yaw input into the camera struct. Esc still quits (em_frame.c step C).
  *
  * Debug instrumentation (port-side): EM_CAPTURE=<path.bmp> requests a BMP
  * capture at gameplay frame 60 (override with EM_CAPTURE_FRAME=<n>) and
@@ -140,12 +145,39 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define WALK_CLIP_SPEED 24.07f  /* units/sec at the baked 60 fps */
 #define ANIM_BLEND_TIME 0.15f   /* seconds, idle<->walk crossfade */
 #define STICK_DEADZONE  0.25f
-#define CAM_DIST        30.0f   /* chase eye distance behind the player */
-#define CAM_HEIGHT      15.0f   /* chase eye height above the floor */
-#define CAM_LOOK_H      8.0f    /* look-at height (chest of a 15u body) */
-#define CAM_ORBIT_SPEED 1.8f    /* rad/sec — d-pad LEFT/RIGHT orbit */
-#define CAM_LERP        0.12f   /* eye seek factor per frame */
 #define EM_PI           3.14159265f
+
+/* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
+ * SYSTEM", live-verified in save states 01/03): eye ~33 u behind the
+ * player along the camera yaw and ~19 u above the player's ground Y;
+ * the generic follow seeks the target to player.y + 15 (the live
+ * area-0x1100 director measured ground + 17; the documented smooth-table
+ * follow constant is 15.0). Chase caps are the engine's: 0.8 u/frame for
+ * the target follow, 4.0 u/frame for the eye solver (style 0). */
+#define CAM_DIST        33.0f   /* desired eye distance behind the player */
+#define CAM_EYE_HEIGHT  19.0f   /* desired eye height above player ground Y */
+#define CAM_TGT_HEIGHT  15.0f   /* target height above player Y (follow) */
+#define CAM_AIM_OFFSET  6.0f    /* struct +0x8C default — target height in
+                                   player aim state 5 (TODO: player states) */
+#define CAM_TGT_CAP     0.8f    /* target chase rate cap, units/frame */
+#define CAM_EYE_CAP     4.0f    /* eye chase rate cap, units/frame */
+#define CAM_NEAR_PUSH   4.0f    /* commit: view position = eye + 4*fwd */
+#define CAM_ORBIT_SPEED 1.8f    /* rad/sec — d-pad LEFT/RIGHT orbit (port
+                                   input; lands in the struct yaw +0x44) */
+
+/* Engine projection (FINDINGS.md "CAMERA SYSTEM" section 3) — recorded
+ * for eventual native adoption; rendering still goes through
+ * em_mat4_perspective below. TODO(projection): adopt the s = 480 zoom
+ * model. P rows: (0.8s,0,0,0) (0,0.5s,0,0) (2048,2048,0.8996,1)
+ * (0,0,1677721.5,0) -> screen x = 0.8s*x/z + 2048, y = 0.5s*y/z + 2048
+ * (GS center 2048, screen y down), z = 0.8996*z + 1677721.5 (24-bit GS
+ * Z), w_clip = z_view. Native remap: tan(half-hfov) = half_w_gs/(0.8s).
+ * Zoom is fixed 480 except the scope camera (s = 224/x, func_001D25F0)
+ * and scripted zoom lerps (func_001D2590). */
+#define ENGINE_CAM_ZOOM_S      480.0f      /* render-ctx +0x2468 default */
+#define ENGINE_CAM_PROJ_ZSCALE 0.8996f     /* GS-Z row scale */
+#define ENGINE_CAM_PROJ_ZOFFS  1677721.5f  /* GS-Z row offset */
+#define ENGINE_CAM_GS_CENTER   2048.0f     /* GS screen-center offset */
 
 /* Task user-byte indices — mirror the live slot-0 record (state bytes
  * observed at record +8 / +9 / +0xB, i.e. user[0] / user[1] / user[3]). */
@@ -165,6 +197,43 @@ typedef struct {
     const float *palette;
     uint32_t     bone_count;
 } ChainDraw;
+
+/* CAMERA state — the native mirror of the engine's camera struct at
+ * 0x008101E0 (0xD0 bytes) plus the global camera vector pool at
+ * 0x008105D0.. (FINDINGS.md "CAMERA SYSTEM" section 1). Field comments
+ * give the PS2 offsets/addresses; only what the mode-0 generic follow
+ * consumes is live — the rest is carried so the per-room overlay
+ * directors and the remaining mode handlers land in place. */
+typedef struct {
+    uint8_t  state;       /* +0x00: 0 = init one-shot, 1 = run */
+    uint8_t  sub_state;   /* +0x01: 0->1 ramp on first run frame (zeroes
+                             the mode timer) */
+    uint8_t  top_mode;    /* +0x04: 0 = normal play, 1/2 = frozen (commit
+                             only), 3 = scope/sniper func_0022EEF0 (TODO) */
+    uint8_t  table_sel;   /* +0x05: 0 = cut jtbl_0026D950, 1 = smooth
+                             jtbl_0026D910 */
+    uint8_t  mode;        /* +0x06: camera mode 0..15 — only mode 0
+                             (generic follow) implemented; see
+                             camera_mode_dispatch for the TODO list */
+    uint8_t  hit;         /* +0x07: follow-solver result byte (stays 0
+                             until the collision-aware solver lands) */
+    uint16_t timer;       /* +0x08: mode timer */
+    float    eye_des[3];  /* +0x10: desired EYE (world) */
+    float    tgt_des[3];  /* +0x20: desired TARGET (world) */
+    float    yaw;         /* +0x44: eye->target heading; the d-pad orbit
+                             is an input into this field */
+    float    aim_h;       /* +0x8C: target height offset above player Y,
+                             default 6.0 (player aim state 5 — TODO) */
+    /* global camera vector pool (the real per-frame camera output) */
+    float    eye[3];      /* D_008105D0: actual eye — chased toward
+                             eye_des, capped 4.0/frame */
+    float    tgt[3];      /* D_008105E0: actual target — copy of tgt_des
+                             (func_0018C0C0) */
+    float    up[3];       /* D_008105F0: (0,-1,0) — the engine's Y-DOWN
+                             view-up, set once at init */
+    float    fwd[3];      /* D_00810600: normalized forward (commit) */
+    float    view[16];    /* D_00810610: look-at view matrix */
+} EmCamera;
 
 static struct {
     /* assets */
@@ -191,12 +260,10 @@ static struct {
     float      pos[3];           /* world position, feet on the floor */
     float      yaw;              /* facing about +Y, radians; 0 = +Z */
 
-    /* chase camera */
-    float      cam_yaw;          /* orbit angle around the player */
-    float      cam_eye[3];       /* lerped eye position */
-    int        cam_snapped;      /* eye seeded at its desired point */
+    /* camera (struct 0x008101E0 + vector pool — see EmCamera above) */
+    EmCamera   cam;
 
-    /* camera block — the native 0x008101D0 */
+    /* the camera block the recorded chain consumes (native K = P*V) */
     float      viewproj[16];
 
     /* render chain (this frame's recorded draws) */
@@ -329,8 +396,10 @@ static void player_move(void)
 
     /* Camera basis on XZ: forward f points from the eye towards the
      * player, screen-right is f x up = (-fz, 0, fx). Stick up (sy = -1)
-     * walks away from the camera. */
-    float fx = sinf(g.cam_yaw), fz = cosf(g.cam_yaw);
+     * walks away from the camera. Reads only the camera struct's yaw
+     * (+0x44), so the EM_MOVE_TEST trajectory is independent of the eye
+     * smoothing. */
+    float fx = sinf(g.cam.yaw), fz = cosf(g.cam.yaw);
     float mx = fx * -sy - fz * sx;
     float mz = fz * -sy + fx * sx;
 
@@ -424,46 +493,188 @@ static void render_chain_build(void)
     }
 }
 
-/* func_001C1D00(0x008101D0) — camera apply: fill the camera block the
- * recorded chain consumes. Follow/chase camera: the eye seeks (lerped) a
- * point CAM_DIST behind the player along the camera yaw, looking at chest
- * height; d-pad (arrow keys) LEFT/RIGHT orbits the yaw around the player.
- * The yaw otherwise holds still, so stick directions stay stable while
- * walking. */
-static void camera_apply(void)
-{
-    const EmFrameInput *in = em_frame_input();
-    if (in->held & EM_PAD_LEFT)  g.cam_yaw += CAM_ORBIT_SPEED * FRAME_DT;
-    if (in->held & EM_PAD_RIGHT) g.cam_yaw -= CAM_ORBIT_SPEED * FRAME_DT;
+/* func_001C1D00(0x008101D0) — once-per-area render-env init (GS regs,
+ * area specials via func_001E2260/func_001E0CF0/func_001D5370). NOT
+ * camera math (FINDINGS.md "CAMERA SYSTEM" corrections); skeleton no-op
+ * until the render-env table is translated. */
+static void render_env_init(void) {}
 
-    float fx = sinf(g.cam_yaw), fz = cosf(g.cam_yaw);
-    float des[3] = { g.pos[0] - fx * CAM_DIST,
-                     g.pos[1] + CAM_HEIGHT,
-                     g.pos[2] - fz * CAM_DIST };
-    if (!g.cam_snapped) {
-        /* First frame: seed the eye at its desired point (no lerp-in). */
-        g.cam_eye[0] = des[0];
-        g.cam_eye[1] = des[1];
-        g.cam_eye[2] = des[2];
-        g.cam_snapped = 1;
-    } else {
-        for (int i = 0; i < 3; i++)
-            g.cam_eye[i] += (des[i] - g.cam_eye[i]) * CAM_LERP;
+/* ------------------------------------------------------------------ */
+/* CAMERA — the engine system (FINDINGS.md "CAMERA SYSTEM"):           */
+/*   func_0018B9C0 state machine top  -> camera_update()               */
+/*   func_0018BC20 mode dispatch      -> camera_mode_dispatch()        */
+/*   func_0018D7B0 desired-eye solver -> camera_solve()                */
+/*   func_0018C0D0 commit             -> camera_commit()               */
+/* ------------------------------------------------------------------ */
+
+/* func_0018C6A0(src, dst, max) — the engine's HORIZONTAL chase
+ * primitive, one axis: clamped proportional step. d = src - dst;
+ * |d| <= 1.0 -> quarter-step snap (d/4); else move |d|/6 capped at max.
+ * Speed-limited exponential follow — no splines. */
+static float cam_chase_h(float dst, float src, float max)
+{
+    float d = src - dst;
+    if (fabsf(d) <= 1.0f) return dst + d * 0.25f;
+    float step = fabsf(d) / 6.0f;
+    if (step > max) step = max;
+    return dst + (d > 0.0f ? step : -step);
+}
+
+/* func_0018C4B0(vec, target_y, max) — the VERTICAL twin: divisor 8. */
+static float cam_chase_v(float dst, float src, float max)
+{
+    float d = src - dst;
+    if (fabsf(d) <= 1.0f) return dst + d * 0.25f;
+    float step = fabsf(d) / 8.0f;
+    if (step > max) step = max;
+    return dst + (d > 0.0f ? step : -step);
+}
+
+/* Desired eye from the struct yaw: CAM_DIST behind the player along the
+ * yaw heading, CAM_EYE_HEIGHT above the player's ground Y (the live
+ * values: ~33 u back, ~19 u up). */
+static void camera_desired_eye(EmCamera *cam)
+{
+    cam->eye_des[0] = g.pos[0] - sinf(cam->yaw) * CAM_DIST;
+    cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
+    cam->eye_des[2] = g.pos[2] - cosf(cam->yaw) * CAM_DIST;
+}
+
+/* func_0018BC20 — mode dispatch (struct byte +0x06 over the cut/smooth
+ * jump tables jtbl_0026D950/jtbl_0026D910). Natively only MODE 0 exists:
+ * the generic player-relative follow (the smooth-table inline follow).
+ * On the PS2, cut-table mode 0 is func_00195130 — the per-AREA camera
+ * DIRECTOR, whose per-room logic lives in the area overlays (hardcoded
+ * `jal 0x823FE0` hook): the survival-horror fixed/rail room cameras.
+ * TODO(camera-modes): translate the overlay directors and handlers 1..15
+ * as the overlay code is decompiled — one-shot reposition (5 -> 7),
+ * timed hold (6), init/fallback settle (8, func_001914A0), 9..15, and
+ * the scope/sniper camera (top-mode 3, func_0022EEF0, zoom 224/x). */
+static void camera_mode_dispatch(EmCamera *cam)
+{
+    /* Port input: d-pad LEFT/RIGHT orbit is a yaw input into the
+     * authentic struct (+0x44) — everything downstream consumes only
+     * cam->yaw, exactly like an engine mode handler steering it. */
+    const EmFrameInput *in = em_frame_input();
+    if (in->held & EM_PAD_LEFT)  cam->yaw += CAM_ORBIT_SPEED * FRAME_DT;
+    if (in->held & EM_PAD_RIGHT) cam->yaw -= CAM_ORBIT_SPEED * FRAME_DT;
+
+    /* Mode 0 generic follow: desired target chases the player on x/z at
+     * <= 0.8 u/frame; y seeks player.y + 15.0 (player aim state 5 would
+     * use +cam->aim_h = 6.0 instead — TODO with the player state
+     * machine). Settles to exactly player x/z when idle, matching the
+     * live capture. */
+    cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP);
+    cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP);
+    cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
+                                  g.pos[1] + CAM_TGT_HEIGHT, CAM_TGT_CAP);
+
+    camera_desired_eye(cam);
+}
+
+/* func_0018D7B0 (style 0) — the desired-eye solver. The PS2 version
+ * first collision-resolves the desired eye against the world (segment
+ * queries over collision-set mask 6/7 — static cells + heightfield
+ * [+ movable hulls]; result byte -> struct +0x07).
+ * TODO(collision): run the id-0x44 cell/heightfield queries here once
+ * the level_world cluster (func_0019A910 hub) is translated.
+ * Then the actual eye (D_008105D0) smooth-chases the desired eye per
+ * axis, capped at 4.0 u/frame; the actual target is a straight copy of
+ * the desired target (func_0018C0C0). */
+static void camera_solve(EmCamera *cam)
+{
+    cam->hit = 0;  /* no native collision world yet */
+    cam->eye[0] = cam_chase_h(cam->eye[0], cam->eye_des[0], CAM_EYE_CAP);
+    cam->eye[2] = cam_chase_h(cam->eye[2], cam->eye_des[2], CAM_EYE_CAP);
+    cam->eye[1] = cam_chase_v(cam->eye[1], cam->eye_des[1], CAM_EYE_CAP);
+    cam->tgt[0] = cam->tgt_des[0];
+    cam->tgt[1] = cam->tgt_des[1];
+    cam->tgt[2] = cam->tgt_des[2];
+}
+
+/* func_0018C0D0(cam, 1) — the per-frame COMMIT. Engine steps:
+ *   1. fwd = normalize(target - eye), degenerate-guarded;
+ *   2. view position = eye + 4.0*fwd (near push; mode 0xA uses -1.0);
+ *   3. func_00102CD0 look-at with up = D_008105F0 = (0,-1,0) — see
+ *      em_mat4_lookat_gs for the Y-down/handedness reconciliation;
+ *   4. P from zoom s, K = P*V -> every draw's matrix slot 0 (M = K*W).
+ * Step 4's projection here is still the port's em_mat4_perspective; the
+ * engine's GS values are pinned in the ENGINE_CAM_* constants above. */
+static void camera_commit(EmCamera *cam)
+{
+    float dx  = cam->tgt[0] - cam->eye[0];
+    float dy  = cam->tgt[1] - cam->eye[1];
+    float dz  = cam->tgt[2] - cam->eye[2];
+    float len = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (len > 1e-3f) {  /* degenerate guard: keep the last forward */
+        cam->fwd[0] = dx / len;
+        cam->fwd[1] = dy / len;
+        cam->fwd[2] = dz / len;
     }
 
-    float center[3] = { g.pos[0], g.pos[1] + CAM_LOOK_H, g.pos[2] };
-    float up[3]     = { 0.0f, 1.0f, 0.0f };
-    float far_clip  = g.n_scene ? 800.0f : 500.0f;
+    float pos[3] = { cam->eye[0] + CAM_NEAR_PUSH * cam->fwd[0],
+                     cam->eye[1] + CAM_NEAR_PUSH * cam->fwd[1],
+                     cam->eye[2] + CAM_NEAR_PUSH * cam->fwd[2] };
+    em_mat4_lookat_gs(cam->view, pos, cam->fwd, cam->up);
 
     int dw, dh;
     em_window_drawable_size(em_frame_window(), &dw, &dh);
-    float aspect = (dh > 0) ? (float)dw / (float)dh : 4.0f / 3.0f;
+    float aspect   = (dh > 0) ? (float)dw / (float)dh : 4.0f / 3.0f;
+    float far_clip = g.n_scene ? 800.0f : 500.0f;
 
-    float view[16], proj[16];
-    em_mat4_lookat(view, g.cam_eye, center, up);
+    float proj[16];
     em_mat4_perspective(proj, 50.0f * EM_PI / 180.0f, aspect,
                         0.5f, far_clip);
-    em_mat4_mul(g.viewproj, proj, view);
+    em_mat4_mul(g.viewproj, proj, cam->view);
+}
+
+/* func_001CB590(0x008101E0, 0xD0, 0) + func_0018B9C0 — camera-context
+ * begin + the camera state machine top. Runs AFTER the render-chain
+ * build, like the engine; on the PS2 the already-kicked chain consumes
+ * the PREVIOUS frame's matrices, while the native chain is flushed at
+ * close-out with this frame's — one frame less camera latency, same
+ * 60 Hz math. */
+static void camera_update(void)
+{
+    EmCamera *cam = &g.cam;
+
+    if (cam->state == 0) {
+        /* State 0 — one-shot init. Engine: vector pool setup with
+         * up = (0,-1,0), then mode 8 (reposition/settle vs the world,
+         * two func_0019A910 ray queries). The settle needs the collision
+         * world (TODO above), so natively: snap actual = desired and
+         * start the generic follow directly in mode 0. */
+        cam->up[0]     = 0.0f;
+        cam->up[1]     = -1.0f;  /* the engine's Y-DOWN view-up */
+        cam->up[2]     = 0.0f;
+        cam->top_mode  = 0;
+        cam->table_sel = 1;      /* smooth dispatch table */
+        cam->mode      = 0;      /* engine inits mode 8 — TODO(camera-modes) */
+        cam->aim_h     = CAM_AIM_OFFSET;
+        cam->tgt_des[0] = g.pos[0];
+        cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+        cam->tgt_des[2] = g.pos[2];
+        camera_desired_eye(cam);
+        memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+        memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+        cam->state     = 1;
+        cam->sub_state = 0;
+        /* fall through — the engine's init frame still commits */
+    }
+    if (cam->sub_state == 0) {   /* first run frame: 0->1 ramp */
+        cam->sub_state = 1;
+        cam->timer     = 0;
+    }
+
+    if (cam->top_mode == 0) {
+        /* func_00191390 leaf pre-step — no native work yet. */
+        camera_mode_dispatch(cam);   /* func_0018BC20 */
+        camera_solve(cam);           /* func_0018D7B0, style 0 */
+    }
+    /* top modes 1/2 (frozen) reach the commit only; top mode 3 is the
+     * scope camera func_0022EEF0 — TODO(camera-modes). */
+    camera_commit(cam);              /* func_0018C0D0(cam, 1) */
+    cam->timer++;
 }
 
 /* func_001CB5A0 / func_001AAD00 / func_001D1EA0(1) — close-out: flush the
@@ -543,11 +754,11 @@ static void gameplay_frame(void)
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
     render_chain_build();    /* func_001D1C50 — render chain build    */
-    camera_apply();          /* func_001C1D00(0x008101D0)             */
+    render_env_init();       /* func_001C1D00(0x008101D0)             */
     /* func_001AFD70(0) / func_0015C160 / func_001F0360 — world
      * services: not yet translated. */
-    /* func_001CB590(0x008101E0, 0xD0, 0) HUD context + func_0018B9C0
-     * view-target update: not yet translated. */
+    camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
+                              * func_0018B9C0 camera state machine    */
     frame_close_out();       /* func_001CB5A0/001AAD00/001D1EA0(1)    */
 }
 
@@ -576,8 +787,9 @@ static void ingame_frame_machine(EmTask *self)
              * the difficulty map, places the player against the area
              * spawn tables, and initializes camera + HUD/weapon contexts.
              * Natively the spawn-table stand-in is kPlayerPos (origin
-             * with no scene loaded) facing +Z, and the chase camera arms
-             * behind it; the camera block is rebuilt every frame. */
+             * with no scene loaded) facing +Z, and the camera struct is
+             * zeroed back to its init state (state 0 -> the one-shot
+             * setup arms it behind the player on the next frame). */
             g.t              = 0.0;
             g.walk_t         = 0.0;
             g.walk_w         = 0.0f;
@@ -586,15 +798,15 @@ static void ingame_frame_machine(EmTask *self)
             g.pos[0] = g.n_scene ? kPlayerPos[0] : 0.0f;
             g.pos[1] = g.n_scene ? kPlayerPos[1] : 0.0f;
             g.pos[2] = g.n_scene ? kPlayerPos[2] : 0.0f;
-            g.yaw         = 0.0f;
-            g.cam_yaw     = 0.0f;
-            g.cam_snapped = 0;
+            g.yaw    = 0.0f;
+            memset(&g.cam, 0, sizeof g.cam);
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
             /* Live in-game arm: per-frame services (func_001AFCF0 flag
              * reset, func_001B07C0(1) placement check, func_001C1DC0
-             * camera service, func_0018D7B0/func_0018C0D0 HUD context,
+             * render-env updater (channel enables / fog / weather — NOT
+             * camera math; FINDINGS.md "CAMERA SYSTEM" corrections),
              * func_001AE7E0 end-of-level poll — all pending translation),
              * then the frame-variant selector (scratchpad 0x70003B8D). */
             if (g.frame_selector)
