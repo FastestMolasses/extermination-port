@@ -77,11 +77,18 @@ files map each native stage to the PS2 function it stands in for.
   decomp recovers it.
 - Windows (Win32 + D3D12) and Linux (X11 + Vulkan) backends are skeletoned with
   the same interface; not yet implemented.
+- Faithful to the original presentation: NO persistent HUD — the status
+  display is a TRIANGLE-toggled status screen (key I; dims the scene, gameplay
+  keeps running) and door use runs the full captured transit sequence (input
+  lock, walk to staging, door clip, 64-frame fade-out, re-place behind the
+  door, fade-in, unlock — FINDINGS.md "AREA TRANSITION LIFECYCLE").
 - Headless checks: `EM_CAPTURE=<path.bmp>` (renders ~1 s, captures gameplay
-  frame 60, exits), `EM_AUDIO_TEST=1` (sine smoke test), `EM_INPUT_TEST=1`
-  (pad-change prints), `EM_SFX_TEST=1` (3 overlapping one-shots through the
-  shared BGM mixer — needs `assets/sfx/sfx.txt`; see `src/game/em_sfx.h`),
-  `make test-input` (OS-free pad-model unit test).
+  frame 60, exits; the default frame is the HUD-free one — `EM_HUD_FORCE=1`
+  forces the status screen visible for overlay captures), `EM_AUDIO_TEST=1`
+  (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
+  (full door-transit sequence self-test), `EM_SFX_TEST=1` (3 overlapping
+  one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
+  `src/game/em_sfx.h`), `make test-input` (OS-free pad-model unit test).
 
 ## Build
 

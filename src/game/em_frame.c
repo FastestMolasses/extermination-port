@@ -15,8 +15,11 @@
  *     (libpad RPC buffer 0x00810E40 ->   feeds em_input (the "unpacker");
  *     frame block 0x00810E60..7B)        snapshot lands in the EmFrameInput
  *                                        block, edges computed here.
- *  D  func_001AEBE0 screen-fade machine  NO-OP HOOK — fade machine not yet
- *                                        translated; slot kept in order.
+ *  D  func_001AEBE0 screen-fade machine  frame_fade_tick() — the native
+ *     (armed by func_001AEDE0(speed,     fade level machine (64-frame ramp
+ *     dir); door commits use speed 4)    at the captured door speed 4); the
+ *                                        level draws as a full-screen black
+ *                                        overlay rect at close-out.
  *  E  func_001AB6A0 TASK DISPATCH        em_task_dispatch() — ALL game
  *                                        logic, exactly as on PS2.
  *  F  func_001FCA10 audio service        em_bgm_service() — em_audio is
@@ -95,6 +98,10 @@ static struct {
     uint32_t     parity;      /* 0x00810E80 frame index (0/1) */
     EmFrameInput input;       /* 0x00810E60 frame input block */
     uint16_t     prev_held;   /* previous frame's buttons, for edges */
+    /* screen-fade machine (step D, func_001AEDE0) */
+    float        fade_level;  /* 0 = clear .. 1 = full black */
+    int          fade_dir;    /* +1 fading out, -1 fading in, 0 settled */
+    int          fade_speed;  /* engine units: level steps speed/256 */
     /* EM_INPUT_TEST bookkeeping */
     bool         input_test;
     EmPadState   prev_pad;
@@ -123,6 +130,34 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
 }
 
 void em_frame_request_quit(void)        { s_frame.quit = true; }
+
+/* func_001AEDE0(speed, dir) — arm the screen fade (see em_frame.h). */
+void em_frame_fade_start(int dir, int speed)
+{
+    s_frame.fade_dir   = (dir > 0) ? 1 : -1;
+    s_frame.fade_speed = speed;
+}
+
+float em_frame_fade_level(void)  { return s_frame.fade_level; }
+int   em_frame_fade_active(void) { return s_frame.fade_dir != 0; }
+
+/* Step D — one tick of the fade machine: the level ramps speed/256 per
+ * frame toward the armed end (speed 4 = the captured 64-frame door
+ * fade), then the machine settles. */
+static void frame_fade_tick(void)
+{
+    if (!s_frame.fade_dir) return;
+    s_frame.fade_level += (float)s_frame.fade_dir *
+                          (float)s_frame.fade_speed / 256.0f;
+    if (s_frame.fade_level >= 1.0f) {
+        s_frame.fade_level = 1.0f;
+        if (s_frame.fade_dir > 0) s_frame.fade_dir = 0;
+    }
+    if (s_frame.fade_level <= 0.0f) {
+        s_frame.fade_level = 0.0f;
+        if (s_frame.fade_dir < 0) s_frame.fade_dir = 0;
+    }
+}
 const EmFrameInput *em_frame_input(void){ return &s_frame.input; }
 EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
@@ -211,7 +246,10 @@ void em_frame_run(void)
         /* C (+I): input read/unpack into the frame input block. */
         frame_input_read();
 
-        /* D: screen-fade machine — no-op hook. */
+        /* D: screen-fade machine (func_001AEDE0 tick) — armed by the
+         * door-transit commit (em_door.c); the level is DRAWN as the
+         * close-out's full-screen overlay rect (em_game.c). */
+        frame_fade_tick();
 
         /* E: TASK DISPATCH — all game logic. */
         em_task_dispatch();

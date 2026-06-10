@@ -348,7 +348,10 @@ static struct {
     int         door_test;       /* EM_DOOR_TEST=1 — door interaction test */
     int         dt_door;         /* test door index (the west doorway) */
     int         dt_ok_trigger;   /* X press put the door in OPENING */
+    int         dt_ok_lock;      /* input locked during the transit */
+    int         dt_ok_inputdead; /* held stick did NOT move the player */
     float       dt_min_x;        /* min player x while the door not OPEN */
+    float       dt_max_fade;     /* peak fade level seen (must reach 1.0) */
     int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
     int         wt_fail;         /* weapon test: failed checkpoints */
     int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
@@ -713,6 +716,14 @@ static void player_move(void)
         }
     }
 
+    /* INPUT LOCK (door transit, kickoff -> fade-in end): free movement
+     * is ignored — the player either walks the scripted MOVE-TO above
+     * or stands (at the staging point / the re-placed spawn point). */
+    if (em_door_input_locked()) {
+        g.move_speed = 0.0f;
+        return;
+    }
+
     const EmFrameInput *in = em_frame_input();
     float sx  = stick_axis(in->lx);
     float sy  = stick_axis(in->ly);
@@ -1052,7 +1063,11 @@ static void camera_update(void)
         cam->timer     = 0;
     }
 
-    if (cam->top_mode == 0) {
+    /* CAMERA FREEZE during the door-transit input lock: dispatch + solve
+     * are skipped (no orbit input, no chase) and only the commit runs —
+     * the engine's frozen top modes 1/2 shape. The post-warp re-seat
+     * happens while the screen is black (gameplay_frame). */
+    if (cam->top_mode == 0 && !em_door_input_locked()) {
         /* func_00191390 leaf pre-step — no native work yet. */
         camera_mode_dispatch(cam);   /* func_0018BC20 */
         camera_solve(cam);           /* func_0018D7B0, style 0 */
@@ -1085,14 +1100,33 @@ static void frame_close_out(void)
      * the default frame stays byte-identical. */
     em_weapon_render(gfx);
 
-    /* HUD over the flushed 3D frame (the engine's GS-sprite status pass;
-     * em_hud queues overlay rects, em_gfx_end_frame draws them last).
-     * EM_NO_HUD=1 disables inside em_hud_render. The ammo readout is LIVE:
-     * mag/reserve mirror the weapon state (D_00810C62 / D_00810CB4)
-     * every frame, exactly like the engine UI re-reading the globals. */
+    /* STATUS SCREEN over the flushed 3D frame (the engine's GS-sprite
+     * status overlay; em_hud queues overlay rects, em_gfx_end_frame
+     * draws them last). HIDDEN by default — the original shows no
+     * persistent HUD — and toggled by a TRIANGLE press (edge); shown, it
+     * dims the scene behind it. Gameplay keeps running underneath
+     * (stated assumption — the live captures show no hard pause).
+     * EM_HUD_FORCE=1 forces it visible for overlay tests. The ammo
+     * readout is LIVE: mag/reserve mirror the weapon state (D_00810C62 /
+     * D_00810CB4) every frame, exactly like the engine UI re-reading the
+     * globals. */
+    em_hud_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
     em_hud_render(gfx, &g.status);
+
+    /* SCREEN FADE — the step-D machine's level, drawn last so it covers
+     * the scene AND the status screen (the engine's fade owns the whole
+     * GS frame). Level 0 queues nothing: the default frame stays
+     * byte-identical. */
+    {
+        float lvl = em_frame_fade_level();
+        if (lvl > 0.0f) {
+            const float black[4] = { 0.0f, 0.0f, 0.0f, lvl };
+            em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
+                                EM_GFX_OVERLAY_H, black);
+        }
+    }
 
     if (g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
@@ -1170,11 +1204,11 @@ static void move_test_script(void)
     }
 }
 
-/* EM_DOOR_TEST=1 — deterministic door-interaction self-test (the first
- * interactive object). Spawns the player on the z = -225 corridor line
- * facing the WEST double door at (57, 0, -220.5) (placement-table record
- * [5], AREA02 state 1) and exercises the s17 contract end to end through
- * the real input API:
+/* EM_DOOR_TEST=1 — deterministic door-transit self-test. Spawns the
+ * player on the z = -225 corridor line facing the WEST double door at
+ * (57, 0, -220.5) (placement-table record [5], AREA02 state 1) and
+ * exercises the FULL s22 transit sequence end to end through the real
+ * input API:
  *
  *   frames  1..24   walk -X to x ~= 66 (inside the 12 u use-scan radius,
  *                   outside the 2 u auto-open ring; no button — the door
@@ -1186,13 +1220,21 @@ static void move_test_script(void)
  *                   "previously blocked plane".
  *   frame   60      CROSS press -> the use scan arms the door (dist 5.4,
  *                   facing-dot 0.56); assert state == OPENING soon after.
- *                   The kickoff's MOVE-TO then walks the player through
- *                   the doorway to the far-side point (52, 0, -220.5),
- *                   crossing the boundary plane + the x = 57 door plane
- *                   exactly like func_001BBE40's scripted transit.
- *   frame  150      assert: trigger OK, blocked min x >= 59.9 while
- *                   closed, final x <= 53 (through the doorway), door
- *                   reached OPEN.
+ *                   The kickoff LOCKS input and WALKS the player to the
+ *                   staging point (62, 0, -220.5) = door + 5*n on his
+ *                   own side while the 90-frame door clip plays.
+ *   frame  100      assert em_door_input_locked() == 1 (mid-transit);
+ *   100..140        hold forward ('w') — locked input must NOT move the
+ *                   player off the staging point (checked at 145).
+ *   ~frame 151      commit -> 64-frame fade-out (peak level tracked);
+ *                   at black: re-place at the spawn point (52, 0,
+ *                   -220.5) = door - 5*n, exit yaw -pi/2; door closes;
+ *                   64-frame fade-in; unlock at fade-in end.
+ *   frame  340      assert: trigger OK, blocked min x >= 59.9, lock
+ *                   seen, locked input dead, fade reached 1.0 and is
+ *                   back at 0, input UNLOCKED, final pos (52, -220.5)
+ *                   +- tol with yaw -pi/2 (behind the door, exit pose),
+ *                   door re-armed CLOSED.
  *
  * (Geometry verified against the office EMCL: corridor floor along the
  * whole approach, boundary wall at x = 60, no other static blocker.) */
@@ -1200,9 +1242,12 @@ static void door_test_script(void)
 {
     int n = g.frame_no;
     if (n == 0) {
-        g.dt_door       = -1;
-        g.dt_min_x      = 1e9f;
-        g.dt_ok_trigger = 0;
+        g.dt_door         = -1;
+        g.dt_min_x        = 1e9f;
+        g.dt_max_fade     = 0.0f;
+        g.dt_ok_trigger   = 0;
+        g.dt_ok_lock      = 0;
+        g.dt_ok_inputdead = 0;
         move_test_inject('w', 1);
     } else if (n == 24) {
         move_test_inject('w', 0);
@@ -1226,32 +1271,58 @@ static void door_test_script(void)
     } else if (n == 64) {
         g.dt_ok_trigger = g.dt_door >= 0 &&
                           em_door_state(g.dt_door) == EM_DOOR_OPENING;
-    } else if (n == 150) {
-        int ok_open  = g.dt_door >= 0 &&
-                       em_door_state(g.dt_door) == EM_DOOR_OPEN;
-        int ok_block = g.dt_min_x >= 59.9f && g.dt_min_x < 61.0f;
-        int ok_pass  = g.pos[0] <= 53.0f &&
-                       fabsf(g.pos[2] + 220.5f) <= 0.6f;
-        int ok = g.dt_ok_trigger && ok_open && ok_block && ok_pass;
+    } else if (n == 100) {
+        g.dt_ok_lock = em_door_input_locked();
+        move_test_inject('w', 1);   /* locked: must be ignored */
+    } else if (n == 140) {
+        move_test_inject('w', 0);
+    } else if (n == 145) {
+        /* 40 frames of held forward under the lock: still parked on the
+         * staging point (62, 0, -220.5). */
+        g.dt_ok_inputdead = fabsf(g.pos[0] - 62.0f)   <= 0.35f &&
+                            fabsf(g.pos[2] + 220.5f) <= 0.35f;
+    } else if (n == 340) {
+        int ok_closed = g.dt_door >= 0 &&
+                        em_door_state(g.dt_door) == EM_DOOR_CLOSED;
+        int ok_block  = g.dt_min_x >= 59.9f && g.dt_min_x < 61.0f;
+        int ok_fade   = g.dt_max_fade >= 0.999f &&
+                        em_frame_fade_level() <= 0.001f;
+        int ok_unlock = !em_door_input_locked();
+        int ok_pass   = fabsf(g.pos[0] - 52.0f)   <= 0.1f &&
+                        fabsf(g.pos[2] + 220.5f)  <= 0.6f &&
+                        fabsf(g.yaw + EM_PI * 0.5f) <= 0.01f;
+        int ok = g.dt_ok_trigger && g.dt_ok_lock && g.dt_ok_inputdead &&
+                 ok_fade && ok_unlock && ok_pass && ok_block && ok_closed;
         printf("door test: trigger->OPENING %s, blocked min x %.3f while "
-               "closed (boundary 60.0: %s), final pos (%.3f, %.3f, %.3f) "
-               "through the doorway: %s, door state %d (OPEN %d): %s — "
-               "%s\n",
+               "closed (boundary 60.0: %s), input locked mid-transit %s, "
+               "locked stick ignored %s, fade peak %.3f / final %.3f: %s, "
+               "unlocked at end %s, final pos (%.3f, %.3f, %.3f) yaw "
+               "%.4f behind the door: %s, door state %d (CLOSED %d, "
+               "re-armed): %s — %s\n",
                g.dt_ok_trigger ? "ok" : "FAILED", g.dt_min_x,
                ok_block ? "ok" : "FAILED",
-               g.pos[0], g.pos[1], g.pos[2], ok_pass ? "ok" : "FAILED",
+               g.dt_ok_lock ? "ok" : "FAILED",
+               g.dt_ok_inputdead ? "ok" : "FAILED",
+               g.dt_max_fade, em_frame_fade_level(),
+               ok_fade ? "ok" : "FAILED",
+               ok_unlock ? "ok" : "FAILED",
+               g.pos[0], g.pos[1], g.pos[2], g.yaw,
+               ok_pass ? "ok" : "FAILED",
                g.dt_door >= 0 ? em_door_state(g.dt_door) : -1,
-               EM_DOOR_OPEN, ok_open ? "ok" : "FAILED",
+               EM_DOOR_CLOSED, ok_closed ? "ok" : "FAILED",
                ok ? "PASS" : "FAIL");
         fflush(stdout);
         em_frame_request_quit();
     }
     /* Track how far -X free movement reaches while the door is CLOSED
-     * (the boundary plane must hold the player at ~60.01). */
+     * (the boundary plane must hold the player at ~60.01), and the fade
+     * peak (the fade-out must reach full black before the re-place). */
     if (n > 0 && n <= 60 && g.dt_door >= 0 &&
         em_door_state(g.dt_door) == EM_DOOR_CLOSED &&
         g.pos[0] < g.dt_min_x)
         g.dt_min_x = g.pos[0];
+    if (em_frame_fade_level() > g.dt_max_fade)
+        g.dt_max_fade = em_frame_fade_level();
 }
 
 /* EM_WEAPON_TEST=1 — deterministic firing-loop self-test (em_weapon.c).
@@ -1504,6 +1575,28 @@ static void gameplay_frame(void)
      * (func_00184BA0) and articulation live in em_door_update.
      * func_0015C160 / func_001F0360 — still untranslated. */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
+    /* DOOR-TRANSIT RE-PLACE (one-shot, at fade-out completion — screen
+     * fully black): set the player at the spawn point behind the door
+     * with the exit yaw (the engine's spawn-table placement,
+     * func_001B07C0 path), and re-seat the chase camera behind the new
+     * pose (the placement rec's camera-init fields) — an invisible cut,
+     * exactly like the engine doing it under the fade. */
+    {
+        float wp[3], wyaw;
+        if (em_door_warp_pending(wp, &wyaw)) {
+            g.pos[0] = wp[0];
+            g.pos[1] = wp[1];
+            g.pos[2] = wp[2];
+            g.yaw    = wyaw;
+            g.cam.yaw = wyaw;
+            g.cam.tgt_des[0] = g.pos[0];
+            g.cam.tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+            g.cam.tgt_des[2] = g.pos[2];
+            camera_desired_eye(&g.cam);
+            memcpy(g.cam.eye, g.cam.eye_des, sizeof g.cam.eye);
+            memcpy(g.cam.tgt, g.cam.tgt_des, sizeof g.cam.tgt);
+        }
+    }
     /* ENEMIES: the crawler state machines (func_001551B0 — also part of
      * the actor-pool tick). Runs BEFORE the weapon update so this
      * frame's shot resolves against current positions. */
@@ -1523,8 +1616,17 @@ static void gameplay_frame(void)
     /* WEAPON: the player-side armed-stance/fire state machine (engine:
      * part of the player actor update, modes 0x1D..0x20) plus the
      * gun-actor fire-event consumption (engine: pool tick, one-frame
-     * latency) — both in em_weapon_update; see em_weapon.h. */
-    em_weapon_update(&g.coll, g.pos, g.yaw, em_frame_input());
+     * latency) — both in em_weapon_update; see em_weapon.h. During the
+     * door-transit INPUT LOCK the machine reads NEUTRAL input (actions
+     * ignored: no draw/fire/reload; a held stance settles to holstered),
+     * keeping its per-frame timers ticking. */
+    {
+        static const EmFrameInput kNeutral = { 0x80, 0x80, 0x80, 0x80,
+                                               0, 0, 0 };
+        em_weapon_update(&g.coll, g.pos, g.yaw,
+                         em_door_input_locked() ? &kNeutral
+                                                : em_frame_input());
+    }
     camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
                               * func_0018B9C0 camera state machine    */
     frame_close_out();       /* func_001CB5A0/001AAD00/001D1EA0(1)    */

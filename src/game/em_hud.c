@@ -1,8 +1,9 @@
-/* em_hud.c — native HUD rendering (see em_hud.h for the engine mapping).
+/* em_hud.c — native STATUS SCREEN rendering (see em_hud.h for the
+ * engine mapping and the Triangle-toggle faithfulness notes).
  *
  * Layout, on the 640x448 virtual canvas (PS2 NTSC frame; origin
  * top-left, y down), inside a 32-unit safe margin like the original
- * GS-sprite HUD:
+ * GS-sprite status overlay:
  *
  *   top-left      HEALTH bar (180x10): fill color lerps green -> red as
  *                 health drops; INFECTION bar (180x7, purple) below it.
@@ -18,6 +19,8 @@
 #include "game/em_hud.h"
 
 #include <stdlib.h>
+
+#include "em_input.h"   /* EM_PAD_TRIANGLE — the toggle button bit */
 
 /* Safe-area margin and element metrics (canvas units). */
 #define HUD_MARGIN     32.0f
@@ -38,6 +41,10 @@
  * FINDINGS.md; a display normalization, not an inventory limit). */
 #define EM_HUD_RESERVE_FULL 240.0f
 
+/* Full-screen scene dim while the status screen is up (the pause/status
+ * look: the 3D frame keeps rendering — and the game keeps running, see
+ * em_hud.h — but reads clearly as "menu over the world"). */
+static const float kSceneDim[4]  = { 0.0f,  0.0f,  0.0f,  0.60f };
 static const float kBackplate[4] = { 0.0f,  0.0f,  0.0f,  0.55f };
 static const float kEmptySlot[4] = { 0.35f, 0.35f, 0.35f, 0.35f };
 static const float kHpFull[4]    = { 0.15f, 0.85f, 0.20f, 0.90f };
@@ -71,17 +78,43 @@ static void bar(EmGfx *gfx, float x, float y, float w, float h,
         em_gfx_overlay_rect(gfx, x, y, w * frac, h, color);
 }
 
+/* Status-screen visibility — hidden by default (the original shows no
+ * persistent HUD), flipped by the Triangle edge in em_hud_update. */
+static int s_shown = 0;
+
+void em_hud_update(const EmFrameInput *in)
+{
+    if (in && (in->pressed & EM_PAD_TRIANGLE))
+        s_shown = !s_shown;
+}
+
+/* EM_HUD_FORCE=1 — force the status screen visible (checked once; test
+ * hook for headless overlay captures, see em_hud.h). */
+static int hud_forced(void)
+{
+    static int force = -1;
+    if (force < 0) {
+        const char *e = getenv("EM_HUD_FORCE");
+        force = (e && e[0] == '1') ? 1 : 0;
+    }
+    return force;
+}
+
+int em_hud_visible(void)
+{
+    return s_shown || hud_forced();
+}
+
 void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
 {
-    /* EM_NO_HUD=1 — disable entirely (checked once; with the HUD off no
-     * overlay rect is queued, so the frame matches pre-HUD output
-     * byte for byte). */
-    static int no_hud = -1;
-    if (no_hud < 0) {
-        const char *e = getenv("EM_NO_HUD");
-        no_hud = (e && e[0] == '1') ? 1 : 0;
-    }
-    if (no_hud || !gfx || !st) return;
+    /* Hidden (the default): queue NOTHING — the frame is byte-identical
+     * to a build with no status screen at all. */
+    if (!em_hud_visible() || !gfx || !st) return;
+
+    /* Scene dim — the full-screen translucent backdrop behind the
+     * status elements (queued first, so everything below draws over it). */
+    em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
+                        EM_GFX_OVERLAY_H, kSceneDim);
 
     /* HEALTH — green at full, red at empty (linear color lerp). */
     {

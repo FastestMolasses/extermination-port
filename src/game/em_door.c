@@ -1,17 +1,27 @@
 /* em_door.c — interactive door actors (see em_door.h for the engine
- * mapping and the flagged fidelity deviations).
+ * mapping, the FULL s22 transit sequence, and the flagged deviations).
  *
- * State machine (FINDINGS "FIRST INTERACTIVE OBJECTS", func_001BC350 RUN
- * sub-states, engine numbering kept):
+ * State machine (FINDINGS "FIRST INTERACTIVE OBJECTS" + "AREA TRANSITION
+ * LIFECYCLE" s22, func_001BC350 RUN sub-states, engine numbering kept):
  *
  *   0 CLOSED   armed (+0x0B != 0, by the use scan or a neighbor panel)
- *              -> transit kickoff -> 3.  The locked sequence (subs 1/2,
- *              model 0x15 + unlock bitmask) is not in the port yet.
- *   3 OPENING  advance the clip 1.0/frame (func_001BC0E0); done -> 4
- *   4 OPEN     engine: func_001BC240 -> func_001BC150 transition commit
- *              (area/room change). No native area loader -> HOLD for a
- *              timeout, never closing on top of the player.
- *   5 CLOSING  run the clip back; at rest re-arm (+0x0B = 0) -> 0
+ *              -> transit kickoff (func_001BBE40: side latch, INPUT
+ *              LOCK, walk-to the staging point door + 5*n) -> 3.
+ *              The locked sequence (subs 1/2, model 0x15 + unlock
+ *              bitmask) is not in the port yet.
+ *   3 OPENING  advance the clip 1.0/frame (func_001BC0E0; captured clip
+ *              window 77..97 vsyncs); clip done AND the player at the
+ *              staging point -> 4
+ *   4 OPEN     one-frame transition COMMIT (func_001BC240 ->
+ *              func_001BC150): arm the 64-frame fade-out
+ *              (func_001AEDE0(4,0)); room moves do NOT fade audio -> 5
+ *   5 CLOSING  engine sub 5 = transition pending. At fade-out complete
+ *              (screen black): post the RE-PLACE (spawn point behind the
+ *              door, exit yaw), arm the 64-frame fade-in, and start
+ *              running the clip back (the engine re-arms when the
+ *              request byte B8 clears, right after the re-place). Input
+ *              unlocks when the fade-in completes; at clip rest the door
+ *              re-arms (+0x0B = 0) -> 0
  *
  * Articulation: the engine evaluates a keyframe clip on the door's bone
  * slots (func_001BC300 -> func_001C68C0). The double door's clip is not
@@ -41,19 +51,22 @@
 #define DOOR_AUTO_DIST2   4.0f   /* < 2.0 u -> immediate (returns 2) */
 #define DOOR_FACING_DOT   0.4f   /* facing-dot threshold (~0.4) */
 
-/* PLACEHOLDER swing timing — flagged: the real clip length is unknown
- * (the engine advances its clip 1.0/frame; 60 frames = a 1 s door is the
- * same duration class as the captured transit sequences). */
-#define DOOR_SWING_FRAMES 60.0f
+/* PLACEHOLDER swing timing — flagged: the real clip length is unknown.
+ * The engine advances its clip 1.0/frame and the two live-captured
+ * transits ran 97 (room move) and 77 (area change) vsyncs of clip; 90
+ * frames sits inside that captured window. */
+#define DOOR_SWING_FRAMES 90.0f
 #define DOOR_SWING_ANGLE  (DOOR_PI * 0.5f)
 
-/* OPEN hold before auto-close (port-only; the engine closes when the
- * room-transition byte D_008106B8 clears). */
-#define DOOR_OPEN_HOLD    180
+/* Staging/spawn offset along the door normal: the engine stages the
+ * player at door +- 5.0 * n on his own side (s22 captured 5.0 exactly;
+ * e.g. -247.2 = door z + 5) and the spawn-table records flank the door
+ * at ~+-5 with exit yaw. */
+#define DOOR_POINT_DIST   5.0f
 
-/* Skin added to the world AABB when testing "player inside the doorway"
- * so a door never closes on (or into) the player. */
-#define DOOR_CLEAR_SKIN   1.5f
+/* Fade speed for the transit fades — the captured func_001AEDE0 speed
+ * (4 -> 64-frame ramp), see em_frame.h. */
+#define DOOR_FADE_SPEED   EM_FADE_SPEED_DOOR
 
 typedef struct {
     char       path[512];
@@ -73,11 +86,14 @@ typedef struct {
     float    radius;         /* use-scan distance (12.0 from the table) */
     uint8_t  state;          /* actor +0x05 sub-state (engine values) */
     uint8_t  armed;          /* actor +0x0B activation flags (scan: 4) */
-    int      hold;           /* OPEN hold countdown (port) */
     float    clip_t;         /* anim block +0xE clip time, frames */
-    int      transit;        /* walk-through MOVE-TO active (func_001BBE40) */
-    float    transit_to[3];  /* far-side point door_pos +/- 5.0 * normal */
-    float    transit_yaw;    /* player yaw snapped to the door normal */
+    int      transit;        /* walk-to MOVE-TO active (func_001BBE40) */
+    float    transit_to[3];  /* STAGING point door_pos + 5.0 * n, near side */
+    float    transit_yaw;    /* player yaw snapped to the door normal
+                              * (travel direction = the exit yaw) */
+    float    spawn_pt[3];    /* re-place point door_pos - 5.0 * n, far side
+                              * (the spawn-table record's pose) */
+    int      did_warp;       /* sub 5: re-place already posted this transit */
     float    aabb_lo[3];     /* world AABB of the CLOSED door (hull box) */
     float    aabb_hi[3];
     float    palette[DOOR_BONE_MAX * 16];
@@ -88,6 +104,13 @@ static struct {
     int       n_models;
     Door      doors[DOOR_MAX];
     int       n_doors;
+    /* transit-wide state (one transit at a time, like the engine's
+     * single B5..B8 request block) */
+    int       lock;          /* player input locked (kickoff..fade-in end) */
+    int       unlock_armed;  /* re-place posted: unlock at fade-in end */
+    int       warp_pending;  /* one-shot re-place request for em_game */
+    float     warp_pos[3];
+    float     warp_yaw;
 } s;
 
 void em_door_reset(void)
@@ -287,15 +310,6 @@ static void door_build_palette(Door *d)
 /* Trigger scan + state machine                                         */
 /* ------------------------------------------------------------------ */
 
-/* Is the player inside the (inflated) doorway hull? Guards the close. */
-static int door_player_inside(const Door *d, const float p[3])
-{
-    return p[0] >= d->aabb_lo[0] - DOOR_CLEAR_SKIN &&
-           p[0] <= d->aabb_hi[0] + DOOR_CLEAR_SKIN &&
-           p[2] >= d->aabb_lo[2] - DOOR_CLEAR_SKIN &&
-           p[2] <= d->aabb_hi[2] + DOOR_CLEAR_SKIN;
-}
-
 /* func_00184BA0 — the player USE SCAN over last frame's interactive
  * list. Filters: status bit 0, class flag 0x80, +0x0B == 0 (un-armed);
  * per candidate func_00183EF0: LOS clear (mask-6 static query), dist^2
@@ -365,11 +379,14 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
 
 /* func_001BBE40 — the transit KICKOFF: latch which side the player is
  * on (vs the door normal n = [sin yaw, cos yaw]), snap the player yaw
- * to the normal, and issue the MOVE-TO to the FAR-side point
- * door_pos -/+ 5.0 * n. The scripted move is what carries the player
- * across the grid room-BOUNDARY planes (the doorways are statically
- * sealed; free walking never crosses them) — em_game.c's player_move
- * runs this glide collision-free, the native func_00182F90 stand-in.
+ * to the normal, LOCK input, and walk the player to the STAGING point
+ * door_pos + 5.0 * n on his OWN side (s22: the engine snaps there; the
+ * port drives the same point through the locomotion walk — the MOVE-TO
+ * of func_00182F90). The far-side spawn point door_pos - 5.0 * n is
+ * staged for the post-fade re-place (the documented spawn-table record:
+ * +-5 behind the door, exit yaw). The scripted sequence is what carries
+ * the player across the grid room-BOUNDARY planes (the doorways are
+ * statically sealed; free walking never crosses them).
  * (The engine's camera cues + door scripts of the kickoff are not yet
  * decoded — s17 open items.) */
 static void door_transit_kickoff(Door *d, const float pp[3])
@@ -377,22 +394,42 @@ static void door_transit_kickoff(Door *d, const float pp[3])
     float nx = sinf(d->yaw), nz = cosf(d->yaw);
     float side = (pp[0] - d->pos[0]) * nx + (pp[2] - d->pos[2]) * nz;
     float dir  = (side < 0.0f) ? 1.0f : -1.0f;   /* far side of player */
-    d->transit_to[0] = d->pos[0] + 5.0f * dir * nx;
+    /* staging point: the player's OWN side (-dir), 5 u off the door */
+    d->transit_to[0] = d->pos[0] - DOOR_POINT_DIST * dir * nx;
     d->transit_to[1] = d->pos[1];
-    d->transit_to[2] = d->pos[2] + 5.0f * dir * nz;
+    d->transit_to[2] = d->pos[2] - DOOR_POINT_DIST * dir * nz;
+    /* spawn point: the FAR side (+dir) — the re-place while black */
+    d->spawn_pt[0]   = d->pos[0] + DOOR_POINT_DIST * dir * nx;
+    d->spawn_pt[1]   = d->pos[1];
+    d->spawn_pt[2]   = d->pos[2] + DOOR_POINT_DIST * dir * nz;
+    /* travel direction = the exit yaw (spawn recs face AWAY from the
+     * door — s22 "yaw facing AWAY (exit pose)") */
     d->transit_yaw   = (dir > 0.0f) ? d->yaw : d->yaw + DOOR_PI;
     d->transit       = 1;
+    d->did_warp      = 0;
+    s.lock           = 1;   /* input locked until the fade-in completes */
 }
 
 void em_door_update(const EmCollision *coll, const float player_pos[3],
                     float player_yaw, const EmFrameInput *in)
 {
-    door_trigger_scan(coll, player_pos, player_yaw, in);
+    /* No new use-arm while a transit sequence is in flight (the engine's
+     * scan filters +0x0B == 0 and the request block is busy anyway). */
+    if (!s.lock)
+        door_trigger_scan(coll, player_pos, player_yaw, in);
+
+    /* Input unlocks when the fade-in completes — the re-place already
+     * happened at black; the door is still closing behind the player. */
+    if (s.lock && s.unlock_armed && !s.warp_pending &&
+        !em_frame_fade_active() && em_frame_fade_level() <= 0.0f) {
+        s.lock         = 0;
+        s.unlock_armed = 0;
+    }
 
     for (int i = 0; i < s.n_doors; i++) {
         Door *d = &s.doors[i];
 
-        /* Transit completion: the MOVE-TO ends at the far-side point. */
+        /* Walk-to completion: the MOVE-TO ends at the staging point. */
         if (d->transit) {
             float dx = player_pos[0] - d->transit_to[0];
             float dz = player_pos[2] - d->transit_to[2];
@@ -414,31 +451,53 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
             }
             break;
         case EM_DOOR_OPENING:      /* func_001BC0E0: clip 1.0/frame */
-            d->clip_t += 1.0f;
-            if (d->clip_t >= door_clip_total(d)) {
+            if (d->clip_t < door_clip_total(d))
+                d->clip_t += 1.0f;
+            /* Commit gate: clip done (the engine's only condition — it
+             * SNAPPED to staging at kickoff) AND, port-side, the walk
+             * that replaced the snap has arrived. */
+            if (d->clip_t >= door_clip_total(d) && !d->transit) {
                 d->clip_t = door_clip_total(d);
                 d->state  = EM_DOOR_OPEN;
-                d->hold   = DOOR_OPEN_HOLD;
             }
             break;
-        case EM_DOOR_OPEN:         /* engine: transition commit; port:
-                                    * timed hold, never close on the
-                                    * player (the engine walks the player
-                                    * through before its close) */
-            if (d->hold > 0) d->hold--;
-            if (d->hold == 0 && !door_player_inside(d, player_pos)) {
-                d->state = EM_DOOR_CLOSING;
-                /* PLACEHOLDER id (flagged) — script-driven, like open. */
-                em_sfx_play(EM_SFX_DOOR_CLOSE);
-            }
+        case EM_DOOR_OPEN:         /* one-frame COMMIT (func_001BC240 ->
+                                    * func_001BC150): arm the 64-frame
+                                    * fade-out. Room move (B8 == 2): NO
+                                    * audio fade (area changes only). */
+            em_frame_fade_start(1, DOOR_FADE_SPEED);
+            d->state = EM_DOOR_CLOSING;
             break;
-        case EM_DOOR_CLOSING:      /* func_001BC290: clip back to rest,
-                                    * then re-arm (+0x0B = 0) -> sub 0 */
+        case EM_DOOR_CLOSING:      /* engine sub 5: transition pending */
+            if (!d->did_warp) {
+                /* Wait out the fade-out; at black, post the re-place
+                 * (spawn point behind the door, exit yaw), arm the
+                 * fade-in, and start closing — the engine's "B8
+                 * cleared" moment. */
+                if (!em_frame_fade_active() &&
+                    em_frame_fade_level() >= 1.0f) {
+                    s.warp_pending = 1;
+                    s.warp_pos[0]  = d->spawn_pt[0];
+                    s.warp_pos[1]  = d->spawn_pt[1];
+                    s.warp_pos[2]  = d->spawn_pt[2];
+                    s.warp_yaw     = d->transit_yaw;
+                    d->did_warp    = 1;
+                    s.unlock_armed = 1;
+                    em_frame_fade_start(-1, DOOR_FADE_SPEED);
+                    /* PLACEHOLDER id (flagged) — script-driven, like
+                     * open; fires at black, behind the player. */
+                    em_sfx_play(EM_SFX_DOOR_CLOSE);
+                }
+                break;
+            }
+            /* func_001BC290: clip back to rest, then re-arm
+             * (+0x0B = 0) -> sub 0. */
             d->clip_t -= 1.0f;
             if (d->clip_t <= 0.0f) {
-                d->clip_t = 0.0f;
-                d->state  = EM_DOOR_CLOSED;
-                d->armed  = 0;
+                d->clip_t   = 0.0f;
+                d->state    = EM_DOOR_CLOSED;
+                d->armed    = 0;
+                d->did_warp = 0;
             }
             break;
         default:
@@ -453,6 +512,19 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
 /* ------------------------------------------------------------------ */
 
 int em_door_count(void) { return s.n_doors; }
+
+int em_door_input_locked(void) { return s.lock; }
+
+int em_door_warp_pending(float out_pos[3], float *out_yaw)
+{
+    if (!s.warp_pending) return 0;
+    out_pos[0]     = s.warp_pos[0];
+    out_pos[1]     = s.warp_pos[1];
+    out_pos[2]     = s.warp_pos[2];
+    *out_yaw       = s.warp_yaw;
+    s.warp_pending = 0;     /* one-shot */
+    return 1;
+}
 
 int em_door_transit_active(float out_target[3], float *out_yaw)
 {

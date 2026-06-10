@@ -68,6 +68,27 @@ uint32_t em_frame_counter(void);
  * the engine's double-buffered per-frame resources. */
 uint32_t em_frame_parity(void);
 
+/* --- SCREEN-FADE MACHINE (step D, func_001AEDE0) ---------------------
+ * The engine's full-screen fade: func_001AEDE0(speed, dir) arms it and
+ * the main loop's step D ticks it once per frame. The captured speed is
+ * 4 -> a 64-frame ramp (level steps speed/256 per frame), used by BOTH
+ * door-transition fades (FINDINGS.md "AREA TRANSITION LIFECYCLE": commit
+ * runs func_001AEDE0(4,0) fade-out; fade-in after the re-place is the
+ * same 4-speed machine). Natively the level is drawn as one full-screen
+ * black overlay rect at close-out (em_game.c), alpha = level. */
+#define EM_FADE_SPEED_DOOR 4   /* the captured door-transit fade speed */
+
+/* Arm a fade: dir > 0 fades OUT (toward black), dir < 0 fades IN (toward
+ * clear); `speed` in engine units (level moves speed/256 per frame, so
+ * speed 4 = 64 frames full ramp). */
+void em_frame_fade_start(int dir, int speed);
+
+/* Current fade level: 0.0 = clear, 1.0 = full black. */
+float em_frame_fade_level(void);
+
+/* Nonzero while a ramp is still in motion (level not yet at its end). */
+int em_frame_fade_active(void);
+
 #ifdef __cplusplus
 }
 #endif

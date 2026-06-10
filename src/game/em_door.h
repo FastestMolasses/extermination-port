@@ -23,7 +23,30 @@
  * static scene loader (em_game.c scene_load, which slurps every .emdl in
  * the scene dir) never double-draws them.
  *
- * FIDELITY NOTES (port deviations, each flagged in em_door.c):
+ * DOOR TRANSIT — the FULL captured sequence (FINDINGS.md "AREA
+ * TRANSITION LIFECYCLE", s22 room-move timeline), natively:
+ *
+ *   1. use-arm (+0x0B = 4) -> kickoff (func_001BBE40): latch the
+ *      player's side, LOCK player input (movement + actions ignored,
+ *      camera frozen — em_door_input_locked()), and walk the player to
+ *      the STAGING point door + 5*n on his own side. The engine SNAPs
+ *      there in one frame; the port drives the same point through the
+ *      scripted MOVE-TO walk (em_door_transit_active -> em_game
+ *      player_move), per the walk-to semantics of func_001BBE40.
+ *   2. door clip plays (sub 3; captured 77..97 vsyncs) -> commit
+ *      (sub 4, func_001BC240 -> func_001BC150): 64-frame fade-out
+ *      (func_001AEDE0(4,0) -> em_frame_fade_start). Room moves do NOT
+ *      fade audio (only area changes do — s22).
+ *   3. while black: the player is RE-PLACED at the spawn point behind
+ *      the door (door - 5*n on the far side, exit yaw — the spawn-table
+ *      records flank their door at +-5 with exit pose); consumed by
+ *      em_game through em_door_warp_pending(). The door starts closing
+ *      (the engine re-arms when the request byte B8 clears, right after
+ *      the re-place) and a 64-frame fade-in starts.
+ *   4. fade-in complete -> input UNLOCKED; the door finishes its close
+ *      and re-arms (sub 5 -> 0).
+ *
+ * FIDELITY NOTES (remaining port deviations, each flagged in em_door.c):
  *  - The engine triggers doors on WALK-INTO (player locomotion state
  *    0x2D = pressing forward); the port additionally requires the CROSS
  *    button except inside the engine's own 2.0-unit immediate radius.
@@ -31,12 +54,13 @@
  *    skeleton (1.0 frame/tick). That clip is not yet located on disc
  *    (export_props.py --doors hunts for it on every export), so a door
  *    EMDL with no baked animation plays a PLACEHOLDER 90-degree hinge
- *    swing of the same duration class. A future re-export with the real
- *    clip is picked up automatically (the EMDL then carries >1 frame).
- *  - Engine sub-states 4/5 commit a room/area transition (per-area
- *    destination tables D_0024E140) and close once the transition byte
- *    clears; the port has no area loader yet, so OPEN holds for a
- *    timeout and re-closes (never on top of the player).
+ *    swing sized to the captured clip window (90 frames, inside the
+ *    77..97-vsync range). A future re-export with the real clip is
+ *    picked up automatically (the EMDL then carries >1 frame).
+ *  - Every transit is treated as the INTRA-AREA room move (request mode
+ *    B8 == 2): same-scene re-place, no audio fade, actors/overlay kept.
+ *    The inter-area path (B8 == 1: audio fade + overlay/asset/actor-pool
+ *    reload) needs the native area loader — not in the port yet.
  *
  * COLLISION: the engine gives placed objects collision through per-uid
  * AABB records in the area state blob (movable-hull set, mask bit 0) —
@@ -70,8 +94,9 @@ extern "C" {
 enum {
     EM_DOOR_CLOSED  = 0,
     EM_DOOR_OPENING = 3,
-    EM_DOOR_OPEN    = 4,   /* engine: transition commit; port: hold */
-    EM_DOOR_CLOSING = 5
+    EM_DOOR_OPEN    = 4,   /* one-frame transition COMMIT (func_001BC150) */
+    EM_DOOR_CLOSING = 5    /* transition pending: fade-out -> re-place ->
+                            * close + fade-in -> re-arm (engine sub 5) */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU
@@ -92,13 +117,27 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
 void em_door_update(const EmCollision *coll, const float player_pos[3],
                     float player_yaw, const EmFrameInput *in);
 
-/* Active door-transit MOVE-TO (func_001BBE40's player walk-through; the
+/* Active door-transit MOVE-TO (func_001BBE40's player walk-to; the
  * engine's gameplay-frame selector 3 "door transit" variant). While it
- * returns 1, the player glides to `out_target` with yaw snapped to
- * `out_yaw`, collision-free — this is how the engine carries the player
- * across the statically sealed doorway boundary planes. Consumed by
- * em_game.c player_move. */
+ * returns 1, the player WALKS to `out_target` (the staging point) with
+ * yaw snapped to `out_yaw` through the normal locomotion path,
+ * collision-free — this is how the engine carries the player across the
+ * statically sealed doorway boundary planes (the engine snaps; the port
+ * walks the same scripted move). Consumed by em_game.c player_move. */
 int em_door_transit_active(float out_target[3], float *out_yaw);
+
+/* INPUT LOCK — nonzero from the transit kickoff until the fade-in
+ * completes: player movement + actions are ignored (player_move and the
+ * weapon machine read neutral input) and the camera is frozen.
+ * em_game.c consumes it every frame; tests query it directly. */
+int em_door_input_locked(void);
+
+/* One-shot RE-PLACE request: returns 1 exactly once, at fade-out
+ * completion (screen fully black), with the spawn point behind the door
+ * (door -+ 5*normal, far side) and the exit yaw — the documented
+ * spawn-table re-place. em_game.c consumes it (sets the player position
+ * + yaw and re-seats the camera while black). */
+int em_door_warp_pending(float out_pos[3], float *out_yaw);
 
 /* Draw accessors for the render chain. */
 int  em_door_count(void);
