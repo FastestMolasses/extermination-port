@@ -971,11 +971,13 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                                          : DOOR_LOCK_RATTLE_AT)) {
                 d->lk_fired = 1;
                 if (!d->slider) {
-                    em_sfx_play(EM_SFX_DOOR_RATTLE);
+                    /* op 0x17 sub 0: play_sound(owner, 300.0, id) —
+                     * positional at the DOOR (em_sfx.h decode) */
+                    em_sfx_play_at(EM_SFX_DOOR_RATTLE, d->pos, 300.0f);
                     s.rattles++;
                 }
                 if (s.vo_real)
-                    em_sfx_play(s.vo_id);
+                    em_sfx_play(s.vo_id);   /* radio voice: center */
             }
             /* op 0x0B sub 1: wait door clip end (200 f — past the VO),
              * then sub 1 queues the FINISH script D_0024DBC0 (op07
@@ -1017,9 +1019,11 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                         unsigned id = s.sfx_pair[d->front ? 0 : 1];
                         printf("door sfx: slider open id 0x%03X (%s "
                                "side)\n", id, d->front ? "front" : "back");
-                        em_sfx_play(id);
+                        em_sfx_play_at(id, d->pos, 300.0f);  /* op17
+                                         * sub0: at the door, r=300 */
                     } else {
-                        em_sfx_play(EM_SFX_DOOR_OPEN);  /* PLACEHOLDER */
+                        em_sfx_play_at(EM_SFX_DOOR_OPEN, d->pos,
+                                       300.0f);     /* PLACEHOLDER */
                     }
                     break;
                 case 1:            /* op09 func_001BB400: panels part
@@ -1098,9 +1102,11 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                     printf("door sfx: open id 0x%03X (%s side, "
                            "D_0024DB80 pair)\n", id,
                            d->front ? "front" : "back");
-                    em_sfx_play(id);
+                    em_sfx_play_at(id, d->pos, 300.0f);  /* at the
+                                     * door — op-0x17 family, r=300 */
                 } else {
-                    em_sfx_play(EM_SFX_DOOR_OPEN);  /* PLACEHOLDER */
+                    em_sfx_play_at(EM_SFX_DOOR_OPEN, d->pos,
+                                   300.0f);         /* PLACEHOLDER */
                 }
             }
             /* Clip pump (1.0/frame) + the script's op 0x02 wait: the
@@ -1196,7 +1202,8 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                      * the legacy PLACEHOLDER fires only in the
                      * no-doorsfx configuration, as before. */
                     if (!s.sfx_real)
-                        em_sfx_play(EM_SFX_DOOR_CLOSE);  /* PLACEHOLDER */
+                        em_sfx_play_at(EM_SFX_DOOR_CLOSE, d->pos,
+                                       300.0f);     /* PLACEHOLDER */
                 }
                 break;
             }

@@ -414,6 +414,11 @@ static struct {
 
     int     impact_sfx;  /* ticks until the wall-impact sound 0x189
                           * (0 = none pending; armed by a WALL ray hit)   */
+    float   impact_pos[3];
+                         /* the armed shot's wall hit point — 0x189 plays
+                          * POSITIONAL there (engine: the impact family is
+                          * actor-attached at the hit, play_sound radius
+                          * 300; em_sfx.h decode)                         */
     int     casing[WPN_CASING_SLOTS];
                          /* per-shot countdowns to the shell-casing
                           * sound 0x16A (0 = slot free); the casing is
@@ -891,8 +896,10 @@ static void weapon_resolve_fire(const EmCollision *coll,
          * +2 frames, the s29-observed chain (WPN_IMPACT_SFX_TICKS).
          * SURFACE VARIANTS: unpinned — 0x189 for every wall (the
          * em_sfx.h flag on the 0x188/0x18A/0x18B family). */
-        if (world_hit)
+        if (world_hit) {
             w.impact_sfx = WPN_IMPACT_SFX_TICKS;
+            memcpy(w.impact_pos, h.point, sizeof w.impact_pos);
+        }
     }
 
     w.last_hit = hit;
@@ -1245,10 +1252,13 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
      * so an impact armed by this frame's resolve waits a full tick and
      * 0x189 lands exactly fire +2 frames — the s29 chain): */
     if (w.impact_sfx > 0 && --w.impact_sfx == 0)
-        em_sfx_play(EM_SFX_WPN_IMPACT);     /* 0x189 wall impact      */
+        em_sfx_play_at(EM_SFX_WPN_IMPACT, w.impact_pos,
+                       300.0f);             /* 0x189 AT THE WALL HIT  */
     for (int k = 0; k < WPN_CASING_SLOTS; k++) {
         if (w.casing[k] > 0 && --w.casing[k] == 0)
-            em_sfx_play(EM_SFX_WPN_CASING); /* 0x16A casing, shot+42  */
+            em_sfx_play_at(EM_SFX_WPN_CASING, player_pos,
+                           300.0f);         /* 0x16A casing at the
+                                             * player, shot+42        */
     }
 
     /* SHOULDER-LIGHT auto-off burst (the SEPARATE s28b L3 stealth-light

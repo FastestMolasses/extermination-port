@@ -22,6 +22,85 @@
  *     device rate in the mixer. When the decomp pins the tone records, the
  *     registry grows a pitch column.
  *
+ * POSITIONAL AUDIO (2026-06-11 decode of func_001FBD50/func_001FBF50 —
+ * the engine's play_sound and its 3-D volume/pan solver):
+ *
+ *   play_sound(obj, id, flat2d, float radius) computes a STEREO GAIN
+ *   PAIR once at trigger time (no per-frame re-pan) and submits
+ *   func_001FB9F0(id, 0x1000, gainA, gainB) -> sequencer channel
+ *   +0x48/+0x4C, multiplied per voice with the bank pan LUT D_00242630
+ *   (pan 0 -> pair (0x80,0x00): the +0x48 chain carries the LEFT byte,
+ *   pinning gainA = LEFT). Decoded math, normalized to 1.0 = 0x1000:
+ *
+ *     DISTANCE (listener = the PLAYER position, D_00810360):
+ *       d = |src - player|            (full 3-D Euclidean; the flat2d
+ *                                      flag zeroes Y — no translated
+ *                                      call site passes it)
+ *       d >= radius -> INAUDIBLE: the engine does not submit at all
+ *                      (play_sound returns -1)
+ *       vol = sin(pi/2 * (radius - d)/radius)     quarter-sine ease:
+ *             full at d=0, ~linear fade near the rim, 0 at d=radius.
+ *       radius is a per-call-site constant: 300.0 at 281 of ~320
+ *       constant sites incl. every id translated below (others:
+ *       450/500/800/1000 — none translated yet). The earlier
+ *       "vol 150/300" reading was the radius misread: the draw-sound
+ *       site func_0016F530 also passes 300.0.
+ *
+ *     PAN (listener = the CAMERA: eye D_008105D0 + yaw D_0081027C =
+ *     cam+0x9C; XZ plane only):
+ *       delta = wrap_pi(atan2(src.x - eye.x, src.z - eye.z) - cam_yaw)
+ *       c     = cos(delta)            (engine: dot of the yaw-rotated
+ *                                      (0,0,1) with the normalized XZ
+ *                                      eye->src vector — identical)
+ *       k     = min(d / 18, 1)        d = the PLAYER distance above —
+ *                                      pan ramps in over the first 18 u
+ *                                      (player-attached sounds: k = 0)
+ *       t     = c^5 * k + sign * (1 - k),   sign = +-1 from c^5 * k
+ *       near channel (delta >= 0 -> LEFT) = vol
+ *       far  channel                      = vol * t
+ *     t = +1 ahead (center), 0 at 90 deg far side (full pan), -1
+ *     behind: the far channel is PHASE-INVERTED at full amplitude (SPU2
+ *     negative volume) — the engine's pseudo-surround rear cue. The
+ *     port mixer carries signed float gains, so the inversion survives
+ *     verbatim. The engine quantizes to ints 0..4096 (float_to_int);
+ *     the port keeps floats (sub-1/4096 difference only). The engine
+ *     MONO option (D_0028215B == 1 -> both channels = vol) has no port
+ *     setting yet and is not modeled.
+ *
+ *   em_sfx_play(id) (no position) keeps BOTH channels at 1.0 — exactly
+ *   the engine's non-positional submit func_001FB9F0(id, 0x1000,
+ *   0x1000, 0x1000) (the water/footing one-shots use this form) AND
+ *   the limit of play_sound at the player (d=0 -> vol=1, k=0 -> t=+1):
+ *   player-attached sounds (footsteps, weapon handling, shots, casing,
+ *   hurt/death voice) are center/full BY THE ENGINE MATH, so their
+ *   call sites stay on em_sfx_play.
+ *
+ * VOICE STEALING (2026-06-11 decode of the engine allocator
+ * func_00117428 over the 48-voice table D_0027CCC0):
+ *
+ *   The engine DOES steal. Selection order per note-on:
+ *     1. retrigger-reuse: an active voice with the same tone byte0 and
+ *        bank handle restarts in place — but byte0 is 0 on EVERY
+ *        shipped SFX tone (data-verified, 556/556 in the global bank),
+ *        so this never fires for gameplay SFX;
+ *     2. any free voice (state 0, not locked);
+ *     3. steal: the first busy-but-released voice, else the OLDEST
+ *        voice (minimum note-on serial, voice+0x0A sampled from the
+ *        D_0027F740+0x34 counter) whose priority (+0x1E = tone byte1)
+ *        <= the new tone's — byte1 is uniformly 10 across shipped SFX
+ *        tones, so among gameplay sounds the gate always passes;
+ *     4. else the note-on is silently dropped.
+ *
+ *   PORT POLICY (faithful-feasible): the engine's 48-voice budget over
+ *   64 physical slots; when 48 voices are live the OLDEST live voice
+ *   is killed (released-first cannot apply — port one-shots have no
+ *   released state; priorities are engine-equal per the data above).
+ *   The kill is honored by the audio thread at its next callback — the
+ *   engine's own steal is likewise deferred to the next driver tick
+ *   through the func_001157F0 command queue — and the 16 spare slots
+ *   absorb that latency, so a play is dropped only when 64 slots are
+ *   busy (unreachable in practice, still counted in em_sfx_drops).
+ *
  * DEVICE OWNERSHIP: em_bgm owns the single em_audio device (em_audio.h pull
  * model). em_sfx NEVER opens a device — em_bgm's render callback calls
  * em_sfx_mix() to sum the one-shot voices into the same buffer, and
@@ -43,9 +122,14 @@
  *                                 <---  store FREE (release)
  *
  * The game thread touches only FREE slots (the CAS), the audio thread only
- * non-FREE ones; no locks, no allocation, no I/O on the audio thread. All
- * slots busy = the play is dropped (counted) — the engine's 48-channel
- * sequencer steals voices instead; stealing lands with the pitch work.
+ * non-FREE ones; no locks, no allocation, no I/O on the audio thread.
+ * STEALING extends the protocol with one atomic `kill` flag per slot: the
+ * game thread raises it on the chosen victim (never on a slot it already
+ * raised it on); the audio thread, on seeing kill up on a READY/PLAYING
+ * slot, lowers it and stores FREE instead of mixing. kill is lowered by
+ * the claimer inside STAGING too (a victim can finish naturally and be
+ * re-claimed before the audio thread ever saw the flag), and the READY
+ * release-store publishes that clear with the other fields.
  *
  * Call ordering (game thread): em_sfx_init() at boot (after the manifest,
  * before plays), em_sfx_play() during gameplay, em_sfx_shutdown() AFTER
@@ -62,7 +146,9 @@ extern "C" {
 /* --- Engine sound ids (FINDINGS.md "WEAPON SYSTEM" section 8 sound list;
  *     "ENEMY AI" damage-pipeline consumption; reload + footsteps live-pinned
  *     2026-06-10 s29, "GAMEPLAY SOUND IDS PINNED LIVE") ------------------- */
-#define EM_SFX_WPN_DRAW     0x162u  /* major-0 ENTER, vol 150 (func_0016F530) */
+#define EM_SFX_WPN_DRAW     0x162u  /* major-0 ENTER (func_0016F530;
+                                     * play_sound radius 300 like the rest
+                                     * — the old "vol 150" was a misread) */
 #define EM_SFX_WPN_HANDLE   0x163u  /* SHARED weapon-handling foley (s29):
                                      * state 0x65 HOLSTER entry AND the
                                      * RELOAD START — not holster-specific    */
@@ -163,10 +249,37 @@ extern "C" {
  * at boot. */
 int em_sfx_init(void);
 
-/* Fire one one-shot voice for the engine sound id. Unknown/unloaded id or
- * disabled module = silent no-op. Brings the shared audio device up
- * through em_bgm if no music has started yet. Game thread only. */
+/* Fire one one-shot voice for the engine sound id at CENTER/FULL — the
+ * engine's non-positional submit form AND the exact play_sound result for
+ * a player-attached source (see "POSITIONAL AUDIO" above). Unknown/
+ * unloaded id or disabled module = silent no-op. Brings the shared audio
+ * device up through em_bgm if no music has started yet. Game thread
+ * only. */
 void em_sfx_play(unsigned id);
+
+/* Per-frame listener mirror: player position (the engine's DISTANCE
+ * listener D_00810360), camera eye + yaw (the PAN listener D_008105D0 /
+ * D_0081027C). Call once per gameplay frame after the camera commit.
+ * Until first called, em_sfx_play_at degrades to center/full with no
+ * distance cull (exactly em_sfx_play) — keeps headless/early-boot
+ * behavior identical. Game thread only. */
+void em_sfx_listener(const float player_pos[3], const float cam_eye[3],
+                     float cam_yaw);
+
+/* POSITIONAL one-shot — the native play_sound(obj, id, 0, radius): the
+ * decoded func_001FBF50 stereo gain pair is computed ONCE here (engine
+ * semantics: no per-frame re-pan) and baked into the voice. A source at
+ * d >= radius is culled exactly like the engine (nothing submitted;
+ * counted in em_sfx_culls). Game thread only. */
+void em_sfx_play_at(unsigned id, const float pos[3], float radius);
+
+/* The pure gain solver behind em_sfx_play_at, exposed for tests/tools:
+ * writes the LEFT/RIGHT gains (1.0 = engine 0x1000; the far channel may
+ * be NEGATIVE = the engine's behind-the-camera phase inversion) and
+ * returns 1, or returns 0 when the source is out of range (engine
+ * play_sound -1). Uses the em_sfx_listener state. */
+int em_sfx_compute_gains(const float pos[3], float radius,
+                         float *gain_l, float *gain_r);
 
 /* AUDIO-THREAD mixer half: SUM all live one-shot voices into the
  * interleaved stereo buffer (which already holds the BGM frames),
@@ -182,8 +295,10 @@ void em_sfx_shutdown(void);
 
 /* Introspection (EM_SFX_TEST / debugging; game thread). */
 int  em_sfx_sound_count(void);    /* registry entries loaded            */
-int  em_sfx_plays(void);          /* accepted em_sfx_play calls         */
-int  em_sfx_drops(void);          /* plays dropped (no free voice slot) */
+int  em_sfx_plays(void);          /* accepted em_sfx_play(_at) calls    */
+int  em_sfx_drops(void);          /* plays dropped (64 physical busy)   */
+int  em_sfx_steals(void);         /* oldest-voice kills at the 48 budget*/
+int  em_sfx_culls(void);          /* play_at sources culled at >=radius */
 long em_sfx_frames_mixed(void);   /* summed voice frames mixed so far   */
 int  em_sfx_max_concurrent(void); /* peak simultaneous live voices      */
 

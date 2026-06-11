@@ -67,6 +67,8 @@ int      em_game_anim_frame(void)  { return -1; }
 
 static int sfx_count[0x800];
 void em_sfx_play(unsigned id) { if (id < 0x800) sfx_count[id]++; }
+void em_sfx_play_at(unsigned id, const float pos[3], float radius)
+{ (void)pos; (void)radius; if (id < 0x800) sfx_count[id]++; }
 
 int em_enemy_acquire(const float from[3], float yaw, float max_dist,
                      float cone_cos, float aim_out[3])

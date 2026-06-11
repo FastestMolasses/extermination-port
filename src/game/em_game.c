@@ -1872,6 +1872,21 @@ static void player_move(void)
                 if (g.aim_pitch < 0.0f) g.aim_pitch = 0.0f;
             }
         }
+
+        /* LOCK STEER (func_0017AF70 — em_weapon.h "TARGET LOCK"):
+         * with the stick idle and a target in lock slot 0, em_weapon
+         * creeps the blends toward the lock at <= 0.02/frame. The
+         * stick-idle gate is the engine's manual-input lock drop (the
+         * 0x1D stance clears D_008106E0 whenever func_0017ABA0 flags
+         * manual steering, +0x302) — the player's hand always wins. */
+        if (!bandx && !bandy) {
+            float lp, ly;
+            if (em_weapon_lock_steer(g.pos, g.yaw, g.aim_pitch,
+                                     g.aim_yawb, &lp, &ly)) {
+                g.aim_pitch = lp;
+                g.aim_yawb  = ly;
+            }
+        }
         return;
     }
 
@@ -2117,8 +2132,11 @@ static void footstep_play(int tier)
     if (trace)
         printf("step: tier %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
                tier, attr, surf, gear);
-    em_sfx_play(surf);
-    em_sfx_play(gear);
+    /* engine: positional play_sound(actor, id, 0) radius 300 for both
+     * layers (FINDINGS footstep decode) — source = the player, so the
+     * gains come out center/full by the play_sound math itself */
+    em_sfx_play_at(surf, g.pos, 300.0f);
+    em_sfx_play_at(gear, g.pos, 300.0f);
 }
 
 /* Cyclic edge test: did the looping clip playhead cross `trig` going
@@ -2228,7 +2246,8 @@ static void player_apply_infection(void)
             /* the display max swap to 60 — C14: the same +0x234 flag
              * drives the HUD's "/60" max (em_hud.h) */
             g.status.health_max = PD_INFECTED_MAX;
-            em_sfx_play(PD_SFX_INFECTED);  /* vol 300 in the engine */
+            em_sfx_play_at(PD_SFX_INFECTED, g.pos, 300.0f); /* engine
+                                              * play_sound radius 300 */
         }
     }
 }
@@ -2265,7 +2284,8 @@ static void player_enter_flinch(void)
     else
         clip = fam ? (side ? PD_CLIP_FLINCH_B1 : PD_CLIP_FLINCH_B0)
                    : (side ? PD_CLIP_FLINCH_A1 : PD_CLIP_FLINCH_A0);
-    em_sfx_play(g.pd_inf_hit ? PD_SFX_HURT_INF : PD_SFX_HURT);
+    em_sfx_play_at(g.pd_inf_hit ? PD_SFX_HURT_INF : PD_SFX_HURT,
+                   g.pos, 300.0f);            /* player-attached, r=300 */
     if (!em_game_anim_request(clip, 1.0f))
         clip = 0;                  /* clip-less asset: timed fallback */
     g.pd_state = 2;
@@ -2286,8 +2306,8 @@ static void player_enter_death(void)
     unsigned clip  = g.pd_infected ? PD_CLIP_DEATH_INF
                    : armed         ? PD_CLIP_DEATH_ARM
                                    : PD_CLIP_DEATH;
-    em_sfx_play(PD_SFX_DEATH_VOICE);             /* 0x146, vol 300 */
-    em_sfx_play(PD_SFX_DEATH_BODY);              /* 0x151, vol 300 */
+    em_sfx_play_at(PD_SFX_DEATH_VOICE, g.pos, 300.0f); /* 0x146, r=300 */
+    em_sfx_play_at(PD_SFX_DEATH_BODY,  g.pos, 300.0f); /* 0x151, r=300 */
     if (!em_game_anim_hold(clip, 1.0f))
         clip = 0;                  /* clip-less asset: straight to hold */
     g.pd_state    = 2;
@@ -2362,12 +2382,13 @@ static void player_hurt_tick(void)
         int rem   = (cur >= 0 && total > 0) ? total - 1 - cur : -1;
         if (!g.pd_cue_fall && rem >= 0 && rem <= PD_DEATH_CUE_FALL) {
             g.pd_cue_fall = 1;
-            em_sfx_play(PD_SFX_DEATH_FALL);          /* 0x156 */
+            em_sfx_play_at(PD_SFX_DEATH_FALL, g.pos, 300.0f); /* 0x156 */
         }
         if (!g.pd_cue_thud && rem >= 0 && rem <= PD_DEATH_CUE_THUD) {
             g.pd_cue_thud = 1;
-            em_sfx_play(g.pd_infected ? PD_SFX_DEATH_THUD_I
-                                      : PD_SFX_DEATH_THUD);
+            em_sfx_play_at(g.pd_infected ? PD_SFX_DEATH_THUD_I
+                                         : PD_SFX_DEATH_THUD,
+                           g.pos, 300.0f);
             /* + the heavy ground rumble func_001B61C0(1,0xEE,0x3C,1) */
         }
         if (rem <= 0) {
@@ -4977,9 +4998,16 @@ static void enemy_test_script(void)
  * one-shots 10 frames (1/6 s) apart — weapon draw 0x162, fire 0x164,
  * enemy death 0x7D8, all mapped by the user's assets/sfx/sfx.txt — so
  * their voices OVERLAP in the shared render callback (over the BGM when
- * EM_BGM / the manifest started one), then prints the audio thread's
- * mixed-voice counters and quits. Needs the registry: without sfx.txt
- * the module is disabled by design and the test reports the FAIL. */
+ * EM_BGM / the manifest started one); then (frame 40) asserts FIVE
+ * synthetic pan/attenuation vectors against the decoded func_001FBF50
+ * math (center/full at the player, range cull, hard-left at 90 deg,
+ * the behind-the-camera phase inversion, the 18-u proximity ramp —
+ * em_sfx.h "POSITIONAL AUDIO"), exercises the play-path range cull
+ * (frame 50), bursts 60 plays to prove the 48-voice-budget OLDEST
+ * steal with zero drops (frame 60), and prints the audio thread's
+ * counters + PASS/FAIL at frame 120. Needs the registry: without
+ * sfx.txt the module is disabled by design and the test reports the
+ * FAIL. */
 /* EM_PAUSE_TEST=1 — STATUS-SCREEN PAUSE self-test (the 2026-06-11
  * fidelity note: the open status menu PAUSES the game — gameplay_frame
  * gates the whole world update on em_hud_is_open()) PLUS the decoded
@@ -5103,20 +5131,86 @@ static void pause_test_script(void)
 
 static void sfx_test_script(void)
 {
+    /* Decoded-math assertion state (frame 40/50/60 below). The synthetic
+     * listener is overwritten by the SAME frame's em_sfx_listener call
+     * at the gameplay-frame tail, so gameplay audio is untouched. */
+    static int ok_gain = -1;
+    static int live_at_burst;
     int n = g.frame_no;
     if (n == 10 || n == 20 || n == 30) {
         static const unsigned ids[3] = { EM_SFX_WPN_DRAW, EM_SFX_WPN_FIRE,
                                          EM_SFX_ENEMY_DEATH };
         em_sfx_play(ids[n / 10 - 1]);
+    } else if (n == 40) {
+        /* PAN/ATTENUATION assertions against the func_001FBF50 decode
+         * (em_sfx.h "POSITIONAL AUDIO"): synthetic listener at the
+         * origin (player == camera eye, yaw 0 = facing +Z), expected
+         * gains precomputed by hand from the formulas. */
+        const float o[3] = { 0, 0, 0 };
+        em_sfx_listener(o, o, 0.0f);
+        float l, r;
+        int   okc = 1;
+        /* 1. at the player: d=0 -> vol=1, k=0 -> t=+1 -> center/full */
+        okc &= em_sfx_compute_gains(o, 300.0f, &l, &r) == 1 &&
+               fabsf(l - 1.0f) < 1e-4f && fabsf(r - 1.0f) < 1e-4f;
+        /* 2. beyond the radius: engine play_sound -1 (not submitted) */
+        { const float p[3] = { 0, 0, 400 };
+          okc &= em_sfx_compute_gains(p, 300.0f, &l, &r) == 0; }
+        /* 3. 90 deg LEFT (+X = bearing +pi/2 = the engine's near-LEFT
+         * side test) at d=150, r=300: vol = sin(pi/4) = 0.70711,
+         * c = cos(pi/2) = 0, k = 1 -> t = 0: hard left, far silent */
+        { const float p[3] = { 150, 0, 0 };
+          okc &= em_sfx_compute_gains(p, 300.0f, &l, &r) == 1 &&
+                 fabsf(l - 0.70711f) < 1e-3f && fabsf(r) < 1e-3f; }
+        /* 4. BEHIND at d=100: vol = sin(pi/2 * 200/300) = 0.86603,
+         * c = -1 -> t = -1: far channel PHASE-INVERTED at full */
+        { const float p[3] = { 0, 0, -100 };
+          okc &= em_sfx_compute_gains(p, 300.0f, &l, &r) == 1 &&
+                 fabsf(l - 0.86603f) < 1e-3f &&
+                 fabsf(r + 0.86603f) < 1e-3f; }
+        /* 5. proximity pan ramp: 45 deg left at d=9 (= 18/2): k=0.5,
+         * c = cos(pi/4) -> t = c^5*k + (1-k) = 0.17678*0.5 + 0.5 =
+         * 0.58839; vol = sin(pi/2 * 291/300) = 0.99889. (Not the 90 deg
+         * axis: there cosf lands on +-4e-8 and the engine's own sign
+         * branch — and ours — flips on the noise bit.) */
+        { const float p[3] = { 6.3640f, 0, 6.3640f };
+          okc &= em_sfx_compute_gains(p, 300.0f, &l, &r) == 1 &&
+                 fabsf(l - 0.99889f) < 1e-3f &&
+                 fabsf(r - 0.58774f) < 1e-3f; }
+        ok_gain = okc;
+    } else if (n == 50) {
+        /* RANGE CULL through the play path: a mapped id beyond its
+         * radius must not submit (engine -1) — counted, not played. */
+        const float o[3] = { 0, 0, 0 }, far_p[3] = { 0, 0, 400 };
+        em_sfx_listener(o, o, 0.0f);
+        em_sfx_play_at(EM_SFX_WPN_FIRE, far_p, 300.0f);
+    } else if (n == 60) {
+        /* VOICE STEALING at the engine's 48 budget (em_sfx.h "VOICE
+         * STEALING"): burst 60 center plays in one frame — every play
+         * past 48 live voices kills the then-oldest; the 16 spare
+         * physical slots absorb the one-callback kill latency, so
+         * NOTHING drops. Expected steals = 12 + (voices still ringing
+         * from frames 10..30: WAV-length dependent, 0..3). */
+        live_at_burst = em_sfx_plays();   /* accepted so far (3) */
+        for (int i = 0; i < 60; i++)
+            em_sfx_play(EM_SFX_WPN_FIRE);
     } else if (n == 120) {
-        long mixed = em_sfx_frames_mixed();
-        int  peak  = em_sfx_max_concurrent();
-        int  ok    = em_sfx_sound_count() > 0 && em_sfx_plays() == 3 &&
-                     em_sfx_drops() == 0 && mixed > 0 && peak >= 2;
+        long mixed  = em_sfx_frames_mixed();
+        int  peak   = em_sfx_max_concurrent();
+        int  steals = em_sfx_steals();
+        /* steals = max(0, live_at_burst_voices + 60 - 48); the three
+         * early voices may have ended -> accept the 12..15 band. */
+        int  ok = em_sfx_sound_count() > 0 && em_sfx_plays() == 63 &&
+                  em_sfx_drops() == 0 && em_sfx_culls() == 1 &&
+                  steals >= 12 && steals <= 15 &&
+                  ok_gain == 1 && mixed > 0 && peak >= 2;
         printf("sfx test: %d sound(s) loaded, %d play(s) (%d dropped), "
-               "%ld voice frames mixed, peak %d concurrent voice(s) — "
-               "%s\n", em_sfx_sound_count(), em_sfx_plays(),
-               em_sfx_drops(), mixed, peak, ok ? "PASS" : "FAIL");
+               "pan/attenuation vectors %s, range cull %d, steals %d "
+               "(48-voice budget, 60-play burst over %d ringing), %ld "
+               "voice frames mixed, peak %d concurrent voice(s) — %s\n",
+               em_sfx_sound_count(), em_sfx_plays(), em_sfx_drops(),
+               ok_gain == 1 ? "ok" : "FAILED", em_sfx_culls(), steals,
+               live_at_burst, mixed, peak, ok ? "PASS" : "FAIL");
         fflush(stdout);
         em_frame_request_quit();
     }
@@ -5935,6 +6029,10 @@ static void gameplay_frame(void)
     }
     camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
                               * func_0018B9C0 camera state machine    */
+    em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);  /* positional-audio
+                              * listeners: player = distance
+                              * (D_00810360), camera eye/yaw = pan
+                              * (D_008105D0 / cam+0x9C) — em_sfx.h    */
     frame_close_out();       /* func_001CB5A0/001AAD00/001D1EA0(1)    */
 }
 

@@ -17,9 +17,17 @@
  * thread's final position writes before reusing the slot. Sample memory
  * itself is immutable from init until shutdown, and shutdown runs only
  * after em_bgm_shutdown's device-teardown guarantee.
+ *
+ * VOICE STEALING rides the same protocol through one extra atomic per
+ * slot (`kill`): raised by the game thread on the oldest live voice when
+ * the engine's 48-voice budget is hit, honored by the audio thread at
+ * the next callback (FREE instead of mix), lowered by whoever retires or
+ * re-claims the slot. See em_sfx.h "VOICE STEALING" for the engine
+ * policy decode (func_00117428) this mirrors.
  */
 #include "game/em_sfx.h"
 
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,16 +38,21 @@
 #define SFX_REGISTRY   "assets/sfx/sfx.txt"
 #define SFX_SOUND_MAX  64    /* registry entries (39 banks dedup to ~241
                               * sounds total; one area uses far fewer)    */
-#define SFX_VOICE_MAX  8     /* concurrent one-shots; the PS2 sequencer
-                              * runs 48 channels but gameplay one-shots
-                              * are a handful — raise when voice stealing
-                              * lands with the pitch work                 */
+#define SFX_VOICE_BUDGET 48  /* the engine's voice table D_0027CCC0 size:
+                              * at 48 live voices the OLDEST is stolen
+                              * (func_00117428 pass 3 — em_sfx.h "VOICE
+                              * STEALING")                                */
+#define SFX_VOICE_MAX  64    /* physical slots: budget + 16 spares that
+                              * absorb the one-callback kill latency      */
 #define SFX_DEV_RATE   48000 /* device rate when SFX brings it up first
                               * (the BGM/stream native rate)             */
 #define SFX_GAIN       0.6f  /* per-voice mix gain — PORT headroom choice
-                              * (the engine's vol-150 scale is not mapped
-                              * to a linear gain yet); keeps BGM + a few
-                              * simultaneous shots inside [-1,1]         */
+                              * on top of the engine-exact 0..1 stereo
+                              * pair; keeps BGM + a few simultaneous
+                              * shots inside [-1,1]                      */
+#define SFX_PAN_NEAR   18.0f /* func_001FBF50 proximity pan ramp: |t|
+                              * forced toward 1 (center) inside 18 u     */
+#define SFX_PI         3.14159265358979323846f
 
 enum { V_FREE = 0, V_STAGING, V_READY, V_PLAYING };
 
@@ -50,7 +63,13 @@ typedef struct {
 
 typedef struct {
     atomic_int      state;
+    atomic_int      kill; /* steal request: game raises, audio (or the
+                           * next claimer) lowers — see em_sfx.h       */
     const SfxSound *snd;  /* written in STAGING, read after READY     */
+    float           gl;   /* stereo gain pair (1.0 = engine 0x1000;   */
+    float           gr;   /*  signed: behind = inverted far channel)  */
+    unsigned        serial; /* note-on order (engine voice+0x0A) —
+                             * GAME-thread only: steal victim pick    */
     double          pos;  /* source frame cursor (fractional resample);
                            * audio thread advances it while PLAYING   */
 } SfxVoice;
@@ -60,7 +79,16 @@ static struct {
     SfxSound sounds[SFX_SOUND_MAX];
     int      n_sounds;
     int      plays;          /* accepted plays                        */
-    int      drops;          /* plays dropped: no free voice slot     */
+    int      drops;          /* plays dropped: 64 physical slots busy */
+    int      steals;         /* oldest-voice kills at the 48 budget   */
+    int      culls;          /* play_at beyond radius (engine -1)     */
+    unsigned serial;         /* monotonically increasing play counter
+                              * (the engine's D_0027F740+0x34)        */
+    /* listener mirror (em_sfx_listener; game thread) */
+    int      lis_valid;
+    float    lis_player[3];  /* D_00810360 — distance listener        */
+    float    lis_eye[3];     /* D_008105D0 — pan listener             */
+    float    lis_yaw;        /* D_0081027C (cam+0x9C)                 */
 
     /* shared (lock-free slots + stats) */
     SfxVoice voices[SFX_VOICE_MAX];
@@ -81,19 +109,34 @@ void em_sfx_mix(float *out, int frames, int device_rate)
         SfxVoice *v  = &s.voices[vi];
         int       st = atomic_load_explicit(&v->state,
                                             memory_order_acquire);
+        if (st != V_READY && st != V_PLAYING) continue;
+        /* STEAL: a raised kill flag retires the voice instead of mixing
+         * it (the engine's deferred-by-one-tick voice command). Lower
+         * the flag before the FREE release-store so the claimer's CAS
+         * (acquire) sees it cleared. */
+        if (atomic_load_explicit(&v->kill, memory_order_acquire)) {
+            atomic_store_explicit(&v->kill, 0, memory_order_relaxed);
+            atomic_store_explicit(&v->state, V_FREE,
+                                  memory_order_release);
+            continue;
+        }
         if (st == V_READY) {
             /* Adopt: READY -> PLAYING is audio-thread-only traffic (the
              * game thread treats both as "busy"), relaxed is enough. */
             atomic_store_explicit(&v->state, V_PLAYING,
                                   memory_order_relaxed);
-        } else if (st != V_PLAYING) {
-            continue;
         }
 
         const SfxSound *snd  = v->snd;
         const double    step = (double)snd->w.rate / (double)device_rate;
         double          pos  = v->pos;
         const long      last = snd->w.nframes - 1;
+        /* The engine-decoded stereo gain pair, baked at trigger time
+         * (func_001FBF50 -> channel +0x48/+0x4C), under the PORT
+         * headroom constant. gr may be negative: the behind-the-camera
+         * phase inversion. */
+        const float     wl   = v->gl * (SFX_GAIN / 32768.0f);
+        const float     wr   = v->gr * (SFX_GAIN / 32768.0f);
         long            mixed = 0;
         live++;
 
@@ -114,8 +157,8 @@ void em_sfx_mix(float *out, int frames, int device_rate)
                 r0 = l0;
                 r1 = l1;
             }
-            float l = (l0 + (l1 - l0) * fr) * (SFX_GAIN / 32768.0f);
-            float r = (r0 + (r1 - r0) * fr) * (SFX_GAIN / 32768.0f);
+            float l = (l0 + (l1 - l0) * fr) * wl;
+            float r = (r0 + (r1 - r0) * fr) * wr;
             out[i * 2 + 0] += l;
             out[i * 2 + 1] += r;
             pos += step;
@@ -174,45 +217,171 @@ int em_sfx_init(void)
     return s.n_sounds;
 }
 
-void em_sfx_play(unsigned id)
+void em_sfx_listener(const float player_pos[3], const float cam_eye[3],
+                     float cam_yaw)
 {
-    if (!s.n_sounds) return;            /* module disabled */
+    if (!player_pos || !cam_eye) return;
+    memcpy(s.lis_player, player_pos, sizeof s.lis_player);
+    memcpy(s.lis_eye,    cam_eye,    sizeof s.lis_eye);
+    s.lis_yaw   = cam_yaw;
+    s.lis_valid = 1;
+}
 
-    const SfxSound *snd = NULL;
-    for (int i = 0; i < s.n_sounds; i++) {
-        if (s.sounds[i].id == id) {
-            snd = &s.sounds[i];
-            break;
-        }
+/* wrap to (-pi, pi] — func_001B1470 */
+static float sfx_wrap_pi(float a)
+{
+    while (a >  SFX_PI) a -= 2.0f * SFX_PI;
+    while (a < -SFX_PI) a += 2.0f * SFX_PI;
+    return a;
+}
+
+/* The decoded func_001FBF50 (see em_sfx.h "POSITIONAL AUDIO"): stereo
+ * gain pair for a source at `pos` with attenuation `radius`, against
+ * the em_sfx_listener state. Returns 0 = out of range (engine -1). */
+int em_sfx_compute_gains(const float pos[3], float radius,
+                         float *gain_l, float *gain_r)
+{
+    *gain_l = *gain_r = 0.0f;
+    if (!s.lis_valid || radius <= 0.0f) {
+        /* no listener yet (early boot / headless): degrade to the
+         * non-positional center/full submit — no cull, no pan */
+        *gain_l = *gain_r = 1.0f;
+        return 1;
     }
-    if (!snd) return;                   /* unmapped id: silent no-op */
 
+    /* DISTANCE: player listener (D_00810360), full 3-D (flat2d = 0 at
+     * every translated call site). */
+    float dx = pos[0] - s.lis_player[0];
+    float dy = pos[1] - s.lis_player[1];
+    float dz = pos[2] - s.lis_player[2];
+    float d  = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (d >= radius) return 0;          /* engine: not submitted */
+    float vol = sinf((SFX_PI * 0.5f) * (radius - d) / radius);
+
+    /* PAN: camera listener (eye D_008105D0, yaw cam+0x9C), XZ plane.
+     * The engine's dot(RotY(yaw)*(0,0,1), normalize_xz(src-eye)) ==
+     * cos(bearing - yaw); the side test func_001B1380 is the sign of
+     * the same wrapped bearing difference. */
+    float ex    = pos[0] - s.lis_eye[0];
+    float ez    = pos[2] - s.lis_eye[2];
+    float delta = sfx_wrap_pi(atan2f(ex, ez) - s.lis_yaw);
+    float c     = cosf(delta);
+    float k     = d <= SFX_PAN_NEAR ? d / SFX_PAN_NEAR : 1.0f;
+    float t     = c * c;
+    t *= t;
+    t *= c * k;                          /* c^5 * k */
+    t += (t < 0.0f) ? -(1.0f - k) : (1.0f - k);
+    if (delta >= 0.0f) {                 /* source on the LEFT */
+        *gain_l = vol;
+        *gain_r = vol * t;
+    } else {
+        *gain_r = vol;
+        *gain_l = vol * t;
+    }
+    return 1;
+}
+
+/* Claim a slot and publish one voice with the given gain pair —
+ * including the engine steal policy (em_sfx.h "VOICE STEALING"): at
+ * SFX_VOICE_BUDGET live voices the OLDEST (minimum serial) is killed. */
+static void sfx_submit(const SfxSound *snd, float gl, float gr)
+{
     /* The device is em_bgm's; bring it up if music hasn't already. */
     if (em_bgm_device_ensure(SFX_DEV_RATE) != 0) return;
 
+    /* One pass: count live voices (busy, not kill-pending), remember
+     * the first FREE slot and the oldest live victim. Slot states only
+     * move FREE->busy on this thread, so the census cannot run ahead
+     * of itself; busy->FREE flips by the audio thread mid-scan only
+     * make the count conservative. */
+    int      free_idx = -1, victim = -1, live = 0;
+    unsigned victim_serial = 0;
     for (int vi = 0; vi < SFX_VOICE_MAX; vi++) {
-        SfxVoice *v        = &s.voices[vi];
-        int       expected = V_FREE;
-        if (!atomic_compare_exchange_strong_explicit(
-                &v->state, &expected, V_STAGING,
-                memory_order_acquire, memory_order_relaxed))
+        SfxVoice *v  = &s.voices[vi];
+        int       st = atomic_load_explicit(&v->state,
+                                            memory_order_acquire);
+        if (st == V_FREE) {
+            if (free_idx < 0) free_idx = vi;
             continue;
-        v->snd = snd;
-        v->pos = 0.0;
-        atomic_store_explicit(&v->state, V_READY, memory_order_release);
-        s.plays++;
+        }
+        if (atomic_load_explicit(&v->kill, memory_order_relaxed))
+            continue;                    /* dying: no longer live      */
+        live++;
+        /* serial is game-thread data: valid for every busy slot */
+        if (victim < 0 || (int)(v->serial - victim_serial) < 0) {
+            victim        = vi;
+            victim_serial = v->serial;
+        }
+    }
+    if (free_idx < 0) {
+        s.drops++;                       /* 64 physical busy — engine
+                                          * equivalent: allocator -1   */
         return;
     }
-    s.drops++;                          /* all slots busy — dropped */
+    if (live >= SFX_VOICE_BUDGET && victim >= 0) {
+        /* engine pass 3: steal the oldest (priorities engine-equal
+         * across shipped SFX tones — the gate always passes) */
+        atomic_store_explicit(&s.voices[victim].kill, 1,
+                              memory_order_release);
+        s.steals++;
+    }
+
+    SfxVoice *v        = &s.voices[free_idx];
+    int       expected = V_FREE;
+    if (!atomic_compare_exchange_strong_explicit(
+            &v->state, &expected, V_STAGING,
+            memory_order_acquire, memory_order_relaxed)) {
+        s.drops++;                       /* unreachable: single producer */
+        return;
+    }
+    atomic_store_explicit(&v->kill, 0, memory_order_relaxed);
+    v->snd    = snd;
+    v->gl     = gl;
+    v->gr     = gr;
+    v->serial = s.serial++;
+    v->pos    = 0.0;
+    atomic_store_explicit(&v->state, V_READY, memory_order_release);
+    s.plays++;
+}
+
+static const SfxSound *sfx_lookup(unsigned id)
+{
+    for (int i = 0; i < s.n_sounds; i++)
+        if (s.sounds[i].id == id) return &s.sounds[i];
+    return NULL;
+}
+
+void em_sfx_play(unsigned id)
+{
+    if (!s.n_sounds) return;            /* module disabled */
+    const SfxSound *snd = sfx_lookup(id);
+    if (!snd) return;                   /* unmapped id: silent no-op */
+    /* center/full — func_001FB9F0(id, 0x1000, 0x1000, 0x1000), also the
+     * exact play_sound result for a player-attached source */
+    sfx_submit(snd, 1.0f, 1.0f);
+}
+
+void em_sfx_play_at(unsigned id, const float pos[3], float radius)
+{
+    if (!s.n_sounds || !pos) return;
+    const SfxSound *snd = sfx_lookup(id);
+    if (!snd) return;
+    float gl, gr;
+    if (!em_sfx_compute_gains(pos, radius, &gl, &gr)) {
+        s.culls++;                      /* engine play_sound -1 */
+        return;
+    }
+    sfx_submit(snd, gl, gr);
 }
 
 void em_sfx_shutdown(void)
 {
     /* Caller contract: em_bgm_shutdown already destroyed the device, so
      * no callback can be reading the samples or the slots. */
-    if (s.plays || s.drops)
-        printf("sfx: %d play(s), %d dropped, %ld voice frames mixed, "
-               "peak %d concurrent\n", s.plays, s.drops,
+    if (s.plays || s.drops || s.culls)
+        printf("sfx: %d play(s), %d stolen, %d culled (range), %d "
+               "dropped, %ld voice frames mixed, peak %d concurrent\n",
+               s.plays, s.steals, s.culls, s.drops,
                atomic_load_explicit(&s.frames_mixed, memory_order_relaxed),
                atomic_load_explicit(&s.max_concurrent,
                                     memory_order_relaxed));
@@ -226,6 +395,8 @@ void em_sfx_shutdown(void)
 int  em_sfx_sound_count(void) { return s.n_sounds; }
 int  em_sfx_plays(void)       { return s.plays; }
 int  em_sfx_drops(void)       { return s.drops; }
+int  em_sfx_steals(void)      { return s.steals; }
+int  em_sfx_culls(void)       { return s.culls; }
 
 long em_sfx_frames_mixed(void)
 {

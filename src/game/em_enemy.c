@@ -1053,7 +1053,10 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
     e->hp      = (int16_t)(e->hp - amount);
     enemy_alarm_broadcast();      /* a shot crawler wakes the pack */
     if (e->hp > 0) return 0;
-    em_sfx_play(EM_SFX_ENEMY_DEATH);   /* 0x7D8 */
+    /* 0x7D8 — engine func_00153B50 plays it positional at the dying
+     * actor: play_sound(actor, 0x7D8, 0, 300.0) (radius read off the
+     * call site's f12 = 0x43960000) */
+    em_sfx_play_at(EM_SFX_ENEMY_DEATH, e->pos, 300.0f);
     /* Lethal: record the hit vector for the gib knockback. The engine
      * copies the attacker position into victim +0x70 (pair pass /
      * func_001B41F0); the port's only attacker is the player, so the
@@ -1613,7 +1616,9 @@ static void tf_scatter(Tendril *t, const float pp[3])
         any      |= sp->valid;
     }
     if (any)
-        em_sfx_play(TF_SFX_TRIGGER);   /* 0x42D, engine range 300 */
+        /* 0x42D — engine play_sound(actor, id, 0, 300.0): positional
+         * at the pad actor's placement (the spikes' parent origin) */
+        em_sfx_play_at(TF_SFX_TRIGGER, g->pos, 300.0f);
 }
 
 /* World palette of one spike: the static base pose scaled (X/Z =
@@ -1824,7 +1829,9 @@ static void gen_tick(Gen *g, const float pp[3])
          * with magnitude 5.0; PORT: a one-shot mailbox write per box
          * entry (flagged stand-in). */
         if ((s.frame & 127) == 0)
-            em_sfx_play(GEN_SFX_BREATH);
+            /* 0x42F at the pad actor — play_sound radius 300 (the
+             * func_0015A2C0 site's f12 = 0x43960000) */
+            em_sfx_play_at(GEN_SFX_BREATH, g->pos, 300.0f);
         g->phase = g->timer / GEN_OPEN_HOLD;
         if (g->in_box) {
             g->timer = GEN_OPEN_HOLD;
@@ -1870,7 +1877,10 @@ static void gen_tick(Gen *g, const float pp[3])
                                          g->pos, wyaw);
                 if (wi >= 0) {
                     g->spawned++;     /* engine: +0x2E++ only on alloc */
-                    em_sfx_play(GEN_SFX_WORM);
+                    /* 0x430 — the leech init (func_00154040) plays it
+                     * at the spawned actor = the generator origin,
+                     * play_sound radius 300 (f12 = 0x43960000) */
+                    em_sfx_play_at(GEN_SFX_WORM, g->pos, 300.0f);
                 }
             }
             if (g->spawned >= GEN_WORM_CAP) {
