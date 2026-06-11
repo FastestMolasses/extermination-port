@@ -84,11 +84,12 @@
  * height; with no collision asset the old room-bbox clamp remains.
  * The camera is the engine's own chase camera (clamped proportional
  * follow, FINDINGS.md "CAMERA SYSTEM" port contract) with its
- * desired-eye solver running func_0018D7B0-style segment queries
- * (mask 6) against the same world; the player has NO free camera
- * control — R1/L1 orient the camera behind the player, idle
- * auto-orients slowly, and walls make the camera RISE (the CAMERA
- * FIDELITY block below). While the status screen is open the world
+ * desired-eye solver the DECODED func_0018DD20 (style 0, mask 6 —
+ * cam_solver_0018DD20 below) against the same world; the player has
+ * NO free camera control — R1/L1 orient the camera behind the player,
+ * idle auto-orients slowly, and a blocking wall PULLS the eye in at
+ * constant height (which reads as the camera rising over the player —
+ * the CAMERA FIDELITY block below). While the status screen is open the world
  * simulation PAUSES (the gate in gameplay_frame). Esc still quits
  * (em_frame.c step C).
  *
@@ -544,14 +545,21 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * real game — the original gives the player NO free camera control;
  * the old d-pad orbit was a port invention and is REMOVED):
  *
- *  - WALL RISE: when a wall blocks the desired eye, the engine does
- *    NOT pull the camera in toward the player — the camera RISES
- *    (you see the top of the player) until the sight line clears,
- *    and returns to its height when there is room again. NOT applied
- *    while aiming (the aim camera keeps the close solve). The PS2
- *    implementation lives in the unread 6984-byte solver
- *    func_0018DD20 (FINDINGS "CAMERA SYSTEM", confidence medium);
- *    the step/ceiling constants below are PORT CONSTANTS (flagged).
+ *  - WALL RESPONSE — DECODED (2026-06-11 s61, the full 6984-byte
+ *    func_0018DD20 .s read; the old PORT-INVENTED "rise search"
+ *    [step 2.0 / ceiling 40 / margin 0.5] is RETIRED): the engine
+ *    NEVER lifts the eye to clear a wall. A square-on wall block
+ *    PULLS the desired eye to 0.5 u in front of the hit ALONG THE
+ *    SIGHT LINE, x/z ONLY — the eye keeps its absolute height while
+ *    the horizontal distance collapses, so the view tilts down over
+ *    the player's head: the user-observed "camera rises to show the
+ *    player's top" is APPARENT rise, emergent from constant-height
+ *    pull-in + the commit's +4 forward near-push. It returns when
+ *    the sight line clears because the mode handler re-poses the
+ *    desired eye every frame. NOT while aiming — structural: the aim
+ *    camera (mode 1) solves with STYLE 2 -> func_0018F870 (a
+ *    different, still-undecoded solver), never func_0018DD20.
+ *    Full decoded policy in cam_solver_0018DD20 below.
  *  - R1 (tap or hold) orients the camera behind the player and keeps
  *    it tracking the aim direction until release; L1 is a one-shot
  *    reorient-behind-the-player. Engine side these are camera-mode
@@ -598,9 +606,43 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *    cameras (func_001B0460 hard-copies desired AND actual). */
 #define CAM_REGION_YGATE 4.0f   /* func_00194D10's |player.y - rec.y|
                                    region gate, engine constant */
-#define CAM_RISE_STEP   2.0f    /* rise search step, units (PORT) */
-#define CAM_RISE_MAX    40.0f   /* rise search ceiling above the default
-                                   eye height, units (PORT) */
+/* func_0018DD20 solver constants — ALL engine immediates from the .s
+ * (decoded 2026-06-11 s61; hex floats noted where non-obvious). */
+#define SOLV_EXT          1.5f   /* primary probe extension past the eye   */
+#define SOLV_GLANCE_COS   0.70710678f /* glancing gate (0x3F34FDF4, sin45):
+                                   dot(horiz sight dir, horiz hit normal)
+                                   below this = oblique wall              */
+#define SOLV_DIST_PARAM   46.8f  /* fabsf(cam+0x0C) — per-area param (the
+                                   -46.8 live in BOTH save states); the
+                                   head-clear waiver runs only while the
+                                   desired horiz eye<->target dist (the
+                                   commit's D_00810690) <= this           */
+#define SOLV_HEADCLR_H    17.5f  /* head-clear probe height over player.y
+                                   (0x418C0000; 13.0 when cam+0x5C == 1)  */
+#define SOLV_HEADCLR_H1   13.0f
+#define SOLV_PULL_IN      0.5f   /* pull-in standoff along the sight line */
+#define SOLV_WEDGE_DOT   -0.3f   /* reverse-probe "normals not opposing"
+                                   gate (0xBE99999A)                      */
+#define SOLV_WEDGE_EJECT  4.0f   /* wedge eject along the reverse normal  */
+#define SOLV_SIDE         5.5f   /* side-probe lateral reach              */
+#define SOLV_SIDE_BACK    3.0f   /* glancing variant: start offset to the
+                                   far side                               */
+#define SOLV_SIDE_FWD     1.5f   /* glancing variant: end pulled toward
+                                   the target                             */
+#define SOLV_SIDE_PAD     0.1f   /* candidate standoff along the side ray */
+#define SOLV_OPPOSE_DOT  -0.998f /* same-wall-seen-from-behind reject
+                                   (0xBF7F7CEE = -0.99800)                */
+#define SOLV_CROSS_DOT   -0.08f  /* ceiling-case side reject (0xBDA3D70A) */
+#define SOLV_GATE_HI      0.9f   /* non-glancing side response applies    */
+#define SOLV_GATE_LO     -0.3f   /*   only for gate dot in (-0.3, 0.9)    */
+#define SOLV_FLOOR_PAD    17.0f  /* eye-Y lower bound = floor-under-eye +
+                                   17 (0x41880000; 6.0 when +0x5C == 1)   */
+#define SOLV_FLOOR_PAD1   6.0f
+#define SOLV_CEIL_PAD     1.0f   /* eye-Y upper bound = ceiling - 1       */
+#define SOLV_BOUND_RANGE  200.0f /* bound probes reach 200 down/up        */
+#define SOLV_BOUND_PULL   1.5f   /* bound probes cast from the eye pulled
+                                   1.5 toward player + (0, 11, 0)         */
+#define SOLV_PLAYER_UP    11.0f
 #define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek:
                                    the engine's orient-to-heading family
                                    rate (func_001921D0 states 7/0x2C/0x2D,
@@ -683,8 +725,11 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *   ROOM-BOUNDARY RE-SEAT (live): when the walk-through crosses the
  *     doorway plane (the engine's room move), the chase re-seats
  *     behind the player's through-door pose and the NORMAL solve runs
- *     — the door wall right behind the eye RISES it (live: parked at
- *     (104, 29, -250.4) looking down at the walked-out player).
+ *     — live the engine parked at (104, 29, -250.4) looking down at
+ *     the walked-out player (the door wall behind the eye engages the
+ *     decoded constant-height func_0018DD20 solve; the +10 over the
+ *     default height is the walk-state eye placer func_00191000,
+ *     undecoded).
  *   LOCKED try (script D_0024DEC0 record 2, op 0x09 -> func_001BBBF0):
  *     TARGET = door pos + 8 u toward the HANDLE side (the door-yaw
  *     left: (-8*cos(dyaw), +10, +8*sin(dyaw))) and EYE = TARGET -
@@ -784,9 +829,21 @@ typedef struct {
     float    tgt_des[3];  /* +0x20: desired TARGET (world) */
     float    yaw;         /* +0x44: eye->target heading; the R1/L1
                              orient and the idle auto-orient steer it */
-    float    rise;        /* PORT: this frame's wall-rise height above
-                             the default desired eye (0 = at height;
-                             gates the idle auto-orient) */
+    /* func_0018DD20 solver state (decoded s61) */
+    float    y_lo;        /* +0x50: eye-Y lower bound (floor-under-eye +
+                             17), re-probed every solve; init -200 */
+    float    y_hi;        /* +0x54: eye-Y upper bound (ceiling-over-eye -
+                             1, else eye + 200); init 1000 */
+    uint16_t hit_attr;    /* +0x58: primary-hit surface-class halfword
+                             (kept across clear frames, engine-true) */
+    float    var_5c;      /* +0x5C: solver height variant, init 2.0 (the
+                             1.0 variant: head-clear 13 / floor pad 6 —
+                             writer unidentified, never seen live) */
+    float    wall_yaw;    /* +0x90: published heading of the blocking
+                             surface normal, atan2(n.x, n.z) wrapped */
+    float    horiz_dist;  /* D_00810690: desired horiz eye<->target
+                             dist, written by the commit (one frame
+                             stale when the solver reads it — engine) */
     float    aim_h;       /* +0x8C: target height offset above player Y
                              (func_00191390's per-state table; default 6.0
                              — kept for the generic follow; the aim camera
@@ -1051,7 +1108,8 @@ static struct {
                                   * (default frame 360) */
     int         capture_rise;    /* EM_CAPTURE_RISE=1 — hold 's' (walk at
                                   * the camera) so the capture shows the
-                                  * wall-rise camera (see gameplay_frame) */
+                                  * wall-blocked camera looking down at
+                                  * the player (see gameplay_frame) */
     int         capture_orient;  /* EM_CAPTURE_ORIENT=1 — turn-in-place,
                                   * then idle: the slow auto-orient demo */
     int         move_test;
@@ -2995,7 +3053,13 @@ static void camera_mode_dispatch(EmCamera *cam)
                    "%.3f%s\n", g.frame_no, cam->yaw, g.yaw,
                    blocked ? " [WALL — stopped]" : "");
     } else {
-        if (cam->hit)                       /* engine: +0x07 & 9 */
+        if (cam->hit & 9)                   /* engine mask 9 — the solver
+                                             * bits are REAL now (bit 8 =
+                                             * ceiling involvement, bit 1
+                                             * = side other-class; a
+                                             * plain wall pull-in is 0
+                                             * and does NOT reset, s46/
+                                             * s61 decode) */
             cam->timer = 0;
         else if (++cam->timer >= CAM_IDLE_ORIENT_FRAMES) {
             cam->timer = 0;
@@ -3064,38 +3128,417 @@ static void camera_mode_dispatch(EmCamera *cam)
     }
 }
 
-/* Eye pull-in margin: how far in front of the hit plane the solved eye
- * sits, along the blocked sight line. The PS2 solver's exact inset is
- * inside func_0018DD20 (6984 B, unread — FINDINGS confidence "medium");
- * the commit's view position adds another 4.0 * forward away from the
- * wall (CAM_NEAR_PUSH), so a small margin suffices. */
+/* AIM-camera pull-in margin (stand-in): how far in front of the hit
+ * plane the aim eye sits along the blocked sight line. The aim camera
+ * (mode 1) solves with STYLE 2 -> func_0018F870 over mask 7, a separate
+ * solver that is still UNDECODED — this margin is a flagged stand-in
+ * for it only (the follow camera now runs the real func_0018DD20
+ * below). The commit's view position adds another 4.0 * forward away
+ * from the wall (CAM_NEAR_PUSH), so a small margin suffices. */
 #define CAM_WALL_MARGIN 0.5f
 
-/* func_0018D7B0 (style 0) — the desired-eye solver. Collision-resolves
- * the desired eye against the world: segment queries (the func_0019A910
- * hub — same walkers/eps as the documented func_0019A570 family) from
- * the look target toward the desired eye over collision-set mask 6
- * (static cells + grid; 7 would add movable hulls, which the port has
- * none of yet). The result byte lands in struct +0x07 (cam->hit).
+static float cam_dot3(const float a[3], const float b[3])
+{
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+static void cam_norm3(float v[3])               /* func_00102760 */
+{
+    float l = sqrtf(cam_dot3(v, v));
+    if (l > 1e-6f) { v[0] /= l; v[1] /= l; v[2] /= l; }
+}
+
+static float cam_wrap_pi(float a)               /* func_001B1470 */
+{
+    while (a >  EM_PI) a -= 2.0f * EM_PI;
+    while (a < -EM_PI) a += 2.0f * EM_PI;
+    return a;
+}
+
+/* func_0018DD20 — THE blocked-eye solver, DECODED 2026-06-11 (s61)
+ * from the full 6984-byte .s read; replaces the port-invented rise
+ * model (PORT_DIFFERENCES D3). This is the STYLE-0 path — the one the
+ * whole generic gameplay camera uses: the idle states (1/0x26/0x27,
+ * func_001921D0 tail) and the locomotion states (2/4/0xF,
+ * func_00230000) both call func_0018D7B0(cam, 0), which runs this
+ * solver over collision mask 6 (static cells + grid, NO movable
+ * hulls) and then smooth-chases the actual eye at cap 4.0/frame.
+ * (Styles 3/4 — cinematic player states — take a reduced branch in
+ * the same function; style 5 = director cams -> func_0018D910;
+ * style 2/6 = aim/scope -> func_0018F870. The dispatcher also runs a
+ * pre-pass func_0018D330 that publishes sight-ray bits to cam+0x5A
+ * and the overhead-ceiling Y to cam+0x60 — no decoded consumer yet,
+ * untranslated.)
  *
- * WALL RESPONSE (the CAMERA FIDELITY block above): when the sight line
- * is blocked the real game's camera RISES — the desired eye keeps its
- * x/z and climbs (CAM_RISE_STEP search) until the look line clears
- * over the wall, descending again once the default height has room;
- * you briefly look down at the top of the player. The old pull-in
- * (eye dragged in front of the hit) remains in exactly two roles: the
- * AIM camera (the rise is not applied while aiming) and the fallback
- * when no rise inside CAM_RISE_MAX clears (full-height walls). Then
- * the actual eye (D_008105D0) smooth-chases the solved desired eye
- * per axis, capped at 4.0 u/frame — the rise/descent inherit the
- * engine's own smoothing; the actual target is a straight copy of
- * the desired target (func_0018C0C0). */
+ * Decoded policy, in order:
+ *  1. PRIMARY PROBE: desired target -> desired eye EXTENDED 1.5 u.
+ *     No hit -> no first-stage response. On a hit: publish the
+ *     surface class (cam+0x58) and the wall heading (cam+0x90), and
+ *     classify GLANCING = dot(horiz sight dir, horiz hit normal) <
+ *     sin45 (the normal's RAW horizontal component — steep faces
+ *     read as glancing, engine-verbatim).
+ *  2. HEAD-CLEAR WAIVER (style != 3, dist <= |cam+0x0C| = 46.8):
+ *     re-probe from (target.x, player.y + 17.5, target.z) to the
+ *     extended eye. CLEAR -> the block is waived outright (low walls
+ *     never move the camera — the raised line sees the eye over
+ *     them); a ceiling-class hit within 1 u of the eye is forgiven
+ *     too.
+ *  3. FIRST-STAGE RESPONSE while still blocked:
+ *      - ceiling class (0x8800): eye = hit, y -= 1 (duck under),
+ *        x/z += 0.5 * sight dir; widen the carried Y bounds to admit
+ *        it.   [result bit 8]
+ *      - wall (0x2000): REVERSE probe eye -> target; a wall hit
+ *        whose normal does NOT oppose the first (dot > -0.3) means
+ *        the eye sits in a wedge/behind a corner: eject x/z to 4 u
+ *        along the reverse-hit normal, height kept.
+ *      - otherwise PULL-IN: eye x/z = hit + 0.5 * sight dir, HEIGHT
+ *        KEPT. (The "apparent rise": constant absolute height +
+ *        collapsing horizontal distance = the camera looks down on
+ *        the player's head. No bits set — a plain pull-in returns 0.)
+ *  4. SIDE STAGE (sight line clear OR glancing): probe 5.5 u to each
+ *     side of the eye perpendicular to the sight line (glancing
+ *     variant sweeps from 3 u on the far side to 1.5 u target-ward +
+ *     5.5 on the near side, with same-wall/cross-normal rejects and a
+ *     confirm probe from the first hit point at eye height). A valid
+ *     side hit proposes a candidate at (hit -/+ side vector) + 0.1
+ *     along the probe ray — i.e. the eye slides to keep ~5.4 u of
+ *     lateral clearance [bits 2 (left) / 4 (right), 8 = ceiling-
+ *     underside candidate keeps its own Y, 1 = other-class]. BOTH
+ *     sides hitting centers the eye x/z on the midpoint of the two
+ *     hit points (tight corridors). Engine quirk kept verbatim: the
+ *     RIGHT side's ceiling-underside and other-class candidates set
+ *     bits 8/1 but not 4, so the selection below never applies them.
+ *  5. FINAL Y POLICY: if blocked by a NON-wall class: ceiling ->
+ *     eye.y = min(eye.y, hit.y - 1); floor class -> eye.y =
+ *     max(eye.y, hit.y + 1) — a LITERAL 1-u rise over floor-class
+ *     blockers (banks/ledges clipping the sight line). Then clamp
+ *     eye.y into the carried bounds, RE-PROBE the bounds (from the
+ *     eye pulled 1.5 u toward player+11up: floor 200 down [class
+ *     0x7000, engine-verbatim includes WALL] + 17 -> lower; ceiling
+ *     200 up [0x8800] - 1 -> upper, else eye + 200; lower forced to
+ *     upper - 3 if crossed) and clamp again [bits 0x40 floor-clamped
+ *     / 0x80 ceiling-clamped]. The eye can NEVER sink below 17 u
+ *     over the floor beneath it nor poke above the ceiling.
+ *  (Engine per-area specials not reachable by the port's scenes are
+ *  omitted, flagged: area 0x12 eye-z clamp [169.5, 230.6] + its
+ *  upward bound probe variant, area 0x15 z>260 floor-bound 70.)
+ *
+ * Returns the result-bit byte (-> cam->hit, struct +0x07). Mutates
+ * cam->eye_des in place exactly like the engine mutates cam+0x10 —
+ * the mode handler re-poses it every frame, so nothing carries over.
+ *
+ * The actual eye (D_008105D0) then smooth-chases the solved desired
+ * eye per axis, capped 4.0 u/frame (dispatcher style-0 tail) — every
+ * response above inherits the engine's own smoothing; the actual
+ * target is a straight copy of the desired target (func_0018C0C0). */
+static int cam_solver_0018DD20(EmCamera *cam)
+{
+    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID; /* 6 */
+    float *eye = cam->eye_des;                /* cam+0x10, in place */
+    const float *tgt = cam->tgt_des;          /* cam+0x20 */
+    EmCollHit hit;
+    int   blocked, glancing = 0, bits = 0;
+    int   side_l = 0, side_r = 0;     /* validated side hits (s1/s7) */
+    float ext_eye[3];                 /* spad 38A0 (extended eye)    */
+    float first_pt[3] = { 0, 0, 0 };  /* spad 38C0/3950 (1st hit)    */
+    float first_n[3]  = { 0, 0, 0 };  /* spad 38E0 (1st hit normal)  */
+    float hdir[3]     = { 0, 0, 0 };  /* spad 3960 (horiz sight dir) */
+    float lpt[3] = { 0, 0, 0 }, rpt[3] = { 0, 0, 0 }; /* 3920/3930  */
+    float cand_a[3], cand_b[3];       /* sp+0xA0 / sp+0xB0           */
+    uint16_t attr = 0;
+
+    /* 1. PRIMARY PROBE — target -> eye extended 1.5 u past the eye. */
+    {
+        float d[3] = { eye[0] - tgt[0], eye[1] - tgt[1], eye[2] - tgt[2] };
+        cam_norm3(d);
+        ext_eye[0] = eye[0] + SOLV_EXT * d[0];
+        ext_eye[1] = eye[1] + SOLV_EXT * d[1];
+        ext_eye[2] = eye[2] + SOLV_EXT * d[2];
+    }
+    blocked = em_collision_segment_query(&g.coll, tgt, ext_eye, mask,
+                                         EM_COLL_ID_NONE, &hit) != 0;
+    if (blocked) {
+        attr = hit.surf_class;
+        cam->hit_attr = attr;                          /* cam+0x58 */
+        memcpy(first_pt, hit.point, sizeof first_pt);
+        memcpy(first_n, hit.normal, sizeof first_n);
+        hdir[0] = tgt[0] - ext_eye[0];
+        hdir[1] = 0.0f;                                /* horizontal */
+        hdir[2] = tgt[2] - ext_eye[2];
+        cam_norm3(hdir);
+        /* glancing gate: RAW horizontal normal component (verbatim) */
+        if (hdir[0] * first_n[0] + hdir[2] * first_n[2] < SOLV_GLANCE_COS)
+            glancing = 1;
+        cam->wall_yaw = cam_wrap_pi(atan2f(first_n[0], first_n[2]));
+
+        /* 2. HEAD-CLEAR WAIVER (style != 3; dist inside the param). */
+        if (cam->horiz_dist - SOLV_DIST_PARAM <= 0.0f) {
+            float h = (cam->var_5c == 1.0f) ? SOLV_HEADCLR_H1
+                                            : SOLV_HEADCLR_H;
+            float start[3] = { tgt[0], g.pos[1] + h, tgt[2] };
+            EmCollHit h2;
+            if (!em_collision_segment_query(&g.coll, start, ext_eye, mask,
+                                            EM_COLL_ID_NONE, &h2)) {
+                blocked = 0;            /* raised line sees the eye */
+            } else if (h2.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
+                float dx = h2.point[0] - ext_eye[0];
+                float dy = h2.point[1] - ext_eye[1];
+                float dz = h2.point[2] - ext_eye[2];
+                if (dx * dx + dy * dy + dz * dz < 1.0f)
+                    blocked = 0;        /* ceiling graze AT the eye */
+            }
+        }
+
+        /* 3. FIRST-STAGE RESPONSE. */
+        if (blocked) {
+            int handled = 0;
+            float dir[3] = { ext_eye[0] - tgt[0], ext_eye[1] - tgt[1],
+                             ext_eye[2] - tgt[2] };
+            cam_norm3(dir);
+            if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {  /* 0x8800 */
+                eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
+                eye[1] = first_pt[1] - 1.0f;     /* duck under it */
+                eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
+                if (eye[1] < cam->y_lo) cam->y_lo = eye[1];
+                if (eye[1] > cam->y_hi) cam->y_hi = eye[1];
+                bits |= 8;
+                handled = 1;
+            } else if (attr & EM_SURF_WALL) {               /* 0x2000 */
+                EmCollHit rh;
+                if (em_collision_segment_query(&g.coll, ext_eye, tgt,
+                                               mask, EM_COLL_ID_NONE,
+                                               &rh) &&
+                    (rh.surf_class & EM_SURF_WALL) &&
+                    cam_dot3(rh.normal, first_n) > SOLV_WEDGE_DOT) {
+                    /* wedge: the eye is buried behind a corner */
+                    cam->wall_yaw = cam_wrap_pi(atan2f(rh.normal[0],
+                                                       rh.normal[2]));
+                    eye[0] = rh.point[0] + SOLV_WEDGE_EJECT * rh.normal[0];
+                    eye[2] = rh.point[2] + SOLV_WEDGE_EJECT * rh.normal[2];
+                    handled = 1;
+                }
+            }
+            if (!handled) {
+                /* PULL-IN, height kept — the "apparent rise". */
+                eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
+                eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
+            }
+            /* EM_CAMERA_TRACE=1 — first-stage branch (debug). */
+            {
+                static int trace = -1;
+                if (trace < 0)
+                    trace = getenv("EM_CAMERA_TRACE") != NULL;
+                if (trace)
+                    printf("camera: frame %d 0018DD20 BLOCKED attr "
+                           "0x%04x %s%s-> des eye %.2f %.2f %.2f "
+                           "(tgt %.2f %.2f %.2f)\n", g.frame_no, attr,
+                           handled ? (bits & 8 ? "ceiling-duck "
+                                               : "wedge-eject ")
+                                   : "pull-in ",
+                           glancing ? "[glancing] " : "",
+                           eye[0], eye[1], eye[2],
+                           tgt[0], tgt[1], tgt[2]);
+            }
+        }
+    }
+
+    /* 4. SIDE STAGE — clear or glancing sight line only. */
+    if (!blocked || glancing) {
+        float yaw  = atan2f(tgt[0] - eye[0], tgt[2] - eye[2]);
+        float syaw = cam_wrap_pi(yaw - EM_PI * 0.5f);
+        float su[3] = { sinf(syaw), 0.0f, cosf(syaw) };  /* unit side */
+        float sv[3] = { SOLV_SIDE * su[0], 0.0f, SOLV_SIDE * su[2] };
+        float twd[3] = { 0, 0, 0 };       /* unit eye-ward (glancing) */
+        float start[3], end[3], gate;
+        EmCollHit sh;
+
+        if (blocked) {
+            twd[0] = eye[0] - tgt[0];
+            twd[1] = eye[1] - tgt[1];
+            twd[2] = eye[2] - tgt[2];
+            cam_norm3(twd);
+        }
+        cand_a[0] = cand_b[0] = eye[0];   /* sp+0xA0 / sp+0xB0 init */
+        cand_a[1] = cand_b[1] = eye[1];
+        cand_a[2] = cand_b[2] = eye[2];
+
+        for (int side = 0; side < 2; side++) {
+            float sgn = side == 0 ? 1.0f : -1.0f;  /* left, then right */
+            if (!blocked) {
+                start[0] = eye[0];
+                start[1] = eye[1];
+                start[2] = eye[2];
+                end[0] = eye[0] + sgn * sv[0];
+                end[1] = eye[1];
+                end[2] = eye[2] + sgn * sv[2];
+            } else {
+                /* glancing sweep: far side -> 1.5 target-ward + near */
+                start[0] = eye[0] - sgn * SOLV_SIDE_BACK * su[0];
+                start[1] = eye[1];
+                start[2] = eye[2] - sgn * SOLV_SIDE_BACK * su[2];
+                end[0] = eye[0] - SOLV_SIDE_FWD * twd[0] + sgn * sv[0];
+                end[1] = eye[1] - SOLV_SIDE_FWD * twd[1];
+                end[2] = eye[2] - SOLV_SIDE_FWD * twd[2] + sgn * sv[2];
+            }
+            int hit_ok = em_collision_segment_query(&g.coll, start, end,
+                                                    mask, EM_COLL_ID_NONE,
+                                                    &sh) != 0;
+            gate = 0.0f;
+            if (hit_ok && blocked) {
+                /* validation (glancing case only reaches here) */
+                if (bits & 8) {           /* 1st stage was the duck */
+                    gate = cam_dot3(sh.normal, hdir);
+                    if (gate < SOLV_CROSS_DOT) { hit_ok = 0; gate = -1.0f; }
+                } else {
+                    gate = cam_dot3(sh.normal, first_n);
+                    if (gate < SOLV_OPPOSE_DOT) {
+                        hit_ok = 0; gate = -1.0f;
+                    } else {
+                        float d[3] = { sh.point[0] - end[0],
+                                       sh.point[1] - end[1],
+                                       sh.point[2] - end[2] };
+                        if (cam_dot3(d, d) < 1.0f) {
+                            hit_ok = 0; gate = -1.0f; /* far-end graze */
+                        } else {
+                            /* confirm: 1st hit point at eye height */
+                            float cs[3] = { first_pt[0], eye[1],
+                                            first_pt[2] };
+                            hit_ok = em_collision_segment_query(
+                                         &g.coll, cs, end, mask,
+                                         EM_COLL_ID_NONE, &sh) != 0;
+                            if (hit_ok) {
+                                gate = cam_dot3(sh.normal, first_n);
+                                if (gate < SOLV_OPPOSE_DOT) {
+                                    hit_ok = 0; gate = -1.0f;
+                                }
+                            } else {
+                                gate = -1.0f;
+                            }
+                        }
+                    }
+                }
+            }
+            if (side == 0) side_l = hit_ok; else side_r = hit_ok;
+            if (!hit_ok)
+                continue;
+            memcpy(side == 0 ? lpt : rpt, sh.point, 12);
+            /* response window (non-glancing: gate dot in (-0.3, 0.9)) */
+            if (!glancing &&
+                (!(gate < SOLV_GATE_HI) || gate <= SOLV_GATE_LO))
+                continue;
+            {
+                float rd[3] = { end[0] - start[0], end[1] - start[1],
+                                end[2] - start[2] };
+                float c[3]  = { sh.point[0] - sgn * sv[0],
+                                sh.point[1],
+                                sh.point[2] - sgn * sv[2] };
+                float *cand = side == 0 ? cand_a : cand_b;
+                cam_norm3(rd);
+                if (sh.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
+                    if (-sh.normal[1] < SOLV_GATE_HI) {
+                        /* tilted overhang: x/z only */
+                        cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                        cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                        bits |= side == 0 ? 2 : 4;
+                    } else {
+                        /* flat ceiling underside: candidate keeps its
+                         * own Y (engine quirk: the right side sets
+                         * bit 8 only — never applied below) */
+                        cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                        cand[1] = c[1];
+                        cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                        bits |= side == 0 ? 0xA : 0x8;
+                    }
+                } else if (sh.surf_class & EM_SURF_WALL) {
+                    cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                    cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                    bits |= side == 0 ? 2 : 4;
+                } else {
+                    /* other class (floor/slope beside the eye): full
+                     * candidate (right side: bit 1 only, quirk) */
+                    cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                    cand[1] = c[1];
+                    cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                    bits |= side == 0 ? 3 : 1;
+                }
+            }
+        }
+        /* selection */
+        if ((bits & 6) == 6 || (bits & 2 && side_r) ||
+            (bits & 4 && side_l)) {
+            eye[0] = 0.5f * (lpt[0] + rpt[0]);   /* corridor centering */
+            eye[2] = 0.5f * (lpt[2] + rpt[2]);
+        } else if (bits & 2) {
+            eye[0] = cand_a[0];                  /* full copy, incl. Y */
+            eye[1] = cand_a[1];
+            eye[2] = cand_a[2];
+        } else if (bits & 4) {
+            eye[0] = cand_b[0];
+            eye[1] = cand_b[1];
+            eye[2] = cand_b[2];
+        }
+    }
+
+    /* 5. FINAL Y POLICY + BOUNDS. */
+    if (blocked && !(attr & EM_SURF_WALL)) {
+        if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
+            float lim = first_pt[1] - 1.0f;      /* stay under it */
+            if (eye[1] > lim) eye[1] = lim;
+        } else {
+            float lim = first_pt[1] + 1.0f;      /* literal rise over a
+                                                    floor-class blocker */
+            if (eye[1] < lim) eye[1] = lim;
+        }
+    }
+    if (eye[1] <= cam->y_lo) eye[1] = cam->y_lo; /* carried bounds */
+    if (eye[1] >= cam->y_hi) eye[1] = cam->y_hi;
+    {
+        float pb[3], lo, hi, probe[3];
+        float d[3] = { eye[0] - g.pos[0],
+                       eye[1] - (g.pos[1] + SOLV_PLAYER_UP),
+                       eye[2] - g.pos[2] };
+        cam_norm3(d);
+        pb[0] = eye[0] - SOLV_BOUND_PULL * d[0];
+        pb[1] = eye[1] - SOLV_BOUND_PULL * d[1];
+        pb[2] = eye[2] - SOLV_BOUND_PULL * d[2];
+        probe[0] = pb[0];
+        probe[1] = pb[1] - SOLV_BOUND_RANGE;     /* floor, 200 down */
+        probe[2] = pb[2];
+        if (em_collision_segment_query(&g.coll, pb, probe, mask,
+                                       EM_COLL_ID_NONE, &hit) &&
+            (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
+                               EM_SURF_WALL)))   /* 0x7000, verbatim */
+            lo = hit.point[1] + (cam->var_5c == 1.0f ? SOLV_FLOOR_PAD1
+                                                     : SOLV_FLOOR_PAD);
+        else
+            lo = cam->y_lo - SOLV_BOUND_RANGE;
+        probe[1] = pb[1] + SOLV_BOUND_RANGE;     /* ceiling, 200 up */
+        if (em_collision_segment_query(&g.coll, pb, probe, mask,
+                                       EM_COLL_ID_NONE, &hit) &&
+            (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
+            hi = hit.point[1] - SOLV_CEIL_PAD;
+        else
+            hi = eye[1] + SOLV_BOUND_RANGE;
+        if (lo > hi) lo = hi - 3.0f;
+        cam->y_lo = lo;
+        cam->y_hi = hi;
+    }
+    if (eye[1] <= cam->y_lo) { eye[1] = cam->y_lo; bits |= 0x40; }
+    if (eye[1] >= cam->y_hi) { eye[1] = cam->y_hi; bits |= 0x80; }
+    return bits;
+}
+
+/* func_0018D7B0 (style 0) — the desired-eye solver dispatcher.
+ * Mask 6 (static cells + grid; style 2 would use 7 = + movable
+ * hulls), the func_0018DD20 core above, result byte -> struct +0x07
+ * (cam->hit), then the actual eye (D_008105D0) smooth-chases the
+ * solved desired eye per axis capped 4.0 u/frame and the actual
+ * target hard-copies the desired (func_0018C0C0). */
 static void camera_solve(EmCamera *cam)
 {
     float eye_des[3] = { cam->eye_des[0], cam->eye_des[1], cam->eye_des[2] };
 
-    cam->hit  = 0;
-    cam->rise = 0.0f;
+    cam->hit = 0;
 
     /* FIXED-CAMERA REGION: the room spec is authoritative — no wall
      * solve (the designers placed the eye), CHASE DISABLED: the actual
@@ -3112,44 +3555,30 @@ static void camera_solve(EmCamera *cam)
         return;
     }
     if (g.coll.poly_count) {
-        EmCollHit hit;
-        int kind = em_collision_segment_query(
-            &g.coll, cam->tgt_des, eye_des,
-            EM_COLL_SET_CELLS | EM_COLL_SET_GRID,  /* solver mask 6 */
-            EM_COLL_ID_NONE, &hit);
-        if (kind) {
-            cam->hit = (uint8_t)kind;              /* struct +0x07 */
-            int risen = 0;
-            if (!cam->aim_phase) {     /* the aim camera keeps the
-                                        * close pull-in solve (engine
-                                        * mode-1 style 2) */
-                /* RISE: lowest clear height above the default eye. */
-                for (float up = CAM_RISE_STEP; up <= CAM_RISE_MAX;
-                     up += CAM_RISE_STEP) {
-                    float try_eye[3] = { eye_des[0], eye_des[1] + up,
-                                         eye_des[2] };
-                    if (!em_collision_segment_query(
-                            &g.coll, cam->tgt_des, try_eye,
-                            EM_COLL_SET_CELLS | EM_COLL_SET_GRID,
-                            EM_COLL_ID_NONE, &hit)) {
-                        eye_des[1] += up;
-                        cam->rise   = up;
-                        risen       = 1;
-                        break;
-                    }
-                }
-                if (!risen) {
-                    /* re-stage the original hit for the pull-in */
-                    em_collision_segment_query(
-                        &g.coll, cam->tgt_des, eye_des,
-                        EM_COLL_SET_CELLS | EM_COLL_SET_GRID,
-                        EM_COLL_ID_NONE, &hit);
-                }
-            }
-            if (!risen) {
-                /* Pull the eye in front of the wall, back toward the
-                 * target along the blocked sight line (aim camera /
-                 * no-clearance fallback). */
+        if (!cam->aim_phase) {
+            /* THE FOLLOW SOLVE — the decoded func_0018DD20, style 0
+             * (mask 6), result bits -> struct +0x07. It mutates
+             * cam->eye_des in place (engine: cam+0x10); the chase
+             * below consumes the mutated copy. */
+            cam->hit = (uint8_t)cam_solver_0018DD20(cam);
+            eye_des[0] = cam->eye_des[0];
+            eye_des[1] = cam->eye_des[1];
+            eye_des[2] = cam->eye_des[2];
+        } else {
+            /* AIM camera: the engine solves mode 1 with STYLE 2 ->
+             * func_0018F870 over mask 7 (movable hulls in) — a
+             * separate solver, still UNDECODED. Flagged stand-in:
+             * pull the eye to CAM_WALL_MARGIN in front of the hit
+             * along the blocked sight line. (This is also why the
+             * follow responses never run while aiming — the engine's
+             * "no rise while aiming" is structural.) */
+            EmCollHit hit;
+            int kind = em_collision_segment_query(
+                &g.coll, cam->tgt_des, eye_des,
+                EM_COLL_SET_CELLS | EM_COLL_SET_GRID | EM_COLL_SET_HULLS,
+                EM_COLL_ID_NONE, &hit);            /* style-2 mask 7 */
+            if (kind) {
+                cam->hit = (uint8_t)kind;
                 float dx = cam->tgt_des[0] - hit.point[0];
                 float dy = cam->tgt_des[1] - hit.point[1];
                 float dz = cam->tgt_des[2] - hit.point[2];
@@ -3205,14 +3634,14 @@ static void camera_solve(EmCamera *cam)
         cam->tgt[2] = cam->tgt_des[2];
     }
 
-    /* EM_CAMERA_TRACE=1 — wall-solve introspection (debug). */
+    /* EM_CAMERA_TRACE=1 — solve outcome (the per-branch trace lives in
+     * cam_solver_0018DD20). */
     static int trace = -1;
     if (trace < 0) trace = getenv("EM_CAMERA_TRACE") != NULL;
     if (trace && cam->hit)
-        printf("camera: frame %d blocked -> %s %.1f (eye y %.2f -> des "
-               "%.2f)\n", g.frame_no,
-               cam->rise > 0.0f ? "RISE" : "pull-in", cam->rise,
-               cam->eye[1], eye_des[1]);
+        printf("camera: frame %d solver bits 0x%02x (eye y %.2f -> des "
+               "%.2f, bounds [%.1f, %.1f])\n", g.frame_no, cam->hit,
+               cam->eye[1], eye_des[1], cam->y_lo, cam->y_hi);
 }
 
 /* func_0018C0D0(cam, 1) — the per-frame COMMIT. Engine steps:
@@ -3242,6 +3671,16 @@ static void camera_commit(EmCamera *cam)
                      cam->eye[1] + CAM_NEAR_PUSH * cam->fwd[1],
                      cam->eye[2] + CAM_NEAR_PUSH * cam->fwd[2] };
     em_mat4_lookat_gs(cam->view, pos, cam->fwd, cam->up);
+
+    /* Commit bookkeeping (engine step 4): D_00810690 = the DESIRED
+     * pair's horizontal eye<->target distance — next frame's solver
+     * reads it for the head-clear waiver gate (one frame stale,
+     * engine-true). */
+    {
+        float hx = cam->tgt_des[0] - cam->eye_des[0];
+        float hz = cam->tgt_des[2] - cam->eye_des[2];
+        cam->horiz_dist = sqrtf(hx * hx + hz * hz);
+    }
 
     float proj[16];
     em_mat4_perspective_gs(proj,
@@ -3419,8 +3858,11 @@ static void camera_door_cinematic(EmCamera *cam)
      * plane (the engine's room move — staging is DOORCAM_PLANE short
      * of the doorway center), the chase re-seats behind the player's
      * through-door pose and the NORMAL dispatch + solve own the camera
-     * again (the door wall right behind the eye makes the solve RISE —
-     * the engine parked at +29 over the 21-u doorframe). Goto doors
+     * again (live: the engine parked at +29 over the 21-u doorframe —
+     * the door wall behind the eye engages the solve; the decoded
+     * func_0018DD20 pulls in at constant height, so the live +29 is
+     * the walk-state eye placer func_00191000 [undecoded] + solve,
+     * not a solver rise). Goto doors
      * never cross the plane before the fade; their re-seat is the warp
      * re-place (doorcam = 3 there, same shape). */
     {
@@ -3480,6 +3922,13 @@ static void camera_update(void)
         cam->table_sel = 1;      /* smooth dispatch table */
         cam->mode      = 0;      /* engine inits mode 8 — TODO(camera-modes) */
         cam->aim_h     = CAM_AIM_OFFSET;
+        /* func_0018DD20 solver state (engine init values) */
+        cam->y_lo       = -200.0f;     /* +0x50 */
+        cam->y_hi       = 1000.0f;     /* +0x54 */
+        cam->hit_attr   = 0;
+        cam->var_5c     = 2.0f;        /* +0x5C init constant */
+        cam->wall_yaw   = 0.0f;
+        cam->horiz_dist = CAM_DIST;    /* D_00810690 pre-first-commit */
         cam->zoom      = ENGINE_CAM_ZOOM_S;  /* ctx+0x2468 default 480
                                               * (func_001D25F0; scope =
                                               * 224/tan(vfov/2) when the
@@ -5882,12 +6331,24 @@ static void gameplay_frame(void)
     /* EM_CAPTURE_RISE=1: hold 's' (stick down) from frame 0 — the
      * player about-faces and runs TOWARD the camera; the chase camera
      * backs away until the room's far wall blocks its desired eye and
-     * the WALL-RISE solve lifts it (camera_solve). Use with
-     * EM_CAPTURE_FRAME around 280+ (office scene: the eye meets the
-     * south wall after ~9 s of running). EM_CAMERA_TRACE=1 prints the
-     * per-frame rise for verification. */
-    if (g.capture_rise && g.frame_no == 0)
-        move_test_inject('s', 1);           /* debug instrumentation only */
+     * the decoded func_0018DD20 solve PULLS IT IN at constant height
+     * (cam_solver_0018DD20): the eye parks 0.5 u off the wall while
+     * the player keeps closing, so the view tilts down over the
+     * player's head — the user-observed "rise to show the player's
+     * top", emergent. Use with EM_CAPTURE_FRAME around 280+ (office
+     * scene: the eye meets the south wall after ~9 s of running).
+     * EM_CAMERA_TRACE=1 prints the per-frame solve for verification. */
+    if (g.capture_rise) {                   /* debug instrumentation only */
+        if (g.frame_no == 0)
+            move_test_inject('s', 1);
+        /* release phase (after the default capture window): walk back
+         * AWAY from the wall — once the desired eye has room again the
+         * solver stops responding and the chase returns the camera to
+         * its full distance/height ("returns when clear", emergent). */
+        else if (g.frame_no == 360) move_test_inject('s', 0);
+        else if (g.frame_no == 370) move_test_inject('w', 1);
+        else if (g.frame_no == 600) move_test_inject('w', 0);
+    }
     /* EM_CAPTURE_ORIENT=1: Cmd (WALK-band hold) + 'a' for 30 frames —
      * the facing swings ~90 deg (the same facing-seek runs for every
      * moving gait) while gait-2 WALK drifts ~3 u left — then idle.
