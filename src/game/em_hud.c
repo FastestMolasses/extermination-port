@@ -849,6 +849,17 @@ static int decimal_digits(int v)
  * open the same screen — verified identical memory diff, FINDINGS). */
 static int s_shown = 0;
 
+/* MENU INHIBIT (em_hud.h) — the engine's D_008106B3 byte, mirrored
+ * here by em_game's per-frame write: while set, the open press below
+ * is dropped (the engine's player spine sets it while hit-reacting/
+ * dying; the port adds the game-over screen, where START restarts). */
+static int s_menu_inhibit = 0;
+
+void em_hud_menu_inhibit(int inhibit)
+{
+    s_menu_inhibit = inhibit;
+}
+
 /* --- page navigation (FINDINGS "STATUS SUB-PAGES", session 31) --------
  *
  * Hub hover = left stick (engine func_0020D930 mode 0): deflection
@@ -969,7 +980,7 @@ void em_hud_update(const EmFrameInput *in)
          * already works mid arrival-walk-out, exactly like the
          * original (em_door.h "THE TWO LOCKS"). */
         if ((in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)) &&
-            !em_door_menu_locked()) {
+            !em_door_menu_locked() && !s_menu_inhibit) {
             s_shown = 1;
             s_hover = 0;
             s_page  = hud_forced_page();   /* -1 unless EM_HUD_PAGE */
@@ -1483,4 +1494,34 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
     s_frames++;
 
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+}
+
+/* GAME-OVER PRESENTATION — PORT STAND-IN, FLAGGED (em_hud.h; the
+ * engine's DATA.DAT game-over screen module + its dead-player trigger
+ * are undecoded — em_game's PLAYER DAMAGE & DEATH block). Draws on
+ * the default 640x448 overlay canvas, queued by em_game AFTER the
+ * fade rect so it reads over the hold-black frame. */
+void em_hud_game_over(EmGfx *gfx, int frames)
+{
+    static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    if (!gfx) return;
+    /* opaque base — the frame is at full subtractive black already;
+     * this pins the presentation even if something glows through */
+    em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
+                        EM_GFX_OVERLAY_H, kBlack);
+    if (!em_hud_font_ready()) return;   /* font-less: black only */
+    {
+        const char *title = "GAME OVER";
+        float w = em_hud_text_width(title, EM_HUD_TEXT_TALL_DARKRED);
+        em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 200.0f, title,
+                    EM_HUD_TEXT_TALL_DARKRED);
+    }
+    /* blinking prompt: 32-frame cycle, lit half (a PORT cadence —
+     * no engine reference exists for this stand-in) */
+    if ((frames >> 4) & 1) {
+        const char *prompt = "PRESS START";
+        float w = em_hud_text_width(prompt, EM_HUD_TEXT_LABEL12);
+        em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 250.0f, prompt,
+                    EM_HUD_TEXT_LABEL12);
+    }
 }

@@ -227,6 +227,29 @@ int em_hud_font_ready(void);
  * input block. */
 void em_hud_update(const EmFrameInput *in);
 
+/* MENU INHIBIT — the engine's D_008106B3 byte, rewritten every frame
+ * by the player spine (func_0015BA50 tail): nonzero while the player
+ * is hit-reacting/dying (state 2 outside the allowed subs, the
+ * knockdown anim, the infected latch window...), and the
+ * Triangle/Start open press is simply dropped. em_game writes it once
+ * per frame from the player damage state (it also covers the
+ * game-over screen, where START means restart). */
+void em_hud_menu_inhibit(int inhibit);
+
+/* GAME-OVER PRESENTATION — PORT STAND-IN (FLAGGED). The engine's game
+ * over is a DATA.DAT screen module (launchers func_001FEFE0/
+ * func_001FF030, screen id D_008106CF) whose dead-player trigger is
+ * still undecoded (em_game's PLAYER DAMAGE & DEATH block doc); until
+ * that module is decoded/exported the port draws: an opaque black
+ * base (the frame underneath is already at hold-black), "GAME OVER"
+ * centered in the tall font (dark red — the engine's INFECTED text
+ * style, the only red tall style it ships) and a blinking
+ * "PRESS START" line below (small font, white, 32-frame cycle).
+ * Missing font asset: the black base only. `frames` = frames since
+ * the screen appeared (drives the blink). Queue AFTER the fade rect
+ * so the text reads over the black. */
+void em_hud_game_over(EmGfx *gfx, int frames);
+
 /* Is the status screen currently shown? (toggle state OR EM_HUD_FORCE) */
 int em_hud_visible(void);
 

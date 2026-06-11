@@ -938,6 +938,34 @@ static struct {
      * values until the weapon/health systems are translated) */
     EmPlayerStatus status;
 
+    /* PLAYER DAMAGE & DEATH (see the PD_* constants block) — the
+     * port of the engine's player damage state (player actor fields
+     * in comments). pd_state mirrors the actor MAJOR state byte +0x04
+     * restricted to the translated values: 0 = state 1 (gameplay),
+     * 2 = state 2 (hit reaction / dying). */
+    int        pd_state;       /* 0 gameplay, 2 = hit reaction/death */
+    int        pd_sub;         /* +0x05: 0 flinch, 1 death, 3 infected
+                                * death (the kill plane reuses 1 with
+                                * no clip — engine state 6 has none) */
+    int        pd_phase;       /* +0x06 sequence phase */
+    int        pd_hold;        /* +0x28 corpse-hold countdown */
+    int        pd_iframes;     /* +0x20E post-flinch invuln countdown */
+    float      pd_pend_hp;     /* +0x224 pending health damage */
+    float      pd_pend_inf;    /* +0x22C pending infection damage */
+    int        pd_inf_hit;     /* +0x1F1 == 1: last applied hit was
+                                * infection (flinch voice select) */
+    int        pd_infected;    /* +0x234 INFECTED latch (infection 100) */
+    int        pd_low;         /* +0x235 bit 0 low-health latch */
+    int        pd_drain_t;     /* +0x2FC infected drain counter */
+    unsigned   pd_clip;        /* committed reaction clip (test/report) */
+    int        pd_cue_fall;    /* death-clip T-80 sound fired */
+    int        pd_cue_thud;    /* death-clip T-16 sound fired */
+    int        go_state;       /* GAME OVER stand-in: 0 off, 1 fading
+                                * to black, 2 shown (restart armed) */
+    int        go_frames;      /* frames since shown (text blink) */
+    int        go_restart;     /* START consumed: scene reload latch,
+                                * serviced by the frame machine */
+
     /* the camera block the recorded chain consumes (native K = P*V) */
     float      viewproj[16];
 
@@ -1061,6 +1089,13 @@ static struct {
     float       et_wd0;          /* crate run: worm distance at burst */
     float       et_wd_min;       /* crate run: min worm distance since */
     int         et_worm_atk;     /* crate run: worm reached ATTACK */
+    int         death_test;      /* EM_DEATH_TEST=1 — flinch/death/
+                                  * game-over/restart self-test */
+    int         gt_phase;        /* death test: script phase */
+    int         gt_fail;         /* death test: failed checkpoints */
+    int         gt_mark;         /* death test: phase anchor frame */
+    unsigned    gt_flinch;       /* death test: committed flinch clip */
+    float       gt_health0;      /* death test: health before a hit */
 } g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
@@ -2144,6 +2179,258 @@ static void aim_dir_get(float out[3])
     out[2] = cosf(yaw) * cosf(pit);
 }
 
+/* ------------------------------------------------------------------ */
+/* PLAYER DAMAGE & DEATH machine (the PD_* constants block above)      */
+/* ------------------------------------------------------------------ */
+
+/* Is the player in a hit reaction / dying / at the game-over screen?
+ * (the movement + input + menu lock; also the producer-side immunity
+ * gate together with pd_iframes — engine: every producer requires the
+ * event byte == 1, which holds from reaction start until the +0x20E
+ * window expires after the flinch). */
+static int player_damage_locked(void)
+{
+    return g.pd_state != 0 || g.go_state != 0;
+}
+
+/* func_0021C270 — apply pending INFECTION damage. */
+static void player_apply_infection(void)
+{
+    if (g.pd_pend_inf == 0.0f) return;
+    g.status.infection += g.pd_pend_inf;
+    g.pd_pend_inf = 0.0f;
+    g.pd_inf_hit  = 1;                     /* +0x1F1 = 1: voice select */
+    if (g.status.infection >= 100.0f) {
+        g.status.infection = 100.0f;
+        if (g.status.health > PD_INFECTED_MAX)
+            g.status.health = PD_INFECTED_MAX;
+        if (!g.pd_infected) {
+            g.pd_infected = 1;             /* +0x234 / 0x8104E4 latch */
+            /* the display max swap to 60 — C14: the same +0x234 flag
+             * drives the HUD's "/60" max (em_hud.h) */
+            g.status.health_max = PD_INFECTED_MAX;
+            em_sfx_play(PD_SFX_INFECTED);  /* vol 300 in the engine */
+        }
+    }
+}
+
+/* func_0021C350 — apply pending HEALTH damage. */
+static void player_apply_health(void)
+{
+    if (g.pd_pend_hp == 0.0f) return;
+    g.status.health -= g.pd_pend_hp;
+    g.pd_pend_hp = 0.0f;
+    g.pd_inf_hit = 0;                      /* +0x1F1 = 0 */
+    if (g.status.health <= PD_LOW_HEALTH)
+        g.pd_low = 1;                      /* +0x235 |= 1 */
+    if (g.status.health <= 0.0f) {
+        g.status.health = 0.0f;
+        /* event byte = 2 — the death branch runs in the processor */
+    }
+}
+
+/* state 2 sub 0 phase 0 — FLINCH entry (func_0021D800): voice + the
+ * real reaction clip (family by RNG bit, side by a second draw —
+ * func_0021D1A0's side test is a hit-direction check, untranslated;
+ * flagged as a second RNG bit). */
+static void player_enter_flinch(void)
+{
+    int      armed = em_weapon_state() != EM_WPN_HOLSTERED;  /* +0x236 */
+    unsigned fam   = footstep_rand5() & 1u;   /* func_00122BB8 & 1 */
+    unsigned side  = footstep_rand5() & 1u;   /* func_0021D1A0 stand-in */
+    unsigned clip;
+    if (g.pd_infected)
+        clip = PD_CLIP_FLINCH_INF;
+    else if (armed)
+        clip = fam ? PD_CLIP_FLINCH_ARM_B : PD_CLIP_FLINCH_ARM_A;
+    else
+        clip = fam ? (side ? PD_CLIP_FLINCH_B1 : PD_CLIP_FLINCH_B0)
+                   : (side ? PD_CLIP_FLINCH_A1 : PD_CLIP_FLINCH_A0);
+    em_sfx_play(g.pd_inf_hit ? PD_SFX_HURT_INF : PD_SFX_HURT);
+    if (!em_game_anim_request(clip, 1.0f))
+        clip = 0;                  /* clip-less asset: timed fallback */
+    g.pd_state = 2;
+    g.pd_sub   = 0;
+    g.pd_phase = clip ? 5 : 2;     /* 5 = wait commit; 2 = clip-less
+                                    * timed fallback */
+    g.pd_hold  = 0;
+    g.pd_clip  = clip;
+    /* rumble func_001B61C0(0, 0xC0, 5, 0) — no force-feedback backend */
+}
+
+/* state 2 sub 1/3 phase 0 — DEATH entry (func_0021E240 /
+ * func_0021E830). The +0x1F0 = 0x40/0x3F write is only the category
+ * marker — the sub handler requests the REAL clip itself. */
+static void player_enter_death(void)
+{
+    int      armed = em_weapon_state() != EM_WPN_HOLSTERED;  /* +0x236 */
+    unsigned clip  = g.pd_infected ? PD_CLIP_DEATH_INF
+                   : armed         ? PD_CLIP_DEATH_ARM
+                                   : PD_CLIP_DEATH;
+    em_sfx_play(PD_SFX_DEATH_VOICE);             /* 0x146, vol 300 */
+    em_sfx_play(PD_SFX_DEATH_BODY);              /* 0x151, vol 300 */
+    if (!em_game_anim_hold(clip, 1.0f))
+        clip = 0;                  /* clip-less asset: straight to hold */
+    g.pd_state    = 2;
+    g.pd_sub      = g.pd_infected ? 3 : 1;
+    g.pd_phase    = clip ? 5 : 2;  /* 5 = wait commit */
+    g.pd_hold     = PD_CORPSE_HOLD;
+    g.pd_clip     = clip;
+    g.pd_cue_fall = 0;
+    g.pd_cue_thud = 0;
+    /* gore effect 0x80000051 (infected) — no effect system: flagged */
+    printf("player death: clip 0x%X (%s)%s\n", clip,
+           g.pd_infected ? "infected" : armed ? "armed" : "unarmed",
+           clip ? "" : " — EMDL carries no death clip (timed fallback)");
+}
+
+/* func_0021C440 (generic tail) — the per-frame damage processor:
+ * consume the pending amounts, then route to flinch or death. Called
+ * once per gameplay frame after the producers ran. */
+static void player_damage_process(void)
+{
+    if (g.pd_pend_hp == 0.0f && g.pd_pend_inf == 0.0f) return;
+    /* invulnerable: hit-reacting/dead, or inside the post-hit window
+     * (engine: producers require event byte == 1) — drop the damage */
+    if (player_damage_locked() || g.pd_iframes > 0) {
+        g.pd_pend_hp = g.pd_pend_inf = 0.0f;
+        return;
+    }
+    player_apply_health();           /* func_0021C350 */
+    player_apply_infection();        /* func_0021C270 */
+    if (g.status.health <= 0.0f)
+        player_enter_death();
+    else
+        player_enter_flinch();
+}
+
+/* The state-2 per-frame tick (the port slice of func_0021D800 phase 1
+ * / func_0021E240 / func_0021D2E0): watch the committed reaction clip,
+ * fire the death-sequence sound cues, run the corpse hold, then the
+ * fade-out into the game-over stand-in. Runs INSTEAD of player_move
+ * (state 2 has no free-move spine). */
+static void player_hurt_tick(void)
+{
+    if (g.pd_phase == 5) {
+        /* wait for the scripted-anim COMMIT (1-frame latency — the
+         * engine requests land one update after the write too) */
+        if (em_game_anim_active() == g.pd_clip)
+            g.pd_phase = 1;
+        return;
+    }
+    if (g.pd_sub == 0) {
+        /* FLINCH: wait for the one-shot clip to play out (sa auto-
+         * clears at clip end), then arm the i-frames and exit to
+         * state 1 (the engine exits to sub 7 recover — the port's
+         * locomotion idle is that pose). */
+        int over = g.pd_phase == 2
+                 ? ++g.pd_hold >= 30      /* clip-less fallback: ~30 f */
+                 : em_game_anim_active() != g.pd_clip;
+        if (over) {
+            g.pd_state   = 0;
+            g.pd_phase   = 0;
+            g.pd_hold    = 0;
+            g.pd_iframes = PD_IFRAMES;       /* +0x20E = 0x3C */
+        }
+        return;
+    }
+    /* DEATH (sub 1 normal / 3 infected) */
+    if (g.pd_phase == 1) {
+        /* clip playing: frames-remaining sound cues (func_0021E240
+         * phase 1 reads the anim clock +0x3C the same way) */
+        int total = em_game_anim_frames(g.pd_clip);
+        int cur   = em_game_anim_frame();
+        int rem   = (cur >= 0 && total > 0) ? total - 1 - cur : -1;
+        if (!g.pd_cue_fall && rem >= 0 && rem <= PD_DEATH_CUE_FALL) {
+            g.pd_cue_fall = 1;
+            em_sfx_play(PD_SFX_DEATH_FALL);          /* 0x156 */
+        }
+        if (!g.pd_cue_thud && rem >= 0 && rem <= PD_DEATH_CUE_THUD) {
+            g.pd_cue_thud = 1;
+            em_sfx_play(g.pd_infected ? PD_SFX_DEATH_THUD_I
+                                      : PD_SFX_DEATH_THUD);
+            /* + the heavy ground rumble func_001B61C0(1,0xEE,0x3C,1) */
+        }
+        if (rem <= 0) {
+            /* clip done (held on the last frame — the corpse pose):
+             * func_0021D2E0 phase 0. Blood-pool effect 0x80000043
+             * under the corpse: skipped (no decal system), flagged. */
+            g.pd_phase = 2;
+        }
+        return;
+    }
+    if (g.pd_phase == 2) {
+        /* corpse hold (+0x28 = 0x78), then the standard fade-out —
+         * func_001AEDE0(4,0), the door-transit machine. */
+        if (--g.pd_hold <= 0) {
+            g.pd_phase = 3;
+            em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
+            g.go_state = 1;
+        }
+        return;
+    }
+    if (g.pd_phase == 3) {
+        /* fading: at full black the engine parks (sub-state 2 of
+         * func_0021D2E0 / state-6 sub 2) — the port shows the
+         * GAME-OVER stand-in (see the PD block doc: the engine's
+         * screen-module trigger is OPEN). */
+        if (em_frame_fade_level() >= 1.0f) {
+            g.pd_phase  = 4;
+            g.go_state  = 2;
+            g.go_frames = 0;
+        }
+    }
+    /* phase 4: parked dead under the game-over screen */
+}
+
+/* Passive per-frame vitals (func_0015D100 infected arm + the spine's
+ * kill plane + the +0x20E i-frame countdown). The hazard-room drain
+ * arm and the func_0015D000 heartbeat rumble are untranslated (see
+ * the PD block doc). */
+static void player_vitals_tick(void)
+{
+    if (g.pd_iframes > 0) g.pd_iframes--;
+    if (player_damage_locked()) return;
+    /* INFECTED passive drain: health -= 2.0 every 240 frames (the
+     * green effect 0x80000063 per tick is skipped — no effect system,
+     * flagged). Reaching 0 = the engine's event-2/type-0x63 death ->
+     * the infected death sequence. */
+    if (g.pd_infected && ++g.pd_drain_t >= PD_DRAIN_PERIOD) {
+        g.pd_drain_t = 0;
+        g.status.health -= PD_DRAIN_AMOUNT;
+        if (g.status.health <= PD_LOW_HEALTH) g.pd_low = 1;
+        if (g.status.health <= 0.0f) {
+            g.status.health = 0.0f;
+            player_enter_death();
+            return;
+        }
+    }
+    /* KILL PLANE (spine death check): Y < -200 -> engine state 6
+     * (func_0015D460): zero health, fade, park — no anim, no sound. */
+    if (g.pos[1] < PD_KILL_PLANE) {
+        g.status.health = 0.0f;
+        g.pd_state = 2;
+        g.pd_sub   = 1;
+        g.pd_phase = 3;            /* straight to the fade wait */
+        g.pd_clip  = 0;
+        em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
+        g.go_state = 1;
+    }
+}
+
+/* GAME OVER stand-in input: START restarts — reload the active scene
+ * (manifest re-run: doors/enemies/collision fresh), restore the boot
+ * status, fade back in. The engine's continue flow is undecoded
+ * (flagged with the screen itself). */
+static void game_over_tick(void)
+{
+    if (g.go_state != 2) return;
+    g.go_frames++;
+    if (em_frame_input()->pressed & EM_PAD_START) {
+        g.go_restart = 1;          /* serviced by the frame machine */
+    }
+}
+
 /* func_0015BCF0 — player actor update. The engine's per-actor spine
  * (state/AI, anim-evaluator selection, physics, sound triggers); the
  * port's slice of it is movement (frame input -> position/yaw) plus the
@@ -2171,7 +2458,19 @@ static void aim_dir_get(float out[3])
  * door sequence re-places the player standing). */
 static void actor_update(void)
 {
-    player_move();
+    /* PLAYER STATE 2 (hit reaction / dying) replaces the free-move
+     * spine entirely — the engine's state dispatch (func_0015BA50)
+     * routes to the hurt machine instead of the action machine; the
+     * committed reaction clip owns the palette through the scripted-
+     * anim path below. */
+    if (g.pd_state == 2) {
+        player_hurt_tick();
+        g.gait       = 0;
+        g.move_speed = 0.0f;
+        g.loco_tier  = 0;
+    } else {
+        player_move();
+    }
     if (!g.mesh) return;
 
     /* scripted-anim COMMIT (func_00183090: +0x1F2 != +0x20C). */
@@ -3516,6 +3815,11 @@ static void frame_close_out(void)
      * visible for overlay tests. The ammo readout is LIVE: mag/reserve
      * mirror the weapon state (D_00810C62 / D_00810CB4) every frame,
      * exactly like the engine UI re-reading the globals. */
+    /* MENU INHIBIT (engine D_008106B3, written every frame by the
+     * player spine: nonzero while hit-reacting/dying — and at the
+     * game-over screen, where START means restart): the open press is
+     * dropped inside em_hud_update. */
+    em_hud_menu_inhibit(player_damage_locked());
     em_hud_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
@@ -3540,6 +3844,14 @@ static void frame_close_out(void)
                                     EM_GFX_OVERLAY_H, grey);
         }
     }
+
+    /* GAME OVER stand-in (over the fade — the dead frame is at full
+     * black underneath; see the PD block doc: the engine's DATA.DAT
+     * game-over screen module is undecoded, this presentation is
+     * FLAGGED). Queues nothing while go_state != 2, so every other
+     * frame stays byte-identical. */
+    if (g.go_state == 2)
+        em_hud_game_over(gfx, g.go_frames);
 
     if (g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
@@ -5008,9 +5320,11 @@ static void melee_test_script(void)
             break;
         case 2:
             /* recover (hit-confirm) must complete; worm A suicide-
-             * bursts on the player meanwhile. Strike crate B once
-             * melee is idle and the worm is gone. */
-            if (em_weapon_is_melee()) break;
+             * bursts on the player meanwhile — its lunge now triggers
+             * the REAL flinch (PLAYER DAMAGE machine), which reads
+             * the weapon input as neutral, so also wait the hit
+             * reaction out before striking crate B. */
+            if (em_weapon_is_melee() || player_damage_locked()) break;
             if (!saw_recov_anim) {
                 g.mt_fail++;
                 printf("melee test: CHECK FAILED — recover anim 0x10F "
@@ -5040,8 +5354,10 @@ static void melee_test_script(void)
             }
             break;
         case 4:
-            /* worm B's run + the heavy recover clear the field. */
-            if (em_enemy_alive() == 0 && !em_weapon_is_melee()) {
+            /* worm B's run + the heavy recover clear the field (the
+             * lunge flinch included — see phase 2). */
+            if (em_enemy_alive() == 0 && !em_weapon_is_melee() &&
+                !player_damage_locked()) {
                 g.mt_phase = 5;
                 g.mt_mark  = n;
             }
@@ -5087,6 +5403,177 @@ finish:
            "alive %d, health %.0f — %s\n", em_weapon_melee_swings(),
            em_weapon_melee_hits(), em_weapon_shots(), em_enemy_alive(),
            g.status.health, g.mt_fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    em_frame_request_quit();
+}
+
+/* EM_DEATH_TEST=1 — player flinch/death/game-over/restart self-test
+ * (the PLAYER DAMAGE & DEATH machine above). Scene init spawns ONE
+ * crawler 30 u ahead (the contact-run placement); frame 0 sets health
+ * to 15 (instrumentation — two 10-damage lunges = flinch then death;
+ * a crawler suicide-bursts on its lunge, so phase 2 spawns the second
+ * killer). Adaptive phases:
+ *
+ *   0  first lunge lands (health 15 -> 5): assert the FLINCH — state
+ *      2 sub 0, an unarmed flinch clip (0x1E..0x21) committed, the
+ *      crawler burst.
+ *   1  flinch plays out: assert the exit armed the i-frames and
+ *      control returned (pd_state 0).
+ *   2  i-frames expire: spawn crawler B 30 u ahead.
+ *   3  second lunge (health 5 -> 0): assert the DEATH — state 2 sub
+ *      1, the death clip 0x2A (unarmed) committed, movement locked.
+ *   4  death sequence: clip end -> corpse hold -> fade-out; assert
+ *      the fade reaches full black and the GAME-OVER stand-in shows
+ *      (go_state 2).
+ *   5  press START: assert the restart — scene reloaded, boot status
+ *      restored (health 75), damage machine cleared, player back at
+ *      the spawn, fade-in running.
+ *
+ * PASS = all checks green; any phase timing out fails the run. */
+static void gt_check(int cond, const char *what)
+{
+    if (cond) return;
+    g.gt_fail++;
+    printf("death test: CHECK FAILED — %s (pd %d/%d/%d hp %.0f clip "
+           "0x%X go %d)\n", what, g.pd_state, g.pd_sub, g.pd_phase,
+           g.status.health, g.pd_clip, g.go_state);
+}
+
+static void death_test_script(void)
+{
+    int n = g.frame_no;
+    /* the restart re-arms frame 0 — only the FIRST frame 0 seeds */
+    if (n == 0 && g.gt_phase == 0 && !g.gt_mark) {
+        g.gt_mark = 1;
+        g.status.health = 15.0f;    /* instrumentation: 2 lunges kill */
+        g.gt_health0 = g.status.health;
+        printf("death test: health set to %.0f, crawler 30 u ahead\n",
+               g.status.health);
+        return;
+    }
+    if (g.gt_phase < 5 && n >= 3000 && !g.go_restart) {
+        g.gt_fail++;
+        printf("death test: CHECK FAILED — timed out in phase %d "
+               "(frame %d)\n", g.gt_phase, n);
+        goto finish;
+    }
+    switch (g.gt_phase) {
+        case 0:
+            if (g.status.health < g.gt_health0) {
+                /* lunge landed THIS frame; the flinch entered the same
+                 * frame (processor), the clip commits next actor tick
+                 * — sample at +3 */
+                g.gt_phase = 1;
+                g.gt_mark  = n + 3;
+                gt_check(g.status.health == g.gt_health0 - 10.0f,
+                         "first lunge dealt the 0x400A amount (10)");
+            }
+            break;
+        case 1:
+            if (n == g.gt_mark) {
+                unsigned c = em_game_anim_active();
+                g.gt_flinch = c;
+                gt_check(g.pd_state == 2 && g.pd_sub == 0,
+                         "flinch state entered (state 2 sub 0)");
+                gt_check(c >= PD_CLIP_FLINCH_A0 && c <= PD_CLIP_FLINCH_B1,
+                         "an unarmed flinch clip (0x1E..0x21) committed");
+                gt_check(em_enemy_alive() == 0,
+                         "crawler burst on its lunge");
+                g.gt_phase = 2;
+            }
+            break;
+        case 2:
+            if (g.pd_state == 0) {
+                gt_check(g.pd_iframes > 0,
+                         "flinch exit armed the i-frames (+0x20E)");
+                g.gt_phase = 3;
+            }
+            break;
+        case 3:
+            if (g.pd_iframes == 0) {
+                float ep[3] = { g.pos[0] + sinf(g.yaw) * 30.0f, g.pos[1],
+                                g.pos[2] + cosf(g.yaw) * 30.0f };
+                if (em_enemy_add_kind(em_frame_gfx(),
+                                      EM_ENEMY_KIND_CRAWLER, ep,
+                                      g.yaw + EM_PI) < 0) {
+                    g.gt_fail++;
+                    printf("death test: crawler B spawn failed\n");
+                    goto finish;
+                }
+                g.gt_health0 = g.status.health;
+                g.gt_phase   = 4;
+            }
+            break;
+        case 4:
+            if (g.status.health <= 0.0f) {
+                g.gt_phase = 5;
+                g.gt_mark  = n + 3;
+            }
+            break;
+        case 5:
+            if (n == g.gt_mark) {
+                gt_check(g.pd_state == 2 && g.pd_sub == 1,
+                         "death state entered (state 2 sub 1)");
+                gt_check(em_game_anim_active() == PD_CLIP_DEATH,
+                         "the death clip 0x2A committed");
+                g.gt_phase = 6;
+                g.gt_mark  = n;
+            }
+            break;
+        case 6:
+            /* ride the sequence out: clip (130) + hold (120) + fade
+             * (64) — go_state 2 must arrive */
+            if (g.go_state == 2) {
+                gt_check(em_frame_fade_level() >= 1.0f,
+                         "game over at full black");
+                gt_check(g.pd_phase == 4, "death machine parked");
+                g.gt_phase = 7;
+                g.gt_mark  = n + 10;
+            } else if (n > g.gt_mark + 500) {
+                g.gt_fail++;
+                printf("death test: CHECK FAILED — game over never "
+                       "shown (pd %d/%d/%d fade %.2f)\n", g.pd_state,
+                       g.pd_sub, g.pd_phase, em_frame_fade_level());
+                goto finish;
+            }
+            break;
+        case 7:
+            if (g.go_state == 2) {
+                /* press START a few shown-frames in (go_frames is the
+                 * stable clock here — the restart resets frame_no) */
+                if (g.go_frames == 10)
+                    move_test_inject(EM_KEY_RETURN, 1);  /* START */
+                else if (g.go_frames == 12)
+                    move_test_inject(EM_KEY_RETURN, 0);
+            } else if (g.frame_no <= 2) {
+                /* the restart re-armed the frame machine: frame_no
+                 * restarted at 0 (scene-init) — sample the fresh
+                 * state on its first frames */
+                gt_check(g.status.health == 75.0f &&
+                         g.status.health_max == 100.0f,
+                         "boot status restored on restart");
+                gt_check(g.pd_state == 0 && g.pd_iframes == 0,
+                         "damage machine cleared on restart");
+                gt_check(em_game_anim_active() == 0,
+                         "death pose released on restart");
+                g.gt_phase = 8;
+                g.gt_mark  = 0;
+            }
+            break;
+        case 8:
+            /* one more frame so the fade-in is observable */
+            gt_check(em_frame_fade_level() < 1.0f,
+                     "fade-in running after restart");
+            goto finish;
+    }
+    return;
+finish:
+    printf("death test: flinch clip 0x%X, death clip 0x%X, health "
+           "%.0f, game over %s, restart %s — %s\n", g.gt_flinch,
+           g.pd_clip ? g.pd_clip : PD_CLIP_DEATH, g.status.health,
+           g.gt_phase >= 7 ? "shown" : "NOT shown",
+           g.gt_phase >= 8 ? "ok" : "NOT reached",
+           g.gt_fail == 0 ? "PASS" : "FAIL");
     fflush(stdout);
     em_frame_request_quit();
 }
@@ -5182,6 +5669,7 @@ static void gameplay_frame(void)
     }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
     if (g.melee_test) melee_test_script();  /* debug instrumentation only */
+    if (g.death_test) death_test_script();  /* debug instrumentation only */
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     if (g.pause_test) pause_test_script();  /* debug instrumentation only */
     if (g.camregion_test) camregion_test_script(); /* debug instr. only  */
@@ -5273,17 +5761,26 @@ static void gameplay_frame(void)
      * the actor-pool tick). Runs BEFORE the weapon update so this
      * frame's shot resolves against current positions. */
     em_enemy_update(&g.coll, g.pos);
-    /* Player-side damage mailbox (the crawler lunge writes it with the
-     * actor +0x36 code layout: low bits = amount, high = type flags).
-     * The engine's own player-damage path (latch byte D_008102BF +
-     * drain magnitude D_008104D4) is untranslated; consuming the
-     * mailbox into the status health is the port stand-in. */
+    /* PLAYER DAMAGE pipeline (the PD_* block above). The port's enemy
+     * producers post one mailbox int (em_enemy.h, +0x36 code layout);
+     * the engine's player producers instead write the pending-damage
+     * floats directly — the bridge maps the two codes onto the decoded
+     * fields: the crawler lunge (type bit 0x4000, amount 10) -> pending
+     * HEALTH +0x224; the open breather pad (GEN_TRAP_HIT = 5, the s33
+     * event-3 write) -> pending INFECTION +0x22C = 5.0 (the engine pad
+     * infects, it does not wound — the old health consume here was the
+     * P3/C12 gap). Then the processor (func_0021C440 generic tail)
+     * applies and routes to flinch/death, and the passive vitals tick
+     * (drain/kill plane/i-frames) runs. */
     {
         int hitcode = em_enemy_player_hit_take();
-        if (hitcode) {
-            g.status.health -= (float)(hitcode & 0x1FFF);
-            if (g.status.health < 0.0f) g.status.health = 0.0f;
-        }
+        if (hitcode & 0x4000)
+            g.pd_pend_hp += (float)(hitcode & 0xFFF);
+        else if (hitcode)
+            g.pd_pend_inf += (float)hitcode;
+        player_damage_process();
+        player_vitals_tick();
+        game_over_tick();
     }
     /* WEAPON: the player-side armed-stance/fire state machine (engine:
      * part of the player actor update, modes 0x1D..0x20) plus the
@@ -5295,8 +5792,12 @@ static void gameplay_frame(void)
     {
         static const EmFrameInput kNeutral = { 0x80, 0x80, 0x80, 0x80,
                                                0, 0, 0 };
+        /* the hit-reaction/death lock reads NEUTRAL like the transit
+         * lock (engine state 2 clears the trigger latch +0x274/+0x276
+         * every frame — func_0015BA50 tail) */
         em_weapon_update(&g.coll, g.pos, g.yaw,
-                         em_door_movement_locked() ? &kNeutral
+                         (em_door_movement_locked() ||
+                          player_damage_locked()) ? &kNeutral
                                                 : em_frame_input());
     }
     camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
@@ -5478,7 +5979,9 @@ static void ingame_frame_machine(EmTask *self)
                                       pb, g.yaw + EM_PI) < 0)
                     printf("melee test: spawn failed\n");
             }
-            if (g.enemy_test && !g.et_spawned) {
+            /* EM_DEATH_TEST shares the contact-run placement: one
+             * crawler 30 u dead ahead (death_test_script). */
+            if ((g.enemy_test || g.death_test) && !g.et_spawned) {
                 g.et_spawned = 1;
                 int   ek = g.enemy_test == 3 ? EM_ENEMY_KIND_CRATE
                                              : EM_ENEMY_KIND_CRAWLER;
@@ -5504,6 +6007,45 @@ static void ingame_frame_machine(EmTask *self)
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
+            /* GAME-OVER RESTART (the stand-in's START press, see the
+             * PD block doc): reload the active scene — the manifest
+             * re-run rebuilds doors/enemies/collision — restore the
+             * boot status, clear the damage machine, re-arm the
+             * scene-init state (player re-place + camera + weapon),
+             * and fade back in. Engine continue flow undecoded
+             * (flagged with the screen). */
+            if (g.go_restart) {
+                g.go_restart  = 0;
+                g.go_state    = 0;
+                g.go_frames   = 0;
+                g.pd_state    = 0;
+                g.pd_sub      = 0;
+                g.pd_phase    = 0;
+                g.pd_hold     = 0;
+                g.pd_iframes  = 0;
+                g.pd_pend_hp  = 0.0f;
+                g.pd_pend_inf = 0.0f;
+                g.pd_drain_t  = 0;
+                g.pd_clip     = 0;
+                /* infected latch persists across a continue? Unknown —
+                 * the port restores the boot status wholesale
+                 * (flagged). */
+                g.pd_infected = 0;
+                g.pd_low      = 0;
+                g.status = (EmPlayerStatus){ .health = 75.0f,
+                                             .health_max = 100.0f,
+                                             .infection = 60.0f,
+                                             .mag = 4, .mag_max = 30,
+                                             .reserve = 120,
+                                             .battery = 4,
+                                             .battery_max = 6 };
+                g.et_spawned = 0;     /* self-tests may re-spawn */
+                em_game_scene_switch(g.scene_dir);
+                em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+                self->user[GAME_BYTE_FRAME] = 0;
+                ingame_frame_machine(self);   /* re-init this frame */
+                break;
+            }
             /* Live in-game arm: per-frame services (func_001AFCF0 flag
              * reset, func_001B07C0(1) placement check, func_001C1DC0
              * render-env updater (channel enables / fog / weather — NOT
@@ -5742,6 +6284,8 @@ void em_game_install(void)
     g.aim_test     = at && at[0] == '1';
     const char *kt = getenv("EM_MELEE_TEST");
     g.melee_test   = kt && kt[0] == '1';
+    const char *gt = getenv("EM_DEATH_TEST");
+    g.death_test   = gt && gt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
