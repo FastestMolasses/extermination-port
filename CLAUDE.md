@@ -88,14 +88,36 @@ files map each native stage to the PS2 function it stands in for.
   consumes all keyDown/keyUp (no-op overrides) so unhandled game keys never
   reach NSWindow's no-responder NSBeep path.
 - Faithful to the original presentation: NO persistent HUD — the status
-  display is a TRIANGLE-toggled status screen (key I; dims the scene, gameplay
-  keeps running) and door use runs the full captured transit sequence (input
-  lock, walk to staging, door clip, 64-frame fade-out, re-place behind the
-  door, fade-in, unlock — FINDINGS.md "AREA TRANSITION LIFECYCLE").
+  display is a TRIANGLE-toggled status screen (key I; opening it PAUSES the
+  world simulation, exactly the original's menu pause — gameplay_frame gates
+  on em_hud_is_open(); EM_HUD_FORCE stays render-only) and door use runs the
+  full captured transit sequence (input lock, walk to staging, door clip,
+  64-frame fade-out, re-place behind the door, fade-in, unlock — FINDINGS.md
+  "AREA TRANSITION LIFECYCLE").
+- PLAYER LOCOMOTION is the engine's (s31 + s38 decodes): the stick magnitude
+  runs the real gait quantizer (rings 48/88/122 -> turn-in-place / walk
+  6 u/s / run 18 u/s; keyboard full push = RUN like PCSX2, Alt = the half
+  band), the wall HITBOX is the engine's 4.5-unit five-direction radial
+  probe set (ankle + chest passes, push-back response — em_game.c "PLAYER
+  WALL RADIUS"), and standing still runs the decoded IDLE CYCLE: breathing
+  idle (anim id 0) with the look-around fidget (id 349 = engine 0x15D)
+  every 300 frames (func_00161020).
+- CAMERA FIDELITY (2026-06-11, observed against the real game — em_game.c
+  "CAMERA FIDELITY"): NO free camera control (the old d-pad orbit is gone);
+  R1 (tap or hold) and L1 orient the camera behind the player (R1 keeps
+  tracking the aim direction until release); after ~2 s idle the camera
+  SLOWLY auto-orients behind the player — only at default height, stopping
+  if a wall blocks the rotation path; a wall behind the camera makes it
+  RISE (look down on the player) instead of pulling in — pull-in remains
+  only for the aim camera and full-height-wall fallback. Per-room FIXED
+  camera angles exist in the engine (cut-table mode 0 = per-area director
+  + overlay hook) — future work, see camera_mode_dispatch.
 - The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
-  needs a player.emdl exported with
-  `--clips 346,2,3,69,67,75,272,273,51,274,1,267,268,269,270,271` — the s36
-  superset adds the knife clips 0x10B..0x10F):
+  needs a player.emdl exported with `--attach --no-glow --clips
+  349,2,3,69,67,75,272,273,51,274,1,267,268,269,270,271,0` — DIRECTORY ids
+  after the 2026-06-11 enumeration fix (the engine resolver's leading
+  offset table; the old scan ids >= 54 were shifted), with 0 = the
+  breathing idle and 349 = the look-around fidget for the idle cycle):
   draw 0x110 @1.4, HELD aim pose 0x112 (em_game_anim_hold), reload 0x33,
   holster 0x111 — each state window gates on the honest clip length. FIRE
   RECOIL (s25, FINDINGS "FIRE ANIM MECHANISM"): the engine has NO separate
@@ -122,7 +144,12 @@ files map each native stage to the PS2 function it stands in for.
   forces the status screen visible for overlay captures; `EM_CAPTURE_AIM=1`
   holds R1 from frame 0 + a short turn so the capture shows the armed
   stance, laser and aim camera; `EM_CAPTURE_AIM=2` adds one semi shot at
-  frame 58 so the default capture frame samples the mid-recoil pose),
+  frame 58 so the default capture frame samples the mid-recoil pose;
+  `EM_CAPTURE_RISE=1` walks the player at the camera so a late capture
+  frame shows the wall-RISE camera; `EM_CAPTURE_ORIENT=1` turn-in-place +
+  idle for the slow auto-orient; `EM_CAMERA_TRACE=1` prints the camera
+  wall-solve and auto-orient), `EM_PAUSE_TEST=1` (status-screen pause gate:
+  open -> held stick dead -> close -> movement resumes),
   `EM_AUDIO_TEST=1`
   (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
   (full door-transit sequence self-test), `EM_SFX_TEST=1` (3 overlapping
@@ -130,7 +157,7 @@ files map each native stage to the PS2 function it stands in for.
   `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife-vs-crates run: light kill,
   heavy kill, whiff-combo chain — see melee_test_script),
   `EM_TRANSIT_TEST=1` (goto-door SCENE-SWITCH run: west-door transit ->
-  runtime reload of scene_office0 at full black, player at the decoded
+  runtime reload of scene_drawbridge at full black, player at the decoded
   arrival spawn — see transit_test_script / em_game_scene_switch),
   `make test-input` (OS-free pad-model unit test).
 

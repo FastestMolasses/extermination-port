@@ -6,12 +6,20 @@
  * (func_001AE040) -> gameplay frame (func_001AE5E0). See em_game.c for the
  * per-function mapping. Today the gameplay frame drives the port's
  * scene/character rendering, interactive player movement (left stick,
- * camera-relative) with an idle<->walk animation crossfade (0.15 s linear
- * palette blend, walk stride rate-scaled to ground speed) and the
- * engine's AUTHENTIC chase camera (struct 0x008101E0 mirror, clamped
- * proportional follow per FINDINGS.md "CAMERA SYSTEM"; d-pad feeds its
- * yaw); real game logic replaces the skeleton arms as the decomp repo
- * recovers it. Per-scene boot config (player spawn, collision filename,
+ * camera-relative, through the engine's ANALOG GAIT quantizer —
+ * turn-in-place / walk / run — and its 4.5-unit radial wall probes)
+ * with an idle<->locomotion crossfade (0.15 s linear palette blend,
+ * stride rate-scaled to ground speed) plus the decoded IDLE CYCLE
+ * (breathing idle id 0, look-around fidget 349 every 300 frames), and
+ * the engine's AUTHENTIC chase camera (struct 0x008101E0 mirror,
+ * clamped proportional follow per FINDINGS.md "CAMERA SYSTEM"). The
+ * player has NO free camera control (the original gives none): R1/L1
+ * orient the camera behind the player, an idle camera slowly
+ * auto-orients, and a wall behind the camera makes it RISE instead of
+ * pulling in (em_game.c "CAMERA FIDELITY"). While the status screen is
+ * open the world simulation PAUSES (gate on em_hud_is_open()). Real
+ * game logic replaces the skeleton arms as the decomp repo recovers
+ * it. Per-scene boot config (player spawn, collision filename,
  * optional bgm) comes from the SCENE MANIFEST assets/scene/scene.txt
  * (exporter-written; missing = office defaults). EM_BGM=<path.wav> makes
  * the boot->game handoff start looping level music through em_bgm (the
