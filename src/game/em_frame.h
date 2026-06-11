@@ -100,26 +100,18 @@ uint32_t em_frame_parity(void);
  * highlights survive longest — the "exposure being pulled down" look,
  * NOT a black cover dissolving in.
  *
- * NATIVE STAND-IN + RESIDUAL GAP (documented honestly): the port's
- * overlay pass exposes only standard alpha blending (em_gfx.h:
- * out = src*a + dst*(1-a)), which cannot express per-pixel saturating
- * subtraction with a constant-color quad. The fade therefore draws a
- * BLACK quad with alpha = em_frame_fade_alpha():
- *
- *     a(l) = 1 - (1 - l)^2        (l = level/255)
- *
- * chosen so the frame's MEAN luminance follows the engine's subtractive
- * trajectory exactly for a uniform pixel-value histogram
- * (E[max(0, c - l)] = E[c]*(1-l)^2 for c ~ U[0,1]), with the correct
- * endpoints (clear at 0, full black exactly at level 255, preserving
- * the 64-frame timing). Residual gap vs the GS: alpha scales every
- * pixel PROPORTIONALLY, so deep shadows keep relative detail slightly
- * longer than the engine (which clips them to 0 at level >= pixel) and
- * highlights dim slightly earlier (the engine holds a pure-white pixel
- * visible until level 255). Exact parity needs a reverse-subtract
- * blend op (out = max(0, dst - src)) in the overlay path — src/gfx
- * owned, flagged for its owner. The additive mode-1 fade (to white)
- * has no port caller yet and is not implemented. */
+ * NATIVE TRANSLATION (gap closed 2026-06-11): the overlay pass carries
+ * the decoded blend directly — em_gfx_overlay_rect_sub (em_gfx.h) is a
+ * reverse-subtract rect (out = max(0, dst - src.rgb), factors ONE/ONE
+ * on RGB, dst alpha kept; Metal: MTLBlendOperationReverseSubtract).
+ * em_game's close-out draws a full-screen GREY quad through it with
+ * rgb = em_frame_fade_level() — per-pixel identical to the GS sprite:
+ * shadows clip to 0 once level >= pixel, a pure-white pixel stays
+ * visible until level 255. The interim black-quad stand-in (alpha =
+ * 1-(1-l)^2, the mean-luminance approximation) and its documented
+ * residual gap are retired with it. Level 0 queues nothing, so the
+ * default frame stays byte-identical. The additive mode-1 fade (to
+ * white) still has no port caller and is not implemented. */
 #define EM_FADE_SPEED_DOOR 4   /* the captured door-transit fade speed */
 
 /* Arm a fade: dir > 0 fades OUT (toward black), dir < 0 fades IN (toward
@@ -128,14 +120,10 @@ uint32_t em_frame_parity(void);
 void em_frame_fade_start(int dir, int speed);
 
 /* Current fade level: 0.0 = clear, 1.0 = full subtraction (black) —
- * the engine's +0xC4 level, normalized. Use for PROGRESS tests/gates. */
+ * the engine's +0xC4 level, normalized. The grey the close-out's
+ * subtract rect draws with (em_game.c), and the value the PROGRESS
+ * tests/gates read. */
 float em_frame_fade_level(void);
-
-/* The black-quad stand-in alpha for the CURRENT level: 1 - (1-l)^2 (the
- * decoded subtractive blend's mean-luminance match — see the block
- * comment above). em_game's close-out draws the fade rect with THIS,
- * not the raw level. 0 exactly when the level is 0. */
-float em_frame_fade_alpha(void);
 
 /* Nonzero while a ramp is still in motion (level not yet at its end). */
 int em_frame_fade_active(void);

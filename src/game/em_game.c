@@ -2834,6 +2834,24 @@ static void ui_scene_render(EmGfx *gfx)
             if (tint[i] < 0.0f) tint[i] = 0.0f;
             if (tint[i] > 1.0f) tint[i] = 1.0f;
         }
+        if (getenv("EM_UI_DEBUG")) {            /* TEMP bisect */
+            tint[0] = 1.0f; tint[1] = 0.0f; tint[2] = 0.0f; tint[3] = 1.0f;
+            /* project the model origin and a head-height point */
+            for (int k = 0; k < 2; k++) {
+                float p[4] = { 0.0f, k * 15.0f, 0.0f, 1.0f };
+                float o[4];
+                for (int r = 0; r < 4; r++)
+                    o[r] = vp[r + 0] * p[0] + vp[r + 4] * p[1] +
+                           vp[r + 8] * p[2] + vp[r + 12] * p[3];
+                fprintf(stderr,
+                        "uidbg: pt y=%g clip (%g, %g, %g, %g) ndc (%g, %g, %g)\n",
+                        p[1], o[0], o[1], o[2], o[3],
+                        o[0] / o[3], o[1] / o[3], o[2] / o[3]);
+            }
+            /* bone 0 of the posed palette */
+            fprintf(stderr, "uidbg: pal0 trans (%g, %g, %g)\n",
+                    g.ui_palette[12], g.ui_palette[13], g.ui_palette[14]);
+        }
         em_gfx_draw_skinned_tinted(gfx, g.mesh, vp, g.ui_palette,
                                    g.model.bone_count, tint);
     }
@@ -2865,6 +2883,11 @@ static void frame_close_out(void)
      * draw over it. Without the player asset or the ui.emui backdrop
      * the old path runs unchanged (asset-absent frames byte-identical). */
     int ui_scene = g.mesh && em_hud_visible() && em_hud_backdrop_ready(gfx);
+
+    if (getenv("EM_UI_DEBUG"))
+        fprintf(stderr, "uidbg: mesh=%p vis=%d ready=%d ui_scene=%d\n",
+                (void *)g.mesh, em_hud_visible(),
+                em_hud_backdrop_ready(gfx), ui_scene);
 
     if (ui_scene) {
         ui_scene_render(gfx);
@@ -2909,17 +2932,19 @@ static void frame_close_out(void)
      * scene AND the status screen (the engine's fade owns the whole GS
      * frame). The engine blend is SUBTRACTIVE (out = max(0, pixel -
      * level), GS ALPHA_2 0xA1/FIX 0x80 — decoded 2026-06-11, see
-     * em_frame.h): pixels darken UNEVENLY, shadows crushing to black
-     * first. The overlay pass only has standard alpha blending, so the
-     * stand-in is a black quad with em_frame_fade_alpha() = 1-(1-l)^2
-     * (the mean-luminance match; residual gap documented in em_frame.h).
-     * Alpha 0 queues nothing: the default frame stays byte-identical. */
+     * em_frame.h): a GREY full-screen sprite with R=G=B=level is
+     * subtracted from every frame pixel, so shadows crush to black
+     * first and highlights survive longest. The overlay pass carries
+     * that exact op (em_gfx_overlay_rect_sub: reverse-subtract,
+     * ONE/ONE on RGB, flushed over the HUD) — the former black-quad
+     * alpha approximation and its residual gap are gone. Level 0
+     * queues nothing: the default frame stays byte-identical. */
     {
-        float a = em_frame_fade_alpha();
-        if (a > 0.0f) {
-            const float black[4] = { 0.0f, 0.0f, 0.0f, a };
-            em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
-                                EM_GFX_OVERLAY_H, black);
+        float l = em_frame_fade_level();
+        if (l > 0.0f) {
+            const float grey[3] = { l, l, l };
+            em_gfx_overlay_rect_sub(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
+                                    EM_GFX_OVERLAY_H, grey);
         }
     }
 

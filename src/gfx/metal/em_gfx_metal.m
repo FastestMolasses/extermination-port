@@ -50,6 +50,14 @@ struct EmGfx {
     float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
     uint32_t                     overlayVertCount;
     float                        overlayW, overlayH;
+    /* Reverse-subtract overlay rects (em_gfx_overlay_rect_sub — the
+     * screen fade's GS ALPHA_2 0xA1 blend): own queue in the same NDC
+     * pos + color layout, own PSO (ReverseSubtract ONE/ONE on RGB, dst
+     * alpha kept), flushed LAST in the overlay sequence — the fade
+     * darkens the HUD with the scene. */
+    float                        subVerts[EM_GFX_OVERLAY_SUB_MAX * 6 * 8];
+    uint32_t                     subVertCount;
+    id<MTLRenderPipelineState>   subPipeline;
     /* Textured overlay: TWO texture slots (EM_GFX_OVERLAY_TEX_FONT /
      * _UI), each with its own quad queue (float4 NDC pos + float4 color
      * + float4 uv, uv.xy normalized at queue time) and its own
@@ -336,12 +344,21 @@ static NSString *const kSkinShaderSrc =
 "    return float4(base.rgb * lit, base.a) * tint;\n"
 "}\n";
 
+/* Blend state selector for build_pipeline — the three GS ALPHA configs
+ * the translated draws use (each comment gives the GS A/B/C/D form). */
+typedef enum {
+    EM_BLEND_ALPHA, /* standard alpha: src*a + dst*(1-a)                  */
+    EM_BLEND_ADD,   /* additive (A=Cs B=0 C=FIX 0x80 D=Cd): src + dst     */
+    EM_BLEND_RSUB,  /* reverse subtract (A=Cd B=Cs C=FIX 0x80 D=0):
+                       max(0, dst - src) — the screen-fade sprite blend   */
+} EmBlendMode;
+
 /* Compile MSL source at runtime and build a pipeline for the swapchain +
  * depth formats. Returns +1-retained PSO or nil (with the error printed). */
 static id<MTLRenderPipelineState> build_pipeline(EmGfx *g, NSString *src,
                                                  NSString *vfn_name,
                                                  NSString *ffn_name,
-                                                 bool additive)
+                                                 EmBlendMode blend)
 {
     NSError *err = nil;
     id<MTLLibrary> lib = [g->device newLibraryWithSource:src
@@ -358,23 +375,38 @@ static id<MTLRenderPipelineState> build_pipeline(EmGfx *g, NSString *src,
     pd.vertexFunction   = vfn;
     pd.fragmentFunction  = ffn;
     pd.colorAttachments[0].pixelFormat = g->layer.pixelFormat;
-    /* Standard alpha blending: most PS2 texels are fully opaque (alpha-test
-     * in the shader handles cutouts), so this only softens the few
-     * partial-alpha texels (window glass) without needing draw sorting.
-     * `additive` builds the glow-pass variant instead: Cv = Cs + Cd, the
-     * GS ALPHA (A=Cs, B=0, C=FIX 0x80, D=Cd) of the live glow draws; dest
-     * alpha is left untouched (the GS never updates A on those draws). */
+    /* EM_BLEND_ALPHA — standard alpha blending: most PS2 texels are fully
+     * opaque (alpha-test in the shader handles cutouts), so this only
+     * softens the few partial-alpha texels (window glass) without needing
+     * draw sorting.
+     * EM_BLEND_ADD — the glow/beam variant: Cv = Cs + Cd, the GS ALPHA
+     * (A=Cs, B=0, C=FIX 0x80, D=Cd) of the live glow draws; dest alpha is
+     * left untouched (the GS never updates A on those draws).
+     * EM_BLEND_RSUB — the screen-fade variant: Cv = max(0, Cd - Cs), the
+     * GS ALPHA_2 0xA1/FIX 0x80 (A=Cd, B=Cs, C=FIX, D=0) of the fade
+     * sprite; ReverseSubtract with ONE/ONE saturates at 0 on the unorm
+     * target exactly like the GS clamp, and dest alpha is kept. */
     pd.colorAttachments[0].blendingEnabled = YES;
-    if (additive) {
+    switch (blend) {
+    case EM_BLEND_ADD:
         pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorOne;
         pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOne;
         pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorZero;
         pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
-    } else {
+        break;
+    case EM_BLEND_RSUB:
+        pd.colorAttachments[0].rgbBlendOperation = MTLBlendOperationReverseSubtract;
+        pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorOne;
+        pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOne;
+        pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorZero;
+        pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+        break;
+    case EM_BLEND_ALPHA:
         pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
         pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
         pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorOne;
         pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorZero;
+        break;
     }
     pd.depthAttachmentPixelFormat      = EM_DEPTH_FORMAT;
     id<MTLRenderPipelineState> pso =
@@ -456,6 +488,7 @@ void em_gfx_destroy(EmGfx *g)
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
         [g->beamTex[i] release];
     [g->glyphPipeline release];
+    [g->subPipeline release];
     [g->overlayTex[0] release];
     [g->overlayTex[1] release];
     [g->clampSampler release];
@@ -511,9 +544,9 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
 void em_gfx_draw_test_triangle(EmGfx *g)
 {
     if (!g || !g->enc) return;
-    if (!g->testPipeline) {
+    if (!g->testPipeline) {       /* lazily, once */
         g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
-                                         @"f_main", false); /* lazily, once */
+                                         @"f_main", EM_BLEND_ALPHA);
         if (!g->testPipeline) return;             /* compile failed; skip */
     }
     ensure_depth_states(g);
@@ -680,12 +713,14 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
            (size_t)g->lastBoneCount * 16 * sizeof(float));
     if (!g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
-                                         @"v_skin", @"f_skin", false);
+                                         @"v_skin", @"f_skin",
+                                         EM_BLEND_ALPHA);
         if (!g->skinPipeline) return;
     }
     if (m->glow_count && !g->glowPipeline) {
         g->glowPipeline = build_pipeline(g, kSkinShaderSrc,
-                                         @"v_skin", @"f_skin", true);
+                                         @"v_skin", @"f_skin",
+                                         EM_BLEND_ADD);
         if (!g->glowPipeline) return;
     }
     ensure_depth_states(g);
@@ -756,12 +791,14 @@ void em_gfx_overlay_canvas(EmGfx *g, float w, float h)
     g->overlayH = h;
 }
 
-/* Append one overlay vertex: virtual-canvas point -> NDC on the CPU, in
- * the kTestShaderSrc layout (float4 pos + float4 color). Capacity is
- * checked by the callers (whole primitives are dropped, never split). */
-static void overlay_push(EmGfx *g, float x, float y, const float rgba[4])
+/* Append one overlay vertex to `verts`/`count`: virtual-canvas point ->
+ * NDC on the CPU, in the kTestShaderSrc layout (float4 pos + float4
+ * color). Capacity is checked by the callers (whole primitives are
+ * dropped, never split). */
+static void overlay_push_to(EmGfx *g, float *verts, uint32_t *count,
+                            float x, float y, const float rgba[4])
 {
-    float *v = g->overlayVerts + (size_t)g->overlayVertCount * 8;
+    float *v = verts + (size_t)*count * 8;
     v[0] = x / g->overlayW * 2.0f - 1.0f;
     v[1] = 1.0f - y / g->overlayH * 2.0f;
     v[2] = 0.0f;
@@ -770,7 +807,13 @@ static void overlay_push(EmGfx *g, float x, float y, const float rgba[4])
     v[5] = rgba[1];
     v[6] = rgba[2];
     v[7] = rgba[3];
-    g->overlayVertCount++;
+    (*count)++;
+}
+
+/* overlay_push_to into the standard (alpha-blended) overlay queue. */
+static void overlay_push(EmGfx *g, float x, float y, const float rgba[4])
+{
+    overlay_push_to(g, g->overlayVerts, &g->overlayVertCount, x, y, rgba);
 }
 
 /* Queue one overlay rect: two triangles through overlay_push. The pass
@@ -787,6 +830,28 @@ void em_gfx_overlay_rect(EmGfx *g, float x, float y, float w, float h,
     overlay_push(g, x + w, y,     rgba);   /* tri 2 */
     overlay_push(g, x + w, y + h, rgba);
     overlay_push(g, x,     y + h, rgba);
+}
+
+/* Queue one REVERSE-SUBTRACT rect (em_gfx.h — the screen fade's GS
+ * ALPHA_2 0xA1/FIX 0x80 blend, out = max(0, dst - rgb)): same NDC
+ * vertex path as em_gfx_overlay_rect into the dedicated sub queue
+ * (own PSO, flushed last). The color's alpha slot is set to 1 but the
+ * blend never reads it (factors ONE/ONE on RGB, dst alpha kept). */
+void em_gfx_overlay_rect_sub(EmGfx *g, float x, float y, float w, float h,
+                             const float rgb[3])
+{
+    if (!g || !rgb ||
+        g->subVertCount + 6 > EM_GFX_OVERLAY_SUB_MAX * 6)
+        return;
+    const float rgba[4] = { rgb[0], rgb[1], rgb[2], 1.0f };
+    float *verts = g->subVerts;
+    uint32_t *n  = &g->subVertCount;
+    overlay_push_to(g, verts, n, x,     y,     rgba);   /* tri 1 */
+    overlay_push_to(g, verts, n, x + w, y,     rgba);
+    overlay_push_to(g, verts, n, x,     y + h, rgba);
+    overlay_push_to(g, verts, n, x + w, y,     rgba);   /* tri 2 */
+    overlay_push_to(g, verts, n, x + w, y + h, rgba);
+    overlay_push_to(g, verts, n, x,     y + h, rgba);
 }
 
 /* Queue one annular-arc segment (em_gfx.h — the translation of the
@@ -1147,7 +1212,7 @@ static void beam_flush(EmGfx *g)
     if (!g->hasViewProj) return;   /* no camera this frame: drop */
     if (!g->beamPipeline) {
         g->beamPipeline = build_pipeline(g, kBeamShaderSrc, @"v_beam",
-                                         @"f_beam", true /* additive */);
+                                         @"f_beam", EM_BLEND_ADD);
         if (!g->beamPipeline) return;
     }
     ensure_depth_states(g);
@@ -1222,7 +1287,7 @@ static void beam_flush(EmGfx *g)
         if (!g->beamTexPipeline) {
             g->beamTexPipeline = build_pipeline(g, kBeamTexShaderSrc,
                                                 @"v_beamtex", @"f_beamtex",
-                                                true /* additive */);
+                                                EM_BLEND_ADD);
             if (!g->beamTexPipeline) return;
         }
         if (!g->clampSampler) {
@@ -1309,7 +1374,7 @@ static void overlay_flush(EmGfx *g)
     if (!verts || !g->enc) return;
     if (!g->testPipeline) {
         g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
-                                         @"f_main", false);
+                                         @"f_main", EM_BLEND_ALPHA);
         if (!g->testPipeline) return;
     }
     ensure_depth_states(g);
@@ -1328,6 +1393,37 @@ static void overlay_flush(EmGfx *g)
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
+/* Flush the queued REVERSE-SUBTRACT rects (em_gfx_overlay_rect_sub):
+ * one draw at the VERY END of the overlay sequence — after the
+ * untextured primitives, the decor sprites and the font glyphs — so
+ * the screen fade darkens the whole frame, HUD included (the engine's
+ * fade owns the GS frame). Same depth-off state and vertex layout as
+ * overlay_flush; only the PSO differs (ReverseSubtract ONE/ONE on RGB,
+ * dst alpha kept). With nothing queued the draw does not run. */
+static void overlay_sub_flush(EmGfx *g)
+{
+    uint32_t verts = g->subVertCount;
+    g->subVertCount = 0;
+    if (!verts || !g->enc) return;
+    if (!g->subPipeline) {
+        g->subPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
+                                        @"f_main", EM_BLEND_RSUB);
+        if (!g->subPipeline) return;
+    }
+    ensure_depth_states(g);
+    /* Small queue (EM_GFX_OVERLAY_SUB_MAX = 16 quads = 3 KB) — fits
+     * under Metal's 4 KB setVertexBytes ceiling, no MTLBuffer needed. */
+    [g->enc setRenderPipelineState:g->subPipeline];
+    [g->enc setDepthStencilState:g->depthOff];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBytes:g->subVerts
+                    length:(NSUInteger)verts * 8 * sizeof(float)
+                   atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+               vertexStart:0
+               vertexCount:(NSUInteger)verts];
+}
+
 /* Flush one slot's queued TEXTURED overlay quads: one draw after
  * overlay_flush — same pass position (post-3D, depth off, standard
  * alpha blend). Linear clamp sampling = the GS UI-sprite state (TEX1
@@ -1341,7 +1437,7 @@ static void texquad_flush(EmGfx *g, int slot, float *verts_data,
     if (!verts || !g->enc || !g->overlayTex[slot]) return;
     if (!g->glyphPipeline) {
         g->glyphPipeline = build_pipeline(g, kGlyphShaderSrc, @"v_glyph",
-                                          @"f_glyph", false);
+                                          @"f_glyph", EM_BLEND_ALPHA);
         if (!g->glyphPipeline) return;
     }
     if (!g->clampSampler) {
@@ -1386,7 +1482,7 @@ static void backdrop_flush(EmGfx *g)
     if (fill && g->enc) {
         if (!g->testPipeline)
             g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
-                                             @"f_main", false);
+                                             @"f_main", EM_BLEND_ALPHA);
         if (g->testPipeline) {
             ensure_depth_states(g);
             /* full-frame quad, pre-converted NDC (kTestShaderSrc layout:
@@ -1471,6 +1567,7 @@ void em_gfx_end_frame(EmGfx *g)
                   g->spriteVerts, &g->spriteVertCount);
     texquad_flush(g, EM_GFX_OVERLAY_TEX_FONT,   /* text over everything  */
                   g->glyphVerts, &g->glyphVertCount);
+    overlay_sub_flush(g);  /* screen fade last: it darkens the whole frame */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 
     id<MTLBuffer> shot = nil;

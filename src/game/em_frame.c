@@ -20,10 +20,10 @@
  *     dir); door commits use speed 4)    at the captured door speed 4); the
  *                                        engine's draw is a SUBTRACTIVE
  *                                        grey sprite (GS ALPHA Cd - Cs —
- *                                        decoded, em_frame.h); the native
- *                                        stand-in draws a black overlay
- *                                        rect with em_frame_fade_alpha()
- *                                        at close-out.
+ *                                        decoded, em_frame.h), drawn at
+ *                                        close-out as a grey reverse-
+ *                                        subtract overlay rect at the
+ *                                        level (em_gfx_overlay_rect_sub).
  *  E  func_001AB6A0 TASK DISPATCH        em_task_dispatch() — ALL game
  *                                        logic, exactly as on PS2.
  *  F  func_001FCA10 audio service        em_bgm_service() — em_audio is
@@ -145,20 +145,6 @@ void em_frame_fade_start(int dir, int speed)
 
 float em_frame_fade_level(void)  { return s_frame.fade_level; }
 int   em_frame_fade_active(void) { return s_frame.fade_dir != 0; }
-
-/* Black-quad stand-in alpha for the decoded SUBTRACTIVE fade (engine:
- * GS ALPHA_2 = 0xA1/FIX 0x80 -> out = max(0, pixel - level); see the
- * em_frame.h fade block for the full decode + the documented residual
- * gap). a(l) = 1 - (1-l)^2 matches the engine's mean-luminance fall
- * for a uniform histogram and keeps both endpoints exact. */
-float em_frame_fade_alpha(void)
-{
-    float l = s_frame.fade_level;
-    if (l <= 0.0f) return 0.0f;
-    if (l >= 1.0f) return 1.0f;
-    float inv = 1.0f - l;
-    return 1.0f - inv * inv;
-}
 
 /* Step D — one tick of the fade machine: the level ramps speed/256 per
  * frame toward the armed end (speed 4 = the captured 64-frame door

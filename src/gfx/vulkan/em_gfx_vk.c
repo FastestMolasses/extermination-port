@@ -18,3 +18,9 @@ void   em_gfx_destroy(EmGfx *gfx) { (void)gfx; }
 void   em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
 { (void)gfx; (void)r; (void)g; (void)b; (void)a; }
 void   em_gfx_end_frame(EmGfx *gfx) { (void)gfx; }
+/* Reverse-subtract overlay rect (the screen-fade blend, em_gfx.h) —
+ * Vulkan: VK_BLEND_OP_REVERSE_SUBTRACT with ONE/ONE on RGB, dst alpha
+ * kept, once the overlay pass exists here. */
+void   em_gfx_overlay_rect_sub(EmGfx *gfx, float x, float y, float w,
+                               float h, const float rgb[3])
+{ (void)gfx; (void)x; (void)y; (void)w; (void)h; (void)rgb; } /* TODO */

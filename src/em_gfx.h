@@ -150,6 +150,27 @@ void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h);
 void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
                          const float rgba[4]);
 
+/* Queue one REVERSE-SUBTRACT screen-space rectangle: every covered
+ * pixel becomes max(0, dst - rgb), saturating per channel; the source
+ * has no alpha (dst alpha is left untouched). The native translation of
+ * the engine's SCREEN-FADE sprite blend (GS ALPHA_2 = 0xA1 / FIX 0x80:
+ * Cv = (Cd - Cs)*128>>7 = Cd - Cs, saturating at 0 — decomp FINDINGS
+ * "SCREEN-FADE BLEND", decoded in em_frame.h): a GREY rect with
+ * r=g=b=level SUBTRACTS the level from the frame, so shadows crush to
+ * black early and highlights survive longest ("exposure pulled down"),
+ * NOT a black cover dissolving in. (x, y, w, h) in virtual-canvas
+ * units like em_gfx_overlay_rect; own EM_GFX_OVERLAY_SUB_MAX quad
+ * budget. Flushed LAST in the overlay sequence — after the untextured
+ * rects/arcs, the decor sprites AND the font glyphs: the engine's fade
+ * owns the whole GS frame, darkening the HUD with the scene. With
+ * nothing queued the draw does not run (frame output stays
+ * byte-identical to pre-subtract builds). The engine's mode-1 ADDITIVE
+ * variant (0x68: Cv = Cs + Cd, fade to white) has no port caller yet
+ * and is not exposed. */
+#define EM_GFX_OVERLAY_SUB_MAX 16
+void em_gfx_overlay_rect_sub(EmGfx *gfx, float x, float y, float w, float h,
+                             const float rgb[3]);
+
 /* Queue one ANNULAR-ARC segment (ring sector) — the native translation
  * of the engine's UI arc primitive func_002082B0, which consumes a
  * 0x60-byte block: center, start/end angle, inner/outer radius, and a
@@ -373,7 +394,9 @@ int em_gfx_last_skinned_bone(EmGfx *gfx, uint32_t bone, float out16[16]);
 
 /* End the frame: flush the queued world-space beams, then the overlay
  * (backdrop fill + backdrop quads, then untextured rects/arcs, then
- * decor sprites, then font glyphs), then present the swapchain image. */
+ * decor sprites, then font glyphs, then the reverse-subtract rects —
+ * the screen fade covers everything), then present the swapchain
+ * image. */
 void em_gfx_end_frame(EmGfx *gfx);
 
 /* Capture the NEXT completed frame to a 24-bit BMP at `path`. Returns

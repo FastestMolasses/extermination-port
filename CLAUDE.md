@@ -108,11 +108,11 @@ files map each native stage to the PS2 function it stands in for.
   fade machine D_0028A9A0 + scripted spad 3B8D, cleared at the re-place), so
   Triangle/Start works again about halfway through the walk-out. The FADE
   itself is decoded SUBTRACTIVE (GS ALPHA_2 0xA1: out = max(0, pixel -
-  level) — shadows crush first, "exposure pulled down"); the overlay pass
-  only has standard alpha blend, so the stand-in is a black quad with
-  alpha = 1-(1-level)^2 (mean-luminance match; exact parity needs a
-  reverse-subtract blend op in src/gfx — residual gap documented in
-  em_frame.h).
+  level) — shadows crush first, "exposure pulled down") and the overlay
+  pass carries that exact op: em_gfx_overlay_rect_sub (reverse-subtract,
+  ONE/ONE on RGB, dst alpha kept) draws a grey quad at the level — the
+  former black-quad alpha approximation and its residual gap are retired
+  (em_frame.h).
 - PLAYER LOCOMOTION is the engine's (s31 + s38 decodes): the stick magnitude
   runs the real gait quantizer (rings 48/88/122 -> turn-in-place / walk
   6 u/s / run 18 u/s; keyboard full push = RUN like PCSX2, Cmd = the walk
