@@ -5519,10 +5519,17 @@ static void slider_test_script(void)
  *                   side + 10 up; eye = target - 13 along the live
  *                   camera yaw 0 -> (-28.5, 12, -205)), player try
  *                   anim 0x44 (back), lock-fixture jiggle clip
- *   ~frame  83      the op-0x02 60-frame wait elapses: rattle 0x3F2
- *   ~frame 223      jiggle clip (200 f) ends: finish script restores
- *                   camera + control; door re-arms CLOSED — no fade,
- *                   no warp, player still on the near side
+ *   ~frame  83      the op-0x02 60-frame wait elapses: rattle 0x3F2 +
+ *                   the RADIO/EXAMINE message machine starts on GLOBAL
+ *                   line 6 "It's locked and won't open." (op09
+ *                   func_001BBAE0 — jtbl sel 0; em_hud_radio)
+ *   ~frame 202      the message's 118 display frames + the terminal
+ *                   record elapse — the machine reports done
+ *   ~frame 223      jiggle clip (200 f) ends (the locked script's op0B
+ *                   sub1 gate, AFTER the pumped VO native): finish
+ *                   script restores camera + control; door re-arms
+ *                   CLOSED — no fade, no warp, player still on the
+ *                   near side
  *   frame  255      em_door_unlock() — the panel/keycard event
  *   frame  260      CROSS again -> the gate passes: state OPENING,
  *                   open anim 0x43, 70-frame wait, commit, fade,
@@ -5534,6 +5541,7 @@ static void locked_test_script(void)
     static int   lt_door, lt_ok_refuse, lt_ok_lock, lt_ok_anim;
     static int   lt_ok_cam, lt_ok_rattle, lt_ok_shut, lt_ok_stay;
     static int   lt_ok_restore, lt_ok_retry, lt_ok_openanim, lt_ok_switch;
+    static int   lt_ok_radio_run, lt_ok_radio_done;
     static float lt_refuse_fade;
     int n = g.frame_no;
     if (n == 0) {
@@ -5541,6 +5549,7 @@ static void locked_test_script(void)
         lt_ok_refuse = lt_ok_lock = lt_ok_anim = lt_ok_cam = 0;
         lt_ok_rattle = lt_ok_shut = lt_ok_stay = lt_ok_restore = 0;
         lt_ok_retry = lt_ok_openanim = lt_ok_switch = 0;
+        lt_ok_radio_run = lt_ok_radio_done = 0;
         lt_refuse_fade = 0.0f;
     } else if (n == 3) {
         /* the test door = nearest instance to the m15 placement */
@@ -5582,8 +5591,11 @@ static void locked_test_script(void)
                    g.cam.eye[0], g.cam.eye[1], g.cam.eye[2],
                    g.cam.tgt[0], g.cam.tgt[1], g.cam.tgt[2]);
     } else if (n == 95) {
-        /* the 60-frame mark passed: exactly one rattle 0x3F2 */
-        lt_ok_rattle = em_door_rattles() == 1;
+        /* the 60-frame mark passed: exactly one rattle 0x3F2, and the
+         * radio/examine message machine is PRESENTING line 6 (the op09
+         * native started it on the same tick as the rattle) */
+        lt_ok_rattle    = em_door_rattles() == 1;
+        lt_ok_radio_run = em_hud_radio_active();
     } else if (n == 250) {
         /* refusal over: control restored, door CLOSED and re-armed,
          * NO fade ever ran, NO warp/switch — the player stands at the
@@ -5601,6 +5613,15 @@ static void locked_test_script(void)
         lt_ok_restore = !em_door_movement_locked() &&
                         !em_door_menu_locked() &&
                         em_game_anim_active() == 0;
+        /* the message machine completed its full presentation: no
+         * longer active, and the text record showed exactly 118
+         * frames (the GLOBAL table's line-6 duration) */
+        lt_ok_radio_done = !em_hud_radio_active() &&
+                           em_hud_radio_frames() == 118;
+        if (!lt_ok_radio_done)
+            printf("locked test: frame 250 radio active %d frames %d — "
+                   "expected done after 118\n",
+                   em_hud_radio_active(), em_hud_radio_frames());
         if (!lt_ok_stay)
             printf("locked test: frame 250 pos (%.3f, %.3f, %.3f) — "
                    "moved through a locked door\n",
@@ -5623,12 +5644,14 @@ static void locked_test_script(void)
                           !em_door_menu_locked();
         int ok_fade     = em_frame_fade_level() <= 0.001f;
         int ok = lt_ok_refuse && lt_ok_lock && lt_ok_anim && lt_ok_cam &&
-                 lt_ok_rattle && lt_ok_shut && lt_ok_stay &&
+                 lt_ok_rattle && lt_ok_radio_run && lt_ok_radio_done &&
+                 lt_ok_shut && lt_ok_stay &&
                  lt_ok_restore && lt_ok_retry && lt_ok_openanim &&
                  lt_ok_switch && ok_unlocked && ok_fade;
         printf("locked test: refusal->LOCKED_TRY %s, locks engaged %s, "
                "try anim 0x44 %s, locked-look cam %s, rattle 0x3F2 x1 "
-               "%s, door shut + no fade %s, pos held near side %s, "
+               "%s, radio line 6 presenting %s, radio done @118 f %s, "
+               "door shut + no fade %s, pos held near side %s, "
                "control restored %s, unlock+retry->OPENING %s, open "
                "anim 0x43 %s, goto switch to office0 %s, final "
                "unlocked %s fade %.3f %s — %s\n",
@@ -5637,6 +5660,8 @@ static void locked_test_script(void)
                lt_ok_anim ? "ok" : "FAILED",
                lt_ok_cam ? "ok" : "FAILED",
                lt_ok_rattle ? "ok" : "FAILED",
+               lt_ok_radio_run ? "ok" : "FAILED",
+               lt_ok_radio_done ? "ok" : "FAILED",
                lt_ok_shut ? "ok" : "FAILED",
                lt_ok_stay ? "ok" : "FAILED",
                lt_ok_restore ? "ok" : "FAILED",

@@ -200,7 +200,11 @@ typedef struct {
  *   NAME12_BLUE  small font, 12x16 cell, blue   — "DENNIS RILEY"
  *                (style 0x265538; the marker/name blue 0,96,206)
  *   PROFILE10    small font, 10x10 cell, gray   — profile bio rows
- *                (style 0x265530; gray 80,80,80) */
+ *                (style 0x265530; gray 80,80,80)
+ *   TALL_GRAY    tall font, 1:1 (h 20), gray    — radio/examine text
+ *                (the DEFAULT text color D_0026EC10[0] = 0x606060,
+ *                reset by func_001FC9B0; the slot-0x16 bank carries no
+ *                markup records, so the default is what shows) */
 typedef enum {
     EM_HUD_TEXT_LABEL12,
     EM_HUD_TEXT_NUM16,
@@ -208,7 +212,8 @@ typedef enum {
     EM_HUD_TEXT_TALL,
     EM_HUD_TEXT_TALL_DARKRED,
     EM_HUD_TEXT_NAME12_BLUE,
-    EM_HUD_TEXT_PROFILE10
+    EM_HUD_TEXT_PROFILE10,
+    EM_HUD_TEXT_TALL_GRAY
 } EmHudTextStyle;
 
 /* Draw `str` at (x, y) on the current overlay canvas in `style`, through
@@ -267,9 +272,57 @@ void em_hud_game_over(EmGfx *gfx, int frames);
  * line, tall font, centered low) for ~2.5 s of gameplay frames.
  * Hidden while the status screen is open; missing bank falls back to
  * "Found: ITEM <type>"; missing font queues nothing. Call _render once
- * per frame from the close-out (after em_hud_render). */
+ * per frame from the close-out (after em_hud_render). It is also the
+ * per-frame tick + draw hook of the RADIO/EXAMINE message machine
+ * below. */
 void em_hud_found_show(int item_type);
 void em_hud_found_render(EmGfx *gfx);
+
+/* RADIO/EXAMINE MESSAGE MACHINE — the engine's mode-2 message machine
+ * (D_002821B0 = 2; FINDINGS.md "RADIO-MESSAGE MACHINE DECODED",
+ * 2026-06-11): the locked-door "VO", station/corpse examine text and
+ * scripted radio subtitles all run through ONE global presenter.
+ * Decode verdict (full .s read of func_001FCA10/001FDB80/001FD790/
+ * 001FD950/001FE070/001FC7B0): there is NO typewriter — the line's
+ * FULL text renders every frame for the record's duration:
+ *
+ *   - text     = the GLOBAL examine bank, asset slot 0x16 (D_0028A4E8
+ *                = extract/chunk03/f14_id16.bin; bit-31 line words) —
+ *                exported as .emsg group 9 by tools/export_ui.py
+ *                --messages (decomp repo, run against the user's own
+ *                extract/);
+ *   - position = horizontally centered: x = 256 - max(line widths)/2
+ *                on the 512-wide UI canvas (func_001FD950 measures the
+ *                first TWO '\n' segments via func_001CC170); y = field
+ *                0xC2 (194) = canvas 388, '\n' step 24 canvas px;
+ *   - style    = the tall font in the DEFAULT text color 0x606060
+ *                (D_0026EC10[0], reset by func_001FC9B0) — 75% gray;
+ *   - sound    = NONE (every global record's voice cue is -1; no beep/
+ *                static exists anywhere in the machine or its
+ *                triggers) and NO panel/backdrop — bare text over the
+ *                scene;
+ *   - dismiss  = TIMER ONLY (no pad read in the machine): the record's
+ *                u16 duration (line 6 "It's locked and won't open." =
+ *                118 frames), then one bookkeeping frame on the
+ *                terminal empty-line record (dur 0, wait-stream 1) and
+ *                the machine reports done (D_002821B4 = 2).
+ *
+ * em_hud_radio(line) starts the machine on a GLOBAL bank line (a
+ * 0x8000000X line word's low bits). The duration table carries the
+ * decoded per-line values of the table at 0x272DF0 for the lines the
+ * port can reach; unlisted lines use the bank's common 148-frame value
+ * (FLAGGED default). The machine runs without assets (the timer
+ * semantics are engine truth; missing messages.emsg/font just draws
+ * nothing — no regression), so script sequencing (em_door blocks its
+ * locked finish on it, like the engine's pumped op09 native) is
+ * asset-independent.
+ *
+ * em_hud_radio_active() = machine still presenting (the engine's
+ * D_002821B4 == 1); em_hud_radio_frames() = display frames of the LAST
+ * message's text record (EM_LOCKED_TEST asserts 118 for line 6). */
+void em_hud_radio(int line_id);
+int  em_hud_radio_active(void);
+int  em_hud_radio_frames(void);
 
 /* Is the status screen currently shown? (toggle state OR EM_HUD_FORCE) */
 int em_hud_visible(void);

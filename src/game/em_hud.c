@@ -730,6 +730,9 @@ static const struct {
     [EM_HUD_TEXT_PROFILE10]    = { FONT_SMALL, 10.0f, 10.0f,
                                    { 80.0f / 128.0f, 80.0f / 128.0f,
                                      80.0f / 128.0f, 1.0f } },
+    [EM_HUD_TEXT_TALL_GRAY]    = { FONT_TALL,  0.0f, 20.0f,
+                                   { 96.0f / 128.0f, 96.0f / 128.0f,
+                                     96.0f / 128.0f, 1.0f } },
 };
 
 /* Engine glyph rule: index = ascii - 0x20; '$' remaps to the extended
@@ -1564,8 +1567,122 @@ void em_hud_found_show(int item_type)
     s_found_timer = FOUND_FRAMES;
 }
 
+/* --- RADIO/EXAMINE MESSAGE MACHINE (engine mode 2 — em_hud.h) --------
+ *
+ * The engine machine (struct at D_002821B0, ticked by func_001FCA10
+ * mode 2 -> func_001FDB80 -> func_001FD950): each frame increments the
+ * frame counter, draws the line's FULL text (no per-char reveal exists
+ * anywhere in the chain — func_001FE070/func_001FC7B0 render the whole
+ * string), and decrements the record duration; when it expires, the
+ * record index advances to the terminal record (dur 0, wait-stream 1)
+ * whose bank line is the next — EMPTY — line, func_001FD950 finishes
+ * it in one bookkeeping frame, and the machine posts done
+ * (D_002821B4 = 2). Per-record flag-mailbox writes (D_008106D4[idx])
+ * exist for script handshakes, but every GLOBAL record's flag byte is
+ * 0xFF (none) — not modeled. */
+
+/* Decoded per-line durations — the GLOBAL record table D_00264DD0[0] =
+ * 0x272DF0 (8-byte records {u16 dur, s16 voice_cue, u8 flag_idx, u8
+ * wait_stream}, read from the user's local ELF): lines 0/2/4/8/0xE =
+ * 148 frames, 6/0xA/0xC = 118. All six jtbl_0026E1A0 locked-door lines
+ * are covered (sel 0..5 -> lines 6/0/2/8/0xA/4); every decoded cue is
+ * -1 = silent. Lines past the decoded prefix use the table's common
+ * 148 (FLAGGED default). */
+static int radio_duration(int line)
+{
+    switch (line) {
+    case 0x6: case 0xA: case 0xC: return 118;
+    default:                      return 148;
+    }
+}
+
+#define RADIO_GROUP 9       /* the slot-0x16 bank rides messages.emsg as
+                             * group 9 (tools/export_ui.py --messages) */
+#define RADIO_Y     388.0f  /* field 0xC2 = canvas y 388 (func_001FD950) */
+
+static struct {
+    int active;     /* the engine's D_002821B4 == 1 window */
+    int line;       /* GLOBAL bank line (bit-31 word low bits) */
+    int left;       /* frames left on the text record (+0x6C) */
+    int shown;      /* text-record display frames so far (+0x68) */
+    int total;      /* last completed message's display frames */
+} s_radio;
+
+void em_hud_radio(int line_id)
+{
+    s_radio.active = 1;
+    s_radio.line   = line_id;
+    s_radio.left   = radio_duration(line_id);
+    s_radio.shown  = 0;
+    printf("hud: radio/examine message line %d (%d frames)\n",
+           line_id, s_radio.left);
+}
+
+int em_hud_radio_active(void)
+{
+    return s_radio.active;
+}
+
+int em_hud_radio_frames(void)
+{
+    return s_radio.active ? s_radio.shown : s_radio.total;
+}
+
+/* One machine tick + draw (called every gameplay frame from
+ * em_hud_found_render — the close-out's transient-text hook). The
+ * TIMER always runs (engine truth — em_door's locked finish blocks on
+ * it like the pumped op09 native); the draw needs the bank + font and
+ * skips while the status screen owns the display. */
+static void radio_tick_render(EmGfx *gfx)
+{
+    if (!s_radio.active) return;
+    if (s_radio.left <= 0) {
+        /* terminal record: dur 0, wait-stream 1 — the stream flags
+         * (D_00282155/156) are idle for text-only lines, so one
+         * bookkeeping frame and the machine reports done */
+        s_radio.active = 0;
+        s_radio.total  = s_radio.shown;
+        return;
+    }
+    s_radio.left--;
+    s_radio.shown++;
+    if (!gfx || em_hud_visible()) return;   /* timer ran; no draw */
+    const char *str = msg_line(RADIO_GROUP, (uint32_t)s_radio.line);
+    if (!str || !str[0] || !em_hud_font_ready()) return;
+
+    /* centering (func_001FD950): measure the first TWO '\n' segments
+     * (func_001CC170) and center the WIDER one on the 512-px canvas —
+     * x = 256 - max(w0, w1)/2; every line draws at the same x. */
+    float wmax = 0.0f;
+    {
+        const char *p = str;
+        for (int i = 0; i < 2; i++) {
+            char  seg[96];
+            size_t n = 0;
+            while (p[n] && p[n] != '\n' && n < sizeof seg - 1) {
+                seg[n] = p[n];
+                n++;
+            }
+            seg[n] = '\0';
+            float w = em_hud_text_width(seg, EM_HUD_TEXT_TALL_GRAY);
+            if (w > wmax) wmax = w;
+            while (p[n] && p[n] != '\n') n++;
+            if (!p[n]) break;
+            p += n + 1;
+        }
+    }
+    em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
+    msg_text(gfx, 256.0f - wmax * 0.5f, RADIO_Y, str,
+             EM_HUD_TEXT_TALL_GRAY);
+    em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+}
+
 void em_hud_found_render(EmGfx *gfx)
 {
+    /* the mode-2 radio/examine machine pumps every frame, found line
+     * or not (this function is the close-out's per-frame text hook) */
+    radio_tick_render(gfx);
+
     if (s_found_timer <= 0 || !gfx) return;
     if (em_hud_visible()) return;        /* the menu owns the screen */
     s_found_timer--;

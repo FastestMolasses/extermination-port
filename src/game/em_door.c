@@ -13,8 +13,9 @@
  *   1 LOCKED   the LOCKED TRY script D_0024DEC0 (em_door.h "THE LOCKED
  *              SEQUENCE"): locked-look camera cut, player try anim
  *              0x46/0x44, lock-fixture jiggle clip 3/1, rattle 0x3F2 at
- *              the 60-frame mark (+ the text-only VO slot), wait clip
- *              end -> 2. No fade, no warp — the door stays shut.
+ *              the 60-frame mark + the radio/examine message line 6
+ *              (em_hud_radio, 118 f), wait message done + clip end
+ *              -> 2. No fade, no warp — the door stays shut.
  *   2 LOCKED'  finish script D_0024DBC0 ran (op07 sub4: camera +
  *              control restored at the 1->2 edge) -> re-arm, 0.
  *   3 OPENING  walk-to arrival, then the OPEN script D_0024DE40
@@ -60,6 +61,7 @@
 #include "em_input.h"   /* EM_PAD_CROSS — the frame input button mask */
 #include "em_model.h"
 #include "game/em_game.h"   /* scripted player anim (op 0x0A sub 0) */
+#include "game/em_hud.h"    /* em_hud_radio — the locked "VO" text */
 #include "game/em_sfx.h"
 
 #define DOOR_MAX        EM_DOOR_MAX
@@ -184,13 +186,23 @@
  *  - the op 0x02 wait before the rattle record: 60 frames (the fixture
  *    motion peaks f60-110 — the sound lands on the shake).
  *  - locked rattle sound id 0x3F2 (op 0x17 sub 0; em_sfx.h).
- *  - locked "VO": a TEXT-ONLY radio message in the engine (voice-cue
- *    field -1 — the gen_sfx_registry.py decode); the optional
- *    scene.txt `lockedvo <id-hex>` line plays here if a real cue ever
- *    resolves, else silence (the radio text machine is not ported).
- *  - sliders' locked script D_0024DA40 = camera + wait 40 + VO only
- *    (s56) — no exported locked slider exists; the port approximates
- *    with the hinged flow minus anim/clip/rattle (FLAGGED). */
+ *  - locked "VO" = the RADIO/EXAMINE MESSAGE machine (em_hud_radio;
+ *    FINDINGS "RADIO-MESSAGE MACHINE DECODED" 2026-06-11): the op09
+ *    native func_001BBAE0 starts engine mode 2 on the GLOBAL line
+ *    selected by the door LINK's low 6 bits via jtbl_0026E1A0 (sel
+ *    0..5 -> lines 6/0/2/8/0xA/4). BOTH shipped lock-gated doors
+ *    (office0/drawbridge m15, links 0x0200) carry sel 0 -> line 6
+ *    "It's locked and won't open." (118 frames, centered text, no
+ *    audio). The native is PUMPED until the message machine reports
+ *    done, so the locked script cannot finish before the text clears
+ *    — the port blocks its finish edge on em_hud_radio_active() the
+ *    same way. The voice-cue field of every global record is -1; the
+ *    optional scene.txt `lockedvo <id-hex>` audio slot stays honored
+ *    if the registry ever resolves a real cue (none do).
+ *  - sliders' locked script D_0024DA40 = camera + wait 40 + the SAME
+ *    VO native + exit (s56) — no exported locked slider exists; the
+ *    port approximates with the hinged flow minus anim/clip/rattle
+ *    (FLAGGED), with the real wait-40 + message-duration timing. */
 #define DOOR_ANIM_LOCK_FRONT  0x46
 #define DOOR_ANIM_LOCK_BACK   0x44
 #define DOOR_CLIP_OPEN_FRONT  2      /* engine clip ids (op 0x0B sub 6) */
@@ -200,6 +212,10 @@
 #define DOOR_LOCK_RATTLE_AT   60.0f  /* the op 0x02 wait before 0x3F2 */
 #define DOOR_LOCK_SLIDER_WAIT 40.0f  /* D_0024DA40's op 0x02 wait */
 #define DOOR_VO_KEYWORD       "lockedvo"
+#define DOOR_RADIO_LINE       6      /* jtbl_0026E1A0 sel 0 (link low 6
+                                      * bits = 0 on both shipped locked
+                                      * doors) -> GLOBAL examine line 6,
+                                      * "It's locked and won't open." */
 
 /* Door SOUND pair — FINDINGS "DOOR SCRIPTS DECODED" s23: the open
  * script's op 0x0B sub 6 record is patched by func_001BBD60 with
@@ -962,10 +978,11 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
             d->phase_t += 1.0f;
             if (!d->slider && d->clip_t < door_clip_total(d))
                 d->clip_t += 1.0f;
-            /* op 0x02 wait 60 -> op 0x17 rattle 0x3F2 -> op 0x09 VO
-             * (text-only in the engine; the optional lockedvo id plays
-             * if the registry ever resolves one). Sliders skip both
-             * (D_0024DA40 has no rattle record) and only wait 40. */
+            /* op 0x02 wait 60 -> op 0x17 rattle 0x3F2 -> op 0x09 VO =
+             * the RADIO/EXAMINE message machine, line 6 (em_hud_radio;
+             * text-only — the optional lockedvo audio id also plays if
+             * the registry ever resolves one). Sliders skip the rattle
+             * (D_0024DA40 has no sound record), wait 40, same VO. */
             if (!d->lk_fired &&
                 d->phase_t >= (d->slider ? DOOR_LOCK_SLIDER_WAIT
                                          : DOOR_LOCK_RATTLE_AT)) {
@@ -976,15 +993,20 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                     em_sfx_play_at(EM_SFX_DOOR_RATTLE, d->pos, 300.0f);
                     s.rattles++;
                 }
+                em_hud_radio(DOOR_RADIO_LINE);  /* op09 func_001BBAE0 */
                 if (s.vo_real)
                     em_sfx_play(s.vo_id);   /* radio voice: center */
             }
-            /* op 0x0B sub 1: wait door clip end (200 f — past the VO),
-             * then sub 1 queues the FINISH script D_0024DBC0 (op07
-             * sub4 EXIT: restore camera + control). Sliders end at
-             * their 40-frame wait + a beat for the VO stand-in. */
-            if (d->slider ? (d->phase_t >= DOOR_LOCK_SLIDER_WAIT + 30.0f)
-                          : (d->clip_t >= door_clip_total(d))) {
+            /* The op09 VO native is PUMPED until the message machine
+             * reports done (func_001BBAE0 phase 1 polls D_002821B4 ==
+             * 2), THEN op 0x0B sub 1 waits door clip end (200 f from
+             * kickoff — normally past the message, which clears at
+             * ~60+119), then sub 1 queues the FINISH script D_0024DBC0
+             * (op07 sub4 EXIT: restore camera + control). Sliders have
+             * no clip — their script ends right when the VO native
+             * does (wait 40 + the message duration). */
+            if (d->lk_fired && !em_hud_radio_active() &&
+                (d->slider || d->clip_t >= door_clip_total(d))) {
                 d->state    = EM_DOOR_LOCKED_END;
                 d->lk_look  = 0;        /* camera restore (op07 sub4) */
                 s.lock_move = 0;        /* control returns             */
