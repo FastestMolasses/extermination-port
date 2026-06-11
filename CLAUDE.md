@@ -366,3 +366,8 @@ files map each native stage to the PS2 function it stands in for.
 - macOS / Linux: `make` then `make run`. No external tools beyond the
   platform compiler + system frameworks.
 - Windows: MSVC/clang-cl project (added when the D3D12 backend lands).
+
+## Test harness note (recurring agent confusion)
+EM_SLIDER_TEST and EM_LOCKED_TEST REQUIRE `EM_SCENE=assets/scene_drawbridge`
+(their door fixtures live there). Run bare they exit with no verdict — that
+is NOT a failure. Verified passing at merged HEAD 2026-06-11.
