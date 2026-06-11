@@ -587,7 +587,9 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     rp.colorAttachments[0].texture     = g->drawable.texture;
     rp.colorAttachments[0].loadAction  = MTLLoadActionClear;
     rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-    rp.colorAttachments[0].clearColor  = MTLClearColorMake(r, gr, b, a);
+    /* The whole drawable clears to BLACK: anything outside the 4:3 game
+     * frame below stays black (the letterbox/pillarbox bars). */
+    rp.colorAttachments[0].clearColor  = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
     rp.depthAttachment.texture     = g->depthTex;
     rp.depthAttachment.loadAction  = MTLLoadActionClear;
     rp.depthAttachment.storeAction = MTLStoreActionDontCare;
@@ -595,6 +597,57 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
 
     /* Keep the encoder open so draw calls can run between begin and end. */
     g->enc = [[g->cmd renderCommandEncoderWithDescriptor:rp] retain];
+
+    /* GAME FRAME = the largest centered 4:3 rect of the drawable (the
+     * PS2 renders a 512x448 frame displayed at 4:3; PCSX2 presents the
+     * same letterboxed/pillarboxed 4:3 frame). Viewport + scissor apply
+     * to EVERY draw of the frame — the engine projection's baked 4:3
+     * aspect (em_mat4_perspective_gs), the s49-pinned UI projection and
+     * the overlay's virtual canvases all map NDC onto this rect, so a
+     * non-4:3 window letterboxes instead of stretching the image. */
+    if (g->enc) {
+        double dw = (double)g->drawable.texture.width;
+        double dh = (double)g->drawable.texture.height;
+        double vw = dw, vh = dh, vx = 0.0, vy = 0.0;
+        if (dw * 3.0 >= dh * 4.0) {            /* wide: pillarbox */
+            vw = dh * 4.0 / 3.0;  vx = (dw - vw) * 0.5;
+        } else {                               /* tall: letterbox */
+            vh = dw * 3.0 / 4.0;  vy = (dh - vh) * 0.5;
+        }
+        [g->enc setViewport:(MTLViewport){ vx, vy, vw, vh, 0.0, 1.0 }];
+        [g->enc setScissorRect:(MTLScissorRect){
+            (NSUInteger)vx, (NSUInteger)vy,
+            (NSUInteger)vw, (NSUInteger)vh }];
+
+        /* Fill the game frame with the requested clear color (the bars
+         * keep the pass's black clear): one full-NDC quad through the
+         * overlay pipeline, depth off — the in-frame equivalent of the
+         * old whole-drawable clear. */
+        if (!g->testPipeline)
+            g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
+                                             @"f_main", EM_BLEND_ALPHA);
+        if (g->testPipeline) {
+            ensure_depth_states(g);
+            float v[6 * 8];
+            static const float corner[6][2] = {
+                { -1.0f,  1.0f }, { 1.0f,  1.0f }, { -1.0f, -1.0f },
+                {  1.0f,  1.0f }, { 1.0f, -1.0f }, { -1.0f, -1.0f },
+            };
+            for (int i = 0; i < 6; i++) {
+                float *o = v + i * 8;
+                o[0] = corner[i][0]; o[1] = corner[i][1];
+                o[2] = 0.0f;         o[3] = 1.0f;
+                o[4] = r; o[5] = gr; o[6] = b; o[7] = a;
+            }
+            [g->enc setRenderPipelineState:g->testPipeline];
+            [g->enc setDepthStencilState:g->depthOff];
+            [g->enc setCullMode:MTLCullModeNone];
+            [g->enc setVertexBytes:v length:sizeof(v) atIndex:0];
+            [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                       vertexStart:0
+                       vertexCount:6];
+        }
+    }
 }
 
 void em_gfx_draw_test_triangle(EmGfx *g)

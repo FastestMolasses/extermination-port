@@ -358,8 +358,9 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * placement. The UI projection is PINNED by the x-anchor: 7.4 units
  * at z 40 = the ring-center column (canvas 208) iff tan(fovy/2) =
  * 0.74 at the GS 4:3 frame (UI_PROJ_TANY; see ui_scene_render — the
- * projection stays 4:3-locked and stretches with the window exactly
- * like the overlay canvas). The additive engine tint is approximated
+ * projection stays 4:3-locked and maps to the letterboxed 4:3 game
+ * frame exactly like the overlay canvas). The additive engine tint is
+ * approximated
  * multiplicatively over the GS 128 base: rgb_mul = (128 + delta)/128.
  * The rig is orbited to the gfx stand-in light's azimuth (relative
  * camera<->player transform unchanged) so the camera-facing side is
@@ -702,19 +703,31 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define LOCKCAM_EYE_BACK   13.0f
 #define LOCKCAM_EYE_UP     12.0f  /* door.y + 12 */
 
-/* Engine projection (FINDINGS.md "CAMERA SYSTEM" section 3) — recorded
- * for eventual native adoption; rendering still goes through
- * em_mat4_perspective below. TODO(projection): adopt the s = 480 zoom
- * model. P rows: (0.8s,0,0,0) (0,0.5s,0,0) (2048,2048,0.8996,1)
- * (0,0,1677721.5,0) -> screen x = 0.8s*x/z + 2048, y = 0.5s*y/z + 2048
- * (GS center 2048, screen y down), z = 0.8996*z + 1677721.5 (24-bit GS
- * Z), w_clip = z_view. Native remap: tan(half-hfov) = half_w_gs/(0.8s).
- * Zoom is fixed 480 except the scope camera (s = 224/x, func_001D25F0)
- * and scripted zoom lerps (func_001D2590). */
+/* Engine projection — ADOPTED (2026-06-11; the old TODO(projection) is
+ * closed). The world renders through em_mat4_perspective_gs (em_math.h
+ * — the full derivation lives there): the engine's per-frame P from
+ * zoom s (render-ctx +0x2468, FINDINGS.md "CAMERA SYSTEM" section 3),
+ * GS rows (0.8s,0,0,0) (0,0.5s,0,0) (2048,2048,bz,1) (0,0,az,0) mapped
+ * exactly to the native 4:3 frame: tan(hfov/2) = 320/s, tan(vfov/2) =
+ * 224/s (67.38 x 50.03 deg at s = 480 — the 10/7 tan ratio is the
+ * 512x448->4:3 pixel-aspect anisotropy, reproduced); near/far are the
+ * bit-exact decode of the Z-row literals: NEAR 0.1, FAR 16711680
+ * (0xFF0000 — az = 0.1*(2^24-1), bz = 1 - az/far; the same far the
+ * engine passes its parameterized builder func_001D2D20). The gfx
+ * backend letterboxes the window to 4:3 (em_gfx_begin_frame), so the
+ * baked aspect is the displayed aspect at any window size.
+ *
+ * Zoom s lives on the camera (EmCamera.zoom, the native ctx+0x2468):
+ * default 480 (func_001D25F0 — every static caller passes 0x43F00000);
+ * the scope camera (top_mode 3, func_0022EEF0) sets s = 224/tan(half-
+ * vfov) ("224.0/x") and scripted lerps animate it (func_001D2590) —
+ * both write the same field when they land.
+ *
+ * Truth check (EM_PROJ_TEST=1, proj_test_run below): with the state01
+ * savestate's live camera this chain reproduces the engine's own
+ * K = P*V screen positions to < 0.01 px on the PCSX2 frame. */
 #define ENGINE_CAM_ZOOM_S      480.0f      /* render-ctx +0x2468 default */
-#define ENGINE_CAM_PROJ_ZSCALE 0.8996f     /* GS-Z row scale */
-#define ENGINE_CAM_PROJ_ZOFFS  1677721.5f  /* GS-Z row offset */
-#define ENGINE_CAM_GS_CENTER   2048.0f     /* GS screen-center offset */
+#define ENGINE_CAM_ZOOM_SCOPE  224.0f      /* scope cam: s = 224/tan(v/2) */
 
 /* Task user-byte indices — mirror the live slot-0 record (state bytes
  * observed at record +8 / +9 / +0xB, i.e. user[0] / user[1] / user[3]). */
@@ -761,6 +774,12 @@ typedef struct {
                              camera_mode_dispatch for the TODO list */
     uint8_t  hit;         /* +0x07: follow-solver result byte */
     uint16_t timer;       /* +0x08: mode timer */
+    float    zoom;        /* render-ctx +0x2468 zoom s — the projection
+                             scale (em_mat4_perspective_gs): default 480
+                             (ENGINE_CAM_ZOOM_S, set at camera init);
+                             the scope camera writes 224/tan(half-vfov)
+                             and scripted lerps animate it (engine
+                             func_001D25F0 / func_001D2590) */
     float    eye_des[3];  /* +0x10: desired EYE (world) */
     float    tgt_des[3];  /* +0x20: desired TARGET (world) */
     float    yaw;         /* +0x44: eye->target heading; the R1/L1
@@ -3181,8 +3200,11 @@ static void camera_solve(EmCamera *cam)
  *   3. func_00102CD0 look-at with up = D_008105F0 = (0,-1,0) — see
  *      em_mat4_lookat_gs for the Y-down/handedness reconciliation;
  *   4. P from zoom s, K = P*V -> every draw's matrix slot 0 (M = K*W).
- * Step 4's projection here is still the port's em_mat4_perspective; the
- * engine's GS values are pinned in the ENGINE_CAM_* constants above. */
+ * Step 4 is the ENGINE projection (em_mat4_perspective_gs from the
+ * camera's zoom field — see the "Engine projection" block above): the
+ * old port 50-deg-at-window-aspect perspective with invented 0.5/500-800
+ * clip planes is retired. The matrix bakes the 4:3 frame; the gfx
+ * letterbox keeps that the displayed aspect at any window size. */
 static void camera_commit(EmCamera *cam)
 {
     float dx  = cam->tgt[0] - cam->eye[0];
@@ -3200,15 +3222,87 @@ static void camera_commit(EmCamera *cam)
                      cam->eye[2] + CAM_NEAR_PUSH * cam->fwd[2] };
     em_mat4_lookat_gs(cam->view, pos, cam->fwd, cam->up);
 
-    int dw, dh;
-    em_window_drawable_size(em_frame_window(), &dw, &dh);
-    float aspect   = (dh > 0) ? (float)dw / (float)dh : 4.0f / 3.0f;
-    float far_clip = g.n_scene ? 800.0f : 500.0f;
-
     float proj[16];
-    em_mat4_perspective(proj, 50.0f * EM_PI / 180.0f, aspect,
-                        0.5f, far_clip);
+    em_mat4_perspective_gs(proj,
+                           cam->zoom > 0.0f ? cam->zoom
+                                            : ENGINE_CAM_ZOOM_S);
     em_mat4_mul(g.viewproj, proj, cam->view);
+
+    /* EM_PROJ_TEST=1 — ENGINE-PROJECTION TRUTH TEST (one-shot, quits).
+     * Ground truth = the state01 PCSX2 savestate (decomp repo
+     * scratch/state01): its EE RAM carries the engine's own composed
+     * camera matrix K = P*V (render-ctx +0x23C0) AND the camera inputs
+     * (eye D_008105D0, target D_008105E0, zoom 480), and its screenshot
+     * is the rendered frame for exactly that state. The expected pixels
+     * below were produced by projecting world points through THAT K and
+     * mapping GS->frame (x: [1792,2304]->640, y: [1936,2160] field
+     * ->480); the player-root expectation (320.0, 441.1) was visually
+     * confirmed to land between the player's boots in the screenshot.
+     * The check: run the savestate's eye/target/zoom through the PORT
+     * chain — engine commit semantics (fwd, eye + 4*fwd near push,
+     * em_mat4_lookat_gs) + em_mat4_perspective_gs + the 4:3 viewport
+     * mapping — and require the same pixels to 0.05 px. This pins the
+     * whole native remap (axis flips included, via the off-center
+     * points) to the engine's arithmetic, not to a formula re-derivation. */
+    {
+        static int pt = -1;
+        if (pt < 0) pt = getenv("EM_PROJ_TEST") != NULL;
+        if (pt == 1) {
+            pt = 2;
+            static const float t_eye[3] =
+                { 251.2506561f, 248.8504944f, 170.2859192f };
+            static const float t_tgt[3] =
+                { 218.5923157f, 246.4232635f, 201.7888184f };
+            static const float t_root[3] =
+                { 218.5923004f, 229.8504486f, 201.7888641f };
+            /* world point -> expected 640x480 frame pixel (engine K) */
+            static const float t_pt[5][5] = {
+                {   0.0f, 0.0f, 0.0f, 319.9994f, 441.0799f },  /* root  */
+                {   5.0f, 0.0f, 0.0f, 276.9809f, 462.2875f },  /* +5x   */
+                {   0.0f, 0.0f, 5.0f, 282.2786f, 423.7764f },  /* +5z   */
+                {   0.0f, 8.0f, 0.0f, 319.9994f, 345.0756f },  /* +8y   */
+                { -18.5923004f, 5.1495514f, 28.2111359f,
+                    272.6450f, 306.1691f },                    /* off   */
+            };
+            float fw[3] = { t_tgt[0] - t_eye[0], t_tgt[1] - t_eye[1],
+                            t_tgt[2] - t_eye[2] };
+            float fl = sqrtf(fw[0]*fw[0] + fw[1]*fw[1] + fw[2]*fw[2]);
+            fw[0] /= fl; fw[1] /= fl; fw[2] /= fl;
+            float tp[3] = { t_eye[0] + CAM_NEAR_PUSH * fw[0],
+                            t_eye[1] + CAM_NEAR_PUSH * fw[1],
+                            t_eye[2] + CAM_NEAR_PUSH * fw[2] };
+            float tup[3] = { 0.0f, -1.0f, 0.0f };
+            float tv[16], tpr[16], tk[16];
+            em_mat4_lookat_gs(tv, tp, fw, tup);
+            em_mat4_perspective_gs(tpr, ENGINE_CAM_ZOOM_S);
+            em_mat4_mul(tk, tpr, tv);
+            int fails = 0;
+            for (int i = 0; i < 5; i++) {
+                float p[4] = { t_root[0] + t_pt[i][0],
+                               t_root[1] + t_pt[i][1],
+                               t_root[2] + t_pt[i][2], 1.0f };
+                float c[4];
+                for (int r = 0; r < 4; r++)
+                    c[r] = tk[0+r]*p[0] + tk[4+r]*p[1] +
+                           tk[8+r]*p[2] + tk[12+r];
+                float px = (1.0f + c[0]/c[3]) * 0.5f * 640.0f;
+                float py = (1.0f - c[1]/c[3]) * 0.5f * 480.0f;
+                float d  = c[2] / c[3];
+                int ok = fabsf(px - t_pt[i][3]) <= 0.05f &&
+                         fabsf(py - t_pt[i][4]) <= 0.05f &&
+                         d > 0.0f && d < 1.0f;
+                if (!ok) fails++;
+                printf("proj test: pt%d port (%8.4f, %8.4f) d %.6f — "
+                       "engine (%8.4f, %8.4f): %s\n", i, px, py, d,
+                       t_pt[i][3], t_pt[i][4], ok ? "ok" : "FAILED");
+            }
+            printf("proj test: engine s=480 projection vs state01 "
+                   "K=P*V (5 pts, 0.05 px): %s\n",
+                   fails ? "FAIL" : "PASS");
+            fflush(stdout);
+            em_frame_request_quit();
+        }
+    }
 }
 
 /* DOOR-TRANSIT CINEMATIC CAMERA — DECODED + LIVE-VERIFIED (the "DOOR
@@ -3365,6 +3459,10 @@ static void camera_update(void)
         cam->table_sel = 1;      /* smooth dispatch table */
         cam->mode      = 0;      /* engine inits mode 8 — TODO(camera-modes) */
         cam->aim_h     = CAM_AIM_OFFSET;
+        cam->zoom      = ENGINE_CAM_ZOOM_S;  /* ctx+0x2468 default 480
+                                              * (func_001D25F0; scope =
+                                              * 224/tan(vfov/2) when the
+                                              * top_mode-3 camera lands) */
         cam->tgt_des[0] = g.pos[0];
         cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
         cam->tgt_des[2] = g.pos[2];
@@ -3548,10 +3646,18 @@ static void ui_scene_render(EmGfx *gfx)
      * center (canvas x 208, NDC -0.1875) iff the projection's x scale
      * is 0.1875*40/7.4 = 1.01351, i.e. tan(fovy/2) = 0.74 at the GS
      * 4:3 frame (~73 deg vertical). LOCKED at 4:3 regardless of the
-     * drawable: the engine renders a 4:3 frame and the whole output
-     * stretches to the window — exactly how the overlay's 512x448
-     * canvas already maps, keeping the 3D scene and the panel anchors
-     * registered at any window size. */
+     * window: since the engine-projection adoption the gfx backend
+     * letterboxes every draw to the centered 4:3 game frame
+     * (em_gfx_begin_frame), the same region the overlay's 512x448
+     * canvas maps — 3D scene and panel anchors stay registered at any
+     * window size, now without distortion. NOTE (honest open item):
+     * this projection is the s49 EMPIRICAL pin, kept as-is; under the
+     * engine's s-zoom model the same x-anchor would imply a menu zoom
+     * s = 0.1875*40/7.4*320 = 324.3 with tan(vfov/2) = 224/324.3 =
+     * 0.691, ~7% tighter vertically than the 0.74 pin (the pin assumed
+     * the square-pixel 4/3 fx/fy ratio the engine P does not have).
+     * Which is right needs a status-screen zoom read (ctx+0x2468 with
+     * the menu open) — until then the pinned look stands. */
     em_mat4_perspective(proj, 2.0f * atanf(UI_PROJ_TANY), 4.0f / 3.0f,
                         0.5f, 500.0f);
     em_mat4_mul(vp, proj, view);

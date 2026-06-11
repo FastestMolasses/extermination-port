@@ -43,6 +43,78 @@ static inline void em_mat4_perspective(float *m, float fovy_rad, float aspect,
     m[14] = (znear * zfar) / (znear - zfar);
 }
 
+/* --- THE ENGINE'S WORLD PROJECTION, derived exactly (2026-06-11) -------
+ *
+ * The engine builds one projection P per frame from the zoom scalar s
+ * (render-ctx +0x2468, default 480.0; decomp func_001D2960 — FINDINGS.md
+ * "CAMERA SYSTEM" section 3). Stored GS rows:
+ *
+ *     (0.8s, 0, 0, 0) (0, 0.5s, 0, 0) (2048, 2048, bz, 1) (0, 0, az, 0)
+ *
+ * with the Z-row literals bz = 0x3F664CB3, az = 0x49CCCCCC = 1677721.5.
+ * After the VU1 per-vertex divide by w_clip = z_view:
+ *
+ *     x_gs = 0.8s*x/z + 2048      y_gs = 0.5s*y/z + 2048
+ *     z_gs = bz + az/z            (reversed hyperbolic, 24-bit GS Z)
+ *
+ * X/Y scale: the GS raster window is 512x448 displayed at 4:3, drawn in
+ * interlaced FIELD space — x spans [1792, 2304] (512 px, half-width 256)
+ * and y spans [1936, 2160] (224 field lines = 448 display lines,
+ * half-height 112); both centers are the P's 2048 offsets (the UI
+ * module's decoded GS offsets 0x700/0x790 pin the window). So in
+ * normalized device coordinates of the 4:3 frame:
+ *
+ *     ndc_x = (0.8s/256)*(x/z) = (s/320)*(x/z)   tan(hfov/2) = 320/s
+ *     ndc_y = (0.5s/112)*(y/z) = (s/224)*(y/z)   tan(vfov/2) = 224/s
+ *
+ * At s = 480: hfov 67.38 deg, vfov 50.03 deg. The tan ratio is 10/7,
+ * not the square-pixel 4/3 — the 0.8/0.5 anisotropy bakes the 512x448
+ * -> 4:3 pixel aspect and leaves a real ~7% horizontal angular squeeze
+ * (a sphere renders ~93% as wide as tall on the original display).
+ * That is the engine's image; it is REPRODUCED here, not corrected.
+ * Scope camera: the engine sets s = 224/tan(half-vfov) (func_001D25F0
+ * family, 224.0/x) — the same 224 half-height constant.
+ *
+ * Z row: bit-exact decode of the literals. az = 1677721.5 =
+ * 0.1*(2^24 - 1) exactly, and bz = f32(1 - az/16711680) = 0x3F664CB3
+ * exactly — i.e. z_gs(0.1) = 2^24 - 1 (the 24-bit max) and
+ * z_gs(16711680) = 1.0. The far value 16711680 (0xFF0000) is also the
+ * literal the engine passes to its parameterized sibling builder
+ * func_001D2D20(zoom, w, h, near, far) for the level kernel's variant
+ * P. So the engine's clip planes are NEAR = 0.1, FAR = 16711680 — the
+ * far plane is effectively infinite (fog and the cull planes bound the
+ * scene long before; the old port values 0.5/500-800 clipped both ends
+ * visibly). Verified live: state01 ee.bin has z_gs 39638.7 at z_view
+ * 42.33 = bz + az/z to float precision (the GS Z IS divided by w).
+ *
+ * The native equivalent below keeps the exact clip planes and the
+ * hyperbolic depth family ([0,1], near -> 0: the GS's reversed
+ * orientation is a depth-ENCODING choice, invisible in the image —
+ * ordering is identical). Truth check: with state01's camera this
+ * matrix reproduces the engine K = P*V screen positions to < 0.01 px
+ * (player root -> (320.0, 441.1) on the 640x480 PCSX2 frame — the
+ * pixel between the player's boots in the savestate screenshot). */
+#define EM_GS_HALF_W   320.0f       /* 256 px  / 0.8: tan(hfov/2)*s */
+#define EM_GS_HALF_H   224.0f       /* 112 fld / 0.5: tan(vfov/2)*s */
+#define EM_GS_NEAR     0.1f         /* derived: z_gs(near) = 2^24-1 */
+#define EM_GS_FAR      16711680.0f  /* 0xFF0000: z_gs(far) = 1.0     */
+
+/* The engine projection for zoom s, in the port's native conventions
+ * (right-handed -z forward, y-up NDC, depth [0,1] — pairs with
+ * em_mat4_lookat_gs below, which already remaps the engine's y-down /
+ * +z-forward view space). Aspect is BAKED: this matrix is only correct
+ * rendered into a 4:3 viewport (the gfx backends letterbox the window
+ * to 4:3, like the original display). */
+static inline void em_mat4_perspective_gs(float *m, float zoom_s)
+{
+    memset(m, 0, 16 * sizeof(float));
+    m[0]  = zoom_s / EM_GS_HALF_W;
+    m[5]  = zoom_s / EM_GS_HALF_H;
+    m[10] = EM_GS_FAR / (EM_GS_NEAR - EM_GS_FAR);
+    m[11] = -1.0f;
+    m[14] = (EM_GS_NEAR * EM_GS_FAR) / (EM_GS_NEAR - EM_GS_FAR);
+}
+
 /* Engine-faithful look-at builder (decomp func_00102CD0, the
  * sceVu0CameraMatrix-style builder the camera commit func_0018C0D0 feeds —
  * FINDINGS.md "CAMERA SYSTEM" section 3). Inputs are the engine's: a view

@@ -28,8 +28,16 @@ typedef struct EmGfxMesh EmGfxMesh;
 EmGfx *em_gfx_create(EmWindow *win);
 void   em_gfx_destroy(EmGfx *gfx);
 
-/* Begin a frame: acquire the next swapchain image and start a render pass that
- * clears the framebuffer to (r,g,b,a), each in [0,1]. */
+/* Begin a frame: acquire the next swapchain image and start a render pass.
+ *
+ * THE GAME FRAME IS 4:3 (2026-06-11, engine-projection adoption): the
+ * PS2 renders a 512x448 frame displayed at 4:3, and the world projection
+ * (em_mat4_perspective_gs) bakes that aspect. The backend letterboxes/
+ * pillarboxes: every draw of the frame — 3D, beams, overlay canvases —
+ * maps NDC onto the largest centered 4:3 rect of the drawable (viewport
+ * + scissor), exactly how PCSX2 presents the same game. The rect clears
+ * to (r,g,b,a); the bars outside it are black. A 4:3 window (the default
+ * 960x720) has no bars and is covered edge to edge. */
 void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a);
 
 /* Draw a test triangle (gradient-colored) inside the current frame. Proves the
@@ -115,7 +123,8 @@ void em_gfx_draw_skinned_tinted(EmGfx *gfx, EmGfxMesh *mesh,
 /* --- 2D overlay pass (HUD) ------------------------------------------- */
 
 /* Overlay coordinates live on a VIRTUAL CANVAS — origin top-left, y
- * down, stretched to the drawable. Resolution-independent and
+ * down, stretched to the 4:3 GAME FRAME (the letterboxed viewport —
+ * see em_gfx_begin_frame). Resolution-independent and
  * period-faithful: HUD code lays out in the same screen space the
  * original GS sprites used. The DEFAULT canvas is 640x448 (the PS2's
  * NTSC full frame); the engine's STATUS SCREEN composes on a 512x448
