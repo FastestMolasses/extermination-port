@@ -191,10 +191,42 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define GAIT_WALK_SPEED (0.1f * 60.0f)  /* D_00248870[1] u/tick @ 60 Hz */
 #define GAIT_RUN_SPEED  (0.3f * 60.0f)  /* D_00248870[2] */
 #define TURN_SPEED      12.0f   /* rad/sec — facing seeks the move dir */
-#define AIM_TURN_SPEED  1.8f    /* rad/sec — PORT CONSTANT: turn-in-place
-                                   rate while aiming (stand-in for the
-                                   engine's aim-yaw blend steer; see the
-                                   planted-aiming block in player_move) */
+/* MANUAL AIM STEER — DECODED (2026-06-11, func_0017ABA0; retires the
+ * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
+ * drives the aim BLEND PAIR player +0x27C (yaw) / +0x278 (pitch),
+ * both 0.5-centered in [0,1] (stance entry resets them to 0.5):
+ *
+ *   - per-frame rate = a 4-band table indexed by the axis deflection
+ *     band |raw - 0x80| through func_001B5DC0's rings 49/89/123:
+ *     R1-family stances 0x31/0x34: {0, 0.0025, 0.005, 0.015};
+ *     R2-family 0x32/0x35: {0, 0.0016667, 0.005, 0.015};
+ *   - YAW: blend +- rate / sin(pi*(0.5 + 0.6*(pitch-0.5))) (faster
+ *     when pitched off level; exactly 1.0 at center); overflow past
+ *     [0,1] clamps the blend and TURNS THE BODY by the excess (rad) *
+ *     1.0 (R1 family) / 1.5 (R2 family) — the pose pans up to its
+ *     +-60 deg yaw ladder first, then the player turns;
+ *   - PITCH: blend +- (rate * mult) / 2 per frame — INVERTED Y (the
+ *     raw axis byte >= 0x80 = stick DOWN increments the blend = aim
+ *     UP; stick UP aims DOWN — "W = down", the user-attested original
+ *     behavior); mult = 1.5 outside [0.3, 0.7] for the R1 family (and
+ *     x1.8 for sub-weapon 4, not in the port); clamp [0, 1.0] for
+ *     stances 0x31/0x32, [0, 0.75] for 0x34/0x35.
+ *
+ * The blends select/blend the 9-step AIM POSE LADDER 0x112..0x11A
+ * (FINDINGS "aim-ladder tables") — measured from the baked clips
+ * themselves (hand-bone +X fire direction): 0x112 center (+1.3 deg),
+ * 0x113 up +81.3, 0x114 down -78.7, 0x115/0x116 level yaw -+60 (model
+ * -X = SCREEN RIGHT in the port's basis), 0x117/0x118 up/down right,
+ * 0x119/0x11A up/down left. The fire/laser ray follows the posed hand
+ * bone automatically (em_weapon's muzzle anchor). */
+#define AIM_BAND_1      49.0f       /* func_001B5DC0 |raw-0x80| rings */
+#define AIM_BAND_2      89.0f
+#define AIM_BAND_3      123.0f
+#define AIM_PITCH_MAX_R1 1.0f       /* +0x278 clamp, stances 0x31/0x32 */
+#define AIM_POSE_UP_DEG   81.3f     /* measured ladder pose pitches */
+#define AIM_POSE_DOWN_DEG 78.7f
+#define AIM_POSE_CTR_DEG  1.3f
+#define AIM_POSE_YAW_DEG  60.0f
 
 /* PLAYER WALL RADIUS (decoded s38, FINDINGS "PLAYER WALL COLLISION
  * RADIUS"): the engine's wall response is NOT a zero-width move
@@ -398,11 +430,88 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define CAM_RISE_STEP   2.0f    /* rise search step, units (PORT) */
 #define CAM_RISE_MAX    40.0f   /* rise search ceiling above the default
                                    eye height, units (PORT) */
-#define CAM_SNAP_SPEED  6.0f    /* rad/sec — R1/L1 orient-behind seek
-                                   (PORT; the eye chase cap smooths it) */
-#define CAM_AUTO_DELAY  120     /* frames idle before the auto-orient
-                                   starts (PORT, "a little while") */
-#define CAM_AUTO_SPEED  0.4f    /* rad/sec — the slow auto-orient (PORT) */
+#define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek:
+                                   the engine's orient-to-heading family
+                                   rate (func_001921D0 states 7/0x2C/0x2D,
+                                   float 0x3D0EFA35 = 2 deg/frame) */
+
+/* IDLE AUTO-ORIENT — DECODED (2026-06-11, func_001921D0 idle path +
+ * func_00193D90, the director sub-state-2 orbit; replaces the old
+ * 120-frame / 0.4 rad/s PORT constants):
+ *   - the camera struct's own timer (+0x08) increments each idle-path
+ *     frame while the player state is 1/2 and the solver byte (+0x07)
+ *     has no block bits (engine mask 9); any other state resets it;
+ *   - at >= 0x1E1 = 481 frames (~8.0 s — EXACTLY the 300-frame fidget
+ *     timer + the 180-frame look-around clip 0x15D: the engine waits
+ *     out the END of the look-around idle, the user-observed anchor)
+ *     it arms the slow orbit IF |player heading - cam yaw| > 0.052368
+ *     rad (3 deg deadband) and the rotation direction's solver wall
+ *     bit is clear (delta < 0 needs ~bit4, else ~bit2);
+ *   - the orbit (func_00193D90): yaw steps 0.0034907 rad/frame
+ *     (0x3B64C389, 0.2 deg/frame) toward the saved player heading,
+ *     eye = target - (sin,cos)(yaw) * the horizontal eye<->target
+ *     distance saved at arm time (D_0081069C -> cam+0x4C); it cancels
+ *     when aligned, when the player leaves state 1/2, or when the
+ *     solver reports a wall in the rotation path (bits 0xD/0xB by
+ *     direction — the port maps these onto its rotation-path segment
+ *     test, cam_yaw_blocked). */
+#define CAM_IDLE_ORIENT_FRAMES 481        /* +0x08 >= 0x1E1 */
+#define CAM_IDLE_ORIENT_DEADBAND 0.052368f /* 3 deg (0x3D567750) */
+#define CAM_ORBIT_RATE  0.0034907f        /* rad/frame (0x3B64C389) */
+
+/* AIM CAMERA MODE 1 — DECODED (2026-06-11, func_00197D20 dispatcher +
+ * func_00197740 entry / func_00197870 steady; replaces the +0x8C
+ * target-height stand-in):
+ *   entry (sub 1, until the aim pose commits): TARGET = player +
+ *     rotY(cam euler +0x30)*(0, 19, 6), EYE = player + rotY*(0,19,-30);
+ *     actual target chases at 0.4/frame, eye at 4.0/frame;
+ *   steady (sub 2): TARGET = base + aim_dir*16 + (0,19,0) (base =
+ *     player pos; the R2 stance state 0x2A uses the position saved at
+ *     aim entry, spad D_70003040), EYE = player + rotEuler(player
+ *     rot)*(0,0,-30) — i.e. 30 u behind the FACING, tracking the
+ *     turn-in-place — with EYE.y = player.y + 19 - 30*dir.y (the
+ *     -30*dir.y term clamped to >= -25; 22 + that = f20 in [-3,0])
+ *     clamped into [player.y + 2, player.y + 30] (flagged areas use
+ *     +11 — port keeps +2); actual target chases at 0.6/frame, eye at
+ *     4.0/frame; anti-close: horizontal eye<->player dist < 7 raises
+ *     EYE.y to player.y + 18 + f20;
+ *   dispatcher tail: if EYE.y > player.y + 23 and the horizontal
+ *     eye<->player distance < 8, the eye is pushed out to EXACTLY 8
+ *     along its own heading (the min-distance clamp);
+ *   release (player states 0xC/0x29): the engine swaps to transition
+ *     mode 2 (func_00198650, untranslated) — the port re-seeds the
+ *     chase yaw from the actual eye->player heading and lets mode-0
+ *     chase blend back (the engine's own .L001935EC reset shape). */
+#define CAM_AIM_TGT_FWD   16.0f  /* target = base + dir*16 */
+#define CAM_AIM_TGT_UP    19.0f  /* + 19 up (0x41980000) */
+#define CAM_AIM_EYE_BACK  30.0f  /* eye 30 behind (0xC1F00000) */
+#define CAM_AIM_ENTRY_FWD 6.0f   /* entry target (0,19,6) */
+#define CAM_AIM_MIN_DIST  8.0f   /* dispatcher min horiz eye dist */
+
+/* DOOR CAMERA CUES — DECODED (2026-06-11, op 0x0D sub 5 func_001B7B30 +
+ * func_0018CBD0, and the locked-look native func_001BBBF0):
+ *   OPEN transit (script D_0024DE40 record 2, op 0x0D sub 5): a HARD
+ *     CUT (solver style 1 = copy desired -> actual): TARGET = player
+ *     pos + (19 + 6) up, EYE = player + rotY(cam euler)*(0, 0, -20)
+ *     with EYE.y = player.y + 19 + 6 + 2 = +27 (f4 + f5 = 8 in BOTH
+ *     per-area parameter sets), then cam+0xA0 = 0x78: the actual
+ *     TARGET re-blends toward the desired one at <= 1.0 u/frame for
+ *     120 frames (func_001916C0's tail) — the cinematic angle that
+ *     "teleports behind the player" and then pans as he walks through.
+ *   LOCKED try (script D_0024DEC0 record 2, op 0x09 -> func_001BBBF0):
+ *     TARGET = door pos + 8 u toward the HANDLE side (the door-yaw
+ *     left: (-8*cos(dyaw), +10, +8*sin(dyaw))) and EYE = TARGET -
+ *     13*(sin,cos)(camera yaw D_00810374) with EYE.y = door.y + 12 —
+ *     the camera parked at the handle while the try animation plays;
+ *     the finish script (op 0x07 sub 4) restores the saved camera. */
+#define DOORCAM_EYE_BACK   20.0f  /* op 0x0D sub 5 chase dist (-20.0) */
+#define DOORCAM_EYE_UP     27.0f  /* 19 + f4 + f5 (= 6+2 or 2+6) */
+#define DOORCAM_TGT_UP     25.0f  /* 19 + f4 (6, the -46.8 param set) */
+#define DOORCAM_TGT_SOFT   120    /* cam+0xA0 = 0x78 target re-blend */
+#define LOCKCAM_HANDLE_OFF 8.0f   /* func_001BBBF0 door-left offset */
+#define LOCKCAM_TGT_UP     10.0f
+#define LOCKCAM_EYE_BACK   13.0f
+#define LOCKCAM_EYE_UP     12.0f  /* door.y + 12 */
 
 /* Engine projection (FINDINGS.md "CAMERA SYSTEM" section 3) — recorded
  * for eventual native adoption; rendering still goes through
@@ -470,8 +579,22 @@ typedef struct {
     float    rise;        /* PORT: this frame's wall-rise height above
                              the default desired eye (0 = at height;
                              gates the idle auto-orient) */
-    float    aim_h;       /* +0x8C: target height offset above player Y,
-                             default 6.0 (player aim state 5 — TODO) */
+    float    aim_h;       /* +0x8C: target height offset above player Y
+                             (func_00191390's per-state table; default 6.0
+                             — kept for the generic follow; the aim camera
+                             proper is MODE 1 below) */
+    uint8_t  aim_phase;   /* MODE-1 sub-machine (+0x01 in mode 1):
+                             0 = off, 1 = entry blend (func_00197740),
+                             2 = steady aim (func_00197870) */
+    float    aim_entry[3];/* spad D_70003040: player pos saved at aim
+                             entry (the R2 stance's target base) */
+    /* IDLE AUTO-ORIENT orbit (director sub-state 2, func_00193D90) */
+    uint8_t  orbit_on;    /* orbit running (cam+0x01 == 2) */
+    float    orbit_tgt;   /* +0x48: saved player heading (goal yaw) */
+    float    orbit_rad;   /* +0x4C: |horiz eye<->target| at arm time */
+    /* DOOR-CINEMATIC target re-blend (cam+0xA0, func_001916C0 tail) */
+    int16_t  tgt_soft;    /* frames left: actual target chases desired
+                             at <= 1.0 u/frame instead of hard-copying */
     /* global camera vector pool (the real per-frame camera output) */
     float    eye[3];      /* D_008105D0: actual eye — chased toward
                              eye_des, capped 4.0/frame */
@@ -583,6 +706,29 @@ static struct {
     int        cam_region_on;    /* this frame's dispatch ran the in-region
                                   * fixed placement (debug/test witness) */
 
+    /* MANUAL AIM STEER state (func_0017ABA0 — the player aim blends) */
+    float      aim_pitch;        /* +0x278: 0.5 center, 0 = full DOWN,
+                                  * 1 = full UP (stick-down raises it:
+                                  * the inverted-Y original behavior) */
+    float      aim_yawb;         /* +0x27C: 0.5 center, 1 = pose yaw
+                                  * SCREEN-LEFT limit, 0 = right (model
+                                  * -X = screen right; overflow turns
+                                  * the body) */
+    int        aim_was;          /* aiming last frame (entry detect) */
+    int        r2_aim;           /* R2-held armed stance 0x1E (code 0x32)
+                                  * — the engine's second aim stance
+                                  * (func_001607D0: held R2 -> mode
+                                  * 0x1E), run by em_game when em_weapon
+                                  * is not aiming */
+    float      aim_palette[1024 * 16];  /* ladder-blend scratch */
+
+    /* DOOR CINEMATIC camera (op 0x0D sub 5 + func_001BBBF0) */
+    int        doorcam;          /* 0 off, 1 = transit armed (walking),
+                                  * 2 = cinematic placed (cut done) */
+    float      door_yaw[EM_DOOR_MAX]; /* manifest door yaws (the locked-
+                                  * look handle-side math needs them) */
+    int        n_door_yaw;
+
     /* player status (the engine globals em_hud.h documents; static demo
      * values until the weapon/health systems are translated) */
     EmPlayerStatus status;
@@ -614,7 +760,14 @@ static struct {
     int         capture_frame;
     int         capture_aim;     /* EM_CAPTURE_AIM=1 — hold R1 from frame
                                   * 0 so the capture shows the armed
-                                  * stance (aim pose + laser + camera) */
+                                  * stance (aim pose + laser + camera);
+                                  * 3/4 = also hold stick down/up so the
+                                  * capture shows the aim-UP / aim-DOWN
+                                  * ladder pose (inverted Y) */
+    int         capture_door;    /* EM_CAPTURE_DOOR=1 — door-test spawn +
+                                  * approach + CROSS, no asserts: the
+                                  * capture frame samples the door-transit
+                                  * CINEMATIC camera (default frame 110) */
     int         capture_rise;    /* EM_CAPTURE_RISE=1 — hold 's' (walk at
                                   * the camera) so the capture shows the
                                   * wall-rise camera (see gameplay_frame) */
@@ -652,6 +805,8 @@ static struct {
     int         pause_test;      /* EM_PAUSE_TEST=1 — status-pause test */
     int         camregion_test;  /* EM_CAMREGION_TEST=1 — fixed-camera
                                   * region test (synthetic office region) */
+    int         aim_test;        /* EM_AIM_TEST=1 — manual aim-steer +
+                                  * mode-1 aim-camera self-test */
     int         melee_test;      /* EM_MELEE_TEST=1 — knife-vs-crate run */
     int         mt_fail;         /* melee test: failed checkpoints */
     int         mt_phase;        /* melee test: script phase */
@@ -783,17 +938,24 @@ static void scene_manifest_load(void)
             float p[3] = { x, y, z };
             if (em_door_add(em_frame_gfx(), g.scene_dir, name, p, yaw, r)) {
                 printf("manifest: door line failed to load: %s", line);
-            } else if (sscanf(line,
+            } else if (((g.n_door_yaw < EM_DOOR_MAX
+                             ? (void)(g.door_yaw[g.n_door_yaw++] = yaw)
+                             : (void)0),   /* yaw for the locked-look
+                                            * handle-side math */
+                        sscanf(line,
                               "door %*s %*f %*f %*f %*f %*f goto "
                               "%63s %f %f %f %f",
-                              gname, &gx, &gy, &gz, &gyaw) == 5) {
+                              gname, &gx, &gy, &gz, &gyaw) == 5)) {
                 /* Decoded destination tail (em_door.h): the commit
                  * scene-switches instead of re-placing. EM_DOOR_TEST
                  * asserts the same-scene re-place geometry on this
-                 * very door, so it runs with goto tails ignored. */
-                if (g.door_test) {
-                    printf("manifest: EM_DOOR_TEST — goto tail ignored "
-                           "(same-scene transit asserted)\n");
+                 * very door, so it runs with goto tails ignored —
+                 * EM_PAUSE_TEST's door leg (the mid-walk-out menu
+                 * check) does the same. */
+                if (g.door_test || g.pause_test) {
+                    printf("manifest: %s — goto tail ignored "
+                           "(same-scene transit asserted)\n",
+                           g.door_test ? "EM_DOOR_TEST" : "EM_PAUSE_TEST");
                 } else {
                     float gp[3] = { gx, gy, gz };
                     em_door_set_goto(em_door_count() - 1, gname, gp,
@@ -919,6 +1081,7 @@ static void scene_unload(EmGfx *gfx)
     g.n_scene = 0;
     em_collision_free(&g.coll);
     em_door_scene_clear(gfx);   /* keeps the in-flight transit lock */
+    g.n_door_yaw = 0;           /* re-recorded by the new manifest */
     em_enemy_shutdown(gfx);
     em_enemy_reset();
 }
@@ -979,14 +1142,6 @@ static void actor_context_begin(void) {}
 
 /* func_001CB5A0 — actor-context end. */
 static void actor_context_end(void) {}
-
-/* Decode a raw 0x80-centered stick byte to [-1, 1]; full deflection hits
- * exactly +/-1 on both sides (the raw range is asymmetric: 0x00..0xFF). */
-static float stick_axis(uint8_t b)
-{
-    int d = (int)b - 0x80;
-    return (d >= 0) ? (float)d / 127.0f : (float)d / 128.0f;
-}
 
 /* Compose the player's world placement onto an evaluated anim palette:
  * every bone matrix M becomes T(pos) * R_y(yaw) * M — rotation about Y by
@@ -1189,35 +1344,158 @@ static void player_move(void)
         }
     }
 
-    /* INPUT LOCK (door transit, kickoff -> fade-in end): free movement
-     * is ignored — the player either walks the scripted MOVE-TO above
-     * or stands (at the staging point / the re-placed spawn point). */
-    if (em_door_input_locked()) {
+    /* ARRIVAL WALK-OUT (engine player state 5/1, func_00183250 —
+     * decoded 2026-06-11, em_door.h step 4): after the re-place the
+     * player UNINTERRUPTIBLY walks out through the door along the exit
+     * yaw — 50 frames of clip-in-place (mostly under the fade-in), 30
+     * frames at the locIdx-2 speed (0.3 u/tick), 30 frames decaying to
+     * a stop (~12.8 u total). The stick is never read (state 5 has no
+     * free-move spine); em_door owns the phases, this consumes the
+     * per-frame command. Collision-free like the transit MOVE-TO (the
+     * engine runs its own mover in the destination area's geometry). */
+    {
+        float wyaw, wspeed;
+        if (em_door_walkout_active(&wyaw, &wspeed)) {
+            g.yaw        = wyaw;
+            /* Drive the locomotion clip at the engine's commanded gait:
+             * the walk-out plays the locIdx-2 clip (family 0 -> id 2 =
+             * RUN) even during the in-place phase. */
+            g.move_speed = wspeed > 0.0f ? wspeed : GAIT_RUN_SPEED;
+            g.pos[0] += sinf(wyaw) * wspeed * FRAME_DT;
+            g.pos[2] += cosf(wyaw) * wspeed * FRAME_DT;
+            return;
+        }
+    }
+
+    /* MOVEMENT LOCK (door transit — the decoded two-lock split,
+     * em_door.h "THE TWO LOCKS"): kickoff -> walk-out end. Free
+     * movement is ignored — the player walks the scripted MOVE-TO /
+     * walk-out above or stands (at the staging point). The MENU lock
+     * is separate (em_door_menu_locked, consumed by em_hud) and ends
+     * earlier, at fade-in completion. */
+    if (em_door_movement_locked()) {
         g.move_speed = 0.0f;
         return;
     }
 
-    /* PLANTED AIMING — PORT DECISION (flagged). The armed stance holds
-     * position; the stick only TURNS the player in place. Engine
-     * evidence (FINDINGS "ANIM ID MAPPING" + "WEAPON SYSTEM"): the
-     * armed modes 0x1D..0x20 replace the locomotion modes outright and
-     * their tops run no free-move spine; the aim poses are FULL-BODY
-     * pose-clip ladders (pitch steps) with NO aim-walk clip family and
-     * ZERO footstep-trigger frames in the D_00248C90 property table
-     * (walk/run/scripted walks all have them) — the engine never
-     * expects the feet to move while aiming, and the live s23 aim
-     * capture shows the planted shouldered stance. The turn-in-place
-     * is the port stand-in for the engine's aim-yaw steer (the
-     * +0x27C blend, <= 0.02/frame, + the mode-0x66 yaw smoothing);
-     * AIM_TURN_SPEED is a PORT CONSTANT. */
-    if (em_weapon_is_aiming()) {
+    /* R2-HELD ARMED STANCE 0x1E (decoded 2026-06-11: the action machine
+     * func_001607D0 dispatches HELD R2 -> player mode 0x1E, action code
+     * 0x32 — the engine's SECOND aim stance, sharing the mode-1 aim
+     * camera through player states 0x2A/0x29; its laser is the
+     * DOT-only drawer func_001854E0 and it has no fire-counter recoil
+     * — both stay with em_weapon, noted there as pending). em_game
+     * runs its planted pose + steer + camera side: the held aim pose
+     * through its own anim mailbox, R1 (em_weapon) taking priority. */
+    {
+        const EmFrameInput *rin = em_frame_input();
+        int want = (rin->held & EM_PAD_R2) && !em_weapon_is_aiming() &&
+                   !em_weapon_is_melee();
+        if (want && !g.r2_aim)
+            em_game_anim_hold(0x112, 1.0f);
+        else if (!want && g.r2_aim && !em_weapon_is_aiming() &&
+                 em_game_anim_active() == 0x112)
+            em_game_anim_cancel();
+        g.r2_aim = want;
+    }
+
+    /* PLANTED AIMING + MANUAL AIM STEER (func_0017ABA0 — the decoded
+     * constants block above; retires the old AIM_TURN_SPEED turn-in-
+     * place stand-in). The armed stance holds position (engine: the
+     * armed modes 0x1D..0x20 replace the locomotion modes outright —
+     * no aim-walk clips, zero footstep frames); the stick (and the
+     * port's d-pad merge — arrows fold into the same axes, full
+     * deflection) steers the aim BLENDS: pitch INVERTED-Y, yaw panning
+     * the +-60 deg pose ladder first and turning the body only past
+     * the blend limit. */
+    {
+        int aim_now = em_weapon_is_aiming() || g.r2_aim;
+        if (aim_now && !g.aim_was) {
+            /* STANCE ENTRY (func_0016F600 family): the aim blends reset
+             * to center and the entry position is saved (D_70003040 —
+             * the R2 state-0x2A camera target base), and the camera
+             * arms its mode-1 entry phase. */
+            g.aim_pitch = 0.5f;
+            g.aim_yawb  = 0.5f;
+            memcpy(g.cam.aim_entry, g.pos, sizeof g.cam.aim_entry);
+            g.cam.aim_phase = 1;
+        } else if (!aim_now && g.aim_was) {
+            /* RELEASE (player states 0xC/0x29 -> camera mode 2): the
+             * port re-seeds the chase yaw from the actual eye->player
+             * heading (the engine's .L001935EC reset) and lets the
+             * mode-0 chase blend back. */
+            g.cam.aim_phase = 0;
+            g.cam.yaw = atan2f(g.pos[0] - g.cam.eye[0],
+                               g.pos[2] - g.cam.eye[2]);
+        }
+        g.aim_was = aim_now;
+    }
+    if (em_weapon_is_aiming() || g.r2_aim) {
         g.move_speed = 0.0f;
         const EmFrameInput *ain = em_frame_input();
-        float tsx = stick_axis(ain->lx);
-        if (fabsf(tsx) > STICK_DEADZONE) {
-            g.yaw -= tsx * AIM_TURN_SPEED * FRAME_DT;
-            if (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
-            if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+        int r1fam = !g.r2_aim || em_weapon_is_aiming(); /* stance 0x31 */
+
+        /* d-pad merge (PORT, user-attested d-pad aim): arrows act as a
+         * full-deflection axis when the stick is centered. */
+        int rawx = ain->lx, rawy = ain->ly;
+        if (rawx == 0x80 && (ain->held & EM_PAD_LEFT))  rawx = 0x00;
+        if (rawx == 0x80 && (ain->held & EM_PAD_RIGHT)) rawx = 0xFF;
+        if (rawx == 0x80 && (ain->held & EM_PAD_UP))    rawy = 0x00;
+        if (rawy == 0x80 && (ain->held & EM_PAD_DOWN))  rawy = 0xFF;
+
+        /* func_001B5DC0 deflection bands + the per-stance rate rows */
+        static const float kRateR1[4] = { 0.0f, 0.0025f, 0.005f, 0.015f };
+        static const float kRateR2[4] = { 0.0f, 0.0016667f, 0.005f,
+                                          0.015f };
+        const float *rate = r1fam ? kRateR1 : kRateR2;
+        float body_mul = r1fam ? 1.0f : 1.5f;   /* f20 */
+        int bx = abs(rawx - 0x80), by = abs(rawy - 0x80);
+        int bandx = bx < AIM_BAND_1 ? 0 : bx < AIM_BAND_2 ? 1
+                  : bx < AIM_BAND_3 ? 2 : 3;
+        int bandy = by < AIM_BAND_1 ? 0 : by < AIM_BAND_2 ? 1
+                  : by < AIM_BAND_3 ? 2 : 3;
+
+        /* YAW (+0x27C): rate scaled by 1/sin(pi*(0.5+0.6*(p-0.5))) —
+         * exactly 1.0 at pitch center (the engine special-cases the
+         * equality), faster pitched off level. Overflow past [0,1]
+         * turns the body by the excess (screen-right = yaw decreasing
+         * in the port basis, matching the engine's heading -=). */
+        if (bandx) {
+            float p = g.aim_pitch;
+            float s = (p == 0.5f) ? 1.0f
+                    : sinf(EM_PI * (0.5f + 0.6f * (p - 0.5f)));
+            float step = rate[bandx] / s;
+            if (rawx >= 0x80) {            /* stick RIGHT */
+                g.aim_yawb -= step;        /* toward the right poses */
+                if (g.aim_yawb < 0.0f) {
+                    g.yaw -= -g.aim_yawb * body_mul;
+                    g.aim_yawb = 0.0f;
+                }
+            } else {                       /* stick LEFT */
+                g.aim_yawb += step;
+                if (g.aim_yawb > 1.0f) {
+                    g.yaw += (g.aim_yawb - 1.0f) * body_mul;
+                    g.aim_yawb = 1.0f;
+                }
+            }
+            while (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
+            while (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+        }
+
+        /* PITCH (+0x278): INVERTED Y — stick DOWN (raw >= 0x80) raises
+         * the blend = aim UP; stick UP aims DOWN ("W = down"). The R1
+         * family speeds up 1.5x outside [0.3, 0.7]. */
+        if (bandy) {
+            float mult = (r1fam && (g.aim_pitch <= 0.3f ||
+                                    g.aim_pitch >= 0.7f)) ? 1.5f : 1.0f;
+            float step = rate[bandy] * mult * 0.5f;
+            if (rawy >= 0x80) {            /* stick DOWN -> aim UP */
+                g.aim_pitch += step;
+                if (g.aim_pitch > AIM_PITCH_MAX_R1)
+                    g.aim_pitch = AIM_PITCH_MAX_R1;
+            } else {                       /* stick UP -> aim DOWN */
+                g.aim_pitch -= step;
+                if (g.aim_pitch < 0.0f) g.aim_pitch = 0.0f;
+            }
         }
         return;
     }
@@ -1411,6 +1689,74 @@ static int step_crossed(double prev, double cur, double trig)
     return trig > prev || trig <= cur;            /* wrapped the loop */
 }
 
+/* AIM POSE LADDER blend (the dispatch half of the func_0017ABA0 steer
+ * — anim_slot_index/anim_matrix_dispatch sampling the D_00248B70 sub-0
+ * ladder 0x112..0x11A by the blends +0x278/+0x27C, two-buffer blend
+ * func_00179CA0). The port evaluates the bilinear 3x3 pose grid at the
+ * shared playhead and lerps the palettes (the same matrix-lerp the
+ * port's idle/walk crossfades use — a documented stand-in for the
+ * engine's bone-channel blend). Returns 1 when it produced the
+ * palette (all needed ladder clips present), 0 to fall back to the
+ * plain base-clip evaluation. */
+static int aim_ladder_eval(double t)
+{
+    float p  = g.aim_pitch, yb = g.aim_yawb;
+    int   up = p >= 0.5f;
+    int   rt = yb < 0.5f;                  /* screen-right column */
+    float wp = up ? (p - 0.5f) * 2.0f : (0.5f - p) * 2.0f;
+    float wy = rt ? (0.5f - yb) * 2.0f : (yb - 0.5f) * 2.0f;
+
+    unsigned id01 = rt ? 0x115 : 0x116;            /* level, yawed   */
+    unsigned id10 = up ? 0x113 : 0x114;            /* pitched, ahead */
+    unsigned id11 = up ? (rt ? 0x117 : 0x119)      /* corner          */
+                       : (rt ? 0x118 : 0x11A);
+    struct { unsigned id; float w; } s[4] = {
+        { 0x112, (1.0f - wp) * (1.0f - wy) },
+        { id01,  (1.0f - wp) * wy },
+        { id10,  wp * (1.0f - wy) },
+        { id11,  wp * wy },
+    };
+    uint32_t n = g.model.bone_count * 16;
+    int      first = 1;
+    for (int i = 0; i < 4; i++) {
+        if (s[i].w <= 0.0f) continue;
+        int ci = em_model_clip_index(&g.model, s[i].id);
+        if (ci < 0) return 0;              /* old EMDL: no ladder bake */
+        em_model_palette_at(&g.model, (uint32_t)ci, t, g.aim_palette);
+        if (first) {
+            for (uint32_t k = 0; k < n; k++)
+                g.player_palette[k] = g.aim_palette[k] * s[i].w;
+            first = 0;
+        } else {
+            for (uint32_t k = 0; k < n; k++)
+                g.player_palette[k] += g.aim_palette[k] * s[i].w;
+        }
+    }
+    return !first;
+}
+
+/* The analytic aim direction the camera (and the self-tests) consume —
+ * the pose the ladder blend selects, expressed as a world ray (the
+ * engine reads the equivalent from the posed hand matrix, gun+0xC0).
+ * Pose pitches/yaws are the values MEASURED from the baked ladder
+ * clips (constants block above). */
+static void aim_dir_get(float out[3])
+{
+    float p  = g.aim_pitch, yb = g.aim_yawb;
+    float pit_deg = p >= 0.5f
+        ? AIM_POSE_CTR_DEG + (p - 0.5f) * 2.0f *
+              (AIM_POSE_UP_DEG - AIM_POSE_CTR_DEG)
+        : AIM_POSE_CTR_DEG - (0.5f - p) * 2.0f *
+              (AIM_POSE_DOWN_DEG + AIM_POSE_CTR_DEG);
+    /* yaw blend: 0 = screen right = yaw DECREASING in the port basis */
+    float yaw = g.yaw + (yb - 0.5f) * 2.0f *
+                (AIM_POSE_YAW_DEG * EM_PI / 180.0f);
+    float pit = pit_deg * EM_PI / 180.0f;
+    out[0] = sinf(yaw) * cosf(pit);
+    out[1] = sinf(pit);
+    out[2] = cosf(yaw) * cosf(pit);
+}
+
 /* func_0015BCF0 — player actor update. The engine's per-actor spine
  * (state/AI, anim-evaluator selection, physics, sound triggers); the
  * port's slice of it is movement (frame input -> position/yaw) plus the
@@ -1456,8 +1802,17 @@ static void actor_update(void)
          * em_model_palette_at would loop-blend back into frame 0). */
         double end = (double)(cs->frame_count - 1);
         double t   = g.sa_t < end ? g.sa_t : end;
-        em_model_palette_at(&g.model, (uint32_t)g.sa_clip, t,
-                            g.player_palette);
+        /* AIM POSE LADDER: while the held clip is the ladder BASE
+         * (0x112 — the stance tops request the base code and the
+         * DISPATCH picks the ladder step, exactly the engine split)
+         * and the player is aiming, the bilinear pose-grid blend owns
+         * the palette; the recoil restart (sa_t rewind) runs through
+         * unchanged — every ladder step is the same 25 frames. */
+        if (!(g.sa_cur == 0x112 &&
+              (em_weapon_is_aiming() || g.r2_aim) &&
+              aim_ladder_eval(t)))
+            em_model_palette_at(&g.model, (uint32_t)g.sa_clip, t,
+                                g.player_palette);
         palette_apply_placement(g.player_palette, g.model.bone_count,
                                 g.pos, g.yaw);
         g.sa_t += (double)g.sa_rate;
@@ -1533,7 +1888,7 @@ static void actor_update(void)
     {
         int active = g.move_speed > 0.0f || g.gait != 0 ||
                      em_weapon_is_aiming() || em_weapon_is_melee() ||
-                     em_door_input_locked();
+                     em_door_movement_locked();
         float fstep = FRAME_DT / IDLE_BLEND_TIME;
         if (active || g.clip_fidget < 0) {
             g.idle_timer = IDLE_FIDGET_FRAMES;
@@ -1748,94 +2103,201 @@ static int cam_yaw_blocked(const EmCamera *cam, float yaw)
  * as the overlay code is decompiled — one-shot reposition (5 -> 7),
  * timed hold (6), init/fallback settle (8, func_001914A0), 9..15, and
  * the scope/sniper camera (top-mode 3, func_0022EEF0, zoom 224/x). */
+/* MODE 1 — the over-shoulder AIM camera, DECODED (func_00197D20
+ * dispatcher + func_00197740 entry / func_00197870 steady — the "AIM
+ * CAMERA MODE 1" constants block above; replaces the old +0x8C
+ * target-height stand-in AND the R1 cam_yaw_seek). The entry phase
+ * frames the player from the current camera heading; the steady phase
+ * looks from 30 u behind the FACING toward a point 16 u along the AIM
+ * DIRECTION — the view down the barrel toward the laser dot. */
+static void camera_mode1_aim(EmCamera *cam)
+{
+    /* sub 1 -> 2 when the aim pose commits (engine: player +0x1F1 == 1
+     * gates the sub advance in func_00197D20) */
+    if (cam->aim_phase == 0) cam->aim_phase = 1;
+    if (cam->aim_phase == 1 && em_game_anim_active() == 0x112)
+        cam->aim_phase = 2;
+
+    if (cam->aim_phase == 1) {
+        /* func_00197740: TARGET = player + rotY(cam euler)*(0,19,6),
+         * EYE = player + rotY*(0,19,-30). cam+0x30's yaw here is the
+         * chase camera's committed heading. */
+        float ey = cam->yaw;
+        cam->tgt_des[0] = g.pos[0] + sinf(ey) * CAM_AIM_ENTRY_FWD;
+        cam->tgt_des[1] = g.pos[1] + CAM_AIM_TGT_UP;
+        cam->tgt_des[2] = g.pos[2] + cosf(ey) * CAM_AIM_ENTRY_FWD;
+        cam->eye_des[0] = g.pos[0] - sinf(ey) * CAM_AIM_EYE_BACK;
+        cam->eye_des[1] = g.pos[1] + CAM_AIM_TGT_UP;
+        cam->eye_des[2] = g.pos[2] - cosf(ey) * CAM_AIM_EYE_BACK;
+        return;
+    }
+
+    /* func_00197870 steady. The R2 stance (player state 0x2A) bases
+     * the target on the position SAVED AT ENTRY (spad D_70003040);
+     * the R1 stance (0xD) tracks the live position. */
+    float dir[3];
+    aim_dir_get(dir);
+    const float *base = (g.r2_aim && !em_weapon_is_aiming())
+                      ? cam->aim_entry : g.pos;
+    cam->tgt_des[0] = base[0] + dir[0] * CAM_AIM_TGT_FWD;
+    cam->tgt_des[1] = base[1] + CAM_AIM_TGT_UP + dir[1] * CAM_AIM_TGT_FWD;
+    cam->tgt_des[2] = base[2] + dir[2] * CAM_AIM_TGT_FWD;
+
+    /* EYE: 30 u behind the player FACING (rotEuler(player rot) — it
+     * tracks the turn-in-place), height countering the aim pitch. */
+    float v = -CAM_AIM_EYE_BACK * dir[1];     /* -30*dir.y */
+    float f20 = 0.0f;
+    if (v < -22.0f) {
+        if (v < -25.0f) v = -25.0f;
+        f20 = 22.0f + v;                      /* in [-3, 0] */
+    }
+    cam->eye_des[0] = g.pos[0] - sinf(g.yaw) * CAM_AIM_EYE_BACK;
+    cam->eye_des[2] = g.pos[2] - cosf(g.yaw) * CAM_AIM_EYE_BACK;
+    float eyy = g.pos[1] + CAM_AIM_TGT_UP + v;
+    if (eyy > g.pos[1] + 30.0f) eyy = g.pos[1] + 30.0f;
+    if (eyy < g.pos[1] + 2.0f)  eyy = g.pos[1] + 2.0f;  /* flag areas: +11 */
+    /* anti-close (the < 7 u raise arm) */
+    {
+        float dx = cam->eye_des[0] - g.pos[0];
+        float dz = cam->eye_des[2] - g.pos[2];
+        if (sqrtf(dx * dx + dz * dz) < 7.0f) {
+            float floor_y = g.pos[1] + 18.0f + f20;
+            if (eyy < floor_y) eyy = floor_y;
+        }
+    }
+    cam->eye_des[1] = eyy;
+    /* struct yaw (+0x44/+0x9C bookkeeping): the sight-line heading */
+    cam->yaw = atan2f(cam->tgt_des[0] - cam->eye_des[0],
+                      cam->tgt_des[2] - cam->eye_des[2]);
+}
+
 static void camera_mode_dispatch(EmCamera *cam)
 {
     /* The original gives the player NO free camera control — the only
-     * yaw inputs are the R1/L1 orient-behind and the idle auto-orient
-     * (the CAMERA FIDELITY block above). All of them steer the
-     * authentic struct yaw (+0x44); everything downstream consumes
-     * only cam->yaw, exactly like an engine mode handler. */
+     * yaw inputs are the R1/R2 aim camera (mode 1), the L1 orient-
+     * behind and the idle auto-orient. All of them steer the authentic
+     * struct yaw (+0x44)/desired vectors; everything downstream
+     * consumes only those, exactly like an engine mode handler. */
     const EmFrameInput *in = em_frame_input();
+    int aim_on = em_weapon_is_aiming() || g.r2_aim;
 
     /* FIXED-CAMERA REGION (the mode-0 director's decoded room cameras —
      * scene.txt `camregion`): inside, the room OWNS the camera. L1 is a
      * NO-OP ("L1 won't reorient because the room has a specified camera
-     * angle"), the idle auto-orient is off, and only the R1 aim camera
-     * takes yaw control — releasing it falls back to the room spec the
+     * angle"), the idle auto-orient is off, and only the aim camera
+     * takes control — releasing it falls back to the room spec the
      * SAME frame (the instant snap, applied below). */
     const EmCamRegion *rg = camregion_find();
-    g.cam_region_on = (rg != NULL) && !(in->held & EM_PAD_R1);
+    g.cam_region_on = (rg != NULL) && !aim_on;
+
+    /* MODE 1 — aim camera (decoded above; it runs inside fixed-camera
+     * regions too: "the R1 aim camera still runs"). */
+    if (aim_on) {
+        camera_mode1_aim(cam);
+        g.cam_recenter = 0;
+        cam->timer    = 0;
+        cam->orbit_on = 0;
+        return;
+    }
 
     if (rg) {
         g.cam_recenter = 0;          /* L1/R1-tap reorients are ignored */
-        g.cam_idle     = 0;          /* idle auto-orient disabled */
-        if (in->held & EM_PAD_R1)    /* aim camera still tracks the aim */
-            cam_yaw_seek(cam, g.yaw, CAM_SNAP_SPEED);
+        cam->timer     = 0;          /* idle auto-orient disabled */
+        cam->orbit_on  = 0;
     } else {
 
-    /* R1 (tap or hold) + L1: orient behind the player. A press arms
-     * the recenter; while R1 stays held the camera keeps tracking the
-     * aim direction (the player's turn-in-place steers g.yaw); after
-     * a tap the seek runs on until aligned. */
-    if (in->pressed & (EM_PAD_R1 | EM_PAD_L1))
+    /* L1: one-shot orient behind the player, at the engine's orient-
+     * to-heading family rate (2 deg/frame — func_001921D0's 0x3D0EFA35
+     * states; which player state L1 routes through is unpinned, the
+     * rate family is). R1 no longer seeks here — the aim camera above
+     * owns the armed stance. */
+    if (in->pressed & EM_PAD_L1)
         g.cam_recenter = 1;
-    if (in->held & EM_PAD_R1) {
-        cam_yaw_seek(cam, g.yaw, CAM_SNAP_SPEED);
-        g.cam_idle = 0;
-    } else if (g.cam_recenter) {
-        if (cam_yaw_seek(cam, g.yaw, CAM_SNAP_SPEED))
+    if (g.cam_recenter) {
+        if (cam_yaw_seek(cam, g.yaw, CAM_L1_RATE * 60.0f))
             g.cam_recenter = 0;
-        g.cam_idle = 0;
+        cam->timer    = 0;
+        cam->orbit_on = 0;
     }
 
-    /* IDLE AUTO-ORIENT: left alone a while, slowly swing behind the
-     * player — only at default height (no wall-rise active), and STOP
-     * if a wall blocks the rotation path (no repositioning). */
-    if (g.gait != 0 || g.move_speed > 0.0f || em_weapon_is_aiming() ||
-        g.cam_recenter || (in->held & (EM_PAD_R1 | EM_PAD_L1)))
-        g.cam_idle = 0;
-    else if (g.cam_idle < CAM_AUTO_DELAY)
-        g.cam_idle++;
-    else if (cam->rise <= 0.0f) {
-        float diff = g.yaw - cam->yaw;
+    /* IDLE AUTO-ORIENT — DECODED (the constants block above): the
+     * struct timer +0x08 runs while the player is idle/walking with a
+     * clear solver byte; at 481 frames (= the fidget timer 300 + the
+     * 180-frame look-around clip: the END of the look-around idle) it
+     * arms the 0.2 deg/frame ORBIT (director sub-state 2,
+     * func_00193D90) around the saved eye<->target radius, stopping at
+     * walls and on any player action. */
+    int idle_ok = g.gait == 0 && g.move_speed <= 0.0f &&
+                  !g.cam_recenter && !(in->held & EM_PAD_L1) &&
+                  !em_weapon_is_melee();
+    if (!idle_ok) {
+        cam->timer    = 0;
+        cam->orbit_on = 0;
+    } else if (cam->orbit_on) {
+        float diff = cam->orbit_tgt - cam->yaw;
         while (diff >  EM_PI) diff -= 2.0f * EM_PI;
         while (diff < -EM_PI) diff += 2.0f * EM_PI;
-        if (fabsf(diff) > 1e-3f) {
-            float step = CAM_AUTO_SPEED * FRAME_DT;
-            if (step > fabsf(diff)) step = fabsf(diff);
-            float trial   = cam->yaw + (diff > 0.0f ? step : -step);
-            int   blocked = cam_yaw_blocked(cam, trial);
-            if (!blocked)
-                cam->yaw = trial;          /* else: STOP at the wall */
-            static int trace = -1;         /* EM_CAMERA_TRACE debug */
-            if (trace < 0) trace = getenv("EM_CAMERA_TRACE") != NULL;
-            if (trace && (g.frame_no % 30 == 0 || blocked))
-                printf("camera: frame %d auto-orient yaw %.3f -> "
-                       "player %.3f%s\n", g.frame_no, cam->yaw, g.yaw,
-                       blocked ? " [WALL — stopped]" : "");
+        float step  = CAM_ORBIT_RATE;       /* rad/FRAME (0x3B64C389) */
+        float trial = cam->yaw + (diff > 0.0f ? step : -step);
+        int   blocked;
+        if (fabsf(diff) <= step) {
+            cam->yaw      = cam->orbit_tgt; /* aligned: back to follow */
+            cam->orbit_on = 0;
+            blocked       = 0;
+        } else if (!(blocked = cam_yaw_blocked(cam, trial))) {
+            cam->yaw = trial;
+        } else {
+            cam->orbit_on = 0;              /* wall in the path: cancel
+                                             * (engine: solver bits
+                                             * 0xD/0xB by direction) */
+        }
+        static int trace = -1;              /* EM_CAMERA_TRACE debug */
+        if (trace < 0) trace = getenv("EM_CAMERA_TRACE") != NULL;
+        if (trace && (g.frame_no % 30 == 0 || blocked))
+            printf("camera: frame %d auto-orient yaw %.3f -> player "
+                   "%.3f%s\n", g.frame_no, cam->yaw, g.yaw,
+                   blocked ? " [WALL — stopped]" : "");
+    } else {
+        if (cam->hit)                       /* engine: +0x07 & 9 */
+            cam->timer = 0;
+        else if (++cam->timer >= CAM_IDLE_ORIENT_FRAMES) {
+            cam->timer = 0;
+            float diff = g.yaw - cam->yaw;
+            while (diff >  EM_PI) diff -= 2.0f * EM_PI;
+            while (diff < -EM_PI) diff += 2.0f * EM_PI;
+            if (fabsf(diff) > CAM_IDLE_ORIENT_DEADBAND &&
+                !cam_yaw_blocked(cam, cam->yaw + (diff > 0.0f
+                                                  ? CAM_ORBIT_RATE
+                                                  : -CAM_ORBIT_RATE))) {
+                cam->orbit_on  = 1;          /* cam+0x01 = 2 */
+                cam->orbit_tgt = g.yaw;      /* cam+0x48 */
+                float rx = cam->eye[0] - cam->tgt[0];
+                float rz = cam->eye[2] - cam->tgt[2];
+                cam->orbit_rad = sqrtf(rx * rx + rz * rz); /* +0x4C */
+            }
         }
     }
 
     }   /* !rg — free-camera orient inputs */
 
     /* Mode 0 generic follow: desired target chases the player on x/z at
-     * <= 0.8 u/frame; y seeks player.y + 15.0 — EXCEPT in the armed
-     * stance, where the engine swaps in the camera struct's +0x8C
-     * target-height offset (cam->aim_h, default 6.0; the live s23 aim
-     * capture ran mode 1 with 2.0 in AREA02) — the documented "AIM
-     * CAMERA HOOKUP" of em_weapon.h. The target drops toward the aim
-     * line and the unchanged eye height pitches the view down over the
-     * shoulder. Settles to exactly player x/z when idle, matching the
-     * live capture. */
+     * <= 0.8 u/frame; y seeks player.y + 15.0. (The old armed-stance
+     * +0x8C target-height swap is RETIRED — the aim camera is the real
+     * MODE 1 above.) Settles to exactly player x/z when idle, matching
+     * the live capture. */
     cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP);
     cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP);
     cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
-                                  g.pos[1] + (em_weapon_is_aiming()
-                                              ? cam->aim_h
-                                              : CAM_TGT_HEIGHT),
+                                  g.pos[1] + CAM_TGT_HEIGHT,
                                   CAM_TGT_CAP);
 
-    if (g.cam_region_on) {
+    /* AUTO-ORIENT ORBIT eye (func_00193D90): the desired eye circles
+     * the target at the radius saved when the orbit armed. */
+    if (cam->orbit_on && !g.cam_region_on) {
+        cam->eye_des[0] = cam->tgt_des[0] - sinf(cam->yaw) * cam->orbit_rad;
+        cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
+        cam->eye_des[2] = cam->tgt_des[2] - cosf(cam->yaw) * cam->orbit_rad;
+    } else if (g.cam_region_on) {
         /* ROOM SPEC: pin the desired eye to the region's fixed eye (the
          * director writes cam+0x10/14/18 = the record spec; the target
          * above keeps tracking the player, like the snow case). The
@@ -1921,7 +2383,9 @@ static void camera_solve(EmCamera *cam)
         if (kind) {
             cam->hit = (uint8_t)kind;              /* struct +0x07 */
             int risen = 0;
-            if (!em_weapon_is_aiming()) {
+            if (!cam->aim_phase) {     /* the aim camera keeps the
+                                        * close pull-in solve (engine
+                                        * mode-1 style 2) */
                 /* RISE: lowest clear height above the default eye. */
                 for (float up = CAM_RISE_STEP; up <= CAM_RISE_MAX;
                      up += CAM_RISE_STEP) {
@@ -1969,9 +2433,40 @@ static void camera_solve(EmCamera *cam)
     cam->eye[0] = cam_chase_h(cam->eye[0], eye_des[0], CAM_EYE_CAP);
     cam->eye[2] = cam_chase_h(cam->eye[2], eye_des[2], CAM_EYE_CAP);
     cam->eye[1] = cam_chase_v(cam->eye[1], eye_des[1], CAM_EYE_CAP);
-    cam->tgt[0] = cam->tgt_des[0];
-    cam->tgt[1] = cam->tgt_des[1];
-    cam->tgt[2] = cam->tgt_des[2];
+
+    /* MODE-1 dispatcher tail (func_00197D20): with the eye above
+     * player.y + 23 and horizontally inside 8 u, push it out to
+     * EXACTLY 8 along its own heading (the min-distance clamp). */
+    if (cam->aim_phase && cam->eye[1] > g.pos[1] + 23.0f) {
+        float dx = cam->eye[0] - g.pos[0];
+        float dz = cam->eye[2] - g.pos[2];
+        float d  = sqrtf(dx * dx + dz * dz);
+        if (d < CAM_AIM_MIN_DIST) {
+            float h = atan2f(dx, dz);
+            cam->eye[0] = g.pos[0] + sinf(h) * CAM_AIM_MIN_DIST;
+            cam->eye[2] = g.pos[2] + cosf(h) * CAM_AIM_MIN_DIST;
+        }
+    }
+
+    /* ACTUAL TARGET: hard copy (func_0018C0C0) — except the mode-1
+     * aim chases it (0.4 u/frame entry / 0.6 steady, func_00197740/
+     * func_00197870) and a live door-cinematic re-blend window
+     * (cam+0xA0) chases at <= 1.0 u/frame (func_001916C0's tail). */
+    if (cam->aim_phase) {
+        float cap = cam->aim_phase == 1 ? 0.4f : 0.6f;
+        cam->tgt[0] = cam_chase_h(cam->tgt[0], cam->tgt_des[0], cap);
+        cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], cap);
+        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], cap);
+    } else if (cam->tgt_soft > 0) {
+        cam->tgt_soft--;
+        cam->tgt[0] = cam_chase_h(cam->tgt[0], cam->tgt_des[0], 1.0f);
+        cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], 1.0f);
+        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], 1.0f);
+    } else {
+        cam->tgt[0] = cam->tgt_des[0];
+        cam->tgt[1] = cam->tgt_des[1];
+        cam->tgt[2] = cam->tgt_des[2];
+    }
 
     /* EM_CAMERA_TRACE=1 — wall-solve introspection (debug). */
     static int trace = -1;
@@ -2019,6 +2514,95 @@ static void camera_commit(EmCamera *cam)
     em_mat4_mul(g.viewproj, proj, cam->view);
 }
 
+/* DOOR-TRANSIT CINEMATIC CAMERA — DECODED (the "DOOR CAMERA CUES"
+ * constants block above). Replaces the old full camera freeze during
+ * the door input lock: once the walk-to arrives and the door script
+ * begins, the OPEN script's op 0x0D sub 5 cue fires — a HARD CUT to
+ * 20 u behind the player along the current camera heading at +27,
+ * looking at the player (+25) — and the camera then HOLDS that eye
+ * while the actual target re-blends toward the walking player at
+ * <= 1.0 u/frame (the cam+0xA0 = 120 window): the cinematic angle the
+ * door walk-through plays under. EM_DOORCAM_LOCKED=1 swaps in the
+ * LOCKED-TRY placement (func_001BBBF0: target at the door HANDLE — 8 u
+ * to the door's left, +10 — eye 13 u back along the camera heading at
+ * door.y + 12) as a visual preview: the real trigger is the locked
+ * sequence (door subs 1/2), which em_door does not run yet. */
+static void camera_door_cinematic(EmCamera *cam)
+{
+    float tt[3], tyaw;
+    if (g.doorcam == 3)             /* post-warp (script ended, op 0x18
+                                     * restored the camera): hold the
+                                     * re-seated chase placement until
+                                     * the fade-in unlocks */
+        return;
+    if (g.doorcam < 2) {
+        if (em_door_transit_active(tt, &tyaw)) {
+            g.doorcam = 1;          /* approach walk: hold the chase
+                                     * camera still (commit only) */
+            return;
+        }
+        /* walk-to arrived — the door script starts THIS frame: cut. */
+        static int locked_prev = -1;
+        if (locked_prev < 0)
+            locked_prev = getenv("EM_DOORCAM_LOCKED") != NULL;
+        if (locked_prev) {
+            /* func_001BBBF0 — locked-look (preview wiring, above) */
+            int   di = -1;
+            float best = 1e30f, dp[3] = { 0, 0, 0 };
+            for (int i = 0; i < em_door_count(); i++) {
+                float p[3];
+                em_door_pos(i, p);
+                float dx = p[0] - g.pos[0], dz = p[2] - g.pos[2];
+                if (dx * dx + dz * dz < best) {
+                    best = dx * dx + dz * dz;
+                    di   = i;
+                    memcpy(dp, p, sizeof dp);
+                }
+            }
+            float dyaw = (di >= 0 && di < g.n_door_yaw)
+                       ? g.door_yaw[di] : g.yaw;
+            cam->tgt_des[0] = dp[0] - LOCKCAM_HANDLE_OFF * cosf(dyaw);
+            cam->tgt_des[1] = dp[1] + LOCKCAM_TGT_UP;
+            cam->tgt_des[2] = dp[2] + LOCKCAM_HANDLE_OFF * sinf(dyaw);
+            cam->eye_des[0] = cam->tgt_des[0]
+                            - LOCKCAM_EYE_BACK * sinf(cam->yaw);
+            cam->eye_des[1] = dp[1] + LOCKCAM_EYE_UP;
+            cam->eye_des[2] = cam->tgt_des[2]
+                            - LOCKCAM_EYE_BACK * cosf(cam->yaw);
+        } else {
+            /* op 0x0D sub 5 (func_0018CBD0, dist -20): behind the
+             * player along the camera heading, high look-down. */
+            cam->tgt_des[0] = g.pos[0];
+            cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
+            cam->tgt_des[2] = g.pos[2];
+            cam->eye_des[0] = g.pos[0] - sinf(cam->yaw) * DOORCAM_EYE_BACK;
+            cam->eye_des[1] = g.pos[1] + DOORCAM_EYE_UP;
+            cam->eye_des[2] = g.pos[2] - cosf(cam->yaw) * DOORCAM_EYE_BACK;
+        }
+        /* solver style 1 = HARD COPY desired -> actual: the cut. */
+        memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+        memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+        cam->tgt_soft = DOORCAM_TGT_SOFT;   /* cam+0xA0 = 0x78 */
+        g.doorcam     = 2;
+        return;
+    }
+    /* held cinematic: the eye HOLDS the cut placement; the desired
+     * target tracks the player and the actual one re-blends through
+     * the tgt_soft window (camera_solve's chase arm runs only outside
+     * the lock, so chase here directly). */
+    cam->tgt_des[0] = g.pos[0];
+    cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
+    cam->tgt_des[2] = g.pos[2];
+    if (cam->tgt_soft > 0) {
+        cam->tgt_soft--;
+        cam->tgt[0] = cam_chase_h(cam->tgt[0], cam->tgt_des[0], 1.0f);
+        cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], 1.0f);
+        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], 1.0f);
+    } else {
+        memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+    }
+}
+
 /* func_001CB590(0x008101E0, 0xD0, 0) + func_0018B9C0 — camera-context
  * begin + the camera state machine top. Runs AFTER the render-chain
  * build, like the engine; on the PS2 the already-kicked chain consumes
@@ -2057,16 +2641,28 @@ static void camera_update(void)
         cam->timer     = 0;
     }
 
-    /* CAMERA FREEZE during the door-transit input lock AND the status-
-     * screen pause: dispatch + solve are skipped (no orient input, no
-     * chase) and only the commit runs — the engine's frozen top modes
-     * 1/2 shape. The post-warp re-seat happens while the screen is
-     * black (gameplay_frame). */
-    if (cam->top_mode == 0 && !em_door_input_locked() &&
-        !em_hud_is_open()) {
-        /* func_00191390 leaf pre-step — no native work yet. */
-        camera_mode_dispatch(cam);   /* func_0018BC20 */
-        camera_solve(cam);           /* func_0018D7B0, style 0 */
+    /* STATUS-SCREEN PAUSE: dispatch + solve are skipped and only the
+     * commit runs — the engine's frozen top modes 1/2 shape. The DOOR
+     * TRANSIT no longer freezes: the decoded script camera cue runs
+     * instead (camera_door_cinematic — the walk-to approach holds
+     * still, then the op 0x0D sub 5 cinematic cut + held angle; the
+     * post-warp re-seat still happens while the screen is black,
+     * gameplay_frame). */
+    if (cam->top_mode == 0 && !em_hud_is_open()) {
+        if (em_door_movement_locked() && g.doorcam != 3) {
+            /* pre-warp transit: approach freeze, then the script's
+             * cinematic cut + held angle */
+            camera_door_cinematic(cam);
+        } else {
+            /* doorcam 3 = post-warp WALK-OUT: the script has ended
+             * (op 0x18 restored the camera at the re-place) — the
+             * normal chase resumes behind the re-seated player while
+             * the movement lock finishes the walk-out. */
+            if (!em_door_movement_locked()) g.doorcam = 0;
+            /* func_00191390 leaf pre-step — no native work yet. */
+            camera_mode_dispatch(cam);   /* func_0018BC20 */
+            camera_solve(cam);           /* func_0018D7B0, style 0 */
+        }
     }
     /* top modes 1/2 (frozen) reach the commit only; top mode 3 is the
      * scope camera func_0022EEF0 — TODO(camera-modes). */
@@ -2308,14 +2904,19 @@ static void frame_close_out(void)
     g.status.reserve = em_weapon_reserve();
     em_hud_render(gfx, &g.status);
 
-    /* SCREEN FADE — the step-D machine's level, drawn last so it covers
-     * the scene AND the status screen (the engine's fade owns the whole
-     * GS frame). Level 0 queues nothing: the default frame stays
-     * byte-identical. */
+    /* SCREEN FADE — the step-D machine, drawn last so it covers the
+     * scene AND the status screen (the engine's fade owns the whole GS
+     * frame). The engine blend is SUBTRACTIVE (out = max(0, pixel -
+     * level), GS ALPHA_2 0xA1/FIX 0x80 — decoded 2026-06-11, see
+     * em_frame.h): pixels darken UNEVENLY, shadows crushing to black
+     * first. The overlay pass only has standard alpha blending, so the
+     * stand-in is a black quad with em_frame_fade_alpha() = 1-(1-l)^2
+     * (the mean-luminance match; residual gap documented in em_frame.h).
+     * Alpha 0 queues nothing: the default frame stays byte-identical. */
     {
-        float lvl = em_frame_fade_level();
-        if (lvl > 0.0f) {
-            const float black[4] = { 0.0f, 0.0f, 0.0f, lvl };
+        float a = em_frame_fade_alpha();
+        if (a > 0.0f) {
+            const float black[4] = { 0.0f, 0.0f, 0.0f, a };
             em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
                                 EM_GFX_OVERLAY_H, black);
         }
@@ -2433,30 +3034,41 @@ static void move_test_script(void)
  *                   asset shipped the LOCKED try under this id) replaces
  *                   locomotion, door sound + clip start; the script
  *                   waits 70 frames (back-side op 0x02).
- *   frame  100      assert em_door_input_locked() == 1 (mid-transit)
+ *   frame  100      assert em_door_movement_locked() == 1 (mid-transit)
  *                   AND em_game_anim_active() == 0x43;
  *   100..140        hold forward ('w') — locked input must NOT move the
  *                   player off the staging point (checked at 145).
  *   ~frame 150      commit (arrival ~80 + 70-frame wait) -> 64-frame
- *                   fade-out (peak level tracked); at black: re-place
- *                   at the spawn point (52, 0, -225.5) = CENTER - 5*n,
- *                   exit yaw -pi/2, scripted anim CANCELLED (script
- *                   teardown); door closes; 64-frame fade-in; unlock at
- *                   fade-in end.
+ *                   fade-out (peak level tracked); at black (~205):
+ *                   re-place at the spawn point (52, 0, -225.5) =
+ *                   CENTER - 5*n, exit yaw -pi/2, scripted anim
+ *                   CANCELLED (script teardown), and the ARRIVAL
+ *                   WALK-OUT starts (player state 5/1: 50 frames
+ *                   clip-in-place + 30 at 0.3 u/tick + 30 decaying,
+ *                   ~13.1 u along -X); door closes; 64-frame fade-in
+ *                   (done ~269). MENU lock ends at fade-in completion;
+ *                   MOVEMENT lock at walk-out end (~317) — the decoded
+ *                   two-lock split (em_door.h "THE TWO LOCKS").
+ *   frame  290      assert MID-WALK-OUT: menu lock OFF, movement lock
+ *                   ON, player mid-flight (39.3 < x < 51.5) — the split
+ *                   witnessed live.
  *   frame  340      assert: trigger OK, blocked min x >= 64.4 (the
  *                   boundary plane + the 4.5 player radius), lock
  *                   seen, locked input dead, scripted anim seen at 100
  *                   and idle (0) again at the end, fade reached 1.0 and
- *                   is back at 0, input UNLOCKED, final pos (52,
- *                   -225.5) +- tol with yaw -pi/2 (behind the door,
- *                   exit pose), door re-armed CLOSED.
+ *                   is back at 0, MOVEMENT unlocked (walk-out over),
+ *                   final pos = spawn - walk-out travel (38.89,
+ *                   -225.5) +- tol with yaw -pi/2 (walked out of the
+ *                   door, exit pose), door re-armed CLOSED.
  *
  * (Geometry verified against the office EMCL: corridor floor along the
  * whole approach, boundary wall at x = 60, no other static blocker.) */
 static void door_test_script(void)
 {
+    static int s_dt_ok_split;        /* frame-290 two-lock witness */
     int n = g.frame_no;
     if (n == 0) {
+        s_dt_ok_split     = 0;
         g.dt_door         = -1;
         g.dt_min_x        = 1e9f;
         g.dt_max_fade     = 0.0f;
@@ -2488,7 +3100,7 @@ static void door_test_script(void)
         g.dt_ok_trigger = g.dt_door >= 0 &&
                           em_door_state(g.dt_door) == EM_DOOR_OPENING;
     } else if (n == 100) {
-        g.dt_ok_lock = em_door_input_locked();
+        g.dt_ok_lock = em_door_movement_locked();
         /* Mid-open: the scripted door anim must own the player — the
          * BACK-side clip 0x43 committed (+0x20C analog), not the walk. */
         g.dt_ok_anim = em_game_anim_active() == 0x43;
@@ -2504,34 +3116,52 @@ static void door_test_script(void)
         if (!g.dt_ok_inputdead)
             printf("door test: frame 145 pos (%.3f, %.3f, %.3f) — off "
                    "the staging point\n", g.pos[0], g.pos[1], g.pos[2]);
+    } else if (n == 290) {
+        /* MID-WALK-OUT (re-place ~205, fade-in done ~269, walk-out ends
+         * ~317): the decoded TWO-LOCK SPLIT — the menu gate is already
+         * open while movement is still script-owned and the player is
+         * mid-flight between the spawn (52) and the stop (~38.9). */
+        s_dt_ok_split = !em_door_menu_locked() &&
+                        em_door_movement_locked() &&
+                        g.pos[0] < 51.5f && g.pos[0] > 39.3f;
+        if (!s_dt_ok_split)
+            printf("door test: frame 290 menu_locked %d movement_locked "
+                   "%d x %.3f — two-lock split wrong\n",
+                   em_door_menu_locked(), em_door_movement_locked(),
+                   g.pos[0]);
     } else if (n == 340) {
         int ok_closed = g.dt_door >= 0 &&
                         em_door_state(g.dt_door) == EM_DOOR_CLOSED;
         int ok_block  = g.dt_min_x >= 64.4f && g.dt_min_x < 65.2f;
         int ok_fade   = g.dt_max_fade >= 0.999f &&
                         em_frame_fade_level() <= 0.001f;
-        int ok_unlock = !em_door_input_locked();
+        int ok_unlock = !em_door_movement_locked();
         int ok_animend = em_game_anim_active() == 0;  /* teardown reset */
-        int ok_pass   = fabsf(g.pos[0] - 52.0f)   <= 0.1f &&
+        /* Final pos = the spawn point (52, -225.5) MINUS the arrival
+         * WALK-OUT travel (~13.1 u along the exit yaw -X — the decoded
+         * player state 5/1 walk-out, em_door.h "ARRIVAL WALK-OUT"). */
+        int ok_pass   = fabsf(g.pos[0] - 38.89f)  <= 0.35f &&
                         fabsf(g.pos[2] + 225.5f)  <= 0.6f &&
                         fabsf(g.yaw + EM_PI * 0.5f) <= 0.01f;
         int ok = g.dt_ok_trigger && g.dt_ok_lock && g.dt_ok_inputdead &&
-                 g.dt_ok_anim && ok_animend &&
+                 g.dt_ok_anim && ok_animend && s_dt_ok_split &&
                  ok_fade && ok_unlock && ok_pass && ok_block && ok_closed;
         printf("door test: trigger->OPENING %s, blocked min x %.3f while "
                "closed (boundary 60 + radius 4.5: %s), input locked "
                "mid-transit %s, "
                "locked stick ignored %s, scripted anim 0x43 mid-open %s / "
-               "reset at end %s, fade peak %.3f / final %.3f: %s, "
-               "unlocked at end %s, final pos (%.3f, %.3f, %.3f) yaw "
-               "%.4f behind the door: %s, door state %d (CLOSED %d, "
-               "re-armed): %s — %s\n",
+               "reset at end %s, two-lock split mid-walk-out %s, fade "
+               "peak %.3f / final %.3f: %s, "
+               "movement unlocked at end %s, final pos (%.3f, %.3f, %.3f) "
+               "yaw %.4f walked out of the door: %s, door state %d "
+               "(CLOSED %d, re-armed): %s — %s\n",
                g.dt_ok_trigger ? "ok" : "FAILED", g.dt_min_x,
                ok_block ? "ok" : "FAILED",
                g.dt_ok_lock ? "ok" : "FAILED",
                g.dt_ok_inputdead ? "ok" : "FAILED",
                g.dt_ok_anim ? "ok" : "FAILED",
                ok_animend ? "ok" : "FAILED",
+               s_dt_ok_split ? "ok" : "FAILED",
                g.dt_max_fade, em_frame_fade_level(),
                ok_fade ? "ok" : "FAILED",
                ok_unlock ? "ok" : "FAILED",
@@ -2612,17 +3242,20 @@ static void transit_test_script(void)
         g.tt_ok_trigger = g.tt_door >= 0 &&
                           em_door_state(g.tt_door) == EM_DOOR_OPENING;
     } else if (n == 150) {
-        g.tt_ok_lock = em_door_input_locked();   /* mid fade-out */
+        g.tt_ok_lock = em_door_movement_locked();   /* mid fade-out */
     } else if (n == 380) {
         int ok_scene  = g.tt_switch_frame > 0 &&
                         strcmp(g.scene_dir, "assets/scene_drawbridge") == 0;
-        int ok_pos    = fabsf(g.pos[0] - 39.0f)  <= 0.1f &&
+        /* Arrival spawn (39, -225) MINUS the ~13.1 u WALK-OUT travel
+         * along the exit yaw -X (the walk-out state survives the goto
+         * scene switch, like the engine's player state — em_door.h). */
+        int ok_pos    = fabsf(g.pos[0] - 25.89f) <= 0.35f &&
                         fabsf(g.pos[1])          <= 0.6f &&
                         fabsf(g.pos[2] + 225.0f) <= 0.1f &&
                         fabsf(g.yaw + EM_PI * 0.5f) <= 0.01f;
         int ok_fade   = g.tt_max_fade >= 0.999f &&
                         em_frame_fade_level() <= 0.001f;
-        int ok_unlock = !em_door_input_locked();
+        int ok_unlock = !em_door_movement_locked();
         int closed    = 0;
         for (int i = 0; i < em_door_count(); i++)
             closed += em_door_state(i) == EM_DOOR_CLOSED;
@@ -3002,25 +3635,46 @@ static void enemy_test_script(void)
  * the module is disabled by design and the test reports the FAIL. */
 /* EM_PAUSE_TEST=1 — STATUS-SCREEN PAUSE self-test (the 2026-06-11
  * fidelity note: the open status menu PAUSES the game — gameplay_frame
- * gates the whole world update on em_hud_is_open()). Scripted through
- * the real input API:
+ * gates the whole world update on em_hud_is_open()) PLUS the decoded
+ * MENU-LOCK gate (em_door.h "THE TWO LOCKS": the engine's open poll
+ * func_001AE7E0 refuses while the fade machine runs; the lock ends at
+ * fade-in completion, BEFORE the arrival walk-out finishes — so the
+ * menu opens mid-walk-out while movement is still locked). Spawned at
+ * the door-test corridor position (72, 0, -225 facing -X, the west
+ * double door ahead) and scripted through the real input API:
  *
- *   frame    5      TRIANGLE -> the status screen opens
+ *   frame    5      TRIANGLE -> the status screen opens (no transit:
+ *                   the menu lock is clear)
  *   frames  10..70  hold 'w' (full stick = run) — the world is halted:
- *                   the player must NOT move (assert at 70), and the
- *                   gameplay clock must be frozen (frame_no still
- *                   advances — it is loop bookkeeping — but pos is the
- *                   gate's witness here)
+ *                   the player must NOT move (assert at 70)
  *   frame   70      TRIANGLE -> close; release 'w'
  *   frame   80      assert closed; hold 'w' again
- *   frame  140      assert the player MOVED (the same held key that was
- *                   dead under the pause now runs the player into the
- *                   z = -170 wall radius stop) -> PASS/FAIL, quit
+ *   frame  140      assert the player MOVED (the held key that was dead
+ *                   under the pause now runs him onto the x = 60
+ *                   boundary-wall radius stop, ~7.5 u); release
+ *   frame  150      CROSS -> west-door transit (goto tail ignored under
+ *                   EM_PAUSE_TEST: same-scene re-place). Timeline:
+ *                   staging ~161, commit ~231, black + re-place ~295,
+ *                   fade-in done ~359, walk-out end ~405
+ *   frame  156      assert the MENU LOCK engaged with the kickoff
+ *   frame  320      TRIANGLE press MID-FADE-IN -> must be DROPPED (the
+ *                   func_001AE7E0 fade gate); assert closed at 326
+ *   frame  380      MID-WALK-OUT: assert menu lock OFF + movement lock
+ *                   ON, then TRIANGLE -> the menu MUST OPEN over the
+ *                   running walk-out (assert open at 386; record pos)
+ *   frame  400      assert the open menu FROZE the walk-out (pos
+ *                   unchanged 386..400); TRIANGLE -> close
+ *   frame  410      assert closed (walk-out resumes)
+ *   frame  470      assert movement unlocked (walk-out completed after
+ *                   the resume) and the player kept walking past the
+ *                   frozen pos -> PASS/FAIL, quit
  */
 static void pause_test_script(void)
 {
-    static float pp[2];
+    static float pp[2], wp_x;
     static int ok_open, ok_frozen, ok_closed;
+    static int ok_lock_on, ok_drop, ok_split, ok_midopen, ok_wfrozen,
+               ok_reclosed;
     int n = g.frame_no;
     if (n == 5) {
         move_test_inject('i', 1);          /* TRIANGLE — open */
@@ -3042,14 +3696,58 @@ static void pause_test_script(void)
         ok_closed = !em_hud_is_open();
         move_test_inject('w', 1);          /* must move now */
     } else if (n == 140) {
+        move_test_inject('w', 0);          /* parked on the boundary */
+    } else if (n == 150) {
+        move_test_inject('k', 1);          /* CROSS — door transit */
+    } else if (n == 152) {
+        move_test_inject('k', 0);
+    } else if (n == 156) {
+        ok_lock_on = em_door_menu_locked();
+    } else if (n == 320) {
+        move_test_inject('i', 1);          /* TRIANGLE mid-fade-in */
+    } else if (n == 322) {
+        move_test_inject('i', 0);
+    } else if (n == 326) {
+        ok_drop = !em_hud_is_open() && em_door_menu_locked();
+    } else if (n == 380) {
+        /* fade-in done (~359), walk-out still running (~405) */
+        ok_split = !em_door_menu_locked() && em_door_movement_locked();
+        move_test_inject('i', 1);          /* TRIANGLE mid-walk-out */
+    } else if (n == 382) {
+        move_test_inject('i', 0);
+    } else if (n == 386) {
+        ok_midopen = em_hud_is_open() && em_door_movement_locked();
+        wp_x = g.pos[0];
+    } else if (n == 400) {
+        ok_wfrozen = fabsf(g.pos[0] - wp_x) < 1e-4f;
+        move_test_inject('i', 1);          /* TRIANGLE — close */
+    } else if (n == 402) {
+        move_test_inject('i', 0);
+    } else if (n == 410) {
+        ok_reclosed = !em_hud_is_open();
+    } else if (n == 470) {
         float dx = g.pos[0] - pp[0], dz = g.pos[2] - pp[1];
-        int moved = dx * dx + dz * dz > 25.0f;   /* > 5 u of motion */
-        int ok = ok_open && ok_frozen && ok_closed && moved;
+        int moved   = dx * dx + dz * dz > 25.0f;   /* > 5 u of motion */
+        int ok_done = !em_door_movement_locked() &&
+                      g.pos[0] < wp_x - 0.5f;   /* kept walking out */
+        int ok = ok_open && ok_frozen && ok_closed && moved &&
+                 ok_lock_on && ok_drop && ok_split && ok_midopen &&
+                 ok_wfrozen && ok_reclosed && ok_done;
         printf("pause test: opened %s, frozen under held stick %s, "
-               "closed %s, resumed (moved %.1f u) %s — %s\n",
+               "closed %s, resumed (moved %.1f u) %s, menu lock at "
+               "kickoff %s, mid-fade press dropped %s, two-lock split "
+               "mid-walk-out %s, menu OPEN over the walk-out %s, "
+               "walk-out frozen under the menu %s, re-closed %s, "
+               "walk-out completed after resume (x %.2f < %.2f) %s — "
+               "%s\n",
                ok_open ? "ok" : "FAILED", ok_frozen ? "ok" : "FAILED",
                ok_closed ? "ok" : "FAILED",
                sqrtf(dx * dx + dz * dz), moved ? "ok" : "FAILED",
+               ok_lock_on ? "ok" : "FAILED", ok_drop ? "ok" : "FAILED",
+               ok_split ? "ok" : "FAILED", ok_midopen ? "ok" : "FAILED",
+               ok_wfrozen ? "ok" : "FAILED",
+               ok_reclosed ? "ok" : "FAILED",
+               g.pos[0], wp_x, ok_done ? "ok" : "FAILED",
                ok ? "PASS" : "FAIL");
         fflush(stdout);
         em_frame_request_quit();
@@ -3172,6 +3870,123 @@ static void camregion_test_script(void)
                 em_frame_request_quit();
             }
             break;
+    }
+}
+
+/* EM_AIM_TEST=1 — MANUAL AIM STEER + MODE-1 AIM CAMERA self-test (the
+ * func_0017ABA0 / func_00197D20 decodes). Scripted run through the
+ * real input API:
+ *
+ *   frame 0      hold 'e' (R1): draw -> held aim pose 0x112.
+ *   frame 30     assert the stance entry: blends centered (0.5/0.5),
+ *                pose 0x112 committed, camera in mode-1 steady.
+ *   31..240      hold 'w' (stick UP): INVERTED Y — the pitch blend
+ *                must FALL (aim DOWN, "W = down") and clamp at 0.0;
+ *                checked mid-travel (90) and at the clamp (240).
+ *   240          camera steady-state geometry (emergent, not the
+ *                formula): the eye ~30 u horizontally behind the
+ *                facing, eye.y at the player.y+30 ceiling (full-down
+ *                aim counter-raises the eye), the target BELOW the
+ *                +19 rest height (it rides the aim line down).
+ *   250..400     hold 's' (stick DOWN): pitch must RISE through
+ *                center and clamp at the stance-0x31 limit 1.0.
+ *   410+         hold 'a' (stick LEFT): the yaw blend pans the POSE
+ *                first (the body yaw must NOT move while the blend is
+ *                unsaturated), then past the limit the BODY turns —
+ *                checked at 415 (pose-only) and 460 (body turning,
+ *                blend pinned at 1.0). PASS/FAIL, quit.
+ */
+static void aim_test_script(void)
+{
+    static int   fail;
+    static float yaw0;
+    int n = g.frame_no;
+
+    switch (n) {
+        case 0:
+            move_test_inject('e', 1);          /* R1: draw + aim */
+            break;
+        case 30: {
+            int ok = g.aim_pitch == 0.5f && g.aim_yawb == 0.5f &&
+                     em_game_anim_active() == 0x112 &&
+                     g.cam.aim_phase == 2;
+            if (!ok) {
+                fail++;
+                printf("aim test: CHECK FAILED — entry (pitch %.3f yaw "
+                       "%.3f anim 0x%x phase %d)\n", g.aim_pitch,
+                       g.aim_yawb, em_game_anim_active(),
+                       g.cam.aim_phase);
+            }
+            move_test_inject('w', 1);          /* stick UP */
+            break;
+        }
+        case 90:
+            if (!(g.aim_pitch < 0.5f)) {
+                fail++;
+                printf("aim test: CHECK FAILED — stick UP did not aim "
+                       "DOWN (pitch %.3f, inverted-Y broken)\n",
+                       g.aim_pitch);
+            }
+            break;
+        case 240: {
+            int ok_clamp = g.aim_pitch == 0.0f;
+            float fx = sinf(g.yaw), fz = cosf(g.yaw);
+            float ex = g.pos[0] - fx * CAM_AIM_EYE_BACK;
+            float ez = g.pos[2] - fz * CAM_AIM_EYE_BACK;
+            float dx = g.cam.eye[0] - ex, dz = g.cam.eye[2] - ez;
+            int ok_eye  = sqrtf(dx * dx + dz * dz) < 1.5f &&
+                          fabsf(g.cam.eye[1] - (g.pos[1] + 30.0f)) < 1.5f;
+            int ok_tgt  = g.cam.tgt[1] < g.pos[1] + CAM_AIM_TGT_UP - 5.0f;
+            if (!ok_clamp || !ok_eye || !ok_tgt) {
+                fail++;
+                printf("aim test: CHECK FAILED — full-down state "
+                       "(pitch %.3f; eye off (%.2f, y %.2f vs %.2f); "
+                       "tgt y %.2f)\n", g.aim_pitch,
+                       sqrtf(dx * dx + dz * dz), g.cam.eye[1],
+                       g.pos[1] + 30.0f, g.cam.tgt[1]);
+            }
+            move_test_inject('w', 0);
+            break;
+        }
+        case 250:
+            move_test_inject('s', 1);          /* stick DOWN */
+            break;
+        case 400:
+            if (g.aim_pitch != AIM_PITCH_MAX_R1) {
+                fail++;
+                printf("aim test: CHECK FAILED — stick DOWN did not "
+                       "clamp at the up limit (pitch %.3f)\n",
+                       g.aim_pitch);
+            }
+            move_test_inject('s', 0);
+            break;
+        case 410:
+            yaw0 = g.yaw;
+            move_test_inject('a', 1);          /* stick LEFT */
+            break;
+        case 415:
+            if (g.yaw != yaw0 || !(g.aim_yawb > 0.5f)) {
+                fail++;
+                printf("aim test: CHECK FAILED — pose-pan phase "
+                       "(yaw %.4f vs %.4f, blend %.3f)\n", g.yaw,
+                       yaw0, g.aim_yawb);
+            }
+            break;
+        case 460: {
+            int ok = g.aim_yawb == 1.0f && g.yaw != yaw0;
+            if (!ok) {
+                fail++;
+                printf("aim test: CHECK FAILED — body-turn overflow "
+                       "(blend %.3f, yaw %.4f vs %.4f)\n", g.aim_yawb,
+                       g.yaw, yaw0);
+            }
+            printf("aim test: inverted-Y pitch, clamps, full-down "
+                   "camera, pose-pan-then-body-turn — %s\n",
+                   fail == 0 ? "PASS" : "FAIL");
+            fflush(stdout);
+            em_frame_request_quit();
+            break;
+        }
     }
 }
 
@@ -3390,14 +4205,35 @@ static void gameplay_frame(void)
      * 0x112 recoil replay ~2 frames in (the clip's max-delta snap zone,
      * 4 deg/frame) with the muzzle flash still up: the aim+fire
      * reference against the =1 static hold. */
+    /* EM_CAPTURE_AIM=3: aim + hold stick DOWN ('s') from frame 20 —
+     * the inverted-Y steer pitches the aim UP: the capture samples the
+     * up-ladder pose, the raised laser and the counter-lowered mode-1
+     * eye. =4: hold stick UP ('w') — aim DOWN ("W = down"). */
     if (g.capture_aim) {
         if      (g.frame_no == 0)  move_test_inject('e', 1);
-        else if (g.frame_no == 28) move_test_inject('a', 1);
-        else if (g.frame_no == 44) move_test_inject('a', 0);
-        if (g.capture_aim >= 2) {
+        if (g.capture_aim < 3) {
+            if      (g.frame_no == 28) move_test_inject('a', 1);
+            else if (g.frame_no == 44) move_test_inject('a', 0);
+        } else if (g.frame_no == 20) {
+            move_test_inject(g.capture_aim == 3 ? 's' : 'w', 1);
+        }
+        if (g.capture_aim == 2) {
             if      (g.frame_no == 57) move_test_inject('l', 1);
             else if (g.frame_no == 59) move_test_inject('l', 0);
         }
+    }                                       /* debug instrumentation only */
+    /* EM_CAPTURE_DOOR=1: the door-test approach + CROSS with NO asserts
+     * — by the default door capture frame (110) the transit walk has
+     * arrived and the op 0x0D sub 5 CINEMATIC CUT holds: 20 u behind
+     * the player at +27 looking down at him in the doorway (with
+     * EM_DOORCAM_LOCKED=1: the locked-look handle placement). */
+    if (g.capture_door) {
+        if      (g.frame_no == 0)  move_test_inject('w', 1);
+        else if (g.frame_no == 24) move_test_inject('w', 0);
+        else if (g.frame_no == 28) move_test_inject('w', 1);
+        else if (g.frame_no == 58) move_test_inject('w', 0);
+        else if (g.frame_no == 60) move_test_inject('k', 1);
+        else if (g.frame_no == 61) move_test_inject('k', 0);
     }                                       /* debug instrumentation only */
     /* EM_CAPTURE_RISE=1: hold 's' (stick down) from frame 0 — the
      * player about-faces and runs TOWARD the camera; the chase camera
@@ -3430,6 +4266,7 @@ static void gameplay_frame(void)
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     if (g.pause_test) pause_test_script();  /* debug instrumentation only */
     if (g.camregion_test) camregion_test_script(); /* debug instr. only  */
+    if (g.aim_test)  aim_test_script();     /* debug instrumentation only */
     /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
      * real Triangle/Start toggle — em_hud_is_open(); the EM_HUD_FORCE
      * capture hook deliberately does NOT pause, see em_hud.h) the
@@ -3476,6 +4313,8 @@ static void gameplay_frame(void)
                 g.pos[1] = gp[1];
                 g.pos[2] = gp[2];
                 g.yaw    = gyaw;
+                g.doorcam      = 3;   /* cinematic over (op 0x18) */
+                g.cam.tgt_soft = 0;
                 g.cam.yaw = gyaw;
                 g.cam.tgt_des[0] = g.pos[0];
                 g.cam.tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
@@ -3500,6 +4339,8 @@ static void gameplay_frame(void)
             g.pos[1] = wp[1];
             g.pos[2] = wp[2];
             g.yaw    = wyaw;
+            g.doorcam      = 3;   /* cinematic over (op 0x18 restore) */
+            g.cam.tgt_soft = 0;
             g.cam.yaw = wyaw;
             g.cam.tgt_des[0] = g.pos[0];
             g.cam.tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
@@ -3536,7 +4377,7 @@ static void gameplay_frame(void)
         static const EmFrameInput kNeutral = { 0x80, 0x80, 0x80, 0x80,
                                                0, 0, 0 };
         em_weapon_update(&g.coll, g.pos, g.yaw,
-                         em_door_input_locked() ? &kNeutral
+                         em_door_movement_locked() ? &kNeutral
                                                 : em_frame_input());
     }
     camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
@@ -3597,10 +4438,12 @@ static void ingame_frame_machine(EmTask *self)
             g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
             g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
             g.yaw    = g.n_scene ? g.spawn_yaw : 0.0f;
-            if (g.door_test) {
-                /* EM_DOOR_TEST spawn: the z = -225 corridor line in
-                 * front of the west double door, facing -X (see
-                 * door_test_script). */
+            if (g.door_test || g.capture_door || g.pause_test) {
+                /* EM_DOOR_TEST / EM_CAPTURE_DOOR / EM_PAUSE_TEST spawn:
+                 * the z = -225 corridor line in front of the west
+                 * double door, facing -X (see door_test_script;
+                 * EM_PAUSE_TEST uses the same approach for its door leg
+                 * — the mid-walk-out menu check). */
                 g.pos[0] = 72.0f;
                 g.pos[1] = 0.0f;
                 g.pos[2] = -225.0f;
@@ -3888,7 +4731,12 @@ void em_game_install(void)
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
                                                regression frame */
     const char *ca = getenv("EM_CAPTURE_AIM");
-    g.capture_aim  = ca ? atoi(ca) : 0;     /* 1 = aim, 2 = aim + shot */
+    g.capture_aim  = ca ? atoi(ca) : 0;     /* 1 = aim, 2 = aim + shot,
+                                               3/4 = aim up/down pose */
+    const char *cd = getenv("EM_CAPTURE_DOOR");
+    g.capture_door = cd && cd[0] == '1';    /* door cinematic capture */
+    if (g.capture_door && !cf)
+        g.capture_frame = 110;              /* mid-cinematic default */
     const char *cr = getenv("EM_CAPTURE_RISE");
     g.capture_rise = cr && cr[0] == '1';    /* walk-at-camera rise demo */
     const char *co = getenv("EM_CAPTURE_ORIENT");
@@ -3925,6 +4773,8 @@ void em_game_install(void)
     g.pause_test   = pt && pt[0] == '1';
     const char *cg = getenv("EM_CAMREGION_TEST");
     g.camregion_test = cg && cg[0] == '1';
+    const char *at = getenv("EM_AIM_TEST");
+    g.aim_test     = at && at[0] == '1';
     const char *kt = getenv("EM_MELEE_TEST");
     g.melee_test   = kt && kt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
@@ -4027,3 +4877,8 @@ int em_game_anim_frame(void)
     double end = (double)(g.model.clips[g.sa_clip].frame_count - 1);
     return (int)(g.sa_t < end ? g.sa_t : end);
 }
+
+/* Manual aim steer state (em_game.h) */
+float em_game_aim_pitch(void)     { return g.aim_pitch; }
+float em_game_aim_yaw_blend(void) { return g.aim_yawb; }
+void  em_game_aim_dir(float out[3]) { aim_dir_get(out); }

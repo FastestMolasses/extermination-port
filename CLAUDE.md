@@ -104,14 +104,57 @@ files map each native stage to the PS2 function it stands in for.
   WALL RADIUS"), and standing still runs the decoded IDLE CYCLE: breathing
   idle (anim id 0) with the look-around fidget (id 349 = engine 0x15D)
   every 300 frames (func_00161020).
-- CAMERA FIDELITY (2026-06-11, observed against the real game — em_game.c
-  "CAMERA FIDELITY"): NO free camera control (the old d-pad orbit is gone);
-  R1 (tap or hold) and L1 orient the camera behind the player (R1 keeps
-  tracking the aim direction until release); after ~2 s idle the camera
-  SLOWLY auto-orients behind the player — only at default height, stopping
-  if a wall blocks the rotation path; a wall behind the camera makes it
-  RISE (look down on the player) instead of pulling in — pull-in remains
-  only for the aim camera and full-height-wall fallback. Per-room FIXED
+- CAMERA FIDELITY (2026-06-11, observed + DECODED — em_game.c "CAMERA
+  FIDELITY" and the decoded constants blocks): NO free camera control (the
+  old d-pad orbit is gone); L1 orients the camera behind the player at the
+  engine's 2 deg/frame family rate; the IDLE AUTO-ORIENT is the DECODED
+  engine machinery (func_001921D0 idle path + func_00193D90): the camera
+  struct's own timer counts idle frames and at 481 (= the 300-frame fidget
+  timer + the 180-frame look-around clip — the END of the look-around
+  idle) arms a 0.2 deg/frame ORBIT around the saved eye<->target radius
+  (3 deg deadband, wall-direction gates, cancels on any action/wall);
+  a wall behind the camera makes it RISE (look down on the player)
+  instead of pulling in — pull-in remains only for the aim camera and
+  full-height-wall fallback.
+- AIM CAMERA = the engine's MODE 1, DECODED (2026-06-11, func_00197D20 +
+  func_00197740/func_00197870 — replaces the old +0x8C target-height
+  hack): entry frames the player from the current camera heading
+  (target/eye = player + rotY(cam yaw)*(0,19,6)/(0,19,-30)); steady looks
+  from 30 u behind the player FACING (it tracks the turn-in-place) toward
+  player + aim_dir*16 + 19 up — the view down the barrel toward the laser
+  dot — with eye.y = player.y + 19 - 30*dir.y (clamps [+2,+30], anti-close
+  raise <7 u, min horizontal distance 8 when high); target chases 0.4/0.6
+  u/frame, eye 4.0; release re-seeds the chase yaw from the eye->player
+  heading (mode-2 transition stand-in, flagged). It runs inside fixed-
+  camera regions too; release there still snaps to the room spec.
+- MANUAL AIM STEER, DECODED (2026-06-11, func_0017ABA0 — em_game.c
+  "MANUAL AIM STEER", accessors em_game_aim_pitch/_yaw_blend/_dir):
+  while aiming the stick (d-pad merged) drives the aim blends +0x278/
+  +0x27C — PITCH IS INVERTED Y (stick up = aim DOWN, "W = down"), rates
+  by the 49/89/123 deflection bands {0, 0.0025, 0.005, 0.015}/frame,
+  pitch clamps [0,1], yaw pans the +-60 deg POSE LADDER first and turns
+  the body only past the blend limit. The pose is the bilinear blend of
+  the 9-step ladder 0x112..0x11A (pitch up 0x113 +81.3 deg / down 0x114
+  -78.7 / yaw 0x115..0x11A — measured from the baked clips), substituted
+  by em_game's anim dispatch while em_weapon holds the 0x112 base — the
+  fire/laser ray follows the posed hand bone automatically. HELD R2 =
+  the engine's SECOND armed stance 0x1E (func_001607D0; code 0x32, R2
+  family rates, camera state 0x2A bases the target on the entry-saved
+  position); em_game runs its pose + steer + camera, em_weapon's
+  dot-only laser for it is pending (noted).
+- DOOR-TRANSIT CINEMATIC CAMERA, DECODED (2026-06-11, op 0x0D sub 5 =
+  func_001B7B30 + func_0018CBD0, and func_001BBBF0): the transit no
+  longer freezes the camera — at the door script start it HARD-CUTS to
+  20 u behind the player along the camera heading at +27, looking at the
+  player (+25), then holds the eye while the target re-blends (<= 1.0
+  u/frame, 120-frame window cam+0xA0) as the player walks through; the
+  post-warp re-place re-seats the chase (the op 0x18 restore). The
+  LOCKED-TRY camera (func_001BBBF0: target at the door HANDLE = door +
+  8 u to its left + 10 up; eye 13 u back along the camera yaw at door.y
+  + 12) is implemented behind EM_DOORCAM_LOCKED=1 as a flagged preview —
+  em_door has no locked sequence yet, and the preview clips into the
+  (unlocked) west-door wall, so the trigger + geometry verification
+  lands with the locked doors. Per-room FIXED
   camera angles are DECODED AND PORTED (2026-06-11, decomp FINDINGS
   "MODE-0 CAMERA DIRECTOR DECODED"): they are MAIN-ELF data (per-area
   director cases + the D_0024A5F0 trigger-volume table — NOT an overlay
@@ -125,10 +168,12 @@ files map each native stage to the PS2 function it stands in for.
   the verdict comment); scene_snow carries the one real AREA06 region.
 - The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
   needs a player.emdl exported with `--attach --no-glow --clips
-  349,2,3,69,67,75,272,273,51,274,1,267,268,269,270,271,0` — DIRECTORY ids
-  after the 2026-06-11 enumeration fix (the engine resolver's leading
-  offset table; the old scan ids >= 54 were shifted), with 0 = the
-  breathing idle and 349 = the look-around fidget for the idle cycle):
+  349,2,3,69,67,75,272,273,51,274,275,276,277,278,279,280,281,282,1,267,
+  268,269,270,271,0,450,10` — DIRECTORY ids after the 2026-06-11
+  enumeration fix (the engine resolver's leading offset table; the old
+  scan ids >= 54 were shifted), with 0 = the breathing idle, 349 = the
+  look-around fidget for the idle cycle and 275..282 = the AIM POSE
+  LADDER steps 0x113..0x11A the manual aim steer blends):
   draw 0x110 @1.4, HELD aim pose 0x112 (em_game_anim_hold), reload 0x33,
   holster 0x111 — each state window gates on the honest clip length. FIRE
   RECOIL (s25, FINDINGS "FIRE ANIM MECHANISM"): the engine has NO separate
@@ -136,9 +181,10 @@ files map each native stage to the PS2 function it stands in for.
   (em_game_anim_hold_restart, the fire-counter re-seed of
   bone_matrix_publish); the snap is baked into the clip's front frames and
   settles back into the clamped hold (12.5 ticks; full-auto restarts it every
-  6). Aiming is PLANTED (movement locks to turn-in-place; engine evidence in
-  em_game.c player_move) and lowers the camera follow target to the aim
-  offset (struct +0x8C), the over-shoulder cut's mode-0 stand-in.
+  6). Aiming is PLANTED (movement locks to the manual aim steer; engine
+  evidence in em_game.c player_move) and runs the DECODED mode-1 aim
+  camera (the CAMERA FIDELITY bullets above — the +0x8C stand-in is
+  retired).
 - KNIFE / MELEE (s36 decode — em_weapon.h "KNIFE / MELEE", FINDINGS
   "KNIFE/MELEE DECODED"): while HOLSTERED, CIRCLE (L) = the LIGHT 3-hit
   combo (engine mode 0x21: anims 0x10B/0x10C/0x10D, damage 3/3/5, sounds
@@ -156,6 +202,12 @@ files map each native stage to the PS2 function it stands in for.
   holds R1 from frame 0 + a short turn so the capture shows the armed
   stance, laser and aim camera; `EM_CAPTURE_AIM=2` adds one semi shot at
   frame 58 so the default capture frame samples the mid-recoil pose;
+  `EM_CAPTURE_AIM=3/4` instead holds stick down/up — the INVERTED-Y steer
+  pitches the aim UP/DOWN: the ladder pose, the pitched laser and the
+  counter-moved mode-1 eye (use EM_CAPTURE_FRAME=120);
+  `EM_CAPTURE_DOOR=1` runs the door-test approach + CROSS with no asserts
+  so the capture (default frame 110) samples the door-transit CINEMATIC
+  camera (`EM_DOORCAM_LOCKED=1` previews the locked-look placement);
   `EM_CAPTURE_RISE=1` walks the player at the camera so a late capture
   frame shows the wall-RISE camera; `EM_CAPTURE_ORIENT=1` turn-in-place +
   idle for the slow auto-orient; `EM_CAMERA_TRACE=1` prints the camera
@@ -174,6 +226,9 @@ files map each native stage to the PS2 function it stands in for.
   `EM_TRANSIT_TEST=1` (goto-door SCENE-SWITCH run: west-door transit ->
   runtime reload of scene_drawbridge at full black, player at the decoded
   arrival spawn — see transit_test_script / em_game_scene_switch),
+  `EM_AIM_TEST=1` (manual aim steer + mode-1 aim camera: inverted-Y
+  pitch, clamps, full-down camera geometry, pose-pan-then-body-turn —
+  see aim_test_script),
   `make test-input` (OS-free pad-model unit test).
 
 ## Build
