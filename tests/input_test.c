@@ -28,6 +28,27 @@ static EmPadState pad(void)
     return p;
 }
 
+/* Engine-side gait of a stick deflection: replicate the frame layer's
+ * raw-byte conversion (em_frame.c stick_byte: raw = 0x80 + (int)(axis*128),
+ * clamped to 0..255) and the engine quantizer func_001B5CC0
+ * (r = sqrt((raw_x-128)^2 + (raw_y-128)^2) through rings 48/88/122), in
+ * exact integer math (r^2 vs ring^2). 0 = dead, 1 = turn-in-place,
+ * 2 = WALK, 3 = RUN. The DEBUG GAIT HOLD contract is end-to-end: the
+ * capped deflection must quantize to gait 2 in EVERY stick direction. */
+static int gait_of(float x, float y)
+{
+    int ox = (int)(x * 128.0f), oy = (int)(y * 128.0f);
+    if (ox >  127) ox =  127;
+    if (ox < -128) ox = -128;
+    if (oy >  127) oy =  127;
+    if (oy < -128) oy = -128;
+    int r2 = ox * ox + oy * oy;
+    if (r2 <= 48 * 48)   return 0;
+    if (r2 <= 88 * 88)   return 1;
+    if (r2 <= 122 * 122) return 2;
+    return 3;
+}
+
 int main(void)
 {
     EmPadState p;
@@ -139,32 +160,40 @@ int main(void)
     p = pad();
     assert(p.rx == 0.0f && p.ry == 0.0f);
 
-    /* DEBUG GAIT HOLD: Option/Alt caps BOTH sticks at the WALK band (0.5)
-     * while held — including when pressed mid-hold — and restores the
-     * full RUN deflection on release. Buttons are unaffected. */
+    /* DEBUG GAIT HOLD: Option/Alt caps BOTH sticks' VECTOR magnitude at
+     * the WALK band deflection (0.8) while held — including when pressed
+     * mid-hold — and restores the full RUN deflection on release.
+     * Cardinal pushes sit at the cap exactly; diagonals normalize by
+     * 1/sqrt(2) so the engine-side quantized magnitude stays in the walk
+     * ring (gait_of above). Buttons are unaffected. */
     assert(EM_INPUT_DEFLECT_FULL == 1.0f);
-    assert(EM_INPUT_DEFLECT_HALF == 0.5f);
+    assert(EM_INPUT_DEFLECT_WALK == 0.8f);
     press('w');
     assert(pad().ly == -EM_INPUT_DEFLECT_FULL);
+    assert(gait_of(pad().lx, pad().ly) == 3);     /* full push = RUN */
     press(EM_KEY_ALT);                /* modifier arrives mid-hold */
     p = pad();
-    assert(p.ly == -EM_INPUT_DEFLECT_HALF && p.lx == 0.0f);
+    assert(p.ly == -EM_INPUT_DEFLECT_WALK && p.lx == 0.0f);
+    assert(gait_of(p.lx, p.ly) == 2);             /* cardinal = WALK */
     press('d'); press('t');
     p = pad();
-    assert(p.lx ==  EM_INPUT_DEFLECT_HALF);
-    assert(p.ly == -EM_INPUT_DEFLECT_HALF);
-    assert(p.ry == -EM_INPUT_DEFLECT_HALF);  /* right stick capped too */
+    assert(p.lx > 0.0f && p.ly < 0.0f);           /* W+D diagonal... */
+    assert(p.lx == -p.ly);                        /* ...normalized evenly */
+    assert(gait_of(p.lx, p.ly) == 2);             /* diagonal stays WALK */
+    assert(p.ry == -EM_INPUT_DEFLECT_WALK);  /* right stick capped too */
+    assert(gait_of(p.rx, p.ry) == 2);
     assert(p.buttons == 0);                  /* Alt is not a button */
     release(EM_KEY_ALT);
     p = pad();
-    assert(p.lx ==  EM_INPUT_DEFLECT_FULL);
+    assert(p.lx ==  EM_INPUT_DEFLECT_FULL);  /* no normalization unheld */
     assert(p.ly == -EM_INPUT_DEFLECT_FULL);
     assert(p.ry == -EM_INPUT_DEFLECT_FULL);
+    assert(gait_of(p.lx, p.ly) == 3);             /* full diagonal = RUN */
     press(EM_KEY_ALT);                /* re-engage; buttons still clean */
     press('k');
     p = pad();
     assert(p.buttons == EM_PAD_CROSS);
-    assert(p.lx == EM_INPUT_DEFLECT_HALF);
+    assert(gait_of(p.lx, p.ly) == 2);  /* W+D diagonal back in WALK */
     release('k'); release(EM_KEY_ALT);
     release('w'); release('d'); release('t');
     p = pad();

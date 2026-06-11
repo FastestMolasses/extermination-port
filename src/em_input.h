@@ -36,16 +36,22 @@
  *
  * DEBUG GAIT HOLD: holding Option/Alt (EM_KEY_ALT — the platform layer
  * synthesizes KEY_DOWN/KEY_UP transitions for it, em_platform.h) caps the
- * emulated deflection of BOTH sticks at EM_INPUT_DEFLECT_HALF (0.5) instead
- * of the keyboard default EM_INPUT_DEFLECT_FULL (1.0). Rationale: the
- * engine quantizes left-stick deflection through rings r=48/88/122 (raw
- * 0..127 units; em_game.c locomotion notes) into the gait byte — full push
- * (raw 127, >= 122) is gait 3 = RUN, the keyboard default and exactly the
- * PCSX2 keyboard experience; half push (raw ~64, between 48 and 88) is
- * gait 2 = WALK. So Alt makes the analog walk gait reachable from a
- * keyboard. The cap is applied by this module in em_input_pad (the
- * platform only reports the modifier), so it is identical on every OS and
- * covered by tests/input_test.c.
+ * emulated deflection of BOTH sticks at EM_INPUT_DEFLECT_WALK (0.8)
+ * instead of the keyboard default EM_INPUT_DEFLECT_FULL (1.0). Rationale:
+ * the engine quantizes the left-stick MAGNITUDE r = |raw - 0x80| through
+ * rings r=48/88/122 (raw 0..127 units; em_game.c locomotion notes) into
+ * the gait byte: r <= 48 dead, 48 < r <= 88 gait 1 = TURN-IN-PLACE (zero
+ * speed), 88 < r <= 122 gait 2 = WALK, r > 122 gait 3 = RUN. Full push
+ * (raw 127) is RUN — the keyboard default and exactly the PCSX2 keyboard
+ * experience; the 0.8 cap lands at raw ~102, mid WALK band. (A 0.5 cap
+ * would land at raw 64, inside the gait-1 turn-in-place ring — NOT walk;
+ * the walk band only spans deflections ~0.70..0.95.) The cap bounds the
+ * stick VECTOR magnitude: a diagonal (e.g. W+A) is normalized by
+ * 1/sqrt(2) so the combined deflection stays 0.8 — a per-axis cap would
+ * quantize sqrt(2) larger (raw ~144 > 122) and break diagonals into RUN.
+ * Applied by this module in em_input_pad (the platform only reports the
+ * modifier), so it is identical on every OS and covered by
+ * tests/input_test.c.
  *
  * ENGINE DEFAULT BUTTON CONFIG (live-pinned 2026-06-10 s29 — decomp repo
  * FINDINGS.md "GAMEPLAY SOUND IDS PINNED LIVE"). The engine reads actions
@@ -121,14 +127,18 @@ enum {
 /* Emulated stick deflection magnitudes — SEMANTIC CONSTANTS for the game
  * code (src/game/): test |lx|/|ly| against these, not bare literals.
  *   FULL (1.0)  keyboard default = the engine quantizer's gait-3 RUN band
- *               (raw >= 122 of 127).
- *   HALF (0.5)  the Option/Alt debug-gait hold = the gait-2 WALK band
- *               (raw ~64, inside the 48..87 ring). Movement code that maps
- *               deflection -> gait must classify 0.5 as WALK and 1.0 as
- *               RUN; a future analog gamepad backend will deliver the
- *               continuous range and the same ring thresholds apply. */
+ *               (raw > 122 of 127).
+ *   WALK (0.8)  the Option/Alt debug-gait hold = the gait-2 WALK band
+ *               (raw ~102, inside the 88 < r <= 122 ring; the band only
+ *               spans deflections ~0.70..0.95). Under the hold this caps
+ *               the stick VECTOR magnitude (diagonals normalize by
+ *               1/sqrt(2)), so the quantized r stays in the walk band in
+ *               every direction. Movement code that maps deflection ->
+ *               gait must classify 0.8 as WALK and 1.0 as RUN; a future
+ *               analog gamepad backend will deliver the continuous range
+ *               and the same ring thresholds apply. */
 #define EM_INPUT_DEFLECT_FULL 1.0f
-#define EM_INPUT_DEFLECT_HALF 0.5f
+#define EM_INPUT_DEFLECT_WALK 0.8f
 
 typedef struct {
     uint16_t buttons;        /* EM_PAD_* bits, 1 = pressed */
