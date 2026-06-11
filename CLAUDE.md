@@ -186,20 +186,46 @@ files map each native stage to the PS2 function it stands in for.
   the verdict comment); scene_snow carries the one real AREA06 region.
 - The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
   needs a player.emdl exported with `--attach --no-glow --clips
-  349,2,3,69,67,75,272,273,51,274,275,276,277,278,279,280,281,282,1,267,
-  268,269,270,271,0,450,10` — DIRECTORY ids after the 2026-06-11
+  349,2,3,69,67,75,272,273,283,51,274,275,276,277,278,279,280,281,282,1,
+  267,268,269,270,271,0,450,10` — DIRECTORY ids after the 2026-06-11
   enumeration fix (the engine resolver's leading offset table; the old
   scan ids >= 54 were shifted), with 0 = the breathing idle, 349 = the
-  look-around fidget for the idle cycle and 275..282 = the AIM POSE
-  LADDER steps 0x113..0x11A the manual aim steer blends):
-  draw 0x110 @1.4, HELD aim pose 0x112 (em_game_anim_hold), reload 0x33,
-  holster 0x111 — each state window gates on the honest clip length. FIRE
+  look-around fidget for the idle cycle, 275..282 = the AIM POSE
+  LADDER steps 0x113..0x11A the manual aim steer blends, and 283 =
+  0x11B = THE TRUE RELOAD):
+  draw 0x110 @1.4, HELD aim pose 0x112 (em_game_anim_hold), reload
+  0x11B, holster 0x111 — each state window gates on the honest clip
+  length, and the draw/reload clips are HOLD-type requests so their
+  last frame clamps until the aim hold replaces it (no idle-pose pop
+  at the window end). RELOAD CLIP DECODED (2026-06-11, the
+  user-reported "stagger" run to ground): the engine's reload entry
+  (func_0016F600, major 3) requests D_00248B98[sub-weapon] — sub 0 =
+  283 (0x11B), a 60-frame shouldered reload (gun stays up, the
+  support hand drops to the mag pouch and returns; root planted).
+  The old 0x33 was the +0x1F0 ACTION CODE, and library clip 51 is a
+  KNOCKDOWN (body folds to the ground) — the literal stagger the
+  port used to play; the code/clip coincidence is the same trap s25
+  sprang for the fire codes. Library clip 51 stays in the asset
+  (it IS a real knockdown clip, future damage-reaction user). FIRE
   RECOIL (s25, FINDINGS "FIRE ANIM MECHANISM"): the engine has NO separate
   fire clip — each shot rewinds the held aim clip to frame 0 at 2 frames/tick
   (em_game_anim_hold_restart, the fire-counter re-seed of
   bone_matrix_publish); the snap is baked into the clip's front frames and
-  settles back into the clamped hold (12.5 ticks; full-auto restarts it every
-  6). Aiming is PLANTED (movement locks to the manual aim steer; engine
+  settles back into the clamped hold (12.5 ticks). FIRE CADENCE
+  (2026-06-11, func_0017A8B0 decoded — retires the flat 12-frame
+  interval): every trigger press stores +0x2F4 = the aim-ladder clip's
+  frame count (25 for the SPR4), so SEMI spaces shots 13 ticks apart
+  (~4.6 rds/s — the cadence IS the recoil replay) and the +0x2A press
+  queue only samples from counter >= interval-8 (early mash presses
+  are DROPPED); the burst/auto fire states overwrite +0x2F4 = 12.0
+  per round (6-frame in-burst cadence). LASER HIDE WINDOW
+  (2026-06-11, player +0x2F2 decoded): every shot state clears +0x2F2
+  and only the cadence expiry / WAIT ticks re-set it — the laser
+  VANISHES from each shot tick to its cadence expiry (blinking one
+  tick between chained rounds), exactly the original's laser dropping
+  out while firing; the laser DOT billboard also offsets half its
+  size off the wall along the hit normal (no more half-clipping).
+  Aiming is PLANTED (movement locks to the manual aim steer; engine
   evidence in em_game.c player_move) and runs the DECODED mode-1 aim
   camera (the CAMERA FIDELITY bullets above — the +0x8C stand-in is
   retired).

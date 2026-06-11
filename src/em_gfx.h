@@ -312,8 +312,10 @@ void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
  * (decomp FINDINGS "Muzzle flash FX" + "The DOT"). These slots carry
  * those sheets so the beam pass can draw the REAL sprites instead of
  * flat-color quads (em_weapon.c loads the assets/fx .emtx files into
- * them). */
-#define EM_GFX_BEAM_TEX_MAX 4
+ * them). Slot 4 carries the FLASHLIGHT CONE's glow sheet (the chunk27
+ * light-cone family's 0x...3222E9 texture — em_weapon.c "FLASHLIGHT
+ * CONE"). */
+#define EM_GFX_BEAM_TEX_MAX 5
 
 /* Register one beam texture slot (0..EM_GFX_BEAM_TEX_MAX-1). `rgba` is
  * w*h RGBA8 texels, rows top-down, copied into a GPU texture (the
@@ -338,11 +340,40 @@ void em_gfx_beam_tex(EmGfx *gfx, int slot, const float a[3],
 void em_gfx_beam_dot_tex(EmGfx *gfx, int slot, const float p[3],
                          float size, const float rgba[4]);
 
+/* em_gfx_beam_tex with an axis ROLL: the axial quad's width vector is
+ * rotated `roll` RADIANS around the a->b axis before the camera-plane
+ * extrusion. Translates the muzzle-flash FX actor's rotation lerp
+ * (engine func_001F5040 tick >= 4: rot += (-128 - rot) * 0.35 per tick,
+ * written to all three rotation components — the star tumbling around
+ * the barrel as it decays; decomp FINDINGS "Muzzle flash FX"). roll = 0
+ * is exactly em_gfx_beam_tex. */
+void em_gfx_beam_tex_roll(EmGfx *gfx, int slot, const float a[3],
+                          const float b[3], float width, float roll,
+                          const float rgba[4]);
+
+/* Queue one world-space TEXTURED TRIANGLE in the same additive beam
+ * pass: three world vertices `p` (xyz xyz xyz) with uvs (uv uv uv)
+ * sampling beam slot `slot`, modulated by `rgba`. Drawn in the slot's
+ * textured flush (additive, depth test on / write off, cull none —
+ * the GS state class of the engine's additive FX meshes). The consumer
+ * is the FLASHLIGHT CONE mesh (the chunk27 light-cone model exported by
+ * the decomp's export_props --cone; em_weapon.c orients its vertices
+ * along the muzzle ray and queues its triangles per aim frame). Own
+ * per-frame budget; overflow dropped, nothing queued = no extra GPU
+ * work (frame output byte-identical). */
+#define EM_GFX_BEAM_TRI_MAX 384
+void em_gfx_beam_tri_tex(EmGfx *gfx, int slot, const float p[9],
+                         const float uv[6], const float rgba[4]);
+
 /* --- Flashlight spot light (forward spot term) ------------------------ */
 
-/* Set THIS frame's single forward SPOT LIGHT, applied by every skinned
- * draw's lit shading paths (the directional stand-in AND the baked
- * vertex-color level path). Reset OFF at em_gfx_begin_frame; with no
+/* Set THIS frame's single forward SPOT LIGHT, applied ONLY by the baked
+ * vertex-color LEVEL path of the skinned draws (mesh flag
+ * EM_GFX_MESH_VCOLOR — the world geometry). The directional CHARACTER
+ * path takes NO spot term (2026-06-11 weapon-visual pass): the spot is
+ * muzzle-anchored and points away from the player, so the player/gun
+ * must never catch their own light — in the reference capture the
+ * beam lights the room only. Reset OFF at em_gfx_begin_frame; with no
  * call the frame output is bit-identical to pre-spot builds (the shader
  * adds exactly 0).
  *

@@ -8,8 +8,11 @@
  *                        major-state byte +0x06)  -> em_weapon_update()
  *   func_00170A60        rifle FIRE SUB-MACHINE (sub-state +0x07, fire-mode
  *                        families 10/20/30)       -> the AIM trigger logic
- *   func_0017B300        RELOAD (matched 100%): mag = min(30, reserve),
- *                        reserve NOT subtracted   -> weapon_reload()
+ *   func_0017B300        RELOAD ammo move (matched 100%): mag = min(30,
+ *                        reserve), reserve NOT subtracted ->
+ *                        weapon_reload(); the reload ANIM is the
+ *                        D_00248B98 per-sub table pick (0x11B), see
+ *                        the PLAYER ANIMS block
  *   func_001861C0        the BULLET (hitscan: one func_0019A570 segment
  *                        query per shot, range 260) -> the fire-event
  *                        resolution inside em_weapon_update()
@@ -40,9 +43,15 @@
  *
  * FIRE MODES (D_00810C61): 0 = semi (one shot per trigger press, engine
  * sub-states 10/11), 1 = 3-round burst (20..23, 8-tick pause between
- * bursts), 2 = full-auto (30..32). Cadence for all: the fire counter
- * (+0x276) gains 2/frame and a shot needs >= 12.0 (+0x2F4) — one shot
- * every 6 frames, 10/s at 60 Hz.
+ * bursts), 2 = full-auto (30..32). CADENCE INTERVAL +0x2F4 (decoded
+ * 2026-06-11, func_0017A8B0 — corrects the old flat 12): every trigger
+ * press stores +0x2F4 = the FRAME COUNT of the stance's aim-ladder
+ * base clip (func_001C61D0) — 25 for the SPR4's 0x112 — and the
+ * BURST/AUTO fire states overwrite 12.0 per round. So SEMI fires at
+ * most one round per 13 ticks (counter +2/frame vs 25 — the cadence IS
+ * the 12.5-tick recoil replay), while burst/auto rounds space 6 frames
+ * INSIDE a burst/hold. The old port-wide 12 made semi twice the engine
+ * rate (the user-reported missing fire rate).
  *
  * FIRE SUB-STATE MACHINE (re-read 2026-06-11 from the func_00170A60
  * .s — the 2026-06-11 weapon-fidelity pass; replaces the old flat
@@ -59,9 +68,11 @@
  *        cadence expiry below already reloaded). L3 manual reload is
  *        checked HERE (and in the burst gap 0x17) — never mid-cadence.
  *   0xA/0xB  SEMI shot + cadence: +0x276 += 2/tick; a NEW press during
- *        the cadence latches the queued-shot flag +0x2A (sampled from
- *        counter >= interval-8 — every tick after the shot tick); at
- *        counter >= interval(12): counter = 0, then EITHER mag empty ->
+ *        the cadence latches the queued-shot flag +0x2A — but ONLY from
+ *        counter >= interval - 8 (presses in the first ~7 ticks of the
+ *        25-frame semi cadence are DROPPED, the engine sampling
+ *        window); at counter >= interval (semi: the ladder-clip length
+ *        25): counter = 0, then EITHER mag empty ->
  *        UNCONDITIONAL reload func_0017B300(.,1) (the dry-mag auto
  *        reload happens at the expiry, NOT on the next press), OR
  *        queued -> step back to the shot state (fires the NEXT tick =
@@ -97,8 +108,10 @@
  *
  * RELOAD SOUNDS (live-pinned s29 — replaces the old 0xF002 placeholder
  * alias): reload START plays 0x163 (the shared weapon-handling foley,
- * same id as holster) and the MAG ACTION plays 0x168 ~0.5 s into the
- * 0x33 reload anim (the distinctive reload sound, snd_0351). em_weapon
+ * same id as holster — and the engine's reload entry func_0016F600
+ * indeed plays 0x163 right after its anim requests) and the MAG ACTION
+ * plays 0x168 ~0.5 s into the reload anim (the distinctive reload
+ * sound, snd_0351). em_weapon
  * schedules the mag-action tick from the reload entry; dropping the
  * stance mid-reload (holster) cancels the pending mag sound.
  *
@@ -115,7 +128,17 @@
  *
  * LASER SIGHT (translated 2026-06-10 s23 — live capture + disasm of the
  * gun actor's per-frame drawers func_001854E0 / func_00185760, selected
- * by player +0x318 while the aim-pose anim is in phase): every aim frame
+ * by player +0x318 while the aim-pose anim is in phase). LASER HIDE
+ * WINDOW (decoded 2026-06-11 — the gun-tick gate func_00188630 ALSO
+ * requires player +0x2F2 (mirror D_008105A2) nonzero, and the fire SM
+ * func_00170A60 CLEARS +0x2F2 in every shot state, re-setting it only
+ * at the cadence expiry / each WAIT tick): the laser VANISHES from the
+ * shot tick until that shot's cadence runs out, blinking one tick
+ * between chained rounds — the original's laser drops out while
+ * firing; the port mirrors the flag tick-for-tick (w.laser_vis). The
+ * DOT billboard is offset HALF ITS SIZE off the surface along the hit
+ * normal (enemy hits: back along the ray) so it never half-clips into
+ * the wall. Every aim frame
  * the gun raycasts muzzle -> muzzle + dir*260 with the SAME segment
  * query as the bullet (func_0019A570, mode 7, mask 0x20) and clips the
  * laser at the hit point (no hit: the full 260-unit endpoint — the
@@ -156,7 +179,21 @@
  *           shot sound 0x164 vs 0x165), and library containers
  *           49/50/52/53 are unrelated clips (s23's id=index guess for
  *           them is corrected in FINDINGS).
- *   RELOAD  anim 0x33 once; the state window IS the clip length
+ *   RELOAD  anim 0x11B (283) — THE TRUE RELOAD CLIP (decoded
+ *           2026-06-11: func_0016F600's reload entry requests
+ *           D_00248B98[sub-weapon]; sub 0 = 283, the slot after the
+ *           aim ladder. The old 0x33 was the +0x1F0 ACTION CODE —
+ *           library clip 51 is a KNOCKDOWN, the user's "stagger";
+ *           the code/clip coincidence is the same trap s25 already
+ *           sprang for the fire codes 0x31/0x32/0x34/0x35). 60 fr
+ *           rate 1.0, HELD at its last frame until the aim hold
+ *           replaces it (the second half of the stagger fix: a plain
+ *           request released the clip into ~2 frames of locomotion
+ *           idle before the aim pose recommitted — a full-pose snap
+ *           at every reload end; the engine's stance top re-selects
+ *           the stance pose every frame, no idle interlude). The
+ *           state window IS the clip length. The DRAW clip holds the
+ *           same way.
  *   HOLSTER anim 0x111 once, then locomotion resumes by itself
  * Every state window gates on the committed clip's honest length
  * (em_game_anim_frames -> ceil(frames / rate) ticks); the old fixed
@@ -186,10 +223,17 @@
  * exported effect sheets (assets/fx/flash_puff/_star/_ball.emtx —
  * export_props --fx; the models sample them full-frame): spawn tick
  * = the 0xD puff, ticks 0..2 = the model-8 star streak + muzzle
- * ball, tick 3+ = the model-7 star on the puff sheet; intensity
- * decays with the engine's own 0.8^t constant (stand-in for the
- * untranslated rotation lerp, flagged; sheets absent = flat-color
- * fallback; tracer func_001860A0 still untranslated). There is NO
+ * ball, tick 3+ = the model-7 star on the puff sheet. The FX
+ * ROTATION LERP is TRANSLATED (2026-06-11 — retires the 0.8^t
+ * intensity stand-in): from engine tick 4 the rotation triple chases
+ * -128 DEGREES at 0.35/tick (func_001F5040 .L001F53A8; one value to
+ * all three components, variant 0 starts 0) — the port rolls the
+ * star quad around the gun axis by it (em_gfx_beam_tex_roll); the
+ * textured flash draws at CONSTANT intensity (the engine writes no
+ * color fade — the 0.8 decay belongs to the scale velocity), dying
+ * by the model swap + scale spread + roll and vanishing at tick 15
+ * (sheets absent = flat-color fallback, which keeps its old decay;
+ * tracer func_001860A0 still untranslated). There is NO
  * crosshair and NO hit-pulse overlay: the real game aims with the
  * laser dot alone (s23 live aim capture).
  *
@@ -261,11 +305,26 @@
  * clips) — gated EXACTLY like the laser, AIM phase only: light and
  * laser appear together while aiming and vanish together during the
  * draw/reload/holster clips and holstered (the reference capture of
- * the original). The projected circle is SHARP-EDGED per the
- * reference: a ~12-degree cone with a 1-degree smoothstep rim (a
- * crisp disc with a slightly soft edge — em_weapon.c "FLASHLIGHT
- * SPOT" constants). Deviation documented at the API (em_gfx.h
- * "Flashlight spot light").
+ * the original). GEOMETRY (2026-06-11 weapon-visual pass): the spot
+ * leaves the BARREL TIP (the muzzle front, gun+0xB0 — not the
+ * in-receiver ray origin) and its cone angle is ASSET-DERIVED: the
+ * chunk27 library's LIGHT-CONE mesh family (entries 0x10/0x11/0x16
+ * — tessellated shells, apex -> radius 25 at length 200 = half-angle
+ * 7.13 deg, sampling the 0x...3222E9 additive glow sheet) pins
+ * tan(theta) = 0.125, so the projected disc at the ~30-unit aim wall
+ * distance is ~7.5 units = 2.5x the 3-unit laser dot (the reference
+ * size; the old ~12-deg cone read about twice too big). The disc
+ * stays SHARP: 1-deg smoothstep rim inside the asset angle. The spot
+ * term is LEVEL-ONLY (em_gfx.h): the directional character path adds
+ * no spot, so the player/gun never catch their own light. The
+ * VISIBLE BEAM is the real cone mesh: assets/fx/light_cone.emdl
+ * (chunk27 entry 0x10, decomp export_props --cone) drawn additively
+ * from the tip along the aim ray through the beam pass's triangle
+ * queue — its planar-projected glow UVs fade the shell toward the
+ * wide end (bright at the gun, dissolving mid-air). Intensity gain
+ * is port-tuned (the engine stacks shells 0x10/0x11/0x16; flagged).
+ * Deviation documented at the API (em_gfx.h "Flashlight spot
+ * light").
  * EM_CAPTURE_LIGHT=1 (debug instrumentation): synthesizes ONE Square
  * toggle on the first aim frame so headless captures show the lit disc
  * (use with EM_CAPTURE_AIM=1).
@@ -368,8 +427,8 @@ enum {
                            * (wait for the R1 hold) is collapsed into it —
                            * holding R1 is already the port's draw input */
     EM_WPN_AIM,           /* major 2 AIM/FIRE loop (fire sub-machine)      */
-    EM_WPN_RELOAD,        /* major 3: anim 0x33 gates firing; the mag is
-                           * already refilled (func_0017B300 runs first)   */
+    EM_WPN_RELOAD,        /* major 3: anim 0x11B gates firing; the mag
+                           * is already refilled (func_0017B300 first)     */
     EM_WPN_HOLSTER        /* major 0x65: anim 0x111, sound 0x163           */
 };
 
@@ -443,6 +502,15 @@ int em_weapon_melee_hits(void);   /* impact-tick victims since reset     */
 int em_weapon_flashlight(void);
 int em_weapon_flashlight_timer(void);
 
+/* LASER visibility (self-tests): 1 = the beam pass draws the laser this
+ * frame. AIM state AND the engine's +0x2F2 flag — the LASER HIDE
+ * WINDOW (decoded 2026-06-11 from func_00170A60 + the gun-tick gate
+ * func_00188630): every shot state CLEARS +0x2F2 and only the cadence
+ * EXPIRY / the WAIT tick re-set it, so the laser vanishes during each
+ * shot's cadence and blinks for one tick between chained rounds —
+ * exactly the original's laser dropping out while firing. */
+int em_weapon_laser_visible(void);
+
 /* Live ammo state — the HUD's EmPlayerStatus mirrors these. */
 uint8_t em_weapon_mag(void);
 int16_t em_weapon_reserve(void);
@@ -458,7 +526,7 @@ int em_weapon_reloads(void);  /* reloads (auto + manual) since reset */
 int em_weapon_last_hit(void); /* last resolved shot: 1 hit, 0 miss, -1 none */
 
 /* The honest state windows, in gameplay ticks: ceil(clip frames / rate)
- * for the committed anim (draw 0x110 @1.4, reload 0x33 @1.0, holster
+ * for the committed anim (draw 0x110 @1.4, reload 0x11B @1.0, holster
  * 0x111 @1.0), or the flagged fallback constants when the loaded player
  * EMDL lacks the clip. The weapon self-test derives its checkpoint
  * schedule from these, so the test stays honest for any asset. */

@@ -90,8 +90,24 @@ struct EmGfx {
         float ca[4], cb[4]; /* per-end colors (dot: ca only)            */
         int   dot;          /* 1 = camera-facing square at a            */
         int   tex;          /* beam-texture slot, -1 = untextured       */
+        float roll;         /* axial quads: rotation of the width
+                             * vector around the a->b axis, RADIANS
+                             * (em_gfx_beam_tex_roll — the muzzle-flash
+                             * star's engine rotation lerp). 0 keeps
+                             * the exact pre-roll camera-plane math.   */
     }                            beams[EM_GFX_BEAM_MAX];
     uint32_t                     beamCount;
+    /* World-space TEXTURED TRIANGLES in the same additive beam pass
+     * (em_gfx_beam_tris_tex — the flashlight cone mesh): raw world
+     * vertices, drawn additively with depth test on / write off after
+     * the beam sprites. */
+    struct EmGfxBeamTriRec {
+        float p[9];         /* 3 world positions                        */
+        float uv[6];        /* 3 uv pairs                               */
+        float c[4];         /* modulate color                           */
+        int   tex;          /* beam-texture slot (>= 0)                 */
+    }                            beamTris[EM_GFX_BEAM_TRI_MAX];
+    uint32_t                     beamTriCount;
     float                        lastViewProj[16]; /* column-major P*V  */
     bool                         hasViewProj;      /* a 3D draw ran     */
     id<MTLRenderPipelineState>   beamPipeline;     /* additive, depth-on */
@@ -288,12 +304,14 @@ static NSString *const kSkinShaderSrc =
 "}\n"
 "/* Flashlight spot term (em_gfx_spot_light — port deviation, see\n"
 " * em_gfx.h: the engine never lights geometry from the toggle). Rows:\n"
-" * [0] pos + enable, [1] dir + range, [2] cone cosines, [3] rgb. The\n"
-" * level path (mode bit 0) has no normals (the slot is a baked color),\n"
-" * so it takes the pure projected-cone term — the light disc on the\n"
-" * wall; the character path is additionally wrapped by N.-L. */\n"
-"static float3 spot_term(float3 wpos, float3 nrm, uint mode,\n"
-"                        constant float4 *spot) {\n"
+" * [0] pos + enable, [1] dir + range, [2] cone cosines, [3] rgb.\n"
+" * LEVEL-ONLY (2026-06-11 weapon-visual pass): only the baked-vertex-\n"
+" * color LEVEL path (mode bit 0) adds it — the projected disc on the\n"
+" * walls/floor. The directional CHARACTER path no longer takes the\n"
+" * term: a muzzle-anchored spot points AWAY from the player, so in the\n"
+" * reference the player/gun are never lit by their own light (the old\n"
+" * N.L character wrap could rim-light the arms at glancing angles). */\n"
+"static float3 spot_term(float3 wpos, constant float4 *spot) {\n"
 "    if (spot[0].w <= 0.0) return float3(0.0);\n"
 "    float3 toF = wpos - spot[0].xyz;\n"
 "    float dist = max(length(toF), 1e-4);\n"
@@ -301,9 +319,7 @@ static NSString *const kSkinShaderSrc =
 "    float cone = smoothstep(spot[2].y, spot[2].x, dot(L, spot[1].xyz));\n"
 "    float att  = clamp(1.0 - dist / spot[1].w, 0.0, 1.0);\n"
 "    att *= att;\n"
-"    float ndl  = (mode & 1u) ? 1.0\n"
-"               : max(dot(normalize(nrm), -L), 0.0);\n"
-"    return spot[3].rgb * (cone * att * ndl);\n"
+"    return spot[3].rgb * (cone * att);\n"
 "}\n"
 "fragment float4 f_skin(VOut in [[stage_in]],\n"
 "                       texture2d_array<float> texs [[texture(0)]],\n"
@@ -332,15 +348,15 @@ static NSString *const kSkinShaderSrc =
 "        /* baked vertex color (GS modulate) + the flashlight spot */\n"
 "        float3 lit = clamp(in.nrm, 0.0, 1.0);\n"
 "        if (spot[0].w > 0.0)\n"
-"            lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
+"            lit += spot_term(in.wpos, spot);\n"
 "        return float4(base.rgb * lit, base.a) * tint;\n"
 "    }\n"
+"    /* directional character path: NO spot term (level-only light —\n"
+"     * the player/gun must not catch their own flashlight). */\n"
 "    float3 N = normalize(in.nrm);\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
 "    float3 lit = float3(0.30 + 0.70 * d);\n"
-"    if (spot[0].w > 0.0)\n"
-"        lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
 "    return float4(base.rgb * lit, base.a) * tint;\n"
 "}\n";
 
@@ -508,7 +524,8 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
 {
     if (!g) return;
     g->pool = [[NSAutoreleasePool alloc] init];
-    g->beamCount   = 0;       /* world-space beams are per-frame */
+    g->beamCount    = 0;      /* world-space beams are per-frame */
+    g->beamTriCount = 0;
     g->hasViewProj = false;   /* set again by the frame's 3D draws */
     g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
     g->overlayH    = EM_GFX_OVERLAY_H;
@@ -1034,9 +1051,10 @@ void em_gfx_beam(EmGfx *g, const float a[3], const float b[3], float width,
     memcpy(r->b,  b,      sizeof(r->b));
     memcpy(r->ca, rgba_a, sizeof(r->ca));
     memcpy(r->cb, rgba_b, sizeof(r->cb));
-    r->w   = width;
-    r->dot = 0;
-    r->tex = -1;
+    r->w    = width;
+    r->dot  = 0;
+    r->tex  = -1;
+    r->roll = 0.0f;
 }
 
 /* Copy one recorded bone matrix of the last skinned draw (em_gfx.h —
@@ -1058,9 +1076,10 @@ void em_gfx_beam_dot(EmGfx *g, const float p[3], float size,
     memcpy(r->b,  p,    sizeof(r->b));
     memcpy(r->ca, rgba, sizeof(r->ca));
     memcpy(r->cb, rgba, sizeof(r->cb));
-    r->w   = size;
-    r->dot = 1;
-    r->tex = -1;
+    r->w    = size;
+    r->dot  = 1;
+    r->tex  = -1;
+    r->roll = 0.0f;
 }
 
 /* Register one beam texture slot (em_gfx.h — the FX sprite sheets). */
@@ -1102,9 +1121,24 @@ void em_gfx_beam_tex(EmGfx *g, int slot, const float a[3], const float b[3],
     memcpy(r->b,  b,    sizeof(r->b));
     memcpy(r->ca, rgba, sizeof(r->ca));
     memcpy(r->cb, rgba, sizeof(r->cb));
-    r->w   = width;
-    r->dot = 0;
-    r->tex = slot;
+    r->w    = width;
+    r->dot  = 0;
+    r->tex  = slot;
+    r->roll = 0.0f;
+}
+
+/* em_gfx_beam_tex with an axis ROLL (em_gfx.h): the quad's width vector
+ * is rotated `roll` radians around the a->b axis before the camera-
+ * plane extrusion — the muzzle-flash star's engine rotation lerp
+ * (func_001F5040 tick >= 4) made visible on the axial billboard. */
+void em_gfx_beam_tex_roll(EmGfx *g, int slot, const float a[3],
+                          const float b[3], float width, float roll,
+                          const float rgba[4])
+{
+    uint32_t before = g ? g->beamCount : 0;
+    em_gfx_beam_tex(g, slot, a, b, width, rgba);
+    if (g && g->beamCount == before + 1)
+        g->beams[before].roll = roll;
 }
 
 /* Queue one TEXTURED camera-facing square sprite (em_gfx.h). */
@@ -1120,9 +1154,29 @@ void em_gfx_beam_dot_tex(EmGfx *g, int slot, const float p[3], float size,
     memcpy(r->b,  p,    sizeof(r->b));
     memcpy(r->ca, rgba, sizeof(r->ca));
     memcpy(r->cb, rgba, sizeof(r->cb));
-    r->w   = size;
-    r->dot = 1;
-    r->tex = slot;
+    r->w    = size;
+    r->dot  = 1;
+    r->tex  = slot;
+    r->roll = 0.0f;
+}
+
+/* Queue one world-space TEXTURED TRIANGLE in the additive beam pass
+ * (em_gfx.h — the flashlight cone mesh's drawer): three world vertices
+ * with uvs, sampling beam slot `slot`, modulated by `rgba`. Same flush,
+ * blend (additive) and depth state (test on / write off) as the beam
+ * sprites; own EM_GFX_BEAM_TRI_MAX budget, overflow dropped. */
+void em_gfx_beam_tri_tex(EmGfx *g, int slot, const float p[9],
+                         const float uv[6], const float rgba[4])
+{
+    if (!g || !p || !uv || !rgba || slot < 0 ||
+        slot >= EM_GFX_BEAM_TEX_MAX || !g->beamTex[slot] ||
+        g->beamTriCount >= EM_GFX_BEAM_TRI_MAX)
+        return;
+    struct EmGfxBeamTriRec *t = &g->beamTris[g->beamTriCount++];
+    memcpy(t->p,  p,    sizeof(t->p));
+    memcpy(t->uv, uv,   sizeof(t->uv));
+    memcpy(t->c,  rgba, sizeof(t->c));
+    t->tex = slot;
 }
 
 /* Set this frame's flashlight spot (em_gfx.h "Flashlight spot light" —
@@ -1182,6 +1236,23 @@ static void beam_corners(const struct EmGfxBeamRec *r, const float right[3],
             side[1] = right[1] * h;
             side[2] = right[2] * h;
         }
+        if (r->roll != 0.0f) {
+            /* Rodrigues rotation of the width vector around the unit
+             * a->b axis (em_gfx_beam_tex_roll — the muzzle-flash
+             * star's engine rotation lerp, func_001F5040 tick >= 4).
+             * roll == 0 keeps the exact pre-roll arithmetic above. */
+            float ax[3] = { axis[0], axis[1], axis[2] };
+            beam_norm3(ax);
+            float c = cosf(r->roll), s = sinf(r->roll);
+            float axs[3] = { ax[1] * side[2] - ax[2] * side[1],
+                             ax[2] * side[0] - ax[0] * side[2],
+                             ax[0] * side[1] - ax[1] * side[0] };
+            float ad = ax[0] * side[0] + ax[1] * side[1] +
+                       ax[2] * side[2];
+            for (int k = 0; k < 3; k++)
+                side[k] = side[k] * c + axs[k] * s +
+                          ax[k] * ad * (1.0f - c);
+        }
         for (int k = 0; k < 3; k++) {
             c0[k] = r->a[k] - side[k];
             c1[k] = r->a[k] + side[k];
@@ -1206,9 +1277,11 @@ static void beam_corners(const struct EmGfxBeamRec *r, const float right[3],
  * (depthGlow) — the GS laser draws keep ZTE=1 with ZMSK=1. */
 static void beam_flush(EmGfx *g)
 {
-    uint32_t count = g->beamCount;
-    g->beamCount = 0;
-    if (!count || !g->enc) return;
+    uint32_t count    = g->beamCount;
+    uint32_t triCount = g->beamTriCount;
+    g->beamCount    = 0;
+    g->beamTriCount = 0;
+    if ((!count && !triCount) || !g->enc) return;
     if (!g->hasViewProj) return;   /* no camera this frame: drop */
     if (!g->beamPipeline) {
         g->beamPipeline = build_pipeline(g, kBeamShaderSrc, @"v_beam",
@@ -1280,10 +1353,12 @@ static void beam_flush(EmGfx *g)
      * sprite; v = 0 at the texture's TOP row (rows are uploaded
      * top-down), which is +up in the camera plane. */
     for (int slot = 0; slot < EM_GFX_BEAM_TEX_MAX; slot++) {
-        uint32_t nt = 0;
+        uint32_t nt = 0, ntri = 0;
         for (uint32_t i = 0; i < count; i++)
             if (g->beams[i].tex == slot) nt++;
-        if (!nt || !g->beamTex[slot]) continue;
+        for (uint32_t i = 0; i < triCount; i++)
+            if (g->beamTris[i].tex == slot) ntri++;
+        if ((!nt && !ntri) || !g->beamTex[slot]) continue;
         if (!g->beamTexPipeline) {
             g->beamTexPipeline = build_pipeline(g, kBeamTexShaderSrc,
                                                 @"v_beamtex", @"f_beamtex",
@@ -1300,7 +1375,8 @@ static void beam_flush(EmGfx *g)
             [sd release];
             if (!g->clampSampler) return;
         }
-        float *tv = (float *)malloc((size_t)nt * 6 * 12 * sizeof(float));
+        float *tv = (float *)malloc(((size_t)nt * 6 + (size_t)ntri * 3) *
+                                    12 * sizeof(float));
         if (!tv) return;
         uint32_t tn = 0;
         for (uint32_t i = 0; i < count; i++) {
@@ -1337,6 +1413,26 @@ static void beam_flush(EmGfx *g)
                 o[11] = 1.0f;
             }
             tn += 6;
+        }
+        /* The queued world-space TRIANGLES of this slot (the flashlight
+         * cone mesh — em_gfx_beam_tris_tex): raw vertices, no camera
+         * extrusion, same additive draw. */
+        for (uint32_t i = 0; i < triCount; i++) {
+            const struct EmGfxBeamTriRec *t = &g->beamTris[i];
+            if (t->tex != slot) continue;
+            for (int v = 0; v < 3; v++) {
+                float *o = tv + (size_t)(tn + v) * 12;
+                o[0] = t->p[v * 3 + 0];
+                o[1] = t->p[v * 3 + 1];
+                o[2] = t->p[v * 3 + 2];
+                o[3] = 1.0f;
+                memcpy(o + 4, t->c, 4 * sizeof(float));
+                o[8]  = t->uv[v * 2 + 0];
+                o[9]  = t->uv[v * 2 + 1];
+                o[10] = 0.0f;
+                o[11] = 1.0f;
+            }
+            tn += 3;
         }
         id<MTLBuffer> vbuf =
             [g->device newBufferWithBytes:tv

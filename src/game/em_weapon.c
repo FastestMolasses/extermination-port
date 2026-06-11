@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "em_input.h"
+#include "em_model.h"
 #include "game/em_enemy.h"
 #include "game/em_game.h"
 #include "game/em_sfx.h"
@@ -20,9 +21,25 @@
 #define WPN_MAG_MAX     30      /* func_0017B300: mag = min(30, reserve)   */
 #define WPN_RANGE       260.0f  /* func_001861C0 untargeted endpoint, and
                                  * the acquisition max distance            */
-#define WPN_INTERVAL    12      /* +0x2F4 fire interval (12.0 default)     */
-#define WPN_COUNT_STEP  2       /* +0x276 fire counter gains 2/frame
-                                 * -> one shot every 6 frames              */
+/* FIRE INTERVAL +0x2F4 (decoded 2026-06-11 from func_0017A8B0 — the
+ * trigger-press handler the action machine func_001607D0 runs on every
+ * FIRE press): the press latches +0x274 AND writes +0x2F4 = the FRAME
+ * COUNT of the stance's aim-ladder base clip (func_001C61D0 = container
+ * header halfword +2), i.e. SEMI fires one round per ladder-clip length
+ * — 25 frames for the SPR4 (clip 0x112) -> counter +2/tick reaches 25
+ * at the 12th tick after the shot, queued shot the 13th: ~4.6 rds/s,
+ * the gun re-fires only after the 12.5-tick recoil replay settles.
+ * The BURST/AUTO fire states overwrite +0x2F4 = 12.0 per round (the
+ * func_00170A60 0x15/0x1E stores) -> the 6-frame in-burst cadence.
+ * (The port's old flat 12 made semi twice the engine rate — the
+ * user-reported "no fire rate".) */
+#define WPN_INTERVAL_AUTO  12.0f /* +0x2F4 burst/auto per-round store     */
+#define WPN_SEMI_FALLBACK  25.0f /* ladder clip 0x112 true length (EMDL
+                                  * without the clip)                     */
+#define WPN_QUEUE_WINDOW   8     /* +0x2A press queue samples from
+                                  * counter >= int(+0x2F4) - 8 — presses
+                                  * earlier in the cadence are DROPPED   */
+#define WPN_COUNT_STEP  2       /* +0x276 fire counter gains 2/frame       */
 #define WPN_BURST_LEN   3       /* burst family 20..23: +0x28 slti 3       */
 #define WPN_BURST_PAUSE 8       /* contract: burst pause = 8 ticks         */
 #define WPN_RAY_MASK    0x7u    /* func_001861C0: set mask 7 (hulls +
@@ -65,11 +82,24 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 #define WPN_ANIM_DRAW    0x110  /* draw, 20 fr — property-table rate 1.4
                                  * (true directory length, 2026-06-11)   */
 #define WPN_ANIM_HOLSTER 0x111  /* holster, 20 fr, rate 1.0              */
-#define WPN_ANIM_RELOAD  0x33   /* reload, 57 fr, rate 1.0 — motion-
-                                 * verified 2026-06-11: a real hands-to-
-                                 * the-mag reload (weapon dips to waist,
-                                 * both hands on it, root planted), NOT
-                                 * a stagger                             */
+#define WPN_ANIM_RELOAD  0x11B  /* reload, 60 fr, rate 1.0 — THE TRUE
+                                 * RELOAD CLIP, decoded 2026-06-11 from
+                                 * func_0016F600's reload entry: it
+                                 * requests D_00248B98[sub] (sub 0 ->
+                                 * 283 = 0x11B, the slot right after
+                                 * the sub-0 aim ladder 0x112..0x11A;
+                                 * stance B uses D_00248C78 -> 0x193).
+                                 * The old 0x33 was the ACTION CODE
+                                 * (+0x1F0) — clip 51 is actually a
+                                 * knockdown/stagger (motion-audited:
+                                 * the body folds to the ground), the
+                                 * EXACT clip the user kept seeing.
+                                 * 283 motion-audited: root planted,
+                                 * gun stays shouldered (y ~14.2), the
+                                 * support hand leaves the grip for
+                                 * the mag work (inter-hand 2.5 -> 6.9
+                                 * -> 2.1) — a shouldered tactical
+                                 * reload.                              */
 #define WPN_ANIM_AIM     0x112  /* SPR4 sub-0 aim-pose ladder BASE (the
                                  * level-pitch step of D_00248B70[0] ->
                                  * 0x112..0x11A); HELD while in the AIM
@@ -130,10 +160,31 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
  * with a 1-degree smoothstep rim: a hard-cut disc with a slightly
  * soft edge, not the old 15->25-degree wash. Visible ONLY in the AIM
  * phase, the laser's own gate. */
-#define WPN_LIGHT_RANGE   200.0f  /* falloff distance, world units      */
-#define WPN_LIGHT_COS_IN  0.9799f /* cos ~11.5 deg — the disc           */
-#define WPN_LIGHT_COS_OUT 0.9763f /* cos ~12.5 deg — crisp 1-deg rim    */
+/* CONE ANGLE — ASSET-DERIVED (2026-06-11, the light-cone hunt): the
+ * global chunk27 library carries a LIGHT-CONE mesh family (entries
+ * 0x10/0x11/0x16 — decomp FINDINGS "LIGHT-CONE MESH FAMILY"): apex at
+ * the origin opening to radius 25.0 at z = 200 -> half-angle
+ * atan(25/200) = 7.13 deg, length 200 = this falloff range. The spot
+ * cone adopts the asset's own angle: the projected disc at the typical
+ * ~30-unit aim-camera wall distance is 2*30*0.125 = 7.5 units across
+ * = 2.5x the 3-unit laser dot (the reference's "2-3x dot" size; the
+ * old 12-deg cone read ~2x too big). 1-deg smoothstep rim INSIDE the
+ * asset angle keeps the crisp disc edge. */
+#define WPN_LIGHT_RANGE   200.0f  /* = the cone mesh's 200-unit length  */
+#define WPN_LIGHT_TAN     0.125f  /* tan 7.13 deg = 25/200 (the asset)  */
+#define WPN_LIGHT_COS_IN  0.99428f /* cos 6.13 deg — full-bright disc   */
+#define WPN_LIGHT_COS_OUT 0.99223f /* cos 7.13 deg — the asset's edge   */
 static const float kLightColor[3] = { 1.00f, 0.95f, 0.82f };
+/* The VISIBLE CONE (assets/fx/light_cone.emdl = chunk27 entry 0x10,
+ * export_props --cone): drawn additively from the muzzle tip along the
+ * aim ray through the beam pass's triangle queue, sampling the cone's
+ * own glow sheet (slot FX_TEX_CONE). The sheet's planar projection
+ * fades the cone toward its wide end — bright at the gun, dissolving
+ * mid-air, the reference's visible beam. Intensity is PORT-TUNED (the
+ * sheet interior is faint; the engine stacks shells 0x10/0x11/0x16 —
+ * the multiplier stands in for the stack, flagged). */
+#define WPN_CONE_GAIN     3.0f
+#define WPN_CONE_FILE     "assets/fx/light_cone.emdl"
 
 /* --- FIRE SUB-STATE MACHINE (engine +0x07; decoded 2026-06-11 from the
  *     func_00170A60 .s — em_weapon.h "FIRE SUB-STATE MACHINE"). The
@@ -152,7 +203,7 @@ enum {
  *     length from em_game_anim_frames) --------------------------------- */
 #define WPN_DRAW_FRAMES    15   /* anim 0x110 length stand-in (0.25 s)     */
 #define WPN_HOLSTER_FRAMES 15   /* anim 0x111 length stand-in              */
-#define WPN_RELOAD_FRAMES  40   /* anim 0x33 length stand-in (0.67 s)      */
+#define WPN_RELOAD_FRAMES  60   /* anim 0x11B true length stand-in (1 s)   */
 #define WPN_RELOAD_MAG_TICK 30  /* MAG-ACTION sound 0x168 offset into the
                                  * reload window: ~0.5 s after the reload
                                  * start (s29 live capture) = 30 ticks at
@@ -256,7 +307,9 @@ enum {
     FX_TEX_DOT  = 0,    /* laser_dot.emtx  — func_001CD520 dot sprite  */
     FX_TEX_PUFF = 1,    /* flash_puff.emtx — flash models 0x0D/0x07    */
     FX_TEX_STAR = 2,    /* flash_star.emtx — model 0x08 forward streak */
-    FX_TEX_BALL = 3     /* flash_ball.emtx — model 0x08 muzzle cross   */
+    FX_TEX_BALL = 3,    /* flash_ball.emtx — model 0x08 muzzle cross   */
+    FX_TEX_CONE = 4     /* light_cone.emdl's embedded glow sheet — the
+                         * flashlight cone (chunk27 entry 0x10)        */
 };
 static const char *const kFxFiles[4] = {
     "assets/fx/laser_dot.emtx", "assets/fx/flash_puff.emtx",
@@ -322,7 +375,17 @@ static struct {
                           * (the engine cadence states step BACK to the
                           * fire sub-state, which shoots one tick later)  */
     int     counter;     /* +0x276 fire counter (+2/frame incl. the shot
-                          * tick, shot at >= 12)                          */
+                          * tick, shot at expiry >= interval)             */
+    float   interval;    /* +0x2F4 fire interval: semi = the aim-ladder
+                          * clip length (func_0017A8B0 per press), burst/
+                          * auto rounds overwrite 12.0 (engine 0x15/0x1E) */
+    int     laser_vis;   /* player +0x2F2 (mirror D_008105A2) — the
+                          * LASER-VISIBLE flag of the fire SM: set every
+                          * WAIT tick and at the cadence EXPIRY, CLEARED
+                          * by every shot state -> the laser hides for
+                          * the cadence of each shot (FINDINGS "LASER
+                          * HIDE WINDOW"); the gun-tick drawers gate on
+                          * it beside the stance code/phase             */
     int     pending;     /* +0x2A queued-shot flag (semi press latched
                           * during the cadence window)                    */
     int     burst;       /* +0x28 burst counter, rounds fired this burst  */
@@ -335,8 +398,11 @@ static struct {
                           * countdown (+0x28 = 0x12C, ticks every frame,
                           * any stance) — KEPT but UNHOOKED: nothing arms
                           * it (see the SHOULDER-LIGHT BURST block)       */
-    float   light_pos[3];/* spot anchor — the hand-frame muzzle point
-                          * (PORT visual, em_weapon.h "RENDERING")        */
+    int     light_live;  /* the spot/cone pose below is valid for THIS
+                          * frame (set while light_on && laser_on)       */
+    float   light_pos[3];/* spot anchor — the barrel TIP (muzzle front,
+                          * gun+0xB0; PORT visual, em_weapon.h
+                          * "RENDERING")                                 */
     float   light_dir[3];/* spot axis — the muzzle ray direction          */
     int     light_cap;   /* EM_CAPTURE_LIGHT=1 one-shot: synthesize the
                           * Square toggle on the first aim frame (debug
@@ -361,6 +427,11 @@ static struct {
     float   flash_dir[3];  /* gun axis at the shot (the +X star axis)     */
     float   flash_scale;   /* FX scale: 0.15 + 0.05*rand01 at spawn       */
     float   flash_vel;     /* scale velocity: 0.15, *0.8 per tick         */
+    float   flash_rot;     /* FX rotation (+0x80 triple, DEGREES; variant
+                            * 0 starts 0): engine tick >= 4 lerps
+                            * rot += (-128 - rot) * 0.35 per tick — the
+                            * star tumbles around the barrel as it dies
+                            * (func_001F5040 .L001F53A8, translated)      */
     int     last_hit;    /* last resolved shot: 1/0; -1 = none yet        */
 
     int     shots;       /* introspection: rounds fired since reset       */
@@ -370,6 +441,9 @@ static struct {
      * stores the clipped endpoint + flags in the gun actor's +0x1F0
      * block; func_001854E0/760 refresh it every aim frame). */
     int      laser_on;     /* gun +0x210 "laser active" flag              */
+    int      laser_surf;   /* 1 = endpoint is a WORLD surface hit (the
+                            * dot billboard offsets along its normal)     */
+    float    laser_n[3];   /* hit normal (world surface) or -dir (enemy)  */
     float    laser_a[3];   /* BEAM DRAW start (gun +0x1F0 vec) — the
                             * hand-frame (3.6, 0.5, 0) point; the RAY
                             * itself runs from the (-3, 1.088, 0) origin  */
@@ -511,7 +585,16 @@ static void weapon_enter_reload(void)
      * 0x168 at the MAG ACTION ~0.5 s in (the distinctive reload sound),
      * scheduled below and ticked by the RELOAD state. */
     em_sfx_play(EM_SFX_WPN_HANDLE);
-    em_game_anim_request(WPN_ANIM_RELOAD, 1.0f);    /* anim 0x33 */
+    /* HOLD-type request (2026-06-11 reload-stagger fix): a plain
+     * request releases the clip at its end — with the commit latency
+     * that left ~2 frames of LOCOMOTION IDLE between the reload's last
+     * frame and the re-held aim pose: a full-pose snap to idle and
+     * back, the user-visible "stagger" at every reload (runtime-traced:
+     * the clip itself commits and plays 0x33 frames 1..56 correctly).
+     * The engine has no such interlude — its stance top re-selects the
+     * stance pose every frame — so the port clamps the reload's last
+     * frame until weapon_enter_aim's hold replaces it. */
+    em_game_anim_hold(WPN_ANIM_RELOAD, 1.0f);       /* anim 0x11B */
     w.reloads++;
     w.pending   = 0;
     w.burst     = 0;
@@ -531,6 +614,16 @@ static void weapon_enter_reload(void)
  * last frame and keeps it committed until the next request replaces it
  * (the holster/reload clips) — the native equivalent of that persistent
  * re-selection. */
+/* SEMI fire interval — the engine's func_0017A8B0 store: +0x2F4 = the
+ * aim-ladder base clip's frame count (func_001C61D0), refreshed on
+ * every trigger press. 25 for the SPR4's clip 0x112; the honest clip
+ * length when the EMDL carries it, the true-length fallback otherwise. */
+static float semi_interval(void)
+{
+    int fc = em_game_anim_frames(WPN_ANIM_AIM);
+    return fc > 0 ? (float)fc : WPN_SEMI_FALLBACK;
+}
+
 static void weapon_enter_aim(void)
 {
     /* The hold plays the clip's front settle once at the counter rate
@@ -544,6 +637,11 @@ static void weapon_enter_aim(void)
                                      * counter test (func_00170A60 st 0) */
     w.fire_sub  = WPN_SUB_WAIT;
     w.fire_next = 0;
+    w.interval  = semi_interval();  /* +0x2F4 ladder-clip default        */
+    w.laser_vis = 1;                /* +0x2F2: the first WAIT tick sets
+                                     * it — the port sets it at entry
+                                     * (same frame the engine's WAIT
+                                     * head runs)                        */
 }
 
 /* One SHOT — the common per-shot block of the fire sub-machine (engine
@@ -561,6 +659,10 @@ static void weapon_enter_aim(void)
 static void weapon_shot(void)
 {
     if (w.mag == 0) return;             /* guard; callers gate the ammo */
+    w.laser_vis = 0;      /* +0x2F2 = 0: every engine shot state hides
+                           * the laser until the cadence expiry (the
+                           * decoded LASER HIDE WINDOW — the original
+                           * laser vanishes during the shot)             */
     w.mag--;
     w.reserve--;          /* the engine's TOTAL-pool rule: BOTH, per shot */
     w.shots++;
@@ -670,12 +772,19 @@ static void laser_update(const EmCollision *coll, const float pos[3],
                      muzzle[2] + dir[2] * WPN_RANGE };
 
     EmCollHit h;
+    w.laser_surf = 0;
     if (coll && coll->poly_count &&
         em_collision_segment_query(coll, muzzle, end, WPN_RAY_MASK,
                                    WPN_RAY_ID, &h)) {
         end[0] = h.point[0];
         end[1] = h.point[1];
         end[2] = h.point[2];
+        /* surface hit: keep the plane normal — the DOT billboard sits
+         * OFF the surface along it (half its size) so it never
+         * half-clips into the wall (the engine's endpoint sprites sit
+         * on the surface plane plus an offset). */
+        memcpy(w.laser_n, h.normal, sizeof w.laser_n);
+        w.laser_surf = 1;
     }
     float epoint[3];
     if (em_enemy_ray_test(muzzle, end, epoint) >= 0) {
@@ -684,6 +793,11 @@ static void laser_update(const EmCollision *coll, const float pos[3],
         end[0] = epoint[0];
         end[1] = epoint[1];
         end[2] = epoint[2];
+        /* no plane on a victim: back the dot toward the gun instead */
+        w.laser_n[0] = -dir[0];
+        w.laser_n[1] = -dir[1];
+        w.laser_n[2] = -dir[2];
+        w.laser_surf = 1;
     }
     /* The drawn beam STARTS at the gun+0x1F0 point — hand-frame
      * (3.6, 0.5, 0), on the barrel just behind the tip (func_00188630
@@ -793,6 +907,7 @@ static void weapon_resolve_fire(const EmCollision *coll,
     w.flash_scale = WPN_FLASH_S0 +
                     WPN_FLASH_S0_RND * (float)wpn_rand() / 32768.0f;
     w.flash_vel   = WPN_FLASH_VEL;
+    w.flash_rot   = 0.0f;   /* +0x80 rotation triple: variant 0 inits 0 */
     memcpy(w.flash_pos, tip, sizeof w.flash_pos);
     memcpy(w.flash_dir, dir, sizeof w.flash_dir);
 }
@@ -822,7 +937,16 @@ static void weapon_fire_logic(const EmFrameInput *in)
              * last shot); empty mag -> dry click 0x169 only (an empty
              * mag with a live reserve never survives to WAIT: the
              * cadence expiry below already reloaded). */
+            /* WAIT tick head: the engine re-sets +0x2F2 every tick
+             * here (.L00170C08) — the laser shows whenever the gun is
+             * between cadences. */
+            w.laser_vis = 1;
             if (in->pressed & EM_PAD_CIRCLE) {
+                /* the press runs func_0017A8B0: latch + refresh the
+                 * interval from the ladder clip (semi keeps it; the
+                 * burst/auto FIRE states overwrite 12.0 per round —
+                 * the engine 0x15/0x1E stores). */
+                w.interval = semi_interval();
                 if (w.mag == 0) {
                     em_sfx_play(EM_SFX_WPN_DRY);
                 } else {
@@ -830,9 +954,11 @@ static void weapon_fire_logic(const EmFrameInput *in)
                         case EM_WPN_MODE_BURST:
                             w.burst    = 1;     /* +0x28: rounds fired */
                             w.fire_sub = WPN_SUB_BURST;
+                            w.interval = WPN_INTERVAL_AUTO;
                             break;
                         case EM_WPN_MODE_AUTO:
                             w.fire_sub = WPN_SUB_AUTO;
+                            w.interval = WPN_INTERVAL_AUTO;
                             break;
                         default:
                             w.fire_sub = WPN_SUB_SEMI;
@@ -853,14 +979,16 @@ static void weapon_fire_logic(const EmFrameInput *in)
             break;
 
         case WPN_SUB_SEMI:
-            /* Engine 0xB: cadence hold. A NEW press queues ONE shot
-             * (+0x2A; sampled from counter >= interval-8 — every tick
-             * after the shot tick itself). */
+            /* Engine 0xB: cadence hold at the LADDER-CLIP interval
+             * (+0x2F4 = 25 for the SPR4 — see the FIRE INTERVAL block).
+             * A NEW press queues ONE shot (+0x2A), but ONLY from
+             * counter >= interval - 8: presses in the first ~7 ticks
+             * of the cadence are DROPPED (engine sampling window). */
             w.counter += WPN_COUNT_STEP;
-            if (w.counter >= WPN_INTERVAL - 8 &&
+            if (w.counter >= (int)w.interval - WPN_QUEUE_WINDOW &&
                 (in->pressed & EM_PAD_CIRCLE))
                 w.pending = 1;
-            if (w.counter >= WPN_INTERVAL) {
+            if (w.counter >= (int)w.interval) {
                 w.counter = 0;
                 if (w.mag == 0) {
                     /* dry-mag auto reload at the EXPIRY (mode 1,
@@ -868,9 +996,14 @@ static void weapon_fire_logic(const EmFrameInput *in)
                     if (weapon_reload(1) == 0) weapon_enter_reload();
                     else w.fire_sub = WPN_SUB_WAIT;
                 } else if (w.pending) {
+                    /* queued: +0x2F2 = 1 for the expiry tick (the
+                     * engine .L00170E4C blink), shot next tick */
+                    w.laser_vis = 1;
                     w.pending   = 0;
                     w.fire_next = 1;    /* 0xB -> 0xA: fires next tick */
                 } else {
+                    /* plain expiry leaves +0x2F2 alone — the WAIT head
+                     * re-sets it NEXT tick (engine .L00170E44) */
                     w.fire_sub = WPN_SUB_WAIT;
                 }
             }
@@ -879,8 +1012,10 @@ static void weapon_fire_logic(const EmFrameInput *in)
         case WPN_SUB_BURST:
             /* Engine 0x16: cadence; +0x28 counts the burst rounds. */
             w.counter += WPN_COUNT_STEP;
-            if (w.counter >= WPN_INTERVAL) {
-                w.counter = 0;
+            if (w.counter >= (int)w.interval) {
+                w.counter   = 0;
+                w.laser_vis = 1;    /* +0x2F2 = 1 at the expiry head
+                                     * (engine .L00170F50)             */
                 if (w.mag == 0) {
                     if (weapon_reload(1) == 0) {
                         weapon_enter_reload();
@@ -918,8 +1053,10 @@ static void weapon_fire_logic(const EmFrameInput *in)
             /* Engine 0x1F: cadence; a still-held trigger refires via
              * the same step-back (0x1F -> 0x1E, next tick). */
             w.counter += WPN_COUNT_STEP;
-            if (w.counter >= WPN_INTERVAL) {
-                w.counter = 0;
+            if (w.counter >= (int)w.interval) {
+                w.counter   = 0;
+                w.laser_vis = 1;    /* +0x2F2 = 1 at the expiry head
+                                     * (engine .L00171158)             */
                 if (w.mag == 0) {
                     if (weapon_reload(1) == 0) {
                         weapon_enter_reload();
@@ -1145,6 +1282,17 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
         w.flash--;
         w.flash_scale += w.flash_vel;
         w.flash_vel   *= WPN_FLASH_DECAY;
+        /* ROTATION LERP (func_001F5040 .L001F53A8, translated 2026-06-11
+         * — retires the 0.8^t intensity stand-in): from engine tick 4
+         * (age 6) the FX rotation triple chases -128 DEGREES at 0.35 of
+         * the gap per tick (one value written to all three components;
+         * variant 0 starts at 0) — the dying star rolls ~45 deg in its
+         * first lerp tick and settles toward -128. The port applies it
+         * as a roll around the gun axis (the star model's +X), the
+         * dominant visible component of the uniform Euler triple. */
+        int eng_t = (WPN_FLASH_TICKS - w.flash) - 2;
+        if (eng_t >= 4)
+            w.flash_rot += (-128.0f - w.flash_rot) * 0.35f;
     }
 
     const int draw_held = (in->held & EM_PAD_R1) != 0;
@@ -1159,7 +1307,10 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                  * reload. */
                 if (weapon_reload(0) == 0) w.reloads++;
                 em_sfx_play(EM_SFX_WPN_DRAW);
-                em_game_anim_request(WPN_ANIM_DRAW, WPN_DRAW_RATE);
+                /* HOLD-type for the same reason as the reload (the
+                 * draw's tail otherwise pops through idle for a frame
+                 * before the aim hold commits). */
+                em_game_anim_hold(WPN_ANIM_DRAW, WPN_DRAW_RATE);
                 w.state = EM_WPN_DRAW;
                 w.timer = em_weapon_draw_ticks();
             }
@@ -1209,8 +1360,15 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             }
             break;
         case EM_WPN_RELOAD:
-            /* anim 0x33 wait (major 3); the ammo move already happened.
+            /* anim 0x11B wait (major 3); the ammo move already happened.
              * MAG ACTION (s29): 0x168 fires ~0.5 s into the window. */
+            if (getenv("EM_WEAPON_TRACE"))    /* runtime diagnosis aid:
+                 * prints the clip the anim system actually plays each
+                 * reload tick (the 2026-06-11 stagger hunt's tool) */
+                fprintf(stderr,
+                        "wpn trace: RELOAD tick %d committed clip 0x%X "
+                        "frame %d\n", w.timer,
+                        em_game_anim_active(), em_game_anim_frame());
             if (w.mag_sfx > 0 && --w.mag_sfx == 0)
                 em_sfx_play(EM_SFX_WPN_MAG);
             if (--w.timer <= 0)
@@ -1239,7 +1397,12 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
      * ticks (FINDINGS "LASER SIGHT DECODED": the laser runs the whole
      * time the player aims) — i.e. the AIM/FIRE loop, but not the
      * draw, reload (code 0x33) or holster clips. */
-    w.laser_on = (w.state == EM_WPN_AIM);
+    /* ... AND on the fire SM's +0x2F2 visible flag (the decoded LASER
+     * HIDE WINDOW): the laser vanishes from every shot tick until that
+     * shot's cadence expiry — during sustained fire it only blinks for
+     * the single expiry tick of each chained round, exactly the
+     * engine's gun-tick gate (func_00188630 reads D_008105A2). */
+    w.laser_on = (w.state == EM_WPN_AIM) && w.laser_vis;
     if (w.laser_on)
         laser_update(coll, player_pos, player_yaw);
 
@@ -1256,9 +1419,14 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
      * frame's draws. w.gfx is the device cached by em_weapon_render
      * (NULL only before the first rendered frame — one unlit frame,
      * same staleness class as the bone publish). */
-    if (w.light_on && w.laser_on) {
-        weapon_muzzle_ray(player_pos, player_yaw,
-                          w.light_pos, w.light_dir, NULL);
+    w.light_live = (w.light_on && w.laser_on);
+    if (w.light_live) {
+        float lmuz[3], tip[3];
+        weapon_muzzle_ray(player_pos, player_yaw, lmuz, w.light_dir, tip);
+        /* the light leaves the muzzle FRONT (the barrel tip, gun+0xB0
+         * — the muzzle-flash anchor), not the in-receiver ray origin:
+         * anchoring at the origin put the cone apex inside the gun. */
+        memcpy(w.light_pos, tip, sizeof w.light_pos);
         if (w.gfx)
             em_gfx_spot_light(w.gfx, w.light_pos, w.light_dir,
                               kLightColor, WPN_LIGHT_RANGE,
@@ -1279,7 +1447,12 @@ static const float kFlashStar[3]  = { 1.0f, 0.62f, 0.22f };
  * beam-texture slots. fx.ok[slot] = 1 only when the slot registered —
  * the drawers check it per primitive and otherwise keep the flat-color
  * fallback, so a missing asset never regresses the frame. */
-static struct { int tried; int ok[4]; } fx;
+static struct {
+    int     tried;
+    int     ok[5];          /* slots 0..3 = .emtx sheets, 4 = cone glow */
+    EmModel cone;           /* light_cone.emdl (chunk27 0x10) geometry  */
+    int     cone_ok;        /* model loaded AND its sheet registered    */
+} fx;
 
 static uint32_t fx_u32(const uint8_t *p)
 {
@@ -1291,6 +1464,32 @@ static void fx_load(EmGfx *gfx)
 {
     if (fx.tried) return;
     fx.tried = 1;
+    /* FLASHLIGHT CONE (the chunk27 light-cone mesh 0x10, export_props
+     * --cone): a static 1-node EMDL whose embedded texture is the
+     * additive glow sheet — registered as beam slot FX_TEX_CONE; the
+     * geometry triangles are queued per aim frame (cone_render). The
+     * cone mesh was FOUND in the library (entries 0x10/0x11/0x16 —
+     * FINDINGS "LIGHT-CONE MESH FAMILY"), so there is no procedural
+     * fallback: an absent asset just draws no cone (logged), exactly
+     * the missing-sheet policy of the sprites below. */
+    if (em_model_load(&fx.cone, WPN_CONE_FILE) == 0) {
+        if (fx.cone.tex_count >= 1 && fx.cone.texels &&
+            em_gfx_beam_texture_set(gfx, FX_TEX_CONE,
+                                    fx.cone.texels +
+                                        fx.cone.texs[0].offset,
+                                    fx.cone.texs[0].width,
+                                    fx.cone.texs[0].height)) {
+            fx.ok[FX_TEX_CONE] = 1;
+            fx.cone_ok         = 1;
+            fprintf(stderr, "weapon: flashlight cone %s (%u verts, "
+                    "%u tris)\n", WPN_CONE_FILE, fx.cone.vert_count,
+                    fx.cone.index_count / 3);
+        } else {
+            fprintf(stderr, "weapon: %s: no usable glow sheet — cone "
+                    "disabled\n", WPN_CONE_FILE);
+            em_model_free(&fx.cone);
+        }
+    }
     for (int i = 0; i < 4; i++) {
         FILE *f = fopen(kFxFiles[i], "rb");
         if (!f) continue;                   /* absent: silent fallback */
@@ -1342,6 +1541,50 @@ static void glow_dot(EmGfx *gfx, const float p[3], float size,
     }
 }
 
+/* FLASHLIGHT CONE renderer — the chunk27 light-cone shell (entry 0x10)
+ * drawn from the muzzle tip along the aim ray. The model is authored
+ * apex-at-origin opening along +Z (radius 25 at z = 200, half-angle
+ * 7.13 deg — the same angle the spot term projects); the basis maps
+ * model +Z onto the light direction with an arbitrary stable roll (the
+ * cone is rotationally symmetric). Triangles go through the beam
+ * pass's additive textured-triangle queue (depth test on / write off,
+ * cull none — the far cone clips into walls correctly). The glow
+ * sheet's planar projection fades the shell toward the wide end, so
+ * the visible beam is brightest at the gun. */
+static void cone_render(EmGfx *gfx)
+{
+    const EmModel *m = &fx.cone;
+    /* basis: z = light dir; x/y any orthonormal pair */
+    float z[3] = { w.light_dir[0], w.light_dir[1], w.light_dir[2] };
+    float ref[3] = { 0.0f, 1.0f, 0.0f };
+    if (fabsf(z[1]) > 0.99f) { ref[0] = 1.0f; ref[1] = 0.0f; }
+    float x[3] = { ref[1] * z[2] - ref[2] * z[1],
+                   ref[2] * z[0] - ref[0] * z[2],
+                   ref[0] * z[1] - ref[1] * z[0] };
+    float xl = sqrtf(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+    if (xl < 1e-5f) return;
+    for (int k = 0; k < 3; k++) x[k] /= xl;
+    float y[3] = { z[1] * x[2] - z[2] * x[1],
+                   z[2] * x[0] - z[0] * x[2],
+                   z[0] * x[1] - z[1] * x[0] };
+
+    const float c[4] = { WPN_CONE_GAIN, WPN_CONE_GAIN, WPN_CONE_GAIN,
+                         1.0f };
+    for (uint32_t i = 0; i + 2 < m->index_count; i += 3) {
+        float p[9], uv[6];
+        for (int v = 0; v < 3; v++) {
+            const float *vr = m->verts +
+                (size_t)m->indices[i + v] * EM_MODEL_VERT_WORDS;
+            for (int k = 0; k < 3; k++)
+                p[v * 3 + k] = w.light_pos[k] + x[k] * vr[0] +
+                               y[k] * vr[1] + z[k] * vr[2];
+            uv[v * 2 + 0] = vr[6];
+            uv[v * 2 + 1] = vr[7];
+        }
+        em_gfx_beam_tri_tex(gfx, FX_TEX_CONE, p, uv, c);
+    }
+}
+
 /* The muzzle flash through the beam/dot pass — the engine FX actor
  * func_001F5040 variant 0's own model-per-tick schedule (the MUZZLE
  * FLASH block at the top), drawn as TEXTURED additive billboards with
@@ -1353,7 +1596,7 @@ static void glow_dot(EmGfx *gfx, const float p[3], float size,
  * rotation lerp). Sheets absent -> the old flat-color core + streak. */
 static void flash_render(EmGfx *gfx)
 {
-    float in  = w.flash_vel / WPN_FLASH_VEL;       /* 0.8^t       */
+    float in  = w.flash_vel / WPN_FLASH_VEL;       /* 0.8^t (FALLBACK) */
     float s   = w.flash_scale;
     int   age = WPN_FLASH_TICKS - w.flash;         /* 1 = spawn frame  */
     float end[3] = { w.flash_pos[0] + w.flash_dir[0] * WPN_FLASH_STAR_LEN * s,
@@ -1361,7 +1604,16 @@ static void flash_render(EmGfx *gfx)
                      w.flash_pos[2] + w.flash_dir[2] * WPN_FLASH_STAR_LEN * s };
 
     if (fx.ok[FX_TEX_PUFF] && fx.ok[FX_TEX_STAR] && fx.ok[FX_TEX_BALL]) {
-        float c[4] = { in, in, in, 1.0f };
+        /* CONSTANT intensity (2026-06-11 fidelity pass): the engine FX
+         * writes NO color fade — the 0.8 decay belongs to the SCALE
+         * VELOCITY alone; the flash dies by the model swap, the scale
+         * spread and the rotation lerp, then vanishes at tick 15 (the
+         * old 0.8^t color decay was a flagged stand-in for the then-
+         * untranslated rotation, now retired with it). */
+        float c[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        /* the star quads ROLL around the gun axis by the FX rotation
+         * (degrees -> radians; 0 until engine tick 4) */
+        float roll = w.flash_rot * 0.017453293f;
         if (age <= 1) {
             /* INIT binding: model 0xD — the radial puff (camera-facing;
              * the engine model is a small rosette of quads) */
@@ -1369,15 +1621,19 @@ static void flash_render(EmGfx *gfx)
                                 WPN_FLASH_CORE * s, c);
         } else if (age <= 4) {
             /* ticks 0..2: model 8 — forward +X star (own sheet) +
-             * the muzzle-base radial cross (ball sheet) */
-            em_gfx_beam_tex(gfx, FX_TEX_STAR, w.flash_pos, end,
-                            WPN_FLASH_STAR_W * s, c);
+             * the muzzle-base radial cross (ball sheet); the star is
+             * AXIAL (a model aligned to the barrel, not a screen
+             * sprite — the axial-billboard quad stands in for its
+             * radial fins) */
+            em_gfx_beam_tex_roll(gfx, FX_TEX_STAR, w.flash_pos, end,
+                                 WPN_FLASH_STAR_W * s, roll, c);
             em_gfx_beam_dot_tex(gfx, FX_TEX_BALL, w.flash_pos,
                                 WPN_FLASH_BALL * s, c);
         } else {
-            /* tick 3+: model 7 — the same star shape on the puff sheet */
-            em_gfx_beam_tex(gfx, FX_TEX_PUFF, w.flash_pos, end,
-                            WPN_FLASH_STAR_W * s, c);
+            /* tick 3+: model 7 — the same star shape on the puff
+             * sheet, tumbling with the translated rotation lerp */
+            em_gfx_beam_tex_roll(gfx, FX_TEX_PUFF, w.flash_pos, end,
+                                 WPN_FLASH_STAR_W * s, roll, c);
         }
         return;
     }
@@ -1412,6 +1668,11 @@ void em_weapon_render(EmGfx *gfx)
     if (w.flash > 0) flash_render(gfx);
 
     if (w.state == EM_WPN_HOLSTERED) return;
+
+    /* FLASHLIGHT CONE — the visible beam mesh, gated exactly like the
+     * spot term (the light pose set by this frame's update). */
+    if (w.light_live && fx.cone_ok)
+        cone_render(gfx);
 
     /* LASER SIGHT — the translated func_00185760 pass (em_weapon.h).
      * Beam: 32 segments muzzle -> clipped endpoint, per-vertex color =
@@ -1452,13 +1713,23 @@ void em_weapon_render(EmGfx *gfx)
          * flickering red exactly like the GS TFX-modulate draw.
          * Fallback: the old 3-layer concentric flat-color glow. */
         float dr = (float)(0x50 + (wpn_rand() & 0x1F)) / 128.0f;
+        /* DOT placement: offset the billboard HALF ITS SIZE off the
+         * surface along the hit normal — a sprite centered exactly on
+         * the wall plane half-clips behind it under the depth test
+         * (user-reported). Engine sprites sit on the surface plane
+         * plus an offset; a miss (free 260-unit endpoint) draws at the
+         * endpoint unchanged. */
+        float dp[3] = { w.laser_b[0], w.laser_b[1], w.laser_b[2] };
+        if (w.laser_surf) {
+            for (int k = 0; k < 3; k++)
+                dp[k] += w.laser_n[k] * (WPN_DOT_SIZE * 0.5f);
+        }
         if (fx.ok[FX_TEX_DOT]) {
             float dc[4] = { dr, 0.0f, 0.0f, 1.0f };
-            em_gfx_beam_dot_tex(gfx, FX_TEX_DOT, w.laser_b, WPN_DOT_SIZE,
-                                dc);
+            em_gfx_beam_dot_tex(gfx, FX_TEX_DOT, dp, WPN_DOT_SIZE, dc);
         } else {
             float dot[3] = { dr, 0.0f, 0.0f };
-            glow_dot(gfx, w.laser_b, WPN_DOT_SIZE, dot);
+            glow_dot(gfx, dp, WPN_DOT_SIZE, dot);
         }
     }
 
@@ -1511,3 +1782,9 @@ int em_weapon_melee_hits(void)    { return m.hits; }
  * until its L3 input path is decoded and re-hooked). */
 int em_weapon_flashlight(void)       { return w.light_on; }
 int em_weapon_flashlight_timer(void) { return w.shoulder_timer; }
+
+/* LASER introspection (self-tests): 1 = the laser draws this frame —
+ * the AIM state AND the fire SM's +0x2F2 visible flag (the decoded
+ * LASER HIDE WINDOW: hidden from each shot tick to its cadence
+ * expiry). */
+int em_weapon_laser_visible(void)    { return w.laser_on; }

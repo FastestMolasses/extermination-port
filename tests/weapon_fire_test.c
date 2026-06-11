@@ -1,35 +1,48 @@
 /* weapon_fire_test.c — OS-free unit test for em_weapon's fire sub-state
- * machine, manual-reload gate and flashlight toggle (the 2026-06-11
- * weapon-fidelity pass; engine evidence in em_weapon.h):
+ * machine, manual-reload gate, laser hide window and flashlight toggle
+ * (2026-06-11 weapon-fidelity + weapon-visual passes; engine evidence in
+ * em_weapon.h):
  *
- *   1. SEMI CADENCE — the engine fire sub-state HOLDS through the
- *      6-frame cadence (func_00170A60 states 0/0xA/0xB): mashing the
- *      trigger every 2 frames still yields exactly one shot per 6
- *      frames; a single press yields exactly one shot; presses spaced
- *      past the cadence fire 1:1.
- *   2. L3 MANUAL RELOAD — func_0017B300(.,2) top-up gate: a FULL mag
+ *   1. SEMI CADENCE at the ENGINE INTERVAL — func_0017A8B0 stores
+ *      +0x2F4 = the aim-ladder clip length (25 for the SPR4) on every
+ *      trigger press, so semi spaces shots exactly 13 ticks apart
+ *      (counter +2/frame vs 25); mashing every 2 frames cannot beat it,
+ *      a single press fires once, presses inside the first ~7 ticks of
+ *      the cadence are DROPPED (the +0x2A queue samples only from
+ *      counter >= interval - 8), and presses spaced past the cadence
+ *      fire 1:1.
+ *   2. LASER HIDE WINDOW — player +0x2F2: visible while waiting, hidden
+ *      from the shot tick until the cadence expiry, one-tick blink
+ *      between chained rounds.
+ *   3. L3 MANUAL RELOAD — func_0017B300(.,2) top-up gate: a FULL mag
  *      ignores L3; mag < 30 with reserve > mag reloads; reserve == mag
- *      does not; the engine's quirky fill compare (reserve vs the
- *      rounds NEEDED) is replicated.
- *   3. DRY-MAG AUTO RELOAD at the cadence EXPIRY (mode 1) — no second
+ *      does not; the engine's quirky fill compare is replicated. The
+ *      reload anim must go through the HOLD-type request (the
+ *      2026-06-11 stagger fix — no idle interlude at the clip end).
+ *   4. DRY-MAG AUTO RELOAD at the cadence EXPIRY (mode 1) — no second
  *      trigger press required.
- *   4. FLASHLIGHT — SQUARE while aiming toggles the PERSISTENT
- *      preference ON (sound 0x179) and OFF (silent); NO timer and NO
- *      auto-off (the engine's D_00810D3C flag — the 300-frame burst
- *      belongs to the separate, unhooked shoulder-light system, whose
- *      introspection timer must stay 0); the flag survives a holster +
- *      re-draw.
- *   5. AUTO parity — a 31-frame hold = 6 rounds (one per 6 frames).
+ *   5. FLASHLIGHT — SQUARE while aiming toggles the PERSISTENT
+ *      preference ON (sound 0x179) and OFF (silent); NO timer/auto-off;
+ *      the flag survives a holster + re-draw.
+ *   6. AUTO parity — the 0x1E fire state writes +0x2F4 = 12.0: a
+ *      31-frame hold = 6 rounds at the 6-frame in-burst cadence.
+ *   7. INPUT-EVENT-API MASH — the same mash driven through the REAL
+ *      pad model (em_input_handle_event -> em_input_pad -> the
+ *      em_frame edge computation): the keyboard path cannot out-shoot
+ *      the sub-state machine either.
  *
- * Links ONLY em_weapon.c; every other module the weapon talks to is
- * stubbed below (clip-less anim stubs -> the flagged fallback windows),
- * so the test runs headless on any host: `make test-weapon`.
+ * Links em_weapon.c + em_input.c; every other module the weapon talks
+ * to is stubbed below (clip-less anim stubs -> the flagged fallback
+ * windows and the 25-frame true-length semi interval), so the test runs
+ * headless on any host: `make test-weapon`.
  */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "em_input.h"
+#include "em_model.h"
+#include "em_platform.h"
 #include "game/em_weapon.h"
 #include "game/em_frame.h"
 #include "game/em_game.h"
@@ -38,14 +51,19 @@
 
 /* ---- stubs (the modules em_weapon.c references) ----------------------- */
 
+/* anim mailbox recorder: the reload-stagger regression check needs to
+ * know WHICH path (request vs hold) carried each clip id. */
+static unsigned last_req_clip, last_hold_clip;
 int em_game_anim_request(unsigned clip_id, float rate)
-{ (void)clip_id; (void)rate; return 1; }
+{ (void)rate; last_req_clip = clip_id; return 1; }
 int em_game_anim_hold(unsigned clip_id, float rate)
-{ (void)clip_id; (void)rate; return 1; }
+{ (void)rate; last_hold_clip = clip_id; return 1; }
 int em_game_anim_hold_restart(unsigned clip_id, float rate)
 { (void)clip_id; (void)rate; return 1; }
 int em_game_anim_frames(unsigned clip_id)
 { (void)clip_id; return 0; }            /* clip-less: fallback windows */
+unsigned em_game_anim_active(void) { return 0; }
+int      em_game_anim_frame(void)  { return -1; }
 
 static int sfx_count[0x800];
 void em_sfx_play(unsigned id) { if (id < 0x800) sfx_count[id]++; }
@@ -73,14 +91,26 @@ int em_gfx_beam_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
 void em_gfx_beam_tex(EmGfx *gfx, int slot, const float a[3],
                      const float b[3], float width, const float c[4])
 { (void)gfx; (void)slot; (void)a; (void)b; (void)width; (void)c; }
+void em_gfx_beam_tex_roll(EmGfx *gfx, int slot, const float a[3],
+                          const float b[3], float width, float roll,
+                          const float c[4])
+{ (void)gfx; (void)slot; (void)a; (void)b; (void)width; (void)roll;
+  (void)c; }
 void em_gfx_beam_dot_tex(EmGfx *gfx, int slot, const float p[3],
                          float size, const float c[4])
 { (void)gfx; (void)slot; (void)p; (void)size; (void)c; }
+void em_gfx_beam_tri_tex(EmGfx *gfx, int slot, const float p[9],
+                         const float uv[6], const float c[4])
+{ (void)gfx; (void)slot; (void)p; (void)uv; (void)c; }
 void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
                        const float rgb[3], float range,
                        float cos_inner, float cos_outer)
 { (void)gfx; (void)pos; (void)dir; (void)rgb; (void)range;
   (void)cos_inner; (void)cos_outer; }
+
+int em_model_load(EmModel *m, const char *path)
+{ (void)path; memset(m, 0, sizeof *m); return 1; }   /* asset-less host */
+void em_model_free(EmModel *m) { (void)m; }
 
 int em_collision_segment_query(const EmCollision *c, const float from[3],
                                const float to[3], unsigned mask, int id,
@@ -89,6 +119,11 @@ int em_collision_segment_query(const EmCollision *c, const float from[3],
   return 0; }
 
 /* ---- driver ------------------------------------------------------------ */
+
+/* ENGINE TIMINGS under the clip-less stubs (true-length fallbacks):
+ * semi interval 25 -> expiry 12 ticks after the shot tick, chained shot
+ * the 13th; the +0x2A queue samples from counter >= 17 (tick 8+). */
+#define SEMI_SPACING 13
 
 static int      fails;
 static uint16_t held_now;
@@ -133,7 +168,9 @@ static void draw_to_aim(void)
 int main(void)
 {
     /* 1a. SEMI MASH: press CIRCLE every 2nd frame for 61 frames — the
-     * cadence must hold every shot 6 frames apart (11 shots total). */
+     * ladder-clip cadence must hold every shot exactly SEMI_SPACING
+     * frames apart: shots at 0/13/26/39/52 = 5 total (the old flat-12
+     * interval yielded 11 — the user-reported double rate). */
     em_weapon_reset(30, 120);
     draw_to_aim();
     int last_shot_frame = -1, bad_gap = 0;
@@ -142,34 +179,88 @@ int main(void)
         if ((f & 1) == 0) { frame(EM_PAD_CIRCLE, 0); }
         else              { frame(0, EM_PAD_CIRCLE); }
         if (em_weapon_shots() != before) {
-            if (last_shot_frame >= 0 && f - last_shot_frame != 6)
+            if (last_shot_frame >= 0 &&
+                f - last_shot_frame != SEMI_SPACING)
                 bad_gap = f - last_shot_frame;
             last_shot_frame = f;
         }
     }
-    check(em_weapon_shots() == 11,
-          "semi mash: 61 frames of 2-frame presses = 11 shots (6-frame "
-          "cadence), not one per press");
-    check(bad_gap == 0, "semi mash: every shot exactly 6 frames apart");
+    check(em_weapon_shots() == 5,
+          "semi mash: 61 frames of 2-frame presses = 5 shots (the "
+          "25-frame ladder cadence), not one per press");
+    check(bad_gap == 0, "semi mash: every shot exactly 13 frames apart");
 
     /* 1b. Single press = single shot (no repeat while held). */
     em_weapon_reset(30, 120);
     draw_to_aim();
     frame(EM_PAD_CIRCLE, 0);
-    frames(30);
+    frames(40);
     check(em_weapon_shots() == 1, "single semi press fires exactly once");
 
-    /* 1c. Presses spaced 8 frames fire 1:1 (past the cadence). */
+    /* 1c. A press EARLY in the cadence (before counter >= interval-8,
+     * i.e. inside ~7 ticks of the shot) is DROPPED — the engine's
+     * queue-sampling window. */
+    em_weapon_reset(30, 120);
+    draw_to_aim();
+    frame(EM_PAD_CIRCLE, 0);            /* shot at tick 0 */
+    frame(0, EM_PAD_CIRCLE);
+    frames(4);                          /* ticks 1..5 */
+    frame(EM_PAD_CIRCLE, 0);            /* press at tick 6: counter 14 < 17 */
+    frame(0, EM_PAD_CIRCLE);
+    frames(30);
+    check(em_weapon_shots() == 1,
+          "press in the first ~7 cadence ticks is dropped (queue window "
+          "opens at counter >= interval - 8)");
+
+    /* 1d. Presses spaced past the cadence fire 1:1. */
     em_weapon_reset(30, 120);
     draw_to_aim();
     for (int k = 0; k < 4; k++) {
         frame(EM_PAD_CIRCLE, 0);
         frame(0, EM_PAD_CIRCLE);
-        frames(6);
+        frames(SEMI_SPACING);           /* past the 13-tick spacing */
     }
-    check(em_weapon_shots() == 4, "8-frame-spaced semi presses fire 1:1");
+    check(em_weapon_shots() == 4,
+          "presses spaced past the cadence fire 1:1");
 
-    /* 2a. L3 with a FULL mag: ignored (the mode-2 top-up gate). */
+    /* 2. LASER HIDE WINDOW (+0x2F2): visible while waiting, hidden from
+     * the shot tick to the cadence expiry, blink between chained
+     * rounds. */
+    em_weapon_reset(30, 120);
+    draw_to_aim();
+    check(em_weapon_laser_visible() == 1, "laser visible while waiting");
+    frame(EM_PAD_CIRCLE, 0);            /* shot tick: hidden */
+    check(em_weapon_laser_visible() == 0,
+          "laser hidden on the shot tick (+0x2F2 cleared)");
+    frame(0, EM_PAD_CIRCLE);
+    int hidden_all = 1;
+    for (int k = 0; k < 11; k++) {      /* cadence ticks 1..11 */
+        frame(0, 0);
+        if (em_weapon_laser_visible()) hidden_all = 0;
+    }
+    check(hidden_all, "laser stays hidden through the cadence");
+    frames(2);                          /* expiry tick 12 + WAIT tick 13 */
+    check(em_weapon_laser_visible() == 1,
+          "laser back after the cadence expiry");
+    /* chained round: a RE-PRESS inside the queue window (ticks 8..12)
+     * arms +0x2A; the expiry tick blinks the laser visible for one
+     * frame and the queued shot hides it again the next tick. */
+    frame(EM_PAD_CIRCLE, 0);            /* shot (tick 0), hidden */
+    frame(0, EM_PAD_CIRCLE);            /* tick 1: release */
+    frames(7);                          /* ticks 2..8 */
+    frame(EM_PAD_CIRCLE, 0);            /* tick 9: press edge in window */
+    frame(0, EM_PAD_CIRCLE);            /* tick 10 */
+    int blink = 0, rehidden = 0;
+    for (int k = 0; k < 4; k++) {       /* ticks 11..14 (expiry = 12) */
+        frame(0, 0);
+        if (em_weapon_laser_visible()) blink = 1;
+        else if (blink)                rehidden = 1;
+    }
+    check(blink && rehidden,
+          "chained round: one-tick laser blink at the expiry, hidden "
+          "again on the queued shot");
+
+    /* 3a. L3 with a FULL mag: ignored (the mode-2 top-up gate). */
     em_weapon_reset(30, 120);
     draw_to_aim();
     int reloads0 = em_weapon_reloads();
@@ -180,11 +271,15 @@ int main(void)
           em_weapon_reloads() == reloads0 && em_weapon_mag() == 30,
           "L3 with a full mag does NOT reload");
 
-    /* 2b. L3 with a short mag and a live reserve: top-up. */
-    frame(EM_PAD_CIRCLE, 0); frame(0, EM_PAD_CIRCLE); frames(6);
-    frame(EM_PAD_CIRCLE, 0); frame(0, EM_PAD_CIRCLE); frames(6);
+    /* 3b. L3 with a short mag and a live reserve: top-up — and the
+     * reload anim goes through the HOLD path (stagger fix). */
+    frame(EM_PAD_CIRCLE, 0); frame(0, EM_PAD_CIRCLE);
+    frames(SEMI_SPACING);
+    frame(EM_PAD_CIRCLE, 0); frame(0, EM_PAD_CIRCLE);
+    frames(SEMI_SPACING + 2);           /* back in WAIT (L3 honored) */
     check(em_weapon_mag() == 28 && em_weapon_reserve() == 118,
           "two semi shots: 28/118");
+    last_hold_clip = 0;
     frame(EM_PAD_L3, 0);
     frame(0, EM_PAD_L3);
     frames(2);
@@ -192,8 +287,12 @@ int main(void)
           em_weapon_reserve() == 118 &&
           em_weapon_reloads() == reloads0 + 1,
           "L3 with mag 28 top-ups to 30, reserve untouched");
+    check(last_hold_clip == 0x11B,
+          "reload anim 0x11B (283 — the TRUE reload clip, the "
+          "D_00248B98 table pick; NOT the 0x33 action code) requested "
+          "as a HELD clip (no idle pop at the clip end)");
 
-    /* 2c. reserve == mag: no top-up (the reserve holds nothing extra). */
+    /* 3c. reserve == mag: no top-up (the reserve holds nothing extra). */
     em_weapon_reset(20, 20);
     draw_to_aim();
     reloads0 = em_weapon_reloads();
@@ -204,7 +303,7 @@ int main(void)
           em_weapon_reloads() == reloads0 && em_weapon_mag() == 20,
           "L3 with reserve == mag does NOT reload");
 
-    /* 2d. The engine's quirky fill compare (reserve vs rounds NEEDED):
+    /* 3d. The engine's quirky fill compare (reserve vs rounds NEEDED):
      * mag 25 / reserve 27 -> 27 >= (30-25) -> mag = 30 (engine-exact;
      * func_0017B300's matched top-up arm). */
     em_weapon_reset(25, 27);
@@ -215,7 +314,7 @@ int main(void)
     check(em_weapon_state() == EM_WPN_RELOAD && em_weapon_mag() == 30,
           "top-up fill quirk: mag 25 / reserve 27 fills to 30");
 
-    /* 3. DRY-MAG AUTO RELOAD at the cadence expiry — no second press. */
+    /* 4. DRY-MAG AUTO RELOAD at the cadence expiry — no second press. */
     em_weapon_reset(1, 50);
     draw_to_aim();
     reloads0 = em_weapon_reloads();
@@ -223,13 +322,13 @@ int main(void)
     frame(0, EM_PAD_CIRCLE);
     check(em_weapon_shots() >= 1 && em_weapon_mag() == 0,
           "dry run: the only round fired");
-    frames(8);      /* expiry lands 5 ticks after the shot */
+    frames(SEMI_SPACING + 2);   /* expiry lands 12 ticks after the shot */
     check(em_weapon_state() == EM_WPN_RELOAD &&
           em_weapon_reloads() == reloads0 + 1 && em_weapon_mag() == 30,
           "empty mag auto-reloads at the cadence expiry (mode 1), "
           "without another trigger press");
 
-    /* 4. FLASHLIGHT — SQUARE while aiming: a PERSISTENT preference,
+    /* 5. FLASHLIGHT — SQUARE while aiming: a PERSISTENT preference,
      * no timer, no auto-off (the corrected D_00810D3C model). */
     em_weapon_reset(30, 120);
     draw_to_aim();
@@ -268,7 +367,8 @@ int main(void)
           sfx_count[0x179] == on_sfx1 + 1,
           "third toggle: ON again with 0x179");
 
-    /* 5. AUTO parity: 31-frame hold = 6 rounds. */
+    /* 6. AUTO parity: the 0x1E store (+0x2F4 = 12.0) keeps the 6-frame
+     * in-burst cadence — a 31-frame hold = 6 rounds. */
     em_weapon_reset(30, 120);
     em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
     draw_to_aim();
@@ -278,6 +378,56 @@ int main(void)
     frames(10);
     check(em_weapon_shots() == 6, "auto: 31-frame hold = 6 rounds");
     em_weapon_set_fire_mode(EM_WPN_MODE_SEMI);
+
+    /* 7. INPUT-EVENT-API MASH: the same 2-frame mash driven through the
+     * REAL pad model — KEY_DOWN/KEY_UP 'l' (CIRCLE) and a held 'e'
+     * (R1) through em_input_handle_event, sampled per frame with
+     * em_input_pad and edge-computed exactly like em_frame's step C.
+     * Proves the keyboard event path cannot out-shoot the sub-state
+     * machine (the user-reported runtime rapid fire). */
+    em_weapon_reset(30, 120);
+    em_input_init();
+    {
+        static const float pos[3] = { 0.0f, 0.0f, 0.0f };
+        uint16_t prev = 0;
+        int      shots0 = em_weapon_shots();
+        int      last = -1, gap_bad = 0;
+        EmEvent  ev;
+        memset(&ev, 0, sizeof ev);
+        ev.key  = 'e';
+        ev.type = EM_EVENT_KEY_DOWN;
+        em_input_handle_event(&ev);              /* hold R1 */
+        for (int f = 0; f < 100; f++) {
+            /* mash 'l': down on even frames, up on odd — from frame 20
+             * (after the draw window) */
+            if (f >= 20) {
+                ev.key  = 'l';
+                ev.type = (f & 1) ? EM_EVENT_KEY_UP : EM_EVENT_KEY_DOWN;
+                em_input_handle_event(&ev);
+            }
+            EmPadState pad;
+            em_input_pad(&pad);
+            EmFrameInput in;
+            memset(&in, 0, sizeof in);
+            in.lx = in.ly = in.rx = in.ry = 0x80;
+            in.held     = pad.buttons;
+            in.pressed  = (uint16_t)(pad.buttons & ~prev);
+            in.released = (uint16_t)(prev & ~pad.buttons);
+            prev        = pad.buttons;
+            int before = em_weapon_shots();
+            em_weapon_update(NULL, pos, 0.0f, &in);
+            if (em_weapon_shots() != before) {
+                if (last >= 0 && f - last < SEMI_SPACING)
+                    gap_bad = f - last;
+                last = f;
+            }
+        }
+        check(em_weapon_shots() - shots0 > 0,
+              "event-API mash: the rifle fires at all");
+        check(gap_bad == 0,
+              "event-API mash: no two shots closer than the 13-tick "
+              "ladder cadence through the real pad model");
+    }
 
     printf("weapon fire test: %s\n", fails ? "FAIL" : "PASS");
     return fails ? 1 : 0;

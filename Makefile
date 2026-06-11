@@ -58,15 +58,16 @@ test-input: tests/input_test.c src/em_input.c
 	$(CC) $(CFLAGS) tests/input_test.c src/em_input.c -o build/input_test
 	./build/input_test
 
-# Unit test for the weapon fire sub-state machine (cadence gating, the
-# L3 top-up gate, dry-mag auto reload, the persistent flashlight
-# preference toggle — no auto-off): links
-# only em_weapon.c — every other module it talks to is stubbed in the
-# test, so it runs headless on any host.
-test-weapon: tests/weapon_fire_test.c src/game/em_weapon.c
+# Unit test for the weapon fire sub-state machine (the engine ladder-
+# clip cadence + queue window, the laser hide window, the L3 top-up
+# gate, dry-mag auto reload, the persistent flashlight preference
+# toggle, and the input-event-API mash leg): links em_weapon.c +
+# em_input.c (the real pad model) — every other module is stubbed in
+# the test, so it runs headless on any host.
+test-weapon: tests/weapon_fire_test.c src/game/em_weapon.c src/em_input.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) tests/weapon_fire_test.c src/game/em_weapon.c \
-	    -o build/weapon_fire_test
+	    src/em_input.c -o build/weapon_fire_test
 	./build/weapon_fire_test
 
 clean:

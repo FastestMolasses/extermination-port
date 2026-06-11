@@ -3577,20 +3577,25 @@ static void slider_test_script(void)
  *
  *   frame    0       hold E (R1) — draw (anim 0x110 @1.4)
  *   A = draw+5       AIM reached; four SEMI presses of L (CIRCLE — the
- *   A/A+8/A+16/A+24  engine's default-config fire button, s29) at
- *                    8-frame spacing: each shot decrements mag AND
- *                    reserve (TOTAL-pool rule) -> 4/120 .. 0/116
- *   A+32             5th press on the EMPTY mag: must NOT fire — the
- *                    mode-0 auto-reload triggers instead (func_0017B300:
- *                    mag = min(30, 116) = 30, reserve UNTOUCHED at 116;
- *                    anim 0x33 holds the RELOAD state for its length)
- *   B = A+34+rld+8   press after the reload window: 5th real shot
+ *   A/A+14/A+28/A+42 engine's default-config fire button, s29) at
+ *                    14-frame spacing — PAST the engine's 25-frame
+ *                    ladder cadence (+0x2F4 = the 0x112 clip length,
+ *                    func_0017A8B0; shots space >= 13 ticks), so each
+ *                    press fires 1:1: mag AND reserve decrement
+ *                    (TOTAL-pool rule) -> 4/120 .. 0/116
+ *   A+55             the 4th shot's cadence EXPIRY auto-reloads the
+ *                    empty mag (mode 1 — no extra press needed:
+ *                    mag = min(30, 116) = 30, reserve UNTOUCHED at
+ *                    116; anim 0x33 holds the RELOAD state)
+ *   B = A+55+rld+8   press after the reload window: 5th real shot
  *                    -> 29/115
- *   B+10..B+41       FULL-AUTO stretch: mode 2, L held 31 frames ->
- *                    shots at the 6-frame cadence (+2/frame vs interval
- *                    12) = 6 rounds -> 23/109
- *   C = B+50         manual top-up (R = L3, the engine's raw reload
- *                    bit) -> 30/109, reserve again untouched
+ *   B+16..B+47       FULL-AUTO stretch (after the semi cadence
+ *                    expires): mode 2, L held 31 frames -> shots at
+ *                    the 6-frame in-burst cadence (the 0x1E state's
+ *                    +0x2F4 = 12.0 store) = 6 rounds -> 23/109
+ *   C = B+66         manual top-up (R = L3, the engine's raw reload
+ *                    bit; honored only in WAIT) -> 30/109, reserve
+ *                    again untouched
  *   D = C+rld+24     RECOIL-SETTLE check: by D the post-reload aim hold
  *                    has been quiet for > ceil(25/2) ticks, so the 0x112
  *                    playhead must be CLAMPED at the last frame (the
@@ -3641,8 +3646,8 @@ static void weapon_test_script(void)
     int n = g.frame_no;
     if (n == 0) {
         A = em_weapon_draw_ticks() + 5;
-        B = A + 34 + em_weapon_reload_ticks() + 8;
-        C = B + 50;
+        B = A + 55 + em_weapon_reload_ticks() + 8;
+        C = B + 66;     /* past the auto leg + its final cadence */
         D = C + em_weapon_reload_ticks() + 24;  /* +24: recoil-settle
                                                  * window (12.5 ticks
                                                  * to clamp) */
@@ -3656,7 +3661,7 @@ static void weapon_test_script(void)
     if (n == A) {
         wt_check(em_weapon_state() == EM_WPN_AIM, "drawn by A");
         move_test_inject('l', 1);                           /* semi #1  */
-    } else if (n == A + 2 || n == A + 10 || n == A + 18 || n == A + 26) {
+    } else if (n == A + 2 || n == A + 16 || n == A + 30 || n == A + 44) {
         move_test_inject('l', 0);
     } else if (n == A + 6) {
         wt_check(em_weapon_mag() == 3 &&
@@ -3666,25 +3671,24 @@ static void weapon_test_script(void)
         int rs = wt_recoil_state();
         wt_check(rs == 1 || rs == -1,
                  "recoil replay mid-flight after shot 1 (0x112 rewound)");
-    } else if (n == A + 8 || n == A + 16 || n == A + 24) {
+    } else if (n == A + 14 || n == A + 28 || n == A + 42) {
         move_test_inject('l', 1);                           /* semi 2..4 */
-    } else if (n == A + 30) {
+    } else if (n == A + 48) {
         wt_check(em_weapon_mag() == 0 &&
                  em_weapon_reserve() == 116 &&
                  em_weapon_shots() == 4,
-                 "shots 2-4: mag empty at 0/116");
-    } else if (n == A + 32) {
-        move_test_inject('l', 1);                           /* dry press */
-    } else if (n == A + 34) {
-        move_test_inject('l', 0);
-    } else if (n == A + 38) {
+                 "shots 2-4 at the 14-frame spacing: mag empty at "
+                 "0/116");
+    } else if (n == A + 60) {
+        /* the 4th shot's cadence expiry (shot ~A+43, +12 ticks)
+         * auto-reloaded the dry mag — mode 1, NO press required */
         wt_check(em_weapon_state() == EM_WPN_RELOAD &&
                  em_weapon_mag() == 30 &&
                  em_weapon_reserve() == 116 &&
                  em_weapon_shots() == 4 &&
                  em_weapon_reloads() == 1,
-                 "empty-mag press auto-reloads: mag = min(30, "
-                 "reserve) = 30, reserve untouched (116), no "
+                 "dry mag auto-reloads at the cadence expiry: mag = "
+                 "min(30, reserve) = 30, reserve untouched (116), no "
                  "round fired");
     } else if (n == B) {
         wt_check(em_weapon_state() == EM_WPN_AIM,
@@ -3700,12 +3704,14 @@ static void weapon_test_script(void)
         int rs = wt_recoil_state();
         wt_check(rs == 1 || rs == -1,
                  "recoil replay mid-flight after shot 5");
-    } else if (n == B + 10) {
+    } else if (n == B + 16) {
+        /* the 5th (semi) shot's 25-frame cadence has expired by here
+         * (shot ~B+1, expiry ~B+13) — the auto hold starts from WAIT */
         em_weapon_set_fire_mode(EM_WPN_MODE_AUTO);
         move_test_inject('l', 1);                           /* auto hold */
-    } else if (n == B + 41) {
+    } else if (n == B + 47) {
         move_test_inject('l', 0);
-    } else if (n == B + 46) {
+    } else if (n == B + 54) {
         wt_check(em_weapon_mag() == 23 &&
                  em_weapon_reserve() == 109 &&
                  em_weapon_shots() == 11,
