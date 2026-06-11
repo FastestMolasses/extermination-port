@@ -563,7 +563,7 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *    the sight line clears because the mode handler re-poses the
  *    desired eye every frame. The AIM camera (mode 1) never runs this
  *    solver — it solves with STYLE 2 -> func_0018F870, ALSO DECODED
- *    (2026-06-11 s63, cam_solver_0018F870 below): R1 KEEPS the
+ *    (2026-06-11 s64, cam_solver_0018F870 below): R1 KEEPS the
  *    constant-height pull-in (hit + 0.5 along the player->eye ray)
  *    but with NO head-clear waiver, NO wedge eject, a corner SLIDE
  *    along the blocking wall, and a floor+2 (not +17) eye-Y bound.
@@ -653,7 +653,7 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
                                    1.5 toward player + (0, 11, 0)         */
 #define SOLV_PLAYER_UP    11.0f
 /* func_0018F870 AIM/scope solver constants — engine immediates from the
- * full 0x16A4 .s read (DECODED 2026-06-11 s63; retires the old
+ * full 0x16A4 .s read (DECODED 2026-06-11 s64; retires the old
  * CAM_WALL_MARGIN aim stand-in). Shares SOLV_EXT / SOLV_PULL_IN /
  * SOLV_SIDE / SOLV_SIDE_PAD / SOLV_CROSS_DOT / SOLV_OPPOSE_DOT /
  * SOLV_GATE_HI/LO / SOLV_BOUND_RANGE / SOLV_PLAYER_UP / SOLV_CEIL_PAD
@@ -682,7 +682,7 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
                                    float 0x3D0EFA35 = 2 deg/frame). The
                                    sub-state-3 motion handler is still
                                    unread — rate flagged. The ARM is now
-                                   decoded (func_00191000, s63): see the
+                                   decoded (func_00191000, s64): see the
                                    L1 block in camera_mode_dispatch. */
 #define CAM_L1_MIN_RAD   7.0f   /* func_00191000 orbit-radius clamp:
                                    cam+0x4C = |D_0081069C| forced into
@@ -768,8 +768,10 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *     — live the engine parked at (104, 29, -250.4) looking down at
  *     the walked-out player (the door wall behind the eye engages the
  *     decoded constant-height func_0018DD20 solve; the +10 over the
- *     default height is the walk-state eye placer func_00191000,
- *     undecoded).
+ *     default height comes from the walk-state camera handler
+ *     func_00230000, unread — the old func_00191000 attribution was
+ *     wrong: s64 decoded that one as the L1 re-orient ARM; it never
+ *     places the eye).
  *   LOCKED try (script D_0024DEC0 record 2, op 0x09 -> func_001BBBF0):
  *     TARGET = door pos + 8 u toward the HANDLE side (the door-yaw
  *     left: (-8*cos(dyaw), +10, +8*sin(dyaw))) and EYE = TARGET -
@@ -896,7 +898,10 @@ typedef struct {
     /* IDLE AUTO-ORIENT orbit (director sub-state 2, func_00193D90) */
     uint8_t  orbit_on;    /* orbit running (cam+0x01 == 2) */
     float    orbit_tgt;   /* +0x48: saved player heading (goal yaw) */
-    float    orbit_rad;   /* +0x4C: |horiz eye<->target| at arm time */
+    float    orbit_rad;   /* +0x4C: |horiz eye<->target| at arm time —
+                             shared by the idle orbit (sub-state 2) and
+                             the L1 seek (sub-state 3, func_00191000:
+                             clamped into [7, 46.8]) */
     /* DOOR-CINEMATIC target re-blend (cam+0xA0, func_001916C0 tail) */
     int16_t  tgt_soft;    /* frames left: actual target chases desired
                              at <= 1.0 u/frame instead of hard-copying */
@@ -2930,6 +2935,8 @@ static float cam_chase_v(float dst, float src, float max)
     return dst + (d > 0.0f ? step : -step);
 }
 
+static float cam_wrap_pi(float a);   /* defined with the solver kit */
+
 /* Desired eye from the struct yaw: CAM_DIST behind the player along the
  * yaw heading, CAM_EYE_HEIGHT above the player's ground Y (the live
  * values: ~33 u back, ~19 u up). */
@@ -3103,13 +3110,34 @@ static void camera_mode_dispatch(EmCamera *cam)
         cam->orbit_on  = 0;
     } else {
 
-    /* L1: one-shot orient behind the player, at the engine's orient-
-     * to-heading family rate (2 deg/frame — func_001921D0's 0x3D0EFA35
-     * states; which player state L1 routes through is unpinned, the
-     * rate family is). R1 no longer seeks here — the aim camera above
-     * owns the armed stance. */
-    if (in->pressed & EM_PAD_L1)
-        g.cam_recenter = 1;
+    /* L1: one-shot orient behind the player. The ARM is DECODED
+     * (func_00191000, s64): the mode-0 router func_00193EB0 (player
+     * states 1/0x21, cam mode 0, not fixed) and the walk camera
+     * func_00230000 check the press edge of the config halfword at
+     * spad 0x70003B80 (the L1 slot of the decoded config block; the
+     * port's EM_PAD_L1 maps the same default binding), goal yaw = the
+     * player heading +0xC4 (+pi when action code +0x1F0 == 6 — no
+     * native producer, untranslated), a 3-deg deadband DROPS already-
+     * aligned presses, and the orbit radius cam+0x4C = the actual
+     * horiz eye<->target distance |D_0081069C| clamped into [7.0,
+     * |cam+0x64| = 46.8]. It arms director sub-state 3 — whose MOTION
+     * handler is still unread: the port seeks at the orient-family
+     * rate (CAM_L1_RATE, flagged) around the armed radius (placement
+     * shape inferred from the sub-state-2 orbit, flagged). R1 no
+     * longer seeks here — the aim camera above owns the armed
+     * stance. */
+    if (in->pressed & EM_PAD_L1) {
+        float diff = cam_wrap_pi(g.yaw - cam->yaw);
+        if (fabsf(diff) > CAM_IDLE_ORIENT_DEADBAND) {  /* 3 deg */
+            float rx = cam->eye[0] - cam->tgt[0];
+            float rz = cam->eye[2] - cam->tgt[2];
+            float rad = sqrtf(rx * rx + rz * rz);
+            if (rad < CAM_L1_MIN_RAD)   rad = CAM_L1_MIN_RAD;
+            if (rad > SOLV_DIST_PARAM)  rad = SOLV_DIST_PARAM;
+            cam->orbit_rad = rad;                      /* +0x4C */
+            g.cam_recenter = 1;                        /* sub-state 3 */
+        }
+    }
     if (g.cam_recenter) {
         if (cam_yaw_seek(cam, g.yaw, CAM_L1_RATE * 60.0f))
             g.cam_recenter = 0;
@@ -3195,8 +3223,11 @@ static void camera_mode_dispatch(EmCamera *cam)
                                   CAM_TGT_CAP);
 
     /* AUTO-ORIENT ORBIT eye (func_00193D90): the desired eye circles
-     * the target at the radius saved when the orbit armed. */
-    if (cam->orbit_on && !g.cam_region_on) {
+     * the target at the radius saved when the orbit armed. The L1
+     * seek (sub-state 3) rides the same +0x4C radius — its decoded
+     * arm (func_00191000) wrote it above; the placement shape is the
+     * sub-state-2 one (motion handler unread, flagged). */
+    if ((cam->orbit_on || g.cam_recenter) && !g.cam_region_on) {
         cam->eye_des[0] = cam->tgt_des[0] - sinf(cam->yaw) * cam->orbit_rad;
         cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
         cam->eye_des[2] = cam->tgt_des[2] - cosf(cam->yaw) * cam->orbit_rad;
@@ -3259,7 +3290,7 @@ static float cam_wrap_pi(float a)               /* func_001B1470 */
  * (Styles 3/4 — cinematic player states — take a reduced branch in
  * the same function; style 5 = director cams -> func_0018D910 [bounds
  * maintenance only, cam_solver_0018D910 below]; style 2/6 = aim/scope
- * -> func_0018F870 [decoded s63, cam_solver_0018F870 below]. The
+ * -> func_0018F870 [decoded s64, cam_solver_0018F870 below]. The
  * dispatcher also runs a
  * pre-pass func_0018D330 that publishes sight-ray bits to cam+0x5A
  * and the overhead-ceiling Y to cam+0x60 — no decoded consumer yet,
@@ -3623,7 +3654,7 @@ static int cam_solver_0018DD20(EmCamera *cam)
     return bits;
 }
 
-/* func_0018CE60 — the vertical-bounds SETTLE helper (decoded s63; the
+/* func_0018CE60 — the vertical-bounds SETTLE helper (decoded s64; the
  * s10 note "settle vs world: 2x func_0019A910 ray queries" was this).
  * Probes 200 down / 200 up from `pt` (mask 7 for style 2, else 6) and
  * derives the eye-Y bounds:
@@ -3678,7 +3709,7 @@ static void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
     }
 }
 
-/* func_0018F870 — the AIM/scope wall solver, DECODED 2026-06-11 (s63)
+/* func_0018F870 — the AIM/scope wall solver, DECODED 2026-06-11 (s64)
  * from the full 0x16A4 .s read; retires the flagged CAM_WALL_MARGIN
  * stand-in. Style 2 = the aim camera (mode 1, mask 7 — movable hulls
  * IN); style 6 = the scope camera (same first stage, NO lateral
@@ -4012,7 +4043,7 @@ static int cam_solver_0018F870(EmCamera *cam)
     return bits;
 }
 
-/* func_0018D910 — the style-5 DIRECTOR solver (decoded s63; the s61
+/* func_0018D910 — the style-5 DIRECTOR solver (decoded s64; the s61
  * table's "returns 0" undersold it): it never moves the eye — it is
  * BOUNDS MAINTENANCE ONLY, the func_0018CE60 settle shape anchored at
  * the eye pulled 1.0 toward player + 11 up: floor probe 200 down
@@ -4075,8 +4106,14 @@ static void camera_solve(EmCamera *cam)
      * solve (the designers placed the eye), CHASE DISABLED: the actual
      * eye is a hard copy of the spec. An R1-release frame lands here
      * with the spec already re-pinned by the dispatch, so the snap-back
-     * is INSTANT (one frame, no lerp) — the observed behavior. */
+     * is INSTANT (one frame, no lerp) — the observed behavior. The
+     * engine still runs solver STYLE 5 for director cams =
+     * func_0018D910 (decoded s64): BOUNDS MAINTENANCE ONLY — keep
+     * cam+0x50/+0x54 fresh so the first follow solve after release
+     * clamps against live bounds, not the pre-region pair. */
     if (g.cam_region_on) {
+        if (g.coll.poly_count)
+            cam_solver_0018D910(cam);
         cam->eye[0] = eye_des[0];
         cam->eye[1] = eye_des[1];
         cam->eye[2] = eye_des[2];
@@ -4097,34 +4134,16 @@ static void camera_solve(EmCamera *cam)
             eye_des[2] = cam->eye_des[2];
         } else {
             /* AIM camera: the engine solves mode 1 with STYLE 2 ->
-             * func_0018F870 over mask 7 (movable hulls in) — a
-             * separate solver, still UNDECODED. Flagged stand-in:
-             * pull the eye to CAM_WALL_MARGIN in front of the hit
-             * along the blocked sight line. (This is also why the
-             * follow responses never run while aiming — the engine's
-             * "no rise while aiming" is structural.) */
-            EmCollHit hit;
-            int kind = em_collision_segment_query(
-                &g.coll, cam->tgt_des, eye_des,
-                EM_COLL_SET_CELLS | EM_COLL_SET_GRID | EM_COLL_SET_HULLS,
-                EM_COLL_ID_NONE, &hit);            /* style-2 mask 7 */
-            if (kind) {
-                cam->hit = (uint8_t)kind;
-                float dx = cam->tgt_des[0] - hit.point[0];
-                float dy = cam->tgt_des[1] - hit.point[1];
-                float dz = cam->tgt_des[2] - hit.point[2];
-                float dl = sqrtf(dx * dx + dy * dy + dz * dz);
-                if (dl > 1e-3f) {
-                    float s = CAM_WALL_MARGIN / dl;
-                    if (s > 1.0f) s = 1.0f;
-                    dx *= s; dy *= s; dz *= s;
-                } else {
-                    dx = dy = dz = 0.0f;
-                }
-                eye_des[0] = hit.point[0] + dx;
-                eye_des[1] = hit.point[1] + dy;
-                eye_des[2] = hit.point[2] + dz;
-            }
+             * func_0018F870 over mask 7 (movable hulls in) — DECODED
+             * s64 and translated verbatim (cam_solver_0018F870 above;
+             * the CAM_WALL_MARGIN stand-in is RETIRED). R1 KEEPS the
+             * constant-height pull-in; the follow solver's waiver/
+             * wedge/rise-over-floor responses structurally never run
+             * while aiming. */
+            cam->hit = (uint8_t)cam_solver_0018F870(cam);
+            eye_des[0] = cam->eye_des[0];
+            eye_des[1] = cam->eye_des[1];
+            eye_des[2] = cam->eye_des[2];
         }
     }
     cam->eye[0] = cam_chase_h(cam->eye[0], eye_des[0], CAM_EYE_CAP);
@@ -4392,8 +4411,9 @@ static void camera_door_cinematic(EmCamera *cam)
      * again (live: the engine parked at +29 over the 21-u doorframe —
      * the door wall behind the eye engages the solve; the decoded
      * func_0018DD20 pulls in at constant height, so the live +29 is
-     * the walk-state eye placer func_00191000 [undecoded] + solve,
-     * not a solver rise). Goto doors
+     * the walk-state camera handler func_00230000 [unread] + solve,
+     * not a solver rise — NOT func_00191000: s64 decoded that as the
+     * L1 re-orient arm). Goto doors
      * never cross the plane before the fade; their re-seat is the warp
      * re-place (doorcam = 3 there, same shape). */
     {
@@ -7025,8 +7045,22 @@ static void gameplay_frame(void)
     /* EM_CAPTURE_AIM=3: aim + hold stick DOWN ('s') from frame 20 —
      * the inverted-Y steer pitches the aim UP: the capture samples the
      * up-ladder pose, the raised laser and the counter-lowered mode-1
-     * eye. =4: hold stick UP ('w') — aim DOWN ("W = down"). */
-    if (g.capture_aim) {
+     * eye. =4: hold stick UP ('w') — aim DOWN ("W = down").
+     * EM_CAPTURE_AIM=5: aim NEAR A WALL — run at the camera (the RISE
+     * approach) until the player reaches the office south wall, turn
+     * to face back INTO the room, then hold R1: the desired aim eye
+     * (30 u behind the facing) lands inside the wall and the DECODED
+     * func_0018F870 PULLS IT IN at constant height (hit + 0.5 along
+     * the player->eye ray) — the over-shoulder view framed from the
+     * wall plane, no rise, no slide-away ("R1 keeps the pull-in").
+     * Default capture frame 420; EM_CAMERA_TRACE=1 prints the solve. */
+    if (g.capture_aim == 5) {
+        if      (g.frame_no == 0)   move_test_inject('s', 1);
+        else if (g.frame_no == 300) move_test_inject('s', 0);
+        else if (g.frame_no == 310) move_test_inject('w', 1);
+        else if (g.frame_no == 322) move_test_inject('w', 0);
+        else if (g.frame_no == 330) move_test_inject('e', 1);
+    } else if (g.capture_aim) {
         if      (g.frame_no == 0)  move_test_inject('e', 1);
         if (g.capture_aim < 3) {
             if      (g.frame_no == 28) move_test_inject('a', 1);
@@ -7711,7 +7745,11 @@ void em_game_install(void)
                                                regression frame */
     const char *ca = getenv("EM_CAPTURE_AIM");
     g.capture_aim  = ca ? atoi(ca) : 0;     /* 1 = aim, 2 = aim + shot,
-                                               3/4 = aim up/down pose */
+                                               3/4 = aim up/down pose,
+                                               5 = aim near a wall (the
+                                               func_0018F870 pull-in) */
+    if (g.capture_aim == 5 && !cf)
+        g.capture_frame = 420;              /* aim settled at the wall */
     const char *cd = getenv("EM_CAPTURE_DOOR");
     g.capture_door = cd && cd[0] == '1';    /* door cinematic capture */
     if (g.capture_door && !cf)
