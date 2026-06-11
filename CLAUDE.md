@@ -140,10 +140,21 @@ files map each native stage to the PS2 function it stands in for.
   struct's own timer counts idle frames and at 481 (= the 300-frame fidget
   timer + the 180-frame look-around clip — the END of the look-around
   idle) arms a 0.2 deg/frame ORBIT around the saved eye<->target radius
-  (3 deg deadband, wall-direction gates, cancels on any action/wall);
-  a wall behind the camera makes it RISE (look down on the player)
-  instead of pulling in — pull-in remains only for the aim camera and
-  full-height-wall fallback.
+  (3 deg deadband, wall-direction gates, cancels on any action/wall).
+  WALL RESPONSE is the decoded s61 solver: constant-height PULL-IN (the
+  apparent "rise" is emergent look-down geometry, not a lift). The
+  WALK-STATE CAMERA is DECODED (s67, func_00230000/func_0022FCA0):
+  while the player moves the camera has NO heading policy — the desired
+  eye rides a TOW-ROPE behind the target (drag at fabs(camdist), 20/10-u
+  dead band, back-out, a cramped 0.3 deg-per-unit swing away from the
+  last wall) and the heading is recomputed FROM the eye each frame;
+  heights drop to eye +9 / target +8 while moving (idle 19/17 — the low,
+  nearly level walking ride). Camera-relative stick input therefore
+  CURVES with the chase (the engine's emergent spiral; EM_MOVE_TEST's
+  endpoints encode it — EM_MOVE_EXPECT/EM_MOVE_YAW override per scene).
+  Optional scene key `camdist <f>` carries the engine's per-record
+  camera distance (default -46.8; the office records are -31.2 — the
+  exporter does not emit it yet).
 - PROJECTION = THE ENGINE'S, exactly (2026-06-11, closes the old
   TODO(projection)): em_mat4_perspective_gs builds the world P from the
   camera's zoom s (EmCamera.zoom, engine ctx+0x2468, default 480; the

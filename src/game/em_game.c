@@ -531,20 +531,100 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
 
 /* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
- * SYSTEM", live-verified in save states 01/03): eye ~33 u behind the
- * player along the camera yaw and ~19 u above the player's ground Y;
- * the generic follow seeks the target to player.y + 15 (the live
- * area-0x1100 director measured ground + 17; the documented smooth-table
- * follow constant is 15.0). Chase caps are the engine's: 0.8 u/frame for
- * the target follow, 4.0 u/frame for the eye solver (style 0). */
-#define CAM_DIST        33.0f   /* desired eye distance behind the player */
-#define CAM_EYE_HEIGHT  19.0f   /* desired eye height above player ground Y */
-#define CAM_TGT_HEIGHT  15.0f   /* target height above player Y (follow) */
-#define CAM_AIM_OFFSET  6.0f    /* struct +0x8C default — target height in
-                                   player aim state 5 (TODO: player states) */
-#define CAM_TGT_CAP     0.8f    /* target chase rate cap, units/frame */
+ * SYSTEM" + the s65 walk-camera decode): idle eye ~33 u behind the
+ * player (the tether band [follow - slack, follow]) and 19 u above the
+ * player's ground Y; the cut-table target follow seeks player.y + 11 +
+ * cam[0x8C] — +17 idle (matching the live state-01 measurement), +8
+ * while moving. Chase caps: 2.0 u/frame x/z + 4.0 y for the target
+ * pre-step (func_001916C0), 4.0 for the eye solver chase (style 0). */
+#define CAM_DIST        33.0f   /* IDLE desired-eye distance stand-in (the
+                                   live-converged value; the engine idle tail
+                                   runs the same TETHER as the walk camera —
+                                   the port idle keeps the yaw-anchored
+                                   shape, PORT_DIFFERENCES D13) */
+#define CAM_EYE_HEIGHT  19.0f   /* IDLE eye height above player ground Y =
+                                   11 + cam[0x5C] + cam[0x8C] (2 + 6 default;
+                                   the -31.2 areas use 6 + 2 — same sum.
+                                   func_00191390 + func_00230000, s65) */
+#define CAM_TGT_HEIGHT  17.0f   /* IDLE target height = player.y + 11 +
+                                   cam[0x8C](6) — func_001916C0 idle case
+                                   (cut table, decoded s65). The old 15.0
+                                   belonged to the SMOOTH-table inline
+                                   follow, which gameplay does not use; the
+                                   live capture measured +17. */
+#define CAM_AIM_OFFSET  6.0f    /* struct +0x8C idle/default table value
+                                   (func_00191390; walk states get -3.0) */
+#define CAM_TGT_CAP_XZ  2.0f    /* desired-target x/z chase cap, u/frame
+                                   (func_001916C0 walk+idle cases; the old
+                                   0.8 was the smooth-table inline's cap) */
+#define CAM_TGT_CAP_Y   4.0f    /* desired-target y seek cap (func_0018C4B0
+                                   calls inside func_001916C0) */
 #define CAM_EYE_CAP     4.0f    /* eye chase rate cap, units/frame */
 #define CAM_NEAR_PUSH   4.0f    /* commit: view position = eye + 4*fwd */
+
+/* WALK-STATE CAMERA — DECODED 2026-06-11 s65 (func_00230000 router +
+ * func_0022FCA0 eye tether + func_00191390 per-state height table +
+ * func_00191D40 eye-height seek + func_001916C0 target follow). While
+ * the player MOVES (states 2/4/0xF) the camera has NO heading policy
+ * at all — the desired eye hangs on a TOW-ROPE behind the target:
+ *
+ *  - dist = D_00810690 (horiz desired eye<->target, last commit),
+ *    follow = fabs(cam+0x0C) (per-record camera distance, -46.8
+ *    default), excess = dist - follow.
+ *  - excess > 0 (player walking AWAY): the eye slides toward the
+ *    target x/z by the FULL excess, instantly — the eye trails the
+ *    player's PATH at exactly `follow`, so the camera settles behind
+ *    the movement heading asymptotically (the visible heading LAG:
+ *    arc the player and the bearing swings only as the path drags it).
+ *  - -slack <= excess <= 0: NOTHING moves (the dead band) — walking
+ *    toward the camera consumes up to 20 u before any response.
+ *    slack = 20.0 when cam+0x64 == -46.8, else 10.0.
+ *  - excess < -slack (still closing): actual horiz dist (D_0081069C)
+ *    > 8.6 -> the eye backs straight out by (excess + slack), pinning
+ *    dist at follow - slack; <= 8.6 (cramped, wall behind) -> SWING:
+ *    latch a direction by sign(cam+0x90 wall heading - eye->target
+ *    yaw), then rotate the bearing 0.3 deg per unit of over-closure
+ *    per frame AWAY from the wall and re-place the eye outward along
+ *    it (the spad 3A28 bearing accumulates across latched frames).
+ *  - heights (func_00191390 writes cam+0x8C/+0x5C per state, every
+ *    frame): walk 0x8C = -3, 0x5C = 1 -> the eye seeks player.y + 9
+ *    and the target player.y + 8 — the camera RIDES LOW and nearly
+ *    level while moving (idle: 19/17). 0x5C = 1.0 also flips the
+ *    solver floor pad 17 -> 6 and head-clear 17.5 -> 13 (the s61
+ *    "var_5c writer unidentified" flag is CLOSED: the writer is this
+ *    per-state table) — which is what makes the low ride reachable.
+ *  - eye-Y seek (func_00191D40): proportional 1/10 capped 4.0/frame
+ *    (1/5 snap inside 1.0 u), desired clamped to the y_hi bound;
+ *    RISE vetoed by solver bit 0x80, DESCENT by bit 0x40 (and the
+ *    untranslated pre-pass bit +0x5A & 1). Not modeled (no native
+ *    reach, flagged): cam+0x98 (+23 when the pre-pass sets +0x6D),
+ *    the area-0x10/0x03 clamps, the AREA11 region-1 height swap
+ *    (func_00194D10 idx 1 -> constant 6.0 replaces 0x8C, i.e. the
+ *    walking eye rides 9 u HIGHER inside that rect — this corrects
+ *    the old s50 "+12 AIM target-height tweak" guess), and the
+ *    area-0 fall cam (player.y < -83: eye (120, -1590), target y ->
+ *    -67.5, style-5 solve, manual 4.0 chase).
+ *  - tail (every walk frame): cam+0x44 = atan2 of the ACTUAL pair —
+ *    the camera heading is an OUTPUT of the tether, never an input.
+ *  - L1 arm: func_00230000 runs it for states 2/0xF only (not 4);
+ *    the port arms it for every gait (state<->gait map unpinned). */
+/* The follow distance is fabs(g.cam_dist_param) — the engine's
+ * cam+0x0C (per-record, scene.txt `camdist`; default -46.8, office
+ * records -31.2 [s66 live]); slack keys on the -46.8 default (the
+ * engine tests cam+0x64 — the port folds record + area param into the
+ * one scene knob). */
+#define CAM_TETHER_SLACK  20.0f  /* dead band at the -46.8 default
+                                    (engine: 20 when cam+0x64 == -46.8,
+                                    else 10) */
+#define CAM_TETHER_NEAR   8.6f   /* actual-dist gate (0x4109999A) below
+                                    which the back-out becomes the SWING */
+#define CAM_SWING_DPU     0.3f   /* swing rate, deg per unit of over-
+                                    closure per frame (0x3E99999A) */
+#define CAM_WALK_AIM_H   -3.0f   /* +0x8C walk-state table value */
+#define CAM_WALK_VAR5C    1.0f   /* +0x5C walk-state table value */
+#define CAM_IDLE_VAR5C    2.0f   /* +0x5C idle/default table value */
+#define CAM_BASE_H       11.0f   /* the 11.0 both heights build on:
+                                    eye = 11 + 0x5C + 0x8C, tgt = 11 + 0x8C */
 
 /* CAMERA FIDELITY (2026-06-11, observed-behavior notes against the
  * real game — the original gives the player NO free camera control;
@@ -878,18 +958,28 @@ typedef struct {
                              1, else eye + 200); init 1000 */
     uint16_t hit_attr;    /* +0x58: primary-hit surface-class halfword
                              (kept across clear frames, engine-true) */
-    float    var_5c;      /* +0x5C: solver height variant, init 2.0 (the
-                             1.0 variant: head-clear 13 / floor pad 6 —
-                             writer unidentified, never seen live) */
+    float    var_5c;      /* +0x5C: solver height variant, init 2.0.
+                             WRITER FOUND (s65): the pre-step
+                             func_00191390 per-state table — walk
+                             states write 1.0 (head-clear 13 / floor
+                             pad 6: the low walk ride), idle 2.0
+                             (-31.2 areas: 6.0 — same pad rule) */
     float    wall_yaw;    /* +0x90: published heading of the blocking
                              surface normal, atan2(n.x, n.z) wrapped */
+    uint8_t  swing;       /* +0x03: walk-tether swing latch (0 = none,
+                             1/2 = direction picked vs wall_yaw —
+                             func_0022FCA0, decoded s65) */
+    float    swing_yaw;   /* spad 0x70003A28: the swing bearing
+                             accumulator (persists while latched) */
     float    horiz_dist;  /* D_00810690: desired horiz eye<->target
                              dist, written by the commit (one frame
                              stale when the solver reads it — engine) */
-    float    aim_h;       /* +0x8C: target height offset above player Y
-                             (func_00191390's per-state table; default 6.0
-                             — kept for the generic follow; the aim camera
-                             proper is MODE 1 below) */
+    float    aim_h;       /* +0x8C: height offset above player Y, driven
+                             per frame by the pre-step table
+                             (camera_prestep_00191390, s65): idle 6.0,
+                             walk -3.0. Feeds the target height (11 +
+                             0x8C) and the walk eye base (11 + 0x5C +
+                             0x8C); the aim camera proper is MODE 1 */
     uint8_t  aim_phase;   /* MODE-1 sub-machine (+0x01 in mode 1):
                              0 = off, 1 = entry blend (func_00197740),
                              2 = steady aim (func_00197870) */
@@ -1109,6 +1199,11 @@ static struct {
     float       spawn_yaw;       /* facing about +Y, radians; 0 = +Z */
     char        coll_path[288];  /* "collision <file.emcl>" in scene_dir */
     char        bgm_file[256];   /* "bgm <file.wav>" in scene_dir; "" = none */
+    float       cam_dist_param;  /* "camdist <f>" — the engine camera
+                                  * distance cam+0x0C/+0x64 (signed;
+                                  * default -46.8, office records -31.2).
+                                  * Walk tether + door re-seat consume
+                                  * fabs(); slack keys on == -46.8. */
 
     /* LIGHTING — the scene's CHARACTER LIGHT RIG (scene.txt light*
      * lines, export_level.py --lightrig: the decoded per-room rig
@@ -1309,6 +1404,7 @@ static void scene_manifest_load(void)
     snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", g.scene_dir,
              COLL_DEFAULT);
     g.bgm_file[0]  = '\0';
+    g.cam_dist_param = -46.8f;  /* cam+0x0C/+0x64 default; `camdist` line */
     g.n_camregion  = 0;     /* camera regions are per-scene data */
     g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
     g.n_lamp       = 0;
@@ -1334,6 +1430,16 @@ static void scene_manifest_load(void)
                      name);
         } else if (sscanf(line, "bgm %255s", name) == 1) {
             snprintf(g.bgm_file, sizeof g.bgm_file, "%s", name);
+        } else if (sscanf(line, "camdist %f", &x) == 1) {
+            /* The engine's camera-distance param (cam+0x0C, signed —
+             * spawn records carry it at +0x18; live: -46.8 default,
+             * -31.2 in the office records, s66). Drives the s67 walk
+             * tether follow distance, its slack rule (the engine keys
+             * 20-vs-10 on cam+0x64 == -46.8; the port folds record and
+             * area param into this one knob) and the door re-seat
+             * distance. The exporter does not emit it yet — absent
+             * line = the -46.8 default. */
+            g.cam_dist_param = x;
         } else if (sscanf(line, "camregion %f %f %f %f %f %f %f %f",
                           &x, &z, &y, &yaw, &r, &gx, &gy, &gz) == 8) {
             /* Fixed-camera trigger volume (x0 z0 x1 z1 ygate ex ey ez) —
@@ -2936,15 +3042,127 @@ static float cam_chase_v(float dst, float src, float max)
 }
 
 static float cam_wrap_pi(float a);   /* defined with the solver kit */
+static void  cam_norm3(float v[3]);
 
-/* Desired eye from the struct yaw: CAM_DIST behind the player along the
- * yaw heading, CAM_EYE_HEIGHT above the player's ground Y (the live
- * values: ~33 u back, ~19 u up). */
+/* IDLE desired eye from the struct yaw: CAM_DIST behind the player
+ * along the yaw heading, CAM_EYE_HEIGHT above the player's ground Y
+ * (the live values: ~33 u back, ~19 u up). Port stand-in shape — the
+ * engine idle tail (func_001921D0 .L00192DDC) runs the same tether as
+ * the walk camera; the port's idle keeps the yaw-anchored placement so
+ * the orbit/L1 yaw state stays authoritative (PORT_DIFFERENCES D13). */
 static void camera_desired_eye(EmCamera *cam)
 {
     cam->eye_des[0] = g.pos[0] - sinf(cam->yaw) * CAM_DIST;
     cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
     cam->eye_des[2] = g.pos[2] - cosf(cam->yaw) * CAM_DIST;
+}
+
+/* func_00191390 — the camera pre-step (DECODED s65): zeroes the
+ * per-frame extras (+0x94/+0x98) and writes the PER-STATE height
+ * params +0x8C/+0x5C every frame. Natively only two rows exist: the
+ * locomotion states (2/4/0xF: -3.0 / 1.0) and the idle/default row
+ * (6.0 / 2.0; the -31.2 areas use 2.0 / 6.0 — same sums, +0x64 not
+ * carried). The climb family (0/2.0) and state 0x13 (11.0/2.0) have
+ * no native states. +0x6D != 0 -> +0x98 = 23.0 is unfed (the +0x6D
+ * writer is the untranslated solver pre-pass func_0018D330). */
+static void camera_prestep_00191390(EmCamera *cam)
+{
+    if (g.gait != 0 || g.move_speed > 0.0f) {
+        cam->aim_h  = CAM_WALK_AIM_H;     /* +0x8C = -3.0 */
+        cam->var_5c = CAM_WALK_VAR5C;     /* +0x5C =  1.0 (floor pad 6,
+                                             head-clear 13 downstream) */
+    } else {
+        cam->aim_h  = CAM_AIM_OFFSET;     /* +0x8C = 6.0 */
+        cam->var_5c = CAM_IDLE_VAR5C;     /* +0x5C = 2.0 */
+    }
+}
+
+/* func_00191D40 — the walk camera's desired-EYE-HEIGHT seek (DECODED
+ * s65): want = base (+ cam+0x98, unfed) clamped to the y_hi bound;
+ * proportional |d|/10 capped at `rate` (4.0 from func_00230000), d/5
+ * snap inside 1.0 u. A RISE is vetoed by solver bit 0x80, a DESCENT
+ * by bit 0x40 (ceiling-/floor-clamped last solve) — the engine also
+ * vetoes descent on the pre-pass sight bit +0x5A & 1 (untranslated).
+ * Engine area specials omitted (no native reach): area 0x10 room 1
+ * subs 2/4/6 cap the eye at y_lo + 7.5 when y_lo > 100; area 3 room 1
+ * x < 356 caps at y_hi - 2 above 250. */
+static void cam_eye_y_seek_00191D40(EmCamera *cam, float want, float rate)
+{
+    if (want > cam->y_hi) want = cam->y_hi;
+    float d = want - cam->eye_des[1];
+    if (d > 0.0f) {
+        if (cam->hit & 0x80) return;
+    } else {
+        if (cam->hit & 0x40) return;
+    }
+    if (fabsf(d) <= 1.0f) {
+        cam->eye_des[1] += d / 5.0f;
+    } else {
+        float step = fabsf(d) / 10.0f;
+        if (step > rate) step = rate;
+        cam->eye_des[1] += d > 0.0f ? step : -step;
+    }
+}
+
+/* func_0022FCA0 — the walk camera's desired-eye x/z TETHER (DECODED
+ * s65 — the full policy in the constants block above). Consumes the
+ * commit's horiz_dist (D_00810690, one frame stale — engine) and the
+ * ACTUAL pair's horizontal distance (D_0081069C). */
+static void camera_walk_eye_0022FCA0(EmCamera *cam)
+{
+    float follow = fabsf(g.cam_dist_param);          /* fabs(cam+0x0C) */
+    float slack  = (g.cam_dist_param == -46.8f) ? CAM_TETHER_SLACK
+                                                : 10.0f; /* cam+0x64 rule */
+    float excess = cam->horiz_dist - follow;
+
+    if (excess > 0.0f) {
+        /* too far: drag the eye toward the target by the FULL excess
+         * (the tow-rope — the eye follows the player's path). */
+        float d[3] = { cam->tgt_des[0] - cam->eye_des[0], 0.0f,
+                       cam->tgt_des[2] - cam->eye_des[2] };
+        cam_norm3(d);
+        cam->eye_des[0] += d[0] * excess;
+        cam->eye_des[2] += d[2] * excess;
+        cam->swing = 0;                          /* cam+0x03 = 0 */
+        return;
+    }
+    if (excess >= -slack) {
+        cam->swing = 0;          /* dead band: nothing moves (engine
+                                  * .L0022FFE4) */
+        return;
+    }
+    /* over-closed past the slack */
+    {
+        float over = excess + slack;             /* < 0 (spad 3A24) */
+        float ax = cam->eye[0] - cam->tgt[0];    /* D_0081069C: the */
+        float az = cam->eye[2] - cam->tgt[2];    /* ACTUAL pair     */
+        if (ax * ax + az * az > CAM_TETHER_NEAR * CAM_TETHER_NEAR) {
+            /* back straight out to follow - slack (the engine leaves
+             * the swing latch untouched here — verbatim). */
+            float d[3] = { cam->tgt_des[0] - cam->eye_des[0], 0.0f,
+                           cam->tgt_des[2] - cam->eye_des[2] };
+            cam_norm3(d);
+            cam->eye_des[0] += d[0] * over;      /* over < 0 -> away */
+            cam->eye_des[2] += d[2] * over;
+            return;
+        }
+        /* cramped (actual eye within 8.6 u of the target): SWING.
+         * Latch the direction once, against the last blocking wall's
+         * published heading (cam+0x90 — zeroed at init, written by
+         * the follow solver); the bearing accumulates in swing_yaw
+         * (spad 0x70003A28) across latched frames. */
+        if (cam->swing == 0) {
+            cam->swing_yaw = atan2f(cam->tgt_des[0] - cam->eye_des[0],
+                                    cam->tgt_des[2] - cam->eye_des[2]);
+            cam->swing = (cam->wall_yaw - cam->swing_yaw > 0.0f) ? 1 : 2;
+        }
+        {
+            float step = EM_PI * (CAM_SWING_DPU * over) / 180.0f;
+            cam->swing_yaw += (cam->swing == 1) ? step : -step;
+            cam->eye_des[0] += sinf(cam->swing_yaw) * over;
+            cam->eye_des[2] += cosf(cam->swing_yaw) * over;
+        }
+    }
 }
 
 /* Shortest-arc yaw seek at `rate` rad/s. Returns 1 once aligned. */
@@ -3211,16 +3429,18 @@ static void camera_mode_dispatch(EmCamera *cam)
 
     }   /* !rg — free-camera orient inputs */
 
-    /* Mode 0 generic follow: desired target chases the player on x/z at
-     * <= 0.8 u/frame; y seeks player.y + 15.0. (The old armed-stance
-     * +0x8C target-height swap is RETIRED — the aim camera is the real
-     * MODE 1 above.) Settles to exactly player x/z when idle, matching
-     * the live capture. */
-    cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP);
-    cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP);
+    /* Mode 0 generic follow — the target side is func_001916C0
+     * (decoded s65, cut-table cases): desired target chases the player
+     * x/z at <= 2.0 u/frame and its height seeks player.y + 11 +
+     * cam[0x8C] at <= 4.0 — i.e. +17 idle, +8 while moving (the walk
+     * table writes 0x8C = -3). The idle case's extra 0.3 * shaped-
+     * excess dip term is not modeled (a <= 6 u target sag while
+     * over-close AND idle; the walking case has no such term). */
+    cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP_XZ);
+    cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP_XZ);
     cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
-                                  g.pos[1] + CAM_TGT_HEIGHT,
-                                  CAM_TGT_CAP);
+                                  g.pos[1] + CAM_BASE_H + cam->aim_h,
+                                  CAM_TGT_CAP_Y);
 
     /* AUTO-ORIENT ORBIT eye (func_00193D90): the desired eye circles
      * the target at the radius saved when the orbit armed. The L1
@@ -3231,6 +3451,7 @@ static void camera_mode_dispatch(EmCamera *cam)
         cam->eye_des[0] = cam->tgt_des[0] - sinf(cam->yaw) * cam->orbit_rad;
         cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
         cam->eye_des[2] = cam->tgt_des[2] - cosf(cam->yaw) * cam->orbit_rad;
+        cam->swing = 0;
     } else if (g.cam_region_on) {
         /* ROOM SPEC: pin the desired eye to the region's fixed eye (the
          * director writes cam+0x10/14/18 = the record spec; the target
@@ -3244,8 +3465,24 @@ static void camera_mode_dispatch(EmCamera *cam)
         cam->eye_des[1] = rg->eye[1];
         cam->eye_des[2] = rg->eye[2];
         cam->yaw = atan2f(g.pos[0] - rg->eye[0], g.pos[2] - rg->eye[2]);
+        cam->swing = 0;
+    } else if (g.gait != 0 || g.move_speed > 0.0f) {
+        /* WALK-STATE CAMERA (func_00230000 — the constants block
+         * above): the TOW-ROPE tether owns the eye x/z, the decoded
+         * seek owns the eye height, and the heading is an OUTPUT. */
+        camera_walk_eye_0022FCA0(cam);
+        cam_eye_y_seek_00191D40(cam,
+                                g.pos[1] + CAM_BASE_H + cam->var_5c
+                                         + cam->aim_h,
+                                CAM_EYE_CAP);
+        /* func_00230000 tail: cam+0x44 = atan2(actual eye -> actual
+         * target) — one frame stale here exactly like the engine's
+         * end-of-frame write feeding the next frame's consumers. */
+        cam->yaw = atan2f(cam->tgt[0] - cam->eye[0],
+                          cam->tgt[2] - cam->eye[2]);
     } else {
         camera_desired_eye(cam);
+        cam->swing = 0;
     }
 
     /* EM_CAMERA_TRACE=1 — region enter/leave transitions (debug). */
@@ -4403,19 +4640,23 @@ static void camera_door_cinematic(EmCamera *cam)
         g.doorcam     = 2;
         return;
     }
-    /* ROOM-BOUNDARY RE-SEAT (live-verified, the constants block): once
-     * the scripted walk-through carries the player past the doorway
-     * plane (the engine's room move — staging is DOORCAM_PLANE short
-     * of the doorway center), the chase re-seats behind the player's
-     * through-door pose and the NORMAL dispatch + solve own the camera
-     * again (live: the engine parked at +29 over the 21-u doorframe —
-     * the door wall behind the eye engages the solve; the decoded
-     * func_0018DD20 pulls in at constant height, so the live +29 is
-     * the walk-state camera handler func_00230000 [unread] + solve,
-     * not a solver rise — NOT func_00191000: s64 decoded that as the
-     * L1 re-orient arm). Goto doors
-     * never cross the plane before the fade; their re-seat is the warp
-     * re-place (doorcam = 3 there, same shape). */
+    /* ROOM-BOUNDARY RE-SEAT — DECODED s65 (func_001B0460(1) ->
+     * func_001B0080(cam, 2.0), the room-entry camera re-init's
+     * unflagged-record arm, called on EVERY room entry): desired
+     * TARGET = the player's ground position + 17 (the idle target
+     * height), desired EYE = target + rotY(through-door yaw) *
+     * (0, 0, cam+0x0C) + 2 up — i.e. fabs(cam+0x0C) BEHIND the
+     * through-door pose at player.y + 19 — both HARD-COPIED to the
+     * actuals. Then the NORMAL dispatch + solve own the camera: the
+     * eye lands inside/behind the door wall, the solver pulls in at
+     * kept height and the floor-bound probe landing on the doorframe
+     * lintel raises it — the live park at (104, 29, -250.4) over the
+     * 21-u frame is bounds + walk handler, fully attributed (the s56
+     * "+29 from func_00191000" guess stays retracted). The engine
+     * reads the PER-RECORD distance (office records: -31.2); the
+     * port carries only the default. Goto doors never cross the
+     * plane before the fade; their re-seat is the warp re-place
+     * (doorcam = 3 there, same shape). */
     {
         float dx = g.pos[0] - g.doorcut_pos[0];
         float dz = g.pos[2] - g.doorcut_pos[2];
@@ -4424,10 +4665,15 @@ static void camera_door_cinematic(EmCamera *cam)
             g.doorcam     = 3;
             cam->yaw      = g.doorcut_yaw;
             cam->tgt_soft = 0;
+            cam->swing    = 0;
             cam->tgt_des[0] = g.pos[0];
             cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
             cam->tgt_des[2] = g.pos[2];
-            camera_desired_eye(cam);
+            cam->eye_des[0] = cam->tgt_des[0]
+                            - sinf(g.doorcut_yaw) * fabsf(g.cam_dist_param);
+            cam->eye_des[1] = cam->tgt_des[1] + 2.0f;   /* player.y+19 */
+            cam->eye_des[2] = cam->tgt_des[2]
+                            - cosf(g.doorcut_yaw) * fabsf(g.cam_dist_param);
             memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
             memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
             return;
@@ -4478,7 +4724,9 @@ static void camera_update(void)
         cam->y_hi       = 1000.0f;     /* +0x54 */
         cam->hit_attr   = 0;
         cam->var_5c     = 2.0f;        /* +0x5C init constant */
-        cam->wall_yaw   = 0.0f;
+        cam->wall_yaw   = 0.0f;        /* +0x90 zeroed (func_0018B9C0) */
+        cam->swing      = 0;           /* +0x03 walk-tether latch */
+        cam->swing_yaw  = 0.0f;
         cam->horiz_dist = CAM_DIST;    /* D_00810690 pre-first-commit */
         cam->zoom      = ENGINE_CAM_ZOOM_S;  /* ctx+0x2468 default 480
                                               * (func_001D25F0; scope =
@@ -4532,7 +4780,7 @@ static void camera_update(void)
                 memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
             }
             if (!em_door_movement_locked()) g.doorcam = 0;
-            /* func_00191390 leaf pre-step — no native work yet. */
+            camera_prestep_00191390(cam);  /* per-state height params */
             camera_mode_dispatch(cam);   /* func_0018BC20 */
             camera_solve(cam);           /* func_0018D7B0, style 0 */
         }
@@ -5011,20 +5259,21 @@ static void frame_close_out(void)
  * 0.3 -> 0.8 over 8 frames = 4.65 u, then 0.8/frame). The office
  * collision world has a wall n-gon at z = -170 (grid poly, plane
  * n = (0,0,-1), d = 170 — 14 u ahead of the spawn), so with collision
- * loaded the RADIAL WALL PROBES must rest the player at the engine's
- * 4.5-unit standoff: z = -174.5. The right leg then slides free along
- * that wall for 30 * 0.8 = 24 u (the tier persists across the
- * direction change — no re-ramp; motion parallel to the plane; only
- * wall-facing probes push, along their own direction, so no lateral
- * drift):
- *   collision world:  (83.400, 0.000, -174.500), yaw -pi/2
- *   bbox fallback:    (83.400, 0.000, -137.750), yaw -pi/2  (no probes,
- *                     no wall — 4.65 + 52*0.8 = 46.25 u of free motion)
+ * loaded the RADIAL WALL PROBES rest the player near the engine's
+ * 4.5-unit standoff. The strafe leg then CURVES: under the s65
+ * WALK-STATE CAMERA the heading (cam+0x44) is an OUTPUT of the eye
+ * tether — strafing rotates the camera bearing as the dragged eye
+ * trails the path, and camera-relative input curves with it (the
+ * engine's emergent chase-camera spiral; the pre-s65 expectations
+ * assumed the old fixed-bearing port camera and a straight slide).
+ * Deterministic endpoints (no RNG in the camera or mover):
+ *   collision world:  (84.334, 0.000, -177.513), yaw -1.9977
+ *   bbox fallback:    (83.891, 0.000, -141.560), yaw -1.9586
+ *                     (no probes, no wall — free motion, larger arc)
  * Those built-in expectations (and the 60/30-frame legs) are the OFFICE
  * scene's; for other scenes (manifest spawns) EM_MOVE_LEGS=fwd,strafe
  * resizes the two legs to reach that scene's wall and EM_MOVE_EXPECT=
- * x,y,z overrides the expected final position (the yaw expectation,
- * -pi/2, is scene-independent). */
+ * x,y,z + EM_MOVE_YAW=<rad> override the expected final placement. */
 static void move_test_inject(int key, int down)
 {
     EmEvent ev;
@@ -5045,18 +5294,24 @@ static void move_test_script(void)
     } else if (n == g.move_legs[0] + g.move_legs[1]) {
         move_test_inject('d', 0);
     } else if (n == g.move_legs[0] + g.move_legs[1] + 1) {
-        float ex = 83.4f, ey = 0.0f;
-        float ez = g.coll.poly_count ? -174.5f : -137.75f;
+        float ex   = g.coll.poly_count ?   84.334f :   83.891f;
+        float ey   = 0.0f;
+        float ez   = g.coll.poly_count ? -177.513f : -141.560f;
+        float eyaw = g.coll.poly_count ?  -1.9977f :  -1.9586f;
         if (g.move_expect_set) {
             ex = g.move_expect[0];
             ey = g.move_expect[1];
             ez = g.move_expect[2];
         }
+        {
+            const char *my = getenv("EM_MOVE_YAW");
+            if (my) eyaw = (float)atof(my);
+        }
         const float tol  = 0.05f;  /* +- slide/fp drift allowance */
         int ok = fabsf(g.pos[0] - ex)           <= tol &&
                  fabsf(g.pos[1] - ey)           <= tol &&
                  fabsf(g.pos[2] - ez)           <= tol &&
-                 fabsf(g.yaw + EM_PI * 0.5f)    <= 0.01f;
+                 fabsf(g.yaw - eyaw)            <= 0.01f;
         printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad — "
                "expected (%.3f, %.3f, %.3f)%s: %s\n",
                g.pos[0], g.pos[1], g.pos[2], g.yaw, ex, ey, ez,
