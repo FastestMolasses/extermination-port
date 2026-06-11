@@ -131,6 +131,14 @@ struct EmGfx {
      * All-zero rows are the OFF state: the shader's spot term is gated
      * on row-0 w > 0, keeping no-spot frames bit-identical. */
     float                        spot[16];
+    /* Per-draw character light rig (em_gfx_char_rig — em_gfx.h). Seven
+     * float4 rows bound as fragment buffer 3 of every skinned draw:
+     *   [0..2] = dir_i.xyz (world), w unused
+     *   [3..5] = col_i.rgb (0..128 scale), w unused
+     *   [6]    = amb.rgb (0..128), w = enable (0 = off)
+     * All-zero = OFF: the shader's character path runs the EXACT
+     * historical stand-in arithmetic (rig-less frames byte-identical). */
+    float                        rig[28];
 };
 
 struct EmGfxMesh {
@@ -334,7 +342,8 @@ static NSString *const kSkinShaderSrc =
 "                       sampler smp [[sampler(0)]],\n"
 "                       constant uint &mode [[buffer(0)]],\n"
 "                       constant float4 &tint [[buffer(1)]],\n"
-"                       constant float4 *spot [[buffer(2)]]) {\n"
+"                       constant float4 *spot [[buffer(2)]],\n"
+"                       constant float4 *rig  [[buffer(3)]]) {\n"
 "    float4 base = float4(0.55, 0.62, 0.70, 1.0);\n"
 "    if (in.slice != 0xFFFFFFFFu) {\n"
 "        base = texs.sample(smp, in.uv, in.slice);\n"
@@ -359,11 +368,28 @@ static NSString *const kSkinShaderSrc =
 "            lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
 "        return float4(base.rgb * lit, base.a) * tint;\n"
 "    }\n"
-"    /* directional character path: NO spot term for a REAL cone\n"
-"     * (level-only — the player/gun must not catch their own\n"
-"     * flashlight); only the degenerate camera-fill signature\n"
-"     * (cos_inner <= -1) lights characters (the menu turntable). */\n"
+"    /* CHARACTER path. With a rig bound (em_gfx_char_rig — the\n"
+"     * engine's per-actor VU1 light matrix, decomp FINDINGS \"PER-ROOM\n"
+"     * LIGHT RIGS DECODED\"): the kernel-exact composition\n"
+"     *   rgb = min(amb + sum max(dot(dir_i, N), 0)*col_i, 255)/128\n"
+"     * (maxbcx clamp at 0, minibcx clamp at bias+255, GS modulate\n"
+"     * /128 — VU1 0x23C780). The flashlight spot never lights this\n"
+"     * path (level-only deviation), and the rig REPLACES the old\n"
+"     * degenerate camera-fill exception (the menu turntable now\n"
+"     * rides the real room rig). */\n"
 "    float3 N = normalize(in.nrm);\n"
+"    if (rig[6].w > 0.0) {\n"
+"        float3 acc = rig[6].xyz;\n"
+"        acc += max(dot(N, rig[0].xyz), 0.0) * rig[3].xyz;\n"
+"        acc += max(dot(N, rig[1].xyz), 0.0) * rig[4].xyz;\n"
+"        acc += max(dot(N, rig[2].xyz), 0.0) * rig[5].xyz;\n"
+"        float3 lit = min(acc, 255.0) * (1.0 / 128.0);\n"
+"        return float4(base.rgb * lit, base.a) * tint;\n"
+"    }\n"
+"    /* rig-less fallback: the historical directional stand-in (kept\n"
+"     * EXACTLY — rig-off frames stay byte-identical); the degenerate\n"
+"     * camera-fill spot exception (cos_inner <= -1) still applies\n"
+"     * here for any rig-less caller. */\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
 "    float3 lit = float3(0.30 + 0.70 * d);\n"
@@ -542,6 +568,7 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
     g->overlayH    = EM_GFX_OVERLAY_H;
     memset(g->spot, 0, sizeof(g->spot)); /* flashlight spot is per-frame */
+    memset(g->rig,  0, sizeof(g->rig));  /* character rig is per-frame   */
 
     /* keep the swapchain sized to the backing store */
     NSSize sz = g->view.bounds.size;
@@ -782,6 +809,7 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentBytes:rgba length:16 atIndex:1];
     [g->enc setFragmentBytes:g->spot length:sizeof(g->spot) atIndex:2];
+    [g->enc setFragmentBytes:g->rig length:sizeof(g->rig) atIndex:3];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
     if (m->opaque_count)
@@ -1209,6 +1237,26 @@ void em_gfx_spot_light(EmGfx *g, const float pos[3], const float dir[3],
     g->spot[10] = 0.0f; g->spot[11] = 0.0f;
     g->spot[12] = rgb[0]; g->spot[13] = rgb[1]; g->spot[14] = rgb[2];
     g->spot[15] = 0.0f;
+}
+
+/* Set the character light rig consumed by subsequent skinned draws
+ * (em_gfx.h "Character light rig" — the engine's per-actor VU1 light
+ * matrix). Stored as the seven fragment-buffer rows the skinned shader
+ * consumes; NULL (or begin_frame) zeroes the enable so the character
+ * path falls back to the historical stand-in. The rows bind per draw —
+ * em_game sets a fresh rig before each actor draw of the close-out
+ * flush, exactly like the engine rebuilding the matrix per actor. */
+void em_gfx_char_rig(EmGfx *g, const EmGfxCharRig *rig)
+{
+    if (!g) return;
+    if (!rig) {
+        memset(g->rig, 0, sizeof(g->rig));
+        return;
+    }
+    memcpy(&g->rig[0],  rig->dir, sizeof(rig->dir));
+    memcpy(&g->rig[12], rig->col, sizeof(rig->col));
+    memcpy(&g->rig[24], rig->amb, sizeof(rig->amb));
+    g->rig[27] = 1.0f;                               /* enable */
 }
 
 static void beam_norm3(float v[3])

@@ -401,6 +401,46 @@ void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
                        const float rgb[3], float range,
                        float cos_inner, float cos_outer);
 
+/* --- Character light rig (the per-actor VU1 light matrix) -------------- */
+
+/* The native translation of the engine's per-actor lighting model
+ * (decomp FINDINGS "PER-ROOM LIGHT RIGS DECODED", 2026-06-11): the
+ * skinning kernel (VU1 0x23C780) lights every CHARACTER vertex as
+ *
+ *   I_i  = max(dot(dir_i, N), 0)            (3 light slots)
+ *   rgb  = min(amb + sum I_i * col_i, 255)  (col/amb on the 0..128
+ *   shade = tex * rgb / 128                  GS-modulate scale)
+ *
+ * from the 4-qw color matrix at VU1 dmem 0x3F5 + the direction rows
+ * folded into each node's normal matrix (func_001D89D0 builder: room
+ * rig D_00251C50 + the camera fill in slot 0 + the dynamic point-light
+ * fold). The CALLER composes the rig per draw (em_game's LIGHTING
+ * hunks own the room-rig lookup, the camera-fill rotation and the
+ * lamp fold — the engine does all three on the EE/VU0 too); this
+ * struct is the composed, world-space result.
+ *
+ * dir rows are world-space (not necessarily unit — the engine's slot-0
+ * fold normalizes, slots 1/2 come unit from the rig table); col/amb on
+ * the engine 0..128 scale (128 = modulate identity; values above 128
+ * over-brighten toward the 255 clamp, exactly the GS headroom). */
+typedef struct {
+    float dir[3][4];   /* light directions, slots 0..2 (w unused) */
+    float col[3][4];   /* light colors, 0..128 scale (w unused)   */
+    float amb[4];      /* ambient row, 0..128 scale (w unused)    */
+} EmGfxCharRig;
+
+/* Set the rig consumed by SUBSEQUENT skinned draws' character path
+ * (mesh without EM_GFX_MESH_VCOLOR; the baked-vertex-color LEVEL path
+ * and the glow pass never take it — engine truth: level geometry is
+ * never dynamically lit). NULL disables it again: the character path
+ * falls back to the historical directional stand-in (0.30 + 0.70*N.L,
+ * invented light), keeping rig-less frames byte-identical to pre-rig
+ * builds. Reset to NULL at em_gfx_begin_frame. While a rig is active
+ * the stand-in AND the spot term's degenerate camera-fill exception
+ * are replaced by the rig math (the flashlight spot still applies to
+ * the LEVEL path — that deviation is level-only by design). */
+void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig);
+
 /* --- last skinned palette (the published bone matrices) ---------------- */
 
 /* The engine PUBLISHES bone world matrices for equipment consumers: the

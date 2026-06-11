@@ -404,6 +404,125 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define STICK_DEADZONE  0.25f
 #define EM_PI           3.14159265f
 
+/* PLAYER DAMAGE & DEATH (2026-06-11 damage-pipeline decode — the
+ * engine's per-frame player damage processor func_0021C440, called at
+ * the head of player states 1 and 2; the apply helpers func_0021C350
+ * (health) / func_0021C270 (infection); the state-2 sub handlers
+ * func_0021D800 (flinch), func_0021E240 (death), func_0021E830
+ * (infected death); the terminal func_0021D2E0; the passive ticks
+ * func_0015D100/func_0015D000; the kill-plane state-6 handler
+ * func_0015D460).
+ *
+ * Engine model (player actor 0x008102B0):
+ *   +0x224  pending HEALTH damage (float) — producers write it
+ *           directly (leech latch 5.0 / leech lunge 15.0; s22b's
+ *           "drain magnitude D_008104D4" IS this field); func_0021C350
+ *           subtracts it from health +0x220, latches the low-health
+ *           flag (+0x235 bit 0) at <= 35, floors at 0 with the event
+ *           byte +0x00 = 2 (dying).
+ *   +0x22C  pending INFECTION damage (float) — the breather-pad
+ *           event-3 write (s33: pad sets +0x22C = 5.0); func_0021C270
+ *           ADDS it to infection +0x228. At 100: infection clamps,
+ *           health clamps to 60 and the display max swaps to 60
+ *           (flag 0x8104E4 == player +0x234 — closes C14), the
+ *           INFECTED latch +0x234 = 1 (with D_00810707/D_008106F1),
+ *           sound 0x149 vol 300. This is the "Dennis Infected"
+ *           consequence: NOT instant death — a reduced 60-HP cap plus
+ *           a passive drain (func_0015D100: while +0x234 != 0, health
+ *           -= 2.0 every 240 frames with effect 0x80000063; reaching
+ *           0 sets event 2 with type 0x63 -> the INFECTED death).
+ *   +0x0F   damage TYPE byte (D_008102BF) — typed/latch reactions
+ *           1..0xB each pick their own state-2 sub + the marker anim
+ *           ids 0x3B/0x3C/0x3E..0x40; only the GENERIC tail (type 0)
+ *           is translated here — no typed producer exists natively
+ *           yet (untranslated, flagged).
+ *   +0x20E  post-hit invulnerability countdown — armed at flinch END
+ *           (0x3C = 60 frames; 0x5A = 90 after a latch hit); the
+ *           event byte returns to 1 (vulnerable) only at 0, and every
+ *           producer requires event == 1, so the player is immune
+ *           from hit-reaction start until the window expires.
+ *
+ * FLINCH (state 2 sub 0, func_0021D800): voice 0x152 (0x153 when the
+ * hit was infection damage, +0x1F1 == 1) vol 300 + rumble; the REAL
+ * clip is requested directly (the +0x1F0 = 0x3E write is a category
+ * marker): RNG bit -> one of two flinch families, armed (+0x236)
+ * 0x56/0x57, unarmed 0x1E/0x1F vs 0x20/0x21 (func_0021D1A0 picks the
+ * side within the family — port: a second RNG bit, flagged),
+ * infected 0x1C7. Clip end -> i-frames armed, exit to state 1.
+ *
+ * DEATH (state 2 sub 1, func_0021E240; health <= 0 in the processor):
+ * phase 0 = rumble + voice 0x146 + body foley 0x151 (vol 300), clip
+ * 0x2A (armed variant 0x5C via +0x236), root-motion mover; cues at
+ * frames-remaining 80 (sound 0x156) and 16 (ground thud 0x14E,
+ * infected 0x14F, + heavy rumble); clip end -> func_0021D2E0:
+ * blood-pool effect 0x80000043 under the corpse (PORT: skipped, no
+ * decal system — flagged), event = 2, corpse hold 0x78 = 120 frames,
+ * then the standard fade-out func_001AEDE0(4,0). INFECTED death (sub
+ * 3, func_0021E830) plays clip 0x1C4 (300 f succumb) with gore
+ * effect 0x80000051 (PORT: skipped) and the same terminal.
+ *
+ * KILL PLANE (player spine, s15/s17): pos.y < -200 -> state 6
+ * (func_0015D460): sub 0 zeroes health + event, sub 1 starts the same
+ * fade-out, sub 2 parks. No anim, no sound.
+ *
+ * GAME OVER: after the death fade-out the engine sits at HOLD-BLACK
+ * with the player machine parked. The screen that follows is a
+ * DATA.DAT screen module (the func_001FEFE0/func_001FF030 launchers,
+ * screen id D_008106CF, busy gate D_00275BD8 — reached through the
+ * level-end byte D_008106CE in the game task's state 6); the only
+ * D_008106CE writer found is the pointer-called script op
+ * func_001B7700, and the dead-player -> screen trigger was NOT
+ * located statically (OPEN — candidates: an overlay-resident watcher
+ * or the func_0021B180/550/840 compositor). The port therefore
+ * presents a FLAGGED STAND-IN: hold black, "GAME OVER / PRESS START"
+ * through the real UI font (em_hud_game_over), and START reloads the
+ * active scene (the continue path re-enters the area like a scene
+ * switch) with the boot status restored.
+ *
+ * HEARTBEAT (func_0015D000): health <= 35 -> pad-rumble pulse
+ * (func_001B61C0(0, 0xD0, 4, 0)) every 121 frames, <= 10 -> stronger
+ * (0xE0) every 61. PURE RUMBLE — the port has no force-feedback
+ * backend; documented not-applicable (no sound is involved).
+ *
+ * HAZARD-ROOM passive drain (func_0015D100 first arm: room attr bit
+ * 4 + area flags & 0x60 + suit byte 0x810C7E == 0 -> health -= 1.0
+ * every 360 frames) is untranslated — the port has no room-attribute
+ * flags yet (flagged).
+ *
+ * The port's enemy producers post one mailbox int (em_enemy.h):
+ * 0x400A (type 0x4000 | 10) from the crawler lunge -> 10.0 pending
+ * HEALTH damage, and GEN_TRAP_HIT (5) from the open breather pad ->
+ * 5.0 pending INFECTION (the engine pad writes +0x22C = 5.0 — the
+ * old port consume burned it as health damage; corrected). */
+#define PD_CLIP_FLINCH_A0    0x1Eu /* unarmed flinch, family A side 0 */
+#define PD_CLIP_FLINCH_A1    0x1Fu /* unarmed flinch, family A side 1 */
+#define PD_CLIP_FLINCH_B0    0x20u /* unarmed flinch, family B side 0 */
+#define PD_CLIP_FLINCH_B1    0x21u /* unarmed flinch, family B side 1 */
+#define PD_CLIP_FLINCH_ARM_A 0x56u /* armed flinch, family A */
+#define PD_CLIP_FLINCH_ARM_B 0x57u /* armed flinch, family B */
+#define PD_CLIP_FLINCH_INF  0x1C7u /* infected flinch (90 f) */
+#define PD_CLIP_DEATH        0x2Au /* normal death (130 f fall) */
+#define PD_CLIP_DEATH_ARM    0x5Cu /* armed death variant (130 f) */
+#define PD_CLIP_DEATH_INF   0x1C4u /* infected death (300 f succumb) */
+#define PD_SFX_HURT         0x152u /* flinch grunt (health hit) */
+#define PD_SFX_HURT_INF     0x153u /* flinch grunt (infection hit) */
+#define PD_SFX_DEATH_VOICE  0x146u /* death voice (phase 0) */
+#define PD_SFX_DEATH_BODY   0x151u /* death body foley (phase 0) */
+#define PD_SFX_DEATH_FALL   0x156u /* mid-fall cue (T-80) */
+#define PD_SFX_DEATH_THUD   0x14Eu /* body hits the ground (T-16) */
+#define PD_SFX_DEATH_THUD_I 0x14Fu /* infected ground thud */
+#define PD_SFX_INFECTED     0x149u /* infection-hits-100 sting */
+#define PD_LOW_HEALTH       35.0f  /* +0x235 low-health latch (0x420C0000) */
+#define PD_INFECTED_MAX     60.0f  /* infected health cap (0x42700000) */
+#define PD_IFRAMES          60     /* +0x20E re-arm (0x3C; latch hits use
+                                    * 0x5A = 90 — no latch producer yet) */
+#define PD_CORPSE_HOLD      120    /* func_0021D2E0 wait (0x78) */
+#define PD_DRAIN_PERIOD     240    /* infected drain period (0xF0) */
+#define PD_DRAIN_AMOUNT     2.0f   /* infected drain per period */
+#define PD_KILL_PLANE     -200.0f  /* spine death check (Y < -200 -> st 6) */
+#define PD_DEATH_CUE_FALL   80     /* frames-remaining sound cue (0x156) */
+#define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
+
 /* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
  * SYSTEM", live-verified in save states 01/03): eye ~33 u behind the
  * player along the camera yaw and ~19 u above the player's ground Y;
@@ -683,6 +802,10 @@ typedef struct {
  * (func_001B1EA0 mode 0) + |player.y - y| < 4). Inside, the director
  * pins the desired EYE to the record's spec while the target keeps
  * tracking the player. */
+/* LIGHTING — max placed lamps per scene (the largest decoded list,
+ * func_001F6760 key 0x200 / office0, has 8 records). */
+#define LAMP_MAX 16
+
 #define CAM_REGION_MAX 8
 typedef struct {
     float x0, z0, x1, z1;  /* XZ rect (min/max) */
@@ -837,6 +960,29 @@ static struct {
     char        coll_path[288];  /* "collision <file.emcl>" in scene_dir */
     char        bgm_file[256];   /* "bgm <file.wav>" in scene_dir; "" = none */
 
+    /* LIGHTING — the scene's CHARACTER LIGHT RIG (scene.txt light*
+     * lines, export_level.py --lightrig: the decoded per-room rig
+     * table D_00251C50 record for this scene's (area<<8)|sub key plus
+     * the room's placed-lamp list). The engine selects the rig by the
+     * area/sub bytes D_00810700/701 (func_001D7B30) — a sub-state
+     * flip IS a scene switch in the port, so the rig is per-scene
+     * constant by the engine's own mechanism (no spatial room bounds
+     * exist or are invented; see char_rig_build). rig_on = 0 (no
+     * manifest lines) keeps the historical shader stand-in. */
+    int         rig_on;          /* lightamb+lightcam+2 lightdir parsed */
+    float       rig_amb[3];      /* ambient row, engine 0..128 scale */
+    float       rig_cam_dir[3];  /* slot 0 fill dir, CAMERA-SPACE */
+    float       rig_cam_col[3];  /* slot 0 fill color */
+    float       rig_cam_w;       /* slot 0 dir weight in the lamp fold */
+    float       rig_dir[2][3];   /* slots 1/2 world-space directions */
+    float       rig_col[2][3];   /* slots 1/2 colors */
+    int         n_lamp;          /* placed lamps (func_001F6760 list) */
+    struct {
+        float pos[3];            /* world position */
+        float col[3];            /* color, x128 registration scale */
+        float inten;             /* intensity (slot +0x2C, x128) */
+    }           lamp[LAMP_MAX];
+
     /* EM_CAPTURE / EM_MOVE_TEST / EM_DOOR_TEST debug instrumentation */
     const char *capture_path;
     int         capture_frame;
@@ -984,6 +1130,9 @@ static void scene_manifest_load(void)
              COLL_DEFAULT);
     g.bgm_file[0]  = '\0';
     g.n_camregion  = 0;     /* camera regions are per-scene data */
+    g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
+    g.n_lamp       = 0;
+    int n_ldir = 0, have_amb = 0, have_cam = 0;
 
     char mf[256 + 16];
     snprintf(mf, sizeof mf, "%s/scene.txt", g.scene_dir);
@@ -1023,6 +1172,51 @@ static void scene_manifest_load(void)
             } else {
                 printf("manifest: camregion limit (%d) hit, skipped: %s",
                        CAM_REGION_MAX, line);
+            }
+        } else if (sscanf(line, "lightamb %f %f %f", &x, &y, &z) == 3) {
+            /* LIGHTING — the scene rig's ambient row (engine 0..128
+             * scale; D_00251C50 record +0x68). */
+            g.rig_amb[0] = x; g.rig_amb[1] = y; g.rig_amb[2] = z;
+            have_amb = 1;
+        } else if (sscanf(line, "lightcam %f %f %f %f %f %f %f",
+                          &x, &y, &z, &gx, &gy, &gz, &gyaw) == 7) {
+            /* LIGHTING — rig slot 0, the CAMERA FILL: dir is
+             * CAMERA-SPACE (rotated into world per frame by
+             * char_rig_build), w = the lamp-fold dir weight. */
+            g.rig_cam_dir[0] = x;  g.rig_cam_dir[1] = y;
+            g.rig_cam_dir[2] = z;
+            g.rig_cam_col[0] = gx; g.rig_cam_col[1] = gy;
+            g.rig_cam_col[2] = gz;
+            g.rig_cam_w      = gyaw;
+            have_cam = 1;
+        } else if (sscanf(line, "lightdir %f %f %f %f %f %f",
+                          &x, &y, &z, &gx, &gy, &gz) == 6) {
+            /* LIGHTING — rig slots 1/2, the static world-space
+             * directionals (in manifest order). */
+            if (n_ldir < 2) {
+                g.rig_dir[n_ldir][0] = x;  g.rig_dir[n_ldir][1] = y;
+                g.rig_dir[n_ldir][2] = z;
+                g.rig_col[n_ldir][0] = gx; g.rig_col[n_ldir][1] = gy;
+                g.rig_col[n_ldir][2] = gz;
+                n_ldir++;
+            }
+        } else if (sscanf(line, "lamp %f %f %f %f %f %f %f",
+                          &x, &y, &z, &gx, &gy, &gz, &gyaw) == 7) {
+            /* LIGHTING — one placed lamp (the room's func_001F6760
+             * list; color/intensity carry the engine's x128
+             * registration scale). */
+            if (g.n_lamp < LAMP_MAX) {
+                g.lamp[g.n_lamp].pos[0] = x;
+                g.lamp[g.n_lamp].pos[1] = y;
+                g.lamp[g.n_lamp].pos[2] = z;
+                g.lamp[g.n_lamp].col[0] = gx;
+                g.lamp[g.n_lamp].col[1] = gy;
+                g.lamp[g.n_lamp].col[2] = gz;
+                g.lamp[g.n_lamp].inten  = gyaw;
+                g.n_lamp++;
+            } else {
+                printf("manifest: lamp limit (%d) hit, skipped: %s",
+                       LAMP_MAX, line);
             }
         } else if (sscanf(line, "door %255s %f %f %f %f %f", name,
                           &x, &y, &z, &yaw, &r) == 6) {
@@ -1103,6 +1297,16 @@ static void scene_manifest_load(void)
         }
     }
     fclose(f);
+    /* LIGHTING — the rig arms only complete (all four rig lines
+     * present); partial blocks fall back to the shader stand-in so a
+     * half-written manifest never half-lights the scene. */
+    g.rig_on = have_amb && have_cam && n_ldir >= 2;
+    if (g.rig_on)
+        printf("manifest: light rig — amb (%g %g %g), camera fill "
+               "(%g %g %g) w %g, %d lamp(s)\n",
+               g.rig_amb[0], g.rig_amb[1], g.rig_amb[2],
+               g.rig_cam_col[0], g.rig_cam_col[1], g.rig_cam_col[2],
+               g.rig_cam_w, g.n_lamp);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
            "collision %s%s%s, %d door(s), %d enem%s\n", mf,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
@@ -2973,6 +3177,11 @@ static EmGfxMesh *ui_backplate_ensure(EmGfx *gfx)
  * init: yaw = pi, ramp = 1.0, clip by displayed health), so EM_HUD_FORCE
  * captures sample a FIXED spin phase: yaw = pi + 0.01 * (frames since
  * the screen appeared), deterministic in headless runs. */
+/* LIGHTING — per-actor rig composer (defined with the close-out flush
+ * below; the menu turntable consumes it too). */
+static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
+                           int cam_fill);
+
 static void ui_scene_render(EmGfx *gfx)
 {
     if (!g.ui_prev) {                    /* open edge = engine state 0 */
@@ -3072,34 +3281,27 @@ static void ui_scene_render(EmGfx *gfx)
             em_gfx_draw_skinned_tinted(gfx, bp, vp_plate, kIdent, 1, kBlack);
     }
 
-    /* MENU-SCENE LIGHT (decoded 2026-06-11, this session — fixes the
-     * "no spinning character" report: the model WAS drawn, but at the
-     * shader stand-in's 0.30 ambient floor — black on the black
-     * backplate under the tile layers, invisible).
+    /* MENU-SCENE LIGHT — ENGINE-TRUE since the room-rig decode
+     * (2026-06-11 s57; the camera-anchored spot fill of the first
+     * fix is retired when the scene carries a rig).
      *
      * Engine truth (boot-ELF re-read): the menu player's draw class
      * 0xB (func_001CA5F0 -> func_001CB480) sets lighting-override
      * mode 2 — and func_001D89D0 special-cases only modes 1/3/4/5/6,
      * so mode 2 runs the NORMAL character light path: the CURRENT
-     * ROOM's rig from D_00251C50 (the office key 0x200 record:
-     * ambient (57,57,57)/128 = 0.445 + directional lights at
-     * (60,60,60) and (37,37,37)/128) with the slot-0 camera light
-     * ZEROED (the static menu actor never gets flag +0x2 bit 0x20 —
-     * func_001AFF10 zeroes it, func_0020CDC0 never sets it). Front
-     * intensity in the engine is therefore ~0.45..0.9 — a bright,
-     * readable turntable.
-     *
-     * Port stand-in (the shader's fixed rig can't take a room rig):
-     * the existing forward spot term doubles as a camera-anchored
-     * fill — at the rig eye, aimed down the view, cone edges below
-     * -1 so the cone factor is 1 everywhere; the character path's
-     * N.(-L) then IS a camera-facing wrap, matching the engine's
-     * "lit from the room, readable from the camera" result. rgb 0.62
-     * puts camera-facing normals at ~1.0 total and edge-on ones near
-     * the engine's ambient. Scoped to the PLAYER draw only (the spot
-     * rows bind per draw; rgb is zeroed right after, which keeps the
-     * shader arithmetic bit-exact for any later skinned draw). */
-    {
+     * ROOM's rig from D_00251C50 with the slot-0 camera light ZEROED
+     * (the static menu actor never gets flag +0x2 bit 0x20 —
+     * func_001AFF10 zeroes it, func_0020CDC0 never sets it). The
+     * port now feeds exactly that: char_rig_build with cam_fill = 0
+     * and no lamp fold (anchor NULL — the engine's menu actor sits
+     * far from any room lamp). Without a scene rig (rig-less
+     * manifest) the previous camera-fill spot stand-in still runs so
+     * the turntable never regresses to black-on-black. */
+    if (g.rig_on) {
+        EmGfxCharRig rig;
+        char_rig_build(&rig, NULL, 0);
+        em_gfx_char_rig(gfx, &rig);
+    } else {
         static const float kFill[3] = { 0.62f, 0.62f, 0.62f };
         em_gfx_spot_light(gfx, rig_eye, rig_fwd, kFill,
                           4000.0f, -2.0f, -3.0f);
@@ -3124,9 +3326,10 @@ static void ui_scene_render(EmGfx *gfx)
                                    g.model.bone_count, tint);
     }
     {
-        /* Headlight off for anything after the menu player (rgb 0 adds
-         * exactly 0.0 in the shader — later draws stay bit-exact). */
+        /* Lights off for anything after the menu player (rig cleared,
+         * spot rgb 0 adds exactly 0.0 — later draws stay bit-exact). */
         static const float kOff[3] = { 0.0f, 0.0f, 0.0f };
+        em_gfx_char_rig(gfx, NULL);
         em_gfx_spot_light(gfx, rig_eye, rig_fwd, kOff,
                           4000.0f, -2.0f, -3.0f);
     }
@@ -3142,6 +3345,104 @@ static void ui_scene_render(EmGfx *gfx)
         if (g.ui_ramp <= 1.0f) g.ui_ramp_dir = 0;
     }
     g.ui_t += 1.0;                       /* anim_advance_time(1.0) */
+}
+
+/* LIGHTING — compose one actor draw's CHARACTER LIGHT RIG: the native
+ * func_001D89D0 normal path (decomp FINDINGS "PER-ROOM LIGHT RIGS
+ * DECODED", 2026-06-11). Slots 1/2 = the scene rig's static world
+ * directionals (D_00251C50 record, manifest `lightdir`). Slot 0 = the
+ * CAMERA FILL when `cam_fill` is set — the actor flag +0x2 bit 0x20
+ * (func_001D8BF0): the PLAYER gets it once at init (func_001AF5C0)
+ * and the decoded NPC spawners set it on humans; NO decoded enemy/
+ * prop/door spawner sets it, so those draws run fill-less (flag clear
+ * -> slot 0 dir AND color zeroed, func_001D8340). The fill direction
+ * is the rig's CAMERA-SPACE vector rotated into world through the
+ * TRANSPOSED view rotation (func_001D8340 i==0: copy the lookat
+ * D_00810610, func_00102798 transpose, apply w=0) — the port rebuilds
+ * the ENGINE view basis from cam fwd/up (em_mat4_lookat_gs negates
+ * its rows for Metal NDC, so the basis is re-derived, not read back).
+ *
+ * Then the DYNAMIC POINT-LIGHT FOLD (func_001D8340 tail; gate
+ * func_001D8270 excludes a fixed type list + large models — the port
+ * applies the fold to every actor draw; `anchor` = the draw's bone-0
+ * world translation, the engine's node light-reference column +0xC0):
+ *   k    = 0.1 * I / max(|toLamp|^2, 1)    (UN-normalized offset —
+ *                                           func_00102738 is a dot)
+ *   dir0 = normalize(dir0*w0 + sum toLamp * 10k)
+ *   col0 = col0 + sum lampcol * 2k         (x128 registration scale)
+ * Omitted, documented: the engine's per-lamp +-1.8 deg random-walk
+ * flicker rotation (func_001D7C30 type-1 path, slot +0x40) and the
+ * story-flag lamp gates (func_001F68B0) — lamps register
+ * unconditionally. The actor RGB multiplier the engine folds into the
+ * color rows (func_001D8690, actor +0x80) rides the port's per-draw
+ * tint instead (same modulate, applied post-clamp).
+ *
+ * ROOM SELECTION: the engine keys the rig on (D_00810700<<8)|
+ * D_00810701 — the AREA/SUB-STATE bytes, not spatial bounds. A
+ * sub-state flip is a scene switch in the port (each exported scene
+ * is one (area, sub) pair), so the active scene's rig IS the engine's
+ * room selection; no player-position mapping exists or is invented. */
+static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
+                           int cam_fill)
+{
+    memset(out, 0, sizeof *out);
+    for (int s = 0; s < 2; s++) {
+        for (int c = 0; c < 3; c++) {
+            out->dir[s + 1][c] = g.rig_dir[s][c];
+            out->col[s + 1][c] = g.rig_col[s][c];
+        }
+    }
+    for (int c = 0; c < 3; c++)
+        out->amb[c] = g.rig_amb[c];
+
+    float d0[3] = { 0.0f, 0.0f, 0.0f };
+    float c0[3] = { 0.0f, 0.0f, 0.0f };
+    if (cam_fill) {
+        /* engine view basis (em_math.h em_mat4_lookat_gs, un-negated):
+         * sv = fwd x up_gs (view +x), uv = sv x fwd (view +y, world-
+         * down), fwd (view +z); world fill = basis * camera-space dir. */
+        const float *fw = g.cam.fwd, *up = g.cam.up;
+        float sv[3] = { fw[1] * up[2] - fw[2] * up[1],
+                        fw[2] * up[0] - fw[0] * up[2],
+                        fw[0] * up[1] - fw[1] * up[0] };
+        float sl = sqrtf(sv[0] * sv[0] + sv[1] * sv[1] + sv[2] * sv[2]);
+        if (sl > 1e-6f) { sv[0] /= sl; sv[1] /= sl; sv[2] /= sl; }
+        float uv[3] = { sv[1] * fw[2] - sv[2] * fw[1],
+                        sv[2] * fw[0] - sv[0] * fw[2],
+                        sv[0] * fw[1] - sv[1] * fw[0] };
+        for (int c = 0; c < 3; c++) {
+            d0[c] = sv[c] * g.rig_cam_dir[0] + uv[c] * g.rig_cam_dir[1]
+                  + fw[c] * g.rig_cam_dir[2];
+            c0[c] = g.rig_cam_col[c];
+        }
+    }
+    if (anchor && g.n_lamp) {
+        float sd[3] = { d0[0] * g.rig_cam_w, d0[1] * g.rig_cam_w,
+                        d0[2] * g.rig_cam_w };
+        float sc[3] = { c0[0], c0[1], c0[2] };
+        for (int i = 0; i < g.n_lamp; i++) {
+            float toL[3] = { g.lamp[i].pos[0] - anchor[0],
+                             g.lamp[i].pos[1] - anchor[1],
+                             g.lamp[i].pos[2] - anchor[2] };
+            float d2 = toL[0] * toL[0] + toL[1] * toL[1]
+                     + toL[2] * toL[2];
+            if (d2 < 1.0f) d2 = 1.0f;
+            float k = 0.1f * g.lamp[i].inten / d2;
+            for (int c = 0; c < 3; c++) {
+                sd[c] += toL[c] * (10.0f * k);
+                sc[c] += g.lamp[i].col[c] * (2.0f * k);
+            }
+        }
+        float sl = sqrtf(sd[0] * sd[0] + sd[1] * sd[1] + sd[2] * sd[2]);
+        if (sl > 1e-6f) {
+            d0[0] = sd[0] / sl; d0[1] = sd[1] / sl; d0[2] = sd[2] / sl;
+        }
+        c0[0] = sc[0]; c0[1] = sc[1]; c0[2] = sc[2];
+    }
+    for (int c = 0; c < 3; c++) {
+        out->dir[0][c] = d0[c];
+        out->col[0][c] = c0[c];
+    }
 }
 
 /* func_001CB5A0 / func_001AAD00 / func_001D1EA0(1) — close-out: flush the
@@ -3166,6 +3467,27 @@ static void frame_close_out(void)
     } else {
         for (int i = 0; i < g.chain_len; i++) {
             const ChainDraw *cd = &g.chain[i];
+            /* LIGHTING — actor draws (everything after the scene
+             * meshes: doors, enemies, player — the chain-build order)
+             * take a freshly composed character rig, the engine's
+             * per-actor light-matrix rebuild (func_001D89D0 per draw
+             * publish). Anchor = the palette's bone-0 world
+             * translation (column-major [12..14] — the engine's node
+             * light-reference column +0xC0); the camera fill is the
+             * PLAYER draw's alone (decoded gating, char_rig_build).
+             * Scene meshes draw rig-less: the LEVEL path ignores the
+             * rig anyway (baked vertex color — engine truth). */
+            if (g.rig_on && i >= g.n_scene) {
+                EmGfxCharRig rig;
+                const float anchor[3] = { cd->palette[12],
+                                          cd->palette[13],
+                                          cd->palette[14] };
+                char_rig_build(&rig, anchor,
+                               cd->palette == g.player_palette);
+                em_gfx_char_rig(gfx, &rig);
+            } else {
+                em_gfx_char_rig(gfx, NULL);
+            }
             if (cd->tint)         /* per-draw RGBA modulate (ChainDraw) */
                 em_gfx_draw_skinned_tinted(gfx, cd->mesh, g.viewproj,
                                            cd->palette, cd->bone_count,
@@ -3174,6 +3496,7 @@ static void frame_close_out(void)
                 em_gfx_draw_skinned(gfx, cd->mesh, g.viewproj,
                                     cd->palette, cd->bone_count);
         }
+        em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
     }
     g.ui_prev = ui_scene;     /* edge tracking for the scene re-init */
     em_hud_scene_3d(ui_scene);  /* background skips its base fill */
