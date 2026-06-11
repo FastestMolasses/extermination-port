@@ -1041,7 +1041,7 @@ static struct {
     float       move_expect[3];
     int         transit_test;    /* EM_TRANSIT_TEST=1 — scene-switch test */
     int         slider_test;     /* EM_SLIDER_TEST=1 — sliding-door test
-                                  * (drawbridge scene, walk-into brain) */
+                                  * (drawbridge scene, slider brain) */
     int         locked_test;     /* EM_LOCKED_TEST=1 — locked-door test
                                   * (drawbridge scene, m15 security
                                   * door; refusal then unlock+retry) */
@@ -3945,14 +3945,19 @@ static void move_test_script(void)
  *                   out at 0.8 u/frame) to the boundary-wall standoff
  *                   x ~= 64.5 (inside the 10 u use-scan radius measured
  *                   from the CENTER; no button — the door must stay
- *                   CLOSED. The engine's class-5 scan has no auto ring)
+ *                   CLOSED. Engine-true twice over: the class-5 scan
+ *                   has no auto ring, and the scan itself only runs on
+ *                   the USE press edge — there is NO walk-into door
+ *                   trigger at all, s58)
  *   frames 29..58   keep running -X. The doorway is statically SEALED by
  *                   the grid room-boundary plane at x = 60 (the engine's
  *                   sealed-room-box world): the radial wall probes must
  *                   BLOCK free movement at the player's 4.5-unit radius,
  *                   x ~= 64.5 (tracked as dt_min_x while CLOSED) — the
  *                   "previously blocked plane".
- *   frame   60      CROSS press -> the use scan arms the door (dist to
+ *   frame   60      CROSS press — the engine trigger (the use scan runs
+ *                   on the press edge D_00810E74 & spad-3B76 = 0x0040,
+ *                   s58) -> arms the door (dist to
  *                   the center ~7.5; facing -X = the back-side pi/4 yaw
  *                   gate passes at 0); assert state == OPENING soon
  *                   after. The kickoff LOCKS input, latches the side
@@ -4237,12 +4242,16 @@ static void transit_test_script(void)
  * x 143 / 115.5):
  *
  *   frame    0      spawn (112, 0, -610) facing +X, 16.6 u from the
- *                   door; hold 'w' — the player RUNS at the door. NO
- *                   button is ever pressed in this test.
- *   ~frame  11      the player crosses the 10-u scan radius still
- *                   pushing: the WALK-INTO arming triggers (the
- *                   decoded no-button gate) -> kickoff: back side
- *                   (bearing -pi/2 vs door yaw +pi/2), yaw snap +X,
+ *                   door; hold 'w' — the player RUNS at the door.
+ *   ~frame  11..13  the player crosses the 10-u scan radius still
+ *                   pushing — and must stay UNARMED: the engine has NO
+ *                   walk-into door trigger (s58 decode; the s56
+ *                   no-button reading is OVERTURNED — the use scan
+ *                   runs only on the USE press edge). Asserted at 13.
+ *   frame   14      CROSS press (the D_00810E74-edge use scan, config
+ *                   mask spad 3B76 = 0x0040) inside the window ->
+ *                   kickoff: back side (bearing -pi/2 vs door yaw
+ *                   +pi/2), yaw snap +X,
  *                   walk to the staging point (122.6, -610) =
  *                   door - 6.0 * fwd (the func_001BB560 6.0 constant)
  *   ~frame  30..75  the NATIVE SLIDE pumps (46-frame clip, panels
@@ -4254,20 +4263,21 @@ static void transit_test_script(void)
  *                   script ends — locks release, door stays OPEN
  *   frame  150..170 hold 'w' — the player runs on +X out of the scan
  *                   radius (+ the 2-u hysteresis)
- *   frame  240      assert: armed with no button, mid-slide parked at
- *                   staging with NO scripted player anim and fade 0,
- *                   walk-through landed at (134.6, -610) unlocked,
- *                   door reclosed (reverse clip) after the leave.
+ *   frame  240      assert: stick-push alone did NOT arm + the CROSS
+ *                   edge DID, mid-slide parked at staging with NO
+ *                   scripted player anim and fade 0, walk-through
+ *                   landed at (134.6, -610) unlocked, door reclosed
+ *                   (reverse clip) after the leave.
  */
 static void slider_test_script(void)
 {
-    static int   st_door, st_ok_arm, st_ok_noanim, st_ok_park;
+    static int   st_door, st_ok_noarm, st_ok_arm, st_ok_noanim, st_ok_park;
     static int   st_ok_through, st_ok_unlock;
     static float st_max_fade;
     int n = g.frame_no;
     if (n == 0) {
         st_door = -1;
-        st_ok_arm = st_ok_noanim = st_ok_park = 0;
+        st_ok_noarm = st_ok_arm = st_ok_noanim = st_ok_park = 0;
         st_ok_through = st_ok_unlock = 0;
         st_max_fade = 0.0f;
         move_test_inject('w', 1);
@@ -4281,8 +4291,23 @@ static void slider_test_script(void)
             float d2 = dx * dx + dz * dz;
             if (d2 < best) { best = d2; st_door = i; }
         }
+    } else if (n == 13) {
+        /* inside the 10-u window, pushing, NO button: must be UNARMED
+         * (the engine has no walk-into trigger — s58) */
+        st_ok_noarm = st_door >= 0 &&
+                      em_door_state(st_door) == EM_DOOR_CLOSED &&
+                      !em_door_movement_locked();
+        if (!st_ok_noarm)
+            printf("slider test: frame 13 door state %d lock %d — armed "
+                   "without the USE press\n",
+                   st_door >= 0 ? em_door_state(st_door) : -1,
+                   em_door_movement_locked());
+    } else if (n == 14) {
+        move_test_inject('k', 1);   /* CROSS — the use-scan press edge */
+    } else if (n == 15) {
+        move_test_inject('k', 0);
     } else if (n == 20) {
-        /* armed by the walk-into alone (the stick is the only input) */
+        /* armed by the CROSS edge inside the class-5 window */
         st_ok_arm = st_door >= 0 &&
                     em_door_state(st_door) == EM_DOOR_OPENING;
         move_test_inject('w', 0);   /* the script owns the player now */
@@ -4317,12 +4342,14 @@ static void slider_test_script(void)
         int ok_closed = st_door >= 0 &&
                         em_door_state(st_door) == EM_DOOR_CLOSED;
         int ok_nofade = st_max_fade <= 0.001f;   /* op07 sub0: NO fade */
-        int ok = st_ok_arm && st_ok_noanim && st_ok_park &&
+        int ok = st_ok_noarm && st_ok_arm && st_ok_noanim && st_ok_park &&
                  st_ok_through && st_ok_unlock && ok_closed && ok_nofade;
-        printf("slider test: walk-into armed (no button) %s, mid-slide "
+        printf("slider test: stick-push alone left it CLOSED %s, CROSS "
+               "edge armed %s, mid-slide "
                "parked at staging w/ no player anim %s/%s, walk-through "
                "landed far-side + unlocked %s/%s, fade stayed 0 (%.3f): "
                "%s, door reclosed after leave (state %d): %s — %s\n",
+               st_ok_noarm ? "ok" : "FAILED",
                st_ok_arm ? "ok" : "FAILED",
                st_ok_park ? "ok" : "FAILED",
                st_ok_noanim ? "ok" : "FAILED",

@@ -5,14 +5,21 @@
  *
  *   func_001BC350  door behavior (per-frame state machine on the actor's
  *                  sub-state byte +0x05) -> em_door_update()
- *   func_00184BA0  player-side USE SCAN; per-candidate test =
- *                  func_00183EF0 CLASS-5 branch (read in full
- *                  2026-06-11): horizontal dist <= 10 / |dy| <= 8
- *                  (desc D_002755F0) measured from the DOORWAY CENTER
- *                  (hinge + 5 u along the panel for models 3/0x15 — the
- *                  placement origin is the HINGE corner), side test,
- *                  then facing within pi/4 of through-door. No LOS, no
- *                  auto ring (those were the class-7 prefix)
+ *   func_00184BA0  player-side USE SCAN — run by its callers
+ *                  (func_00160220/func_001612D0/func_0016DE40) ONLY on
+ *                  the USE-button press edge: D_00810E74 (cur & ~prev
+ *                  held — the edge mask) & spad 0x70003B76 (config
+ *                  mask, default 0x0040 = CROSS). Decoded 2026-06-11
+ *                  s58; doors have NO walk-into trigger (the old
+ *                  state-0x2D reading guarded the class-7 prefix only).
+ *                  Per-candidate test = func_00183EF0 CLASS-5 branch
+ *                  (read in full 2026-06-11): horizontal dist <= 10 /
+ *                  |dy| <= 8 (desc D_002755F0) measured from the
+ *                  DOORWAY CENTER (hinge + 5 u along the panel for
+ *                  models 3/0x15 — the placement origin is the HINGE
+ *                  corner), side test, then facing within pi/4 of
+ *                  through-door. No LOS, no auto ring (those were the
+ *                  class-7 prefix)
  *                  -> the trigger scan inside em_door_update()
  *   func_001BC300  per-frame articulation + publish/draw
  *                  -> em_door_palette build + the draw accessors
@@ -150,7 +157,8 @@
  * SLIDERS (m17/m09 — the variant brain func_001BB860, DECODED
  * 2026-06-11; closes the s32 "variant lifecycle unread" flag): sliding
  * doors do NOT run the m03 transit. The trigger is the same +0x0B
- * use-arm — set by WALKING INTO the door (no button) — and the trigger
+ * use-arm — the CROSS-edge use scan above (s58; the s56 "walk-into, no
+ * button" reading is OVERTURNED) — and the trigger
  * sub func_001BB560 then snaps the player yaw through the door, stages
  * him at door_pos - 6.0 * forward (func_00182F90 instant translate; 6.0
  * — not the m03 5.0) and queues the OPEN script D_0024D900: scripted-
@@ -159,18 +167,19 @@
  * to 9.0 u — the EMDL's baked 46-frame clip), then op01-sub8 = a
  * scripted player WALK-THROUGH (walk clip; there is NO player
  * door-gesture anim anywhere in the slider script — the user-verified
- * PCSX2 behavior: walk at the door, the panels part, you walk
- * through). Lock-gated placements (flags2 0x16/0x17/0x3E vs the
+ * PCSX2 behavior: the panels part and the player walks through with no
+ * door gesture). Lock-gated placements (flags2 0x16/0x17/0x3E vs the
  * D_00810841 unlock bits) run a LOCKED script (camera + VO, no motion)
  * — not in the port (no lock bitmask, flagged). See em_door.c "SLIDER
  * (m17/m09) VARIANT BRAIN" for the full decode + port mapping.
  *
  * FIDELITY NOTES (remaining port deviations, each flagged in em_door.c):
- *  - The engine triggers ALL doors on WALK-INTO (player locomotion
- *    state 0x2D = pressing forward, no button); the port's HINGED m03
- *    family still requires the CROSS button until the action-state
- *    machine is translated. SLIDERS arm on the walk-into itself
- *    (stick-push + the class-5 window), per the decoded variant brain.
+ *  - TRIGGER IS NOT A DEVIATION (s58): the engine arms ALL doors on the
+ *    CROSS press edge (use scan callers gate on D_00810E74 &
+ *    spad-0x70003B76 = 0x0040); the port's in->pressed CROSS gate is
+ *    the engine behavior for hinged doors AND sliders. The earlier
+ *    "walk-into via action-state 0x2D" contract (s17) is OVERTURNED —
+ *    0x2D guards only the class-7 scan prefix and EXCLUDES doors.
  *    (The old 2-u auto ring and LOS pocket exemption are GONE —
  *    2026-06-11: the class-5 use-scan branch has neither.)
  *  - The engine SNAPs the player to the staging point; the port walks
@@ -341,11 +350,13 @@ int em_door_goto_pending(char *dir, unsigned dir_size, float out_pos[3],
  * scanned by its own first em_door_add). */
 void em_door_scene_clear(EmGfx *gfx);
 
-/* Per-frame update: trigger scan (the func_00184BA0 use scan against
- * this player position/facing + the frame input block) and every door's
- * state machine + articulation palette. `coll` (may be NULL) is the
- * static world used for the engine's line-of-sight gate. Call once per
- * gameplay frame, at the world-services slot (func_001AFD70). */
+/* Per-frame update: trigger scan (the func_00184BA0 use scan — runs on
+ * the CROSS press edge in the frame input block, against this player
+ * position/facing) and every door's state machine + articulation
+ * palette. `coll` is unused by the scan (class-5 doors do no LOS query
+ * — decoded 2026-06-11; kept for signature stability, may be NULL).
+ * Call once per gameplay frame, at the world-services slot
+ * (func_001AFD70). */
 void em_door_update(const EmCollision *coll, const float player_pos[3],
                     float player_yaw, const EmFrameInput *in);
 

@@ -38,9 +38,9 @@
  *              re-arms (+0x0B = 0) -> 0
  *
  * SLIDERS (m17/m09) run the decoded variant brain func_001BB860
- * instead — walk-into trigger, native slide, scripted walk-through, no
- * fade, no player anim; see the "SLIDER (m17/m09) VARIANT BRAIN" block
- * below and em_door.h.
+ * instead — same CROSS use-arm (the one engine trigger, s58), native
+ * slide, scripted walk-through, no fade, no player anim; see the
+ * "SLIDER (m17/m09) VARIANT BRAIN" block below and em_door.h.
  *
  * Articulation: the engine evaluates a keyframe clip on the door's bone
  * slots (func_001BC300 -> func_001C68C0). The shipped door EMDLs carry
@@ -99,11 +99,13 @@
  * (closes the s32 "variant lifecycle unread" flag; replaces the m03
  * stand-in for these models):
  *
- *   TRIGGER  the same +0x0B-bit-2 use-arm as the m03 family — set by
- *            the player PUSHING INTO the door (the engine's walk-into
- *            state-0x2D scan; NO button press). The port arms sliders
- *            on stick-push + the class-5 geometric window (the CROSS
- *            stand-in stays only on the hinged m03 family).
+ *   TRIGGER  the same +0x0B-bit-2 use-arm as the m03 family — the use
+ *            scan func_00184BA0 runs ONLY on the USE-button press edge
+ *            (every caller gates on D_00810E74 & spad-0x70003B76 =
+ *            CROSS, decoded 2026-06-11 s58 — see door_trigger_scan),
+ *            so sliders arm on CROSS inside the class-5 window exactly
+ *            like hinged doors. The s56 "walk-into, no button" reading
+ *            is OVERTURNED.
  *   KICKOFF  the trigger sub func_001BB560: side latch +0x2E from the
  *            door->player bearing vs the door yaw (flags2 8/0x16 invert
  *            it — single-leaf variants mount reversed), player yaw
@@ -250,7 +252,7 @@ typedef struct {
     int        has_clip;     /* frame_count > 1: real baked clip present */
     int        slider;       /* engine model byte 0x09/0x17: the sliding-
                               * door family — variant brain func_001BB860
-                              * (walk-into trigger, native slide, scripted
+                              * (CROSS use-arm, native slide, scripted
                               * walk-through; see the SLIDER block above).
                               * Parsed from the door_mXX filename like
                               * `hinged` (FLAGGED: filename convention). */
@@ -685,15 +687,27 @@ static float door_norm_ang(float a)
  * ring — both belonged to the class-7 prefix; the old port LOS pocket
  * hack is retired. The nearest passing candidate gets +0x0B = 4.
  *
- * PORT DEVIATION (flagged): the engine's outer gate is the locomotion
- * action-state 0x2D (the player PRESSING FORWARD — doors open on
- * walk-into, no button). The port gates the hinged m03 family on the
- * CROSS button until the player action-state machine is translated;
- * SLIDERS (the func_001BB860 variant — see the SLIDER block above) arm
- * on the walk-into itself: stick pushed out of the dead ring while the
- * class-5 facing window already requires the player to be walking AT
- * the door (the user-verified PCSX2 behavior — no use press, the
- * panels part as the player walks in). */
+ * ENGINE TRIGGER (decoded 2026-06-11 s58 from the .s — OVERTURNS the
+ * s17 "walk-into via action-state 0x2D" contract and the s56 slider
+ * walk-into reading): the use scan func_00184BA0 runs ONLY when the
+ * USE button is newly pressed. Every caller — the locomotion-state
+ * handlers func_00160220 / func_001612D0 / func_0016DE40 (x3) — gates
+ * the call identically on
+ *
+ *     D_00810E74 & *(u16 *)0x70003B76
+ *
+ * where D_00810E74 = cur_held & ~prev_held (func_001B5BC0: E70 =
+ * current inverted raw pad, E72 = previous — E74 is the PRESS-EDGE
+ * mask) and spad 0x70003B76 is the config-mask block's USE entry,
+ * default 0x0040 = CROSS (s29). There is NO walk-into arming for ANY
+ * door family: the +0x1F0 == 0x2D check inside func_00183EF0 guards
+ * only the CLASS-7 prefix (LOS / dist^2 <= 144 / 2-u ring / facing
+ * dot), and when the player IS in 0x2D the class-5 door branch is
+ * unreachable (the function returns 0 for non-class-7 candidates). So
+ * CROSS — pressed in a normal ground state inside the class-5 window —
+ * is the one and only door trigger, hinged and slider alike. This is
+ * why s22's analog-only pad injection never armed a door organically.
+ * The port's in->pressed has exactly the D_00810E74 edge semantics. */
 static void door_trigger_scan(const EmCollision *coll, const float pp[3],
                               float pyaw, const EmFrameInput *in)
 {
@@ -701,19 +715,12 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
     float best_d2 = 1e30f;
 
     (void)coll;   /* class-5 doors do no LOS query (decoded 2026-06-11) */
-    int cross = (in->pressed & EM_PAD_CROSS) != 0;
-    /* walk-into: stick deflection past the gait-1 ring (the quantizer's
-     * dead ring r = 48; em_game's func_001B5CC0 mirror) */
-    float sdx = (float)in->lx - 128.0f, sdy = (float)in->ly - 128.0f;
-    int pushing = sdx * sdx + sdy * sdy > 48.0f * 48.0f;
-    if (!cross && !pushing)
-        return;
+    if (!(in->pressed & EM_PAD_CROSS))
+        return;   /* the use-button press edge — the scan's only entry */
 
     for (int i = 0; i < s.n_doors; i++) {
         Door *d = &s.doors[i];
         if (d->state != EM_DOOR_CLOSED || d->armed) continue;
-        if (!(d->slider ? pushing : cross))
-            continue;     /* per-family gate (see above) */
         float dx = d->center[0] - pp[0];
         float dz = d->center[2] - pp[2];
         float d2 = dx * dx + dz * dz;
