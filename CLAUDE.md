@@ -144,6 +144,21 @@ files map each native stage to the PS2 function it stands in for.
   a wall behind the camera makes it RISE (look down on the player)
   instead of pulling in — pull-in remains only for the aim camera and
   full-height-wall fallback.
+- PROJECTION = THE ENGINE'S, exactly (2026-06-11, closes the old
+  TODO(projection)): em_mat4_perspective_gs builds the world P from the
+  camera's zoom s (EmCamera.zoom, engine ctx+0x2468, default 480; the
+  scope camera's 224/tan and scripted lerps have their field ready) —
+  tan(hfov/2) = 320/s, tan(vfov/2) = 224/s (67.38 x 50.03 deg at 480;
+  the 10/7 tan ratio IS the original 512x448->4:3 pixel-aspect
+  anisotropy, reproduced not corrected), near 0.1 / far 16711680
+  decoded bit-exact from the GS Z-row literals (decomp FINDINGS
+  "ENGINE PROJECTION EXACTLY DERIVED"). The gfx backend letterboxes
+  every frame to the centered 4:3 game frame (PCSX2-style; bars black,
+  overlay canvases map inside it), so window shape never distorts the
+  image. EM_PROJ_TEST pins the whole chain to the engine's own state01
+  K = P*V (see the headless-checks list). The status screen's separate
+  UI projection keeps the s49 empirical 0.74 pin (open item: the
+  engine s-model implies menu zoom ~324; needs a live menu zoom read).
 - AIM CAMERA = the engine's MODE 1, DECODED (2026-06-11, func_00197D20 +
   func_00197740/func_00197870 — replaces the old +0x8C target-height
   hack): entry frames the player from the current camera heading
@@ -304,6 +319,11 @@ files map each native stage to the PS2 function it stands in for.
   `EM_AIM_TEST=1` (manual aim steer + mode-1 aim camera: inverted-Y
   pitch, clamps, full-down camera geometry, pose-pan-then-body-turn —
   see aim_test_script),
+  `EM_PROJ_TEST=1` (engine-projection truth check: the port camera
+  chain — lookat_gs + em_mat4_perspective_gs + the 4:3 frame mapping —
+  must reproduce the engine's own K = P*V screen pixels recorded from
+  the state01 savestate to 0.05 px on 5 world points; see the
+  "Engine projection" block in em_game.c),
   `make test-input` (OS-free pad-model unit test).
 - CRATE ASSET (2026-06-11, user-confirmed fidelity): the GLOBAL default
   `assets/enemy_crate.emdl` is the WOODEN shipping crate (the n0
