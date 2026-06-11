@@ -1203,14 +1203,17 @@ static struct {
  *                             tail (it asserts same-scene re-place
  *                             geometry on the west door).
  *   enemy crawler <x> <y> <z> <yaw>
- *                             one placed CRAWLER (the func_001551B0
- *                             placement records); owned by em_enemy.c.
+ *                             one WORM (the kind-0xD func_00153F10
+ *                             brain — born attacking; the engine never
+ *                             places one, port convenience); owned by
+ *                             em_enemy.c.
  *   enemy crate <x> <y> <z> <yaw>
- *                             one DISGUISED CRATE (the crawler's IDLE
- *                             disguise as its own kind — em_enemy.h
- *                             "CRATE KIND"): idles as the office crate
- *                             mesh, bursts into gibs + a crawler on a
- *                             bullet hit or ~10-u player proximity.
+ *                             one DISGUISED CRATE (the placed crawler
+ *                             func_001551B0 — em_enemy.h "CRATE
+ *                             KIND"): idles as the office crate mesh,
+ *                             bursts into gibs + a worm on DAMAGE or
+ *                             at the end of its alarm-driven suicide
+ *                             run (s62 — no proximity trigger exists).
  *   camregion <x0> <z0> <x1> <z1> <ygate> <ex> <ey> <ez>
  *                             one FIXED-CAMERA trigger volume (the mode-0
  *                             director func_00195130's decoded room-camera
