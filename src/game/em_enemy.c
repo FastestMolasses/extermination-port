@@ -254,6 +254,19 @@
 #include "game/em_sfx.h"
 
 #define ENEMY_ASSET      "assets/enemy_crawler.emdl"
+/* GLOBAL default crate disguise = the WOODEN shipping crate (the n0
+ * leaf-table entry 0x0D carve — dark planks, metal corner straps,
+ * stenciled freight markings; decomp FINDINGS s34: export_props.py
+ * --crate --crate-dir extract/chunk06.n0, 2026-06-11 asset switch).
+ * User-confirmed fidelity: the crate rooms use the large wooden boxes.
+ * TABLE NUANCE (recorded honestly): the s28/s34 decode found the
+ * CARDBOARD box in the n1 (office sub-state 1) leaf table — but no
+ * sub-state-1 placement record spawns a crate (the captured office
+ * scene places ZERO crawlers), so no shipped scene genuinely binds the
+ * cardboard model and it ships nowhere; it stays available locally as
+ * assets/enemy_crate_cardboard_n1.emdl, and a scene that ever proves
+ * to bind it can carry it as <scene>/props/enemy_crate.emdl (the
+ * scene-local probe below). */
 #define CRATE_ASSET      "assets/enemy_crate.emdl"
 #define ENEMY_BONE_MAX   32
 #define ENEMY_PI         3.14159265f
@@ -838,11 +851,12 @@ static int enemy_mesh_get(EmGfx *gfx)
     return 0;
 }
 
-/* Load the crate disguise mesh once (first CRATE spawn only): the EMDL
- * asset (the office model-table entry 0x0D — decomp repo
- * tools/export_props.py --crate) when present, else a PLACEHOLDER box
- * with the office crate's 6x4x5 footprint (runtime-generated, original
- * vertices, NOT disc data). Returns 0 ok. */
+/* Load the crate disguise mesh once (first CRATE spawn only): the
+ * scene-local props/enemy_crate.emdl if the active scene carries one,
+ * else the GLOBAL wooden-crate default (CRATE_ASSET — the n0 entry-0x0D
+ * carve; see the table-nuance note at the define), else a PLACEHOLDER
+ * box with the cardboard crate's 6x4x5 footprint (runtime-generated,
+ * original vertices, NOT disc data). Returns 0 ok. */
 static int crate_mesh_get(EmGfx *gfx)
 {
     if (s.crate_mesh) return 0;

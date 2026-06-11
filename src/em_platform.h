@@ -31,12 +31,14 @@ typedef enum {
  * non-printable keys use values >= 256 so they never collide. Extend as the
  * input map grows.
  *
- * EM_KEY_ALT is the Option/Alt MODIFIER, delivered as ordinary
- * KEY_DOWN/KEY_UP events: modifier keys do not produce key events on every
- * OS (macOS reports them via flags-changed notifications), so each platform
- * layer must track the modifier's previous state and synthesize a KEY_DOWN
- * on press and a KEY_UP on release. Either Option/Alt key qualifies; the
- * input model (em_input.c) uses it as the debug walk-gait hold. */
+ * EM_KEY_ALT and EM_KEY_CMD are MODIFIERS (Option/Alt and Command — on
+ * Windows/Linux backends: Alt and the Super/Win key), delivered as
+ * ordinary KEY_DOWN/KEY_UP events: modifier keys do not produce key events
+ * on every OS (macOS reports them via flags-changed notifications), so each
+ * platform layer must track each modifier's previous state and synthesize a
+ * KEY_DOWN on press and a KEY_UP on release. Either left/right key
+ * qualifies; the input model (em_input.c) uses them as the GAIT HOLD tiers
+ * (em_input.h: Cmd = the WALK band, Option = the TURN/creep band). */
 typedef enum {
     EM_KEY_UNKNOWN   = 0,
     EM_KEY_SPACE     = 32,
@@ -48,7 +50,8 @@ typedef enum {
     EM_KEY_RIGHT,
     EM_KEY_UP,
     EM_KEY_DOWN,
-    EM_KEY_ALT
+    EM_KEY_ALT,
+    EM_KEY_CMD
 } EmKey;
 
 typedef struct {

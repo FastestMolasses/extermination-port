@@ -33,8 +33,9 @@ static EmPadState pad(void)
  * clamped to 0..255) and the engine quantizer func_001B5CC0
  * (r = sqrt((raw_x-128)^2 + (raw_y-128)^2) through rings 48/88/122), in
  * exact integer math (r^2 vs ring^2). 0 = dead, 1 = turn-in-place,
- * 2 = WALK, 3 = RUN. The DEBUG GAIT HOLD contract is end-to-end: the
- * capped deflection must quantize to gait 2 in EVERY stick direction. */
+ * 2 = WALK, 3 = RUN. The GAIT HOLD TIERS contract is end-to-end: each
+ * hold's capped deflection must quantize to ITS gait ring (Cmd -> 2,
+ * Option -> 1) in EVERY stick direction. */
 static int gait_of(float x, float y)
 {
     int ox = (int)(x * 128.0f), oy = (int)(y * 128.0f);
@@ -160,18 +161,25 @@ int main(void)
     p = pad();
     assert(p.rx == 0.0f && p.ry == 0.0f);
 
-    /* DEBUG GAIT HOLD: Option/Alt caps BOTH sticks' VECTOR magnitude at
-     * the WALK band deflection (0.8) while held — including when pressed
-     * mid-hold — and restores the full RUN deflection on release.
+    /* GAIT HOLD TIERS (em_input.h): no modifier = FULL (gait 3 RUN),
+     * Command = the WALK band (0.8, gait 2), Option = the TURN/creep
+     * band (0.5, gait 1 — the engine's slowest movement tier; gait 1
+     * translates zero, and no slower TRANSLATING band exists, so this
+     * is the documented mapping from the quantizer table). Caps bound
+     * BOTH sticks' VECTOR magnitude while held — including when pressed
+     * mid-hold — and the full RUN deflection returns on release.
      * Cardinal pushes sit at the cap exactly; diagonals normalize by
-     * 1/sqrt(2) so the engine-side quantized magnitude stays in the walk
-     * ring (gait_of above). Buttons are unaffected. */
+     * 1/sqrt(2) so the engine-side quantized magnitude stays in the
+     * held ring (gait_of above). Buttons are unaffected. */
     assert(EM_INPUT_DEFLECT_FULL == 1.0f);
     assert(EM_INPUT_DEFLECT_WALK == 0.8f);
+    assert(EM_INPUT_DEFLECT_TURN == 0.5f);
     press('w');
     assert(pad().ly == -EM_INPUT_DEFLECT_FULL);
     assert(gait_of(pad().lx, pad().ly) == 3);     /* full push = RUN */
-    press(EM_KEY_ALT);                /* modifier arrives mid-hold */
+
+    /* COMMAND tier: the WALK band. */
+    press(EM_KEY_CMD);                /* modifier arrives mid-hold */
     p = pad();
     assert(p.ly == -EM_INPUT_DEFLECT_WALK && p.lx == 0.0f);
     assert(gait_of(p.lx, p.ly) == 2);             /* cardinal = WALK */
@@ -182,6 +190,18 @@ int main(void)
     assert(gait_of(p.lx, p.ly) == 2);             /* diagonal stays WALK */
     assert(p.ry == -EM_INPUT_DEFLECT_WALK);  /* right stick capped too */
     assert(gait_of(p.rx, p.ry) == 2);
+    assert(p.buttons == 0);                  /* Cmd is not a button */
+
+    /* OPTION tier: the TURN/creep band — and it WINS over a held Cmd. */
+    press(EM_KEY_ALT);
+    p = pad();
+    assert(p.lx == -p.ly);                        /* diagonal normalized */
+    assert(gait_of(p.lx, p.ly) == 1);             /* diagonal = TURN */
+    assert(p.ry == -EM_INPUT_DEFLECT_TURN);       /* cardinal at the cap */
+    assert(gait_of(p.rx, p.ry) == 1);
+    release(EM_KEY_CMD);                          /* Alt alone: same tier */
+    p = pad();
+    assert(gait_of(p.lx, p.ly) == 1);
     assert(p.buttons == 0);                  /* Alt is not a button */
     release(EM_KEY_ALT);
     p = pad();
@@ -189,12 +209,12 @@ int main(void)
     assert(p.ly == -EM_INPUT_DEFLECT_FULL);
     assert(p.ry == -EM_INPUT_DEFLECT_FULL);
     assert(gait_of(p.lx, p.ly) == 3);             /* full diagonal = RUN */
-    press(EM_KEY_ALT);                /* re-engage; buttons still clean */
+    press(EM_KEY_CMD);                /* re-engage; buttons still clean */
     press('k');
     p = pad();
     assert(p.buttons == EM_PAD_CROSS);
     assert(gait_of(p.lx, p.ly) == 2);  /* W+D diagonal back in WALK */
-    release('k'); release(EM_KEY_ALT);
+    release('k'); release(EM_KEY_CMD);
     release('w'); release('d'); release('t');
     p = pad();
     assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f && p.ry == 0.0f);
@@ -225,13 +245,13 @@ int main(void)
     assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f);
     release('z'); release(EM_KEY_ESCAPE); release(EM_KEY_SPACE);
 
-    /* em_input_init resets held state — including the Alt gait hold. */
-    press('k'); press('w'); press('t'); press(EM_KEY_ALT);
+    /* em_input_init resets held state — including both gait holds. */
+    press('k'); press('w'); press('t'); press(EM_KEY_ALT); press(EM_KEY_CMD);
     em_input_init();
     p = pad();
     assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f && p.ry == 0.0f);
     press('w');
-    assert(pad().ly == -EM_INPUT_DEFLECT_FULL);   /* alt flag cleared */
+    assert(pad().ly == -EM_INPUT_DEFLECT_FULL);   /* both flags cleared */
     release('w');
 
     /* Button-name helper covers the canonical order. */

@@ -74,8 +74,9 @@
  *
  *   1. use-arm (+0x0B = 4) -> kickoff (func_001BBE40, byte-decoded
  *      2026-06-11): latch the player's side, LOCK player input
- *      (movement + actions ignored, camera frozen —
- *      em_door_input_locked()), snap the player yaw through the door,
+ *      (movement + actions ignored, camera frozen — the two-lock split
+ *      below: em_door_movement_locked / em_door_menu_locked, both set
+ *      here), snap the player yaw through the door,
  *      and walk the player to the STAGING point = doorway CENTER
  *      (hinge + 5 u along the panel) + 5*n on his own side — both s22
  *      captures reproduce exactly ((104, -247.2) / (62, -225.5)). The
@@ -97,9 +98,54 @@
  *      records flank their door at +-5 with exit pose); consumed by
  *      em_game through em_door_warp_pending(). The door starts closing
  *      (the engine re-arms when the request byte B8 clears, right after
- *      the re-place) and a 64-frame fade-in starts.
- *   4. fade-in complete -> input UNLOCKED; the door finishes its close
- *      and re-arms (sub 5 -> 0).
+ *      the re-place) and a 64-frame fade-in starts. The re-place ALSO
+ *      starts the ARRIVAL WALK-OUT (below).
+ *   4. ARRIVAL WALK-OUT (decoded 2026-06-11 — the engine's player state
+ *      5/1, dispatcher func_0015B610 -> handler func_00183250): the
+ *      re-place state func_001AE040[4] calls func_001B07C0(1), which
+ *      reads the spawn record's +0x14 byte (1 in every decoded record)
+ *      and puts the player actor in state 5 sub 1 — the scripted
+ *      walk-out. Its sub-machine (+0x06 phases):
+ *        phase 0 (1 frame): request the locomotion clip at locIdx 2
+ *                 (mode-1 anim table D_00248AB0[1][family*4+2]: family 0
+ *                 unarmed -> id 2 = RUN; armed families -> the scripted
+ *                 walks 0x4D/0x4E), ramp +0x38 = 0.3 u/tick
+ *                 (D_00248870[2]), timer 0x32
+ *        phase 1 (50 frames): clip plays, NO translation (the mover
+ *                 func_00178B90 is not called) — hidden under the
+ *                 fade-in for its first ~64 frames
+ *        phase 2 (30 frames): mover runs at 0.3 u/tick along the spawn
+ *                 yaw
+ *        phase 3 (30 frames): mover runs while the ramp decays
+ *                 0.0113636/frame (0x3C3A2E8C) to 0 (~26 frames), the
+ *                 base idle is requested (blend 12) — the player
+ *                 decelerates to a stop ~12.8 u out from the spawn
+ *        exit: player state 1/0, action +0x1F0 = 0, spad 3B8D cleared.
+ *      The walk-out is UNINTERRUPTIBLE: state 5 never reads the stick.
+ *      Total ~111 frames from the re-place.
+ *
+ * THE TWO LOCKS (decoded 2026-06-11 — they are SEPARATE systems):
+ *
+ *   MOVEMENT lock — the player actor's STATE machine. From the use-arm
+ *   the script/transit owns the player (scripted mode spad 0x70003B8D
+ *   = 3 routes frames to the cutscene variant func_001AE6B0, which
+ *   never runs free movement), and on arrival state 5/1 (the walk-out
+ *   above) ignores the stick until its phases complete. Natively:
+ *   em_door_movement_locked() — kickoff until the walk-out ends.
+ *
+ *   MENU lock — the frame poll func_001AE7E0 (the gate that returns 2
+ *   = "open the status screen" on Triangle/Start). It refuses while:
+ *     - a transition request is pending (D_008106B8/B9 != 0),
+ *     - the FADE machine is not idle (D_0028A9A0 — the +0xC0 sub-state
+ *       — != 0: fade-out 3, hold-black 2, fade-in 1),
+ *     - scripted mode is active (spad 0x70003B8D != 0).
+ *   On ARRIVAL the re-place state's first call func_001AFCF0 CLEARS
+ *   spad 3B8D (while the screen is still black), so the only menu gate
+ *   left is the fade-in: Triangle/Start works again the moment the
+ *   fade-in completes (~frame 64 of the ~111-frame walk-out — "about
+ *   halfway through", while movement is still locked). Natively:
+ *   em_door_menu_locked() — kickoff until the fade-in completes.
+ *   em_hud gates its open toggle on it (the func_001AE7E0 stand-in).
  *
  * FIDELITY NOTES (remaining port deviations, each flagged in em_door.c):
  *  - The engine triggers doors on WALK-INTO (player locomotion state
@@ -183,10 +229,12 @@ int em_door_goto_pending(char *dir, unsigned dir_size, float out_pos[3],
                          float *out_yaw);
 
 /* Scene switch teardown: free every door instance + model/mesh like
- * em_door_shutdown, but PRESERVE the transit-wide input lock and the
- * armed fade-in unlock (the switch happens mid-transit, while black).
- * The per-scene doorsfx pair is cleared (the new scene.txt is scanned
- * by its own first em_door_add). */
+ * em_door_shutdown, but PRESERVE the transit-wide state (both locks,
+ * the armed fade-in unlock, and the arrival walk-out — the switch
+ * happens mid-transit, while black, and the walk-out runs in the NEW
+ * scene exactly like the engine's player state surviving the area
+ * load). The per-scene doorsfx pair is cleared (the new scene.txt is
+ * scanned by its own first em_door_add). */
 void em_door_scene_clear(EmGfx *gfx);
 
 /* Per-frame update: trigger scan (the func_00184BA0 use scan against
@@ -206,11 +254,34 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
  * walks the same scripted move). Consumed by em_game.c player_move. */
 int em_door_transit_active(float out_target[3], float *out_yaw);
 
-/* INPUT LOCK — nonzero from the transit kickoff until the fade-in
- * completes: player movement + actions are ignored (player_move and the
- * weapon machine read neutral input) and the camera is frozen.
+/* THE TWO TRANSIT LOCKS (the decoded split — see "THE TWO LOCKS" in the
+ * header comment; the old single em_door_input_locked() is GONE):
+ *
+ * MOVEMENT lock — nonzero from the transit kickoff until the arrival
+ * WALK-OUT completes (player state 5/1, func_00183250 phases): player
+ * movement + actions are ignored (player_move and the weapon machine
+ * read neutral input) and the camera auto-orient is suppressed.
  * em_game.c consumes it every frame; tests query it directly. */
-int em_door_input_locked(void);
+int em_door_movement_locked(void);
+
+/* MENU lock — nonzero from the transit kickoff until the FADE-IN
+ * completes (the func_001AE7E0 gate: pending request / fade machine
+ * D_0028A9A0 != 0 / scripted spad 3B8D; on arrival 3B8D is already
+ * cleared at the re-place, so the fade-in is the last gate). em_hud
+ * gates the Triangle/Start status-screen toggle on it — the menu
+ * opens mid-walk-out, exactly like the engine. */
+int em_door_menu_locked(void);
+
+/* ARRIVAL WALK-OUT drive (player state 5/1, func_00183250): returns 1
+ * while the walk-out runs, with the walk direction (the spawn record's
+ * exit yaw) and THIS frame's commanded translation speed in units/sec
+ * (phase 1: 0 — the clip plays in place; phase 2: 18 u/s = the engine's
+ * 0.3 u/tick locIdx-2 speed; phase 3: the decaying ramp). em_game.c
+ * player_move consumes it INSTEAD of stick input (uninterruptible),
+ * driving the locomotion clip from the speed. Phases advance in
+ * em_door_update; the state survives a goto scene switch
+ * (em_door_scene_clear), exactly like the engine's player state. */
+int em_door_walkout_active(float *out_yaw, float *out_speed);
 
 /* One-shot RE-PLACE request: returns 1 exactly once, at fade-out
  * completion (screen fully black), with the spawn point behind the door

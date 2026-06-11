@@ -74,6 +74,12 @@
 #include <string.h>
 
 #include "em_input.h"   /* EM_PAD_TRIANGLE / EM_PAD_START — toggle bits */
+#include "game/em_door.h"   /* em_door_menu_locked — the open gate
+                             * (the engine's menu poll func_001AE7E0
+                             * refuses while the fade machine runs or
+                             * scripted mode is active; em_door owns the
+                             * decoded transit window — em_door.h "THE
+                             * TWO LOCKS") */
 
 /* GS color -> float rgba: components are /255; GS alpha 0x80 = 1.0. */
 #define GS(r, g, b, a) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, \
@@ -955,8 +961,15 @@ void em_hud_update(const EmFrameInput *in)
     if (!in) return;
 
     if (!em_hud_visible()) {
-        /* Closed: Triangle or Start opens the screen at the hub. */
-        if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)) {
+        /* Closed: Triangle or Start opens the screen at the hub —
+         * UNLESS the door-transit MENU lock holds (the engine's open
+         * poll func_001AE7E0 returns 0 while the fade machine is not
+         * idle / scripted mode runs; the press is simply dropped, no
+         * latch). The lock clears at fade-in completion, so the menu
+         * already works mid arrival-walk-out, exactly like the
+         * original (em_door.h "THE TWO LOCKS"). */
+        if ((in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)) &&
+            !em_door_menu_locked()) {
             s_shown = 1;
             s_hover = 0;
             s_page  = hud_forced_page();   /* -1 unless EM_HUD_PAGE */

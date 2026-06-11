@@ -47,6 +47,7 @@ struct EmWindow {
     EmContentView    *view;
     EmWindowDelegate *delegate;
     bool              altDown;   /* last seen Option/Alt state (flagsChanged) */
+    bool              cmdDown;   /* last seen Command state (flagsChanged) */
 };
 
 static int map_key(NSEvent *ev)
@@ -158,15 +159,22 @@ bool em_window_poll(EmWindow *w, EmEvent *out)
                 key  = map_key(ev);
             } else if (ev.type == NSEventTypeFlagsChanged) {
                 /* Modifiers never arrive as keyDown/keyUp — synthesize the
-                 * EM_KEY_ALT transitions the contract promises (the input
-                 * model's debug walk-gait hold, em_platform.h). Edge-detect
-                 * against the last seen state so the L/R Option keys and
-                 * unrelated modifier churn don't emit duplicates. */
+                 * EM_KEY_ALT / EM_KEY_CMD transitions the contract promises
+                 * (the input model's gait-hold tiers, em_platform.h).
+                 * Edge-detect against the last seen state so the L/R keys
+                 * and unrelated modifier churn don't emit duplicates; at
+                 * most one transition per flagsChanged event (Option wins
+                 * the tie; the other edge surfaces on the next event). */
                 bool alt = (ev.modifierFlags & NSEventModifierFlagOption) != 0;
+                bool cmd = (ev.modifierFlags & NSEventModifierFlagCommand) != 0;
                 if (alt != w->altDown) {
                     w->altDown = alt;
                     type = alt ? EM_EVENT_KEY_DOWN : EM_EVENT_KEY_UP;
                     key  = EM_KEY_ALT;
+                } else if (cmd != w->cmdDown) {
+                    w->cmdDown = cmd;
+                    type = cmd ? EM_EVENT_KEY_DOWN : EM_EVENT_KEY_UP;
+                    key  = EM_KEY_CMD;
                 }
             }
 

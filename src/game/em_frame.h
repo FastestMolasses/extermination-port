@@ -68,14 +68,58 @@ uint32_t em_frame_counter(void);
  * the engine's double-buffered per-frame resources. */
 uint32_t em_frame_parity(void);
 
-/* --- SCREEN-FADE MACHINE (step D, func_001AEDE0) ---------------------
- * The engine's full-screen fade: func_001AEDE0(speed, dir) arms it and
- * the main loop's step D ticks it once per frame. The captured speed is
- * 4 -> a 64-frame ramp (level steps speed/256 per frame), used by BOTH
- * door-transition fades (FINDINGS.md "AREA TRANSITION LIFECYCLE": commit
- * runs func_001AEDE0(4,0) fade-out; fade-in after the re-place is the
- * same 4-speed machine). Natively the level is drawn as one full-screen
- * black overlay rect at close-out (em_game.c), alpha = level. */
+/* --- SCREEN-FADE MACHINE (func_001AEDE0 family) -----------------------
+ * The engine's full-screen fade: func_001AEDE0(speed, mode) arms it and
+ * the main loop ticks it (the 0x0028A8E0 transition/brightness machine,
+ * func_001AEE70; header fields +0xC0 sub-state / +0xC3 state / +0xC4
+ * level / +0xC6 step — D_0028A9A0 IS the +0xC0 sub-state other systems
+ * gate on). The captured speed is 4 -> a 64-frame ramp (level steps
+ * speed/256 per frame), used by BOTH door-transition fades (FINDINGS.md
+ * "AREA TRANSITION LIFECYCLE": commit runs func_001AEDE0(4,0) fade-out;
+ * the re-place state arms the fade-in via func_001AEE10(4,0), the same
+ * machine ramping back down).
+ *
+ * THE REAL BLEND (decoded 2026-06-11 from the packet init func_001AEA50
+ * + the per-frame writer func_001AEE70): the fade is NOT a black quad
+ * alpha-blended over the frame. The machine owns a double-buffered VIF
+ * DIRECT packet (FLUSH/NOP/NOP/DIRECT-5) whose GIF tag draws ONE
+ * full-screen SPRITE (PRIM 0x346: sprite, ABE on, FST, context 2) with
+ * a packed A+D pair, an RGBAQ and two XYZF2 vertices:
+ *
+ *   +0x20  A+D -> ALPHA_2 (reg 0x43), per the +0xC2 mode byte:
+ *          mode 0: data 0x00000080_000000A1 = A=Cd B=Cs C=FIX D=0,
+ *                  FIX=0x80  ->  Cv = (Cd - Cs)*128>>7 = Cd - Cs
+ *                  (SUBTRACTIVE: dest minus source, saturating at 0)
+ *          mode 1: data 0x00000080_00000068 = A=Cs B=0 C=FIX D=Cd
+ *                  ->  Cv = Cs + Cd  (ADDITIVE: fade to WHITE)
+ *   +0x30  RGBAQ R=G=B = the LEVEL (0..255), A=0x80 (unused: C=FIX)
+ *   +0x40/+0x50  XYZF2 corners (0x7000,0x7900)-(0x9000,0x8700) 12.4
+ *
+ * So the door fade (mode 0) SUBTRACTS the grey level from every frame
+ * pixel: out = max(0, pixel - level). Dark pixels crush to black early,
+ * highlights survive longest — the "exposure being pulled down" look,
+ * NOT a black cover dissolving in.
+ *
+ * NATIVE STAND-IN + RESIDUAL GAP (documented honestly): the port's
+ * overlay pass exposes only standard alpha blending (em_gfx.h:
+ * out = src*a + dst*(1-a)), which cannot express per-pixel saturating
+ * subtraction with a constant-color quad. The fade therefore draws a
+ * BLACK quad with alpha = em_frame_fade_alpha():
+ *
+ *     a(l) = 1 - (1 - l)^2        (l = level/255)
+ *
+ * chosen so the frame's MEAN luminance follows the engine's subtractive
+ * trajectory exactly for a uniform pixel-value histogram
+ * (E[max(0, c - l)] = E[c]*(1-l)^2 for c ~ U[0,1]), with the correct
+ * endpoints (clear at 0, full black exactly at level 255, preserving
+ * the 64-frame timing). Residual gap vs the GS: alpha scales every
+ * pixel PROPORTIONALLY, so deep shadows keep relative detail slightly
+ * longer than the engine (which clips them to 0 at level >= pixel) and
+ * highlights dim slightly earlier (the engine holds a pure-white pixel
+ * visible until level 255). Exact parity needs a reverse-subtract
+ * blend op (out = max(0, dst - src)) in the overlay path — src/gfx
+ * owned, flagged for its owner. The additive mode-1 fade (to white)
+ * has no port caller yet and is not implemented. */
 #define EM_FADE_SPEED_DOOR 4   /* the captured door-transit fade speed */
 
 /* Arm a fade: dir > 0 fades OUT (toward black), dir < 0 fades IN (toward
@@ -83,8 +127,15 @@ uint32_t em_frame_parity(void);
  * speed 4 = 64 frames full ramp). */
 void em_frame_fade_start(int dir, int speed);
 
-/* Current fade level: 0.0 = clear, 1.0 = full black. */
+/* Current fade level: 0.0 = clear, 1.0 = full subtraction (black) —
+ * the engine's +0xC4 level, normalized. Use for PROGRESS tests/gates. */
 float em_frame_fade_level(void);
+
+/* The black-quad stand-in alpha for the CURRENT level: 1 - (1-l)^2 (the
+ * decoded subtractive blend's mean-luminance match — see the block
+ * comment above). em_game's close-out draws the fade rect with THIS,
+ * not the raw level. 0 exactly when the level is 0. */
+float em_frame_fade_alpha(void);
 
 /* Nonzero while a ramp is still in motion (level not yet at its end). */
 int em_frame_fade_active(void);

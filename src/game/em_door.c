@@ -20,10 +20,13 @@
  *              (func_001AEDE0(4,0)); room moves do NOT fade audio -> 5
  *   5 CLOSING  engine sub 5 = transition pending. At fade-out complete
  *              (screen black): post the RE-PLACE (spawn point behind the
- *              door, exit yaw), arm the 64-frame fade-in, and start
+ *              door, exit yaw), arm the 64-frame fade-in + the ARRIVAL
+ *              WALK-OUT (player state 5/1 — em_door.h step 4), and start
  *              running the clip back (the engine re-arms when the
- *              request byte B8 clears, right after the re-place). Input
- *              unlocks when the fade-in completes; at clip rest the door
+ *              request byte B8 clears, right after the re-place). The
+ *              MENU unlocks when the fade-in completes; MOVEMENT when
+ *              the walk-out phases end (~111 frames — the two-lock
+ *              split, em_door.h "THE TWO LOCKS"); at clip rest the door
  *              re-arms (+0x0B = 0) -> 0
  *
  * Articulation: the engine evaluates a keyframe clip on the door's bone
@@ -142,6 +145,17 @@
  * (4 -> 64-frame ramp), see em_frame.h. */
 #define DOOR_FADE_SPEED   EM_FADE_SPEED_DOOR
 
+/* ARRIVAL WALK-OUT constants — func_00183250 (player state 5/1), all
+ * engine values (em_door.h step 4): phase frame counts (+0x28 timer
+ * loads), the locIdx-2 locomotion speed (D_00248870[2], u/tick) and the
+ * phase-3 ramp decay step (0x3C3A2E8C). ~111 frames, ~12.8 u total. */
+#define WALKOUT_PHASE1_FRAMES 50      /* 0x32: clip only, no translation */
+#define WALKOUT_PHASE2_FRAMES 30      /* 0x1E: mover at full ramp        */
+#define WALKOUT_PHASE3_FRAMES 30      /* 0x1E: mover while ramp decays   */
+#define WALKOUT_SPEED_UPT     0.3f    /* u/tick — engine +0x38 init      */
+#define WALKOUT_RAMP_STEP     0.0113636f  /* 0x3C3A2E8C, per frame       */
+#define WALKOUT_TICK_HZ       60.0f   /* u/tick -> u/sec for the port    */
+
 typedef struct {
     char       path[512];
     EmModel    model;
@@ -203,12 +217,27 @@ static struct {
     Door      doors[DOOR_MAX];
     int       n_doors;
     /* transit-wide state (one transit at a time, like the engine's
-     * single B5..B8 request block) */
-    int       lock;          /* player input locked (kickoff..fade-in end) */
-    int       unlock_armed;  /* re-place posted: unlock at fade-in end */
+     * single B5..B8 request block). THE TWO LOCKS (em_door.h "THE TWO
+     * LOCKS" — decoded 2026-06-11, separate engine systems):
+     *   lock_move — player movement/actions (the engine's scripted mode
+     *               + player state 5/1): kickoff .. walk-out end.
+     *   lock_menu — the status-screen toggle (func_001AE7E0's gates:
+     *               pending request / fade machine D_0028A9A0 != 0 /
+     *               spad 3B8D): kickoff .. fade-in completion. */
+    int       lock_move;
+    int       lock_menu;
+    int       unlock_armed;  /* re-place posted: menu unlock at fade-in end */
     int       warp_pending;  /* one-shot re-place request for em_game */
     float     warp_pos[3];
     float     warp_yaw;
+    /* ARRIVAL WALK-OUT (engine player state 5/1, func_00183250 — the
+     * em_door.h step-4 decode). Phases tick in em_door_update from the
+     * re-place post; em_game player_move consumes the per-frame command
+     * via em_door_walkout_active. Survives em_door_scene_clear. */
+    int       wo_phase;      /* 0 idle; 1/2/3 = the engine +0x06 phases */
+    int       wo_t;          /* frames left in the current phase */
+    float     wo_yaw;        /* walk direction = the spawn exit yaw */
+    float     wo_ramp;       /* phase-3 speed ramp (+0x38), u/tick */
     /* one-shot scene-switch request (goto doors; warp_pos/yaw carry the
      * arrival spawn) */
     int       goto_pending;
@@ -612,7 +641,52 @@ static void door_transit_kickoff(Door *d, const float pp[3])
     }
     d->transit       = 1;
     d->did_warp      = 0;
-    s.lock           = 1;   /* input locked until the fade-in completes */
+    /* Both locks engage at kickoff (em_door.h "THE TWO LOCKS"): the
+     * scripted sequence owns the player AND blocks the menu poll. */
+    s.lock_move      = 1;   /* until the arrival walk-out completes */
+    s.lock_menu      = 1;   /* until the fade-in completes */
+}
+
+/* One frame of the ARRIVAL WALK-OUT sub-machine (func_00183250's +0x06
+ * phases — constants above). Called from em_door_update; the commanded
+ * speed for THIS frame is read back by em_door_walkout_active. The
+ * MOVEMENT lock clears exactly at the phase-3 exit (the engine's
+ * state 5 -> 1 transition + the spad 3B8D defensive clear). */
+static void walkout_tick(void)
+{
+    if (!s.wo_phase) return;
+    switch (s.wo_phase) {
+    case 1:   /* clip only — the engine never calls the mover here */
+    case 2:   /* mover at the full 0.3 u/tick ramp */
+        if (--s.wo_t <= 0) {
+            s.wo_phase++;
+            s.wo_t = (s.wo_phase == 2) ? WALKOUT_PHASE2_FRAMES
+                                       : WALKOUT_PHASE3_FRAMES;
+        }
+        break;
+    case 3:   /* mover while the ramp decays to 0 (~26 frames in) */
+        s.wo_ramp -= WALKOUT_RAMP_STEP;
+        if (s.wo_ramp < 0.0f) s.wo_ramp = 0.0f;
+        if (--s.wo_t <= 0) {
+            s.wo_phase  = 0;       /* engine exit: state 1/0, 3B8D = 0 */
+            s.lock_move = 0;       /* movement control returns HERE */
+        }
+        break;
+    default:
+        s.wo_phase = 0;
+        break;
+    }
+}
+
+/* Arm the walk-out at the re-place post (the engine's func_001B07C0
+ * reading spawn-record byte +0x14 == 1 — every decoded record carries
+ * it, so every arrival walks out). */
+static void walkout_start(float exit_yaw)
+{
+    s.wo_phase = 1;
+    s.wo_t     = WALKOUT_PHASE1_FRAMES;
+    s.wo_yaw   = exit_yaw;
+    s.wo_ramp  = WALKOUT_SPEED_UPT;
 }
 
 void em_door_update(const EmCollision *coll, const float player_pos[3],
@@ -620,16 +694,23 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
 {
     /* No new use-arm while a transit sequence is in flight (the engine's
      * scan filters +0x0B == 0 and the request block is busy anyway). */
-    if (!s.lock)
+    if (!s.lock_move && !s.lock_menu)
         door_trigger_scan(coll, player_pos, player_yaw, in);
 
-    /* Input unlocks when the fade-in completes — the re-place already
-     * happened at black; the door is still closing behind the player. */
-    if (s.lock && s.unlock_armed && !s.warp_pending && !s.goto_pending &&
-        !em_frame_fade_active() && em_frame_fade_level() <= 0.0f) {
-        s.lock         = 0;
+    /* MENU unlock at fade-in completion (the func_001AE7E0 fade gate:
+     * D_0028A9A0 back to 0; spad 3B8D was already cleared at the
+     * re-place) — the re-place happened at black, the door is still
+     * closing and the WALK-OUT is still running (movement stays locked
+     * until its phases end in walkout_tick). */
+    if (s.lock_menu && s.unlock_armed && !s.warp_pending &&
+        !s.goto_pending && !em_frame_fade_active() &&
+        em_frame_fade_level() <= 0.0f) {
+        s.lock_menu    = 0;
         s.unlock_armed = 0;
     }
+
+    /* ARRIVAL WALK-OUT phases (player state 5/1 — func_00183250). */
+    walkout_tick();
 
     for (int i = 0; i < s.n_doors; i++) {
         Door *d = &s.doors[i];
@@ -736,9 +817,16 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                     }
                     d->did_warp    = 1;
                     s.unlock_armed = 1;
+                    /* The re-place arms the ARRIVAL WALK-OUT (engine
+                     * func_001B07C0: spawn rec +0x14 == 1 -> player
+                     * state 5/1) along the exit yaw — both the
+                     * same-scene re-place and the goto switch (the
+                     * engine walks out of EVERY decoded spawn). */
+                    walkout_start(s.warp_yaw);
                     /* Script teardown under black: the player anim
                      * resets with the re-place (the op 0x18 family's
-                     * +0x1F2 = 0) — locomotion resumes standing. */
+                     * +0x1F2 = 0) — locomotion resumes into the
+                     * walk-out clip. */
                     em_game_anim_cancel();
                     em_frame_fade_start(-1, DOOR_FADE_SPEED);
                     /* Close sound: the decoded open script D_0024DE40
@@ -776,7 +864,20 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
 
 int em_door_count(void) { return s.n_doors; }
 
-int em_door_input_locked(void) { return s.lock; }
+/* The two-lock split — em_door.h "THE TWO LOCKS". */
+int em_door_movement_locked(void) { return s.lock_move; }
+int em_door_menu_locked(void)     { return s.lock_menu; }
+
+int em_door_walkout_active(float *out_yaw, float *out_speed)
+{
+    if (!s.wo_phase) return 0;
+    *out_yaw = s.wo_yaw;
+    /* Commanded translation for THIS frame: phase 1 plays the clip in
+     * place (the engine calls no mover); phases 2/3 move at the ramp
+     * (full 0.3 u/tick, then the phase-3 decay). u/tick -> u/sec. */
+    *out_speed = (s.wo_phase >= 2) ? s.wo_ramp * WALKOUT_TICK_HZ : 0.0f;
+    return 1;
+}
 
 int em_door_warp_pending(float out_pos[3], float *out_yaw)
 {
@@ -805,12 +906,22 @@ int em_door_goto_pending(char *dir, unsigned dir_size, float out_pos[3],
 void em_door_scene_clear(EmGfx *gfx)
 {
     /* The transit that triggered the switch is still mid-flight: keep
-     * the input lock + the armed fade-in unlock alive across the door
-     * teardown (the new scene's doors arrive CLOSED and idle). */
-    int lock = s.lock, unlock_armed = s.unlock_armed;
+     * the two locks, the armed fade-in unlock AND the arrival walk-out
+     * alive across the door teardown (the engine's player state + fade
+     * machine survive the area load; the new scene's doors arrive
+     * CLOSED and idle). */
+    int   lock_move = s.lock_move, lock_menu = s.lock_menu;
+    int   unlock_armed = s.unlock_armed;
+    int   wo_phase = s.wo_phase, wo_t = s.wo_t;
+    float wo_yaw = s.wo_yaw, wo_ramp = s.wo_ramp;
     em_door_shutdown(gfx);     /* frees + memsets s */
-    s.lock         = lock;
+    s.lock_move    = lock_move;
+    s.lock_menu    = lock_menu;
     s.unlock_armed = unlock_armed;
+    s.wo_phase     = wo_phase;
+    s.wo_t         = wo_t;
+    s.wo_yaw       = wo_yaw;
+    s.wo_ramp      = wo_ramp;
 }
 
 int em_door_transit_active(float out_target[3], float *out_yaw)

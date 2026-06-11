@@ -34,24 +34,35 @@
  *   Backspace   SELECT
  *   Return      START
  *
- * DEBUG GAIT HOLD: holding Option/Alt (EM_KEY_ALT — the platform layer
- * synthesizes KEY_DOWN/KEY_UP transitions for it, em_platform.h) caps the
- * emulated deflection of BOTH sticks at EM_INPUT_DEFLECT_WALK (0.8)
- * instead of the keyboard default EM_INPUT_DEFLECT_FULL (1.0). Rationale:
- * the engine quantizes the left-stick MAGNITUDE r = |raw - 0x80| through
- * rings r=48/88/122 (raw 0..127 units; em_game.c locomotion notes) into
- * the gait byte: r <= 48 dead, 48 < r <= 88 gait 1 = TURN-IN-PLACE (zero
- * speed), 88 < r <= 122 gait 2 = WALK, r > 122 gait 3 = RUN. Full push
- * (raw 127) is RUN — the keyboard default and exactly the PCSX2 keyboard
- * experience; the 0.8 cap lands at raw ~102, mid WALK band. (A 0.5 cap
- * would land at raw 64, inside the gait-1 turn-in-place ring — NOT walk;
- * the walk band only spans deflections ~0.70..0.95.) The cap bounds the
- * stick VECTOR magnitude: a diagonal (e.g. W+A) is normalized by
- * 1/sqrt(2) so the combined deflection stays 0.8 — a per-axis cap would
- * quantize sqrt(2) larger (raw ~144 > 122) and break diagonals into RUN.
- * Applied by this module in em_input_pad (the platform only reports the
- * modifier), so it is identical on every OS and covered by
- * tests/input_test.c.
+ * GAIT HOLD TIERS: the keyboard's digital keys emulate the analog stick,
+ * so the MODIFIERS select the engine's gait rings (both synthesized as
+ * KEY_DOWN/KEY_UP by the platform layer, em_platform.h):
+ *
+ *   (none)        FULL deflection 1.0  -> gait 3 = RUN (raw 127 > 122)
+ *   Command held  WALK cap        0.8  -> gait 2 = WALK (raw ~102, the
+ *                 88 < r <= 122 ring; the band spans ~0.70..0.95)
+ *   Option held   TURN/creep cap  0.5  -> gait 1 (raw 64, the
+ *                 48 < r <= 88 ring) = TURN-IN-PLACE
+ *
+ * Rationale: the engine quantizes the left-stick MAGNITUDE r =
+ * |raw - 0x80| through rings r=48/88/122 (func_001B5CC0) into the gait
+ * byte, and the locomotion table maps gaits to speeds D_00248870 =
+ * {0, 0.1, 0.3} u/tick (decomp FINDINGS "stick -> anim-id selection
+ * chain"): gait 1 is the SLOWEST MOVEMENT TIER the engine has — it
+ * translates ZERO (turn-in-place; the stick direction only steers), and
+ * there is NO slower translating band below WALK (the 0.8-u/tick sprint
+ * slot is unreachable by the quantizer). So Option = gait 1 is the
+ * documented honest mapping for "slowest", chosen FROM the quantizer
+ * table: precise turning without stepping. If both modifiers are held,
+ * the slower tier (Option) wins. Full push with no modifier is RUN —
+ * exactly the PCSX2 keyboard experience this map mirrors.
+ *
+ * Every cap bounds the stick VECTOR magnitude: a diagonal (e.g. W+A) is
+ * normalized by 1/sqrt(2) so the combined deflection stays in-band — a
+ * per-axis cap would quantize sqrt(2) larger and jump a ring (0.8-cap
+ * diagonals would hit raw ~144 > 122 = RUN). Applied by this module in
+ * em_input_pad (the platform only reports the modifiers), so it is
+ * identical on every OS and covered by tests/input_test.c.
  *
  * ENGINE DEFAULT BUTTON CONFIG (live-pinned 2026-06-10 s29 — decomp repo
  * FINDINGS.md "GAMEPLAY SOUND IDS PINNED LIVE"). The engine reads actions
@@ -128,17 +139,23 @@ enum {
  * code (src/game/): test |lx|/|ly| against these, not bare literals.
  *   FULL (1.0)  keyboard default = the engine quantizer's gait-3 RUN band
  *               (raw > 122 of 127).
- *   WALK (0.8)  the Option/Alt debug-gait hold = the gait-2 WALK band
- *               (raw ~102, inside the 88 < r <= 122 ring; the band only
- *               spans deflections ~0.70..0.95). Under the hold this caps
- *               the stick VECTOR magnitude (diagonals normalize by
- *               1/sqrt(2)), so the quantized r stays in the walk band in
- *               every direction. Movement code that maps deflection ->
- *               gait must classify 0.8 as WALK and 1.0 as RUN; a future
- *               analog gamepad backend will deliver the continuous range
- *               and the same ring thresholds apply. */
+ *   WALK (0.8)  the COMMAND gait hold = the gait-2 WALK band (raw ~102,
+ *               inside the 88 < r <= 122 ring; the band only spans
+ *               deflections ~0.70..0.95).
+ *   TURN (0.5)  the OPTION/ALT gait hold = the gait-1 TURN/creep band
+ *               (raw 64, mid the 48 < r <= 88 ring) — the engine's
+ *               slowest movement tier: turn-in-place, zero translation
+ *               (see "GAIT HOLD TIERS" above for why there is no slower
+ *               TRANSLATING band).
+ * Under a hold the cap bounds the stick VECTOR magnitude (diagonals
+ * normalize by 1/sqrt(2)), so the quantized r stays in-band in every
+ * direction. Movement code that maps deflection -> gait must classify
+ * 0.5 as TURN, 0.8 as WALK and 1.0 as RUN; a future analog gamepad
+ * backend will deliver the continuous range and the same ring
+ * thresholds apply. */
 #define EM_INPUT_DEFLECT_FULL 1.0f
 #define EM_INPUT_DEFLECT_WALK 0.8f
+#define EM_INPUT_DEFLECT_TURN 0.5f
 
 typedef struct {
     uint16_t buttons;        /* EM_PAD_* bits, 1 = pressed */

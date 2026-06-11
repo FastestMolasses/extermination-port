@@ -80,26 +80,44 @@ files map each native stage to the PS2 function it stands in for.
 - Keyboard map = the user's PCSX2 binding, verbatim (em_input.h is the
   authority): WASD/TFGH = left/right stick, arrows = d-pad, I/J/L/K =
   TRIANGLE/SQUARE/CIRCLE/CROSS, Q/E = L1/R1, 1/3 = L2/R2, 2/4 = L3/R3,
-  Backspace/Return = SELECT/START. Holding Option/Alt (EM_KEY_ALT — the
-  platform synthesizes its KEY_DOWN/KEY_UP from modifier transitions) caps
-  both sticks' vector magnitude at EM_INPUT_DEFLECT_WALK (0.8 = the engine's
-  WALK gait band, raw ~102 in the 88..122 ring; diagonals normalize by
-  1/sqrt(2) so the quantized magnitude stays in-band); keyboard default is
-  EM_INPUT_DEFLECT_FULL (1.0 = RUN) — game code must use these em_input.h
-  constants for gait thresholds. The mac content view
+  Backspace/Return = SELECT/START. GAIT HOLD TIERS (2026-06-11; EM_KEY_ALT /
+  EM_KEY_CMD — the platform synthesizes their KEY_DOWN/KEY_UP from modifier
+  transitions): keyboard default is EM_INPUT_DEFLECT_FULL (1.0 = the RUN
+  ring); holding COMMAND caps both sticks' vector magnitude at
+  EM_INPUT_DEFLECT_WALK (0.8 = the WALK band, raw ~102 in the 88..122 ring);
+  holding OPTION caps at EM_INPUT_DEFLECT_TURN (0.5 = the gait-1 TURN/creep
+  band, raw 64 — the engine's slowest movement tier: turn-in-place, zero
+  translation; there is NO slower translating band in the quantizer table,
+  so this is the documented "slowest" mapping). Option wins over a held Cmd;
+  diagonals normalize by 1/sqrt(2) so the quantized magnitude stays in the
+  held ring — game code must use these em_input.h constants for gait
+  thresholds. The mac content view
   consumes all keyDown/keyUp (no-op overrides) so unhandled game keys never
   reach NSWindow's no-responder NSBeep path.
 - Faithful to the original presentation: NO persistent HUD — the status
   display is a TRIANGLE-toggled status screen (key I; opening it PAUSES the
   world simulation, exactly the original's menu pause — gameplay_frame gates
   on em_hud_is_open(); EM_HUD_FORCE stays render-only) and door use runs the
-  full captured transit sequence (input lock, walk to staging, door clip,
-  64-frame fade-out, re-place behind the door, fade-in, unlock — FINDINGS.md
-  "AREA TRANSITION LIFECYCLE").
+  full captured transit sequence (walk to staging, door clip, 64-frame
+  fade-out, re-place behind the door, fade-in + the ARRIVAL WALK-OUT —
+  FINDINGS.md "AREA TRANSITION LIFECYCLE"). TWO decoded LOCKS govern the
+  transit (2026-06-11, em_door.h "THE TWO LOCKS"): MOVEMENT locks kickoff ->
+  walk-out end (the engine's player state 5/1 — func_00183250's ~111-frame
+  uninterruptible walk out through the door); the MENU locks kickoff ->
+  fade-in completion only (the engine's open poll func_001AE7E0 gates on the
+  fade machine D_0028A9A0 + scripted spad 3B8D, cleared at the re-place), so
+  Triangle/Start works again about halfway through the walk-out. The FADE
+  itself is decoded SUBTRACTIVE (GS ALPHA_2 0xA1: out = max(0, pixel -
+  level) — shadows crush first, "exposure pulled down"); the overlay pass
+  only has standard alpha blend, so the stand-in is a black quad with
+  alpha = 1-(1-level)^2 (mean-luminance match; exact parity needs a
+  reverse-subtract blend op in src/gfx — residual gap documented in
+  em_frame.h).
 - PLAYER LOCOMOTION is the engine's (s31 + s38 decodes): the stick magnitude
   runs the real gait quantizer (rings 48/88/122 -> turn-in-place / walk
-  6 u/s / run 18 u/s; keyboard full push = RUN like PCSX2, Alt = the half
-  band), the wall HITBOX is the engine's 4.5-unit five-direction radial
+  6 u/s / run 18 u/s; keyboard full push = RUN like PCSX2, Cmd = the walk
+  band, Option = the turn/creep band — see the keyboard-map bullet), the
+  wall HITBOX is the engine's 4.5-unit five-direction radial
   probe set (ankle + chest passes, push-back response — em_game.c "PLAYER
   WALL RADIUS"), and standing still runs the decoded IDLE CYCLE: breathing
   idle (anim id 0) with the look-around fidget (id 349 = engine 0x15D)
@@ -212,10 +230,13 @@ files map each native stage to the PS2 function it stands in for.
   frame shows the wall-RISE camera; `EM_CAPTURE_ORIENT=1` turn-in-place +
   idle for the slow auto-orient; `EM_CAMERA_TRACE=1` prints the camera
   wall-solve and auto-orient), `EM_PAUSE_TEST=1` (status-screen pause gate:
-  open -> held stick dead -> close -> movement resumes),
+  open -> held stick dead -> close -> movement resumes; PLUS the door leg —
+  menu press DROPPED mid-fade, menu OPENS mid-walk-out while movement stays
+  locked, the open menu freezes the walk-out, completion after resume),
   `EM_AUDIO_TEST=1`
   (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
-  (full door-transit sequence self-test), `EM_SFX_TEST=1` (3 overlapping
+  (full door-transit sequence self-test incl. the arrival walk-out and the
+  frame-290 two-lock split witness), `EM_SFX_TEST=1` (3 overlapping
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
   `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife-vs-crates run: light kill,
   heavy kill, whiff-combo chain — see melee_test_script),
@@ -230,6 +251,16 @@ files map each native stage to the PS2 function it stands in for.
   pitch, clamps, full-down camera geometry, pose-pan-then-body-turn —
   see aim_test_script),
   `make test-input` (OS-free pad-model unit test).
+- CRATE ASSET (2026-06-11, user-confirmed fidelity): the GLOBAL default
+  `assets/enemy_crate.emdl` is the WOODEN shipping crate (the n0
+  leaf-table entry 0x0D carve — decomp `export_props.py --crate
+  --crate-dir extract/chunk06.n0`). Table nuance, recorded honestly: the
+  old cardboard carve came from the n1 (office sub-1) table, but NO
+  sub-1 placement spawns a crate (the captured office places zero), so
+  no shipped scene genuinely binds cardboard; it stays local as
+  `assets/enemy_crate_cardboard_n1.emdl` and the scene-local
+  `<scene>/props/enemy_crate.emdl` probe can re-bind it per scene if a
+  binding is ever proven.
 
 ## Build
 

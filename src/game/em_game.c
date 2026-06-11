@@ -178,9 +178,10 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * quantizer + speed table (the s31 decode, constants below): the raw
  * stick magnitude picks gait 1/2/3 = turn-in-place/walk/run at
  * 0/6/18 u/s. Keyboard full push = RUN (matching the PCSX2 keyboard
- * feel); the input layer's Alt vector-magnitude cap (0.8, raw ~102)
- * lands in the walk ring in every stick direction
- * (em_input.h DEBUG GAIT HOLD). WALK_SPEED stays as the door-transit
+ * feel); the input layer's modifier vector-magnitude caps land each
+ * hold in ITS ring in every stick direction — Cmd 0.8 (raw ~102) =
+ * the WALK band, Option 0.5 (raw 64) = the gait-1 TURN/creep band
+ * (em_input.h GAIT HOLD TIERS). WALK_SPEED stays as the door-transit
  * scripted MOVE-TO speed only (em_door's walk, not stick locomotion —
  * the historical port constant keeps the transit timings). */
 #define FRAME_DT        (1.0f / 60.0f)
@@ -4244,21 +4245,22 @@ static void gameplay_frame(void)
      * per-frame rise for verification. */
     if (g.capture_rise && g.frame_no == 0)
         move_test_inject('s', 1);           /* debug instrumentation only */
-    /* EM_CAPTURE_ORIENT=1: Alt (walk cap) + 'a' for 30 frames — the
-     * facing swings ~90 deg (the same facing-seek runs for every moving
-     * gait) while gait-2 WALK drifts ~3 u left — then idle. (Before the
-     * walk-cap fix the Alt deflection landed in the gait-1 TURN-IN-PLACE
-     * ring, so older orient captures show no translation; keyboard input
-     * can no longer reach gait 1.) After CAM_AUTO_DELAY the camera slowly
-     * auto-orients behind the new facing (EM_CAMERA_TRACE prints the
-     * seek); capture late (~frame 450) to see it settled. */
+    /* EM_CAPTURE_ORIENT=1: Cmd (WALK-band hold) + 'a' for 30 frames —
+     * the facing swings ~90 deg (the same facing-seek runs for every
+     * moving gait) while gait-2 WALK drifts ~3 u left — then idle.
+     * (2026-06-11 GAIT HOLD TIERS, em_input.h: the WALK hold moved from
+     * Option to COMMAND; Option is now the gait-1 TURN/creep hold —
+     * deliberately reachable again from the keyboard.) After
+     * CAM_AUTO_DELAY the camera slowly auto-orients behind the new
+     * facing (EM_CAMERA_TRACE prints the seek); capture late (~frame
+     * 450) to see it settled. */
     if (g.capture_orient) {
         if (g.frame_no == 0) {
-            move_test_inject(EM_KEY_ALT, 1);
+            move_test_inject(EM_KEY_CMD, 1);
             move_test_inject('a', 1);
         } else if (g.frame_no == 30) {
             move_test_inject('a', 0);
-            move_test_inject(EM_KEY_ALT, 0);
+            move_test_inject(EM_KEY_CMD, 0);
         }
     }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
