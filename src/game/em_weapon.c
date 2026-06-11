@@ -7,6 +7,7 @@
 #include "game/em_weapon.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -99,9 +100,18 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
                                  * playhead gains 2 clip-frames/tick    */
 
 /* --- FLASHLIGHT (em_weapon.h "FLASHLIGHT" block; SQUARE while aiming,
- *     attachment 0 — the engine's D_00810D3C flag with the s28b light
- *     mechanics: 300-frame auto-off burst, anim/sound id 0x15D, no
- *     battery drain). ----------------------------------------------- */
+ *     attachment 0 — the engine's D_00810D3C flag: a PERSISTENT
+ *     PREFERENCE, replayed on every rifle draw, NO timer; corrected
+ *     2026-06-11 user-fidelity pass against the real game). --------- */
+
+/* SHOULDER-LIGHT BURST (the SEPARATE s28b system — the player +0xA
+ * light byte family: 300-frame auto-off burst, anim/sound id 0x15D,
+ * zero battery drain). KEPT but UNHOOKED: the old port wiring ran this
+ * burst off the Square toggle, which made the gun light "run out" —
+ * the real game's gun light never does (user-attested against the
+ * original). Nothing arms the burst until the L3 stealth-light input
+ * path is decoded; the tick + expiry code below stays faithful for
+ * that day. */
 #define WPN_LIGHT_FRAMES   300    /* +0x28 = 0x12C (5 s @ 60 Hz)        */
 #define WPN_ANIM_LIGHT_OFF 0x15D  /* auto-off gesture (engine commits it
                                    * via the clip arbiter, blend 8.0)   */
@@ -112,13 +122,17 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 /* FLASHLIGHT SPOT (the port's documented DEVIATION — em_weapon.h
  * "RENDERING" / em_gfx.h "Flashlight spot light": the engine renders
  * NOTHING for the toggle, so these are PORT VALUES, flagged, not
- * decoded constants). Pose = the hand-frame muzzle ray (the laser's
- * anchor and axis; yaw fallback without the clips); a warm-white beam
- * with a ~15-degree hotspot fading to nothing by ~25 degrees and a
- * quadratic range falloff inside the laser's own 260-unit reach. */
+ * decoded constants — tuned 2026-06-11 against the user's reference
+ * capture of the original). Pose = the hand-frame muzzle ray (the
+ * laser's anchor and axis; yaw fallback without the clips). The
+ * reference shows a SHARP-EDGED projected disc on the wall (a tight
+ * cone, crisp rim) — so the cone is narrow (~12-degree half-angle)
+ * with a 1-degree smoothstep rim: a hard-cut disc with a slightly
+ * soft edge, not the old 15->25-degree wash. Visible ONLY in the AIM
+ * phase, the laser's own gate. */
 #define WPN_LIGHT_RANGE   200.0f  /* falloff distance, world units      */
-#define WPN_LIGHT_COS_IN  0.966f  /* cos ~15 deg — full-intensity core  */
-#define WPN_LIGHT_COS_OUT 0.906f  /* cos ~25 deg — cone edge            */
+#define WPN_LIGHT_COS_IN  0.9799f /* cos ~11.5 deg — the disc           */
+#define WPN_LIGHT_COS_OUT 0.9763f /* cos ~12.5 deg — crisp 1-deg rim    */
 static const float kLightColor[3] = { 1.00f, 0.95f, 0.82f };
 
 /* --- FIRE SUB-STATE MACHINE (engine +0x07; decoded 2026-06-11 from the
@@ -203,14 +217,23 @@ enum {
  * ticks 0..2 (a 4.9-unit forward star along local +X, +-2.3 radial,
  * with a func_001F4F90(2.4) line-burst pass), model 0x07 at tick 3
  * (same star shape), freed at tick 15; scale starts 0.15 + 0.05*rand01
- * and grows by a decaying velocity (vel 0.15, *0.8 per tick), all
- * faces sampling one additive effect sheet (TEX0 key 0x457b5594220a0).
- * The port draws the same envelope with the world-space beam/dot
- * primitives: a forward streak (axial-billboard quad along the gun
- * axis, model 8's 4.9 x 4.6 footprint x scale) + a radial core dot
- * (model 0xD's ~3.6-unit footprint x scale), additive, intensity
- * decaying with the engine's own velocity constant (0.8^t — the
- * untextured stand-in for the effect sheet's falloff; flagged). */
+ * and grows by a decaying velocity (vel 0.15, *0.8 per tick).
+ * TEXTURES (exported 2026-06-11, export_props --fx — correcting the
+ * s43 "one sheet" note): models 0x0D and 0x07 sample the 64x32 sheet
+ * 0x...4220A0 full-frame (flash_puff.emtx); model 0x08's forward
+ * streak samples its OWN 64x32 sheet 0x...4220A4 (flash_star.emtx)
+ * and its muzzle-base radial cross (X ~ 0, +-1.3 YZ) a 32x32 sheet
+ * 0x...4221E6 (flash_ball.emtx). The port draws the engine's own
+ * model-per-tick schedule as textured additive billboards through the
+ * beam pass (em_gfx_beam_tex / _dot_tex): spawn tick = the model-0xD
+ * radial puff (camera-facing, puff sheet); ticks 0..2 = the model-8
+ * forward streak (axial quad along the gun axis, star sheet) + muzzle
+ * ball (camera-facing, ball sheet); tick 3+ = the model-7 star (the
+ * puff sheet on the streak quad) — all scaled by the live FX scale,
+ * intensity decaying with the engine's own 0.8^t velocity constant
+ * (the stand-in for the untranslated rotation lerp, flagged). With
+ * the .emtx files absent the old flat-color core + streak fallback
+ * draws instead. */
 #define WPN_FLASH_TICKS    16    /* FX lifetime: freed at tick 15        */
 #define WPN_FLASH_S0       0.15f /* initial scale (+ 0.05 * rand01)      */
 #define WPN_FLASH_S0_RND   0.05f
@@ -219,6 +242,26 @@ enum {
 #define WPN_FLASH_STAR_LEN 4.9f  /* model 0x08 +X extent (measured)      */
 #define WPN_FLASH_STAR_W   4.6f  /* model 0x08 radial extent (2 x 2.3)   */
 #define WPN_FLASH_CORE     3.6f  /* model 0x0D radial footprint          */
+#define WPN_FLASH_BALL     2.6f  /* model 0x08 muzzle-cross extent
+                                  * (2 x 1.3 — the ball-sheet records)   */
+
+/* --- FX SPRITE TEXTURES (the assets/fx .emtx files -> the em_gfx beam-
+ *     slots; exported by the decomp repo's export_props.py --fx).
+ *     .emtx v1: "EMTX", u32 version=1, u32 w, u32 h, w*h*4 RGBA8 rows
+ *     top-down. Loaded lazily on the first em_weapon_render with a
+ *     device; a missing/bad file leaves its slot unregistered and the
+ *     drawers fall back to the old flat-color primitives — a missing
+ *     asset never regresses the frame. ------------------------------- */
+enum {
+    FX_TEX_DOT  = 0,    /* laser_dot.emtx  — func_001CD520 dot sprite  */
+    FX_TEX_PUFF = 1,    /* flash_puff.emtx — flash models 0x0D/0x07    */
+    FX_TEX_STAR = 2,    /* flash_star.emtx — model 0x08 forward streak */
+    FX_TEX_BALL = 3     /* flash_ball.emtx — model 0x08 muzzle cross   */
+};
+static const char *const kFxFiles[4] = {
+    "assets/fx/laser_dot.emtx", "assets/fx/flash_puff.emtx",
+    "assets/fx/flash_star.emtx", "assets/fx/flash_ball.emtx"
+};
 
 /* --- KNIFE / MELEE constants (em_weapon.h "KNIFE / MELEE"; decoded
  *     2026-06-10 s36 — FINDINGS "KNIFE/MELEE DECODED". All table values
@@ -285,10 +328,13 @@ static struct {
     int     burst;       /* +0x28 burst counter, rounds fired this burst  */
     int     burst_pause; /* WPN_SUB_GAP ticks until the next burst        */
 
-    int     light_on;    /* FLASHLIGHT flag (engine D_00810D3C / player
-                          * +0xA light byte)                              */
-    int     light_timer; /* 300-frame auto-off burst countdown (+0x28
-                          * = 0x12C); ticks every frame, any stance       */
+    int     light_on;    /* FLASHLIGHT preference flag (engine D_00810D3C:
+                          * persists across aim sessions until toggled —
+                          * NO timer; the spot renders only in AIM)       */
+    int     shoulder_timer; /* the SEPARATE s28b shoulder-light burst
+                          * countdown (+0x28 = 0x12C, ticks every frame,
+                          * any stance) — KEPT but UNHOOKED: nothing arms
+                          * it (see the SHOULDER-LIGHT BURST block)       */
     float   light_pos[3];/* spot anchor — the hand-frame muzzle point
                           * (PORT visual, em_weapon.h "RENDERING")        */
     float   light_dir[3];/* spot axis — the muzzle ray direction          */
@@ -1068,15 +1114,18 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             em_sfx_play(EM_SFX_WPN_CASING); /* 0x16A casing, shot+42  */
     }
 
-    /* FLASHLIGHT auto-off burst (em_weapon.h "FLASHLIGHT"): the
-     * 300-frame timer down-counts EVERY frame regardless of stance
-     * (engine: the player spine, 0x00161138); at 0 the light turns
-     * itself off — switch sound 0x15D, and the 0x15D turn-off gesture
-     * commits only in the unarmed idle (the armed tops re-select their
-     * pose every frame in the engine; the port's hold would otherwise
-     * be clobbered — documented simplification). */
-    if (w.light_on && w.light_timer > 0 && --w.light_timer == 0) {
-        w.light_on = 0;
+    /* SHOULDER-LIGHT auto-off burst (the SEPARATE s28b L3 stealth-light
+     * system — em_weapon.c "SHOULDER-LIGHT BURST" constants block; NOT
+     * the gun-light preference, which has no timer): the 300-frame
+     * timer down-counts EVERY frame regardless of stance (engine: the
+     * player spine, 0x00161138); at 0 the light turns itself off —
+     * switch sound 0x15D, and the 0x15D turn-off gesture commits only
+     * in the unarmed idle (the armed tops re-select their pose every
+     * frame in the engine; the port's hold would otherwise be
+     * clobbered — documented simplification). UNHOOKED: nothing arms
+     * the timer until the L3 input path is decoded, so this block is
+     * faithfully dormant. */
+    if (w.shoulder_timer > 0 && --w.shoulder_timer == 0) {
         em_sfx_play(WPN_SFX_LIGHT_OFF);             /* 0x15D, 920 ms  */
         if (w.state == EM_WPN_HOLSTERED && m.state == EM_MELEE_IDLE)
             em_game_anim_request(WPN_ANIM_LIGHT_OFF, 1.0f);
@@ -1134,11 +1183,14 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 /* SQUARE while armed = the SUB-WEAPON action
                  * (func_0017A970), attachment 0 = the FLASHLIGHT
                  * toggle (em_weapon.h "FLASHLIGHT" — the engine's
-                 * D_00810D3C flag, user-attested identity, with the
-                 * s28b light mechanics). ON: sound 0x179 (the s29
-                 * live capture) + the 300-frame auto-off burst; OFF:
-                 * silent (engine 1->0 plays nothing), timer cleared.
-                 * No ammo use, no battery drain, no state change. */
+                 * D_00810D3C flag, user-attested identity). The flag
+                 * is a PERSISTENT PREFERENCE: it survives holsters
+                 * and re-draws until toggled again, with NO timer
+                 * (the 300-frame burst belongs to the separate
+                 * shoulder-light system — the dormant block above).
+                 * ON: sound 0x179 (the s29 live capture); OFF: silent
+                 * (engine 1->0 plays nothing). No ammo use, no
+                 * battery drain, no state change. */
                 int square = (in->pressed & EM_PAD_SQUARE) != 0;
                 if (w.light_cap) {          /* EM_CAPTURE_LIGHT one-shot
                                              * synthetic Square (debug
@@ -1148,12 +1200,10 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 }
                 if (square) {
                     if (!w.light_on) {
-                        w.light_on    = 1;
-                        w.light_timer = WPN_LIGHT_FRAMES;   /* 0x12C */
+                        w.light_on = 1;
                         em_sfx_play(EM_SFX_SUB_TOGGLE);     /* 0x179 */
                     } else {
-                        w.light_on    = 0;
-                        w.light_timer = 0;
+                        w.light_on = 0;
                     }
                 }
             }
@@ -1195,17 +1245,18 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
 
     /* FLASHLIGHT SPOT pose + set (the PORT's documented deviation —
      * em_weapon.h "RENDERING": the engine draws nothing for the
-     * toggle). Pose = the hand-frame muzzle ray, refreshed every frame
-     * the light is on (any stance — the burst keeps ticking after a
-     * stance drop and the ray helper falls back to chest-height along
-     * yaw without a hand frame). The spot is handed to the gfx layer
-     * HERE, during the update stage: em_gfx_begin_frame already ran
-     * (the frame loop's stage B) and the close-out's skinned draws
-     * haven't — so the term lights THIS frame's draws. w.gfx is the
-     * device cached by em_weapon_render (NULL only before the first
-     * rendered frame — one unlit frame, same staleness class as the
-     * bone publish). */
-    if (w.light_on) {
+     * toggle). Gated EXACTLY like the laser: the light is visible ONLY
+     * in the AIM phase — not during the draw, reload or holster clips
+     * and not holstered (the real game: light + laser appear only
+     * while aiming, vanish together during a reload; the PREFERENCE
+     * flag itself persists). Pose = the hand-frame muzzle ray. The
+     * spot is handed to the gfx layer HERE, during the update stage:
+     * em_gfx_begin_frame already ran (the frame loop's stage B) and
+     * the close-out's skinned draws haven't — so the term lights THIS
+     * frame's draws. w.gfx is the device cached by em_weapon_render
+     * (NULL only before the first rendered frame — one unlit frame,
+     * same staleness class as the bone publish). */
+    if (w.light_on && w.laser_on) {
         weapon_muzzle_ray(player_pos, player_yaw,
                           w.light_pos, w.light_dir, NULL);
         if (w.gfx)
@@ -1217,12 +1268,60 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
 
 /* --- World-space weapon visuals (laser sight + muzzle flash) ----------- */
 
-/* Muzzle-flash palette (PORT VALUES, flagged: the engine's color comes
- * from the additive effect sheet's texels, unextracted — a hot near-
- * white core falling to a warm orange streak is the additive-stand-in
- * reading of the flash models' shared sheet). */
+/* Muzzle-flash FALLBACK palette (used only when the .emtx sheets are
+ * absent: a hot near-white core falling to a warm orange streak — the
+ * old additive stand-in reading of the flash sheets). */
 static const float kFlashCore[3]  = { 1.0f, 0.93f, 0.70f };
 static const float kFlashStar[3]  = { 1.0f, 0.62f, 0.22f };
+
+/* FX sprite-texture loader (the FX SPRITE TEXTURES block at the top):
+ * reads the assets/fx .emtx files once and registers the em_gfx
+ * beam-texture slots. fx.ok[slot] = 1 only when the slot registered —
+ * the drawers check it per primitive and otherwise keep the flat-color
+ * fallback, so a missing asset never regresses the frame. */
+static struct { int tried; int ok[4]; } fx;
+
+static uint32_t fx_u32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void fx_load(EmGfx *gfx)
+{
+    if (fx.tried) return;
+    fx.tried = 1;
+    for (int i = 0; i < 4; i++) {
+        FILE *f = fopen(kFxFiles[i], "rb");
+        if (!f) continue;                   /* absent: silent fallback */
+        uint8_t hdr[16];
+        if (fread(hdr, 1, sizeof hdr, f) != sizeof hdr ||
+            memcmp(hdr, "EMTX", 4) != 0 || fx_u32(hdr + 4) != 1) {
+            fprintf(stderr, "weapon: %s: bad .emtx header\n", kFxFiles[i]);
+            fclose(f);
+            continue;
+        }
+        uint32_t tw = fx_u32(hdr + 8), th = fx_u32(hdr + 12);
+        if (!tw || !th || tw > 1024 || th > 1024) {
+            fprintf(stderr, "weapon: %s: implausible size %ux%u\n",
+                    kFxFiles[i], tw, th);
+            fclose(f);
+            continue;
+        }
+        size_t   bytes = (size_t)tw * th * 4;
+        uint8_t *rgba  = (uint8_t *)malloc(bytes);
+        if (rgba && fread(rgba, 1, bytes, f) == bytes &&
+            em_gfx_beam_texture_set(gfx, i, rgba, tw, th)) {
+            fx.ok[i] = 1;
+            fprintf(stderr, "weapon: fx sprite %s (%ux%u)\n",
+                    kFxFiles[i], tw, th);
+        } else {
+            fprintf(stderr, "weapon: %s: truncated/failed\n", kFxFiles[i]);
+        }
+        free(rgba);
+        fclose(f);
+    }
+}
 
 /* Soft additive glow: three concentric camera-facing squares with the
  * intensity split across them (0.55/0.30/0.15 at 1/3, 2/3 and full
@@ -1243,27 +1342,50 @@ static void glow_dot(EmGfx *gfx, const float p[3], float size,
     }
 }
 
-/* The muzzle flash through the beam/dot pass — the envelope of the
- * engine FX actor func_001F5040 variant 0 (constants block at the top):
- * a radial core (model 0xD's footprint) + a forward star streak along
- * the gun axis (model 8/7's +X footprint), both scaled by the live FX
- * scale and dimmed by the engine's own 0.8^t velocity decay. */
+/* The muzzle flash through the beam/dot pass — the engine FX actor
+ * func_001F5040 variant 0's own model-per-tick schedule (the MUZZLE
+ * FLASH block at the top), drawn as TEXTURED additive billboards with
+ * the real effect sheets: spawn tick = the model-0xD radial puff;
+ * ticks 0..2 = the model-8 forward star (its own sheet) + muzzle
+ * ball; tick 3+ = the model-7 star (the puff sheet). Scaled by the
+ * live FX scale; intensity decays with the engine's own 0.8^t
+ * velocity constant (the flagged stand-in for the untranslated
+ * rotation lerp). Sheets absent -> the old flat-color core + streak. */
 static void flash_render(EmGfx *gfx)
 {
-    float in = w.flash_vel / WPN_FLASH_VEL;        /* 0.8^t       */
-    float s  = w.flash_scale;
-
-    /* core glow at the barrel tip (model 0xD's radial puff) */
-    float core[3] = { kFlashCore[0] * in, kFlashCore[1] * in,
-                      kFlashCore[2] * in };
-    glow_dot(gfx, w.flash_pos, WPN_FLASH_CORE * s, core);
-
-    /* forward star: axial-billboard streak muzzle -> +dir, bright at
-     * the muzzle fading out along it (the star models taper); two
-     * widths layered like glow_dot so the streak has a soft rim. */
+    float in  = w.flash_vel / WPN_FLASH_VEL;       /* 0.8^t       */
+    float s   = w.flash_scale;
+    int   age = WPN_FLASH_TICKS - w.flash;         /* 1 = spawn frame  */
     float end[3] = { w.flash_pos[0] + w.flash_dir[0] * WPN_FLASH_STAR_LEN * s,
                      w.flash_pos[1] + w.flash_dir[1] * WPN_FLASH_STAR_LEN * s,
                      w.flash_pos[2] + w.flash_dir[2] * WPN_FLASH_STAR_LEN * s };
+
+    if (fx.ok[FX_TEX_PUFF] && fx.ok[FX_TEX_STAR] && fx.ok[FX_TEX_BALL]) {
+        float c[4] = { in, in, in, 1.0f };
+        if (age <= 1) {
+            /* INIT binding: model 0xD — the radial puff (camera-facing;
+             * the engine model is a small rosette of quads) */
+            em_gfx_beam_dot_tex(gfx, FX_TEX_PUFF, w.flash_pos,
+                                WPN_FLASH_CORE * s, c);
+        } else if (age <= 4) {
+            /* ticks 0..2: model 8 — forward +X star (own sheet) +
+             * the muzzle-base radial cross (ball sheet) */
+            em_gfx_beam_tex(gfx, FX_TEX_STAR, w.flash_pos, end,
+                            WPN_FLASH_STAR_W * s, c);
+            em_gfx_beam_dot_tex(gfx, FX_TEX_BALL, w.flash_pos,
+                                WPN_FLASH_BALL * s, c);
+        } else {
+            /* tick 3+: model 7 — the same star shape on the puff sheet */
+            em_gfx_beam_tex(gfx, FX_TEX_PUFF, w.flash_pos, end,
+                            WPN_FLASH_STAR_W * s, c);
+        }
+        return;
+    }
+
+    /* FALLBACK (sheets absent): flat-color core glow + tapered streak. */
+    float core[3] = { kFlashCore[0] * in, kFlashCore[1] * in,
+                      kFlashCore[2] * in };
+    glow_dot(gfx, w.flash_pos, WPN_FLASH_CORE * s, core);
     float cb[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     static const float wlayer[2][2] = { { 0.45f, 0.65f }, { 1.0f, 0.35f } };
     for (int i = 0; i < 2; i++) {
@@ -1279,8 +1401,11 @@ void em_weapon_render(EmGfx *gfx)
 {
     if (!gfx) return;
     /* Cache the device for the update stage's hand-bone reads
-     * (em_gfx_last_skinned_bone — see weapon_hand_matrix). */
+     * (em_gfx_last_skinned_bone — see weapon_hand_matrix), and load
+     * the FX sprite sheets once (no draw — the registration alone
+     * never touches the frame). */
     w.gfx = gfx;
+    fx_load(gfx);
 
     /* The flash FX actor outlives a stance drop (engine: a pool actor,
      * not gun state) — draw it whenever it is alive. */
@@ -1320,9 +1445,21 @@ void em_weapon_render(EmGfx *gfx)
             memcpy(pa, pb, sizeof pa);
             memcpy(ca, cb, sizeof ca);
         }
+        /* The DOT — the real func_001CD520 sprite when the exported
+         * texture is present: ONE textured additive billboard at the
+         * endpoint, the 32x16 glow image squeezed onto the engine's
+         * square 3x3 quad (= a soft round dot), modulated by the
+         * flickering red exactly like the GS TFX-modulate draw.
+         * Fallback: the old 3-layer concentric flat-color glow. */
         float dr = (float)(0x50 + (wpn_rand() & 0x1F)) / 128.0f;
-        float dot[3] = { dr, 0.0f, 0.0f };
-        glow_dot(gfx, w.laser_b, WPN_DOT_SIZE, dot);
+        if (fx.ok[FX_TEX_DOT]) {
+            float dc[4] = { dr, 0.0f, 0.0f, 1.0f };
+            em_gfx_beam_dot_tex(gfx, FX_TEX_DOT, w.laser_b, WPN_DOT_SIZE,
+                                dc);
+        } else {
+            float dot[3] = { dr, 0.0f, 0.0f };
+            glow_dot(gfx, w.laser_b, WPN_DOT_SIZE, dot);
+        }
     }
 
     /* NO screen-space reticle: the real game aims with the laser dot
@@ -1368,7 +1505,9 @@ int em_weapon_melee_heavy(void)   { return m.heavy; }
 int em_weapon_melee_swings(void)  { return m.swings; }
 int em_weapon_melee_hits(void)    { return m.hits; }
 
-/* FLASHLIGHT introspection (em_weapon.h): the light flag (engine
- * D_00810D3C / player +0xA) and the auto-off burst frames left. */
+/* FLASHLIGHT introspection (em_weapon.h): the persistent preference
+ * flag (engine D_00810D3C — no timer), and the frames left on the
+ * SEPARATE shoulder-light burst (the dormant s28b system; always 0
+ * until its L3 input path is decoded and re-hooked). */
 int em_weapon_flashlight(void)       { return w.light_on; }
-int em_weapon_flashlight_timer(void) { return w.light_timer; }
+int em_weapon_flashlight_timer(void) { return w.shoulder_timer; }

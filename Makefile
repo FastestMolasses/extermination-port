@@ -59,7 +59,8 @@ test-input: tests/input_test.c src/em_input.c
 	./build/input_test
 
 # Unit test for the weapon fire sub-state machine (cadence gating, the
-# L3 top-up gate, dry-mag auto reload, flashlight toggle/burst): links
+# L3 top-up gate, dry-mag auto reload, the persistent flashlight
+# preference toggle — no auto-off): links
 # only em_weapon.c — every other module it talks to is stubbed in the
 # test, so it runs headless on any host.
 test-weapon: tests/weapon_fire_test.c src/game/em_weapon.c

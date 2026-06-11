@@ -13,9 +13,12 @@
  *      rounds NEEDED) is replicated.
  *   3. DRY-MAG AUTO RELOAD at the cadence EXPIRY (mode 1) — no second
  *      trigger press required.
- *   4. FLASHLIGHT — SQUARE while aiming toggles ON (sound 0x179, the
- *      300-frame auto-off burst) and OFF (silent); the timer expiry
- *      turns the light off by itself with the 0x15D switch sound.
+ *   4. FLASHLIGHT — SQUARE while aiming toggles the PERSISTENT
+ *      preference ON (sound 0x179) and OFF (silent); NO timer and NO
+ *      auto-off (the engine's D_00810D3C flag — the 300-frame burst
+ *      belongs to the separate, unhooked shoulder-light system, whose
+ *      introspection timer must stay 0); the flag survives a holster +
+ *      re-draw.
  *   5. AUTO parity — a 31-frame hold = 6 rounds (one per 6 frames).
  *
  * Links ONLY em_weapon.c; every other module the weapon talks to is
@@ -64,6 +67,15 @@ void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
 void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
                      const float c[4])
 { (void)gfx; (void)p; (void)size; (void)c; }
+int em_gfx_beam_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
+                            uint32_t w, uint32_t h)
+{ (void)gfx; (void)slot; (void)rgba; (void)w; (void)h; return 0; }
+void em_gfx_beam_tex(EmGfx *gfx, int slot, const float a[3],
+                     const float b[3], float width, const float c[4])
+{ (void)gfx; (void)slot; (void)a; (void)b; (void)width; (void)c; }
+void em_gfx_beam_dot_tex(EmGfx *gfx, int slot, const float p[3],
+                         float size, const float c[4])
+{ (void)gfx; (void)slot; (void)p; (void)size; (void)c; }
 void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
                        const float rgb[3], float range,
                        float cos_inner, float cos_outer)
@@ -217,7 +229,8 @@ int main(void)
           "empty mag auto-reloads at the cadence expiry (mode 1), "
           "without another trigger press");
 
-    /* 4. FLASHLIGHT — SQUARE while aiming. */
+    /* 4. FLASHLIGHT — SQUARE while aiming: a PERSISTENT preference,
+     * no timer, no auto-off (the corrected D_00810D3C model). */
     em_weapon_reset(30, 120);
     draw_to_aim();
     int on_sfx0  = sfx_count[0x179];
@@ -225,27 +238,35 @@ int main(void)
     frame(EM_PAD_SQUARE, 0);
     frame(0, EM_PAD_SQUARE);
     check(em_weapon_flashlight() == 1 &&
-          em_weapon_flashlight_timer() > 0 &&
-          em_weapon_flashlight_timer() <= 300 &&
-          sfx_count[0x179] == on_sfx0 + 1,
-          "SQUARE while aiming toggles the flashlight ON (0x179, "
-          "300-frame burst armed)");
-    frames(297);    /* 2 frames already ticked by the release/check */
-    check(em_weapon_flashlight() == 1, "light still on inside the burst");
-    frames(2);
-    check(em_weapon_flashlight() == 0 &&
           em_weapon_flashlight_timer() == 0 &&
-          sfx_count[0x15D] == off_sfx0 + 1,
-          "300-frame auto-off: light off by itself, 0x15D switch sound");
+          sfx_count[0x179] == on_sfx0 + 1,
+          "SQUARE while aiming toggles the flashlight ON (0x179; the "
+          "shoulder-burst timer stays unarmed)");
+    frames(400);    /* well past the old 300-frame burst */
+    check(em_weapon_flashlight() == 1 &&
+          sfx_count[0x15D] == off_sfx0,
+          "NO auto-off: still on after 400 frames, no 0x15D switch "
+          "sound (the light never runs out)");
+    /* the preference survives a holster + re-draw */
+    frame(0, EM_PAD_R1);                     /* drop the stance        */
+    frames(em_weapon_holster_ticks() + 2);
+    check(em_weapon_state() == EM_WPN_HOLSTERED &&
+          em_weapon_flashlight() == 1,
+          "holstered: the preference flag persists");
+    draw_to_aim();                           /* re-draw (R1 held)      */
+    check(em_weapon_flashlight() == 1,
+          "re-drawn: the light preference is replayed, no re-toggle");
     /* manual OFF is silent */
-    frame(EM_PAD_SQUARE, 0); frame(0, EM_PAD_SQUARE);
-    check(em_weapon_flashlight() == 1, "second toggle: ON again");
     int on_sfx1 = sfx_count[0x179];
     frame(EM_PAD_SQUARE, 0); frame(0, EM_PAD_SQUARE);
     check(em_weapon_flashlight() == 0 &&
-          em_weapon_flashlight_timer() == 0 &&
-          sfx_count[0x179] == on_sfx1,
-          "manual toggle-OFF is silent and clears the burst timer");
+          sfx_count[0x179] == on_sfx1 &&
+          sfx_count[0x15D] == off_sfx0,
+          "manual toggle-OFF is silent");
+    frame(EM_PAD_SQUARE, 0); frame(0, EM_PAD_SQUARE);
+    check(em_weapon_flashlight() == 1 &&
+          sfx_count[0x179] == on_sfx1 + 1,
+          "third toggle: ON again with 0x179");
 
     /* 5. AUTO parity: 31-frame hold = 6 rounds. */
     em_weapon_reset(30, 120);

@@ -282,6 +282,41 @@ void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
 void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
                      const float rgba[4]);
 
+/* --- TEXTURED beam sprites (laser dot + muzzle-flash sheets) ----------
+ *
+ * The engine's weapon FX are TEXTURED additive billboards: the laser
+ * dot is a func_001CD520 sprite sampling its own 32x16 glow texture,
+ * and the muzzle flash (func_001F5040 variant 0) binds chunk27 models
+ * 0x0D/0x08/0x07, whose faces sample three additive effect sheets
+ * (decomp FINDINGS "Muzzle flash FX" + "The DOT"). These slots carry
+ * those sheets so the beam pass can draw the REAL sprites instead of
+ * flat-color quads (em_weapon.c loads the assets/fx .emtx files into
+ * them). */
+#define EM_GFX_BEAM_TEX_MAX 4
+
+/* Register one beam texture slot (0..EM_GFX_BEAM_TEX_MAX-1). `rgba` is
+ * w*h RGBA8 texels, rows top-down, copied into a GPU texture (the
+ * caller may free it). Returns 1 on success, 0 on failure (no device /
+ * bad slot / bad args) — callers fall back to the untextured
+ * primitives so a missing asset never regresses the frame. */
+int em_gfx_beam_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
+                            uint32_t w, uint32_t h);
+
+/* em_gfx_beam / em_gfx_beam_dot sampling a registered slot's texture
+ * across the whole quad (UV 0..1; the FX sheets are full-frame sprite
+ * images — the flash models sample them edge to edge). The fragment is
+ * sample * rgba through the SAME additive, depth-test-on/write-off
+ * state as the untextured beams (additive ignores alpha), in the same
+ * flush and against the same EM_GFX_BEAM_MAX budget; textured
+ * primitives draw AFTER the untextured set, grouped by slot. For the
+ * axial-billboard quad, u runs a -> b along the segment (the flash
+ * star's muzzle -> tip axis), v across it. No-op (queues nothing) when
+ * the slot has no texture — callers keep their untextured fallback. */
+void em_gfx_beam_tex(EmGfx *gfx, int slot, const float a[3],
+                     const float b[3], float width, const float rgba[4]);
+void em_gfx_beam_dot_tex(EmGfx *gfx, int slot, const float p[3],
+                         float size, const float rgba[4]);
+
 /* --- Flashlight spot light (forward spot term) ------------------------ */
 
 /* Set THIS frame's single forward SPOT LIGHT, applied by every skinned

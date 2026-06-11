@@ -127,10 +127,14 @@
  *     (0.7, 0, 0, 1); with a LOCKED target (D_008106E0, aim option 1)
  *     the engine switches to (1.0, 0.6, 0.2, 1) — pending lock-on.
  *   DOT (func_001CD520 billboard at the endpoint): 3.0-unit additive
- *     glow, color R = (0x50 + rand5)/0x80, G = B = 0 (locked: 5.0-unit,
- *     R/G/B = (0x70/0x40/0x20 + rand5)/0x80).
+ *     sprite sampling the REAL exported glow texture (assets/fx/
+ *     laser_dot.emtx — the disasm's 0x...4222DC key, a 32x16 soft
+ *     radial blob squeezed onto the square quad = one smooth round
+ *     dot), modulated by color R = (0x50 + rand5)/0x80, G = B = 0
+ *     (locked: 5.0-unit, R/G/B = (0x70/0x40/0x20 + rand5)/0x80).
+ *     Texture absent: the old 3-layer flat-color glow fallback.
  * Both draws are additive with depth test on / write off, exactly the
- * GS states of the original pass (em_gfx_beam / em_gfx_beam_dot).
+ * GS states of the original pass (em_gfx_beam / em_gfx_beam_dot_tex).
  *
  * PLAYER ANIMS (wired 2026-06-10 s24, fire recoil s25 — FINDINGS "ANIM
  * ID MAPPING" + "FIRE ANIM MECHANISM"): the state entries drive the
@@ -172,17 +176,22 @@
  * latency by construction). Fallback when the loaded player EMDL lacks
  * the weapon clips: the old flagged chest-height/yaw stand-in.
  *
- * MUZZLE FLASH (2026-06-11 — replaces the overlay placeholder): the
+ * MUZZLE FLASH (2026-06-11; TEXTURED 2026-06-11 fidelity pass): the
  * engine's func_00187CC0 spawns a 16-tick FX actor (func_001F5040
  * variant 0) at the barrel tip: chunk27 effect models 0xD (radial
  * puff) / 8 then 7 (forward +X star, 4.9 x 4.6 footprint), scale
  * 0.15 + 0.05*rand growing by a 0.8-decay velocity, additive. The
- * port draws that envelope through the world-space beam pass: a core
- * dot + a forward streak at the real tip point, intensity decaying
- * with the engine's own 0.8^t constant (untextured stand-in for the
- * effect sheet, flagged; tracer func_001860A0 still untranslated).
- * There is NO crosshair and NO hit-pulse overlay: the real game aims
- * with the laser dot alone (s23 live aim capture).
+ * port draws the engine's own model-per-tick schedule as TEXTURED
+ * additive billboards through the beam pass, sampling the REAL
+ * exported effect sheets (assets/fx/flash_puff/_star/_ball.emtx —
+ * export_props --fx; the models sample them full-frame): spawn tick
+ * = the 0xD puff, ticks 0..2 = the model-8 star streak + muzzle
+ * ball, tick 3+ = the model-7 star on the puff sheet; intensity
+ * decays with the engine's own 0.8^t constant (stand-in for the
+ * untranslated rotation lerp, flagged; sheets absent = flat-color
+ * fallback; tracer func_001860A0 still untranslated). There is NO
+ * crosshair and NO hit-pulse overlay: the real game aims with the
+ * laser dot alone (s23 live aim capture).
  *
  * AIM CAMERA HOOKUP (APPLIED 2026-06-10 s24): the engine lowers the
  * camera's follow target while aiming (camera struct +0x8C target-height
@@ -214,26 +223,30 @@
  *     single stab.
  *
  * FLASHLIGHT (2026-06-11 weapon-fidelity pass — user-attested identity
- * for the s36 open item "what does D_00810D3C arm?"): while the rifle
- * IS drawn (armed stances 0x31/0x32/0x34/0x35), SQUARE routes to the
- * SUB-WEAPON action func_0017A970; with attachment 0 (D_00810CA6 == 0)
- * it TOGGLES the FLASHLIGHT — the real game's gun light (the flag the
- * engine keeps in D_00810D3C, replayed on the next rifle draw; the s29
- * live capture's "0x179, no ammo use" was the toggle-ON sound). The
- * port implements it with the s28b-decoded light mechanics (FINDINGS
- * "BATTERY LOCATED ... L3 light" — the player +0xA light byte family):
- *   - toggle ON: flag set, sound 0x179 vol 300 (pinned), and the
- *     300-frame (5 s) auto-off burst timer loads (+0x28 = 0x12C);
- *   - the timer down-counts EVERY frame (engine: the player spine,
- *     0x00161138) regardless of stance; at 0 the light turns itself
- *     off, anim/event id 0x15D commits (the turn-off gesture; the same
- *     id is the pinned 920 ms switch SOUND — both play; the port gates
- *     the anim request on the unarmed idle so the held aim pose is not
- *     clobbered, a documented simplification) ;
- *   - toggle OFF (second press): silent, timer cleared (engine: 1->0
- *     plays nothing);
- *   - ZERO battery drain (live-verified s28b: watch_change on 0x810CB2
- *     across a full on->auto-off cycle saw 0 writes).
+ * for the s36 open item "what does D_00810D3C arm?"; MODEL CORRECTED
+ * 2026-06-11 against the real game): while the rifle IS drawn (armed
+ * stances 0x31/0x32/0x34/0x35), SQUARE routes to the SUB-WEAPON action
+ * func_0017A970; with attachment 0 (D_00810CA6 == 0) it TOGGLES the
+ * FLASHLIGHT — the real game's gun light (the flag the engine keeps in
+ * D_00810D3C, replayed on the next rifle draw; the s29 live capture's
+ * "0x179, no ammo use" was the toggle-ON sound). The flag is a
+ * PERSISTENT PREFERENCE:
+ *   - toggle ON: flag set, sound 0x179 vol 300 (pinned);
+ *   - toggle OFF (second press): silent (engine: 1->0 plays nothing);
+ *   - NO timer, NO auto-off, ZERO battery drain — the light never
+ *     runs out (user-attested vs the original; the s28b 300-frame
+ *     burst the port previously hung off this toggle belongs to the
+ *     SEPARATE shoulder-light stealth system, see below);
+ *   - the preference persists across holsters/re-draws until toggled.
+ * SHOULDER-LIGHT BURST (the separate s28b system — FINDINGS "BATTERY
+ * LOCATED ... L3 light", the player +0xA light byte family): the
+ * 300-frame (5 s) auto-off burst (+0x28 = 0x12C, down-counting every
+ * frame on the player spine 0x00161138; expiry commits anim/event id
+ * 0x15D — the turn-off gesture AND the pinned 920 ms switch sound —
+ * and drains zero battery, live-verified s28b). The port KEEPS that
+ * code (em_weapon.c "SHOULDER-LIGHT BURST") but it is UNHOOKED from
+ * Square — nothing arms it until the L3 stealth-light input path is
+ * decoded. em_weapon_flashlight_timer() introspects it (always 0).
  * RENDERING (2026-06-11 render-decode session — retires the s47 "visual
  * TODO" flag): the ENGINE TRUTH, pinned by an exhaustive static sweep
  * of the boot ELF (decomp FINDINGS "FLASHLIGHT RENDER DECODE"), is that
@@ -242,14 +255,19 @@
  * readers are gameplay: the enemy-AI awareness checks, the pose-row
  * substitution and the sounds; the engine's per-actor VU1 light matrix
  * carries an ALWAYS-ON camera-direction light instead, and level
- * geometry is baked). The port deliberately DEVIATES: while the light
- * is on, em_weapon_update sets the gfx layer's forward SPOT term
- * (em_gfx_spot_light) from the hand-frame muzzle ray (the laser's
- * anchor; yaw fallback without the clips), so the toggle produces the
- * visible cone on the wall the player faces. Deviation documented at
- * the API (em_gfx.h "Flashlight spot light").
+ * geometry is baked). The port deliberately DEVIATES: em_weapon_update
+ * sets the gfx layer's forward SPOT term (em_gfx_spot_light) from the
+ * hand-frame muzzle ray (the laser's anchor; yaw fallback without the
+ * clips) — gated EXACTLY like the laser, AIM phase only: light and
+ * laser appear together while aiming and vanish together during the
+ * draw/reload/holster clips and holstered (the reference capture of
+ * the original). The projected circle is SHARP-EDGED per the
+ * reference: a ~12-degree cone with a 1-degree smoothstep rim (a
+ * crisp disc with a slightly soft edge — em_weapon.c "FLASHLIGHT
+ * SPOT" constants). Deviation documented at the API (em_gfx.h
+ * "Flashlight spot light").
  * EM_CAPTURE_LIGHT=1 (debug instrumentation): synthesizes ONE Square
- * toggle on the first aim frame so headless captures show the lit cone
+ * toggle on the first aim frame so headless captures show the lit disc
  * (use with EM_CAPTURE_AIM=1).
  *
  * LIGHT COMBO (mode 0x21, func_001735C0; per-attack rows idx 0 of the
@@ -417,10 +435,11 @@ int em_weapon_melee_heavy(void);  /* 1 = the active swing is the heavy   */
 int em_weapon_melee_swings(void); /* attacks started since reset         */
 int em_weapon_melee_hits(void);   /* impact-tick victims since reset     */
 
-/* FLASHLIGHT (header block above; the D_00810D3C / player +0xA light
- * state): 1 while the light is on. The timer accessor reports the
- * frames left on the 300-frame auto-off burst (0 when off/expired) —
- * self-test introspection. */
+/* FLASHLIGHT (header block above): em_weapon_flashlight = the
+ * persistent D_00810D3C preference flag (1 while set — note the SPOT
+ * renders only in the AIM phase). em_weapon_flashlight_timer = frames
+ * left on the SEPARATE shoulder-light burst (the dormant s28b system;
+ * 0 until its L3 input path is decoded) — self-test introspection. */
 int em_weapon_flashlight(void);
 int em_weapon_flashlight_timer(void);
 
