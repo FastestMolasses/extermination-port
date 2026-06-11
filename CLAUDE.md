@@ -110,8 +110,17 @@ files map each native stage to the PS2 function it stands in for.
   if a wall blocks the rotation path; a wall behind the camera makes it
   RISE (look down on the player) instead of pulling in — pull-in remains
   only for the aim camera and full-height-wall fallback. Per-room FIXED
-  camera angles exist in the engine (cut-table mode 0 = per-area director
-  + overlay hook) — future work, see camera_mode_dispatch.
+  camera angles are DECODED AND PORTED (2026-06-11, decomp FINDINGS
+  "MODE-0 CAMERA DIRECTOR DECODED"): they are MAIN-ELF data (per-area
+  director cases + the D_0024A5F0 trigger-volume table — NOT an overlay
+  hook), exported as scene.txt `camregion x0 z0 x1 z1 ygate ex ey ez`
+  lines (export_level.py --camregions). Inside a region the eye is
+  PINNED to the room spec (chase + wall solve off; target still tracks
+  the player), L1 and the idle auto-orient are NO-OPS, and the R1 aim
+  camera still runs — release snaps back INSTANTLY (the observed
+  behavior). Decode verdict: the office (AREA02) and drawbridge (AREA01
+  sub 0) scenes have NO real regions (all chase — their blocks carry
+  the verdict comment); scene_snow carries the one real AREA06 region.
 - The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
   needs a player.emdl exported with `--attach --no-glow --clips
   349,2,3,69,67,75,272,273,51,274,1,267,268,269,270,271,0` — DIRECTORY ids
@@ -156,6 +165,10 @@ files map each native stage to the PS2 function it stands in for.
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
   `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife-vs-crates run: light kill,
   heavy kill, whiff-combo chain — see melee_test_script),
+  `EM_CAMREGION_TEST=1` (fixed-camera-region run on a FLAGGED synthetic
+  office region — the office has no real ones, see the camera bullet:
+  enter pins the eye at the room spec, L1 is a no-op, R1 aim moves the
+  eye, release snaps back instantly — see camregion_test_script),
   `EM_TRANSIT_TEST=1` (goto-door SCENE-SWITCH run: west-door transit ->
   runtime reload of scene_drawbridge at full black, player at the decoded
   arrival spawn — see transit_test_script / em_game_scene_switch),

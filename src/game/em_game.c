@@ -314,10 +314,32 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *    swings behind the player — apparently only at default height —
  *    and if a wall blocks the rotation path it STOPS rather than
  *    repositioning. Delay/rate are PORT CONSTANTS (flagged).
- *  - Per-room FIXED ANGLES exist in the engine: cut-table mode 0 is
- *    the per-area camera director func_00195130, whose room logic
- *    lives in the area overlays (`jal 0x823FE0` hook). Future work —
- *    see camera_mode_dispatch. */
+ *  - Per-room FIXED ANGLES (2026-06-11 director decode, FINDINGS
+ *    "MODE-0 CAMERA DIRECTOR DECODED"): cut-table mode 0 is the
+ *    per-area camera director func_00195130, and its fixed cameras
+ *    are MAIN-ELF data — hardcoded per-area cases (areas 0/4/6/8/
+ *    0xB/0xD/0xE/0xF/0x11/0x13) + the XZ-quad trigger-volume table
+ *    D_0024A5F0 (func_00194D10: point-in-quad + |player.y - rec.y|
+ *    < 4 gate). NOT a general overlay hook: the lone `jal 0x823FE0`
+ *    is the area-13/entry>=8 gate and lands mid-function in the
+ *    shipped AREA13.BIN (dead/drifted). EXPORTED-AREA VERDICT:
+ *    AREA02 (office, both subs) and AREA01 sub 0 define NO fixed
+ *    cameras — all chase (the AREA02 overlay never touches the
+ *    camera; AREA01's only touch is the drawbridge-cutscene target
+ *    retarget). AREA06 (snow) has ONE real region: X[-370,-340] x
+ *    Z[-620,-600], y gate 60, fixed eye (-367.7, 90, -598.9) —
+ *    exported as scene_snow's `camregion` line. The port machinery
+ *    is live: scene.txt `camregion x0 z0 x1 z1 ygate ex ey ez`
+ *    lines drive camera_mode_dispatch's in-region branch (fixed
+ *    eye, L1/auto-orient ignored, R1 aim still runs, release snaps
+ *    back INSTANTLY — the observed behavior: "letting go INSTANTLY
+ *    snaps back to the room's setting"). EM_CAMREGION_TEST=1 proves
+ *    it with a flagged SYNTHETIC office region (the office has no
+ *    real ones). Engine refinement noted: the snow case approaches
+ *    its spec at 0.7 u/frame via the chase primitives; the port
+ *    uses hard placement ("chase disabled") per the observed snap. */
+#define CAM_REGION_YGATE 4.0f   /* func_00194D10's |player.y - rec.y|
+                                   region gate, engine constant */
 #define CAM_RISE_STEP   2.0f    /* rise search step, units (PORT) */
 #define CAM_RISE_MAX    40.0f   /* rise search ceiling above the default
                                    eye height, units (PORT) */
@@ -406,6 +428,20 @@ typedef struct {
     float    view[16];    /* D_00810610: look-at view matrix */
 } EmCamera;
 
+/* CAMERA REGION — one mode-0 director fixed-camera trigger volume
+ * (scene.txt `camregion`; the engine's D_0024A5F0 0x40-byte records =
+ * 4 vec4 XZ-quad corners, axis-aligned rects in all shipped data, with
+ * corner-0 y as the elevation gate; func_00194D10 tests point-in-quad
+ * (func_001B1EA0 mode 0) + |player.y - y| < 4). Inside, the director
+ * pins the desired EYE to the record's spec while the target keeps
+ * tracking the player. */
+#define CAM_REGION_MAX 8
+typedef struct {
+    float x0, z0, x1, z1;  /* XZ rect (min/max) */
+    float ygate;           /* elevation gate center (+-CAM_REGION_YGATE) */
+    float eye[3];          /* the room's fixed camera eye spec */
+} EmCamRegion;
+
 static struct {
     /* assets */
     EmModel    model;            /* player */
@@ -472,6 +508,12 @@ static struct {
                                   * full reorient) */
     int        cam_idle;         /* frames with no camera-relevant input
                                   * (drives the idle auto-orient) */
+    EmCamRegion camregion[CAM_REGION_MAX]; /* scene.txt `camregion` lines
+                                  * (the decoded D_0024A5F0 fixed-camera
+                                  * trigger volumes for this scene) */
+    int        n_camregion;
+    int        cam_region_on;    /* this frame's dispatch ran the in-region
+                                  * fixed placement (debug/test witness) */
 
     /* player status (the engine globals em_hud.h documents; static demo
      * values until the weapon/health systems are translated) */
@@ -540,6 +582,8 @@ static struct {
                                   * so the run stays self-contained */
     int         sfx_test;        /* EM_SFX_TEST=1 — one-shot mixer test */
     int         pause_test;      /* EM_PAUSE_TEST=1 — status-pause test */
+    int         camregion_test;  /* EM_CAMREGION_TEST=1 — fixed-camera
+                                  * region test (synthetic office region) */
     int         melee_test;      /* EM_MELEE_TEST=1 — knife-vs-crate run */
     int         mt_fail;         /* melee test: failed checkpoints */
     int         mt_phase;        /* melee test: script phase */
@@ -589,6 +633,16 @@ static struct {
  *                             "CRATE KIND"): idles as the office crate
  *                             mesh, bursts into gibs + a crawler on a
  *                             bullet hit or ~10-u player proximity.
+ *   camregion <x0> <z0> <x1> <z1> <ygate> <ex> <ey> <ez>
+ *                             one FIXED-CAMERA trigger volume (the mode-0
+ *                             director func_00195130's decoded room-camera
+ *                             bindings — the D_0024A5F0 XZ-quad records;
+ *                             export_level.py --camregions). Player inside
+ *                             the XZ rect with |player.y - ygate| < 4: the
+ *                             camera eye is PINNED at (ex, ey, ez) (target
+ *                             keeps tracking the player), L1 and the idle
+ *                             auto-orient are ignored, R1 aim still works
+ *                             and its release snaps back INSTANTLY.
  *   enemy generator <x> <y> <z> <yaw> [kind <k>] [link <n>]
  *                             one GENERATOR pad (engine class 0x0D /
  *                             func_0015A2C0 — em_enemy.h "GENERATOR");
@@ -612,7 +666,8 @@ static void scene_manifest_load(void)
     g.spawn_yaw = 0.0f;
     snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", g.scene_dir,
              COLL_DEFAULT);
-    g.bgm_file[0] = '\0';
+    g.bgm_file[0]  = '\0';
+    g.n_camregion  = 0;     /* camera regions are per-scene data */
 
     char mf[256 + 16];
     snprintf(mf, sizeof mf, "%s/scene.txt", g.scene_dir);
@@ -634,6 +689,25 @@ static void scene_manifest_load(void)
                      name);
         } else if (sscanf(line, "bgm %255s", name) == 1) {
             snprintf(g.bgm_file, sizeof g.bgm_file, "%s", name);
+        } else if (sscanf(line, "camregion %f %f %f %f %f %f %f %f",
+                          &x, &z, &y, &yaw, &r, &gx, &gy, &gz) == 8) {
+            /* Fixed-camera trigger volume (x0 z0 x1 z1 ygate ex ey ez) —
+             * the decoded mode-0 director room cameras. Reusing the
+             * scratch floats: x=x0 z=z0 y=x1 yaw=z1 r=ygate g*=eye. */
+            if (g.n_camregion < CAM_REGION_MAX) {
+                EmCamRegion *cr = &g.camregion[g.n_camregion++];
+                cr->x0 = x < y ? x : y;
+                cr->x1 = x < y ? y : x;
+                cr->z0 = z < yaw ? z : yaw;
+                cr->z1 = z < yaw ? yaw : z;
+                cr->ygate  = r;
+                cr->eye[0] = gx;
+                cr->eye[1] = gy;
+                cr->eye[2] = gz;
+            } else {
+                printf("manifest: camregion limit (%d) hit, skipped: %s",
+                       CAM_REGION_MAX, line);
+            }
         } else if (sscanf(line, "door %255s %f %f %f %f %f", name,
                           &x, &y, &z, &yaw, &r) == 6) {
             /* Interactive door instance (em_door.c). The manifest is
@@ -695,6 +769,13 @@ static void scene_manifest_load(void)
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
            g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count(),
            em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies");
+    for (int i = 0; i < g.n_camregion; i++)
+        printf("manifest: camregion %d — X[%.1f,%.1f] Z[%.1f,%.1f] "
+               "y %.1f, fixed eye (%.1f, %.1f, %.1f)\n", i,
+               g.camregion[i].x0, g.camregion[i].x1, g.camregion[i].z0,
+               g.camregion[i].z1, g.camregion[i].ygate,
+               g.camregion[i].eye[0], g.camregion[i].eye[1],
+               g.camregion[i].eye[2]);
 }
 
 static int cmp_str(const void *a, const void *b)
@@ -1556,6 +1637,22 @@ static int cam_yaw_seek(EmCamera *cam, float target, float rate)
     return 0;
 }
 
+/* func_00194D10 — the director's fixed-camera trigger-volume test:
+ * player XZ inside the region quad (func_001B1EA0 mode 0; all shipped
+ * records are axis-aligned rects) AND |player.y - record.y| < 4.0.
+ * Returns the active region or NULL. */
+static const EmCamRegion *camregion_find(void)
+{
+    for (int i = 0; i < g.n_camregion; i++) {
+        const EmCamRegion *cr = &g.camregion[i];
+        if (g.pos[0] >= cr->x0 && g.pos[0] <= cr->x1 &&
+            g.pos[2] >= cr->z0 && g.pos[2] <= cr->z1 &&
+            fabsf(g.pos[1] - cr->ygate) < CAM_REGION_YGATE)
+            return cr;
+    }
+    return NULL;
+}
+
 /* Is the default-height eye position at `yaw` wall-blocked from the
  * current look target? (the idle auto-orient's rotation-path test) */
 static int cam_yaw_blocked(const EmCamera *cam, float yaw)
@@ -1591,6 +1688,22 @@ static void camera_mode_dispatch(EmCamera *cam)
      * authentic struct yaw (+0x44); everything downstream consumes
      * only cam->yaw, exactly like an engine mode handler. */
     const EmFrameInput *in = em_frame_input();
+
+    /* FIXED-CAMERA REGION (the mode-0 director's decoded room cameras —
+     * scene.txt `camregion`): inside, the room OWNS the camera. L1 is a
+     * NO-OP ("L1 won't reorient because the room has a specified camera
+     * angle"), the idle auto-orient is off, and only the R1 aim camera
+     * takes yaw control — releasing it falls back to the room spec the
+     * SAME frame (the instant snap, applied below). */
+    const EmCamRegion *rg = camregion_find();
+    g.cam_region_on = (rg != NULL) && !(in->held & EM_PAD_R1);
+
+    if (rg) {
+        g.cam_recenter = 0;          /* L1/R1-tap reorients are ignored */
+        g.cam_idle     = 0;          /* idle auto-orient disabled */
+        if (in->held & EM_PAD_R1)    /* aim camera still tracks the aim */
+            cam_yaw_seek(cam, g.yaw, CAM_SNAP_SPEED);
+    } else {
 
     /* R1 (tap or hold) + L1: orient behind the player. A press arms
      * the recenter; while R1 stays held the camera keeps tracking the
@@ -1635,6 +1748,8 @@ static void camera_mode_dispatch(EmCamera *cam)
         }
     }
 
+    }   /* !rg — free-camera orient inputs */
+
     /* Mode 0 generic follow: desired target chases the player on x/z at
      * <= 0.8 u/frame; y seeks player.y + 15.0 — EXCEPT in the armed
      * stance, where the engine swaps in the camera struct's +0x8C
@@ -1652,7 +1767,34 @@ static void camera_mode_dispatch(EmCamera *cam)
                                               : CAM_TGT_HEIGHT),
                                   CAM_TGT_CAP);
 
-    camera_desired_eye(cam);
+    if (g.cam_region_on) {
+        /* ROOM SPEC: pin the desired eye to the region's fixed eye (the
+         * director writes cam+0x10/14/18 = the record spec; the target
+         * above keeps tracking the player, like the snow case). The
+         * struct yaw becomes the fixed sight-line heading so the
+         * camera-relative movement controls stay coherent, and an R1
+         * release re-enters here the SAME frame — camera_solve's region
+         * path hard-copies eye = spec (no chase): the observed INSTANT
+         * snap-back. */
+        cam->eye_des[0] = rg->eye[0];
+        cam->eye_des[1] = rg->eye[1];
+        cam->eye_des[2] = rg->eye[2];
+        cam->yaw = atan2f(g.pos[0] - rg->eye[0], g.pos[2] - rg->eye[2]);
+    } else {
+        camera_desired_eye(cam);
+    }
+
+    /* EM_CAMERA_TRACE=1 — region enter/leave transitions (debug). */
+    {
+        static int trace = -1, was_on = 0;
+        if (trace < 0) trace = getenv("EM_CAMERA_TRACE") != NULL;
+        if (trace && g.cam_region_on != was_on)
+            printf("camera: frame %d %s camregion%s\n", g.frame_no,
+                   g.cam_region_on ? "ENTER" : "LEAVE",
+                   g.cam_region_on ? " — eye pinned to the room spec"
+                                   : "");
+        was_on = g.cam_region_on;
+    }
 }
 
 /* Eye pull-in margin: how far in front of the hit plane the solved eye
@@ -1687,6 +1829,21 @@ static void camera_solve(EmCamera *cam)
 
     cam->hit  = 0;
     cam->rise = 0.0f;
+
+    /* FIXED-CAMERA REGION: the room spec is authoritative — no wall
+     * solve (the designers placed the eye), CHASE DISABLED: the actual
+     * eye is a hard copy of the spec. An R1-release frame lands here
+     * with the spec already re-pinned by the dispatch, so the snap-back
+     * is INSTANT (one frame, no lerp) — the observed behavior. */
+    if (g.cam_region_on) {
+        cam->eye[0] = eye_des[0];
+        cam->eye[1] = eye_des[1];
+        cam->eye[2] = eye_des[2];
+        cam->tgt[0] = cam->tgt_des[0];
+        cam->tgt[1] = cam->tgt_des[1];
+        cam->tgt[2] = cam->tgt_des[2];
+        return;
+    }
     if (g.coll.poly_count) {
         EmCollHit hit;
         int kind = em_collision_segment_query(
@@ -2661,6 +2818,104 @@ static void sfx_test_script(void)
     }
 }
 
+/* EM_CAMREGION_TEST=1 — FIXED-CAMERA REGION self-test (the mode-0
+ * director decode, FINDINGS "MODE-0 CAMERA DIRECTOR DECODED"). The
+ * OFFICE DEFINES NO REAL FIXED CAMERAS (the honest decode verdict:
+ * AREA02 has no director case and its overlay never touches the camera
+ * struct), so scene init injects a SYNTHETIC, CLEARLY-FLAGGED test
+ * region 5 u down +Z of the spawn (see ingame_frame_machine case 0) —
+ * the machinery under test is exactly what scene_snow's REAL exported
+ * region (AREA06, D_0024A5F0[2]) drives. Adaptive phase machine:
+ *
+ *   phase 0  hold 'w' (run +Z); the frame the region engages
+ *            (g.cam_region_on — one frame after the crossing), release.
+ *   phase 1  mark+2: assert the camera eye sits EXACTLY at the room
+ *            spec (enter -> camera at spec).
+ *   phase 2  mark+10..12 tap 'q' (L1); mark+30: assert the eye is
+ *            STILL at the spec and no recenter armed (L1 is a NO-OP
+ *            in a specified-camera room).
+ *   phase 3  mark+40 hold 'e' (R1 aim): the aim camera takes over.
+ *            mark+130: assert the eye LEFT the spec (> 6 u — aim still
+ *            works in fixed rooms) and release.
+ *   phase 4  mark+132: assert the eye is back at the spec EXACTLY,
+ *            two frames after release — the chase cap (4 u/frame)
+ *            could never cover the aim distance that fast, so equality
+ *            here proves the snap-back is INSTANT (no lerp): the
+ *            user-observed behavior. PASS/FAIL, quit.
+ */
+static void camregion_test_script(void)
+{
+    static int phase, mark, ok_enter, ok_l1, ok_aim;
+    static float d_aim;
+    const EmCamRegion *spec = &g.camregion[0];
+    float de[3] = { g.cam.eye[0] - spec->eye[0],
+                    g.cam.eye[1] - spec->eye[1],
+                    g.cam.eye[2] - spec->eye[2] };
+    float d   = sqrtf(de[0] * de[0] + de[1] * de[1] + de[2] * de[2]);
+    int   at  = d < 1e-5f;
+    int   n   = g.frame_no;
+
+    switch (phase) {
+        case 0:
+            if (n == 0) move_test_inject('w', 1);
+            if (g.cam_region_on) {
+                move_test_inject('w', 0);
+                mark  = n;
+                phase = 1;
+            }
+            break;
+        case 1:
+            if (n == mark + 2) {
+                ok_enter = g.cam_region_on && at;
+                if (!ok_enter)
+                    printf("camregion test: CHECK FAILED — enter (on %d, "
+                           "eye off spec by %.3f)\n", g.cam_region_on, d);
+                phase = 2;
+            }
+            break;
+        case 2:
+            if      (n == mark + 10) move_test_inject('q', 1);  /* L1 */
+            else if (n == mark + 12) move_test_inject('q', 0);
+            else if (n == mark + 30) {
+                ok_l1 = g.cam_region_on && at && !g.cam_recenter;
+                if (!ok_l1)
+                    printf("camregion test: CHECK FAILED — L1 not a "
+                           "no-op (on %d, recenter %d, eye off spec by "
+                           "%.3f)\n", g.cam_region_on, g.cam_recenter, d);
+                phase = 3;
+            }
+            break;
+        case 3:
+            if      (n == mark + 40) move_test_inject('e', 1);  /* R1 */
+            else if (n == mark + 130) {
+                d_aim  = d;
+                ok_aim = !g.cam_region_on && d > 6.0f;
+                if (!ok_aim)
+                    printf("camregion test: CHECK FAILED — aim camera "
+                           "(on %d, eye moved %.3f u, need > 6)\n",
+                           g.cam_region_on, d);
+                move_test_inject('e', 0);   /* release: must snap NOW */
+                phase = 4;
+            }
+            break;
+        case 4:
+            if (n == mark + 132) {
+                int ok_snap = g.cam_region_on && at;
+                int ok = ok_enter && ok_l1 && ok_aim && ok_snap;
+                printf("camregion test: enter->spec %s, L1 no-op %s, "
+                       "aim moved %.1f u %s, release snapped to spec in "
+                       "<= 2 frames (off by %.6f) %s — %s\n",
+                       ok_enter ? "ok" : "FAILED",
+                       ok_l1 ? "ok" : "FAILED", d_aim,
+                       ok_aim ? "ok" : "FAILED", d,
+                       ok_snap ? "ok" : "FAILED", ok ? "PASS" : "FAIL");
+                fflush(stdout);
+                em_frame_request_quit();
+            }
+            break;
+    }
+}
+
 /* EM_MELEE_TEST=1 — deterministic knife-vs-crate self-test (the s36
  * melee decode, em_weapon.h "KNIFE / MELEE"). Scene init spawns TWO
  * DISGUISED CRATES (slots 0/1, see the spawn block): inside the knife
@@ -2912,6 +3167,7 @@ static void gameplay_frame(void)
     if (g.melee_test) melee_test_script();  /* debug instrumentation only */
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     if (g.pause_test) pause_test_script();  /* debug instrumentation only */
+    if (g.camregion_test) camregion_test_script(); /* debug instr. only  */
     /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
      * real Triangle/Start toggle — em_hud_is_open(); the EM_HUD_FORCE
      * capture hook deliberately does NOT pause, see em_hud.h) the
@@ -3101,6 +3357,34 @@ static void ingame_frame_machine(EmTask *self)
             }
             memset(&g.cam, 0, sizeof g.cam);
             g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
+            g.cam_region_on = 0;
+            /* EM_CAMREGION_TEST: SYNTHETIC test region (FLAGGED — the
+             * office defines NO real fixed cameras; the decode verdict
+             * in the CAMERA FIDELITY block). A strip starting 5 u down
+             * +Z of the spawn (the run-forward corridor; the wall
+             * radius stops the player ~14 u in, well inside), with the
+             * fixed eye raised BEHIND the spawn looking INTO the strip
+             * (real room cameras watch the room — and camera-relative
+             * 'w' then keeps pushing the player deeper, not back across
+             * the boundary): entering it must pin the camera there.
+             * scene_snow's REAL region (AREA06, D_0024A5F0[2])
+             * exercises this same machinery. */
+            if (g.camregion_test) {
+                g.n_camregion  = 1;
+                g.camregion[0] = (EmCamRegion){
+                    .x0 = g.pos[0] - 25.0f, .z0 = g.pos[2] + 5.0f,
+                    .x1 = g.pos[0] + 25.0f, .z1 = g.pos[2] + 34.0f,
+                    .ygate  = g.pos[1],
+                    .eye    = { g.pos[0] - 6.0f, g.pos[1] + 24.0f,
+                                g.pos[2] - 12.0f } };
+                printf("camregion test: SYNTHETIC region armed — "
+                       "X[%.1f,%.1f] Z[%.1f,%.1f], eye (%.1f, %.1f, "
+                       "%.1f)\n",
+                       g.camregion[0].x0, g.camregion[0].x1,
+                       g.camregion[0].z0, g.camregion[0].z1,
+                       g.camregion[0].eye[0], g.camregion[0].eye[1],
+                       g.camregion[0].eye[2]);
+            }
             /* Weapon context init (the engine's HUD/weapon-context arm):
              * holstered, ammo from the demo status (live test save:
              * mag 4, reserve 120). The HUD mirrors the weapon live from
@@ -3366,6 +3650,8 @@ void em_game_install(void)
     g.sfx_test     = st && st[0] == '1';
     const char *pt = getenv("EM_PAUSE_TEST");
     g.pause_test   = pt && pt[0] == '1';
+    const char *cg = getenv("EM_CAMREGION_TEST");
+    g.camregion_test = cg && cg[0] == '1';
     const char *kt = getenv("EM_MELEE_TEST");
     g.melee_test   = kt && kt[0] == '1';
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
