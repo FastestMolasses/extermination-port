@@ -82,9 +82,11 @@ files map each native stage to the PS2 function it stands in for.
   TRIANGLE/SQUARE/CIRCLE/CROSS, Q/E = L1/R1, 1/3 = L2/R2, 2/4 = L3/R3,
   Backspace/Return = SELECT/START. Holding Option/Alt (EM_KEY_ALT — the
   platform synthesizes its KEY_DOWN/KEY_UP from modifier transitions) caps
-  both sticks at EM_INPUT_DEFLECT_HALF (0.5 = the engine's WALK gait band);
-  keyboard default is EM_INPUT_DEFLECT_FULL (1.0 = RUN) — game code must use
-  these em_input.h constants for gait thresholds. The mac content view
+  both sticks' vector magnitude at EM_INPUT_DEFLECT_WALK (0.8 = the engine's
+  WALK gait band, raw ~102 in the 88..122 ring; diagonals normalize by
+  1/sqrt(2) so the quantized magnitude stays in-band); keyboard default is
+  EM_INPUT_DEFLECT_FULL (1.0 = RUN) — game code must use these em_input.h
+  constants for gait thresholds. The mac content view
   consumes all keyDown/keyUp (no-op overrides) so unhandled game keys never
   reach NSWindow's no-responder NSBeep path.
 - Faithful to the original presentation: NO persistent HUD — the status

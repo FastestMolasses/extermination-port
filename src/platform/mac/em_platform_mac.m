@@ -159,7 +159,7 @@ bool em_window_poll(EmWindow *w, EmEvent *out)
             } else if (ev.type == NSEventTypeFlagsChanged) {
                 /* Modifiers never arrive as keyDown/keyUp — synthesize the
                  * EM_KEY_ALT transitions the contract promises (the input
-                 * model's debug half-gait hold, em_platform.h). Edge-detect
+                 * model's debug walk-gait hold, em_platform.h). Edge-detect
                  * against the last seen state so the L/R Option keys and
                  * unrelated modifier churn don't emit duplicates. */
                 bool alt = (ev.modifierFlags & NSEventModifierFlagOption) != 0;

@@ -36,7 +36,7 @@ typedef enum {
  * OS (macOS reports them via flags-changed notifications), so each platform
  * layer must track the modifier's previous state and synthesize a KEY_DOWN
  * on press and a KEY_UP on release. Either Option/Alt key qualifies; the
- * input model (em_input.c) uses it as the debug half-gait hold. */
+ * input model (em_input.c) uses it as the debug walk-gait hold. */
 typedef enum {
     EM_KEY_UNKNOWN   = 0,
     EM_KEY_SPACE     = 32,

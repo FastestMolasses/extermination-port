@@ -85,6 +85,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "em_input.h"
 #include "game/em_bgm.h"
@@ -235,6 +236,34 @@ static void frame_input_read(void)
     s_frame.prev_held = pad.buttons;
 }
 
+/* NTSC frame pacing (~59.94 Hz = 60/1.001). See the call site in
+ * em_frame_run. Monotonic absolute deadlines via clock_gettime. */
+static void frame_pace_ntsc(void)
+{
+    static int      uncapped = -1;
+    static long     period_ns = 0;
+    static struct timespec next;
+    if (uncapped < 0) {
+        const char *e = getenv("EM_UNCAPPED");
+        uncapped = (e && e[0] == '1');
+        period_ns = (long)(1e9 * 1.001 / 60.0); /* 16,683,350 ns */
+        clock_gettime(CLOCK_MONOTONIC, &next);
+    }
+    if (uncapped) return;
+    next.tv_nsec += period_ns;
+    while (next.tv_nsec >= 1000000000L) { next.tv_nsec -= 1000000000L; next.tv_sec++; }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (now.tv_sec > next.tv_sec ||
+        (now.tv_sec == next.tv_sec && now.tv_nsec >= next.tv_nsec)) {
+        next = now; /* behind schedule: reset the deadline, no catch-up burst */
+        return;
+    }
+    struct timespec rem = { next.tv_sec - now.tv_sec, next.tv_nsec - now.tv_nsec };
+    if (rem.tv_nsec < 0) { rem.tv_nsec += 1000000000L; rem.tv_sec--; }
+    nanosleep(&rem, NULL);
+}
+
 void em_frame_run(void)
 {
     while (!s_frame.quit) {
@@ -269,6 +298,15 @@ void em_frame_run(void)
         /* P..V: vsync wait, timer reset, dispenv flip, GS env apply,
          * frame-flip bookkeeping — submit + blocking present. */
         em_gfx_end_frame(s_frame.gfx);
+
+        /* P (pacing): the PS2 engine ticks once per NTSC vblank
+         * (~59.94 Hz — the vsync ISR func_001AB140 sets the wait flag).
+         * The native present rate follows the DISPLAY (120 Hz ProMotion
+         * runs everything 2x fast), so pace the loop to the NTSC tick
+         * here, in the same slot where the PS2 waited for vblank.
+         * EM_UNCAPPED=1 disables (profiling). Absolute-deadline pacing:
+         * drift-free, skips ahead after stalls instead of compounding. */
+        frame_pace_ntsc();
 
         /* W: frame parity flip + lifetime counter. */
         s_frame.parity ^= 1u;
