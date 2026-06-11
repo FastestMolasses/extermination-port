@@ -60,9 +60,14 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
  *     chunk28/f01_id3c, so these ids are the EMDL clip-table ids the
  *     re-exported player.emdl carries; requests go through em_game's
  *     anim mailbox, the native +0x1F2/+0x20C commit path) ------------- */
-#define WPN_ANIM_DRAW    0x110  /* draw, 25 fr — property-table rate 1.4 */
-#define WPN_ANIM_HOLSTER 0x111  /* holster, 25 fr, rate 1.0              */
-#define WPN_ANIM_RELOAD  0x33   /* reload, 57 fr, rate 1.0               */
+#define WPN_ANIM_DRAW    0x110  /* draw, 20 fr — property-table rate 1.4
+                                 * (true directory length, 2026-06-11)   */
+#define WPN_ANIM_HOLSTER 0x111  /* holster, 20 fr, rate 1.0              */
+#define WPN_ANIM_RELOAD  0x33   /* reload, 57 fr, rate 1.0 — motion-
+                                 * verified 2026-06-11: a real hands-to-
+                                 * the-mag reload (weapon dips to waist,
+                                 * both hands on it, root planted), NOT
+                                 * a stagger                             */
 #define WPN_ANIM_AIM     0x112  /* SPR4 sub-0 aim-pose ladder BASE (the
                                  * level-pitch step of D_00248B70[0] ->
                                  * 0x112..0x11A); HELD while in the AIM
@@ -91,6 +96,29 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
  * path — the counter step does. */
 #define WPN_FIRE_RATE    2.0f   /* +0x276 counter step: the recoil
                                  * playhead gains 2 clip-frames/tick    */
+
+/* --- FLASHLIGHT (em_weapon.h "FLASHLIGHT" block; SQUARE while aiming,
+ *     attachment 0 — the engine's D_00810D3C flag with the s28b light
+ *     mechanics: 300-frame auto-off burst, anim/sound id 0x15D, no
+ *     battery drain). Visual TODO: state + audio + timer only. ------- */
+#define WPN_LIGHT_FRAMES   300    /* +0x28 = 0x12C (5 s @ 60 Hz)        */
+#define WPN_ANIM_LIGHT_OFF 0x15D  /* auto-off gesture (engine commits it
+                                   * via the clip arbiter, blend 8.0)   */
+#define WPN_SFX_LIGHT_OFF  0x15Du /* the SAME id is the pinned 920 ms
+                                   * switch sound (soundmap snd_0361);
+                                   * local define — em_sfx.h untouched  */
+
+/* --- FIRE SUB-STATE MACHINE (engine +0x07; decoded 2026-06-11 from the
+ *     func_00170A60 .s — em_weapon.h "FIRE SUB-STATE MACHINE"). The
+ *     semi family HOLDS through the cadence: per-press shots are rate-
+ *     gated exactly like full-auto. ---------------------------------- */
+enum {
+    WPN_SUB_WAIT = 0, /* engine 0:    trigger wait; L3 reload honored   */
+    WPN_SUB_SEMI,     /* engine 0xB:  semi cadence (+0x2A press queue)  */
+    WPN_SUB_BURST,    /* engine 0x16: burst cadence (+0x28 round count) */
+    WPN_SUB_GAP,      /* engine 0x17: 8-tick burst gap; L3 honored      */
+    WPN_SUB_AUTO      /* engine 0x1F: auto cadence (held -> refire)     */
+};
 
 /* --- Fallback state windows (flagged; used ONLY when the loaded player
  *     EMDL lacks the clip — anim_ticks() prefers the honest clip
@@ -183,10 +211,10 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
  *     2026-06-10 s36 — FINDINGS "KNIFE/MELEE DECODED". All table values
  *     are the boot-ELF row idx 0; idx 1 is the alternate-context row
  *     (+0x236), untranslated) ------------------------------------------ */
-#define MELEE_ANIM_L1     0x10B  /* light hit 1, 50 fr (D_00248690[0][0]) */
-#define MELEE_ANIM_L2     0x10C  /* light hit 2, 25 fr (D_00248690[0][1]) */
-#define MELEE_ANIM_L3     0x10D  /* light hit 3, 20 fr (D_00248690[0][2]) */
-#define MELEE_ANIM_HEAVY  0x10E  /* heavy stab, 20 fr  (D_002754A8[0])    */
+#define MELEE_ANIM_L1     0x10B  /* light hit 1, 35 fr (D_00248690[0][0]) */
+#define MELEE_ANIM_L2     0x10C  /* light hit 2, 35 fr (D_00248690[0][1]) */
+#define MELEE_ANIM_L3     0x10D  /* light hit 3, 50 fr (D_00248690[0][2]) */
+#define MELEE_ANIM_HEAVY  0x10E  /* heavy stab, 50 fr  (D_002754A8[0])    */
 #define MELEE_ANIM_RECOV  0x10F  /* hit-confirm recover, 25 fr (state
                                   * 0x51 idx-0 arm; blend 4.0)            */
 /* Impact gates T (the +0x3C c.le.s thresholds; impact_tick =
@@ -207,11 +235,13 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 #define MELEE_RECOV_RATE  1.0f   /* property-table rate (1.0; the 4.0 the
                                   * engine passes the arbiter is BLEND)   */
 /* Fallback clip lengths (flagged; used only when the player EMDL lacks
- * the clip — the values ARE the disc clip lengths, baked as stand-ins). */
-#define MELEE_L1_FRAMES    50
-#define MELEE_L2_FRAMES    25
-#define MELEE_L3_FRAMES    20
-#define MELEE_HEAVY_FRAMES 20
+ * the clip — the values ARE the disc clip lengths, baked as stand-ins;
+ * CORRECTED 2026-06-11 to the true directory-id lengths: the s36
+ * numbers were the pre-directory-fix bake's shifted neighbors). */
+#define MELEE_L1_FRAMES    35
+#define MELEE_L2_FRAMES    35
+#define MELEE_L3_FRAMES    50
+#define MELEE_HEAVY_FRAMES 50
 #define MELEE_RECOV_FRAMES 25
 /* RANGE — PORT STAND-IN (the engine has no player-side knife range: the
  * damage goes to the melee-target link's +0x36 mailbox and the TARGET-
@@ -230,11 +260,22 @@ static struct {
     int     timer;       /* DRAW/RELOAD/HOLSTER frames remaining          */
     int     mag_sfx;     /* RELOAD ticks until the mag-action sound 0x168
                           * (0 = none pending; cancelled by a stance drop) */
-    int     counter;     /* +0x276 fire counter (+2/frame, shot >= 12)    */
+    int     fire_sub;    /* WPN_SUB_* — the engine's fire sub-state byte
+                          * +0x07 (family position collapsed)             */
+    int     fire_next;   /* a chained shot is armed for the NEXT tick
+                          * (the engine cadence states step BACK to the
+                          * fire sub-state, which shoots one tick later)  */
+    int     counter;     /* +0x276 fire counter (+2/frame incl. the shot
+                          * tick, shot at >= 12)                          */
     int     pending;     /* +0x2A queued-shot flag (semi press latched
-                          * while the cadence counter is still cooling)   */
-    int     burst;       /* +0x28 burst counter, shots left in the burst  */
-    int     burst_pause; /* ticks until the next burst may start          */
+                          * during the cadence window)                    */
+    int     burst;       /* +0x28 burst counter, rounds fired this burst  */
+    int     burst_pause; /* WPN_SUB_GAP ticks until the next burst        */
+
+    int     light_on;    /* FLASHLIGHT flag (engine D_00810D3C / player
+                          * +0xA light byte)                              */
+    int     light_timer; /* 300-frame auto-off burst countdown (+0x28
+                          * = 0x12C); ticks every frame, any stance       */
 
     int     fire_event;  /* gun actor +0x2E: posted by the player SM,
                           * consumed (ray + FX) on the NEXT update — the
@@ -292,7 +333,6 @@ static struct {
     int recov_pause; /* engine 0x50/0x51 countdown before anim 0x10F   */
     int swings;      /* introspection: attacks started since reset     */
     int hits;        /* introspection: impact-tick victims since reset */
-    int sub_toggle;  /* D_00810D3C mirror (SQUARE while armed, att. 0) */
 } m;
 
 /* The flicker random source — engine func_00122BB8 is the C-library
@@ -342,19 +382,36 @@ int em_weapon_holster_ticks(void)
     return anim_ticks(WPN_ANIM_HOLSTER, 1.0f, WPN_HOLSTER_FRAMES);
 }
 
-/* func_0017B300(_, mode) — MATCHED 100% in the decomp repo. mode 0 = only
- * if the mag is empty; mode 1 = unconditional; else top-up (only if
- * mag < 30 AND reserve > mag). All modes: mag = min(30, reserve), the
+/* func_0017B300(_, mode) — MATCHED 100% in the decomp repo (mirrored
+ * branch-for-branch, 2026-06-11 fidelity pass). mode 0 = only if the
+ * mag is empty (and the reserve is live); mode 1 = unconditional (any
+ * live reserve); else TOP-UP — gated on mag < 30 AND reserve > mag (a
+ * full mag ignores the manual reload — the engine mode-2 rule). The
  * reserve is NOT subtracted (it is the total pool — each shot already
- * decremented both). Returns 0 = reloaded, 1 = nothing to do. */
+ * decremented both). Returns 0 = reloaded, 1 = nothing to do.
+ *
+ * Top-up fill quirk (engine-faithful): the matched C compares the
+ * reserve against the rounds NEEDED (30 - mag), not against 30 — with
+ * 30-mag <= reserve < 30 the engine writes mag = 30 even though the
+ * pool holds fewer rounds. Replicated verbatim; it never triggers with
+ * a healthy reserve and keeps the port byte-faithful when it does. */
 static int weapon_reload(int mode)
 {
     if (mode == 0) {
-        if (w.mag != 0 || w.reserve <= 0) return 1;
-    } else if (mode != 1) {
-        if (w.mag >= WPN_MAG_MAX || w.reserve <= w.mag) return 1;
+        if (w.reserve == 0 || w.mag != 0) return 1;
+        w.mag = (uint8_t)(w.reserve < WPN_MAG_MAX ? w.reserve
+                                                  : WPN_MAG_MAX);
+        return 0;
     }
-    w.mag = (uint8_t)(w.reserve < WPN_MAG_MAX ? w.reserve : WPN_MAG_MAX);
+    if (mode == 1) {
+        if (w.reserve == 0) return 1;
+        w.mag = (uint8_t)(w.reserve < WPN_MAG_MAX ? w.reserve
+                                                  : WPN_MAG_MAX);
+        return 0;
+    }
+    if (w.mag >= WPN_MAG_MAX || w.reserve <= w.mag) return 1;
+    w.mag = (uint8_t)(w.reserve < (WPN_MAG_MAX - w.mag) ? w.reserve
+                                                        : WPN_MAG_MAX);
     return 0;
 }
 
@@ -366,9 +423,11 @@ static void weapon_enter_holster(void)
     em_sfx_play(EM_SFX_WPN_HANDLE);     /* 0x163, state-0x65 entry (the
                                          * shared weapon-handling foley) */
     em_game_anim_request(WPN_ANIM_HOLSTER, 1.0f);   /* anim 0x111 */
-    w.state   = EM_WPN_HOLSTER;
-    w.timer   = em_weapon_holster_ticks();
-    w.mag_sfx = 0;      /* stance drop mid-reload: no mag action played */
+    w.state     = EM_WPN_HOLSTER;
+    w.timer     = em_weapon_holster_ticks();
+    w.mag_sfx   = 0;    /* stance drop mid-reload: no mag action played */
+    w.fire_sub  = WPN_SUB_WAIT;
+    w.fire_next = 0;
 }
 
 /* RELOAD entry (engine major state 3): anim 0x33 gates firing for the
@@ -384,12 +443,14 @@ static void weapon_enter_reload(void)
     em_sfx_play(EM_SFX_WPN_HANDLE);
     em_game_anim_request(WPN_ANIM_RELOAD, 1.0f);    /* anim 0x33 */
     w.reloads++;
-    w.pending = 0;
-    w.burst   = 0;
-    w.state   = EM_WPN_RELOAD;
-    w.timer   = em_weapon_reload_ticks();
-    w.mag_sfx = WPN_RELOAD_MAG_TICK < w.timer ? WPN_RELOAD_MAG_TICK
-                                              : w.timer - 1;
+    w.pending   = 0;
+    w.burst     = 0;
+    w.fire_sub  = WPN_SUB_WAIT;
+    w.fire_next = 0;
+    w.state     = EM_WPN_RELOAD;
+    w.timer     = em_weapon_reload_ticks();
+    w.mag_sfx   = WPN_RELOAD_MAG_TICK < w.timer ? WPN_RELOAD_MAG_TICK
+                                                : w.timer - 1;
     if (w.mag_sfx < 1) w.mag_sfx = 1;
 }
 
@@ -406,37 +467,35 @@ static void weapon_enter_aim(void)
      * (the engine zeroes +0x276 on stance entry, so the pose clip's
      * recoil/settle frames run at 2/tick there too) and clamps. */
     em_game_anim_hold(WPN_ANIM_AIM, WPN_FIRE_RATE); /* aim pose 0x112 */
-    w.state   = EM_WPN_AIM;
-    w.counter = WPN_INTERVAL;       /* first shot is immediate */
+    w.state     = EM_WPN_AIM;
+    w.counter   = 0;                /* engine: +0x276 = 0 at stance entry;
+                                     * the first press fires immediately
+                                     * because the WAIT sub-state has no
+                                     * counter test (func_00170A60 st 0) */
+    w.fire_sub  = WPN_SUB_WAIT;
+    w.fire_next = 0;
 }
 
-/* One trigger-accepted SHOT attempt (the common per-shot block of the
- * fire sub-machine, states 0xB/0x15/0x1F). Dry mag -> auto-reload
- * func_0017B300(.,0); reserve also empty -> dry click (engine sound
- * 0x169). A live round: mag-- AND reserve-- (the TOTAL-pool consume
- * path), post the fire event to the gun (+0x2E = 1), reset the fire
- * counter (+0x276 = 0 — which IS the recoil restart, see WPN_FIRE_RATE)
+/* One SHOT — the common per-shot block of the fire sub-machine (engine
+ * states 0xA/0x15/0x1E). Callers gate the ammo (the engine's per-shot
+ * states are only entered with a live mag — dry handling lives in the
+ * WAIT press and the cadence expiry, see weapon_fire_logic). A live
+ * round: mag-- AND reserve-- (the TOTAL-pool consume path), post the
+ * fire event to the gun (+0x2E = 1), seed the fire counter with the
+ * shot tick's own cadence increment (+0x276: the engine fire states
+ * fall THROUGH into the cadence head, so the counter reads 2 after a
+ * shot — and the counter reset IS the recoil restart, WPN_FIRE_RATE)
  * and play the stance fire sound (the block reads the +0x1F0 stance
  * code: 0x164 for 0x31/0x34, 0x165 for 0x32/0x35; the port's single
  * stance is the 0x1D family -> code 0x31 -> 0x164). */
 static void weapon_shot(void)
 {
-    if (w.mag == 0) {
-        w.pending = 0;
-        w.burst   = 0;
-        if (weapon_reload(0) == 0) {
-            /* anim 0x33 gates firing; the mag is already refilled. */
-            weapon_enter_reload();
-        } else {
-            em_sfx_play(EM_SFX_WPN_DRY);  /* 0x169 — reserve also empty */
-        }
-        return;
-    }
+    if (w.mag == 0) return;             /* guard; callers gate the ammo */
     w.mag--;
     w.reserve--;          /* the engine's TOTAL-pool rule: BOTH, per shot */
     w.shots++;
     w.fire_event = 1;     /* gun +0x2E — resolved next update             */
-    w.counter    = 0;
+    w.counter    = WPN_COUNT_STEP;      /* the fall-through increment     */
     /* RECOIL: the counter reset rewinds the held aim clip to frame 0 —
      * the engine's publisher samples the committed ladder clip at
      * frame = +0x276 every tick (FIRE RECOIL block above). The replay
@@ -668,48 +727,147 @@ static void weapon_resolve_fire(const EmCollision *coll,
     memcpy(w.flash_dir, dir, sizeof w.flash_dir);
 }
 
-/* The AIM/FIRE loop's trigger logic — the fire sub-machine families
- * selected by the fire-mode byte (semi 10/11, burst 20..23, auto 30..32).
- * All families share the cadence: counter += 2/frame, shot needs >= 12. */
+/* The AIM/FIRE loop's trigger logic — the engine fire sub-machine
+ * (func_00170A60 .s, re-read 2026-06-11; em_weapon.h "FIRE SUB-STATE
+ * MACHINE"). The sub-state HOLDS through the 6-frame cadence in every
+ * family — SEMI per-press shots are rate-gated exactly like full-auto
+ * (the user-fidelity fix: the port can no longer out-shoot the engine
+ * by mashing). The trigger is CIRCLE — the engine's default-config
+ * fire button (config slot spad 0x3B78 = 0x0020, live-pinned s29). */
 static void weapon_fire_logic(const EmFrameInput *in)
 {
-    if (w.counter < WPN_INTERVAL) w.counter += WPN_COUNT_STEP;
-    if (w.burst_pause > 0) w.burst_pause--;
-
-    /* The trigger is CIRCLE — the engine's default-config fire button
-     * (config slot spad 0x3B78 = 0x0020 = CIRCLE, live-pinned s29;
-     * em_input.h "ENGINE DEFAULT BUTTON CONFIG"). */
-    switch (w.fire_mode) {
-        case EM_WPN_MODE_SEMI:
-            if (in->pressed & EM_PAD_CIRCLE) w.pending = 1;
-            if (w.pending && w.counter >= WPN_INTERVAL) {
-                w.pending = 0;
-                weapon_shot();
-            }
-            break;
-        case EM_WPN_MODE_BURST:
-            if ((in->pressed & EM_PAD_CIRCLE) && w.burst == 0 &&
-                w.burst_pause == 0)
-                w.burst = WPN_BURST_LEN;
-            if (w.burst > 0 && w.counter >= WPN_INTERVAL) {
-                w.burst--;
-                if (w.burst == 0) w.burst_pause = WPN_BURST_PAUSE;
-                weapon_shot();
-            }
-            break;
-        case EM_WPN_MODE_AUTO:
-            if ((in->held & EM_PAD_CIRCLE) && w.counter >= WPN_INTERVAL)
-                weapon_shot();
-            break;
-        default:
-            break;
+    /* Chained shot armed at the last cadence expiry: the engine steps
+     * BACK to the fire sub-state, which shoots one tick later — exact
+     * 6-frame spacing for queued-semi / burst rounds / auto refire. */
+    if (w.fire_next) {
+        w.fire_next = 0;
+        weapon_shot();      /* counter = 2, the fall-through increment */
+        return;
     }
 
-    /* Manual reload — the engine's raw L3 pad bit (NOT config-mapped),
-     * func_0017B300(.,2) top-up; keyboard key 2 (em_input.h). */
-    if (w.state == EM_WPN_AIM && (in->pressed & EM_PAD_L3)) {
-        if (weapon_reload(2) == 0)
-            weapon_enter_reload();
+    switch (w.fire_sub) {
+        case WPN_SUB_WAIT:
+            /* Engine state 0: a press fires IMMEDIATELY (no counter
+             * test — WAIT is only reachable a full cadence after the
+             * last shot); empty mag -> dry click 0x169 only (an empty
+             * mag with a live reserve never survives to WAIT: the
+             * cadence expiry below already reloaded). */
+            if (in->pressed & EM_PAD_CIRCLE) {
+                if (w.mag == 0) {
+                    em_sfx_play(EM_SFX_WPN_DRY);
+                } else {
+                    switch (w.fire_mode) {
+                        case EM_WPN_MODE_BURST:
+                            w.burst    = 1;     /* +0x28: rounds fired */
+                            w.fire_sub = WPN_SUB_BURST;
+                            break;
+                        case EM_WPN_MODE_AUTO:
+                            w.fire_sub = WPN_SUB_AUTO;
+                            break;
+                        default:
+                            w.fire_sub = WPN_SUB_SEMI;
+                            break;
+                    }
+                    w.pending = 0;
+                    weapon_shot();
+                }
+            } else if (in->pressed & EM_PAD_L3) {
+                /* Manual reload — the engine's raw L3 pad bit (NOT
+                 * config-mapped), func_0017B300(.,2) TOP-UP: reloads
+                 * ONLY if mag < 30 AND reserve > mag (a full mag
+                 * ignores L3). Checked in the trigger-wait states
+                 * only (engine 0 / 0x17), never mid-cadence. */
+                if (weapon_reload(2) == 0)
+                    weapon_enter_reload();
+            }
+            break;
+
+        case WPN_SUB_SEMI:
+            /* Engine 0xB: cadence hold. A NEW press queues ONE shot
+             * (+0x2A; sampled from counter >= interval-8 — every tick
+             * after the shot tick itself). */
+            w.counter += WPN_COUNT_STEP;
+            if (w.counter >= WPN_INTERVAL - 8 &&
+                (in->pressed & EM_PAD_CIRCLE))
+                w.pending = 1;
+            if (w.counter >= WPN_INTERVAL) {
+                w.counter = 0;
+                if (w.mag == 0) {
+                    /* dry-mag auto reload at the EXPIRY (mode 1,
+                     * unconditional) — not on the next press */
+                    if (weapon_reload(1) == 0) weapon_enter_reload();
+                    else w.fire_sub = WPN_SUB_WAIT;
+                } else if (w.pending) {
+                    w.pending   = 0;
+                    w.fire_next = 1;    /* 0xB -> 0xA: fires next tick */
+                } else {
+                    w.fire_sub = WPN_SUB_WAIT;
+                }
+            }
+            break;
+
+        case WPN_SUB_BURST:
+            /* Engine 0x16: cadence; +0x28 counts the burst rounds. */
+            w.counter += WPN_COUNT_STEP;
+            if (w.counter >= WPN_INTERVAL) {
+                w.counter = 0;
+                if (w.mag == 0) {
+                    if (weapon_reload(1) == 0) {
+                        weapon_enter_reload();
+                    } else {
+                        em_sfx_play(EM_SFX_WPN_DRY);    /* 0x169 */
+                        w.burst       = 0;
+                        w.fire_sub    = WPN_SUB_GAP;
+                        w.burst_pause = WPN_BURST_PAUSE;
+                    }
+                } else if (w.burst < WPN_BURST_LEN) {
+                    w.burst++;
+                    w.fire_next = 1;
+                } else {
+                    w.burst       = 0;
+                    w.fire_sub    = WPN_SUB_GAP;
+                    w.burst_pause = WPN_BURST_PAUSE;    /* engine 0x17 */
+                }
+            }
+            break;
+
+        case WPN_SUB_GAP:
+            /* Engine 0x17: the 8-tick inter-burst pause; L3 manual
+             * reload is honored here (the second engine L3 site). */
+            if (in->pressed & EM_PAD_L3) {
+                if (weapon_reload(2) == 0) {
+                    weapon_enter_reload();
+                    break;
+                }
+            }
+            if (w.burst_pause > 0 && --w.burst_pause == 0)
+                w.fire_sub = WPN_SUB_WAIT;
+            break;
+
+        case WPN_SUB_AUTO:
+            /* Engine 0x1F: cadence; a still-held trigger refires via
+             * the same step-back (0x1F -> 0x1E, next tick). */
+            w.counter += WPN_COUNT_STEP;
+            if (w.counter >= WPN_INTERVAL) {
+                w.counter = 0;
+                if (w.mag == 0) {
+                    if (weapon_reload(1) == 0) {
+                        weapon_enter_reload();
+                    } else {
+                        em_sfx_play(EM_SFX_WPN_DRY);    /* 0x169 */
+                        w.fire_sub = WPN_SUB_WAIT;
+                    }
+                } else if (in->held & EM_PAD_CIRCLE) {
+                    w.fire_next = 1;
+                } else {
+                    w.fire_sub = WPN_SUB_WAIT;
+                }
+            }
+            break;
+
+        default:
+            w.fire_sub = WPN_SUB_WAIT;
+            break;
     }
 }
 
@@ -886,6 +1044,20 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             em_sfx_play(EM_SFX_WPN_CASING); /* 0x16A casing, shot+42  */
     }
 
+    /* FLASHLIGHT auto-off burst (em_weapon.h "FLASHLIGHT"): the
+     * 300-frame timer down-counts EVERY frame regardless of stance
+     * (engine: the player spine, 0x00161138); at 0 the light turns
+     * itself off — switch sound 0x15D, and the 0x15D turn-off gesture
+     * commits only in the unarmed idle (the armed tops re-select their
+     * pose every frame in the engine; the port's hold would otherwise
+     * be clobbered — documented simplification). */
+    if (w.light_on && w.light_timer > 0 && --w.light_timer == 0) {
+        w.light_on = 0;
+        em_sfx_play(WPN_SFX_LIGHT_OFF);             /* 0x15D, 920 ms  */
+        if (w.state == EM_WPN_HOLSTERED && m.state == EM_MELEE_IDLE)
+            em_game_anim_request(WPN_ANIM_LIGHT_OFF, 1.0f);
+    }
+
     /* Gun-side tick FIRST: an event posted last frame resolves now —
      * the contract's one-frame fire-event latency, kept exactly. */
     if (w.fire_event) {
@@ -936,15 +1108,22 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             } else {
                 weapon_fire_logic(in);
                 /* SQUARE while armed = the SUB-WEAPON action
-                 * (func_0017A970). Attachment 0 (the only one
-                 * translated): toggle the D_00810D3C mirror, sound
-                 * 0x179 on toggle-ON only — exactly the s29 live
-                 * observation (no ammo use, no state change). What
-                 * the flag arms is an open item (em_weapon.h). */
+                 * (func_0017A970), attachment 0 = the FLASHLIGHT
+                 * toggle (em_weapon.h "FLASHLIGHT" — the engine's
+                 * D_00810D3C flag, user-attested identity, with the
+                 * s28b light mechanics). ON: sound 0x179 (the s29
+                 * live capture) + the 300-frame auto-off burst; OFF:
+                 * silent (engine 1->0 plays nothing), timer cleared.
+                 * No ammo use, no battery drain, no state change. */
                 if (in->pressed & EM_PAD_SQUARE) {
-                    m.sub_toggle ^= 1;
-                    if (m.sub_toggle)
-                        em_sfx_play(EM_SFX_SUB_TOGGLE);
+                    if (!w.light_on) {
+                        w.light_on    = 1;
+                        w.light_timer = WPN_LIGHT_FRAMES;   /* 0x12C */
+                        em_sfx_play(EM_SFX_SUB_TOGGLE);     /* 0x179 */
+                    } else {
+                        w.light_on    = 0;
+                        w.light_timer = 0;
+                    }
                 }
             }
             break;
@@ -1136,4 +1315,8 @@ int em_weapon_melee_combo(void)   { return m.heavy ? 0 : m.combo; }
 int em_weapon_melee_heavy(void)   { return m.heavy; }
 int em_weapon_melee_swings(void)  { return m.swings; }
 int em_weapon_melee_hits(void)    { return m.hits; }
-int em_weapon_sub_toggle(void)    { return m.sub_toggle; }
+
+/* FLASHLIGHT introspection (em_weapon.h): the light flag (engine
+ * D_00810D3C / player +0xA) and the auto-off burst frames left. */
+int em_weapon_flashlight(void)       { return w.light_on; }
+int em_weapon_flashlight_timer(void) { return w.light_timer; }

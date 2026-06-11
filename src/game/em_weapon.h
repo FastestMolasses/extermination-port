@@ -44,6 +44,37 @@
  * (+0x276) gains 2/frame and a shot needs >= 12.0 (+0x2F4) — one shot
  * every 6 frames, 10/s at 60 Hz.
  *
+ * FIRE SUB-STATE MACHINE (re-read 2026-06-11 from the func_00170A60
+ * .s — the 2026-06-11 weapon-fidelity pass; replaces the old flat
+ * "pending" latch): the engine's per-sub-weapon fire machine holds a
+ * SUB-STATE byte (+0x07) through the cadence, and the SEMI family is
+ * rate-gated exactly like auto — one press can never beat the 6-frame
+ * interval:
+ *
+ *   0    TRIGGER WAIT: a press with ammo fires IMMEDIATELY (no counter
+ *        test — the state is only reachable >= one full cadence after
+ *        the last shot) and enters the family's cadence state; a press
+ *        on an empty mag plays the dry click 0x169 ONLY (an empty mag
+ *        with a live reserve never survives to this state — the
+ *        cadence expiry below already reloaded). L3 manual reload is
+ *        checked HERE (and in the burst gap 0x17) — never mid-cadence.
+ *   0xA/0xB  SEMI shot + cadence: +0x276 += 2/tick; a NEW press during
+ *        the cadence latches the queued-shot flag +0x2A (sampled from
+ *        counter >= interval-8 — every tick after the shot tick); at
+ *        counter >= interval(12): counter = 0, then EITHER mag empty ->
+ *        UNCONDITIONAL reload func_0017B300(.,1) (the dry-mag auto
+ *        reload happens at the expiry, NOT on the next press), OR
+ *        queued -> step back to the shot state (fires the NEXT tick =
+ *        exact 6-frame spacing), OR back to WAIT.
+ *   0x14..0x17  BURST: same cadence; +0x28 counts the rounds, 3 ends
+ *        the burst into the 0x17 gap (8 ticks, L3 honored there).
+ *   0x1E..0x20  AUTO: same cadence; still-held trigger refires via the
+ *        same step-back (every 6 frames).
+ *
+ * The fire tick itself performs the first cadence increment (the
+ * engine's shot states fall through into the cadence head), so the
+ * port seeds counter = 2 at every shot.
+ *
  * KEY MAPPING (engine-faithful since the s29 live decode of the default
  * config block — em_input.h "ENGINE DEFAULT BUTTON CONFIG" has the full
  * spad 0x70003B70..7E table):
@@ -53,14 +84,16 @@
  *                 0x3B78 = 0x0020 = CIRCLE, live-verified s29). CROSS
  *                 stays USE/confirm (slot 0x3B76 — the door use scan).
  *   L3 (key 2)    manual reload (top-up) — the engine's raw L3 pad bit
- *                 (NOT config-mapped), func_0017B300(.,2). The keyboard
- *                 map has an L3 key (2 — em_input.h) so the port no
- *                 longer needs the old SQUARE deviation.
+ *                 (NOT config-mapped), func_0017B300(.,2): reloads ONLY
+ *                 if the mag is short (mag < 30 AND reserve > mag — the
+ *                 engine mode-2 gate, matched 100% in the decomp); a
+ *                 full mag ignores L3. Checked in the trigger-wait
+ *                 sub-states only (engine states 0 / 0x17), never
+ *                 mid-cadence.
  *   CIRCLE (L) / SQUARE (J) while HOLSTERED = the KNIFE attacks (light
  *                 combo / heavy stab — the s36 melee decode; the
  *                 "KNIFE / MELEE" block below). SQUARE while AIMING =
- *                 the attachment-0 sub-weapon toggle (sound 0x179) —
- *                 the s29 "unidentified action" open item, now decoded.
+ *                 the FLASHLIGHT toggle (the "FLASHLIGHT" block below).
  *
  * RELOAD SOUNDS (live-pinned s29 — replaces the old 0xF002 placeholder
  * alias): reload START plays 0x163 (the shared weapon-handling foley,
@@ -180,23 +213,47 @@
  *     player mode 0x22 (action code 0x37) = func_00173E60, the HEAVY
  *     single stab.
  *
- * While the rifle IS drawn (armed stances 0x31/0x32/0x34/0x35), SQUARE
- * routes to the SUB-WEAPON action func_0017A970 instead; with attachment
- * 0 (no underbarrel mounted, D_00810CA6 == 0) it just TOGGLES the global
- * D_00810D3C with sound 0x179 on toggle-ON — this is exactly the s29
- * live observation ("0x179, no ammo use, no state change"). What
- * D_00810D3C arms is still open (it replays 0x179 + a voice-line latch
- * on the next rifle draw; cleared by the inventory reset func_001AF2C0).
- * The port mirrors the toggle (sound + latched flag, no further effect).
+ * FLASHLIGHT (2026-06-11 weapon-fidelity pass — user-attested identity
+ * for the s36 open item "what does D_00810D3C arm?"): while the rifle
+ * IS drawn (armed stances 0x31/0x32/0x34/0x35), SQUARE routes to the
+ * SUB-WEAPON action func_0017A970; with attachment 0 (D_00810CA6 == 0)
+ * it TOGGLES the FLASHLIGHT — the real game's gun light (the flag the
+ * engine keeps in D_00810D3C, replayed on the next rifle draw; the s29
+ * live capture's "0x179, no ammo use" was the toggle-ON sound). The
+ * port implements it with the s28b-decoded light mechanics (FINDINGS
+ * "BATTERY LOCATED ... L3 light" — the player +0xA light byte family):
+ *   - toggle ON: flag set, sound 0x179 vol 300 (pinned), and the
+ *     300-frame (5 s) auto-off burst timer loads (+0x28 = 0x12C);
+ *   - the timer down-counts EVERY frame (engine: the player spine,
+ *     0x00161138) regardless of stance; at 0 the light turns itself
+ *     off, anim/event id 0x15D commits (the turn-off gesture; the same
+ *     id is the pinned 920 ms switch SOUND — both play; the port gates
+ *     the anim request on the unarmed idle so the held aim pose is not
+ *     clobbered, a documented simplification) ;
+ *   - toggle OFF (second press): silent, timer cleared (engine: 1->0
+ *     plays nothing);
+ *   - ZERO battery drain (live-verified s28b: watch_change on 0x810CB2
+ *     across a full on->auto-off cycle saw 0 writes).
+ * TODO (flagged): no dynamic light RENDERING exists in the port yet —
+ * the toggle is state + audio + timer only; the beam/spot visual needs
+ * a gfx-side light pass.
  *
  * LIGHT COMBO (mode 0x21, func_001735C0; per-attack rows idx 0 of the
  * boot-ELF tables — idx 1 is an alternate-context row, anim ids
  * 0x1BD..0x1C1, selected by player +0x236, untranslated):
  *
  *   hit  anim   len  dmg  sound  gate(+0x3C vs T)  chain window
- *   1    0x10B  50   3    0x17D  T=24 (D_002486A0) open at len-19 (D0)
- *   2    0x10C  25   3    0x17E  T=26 (D_002486A8) open at len-19 (D4)
- *   3    0x10D  20   5    0x17F  T=41 (D_002486B0) none (combo ends)
+ *   1    0x10B  35   3    0x17D  T=24 (D_002486A0) open at len-19 (D0)
+ *   2    0x10C  35   3    0x17E  T=26 (D_002486A8) open at len-19 (D4)
+ *   3    0x10D  50   5    0x17F  T=41 (D_002486B0) none (combo ends)
+ *
+ *   (Clip lengths CORRECTED 2026-06-11: the s36 table measured the
+ *   pre-directory-fix bake — the old enumeration shifted every player-
+ *   library id >= 54 by up to +3, so "0x10B = 50fr" was really 0x10E's
+ *   length. True directory lengths: 0x10B 35, 0x10C 35, 0x10D 50,
+ *   0x10E 50, 0x10F 25, 0x110 20, 0x111 20, 0x112 25 — verified
+ *   against a fresh fixed-resolver bake, byte-identical to the
+ *   re-exported player.emdl.)
  *
  *   - The swing sound + the damage-mailbox write fire together at the
  *     IMPACT gate, unconditionally (range gating is the TARGET's job,
@@ -211,21 +268,22 @@
  *     then anim 0x10F (25 fr, blend 4.0), then the 0x63/0x64 exit ramp.
  *     A whiffed swing exits at clip end with NO recover anim.
  *
- * HEAVY (mode 0x22, func_00173E60): anim 0x10E (20 fr, via the
+ * HEAVY (mode 0x22, func_00173E60): anim 0x10E (50 fr, via the
  * D_002754A8 row), damage 0xF = 15 at gate T=43 (D_00248700), sound
  * 0x17F, marker 0x83, release T=29 (D_00248704), then clip-end exit /
  * the same hit-confirm recover. During the swing func_00173DD0 steers
  * yaw toward the goal at D_002486F0[gait] deg-style rates (PORT: the
  * player stays planted — steer untranslated, flagged).
  *
- * TIMING NOTE (flagged open item): the gates compare the clip time
- * +0x3C (counts UP per the property-table footstep semantics) with
- * c.le.s — read literally the impact lands right after the blend-in
- * for every attack except light hit 1, whose T=24 on a 50-frame clip
- * only fits a count-down (remaining-frames) reading = impact at frame
- * 26. The port uses impact_tick = max(3, len - T) — the down-count
- * reading, which both readings agree on for hits 2/3 and the heavy
- * (T >= len there) — pending a live capture.
+ * TIMING NOTE (2026-06-11: the corrected clip lengths RESOLVE the s36
+ * contradiction): under the true lengths the down-count reading
+ * impact_tick = len - T is self-consistent for ALL FOUR attacks —
+ * impacts at frame 11/9/9 (light 1..3) and 7 (heavy), each safely
+ * BEFORE its release gate (len - releaseT = 15/20/20 light, 21 heavy)
+ * and inside the clip; the up-count reading would put every release
+ * before its impact. The port keeps impact_tick = max(3, len - T)
+ * (the 3 covers the request->commit mailbox latency + blend-in) — a
+ * live capture remains the final word but is no longer load-bearing.
  *
  * DAMAGE / RANGE: the engine machines write the damage to the melee
  * target link (player +0x18) +0x36 mailbox and let the TARGET-side
@@ -238,17 +296,22 @@
  * a 60-degree frontal cone (PORT constant), damaged through the same
  * +0x36 mailbox as the bullet (em_enemy_damage).
  *
- * VISUAL (flagged): the knife model (106) stays bound to the hip
- * HOLSTER node 14 (s9 attach decode). No draw-to-hand rebind was found
- * statically in the melee machines or their helpers — if the engine
- * re-binds the knife to the hand for the swing it happens in the
- * equipment-draw selection (the player-blob attach table), which needs
- * a live melee capture to pin. The port leaves the knife holstered
- * during attacks (the swing anims carry the read) — flagged note.
+ * VISUAL (RESOLVED 2026-06-11 — retires the s36 "no rebind found"
+ * flag): there IS no rebind, and none is needed. The hip-HOLSTER node
+ * 14 (the knife's attach node, s9) is itself KEYED INTO THE HAND by
+ * the swing clips: in every true melee clip (0x10B..0x10F) node 14
+ * rides hand node 20 at ~1.0 u for the whole swing (hip distance
+ * balloons to 9-15 u) and re-seats on the thigh at the end; in idle/
+ * walk/reload it stays parked at the thigh (3.9 u constant). The
+ * knife model attached to node 14 therefore swings with the attack
+ * automatically — the port's player.emdl (node-14 attachment) already
+ * renders this correctly with the corrected clips.
  *
- * KEY MAPPING: CIRCLE = L (light, holstered only), SQUARE = J (heavy
- * holstered / sub-toggle while aiming) — both per the engine default
- * config; the old "SQUARE unbound" note above is retired.
+ * KEY MAPPING: CIRCLE = L (light 3-chain, holstered only), SQUARE = J
+ * (heavy stab holstered / FLASHLIGHT toggle while aiming) — both per
+ * the engine default config (s36: CIRCLE -> mode 0x21 light combo,
+ * SQUARE -> mode 0x22 heavy; verified NOT inverted in this module,
+ * 2026-06-11 fidelity pass).
  */
 #ifndef EM_WEAPON_H
 #define EM_WEAPON_H
@@ -339,8 +402,13 @@ int em_weapon_melee_combo(void);  /* current light combo hit 1..3, or 0
 int em_weapon_melee_heavy(void);  /* 1 = the active swing is the heavy   */
 int em_weapon_melee_swings(void); /* attacks started since reset         */
 int em_weapon_melee_hits(void);   /* impact-tick victims since reset     */
-int em_weapon_sub_toggle(void);   /* the D_00810D3C mirror (SQUARE while
-                                   * aiming, attachment 0)               */
+
+/* FLASHLIGHT (header block above; the D_00810D3C / player +0xA light
+ * state): 1 while the light is on. The timer accessor reports the
+ * frames left on the 300-frame auto-off burst (0 when off/expired) —
+ * self-test introspection. */
+int em_weapon_flashlight(void);
+int em_weapon_flashlight_timer(void);
 
 /* Live ammo state — the HUD's EmPlayerStatus mirrors these. */
 uint8_t em_weapon_mag(void);
