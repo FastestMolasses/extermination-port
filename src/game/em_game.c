@@ -174,23 +174,52 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 /* Movement / camera tuning. The loop is vsync-locked at 60 Hz exactly
  * like the PS2 original, so a fixed dt keeps everything deterministic.
  *
- * ANALOG GAIT: free movement now runs the engine's REAL stick
- * quantizer + speed table (the s31 decode, constants below): the raw
- * stick magnitude picks gait 1/2/3 = turn-in-place/walk/run at
- * 0/6/18 u/s. Keyboard full push = RUN (matching the PCSX2 keyboard
- * feel); the input layer's modifier vector-magnitude caps land each
- * hold in ITS ring in every stick direction — Cmd 0.8 (raw ~102) =
- * the WALK band, Option 0.5 (raw 64) = the gait-1 TURN/creep band
- * (em_input.h GAIT HOLD TIERS). WALK_SPEED stays as the door-transit
- * scripted MOVE-TO speed only (em_door's walk, not stick locomotion —
- * the historical port constant keeps the transit timings). */
+ * ANALOG GAIT — TIER-RAMP CORRECTED (2026-06-11, user PCSX2 report
+ * "full stick should RUN" + the func_0017BC40 re-decode; overturns the
+ * s31 "gait = locIdx+1" reading AND the CURIOSITIES "unreachable
+ * sprint"): the stick quantizer func_001B5CC0 (rings 48/88/122) picks
+ * the gait byte 0..3, and func_00174AC0 maps it to a TARGET speed
+ * +0x240 = {0, 0.1, 0.3, 0.8} u/tick. The locomotion tier locIdx
+ * (+0x25C) only ENTERS at gait-1 (func_001612D0 state 2); from there
+ * the ramp func_0017BC40 accelerates +0x38 by D_00248880[tier] per
+ * frame and PROMOTES the tier (+0x25C += 1) each time the speed
+ * crosses the next tier's D_00248870 value, until tier speed ==
+ * target. anim_matrix_player re-requests the tier's clip every frame
+ * (sub 1 blends TOWARD the next tier's clip mid-ramp). So sustained:
+ *
+ *   gait 1 = WALK  tier 1, anim id 1, 0.1 u/tick =  6 u/s
+ *   gait 2 = JOG   tier 2, anim id 2, 0.3 u/tick = 18 u/s
+ *   gait 3 = RUN   tier 3, anim id 3, 0.8 u/tick = 48 u/s
+ *
+ * Keyboard full push = RUN (the PCSX2 full-stick behavior); the input
+ * layer's modifier caps land each hold one ring down — Cmd 0.8 (raw
+ * ~102) = the gait-2 JOG band, Option 0.5 (raw 64) = the gait-1 WALK
+ * band (em_input.h GAIT HOLD TIERS). WALK_SPEED stays as the
+ * door-transit scripted MOVE-TO speed only (em_door's walk, not stick
+ * locomotion — the historical port constant keeps the transit
+ * timings). Stick release from tier 3 runs the engine's RUN-DOWN
+ * (func_0017BC40 phase 2: 0.03125 u/tick decay to the tier-2 speed,
+ * then stop; the carried-gear x2 decay and the mode-6 stop-skid anims
+ * ids 4/5 are untranslated — flagged). */
 #define FRAME_DT        (1.0f / 60.0f)
 #define WALK_SPEED      15.0f   /* units/sec — scripted door MOVE-TO only */
 #define GAIT_RING_1     48.0f   /* func_001B5CC0 rings, raw stick units */
 #define GAIT_RING_2     88.0f
 #define GAIT_RING_3     122.0f
 #define GAIT_WALK_SPEED (0.1f * 60.0f)  /* D_00248870[1] u/tick @ 60 Hz */
-#define GAIT_RUN_SPEED  (0.3f * 60.0f)  /* D_00248870[2] */
+#define GAIT_JOG_SPEED  (0.3f * 60.0f)  /* D_00248870[2] */
+#define GAIT_RUN_SPEED  (0.8f * 60.0f)  /* D_00248870[3] — full stick */
+/* Tier-ramp tables (ELF .data, re-dumped 2026-06-11): per-frame accel
+ * D_00248880 while ramping OUT of tier i, decel D_00248890 while
+ * ramping DOWN from tier i, and the phase-2 run-down decay. u/tick. */
+#define GAIT_ACCEL_0    0.05f       /* D_00248880[0]: 0 -> 0.1   */
+#define GAIT_ACCEL_1    0.05f       /* D_00248880[1]: 0.1 -> 0.3 */
+#define GAIT_ACCEL_2    0.0625f     /* D_00248880[2]: 0.3 -> 0.8 */
+#define GAIT_DECEL_2    0.025f      /* D_00248890[2]: 0.3 -> 0.1 */
+#define GAIT_DECEL_3    0.0227273f  /* D_00248890[3]: 0.8 -> 0.3 */
+#define GAIT_RUNDOWN    0.03125f    /* func_0017BC40 phase-2 decay
+                                     * (0x3D000000; x2 with carried
+                                     * gear — untranslated) */
 #define TURN_SPEED      12.0f   /* rad/sec — facing seeks the move dir */
 /* MANUAL AIM STEER — DECODED (2026-06-11, func_0017ABA0; retires the
  * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
@@ -247,28 +276,34 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 
 /* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c —
  * for the player the anim id IS the container index, FINDINGS "ANIM ID
- * MAPPING"). The AUTHENTIC stick-locomotion ids, decoded 2026-06-10
- * from the boot ELF's selection chain (replaces the s10-era stride-scan
- * guess of clips 2/3):
+ * MAPPING"). The AUTHENTIC stick-locomotion ids — TIER-RAMP CORRECTED
+ * 2026-06-11 (see ANALOG GAIT above; the s31 "full stick = id 2"
+ * reading missed the func_0017BC40 tier promotion — the PCSX2 oracle
+ * showed the port one tier slow everywhere):
  *
  *   stick deflection -> func_001B5CC0 quantizer (rings r=48/88/122) ->
  *   gait byte 0..3 (pad struct +0x17 = 0x810E57) -> player +0x23F ->
- *   locomotion top func_001612D0: locIdx = gait-1, speed =
- *   D_00248870[locIdx] = {0.0, 0.1, 0.3, 0.8} u/tick, anim id =
+ *   target speed +0x240 (func_00174AC0) -> the tier ramp promotes
+ *   locIdx +0x25C until D_00248870[locIdx] == target; anim id =
  *   D_00248AB0[mode 1][family*4 + locIdx] (func_0017B490/func_0017B460;
  *   unarmed family 0 row = {0, 1, 2, 3}).
  *
- * So gait 1 = turn-in-place (id 0, speed 0), gait 2 = WALK (id 1,
- * 0.1 u/tick = 6 u/s), gait 3 (full stick) = RUN (id 2, 0.3 u/tick).
- * The quantizer never returns 4, so id 3 (0.8 u/tick row) is a sprint
- * data slot the stick cannot reach — not shipped. The walk/run clips
- * are baked IN PLACE; their natural ground speeds at 60 fps are
- * 6.11 / 24.07 u/s (exporter-printed; the engine's own walk 0.1 u/tick
- * = 6.0 u/s at 60 Hz cross-checks it), so playback rate =
- * move_speed / that keeps the feet tracking the ground (stride lock).
- * Idle<->locomotion is a 0.15 s LINEAR palette blend — the engine
- * cross-fades clip transitions the same way (PROGRESS.md: mid-blend
- * live captures match no single clip).
+ * Sustained: gait 1 = WALK (id 1, 6 u/s), gait 2 = JOG (id 2,
+ * 18 u/s), gait 3 full stick = RUN (id 3, 48 u/s). Tier 0 (id 0,
+ * speed 0 — turn-in-place) is only the gait-1 ENTRY transient. All
+ * three clips re-baked from the fixed-directory library 2026-06-11:
+ * id 1 = 120-frame scissored stride (12.1 u root travel -> natural
+ * 6.11 u/s; feet swing 7.3 u, arms 3.3 u); id 2 = 45-frame jog
+ * (17.7 u -> 24.07 u/s; feet 8.4, arms 4.9) — the engine drives it at
+ * 18 u/s = rate 0.75, exactly its hard-coded +0x204 = 0.75 at tier 2;
+ * id 3 = 40-frame full arm-pump run (30.9 u -> 47.57 u/s; feet 10.1,
+ * arms 6.8) at rate ~1.0 (0.8 u/tick = 48 u/s target). Playback rate
+ * = move_speed / natural keeps the feet tracking the ground (stride
+ * lock). Idle<->locomotion is a 0.15 s LINEAR palette blend — the
+ * engine cross-fades clip transitions the same way (PROGRESS.md:
+ * mid-blend live captures match no single clip); the mid-ramp
+ * blend-toward-next-tier (anim_matrix_player sub 1) is approximated
+ * by the same crossfade on the tier swap (flagged).
  *
  * IDLE CYCLE (decoded s38, FINDINGS "PLAYER IDLE CYCLE" — closes the
  * 2026-06-11 "true default-idle anim id" open item): the player
@@ -286,10 +321,12 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * off). */
 #define CLIP_ID_IDLE    0u      /* breathing idle (engine mode-0 base) */
 #define CLIP_ID_FIDGET  349u    /* idle fidget 0x15D = look-around */
-#define CLIP_ID_WALK    1u      /* engine walk (was library clip 2) */
-#define CLIP_ID_RUN     2u      /* engine run (gait 3 = full stick) */
-#define WALK_CLIP_SPEED 6.11f   /* units/sec at the baked 60 fps */
-#define RUN_CLIP_SPEED  24.07f  /* run clip natural speed (45 fr) */
+#define CLIP_ID_WALK    1u      /* tier 1 (gait 1 / Option hold) */
+#define CLIP_ID_JOG     2u      /* tier 2 (gait 2 / Cmd hold) */
+#define CLIP_ID_RUN     3u      /* tier 3 (gait 3 = full stick) */
+#define WALK_CLIP_SPEED 6.11f   /* natural u/s at the baked 60 fps */
+#define JOG_CLIP_SPEED  24.07f  /* jog clip natural speed (45 fr) */
+#define RUN_CLIP_SPEED  47.57f  /* run clip natural speed (40 fr) */
 #define IDLE_FIDGET_FRAMES 300  /* +0x28 timer re-arm value (0x12C) */
 #define IDLE_BLEND_TIME (8.0f / 60.0f) /* the cycle's blend arg 8.0 */
 
@@ -352,15 +389,17 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * per-frame func_00187350 fires the step sound + decal when the
  * committed clip time crosses them). Rows re-read from the user's
  * local boot ELF for the authentic ids: walk id 1 (120 fr) -> 72/21 —
- * the exact pair the s29 live capture metered while stick-walking;
- * run id 2 (45 fr) -> 26/3. Each trigger plays the two-layer step —
- * surface variant (material block + gait sub-base) + gear/cloth
- * variant, each with its own rand5 draw (footstep_play below). */
+ * the exact pair the s29 live capture metered at a partial-stick
+ * gait; jog id 2 (45 fr) -> 26/3; run id 3 (40 fr) -> 21/2. Each
+ * trigger plays the two-layer step — surface variant (material block
+ * + tier sub-base) + gear/cloth variant, each with its own rand5 draw
+ * (footstep_play below). */
 #define WALK_STEP_FRAME_A 72.0f /* D_00248C90[1].frameA */
 #define WALK_STEP_FRAME_B 21.0f /* D_00248C90[1].frameB */
-#define RUN_STEP_FRAME_A  26.0f /* D_00248C90[2].frameA — for the run
-                                 * clip when locomotion drives it */
-#define RUN_STEP_FRAME_B  3.0f  /* D_00248C90[2].frameB */
+#define JOG_STEP_FRAME_A  26.0f /* D_00248C90[2].frameA */
+#define JOG_STEP_FRAME_B  3.0f  /* D_00248C90[2].frameB */
+#define RUN_STEP_FRAME_A  21.0f /* D_00248C90[3].frameA */
+#define RUN_STEP_FRAME_B  2.0f  /* D_00248C90[3].frameB */
 #define ANIM_BLEND_TIME 0.15f   /* seconds, idle<->walk crossfade */
 #define STICK_DEADZONE  0.25f
 #define EM_PI           3.14159265f
@@ -638,9 +677,10 @@ static struct {
     int        clip_fidget;      /* idle fidget 349; -1 = none (old asset,
                                   * cycle off) */
     int        clip_walk;        /* -1 = no walk clip (EMD2 asset) */
-    int        clip_run;         /* -1 = no run clip */
+    int        clip_jog;         /* -1 = no jog clip (id 2) */
+    int        clip_run;         /* -1 = no run clip (id 3) */
     int        loco_clip;        /* the ACTIVE locomotion clip index
-                                  * (walk or run, by gait) */
+                                  * (walk/jog/run, by tier) */
     float      loco_speed;       /* its natural ground speed, u/s */
     double     walk_t;           /* locomotion clip time, s (rate-scaled) */
     float      walk_w;           /* locomotion blend weight 0..1 */
@@ -648,6 +688,10 @@ static struct {
                                   * clip FRAMES (footstep edge detect) */
     int        gait;             /* this frame's stick gait 0..3
                                   * (func_001B5CC0 quantizer) */
+    int        loco_tier;        /* locomotion tier (+0x25C locIdx): the
+                                  * speed ramp promotes/demotes it; the
+                                  * sustained tier == gait */
+    float      loco_upt;         /* ramped ground speed +0x38, u/tick */
     float      move_speed;       /* this frame's ground speed, units/sec */
     float      walk_palette[1024 * 16];  /* scratch for the blends */
 
@@ -779,6 +823,8 @@ static struct {
     int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
     float       move_expect[3];
     int         transit_test;    /* EM_TRANSIT_TEST=1 — scene-switch test */
+    int         slider_test;     /* EM_SLIDER_TEST=1 — sliding-door test
+                                  * (drawbridge scene, walk-into brain) */
     int         tt_door;         /* test door index (the goto west door) */
     int         tt_ok_trigger;   /* X press put the goto door in OPENING */
     int         tt_ok_lock;      /* input locked mid-transit */
@@ -1333,6 +1379,8 @@ static void player_move(void)
             float len  = sqrtf(dx * dx + dz * dz);
             float step = WALK_SPEED * FRAME_DT;
             g.move_speed = WALK_SPEED;     /* drive the walk clip */
+            g.loco_tier  = 1;              /* scripted walk = tier-1 clip */
+            g.loco_upt   = 0.0f;           /* free-move ramp re-arms */
             g.yaw        = tyaw;
             if (len <= step || len < 1e-6f) {
                 g.pos[0] = tt[0];
@@ -1358,10 +1406,12 @@ static void player_move(void)
         float wyaw, wspeed;
         if (em_door_walkout_active(&wyaw, &wspeed)) {
             g.yaw        = wyaw;
-            /* Drive the locomotion clip at the engine's commanded gait:
+            /* Drive the locomotion clip at the engine's commanded tier:
              * the walk-out plays the locIdx-2 clip (family 0 -> id 2 =
-             * RUN) even during the in-place phase. */
-            g.move_speed = wspeed > 0.0f ? wspeed : GAIT_RUN_SPEED;
+             * JOG, 0.3 u/tick) even during the in-place phase. */
+            g.move_speed = wspeed > 0.0f ? wspeed : GAIT_JOG_SPEED;
+            g.loco_tier  = 2;
+            g.loco_upt   = 0.0f;           /* free-move ramp re-arms */
             g.pos[0] += sinf(wyaw) * wspeed * FRAME_DT;
             g.pos[2] += cosf(wyaw) * wspeed * FRAME_DT;
             return;
@@ -1376,6 +1426,9 @@ static void player_move(void)
      * earlier, at fade-in completion. */
     if (em_door_movement_locked()) {
         g.move_speed = 0.0f;
+        g.loco_tier  = 0;          /* scripted mode exits locomotion:
+                                    * re-entry re-arms the tier ramp */
+        g.loco_upt   = 0.0f;
         return;
     }
 
@@ -1432,6 +1485,8 @@ static void player_move(void)
     }
     if (em_weapon_is_aiming() || g.r2_aim) {
         g.move_speed = 0.0f;
+        g.loco_tier  = 0;          /* armed modes replace locomotion */
+        g.loco_upt   = 0.0f;
         const EmFrameInput *ain = em_frame_input();
         int r1fam = !g.r2_aim || em_weapon_is_aiming(); /* stance 0x31 */
 
@@ -1508,6 +1563,8 @@ static void player_move(void)
      * (flagged in em_weapon.h), so no turn-in-place here either. */
     if (em_weapon_is_melee()) {
         g.move_speed = 0.0f;
+        g.loco_tier  = 0;          /* melee modes replace locomotion */
+        g.loco_upt   = 0.0f;
         return;
     }
 
@@ -1523,9 +1580,74 @@ static void player_move(void)
               : r <= GAIT_RING_3 ? 2 : 3;
     g.gait       = gait;
     g.move_speed = 0.0f;
-    if (gait == 0) {                  /* dead ring: idle */
+
+    /* THE TIER RAMP (func_0017BC40 — the 2026-06-11 re-decode; the
+     * engine's +0x38/+0x25C pair): the target is the gait's
+     * D_00248870 speed; the current speed accelerates/decelerates
+     * toward it through the tier boundaries, promoting/demoting
+     * loco_tier as each one is crossed. */
+    static const float kTier[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
+    if (gait == 0) {                  /* dead ring: idle / run-down */
+        if (g.loco_tier == 3 && g.loco_upt > 0.0f) {
+            /* RUN-DOWN (phase 2): the run carries — speed decays
+             * 0.03125 u/tick per frame to the tier-2 boundary, THEN
+             * stops (the engine's phase-3 instant stop; the mode-6
+             * stop-skid anims ids 4/5 are untranslated). */
+            g.loco_upt -= GAIT_RUNDOWN;
+            if (g.loco_upt <= kTier[2]) {
+                g.loco_tier = 0;
+                g.loco_upt  = 0.0f;
+            } else {
+                g.move_speed = g.loco_upt * 60.0f;
+                float rx = sinf(g.yaw), rz = cosf(g.yaw);
+                if (g.coll.poly_count)
+                    player_move_collide(rx * g.move_speed * FRAME_DT,
+                                        rz * g.move_speed * FRAME_DT);
+                else {
+                    g.pos[0] += rx * g.move_speed * FRAME_DT;
+                    g.pos[2] += rz * g.move_speed * FRAME_DT;
+                }
+                return;
+            }
+        } else {                      /* tiers <= 2 stop instantly
+                                       * (phase 3: +0x38 = 0) */
+            g.loco_tier = 0;
+            g.loco_upt  = 0.0f;
+        }
         player_wall_probes();         /* the idle top probes too */
         return;
+    }
+
+    /* Locomotion ENTRY (func_001612D0 state 2): from idle the tier
+     * starts at gait-1 with that tier's speed; the ramp then promotes
+     * it to the gait. A gait change mid-run ramps from the current
+     * speed instead (no re-entry). */
+    if (g.loco_tier == 0 && g.loco_upt <= 0.0f) {
+        g.loco_tier = gait - 1;
+        g.loco_upt  = kTier[gait - 1];
+    }
+    {
+        float target = kTier[gait];
+        if (g.loco_upt < target) {            /* sub 1: accelerate */
+            float acc = g.loco_tier <= 0 ? GAIT_ACCEL_0
+                      : g.loco_tier == 1 ? GAIT_ACCEL_1 : GAIT_ACCEL_2;
+            g.loco_upt += acc;
+            if (g.loco_tier < 3 && g.loco_upt >= kTier[g.loco_tier + 1]) {
+                g.loco_upt = kTier[g.loco_tier + 1];
+                g.loco_tier++;                /* +0x25C += 1 */
+            }
+            if (g.loco_upt > target) g.loco_upt = target;
+        } else if (g.loco_upt > target) {     /* sub 2: decelerate */
+            float dec = g.loco_tier >= 3 ? GAIT_DECEL_3 : GAIT_DECEL_2;
+            g.loco_upt -= dec;
+            if (g.loco_tier > 0 && g.loco_upt <= kTier[g.loco_tier - 1]) {
+                g.loco_upt = kTier[g.loco_tier - 1];
+                g.loco_tier--;                /* +0x25C -= 1 */
+            }
+            if (g.loco_upt < target) g.loco_upt = target;
+        } else {
+            g.loco_tier = gait;               /* at tier: sustained */
+        }
     }
 
     /* Stick direction (normalized) -> camera-relative move heading.
@@ -1539,11 +1661,9 @@ static void player_move(void)
     float mx = fx * -sy - fz * sx;
     float mz = fz * -sy + fx * sx;
 
-    /* D_00248870[gait-1]: gait 1 = TURN-IN-PLACE (speed 0 — the facing
-     * seeks the stick heading below, the breathing-idle clip plays),
-     * gait 2 = WALK 6 u/s, gait 3 = RUN 18 u/s. */
-    g.move_speed = gait == 3 ? GAIT_RUN_SPEED
-                 : gait == 2 ? GAIT_WALK_SPEED : 0.0f;
+    /* The ramped speed drives this frame (sustained: gait 1 = WALK
+     * 6 u/s, gait 2 = JOG 18 u/s, gait 3 = RUN 48 u/s). */
+    g.move_speed = g.loco_upt * 60.0f;
 
     if (g.coll.poly_count) {
         player_move_collide(mx * g.move_speed * FRAME_DT,
@@ -1583,13 +1703,14 @@ static void player_move(void)
  *
  * There is NO per-surface id table in the engine — the mapping is
  * compiled-in immediates inside func_00182430: a 17-id block per floor
- * material (footstep_block below) + the gait sub-base (a1==3 -> +0xA,
- * a1==2 -> +5, else +0; a1 = actor +0x25C, the gait byte) + rand5 =
+ * material (footstep_block below) + the tier sub-base (a1==3 -> +0xA,
+ * a1==2 -> +5, else +0; a1 = actor +0x25C, the ramped locomotion
+ * tier — run +0xA, jog +5, walk +0) + rand5 =
  * func_00179B90 = (rand() & 7) with 5..7 folded to 0..2 (0..4, the low
  * three values twice as likely). This REPLACES the s29-era port guess
  * (fixed pairs 0x15/0x16 + 0x139/0x13A, both alternating L/R): the s29
- * "floor A vs floor B" capture was the SAME material at walk vs run
- * gait (block 0x10 + 5 -> 0x15.. walk, + 0xA -> 0x1A.. run), and the
+ * "floor A vs floor B" capture was the SAME material at two tiers
+ * (block 0x10 + 5 -> 0x15.. jog, + 0xA -> 0x1A.. run), and the
  * observed "pairs" were the rand bias toward 0..2 — neither layer
  * alternates. (The decal half of func_00187350 — step decals/FX via
  * func_00187EE0 — is still untranslated.) */
@@ -1639,7 +1760,7 @@ static uint8_t footstep_floor_attr(void)
 }
 
 /* BLOCK(attr) — func_00182430's compiled-in material bases (FINDINGS
- * table; stride 0x11 = 17 ids per material: 3 gait sub-bases x 5
+ * table; stride 0x11 = 17 ids per material: 3 tier sub-bases x 5
  * variants + 2 spare landing/scuff slots). */
 static unsigned footstep_block(uint8_t attr)
 {
@@ -1663,20 +1784,20 @@ static unsigned footstep_block(uint8_t attr)
     }
 }
 
-/* One footstep at `gait` (the engine mapper's a1; the locomotion paths
+/* One footstep at `tier` (the engine mapper's a1 = +0x25C; the locomotion paths
  * pass actor +0x25C, the melee impact gates a scripted 1..3).
  * EM_STEP_TRACE=1 prints each step's resolved attr/ids (debug). */
-static void footstep_play(int gait)
+static void footstep_play(int tier)
 {
     uint8_t  attr = footstep_floor_attr();
-    unsigned sub  = gait == 3 ? 0xAu : gait == 2 ? 5u : 0u;
+    unsigned sub  = tier == 3 ? 0xAu : tier == 2 ? 5u : 0u;
     unsigned surf = footstep_block(attr) + sub + footstep_rand5();
     unsigned gear = EM_SFX_STEP_GEAR_BASE + footstep_rand5();
     static int trace = -1;
     if (trace < 0) trace = getenv("EM_STEP_TRACE") != NULL;
     if (trace)
-        printf("step: gait %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
-               gait, attr, surf, gear);
+        printf("step: tier %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
+               tier, attr, surf, gear);
     em_sfx_play(surf);
     em_sfx_play(gear);
 }
@@ -1834,18 +1955,24 @@ static void actor_update(void)
         return;
     }
 
-    /* Locomotion clip by GAIT (the mode-1 id row {0,1,2,3}): walk for
-     * gait 2, run for gait 3 (falling back to walk when the asset has
-     * no run clip). On a clip swap the cycle restarts — the engine
-     * re-inits the clip on an id change (anim_clip_init). The DOOR
-     * TRANSIT scripted MOVE-TO (move_speed = WALK_SPEED, gait 0)
-     * keeps the walk clip, the historical behavior. */
+    /* Locomotion clip by TIER (the mode-1 id row {0,1,2,3} indexed by
+     * the ramped locIdx +0x25C, NOT the raw gait — the 2026-06-11
+     * tier-ramp correction): walk for tier 1, jog for tier 2, run for
+     * tier 3, each falling back down-row when the asset lacks the
+     * clip. On a clip swap the cycle restarts — the engine re-inits
+     * the clip on an id change (anim_clip_init); the mid-ramp blend
+     * toward the next tier's clip rides the same crossfade (flagged).
+     * The DOOR TRANSIT scripted MOVE-TO (tier 1) keeps the walk clip;
+     * the ARRIVAL WALK-OUT (tier 2) plays the engine's jog clip. */
     int loco = g.clip_walk;
-    if (g.gait == 3 && g.clip_run >= 0)
+    if (g.loco_tier >= 3 && g.clip_run >= 0)
         loco = g.clip_run;
+    else if (g.loco_tier >= 2 && g.clip_jog >= 0)
+        loco = g.clip_jog;
     if (loco != g.loco_clip) {
         g.loco_clip  = loco;
         g.loco_speed = (loco >= 0 && loco == g.clip_run) ? RUN_CLIP_SPEED
+                     : (loco >= 0 && loco == g.clip_jog) ? JOG_CLIP_SPEED
                                                          : WALK_CLIP_SPEED;
         g.walk_t     = 0.0;
         g.step_prev  = 0.0;
@@ -1863,20 +1990,25 @@ static void actor_update(void)
         /* FOOTSTEP triggers (footstep_play above): the loco-cycle
          * playhead in clip FRAMES — wrapping exactly like the palette
          * evaluation — against the clip's D_00248C90 trigger frames
-         * (walk id 1: 72/21; run id 2: 26/3). The playhead only
-         * advances while moving (rate-scaled to the ground speed), so
-         * standing is silent and slower walks space their steps out,
-         * exactly like the engine's clip-time test. */
+         * (walk id 1: 72/21; jog id 2: 26/3; run id 3: 21/2). The
+         * playhead only advances while moving (rate-scaled to the
+         * ground speed), so standing is silent and slower walks space
+         * their steps out, exactly like the engine's clip-time test. */
         int run = g.loco_clip == g.clip_run && g.clip_run >= 0;
-        double fa = run ? RUN_STEP_FRAME_A : WALK_STEP_FRAME_A;
-        double fb = run ? RUN_STEP_FRAME_B : WALK_STEP_FRAME_B;
+        int jog = g.loco_clip == g.clip_jog && g.clip_jog >= 0;
+        double fa = run ? RUN_STEP_FRAME_A
+                  : jog ? JOG_STEP_FRAME_A : WALK_STEP_FRAME_A;
+        double fb = run ? RUN_STEP_FRAME_B
+                  : jog ? JOG_STEP_FRAME_B : WALK_STEP_FRAME_B;
         const EmModelClip *cw = &g.model.clips[g.loco_clip];
         double cyc = fmod(g.walk_t * (double)cw->fps,
                           (double)cw->frame_count);
         if (step_crossed(g.step_prev, cyc, fa) ||
             step_crossed(g.step_prev, cyc, fb))
-            footstep_play(run ? 3 : 2);  /* gait sub-base: walk +5,
-                                          * run +0xA (func_00182430) */
+            footstep_play(run ? 3 : jog ? 2 : 1);
+            /* a1 = the TIER (+0x25C): run +0xA, jog +5, walk +0
+             * (func_00182430 sub-bases — the s30 "walk 0x15/run 0x1A"
+             * captures were tiers 2/3 under the corrected labels) */
         g.step_prev = cyc;
     }
 
@@ -2955,7 +3087,8 @@ static void frame_close_out(void)
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
     if (g.capture_path && !g.move_test && !g.weapon_test && !g.door_test &&
-        !g.transit_test && g.frame_no > g.capture_frame + 1)
+        !g.transit_test && !g.slider_test &&
+        g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();
 }
 
@@ -2966,18 +3099,20 @@ static void frame_close_out(void)
  * 1..60 (walk forward, +Z at cam_yaw 0), 'd' for frames 61..90 (walk
  * screen-right, -X), then assert the final placement and quit.
  *
- * Keyboard full push = GAIT 3 (RUN, 18 u/s = 0.3 u/frame — the engine
- * quantizer; see ANALOG GAIT above), so the forward leg covers
- * 60 * 0.3 = 18 u of motion. The office collision world has a wall
- * n-gon at z = -170 (grid poly, plane n = (0,0,-1), d = 170 — 14 u
- * ahead of the spawn), so with collision loaded the RADIAL WALL PROBES
- * must rest the player at the engine's 4.5-unit standoff: z = -174.5.
- * The right leg then slides free along that wall (motion parallel to
- * the plane; only wall-facing probes push, along their own direction,
- * so no lateral drift):
- *   collision world:  (98.400, 0.000, -174.500), yaw -pi/2
- *   bbox fallback:    (98.400, 0.000, -166.000), yaw -pi/2  (no probes,
- *                     no wall — 18 u of free motion)
+ * Keyboard full push = GAIT 3 (RUN, 48 u/s = 0.8 u/frame sustained —
+ * the tier-ramp-corrected mapping, ANALOG GAIT above; the entry ramps
+ * 0.3 -> 0.8 over 8 frames = 4.65 u, then 0.8/frame). The office
+ * collision world has a wall n-gon at z = -170 (grid poly, plane
+ * n = (0,0,-1), d = 170 — 14 u ahead of the spawn), so with collision
+ * loaded the RADIAL WALL PROBES must rest the player at the engine's
+ * 4.5-unit standoff: z = -174.5. The right leg then slides free along
+ * that wall for 30 * 0.8 = 24 u (the tier persists across the
+ * direction change — no re-ramp; motion parallel to the plane; only
+ * wall-facing probes push, along their own direction, so no lateral
+ * drift):
+ *   collision world:  (83.400, 0.000, -174.500), yaw -pi/2
+ *   bbox fallback:    (83.400, 0.000, -137.750), yaw -pi/2  (no probes,
+ *                     no wall — 4.65 + 52*0.8 = 46.25 u of free motion)
  * Those built-in expectations (and the 60/30-frame legs) are the OFFICE
  * scene's; for other scenes (manifest spawns) EM_MOVE_LEGS=fwd,strafe
  * resizes the two legs to reach that scene's wall and EM_MOVE_EXPECT=
@@ -3003,8 +3138,8 @@ static void move_test_script(void)
     } else if (n == g.move_legs[0] + g.move_legs[1]) {
         move_test_inject('d', 0);
     } else if (n == g.move_legs[0] + g.move_legs[1] + 1) {
-        float ex = 98.4f, ey = 0.0f;
-        float ez = g.coll.poly_count ? -174.5f : -166.0f;
+        float ex = 83.4f, ey = 0.0f;
+        float ez = g.coll.poly_count ? -174.5f : -137.75f;
         if (g.move_expect_set) {
             ex = g.move_expect[0];
             ey = g.move_expect[1];
@@ -3033,8 +3168,9 @@ static void move_test_script(void)
  * exercises the FULL s22 transit sequence end to end through the real
  * input API:
  *
- *   frames  1..24   run -X (full push = gait 3, 0.3 u/frame) to
- *                   x ~= 64.8 (inside the 10 u use-scan radius measured
+ *   frames  1..24   run -X (full push = gait 3; the tier ramp tops
+ *                   out at 0.8 u/frame) to the boundary-wall standoff
+ *                   x ~= 64.5 (inside the 10 u use-scan radius measured
  *                   from the CENTER; no button — the door must stay
  *                   CLOSED. The engine's class-5 scan has no auto ring)
  *   frames 29..58   keep running -X. The doorway is statically SEALED by
@@ -3318,6 +3454,116 @@ static void transit_test_script(void)
     }
     if (em_frame_fade_level() > g.tt_max_fade)
         g.tt_max_fade = em_frame_fade_level();
+}
+
+/* EM_SLIDER_TEST=1 — deterministic SLIDING-DOOR self-test (run with
+ * EM_SCENE=assets/scene_drawbridge). Exercises the decoded m17/m09
+ * variant brain func_001BB860 (em_door.h "SLIDERS") on the drawbridge
+ * room's intra-room slider door 4 — door_m09 at (128.6, 0, -610) yaw
+ * pi/2 (AREA01 sub-0 placement; room-move entries 9/8 flank it at
+ * x 143 / 115.5):
+ *
+ *   frame    0      spawn (112, 0, -610) facing +X, 16.6 u from the
+ *                   door; hold 'w' — the player RUNS at the door. NO
+ *                   button is ever pressed in this test.
+ *   ~frame  11      the player crosses the 10-u scan radius still
+ *                   pushing: the WALK-INTO arming triggers (the
+ *                   decoded no-button gate) -> kickoff: back side
+ *                   (bearing -pi/2 vs door yaw +pi/2), yaw snap +X,
+ *                   walk to the staging point (122.6, -610) =
+ *                   door - 6.0 * fwd (the func_001BB560 6.0 constant)
+ *   ~frame  30..75  the NATIVE SLIDE pumps (46-frame clip, panels
+ *                   part 0.2 u/frame to +-9 u) while the player
+ *                   STANDS at staging — no player anim (the slider
+ *                   script has none), no fade (op07 sub0)
+ *   ~frame  76..    op01-sub8 walk-through: scripted MOVE-TO to the
+ *                   mirrored point (134.6, -610); at arrival the
+ *                   script ends — locks release, door stays OPEN
+ *   frame  150..170 hold 'w' — the player runs on +X out of the scan
+ *                   radius (+ the 2-u hysteresis)
+ *   frame  240      assert: armed with no button, mid-slide parked at
+ *                   staging with NO scripted player anim and fade 0,
+ *                   walk-through landed at (134.6, -610) unlocked,
+ *                   door reclosed (reverse clip) after the leave.
+ */
+static void slider_test_script(void)
+{
+    static int   st_door, st_ok_arm, st_ok_noanim, st_ok_park;
+    static int   st_ok_through, st_ok_unlock;
+    static float st_max_fade;
+    int n = g.frame_no;
+    if (n == 0) {
+        st_door = -1;
+        st_ok_arm = st_ok_noanim = st_ok_park = 0;
+        st_ok_through = st_ok_unlock = 0;
+        st_max_fade = 0.0f;
+        move_test_inject('w', 1);
+    } else if (n == 3) {
+        /* the test door = nearest instance to the slider placement */
+        float best = 1e30f;
+        for (int i = 0; i < em_door_count(); i++) {
+            float p[3];
+            em_door_pos(i, p);
+            float dx = p[0] - 128.6f, dz = p[2] + 610.0f;
+            float d2 = dx * dx + dz * dz;
+            if (d2 < best) { best = d2; st_door = i; }
+        }
+    } else if (n == 20) {
+        /* armed by the walk-into alone (the stick is the only input) */
+        st_ok_arm = st_door >= 0 &&
+                    em_door_state(st_door) == EM_DOOR_OPENING;
+        move_test_inject('w', 0);   /* the script owns the player now */
+    } else if (n == 60) {
+        /* mid-slide: the player is PARKED at the staging point
+         * (122.6, -610) with NO scripted anim — the slider script has
+         * no player door gesture (the PCSX2-verified look). */
+        st_ok_noanim = em_game_anim_active() == 0 &&
+                       em_door_movement_locked();
+        st_ok_park   = fabsf(g.pos[0] - 122.6f) <= 0.35f &&
+                       fabsf(g.pos[2] + 610.0f) <= 0.35f;
+        if (!st_ok_park)
+            printf("slider test: frame 60 pos (%.3f, %.3f, %.3f) — off "
+                   "the staging point\n", g.pos[0], g.pos[1], g.pos[2]);
+    } else if (n == 140) {
+        /* walk-through done: player on the far side, free, door OPEN */
+        st_ok_through = fabsf(g.pos[0] - 134.6f) <= 0.35f &&
+                        fabsf(g.pos[2] + 610.0f) <= 0.35f &&
+                        st_door >= 0 &&
+                        em_door_state(st_door) == EM_DOOR_OPEN;
+        st_ok_unlock  = !em_door_movement_locked() &&
+                        !em_door_menu_locked();
+        if (!st_ok_through)
+            printf("slider test: frame 140 pos (%.3f, %.3f, %.3f) door "
+                   "state %d\n", g.pos[0], g.pos[1], g.pos[2],
+                   st_door >= 0 ? em_door_state(st_door) : -1);
+    } else if (n == 150) {
+        move_test_inject('w', 1);   /* run on, out of the scan radius */
+    } else if (n == 170) {
+        move_test_inject('w', 0);
+    } else if (n == 240) {
+        int ok_closed = st_door >= 0 &&
+                        em_door_state(st_door) == EM_DOOR_CLOSED;
+        int ok_nofade = st_max_fade <= 0.001f;   /* op07 sub0: NO fade */
+        int ok = st_ok_arm && st_ok_noanim && st_ok_park &&
+                 st_ok_through && st_ok_unlock && ok_closed && ok_nofade;
+        printf("slider test: walk-into armed (no button) %s, mid-slide "
+               "parked at staging w/ no player anim %s/%s, walk-through "
+               "landed far-side + unlocked %s/%s, fade stayed 0 (%.3f): "
+               "%s, door reclosed after leave (state %d): %s — %s\n",
+               st_ok_arm ? "ok" : "FAILED",
+               st_ok_park ? "ok" : "FAILED",
+               st_ok_noanim ? "ok" : "FAILED",
+               st_ok_through ? "ok" : "FAILED",
+               st_ok_unlock ? "ok" : "FAILED",
+               st_max_fade, ok_nofade ? "ok" : "FAILED",
+               st_door >= 0 ? em_door_state(st_door) : -1,
+               ok_closed ? "ok" : "FAILED",
+               ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+    if (em_frame_fade_level() > st_max_fade)
+        st_max_fade = em_frame_fade_level();
 }
 
 /* EM_WEAPON_TEST=1 — deterministic firing-loop self-test (em_weapon.c).
@@ -4219,6 +4465,7 @@ static void gameplay_frame(void)
     if (g.move_test) move_test_script();    /* debug instrumentation only */
     if (g.door_test) door_test_script();    /* debug instrumentation only */
     if (g.transit_test) transit_test_script(); /* debug instrumentation  */
+    if (g.slider_test) slider_test_script();   /* debug instrumentation  */
     if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
     /* EM_CAPTURE_AIM=1: hold R1 (key E) from frame 0 — by the default
      * capture frame (60) the draw has finished and the capture shows the
@@ -4452,6 +4699,8 @@ static void ingame_frame_machine(EmTask *self)
             g.fid_t          = 0.0;
             g.fid_w          = 0.0f;
             g.gait           = 0;
+            g.loco_tier      = 0;     /* tier ramp re-armed (+0x25C/+0x38) */
+            g.loco_upt       = 0.0f;
             g.cam_recenter   = 0;
             g.cam_idle       = 0;
             g.frame_no       = 0;
@@ -4486,6 +4735,15 @@ static void ingame_frame_machine(EmTask *self)
                 g.pos[1] = 0.0f;
                 g.pos[2] = -225.5f;
                 g.yaw    = -EM_PI * 0.5f;
+            }
+            if (g.slider_test) {
+                /* EM_SLIDER_TEST spawn (scene_drawbridge): on the
+                 * slider door 4's z = -610 line, 16.6 u west of it,
+                 * facing +X (see slider_test_script). */
+                g.pos[0] = 112.0f;
+                g.pos[1] = 0.0f;
+                g.pos[2] = -610.0f;
+                g.yaw    = EM_PI * 0.5f;
             }
             memset(&g.cam, 0, sizeof g.cam);
             g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
@@ -4667,6 +4925,8 @@ static void game_boot_task(void)
         if (g.clip_idle < 0) g.clip_idle = 0;
         g.clip_walk = em_model_clip_index(&g.model, CLIP_ID_WALK);
         if (g.clip_walk == g.clip_idle) g.clip_walk = -1;
+        g.clip_jog  = em_model_clip_index(&g.model, CLIP_ID_JOG);
+        if (g.clip_jog == g.clip_idle) g.clip_jog = -1;
         g.clip_run  = em_model_clip_index(&g.model, CLIP_ID_RUN);
         if (g.clip_run == g.clip_idle) g.clip_run = -1;
         g.loco_clip  = g.clip_walk;
@@ -4788,6 +5048,8 @@ void em_game_install(void)
     g.door_test    = dt && dt[0] == '1';
     const char *tt = getenv("EM_TRANSIT_TEST");
     g.transit_test = tt && tt[0] == '1';
+    const char *sl = getenv("EM_SLIDER_TEST");
+    g.slider_test  = sl && sl[0] == '1';
     const char *wt = getenv("EM_WEAPON_TEST");
     g.weapon_test  = wt && wt[0] == '1';
     const char *et = getenv("EM_ENEMY_TEST");

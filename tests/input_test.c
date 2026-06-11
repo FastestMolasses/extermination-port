@@ -32,10 +32,11 @@ static EmPadState pad(void)
  * raw-byte conversion (em_frame.c stick_byte: raw = 0x80 + (int)(axis*128),
  * clamped to 0..255) and the engine quantizer func_001B5CC0
  * (r = sqrt((raw_x-128)^2 + (raw_y-128)^2) through rings 48/88/122), in
- * exact integer math (r^2 vs ring^2). 0 = dead, 1 = turn-in-place,
- * 2 = WALK, 3 = RUN. The GAIT HOLD TIERS contract is end-to-end: each
- * hold's capped deflection must quantize to ITS gait ring (Cmd -> 2,
- * Option -> 1) in EVERY stick direction. */
+ * exact integer math (r^2 vs ring^2). 0 = dead, 1 = WALK, 2 = JOG,
+ * 3 = RUN (the tier-ramp-corrected labels, em_input.h GAIT HOLD
+ * TIERS). The contract is end-to-end: each hold's capped deflection
+ * must quantize to ITS gait ring (Cmd -> 2, Option -> 1) in EVERY
+ * stick direction. */
 static int gait_of(float x, float y)
 {
     int ox = (int)(x * 128.0f), oy = (int)(y * 128.0f);
@@ -161,43 +162,44 @@ int main(void)
     p = pad();
     assert(p.rx == 0.0f && p.ry == 0.0f);
 
-    /* GAIT HOLD TIERS (em_input.h): no modifier = FULL (gait 3 RUN),
-     * Command = the WALK band (0.8, gait 2), Option = the TURN/creep
-     * band (0.5, gait 1 — the engine's slowest movement tier; gait 1
-     * translates zero, and no slower TRANSLATING band exists, so this
-     * is the documented mapping from the quantizer table). Caps bound
+    /* GAIT HOLD TIERS (em_input.h): no modifier = FULL (gait 3 RUN,
+     * anim id 3 at 48 u/s — the PCSX2 full-stick behavior), Command =
+     * the JOG band (0.8, gait 2 — id 2 at 18 u/s, the anim the old
+     * default misplayed at full stick), Option = the WALK band (0.5,
+     * gait 1 — id 1 at 6 u/s, the engine's slowest sustained
+     * movement tier; tier-ramp corrected 2026-06-11). Caps bound
      * BOTH sticks' VECTOR magnitude while held — including when pressed
      * mid-hold — and the full RUN deflection returns on release.
      * Cardinal pushes sit at the cap exactly; diagonals normalize by
      * 1/sqrt(2) so the engine-side quantized magnitude stays in the
      * held ring (gait_of above). Buttons are unaffected. */
     assert(EM_INPUT_DEFLECT_FULL == 1.0f);
-    assert(EM_INPUT_DEFLECT_WALK == 0.8f);
-    assert(EM_INPUT_DEFLECT_TURN == 0.5f);
+    assert(EM_INPUT_DEFLECT_JOG  == 0.8f);
+    assert(EM_INPUT_DEFLECT_WALK == 0.5f);
     press('w');
     assert(pad().ly == -EM_INPUT_DEFLECT_FULL);
     assert(gait_of(pad().lx, pad().ly) == 3);     /* full push = RUN */
 
-    /* COMMAND tier: the WALK band. */
+    /* COMMAND tier: the JOG band. */
     press(EM_KEY_CMD);                /* modifier arrives mid-hold */
     p = pad();
-    assert(p.ly == -EM_INPUT_DEFLECT_WALK && p.lx == 0.0f);
-    assert(gait_of(p.lx, p.ly) == 2);             /* cardinal = WALK */
+    assert(p.ly == -EM_INPUT_DEFLECT_JOG && p.lx == 0.0f);
+    assert(gait_of(p.lx, p.ly) == 2);             /* cardinal = JOG */
     press('d'); press('t');
     p = pad();
     assert(p.lx > 0.0f && p.ly < 0.0f);           /* W+D diagonal... */
     assert(p.lx == -p.ly);                        /* ...normalized evenly */
-    assert(gait_of(p.lx, p.ly) == 2);             /* diagonal stays WALK */
-    assert(p.ry == -EM_INPUT_DEFLECT_WALK);  /* right stick capped too */
+    assert(gait_of(p.lx, p.ly) == 2);             /* diagonal stays JOG */
+    assert(p.ry == -EM_INPUT_DEFLECT_JOG);   /* right stick capped too */
     assert(gait_of(p.rx, p.ry) == 2);
     assert(p.buttons == 0);                  /* Cmd is not a button */
 
-    /* OPTION tier: the TURN/creep band — and it WINS over a held Cmd. */
+    /* OPTION tier: the WALK band — and it WINS over a held Cmd. */
     press(EM_KEY_ALT);
     p = pad();
     assert(p.lx == -p.ly);                        /* diagonal normalized */
-    assert(gait_of(p.lx, p.ly) == 1);             /* diagonal = TURN */
-    assert(p.ry == -EM_INPUT_DEFLECT_TURN);       /* cardinal at the cap */
+    assert(gait_of(p.lx, p.ly) == 1);             /* diagonal = WALK */
+    assert(p.ry == -EM_INPUT_DEFLECT_WALK);       /* cardinal at the cap */
     assert(gait_of(p.rx, p.ry) == 1);
     release(EM_KEY_CMD);                          /* Alt alone: same tier */
     p = pad();
@@ -213,7 +215,7 @@ int main(void)
     press('k');
     p = pad();
     assert(p.buttons == EM_PAD_CROSS);
-    assert(gait_of(p.lx, p.ly) == 2);  /* W+D diagonal back in WALK */
+    assert(gait_of(p.lx, p.ly) == 2);  /* W+D diagonal back in JOG */
     release('k'); release(EM_KEY_CMD);
     release('w'); release('d'); release('t');
     p = pad();

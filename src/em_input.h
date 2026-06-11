@@ -38,24 +38,24 @@
  * so the MODIFIERS select the engine's gait rings (both synthesized as
  * KEY_DOWN/KEY_UP by the platform layer, em_platform.h):
  *
- *   (none)        FULL deflection 1.0  -> gait 3 = RUN (raw 127 > 122)
- *   Command held  WALK cap        0.8  -> gait 2 = WALK (raw ~102, the
- *                 88 < r <= 122 ring; the band spans ~0.70..0.95)
- *   Option held   TURN/creep cap  0.5  -> gait 1 (raw 64, the
- *                 48 < r <= 88 ring) = TURN-IN-PLACE
+ *   (none)        FULL deflection 1.0  -> gait 3 = RUN (raw 127 > 122,
+ *                 anim id 3, 0.8 u/tick = 48 u/s sustained)
+ *   Command held  JOG cap         0.8  -> gait 2 = JOG (raw ~102, the
+ *                 88 < r <= 122 ring; anim id 2, 18 u/s)
+ *   Option held   WALK cap        0.5  -> gait 1 = WALK (raw 64, the
+ *                 48 < r <= 88 ring; anim id 1, 6 u/s)
  *
  * Rationale: the engine quantizes the left-stick MAGNITUDE r =
  * |raw - 0x80| through rings r=48/88/122 (func_001B5CC0) into the gait
- * byte, and the locomotion table maps gaits to speeds D_00248870 =
- * {0, 0.1, 0.3} u/tick (decomp FINDINGS "stick -> anim-id selection
- * chain"): gait 1 is the SLOWEST MOVEMENT TIER the engine has — it
- * translates ZERO (turn-in-place; the stick direction only steers), and
- * there is NO slower translating band below WALK (the 0.8-u/tick sprint
- * slot is unreachable by the quantizer). So Option = gait 1 is the
- * documented honest mapping for "slowest", chosen FROM the quantizer
- * table: precise turning without stepping. If both modifiers are held,
- * the slower tier (Option) wins. Full push with no modifier is RUN —
- * exactly the PCSX2 keyboard experience this map mirrors.
+ * byte; func_00174AC0 maps the gait to a TARGET speed D_00248870 =
+ * {0, 0.1, 0.3, 0.8} u/tick and the tier ramp func_0017BC40 promotes
+ * the locomotion tier until the tier speed matches (the 2026-06-11
+ * tier-ramp correction — the old reading paired every gait with the
+ * tier BELOW it, which is why the port "walked by default": the PCSX2
+ * full stick is the id-3 RUN). Turn-in-place (tier 0) is only the
+ * gait-1 entry transient, not a sustained band. If both modifiers are
+ * held, the slower tier (Option) wins. Full push with no modifier is
+ * RUN — exactly the PCSX2 full-stick behavior this map mirrors.
  *
  * Every cap bounds the stick VECTOR magnitude: a diagonal (e.g. W+A) is
  * normalized by 1/sqrt(2) so the combined deflection stays in-band — a
@@ -138,24 +138,24 @@ enum {
 /* Emulated stick deflection magnitudes — SEMANTIC CONSTANTS for the game
  * code (src/game/): test |lx|/|ly| against these, not bare literals.
  *   FULL (1.0)  keyboard default = the engine quantizer's gait-3 RUN band
- *               (raw > 122 of 127).
- *   WALK (0.8)  the COMMAND gait hold = the gait-2 WALK band (raw ~102,
+ *               (raw > 122 of 127) — anim id 3, 48 u/s sustained.
+ *   JOG  (0.8)  the COMMAND gait hold = the gait-2 JOG band (raw ~102,
  *               inside the 88 < r <= 122 ring; the band only spans
- *               deflections ~0.70..0.95).
- *   TURN (0.5)  the OPTION/ALT gait hold = the gait-1 TURN/creep band
- *               (raw 64, mid the 48 < r <= 88 ring) — the engine's
- *               slowest movement tier: turn-in-place, zero translation
- *               (see "GAIT HOLD TIERS" above for why there is no slower
- *               TRANSLATING band).
+ *               deflections ~0.70..0.95) — anim id 2, 18 u/s.
+ *   WALK (0.5)  the OPTION/ALT gait hold = the gait-1 WALK band
+ *               (raw 64, mid the 48 < r <= 88 ring) — anim id 1,
+ *               6 u/s, the engine's slowest sustained movement tier
+ *               (see "GAIT HOLD TIERS" above; tier-ramp corrected
+ *               2026-06-11 — the old TURN label was the misread).
  * Under a hold the cap bounds the stick VECTOR magnitude (diagonals
  * normalize by 1/sqrt(2)), so the quantized r stays in-band in every
  * direction. Movement code that maps deflection -> gait must classify
- * 0.5 as TURN, 0.8 as WALK and 1.0 as RUN; a future analog gamepad
+ * 0.5 as WALK, 0.8 as JOG and 1.0 as RUN; a future analog gamepad
  * backend will deliver the continuous range and the same ring
  * thresholds apply. */
 #define EM_INPUT_DEFLECT_FULL 1.0f
-#define EM_INPUT_DEFLECT_WALK 0.8f
-#define EM_INPUT_DEFLECT_TURN 0.5f
+#define EM_INPUT_DEFLECT_JOG  0.8f
+#define EM_INPUT_DEFLECT_WALK 0.5f
 
 typedef struct {
     uint16_t buttons;        /* EM_PAD_* bits, 1 = pressed */

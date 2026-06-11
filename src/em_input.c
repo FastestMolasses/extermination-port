@@ -85,10 +85,10 @@ void em_input_pad(EmPadState *out)
     out->buttons = s_in.buttons;
     /* Opposing keys cancel; -1 = left/up, +1 = right/down (em_input.h).
      * The GAIT HOLD TIERS (em_input.h): no modifier = FULL (RUN),
-     * Command = the WALK band, Option = the TURN/creep band — the
-     * slower tier wins when both modifiers are held. */
-    const float d = s_in.alt ? EM_INPUT_DEFLECT_TURN
-                  : s_in.cmd ? EM_INPUT_DEFLECT_WALK
+     * Command = the JOG band, Option = the WALK band — the slower
+     * tier wins when both modifiers are held. */
+    const float d = s_in.alt ? EM_INPUT_DEFLECT_WALK
+                  : s_in.cmd ? EM_INPUT_DEFLECT_JOG
                              : EM_INPUT_DEFLECT_FULL;
     out->lx = d * (float)(s_in.lsr - s_in.lsl);
     out->ly = d * (float)(s_in.lsd - s_in.lsu);

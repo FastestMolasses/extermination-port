@@ -29,6 +29,11 @@
  *              split, em_door.h "THE TWO LOCKS"); at clip rest the door
  *              re-arms (+0x0B = 0) -> 0
  *
+ * SLIDERS (m17/m09) run the decoded variant brain func_001BB860
+ * instead — walk-into trigger, native slide, scripted walk-through, no
+ * fade, no player anim; see the "SLIDER (m17/m09) VARIANT BRAIN" block
+ * below and em_door.h.
+ *
  * Articulation: the engine evaluates a keyframe clip on the door's bone
  * slots (func_001BC300 -> func_001C68C0). The shipped door EMDLs carry
  * the real disc clips (s30/s32, slot-0x39 bank ids [0,2,1,3]); a
@@ -81,6 +86,48 @@
  * frames sits inside that captured window. */
 #define DOOR_SWING_FRAMES 90.0f
 #define DOOR_SWING_ANGLE  (DOOR_PI * 0.5f)
+
+/* SLIDER (m17/m09) VARIANT BRAIN — func_001BB860, decoded 2026-06-11
+ * (closes the s32 "variant lifecycle unread" flag; replaces the m03
+ * stand-in for these models):
+ *
+ *   TRIGGER  the same +0x0B-bit-2 use-arm as the m03 family — set by
+ *            the player PUSHING INTO the door (the engine's walk-into
+ *            state-0x2D scan; NO button press). The port arms sliders
+ *            on stick-push + the class-5 geometric window (the CROSS
+ *            stand-in stays only on the hinged m03 family).
+ *   KICKOFF  the trigger sub func_001BB560: side latch +0x2E from the
+ *            door->player bearing vs the door yaw (flags2 8/0x16 invert
+ *            it — single-leaf variants mount reversed), player yaw
+ *            SNAPPED through the door, player SNAPPED (func_00182F90
+ *            instant translate) to the staging point door_pos - 6.0 *
+ *            (sin, cos)(snapped yaw) — 6.0, not the m03 family's 5.0;
+ *            the port walks the same point via the MOVE-TO, the
+ *            established m03 deviation. Lock-gated placements (flags2
+ *            0x16/0x17/0x3E + D_00810841 bit clear) queue the LOCKED
+ *            script D_0024DA40 instead (camera + the m03 locked VO,
+ *            NO motion — sliders have no locked-jiggle clip; not in
+ *            the port: no lock bitmask yet, flagged).
+ *   OPEN     script D_0024D900: op07 sub0 scripted-mode enter (input
+ *            lock, NO fade), op0D sub5 chase-camera cue (not owned by
+ *            em_door — port camera keeps chasing, flagged), op17 sub0
+ *            positional door sound, op09 = func_001BB400 NATIVE SLIDE
+ *            (bone +0x7C keyed translation, 0.2 u/frame until the
+ *            panels part 9.0 u — the port EMDL bakes exactly that as
+ *            its 46-frame clip, pumped 1.0/frame), then op01 sub8 =
+ *            scripted player WALK-THROUGH (func_001B94F0 move-to,
+ *            walk clip — the player crosses the open doorway; NO
+ *            player door-gesture anim anywhere in the script).
+ *   AFTER    brain state 3 = the transition COMMIT (func_001BC150,
+ *            dest table — the engine re-places/area-changes), state 4
+ *            waits + re-arms. The port: goto sliders fade + scene-
+ *            switch at walk-through end (the m03 commit path); plain
+ *            sliders stay OPEN — the engine re-closes via room
+ *            re-entry state, so the port re-closes by running the
+ *            slide clip backwards when the player leaves the scan
+ *            radius (the s32-flagged reverse, motion-identical). */
+#define SLIDER_POINT_DIST 6.0f  /* func_001BB560 staging: 6.0 * (sin,cos) */
+#define SLIDER_LEAVE_PAD  2.0f  /* re-close hysteresis past the radius */
 
 /* Staging/spawn offset along the door normal: the engine stages the
  * player at CENTER +- 5.0 * n on his own side. Decoded exactly from
@@ -165,6 +212,12 @@ typedef struct {
     float      base[DOOR_BONE_MAX * 16];
     float      lo[3], hi[3];
     int        has_clip;     /* frame_count > 1: real baked clip present */
+    int        slider;       /* engine model byte 0x09/0x17: the sliding-
+                              * door family — variant brain func_001BB860
+                              * (walk-into trigger, native slide, scripted
+                              * walk-through; see the SLIDER block above).
+                              * Parsed from the door_mXX filename like
+                              * `hinged` (FLAGGED: filename convention). */
     int        hinged;       /* engine model byte 3/0x15 (placement origin
                               * = the hinge corner): use scan + staging
                               * measure from the doorway CENTER, 5 u along
@@ -185,6 +238,11 @@ typedef struct {
     float    radius;         /* use-scan distance, desc[0] = 10.0 */
     uint8_t  state;          /* actor +0x05 sub-state (engine values) */
     uint8_t  armed;          /* actor +0x0B activation flags (scan: 4) */
+    int      slider;         /* model is the m17/m09 slider family —
+                              * runs the func_001BB860 variant flow */
+    int      sl_phase;       /* slider OPENING sub-phase: 0 = staging
+                              * walk, 1 = native slide pump, 2 =
+                              * scripted walk-through */
     float    clip_t;         /* anim block +0xE clip time, frames */
     int      transit;        /* walk-to MOVE-TO active (func_001BBE40) */
     float    transit_to[3];  /* STAGING point door_pos + 5.0 * n, near side */
@@ -331,10 +389,12 @@ static int door_model_get(EmGfx *gfx, const char *scene_dir,
      * to hinged=0 (center == pos — correct for the m17/m09 sliders,
      * whose origin is the doorway center). */
     dm->hinged = 0;
+    dm->slider = 0;
     const char *m = strstr(file, "_m");
     if (m) {
         unsigned mb = (unsigned)strtoul(m + 2, NULL, 16);
         dm->hinged = (mb == 0x03 || mb == 0x15);
+        dm->slider = (mb == 0x09 || mb == 0x17);
     }
 
     /* Door-local AABB of the POSED closed mesh (palette * position) —
@@ -383,6 +443,7 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
     d->yaw    = yaw;
     d->radius = radius;
     d->state  = EM_DOOR_CLOSED;
+    d->slider = s.models[mi].slider;
 
     /* Doorway CENTER — the use-scan + staging reference (func_00183EF0
      * class-5 / func_001BBE40 shared lateral term): 5 u from the hinge
@@ -546,8 +607,13 @@ static float door_norm_ang(float a)
  *
  * PORT DEVIATION (flagged): the engine's outer gate is the locomotion
  * action-state 0x2D (the player PRESSING FORWARD — doors open on
- * walk-into, no button). The port gates on the CROSS button until the
- * player action-state machine is translated. */
+ * walk-into, no button). The port gates the hinged m03 family on the
+ * CROSS button until the player action-state machine is translated;
+ * SLIDERS (the func_001BB860 variant — see the SLIDER block above) arm
+ * on the walk-into itself: stick pushed out of the dead ring while the
+ * class-5 facing window already requires the player to be walking AT
+ * the door (the user-verified PCSX2 behavior — no use press, the
+ * panels part as the player walks in). */
 static void door_trigger_scan(const EmCollision *coll, const float pp[3],
                               float pyaw, const EmFrameInput *in)
 {
@@ -555,12 +621,19 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
     float best_d2 = 1e30f;
 
     (void)coll;   /* class-5 doors do no LOS query (decoded 2026-06-11) */
-    if (!(in->pressed & EM_PAD_CROSS))
-        return;   /* flagged stand-in for action-state 0x2D (walk-into) */
+    int cross = (in->pressed & EM_PAD_CROSS) != 0;
+    /* walk-into: stick deflection past the gait-1 ring (the quantizer's
+     * dead ring r = 48; em_game's func_001B5CC0 mirror) */
+    float sdx = (float)in->lx - 128.0f, sdy = (float)in->ly - 128.0f;
+    int pushing = sdx * sdx + sdy * sdy > 48.0f * 48.0f;
+    if (!cross && !pushing)
+        return;
 
     for (int i = 0; i < s.n_doors; i++) {
         Door *d = &s.doors[i];
         if (d->state != EM_DOOR_CLOSED || d->armed) continue;
+        if (!(d->slider ? pushing : cross))
+            continue;     /* per-family gate (see above) */
         float dx = d->center[0] - pp[0];
         float dz = d->center[2] - pp[2];
         float d2 = dx * dx + dz * dz;
@@ -605,11 +678,9 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
  * scripted sequence is what carries the player across the grid
  * room-BOUNDARY planes (the doorways are statically sealed).
  *
- * NOTE the engine evaluates the center term with DOOR_yaw even for
- * non-hinged door models (the kickoff is the m03-family brain); the
- * port's m17/m09 doors run this same machine as a flagged stand-in
- * (their variant brain func_001BB860 has its own script), so for them
- * center == pos and the math degenerates to the old +-5*n form. */
+ * NOTE this kickoff is the m03-family brain only — m17/m09 sliders run
+ * their own decoded variant flow (slider_kickoff below, 2026-06-11;
+ * the old "sliders ride the m03 machine" stand-in is retired). */
 static void door_transit_kickoff(Door *d, const float pp[3])
 {
     float nx = sinf(d->yaw), nz = cosf(d->yaw);
@@ -645,6 +716,39 @@ static void door_transit_kickoff(Door *d, const float pp[3])
      * scripted sequence owns the player AND blocks the menu poll. */
     s.lock_move      = 1;   /* until the arrival walk-out completes */
     s.lock_menu      = 1;   /* until the fade-in completes */
+}
+
+/* SLIDER kickoff — the trigger sub func_001BB560 (see the SLIDER block
+ * above): side latch from the door->player bearing, yaw snapped
+ * THROUGH the door, staging at door_pos - 6.0 * forward (the player's
+ * side; the engine SNAPs there via func_00182F90 — the port walks the
+ * same point, the established MOVE-TO deviation). The walk-through
+ * target (op01 sub8) mirrors it on the far side. Scripted mode = both
+ * locks (op07 sub0 — no fade on the slider open). */
+static void slider_kickoff(Door *d, const float pp[3])
+{
+    /* bearing(door -> player) within pi/2 of the door yaw = front */
+    float bearing = atan2f(pp[0] - d->pos[0], pp[2] - d->pos[2]);
+    d->front      = fabsf(door_norm_ang(bearing - d->yaw)) <= DOOR_PI * 0.5f;
+    /* yaw snap: front side walks along yaw+pi, back side along yaw —
+     * always THROUGH the doorway (func_001BB560's +0xC4 writes; the
+     * flags2-8/0x16 single-leaf inversion is not in the manifest,
+     * flagged) */
+    d->transit_yaw   = d->front ? d->yaw + DOOR_PI : d->yaw;
+    d->transit_yaw   = door_norm_ang(d->transit_yaw);
+    d->transit_to[0] = d->pos[0] - SLIDER_POINT_DIST * sinf(d->transit_yaw);
+    d->transit_to[1] = pp[1];
+    d->transit_to[2] = d->pos[2] - SLIDER_POINT_DIST * cosf(d->transit_yaw);
+    /* walk-through destination: mirrored through the doorway center */
+    d->spawn_pt[0]   = d->pos[0] + SLIDER_POINT_DIST * sinf(d->transit_yaw);
+    d->spawn_pt[1]   = d->pos[1];
+    d->spawn_pt[2]   = d->pos[2] + SLIDER_POINT_DIST * cosf(d->transit_yaw);
+    d->transit       = 1;
+    d->sl_phase      = 0;
+    d->anim_started  = 0;
+    d->did_warp      = 0;
+    s.lock_move      = 1;   /* op07 sub0 scripted mode: input lock */
+    s.lock_menu      = 1;   /* spad 3B8D gates the menu poll too */
 }
 
 /* One frame of the ARRIVAL WALK-OUT sub-machine (func_00183250's +0x06
@@ -725,15 +829,80 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
 
         switch (d->state) {
         case EM_DOOR_CLOSED:
-            if (d->armed) {        /* sub 0 -> func_001BBE40 -> sub 3 */
+            if (d->armed) {        /* sub 0 -> kickoff -> sub 2/3 */
                 d->armed  = 0;
                 d->clip_t = 0.0f;
                 d->state  = EM_DOOR_OPENING;
-                door_transit_kickoff(d, player_pos);
+                if (d->slider)
+                    slider_kickoff(d, player_pos);
+                else
+                    door_transit_kickoff(d, player_pos);
             }
             break;
-        case EM_DOOR_OPENING:      /* the OPEN script D_0024DE40 + the
-                                    * clip pump func_001BC0E0 */
+        case EM_DOOR_OPENING:
+            if (d->slider) {       /* func_001BB860 state 2: the OPEN
+                                    * script D_0024D900 (SLIDER block) */
+                switch (d->sl_phase) {
+                case 0:            /* staging walk (engine: snap) */
+                    if (d->transit)
+                        break;
+                    d->sl_phase = 1;
+                    /* op17 sub0: ONE positional door sound at slide
+                     * start. The slider's own pair (D_0024DB80 family
+                     * 6) is BSS-undumped — the manifest doorsfx pair
+                     * stands in (the s32 flag, unchanged). */
+                    if (s.sfx_real) {
+                        unsigned id = s.sfx_pair[d->front ? 0 : 1];
+                        printf("door sfx: slider open id 0x%03X (%s "
+                               "side)\n", id, d->front ? "front" : "back");
+                        em_sfx_play(id);
+                    } else {
+                        em_sfx_play(EM_SFX_DOOR_OPEN);  /* PLACEHOLDER */
+                    }
+                    break;
+                case 1:            /* op09 func_001BB400: panels part
+                                    * 0.2 u/frame (the baked 46-frame
+                                    * clip at 1.0/frame). NO player
+                                    * anim — he stands at the staging
+                                    * point. */
+                    d->clip_t += 1.0f;
+                    if (d->clip_t >= door_clip_total(d)) {
+                        d->clip_t  = door_clip_total(d);
+                        d->sl_phase = 2;
+                        /* op01 sub8: scripted walk-through to the
+                         * mirrored point (the MOVE-TO machinery; the
+                         * locomotion walk clip — no gesture anim). */
+                        d->transit_to[0] = d->spawn_pt[0];
+                        d->transit_to[1] = player_pos[1];
+                        d->transit_to[2] = d->spawn_pt[2];
+                        d->transit       = 1;
+                    }
+                    break;
+                case 2:            /* walk-through -> handoff */
+                    if (d->transit)
+                        break;
+                    if (d->has_goto) {
+                        /* area-change slider: the engine's state-3
+                         * COMMIT (func_001BC150) — the port reuses the
+                         * m03 fade + scene switch (sequencing flagged:
+                         * the native commit/fade interleave for the
+                         * slider's cross-area path is unread). */
+                        d->state = EM_DOOR_OPEN;
+                    } else {
+                        /* intra-room slider: scripted mode ends, the
+                         * player keeps playing — the door stays parted
+                         * (re-closes when the player leaves, the s32
+                         * reverse-clip flag). */
+                        s.lock_move = 0;
+                        s.lock_menu = 0;
+                        d->state    = EM_DOOR_OPEN;
+                    }
+                    break;
+                }
+                break;
+            }
+            /* hinged m03 family: the OPEN script D_0024DE40 + the
+             * clip pump func_001BC0E0 */
             /* Walk-to staging still in flight: the engine SNAPPED here,
              * so its script ran immediately; the port's walk replaces
              * the snap (flagged deviation) and the script chain fires
@@ -779,14 +948,37 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
             if (d->phase_t >= d->open_wait)
                 d->state = EM_DOOR_OPEN;
             break;
-        case EM_DOOR_OPEN:         /* one-frame COMMIT (func_001BC240 ->
-                                    * func_001BC150): arm the 64-frame
-                                    * fade-out. Room move (B8 == 2): NO
-                                    * audio fade (area changes only). */
+        case EM_DOOR_OPEN:
+            if (d->slider && !d->has_goto) {
+                /* intra-room slider stays parted; when the player
+                 * leaves the scan window (+ hysteresis) it re-closes —
+                 * the engine recloses via room re-entry state, the
+                 * port runs the slide backwards (s32 flag). */
+                float dx = player_pos[0] - d->pos[0];
+                float dz = player_pos[2] - d->pos[2];
+                float lim = d->radius + SLIDER_LEAVE_PAD;
+                if (dx * dx + dz * dz > lim * lim)
+                    d->state = EM_DOOR_CLOSING;
+                break;
+            }
+            /* one-frame COMMIT (func_001BC240 -> func_001BC150): arm
+             * the 64-frame fade-out. Room move (B8 == 2): NO audio
+             * fade (area changes only). */
             em_frame_fade_start(1, DOOR_FADE_SPEED);
             d->state = EM_DOOR_CLOSING;
             break;
         case EM_DOOR_CLOSING:      /* engine sub 5: transition pending */
+            if (d->slider && !d->has_goto) {
+                /* reverse slide to rest, then re-arm (+0x0B = 0) */
+                d->clip_t -= 1.0f;
+                if (d->clip_t <= 0.0f) {
+                    d->clip_t   = 0.0f;
+                    d->state    = EM_DOOR_CLOSED;
+                    d->armed    = 0;
+                    d->sl_phase = 0;
+                }
+                break;
+            }
             if (!d->did_warp) {
                 /* Wait out the fade-out; at black, post the re-place
                  * (spawn point behind the door, exit yaw), arm the

@@ -147,23 +147,46 @@
  *   em_door_menu_locked() — kickoff until the fade-in completes.
  *   em_hud gates its open toggle on it (the func_001AE7E0 stand-in).
  *
+ * SLIDERS (m17/m09 — the variant brain func_001BB860, DECODED
+ * 2026-06-11; closes the s32 "variant lifecycle unread" flag): sliding
+ * doors do NOT run the m03 transit. The trigger is the same +0x0B
+ * use-arm — set by WALKING INTO the door (no button) — and the trigger
+ * sub func_001BB560 then snaps the player yaw through the door, stages
+ * him at door_pos - 6.0 * forward (func_00182F90 instant translate; 6.0
+ * — not the m03 5.0) and queues the OPEN script D_0024D900: scripted-
+ * mode enter (input lock, NO fade), chase-camera cue, ONE positional
+ * door sound, the NATIVE SLIDE func_001BB400 (panels part 0.2 u/frame
+ * to 9.0 u — the EMDL's baked 46-frame clip), then op01-sub8 = a
+ * scripted player WALK-THROUGH (walk clip; there is NO player
+ * door-gesture anim anywhere in the slider script — the user-verified
+ * PCSX2 behavior: walk at the door, the panels part, you walk
+ * through). Lock-gated placements (flags2 0x16/0x17/0x3E vs the
+ * D_00810841 unlock bits) run a LOCKED script (camera + VO, no motion)
+ * — not in the port (no lock bitmask, flagged). See em_door.c "SLIDER
+ * (m17/m09) VARIANT BRAIN" for the full decode + port mapping.
+ *
  * FIDELITY NOTES (remaining port deviations, each flagged in em_door.c):
- *  - The engine triggers doors on WALK-INTO (player locomotion state
- *    0x2D = pressing forward, no button); the port requires the CROSS
- *    button until the action-state machine is translated. (The old
- *    2-u auto ring and LOS pocket exemption are GONE — 2026-06-11: the
- *    class-5 use-scan branch has neither.)
+ *  - The engine triggers ALL doors on WALK-INTO (player locomotion
+ *    state 0x2D = pressing forward, no button); the port's HINGED m03
+ *    family still requires the CROSS button until the action-state
+ *    machine is translated. SLIDERS arm on the walk-into itself
+ *    (stick-push + the class-5 window), per the decoded variant brain.
+ *    (The old 2-u auto ring and LOS pocket exemption are GONE —
+ *    2026-06-11: the class-5 use-scan branch has neither.)
  *  - The engine SNAPs the player to the staging point; the port walks
  *    the same point through the scripted MOVE-TO.
- *  - The hinged-model flag (doorway-center offset) rides the exporter's
+ *  - The hinged/slider model flags ride the exporter's
  *    doors/door_mXX.emdl filename, not a manifest field.
- *  - Non-m03-family doors (m17/m09 sliders) run this same m03 state
- *    machine as a stand-in for their variant brain func_001BB860.
  *  - Every transit is treated as the INTRA-AREA room move (request mode
  *    B8 == 2): same-scene re-place, no audio fade, actors/overlay kept.
  *    The inter-area path (B8 == 1: audio fade + overlay/asset/actor-pool
  *    reload) needs the native area loader — goto doors approximate it
- *    with the scene switch (em_door_goto_pending).
+ *    with the scene switch (em_door_goto_pending). A goto SLIDER reuses
+ *    that same commit after its walk-through (the native slider
+ *    commit/fade interleave is unread — flagged); a plain slider ends
+ *    its script with the player free on the far side, stays parted,
+ *    and re-closes (clip reversed, the s32 flag) when the player
+ *    leaves the scan radius.
  *
  * COLLISION: the engine gives placed objects collision through per-uid
  * AABB records in the area state blob (movable-hull set, mask bit 0) —
