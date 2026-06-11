@@ -196,6 +196,58 @@
  * is not fully open, consumed by the player move probe (em_game.c). The
  * camera solver keeps the engine's own mask 6 (static only), so the
  * camera sees through doors exactly like the original.
+ *
+ * THE LOCKED SEQUENCE (engine subs 1/2 — ported 2026-06-11; FINDINGS
+ * "DOOR SCRIPTS DECODED" s23 script D_0024DEC0 + the s45 clip-motion
+ * verdicts + the s53/s56 locked-look camera):
+ *
+ *   GATE  func_001BC350 sub-state 0, model 0x15 ("security door"):
+ *         unlock bitmask `D_00810841[area] & (1 << door_id)` — bit SET
+ *         opens normally (func_001BBE40 mode 0), bit CLEAR runs the
+ *         LOCKED TRY (mode 1 -> sub 1). D_00810841 is BSS: every
+ *         lock-gated door starts LOCKED until a game event (door
+ *         panel / keycard script) sets its bit. Natively the manifest
+ *         door line carries the decoded gate as a `locked` token
+ *         (export_level.py --door-locked) and em_door_unlock() is the
+ *         bit-set event. Slider lock gates (flags2 0x16/0x17/0x3E,
+ *         script D_0024DA40 = camera + VO only) have no exported
+ *         placement; a `locked` slider runs the hinged refusal minus
+ *         anim/clip/rattle (FLAGGED approximation, unexercised).
+ *
+ *   SCRIPT D_0024DEC0 (queued by func_001BBE40 mode 1, after the same
+ *   side-latch/yaw-snap/staging walk as the open kickoff):
+ *     op07 sub2   scripted-mode enter (both locks; the fade-arm variant
+ *                 func_001AEB60(4) is a fade-IN arm — no visual effect
+ *                 on a bright screen, not ported)
+ *     op09        func_001BBBF0 locked-look camera CUT: target = door
+ *                 + 8 u to the HANDLE side (door-yaw left) + 10 up,
+ *                 eye = target - 13 along the live camera yaw at
+ *                 door.y + 12 (em_game consumes em_door_locked_look)
+ *     op0A sub0   player anim 0x46 front / 0x44 back rate 1.0 — the
+ *                 directory-verified TRY-THE-HANDLE-AND-FAIL gestures
+ *                 (200 f, limbs only, exact return to rest; the
+ *                 2026-06-11 bake re-verified peak node deviation
+ *                 5.4/6.6 u at f64-68)
+ *     op0B sub0   DOOR clip engine id 3 front / 1 back — the lock-
+ *                 fixture jiggle (s30: 200 f, panel still, fixture
+ *                 rattle peaks ~f60-110, settles to rest), no sound
+ *     op02        wait 60 frames
+ *     op17 sub0   positional sound 0x3F2 — the LOCKED RATTLE (fires
+ *                 exactly as the fixture motion peaks)
+ *     op09        func_001BBAE0 locked "VO" — decoded 2026-06-11: a
+ *                 TEXT-ONLY RADIO MESSAGE (link bits 0-5 ->
+ *                 jtbl_0026E1A0 -> global message line; every shipped
+ *                 line's voice-cue field is -1, so there is NO audio).
+ *                 The optional scene.txt `lockedvo <id-hex>` line (the
+ *                 gen_sfx_registry.py decode emits it only if a real
+ *                 cue ever resolves) plays through em_sfx here;
+ *                 absent = silence (the radio text machine is not
+ *                 ported — flagged)
+ *     op0B sub1   wait door clip end (200 f — dominates the VO wait)
+ *   then sub 1 queues D_0024DBC0 = op07 sub4 EXIT: restore camera +
+ *   control (-> sub 2 -> re-arm CLOSED). The door never opens, no
+ *   fade, no warp; the player is left standing at the staging point
+ *   (the engine snapped him there; the port walked him).
  */
 #ifndef EM_DOOR_H
 #define EM_DOOR_H
@@ -215,14 +267,19 @@ extern "C" {
 #define EM_DOOR_MAX 8
 
 /* Door sub-states — the ENGINE's values for the actor byte +0x05
- * (jtbl_0026E1C0). 1/2 (the locked sequence, model 0x15 security doors)
- * need the unlock bitmask D_00810841 and are not in the port yet. */
+ * (jtbl_0026E1C0). 1/2 = the LOCKED sequence (model 0x15 security
+ * doors vs the unlock bitmask D_00810841 — ported 2026-06-11, see
+ * "THE LOCKED SEQUENCE" in the header comment). */
 enum {
-    EM_DOOR_CLOSED  = 0,
-    EM_DOOR_OPENING = 3,
-    EM_DOOR_OPEN    = 4,   /* one-frame transition COMMIT (func_001BC150) */
-    EM_DOOR_CLOSING = 5    /* transition pending: fade-out -> re-place ->
-                            * close + fade-in -> re-arm (engine sub 5) */
+    EM_DOOR_CLOSED     = 0,
+    EM_DOOR_LOCKED_TRY = 1, /* locked-try script D_0024DEC0 running
+                             * (engine sub 1: clip pump + script) */
+    EM_DOOR_LOCKED_END = 2, /* finish script D_0024DBC0 ran (engine sub
+                             * 2: restore + re-arm next frame) */
+    EM_DOOR_OPENING    = 3,
+    EM_DOOR_OPEN       = 4, /* one-frame transition COMMIT (func_001BC150) */
+    EM_DOOR_CLOSING    = 5  /* transition pending: fade-out -> re-place ->
+                             * close + fade-in -> re-arm (engine sub 5) */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU
@@ -240,6 +297,30 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
  * `spawn_yaw` the decoded arrival spawn record. Returns 0 on success. */
 int em_door_set_goto(int i, const char *target, const float spawn[3],
                      float spawn_yaw);
+
+/* Mark door `i` LOCK-GATED (the manifest `locked` token — the decoded
+ * model-0x15 / flags2 gate vs the BSS unlock bitmask D_00810841, which
+ * is all-zero at boot: the door starts LOCKED). Returns 0 on success. */
+int em_door_set_locked(int i);
+
+/* The unlock event — the native D_00810841[area] |= 1 << door_id (the
+ * engine's door-panel / keycard scripts write it). A locked door
+ * em_door_unlock'ed opens normally on the next use-arm. */
+void em_door_unlock(int i);
+
+/* 1 while door `i` still refuses (lock-gated and not yet unlocked). */
+int em_door_is_locked(int i);
+
+/* LOCKED-LOOK camera feed (script D_0024DEC0 record 2 = op 0x09 ->
+ * func_001BBBF0): returns 1 while a locked-try script holds the
+ * locked-look placement (arrival .. finish), with the door's placement
+ * pos/yaw for the handle-side math. em_game.c's camera consumes it (the
+ * cut on the rising edge, the op07-sub4 restore on the falling one). */
+int em_door_locked_look(float out_door_pos[3], float *out_door_yaw);
+
+/* Locked-rattle play count (op 0x17 sub 0, sound 0x3F2) — test/debug
+ * introspection (EM_LOCKED_TEST asserts exactly one per refusal). */
+int em_door_rattles(void);
 
 /* One-shot SCENE-SWITCH request — the goto-door analog of
  * em_door_warp_pending(): returns 1 exactly once, at fade-out completion

@@ -128,6 +128,15 @@ extern "C" {
 #define EM_SFX_STEP_GEAR_BASE 0x138u  /* gear/cloth foley (snd_0311/0308/
                                        * 0309/0310/0306 = base + 0..4)  */
 
+/* LOCKED DOOR (FINDINGS "DOOR SCRIPTS DECODED" s23 — the locked-try
+ * script D_0024DEC0's op-0x17 sub-0 record at its 60-frame mark; the
+ * lock-fixture jiggle clip peaks right there). snd_0533 in every
+ * exported area's bank (gen_sfx_registry). The locked "VO" that
+ * follows is a TEXT-ONLY radio message in the engine (voice-cue -1,
+ * 2026-06-11 decode) — no id to define; em_door plays the optional
+ * scene.txt `lockedvo` registry id if one ever resolves. */
+#define EM_SFX_DOOR_RATTLE  0x3F2u  /* locked-door handle rattle */
+
 /* --- PLACEHOLDER ids (flagged — NOT engine-documented; chosen far above
  *     the observed bank id range so they can never collide).
  *     DOOR ids: the REAL door sounds are decoded (FINDINGS "DOOR SCRIPTS

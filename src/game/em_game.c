@@ -799,16 +799,17 @@ static struct {
 
     /* DOOR CINEMATIC camera (op 0x0D sub 5 + func_001BBBF0) */
     int        doorcam;          /* 0 off, 1 = transit armed (walking),
-                                  * 2 = cinematic placed (cut done) */
+                                  * 2 = cinematic placed (cut done),
+                                  * 3 = post-warp (chase re-seated),
+                                  * 4 = LOCKED-LOOK hold (func_001BBBF0
+                                  * cut pinned until the finish script
+                                  * restores — em_door_locked_look) */
     float      doorcut_pos[3];   /* latched STAGING point (the walk-to
                                   * target = the engine's snap pose;
                                   * spad 3B40 equivalent) */
     float      doorcut_yaw;      /* latched THROUGH-DOOR yaw (the
                                   * kickoff snap; spad 3B50 equivalent
                                   * — the cut's Euler, live-verified) */
-    float      door_yaw[EM_DOOR_MAX]; /* manifest door yaws (the locked-
-                                  * look handle-side math needs them) */
-    int        n_door_yaw;
 
     /* player status (the engine globals em_hud.h documents; static demo
      * values until the weapon/health systems are translated) */
@@ -867,6 +868,9 @@ static struct {
     int         transit_test;    /* EM_TRANSIT_TEST=1 — scene-switch test */
     int         slider_test;     /* EM_SLIDER_TEST=1 — sliding-door test
                                   * (drawbridge scene, walk-into brain) */
+    int         locked_test;     /* EM_LOCKED_TEST=1 — locked-door test
+                                  * (drawbridge scene, m15 security
+                                  * door; refusal then unlock+retry) */
     int         tt_door;         /* test door index (the goto west door) */
     int         tt_ok_trigger;   /* X press put the goto door in OPENING */
     int         tt_ok_lock;      /* input locked mid-transit */
@@ -1023,15 +1027,31 @@ static void scene_manifest_load(void)
         } else if (sscanf(line, "door %255s %f %f %f %f %f", name,
                           &x, &y, &z, &yaw, &r) == 6) {
             /* Interactive door instance (em_door.c). The manifest is
-             * parsed inside the boot task, so the gfx device exists. */
+             * parsed inside the boot task, so the gfx device exists.
+             * Grammar (em_door.h):
+             *   door <file> x y z yaw r [locked] [goto <dir> s...]
+             * The optional `locked` token (export_level.py
+             * --door-locked — the decoded D_00810841 lock gate) is
+             * spliced out of a working copy so the goto sscanf below
+             * keeps its fixed shape. */
             float p[3] = { x, y, z };
+            char  dline[512];
+            int   locked = 0;
+            snprintf(dline, sizeof dline, "%s", line);
+            {
+                char *lt = strstr(dline, " locked");
+                if (lt && (lt[7] == ' ' || lt[7] == '\0' ||
+                           lt[7] == '\n' || lt[7] == '\r')) {
+                    locked = 1;
+                    memmove(lt, lt + 7, strlen(lt + 7) + 1);
+                }
+            }
             if (em_door_add(em_frame_gfx(), g.scene_dir, name, p, yaw, r)) {
                 printf("manifest: door line failed to load: %s", line);
-            } else if (((g.n_door_yaw < EM_DOOR_MAX
-                             ? (void)(g.door_yaw[g.n_door_yaw++] = yaw)
-                             : (void)0),   /* yaw for the locked-look
-                                            * handle-side math */
-                        sscanf(line,
+            } else if (((locked
+                             ? (void)em_door_set_locked(em_door_count() - 1)
+                             : (void)0),
+                        sscanf(dline,
                               "door %*s %*f %*f %*f %*f %*f goto "
                               "%63s %f %f %f %f",
                               gname, &gx, &gy, &gz, &gyaw) == 5)) {
@@ -1170,7 +1190,6 @@ static void scene_unload(EmGfx *gfx)
     g.n_scene = 0;
     em_collision_free(&g.coll);
     em_door_scene_clear(gfx);   /* keeps the in-flight transit lock */
-    g.n_door_yaw = 0;           /* re-recorded by the new manifest */
     em_enemy_shutdown(gfx);
     em_enemy_reset();
 }
@@ -2700,11 +2719,12 @@ static void camera_commit(EmCamera *cam)
  * plays under. When the player crosses the doorway plane (the room
  * move), the chase RE-SEATS behind the through-door pose and the
  * normal solve owns the camera again (rising over the doorframe —
- * engine-observed). EM_DOORCAM_LOCKED=1 swaps in the LOCKED-TRY
- * placement (func_001BBBF0: target at the door HANDLE — 8 u to the
- * door's left, +10 — eye 13 u back along the camera heading at
- * door.y + 12) as a visual preview: the real trigger is the locked
- * sequence (door subs 1/2), which em_door does not run yet. */
+ * engine-observed). The LOCKED-TRY cut (func_001BBBF0, em_door subs
+ * 1/2: target at the door HANDLE — 8 u to the door's left, +10 — eye
+ * 13 u back along the live camera heading at door.y + 12) runs off
+ * em_door_locked_look() and HOLDS both eye and target pinned until
+ * the finish script restores (the old EM_DOORCAM_LOCKED env preview
+ * is retired — the real sequence drives it now). */
 static void camera_door_cinematic(EmCamera *cam)
 {
     float tt[3], tyaw;
@@ -2713,7 +2733,14 @@ static void camera_door_cinematic(EmCamera *cam)
                                      * re-seated chase placement until
                                      * the fade-in unlocks */
         return;
+    if (g.doorcam == 4)             /* LOCKED-LOOK hold: the engine
+                                     * hard-copied once and never moves
+                                     * the camera again — the finish
+                                     * script's restore is handled at
+                                     * the dispatcher (camera_update) */
+        return;
     if (g.doorcam < 2) {
+        float dp[3], dyaw;
         if (em_door_transit_active(tt, &tyaw)) {
             g.doorcam = 1;          /* approach walk: hold the chase
                                      * camera still (commit only) */
@@ -2726,25 +2753,13 @@ static void camera_door_cinematic(EmCamera *cam)
             return;
         }
         /* walk-to arrived — the door script starts THIS frame: cut. */
-        static int locked_prev = -1;
-        if (locked_prev < 0)
-            locked_prev = getenv("EM_DOORCAM_LOCKED") != NULL;
-        if (locked_prev) {
-            /* func_001BBBF0 — locked-look (preview wiring, above) */
-            int   di = -1;
-            float best = 1e30f, dp[3] = { 0, 0, 0 };
-            for (int i = 0; i < em_door_count(); i++) {
-                float p[3];
-                em_door_pos(i, p);
-                float dx = p[0] - g.pos[0], dz = p[2] - g.pos[2];
-                if (dx * dx + dz * dz < best) {
-                    best = dx * dx + dz * dz;
-                    di   = i;
-                    memcpy(dp, p, sizeof dp);
-                }
-            }
-            float dyaw = (di >= 0 && di < g.n_door_yaw)
-                       ? g.door_yaw[di] : g.yaw;
+        if (em_door_locked_look(dp, &dyaw)) {
+            /* func_001BBBF0 — the LOCKED-TRY cut: target = door + 8 u
+             * toward the HANDLE side (the door-yaw left) + 10 up, eye
+             * = target - 13 along the LIVE camera yaw (D_00810374 —
+             * cam->yaw is untouched here, exactly the engine read)
+             * with eye.y = door.y + 12. Hard copy, then HOLD pinned
+             * (doorcam 4) until the finish script restores. */
             cam->tgt_des[0] = dp[0] - LOCKCAM_HANDLE_OFF * cosf(dyaw);
             cam->tgt_des[1] = dp[1] + LOCKCAM_TGT_UP;
             cam->tgt_des[2] = dp[2] + LOCKCAM_HANDLE_OFF * sinf(dyaw);
@@ -2753,23 +2768,27 @@ static void camera_door_cinematic(EmCamera *cam)
             cam->eye_des[1] = dp[1] + LOCKCAM_EYE_UP;
             cam->eye_des[2] = cam->tgt_des[2]
                             - LOCKCAM_EYE_BACK * cosf(cam->yaw);
-        } else {
-            /* op 0x0D sub 5 (func_0018CBD0, dist -20; live-verified
-             * geometry — the constants block above): 20 u behind the
-             * SNAPPED pose along the THROUGH-DOOR axis at head height,
-             * looking at the staging point slightly below (+13). The
-             * camera heading itself snaps to the door axis (the
-             * engine's cam Euler +0x30 <- spad 3B50). */
-            cam->yaw = g.doorcut_yaw;
-            cam->tgt_des[0] = g.doorcut_pos[0];
-            cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
-            cam->tgt_des[2] = g.doorcut_pos[2];
-            cam->eye_des[0] = g.doorcut_pos[0]
-                            - sinf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
-            cam->eye_des[1] = g.pos[1] + DOORCAM_EYE_UP;
-            cam->eye_des[2] = g.doorcut_pos[2]
-                            - cosf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
+            memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+            memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+            cam->tgt_soft = 0;
+            g.doorcam     = 4;
+            return;
         }
+        /* op 0x0D sub 5 (func_0018CBD0, dist -20; live-verified
+         * geometry — the constants block above): 20 u behind the
+         * SNAPPED pose along the THROUGH-DOOR axis at head height,
+         * looking at the staging point slightly below (+13). The
+         * camera heading itself snaps to the door axis (the
+         * engine's cam Euler +0x30 <- spad 3B50). */
+        cam->yaw = g.doorcut_yaw;
+        cam->tgt_des[0] = g.doorcut_pos[0];
+        cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
+        cam->tgt_des[2] = g.doorcut_pos[2];
+        cam->eye_des[0] = g.doorcut_pos[0]
+                        - sinf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
+        cam->eye_des[1] = g.pos[1] + DOORCAM_EYE_UP;
+        cam->eye_des[2] = g.doorcut_pos[2]
+                        - cosf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
         /* solver style 1 = HARD COPY desired -> actual: the cut. */
         memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
         memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
@@ -2875,6 +2894,21 @@ static void camera_update(void)
              * (op 0x18 restored the camera at the re-place) — the
              * normal chase resumes behind the re-seated player while
              * the movement lock finishes the walk-out. */
+            if (g.doorcam == 4 && !em_door_movement_locked()) {
+                /* LOCKED finish (op 0x07 sub 4 -> func_001CA770):
+                 * RESTORE the saved camera — the chase placement
+                 * behind the unmoved player (cam->yaw was never
+                 * touched by the locked cut, so desired == the
+                 * pre-script chase pose; an instant copy, not a
+                 * blend — engine restore semantics). */
+                cam->tgt_soft = 0;
+                cam->tgt_des[0] = g.pos[0];
+                cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+                cam->tgt_des[2] = g.pos[2];
+                camera_desired_eye(cam);
+                memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+                memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+            }
             if (!em_door_movement_locked()) g.doorcam = 0;
             /* func_00191390 leaf pre-step — no native work yet. */
             camera_mode_dispatch(cam);   /* func_0018BC20 */
@@ -3668,6 +3702,169 @@ static void slider_test_script(void)
     }
     if (em_frame_fade_level() > st_max_fade)
         st_max_fade = em_frame_fade_level();
+}
+
+/* EM_LOCKED_TEST=1 — deterministic LOCKED-DOOR self-test (run with
+ * EM_SCENE=assets/scene_drawbridge). Exercises the full locked
+ * sequence (em_door.h "THE LOCKED SEQUENCE") on the drawbridge room's
+ * m15 SECURITY DOOR — the REAL lock-gated placement (AREA01 sub-0
+ * record [14], model 0x15, door id 1, manifest `locked` token from
+ * export_level.py --door-locked) at (-20.5, 0, -192) yaw 0, goto
+ * scene_office0:
+ *
+ *   frame    0      spawn (-25.5, 0, -201) — on the doorway-center
+ *                   column (center = hinge + 5 = (-25.5, -192)), BACK
+ *                   side, 9 u out, facing the door (+Z)
+ *   frame    5      CROSS -> use scan arms; the LOCK GATE refuses
+ *                   (unlock bit clear): kickoff mode 1 -> sub 1,
+ *                   locks engage, walk-to staging (-25.5, -197)
+ *   ~frame  23      arrival: locked-look camera CUT (func_001BBBF0:
+ *                   target (-28.5, 10, -192) = door + 8 to the handle
+ *                   side + 10 up; eye = target - 13 along the live
+ *                   camera yaw 0 -> (-28.5, 12, -205)), player try
+ *                   anim 0x44 (back), lock-fixture jiggle clip
+ *   ~frame  83      the op-0x02 60-frame wait elapses: rattle 0x3F2
+ *   ~frame 223      jiggle clip (200 f) ends: finish script restores
+ *                   camera + control; door re-arms CLOSED — no fade,
+ *                   no warp, player still on the near side
+ *   frame  255      em_door_unlock() — the panel/keycard event
+ *   frame  260      CROSS again -> the gate passes: state OPENING,
+ *                   open anim 0x43, 70-frame wait, commit, fade,
+ *                   GOTO scene switch to office0, arrival walk-out
+ *   frame  560      assert the whole ledger (PASS/FAIL) and quit.
+ */
+static void locked_test_script(void)
+{
+    static int   lt_door, lt_ok_refuse, lt_ok_lock, lt_ok_anim;
+    static int   lt_ok_cam, lt_ok_rattle, lt_ok_shut, lt_ok_stay;
+    static int   lt_ok_restore, lt_ok_retry, lt_ok_openanim, lt_ok_switch;
+    static float lt_refuse_fade;
+    int n = g.frame_no;
+    if (n == 0) {
+        lt_door = -1;
+        lt_ok_refuse = lt_ok_lock = lt_ok_anim = lt_ok_cam = 0;
+        lt_ok_rattle = lt_ok_shut = lt_ok_stay = lt_ok_restore = 0;
+        lt_ok_retry = lt_ok_openanim = lt_ok_switch = 0;
+        lt_refuse_fade = 0.0f;
+    } else if (n == 3) {
+        /* the test door = nearest instance to the m15 placement */
+        float best = 1e30f;
+        for (int i = 0; i < em_door_count(); i++) {
+            float p[3];
+            em_door_pos(i, p);
+            float dx = p[0] + 20.5f, dz = p[2] + 192.0f;
+            float d2 = dx * dx + dz * dz;
+            if (d2 < best) { best = d2; lt_door = i; }
+        }
+        if (lt_door < 0 || !em_door_is_locked(lt_door))
+            printf("locked test: door %d is not lock-gated — manifest "
+                   "`locked` token missing?\n", lt_door);
+    } else if (n == 5) {
+        move_test_inject('k', 1);   /* CROSS — the use-scan trigger */
+    } else if (n == 6) {
+        move_test_inject('k', 0);
+    } else if (n == 8) {
+        /* the gate REFUSED: locked-try state, both locks engaged */
+        lt_ok_refuse = lt_door >= 0 &&
+                       em_door_state(lt_door) == EM_DOOR_LOCKED_TRY;
+        lt_ok_lock   = em_door_movement_locked() && em_door_menu_locked();
+    } else if (n == 45) {
+        /* mid-try: the scripted TRY anim owns the player and the
+         * locked-look camera is pinned at the handle (the func_001BBBF0
+         * geometry — camera cut observed via state). */
+        float dp[3], dyaw;
+        lt_ok_anim = em_game_anim_active() == 0x44;
+        lt_ok_cam  = em_door_locked_look(dp, &dyaw) &&
+                     fabsf(g.cam.tgt[0] + 28.5f)  <= 0.75f &&
+                     fabsf(g.cam.tgt[1] - 10.0f)  <= 0.75f &&
+                     fabsf(g.cam.tgt[2] + 192.0f) <= 0.75f &&
+                     fabsf(g.cam.eye[1] - 12.0f)  <= 0.75f &&
+                     fabsf(g.cam.eye[2] + 205.0f) <= 1.5f;
+        if (!lt_ok_cam)
+            printf("locked test: frame 45 cam eye (%.2f, %.2f, %.2f) "
+                   "tgt (%.2f, %.2f, %.2f) — off the locked-look\n",
+                   g.cam.eye[0], g.cam.eye[1], g.cam.eye[2],
+                   g.cam.tgt[0], g.cam.tgt[1], g.cam.tgt[2]);
+    } else if (n == 95) {
+        /* the 60-frame mark passed: exactly one rattle 0x3F2 */
+        lt_ok_rattle = em_door_rattles() == 1;
+    } else if (n == 250) {
+        /* refusal over: control restored, door CLOSED and re-armed,
+         * NO fade ever ran, NO warp/switch — the player stands at the
+         * staging point on his own side, anim torn down. */
+        lt_ok_shut    = lt_door >= 0 &&
+                        em_door_state(lt_door) == EM_DOOR_CLOSED &&
+                        lt_refuse_fade <= 0.001f;
+        /* Near side held: parked at the staging point (-197.25 — the
+         * MOVE-TO 0.3-u arrival window), then the control restore lets
+         * the free-move wall separation push the 4.5-u player radius
+         * off the closed door hull (~ -198.5). Never past the door
+         * plane (-192). */
+        lt_ok_stay    = fabsf(g.pos[0] + 25.5f) <= 0.35f &&
+                        g.pos[2] <= -196.0f && g.pos[2] >= -199.5f;
+        lt_ok_restore = !em_door_movement_locked() &&
+                        !em_door_menu_locked() &&
+                        em_game_anim_active() == 0;
+        if (!lt_ok_stay)
+            printf("locked test: frame 250 pos (%.3f, %.3f, %.3f) — "
+                   "moved through a locked door\n",
+                   g.pos[0], g.pos[1], g.pos[2]);
+    } else if (n == 255) {
+        em_door_unlock(lt_door);    /* the panel/keycard unlock event */
+    } else if (n == 260) {
+        move_test_inject('k', 1);   /* retry */
+    } else if (n == 261) {
+        move_test_inject('k', 0);
+    } else if (n == 264) {
+        lt_ok_retry = lt_door >= 0 &&
+                      em_door_state(lt_door) == EM_DOOR_OPENING;
+    } else if (n == 300) {
+        /* the OPEN script owns the player now (back-side clip 0x43) */
+        lt_ok_openanim = em_game_anim_active() == 0x43 &&
+                         em_door_movement_locked();
+    } else if (n == 560) {
+        int ok_unlocked = !em_door_movement_locked() &&
+                          !em_door_menu_locked();
+        int ok_fade     = em_frame_fade_level() <= 0.001f;
+        int ok = lt_ok_refuse && lt_ok_lock && lt_ok_anim && lt_ok_cam &&
+                 lt_ok_rattle && lt_ok_shut && lt_ok_stay &&
+                 lt_ok_restore && lt_ok_retry && lt_ok_openanim &&
+                 lt_ok_switch && ok_unlocked && ok_fade;
+        printf("locked test: refusal->LOCKED_TRY %s, locks engaged %s, "
+               "try anim 0x44 %s, locked-look cam %s, rattle 0x3F2 x1 "
+               "%s, door shut + no fade %s, pos held near side %s, "
+               "control restored %s, unlock+retry->OPENING %s, open "
+               "anim 0x43 %s, goto switch to office0 %s, final "
+               "unlocked %s fade %.3f %s — %s\n",
+               lt_ok_refuse ? "ok" : "FAILED",
+               lt_ok_lock ? "ok" : "FAILED",
+               lt_ok_anim ? "ok" : "FAILED",
+               lt_ok_cam ? "ok" : "FAILED",
+               lt_ok_rattle ? "ok" : "FAILED",
+               lt_ok_shut ? "ok" : "FAILED",
+               lt_ok_stay ? "ok" : "FAILED",
+               lt_ok_restore ? "ok" : "FAILED",
+               lt_ok_retry ? "ok" : "FAILED",
+               lt_ok_openanim ? "ok" : "FAILED",
+               lt_ok_switch ? "ok" : "FAILED",
+               ok_unlocked ? "ok" : "FAILED",
+               em_frame_fade_level(), ok_fade ? "ok" : "FAILED",
+               ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+    if (getenv("EM_LOCKED_TRACE") && n % 5 == 0 && n < 260)
+        printf("LT f%d pos (%.3f, %.3f) door %d state %d transit_lock %d\n",
+               n, g.pos[0], g.pos[2], lt_door,
+               lt_door >= 0 ? em_door_state(lt_door) : -1,
+               em_door_movement_locked());
+    /* The refusal must never fade (the locked script has no commit);
+     * track the fade only until the unlock. */
+    if (n > 0 && n < 255 && em_frame_fade_level() > lt_refuse_fade)
+        lt_refuse_fade = em_frame_fade_level();
+    /* The goto switch lands when the active scene dir changes. */
+    if (!lt_ok_switch && strstr(g.scene_dir, "office0"))
+        lt_ok_switch = 1;
 }
 
 /* EM_WEAPON_TEST=1 — deterministic firing-loop self-test (em_weapon.c).
@@ -4578,6 +4775,7 @@ static void gameplay_frame(void)
     if (g.door_test) door_test_script();    /* debug instrumentation only */
     if (g.transit_test) transit_test_script(); /* debug instrumentation  */
     if (g.slider_test) slider_test_script();   /* debug instrumentation  */
+    if (g.locked_test) locked_test_script();   /* debug instrumentation  */
     if (g.weapon_test) weapon_test_script();/* debug instrumentation only */
     /* EM_CAPTURE_AIM=1: hold R1 (key E) from frame 0 — by the default
      * capture frame (60) the draw has finished and the capture shows the
@@ -4880,6 +5078,16 @@ static void ingame_frame_machine(EmTask *self)
                 g.pos[1] = 0.0f;
                 g.pos[2] = -610.0f;
                 g.yaw    = EM_PI * 0.5f;
+            }
+            if (g.locked_test) {
+                /* EM_LOCKED_TEST spawn (scene_drawbridge): on the m15
+                 * security door's doorway-center column (center
+                 * (-25.5, -192)), BACK side, 9 u out, facing the door
+                 * (+Z) — see locked_test_script. */
+                g.pos[0] = -25.5f;
+                g.pos[1] = 0.0f;
+                g.pos[2] = -201.0f;
+                g.yaw    = 0.0f;
             }
             memset(&g.cam, 0, sizeof g.cam);
             g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
@@ -5193,6 +5401,8 @@ void em_game_install(void)
     g.transit_test = tt && tt[0] == '1';
     const char *sl = getenv("EM_SLIDER_TEST");
     g.slider_test  = sl && sl[0] == '1';
+    const char *lk = getenv("EM_LOCKED_TEST");
+    g.locked_test  = lk && lk[0] == '1';
     const char *wt = getenv("EM_WEAPON_TEST");
     g.weapon_test  = wt && wt[0] == '1';
     const char *et = getenv("EM_ENEMY_TEST");

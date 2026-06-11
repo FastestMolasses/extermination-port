@@ -5,10 +5,18 @@
  * LIFECYCLE" s22, func_001BC350 RUN sub-states, engine numbering kept):
  *
  *   0 CLOSED   armed (+0x0B != 0, by the use scan or a neighbor panel)
- *              -> transit kickoff (func_001BBE40: SIDE LATCH +0x2E,
- *              INPUT LOCK, walk-to the staging point door + 5*n) -> 3.
- *              The locked sequence (subs 1/2, model 0x15 + unlock
- *              bitmask) is not in the port yet.
+ *              -> LOCK GATE (model 0x15 vs D_00810841 — natively the
+ *              manifest `locked` token vs em_door_unlock) -> transit
+ *              kickoff (func_001BBE40: SIDE LATCH +0x2E, INPUT LOCK,
+ *              walk-to the staging point door + 5*n) -> 3, or kickoff
+ *              mode 1 -> 1 when the gate refuses.
+ *   1 LOCKED   the LOCKED TRY script D_0024DEC0 (em_door.h "THE LOCKED
+ *              SEQUENCE"): locked-look camera cut, player try anim
+ *              0x46/0x44, lock-fixture jiggle clip 3/1, rattle 0x3F2 at
+ *              the 60-frame mark (+ the text-only VO slot), wait clip
+ *              end -> 2. No fade, no warp — the door stays shut.
+ *   2 LOCKED'  finish script D_0024DBC0 ran (op07 sub4: camera +
+ *              control restored at the 1->2 edge) -> re-arm, 0.
  *   3 OPENING  walk-to arrival, then the OPEN script D_0024DE40
  *              (FINDINGS "DOOR SCRIPTS DECODED" s23): player anim
  *              0x45 front / 0x43 back at rate 1.0 (op 0x0A sub 0, via
@@ -163,6 +171,34 @@
 #define DOOR_WAIT_FRONT       90.0f
 #define DOOR_WAIT_BACK        70.0f
 
+/* LOCKED-TRY script values (em_door.h "THE LOCKED SEQUENCE" — script
+ * D_0024DEC0, FINDINGS s23; clip/anim identities re-verified by the
+ * 2026-06-11 directory bake):
+ *  - player anim id (op 0x0A sub 0, rate 1.0): 0x46 front / 0x44 back
+ *    — the try-the-handle-and-fail gestures (200 f, return to rest).
+ *  - door clip ENGINE id (op 0x0B sub 0, no sound): 3 front / 1 back
+ *    — the lock-fixture jiggle (s30; the EMDLs carry the real clips,
+ *    resolved per id through em_model_clip_index).
+ *  - the op 0x02 wait before the rattle record: 60 frames (the fixture
+ *    motion peaks f60-110 — the sound lands on the shake).
+ *  - locked rattle sound id 0x3F2 (op 0x17 sub 0; em_sfx.h).
+ *  - locked "VO": a TEXT-ONLY radio message in the engine (voice-cue
+ *    field -1 — the gen_sfx_registry.py decode); the optional
+ *    scene.txt `lockedvo <id-hex>` line plays here if a real cue ever
+ *    resolves, else silence (the radio text machine is not ported).
+ *  - sliders' locked script D_0024DA40 = camera + wait 40 + VO only
+ *    (s56) — no exported locked slider exists; the port approximates
+ *    with the hinged flow minus anim/clip/rattle (FLAGGED). */
+#define DOOR_ANIM_LOCK_FRONT  0x46
+#define DOOR_ANIM_LOCK_BACK   0x44
+#define DOOR_CLIP_OPEN_FRONT  2      /* engine clip ids (op 0x0B sub 6) */
+#define DOOR_CLIP_OPEN_BACK   0
+#define DOOR_CLIP_LOCK_FRONT  3      /* engine clip ids (op 0x0B sub 0) */
+#define DOOR_CLIP_LOCK_BACK   1
+#define DOOR_LOCK_RATTLE_AT   60.0f  /* the op 0x02 wait before 0x3F2 */
+#define DOOR_LOCK_SLIDER_WAIT 40.0f  /* D_0024DA40's op 0x02 wait */
+#define DOOR_VO_KEYWORD       "lockedvo"
+
 /* Door SOUND pair — FINDINGS "DOOR SCRIPTS DECODED" s23: the open
  * script's op 0x0B sub 6 record is patched by func_001BBD60 with
  * D_0024DB80[link >> 8][side], a [front_id, back_id] halfword pair
@@ -243,6 +279,18 @@ typedef struct {
     int      sl_phase;       /* slider OPENING sub-phase: 0 = staging
                               * walk, 1 = native slide pump, 2 =
                               * scripted walk-through */
+    int      lock_gated;     /* manifest `locked` token — the decoded
+                              * D_00810841 gate (em_door.h "THE LOCKED
+                              * SEQUENCE") */
+    int      unlocked;       /* em_door_unlock ran — the area unlock
+                              * bit is set; the gate passes */
+    int      lk_look;        /* locked-try script holds the locked-look
+                              * camera (arrival .. finish) */
+    int      lk_fired;       /* locked rattle + VO records ran (the
+                              * one-shot at the 60-frame mark) */
+    int      clip_idx;       /* EMDL clip INDEX in play (engine clip id
+                              * resolved via em_model_clip_index at
+                              * sequence start; 0 = the closed pose) */
     float    clip_t;         /* anim block +0xE clip time, frames */
     int      transit;        /* walk-to MOVE-TO active (func_001BBE40) */
     float    transit_to[3];  /* STAGING point door_pos + 5.0 * n, near side */
@@ -304,6 +352,12 @@ static struct {
     int       sfx_scanned;   /* scene.txt scanned once for doorsfx */
     int       sfx_real;      /* doorsfx line found: engine pair active */
     unsigned  sfx_pair[2];   /* D_0024DB80 pair [0]=front, [1]=back */
+    /* optional locked-VO id (see DOOR_VO_KEYWORD — only emitted by the
+     * registry generator if a locked line ever resolves to real audio;
+     * the shipped locked doors are TEXT-ONLY radio messages) */
+    int       vo_real;
+    unsigned  vo_id;
+    int       rattles;       /* locked-rattle plays (introspection) */
 } s;
 
 static void door_build_palette(Door *d);
@@ -319,9 +373,9 @@ void em_door_reset(void)
 /* Loading                                                              */
 /* ------------------------------------------------------------------ */
 
-/* One-shot scan of <scene_dir>/scene.txt for the optional global
- * "doorsfx <front-id> <back-id>" line (see DOOR_SFX_KEYWORD). em_door
- * owns this keyword; em_game's parser skips lines it does not know. */
+/* One-shot scan of <scene_dir>/scene.txt for the optional global sound
+ * lines (see DOOR_SFX_KEYWORD / DOOR_VO_KEYWORD). em_door owns these
+ * keywords; em_game's parser skips lines it does not know. */
 static void door_sfx_manifest_scan(const char *scene_dir)
 {
     if (s.sfx_scanned) return;
@@ -333,16 +387,21 @@ static void door_sfx_manifest_scan(const char *scene_dir)
     if (!f) return;
 
     char line[512];
-    unsigned front, back;
+    unsigned front, back, vo;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
-        if (sscanf(line, DOOR_SFX_KEYWORD " %x %x", &front, &back) == 2) {
+        if (!s.sfx_real &&
+            sscanf(line, DOOR_SFX_KEYWORD " %x %x", &front, &back) == 2) {
             s.sfx_pair[0] = front;   /* D_0024DB80 pair[link>>8][0] */
             s.sfx_pair[1] = back;    /*                        [1] */
             s.sfx_real    = 1;
             printf("door sfx: manifest pair front 0x%03X / back 0x%03X "
                    "(D_0024DB80)\n", front, back);
-            break;
+        } else if (!s.vo_real &&
+                   sscanf(line, DOOR_VO_KEYWORD " %x", &vo) == 1) {
+            s.vo_id   = vo;          /* a real locked-VO audio cue */
+            s.vo_real = 1;
+            printf("door sfx: manifest locked-VO id 0x%03X\n", vo);
         }
     }
     fclose(f);
@@ -528,8 +587,25 @@ static float door_open_frac(const Door *d)
 static float door_clip_total(const Door *d)
 {
     const DoorModel *dm = &s.models[d->model];
-    return dm->has_clip ? (float)(dm->model.frame_count - 1)
-                        : DOOR_SWING_FRAMES;
+    if (!dm->has_clip)
+        return DOOR_SWING_FRAMES;
+    uint32_t ci = (d->clip_idx > 0 &&
+                   (uint32_t)d->clip_idx < dm->model.clip_count)
+                  ? (uint32_t)d->clip_idx : 0;
+    return (float)(dm->model.clips[ci].frame_count - 1);
+}
+
+/* op 0x0B clip select — bind the ENGINE clip id (patched per side by
+ * func_001BBE40: open 2/0, locked 3/1) through the EMDL's clip table.
+ * Single-clip / placeholder EMDLs (no such id) fall back to clip 0 —
+ * the previous fixed-clip behavior. */
+static void door_clip_select(Door *d, unsigned engine_id)
+{
+    const DoorModel *dm = &s.models[d->model];
+    int ci = dm->has_clip
+             ? em_model_clip_index(&dm->model, (uint32_t)engine_id) : -1;
+    d->clip_idx = ci < 0 ? 0 : ci;
+    d->clip_t   = 0.0f;
 }
 
 /* Build the door's world palette: clip pose (real clip, or the flagged
@@ -542,8 +618,12 @@ static void door_build_palette(Door *d)
     uint32_t n = dm->model.bone_count;
 
     if (dm->has_clip) {
-        /* Engine path: evaluate the baked clip at the current time. */
-        em_model_palette_at(&dm->model, 0, (double)d->clip_t, d->palette);
+        /* Engine path: evaluate the SELECTED clip at the current time
+         * (clip_idx = the op 0x0B engine-id resolution; 0 until a
+         * sequence binds one — frame 0 of every door clip is the
+         * captured closed pose, s30). */
+        em_model_palette_at(&dm->model, (uint32_t)d->clip_idx,
+                            (double)d->clip_t, d->palette);
     } else {
         /* PLACEHOLDER (no disc clip located yet — see header): swing the
          * whole door 90 degrees about the placement origin's Y axis; the
@@ -829,15 +909,90 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
 
         switch (d->state) {
         case EM_DOOR_CLOSED:
-            if (d->armed) {        /* sub 0 -> kickoff -> sub 2/3 */
+            if (d->armed) {        /* sub 0 -> kickoff -> sub 1 or 3 */
                 d->armed  = 0;
                 d->clip_t = 0.0f;
-                d->state  = EM_DOOR_OPENING;
+                /* THE LOCK GATE (func_001BC350 sub 0, em_door.h "THE
+                 * LOCKED SEQUENCE"): D_00810841 bit clear -> kickoff
+                 * mode 1 -> the LOCKED TRY (engine sub 1). The same
+                 * side-latch/yaw-snap/staging walk runs either way. */
+                int refused = d->lock_gated && !d->unlocked;
+                d->state = refused ? EM_DOOR_LOCKED_TRY : EM_DOOR_OPENING;
                 if (d->slider)
                     slider_kickoff(d, player_pos);
                 else
                     door_transit_kickoff(d, player_pos);
+                if (refused)
+                    printf("door %d: LOCKED try (%s side) — unlock bit "
+                           "clear\n", i, d->front ? "front" : "back");
             }
+            break;
+        case EM_DOOR_LOCKED_TRY:
+            /* The LOCKED TRY script D_0024DEC0 (hinged) / D_0024DA40
+             * (slider — camera + VO only, FLAGGED approximation: no
+             * exported locked slider). The engine SNAPPED to staging;
+             * the port's walk-to replaces the snap as in the open
+             * flow. */
+            if (d->transit)
+                break;
+            if (!d->anim_started) {
+                /* Arrival: op09 locked-look camera CUT (consumed by
+                 * em_game through em_door_locked_look), op0A player
+                 * try anim 0x46/0x44 rate 1.0, op0B locked jiggle
+                 * clip 3/1 (no sound). */
+                d->anim_started = 1;
+                d->lk_look      = 1;
+                d->lk_fired     = 0;
+                d->phase_t      = 0.0f;
+                if (!d->slider) {
+                    em_game_anim_request(d->front ? DOOR_ANIM_LOCK_FRONT
+                                                  : DOOR_ANIM_LOCK_BACK,
+                                         1.0f);
+                    door_clip_select(d, d->front ? DOOR_CLIP_LOCK_FRONT
+                                                 : DOOR_CLIP_LOCK_BACK);
+                }
+            }
+            d->phase_t += 1.0f;
+            if (!d->slider && d->clip_t < door_clip_total(d))
+                d->clip_t += 1.0f;
+            /* op 0x02 wait 60 -> op 0x17 rattle 0x3F2 -> op 0x09 VO
+             * (text-only in the engine; the optional lockedvo id plays
+             * if the registry ever resolves one). Sliders skip both
+             * (D_0024DA40 has no rattle record) and only wait 40. */
+            if (!d->lk_fired &&
+                d->phase_t >= (d->slider ? DOOR_LOCK_SLIDER_WAIT
+                                         : DOOR_LOCK_RATTLE_AT)) {
+                d->lk_fired = 1;
+                if (!d->slider) {
+                    em_sfx_play(EM_SFX_DOOR_RATTLE);
+                    s.rattles++;
+                }
+                if (s.vo_real)
+                    em_sfx_play(s.vo_id);
+            }
+            /* op 0x0B sub 1: wait door clip end (200 f — past the VO),
+             * then sub 1 queues the FINISH script D_0024DBC0 (op07
+             * sub4 EXIT: restore camera + control). Sliders end at
+             * their 40-frame wait + a beat for the VO stand-in. */
+            if (d->slider ? (d->phase_t >= DOOR_LOCK_SLIDER_WAIT + 30.0f)
+                          : (d->clip_t >= door_clip_total(d))) {
+                d->state    = EM_DOOR_LOCKED_END;
+                d->lk_look  = 0;        /* camera restore (op07 sub4) */
+                s.lock_move = 0;        /* control returns             */
+                s.lock_menu = 0;
+                em_game_anim_cancel();  /* script teardown: +0x1F2 = 0
+                                         * (the try clip ended at rest) */
+            }
+            break;
+        case EM_DOOR_LOCKED_END:
+            /* engine sub 2: pump done -> +0x0B = 0 (re-arm), sub 0.
+             * The jiggle clip ended AT rest, so reset to the closed
+             * pose directly. The door never opened — no warp, no fade,
+             * the player stands at the staging point. */
+            d->clip_t   = 0.0f;
+            d->clip_idx = 0;
+            d->armed    = 0;
+            d->state    = EM_DOOR_CLOSED;
             break;
         case EM_DOOR_OPENING:
             if (d->slider) {       /* func_001BB860 state 2: the OPEN
@@ -921,6 +1076,11 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 em_game_anim_request(d->front ? DOOR_ANIM_OPEN_FRONT
                                               : DOOR_ANIM_OPEN_BACK,
                                      1.0f);
+                /* op 0x0B sub 6 carries the side-patched ENGINE clip
+                 * id too: open 2 (front) / 0 (back) — resolved through
+                 * the EMDL clip table (the [0,2,1,3] s30 bake). */
+                door_clip_select(d, d->front ? DOOR_CLIP_OPEN_FRONT
+                                             : DOOR_CLIP_OPEN_BACK);
                 /* Door sound (op 0x0B sub 6): the engine plays
                  * pair[side] — D_0024DB80[link>>8] patched in by
                  * func_001BBD60. The pair arrives via the doorsfx
@@ -1059,6 +1219,50 @@ int em_door_count(void) { return s.n_doors; }
 /* The two-lock split — em_door.h "THE TWO LOCKS". */
 int em_door_movement_locked(void) { return s.lock_move; }
 int em_door_menu_locked(void)     { return s.lock_menu; }
+
+/* THE LOCK GATE (em_door.h "THE LOCKED SEQUENCE") ------------------- */
+
+int em_door_set_locked(int i)
+{
+    if (i < 0 || i >= s.n_doors)
+        return -1;
+    s.doors[i].lock_gated = 1;
+    printf("door %d: LOCK-GATED (manifest `locked` — D_00810841 bit "
+           "clear at boot)\n", i);
+    return 0;
+}
+
+void em_door_unlock(int i)
+{
+    if (i < 0 || i >= s.n_doors)
+        return;
+    if (s.doors[i].lock_gated && !s.doors[i].unlocked)
+        printf("door %d: UNLOCKED (D_00810841 bit set)\n", i);
+    s.doors[i].unlocked = 1;
+}
+
+int em_door_is_locked(int i)
+{
+    if (i < 0 || i >= s.n_doors)
+        return 0;
+    return s.doors[i].lock_gated && !s.doors[i].unlocked;
+}
+
+int em_door_locked_look(float out_door_pos[3], float *out_door_yaw)
+{
+    for (int i = 0; i < s.n_doors; i++) {
+        const Door *d = &s.doors[i];
+        if (!d->lk_look) continue;
+        out_door_pos[0] = d->pos[0];
+        out_door_pos[1] = d->pos[1];
+        out_door_pos[2] = d->pos[2];
+        *out_door_yaw   = d->yaw;
+        return 1;
+    }
+    return 0;
+}
+
+int em_door_rattles(void) { return s.rattles; }
 
 int em_door_walkout_active(float *out_yaw, float *out_speed)
 {
