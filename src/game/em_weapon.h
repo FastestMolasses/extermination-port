@@ -234,9 +234,23 @@
  *     plays nothing);
  *   - ZERO battery drain (live-verified s28b: watch_change on 0x810CB2
  *     across a full on->auto-off cycle saw 0 writes).
- * TODO (flagged): no dynamic light RENDERING exists in the port yet —
- * the toggle is state + audio + timer only; the beam/spot visual needs
- * a gfx-side light pass.
+ * RENDERING (2026-06-11 render-decode session — retires the s47 "visual
+ * TODO" flag): the ENGINE TRUTH, pinned by an exhaustive static sweep
+ * of the boot ELF (decomp FINDINGS "FLASHLIGHT RENDER DECODE"), is that
+ * the toggle draws NOTHING — no beam geometry, no glow sprite, and no
+ * vertex-light change is keyed on D_00810D3C or player +0xA (their only
+ * readers are gameplay: the enemy-AI awareness checks, the pose-row
+ * substitution and the sounds; the engine's per-actor VU1 light matrix
+ * carries an ALWAYS-ON camera-direction light instead, and level
+ * geometry is baked). The port deliberately DEVIATES: while the light
+ * is on, em_weapon_update sets the gfx layer's forward SPOT term
+ * (em_gfx_spot_light) from the hand-frame muzzle ray (the laser's
+ * anchor; yaw fallback without the clips), so the toggle produces the
+ * visible cone on the wall the player faces. Deviation documented at
+ * the API (em_gfx.h "Flashlight spot light").
+ * EM_CAPTURE_LIGHT=1 (debug instrumentation): synthesizes ONE Square
+ * toggle on the first aim frame so headless captures show the lit cone
+ * (use with EM_CAPTURE_AIM=1).
  *
  * LIGHT COMBO (mode 0x21, func_001735C0; per-attack rows idx 0 of the
  * boot-ELF tables — idx 1 is an alternate-context row, anim ids

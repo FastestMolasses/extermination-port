@@ -282,6 +282,36 @@ void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
 void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
                      const float rgba[4]);
 
+/* --- Flashlight spot light (forward spot term) ------------------------ */
+
+/* Set THIS frame's single forward SPOT LIGHT, applied by every skinned
+ * draw's lit shading paths (the directional stand-in AND the baked
+ * vertex-color level path). Reset OFF at em_gfx_begin_frame; with no
+ * call the frame output is bit-identical to pre-spot builds (the shader
+ * adds exactly 0).
+ *
+ * `pos`/`dir` world-space (dir normalized by the caller); `rgb` the
+ * light color/intensity (components may exceed 1); `range` the falloff
+ * distance (quadratic fade to 0 at range); `cos_inner`/`cos_outer` the
+ * cone: full intensity inside cos(angle) >= cos_inner, smoothstep fade
+ * to 0 at cos_outer.
+ *
+ * ENGINE TRUTH + DOCUMENTED DEVIATION (decomp FINDINGS "FLASHLIGHT
+ * RENDER DECODE", 2026-06-11): the boot ELF draws NOTHING for the
+ * flashlight toggle — no beam geometry, no glow sprite, no light-matrix
+ * change is keyed on player +0xA or D_00810D3C (their only consumers
+ * are gameplay: enemy detection, poses, sounds). The engine's per-actor
+ * VU1 light matrix (func_001D89D0: per-room rig D_00251C50 + an
+ * ALWAYS-ON camera-direction light, flag +0x2 bit 0x20, set once for
+ * the player at init + <=32 dynamic point lights, func_001D7FA0) lights
+ * CHARACTERS only; LEVEL geometry ships baked vertex colors and is
+ * never dynamically lit. The port adds this forward spot term so the
+ * toggle has the player-visible result the original light fixture
+ * implies — a deliberate, flagged deviation, not a translation. */
+void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
+                       const float rgb[3], float range,
+                       float cos_inner, float cos_outer);
+
 /* --- last skinned palette (the published bone matrices) ---------------- */
 
 /* The engine PUBLISHES bone world matrices for equipment consumers: the

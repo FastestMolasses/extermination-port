@@ -64,6 +64,11 @@ void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
 void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
                      const float c[4])
 { (void)gfx; (void)p; (void)size; (void)c; }
+void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
+                       const float rgb[3], float range,
+                       float cos_inner, float cos_outer)
+{ (void)gfx; (void)pos; (void)dir; (void)rgb; (void)range;
+  (void)cos_inner; (void)cos_outer; }
 
 int em_collision_segment_query(const EmCollision *c, const float from[3],
                                const float to[3], unsigned mask, int id,

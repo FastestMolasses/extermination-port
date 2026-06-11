@@ -17,6 +17,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 struct EmGfx {
     NSView                      *view;     /* layer-backed, layer is CAMetalLayer */
@@ -91,6 +92,15 @@ struct EmGfx {
      * buffers may be freed by scene switches. */
     float                        lastBones[EM_GFX_TRACK_BONES * 16];
     uint32_t                     lastBoneCount;    /* bones recorded     */
+    /* Per-frame flashlight spot (em_gfx_spot_light — em_gfx.h). Four
+     * float4 rows bound as fragment buffer 2 of every skinned draw:
+     *   [0] = pos.xyz, w = enable (0 = off, the begin_frame reset)
+     *   [1] = dir.xyz (normalized), w = range
+     *   [2] = (cos_inner, cos_outer, 0, 0)
+     *   [3] = rgb, w unused
+     * All-zero rows are the OFF state: the shader's spot term is gated
+     * on row-0 w > 0, keeping no-spot frames bit-identical. */
+    float                        spot[16];
 };
 
 struct EmGfxMesh {
@@ -199,8 +209,8 @@ static NSString *const kBeamShaderSrc =
 static NSString *const kSkinShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
-"struct VOut { float4 pos [[position]]; float3 nrm; float2 uv;\n"
-"              uint slice [[flat]]; };\n"
+"struct VOut { float4 pos [[position]]; float3 nrm; float3 wpos;\n"
+"              float2 uv; uint slice [[flat]]; };\n"
 "vertex VOut v_skin(uint vid [[vertex_id]],\n"
 "                   const device uint *vdata [[buffer(0)]],\n"
 "                   const device float4x4 *palette [[buffer(1)]],\n"
@@ -223,21 +233,46 @@ static NSString *const kSkinShaderSrc =
 "                                        viewproj[2].x));\n"
 "        float3 up    = normalize(float3(viewproj[0].y, viewproj[1].y,\n"
 "                                        viewproj[2].y));\n"
+"        /* o.pos arithmetic kept EXACTLY as the pre-spot shader — a\n"
+"         * reworked expression shifts clip positions by 1 ulp and flips\n"
+"         * rasterized edge pixels (breaks byte-identical captures). */\n"
 "        o.pos = viewproj * float4(c + right * n.x + up * n.y, 1.0);\n"
 "        o.nrm = float3(1.0);\n"
+"        o.wpos = c + right * n.x + up * n.y;\n"
 "    } else {\n"
 "        o.pos = viewproj * (M * float4(p, 1.0));\n"
 "        o.nrm = (mode & 1u) ? n : (M * float4(n, 0.0)).xyz;\n"
+"        o.wpos = (M * float4(p, 1.0)).xyz;\n"
 "    }\n"
 "    o.slice = tex;\n"
 "    o.uv = (tex == 0xFFFFFFFFu) ? float2(0.0) : uv * tscale[tex];\n"
 "    return o;\n"
 "}\n"
+"/* Flashlight spot term (em_gfx_spot_light — port deviation, see\n"
+" * em_gfx.h: the engine never lights geometry from the toggle). Rows:\n"
+" * [0] pos + enable, [1] dir + range, [2] cone cosines, [3] rgb. The\n"
+" * level path (mode bit 0) has no normals (the slot is a baked color),\n"
+" * so it takes the pure projected-cone term — the light disc on the\n"
+" * wall; the character path is additionally wrapped by N.-L. */\n"
+"static float3 spot_term(float3 wpos, float3 nrm, uint mode,\n"
+"                        constant float4 *spot) {\n"
+"    if (spot[0].w <= 0.0) return float3(0.0);\n"
+"    float3 toF = wpos - spot[0].xyz;\n"
+"    float dist = max(length(toF), 1e-4);\n"
+"    float3 L   = toF / dist;\n"
+"    float cone = smoothstep(spot[2].y, spot[2].x, dot(L, spot[1].xyz));\n"
+"    float att  = clamp(1.0 - dist / spot[1].w, 0.0, 1.0);\n"
+"    att *= att;\n"
+"    float ndl  = (mode & 1u) ? 1.0\n"
+"               : max(dot(normalize(nrm), -L), 0.0);\n"
+"    return spot[3].rgb * (cone * att * ndl);\n"
+"}\n"
 "fragment float4 f_skin(VOut in [[stage_in]],\n"
 "                       texture2d_array<float> texs [[texture(0)]],\n"
 "                       sampler smp [[sampler(0)]],\n"
 "                       constant uint &mode [[buffer(0)]],\n"
-"                       constant float4 &tint [[buffer(1)]]) {\n"
+"                       constant float4 &tint [[buffer(1)]],\n"
+"                       constant float4 *spot [[buffer(2)]]) {\n"
 "    float4 base = float4(0.55, 0.62, 0.70, 1.0);\n"
 "    if (in.slice != 0xFFFFFFFFu) {\n"
 "        base = texs.sample(smp, in.uv, in.slice);\n"
@@ -253,14 +288,22 @@ static NSString *const kSkinShaderSrc =
 "         * per-draw tint still applies (additive blend ignores alpha). */\n"
 "        return float4(base.rgb, 1.0) * tint;\n"
 "    }\n"
+"    /* The spot add stays behind the enable branch so spot-off frames\n"
+"     * run the EXACT pre-spot arithmetic (byte-identical captures). */\n"
 "    if (mode & 1u) {\n"
-"        /* baked vertex color (GS modulate) */\n"
-"        return float4(base.rgb * clamp(in.nrm, 0.0, 1.0), base.a) * tint;\n"
+"        /* baked vertex color (GS modulate) + the flashlight spot */\n"
+"        float3 lit = clamp(in.nrm, 0.0, 1.0);\n"
+"        if (spot[0].w > 0.0)\n"
+"            lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
+"        return float4(base.rgb * lit, base.a) * tint;\n"
 "    }\n"
 "    float3 N = normalize(in.nrm);\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
-"    return float4(base.rgb * (0.30 + 0.70 * d), base.a) * tint;\n"
+"    float3 lit = float3(0.30 + 0.70 * d);\n"
+"    if (spot[0].w > 0.0)\n"
+"        lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
+"    return float4(base.rgb * lit, base.a) * tint;\n"
 "}\n";
 
 /* Compile MSL source at runtime and build a pipeline for the swapchain +
@@ -403,6 +446,7 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->hasViewProj = false;   /* set again by the frame's 3D draws */
     g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
     g->overlayH    = EM_GFX_OVERLAY_H;
+    memset(g->spot, 0, sizeof(g->spot)); /* flashlight spot is per-frame */
 
     /* keep the swapchain sized to the backing store */
     NSSize sz = g->view.bounds.size;
@@ -640,6 +684,7 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setVertexBytes:&mode length:4 atIndex:4];
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentBytes:rgba length:16 atIndex:1];
+    [g->enc setFragmentBytes:g->spot length:sizeof(g->spot) atIndex:2];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
     if (m->opaque_count)
@@ -916,6 +961,26 @@ void em_gfx_beam_dot(EmGfx *g, const float p[3], float size,
     memcpy(r->cb, rgba, sizeof(r->cb));
     r->w   = size;
     r->dot = 1;
+}
+
+/* Set this frame's flashlight spot (em_gfx.h "Flashlight spot light" —
+ * the documented port deviation). Stored as the fragment-buffer rows the
+ * skinned shader consumes; begin_frame resets the enable to 0. Call it
+ * BEFORE the frame's skinned draws (em_weapon_render runs at the head of
+ * the render chain build) — the rows bind per draw. */
+void em_gfx_spot_light(EmGfx *g, const float pos[3], const float dir[3],
+                       const float rgb[3], float range,
+                       float cos_inner, float cos_outer)
+{
+    if (!g || !pos || !dir || !rgb || range <= 0.0f) return;
+    g->spot[0]  = pos[0]; g->spot[1]  = pos[1]; g->spot[2]  = pos[2];
+    g->spot[3]  = 1.0f;                              /* enable */
+    g->spot[4]  = dir[0]; g->spot[5]  = dir[1]; g->spot[6]  = dir[2];
+    g->spot[7]  = range;
+    g->spot[8]  = cos_inner; g->spot[9] = cos_outer;
+    g->spot[10] = 0.0f; g->spot[11] = 0.0f;
+    g->spot[12] = rgb[0]; g->spot[13] = rgb[1]; g->spot[14] = rgb[2];
+    g->spot[15] = 0.0f;
 }
 
 static void beam_norm3(float v[3])

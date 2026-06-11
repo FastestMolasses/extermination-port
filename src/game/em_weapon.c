@@ -7,6 +7,7 @@
 #include "game/em_weapon.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "em_input.h"
@@ -100,13 +101,25 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
 /* --- FLASHLIGHT (em_weapon.h "FLASHLIGHT" block; SQUARE while aiming,
  *     attachment 0 — the engine's D_00810D3C flag with the s28b light
  *     mechanics: 300-frame auto-off burst, anim/sound id 0x15D, no
- *     battery drain). Visual TODO: state + audio + timer only. ------- */
+ *     battery drain). ----------------------------------------------- */
 #define WPN_LIGHT_FRAMES   300    /* +0x28 = 0x12C (5 s @ 60 Hz)        */
 #define WPN_ANIM_LIGHT_OFF 0x15D  /* auto-off gesture (engine commits it
                                    * via the clip arbiter, blend 8.0)   */
 #define WPN_SFX_LIGHT_OFF  0x15Du /* the SAME id is the pinned 920 ms
                                    * switch sound (soundmap snd_0361);
                                    * local define — em_sfx.h untouched  */
+
+/* FLASHLIGHT SPOT (the port's documented DEVIATION — em_weapon.h
+ * "RENDERING" / em_gfx.h "Flashlight spot light": the engine renders
+ * NOTHING for the toggle, so these are PORT VALUES, flagged, not
+ * decoded constants). Pose = the hand-frame muzzle ray (the laser's
+ * anchor and axis; yaw fallback without the clips); a warm-white beam
+ * with a ~15-degree hotspot fading to nothing by ~25 degrees and a
+ * quadratic range falloff inside the laser's own 260-unit reach. */
+#define WPN_LIGHT_RANGE   200.0f  /* falloff distance, world units      */
+#define WPN_LIGHT_COS_IN  0.966f  /* cos ~15 deg — full-intensity core  */
+#define WPN_LIGHT_COS_OUT 0.906f  /* cos ~25 deg — cone edge            */
+static const float kLightColor[3] = { 1.00f, 0.95f, 0.82f };
 
 /* --- FIRE SUB-STATE MACHINE (engine +0x07; decoded 2026-06-11 from the
  *     func_00170A60 .s — em_weapon.h "FIRE SUB-STATE MACHINE"). The
@@ -276,6 +289,12 @@ static struct {
                           * +0xA light byte)                              */
     int     light_timer; /* 300-frame auto-off burst countdown (+0x28
                           * = 0x12C); ticks every frame, any stance       */
+    float   light_pos[3];/* spot anchor — the hand-frame muzzle point
+                          * (PORT visual, em_weapon.h "RENDERING")        */
+    float   light_dir[3];/* spot axis — the muzzle ray direction          */
+    int     light_cap;   /* EM_CAPTURE_LIGHT=1 one-shot: synthesize the
+                          * Square toggle on the first aim frame (debug
+                          * instrumentation for headless captures)        */
 
     int     fire_event;  /* gun actor +0x2E: posted by the player SM,
                           * consumed (ray + FX) on the NEXT update — the
@@ -351,6 +370,11 @@ void em_weapon_reset(uint8_t mag, int16_t reserve)
     w.mag      = mag;
     w.reserve  = reserve;
     w.last_hit = -1;
+    /* EM_CAPTURE_LIGHT=1: arm the one-shot synthetic flashlight toggle
+     * (em_weapon.h "RENDERING" — debug instrumentation only; it rides
+     * the exact Square-press code path on the first aim frame). */
+    const char *cl = getenv("EM_CAPTURE_LIGHT");
+    w.light_cap = cl && cl[0] == '1';
 }
 
 /* HONEST state windows from the committed clip lengths: the scripted
@@ -1115,7 +1139,14 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                  * live capture) + the 300-frame auto-off burst; OFF:
                  * silent (engine 1->0 plays nothing), timer cleared.
                  * No ammo use, no battery drain, no state change. */
-                if (in->pressed & EM_PAD_SQUARE) {
+                int square = (in->pressed & EM_PAD_SQUARE) != 0;
+                if (w.light_cap) {          /* EM_CAPTURE_LIGHT one-shot
+                                             * synthetic Square (debug
+                                             * instrumentation only)    */
+                    square      = 1;
+                    w.light_cap = 0;
+                }
+                if (square) {
                     if (!w.light_on) {
                         w.light_on    = 1;
                         w.light_timer = WPN_LIGHT_FRAMES;   /* 0x12C */
@@ -1161,6 +1192,27 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
     w.laser_on = (w.state == EM_WPN_AIM);
     if (w.laser_on)
         laser_update(coll, player_pos, player_yaw);
+
+    /* FLASHLIGHT SPOT pose + set (the PORT's documented deviation —
+     * em_weapon.h "RENDERING": the engine draws nothing for the
+     * toggle). Pose = the hand-frame muzzle ray, refreshed every frame
+     * the light is on (any stance — the burst keeps ticking after a
+     * stance drop and the ray helper falls back to chest-height along
+     * yaw without a hand frame). The spot is handed to the gfx layer
+     * HERE, during the update stage: em_gfx_begin_frame already ran
+     * (the frame loop's stage B) and the close-out's skinned draws
+     * haven't — so the term lights THIS frame's draws. w.gfx is the
+     * device cached by em_weapon_render (NULL only before the first
+     * rendered frame — one unlit frame, same staleness class as the
+     * bone publish). */
+    if (w.light_on) {
+        weapon_muzzle_ray(player_pos, player_yaw,
+                          w.light_pos, w.light_dir, NULL);
+        if (w.gfx)
+            em_gfx_spot_light(w.gfx, w.light_pos, w.light_dir,
+                              kLightColor, WPN_LIGHT_RANGE,
+                              WPN_LIGHT_COS_IN, WPN_LIGHT_COS_OUT);
+    }
 }
 
 /* --- World-space weapon visuals (laser sight + muzzle flash) ----------- */

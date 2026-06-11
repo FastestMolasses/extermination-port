@@ -18,6 +18,9 @@ data/
 *.dat
 *.DAT
 
+# Local scratch captures (renders sample disc-derived textures — never ship)
+scratch_noassets/
+
 # Editor / OS
 .DS_Store
 *.swp
