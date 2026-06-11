@@ -27,17 +27,18 @@
  *              re-arms (+0x0B = 0) -> 0
  *
  * Articulation: the engine evaluates a keyframe clip on the door's bone
- * slots (func_001BC300 -> func_001C68C0). The double door's clip is not
- * yet located on disc, so a single-frame EMDL plays the PLACEHOLDER
- * hinge swing below (90 degrees about the placement origin's Y axis —
- * the panel's hinge edge sits at local x = 0). An EMDL that carries a
- * real baked clip (frame_count > 1) is played instead, 1.0 frame/tick,
- * exactly the engine rate.
+ * slots (func_001BC300 -> func_001C68C0). The shipped door EMDLs carry
+ * the real disc clips (s30/s32, slot-0x39 bank ids [0,2,1,3]); a
+ * single-frame EMDL falls back to the legacy PLACEHOLDER hinge swing
+ * below (90 degrees about the placement origin's Y axis — the panel's
+ * hinge edge sits at local x = 0). A real baked clip (frame_count > 1)
+ * plays at 1.0 frame/tick, exactly the engine rate.
  */
 #include "game/em_door.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "em_input.h"   /* EM_PAD_CROSS — the frame input button mask */
@@ -50,10 +51,26 @@
 #define DOOR_BONE_MAX   16    /* palette slots incl. the EMDL identity slot */
 #define DOOR_PI         3.14159265f
 
-/* Use-scan constants — func_00184BA0 (s17). The manifest radius carries
- * the 12.0-unit scan distance; these two are the scan's inner gates. */
-#define DOOR_AUTO_DIST2   4.0f   /* < 2.0 u -> immediate (returns 2) */
-#define DOOR_FACING_DOT   0.4f   /* facing-dot threshold (~0.4) */
+/* Use-scan constants — func_00183EF0 CLASS-5 path, fully read 2026-06-11
+ * (FINDINGS "DOOR USE SCAN + STAGING MATH"; retires the s17 class-7
+ * extrapolation). For door models 3/0x15 (hinged m03 family — the
+ * placement origin is the panel's HINGE corner) the scan measures from
+ * the DOORWAY CENTER, 5 u from the hinge toward the free/handle edge:
+ *
+ *     center = door_pos + 5 * (-cos(yaw), 0, +sin(yaw))
+ *
+ * (other models — m17/m09 sliders whose origin is already the doorway
+ * center — use door_pos directly). Conditions, in engine order:
+ *     horizontal dist(player, center) <= desc[0] = 10.0   (D_002755F0)
+ *     |player_y - door_y|             <= desc[1] =  8.0
+ *     side:   |norm(atan2(player - door_pos) - yaw)| <= pi/2 -> front
+ *     facing: |norm(player_yaw + (front ? pi : 0) - yaw)| <= pi/4
+ * No LOS query and no 2-u auto ring exist in the class-5 path (both were
+ * the class-7 prefix) — the old port LOS "doorway pocket" exemption and
+ * the auto ring are retired. The manifest radius carries desc[0]. */
+#define DOOR_CENTER_OFF   5.0f   /* hinge -> doorway center, m03/m15 only */
+#define DOOR_VERT_LIMIT   8.0f   /* desc[1] (D_002755F0[1]) */
+#define DOOR_FACING_ANG   (DOOR_PI * 0.25f)   /* pi/4 yaw window */
 
 /* PLACEHOLDER swing timing — flagged: the real clip length is unknown.
  * The engine advances its clip 1.0/frame and the two live-captured
@@ -63,9 +80,23 @@
 #define DOOR_SWING_ANGLE  (DOOR_PI * 0.5f)
 
 /* Staging/spawn offset along the door normal: the engine stages the
- * player at door +- 5.0 * n on his own side (s22 captured 5.0 exactly;
- * e.g. -247.2 = door z + 5) and the spawn-table records flank the door
- * at ~+-5 with exit yaw. */
+ * player at CENTER +- 5.0 * n on his own side. Decoded exactly from
+ * func_001BBE40 (2026-06-11; both s22 live captures reproduce to the
+ * digit — (104, -247.2) and (62, -225.5)):
+ *
+ *     pyaw = norm(door_yaw + (front ? pi : 0))      (the yaw snap)
+ *     sx = door_x - 5*cos(door_yaw) - 5*sin(pyaw)
+ *     sy = player_y
+ *     sz = door_z + 5*sin(door_yaw) - 5*cos(pyaw)
+ *
+ * = doorway CENTER (the same 5-u hinge->handle lateral term as the use
+ * scan) + 5 u out of the door plane on the player's side. NOTE the
+ * decomp stub src/func_001BBE40.c annotated its trig externs swapped;
+ * func_0011DE90 = cosf, func_0011E2A8 = sinf (pinned by the captures
+ * AND by func_00136630's forward-step x += v*E2A8 / z += v*DE90 with
+ * the engine's forward = (sin yaw, cos yaw)). The spawn-table records
+ * flank the CENTER at ~+-5 with exit yaw (office rec 2/3 = (104, -245)/
+ * (104, -259) vs center (104, -252.2)). */
 #define DOOR_POINT_DIST   5.0f
 
 /* OPEN-phase script values (FINDINGS "DOOR SCRIPTS DECODED" s23 — the
@@ -120,13 +151,24 @@ typedef struct {
     float      base[DOOR_BONE_MAX * 16];
     float      lo[3], hi[3];
     int        has_clip;     /* frame_count > 1: real baked clip present */
+    int        hinged;       /* engine model byte 3/0x15 (placement origin
+                              * = the hinge corner): use scan + staging
+                              * measure from the doorway CENTER, 5 u along
+                              * the panel (func_00183EF0 class-5 branch /
+                              * func_001BBE40). Parsed from the exporter's
+                              * doors/door_mXX.emdl name — the manifest's
+                              * model-byte carrier (FLAGGED: filename
+                              * convention, not a record field). */
 } DoorModel;
 
 typedef struct {
     int      model;          /* index into s.models */
     float    pos[3];         /* placement (actor +0xB0) */
     float    yaw;            /* placement ry (actor +0xC4) */
-    float    radius;         /* use-scan distance (12.0 from the table) */
+    float    center[3];      /* doorway CENTER: pos + 5*(-cos,0,+sin)(yaw)
+                              * for hinged models, else == pos — the use
+                              * scan + staging reference point */
+    float    radius;         /* use-scan distance, desc[0] = 10.0 */
     uint8_t  state;          /* actor +0x05 sub-state (engine values) */
     uint8_t  armed;          /* actor +0x0B activation flags (scan: 4) */
     float    clip_t;         /* anim block +0xE clip time, frames */
@@ -253,6 +295,19 @@ static int door_model_get(EmGfx *gfx, const char *scene_dir,
     em_model_palette_at(&dm->model, 0, 0.0, dm->base);
     dm->has_clip = dm->model.frame_count > 1;
 
+    /* Engine model byte from the exporter's doors/door_mXX.emdl name:
+     * func_00183EF0's class-5 branch keys the doorway-center offset on
+     * model == 3 || model == 0x15 (the hinged m03 family; their
+     * placement origin is the hinge corner). Unparseable names default
+     * to hinged=0 (center == pos — correct for the m17/m09 sliders,
+     * whose origin is the doorway center). */
+    dm->hinged = 0;
+    const char *m = strstr(file, "_m");
+    if (m) {
+        unsigned mb = (unsigned)strtoul(m + 2, NULL, 16);
+        dm->hinged = (mb == 0x03 || mb == 0x15);
+    }
+
     /* Door-local AABB of the POSED closed mesh (palette * position) —
      * the blocking hull (the engine's per-uid collision-record AABB). */
     dm->lo[0] = dm->lo[1] = dm->lo[2] =  1e9f;
@@ -300,6 +355,17 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
     d->radius = radius;
     d->state  = EM_DOOR_CLOSED;
 
+    /* Doorway CENTER — the use-scan + staging reference (func_00183EF0
+     * class-5 / func_001BBE40 shared lateral term): 5 u from the hinge
+     * along the panel toward the free edge for hinged models. */
+    d->center[0] = d->pos[0];
+    d->center[1] = d->pos[1];
+    d->center[2] = d->pos[2];
+    if (s.models[mi].hinged) {
+        d->center[0] -= DOOR_CENTER_OFF * cosf(yaw);
+        d->center[2] += DOOR_CENTER_OFF * sinf(yaw);
+    }
+
     /* World AABB of the closed door: rotate the local box by yaw (about
      * the placement origin) and take the axis-aligned bounds. */
     const DoorModel *dm = &s.models[mi];
@@ -327,9 +393,11 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
      * is draw-recorded before its first em_door_update pass. */
     door_build_palette(d);
 
-    printf("door %d: %s at (%.1f, %.1f, %.1f) yaw %.3f r %.1f — hull "
-           "(%.1f, %.1f, %.1f)..(%.1f, %.1f, %.1f)\n", s.n_doors, file,
-           pos[0], pos[1], pos[2], yaw, radius,
+    printf("door %d: %s at (%.1f, %.1f, %.1f) yaw %.3f r %.1f center "
+           "(%.1f, %.1f)%s — hull (%.1f, %.1f, %.1f)..(%.1f, %.1f, %.1f)\n",
+           s.n_doors, file, pos[0], pos[1], pos[2], yaw, radius,
+           d->center[0], d->center[2],
+           s.models[mi].hinged ? " (hinged: +5 off the hinge)" : "",
            d->aabb_lo[0], d->aabb_lo[1], d->aabb_lo[2],
            d->aabb_hi[0], d->aabb_hi[1], d->aabb_hi[2]);
     s.n_doors++;
@@ -427,64 +495,58 @@ static void door_build_palette(Door *d)
 /* Trigger scan + state machine                                         */
 /* ------------------------------------------------------------------ */
 
+/* Wrap an angle to (-pi, pi] — the engine's func_001B1470. */
+static float door_norm_ang(float a)
+{
+    while (a >  DOOR_PI) a -= 2.0f * DOOR_PI;
+    while (a < -DOOR_PI) a += 2.0f * DOOR_PI;
+    return a;
+}
+
 /* func_00184BA0 — the player USE SCAN over last frame's interactive
- * list. Filters: status bit 0, class flag 0x80, +0x0B == 0 (un-armed);
- * per candidate func_00183EF0: LOS clear (mask-6 static query), dist^2
- * <= 144, immediate inside 2.0 u, else facing-dot >= ~0.4; the NEAREST
- * winner gets +0x0B = 4.
+ * list (filters: status bit 0, class flag 0x80, +0x0B == 0), per
+ * candidate func_00183EF0. CLASS-5 DOOR path, read in full 2026-06-11
+ * (FINDINGS "DOOR USE SCAN + STAGING MATH" — see the constants block):
+ * horizontal distance from the doorway CENTER <= desc[0] (the manifest
+ * radius), |dy| <= 8.0, side test (bearing(player - door_pos) within
+ * pi/2 of the door yaw -> front), then FACING: the player yaw must be
+ * within pi/4 of facing THROUGH the door (front: yaw + pi == door_yaw
+ * +- pi/4; back: yaw == door_yaw +- pi/4). No LOS query, no 2-u auto
+ * ring — both belonged to the class-7 prefix; the old port LOS pocket
+ * hack is retired. The nearest passing candidate gets +0x0B = 4.
  *
  * PORT DEVIATION (flagged): the engine's outer gate is the locomotion
- * action-state 0x2D (the player pressing forward — doors open on
- * walk-into). The port keeps the immediate 2.0-unit auto-open but asks
- * for the CROSS button outside it, until the player action-state
- * machine is translated. */
+ * action-state 0x2D (the player PRESSING FORWARD — doors open on
+ * walk-into, no button). The port gates on the CROSS button until the
+ * player action-state machine is translated. */
 static void door_trigger_scan(const EmCollision *coll, const float pp[3],
                               float pyaw, const EmFrameInput *in)
 {
-    int   press = (in->pressed & EM_PAD_CROSS) != 0;
-    float fx = sinf(pyaw), fz = cosf(pyaw);
     int   best = -1;
     float best_d2 = 1e30f;
+
+    (void)coll;   /* class-5 doors do no LOS query (decoded 2026-06-11) */
+    if (!(in->pressed & EM_PAD_CROSS))
+        return;   /* flagged stand-in for action-state 0x2D (walk-into) */
 
     for (int i = 0; i < s.n_doors; i++) {
         Door *d = &s.doors[i];
         if (d->state != EM_DOOR_CLOSED || d->armed) continue;
-        float dx = d->pos[0] - pp[0];
-        float dz = d->pos[2] - pp[2];
+        float dx = d->center[0] - pp[0];
+        float dz = d->center[2] - pp[2];
         float d2 = dx * dx + dz * dz;
-        if (d2 > d->radius * d->radius) continue;
+        if (d2 > d->radius * d->radius) continue;             /* desc[0] */
+        if (fabsf(pp[1] - d->pos[1]) > DOOR_VERT_LIMIT) continue;
 
-        if (d2 >= DOOR_AUTO_DIST2) {
-            if (!press) continue;
-            float dist = sqrtf(d2);
-            if (dist > 1e-4f &&
-                (dx * fx + dz * fz) / dist < DOOR_FACING_DOT)
-                continue;
-        }
-        /* LOS gate — the engine's func_0019A910 mode-6 query (static
-         * cells + grid only; movable hulls never block their own scan).
-         * The grid world is partitioned into sealed room boxes whose
-         * BOUNDARY planes hug each doorway (verified in the office EMCL:
-         * x = 60 before the west door, z = -250/-255 around the office
-         * door) — the engine crosses them only via the door transit
-         * (s17 func_001BBE40 MOVE-TO). A hit inside the door's own
-         * doorway pocket is that boundary/jamb, not a separating wall,
-         * so it must not veto the scan. FLAGGED approximation until
-         * func_00183EF0's class-5 path is read (s17 open item). */
-        if (coll && coll->poly_count) {
-            float a[3] = { pp[0], pp[1] + 10.0f, pp[2] };
-            float b[3] = { d->pos[0], d->pos[1] + 10.0f, d->pos[2] };
-            EmCollHit lh;
-            if (em_collision_segment_query(coll, a, b,
-                                           EM_COLL_SET_CELLS |
-                                           EM_COLL_SET_GRID,
-                                           EM_COLL_ID_NONE, &lh)) {
-                float hx = lh.point[0] - d->pos[0];
-                float hz = lh.point[2] - d->pos[2];
-                if (hx * hx + hz * hz > 36.0f)   /* > 6 u from the door */
-                    continue;
-            }
-        }
+        /* side: front when bearing(player - door_pos) is within pi/2 of
+         * the door yaw (atan2 in the engine's (sin, cos) convention). */
+        float bearing = atan2f(pp[0] - d->pos[0], pp[2] - d->pos[2]);
+        int   front   = fabsf(door_norm_ang(bearing - d->yaw))
+                        <= DOOR_PI * 0.5f;
+        /* facing: player yaw within pi/4 of facing through the door. */
+        float fd = door_norm_ang(pyaw + (front ? DOOR_PI : 0.0f) - d->yaw);
+        if (fabsf(fd) > DOOR_FACING_ANG) continue;
+
         if (d2 < best_d2) {
             best_d2 = d2;
             best = i;
@@ -494,44 +556,60 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
         s.doors[best].armed = 4;   /* the scan's +0x0B value */
 }
 
-/* func_001BBE40 — the transit KICKOFF: latch which side the player is
- * on (vs the door normal n = [sin yaw, cos yaw]), snap the player yaw
- * to the normal, LOCK input, and walk the player to the STAGING point
- * door_pos + 5.0 * n on his OWN side (s22: the engine snaps there; the
- * port drives the same point through the locomotion walk — the MOVE-TO
- * of func_00182F90). The far-side spawn point door_pos - 5.0 * n is
- * staged for the post-fade re-place (the documented spawn-table record:
- * +-5 behind the door, exit yaw). The scripted sequence is what carries
- * the player across the grid room-BOUNDARY planes (the doorways are
- * statically sealed; free walking never crosses them).
- * (The engine's camera cues + door scripts of the kickoff are not yet
- * decoded — s17 open items.) */
+/* func_001BBE40 — the transit KICKOFF, byte-decoded 2026-06-11 (the
+ * 91.5%-matched C stub src/func_001BBE40.c, trig labels corrected:
+ * func_0011DE90 = cos, func_0011E2A8 = sin; both s22 captured staging
+ * points reproduce exactly). Latch the player's side, snap the player
+ * yaw to the door normal (front: door_yaw + pi; back: door_yaw), LOCK
+ * input, and walk the player to the STAGING point
+ *
+ *     staging = (door_x - 5*cos(door_yaw) - 5*sin(pyaw),
+ *                player_y,
+ *                door_z + 5*sin(door_yaw) - 5*cos(pyaw))
+ *             = doorway CENTER + 5 u toward the player's side
+ *
+ * (s22: the engine SNAPs there; the port drives the same point through
+ * the scripted MOVE-TO walk of func_00182F90 — flagged deviation). The
+ * far-side spawn point CENTER - 5*n approximates the spawn-table
+ * re-place for non-goto doors (the real office records flank the
+ * center at +-7; goto doors carry the real decoded spawn). The
+ * scripted sequence is what carries the player across the grid
+ * room-BOUNDARY planes (the doorways are statically sealed).
+ *
+ * NOTE the engine evaluates the center term with DOOR_yaw even for
+ * non-hinged door models (the kickoff is the m03-family brain); the
+ * port's m17/m09 doors run this same machine as a flagged stand-in
+ * (their variant brain func_001BB860 has its own script), so for them
+ * center == pos and the math degenerates to the old +-5*n form. */
 static void door_transit_kickoff(Door *d, const float pp[3])
 {
     float nx = sinf(d->yaw), nz = cosf(d->yaw);
     float side = (pp[0] - d->pos[0]) * nx + (pp[2] - d->pos[2]) * nz;
-    float dir  = (side < 0.0f) ? 1.0f : -1.0f;   /* far side of player */
-    /* SIDE LATCH (+0x2E, the s17 front test): the player is FRONT when
-     * the bearing of (player - door) is within pi/2 of the door yaw —
-     * equivalently dot(player - door, n) >= 0 (the +n side the door
-     * faces). The latch patches the open script's per-side values:
-     * player anim 0x45/0x43, wait 90/70 (yaw snap: front = yaw + pi,
-     * back = yaw — which is exactly transit_yaw below). */
+    /* SIDE LATCH (+0x2E): front = the +n side the door faces — the
+     * engine's |norm(atan2(player - door) - yaw)| <= pi/2 test,
+     * equivalently dot(player - door, n) >= 0. The latch patches the
+     * open script's per-side values: player anim 0x45/0x43, wait
+     * 90/70, and the yaw snap (front: yaw + pi, back: yaw) — which is
+     * exactly transit_yaw below. */
     d->front        = side >= 0.0f;
     d->open_wait    = d->front ? DOOR_WAIT_FRONT : DOOR_WAIT_BACK;
     d->phase_t      = 0.0f;
     d->anim_started = 0;
-    /* staging point: the player's OWN side (-dir), 5 u off the door */
-    d->transit_to[0] = d->pos[0] - DOOR_POINT_DIST * dir * nx;
-    d->transit_to[1] = d->pos[1];
-    d->transit_to[2] = d->pos[2] - DOOR_POINT_DIST * dir * nz;
-    /* spawn point: the FAR side (+dir) — the re-place while black */
-    d->spawn_pt[0]   = d->pos[0] + DOOR_POINT_DIST * dir * nx;
-    d->spawn_pt[1]   = d->pos[1];
-    d->spawn_pt[2]   = d->pos[2] + DOOR_POINT_DIST * dir * nz;
-    /* travel direction = the exit yaw (spawn recs face AWAY from the
-     * door — s22 "yaw facing AWAY (exit pose)") */
-    d->transit_yaw   = (dir > 0.0f) ? d->yaw : d->yaw + DOOR_PI;
+    /* yaw snap = travel direction = the exit yaw (spawn recs face AWAY
+     * from the door — s22 "yaw facing AWAY (exit pose)") */
+    d->transit_yaw   = d->front ? d->yaw + DOOR_PI : d->yaw;
+    {
+        /* the exact func_001BBE40 staging algebra (lateral center term
+         * folded into d->center; pyaw = the snapped yaw) */
+        float py = d->transit_yaw;
+        d->transit_to[0] = d->center[0] - DOOR_POINT_DIST * sinf(py);
+        d->transit_to[1] = pp[1];               /* spad y = player y */
+        d->transit_to[2] = d->center[2] - DOOR_POINT_DIST * cosf(py);
+        /* spawn point: mirrored through the center (far side) */
+        d->spawn_pt[0]   = d->center[0] + DOOR_POINT_DIST * sinf(py);
+        d->spawn_pt[1]   = d->pos[1];
+        d->spawn_pt[2]   = d->center[2] + DOOR_POINT_DIST * cosf(py);
+    }
     d->transit       = 1;
     d->did_warp      = 0;
     s.lock           = 1;   /* input locked until the fade-in completes */
