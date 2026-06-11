@@ -10,7 +10,10 @@
 
 typedef struct {
     uint16_t buttons;                    /* EM_PAD_* bits currently held */
-    int      lsu, lsd, lsl, lsr;         /* WASD held flags for the left stick */
+    int      lsu, lsd, lsl, lsr;         /* WASD held flags, left stick  */
+    int      rsu, rsd, rsl, rsr;         /* TFGH held flags, right stick */
+    int      alt;                        /* Option/Alt held — debug half-gait
+                                          * cap (em_input.h DEBUG GAIT HOLD) */
 } InputState;
 
 static InputState s_in;
@@ -25,22 +28,23 @@ void em_input_init(void)
 static uint16_t key_to_button(int key)
 {
     switch (key) {
-        case EM_KEY_UP:     return EM_PAD_UP;
-        case EM_KEY_RIGHT:  return EM_PAD_RIGHT;
-        case EM_KEY_DOWN:   return EM_PAD_DOWN;
-        case EM_KEY_LEFT:   return EM_PAD_LEFT;
-        case 'k':           return EM_PAD_CROSS;
-        case 'l':           return EM_PAD_CIRCLE;
-        case 'i':           return EM_PAD_TRIANGLE;
-        case 'j':           return EM_PAD_SQUARE;
-        case 'q':           return EM_PAD_L1;
-        case 'e':           return EM_PAD_R1;
-        case 'u':           return EM_PAD_L2;
-        case 'o':           return EM_PAD_R2;
-        case 'r':           return EM_PAD_L3;
-        case EM_KEY_RETURN: return EM_PAD_START;
-        case EM_KEY_TAB:    return EM_PAD_SELECT;
-        default:            return 0;
+        case EM_KEY_UP:        return EM_PAD_UP;
+        case EM_KEY_RIGHT:     return EM_PAD_RIGHT;
+        case EM_KEY_DOWN:      return EM_PAD_DOWN;
+        case EM_KEY_LEFT:      return EM_PAD_LEFT;
+        case 'k':              return EM_PAD_CROSS;
+        case 'l':              return EM_PAD_CIRCLE;
+        case 'i':              return EM_PAD_TRIANGLE;
+        case 'j':              return EM_PAD_SQUARE;
+        case 'q':              return EM_PAD_L1;
+        case 'e':              return EM_PAD_R1;
+        case '1':              return EM_PAD_L2;
+        case '3':              return EM_PAD_R2;
+        case '2':              return EM_PAD_L3;
+        case '4':              return EM_PAD_R3;
+        case EM_KEY_RETURN:    return EM_PAD_START;
+        case EM_KEY_BACKSPACE: return EM_PAD_SELECT;
+        default:               return 0;
     }
 }
 
@@ -58,11 +62,16 @@ void em_input_handle_event(const EmEvent *ev)
         return;
     }
 
-    switch (ev->key) {           /* left stick, digital full deflection */
-        case 'w': s_in.lsu = down; break;
+    switch (ev->key) {           /* sticks + the gait modifier */
+        case 'w': s_in.lsu = down; break;    /* left stick (WASD)  */
         case 's': s_in.lsd = down; break;
         case 'a': s_in.lsl = down; break;
         case 'd': s_in.lsr = down; break;
+        case 't': s_in.rsu = down; break;    /* right stick (TFGH) */
+        case 'g': s_in.rsd = down; break;
+        case 'f': s_in.rsl = down; break;
+        case 'h': s_in.rsr = down; break;
+        case EM_KEY_ALT: s_in.alt = down; break; /* debug half-gait hold */
         default:  break;         /* unmapped key — ignore */
     }
 }
@@ -71,11 +80,14 @@ void em_input_pad(EmPadState *out)
 {
     if (!out) return;
     out->buttons = s_in.buttons;
-    /* Opposing keys cancel; -1 = left/up, +1 = right/down (em_input.h). */
-    out->lx = (float)(s_in.lsr - s_in.lsl);
-    out->ly = (float)(s_in.lsd - s_in.lsu);
-    out->rx = 0.0f;              /* right stick unmapped for now */
-    out->ry = 0.0f;
+    /* Opposing keys cancel; -1 = left/up, +1 = right/down (em_input.h).
+     * Holding Option/Alt caps deflection at the WALK band so analog gait
+     * is reachable from a keyboard (em_input.h DEBUG GAIT HOLD). */
+    const float d = s_in.alt ? EM_INPUT_DEFLECT_HALF : EM_INPUT_DEFLECT_FULL;
+    out->lx = d * (float)(s_in.lsr - s_in.lsl);
+    out->ly = d * (float)(s_in.lsd - s_in.lsu);
+    out->rx = d * (float)(s_in.rsr - s_in.rsl);
+    out->ry = d * (float)(s_in.rsd - s_in.rsu);
 }
 
 const char *em_pad_button_name(int bit_index)

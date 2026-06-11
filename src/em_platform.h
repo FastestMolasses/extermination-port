@@ -29,17 +29,26 @@ typedef enum {
 
 /* Platform-neutral key codes. Printable ASCII keys use their ASCII value;
  * non-printable keys use values >= 256 so they never collide. Extend as the
- * input map grows. */
+ * input map grows.
+ *
+ * EM_KEY_ALT is the Option/Alt MODIFIER, delivered as ordinary
+ * KEY_DOWN/KEY_UP events: modifier keys do not produce key events on every
+ * OS (macOS reports them via flags-changed notifications), so each platform
+ * layer must track the modifier's previous state and synthesize a KEY_DOWN
+ * on press and a KEY_UP on release. Either Option/Alt key qualifies; the
+ * input model (em_input.c) uses it as the debug half-gait hold. */
 typedef enum {
-    EM_KEY_UNKNOWN = 0,
-    EM_KEY_SPACE   = 32,
-    EM_KEY_ESCAPE  = 256,
+    EM_KEY_UNKNOWN   = 0,
+    EM_KEY_SPACE     = 32,
+    EM_KEY_ESCAPE    = 256,
     EM_KEY_RETURN,
     EM_KEY_TAB,
+    EM_KEY_BACKSPACE,
     EM_KEY_LEFT,
     EM_KEY_RIGHT,
     EM_KEY_UP,
-    EM_KEY_DOWN
+    EM_KEY_DOWN,
+    EM_KEY_ALT
 } EmKey;
 
 typedef struct {

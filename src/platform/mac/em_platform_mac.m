@@ -21,6 +21,17 @@
 - (BOOL)wantsUpdateLayer      { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)isFlipped             { return YES; }
+/* Consume ALL key events at the view. em_window_poll reads key events off
+ * the queue itself; the [NSApp sendEvent:] forward exists only so Cocoa
+ * housekeeping (menu key equivalents, window focus, IME bookkeeping) keeps
+ * working. NSView's default -keyDown: forwards unhandled keys up the
+ * responder chain, where NSWindow's "no responder" path calls NSBeep() —
+ * i.e. the system alert sound on EVERY game key press/hold (repeats
+ * included). Overriding both as no-ops terminates the chain here, for
+ * mapped and unmapped keys alike, without touching the key-equivalent
+ * path (Cmd-Q etc. are routed by -sendEvent: before -keyDown:). */
+- (void)keyDown:(NSEvent *)event { (void)event; }
+- (void)keyUp:(NSEvent *)event   { (void)event; }
 @end
 
 /* ---- window delegate: tracks close requests -------------------------- */
@@ -35,6 +46,7 @@ struct EmWindow {
     NSWindow         *window;
     EmContentView    *view;
     EmWindowDelegate *delegate;
+    bool              altDown;   /* last seen Option/Alt state (flagsChanged) */
 };
 
 static int map_key(NSEvent *ev)
@@ -46,6 +58,8 @@ static int map_key(NSEvent *ev)
         case 36:  return EM_KEY_RETURN;
         case 76:  return EM_KEY_RETURN;   /* keypad enter */
         case 48:  return EM_KEY_TAB;
+        case 51:  return EM_KEY_BACKSPACE; /* "delete" — chars gives 0x7F,
+                                            * outside the printable window */
         case 123: return EM_KEY_LEFT;
         case 124: return EM_KEY_RIGHT;
         case 126: return EM_KEY_UP;
@@ -142,6 +156,18 @@ bool em_window_poll(EmWindow *w, EmEvent *out)
             } else if (ev.type == NSEventTypeKeyUp) {
                 type = EM_EVENT_KEY_UP;
                 key  = map_key(ev);
+            } else if (ev.type == NSEventTypeFlagsChanged) {
+                /* Modifiers never arrive as keyDown/keyUp — synthesize the
+                 * EM_KEY_ALT transitions the contract promises (the input
+                 * model's debug half-gait hold, em_platform.h). Edge-detect
+                 * against the last seen state so the L/R Option keys and
+                 * unrelated modifier churn don't emit duplicates. */
+                bool alt = (ev.modifierFlags & NSEventModifierFlagOption) != 0;
+                if (alt != w->altDown) {
+                    w->altDown = alt;
+                    type = alt ? EM_EVENT_KEY_DOWN : EM_EVENT_KEY_UP;
+                    key  = EM_KEY_ALT;
+                }
             }
 
             [NSApp sendEvent:ev];

@@ -52,10 +52,10 @@
  *   CIRCLE (L)    FIRE — the real default-config trigger (config slot
  *                 0x3B78 = 0x0020 = CIRCLE, live-verified s29). CROSS
  *                 stays USE/confirm (slot 0x3B76 — the door use scan).
- *   L3 (R)        manual reload (top-up) — the engine's raw L3 pad bit
+ *   L3 (key 2)    manual reload (top-up) — the engine's raw L3 pad bit
  *                 (NOT config-mapped), func_0017B300(.,2). The keyboard
- *                 map gained an L3 key (R) so the port no longer needs
- *                 the old SQUARE deviation.
+ *                 map has an L3 key (2 — em_input.h) so the port no
+ *                 longer needs the old SQUARE deviation.
  *   CIRCLE (L) / SQUARE (J) while HOLSTERED = the KNIFE attacks (light
  *                 combo / heavy stab — the s36 melee decode; the
  *                 "KNIFE / MELEE" block below). SQUARE while AIMING =

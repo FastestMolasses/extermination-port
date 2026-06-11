@@ -77,6 +77,16 @@ files map each native stage to the PS2 function it stands in for.
   decomp recovers it.
 - Windows (Win32 + D3D12) and Linux (X11 + Vulkan) backends are skeletoned with
   the same interface; not yet implemented.
+- Keyboard map = the user's PCSX2 binding, verbatim (em_input.h is the
+  authority): WASD/TFGH = left/right stick, arrows = d-pad, I/J/L/K =
+  TRIANGLE/SQUARE/CIRCLE/CROSS, Q/E = L1/R1, 1/3 = L2/R2, 2/4 = L3/R3,
+  Backspace/Return = SELECT/START. Holding Option/Alt (EM_KEY_ALT — the
+  platform synthesizes its KEY_DOWN/KEY_UP from modifier transitions) caps
+  both sticks at EM_INPUT_DEFLECT_HALF (0.5 = the engine's WALK gait band);
+  keyboard default is EM_INPUT_DEFLECT_FULL (1.0 = RUN) — game code must use
+  these em_input.h constants for gait thresholds. The mac content view
+  consumes all keyDown/keyUp (no-op overrides) so unhandled game keys never
+  reach NSWindow's no-responder NSBeep path.
 - Faithful to the original presentation: NO persistent HUD — the status
   display is a TRIANGLE-toggled status screen (key I; dims the scene, gameplay
   keeps running) and door use runs the full captured transit sequence (input

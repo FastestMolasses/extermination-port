@@ -56,23 +56,25 @@ int main(void)
     assert(EM_PAD_CROSS    == 0x4000);
     assert(EM_PAD_SQUARE   == 0x8000);
 
-    /* Every digital-button key maps to its bit, and releases cleanly. */
+    /* Every digital-button key maps to its bit, and releases cleanly.
+     * This is the user's PCSX2 binding, verbatim (em_input.h). */
     struct { int k; uint16_t bit; } map[] = {
-        { 'k',           EM_PAD_CROSS    },
-        { 'l',           EM_PAD_CIRCLE   },
-        { 'i',           EM_PAD_TRIANGLE },
-        { 'j',           EM_PAD_SQUARE   },
-        { 'q',           EM_PAD_L1       },
-        { 'e',           EM_PAD_R1       },
-        { 'u',           EM_PAD_L2       },
-        { 'o',           EM_PAD_R2       },
-        { 'r',           EM_PAD_L3       },
-        { EM_KEY_RETURN, EM_PAD_START    },
-        { EM_KEY_TAB,    EM_PAD_SELECT   },
-        { EM_KEY_UP,     EM_PAD_UP       },
-        { EM_KEY_RIGHT,  EM_PAD_RIGHT    },
-        { EM_KEY_DOWN,   EM_PAD_DOWN     },
-        { EM_KEY_LEFT,   EM_PAD_LEFT     },
+        { 'i',              EM_PAD_TRIANGLE },
+        { 'j',              EM_PAD_SQUARE   },
+        { 'l',              EM_PAD_CIRCLE   },
+        { 'k',              EM_PAD_CROSS    },
+        { 'q',              EM_PAD_L1       },
+        { '1',              EM_PAD_L2       },
+        { '2',              EM_PAD_L3       },
+        { 'e',              EM_PAD_R1       },
+        { '3',              EM_PAD_R2       },
+        { '4',              EM_PAD_R3       },
+        { EM_KEY_BACKSPACE, EM_PAD_SELECT   },
+        { EM_KEY_RETURN,    EM_PAD_START    },
+        { EM_KEY_UP,        EM_PAD_UP       },
+        { EM_KEY_RIGHT,     EM_PAD_RIGHT    },
+        { EM_KEY_DOWN,      EM_PAD_DOWN     },
+        { EM_KEY_LEFT,      EM_PAD_LEFT     },
     };
     for (size_t i = 0; i < sizeof map / sizeof map[0]; i++) {
         press(map[i].k);
@@ -80,6 +82,14 @@ int main(void)
         release(map[i].k);
         assert(pad().buttons == 0);
     }
+
+    /* The PREVIOUS map's now-retired button keys are unmapped: U/O (old
+     * L2/R2), R (old L3) and Tab (old SELECT) must not touch the pad. */
+    press('u'); press('o'); press('r'); press(EM_KEY_TAB);
+    p = pad();
+    assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f &&
+           p.rx == 0.0f && p.ry == 0.0f);
+    release('u'); release('o'); release('r'); release(EM_KEY_TAB);
 
     /* Chords accumulate and release independently. */
     press('k');
@@ -110,7 +120,57 @@ int main(void)
     p = pad();
     assert(p.lx == 0.0f && p.ly == 0.0f);
 
-    /* Stick keys never touch the button mask; right stick stays centered. */
+    /* Right stick: TFGH, same digital convention, independent of left. */
+    press('t');
+    p = pad();
+    assert(p.rx == 0.0f && p.ry == -1.0f);
+    press('h');
+    p = pad();
+    assert(p.rx == 1.0f && p.ry == -1.0f);
+    release('t');
+    press('g');
+    p = pad();
+    assert(p.rx == 1.0f && p.ry == 1.0f);
+    press('f');                       /* opposing keys cancel */
+    p = pad();
+    assert(p.rx == 0.0f && p.ry == 1.0f);
+    assert(p.lx == 0.0f && p.ly == 0.0f);   /* left stick untouched */
+    release('f'); release('g'); release('h');
+    p = pad();
+    assert(p.rx == 0.0f && p.ry == 0.0f);
+
+    /* DEBUG GAIT HOLD: Option/Alt caps BOTH sticks at the WALK band (0.5)
+     * while held — including when pressed mid-hold — and restores the
+     * full RUN deflection on release. Buttons are unaffected. */
+    assert(EM_INPUT_DEFLECT_FULL == 1.0f);
+    assert(EM_INPUT_DEFLECT_HALF == 0.5f);
+    press('w');
+    assert(pad().ly == -EM_INPUT_DEFLECT_FULL);
+    press(EM_KEY_ALT);                /* modifier arrives mid-hold */
+    p = pad();
+    assert(p.ly == -EM_INPUT_DEFLECT_HALF && p.lx == 0.0f);
+    press('d'); press('t');
+    p = pad();
+    assert(p.lx ==  EM_INPUT_DEFLECT_HALF);
+    assert(p.ly == -EM_INPUT_DEFLECT_HALF);
+    assert(p.ry == -EM_INPUT_DEFLECT_HALF);  /* right stick capped too */
+    assert(p.buttons == 0);                  /* Alt is not a button */
+    release(EM_KEY_ALT);
+    p = pad();
+    assert(p.lx ==  EM_INPUT_DEFLECT_FULL);
+    assert(p.ly == -EM_INPUT_DEFLECT_FULL);
+    assert(p.ry == -EM_INPUT_DEFLECT_FULL);
+    press(EM_KEY_ALT);                /* re-engage; buttons still clean */
+    press('k');
+    p = pad();
+    assert(p.buttons == EM_PAD_CROSS);
+    assert(p.lx == EM_INPUT_DEFLECT_HALF);
+    release('k'); release(EM_KEY_ALT);
+    release('w'); release('d'); release('t');
+    p = pad();
+    assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f && p.ry == 0.0f);
+
+    /* Stick keys never touch the button mask; idle sticks stay centered. */
     press('w'); press('a');
     p = pad();
     assert(p.buttons == 0);
@@ -136,11 +196,14 @@ int main(void)
     assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f);
     release('z'); release(EM_KEY_ESCAPE); release(EM_KEY_SPACE);
 
-    /* em_input_init resets held state. */
-    press('k'); press('w');
+    /* em_input_init resets held state — including the Alt gait hold. */
+    press('k'); press('w'); press('t'); press(EM_KEY_ALT);
     em_input_init();
     p = pad();
-    assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f);
+    assert(p.buttons == 0 && p.lx == 0.0f && p.ly == 0.0f && p.ry == 0.0f);
+    press('w');
+    assert(pad().ly == -EM_INPUT_DEFLECT_FULL);   /* alt flag cleared */
+    release('w');
 
     /* Button-name helper covers the canonical order. */
     assert(strcmp(em_pad_button_name(0),  "SELECT")   == 0);

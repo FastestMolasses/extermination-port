@@ -19,17 +19,33 @@
  * (raw 0x00/0x80/0xFF map to -1/0/+1).
  *
  * DEFAULT KEYBOARD MAP (the only source today; gamepad backends are future
- * work):
- *   W/A/S/D     left stick up/left/down/right (digital: full ±1 deflection)
+ * work). This is verbatim the user's PCSX2 binding, so muscle memory carries
+ * over from the emulator to the port:
+ *   W/A/S/D     left stick up/left/down/right (digital, full deflection)
+ *   T/F/G/H     right stick up/left/down/right (same layout, home row)
  *   Arrow keys  d-pad UP/LEFT/DOWN/RIGHT
- *   K / L       CROSS / CIRCLE
- *   I / J       TRIANGLE / SQUARE
- *   Q / E       L1 / R1
- *   U / O       L2 / R2
- *   R           L3 (stick click — the engine's reload button)
+ *   I           TRIANGLE        (status screen)
+ *   J           SQUARE          (heavy knife / sub-weapon toggle)
+ *   L           CIRCLE          (FIRE / light knife combo)
+ *   K           CROSS           (USE / confirm)
+ *   Q / E       L1 / R1         (R1 = weapon-draw hold)
+ *   1 / 3       L2 / R2
+ *   2 / 4       L3 / R3         (L3 = the engine's raw-bit manual reload)
+ *   Backspace   SELECT
  *   Return      START
- *   Tab         SELECT
- *   (R3 and the right stick are unmapped for now.)
+ *
+ * DEBUG GAIT HOLD: holding Option/Alt (EM_KEY_ALT — the platform layer
+ * synthesizes KEY_DOWN/KEY_UP transitions for it, em_platform.h) caps the
+ * emulated deflection of BOTH sticks at EM_INPUT_DEFLECT_HALF (0.5) instead
+ * of the keyboard default EM_INPUT_DEFLECT_FULL (1.0). Rationale: the
+ * engine quantizes left-stick deflection through rings r=48/88/122 (raw
+ * 0..127 units; em_game.c locomotion notes) into the gait byte — full push
+ * (raw 127, >= 122) is gait 3 = RUN, the keyboard default and exactly the
+ * PCSX2 keyboard experience; half push (raw ~64, between 48 and 88) is
+ * gait 2 = WALK. So Alt makes the analog walk gait reachable from a
+ * keyboard. The cap is applied by this module in em_input_pad (the
+ * platform only reports the modifier), so it is identical on every OS and
+ * covered by tests/input_test.c.
  *
  * ENGINE DEFAULT BUTTON CONFIG (live-pinned 2026-06-10 s29 — decomp repo
  * FINDINGS.md "GAMEPLAY SOUND IDS PINNED LIVE"). The engine reads actions
@@ -101,6 +117,18 @@ enum {
     EM_PAD_CROSS    = 1 << 14,
     EM_PAD_SQUARE   = 1 << 15
 };
+
+/* Emulated stick deflection magnitudes — SEMANTIC CONSTANTS for the game
+ * code (src/game/): test |lx|/|ly| against these, not bare literals.
+ *   FULL (1.0)  keyboard default = the engine quantizer's gait-3 RUN band
+ *               (raw >= 122 of 127).
+ *   HALF (0.5)  the Option/Alt debug-gait hold = the gait-2 WALK band
+ *               (raw ~64, inside the 48..87 ring). Movement code that maps
+ *               deflection -> gait must classify 0.5 as WALK and 1.0 as
+ *               RUN; a future analog gamepad backend will deliver the
+ *               continuous range and the same ring thresholds apply. */
+#define EM_INPUT_DEFLECT_FULL 1.0f
+#define EM_INPUT_DEFLECT_HALF 0.5f
 
 typedef struct {
     uint16_t buttons;        /* EM_PAD_* bits, 1 = pressed */

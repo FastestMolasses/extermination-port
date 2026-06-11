@@ -572,7 +572,7 @@ static void weapon_fire_logic(const EmFrameInput *in)
     }
 
     /* Manual reload — the engine's raw L3 pad bit (NOT config-mapped),
-     * func_0017B300(.,2) top-up; keyboard key R (em_input.h). */
+     * func_0017B300(.,2) top-up; keyboard key 2 (em_input.h). */
     if (w.state == EM_WPN_AIM && (in->pressed & EM_PAD_L3)) {
         if (weapon_reload(2) == 0)
             weapon_enter_reload();

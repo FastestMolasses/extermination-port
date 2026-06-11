@@ -2045,9 +2045,9 @@ static void weapon_test_script(void)
                  em_weapon_shots() == 11,
                  "auto 31-frame hold = 6 rounds: 23/109");
     } else if (n == C) {
-        move_test_inject('r', 1);                           /* manual L3 */
+        move_test_inject('2', 1);                           /* manual L3 */
     } else if (n == C + 2) {
-        move_test_inject('r', 0);
+        move_test_inject('2', 0);
     } else if (n == C + 8) {
         wt_check(em_weapon_state() == EM_WPN_RELOAD &&
                  em_weapon_mag() == 30 &&
