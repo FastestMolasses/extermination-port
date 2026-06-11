@@ -25,15 +25,37 @@
  * itself reports the hit ACTOR (*0x700031D4 in the scratchpad result
  * block) because movable hulls live in collision set 0. The port keeps
  * the em_collision world-geometry API untouched; instead the bullet (a)
- * acquires a target through em_enemy_acquire (distance + facing-cone
- * stand-in for the engine's screen-cone acquisition func_00199220) so
- * the ray aims at the victim's aim point (+5-unit overshoot, the
- * engine's targeted-endpoint rule), and (b) runs em_enemy_ray_test —
+ * aims at the round-robin slot of the decoded func_00199220 screen-cone
+ * acquisition (the "TARGET ACQUISITION" block below; +5-unit overshoot,
+ * the engine's targeted-endpoint rule), and (b) runs em_enemy_ray_test —
  * segment vs every live enemy's hit sphere — BEFORE crediting the world
  * hit; the nearest of enemy-vs-world wins. An enemy hit writes damage
  * code 5 into the victim's +0x36 mailbox (func_001B41F0's contract);
  * the enemy behavior consumes it in its own tick (crawler HP 1 =
- * one-shot kill) and the crosshair pulses the HIT shape.
+ * one-shot kill).
+ *
+ * TARGET ACQUISITION + LOCK (func_00199220 DECODED 2026-06-11 — full
+ * formula decode in em_weapon.c's constants block; retires the old
+ * distance + 10-deg world-cone stand-in): every AIM tick the module
+ * refreshes the engine's 3-slot target table (D_008106E0/E4/E8 -> the
+ * nearest three valid targets) through the decoded validity chain —
+ * targetable (status/HP), dist(player, aim point) < 260, the SCREEN-
+ * SPACE cone |sx| <= 66, |sy| <= 45 GS-center pixels (sx = 256*ndc_x,
+ * sy = 168*ndc_y through em_gfx_last_viewproj — the engine projects
+ * through its spad camera matrix 0x70003AC0; the +50s/+45s spread
+ * terms ride a +0x214 float no code ever writes), an actor ray that
+ * must hit the candidate itself (muzzle -> aim*1.2) and a clear world
+ * LOS ray to that hit point. Slot 0 IS the lock: the laser flips to
+ * the warm (1.0, 0.6, 0.2) beam + 5.0-unit warm dot (func_00185760's
+ * locked arm) and em_weapon_lock_steer (func_0017AF70) creeps the aim
+ * blends toward it at <= 0.02/frame (snap inside 0.02) — em_game's
+ * player_move applies it when the stick is idle (the engine's 0x1D
+ * stance clears the lock under manual steering). MANUAL ROUND-ROBIN
+ * (func_001861C0 + the stance tops' +0x2F0 counter): each trigger
+ * event (press / queued refire / auto-refire expiry) advances a mod-3
+ * cycle; the shot aims at slot[cycle] (1 -> E4, 2 -> E8, each falling
+ * back to E0; burst rounds 2/3 chain without advancing). The engine's
+ * reticle markers over the slots (func_001DD170) are untranslated.
  *
  * AMMO MODEL (the engine's TOTAL-pool rule, FINDINGS "INVENTORY LOCATED"):
  *   mag      D_00810C62, u8  — rounds in the magazine, max 30
@@ -147,15 +169,16 @@
  *     muzzle -> endpoint with per-vertex color = base * max(sin(ph), 0),
  *     ph starting RANDOM each frame and advancing 0.025*len per segment
  *     (the dashed shimmer in the reference capture). Base color
- *     (0.7, 0, 0, 1); with a LOCKED target (D_008106E0, aim option 1)
- *     the engine switches to (1.0, 0.6, 0.2, 1) — pending lock-on.
+ *     (0.7, 0, 0, 1); with a LOCKED target (D_008106E0 nonzero — the
+ *     port's lock slot 0, live since the 2026-06-11 func_00199220
+ *     translation) the warm (1.0, 0.6, 0.2, 1).
  *   DOT (func_001CD520 billboard at the endpoint): 3.0-unit additive
  *     sprite sampling the REAL exported glow texture (assets/fx/
  *     laser_dot.emtx — the disasm's 0x...4222DC key, a 32x16 soft
  *     radial blob squeezed onto the square quad = one smooth round
- *     dot), modulated by color R = (0x50 + rand5)/0x80, G = B = 0
- *     (locked: 5.0-unit, R/G/B = (0x70/0x40/0x20 + rand5)/0x80).
- *     Texture absent: the old 3-layer flat-color glow fallback.
+ *     dot), modulated by color R = (0x50 + rand5)/0x80, G = B = 0;
+ *     LOCKED: 5.0-unit, R/G/B = (0x70/0x40/0x20 + rand5)/0x80 — both
+ *     arms translated. Texture absent: the flat-color glow fallback.
  * Both draws are additive with depth test on / write off, exactly the
  * GS states of the original pass (em_gfx_beam / em_gfx_beam_dot_tex).
  *
@@ -510,6 +533,33 @@ int em_weapon_flashlight_timer(void);
  * shot's cadence and blinks for one tick between chained rounds —
  * exactly the original's laser dropping out while firing. */
 int em_weapon_laser_visible(void);
+
+/* TARGET LOCK + ROUND-ROBIN (the "TARGET ACQUISITION + LOCK" header
+ * block — func_00199220 / func_001861C0 / func_0017AF70):
+ *
+ *   em_weapon_lock_target — the lock slot 0 (D_008106E0) as an
+ *     em_enemy index, -1 = no lock. Valid during the AIM state only
+ *     (cleared everywhere else, like the engine's stance entries).
+ *   em_weapon_target_slot(k) — slot k of the 3-slot table (0..2 =
+ *     D_008106E0/E4/E8), -1 = empty. Introspection/self-tests.
+ *   em_weapon_target_cycle — the +0x2F0 round-robin index 0..2.
+ *
+ *   em_weapon_lock_steer — the func_0017AF70 LOCK STEER: maps the
+ *     muzzle->lock angular error into aim-blend space by the baked
+ *     ladder half-angles and creeps <= 0.02 blend units/frame toward
+ *     it (snap inside 0.02; full constants in em_weapon.c). Returns 0
+ *     (outputs untouched) without a lock / outside AIM / during a
+ *     shot's cadence (the +0x2F2 latch); else 1 with the steered
+ *     blends. em_game's player_move calls it after the manual stick
+ *     steer with the stick idle — the engine's order and its
+ *     manual-input lock-drop (stance 0x1D clears the lock under
+ *     manual steering, +0x302). */
+int em_weapon_lock_target(void);
+int em_weapon_target_slot(int k);
+int em_weapon_target_cycle(void);
+int em_weapon_lock_steer(const float player_pos[3], float player_yaw,
+                         float pitch_in, float yawb_in,
+                         float *pitch_out, float *yawb_out);
 
 /* Live ammo state — the HUD's EmPlayerStatus mirrors these. */
 uint8_t em_weapon_mag(void);

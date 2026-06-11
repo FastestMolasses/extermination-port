@@ -4911,15 +4911,27 @@ static void enemy_test_script(void)
 
     if (g.enemy_test == 1) {
         if (!g.et_fired) {
-            if (n > 20 && et_dist() <= 12.0f) {
+            /* ENGINE-TRUE ACQUISITION (2026-06-11 func_00199220
+             * translation): the bullet only bends to a target inside
+             * the SCREEN-center cone — a floor-hugging crawler under a
+             * level aim sits far below it (the old planar stand-in
+             * ignored height). Do what the player does: pitch the aim
+             * DOWN (inverted-Y stick up, 'w') until lock slot 0 fills,
+             * then fire the locked shot. */
+            int locked = em_weapon_lock_target() >= 0;
+            if (em_weapon_state() == EM_WPN_AIM)
+                move_test_inject('w', !locked);
+            if (n > 20 && locked && et_dist() <= 12.0f) {
                 et_check(et_dist() < g.et_d0 - 5.0f,
                          "closed distance before the shot");
                 et_check(em_weapon_state() == EM_WPN_AIM,
                          "rifle drawn (AIM) at fire time");
+                move_test_inject('w', 0);
                 move_test_inject('l', 1);   /* CIRCLE — one semi shot */
                 g.et_fired = n;
             } else if (n >= 400) {
-                et_check(0, "crawler closed to 12 u by frame 400");
+                et_check(0, "crawler closed to 12 u + screen-cone lock "
+                            "by frame 400");
                 et_finish("kill run");
             }
         } else if (n == g.et_fired + 2) {

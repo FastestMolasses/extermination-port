@@ -474,6 +474,18 @@ void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig);
 #define EM_GFX_TRACK_BONES 16
 int em_gfx_last_skinned_bone(EmGfx *gfx, uint32_t bone, float out16[16]);
 
+/* em_gfx_last_viewproj copies the column-major P*V of the LAST skinned
+ * draw into out16 and returns 1; returns 0 (out untouched) before any
+ * skinned draw has run. The same record the beam flush already renders
+ * with — published for gameplay consumers that need the engine's
+ * camera-matrix reads (the spad 0x70003AC0 matrix func_00199220
+ * projects target aim points through for the screen-space acquisition
+ * cone; em_weapon is the consumer). One frame of latency by
+ * construction, like the bone publish above — the cone test runs
+ * against the previous frame's camera, the same staleness class as the
+ * fire-event mailbox. */
+int em_gfx_last_viewproj(EmGfx *gfx, float out16[16]);
+
 /* End the frame: flush the queued world-space beams, then the overlay
  * (backdrop fill + backdrop quads, then untextured rects/arcs, then
  * decor sprites, then font glyphs, then the reverse-subtract rects —

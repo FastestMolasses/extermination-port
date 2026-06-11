@@ -36,6 +36,7 @@
  * windows and the 25-frame true-length semi interval), so the test runs
  * headless on any host: `make test-weapon`.
  */
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -73,14 +74,84 @@ void em_sfx_play_at(unsigned id, const float pos[3], float radius)
 int em_enemy_acquire(const float from[3], float yaw, float max_dist,
                      float cone_cos, float aim_out[3])
 { (void)from; (void)yaw; (void)max_dist; (void)cone_cos; (void)aim_out;
-  return -1; }
+  return -1; }                  /* the melee reach resolver — unused here */
+
+/* STUB ENEMY WORLD for the round-robin section (8.): two stationary
+ * targets in front of the muzzle-fallback ray (origin y 12, +Z). The
+ * acquisition chain consumes em_enemy_count/_targetable/_aim_point/
+ * _ray_test exactly like the real module; em_enemy_damage records the
+ * per-shot victim sequence. stub_on = 0 keeps every earlier section in
+ * the empty world. */
+#define STUB_N 2
+static int   stub_on;
+static int   stub_alive[STUB_N];
+static float stub_pos[STUB_N][3];
+static int   stub_seq[32];
+static int   stub_seq_n;
+
+int em_enemy_count(void) { return stub_on ? STUB_N : 0; }
+int em_enemy_targetable(int i)
+{ return stub_on && i >= 0 && i < STUB_N && stub_alive[i]; }
+void em_enemy_aim_point(int i, float out[3])
+{ memcpy(out, stub_pos[i], sizeof stub_pos[i]); }
+
 int em_enemy_ray_test(const float from[3], const float to[3],
                       float hit_out[3])
-{ (void)from; (void)to; (void)hit_out; return -1; }
-void em_enemy_damage(int i, int16_t code) { (void)i; (void)code; }
+{
+    /* segment vs 3.0-radius spheres at the stub aim points — the same
+     * shape as the real em_enemy_ray_test (nearest entry wins). */
+    if (!stub_on) return -1;
+    int   best   = -1;
+    float best_t = 2.0f;
+    float d[3]   = { to[0] - from[0], to[1] - from[1], to[2] - from[2] };
+    float dd     = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if (dd < 1e-9f) return -1;
+    for (int i = 0; i < STUB_N; i++) {
+        if (!stub_alive[i]) continue;
+        float m[3] = { from[0] - stub_pos[i][0], from[1] - stub_pos[i][1],
+                       from[2] - stub_pos[i][2] };
+        float b    = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
+        float c    = m[0] * m[0] + m[1] * m[1] + m[2] * m[2] - 9.0f;
+        float disc = b * b - dd * c;
+        if (disc < 0.0f) continue;
+        float t = (-b - sqrtf(disc)) / dd;
+        if (c <= 0.0f) t = 0.0f;
+        if (t < 0.0f || t > 1.0f || t >= best_t) continue;
+        best   = i;
+        best_t = t;
+    }
+    if (best >= 0 && hit_out)
+        for (int k = 0; k < 3; k++)
+            hit_out[k] = from[k] + d[k] * best_t;
+    return best;
+}
+
+void em_enemy_damage(int i, int16_t code)
+{
+    (void)code;
+    if (stub_seq_n < (int)(sizeof stub_seq / sizeof stub_seq[0]))
+        stub_seq[stub_seq_n++] = i;
+}
 
 int em_gfx_last_skinned_bone(EmGfx *gfx, uint32_t bone, float out16[16])
 { (void)gfx; (void)bone; (void)out16; return 0; }
+
+/* Camera publish for the screen-cone test: an engine-shaped projection
+ * from the muzzle height looking down +Z — clip.x = 1.5*x (= the
+ * s/EM_GS_HALF_W = 480/320 row), clip.y = (480/224)*(y - 12),
+ * clip.w = z. Both stub targets land well inside the |sx| <= 66 /
+ * |sy| <= 45 GS-center box. */
+int em_gfx_last_viewproj(EmGfx *gfx, float out16[16])
+{
+    (void)gfx;
+    if (!stub_on) return 0;     /* headless default: no camera         */
+    memset(out16, 0, 16 * sizeof(float));
+    out16[0]  = 1.5f;                    /* clip.x = 1.5 * x           */
+    out16[5]  = 480.0f / 224.0f;         /* clip.y = 2.1429 * y ...    */
+    out16[13] = -12.0f * 480.0f / 224.0f; /* ... centered at y = 12    */
+    out16[11] = 1.0f;                    /* clip.w = z                 */
+    return 1;
+}
 void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
                  float width, const float ca[4], const float cb[4])
 { (void)gfx; (void)a; (void)b; (void)width; (void)ca; (void)cb; }
@@ -430,6 +501,83 @@ int main(void)
               "event-API mash: no two shots closer than the 13-tick "
               "ladder cadence through the real pad model");
     }
+
+    /* 8. TARGET ACQUISITION + 2-ENEMY ROUND-ROBIN + LOCK STEER (the
+     * 2026-06-11 func_00199220 / func_001861C0 / func_0017AF70
+     * translation). Stub world: A (slot index 0) dead ahead at
+     * (0, 12, 30) on the muzzle-fallback ray, B (index 1) at
+     * (7, 12, 50) — both inside the |sx| <= 66 / |sy| <= 45 GS-center
+     * cone through the stub camera, both clearing each other's
+     * validation ray. Expected slots: tgt[0] = A (nearest),
+     * tgt[1] = B, tgt[2] empty. */
+    em_weapon_reset(30, 120);
+    em_weapon_render((EmGfx *)&held_now);   /* cache a non-NULL device:
+                                             * weapon_viewproj needs it
+                                             * (all gfx calls stubbed) */
+    stub_on       = 1;
+    stub_alive[0] = stub_alive[1] = 1;
+    stub_pos[0][0] = 0.0f; stub_pos[0][1] = 12.0f; stub_pos[0][2] = 30.0f;
+    stub_pos[1][0] = 7.0f; stub_pos[1][1] = 12.0f; stub_pos[1][2] = 50.0f;
+    stub_seq_n     = 0;
+    draw_to_aim();
+    frame(0, 0);                            /* one settled aim tick    */
+    check(em_weapon_lock_target() == 0 &&
+          em_weapon_target_slot(1) == 1 &&
+          em_weapon_target_slot(2) == -1,
+          "acquisition fills the slots nearest-first: E0 = A, E4 = B, "
+          "E8 empty");
+
+    /* SEMI round-robin: each press advances +0x2F0 BEFORE the shot
+     * (the engine stance-top increment on the press latch), so the
+     * shots walk slot 1 (B), slot 2 -> empty -> E0 (A), slot 0 (A),
+     * slot 1 (B)... — the decoded func_001861C0 fallback rule. */
+    for (int k = 0; k < 4; k++) {
+        frame(EM_PAD_CIRCLE, 0);
+        frame(0, EM_PAD_CIRCLE);
+        frames(SEMI_SPACING);
+    }
+    check(em_weapon_shots() == 4 && stub_seq_n == 4,
+          "round-robin leg: 4 spaced presses = 4 resolved hits");
+    check(stub_seq_n >= 4 &&
+          stub_seq[0] == 1 && stub_seq[1] == 0 &&
+          stub_seq[2] == 0 && stub_seq[3] == 1,
+          "manual 3-slot round-robin: victims B, A, A, B (cycle 1 -> "
+          "E4, 2 -> empty E8 falls back to E0, 0 -> E0, 1 -> E4)");
+
+    /* LOCK STEER at the decoded rate: kill A -> the lock re-acquires
+     * B (atan2(7, 50) = 0.139 rad off the body heading). From centered
+     * blends the desired yaw blend is 0.5 + 0.5*0.139/1.0469 = 0.5666:
+     * every step moves EXACTLY 0.02 blend units toward it. (The
+     * clip-less harness pins the fallback gun dir at +Z, so the
+     * angular error never closes — in the game the posed hand matrix
+     * follows the blends and the creep converges/snaps; here we
+     * assert the RATE, the per-frame 0.02 bound.) */
+    stub_alive[0] = 0;
+    frame(0, 0);                            /* re-acquire: lock = B    */
+    check(em_weapon_lock_target() == 1, "lock re-acquires B once A "
+          "is gone");
+    {
+        static const float org[3] = { 0.0f, 0.0f, 0.0f };
+        float p = 0.5f, y = 0.5f;
+        check(em_weapon_lock_steer(org, 0.0f, p, y, &p, &y) == 1,
+              "lock steer engages with a live lock");
+        check(fabsf(y - 0.52f) < 1e-4f && fabsf(p - 0.5f) < 1e-4f,
+              "first steer step is exactly 0.02 blend units toward "
+              "the lock (yaw only — the target sits at muzzle height)");
+        for (int k = 0; k < 3; k++)
+            em_weapon_lock_steer(org, 0.0f, p, y, &p, &y);
+        check(fabsf(y - 0.58f) < 1e-4f,
+              "steer rate holds at 0.02 blend units per call (the "
+              "decoded func_0017AF70 step)");
+    }
+
+    /* Slot table empties outside AIM (engine: stance entries clear
+     * D_008106E0 — the laser's warm color drops with it). */
+    frame(0, EM_PAD_R1);
+    frames(em_weapon_holster_ticks() + 2);
+    check(em_weapon_lock_target() == -1,
+          "lock clears when the stance drops");
+    stub_on = 0;
 
     printf("weapon fire test: %s\n", fails ? "FAIL" : "PASS");
     return fails ? 1 : 0;

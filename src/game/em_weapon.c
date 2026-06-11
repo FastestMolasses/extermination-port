@@ -51,11 +51,84 @@
                                  * = one-shot kill)                        */
 #define WPN_OVERSHOOT   5.0f    /* targeted rays overshoot the aim point
                                  * by 5 units (func_001861C0 step 1)       */
-#define WPN_AIM_CONE    0.9848f /* cos ~10 deg — acquisition facing cone.
-                                 * PORT STAND-IN for the engine's SCREEN-
-                                 * space cone (func_00199220: |x|<=66+50s,
-                                 * |y|<=45+45s on the GS canvas) until a
-                                 * projection-space acquisition lands      */
+/* --- TARGET ACQUISITION — func_00199220 DECODED (2026-06-11; retires
+ *     the old WPN_AIM_CONE distance+10-deg world-cone stand-in).
+ *
+ * Per aim frame the engine clears the 3-slot target table
+ * D_008106E0/E4/E8 and walks the published enemy list; a candidate
+ * must pass, in this order:
+ *   1. status != 0, func_00183B80 targetable, HP +0x34 != 0
+ *      (port: em_enemy_targetable);
+ *   2. dist(PLAYER pos +0xA0, aim point func_00183C40) < 260;
+ *   3. SCREEN CONE: aim point projected by the spad camera matrix
+ *      0x70003AC0 (port: em_gfx_last_viewproj — one frame stale, the
+ *      bone-publish staleness class). The engine's GS mapping:
+ *      sx = x'/w - 2048, sy = 1.5*(y'/w - 2048) — GS pixels off the
+ *      screen center (half-width 256; half-height 112, *1.5 = 168
+ *      after the y scale). In the port's NDC: sx = 256*ndc_x,
+ *      |sy| = 168*|ndc_y|. Behind-camera rejects (the engine tests
+ *      16/w < 0). Then:
+ *        manual (aim option 0/2): |sx| <= 66 + 50*s AND
+ *                                 |sy| <= 45 + 45*s
+ *        lock-on (option 1):      sqrt(sx^2 + sy^2) <= 50 + 55*s
+ *      where s = the gun's +0x214 spread float — NO writer exists in
+ *      the boot ELF (zero-initialized actor scratch), so s = 0 and
+ *      the cone is the fixed 66/45 box (lock radius 50);
+ *   4. ACTOR RAY: muzzle (+0xA0) -> muzzle + (aim - muzzle)*1.2 (the
+ *      20% validation overshoot; mode 1 mask 0x20) must hit THE
+ *      candidate itself (*0x700031D4 == candidate — port:
+ *      em_enemy_ray_test returns the candidate's own index);
+ *   5. WORLD LOS: a mode-6 ray muzzle -> the actor ray's hit point
+ *      must be CLEAR (port: em_collision_segment_query misses).
+ * Survivors insert into the table sorted by the step-2 distance
+ * (E0 <= E4 <= E8, nearest first). The engine tail also draws reticle
+ * markers (func_001DD170 — lock-on: E0 only; manual: all three
+ * slots): UNTRANSLATED (the port has no marker sprite pass; flagged
+ * in PORT_DIFFERENCES H3). */
+#define WPN_AIM_GS_X    256.0f  /* NDC -> GS-center px, x (half-width)     */
+#define WPN_AIM_GS_Y    168.0f  /* NDC -> the engine's 1.5-scaled y        */
+#define WPN_AIM_BOX_X   66.0f   /* manual cone: |sx| <= 66 + 50*s          */
+#define WPN_AIM_BOX_XS  50.0f
+#define WPN_AIM_BOX_Y   45.0f   /* manual cone: |sy| <= 45 + 45*s          */
+#define WPN_AIM_BOX_YS  45.0f
+#define WPN_AIM_LOCK_R  50.0f   /* lock-on cone: r <= 50 + 55*s            */
+#define WPN_AIM_LOCK_RS 55.0f
+#define WPN_AIM_SPREAD  0.0f    /* gun +0x214 spread: no writer in the ELF */
+#define WPN_AIM_VRAY    1.2f    /* validation-ray overshoot factor (the
+                                 * 0x3F99999A scale in func_00199220)      */
+
+/* --- LOCK STEER — func_0017AF70 DECODED (2026-06-11). With a target
+ *     in lock slot 0 (D_008106E0) and the aim latch +0x2F2 set (the
+ *     laser-visible flag — steering pauses through each shot's
+ *     cadence), the engine maps the angular error muzzle -> target
+ *     into BLEND space and creeps the aim blends +0x278/+0x27C:
+ *
+ *       blend_des = blend -+ 0.5 * (angle_des - angle_cur) / HALF
+ *
+ *     HALF = the baked ladder half-angle of the deflection side — the
+ *     stance 0x1D/0x1E constants are 1.0469040/1.0470290 rad (the
+ *     measured +-60-deg yaw poses) and 1.3957210/1.3972940 rad (the
+ *     ~80-deg pitch span; side picked by desired pitch vs 1.5693710 —
+ *     in practice always the first: atan2 pitch never reaches 89.9
+ *     deg). The 2D blend delta (yaw, pitch) is then normalized and
+ *     stepped 0.02/frame; within 0.02 it SNAPS to the desired blends.
+ *     Angles: desired yaw = atan2 of the XZ vector muzzle (gun +0xA0)
+ *     -> aim point minus the body heading +0xC4 (wrapped); current
+ *     from the gun dir +0xC0; pitch = atan2(dy, horizontal dist).
+ *     (The 0x1F/0x20 R2-stance set B — 1.0458360/1.0463070 yaw,
+ *     1.5655510 split, 1.3935290/1.3981010 pitch — is unused: the
+ *     port's single stance is the 0x1D family.) The port's blend
+ *     conventions invert both axes' SIGNS vs the engine (yaw blend 1
+ *     = left here, right there; the engine's y-down world negates
+ *     pitch angles) — magnitudes and per-side constants are the
+ *     engine's. */
+#define WPN_STEER_EPS    3.78e-4f     /* 0x39C62E4D yaw side threshold  */
+#define WPN_STEER_YAW_P  1.0469040f   /* 0x3F8600F3 (+60-deg pose) rad  */
+#define WPN_STEER_YAW_N  1.0470290f   /* 0x3F86050C (-60-deg pose) rad  */
+#define WPN_STEER_PIT_T  1.5693710f   /* 0x3FC8E126 pitch side split    */
+#define WPN_STEER_PIT_A  1.3957210f   /* 0x3FB2A6FC (~79.97 deg) rad    */
+#define WPN_STEER_PIT_B  1.3972940f   /* 0x3FB2DA88 (~80.06 deg) rad    */
+#define WPN_STEER_STEP   0.02f        /* 0x3CA3D70A blend units/frame   */
 
 /* --- LASER SIGHT (em_weapon.h header block; s23 disasm) ---------------- */
 #define WPN_LASER_SEGS  32      /* func_001E2BA0: the beam is 32 GS LINE
@@ -64,15 +137,19 @@
                                  * f21 = (0.1 * len) / 4.0 radians         */
 #define WPN_DOT_SIZE    3.0f    /* func_001854E0/760: endpoint dot sprite
                                  * 3.0 units (locked-on uses 5.0)          */
+#define WPN_DOT_SIZE_LOCK 5.0f  /* func_00185760 locked arm: 5.0-unit dot  */
 #define WPN_LASER_WIDTH 0.12f   /* PORT VALUE: the engine beam is a GS
                                  * LINE prim = 1 screen pixel at 512x448;
                                  * ~0.12 world units reads as ~1 px at the
                                  * aim camera's typical 25-35 u depth
                                  * (1 px ~= z / 240 at zoom s = 480)       */
-/* func_00185760 beam base color: unlocked (0.7, 0, 0, 1). With a locked
- * target (D_008106E0 nonzero, aim option 1) the engine switches to
- * (1.0, 0.6, 0.2, 1) and a 5.0-unit warm dot — pending native lock-on. */
-static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
+/* func_00185760 beam base colors: unlocked (0.7, 0, 0, 1); with a
+ * LOCKED target (D_008106E0 nonzero — port: target slot 0 filled by
+ * the decoded func_00199220 acquisition) the engine switches to the
+ * warm (1.0, 0.6, 0.2, 1) beam and the 5.0-unit dot with R/G/B =
+ * (0x70/0x40/0x20 + rand5)/0x80. */
+static const float kLaserColor[4]     = { 0.7f, 0.0f, 0.0f, 1.0f };
+static const float kLaserColorLock[4] = { 1.0f, 0.6f, 0.2f, 1.0f };
 
 /* --- PLAYER ANIMS (wired 2026-06-10 s24 — FINDINGS "ANIM ID MAPPING":
  *     the anim id IS the container index in the player clip library
@@ -412,6 +489,17 @@ static struct {
                           * consumed (ray + FX) on the NEXT update — the
                           * contract's mandatory one-frame latency        */
 
+    /* TARGET ACQUISITION (func_00199220 — the constants block above):
+     * the 3-slot table D_008106E0/E4/E8 as enemy indices (-1 = empty),
+     * refreshed every AIM tick, nearest first. tgt[0] IS the lock —
+     * the laser's warm color flip and the lock steer key off it. */
+    int     tgt[3];      /* D_008106E0/E4/E8 — nearest valid targets      */
+    int     cycle;       /* player +0x2F0 — the manual-mode 3-target
+                          * round-robin index, advanced once per trigger
+                          * event (press / queued refire / auto refire;
+                          * engine: the stance top's mod-3 increment on
+                          * the +0x274 latch), reset at stance entry      */
+
     int     impact_sfx;  /* ticks until the wall-impact sound 0x189
                           * (0 = none pending; armed by a WALL ray hit)   */
     float   impact_pos[3];
@@ -495,6 +583,7 @@ void em_weapon_reset(uint8_t mag, int16_t reserve)
     w.mag      = mag;
     w.reserve  = reserve;
     w.last_hit = -1;
+    w.tgt[0] = w.tgt[1] = w.tgt[2] = -1;   /* D_008106E0/E4/E8 clear */
     /* EM_CAPTURE_LIGHT=1: arm the one-shot synthetic flashlight toggle
      * (em_weapon.h "RENDERING" — debug instrumentation only; it rides
      * the exact Square-press code path on the first aim frame). */
@@ -647,6 +736,9 @@ static void weapon_enter_aim(void)
                                      * it — the port sets it at entry
                                      * (same frame the engine's WAIT
                                      * head runs)                        */
+    w.cycle     = 0;                /* +0x2F0 = 0 at stance entry
+                                     * (func_001703E0 state 0)           */
+    w.tgt[0] = w.tgt[1] = w.tgt[2] = -1;
 }
 
 /* One SHOT — the common per-shot block of the fire sub-machine (engine
@@ -757,6 +849,105 @@ static void weapon_muzzle_ray(const float pos[3], float yaw,
     }
 }
 
+/* The frame's camera matrix for the screen-cone test — the engine
+ * projects through the spad camera matrix 0x70003AC0; the port reads
+ * the gfx layer's published last-draw P*V (em_gfx_last_viewproj, one
+ * frame of latency by construction — documented at the API). 0 = no
+ * camera yet (headless pre-first-draw): no acquisition this frame. */
+static int weapon_viewproj(float m[16])
+{
+    return w.gfx ? em_gfx_last_viewproj(w.gfx, m) : 0;
+}
+
+/* TARGET ACQUISITION — func_00199220 (the constants block at the top
+ * holds the full decode). Refreshes w.tgt[0..2] (= D_008106E0/E4/E8)
+ * with the three nearest candidates passing the validity chain:
+ * targetable -> dist(player, aim point) < 260 -> screen cone ->
+ * actor ray hits the candidate -> world LOS clear. Runs every AIM
+ * tick, exactly the engine's state-2 call. The port runs the MANUAL
+ * box cone (aim option D_00810CA4 = 0, the engine default — the
+ * lock-on option's radial cone is documented above, not selectable
+ * yet: PORT_DIFFERENCES H16). */
+static void weapon_acquire(const EmCollision *coll, const float pos[3],
+                           float yaw)
+{
+    float best[3] = { 1000.0f, 1000.0f, 1000.0f };  /* engine init     */
+    w.tgt[0] = w.tgt[1] = w.tgt[2] = -1;            /* cleared first   */
+
+    float vp[16];
+    if (!weapon_viewproj(vp)) return;   /* no camera published yet */
+
+    float muzzle[3], dir[3];
+    weapon_muzzle_ray(pos, yaw, muzzle, dir, NULL);
+
+    int n = em_enemy_count();
+    for (int i = 0; i < n; i++) {
+        if (!em_enemy_targetable(i)) continue;      /* status/HP gate  */
+
+        float ap[3];
+        em_enemy_aim_point(i, ap);
+
+        /* 2. distance PLAYER pos -> aim point, < 260 (engine f20)    */
+        float dx = pos[0] - ap[0];
+        float dy = pos[1] - ap[1];
+        float dz = pos[2] - ap[2];
+        float d  = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (d >= WPN_RANGE) continue;
+
+        /* 3. screen cone through the camera matrix                   */
+        float cx = vp[0] * ap[0] + vp[4] * ap[1] + vp[8]  * ap[2] + vp[12];
+        float cy = vp[1] * ap[0] + vp[5] * ap[1] + vp[9]  * ap[2] + vp[13];
+        float cw = vp[3] * ap[0] + vp[7] * ap[1] + vp[11] * ap[2] + vp[15];
+        if (cw <= 1e-6f) continue;          /* behind the camera       */
+        float sx = WPN_AIM_GS_X * (cx / cw);
+        float sy = WPN_AIM_GS_Y * (cy / cw);
+        if (fabsf(sx) > WPN_AIM_BOX_X + WPN_AIM_BOX_XS * WPN_AIM_SPREAD ||
+            fabsf(sy) > WPN_AIM_BOX_Y + WPN_AIM_BOX_YS * WPN_AIM_SPREAD)
+            continue;
+
+        /* 4. actor ray: muzzle -> muzzle + (aim - muzzle)*1.2 must
+         *    hit THIS candidate (the engine's *0x700031D4 check)      */
+        float end[3] = { muzzle[0] + (ap[0] - muzzle[0]) * WPN_AIM_VRAY,
+                         muzzle[1] + (ap[1] - muzzle[1]) * WPN_AIM_VRAY,
+                         muzzle[2] + (ap[2] - muzzle[2]) * WPN_AIM_VRAY };
+        float hitp[3];
+        if (em_enemy_ray_test(muzzle, end, hitp) != i) continue;
+
+        /* 5. world LOS: muzzle -> the actor ray's hit point clear    */
+        EmCollHit h;
+        if (coll && coll->poly_count &&
+            em_collision_segment_query(coll, muzzle, hitp, WPN_RAY_MASK,
+                                       WPN_RAY_ID, &h))
+            continue;
+
+        /* 3-slot insertion sort by distance (E0 <= E4 <= E8)         */
+        if (d < best[0]) {
+            best[2] = best[1]; w.tgt[2] = w.tgt[1];
+            best[1] = best[0]; w.tgt[1] = w.tgt[0];
+            best[0] = d;       w.tgt[0] = i;
+        } else if (d < best[1]) {
+            best[2] = best[1]; w.tgt[2] = w.tgt[1];
+            best[1] = d;       w.tgt[1] = i;
+        } else if (d < best[2]) {
+            best[2] = d;       w.tgt[2] = i;
+        }
+    }
+}
+
+/* The +0x2F0 ROUND-ROBIN advance — the engine's stance-top mod-3
+ * increment, gated on manual aim option (D_00810CA4 == 0, the port's
+ * fixed mode) and the +0x274 trigger latch. The latch is set by
+ * func_0017A8B0 on each trigger event (the fresh press, the queued-
+ * semi refire arm, the auto-refire expiry) and cleared by every shot
+ * state — net: ONE advance per shot for semi and full-auto; burst
+ * rounds 2/3 chain through the step-back with the latch clear, so a
+ * burst holds its opening slot. The port calls this at exactly those
+ * trigger-accept points. */
+static void weapon_cycle_advance(void)
+{
+    w.cycle = (w.cycle + 1) % 3;
+}
+
 /* LASER SIGHT raycast — the per-aim-frame half of func_001854E0/760:
  * the SAME segment query as the bullet (mode 7, mask 0x20) from the
  * muzzle along the fire direction, range 260; the laser clips at the
@@ -818,10 +1009,16 @@ static void laser_update(const EmCollision *coll, const float pos[3],
 
 /* The gun-side fire-event consumption — func_001861C0, the BULLET.
  *
- * 1. ENDPOINT: with an acquired target the ray aims at its AIM POINT,
- *    overshot by 5 units (the engine cycles 3 screen-cone targets from
- *    func_00199220; the port's em_enemy_acquire is a distance + facing-
- *    cone stand-in — see WPN_AIM_CONE). No target: muzzle + dir*260.
+ * 1. ENDPOINT — the decoded 3-target ROUND-ROBIN (manual aim option,
+ *    the port's fixed mode): the shot reads the +0x2F0 cycle index —
+ *    1 -> slot E4, 2 -> slot E8 (each falling back to E0 when empty),
+ *    else E0 — and aims at that target's CURRENT aim point
+ *    (func_00183C40 re-queried at fire time), overshot by 5 units.
+ *    The slots are this frame's func_00199220 acquisition
+ *    (weapon_acquire); a stale index that died inside the one-frame
+ *    fire-event latency is dropped (engine: the slot would be null by
+ *    the gun tick). No target: muzzle + dir*260. (Lock-on option 1
+ *    always shoots E0 — not selectable yet, PORT_DIFFERENCES H16.)
  * 2. One world segment query (mask 7, id 0x20).
  * 3. VICTIM TEST before crediting the world hit: the segment against
  *    every live enemy's hit sphere (em_enemy_ray_test); the NEAREST of
@@ -842,7 +1039,17 @@ static void weapon_resolve_fire(const EmCollision *coll,
     float aim[3];
     weapon_muzzle_ray(pos, yaw, muzzle, dir, tip);
 
-    if (em_enemy_acquire(muzzle, yaw, WPN_RANGE, WPN_AIM_CONE, aim) >= 0) {
+    /* ROUND-ROBIN slot pick (func_001861C0 .L00186258): cycle 1 = E4,
+     * 2 = E8 — each falls back to E0 when its slot is empty — else
+     * E0. */
+    int tgt = (w.cycle == 1) ? w.tgt[1]
+            : (w.cycle == 2) ? w.tgt[2]
+            : w.tgt[0];
+    if (tgt < 0) tgt = w.tgt[0];
+    if (tgt >= 0 && !em_enemy_targetable(tgt)) tgt = -1;
+
+    if (tgt >= 0) {
+        em_enemy_aim_point(tgt, aim);   /* func_00183C40 at fire time */
         /* targeted shot: endpoint = aim point + 5-unit overshoot */
         float dx = aim[0] - muzzle[0];
         float dy = aim[1] - muzzle[1];
@@ -972,6 +1179,10 @@ static void weapon_fire_logic(const EmFrameInput *in)
                             break;
                     }
                     w.pending = 0;
+                    weapon_cycle_advance();   /* +0x2F0: the press's
+                                               * +0x274 latch advances
+                                               * the round-robin before
+                                               * the shot consumes it  */
                     weapon_shot();
                 }
             } else if (in->pressed & EM_PAD_L3) {
@@ -1004,9 +1215,12 @@ static void weapon_fire_logic(const EmFrameInput *in)
                     else w.fire_sub = WPN_SUB_WAIT;
                 } else if (w.pending) {
                     /* queued: +0x2F2 = 1 for the expiry tick (the
-                     * engine .L00170E4C blink), shot next tick */
+                     * engine .L00170E4C blink), shot next tick. The
+                     * same site re-arms +0x274 -> the round-robin
+                     * advances for the chained shot. */
                     w.laser_vis = 1;
                     w.pending   = 0;
+                    weapon_cycle_advance();
                     w.fire_next = 1;    /* 0xB -> 0xA: fires next tick */
                 } else {
                     /* plain expiry leaves +0x2F2 alone — the WAIT head
@@ -1072,6 +1286,11 @@ static void weapon_fire_logic(const EmFrameInput *in)
                         w.fire_sub = WPN_SUB_WAIT;
                     }
                 } else if (in->held & EM_PAD_CIRCLE) {
+                    weapon_cycle_advance();  /* auto refire: the expiry
+                                              * tick's func_001607D0 ->
+                                              * func_0017A8B0 re-latch
+                                              * advances the round-robin
+                                              * once per round           */
                     w.fire_next = 1;
                 } else {
                     w.fire_sub = WPN_SUB_WAIT;
@@ -1340,6 +1559,11 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 w.pending = 0;
                 w.burst   = 0;
             } else {
+                /* TARGET ACQUISITION (func_00199220) — every aim
+                 * frame, before the fire sub-machine consumes the
+                 * slots (the engine's state-2 order: acquisition,
+                 * then the jtbl fire dispatch). */
+                weapon_acquire(coll, player_pos, player_yaw);
                 weapon_fire_logic(in);
                 /* SQUARE while armed = the SUB-WEAPON action
                  * (func_0017A970), attachment 0 = the FLASHLIGHT
@@ -1394,6 +1618,13 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             w.state = EM_WPN_HOLSTERED;
             break;
     }
+
+    /* Outside the AIM/FIRE loop the target table is EMPTY — the engine
+     * clears D_008106E0 at every stance entry/exit and only state 2
+     * runs the acquisition (the laser's warm lock color and the lock
+     * steer go dark with it). */
+    if (w.state != EM_WPN_AIM)
+        w.tgt[0] = w.tgt[1] = w.tgt[2] = -1;
 
     /* KNIFE / MELEE — the unarmed attack machine (engine modes
      * 0x21/0x22, dispatched from the unarmed action codes AFTER the
@@ -1695,6 +1926,13 @@ void em_weapon_render(EmGfx *gfx)
      * at the endpoint, R = (0x50 + rand5)/0x80 of the GS 0x80 = 1.0
      * scale, G = B = 0 (func_00185760's unlocked arm). */
     if (w.laser_on) {
+        /* LOCK-ON COLOR FLIP (func_00185760): a target in lock slot 0
+         * (D_008106E0 — the real lock state from the func_00199220
+         * acquisition) switches the beam to the warm (1.0, 0.6, 0.2)
+         * base and the dot to the 5.0-unit warm sprite. */
+        int          locked = w.tgt[0] >= 0;
+        const float *base   = locked ? kLaserColorLock : kLaserColor;
+        float        dsize  = locked ? WPN_DOT_SIZE_LOCK : WPN_DOT_SIZE;
         float d[3] = { w.laser_b[0] - w.laser_a[0],
                        w.laser_b[1] - w.laser_a[1],
                        w.laser_b[2] - w.laser_a[2] };
@@ -1710,8 +1948,8 @@ void em_weapon_render(EmGfx *gfx)
                             w.laser_a[2] + d[2] * t };
             float s  = sinf(phase + dph * (float)i);
             float in = s > 0.0f ? s : 0.0f;
-            float cb[4] = { kLaserColor[0] * in, kLaserColor[1] * in,
-                            kLaserColor[2] * in, kLaserColor[3] };
+            float cb[4] = { base[0] * in, base[1] * in,
+                            base[2] * in, base[3] };
             em_gfx_beam(gfx, pa, pb, WPN_LASER_WIDTH, ca, cb);
             memcpy(pa, pb, sizeof pa);
             memcpy(ca, cb, sizeof ca);
@@ -1719,10 +1957,23 @@ void em_weapon_render(EmGfx *gfx)
         /* The DOT — the real func_001CD520 sprite when the exported
          * texture is present: ONE textured additive billboard at the
          * endpoint, the 32x16 glow image squeezed onto the engine's
-         * square 3x3 quad (= a soft round dot), modulated by the
-         * flickering red exactly like the GS TFX-modulate draw.
-         * Fallback: the old 3-layer concentric flat-color glow. */
-        float dr = (float)(0x50 + (wpn_rand() & 0x1F)) / 128.0f;
+         * square quad (= a soft round dot), modulated by the
+         * flickering color exactly like the GS TFX-modulate draw.
+         * Unlocked: R = (0x50 + rand5)/0x80, G = B = 0; LOCKED
+         * (func_00185760's warm arm): R/G/B = (0x70/0x40/0x20 +
+         * rand5)/0x80, 5.0-unit quad. Fallback: the 3-layer
+         * flat-color glow. */
+        int   rnd5  = (int)(wpn_rand() & 0x1F);
+        float dot[3];
+        if (locked) {
+            dot[0] = (float)(0x70 + rnd5) / 128.0f;
+            dot[1] = (float)(0x40 + rnd5) / 128.0f;
+            dot[2] = (float)(0x20 + rnd5) / 128.0f;
+        } else {
+            dot[0] = (float)(0x50 + rnd5) / 128.0f;
+            dot[1] = 0.0f;
+            dot[2] = 0.0f;
+        }
         /* DOT placement: offset the billboard HALF ITS SIZE off the
          * surface along the hit normal — a sprite centered exactly on
          * the wall plane half-clips behind it under the depth test
@@ -1732,14 +1983,13 @@ void em_weapon_render(EmGfx *gfx)
         float dp[3] = { w.laser_b[0], w.laser_b[1], w.laser_b[2] };
         if (w.laser_surf) {
             for (int k = 0; k < 3; k++)
-                dp[k] += w.laser_n[k] * (WPN_DOT_SIZE * 0.5f);
+                dp[k] += w.laser_n[k] * (dsize * 0.5f);
         }
         if (fx.ok[FX_TEX_DOT]) {
-            float dc[4] = { dr, 0.0f, 0.0f, 1.0f };
-            em_gfx_beam_dot_tex(gfx, FX_TEX_DOT, dp, WPN_DOT_SIZE, dc);
+            float dc[4] = { dot[0], dot[1], dot[2], 1.0f };
+            em_gfx_beam_dot_tex(gfx, FX_TEX_DOT, dp, dsize, dc);
         } else {
-            float dot[3] = { dr, 0.0f, 0.0f };
-            glow_dot(gfx, dp, WPN_DOT_SIZE, dot);
+            glow_dot(gfx, dp, dsize, dot);
         }
     }
 
@@ -1798,3 +2048,84 @@ int em_weapon_flashlight_timer(void) { return w.shoulder_timer; }
  * LASER HIDE WINDOW: hidden from each shot tick to its cadence
  * expiry). */
 int em_weapon_laser_visible(void)    { return w.laser_on; }
+
+/* TARGET-LOCK introspection (em_weapon.h): the 3-slot acquisition
+ * table and the round-robin index. */
+int em_weapon_lock_target(void)      { return w.tgt[0]; }
+int em_weapon_target_slot(int k)
+{ return (k >= 0 && k < 3) ? w.tgt[k] : -1; }
+int em_weapon_target_cycle(void)     { return w.cycle; }
+
+/* Angle wrap to [-pi, pi] — the native func_001B1470. */
+static float steer_wrap(float a)
+{
+    while (a >  3.14159265f) a -= 6.28318531f;
+    while (a < -3.14159265f) a += 6.28318531f;
+    return a;
+}
+
+/* LOCK STEER — func_0017AF70 (full decode in the constants block at
+ * the top). Called by em_game's player_move AFTER the manual stick
+ * steer, the engine order (the fire SM head runs it when D_008106E0
+ * is set; the manual steer func_0017ABA0 ran earlier the same tick).
+ * Gates: AIM state, the +0x2F2 aim latch (steering pauses through
+ * each shot's cadence — the laser-hide window), a live lock slot 0.
+ * Returns 0 untouched without a lock; 1 with the steered blends. */
+int em_weapon_lock_steer(const float player_pos[3], float player_yaw,
+                         float pitch_in, float yawb_in,
+                         float *pitch_out, float *yawb_out)
+{
+    if (w.state != EM_WPN_AIM || !w.laser_vis || w.tgt[0] < 0)
+        return 0;
+    if (!em_enemy_targetable(w.tgt[0]))
+        return 0;
+
+    float aim[3];
+    em_enemy_aim_point(w.tgt[0], aim);          /* func_00183C40(E0) */
+    float muzzle[3], dir[3];
+    weapon_muzzle_ray(player_pos, player_yaw, muzzle, dir, NULL);
+
+    /* YAW: desired/current aim heading RELATIVE to the body (+0xC4),
+     * wrapped; the angular error maps to blend units by the side's
+     * baked ladder half-angle, halved (blend 0..1 spans the full
+     * +-60-deg fan). Port blend sign: yaw blend 1 = LEFT (= +yaw),
+     * the inverse of the engine's axis — the magnitude is the
+     * engine's. */
+    float tx = aim[0] - muzzle[0];
+    float tz = aim[2] - muzzle[2];
+    float yd = steer_wrap(atan2f(tx, tz) - player_yaw);
+    float yc = steer_wrap(atan2f(dir[0], dir[2]) - player_yaw);
+    float yhalf  = (yd > WPN_STEER_EPS) ? WPN_STEER_YAW_P
+                                        : WPN_STEER_YAW_N;
+    float yb_des = yawb_in + 0.5f * (yd - yc) / yhalf;
+    if (yb_des < 0.0f) yb_des = 0.0f;
+    if (yb_des > 1.0f) yb_des = 1.0f;
+
+    /* PITCH: atan2(dy, horizontal dist) desired (func_0017A800) vs
+     * the gun dir's pitch; the engine's y-down world negates both
+     * angles, its side split (desired <= 1.5693710) lands on the A
+     * constant for every reachable pitch — kept verbatim. */
+    float ty = aim[1] - muzzle[1];
+    float pd = atan2f(ty, sqrtf(tx * tx + tz * tz));
+    float pc = atan2f(dir[1],
+                      sqrtf(dir[0] * dir[0] + dir[2] * dir[2]));
+    float phalf = (-pd <= WPN_STEER_PIT_T) ? WPN_STEER_PIT_A
+                                           : WPN_STEER_PIT_B;
+    float p_des = pitch_in + 0.5f * (pd - pc) / phalf;
+    if (p_des < 0.0f) p_des = 0.0f;
+    if (p_des > 1.0f) p_des = 1.0f;
+
+    /* The creep: normalize the 2D blend delta and step 0.02/frame;
+     * within 0.02 SNAP to the desired blends (the engine tail). */
+    float dx = yb_des - yawb_in;
+    float dy = p_des  - pitch_in;
+    float l  = sqrtf(dx * dx + dy * dy);
+    if (l <= WPN_STEER_STEP) {
+        *yawb_out  = yb_des;
+        *pitch_out = p_des;
+    } else {
+        *yawb_out  = yawb_in + WPN_STEER_STEP * dx / l;
+        *pitch_out = pitch_in + WPN_STEER_STEP * dy / l;
+    }
+    return 1;
+}

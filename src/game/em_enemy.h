@@ -346,16 +346,30 @@ int em_enemy_player_hit_take(void);
  *
  * em_enemy_acquire: nearest live crawler within `max_dist` of `from`
  * whose XZ bearing lies inside the facing cone (dot >= cone_cos).
- * Stand-in for the engine's screen-space target acquisition
- * (func_00199220); writes the target's AIM POINT. Returns index or -1.
+ * Remains the MELEE victim resolver (the knife's reach stand-in); the
+ * BULLET's acquisition is the decoded func_00199220 screen-cone chain
+ * in em_weapon.c, fed by the two queries below.
  *
  * em_enemy_ray_test: nearest live crawler whose hit sphere intersects
  * the segment [from, to] (the per-victim test the bullet runs BEFORE
- * crediting a world hit). Writes the entry point. Returns index or -1. */
+ * crediting a world hit). Writes the entry point. Returns index or -1.
+ *
+ * em_enemy_targetable: the func_00199220 candidate gate — slot live
+ * (engine status byte != 0) with HP > 0 (the +0x34 halfword test; the
+ * engine's third gate func_00183B80 has no port equivalent — a freed/
+ * fading slot is already inactive here). Real instance slots only
+ * (gib/pad virtual draw slots always 0).
+ *
+ * em_enemy_aim_point: the func_00183C40 class-keyed AIM POINT — the
+ * port's hit-sphere center (pos + per-kind aim height), the same point
+ * em_enemy_ray_test tests against. Unchecked index = garbage in,
+ * caller gates with em_enemy_targetable first. */
 int em_enemy_acquire(const float from[3], float yaw, float max_dist,
                      float cone_cos, float aim_out[3]);
 int em_enemy_ray_test(const float from[3], const float to[3],
                       float hit_out[3]);
+int  em_enemy_targetable(int i);
+void em_enemy_aim_point(int i, float out[3]);
 
 /* Draw accessors for the render chain. em_enemy_draw returns 0 for an
  * inactive slot, EXCEPT while the death placeholder is still fading

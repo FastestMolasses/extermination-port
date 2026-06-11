@@ -110,6 +110,12 @@ struct EmGfx {
     uint32_t                     beamTriCount;
     float                        lastViewProj[16]; /* column-major P*V  */
     bool                         hasViewProj;      /* a 3D draw ran     */
+    bool                         everViewProj;     /* any draw EVER ran:
+                                                    * em_gfx_last_viewproj
+                                                    * gate (lastViewProj
+                                                    * persists across
+                                                    * frames, hasViewProj
+                                                    * is per-frame)      */
     id<MTLRenderPipelineState>   beamPipeline;     /* additive, depth-on */
     /* Textured beam sprites (em_gfx_beam_tex / _dot_tex — em_gfx.h):
      * the laser-dot sprite + the muzzle-flash sheets, drawn through the
@@ -813,7 +819,8 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         return;
     /* Remember the frame's camera for the beam flush (world-space pass). */
     memcpy(g->lastViewProj, viewproj, sizeof(g->lastViewProj));
-    g->hasViewProj = true;
+    g->hasViewProj  = true;
+    g->everViewProj = true;
     /* Record the leading bone matrices — the native bone-publish for
      * equipment consumers (em_gfx.h "last skinned palette"). */
     g->lastBoneCount = bone_count < EM_GFX_TRACK_BONES ? bone_count
@@ -1156,6 +1163,15 @@ int em_gfx_last_skinned_bone(EmGfx *g, uint32_t bone, float out16[16])
 {
     if (!g || !out16 || bone >= g->lastBoneCount) return 0;
     memcpy(out16, g->lastBones + (size_t)bone * 16, 16 * sizeof(float));
+    return 1;
+}
+
+/* Copy the last skinned draw's P*V (em_gfx.h — the camera-matrix
+ * publish for em_weapon's screen-space acquisition cone). */
+int em_gfx_last_viewproj(EmGfx *g, float out16[16])
+{
+    if (!g || !out16 || !g->everViewProj) return 0;
+    memcpy(out16, g->lastViewProj, sizeof(g->lastViewProj));
     return 1;
 }
 

@@ -2501,6 +2501,26 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
     return best;
 }
 
+/* func_00199220 candidate gate (em_enemy.h): live slot with HP left.
+ * The engine chain is status != 0 -> func_00183B80 targetable -> HP
+ * +0x34 != 0; the port's `active` covers the first (death frees the
+ * slot immediately) and there is no 183B80 equivalent to fail. */
+int em_enemy_targetable(int i)
+{
+    return i >= 0 && i < s.n && s.e[i].active && s.e[i].hp > 0;
+}
+
+/* func_00183C40 class-keyed aim point (em_enemy.h): the hit-sphere
+ * center — pos + the per-kind aim height, the exact center
+ * em_enemy_ray_test intersects against. */
+void em_enemy_aim_point(int i, float out[3])
+{
+    const Enemy *e = &s.e[i];
+    out[0] = e->pos[0];
+    out[1] = e->pos[1] + kind_aim_y(e);
+    out[2] = e->pos[2];
+}
+
 int em_enemy_ray_test(const float from[3], const float to[3],
                       float hit_out[3])
 {
