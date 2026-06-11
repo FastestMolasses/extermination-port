@@ -57,10 +57,11 @@
  *
  * STAND-INS (flagged, see em_hud.h): the scene-dim rect remains the
  * FALLBACK background when no BACKDROP record exists (old/missing
- * asset); the rotating player model inside the ring stays the
- * documented 3D-in-UI TODO; the rotating highlight uses standard alpha
- * blend toward white as the stand-in for the engine's blend-mode-1
- * additive pass (the overlay pipeline is alpha-blend only).
+ * asset); the rotating highlight uses standard alpha blend toward white
+ * as the stand-in for the engine's blend-mode-1 additive pass (the
+ * overlay pipeline is alpha-blend only). The ROTATING PLAYER MODEL is
+ * no longer a stand-in: em_game renders the UI-camera 3D scene under
+ * this overlay (em_hud_scene_3d / em_hud_backdrop_ready below).
  *
  * All primitives go through the em_gfx overlay pass (rects + the
  * em_gfx_overlay_arc4 annular-arc primitive — the translation of the
@@ -141,7 +142,8 @@ static const float kSceneDim[4]    = { 0.0f, 0.0f, 0.0f, 0.60f };
 
 /* The UI-camera base frame behind the background layers: black (the
  * engine's identity-camera scene is empty except the rotating player
- * model — the documented 3D-in-UI TODO). */
+ * model). Queued only when em_game did NOT render the real UI-camera
+ * 3D scene this frame (em_hud_scene_3d below). */
 static const float kUiSceneBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 /* Background-layer modulate color: the engine passes (96,96,96, 64*sin)
@@ -607,6 +609,20 @@ static const UiSprite *backdrop_record(const UiSheet *ui)
     return NULL;
 }
 
+/* Did em_game render the UI-camera 3D scene this frame? (the black frame
+ * + the rotating player model — the engine's identity-camera pass under
+ * every status screen, func_0020CDC0 open / behavior func_0020E6F0).
+ * When set, background_render skips its opaque black base fill: the 3D
+ * pass already laid down the black frame WITH the player on it, and the
+ * translucent tile layers composite over both — the engine's exact
+ * draw order (3D scene, then func_0020A7A0's layers, then panels). */
+static int s_scene3d = 0;
+
+void em_hud_scene_3d(int rendered)
+{
+    s_scene3d = rendered ? 1 : 0;
+}
+
 /* Queue one frame of the animated background through the em_gfx
  * backdrop layer (bottom of the overlay pass). Returns 1 when drawn;
  * 0 when the sheet has no BACKDROP record (caller dims instead). */
@@ -615,7 +631,14 @@ static int background_render(EmGfx *gfx, const UiSheet *ui)
     const UiSprite *bd = backdrop_record(ui);
     if (!bd || !bd->dw || !bd->dh) return 0;   /* malformed record: dim */
 
-    em_gfx_overlay_backdrop_fill(gfx, kUiSceneBlack);
+    /* The black base frame. When em_game rendered the UI-camera 3D
+     * scene this frame (em_hud_scene_3d: black backplate + the rotating
+     * player model), the 3D pass IS the base — queuing the opaque fill
+     * here would paint over the player (the overlay flushes after every
+     * 3D draw). Without the 3D scene (no player asset) the fill remains
+     * the flagged stand-in for the engine's UI-camera frame. */
+    if (!s_scene3d)
+        em_gfx_overlay_backdrop_fill(gfx, kUiSceneBlack);
 
     const float u0 = (float)bd->u, v0 = (float)bd->v;
     const float u1 = (float)(bd->u + bd->w), v1 = (float)(bd->v + bd->h);
@@ -991,6 +1014,19 @@ int em_hud_visible(void)
 int em_hud_is_open(void)
 {
     return s_shown;
+}
+
+/* Can the ACTIVE sheet (the hub's ui.emui, or the entered page's
+ * ui_pageN.emui) draw the real animated background? em_game gates the
+ * UI-camera 3D scene on this: without a BACKDROP record the screen
+ * falls back to the translucent scene-dim over the live frame (the old
+ * stand-in), where a player-only 3D pass would be wrong — and the
+ * asset-absent forced capture must stay byte-identical to the pre-3D
+ * builds. */
+int em_hud_backdrop_ready(EmGfx *gfx)
+{
+    return backdrop_record(slot_ensure(gfx, s_page >= 0 ? s_page
+                                                        : SLOT_HUB)) != NULL;
 }
 
 /* Step a display copy +-1/frame toward `target` (engine count-up). */

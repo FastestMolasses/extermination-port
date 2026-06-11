@@ -178,7 +178,8 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * quantizer + speed table (the s31 decode, constants below): the raw
  * stick magnitude picks gait 1/2/3 = turn-in-place/walk/run at
  * 0/6/18 u/s. Keyboard full push = RUN (matching the PCSX2 keyboard
- * feel); the input layer's Alt half-push cap lands in the walk ring
+ * feel); the input layer's Alt vector-magnitude cap (0.8, raw ~102)
+ * lands in the walk ring in every stick direction
  * (em_input.h DEBUG GAIT HOLD). WALK_SPEED stays as the door-transit
  * scripted MOVE-TO speed only (em_door's walk, not stick locomotion —
  * the historical port constant keeps the transit timings). */
@@ -258,6 +259,60 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define RUN_CLIP_SPEED  24.07f  /* run clip natural speed (45 fr) */
 #define IDLE_FIDGET_FRAMES 300  /* +0x28 timer re-arm value (0x12C) */
 #define IDLE_BLEND_TIME (8.0f / 60.0f) /* the cycle's blend arg 8.0 */
+
+/* STATUS-MENU UI SCENE (FINDINGS.md "STATUS-MENU UI SCENE DECODED" —
+ * func_0020CDC0 state 0 + the menu-player behavior func_0020E6F0):
+ * while the status screen is up, the engine's 3D frame IS the menu
+ * scene — the camera matrix 0x810610 goes IDENTITY and a dedicated
+ * static-array actor renders the player turntabling on black, under
+ * the animated tile background and the panels. Decoded constants:
+ *   placement  view-space (7.4, 2.4, 40) of the identity UI camera
+ *              (pos = camCol3 + 40*colZ + 7.4*colX + 2.4*colY); the
+ *              actor scale is never written (stays the alloc's 1.0)
+ *   rotation   init (0, pi, 0) — facing the camera (the publisher
+ *              func_0020EC80's diag(-1)*rotY(pi) flip makes it
+ *              upright/front in the y-down view); yaw += 0.01
+ *              rad/frame, wrapped > pi -> -2pi (one rev ~10.5 s)
+ *   anim       displayed health > 35 -> clip 0x1C2 (450), a SINGLE-
+ *              FRAME stance (static pose; all motion is the spin);
+ *              <= 35 -> clip 0xA (10), the 90-frame low-health idle;
+ *              advance 1.0/frame; recovery past 35 swaps back to
+ *              0x1C2 (no swap TO 0xA mid-open — init only)
+ *   tint       per-actor color delta (-0.8, -1.0, -0.3) * infection
+ *              * ramp (G clamped >= -127), ramp breathing 1.0 <-> 1.3
+ *              at +-0.01/frame — the 2 s infected-skin pulse
+ * Port mapping: the native y-up view (em_mat4_lookat_gs remaps the
+ * engine's y-down GS view) puts the engine's +2.4 view-down at
+ * y = -2.4, and the engine's +x maps screen-LEFT (the remap's X
+ * negation) — the model lands ON the ring gauge, the real screen's
+ * placement. The UI projection is PINNED by the x-anchor: 7.4 units
+ * at z 40 = the ring-center column (canvas 208) iff tan(fovy/2) =
+ * 0.74 at the GS 4:3 frame (UI_PROJ_TANY; see ui_scene_render — the
+ * projection stays 4:3-locked and stretches with the window exactly
+ * like the overlay canvas). The additive engine tint is approximated
+ * multiplicatively over the GS 128 base: rgb_mul = (128 + delta)/128.
+ * The rig is orbited to the gfx stand-in light's azimuth (relative
+ * camera<->player transform unchanged) so the camera-facing side is
+ * lit — also explained at ui_scene_render. */
+#define UI_SCENE_X      7.4f    /* engine view-space right offset */
+#define UI_SCENE_Y     -2.4f    /* engine +2.4 view-down, native y-up */
+#define UI_SCENE_Z     40.0f    /* engine view-space distance */
+#define UI_SPIN_RATE    0.01f   /* yaw rad per frame (engine 0x3C23D70A) */
+#define UI_RAMP_RATE    0.01f   /* tint pulse step per frame */
+#define UI_RAMP_MAX     1.3f    /* tint pulse ceiling (0x3FA66666) */
+#define UI_LOW_HEALTH  35.0f    /* clip-select threshold (0x420C0000) */
+/* The UI rig's orbit azimuth = the gfx stand-in light's horizontal
+ * direction, normalized ((0.4, 0.45)/0.602 — see the camera note in
+ * ui_scene_render). */
+#define UI_CAM_DIR_X    0.6644f
+#define UI_CAM_DIR_Z    0.7474f
+/* tan(fovy/2) of the engine's UI projection at its 4:3 frame — pinned
+ * by the x-anchor consistency: view-space x 7.4 at z 40 projects to
+ * the ring-gauge center column (canvas 208 of 512, NDC -0.1875), so
+ * fx = 0.1875*40/7.4 = 1.01351 and tan_y = 1/(fx*4/3) = 0.74. */
+#define UI_PROJ_TANY    0.74f
+#define CLIP_ID_MENU     450u   /* 0x1C2 — single-frame menu stance */
+#define CLIP_ID_MENU_LOW 10u    /* 0xA — low-health menu idle (90 fr) */
 
 /* FOOTSTEP TRIGGER FRAMES — the engine's per-anim-id property table
  * D_00248C90 (FINDINGS "ANIM ID MAPPING": frameA/frameB per row; the
@@ -471,6 +526,19 @@ static struct {
                                   * (func_001B5CC0 quantizer) */
     float      move_speed;       /* this frame's ground speed, units/sec */
     float      walk_palette[1024 * 16];  /* scratch for the blends */
+
+    /* STATUS-MENU UI SCENE (the constants block above): the menu
+     * player's private pose state — never touches the gameplay pose. */
+    int        clip_menu;        /* clip index of id 450; -1 = old asset */
+    int        clip_menu_low;    /* clip index of id 10; -1 = old asset */
+    int        ui_prev;          /* scene rendered last frame (edge) */
+    int        ui_low;           /* init picked the low-health clip */
+    float      ui_yaw;           /* turntable yaw (init pi, +0.01/frame) */
+    double     ui_t;             /* menu clip time, frames (1.0/frame) */
+    float      ui_ramp;          /* tint pulse 1.0 <-> 1.3 */
+    int        ui_ramp_dir;      /* 0 = rising, 1 = falling (+0x05) */
+    EmGfxMesh *ui_backplate;     /* fullscreen black quad (lazy) */
+    float      ui_palette[1024 * 16];    /* menu pose scratch */
 
     /* IDLE CYCLE state (func_00161020 — see the clip-id block above) */
     int        idle_phase;       /* 0 = breathing, 1 = fidget playing */
@@ -2006,6 +2074,186 @@ static void camera_update(void)
     cam->timer++;
 }
 
+/* --- STATUS-MENU UI SCENE (the constants block above) ----------------
+ *
+ * The engine's identity-UI-camera 3D pass: while the status screen is
+ * up, the 3D frame is a black field with ONLY the player model
+ * turntabling on it (func_0020E6F0 on the menu's private static-actor
+ * stage — the world is not drawn at all; s44 verified there is no
+ * other draw under the background tiles). The port mirrors that by
+ * flushing this scene INSTEAD of the recorded world chain whenever the
+ * screen is visible and the real animated background will draw
+ * (em_hud_backdrop_ready — without the ui.emui asset the old
+ * dim-over-scene fallback keeps the world flush, byte-identical to the
+ * pre-scene builds). em_hud_scene_3d() then tells the background
+ * drawer to skip its opaque base fill so the player shows between the
+ * black frame and the translucent tile layers — the engine's order
+ * (3D scene, background, panels). */
+
+/* Lazy fullscreen black backplate: a quad at view depth 400 spanning
+ * +-2000 units, drawn through em_gfx_draw_skinned_tinted with black —
+ * every shading path multiplies to (0,0,0,1), giving the engine's
+ * opaque black UI frame in the 3D pass (depth write on; the player at
+ * z 40 passes the less-equal test). The renderer culls nothing
+ * (MTLCullModeNone), so one winding suffices. */
+static EmGfxMesh *ui_backplate_ensure(EmGfx *gfx)
+{
+    if (g.ui_backplate) return g.ui_backplate;
+    /* pos3, nrm3, uv2, bone(u32), tex(u32 = none) per vertex */
+    static const float kQuad[4][3] = {
+        { -2000.0f, -2000.0f, 400.0f }, {  2000.0f, -2000.0f, 400.0f },
+        {  2000.0f,  2000.0f, 400.0f }, { -2000.0f,  2000.0f, 400.0f }
+    };
+    float v[4 * 10];
+    memset(v, 0, sizeof v);
+    for (int i = 0; i < 4; i++) {
+        float *p = v + i * 10;
+        p[0] = kQuad[i][0]; p[1] = kQuad[i][1]; p[2] = kQuad[i][2];
+        p[5] = -1.0f;                      /* normal: toward the camera */
+        uint32_t bone = 0, tex = EM_MODEL_NO_TEX;
+        memcpy(p + 8, &bone, 4);
+        memcpy(p + 9, &tex, 4);
+    }
+    static const uint32_t idx[6] = { 0, 1, 2, 0, 2, 3 };
+    g.ui_backplate = em_gfx_mesh_create(gfx, v, 4, idx, 6, NULL, 0,
+                                        NULL, 0);
+    return g.ui_backplate;
+}
+
+/* Render one frame of the UI scene (call in place of the world flush).
+ * State is private (ui_* fields) and re-initializes on every visible
+ * edge — the engine re-allocates the menu actor at every open (state 0
+ * init: yaw = pi, ramp = 1.0, clip by displayed health), so EM_HUD_FORCE
+ * captures sample a FIXED spin phase: yaw = pi + 0.01 * (frames since
+ * the screen appeared), deterministic in headless runs. */
+static void ui_scene_render(EmGfx *gfx)
+{
+    if (!g.ui_prev) {                    /* open edge = engine state 0 */
+        g.ui_yaw      = EM_PI;
+        g.ui_t        = 0.0;
+        g.ui_ramp     = 1.0f;
+        g.ui_ramp_dir = 0;
+        g.ui_low      = g.status.health <= UI_LOW_HEALTH;
+    }
+
+    /* Clip select (engine: init picks by displayed health; recovery
+     * past 35 swaps back to the stance; never TO the low clip
+     * mid-open). The port reads the status target — the engine's
+     * display copy only lags it during the open count-up. */
+    if (g.ui_low && g.status.health > UI_LOW_HEALTH) {
+        g.ui_low = 0;
+        g.ui_t   = 0.0;
+    }
+    int clip = g.ui_low ? g.clip_menu_low : g.clip_menu;
+    if (clip < 0) clip = g.clip_menu >= 0 ? g.clip_menu : g.clip_idle;
+
+    /* Menu pose (never touches the gameplay palette; under EM_HUD_FORCE
+     * the world keeps simulating its own pose untouched underneath).
+     * The player stands at the WORLD ORIGIN facing the camera, spinning. */
+    em_model_palette_at(&g.model, (uint32_t)clip, g.ui_t, g.ui_palette);
+    {
+        const float pos[3] = { 0.0f, 0.0f, 0.0f };
+        /* yaw 0 of the spin = facing the camera (the engine's pi init
+         * under its identity camera + publisher flip). */
+        float yaw0 = atan2f(UI_CAM_DIR_X, UI_CAM_DIR_Z);
+        palette_apply_placement(g.ui_palette, g.model.bone_count,
+                                pos, yaw0 + (g.ui_yaw - EM_PI));
+    }
+
+    /* The UI camera. The ENGINE uses the raw identity camera; the port
+     * keeps the identical RELATIVE transform (the decoded view-space
+     * (7.4, 2.4 down, 40)) but orbits the rig to the gfx layer's fixed
+     * directional stand-in light azimuth (shader L = (0.4, 0.8, 0.45);
+     * src/gfx is the renderer's lighting model, not the engine's) so
+     * the model's camera-facing side is the LIT side — under the raw
+     * identity camera the stand-in light leaves the menu player at the
+     * 0.30 ambient floor, near-black on the black UI frame. Screen
+     * framing is unchanged: eye = dir*Z - right*X + (0, -Y, 0), so the
+     * player still projects at the decoded view-space offsets. */
+    float view[16], proj[16], vp[16], vp_plate[16];
+    {
+        const float dir[3] = { UI_CAM_DIR_X, 0.0f, UI_CAM_DIR_Z };
+        const float fwd[3] = { -dir[0], 0.0f, -dir[2] };
+        const float up[3]  = { 0.0f, -1.0f, 0.0f };
+        /* s = fwd x up (the lookat's view-right basis; up = (0,-1,0)
+         * makes s = (fwd.z, 0, -fwd.x)) */
+        const float s_[3]  = { fwd[2], 0.0f, -fwd[0] };
+        const float eye[3] = {
+            dir[0] * UI_SCENE_Z - s_[0] * UI_SCENE_X,
+            -UI_SCENE_Y,
+            dir[2] * UI_SCENE_Z - s_[2] * UI_SCENE_X
+        };
+        em_mat4_lookat_gs(view, eye, fwd, up);
+    }
+    /* UI projection — PINNED by the decoded x-anchor: the engine's
+     * 7.4-unit offset at z 40 lands the model exactly on the ring
+     * center (canvas x 208, NDC -0.1875) iff the projection's x scale
+     * is 0.1875*40/7.4 = 1.01351, i.e. tan(fovy/2) = 0.74 at the GS
+     * 4:3 frame (~73 deg vertical). LOCKED at 4:3 regardless of the
+     * drawable: the engine renders a 4:3 frame and the whole output
+     * stretches to the window — exactly how the overlay's 512x448
+     * canvas already maps, keeping the 3D scene and the panel anchors
+     * registered at any window size. */
+    em_mat4_perspective(proj, 2.0f * atanf(UI_PROJ_TANY), 4.0f / 3.0f,
+                        0.5f, 500.0f);
+    em_mat4_mul(vp, proj, view);
+    /* The black backplate keeps its own fixed straight-ahead camera (its
+     * quad lives at world z 400): identical full-screen result, no need
+     * to re-orient the quad with the rig. */
+    {
+        const float eye[3] = { 0.0f, 0.0f, 0.0f };
+        const float fwd[3] = { 0.0f, 0.0f, 1.0f };
+        const float up[3]  = { 0.0f, -1.0f, 0.0f };
+        em_mat4_lookat_gs(view, eye, fwd, up);
+        em_mat4_mul(vp_plate, proj, view);
+    }
+
+    /* Black backplate first (the engine's empty UI frame), then the
+     * player over it. NOTE: this makes the UI player the renderer's
+     * "last skinned palette" — em_weapon's muzzle anchor reads a menu
+     * pose next frame, which only matters in the untestable
+     * FORCE+aiming combination. */
+    {
+        static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        static const float kIdent[16] = { 1, 0, 0, 0, 0, 1, 0, 0,
+                                          0, 0, 1, 0, 0, 0, 0, 1 };
+        EmGfxMesh *bp = ui_backplate_ensure(gfx);
+        if (bp)
+            em_gfx_draw_skinned_tinted(gfx, bp, vp_plate, kIdent, 1, kBlack);
+    }
+    {
+        /* Infection tint pulse (engine +0x80 color delta, GS 128 base,
+         * approximated multiplicatively; infection 0 = opaque white =
+         * bit-identical to the untinted draw per the em_gfx contract). */
+        float inf = g.status.infection;
+        float dr = -0.8f * inf * g.ui_ramp;
+        float dg = -1.0f * inf * g.ui_ramp;
+        float db = -0.3f * inf * g.ui_ramp;
+        if (dg < -127.0f) dg = -127.0f;   /* engine clamp (0xC2FE0000) */
+        float tint[4] = { (128.0f + dr) / 128.0f,
+                          (128.0f + dg) / 128.0f,
+                          (128.0f + db) / 128.0f, 1.0f };
+        for (int i = 0; i < 3; i++) {
+            if (tint[i] < 0.0f) tint[i] = 0.0f;
+            if (tint[i] > 1.0f) tint[i] = 1.0f;
+        }
+        em_gfx_draw_skinned_tinted(gfx, g.mesh, vp, g.ui_palette,
+                                   g.model.bone_count, tint);
+    }
+
+    /* Advance (engine state 1): spin, pulse ramp, clip time. */
+    g.ui_yaw += UI_SPIN_RATE;
+    if (g.ui_yaw > EM_PI) g.ui_yaw -= 2.0f * EM_PI;
+    if (g.ui_ramp_dir == 0) {
+        g.ui_ramp += UI_RAMP_RATE;
+        if (g.ui_ramp >= UI_RAMP_MAX) g.ui_ramp_dir = 1;
+    } else {
+        g.ui_ramp -= UI_RAMP_RATE;
+        if (g.ui_ramp <= 1.0f) g.ui_ramp_dir = 0;
+    }
+    g.ui_t += 1.0;                       /* anim_advance_time(1.0) */
+}
+
 /* func_001CB5A0 / func_001AAD00 / func_001D1EA0(1) — close-out: flush the
  * recorded chain with the camera block applied (the native "kick"), then
  * advance clip time. EM_CAPTURE instrumentation lives here so its frame
@@ -2014,7 +2262,16 @@ static void frame_close_out(void)
 {
     EmGfx *gfx = em_frame_gfx();
 
-    if (g.chain_test_triangle) {
+    /* MENU-RENDER GATE: the UI-camera 3D scene replaces the world
+     * flush while the status screen shows (visible = the real toggle
+     * OR the EM_HUD_FORCE capture hook) and the real background will
+     * draw over it. Without the player asset or the ui.emui backdrop
+     * the old path runs unchanged (asset-absent frames byte-identical). */
+    int ui_scene = g.mesh && em_hud_visible() && em_hud_backdrop_ready(gfx);
+
+    if (ui_scene) {
+        ui_scene_render(gfx);
+    } else if (g.chain_test_triangle) {
         em_gfx_draw_test_triangle(gfx);
     } else {
         for (int i = 0; i < g.chain_len; i++) {
@@ -2028,6 +2285,8 @@ static void frame_close_out(void)
                                     cd->palette, cd->bone_count);
         }
     }
+    g.ui_prev = ui_scene;     /* edge tracking for the scene re-init */
+    em_hud_scene_3d(ui_scene);  /* background skips its base fill */
 
     /* Weapon feedback overlays (crosshair / muzzle-flash placeholders —
      * em_weapon.h "VISUAL FEEDBACK"); queues nothing while holstered, so
@@ -2037,13 +2296,13 @@ static void frame_close_out(void)
     /* STATUS SCREEN over the flushed 3D frame (the engine's GS-sprite
      * status overlay; em_hud queues overlay rects, em_gfx_end_frame
      * draws them last). HIDDEN by default — the original shows no
-     * persistent HUD — and toggled by a TRIANGLE press (edge); shown, it
-     * dims the scene behind it. Gameplay keeps running underneath
-     * (stated assumption — the live captures show no hard pause).
-     * EM_HUD_FORCE=1 forces it visible for overlay tests. The ammo
-     * readout is LIVE: mag/reserve mirror the weapon state (D_00810C62 /
-     * D_00810CB4) every frame, exactly like the engine UI re-reading the
-     * globals. */
+     * persistent HUD — and toggled by a TRIANGLE/START press (edge);
+     * shown, the 3D frame underneath is the UI scene above (or the
+     * flagged dim fallback without assets) and the world simulation is
+     * paused by the gameplay_frame gate. EM_HUD_FORCE=1 forces it
+     * visible for overlay tests. The ammo readout is LIVE: mag/reserve
+     * mirror the weapon state (D_00810C62 / D_00810CB4) every frame,
+     * exactly like the engine UI re-reading the globals. */
     em_hud_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
@@ -3149,9 +3408,12 @@ static void gameplay_frame(void)
      * per-frame rise for verification. */
     if (g.capture_rise && g.frame_no == 0)
         move_test_inject('s', 1);           /* debug instrumentation only */
-    /* EM_CAPTURE_ORIENT=1: Alt (half-push cap) + 'a' for 30 frames —
-     * gait-1 TURN-IN-PLACE swings the facing ~90 deg with no
-     * translation — then idle. After CAM_AUTO_DELAY the camera slowly
+    /* EM_CAPTURE_ORIENT=1: Alt (walk cap) + 'a' for 30 frames — the
+     * facing swings ~90 deg (the same facing-seek runs for every moving
+     * gait) while gait-2 WALK drifts ~3 u left — then idle. (Before the
+     * walk-cap fix the Alt deflection landed in the gait-1 TURN-IN-PLACE
+     * ring, so older orient captures show no translation; keyboard input
+     * can no longer reach gait 1.) After CAM_AUTO_DELAY the camera slowly
      * auto-orients behind the new facing (EM_CAMERA_TRACE prints the
      * seek); capture late (~frame 450) to see it settled. */
     if (g.capture_orient) {
@@ -3539,6 +3801,17 @@ static void game_boot_task(void)
         if (g.clip_run == g.clip_idle) g.clip_run = -1;
         g.loco_clip  = g.clip_walk;
         g.loco_speed = WALK_CLIP_SPEED;
+        /* Status-menu UI scene clips (engine 0x1C2 stance / 0xA low-
+         * health idle). An older asset without them falls back to the
+         * breathing idle in ui_scene_render — flagged here once. */
+        g.clip_menu     = em_model_clip_index(&g.model, CLIP_ID_MENU);
+        g.clip_menu_low = em_model_clip_index(&g.model, CLIP_ID_MENU_LOW);
+        if (g.clip_menu == g.clip_idle)     g.clip_menu = -1;
+        if (g.clip_menu_low == g.clip_idle) g.clip_menu_low = -1;
+        if (g.clip_menu < 0)
+            printf("menu stance clip 450 missing — status screen uses "
+                   "the breathing idle (re-export with --clips "
+                   "...,0,450,10)\n");
         printf("clips: idle #%d (id %u)%s%s\n", g.clip_idle,
                g.model.clips[g.clip_idle].id,
                g.clip_fidget >= 0 ? ", idle cycle on (fidget 349)"

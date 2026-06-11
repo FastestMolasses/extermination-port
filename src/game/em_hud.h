@@ -38,9 +38,19 @@
  *    each entered page uses its own ui_pageN.emui BACKDROP record (the
  *    engine passes a per-screen tile token). Without a BACKDROP record
  *    (old/missing asset) the full-screen dim rect remains the flagged
- *    fallback. The ROTATING PLAYER MODEL inside the ring is still a
- *    documented TODO — it needs 3D-in-UI plumbing (an identity-camera
- *    model draw between the backdrop and the overlay), not attempted.
+ *    fallback. The ROTATING PLAYER MODEL is RENDERED (FINDINGS.md
+ *    "STATUS SCREEN UI SCENE", func_0020E6F0): em_game draws the
+ *    UI-camera 3D scene (black backplate + the player at the engine's
+ *    view-space transform with the decoded 0.01 rad/frame yaw spin,
+ *    menu pose clip 0x1C2 / low-health idle 0xA, infection tint pulse)
+ *    in place of the world whenever the screen is visible AND the
+ *    active sheet carries a BACKDROP record; em_hud_scene_3d() tells
+ *    background_render to skip its opaque base fill so the player
+ *    shows between the black frame and the translucent tile layers —
+ *    the engine's exact draw order (3D scene, background, panels).
+ *    Needs a player.emdl exported with menu clips 450,10 appended to
+ *    the recorded --clips list; an older asset falls back to the
+ *    breathing idle pose (flagged in the loader printout).
  *  - The ring's rotating highlight is additive (blend mode 1) on the
  *    GS; the overlay pass is alpha-blend only, so it approximates with
  *    white at low alpha.
@@ -228,6 +238,21 @@ int em_hud_visible(void);
  * render-only overlay switch, and the headless overlay captures rely on
  * gameplay still reaching its capture frame underneath. */
 int em_hud_is_open(void);
+
+/* Will the ACTIVE sheet (hub or entered page) draw the real animated
+ * background this frame? (it carries a BACKDROP record — loads the
+ * sheet lazily, so callable before em_hud_render). em_game gates the
+ * UI-camera 3D scene on this: with no record the screen still uses the
+ * translucent scene-dim fallback over the live frame, where a
+ * player-only 3D pass would be wrong. */
+int em_hud_backdrop_ready(EmGfx *gfx);
+
+/* Tell em_hud whether em_game rendered the UI-camera 3D scene (black
+ * backplate + rotating player) this frame, BEFORE em_hud_render: when
+ * set, the background skips its opaque black base fill so the player
+ * shows through under the translucent tile layers. Cleared/set every
+ * frame by the close-out. */
+void em_hud_scene_3d(int rendered);
 
 /* Queue this frame's status screen into the overlay pass — the dim
  * backdrop first, then the status elements. Call once per gameplay
