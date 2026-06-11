@@ -221,6 +221,38 @@ void em_gfx_overlay_sprite(EmGfx *gfx, float x, float y, float w, float h,
                            float u0, float v0, float u1, float v1,
                            const float rgba[4]);
 
+/* --- overlay BACKDROP layer (the animated UI background) -------------- */
+
+/* The engine draws every status/UI screen over an ANIMATED FULL-SCREEN
+ * BACKGROUND (the universal drawer func_0020A7A0: scrolling tiled +
+ * zooming layers of one per-screen 128x64 texture over the black
+ * UI-camera frame) BEFORE the screen's panels — FINDINGS.md "STATUS
+ * SCREEN BACKGROUND". The overlay pass's fixed flush order (untextured
+ * -> sprites -> glyphs) cannot put a textured layer UNDER the untextured
+ * panels, so the backdrop is its own bottom queue: the backdrop fill +
+ * backdrop quads flush FIRST in the overlay sequence, before everything
+ * else queued this frame. With nothing queued the pass does not run. */
+
+/* Per-frame backdrop quad budget (the background pass is ~40 tiles). */
+#define EM_GFX_BACKDROP_MAX 64
+
+/* Queue a full-FRAME solid fill at the very bottom of the overlay pass —
+ * the stand-in for the engine's UI-camera scene behind the background
+ * layers (a black frame; the rotating player model on it is a documented
+ * TODO). Drawn before any backdrop quads, covering the whole drawable.
+ * One per frame (the last call wins). */
+void em_gfx_overlay_backdrop_fill(EmGfx *gfx, const float rgba[4]);
+
+/* Queue one TEXTURED backdrop quad sampling the UI-DECOR slot — same
+ * parameters, sampling and blend as em_gfx_overlay_sprite, but flushed
+ * FIRST in the overlay pass (under the untextured primitives, the decor
+ * sprites and the glyphs), after the backdrop fill. Own
+ * EM_GFX_BACKDROP_MAX quad budget. No-op without a registered UI
+ * texture. */
+void em_gfx_overlay_backdrop(EmGfx *gfx, float x, float y, float w, float h,
+                             float u0, float v0, float u1, float v1,
+                             const float rgba[4]);
+
 /* --- World-space beam pass (laser sight) ------------------------------ */
 
 /* Queue one world-space BEAM SEGMENT for this frame: a thin quad from `a`
@@ -251,8 +283,8 @@ void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
                      const float rgba[4]);
 
 /* End the frame: flush the queued world-space beams, then the overlay
- * (untextured rects/arcs, then decor sprites, then font glyphs), then
- * present the swapchain image. */
+ * (backdrop fill + backdrop quads, then untextured rects/arcs, then
+ * decor sprites, then font glyphs), then present the swapchain image. */
 void em_gfx_end_frame(EmGfx *gfx);
 
 /* Capture the NEXT completed frame to a 24-bit BMP at `path`. Returns

@@ -47,17 +47,27 @@
  * 8x8 blue block markers ARE the real elements (solid GS sprites) and
  * render faithfully either way.
  *
- * STAND-INS (flagged, see em_hud.h): the scene-dim rect stands in for
- * the engine's UI-camera swap (identity camera + rotating player model
- * inside the ring); the rotating highlight uses standard alpha blend
- * toward white as the stand-in for the engine's blend-mode-1 additive
- * pass (the overlay pipeline is alpha-blend only).
+ * BACKGROUND: with a BACKDROP record in the active sheet the screen
+ * draws the engine's REAL animated UI background (func_0020A7A0 — see
+ * background_render below): black UI-scene base + two scrolling tilings
+ * + the periodic zoom burst of the screen's own 128x64 tile, through
+ * the em_gfx backdrop queue (bottom of the overlay pass). The hub tile
+ * is the dark blue-gray circuit-board texture at GS TBP 0x1E40; each
+ * page carries its own tile in ui_pageN.emui.
+ *
+ * STAND-INS (flagged, see em_hud.h): the scene-dim rect remains the
+ * FALLBACK background when no BACKDROP record exists (old/missing
+ * asset); the rotating player model inside the ring stays the
+ * documented 3D-in-UI TODO; the rotating highlight uses standard alpha
+ * blend toward white as the stand-in for the engine's blend-mode-1
+ * additive pass (the overlay pipeline is alpha-blend only).
  *
  * All primitives go through the em_gfx overlay pass (rects + the
  * em_gfx_overlay_arc4 annular-arc primitive — the translation of the
  * engine's 0x60-block arc func_002082B0). */
 #include "game/em_hud.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,11 +134,20 @@ static const float kTextRed[3]     = { 1.0f, 0.0f, 0.0f };     /* 0x265528 */
 static const float kTextDarkRed[3] = { 96.0f / 255.0f, 8.0f / 255.0f,
                                        16.0f / 255.0f };       /* 0x265520 */
 
-/* Scene dim — the documented STAND-IN for the engine's UI-camera swap
- * (the real screen replaces the world view with an identity-camera
- * scene: rotating player model inside the ring). Until the port can
- * re-camera the 3D pass, the dim keeps the "menu over the world" read. */
+/* Scene dim — the FALLBACK for the engine's real background when the
+ * active sheet has no BACKDROP record (old/missing asset). With the
+ * record present, background_render below draws the real thing. */
 static const float kSceneDim[4]    = { 0.0f, 0.0f, 0.0f, 0.60f };
+
+/* The UI-camera base frame behind the background layers: black (the
+ * engine's identity-camera scene is empty except the rotating player
+ * model — the documented 3D-in-UI TODO). */
+static const float kUiSceneBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+/* Background-layer modulate color: the engine passes (96,96,96, 64*sin)
+ * — GS modulate is Ct*Cs/128, so 96 = 0.75 brightness, 64 = 0.5 alpha. */
+#define BG_MOD   (96.0f / 128.0f)
+#define BG_ALPHA (64.0f / 128.0f)
 
 static float clamp01f(float v)
 {
@@ -391,9 +410,17 @@ static const char *msg_line(uint32_t group, uint32_t line)
  *   then sprite_count * { u16 u, v, w, h; s16 x, y; u16 dw, dh }
  *   then sheet_w * sheet_h * 4 RGBA8 texels (rows top-down)
  *
+ * Two x/y sentinels (never drawn as positioned sprites):
+ *   -32768  plain sheet-only record (no statically known anchor)
+ *   -32767  BACKDROP record — the screen's animated-background tile
+ *           (engine func_0020A7A0; dw/dh carry the 2x tile draw size);
+ *           background_render picks it up for the bottom layer
+ *
  * Missing/invalid asset => s_ui.state = -1 and the WHOLE decor pass
  * (sprites, pager-diamond arcs, profile text) queues nothing — the
  * frame stays identical to the pre-decor build. */
+#define SHEET_ONLY_XY (-32768)   /* exporter's plain sheet-only sentinel */
+#define BACKDROP_XY   (-32767)   /* exporter's backdrop-tile sentinel    */
 typedef struct {
     uint16_t u, v, w, h;
     int16_t  x, y;
@@ -515,6 +542,137 @@ static UiSheet *slot_ensure(EmGfx *gfx, int owner)
 static int ui_ensure(EmGfx *gfx)
 {
     return slot_ensure(gfx, SLOT_HUB) != NULL;
+}
+
+/* --- animated UI background (engine func_0020A7A0) --------------------
+ *
+ * Decoded draw chain (FINDINGS.md "STATUS SCREEN BACKGROUND"): every
+ * status/UI screen calls the universal background drawer with ONE
+ * per-screen 128x64 PSMT4 tile token before its panels. It composites
+ * THREE layers over the black UI-camera frame, each with persistent
+ * state (the engine's three 0x20-byte blocks at D_002655A0; .data init
+ * {0,0,90,0} / {0,0,90,0} / {0,0,0,0} — state persists across opens,
+ * there is no per-open reset):
+ *
+ *   layer 0  full-screen tiling of the tile at 2x (256x128 canvas px),
+ *            scrolling LEFT 0.5 px/frame (+0x00 -= 0.5, wrap 0 -> 255);
+ *            alpha 64*sin(phase deg) with phase pinned at 90 = constant
+ *            64. Grid phase: cols at x === int(p0) (mod 256), rows at
+ *            y === 96 (mod 128) — the engine's GS grid (x 0x400..0xC00
+ *            step 0x100, field y 0x400..0xC00 step 0x40) lands on those
+ *            residues inside the 512x448 canvas.
+ *   layer 1  same tiling, scrolling UP 1 canvas px/frame (+0x04 -= 0.5
+ *            field lines, wrap 0 -> 255; rows at y === 96 + 2*int(p1)
+ *            mod 128), alpha PULSED: while timer >= 0 it counts down
+ *            (alpha 0 — phase was reset); then phase += 0.25/frame and
+ *            alpha = 64*sin(phase) (12 s in/out breath); at phase 180
+ *            -> timer = 60 + 3*(rand()%60), phase/scroll reset.
+ *   layer 2  periodic full-screen ZOOM BURST: same pulse timer; while
+ *            active the tile stretches over the whole canvas expanding
+ *            0.3 px/frame per side past each edge (quad (-p0,-p1,
+ *            512+2*p0, 448+2*p1), p += 0.3/frame) at alpha 64*sin(phase).
+ *
+ * All layers draw the tile with modulate (96,96,96) at blend mode 0.
+ * The port queues only the grid cells intersecting the canvas (the
+ * engine emits the full off-screen grid; identical pixels) and skips
+ * zero-alpha layers. rand() is a fixed-seed LCG — deterministic, so
+ * headless captures reproduce. */
+typedef struct {
+    float p0, p1;       /* block +0x00/+0x04 — scroll / burst offsets */
+    float phase;        /* block +0x08 — alpha phase, degrees         */
+    int   timer;        /* block +0x0C — pulse cooldown; < 0 = active */
+} BgLayer;
+
+static BgLayer s_bgl[3] = {
+    { 0.0f, 0.0f, 90.0f, 0 },     /* D_002655A0 .data init values */
+    { 0.0f, 0.0f, 90.0f, 0 },
+    { 0.0f, 0.0f,  0.0f, 0 },
+};
+
+/* Deterministic stand-in for the engine's rand() in the pulse re-seed. */
+static uint32_t bg_rand(void)
+{
+    static uint32_t s = 0x2655A0u;   /* fixed seed: reproducible runs */
+    s = s * 1103515245u + 12345u;
+    return s >> 16;
+}
+
+/* Find the active sheet's BACKDROP record (x == -32767), or NULL. */
+static const UiSprite *backdrop_record(const UiSheet *ui)
+{
+    if (!ui || ui->state != 1) return NULL;
+    for (uint32_t i = 0; i < ui->sprite_count; i++)
+        if (ui->sprites[i].x == BACKDROP_XY)
+            return &ui->sprites[i];
+    return NULL;
+}
+
+/* Queue one frame of the animated background through the em_gfx
+ * backdrop layer (bottom of the overlay pass). Returns 1 when drawn;
+ * 0 when the sheet has no BACKDROP record (caller dims instead). */
+static int background_render(EmGfx *gfx, const UiSheet *ui)
+{
+    const UiSprite *bd = backdrop_record(ui);
+    if (!bd || !bd->dw || !bd->dh) return 0;   /* malformed record: dim */
+
+    em_gfx_overlay_backdrop_fill(gfx, kUiSceneBlack);
+
+    const float u0 = (float)bd->u, v0 = (float)bd->v;
+    const float u1 = (float)(bd->u + bd->w), v1 = (float)(bd->v + bd->h);
+    const float tw = (float)bd->dw, th = (float)bd->dh;  /* 256x128 */
+    const float deg2rad = 0.01745329252f;
+
+    for (int i = 0; i < 3; i++) {
+        BgLayer *L = &s_bgl[i];
+
+        /* pulse timer — layers 1/2 only (engine .L0020A810) */
+        if (i > 0) {
+            if (L->timer >= 0) {
+                L->timer--;
+            } else {
+                L->phase += 0.25f;
+                if (L->phase >= 180.0f) {
+                    L->timer = 60 + 3 * (int)(bg_rand() % 60u);
+                    L->phase = 0.0f;
+                    L->p0 = L->p1 = 0.0f;
+                }
+            }
+        }
+
+        if (i == 2) {
+            /* zoom burst — only while active (engine .L0020A9D8) */
+            if (L->timer >= 0) continue;
+            L->p0 += 0.3f;
+            L->p1 += 0.3f;
+            float a = BG_ALPHA * sinf(L->phase * deg2rad);
+            if (a <= 0.0f) continue;
+            const float c[4] = { BG_MOD, BG_MOD, BG_MOD, a };
+            em_gfx_overlay_backdrop(gfx, -L->p0, -L->p1,
+                                    EM_GFX_STATUS_W + 2.0f * L->p0,
+                                    EM_GFX_STATUS_H + 2.0f * L->p1,
+                                    u0, v0, u1, v1, c);
+            continue;
+        }
+
+        /* tiled scroll layers (engine grid loop) */
+        if (i == 0) {                       /* .L0020A8B8: left scroll  */
+            L->p0 -= 0.5f;
+            if (L->p0 < 0.0f) L->p0 = 255.0f;
+        } else {                            /* .L0020A948: up scroll    */
+            L->p1 -= 0.5f;
+            if (L->p1 < 0.0f) L->p1 = 255.0f;
+        }
+        float a = BG_ALPHA * sinf(L->phase * deg2rad);
+        if (a <= 0.0f) continue;
+        const float c[4] = { BG_MOD, BG_MOD, BG_MOD, a };
+        float xph = (float)(((int)L->p0) % (int)tw);
+        float yph = (float)((96 + 2 * (int)L->p1) % (int)th);
+        for (float y = yph - th; y < EM_GFX_STATUS_H; y += th)
+            for (float x = xph - tw; x < EM_GFX_STATUS_W; x += tw)
+                em_gfx_overlay_backdrop(gfx, x, y, tw, th,
+                                        u0, v0, u1, v1, c);
+    }
+    return 1;
 }
 
 /* Style table — font face + glyph cell + engine style color (8-byte
@@ -825,6 +983,16 @@ int em_hud_visible(void)
     return s_shown || hud_forced();
 }
 
+/* The pause-gate query (em_hud.h): the REAL toggle only — em_game halts
+ * the world simulation on this while the menu is up (the engine's open
+ * flag 0x8106C4). EM_HUD_FORCE is deliberately excluded: it is a
+ * render-only capture hook and the headless overlay captures need
+ * gameplay to keep running underneath. */
+int em_hud_is_open(void)
+{
+    return s_shown;
+}
+
 /* Step a display copy +-1/frame toward `target` (engine count-up). */
 static float count_up(float *disp, float target)
 {
@@ -1050,10 +1218,13 @@ static void decor(EmGfx *gfx)
                             rin, rout, rin, rout);
     }
 
-    /* Textured decor sprites — every .emui record carries its sheet UVs
-     * AND its audited canvas anchor, drawn 1:1 white-modulated. */
+    /* Textured decor sprites — every anchored .emui record carries its
+     * sheet UVs AND its audited canvas anchor, drawn 1:1 white-modulated
+     * (sentinel records — sheet-only and the backdrop tile — skip; the
+     * backdrop is drawn by background_render underneath everything). */
     for (uint32_t i = 0; i < s_ui.sprite_count; i++) {
         const UiSprite *s = &s_ui.sprites[i];
+        if (s->x <= BACKDROP_XY) continue;       /* both sentinels */
         em_gfx_overlay_sprite(gfx, (float)s->x, (float)s->y,
                               (float)s->dw, (float)s->dh,
                               (float)s->u, (float)s->v,
@@ -1097,7 +1268,7 @@ static void page_render(EmGfx *gfx, int page, const EmPlayerStatus *st)
     if (ui) {
         for (uint32_t i = 0; i < ui->sprite_count; i++) {
             const UiSprite *s = &ui->sprites[i];
-            if (s->x == -32768) continue;        /* sheet-only record */
+            if (s->x <= BACKDROP_XY) continue;   /* sheet-only/backdrop */
             em_gfx_overlay_sprite(gfx, (float)s->x, (float)s->y,
                                   (float)s->dw, (float)s->dh,
                                   (float)s->u, (float)s->v,
@@ -1211,9 +1382,17 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
      * later overlay callers (screen fade) keep the 640x448 default. */
     em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
 
-    /* Scene dim — STAND-IN for the engine's UI-camera swap (see top). */
-    em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_STATUS_W,
-                        EM_GFX_STATUS_H, kSceneDim);
+    /* The REAL background (the engine's animated UI background,
+     * func_0020A7A0) when the active sheet — the hub's ui.emui or the
+     * entered page's ui_pageN.emui — carries a BACKDROP record: black
+     * base + the three animated tile layers through the em_gfx backdrop
+     * queue, under every panel. No record (old/missing asset) => the
+     * flagged translucent scene-dim fallback. */
+    if (!background_render(gfx,
+                           slot_ensure(gfx, s_page >= 0 ? s_page
+                                                        : SLOT_HUB)))
+        em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_STATUS_W,
+                            EM_GFX_STATUS_H, kSceneDim);
 
     /* Entered page (stick hover + X on the hub diamond): the page view
      * replaces the hub composition entirely, exactly like the engine's

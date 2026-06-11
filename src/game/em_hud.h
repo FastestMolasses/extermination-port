@@ -25,10 +25,22 @@
  * STAND-INS (explicitly flagged):
  *  - The real screen swaps to an identity UI CAMERA — the 3D view
  *    becomes the status screen itself, with the rotating player model
- *    inside the ring gauge; it does NOT dim a live gameplay frame. The
- *    port's full-screen dim rect is the documented stand-in until the
- *    3D pass can be re-cameraed (whether the world SIMULATION also
- *    halts is still unverified in the engine; the port keeps simulating).
+ *    inside the ring gauge; it does NOT dim a live gameplay frame. With
+ *    assets/ui.emui present the port now renders the REAL background:
+ *    the engine's animated UI background (FINDINGS.md "STATUS SCREEN
+ *    BACKGROUND", the universal drawer func_0020A7A0) — a black base
+ *    frame (the UI-camera scene stand-in) under THREE animated layers
+ *    of the screen's 128x64 background tile (two 256x128-px tilings,
+ *    one scrolling left 0.5 px/frame, one scrolling up 1 px/frame with
+ *    a sin-pulsed alpha, plus the periodic full-screen "zoom burst"),
+ *    composited through the em_gfx backdrop queue so it sits UNDER all
+ *    panels. The hub uses the ui.emui BACKDROP record (TBP 0x1E40);
+ *    each entered page uses its own ui_pageN.emui BACKDROP record (the
+ *    engine passes a per-screen tile token). Without a BACKDROP record
+ *    (old/missing asset) the full-screen dim rect remains the flagged
+ *    fallback. The ROTATING PLAYER MODEL inside the ring is still a
+ *    documented TODO — it needs 3D-in-UI plumbing (an identity-camera
+ *    model draw between the backdrop and the overlay), not attempted.
  *  - The ring's rotating highlight is additive (blend mode 1) on the
  *    GS; the overlay pass is alpha-blend only, so it approximates with
  *    white at low alpha.
@@ -207,6 +219,15 @@ void em_hud_update(const EmFrameInput *in);
 
 /* Is the status screen currently shown? (toggle state OR EM_HUD_FORCE) */
 int em_hud_visible(void);
+
+/* Is the status screen OPEN — the hub or any entered page — by the real
+ * Triangle/Start toggle? The PAUSE-GATE query: the engine halts gameplay
+ * while its menu is up (flag 0x8106C4 = 1 between open and close), and
+ * em_game gates the world simulation on this. Unlike em_hud_visible()
+ * this deliberately EXCLUDES the EM_HUD_FORCE capture hook: FORCE is a
+ * render-only overlay switch, and the headless overlay captures rely on
+ * gameplay still reaching its capture frame underneath. */
+int em_hud_is_open(void);
 
 /* Queue this frame's status screen into the overlay pass — the dim
  * backdrop first, then the status elements. Call once per gameplay

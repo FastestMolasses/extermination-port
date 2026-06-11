@@ -63,6 +63,14 @@ struct EmGfx {
     uint32_t                     glyphVertCount;
     float                        spriteVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
     uint32_t                     spriteVertCount;
+    /* Backdrop layer (em_gfx_overlay_backdrop / _backdrop_fill): the
+     * animated UI background — UI-slot quads + an optional full-frame
+     * solid fill, flushed FIRST in the overlay sequence (bottom layer,
+     * under the untextured primitives). */
+    float                        backdropVerts[EM_GFX_BACKDROP_MAX * 6 * 12];
+    uint32_t                     backdropVertCount;
+    bool                         backdropFillOn;
+    float                        backdropFill[4];
     /* World-space beam pass (em_gfx_beam / em_gfx_beam_dot): primitives
      * queued during the frame as raw records; the camera-plane extrusion
      * needs the camera, so vertices are built at flush time from the
@@ -787,14 +795,17 @@ static void texquad_push(EmGfx *g, float *verts, uint32_t *count, int slot,
 }
 
 /* Queue one textured overlay quad into a slot's queue: canvas-space rect
- * sampling the slot's texture at texel UVs (u0,v0)-(u1,v1). */
+ * sampling the slot's texture at texel UVs (u0,v0)-(u1,v1). `cap` is the
+ * queue's quad budget (EM_GFX_OVERLAY_MAX, or EM_GFX_BACKDROP_MAX for
+ * the backdrop queue). */
 static void texquad_queue(EmGfx *g, float *verts, uint32_t *count, int slot,
+                          uint32_t cap,
                           float x, float y, float w, float h,
                           float u0, float v0, float u1, float v1,
                           const float rgba[4])
 {
     if (!g || !rgba || !g->overlayTex[slot] ||
-        *count + 6 > EM_GFX_OVERLAY_MAX * 6)
+        *count + 6 > cap * 6)
         return;
     texquad_push(g, verts, count, slot, x,     y,     u0, v0, rgba);
     texquad_push(g, verts, count, slot, x + w, y,     u1, v0, rgba);
@@ -811,7 +822,7 @@ void em_gfx_overlay_glyph(EmGfx *g, float x, float y, float w, float h,
 {
     if (!g) return;
     texquad_queue(g, g->glyphVerts, &g->glyphVertCount,
-                  EM_GFX_OVERLAY_TEX_FONT,
+                  EM_GFX_OVERLAY_TEX_FONT, EM_GFX_OVERLAY_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
 }
 
@@ -822,8 +833,27 @@ void em_gfx_overlay_sprite(EmGfx *g, float x, float y, float w, float h,
 {
     if (!g) return;
     texquad_queue(g, g->spriteVerts, &g->spriteVertCount,
-                  EM_GFX_OVERLAY_TEX_UI,
+                  EM_GFX_OVERLAY_TEX_UI, EM_GFX_OVERLAY_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
+}
+
+/* Queue one BACKDROP quad — UI slot, bottom layer (em_gfx.h). */
+void em_gfx_overlay_backdrop(EmGfx *g, float x, float y, float w, float h,
+                             float u0, float v0, float u1, float v1,
+                             const float rgba[4])
+{
+    if (!g) return;
+    texquad_queue(g, g->backdropVerts, &g->backdropVertCount,
+                  EM_GFX_OVERLAY_TEX_UI, EM_GFX_BACKDROP_MAX,
+                  x, y, w, h, u0, v0, u1, v1, rgba);
+}
+
+/* Queue the full-frame backdrop fill (em_gfx.h). */
+void em_gfx_overlay_backdrop_fill(EmGfx *g, const float rgba[4])
+{
+    if (!g || !rgba) return;
+    g->backdropFillOn = true;
+    memcpy(g->backdropFill, rgba, sizeof(g->backdropFill));
 }
 
 /* Flat-color arc (em_gfx.h). */
@@ -1056,6 +1086,51 @@ static void texquad_flush(EmGfx *g, int slot, float *verts_data,
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
+/* Flush the backdrop layer — the BOTTOM of the overlay sequence (the
+ * animated UI background under the panels, em_gfx.h): the optional
+ * full-frame solid fill (the UI-camera-scene stand-in; one quad through
+ * the untextured overlay pipeline, NDC-direct so it covers the whole
+ * drawable regardless of the selected canvas) and then the queued
+ * UI-slot backdrop quads (texquad_flush — same pipeline/state as the
+ * decor sprites). Runs before overlay_flush. */
+static void backdrop_flush(EmGfx *g)
+{
+    bool fill = g->backdropFillOn;
+    g->backdropFillOn = false;
+    if (fill && g->enc) {
+        if (!g->testPipeline)
+            g->testPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
+                                             @"f_main", false);
+        if (g->testPipeline) {
+            ensure_depth_states(g);
+            /* full-frame quad, pre-converted NDC (kTestShaderSrc layout:
+             * float4 pos + float4 color per vertex) */
+            float v[6 * 8];
+            static const float corner[6][2] = {
+                { -1.0f,  1.0f }, { 1.0f,  1.0f }, { -1.0f, -1.0f },
+                {  1.0f,  1.0f }, { 1.0f, -1.0f }, { -1.0f, -1.0f },
+            };
+            for (int i = 0; i < 6; i++) {
+                float *o = v + i * 8;
+                o[0] = corner[i][0];
+                o[1] = corner[i][1];
+                o[2] = 0.0f;
+                o[3] = 1.0f;
+                memcpy(o + 4, g->backdropFill, 4 * sizeof(float));
+            }
+            [g->enc setRenderPipelineState:g->testPipeline];
+            [g->enc setDepthStencilState:g->depthOff];
+            [g->enc setCullMode:MTLCullModeNone];
+            [g->enc setVertexBytes:v length:sizeof(v) atIndex:0];
+            [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                       vertexStart:0
+                       vertexCount:6];
+        }
+    }
+    texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,
+                  g->backdropVerts, &g->backdropVertCount);
+}
+
 void em_gfx_request_capture(EmGfx *g, const char *path)
 {
     if (!g || !path) return;
@@ -1104,6 +1179,7 @@ void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
     beam_flush(g);      /* world-space beams: after 3D, under the overlay */
+    backdrop_flush(g);  /* UI background: bottom of the overlay sequence */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,     /* decor over the rects  */
                   g->spriteVerts, &g->spriteVertCount);
