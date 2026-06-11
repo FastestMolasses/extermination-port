@@ -367,15 +367,17 @@ void em_gfx_beam_tri_tex(EmGfx *gfx, int slot, const float p[9],
 
 /* --- Flashlight spot light (forward spot term) ------------------------ */
 
-/* Set THIS frame's single forward SPOT LIGHT, applied ONLY by the baked
- * vertex-color LEVEL path of the skinned draws (mesh flag
- * EM_GFX_MESH_VCOLOR — the world geometry). The directional CHARACTER
- * path takes NO spot term (2026-06-11 weapon-visual pass): the spot is
- * muzzle-anchored and points away from the player, so the player/gun
- * must never catch their own light — in the reference capture the
- * beam lights the room only. Reset OFF at em_gfx_begin_frame; with no
- * call the frame output is bit-identical to pre-spot builds (the shader
- * adds exactly 0).
+/* Set THIS frame's single forward SPOT LIGHT. A REAL cone (cos_inner
+ * > -1) is applied ONLY by the baked vertex-color LEVEL path of the
+ * skinned draws (mesh flag EM_GFX_MESH_VCOLOR — the world geometry):
+ * the directional CHARACTER path takes no term (2026-06-11
+ * weapon-visual pass — the muzzle-anchored flashlight must never
+ * light the player/gun; the reference beam lights the room only).
+ * EXCEPTION: the degenerate CAMERA-FILL signature (cos_inner <= -1,
+ * a cone covering the whole sphere — em_game's status-menu turntable
+ * fill) ALSO lights the character path, wrapped by N.(-L). Reset OFF
+ * at em_gfx_begin_frame; with no call the frame output is
+ * bit-identical to pre-spot builds (the shader adds exactly 0).
  *
  * `pos`/`dir` world-space (dir normalized by the caller); `rgb` the
  * light color/intensity (components may exceed 1); `range` the falloff
