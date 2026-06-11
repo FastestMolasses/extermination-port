@@ -1398,8 +1398,29 @@ static void page_render(EmGfx *gfx, int page, const EmPlayerStatus *st)
                          (unsigned)st->battery,
                          (unsigned)st->battery_max);
             } else if (kCatRows[i] == 1) {   /* EQUIPMENT ITEMS */
-                int mags = st->reserve > 0 ? st->reserve / 30 : 0;
-                snprintf(row, sizeof row, "SPR4 MAGAZINE x%02d", mags);
+                /* 2026-06-11 pickup decode: with the inventory array
+                 * present (st->items = em_pickup_items(), the
+                 * D_00810C64 mirror) the row shows the REAL catalog
+                 * name (message-bank group 4 entry 0x10's name line —
+                 * group 3's 0x10 is a placeholder glyph) and the real
+                 * per-type count[0x10] (= the D_00810C63 pack
+                 * counter's value through case 0x10). The derived
+                 * reserve/30 stand-in stays the array-less fallback. */
+                const char *nm = msg_line(4, 0x10);
+                char name[28] = "SPR4 MAGAZINE";   /* PORT LABEL fallback */
+                const char *p = nm ? strchr(nm, '\n') : NULL;
+                if (p) {                           /* skip "Found:" */
+                    size_t m = 0;
+                    p++;
+                    while (p[m] && p[m] != '\n' && m < sizeof name - 1) {
+                        name[m] = p[m];
+                        m++;
+                    }
+                    name[m] = '\0';
+                }
+                int mags = st->items ? st->items[0x10]
+                         : st->reserve > 0 ? st->reserve / 30 : 0;
+                snprintf(row, sizeof row, "%s x%02d", name, mags);
             }
             if (row[0]) {
                 em_hud_text(gfx, 64.0f, y, row, EM_HUD_TEXT_NUM16);
@@ -1524,4 +1545,51 @@ void em_hud_game_over(EmGfx *gfx, int frames)
         em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 250.0f, prompt,
                     EM_HUD_TEXT_LABEL12);
     }
+}
+
+/* FOUND LINE — PORT STAND-IN, FLAGGED (em_hud.h; 2026-06-11 pickup
+ * decode). The engine auto-opens the status screen at the collected
+ * item's record (D_008106B0/B1 -> func_001AE7E0 mode 2); its text is
+ * message-bank group 4: "Found:\n<NAME>\n<description>", indexed by
+ * item TYPE. The port draws the "Found: <NAME>" composite as a
+ * transient line over gameplay instead. */
+#define FOUND_FRAMES 150          /* ~2.5 s — PORT cadence */
+
+static int s_found_type  = -1;
+static int s_found_timer = 0;
+
+void em_hud_found_show(int item_type)
+{
+    s_found_type  = item_type;
+    s_found_timer = FOUND_FRAMES;
+}
+
+void em_hud_found_render(EmGfx *gfx)
+{
+    if (s_found_timer <= 0 || !gfx) return;
+    if (em_hud_visible()) return;        /* the menu owns the screen */
+    s_found_timer--;
+    if (!em_hud_font_ready()) return;
+
+    char line[64];
+    const char *e = msg_line(4, (uint32_t)s_found_type);
+    const char *p = e ? strchr(e, '\n') : NULL;
+    if (p) {
+        /* "Found:" + the entry's NAME line */
+        char name[40];
+        size_t m = 0;
+        p++;
+        while (p[m] && p[m] != '\n' && m < sizeof name - 1) {
+            name[m] = p[m];
+            m++;
+        }
+        name[m] = '\0';
+        snprintf(line, sizeof line, "Found: %s", name);
+    } else {
+        snprintf(line, sizeof line, "Found: ITEM %02X",
+                 (unsigned)s_found_type & 0xFF);
+    }
+    float w = em_hud_text_width(line, EM_HUD_TEXT_TALL);
+    em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 384.0f, line,
+                EM_HUD_TEXT_TALL);
 }

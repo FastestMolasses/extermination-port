@@ -182,6 +182,12 @@ typedef struct {
     int16_t reserve;      /* D_00810CB4 — reserve rounds */
     uint8_t battery;      /* 0x810CB2 >> 1 — battery, display units */
     uint8_t battery_max;  /* 0x810CB7 >> 1 — battery max, display units */
+    const uint8_t *items; /* D_00810C64 mirror: u8 count per item TYPE
+                           * (em_pickup_items(), 256 entries). NULL
+                           * keeps the pre-inventory derived rows; set,
+                           * the ITEM page's magazine row reads
+                           * items[0x10] — the REAL pack count
+                           * (2026-06-11 pickup decode) */
 } EmPlayerStatus;
 
 /* Text styles — each pairs one of the two engine fonts with the glyph
@@ -249,6 +255,21 @@ void em_hud_menu_inhibit(int inhibit);
  * the screen appeared (drives the blink). Queue AFTER the fade rect
  * so the text reads over the black. */
 void em_hud_game_over(EmGfx *gfx, int frames);
+
+/* FOUND LINE (2026-06-11 pickup decode — em_pickup.h): in the ENGINE a
+ * collected item posts D_008106B0/B1 and the main-mode controller
+ * func_001AE7E0 AUTO-OPENS the status screen at the item's record,
+ * whose text is message-bank group 4 — the literal "Found:\n<NAME>\n
+ * <description>" entries, indexed by item TYPE. The port's page
+ * interiors are CONTENT TBD, so the stand-in (FLAGGED) is a transient
+ * in-world line: em_hud_found_show(type) arms it and
+ * em_hud_found_render draws "Found: <NAME>" (the group-4 entry's name
+ * line, tall font, centered low) for ~2.5 s of gameplay frames.
+ * Hidden while the status screen is open; missing bank falls back to
+ * "Found: ITEM <type>"; missing font queues nothing. Call _render once
+ * per frame from the close-out (after em_hud_render). */
+void em_hud_found_show(int item_type);
+void em_hud_found_render(EmGfx *gfx);
 
 /* Is the status screen currently shown? (toggle state OR EM_HUD_FORCE) */
 int em_hud_visible(void);

@@ -269,6 +269,27 @@ files map each native stage to the PS2 function it stands in for.
   evidence in em_game.c player_move) and runs the DECODED mode-1 aim
   camera (the CAMERA FIDELITY bullets above — the +0x8C stand-in is
   retired).
+- PICKUPS & INVENTORY (2026-06-11 s63 decode — em_pickup.h carries the
+  full ledger; FINDINGS "ITEM PICKUP SYSTEM FULLY DECODED"): scene.txt
+  `pickup` lines (export_level.py --pickups) place the engine's REAL
+  collectible items from the decoded deferred-spawn registry
+  D_0024D820 plus the placement tables' kind-0xB box stacks as
+  render-only `prop` lines (the s11/s15/s17 "kind-0xB = item pickups"
+  framing was OVERTURNED — those are scenery; the office bake no
+  longer embeds them). Collection is the decoded contract: CROSS press
+  edge -> the archetype-3 use scan (10-u ring, dy window [-20.5,+3.5],
+  pi/4 facing with the 7-u auto pass, nearest wins) -> 2 scripted
+  frames -> inventory count[type]++ (the D_00810C64 mirror; type 0x10
+  SPR4 MAGAZINE additionally +1 pack and +30 reserve rounds, handed to
+  em_weapon while holstered) -> despawn + the per-uid TAKEN BIT
+  (D_00810860 mirror, uid = (area<<8)|puid) which suppresses respawn
+  across scene reloads — the engine's own persistence. The "Found:"
+  presentation is an em_hud line (real tall font + the message bank's
+  group-4 name) — a FLAGGED stand-in for the engine's status-screen
+  auto-open at the item's record; the ITEM page's magazine row reads
+  the real count. Flagged gaps: grab-anim take variant (player clips
+  0x40..0x42 unexported), pickup auras, map/key-item array split,
+  story-gated spawn conds 3..6 (commented manifest lines).
 - KNIFE / MELEE (s36 decode — em_weapon.h "KNIFE / MELEE", FINDINGS
   "KNIFE/MELEE DECODED"): while HOLSTERED, CIRCLE (L) = the LIGHT 3-hit
   combo (engine mode 0x21: anims 0x10B/0x10C/0x10D, damage 3/3/5, sounds
@@ -302,7 +323,11 @@ files map each native stage to the PS2 function it stands in for.
   open -> held stick dead -> close -> movement resumes; PLUS the door leg —
   menu press DROPPED mid-fade, menu OPENS mid-walk-out while movement stays
   locked, the open menu freezes the walk-out, completion after resume),
-  `EM_AUDIO_TEST=1`
+  `EM_PICKUP_TEST=1` (pickup self-test on two script-injected items:
+  CROSS collect -> +count/+packs/+30 reserve/taken bit, despawn + the
+  pi/4 facing gate, scene reload -> taken-uid respawn suppressed +
+  inventory persisted; combine with EM_CAPTURE_FRAME=30 to capture the
+  "Found:" line), `EM_AUDIO_TEST=1`
   (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
   (full door-transit sequence self-test incl. the arrival walk-out and the
   frame-290 two-lock split witness), `EM_SFX_TEST=1` (3 overlapping

@@ -128,6 +128,7 @@
 #include "game/em_enemy.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
+#include "game/em_pickup.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
 #include "game/em_weapon.h"
@@ -560,10 +561,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *    player's top" is APPARENT rise, emergent from constant-height
  *    pull-in + the commit's +4 forward near-push. It returns when
  *    the sight line clears because the mode handler re-poses the
- *    desired eye every frame. NOT while aiming — structural: the aim
- *    camera (mode 1) solves with STYLE 2 -> func_0018F870 (a
- *    different, still-undecoded solver), never func_0018DD20.
- *    Full decoded policy in cam_solver_0018DD20 below.
+ *    desired eye every frame. The AIM camera (mode 1) never runs this
+ *    solver — it solves with STYLE 2 -> func_0018F870, ALSO DECODED
+ *    (2026-06-11 s63, cam_solver_0018F870 below): R1 KEEPS the
+ *    constant-height pull-in (hit + 0.5 along the player->eye ray)
+ *    but with NO head-clear waiver, NO wedge eject, a corner SLIDE
+ *    along the blocking wall, and a floor+2 (not +17) eye-Y bound.
+ *    Full decoded policy in cam_solver_0018DD20 / cam_solver_0018F870
+ *    below.
  *  - R1 (tap or hold) orients the camera behind the player and keeps
  *    it tracking the aim direction until release; L1 is a one-shot
  *    reorient-behind-the-player. Engine side these are camera-mode
@@ -647,10 +652,41 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define SOLV_BOUND_PULL   1.5f   /* bound probes cast from the eye pulled
                                    1.5 toward player + (0, 11, 0)         */
 #define SOLV_PLAYER_UP    11.0f
-#define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek:
-                                   the engine's orient-to-heading family
+/* func_0018F870 AIM/scope solver constants — engine immediates from the
+ * full 0x16A4 .s read (DECODED 2026-06-11 s63; retires the old
+ * CAM_WALL_MARGIN aim stand-in). Shares SOLV_EXT / SOLV_PULL_IN /
+ * SOLV_SIDE / SOLV_SIDE_PAD / SOLV_CROSS_DOT / SOLV_OPPOSE_DOT /
+ * SOLV_GATE_HI/LO / SOLV_BOUND_RANGE / SOLV_PLAYER_UP / SOLV_CEIL_PAD
+ * with the follow solver above. */
+#define AIMS_GLANCE_COS  0.99f   /* 0x3F7D70A4 — square-on gate:
+                                    dot(horiz TARGET-ward sight dir,
+                                    horiz hit normal) < 0.99 = glancing
+                                    (much tighter than the follow
+                                    solver's sin45)                      */
+#define AIMS_CORNER_OFF  1.0f    /* corner lane runs 1 u off the wall   */
+#define AIMS_CORNER_BACK 3.0f    /* lane sweep: -3 .. +5.5 along it     */
+#define AIMS_WALL_DOT    0.9f    /* 0x3F666666 — corner lane accepts a
+                                    DIFFERENT wall only (dot vs the
+                                    first normal < 0.9)                  */
+#define AIMS_FLOOR_PAD   2.0f    /* aim eye-Y lower bound = floor + 2
+                                    (the follow solver keeps 17 — the
+                                    aim camera may ride low)             */
+#define AIMS_BOUND_PULL  1.0f    /* settle probes cast from the eye
+                                    pulled 1.0 toward player + 11 up
+                                    (follow: 1.5)                        */
+#define AIMS_SETTLE_NY   0.17f   /* 0x3E2E147B — func_0018CE60 walkable
+                                    gate on non-floor-class normals      */
+#define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek
+                                   MOTION: the orient-to-heading family
                                    rate (func_001921D0 states 7/0x2C/0x2D,
-                                   float 0x3D0EFA35 = 2 deg/frame) */
+                                   float 0x3D0EFA35 = 2 deg/frame). The
+                                   sub-state-3 motion handler is still
+                                   unread — rate flagged. The ARM is now
+                                   decoded (func_00191000, s63): see the
+                                   L1 block in camera_mode_dispatch. */
+#define CAM_L1_MIN_RAD   7.0f   /* func_00191000 orbit-radius clamp:
+                                   cam+0x4C = |D_0081069C| forced into
+                                   [7.0, |cam+0x64| = 46.8]              */
 
 /* IDLE AUTO-ORIENT — DECODED (2026-06-11, func_001921D0 idle path +
  * func_00193D90, the director sub-state-2 orbit; replaces the old
@@ -1050,7 +1086,8 @@ static struct {
     float      viewproj[16];
 
     /* render chain (this frame's recorded draws) */
-    ChainDraw  chain[SCENE_MAX + 1 + EM_DOOR_MAX + EM_ENEMY_MAX];
+    ChainDraw  chain[SCENE_MAX + 1 + EM_DOOR_MAX + EM_ENEMY_MAX
+                     + EM_PICKUP_MAX];
     int        chain_len;
     int        chain_test_triangle;
 
@@ -1155,6 +1192,14 @@ static struct {
                                   * region test (synthetic office region) */
     int         aim_test;        /* EM_AIM_TEST=1 — manual aim-steer +
                                   * mode-1 aim-camera self-test */
+    int         pickup_test;     /* EM_PICKUP_TEST=1 — pickup collect /
+                                  * inventory / despawn / persistence-
+                                  * across-reload self-test */
+    int         pt_phase;        /* pickup test: script phase */
+    int         pt_fail;         /* pickup test: failed checkpoints */
+    int         pt_mark;         /* pickup test: phase anchor frame */
+    int         pt_slot;         /* pickup test: injected pickup slot */
+    int16_t     pt_r0;           /* pickup test: reserve before collect */
     int         melee_test;      /* EM_MELEE_TEST=1 — knife-vs-crate run */
     int         mt_fail;         /* melee test: failed checkpoints */
     int         mt_phase;        /* melee test: script phase */
@@ -1214,6 +1259,17 @@ static struct {
  *                             bursts into gibs + a worm on DAMAGE or
  *                             at the end of its alarm-driven suicide
  *                             run (s62 — no proximity trigger exists).
+ *   pickup <type> <x> <y> <z> <yaw> <uid> [<model.emdl>] [prop]
+ *                             one placed PICKUP (export_level.py
+ *                             --pickups, the decoded deferred-spawn
+ *                             registry D_0024D820 + the placement
+ *                             tables' kind-0xB display props; owned by
+ *                             em_pickup.c — see em_pickup.h for the
+ *                             full decode ledger). <uid> = the
+ *                             (area<<8)|puid taken-bit key (0 = never
+ *                             persists); a taken uid is silently NOT
+ *                             placed (the engine's cond-1 spawn
+ *                             suppression). `prop` = render-only.
  *   camregion <x0> <z0> <x1> <z1> <ygate> <ex> <ey> <ez>
  *                             one FIXED-CAMERA trigger volume (the mode-0
  *                             director func_00195130's decoded room-camera
@@ -1384,6 +1440,28 @@ static void scene_manifest_load(void)
                                      gyaw);
                 }
             }
+        } else if ((gn = sscanf(line, "pickup %i %f %f %f %f %i "
+                                "%255s %63s",
+                                &gk, &x, &y, &z, &yaw, &gl,
+                                name, gname)) >= 6) {
+            /* Placed pickup (em_pickup.c — collectible item or
+             * kind-0xB display prop; the line grammar is in the
+             * manifest doc above). gk = item type, gl = taken-bit
+             * uid; the optional 7th/8th tokens are the model file
+             * and/or the `prop` marker. */
+            const char *model = NULL;
+            int prop = 0;
+            if (gn >= 7) {
+                if (strcmp(name, "prop") == 0) prop = 1;
+                else model = name;
+            }
+            if (gn >= 8 && strcmp(gname, "prop") == 0) prop = 1;
+            float p[3] = { x, y, z };
+            int rc = em_pickup_add(em_frame_gfx(), g.scene_dir, gk, p,
+                                   yaw, gl, model, prop);
+            if (rc == -1)
+                printf("manifest: pickup line failed to load: %s", line);
+            /* rc == -2: taken uid — the engine's silent cond-1 skip */
         } else if ((gn = sscanf(line, "enemy generator %f %f %f %f "
                                 "kind %d link %d",
                                 &x, &y, &z, &yaw, &gk, &gl)) >= 4) {
@@ -1427,10 +1505,11 @@ static void scene_manifest_load(void)
                g.rig_cam_col[0], g.rig_cam_col[1], g.rig_cam_col[2],
                g.rig_cam_w, g.n_lamp);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
-           "collision %s%s%s, %d door(s), %d enem%s\n", mf,
+           "collision %s%s%s, %d door(s), %d enem%s, %d pickup(s)\n", mf,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
            g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count(),
-           em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies");
+           em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies",
+           em_pickup_count());
     for (int i = 0; i < g.n_camregion; i++)
         printf("manifest: camregion %d — X[%.1f,%.1f] Z[%.1f,%.1f] "
                "y %.1f, fixed eye (%.1f, %.1f, %.1f)\n", i,
@@ -1515,6 +1594,10 @@ static void scene_unload(EmGfx *gfx)
     em_door_scene_clear(gfx);   /* keeps the in-flight transit lock */
     em_enemy_shutdown(gfx);
     em_enemy_reset();
+    em_pickup_scene_clear(gfx); /* instances only — the inventory and
+                                 * the taken-bit set survive (engine
+                                 * globals; that survival IS the pickup
+                                 * persistence, em_pickup.h) */
 }
 
 int em_game_scene_switch(const char *dir)
@@ -2792,6 +2875,18 @@ static void render_chain_build(void)
             g.chain_len++;
         }
     }
+    /* Pickups (the func_001C4820/func_0015AFA0 actor draws — rigid
+     * props, pose baked at placement; func_001C6380). A collected slot
+     * stops drawing the frame it frees (em_pickup_draw returns 0). */
+    for (int i = 0; i < em_pickup_count(); i++) {
+        ChainDraw *cd = &g.chain[g.chain_len];
+        if (em_pickup_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
+            cd->tint = NULL;       /* items draw untinted (the engine
+                                    * AURA pass is unported — flagged
+                                    * in em_pickup.h) */
+            g.chain_len++;
+        }
+    }
     if (g.mesh) {
         g.chain[g.chain_len++] = (ChainDraw){ g.mesh, g.player_palette,
                                               g.model.bone_count, NULL };
@@ -3135,15 +3230,6 @@ static void camera_mode_dispatch(EmCamera *cam)
     }
 }
 
-/* AIM-camera pull-in margin (stand-in): how far in front of the hit
- * plane the aim eye sits along the blocked sight line. The aim camera
- * (mode 1) solves with STYLE 2 -> func_0018F870 over mask 7, a separate
- * solver that is still UNDECODED — this margin is a flagged stand-in
- * for it only (the follow camera now runs the real func_0018DD20
- * below). The commit's view position adds another 4.0 * forward away
- * from the wall (CAM_NEAR_PUSH), so a small margin suffices. */
-#define CAM_WALL_MARGIN 0.5f
-
 static float cam_dot3(const float a[3], const float b[3])
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -3171,8 +3257,10 @@ static float cam_wrap_pi(float a)               /* func_001B1470 */
  * solver over collision mask 6 (static cells + grid, NO movable
  * hulls) and then smooth-chases the actual eye at cap 4.0/frame.
  * (Styles 3/4 — cinematic player states — take a reduced branch in
- * the same function; style 5 = director cams -> func_0018D910;
- * style 2/6 = aim/scope -> func_0018F870. The dispatcher also runs a
+ * the same function; style 5 = director cams -> func_0018D910 [bounds
+ * maintenance only, cam_solver_0018D910 below]; style 2/6 = aim/scope
+ * -> func_0018F870 [decoded s63, cam_solver_0018F870 below]. The
+ * dispatcher also runs a
  * pre-pass func_0018D330 that publishes sight-ray bits to cam+0x5A
  * and the overhead-ceiling Y to cam+0x60 — no decoded consumer yet,
  * untranslated.)
@@ -3533,6 +3621,442 @@ static int cam_solver_0018DD20(EmCamera *cam)
     if (eye[1] <= cam->y_lo) { eye[1] = cam->y_lo; bits |= 0x40; }
     if (eye[1] >= cam->y_hi) { eye[1] = cam->y_hi; bits |= 0x80; }
     return bits;
+}
+
+/* func_0018CE60 — the vertical-bounds SETTLE helper (decoded s63; the
+ * s10 note "settle vs world: 2x func_0019A910 ray queries" was this).
+ * Probes 200 down / 200 up from `pt` (mask 7 for style 2, else 6) and
+ * derives the eye-Y bounds:
+ *   lower = floor hit + pad (style 2: +2; cam+0x5C == 1: +6; else +17)
+ *     — a NON-floor-class hit whose normal has n.y <= 0.17 (a wall
+ *     face seen from inside, 0x3E2E147B) keeps the RAW hit Y;
+ *     no hit -> carried y_lo - 200;
+ *   upper = ceiling hit - 1 (a non-ceiling-class hit with -n.y <= 0.17
+ *     keeps the raw Y); no hit -> pt.y + 200;
+ *   lower forced to upper - 3 if crossed.
+ * Writes cam+0x50/+0x54 and (style != 5) clamps the desired eye Y into
+ * them. The aim solver calls it when the primary block came from the
+ * GRID walker (engine query-hub return 4) instead of clamping into the
+ * previous frame's bounds. */
+static void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
+                                       int style)
+{
+    unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID;
+    if (style == 2)
+        mask |= EM_COLL_SET_HULLS;
+    float pad = (style == 2) ? AIMS_FLOOR_PAD
+              : (cam->var_5c == 1.0f ? SOLV_FLOOR_PAD1 : SOLV_FLOOR_PAD);
+    EmCollHit hit;
+    float probe[3] = { pt[0], pt[1] - SOLV_BOUND_RANGE, pt[2] };
+    float lo, hi;
+
+    if (em_collision_segment_query(&g.coll, pt, probe, mask,
+                                   EM_COLL_ID_NONE, &hit)) {
+        lo = hit.point[1];
+        if ((hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE)) ||
+            hit.normal[1] > AIMS_SETTLE_NY)
+            lo += pad;
+    } else {
+        lo = cam->y_lo - SOLV_BOUND_RANGE;
+    }
+    probe[1] = pt[1] + SOLV_BOUND_RANGE;
+    if (em_collision_segment_query(&g.coll, pt, probe, mask,
+                                   EM_COLL_ID_NONE, &hit)) {
+        hi = hit.point[1];
+        if ((hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) ||
+            -hit.normal[1] > AIMS_SETTLE_NY)
+            hi -= SOLV_CEIL_PAD;
+    } else {
+        hi = pt[1] + SOLV_BOUND_RANGE;
+    }
+    if (lo > hi) lo = hi - 3.0f;
+    cam->y_lo = lo;
+    cam->y_hi = hi;
+    if (style != 5) {
+        if (cam->eye_des[1] < lo) cam->eye_des[1] = lo;
+        if (cam->eye_des[1] > hi) cam->eye_des[1] = hi;
+    }
+}
+
+/* func_0018F870 — the AIM/scope wall solver, DECODED 2026-06-11 (s63)
+ * from the full 0x16A4 .s read; retires the flagged CAM_WALL_MARGIN
+ * stand-in. Style 2 = the aim camera (mode 1, mask 7 — movable hulls
+ * IN); style 6 = the scope camera (same first stage, NO lateral
+ * stages — not reachable natively, noted inline). The user-observed
+ * "R1 keeps the pull-in" is engine truth — the differences from the
+ * follow solver are:
+ *
+ *  1. PRIMARY PROBE runs from the PLAYER POSITION (+0xB0) — not the
+ *     desired target, which in aim rides the gun ray 16 u ahead — to
+ *     the desired eye extended 1.5 u. A hit sets result bit 1 (the
+ *     follow solver's plain pull-in returns 0) and publishes the
+ *     class (cam+0x58). GLANCING = dot(horiz TARGET-ward sight dir,
+ *     horiz normal) < 0.99 — a much tighter square-on gate than the
+ *     follow solver's sin45.
+ *  2. FIRST STAGE (every hit — NO head-clear waiver, NO wedge eject):
+ *      - non-wall class: widen the carried Y bound to admit the hit
+ *        (ceiling-class: y_lo down to hit.y, bit 8; floor-class: y_hi
+ *        up to hit.y, bit 0x10), then eye = hit (ALL 3 AXES) + 0.5 *
+ *        dir on x/z (dir = unit player->ext-eye) — the eye rides the
+ *        blocking surface; the -1/+1 standoff is applied by the final
+ *        Y policy below.
+ *      - wall (or any other class): PULL-IN, eye x/z = hit + 0.5 *
+ *        dir, HEIGHT KEPT — then eye.y clamps into the PREVIOUS
+ *        frame's bounds (cam+0x50/+0x54)… UNLESS the hit came from
+ *        the GRID walker (engine hub return 4): then the bounds are
+ *        RE-DERIVED at (hit - 1*dir) via func_0018CE60 and the clamp
+ *        uses the fresh pair.
+ *  3. LATERAL STAGE:
+ *      - blocked SQUARE-ON (not glancing): the CORNER SLIDE — a lane
+ *        1 u off the wall through the eye, swept -3 .. +5.5 u along
+ *        the wall face (along = wall-normal yaw - 90). A DIFFERENT
+ *        wall in the lane (normal dot vs the first < 0.9) places the
+ *        eye 5.5 u back from it along the wall [bits 2 / 4 by side;
+ *        the second side only probes if the first found nothing] —
+ *        the over-shoulder eye slides out of corner notches.
+ *      - clear OR glancing: the 5.5-u SIDE stage, the follow solver's
+ *        shape with the same constants (glancing sweep starts 3 u on
+ *        the far side; rejects: ceiling-case cross dot < -0.08
+ *        against the horiz PLAYER-ward dir, same-wall dot < -0.998;
+ *        NO far-end-graze check and NO confirm re-probe — simpler
+ *        than the follow solver), candidates at (hit -/+ side vec) +
+ *        0.1 along the probe ray, both-sides -> midpoint corridor
+ *        centering, right-side bit-8/bit-1 quirks kept verbatim.
+ *  4. FINAL Y POLICY (blocked, non-wall class): ceiling-class ->
+ *     eye.y = min(eye.y, hit.y - 1); floor-class -> eye.y =
+ *     max(eye.y, hit.y + 1).
+ *  5. CONFIRM RE-PROBE (any response bits 0x1F): player pos -> eye;
+ *     still blocked -> eye x/z = the NEW hit point (no pad).
+ *  6. NEW BOUNDS for the NEXT frame (written, NOT applied): from the
+ *     eye pulled 1.0 toward player + 11 up, 200 down (class 0x7000)
+ *     -> lower = floor + 2.0 (the follow solver's +17 becomes +2: the
+ *     aim eye may ride 2 u over the floor — why aiming can look from
+ *     ankle height); 200 up (0x8800) -> upper = ceiling - 1, else
+ *     eye + 200; lower forced to upper - 3.
+ *  (Engine per-area specials omitted, flagged: area 0x12 clamps eye.z
+ *  to [169.5, 230.6] and swaps the no-ceiling upper bound for a
+ *  player-up probe — with a stale-scratch quirk when THAT misses;
+ *  no native area ids.)
+ *
+ * Returns the result-bit byte -> cam->hit. The mode-1 handler's own
+ * eye-Y clamps ([player.y+2, +30]) and the dispatcher's 8-u min-
+ * distance push (camera_solve tail) then run downstream, exactly like
+ * the engine. */
+static int cam_solver_0018F870(EmCamera *cam)
+{
+    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID |
+                          EM_COLL_SET_HULLS;          /* style-2 mask 7 */
+    float *eye = cam->eye_des;                /* cam+0x10, in place */
+    const float *tgt = cam->tgt_des;          /* cam+0x20 */
+    EmCollHit hit;
+    int   bits = 0, glancing = 0, blocked;
+    float ext_eye[3];                 /* spad 38A0 (extended eye)     */
+    float first_pt[3] = { 0, 0, 0 };  /* spad 38C0/3950 (1st hit)     */
+    float first_n[3]  = { 0, 0, 0 };  /* spad 38E0 (1st hit normal)   */
+    float pdir[3]     = { 0, 0, 0 };  /* spad 3960 (horiz player-ward
+                                         sight dir)                   */
+    float dir[3]      = { 0, 0, 0 };  /* spad 38A0' (unit player->eye)*/
+    uint16_t attr = 0;
+
+    /* 1. PRIMARY PROBE — player position -> eye extended 1.5 u. */
+    {
+        float d[3] = { eye[0] - g.pos[0], eye[1] - g.pos[1],
+                       eye[2] - g.pos[2] };
+        cam_norm3(d);
+        ext_eye[0] = eye[0] + SOLV_EXT * d[0];
+        ext_eye[1] = eye[1] + SOLV_EXT * d[1];
+        ext_eye[2] = eye[2] + SOLV_EXT * d[2];
+    }
+    blocked = em_collision_segment_query(&g.coll, g.pos, ext_eye, mask,
+                                         EM_COLL_ID_NONE, &hit);
+    if (blocked) {
+        int from_grid = hit.kind == EM_COLL_SET_GRID; /* hub return 4 */
+        bits = 1;                     /* a plain aim block returns 1  */
+        attr = hit.surf_class;
+        cam->hit_attr = attr;                          /* cam+0x58 */
+        memcpy(first_pt, hit.point, sizeof first_pt);
+        memcpy(first_n, hit.normal, sizeof first_n);
+        {
+            float tdir[3] = { tgt[0] - eye[0], 0.0f, tgt[2] - eye[2] };
+            cam_norm3(tdir);
+            if (tdir[0] * first_n[0] + tdir[2] * first_n[2]
+                    < AIMS_GLANCE_COS)
+                glancing = 1;
+        }
+        pdir[0] = g.pos[0] - eye[0];
+        pdir[2] = g.pos[2] - eye[2];
+        cam_norm3(pdir);
+        dir[0] = ext_eye[0] - g.pos[0];
+        dir[1] = ext_eye[1] - g.pos[1];
+        dir[2] = ext_eye[2] - g.pos[2];
+        cam_norm3(dir);
+
+        /* 2. FIRST STAGE — no waiver, no wedge eject. */
+        if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN |
+                    EM_SURF_FLOOR | EM_SURF_SLOPE)) {     /* 0xD800 */
+            if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
+                if (first_pt[1] < cam->y_lo) cam->y_lo = first_pt[1];
+                bits |= 8;
+            } else {
+                if (first_pt[1] > cam->y_hi) cam->y_hi = first_pt[1];
+                bits |= 0x10;
+            }
+            eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
+            eye[1] = first_pt[1];          /* full copy: ride the hit */
+            eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
+        } else {
+            /* wall/other: PULL-IN at constant height — "R1 keeps the
+             * pull-in" (the user's note) is engine truth. */
+            eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
+            eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
+            if (from_grid) {
+                float pb[3] = { first_pt[0] - dir[0],
+                                first_pt[1] - dir[1],
+                                first_pt[2] - dir[2] };
+                cam_bounds_settle_0018CE60(cam, pb, 2);
+            } else {
+                if (eye[1] <= cam->y_lo) eye[1] = cam->y_lo;
+                if (eye[1] >= cam->y_hi) eye[1] = cam->y_hi;
+            }
+        }
+        /* EM_CAMERA_TRACE=1 — first-stage branch (debug). */
+        {
+            static int trace = -1;
+            if (trace < 0)
+                trace = getenv("EM_CAMERA_TRACE") != NULL;
+            if (trace)
+                printf("camera: frame %d 0018F870 BLOCKED attr 0x%04x "
+                       "%s-> des eye %.2f %.2f %.2f (player %.2f %.2f "
+                       "%.2f)\n", g.frame_no, attr,
+                       glancing ? "[glancing] " : "",
+                       eye[0], eye[1], eye[2],
+                       g.pos[0], g.pos[1], g.pos[2]);
+        }
+    }
+
+    /* 3. LATERAL STAGE (style 6 scope would skip it entirely). */
+    if (blocked && !glancing) {
+        /* CORNER SLIDE — a lane 1 u off the wall, -3 .. +5.5 along it. */
+        float ayaw = cam_wrap_pi(atan2f(first_n[0], first_n[2])
+                                 - EM_PI * 0.5f);
+        float ua[3] = { sinf(ayaw), 0.0f, cosf(ayaw) }; /* unit along */
+        float av[3] = { SOLV_SIDE * ua[0], 0.0f, SOLV_SIDE * ua[2] };
+        float base[3] = { eye[0] + AIMS_CORNER_OFF * first_n[0],
+                          eye[1] + AIMS_CORNER_OFF * first_n[1],
+                          eye[2] + AIMS_CORNER_OFF * first_n[2] };
+        for (int side = 0; side < 2; side++) {
+            float sgn = side == 0 ? 1.0f : -1.0f;
+            float st[3] = { base[0] - sgn * AIMS_CORNER_BACK * ua[0],
+                            base[1],
+                            base[2] - sgn * AIMS_CORNER_BACK * ua[2] };
+            float en[3] = { base[0] + sgn * av[0],
+                            base[1],
+                            base[2] + sgn * av[2] };
+            if (em_collision_segment_query(&g.coll, st, en, mask,
+                                           EM_COLL_ID_NONE, &hit) &&
+                (hit.surf_class & EM_SURF_WALL) &&
+                cam_dot3(hit.normal, first_n) < AIMS_WALL_DOT) {
+                eye[0] = hit.point[0] - sgn * av[0];
+                eye[2] = hit.point[2] - sgn * av[2];
+                bits |= side == 0 ? 2 : 4;
+                break;     /* the second lane probes only if the first
+                              found nothing (engine: s2 & 2 gate) */
+            }
+        }
+    } else if (!blocked || glancing) {
+        /* SIDE STAGE — the follow solver's shape, aim variant: no
+         * far-end-graze check, no confirm re-probe. */
+        float syaw = cam_wrap_pi(atan2f(tgt[0] - eye[0],
+                                        tgt[2] - eye[2]) - EM_PI * 0.5f);
+        float su[3] = { sinf(syaw), 0.0f, cosf(syaw) };  /* unit side */
+        float sv[3] = { SOLV_SIDE * su[0], 0.0f, SOLV_SIDE * su[2] };
+        float lpt[3] = { 0, 0, 0 }, rpt[3] = { 0, 0, 0 };
+        float cand_a[3], cand_b[3];
+        int   raw_l = 0, raw_r = 0;   /* lane hit, not dot-rejected */
+        memcpy(cand_a, eye, sizeof cand_a);
+        memcpy(cand_b, eye, sizeof cand_b);
+        for (int side = 0; side < 2; side++) {
+            float sgn = side == 0 ? 1.0f : -1.0f;
+            float st[3], en[3], gate;
+            if (!blocked) {
+                st[0] = eye[0]; st[1] = eye[1]; st[2] = eye[2];
+            } else {
+                st[0] = eye[0] - sgn * AIMS_CORNER_BACK * su[0];
+                st[1] = eye[1];
+                st[2] = eye[2] - sgn * AIMS_CORNER_BACK * su[2];
+            }
+            en[0] = eye[0] + sgn * sv[0];
+            en[1] = eye[1];
+            en[2] = eye[2] + sgn * sv[2];
+            if (!em_collision_segment_query(&g.coll, st, en, mask,
+                                            EM_COLL_ID_NONE, &hit))
+                continue;
+            gate = 0.0f;
+            if (blocked) {            /* glancing-only validation */
+                if (bits & 8) {       /* 1st stage was ceiling-class */
+                    gate = cam_dot3(hit.normal, pdir);
+                    if (gate < SOLV_CROSS_DOT) continue;
+                } else {
+                    gate = cam_dot3(hit.normal, first_n);
+                    if (gate < SOLV_OPPOSE_DOT) continue;
+                }
+            }
+            if (side == 0) { raw_l = 1; memcpy(lpt, hit.point, 12); }
+            else           { raw_r = 1; memcpy(rpt, hit.point, 12); }
+            /* response window (non-glancing: gate in (-0.3, 0.9)) */
+            if (!glancing &&
+                (!(gate < SOLV_GATE_HI) || gate <= SOLV_GATE_LO))
+                continue;
+            {
+                float rd[3] = { en[0] - st[0], en[1] - st[1],
+                                en[2] - st[2] };
+                float c[3]  = { hit.point[0] - sgn * sv[0],
+                                hit.point[1],
+                                hit.point[2] - sgn * sv[2] };
+                float *cand = side == 0 ? cand_a : cand_b;
+                cam_norm3(rd);
+                if (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
+                    if (-hit.normal[1] < AIMS_WALL_DOT) {
+                        cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                        cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                        bits |= side == 0 ? 2 : 4;
+                    } else {
+                        /* flat underside: keep the candidate's own Y
+                         * (right side sets bit 8 only — never applied
+                         * below, engine quirk kept) */
+                        cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                        cand[1] = c[1];
+                        cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                        bits |= side == 0 ? 0xA : 0x8;
+                    }
+                } else if (hit.surf_class & EM_SURF_WALL) {
+                    cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                    cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                    bits |= side == 0 ? 2 : 4;
+                } else {
+                    /* other class (right side: bit 1 only, quirk) */
+                    cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
+                    cand[1] = c[1];
+                    cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
+                    bits |= side == 0 ? 3 : 1;
+                }
+            }
+        }
+        /* selection (engine: midpoint whenever the OTHER lane also hit
+         * something it did not dot-reject, even window-failed) */
+        if ((bits & 6) == 6 || ((bits & 2) && raw_r) ||
+            ((bits & 4) && raw_l)) {
+            eye[0] = 0.5f * (lpt[0] + rpt[0]);   /* corridor centering */
+            eye[2] = 0.5f * (lpt[2] + rpt[2]);
+        } else if (bits & 2) {
+            memcpy(eye, cand_a, 12);             /* full copy, incl. Y */
+        } else if (bits & 4) {
+            memcpy(eye, cand_b, 12);
+        }
+    }
+
+    /* 4. FINAL Y POLICY (blocked by a NON-wall class). */
+    if (blocked && !(attr & EM_SURF_WALL)) {
+        if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
+            float lim = first_pt[1] - 1.0f;      /* stay under it */
+            if (eye[1] > lim) eye[1] = lim;
+        } else {
+            float lim = first_pt[1] + 1.0f;      /* ride over it */
+            if (eye[1] < lim) eye[1] = lim;
+        }
+    }
+
+    /* 5. CONFIRM RE-PROBE — any response moved the eye: re-test the
+     * player->eye line; still blocked -> park ON the new hit (x/z,
+     * height kept, no pad). */
+    if ((bits & 0x1F) &&
+        em_collision_segment_query(&g.coll, g.pos, eye, mask,
+                                   EM_COLL_ID_NONE, &hit)) {
+        eye[0] = hit.point[0];
+        eye[2] = hit.point[2];
+    }
+
+    /* 6. NEW BOUNDS for the NEXT frame (written, not applied here). */
+    {
+        float anchor[3] = { g.pos[0], g.pos[1] + SOLV_PLAYER_UP,
+                            g.pos[2] };
+        float d[3] = { eye[0] - anchor[0], eye[1] - anchor[1],
+                       eye[2] - anchor[2] };
+        float pb[3], probe[3], lo, hi;
+        cam_norm3(d);
+        pb[0] = eye[0] - AIMS_BOUND_PULL * d[0];
+        pb[1] = eye[1] - AIMS_BOUND_PULL * d[1];
+        pb[2] = eye[2] - AIMS_BOUND_PULL * d[2];
+        probe[0] = pb[0];
+        probe[1] = pb[1] - SOLV_BOUND_RANGE;
+        probe[2] = pb[2];
+        if (em_collision_segment_query(&g.coll, pb, probe, mask,
+                                       EM_COLL_ID_NONE, &hit) &&
+            (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
+                               EM_SURF_WALL)))   /* 0x7000, verbatim */
+            lo = hit.point[1] + AIMS_FLOOR_PAD;
+        else
+            lo = cam->y_lo - SOLV_BOUND_RANGE;
+        probe[1] = pb[1] + SOLV_BOUND_RANGE;
+        if (em_collision_segment_query(&g.coll, pb, probe, mask,
+                                       EM_COLL_ID_NONE, &hit) &&
+            (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
+            hi = hit.point[1] - SOLV_CEIL_PAD;
+        else
+            hi = eye[1] + SOLV_BOUND_RANGE;      /* area 0x12 variant
+                                                    omitted, flagged */
+        if (lo > hi) lo = hi - 3.0f;
+        cam->y_lo = lo;
+        cam->y_hi = hi;
+    }
+    return bits;
+}
+
+/* func_0018D910 — the style-5 DIRECTOR solver (decoded s63; the s61
+ * table's "returns 0" undersold it): it never moves the eye — it is
+ * BOUNDS MAINTENANCE ONLY, the func_0018CE60 settle shape anchored at
+ * the eye pulled 1.0 toward player + 11 up: floor probe 200 down
+ * (class 0x7000) -> lower = floor + 17 (+6 when cam+0x5C == 1);
+ * ceiling probe 200 up (0x8800) -> upper = ceiling - 1, else eye_des.y
+ * + 200 (area-0x12 player-up variant omitted, flagged); lower forced
+ * to upper - 3. Keeps cam+0x50/+0x54 fresh while a director/fixed
+ * camera owns the eye, so the first follow solve after release clamps
+ * against live bounds. */
+static void cam_solver_0018D910(EmCamera *cam)
+{
+    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID;
+    float anchor[3] = { g.pos[0], g.pos[1] + SOLV_PLAYER_UP, g.pos[2] };
+    float d[3] = { cam->eye_des[0] - anchor[0],
+                   cam->eye_des[1] - anchor[1],
+                   cam->eye_des[2] - anchor[2] };
+    float pb[3], probe[3], lo, hi;
+    EmCollHit hit;
+
+    cam_norm3(d);
+    pb[0] = cam->eye_des[0] - AIMS_BOUND_PULL * d[0];
+    pb[1] = cam->eye_des[1] - AIMS_BOUND_PULL * d[1];
+    pb[2] = cam->eye_des[2] - AIMS_BOUND_PULL * d[2];
+    probe[0] = pb[0];
+    probe[1] = pb[1] - SOLV_BOUND_RANGE;
+    probe[2] = pb[2];
+    if (em_collision_segment_query(&g.coll, pb, probe, mask,
+                                   EM_COLL_ID_NONE, &hit) &&
+        (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
+                           EM_SURF_WALL)))        /* 0x7000, verbatim */
+        lo = hit.point[1] + (cam->var_5c == 1.0f ? SOLV_FLOOR_PAD1
+                                                 : SOLV_FLOOR_PAD);
+    else
+        lo = cam->y_lo - SOLV_BOUND_RANGE;
+    probe[1] = pb[1] + SOLV_BOUND_RANGE;
+    if (em_collision_segment_query(&g.coll, pb, probe, mask,
+                                   EM_COLL_ID_NONE, &hit) &&
+        (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
+        hi = hit.point[1] - SOLV_CEIL_PAD;
+    else
+        hi = cam->eye_des[1] + SOLV_BOUND_RANGE;
+    if (lo > hi) lo = hi - 3.0f;
+    cam->y_lo = lo;
+    cam->y_hi = hi;
 }
 
 /* func_0018D7B0 (style 0) — the desired-eye solver dispatcher.
@@ -4406,7 +4930,14 @@ static void frame_close_out(void)
     em_hud_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
+    g.status.items   = em_pickup_items();   /* the D_00810C64 mirror —
+                                             * the ITEM page's real
+                                             * per-type counts */
     em_hud_render(gfx, &g.status);
+    em_hud_found_render(gfx);   /* transient "Found: <name>" line over
+                                 * gameplay (hidden while the menu is
+                                 * open) — the pickup decode's flagged
+                                 * status-auto-open stand-in */
 
     /* SCREEN FADE — the step-D machine, drawn last so it covers the
      * scene AND the status screen (the engine's fade owns the whole GS
@@ -5647,6 +6178,113 @@ static void pause_test_script(void)
     }
 }
 
+/* EM_PICKUP_TEST=1 — pickup collect / inventory / despawn / persistence
+ * self-test (the 2026-06-11 pickup decode, em_pickup.h). Runs on the
+ * default scene (assets/scene — needs the exported assets tree for the
+ * reload leg, like EM_DOOR_TEST): two SYNTHETIC pickups are injected
+ * by the script itself so the assertions are placement-independent:
+ *
+ *   A: type 0x10 (SPR4 MAGAZINE — the func_001C40B0 case-0x10 ammo
+ *      path), 4 u IN FRONT of the spawn (inside the 7-u facing
+ *      auto-pass ring), uid 0xF01
+ *   B: type 0x20 (MTS VACCINE), 9 u BEHIND the spawn — inside the
+ *      10-u ring but outside the auto ring with the player facing
+ *      AWAY: the pi/4 facing gate must hold, uid 0xF02
+ *
+ *   frame  1   inject A + B; record the reserve
+ *   frame  5   CROSS -> the scan arms A (nearest passer; B fails the
+ *              facing gate); the take fires after the 2 scripted
+ *              frames
+ *   frame 12   assert: count[0x10] == 1, pack counter == 1, taken bit
+ *              0xF01 set, reserve == r0 + 30 (the +30/pack applied
+ *              through the holstered weapon), count[0x20] == 0
+ *   frame 20   CROSS again -> assert at 28: counts unchanged (A
+ *              DESPAWNED — no double collect; B's facing gate held)
+ *   frame 40   scene RELOAD (em_game_scene_switch into the same dir —
+ *              the engine's area re-entry); re-inject A and B: A must
+ *              be SUPPRESSED (rc -2, the cond-1 taken check), B
+ *              re-places
+ *   frame 45   assert + PASS/FAIL + quit. */
+static void pickup_test_script(void)
+{
+    static int ok_place, ok_take, ok_gate, ok_reload, ok_suppress;
+    static float pa[3], pb[3];
+    int n = g.frame_no;
+    if (n == 1) {
+        float fy = g.spawn_yaw;
+        pa[0] = g.spawn[0] + 4.0f * sinf(fy);
+        pa[1] = g.spawn[1];
+        pa[2] = g.spawn[2] + 4.0f * cosf(fy);
+        pb[0] = g.spawn[0] - 9.0f * sinf(fy);
+        pb[1] = g.spawn[1];
+        pb[2] = g.spawn[2] - 9.0f * cosf(fy);
+        int a = em_pickup_add(em_frame_gfx(), g.scene_dir,
+                              EM_PICKUP_TYPE_MAG, pa, 0.0f, 0xF01,
+                              NULL, 0);
+        int b = em_pickup_add(em_frame_gfx(), g.scene_dir, 0x20, pb,
+                              0.0f, 0xF02, NULL, 0);
+        g.pt_slot = a;
+        g.pt_r0   = em_weapon_reserve();
+        ok_place  = a >= 0 && b >= 0 &&
+                    em_pickup_item_count(EM_PICKUP_TYPE_MAG) == 0 &&
+                    !em_pickup_taken(0xF01);
+        if (!ok_place) g.pt_fail++;
+    } else if (n == 5) {
+        move_test_inject('k', 1);          /* CROSS — the use press */
+    } else if (n == 7) {
+        move_test_inject('k', 0);
+    } else if (n == 12) {
+        ok_take = em_pickup_item_count(EM_PICKUP_TYPE_MAG) == 1 &&
+                  em_pickup_mag_packs() == 1 &&
+                  em_pickup_taken(0xF01) &&
+                  em_weapon_reserve() == (int16_t)(g.pt_r0 + 30) &&
+                  em_pickup_item_count(0x20) == 0;
+        if (!ok_take) {
+            g.pt_fail++;
+            printf("pickup test: CHECK FAILED — take (count %u packs "
+                   "%u taken %d reserve %d/%d count20 %u)\n",
+                   em_pickup_item_count(EM_PICKUP_TYPE_MAG),
+                   em_pickup_mag_packs(), em_pickup_taken(0xF01),
+                   em_weapon_reserve(), g.pt_r0 + 30,
+                   em_pickup_item_count(0x20));
+        }
+    } else if (n == 20) {
+        move_test_inject('k', 1);
+    } else if (n == 22) {
+        move_test_inject('k', 0);
+    } else if (n == 28) {
+        ok_gate = em_pickup_item_count(EM_PICKUP_TYPE_MAG) == 1 &&
+                  em_pickup_item_count(0x20) == 0;
+        if (!ok_gate) g.pt_fail++;
+    } else if (n == 40) {
+        ok_reload = em_game_scene_switch(g.scene_dir) == 0;
+        if (!ok_reload) g.pt_fail++;
+        int a = em_pickup_add(em_frame_gfx(), g.scene_dir,
+                              EM_PICKUP_TYPE_MAG, pa, 0.0f, 0xF01,
+                              NULL, 0);
+        int b = em_pickup_add(em_frame_gfx(), g.scene_dir, 0x20, pb,
+                              0.0f, 0xF02, NULL, 0);
+        ok_suppress = a == -2 && b >= 0;
+        if (!ok_suppress) g.pt_fail++;
+    } else if (n == 45) {
+        int ok_persist = em_pickup_taken(0xF01) &&
+                         !em_pickup_taken(0xF02) &&
+                         em_pickup_item_count(EM_PICKUP_TYPE_MAG) == 1;
+        int ok = ok_place && ok_take && ok_gate && ok_reload &&
+                 ok_suppress && ok_persist && g.pt_fail == 0;
+        printf("pickup test: placed %s, collected (+count/+packs/+30 "
+               "reserve/taken bit) %s, despawn + facing gate %s, "
+               "scene reload %s, taken-uid respawn suppressed %s, "
+               "inventory persisted %s — %s\n",
+               ok_place ? "ok" : "FAILED", ok_take ? "ok" : "FAILED",
+               ok_gate ? "ok" : "FAILED", ok_reload ? "ok" : "FAILED",
+               ok_suppress ? "ok" : "FAILED",
+               ok_persist ? "ok" : "FAILED", ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+}
+
 static void sfx_test_script(void)
 {
     /* Decoded-math assertion state (frame 40/50/60 below). The synthetic
@@ -6470,6 +7108,7 @@ static void gameplay_frame(void)
     if (g.death_test) death_test_script();  /* debug instrumentation only */
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     if (g.pause_test) pause_test_script();  /* debug instrumentation only */
+    if (g.pickup_test) pickup_test_script();/* debug instrumentation only */
     if (g.camregion_test) camregion_test_script(); /* debug instr. only  */
     if (g.aim_test)  aim_test_script();     /* debug instrumentation only */
     /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
@@ -6553,6 +7192,41 @@ static void gameplay_frame(void)
             camera_desired_eye(&g.cam);
             memcpy(g.cam.eye, g.cam.eye_des, sizeof g.cam.eye);
             memcpy(g.cam.tgt, g.cam.tgt_des, sizeof g.cam.tgt);
+        }
+    }
+    /* PICKUPS (em_pickup.h — the pool's item actors plus the player
+     * use scan's archetype-3 ITEM branch). The scan rides the same
+     * CROSS press edge as the door scan above; the engine's single
+     * nearest-wins walk over one interactive list is approximated
+     * DOORS-FIRST: a press that armed a door has engaged the movement
+     * lock by now, which suppresses the item scan (the engine's
+     * scripted-frame spad-3B8D gate shape). Damage lock likewise. */
+    em_pickup_update(g.pos, g.yaw, em_frame_input(),
+                     !em_door_movement_locked() &&
+                     !player_damage_locked());
+    {
+        /* Collection events (one-shot takes — em_pickup.h):
+         *  - FOUND: the engine posts D_008106B0/B1 and auto-opens the
+         *    status screen at the item's record; the port stand-in is
+         *    the em_hud Found line (flagged there).
+         *  - AMMO (func_001C40B0 case 0x10, +30 reserve per pack):
+         *    applied through em_weapon_reset — the module's only ammo
+         *    writer — so only while the machine is quiescent
+         *    (HOLSTERED, no melee); otherwise the rounds stay pending
+         *    inside em_pickup until the stance settles. */
+        int found = em_pickup_found_take();
+        if (found >= 0)
+            em_hud_found_show(found);
+        if (em_weapon_state() == EM_WPN_HOLSTERED &&
+            !em_weapon_is_melee()) {
+            int rounds = em_pickup_ammo_take();
+            if (rounds > 0) {
+                em_weapon_reset(em_weapon_mag(),
+                                (int16_t)(em_weapon_reserve() + rounds));
+                printf("pickup: +%d reserve rounds (mag %u, reserve "
+                       "%d)\n", rounds, em_weapon_mag(),
+                       em_weapon_reserve());
+            }
         }
     }
     /* ENEMIES: the enemy state machines (func_001551B0 crates +
@@ -7092,6 +7766,10 @@ void em_game_install(void)
     g.melee_test   = kt && kt[0] == '1';
     const char *gt = getenv("EM_DEATH_TEST");
     g.death_test   = gt && gt[0] == '1';
+    const char *ik = getenv("EM_PICKUP_TEST");
+    g.pickup_test  = ik && ik[0] == '1';
+    em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
+                          * D_00810700-block memset (func_001AF2C0) */
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
@@ -7111,6 +7789,7 @@ void em_game_shutdown(void)
     g.n_scene = 0;
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
+    em_pickup_scene_clear(gfx);
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
     em_sfx_shutdown();  /* AFTER em_bgm_shutdown — the device-teardown
