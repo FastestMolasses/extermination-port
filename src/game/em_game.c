@@ -450,21 +450,32 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *    < 4 gate). NOT a general overlay hook: the lone `jal 0x823FE0`
  *    is the area-13/entry>=8 gate and lands mid-function in the
  *    shipped AREA13.BIN (dead/drifted). EXPORTED-AREA VERDICT:
- *    AREA02 (office, both subs) and AREA01 sub 0 define NO fixed
- *    cameras — all chase (the AREA02 overlay never touches the
- *    camera; AREA01's only touch is the drawbridge-cutscene target
- *    retarget). AREA06 (snow) has ONE real region: X[-370,-340] x
- *    Z[-620,-600], y gate 60, fixed eye (-367.7, 90, -598.9) —
- *    exported as scene_snow's `camregion` line. The port machinery
- *    is live: scene.txt `camregion x0 z0 x1 z1 ygate ex ey ez`
- *    lines drive camera_mode_dispatch's in-region branch (fixed
- *    eye, L1/auto-orient ignored, R1 aim still runs, release snaps
- *    back INSTANTLY — the observed behavior: "letting go INSTANTLY
- *    snaps back to the room's setting"). EM_CAMREGION_TEST=1 proves
- *    it with a flagged SYNTHETIC office region (the office has no
- *    real ones). Engine refinement noted: the snow case approaches
- *    its spec at 0.7 u/frame via the chase primitives; the port
- *    uses hard placement ("chase disabled") per the observed snap. */
+ *    the DIRECTOR defines none for AREA02/AREA01 sub 0; AREA06
+ *    (snow) has ONE region: X[-370,-340] x Z[-620,-600], y gate 60,
+ *    fixed eye (-367.7, 90, -598.9) — scene_snow's `camregion` line.
+ *    SECOND MECHANISM (decoded + live-verified 2026-06-11, this
+ *    session — the user-observed SUPPLY-ROOM corner camera): room-
+ *    ENTRY spawn records (D_0024D650[area][room], +0x10 word) arm
+ *    per-room FIXED cameras via func_001B0460 — bit 7 = fixed flag
+ *    (cam+0x05), low 7 bits = camera mode (cam+0x06), word>>8 =
+ *    index into the eye table D_0024A8D0; the eye HARD-PLACES at
+ *    entry and stays pinned while the room is occupied (target =
+ *    player + 15). AREA02 room 1 entry 3 = the supply room behind
+ *    the office double doors -> eye (116, 33, -300); exported as
+ *    the office scene's `camregion` line (the rect spans the room
+ *    behind the doorway plane — behavior-identical for an enclosed
+ *    room). The port machinery is live: scene.txt `camregion x0 z0
+ *    x1 z1 ygate ex ey ez` lines drive camera_mode_dispatch's
+ *    in-region branch (fixed eye, L1/auto-orient ignored, R1 aim
+ *    still runs, release snaps back INSTANTLY — the observed
+ *    behavior: "letting go INSTANTLY snaps back to the room's
+ *    setting"). EM_CAMREGION_TEST=1 proves the machinery with a
+ *    flagged SYNTHETIC region (it replaces the scene list for the
+ *    run); EM_CAPTURE_SUPPLY=1 walks the real supply-room transit.
+ *    Engine refinement noted: the snow case approaches its spec at
+ *    0.7 u/frame via the chase primitives; the port uses hard
+ *    placement — which IS the engine shape for the spawn-record
+ *    cameras (func_001B0460 hard-copies desired AND actual). */
 #define CAM_REGION_YGATE 4.0f   /* func_00194D10's |player.y - rec.y|
                                    region gate, engine constant */
 #define CAM_RISE_STEP   2.0f    /* rise search step, units (PORT) */
@@ -529,15 +540,31 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define CAM_AIM_MIN_DIST  8.0f   /* dispatcher min horiz eye dist */
 
 /* DOOR CAMERA CUES — DECODED (2026-06-11, op 0x0D sub 5 func_001B7B30 +
- * func_0018CBD0, and the locked-look native func_001BBBF0):
- *   OPEN transit (script D_0024DE40 record 2, op 0x0D sub 5): a HARD
- *     CUT (solver style 1 = copy desired -> actual): TARGET = player
- *     pos + (19 + 6) up, EYE = player + rotY(cam euler)*(0, 0, -20)
- *     with EYE.y = player.y + 19 + 6 + 2 = +27 (f4 + f5 = 8 in BOTH
- *     per-area parameter sets), then cam+0xA0 = 0x78: the actual
- *     TARGET re-blends toward the desired one at <= 1.0 u/frame for
- *     120 frames (func_001916C0's tail) — the cinematic angle that
- *     "teleports behind the player" and then pans as he walks through.
+ * func_0018CBD0, and the locked-look native func_001BBBF0).
+ * RE-DERIVED + LIVE-VERIFIED 2026-06-11 (this session, two PCSX2
+ * transits through the office double doors — the s53 "+27/+25 along
+ * the live camera heading" reading was wrong on both axes):
+ *   OPEN transit (script D_0024DE40 record 2, op 0x0D sub 5): the cue
+ *     fires AFTER the kickoff snapped the player to the STAGING POINT
+ *     with the THROUGH-DOOR yaw, and func_001B07C0's pose snapshot
+ *     (spad 3B40/3B50) was refreshed with that snapped pose — so the
+ *     cut Euler is the DOOR AXIS, never the live camera heading.
+ *     A HARD CUT (solver style 1 = copy desired -> actual):
+ *       EYE    = staging - 20*(sin,cos)(through yaw), EYE.y =
+ *                player.y + 19  (func_0018CBD0: 11 + f4 + f5; f4/f5 =
+ *                2/6 default, 6/2 in the -46.8 param areas — 19 BOTH)
+ *       TARGET = staging, TARGET.y = player.y + 13  (11 + f4, default
+ *                params; -46.8 areas: +17. The +0.3*f20 term in the .s
+ *                is a steep-pitch shave with f20 = 0 here, live-read 0)
+ *     then cam+0xA0 = 0x78: the actual TARGET re-blends toward the
+ *     walking player at <= 1.0 u/frame (func_001916C0's tail) while
+ *     the EYE holds — live: eye pinned at (104, 19, -277.2) while the
+ *     player walked the doorway.
+ *   ROOM-BOUNDARY RE-SEAT (live): when the walk-through crosses the
+ *     doorway plane (the engine's room move), the chase re-seats
+ *     behind the player's through-door pose and the NORMAL solve runs
+ *     — the door wall right behind the eye RISES it (live: parked at
+ *     (104, 29, -250.4) looking down at the walked-out player).
  *   LOCKED try (script D_0024DEC0 record 2, op 0x09 -> func_001BBBF0):
  *     TARGET = door pos + 8 u toward the HANDLE side (the door-yaw
  *     left: (-8*cos(dyaw), +10, +8*sin(dyaw))) and EYE = TARGET -
@@ -545,9 +572,12 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *     the camera parked at the handle while the try animation plays;
  *     the finish script (op 0x07 sub 4) restores the saved camera. */
 #define DOORCAM_EYE_BACK   20.0f  /* op 0x0D sub 5 chase dist (-20.0) */
-#define DOORCAM_EYE_UP     27.0f  /* 19 + f4 + f5 (= 6+2 or 2+6) */
-#define DOORCAM_TGT_UP     25.0f  /* 19 + f4 (6, the -46.8 param set) */
+#define DOORCAM_EYE_UP     19.0f  /* 11 + f4 + f5 (live: eye y 19.0) */
+#define DOORCAM_TGT_UP     13.0f  /* 11 + f4 (live: target y 13.0) */
 #define DOORCAM_TGT_SOFT   120    /* cam+0xA0 = 0x78 target re-blend */
+#define DOORCAM_PLANE      5.0f   /* staging -> doorway-center dist
+                                   * (s45 staging math): past this the
+                                   * player crossed the door plane */
 #define LOCKCAM_HANDLE_OFF 8.0f   /* func_001BBBF0 door-left offset */
 #define LOCKCAM_TGT_UP     10.0f
 #define LOCKCAM_EYE_BACK   13.0f
@@ -770,6 +800,12 @@ static struct {
     /* DOOR CINEMATIC camera (op 0x0D sub 5 + func_001BBBF0) */
     int        doorcam;          /* 0 off, 1 = transit armed (walking),
                                   * 2 = cinematic placed (cut done) */
+    float      doorcut_pos[3];   /* latched STAGING point (the walk-to
+                                  * target = the engine's snap pose;
+                                  * spad 3B40 equivalent) */
+    float      doorcut_yaw;      /* latched THROUGH-DOOR yaw (the
+                                  * kickoff snap; spad 3B50 equivalent
+                                  * — the cut's Euler, live-verified) */
     float      door_yaw[EM_DOOR_MAX]; /* manifest door yaws (the locked-
                                   * look handle-side math needs them) */
     int        n_door_yaw;
@@ -813,6 +849,12 @@ static struct {
                                   * approach + CROSS, no asserts: the
                                   * capture frame samples the door-transit
                                   * CINEMATIC camera (default frame 110) */
+    int         capture_supply;  /* EM_CAPTURE_SUPPLY=1 — spawn at the
+                                  * office double doors + CROSS: the
+                                  * transit crosses into the SUPPLY ROOM
+                                  * and the capture frame samples its
+                                  * spawn-record FIXED corner camera
+                                  * (default frame 360) */
     int         capture_rise;    /* EM_CAPTURE_RISE=1 — hold 's' (walk at
                                   * the camera) so the capture shows the
                                   * wall-rise camera (see gameplay_frame) */
@@ -2647,17 +2689,20 @@ static void camera_commit(EmCamera *cam)
     em_mat4_mul(g.viewproj, proj, cam->view);
 }
 
-/* DOOR-TRANSIT CINEMATIC CAMERA — DECODED (the "DOOR CAMERA CUES"
- * constants block above). Replaces the old full camera freeze during
- * the door input lock: once the walk-to arrives and the door script
- * begins, the OPEN script's op 0x0D sub 5 cue fires — a HARD CUT to
- * 20 u behind the player along the current camera heading at +27,
- * looking at the player (+25) — and the camera then HOLDS that eye
- * while the actual target re-blends toward the walking player at
- * <= 1.0 u/frame (the cam+0xA0 = 120 window): the cinematic angle the
- * door walk-through plays under. EM_DOORCAM_LOCKED=1 swaps in the
- * LOCKED-TRY placement (func_001BBBF0: target at the door HANDLE — 8 u
- * to the door's left, +10 — eye 13 u back along the camera heading at
+/* DOOR-TRANSIT CINEMATIC CAMERA — DECODED + LIVE-VERIFIED (the "DOOR
+ * CAMERA CUES" constants block above; two PCSX2 transits). Once the
+ * walk-to arrives and the door script begins, the OPEN script's op
+ * 0x0D sub 5 cue fires — a HARD CUT to 20 u behind the STAGING POINT
+ * along the THROUGH-DOOR axis at +19, looking at the staging point
+ * (+13) — and the camera then HOLDS that eye while the actual target
+ * re-blends toward the walking player at <= 1.0 u/frame (the
+ * cam+0xA0 = 120 window): the cinematic angle the door walk-through
+ * plays under. When the player crosses the doorway plane (the room
+ * move), the chase RE-SEATS behind the through-door pose and the
+ * normal solve owns the camera again (rising over the doorframe —
+ * engine-observed). EM_DOORCAM_LOCKED=1 swaps in the LOCKED-TRY
+ * placement (func_001BBBF0: target at the door HANDLE — 8 u to the
+ * door's left, +10 — eye 13 u back along the camera heading at
  * door.y + 12) as a visual preview: the real trigger is the locked
  * sequence (door subs 1/2), which em_door does not run yet. */
 static void camera_door_cinematic(EmCamera *cam)
@@ -2672,6 +2717,12 @@ static void camera_door_cinematic(EmCamera *cam)
         if (em_door_transit_active(tt, &tyaw)) {
             g.doorcam = 1;          /* approach walk: hold the chase
                                      * camera still (commit only) */
+            /* Latch the staging point + through-door yaw — the
+             * engine's kickoff snap pose (spad 3B40/3B50), which the
+             * cut below builds from. The walk-to target IS the
+             * staging point and its yaw IS the front/back snap. */
+            memcpy(g.doorcut_pos, tt, sizeof g.doorcut_pos);
+            g.doorcut_yaw = tyaw;
             return;
         }
         /* walk-to arrived — the door script starts THIS frame: cut. */
@@ -2703,14 +2754,21 @@ static void camera_door_cinematic(EmCamera *cam)
             cam->eye_des[2] = cam->tgt_des[2]
                             - LOCKCAM_EYE_BACK * cosf(cam->yaw);
         } else {
-            /* op 0x0D sub 5 (func_0018CBD0, dist -20): behind the
-             * player along the camera heading, high look-down. */
-            cam->tgt_des[0] = g.pos[0];
+            /* op 0x0D sub 5 (func_0018CBD0, dist -20; live-verified
+             * geometry — the constants block above): 20 u behind the
+             * SNAPPED pose along the THROUGH-DOOR axis at head height,
+             * looking at the staging point slightly below (+13). The
+             * camera heading itself snaps to the door axis (the
+             * engine's cam Euler +0x30 <- spad 3B50). */
+            cam->yaw = g.doorcut_yaw;
+            cam->tgt_des[0] = g.doorcut_pos[0];
             cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
-            cam->tgt_des[2] = g.pos[2];
-            cam->eye_des[0] = g.pos[0] - sinf(cam->yaw) * DOORCAM_EYE_BACK;
+            cam->tgt_des[2] = g.doorcut_pos[2];
+            cam->eye_des[0] = g.doorcut_pos[0]
+                            - sinf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
             cam->eye_des[1] = g.pos[1] + DOORCAM_EYE_UP;
-            cam->eye_des[2] = g.pos[2] - cosf(cam->yaw) * DOORCAM_EYE_BACK;
+            cam->eye_des[2] = g.doorcut_pos[2]
+                            - cosf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
         }
         /* solver style 1 = HARD COPY desired -> actual: the cut. */
         memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
@@ -2718,6 +2776,32 @@ static void camera_door_cinematic(EmCamera *cam)
         cam->tgt_soft = DOORCAM_TGT_SOFT;   /* cam+0xA0 = 0x78 */
         g.doorcam     = 2;
         return;
+    }
+    /* ROOM-BOUNDARY RE-SEAT (live-verified, the constants block): once
+     * the scripted walk-through carries the player past the doorway
+     * plane (the engine's room move — staging is DOORCAM_PLANE short
+     * of the doorway center), the chase re-seats behind the player's
+     * through-door pose and the NORMAL dispatch + solve own the camera
+     * again (the door wall right behind the eye makes the solve RISE —
+     * the engine parked at +29 over the 21-u doorframe). Goto doors
+     * never cross the plane before the fade; their re-seat is the warp
+     * re-place (doorcam = 3 there, same shape). */
+    {
+        float dx = g.pos[0] - g.doorcut_pos[0];
+        float dz = g.pos[2] - g.doorcut_pos[2];
+        if (dx * sinf(g.doorcut_yaw) + dz * cosf(g.doorcut_yaw)
+                > DOORCAM_PLANE) {
+            g.doorcam     = 3;
+            cam->yaw      = g.doorcut_yaw;
+            cam->tgt_soft = 0;
+            cam->tgt_des[0] = g.pos[0];
+            cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+            cam->tgt_des[2] = g.pos[2];
+            camera_desired_eye(cam);
+            memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+            memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+            return;
+        }
     }
     /* held cinematic: the eye HOLDS the cut placement; the desired
      * target tracks the player and the actual one re-blends through
@@ -2900,6 +2984,7 @@ static void ui_scene_render(EmGfx *gfx)
      * framing is unchanged: eye = dir*Z - right*X + (0, -Y, 0), so the
      * player still projects at the decoded view-space offsets. */
     float view[16], proj[16], vp[16], vp_plate[16];
+    float rig_eye[3], rig_fwd[3];        /* kept for the headlight below */
     {
         const float dir[3] = { UI_CAM_DIR_X, 0.0f, UI_CAM_DIR_Z };
         const float fwd[3] = { -dir[0], 0.0f, -dir[2] };
@@ -2913,6 +2998,8 @@ static void ui_scene_render(EmGfx *gfx)
             dir[2] * UI_SCENE_Z - s_[2] * UI_SCENE_X
         };
         em_mat4_lookat_gs(view, eye, fwd, up);
+        memcpy(rig_eye, eye, sizeof rig_eye);
+        memcpy(rig_fwd, fwd, sizeof rig_fwd);
     }
     /* UI projection — PINNED by the decoded x-anchor: the engine's
      * 7.4-unit offset at z 40 lands the model exactly on the ring
@@ -2950,6 +3037,39 @@ static void ui_scene_render(EmGfx *gfx)
         if (bp)
             em_gfx_draw_skinned_tinted(gfx, bp, vp_plate, kIdent, 1, kBlack);
     }
+
+    /* MENU-SCENE LIGHT (decoded 2026-06-11, this session — fixes the
+     * "no spinning character" report: the model WAS drawn, but at the
+     * shader stand-in's 0.30 ambient floor — black on the black
+     * backplate under the tile layers, invisible).
+     *
+     * Engine truth (boot-ELF re-read): the menu player's draw class
+     * 0xB (func_001CA5F0 -> func_001CB480) sets lighting-override
+     * mode 2 — and func_001D89D0 special-cases only modes 1/3/4/5/6,
+     * so mode 2 runs the NORMAL character light path: the CURRENT
+     * ROOM's rig from D_00251C50 (the office key 0x200 record:
+     * ambient (57,57,57)/128 = 0.445 + directional lights at
+     * (60,60,60) and (37,37,37)/128) with the slot-0 camera light
+     * ZEROED (the static menu actor never gets flag +0x2 bit 0x20 —
+     * func_001AFF10 zeroes it, func_0020CDC0 never sets it). Front
+     * intensity in the engine is therefore ~0.45..0.9 — a bright,
+     * readable turntable.
+     *
+     * Port stand-in (the shader's fixed rig can't take a room rig):
+     * the existing forward spot term doubles as a camera-anchored
+     * fill — at the rig eye, aimed down the view, cone edges below
+     * -1 so the cone factor is 1 everywhere; the character path's
+     * N.(-L) then IS a camera-facing wrap, matching the engine's
+     * "lit from the room, readable from the camera" result. rgb 0.62
+     * puts camera-facing normals at ~1.0 total and edge-on ones near
+     * the engine's ambient. Scoped to the PLAYER draw only (the spot
+     * rows bind per draw; rgb is zeroed right after, which keeps the
+     * shader arithmetic bit-exact for any later skinned draw). */
+    {
+        static const float kFill[3] = { 0.62f, 0.62f, 0.62f };
+        em_gfx_spot_light(gfx, rig_eye, rig_fwd, kFill,
+                          4000.0f, -2.0f, -3.0f);
+    }
     {
         /* Infection tint pulse (engine +0x80 color delta, GS 128 base,
          * approximated multiplicatively; infection 0 = opaque white =
@@ -2966,26 +3086,15 @@ static void ui_scene_render(EmGfx *gfx)
             if (tint[i] < 0.0f) tint[i] = 0.0f;
             if (tint[i] > 1.0f) tint[i] = 1.0f;
         }
-        if (getenv("EM_UI_DEBUG")) {            /* TEMP bisect */
-            tint[0] = 1.0f; tint[1] = 0.0f; tint[2] = 0.0f; tint[3] = 1.0f;
-            /* project the model origin and a head-height point */
-            for (int k = 0; k < 2; k++) {
-                float p[4] = { 0.0f, k * 15.0f, 0.0f, 1.0f };
-                float o[4];
-                for (int r = 0; r < 4; r++)
-                    o[r] = vp[r + 0] * p[0] + vp[r + 4] * p[1] +
-                           vp[r + 8] * p[2] + vp[r + 12] * p[3];
-                fprintf(stderr,
-                        "uidbg: pt y=%g clip (%g, %g, %g, %g) ndc (%g, %g, %g)\n",
-                        p[1], o[0], o[1], o[2], o[3],
-                        o[0] / o[3], o[1] / o[3], o[2] / o[3]);
-            }
-            /* bone 0 of the posed palette */
-            fprintf(stderr, "uidbg: pal0 trans (%g, %g, %g)\n",
-                    g.ui_palette[12], g.ui_palette[13], g.ui_palette[14]);
-        }
         em_gfx_draw_skinned_tinted(gfx, g.mesh, vp, g.ui_palette,
                                    g.model.bone_count, tint);
+    }
+    {
+        /* Headlight off for anything after the menu player (rgb 0 adds
+         * exactly 0.0 in the shader — later draws stay bit-exact). */
+        static const float kOff[3] = { 0.0f, 0.0f, 0.0f };
+        em_gfx_spot_light(gfx, rig_eye, rig_fwd, kOff,
+                          4000.0f, -2.0f, -3.0f);
     }
 
     /* Advance (engine state 1): spin, pulse ramp, clip time. */
@@ -3015,11 +3124,6 @@ static void frame_close_out(void)
      * draw over it. Without the player asset or the ui.emui backdrop
      * the old path runs unchanged (asset-absent frames byte-identical). */
     int ui_scene = g.mesh && em_hud_visible() && em_hud_backdrop_ready(gfx);
-
-    if (getenv("EM_UI_DEBUG"))
-        fprintf(stderr, "uidbg: mesh=%p vis=%d ready=%d ui_scene=%d\n",
-                (void *)g.mesh, em_hud_visible(),
-                em_hud_backdrop_ready(gfx), ui_scene);
 
     if (ui_scene) {
         ui_scene_render(gfx);
@@ -4054,13 +4158,15 @@ static void sfx_test_script(void)
 }
 
 /* EM_CAMREGION_TEST=1 — FIXED-CAMERA REGION self-test (the mode-0
- * director decode, FINDINGS "MODE-0 CAMERA DIRECTOR DECODED"). The
- * OFFICE DEFINES NO REAL FIXED CAMERAS (the honest decode verdict:
- * AREA02 has no director case and its overlay never touches the camera
- * struct), so scene init injects a SYNTHETIC, CLEARLY-FLAGGED test
- * region 5 u down +Z of the spawn (see ingame_frame_machine case 0) —
- * the machinery under test is exactly what scene_snow's REAL exported
- * region (AREA06, D_0024A5F0[2]) drives. Adaptive phase machine:
+ * director decode, FINDINGS "MODE-0 CAMERA DIRECTOR DECODED"). Scene
+ * init REPLACES the scene's region list with one SYNTHETIC,
+ * CLEARLY-FLAGGED test region 5 u down +Z of the spawn (see
+ * ingame_frame_machine case 0) so the run is deterministic and
+ * spawn-local — the machinery under test is exactly what scene_snow's
+ * REAL exported region (AREA06, D_0024A5F0[2]) and the office scene's
+ * REAL supply-room line (the spawn-record camera, this session's
+ * decode; EM_CAPTURE_SUPPLY samples it in place) drive. Adaptive
+ * phase machine:
  *
  *   phase 0  hold 'w' (run +Z); the frame the region engages
  *            (g.cam_region_on — one frame after the crossing), release.
@@ -4504,7 +4610,8 @@ static void gameplay_frame(void)
     /* EM_CAPTURE_DOOR=1: the door-test approach + CROSS with NO asserts
      * — by the default door capture frame (110) the transit walk has
      * arrived and the op 0x0D sub 5 CINEMATIC CUT holds: 20 u behind
-     * the player at +27 looking down at him in the doorway (with
+     * the staging point along the through-door axis at +19, looking at
+     * the player in the doorway (live-verified geometry; with
      * EM_DOORCAM_LOCKED=1: the locked-look handle placement). */
     if (g.capture_door) {
         if      (g.frame_no == 0)  move_test_inject('w', 1);
@@ -4513,6 +4620,17 @@ static void gameplay_frame(void)
         else if (g.frame_no == 58) move_test_inject('w', 0);
         else if (g.frame_no == 60) move_test_inject('k', 1);
         else if (g.frame_no == 61) move_test_inject('k', 0);
+    }                                       /* debug instrumentation only */
+    /* EM_CAPTURE_SUPPLY=1: approach the office DOUBLE DOORS + CROSS —
+     * the same-scene transit walks the player into the SUPPLY ROOM and
+     * its spawn-record FIXED camera (camregion line, decoded eye
+     * (116, 33, -300)) pins the view from the room corner by the
+     * default capture frame (360). */
+    if (g.capture_supply) {
+        if      (g.frame_no == 0)  move_test_inject('w', 1);
+        else if (g.frame_no == 40) move_test_inject('w', 0);
+        else if (g.frame_no == 45) move_test_inject('k', 1);
+        else if (g.frame_no == 46) move_test_inject('k', 0);
     }                                       /* debug instrumentation only */
     /* EM_CAPTURE_RISE=1: hold 's' (stick down) from frame 0 — the
      * player about-faces and runs TOWARD the camera; the chase camera
@@ -4731,6 +4849,18 @@ static void ingame_frame_machine(EmTask *self)
                 g.pos[2] = -225.0f;
                 g.yaw    = -EM_PI * 0.5f;
             }
+            if (g.capture_supply) {
+                /* EM_CAPTURE_SUPPLY spawn: on the x = 104 doorway-center
+                 * column of the office DOUBLE DOORS (door id 2), facing
+                 * them (south, yaw pi) — the approach + CROSS below
+                 * carries the transit into the SUPPLY ROOM (area 2 room
+                 * 1 entry 3), whose spawn-record FIXED camera the
+                 * capture frame samples. */
+                g.pos[0] = 104.0f;
+                g.pos[1] = 0.0f;
+                g.pos[2] = -238.0f;
+                g.yaw    = EM_PI;
+            }
             if (g.transit_test) {
                 /* EM_TRANSIT_TEST spawn: on the west DOORWAY-CENTER z
                  * line (z = -225.5 — the placement pos is the HINGE
@@ -4754,17 +4884,20 @@ static void ingame_frame_machine(EmTask *self)
             memset(&g.cam, 0, sizeof g.cam);
             g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
             g.cam_region_on = 0;
-            /* EM_CAMREGION_TEST: SYNTHETIC test region (FLAGGED — the
-             * office defines NO real fixed cameras; the decode verdict
-             * in the CAMERA FIDELITY block). A strip starting 5 u down
-             * +Z of the spawn (the run-forward corridor; the wall
-             * radius stops the player ~14 u in, well inside), with the
-             * fixed eye raised BEHIND the spawn looking INTO the strip
-             * (real room cameras watch the room — and camera-relative
-             * 'w' then keeps pushing the player deeper, not back across
-             * the boundary): entering it must pin the camera there.
-             * scene_snow's REAL region (AREA06, D_0024A5F0[2])
-             * exercises this same machinery. */
+            /* EM_CAMREGION_TEST: SYNTHETIC test region (FLAGGED — it
+             * REPLACES the scene's region list for the run, so the
+             * test stays spawn-local and deterministic even now that
+             * the office carries the REAL supply-room line, the
+             * spawn-record camera decode in the CAMERA FIDELITY
+             * block). A strip starting 5 u down +Z of the spawn (the
+             * run-forward corridor; the wall radius stops the player
+             * ~14 u in, well inside), with the fixed eye raised
+             * BEHIND the spawn looking INTO the strip (real room
+             * cameras watch the room — and camera-relative 'w' then
+             * keeps pushing the player deeper, not back across the
+             * boundary): entering it must pin the camera there.
+             * scene_snow's REAL region (AREA06, D_0024A5F0[2]) and
+             * the supply-room line exercise this same machinery. */
             if (g.camregion_test) {
                 g.n_camregion  = 1;
                 g.camregion[0] = (EmCamRegion){
@@ -5030,6 +5163,10 @@ void em_game_install(void)
     g.capture_door = cd && cd[0] == '1';    /* door cinematic capture */
     if (g.capture_door && !cf)
         g.capture_frame = 110;              /* mid-cinematic default */
+    const char *cs = getenv("EM_CAPTURE_SUPPLY");
+    g.capture_supply = cs && cs[0] == '1';  /* supply-room fixed camera */
+    if (g.capture_supply && !cf)
+        g.capture_frame = 360;              /* post-transit, in-room */
     const char *cr = getenv("EM_CAPTURE_RISE");
     g.capture_rise = cr && cr[0] == '1';    /* walk-at-camera rise demo */
     const char *co = getenv("EM_CAPTURE_ORIENT");

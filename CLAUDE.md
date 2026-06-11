@@ -97,7 +97,17 @@ files map each native stage to the PS2 function it stands in for.
 - Faithful to the original presentation: NO persistent HUD — the status
   display is a TRIANGLE-toggled status screen (key I; opening it PAUSES the
   world simulation, exactly the original's menu pause — gameplay_frame gates
-  on em_hud_is_open(); EM_HUD_FORCE stays render-only) and door use runs the
+  on em_hud_is_open(); EM_HUD_FORCE stays render-only; the menu's 3D
+  scene draws the ROTATING PLAYER MODEL, and 2026-06-11 its lighting is
+  fixed: the engine lights the menu actor through the NORMAL room-rig
+  path (draw class 0xB -> lighting-override mode 2, which func_001D89D0
+  does NOT special-case; office rig ambient (57,57,57)/128 + two
+  directional lights; the camera-light flag +0x2 bit 0x20 is never set
+  on the static menu actor) — the port shader's fixed stand-in left him
+  at the 0.30 ambient floor, black-on-black, so ui_scene_render now
+  drives the existing forward spot term as a camera-anchored fill
+  (cone opened full, scoped to the player draw only) putting
+  camera-facing normals at ~1.0 like the engine's rig) and door use runs the
   full captured transit sequence (walk to staging, door clip, 64-frame
   fade-out, re-place behind the door, fade-in + the ARRIVAL WALK-OUT —
   FINDINGS.md "AREA TRANSITION LIFECYCLE"). TWO decoded LOCKS govern the
@@ -160,30 +170,45 @@ files map each native stage to the PS2 function it stands in for.
   family rates, camera state 0x2A bases the target on the entry-saved
   position); em_game runs its pose + steer + camera, em_weapon's
   dot-only laser for it is pending (noted).
-- DOOR-TRANSIT CINEMATIC CAMERA, DECODED (2026-06-11, op 0x0D sub 5 =
-  func_001B7B30 + func_0018CBD0, and func_001BBBF0): the transit no
-  longer freezes the camera — at the door script start it HARD-CUTS to
-  20 u behind the player along the camera heading at +27, looking at the
-  player (+25), then holds the eye while the target re-blends (<= 1.0
-  u/frame, 120-frame window cam+0xA0) as the player walks through; the
-  post-warp re-place re-seats the chase (the op 0x18 restore). The
-  LOCKED-TRY camera (func_001BBBF0: target at the door HANDLE = door +
-  8 u to its left + 10 up; eye 13 u back along the camera yaw at door.y
-  + 12) is implemented behind EM_DOORCAM_LOCKED=1 as a flagged preview —
-  em_door has no locked sequence yet, and the preview clips into the
-  (unlocked) west-door wall, so the trigger + geometry verification
-  lands with the locked doors. Per-room FIXED
-  camera angles are DECODED AND PORTED (2026-06-11, decomp FINDINGS
-  "MODE-0 CAMERA DIRECTOR DECODED"): they are MAIN-ELF data (per-area
-  director cases + the D_0024A5F0 trigger-volume table — NOT an overlay
-  hook), exported as scene.txt `camregion x0 z0 x1 z1 ygate ex ey ez`
-  lines (export_level.py --camregions). Inside a region the eye is
-  PINNED to the room spec (chase + wall solve off; target still tracks
-  the player), L1 and the idle auto-orient are NO-OPS, and the R1 aim
-  camera still runs — release snaps back INSTANTLY (the observed
-  behavior). Decode verdict: the office (AREA02) and drawbridge (AREA01
-  sub 0) scenes have NO real regions (all chase — their blocks carry
-  the verdict comment); scene_snow carries the one real AREA06 region.
+- DOOR-TRANSIT CINEMATIC CAMERA, DECODED + LIVE-VERIFIED (2026-06-11,
+  op 0x0D sub 5 = func_001B7B30 + func_0018CBD0, re-derived against two
+  PCSX2 transits — the first reading's "+27/+25 along the live camera
+  heading" was wrong on both axes): at the door script start the camera
+  HARD-CUTS to 20 u behind the STAGING POINT along the THROUGH-DOOR
+  axis (the cut Euler = spad 3B50, the kickoff's snapped pose — NEVER
+  the live heading) at +19, looking at the staging point +13 (the .s:
+  eye 11+f4+f5, target 11+f4; the live engine read eye y 19.0 / target
+  y 13.0 exactly), then holds the eye while the target re-blends
+  (<= 1.0 u/frame, 120-frame window cam+0xA0) as the player walks
+  through. When the player crosses the doorway plane (the engine's room
+  move) the chase RE-SEATS behind the through-door pose and the normal
+  solve owns the camera again — the door wall right behind the eye
+  RISES it (engine parked at +29 over the 21-u doorframe, live-read);
+  goto doors re-seat at the warp re-place instead (op 0x18 restore).
+  The LOCKED-TRY camera (func_001BBBF0: target at the door HANDLE =
+  door + 8 u to its left + 10 up; eye 13 u back along the camera yaw at
+  door.y + 12) is implemented behind EM_DOORCAM_LOCKED=1 as a flagged
+  preview — em_door has no locked sequence yet. Per-room FIXED camera
+  angles are DECODED AND PORTED via TWO mechanisms: (1) the mode-0
+  DIRECTOR (decomp FINDINGS "MODE-0 CAMERA DIRECTOR DECODED"): per-area
+  cases + the D_0024A5F0 trigger-volume table (scene_snow carries the
+  one real AREA06 region; the drawbridge has none); (2) SPAWN-RECORD
+  cameras (decoded + live-verified 2026-06-11, FINDINGS "SPAWN-RECORD
+  FIXED CAMERAS" — the user-observed SUPPLY-ROOM corner camera): room-
+  ENTRY spawn records (D_0024D650[area][room] +0x10 word) arm a fixed
+  camera through func_001B0460 — bit 7 = fixed flag (cam+0x05), low 7
+  bits = camera mode (cam+0x06), word>>8 indexes the eye table
+  D_0024A8D0; the eye HARD-places at room entry and stays pinned
+  (target = player + 15). AREA02 room 1 entry 3 = the supply room
+  behind the office double doors -> eye (116, 33, -300), exported as
+  the office scene's camregion line (rect = the room behind the
+  doorway plane — the port's region stand-in for the entry-keyed pin).
+  Both export as scene.txt `camregion x0 z0 x1 z1 ygate ex ey ez`
+  lines (export_level.py --camregions, now sub-state aware). Inside a
+  region the eye is PINNED to the room spec (chase + wall solve off;
+  target still tracks the player), L1 and the idle auto-orient are
+  NO-OPS, and the R1 aim camera still runs — release snaps back
+  INSTANTLY (the observed behavior).
 - The weapon states play the real player clips (FINDINGS "ANIM ID MAPPING";
   needs a player.emdl exported with `--attach --no-glow --clips
   349,2,3,69,67,75,272,273,283,51,274,275,276,277,278,279,280,281,282,1,
@@ -252,6 +277,9 @@ files map each native stage to the PS2 function it stands in for.
   `EM_CAPTURE_DOOR=1` runs the door-test approach + CROSS with no asserts
   so the capture (default frame 110) samples the door-transit CINEMATIC
   camera (`EM_DOORCAM_LOCKED=1` previews the locked-look placement);
+  `EM_CAPTURE_SUPPLY=1` walks the office double doors so the capture
+  (default frame 360) samples the SUPPLY ROOM's spawn-record fixed
+  corner camera (eye (116, 33, -300));
   `EM_CAPTURE_RISE=1` walks the player at the camera so a late capture
   frame shows the wall-RISE camera; `EM_CAPTURE_ORIENT=1` turn-in-place +
   idle for the slow auto-orient; `EM_CAMERA_TRACE=1` prints the camera
