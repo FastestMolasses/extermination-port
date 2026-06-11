@@ -112,13 +112,72 @@ static const float kLaserColor[4] = { 0.7f, 0.0f, 0.0f, 1.0f };
                                  * ~0.7 s = 42 ticks after EACH shot      */
 #define WPN_CASING_SLOTS     8  /* pending casings: the 6-tick full-auto
                                  * cadence keeps ceil(42/6) = 7 in flight */
-#define WPN_MUZZLE_HEIGHT  12.0f /* chest height; the engine derives the
-                                  * muzzle from the hand-bone matrix
-                                  * (gun +0xA0 = M(0x810550)*(-3,y,0)) —
-                                  * no hand bone wired natively yet        */
-#define WPN_FLASH_FRAMES   3    /* muzzle-flash overlay lifetime           */
-#define WPN_PULSE_HIT      6    /* crosshair pulse frames on a ray hit     */
-#define WPN_PULSE_MISS     3    /* ... and on a miss                       */
+
+/* --- MUZZLE / HAND-FRAME ANCHORING (decoded 2026-06-11 from the local
+ *     boot ELF: func_00188630 disasm + the offset tables at vram
+ *     0x0024A220 / 0x0024A2A0; FINDINGS "WEAPON SYSTEM" sec. 6 + the
+ *     s23 laser decode).
+ *
+ * The engine derives the muzzle from the published HAND-BONE matrix M
+ * (player +0x90, copied to the equipment blob every gun tick — the s8
+ * "equipment draw matrix == bone matrix" mechanism). The port's
+ * player.emdl attaches the rifle models to skeleton node 4 with
+ * IDENTITY local offsets (export_props ATTACHMENTS, live-frame proof),
+ * so the evaluated palette's node-4 matrix IS that hand matrix:
+ *
+ *   ray origin   gun+0xA0 = M * (-3,      tbl.y, 0)
+ *   barrel tip   gun+0xB0 = M * D_0024A220[idx]   (also the muzzle-
+ *                           flash anchor: func_00187CC0 copies +0xB0)
+ *   fire dir     gun+0xC0 = normalize(tip - origin)
+ *
+ * idx for sub-weapon 0 remaps by the aim option D_00810CA4 (0 -> row 7,
+ * 2 -> row 6, else row 0); the port is the manual-aim default (option
+ * 0) -> row 7 = (6.0, 1.088, 0, 1). Both points share tbl.y and z = 0,
+ * so the fire direction is EXACTLY the hand bone's local +X axis — the
+ * camera-aim relationship is carried by the ANIMATION (the aim-pose
+ * ladder points that axis along the player's aim yaw; the pitch-step
+ * blend +0x278 would add camera pitch, untranslated like the rest of
+ * the vertical aim). The laser BEAM draw starts at gun+0x1F0 =
+ * M * D_0024A2A0[0] = M * (3.6, 0.5, 0) — on the barrel just behind
+ * the tip — while the RAY runs from the (-3, 1.088, 0) origin
+ * (func_001854E0/760 head; s23). The hand matrix reaches em_weapon
+ * through em_gfx_last_skinned_bone (the gfx-side bone publish — one
+ * frame of latency by construction, see em_gfx.h). */
+#define WPN_HAND_NODE   4u      /* rifle attach node (s9 attach decode)  */
+#define WPN_MUZ_Y       1.088f  /* D_0024A220[7].y                       */
+#define WPN_MUZ_X_RAY  -3.0f    /* ray-origin local x (func_00188630)    */
+#define WPN_MUZ_X_TIP   6.0f    /* D_0024A220[7].x — the barrel tip      */
+#define WPN_BEAM_X      3.6f    /* D_0024A2A0[0] — laser beam-draw start */
+#define WPN_BEAM_Y      0.5f
+#define WPN_MUZZLE_HEIGHT  12.0f /* FALLBACK ONLY (flagged): chest height
+                                  * along the yaw when the loaded player
+                                  * EMDL has no weapon clips (and so no
+                                  * trustworthy hand bone to read)        */
+
+/* --- MUZZLE FLASH (decoded 2026-06-11: func_00187CC0 -> the class-0xC
+ *     FX actor func_001F4F40 / behavior func_001F5040, variant 0 for
+ *     the SPR4) ---------------------------------------------------------
+ * The engine spawns an FX actor at the barrel tip: chunk27 library
+ * model 0x0D at init (a ~1.8-unit-radius radial puff), model 0x08 for
+ * ticks 0..2 (a 4.9-unit forward star along local +X, +-2.3 radial,
+ * with a func_001F4F90(2.4) line-burst pass), model 0x07 at tick 3
+ * (same star shape), freed at tick 15; scale starts 0.15 + 0.05*rand01
+ * and grows by a decaying velocity (vel 0.15, *0.8 per tick), all
+ * faces sampling one additive effect sheet (TEX0 key 0x457b5594220a0).
+ * The port draws the same envelope with the world-space beam/dot
+ * primitives: a forward streak (axial-billboard quad along the gun
+ * axis, model 8's 4.9 x 4.6 footprint x scale) + a radial core dot
+ * (model 0xD's ~3.6-unit footprint x scale), additive, intensity
+ * decaying with the engine's own velocity constant (0.8^t — the
+ * untextured stand-in for the effect sheet's falloff; flagged). */
+#define WPN_FLASH_TICKS    16    /* FX lifetime: freed at tick 15        */
+#define WPN_FLASH_S0       0.15f /* initial scale (+ 0.05 * rand01)      */
+#define WPN_FLASH_S0_RND   0.05f
+#define WPN_FLASH_VEL      0.15f /* scale velocity, *0.8 per tick        */
+#define WPN_FLASH_DECAY    0.8f
+#define WPN_FLASH_STAR_LEN 4.9f  /* model 0x08 +X extent (measured)      */
+#define WPN_FLASH_STAR_W   4.6f  /* model 0x08 radial extent (2 x 2.3)   */
+#define WPN_FLASH_CORE     3.6f  /* model 0x0D radial footprint          */
 
 /* --- KNIFE / MELEE constants (em_weapon.h "KNIFE / MELEE"; decoded
  *     2026-06-10 s36 — FINDINGS "KNIFE/MELEE DECODED". All table values
@@ -189,9 +248,13 @@ static struct {
                           * already in the air, so these keep ticking
                           * through reloads/holsters/stance drops        */
 
-    int     flash;       /* muzzle-flash overlay frames remaining         */
-    int     pulse;       /* crosshair pulse frames remaining              */
-    int     pulse_hit;   /* the pulse being shown is a hit (vs miss)      */
+    int     flash;         /* muzzle-flash ticks remaining (16 -> 0; the
+                            * FX actor's own life, free at tick 15)       */
+    float   flash_pos[3];  /* flash anchor = hand * (6, 1.088, 0) — the
+                            * engine FX copies gun+0xB0 at spawn          */
+    float   flash_dir[3];  /* gun axis at the shot (the +X star axis)     */
+    float   flash_scale;   /* FX scale: 0.15 + 0.05*rand01 at spawn       */
+    float   flash_vel;     /* scale velocity: 0.15, *0.8 per tick         */
     int     last_hit;    /* last resolved shot: 1/0; -1 = none yet        */
 
     int     shots;       /* introspection: rounds fired since reset       */
@@ -201,9 +264,15 @@ static struct {
      * stores the clipped endpoint + flags in the gun actor's +0x1F0
      * block; func_001854E0/760 refresh it every aim frame). */
     int      laser_on;     /* gun +0x210 "laser active" flag              */
-    float    laser_a[3];   /* beam start = muzzle (gun +0x1F0 vec)        */
+    float    laser_a[3];   /* BEAM DRAW start (gun +0x1F0 vec) — the
+                            * hand-frame (3.6, 0.5, 0) point; the RAY
+                            * itself runs from the (-3, 1.088, 0) origin  */
     float    laser_b[3];   /* clipped endpoint (gun +0x200 vec)           */
     uint32_t rng;          /* flicker LCG (engine: func_00122BB8 rand)    */
+
+    EmGfx   *gfx;          /* cached each em_weapon_render call: the
+                            * update stage reads the published hand-bone
+                            * matrix through em_gfx_last_skinned_bone     */
 } w;
 
 /* KNIFE / MELEE state (engine player modes 0x21/0x22 — see the header
@@ -389,20 +458,67 @@ static void weapon_shot(void)
     }
 }
 
-/* Muzzle point + fire direction from the player placement. The engine
- * derives both from the hand-bone matrix every gun tick (func_00188630:
- * muzzle +0xA0 = M(0x810550)*(-3, tbl.y, 0), dir +0xC0 = normalized
- * second-point delta); with no hand bone wired natively the port uses
- * chest height above the feet along the facing yaw. */
-static void weapon_muzzle_ray(const float pos[3], float yaw,
-                              float muzzle[3], float dir[3])
+/* Transform a hand-frame point by a column-major 4x4 (w = 1) — the
+ * native func_001026A0 (matrix * point). */
+static void hand_point(const float m[16], float x, float y, float z,
+                       float out[3])
 {
+    out[0] = m[0] * x + m[4] * y + m[8]  * z + m[12];
+    out[1] = m[1] * x + m[5] * y + m[9]  * z + m[13];
+    out[2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+}
+
+/* Fetch the published hand-bone matrix (the engine's player +0x90; the
+ * port reads the player palette's node-4 matrix recorded by the gfx
+ * layer — see the MUZZLE/HAND-FRAME block above). Trust it only when
+ * the loaded player EMDL actually carries the weapon clips: that
+ * guarantees the player model is loaded and is the render chain's LAST
+ * skinned draw (the recorded palette is the player's). Returns 0 (use
+ * the flagged fallback) otherwise. */
+static int weapon_hand_matrix(float m[16])
+{
+    if (!w.gfx) return 0;
+    if (em_game_anim_frames(WPN_ANIM_AIM) <= 0) return 0;
+    return em_gfx_last_skinned_bone(w.gfx, WPN_HAND_NODE, m);
+}
+
+/* Muzzle ray = the engine's two-table-point form (func_00188630):
+ * origin = M * (-3, 1.088, 0), dir = normalize(M * (6, 1.088, 0) -
+ * origin) = the hand bone's +X axis. Optional `tip` receives the
+ * barrel-tip point (gun +0xB0 — the muzzle-flash anchor). Fallback
+ * (flagged, EMDL without the weapon clips): chest height along yaw. */
+static void weapon_muzzle_ray(const float pos[3], float yaw,
+                              float muzzle[3], float dir[3], float tip[3])
+{
+    float m[16];
+    if (weapon_hand_matrix(m)) {
+        float t[3];
+        hand_point(m, WPN_MUZ_X_RAY, WPN_MUZ_Y, 0.0f, muzzle);
+        hand_point(m, WPN_MUZ_X_TIP, WPN_MUZ_Y, 0.0f, t);
+        float dx = t[0] - muzzle[0];
+        float dy = t[1] - muzzle[1];
+        float dz = t[2] - muzzle[2];
+        float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (dl > 1e-4f) {
+            dir[0] = dx / dl;
+            dir[1] = dy / dl;
+            dir[2] = dz / dl;
+            if (tip) memcpy(tip, t, 3 * sizeof(float));
+            return;
+        }
+        /* degenerate bone (zero-scale) — fall through to the stand-in */
+    }
     muzzle[0] = pos[0];
     muzzle[1] = pos[1] + WPN_MUZZLE_HEIGHT;
     muzzle[2] = pos[2];
     dir[0]    = sinf(yaw);
     dir[1]    = 0.0f;
     dir[2]    = cosf(yaw);
+    if (tip) {
+        tip[0] = muzzle[0];
+        tip[1] = muzzle[1];
+        tip[2] = muzzle[2];
+    }
 }
 
 /* LASER SIGHT raycast — the per-aim-frame half of func_001854E0/760:
@@ -418,7 +534,7 @@ static void laser_update(const EmCollision *coll, const float pos[3],
                          float yaw)
 {
     float muzzle[3], dir[3];
-    weapon_muzzle_ray(pos, yaw, muzzle, dir);
+    weapon_muzzle_ray(pos, yaw, muzzle, dir, NULL);
 
     float end[3] = { muzzle[0] + dir[0] * WPN_RANGE,
                      muzzle[1] + dir[1] * WPN_RANGE,
@@ -440,8 +556,16 @@ static void laser_update(const EmCollision *coll, const float pos[3],
         end[1] = epoint[1];
         end[2] = epoint[2];
     }
-    memcpy(w.laser_a, muzzle, sizeof w.laser_a);
-    memcpy(w.laser_b, end,    sizeof w.laser_b);
+    /* The drawn beam STARTS at the gun+0x1F0 point — hand-frame
+     * (3.6, 0.5, 0), on the barrel just behind the tip (func_00188630
+     * computes it from M * D_0024A2A0[sub] each frame); the ray origin
+     * above sits further back inside the receiver. Fallback: muzzle. */
+    float m[16];
+    if (weapon_hand_matrix(m))
+        hand_point(m, WPN_BEAM_X, WPN_BEAM_Y, 0.0f, w.laser_a);
+    else
+        memcpy(w.laser_a, muzzle, sizeof w.laser_a);
+    memcpy(w.laser_b, end, sizeof w.laser_b);
 }
 
 /* The gun-side fire-event consumption — func_001861C0, the BULLET.
@@ -465,10 +589,10 @@ static void laser_update(const EmCollision *coll, const float pos[3],
 static void weapon_resolve_fire(const EmCollision *coll,
                                 const float pos[3], float yaw)
 {
-    float muzzle[3], dir[3];
+    float muzzle[3], dir[3], tip[3];
     float end[3];
     float aim[3];
-    weapon_muzzle_ray(pos, yaw, muzzle, dir);
+    weapon_muzzle_ray(pos, yaw, muzzle, dir, tip);
 
     if (em_enemy_acquire(muzzle, yaw, WPN_RANGE, WPN_AIM_CONE, aim) >= 0) {
         /* targeted shot: endpoint = aim point + 5-unit overshoot */
@@ -528,10 +652,20 @@ static void weapon_resolve_fire(const EmCollision *coll,
             w.impact_sfx = WPN_IMPACT_SFX_TICKS;
     }
 
-    w.last_hit  = hit;
-    w.flash     = WPN_FLASH_FRAMES;
-    w.pulse     = hit ? WPN_PULSE_HIT : WPN_PULSE_MISS;
-    w.pulse_hit = hit;
+    w.last_hit = hit;
+
+    /* MUZZLE FLASH spawn — the engine calls func_00187CC0 from this
+     * same gun tick: the FX actor copies the barrel-tip point (gun
+     * +0xB0) and lives 16 ticks with the documented scale envelope
+     * (constants block above). A new shot RESTARTS the FX — the engine
+     * spawns a fresh pool actor per shot; the port keeps one slot (at
+     * the 6-tick full-auto cadence the brightest window dominates). */
+    w.flash       = WPN_FLASH_TICKS;
+    w.flash_scale = WPN_FLASH_S0 +
+                    WPN_FLASH_S0_RND * (float)wpn_rand() / 32768.0f;
+    w.flash_vel   = WPN_FLASH_VEL;
+    memcpy(w.flash_pos, tip, sizeof w.flash_pos);
+    memcpy(w.flash_dir, dir, sizeof w.flash_dir);
 }
 
 /* The AIM/FIRE loop's trigger logic — the fire sub-machine families
@@ -758,8 +892,15 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
         w.fire_event = 0;
         weapon_resolve_fire(coll, player_pos, player_yaw);
     }
-    if (w.flash > 0) w.flash--;
-    if (w.pulse > 0) w.pulse--;
+    /* Muzzle-flash FX tick (the engine FX actor's run state: scale +=
+     * vel, vel *= 0.8, free at tick 15). Ticks like the casings —
+     * independent of the weapon state; the FX actor outlives a stance
+     * drop. */
+    if (w.flash > 0) {
+        w.flash--;
+        w.flash_scale += w.flash_vel;
+        w.flash_vel   *= WPN_FLASH_DECAY;
+    }
 
     const int draw_held = (in->held & EM_PAD_R1) != 0;
 
@@ -843,23 +984,78 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
         laser_update(coll, player_pos, player_yaw);
 }
 
-/* --- Placeholder overlay feedback (em_weapon.h "VISUAL FEEDBACK") ------ */
+/* --- World-space weapon visuals (laser sight + muzzle flash) ----------- */
 
-static const float kCrosshair[4]  = { 1.0f, 1.0f, 1.0f, 0.45f };
-static const float kPulseHit[4]   = { 1.0f, 1.0f, 1.0f, 0.90f };
-static const float kPulseMiss[4]  = { 0.8f, 0.8f, 0.8f, 0.35f };
-static const float kFlashOuter[4] = { 1.0f, 0.75f, 0.30f, 0.55f };
-static const float kFlashInner[4] = { 1.0f, 1.00f, 0.85f, 0.85f };
+/* Muzzle-flash palette (PORT VALUES, flagged: the engine's color comes
+ * from the additive effect sheet's texels, unextracted — a hot near-
+ * white core falling to a warm orange streak is the additive-stand-in
+ * reading of the flash models' shared sheet). */
+static const float kFlashCore[3]  = { 1.0f, 0.93f, 0.70f };
+static const float kFlashStar[3]  = { 1.0f, 0.62f, 0.22f };
 
-static void rect_centered(EmGfx *gfx, float cx, float cy, float w_, float h_,
-                          const float rgba[4])
+/* Soft additive glow: three concentric camera-facing squares with the
+ * intensity split across them (0.55/0.30/0.15 at 1/3, 2/3 and full
+ * size) — the untextured approximation of the engine's radial-falloff
+ * glow sprites (the laser dot's 0x20045BA5 sprite, the flash sheet).
+ * A single hard square over-reads as a solid block; the layered split
+ * keeps the same total energy at the center and fades to the rim. */
+static void glow_dot(EmGfx *gfx, const float p[3], float size,
+                     const float rgb[3])
 {
-    em_gfx_overlay_rect(gfx, cx - w_ * 0.5f, cy - h_ * 0.5f, w_, h_, rgba);
+    static const float layer[3][2] = {
+        { 1.0f / 3.0f, 0.55f }, { 2.0f / 3.0f, 0.30f }, { 1.0f, 0.15f }
+    };
+    for (int i = 0; i < 3; i++) {
+        float c[4] = { rgb[0] * layer[i][1], rgb[1] * layer[i][1],
+                       rgb[2] * layer[i][1], 1.0f };
+        em_gfx_beam_dot(gfx, p, size * layer[i][0], c);
+    }
+}
+
+/* The muzzle flash through the beam/dot pass — the envelope of the
+ * engine FX actor func_001F5040 variant 0 (constants block at the top):
+ * a radial core (model 0xD's footprint) + a forward star streak along
+ * the gun axis (model 8/7's +X footprint), both scaled by the live FX
+ * scale and dimmed by the engine's own 0.8^t velocity decay. */
+static void flash_render(EmGfx *gfx)
+{
+    float in = w.flash_vel / WPN_FLASH_VEL;        /* 0.8^t       */
+    float s  = w.flash_scale;
+
+    /* core glow at the barrel tip (model 0xD's radial puff) */
+    float core[3] = { kFlashCore[0] * in, kFlashCore[1] * in,
+                      kFlashCore[2] * in };
+    glow_dot(gfx, w.flash_pos, WPN_FLASH_CORE * s, core);
+
+    /* forward star: axial-billboard streak muzzle -> +dir, bright at
+     * the muzzle fading out along it (the star models taper); two
+     * widths layered like glow_dot so the streak has a soft rim. */
+    float end[3] = { w.flash_pos[0] + w.flash_dir[0] * WPN_FLASH_STAR_LEN * s,
+                     w.flash_pos[1] + w.flash_dir[1] * WPN_FLASH_STAR_LEN * s,
+                     w.flash_pos[2] + w.flash_dir[2] * WPN_FLASH_STAR_LEN * s };
+    float cb[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    static const float wlayer[2][2] = { { 0.45f, 0.65f }, { 1.0f, 0.35f } };
+    for (int i = 0; i < 2; i++) {
+        float ca[4] = { kFlashStar[0] * in * wlayer[i][1],
+                        kFlashStar[1] * in * wlayer[i][1],
+                        kFlashStar[2] * in * wlayer[i][1], 1.0f };
+        em_gfx_beam(gfx, w.flash_pos, end, WPN_FLASH_STAR_W * s * wlayer[i][0],
+                    ca, cb);
+    }
 }
 
 void em_weapon_render(EmGfx *gfx)
 {
-    if (!gfx || w.state == EM_WPN_HOLSTERED) return;
+    if (!gfx) return;
+    /* Cache the device for the update stage's hand-bone reads
+     * (em_gfx_last_skinned_bone — see weapon_hand_matrix). */
+    w.gfx = gfx;
+
+    /* The flash FX actor outlives a stance drop (engine: a pool actor,
+     * not gun state) — draw it whenever it is alive. */
+    if (w.flash > 0) flash_render(gfx);
+
+    if (w.state == EM_WPN_HOLSTERED) return;
 
     /* LASER SIGHT — the translated func_00185760 pass (em_weapon.h).
      * Beam: 32 segments muzzle -> clipped endpoint, per-vertex color =
@@ -894,34 +1090,14 @@ void em_weapon_render(EmGfx *gfx)
             memcpy(ca, cb, sizeof ca);
         }
         float dr = (float)(0x50 + (wpn_rand() & 0x1F)) / 128.0f;
-        float dot[4] = { dr, 0.0f, 0.0f, 1.0f };
-        em_gfx_beam_dot(gfx, w.laser_b, WPN_DOT_SIZE, dot);
+        float dot[3] = { dr, 0.0f, 0.0f };
+        glow_dot(gfx, w.laser_b, WPN_DOT_SIZE, dot);
     }
 
-    const float cx = EM_GFX_OVERLAY_W * 0.5f;   /* 320 */
-    const float cy = EM_GFX_OVERLAY_H * 0.5f;   /* 224 */
-
-    /* Crosshair while in the armed stance (aim/reload). */
-    if (w.state == EM_WPN_AIM || w.state == EM_WPN_RELOAD)
-        rect_centered(gfx, cx, cy, 4.0f, 4.0f, kCrosshair);
-
-    /* Hit-marker pulse: bright/large on a ray hit, dim/small on a miss. */
-    if (w.pulse > 0)
-        rect_centered(gfx, cx, cy,
-                      w.pulse_hit ? 10.0f : 6.0f,
-                      w.pulse_hit ? 10.0f : 6.0f,
-                      w.pulse_hit ? kPulseHit : kPulseMiss);
-
-    /* Muzzle flash: 3-frame two-layer flare at the lower center (where
-     * the gun sits in the chase view; the real pass projects the gun
-     * actor's muzzle point +0xA0 — pending). */
-    if (w.flash > 0) {
-        float s = (float)w.flash / (float)WPN_FLASH_FRAMES; /* 1 -> 1/3 */
-        rect_centered(gfx, cx, cy + 76.0f, 28.0f * s, 20.0f * s,
-                      kFlashOuter);
-        rect_centered(gfx, cx, cy + 76.0f, 14.0f * s, 10.0f * s,
-                      kFlashInner);
-    }
+    /* NO screen-space reticle: the real game aims with the laser dot
+     * alone (s23 live aim capture — no crosshair overlay exists in the
+     * engine's frame). The old placeholder crosshair / hit-pulse /
+     * overlay flash rects are gone (2026-06-11 weapon-fidelity pass). */
 }
 
 /* --- Accessors ---------------------------------------------------------- */

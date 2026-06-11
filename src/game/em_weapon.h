@@ -127,11 +127,29 @@
  * While aiming the player is PLANTED (movement locked to turn-in-place;
  * the decision + engine evidence live in em_game.c player_move).
  *
- * MUZZLE/FLASH FEEDBACK — still PLACEHOLDER (muzzle FX func_00187CC0 +
- * tracer func_001860A0 not translated): screen-space overlay rects —
- * a 3-frame muzzle-flash flare at the lower center and a center-screen
- * crosshair that pulses bright/large on a ray HIT and dim/small on a
- * miss.
+ * MUZZLE ANCHORING (2026-06-11 — replaces the chest-height stand-in):
+ * the muzzle ray is the engine's exact two-point form (func_00188630,
+ * offset tables decoded from the local boot ELF): ray origin = hand
+ * bone matrix * (-3, 1.088, 0), barrel tip = M * (6, 1.088, 0)
+ * (D_0024A220 row 7, the manual-aim remap of sub-weapon 0), fire dir =
+ * the hand bone's local +X axis; the laser BEAM draws from M *
+ * (3.6, 0.5, 0) (D_0024A2A0[0] = the gun+0x1F0 point). The hand matrix
+ * is the player palette's node-4 matrix (the rifle attach node),
+ * published by the gfx layer (em_gfx_last_skinned_bone — one frame of
+ * latency by construction). Fallback when the loaded player EMDL lacks
+ * the weapon clips: the old flagged chest-height/yaw stand-in.
+ *
+ * MUZZLE FLASH (2026-06-11 — replaces the overlay placeholder): the
+ * engine's func_00187CC0 spawns a 16-tick FX actor (func_001F5040
+ * variant 0) at the barrel tip: chunk27 effect models 0xD (radial
+ * puff) / 8 then 7 (forward +X star, 4.9 x 4.6 footprint), scale
+ * 0.15 + 0.05*rand growing by a 0.8-decay velocity, additive. The
+ * port draws that envelope through the world-space beam pass: a core
+ * dot + a forward streak at the real tip point, intensity decaying
+ * with the engine's own 0.8^t constant (untextured stand-in for the
+ * effect sheet, flagged; tracer func_001860A0 still untranslated).
+ * There is NO crosshair and NO hit-pulse overlay: the real game aims
+ * with the laser dot alone (s23 live aim capture).
  *
  * AIM CAMERA HOOKUP (APPLIED 2026-06-10 s24): the engine lowers the
  * camera's follow target while aiming (camera struct +0x8C target-height
@@ -274,16 +292,20 @@ void em_weapon_reset(uint8_t mag, int16_t reserve);
 /* Per-frame update: the player-side state machine + fire sub-machine and
  * the gun-side fire-event consumption (one-frame latency, see header).
  * `coll` (may be NULL / empty) is the world the hitscan ray runs through;
- * the ray leaves from chest height above `player_pos` along `player_yaw`.
- * Call once per gameplay frame. */
+ * the ray leaves from the hand-bone muzzle point along the gun axis
+ * ("MUZZLE ANCHORING" above; chest-height/yaw is the flagged fallback
+ * for a player EMDL without the weapon clips). Call once per gameplay
+ * frame. */
 void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                       float player_yaw, const EmFrameInput *in);
 
 /* Queue this frame's weapon visuals: the LASER SIGHT (world-space beam +
  * hit dot through em_gfx_beam/em_gfx_beam_dot — header block above) in
- * the AIM state, plus the placeholder overlay feedback (crosshair +
- * muzzle flash). Queues nothing while holstered, so the default frame
- * stays byte-identical. */
+ * the AIM state, plus the MUZZLE FLASH FX while one is alive (a flash
+ * outlives a stance drop, like the engine's pool FX actor). Also caches
+ * `gfx` for the update stage's hand-bone reads. Queues nothing while
+ * holstered with no live flash, so the default frame stays
+ * byte-identical. */
 void em_weapon_render(EmGfx *gfx);
 
 /* 1 while the weapon is in the armed stance (DRAW / AIM / RELOAD — the

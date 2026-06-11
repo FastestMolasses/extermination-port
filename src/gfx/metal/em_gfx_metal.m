@@ -85,6 +85,12 @@ struct EmGfx {
     float                        lastViewProj[16]; /* column-major P*V  */
     bool                         hasViewProj;      /* a 3D draw ran     */
     id<MTLRenderPipelineState>   beamPipeline;     /* additive, depth-on */
+    /* Last skinned draw's leading bone matrices (em_gfx_last_skinned_bone
+     * — the native bone-publish; the chain draws the player LAST, so this
+     * is the player palette between frames). COPIED at draw time: palette
+     * buffers may be freed by scene switches. */
+    float                        lastBones[EM_GFX_TRACK_BONES * 16];
+    uint32_t                     lastBoneCount;    /* bones recorded     */
 };
 
 struct EmGfxMesh {
@@ -589,6 +595,12 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     /* Remember the frame's camera for the beam flush (world-space pass). */
     memcpy(g->lastViewProj, viewproj, sizeof(g->lastViewProj));
     g->hasViewProj = true;
+    /* Record the leading bone matrices — the native bone-publish for
+     * equipment consumers (em_gfx.h "last skinned palette"). */
+    g->lastBoneCount = bone_count < EM_GFX_TRACK_BONES ? bone_count
+                                                       : EM_GFX_TRACK_BONES;
+    memcpy(g->lastBones, palette,
+           (size_t)g->lastBoneCount * 16 * sizeof(float));
     if (!g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin", false);
@@ -881,6 +893,15 @@ void em_gfx_beam(EmGfx *g, const float a[3], const float b[3], float width,
     memcpy(r->cb, rgba_b, sizeof(r->cb));
     r->w   = width;
     r->dot = 0;
+}
+
+/* Copy one recorded bone matrix of the last skinned draw (em_gfx.h —
+ * the native bone-publish; the gameplay chain draws the player LAST). */
+int em_gfx_last_skinned_bone(EmGfx *g, uint32_t bone, float out16[16])
+{
+    if (!g || !out16 || bone >= g->lastBoneCount) return 0;
+    memcpy(out16, g->lastBones + (size_t)bone * 16, 16 * sizeof(float));
+    return 1;
 }
 
 /* Queue one camera-facing square glow (em_gfx.h). */
