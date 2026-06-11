@@ -1,28 +1,40 @@
-/* em_enemy.c — placed crawler actors (see em_enemy.h for the engine
- * mapping and the flagged fidelity deviations).
+/* em_enemy.c — enemy actors (see em_enemy.h for the engine mapping and
+ * the flagged fidelity deviations).
  *
- * State machine (FINDINGS "ENEMY AI ARCHITECTURE" section 3,
- * func_001551B0, engine lifecycle values kept):
+ * TWO DECODED BRAINS share this module's slot pool (s62 condition
+ * decode of the splat disassembly — every trigger below is read off
+ * the instructions, not inferred):
  *
- *   0 INIT    HP(+0x34) = 1, base heading, build the 4 diagonal probe
- *             directions (+0x2D0..0x2EC) -> 4. (The engine also waits
- *             for resources and resolves the per-area nest registry —
- *             natively immediate, no nest children yet.)
- *   4 IDLE    poll the +0x36 mailbox: ANY damage kills (HP = 1) -> 2,
- *             and broadcast the group alarm (+0x0A) to every other live
- *             crawler. Own alarm set -> 1 with the retreat counter
- *             +0x2A = 6. PORT WAKE (flagged): player within the
- *             documented 32-unit distance-only sense -> alarm self.
- *   1 ATTACK  sub 0 STEER: turn toward the player at most +-3 deg/frame
- *             (0.0524 rad), probing the 4 diagonals (func_0019AB20
- *             stand-in: knee-height segment queries) and turning away
- *             from blocked sides; >= 3 blocked and the retreat counter
- *             exhausted -> back to 4. Then launch a hop.
- *             sub 1 HOP: integrate velocity, vertical with the engine's
- *             0.052/tick gravity; land on the floor query -> sub 0.
- *             Within the radius-6 lunge contact of the player -> write
- *             the player mailbox (0x400A) -> 2: the suicide-attack
- *             burst. (Port deviation: the mailbox is also polled here.)
+ * THE PLACED CRAWLER / CRATE (FINDINGS "ENEMY AI ARCHITECTURE" §3,
+ * func_001551B0 — the port's EM_ENEMY_KIND_CRATE; engine lifecycle
+ * values kept):
+ *
+ *   0 INIT    HP(+0x34) = 1, base heading, the 4 diagonal probe
+ *             directions, the floor probe -> on-surface +0x52 -> 4.
+ *   4 IDLE    poll the +0x36 mailbox: ANY nonzero kills (HP = 1) -> 2,
+ *             broadcasting the group alarm (+0x0A) to every live actor
+ *             with a placed-crawler model byte {6,0x1C,0x1E,0x1F,0x50}
+ *             and the on-surface flag — the WHOLE live list, no radius.
+ *             Else own alarm set -> clear it, +0x2A = 6, -> 1.
+ *             Else the disguise jitter. THE ENGINE HAS NO PROXIMITY
+ *             TEST HERE — state 4 never reads the player position; the
+ *             old ~10-u burst trigger and the 32-u wake were port
+ *             inventions and are REMOVED.
+ *   1 ATTACK  the suicide hop-run, and it is BLIND: no player reference
+ *             anywhere in the engine's state 1. sub 0 STEER: +0x2A--;
+ *             probe the 4 diagonals; >= 3 blocked (or both opposite
+ *             pairs) -> hold, and at +0x2A == 0 -> back to 4 (the
+ *             pending mailbox then kills it on the next IDLE tick —
+ *             decoded deferral). Else rotate the heading +-0.0524 rad
+ *             away from a blocked side, or RNG-perturb it (+-1/120 rad)
+ *             when open; first launch arms the attack timer +0x2A = 180
+ *             (0xB4; variant 6 instead uses 5x its height — n/a here).
+ *             sub 1 HOP: integrate, 0.052/tick gravity. Timer expired
+ *             or surface lost -> CLEAR +0x36 (damage taken mid-run is
+ *             absorbed) -> 2. STATE 1 NEVER POLLS THE MAILBOX — the
+ *             old IDLE+ATTACK poll widening is removed. (Port
+ *             locomotion stand-in: repeated hops with re-steer on
+ *             landing; the engine runs one long leap.)
  *   2 DEATH   engine: nest-child spawns + gore FX + a MODEL REBIND to
  *             the burst-husk/gib models (library 0x22/0x29 — there is
  *             NO death clip in the leech clip bank), and — when killed
@@ -43,21 +55,63 @@
  *             replaces the old sink-below-the-floor stand-in).
  *   3 FREE    slot inactive.
  *
- * ANIMATION LAYER (FINDINGS "CRAWLER RESOLVED" section 4 — the leech
- * clip bank, 4 clips at 60 fps): a VISUAL-ONLY layer driven BY the
- * state machine above; it never feeds back into gameplay (state
- * transitions, positions and mailbox timing are bit-identical to the
- * static-pose build, keeping EM_ENEMY_TEST output stable):
+ * THE WORM / LEECH (FINDINGS §4, brain func_00153F10 + sub-machine
+ * func_00154120, init func_00154040 — the port's EM_ENEMY_KIND_CRAWLER;
+ * the kind-0xD creature generators emit and crate bursts hatch). It is
+ * BORN ATTACKING — the engine brain has no idle state, no alarm read,
+ * and no proximity gate; "target acquisition" is unconditional:
  *
- *   spawn        clip 1 (emerge, 90 f) once, then the state's loop
- *   IDLE         clip 0 (crawl/stalk, 239 f, in-place) looped SLOWLY
- *   ATTACK       clip 0 looped at the entity's ACTUAL ground speed
- *                (21.27 u/s = 1.0x — the lunge clip's authored root
- *                speed; the loco clips are baked in place, so all root
- *                motion comes from the entity's own hop integration)
- *   close range  clip 2 (windup, 45 f) then clip 3 (lunge, 120 f) so
- *                the lunge clip is playing when the radius-6 suicide
- *                burst lands (trigger range is port-tuned, flagged)
+ *   INIT      HP = 10 (func_00154040), yaw = atan2 toward the player
+ *             mirror (D_00810350/58) -> ATTACK sub 0.
+ *   sub 0     APPROACH: play the bound anim out (anim-gated by the
+ *             0x1000 done bit in the engine; the bound id chain is
+ *             unverified — the port maps it to the bank's 90-f emerge
+ *             clip and HOLDS position: the loco clips are baked in
+ *             place and the brain itself writes no position). The
+ *             engine also runs the 32-u latch test here
+ *             (func_0019AA80(nodeA+0xC0, nodeB+0xC0, 0x20) — VERIFIED
+ *             32; node identities unverified) latching the player at
+ *             D_008104D4 = 5.0 when status == 1: UNTRANSLATED (no
+ *             latch/shake-off system in the port; flagged).
+ *   sub 1     STALK: +0x28 = 120 ticks (0x78), homing the yaw toward
+ *             the player at 0.0698 rad/tick (0x3D8EFA35,
+ *             func_001B12B0). Port locomotion stand-in: slides forward
+ *             while homing (the engine's stalk root motion, if any, is
+ *             the anim's — unexported).
+ *   sub 2     WINDUP: anim out (the 45-f windup clip window); at the
+ *             end SNAP the yaw to the player bearing (decoded) and
+ *             play sound 0x431.
+ *   sub 3     LUNGE: travel at the lunge clip's authored 21.27 u/s
+ *             along the snapped yaw for the 120-f clip window. Each
+ *             tick the engine resolves: the 32-u node test -> burst,
+ *             latching D_008104D4 = 15.0 (the lunge hurts more); else
+ *             func_0019A570 radius-6 contact -> burst (NO latch); else
+ *             clip end -> state 3 DESPAWN (released — no burst, no
+ *             gore). Port: the two resolve arms FOLD into one radius-6
+ *             contact dealing the decoded 15 (raw 32 between actor
+ *             centers would make every lunge unavoidable; the engine's
+ *             node pair is unverified — flagged), miss -> despawn.
+ *   2 DEATH   burst: engine sound 0x434 + gore 0x80000052 + release.
+ *             Mailbox kills keep the gib/corpse-fade visuals — the
+ *             engine's worm DAMAGE path is an OPEN ITEM (the brain
+ *             never reads +0x34/+0x36; HP=10 is consumed by a handler
+ *             not yet found), so the port keeps the worm shootable
+ *             through the canonical hurt-helper shape (func_00153B50)
+ *             as a flagged stand-in.
+ *
+ * ANIMATION LAYER (FINDINGS "CRAWLER RESOLVED" section 4 — the leech
+ * clip bank, 4 clips at 60 fps): a VISUAL layer driven BY the state
+ * machine above. The worm's sub-0/2/3 windows are the CLIP LENGTHS at
+ * rate 1.0 (the engine gates those subs on the anim-done bit 0x1000;
+ * the port uses the same fixed counts with or without the asset, so
+ * gameplay timing never depends on what loaded):
+ *
+ *   spawn/sub 0  clip 1 (emerge, 90 f) once — the approach window
+ *   sub 1 STALK  clip 0 (crawl, 239 f, in-place) looped at the actual
+ *                ground speed (21.27 u/s = 1.0x)
+ *   sub 2        clip 2 (windup, 45 f) once
+ *   sub 3        clip 3 (lunge, 120 f) once — the resolve window
+ *   crate IDLE   no clips (1-node static mesh): the disguise jitter
  *   DEATH        no clip exists (engine rebinds gib MODELS instead) —
  *                frozen pose alpha-fades out (the per-draw tint path)
  *
@@ -104,31 +158,33 @@
  * photograph the scatter without scripting a full kill run.
  *
  * CRATE KIND (em_enemy.h "CRATE KIND"; FINDINGS "CRAWLER RESOLVED" +
- * the s26 office model-table carve): the engine crawler's IDLE disguise
- * as its own spawn kind. Lifecycle reuses the engine state values:
+ * the s26 office model-table carve): the engine's placed crawler IS the
+ * disguised prop — the port spawns it as its own kind and now runs the
+ * DECODED func_001551B0 machine (the state list at the top of this
+ * header):
  *
  *   0 INIT    HP = 1 -> 4.
  *   4 IDLE    render the crate mesh with the PROCEDURAL jitter (the
  *             documented D_002468B0/B4/B8 x/z world-matrix perturbation
  *             — implemented as deterministic sines of the update tick:
  *             a slow chitter envelope gating a small x/z wiggle + yaw
- *             wobble; amplitudes/periods are flagged port constants).
- *             Poll the +0x36 mailbox (HP 1: any bullet hit is lethal,
- *             hit_dir = player -> crate) OR the player within the
- *             CRATE_TRIGGER_R ~10 u (flagged port stand-in for the
- *             engine's state-4 wake) -> 2. The group alarm is IGNORED
- *             (port: the disguise holds until its own trigger).
+ *             wobble; amplitudes/periods are flagged port constants;
+ *             the engine runs the jitter in state 4 ONLY).
+ *             Poll the +0x36 mailbox (HP 1: any hit is lethal, hit_dir
+ *             = player -> crate) -> 2 + the GROUP-ALARM BROADCAST.
+ *             Own alarm -> ATTACK: the crate HOPS AS THE CRATE (the
+ *             engine's alarmed-crawler run — decoded, was untranslated)
+ *             and suicide-bursts when the 180-tick attack timer runs
+ *             out. DAMAGE is the only direct trigger — the engine has
+ *             no proximity burst (the old ~10-u trigger is REMOVED).
  *   2 BURST   free the slot (no fade: the husk replaces it visually),
  *             spawn the WORM at the crate position through the normal
- *             spawn path (emerge clip 1; yaw toward the player — the
- *             engine's leech init yaw), then launch the husk gibs with
- *             the shared gib launcher (proximity bursts scatter away
- *             from the player; bullet kills along the hit vector).
+ *             spawn path (the engine's state-2 nest-child records; the
+ *             worm's own INIT yaws it at the player — func_00154040),
+ *             then launch the husk gibs with the shared gib launcher
+ *             (damage kills scatter along the hit vector; timer bursts
+ *             along the facing).
  *   3 FREE    slot inactive.
- *
- * The crate never enters state 1, never hops, ignores anim clips
- * (1-node static mesh) and never touches the crawler code paths, so
- * crawler-only runs (tests 1/2, the gib demo) are byte-identical.
  *
  * GENERATOR KIND (em_enemy.h "GENERATOR"; FINDINGS "GENERATOR —
  * func_0015A2C0 RESOLVED", session 28): the engine's organic floor pad
@@ -235,8 +291,8 @@
  * divides the spawn delays by 60 (test acceleration — 30/60/90 s is
  * the shipped pacing). The script then asserts: no worm before the
  * 121-frame charge completes; each worm spawns AT the generator
- * origin; a 0x400A mailbox kill 15 frames after worm 1 (the same code
- * a real shot writes — test 1 already proves the weapon->mailbox
+ * origin; a 0x400A mailbox kill 15 frames after worm 1 (amount 10 =
+ * exactly the decoded worm HP; test 1 proves the weapon->mailbox
  * path); the generator KEEPS emitting after the kill; exactly 4 worms
  * then EXHAUSTED (mode-2 sub 2), with a 240-frame silence window
  * proving no 5th spawn. PASS/FAIL line + quit, like tests 1..3.
@@ -277,19 +333,44 @@
  * gib RNG stream stay byte-identical). */
 #define ENEMY_SLOT_MAX   16
 
-/* --- Engine constants (FINDINGS "ENEMY AI ARCHITECTURE") --------------- */
-#define ENEMY_HP_INIT    1        /* crawler init HP (+0x34)              */
-#define ENEMY_TURN_RATE  0.0524f  /* +-3 deg/frame (0x3D56774F)           */
-#define ENEMY_GRAVITY    0.052f   /* hop vertical integration, per tick   */
-#define ENEMY_SENSE      32.0f    /* the documented distance-only sense
-                                   * (leech <= 32 u; PORT choice for the
-                                   * crawler wake — see em_enemy.h)       */
-#define ENEMY_LUNGE_R    6.0f     /* the engine's radius-6 contact test   */
-#define ENEMY_LUNGE_BAND 8.0f     /* vertical tolerance (pair-pass +-6/8) */
-#define ENEMY_RETREAT    6        /* +0x2A, set on the alarm wake         */
-#define ENEMY_HIT_CODE   0x400A   /* player mailbox: type 0x4000 | 10 —
-                                   * the documented contact-damage code
-                                   * (crawler amount unpinned; flagged)   */
+/* --- Engine constants (FINDINGS "ENEMY AI ARCHITECTURE" + the s62
+ * condition decode of func_001551B0/func_00153F10/func_00154120 —
+ * every value below is read off the disassembly) ----------------------- */
+#define ENEMY_HP_CRATE   1        /* placed crawler init HP (+0x34 = 1)   */
+#define ENEMY_HP_WORM    10       /* worm/leech init HP (func_00154040 —
+                                   * its CONSUMPTION is an open item; the
+                                   * port's mailbox consume is the
+                                   * canonical hurt-helper stand-in)      */
+#define ENEMY_TURN_RATE  0.0524f  /* +-3 deg/frame steer-away (0x3D56774F)*/
+#define ENEMY_HOMING_RATE 0.0698f /* worm STALK homing, rad/tick
+                                   * (0x3D8EFA35 -> func_001B12B0)        */
+#define ENEMY_GRAVITY    0.052f   /* hop vertical integration, per tick
+                                   * (0x3D54FDF4 = 0.051999)              */
+#define ENEMY_CONTACT_R  6.0f     /* lunge-resolve contact radius
+                                   * (func_0019A570(a, b, 6, 0)); the
+                                   * port's fold of the engine's 32-u
+                                   * node-test arm (nodes unverified)     */
+#define ENEMY_STEER_TICKS  6      /* +0x2A = 6 at the alarm wake          */
+#define ENEMY_ATTACK_TICKS 180    /* +0x2A = 0xB4 at the hop launch: the
+                                   * crate's suicide-run timer (variant 6
+                                   * instead uses 5x its height — n/a)    */
+#define ENEMY_APPROACH_F 90       /* worm sub 0 window: the engine gates
+                                   * on its bound anim's end (id chain
+                                   * unverified) — port mapping: the
+                                   * bank's 90-f emerge clip              */
+#define ENEMY_STALK_TICKS 120     /* worm sub 1: +0x28 = 0x78 (decoded)   */
+#define ENEMY_WINDUP_F   45       /* worm sub 2 window = the 45-f windup
+                                   * clip (anim-gated in the engine)      */
+#define ENEMY_LUNGE_F    120      /* worm sub 3 window = the 120-f lunge
+                                   * clip (anim-gated in the engine)      */
+#define ENEMY_LATCH_LUNGE 15      /* D_008104D4 = 15.0 — the lunge-latch
+                                   * magnitude (replaces the invented
+                                   * 0x400A/10 contact code)              */
+#define ENEMY_LATCH_TOUCH 5       /* D_008104D4 = 5.0 — the approach
+                                   * latch; UNTRANSLATED (no latch/shake-
+                                   * off system), recorded for fidelity   */
+#define ENEMY_SFX_WINDUP 0x431u   /* leech windup -> lunge snap           */
+#define ENEMY_SFX_BURST  0x434u   /* leech burst (func_00153F10 state 2)  */
 
 /* --- Animation (the leech clip bank — FINDINGS "CRAWLER RESOLVED" §4,
  * clip ids = source container indices in the EMD3 clip table) --------- */
@@ -303,12 +384,8 @@
                                    * ANIM_BLEND_TIME player crossfade)    */
 
 /* Anim-layer port tunings (visual only; flagged — not engine values) */
-#define ENEMY_IDLE_RATE    0.25f  /* IDLE crawl-loop playback rate        */
-#define ENEMY_ATTACK_MIN   0.35f  /* rate floor while steering in place
+#define ENEMY_ATTACK_MIN   0.35f  /* rate floor while turning in place
                                    * (ground speed 0 must not freeze it)  */
-#define ENEMY_WINDUP_RANGE 20.0f  /* start the windup anim here so the
-                                   * 45-f windup ends near the radius-6
-                                   * contact at the ~19 u/s hop pace      */
 #define ENEMY_FADE_FRAMES  30     /* DEATH placeholder: corpse alpha fade
                                    * 1 -> 0 (em_gfx_draw_skinned_tinted —
                                    * replaces the old sink-below-the-floor
@@ -349,11 +426,12 @@ static const char *const GIB_FILES[GIB_MODEL_MAX] = {
 };
 
 /* --- Crate kind (see "CRATE KIND" in the file header) -------------------
- * Engine values: HP 1 and the jitter MECHANISM (x/z world-matrix
- * perturbation). The trigger radius, amplitudes and periods are flagged
- * port constants (the D_002468B0 tables are not exported). */
+ * Engine values: HP 1, the damage-only burst trigger and the jitter
+ * MECHANISM (x/z world-matrix perturbation). The jitter amplitudes and
+ * periods are flagged port constants (the D_002468B0 tables are not
+ * exported). The old ~10-u proximity trigger was a port invention —
+ * REMOVED (the engine's state 4 never reads the player position). */
 #define CRATE_BONE_MAX   4        /* exporter writes 1+1 palette slots    */
-#define CRATE_TRIGGER_R  10.0f    /* PORT: proximity burst trigger (~10u) */
 #define CRATE_HIT_R      3.5f     /* PORT: bullet hit-sphere (6x4x5 box)  */
 #define CRATE_AIM_Y      2.0f     /* box center above the feet            */
 #define CRATE_JIT_POS    0.08f    /* PORT: x/z wiggle amplitude, units    */
@@ -467,7 +545,11 @@ static const float TF_TINT_BASE[3] = {   6.0f, 92.0f,   1.0f };
 static const float TF_TINT_ROOM[3] = { 128.0f, 128.0f, 128.0f };
 
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
-#define ENEMY_HOP_SPEED  0.32f    /* forward units/frame while airborne   */
+#define ENEMY_HOP_SPEED  0.32f    /* crate hop / worm stalk ground speed,
+                                   * units/frame (engine: the crate run's
+                                   * 11.0/1.4 velocity build and the
+                                   * stalk's anim root motion — neither
+                                   * maps to one exported number)         */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
                                    * airtime under the 0.052 gravity)     */
 #define ENEMY_PROBE_LEN  6.0f     /* diagonal steer-probe length          */
@@ -482,11 +564,20 @@ typedef struct {
     uint8_t kind;         /* EM_ENEMY_KIND_* (crawler / crate disguise)  */
     uint8_t seed;         /* spawn slot index: jitter phase offset       */
     uint8_t state;        /* actor +0x04 lifecycle (engine values)       */
-    uint8_t sub;          /* attack sub-state: 0 steer / 1 hop           */
-    uint8_t alarm;        /* actor +0x0A group-alarm flag                */
+    uint8_t sub;          /* attack sub-state (+0x05): crate 0 steer /
+                           * 1 hop; worm 0 approach / 1 stalk / 2 windup
+                           * / 3 lunge (the decoded func_00154120 subs)  */
+    uint8_t alarm;        /* actor +0x0A group-alarm flag (crate only —
+                           * the worm brain never reads it)              */
+    uint8_t atk_armed;    /* crate: the 180-tick attack timer was armed
+                           * at the first hop launch (port split of the
+                           * engine's reused +0x2A — see ATTACK)         */
     int16_t hp;           /* actor +0x34                                 */
-    int16_t mailbox;      /* actor +0x36 incoming-damage mailbox         */
-    int     retreat;      /* actor +0x2A blocked-retreat counter         */
+    int16_t mailbox;      /* actor +0x36 incoming-damage mailbox        */
+    int     retreat;      /* actor +0x2A: steer budget (6 at the wake),
+                           * then the crate's 180-tick suicide-run timer */
+    int     t28;          /* actor +0x28: the worm's sub window counter
+                           * (approach/stalk/windup/lunge ticks)         */
     float   pos[3];       /* actor +0xB0/B4/B8                           */
     float   yaw;          /* actor +0xC4 (heading; 0 = +Z, engine sense) */
     float   vy;           /* hop vertical velocity (+0x2C8)              */
@@ -991,7 +1082,7 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
     if (kind == EM_ENEMY_KIND_CRAWLER && s.anim_on) {
         e->aphase = ANIM_EMERGE;
         e->acur   = s.clip_emerge >= 0 ? s.clip_emerge : s.clip_crawl;
-        e->arate  = s.clip_emerge >= 0 ? 1.0f : ENEMY_IDLE_RATE;
+        e->arate  = s.clip_emerge >= 0 ? 1.0f : ENEMY_ATTACK_MIN;
         e->ablend = 1.0f;
     }
     /* Stage a valid pose immediately: the render chain may record this
@@ -1029,29 +1120,32 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
 /* Helpers                                                              */
 /* ------------------------------------------------------------------ */
 
-/* Group-alarm broadcast (IDLE damage path): the engine walks the live
- * actor list D_00275BC0 and sets +0x0A on every actor with a crawler
- * model byte and the on-surface flag; natively every live crawler. */
+/* Group-alarm broadcast (the placed crawler's IDLE damage path,
+ * decoded): the engine walks the WHOLE live actor list D_00275BC0 —
+ * no radius — and sets +0x0A on every actor with a placed-crawler
+ * model byte {6, 0x1C, 0x1E, 0x1F, 0x50} and the on-surface flag
+ * (+0x52). Natively: every live CRATE (the placed-crawler kind);
+ * worms are NOT whitelisted and never read the flag. */
 static void enemy_alarm_broadcast(void)
 {
     for (int i = 0; i < s.n; i++)
-        if (s.e[i].active)
+        if (s.e[i].active && s.e[i].kind == EM_ENEMY_KIND_CRATE)
             s.e[i].alarm = 1;
 }
 
-/* Consume the +0x36 mailbox. Returns 1 if the hit was lethal (HP=1
- * crawlers: any nonzero damage). Low bits = amount (below the 0x2000
- * type flag), matching the documented code layout. A lethal hit plays
- * the death-sub-state sound 0x7D8 — the canonical hurt-helper's
- * (func_00153B50) HP<=0 arm; the crawler's own per-state gore set
- * (burst 0x434 etc.) is not pinned to this transition yet. */
+/* Consume the +0x36 mailbox. Returns 1 if the hit was lethal (HP-1
+ * crates: any nonzero value — the decoded state-4 test is `+0x36 !=
+ * 0`). Low bits = amount (below the 0x2000 type flag), matching the
+ * documented code layout. For the WORM (HP 10) this whole consume is a
+ * flagged stand-in: the engine brain never reads +0x34/+0x36 (open
+ * item — see the file header); the subtractive shape is the canonical
+ * hurt helper func_00153B50, whose death arm plays sound 0x7D8. */
 static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
     int amount = e->mailbox & 0x1FFF;
     e->mailbox = 0;
     e->hp      = (int16_t)(e->hp - amount);
-    enemy_alarm_broadcast();      /* a shot crawler wakes the pack */
     if (e->hp > 0) return 0;
     /* 0x7D8 — engine func_00153B50 plays it positional at the dying
      * actor: play_sound(actor, 0x7D8, 0, 300.0) (radius read off the
@@ -1149,13 +1243,6 @@ static double anim_eval_time(int clip, double t)
     return t;
 }
 
-/* One-shot completion: the play head reached the last baked frame. */
-static int anim_done(const Enemy *e)
-{
-    const EmModelClip *c = &s.model.clips[e->acur];
-    return e->at >= (double)(c->frame_count - 1);
-}
-
 /* Switch the current clip, starting a 0.15 s crossfade from the old
  * one (which keeps advancing at its own rate — the player path blends
  * two LIVE clips the same way). Same clip = just retune the rate (the
@@ -1183,46 +1270,37 @@ static void enemy_anim_update(Enemy *e, float dist)
 {
     if (!s.anim_on || e->kind != EM_ENEMY_KIND_CRAWLER) return;
 
+    (void)dist;
     switch (e->state) {
-    case EM_ENEMY_INIT:
-    case EM_ENEMY_IDLE:
-        /* spawn: let the one-shot emerge finish, then the slow loop */
-        if (e->aphase == ANIM_EMERGE && !anim_done(e))
-            break;
-        e->aphase = ANIM_CRAWL;
-        enemy_anim_set(e, s.clip_crawl, ENEMY_IDLE_RATE);
-        break;
-
     case EM_ENEMY_ATTACK:
-        /* close range: windup once -> lunge once; the radius-6 suicide
-         * burst (gameplay) lands while the lunge clip plays. An attack
-         * wake also cuts the emerge short (the crossfade hides it). */
-        if (e->aphase == ANIM_WINDUP) {
-            if (anim_done(e) && s.clip_lunge >= 0) {
-                e->aphase = ANIM_LUNGE;
-                enemy_anim_set(e, s.clip_lunge, 1.0f);
-            }
-            break;
-        }
-        if (e->aphase == ANIM_LUNGE) {
-            if (!anim_done(e))
-                break;          /* ran out without contact: re-approach */
-            e->aphase = ANIM_CRAWL;
-            /* fall through to the speed-scaled loop below */
-        }
-        if (dist <= ENEMY_WINDUP_RANGE && s.clip_windup >= 0) {
-            e->aphase = ANIM_WINDUP;
-            enemy_anim_set(e, s.clip_windup, 1.0f);
-            break;
-        }
-        {
-            /* the loop tracks the entity's ACTUAL ground speed; the
-             * authored 21.27 u/s = rate 1.0. Floor it so the steer
-             * phase (speed 0) keeps writhing instead of freezing. */
+        /* The worm's gameplay subs ARE the engine's anim windows (the
+         * brain gates subs 0/2/3 on the anim-done bit 0x1000), so the
+         * layer mirrors the sub directly. */
+        switch (e->sub) {
+        case 0:                          /* APPROACH = the emerge clip */
+            break;                       /* set at spawn; plays out    */
+        case 1: {
+            /* STALK: the crawl loop at the ACTUAL ground speed; the
+             * authored 21.27 u/s = rate 1.0. Floor it so turning in
+             * place keeps writhing instead of freezing. */
             float rate = e->speed / ENEMY_LUNGE_SPEED;
             if (rate < ENEMY_ATTACK_MIN) rate = ENEMY_ATTACK_MIN;
             e->aphase = ANIM_CRAWL;
             enemy_anim_set(e, s.clip_crawl, rate);
+            break;
+        }
+        case 2:
+            if (e->aphase != ANIM_WINDUP && s.clip_windup >= 0) {
+                e->aphase = ANIM_WINDUP;
+                enemy_anim_set(e, s.clip_windup, 1.0f);
+            }
+            break;
+        case 3:
+            if (e->aphase != ANIM_LUNGE && s.clip_lunge >= 0) {
+                e->aphase = ANIM_LUNGE;
+                enemy_anim_set(e, s.clip_lunge, 1.0f);
+            }
+            break;
         }
         break;
 
@@ -1271,8 +1349,11 @@ static void enemy_build_palette(Enemy *e)
      * function of the update tick + the spawn slot, so runs and
      * captures reproduce: a slow chitter envelope gates a small x/z
      * wiggle and a yaw wobble (amplitudes/periods = flagged port
-     * constants; the engine's table values are not exported). */
-    if (e->kind == EM_ENEMY_KIND_CRATE && e->active) {
+     * constants; the engine's table values are not exported). The
+     * engine runs this block in STATE 4 ONLY — an alarmed crate hops
+     * instead (state 1), so the jitter gates on IDLE. */
+    if (e->kind == EM_ENEMY_KIND_CRATE && e->active &&
+        e->state == EM_ENEMY_IDLE) {
         float t   = (float)s.frame;
         float ph  = (float)e->seed * 1.7f;
         float env = sinf(t * 0.037f + ph * 3.1f);
@@ -2171,159 +2252,258 @@ static void tt_script(void)
 /* ------------------------------------------------------------------ */
 
 /* Crate BURST (state 2, crate kind): free the slot, spawn the worm at
- * the crate position through the normal spawn path (emerge clip 1;
- * yaw toward the player — the engine's leech init yaw, func_00154040's
- * atan2 at (D_00810350, D_00810358)), then scatter the husk gibs with
- * the shared launcher. Worm first: gib_burst budgets its virtual draw
- * slots against the LIVE instance count. The crate never fades — the
- * husk gibs replace it visually (no gibs loaded = it just vanishes,
- * matching the immediate gameplay despawn). */
+ * the crate position through the normal spawn path (the engine's
+ * state-2 nest-child records; the worm's own INIT yaws it toward the
+ * player — func_00154040's atan2 at (D_00810350, D_00810358)), then
+ * scatter the husk gibs with the shared launcher. Worm first:
+ * gib_burst budgets its virtual draw slots against the LIVE instance
+ * count. The crate never fades — the husk gibs replace it visually (no
+ * gibs loaded = it just vanishes, matching the immediate gameplay
+ * despawn). */
 static void crate_burst(Enemy *e, const float pp[3])
 {
     e->state  = EM_ENEMY_FREE;
     e->active = 0;
     e->fade   = 0;
 
-    float dx = pp[0] - e->pos[0];
-    float dz = pp[2] - e->pos[2];
-    float wyaw = (fabsf(dx) + fabsf(dz) > 1e-4f) ? atan2f(dx, dz)
-                                                 : e->yaw;
-    int wi = enemy_spawn(EM_ENEMY_KIND_CRAWLER, e->pos, wyaw);
+    /* timer/suicide bursts (no recorded hit vector): scatter the husk
+     * along the facing — the engine's no-knockback arm */
+    if (!e->hit_lethal) {
+        e->hit_dir[0] = sinf(e->yaw);
+        e->hit_dir[1] = cosf(e->yaw);
+    }
+    int wi = enemy_spawn(EM_ENEMY_KIND_CRAWLER, e->pos, e->yaw);
     if (wi < 0)
         printf("enemy: crate burst — no free slot for the worm\n");
     int ng = gib_burst(e);
     printf("enemy: crate burst at (%.1f, %.1f, %.1f) — %d gib(s), "
            "worm %s\n", e->pos[0], e->pos[1], e->pos[2], ng,
            wi >= 0 ? "spawned" : "skipped");
+    (void)pp;
+}
+
+/* CRATE attack — the decoded func_001551B0 state 1: a BLIND suicide
+ * hop-run (no player reference exists in the engine's state 1; heading
+ * = probe-steered + RNG). The mailbox is NEVER polled here: damage
+ * taken mid-run stays pending (kills on the next IDLE tick if the run
+ * returns there) and is ABSORBED (+0x36 cleared) when the run ends in
+ * the burst — both decoded off the disassembly. Port locomotion
+ * stand-in (flagged): repeated hops with a re-steer on landing; the
+ * engine launches one long leap. The attack timer +0x2A = 180 is armed
+ * once at the first launch (the engine reuses +0x2A; the port splits
+ * the field because of the repeated hops). */
+static void crate_attack_tick(const EmCollision *coll, Enemy *e)
+{
+    if (e->atk_armed && --e->retreat < 0) {
+        /* the 180-tick suicide-run timer expired (the engine also
+         * bursts on probe result 4 = surface lost — the port floor
+         * query falls back instead of failing, so the timer is the
+         * port's only burst arm): absorb pending damage and burst. */
+        e->mailbox    = 0;          /* decoded: sh zero, 0x36 pre-burst */
+        e->hit_lethal = 0;
+        e->state      = EM_ENEMY_DEATH;
+        return;
+    }
+    if (e->sub == 0) {
+        /* STEER: probe the 4 diagonals and turn AWAY from blocked
+         * sides at +-0.0524 rad (decoded); when fully boxed in, hold
+         * and fall back to IDLE once the steer budget (+0x2A = 6 at
+         * the wake) is spent. NO player seek (decoded). */
+        int bl[4];   /* the 4 diagonals: +-45, +-135 deg off heading */
+        int blocked = 0;
+        static const float diag[4] = { 0.7854f, -0.7854f,
+                                       2.3562f, -2.3562f };
+        for (int k = 0; k < 4; k++) {
+            bl[k] = enemy_probe(coll, e, e->yaw + diag[k],
+                                ENEMY_PROBE_LEN);
+            blocked += bl[k];
+        }
+        if (blocked >= 3 || (bl[0] && bl[3]) || (bl[1] && bl[2])) {
+            /* >= 3 blocked or both opposite pairs (decoded gate) */
+            if (!e->atk_armed && --e->retreat <= 0)
+                e->state = EM_ENEMY_IDLE;   /* pending +0x36 kills on
+                                             * the next IDLE tick     */
+            return;
+        }
+        if (bl[0] != bl[1]) {
+            /* a blocked front diagonal: rotate away (decoded rate) */
+            e->yaw = wrap_pi(e->yaw + (bl[0] ? -ENEMY_TURN_RATE
+                                             :  ENEMY_TURN_RATE));
+        } else {
+            /* open: the engine RNG-perturbs the velocity components
+             * by (rand/2^31 - 0.5)/60 ~= +-1/120 rad on a unit
+             * heading — same magnitude here, port LCG (flagged) */
+            e->yaw = wrap_pi(e->yaw +
+                             ((float)(gib_rng() % 65536u) / 65536.0f
+                              - 0.5f) / 60.0f);
+        }
+        /* launch the hop; first launch arms the 180-tick run timer */
+        e->vy     = ENEMY_HOP_VY;
+        e->hop_y0 = e->pos[1];
+        if (!e->atk_armed) {
+            e->atk_armed = 1;
+            e->retreat   = ENEMY_ATTACK_TICKS;   /* +0x2A = 0xB4 */
+        }
+        e->sub = 1;
+    } else {
+        /* HOP: forward integrate unless a wall blocks the step;
+         * vertical under the engine's 0.052/tick gravity. */
+        if (!enemy_probe(coll, e, e->yaw, ENEMY_HOP_SPEED + 0.5f)) {
+            e->pos[0] += sinf(e->yaw) * ENEMY_HOP_SPEED;
+            e->pos[2] += cosf(e->yaw) * ENEMY_HOP_SPEED;
+        }
+        e->vy     -= ENEMY_GRAVITY;
+        e->pos[1] += e->vy;
+        float floor_y = enemy_floor(coll, e);
+        if (e->vy < 0.0f && e->pos[1] <= floor_y) {
+            e->pos[1] = floor_y;
+            e->vy     = 0.0f;
+            e->sub    = 0;
+        }
+    }
+}
+
+/* WORM attack — the decoded func_00154120 sub-machine (see the file
+ * header). The engine brain never reads the damage mailbox; the
+ * caller's poll (enemy_tick) is the flagged open-item stand-in that
+ * keeps the worm shootable. */
+static void worm_attack_tick(const EmCollision *coll, Enemy *e,
+                             const float pp[3])
+{
+    float dx = pp[0] - e->pos[0];
+    float dz = pp[2] - e->pos[2];
+
+    switch (e->sub) {
+    case 0:                       /* APPROACH (anim window; in place) */
+        if (--e->t28 <= 0) {
+            e->sub = 1;
+            e->t28 = ENEMY_STALK_TICKS;       /* +0x28 = 0x78 decoded */
+        }
+        break;
+
+    case 1: {                     /* STALK: homing + port locomotion */
+        float want = atan2f(dx, dz);
+        float diff = wrap_pi(want - e->yaw);
+        float step = diff;
+        if (step >  ENEMY_HOMING_RATE) step =  ENEMY_HOMING_RATE;
+        if (step < -ENEMY_HOMING_RATE) step = -ENEMY_HOMING_RATE;
+        e->yaw = wrap_pi(e->yaw + step);      /* 0.0698 rad/t decoded */
+        if (!enemy_probe(coll, e, e->yaw, ENEMY_HOP_SPEED + 0.5f)) {
+            e->pos[0] += sinf(e->yaw) * ENEMY_HOP_SPEED;
+            e->pos[2] += cosf(e->yaw) * ENEMY_HOP_SPEED;
+            e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
+        }
+        if (--e->t28 <= 0) {
+            e->sub = 2;
+            e->t28 = ENEMY_WINDUP_F;
+        }
+        break;
+    }
+
+    case 2:                       /* WINDUP (anim window; in place) */
+        if (--e->t28 <= 0) {
+            /* decoded: snap the yaw to the player bearing + sound
+             * 0x431, then lunge */
+            if (fabsf(dx) + fabsf(dz) > 1e-4f)
+                e->yaw = atan2f(dx, dz);
+            em_sfx_play_at(ENEMY_SFX_WINDUP, e->pos, 300.0f);
+            e->sub = 3;
+            e->t28 = ENEMY_LUNGE_F;
+        }
+        break;
+
+    case 3: {                     /* LUNGE: resolve window */
+        /* travel at the clip's authored root speed (21.27 u/s) */
+        float step = ENEMY_LUNGE_SPEED / 60.0f;
+        if (!enemy_probe(coll, e, e->yaw, step + 0.5f)) {
+            e->pos[0] += sinf(e->yaw) * step;
+            e->pos[2] += cosf(e->yaw) * step;
+            e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
+        }
+        /* CONNECT: the radius-6 contact (decoded func_0019A570 arm;
+         * the 32-u node-test arm folds into it — file header). The
+         * decoded lunge latch D_008104D4 = 15.0 posts through the
+         * player mailbox bridge (0x4000 = the bridge's health route). */
+        float ddx = pp[0] - e->pos[0];
+        float ddy = pp[1] - e->pos[1];
+        float ddz = pp[2] - e->pos[2];
+        if (ddx * ddx + ddy * ddy + ddz * ddz <=
+            ENEMY_CONTACT_R * ENEMY_CONTACT_R) {
+            s.player_hit  = 0x4000 | ENEMY_LATCH_LUNGE;
+            e->hit_lethal = 0;
+            e->state      = EM_ENEMY_DEATH;   /* burst (suicide path) */
+            em_sfx_play_at(ENEMY_SFX_BURST, e->pos, 300.0f);
+            break;
+        }
+        if (--e->t28 <= 0) {
+            /* missed: the engine releases the actor (state 3) — no
+             * burst, no gore, no corpse */
+            e->state  = EM_ENEMY_FREE;
+            e->active = 0;
+            e->fade   = 0;
+        }
+        break;
+    }
+    }
 }
 
 static void enemy_tick(const EmCollision *coll, Enemy *e,
                        const float pp[3])
 {
-    float dx   = pp[0] - e->pos[0];
-    float dz   = pp[2] - e->pos[2];
-    float dist = sqrtf(dx * dx + dz * dz);
+    float dx = pp[0] - e->pos[0];
+    float dz = pp[2] - e->pos[2];
 
     switch (e->state) {
     case EM_ENEMY_INIT:
-        /* HP = 1, heading from the placement; the engine also builds
-         * the diagonal probe vectors and resolves the nest registry. */
-        e->hp    = ENEMY_HP_INIT;
-        e->state = EM_ENEMY_IDLE;
+        if (e->kind == EM_ENEMY_KIND_CRATE) {
+            /* placed crawler: HP = 1, dormant (the engine also builds
+             * the probe vectors and resolves the nest registry) */
+            e->hp    = ENEMY_HP_CRATE;
+            e->state = EM_ENEMY_IDLE;
+        } else {
+            /* worm init func_00154040: HP = 10, yaw toward the player,
+             * BORN ATTACKING (the brain has no idle state) */
+            e->hp = ENEMY_HP_WORM;
+            if (fabsf(dx) + fabsf(dz) > 1e-4f)
+                e->yaw = atan2f(dx, dz);
+            e->sub   = 0;
+            e->t28   = ENEMY_APPROACH_F;
+            e->state = EM_ENEMY_ATTACK;
+        }
         break;
 
     case EM_ENEMY_IDLE:
-        if (e->kind == EM_ENEMY_KIND_CRATE) {
-            /* Disguised crate: a bullet hit (lethal — HP 1; hit_dir =
-             * player -> crate from the mailbox poll) OR the player
-             * inside the ~10-u trigger bursts it. The group alarm is
-             * ignored (file header). */
-            if (enemy_mailbox_poll(e, pp)) {
-                e->state = EM_ENEMY_DEATH;
-            } else if (dist <= CRATE_TRIGGER_R) {
-                /* proximity burst: gibs scatter away from the player */
-                float hx = e->pos[0] - pp[0], hz = e->pos[2] - pp[2];
-                float hl = sqrtf(hx * hx + hz * hz);
-                if (hl > 1e-4f) {
-                    e->hit_dir[0] = hx / hl;
-                    e->hit_dir[1] = hz / hl;
-                } else {
-                    e->hit_dir[0] = -sinf(e->yaw);
-                    e->hit_dir[1] = -cosf(e->yaw);
-                }
-                e->state = EM_ENEMY_DEATH;
-            }
-            break;
-        }
-        if (enemy_mailbox_poll(e, pp)) {   /* any damage kills (HP=1) */
+        /* crate only — worms never idle. Decoded state 4: the mailbox
+         * is the ONLY direct trigger (no proximity test exists); a
+         * kill broadcasts the group alarm to the placed-crawler kind;
+         * the own alarm flag is the only other wake. */
+        if (enemy_mailbox_poll(e, pp)) {
+            enemy_alarm_broadcast();    /* decoded: list-wide, no radius */
             e->state = EM_ENEMY_DEATH;
             break;
         }
-        /* PORT WAKE (flagged): the documented 32-unit distance sense,
-         * in addition to the engine's alarm-only wake. */
-        if (dist <= ENEMY_SENSE)
-            e->alarm = 1;
         if (e->alarm) {
-            e->alarm   = 0;
-            e->retreat = ENEMY_RETREAT;    /* +0x2A = 6 */
-            e->sub     = 0;
-            e->state   = EM_ENEMY_ATTACK;
+            e->alarm     = 0;
+            e->retreat   = ENEMY_STEER_TICKS;   /* +0x2A = 6 */
+            e->atk_armed = 0;
+            e->sub       = 0;
+            e->state     = EM_ENEMY_ATTACK;
         }
         break;
 
     case EM_ENEMY_ATTACK:
-        /* PORT DEVIATION (flagged in em_enemy.h): the mailbox is polled
-         * mid-attack too — the engine's state 1 poll is an open item. */
-        if (enemy_mailbox_poll(e, pp)) {
-            e->state = EM_ENEMY_DEATH;
-            break;
-        }
-        if (e->sub == 0) {
-            /* STEER: seek the player at +-3 deg/frame (the documented
-             * per-frame rate), diagonals probed each frame. The hop
-             * launches once the heading is roughly aligned — turning
-             * happens on the ground, not mid-hop, so an overshot
-             * crawler turns back instead of orbiting away. */
-            float want = atan2f(dx, dz);
-            float diff = wrap_pi(want - e->yaw);
-            float step = diff;
-            if (step >  ENEMY_TURN_RATE) step =  ENEMY_TURN_RATE;
-            if (step < -ENEMY_TURN_RATE) step = -ENEMY_TURN_RATE;
-            e->yaw = wrap_pi(e->yaw + step);
-
-            int bl[4];   /* the 4 diagonals: +-45, +-135 deg off heading */
-            int blocked = 0;
-            static const float diag[4] = { 0.7854f, -0.7854f,
-                                           2.3562f, -2.3562f };
-            for (int k = 0; k < 4; k++) {
-                bl[k] = enemy_probe(coll, e, e->yaw + diag[k],
-                                    ENEMY_PROBE_LEN);
-                blocked += bl[k];
-            }
-            if (blocked >= 3) {
-                if (--e->retreat <= 0) {   /* +0x2A exhausted -> idle */
-                    e->state = EM_ENEMY_IDLE;
-                    break;
-                }
-            } else if (bl[0] != bl[1]) {
-                /* a blocked front diagonal: turn away from it */
-                e->yaw = wrap_pi(e->yaw + (bl[0] ? -ENEMY_TURN_RATE
-                                                 :  ENEMY_TURN_RATE));
-            }
-            if (fabsf(diff) > 2.0f * ENEMY_TURN_RATE)
-                break;       /* keep turning; hop once roughly aligned */
-            /* launch the hop */
-            e->vy     = ENEMY_HOP_VY;
-            e->hop_y0 = e->pos[1];
-            e->sub    = 1;
+        if (e->kind == EM_ENEMY_KIND_CRATE) {
+            /* decoded: state 1 never polls +0x36 (damage defers) */
+            crate_attack_tick(coll, e);
         } else {
-            /* HOP: forward integrate unless a wall blocks the step;
-             * vertical under the engine's 0.052/tick gravity. */
-            if (!enemy_probe(coll, e, e->yaw, ENEMY_HOP_SPEED + 0.5f)) {
-                e->pos[0] += sinf(e->yaw) * ENEMY_HOP_SPEED;
-                e->pos[2] += cosf(e->yaw) * ENEMY_HOP_SPEED;
+            /* flagged stand-in: the engine worm brain never reads the
+             * mailbox (open item) — the port polls it every tick so
+             * the worm stays shootable */
+            if (enemy_mailbox_poll(e, pp)) {
+                e->state = EM_ENEMY_DEATH;
+                break;
             }
-            e->vy     -= ENEMY_GRAVITY;
-            e->pos[1] += e->vy;
-            float floor_y = enemy_floor(coll, e);
-            if (e->vy < 0.0f && e->pos[1] <= floor_y) {
-                e->pos[1] = floor_y;
-                e->vy     = 0.0f;
-                e->sub    = 0;
-            }
-            /* LUNGE contact: the radius-6 test against the player (with
-             * the pair-pass vertical tolerance). The crawler bursts on
-             * the lunge — the suicide-attack path: post the player
-             * mailbox and die. */
-            if (dist <= ENEMY_LUNGE_R &&
-                fabsf(pp[1] - e->pos[1]) <= ENEMY_LUNGE_BAND) {
-                s.player_hit = ENEMY_HIT_CODE;
-                e->mailbox   = 0;          /* engine: cleared pre-burst */
-                e->state     = EM_ENEMY_DEATH;
-                /* Engine: the suicide BURST has its own sound (the
-                 * crawler gore set, 0x434 family) — unmapped; silent
-                 * natively until the per-state ids are pinned. */
-            }
+            worm_attack_tick(coll, e, pp);
         }
         break;
 

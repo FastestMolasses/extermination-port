@@ -492,10 +492,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * flags yet (flagged).
  *
  * The port's enemy producers post one mailbox int (em_enemy.h):
- * 0x400A (type 0x4000 | 10) from the crawler lunge -> 10.0 pending
- * HEALTH damage, and GEN_TRAP_HIT (5) from the open breather pad ->
- * 5.0 pending INFECTION (the engine pad writes +0x22C = 5.0 — the
- * old port consume burned it as health damage; corrected). */
+ * 0x4000 | 15 from the worm's lunge connect -> 15.0 pending HEALTH
+ * damage (the DECODED lunge-latch magnitude D_008104D4 = 15.0,
+ * func_00154120 sub 3 — replaces the invented 0x400A/10; whether
+ * the engine's latch drains health or infection is undecoded,
+ * flagged in em_enemy.h), and GEN_TRAP_HIT (5) from the open
+ * breather pad -> 5.0 pending INFECTION (the engine pad writes
+ * +0x22C = 5.0 — the old port consume burned it as health damage;
+ * corrected). */
 #define PD_CLIP_FLINCH_A0    0x1Eu /* unarmed flinch, family A side 0 */
 #define PD_CLIP_FLINCH_A1    0x1Fu /* unarmed flinch, family A side 1 */
 #define PD_CLIP_FLINCH_B0    0x20u /* unarmed flinch, family B side 0 */
@@ -5285,32 +5289,36 @@ static void weapon_test_script(void)
     }
 }
 
-/* EM_ENEMY_TEST — deterministic crawler-vs-player self-tests (em_enemy.c).
- * Both runs spawn ONE crawler 30 units ahead of the player spawn along
- * the spawn facing (scene-init arm, et_spawned) and adapt to the
- * crawler's actual pace (steer pauses vary with the scene's collision
- * world) instead of fixed frame numbers:
+/* EM_ENEMY_TEST — deterministic enemy-vs-player self-tests (em_enemy.c;
+ * updated for the s62 condition decode — the worm is BORN ATTACKING,
+ * the crate bursts on DAMAGE ONLY). Tests 1/2 spawn ONE WORM 30 units
+ * ahead of the player spawn along the spawn facing (scene-init arm,
+ * et_spawned) and adapt to its actual pace instead of fixed frames:
  *
  *   EM_ENEMY_TEST=1 (kill run): hold R1 from frame 0 (draw). Assert the
- *     crawler WAKES (the 32-u distance sense covers the 30-u spawn) and
- *     CLOSES distance; once it is within 12 u (inside the office's wall
- *     plane 14 u ahead of the spawn, so the world ray cannot outrank
- *     the victim test) fire ONE semi shot -> +0x36 mailbox, HP 1 =
- *     one-shot kill -> assert death/despawn, exactly one round spent,
- *     ray resolved HIT, and the player's health untouched.
- *   EM_ENEMY_TEST=2 (contact run): weapon stays holstered; let the
- *     crawler reach the player. The radius-6 lunge writes the player
- *     mailbox (0x400A -> amount 10) and the crawler bursts (the
- *     suicide-attack path) -> assert health dropped by exactly 10 and
- *     the crawler despawned.
+ *     worm ATTACKS from spawn (engine: func_00153F10 has no idle) and
+ *     CLOSES distance in its stalk; once it is within 12 u (inside the
+ *     office's wall plane 14 u ahead of the spawn, so the world ray
+ *     cannot outrank the victim test) fire TWO semi shots -> +0x36
+ *     mailbox, 5 each vs the decoded HP 10 -> assert it survives the
+ *     first, dies on the second, exactly two rounds spent, the last
+ *     ray resolved HIT, and the player's health untouched (the kill
+ *     must land before the worm's first lunge resolves at ~255 ticks).
+ *   EM_ENEMY_TEST=2 (contact run): weapon stays holstered; let the worm
+ *     run its decoded sequence (approach 90 t -> stalk 120 t homing ->
+ *     windup 45 t -> lunge). The lunge CONNECT posts the decoded latch
+ *     15 (D_008104D4) and the worm bursts -> assert health dropped by
+ *     exactly 15 and the worm despawned.
  *   EM_ENEMY_TEST=3 (crate run): spawn a DISGUISED CRATE 25 units ahead
  *     instead (em_enemy.h "CRATE KIND"); weapon stays holstered, walk
- *     forward (W) at it. Assert the crate BURSTS at the ~10-u proximity
- *     trigger with no shot fired, that the WORM spawned at the crate
- *     position (the burst's gibs occupy virtual draw slots), and that
- *     the worm wakes (ATTACK) and CLOSES distance on the now-standing
- *     player. (The worm may finish its suicide lunge inside the
- *     window — health/alive are reported, not asserted.) */
+ *     forward (W) INTO it. Assert the DISGUISE HOLDS at point-blank
+ *     range (the engine has no proximity trigger — the old ~10-u burst
+ *     was port-invented), then post a knife-sized 5 mailbox hit
+ *     (em_enemy_damage — the same write a melee impact does;
+ *     EM_MELEE_TEST covers the real knife path) and assert the burst,
+ *     the WORM spawned at the crate position, and the worm closing on
+ *     the now-standing player. (The worm may resolve its lunge inside
+ *     the window — health/alive are reported, not asserted.) */
 static void et_check(int cond, const char *what)
 {
     if (cond) return;
@@ -5356,13 +5364,16 @@ static void enemy_test_script(void)
     }
     if (n == 20 && g.enemy_test != 3)   /* the disguised crate stays IDLE */
         et_check(em_enemy_state(0) == EM_ENEMY_ATTACK,
-                 "crawler awake (ATTACK) by frame 20");
+                 "worm attacking by frame 20 (born attacking — "
+                 "func_00153F10 has no idle state)");
 
     if (g.enemy_test == 1) {
+        /* two semi shots: 5 damage each vs the DECODED worm HP 10 */
+        static int second_fired;
         if (!g.et_fired) {
             /* ENGINE-TRUE ACQUISITION (2026-06-11 func_00199220
              * translation): the bullet only bends to a target inside
-             * the SCREEN-center cone — a floor-hugging crawler under a
+             * the SCREEN-center cone — a floor-hugging worm under a
              * level aim sits far below it (the old planar stand-in
              * ignored height). Do what the player does: pitch the aim
              * DOWN (inverted-Y stick up, 'w') until lock slot 0 fills,
@@ -5376,36 +5387,72 @@ static void enemy_test_script(void)
                 et_check(em_weapon_state() == EM_WPN_AIM,
                          "rifle drawn (AIM) at fire time");
                 move_test_inject('w', 0);
-                move_test_inject('l', 1);   /* CIRCLE — one semi shot */
+                move_test_inject('l', 1);   /* CIRCLE — semi shot 1 */
                 g.et_fired = n;
             } else if (n >= 400) {
-                et_check(0, "crawler closed to 12 u + screen-cone lock "
+                et_check(0, "worm closed to 12 u + screen-cone lock "
                             "by frame 400");
                 et_finish("kill run");
             }
         } else if (n == g.et_fired + 2) {
             move_test_inject('l', 0);
-        } else if (n == g.et_fired + 15) {
-            et_check(em_weapon_shots() == 1, "exactly one round fired");
-            et_check(em_weapon_last_hit() == 1, "the shot resolved HIT");
+        } else if (n == g.et_fired + 12 && !second_fired) {
+            et_check(em_weapon_shots() == 1, "one round after shot 1");
+            et_check(em_weapon_last_hit() == 1, "shot 1 resolved HIT");
+            et_check(em_enemy_alive() == 1 && em_enemy_hp(0) == 5,
+                     "worm survived shot 1 (decoded HP 10 - 5)");
+            move_test_inject('l', 1);       /* semi shot 2 (queued to
+                                             * the 13-tick cadence)   */
+            second_fired = n;
+        } else if (second_fired && n == second_fired + 2) {
+            move_test_inject('l', 0);
+        } else if (second_fired && n == second_fired + 18) {
+            et_check(em_weapon_shots() == 2, "exactly two rounds fired");
+            et_check(em_weapon_last_hit() == 1, "shot 2 resolved HIT");
             et_check(em_enemy_alive() == 0 &&
                      em_enemy_state(0) == EM_ENEMY_FREE,
-                     "crawler dead + despawned (mailbox one-shot kill)");
+                     "worm dead + despawned (two 5-damage mailbox hits "
+                     "vs HP 10)");
             et_check(g.status.health == g.et_health0,
                      "player health untouched");
             et_finish("kill run");
         }
     } else if (g.enemy_test == 3) {
-        if (!g.et_burst_frame) {
+        /* crate run, engine-true: NO proximity burst exists — walk to
+         * point-blank, assert the disguise HOLDS, then damage it (the
+         * decoded only-trigger). */
+        static int et_stop_frame, et_hit_sent;
+        if (!et_stop_frame) {
+            if (et_dist() <= 6.0f) {
+                et_stop_frame = n;
+                move_test_inject('w', 0);    /* stop at the crate */
+            } else if (n >= 600) {
+                et_check(0, "player reached the crate by frame 600");
+                et_finish("crate run");
+            }
+        } else if (!et_hit_sent) {
+            if (n == et_stop_frame + 30) {
+                /* 30 frames at point-blank: the decoded state 4 has no
+                 * player-distance test — the disguise must hold */
+                et_check(em_enemy_alive() == 1 &&
+                         em_enemy_state(0) == EM_ENEMY_IDLE,
+                         "disguise holds at point-blank range (no "
+                         "proximity trigger in the engine)");
+                et_check(em_weapon_shots() == 0, "no shot fired");
+                /* the decoded trigger: a damage mailbox write (the
+                 * same +0x36 write a knife impact does — the real
+                 * knife path is EM_MELEE_TEST's job) */
+                em_enemy_damage(0, 5);
+                et_hit_sent = n;
+            }
+        } else if (!g.et_burst_frame) {
             if (em_enemy_state(0) == EM_ENEMY_FREE) {
-                /* the crate burst this frame (slot 0 freed) */
+                /* the crate burst (slot 0 freed) — the next IDLE
+                 * mailbox poll after the write */
                 g.et_burst_frame = n;
                 g.et_bd          = et_dist();
-                move_test_inject('w', 0);    /* stop: the worm comes */
-                et_check(g.et_bd <= 10.5f && g.et_bd >= 8.0f,
-                         "burst at the ~10-u proximity trigger");
-                et_check(em_weapon_shots() == 0,
-                         "no shot fired (proximity, not damage)");
+                et_check(n <= et_hit_sent + 2,
+                         "burst on the IDLE mailbox poll");
                 et_check(em_enemy_alive() == 1 &&
                          em_enemy_kind(1) == EM_ENEMY_KIND_CRAWLER,
                          "worm spawned by the burst");
@@ -5416,8 +5463,8 @@ static void enemy_test_script(void)
                          fabsf(wp[2] - cp[2]) < 0.01f,
                          "worm emerged at the crate position");
                 g.et_wd0 = g.et_wd_min = et_dist_i(1);
-            } else if (n >= 600) {
-                et_check(0, "crate burst by frame 600");
+            } else if (n >= et_hit_sent + 60) {
+                et_check(0, "crate burst after the damage write");
                 et_finish("crate run");
             }
         } else {
@@ -5426,9 +5473,15 @@ static void enemy_test_script(void)
             if (em_enemy_state(1) == EM_ENEMY_ATTACK)
                 g.et_worm_atk = 1;   /* sampled: it may lunge-burst
                                       * before a fixed checkpoint */
-            if (n == g.et_burst_frame + 120) {
+            /* the worm's decoded approach window (90 t) holds position;
+             * the stalk closes — sample past both (or at its early
+             * lunge resolve) */
+            if (n == g.et_burst_frame + 240 ||
+                (em_enemy_state(1) == EM_ENEMY_FREE &&
+                 g.et_wd_min <= g.et_wd0 - 3.0f)) {
                 et_check(g.et_worm_atk,
-                         "worm woke (ATTACK) after the burst");
+                         "worm attacking after the burst (born "
+                         "attacking — no wake needed)");
                 et_check(g.et_wd_min <= g.et_wd0 - 3.0f,
                          "worm closed distance on the player");
                 printf("enemy test (crate run): burst dist %.1f, worm "
@@ -5442,14 +5495,15 @@ static void enemy_test_script(void)
             if (g.status.health < g.et_health0) {
                 g.et_hit_frame = n;
             } else if (n >= 600) {
-                et_check(0, "crawler reached the player by frame 600");
+                et_check(0, "worm reached the player by frame 600 "
+                            "(approach 90 t + stalk + windup + lunge)");
                 et_finish("contact run");
             }
         } else if (n == g.et_hit_frame + 5) {
-            et_check(g.status.health == g.et_health0 - 10.0f,
-                     "lunge dealt the 0x400A amount (10)");
+            et_check(g.status.health == g.et_health0 - 15.0f,
+                     "lunge connect dealt the decoded latch (15)");
             et_check(em_enemy_alive() == 0,
-                     "crawler burst on the lunge (suicide path)");
+                     "worm burst on the lunge (suicide path)");
             et_finish("contact run");
         }
     }
@@ -5894,27 +5948,38 @@ static void aim_test_script(void)
     }
 }
 
-/* EM_MELEE_TEST=1 — deterministic knife-vs-crate self-test (the s36
- * melee decode, em_weapon.h "KNIFE / MELEE"). Scene init spawns TWO
- * DISGUISED CRATES (slots 0/1, see the spawn block): inside the knife
- * reach (12) but outside the crate's ~10-u proximity-burst trigger, so
- * only the melee damage mailbox can pop them. Adaptive phase machine:
+/* EM_MELEE_TEST=1 — deterministic knife self-test (the s36 melee
+ * decode, em_weapon.h "KNIFE / MELEE"; updated for the s62 enemy
+ * condition decode). Scene init spawns TWO DISGUISED CRATES (see the
+ * spawn block): A in the knife reach (12), B 25 u away across the
+ * room; crates burst on DAMAGE ONLY (the engine has no proximity
+ * trigger), and a damage kill BROADCASTS the group alarm (decoded:
+ * the WHOLE live list, no radius — which is why far-away B waking is
+ * the assertion) — crate B wakes, runs the blind suicide hop AS THE
+ * CRATE down the open corridor and self-bursts on the 180-tick
+ * attack timer. Adaptive phase machine:
  *
- *   phase 0  frame 8: assert both crates still IDLE (no proximity
- *            burst), then tap L (CIRCLE) — the LIGHT combo (engine
- *            mode 0x21). Impact = swing tick 26 (len 50 - gate 24);
- *            the acquire resolves the nearest crate (A, slot 0).
+ *   phase 0  frame 8: assert both crates IDLE in reach, then tap L
+ *            (CIRCLE) — the LIGHT combo (engine mode 0x21). Impact =
+ *            swing tick 26 (len 50 - gate 24); the acquire resolves
+ *            the nearest crate (A, slot 0).
  *   phase 1  crate A dies: assert melee hit count 1, ZERO rifle shots
- *            (the kill is the +0x36 mailbox write) and the worm
- *            spawned at the crate position (the burst contract).
+ *            (the kill is the +0x36 mailbox write), the worm spawned
+ *            at the crate position (the burst contract), and crate B
+ *            AWAKE (ATTACK) — the decoded group-alarm broadcast.
  *   phase 2  HIT-CONFIRM path: recover anim 0x10F must commit (a
  *            landed hit SKIPS the combo — engine states 0x50..0x52).
- *            Wait out the recover AND worm A's suicide run (it closes
- *            ~0.3 u/tick and lunge-bursts on the player — health is
- *            reported, not asserted), then tap J (SQUARE) — the HEAVY
- *            stab (mode 0x22, damage 15, immediate gate) at crate B.
- *   phase 3  crate B dies: melee hits 2, heavy seen, worm B spawned.
- *   phase 4  wait for worm B + the heavy recover to clear.
+ *            Wait out the recover (and any flinch), then tap J
+ *            (SQUARE) — the HEAVY stab (mode 0x22, damage 15,
+ *            immediate gate) at WORM A (stationary in its decoded
+ *            90-t approach window, 11 u dead ahead, inside reach).
+ *   phase 3  worm A dies: melee hits 2, heavy seen (15 damage vs the
+ *            decoded worm HP 10 — the port's flagged shootable-worm
+ *            stand-in; the engine's worm damage path is an open item).
+ *   phase 4  wait for the field to clear: crate B's timer burst (no
+ *            third melee hit — it dies on its own), worm B's run
+ *            (lunge-burst on the player or a missed-lunge despawn;
+ *            health is reported, not asserted) and any flinch.
  *   phase 5  WHIFF COMBO (nothing left in reach): tap L, re-tap L
  *            during each swing — assert the committed clip chains
  *            0x10B -> 0x10C -> 0x10D (the buffered +0x2E chain), NO
@@ -5960,15 +6025,19 @@ static void melee_test_script(void)
     switch (g.mt_phase) {
         case 0:
             if (n == 8) {
+                /* both crates IDLE (A in reach, B across the room) —
+                 * IDLE is engine-true at ANY range (no proximity
+                 * trigger exists) */
                 if (!(em_enemy_alive() == 2 &&
                       em_enemy_state(0) == EM_ENEMY_IDLE &&
                       em_enemy_state(1) == EM_ENEMY_IDLE &&
-                      et_dist() > 10.0f && et_dist() < 12.0f)) {
+                      et_dist() < 12.0f)) {
                     g.mt_fail++;
                     printf("melee test: CHECK FAILED — crates not idle "
-                           "in reach (alive %d states %d/%d dist %.1f/"
-                           "%.1f)\n", em_enemy_alive(), em_enemy_state(0),
-                           em_enemy_state(1), et_dist(), et_dist_i(1));
+                           "(A in reach) (alive %d states %d/%d dist "
+                           "%.1f/%.1f)\n", em_enemy_alive(),
+                           em_enemy_state(0), em_enemy_state(1),
+                           et_dist(), et_dist_i(1));
                 }
                 move_test_inject('l', 1);       /* CIRCLE — light combo */
             } else if (n == 10) {
@@ -5979,8 +6048,8 @@ static void melee_test_script(void)
             break;
         case 1:
             if (em_enemy_state(0) == EM_ENEMY_FREE) {
-                /* slot 0 freed = the burst frame (enemy test 3's
-                 * trigger); the worm spawns the same tick */
+                /* slot 0 freed = the burst frame; the worm spawns the
+                 * same tick */
                 if (!(em_weapon_melee_hits() == 1 &&
                       em_weapon_shots() == 0)) {
                     g.mt_fail++;
@@ -6002,16 +6071,25 @@ static void melee_test_script(void)
                            "burst crate (alive %d kind %d)\n",
                            em_enemy_alive(), em_enemy_kind(2));
                 }
+                /* the decoded GROUP-ALARM BROADCAST: the damage kill
+                 * walks the live list (no radius) and wakes crate B —
+                 * it consumed the alarm the same update tick */
+                if (em_enemy_state(1) != EM_ENEMY_ATTACK) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — crate B not "
+                           "alarmed by the broadcast (state %d)\n",
+                           em_enemy_state(1));
+                }
                 g.mt_phase = 2;
                 g.mt_mark  = n;
             }
             break;
         case 2:
-            /* recover (hit-confirm) must complete; worm A suicide-
-             * bursts on the player meanwhile — its lunge now triggers
-             * the REAL flinch (PLAYER DAMAGE machine), which reads
-             * the weapon input as neutral, so also wait the hit
-             * reaction out before striking crate B. */
+            /* recover (hit-confirm) must complete (and any flinch
+             * clear) before the heavy stab at WORM A — stationary in
+             * its decoded 90-t approach window 11 u dead ahead, the
+             * nearest live target in the cone (alarmed crate B hops
+             * AWAY — its spawn yaw). */
             if (em_weapon_is_melee() || player_damage_locked()) break;
             if (!saw_recov_anim) {
                 g.mt_fail++;
@@ -6019,8 +6097,7 @@ static void melee_test_script(void)
                        "never committed after the confirmed hit\n");
                 saw_recov_anim = -1;            /* report once */
             }
-            if (em_enemy_alive() == 1 &&
-                em_enemy_state(1) == EM_ENEMY_IDLE) {
+            if (em_enemy_state(2) == EM_ENEMY_ATTACK) {
                 move_test_inject('j', 1);       /* SQUARE — heavy stab */
                 g.mt_phase = 3;
                 g.mt_mark  = n;
@@ -6028,24 +6105,41 @@ static void melee_test_script(void)
             break;
         case 3:
             if (n == g.mt_mark + 2) move_test_inject('j', 0);
-            if (em_enemy_state(1) == EM_ENEMY_FREE) {
+            if (em_enemy_state(2) == EM_ENEMY_FREE) {
+                /* worm A dead: heavy 15 vs the decoded worm HP 10
+                 * (the flagged shootable-worm stand-in) */
                 if (!(em_weapon_melee_hits() == 2 && saw_heavy &&
                       em_weapon_shots() == 0)) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — heavy crate kill "
+                    printf("melee test: CHECK FAILED — heavy worm kill "
                            "(hits %d, heavy seen %d, shots %d)\n",
                            em_weapon_melee_hits(), saw_heavy,
                            em_weapon_shots());
                 }
                 g.mt_phase = 4;
                 g.mt_mark  = n;
+            } else if (n > g.mt_mark + 60) {
+                g.mt_fail++;
+                printf("melee test: CHECK FAILED — heavy stab did not "
+                       "kill worm A (state %d hp %d)\n",
+                       em_enemy_state(2), em_enemy_hp(2));
+                g.mt_phase = 4;
+                g.mt_mark  = n;
             }
             break;
         case 4:
-            /* worm B's run + the heavy recover clear the field (the
-             * lunge flinch included — see phase 2). */
+            /* the field clears itself: crate B's 180-tick timer burst
+             * (NO third melee hit — the decoded blind suicide run),
+             * then worm B lunge-bursts or despawns on a miss; wait out
+             * any flinch + the heavy recover. */
             if (em_enemy_alive() == 0 && !em_weapon_is_melee() &&
                 !player_damage_locked()) {
+                if (em_weapon_melee_hits() != 2) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — crate B did not "
+                           "die on its own timer (melee hits %d)\n",
+                           em_weapon_melee_hits());
+                }
                 g.mt_phase = 5;
                 g.mt_mark  = n;
             }
@@ -6097,17 +6191,17 @@ finish:
 
 /* EM_DEATH_TEST=1 — player flinch/death/game-over/restart self-test
  * (the PLAYER DAMAGE & DEATH machine above). Scene init spawns ONE
- * crawler 30 u ahead (the contact-run placement); frame 0 sets health
- * to 15 (instrumentation — two 10-damage lunges = flinch then death;
- * a crawler suicide-bursts on its lunge, so phase 2 spawns the second
- * killer). Adaptive phases:
+ * worm 30 u ahead (the contact-run placement); frame 0 sets health
+ * to 20 (instrumentation — two lunges at the DECODED latch 15 =
+ * flinch then death; a worm suicide-bursts on its lunge connect, so
+ * phase 2 spawns the second killer). Adaptive phases:
  *
- *   0  first lunge lands (health 15 -> 5): assert the FLINCH — state
+ *   0  first lunge lands (health 20 -> 5): assert the FLINCH — state
  *      2 sub 0, an unarmed flinch clip (0x1E..0x21) committed, the
- *      crawler burst.
+ *      worm burst.
  *   1  flinch plays out: assert the exit armed the i-frames and
  *      control returned (pd_state 0).
- *   2  i-frames expire: spawn crawler B 30 u ahead.
+ *   2  i-frames expire: spawn worm B 30 u ahead.
  *   3  second lunge (health 5 -> 0): assert the DEATH — state 2 sub
  *      1, the death clip 0x2A (unarmed) committed, movement locked.
  *   4  death sequence: clip end -> corpse hold -> fade-out; assert
@@ -6133,9 +6227,10 @@ static void death_test_script(void)
     /* the restart re-arms frame 0 — only the FIRST frame 0 seeds */
     if (n == 0 && g.gt_phase == 0 && !g.gt_mark) {
         g.gt_mark = 1;
-        g.status.health = 15.0f;    /* instrumentation: 2 lunges kill */
+        g.status.health = 20.0f;    /* instrumentation: 2 lunges (15
+                                     * each, the decoded latch) kill  */
         g.gt_health0 = g.status.health;
-        printf("death test: health set to %.0f, crawler 30 u ahead\n",
+        printf("death test: health set to %.0f, worm 30 u ahead\n",
                g.status.health);
         return;
     }
@@ -6153,8 +6248,8 @@ static void death_test_script(void)
                  * — sample at +3 */
                 g.gt_phase = 1;
                 g.gt_mark  = n + 3;
-                gt_check(g.status.health == g.gt_health0 - 10.0f,
-                         "first lunge dealt the 0x400A amount (10)");
+                gt_check(g.status.health == g.gt_health0 - 15.0f,
+                         "first lunge dealt the decoded latch (15)");
             }
             break;
         case 1:
@@ -6166,7 +6261,7 @@ static void death_test_script(void)
                 gt_check(c >= PD_CLIP_FLINCH_A0 && c <= PD_CLIP_FLINCH_B1,
                          "an unarmed flinch clip (0x1E..0x21) committed");
                 gt_check(em_enemy_alive() == 0,
-                         "crawler burst on its lunge");
+                         "worm burst on its lunge connect");
                 g.gt_phase = 2;
             }
             break;
@@ -6185,7 +6280,7 @@ static void death_test_script(void)
                                       EM_ENEMY_KIND_CRAWLER, ep,
                                       g.yaw + EM_PI) < 0) {
                     g.gt_fail++;
-                    printf("death test: crawler B spawn failed\n");
+                    printf("death test: worm B spawn failed\n");
                     goto finish;
                 }
                 g.gt_health0 = g.status.health;
@@ -6457,15 +6552,17 @@ static void gameplay_frame(void)
             memcpy(g.cam.tgt, g.cam.tgt_des, sizeof g.cam.tgt);
         }
     }
-    /* ENEMIES: the crawler state machines (func_001551B0 — also part of
-     * the actor-pool tick). Runs BEFORE the weapon update so this
-     * frame's shot resolves against current positions. */
+    /* ENEMIES: the enemy state machines (func_001551B0 crates +
+     * func_00153F10 worms — also part of the actor-pool tick). Runs
+     * BEFORE the weapon update so this frame's shot resolves against
+     * current positions. */
     em_enemy_update(&g.coll, g.pos);
     /* PLAYER DAMAGE pipeline (the PD_* block above). The port's enemy
      * producers post one mailbox int (em_enemy.h, +0x36 code layout);
      * the engine's player producers instead write the pending-damage
      * floats directly — the bridge maps the two codes onto the decoded
-     * fields: the crawler lunge (type bit 0x4000, amount 10) -> pending
+     * fields: the worm's lunge connect (type bit 0x4000, amount 15 =
+     * the decoded lunge latch D_008104D4) -> pending
      * HEALTH +0x224; the open breather pad (GEN_TRAP_HIT = 5, the s33
      * event-3 write) -> pending INFECTION +0x22C = 5.0 (the engine pad
      * infects, it does not wound — the old health consume here was the
@@ -6655,28 +6752,30 @@ static void ingame_frame_machine(EmTask *self)
              * mag 4, reserve 120). The HUD mirrors the weapon live from
              * here on (frame_close_out). */
             em_weapon_reset(g.status.mag, g.status.reserve);
-            /* EM_ENEMY_TEST spawn: tests 1/2 place one crawler 30
-             * units ahead of the player spawn along the spawn facing,
-             * turned to face the player; test 3 places a DISGUISED
-             * CRATE 25 units ahead instead (see enemy_test_script). */
+            /* EM_ENEMY_TEST spawn: tests 1/2 place one WORM 30 units
+             * ahead of the player spawn along the spawn facing (its
+             * own INIT yaws it at the player — the decoded
+             * func_00154040); test 3 places a DISGUISED CRATE 25
+             * units ahead instead (see enemy_test_script). */
             /* EM_MELEE_TEST spawn: TWO DISGUISED CRATES — A 11.0 u dead
-             * ahead (slot 0, the LIGHT-combo kill) and B 11.3 u ahead
-             * + 3 u right (slot 1, dist ~11.7, bearing ~15 deg — the
-             * HEAVY kill). Both sit INSIDE the knife reach (12,
-             * em_weapon.h) but OUTSIDE the crate's ~10-u proximity-
-             * burst trigger, so only the melee mailbox can pop them;
-             * both also sit inside the office spawn's 14-u wall
-             * plane, so no about-face is needed. The acquire picks
-             * the NEAREST in the cone, so the light strike resolves
-             * crate A first. */
+             * ahead (slot 0, inside the knife reach 12, inside the
+             * office spawn's 14-u wall plane — the LIGHT-combo kill)
+             * and B 25 u BEHIND the player down the open south
+             * corridor (slot 1 — the group-alarm WITNESS: the decoded
+             * broadcast walks the whole live list with NO radius, so
+             * a crate clear across the room must wake too). B faces
+             * south (away): its alarm-driven suicide hop runs down
+             * the open corridor — never near the melee cone — and its
+             * 180-tick timer bursts it there. (Facing it at the 14-u
+             * wall boxed the steer in and the engine-true budget
+             * returned it to dormancy — the run needs open ground.) */
             if (g.melee_test && !g.et_spawned) {
                 g.et_spawned = 1;
                 float fx = sinf(g.yaw), fz = cosf(g.yaw);
                 float pa[3] = { g.pos[0] + fx * 11.0f, g.pos[1],
                                 g.pos[2] + fz * 11.0f };
-                float pb[3] = { g.pos[0] + fx * 11.3f + fz * 3.0f,
-                                g.pos[1],
-                                g.pos[2] + fz * 11.3f - fx * 3.0f };
+                float pb[3] = { g.pos[0] - fx * 25.0f, g.pos[1],
+                                g.pos[2] - fz * 25.0f };
                 if (em_enemy_add_kind(em_frame_gfx(), EM_ENEMY_KIND_CRATE,
                                       pa, g.yaw + EM_PI) < 0 ||
                     em_enemy_add_kind(em_frame_gfx(), EM_ENEMY_KIND_CRATE,
@@ -6684,7 +6783,7 @@ static void ingame_frame_machine(EmTask *self)
                     printf("melee test: spawn failed\n");
             }
             /* EM_DEATH_TEST shares the contact-run placement: one
-             * crawler 30 u dead ahead (death_test_script). */
+             * worm 30 u dead ahead (death_test_script). */
             if ((g.enemy_test || g.death_test) && !g.et_spawned) {
                 g.et_spawned = 1;
                 int   ek = g.enemy_test == 3 ? EM_ENEMY_KIND_CRATE
@@ -6692,8 +6791,8 @@ static void ingame_frame_machine(EmTask *self)
                 float ed = g.enemy_test == 3 ? 25.0f : 30.0f;
                 /* Crate run only: the office spawn faces a wall plane
                  * 14 u ahead (see the kill-run wall note), so a walking
-                 * player could never reach the 10-u proximity trigger
-                 * of a crate 25 u beyond it. About-face the spawn pose
+                 * player could never reach point-blank range at a
+                 * crate 25 u beyond it. About-face the spawn pose
                  * (player + chase camera — the one-shot camera arm
                  * reads g.cam.yaw next frame) so the crate goes 25 u
                  * down the OPEN south corridor, still dead ahead. */

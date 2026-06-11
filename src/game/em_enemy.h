@@ -2,43 +2,69 @@
  *
  * Native translation of the engine's most common placed enemy (decomp
  * repo Extermination/docs/FINDINGS.md "ENEMY AI ARCHITECTURE", session
- * 22 — func_001551B0, 95 placements across 13 areas):
+ * 22, plus the s62 CONDITION DECODE of the three behavior functions —
+ * the wake/burst/damage triggers below are read off the disassembly):
  *
- *   func_001551B0  crawler behavior (lifecycle byte actor +0x04, engine
- *                  values kept: 0 INIT -> 4 IDLE -> 1 ATTACK -> 2 DEATH
- *                  -> 3 FREE)                     -> em_enemy_update()
- *   actor +0x34    HIT POINTS, s16 (crawler init = 1: any damage kills)
+ *   func_001551B0  the PLACED CRAWLER / disguised crate (lifecycle byte
+ *                  actor +0x04, engine values kept: 0 INIT -> 4 IDLE ->
+ *                  1 ATTACK -> 2 DEATH -> 3 FREE). The port's
+ *                  EM_ENEMY_KIND_CRATE.
+ *   func_00153F10  the WORM/LEECH brain (+ sub-machine func_00154120,
+ *                  init func_00154040) — the kind-0xD creature
+ *                  generators emit and crate bursts hatch. The port's
+ *                  EM_ENEMY_KIND_CRAWLER. Born attacking: approach ->
+ *                  stalk (120 t, homing 0.0698 rad/t) -> windup ->
+ *                  lunge resolve -> burst or despawn.
+ *   actor +0x34    HIT POINTS, s16 (crate init = 1: any damage kills;
+ *                  worm init = 10 — func_00154040)
  *   actor +0x36    INCOMING-DAMAGE MAILBOX, s16 — attackers write it
  *                  (low bits = amount, high bits = weapon-type flags,
  *                  e.g. 0x4000), the behavior polls + clears it in its
  *                  own tick. There is NO central HP system.
  *                                                 -> em_enemy_damage()
- *   actor +0x0A    GROUP-ALARM flag: a damaged crawler walks the live
- *                  actor list and wakes every other crawler.
+ *   actor +0x0A    GROUP-ALARM flag: a damage-KILLED idle crawler walks
+ *                  the whole live actor list (no radius) and wakes
+ *                  every placed-crawler-model actor. Worms are not
+ *                  whitelisted and never read it.
  *   +0x2D0..0x2EC  4 precomputed diagonal probe directions (INIT) — the
  *                  steer phase probes them with func_0019AB20 and turns
- *                  the velocity vector +-3 deg/frame (0x3D56774F ~=
- *                  0.0524 rad) away from blocked sides.
+ *                  the heading +-3 deg/frame (0x3D56774F ~= 0.0524 rad)
+ *                  away from blocked sides.
  *   hop physics    velocity integration with vertical gravity
  *                  0.052/tick (state 1 sub 1).
  *
- * FIDELITY NOTES (port deviations, each flagged in em_enemy.c):
- *  - WAKE: the documented crawler IDLE wakes only via the group alarm
- *    (+0x0A) or by being damaged. "Seeing" the player is distance-only
- *    in this engine (FINDINGS: leech <= 32 u; no creature ray-tests for
- *    vision), so the port additionally wakes a crawler when the player
- *    is within that same documented 32-unit radius — otherwise a lone
- *    placed crawler would never engage.
- *  - DAMAGE WINDOW: FINDINGS notes state 1 (attack) never visibly polls
- *    +0x36 ("crawlers appear undamageable mid-lunge — verify live", an
- *    open item). The port polls the mailbox in IDLE and ATTACK so the
- *    player can always shoot back; revisit after the live verify.
- *  - LUNGE DAMAGE: the crawler is a suicide attacker (it bursts on/after
- *    the lunge). The amount it deals the player is not pinned in
- *    FINDINGS; the port writes the engine's documented contact-damage
- *    code 0x400A (type 0x4000 | amount 10, the func_001A9480 swipe/
- *    contact pass) into a player-side mailbox with the same +0x36
- *    semantics. em_game.c consumes it into EmPlayerStatus.health.
+ * FIDELITY NOTES (engine-true conditions + remaining flagged items —
+ * details at each site in em_enemy.c):
+ *  - WAKE (decoded): the placed crawler IDLE wakes ONLY via the group
+ *    alarm or dies to damage — func_001551B0 contains NO player-
+ *    distance test of any kind (no func_0019AA80/func_0019A570 call,
+ *    no player-position global). The old port-invented 32-u distance
+ *    wake is REMOVED. A lone undamaged placement really does sit
+ *    forever — engine truth. The free-roaming attacker is the WORM,
+ *    which needs no wake (its brain has no idle state).
+ *  - DAMAGE WINDOW (decoded; closes the old J2 open item statically):
+ *    state 4 polls +0x36 every tick; state 1 NEVER polls it — the only
+ *    +0x36 access in the whole attack run is `sh zero, 0x36` on the
+ *    burst transition. So damage written mid-run DEFERS (kills on the
+ *    next IDLE tick if the run returns there via the boxed-in path)
+ *    and is ABSORBED if the run ends in the suicide burst. The port
+ *    implements exactly this for the crate. The WORM's damage path is
+ *    a different story: its brain never reads +0x34/+0x36 at all (an
+ *    open item — some unfound handler must consume the HP=10); the
+ *    port polls its mailbox every tick as a flagged stand-in so it
+ *    stays shootable.
+ *  - LUNGE DAMAGE (decoded): the old 0x400A/amount-10 write was an
+ *    invention (that code is the swipe-pass ENEMY-victim value). The
+ *    engine worm damages the player only by LATCHING: D_008102BF = 2,
+ *    D_008104D4 = 5.0 on an approach touch / 15.0 on the lunge
+ *    connect, player status bit |= 2. The port posts the decoded 15
+ *    through its player-mailbox bridge on the lunge connect (health
+ *    route); the 5.0 approach latch and the latch/shake-off mechanic
+ *    are UNTRANSLATED (flagged). The lunge connect test: the engine
+ *    resolves <= 32 u between two UNVERIFIED node-table slots
+ *    (func_0019AA80(.., 0x20)) else radius-6 contact (func_0019A570);
+ *    the port folds both into the radius-6 contact (flagged — raw 32
+ *    between actor centers would make every lunge unavoidable).
  *  - DEATH: the engine's state 2 spawns nest children, gore FX, a
  *    MODEL REBIND to the gib models (library entries 0x22/0x29 — the
  *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED")
@@ -62,10 +88,11 @@
  *    instead of sinking (flagged in em_enemy.c). Debug:
  *    EM_ENEMY_GIBDEMO=<frame> posts a lethal mailbox to enemy 0 at
  *    that tick so EM_CAPTURE can photograph the scatter.
- *  - SPEED/RANGES: hop forward speed, hop airtime, the burst-on-player
- *    radius and the per-model hit-sphere radius are not exported from
- *    the disc; the port constants are flagged in em_enemy.c (the lunge
- *    contact reuses the engine's documented radius-6 contact test).
+ *  - SPEED/RANGES: hop forward speed, hop airtime and the per-model
+ *    hit-sphere radius are not exported from the disc; the port
+ *    constants are flagged in em_enemy.c. The lunge travels at the
+ *    lunge clip's authored 21.27 u/s root speed (engine data); the
+ *    connect radius is the decoded radius-6 contact (see above).
  *
  * MESH: assets/enemy_crawler.emdl (EMD2/EMD3 via the em_model API,
  * disc-derived, generated locally, git-ignored) when present; otherwise
@@ -100,15 +127,17 @@
  *     a deterministic small x/z + yaw perturbation (the documented
  *     jitter MECHANISM; the amplitudes/periods are flagged port
  *     constants — the D_002468B0 table values are not exported);
- *   - HP 1: a bullet hit (the +0x36 mailbox) OR the player closing
- *     within ~10 u (flagged port trigger, the state-4 wake stand-in)
- *     BURSTS it — husk gibs fly through the same gib launcher as the
- *     crawler death, and the real creature (the worm/leech) spawns at
- *     the crate position through the normal spawn path (emerge clip 1),
- *     yaw toward the player (the engine's leech init yaw), then attacks;
- *   - the crate ignores the group alarm (port: the disguise holds until
- *     its own trigger; the engine's alarmed crawler hops as the crate —
- *     untranslated).
+ *   - HP 1: DAMAGE (the +0x36 mailbox — bullet or knife) BURSTS it,
+ *     broadcasting the group alarm; the engine has NO proximity
+ *     trigger (decoded — the old ~10-u port trigger is removed). Husk
+ *     gibs fly through the shared gib launcher and the WORM spawns at
+ *     the crate position through the normal spawn path (its own INIT
+ *     yaws it at the player — the engine's leech init), then attacks;
+ *   - the group alarm sends the crate on the engine's blind suicide
+ *     hop-run AS THE CRATE (decoded func_001551B0 state 1: probe-
+ *     steered + RNG heading, no player seek, 180-tick timer, then the
+ *     burst hatches the worm). Damage during the run defers/absorbs
+ *     exactly as decoded (see em_enemy.c).
  *
  * GENERATOR (FINDINGS "GENERATOR — func_0015A2C0 RESOLVED", session
  * 28): the engine's most-placed creature behavior (class 0x0D, model 3,
@@ -281,12 +310,15 @@ enum {
     EM_ENEMY_IDLE   = 4    /* dormant on the nest                       */
 };
 
-/* Spawn kinds (port-side: the engine's one crawler behavior covers
- * both — the crate is its IDLE disguise; see "CRATE KIND" above). */
+/* Spawn kinds — the two decoded engine brains:
+ * CRAWLER = the worm/leech (func_00153F10/func_00154120, the kind-0xD
+ * runtime creature; born attacking — the engine never places one, so a
+ * manifest `enemy crawler` line is a port convenience), CRATE = the
+ * placed crawler func_001551B0 (the disguised prop; bursts into gibs +
+ * a worm on DAMAGE or at the end of its alarm-driven suicide run). */
 enum {
     EM_ENEMY_KIND_CRAWLER = 0,   /* the worm/leech creature            */
-    EM_ENEMY_KIND_CRATE   = 1    /* disguised crate: bursts into gibs +
-                                  * a crawler on hit / ~10-u proximity */
+    EM_ENEMY_KIND_CRATE   = 1    /* the placed crawler (disguise)      */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU
@@ -324,8 +356,9 @@ int em_enemy_generator_count(void);
 int em_enemy_generator_mode(int i);     /* runtime +0x56 mode, or -1   */
 int em_enemy_generator_spawned(int i);  /* worms emitted (+0x2E), or -1 */
 
-/* Per-frame update: every crawler's state machine (idle/alarm wake,
- * steer + hop toward the player, lunge, mailbox-driven death). `coll`
+/* Per-frame update: every enemy's state machine (crate: idle/alarm
+ * wake + the blind suicide run; worm: approach/stalk/windup/lunge;
+ * mailbox-driven death). `coll`
  * (may be NULL / empty) is the world the steering probes and floor
  * queries run through. Call once per gameplay frame, at the actor-pool
  * tick (func_001AFD70), before the weapon update so shots see this
