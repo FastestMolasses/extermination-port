@@ -244,22 +244,38 @@ void em_hud_update(const EmFrameInput *in);
  * knockdown anim, the infected latch window...), and the
  * Triangle/Start open press is simply dropped. em_game writes it once
  * per frame from the player damage state (it also covers the
- * game-over screen, where START means restart). */
+ * game-over/continue screens, where START/CROSS belong to the
+ * decoded prompt machine). */
 void em_hud_menu_inhibit(int inhibit);
 
-/* GAME-OVER PRESENTATION — PORT STAND-IN (FLAGGED). The engine's game
- * over is a DATA.DAT screen module (launchers func_001FEFE0/
- * func_001FF030, screen id D_008106CF) whose dead-player trigger is
- * still undecoded (em_game's PLAYER DAMAGE & DEATH block doc); until
- * that module is decoded/exported the port draws: an opaque black
- * base (the frame underneath is already at hold-black), "GAME OVER"
- * centered in the tall font (dark red — the engine's INFECTED text
- * style, the only red tall style it ships) and a blinking
- * "PRESS START" line below (small font, white, 32-frame cycle).
- * Missing font asset: the black base only. `frames` = frames since
- * the screen appeared (drives the blink). Queue AFTER the fade rect
- * so the text reads over the black. */
-void em_hud_game_over(EmGfx *gfx, int frames);
+/* GAME-OVER + CONTINUE PRESENTATION — the FLAGGED module stand-ins
+ * for the two DECODED screens (s66/s70, em_game's PLAYER DAMAGE &
+ * DEATH block doc — the trigger/flow chain is now fully decoded;
+ * only the screens' ART is unexported):
+ *
+ *   em_hud_game_over  = screen module 0x27 (the GAME OVER art the
+ *     wait state func_001AD4E0 launches and fades in): an opaque
+ *     black base + "GAME OVER" centered in the tall font (dark red —
+ *     the engine's INFECTED text style, the only red tall style it
+ *     ships). No prompt line: the engine screen carries none we know
+ *     of (the hold is CROSS-skippable, silently). The old blinking
+ *     "PRESS START" invention is retired with the START-restart.
+ *
+ *   em_hud_continue   = screen module 1 (the title/continue screen
+ *     the machine func_001AC070 launches): opaque black base +
+ *     "CONTINUE?" header + the 3 prompt options (cursor 0..2 — the
+ *     engine's func_001AC480 walk). Option LABELS are port guesses
+ *     (module text undecoded, FLAGGED): "CONTINUE" / "LOAD GAME" /
+ *     "OPTIONS" — the decoded DISPATCH is real (0 reinstalls
+ *     gameplay; 1 = the func_00225A00 memory-card flow; 2 = the
+ *     func_00200A40 sub-screen). `cursor` = the highlighted option
+ *     (tall white; others tall gray).
+ *
+ * Missing font asset: the black base only. Both are queued by em_game
+ * BEFORE the fade rect — the fade machine owns the screens exactly
+ * like the engine. */
+void em_hud_game_over(EmGfx *gfx);
+void em_hud_continue(EmGfx *gfx, int cursor);
 
 /* FOUND LINE (2026-06-11 pickup decode — em_pickup.h): in the ENGINE a
  * collected item posts D_008106B0/B1 and the main-mode controller

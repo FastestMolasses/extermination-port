@@ -167,9 +167,14 @@ files map each native stage to the PS2 function it stands in for.
   every frame to the centered 4:3 game frame (PCSX2-style; bars black,
   overlay canvases map inside it), so window shape never distorts the
   image. EM_PROJ_TEST pins the whole chain to the engine's own state01
-  K = P*V (see the headless-checks list). The status screen's separate
-  UI projection keeps the s49 empirical 0.74 pin (open item: the
-  engine s-model implies menu zoom ~324; needs a live menu zoom read).
+  K = P*V (see the headless-checks list). The status screen's 3D scene
+  now uses the SAME engine P at s = 480 (s66 live read: ctx+0x2468
+  stays 480 with the hub open; V = identity-with-y-flip; the s49
+  empirical 0.74 pin and the implied "menu s ~= 324" are both dead) —
+  the validated screen framing is preserved by a re-derived view-space
+  placement (em_game.c UI_SCENE_* doc; the s49 actor-position decode
+  cannot reproduce the framing under s = 480, so one link of that
+  placement chain is misread — flagged open).
 - AIM CAMERA = the engine's MODE 1, DECODED (2026-06-11, func_00197D20 +
   func_00197740/func_00197870 — replaces the old +0x8C target-height
   hack): entry frames the player from the current camera heading
@@ -352,8 +357,9 @@ files map each native stage to the PS2 function it stands in for.
   (full door-transit sequence self-test incl. the arrival walk-out and the
   frame-290 two-lock split witness), `EM_SFX_TEST=1` (3 overlapping
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
-  `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife-vs-crates run: light kill,
-  heavy kill, whiff-combo chain — see melee_test_script),
+  `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife run: crate light kill,
+  heavy stab WHIFFING through a worm — worms are not melee victims
+  (s66) — whiff-combo chain; see melee_test_script),
   `EM_CAMREGION_TEST=1` (fixed-camera-region run on a FLAGGED synthetic
   office region — the office has no real ones, see the camera bullet:
   enter pins the eye at the room spec, L1 is a no-op, R1 aim moves the

@@ -1520,17 +1520,20 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }
 
-/* GAME-OVER PRESENTATION — PORT STAND-IN, FLAGGED (em_hud.h; the
- * engine's DATA.DAT game-over screen module + its dead-player trigger
- * are undecoded — em_game's PLAYER DAMAGE & DEATH block). Draws on
- * the default 640x448 overlay canvas, queued by em_game AFTER the
- * fade rect so it reads over the hold-black frame. */
-void em_hud_game_over(EmGfx *gfx, int frames)
+/* GAME-OVER + CONTINUE PRESENTATION — the FLAGGED module stand-ins
+ * (em_hud.h: the flow chain is decoded s66/s70; only the two screen
+ * modules' ART is unexported). Both draw on the default 640x448
+ * overlay canvas, queued by em_game BEFORE the fade rect so the fade
+ * machine owns them exactly like the engine's GS fade. */
+
+/* Screen module 0x27 stand-in: the GAME OVER art screen the wait
+ * state fades in (240-frame hold, CROSS-skippable — em_game). */
+void em_hud_game_over(EmGfx *gfx)
 {
     static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     if (!gfx) return;
-    /* opaque base — the frame is at full subtractive black already;
-     * this pins the presentation even if something glows through */
+    /* opaque base — hides the frozen dead world underneath (the
+     * engine's module owns the whole frame) */
     em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
                         EM_GFX_OVERLAY_H, kBlack);
     if (!em_hud_font_ready()) return;   /* font-less: black only */
@@ -1540,13 +1543,33 @@ void em_hud_game_over(EmGfx *gfx, int frames)
         em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 200.0f, title,
                     EM_HUD_TEXT_TALL_DARKRED);
     }
-    /* blinking prompt: 32-frame cycle, lit half (a PORT cadence —
-     * no engine reference exists for this stand-in) */
-    if ((frames >> 4) & 1) {
-        const char *prompt = "PRESS START";
-        float w = em_hud_text_width(prompt, EM_HUD_TEXT_LABEL12);
-        em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 250.0f, prompt,
-                    EM_HUD_TEXT_LABEL12);
+}
+
+/* Screen module 1 stand-in: the continue prompt (decoded flow; the
+ * option LABELS are port guesses — em_hud.h). */
+void em_hud_continue(EmGfx *gfx, int cursor)
+{
+    static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    static const char *kOpts[3]  = { "CONTINUE", "LOAD GAME",
+                                     "OPTIONS" };
+    if (!gfx) return;
+    em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
+                        EM_GFX_OVERLAY_H, kBlack);
+    if (!em_hud_font_ready()) return;   /* font-less: black only */
+    {
+        const char *title = "CONTINUE?";
+        float w = em_hud_text_width(title, EM_HUD_TEXT_TALL);
+        em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 150.0f, title,
+                    EM_HUD_TEXT_TALL);
+    }
+    for (int i = 0; i < 3; i++) {
+        /* highlighted option = tall white, the rest tall gray (port
+         * styling — the module's real highlight is unexported) */
+        EmHudTextStyle st = (i == cursor) ? EM_HUD_TEXT_TALL
+                                          : EM_HUD_TEXT_TALL_GRAY;
+        float w = em_hud_text_width(kOpts[i], st);
+        em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f,
+                    220.0f + 40.0f * (float)i, kOpts[i], st);
     }
 }
 

@@ -16,12 +16,28 @@
  *                  stalk (120 t, homing 0.0698 rad/t) -> windup ->
  *                  lunge resolve -> burst or despawn.
  *   actor +0x34    HIT POINTS, s16 (crate init = 1: any damage kills;
- *                  worm init = 10 — func_00154040)
+ *                  worm init = 10 — func_00154040 — but VESTIGIAL:
+ *                  s66 live memchecks saw NOTHING ever read a worm's
+ *                  +0x34, and the only +0x36 access in its whole life
+ *                  is the release teardown's `sh zero, 0x36`
+ *                  (func_001AFC10). Worms are NOT shootable.)
  *   actor +0x36    INCOMING-DAMAGE MAILBOX, s16 — attackers write it
  *                  (low bits = amount, high bits = weapon-type flags,
  *                  e.g. 0x4000), the behavior polls + clears it in its
- *                  own tick. There is NO central HP system.
- *                                                 -> em_enemy_damage()
+ *                  own tick. There is NO central HP system. Only the
+ *                  CRATE consumes it (IDLE poll); the worm brain never
+ *                  reads it.                      -> em_enemy_damage()
+ *   victim filter  BOTH the bullet/laser victim filter (func_00183AC0)
+ *                  and the second/targetable filter (func_00183B80)
+ *                  switch on the MODEL byte and reject 0x0D (worm) —
+ *                  the class byte IS 2; the model exclusion is doing
+ *                  the work, deliberately (s66, static + live). The
+ *                  crate family (model 0x06) is a victim while +0x9F
+ *                  == 0. The port mirrors this in em_enemy_acquire /
+ *                  em_enemy_ray_test / em_enemy_targetable: bullets,
+ *                  auto-aim and melee all pass straight through a
+ *                  worm. Worms are dodged, not shot — their only
+ *                  deaths are their own burst/despawn.
  *   actor +0x0A    GROUP-ALARM flag: a damage-KILLED idle crawler walks
  *                  the whole live actor list (no radius) and wakes
  *                  every placed-crawler-model actor. Worms are not
@@ -42,29 +58,40 @@
  *    wake is REMOVED. A lone undamaged placement really does sit
  *    forever — engine truth. The free-roaming attacker is the WORM,
  *    which needs no wake (its brain has no idle state).
- *  - DAMAGE WINDOW (decoded; closes the old J2 open item statically):
- *    state 4 polls +0x36 every tick; state 1 NEVER polls it — the only
- *    +0x36 access in the whole attack run is `sh zero, 0x36` on the
- *    burst transition. So damage written mid-run DEFERS (kills on the
- *    next IDLE tick if the run returns there via the boxed-in path)
- *    and is ABSORBED if the run ends in the suicide burst. The port
- *    implements exactly this for the crate. The WORM's damage path is
- *    a different story: its brain never reads +0x34/+0x36 at all (an
- *    open item — some unfound handler must consume the HP=10); the
- *    port polls its mailbox every tick as a flagged stand-in so it
- *    stays shootable.
- *  - LUNGE DAMAGE (decoded): the old 0x400A/amount-10 write was an
- *    invention (that code is the swipe-pass ENEMY-victim value). The
- *    engine worm damages the player only by LATCHING: D_008102BF = 2,
- *    D_008104D4 = 5.0 on an approach touch / 15.0 on the lunge
- *    connect, player status bit |= 2. The port posts the decoded 15
- *    through its player-mailbox bridge on the lunge connect (health
- *    route); the 5.0 approach latch and the latch/shake-off mechanic
- *    are UNTRANSLATED (flagged). The lunge connect test: the engine
- *    resolves <= 32 u between two UNVERIFIED node-table slots
- *    (func_0019AA80(.., 0x20)) else radius-6 contact (func_0019A570);
- *    the port folds both into the radius-6 contact (flagged — raw 32
- *    between actor centers would make every lunge unavoidable).
+ *  - DAMAGE WINDOW (decoded; J2 CLOSED s66 live): state 4 polls +0x36
+ *    every tick; state 1 NEVER polls it — the only +0x36 access in
+ *    the whole attack run is `sh zero, 0x36` on the burst transition.
+ *    So damage written mid-run DEFERS (kills on the next IDLE tick if
+ *    the run returns there via the boxed-in path) and is ABSORBED if
+ *    the run ends in the suicide burst. The port implements exactly
+ *    this for the crate. The WORM consumes NOTHING: a full-lifecycle
+ *    live memcheck (spawn -> latch burst, two shots fired into it
+ *    mid-stalk) saw zero +0x34/+0x36 accesses besides the teardown
+ *    clear — combined with the model-0xD victim-filter rejection
+ *    (file header) the old "unfound HP consumer" open item is CLOSED:
+ *    there isn't one. HP=10 is vestigial init data. The port's former
+ *    every-tick worm mailbox poll (the shootable stand-in) is REMOVED.
+ *  - LUNGE DAMAGE (decoded s62, resolve test corrected s66): the old
+ *    0x400A/amount-10 write was an invention (that code is the
+ *    swipe-pass ENEMY-victim value). The engine worm damages the
+ *    player only by LATCHING: D_008102BF = 2, D_008104D4 = 5.0 on an
+ *    approach touch / 15.0 on the lunge connect, player status bit
+ *    |= 2. The port posts the decoded 15 through its player-mailbox
+ *    bridge on the lunge connect (health route); the 5.0 approach
+ *    latch and the latch/shake-off mechanic are UNTRANSLATED
+ *    (flagged). The lunge connect test (s66 live): func_0019AA80(a,
+ *    b, 0x20) is a SEGMENT-vs-PLAYER-HIT-VOLUME query, not a 32-u
+ *    radius — slots +0x34/+0x40 of the worm's OWN node table are rig
+ *    nodes 13 (neck) and 16 (head), staged as a segment in spad
+ *    0x70003190 and swept against the player's hit-volume list
+ *    (player +0x58: bone-anchored sphere records, filter mask 0x20 —
+ *    func_001A7280). The port runs that shape: the worm's neck->head
+ *    rig segment (palette nodes 13/16 when the leech asset is loaded)
+ *    against a PLAYER CAPSULE stand-in for the unexported volume list
+ *    (flagged constants in em_enemy.c); the radius-6 contact
+ *    (func_0019A570) stays as the engine's second, latch-free arm.
+ *    Without rig data (placeholder mesh) both arms still fold into
+ *    the radius-6 contact carrying the latch (flagged fallback).
  *  - DEATH: the engine's state 2 spawns nest children, gore FX, a
  *    MODEL REBIND to the gib models (library entries 0x22/0x29 — the
  *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED")
@@ -86,13 +113,16 @@
  *    (the engine's no-knockback arm), keep the VISUAL-ONLY corpse
  *    placeholder — the frozen pose now fades out the same way
  *    instead of sinking (flagged in em_enemy.c). Debug:
- *    EM_ENEMY_GIBDEMO=<frame> posts a lethal mailbox to enemy 0 at
- *    that tick so EM_CAPTURE can photograph the scatter.
+ *    EM_ENEMY_GIBDEMO=<frame> forces a lethal damage-death on enemy 0
+ *    at that tick so EM_CAPTURE can photograph the scatter (a DIRECT
+ *    debug kill since the worm consumes no mailbox; on a crate it is
+ *    equivalent to the real damage path).
  *  - SPEED/RANGES: hop forward speed, hop airtime and the per-model
  *    hit-sphere radius are not exported from the disc; the port
  *    constants are flagged in em_enemy.c. The lunge travels at the
  *    lunge clip's authored 21.27 u/s root speed (engine data); the
- *    connect radius is the decoded radius-6 contact (see above).
+ *    connect test is the decoded segment-vs-player arm + the radius-6
+ *    contact (see LUNGE DAMAGE above).
  *
  * MESH: assets/enemy_crawler.emdl (EMD2/EMD3 via the em_model API,
  * disc-derived, generated locally, git-ignored) when present; otherwise
@@ -132,7 +162,14 @@
  *     trigger (decoded — the old ~10-u port trigger is removed). Husk
  *     gibs fly through the shared gib launcher and the WORM spawns at
  *     the crate position through the normal spawn path (its own INIT
- *     yaws it at the player — the engine's leech init), then attacks;
+ *     yaws it at the player — the engine's leech init), then attacks.
+ *     KNOWN-WRONG BINDING (s68 — "CREATURE IDENTITY CORRECTION"): the
+ *     engine's crate-burst children are BUGS (the 15-node insectoid,
+ *     brains func_00128C10/func_0012A5D0, nest-registry records) or
+ *     ITEMS — never the worm (its only installer is the generator
+ *     helper func_0015A200). The worm hatch below is the FLAGGED
+ *     pre-s68 stand-in; the bug rebinding (assets/enemy_bug.emdl is
+ *     exported and waiting) is this module's next task;
  *   - the group alarm sends the crate on the engine's blind suicide
  *     hop-run AS THE CRATE (decoded func_001551B0 state 1: probe-
  *     steered + RNG heading, no player seek, 180-tick timer, then the
@@ -279,7 +316,9 @@
  * generator 14 u ahead of
  * the idle player (inside the kind-2 box), with the 1800/3600/5400
  * delays divided by 60 (test-only acceleration, flagged); asserts the
- * 121-frame charge, worm-at-origin spawns, a mailbox kill mid-stream,
+ * 121-frame charge, worm-at-origin spawns, that a mid-stalk mailbox
+ * write does NOT kill worm 1 (s66: worms consume nothing — the write
+ * lands and dies with the slot) while its OWN lunge lifecycle ends it,
  * continued emission to the 4-worm cap, and silence after exhaustion.
  */
 #ifndef EM_ENEMY_H
@@ -366,7 +405,11 @@ int em_enemy_generator_spawned(int i);  /* worms emitted (+0x2E), or -1 */
 void em_enemy_update(const EmCollision *coll, const float player_pos[3]);
 
 /* Write the incoming-damage mailbox (actor +0x36): low bits = amount,
- * high bits = weapon-type flags. The crawler consumes it in its tick. */
+ * high bits = weapon-type flags. Only the CRATE consumes it (IDLE
+ * poll); a worm's mailbox is never read — engine-true (s66): the
+ * write lands and dies with the slot, exactly like the engine's
+ * teardown-only +0x36. (Attackers can't normally reach a worm anyway:
+ * the victim filters below reject it before any write happens.) */
 void em_enemy_damage(int i, int16_t code);
 
 /* Player-side damage mailbox (same +0x36 semantics, pointed at the
@@ -377,21 +420,25 @@ int em_enemy_player_hit_take(void);
 /* Hitscan support for em_weapon.c — keeps the em_collision world API
  * untouched (port choice, documented in em_weapon.h):
  *
- * em_enemy_acquire: nearest live crawler within `max_dist` of `from`
+ * ALL THREE queries run the engine's MODEL-keyed victim filter first
+ * (func_00183AC0 / func_00183B80, s66): the WORM (model 0x0D) is
+ * rejected — rays pass through it, the auto-aim lock never fills on
+ * it, melee whiffs past it. Crates (model 0x06 family) are victims.
+ *
+ * em_enemy_acquire: nearest live VICTIM within `max_dist` of `from`
  * whose XZ bearing lies inside the facing cone (dot >= cone_cos).
  * Remains the MELEE victim resolver (the knife's reach stand-in); the
  * BULLET's acquisition is the decoded func_00199220 screen-cone chain
  * in em_weapon.c, fed by the two queries below.
  *
- * em_enemy_ray_test: nearest live crawler whose hit sphere intersects
+ * em_enemy_ray_test: nearest live VICTIM whose hit sphere intersects
  * the segment [from, to] (the per-victim test the bullet runs BEFORE
  * crediting a world hit). Writes the entry point. Returns index or -1.
  *
  * em_enemy_targetable: the func_00199220 candidate gate — slot live
- * (engine status byte != 0) with HP > 0 (the +0x34 halfword test; the
- * engine's third gate func_00183B80 has no port equivalent — a freed/
- * fading slot is already inactive here). Real instance slots only
- * (gib/pad virtual draw slots always 0).
+ * (engine status byte != 0), VICTIM by model (the func_00183B80
+ * filter — worms excluded), HP > 0 (the +0x34 halfword test). Real
+ * instance slots only (gib/pad virtual draw slots always 0).
  *
  * em_enemy_aim_point: the func_00183C40 class-keyed AIM POINT — the
  * port's hit-sphere center (pos + per-kind aim height), the same point

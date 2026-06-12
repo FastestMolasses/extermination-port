@@ -355,22 +355,42 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *              * ramp (G clamped >= -127), ramp breathing 1.0 <-> 1.3
  *              at +-0.01/frame — the 2 s infected-skin pulse
  * Port mapping: the native y-up view (em_mat4_lookat_gs remaps the
- * engine's y-down GS view) puts the engine's +2.4 view-down at
- * y = -2.4, and the engine's +x maps screen-LEFT (the remap's X
+ * engine's y-down GS view) puts the engine's view-down offset at
+ * negative y, and the engine's +x maps screen-LEFT (the remap's X
  * negation) — the model lands ON the ring gauge, the real screen's
- * placement. The UI projection is PINNED by the x-anchor: 7.4 units
- * at z 40 = the ring-center column (canvas 208) iff tan(fovy/2) =
- * 0.74 at the GS 4:3 frame (UI_PROJ_TANY; see ui_scene_render — the
- * projection stays 4:3-locked and maps to the letterboxed 4:3 game
- * frame exactly like the overlay canvas). The additive engine tint is
- * approximated
+ * placement. THE UI PROJECTION IS THE ENGINE'S WORLD P AT s = 480 —
+ * READ LIVE s66: with the hub open, ctx+0x2468 = 480.37, UNCHANGED
+ * from gameplay (the 0.37 is a stalled zoom-lerp tail); P at +0x2340
+ * = the standard (0.8s, 0.5s) rows and V at +0x2380 = identity with
+ * m11 = -1 (the UI camera y-flip). There is NO separate menu
+ * projection; the s49 empirical tan(fovy/2) = 0.74 pin (which implied
+ * a menu zoom s ~= 324) is DEAD. Whatever the 0.74 pin was
+ * compensating for lives in the MODEL TRANSFORM/placement: the s49
+ * actor-position decode (view-space (7.4, 2.4, 40), func_0020E6F0
+ * state 0) cannot reproduce the observed screen framing under the
+ * real s = 480 P (it would project the model tiny and near-centered),
+ * so one link of that placement chain is misread — OPEN. The port
+ * keeps the VALIDATED screen framing (the s49 anchors: ring-center
+ * column canvas x 208 = NDC -0.1875, vertical anchor NDC +0.0811,
+ * the same apparent size) by RE-DERIVING the view-space placement
+ * under the engine projection — preserve the vertical per-unit scale
+ * and both NDC anchors:
+ *   UI_SCENE_Z = 40 * 0.74 / (224/480)     = 444/7 = 63.428571
+ *   UI_SCENE_X = 0.1875 * (320/480) * Z    = 7.928571
+ *   UI_SCENE_Y = 0.0811 * (224/480) * Z    = 2.4 (unchanged)
+ * (FLAGGED port-derived placement; the engine's 10/7 pixel-aspect
+ * anisotropy now applies to the menu model exactly as it does to the
+ * world — the old square-pixel pin drew it ~7% too wide.) The
+ * additive engine tint is approximated
  * multiplicatively over the GS 128 base: rgb_mul = (128 + delta)/128.
  * The rig is orbited to the gfx stand-in light's azimuth (relative
  * camera<->player transform unchanged) so the camera-facing side is
  * lit — also explained at ui_scene_render. */
-#define UI_SCENE_X      7.4f    /* engine view-space right offset */
-#define UI_SCENE_Y     -2.4f    /* engine +2.4 view-down, native y-up */
-#define UI_SCENE_Z     40.0f    /* engine view-space distance */
+#define UI_SCENE_X      7.928571f  /* re-derived under s=480 (above)  */
+#define UI_SCENE_Y     -2.4f       /* engine view-down 2.4, native y-up */
+#define UI_SCENE_Z      63.428571f /* re-derived under s=480 (above)  */
+#define UI_SCENE_ZOOM   480.0f     /* ctx+0x2468 with the hub open —
+                                    * the ORDINARY world zoom (s66)   */
 #define UI_SPIN_RATE    0.01f   /* yaw rad per frame (engine 0x3C23D70A) */
 #define UI_RAMP_RATE    0.01f   /* tint pulse step per frame */
 #define UI_RAMP_MAX     1.3f    /* tint pulse ceiling (0x3FA66666) */
@@ -380,11 +400,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * ui_scene_render). */
 #define UI_CAM_DIR_X    0.6644f
 #define UI_CAM_DIR_Z    0.7474f
-/* tan(fovy/2) of the engine's UI projection at its 4:3 frame — pinned
- * by the x-anchor consistency: view-space x 7.4 at z 40 projects to
- * the ring-gauge center column (canvas 208 of 512, NDC -0.1875), so
- * fx = 0.1875*40/7.4 = 1.01351 and tan_y = 1/(fx*4/3) = 0.74. */
-#define UI_PROJ_TANY    0.74f
 #define CLIP_ID_MENU     450u   /* 0x1C2 — single-frame menu stance */
 #define CLIP_ID_MENU_LOW 10u    /* 0xA — low-health menu idle (90 fr) */
 
@@ -469,19 +484,80 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * (func_0015D460): sub 0 zeroes health + event, sub 1 starts the same
  * fade-out, sub 2 parks. No anim, no sound.
  *
- * GAME OVER: after the death fade-out the engine sits at HOLD-BLACK
- * with the player machine parked. The screen that follows is a
- * DATA.DAT screen module (the func_001FEFE0/func_001FF030 launchers,
- * screen id D_008106CF, busy gate D_00275BD8 — reached through the
- * level-end byte D_008106CE in the game task's state 6); the only
- * D_008106CE writer found is the pointer-called script op
- * func_001B7700, and the dead-player -> screen trigger was NOT
- * located statically (OPEN — candidates: an overlay-resident watcher
- * or the func_0021B180/550/840 compositor). The port therefore
- * presents a FLAGGED STAND-IN: hold black, "GAME OVER / PRESS START"
- * through the real UI font (em_hud_game_over), and START reloads the
- * active scene (the continue path re-enters the area like a scene
- * switch) with the boot status restored.
+ * GAME OVER — THE DECODED CHAIN (s66 live + the s70 static decode of
+ * func_001AD4E0 / func_001AC070 / func_001AC480; the old "screen id
+ * D_008106CF via state 6" framing was the END-OF-LEVEL path —
+ * D_008106CE/CF are never written on death):
+ *
+ *   vitals mirror (~0x0015CFB0)   health <= 0 latches D_008106B9 = 1
+ *   func_001AE040 state-1 tail    latch && fade == 2 (hold-black) ->
+ *                                 func_001AD140: game task 3/2
+ *   GAME-OVER WAIT func_001AD4E0  sub 0: timer task+0x18 = 0xF0 = 240
+ *                                 sub 1: busy gate; launch SCREEN
+ *                                   MODULE 0x27 (func_001FF080(0,
+ *                                   0x27)) — the GAME OVER art screen
+ *                                 sub 2: module up -> FADE-IN
+ *                                   (func_001AEE10) + audio cue
+ *                                   func_001FA790(0, 0x1B) (the
+ *                                   game-over jingle/stream — id
+ *                                   identification flagged)
+ *                                 sub 3: GS backdrop quad each frame
+ *                                   (func_001ABF90); the 240 counts
+ *                                   down THROUGH the fade-in; once
+ *                                   the fade is idle, CROSS pressed-
+ *                                   edge (D_00810E74 & 0x40 — the
+ *                                   s-pad map pins 0x40 = CROSS) OR
+ *                                   timer 0 -> FADE-OUT, sub 4
+ *                                 sub 4: at hold-black func_001FAB50
+ *                                   (audio stop) -> task state 9 = 4
+ *   ARM func_001ADF00             clears, gp-0x7794 "from death" = 1,
+ *                                 func_001AB790(func_001AC070): the
+ *                                 game task fn is REPLACED WHOLESALE
+ *                                 by the CONTINUE machine (the world
+ *                                 stops existing; the title installs
+ *                                 the same task with flag 0)
+ *   CONTINUE func_001AC070        state 0: from-death -> state 2; the
+ *                                 prompt sub-machine func_001AC480:
+ *                                 launch SCREEN MODULE 1 (the title/
+ *                                 continue screen), FADE-IN, then the
+ *                                 interactive prompt — cursor task
+ *                                 +0xF (from-death INIT = 1, title
+ *                                 init = 0; 3 options 0..2), d-pad
+ *                                 UP/DOWN = 0x1000/0x4000 moves it
+ *                                 (sound 5), confirm = pressed &
+ *                                 0x840 (START|CROSS) -> per-option
+ *                                 confirm sound 0x5DD/0x5DE/0x5DF +
+ *                                 FADE-OUT; idle timer task+0x16 =
+ *                                 0x4B0 = 1200 (reset by any held
+ *                                 button) -> timeout FADE-OUT to the
+ *                                 title/attract cycle (held input
+ *                                 mid-fade cancels back in). At
+ *                                 hold-black the confirm dispatches:
+ *                                 cursor 0 -> func_001AB790(
+ *                                 func_001ACEC0) REINSTALLS the
+ *                                 gameplay task (CONTINUE; D_00275BE0
+ *                                 = 0), 1 -> the load-game screen
+ *                                 (func_00225A00/func_00225AC0;
+ *                                 success also reinstalls gameplay
+ *                                 with D_00275BE0 = 1), 2 -> the
+ *                                 func_00200A40 sub-screen, back to
+ *                                 the prompt when done.
+ *
+ * The PORT runs that skeleton faithfully (game_over_tick + the frozen
+ * world gate in gameplay_frame — the engine's task replacement is
+ * modeled by halting the world sim like the menu pause): death fade ->
+ * GAME-OVER screen fades IN (240-frame hold counted through the
+ * fade, CROSS skips) -> fade out -> CONTINUE prompt fades in (cursor
+ * init 1, d-pad moves, START/CROSS confirms, 1200-frame idle timeout)
+ * -> fade out -> dispatch. FLAGGED stand-ins: the two screen modules'
+ * art is unexported (em_hud_game_over / em_hud_continue draw the
+ * skeleton presentation: black base + tall-font title / option
+ * lines); option labels are port guesses (the module text is not
+ * decoded); options 1/2 and the timeout have no native target (no
+ * save system, no title screen) — all three return to the prompt,
+ * documented at the dispatch; option 0 = the real continue (scene
+ * reload + boot status restore, the engine's reinstalled-task area
+ * re-entry).
  *
  * HEARTBEAT (func_0015D000): health <= 35 -> pad-rumble pulse
  * (func_001B61C0(0, 0xD0, 4, 0)) every 121 frames, <= 10 -> stronger
@@ -530,6 +606,38 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_KILL_PLANE     -200.0f  /* spine death check (Y < -200 -> st 6) */
 #define PD_DEATH_CUE_FALL   80     /* frames-remaining sound cue (0x156) */
 #define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
+
+/* GAME-OVER / CONTINUE machine (the decoded chain in the block doc
+ * above — engine values from func_001AD4E0 / func_001AC480). */
+#define GO_HOLD_FRAMES    240      /* task+0x18 = 0xF0: the GAME OVER
+                                    * screen hold (counts through the
+                                    * fade-in; CROSS skips once the
+                                    * fade is idle) */
+#define GO_PROMPT_FRAMES  1200     /* task+0x16 = 0x4B0: continue-prompt
+                                    * idle timeout (reset by any held
+                                    * button) */
+#define GO_CURSOR_MAX     2        /* prompt options 0..2 (func_001AC480
+                                    * clamps the d-pad walk to < 2 on
+                                    * increment) */
+#define GO_CURSOR_DEATH   1        /* from-death cursor INIT (title = 0
+                                    * — func_001AC480 sub 0 on the
+                                    * D_00275BDC flag) */
+#define GO_SFX_MOVE       5u       /* cursor move blip (func_001FB9F0) */
+#define GO_SFX_CONFIRM0   0x5DDu   /* option-0 confirm */
+#define GO_SFX_CONFIRM1   0x5DEu   /* option-1 confirm */
+#define GO_SFX_CONFIRM2   0x5DFu   /* option-2 confirm */
+
+/* go_state values (the port's fold of task states 3-sub-2..4 + the
+ * continue machine's state 2 — game_over_tick below). */
+enum {
+    GO_OFF = 0,
+    GO_ARMED,          /* death fade-out running (pd_phase 3)         */
+    GO_SCREEN,         /* GAME OVER screen: fade-in + 240 hold + skip */
+    GO_SCREEN_OUT,     /* fading to black (engine wait sub 4)         */
+    GO_PROMPT,         /* CONTINUE prompt: fade-in + cursor + timer   */
+    GO_PROMPT_CONFIRM, /* confirmed: fading out; dispatch at black    */
+    GO_PROMPT_TIMEOUT  /* idle timeout: fading out; engine -> title   */
+};
 
 /* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
  * SYSTEM" + the s65 walk-camera decode): idle eye ~33 u behind the
@@ -1172,11 +1280,21 @@ static struct {
     unsigned   pd_clip;        /* committed reaction clip (test/report) */
     int        pd_cue_fall;    /* death-clip T-80 sound fired */
     int        pd_cue_thud;    /* death-clip T-16 sound fired */
-    int        go_state;       /* GAME OVER stand-in: 0 off, 1 fading
-                                * to black, 2 shown (restart armed) */
-    int        go_frames;      /* frames since shown (text blink) */
-    int        go_restart;     /* START consumed: scene reload latch,
-                                * serviced by the frame machine */
+    int        go_state;       /* GAME-OVER/CONTINUE machine (GO_*
+                                * enum at the PD block) */
+    int        go_frames;      /* frames in the current GO state */
+    int        go_hold;        /* GAME OVER screen countdown (engine
+                                * task+0x18 = 240; ticks through the
+                                * fade-in, CROSS skips) */
+    int        go_timer;       /* continue-prompt idle timeout (engine
+                                * task+0x16 = 1200; reset by any held
+                                * button) */
+    int        go_cursor;      /* prompt cursor (engine task+0xF;
+                                * from-death init = 1) */
+    int        go_restart;     /* continue confirmed: scene reload
+                                * latch, serviced by the frame machine
+                                * (the engine's reinstalled gameplay
+                                * task) */
 
     /* the camera block the recorded chain consumes (native K = P*V) */
     float      viewproj[16];
@@ -2760,17 +2878,22 @@ static void player_hurt_tick(void)
         return;
     }
     if (g.pd_phase == 3) {
-        /* fading: at full black the engine parks (sub-state 2 of
-         * func_0021D2E0 / state-6 sub 2) — the port shows the
-         * GAME-OVER stand-in (see the PD block doc: the engine's
-         * screen-module trigger is OPEN). */
+        /* fading: at full black the engine parks the player machine
+         * and func_001AE040's state-1 tail fires (D_008106B9 latch &&
+         * fade == 2) -> the GAME-OVER WAIT (the decoded chain in the
+         * PD block doc). Port: enter GO_SCREEN — module-0x27 screen
+         * stand-in + FADE-IN + the 240 hold; from the next frame the
+         * world is FROZEN (the gameplay_frame gate) and game_over_tick
+         * owns the flow, modeling the engine's task replacement. */
         if (em_frame_fade_level() >= 1.0f) {
             g.pd_phase  = 4;
-            g.go_state  = 2;
+            g.go_state  = GO_SCREEN;
             g.go_frames = 0;
+            g.go_hold   = GO_HOLD_FRAMES;          /* task+0x18 = 0xF0 */
+            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR); /* func_001AEE10 */
         }
     }
-    /* phase 4: parked dead under the game-over screen */
+    /* phase 4: parked dead under the game-over/continue screens */
 }
 
 /* Passive per-frame vitals (func_0015D100 infected arm + the spine's
@@ -2808,16 +2931,117 @@ static void player_vitals_tick(void)
     }
 }
 
-/* GAME OVER stand-in input: START restarts — reload the active scene
- * (manifest re-run: doors/enemies/collision fresh), restore the boot
- * status, fade back in. The engine's continue flow is undecoded
- * (flagged with the screen itself). */
+/* GAME-OVER / CONTINUE machine — the decoded engine chain (PD block
+ * doc: func_001AD4E0 wait subs 2..4 + func_001AC070/func_001AC480
+ * continue states), folded into one port state machine. Runs every
+ * frame from GO_SCREEN on (the frozen-world gate in gameplay_frame
+ * calls it — the engine's game task is REPLACED here, so the world
+ * does not simulate). Presentation: em_hud_game_over /
+ * em_hud_continue, drawn UNDER the fade in frame_close_out. */
 static void game_over_tick(void)
 {
-    if (g.go_state != 2) return;
+    const EmFrameInput *in = em_frame_input();
+    if (g.go_state < GO_SCREEN) return;
     g.go_frames++;
-    if (em_frame_input()->pressed & EM_PAD_START) {
-        g.go_restart = 1;          /* serviced by the frame machine */
+    switch (g.go_state) {
+    case GO_SCREEN:
+        /* engine wait sub 3: the 240 counts down THROUGH the fade-in;
+         * skip/expiry only fire once the fade machine is idle. */
+        if (g.go_hold > 0) g.go_hold--;
+        if (em_frame_fade_level() > 0.0f) break;     /* fade busy */
+        if (g.go_hold == 0 || (in->pressed & EM_PAD_CROSS)) {
+            /* CROSS skip (D_00810E74 & 0x40) or timer expiry ->
+             * fade-out (func_001AEDE0(4,0)) */
+            em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
+            g.go_state  = GO_SCREEN_OUT;
+            g.go_frames = 0;
+        }
+        break;
+    case GO_SCREEN_OUT:
+        /* engine wait sub 4: at hold-black stop the cue + arm the
+         * CONTINUE machine (func_001ADF00 task replacement). */
+        if (em_frame_fade_level() >= 1.0f) {
+            g.go_state  = GO_PROMPT;
+            g.go_frames = 0;
+            g.go_timer  = GO_PROMPT_FRAMES;        /* task+0x16       */
+            g.go_cursor = GO_CURSOR_DEATH;         /* from-death = 1  */
+            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+        }
+        break;
+    case GO_PROMPT:
+        /* func_001AC480 sub 2 — gated until the fade is idle. */
+        if (em_frame_fade_level() > 0.0f) break;
+        if (in->held == 0) {
+            /* no button held: the idle timeout walks (engine: the
+             * decrement runs only on input-free frames) */
+            if (g.go_timer > 0 && --g.go_timer == 0) {
+                em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
+                g.go_state  = GO_PROMPT_TIMEOUT;
+                g.go_frames = 0;
+            }
+            break;
+        }
+        /* any held button re-arms the timer (engine tail) */
+        g.go_timer = GO_PROMPT_FRAMES;
+        if (in->pressed & (EM_PAD_START | EM_PAD_CROSS)) {
+            /* confirm (engine mask 0x840) — per-option sound, then
+             * fade out; dispatch happens at hold-black */
+            em_sfx_play(g.go_cursor == 0 ? GO_SFX_CONFIRM0
+                        : g.go_cursor == 1 ? GO_SFX_CONFIRM1
+                                           : GO_SFX_CONFIRM2);
+            em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
+            g.go_state  = GO_PROMPT_CONFIRM;
+            g.go_frames = 0;
+        } else if ((in->pressed & EM_PAD_DOWN) &&
+                   g.go_cursor < GO_CURSOR_MAX) {
+            g.go_cursor++;                          /* 0x4000 = DOWN  */
+            em_sfx_play(GO_SFX_MOVE);
+        } else if ((in->pressed & EM_PAD_UP) && g.go_cursor > 0) {
+            g.go_cursor--;                          /* 0x1000 = UP    */
+            em_sfx_play(GO_SFX_MOVE);
+        }
+        break;
+    case GO_PROMPT_CONFIRM:
+        if (em_frame_fade_level() < 1.0f) break;
+        if (g.go_cursor == 0) {
+            /* CONTINUE — the engine reinstalls the gameplay task
+             * (func_001AB790(func_001ACEC0), D_00275BE0 = 0); the
+             * port's equivalent area re-entry is the scene reload,
+             * serviced by the frame machine (go_restart). */
+            g.go_restart = 1;
+        } else {
+            /* options 1 (load game) / 2 (sub-screen): the engine's
+             * targets (func_00225A00 memory-card flow / func_00200A40)
+             * have no native counterpart — no save system. Both
+             * RETURN TO THE PROMPT (the engine's own cancel/done path
+             * for each); FLAGGED untranslated sub-screens. */
+            g.go_state  = GO_PROMPT;
+            g.go_frames = 0;
+            g.go_timer  = GO_PROMPT_FRAMES;
+            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+        }
+        break;
+    case GO_PROMPT_TIMEOUT:
+        /* engine sub 4: held input mid-fade cancels back to the
+         * prompt; at hold-black the engine cycles to the TITLE/attract
+         * screens — the port has no title scene, so it re-enters the
+         * prompt (FLAGGED divergence, documented in the PD block). */
+        if (in->held != 0 && em_frame_fade_level() < 1.0f) {
+            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+            g.go_state  = GO_PROMPT;
+            g.go_frames = 0;
+            g.go_timer  = GO_PROMPT_FRAMES;
+            break;
+        }
+        if (em_frame_fade_level() >= 1.0f) {
+            g.go_state  = GO_PROMPT;
+            g.go_frames = 0;
+            g.go_timer  = GO_PROMPT_FRAMES;
+            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+        }
+        break;
+    default:
+        break;
     }
 }
 
@@ -5034,25 +5258,18 @@ static void ui_scene_render(EmGfx *gfx)
         memcpy(rig_eye, eye, sizeof rig_eye);
         memcpy(rig_fwd, fwd, sizeof rig_fwd);
     }
-    /* UI projection — PINNED by the decoded x-anchor: the engine's
-     * 7.4-unit offset at z 40 lands the model exactly on the ring
-     * center (canvas x 208, NDC -0.1875) iff the projection's x scale
-     * is 0.1875*40/7.4 = 1.01351, i.e. tan(fovy/2) = 0.74 at the GS
-     * 4:3 frame (~73 deg vertical). LOCKED at 4:3 regardless of the
-     * window: since the engine-projection adoption the gfx backend
-     * letterboxes every draw to the centered 4:3 game frame
-     * (em_gfx_begin_frame), the same region the overlay's 512x448
-     * canvas maps — 3D scene and panel anchors stay registered at any
-     * window size, now without distortion. NOTE (honest open item):
-     * this projection is the s49 EMPIRICAL pin, kept as-is; under the
-     * engine's s-zoom model the same x-anchor would imply a menu zoom
-     * s = 0.1875*40/7.4*320 = 324.3 with tan(vfov/2) = 224/324.3 =
-     * 0.691, ~7% tighter vertically than the 0.74 pin (the pin assumed
-     * the square-pixel 4/3 fx/fy ratio the engine P does not have).
-     * Which is right needs a status-screen zoom read (ctx+0x2468 with
-     * the menu open) — until then the pinned look stands. */
-    em_mat4_perspective(proj, 2.0f * atanf(UI_PROJ_TANY), 4.0f / 3.0f,
-                        0.5f, 500.0f);
+    /* UI projection = THE ENGINE'S WORLD P AT s = 480 (s66 live read
+     * closes the s49/s59 open item: ctx+0x2468 stays 480 with the hub
+     * open; V is identity-with-y-flip; no separate menu projection
+     * exists). em_mat4_perspective_gs carries the 10/7 pixel-aspect
+     * anisotropy and the decoded near/far — the menu model is now
+     * projected EXACTLY like the world. The screen framing the old
+     * 0.74 pin validated is preserved by the re-derived UI_SCENE_*
+     * placement (the constants block doc). Anchors stay registered to
+     * the letterboxed 4:3 game frame at any window size (the gfx
+     * backend letterboxes every draw — em_gfx_begin_frame — the same
+     * region the overlay's 512x448 canvas maps). */
+    em_mat4_perspective_gs(proj, UI_SCENE_ZOOM);
     em_mat4_mul(vp, proj, view);
     /* The black backplate keeps its own fixed straight-ahead camera (its
      * quad lives at world z 400): identical full-screen result, no need
@@ -5340,6 +5557,19 @@ static void frame_close_out(void)
                                  * (GLOBAL lines drew inside em_hud
                                  * just above) */
 
+    /* GAME-OVER / CONTINUE screens — drawn BEFORE the fade rect so
+     * the fade machine owns them exactly like the engine (the screen
+     * modules render under the GS fade; PD block doc). Their opaque
+     * black base hides the frozen dead world underneath. Queues
+     * nothing while the GO machine is off, so every other frame stays
+     * byte-identical. Presentation = the FLAGGED module stand-ins
+     * (em_hud.h): module 0x27 -> em_hud_game_over, module 1 ->
+     * em_hud_continue (cursor highlight). */
+    if (g.go_state == GO_SCREEN || g.go_state == GO_SCREEN_OUT)
+        em_hud_game_over(gfx);
+    else if (g.go_state >= GO_PROMPT)
+        em_hud_continue(gfx, g.go_cursor);
+
     /* SCREEN FADE — the step-D machine, drawn last so it covers the
      * scene AND the status screen (the engine's fade owns the whole GS
      * frame). The engine blend is SUBTRACTIVE (out = max(0, pixel -
@@ -5359,14 +5589,6 @@ static void frame_close_out(void)
                                     EM_GFX_OVERLAY_H, grey);
         }
     }
-
-    /* GAME OVER stand-in (over the fade — the dead frame is at full
-     * black underneath; see the PD block doc: the engine's DATA.DAT
-     * game-over screen module is undecoded, this presentation is
-     * FLAGGED). Queues nothing while go_state != 2, so every other
-     * frame stays byte-identical. */
-    if (g.go_state == 2)
-        em_hud_game_over(gfx, g.go_frames);
 
     if (g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
@@ -6257,25 +6479,34 @@ static void weapon_test_script(void)
 }
 
 /* EM_ENEMY_TEST — deterministic enemy-vs-player self-tests (em_enemy.c;
- * updated for the s62 condition decode — the worm is BORN ATTACKING,
- * the crate bursts on DAMAGE ONLY). Tests 1/2 spawn ONE WORM 30 units
- * ahead of the player spawn along the spawn facing (scene-init arm,
- * et_spawned) and adapt to its actual pace instead of fixed frames:
+ * s62 condition decode + the s66 shootability verdict — the worm is
+ * BORN ATTACKING, the crate bursts on DAMAGE ONLY, and the WORM IS
+ * NOT SHOOTABLE (both victim filters reject model 0x0D; nothing
+ * consumes its mailbox). Scene-init arm (et_spawned) places the
+ * target; the scripts adapt to actual pace instead of fixed frames:
  *
- *   EM_ENEMY_TEST=1 (kill run): hold R1 from frame 0 (draw). Assert the
- *     worm ATTACKS from spawn (engine: func_00153F10 has no idle) and
- *     CLOSES distance in its stalk; once it is within 12 u (inside the
- *     office's wall plane 14 u ahead of the spawn, so the world ray
- *     cannot outrank the victim test) fire TWO semi shots -> +0x36
- *     mailbox, 5 each vs the decoded HP 10 -> assert it survives the
- *     first, dies on the second, exactly two rounds spent, the last
- *     ray resolved HIT, and the player's health untouched (the kill
- *     must land before the worm's first lunge resolves at ~255 ticks).
- *   EM_ENEMY_TEST=2 (contact run): weapon stays holstered; let the worm
+ *   EM_ENEMY_TEST=1 (kill run — RESTAGED s66: the shootable target is
+ *     a CRATE now; the old shoot-the-worm staging asserted an
+ *     invention): spawn a DISGUISED CRATE 12 u dead ahead (inside the
+ *     office's wall plane 14 u out, so the world ray cannot outrank
+ *     the victim test). Hold R1 from frame 0 (draw), pitch the aim
+ *     down until the screen-cone lock fills on the crate, fire ONE
+ *     semi shot -> +0x36 mailbox vs the crate's HP 1 -> assert the
+ *     ray resolved HIT, the crate burst on its IDLE poll, and the
+ *     WORM hatched at the crate position. Then the J2 WITNESS: keep
+ *     R1, assert the lock NEVER fills on the worm (func_00183B80
+ *     excludes model 0xD), fire ONE more shot straight through it
+ *     mid-approach and assert the worm is untouched (alive, ATTACK,
+ *     HP still the vestigial 10 — em_enemy_ray_test passes through;
+ *     finish before its lunge resolves).
+ *   EM_ENEMY_TEST=2 (contact run): ONE WORM 30 u ahead; weapon stays
+ *     holstered; let the worm
  *     run its decoded sequence (approach 90 t -> stalk 120 t homing ->
  *     windup 45 t -> lunge). The lunge CONNECT posts the decoded latch
  *     15 (D_008104D4) and the worm bursts -> assert health dropped by
- *     exactly 15 and the worm despawned.
+ *     exactly 15 and the worm despawned. (With the leech asset the
+ *     connect is the decoded neck->head SEGMENT arm; rig-less runs
+ *     fold into the radius-6 contact — em_enemy.c LATCH SEGMENT.)
  *   EM_ENEMY_TEST=3 (crate run): spawn a DISGUISED CRATE 25 units ahead
  *     instead (em_enemy.h "CRATE KIND"); weapon stays holstered, walk
  *     forward (W) INTO it. Assert the DISGUISE HOLDS at point-blank
@@ -6283,9 +6514,11 @@ static void weapon_test_script(void)
  *     was port-invented), then post a knife-sized 5 mailbox hit
  *     (em_enemy_damage — the same write a melee impact does;
  *     EM_MELEE_TEST covers the real knife path) and assert the burst,
- *     the WORM spawned at the crate position, and the worm closing on
- *     the now-standing player. (The worm may resolve its lunge inside
- *     the window — health/alive are reported, not asserted.) */
+ *     the WORM spawned at the crate position, and the worm engaging
+ *     then ending itself on its OWN lunge resolve (it hatches point-
+ *     blank, inside the stalk standoff — burst or despawn; the latch
+ *     damage is reported, not asserted: at point-blank either resolve
+ *     arm can fire first). */
 static void et_check(int cond, const char *what)
 {
     if (cond) return;
@@ -6329,36 +6562,38 @@ static void enemy_test_script(void)
             move_test_inject('w', 1);   /* walk at the crate */
         return;
     }
-    if (n == 20 && g.enemy_test != 3)   /* the disguised crate stays IDLE */
+    if (n == 20 && g.enemy_test == 2)   /* the disguised crates (tests
+                                         * 1/3) stay IDLE */
         et_check(em_enemy_state(0) == EM_ENEMY_ATTACK,
                  "worm attacking by frame 20 (born attacking — "
                  "func_00153F10 has no idle state)");
 
     if (g.enemy_test == 1) {
-        /* two semi shots: 5 damage each vs the DECODED worm HP 10 */
-        static int second_fired;
+        /* RESTAGED s66: shot 1 kills the CRATE (HP 1, the real
+         * shootable victim); shot 2 is the J2 witness — fired
+         * straight through the hatched WORM, which nothing can hurt. */
+        static int second_fired, lock_seen;
         if (!g.et_fired) {
             /* ENGINE-TRUE ACQUISITION (2026-06-11 func_00199220
              * translation): the bullet only bends to a target inside
-             * the SCREEN-center cone — a floor-hugging worm under a
-             * level aim sits far below it (the old planar stand-in
-             * ignored height). Do what the player does: pitch the aim
-             * DOWN (inverted-Y stick up, 'w') until lock slot 0 fills,
-             * then fire the locked shot. */
+             * the SCREEN-center cone — the low crate under a level
+             * aim sits below it. Do what the player does: pitch the
+             * aim DOWN (inverted-Y stick up, 'w') until lock slot 0
+             * fills, then fire the locked shot. */
             int locked = em_weapon_lock_target() >= 0;
             if (em_weapon_state() == EM_WPN_AIM)
                 move_test_inject('w', !locked);
-            if (n > 20 && locked && et_dist() <= 12.0f) {
-                et_check(et_dist() < g.et_d0 - 5.0f,
-                         "closed distance before the shot");
+            if (n > 20 && locked) {
+                et_check(em_enemy_state(0) == EM_ENEMY_IDLE,
+                         "crate disguise holding at lock time");
                 et_check(em_weapon_state() == EM_WPN_AIM,
                          "rifle drawn (AIM) at fire time");
                 move_test_inject('w', 0);
                 move_test_inject('l', 1);   /* CIRCLE — semi shot 1 */
                 g.et_fired = n;
             } else if (n >= 400) {
-                et_check(0, "worm closed to 12 u + screen-cone lock "
-                            "by frame 400");
+                et_check(0, "screen-cone lock on the crate by frame "
+                            "400");
                 et_finish("kill run");
             }
         } else if (n == g.et_fired + 2) {
@@ -6366,20 +6601,32 @@ static void enemy_test_script(void)
         } else if (n == g.et_fired + 12 && !second_fired) {
             et_check(em_weapon_shots() == 1, "one round after shot 1");
             et_check(em_weapon_last_hit() == 1, "shot 1 resolved HIT");
-            et_check(em_enemy_alive() == 1 && em_enemy_hp(0) == 5,
-                     "worm survived shot 1 (decoded HP 10 - 5)");
-            move_test_inject('l', 1);       /* semi shot 2 (queued to
-                                             * the 13-tick cadence)   */
+            et_check(em_enemy_state(0) == EM_ENEMY_FREE,
+                     "crate burst on its IDLE mailbox poll (HP 1)");
+            et_check(em_enemy_alive() == 1 &&
+                     em_enemy_kind(1) == EM_ENEMY_KIND_CRAWLER,
+                     "worm hatched by the burst");
+            /* the J2 witness: the lock must NOT re-fill on the worm
+             * (sampled until the pass-through shot lands) */
+            lock_seen    = 0;
             second_fired = n;
+            move_test_inject('l', 1);       /* semi shot 2 — fired
+                                             * THROUGH the worm       */
         } else if (second_fired && n == second_fired + 2) {
             move_test_inject('l', 0);
+            if (em_weapon_lock_target() >= 0) lock_seen = 1;
+        } else if (second_fired && n < second_fired + 18) {
+            if (em_weapon_lock_target() >= 0) lock_seen = 1;
         } else if (second_fired && n == second_fired + 18) {
+            et_check(!lock_seen,
+                     "auto-aim lock never fills on the worm "
+                     "(func_00183B80 rejects model 0xD)");
             et_check(em_weapon_shots() == 2, "exactly two rounds fired");
-            et_check(em_weapon_last_hit() == 1, "shot 2 resolved HIT");
-            et_check(em_enemy_alive() == 0 &&
-                     em_enemy_state(0) == EM_ENEMY_FREE,
-                     "worm dead + despawned (two 5-damage mailbox hits "
-                     "vs HP 10)");
+            et_check(em_enemy_alive() == 1 &&
+                     em_enemy_state(1) == EM_ENEMY_ATTACK &&
+                     em_enemy_hp(1) == 10,
+                     "worm untouched by the pass-through shot (alive, "
+                     "attacking, vestigial HP 10 intact)");
             et_check(g.status.health == g.et_health0,
                      "player health untouched");
             et_finish("kill run");
@@ -6440,20 +6687,25 @@ static void enemy_test_script(void)
             if (em_enemy_state(1) == EM_ENEMY_ATTACK)
                 g.et_worm_atk = 1;   /* sampled: it may lunge-burst
                                       * before a fixed checkpoint */
-            /* the worm's decoded approach window (90 t) holds position;
-             * the stalk closes — sample past both (or at its early
-             * lunge resolve) */
-            if (n == g.et_burst_frame + 240 ||
-                (em_enemy_state(1) == EM_ENEMY_FREE &&
-                 g.et_wd_min <= g.et_wd0 - 3.0f)) {
+            /* the worm hatches POINT-BLANK (at the crate the player
+             * is standing against), inside the stalk standoff — it
+             * holds position and the LUNGE RESOLVE does the rest
+             * (s66 staging: the old closed-distance assert belonged
+             * to the far-spawn slide). Sample at its own lifecycle
+             * end, or the full-cycle fallback (approach 90 + stalk
+             * 120 + windup 45 + lunge 120 = 375 + margin). */
+            if (n == g.et_burst_frame + 480 ||
+                em_enemy_state(1) == EM_ENEMY_FREE) {
                 et_check(g.et_worm_atk,
                          "worm attacking after the burst (born "
                          "attacking — no wake needed)");
-                et_check(g.et_wd_min <= g.et_wd0 - 3.0f,
-                         "worm closed distance on the player");
+                et_check(em_enemy_state(1) == EM_ENEMY_FREE,
+                         "worm ended by its OWN lunge resolve "
+                         "(burst/despawn — nothing else can kill it)");
                 printf("enemy test (crate run): burst dist %.1f, worm "
-                       "dist %.1f -> min %.1f, draw slots %d\n",
-                       g.et_bd, g.et_wd0, g.et_wd_min, em_enemy_count());
+                       "dist %.1f -> min %.1f, health %.0f, draw "
+                       "slots %d\n", g.et_bd, g.et_wd0, g.et_wd_min,
+                       g.status.health, em_enemy_count());
                 et_finish("crate run");
             }
         }
@@ -7273,10 +7525,10 @@ static void melee_test_script(void)
             break;
         case 2:
             /* recover (hit-confirm) must complete (and any flinch
-             * clear) before the heavy stab at WORM A — stationary in
-             * its decoded 90-t approach window 11 u dead ahead, the
-             * nearest live target in the cone (alarmed crate B hops
-             * AWAY — its spawn yaw). */
+             * clear) before the heavy stab AT WORM A — stationary in
+             * its decoded 90-t approach window 11 u dead ahead
+             * (alarmed crate B hops AWAY — its spawn yaw). The stab
+             * is the J2 MELEE WITNESS now: worms are NOT victims. */
             if (em_weapon_is_melee() || player_damage_locked()) break;
             if (!saw_recov_anim) {
                 g.mt_fail++;
@@ -7292,39 +7544,47 @@ static void melee_test_script(void)
             break;
         case 3:
             if (n == g.mt_mark + 2) move_test_inject('j', 0);
-            if (em_enemy_state(2) == EM_ENEMY_FREE) {
-                /* worm A dead: heavy 15 vs the decoded worm HP 10
-                 * (the flagged shootable-worm stand-in) */
-                if (!(em_weapon_melee_hits() == 2 && saw_heavy &&
-                      em_weapon_shots() == 0)) {
+            if (saw_heavy && !em_weapon_is_melee()) {
+                /* the heavy stab WHIFFED THROUGH worm A — J2 s66: the
+                 * melee victim filter (func_00183AC0) rejects model
+                 * 0xD; the swing lands on nothing and the worm is
+                 * untouched (the old staging asserted a heavy worm
+                 * kill — the shootable stand-in, now removed) */
+                if (!(em_weapon_melee_hits() == 1 &&
+                      em_weapon_shots() == 0 &&
+                      em_enemy_state(2) == EM_ENEMY_ATTACK &&
+                      em_enemy_hp(2) == 10)) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — heavy worm kill "
-                           "(hits %d, heavy seen %d, shots %d)\n",
-                           em_weapon_melee_hits(), saw_heavy,
-                           em_weapon_shots());
+                    printf("melee test: CHECK FAILED — heavy stab must "
+                           "WHIFF through the worm (hits %d, shots %d, "
+                           "worm state %d hp %d)\n",
+                           em_weapon_melee_hits(), em_weapon_shots(),
+                           em_enemy_state(2), em_enemy_hp(2));
                 }
                 g.mt_phase = 4;
                 g.mt_mark  = n;
-            } else if (n > g.mt_mark + 60) {
+            } else if (n > g.mt_mark + 90) {
                 g.mt_fail++;
-                printf("melee test: CHECK FAILED — heavy stab did not "
-                       "kill worm A (state %d hp %d)\n",
-                       em_enemy_state(2), em_enemy_hp(2));
+                printf("melee test: CHECK FAILED — heavy stab never "
+                       "swung/finished (state %d)\n",
+                       em_weapon_melee_state());
                 g.mt_phase = 4;
                 g.mt_mark  = n;
             }
             break;
         case 4:
-            /* the field clears itself: crate B's 180-tick timer burst
-             * (NO third melee hit — the decoded blind suicide run),
-             * then worm B lunge-bursts or despawns on a miss; wait out
-             * any flinch + the heavy recover. */
+            /* the field clears itself: worm A lunge-bursts on the
+             * player (its OWN only death), crate B's 180-tick timer
+             * burst hatches worm B which does the same (NO further
+             * melee hits — the decoded blind suicide run + the worm
+             * lifecycle); wait out the flinches + the heavy recover. */
             if (em_enemy_alive() == 0 && !em_weapon_is_melee() &&
                 !player_damage_locked()) {
-                if (em_weapon_melee_hits() != 2) {
+                if (em_weapon_melee_hits() != 1) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — crate B did not "
-                           "die on its own timer (melee hits %d)\n",
+                    printf("melee test: CHECK FAILED — field did not "
+                           "clear itself (melee hits %d, expected the "
+                           "light kill only)\n",
                            em_weapon_melee_hits());
                 }
                 g.mt_phase = 5;
@@ -7354,11 +7614,12 @@ static void melee_test_script(void)
                            "expected)\n");
                 }
                 if (em_weapon_melee_swings() != 5 ||
-                    em_weapon_melee_hits() != 2) {
+                    em_weapon_melee_hits() != 1) {
                     g.mt_fail++;
                     printf("melee test: CHECK FAILED — counts (swings "
-                           "%d expected 5: light + heavy + 3 whiffs; "
-                           "hits %d expected 2)\n",
+                           "%d expected 5: light + heavy whiff + 3 "
+                           "whiffs; hits %d expected 1 — worms are "
+                           "not melee victims)\n",
                            em_weapon_melee_swings(),
                            em_weapon_melee_hits());
                 }
@@ -7376,8 +7637,9 @@ finish:
     em_frame_request_quit();
 }
 
-/* EM_DEATH_TEST=1 — player flinch/death/game-over/restart self-test
- * (the PLAYER DAMAGE & DEATH machine above). Scene init spawns ONE
+/* EM_DEATH_TEST=1 — player flinch/death/game-over/continue self-test
+ * (the PLAYER DAMAGE & DEATH machine + the s66/s70 GO machine above).
+ * Scene init spawns ONE
  * worm 30 u ahead (the contact-run placement); frame 0 sets health
  * to 20 (instrumentation — two lunges at the DECODED latch 15 =
  * flinch then death; a worm suicide-bursts on its lunge connect, so
@@ -7392,11 +7654,22 @@ finish:
  *   3  second lunge (health 5 -> 0): assert the DEATH — state 2 sub
  *      1, the death clip 0x2A (unarmed) committed, movement locked.
  *   4  death sequence: clip end -> corpse hold -> fade-out; assert
- *      the fade reaches full black and the GAME-OVER stand-in shows
- *      (go_state 2).
- *   5  press START: assert the restart — scene reloaded, boot status
- *      restored (health 75), damage machine cleared, player back at
- *      the spawn, fade-in running.
+ *      full black, the machine parked (pd_phase 4) and the GAME-OVER
+ *      screen armed (GO_SCREEN, hold = 240, fade-in started).
+ *   5  GAME OVER shown (fade settled): assert the hold survived the
+ *      fade-in (engine: the 240 counts THROUGH it), then SKIP with
+ *      CROSS (the decoded D_00810E74 & 0x40) well before expiry.
+ *   6  assert the skip was honored (GO_SCREEN_OUT with hold frames
+ *      remaining — skippable witnessed, not a timeout).
+ *   7  CONTINUE prompt up (fade settled): assert the from-death
+ *      cursor INIT = 1 (func_001AC480 sub 0 on D_00275BDC), then
+ *      press d-pad UP (engine 0x1000).
+ *   8  assert the cursor walked to 0 (option move + sound), then
+ *      CONFIRM with START (engine mask 0x840 = START|CROSS).
+ *   9  dispatch at hold-black -> restart: scene reloaded, boot status
+ *      restored (health 75), damage machine cleared, death pose
+ *      released.
+ *  10  fade-in running after the restart.
  *
  * PASS = all checks green; any phase timing out fails the run. */
 static void gt_check(int cond, const char *what)
@@ -7492,30 +7765,87 @@ static void death_test_script(void)
             break;
         case 6:
             /* ride the sequence out: clip (130) + hold (120) + fade
-             * (64) — go_state 2 must arrive */
-            if (g.go_state == 2) {
-                gt_check(em_frame_fade_level() >= 1.0f,
-                         "game over at full black");
+             * (64) — the GAME-OVER screen must arm */
+            if (g.go_state == GO_SCREEN) {
                 gt_check(g.pd_phase == 4, "death machine parked");
+                gt_check(g.go_hold > GO_HOLD_FRAMES - 4 &&
+                         g.go_hold <= GO_HOLD_FRAMES,
+                         "GAME OVER hold armed at 240 (task+0x18)");
                 g.gt_phase = 7;
-                g.gt_mark  = n + 10;
+                g.gt_mark  = n;
             } else if (n > g.gt_mark + 500) {
                 g.gt_fail++;
                 printf("death test: CHECK FAILED — game over never "
-                       "shown (pd %d/%d/%d fade %.2f)\n", g.pd_state,
+                       "armed (pd %d/%d/%d fade %.2f)\n", g.pd_state,
                        g.pd_sub, g.pd_phase, em_frame_fade_level());
                 goto finish;
             }
             break;
         case 7:
-            if (g.go_state == 2) {
-                /* press START a few shown-frames in (go_frames is the
-                 * stable clock here — the restart resets frame_no) */
-                if (g.go_frames == 10)
-                    move_test_inject(EM_KEY_RETURN, 1);  /* START */
-                else if (g.go_frames == 12)
-                    move_test_inject(EM_KEY_RETURN, 0);
-            } else if (g.frame_no <= 2) {
+            /* the screen fades IN (engine wait sub 2/3); once the
+             * fade settles, SKIP with CROSS well before the 240
+             * expires (the hold keeps counting through the fade) */
+            if (g.go_state == GO_SCREEN &&
+                em_frame_fade_level() <= 0.0f) {
+                gt_check(g.go_hold > 0 && g.go_hold < GO_HOLD_FRAMES,
+                         "hold counting through the fade-in, screen "
+                         "shown before expiry");
+                move_test_inject('k', 1);            /* CROSS (0x40) */
+                g.gt_phase = 8;
+                g.gt_mark  = n + 2;
+            } else if (n > g.gt_mark + 400) {
+                gt_check(0, "GAME OVER screen faded in");
+                goto finish;
+            }
+            break;
+        case 8:
+            if (n == g.gt_mark)
+                move_test_inject('k', 0);
+            if (g.go_state == GO_SCREEN_OUT) {
+                gt_check(g.go_hold > 0,
+                         "CROSS skip honored with hold frames left "
+                         "(skippable, not a timeout)");
+                g.gt_phase = 9;
+                g.gt_mark  = n;
+            } else if (n > g.gt_mark + 100) {
+                gt_check(0, "CROSS skipped the GAME OVER hold");
+                goto finish;
+            }
+            break;
+        case 9:
+            /* the CONTINUE prompt fades in (the task-replacement
+             * point); assert the decoded from-death cursor init then
+             * walk it UP to option 0 */
+            if (g.go_state == GO_PROMPT &&
+                em_frame_fade_level() <= 0.0f) {
+                gt_check(g.go_cursor == GO_CURSOR_DEATH,
+                         "from-death cursor init = 1 (func_001AC480 "
+                         "sub 0)");
+                move_test_inject(EM_KEY_UP, 1);      /* d-pad 0x1000 */
+                g.gt_phase = 10;
+                g.gt_mark  = n + 2;
+            } else if (n > g.gt_mark + 400) {
+                gt_check(0, "CONTINUE prompt faded in");
+                goto finish;
+            }
+            break;
+        case 10:
+            if (n == g.gt_mark)
+                move_test_inject(EM_KEY_UP, 0);
+            if (n == g.gt_mark + 4) {
+                gt_check(g.go_cursor == 0,
+                         "d-pad UP walked the cursor to CONTINUE (0)");
+                move_test_inject(EM_KEY_RETURN, 1);  /* START (0x800) */
+                g.gt_mark = n + 2;
+                g.gt_phase = 11;
+            }
+            break;
+        case 11:
+            if (n == g.gt_mark)
+                move_test_inject(EM_KEY_RETURN, 0);
+            if (g.go_state == GO_PROMPT_CONFIRM && g.gt_mark > 0) {
+                g.gt_mark = 0;       /* confirmed; wait for the reload */
+            } else if (g.frame_no <= 2 && g.go_state == GO_OFF) {
                 /* the restart re-armed the frame machine: frame_no
                  * restarted at 0 (scene-init) — sample the fresh
                  * state on its first frames */
@@ -7526,11 +7856,11 @@ static void death_test_script(void)
                          "damage machine cleared on restart");
                 gt_check(em_game_anim_active() == 0,
                          "death pose released on restart");
-                g.gt_phase = 8;
+                g.gt_phase = 12;
                 g.gt_mark  = 0;
             }
             break;
-        case 8:
+        case 12:
             /* one more frame so the fade-in is observable */
             gt_check(em_frame_fade_level() < 1.0f,
                      "fade-in running after restart");
@@ -7539,10 +7869,13 @@ static void death_test_script(void)
     return;
 finish:
     printf("death test: flinch clip 0x%X, death clip 0x%X, health "
-           "%.0f, game over %s, restart %s — %s\n", g.gt_flinch,
+           "%.0f, game-over screen %s, cross-skip %s, prompt cursor "
+           "%s, continue %s — %s\n", g.gt_flinch,
            g.pd_clip ? g.pd_clip : PD_CLIP_DEATH, g.status.health,
-           g.gt_phase >= 7 ? "shown" : "NOT shown",
-           g.gt_phase >= 8 ? "ok" : "NOT reached",
+           g.gt_phase >= 8 ? "shown" : "NOT shown",
+           g.gt_phase >= 9 ? "ok" : "NOT taken",
+           g.gt_phase >= 10 ? "ok" : "NOT seen",
+           g.gt_phase >= 12 ? "ok" : "NOT reached",
            g.gt_fail == 0 ? "PASS" : "FAIL");
     fflush(stdout);
     em_frame_request_quit();
@@ -7715,6 +8048,21 @@ static void gameplay_frame(void)
         frame_close_out();       /* flush + hud toggle + fade + capture */
         return;
     }
+    /* GAME-OVER / CONTINUE GATE: from GO_SCREEN on, the engine's
+     * gameplay task is parked (wait state) and then REPLACED WHOLESALE
+     * by the continue machine (s66/s70 — the PD block doc): the world
+     * stops existing. The port models that the same way the menu
+     * pause does — the world simulation halts, the frame still
+     * renders (the screens' opaque base hides the dead scene), and
+     * game_over_tick owns input/fades/dispatch. The restart latch is
+     * serviced by the frame machine before this frame re-runs. */
+    if (g.go_state >= GO_SCREEN) {
+        game_over_tick();        /* the continue-machine slice */
+        render_chain_build();    /* frozen world under the screens */
+        camera_update();         /* commit only */
+        frame_close_out();       /* overlays + fade + capture */
+        return;
+    }
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
@@ -7850,7 +8198,8 @@ static void gameplay_frame(void)
             g.pd_pend_inf += (float)hitcode;
         player_damage_process();
         player_vitals_tick();
-        game_over_tick();
+        /* (the GO machine ticks from the frozen gate above once
+         * GO_SCREEN is reached — the live path never runs it) */
     }
     /* WEAPON: the player-side armed-stance/fire state machine (engine:
      * part of the player actor update, modes 0x1D..0x20) plus the
@@ -8059,9 +8408,17 @@ static void ingame_frame_machine(EmTask *self)
              * worm 30 u dead ahead (death_test_script). */
             if ((g.enemy_test || g.death_test) && !g.et_spawned) {
                 g.et_spawned = 1;
-                int   ek = g.enemy_test == 3 ? EM_ENEMY_KIND_CRATE
-                                             : EM_ENEMY_KIND_CRAWLER;
-                float ed = g.enemy_test == 3 ? 25.0f : 30.0f;
+                /* test 1 (kill run, restaged s66): the SHOOTABLE
+                 * target is a CRATE 12 u dead ahead — inside the
+                 * office wall plane 14 u out, so the world ray ranks
+                 * behind the victim. Test 3: crate 25 u down the open
+                 * corridor (about-face below). Test 2 / death test:
+                 * one worm 30 u ahead. */
+                int   ek = (g.enemy_test == 1 || g.enemy_test == 3)
+                           ? EM_ENEMY_KIND_CRATE
+                           : EM_ENEMY_KIND_CRAWLER;
+                float ed = g.enemy_test == 1 ? 12.0f
+                         : g.enemy_test == 3 ? 25.0f : 30.0f;
                 /* Crate run only: the office spawn faces a wall plane
                  * 14 u ahead (see the kill-run wall note), so a walking
                  * player could never reach point-blank range at a
@@ -8083,17 +8440,21 @@ static void ingame_frame_machine(EmTask *self)
             self->user[GAME_BYTE_FRAME] = 1;
             /* fall through — the engine's init frame still renders */
         case 1:
-            /* GAME-OVER RESTART (the stand-in's START press, see the
-             * PD block doc): reload the active scene — the manifest
-             * re-run rebuilds doors/enemies/collision — restore the
-             * boot status, clear the damage machine, re-arm the
-             * scene-init state (player re-place + camera + weapon),
-             * and fade back in. Engine continue flow undecoded
-             * (flagged with the screen). */
+            /* CONTINUE RESTART (the decoded dispatch: prompt cursor 0
+             * confirmed at hold-black — the engine reinstalls the
+             * gameplay task func_001ACEC0 with the from-death flag
+             * up and D_00275BE0 = 0; PD block doc): reload the active
+             * scene — the manifest re-run rebuilds doors/enemies/
+             * collision — restore the boot status, clear the damage
+             * machine, re-arm the scene-init state (player re-place +
+             * camera + weapon), and fade back in. */
             if (g.go_restart) {
                 g.go_restart  = 0;
-                g.go_state    = 0;
+                g.go_state    = GO_OFF;
                 g.go_frames   = 0;
+                g.go_hold     = 0;
+                g.go_timer    = 0;
+                g.go_cursor   = 0;
                 g.pd_state    = 0;
                 g.pd_sub      = 0;
                 g.pd_phase    = 0;

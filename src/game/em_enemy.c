@@ -61,16 +61,22 @@
  * BORN ATTACKING — the engine brain has no idle state, no alarm read,
  * and no proximity gate; "target acquisition" is unconditional:
  *
- *   INIT      HP = 10 (func_00154040), yaw = atan2 toward the player
+ *   INIT      HP = 10 (func_00154040 — VESTIGIAL, see DEATH), yaw =
+ *             atan2 toward the player
  *             mirror (D_00810350/58) -> ATTACK sub 0.
  *   sub 0     APPROACH: play the bound anim out (anim-gated by the
  *             0x1000 done bit in the engine; the bound id chain is
  *             unverified — the port maps it to the bank's 90-f emerge
  *             clip and HOLDS position: the loco clips are baked in
  *             place and the brain itself writes no position). The
- *             engine also runs the 32-u latch test here
- *             (func_0019AA80(nodeA+0xC0, nodeB+0xC0, 0x20) — VERIFIED
- *             32; node identities unverified) latching the player at
+ *             engine also runs the LATCH QUERY here — CORRECTED s66
+ *             LIVE: func_0019AA80(slotA, slotB, 0x20) stages the
+ *             worm's OWN neck->head rig segment (node-table slots
+ *             +0x34/+0x40 = rig nodes 13 and 16, ~6 u apart) in spad
+ *             0x70003190 and sweeps it against the PLAYER's
+ *             hit-volume list (player +0x58, bone-anchored sphere
+ *             records; the 0x20 is a FILTER-MASK channel, not a 32-u
+ *             radius — func_001A7280) — latching the player at
  *             D_008104D4 = 5.0 when status == 1: UNTRANSLATED (no
  *             latch/shake-off system in the port; flagged).
  *   sub 1     STALK: +0x28 = 120 ticks (0x78), homing the yaw toward
@@ -83,21 +89,32 @@
  *             play sound 0x431.
  *   sub 3     LUNGE: travel at the lunge clip's authored 21.27 u/s
  *             along the snapped yaw for the 120-f clip window. Each
- *             tick the engine resolves: the 32-u node test -> burst,
+ *             tick the engine resolves: the neck->head SEGMENT query
+ *             (the same func_0019AA80 shape as sub 0) -> burst,
  *             latching D_008104D4 = 15.0 (the lunge hurts more); else
  *             func_0019A570 radius-6 contact -> burst (NO latch); else
  *             clip end -> state 3 DESPAWN (released — no burst, no
- *             gore). Port: the two resolve arms FOLD into one radius-6
- *             contact dealing the decoded 15 (raw 32 between actor
- *             centers would make every lunge unavoidable; the engine's
- *             node pair is unverified — flagged), miss -> despawn.
+ *             gore). Port: the segment arm runs against a PLAYER
+ *             CAPSULE stand-in for the unexported hit-volume list
+ *             (worm_latch_segment below; the worm endpoints are the
+ *             REAL palette nodes 13/16 when the leech asset is
+ *             loaded), the radius-6 arm follows latch-free — engine
+ *             order. Without rig data both arms fold into the
+ *             radius-6 contact carrying the 15 (flagged fallback).
+ *             Miss -> despawn.
  *   2 DEATH   burst: engine sound 0x434 + gore 0x80000052 + release.
- *             Mailbox kills keep the gib/corpse-fade visuals — the
- *             engine's worm DAMAGE path is an OPEN ITEM (the brain
- *             never reads +0x34/+0x36; HP=10 is consumed by a handler
- *             not yet found), so the port keeps the worm shootable
- *             through the canonical hurt-helper shape (func_00153B50)
- *             as a flagged stand-in.
+ *             The worm is NOT SHOOTABLE — J2 CLOSED s66: both victim
+ *             filters (func_00183AC0 / func_00183B80) reject model
+ *             0x0D by name, and a live full-lifecycle memcheck saw
+ *             ZERO +0x34/+0x36 accesses besides the release
+ *             teardown's `sh zero, 0x36` (func_001AFC10), with two
+ *             shots fired into it mid-stalk. HP=10 is vestigial init
+ *             data; the old "unfound HP consumer" open item is CLOSED
+ *             (there isn't one) and the port's shootable-worm mailbox
+ *             poll is REMOVED. The only worm deaths are its own
+ *             burst (lunge resolve) and the missed-lunge despawn; the
+ *             gib knockback launch remains the DAMAGE-kill arm, i.e.
+ *             crates only (engine variants 6/0x1E — s62).
  *
  * ANIMATION LAYER (FINDINGS "CRAWLER RESOLVED" section 4 — the leech
  * clip bank, 4 clips at 60 fps): a VISUAL layer driven BY the state
@@ -153,9 +170,11 @@
  * em_game.c
  * sizes its render chain with it) and never touch gameplay state.
  *
- * EM_ENEMY_GIBDEMO=<frame>: debug hook — posts a lethal 0x400A mailbox
- * to enemy 0 at that update tick, so EM_CAPTURE (frame 60) can
- * photograph the scatter without scripting a full kill run.
+ * EM_ENEMY_GIBDEMO=<frame>: debug hook — forces a lethal damage-death
+ * on enemy 0 at that update tick, so EM_CAPTURE (frame 60) can
+ * photograph the scatter without scripting a full kill run. (A DIRECT
+ * kill since s66: a worm consumes no mailbox; on a crate the hook is
+ * equivalent to the real damage path.)
  *
  * CRATE KIND (em_enemy.h "CRATE KIND"; FINDINGS "CRAWLER RESOLVED" +
  * the s26 office model-table carve): the engine's placed crawler IS the
@@ -291,11 +310,12 @@
  * divides the spawn delays by 60 (test acceleration — 30/60/90 s is
  * the shipped pacing). The script then asserts: no worm before the
  * 121-frame charge completes; each worm spawns AT the generator
- * origin; a 0x400A mailbox kill 15 frames after worm 1 (amount 10 =
- * exactly the decoded worm HP; test 1 proves the weapon->mailbox
- * path); the generator KEEPS emitting after the kill; exactly 4 worms
- * then EXHAUSTED (mode-2 sub 2), with a 240-frame silence window
- * proving no 5th spawn. PASS/FAIL line + quit, like tests 1..3.
+ * origin; a 0x400A mailbox write 15 frames after worm 1 does NOT
+ * kill it (J2 s66: the worm consumes nothing — the engine-true
+ * non-consumption witness) while its OWN lunge lifecycle despawns it
+ * within the resolve window; the generator keeps emitting; exactly 4
+ * worms then EXHAUSTED (mode-2 sub 2), with a 240-frame silence
+ * window proving no 5th spawn. PASS/FAIL line + quit, like tests 1..3.
  */
 #include "game/em_enemy.h"
 
@@ -337,19 +357,47 @@
  * condition decode of func_001551B0/func_00153F10/func_00154120 —
  * every value below is read off the disassembly) ----------------------- */
 #define ENEMY_HP_CRATE   1        /* placed crawler init HP (+0x34 = 1)   */
-#define ENEMY_HP_WORM    10       /* worm/leech init HP (func_00154040 —
-                                   * its CONSUMPTION is an open item; the
-                                   * port's mailbox consume is the
-                                   * canonical hurt-helper stand-in)      */
+#define ENEMY_HP_WORM    10       /* worm/leech init HP (func_00154040)
+                                   * — VESTIGIAL (J2 s66 live: nothing
+                                   * ever reads it; kept so the slot
+                                   * mirrors the engine actor exactly)    */
 #define ENEMY_TURN_RATE  0.0524f  /* +-3 deg/frame steer-away (0x3D56774F)*/
 #define ENEMY_HOMING_RATE 0.0698f /* worm STALK homing, rad/tick
                                    * (0x3D8EFA35 -> func_001B12B0)        */
 #define ENEMY_GRAVITY    0.052f   /* hop vertical integration, per tick
                                    * (0x3D54FDF4 = 0.051999)              */
-#define ENEMY_CONTACT_R  6.0f     /* lunge-resolve contact radius
-                                   * (func_0019A570(a, b, 6, 0)); the
-                                   * port's fold of the engine's 32-u
-                                   * node-test arm (nodes unverified)     */
+#define ENEMY_CONTACT_R  6.0f     /* lunge-resolve second arm: radius-6
+                                   * contact (func_0019A570(a, b, 6, 0) —
+                                   * latch-FREE in the engine); also the
+                                   * rig-less fallback fold of the
+                                   * segment arm (then it carries the 15) */
+/* LATCH SEGMENT (s66 live decode): the engine resolve's FIRST arm is
+ * func_0019AA80(slotA, slotB, 0x20) — the worm's neck->head rig
+ * segment (node-table slots +0x34/+0x40 = rig nodes 13/16) swept
+ * against the PLAYER's hit-volume list (player +0x58: bone-anchored
+ * sphere records gated by three filter bytes; mask 0x20 selects
+ * filter channel 1 — func_001A7280). The port stages the segment from
+ * the worm's OWN animated palette (translation columns of nodes
+ * 13/16, world space after enemy_build_palette — one tick stale, the
+ * pose the player SEES) and sweeps it against a PLAYER CAPSULE: the
+ * volume list's radii/anchors are unexported, so the capsule is a
+ * flagged stand-in sized from the player's known body numbers (wall
+ * radius 4.5, ~17-u height). */
+#define ENEMY_LATCH_NODE_A 13     /* neck — node-table slot +0x34 (s66)   */
+#define ENEMY_LATCH_NODE_B 16     /* head — node-table slot +0x40 (s66)   */
+#define ENEMY_ACTOR_SCALE 0.5f    /* func_00154040 -> actor +0x80: the
+                                    * live leech is HALF authored size
+                                    * (decoded; FINDINGS "CRAWLER
+                                    * RESOLVED" §4)                      */
+#define ENEMY_STALK_STANDOFF 10.0f /* stalk-slide stop distance (PORT
+                                    * locomotion stand-in, flagged: the
+                                    * engine's stalk root motion is its
+                                    * anim's; the standoff keeps the
+                                    * CONNECT on the lunge resolve)      */
+#define PLAYER_HV_R      4.5f     /* capsule radius — the engine wall
+                                   * radius (PORT stand-in, flagged)      */
+#define PLAYER_HV_Y0     2.0f     /* capsule foot, above ground Y (PORT)  */
+#define PLAYER_HV_Y1     15.0f    /* capsule head, above ground Y (PORT)  */
 #define ENEMY_STEER_TICKS  6      /* +0x2A = 6 at the alarm wake          */
 #define ENEMY_ATTACK_TICKS 180    /* +0x2A = 0xB4 at the hop launch: the
                                    * crate's suicide-run timer (variant 6
@@ -751,9 +799,11 @@ static struct {
     int        gt_gen;       /* generator index                          */
     int        gt_last_n;    /* s.n watermark for worm-spawn detection   */
     int        gt_worms;     /* worms seen                               */
-    int        gt_kill_i;    /* pending kill: worm slot (-1 none)        */
-    int        gt_kill_f;    /* pending kill: frame to inject the hit    */
-    int        gt_kill1_f;   /* frame worm 1 was killed (0 = not yet)    */
+    int        gt_kill_i;    /* witness watch: worm-1 slot (-1 done)     */
+    int        gt_kill_f;    /* witness: frame to inject the mailbox
+                              * write (which must NOT kill — J2 s66)     */
+    int        gt_kill1_f;   /* frame the non-consumption witness passed
+                              * (0 = not yet)                            */
     int        gt_post;      /* frames since exhaustion (silence window) */
     float      gt_delay_div; /* delay divisor (60 — test acceleration)   */
 
@@ -1133,13 +1183,13 @@ static void enemy_alarm_broadcast(void)
             s.e[i].alarm = 1;
 }
 
-/* Consume the +0x36 mailbox. Returns 1 if the hit was lethal (HP-1
- * crates: any nonzero value — the decoded state-4 test is `+0x36 !=
- * 0`). Low bits = amount (below the 0x2000 type flag), matching the
- * documented code layout. For the WORM (HP 10) this whole consume is a
- * flagged stand-in: the engine brain never reads +0x34/+0x36 (open
- * item — see the file header); the subtractive shape is the canonical
- * hurt helper func_00153B50, whose death arm plays sound 0x7D8. */
+/* Consume the +0x36 mailbox — CRATE IDLE only (the decoded state-4
+ * test is `+0x36 != 0`; HP 1 makes any nonzero value lethal). Low
+ * bits = amount (below the 0x2000 type flag), matching the documented
+ * code layout. The WORM never reaches this: its brain consumes
+ * nothing (J2 CLOSED s66 — the old every-tick worm poll, the
+ * shootable stand-in, is REMOVED). The subtractive shape is the
+ * canonical hurt helper func_00153B50, whose death arm plays 0x7D8. */
 static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
@@ -1382,6 +1432,27 @@ static void enemy_build_palette(Enemy *e)
         }
     } else {
         memcpy(e->palette, s.base, s.bone_count * 16 * sizeof(float));
+    }
+
+    /* WORM ACTOR SCALE — func_00154040 writes 0.5 to actor +0x80: the
+     * in-game leech is HALF the authored size (~11 u long, FINDINGS
+     * "CRAWLER RESOLVED"). The EMDL ships authored-size; scale the
+     * whole posed palette about the model origin (closes the s62
+     * "port applies actor scale" note that was never actually wired —
+     * the authored-size whip arced the lunge 28 u over the player's
+     * head, which is also why the latch segment could never connect). */
+    if (e->kind != EM_ENEMY_KIND_CRATE && s.bone_count > 1) {
+        for (uint32_t b = 0; b < bones; b++) {
+            float *m = e->palette + b * 16;
+            for (int k = 0; k < 3; k++) {
+                m[k * 4 + 0] *= ENEMY_ACTOR_SCALE;
+                m[k * 4 + 1] *= ENEMY_ACTOR_SCALE;
+                m[k * 4 + 2] *= ENEMY_ACTOR_SCALE;
+            }
+            m[12] *= ENEMY_ACTOR_SCALE;
+            m[13] *= ENEMY_ACTOR_SCALE;
+            m[14] *= ENEMY_ACTOR_SCALE;
+        }
     }
 
     for (uint32_t b = 0; b < bones; b++) {
@@ -2007,8 +2078,8 @@ static void gen_test_finish(void)
 {
     const Gen *g = s.gt_gen >= 0 ? &s.gen[s.gt_gen] : NULL;
     printf("generator test: %d worm(s) emitted (cap %d), pad mode %d "
-           "sub %d spawned %d, worm-1 kill frame %d, %d live enem%s — "
-           "%s\n", s.gt_worms, GEN_WORM_CAP,
+           "sub %d spawned %d, worm-1 witness frame %d, %d live "
+           "enem%s — %s\n", s.gt_worms, GEN_WORM_CAP,
            g ? g->mode : -1, g ? g->sub : -1, g ? g->spawned : -1,
            s.gt_kill1_f, em_enemy_alive(),
            em_enemy_alive() == 1 ? "y" : "ies",
@@ -2039,12 +2110,12 @@ static void gen_test_script(void)
             if (s.gt_worms == 1) {
                 gt_check(s.frame >= 121,
                          "no worm before the 121-frame charge");
-                s.gt_kill_i = i;            /* schedule the player kill */
-                s.gt_kill_f = s.frame + 15; /* ~9 u out: before the
-                                             * radius-6 suicide lunge  */
+                s.gt_kill_i = i;            /* arm the J2 witness      */
+                s.gt_kill_f = s.frame + 15; /* mid-approach: the write
+                                             * must NOT kill (s66)     */
             } else if (s.gt_worms == 2) {
                 gt_check(s.gt_kill1_f > 0,
-                         "kept emitting after the worm-1 kill");
+                         "kept emitting after the worm-1 witness");
             }
             printf("generator test: worm %d at frame %d\n",
                    s.gt_worms, s.frame);
@@ -2052,17 +2123,35 @@ static void gen_test_script(void)
         s.gt_last_n = s.n;
     }
 
-    /* the kill: the same +0x36 code a real shot writes (test 1 proves
-     * the weapon -> mailbox path; this run isolates the generator) */
+    /* THE J2 WITNESS (s66): write the old lethal mailbox code into
+     * worm 1 mid-approach and assert it does NOT die — the worm
+     * consumes nothing (the engine's only +0x36 access is the release
+     * teardown). Then watch its OWN lunge lifecycle end it: spawned
+     * at the player's feet box, the lunge resolve bursts it (or the
+     * miss despawns it) well inside approach+stalk+windup+lunge =
+     * <= 375 ticks (+ margin). */
     if (s.gt_kill_i >= 0) {
         if (s.frame == s.gt_kill_f) {
             em_enemy_damage(s.gt_kill_i, 0x400A);
         } else if (s.frame == s.gt_kill_f + 5) {
-            gt_check(!s.e[s.gt_kill_i].active &&
-                     s.e[s.gt_kill_i].state == EM_ENEMY_FREE,
-                     "worm 1 dead + despawned after the mailbox kill");
+            gt_check(s.e[s.gt_kill_i].active &&
+                     s.e[s.gt_kill_i].state == EM_ENEMY_ATTACK &&
+                     s.e[s.gt_kill_i].hp == ENEMY_HP_WORM,
+                     "mailbox write did NOT kill worm 1 (J2 s66: the "
+                     "worm consumes nothing)");
             s.gt_kill1_f = s.frame;
-            s.gt_kill_i  = -1;
+        } else if (s.frame > s.gt_kill_f + 5) {
+            if (!s.e[s.gt_kill_i].active) {
+                gt_check(s.e[s.gt_kill_i].state == EM_ENEMY_FREE &&
+                         s.e[s.gt_kill_i].mailbox == 0,
+                         "worm 1 released by its OWN lifecycle, +0x36 "
+                         "teardown-cleared");
+                s.gt_kill_i = -1;
+            } else if (s.frame > s.gt_kill_f + 500) {
+                gt_check(0, "worm 1 ended by its own lunge lifecycle "
+                            "within the resolve window");
+                s.gt_kill_i = -1;
+            }
         }
     }
 
@@ -2363,10 +2452,58 @@ static void crate_attack_tick(const EmCollision *coll, Enemy *e)
     }
 }
 
+/* THE LATCH QUERY — the engine's func_0019AA80(slotA, slotB, 0x20)
+ * resolve arm (s66 live; the constants block above). Returns 1 when
+ * the worm's neck->head rig segment crosses the player's hit volume.
+ * Worm segment: world translations of palette nodes 13/16 (the REAL
+ * animated pose, one tick stale) — needs the leech asset's 24-node
+ * rig; without it (placeholder mesh / static base) returns -1 so the
+ * caller folds the arm into the radius-6 contact (flagged fallback).
+ * Player volume: capsule stand-in (PLAYER_HV_*) for the unexported
+ * +0x58 sphere list — segment-vs-segment distance vs the radius. */
+static int worm_latch_segment(const Enemy *e, const float pp[3])
+{
+    if (s.bone_count <= (uint32_t)ENEMY_LATCH_NODE_B)
+        return -1;                     /* no rig data: caller folds   */
+    const float *ma = e->palette + ENEMY_LATCH_NODE_A * 16;
+    const float *mb = e->palette + ENEMY_LATCH_NODE_B * 16;
+    /* segment 1 = worm neck->head; segment 2 = player capsule axis */
+    float p1[3] = { ma[12], ma[13], ma[14] };
+    float d1[3] = { mb[12] - ma[12], mb[13] - ma[13], mb[14] - ma[14] };
+    float p2[3] = { pp[0], pp[1] + PLAYER_HV_Y0, pp[2] };
+    float d2[3] = { 0.0f, PLAYER_HV_Y1 - PLAYER_HV_Y0, 0.0f };
+    /* closest point pair of two segments (standard clamped solve) */
+    float r[3] = { p1[0] - p2[0], p1[1] - p2[1], p1[2] - p2[2] };
+    float a = d1[0]*d1[0] + d1[1]*d1[1] + d1[2]*d1[2];
+    float eL = d2[0]*d2[0] + d2[1]*d2[1] + d2[2]*d2[2];
+    float f = d2[0]*r[0] + d2[1]*r[1] + d2[2]*r[2];
+    float t = 0.0f, u = 0.0f;
+    if (a > 1e-9f) {
+        float c2 = d1[0]*r[0] + d1[1]*r[1] + d1[2]*r[2];
+        float b  = d1[0]*d2[0] + d1[1]*d2[1] + d1[2]*d2[2];
+        float den = a * eL - b * b;
+        if (den > 1e-9f) t = (b * f - c2 * eL) / den;
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+        u = eL > 1e-9f ? (b * t + f) / eL : 0.0f;
+        if (u < 0.0f) { u = 0.0f; t = -c2 / a; }
+        else if (u > 1.0f) { u = 1.0f; t = (b - c2) / a; }
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+    } else {
+        u = eL > 1e-9f ? f / eL : 0.0f;
+        if (u < 0.0f) u = 0.0f;
+        if (u > 1.0f) u = 1.0f;
+    }
+    float q1[3] = { p1[0] + d1[0]*t, p1[1] + d1[1]*t, p1[2] + d1[2]*t };
+    float q2[3] = { p2[0] + d2[0]*u, p2[1] + d2[1]*u, p2[2] + d2[2]*u };
+    float dx = q1[0] - q2[0], dy = q1[1] - q2[1], dz = q1[2] - q2[2];
+    return dx*dx + dy*dy + dz*dz <= PLAYER_HV_R * PLAYER_HV_R;
+}
+
 /* WORM attack — the decoded func_00154120 sub-machine (see the file
- * header). The engine brain never reads the damage mailbox; the
- * caller's poll (enemy_tick) is the flagged open-item stand-in that
- * keeps the worm shootable. */
+ * header). The brain consumes NO damage: the old shootable-worm
+ * mailbox poll is removed (J2 CLOSED s66). */
 static void worm_attack_tick(const EmCollision *coll, Enemy *e,
                              const float pp[3])
 {
@@ -2388,7 +2525,17 @@ static void worm_attack_tick(const EmCollision *coll, Enemy *e,
         if (step >  ENEMY_HOMING_RATE) step =  ENEMY_HOMING_RATE;
         if (step < -ENEMY_HOMING_RATE) step = -ENEMY_HOMING_RATE;
         e->yaw = wrap_pi(e->yaw + step);      /* 0.0698 rad/t decoded */
-        if (!enemy_probe(coll, e, e->yaw, ENEMY_HOP_SPEED + 0.5f)) {
+        /* the forward slide is a PORT locomotion stand-in (the
+         * engine's stalk root motion is its anim's — unexported); it
+         * STOPS at a standoff so the stalk cannot shove the worm into
+         * trivial radius-6 contact — CONNECTING is the lunge
+         * resolve's job (the engine's segment arm). Without the
+         * standoff the overshooting slide parked the worm inside 6 u
+         * and the first lunge tick burst latch-FREE off the still-
+         * coiled windup pose. Flagged port constant. */
+        if (dx * dx + dz * dz >
+                ENEMY_STALK_STANDOFF * ENEMY_STALK_STANDOFF &&
+            !enemy_probe(coll, e, e->yaw, ENEMY_HOP_SPEED + 0.5f)) {
             e->pos[0] += sinf(e->yaw) * ENEMY_HOP_SPEED;
             e->pos[2] += cosf(e->yaw) * ENEMY_HOP_SPEED;
             e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
@@ -2420,27 +2567,45 @@ static void worm_attack_tick(const EmCollision *coll, Enemy *e,
             e->pos[2] += cosf(e->yaw) * step;
             e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
         }
-        /* CONNECT: the radius-6 contact (decoded func_0019A570 arm;
-         * the 32-u node-test arm folds into it — file header). The
-         * decoded lunge latch D_008104D4 = 15.0 posts through the
-         * player mailbox bridge (0x4000 = the bridge's health route). */
+        /* CONNECT — the engine's two resolve arms in order (s66):
+         * 1. the neck->head SEGMENT query (worm_latch_segment above)
+         *    -> burst + the decoded lunge latch D_008104D4 = 15.0
+         *    through the player mailbox bridge (0x4000 = the bridge's
+         *    health route);
+         * 2. else the radius-6 contact (func_0019A570) -> burst with
+         *    NO latch (the engine writes no damage on this arm).
+         * Rig-less fallback (worm_latch_segment -1): both arms fold
+         * into the radius-6 contact CARRYING the 15 (flagged — the
+         * pre-s66 port behavior, kept so asset-less runs still hurt). */
+        int seg = worm_latch_segment(e, pp);
         float ddx = pp[0] - e->pos[0];
         float ddy = pp[1] - e->pos[1];
         float ddz = pp[2] - e->pos[2];
-        if (ddx * ddx + ddy * ddy + ddz * ddz <=
-            ENEMY_CONTACT_R * ENEMY_CONTACT_R) {
+        int touch = ddx * ddx + ddy * ddy + ddz * ddz <=
+                    ENEMY_CONTACT_R * ENEMY_CONTACT_R;
+        if (seg == 1 || (seg < 0 && touch)) {
             s.player_hit  = 0x4000 | ENEMY_LATCH_LUNGE;
             e->hit_lethal = 0;
             e->state      = EM_ENEMY_DEATH;   /* burst (suicide path) */
             em_sfx_play_at(ENEMY_SFX_BURST, e->pos, 300.0f);
             break;
         }
+        if (seg == 0 && touch) {
+            /* the latch-free contact burst (engine arm 2) */
+            e->hit_lethal = 0;
+            e->state      = EM_ENEMY_DEATH;
+            em_sfx_play_at(ENEMY_SFX_BURST, e->pos, 300.0f);
+            break;
+        }
         if (--e->t28 <= 0) {
             /* missed: the engine releases the actor (state 3) — no
-             * burst, no gore, no corpse */
-            e->state  = EM_ENEMY_FREE;
-            e->active = 0;
-            e->fade   = 0;
+             * burst, no gore, no corpse. The release teardown is the
+             * worm's ONLY +0x36 access (func_001AFC10 `sh zero,
+             * 0x36` — s66): clear any unconsumed write with it. */
+            e->state   = EM_ENEMY_FREE;
+            e->active  = 0;
+            e->fade    = 0;
+            e->mailbox = 0;
         }
         break;
     }
@@ -2496,13 +2661,9 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             /* decoded: state 1 never polls +0x36 (damage defers) */
             crate_attack_tick(coll, e);
         } else {
-            /* flagged stand-in: the engine worm brain never reads the
-             * mailbox (open item) — the port polls it every tick so
-             * the worm stays shootable */
-            if (enemy_mailbox_poll(e, pp)) {
-                e->state = EM_ENEMY_DEATH;
-                break;
-            }
+            /* the worm consumes NOTHING (J2 CLOSED s66): no mailbox
+             * poll — a write just sits until the slot frees, exactly
+             * the engine's teardown-only `sh zero, 0x36` */
             worm_attack_tick(coll, e, pp);
         }
         break;
@@ -2521,10 +2682,11 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
          * engine's no-knockback arm) and a missing assets/gibs/ keep
          * the corpse placeholder — the frozen pose alpha-fades out
          * (white tint; the update loop walks the alpha down). */
-        e->state  = EM_ENEMY_FREE;
-        e->active = 0;
-        e->fade   = (e->hit_lethal && gib_burst(e) > 0)
-                    ? 0 : ENEMY_FADE_FRAMES;
+        e->state   = EM_ENEMY_FREE;
+        e->active  = 0;
+        e->mailbox = 0;     /* the release teardown clear (s66)       */
+        e->fade    = (e->hit_lethal && gib_burst(e) > 0)
+                     ? 0 : ENEMY_FADE_FRAMES;
         e->tint[0] = e->tint[1] = e->tint[2] = e->tint[3] = 1.0f;
         break;
 
@@ -2577,10 +2739,25 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
         }
         s.gt_last_n = s.n;
     }
-    /* EM_ENEMY_GIBDEMO debug hook: lethal mailbox to enemy 0 at the
-     * requested tick (see the file header). */
-    if (s.demo >= 0 && s.frame == s.demo)
-        em_enemy_damage(0, 0x400A);
+    /* EM_ENEMY_GIBDEMO debug hook: lethal damage-death on enemy 0 at
+     * the requested tick (file header). Crates take the REAL mailbox
+     * path; a worm consumes no mailbox (J2 s66), so the hook forces
+     * its death DIRECTLY — a debug bypass with no engine equivalent,
+     * kept only so gib captures stay scriptable. */
+    if (s.demo >= 0 && s.frame == s.demo && s.n > 0 && s.e[0].active) {
+        Enemy *de = &s.e[0];
+        if (de->kind == EM_ENEMY_KIND_CRATE) {
+            em_enemy_damage(0, 0x400A);
+        } else {
+            float hx = de->pos[0] - pp[0], hz = de->pos[2] - pp[2];
+            float hl = sqrtf(hx * hx + hz * hz);
+            de->hit_dir[0] = hl > 1e-4f ? hx / hl : -sinf(de->yaw);
+            de->hit_dir[1] = hl > 1e-4f ? hz / hl : -cosf(de->yaw);
+            de->hit_lethal = 1;
+            de->state      = EM_ENEMY_DEATH;
+            em_sfx_play_at(EM_SFX_ENEMY_DEATH, de->pos, 300.0f);
+        }
+    }
     s.frame++;
 
     for (int i = 0; i < s.n; i++) {
@@ -2643,6 +2820,18 @@ int em_enemy_player_hit_take(void)
     return code;
 }
 
+/* THE VICTIM FILTER — the engine's MODEL-keyed switch (J2 CLOSED s66:
+ * func_00183AC0 for bullets/melee and func_00183B80 for the
+ * targetable gate BOTH reject model 0x0D by name; the worm's class
+ * byte IS 2 — the model exclusion is doing the work, deliberately).
+ * Port mapping: the CRATE (model 0x06 family, victim while +0x9F ==
+ * 0 — `active` covers it) is the only victim kind; the WORM is
+ * rejected — rays pass through, auto-aim never locks, melee whiffs. */
+static int enemy_victim(const Enemy *e)
+{
+    return e->kind == EM_ENEMY_KIND_CRATE;
+}
+
 /* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
  * and the gib demo stay byte-identical). */
 static float kind_aim_y(const Enemy *e)
@@ -2664,7 +2853,7 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
 
     for (int i = 0; i < s.n; i++) {
         const Enemy *e = &s.e[i];
-        if (!e->active) continue;
+        if (!e->active || !enemy_victim(e)) continue;  /* model filter */
         float dx = e->pos[0] - from[0];
         float dz = e->pos[2] - from[2];
         float d  = sqrtf(dx * dx + dz * dz);
@@ -2681,13 +2870,16 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
     return best;
 }
 
-/* func_00199220 candidate gate (em_enemy.h): live slot with HP left.
- * The engine chain is status != 0 -> func_00183B80 targetable -> HP
- * +0x34 != 0; the port's `active` covers the first (death frees the
- * slot immediately) and there is no 183B80 equivalent to fail. */
+/* func_00199220 candidate gate (em_enemy.h): live slot, VICTIM by
+ * model, HP left. The engine chain is status != 0 -> func_00183B80
+ * targetable -> HP +0x34 != 0; the port's `active` covers the first
+ * (death frees the slot immediately) and enemy_victim IS the 183B80
+ * model switch (worms excluded — J2 s66: the auto-aim lock never
+ * fills on a worm). */
 int em_enemy_targetable(int i)
 {
-    return i >= 0 && i < s.n && s.e[i].active && s.e[i].hp > 0;
+    return i >= 0 && i < s.n && s.e[i].active &&
+           enemy_victim(&s.e[i]) && s.e[i].hp > 0;
 }
 
 /* func_00183C40 class-keyed aim point (em_enemy.h): the hit-sphere
@@ -2712,7 +2904,11 @@ int em_enemy_ray_test(const float from[3], const float to[3],
 
     for (int i = 0; i < s.n; i++) {
         const Enemy *e = &s.e[i];
-        if (!e->active) continue;
+        if (!e->active || !enemy_victim(e)) continue;  /* model filter:
+                                   * the bullet ray passes THROUGH a
+                                   * worm (func_00183AC0 rejects model
+                                   * 0x0D — J2 s66) and resolves the
+                                   * world behind it instead */
         float r    = kind_hit_r(e);
         float c[3] = { e->pos[0], e->pos[1] + kind_aim_y(e), e->pos[2] };
         float m[3] = { from[0] - c[0], from[1] - c[1], from[2] - c[2] };
