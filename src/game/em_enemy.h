@@ -10,12 +10,34 @@
  *                  1 ATTACK -> 2 DEATH -> 3 FREE). The port's
  *                  EM_ENEMY_KIND_CRATE.
  *   func_00153F10  the WORM/LEECH brain (+ sub-machine func_00154120,
- *                  init func_00154040) — the kind-0xD creature
- *                  generators emit and crate bursts hatch. The port's
+ *                  init func_00154040) — the kind-0xD creature the
+ *                  mode-2 generator pads emit. Its ONLY installer in
+ *                  the whole image is the generator helper
+ *                  func_0015A200 (s68 exhaustive pointer scan): crate
+ *                  bursts NEVER hatch it. The port's
  *                  EM_ENEMY_KIND_CRAWLER. Born attacking: approach ->
  *                  stalk (120 t, homing 0.0698 rad/t) -> windup ->
  *                  lunge resolve -> burst or despawn.
+ *   func_00128C10 / func_0012A5D0  the two BUG brains (s68 "CREATURE
+ *                  IDENTITY CORRECTION") — the 15-node insectoid
+ *                  hatchling the NEST REGISTRY spawns from crate
+ *                  bursts (and the game's ubiquitous room spawn,
+ *                  200+ deferred-spawn records across 14 areas). The
+ *                  port's EM_ENEMY_KIND_BUG (see "BUG KIND" below).
+ *                  Shared INIT func_00128AB0 binds GLOBAL creature
+ *                  slot 0x0F (variant A) / 0x10 (variant B when event
+ *                  flag 0x30 == 0xFF) + clip bank 0x11; HP
+ *                  func_00128390 = 15/30 (30/50 on difficulty byte
+ *                  D_0081070A); mailbox consumer func_00128B80
+ *                  polled EVERY tick, hurt/death handler
+ *                  func_00129FC0 (death/flinch clips 0x1B/0x1D/0x20);
+ *                  init clip 1 = the 90-frame in-place WALK. The
+ *                  brains beyond INIT/damage are UNCHARACTERIZED
+ *                  (s68 open) — the port runs a flagged MINIMAL brain.
  *   actor +0x34    HIT POINTS, s16 (crate init = 1: any damage kills;
+ *                  bug init = 15 variant A / 30 variant B
+ *                  (func_00128390; 30/50 on the difficulty byte) —
+ *                  genuinely consumed, the bug is shootable;
  *                  worm init = 10 — func_00154040 — but VESTIGIAL:
  *                  s66 live memchecks saw NOTHING ever read a worm's
  *                  +0x34, and the only +0x36 access in its whole life
@@ -24,20 +46,24 @@
  *   actor +0x36    INCOMING-DAMAGE MAILBOX, s16 — attackers write it
  *                  (low bits = amount, high bits = weapon-type flags,
  *                  e.g. 0x4000), the behavior polls + clears it in its
- *                  own tick. There is NO central HP system. Only the
- *                  CRATE consumes it (IDLE poll); the worm brain never
- *                  reads it.                      -> em_enemy_damage()
+ *                  own tick. There is NO central HP system. The CRATE
+ *                  consumes it (IDLE poll), the BUG consumes it EVERY
+ *                  tick (func_00128B80 -> flinch/death handler
+ *                  func_00129FC0); the worm brain never reads it.
+ *                                                 -> em_enemy_damage()
  *   victim filter  BOTH the bullet/laser victim filter (func_00183AC0)
  *                  and the second/targetable filter (func_00183B80)
  *                  switch on the MODEL byte and reject 0x0D (worm) —
  *                  the class byte IS 2; the model exclusion is doing
  *                  the work, deliberately (s66, static + live). The
  *                  crate family (model 0x06) is a victim while +0x9F
- *                  == 0. The port mirrors this in em_enemy_acquire /
+ *                  == 0, and the BUG is a victim (mailbox-shootable —
+ *                  s68). The port mirrors this in em_enemy_acquire /
  *                  em_enemy_ray_test / em_enemy_targetable: bullets,
  *                  auto-aim and melee all pass straight through a
- *                  worm. Worms are dodged, not shot — their only
- *                  deaths are their own burst/despawn.
+ *                  worm but land on crates and bugs. Worms are
+ *                  dodged, not shot — their only deaths are their own
+ *                  burst/despawn.
  *   actor +0x0A    GROUP-ALARM flag: a damage-KILLED idle crawler walks
  *                  the whole live actor list (no radius) and wakes
  *                  every placed-crawler-model actor. Worms are not
@@ -160,21 +186,56 @@
  *   - HP 1: DAMAGE (the +0x36 mailbox — bullet or knife) BURSTS it,
  *     broadcasting the group alarm; the engine has NO proximity
  *     trigger (decoded — the old ~10-u port trigger is removed). Husk
- *     gibs fly through the shared gib launcher and the WORM spawns at
- *     the crate position through the normal spawn path (its own INIT
- *     yaws it at the player — the engine's leech init), then attacks.
- *     KNOWN-WRONG BINDING (s68 — "CREATURE IDENTITY CORRECTION"): the
- *     engine's crate-burst children are BUGS (the 15-node insectoid,
- *     brains func_00128C10/func_0012A5D0, nest-registry records) or
- *     ITEMS — never the worm (its only installer is the generator
- *     helper func_0015A200). The worm hatch below is the FLAGGED
- *     pre-s68 stand-in; the bug rebinding (assets/enemy_bug.emdl is
- *     exported and waiting) is this module's next task;
+ *     gibs fly through the shared gib launcher and the nest-group
+ *     BUGS hatch at the crate position (s68 REBINDING APPLIED — the
+ *     "CREATURE IDENTITY CORRECTION": the engine's state-2 nest
+ *     children are the registry records of D_0024D820[area] from base
+ *     index D_0024A850[area] + the crate's link; office links 0-4
+ *     carry 2/2/3/2/2 bug records, AREA03/06 nests carry ITEM records
+ *     (func_0015AFA0 — untranslated here, em_pickup's job when a
+ *     scene exports one), and NO nest anywhere installs the worm.
+ *     The registry itself is disc data the port cannot read, so the
+ *     manifest carries the group size: `enemy crate x y z yaw
+ *     [bugs <n>]` — bare lines fall back to 2, the office's modal
+ *     group (flagged port fallback; n = 0 models the 12 office
+ *     link -1 gore-only crates once the exporter emits nest links).
+ *     The pre-s68 worm hatch is REMOVED — the worm stays exclusive
+ *     to the mode-2 generator pads (already engine-true);
  *   - the group alarm sends the crate on the engine's blind suicide
  *     hop-run AS THE CRATE (decoded func_001551B0 state 1: probe-
  *     steered + RNG heading, no player seek, 180-tick timer, then the
- *     burst hatches the worm). Damage during the run defers/absorbs
- *     exactly as decoded (see em_enemy.c).
+ *     burst hatches the same nest group). Damage during the run
+ *     defers/absorbs exactly as decoded (see em_enemy.c).
+ *
+ * BUG KIND (s68 "CREATURE IDENTITY CORRECTION" — the crate hatchling
+ * and the game's ubiquitous enemy): the 15-node insectoid, GLOBAL
+ * creature slot 0x0F (variant A, grey-blue chitin) / 0x10 (variant B
+ * red flesh — the story swap at event flag 0x30, UNMODELED port-side:
+ * the port always loads variant A) + the 36-container clip bank 0x11.
+ * Decoded, kept: HP 15 (A; B = 30, difficulty 30/50 — recorded), the
+ * EVERY-TICK mailbox consumption (func_00128B80) with flinch on a
+ * nonlethal hit and death on a lethal one (handler func_00129FC0),
+ * init/walk clip 1 (the 90-frame in-place WALK), flinch clip 0x1D,
+ * death clip 0x1B — 0x1B sits in a non-sentinel-header container the
+ * anim decoder cannot bake yet (s68), so the current export lacks it
+ * and the death falls back to the corpse alpha-fade (the code
+ * requests the engine id and wires itself when a future export
+ * carries it). FLAGGED-MINIMAL BRAIN: the two real brains
+ * (func_00128C10 simple / func_0012A5D0 full, a 14-case sub jtbl)
+ * are uncharacterized beyond INIT/damage (s68 open item), so the
+ * port runs idle/walk/approach only — home toward the player at a
+ * flagged port turn rate, walk a flagged port speed to a flagged
+ * standoff, and deal NO damage (the engine bugs' attack moves —
+ * hop/lunge clips 7/8/10/12/13/17/19 — are undecoded; a bug that
+ * reaches the player just crowds it). Placement-pose codes (param
+ * 4/5/9: floor/wall/ceiling attach probes, func_00129780) are
+ * untranslated — every port bug hatches floor-posed. MESH:
+ * assets/enemy_bug.emdl (decomp tools/export_native.py, recorded CLI
+ * in FINDINGS s68; assets/enemy_bug_infected.emdl = variant B,
+ * shipped but unbound); placeholder flat box bug when absent.
+ * Instances: hatched by crate bursts, or placed directly by manifest
+ * `enemy bug <x> <y> <z> <yaw>` lines (port convenience standing in
+ * for the registry's ordinary room-spawn records).
  *
  * GENERATOR (FINDINGS "GENERATOR — func_0015A2C0 RESOLVED", session
  * 28): the engine's most-placed creature behavior (class 0x0D, model 3,
@@ -302,11 +363,12 @@
  * the trigger box. PASS/FAIL line + quit.
  *
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
- * <yaw>` / `enemy crate <x> <y> <z> <yaw>` lines (parsed by em_game.c
- * next to the door lines), plus `enemy generator <x> <y> <z> <yaw>
- * [kind <k>] [link <n>]` lines — all parsed natively by em_game.c's
+ * <yaw>` / `enemy crate <x> <y> <z> <yaw> [bugs <n>]` / `enemy bug
+ * <x> <y> <z> <yaw>` lines (parsed by em_game.c next to the door
+ * lines), plus `enemy generator <x> <y> <z> <yaw> [kind <k>]
+ * [link <n>]` lines — all parsed natively by em_game.c's
  * scene_manifest_load and dispatched here (em_enemy_add_kind /
- * em_enemy_add_generator) at scene-load time.
+ * em_enemy_add_crate / em_enemy_add_generator) at scene-load time.
  * No enemy lines = this module never loads, updates or draws anything,
  * keeping default-run frame output byte-identical.
  *
@@ -349,15 +411,18 @@ enum {
     EM_ENEMY_IDLE   = 4    /* dormant on the nest                       */
 };
 
-/* Spawn kinds — the two decoded engine brains:
+/* Spawn kinds — the three decoded engine brains:
  * CRAWLER = the worm/leech (func_00153F10/func_00154120, the kind-0xD
  * runtime creature; born attacking — the engine never places one, so a
  * manifest `enemy crawler` line is a port convenience), CRATE = the
  * placed crawler func_001551B0 (the disguised prop; bursts into gibs +
- * a worm on DAMAGE or at the end of its alarm-driven suicide run). */
+ * its nest group's BUGS on DAMAGE or at the end of its alarm-driven
+ * suicide run — s68), BUG = the nest hatchling (func_00128C10/
+ * func_0012A5D0, flagged-minimal port brain — "BUG KIND" above). */
 enum {
     EM_ENEMY_KIND_CRAWLER = 0,   /* the worm/leech creature            */
-    EM_ENEMY_KIND_CRATE   = 1    /* the placed crawler (disguise)      */
+    EM_ENEMY_KIND_CRATE   = 1,   /* the placed crawler (disguise)      */
+    EM_ENEMY_KIND_BUG     = 2    /* the nest hatchling (s68)           */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU
@@ -370,9 +435,17 @@ void em_enemy_reset(void);
 int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw);
 
 /* Kind-aware spawn (manifest dispatch): EM_ENEMY_KIND_CRAWLER is
- * em_enemy_add; EM_ENEMY_KIND_CRATE places the disguised crate (and
- * preloads the crawler + gib assets its burst will need). */
+ * em_enemy_add; EM_ENEMY_KIND_BUG places one bug; EM_ENEMY_KIND_CRATE
+ * places the disguised crate with the default nest-group size (and
+ * preloads the bug + gib assets its burst will need). */
 int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
+
+/* Crate spawn with an explicit nest-group size (`enemy crate ... bugs
+ * <n>` manifest lines — the channel for the decoded registry counts,
+ * which are disc data the port cannot read itself). `bugs` < 0 = the
+ * default group (2, the office modal group — flagged fallback); 0 =
+ * a gore-only crate (the office link -1 majority). */
+int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw, int bugs);
 
 /* Place one GENERATOR pad (engine class 0x0D / func_0015A2C0 — see
  * "GENERATOR" above; em_game.c's manifest parser dispatches
@@ -405,9 +478,10 @@ int em_enemy_generator_spawned(int i);  /* worms emitted (+0x2E), or -1 */
 void em_enemy_update(const EmCollision *coll, const float player_pos[3]);
 
 /* Write the incoming-damage mailbox (actor +0x36): low bits = amount,
- * high bits = weapon-type flags. Only the CRATE consumes it (IDLE
- * poll); a worm's mailbox is never read — engine-true (s66): the
- * write lands and dies with the slot, exactly like the engine's
+ * high bits = weapon-type flags. The CRATE consumes it on its IDLE
+ * poll, the BUG every tick (func_00128B80 — flinch below lethal,
+ * death at it); a worm's mailbox is never read — engine-true (s66):
+ * the write lands and dies with the slot, exactly like the engine's
  * teardown-only +0x36. (Attackers can't normally reach a worm anyway:
  * the victim filters below reject it before any write happens.) */
 void em_enemy_damage(int i, int16_t code);
@@ -423,7 +497,9 @@ int em_enemy_player_hit_take(void);
  * ALL THREE queries run the engine's MODEL-keyed victim filter first
  * (func_00183AC0 / func_00183B80, s66): the WORM (model 0x0D) is
  * rejected — rays pass through it, the auto-aim lock never fills on
- * it, melee whiffs past it. Crates (model 0x06 family) are victims.
+ * it, melee whiffs past it. Crates (model 0x06 family) and BUGS
+ * (global creature models 0x0F/0x10 — mailbox-shootable, s68) are
+ * victims.
  *
  * em_enemy_acquire: nearest live VICTIM within `max_dist` of `from`
  * whose XZ bearing lies inside the facing cone (dot >= cone_cos).

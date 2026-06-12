@@ -357,9 +357,13 @@ files map each native stage to the PS2 function it stands in for.
   (full door-transit sequence self-test incl. the arrival walk-out and the
   frame-290 two-lock split witness), `EM_SFX_TEST=1` (3 overlapping
   one-shots through the shared BGM mixer — needs `assets/sfx/sfx.txt`; see
-  `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife run: crate light kill,
-  heavy stab WHIFFING through a worm — worms are not melee victims
-  (s66) — whiff-combo chain; see melee_test_script),
+  `src/game/em_sfx.h`), `EM_MELEE_TEST=1` (knife run, restaged for the
+  s68 bug rebinding: crate light kill -> the BUG PAIR hatches + the
+  group-alarm broadcast wakes crate B, two one-stab bug heavies (15 vs
+  the variant-A HP 15 — bugs ARE melee victims), the worm-whiff
+  witness on a directly-spawned worm — worms are not melee victims
+  (s66) — then the whiff-combo chain (7 swings / 3 hits); see
+  melee_test_script),
   `EM_CAMREGION_TEST=1` (fixed-camera-region run on a FLAGGED synthetic
   office region — the office has no real ones, see the camera bullet:
   enter pins the eye at the room spec, L1 is a no-op, R1 aim moves the
@@ -386,6 +390,20 @@ files map each native stage to the PS2 function it stands in for.
   `assets/enemy_crate_cardboard_n1.emdl` and the scene-local
   `<scene>/props/enemy_crate.emdl` probe can re-bind it per scene if a
   binding is ever proven.
+- CRATE BURSTS HATCH BUGS (2026-06-11, the s68 CREATURE IDENTITY
+  CORRECTION applied — em_enemy.h "BUG KIND" / "CRATE KIND"): the
+  engine's nest registry never spawns the worm from a crate — bursts
+  hatch the 15-node BUG (EM_ENEMY_KIND_BUG, assets/enemy_bug.emdl =
+  variant A slot 0x0F; walk clip 1, flinch 0x1D, death 0x1B requested
+  but unexported -> corpse-fade fallback; HP 15, the every-tick
+  mailbox flinch/death — a genuinely SHOOTABLE enemy, victim in all
+  three hitscan filters) on a flagged-minimal walk/approach brain
+  (the real brains are undecoded; it deals no damage). Group size =
+  manifest `enemy crate x y z yaw [bugs <n>]` (default 2 — the
+  registry counts are disc data; exporter nest-link emission is a
+  decomp open item); `enemy bug x y z yaw` places one directly. The
+  WORM stays exclusive to mode-2 generator pads (engine-true; its
+  unshootable victim filters are untouched).
 
 ## Build
 

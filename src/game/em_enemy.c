@@ -1,9 +1,10 @@
 /* em_enemy.c — enemy actors (see em_enemy.h for the engine mapping and
  * the flagged fidelity deviations).
  *
- * TWO DECODED BRAINS share this module's slot pool (s62 condition
- * decode of the splat disassembly — every trigger below is read off
- * the instructions, not inferred):
+ * THREE BRAINS share this module's slot pool (s62 condition decode of
+ * the splat disassembly + the s68 creature-identity correction —
+ * every trigger below is read off the instructions, not inferred;
+ * the BUG brain is the one flagged-minimal stand-in, see its block):
  *
  * THE PLACED CRAWLER / CRATE (FINDINGS "ENEMY AI ARCHITECTURE" §3,
  * func_001551B0 — the port's EM_ENEMY_KIND_CRATE; engine lifecycle
@@ -35,29 +36,57 @@
  *             old IDLE+ATTACK poll widening is removed. (Port
  *             locomotion stand-in: repeated hops with re-steer on
  *             landing; the engine runs one long leap.)
- *   2 DEATH   engine: nest-child spawns + gore FX + a MODEL REBIND to
- *             the burst-husk/gib models (library 0x22/0x29 — there is
- *             NO death clip in the leech clip bank), and — when killed
- *             by DAMAGE (+0x36 nonzero, variants 6/0x1E) — knockback:
- *             the hit vector in scratch D_700036E0 RNG-rotated
- *             (90/180/270 deg), velocity set from it, then a corpse
- *             slide that settles on the floor. Port: gameplay despawns
- *             immediately; on a LETHAL HIT the visual layer launches
- *             3-5 GIB instances (the exported library burst set,
- *             assets/gibs/ — see "GIB LAYER" below) with exactly that
- *             knockback shape; the contact/suicide burst (mailbox
- *             empty, engine takes the no-knockback arm) and the
- *             missing-assets case keep the corpse placeholder: the
- *             frozen pose now ALPHA-FADES out in place (white tint,
- *             1 -> 0 over ENEMY_FADE_FRAMES through
- *             em_gfx_draw_skinned_tinted — the engine fades dead
- *             actors by walking the actor alpha down before freeing;
- *             replaces the old sink-below-the-floor stand-in).
+ *   2 DEATH   engine: NEST-CHILD spawns (the s68 registry: BUGS or
+ *             items — see "CRATE KIND" below) + gore FX + a MODEL
+ *             REBIND to the burst-husk/gib models (library 0x22/0x29),
+ *             and — when killed by DAMAGE (+0x36 nonzero, variants
+ *             6/0x1E) — knockback: the hit vector in scratch
+ *             D_700036E0 RNG-rotated (90/180/270 deg), velocity set
+ *             from it, then a corpse slide that settles on the floor.
+ *             Port: gameplay despawns immediately; on a LETHAL HIT the
+ *             visual layer launches 3-5 GIB instances (the exported
+ *             library burst set, assets/gibs/ — see "GIB LAYER"
+ *             below) with exactly that knockback shape; the
+ *             contact/suicide burst (mailbox empty, engine takes the
+ *             no-knockback arm) and the missing-assets case keep the
+ *             corpse placeholder: the frozen pose ALPHA-FADES out in
+ *             place (white tint, 1 -> 0 over ENEMY_FADE_FRAMES
+ *             through em_gfx_draw_skinned_tinted — the engine fades
+ *             dead actors by walking the actor alpha down before
+ *             freeing).
  *   3 FREE    slot inactive.
+ *
+ * THE BUG (s68 "CREATURE IDENTITY CORRECTION" — the port's
+ * EM_ENEMY_KIND_BUG; full ledger in em_enemy.h "BUG KIND"). Decoded,
+ * kept: HP 15 (variant A — func_00128390; variant B 30 and the
+ * difficulty 30/50 column are recorded constants), the EVERY-TICK
+ * +0x36 mailbox consumption (func_00128B80) with FLINCH below lethal
+ * and DEATH at it (handler func_00129FC0), init/walk clip 1 (the
+ * 90-f in-place WALK), flinch clip 0x1D, death clip 0x1B (absent
+ * from the current export — unbakeable container, s68 — so death
+ * falls back to the corpse alpha-fade; the code requests the engine
+ * id and self-wires when a future export bakes it). FLAGGED-MINIMAL
+ * BRAIN (the real brains func_00128C10/func_0012A5D0 are
+ * uncharacterized beyond INIT/damage — s68 open item):
+ *
+ *   INIT      HP = 15, yaw toward the player (PORT stand-in: the
+ *             engine copies the nest record's rot, unexported) ->
+ *             ATTACK sub 0.
+ *   sub 0     WALK/APPROACH: home the yaw at BUG_TURN_RATE (PORT),
+ *             walk BUG_WALK_SPEED (PORT) to the BUG_STANDOFF (PORT)
+ *             with the shared probe + floor follow; deals NO damage
+ *             (the engine bugs' attack moves are undecoded).
+ *   sub 1     FLINCH: hold for the flinch clip's length (20-tick
+ *             fallback without the asset), then sub 0.
+ *   2 DEATH   free + corpse alpha-fade (no gibs — the husk burst set
+ *             is the crate's; the bug's own gore chain is undecoded).
+ *             Death sound: the shared 0x7D8 hurt-helper arm (PORT
+ *             stand-in — func_00129FC0's own audio is undecoded).
  *
  * THE WORM / LEECH (FINDINGS §4, brain func_00153F10 + sub-machine
  * func_00154120, init func_00154040 — the port's EM_ENEMY_KIND_CRAWLER;
- * the kind-0xD creature generators emit and crate bursts hatch). It is
+ * the kind-0xD creature the mode-2 generator pads emit — its ONLY
+ * installer, s68: crate bursts never hatch it). It is
  * BORN ATTACKING — the engine brain has no idle state, no alarm read,
  * and no proximity gate; "target acquisition" is unconditional:
  *
@@ -197,12 +226,20 @@
  *             out. DAMAGE is the only direct trigger — the engine has
  *             no proximity burst (the old ~10-u trigger is REMOVED).
  *   2 BURST   free the slot (no fade: the husk replaces it visually),
- *             spawn the WORM at the crate position through the normal
- *             spawn path (the engine's state-2 nest-child records; the
- *             worm's own INIT yaws it at the player — func_00154040),
- *             then launch the husk gibs with the shared gib launcher
- *             (damage kills scatter along the hit vector; timer bursts
- *             along the facing).
+ *             hatch the NEST-GROUP BUGS at the crate position through
+ *             the normal spawn path (s68: the engine's state-2 walks
+ *             the registry group D_0024D820[area][base + link] and
+ *             copies each 0x2C record into a child actor — pos +=
+ *             parent, rot/param/behavior from the record; the office
+ *             groups hold 2-3 bug records). The records are disc
+ *             data, so the manifest carries the count (`bugs <n>`,
+ *             default 2 — flagged) and the port stands in a small
+ *             deterministic ring for the records' per-child offsets
+ *             and the init yaw (flagged); then launch the husk gibs
+ *             with the shared gib launcher (damage kills scatter
+ *             along the hit vector; timer bursts along the facing).
+ *             The pre-s68 WORM hatch is REMOVED (no nest anywhere
+ *             installs func_00153F10 — generator pads only).
  *   3 FREE    slot inactive.
  *
  * GENERATOR KIND (em_enemy.h "GENERATOR"; FINDINGS "GENERATOR —
@@ -344,6 +381,11 @@
  * to bind it can carry it as <scene>/props/enemy_crate.emdl (the
  * scene-local probe below). */
 #define CRATE_ASSET      "assets/enemy_crate.emdl"
+/* The BUG hatchling (s68): GLOBAL creature slot 0x0F = variant A —
+ * the port's only bound variant; slot 0x10 (variant B, the event-flag
+ * 0x30 story swap) ships as assets/enemy_bug_infected.emdl but the
+ * flag machinery is unmodeled, flagged in em_enemy.h "BUG KIND". */
+#define BUG_ASSET        "assets/enemy_bug.emdl"
 #define ENEMY_BONE_MAX   32
 #define ENEMY_PI         3.14159265f
 
@@ -484,6 +526,41 @@ static const char *const GIB_FILES[GIB_MODEL_MAX] = {
 #define CRATE_AIM_Y      2.0f     /* box center above the feet            */
 #define CRATE_JIT_POS    0.08f    /* PORT: x/z wiggle amplitude, units    */
 #define CRATE_JIT_YAW    0.02f    /* PORT: yaw wobble amplitude, rad      */
+#define CRATE_BUGS_DEFAULT 2      /* nest-group fallback for manifest
+                                   * crate lines without `bugs <n>` — the
+                                   * office's modal group (2/2/3/2/2,
+                                   * s68); FLAGGED: the registry counts
+                                   * are disc data the exporter must
+                                   * carry per crate                      */
+#define CRATE_BUG_RING   1.5f     /* PORT: child hatch-ring radius — a
+                                   * stand-in for the nest records'
+                                   * per-child pos offsets (unexported)   */
+
+/* --- Bug kind (s68 — see "THE BUG" in the file header) ------------------
+ * Engine values: HP, the every-tick mailbox consumption, the clip ids.
+ * The locomotion numbers are FLAGGED PORT constants (the two real
+ * brains' move helpers are uncharacterized — s68 open item). */
+#define BUG_HP_A         15       /* func_00128390 variant A (slot 0x0F)  */
+#define BUG_HP_B         30       /* variant B (slot 0x10) — recorded;
+                                   * difficulty byte D_0081070A raises
+                                   * the pair to 30/50 (unbound: the
+                                   * port has no difficulty plumbing)     */
+#define BUG_CLIP_WALK    1u       /* init clip: the 90-f in-place WALK    */
+#define BUG_CLIP_DEATH   0x1Bu    /* func_00129FC0 death clip — NOT in
+                                   * the current export (unbakeable
+                                   * container, s68): death falls back
+                                   * to the corpse alpha-fade             */
+#define BUG_CLIP_FLINCH  0x1Du    /* func_00129FC0 flinch clip (exported) */
+#define BUG_WALK_SPEED   0.16f    /* PORT: approach speed, units/frame    */
+#define BUG_TURN_RATE    0.06f    /* PORT: homing yaw rate, rad/tick      */
+#define BUG_STANDOFF     5.0f     /* PORT: approach stop distance         */
+#define BUG_FLINCH_TICKS 20       /* flinch window fallback without the
+                                   * clip (with it: the clip's length)    */
+#define BUG_HIT_R        2.5f     /* PORT: bullet hit-sphere (the flat
+                                   * ~3.7 x 1.9 x 8.9 authored body)      */
+#define BUG_AIM_Y        1.0f     /* hit/aim center above the feet        */
+#define BUG_WALK_MIN     0.35f    /* anim rate floor while standing
+                                   * (PORT, = ENEMY_ATTACK_MIN's role)    */
 
 /* --- Generator kind (see "GENERATOR KIND" in the file header) -----------
  * Engine values decoded from the boot ELF's .data this session (FINDINGS
@@ -616,7 +693,10 @@ typedef struct {
                            * 1 hop; worm 0 approach / 1 stalk / 2 windup
                            * / 3 lunge (the decoded func_00154120 subs)  */
     uint8_t alarm;        /* actor +0x0A group-alarm flag (crate only —
-                           * the worm brain never reads it)              */
+                           * the worm and bug brains never read it)      */
+    uint8_t children;     /* crate: nest-group bug count hatched at the
+                           * burst (the s68 registry group size; the
+                           * manifest `bugs <n>` channel)                */
     uint8_t atk_armed;    /* crate: the 180-tick attack timer was armed
                            * at the first hop launch (port split of the
                            * engine's reused +0x2A — see ATTACK)         */
@@ -759,6 +839,17 @@ static struct {
     int        anim_on;
     int        clip_crawl, clip_emerge, clip_windup, clip_lunge;
     float      blend_pal[ENEMY_BONE_MAX * 16]; /* crossfade scratch */
+
+    /* bug hatchling mesh + clips (loaded when a bug or a crate is
+     * placed — the crate burst needs it; worm-only runs untouched) */
+    int        bug_tried;
+    EmGfxMesh *bug_mesh;
+    EmModel    bug_model;
+    int        bug_has_model;
+    uint32_t   bug_bones;
+    float      bug_base[ENEMY_BONE_MAX * 16];
+    int        bug_anim_on;
+    int        bclip_walk, bclip_death, bclip_flinch;
 
     /* crate disguise mesh (loaded only when a crate is placed, so
      * crawler-only runs keep byte-identical output) */
@@ -1066,6 +1157,82 @@ static int crate_mesh_get(EmGfx *gfx)
     return 0;
 }
 
+/* Load the BUG hatchling mesh + clips once (first bug or crate spawn —
+ * the crate burst hatches bugs inside em_enemy_update, without a gfx
+ * handle, so the crate add preloads this): assets/enemy_bug.emdl =
+ * the s68 variant-A export (global slot 0x0F + clip bank 0x11), else
+ * a PLACEHOLDER flat box bug at the authored footprint (runtime-
+ * generated, original vertices, NOT disc data). Clip resolution: walk
+ * 1 (the decoded init clip), flinch 0x1D, death 0x1B — 0x1B is absent
+ * from the current export (unbakeable container, s68) and resolves
+ * -1, which the death path treats as "fade fallback". Returns 0 ok. */
+static int bug_mesh_get(EmGfx *gfx)
+{
+    if (s.bug_mesh) return 0;
+    if (s.bug_tried) return -1;
+    s.bug_tried = 1;
+
+    if (em_model_load(&s.bug_model, BUG_ASSET) == 0) {
+        if (s.bug_model.bone_count > ENEMY_BONE_MAX) {
+            fprintf(stderr, "enemy: %s: %u bones > %d\n", BUG_ASSET,
+                    s.bug_model.bone_count, ENEMY_BONE_MAX);
+            em_model_free(&s.bug_model);
+            return -1;
+        }
+        s.bug_mesh = em_gfx_mesh_create(gfx, s.bug_model.verts,
+                                        s.bug_model.vert_count,
+                                        s.bug_model.indices,
+                                        s.bug_model.index_count,
+                                        (const EmGfxTexDesc *)
+                                        s.bug_model.texs,
+                                        s.bug_model.tex_count,
+                                        s.bug_model.texels,
+                                        s.bug_model.flags);
+        if (!s.bug_mesh) {
+            em_model_free(&s.bug_model);
+            return -1;
+        }
+        s.bug_has_model = 1;
+        s.bug_bones     = s.bug_model.bone_count;
+        em_model_palette_at(&s.bug_model, 0, 0.0, s.bug_base);
+        s.bclip_walk   = em_model_clip_index(&s.bug_model, BUG_CLIP_WALK);
+        s.bclip_death  = em_model_clip_index(&s.bug_model, BUG_CLIP_DEATH);
+        s.bclip_flinch = em_model_clip_index(&s.bug_model,
+                                             BUG_CLIP_FLINCH);
+        s.bug_anim_on  = (s.bclip_walk >= 0 && s.bug_model.clip_count > 1);
+        printf("bug model: %s — %u verts, %u tris, %u bones, %u clip(s)"
+               " — walk #%d, flinch #%d, death #%d%s\n", BUG_ASSET,
+               s.bug_model.vert_count, s.bug_model.index_count / 3,
+               s.bug_bones, s.bug_model.clip_count, s.bclip_walk,
+               s.bclip_flinch, s.bclip_death,
+               s.bclip_death < 0 ? " (0x1B unexported — corpse-fade "
+                                   "death, s68)" : "");
+        return 0;
+    }
+
+    /* PLACEHOLDER bug: a flat low body + head at the authored
+     * ~3.7 x 1.9 x 8.9 footprint. */
+    float    verts[48 * 10];
+    uint32_t indices[72];
+    uint32_t nv = 0, ni = 0;
+    const float body_lo[3] = { -1.85f, 0.1f, -4.4f };
+    const float body_hi[3] = {  1.85f, 1.9f,  3.0f };
+    const float head_lo[3] = { -0.9f,  0.3f,  3.0f };
+    const float head_hi[3] = {  0.9f,  1.4f,  4.5f };
+    box_emit(verts, &nv, indices, &ni, body_lo, body_hi);
+    box_emit(verts, &nv, indices, &ni, head_lo, head_hi);
+    s.bug_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
+                                    NULL, 0, NULL, 0);
+    if (!s.bug_mesh) return -1;
+    s.bug_bones    = 1;
+    s.bclip_walk   = s.bclip_death = s.bclip_flinch = -1;
+    mat4_identity(s.bug_base);
+    printf("bug model: no %s — PLACEHOLDER box bug (export with the "
+           "decomp repo's tools/export_native.py, s68 recorded CLI)\n",
+           BUG_ASSET);
+    return 0;
+}
+
 /* Load the burst set once (first crawler spawn — the only entry point
  * with a gfx handle; em_enemy_update can't create GPU meshes). Missing
  * files shrink the pool silently; an empty pool = fade fallback. */
@@ -1124,9 +1291,10 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
     e->pos[1] = pos[1];
     e->pos[2] = pos[2];
     e->yaw    = yaw;
-    /* Anim layer (crawler only — the crate is a 1-node static mesh):
-     * spawn plays the emerge clip once (clip 1), falling back to the
-     * crawl loop if the asset lacks it. */
+    /* Anim layer (the crate is a 1-node static mesh): a crawler spawn
+     * plays the emerge clip once (clip 1), falling back to the crawl
+     * loop if the asset lacks it; a bug spawn enters the decoded
+     * init/walk clip 1 directly (s68). */
     e->acur  = -1;
     e->aprev = -1;
     if (kind == EM_ENEMY_KIND_CRAWLER && s.anim_on) {
@@ -1134,12 +1302,20 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
         e->acur   = s.clip_emerge >= 0 ? s.clip_emerge : s.clip_crawl;
         e->arate  = s.clip_emerge >= 0 ? 1.0f : ENEMY_ATTACK_MIN;
         e->ablend = 1.0f;
+    } else if (kind == EM_ENEMY_KIND_BUG && s.bug_anim_on) {
+        e->aphase = ANIM_CRAWL;          /* the walk loop phase        */
+        e->acur   = s.bclip_walk;
+        e->arate  = BUG_WALK_MIN;
+        e->ablend = 1.0f;
     }
+    if (kind == EM_ENEMY_KIND_CRATE)
+        e->children = CRATE_BUGS_DEFAULT;
     /* Stage a valid pose immediately: the render chain may record this
      * instance's palette pointer before the first em_enemy_update. */
     enemy_build_palette(e);
     printf("enemy %d: %s at (%.1f, %.1f, %.1f) yaw %.3f\n", s.n,
-           kind == EM_ENEMY_KIND_CRATE ? "crate" : "crawler",
+           kind == EM_ENEMY_KIND_CRATE ? "crate"
+           : kind == EM_ENEMY_KIND_BUG ? "bug" : "crawler",
            pos[0], pos[1], pos[2], yaw);
     return s.n++;
 }
@@ -1156,14 +1332,29 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
 {
     if (kind == EM_ENEMY_KIND_CRAWLER)
         return em_enemy_add(gfx, pos, yaw);
+    if (kind == EM_ENEMY_KIND_BUG) {
+        if (s.n >= ENEMY_SLOT_MAX) return -1;
+        if (bug_mesh_get(gfx) != 0) return -1;
+        return enemy_spawn(EM_ENEMY_KIND_BUG, pos, yaw);
+    }
     if (kind != EM_ENEMY_KIND_CRATE) return -1;
+    return em_enemy_add_crate(gfx, pos, yaw, -1);
+}
+
+int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw, int bugs)
+{
     if (s.n >= ENEMY_SLOT_MAX) return -1;
     if (crate_mesh_get(gfx) != 0) return -1;
-    /* The burst will need the worm mesh + the husk gibs; this is the
-     * only moment with a gfx handle, so preload them now. */
-    if (enemy_mesh_get(gfx) != 0) return -1;
+    /* The burst will need the BUG mesh (the s68 nest children) + the
+     * husk gibs; this is the only moment with a gfx handle, so preload
+     * them now. (The worm preload is GONE — crates never hatch it.) */
+    if (bug_mesh_get(gfx) != 0) return -1;
     gib_models_load(gfx);
-    return enemy_spawn(EM_ENEMY_KIND_CRATE, pos, yaw);
+    int i = enemy_spawn(EM_ENEMY_KIND_CRATE, pos, yaw);
+    if (i >= 0 && bugs >= 0)
+        s.e[i].children = (uint8_t)(bugs > ENEMY_SLOT_MAX
+                                    ? ENEMY_SLOT_MAX : bugs);
+    return i;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1175,7 +1366,8 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
  * no radius — and sets +0x0A on every actor with a placed-crawler
  * model byte {6, 0x1C, 0x1E, 0x1F, 0x50} and the on-surface flag
  * (+0x52). Natively: every live CRATE (the placed-crawler kind);
- * worms are NOT whitelisted and never read the flag. */
+ * worms and bugs are NOT whitelisted (the bug models 0x0F/0x10 sit
+ * outside the placed-crawler set) and never read the flag. */
 static void enemy_alarm_broadcast(void)
 {
     for (int i = 0; i < s.n; i++)
@@ -1183,13 +1375,17 @@ static void enemy_alarm_broadcast(void)
             s.e[i].alarm = 1;
 }
 
-/* Consume the +0x36 mailbox — CRATE IDLE only (the decoded state-4
- * test is `+0x36 != 0`; HP 1 makes any nonzero value lethal). Low
- * bits = amount (below the 0x2000 type flag), matching the documented
- * code layout. The WORM never reaches this: its brain consumes
- * nothing (J2 CLOSED s66 — the old every-tick worm poll, the
- * shootable stand-in, is REMOVED). The subtractive shape is the
- * canonical hurt helper func_00153B50, whose death arm plays 0x7D8. */
+/* Consume the +0x36 mailbox — the CRATE's IDLE poll (the decoded
+ * state-4 test is `+0x36 != 0`; HP 1 makes any nonzero value lethal)
+ * and the BUG's every-tick poll (decoded func_00128B80 — HP 15, a
+ * survivable hit returns 0 with the HP already debited and the
+ * caller flinches on it). Low bits = amount (below the 0x2000 type
+ * flag), matching the documented code layout. The WORM never reaches
+ * this: its brain consumes nothing (J2 CLOSED s66 — the old
+ * every-tick worm poll, the shootable stand-in, is REMOVED). The
+ * subtractive shape is the canonical hurt helper func_00153B50,
+ * whose death arm plays 0x7D8 (a FLAGGED stand-in for the bug: its
+ * own handler func_00129FC0's audio is undecoded). */
 static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
@@ -1293,6 +1489,16 @@ static double anim_eval_time(int clip, double t)
     return t;
 }
 
+/* Bug-model variant of the same clamp: the WALK is the only loop;
+ * flinch (and a future death clip) are one-shots. */
+static double bug_eval_time(int clip, double t)
+{
+    const EmModelClip *c = &s.bug_model.clips[clip];
+    if (clip != s.bclip_walk && t > (double)(c->frame_count - 1))
+        t = (double)(c->frame_count - 1);
+    return t;
+}
+
 /* Switch the current clip, starting a 0.15 s crossfade from the old
  * one (which keeps advancing at its own rate — the player path blends
  * two LIVE clips the same way). Same clip = just retune the rate (the
@@ -1318,9 +1524,37 @@ static void enemy_anim_set(Enemy *e, int clip, float rate)
  * the play heads and the crossfade weight. */
 static void enemy_anim_update(Enemy *e, float dist)
 {
+    (void)dist;
+
+    /* BUG layer (s68): the walk loop while approaching (rate floored
+     * so a standoff-parked bug keeps its leg cycle — the clip is
+     * baked in place), the flinch one-shot during sub 1. DEATH keeps
+     * the frozen pose for the corpse fade (the 0x1B death clip is
+     * unexported — file header). */
+    if (e->kind == EM_ENEMY_KIND_BUG) {
+        if (!s.bug_anim_on) return;
+        if (e->state != EM_ENEMY_ATTACK) return;
+        if (e->sub == 1 && s.bclip_flinch >= 0) {
+            enemy_anim_set(e, s.bclip_flinch, 1.0f);
+        } else if (e->sub == 0) {
+            enemy_anim_set(e, s.bclip_walk,
+                           e->speed > 0.5f ? 1.0f : BUG_WALK_MIN);
+        }
+        /* advance the play heads + crossfade (shared tail below) */
+        e->at += (double)e->arate;
+        if (e->aprev >= 0) {
+            e->aprev_t += (double)e->aprev_rate;
+            e->ablend  += (1.0f / 60.0f) / ENEMY_ANIM_BLEND;
+            if (e->ablend >= 1.0f) {
+                e->ablend = 1.0f;
+                e->aprev  = -1;
+            }
+        }
+        return;
+    }
+
     if (!s.anim_on || e->kind != EM_ENEMY_KIND_CRAWLER) return;
 
-    (void)dist;
     switch (e->state) {
     case EM_ENEMY_ATTACK:
         /* The worm's gameplay subs ARE the engine's anim windows (the
@@ -1391,6 +1625,7 @@ static void enemy_build_palette(Enemy *e)
     float y   = e->pos[1];
     float z   = e->pos[2];
     uint32_t bones = e->kind == EM_ENEMY_KIND_CRATE ? s.crate_bones
+                   : e->kind == EM_ENEMY_KIND_BUG   ? s.bug_bones
                                                     : s.bone_count;
 
     /* CRATE IDLE jitter — the documented procedural disguise wiggle
@@ -1417,6 +1652,27 @@ static void enemy_build_palette(Enemy *e)
 
     if (e->kind == EM_ENEMY_KIND_CRATE) {
         memcpy(e->palette, s.crate_base, bones * 16 * sizeof(float));
+    } else if (e->kind == EM_ENEMY_KIND_BUG) {
+        /* the bug pose: walk/flinch evaluation against the BUG model
+         * (no actor scale — decoded s68: the brains write no runtime
+         * scale; the authored size IS the live size) */
+        if (s.bug_anim_on && e->acur >= 0) {
+            em_model_palette_at(&s.bug_model, (uint32_t)e->acur,
+                                bug_eval_time(e->acur, e->at),
+                                e->palette);
+            if (e->aprev >= 0 && e->ablend < 1.0f) {
+                em_model_palette_at(&s.bug_model, (uint32_t)e->aprev,
+                                    bug_eval_time(e->aprev, e->aprev_t),
+                                    s.blend_pal);
+                uint32_t n = bones * 16;
+                float    w = e->ablend;
+                for (uint32_t i = 0; i < n; i++)
+                    e->palette[i] = s.blend_pal[i] +
+                                    (e->palette[i] - s.blend_pal[i]) * w;
+            }
+        } else {
+            memcpy(e->palette, s.bug_base, bones * 16 * sizeof(float));
+        }
     } else if (s.anim_on && e->acur >= 0) {
         em_model_palette_at(&s.model, (uint32_t)e->acur,
                             anim_eval_time(e->acur, e->at), e->palette);
@@ -1441,7 +1697,7 @@ static void enemy_build_palette(Enemy *e)
      * "port applies actor scale" note that was never actually wired —
      * the authored-size whip arced the lunge 28 u over the player's
      * head, which is also why the latch segment could never connect). */
-    if (e->kind != EM_ENEMY_KIND_CRATE && s.bone_count > 1) {
+    if (e->kind == EM_ENEMY_KIND_CRAWLER && s.bone_count > 1) {
         for (uint32_t b = 0; b < bones; b++) {
             float *m = e->palette + b * 16;
             for (int k = 0; k < 3; k++) {
@@ -2340,15 +2596,21 @@ static void tt_script(void)
 /* State machine                                                        */
 /* ------------------------------------------------------------------ */
 
-/* Crate BURST (state 2, crate kind): free the slot, spawn the worm at
- * the crate position through the normal spawn path (the engine's
- * state-2 nest-child records; the worm's own INIT yaws it toward the
- * player — func_00154040's atan2 at (D_00810350, D_00810358)), then
- * scatter the husk gibs with the shared launcher. Worm first:
- * gib_burst budgets its virtual draw slots against the LIVE instance
- * count. The crate never fades — the husk gibs replace it visually (no
- * gibs loaded = it just vanishes, matching the immediate gameplay
- * despawn). */
+/* Crate BURST (state 2, crate kind — s68 REBINDING): free the slot,
+ * hatch the nest-group BUGS at the crate position through the normal
+ * spawn path (the engine's state-2 walks the registry group's 0x2C
+ * records and copies pos += parent / rot / param per child; the
+ * office groups hold 2-3 bug records). The records are disc data, so
+ * the count rides the manifest (`bugs <n>`, Enemy.children) and the
+ * port stands in a small deterministic ring for the records' offsets
+ * + the record rot (flagged — the bug INIT then yaws each child at
+ * the player anyway, the port's flagged init). Then scatter the husk
+ * gibs with the shared launcher. Children first: gib_burst budgets
+ * its virtual draw slots against the LIVE instance count. The crate
+ * never fades — the husk gibs replace it visually (no gibs loaded =
+ * it just vanishes, matching the immediate gameplay despawn). A full
+ * slot pool truncates the hatch exactly like the engine's exhausted
+ * actor pool (func_0015A200 NULL alloc). */
 static void crate_burst(Enemy *e, const float pp[3])
 {
     e->state  = EM_ENEMY_FREE;
@@ -2361,14 +2623,57 @@ static void crate_burst(Enemy *e, const float pp[3])
         e->hit_dir[0] = sinf(e->yaw);
         e->hit_dir[1] = cosf(e->yaw);
     }
-    int wi = enemy_spawn(EM_ENEMY_KIND_CRAWLER, e->pos, e->yaw);
-    if (wi < 0)
-        printf("enemy: crate burst — no free slot for the worm\n");
+    int hatched = 0;
+    for (int k = 0; k < e->children; k++) {
+        /* hatch ring (PORT stand-in for the record offsets): child k
+         * at a fixed bearing around the crate, radius CRATE_BUG_RING */
+        float a  = e->yaw + (float)k * (2.0f * ENEMY_PI /
+                                        (float)e->children);
+        float bp[3] = { e->pos[0] + sinf(a) * CRATE_BUG_RING,
+                        e->pos[1],
+                        e->pos[2] + cosf(a) * CRATE_BUG_RING };
+        if (enemy_spawn(EM_ENEMY_KIND_BUG, bp, a) < 0) {
+            printf("enemy: crate burst — slot pool full, %d/%d bug(s) "
+                   "hatched\n", hatched, e->children);
+            break;
+        }
+        hatched++;
+    }
     int ng = gib_burst(e);
     printf("enemy: crate burst at (%.1f, %.1f, %.1f) — %d gib(s), "
-           "worm %s\n", e->pos[0], e->pos[1], e->pos[2], ng,
-           wi >= 0 ? "spawned" : "skipped");
+           "%d bug(s) hatched\n", e->pos[0], e->pos[1], e->pos[2],
+           ng, hatched);
     (void)pp;
+}
+
+/* BUG tick (s68 — the flagged-minimal brain, see "THE BUG" in the
+ * file header): the EVERY-TICK mailbox consumption is the decoded
+ * piece (func_00128B80 -> func_00129FC0: flinch below lethal, death
+ * at it); the locomotion is the flagged port stand-in (the real
+ * brains' move machines are uncharacterized). */
+static void bug_attack_tick(const EmCollision *coll, Enemy *e,
+                            const float pp[3])
+{
+    if (e->sub == 1) {                  /* FLINCH: hold the window     */
+        if (--e->t28 <= 0)
+            e->sub = 0;
+        return;
+    }
+    /* WALK/APPROACH: home toward the player, stop at the standoff */
+    float dx = pp[0] - e->pos[0];
+    float dz = pp[2] - e->pos[2];
+    float want = (fabsf(dx) + fabsf(dz) > 1e-4f) ? atan2f(dx, dz)
+                                                 : e->yaw;
+    float diff = wrap_pi(want - e->yaw);
+    if (diff >  BUG_TURN_RATE) diff =  BUG_TURN_RATE;
+    if (diff < -BUG_TURN_RATE) diff = -BUG_TURN_RATE;
+    e->yaw = wrap_pi(e->yaw + diff);
+    if (dx * dx + dz * dz > BUG_STANDOFF * BUG_STANDOFF &&
+        !enemy_probe(coll, e, e->yaw, BUG_WALK_SPEED + 0.5f)) {
+        e->pos[0] += sinf(e->yaw) * BUG_WALK_SPEED;
+        e->pos[2] += cosf(e->yaw) * BUG_WALK_SPEED;
+        e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
+    }
 }
 
 /* CRATE attack — the decoded func_001551B0 state 1: a BLIND suicide
@@ -2625,6 +2930,14 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
              * the probe vectors and resolves the nest registry) */
             e->hp    = ENEMY_HP_CRATE;
             e->state = EM_ENEMY_IDLE;
+        } else if (e->kind == EM_ENEMY_KIND_BUG) {
+            /* bug INIT (s68): variant-A HP; yaw toward the player is
+             * the PORT stand-in for the nest record's rot (flagged) */
+            e->hp = BUG_HP_A;
+            if (fabsf(dx) + fabsf(dz) > 1e-4f)
+                e->yaw = atan2f(dx, dz);
+            e->sub   = 0;
+            e->state = EM_ENEMY_ATTACK;
         } else {
             /* worm init func_00154040: HP = 10, yaw toward the player,
              * BORN ATTACKING (the brain has no idle state) */
@@ -2660,6 +2973,23 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         if (e->kind == EM_ENEMY_KIND_CRATE) {
             /* decoded: state 1 never polls +0x36 (damage defers) */
             crate_attack_tick(coll, e);
+        } else if (e->kind == EM_ENEMY_KIND_BUG) {
+            /* the bug consumes the mailbox EVERY tick (decoded
+             * func_00128B80): lethal -> death, nonlethal -> flinch
+             * (the 0x1D window), else the minimal walk brain */
+            int had = e->mailbox != 0;
+            if (enemy_mailbox_poll(e, pp)) {
+                e->state = EM_ENEMY_DEATH;
+                break;
+            }
+            if (had) {
+                e->sub = 1;
+                e->t28 = (s.bclip_flinch >= 0)
+                         ? (int)s.bug_model.clips[s.bclip_flinch]
+                               .frame_count
+                         : BUG_FLINCH_TICKS;
+            }
+            bug_attack_tick(coll, e, pp);
         } else {
             /* the worm consumes NOTHING (J2 CLOSED s66): no mailbox
              * poll — a write just sits until the slot frees, exactly
@@ -2670,7 +3000,19 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
 
     case EM_ENEMY_DEATH:
         if (e->kind == EM_ENEMY_KIND_CRATE) {
-            crate_burst(e, pp);   /* husk gibs + the worm (file header) */
+            crate_burst(e, pp);   /* husk gibs + the bugs (file header) */
+            break;
+        }
+        if (e->kind == EM_ENEMY_KIND_BUG) {
+            /* bug death (s68): free + corpse alpha-fade — NO gibs (the
+             * husk burst set is the crate's; the bug's gore chain is
+             * undecoded) and no death clip yet (0x1B unexported —
+             * the fade is the flagged stand-in). */
+            e->state   = EM_ENEMY_FREE;
+            e->active  = 0;
+            e->mailbox = 0;
+            e->fade    = ENEMY_FADE_FRAMES;
+            e->tint[0] = e->tint[1] = e->tint[2] = e->tint[3] = 1.0f;
             break;
         }
         /* Engine sub-machine: nest-child spawns, gore sounds/FX pairs,
@@ -2740,14 +3082,17 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
         s.gt_last_n = s.n;
     }
     /* EM_ENEMY_GIBDEMO debug hook: lethal damage-death on enemy 0 at
-     * the requested tick (file header). Crates take the REAL mailbox
-     * path; a worm consumes no mailbox (J2 s66), so the hook forces
-     * its death DIRECTLY — a debug bypass with no engine equivalent,
-     * kept only so gib captures stay scriptable. */
+     * the requested tick (file header). Crates and bugs take the REAL
+     * mailbox path; a worm consumes no mailbox (J2 s66), so the hook
+     * forces its death DIRECTLY — a debug bypass with no engine
+     * equivalent, kept only so gib captures stay scriptable. */
     if (s.demo >= 0 && s.frame == s.demo && s.n > 0 && s.e[0].active) {
         Enemy *de = &s.e[0];
-        if (de->kind == EM_ENEMY_KIND_CRATE) {
-            em_enemy_damage(0, 0x400A);
+        if (de->kind == EM_ENEMY_KIND_CRATE ||
+            de->kind == EM_ENEMY_KIND_BUG) {
+            /* both consume the mailbox — the REAL damage path (the
+             * 0xFFF amount out-kills any bug HP variant) */
+            em_enemy_damage(0, 0x4FFF);
         } else {
             float hx = de->pos[0] - pp[0], hz = de->pos[2] - pp[2];
             float hl = sqrtf(hx * hx + hz * hz);
@@ -2825,23 +3170,27 @@ int em_enemy_player_hit_take(void)
  * targetable gate BOTH reject model 0x0D by name; the worm's class
  * byte IS 2 — the model exclusion is doing the work, deliberately).
  * Port mapping: the CRATE (model 0x06 family, victim while +0x9F ==
- * 0 — `active` covers it) is the only victim kind; the WORM is
- * rejected — rays pass through, auto-aim never locks, melee whiffs. */
+ * 0 — `active` covers it) and the BUG (global models 0x0F/0x10 —
+ * mailbox-shootable, s68) are victims; the WORM is rejected — rays
+ * pass through, auto-aim never locks, melee whiffs. */
 static int enemy_victim(const Enemy *e)
 {
-    return e->kind == EM_ENEMY_KIND_CRATE;
+    return e->kind == EM_ENEMY_KIND_CRATE ||
+           e->kind == EM_ENEMY_KIND_BUG;
 }
 
 /* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
  * and the gib demo stay byte-identical). */
 static float kind_aim_y(const Enemy *e)
 {
-    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y : ENEMY_AIM_Y;
+    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y
+         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_AIM_Y : ENEMY_AIM_Y;
 }
 
 static float kind_hit_r(const Enemy *e)
 {
-    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R : ENEMY_HIT_R;
+    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R
+         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_HIT_R : ENEMY_HIT_R;
 }
 
 int em_enemy_acquire(const float from[3], float yaw, float max_dist,
@@ -2994,6 +3343,13 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
         *bone_count = s.crate_bones;
         return 1;
     }
+    if (s.e[i].kind == EM_ENEMY_KIND_BUG) {
+        if (!s.bug_mesh) return 0;
+        *mesh       = s.bug_mesh;
+        *palette    = s.e[i].palette;
+        *bone_count = s.bug_bones;
+        return 1;
+    }
     if (!s.mesh) return 0;
     *mesh       = s.mesh;
     *palette    = s.e[i].palette;
@@ -3089,6 +3445,11 @@ void em_enemy_shutdown(EmGfx *gfx)
         em_gfx_mesh_destroy(gfx, s.crate_mesh);
         if (s.crate_has_model)
             em_model_free(&s.crate_model);
+    }
+    if (s.bug_mesh) {
+        em_gfx_mesh_destroy(gfx, s.bug_mesh);
+        if (s.bug_has_model)
+            em_model_free(&s.bug_model);
     }
     for (int i = 0; i < s.gibm_n; i++) {
         em_gfx_mesh_destroy(gfx, s.gibm[i].mesh);
