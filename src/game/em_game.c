@@ -126,6 +126,7 @@
 #include "game/em_collision.h"
 #include "game/em_door.h"
 #include "game/em_enemy.h"
+#include "game/em_examine.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
 #include "game/em_pickup.h"
@@ -1251,6 +1252,11 @@ static struct {
                                   * the camera) so the capture shows the
                                   * wall-blocked camera looking down at
                                   * the player (see gameplay_frame) */
+    int         capture_examine; /* EM_CAPTURE_EXAMINE=1 — snow scene:
+                                  * walk to the AREA11 switch + CROSS so
+                                  * the capture samples the refusal line
+                                  * ("Switch / No power...") presenting
+                                  * (see gameplay_frame) */
     int         capture_orient;  /* EM_CAPTURE_ORIENT=1 — turn-in-place,
                                   * then idle: the slow auto-orient demo */
     int         move_test;
@@ -1300,6 +1306,14 @@ static struct {
     int         pt_mark;         /* pickup test: phase anchor frame */
     int         pt_slot;         /* pickup test: injected pickup slot */
     int16_t     pt_r0;           /* pickup test: reserve before collect */
+    int         examine_test;    /* EM_EXAMINE_TEST=1 — examine arm /
+                                  * input pause / radio line / camera
+                                  * cue / chain / re-arm self-test */
+    int         ex_fail;         /* examine test: failed checkpoints */
+    int         examcam;         /* EXAMINE camera-cue pin latch (op00
+                                  * cut held while the sequence runs;
+                                  * release = one-shot chase restore,
+                                  * the op07-sub4 restore shape) */
     int         melee_test;      /* EM_MELEE_TEST=1 — knife-vs-crate run */
     int         mt_fail;         /* melee test: failed checkpoints */
     int         mt_phase;        /* melee test: script phase */
@@ -1370,6 +1384,25 @@ static struct {
  *                             persists); a taken uid is silently NOT
  *                             placed (the engine's cond-1 spawn
  *                             suppression). `prop` = render-only.
+ *   examine <x> <y> <z> <yaw> <dist> <dy> [gline 0xNN] [delay N]
+ *           [cooldown N] [cam <ex> <ey> <ez>]
+ *                             one EXAMINE object (export_level.py
+ *                             --examine, the decoded overlay examine
+ *                             behaviors; owned by em_examine.c — full
+ *                             ledger in em_examine.h). CROSS inside
+ *                             the use-scan window pauses input and
+ *                             presents the radio line: `gline` = a
+ *                             GLOBAL slot-0x16 bank line through
+ *                             em_hud_radio; otherwise the chained
+ *                             AREA-bank records below. `cam` = the
+ *                             script's op00 camera-cue eye (cut +
+ *                             hold; restore at sequence end).
+ *   examinetext <dur> <gap> <text...>
+ *                             one chained AREA-bank record of the LAST
+ *                             examine line: text (literal "\n" =
+ *                             newline) for <dur> frames, then <gap>
+ *                             blank frames (the engine's empty odd
+ *                             bank lines).
  *   camregion <x0> <z0> <x1> <z1> <ygate> <ex> <ey> <ez>
  *                             one FIXED-CAMERA trigger volume (the mode-0
  *                             director func_00195130's decoded room-camera
@@ -1418,6 +1451,7 @@ static void scene_manifest_load(void)
     char line[512], name[256], gname[64];
     float x, y, z, yaw, r, gx, gy, gz, gyaw;
     int gn, gk, gl;
+    int last_examine = -1;   /* examinetext chains onto this slot */
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
         if (sscanf(line, "spawn %f %f %f %f", &x, &y, &z, &yaw) == 4) {
@@ -1573,6 +1607,47 @@ static void scene_manifest_load(void)
             if (rc == -1)
                 printf("manifest: pickup line failed to load: %s", line);
             /* rc == -2: taken uid — the engine's silent cond-1 skip */
+        } else if (sscanf(line, "examine %f %f %f %f %f %f",
+                          &x, &y, &z, &yaw, &gx, &gy) == 6) {
+            /* EXAMINE object (em_examine.c — grammar in the manifest
+             * doc above): optional tokens parsed by keyword so the
+             * exporter can omit any of them. */
+            float       p[3] = { x, y, z };
+            float       cam[3];
+            const float *camp = NULL;
+            int         exline = -1, exdelay = 0, excool = 0;
+            const char *t;
+            if ((t = strstr(line, "gline ")))
+                exline = (int)strtol(t + 6, NULL, 0);
+            if ((t = strstr(line, "delay ")))
+                exdelay = (int)strtol(t + 6, NULL, 0);
+            if ((t = strstr(line, "cooldown ")))
+                excool = (int)strtol(t + 9, NULL, 0);
+            if ((t = strstr(line, "cam ")) &&
+                sscanf(t + 4, "%f %f %f",
+                       &cam[0], &cam[1], &cam[2]) == 3)
+                camp = cam;
+            last_examine = em_examine_add(p, yaw, gx, gy, exline,
+                                          exdelay, excool, camp);
+            if (last_examine < 0)
+                printf("manifest: examine line failed to load: %s",
+                       line);
+        } else if ((gn = sscanf(line, "examinetext %d %d", &gk, &gl))
+                   == 2) {
+            /* chained AREA-bank record of the LAST examine line */
+            const char *t = line + strlen("examinetext");
+            for (int sk = 0; *t && sk < 2;) {       /* skip 2 numbers */
+                while (*t == ' ') t++;
+                while (*t && *t != ' ') t++;
+                sk++;
+            }
+            while (*t == ' ') t++;
+            char text[256];
+            snprintf(text, sizeof text, "%s", t);
+            text[strcspn(text, "\r\n")] = '\0';
+            if (last_examine < 0 ||
+                em_examine_text(last_examine, gk, gl, text) < 0)
+                printf("manifest: examinetext line dropped: %s", line);
         } else if ((gn = sscanf(line, "enemy generator %f %f %f %f "
                                 "kind %d link %d",
                                 &x, &y, &z, &yaw, &gk, &gl)) >= 4) {
@@ -1616,11 +1691,12 @@ static void scene_manifest_load(void)
                g.rig_cam_col[0], g.rig_cam_col[1], g.rig_cam_col[2],
                g.rig_cam_w, g.n_lamp);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
-           "collision %s%s%s, %d door(s), %d enem%s, %d pickup(s)\n", mf,
+           "collision %s%s%s, %d door(s), %d enem%s, %d pickup(s), "
+           "%d examine(s)\n", mf,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
            g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count(),
            em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies",
-           em_pickup_count());
+           em_pickup_count(), em_examine_count());
     for (int i = 0; i < g.n_camregion; i++)
         printf("manifest: camregion %d — X[%.1f,%.1f] Z[%.1f,%.1f] "
                "y %.1f, fixed eye (%.1f, %.1f, %.1f)\n", i,
@@ -1709,6 +1785,9 @@ static void scene_unload(EmGfx *gfx)
                                  * the taken-bit set survive (engine
                                  * globals; that survival IS the pickup
                                  * persistence, em_pickup.h) */
+    em_examine_reset();         /* examine objects are per-scene
+                                 * placements (no persistent state —
+                                 * the engine re-arms them anyway) */
 }
 
 int em_game_scene_switch(const char *dir)
@@ -2006,6 +2085,18 @@ static void player_move(void)
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
                                     * re-entry re-arms the tier ramp */
+        g.loco_upt   = 0.0f;
+        return;
+    }
+
+    /* EXAMINE SEQUENCE LOCK (em_examine.h): the examine script's op07
+     * sub2 enters scripted mode for the whole message presentation —
+     * the player stands (no scripted walk on the examine path; the
+     * engine's op01 walk-to in the AREA11 refusal is FLAGGED-omitted
+     * there). Same lock shape as the door transit above. */
+    if (em_examine_input_locked()) {
+        g.move_speed = 0.0f;
+        g.loco_tier  = 0;
         g.loco_upt   = 0.0f;
         return;
     }
@@ -4755,6 +4846,39 @@ static void camera_update(void)
      * post-warp re-seat still happens while the screen is black,
      * gameplay_frame). */
     if (cam->top_mode == 0 && !em_hud_is_open()) {
+        /* EXAMINE camera cue (em_examine.h): the script's op00 fixed
+         * cut — eye from the decoded record, target framing the
+         * examined object. Hard copy + hold pinned while the sequence
+         * presents (the engine's cue records own the camera under
+         * scripted mode); release = a one-shot chase restore behind
+         * the unmoved player, the op07-sub4 restore shape exactly
+         * like the locked-door finish below. Cue-less examines (the
+         * snow refusal's op0D sub5 chase cue) never enter here — the
+         * normal chase keeps the camera. */
+        {
+            float exe[3], ext[3];
+            if (em_examine_camera(exe, ext)) {
+                memcpy(cam->eye_des, exe, sizeof exe);
+                memcpy(cam->tgt_des, ext, sizeof ext);
+                memcpy(cam->eye, exe, sizeof exe);
+                memcpy(cam->tgt, ext, sizeof ext);
+                cam->tgt_soft = 0;
+                g.examcam = 1;
+                camera_commit(cam);   /* func_0018C0D0(cam, 1) */
+                cam->timer++;
+                return;
+            }
+            if (g.examcam) {
+                g.examcam = 0;
+                cam->tgt_soft = 0;
+                cam->tgt_des[0] = g.pos[0];
+                cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+                cam->tgt_des[2] = g.pos[2];
+                camera_desired_eye(cam);
+                memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+                memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+            }
+        }
         if (em_door_movement_locked() && g.doorcam != 3) {
             /* pre-warp transit: approach freeze, then the script's
              * cinematic cut + held angle */
@@ -5194,7 +5318,11 @@ static void frame_close_out(void)
      * player spine: nonzero while hit-reacting/dying — and at the
      * game-over screen, where START means restart): the open press is
      * dropped inside em_hud_update. */
-    em_hud_menu_inhibit(player_damage_locked());
+    em_hud_menu_inhibit(player_damage_locked() ||
+                        em_examine_input_locked());  /* examine = the
+                                  * op07 scripted-mode window — the
+                                  * engine's menu poll never runs while
+                                  * spad 3B8D owns the frame */
     em_hud_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
@@ -5206,6 +5334,11 @@ static void frame_close_out(void)
                                  * gameplay (hidden while the menu is
                                  * open) — the pickup decode's flagged
                                  * status-auto-open stand-in */
+    em_examine_render(gfx);     /* EXAMINE area-bank chain text — the
+                                 * mode-2 presentation for lines the
+                                 * global radio machine can't address
+                                 * (GLOBAL lines drew inside em_hud
+                                 * just above) */
 
     /* SCREEN FADE — the step-D machine, drawn last so it covers the
      * scene AND the status screen (the engine's fade owns the whole GS
@@ -6585,6 +6718,119 @@ static void pickup_test_script(void)
     }
 }
 
+/* EM_EXAMINE_TEST=1 — examine arm / input pause / radio line / camera
+ * cue / chain presenter / cooldown / re-arm self-test (the 2026-06-11
+ * examine decode, em_examine.h). Runs on the default scene; THREE
+ * SYNTHETIC examine objects are injected so the assertions are
+ * placement-independent (the real records ship in the scene manifests
+ * — export_level.py --examine):
+ *
+ *   A: GLOBAL line 0x1A ("Switch / No power...", 148 frames — the
+ *      AREA11 snow-switch refusal shape) 4 u IN FRONT of the spawn
+ *      (the 7-u facing auto-pass ring), with an op00-style camera cue
+ *      and the decoded 300-frame cooldown
+ *   B: AREA-bank chain (the office/drawbridge shape: text/gap/text +
+ *      terminal, pre-delay 5) 12 u in front — inside the 20-u ring,
+ *      a passer, but A is nearer (nearest-wins leg)
+ *   C: chain 9 u BEHIND — the pi/4 facing gate must exclude it
+ *
+ *   frame   1   inject A + B + C
+ *   frame   5   CROSS -> the scan arms A (nearest passer)
+ *   frame 100   assert: sequence active on A, input locked, the radio
+ *               machine presenting, the camera pinned at A's cue
+ *   frame 170   assert: sequence over (148 + terminal), input free,
+ *               camera restored (eye off the cue), A cooling down
+ *   frame 172   CROSS -> A refused (cooldown) + C refused (facing):
+ *               B arms; chain = delay 5 + 20 text + 10 gap + 15 text
+ *               + 1 terminal -> done ~frame 225
+ *   frame 190   assert: active on B, locked, radio machine IDLE (the
+ *               chain rides em_examine's own presenter)
+ *   frame 240   assert: unlocked again
+ *   frame 245   CROSS -> B RE-ARMS (no cooldown — the engine re-arm)
+ *   frame 250   assert + PASS/FAIL + quit. */
+static void examine_test_script(void)
+{
+    static int   ok_arm, ok_lock, ok_cam, ok_done, ok_chain, ok_gate,
+                 ok_rearm;
+    static int   slot_a = -1, slot_b = -1;
+    static float cue[3];
+    int n = g.frame_no;
+    if (n == 1) {
+        float fy = g.spawn_yaw;
+        float pa[3] = { g.spawn[0] + 4.0f * sinf(fy), g.spawn[1],
+                        g.spawn[2] + 4.0f * cosf(fy) };
+        float pb[3] = { g.spawn[0] + 12.0f * sinf(fy), g.spawn[1],
+                        g.spawn[2] + 12.0f * cosf(fy) };
+        float pc[3] = { g.spawn[0] - 9.0f * sinf(fy), g.spawn[1],
+                        g.spawn[2] - 9.0f * cosf(fy) };
+        cue[0] = pa[0];
+        cue[1] = pa[1] + 9.0f;   /* an office-cue-shaped raised eye */
+        cue[2] = pa[2] + 6.0f;
+        slot_a = em_examine_add(pa, 0.0f, EM_EXAMINE_RADIUS,
+                                EM_EXAMINE_DY, 0x1A, 0, 300, cue);
+        slot_b = em_examine_add(pb, 0.0f, EM_EXAMINE_RADIUS,
+                                EM_EXAMINE_DY, -1, 5, 0, NULL);
+        int c  = em_examine_add(pc, 0.0f, EM_EXAMINE_RADIUS,
+                                EM_EXAMINE_DY, -1, 0, 0, NULL);
+        em_examine_text(slot_b, 20, 10, "EXAMINE TEST ONE");
+        em_examine_text(slot_b, 15, 0, "EXAMINE\\nTEST TWO");
+        em_examine_text(c, 20, 0, "WRONG OBJECT");
+        if (slot_a < 0 || slot_b < 0 || c < 0) g.ex_fail++;
+    } else if (n == 5 || n == 172 || n == 245) {
+        move_test_inject('k', 1);          /* CROSS — the use press */
+    } else if (n == 7 || n == 174 || n == 247) {
+        move_test_inject('k', 0);
+    } else if (n == 100) {
+        float ce[3], ct[3];
+        ok_arm  = em_examine_active() == slot_a;
+        ok_lock = em_examine_input_locked() && em_hud_radio_active();
+        ok_cam  = em_examine_camera(ce, ct) &&
+                  fabsf(g.cam.eye[0] - cue[0]) < 1e-3f &&
+                  fabsf(g.cam.eye[1] - cue[1]) < 1e-3f &&
+                  fabsf(g.cam.eye[2] - cue[2]) < 1e-3f;
+        if (!ok_arm || !ok_lock || !ok_cam) {
+            g.ex_fail++;
+            printf("examine test: CHECK FAILED — present (active %d/%d "
+                   "lock %d radio %d cam %d eye %.2f %.2f %.2f)\n",
+                   em_examine_active(), slot_a,
+                   em_examine_input_locked(), em_hud_radio_active(),
+                   ok_cam, g.cam.eye[0], g.cam.eye[1], g.cam.eye[2]);
+        }
+    } else if (n == 170) {
+        ok_done = !em_examine_input_locked() && !em_hud_radio_active() &&
+                  em_examine_active() < 0 &&
+                  fabsf(g.cam.eye[1] - cue[1]) > 1e-3f;
+        if (!ok_done) g.ex_fail++;
+    } else if (n == 190) {
+        ok_chain = em_examine_active() == slot_b &&
+                   em_examine_input_locked() && !em_hud_radio_active();
+        ok_gate  = 1;   /* C armed would have made active == c != b */
+        if (!ok_chain) {
+            g.ex_fail++;
+            printf("examine test: CHECK FAILED — chain (active %d/%d "
+                   "lock %d radio %d)\n", em_examine_active(), slot_b,
+                   em_examine_input_locked(), em_hud_radio_active());
+        }
+    } else if (n == 240) {
+        if (em_examine_input_locked()) g.ex_fail++;
+    } else if (n == 250) {
+        ok_rearm = em_examine_active() == slot_b;
+        if (!ok_rearm) g.ex_fail++;
+        int ok = ok_arm && ok_lock && ok_cam && ok_done && ok_chain &&
+                 ok_gate && ok_rearm && g.ex_fail == 0;
+        printf("examine test: armed (nearest, CROSS edge) %s, input "
+               "paused + radio line %s, camera cue pinned %s, timed "
+               "dismiss + restore + cooldown %s, area chain (facing "
+               "gate held) %s, re-arm %s — %s\n",
+               ok_arm ? "ok" : "FAILED", ok_lock ? "ok" : "FAILED",
+               ok_cam ? "ok" : "FAILED", ok_done ? "ok" : "FAILED",
+               ok_chain ? "ok" : "FAILED", ok_rearm ? "ok" : "FAILED",
+               ok ? "PASS" : "FAIL");
+        fflush(stdout);
+        em_frame_request_quit();
+    }
+}
+
 static void sfx_test_script(void)
 {
     /* Decoded-math assertion state (frame 40/50/60 below). The synthetic
@@ -7378,6 +7624,33 @@ static void gameplay_frame(void)
         else if (g.frame_no == 45) move_test_inject('k', 1);
         else if (g.frame_no == 46) move_test_inject('k', 0);
     }                                       /* debug instrumentation only */
+    /* EM_CAPTURE_EXAMINE=1: place the player 6 u south of the scene's
+     * FIRST examine object (inside the facing auto-pass ring; the snow
+     * scene's = the AREA11 switch — the spawn-side approach corridor
+     * is wall-blocked in the exported collision, so the capture
+     * teleports to the ring instead of walking) and CROSS at frame 20
+     * — the capture (default frame 60) samples the input-paused
+     * refusal line "Switch / No power..." (GLOBAL line 0x1A)
+     * presenting over the scene. */
+    if (g.capture_examine) {
+        float xp[3];
+        if (g.frame_no == 1 &&
+            em_examine_pos(g.capture_examine - 1, xp)) {
+            g.pos[0] = xp[0] - 2.0f;   /* a step aside so a fixed
+                                        * camera cue is not filled by
+                                        * the player model; dist 4.0
+                                        * fits the tightest (5-u
+                                        * archetype-1) ring */
+            g.pos[1] = xp[1];
+            g.pos[2] = xp[2] - 3.5f;
+            g.yaw    = 0.0f;               /* facing +Z = the object */
+            g.cam.state = 0;               /* re-seat the chase camera */
+            printf("capture-examine: placed at (%.1f, %.1f, %.1f)\n",
+                   g.pos[0], g.pos[1], g.pos[2]);
+        }
+        else if (g.frame_no == 20) move_test_inject('k', 1);
+        else if (g.frame_no == 22) move_test_inject('k', 0);
+    }                                       /* debug instrumentation only */
     /* EM_CAPTURE_RISE=1: hold 's' (stick down) from frame 0 — the
      * player about-faces and runs TOWARD the camera; the chase camera
      * backs away until the room's far wall blocks its desired eye and
@@ -7423,6 +7696,7 @@ static void gameplay_frame(void)
     if (g.sfx_test)  sfx_test_script();     /* debug instrumentation only */
     if (g.pause_test) pause_test_script();  /* debug instrumentation only */
     if (g.pickup_test) pickup_test_script();/* debug instrumentation only */
+    if (g.examine_test) examine_test_script();          /* same */
     if (g.camregion_test) camregion_test_script(); /* debug instr. only  */
     if (g.aim_test)  aim_test_script();     /* debug instrumentation only */
     /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
@@ -7543,6 +7817,14 @@ static void gameplay_frame(void)
             }
         }
     }
+    /* EXAMINE objects (em_examine.h — the overlay examine behaviors:
+     * archetype scan on the same CROSS press edge, then the scripted
+     * sequence: input pause + the mode-2 radio line + the optional
+     * op00 camera cue). Doors-first like the pickup scan above; the
+     * running sequence suppresses its own scan internally. */
+    em_examine_update(g.pos, g.yaw, em_frame_input(),
+                      !em_door_movement_locked() &&
+                      !player_damage_locked());
     /* ENEMIES: the enemy state machines (func_001551B0 crates +
      * func_00153F10 worms — also part of the actor-pool tick). Runs
      * BEFORE the weapon update so this frame's shot resolves against
@@ -8040,6 +8322,12 @@ void em_game_install(void)
         g.capture_frame = 360;              /* post-transit, in-room */
     const char *cr = getenv("EM_CAPTURE_RISE");
     g.capture_rise = cr && cr[0] == '1';    /* walk-at-camera rise demo */
+    const char *cx = getenv("EM_CAPTURE_EXAMINE");
+    g.capture_examine = cx ? atoi(cx) : 0;  /* N = examine slot N-1 (snow:
+                                             * 1 = AREA06 switch message,
+                                             * 2 = AREA11 refusal line) */
+    if (g.capture_examine && !cf)
+        g.capture_frame = 60;               /* message mid-presentation */
     const char *co = getenv("EM_CAPTURE_ORIENT");
     g.capture_orient = co && co[0] == '1';  /* idle auto-orient demo */
     const char *mt = getenv("EM_MOVE_TEST");
@@ -8086,6 +8374,8 @@ void em_game_install(void)
     g.death_test   = gt && gt[0] == '1';
     const char *ik = getenv("EM_PICKUP_TEST");
     g.pickup_test  = ik && ik[0] == '1';
+    const char *xt = getenv("EM_EXAMINE_TEST");
+    g.examine_test = xt && xt[0] == '1';
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
@@ -8108,6 +8398,7 @@ void em_game_shutdown(void)
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);
+    em_examine_reset();
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
     em_sfx_shutdown();  /* AFTER em_bgm_shutdown — the device-teardown

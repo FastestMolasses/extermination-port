@@ -338,7 +338,16 @@ files map each native stage to the PS2 function it stands in for.
   CROSS collect -> +count/+packs/+30 reserve/taken bit, despawn + the
   pi/4 facing gate, scene reload -> taken-uid respawn suppressed +
   inventory persisted; combine with EM_CAPTURE_FRAME=30 to capture the
-  "Found:" line), `EM_AUDIO_TEST=1`
+  "Found:" line), `EM_EXAMINE_TEST=1` (examine self-test on three
+  script-injected objects: CROSS arm nearest -> input pause + the mode-2
+  radio line + the op00 camera-cue pin, timed dismiss + chase restore +
+  the AREA11 300-frame cooldown, AREA-bank chain through em_examine's
+  own presenter, pi/4 facing gate, re-arm; the REAL examine records ship
+  in the scene manifests — export_level.py --examine, em_examine.h),
+  `EM_CAPTURE_EXAMINE=N` (place the player at the scene's examine object
+  N-1 + CROSS; scene_snow: 1 = the AREA06 switch message + camera cue,
+  2 = the AREA11 "Switch / No power..." refusal; default capture frame
+  60 samples the line presenting), `EM_AUDIO_TEST=1`
   (sine smoke test), `EM_INPUT_TEST=1` (pad-change prints), `EM_DOOR_TEST=1`
   (full door-transit sequence self-test incl. the arrival walk-out and the
   frame-290 two-lock split witness), `EM_SFX_TEST=1` (3 overlapping

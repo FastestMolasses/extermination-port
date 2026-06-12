@@ -13,6 +13,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c \
+           src/game/em_examine.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
 
 # ---------------------------------------------------------------- macOS
