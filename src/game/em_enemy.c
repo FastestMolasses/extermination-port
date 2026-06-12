@@ -91,12 +91,16 @@
  *   sub 3     BITE (clip 0x13, func_0012C490): IN PLACE; the contact is
  *             the shared melee resolver func_001B5360 — a BUG_CONTACT_R
  *             (=6, VERIFIED) sphere BUG_CONTACT_FWD (=10, VERIFIED)
- *             ahead of the bug vs the player (at the 5u standoff
- *             |5-10| <= 6, so the forward box reaches the player); one
- *             hit posts s.player_hit = 0x4000 | BUG_BITE_DMG (the worm's
- *             player-mailbox bridge; the real damage value is in the
- *             undecoded shared contact subsystem). -> RECOVER.
+ *             ahead of the bug vs the player. A HIT -> LATCH (sub 5),
+ *             not a one-shot bite (s76, user-confirmed: the bug clings
+ *             and the player shakes it off with clip 54).
  *   sub 4     RECOVER + cooldown (func_0012DD70), BUG_RECOVER_F -> sub 0.
+ *   sub 5     LATCHED (s76): clings on the player at a per-bug bearing
+ *             and drains (player-side player_shake_tick) until the
+ *             player's shake-off (em_enemy_shake_off) throws it back to
+ *             RECOVER with a knockback. The engine sets D_008102B0|=2 +
+ *             the drain D_008104D4 + the anchor D_00810320; the cling
+ *             geometry is a flagged PORT stand-in.
  *   DEATH     (state) gameplay slot frees immediately; the corpse plays
  *             the real DEATH clip 0x1B (s76) then holds + alpha-fades (no
  *             gibs — the husk set is the crate's; the bug's own gore
@@ -645,6 +649,15 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
                                    * class 5 -> 5.0 is the candidate but
                                    * the bug's +0x3 is unpinned, so 5 stays
                                    * FLAGGED (also = the worm touch tier).  */
+/* s76 LATCH / shake-off (user-confirmed: clip 54 = the player shaking the
+ * bugs off): a connecting bite LATCHES the bug onto the player instead of
+ * a one-shot bite — it clings and drains until the player shakes it off
+ * (em_game's player_shake_tick -> em_enemy_shake_off). The engine sets
+ * D_008102B0|=2 + the drain D_008104D4 + the attach anchor D_00810320;
+ * the cling geometry below is a flagged PORT stand-in for that anchor.   */
+#define BUG_CLING_R      1.3f     /* PORT: cling radius around the player  */
+#define BUG_CLING_Y      1.0f     /* PORT: cling height on the body        */
+#define BUG_SHAKE_PUSH   3.0f     /* PORT: knockback when shaken off       */
 #define BUG_FLINCH_TICKS 20       /* flinch window fallback without the
                                    * clip (with it: the clip's length)    */
 #define BUG_HIT_R        2.5f     /* PORT: bullet hit-sphere (the flat
@@ -2863,7 +2876,8 @@ static void bug_attack_tick(const EmCollision *coll, Enemy *e,
         /* func_001B5360: the attack box is the bug position pushed
          * +BUG_CONTACT_FWD ahead, radius-6 vs the player. At the ~5u
          * standoff |5-10| = 5 <= 6, so the forward box reaches the
-         * player. NO position change — the strike is in place. */
+         * player. NO position change. On a hit the bug LATCHES (s76) —
+         * it does not bite-and-recover; it clings until shaken off. */
         if (!e->atk_armed) {
             float bx  = e->pos[0] + sinf(e->yaw) * BUG_CONTACT_FWD;
             float bz  = e->pos[2] + cosf(e->yaw) * BUG_CONTACT_FWD;
@@ -2872,8 +2886,9 @@ static void bug_attack_tick(const EmCollision *coll, Enemy *e,
             float cdz = pp[2] - bz;
             if (cdx * cdx + cdy * cdy + cdz * cdz <=
                 BUG_CONTACT_R * BUG_CONTACT_R) {
-                s.player_hit = 0x4000 | BUG_BITE_DMG;
                 e->atk_armed = 1;
+                e->sub       = 5;        /* LATCH onto the player */
+                break;
             }
         }
         if (--e->t28 <= 0) {
@@ -2886,6 +2901,19 @@ static void bug_attack_tick(const EmCollision *coll, Enemy *e,
         if (--e->t28 <= 0)
             e->sub = 0;
         break;
+
+    case 5: {                           /* LATCHED: cling to the player */
+        /* anchored on the player's body at a per-bug bearing (a swarm
+         * spreads around them); held here until the player's shake-off
+         * (em_enemy_shake_off) throws it back to RECOVER. The drain is
+         * applied player-side while any bug is latched. */
+        float a = (float)(e->seed & 7) * (ENEMY_PI * 0.25f);
+        e->pos[0] = pp[0] + sinf(a) * BUG_CLING_R;
+        e->pos[1] = pp[1] + BUG_CLING_Y;
+        e->pos[2] = pp[2] + cosf(a) * BUG_CLING_R;
+        e->yaw    = wrap_pi(a + ENEMY_PI);   /* face into the player */
+        break;
+    }
 
     default:                            /* any stray sub -> approach   */
         e->sub = 0;
@@ -3404,6 +3432,35 @@ int em_enemy_player_hit_take(void)
     int code = s.player_hit;
     s.player_hit = 0;
     return code;
+}
+
+/* s76 LATCH / shake-off bridge (em_game's player_shake_tick): how many
+ * bugs are currently clinging to the player (sub 5), and the shake-off
+ * that throws them all back with a knockback + RECOVER cooldown. */
+int em_enemy_latched_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < s.n; i++)
+        if (s.e[i].active && s.e[i].kind == EM_ENEMY_KIND_BUG &&
+            s.e[i].state == EM_ENEMY_ATTACK && s.e[i].sub == 5)
+            n++;
+    return n;
+}
+
+void em_enemy_shake_off(void)
+{
+    for (int i = 0; i < s.n; i++) {
+        Enemy *e = &s.e[i];
+        if (e->active && e->kind == EM_ENEMY_KIND_BUG &&
+            e->state == EM_ENEMY_ATTACK && e->sub == 5) {
+            e->pos[0] -= sinf(e->yaw) * BUG_SHAKE_PUSH;  /* yaw faces the
+                                          * player, so -dir = away */
+            e->pos[2] -= cosf(e->yaw) * BUG_SHAKE_PUSH;
+            e->pos[1]  = e->pos[1] - BUG_CLING_Y;        /* back to the floor */
+            e->sub     = 4;              /* RECOVER cooldown before re-approach */
+            e->t28     = BUG_RECOVER_F;
+        }
+    }
 }
 
 /* THE VICTIM FILTER — the engine's MODEL-keyed switch (J2 CLOSED s66:

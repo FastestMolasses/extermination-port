@@ -588,6 +588,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_CLIP_DEATH        0x2Au /* normal death (130 f fall) */
 #define PD_CLIP_DEATH_ARM    0x5Cu /* armed death variant (130 f) */
 #define PD_CLIP_DEATH_INF   0x1C4u /* infected death (300 f succumb) */
+#define PD_CLIP_SHAKE        0x36u  /* clip 54: the BUG SHAKE-OFF (s76,
+                                    * user-confirmed; the engine wraps it
+                                    * 0x35->0x36->0x35 — the port plays the
+                                    * 0x36 shake, the recognisable motion) */
+#define PD_SFX_SHAKE        0x154u  /* func_002208C0 shake-off sound */
+#define PD_SHAKE_DRAIN      0.06f   /* PORT: health drained per latched bug
+                                    * per frame while clinging (the engine
+                                    * D_008104D4 drain — magnitude flagged) */
 #define PD_SFX_HURT         0x152u /* flinch grunt (health hit) */
 #define PD_SFX_HURT_INF     0x153u /* flinch grunt (infection hit) */
 #define PD_SFX_DEATH_VOICE  0x146u /* death voice (phase 0) */
@@ -2881,6 +2889,50 @@ static void player_damage_process(void)
         player_enter_flinch();
 }
 
+/* s76 BUG SHAKE-OFF (the latch reaction — func_002208C0 / state-2
+ * sub-state 0xD): a bug bite LATCHES the bug onto the player (em_enemy
+ * sub 5); while any cling, the player DRAINS, and when free he SHAKES
+ * them off (clip 54), which detaches them all. The engine's 0x35->0x36
+ * ->0x35 wrap is reduced to the recognisable 0x36 shake. */
+static void player_enter_shake(void)
+{
+    if (!em_game_anim_request(PD_CLIP_SHAKE, 1.0f))
+        return;                       /* clip-less asset: no shake */
+    em_sfx_play_at(PD_SFX_SHAKE, g.pos, 300.0f);
+    g.pd_state = 2;
+    g.pd_sub   = 4;                   /* SHAKE */
+    g.pd_phase = 5;                   /* wait for the scripted-anim commit */
+    g.pd_hold  = 0;
+    g.pd_clip  = PD_CLIP_SHAKE;
+    /* rumble func_001B61C0(0,0xC0,5,1) — no force-feedback backend */
+}
+
+static void player_shake_tick(void)
+{
+    int latched = em_enemy_latched_count();
+    if (latched <= 0)
+        return;
+    /* DRAIN while clinging — direct, because the reaction is the SHAKE,
+     * not the flinch the normal damage pipeline would trigger (and that
+     * pipeline is locked during a reaction anyway). Drained to 0 -> the
+     * death sequence. */
+    if (g.go_state == 0 && g.pd_sub != 1 && g.pd_sub != 3) {
+        g.status.health -= PD_SHAKE_DRAIN * (float)latched;
+        if (g.status.health <= 0.0f) {
+            g.status.health = 0.0f;
+            g.pd_state = 0;
+            g.pd_phase = 0;                /* abort any in-flight shake */
+            em_enemy_shake_off();          /* drop the bugs */
+            player_enter_death();
+            return;
+        }
+    }
+    /* SHAKE them off when the player is free (engine: the contact pass
+     * raises the +0x0F=2 shake command only when not busy / not i-framed). */
+    if (g.pd_state == 0 && g.go_state == 0 && g.pd_iframes == 0)
+        player_enter_shake();
+}
+
 /* The state-2 per-frame tick (the port slice of func_0021D800 phase 1
  * / func_0021E240 / func_0021D2E0): watch the committed reaction clip,
  * fire the death-sequence sound cues, run the corpse hold, then the
@@ -2908,6 +2960,22 @@ static void player_hurt_tick(void)
             g.pd_phase   = 0;
             g.pd_hold    = 0;
             g.pd_iframes = PD_IFRAMES;       /* +0x20E = 0x3C */
+        }
+        return;
+    }
+    if (g.pd_sub == 4) {
+        /* SHAKE-OFF: the one-shot clip 54 plays out, then throws every
+         * latched bug off (em_enemy_shake_off) and exits with a brief
+         * invuln, like the flinch recover. */
+        int over = g.pd_phase == 2
+                 ? ++g.pd_hold >= 30
+                 : em_game_anim_active() != g.pd_clip;
+        if (over) {
+            em_enemy_shake_off();
+            g.pd_state   = 0;
+            g.pd_phase   = 0;
+            g.pd_hold    = 0;
+            g.pd_iframes = PD_IFRAMES;
         }
         return;
     }
@@ -7595,41 +7663,37 @@ static void aim_test_script(void)
  *            (the kill is the +0x36 mailbox write), TWO BUGS hatched
  *            at the crate ring (the s68 burst contract), and crate B
  *            STAYS IDLE — the broadcast does NOT wake it (s76).
- *   phase 2  HIT-CONFIRM path: recover anim 0x10F must commit (a
- *            landed hit SKIPS the combo — engine states 0x50..0x52).
- *            Wait out the recover (and any flinch); the bugs WALK IN
- *            (the minimal approach brain); when one is inside 9 u,
- *            tap J (SQUARE) — the HEAVY stab (mode 0x22, damage 15,
- *            immediate gate).
- *   phase 3  heavy 1 lands: melee hits 2, EXACTLY ONE bug dead (the
- *            decoded 15 damage vs the variant-A HP 15 — a one-stab
- *            kill through the every-tick mailbox).
- *   phase 4  heavy 2 at the surviving bug: melee hits 3, both A-bugs
- *            dead — bugs ARE victims (s68), the inverse of the worm
- *            leg below.
+ *   phase 2  recover anim 0x10F commits (a landed hit SKIPS the combo).
+ *            Then the s76 LATCH witness: the A-bugs WALK IN and LATCH
+ *            onto the player (you do NOT stab a clinging bug — the new
+ *            bug combat is the shake-off). Wait for em_enemy_latched_
+ *            count() >= 1.
+ *   phase 3  SHAKE-OFF: the player AUTO-shakes the latched bug off (clip
+ *            0x36 must play) which DETACHES it (latched -> 0); then clear
+ *            both A-bugs (mailbox) so the frontal cone is empty for the
+ *            whiff legs.
  *   phase 5  the WORM WHIFF witness (J2 s66, kept): spawn ONE worm
- *            9 u dead ahead (em_enemy_add — the port-convenience
- *            direct spawn; generators are its only engine source),
- *            heavy stab THROUGH it mid-approach — melee hits STAY 3
- *            (func_00183AC0 rejects model 0xD), the worm is
- *            untouched (ATTACK, vestigial HP 10).
+ *            9 u dead ahead (em_enemy_add), heavy stab THROUGH it —
+ *            melee hits STAY 1 (func_00183AC0 rejects model 0xD), the
+ *            worm untouched (ATTACK, vestigial HP 10).
  *   phase 6  the worm clears itself: its OWN lunge resolve bursts it
  *            on the player (health reported, not asserted) — wait
  *            out the flinch.
- *   phase 7  WHIFF COMBO (frontal cone empty: A-bugs dead, worm gone,
+ *   phase 7  WHIFF COMBO (frontal cone empty: A-bugs cleared, worm gone,
  *            crate B inert behind): tap L, re-tap L during each swing —
  *            assert the committed clip chains 0x10B -> 0x10C -> 0x10D
  *            (the buffered +0x2E chain), NO recover anim on a whiff
- *            (clip-end exit), the final counts (7 swings, 3 hits), and
- *            that crate B is still the lone IDLE survivor (it never
- *            woke, hatched no bugs).
+ *            (clip-end exit), the final counts (5 swings, 1 hit — the
+ *            bugs latch + are shaken off, not stabbed), and that crate B
+ *            is still the lone IDLE survivor.
  *
  * PASS = all checks green; any phase timing out fails the run. */
 static void melee_test_script(void)
 {
-    static int saw_recov_anim, saw_heavy, chain12, chain23, whiff_recov;
-    static int mt_bug_left = -1;    /* the A-bug surviving heavy 1     */
-    static int mt_j2, mt_j3;        /* heavy 2 / heavy 3 tap frames    */
+    static int saw_recov_anim, chain12, chain23, whiff_recov;
+    static int mt_shake_seen;       /* saw the shake-off clip 0x36     */
+    static int mt_cleared;          /* frame the A-bugs were cleared   */
+    static int mt_j3;               /* heavy 3 (worm whiff) tap frame   */
     static int mt_worm = -1;        /* the worm-whiff witness slot     */
     static int dbg = -1;
     static unsigned prev_anim;
@@ -7648,7 +7712,6 @@ static void melee_test_script(void)
     /* transition trackers (sampled every frame) */
     if (anim == 0x10F && g.mt_phase <= 2)
         saw_recov_anim = 1;
-    if (em_weapon_melee_heavy()) saw_heavy = 1;
     if (g.mt_phase == 7) {
         if (prev_anim == 0x10B && anim == 0x10C) chain12 = 1;
         if (prev_anim == 0x10C && anim == 0x10D) chain23 = 1;
@@ -7734,79 +7797,66 @@ static void melee_test_script(void)
             }
             break;
         case 2:
-            /* recover (hit-confirm) must complete (and any flinch
-             * clear) before heavy 1 — the A-bugs WALK IN from the
-             * 11-u crate ring (the minimal approach brain); stab once
-             * one is inside 9 u: bugs ARE melee victims (s68). */
-            if (em_weapon_is_melee() || player_damage_locked()) break;
-            if (!saw_recov_anim) {
+            /* s76 LATCH + SHAKE-OFF witness (the new bug combat — you do
+             * NOT stab a clinging bug, you shake it off): the A-bugs walk
+             * in from the 11-u ring and LATCH onto the player. The light-
+             * combo recover (0x10F) is tracked globally; wait for a latch
+             * (the player then auto-shakes — player_shake_tick). */
+            if (!saw_recov_anim && n > g.mt_mark + 90) {
                 g.mt_fail++;
                 printf("melee test: CHECK FAILED — recover anim 0x10F "
                        "never committed after the confirmed hit\n");
                 saw_recov_anim = -1;            /* report once */
             }
-            if ((em_enemy_state(2) == EM_ENEMY_ATTACK &&
-                 et_dist_i(2) < 9.0f) ||
-                (em_enemy_state(3) == EM_ENEMY_ATTACK &&
-                 et_dist_i(3) < 9.0f)) {
-                move_test_inject('j', 1);       /* SQUARE — heavy 1 */
+            if (em_enemy_latched_count() >= 1) {
+                g.mt_phase = 3;                 /* a bug latched */
+                g.mt_mark  = n;
+            } else if (n > g.mt_mark + 600) {
+                g.mt_fail++;
+                printf("melee test: CHECK FAILED — no bug latched onto "
+                       "the player within budget\n");
                 g.mt_phase = 3;
                 g.mt_mark  = n;
             }
             break;
         case 3:
-            if (n == g.mt_mark + 2) move_test_inject('j', 0);
-            if (saw_heavy && !em_weapon_is_melee()) {
-                /* heavy 1 one-stabs a bug: the decoded 15 vs the
-                 * variant-A HP 15 through the every-tick mailbox */
-                int dead2 = em_enemy_state(2) == EM_ENEMY_FREE;
-                int dead3 = em_enemy_state(3) == EM_ENEMY_FREE;
-                if (!(em_weapon_melee_hits() == 2 &&
-                      (dead2 ^ dead3))) {
-                    g.mt_fail++;
-                    printf("melee test: CHECK FAILED — heavy 1 must "
-                           "one-stab a bug (hits %d, states %d/%d)\n",
-                           em_weapon_melee_hits(), em_enemy_state(2),
-                           em_enemy_state(3));
-                }
-                mt_bug_left = dead2 ? 3 : 2;
-                g.mt_phase  = 4;
-                g.mt_mark   = n;
-            } else if (n > g.mt_mark + 90) {
-                g.mt_fail++;
-                printf("melee test: CHECK FAILED — heavy 1 never "
-                       "swung/finished (state %d)\n",
-                       em_weapon_melee_state());
-                g.mt_phase = 4;
-                g.mt_mark  = n;
-            }
-            break;
-        case 4:
-            /* heavy 2 kills the surviving A-bug (parked inside the
-             * standoff, still in the frontal cone). */
-            if (!mt_j2) {
-                if (em_weapon_is_melee() || player_damage_locked())
-                    break;
-                if (em_enemy_state(mt_bug_left) == EM_ENEMY_ATTACK &&
-                    et_dist_i(mt_bug_left) < 11.0f) {
-                    move_test_inject('j', 1);   /* SQUARE — heavy 2 */
-                    mt_j2 = n;
-                }
-            } else {
-                if (n == mt_j2 + 2) move_test_inject('j', 0);
-                if (n > mt_j2 + 4 && !em_weapon_is_melee()) {
-                    if (!(em_weapon_melee_hits() == 3 &&
-                          em_enemy_state(mt_bug_left) ==
-                              EM_ENEMY_FREE)) {
+            /* the player auto-SHAKES the latched bug off (clip 0x36),
+             * which DETACHES it; then clear both A-bugs (mailbox) so the
+             * frontal cone is empty for the worm-whiff legs. */
+            if (em_game_anim_active() == PD_CLIP_SHAKE)
+                mt_shake_seen = 1;
+            if (!mt_cleared) {
+                if (em_enemy_latched_count() == 0 &&
+                    !player_damage_locked()) {       /* shake done */
+                    if (!mt_shake_seen) {
                         g.mt_fail++;
-                        printf("melee test: CHECK FAILED — heavy 2 "
-                               "must kill the surviving bug (hits %d, "
-                               "state %d)\n", em_weapon_melee_hits(),
-                               em_enemy_state(mt_bug_left));
+                        printf("melee test: CHECK FAILED — the player "
+                               "never played the shake-off clip 0x36\n");
                     }
-                    g.mt_phase = 5;
-                    g.mt_mark  = n;
+                    for (int k = 2; k <= 3; k++)
+                        if (em_enemy_state(k) != EM_ENEMY_FREE)
+                            em_enemy_damage(k, 15);
+                    mt_cleared = n > 0 ? n : 1;
+                } else if (n > g.mt_mark + 300) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — shake-off did not "
+                           "detach the bug (latched %d)\n",
+                           em_enemy_latched_count());
+                    for (int k = 2; k <= 3; k++)
+                        if (em_enemy_state(k) != EM_ENEMY_FREE)
+                            em_enemy_damage(k, 15);
+                    mt_cleared = n;
                 }
+            } else if (n > mt_cleared + 8 && !player_damage_locked()) {
+                int live_a = (em_enemy_state(2) != EM_ENEMY_FREE) +
+                             (em_enemy_state(3) != EM_ENEMY_FREE);
+                if (live_a) {
+                    g.mt_fail++;
+                    printf("melee test: CHECK FAILED — A-bugs not cleared "
+                           "(%d live)\n", live_a);
+                }
+                g.mt_phase = 5;
+                g.mt_mark  = n;
             }
             break;
         case 5:
@@ -7836,7 +7886,7 @@ static void melee_test_script(void)
             } else {
                 if (n == mt_j3 + 2) move_test_inject('j', 0);
                 if (n > mt_j3 + 4 && !em_weapon_is_melee()) {
-                    if (!(em_weapon_melee_hits() == 3 &&
+                    if (!(em_weapon_melee_hits() == 1 &&
                           em_enemy_state(mt_worm) == EM_ENEMY_ATTACK &&
                           em_enemy_hp(mt_worm) == 10)) {
                         g.mt_fail++;
@@ -7884,14 +7934,15 @@ static void melee_test_script(void)
                            "played on a whiff (clip-end exit "
                            "expected)\n");
                 }
-                if (em_weapon_melee_swings() != 7 ||
-                    em_weapon_melee_hits() != 3) {
+                if (em_weapon_melee_swings() != 5 ||
+                    em_weapon_melee_hits() != 1) {
                     g.mt_fail++;
                     printf("melee test: CHECK FAILED — counts (swings "
-                           "%d expected 7: light + 2 bug heavies + "
-                           "the worm whiff + 3 whiffs; hits %d "
-                           "expected 3 — bugs ARE victims, worms are "
-                           "not)\n", em_weapon_melee_swings(),
+                           "%d expected 5: light + the worm whiff + 3 "
+                           "whiffs; hits %d expected 1 — the bugs LATCH "
+                           "and are shaken off, not stabbed; the worm is "
+                           "not a melee victim)\n",
+                           em_weapon_melee_swings(),
                            em_weapon_melee_hits());
                 }
                 /* s76: crate B never woke (the broadcast is inert — see
@@ -8548,6 +8599,7 @@ static void gameplay_frame(void)
         else if (hitcode)
             g.pd_pend_inf += (float)hitcode;
         player_damage_process();
+        player_shake_tick();         /* s76 bug-latch drain + shake-off */
         player_vitals_tick();
         /* (the GO machine ticks from the frozen gate above once
          * GO_SCREEN is reached — the live path never runs it) */

@@ -518,6 +518,12 @@ void em_enemy_damage(int i, int16_t code);
  * EmPlayerStatus.health. Returns the pending code and clears it. */
 int em_enemy_player_hit_take(void);
 
+/* s76 bug-latch / shake-off (clip 54): the count of bugs currently
+ * clinging to the player, and the shake-off that detaches them all (the
+ * player's shake reaction calls it on the clip's completion). */
+int  em_enemy_latched_count(void);
+void em_enemy_shake_off(void);
+
 /* Hitscan support for em_weapon.c — keeps the em_collision world API
  * untouched (port choice, documented in em_weapon.h):
  *
