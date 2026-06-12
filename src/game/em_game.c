@@ -1392,6 +1392,20 @@ static struct {
                                   * (see gameplay_frame) */
     int         capture_orient;  /* EM_CAPTURE_ORIENT=1 — turn-in-place,
                                   * then idle: the slow auto-orient demo */
+    int         capture_walk;    /* EM_CAPTURE_WALK=1 — hold 'w' (run
+                                  * AWAY from the camera) so the capture
+                                  * samples the plain moving-player chase
+                                  * framing: eye +19 / target +17 (the
+                                  * s71 idle-row correction — no dive
+                                  * toward the feet) */
+    int         capture_locked;  /* EM_CAPTURE_LOCKED=N — drawbridge m15
+                                  * LOCKED-door try from approach variant
+                                  * N (1 = straight on, 2 = oblique SW —
+                                  * different prior camera orientations);
+                                  * the capture samples the locked-look
+                                  * cut and prints the camera at the
+                                  * capture frame: runs 1 and 2 must
+                                  * match (the s71 snap-yaw anchor) */
     int         move_test;
     int         move_legs[2];    /* EM_MOVE_LEGS=fwd,strafe frame counts */
     int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
@@ -8259,6 +8273,64 @@ static void gameplay_frame(void)
             move_test_inject(EM_KEY_CMD, 0);
         }
     }                                       /* debug instrumentation only */
+    /* EM_CAPTURE_WALK=1: hold 'w' (run AWAY from the camera) — by the
+     * capture frame the chase rides the tow-rope at the MOVING-PLAYER
+     * heights (eye +19 / target +17, the s71 idle-row correction): a
+     * level over-the-shoulder framing, NOT the old dive toward the
+     * feet. The print at the capture frame is the height witness. */
+    if (g.capture_walk) {
+        if (g.frame_no == 0)
+            move_test_inject('w', 1);
+        else if (g.frame_no == g.capture_frame)
+            printf("capture-walk: frame %d player y %.2f cam eye y %.2f "
+                   "tgt y %.2f (moving heights: eye +%.1f tgt +%.1f)\n",
+                   g.frame_no, g.pos[1], g.cam.eye[1], g.cam.tgt[1],
+                   g.cam.eye[1] - g.pos[1], g.cam.tgt[1] - g.pos[1]);
+    }                                       /* debug instrumentation only */
+    /* EM_CAPTURE_LOCKED=N (run with EM_SCENE=assets/scene_drawbridge):
+     * the m15 LOCKED security door (placement (-20.5, 0, -192) yaw 0,
+     * doorway center (-25.5, -192)) tried from two different APPROACH
+     * ORIENTATIONS — variant 1 stands square south of the center
+     * facing +Z, variant 2 stands oblique to the SW facing the center;
+     * the re-seated chase camera therefore arrives at the CROSS with
+     * two different live yaws. The locked-look cut (func_001BBBF0)
+     * must park the SAME camera both runs (the engine's D_00810374 =
+     * last-SCRIPTED yaw, ported as the kickoff snap yaw — never the
+     * live chase heading): the print at the capture frame is the
+     * determinism witness, the BMPs the visual one. */
+    if (g.capture_locked) {
+        if (g.frame_no == 1) {
+            if (g.capture_locked == 1) {
+                g.pos[0] = -25.5f; g.pos[2] = -201.0f;
+                g.yaw     = 0.0f;           /* square on, facing +Z */
+                g.cam.yaw = 0.0f;           /* prior camera: behind */
+            } else {
+                g.pos[0] = -21.0f; g.pos[2] = -200.0f;
+                g.yaw     = -0.512f;        /* oblique SE, facing the
+                                             * doorway center */
+                g.cam.yaw = -2.2f;          /* prior camera: swung way
+                                             * around — the live-yaw
+                                             * input the OLD locked
+                                             * look wrongly consumed */
+            }
+            g.pos[1] = 0.0f;
+            g.cam.state = 0;                /* re-seat the chase camera
+                                             * behind the variant yaw */
+            printf("capture-locked: variant %d at (%.1f, %.1f, %.1f) "
+                   "yaw %.3f cam yaw %.3f\n", g.capture_locked,
+                   g.pos[0], g.pos[1], g.pos[2], g.yaw, g.cam.yaw);
+        } else if (g.frame_no == 50) {
+            move_test_inject('k', 1);       /* CROSS — the locked try */
+        } else if (g.frame_no == 52) {
+            move_test_inject('k', 0);
+        } else if (g.frame_no == g.capture_frame) {
+            printf("capture-locked: variant %d frame %d cam eye "
+                   "(%.3f, %.3f, %.3f) tgt (%.3f, %.3f, %.3f)\n",
+                   g.capture_locked, g.frame_no,
+                   g.cam.eye[0], g.cam.eye[1], g.cam.eye[2],
+                   g.cam.tgt[0], g.cam.tgt[1], g.cam.tgt[2]);
+        }
+    }                                       /* debug instrumentation only */
     if (g.enemy_test) enemy_test_script();  /* debug instrumentation only */
     if (g.melee_test) melee_test_script();  /* debug instrumentation only */
     if (g.death_test) death_test_script();  /* debug instrumentation only */
@@ -8927,6 +8999,13 @@ void em_game_install(void)
         g.capture_frame = 60;               /* message mid-presentation */
     const char *co = getenv("EM_CAPTURE_ORIENT");
     g.capture_orient = co && co[0] == '1';  /* idle auto-orient demo */
+    const char *cw = getenv("EM_CAPTURE_WALK");
+    g.capture_walk = cw && cw[0] == '1';    /* plain mid-walk framing */
+    const char *cl = getenv("EM_CAPTURE_LOCKED");
+    g.capture_locked = cl ? atoi(cl) : 0;   /* locked-look determinism:
+                                             * approach variant 1 or 2 */
+    if (g.capture_locked && !cf)
+        g.capture_frame = 110;              /* mid locked-look hold */
     const char *mt = getenv("EM_MOVE_TEST");
     g.move_test    = mt && mt[0] == '1';
     g.move_legs[0] = 60;   /* the historical office legs */

@@ -333,7 +333,16 @@ files map each native stage to the PS2 function it stands in for.
   (default frame 360) samples the SUPPLY ROOM's spawn-record fixed
   corner camera (eye (116, 33, -300));
   `EM_CAPTURE_RISE=1` walks the player at the camera so a late capture
-  frame shows the wall-RISE camera; `EM_CAPTURE_ORIENT=1` turn-in-place +
+  frame shows the wall-RISE camera; `EM_CAPTURE_WALK=1` holds forward
+  (run AWAY from the camera) so the capture samples the plain
+  moving-player chase framing — eye +19 / target +17 (the s71 idle-row
+  correction; the print at the capture frame is the height witness);
+  `EM_CAPTURE_LOCKED=N` (EM_SCENE=assets/scene_drawbridge) tries the
+  m15 LOCKED door from approach variant N (1 = square on, 2 = oblique
+  with the prior camera yaw swung to -2.2) and prints the camera at the
+  capture frame (default 110) — variants 1 and 2 MUST print the same
+  eye/tgt (the s71 deterministic locked-look snap-yaw anchor);
+  `EM_CAPTURE_ORIENT=1` turn-in-place +
   idle for the slow auto-orient; `EM_CAMERA_TRACE=1` prints the camera
   wall-solve and auto-orient), `EM_PAUSE_TEST=1` (status-screen pause gate:
   open -> held stick dead -> close -> movement resumes; PLUS the door leg —
@@ -380,6 +389,22 @@ files map each native stage to the PS2 function it stands in for.
   the state01 savestate to 0.05 px on 5 world points; see the
   "Engine projection" block in em_game.c),
   `make test-input` (OS-free pad-model unit test).
+- THE DRAWBRIDGE (2026-06-11 s74 — the scene's namesake, formerly
+  missing): `assets/scene_drawbridge/12_placed.emdl` bakes the AREA01
+  table-A model-table placements the zone files never carried — the
+  TWO mirrored 105 x 60 bridge-deck halves (records [41]/[42], overlay
+  brain fn 0x8261A0, placed yaw-pi at (0, 3, -525)/(0, 3, -315),
+  meeting at exactly z = -420 over the chasm), the two high suspension
+  panels (y 156.9, pitched 0.349), the crank piece beside the
+  crank-examine record, and the two creature-family fixtures (office
+  bake convention). REST POSE ONLY, FLAGGED: the leaves are 1-node
+  models — raise/lower is undecoded AREA01 overlay actor code and no
+  object-anim bank clip binds a 1-node rig, so the bridge ships
+  LOWERED (the authored rest). Regenerate with decomp
+  `export_level.py --drawbridge extract/chunk05.n0 --out
+  assets/scene_drawbridge`. Whether the exported static grid carries a
+  walkable deck poly over the chasm is UNVERIFIED (flagged) — treat the
+  bridge as visual until probed.
 - CRATE ASSET (2026-06-11, user-confirmed fidelity): the GLOBAL default
   `assets/enemy_crate.emdl` is the WOODEN shipping crate (the n0
   leaf-table entry 0x0D carve — decomp `export_props.py --crate
