@@ -120,8 +120,15 @@
  *    the radius-6 contact carrying the latch (flagged fallback).
  *  - DEATH: the engine's state 2 spawns nest children, gore FX, a
  *    MODEL REBIND to the gib models (library entries 0x22/0x29 — the
- *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED")
- *    and, when killed by damage, a knockback corpse-slide along the
+ *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED").
+ *    The husk PICK is decoded (2026-06-11, func_001551B0 @0x156380 —
+ *    closes the s24 open item): the damage-kill arm keys on the
+ *    crawler MODEL byte — 6 (the wooden crate, every exported
+ *    scene's placements) -> husk 0x22 + its brown splinter family;
+ *    any other variant -> husk 0x29 + the grey-cyan chunk family.
+ *    The port's burst launches from the matching family, husk first
+ *    (em_enemy.c GIB_FILES). When killed by damage the engine adds
+ *    a knockback corpse-slide along the
  *    RNG-rotated (90/180/270 deg) hit vector. The gameplay slot still
  *    despawns immediately; VISUALLY a lethal hit now launches 3-5 gib
  *    instances from the exported burst set (assets/gibs/gib_*.emdl,
@@ -363,9 +370,9 @@
  * the trigger box. PASS/FAIL line + quit.
  *
  * Instances come from the SCENE MANIFEST: `enemy crawler <x> <y> <z>
- * <yaw>` / `enemy crate <x> <y> <z> <yaw> [bugs <n>]` / `enemy bug
- * <x> <y> <z> <yaw>` lines (parsed by em_game.c next to the door
- * lines), plus `enemy generator <x> <y> <z> <yaw> [kind <k>]
+ * <yaw>` / `enemy crate <x> <y> <z> <yaw> [bugs <n>] [variant <v>]`
+ * / `enemy bug <x> <y> <z> <yaw>` lines (parsed by em_game.c next to
+ * the door lines), plus `enemy generator <x> <y> <z> <yaw> [kind <k>]
  * [link <n>]` lines — all parsed natively by em_game.c's
  * scene_manifest_load and dispatched here (em_enemy_add_kind /
  * em_enemy_add_crate / em_enemy_add_generator) at scene-load time.
@@ -444,8 +451,14 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
  * <n>` manifest lines — the channel for the decoded registry counts,
  * which are disc data the port cannot read itself). `bugs` < 0 = the
  * default group (2, the office modal group — flagged fallback); 0 =
- * a gore-only crate (the office link -1 majority). */
-int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw, int bugs);
+ * a gore-only crate (the office link -1 majority). `variant` = the
+ * placement MODEL byte (`variant <v>`; < 0 = the default 6 — every
+ * exported scene's crates): it picks the burst's HUSK FAMILY exactly
+ * like the engine's damage-kill rebind (func_001551B0 @0x156380 —
+ * byte 6 -> library husk 0x22, the wooden crate's brown set; any
+ * other crawler variant -> husk 0x29, grey-cyan). */
+int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw,
+                       int bugs, int variant);
 
 /* Place one GENERATOR pad (engine class 0x0D / func_0015A2C0 — see
  * "GENERATOR" above; em_game.c's manifest parser dispatches

@@ -323,9 +323,14 @@ int em_door_is_locked(int i);
 /* LOCKED-LOOK camera feed (script D_0024DEC0 record 2 = op 0x09 ->
  * func_001BBBF0): returns 1 while a locked-try script holds the
  * locked-look placement (arrival .. finish), with the door's placement
- * pos/yaw for the handle-side math. em_game.c's camera consumes it (the
- * cut on the rising edge, the op07-sub4 restore on the falling one). */
-int em_door_locked_look(float out_door_pos[3], float *out_door_yaw);
+ * pos/yaw for the handle-side math and the kickoff SNAP yaw (the
+ * through-door axis latched by door_transit_kickoff — the s71
+ * deterministic stand-in for the engine's script-camera yaw global
+ * D_00810374, which the chase camera never writes). em_game.c's camera
+ * consumes it (the cut on the rising edge, the op07-sub4 restore on
+ * the falling one). out_snap_yaw may be NULL. */
+int em_door_locked_look(float out_door_pos[3], float *out_door_yaw,
+                        float *out_snap_yaw);
 
 /* Locked-rattle play count (op 0x17 sub 0, sound 0x3F2) — test/debug
  * introspection (EM_LOCKED_TEST asserts exactly one per refusal). */

@@ -169,13 +169,16 @@
  * the burst-death visual. The engine rebinds the dead actor's model to
  * library entry 0x22 or 0x29 of chunk27/f01_id37.bin — the burst-husk
  * models — and knocks the corpse along the RNG-rotated hit vector.
+ * The PICK is decoded (2026-06-11, func_001551B0 @0x156380): model
+ * byte 6 -> husk A 0x22 (brown — the wooden crate of every exported
+ * scene), else husk B 0x29 (grey-cyan; the 0x1C/0x1E/0x1F variants).
  * The exported set (one static 1-node EMDL per library entry, textures
- * from the office GS dump) also carries the husks' texture-paired small
- * chunk/shard meshes (0x1C/0x1D/0x1E share husk A's skin, 0x26/0x27
- * husk B's, 0x28 = husk B at half size). On a lethal hit the port
- * spawns 3-5 instances from that set (the half husk first — the
- * documented rebind target nearest the worm's ~11-u scale — then
- * chunks/shards round-robin), each launched with:
+ * from the office GS dump) also carries the husks' texture-paired
+ * small chunk/shard meshes (0x1C/0x1D/0x1E share husk A's skin,
+ * 0x26/0x27 husk B's, 0x28 = husk B at half size). On a lethal hit
+ * the port spawns 3-5 instances from the MATCHING FAMILY (the husk
+ * first — the engine's rebind corpse — then its chunks/shards
+ * round-robin; GIB_FILES below), each launched with:
  *
  *   planar dir = the hit vector (attacker -> victim, port stand-in:
  *                player -> crawler) rotated by RNG in {90, 180, 270}
@@ -485,7 +488,10 @@
 /* --- Gib layer (see "GIB LAYER" in the file header) --------------------
  * Engine values: the rotation choice set and gravity. Everything else is
  * a flagged port constant (launch speeds are not exported from the disc). */
-#define GIB_MODEL_MAX    6        /* loadable burst-set models            */
+#define GIB_FAMILY_N     2        /* the engine's two husk families       */
+#define GIB_FAM_A        0        /* model byte 6 -> husk 0x22 (wooden)   */
+#define GIB_FAM_B        1        /* other variants -> husk 0x29          */
+#define GIB_FAM_FILES    4        /* loadable models per family           */
 #define GIB_BONE_MAX     4        /* exporter writes 1+1 palette slots    */
 #define GIB_COUNT_MIN    3        /* instances per burst: 3..5            */
 #define GIB_COUNT_SPAN   3
@@ -501,18 +507,36 @@
                                    * depth-write-off draw) and free       */
 
 /* The exported burst set this module launches (decomp repo
- * tools/export_props.py --gibs; library entry in the name). Order
- * matters: the half-size husk B (0x28, the documented rebind target
- * closest to the worm's scale) first, then the texture-paired chunks/
- * shards round-robin. Missing files just shrink the pool; an empty
- * pool falls back to the corpse-fade placeholder (no regression). */
-static const char *const GIB_FILES[GIB_MODEL_MAX] = {
-    "assets/gibs/gib_28.emdl",    /* husk B, half size (7x7x4)  */
-    "assets/gibs/gib_26.emdl",    /* chunk 1 (husk-B skin)      */
-    "assets/gibs/gib_27.emdl",    /* chunk 2 (husk-B skin)      */
-    "assets/gibs/gib_1c.emdl",    /* shard A1 (husk-A skin)     */
-    "assets/gibs/gib_1d.emdl",    /* shard A2 (husk-A skin)     */
-    "assets/gibs/gib_1e.emdl",    /* shard A3 (husk-A skin)     */
+ * tools/export_props.py --gibs; library entry in the name), split
+ * into the engine's TWO HUSK FAMILIES. The pick is DECODED
+ * (2026-06-11, func_001551B0 state 2 @0x156380 — closes the s24
+ * "which husk binds to which variant" open item): the damage-kill
+ * arm reads the crawler MODEL byte (+0x03) and rebinds the corpse
+ * model (D_0028A56C library) to entry 0x22 when the byte is 6, else
+ * 0x29. Byte 6 is EVERY crate in AREA02/11/13/18/20/22 — the WOODEN
+ * crate — and husk A is its brown opened-crate base with the
+ * texture-paired splinters 0x1C/0x1D/0x1E; the grey-cyan husk B
+ * family (0x29 + chunks 0x26/0x27 + the half-size 0x28) belongs to
+ * the 0x1C/0x1E/0x1F variants (AREA03/06/07/08 placements). The old
+ * single mixed pool led with husk-B pieces — the wrong debris for
+ * the wooden crate (user-reported; this split fixes it). Launch
+ * order: the family HUSK first (it IS the engine's rebind corpse),
+ * then its shards/chunks round-robin. Missing files shrink a
+ * family; an empty family falls back to the corpse-fade
+ * placeholder (no regression). */
+static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
+    {   /* husk A family — brown crate tones (TBP 0x22F9) */
+        "assets/gibs/gib_22.emdl",    /* husk A: opened 14x14 base  */
+        "assets/gibs/gib_1c.emdl",    /* splinter A1                */
+        "assets/gibs/gib_1d.emdl",    /* splinter A2                */
+        "assets/gibs/gib_1e.emdl",    /* splinter A3                */
+    },
+    {   /* husk B family — grey-cyan (TBP 0x229B) */
+        "assets/gibs/gib_29.emdl",    /* husk B: 14x14, 8 tall      */
+        "assets/gibs/gib_26.emdl",    /* chunk 1                    */
+        "assets/gibs/gib_27.emdl",    /* chunk 2                    */
+        "assets/gibs/gib_28.emdl",    /* husk B at half size        */
+    },
 };
 
 /* --- Crate kind (see "CRATE KIND" in the file header) -------------------
@@ -697,6 +721,15 @@ typedef struct {
     uint8_t children;     /* crate: nest-group bug count hatched at the
                            * burst (the s68 registry group size; the
                            * manifest `bugs <n>` channel)                */
+    uint8_t variant;      /* crate: the placement MODEL byte (+0x03 —
+                           * {6,0x1C,0x1E,0x1F,0x50}; manifest
+                           * `variant <v>`, default 6 = every exported
+                           * scene's crates). Picks the husk family on
+                           * the damage-kill burst (decoded
+                           * func_001551B0 @0x156380: 6 -> husk 0x22,
+                           * else 0x29) and, engine-true, would gate
+                           * the knockback arm (6/0x1E only — the port
+                           * launches for both, flagged)                */
     uint8_t atk_armed;    /* crate: the 180-tick attack timer was armed
                            * at the first hop launch (port split of the
                            * engine's reused +0x2A — see ATTACK)         */
@@ -751,7 +784,8 @@ typedef struct {
 /* One airborne/resting gib instance (visual only). */
 typedef struct {
     int   active;
-    int   model;          /* index into s.gibm                           */
+    int   fam;            /* husk family (GIB_FAM_A/B — see GIB_FILES)   */
+    int   model;          /* index into s.gibm[fam]                      */
     float pos[3];
     float vel[3];         /* 0.052/tick gravity on [1]                   */
     float yaw, spin;      /* tumble (PORT visual)                        */
@@ -867,11 +901,13 @@ static struct {
 
     /* gib layer (visual only; see the file header) */
     int        gib_tried;
-    GibModel   gibm[GIB_MODEL_MAX];
-    int        gibm_n;       /* loaded burst-set models (0 = fade only)  */
+    GibModel   gibm[GIB_FAMILY_N][GIB_FAM_FILES];
+    int        gibm_n[GIB_FAMILY_N]; /* loaded models per husk family
+                                      * (0 = that family fades only)     */
     Gib        gib[ENEMY_SLOT_MAX];
     int        gib_tail;     /* virtual draw slots in use (compact top)  */
-    int        gib_next;     /* round-robin model cursor                 */
+    int        gib_next;     /* round-robin cursor over a family's
+                              * shard tail (the husk leads each burst)   */
     uint32_t   rng;          /* deterministic LCG state                  */
     int        frame;        /* update ticks (EM_ENEMY_GIBDEMO hook)     */
     int        demo;         /* parsed EM_ENEMY_GIBDEMO (-1 = off)       */
@@ -1234,40 +1270,47 @@ static int bug_mesh_get(EmGfx *gfx)
 }
 
 /* Load the burst set once (first crawler spawn — the only entry point
- * with a gfx handle; em_enemy_update can't create GPU meshes). Missing
- * files shrink the pool silently; an empty pool = fade fallback. */
+ * with a gfx handle; em_enemy_update can't create GPU meshes). Both
+ * husk families load front-compacted; missing files shrink a family
+ * silently and an empty family = fade fallback for its bursts. */
 static void gib_models_load(EmGfx *gfx)
 {
     if (s.gib_tried) return;
     s.gib_tried = 1;
 
-    for (int i = 0; i < GIB_MODEL_MAX; i++) {
-        GibModel *gm = &s.gibm[s.gibm_n];
-        if (em_model_load(&gm->model, GIB_FILES[i]) != 0)
-            continue;
-        if (gm->model.bone_count > GIB_BONE_MAX) {
-            em_model_free(&gm->model);
-            continue;
+    for (int f = 0; f < GIB_FAMILY_N; f++) {
+        for (int i = 0; i < GIB_FAM_FILES; i++) {
+            GibModel *gm = &s.gibm[f][s.gibm_n[f]];
+            if (em_model_load(&gm->model, GIB_FILES[f][i]) != 0)
+                continue;
+            if (gm->model.bone_count > GIB_BONE_MAX) {
+                em_model_free(&gm->model);
+                continue;
+            }
+            gm->mesh = em_gfx_mesh_create(gfx, gm->model.verts,
+                                          gm->model.vert_count,
+                                          gm->model.indices,
+                                          gm->model.index_count,
+                                          (const EmGfxTexDesc *)
+                                          gm->model.texs,
+                                          gm->model.tex_count,
+                                          gm->model.texels,
+                                          gm->model.flags);
+            if (!gm->mesh) {
+                em_model_free(&gm->model);
+                continue;
+            }
+            gm->bone_count = gm->model.bone_count;
+            em_model_palette_at(&gm->model, 0, 0.0, gm->base);
+            s.gibm_n[f]++;
         }
-        gm->mesh = em_gfx_mesh_create(gfx, gm->model.verts,
-                                      gm->model.vert_count,
-                                      gm->model.indices,
-                                      gm->model.index_count,
-                                      (const EmGfxTexDesc *)gm->model.texs,
-                                      gm->model.tex_count, gm->model.texels,
-                                      gm->model.flags);
-        if (!gm->mesh) {
-            em_model_free(&gm->model);
-            continue;
-        }
-        gm->bone_count = gm->model.bone_count;
-        em_model_palette_at(&gm->model, 0, 0.0, gm->base);
-        s.gibm_n++;
     }
-    if (s.gibm_n > 0)
-        printf("enemy gibs: %d/%d burst-set models loaded from "
-               "assets/gibs/ (lethal hits scatter them)\n",
-               s.gibm_n, GIB_MODEL_MAX);
+    if (s.gibm_n[GIB_FAM_A] > 0 || s.gibm_n[GIB_FAM_B] > 0)
+        printf("enemy gibs: husk A %d/%d + husk B %d/%d burst-set "
+               "models loaded from assets/gibs/ (the variant-keyed "
+               "rebind families — func_001551B0 @0x156380)\n",
+               s.gibm_n[GIB_FAM_A], GIB_FAM_FILES,
+               s.gibm_n[GIB_FAM_B], GIB_FAM_FILES);
     else
         printf("enemy gibs: none of assets/gibs/ present — death keeps "
                "the corpse-fade placeholder (export with the decomp repo's "
@@ -1308,8 +1351,12 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
         e->arate  = BUG_WALK_MIN;
         e->ablend = 1.0f;
     }
-    if (kind == EM_ENEMY_KIND_CRATE)
+    if (kind == EM_ENEMY_KIND_CRATE) {
         e->children = CRATE_BUGS_DEFAULT;
+        e->variant  = 6;   /* every exported scene's crate placements
+                            * carry model byte 06 (the wooden crate —
+                            * placements survey 2026-06-11)            */
+    }
     /* Stage a valid pose immediately: the render chain may record this
      * instance's palette pointer before the first em_enemy_update. */
     enemy_build_palette(e);
@@ -1338,10 +1385,11 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
         return enemy_spawn(EM_ENEMY_KIND_BUG, pos, yaw);
     }
     if (kind != EM_ENEMY_KIND_CRATE) return -1;
-    return em_enemy_add_crate(gfx, pos, yaw, -1);
+    return em_enemy_add_crate(gfx, pos, yaw, -1, -1);
 }
 
-int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw, int bugs)
+int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw,
+                       int bugs, int variant)
 {
     if (s.n >= ENEMY_SLOT_MAX) return -1;
     if (crate_mesh_get(gfx) != 0) return -1;
@@ -1354,6 +1402,8 @@ int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw, int bugs)
     if (i >= 0 && bugs >= 0)
         s.e[i].children = (uint8_t)(bugs > ENEMY_SLOT_MAX
                                     ? ENEMY_SLOT_MAX : bugs);
+    if (i >= 0 && variant >= 0)
+        s.e[i].variant = (uint8_t)variant;
     return i;
 }
 
@@ -1733,7 +1783,7 @@ static void enemy_build_palette(Enemy *e)
  * column rotation + translate composition as enemy_build_palette). */
 static void gib_build_palette(Gib *g)
 {
-    const GibModel *gm = &s.gibm[g->model];
+    const GibModel *gm = &s.gibm[g->fam][g->model];
     const float c = cosf(g->yaw), sn = sinf(g->yaw);
 
     memcpy(g->palette, gm->base, gm->bone_count * 16 * sizeof(float));
@@ -1751,13 +1801,21 @@ static void gib_build_palette(Gib *g)
 }
 
 /* Burst: launch 3-5 gib instances from a lethally-hit crawler with the
- * documented knockback shape (file header). Budgeted so the virtual
- * draw slots never push the crawler+gib total past ENEMY_SLOT_MAX (the
- * original budget; EM_ENEMY_MAX is now the chain reservation). Returns
- * the number launched (0 = caller keeps the corpse-fade placeholder). */
+ * documented knockback shape (file header). The pieces come from ONE
+ * husk family — the decoded variant-keyed rebind (GIB_FILES block):
+ * a crate picks by its model byte (6 -> husk A, the wooden crate's
+ * brown set; else husk B), any other kind (the debug worm demo —
+ * worms have no engine rebind) keeps the husk-B set. The first
+ * instance is the family HUSK itself (the engine's rebind corpse),
+ * the rest round-robin its shards. Budgeted so the virtual draw
+ * slots never push the crawler+gib total past ENEMY_SLOT_MAX (the
+ * original budget; EM_ENEMY_MAX is now the chain reservation).
+ * Returns the number launched (0 = corpse-fade placeholder). */
 static int gib_burst(const Enemy *e)
 {
-    if (s.gibm_n == 0) return 0;
+    int fam = (e->kind == EM_ENEMY_KIND_CRATE && e->variant == 6)
+              ? GIB_FAM_A : GIB_FAM_B;
+    if (s.gibm_n[fam] == 0) return 0;
 
     int want   = GIB_COUNT_MIN + (int)(gib_rng() % GIB_COUNT_SPAN);
     int budget = ENEMY_SLOT_MAX - s.n; /* virtual slots we may occupy
@@ -1779,7 +1837,12 @@ static int gib_burst(const Enemy *e)
 
         memset(g, 0, sizeof *g);
         g->active = 1;
-        g->model  = s.gib_next++ % s.gibm_n;
+        g->fam    = fam;
+        /* the husk leads (instance 0 = the rebind corpse); shards
+         * round-robin behind it (a 1-model family repeats the husk) */
+        g->model  = (spawned == 0 || s.gibm_n[fam] == 1)
+                    ? 0 : 1 + (int)(s.gib_next++ %
+                                    (unsigned)(s.gibm_n[fam] - 1));
         g->pos[0] = e->pos[0];
         g->pos[1] = e->pos[1] + GIB_LAUNCH_LIFT;
         g->pos[2] = e->pos[2];
@@ -3329,7 +3392,7 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
             return 1;
         }
         if (!s.gib[k].active) return 0;
-        const GibModel *gm = &s.gibm[s.gib[k].model];
+        const GibModel *gm = &s.gibm[s.gib[k].fam][s.gib[k].model];
         *mesh       = gm->mesh;
         *palette    = s.gib[k].palette;
         *bone_count = gm->bone_count;
@@ -3451,10 +3514,11 @@ void em_enemy_shutdown(EmGfx *gfx)
         if (s.bug_has_model)
             em_model_free(&s.bug_model);
     }
-    for (int i = 0; i < s.gibm_n; i++) {
-        em_gfx_mesh_destroy(gfx, s.gibm[i].mesh);
-        em_model_free(&s.gibm[i].model);
-    }
+    for (int f = 0; f < GIB_FAMILY_N; f++)
+        for (int i = 0; i < s.gibm_n[f]; i++) {
+            em_gfx_mesh_destroy(gfx, s.gibm[f][i].mesh);
+            em_model_free(&s.gibm[f][i].model);
+        }
     if (s.gen_mesh)
         em_gfx_mesh_destroy(gfx, s.gen_mesh);
     if (s.tf_mesh) {

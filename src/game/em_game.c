@@ -1501,7 +1501,7 @@ static struct {
  *                             brain — born attacking; the engine never
  *                             places one, port convenience); owned by
  *                             em_enemy.c.
- *   enemy crate <x> <y> <z> <yaw> [bugs <n>]
+ *   enemy crate <x> <y> <z> <yaw> [bugs <n>] [variant <v>]
  *                             one DISGUISED CRATE (the placed crawler
  *                             func_001551B0 — em_enemy.h "CRATE
  *                             KIND"): idles as the office crate mesh,
@@ -1513,7 +1513,14 @@ static struct {
  *                             decoded registry group size (office:
  *                             2-3; 0 = gore-only link -1 crates);
  *                             bare lines default to 2 (flagged
- *                             fallback, em_enemy.h).
+ *                             fallback, em_enemy.h). `variant <v>` =
+ *                             the placement MODEL byte (default 6 =
+ *                             every exported scene's crates): keys
+ *                             the burst's husk family exactly like
+ *                             the engine's rebind (6 -> the brown
+ *                             wooden husk 0x22 set, else the
+ *                             grey-cyan 0x29 set — func_001551B0
+ *                             @0x156380).
  *   enemy bug <x> <y> <z> <yaw>
  *                             one BUG hatchling placed directly (the
  *                             s68 15-node insectoid, em_enemy.h "BUG
@@ -1824,12 +1831,20 @@ static void scene_manifest_load(void)
                 float p[3] = { x, y, z };
                 int   ok;
                 if (kind == EM_ENEMY_KIND_CRATE) {
-                    /* optional `bugs <n>` tail = the s68 nest-group
-                     * size (-1 = absent -> em_enemy's default) */
-                    int bn = -1;
-                    sscanf(line, "enemy crate %*f %*f %*f %*f bugs %d",
-                           &bn);
-                    ok = em_enemy_add_crate(em_frame_gfx(), p, yaw, bn);
+                    /* optional tails (-1 = absent -> em_enemy's
+                     * defaults): `bugs <n>` = the s68 nest-group
+                     * size; `variant <v>` = the placement model byte
+                     * (the husk-family key — func_001551B0
+                     * @0x156380). Order-free: each keyword is scanned
+                     * from wherever it appears. */
+                    int bn = -1, vn = -1;
+                    const char *t;
+                    if ((t = strstr(line, " bugs ")))
+                        sscanf(t, " bugs %d", &bn);
+                    if ((t = strstr(line, " variant ")))
+                        sscanf(t, " variant %i", &vn);
+                    ok = em_enemy_add_crate(em_frame_gfx(), p, yaw,
+                                            bn, vn);
                 } else {
                     ok = em_enemy_add_kind(em_frame_gfx(), kind, p, yaw);
                 }
@@ -3823,9 +3838,15 @@ static void camera_mode_dispatch(EmCamera *cam)
         cam->yaw = atan2f(g.pos[0] - rg->eye[0], g.pos[2] - rg->eye[2]);
         cam->swing = 0;
     } else if (g.gait != 0 || g.move_speed > 0.0f) {
-        /* WALK-STATE CAMERA (func_00230000 — the constants block
-         * above): the TOW-ROPE tether owns the eye x/z, the decoded
-         * seek owns the eye height, and the heading is an OUTPUT. */
+        /* MOVING-PLAYER CAMERA — s71: ordinary walking is player
+         * state 3 = func_001921D0's DEFAULT branch (.L00192DDC),
+         * which runs the same tow-rope excess pull and the same
+         * func_00191D40 eye-Y seek as the elevated handler
+         * (func_00230000) but with the IDLE height row (+19/+17 —
+         * the constants block above): the TOW-ROPE tether owns the
+         * eye x/z, the decoded seek owns the eye height (which now
+         * STAYS at idle level on the ground — PCSX2-verified, no
+         * dive), and the heading is an OUTPUT. */
         camera_walk_eye_0022FCA0(cam);
         cam_eye_y_seek_00191D40(cam,
                                 g.pos[1] + CAM_BASE_H + cam->var_5c
@@ -4940,7 +4961,7 @@ static void camera_door_cinematic(EmCamera *cam)
                                      * the dispatcher (camera_update) */
         return;
     if (g.doorcam < 2) {
-        float dp[3], dyaw;
+        float dp[3], dyaw, snapyaw;
         if (em_door_transit_active(tt, &tyaw)) {
             g.doorcam = 1;          /* approach walk: hold the chase
                                      * camera still (commit only) */
@@ -4953,21 +4974,44 @@ static void camera_door_cinematic(EmCamera *cam)
             return;
         }
         /* walk-to arrived — the door script starts THIS frame: cut. */
-        if (em_door_locked_look(dp, &dyaw)) {
+        if (em_door_locked_look(dp, &dyaw, &snapyaw)) {
             /* func_001BBBF0 — the LOCKED-TRY cut: target = door + 8 u
              * toward the HANDLE side (the door-yaw left) + 10 up, eye
-             * = target - 13 along the LIVE camera yaw (D_00810374 —
-             * cam->yaw is untouched here, exactly the engine read)
-             * with eye.y = door.y + 12. Hard copy, then HOLD pinned
-             * (doorcam 4) until the finish script restores. */
+             * = target - 13 along D_00810374 with eye.y = door.y + 12.
+             * Hard copy, then HOLD pinned (doorcam 4) until the finish
+             * script restores.
+             *
+             * s71 YAW-SOURCE CORRECTION (PCSX2 ground truth: the
+             * engine parks this shot in the SAME spot regardless of
+             * how the camera was oriented on approach): D_00810374 is
+             * NOT the live chase heading. Full writer census (every
+             * main-ELF reference): only script/cutscene ops write it —
+             * op01 walk-to sub (func_001B6F80 = rec[+0x34], a
+             * script-authored yaw), op04 (rec angles), op15/op19
+             * compounds, func_001B6F00 (actor yaw + offset, scripted-
+             * actor cues), func_00183160 (+= delta, overlay-called),
+             * and the room-entry mode-0xA fixed-cam armer
+             * (func_001B0460 -> func_00102C58). The chase camera NEVER
+             * writes it, so at the locked try it holds the last
+             * SCRIPTED camera yaw — deterministic per route. The old
+             * cam->yaw read only looked right before s67 (the chase
+             * yaw was approach-independent after the kickoff walk);
+             * the s67 tether made cam->yaw an output and broke it.
+             * The port has no script-yaw global, so the deliberate,
+             * orientation-independent stand-in is the THROUGH-DOOR
+             * snap yaw from the kickoff (em_door's transit_yaw — the
+             * same spad-3B50 anchor the open cut uses): the camera
+             * parks 13 u on the player's side of the handle, facing
+             * the door, from any approach (FLAGGED stand-in for the
+             * last-scripted-yaw global). */
             cam->tgt_des[0] = dp[0] - LOCKCAM_HANDLE_OFF * cosf(dyaw);
             cam->tgt_des[1] = dp[1] + LOCKCAM_TGT_UP;
             cam->tgt_des[2] = dp[2] + LOCKCAM_HANDLE_OFF * sinf(dyaw);
             cam->eye_des[0] = cam->tgt_des[0]
-                            - LOCKCAM_EYE_BACK * sinf(cam->yaw);
+                            - LOCKCAM_EYE_BACK * sinf(snapyaw);
             cam->eye_des[1] = dp[1] + LOCKCAM_EYE_UP;
             cam->eye_des[2] = cam->tgt_des[2]
-                            - LOCKCAM_EYE_BACK * cosf(cam->yaw);
+                            - LOCKCAM_EYE_BACK * cosf(snapyaw);
             memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
             memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
             cam->tgt_soft = 0;
@@ -6230,7 +6274,7 @@ static void locked_test_script(void)
          * geometry — camera cut observed via state). */
         float dp[3], dyaw;
         lt_ok_anim = em_game_anim_active() == 0x44;
-        lt_ok_cam  = em_door_locked_look(dp, &dyaw) &&
+        lt_ok_cam  = em_door_locked_look(dp, &dyaw, NULL) &&
                      fabsf(g.cam.tgt[0] + 28.5f)  <= 0.75f &&
                      fabsf(g.cam.tgt[1] - 10.0f)  <= 0.75f &&
                      fabsf(g.cam.tgt[2] + 192.0f) <= 0.75f &&

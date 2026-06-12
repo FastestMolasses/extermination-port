@@ -1284,7 +1284,8 @@ int em_door_is_locked(int i)
     return s.doors[i].lock_gated && !s.doors[i].unlocked;
 }
 
-int em_door_locked_look(float out_door_pos[3], float *out_door_yaw)
+int em_door_locked_look(float out_door_pos[3], float *out_door_yaw,
+                        float *out_snap_yaw)
 {
     for (int i = 0; i < s.n_doors; i++) {
         const Door *d = &s.doors[i];
@@ -1293,6 +1294,8 @@ int em_door_locked_look(float out_door_pos[3], float *out_door_yaw)
         out_door_pos[1] = d->pos[1];
         out_door_pos[2] = d->pos[2];
         *out_door_yaw   = d->yaw;
+        if (out_snap_yaw)
+            *out_snap_yaw = d->transit_yaw;  /* the kickoff snap (s71) */
         return 1;
     }
     return 0;

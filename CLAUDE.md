@@ -403,7 +403,13 @@ files map each native stage to the PS2 function it stands in for.
   registry counts are disc data; exporter nest-link emission is a
   decomp open item); `enemy bug x y z yaw` places one directly. The
   WORM stays exclusive to mode-2 generator pads (engine-true; its
-  unshootable victim filters are untouched).
+  unshootable victim filters are untouched). BURST DEBRIS is the
+  variant-keyed HUSK FAMILY (2026-06-11, the decoded func_001551B0
+  @0x156380 rebind pick): model byte 6 (every exported scene's
+  crates — the wooden box) → the brown husk-0x22 set, any other
+  variant → the grey-cyan husk-0x29 set, husk first then splinters
+  (manifest `variant <v>`; the old mixed pool showed husk-B pieces
+  on the wooden crate — fixed).
 
 ## Build
 
