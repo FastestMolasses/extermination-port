@@ -92,15 +92,16 @@
  *             the shared melee resolver func_001B5360 — a BUG_CONTACT_R
  *             (=6, VERIFIED) sphere BUG_CONTACT_FWD (=10, VERIFIED)
  *             ahead of the bug vs the player. A HIT -> LATCH (sub 5),
- *             not a one-shot bite (s76, user-confirmed: the bug clings
- *             and the player shakes it off with clip 54).
+ *             not a one-shot bite (LIVE-VERIFIED 2026-06-12: the bug
+ *             clings and the player MASHES CROSS to shake it off).
  *   sub 4     RECOVER + cooldown (func_0012DD70), BUG_RECOVER_F -> sub 0.
- *   sub 5     LATCHED (s76): clings on the player at a per-bug bearing
- *             and drains (player-side player_shake_tick) until the
- *             player's shake-off (em_enemy_shake_off) throws it back to
- *             RECOVER with a knockback. The engine sets D_008102B0|=2 +
- *             the drain D_008104D4 + the anchor D_00810320; the cling
- *             geometry is a flagged PORT stand-in.
+ *   sub 5     LATCHED (LIVE s76): clings on the player at a per-bug
+ *             bearing while em_game's player_struggle_tick drains health
+ *             + rises infection; when the player WINS the CROSS-mash
+ *             struggle, em_enemy_shake_off throws it off AND KILLS it
+ *             (-> EM_ENEMY_DEATH; the engine's func_001EFE00 throw
+ *             broadcast). It does NOT re-approach. Cling geometry is a
+ *             flagged PORT stand-in.
  *   DEATH     (state) gameplay slot frees immediately; the corpse plays
  *             the real DEATH clip 0x1B (s76) then holds + alpha-fades (no
  *             gibs — the husk set is the crate's; the bug's own gore
@@ -3449,16 +3450,21 @@ int em_enemy_latched_count(void)
 
 void em_enemy_shake_off(void)
 {
+    /* LIVE-VERIFIED 2026-06-12: the player's shake-off throws every
+     * clinging bug off AND KILLS it (the engine's func_001EFE00 throw
+     * broadcast notifies the latched bug to die) — they do NOT detach
+     * and re-approach. A knockback away, then the death sequence. */
     for (int i = 0; i < s.n; i++) {
         Enemy *e = &s.e[i];
         if (e->active && e->kind == EM_ENEMY_KIND_BUG &&
             e->state == EM_ENEMY_ATTACK && e->sub == 5) {
-            e->pos[0] -= sinf(e->yaw) * BUG_SHAKE_PUSH;  /* yaw faces the
+            e->pos[0]    -= sinf(e->yaw) * BUG_SHAKE_PUSH;  /* yaw faces the
                                           * player, so -dir = away */
-            e->pos[2] -= cosf(e->yaw) * BUG_SHAKE_PUSH;
-            e->pos[1]  = e->pos[1] - BUG_CLING_Y;        /* back to the floor */
-            e->sub     = 4;              /* RECOVER cooldown before re-approach */
-            e->t28     = BUG_RECOVER_F;
+            e->pos[2]    -= cosf(e->yaw) * BUG_SHAKE_PUSH;
+            e->pos[1]    -= BUG_CLING_Y;                 /* back to the floor */
+            e->mailbox    = 0;
+            e->hit_lethal = 1;
+            e->state      = EM_ENEMY_DEATH;              /* thrown off -> dies */
         }
     }
 }

@@ -588,14 +588,26 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_CLIP_DEATH        0x2Au /* normal death (130 f fall) */
 #define PD_CLIP_DEATH_ARM    0x5Cu /* armed death variant (130 f) */
 #define PD_CLIP_DEATH_INF   0x1C4u /* infected death (300 f succumb) */
-#define PD_CLIP_SHAKE        0x36u  /* clip 54: the BUG SHAKE-OFF (s76,
-                                    * user-confirmed; the engine wraps it
-                                    * 0x35->0x36->0x35 — the port plays the
-                                    * 0x36 shake, the recognisable motion) */
-#define PD_SFX_SHAKE        0x154u  /* func_002208C0 shake-off sound */
-#define PD_SHAKE_DRAIN      0.06f   /* PORT: health drained per latched bug
-                                    * per frame while clinging (the engine
-                                    * D_008104D4 drain — magnitude flagged) */
+/* BUG LATCH / SHAKE-OFF — the CROSS-mash struggle (LIVE-VERIFIED 2026-06-
+ * 12; FINDINGS "BUG LATCH / SHAKE-OFF — LIVE-VERIFIED"). Clips from the
+ * struggle handlers func_0021F330/F850; the rates/threshold are flagged
+ * PORT constants pending a live-read of the realised per-second rates. */
+#define PD_CLIP_CLING        0x2Cu  /* clinging idle (sub 0x0B phase 0)    */
+#define PD_CLIP_STRUGGLE     0x2Eu  /* per-CROSS struggle (sub 0x0C ph 0)  */
+#define PD_CLIP_THROWOFF     0x24u  /* final throw-off (sub 0x0C phase 6)  */
+#define PD_SFX_SHAKE        0x150u  /* struggle-start sound (func_0021F850) */
+#define PD_SFX_THROWOFF     0x14Du  /* throw-off sound (func_0021C120)     */
+#define PD_LATCH_HIT        10.0f   /* LIVE: health hit on the latch connect
+                                     * (+0x224 = 10.0; worm lunge was 15)  */
+#define PD_LATCH_INFECT     0.80f   /* FLAGGED: infection gained per frame
+                                     * per clinging bug (live: 0->100 fast
+                                     * — the real killer; needs a live rate)*/
+#define PD_LATCH_DRAIN      0.25f   /* FLAGGED: health drained per frame per
+                                     * clinging bug (live: 90->1 over the
+                                     * latch; needs a live rate)           */
+#define PD_STRUGGLE_WIN     16      /* FLAGGED: CROSS presses to throw the
+                                     * bug off (live counter advanced ~1 per
+                                     * press; real mashing is fast)        */
 #define PD_SFX_HURT         0x152u /* flinch grunt (health hit) */
 #define PD_SFX_HURT_INF     0x153u /* flinch grunt (infection hit) */
 #define PD_SFX_DEATH_VOICE  0x146u /* death voice (phase 0) */
@@ -1301,6 +1313,7 @@ static struct {
     int        pd_low;         /* +0x235 bit 0 low-health latch */
     int        pd_drain_t;     /* +0x2FC infected drain counter */
     unsigned   pd_clip;        /* committed reaction clip (test/report) */
+    int        struggle_n;     /* bug-latch shake-off mash counter (CROSS) */
     int        pd_cue_fall;    /* death-clip T-80 sound fired */
     int        pd_cue_thud;    /* death-clip T-16 sound fired */
     int        go_state;       /* GAME-OVER/CONTINUE machine (GO_*
@@ -2894,43 +2907,55 @@ static void player_damage_process(void)
  * sub 5); while any cling, the player DRAINS, and when free he SHAKES
  * them off (clip 54), which detaches them all. The engine's 0x35->0x36
  * ->0x35 wrap is reduced to the recognisable 0x36 shake. */
-static void player_enter_shake(void)
+static void player_enter_struggle(void)
 {
-    if (!em_game_anim_request(PD_CLIP_SHAKE, 1.0f))
-        return;                       /* clip-less asset: no shake */
+    em_game_anim_hold(PD_CLIP_CLING, 1.0f);   /* 0x2C cling-idle pose */
     em_sfx_play_at(PD_SFX_SHAKE, g.pos, 300.0f);
-    g.pd_state = 2;
-    g.pd_sub   = 4;                   /* SHAKE */
-    g.pd_phase = 5;                   /* wait for the scripted-anim commit */
-    g.pd_hold  = 0;
-    g.pd_clip  = PD_CLIP_SHAKE;
-    /* rumble func_001B61C0(0,0xC0,5,1) — no force-feedback backend */
+    g.pd_state    = 2;
+    g.pd_sub      = 5;               /* STRUGGLE (mash CROSS)            */
+    g.pd_phase    = 1;              /* skip the wait-commit gate         */
+    g.pd_hold     = 0;
+    g.pd_clip     = PD_CLIP_CLING;
+    g.struggle_n  = 0;
+    g.status.health -= PD_LATCH_HIT;          /* 10 HP on connect (live) */
+    if (g.status.health < 0.0f) g.status.health = 0.0f;
 }
 
-static void player_shake_tick(void)
+/* LIVE-VERIFIED 2026-06-12 (PCSX2): a clinging bug is shaken off by
+ * MASHING CROSS, not automatically; while it clings the player loses
+ * HEALTH and (the real killer) gains INFECTION fast; winning the mash
+ * race throws the bug off and KILLS it, losing it -> infected death.
+ * Rates/threshold are flagged PORT constants (need a live read —
+ * FINDINGS "BUG LATCH / SHAKE-OFF — LIVE-VERIFIED"). */
+static void player_struggle_tick(void)
 {
     int latched = em_enemy_latched_count();
     if (latched <= 0)
         return;
-    /* DRAIN while clinging — direct, because the reaction is the SHAKE,
-     * not the flinch the normal damage pipeline would trigger (and that
-     * pipeline is locked during a reaction anyway). Drained to 0 -> the
-     * death sequence. */
+    /* DRAIN + INFECT while any bug clings (direct — the reaction locks
+     * the normal damage pipeline). Infection maxing or health 0 = death. */
     if (g.go_state == 0 && g.pd_sub != 1 && g.pd_sub != 3) {
-        g.status.health -= PD_SHAKE_DRAIN * (float)latched;
+        g.status.infection += PD_LATCH_INFECT * (float)latched;
+        if (g.status.infection > 100.0f) g.status.infection = 100.0f;
+        g.status.health    -= PD_LATCH_DRAIN  * (float)latched;
+        if (g.status.infection >= 100.0f && !g.pd_infected) {
+            g.pd_infected       = 1;            /* infected latch (cap 60) */
+            g.status.health_max = PD_INFECTED_MAX;
+            em_sfx_play_at(PD_SFX_INFECTED, g.pos, 300.0f);
+        }
         if (g.status.health <= 0.0f) {
             g.status.health = 0.0f;
             g.pd_state = 0;
-            g.pd_phase = 0;                /* abort any in-flight shake */
-            em_enemy_shake_off();          /* drop the bugs */
+            g.pd_phase = 0;
+            em_enemy_shake_off();              /* the bugs go with you   */
             player_enter_death();
             return;
         }
     }
-    /* SHAKE them off when the player is free (engine: the contact pass
-     * raises the +0x0F=2 shake command only when not busy / not i-framed). */
+    /* enter the struggle the moment a bug first clings (engine: the
+     * contact raises +0x0F=2 when the player is free / not i-framed). */
     if (g.pd_state == 0 && g.go_state == 0 && g.pd_iframes == 0)
-        player_enter_shake();
+        player_enter_struggle();
 }
 
 /* The state-2 per-frame tick (the port slice of func_0021D800 phase 1
@@ -2963,15 +2988,39 @@ static void player_hurt_tick(void)
         }
         return;
     }
-    if (g.pd_sub == 4) {
-        /* SHAKE-OFF: the one-shot clip 54 plays out, then throws every
-         * latched bug off (em_enemy_shake_off) and exits with a brief
-         * invuln, like the flinch recover. */
+    if (g.pd_sub == 5) {
+        /* STRUGGLE: mash CROSS to advance the counter (live: each press
+         * advances it; no decay). At the threshold the bugs are thrown
+         * off and DIE (em_enemy_shake_off). The cling pose (0x2C) holds;
+         * each press plays the struggle flourish (0x2E). */
+        const EmFrameInput *in = em_frame_input();
+        if (in && (in->pressed & EM_PAD_CROSS)) {
+            g.struggle_n++;
+            em_game_anim_request(PD_CLIP_STRUGGLE, 1.2f);   /* 0x2E */
+        } else if (em_game_anim_active() == 0) {
+            em_game_anim_hold(PD_CLIP_CLING, 1.0f);          /* re-hold 0x2C */
+        }
+        if (g.struggle_n >= PD_STRUGGLE_WIN) {
+            em_enemy_shake_off();              /* thrown off -> the bugs DIE */
+            em_sfx_play_at(PD_SFX_THROWOFF, g.pos, 300.0f);  /* 0x14D */
+            em_game_anim_request(PD_CLIP_THROWOFF, 1.0f);    /* 0x24 */
+            g.pd_sub   = 6;
+            g.pd_phase = 5;
+            g.pd_clip  = PD_CLIP_THROWOFF;
+            g.pd_hold  = 0;
+        } else if (em_enemy_latched_count() == 0) {
+            g.pd_state   = 0;                  /* bugs gone (shot off) -> exit */
+            g.pd_phase   = 0;
+            g.pd_iframes = PD_IFRAMES;
+        }
+        return;
+    }
+    if (g.pd_sub == 6) {
+        /* THROW-OFF recover: the 0x24 clip plays out, then exit + invuln. */
         int over = g.pd_phase == 2
                  ? ++g.pd_hold >= 30
                  : em_game_anim_active() != g.pd_clip;
         if (over) {
-            em_enemy_shake_off();
             g.pd_state   = 0;
             g.pd_phase   = 0;
             g.pd_hold    = 0;
@@ -7691,7 +7740,7 @@ static void aim_test_script(void)
 static void melee_test_script(void)
 {
     static int saw_recov_anim, chain12, chain23, whiff_recov;
-    static int mt_shake_seen;       /* saw the shake-off clip 0x36     */
+    /* (mash-struggle witness uses live state, no clip flag) */
     static int mt_cleared;          /* frame the A-bugs were cleared   */
     static int mt_j3;               /* heavy 3 (worm whiff) tap frame   */
     static int mt_worm = -1;        /* the worm-whiff witness slot     */
@@ -7820,39 +7869,44 @@ static void melee_test_script(void)
             }
             break;
         case 3:
-            /* the player auto-SHAKES the latched bug off (clip 0x36),
-             * which DETACHES it; then clear both A-bugs (mailbox) so the
-             * frontal cone is empty for the worm-whiff legs. */
-            if (em_game_anim_active() == PD_CLIP_SHAKE)
-                mt_shake_seen = 1;
+            /* s76 LIVE: the bugs LATCH and the player MASHES CROSS to
+             * shake them off — which KILLS them (em_enemy_shake_off ->
+             * EM_ENEMY_DEATH), not detach. Mash CROSS (alternate down/up =
+             * press edges, ~1 per 2 frames) until the struggle wins; then
+             * witness both A-bugs DIED. */
+            move_test_inject('k', (n & 1) == 0);     /* CROSS press edges */
             if (!mt_cleared) {
                 if (em_enemy_latched_count() == 0 &&
-                    !player_damage_locked()) {       /* shake done */
-                    if (!mt_shake_seen) {
+                    !player_damage_locked()) {        /* struggle won */
+                    int dead = (em_enemy_state(2) == EM_ENEMY_FREE ||
+                                em_enemy_state(2) == EM_ENEMY_DEATH) +
+                               (em_enemy_state(3) == EM_ENEMY_FREE ||
+                                em_enemy_state(3) == EM_ENEMY_DEATH);
+                    if (dead < 2) {
                         g.mt_fail++;
-                        printf("melee test: CHECK FAILED — the player "
-                               "never played the shake-off clip 0x36\n");
+                        printf("melee test: CHECK FAILED — the shake-off "
+                               "must KILL the clinging bugs (states %d/%d)\n",
+                               em_enemy_state(2), em_enemy_state(3));
                     }
-                    for (int k = 2; k <= 3; k++)
-                        if (em_enemy_state(k) != EM_ENEMY_FREE)
-                            em_enemy_damage(k, 15);
+                    move_test_inject('k', 0);
                     mt_cleared = n > 0 ? n : 1;
-                } else if (n > g.mt_mark + 300) {
+                } else if (n > g.mt_mark + 600) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — shake-off did not "
-                           "detach the bug (latched %d)\n",
+                    printf("melee test: CHECK FAILED — CROSS-mash did not "
+                           "shake the bugs off (latched %d)\n",
                            em_enemy_latched_count());
+                    move_test_inject('k', 0);
                     for (int k = 2; k <= 3; k++)
                         if (em_enemy_state(k) != EM_ENEMY_FREE)
                             em_enemy_damage(k, 15);
                     mt_cleared = n;
                 }
-            } else if (n > mt_cleared + 8 && !player_damage_locked()) {
+            } else if (n > mt_cleared + 12 && !player_damage_locked()) {
                 int live_a = (em_enemy_state(2) != EM_ENEMY_FREE) +
                              (em_enemy_state(3) != EM_ENEMY_FREE);
                 if (live_a) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — A-bugs not cleared "
+                    printf("melee test: CHECK FAILED — A-bugs not gone "
                            "(%d live)\n", live_a);
                 }
                 g.mt_phase = 5;
@@ -8599,7 +8653,7 @@ static void gameplay_frame(void)
         else if (hitcode)
             g.pd_pend_inf += (float)hitcode;
         player_damage_process();
-        player_shake_tick();         /* s76 bug-latch drain + shake-off */
+        player_struggle_tick();      /* bug-latch struggle (mash CROSS) */
         player_vitals_tick();
         /* (the GO machine ticks from the frozen gate above once
          * GO_SCREEN is reached — the live path never runs it) */
