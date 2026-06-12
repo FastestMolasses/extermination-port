@@ -622,10 +622,12 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
                                    * box is pushed +10u ahead of the bug  */
 #define BUG_CONTACT_R    6.0f     /* VERIFIED (func_001B5360 -> _0019A570):
                                    * radius-6 contact sphere vs the player */
-#define BUG_BITE_DMG     5        /* FLAGGED PORT: the real value lives in
-                                   * the shared contact subsystem (the
-                                   * D_008104D4 source — s76 open); 5 = the
-                                   * worm's conservative "touch" tier      */
+#define BUG_BITE_DMG     5        /* s76: func_001B5360 applies a per-
+                                   * attack-class damage (jtbl_0026DEA0 on
+                                   * entity+0x3 -> {2,3.5,4.2,5,6,6.5,8});
+                                   * class 5 -> 5.0 is the candidate but
+                                   * the bug's +0x3 is unpinned, so 5 stays
+                                   * FLAGGED (also = the worm touch tier).  */
 #define BUG_FLINCH_TICKS 20       /* flinch window fallback without the
                                    * clip (with it: the clip's length)    */
 #define BUG_HIT_R        2.5f     /* PORT: bullet hit-sphere (the flat
