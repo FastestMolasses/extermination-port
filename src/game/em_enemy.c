@@ -566,16 +566,31 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
  * exported). The old ~10-u proximity trigger was a port invention —
  * REMOVED (the engine's state 4 never reads the player position). */
 #define CRATE_BONE_MAX   4        /* exporter writes 1+1 palette slots    */
-#define CRATE_HIT_R      3.5f     /* PORT: bullet hit-sphere (6x4x5 box)  */
-#define CRATE_AIM_Y      2.0f     /* box center above the feet            */
+/* The office/AREA02 crate disguise (model id 0x0D) is a 14x14x14 box,
+ * bbox X[-7,7] Z[-7,7] Y[0,14] — origin at the FLOOR, visual centre Y=7
+ * (FINDINGS s28/s34; the shipped enemy_crate.emdl EMD3 header agrees).
+ * The engine hits it as the FULL box collision hull (the movable-object
+ * hull, any Y 0..14 — func_0019A570 mask bit0), NOT a low sphere, so a
+ * shot anywhere on the box lands. The port ray-tests that box hull
+ * (crate_ray_box / em_enemy_ray_test); the old Y=2 r=3.5 sphere covered
+ * only the box's bottom ~40%, forcing the player to aim BELOW the visual
+ * centre to connect (user-reported 2026-06-12). */
+#define CRATE_BOX_HXZ    7.0f     /* X/Z half-extent of the 14^3 box      */
+#define CRATE_BOX_TOP    14.0f    /* box top (above the floor origin)     */
+#define CRATE_AIM_Y      7.0f     /* reticle / auto-aim point = box centre */
+#define CRATE_HIT_R      8.0f     /* sphere radius (box hull is primary;
+                                   * kept for any non-box fallback path)  */
 #define CRATE_JIT_POS    0.08f    /* PORT: x/z wiggle amplitude, units    */
 #define CRATE_JIT_YAW    0.02f    /* PORT: yaw wobble amplitude, rad      */
-#define CRATE_BUGS_DEFAULT 2      /* nest-group fallback for manifest
-                                   * crate lines without `bugs <n>` — the
-                                   * office's modal group (2/2/3/2/2,
-                                   * s68); FLAGGED: the registry counts
-                                   * are disc data the exporter must
-                                   * carry per crate                      */
+#define CRATE_BUGS_DEFAULT 0      /* nest-group fallback for a manifest
+                                   * crate line WITHOUT `bugs <n>`: the
+                                   * gore-only majority (12 of the office's
+                                   * 17 are link -1 = no bugs, s68), so a
+                                   * tag-less crate must NOT invent a nest.
+                                   * The 5 real nests always carry an
+                                   * explicit `bugs <n>`. (Was 2 — that
+                                   * hatched bugs from every tag-less crate,
+                                   * user-reported 2026-06-12.)            */
 #define CRATE_BUG_RING   1.5f     /* PORT: child hatch-ring radius — a
                                    * stand-in for the nest records'
                                    * per-child pos offsets (unexported)   */
@@ -770,6 +785,14 @@ typedef struct {
                            * / 3 lunge (the decoded func_00154120 subs)  */
     uint8_t alarm;        /* actor +0x0A group-alarm flag (crate only —
                            * the worm and bug brains never read it)      */
+    uint8_t on_surface;   /* actor +0x52 on-surface flag — the engine's
+                           * group-alarm broadcast only WAKES a crate when
+                           * this is set, and it is 0 for every placed
+                           * crate (live-read s76: drawbridge/office
+                           * floors), so a destroyed crate wakes no
+                           * neighbour. Set at INIT from a floor probe the
+                           * port doesn't model → stays 0 (engine-true for
+                           * all shipped scenes). Default 0 via memset.    */
     uint8_t children;     /* crate: nest-group bug count hatched at the
                            * burst (the s68 registry group size; the
                            * manifest `bugs <n>` channel)                */
@@ -1474,8 +1497,17 @@ int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw,
  * outside the placed-crawler set) and never read the flag. */
 static void enemy_alarm_broadcast(void)
 {
+    /* Decoded list-wide, no-radius wake (func_001551B0 state-4
+     * broadcast) — but the engine reaches its `sb 1, +0x0A` wake ONLY
+     * for a recipient with `+0x52 != 0` (on-surface). That flag is 0 on
+     * every placed crate (live-read s76), so a destroyed crate wakes NO
+     * neighbour — matching the original (user-reported 2026-06-12 that
+     * the J1 "match" was wrong: breaking one crate must NOT move the
+     * other). The mechanism is preserved against a future on-surface
+     * scene; with on_surface defaulting to 0 it is inert, as in-game. */
     for (int i = 0; i < s.n; i++)
-        if (s.e[i].active && s.e[i].kind == EM_ENEMY_KIND_CRATE)
+        if (s.e[i].active && s.e[i].kind == EM_ENEMY_KIND_CRATE &&
+            s.e[i].on_surface)
             s.e[i].alarm = 1;
 }
 
@@ -3451,6 +3483,41 @@ void em_enemy_aim_point(int i, float out[3])
     out[2] = e->pos[2];
 }
 
+/* Ray (from->to) vs a CRATE's box collision hull, in the crate's local
+ * frame: AABB X/Z in [-CRATE_BOX_HXZ, +CRATE_BOX_HXZ], Y in [0,
+ * CRATE_BOX_TOP], rotated by the crate yaw about its floor origin. The
+ * engine hits the whole box hull (movable-object hull, not a sphere), so
+ * a shot lands anywhere on the 14^3 box — at its visual centre, not only
+ * the low band a sphere covered. Slab test; returns 1 + the entry
+ * parameter t in [0,1] on a hit. */
+static int crate_ray_box(const Enemy *e, const float from[3],
+                         const float to[3], float *t_out)
+{
+    const float cs = cosf(-e->yaw), sn = sinf(-e->yaw);
+    float px = from[0] - e->pos[0], pz = from[2] - e->pos[2];
+    float qx = to[0]   - e->pos[0], qz = to[2]   - e->pos[2];
+    float o[3] = { px * cs - pz * sn, from[1] - e->pos[1], px * sn + pz * cs };
+    float q[3] = { qx * cs - qz * sn, to[1]   - e->pos[1], qx * sn + qz * cs };
+    float d[3] = { q[0] - o[0], q[1] - o[1], q[2] - o[2] };
+    const float lo[3] = { -CRATE_BOX_HXZ, 0.0f,          -CRATE_BOX_HXZ };
+    const float hi[3] = {  CRATE_BOX_HXZ, CRATE_BOX_TOP,  CRATE_BOX_HXZ };
+    float tmin = 0.0f, tmax = 1.0f;
+    for (int a = 0; a < 3; a++) {
+        if (fabsf(d[a]) < 1e-9f) {
+            if (o[a] < lo[a] || o[a] > hi[a]) return 0;   /* parallel + outside */
+        } else {
+            float inv = 1.0f / d[a];
+            float t1 = (lo[a] - o[a]) * inv, t2 = (hi[a] - o[a]) * inv;
+            if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
+            if (t1 > tmin) tmin = t1;
+            if (t2 < tmax) tmax = t2;
+            if (tmin > tmax) return 0;
+        }
+    }
+    *t_out = tmin;
+    return 1;
+}
+
 int em_enemy_ray_test(const float from[3], const float to[3],
                       float hit_out[3])
 {
@@ -3467,16 +3534,24 @@ int em_enemy_ray_test(const float from[3], const float to[3],
                                    * worm (func_00183AC0 rejects model
                                    * 0x0D — J2 s66) and resolves the
                                    * world behind it instead */
-        float r    = kind_hit_r(e);
-        float c[3] = { e->pos[0], e->pos[1] + kind_aim_y(e), e->pos[2] };
-        float m[3] = { from[0] - c[0], from[1] - c[1], from[2] - c[2] };
-        float b    = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
-        float cc   = m[0] * m[0] + m[1] * m[1] + m[2] * m[2]
-                   - r * r;
-        float disc = b * b - dd * cc;
-        if (disc < 0.0f) continue;
-        float t = (-b - sqrtf(disc)) / dd;   /* entry point */
-        if (cc <= 0.0f) t = 0.0f;            /* starts inside */
+        float t;
+        if (e->kind == EM_ENEMY_KIND_CRATE) {
+            /* the engine's full box hull (s76) — a shot lands anywhere
+             * on the 14^3 box, no aim-low */
+            if (!crate_ray_box(e, from, to, &t))
+                continue;
+        } else {
+            float r    = kind_hit_r(e);
+            float c[3] = { e->pos[0], e->pos[1] + kind_aim_y(e), e->pos[2] };
+            float m[3] = { from[0] - c[0], from[1] - c[1], from[2] - c[2] };
+            float b    = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
+            float cc   = m[0] * m[0] + m[1] * m[1] + m[2] * m[2]
+                       - r * r;
+            float disc = b * b - dd * cc;
+            if (disc < 0.0f) continue;
+            t = (-b - sqrtf(disc)) / dd;     /* entry point */
+            if (cc <= 0.0f) t = 0.0f;        /* starts inside */
+        }
         if (t < 0.0f || t > 1.0f || t >= best_t) continue;
         best   = i;
         best_t = t;

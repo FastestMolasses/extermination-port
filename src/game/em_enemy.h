@@ -71,9 +71,13 @@
  *                  dodged, not shot — their only deaths are their own
  *                  burst/despawn.
  *   actor +0x0A    GROUP-ALARM flag: a damage-KILLED idle crawler walks
- *                  the whole live actor list (no radius) and wakes
- *                  every placed-crawler-model actor. Worms are not
- *                  whitelisted and never read it.
+ *                  the whole live actor list (no radius), but the
+ *                  engine's wake write (`sb 1, +0x0A`) is reached ONLY
+ *                  for a recipient whose +0x52 (on-surface) flag is set
+ *                  — and that is 0 on every placed crate (live-read s76),
+ *                  so a destroyed crate wakes NO neighbour (user-reported
+ *                  2026-06-12; the old "wakes every crate" was wrong).
+ *                  Worms are not whitelisted and never read it.
  *   +0x2D0..0x2EC  4 precomputed diagonal probe directions (INIT) — the
  *                  steer phase probes them with func_0019AB20 and turns
  *                  the heading +-3 deg/frame (0x3D56774F ~= 0.0524 rad)
@@ -83,13 +87,16 @@
  *
  * FIDELITY NOTES (engine-true conditions + remaining flagged items —
  * details at each site in em_enemy.c):
- *  - WAKE (decoded): the placed crawler IDLE wakes ONLY via the group
- *    alarm or dies to damage — func_001551B0 contains NO player-
- *    distance test of any kind (no func_0019AA80/func_0019A570 call,
- *    no player-position global). The old port-invented 32-u distance
- *    wake is REMOVED. A lone undamaged placement really does sit
- *    forever — engine truth. The free-roaming attacker is the WORM,
- *    which needs no wake (its brain has no idle state).
+ *  - WAKE (decoded; corrected s76): the placed crawler IDLE wakes only
+ *    via the group alarm or dies to damage — func_001551B0 contains NO
+ *    player-distance test (no func_0019AA80/func_0019A570 call, no
+ *    player-position global); the old port-invented 32-u distance wake
+ *    is REMOVED. AND the group-alarm wake is itself gated on the
+ *    recipient's +0x52 (on-surface), which is 0 on every placed crate
+ *    — so in practice a placed crate NEVER wakes from a neighbour's
+ *    death and just sits as a destructible box until damaged (s76,
+ *    user-confirmed). A lone undamaged placement sits forever. The
+ *    free-roaming attacker is the WORM (no idle state, needs no wake).
  *  - DAMAGE WINDOW (decoded; J2 CLOSED s66 live): state 4 polls +0x36
  *    every tick; state 1 NEVER polls it — the only +0x36 access in
  *    the whole attack run is `sh zero, 0x36` on the burst transition.

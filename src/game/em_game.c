@@ -3299,6 +3299,44 @@ static void actor_update(void)
         }
     }
 
+    /* DEBUG (EM_CLIP_DEMO=1): turntable the player model through the 4
+     * formerly-unbakeable directory clips 54/94/115/375 (s76 baker fix)
+     * so they can be eyeballed — each plays ~4 s (looping) while the
+     * model slowly spins; the active id + length is printed on each
+     * switch. Needs a player.emdl exported WITH those 4 clips. */
+    {
+        static const int kCD[4] = { 54, 94, 115, 375 };
+        static int    cd_on = -1, cd_idx = 0, cd_clip = -2, cd_hold = 0;
+        static double cd_t = 0.0, cd_spin = 0.0;
+        if (cd_on < 0) cd_on = getenv("EM_CLIP_DEMO") != NULL;
+        if (cd_on) {
+            if (cd_clip == -2 || cd_hold++ >= 240) {
+                if (cd_clip != -2) cd_idx = (cd_idx + 1) & 3;
+                cd_hold = 0;
+                cd_t    = 0.0;
+                cd_clip = em_model_clip_index(&g.model,
+                                              (uint32_t)kCD[cd_idx]);
+                printf("clip demo: directory id %d -> model clip %d "
+                       "(%d frames)\n", kCD[cd_idx], cd_clip,
+                       cd_clip >= 0
+                       ? g.model.clips[cd_clip].frame_count : 0);
+                fflush(stdout);
+            }
+            int show = cd_clip >= 0 ? cd_clip
+                     : (g.clip_idle >= 0 ? g.clip_idle : 0);
+            const EmModelClip *cc = &g.model.clips[show];
+            double per = (double)cc->frame_count;
+            em_model_palette_at(&g.model, (uint32_t)show,
+                                per > 1.0 ? fmod(cd_t * cc->fps, per) : 0.0,
+                                g.player_palette);
+            cd_t    += FRAME_DT;
+            cd_spin += (double)FRAME_DT * 0.6;   /* slow turntable */
+            palette_apply_placement(g.player_palette, g.model.bone_count,
+                                    g.pos, g.yaw + (float)cd_spin);
+            return;
+        }
+    }
+
     const EmModelClip *ci = &g.model.clips[g.clip_idle];
     em_model_palette_at(&g.model, (uint32_t)g.clip_idle,
                         g.idle_t * ci->fps, g.player_palette);
@@ -7539,14 +7577,15 @@ static void aim_test_script(void)
  * melee victims; the worm whiff witness rides a direct spawn now).
  * Scene init spawns TWO DISGUISED CRATES (see the spawn block): A in
  * the knife reach (12), B 25 u away across the room; crates burst on
- * DAMAGE ONLY (the engine has no proximity trigger), and a damage
- * kill BROADCASTS the group alarm (decoded: the WHOLE live list, no
- * radius — which is why far-away B waking is the assertion) — crate
- * B wakes, runs the blind suicide hop AS THE CRATE down the open
- * corridor, self-bursts on the 180-tick attack timer and hatches its
- * OWN bug pair back there (they approach from behind and park at the
- * standoff — outside the frontal melee cone, so the whiff leg stays
- * clean). Adaptive phase machine:
+ * DAMAGE ONLY (the engine has no proximity trigger). A damage kill
+ * still BROADCASTS the group alarm (the decoded list-wide, no-radius
+ * walk), but the broadcast is INERT for placed crates — the engine
+ * wakes a recipient only when its +0x52 (on-surface) flag is set, and
+ * that is 0 on every placed crate (live-read s76), so crate B does NOT
+ * wake (user-reported 2026-06-12: breaking one crate must not move the
+ * other; the J1 "match" was wrong). Crate B therefore stays an inert
+ * IDLE crate for the whole run — which also keeps the frontal cone
+ * clear for the whiff legs. Adaptive phase machine:
  *
  *   phase 0  frame 8: assert both crates IDLE in reach, then tap L
  *            (CIRCLE) — the LIGHT combo (engine mode 0x21). Impact =
@@ -7555,7 +7594,7 @@ static void aim_test_script(void)
  *   phase 1  crate A dies: assert melee hit count 1, ZERO rifle shots
  *            (the kill is the +0x36 mailbox write), TWO BUGS hatched
  *            at the crate ring (the s68 burst contract), and crate B
- *            AWAKE (ATTACK) — the decoded group-alarm broadcast.
+ *            STAYS IDLE — the broadcast does NOT wake it (s76).
  *   phase 2  HIT-CONFIRM path: recover anim 0x10F must commit (a
  *            landed hit SKIPS the combo — engine states 0x50..0x52).
  *            Wait out the recover (and any flinch); the bugs WALK IN
@@ -7577,13 +7616,13 @@ static void aim_test_script(void)
  *   phase 6  the worm clears itself: its OWN lunge resolve bursts it
  *            on the player (health reported, not asserted) — wait
  *            out the flinch.
- *   phase 7  WHIFF COMBO (frontal cone empty: A-bugs dead, worm
- *            gone, B's bugs parked behind): tap L, re-tap L during
- *            each swing — assert the committed clip chains 0x10B ->
- *            0x10C -> 0x10D (the buffered +0x2E chain), NO recover
- *            anim on a whiff (clip-end exit), the final counts (7
- *            swings, 3 hits), crate B self-burst (no melee hit on
- *            it) and its bug pair alive behind the player.
+ *   phase 7  WHIFF COMBO (frontal cone empty: A-bugs dead, worm gone,
+ *            crate B inert behind): tap L, re-tap L during each swing —
+ *            assert the committed clip chains 0x10B -> 0x10C -> 0x10D
+ *            (the buffered +0x2E chain), NO recover anim on a whiff
+ *            (clip-end exit), the final counts (7 swings, 3 hits), and
+ *            that crate B is still the lone IDLE survivor (it never
+ *            woke, hatched no bugs).
  *
  * PASS = all checks green; any phase timing out fails the run. */
 static void melee_test_script(void)
@@ -7678,15 +7717,17 @@ static void melee_test_script(void)
                            em_enemy_alive(), em_enemy_kind(2),
                            em_enemy_kind(3));
                 }
-                /* the decoded GROUP-ALARM BROADCAST: the damage kill
-                 * walks the live list (no radius) and wakes crate B —
-                 * it consumed the alarm the same update tick (bugs
-                 * are NOT whitelisted — they stay on their walk) */
-                if (em_enemy_state(1) != EM_ENEMY_ATTACK) {
+                /* s76: the GROUP-ALARM BROADCAST is engine-true but
+                 * INERT for placed crates — the engine reaches its wake
+                 * write only for a recipient with +0x52 (on-surface)
+                 * set, and that is 0 on every placed crate, so killing
+                 * crate A does NOT wake crate B (user-reported; the J1
+                 * "match" was wrong). Assert crate B STAYS IDLE. */
+                if (em_enemy_state(1) != EM_ENEMY_IDLE) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — crate B not "
-                           "alarmed by the broadcast (state %d)\n",
-                           em_enemy_state(1));
+                    printf("melee test: CHECK FAILED — crate B should "
+                           "stay IDLE (the broadcast must not wake it) "
+                           "(state %d)\n", em_enemy_state(1));
                 }
                 g.mt_phase = 2;
                 g.mt_mark  = n;
@@ -7853,15 +7894,15 @@ static void melee_test_script(void)
                            "not)\n", em_weapon_melee_swings(),
                            em_weapon_melee_hits());
                 }
-                /* crate B cleared ITSELF (the 180-tick timer burst —
-                 * no melee hit on it) and hatched its bug pair back
-                 * down the corridor; the pair walks in behind the
-                 * player and parks at the standoff, OUTSIDE the
-                 * frontal cone (which is why the whiffs whiffed). */
-                if (em_enemy_state(1) != EM_ENEMY_FREE) {
+                /* s76: crate B never woke (the broadcast is inert — see
+                 * phase 1), so it is STILL an IDLE crate and hatched no
+                 * bugs; the only survivor is crate B itself, and the
+                 * frontal cone is empty (which is why the whiffs
+                 * whiffed). */
+                if (em_enemy_state(1) != EM_ENEMY_IDLE) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — crate B did "
-                           "not self-burst (state %d)\n",
+                    printf("melee test: CHECK FAILED — crate B should "
+                           "still be IDLE (it never woke) (state %d)\n",
                            em_enemy_state(1));
                 }
                 int live_bugs = 0;
@@ -7869,12 +7910,11 @@ static void melee_test_script(void)
                     if (em_enemy_kind(i) == EM_ENEMY_KIND_BUG &&
                         em_enemy_state(i) == EM_ENEMY_ATTACK)
                         live_bugs++;
-                if (em_enemy_alive() != 2 || live_bugs != 2) {
+                if (em_enemy_alive() != 1 || live_bugs != 0) {
                     g.mt_fail++;
-                    printf("melee test: CHECK FAILED — crate B's bug "
-                           "pair should be the only survivors (alive "
-                           "%d, live bugs %d)\n", em_enemy_alive(),
-                           live_bugs);
+                    printf("melee test: CHECK FAILED — only the IDLE "
+                           "crate B should survive (alive %d, live bugs "
+                           "%d)\n", em_enemy_alive(), live_bugs);
                 }
                 goto finish;
             }
@@ -8709,10 +8749,13 @@ static void ingame_frame_machine(EmTask *self)
                                 g.pos[2] + fz * 11.0f };
                 float pb[3] = { g.pos[0] - fx * 25.0f, g.pos[1],
                                 g.pos[2] - fz * 25.0f };
-                if (em_enemy_add_kind(em_frame_gfx(), EM_ENEMY_KIND_CRATE,
-                                      pa, g.yaw + EM_PI) < 0 ||
-                    em_enemy_add_kind(em_frame_gfx(), EM_ENEMY_KIND_CRATE,
-                                      pb, g.yaw + EM_PI) < 0)
+                /* explicit nest count (2) — CRATE_BUGS_DEFAULT is now 0
+                 * (a tag-less crate hatches nothing, s76), so the test
+                 * crates must request their bugs like a real scene line */
+                if (em_enemy_add_crate(em_frame_gfx(), pa, g.yaw + EM_PI,
+                                       2, 6) < 0 ||
+                    em_enemy_add_crate(em_frame_gfx(), pb, g.yaw + EM_PI,
+                                       2, 6) < 0)
                     printf("melee test: spawn failed\n");
             }
             /* EM_DEATH_TEST shares the contact-run placement: one
@@ -8744,8 +8787,14 @@ static void ingame_frame_machine(EmTask *self)
                 float ep[3] = { g.pos[0] + sinf(g.yaw) * ed,
                                 g.pos[1],
                                 g.pos[2] + cosf(g.yaw) * ed };
-                if (em_enemy_add_kind(em_frame_gfx(), ek, ep,
-                                      g.yaw + EM_PI) < 0)
+                /* a CRATE target requests its nest explicitly (2 bugs)
+                 * — the default is now 0 (s76); a worm uses add_kind */
+                int et_spawn = (ek == EM_ENEMY_KIND_CRATE)
+                    ? em_enemy_add_crate(em_frame_gfx(), ep, g.yaw + EM_PI,
+                                         2, 6)
+                    : em_enemy_add_kind(em_frame_gfx(), ek, ep,
+                                        g.yaw + EM_PI);
+                if (et_spawn < 0)
                     printf("enemy test: spawn failed\n");
             }
             self->user[GAME_BYTE_FRAME] = 1;
