@@ -4,7 +4,8 @@
  * THREE BRAINS share this module's slot pool (s62 condition decode of
  * the splat disassembly + the s68 creature-identity correction —
  * every trigger below is read off the instructions, not inferred;
- * the BUG brain is the one flagged-minimal stand-in, see its block):
+ * the BUG brain is decoded structurally s76 with flagged port
+ * magnitudes, see its block):
  *
  * THE PLACED CRAWLER / CRATE (FINDINGS "ENEMY AI ARCHITECTURE" §3,
  * func_001551B0 — the port's EM_ENEMY_KIND_CRATE; engine lifecycle
@@ -65,20 +66,38 @@
  * 90-f in-place WALK), flinch clip 0x1D, death clip 0x1B (absent
  * from the current export — unbakeable container, s68 — so death
  * falls back to the corpse alpha-fade; the code requests the engine
- * id and self-wires when a future export bakes it). FLAGGED-MINIMAL
- * BRAIN (the real brains func_00128C10/func_0012A5D0 are
- * uncharacterized beyond INIT/damage — s68 open item):
+ * id and self-wires when a future export bakes it). REAL MULTI-STATE
+ * BRAIN (s76 — the two brains func_00128C10/func_0012A5D0 are decoded at
+ * the STRUCTURAL level, FINDINGS "BUG BRAIN STATE MACHINES"; the
+ * approach/lunge MAGNITUDES + the bite damage stay flagged port
+ * constants — the move-helper bodies + the shared contact-damage value
+ * are the s76 open items):
  *
  *   INIT      HP = 15, yaw toward the player (PORT stand-in: the
  *             engine copies the nest record's rot, unexported) ->
  *             ATTACK sub 0.
- *   sub 0     WALK/APPROACH: home the yaw at BUG_TURN_RATE (PORT),
- *             walk BUG_WALK_SPEED (PORT) to the BUG_STANDOFF (PORT)
- *             with the shared probe + floor follow; deals NO damage
- *             (the engine bugs' attack moves are undecoded).
+ *   sub 0     APPROACH (== pre-s76): home the yaw at BUG_TURN_RATE
+ *             (PORT), walk BUG_WALK_SPEED (PORT) with the shared probe +
+ *             floor follow to BUG_STANDOFF; there, inside the
+ *             BUG_AIM_CONE facing gate -> WINDUP (sub 2). NO travelling
+ *             lunge: the decode gives the bite clip + the contact box,
+ *             not a travel speed, so position behaviour matches the old
+ *             approach and the strike is the new, decoded part.
  *   sub 1     FLINCH: hold for the flinch clip's length (20-tick
- *             fallback without the asset), then sub 0.
- *   2 DEATH   free + corpse alpha-fade (no gibs — the husk burst set
+ *             fallback without the asset), then sub 0. Set by
+ *             enemy_tick's every-tick mailbox path (a hit interrupts
+ *             any attack phase into flinch).
+ *   sub 2     WINDUP: the bite lead-in, BUG_WINDUP_F ticks -> BITE.
+ *   sub 3     BITE (clip 0x13, func_0012C490): IN PLACE; the contact is
+ *             the shared melee resolver func_001B5360 — a BUG_CONTACT_R
+ *             (=6, VERIFIED) sphere BUG_CONTACT_FWD (=10, VERIFIED)
+ *             ahead of the bug vs the player (at the 5u standoff
+ *             |5-10| <= 6, so the forward box reaches the player); one
+ *             hit posts s.player_hit = 0x4000 | BUG_BITE_DMG (the worm's
+ *             player-mailbox bridge; the real damage value is in the
+ *             undecoded shared contact subsystem). -> RECOVER.
+ *   sub 4     RECOVER + cooldown (func_0012DD70), BUG_RECOVER_F -> sub 0.
+ *   DEATH     (state) free + corpse alpha-fade (no gibs — the husk set
  *             is the crate's; the bug's own gore chain is undecoded).
  *             Death sound: the shared 0x7D8 hurt-helper arm (PORT
  *             stand-in — func_00129FC0's own audio is undecoded).
@@ -560,10 +579,17 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
                                    * stand-in for the nest records'
                                    * per-child pos offsets (unexported)   */
 
-/* --- Bug kind (s68 — see "THE BUG" in the file header) ------------------
- * Engine values: HP, the every-tick mailbox consumption, the clip ids.
- * The locomotion numbers are FLAGGED PORT constants (the two real
- * brains' move helpers are uncharacterized — s68 open item). */
+/* --- Bug kind (s68/s76 — see "THE BUG" in the file header) --------------
+ * Engine values: HP, the every-tick mailbox consumption, the clip ids,
+ * and (s76) the attack SHAPE — the brains' state machine is decoded
+ * (FINDINGS "BUG BRAIN STATE MACHINES"): spawn-pose -> sense-gated
+ * approach -> IN-PLACE bite (clip 0x13, func_0012C490) -> recover, with
+ * the hurt/death already wired. The bite's contact is the shared melee
+ * resolver func_001B5360: a radius-6 sphere ~10u ahead of the bug vs the
+ * player (BUG_CONTACT_FWD/_R below are READ from that function). The
+ * bite TIMERS and BUG_BITE_DMG stay FLAGGED PORT constants (the
+ * per-attack timing and the shared contact-damage VALUE live in the
+ * undecoded move-helper bodies + contact subsystem — s76 open). */
 #define BUG_HP_A         15       /* func_00128390 variant A (slot 0x0F)  */
 #define BUG_HP_B         30       /* variant B (slot 0x10) — recorded;
                                    * difficulty byte D_0081070A raises
@@ -575,9 +601,31 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
                                    * container, s68): death falls back
                                    * to the corpse alpha-fade             */
 #define BUG_CLIP_FLINCH  0x1Du    /* func_00129FC0 flinch clip (exported) */
+#define BUG_CLIP_BITE    0x13u    /* func_0012C490 bite/snap LUNGE clip
+                                   * (19 dec — IS in the s68 bake list)   */
 #define BUG_WALK_SPEED   0.16f    /* PORT: approach speed, units/frame    */
 #define BUG_TURN_RATE    0.06f    /* PORT: homing yaw rate, rad/tick      */
-#define BUG_STANDOFF     5.0f     /* PORT: approach stop distance         */
+#define BUG_STANDOFF     5.0f     /* PORT: approach stop distance — the
+                                   * bug bites from here (the engine's
+                                   * +10u/r6 box reaches the player at 5u:
+                                   * |5-10| = 5 <= 6, see below)           */
+/* s76 in-place bite cycle — magnitudes FLAGGED PORT unless VERIFIED. The
+ * bug holds station at BUG_STANDOFF and strikes (no port-invented lunge
+ * MOTION: the decode gives the bite clip + the contact box, NOT a travel
+ * speed/distance — so the bug's POSITION behavior matches the pre-s76
+ * approach, and the strike is the new, decoded part).                    */
+#define BUG_AIM_CONE     0.5f     /* PORT: ~28 deg facing gate to commit  */
+#define BUG_WINDUP_F     16       /* PORT: bite lead-in ticks             */
+#define BUG_BITE_F       10       /* PORT: bite active/contact window     */
+#define BUG_RECOVER_F    28       /* PORT: wind-down + cooldown ticks     */
+#define BUG_CONTACT_FWD  10.0f    /* VERIFIED (func_001B5360): the attack
+                                   * box is pushed +10u ahead of the bug  */
+#define BUG_CONTACT_R    6.0f     /* VERIFIED (func_001B5360 -> _0019A570):
+                                   * radius-6 contact sphere vs the player */
+#define BUG_BITE_DMG     5        /* FLAGGED PORT: the real value lives in
+                                   * the shared contact subsystem (the
+                                   * D_008104D4 source — s76 open); 5 = the
+                                   * worm's conservative "touch" tier      */
 #define BUG_FLINCH_TICKS 20       /* flinch window fallback without the
                                    * clip (with it: the clip's length)    */
 #define BUG_HIT_R        2.5f     /* PORT: bullet hit-sphere (the flat
@@ -883,7 +931,7 @@ static struct {
     uint32_t   bug_bones;
     float      bug_base[ENEMY_BONE_MAX * 16];
     int        bug_anim_on;
-    int        bclip_walk, bclip_death, bclip_flinch;
+    int        bclip_walk, bclip_death, bclip_flinch, bclip_bite;
 
     /* crate disguise mesh (loaded only when a crate is placed, so
      * crawler-only runs keep byte-identical output) */
@@ -1235,12 +1283,14 @@ static int bug_mesh_get(EmGfx *gfx)
         s.bclip_death  = em_model_clip_index(&s.bug_model, BUG_CLIP_DEATH);
         s.bclip_flinch = em_model_clip_index(&s.bug_model,
                                              BUG_CLIP_FLINCH);
+        s.bclip_bite   = em_model_clip_index(&s.bug_model, BUG_CLIP_BITE);
         s.bug_anim_on  = (s.bclip_walk >= 0 && s.bug_model.clip_count > 1);
         printf("bug model: %s — %u verts, %u tris, %u bones, %u clip(s)"
-               " — walk #%d, flinch #%d, death #%d%s\n", BUG_ASSET,
+               " — walk #%d, bite #%d, flinch #%d, death #%d%s\n",
+               BUG_ASSET,
                s.bug_model.vert_count, s.bug_model.index_count / 3,
                s.bug_bones, s.bug_model.clip_count, s.bclip_walk,
-               s.bclip_flinch, s.bclip_death,
+               s.bclip_bite, s.bclip_flinch, s.bclip_death,
                s.bclip_death < 0 ? " (0x1B unexported — corpse-fade "
                                    "death, s68)" : "");
         return 0;
@@ -1261,7 +1311,7 @@ static int bug_mesh_get(EmGfx *gfx)
                                     NULL, 0, NULL, 0);
     if (!s.bug_mesh) return -1;
     s.bug_bones    = 1;
-    s.bclip_walk   = s.bclip_death = s.bclip_flinch = -1;
+    s.bclip_walk   = s.bclip_death = s.bclip_flinch = s.bclip_bite = -1;
     mat4_identity(s.bug_base);
     printf("bug model: no %s — PLACEHOLDER box bug (export with the "
            "decomp repo's tools/export_native.py, s68 recorded CLI)\n",
@@ -1576,17 +1626,20 @@ static void enemy_anim_update(Enemy *e, float dist)
 {
     (void)dist;
 
-    /* BUG layer (s68): the walk loop while approaching (rate floored
-     * so a standoff-parked bug keeps its leg cycle — the clip is
-     * baked in place), the flinch one-shot during sub 1. DEATH keeps
-     * the frozen pose for the corpse fade (the 0x1B death clip is
-     * unexported — file header). */
+    /* BUG layer (s68/s76): the walk loop while approaching/recovering
+     * (rate floored so a standoff-parked bug keeps its leg cycle — the
+     * clip is baked in place), the bite clip 0x13 during windup+lunge
+     * (sub 2/3), the flinch one-shot during sub 1. DEATH keeps the
+     * frozen pose for the corpse fade (the 0x1B death clip is unexported
+     * — file header). */
     if (e->kind == EM_ENEMY_KIND_BUG) {
         if (!s.bug_anim_on) return;
         if (e->state != EM_ENEMY_ATTACK) return;
         if (e->sub == 1 && s.bclip_flinch >= 0) {
             enemy_anim_set(e, s.bclip_flinch, 1.0f);
-        } else if (e->sub == 0) {
+        } else if ((e->sub == 2 || e->sub == 3) && s.bclip_bite >= 0) {
+            enemy_anim_set(e, s.bclip_bite, 1.0f);
+        } else if (e->sub != 1) {
             enemy_anim_set(e, s.bclip_walk,
                            e->speed > 0.5f ? 1.0f : BUG_WALK_MIN);
         }
@@ -2709,11 +2762,24 @@ static void crate_burst(Enemy *e, const float pp[3])
     (void)pp;
 }
 
-/* BUG tick (s68 — the flagged-minimal brain, see "THE BUG" in the
- * file header): the EVERY-TICK mailbox consumption is the decoded
- * piece (func_00128B80 -> func_00129FC0: flinch below lethal, death
- * at it); the locomotion is the flagged port stand-in (the real
- * brains' move machines are uncharacterized). */
+/* BUG tick (s68 mailbox + s76 brain structure — see "THE BUG" in the
+ * file header and FINDINGS "BUG BRAIN STATE MACHINES").
+ *
+ * The DECODED pieces: the EVERY-TICK mailbox consumption (func_00128B80
+ * -> func_00129FC0: flinch below lethal, death at it; that lives in
+ * enemy_tick, which sets sub=1 on a non-lethal hit and routes lethal to
+ * DEATH) and the attack SHAPE — the two brains run a sense-gated
+ * approach into a bite LUNGE (func_0012C490, clip 0x13) whose contact is
+ * the shared melee resolver func_001B5360: a radius-6 sphere ~10u ahead
+ * of the bug, tested vs the player and (on a hit) routed to the player
+ * contact-damage latch. We mirror that with the same player-hit bridge
+ * the worm uses (s.player_hit = 0x4000 | dmg).
+ *
+ * sub: 0 APPROACH, 1 FLINCH (set by enemy_tick's mailbox path — keep
+ * this id), 2 WINDUP, 3 LUNGE, 4 RECOVER. The approach/lunge speeds and
+ * timers and the bite damage are FLAGGED PORT constants (the move-helper
+ * bodies + the contact-damage VALUE are the s76 open items); the
+ * +10u/radius-6 contact box is read from func_001B5360. */
 static void bug_attack_tick(const EmCollision *coll, Enemy *e,
                             const float pp[3])
 {
@@ -2722,20 +2788,72 @@ static void bug_attack_tick(const EmCollision *coll, Enemy *e,
             e->sub = 0;
         return;
     }
-    /* WALK/APPROACH: home toward the player, stop at the standoff */
+
+    /* Always face the player (the brains turn-toward every active tick
+     * via func_001B12B0; the bug commits the bite only inside a cone). */
     float dx = pp[0] - e->pos[0];
     float dz = pp[2] - e->pos[2];
+    float d2 = dx * dx + dz * dz;
     float want = (fabsf(dx) + fabsf(dz) > 1e-4f) ? atan2f(dx, dz)
                                                  : e->yaw;
     float diff = wrap_pi(want - e->yaw);
     if (diff >  BUG_TURN_RATE) diff =  BUG_TURN_RATE;
     if (diff < -BUG_TURN_RATE) diff = -BUG_TURN_RATE;
     e->yaw = wrap_pi(e->yaw + diff);
-    if (dx * dx + dz * dz > BUG_STANDOFF * BUG_STANDOFF &&
-        !enemy_probe(coll, e, e->yaw, BUG_WALK_SPEED + 0.5f)) {
-        e->pos[0] += sinf(e->yaw) * BUG_WALK_SPEED;
-        e->pos[2] += cosf(e->yaw) * BUG_WALK_SPEED;
-        e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
+
+    switch (e->sub) {
+    case 0:                             /* APPROACH (== pre-s76)       */
+        if (d2 > BUG_STANDOFF * BUG_STANDOFF) {
+            if (!enemy_probe(coll, e, e->yaw, BUG_WALK_SPEED + 0.5f)) {
+                e->pos[0] += sinf(e->yaw) * BUG_WALK_SPEED;
+                e->pos[2] += cosf(e->yaw) * BUG_WALK_SPEED;
+                e->pos[1]  = floor_at(coll, e->pos, e->pos[1]);
+            }
+        } else if (fabsf(diff) < BUG_AIM_CONE) {
+            e->sub       = 2;           /* at standoff + facing -> bite */
+            e->t28       = BUG_WINDUP_F;
+            e->atk_armed = 0;           /* one contact per bite         */
+        }
+        break;
+
+    case 2:                             /* WINDUP (bite lead-in)       */
+        if (--e->t28 <= 0) {
+            e->sub = 3;
+            e->t28 = BUG_BITE_F;
+        }
+        break;
+
+    case 3:                             /* BITE active: contact window */
+        /* func_001B5360: the attack box is the bug position pushed
+         * +BUG_CONTACT_FWD ahead, radius-6 vs the player. At the ~5u
+         * standoff |5-10| = 5 <= 6, so the forward box reaches the
+         * player. NO position change — the strike is in place. */
+        if (!e->atk_armed) {
+            float bx  = e->pos[0] + sinf(e->yaw) * BUG_CONTACT_FWD;
+            float bz  = e->pos[2] + cosf(e->yaw) * BUG_CONTACT_FWD;
+            float cdx = pp[0] - bx;
+            float cdy = pp[1] - e->pos[1];
+            float cdz = pp[2] - bz;
+            if (cdx * cdx + cdy * cdy + cdz * cdz <=
+                BUG_CONTACT_R * BUG_CONTACT_R) {
+                s.player_hit = 0x4000 | BUG_BITE_DMG;
+                e->atk_armed = 1;
+            }
+        }
+        if (--e->t28 <= 0) {
+            e->sub = 4;
+            e->t28 = BUG_RECOVER_F;
+        }
+        break;
+
+    case 4:                             /* RECOVER + cooldown          */
+        if (--e->t28 <= 0)
+            e->sub = 0;
+        break;
+
+    default:                            /* any stray sub -> approach   */
+        e->sub = 0;
+        break;
     }
 }
 

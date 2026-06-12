@@ -6600,8 +6600,8 @@ static void weapon_test_script(void)
  *     the bug models 0x0F/0x10), fire ONE more shot and assert it
  *     resolved HIT and the locked bug FLINCHED — HP 15 -> 10 (the
  *     every-tick mailbox consumption, bullet amount 5), still alive
- *     and attacking; player health untouched (the flagged-minimal
- *     bug brain deals no damage).
+ *     and attacking. (s76: the bug brain now bites, so player health is
+ *     reported by et_finish, not asserted untouched — see the leg.)
  *   EM_ENEMY_TEST=2 (contact run): ONE WORM 30 u ahead; weapon stays
  *     holstered; let the worm
  *     run its decoded sequence (approach 90 t -> stalk 120 t homing ->
@@ -6746,9 +6746,12 @@ static void enemy_test_script(void)
                      "locked bug FLINCHED — HP 15 -> 10 (every-tick "
                      "mailbox func_00128B80, bullet amount 5)");
             et_check(em_enemy_alive() == 2, "both bugs still alive");
-            et_check(g.status.health == g.et_health0,
-                     "player health untouched (the minimal bug brain "
-                     "deals no damage — flagged)");
+            /* s76: the bug brain now has a real bite lunge, so player
+             * health is NO LONGER asserted untouched here — a bug that
+             * closes the ~12 u and completes a lunge inside this short
+             * witness window CAN bite (BUG_BITE_DMG). The health delta
+             * is reported by et_finish; this leg only witnesses
+             * shootability + flinch. */
             et_finish("kill run");
         }
     } else if (g.enemy_test == 3) {
@@ -6815,12 +6818,12 @@ static void enemy_test_script(void)
             float wd = et_dist_i(1);
             if (wd < g.et_wd_min) g.et_wd_min = wd;
             if (em_enemy_state(1) == EM_ENEMY_ATTACK)
-                g.et_worm_atk = 1;   /* bugs engaged (walk brain) */
+                g.et_worm_atk = 1;   /* bugs engaged (s76 approach brain) */
             if (!et_flinch_sent) {
                 if (n == g.et_burst_frame + 30) {
                     et_check(g.et_worm_atk,
                              "bugs engaged after the burst (the "
-                             "minimal walk brain)");
+                             "s76 approach brain)");
                     /* the bug mailbox ladder, step 1: a knife-light-
                      * sized 5 must FLINCH, not kill (HP 15) */
                     em_enemy_damage(1, 5);

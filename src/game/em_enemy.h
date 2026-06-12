@@ -31,9 +31,15 @@
  *                  D_0081070A); mailbox consumer func_00128B80
  *                  polled EVERY tick, hurt/death handler
  *                  func_00129FC0 (death/flinch clips 0x1B/0x1D/0x20);
- *                  init clip 1 = the 90-frame in-place WALK. The
- *                  brains beyond INIT/damage are UNCHARACTERIZED
- *                  (s68 open) — the port runs a flagged MINIMAL brain.
+ *                  init clip 1 = the 90-frame in-place WALK. The brains
+ *                  are DECODED STRUCTURALLY (s76, FINDINGS "BUG BRAIN
+ *                  STATE MACHINES"): a 5-state top dispatch + a per-pose
+ *                  / 14-case move-helper jtbl; the bite (func_0012C490,
+ *                  clip 0x13) damages the player via the SHARED contact
+ *                  resolver func_001B5360 -> func_0019A570 (radius-6 box
+ *                  +10u ahead). The port runs the real APPROACH -> BITE
+ *                  -> RECOVER shape; the move-helper constants + the
+ *                  contact-damage value stay flagged port magnitudes.
  *   actor +0x34    HIT POINTS, s16 (crate init = 1: any damage kills;
  *                  bug init = 15 variant A / 30 variant B
  *                  (func_00128390; 30/50 on the difficulty byte) —
@@ -425,7 +431,8 @@ enum {
  * placed crawler func_001551B0 (the disguised prop; bursts into gibs +
  * its nest group's BUGS on DAMAGE or at the end of its alarm-driven
  * suicide run — s68), BUG = the nest hatchling (func_00128C10/
- * func_0012A5D0, flagged-minimal port brain — "BUG KIND" above). */
+ * func_0012A5D0, decoded structurally s76: approach -> in-place bite ->
+ * recover with flagged port magnitudes — "BUG KIND" above). */
 enum {
     EM_ENEMY_KIND_CRAWLER = 0,   /* the worm/leech creature            */
     EM_ENEMY_KIND_CRATE   = 1,   /* the placed crawler (disguise)      */
