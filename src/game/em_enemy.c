@@ -63,10 +63,10 @@
  * difficulty 30/50 column are recorded constants), the EVERY-TICK
  * +0x36 mailbox consumption (func_00128B80) with FLINCH below lethal
  * and DEATH at it (handler func_00129FC0), init/walk clip 1 (the
- * 90-f in-place WALK), flinch clip 0x1D, death clip 0x1B (absent
- * from the current export — unbakeable container, s68 — so death
- * falls back to the corpse alpha-fade; the code requests the engine
- * id and self-wires when a future export bakes it). REAL MULTI-STATE
+ * 90-f in-place WALK), flinch clip 0x1D, death clip 0x1B (EXPORTED
+ * since s76 — the anim baker now handles the non-sentinel container,
+ * so the corpse plays the real collapse; the frozen-pose fade is the
+ * fallback only if it is ever absent). REAL MULTI-STATE
  * BRAIN (s76 — the two brains func_00128C10/func_0012A5D0 are decoded at
  * the STRUCTURAL level, FINDINGS "BUG BRAIN STATE MACHINES"; the
  * approach/lunge MAGNITUDES + the bite damage stay flagged port
@@ -97,10 +97,11 @@
  *             player-mailbox bridge; the real damage value is in the
  *             undecoded shared contact subsystem). -> RECOVER.
  *   sub 4     RECOVER + cooldown (func_0012DD70), BUG_RECOVER_F -> sub 0.
- *   DEATH     (state) free + corpse alpha-fade (no gibs — the husk set
- *             is the crate's; the bug's own gore chain is undecoded).
- *             Death sound: the shared 0x7D8 hurt-helper arm (PORT
- *             stand-in — func_00129FC0's own audio is undecoded).
+ *   DEATH     (state) gameplay slot frees immediately; the corpse plays
+ *             the real DEATH clip 0x1B (s76) then holds + alpha-fades (no
+ *             gibs — the husk set is the crate's; the bug's own gore
+ *             chain is undecoded). Death sound: the shared 0x7D8 hurt-
+ *             helper arm (PORT stand-in — func_00129FC0's audio undecoded).
  *
  * THE WORM / LEECH (FINDINGS §4, brain func_00153F10 + sub-machine
  * func_00154120, init func_00154040 — the port's EM_ENEMY_KIND_CRAWLER;
@@ -596,10 +597,11 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
                                    * the pair to 30/50 (unbound: the
                                    * port has no difficulty plumbing)     */
 #define BUG_CLIP_WALK    1u       /* init clip: the 90-f in-place WALK    */
-#define BUG_CLIP_DEATH   0x1Bu    /* func_00129FC0 death clip — NOT in
-                                   * the current export (unbakeable
-                                   * container, s68): death falls back
-                                   * to the corpse alpha-fade             */
+#define BUG_CLIP_DEATH   0x1Bu    /* func_00129FC0 death clip — EXPORTED
+                                   * since s76 (the anim baker now handles
+                                   * the non-sentinel container); the
+                                   * corpse plays it. Falls back to the
+                                   * frozen-pose fade only if ever absent. */
 #define BUG_CLIP_FLINCH  0x1Du    /* func_00129FC0 flinch clip (exported) */
 #define BUG_CLIP_BITE    0x13u    /* func_0012C490 bite/snap LUNGE clip
                                    * (19 dec — IS in the s68 bake list)   */
@@ -3187,14 +3189,27 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             break;
         }
         if (e->kind == EM_ENEMY_KIND_BUG) {
-            /* bug death (s68): free + corpse alpha-fade — NO gibs (the
-             * husk burst set is the crate's; the bug's gore chain is
-             * undecoded) and no death clip yet (0x1B unexported —
-             * the fade is the flagged stand-in). */
+            /* bug death (s68 + s76): the gameplay slot frees immediately
+             * (alive/hit-tests off) while the corpse plays the real DEATH
+             * clip 0x1B (func_00129FC0) and alpha-fades. The clip is now
+             * exported (s76 anim-baker fix unblocked the non-sentinel
+             * container) so the bug collapses for real, then holds the
+             * last frame and fades; if it is ever missing, the frozen-
+             * pose fade stands in (pre-s76 fallback). No gibs — the husk
+             * burst set is the crate's; the bug's gore chain is undecoded. */
             e->state   = EM_ENEMY_FREE;
             e->active  = 0;
             e->mailbox = 0;
-            e->fade    = ENEMY_FADE_FRAMES;
+            if (s.bclip_death >= 0) {
+                e->acur  = s.bclip_death;   /* collapse once, then hold */
+                e->aprev = -1;
+                e->at    = 0.0;
+                e->arate = 1.0f;
+                e->fade  = (int)s.bug_model.clips[s.bclip_death]
+                               .frame_count + ENEMY_FADE_FRAMES;
+            } else {
+                e->fade  = ENEMY_FADE_FRAMES;   /* frozen-pose fallback */
+            }
             e->tint[0] = e->tint[1] = e->tint[2] = e->tint[3] = 1.0f;
             break;
         }
@@ -3291,12 +3306,23 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
     for (int i = 0; i < s.n; i++) {
         Enemy *e = &s.e[i];
         if (!e->active) {
-            /* DEATH fade placeholder: the frozen pose stays put and
-             * only the tint alpha walks 1 -> 0 (no palette rebuild —
-             * the pose was frozen on the death tick). */
+            /* Corpse fade. Most kinds hold the frozen death-tick pose and
+             * only walk the tint alpha 1 -> 0. A BUG corpse instead plays
+             * its real DEATH clip (acur set to s.bclip_death at death,
+             * s76): advance + rebuild the pose so the collapse animates at
+             * full alpha, then it holds the last frame (bug_eval_time
+             * clamps non-walk clips) and the tail fades. */
             if (e->fade > 0) {
                 e->fade--;
-                e->tint[3] = (float)e->fade / (float)ENEMY_FADE_FRAMES;
+                if (e->kind == EM_ENEMY_KIND_BUG && s.bug_anim_on &&
+                    s.bclip_death >= 0 && e->acur == s.bclip_death) {
+                    e->at += (double)e->arate;
+                    enemy_build_palette(e);
+                    e->tint[3] = e->fade >= ENEMY_FADE_FRAMES ? 1.0f
+                               : (float)e->fade / (float)ENEMY_FADE_FRAMES;
+                } else {
+                    e->tint[3] = (float)e->fade / (float)ENEMY_FADE_FRAMES;
+                }
             }
             continue;
         }
