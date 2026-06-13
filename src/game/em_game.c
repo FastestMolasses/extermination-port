@@ -200,10 +200,12 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * band (em_input.h GAIT HOLD TIERS). WALK_SPEED stays as the
  * door-transit scripted MOVE-TO speed only (em_door's walk, not stick
  * locomotion — the historical port constant keeps the transit
- * timings). Stick release from tier 3 runs the engine's RUN-DOWN
- * (func_0017BC40 phase 2: 0.03125 u/tick decay to the tier-2 speed,
- * then stop; the carried-gear x2 decay and the mode-6 stop-skid anims
- * ids 4/5 are untranslated — flagged). */
+ * timings). Stick release runs the engine's RUN-DOWN (func_0017BC40
+ * phase 2, C2): 0.03125 u/tick decay that CASCADES through every tier
+ * (run -> jog -> walk -> stop), demoting at each tier's floor — not
+ * stopping at the first boundary. The carried-gear x2 decay (actor
+ * +0x314 & 0x1F) is OMITTED (the port has no gear-carry state) and the
+ * mode-6 stop-skid anims ids 4/5 are untranslated — both flagged. */
 #define FRAME_DT        (1.0f / 60.0f)
 #define WALK_SPEED      15.0f   /* units/sec — scripted door MOVE-TO only */
 #define GAIT_RING_1     48.0f   /* func_001B5CC0 rings, raw stick units */
@@ -223,7 +225,32 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define GAIT_RUNDOWN    0.03125f    /* func_0017BC40 phase-2 decay
                                      * (0x3D000000; x2 with carried
                                      * gear — untranslated) */
-#define TURN_SPEED      12.0f   /* rad/sec — facing seeks the move dir */
+/* BODY-HEADING TURN RATES — the engine's facing ease (func_00174AC0
+ * rate select + func_001B12B0 turn-toward; decomp FINDINGS "GROUND
+ * LOCOMOTION"). The invented TURN_SPEED 12 rad/s slide is RETIRED: the
+ * body heading (g.yaw) eases toward the camera-relative DESIRED heading
+ * at a per-frame rate banded by the gait/speed state, and velocity is
+ * emitted along the EASED g.yaw, NOT the raw stick vector — so motion
+ * CURVES into turns (the body lags the stick). rad/frame @ 60 Hz.
+ *
+ * TURN-IN-PLACE (move_speed == 0), banded by gait tier:
+ *   gait 2 -> 4.0 deg/f ; gait 1 -> 8.0 deg/f ; gait 0/3 -> 22.5 deg/f
+ * TURNING WHILE MOVING (move_speed > 0), banded by |delta| then by the
+ * current ramped speed loco_upt (u/tick: walk 0.1, jog 0.3, run 0.8):
+ *   |delta| <= 54 deg:  spd<=0.1 -> 4 ; spd<=0.3 -> 6 ; spd>0.3 -> 7
+ *   |delta| >  54 deg:  spd<=0.1 -> 6 ; spd<=0.3 -> 9 ; spd>0.3 -> 10.5
+ * The turn-toward SNAPS when |delta| <= the chosen rate (no overshoot /
+ * jitter), else steps by sign(delta)*rate. */
+#define TURN_IP_GAIT2   0.0698132f  /* 4.0 deg/f, turn-in-place gait 2 */
+#define TURN_IP_GAIT1   0.1396263f  /* 8.0 deg/f, turn-in-place gait 1 */
+#define TURN_IP_GAIT03  0.3926991f  /* 22.5 deg/f, turn-in-place 0/3   */
+#define TURN_DELTA_BAND 0.9424778f  /* 54 deg — the |delta| split      */
+#define TURN_MV_NEAR_W  0.0698132f  /* near band: walk 4 deg/f         */
+#define TURN_MV_NEAR_J  0.1047198f  /*           jog  6 deg/f          */
+#define TURN_MV_NEAR_R  0.1221730f  /*           run  7 deg/f          */
+#define TURN_MV_FAR_W   0.1047198f  /* far  band: walk 6 deg/f         */
+#define TURN_MV_FAR_J   0.1570796f  /*           jog  9 deg/f          */
+#define TURN_MV_FAR_R   0.1832596f  /*           run  10.5 deg/f       */
 /* MANUAL AIM STEER — DECODED (2026-06-11, func_0017ABA0; retires the
  * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
  * drives the aim BLEND PAIR player +0x27C (yaw) / +0x278 (pitch),
@@ -2219,9 +2246,52 @@ static void player_move_collide(float mx, float mz)
     }
 }
 
+/* player_turn_rate — func_00174AC0's banded rate select (rad/frame).
+ * Picks the body-heading ease rate from whether we are turning in place
+ * (current ramped speed == 0) vs. moving, then by the gait tier (in
+ * place) or by |delta| crossed with the ramped speed loco_upt (moving).
+ * See the BODY-HEADING TURN RATES block above for the table. */
+static float player_turn_rate(int gait, float upt, float adelta)
+{
+    if (upt <= 0.0f) {                      /* TURN-IN-PLACE, by gait */
+        if (gait == 2) return TURN_IP_GAIT2;
+        if (gait == 1) return TURN_IP_GAIT1;
+        return TURN_IP_GAIT03;              /* gait 0 or 3 */
+    }
+    if (adelta <= TURN_DELTA_BAND) {        /* MOVING, near band */
+        if (upt <= 0.1f) return TURN_MV_NEAR_W;
+        if (upt <= 0.3f) return TURN_MV_NEAR_J;
+        return TURN_MV_NEAR_R;
+    }
+    if (upt <= 0.1f) return TURN_MV_FAR_W;  /* MOVING, far band */
+    if (upt <= 0.3f) return TURN_MV_FAR_J;
+    return TURN_MV_FAR_R;
+}
+
+/* player_turn_toward — func_001B12B0 turn-toward: ease g.yaw toward the
+ * desired world heading by at most `rate` (rad/frame), snapping when
+ * within one step (|delta| <= rate) so there is no overshoot / jitter.
+ * Updates g.yaw in place and wraps it to [-pi, pi]. */
+static void player_turn_toward(float desired, float rate)
+{
+    float diff = desired - g.yaw;
+    while (diff >  EM_PI) diff -= 2.0f * EM_PI;
+    while (diff < -EM_PI) diff += 2.0f * EM_PI;
+    if (diff <= rate && diff >= -rate) {
+        g.yaw = desired;                    /* SNAP — within one step */
+    } else {
+        g.yaw += (diff > 0.0f) ? rate : -rate;
+    }
+    while (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
+    while (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+}
+
 /* Player movement (the port's first slice of the actor spine's physics
- * side): left stick = camera-relative walk on the XZ plane; the facing
- * yaw seeks the movement direction at TURN_SPEED (smooth turn). With a
+ * side): left stick = camera-relative DESIRED heading on the XZ plane;
+ * the body heading g.yaw EASES toward it at the engine's banded turn
+ * rate (func_00174AC0 / func_001B12B0) and velocity is emitted ALONG
+ * g.yaw — so the path curves into the move direction (the body lags the
+ * stick) instead of sliding off along the raw stick instantly. With a
  * collision world loaded, movement goes through the engine's move probe
  * (walls stop/slide, the floor query sets the height); without one, the
  * old room-bbox clamp keeps the repo runnable standalone. */
@@ -2481,13 +2551,21 @@ static void player_move(void)
      * loco_tier as each one is crossed. */
     static const float kTier[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
     if (gait == 0) {                  /* dead ring: idle / run-down */
-        if (g.loco_tier == 3 && g.loco_upt > 0.0f) {
-            /* RUN-DOWN (phase 2): the run carries — speed decays
-             * 0.03125 u/tick per frame to the tier-2 boundary, THEN
-             * stops (the engine's phase-3 instant stop; the mode-6
-             * stop-skid anims ids 4/5 are untranslated). */
-            g.loco_upt -= GAIT_RUNDOWN;
-            if (g.loco_upt <= kTier[2]) {
+        if (g.loco_upt > 0.0f) {
+            /* RUN-DOWN (func_0017BC40 phase 2, C2): on stick release the
+             * carried speed bleeds 0.03125 u/tick per frame and CASCADES
+             * through every tier — run -> jog -> walk -> stop — demoting
+             * loco_tier at each tier's lower-speed FLOOR, not stopping at
+             * the first boundary. (The engine x2's the decay to 0.0625
+             * when carrying gear via actor +0x314 & 0x1F; the port has NO
+             * gear-carry state, so the x2 is OMITTED — flag.) Velocity is
+             * emitted along the held body heading g.yaw (no stick = no
+             * desired heading, so g.yaw just holds). */
+            g.loco_upt -= GAIT_RUNDOWN;   /* no gear-carry x2 in the port */
+            /* Cascade the tier down past each floor we drop below. */
+            while (g.loco_tier > 0 && g.loco_upt <= kTier[g.loco_tier - 1])
+                g.loco_tier--;
+            if (g.loco_upt <= 0.0f) {     /* bled to a full stop */
                 g.loco_tier = 0;
                 g.loco_upt  = 0.0f;
             } else {
@@ -2502,8 +2580,7 @@ static void player_move(void)
                 }
                 return;
             }
-        } else {                      /* tiers <= 2 stop instantly
-                                       * (phase 3: +0x38 = 0) */
+        } else {                      /* already stopped */
             g.loco_tier = 0;
             g.loco_upt  = 0.0f;
         }
@@ -2543,27 +2620,48 @@ static void player_move(void)
         }
     }
 
-    /* Stick direction (normalized) -> camera-relative move heading.
+    /* Stick direction (normalized) -> camera-relative DESIRED heading.
      * Camera basis on XZ: forward f points from the eye towards the
      * player, screen-right is f x up = (-fz, 0, fx). Stick up walks
      * away from the camera. Reads only the camera struct's yaw
      * (+0x44), so the EM_MOVE_TEST trajectory is independent of the
-     * eye smoothing. */
+     * eye smoothing. This is the DESIRED heading (func_001B12B0's
+     * target); the BODY heading g.yaw is eased toward it below and the
+     * velocity is emitted ALONG g.yaw — KEEP this camera-relative
+     * derivation, change only what we move along. */
     float sx = rdx / r, sy = rdy / r;
     float fx = sinf(g.cam.yaw), fz = cosf(g.cam.yaw);
     float mx = fx * -sy - fz * sx;
     float mz = fz * -sy + fx * sx;
+    float desired = atan2f(mx, mz);
+
+    /* EASE the body heading toward the desired heading, THEN move along
+     * the eased g.yaw (func_00174AC0 rate select + func_001B12B0
+     * turn-toward, decomp FINDINGS "GROUND LOCOMOTION"). Turning first
+     * and translating along the lagged body heading is what makes the
+     * motion CURVE into turns instead of sliding off the raw stick. The
+     * rate is banded by gait / current ramped speed / |delta|. */
+    {
+        float diff = desired - g.yaw;
+        while (diff >  EM_PI) diff -= 2.0f * EM_PI;
+        while (diff < -EM_PI) diff += 2.0f * EM_PI;
+        float rate = player_turn_rate(gait, g.loco_upt, fabsf(diff));
+        player_turn_toward(desired, rate);
+    }
 
     /* The ramped speed drives this frame (sustained: gait 1 = WALK
-     * 6 u/s, gait 2 = JOG 18 u/s, gait 3 = RUN 48 u/s). */
+     * 6 u/s, gait 2 = JOG 18 u/s, gait 3 = RUN 48 u/s). VELOCITY IS
+     * EMITTED ALONG g.yaw (the eased body heading), NOT the raw stick
+     * vector (mx, mz) — the body lags the stick, so the path curves. */
     g.move_speed = g.loco_upt * 60.0f;
+    float vx = sinf(g.yaw), vz = cosf(g.yaw);
 
     if (g.coll.poly_count) {
-        player_move_collide(mx * g.move_speed * FRAME_DT,
-                            mz * g.move_speed * FRAME_DT);
+        player_move_collide(vx * g.move_speed * FRAME_DT,
+                            vz * g.move_speed * FRAME_DT);
     } else {
-        g.pos[0] += mx * g.move_speed * FRAME_DT;
-        g.pos[2] += mz * g.move_speed * FRAME_DT;
+        g.pos[0] += vx * g.move_speed * FRAME_DT;
+        g.pos[2] += vz * g.move_speed * FRAME_DT;
         if (g.pos[0] < kRoomMin[0]) g.pos[0] = kRoomMin[0];
         if (g.pos[0] > kRoomMax[0]) g.pos[0] = kRoomMax[0];
         if (g.pos[2] < kRoomMin[1]) g.pos[2] = kRoomMin[1];
@@ -2571,17 +2669,11 @@ static void player_move(void)
         g.pos[1] = 0.0f;  /* flat floor (no collision world loaded) */
     }
 
-    /* Smooth-turn the facing towards the move direction (shortest arc). */
-    float target = atan2f(mx, mz);
-    float diff   = target - g.yaw;
-    while (diff >  EM_PI) diff -= 2.0f * EM_PI;
-    while (diff < -EM_PI) diff += 2.0f * EM_PI;
-    float step = TURN_SPEED * FRAME_DT;
-    if (diff >  step) diff =  step;
-    if (diff < -step) diff = -step;
-    g.yaw += diff;
-    if (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
-    if (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+    /* TODO(stop-skid/pivot, FINDINGS "GROUND LOCOMOTION"): the engine's
+     * mode-6 stop-skid anims (ids 4/5) and the pivot / 180-deg about-face
+     * are OUT OF SCOPE here — they need clips 4/5 re-exported into
+     * player.emdl before they can play, and the about-face is its own
+     * mode. The facing ease above is the steady-turn model only. */
 }
 
 /* FOOTSTEPS — the native func_00187350 sound slice + its func_00182430
@@ -5869,15 +5961,28 @@ static void frame_close_out(void)
  * collision world has a wall n-gon at z = -170 (grid poly, plane
  * n = (0,0,-1), d = 170 — 14 u ahead of the spawn), so with collision
  * loaded the RADIAL WALL PROBES rest the player near the engine's
- * 4.5-unit standoff. The strafe leg then CURVES: under the s65
- * WALK-STATE CAMERA the heading (cam+0x44) is an OUTPUT of the eye
- * tether — strafing rotates the camera bearing as the dragged eye
- * trails the path, and camera-relative input curves with it (the
- * engine's emergent chase-camera spiral; the pre-s65 expectations
- * assumed the old fixed-bearing port camera and a straight slide).
- * Deterministic endpoints (no RNG in the camera or mover):
- *   collision world:  (84.334, 0.000, -177.513), yaw -1.9977
- *   bbox fallback:    (83.891, 0.000, -141.560), yaw -1.9586
+ * 4.5-unit standoff. The strafe leg then CURVES on TWO coupled counts:
+ *   (1) the BODY-HEADING EASE (func_00174AC0/func_001B12B0): the leg-1
+ *       -> leg-2 stick flip is a +90 deg desired-heading jump, but the
+ *       body heading g.yaw turns into it at the engine's banded rate
+ *       (run far-band 10.5 deg/f) and VELOCITY IS EMITTED ALONG g.yaw,
+ *       so the path arcs over ~9 frames instead of sliding instantly
+ *       off the raw stick — this is the user-reported fix;
+ *   (2) the s65 WALK-STATE CAMERA: the heading basis (cam+0x44) is an
+ *       OUTPUT of the eye tether — strafing rotates the camera bearing
+ *       as the dragged eye trails the path, so the camera-relative
+ *       DESIRED heading itself keeps swinging (the engine's emergent
+ *       chase-camera spiral). The two compound: the final yaw overshoots
+ *       -pi/2 to ~-1.93 because the rotating camera bearing pushes the
+ *       desired heading further around while the body chases it.
+ * Deterministic endpoints (no RNG in the camera or mover; updated for
+ * the body-heading ease — the pre-fix values assumed velocity along the
+ * raw stick + an invented 12 rad/s slide and a straight first slide):
+ *   collision world:  (86.503, 0.047, -177.498), yaw -1.9367
+ *                     (y 0.047: the curved approach rests on a slightly
+ *                      raised floor cell near the wall corner; < the
+ *                      0.05 probe tol)
+ *   bbox fallback:    (86.025, 0.000, -135.887), yaw -1.9032
  *                     (no probes, no wall — free motion, larger arc)
  * Those built-in expectations (and the 60/30-frame legs) are the OFFICE
  * scene's; for other scenes (manifest spawns) EM_MOVE_LEGS=fwd,strafe
@@ -5903,10 +6008,10 @@ static void move_test_script(void)
     } else if (n == g.move_legs[0] + g.move_legs[1]) {
         move_test_inject('d', 0);
     } else if (n == g.move_legs[0] + g.move_legs[1] + 1) {
-        float ex   = g.coll.poly_count ?   84.334f :   83.891f;
-        float ey   = 0.0f;
-        float ez   = g.coll.poly_count ? -177.513f : -141.560f;
-        float eyaw = g.coll.poly_count ?  -1.9977f :  -1.9586f;
+        float ex   = g.coll.poly_count ?   86.503f :   86.025f;
+        float ey   = g.coll.poly_count ?    0.047f :    0.000f;
+        float ez   = g.coll.poly_count ? -177.498f : -135.887f;
+        float eyaw = g.coll.poly_count ?  -1.9367f :  -1.9032f;
         if (g.move_expect_set) {
             ex = g.move_expect[0];
             ey = g.move_expect[1];
