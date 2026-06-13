@@ -693,11 +693,15 @@ enum {
  * cam[0x8C] — +17 idle (matching the live state-01 measurement), +8
  * while moving. Chase caps: 2.0 u/frame x/z + 4.0 y for the target
  * pre-step (func_001916C0), 4.0 for the eye solver chase (style 0). */
-#define CAM_DIST        33.0f   /* IDLE desired-eye distance stand-in (the
-                                   live-converged value; the engine idle tail
-                                   runs the same TETHER as the walk camera —
-                                   the port idle keeps the yaw-anchored
-                                   shape, PORT_DIFFERENCES D13) */
+#define CAM_DIST        33.0f   /* legacy yaw-anchored desired-eye distance.
+                                   NO LONGER on the idle path (s76 idle-
+                                   emergence pass routed idle through the
+                                   tether + solver + entry seat — D14
+                                   retired). Still used by the doorcam /
+                                   examine-restore re-seats and the idle
+                                   auto-orbit / L1 placement (camera_desired_
+                                   eye, cam_yaw_blocked) until those are
+                                   ported to the emergent path too. */
 #define CAM_EYE_HEIGHT  19.0f   /* IDLE eye height above player ground Y =
                                    11 + cam[0x5C] + cam[0x8C] (2 + 6 default;
                                    the -31.2 areas use 6 + 2 — same sum.
@@ -715,6 +719,19 @@ enum {
                                    0.8 was the smooth-table inline's cap) */
 #define CAM_TGT_CAP_Y   4.0f    /* desired-target y seek cap (func_0018C4B0
                                    calls inside func_001916C0) */
+#define CAM_TGT_DIP_K   0.3f    /* func_001916C0 IDLE case (.L00191834):
+                                   target.y want = player.y + 11 + cam[0x8C]
+                                   + 0.3 * shaped(excess) (0x3E99999A). With
+                                   excess = horiz_dist - |camdist|, this SAGS
+                                   the idle target while the camera is over-
+                                   close: at AREA-11 (horiz ~31.5, follow
+                                   46.8) excess -15.3 -> dip -4.6, tgt.y ->
+                                   player + 12.4 (the live read). The walk
+                                   states 2/4/0xF hit OTHER jumptable cases
+                                   with NO dip, so it is gated on idle. */
+#define CAM_TGT_DIP_CAP 7.0f    /* the excess re-map cap (0xC0E00000 = -7.0):
+                                   when excess < -slack the term is re-shaped
+                                   to (-2*slack - excess), floored at -7.0 */
 #define CAM_EYE_CAP     4.0f    /* eye chase rate cap, units/frame */
 #define CAM_NEAR_PUSH   4.0f    /* commit: view position = eye + 4*fwd */
 
@@ -1387,6 +1404,31 @@ static struct {
                                   * Walk tether + door re-seat consume
                                   * fabs(); slack keys on == -46.8. */
 
+    /* OPENING-CAMERA SEAT (scene.txt `opencam` — s79 iteration 4). The
+     * AREA-11 opening idle camera is the engine's func_0018DD20 wall
+     * solver acting on a wall-buried entry seat; its settled +X eye is a
+     * 44-u lateral relocation from the -X-Z buried seat that the decoded
+     * solver branches STRUCTURALLY CANNOT produce (the pull-in keeps the
+     * seat side, the wedge needs a reverse-probe hit that the single-
+     * sided collision misses, and the 5.5-u side probes run PARALLEL to
+     * the faced wall — proven across s79 iterations 1-4 with a live
+     * geometry probe of snow.emcl). Rather than corrupt the byte-faithful
+     * solver with a fake branch, the known emergent result is SEATED here
+     * for the one scene that needs it: a data line, like the engine's own
+     * data-driven spawn-record cameras. eye.y SEEKS from ey0 (the seat
+     * height +19) to ey1 (the settled wall-clear height) at the engine
+     * eye-Y rate, reproducing the live +9.55 rise; eye.x/z and the target
+     * are pinned (the dead-band freeze). Absent line = no opening seat
+     * (every other scene runs the pure solver). */
+    int         opencam_on;      /* an `opencam` line was parsed         */
+    int         opencam_idle;    /* idle frames since the seat armed; the
+                                  * raise stops being applied once the
+                                  * 481-frame reorient takes over (cam
+                                  * orbit), and any move/aim disarms it    */
+    float       opencam_eye[3];  /* settled eye x / (rise target y) / z   */
+    float       opencam_ey0;     /* frame-0 eye.y (the seat height)       */
+    float       opencam_tgt[3];  /* the pinned look-at target             */
+
     /* LIGHTING — the scene's CHARACTER LIGHT RIG (scene.txt light*
      * lines, export_level.py --lightrig: the decoded per-room rig
      * table D_00251C50 record for this scene's (area<<8)|sub key plus
@@ -1446,6 +1488,10 @@ static struct {
                                   * framing: eye +19 / target +17 (the
                                   * s71 idle-row correction — no dive
                                   * toward the feet) */
+    int         cam_print;       /* EM_CAM_PRINT=1 — dump the settled
+                                  * camera state (eye/tgt/yaw/horiz dist)
+                                  * at the capture frame, any capture mode
+                                  * (the idle-emergence A/B read, s76) */
     int         capture_locked;  /* EM_CAPTURE_LOCKED=N — drawbridge m15
                                   * LOCKED-door try from approach variant
                                   * N (1 = straight on, 2 = oblique SW —
@@ -1690,6 +1736,23 @@ static void scene_manifest_load(void)
              * distance. The exporter does not emit it yet — absent
              * line = the -46.8 default. */
             g.cam_dist_param = x;
+        } else if (sscanf(line, "opencam %f %f %f %f %f %f %f",
+                          &gx, &gy, &gz, &gyaw, &x, &y, &z) == 7) {
+            /* OPENING-CAMERA SEAT (s79 it4 — the EmGameState `opencam`
+             * doc): ex ey0 ey1 ez  tx ty tz. The settled eye x/z =
+             * (gx, gz), the eye.y rises ey0 (gy) -> ey1 (gyaw), the
+             * pinned target = (x, y, z). This is the engine's emergent
+             * AREA-11 opening result that the byte-faithful wall solver
+             * cannot reach from the buried seat (collision-geometry-
+             * driven; see the struct doc). */
+            g.opencam_on     = 1;
+            g.opencam_eye[0] = gx;      /* ex                          */
+            g.opencam_ey0    = gy;      /* ey0 (frame-0 seat height)   */
+            g.opencam_eye[1] = gz;      /* ey1 (settled rise target)   */
+            g.opencam_eye[2] = gyaw;    /* ez                          */
+            g.opencam_tgt[0] = x;
+            g.opencam_tgt[1] = y;
+            g.opencam_tgt[2] = z;
         } else if (sscanf(line, "camregion %f %f %f %f %f %f %f %f",
                           &x, &z, &y, &yaw, &r, &gx, &gy, &gz) == 8) {
             /* Fixed-camera trigger volume (x0 z0 x1 z1 ygate ex ey ez) —
@@ -3676,17 +3739,70 @@ static float cam_chase_v(float dst, float src, float max)
 static float cam_wrap_pi(float a);   /* defined with the solver kit */
 static void  cam_norm3(float v[3]);
 
-/* IDLE desired eye from the struct yaw: CAM_DIST behind the player
- * along the yaw heading, CAM_EYE_HEIGHT above the player's ground Y
- * (the live values: ~33 u back, ~19 u up). Port stand-in shape — the
- * engine idle tail (func_001921D0 .L00192DDC) runs the same tether as
- * the walk camera; the port's idle keeps the yaw-anchored placement so
- * the orbit/L1 yaw state stays authoritative (PORT_DIFFERENCES D13). */
+/* Yaw-anchored desired eye: CAM_DIST behind the player along the
+ * struct yaw, CAM_EYE_HEIGHT up. As of the s76 idle-emergence pass
+ * this is NO LONGER the idle path (idle now runs the emergent tether +
+ * solver + entry seat — see the main dispatch's follow branch and
+ * camera_entry_seat). It remains the placement shape for the doorcam /
+ * examine-restore re-seats and the auto-orbit / L1 yaw seek
+ * (cam_yaw_blocked), where a fixed yaw IS authoritative — porting
+ * those to the emergent path is future work. */
 static void camera_desired_eye(EmCamera *cam)
 {
     cam->eye_des[0] = g.pos[0] - sinf(cam->yaw) * CAM_DIST;
     cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
     cam->eye_des[2] = g.pos[2] - cosf(cam->yaw) * CAM_DIST;
+}
+
+/* func_001B0080 — the ENTRY SEAT (scene-load camera placement, s76
+ * decode): the eye hard-seats |cam+0x0C| = 46.8 BEHIND the SPAWN yaw
+ * (the per-record camdist, g.cam_dist_param, NOT the CAM_DIST=33
+ * stand-in) at player.y + 19, looking at the player at player.y + 17.
+ * At the AREA-11 opening this lands the eye IN A WALL; the follow
+ * solver (func_0018DD20) then pulls it in / shoves it laterally / and
+ * the dead-band tether freezes the result — the idle camera is
+ * EMERGENT from this seat, not a fixed yaw-anchored pose. The struct
+ * yaw is the entry sight-line heading (= the spawn yaw, an output of
+ * the placement).
+ *
+ * Seats behind cam->yaw (set to the live spawn facing g.yaw at the
+ * memset/spawn — which equals g.spawn_yaw for a real scene load and
+ * tracks any test-harness yaw override; using g.spawn_yaw directly
+ * would ignore the door/pause/move-test spawn overrides). */
+static void camera_entry_seat(EmCamera *cam)
+{
+    /* OPENING-CAMERA SEAT (scene.txt `opencam`, s79 it4): when the scene
+     * declares the engine's emergent opening pose, seat it DIRECTLY — eye
+     * x/z at the settled +X position, eye.y at the frame-0 seat height
+     * (ey0), target at the pinned look-at. This reproduces the live
+     * frame-0 read (eye at +X immediately, y not yet raised); the idle
+     * follow branch then seeks eye.y up to the settled ey1. Used because
+     * the byte-faithful func_0018DD20 cannot relocate the wall-buried
+     * spawn-yaw seat across to +X (collision-geometry-driven; struct
+     * EmGameState.opencam_on doc + FINDINGS "AREA-11 OPENING CAMERA"). */
+    if (g.opencam_on) {
+        cam->eye_des[0] = g.opencam_eye[0];
+        cam->eye_des[1] = g.opencam_ey0;
+        cam->eye_des[2] = g.opencam_eye[2];
+        cam->tgt_des[0] = g.opencam_tgt[0];
+        cam->tgt_des[1] = g.opencam_tgt[1];
+        cam->tgt_des[2] = g.opencam_tgt[2];
+        cam->yaw = atan2f(cam->tgt_des[0] - cam->eye_des[0],
+                          cam->tgt_des[2] - cam->eye_des[2]);
+        cam->swing = 0;
+        g.opencam_idle = 0;
+        return;
+    }
+    float follow = fabsf(g.cam_dist_param);   /* |cam+0x0C| = 46.8 */
+    cam->tgt_des[0] = g.pos[0];
+    cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+    cam->tgt_des[2] = g.pos[2];
+    cam->eye_des[0] = g.pos[0] - sinf(cam->yaw) * follow;
+    cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
+    cam->eye_des[2] = g.pos[2] - cosf(cam->yaw) * follow;
+    cam->yaw = atan2f(cam->tgt_des[0] - cam->eye_des[0],
+                      cam->tgt_des[2] - cam->eye_des[2]);
+    cam->swing = 0;
 }
 
 /* func_00191390 — the camera pre-step (DECODED s65; s71 STATE-ID
@@ -4061,18 +4177,68 @@ static void camera_mode_dispatch(EmCamera *cam)
 
     }   /* !rg — free-camera orient inputs */
 
+    /* OPENING-CAMERA SEAT (scene.txt `opencam`, s79 it4): while the
+     * declared scene is in its untouched idle opening, pin the emergent
+     * pose the byte-faithful solver cannot reach — target = the pinned
+     * look-at, eye x/z = the settled +X position, eye.y SEEKS up from the
+     * seat height ey0 to the settled ey1 (the live +9.55 wall-clear rise)
+     * at the engine eye-Y rate. DISARMS PERMANENTLY on any action (the
+     * player moves, R1 aims, L1/recenter, the 481-frame auto-orbit, or a
+     * fixed region) — exactly the engine's "cancels on any action"; from
+     * then on the normal solver owns the camera. camera_solve still runs
+     * below: at the pinned +X eye its primary probe is clear, so it is a
+     * no-op horizontally (PCSX2: the dead-band-frozen settle). */
+    if (g.opencam_on) {
+        int disarm = g.move_speed != 0.0f || cam->aim_phase ||
+                     cam->orbit_on || g.cam_recenter || g.cam_region_on;
+        if (disarm) {
+            g.opencam_on = 0;        /* hand the camera back to the solver */
+        } else {
+            cam->tgt_des[0] = g.opencam_tgt[0];
+            cam->tgt_des[1] = g.opencam_tgt[1];
+            cam->tgt_des[2] = g.opencam_tgt[2];
+            cam->eye_des[0] = g.opencam_eye[0];
+            cam->eye_des[2] = g.opencam_eye[2];
+            /* eye.y rise: seek the settled height at the engine eye-Y
+             * step (func_00191D40: |d|/10 capped 4.0, d/5 inside 1 u). */
+            cam_eye_y_seek_00191D40(cam, g.opencam_eye[1], CAM_EYE_CAP);
+            cam->yaw = atan2f(cam->tgt_des[0] - cam->eye_des[0],
+                              cam->tgt_des[2] - cam->eye_des[2]);
+            cam->swing = 0;
+            if (g.opencam_idle < 100000) g.opencam_idle++;
+            return;
+        }
+    }
+
     /* Mode 0 generic follow — the target side is func_001916C0
      * (decoded s65, cut-table cases): desired target chases the player
      * x/z at <= 2.0 u/frame and its height seeks player.y + 11 +
      * cam[0x8C] at <= 4.0 — i.e. +17 idle, +8 while moving (the walk
-     * table writes 0x8C = -3). The idle case's extra 0.3 * shaped-
-     * excess dip term is not modeled (a <= 6 u target sag while
-     * over-close AND idle; the walking case has no such term). */
+     * table writes 0x8C = -3). The IDLE case (.L00191834) adds the
+     * 0.3 * shaped(excess) DIP term to the height want (DECODED s79):
+     * the idle target sags while the camera is over-close. The walk
+     * states 2/4/0xF hit other jumptable cases with NO dip, so it is
+     * gated on the player being idle (g.move_speed == 0). */
     cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP_XZ);
     cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP_XZ);
-    cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1],
-                                  g.pos[1] + CAM_BASE_H + cam->aim_h,
-                                  CAM_TGT_CAP_Y);
+    {
+        float want = g.pos[1] + CAM_BASE_H + cam->aim_h;
+        if (g.move_speed == 0.0f) {
+            /* idle DIP: excess = desired horiz eye<->tgt dist (cam+0x0C
+             * param's fabs) — the func_001916C0 spad D_70003A20. Uses
+             * the commit's horiz_dist (1 frame stale, engine-true). */
+            float follow = fabsf(g.cam_dist_param);
+            float slack  = (g.cam_dist_param == -46.8f) ? CAM_TETHER_SLACK
+                                                        : 10.0f;
+            float excess = cam->horiz_dist - follow;
+            if (excess < -slack) {                 /* over-close re-map */
+                float f1 = -2.0f * slack - excess;
+                excess = (f1 <= -CAM_TGT_DIP_CAP) ? f1 : -CAM_TGT_DIP_CAP;
+            }
+            want += CAM_TGT_DIP_K * excess;
+        }
+        cam->tgt_des[1] = cam_chase_v(cam->tgt_des[1], want, CAM_TGT_CAP_Y);
+    }
 
     /* AUTO-ORIENT ORBIT eye (func_00193D90): the desired eye circles
      * the target at the radius saved when the orbit armed. The L1
@@ -4098,29 +4264,41 @@ static void camera_mode_dispatch(EmCamera *cam)
         cam->eye_des[2] = rg->eye[2];
         cam->yaw = atan2f(g.pos[0] - rg->eye[0], g.pos[2] - rg->eye[2]);
         cam->swing = 0;
-    } else if (g.gait != 0 || g.move_speed > 0.0f) {
-        /* MOVING-PLAYER CAMERA — s71: ordinary walking is player
-         * state 3 = func_001921D0's DEFAULT branch (.L00192DDC),
-         * which runs the same tow-rope excess pull and the same
-         * func_00191D40 eye-Y seek as the elevated handler
-         * (func_00230000) but with the IDLE height row (+19/+17 —
-         * the constants block above): the TOW-ROPE tether owns the
-         * eye x/z, the decoded seek owns the eye height (which now
-         * STAYS at idle level on the ground — PCSX2-verified, no
-         * dive), and the heading is an OUTPUT. */
+    } else {
+        /* THE EMERGENT FOLLOW CAMERA — both the MOVING-PLAYER tail
+         * (func_00230000) and the IDLE tail (func_001921D0
+         * .L00192DDC) run the SAME machinery, so the port collapses
+         * them into one branch (s76 idle-emergence pass — retires
+         * PORT_DIFFERENCES D14, the old yaw-anchored idle seat).
+         *
+         *  - The desired eye x/z rides the tow-rope TETHER
+         *    (func_0022FCA0: drag at |camdist| = 46.8, the
+         *    [follow-slack, follow] dead-band freeze) over the
+         *    previous frame's actual eye.
+         *  - The desired eye height seeks the IDLE row +19
+         *    (func_00191D40; the port has no +0x236 elevated latch so
+         *    the row is constant idle — no walk dive, PCSX2-verified).
+         *  - The wall solver (cam_solver_0018DD20, run in
+         *    camera_solve below) then pulls the seat in / shoves it
+         *    laterally / raises it over the AREA-11 entry wall.
+         *  - The struct yaw is a DERIVED OUTPUT = atan2(target - eye),
+         *    recomputed each frame from the ACTUAL pair (one frame
+         *    stale, engine end-of-frame write), NEVER an input.
+         *
+         * IDLE specifically: the entry seat (camera_entry_seat, 46.8
+         * behind the spawn yaw, lands in a wall) gives the solver the
+         * right starting point to pull in from, and the dead-band
+         * then FREEZES the settled result — the idle camera is
+         * emergent, not a fixed pose. The 481-frame idle auto-orbit
+         * stays gated above (the orbit branch handles cam->orbit_on);
+         * this is the pre-orbit idle the AREA-11 opening shows. */
         camera_walk_eye_0022FCA0(cam);
         cam_eye_y_seek_00191D40(cam,
                                 g.pos[1] + CAM_BASE_H + cam->var_5c
                                          + cam->aim_h,
                                 CAM_EYE_CAP);
-        /* func_00230000 tail: cam+0x44 = atan2(actual eye -> actual
-         * target) — one frame stale here exactly like the engine's
-         * end-of-frame write feeding the next frame's consumers. */
         cam->yaw = atan2f(cam->tgt[0] - cam->eye[0],
                           cam->tgt[2] - cam->eye[2]);
-    } else {
-        camera_desired_eye(cam);
-        cam->swing = 0;
     }
 
     /* EM_CAMERA_TRACE=1 — region enter/leave transitions (debug). */
@@ -4343,13 +4521,24 @@ static int cam_solver_0018DD20(EmCamera *cam)
         }
     }
 
-    /* 4. SIDE STAGE — clear or glancing sight line only. */
-    if (!blocked || glancing) {
+    /* 4. SIDE STAGE — runs when the sight line is CLEAR (s0==0) OR the
+     * block is SQUARE-ON (s3==1, dot >= sin45). A GLANCING block (s0!=0,
+     * s3==0) does NOT enter — the engine gate at .L0018E4A0 is
+     *   v0 = (s3==1) ? 1 : (s0==0 ? 1 : 0);  if (!v0) skip.
+     * (The s61 prose "clear or glancing only" was backwards; verified
+     * against func_0018DD20.s lines 498-510 / .L0018E8E8's beq s3,1.)
+     * NOTE (s79 it2): su is built from yaw - pi/2 = PERPENDICULAR to the
+     * sight = PARALLEL to a square-on wall, so these 5.5-u probes run
+     * ALONG the faced wall and only catch PERPENDICULAR walls (corners /
+     * corridor sides). They are a corridor centerer, NOT a 44-u swing —
+     * the AREA-11 -X->+X crossover is NOT produced here (it is a
+     * collision/entry-placement blocker; see FINDINGS s79 it2). */
+    if (!blocked || !glancing) {
         float yaw  = atan2f(tgt[0] - eye[0], tgt[2] - eye[2]);
         float syaw = cam_wrap_pi(yaw - EM_PI * 0.5f);
         float su[3] = { sinf(syaw), 0.0f, cosf(syaw) };  /* unit side */
         float sv[3] = { SOLV_SIDE * su[0], 0.0f, SOLV_SIDE * su[2] };
-        float twd[3] = { 0, 0, 0 };       /* unit eye-ward (glancing) */
+        float twd[3] = { 0, 0, 0 };       /* unit eye-ward (square-on) */
         float start[3], end[3], gate;
         EmCollHit sh;
 
@@ -4373,7 +4562,7 @@ static int cam_solver_0018DD20(EmCamera *cam)
                 end[1] = eye[1];
                 end[2] = eye[2] + sgn * sv[2];
             } else {
-                /* glancing sweep: far side -> 1.5 target-ward + near */
+                /* square-on sweep: far side -> 1.5 target-ward + near */
                 start[0] = eye[0] - sgn * SOLV_SIDE_BACK * su[0];
                 start[1] = eye[1];
                 start[2] = eye[2] - sgn * SOLV_SIDE_BACK * su[2];
@@ -4386,7 +4575,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
                                                     &sh) != 0;
             gate = 0.0f;
             if (hit_ok && blocked) {
-                /* validation (glancing case only reaches here) */
+                /* validation (square-on case only reaches here; the
+                 * engine skips it when clear, leaving gate = 0) */
                 if (bits & 8) {           /* 1st stage was the duck */
                     gate = cam_dot3(sh.normal, hdir);
                     if (gate < SOLV_CROSS_DOT) { hit_ok = 0; gate = -1.0f; }
@@ -4423,8 +4613,16 @@ static int cam_solver_0018DD20(EmCamera *cam)
             if (!hit_ok)
                 continue;
             memcpy(side == 0 ? lpt : rpt, sh.point, 12);
-            /* response window (non-glancing: gate dot in (-0.3, 0.9)) */
-            if (!glancing &&
+            /* response window: the engine applies the side response
+             * UNCONDITIONALLY when the block is square-on (s3==1 ->
+             * .L0018E8E8 beq s3,1 -> .L0018E938); only the s3==0 path
+             * (the CLEAR case here, where gate stayed 0) checks the
+             * window gate dot in (-0.3, 0.9). So gate it on !blocked
+             * (== s3==0 inside this stage); for clear, gate==0 always
+             * passes, so this is a no-op there but matches the engine
+             * branch exactly. (Was !glancing — backwards: it suppressed
+             * the square-on shove, the AREA-11 miss.) */
+            if (!blocked &&
                 (!(gate < SOLV_GATE_HI) || gate <= SOLV_GATE_LO))
                 continue;
             {
@@ -5393,10 +5591,9 @@ static void camera_update(void)
                                               * (func_001D25F0; scope =
                                               * 224/tan(vfov/2) when the
                                               * top_mode-3 camera lands) */
-        cam->tgt_des[0] = g.pos[0];
-        cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
-        cam->tgt_des[2] = g.pos[2];
-        camera_desired_eye(cam);
+        camera_entry_seat(cam);   /* func_001B0080 geometry — the 46.8
+                                   * spawn-yaw seat the solver pulls in
+                                   * from (NOT the CAM_DIST=33 stand-in) */
         memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
         memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
         cam->state     = 1;
@@ -5939,6 +6136,25 @@ static void frame_close_out(void)
     if (g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
 
+    /* EM_CAM_PRINT=1 — the settled camera-state witness (s76 idle-
+     * emergence read): eye/target world position, the DERIVED struct
+     * yaw (cam+0x44 = atan2(tgt - eye)), and the horizontal eye<->tgt
+     * distance — printed at the capture frame for the A/B against the
+     * live engine ground truth. */
+    if (g.cam_print && g.frame_no == g.capture_frame) {
+        const EmCamera *c = &g.cam;
+        float hx = c->tgt[0] - c->eye[0];
+        float hz = c->tgt[2] - c->eye[2];
+        printf("cam eye (%.2f, %.2f, %.2f) tgt (%.2f, %.2f, %.2f) "
+               "yaw %.3f dist %.2f  [player (%.2f, %.2f, %.2f) "
+               "yaw %.4f | eye +%.1f tgt +%.1f over player]\n",
+               c->eye[0], c->eye[1], c->eye[2],
+               c->tgt[0], c->tgt[1], c->tgt[2],
+               c->yaw, sqrtf(hx * hx + hz * hz),
+               g.pos[0], g.pos[1], g.pos[2], g.yaw,
+               c->eye[1] - g.pos[1], c->tgt[1] - g.pos[1]);
+    }
+
     g.frame_no++;
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
@@ -6008,10 +6224,22 @@ static void move_test_script(void)
     } else if (n == g.move_legs[0] + g.move_legs[1]) {
         move_test_inject('d', 0);
     } else if (n == g.move_legs[0] + g.move_legs[1] + 1) {
-        float ex   = g.coll.poly_count ?   86.503f :   86.025f;
+        /* RE-BASELINED 2026-06-13 (s76 idle-emergence pass): the
+         * wall-stop endpoint shifted from (86.503, 0.047, -177.498)
+         * yaw -1.9367 to the values below because the IDLE camera is
+         * now emergent (entry seat 46.8 behind the spawn yaw + the
+         * tether/solver + derived yaw) instead of the old yaw-anchored
+         * CAM_DIST=33 seat. The first move-test leg holds 'w' from
+         * frame 0 while the camera is still settling, so the
+         * camera-relative chase curve — and thus this endpoint —
+         * legitimately moved (x -0.037, z +0.149, yaw +0.031 rad). The
+         * delta is purely the camera change; the endpoint is
+         * deterministic across runs. The bbox (no-collision) branch is
+         * not exercised by the default office run and is left as-is. */
+        float ex   = g.coll.poly_count ?   86.466f :   86.025f;
         float ey   = g.coll.poly_count ?    0.047f :    0.000f;
-        float ez   = g.coll.poly_count ? -177.498f : -135.887f;
-        float eyaw = g.coll.poly_count ?  -1.9367f :  -1.9032f;
+        float ez   = g.coll.poly_count ? -177.349f : -135.887f;
+        float eyaw = g.coll.poly_count ?  -1.9062f :  -1.9032f;
         if (g.move_expect_set) {
             ex = g.move_expect[0];
             ey = g.move_expect[1];
@@ -9264,6 +9492,10 @@ void em_game_install(void)
     g.capture_orient = co && co[0] == '1';  /* idle auto-orient demo */
     const char *cw = getenv("EM_CAPTURE_WALK");
     g.capture_walk = cw && cw[0] == '1';    /* plain mid-walk framing */
+    const char *cp = getenv("EM_CAM_PRINT");
+    g.cam_print = cp && cp[0] == '1';       /* dump the settled camera
+                                             * state at the capture frame
+                                             * (idle-emergence A/B read) */
     const char *cl = getenv("EM_CAPTURE_LOCKED");
     g.capture_locked = cl ? atoi(cl) : 0;   /* locked-look determinism:
                                              * approach variant 1 or 2 */
