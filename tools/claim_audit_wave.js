@@ -45,9 +45,11 @@ until you check it.** The user's report: the port plays and behaves incorrectly 
 places. Your job is to find and fix those places.
 
 YOUR SUBSYSTEM: ${t.files.join(', ')}
-CLAIMS TO CHECK (${t.claims.length} of them, from tools/audit_claims.py):
-${t.claims.slice(0, 60).map(c => `  ${c.where}  [${c.bucket}]  cites: ${c.cites || '-'}\n     "${c.text}"`).join('\n')}
-${t.claims.length > 60 ? `  ... and ${t.claims.length - 60} more; enumerate them yourself with:\n     cd ${PORT} && python3 tools/audit_claims.py --file ${t.files[0].split('/').pop()}` : ''}
+CLAIMS TO CHECK: ${t.claim_count}. Enumerate them first — for each of your files run:
+${t.files.map(f => `  cd ${PORT} && python3 tools/audit_claims.py --file ${f.split('/').pop()}`).join('\n')}
+That prints one line per claim: location, the claim word, its bucket (CHECKABLE /
+UNGROUNDED / DATA), and which PS2 functions it cites with each one's decomp status.
+Work the CHECKABLE ones first — that is where real behaviour bugs hide.
 
 GROUND TRUTH. ${DECOMP}/src/<func>.c is our recovered C.
   * First line NOT "// NEARMISS" => BYTE-MATCHED: it compiles to the original machine
@@ -83,7 +85,7 @@ RULES:
 * ONLY touch: ${t.files.join(', ')}. Another agent owns every other file.
 * Verify before finishing: cd ${PORT} && make 2>&1 | tail -20   (it MUST compile)
 
-Return the schema. claims_seen = how many you actually examined; claims_total = ${t.claims.length}.
+Return the schema. claims_seen = how many you actually examined; claims_total = ${t.claim_count}.
 Be honest if you did not get through them all — partial coverage truthfully reported is far
 more useful than a false "all done".`
 
