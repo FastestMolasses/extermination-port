@@ -16,14 +16,41 @@
  *     frame block 0x00810E60..7B)        snapshot lands in the EmFrameInput
  *                                        block, edges computed here.
  *  D  func_001AEBE0 screen-fade machine  frame_fade_tick() — the native
- *     (armed by func_001AEDE0(speed,     fade level machine (64-frame ramp
- *     dir); door commits use speed 4)    at the captured door speed 4); the
- *                                        engine's draw is a SUBTRACTIVE
- *                                        grey sprite (GS ALPHA Cd - Cs —
- *                                        decoded, em_frame.h), drawn at
+ *     (its own arms are func_001AEB60/    fade level machine (64-frame ramp
+ *     func_001AEBA0(speed); the port      at the captured door speed 4); the
+ *     models the step-G sibling — see     engine's draw is a SUBTRACTIVE
+ *     the CORRECTED note below)           grey sprite (GS ALPHA Cd - Cs —
+ *                                        CONFIRMED, em_frame.h), drawn at
  *                                        close-out as a grey reverse-
  *                                        subtract overlay rect at the
  *                                        level (em_gfx_overlay_rect_sub).
+ *
+ *     CORRECTED (audit). The old text said step D's machine is "armed by
+ *     func_001AEDE0(speed, dir)". Both halves were wrong, and the two
+ *     engine fade machines were conflated:
+ *       - func_001AEBE0 (step D) drives the block at D_0028A8D0/D2/D4 and
+ *         is armed by func_001AEB60(speed) [state 3, level := 0, ramp up
+ *         to 0xFF, then state 1] and func_001AEBA0(speed) [state 2,
+ *         level := 0xFF, ramp down to 0, then state 0]. Both RESET the
+ *         level at arm time and no-op when already settled at the
+ *         destination end.
+ *       - func_001AEDE0 arms the OTHER machine — the D_0028A8E0 block
+ *         (+0xC0 sub-state, +0xC2 colour, +0xC3 mode, +0xC4 alpha,
+ *         +0xC6 step) ticked by func_001AEE70, i.e. steps G/O below.
+ *         Its arms do NOT reset the alpha, so it ramps from wherever it
+ *         is. That is the behaviour the port implements, and it is what
+ *         em_frame.h's fade API documents, so the CODE is right and the
+ *         step-D citation was the error.
+ *       - func_001AEDE0's SECOND argument is the COLOUR/blend select
+ *         (+0xC2), not a direction: 0 packs GS ALPHA 0xA1 (Cv = Cd - Cs,
+ *         subtractive, fade to black), 1 packs 0x68 (Cv = Cs + Cd,
+ *         additive, fade to white). Direction is chosen by WHICH arm you
+ *         call — func_001AEDE0 sets mode 3 (alpha rises to 0xFF = the
+ *         port's "fade out"), func_001AEE10 sets mode 2 (alpha falls to
+ *         0 = the port's "fade in"). Read in decomp
+ *         Extermination/src/func_001AEDE0.c (byte-matched),
+ *         func_001AEB60.c, func_001AEBA0.c, func_001AED80.c,
+ *         func_001AEE10.c and func_001AEE70.c / func_001AE900.c.
  *  E  func_001AB6A0 TASK DISPATCH        em_task_dispatch() — ALL game
  *                                        logic, exactly as on PS2.
  *  F  func_001FCA10 audio service        em_bgm_service() — em_audio is
@@ -103,10 +130,11 @@ static struct {
     uint32_t     parity;      /* 0x00810E80 frame index (0/1) */
     EmFrameInput input;       /* 0x00810E60 frame input block */
     uint16_t     prev_held;   /* previous frame's buttons, for edges */
-    /* screen-fade machine (step D, func_001AEDE0) */
-    float        fade_level;  /* 0 = clear .. 1 = full black */
+    /* screen-fade machine (step G, func_001AEE70; armed by
+     * func_001AEDE0 / func_001AEE10) */
+    int          fade_alpha;  /* 0 = clear .. 255 = full subtract (+0xC4) */
     int          fade_dir;    /* +1 fading out, -1 fading in, 0 settled */
-    int          fade_speed;  /* engine units: level steps speed/256 */
+    int          fade_speed;  /* engine step per frame (+0xC6) */
     /* EM_INPUT_TEST bookkeeping */
     bool         input_test;
     EmPadState   prev_pad;
@@ -136,30 +164,37 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
 
 void em_frame_request_quit(void)        { s_frame.quit = true; }
 
-/* func_001AEDE0(speed, dir) — arm the screen fade (see em_frame.h). */
+/* Arm the screen fade. dir > 0 == func_001AEDE0(speed, 0) (mode 3, the
+ * alpha RISES toward 0xFF -> darker); dir < 0 == func_001AEE10(speed, 0)
+ * (mode 2, the alpha FALLS toward 0 -> clear). Neither engine arm resets
+ * the alpha, so a re-arm mid-ramp reverses from the current level — that
+ * is reproduced here. See em_frame.h. */
 void em_frame_fade_start(int dir, int speed)
 {
     s_frame.fade_dir   = (dir > 0) ? 1 : -1;
     s_frame.fade_speed = speed;
 }
 
-float em_frame_fade_level(void)  { return s_frame.fade_level; }
+float em_frame_fade_level(void)  { return s_frame.fade_alpha / 255.0f; }
 int   em_frame_fade_active(void) { return s_frame.fade_dir != 0; }
 
-/* Step D — one tick of the fade machine: the level ramps speed/256 per
- * frame toward the armed end (speed 4 = the captured 64-frame door
- * fade), then the machine settles. */
+/* Step-G machine, one tick (func_001AEE70 modes 2/3). CORRECTED (audit):
+ * the engine's fade level is the INTEGER sprite grey 0..0xFF at
+ * D_0028A8E0+0xC4, stepped by the whole-number speed at +0xC6 and
+ * clamped at 0 / 0xFF — not a float ramp in units of speed/256. Full
+ * subtraction is alpha 0xFF, so the exposed level is alpha/255. Speed 4
+ * still lands on the captured 64-frame door fade (0xFF/4 -> 64 steps);
+ * the intermediate levels are now the engine's exact ones. */
 static void frame_fade_tick(void)
 {
     if (!s_frame.fade_dir) return;
-    s_frame.fade_level += (float)s_frame.fade_dir *
-                          (float)s_frame.fade_speed / 256.0f;
-    if (s_frame.fade_level >= 1.0f) {
-        s_frame.fade_level = 1.0f;
+    s_frame.fade_alpha += s_frame.fade_dir * s_frame.fade_speed;
+    if (s_frame.fade_alpha >= 255) {          /* mode 3 clamp at 0xFF */
+        s_frame.fade_alpha = 255;
         if (s_frame.fade_dir > 0) s_frame.fade_dir = 0;
     }
-    if (s_frame.fade_level <= 0.0f) {
-        s_frame.fade_level = 0.0f;
+    if (s_frame.fade_alpha <= 0) {            /* mode 2 clamp at 0 */
+        s_frame.fade_alpha = 0;
         if (s_frame.fade_dir < 0) s_frame.fade_dir = 0;
     }
 }

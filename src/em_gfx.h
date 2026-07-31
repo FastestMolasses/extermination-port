@@ -164,7 +164,13 @@ void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
  * has no alpha (dst alpha is left untouched). The native translation of
  * the engine's SCREEN-FADE sprite blend (GS ALPHA_2 = 0xA1 / FIX 0x80:
  * Cv = (Cd - Cs)*128>>7 = Cd - Cs, saturating at 0 — decomp FINDINGS
- * "SCREEN-FADE BLEND", decoded in em_frame.h): a GREY rect with
+ * "SCREEN-FADE BLEND"; CONFIRMED (audit) directly in the recovered C:
+ * func_001AE900 initialises each fade display-list block with the
+ * 64-bit literal `0xA1 | (0x80 << 32)` at +0x20, and func_001AEE70
+ * packs the same 0xA1 there per frame. 0xA1 = A:Cd B:Cs C:FIX D:0,
+ * i.e. Cv = (Cd - Cs)*FIX>>7, and FIX 0x80 makes the factor exactly 1;
+ * the rect's own grey goes into the block's +0x30/+0x34/+0x38 RGB
+ * words as the 0..255 fade level): a GREY rect with
  * r=g=b=level SUBTRACTS the level from the frame, so shadows crush to
  * black early and highlights survive longest ("exposure pulled down"),
  * NOT a black cover dissolving in. (x, y, w, h) in virtual-canvas
@@ -173,9 +179,11 @@ void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
  * rects/arcs, the decor sprites AND the font glyphs: the engine's fade
  * owns the whole GS frame, darkening the HUD with the scene. With
  * nothing queued the draw does not run (frame output stays
- * byte-identical to pre-subtract builds). The engine's mode-1 ADDITIVE
- * variant (0x68: Cv = Cs + Cd, fade to white) has no port caller yet
- * and is not exposed. */
+ * byte-identical to pre-subtract builds). The engine's ADDITIVE variant
+ * (0x68 = A:Cs B:0 C:FIX D:Cd -> Cv = Cs + Cd, fade to WHITE; selected
+ * by the colour argument of func_001AEDE0 / func_001AEE10 being 1, and
+ * packed by the same func_001AEE70 store) has no port caller yet and is
+ * not exposed. */
 #define EM_GFX_OVERLAY_SUB_MAX 16
 void em_gfx_overlay_rect_sub(EmGfx *gfx, float x, float y, float w, float h,
                              const float rgb[3]);
@@ -413,7 +421,14 @@ void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
 /* --- Character light rig (the per-actor VU1 light matrix) -------------- */
 
 /* The native translation of the engine's per-actor lighting model
- * (decomp FINDINGS "PER-ROOM LIGHT RIGS DECODED", 2026-06-11): the
+ * (decomp FINDINGS "PER-ROOM LIGHT RIGS DECODED", 2026-06-11).
+ * DOWNGRADED (audit, 2026-07): the model below is read out of VU1
+ * MICROCODE at 0x23C780 plus the data table D_00251C50. Neither is in
+ * the decompilation's recovered C — VU microcode is a separate ISA the
+ * decomp does not target, and there is no Extermination/src/func_*.c
+ * for the kernel. func_001D89D0 (the rig builder) IS an EE function,
+ * but it was not re-checked in this audit. So treat the equations as
+ * MICROCODE-OBSERVED, not source-derived: the
  * skinning kernel (VU1 0x23C780) lights every CHARACTER vertex as
  *
  *   I_i  = max(dot(dir_i, N), 0)            (3 light slots)
@@ -449,6 +464,38 @@ typedef struct {
  * are replaced by the rig math (the flashlight spot still applies to
  * the LEVEL path — that deviation is level-only by design). */
 void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig);
+
+/* --- Distance fog (the per-area GS fog) -------------------------------- */
+
+/* The native translation of the engine's GS distance fog (decomp FINDINGS
+ * "CAMERA SYSTEM" section: func_001D8FD0 reads the per-area 0x78-byte
+ * record from D_00251C50 — rec+4/+8 = fog near/far, rec+0xC/10/14 = fog
+ * RGB — and func_0021B970/func_0021BA80 program the GS fog coefficients
+ *   A = 255*far/(far-near)   B = -255/(far-near)   (ctx+0xA0)
+ * so the GS per-vertex fog factor is F = A + B*z_view, clamped 0..255,
+ * and the GS blends  out = (F/255)*Cs + (1 - F/255)*Cfog. Equivalently
+ * the fog FRACTION is f = 1 - F/255 = clamp((z_view - near)/(far - near),
+ * 0, 1): geometry at z_view <= near keeps its color (f=0), at z_view >=
+ * far is the pure fog color (f=1). AREA-11 (key 0x0B00) uses near=-208,
+ * far=304, fog RGB (48,48,48) on the engine 0..128 modulate scale — the
+ * NEGATIVE near means even geometry at the camera (z_view=0) is already
+ * ~40% fogged (f = 208/512), which the port reproduces (the near term is
+ * NOT clamped to 0). z_view is the engine view-space depth = the port's
+ * clip-space w (the GS-shaped projection's w_clip = z_view), so the
+ * fragment derives it from the interpolated clip w — no extra matrix.
+ *
+ * Per-frame state (like em_gfx_spot_light), reset OFF at begin_frame:
+ * applies to BOTH the LEVEL path (baked vertex color) and the CHARACTER
+ * path of the skinned shader. `rgb` is on the engine 0..128 scale (the
+ * same convention as EmGfxCharRig col/amb); the backend scales by 1/128
+ * to the [0,1] color the shader blends toward, so 48 reads as the same
+ * grey as the rig's lightamb 32. A scene with NO fog record never calls
+ * this, so fog-less scenes (office, drawbridge) stay byte-identical. */
+void em_gfx_fog(EmGfx *gfx, float near_z, float far_z, const float rgb[3]);
+
+/* Disable distance fog again (begin_frame also resets to OFF). Fog-off
+ * frames run the EXACT pre-fog shader arithmetic — byte-identical. */
+void em_gfx_fog_off(EmGfx *gfx);
 
 /* --- last skinned palette (the published bone matrices) ---------------- */
 

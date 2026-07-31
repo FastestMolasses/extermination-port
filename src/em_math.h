@@ -80,8 +80,18 @@ static inline void em_mat4_perspective(float *m, float fovy_rad, float aspect,
  * exactly — i.e. z_gs(0.1) = 2^24 - 1 (the 24-bit max) and
  * z_gs(16711680) = 1.0. The far value 16711680 (0xFF0000) is also the
  * literal the engine passes to its parameterized sibling builder
- * func_001D2D20(zoom, w, h, near, far) for the level kernel's variant
- * P. So the engine's clip planes are NEAR = 0.1, FAR = 16711680 — the
+ * func_001D2D20(m, zoom, w, h, near, far) for the level kernel's variant
+ * P. That builder is BYTE-MATCHED, and it independently CONFIRMS (audit)
+ * the HALF-extent derivation used below: decomp
+ * Extermination/src/func_001D2D20.c writes
+ *   m[0] = focal / (0.5f * width);   m[5] = focal / (0.5f * height);
+ * so the divisors really are half the raster window (0.5*640 = 320 and
+ * 0.5*448 = 224), matching EM_GS_HALF_W / EM_GS_HALF_H exactly. Its z
+ * row is the OpenGL-family [-1,1] pair m[10] = (far+near)/(far-near),
+ * m[14] = -2*far*near/(far-near), m[11] = 1, m[15] = 0 — the port keeps
+ * the same clip planes but a [0,1] depth row (see below); depth is an
+ * encoding choice and the ORDERING is identical.
+ * So the engine's clip planes are NEAR = 0.1, FAR = 16711680 — the
  * far plane is effectively infinite (fog and the cull planes bound the
  * scene long before; the old port values 0.5/500-800 clipped both ends
  * visibly). Verified live: state01 ee.bin has z_gs 39638.7 at z_view

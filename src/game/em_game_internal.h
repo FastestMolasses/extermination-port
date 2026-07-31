@@ -223,15 +223,23 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define TURN_MV_FAR_W   0.1047198f  /* far  band: walk 6 deg/f         */
 #define TURN_MV_FAR_J   0.1570796f  /*           jog  9 deg/f          */
 #define TURN_MV_FAR_R   0.1832596f  /*           run  10.5 deg/f       */
-/* MANUAL AIM STEER — DECODED (2026-06-11, func_0017ABA0; retires the
+/* MANUAL AIM STEER — DECODED, re-verified against the recovered C
+ * (func_0017ABA0 [NEARMISS] + func_001B5DC0 [byte-matched]; retires the
  * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
  * drives the aim BLEND PAIR player +0x27C (yaw) / +0x278 (pitch),
  * both 0.5-centered in [0,1] (stance entry resets them to 0.5):
  *
  *   - per-frame rate = a 4-band table indexed by the axis deflection
- *     band |raw - 0x80| through func_001B5DC0's rings 49/89/123:
+ *     band |raw - 0x80| through func_001B5DC0's rings 49/89/123
+ *     (func_001B5DC0 tests < 0x31 / < 0x59 / < 0x7B — byte-matched):
  *     R1-family stances 0x31/0x34: {0, 0.0025, 0.005, 0.015};
- *     R2-family 0x32/0x35: {0, 0.0016667, 0.005, 0.015};
+ *     EVERY OTHER stance (the R2 family 0x32/0x35):
+ *                                  {0, 0.0016666666, 0.005, 0.01}.
+ *     CORRECTED (audit): the R2 top band is 0.01, NOT 0.015 — the
+ *     recovered func_0017ABA0 else-arm reads rate[3] = 0.01f. The
+ *     live table in em_game.c (kRateR2[3]) still carries 0.015 and is
+ *     one third too fast at full R2 deflection; that file is owned by
+ *     another pass — fix it there.
  *   - YAW: blend +- rate / sin(pi*(0.5 + 0.6*(pitch-0.5))) (faster
  *     when pitched off level; exactly 1.0 at center); overflow past
  *     [0,1] clamps the blend and TURNS THE BODY by the excess (rad) *
@@ -240,9 +248,12 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *   - PITCH: blend +- (rate * mult) / 2 per frame — INVERTED Y (the
  *     raw axis byte >= 0x80 = stick DOWN increments the blend = aim
  *     UP; stick UP aims DOWN — "W = down", the user-attested original
- *     behavior); mult = 1.5 outside [0.3, 0.7] for the R1 family (and
- *     x1.8 for sub-weapon 4, not in the port); clamp [0, 1.0] for
- *     stances 0x31/0x32, [0, 0.75] for 0x34/0x35.
+ *     behavior); mult = 1.5 when pitch <= 0.3 or pitch >= 0.7 for the
+ *     R1 family (and x1.8 for sub-weapon 4, not in the port); clamp
+ *     [0, 1.0] for stances 0x31/0x32, [0, 0.75] for 0x34/0x35
+ *     (func_0017ABA0: lim = (stance - 0x31 < 2) ? 1.0 : 0.75).
+ *     The yaw axis has its OWN sub-weapon-4 multiplier (x1.5, not
+ *     x1.8) — also not in the port, no sub-weapon state exists.
  *
  * The blends select/blend the 9-step AIM POSE LADDER 0x112..0x11A
  * (FINDINGS "aim-ladder tables") — measured from the baked clips
@@ -260,21 +271,31 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define AIM_POSE_CTR_DEG  1.3f
 #define AIM_POSE_YAW_DEG  60.0f
 
-/* PLAYER WALL RADIUS (decoded s38, FINDINGS "PLAYER WALL COLLISION
- * RADIUS"): the engine's wall response is NOT a zero-width move
- * segment — every frame the walk integrator func_001764E0 fires FIVE
- * radial probes of local vector (0, lift, 4.5) at yaw + D_00248950 =
- * {0, +45, -45, +90, -90} deg, at TWO heights: ankle y+0.05 (mask 6,
- * static world) and chest y+4.01 (mask 7, + movable hulls = doors),
- * and on a wall-class hit adds the hit-minus-end overshoot back into
- * actor x/z (the spad 0x700031C0 delta). The effective wall standoff
- * is 4.5 units — the old zero-radius pre-move probe is why the player
- * clipped halfway into walls. Sliding emerges exactly like the PS2:
- * only probes pointing into the wall push back, each along its own
- * direction, so motion parallel to the wall survives. */
+/* PLAYER WALL RADIUS — re-verified against func_001764E0 [NEARMISS]:
+ * the engine's wall response is NOT a zero-width move segment. The
+ * walk integrator fires FIVE radial probes per pass, rotating the
+ * local probe vector by yaw + D_00248950[i] (i = 0..4).
+ *   ANKLE pass (loop 1): local vector literally (0, 0.05, 4.5, 1) —
+ *     the recovered C builds that quad on the stack — queried with
+ *     mask 6 (static world). GATED: it runs only while the actor is
+ *     in state 1 sub 1 (arg0+4 == 1 && arg0+5 == 1).
+ *   CHEST pass (loop 2): the rotated D_002488C0 vector plus a scratch
+ *     (0, 4.01, 0, 1) offset (4.01 is an INSTRUCTION immediate in the
+ *     loop, not a field of D_002488C0), queried with mask 7 (+ movable
+ *     hulls = doors).
+ * On a wall-class hit the engine adds the spad 0x700031C0 overshoot
+ * back into the actor position — all THREE components x/y/z, not just
+ * x/z. The effective wall standoff is 4.5 units; the old zero-radius
+ * pre-move probe is why the player clipped halfway into walls.
+ * Sliding emerges exactly like the PS2: only probes pointing into the
+ * wall push back, each along its own direction, so motion parallel to
+ * the wall survives.
+ * NOT re-checkable from the C: D_00248950's five angle values are ELF
+ * .data. {0, +45, -45, +90, -90} deg is the s38 data-dump reading and
+ * stands as OBSERVED, not source-derived. */
 #define PLAYER_WALL_RADIUS 4.5f   /* the (0, y, 4.5) local probe vector */
-#define PROBE_ANKLE_LIFT   0.05f  /* loop-1 local y (sp+0x70 vector) */
-#define PROBE_CHEST_LIFT   4.01f  /* loop-2 local y (D_002488C0) */
+#define PROBE_ANKLE_LIFT   0.05f  /* loop-1 local y (0x3D4CCCCD) */
+#define PROBE_CHEST_LIFT   4.01f  /* loop-2 scratch y immediate */
 
 /* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c —
  * for the player the anim id IS the container index, FINDINGS "ANIM ID
@@ -307,8 +328,17 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * blend-toward-next-tier (anim_matrix_player sub 1) is approximated
  * by the same crossfade on the tier swap (flagged).
  *
- * IDLE CYCLE (decoded s38, FINDINGS "PLAYER IDLE CYCLE" — closes the
- * 2026-06-11 "true default-idle anim id" open item): the player
+ * IDLE CYCLE — CONFIRMED by audit against func_00161020 [NEARMISS]:
+ * the 300-frame re-arm (+0x28 = 0x12C), the fidget request
+ * func_001749A0(self, 0x15D, 1, 8.0f), the entry blend 12.0 and the
+ * post-fidget re-request blend 8.0 are all literally there. One
+ * caveat: the base-idle request goes through func_00174A50
+ * [byte-matched], which resolves the clip as D_00248AB0[0][self+0x235]
+ * (func_0017B490/func_0017B460) — "anim id 0" is therefore the value
+ * of that table entry for the unarmed variant, i.e. DATA, not a
+ * literal in the code. The engine also gates the fidget on
+ * self+0x236 == 0 && !(self+0x235 & 1) (unarmed), which the port does
+ * not model. (FINDINGS "PLAYER IDLE CYCLE"): the player
  * mode-0 top func_00161020 requests the BASE idle anim id 0 (the
  * 80-frame breathing idle; mode-0 family table D_00248A00[0] via
  * func_00174A50, blend arg 12.0 on entry), then runs a 300-frame
@@ -332,19 +362,28 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define IDLE_FIDGET_FRAMES 300  /* +0x28 timer re-arm value (0x12C) */
 #define IDLE_BLEND_TIME (8.0f / 60.0f) /* the cycle's blend arg 8.0 */
 
-/* STATUS-MENU UI SCENE (FINDINGS.md "STATUS-MENU UI SCENE DECODED" —
- * func_0020CDC0 state 0 + the menu-player behavior func_0020E6F0):
- * while the status screen is up, the engine's 3D frame IS the menu
- * scene — the camera matrix 0x810610 goes IDENTITY and a dedicated
- * static-array actor renders the player turntabling on black, under
- * the animated tile background and the panels. Decoded constants:
+/* STATUS-MENU UI SCENE (FINDINGS.md "STATUS-MENU UI SCENE DECODED").
+ * PROVENANCE SPLIT (audit): the menu-player behavior func_0020E6F0 and
+ * its publisher func_0020EC80 are BYTE-MATCHED — everything in the
+ * "Decoded constants" list below was re-read out of them and holds.
+ * The screen host func_0020CDC0 is still an INCLUDE_ASM stub, so the
+ * "camera matrix 0x810610 goes IDENTITY" framing is OBSERVED (the s66
+ * live read), not source-derived; do not treat it as decoded.
+ * While the status screen is up the engine's 3D frame IS the menu
+ * scene — a dedicated static-array actor renders the player
+ * turntabling on black, under the animated tile background and the
+ * panels. Decoded constants (all from func_0020E6F0):
  *   placement  view-space (7.4, 2.4, 40) of the identity UI camera
  *              (pos = camCol3 + 40*colZ + 7.4*colX + 2.4*colY); the
  *              actor scale is never written (stays the alloc's 1.0)
- *   rotation   init (0, pi, 0) — facing the camera (the publisher
- *              func_0020EC80's diag(-1)*rotY(pi) flip makes it
- *              upright/front in the y-down view); yaw += 0.01
- *              rad/frame, wrapped > pi -> -2pi (one rev ~10.5 s)
+ *   rotation   init (0, pi, 0) — facing the camera. CORRECTED (audit):
+ *              the publisher func_0020EC80 [byte-matched] composes
+ *              diag(-1,-1,-1) and then rotates about X by pi, NOT
+ *              about Y — it feeds pi to func_00102B08, the same
+ *              composer it uses for the actor's +0xC0 (X) euler,
+ *              while the +0xC4 spin yaw goes through func_00102BB0
+ *              (Y). yaw += 0.01 rad/frame, wrapped > pi -> -2pi (one
+ *              rev ~10.5 s)
  *   anim       displayed health > 35 -> clip 0x1C2 (450), a SINGLE-
  *              FRAME stance (static pose; all motion is the spin);
  *              <= 35 -> clip 0xA (10), the 90-frame low-health idle;
@@ -352,7 +391,9 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *              0x1C2 (no swap TO 0xA mid-open — init only)
  *   tint       per-actor color delta (-0.8, -1.0, -0.3) * infection
  *              * ramp (G clamped >= -127), ramp breathing 1.0 <-> 1.3
- *              at +-0.01/frame — the 2 s infected-skin pulse
+ *              at +-0.01/frame. CORRECTED (audit): that is 30 frames
+ *              up + 30 frames down = a ~1 s pulse, not the "2 s" the
+ *              old comment claimed.
  * Port mapping: the native y-up view (em_mat4_lookat_gs remaps the
  * engine's y-down GS view) puts the engine's view-down offset at
  * negative y, and the engine's +x maps screen-LEFT (the remap's X
@@ -479,9 +520,13 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * 3, func_0021E830) plays clip 0x1C4 (300 f succumb) with gore
  * effect 0x80000051 (PORT: skipped) and the same terminal.
  *
- * KILL PLANE (player spine, s15/s17): pos.y < -200 -> state 6
- * (func_0015D460): sub 0 zeroes health + event, sub 1 starts the same
- * fade-out, sub 2 parks. No anim, no sound.
+ * KILL PLANE (player spine, s15/s17): pos.y < -200 -> state 6.
+ * func_0015D460 [byte-matched] — CONFIRMED by audit: sub 0 writes
+ * +0x220 = 0 (health) and +0x00 = 0 (event byte) then advances, sub 1
+ * calls func_001AEDE0(4, 0) (the same fade-out) then advances, every
+ * later sub falls through the switch and parks. No anim, no sound.
+ * (The -200 threshold itself is the caller's test, not in this
+ * function — it stays an observed constant.)
  *
  * GAME OVER — THE DECODED CHAIN (s66 live + the s70 static decode of
  * func_001AD4E0 / func_001AC070 / func_001AC480; the old "screen id
@@ -489,8 +534,19 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * D_008106CE/CF are never written on death):
  *
  *   vitals mirror (~0x0015CFB0)   health <= 0 latches D_008106B9 = 1
- *   func_001AE040 state-1 tail    latch && fade == 2 (hold-black) ->
+ *                                 [DOWNGRADED by audit: 0x0015CFB0 is
+ *                                 a bare address, not a recovered
+ *                                 function — observed, not decoded]
+ *   0x001AE040 state-1 tail       latch && fade == 2 (hold-black) ->
  *                                 func_001AD140: game task 3/2
+ *                                 [DOWNGRADED by audit: 0x001AE040 is
+ *                                 `anim_frame_top_b`, still an
+ *                                 INCLUDE_ASM stub — this hand-off is
+ *                                 OBSERVED, never source-derived. The
+ *                                 two links BELOW it are decoded and
+ *                                 hold: see the func_001AD4E0 /
+ *                                 func_001AC070 / func_001AC480
+ *                                 notes.]
  *   GAME-OVER WAIT func_001AD4E0  sub 0: timer task+0x18 = 0xF0 = 240
  *                                 sub 1: busy gate; launch SCREEN
  *                                   MODULE 0x27 (func_001FF080(0,
@@ -558,9 +614,11 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * reload + boot status restore, the engine's reinstalled-task area
  * re-entry).
  *
- * HEARTBEAT (func_0015D000): health <= 35 -> pad-rumble pulse
- * (func_001B61C0(0, 0xD0, 4, 0)) every 121 frames, <= 10 -> stronger
- * (0xE0) every 61. PURE RUMBLE — the port has no force-feedback
+ * HEARTBEAT (func_0015D000 [byte-matched] — CONFIRMED by audit, the
+ * counter at +0x210 resets on `slti 0x79`/`slti 0x3D`): health <= 35
+ * -> pad-rumble pulse (func_001B61C0(0, 0xD0, 4, 0)) every 121
+ * frames, <= 10 -> stronger (0xE0) every 61; health exactly 0 exits
+ * before either. PURE RUMBLE — the port has no force-feedback
  * backend; documented not-applicable (no sound is involved).
  *
  * HAZARD-ROOM passive drain (func_0015D100 first arm: room attr bit
@@ -570,8 +628,12 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *
  * The port's enemy producers post one mailbox int (em_enemy.h):
  * 0x4000 | 15 from the worm's lunge connect -> 15.0 pending HEALTH
- * damage (the DECODED lunge-latch magnitude D_008104D4 = 15.0,
- * func_00154120 sub 3 — replaces the invented 0x400A/10; whether
+ * damage. CONFIRMED by audit: func_00154120 [NEARMISS] sub 3 writes
+ * D_008104D4 = 0x41700000 = 15.0 (sub 0's earlier latch writes
+ * 0x40A00000 = 5.0), and D_008104D4 is exactly player+0x224 since the
+ * player actor base is 0x008102B0. It also sets the damage TYPE byte
+ * D_008102BF = 2, so the engine takes a TYPED reaction the port does
+ * not translate — replaces the invented 0x400A/10; whether
  * the engine's latch drains health or infection is undecoded,
  * flagged in em_enemy.h), and GEN_TRAP_HIT (5) from the open
  * breather pad -> 5.0 pending INFECTION (the engine pad writes
@@ -587,10 +649,15 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_CLIP_DEATH        0x2Au /* normal death (130 f fall) */
 #define PD_CLIP_DEATH_ARM    0x5Cu /* armed death variant (130 f) */
 #define PD_CLIP_DEATH_INF   0x1C4u /* infected death (300 f succumb) */
-/* BUG LATCH / SHAKE-OFF — the CROSS-mash struggle (LIVE-VERIFIED 2026-06-
- * 12; FINDINGS "BUG LATCH / SHAKE-OFF — LIVE-VERIFIED"). Clips from the
- * struggle handlers func_0021F330/F850; the rates/threshold are flagged
- * PORT constants pending a live-read of the realised per-second rates. */
+/* BUG LATCH / SHAKE-OFF — the CROSS-mash struggle (FINDINGS "BUG LATCH
+ * / SHAKE-OFF"). CLIPS + SOUNDS CONFIRMED by audit against the recovered
+ * C: func_0021F330 [byte-matched] state 0 requests clip 0x2C;
+ * func_0021F850 [byte-matched] step 0 fires sound 0x150 + clip 0x2E and
+ * step 6 fires clip 0x24; func_0021C120 [byte-matched] fires sound
+ * 0x14D. The RATES/THRESHOLD below remain flagged PORT constants — none
+ * of them appears in those functions (PD_STRUGGLE_WIN's 16 is a port
+ * press count; the engine's 0x10 at func_0021F850 step 4 is a frame
+ * countdown, not a press target). */
 #define PD_CLIP_CLING        0x2Cu  /* clinging idle (sub 0x0B phase 0)    */
 #define PD_CLIP_STRUGGLE     0x2Eu  /* per-CROSS struggle (sub 0x0C ph 0)  */
 #define PD_CLIP_THROWOFF     0x24u  /* final throw-off (sub 0x0C phase 6)  */
@@ -627,7 +694,13 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
 
 /* GAME-OVER / CONTINUE machine (the decoded chain in the block doc
- * above — engine values from func_001AD4E0 / func_001AC480). */
+ * above — engine values from func_001AD4E0 [byte-matched] and
+ * func_001AC480 [NEARMISS]). ALL FIVE re-verified by audit: the 240 is
+ * the u16 at task+0x18 written in func_001AD4E0 state 0; the 1200 is
+ * task+0x16 written in func_001AC480 states 0/2/4; the cursor lives at
+ * task+0xF, inits 1 when D_00275BDC != 0 and 0 otherwise, increments
+ * only while < 2; the confirm sounds and the move blip 5 all go
+ * through func_001FB9F0. */
 #define GO_HOLD_FRAMES    240      /* task+0x18 = 0xF0: the GAME OVER
                                     * screen hold (counts through the
                                     * fade-in; CROSS skips once the
@@ -684,26 +757,45 @@ enum {
                                    belonged to the SMOOTH-table inline
                                    follow, which gameplay does not use; the
                                    live capture measured +17. */
-#define CAM_AIM_OFFSET  6.0f    /* struct +0x8C idle/default table value
-                                   (func_00191390; walk states get -3.0) */
+#define CAM_AIM_OFFSET  6.0f    /* struct +0x8C idle/default table value.
+                                   CONFIRMED by audit — func_00191390
+                                   [byte-matched] is a state switch that
+                                   writes (+0x8C, +0x5C) = (6, 2) for
+                                   states 1/3 at the -46.8 param and
+                                   (2, 6) at -31.2 (sum 8 either way),
+                                   (-3, 1) for states 2/4/0xF, (0, 2) for
+                                   6/7/8/9/0x2C/0x2D, (11, 2) for 0x13,
+                                   and sets +0x98 = 23.0 when +0x6D != 0 */
 #define CAM_TGT_CAP_XZ  2.0f    /* desired-target x/z chase cap, u/frame
                                    (func_001916C0 walk+idle cases; the old
                                    0.8 was the smooth-table inline's cap) */
 #define CAM_TGT_CAP_Y   4.0f    /* desired-target y seek cap (func_0018C4B0
                                    calls inside func_001916C0) */
-#define CAM_TGT_DIP_K   0.3f    /* func_001916C0 IDLE case (.L00191834):
+#define CAM_TGT_DIP_K   0.3f    /* func_001916C0 [NEARMISS] first preset:
                                    target.y want = player.y + 11 + cam[0x8C]
                                    + 0.3 * shaped(excess) (0x3E99999A). With
                                    excess = horiz_dist - |camdist|, this SAGS
-                                   the idle target while the camera is over-
-                                   close: at AREA-11 (horiz ~31.5, follow
-                                   46.8) excess -15.3 -> dip -4.6, tgt.y ->
-                                   player + 12.4 (the live read). The walk
-                                   states 2/4/0xF hit OTHER jumptable cases
-                                   with NO dip, so it is gated on idle. */
+                                   the target while the camera is over-close:
+                                   at AREA-11 (horiz ~31.5, follow 46.8)
+                                   excess -15.3 -> dip -4.6, tgt.y -> player
+                                   + 12.4 (the live read).
+                                   CORRECTED (audit) — the dip is NOT
+                                   idle-only. func_001916C0's dip preset
+                                   covers player states 0, 1, 3, 14, 20, 21,
+                                   22; the NO-dip preset is 2/4/15 (the
+                                   ELEVATED family). Since ordinary ground
+                                   walking is state 3 (the s71 reading kept
+                                   below), a normal WALK gets the dip too —
+                                   only the elevated/fall family escapes it.
+                                   The port gating this on idle understates
+                                   the sag while walking close to the eye. */
 #define CAM_TGT_DIP_CAP 7.0f    /* the excess re-map cap (0xC0E00000 = -7.0):
                                    when excess < -slack the term is re-shaped
-                                   to (-2*slack - excess), floored at -7.0 */
+                                   to (-2*slack - excess) and then CAPPED at
+                                   -7.0 — `if (!(u <= -7.0f)) u = -7.0f;`, so
+                                   the shaped term always stays <= -7.0. (The
+                                   old comment said "floored at -7.0", which
+                                   reads as the opposite bound.) */
 #define CAM_EYE_CAP     4.0f    /* eye chase rate cap, units/frame */
 #define CAM_NEAR_PUSH   4.0f    /* commit: view position = eye + 4*fwd */
 
@@ -735,7 +827,12 @@ enum {
  *    NOT dive while walking): states 2/4/0xF are NOT ordinary
  *    locomotion. The +0x230 writer func_0015CBA0 picks 1-vs-2 and
  *    3-vs-4 on the player flag +0x236 — the ELEVATED/hang latch
- *    (func_001764E0: player >= 13.8 u above the floor probe;
+ *    (CORRECTED (audit): func_001764E0 [NEARMISS] raises +0x236 when
+ *    the ledge it probed is LESS than 13.8 u ABOVE the actor —
+ *    `!(hit.y - actor.y < 13.8f)` is the BAIL arm, so the latch is a
+ *    "can reach this ledge" test, not "player 13.8 u above the floor
+ *    probe" as the old comment read; the j<3 / stance-code /
+ *    falling-speed gates also have to pass.
  *    func_00162A40 sets it with +0x235 |= 2; cleared by
  *    func_00179680) — so 2/4/0xF = the FLAGGED family (idle/walk
  *    while elevated + the fall family; the area-0 fall cam lives in
@@ -769,6 +866,12 @@ enum {
  * records -31.2 [s66 live]); slack keys on the -46.8 default (the
  * engine tests cam+0x64 — the port folds record + area param into the
  * one scene knob). */
+/* All three CONFIRMED by audit against func_0022FCA0 [NEARMISS]: the
+ * error term is `D_00810690 - fabsf(cam+0xC)`; the threshold is -20.0
+ * when cam+0x64 == -46.8f and -10.0 otherwise; below it the response
+ * splits on `D_0081069C > 8.6f`; and the swing steps the bearing by
+ * (pi * (0.3f * overclosure)) / 180 per frame, direction latched at
+ * cam+3 from sign(cam+0x90 - eye->target heading). */
 #define CAM_TETHER_SLACK  20.0f  /* dead band at the -46.8 default
                                     (engine: 20 when cam+0x64 == -46.8,
                                     else 10) */
@@ -858,7 +961,10 @@ enum {
 /* func_0018DD20 solver constants — ALL engine immediates from the .s
  * (decoded 2026-06-11 s61; hex floats noted where non-obvious). */
 #define SOLV_EXT          1.5f   /* primary probe extension past the eye   */
-#define SOLV_GLANCE_COS   0.70710678f /* glancing gate (0x3F34FDF4, sin45):
+/* CORRECTED (audit): 0x3F34FDF4 is 0.70699977 — a ROUND 0.707, NOT
+ * sin45 (0.70710678 = 0x3F3504F3). func_0018DD20 [NEARMISS] reads
+ * `if (dot < 0.707f) steep = 1;`. */
+#define SOLV_GLANCE_COS   0.707f /* glancing gate (0x3F34FDF4):
                                    dot(horiz sight dir, horiz hit normal)
                                    below this = oblique wall              */
 #define SOLV_DIST_PARAM   46.8f  /* fabsf(cam+0x0C) — per-area param (the
@@ -948,9 +1054,16 @@ enum {
  *     solver reports a wall in the rotation path (bits 0xD/0xB by
  *     direction — the port maps these onto its rotation-path segment
  *     test, cam_yaw_blocked). */
-#define CAM_IDLE_ORIENT_FRAMES 481        /* +0x08 >= 0x1E1 */
-#define CAM_IDLE_ORIENT_DEADBAND 0.052368f /* 3 deg (0x3D567750) */
-#define CAM_ORBIT_RATE  0.0034907f        /* rad/frame (0x3B64C389) */
+#define CAM_IDLE_ORIENT_FRAMES 481        /* +0x08 >= 0x1E1 — CONFIRMED
+                                             func_001921D0 [NEARMISS] */
+/* CORRECTED (audit): 0x3D567750 decodes to 0.05235988, not the
+ * 0.052368 the old comment carried. Both func_001921D0 and the L1 arm
+ * func_00191000 [byte-matched] compare against 0.05235988f. */
+#define CAM_IDLE_ORIENT_DEADBAND 0.05235988f /* 3 deg (0x3D567750) */
+/* CORRECTED (audit): 0x3B64C389 decodes to 0.0034904801 (a hair under
+ * 0.2 deg/frame), not 0.0034907 — the literal is built lui 0x3B64 /
+ * ori 0xC389 in func_00193D90 [byte-matched]. */
+#define CAM_ORBIT_RATE  0.0034904801f     /* rad/frame (0x3B64C389) */
 
 /* AIM CAMERA MODE 1 — DECODED (2026-06-11, func_00197D20 dispatcher +
  * func_00197740 entry / func_00197870 steady; replaces the +0x8C
@@ -1018,6 +1131,14 @@ enum {
  *     13*(sin,cos)(camera yaw D_00810374) with EYE.y = door.y + 12 —
  *     the camera parked at the handle while the try animation plays;
  *     the finish script (op 0x07 sub 4) restores the saved camera. */
+/* CONFIRMED by audit: func_001B7B30 [byte-matched] case 5 calls
+ * func_0018CBD0(cam, player, -20.0f) then sets cam+0xA0 = 0x78, and
+ * func_0018CBD0 [NEARMISS] writes eye.y = 11 + f4 + f5 + player.y and
+ * tgt.y = 11 + f4 + player.y + 0.3*shave, with (f4, f5) = (6, 2) when
+ * cam+0x64 == -46.8 and (2, 6) otherwise — so eye = +19 in BOTH
+ * parameter families and the target is +13 default / +17 at -46.8,
+ * exactly as recorded. func_001BBBF0 [NEARMISS] likewise matches the
+ * LOCKCAM_* quartet below line for line. */
 #define DOORCAM_EYE_BACK   20.0f  /* op 0x0D sub 5 chase dist (-20.0) */
 #define DOORCAM_EYE_UP     19.0f  /* 11 + f4 + f5 (live: eye y 19.0) */
 #define DOORCAM_TGT_UP     13.0f  /* 11 + f4 (live: target y 13.0) */
@@ -1105,10 +1226,18 @@ typedef struct {
  * baked aspect is the displayed aspect at any window size.
  *
  * Zoom s lives on the camera (EmCamera.zoom, the native ctx+0x2468):
- * default 480 (func_001D25F0 — every static caller passes 0x43F00000);
- * the scope camera (top_mode 3, func_0022EEF0) sets s = 224/tan(half-
- * vfov) ("224.0/x") and scripted lerps animate it (func_001D2590) —
- * both write the same field when they land.
+ * default 480 — func_001D25F0 [byte-matched] is the one-line writer
+ * `ctx+0x2468 = fa0`, and every static caller in the recovered corpus
+ * (func_001D2880, func_001B6BF0, func_001B7B30, func_001B82D0, and
+ * func_0022EEF0's non-scope path) passes 480.0f. The scope camera
+ * (top_mode 3, func_0022EEF0) passes 224.0f / tan(fov) — the
+ * ENGINE_CAM_ZOOM_SCOPE below.
+ * CORRECTED (audit): func_001D2590 is NOT a "scripted lerp". The
+ * recovered asm is a two-arg projection helper — it computes
+ * func_001D25F0(a / tan(b / 2)) (halving both args, tan via
+ * func_0011E398) — i.e. the same half-height/half-fov form the scope
+ * path uses. Nothing in the recovered corpus interpolates this field;
+ * every writer snaps it.
  *
  * Truth check (EM_PROJ_TEST=1, proj_test_run below): with the state01
  * savestate's live camera this chain reproduces the engine's own
@@ -1233,8 +1362,13 @@ typedef struct {
  * (func_001B1EA0 mode 0) + |player.y - y| < 4). Inside, the director
  * pins the desired EYE to the record's spec while the target keeps
  * tracking the player. */
-/* LIGHTING — max placed lamps per scene (the largest decoded list,
- * func_001F6760 key 0x200 / office0, has 8 records). */
+/* LIGHTING — max placed lamps per scene. Citation tightened (audit):
+ * func_001F6760 [byte-matched] is only the TABLE SELECTOR — it packs
+ * (D_00810700 << 8) | D_00810701 and returns one of eight per-area
+ * lamp-list pointers (NULL for an unlisted key). The record COUNT of
+ * any one list is ELF .data, not visible in that function; "office0
+ * has 8 records" is the exporter's data dump, i.e. OBSERVED. 16 is a
+ * port headroom cap either way. */
 #define LAMP_MAX 16
 
 #define CAM_REGION_MAX 8

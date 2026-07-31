@@ -53,6 +53,12 @@ void scene_manifest_load(void)
     g.steam_on     = 0;     /* AREA-11 steam/FX emitter is per-scene data */
     g.steam_lamp   = -1;
     g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
+    g.opencam_on   = 0;     /* the opening-camera seat is per-scene data too:
+                             * without this reset a scene with no `opencam`
+                             * line inherits the previous scene's seat and
+                             * replays its opening camera. (Hygiene fix, by
+                             * symmetry with every other per-scene field
+                             * above — not a decomp-derived correction.) */
     g.fog_on       = 0;     /* LIGHTING: distance fog is per-scene data */
     int n_ldir = 0, have_amb = 0, have_cam = 0;
 
@@ -107,8 +113,23 @@ void scene_manifest_load(void)
         } else if (sscanf(line, "camregion %f %f %f %f %f %f %f %f",
                           &x, &z, &y, &yaw, &r, &gx, &gy, &gz) == 8) {
             /* Fixed-camera trigger volume (x0 z0 x1 z1 ygate ex ey ez) —
-             * the decoded mode-0 director room cameras. Reusing the
-             * scratch floats: x=x0 z=z0 y=x1 yaw=z1 r=ygate g*=eye. */
+             * the mode-0 director room cameras. DECODED (audit 2026-07-31,
+             * verified against the recovered C, not just the notes):
+             *   - src/func_00195130.c (NEARMISS, the mode-0 area-camera
+             *     director) switches on the area byte D_00810700 and, in a
+             *     case that fires, writes the desired eye cam+0x10/14/18
+             *     from float immediates — e.g. area 6 (snow):
+             *     `func_00194D10(cam, player, 2)` then eye
+             *     (-367.7, 90.0, -598.4) approached at 0.7/frame. Those
+             *     immediates are what a `camregion` line carries.
+             *   - src/func_00194D10.c (NEARMISS) is the region test itself:
+             *     point-in-polygon over the stride-0x40 record
+             *     D_0024A5F0[idx] AND |player.y - rec.y| < 4.0f. The port
+             *     mirrors that gate as CAM_REGION_YGATE (4.0f, em_game.c).
+             * The engine record is a 4-corner quad; the three shipped
+             * records are axis-aligned rects, so the port stores a rect.
+             * Reusing the scratch floats: x=x0 z=z0 y=x1 yaw=z1 r=ygate
+             * g*=eye. */
             if (g.n_camregion < CAM_REGION_MAX) {
                 EmCamRegion *cr = &g.camregion[g.n_camregion++];
                 cr->x0 = x < y ? x : y;
@@ -187,9 +208,17 @@ void scene_manifest_load(void)
              * Grammar (em_door.h):
              *   door <file> x y z yaw r [locked] [goto <dir> s...]
              * The optional `locked` token (export_level.py
-             * --door-locked — the decoded D_00810841 lock gate) is
-             * spliced out of a working copy so the goto sscanf below
-             * keeps its fixed shape. */
+             * --door-locked) is spliced out of a working copy so the goto
+             * sscanf below keeps its fixed shape.
+             *
+             * The lock gate is DECODED (audit 2026-07-31): the hinged-door
+             * brain src/func_001BC350.c (NEARMISS) sub-state 0 tests, for
+             * model byte self[3] == 0x15 only,
+             *   D_00810841[D_00810700] & (1 << *(short *)(self + 0x34))
+             * where +0x34 is the door id. Bit SET = unlocked (the door
+             * opens); bit CLEAR = the locked sequence. D_00810841 is BSS,
+             * so every lock-gated door starts LOCKED — which is why the
+             * manifest carries `locked` as an explicit per-door token. */
             float p[3] = { x, y, z };
             char  dline[512];
             int   locked = 0;
@@ -212,7 +241,19 @@ void scene_manifest_load(void)
                               "%63s %f %f %f %f",
                               gname, &gx, &gy, &gz, &gyaw) == 5)) {
                 /* Decoded destination tail (em_door.h): the commit
-                 * scene-switches instead of re-placing. EM_DOOR_TEST
+                 * scene-switches instead of re-placing. DECODED and
+                 * BYTE-MATCHED (audit 2026-07-31) —
+                 * src/func_001BC150.c is the transition commit:
+                 *   rec = D_0024E140[D_00810700] + 4*(self[0x34] & 0x7F)
+                 *   *(short*)(self+0x34) & 0x80 set -> inter-AREA change
+                 *      (fade func_001B0C00(4); request B8=1,
+                 *       B5=rec[0] next area, B7=rec[1] entry,
+                 *       B6 = rec[2] ? rec[3] : 0xFF sub-state)
+                 *   bit clear -> same-area room move (func_001AEDE0(4,0);
+                 *       B8=2, B7=rec[side latch *(u16*)(self+0x2E)])
+                 * So bit 7 of the door id IS the "leads to another area"
+                 * flag, and the port's `goto` tail is the exporter's
+                 * rendering of the bit-7 case. EM_DOOR_TEST
                  * asserts the same-scene re-place geometry on this
                  * very door, so it runs with goto tails ignored —
                  * EM_PAUSE_TEST's door leg (the mid-walk-out menu
@@ -325,15 +366,48 @@ void scene_manifest_load(void)
             else
                 printf("manifest: grate line failed to load: %s", line);
         } else if (sscanf(line, "areatitle %d", &gk) == 1) {
-            /* AREA-TITLE CARD trigger (INVESTIGATION_area11_director.md
-             * §4.4). Form: `areatitle <area>`. Arms the one-shot opening
-             * placard ("FORT STEWART - REAR ENTRANCE" for area 11) ONCE on
-             * scene entry — em_hud owns the fade-in/hold/fade-out and the
-             * string table (0x00273B80). Independent of the cinematic
-             * director and the status HUD. Only decoded areas (11) show a
-             * card; any other area no-ops in em_hud_area_title. The card is
-             * armed here so it is bound to scene-LOAD (the engine's
-             * func_001C5930 first-gameplay-frame trigger). */
+            /* AREA-TITLE CARD trigger. Form: `areatitle <area>`. Arms the
+             * one-shot opening placard ("FORT STEWART - REAR ENTRANCE" for
+             * area 11) ONCE on scene entry; em_hud owns the card itself.
+             * Independent of the cinematic director and the status HUD:
+             * src/func_001C5930.c (NEARMISS) reads neither D_008101E4 nor
+             * the message machine — it is its own HUD-overlay state
+             * machine on the normal gameplay frame.
+             *
+             * AUDITED 2026-07-31 against src/func_001C5930.c. Three parts
+             * of the old comment were WRONG and are corrected here:
+             *
+             *  - "fade-in/hold/fade-out" — there is NO fade. Case 0 arms a
+             *    300-frame counter (*(short *)(arg0+0x28) = 0x12C) and the
+             *    per-frame draw is the same call every frame,
+             *    func_001CC1E0(1, 0x800 - (w>>1), 0x7A2, 0xA, 0x14, str, 0)
+             *    — no alpha term anywhere in the function. It is a
+             *    constant-opacity 300-frame hold. em_hud.c was corrected to
+             *    match; do not re-add an envelope here without evidence.
+             *
+             *  - "the string table (0x00273B80)" — func_001C5930 does not
+             *    read a 32-byte-stride table at that address. It indexes a
+             *    POINTER array, D_002671C0[idx], with
+             *    idx = D_00289B40[D_00810700][0] + D_00810701 (per-area
+             *    base + sub-area byte). The port's area-11 line is an
+             *    OBSERVED capture, not a decoded table read, and the port
+             *    keys it on the area alone — the engine's sub-area term
+             *    (D_00810701) is NOT modelled.
+             *
+             *  - "first-gameplay-frame trigger" — more precisely, the arm
+             *    is func_001C5930's case 0 (the overlay state byte
+             *    arg0+4 == 0), which then advances to the case-1 display
+             *    machine. Arming at manifest parse binds the port's card to
+             *    scene-LOAD, which is the closest port analogue.
+             *
+             * Only area 11 has an observed string; any other area no-ops in
+             * em_hud_area_title. NOT MODELLED (present in func_001C5930):
+             * after the 300 frames the engine runs a SECOND 300-frame line,
+             * the sub-location name D_0026726C[func_001C5860()], drawn at
+             * x 0x896 - (w>>1) on the same row.
+             *
+             * NOTE: g.area_title_armed currently has no reader anywhere in
+             * the port — it is bookkeeping only, not a behaviour gate. */
             g.area_title_armed = 1;
             em_hud_area_title(gk);
         } else if (sscanf(line, "steam %f %f %f", &x, &y, &z) == 3) {

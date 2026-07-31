@@ -4,17 +4,36 @@
  * FAITHFULNESS (FINDINGS.md "STATUS SCREEN LAYOUT", session-25 full
  * draw-chain decode + the earlier "INVENTORY LOCATED" captures): the
  * original game shows NO persistent HUD during play. The status display
- * is a status SCREEN opened by TRIANGLE **or START** (verified: both
- * route to the same controller, func_0020CDC0 — there is no separate
- * pause menu). The port mirrors that: hidden by default, em_hud_update()
- * flips visibility on either button's edge.
+ * is a status SCREEN opened by TWO buttons, modelled here as TRIANGLE
+ * or START, with no separate pause menu. The port mirrors that: hidden
+ * by default, em_hud_update() flips visibility on either button's edge.
+ *
+ * PROVENANCE (corrected): this used to read "verified: both route to
+ * the same controller, func_0020CDC0". func_0020CDC0 is an
+ * undecompiled INCLUDE_ASM stub and verifies nothing. What IS recovered
+ * is func_001AE7E0 (NEARMISS, body-correct), the mode classifier: it
+ * returns 2 = "enter status mode" for `(D_00810E74 & 0x800) ||
+ * (D_00810E74 & 0x10)` — two distinct edge bits of one button word —
+ * and, separately, for `D_008106C5 != 0 || D_008106B0 != 0` (external
+ * request byte / posted pickup). So "two buttons, one screen, plus an
+ * external auto-open" is source-derived; the identification of those
+ * two bits as TRIANGLE and START is inference from the sibling walk
+ * func_001AC480 (0x4000 forward, 0x1000 back, 0x840 confirm) and is
+ * FLAGGED. The close mask "0x830" formerly quoted here came from the
+ * stub and has been removed.
  *
  * The screen composes on the engine's 512x448 UI canvas (GS offsets
  * 0x700/0x790), which em_hud selects via em_gfx_overlay_canvas for its
  * draws and restores afterwards. Faithful hub elements rendered today:
- * the HEALTH ring gauge at (208,197) (bg ring r36-56 with the <=35 red
- * state, light-blue fill arc r24-56 = 360deg*hp/100 from 180deg, the
- * rotating 1 s highlight wedge) through the em_gfx annular-arc
+ * the HEALTH ring gauge at (208,196) (the byte-matched func_00208AD0 is
+ * called as func_00208AD0(ctx, 0xD0, 0xC4) and maps a canvas point to
+ * GS as (x + 0x700, (y >> 1) + 0x790), so the centre is (208, 196) —
+ * "197" was a one-pixel guess) with the <=35 red bg-ring state and the
+ * stepped 1 s rotating highlight (12 deg every 2 frames); the
+ * light-blue fill arc r24-56 = 360deg*hp/100 from 180deg is a PORT
+ * READING of the same arc block, see em_hud.c — UNRESOLVED, the
+ * engine's angle pair could equally describe a shrinking span. Drawn
+ * through the em_gfx annular-arc
  * primitive; the BATTERY half-unit square bar at (16,118); the SPR4
  * reserve row at (16,190) (the real screen shows NO magazine state —
  * reserve only); INFECTION as text positions only (there is NO infection
@@ -39,10 +58,14 @@
  *    engine passes a per-screen tile token). Without a BACKDROP record
  *    (old/missing asset) the full-screen dim rect remains the flagged
  *    fallback. The ROTATING PLAYER MODEL is RENDERED (FINDINGS.md
- *    "STATUS SCREEN UI SCENE", func_0020E6F0): em_game draws the
- *    UI-camera 3D scene (black backplate + the player at the engine's
- *    view-space transform with the decoded 0.01 rad/frame yaw spin,
- *    menu pose clip 0x1C2 / low-health idle 0xA, infection tint pulse)
+ *    "STATUS SCREEN UI SCENE", func_0020E6F0 — BYTE-MATCHED, and every
+ *    figure below is CONFIRMED in it): em_game draws the UI-camera 3D
+ *    scene (black backplate + the player at the engine's view-space
+ *    transform with the yaw spin `*(float *)(arg0 + 0xC4) += 0.01f`
+ *    per frame, wrapping past pi by -2pi; clip 0x1C2 = 450 when
+ *    D_00810858 > 35 and 0xA = 10 otherwise; the infection tint
+ *    +0x80/0x84/0x88 scaled by the 1.0<->1.3 breathe ramp at +0x38,
+ *    stepped 0.01/frame, with +0x84 clamped at -127)
  *    in place of the world whenever the screen is visible AND the
  *    active sheet carries a BACKDROP record; em_hud_scene_3d() tells
  *    background_render to skip its opaque base fill so the player
@@ -150,14 +173,20 @@
  *               one square per half-unit (battery * 2). Block gated on
  *               0x810C7F != 0 — the port gates on battery_max != 0.
  *
- * NUMBER FORMATTING (DECODED from func_001C5FB0, the single formatter
- * every readout goes through — see engine_digits() in em_hud.c): each
- * readout is a fixed-width field of N places with the number RIGHT-
- * aligned in it. A set blank flag turns the leading zeros into SPACES
- * (the last place always prints), a clear one zero-pads. The call
- * sites decode as: health 3 places blanked (func_00208AD0), reserve 4
- * blanked (func_00209860), infection 3 blanked + '%' (func_00209DF0),
- * battery 2 ZERO-padded on each side of the '/' (func_00209280).
+ * NUMBER FORMATTING — CONFIRMED against func_001C5FB0 (NEARMISS,
+ * body-correct), the single formatter every readout goes through (see
+ * engine_digits() in em_hud.c). Its loop runs exactly arg1 places off a
+ * divisor table, and its suppression test is
+ *   `if (arg2 && !started && digit == 0 && i != arg1 - 1) *p++ = 0x20;`
+ * — so a set blank flag writes SPACES for the leading zeros, the last
+ * place always prints, and a clear flag zero-pads. Verified at all four
+ * call sites: health func_001C5FB0(hp, 3, 1) in func_00208AD0
+ * (BYTE-MATCHED); reserve func_001C5FB0(D_00810CB4, 4, 1) in
+ * func_00209860; infection func_001C5FB0(inf, 3, 1) followed by the
+ * '%'-string concat in func_00209DF0 (BYTE-MATCHED); battery
+ * func_001C5FB0(0x810CB2>>1, 2, 0) + separator +
+ * func_001C5FB0(0x810CB7>>1, 2, 0) in func_00209280 — blank flag CLEAR
+ * on both halves, so the battery pair really is zero-padded.
  * That is why "BATTERY 04/06" pads with zeros while the health row
  * reads " 75 / 100" — the port previously guessed zero-padding for
  * health and left-packing for reserve/infection.
@@ -251,44 +280,58 @@ int em_hud_font_ready(void);
 void em_hud_update(const EmFrameInput *in);
 
 /* MENU INHIBIT — the engine's D_008106B3 byte, rewritten every frame
- * by the player spine (func_0015BA50 tail): nonzero while the player
- * is hit-reacting/dying (state 2 outside the allowed subs, the
- * knockdown anim, the infected latch window...), and the
- * Triangle/Start open press is simply dropped. em_game writes it once
+ * by the player spine (func_0015BA50, BYTE-MATCHED). CORRECTED: the
+ * old wording ("state 2 OUTSIDE the allowed subs") inverted the test.
+ * The tail clears the byte at entry and sets it to 1 when ANY of:
+ *   D_008106F1 != 0, the knockdown word *(short *)(p + 0x276) != 0,
+ *   the anim id p[0x1F0] == 0x33, D_00810CB6 != 0, or
+ *   p[4] == 2 && p[5] IS one of {0xB, 0xC, 0xD, 0xE, 0xF} &&
+ *   p[0x1F1] == 1
+ * — i.e. state 2 INSIDE that specific sub-state set, not outside it.
+ * With the byte set, func_001AE7E0 returns 0 before it ever reaches
+ * its open test, so the open press is simply dropped. em_game writes it once
  * per frame from the player damage state (it also covers the
  * game-over/continue screens, where START/CROSS belong to the
  * decoded prompt machine). */
 void em_hud_menu_inhibit(int inhibit);
 
 /* GAME-OVER + CONTINUE PRESENTATION — the FLAGGED module stand-ins
- * for the two DECODED screens (s66/s70, em_game's PLAYER DAMAGE &
- * DEATH block doc — the trigger/flow chain is now fully decoded;
- * only the screens' ART is unexported):
+ * for the two screens whose FLOW is decoded (s66/s70, em_game's PLAYER
+ * DAMAGE & DEATH block doc); only the screens' ART is unexported:
  *
- *   em_hud_game_over  = screen module 0x27 (the GAME OVER art the
- *     wait state func_001AD4E0 launches and fades in): an opaque
- *     black base + "GAME OVER" centered in the tall font (dark red —
+ *   em_hud_game_over  = screen module 0x27 — CONFIRMED in
+ *     func_001AD4E0 (BYTE-MATCHED): state 1 calls
+ *     func_001FF080(0, 0x27), state 0 seeds the u16 at slot+0x18 to
+ *     0xF0 = 240 frames, and state 3 exits on
+ *     `D_0028A9A0 == 0 && (counter == 0 || (D_00810E74 & 0x40))` —
+ *     a 240-frame hold that one button edge cuts short. It draws an
+ *     opaque black base + "GAME OVER" centered in the tall font (dark red —
  *     the engine's INFECTED text style, the only red tall style it
  *     ships). No prompt line: the engine screen carries none we know
  *     of (the hold is CROSS-skippable, silently). The old blinking
  *     "PRESS START" invention is retired with the START-restart.
  *
- *   em_hud_continue   = screen module 1 (the title/continue screen
- *     the machine func_001AC070 launches): opaque black base +
+ *   em_hud_continue   = screen module 1 — CONFIRMED: func_001AC480
+ *     state 0 calls func_001FF080(0, 1), and func_001AC070 is the
+ *     machine that drives it. Opaque black base +
  *     "CONTINUE?" header + the 3 prompt options. Option LABELS are
  *     port guesses (module text undecoded, FLAGGED): "CONTINUE" /
  *     "LOAD GAME" / "OPTIONS". `cursor` = the highlighted option
  *     (tall white; others tall gray).
  *
- *     Everything about the WALK and the DISPATCH is now DECODED:
- *       - func_001AC480 is the menu walk. The selector is a single
- *         byte, moved down only while it is < 2 and up only while it
- *         is nonzero — so it is exactly 3 options, 0..2, and
- *         em_hud_continue clamps to that. Its confirm/move edges also
- *         carry the per-slot cue ids and a 1200-frame (20 s at 60 Hz)
- *         idle timeout that drops the menu out to the attract path —
- *         facts for whoever wires em_game's machine, not this
- *         presenter.
+ *     The WALK and the DISPATCH are CONFIRMED (func_001AC480 and
+ *     func_001AC070, both NEARMISS / body-correct):
+ *       - func_001AC480 is the menu walk. Its case 2 moves the
+ *         selector at ctx+0xF forward only under
+ *         `if ((int)ctx[0xF] < 2)` and back only under
+ *         `if (*pf != 0)` — so it is exactly 3 options, 0..2, and
+ *         em_hud_continue clamps to that. Also read there, for
+ *         whoever wires em_game's machine rather than this presenter:
+ *         the confirm edge (mask 0x840) fires cue 0x5DD/0x5DE/0x5DF
+ *         by slot and each move fires cue 5; the initial selector is
+ *         0, or 1 when D_00275BDC is set; and ctx[0xB] is seeded to
+ *         0x4B0 = 1200 frames (20 s at 60 Hz) and decrements only
+ *         while no button is held, dropping the menu out on zero.
  *       - func_001AC070 case 2 dispatches the confirmed selector:
  *         0 hands off to the gameplay task func_001ACEC0 with the
  *         "loaded a save" flag D_00275BE0 CLEAR; 1 runs
@@ -324,22 +367,36 @@ void em_hud_found_render(EmGfx *gfx);
 /* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard
  * (INVESTIGATION_area11_director.md §4.4 / FINDINGS s81). In the ENGINE
  * the title rides the gameplay HUD frame (func_001AE5E0 -> func_001AFD70
- * -> func_001C5930), INDEPENDENT of the cinematic director: a hardcoded
- * 32-byte-stride string table at 0x00273B80 (AREA 11 -> idx1 = the whole
- * "FORT STEWART - REAR ENTRANCE" string) drawn top-centred as bitmap-font
- * sprites with a staggered fade over a dimmed scene.
+ * -> func_001C5930), INDEPENDENT of the cinematic director.
+ *
+ * CORRECTED against func_001C5930 (NEARMISS, body-correct):
+ *   - it is a 300-frame card, not ~2.5 s: state 0 sets
+ *     `*(short *)(arg0 + 0x28) = 0x12C` and state 1 draws-then-
+ *     decrements, stopping at zero. Five seconds at 60 Hz.
+ *   - there is NO fade. The whole draw is one
+ *     `func_001CC1E0(1, 0x800 - (w >> 1), 0x7A2, 0xA, 0x14, str, 0)`
+ *     per frame, with no alpha term anywhere in the function. The
+ *     port's fade-in/hold/fade-out envelope was invented and is gone.
+ *   - the anchor decodes to canvas (256 - w/2, 36) on the 512-wide UI
+ *     canvas — top-centred, but at y 36, not the port's old 96.
+ *   - STRING SOURCE DOWNGRADED: the function does NOT read a 32-byte-
+ *     stride table at 0x00273B80. It indexes the pointer array
+ *     D_002671C0[] with `D_00289B40[D_00810700][0] + D_00810701`
+ *     (per-area base + sub-area byte). The area-11 text the port
+ *     carries is an OBSERVED capture, not a decoded table entry.
+ *   - NOT MODELLED (seen in the same function): once the 300 frames
+ *     elapse, a SECOND 300-frame line — the sub-location name
+ *     D_0026726C[func_001C5860()] — draws at canvas x 406, row 36.
  *
  * em_hud_area_title(area) arms the card ONCE for the given area on scene
- * entry (em_game's scene-load hook). Only area 11 has a decoded string;
+ * entry (em_game's scene-load hook). Only area 11 has a known string;
  * any other area is a silent no-op (the card never shows). em_hud_area_
- * title_render(gfx) runs the fade machine and draws the centred title for
- * one show, then clears itself. It is NOT a persistent HUD (one-shot) and
- * does NOT touch the status screen or the cinematic letterbox. Hidden
- * while the status screen is open; missing font queues nothing (no
- * regression). The fade/hold frame counts are FLAGGED (the engine's exact
- * opening staggered-fade counts are un-stopwatched, doc §F) — a
- * reasonable ~short-fade / ~2.5 s-hold stand-in for live tuning. Call
- * _render once per frame from the close-out (after em_hud_found_render).
+ * title_render(gfx) counts the 300 frames and draws the centred title at
+ * constant opacity for one show, then clears itself. It is NOT a
+ * persistent HUD (one-shot) and does NOT touch the status screen or the
+ * cinematic letterbox. Hidden while the status screen is open; missing
+ * font queues nothing (no regression). Call _render once per frame from
+ * the close-out (after em_hud_found_render).
  *
  * em_hud_area_title_active() = the card is still showing (for tests). */
 void em_hud_area_title(int area);
@@ -350,19 +407,35 @@ int  em_hud_area_title_active(void);
  * (D_002821B0 = 2; FINDINGS.md "RADIO-MESSAGE MACHINE DECODED",
  * 2026-06-11): the locked-door "VO", station/corpse examine text and
  * scripted radio subtitles all run through ONE global presenter.
- * Decode verdict (full .s read of func_001FCA10/001FDB80/001FD790/
- * 001FD950/001FE070/001FC7B0): there is NO typewriter — the line's
- * FULL text renders every frame for the record's duration:
+ * CONFIRMED against recovered C: there is NO typewriter — the line's
+ * FULL text renders every frame for the record's duration.
+ * func_001FE070 (NEARMISS) walks the whole buffer and blits it on
+ * every call, and func_001FD950 does
+ * `if (rec[0x6C] > 0) { ...; rec[0x6C]--; return 0; }` — one full
+ * re-emission per remaining frame. func_001FCA10 (BYTE-MATCHED) ends
+ * the run with `else if (func_001FDB80(0, 2) == 1) D_002821B4 = 2;`
+ * and reads no pad anywhere, so dismissal really is timer-only:
  *
- *   - text     = the GLOBAL examine bank, asset slot 0x16 (D_0028A4E8
+ *   - text     = the GLOBAL examine bank, asset slot 0x16 — CONFIRMED,
+ *                func_001FD950 picks the bank off bit 31 of the
+ *                record's field 0x34: set -> D_0028A4E8[0], clear ->
+ *                D_0028A594[0] (D_0028A4E8
  *                = extract/chunk03/f14_id16.bin; bit-31 line words) —
  *                exported as .emsg group 9 by tools/export_ui.py
  *                --messages (decomp repo, run against the user's own
  *                extract/);
- *   - position = horizontally centered: x = 256 - max(line widths)/2
- *                on the 512-wide UI canvas (func_001FD950 measures the
- *                first TWO '\n' segments via func_001CC170); y = field
- *                0xC2 (194) = canvas 388, '\n' step 24 canvas px;
+ *   - position = horizontally centered: CONFIRMED, func_001FD950
+ *                measures the first TWO segments with func_001CC170
+ *                and draws at `x = 0x100 - (max >> 1)` = 256 -
+ *                max/2 on the 512-wide UI canvas, `y = 0xC2` (194).
+ *                The doubling of 194 to canvas 388 is DERIVED from
+ *                the engine's half-height y convention elsewhere
+ *                ((canvas_y >> 1) + 0x790), not read: func_001FC770
+ *                is not decompiled. The '\n' step is likewise
+ *                DERIVED — func_001FE070 advances the pen by
+ *                `(D_00264CD8 + D_00264CE0) >> 1`, font-metric data
+ *                we have not exported; 24 canvas px is the port's
+ *                figure, FLAGGED;
  *   - style    = the tall font in the DEFAULT text color 0x606060
  *                (D_0026EC10[0], reset by func_001FC9B0) — 75% gray;
  *   - sound    = NONE (every global record's voice cue is -1; no beep/

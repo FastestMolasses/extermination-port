@@ -649,7 +649,14 @@ static void player_move(void)
     }
 
     /* ARRIVAL WALK-OUT (engine player state 5/1, func_00183250 —
-     * decoded 2026-06-11, em_door.h step 4): after the re-place the
+     * em_door.h step 4).
+     * PROVENANCE (audit): func_00183250 is byte-matched but exists in
+     * the decomp ONLY as an asm-void .word body (src/func_00183250.c) —
+     * there is no recovered C, so the frame counts and speeds below
+     * cannot be re-checked against it. Treat them as OBSERVED /
+     * port stand-in until that function gets a readable decompilation,
+     * not as source-derived constants.
+     * After the re-place the
      * player UNINTERRUPTIBLY walks out through the door along the exit
      * yaw — 50 frames of clip-in-place (mostly under the fade-in), 30
      * frames at the locIdx-2 speed (0.3 u/tick), 30 frames decaying to
@@ -1680,7 +1687,15 @@ static void player_vitals_tick(void)
 
 /* GAME-OVER / CONTINUE machine — the decoded engine chain (PD block
  * doc: func_001AD4E0 wait subs 2..4 + func_001AC070/func_001AC480
- * continue states), folded into one port state machine. Runs every
+ * continue states), folded into one port state machine. RE-VERIFIED:
+ * src/func_001AD4E0.c (BYTE-MATCHED) sets the 0xF0 = 240 hold at sub 0
+ * and leaves sub 3 on `D_0028A9A0==0 && (counter==0 || D_00810E74&0x40)`
+ * = fade idle && (expiry || CROSS); src/func_001AC480.c case 2 carries
+ * the 0x4B0 = 1200 prompt timer (decremented only on input-free frames,
+ * re-armed on any held frame), confirm mask 0x840, DOWN 0x4000 /
+ * UP 0x1000 with the cursor clamped to 0..2, and sounds 0x5DD/0x5DE/
+ * 0x5DF + move blip 5; src/func_001AC070.c (BYTE-MATCHED) is the outer
+ * flow whose state 4 reinstalls func_001ACEC0. Runs every
  * frame from GO_SCREEN on (the frozen-world gate in gameplay_frame
  * calls it — the engine's game task is REPLACED here, so the world
  * does not simulate). Presentation: em_hud_game_over /
@@ -2545,7 +2560,10 @@ static void camera_desired_eye(EmCamera *cam)
 }
 
 /* func_001B0080 — the ENTRY SEAT (scene-load camera placement, s76
- * decode): the eye hard-seats |cam+0x0C| = 46.8 BEHIND the SPAWN yaw
+ * decode; RE-VERIFIED against src/func_001B0080.c, byte-matched: the
+ * non-special arm sets target = player pos with +0x24 += 17.0f, eye =
+ * target + rotY(spad 3B50 euler)*(0,0,cam+0x0C) with +0x14 += fparg0,
+ * then hard-copies both to D_008105E0/D_008105D0): the eye hard-seats |cam+0x0C| = 46.8 BEHIND the SPAWN yaw
  * (the per-record camdist, g.cam_dist_param, NOT the CAM_DIST=33
  * stand-in) at player.y + 19, looking at the player at player.y + 17.
  * At the AREA-11 opening this lands the eye IN A WALL; the follow
@@ -2596,7 +2614,13 @@ static void camera_entry_seat(EmCamera *cam)
 }
 
 /* func_00191390 — the camera pre-step (DECODED s65; s71 STATE-ID
- * CORRECTION): zeroes the per-frame extras (+0x94/+0x98) and writes
+ * CORRECTION). RE-VERIFIED against src/func_00191390.c (byte-matched,
+ * .word form; decoded by hand): sw zero,0x94 / sw zero,0x98, dispatch
+ * on lw a1,0x230(a1); codes 2/4/0xF -> 0x8C=-3.0, 0x5C=1.0; codes
+ * 6/7/8/9/0x2C/0x2D -> 0.0/2.0; code 0x13 -> 11.0/2.0; codes 1/3 and
+ * every other code fall into the cam+0x64 test (== -31.2 -> 2.0/6.0,
+ * else 6.0/2.0); tail lb 0x6D, non-zero -> sw 23.0 to +0x98.
+ * It zeroes the per-frame extras (+0x94/+0x98) and writes
  * the PER-STATE height params +0x8C/+0x5C every frame. The -3.0/1.0
  * row matches player states 2/4/0xF ONLY — the +0x236 ELEVATED/hang
  * family (the func_0015CBA0 state map picks 2-vs-1 and 4-vs-3 on
@@ -2616,7 +2640,8 @@ static void camera_prestep_00191390(EmCamera *cam)
 }
 
 /* func_00191D40 — the walk camera's desired-EYE-HEIGHT seek (DECODED
- * s65): want = base (+ cam+0x98, unfed) clamped to the y_hi bound;
+ * s65; RE-VERIFIED against src/func_00191D40.c, which writes the eye
+ * Y at arg0+0x14 while func_0022FCA0 owns +0x10/+0x18): want = base (+ cam+0x98, unfed) clamped to the y_hi bound;
  * proportional |d|/10 capped at `rate` (4.0 from func_00230000), d/5
  * snap inside 1.0 u. A RISE is vetoed by solver bit 0x80, a DESCENT
  * by bit 0x40 (ceiling-/floor-clamped last solve) — the engine also
@@ -2643,7 +2668,11 @@ static void cam_eye_y_seek_00191D40(EmCamera *cam, float want, float rate)
 }
 
 /* func_0022FCA0 — the walk camera's desired-eye x/z TETHER (DECODED
- * s65 — the full policy in the constants block above). Consumes the
+ * s65 — the full policy in the constants block above; RE-VERIFIED
+ * against src/func_0022FCA0.c: err = D_00810690 - fabs(p+0xC), the
+ * -20/-10 threshold on p+0x64 == -46.8f, the D_0081069C > 8.6f
+ * straight-out gate and the 0.3-deg-per-unit swing all match).
+ * Consumes the
  * commit's horiz_dist (D_00810690, one frame stale — engine) and the
  * ACTUAL pair's horizontal distance (D_0081069C). */
 static void camera_walk_eye_0022FCA0(EmCamera *cam)
@@ -2876,7 +2905,15 @@ static void camera_mode_dispatch(EmCamera *cam)
      * native producer, untranslated), a 3-deg deadband DROPS already-
      * aligned presses, and the orbit radius cam+0x4C = the actual
      * horiz eye<->target distance |D_0081069C| clamped into [7.0,
-     * |cam+0x64| = 46.8]. It arms director sub-state 3 — whose MOTION
+     * |cam+0x64| = 46.8]. (All four re-verified against
+     * src/func_001B0080.c's sibling src/func_00191000.c: the gate is
+     * `D_00810E74 & *(u16*)0x70003B80`, the deadband literal is
+     * 0.05235988f = 3 deg, and the clamp order is `< 7 -> 7` else
+     * `> fabs(cam+0x64) -> fabs(cam+0x64)`.)  It writes cam+0x06 = 3
+     * and cam+0x01 = 0 — PROVENANCE NOTE: +0x06 is the MODE byte this
+     * file's own func_0018BC20 comment describes, so calling this
+     * "sub-state 3" below is loose; the state byte +0x01 is what
+     * func_00193D90/func_001921D0 drive. Its MOTION
      * handler is still unread: the port seeks at the orient-family
      * rate (CAM_L1_RATE, flagged) around the armed radius (placement
      * shape inferred from the sub-state-2 orbit, flagged). R1 no
@@ -2905,9 +2942,22 @@ static void camera_mode_dispatch(EmCamera *cam)
      * struct timer +0x08 runs while the player is idle/walking with a
      * clear solver byte; at 481 frames (= the fidget timer 300 + the
      * 180-frame look-around clip: the END of the look-around idle) it
-     * arms the 0.2 deg/frame ORBIT (director sub-state 2,
-     * func_00193D90) around the saved eye<->target radius, stopping at
-     * walls and on any player action. */
+     * arms the 0.2 deg/frame ORBIT (state byte +0x01 = 2, motion
+     * handler func_00193D90) around the saved eye<->target radius,
+     * stopping at walls and on any player action.
+     * RE-VERIFIED against src/func_001921D0.c, which is the function
+     * that actually owns this timer:
+     *   if (cam[7] & 9) cam+8 = 0;
+     *   else if (player+0x230 == 1 || == 2) { if (++cam+8 >= 0x1E1) ... }
+     *   else cam+8 = 0;
+     * -> mask 9, the 481 (0x1E1) threshold, the 0.05235988f deadband and
+     * the "idle action codes 1/2 only" gate are all engine-literal. The
+     * arm writes cam+0x48 = player+0xC4, cam+0x4C = fabs(D_0081069C),
+     * cam+0x01 = 2 and the arc side at cam+0x03, and is vetoed by
+     * cam[7] & 4 (turning negative) / & 2 (turning positive) — the port
+     * substitutes a trial-yaw wall probe for those two solver bits.
+     * The 0.2 deg/frame step itself is the 0x3B64C389 literal that
+     * src/func_00193D90.c feeds to func_001B12B0. */
     int idle_ok = g.gait == 0 && g.move_speed <= 0.0f &&
                   !g.cam_recenter && !(in->held & EM_PAD_L1) &&
                   !em_weapon_is_melee();
@@ -3004,17 +3054,26 @@ static void camera_mode_dispatch(EmCamera *cam)
      * (decoded s65, cut-table cases): desired target chases the player
      * x/z at <= 2.0 u/frame and its height seeks player.y + 11 +
      * cam[0x8C] at <= 4.0 — i.e. +17 idle, +8 while moving (the walk
-     * table writes 0x8C = -3). The IDLE case (.L00191834) adds the
-     * 0.3 * shaped(excess) DIP term to the height want (DECODED s79):
-     * the idle target sags while the camera is over-close. The walk
-     * states 2/4/0xF hit other jumptable cases with NO dip, so it is
-     * gated on the player being idle (g.move_speed == 0). */
+     * table writes 0x8C = -3). The first case adds the 0.3 *
+     * shaped(excess) DIP term to the height want.
+     *
+     * AUDIT CORRECTION: the DIP case is NOT "idle only". src/func_001916C0.c
+     * puts action codes {0, 1, 3, 14, 20, 21, 22} in the dip arm and only
+     * {2, 4, 15} in the no-dip arm — and src/func_00191390.c gives that
+     * same {2, 4, 0xF} set the -3.0/1.0 height row, i.e. it is the +0x236
+     * ELEVATED/hang family, exactly as this file's own func_00191390 note
+     * (above camera_prestep_00191390) already says. A ground WALK is action
+     * code 3 (src/func_0015CBA0.c maps player states 1/6/7/15/58 -> 3 with
+     * no +0x236), which is IN the dip arm. The port models no +0x236 latch,
+     * so every state it can reach (codes 1 and 3) takes the dip; the old
+     * `g.move_speed == 0` gate made the target height jump the moment the
+     * player started walking while the camera was over-close. */
     cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP_XZ);
     cam->tgt_des[2] = cam_chase_h(cam->tgt_des[2], g.pos[2], CAM_TGT_CAP_XZ);
     {
         float want = g.pos[1] + CAM_BASE_H + cam->aim_h;
-        if (g.move_speed == 0.0f) {
-            /* idle DIP: excess = desired horiz eye<->tgt dist (cam+0x0C
+        {
+            /* DIP: excess = desired horiz eye<->tgt dist (cam+0x0C
              * param's fabs) — the func_001916C0 spad D_70003A20. Uses
              * the commit's horiz_dist (1 frame stale, engine-true). */
             float follow = fabsf(g.cam_dist_param);
@@ -3229,6 +3288,14 @@ static int cam_solver_0018DD20(EmCamera *cam)
     if (blocked) {
         attr = hit.surf_class;
         cam->hit_attr = attr;                          /* cam+0x58 */
+        /* AUDIT CORRECTION (src/func_0018DD20.c): the engine sets its
+         * result byte to 1 the moment the primary probe hits — BEFORE
+         * the head-clear waiver ("touched = 1;" immediately inside
+         * `if (probeHit != 0)`), and the waiver only clears probeHit,
+         * never touched. The port previously left the bits at 0 for a
+         * plain pull-in, so `cam->hit & 9` never fired and the idle
+         * auto-orbit armed while the sight line was blocked. */
+        bits = 1;
         memcpy(first_pt, hit.point, sizeof first_pt);
         memcpy(first_n, hit.normal, sizeof first_n);
         hdir[0] = tgt[0] - ext_eye[0];
@@ -3270,7 +3337,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
                 eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
                 if (eye[1] < cam->y_lo) cam->y_lo = eye[1];
                 if (eye[1] > cam->y_hi) cam->y_hi = eye[1];
-                bits |= 8;
+                bits = 8;         /* ASSIGN — engine "touched = 8;"
+                                   * clears the primary-hit bit 1 */
                 handled = 1;
             } else if (attr & EM_SURF_WALL) {               /* 0x2000 */
                 EmCollHit rh;
@@ -3311,19 +3379,25 @@ static int cam_solver_0018DD20(EmCamera *cam)
         }
     }
 
-    /* 4. SIDE STAGE — runs when the sight line is CLEAR (s0==0) OR the
-     * block is SQUARE-ON (s3==1, dot >= sin45). A GLANCING block (s0!=0,
-     * s3==0) does NOT enter — the engine gate at .L0018E4A0 is
-     *   v0 = (s3==1) ? 1 : (s0==0 ? 1 : 0);  if (!v0) skip.
-     * (The s61 prose "clear or glancing only" was backwards; verified
-     * against func_0018DD20.s lines 498-510 / .L0018E8E8's beq s3,1.)
+    /* 4. SIDE STAGE — runs when the sight line is CLEAR **or** the block
+     * is GLANCING. AUDIT CORRECTION: the recovered C (src/func_0018DD20.c)
+     * spells the gate out as
+     *   doSlide = 1;
+     *   if (steep != 1) { doSlide = 0; if (probeHit == 0) doSlide = 1; }
+     * i.e. doSlide = glancing || !blocked  ("steep" is set exactly where
+     * this function classifies GLANCING, `if (temp_f0 < 0.707f) steep=1;`).
+     * The port had `!blocked || !glancing`, which is the complement on the
+     * blocked half: it ran the side stage on SQUARE-ON blocks (where the
+     * engine skips it) and skipped it on GLANCING blocks (where the engine
+     * runs it). The s79 note claiming the earlier "clear or glancing"
+     * reading "was backwards" is itself the error.
      * NOTE (s79 it2): su is built from yaw - pi/2 = PERPENDICULAR to the
      * sight = PARALLEL to a square-on wall, so these 5.5-u probes run
      * ALONG the faced wall and only catch PERPENDICULAR walls (corners /
      * corridor sides). They are a corridor centerer, NOT a 44-u swing —
      * the AREA-11 -X->+X crossover is NOT produced here (it is a
      * collision/entry-placement blocker; see FINDINGS s79 it2). */
-    if (!blocked || !glancing) {
+    if (!blocked || glancing) {
         float yaw  = atan2f(tgt[0] - eye[0], tgt[2] - eye[2]);
         float syaw = cam_wrap_pi(yaw - EM_PI * 0.5f);
         float su[3] = { sinf(syaw), 0.0f, cosf(syaw) };  /* unit side */
@@ -3404,15 +3478,15 @@ static int cam_solver_0018DD20(EmCamera *cam)
                 continue;
             memcpy(side == 0 ? lpt : rpt, sh.point, 12);
             /* response window: the engine applies the side response
-             * UNCONDITIONALLY when the block is square-on (s3==1 ->
-             * .L0018E8E8 beq s3,1 -> .L0018E938); only the s3==0 path
-             * (the CLEAR case here, where gate stayed 0) checks the
-             * window gate dot in (-0.3, 0.9). So gate it on !blocked
-             * (== s3==0 inside this stage); for clear, gate==0 always
-             * passes, so this is a no-op there but matches the engine
-             * branch exactly. (Was !glancing — backwards: it suppressed
-             * the square-on shove, the AREA-11 miss.) */
-            if (!blocked &&
+             * UNCONDITIONALLY when the block is GLANCING (steep == 1);
+             * the steep != 1 path — inside this stage that is exactly
+             * the CLEAR case, where gate stayed 0 — checks the window
+             * gate dot in (-0.3, 0.9). Recovered C:
+             *   if ((hitA != 0) && ((steep == 1) ||
+             *       ((g = spad3A3C, g < 0.9f) && !(g <= -0.3f))))
+             * For the clear case gate == 0, so the window always passes;
+             * the test is kept because it mirrors the engine branch. */
+            if (!glancing &&
                 (!(gate < SOLV_GATE_HI) || gate <= SOLV_GATE_LO))
                 continue;
             {
@@ -4013,10 +4087,16 @@ static void camera_solve(EmCamera *cam)
     cam->eye[2] = cam_chase_h(cam->eye[2], eye_des[2], CAM_EYE_CAP);
     cam->eye[1] = cam_chase_v(cam->eye[1], eye_des[1], CAM_EYE_CAP);
 
-    /* MODE-1 dispatcher tail (func_00197D20): with the eye above
+    /* MODE-1 dispatcher tail (func_00197D20): with the eye BELOW
      * player.y + 23 and horizontally inside 8 u, push it out to
-     * EXACTLY 8 along its own heading (the min-distance clamp). */
-    if (cam->aim_phase && cam->eye[1] > g.pos[1] + 23.0f) {
+     * EXACTLY 8 along its own heading (the min-distance clamp).
+     * AUDIT CORRECTION: src/func_00197D20.c case 1 reads
+     *   if (D_008105D4 < 23.0f + *(float *)(arg1 + 0xA4)) { ... }
+     * (D_008105D4 = the ACTUAL eye Y, arg1+0xA4 = player Y) — the
+     * clamp guards the LOW eye that would otherwise slide inside the
+     * player, not a high one. The port tested `>` and so applied the
+     * shove in exactly the frames the engine leaves alone. */
+    if (cam->aim_phase && cam->eye[1] < g.pos[1] + 23.0f) {
         float dx = cam->eye[0] - g.pos[0];
         float dz = cam->eye[2] - g.pos[2];
         float d  = sqrtf(dx * dx + dz * dz);

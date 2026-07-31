@@ -27,16 +27,19 @@
  *   4 OPEN     one-frame transition COMMIT (func_001BC240 ->
  *              func_001BC150): arm the 64-frame fade-out
  *              (func_001AEDE0(4,0)); room moves do NOT fade audio -> 5
- *   5 CLOSING  engine sub 5 = transition pending. At fade-out complete
- *              (screen black): post the RE-PLACE (spawn point behind the
- *              door, exit yaw), arm the 64-frame fade-in + the ARRIVAL
- *              WALK-OUT (player state 5/1 — em_door.h step 4), and start
- *              running the clip back (the engine re-arms when the
- *              request byte B8 clears, right after the re-place). The
- *              MENU unlocks when the fade-in completes; MOVEMENT when
- *              the walk-out phases end (~111 frames — the two-lock
- *              split, em_door.h "THE TWO LOCKS"); at clip rest the door
- *              re-arms (+0x0B = 0) -> 0
+ *   5 CLOSING  engine sub 5 = transition pending (func_001BC290, BYTE-
+ *              MATCHED): every frame it advances the clip FORWARD by
+ *              1.0; the frame the request byte D_008106B8 clears — which
+ *              happens at the re-place, under black — it calls
+ *              anim_clip_init(self, 0, 0, 0), i.e. SNAPS the clip back
+ *              to the closed pose, clears +0x0B and returns to sub 0.
+ *              The port: at fade-out complete (screen black) post the
+ *              RE-PLACE (spawn point behind the door, exit yaw), arm the
+ *              64-frame fade-in + the ARRIVAL WALK-OUT (player state 5/1
+ *              — em_door.h step 4), then snap the door shut on the next
+ *              pass. The MENU unlocks when the fade-in completes;
+ *              MOVEMENT when the walk-out phases end (113 frames — the
+ *              two-lock split, em_door.h "THE TWO LOCKS") -> 0
  *
  * SLIDERS (m17/m09) run the decoded variant brain func_001BB860
  * instead — same CROSS use-arm (the one engine trigger, s58), native
@@ -51,10 +54,19 @@
  * refresh fed (x, y + 10, z) — the door's spatial anchor sits 10 u ABOVE
  * its placement origin — then the actor's own +0x4C method.
  * door_build_palette performs the same composition in the opposite order
- * (clip pose first, then T(pos) * R_y(yaw)), which is equivalent. The
- * one decoded input the port does not carry is the SCALE slot: the
- * placement LINK's bits 6/7 select 1.5x/2.0x and the manifest has no
- * link halfword yet (FLAGGED).
+ * (clip pose first, then T(pos) * R_y(yaw)), which is equivalent.
+ *
+ * The SCALE input the port does not carry (FLAGGED — and its plumbing is
+ * only half-decoded): the byte-matched func_001BBDA0 (door INIT) reads
+ * the placement LINK halfword at +0x56 and writes a uniform scale triple
+ * — 1.5 if bit 0x40 is set, else 2.0 if bit 0x80 is set, else 1.0 — to
+ * +0x80/+0x84/+0x88. func_001C68C0 feeds +0x60, NOT +0x80, to
+ * build_trs_matrix, so whether that link scale ever reaches the
+ * placement transform is UNSETTLED. The manifest carries no link
+ * halfword either way. func_001BBDA0 also settles where the door id
+ * comes from: it copies the placement byte +0x2E into the id short at
+ * +0x34 and then zeroes +0x2E, which is what frees +0x2E to serve as
+ * the side latch.
  *
  * The shipped door EMDLs carry the real disc clips (s30/s32, slot-0x39
  * bank ids [0,2,1,3]); a single-frame EMDL falls back to the legacy
@@ -152,14 +164,22 @@
  *            move-to,
  *            walk clip — the player crosses the open doorway; NO
  *            player door-gesture anim anywhere in the script).
- *   AFTER    brain state 3 = the transition COMMIT (func_001BC150,
- *            dest table — the engine re-places/area-changes), state 4
- *            waits + re-arms. The port: goto sliders fade + scene-
- *            switch at walk-through end (the m03 commit path); plain
- *            sliders stay OPEN — the engine re-closes via room
- *            re-entry state, so the port re-closes by running the
- *            slide clip backwards when the player leaves the scan
- *            radius (the s32-flagged reverse, motion-identical). */
+ *   AFTER    the func_001BB860 sub-state chain, read off the NEARMISS
+ *            src/func_001BB860.c: sub 0 arms -> func_001BB560 returns 1
+ *            -> sub 2 (open script pump, func_001BB7C0) -> sub 3 ->
+ *            func_001BC150 UNCONDITIONALLY -> sub 4 (func_001BB7F0)
+ *            -> sub 0. The locked path is sub 1 (pump, then +0x0B = 0,
+ *            sub 0). NOTE what that means: in the engine EVERY slider
+ *            that opens COMMITS A TRANSITION, exactly like the m03
+ *            family — there is no "stays parted" state and no reverse
+ *            slide anywhere in the slider code. The port only carries
+ *            dest records for goto doors, so a plain (goto-less) slider
+ *            takes a PORT STAND-IN: it stays parted and runs its slide
+ *            clip backwards once the player leaves the scan radius.
+ *            That stand-in is INVENTED, not decoded — the earlier
+ *            comment here ("the engine re-closes via room re-entry
+ *            state") had no support in any recovered function. Wiring
+ *            it correctly needs slider dest records in the manifest. */
 #define SLIDER_POINT_DIST 6.0f  /* func_001BB560 staging: 6.0 * (sin,cos) */
 #define SLIDER_LEAVE_PAD  2.0f  /* re-close hysteresis past the radius */
 /* Native-slide length, DECODED from func_001BB400: 0.2 u/frame until the
@@ -294,10 +314,25 @@
  * (4 -> 64-frame ramp), see em_frame.h. */
 #define DOOR_FADE_SPEED   EM_FADE_SPEED_DOOR
 
-/* ARRIVAL WALK-OUT constants — func_00183250 (player state 5/1), all
- * engine values (em_door.h step 4): phase frame counts (+0x28 timer
- * loads), the locIdx-2 locomotion speed (D_00248870[2], u/tick) and the
- * phase-3 ramp decay step (0x3C3A2E8C). ~111 frames, ~12.8 u total. */
+/* ARRIVAL WALK-OUT constants — READ OUT of the byte-matched
+ * src/func_00183250.c (player state 5/1; the file is an asm-word body,
+ * so the values below are the literals its own instruction stream
+ * loads): phase byte +0x06, phase timer halfword +0x28, speed ramp
+ * +0x38, locomotion index byte +0x25C.
+ *   phase 0 (1 frame): +0x25C = 2 (locIdx 2), +0x38 = 0x3E99999A =
+ *            0.3f, +0x07 = 0, timer = 0x32 = 50, phase -> 1
+ *   phase 1: timer only, NO mover call            (timer 0x1E = 30 next)
+ *   phase 2: mover call, timer                    (timer 0x1E = 30 next)
+ *   phase 3: mover call, then +0x38 -= 0x3C3A2E8C clamped at 0, and the
+ *            base-idle blend 12.0f is requested once the ramp hits 0
+ *   exit:    +0x04 = 1, +0x05 = 0, +0x06 = 0, +0x1F0 = 0, spad 3B8D = 0
+ * TIMER SEMANTICS (the engine shape, reproduced in walkout_tick): the
+ * timer is read, decremented and stored EVERY frame and the phase
+ * advances on the frame the read yields 0 — so each phase costs its
+ * count PLUS one hand-over frame, and the mover does NOT run on a
+ * hand-over frame. Total 51 + 31 + 31 = 113 frames, 60 of them moving
+ * (~12.8 u). The old "50/30/30, ~111 frames" reading dropped the
+ * hand-over frames. */
 #define WALKOUT_PHASE1_FRAMES 50      /* 0x32: clip only, no translation */
 #define WALKOUT_PHASE2_FRAMES 30      /* 0x1E: mover at full ramp        */
 #define WALKOUT_PHASE3_FRAMES 30      /* 0x1E: mover while ramp decays   */
@@ -369,8 +404,12 @@ typedef struct {
     float    phase_t;        /* open-phase frame counter */
     int      anim_started;   /* open-phase script chain fired (player
                               * anim + door clip + sound, one-shot) */
-    float    spawn_pt[3];    /* re-place point door_pos - 5.0 * n, far side
-                              * (the spawn-table record's pose) */
+    float    spawn_pt[3];    /* re-place point: the kickoff's own lateral
+                              * point + 5.0 * n on the FAR side. PORT
+                              * APPROXIMATION of the spawn-table record
+                              * (the real record shape is confirmed in
+                              * func_001B07C0, but only goto doors carry
+                              * a real decoded one) */
     /* manifest goto tail (decoded dest+spawn tables — em_door.h): the
      * commit switches scenes instead of the same-scene re-place. */
     int      has_goto;
@@ -407,9 +446,14 @@ static struct {
      * re-place post; em_game player_move consumes the per-frame command
      * via em_door_walkout_active. Survives em_door_scene_clear. */
     int       wo_phase;      /* 0 idle; 1/2/3 = the engine +0x06 phases */
-    int       wo_t;          /* frames left in the current phase */
+    int       wo_t;          /* engine timer +0x28 (see walkout_tick) */
     float     wo_yaw;        /* walk direction = the spawn exit yaw */
-    float     wo_ramp;       /* phase-3 speed ramp (+0x38), u/tick */
+    float     wo_ramp;       /* speed ramp (+0x38), u/tick */
+    float     wo_cmd;        /* THIS frame's commanded u/tick (0 on the
+                              * clip-only and hand-over frames) — the
+                              * engine calls the mover BEFORE decaying
+                              * the ramp, so the command is latched here
+                              * at tick time, not derived afterwards */
     /* one-shot scene-switch request (goto doors; warp_pos/yaw carry the
      * arrival spawn) */
     int       goto_pending;
@@ -513,6 +557,13 @@ static int door_model_get(EmGfx *gfx, const char *scene_dir,
      * placement origin is the hinge corner). Unparseable names default
      * to hinged=0 (center == pos — correct for the m17/m09 sliders,
      * whose origin is the doorway center). */
+    /* UNRESOLVED (audit 2026-07-31): 0x03 / 0x15 are exactly the two
+     * bytes func_00183EF0 tests, so `hinged` is solid. The slider bytes
+     * appearing in the recovered slider code are 0x08, 0x16, 0x17, 0x3D
+     * and 0x3E (func_001BB560's side-latch inversion, func_001BB400's
+     * single-leaf and wide-travel branches, func_001BB860's lock gate) —
+     * 0x09 is NOT among them. Left as-is because the exporter's mXX
+     * numbering is its own convention and no shipped door uses 0x08. */
     dm->hinged = 0;
     dm->slider = 0;
     const char *m = strstr(file, "_m");
@@ -865,16 +916,31 @@ static void door_transit_kickoff(Door *d, const float pp[3])
      * does. */
     d->transit_yaw   = door_norm_ang(d->front ? d->yaw + DOOR_PI : d->yaw);
     {
-        /* the exact func_001BBE40 staging algebra (lateral center term
-         * folded into d->center; pyaw = the snapped yaw) */
+        /* The exact func_001BBE40 staging algebra, written out here
+         * rather than reusing d->center. CORRECTED 2026-07-31 (audit):
+         * the kickoff applies its lateral term UNCONDITIONALLY —
+         *
+         *   spad[0] = door+0xB0 - 5.0f * cos(door+0xC4)
+         *   spad[2] = door+0xB8 + 5.0f * sin(door+0xC4)
+         *   spad[0] -= 5.0f * sin(player+0xC4)
+         *   spad[2] -= 5.0f * cos(player+0xC4)
+         *
+         * with no model-byte test anywhere in the function. Only the
+         * USE SCAN gates that same term on the model byte (func_00183EF0
+         * class-5 branch: `sub == 3 || sub == 0x15`), which is why
+         * d->center is model-conditional. Driving the staging point off
+         * d->center made a non-hinged, non-slider door stage 5 u off
+         * the engine's point along the door plane. */
         float py = d->transit_yaw;
-        d->transit_to[0] = d->center[0] - DOOR_POINT_DIST * sinf(py);
+        float cx = d->pos[0] - DOOR_CENTER_OFF * cosf(d->yaw);
+        float cz = d->pos[2] + DOOR_CENTER_OFF * sinf(d->yaw);
+        d->transit_to[0] = cx - DOOR_POINT_DIST * sinf(py);
         d->transit_to[1] = pp[1];               /* spad y = player y */
-        d->transit_to[2] = d->center[2] - DOOR_POINT_DIST * cosf(py);
-        /* spawn point: mirrored through the center (far side) */
-        d->spawn_pt[0]   = d->center[0] + DOOR_POINT_DIST * sinf(py);
+        d->transit_to[2] = cz - DOOR_POINT_DIST * cosf(py);
+        /* spawn point: mirrored through the same point (far side) */
+        d->spawn_pt[0]   = cx + DOOR_POINT_DIST * sinf(py);
         d->spawn_pt[1]   = d->pos[1];
-        d->spawn_pt[2]   = d->center[2] + DOOR_POINT_DIST * cosf(py);
+        d->spawn_pt[2]   = cz + DOOR_POINT_DIST * cosf(py);
     }
     d->transit       = 1;
     d->did_warp      = 0;
@@ -919,28 +985,47 @@ static void slider_kickoff(Door *d, const float pp[3])
 
 /* One frame of the ARRIVAL WALK-OUT sub-machine (func_00183250's +0x06
  * phases — constants above). Called from em_door_update; the commanded
- * speed for THIS frame is read back by em_door_walkout_active. The
- * MOVEMENT lock clears exactly at the phase-3 exit (the engine's
- * state 5 -> 1 transition + the spad 3B8D defensive clear). */
+ * speed for THIS frame is latched into s.wo_cmd and read back by
+ * em_door_walkout_active. The MOVEMENT lock clears exactly at the
+ * phase-3 exit (the engine's state 5 -> 1 transition + the spad 3B8D
+ * defensive clear).
+ *
+ * Timer shape copied from func_00183250: `t = timer; timer = t - 1;`
+ * runs unconditionally, the phase advances when the READ value was 0,
+ * and the advancing frame returns without calling the mover. */
 static void walkout_tick(void)
 {
+    int t;
+
     if (!s.wo_phase) return;
+    s.wo_cmd = 0.0f;
+    t = s.wo_t;
+    s.wo_t = t - 1;
+
     switch (s.wo_phase) {
     case 1:   /* clip only — the engine never calls the mover here */
-    case 2:   /* mover at the full 0.3 u/tick ramp */
-        if (--s.wo_t <= 0) {
-            s.wo_phase++;
-            s.wo_t = (s.wo_phase == 2) ? WALKOUT_PHASE2_FRAMES
-                                       : WALKOUT_PHASE3_FRAMES;
+        if (t == 0) {
+            s.wo_phase = 2;
+            s.wo_t     = WALKOUT_PHASE2_FRAMES;
         }
         break;
-    case 3:   /* mover while the ramp decays to 0 (~26 frames in) */
-        s.wo_ramp -= WALKOUT_RAMP_STEP;
-        if (s.wo_ramp < 0.0f) s.wo_ramp = 0.0f;
-        if (--s.wo_t <= 0) {
+    case 2:   /* mover at the full 0.3 u/tick ramp */
+        if (t == 0) {
+            s.wo_phase = 3;
+            s.wo_t     = WALKOUT_PHASE3_FRAMES;
+        } else {
+            s.wo_cmd = s.wo_ramp;
+        }
+        break;
+    case 3:   /* mover FIRST, then the ramp decays to 0 (~26 frames in) */
+        if (t == 0) {
             s.wo_phase  = 0;       /* engine exit: state 1/0, 3B8D = 0 */
             s.lock_move = 0;       /* movement control returns HERE */
+            break;
         }
+        s.wo_cmd   = s.wo_ramp;
+        s.wo_ramp -= WALKOUT_RAMP_STEP;
+        if (s.wo_ramp < 0.0f) s.wo_ramp = 0.0f;
         break;
     default:
         s.wo_phase = 0;
@@ -948,15 +1033,23 @@ static void walkout_tick(void)
     }
 }
 
-/* Arm the walk-out at the re-place post (the engine's func_001B07C0
- * reading spawn-record byte +0x14 == 1 — every decoded record carries
- * it, so every arrival walks out). */
+/* Arm the walk-out at the re-place post. MECHANISM confirmed in the
+ * byte-matched src/func_001B07C0.c: it copies the spawn record's +0x14
+ * byte into player+0x0E and, when its own arg is nonzero, a +0x0E of 1
+ * writes player state/sub/phase = 5 / 1 / 0 — the walk-out. WHAT THE
+ * DOOR RE-PLACE PASSES IS NOT CONFIRMED: the caller is the in-game
+ * frame machine func_001AE040, which is still undecompiled; the one
+ * recovered call site (src/anim_frame_top_a.c, the 0x001ACA20 attract
+ * machine) passes 0, which does NOT arm a walk-out. So "every arrival
+ * walks out" is a port assumption, not a decoded fact — treat the
+ * walk-out below as observed-and-plausible, not source-derived. */
 static void walkout_start(float exit_yaw)
 {
     s.wo_phase = 1;
     s.wo_t     = WALKOUT_PHASE1_FRAMES;
     s.wo_yaw   = exit_yaw;
     s.wo_ramp  = WALKOUT_SPEED_UPT;
+    s.wo_cmd   = 0.0f;   /* phase 1 opens with no translation */
 }
 
 void em_door_update(const EmCollision *coll, const float player_pos[3],
@@ -1140,10 +1233,12 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                          * slider's cross-area path is unread). */
                         d->state = EM_DOOR_OPEN;
                     } else {
-                        /* intra-room slider: scripted mode ends, the
-                         * player keeps playing — the door stays parted
-                         * (re-closes when the player leaves, the s32
-                         * reverse-clip flag). */
+                        /* PORT STAND-IN (not decoded — see the SLIDER
+                         * block): func_001BB860 sub 3 commits a
+                         * transition for EVERY slider, but the port has
+                         * no slider dest records, so a goto-less slider
+                         * just ends its script with the player free on
+                         * the far side. */
                         s.lock_move = 0;
                         s.lock_menu = 0;
                         d->state    = EM_DOOR_OPEN;
@@ -1194,12 +1289,15 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                                    300.0f);         /* PLACEHOLDER */
                 }
             }
-            /* Clip pump (1.0/frame) + the script's op 0x02 wait: the
-             * phase runs 90 (front) / 70 (back) frames, then the script
-             * STOPs and the transition COMMIT follows. The back-side
-             * commit leaves the PLACEHOLDER 90-frame swing at 70/90 —
-             * the engine's back clip (index 0) is its own, shorter,
-             * animation; honest until the real door clips are found. */
+            /* Clip pump (1.0/frame — func_001BC0E0 advances by the
+             * literal 1.0f) + the script's op 0x02 wait: the phase runs
+             * 90 (front) / 70 (back) frames — the 0x42B40000 / 0x428C0000
+             * literals func_001BBE40 stores into the wait record — then
+             * the script STOPs and the transition COMMIT follows. On the
+             * back side that leaves the PLACEHOLDER 90-frame swing at
+             * 70/90; nothing in the recovered code says how long the real
+             * back clip (engine id 0) is, so the shortfall is a
+             * placeholder artefact, not a decoded property. */
             if (d->clip_t < door_clip_total(d))
                 d->clip_t += 1.0f;
             d->phase_t += 1.0f;
@@ -1208,10 +1306,11 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
             break;
         case EM_DOOR_OPEN:
             if (d->slider && !d->has_goto) {
-                /* intra-room slider stays parted; when the player
-                 * leaves the scan window (+ hysteresis) it re-closes —
-                 * the engine recloses via room re-entry state, the
-                 * port runs the slide backwards (s32 flag). */
+                /* PORT STAND-IN, no engine counterpart: the goto-less
+                 * slider stays parted and re-closes by running its
+                 * slide clip backwards once the player leaves the scan
+                 * window (+ hysteresis). func_001BB860 has no such
+                 * state — see the SLIDER block above. */
                 float dx = player_pos[0] - d->pos[0];
                 float dz = player_pos[2] - d->pos[2];
                 float lim = d->radius + SLIDER_LEAVE_PAD;
@@ -1219,9 +1318,15 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                     d->state = EM_DOOR_CLOSING;
                 break;
             }
-            /* one-frame COMMIT (func_001BC240 -> func_001BC150): arm
-             * the 64-frame fade-out. Room move (B8 == 2): NO audio
-             * fade (area changes only). */
+            /* one-frame COMMIT — src/func_001BC240.c (byte-matched):
+             * anim_advance_time(self, 1.0f) FIRST, then func_001BC150.
+             * func_001BC150 (byte-matched) branches on the door id's
+             * bit 7: clear = same-area room move -> func_001AEDE0(4, 0)
+             * (fade only, B8 = 2); set = inter-area -> func_001B0C00(4)
+             * (fade + AUDIO fades, B8 = 1). Room moves therefore do NOT
+             * fade audio; the port models the room-move branch. */
+            if (d->clip_t < door_clip_total(d))
+                d->clip_t += 1.0f;
             em_frame_fade_start(1, DOOR_FADE_SPEED);
             d->state = EM_DOOR_CLOSING;
             break;
@@ -1238,6 +1343,12 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 break;
             }
             if (!d->did_warp) {
+                /* func_001BC290 (byte-matched) runs EVERY sub-5 frame
+                 * and its first act is anim_advance_time(self, 1.0f) —
+                 * the door keeps opening FORWARD while the transition
+                 * request is outstanding. It never plays backwards. */
+                if (d->clip_t < door_clip_total(d))
+                    d->clip_t += 1.0f;
                 /* Wait out the fade-out; at black, post the re-place
                  * (spawn point behind the door, exit yaw), arm the
                  * fade-in, and start closing — the engine's "B8
@@ -1289,15 +1400,33 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 }
                 break;
             }
-            /* func_001BC290: clip back to rest, then re-arm
-             * (+0x0B = 0) -> sub 0. */
-            d->clip_t -= 1.0f;
-            if (d->clip_t <= 0.0f) {
-                d->clip_t   = 0.0f;
-                d->state    = EM_DOOR_CLOSED;
-                d->armed    = 0;
-                d->did_warp = 0;
-            }
+            /* CORRECTED 2026-07-31 (audit): the close is a SNAP, not a
+             * reverse pump. src/func_001BC290.c is BYTE-MATCHED and
+             * reads, in full:
+             *
+             *   *(short*)(blk+0xE) = anim_advance_time(self, 1.0f);
+             *   if (D_008106B8 == 0) {
+             *       anim_clip_init(self, 0, 0.0f, 0.0f);
+             *       *(char*)(self+0xB) = 0;
+             *       return 1;
+             *   }
+             *   return 0;
+             *
+             * i.e. the frame the transition request byte D_008106B8
+             * clears — which the area machine does at the RE-PLACE,
+             * while the screen is still black — the door's clip is
+             * re-initialised to clip 0 / time 0 (the captured CLOSED
+             * pose), the activation byte is cleared and sub-state 5
+             * hands back to sub 0. There is no per-frame reverse
+             * playback anywhere in the door code, so the original never
+             * shows a door swinging shut behind the arriving player.
+             * The port used to run clip_t down at 1.0/frame here, which
+             * animated the door closed across the whole fade-in. */
+            d->clip_t   = 0.0f;   /* anim_clip_init(self, 0, 0, 0) */
+            d->clip_idx = 0;
+            d->armed    = 0;      /* self+0x0B = 0 */
+            d->did_warp = 0;
+            d->state    = EM_DOOR_CLOSED;
             break;
         default:
             break;
@@ -1367,10 +1496,11 @@ int em_door_walkout_active(float *out_yaw, float *out_speed)
 {
     if (!s.wo_phase) return 0;
     *out_yaw = s.wo_yaw;
-    /* Commanded translation for THIS frame: phase 1 plays the clip in
-     * place (the engine calls no mover); phases 2/3 move at the ramp
-     * (full 0.3 u/tick, then the phase-3 decay). u/tick -> u/sec. */
-    *out_speed = (s.wo_phase >= 2) ? s.wo_ramp * WALKOUT_TICK_HZ : 0.0f;
+    /* Commanded translation for THIS frame, latched by walkout_tick:
+     * phase 1 and every phase hand-over frame play the clip in place
+     * (the engine calls no mover on those); phases 2/3 move at the ramp
+     * value the mover saw BEFORE that frame's decay. u/tick -> u/sec. */
+    *out_speed = s.wo_cmd * WALKOUT_TICK_HZ;
     return 1;
 }
 
@@ -1408,7 +1538,7 @@ void em_door_scene_clear(EmGfx *gfx)
     int   lock_move = s.lock_move, lock_menu = s.lock_menu;
     int   unlock_armed = s.unlock_armed;
     int   wo_phase = s.wo_phase, wo_t = s.wo_t;
-    float wo_yaw = s.wo_yaw, wo_ramp = s.wo_ramp;
+    float wo_yaw = s.wo_yaw, wo_ramp = s.wo_ramp, wo_cmd = s.wo_cmd;
     em_door_shutdown(gfx);     /* frees + memsets s */
     s.lock_move    = lock_move;
     s.lock_menu    = lock_menu;
@@ -1417,6 +1547,7 @@ void em_door_scene_clear(EmGfx *gfx)
     s.wo_t         = wo_t;
     s.wo_yaw       = wo_yaw;
     s.wo_ramp      = wo_ramp;
+    s.wo_cmd       = wo_cmd;
 }
 
 int em_door_transit_active(float out_target[3], float *out_yaw)

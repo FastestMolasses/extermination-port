@@ -87,20 +87,46 @@ void em_collision_free(EmCollision *c)
     memset(c, 0, sizeof *c);
 }
 
-/* Surface classification — func_001A4030's tail: ratio = ny^2/(nx^2+nz^2)
- * against 0.49029 (0x3EFB075E) and 3.0, sign of ny selects the up/down
- * family. Staged at SPR 0x700030CA on the PS2. */
+/* Surface classification — func_001A4030's tail. CONFIRMED (audit)
+ * against decomp Extermination/src/func_001A4030.c: the ratio is
+ * ny^2/(nx^2+nz^2), tested `< 0.49029058f` then `<= 3.0f`, with the
+ * sign of the plane normal's y selecting the family:
+ *   ny <  0:  wall 0x2000 / down-slope 0x800  / ceiling 0x8000
+ *   ny >= 0:  wall 0x2000 / slope      0x1000 / floor   0x4000
+ * All five constants match EM_SURF_* exactly. The threshold literal is
+ * 0.49029058f in the recovered C (was truncated to 0.49029f here).
+ * Staged at SPR 0x700030CA on the PS2. */
 static uint16_t surf_classify(const float n[3])
 {
     float h = n[0] * n[0] + n[2] * n[2];
     float r = (h > 0.0f) ? (n[1] * n[1]) / h : 1e9f;
-    if (r < 0.49029f) return EM_SURF_WALL;
+    if (r < 0.49029058f) return EM_SURF_WALL;
     if (n[1] >= 0.0f) return (r <= 3.0f) ? EM_SURF_SLOPE : EM_SURF_FLOOR;
     return (r <= 3.0f) ? EM_SURF_STEEPDN : EM_SURF_CEIL;
 }
 
-/* Conditional-surface gate — func_0019D330's attr 0x50..0x59 dispatch
- * against the query id (SPR 0x7000324E). Returns 0 = skip this poly. */
+/* Conditional-surface gate — the attr 0x50..0x59 dispatch against the
+ * query id (SPR 0x7000324E). Returns 0 = skip this poly.
+ *
+ * PARTLY UNRESOLVED (audit). The engine has four sibling walkers and
+ * they do NOT agree, so this gate cannot be pinned from one citation:
+ *   func_0019D770 (camera family):  skip 0x51..0x53 unconditionally;
+ *                                   everything else passes.
+ *   func_0019CF50:                  as above, plus skip attr >= 0x5A.
+ *   func_0019D330 (grid, cited by   0x50 never; 0x51 id==0; 0x52 id==2;
+ *   em_collision.h):                0x53 id==-1; 0x54..0x59 SKIPPED.
+ *   func_001A0B10 (cell hulls, on   0x50 never; 0x51 id==0; 0x52 id==2;
+ *   the entity kind byte, not the   0x53 skipped when id==-1;
+ *   poly attr):                     0x54..0x59 pass; >= 0x5A skipped.
+ * The two id-aware readings are recovered from NEARMISS C and are
+ * mutually contradictory on 0x53 and on 0x54..0x59. func_001A0B10's is
+ * a plain continue-chain that maps 1:1 onto the original branches;
+ * func_0019D330's is a single fused boolean, exactly the shape a
+ * decompiler mis-associates, and its 0x54..0x59 verdict also disagrees
+ * with BOTH of its own grid siblings. So this keeps func_001A0B10's
+ * polarity (which is also what docs/FINDINGS.md records) rather than
+ * flipping a gameplay gate on the weaker reading. FLAGGED: settle 0x53
+ * against the raw func_0019D330 branches before trusting either. */
 static int attr_passes(uint8_t attr, int id)
 {
     if (attr < 0x50 || attr > 0x59) return 1;
@@ -108,8 +134,8 @@ static int attr_passes(uint8_t attr, int id)
         case 0x50: return 0;
         case 0x51: return id == 0;
         case 0x52: return id == 2;
-        case 0x53: return id != -1;
-        default:   return 1;       /* 0x54..0x59 */
+        case 0x53: return id != -1;   /* FLAGGED: see above */
+        default:   return 1;          /* 0x54..0x59 */
     }
 }
 
@@ -264,3 +290,290 @@ int em_collision_move_probe(const EmCollision *c, float pos[3],
     }
     return kind;
 }
+
+/* --- Moving walkable surfaces (footprint-AABB + velocity carry) -------
+ *
+ * INVESTIGATION_first_level_area11.md §11.4 / truck convergence block
+ * 0x00825014. A per-frame registry of axis-aligned walkable footprints
+ * with a per-frame velocity; the player's carry is a DIRECT add of the
+ * matched surface's velocity to its position (no smoothing), mirroring the
+ * PS2 D_70003.._38A8 add into D_00810358. The registry stands in for the
+ * engine's zone table D_70003250[(uid>>8)&0xFF]; it is rebuilt each frame
+ * (clear -> actors register -> player carry resolves).
+ *
+ * Engine-global like the PS2 scratch zone table (a fixed array, not bound
+ * to a collision world). Dormant until an actor registers — the TRUCK
+ * actor that does so is a separate, later task. */
+
+#define EM_MOVING_MAX 8   /* fixed slots; AREA-11 needs exactly one (truck) */
+
+typedef struct {
+    float minX, maxX, minZ, maxZ;
+    float top_y;
+    float vel[3];
+} EmMovingSurface;
+
+static EmMovingSurface s_moving[EM_MOVING_MAX];
+static int             s_moving_n;
+
+void em_collision_moving_clear(void)
+{
+    s_moving_n = 0;
+}
+
+int em_collision_moving_register(float minX, float maxX,
+                                 float minZ, float maxZ, float top_y,
+                                 const float vel[3])
+{
+    if (s_moving_n >= EM_MOVING_MAX) return -1;
+    EmMovingSurface *m = &s_moving[s_moving_n];
+    /* normalize the footprint so the inclusive interval test below is
+     * order-independent (the truck authors min<max, but be defensive) */
+    m->minX = minX < maxX ? minX : maxX;
+    m->maxX = minX < maxX ? maxX : minX;
+    m->minZ = minZ < maxZ ? minZ : maxZ;
+    m->maxZ = minZ < maxZ ? maxZ : minZ;
+    m->top_y  = top_y;
+    m->vel[0] = vel[0];
+    m->vel[1] = vel[1];
+    m->vel[2] = vel[2];
+    return s_moving_n++;
+}
+
+int em_collision_moving_carry(float pos[3])
+{
+    /* §11.4 step 1: footprint test on the player X/Z (D_00810360 /
+     * D_00810368) against [minX,maxX] x [minZ,maxZ]. PORT addition: gate
+     * to the Y band [top_y - EM_MOVING_Y_BELOW, top_y + EM_MOVING_Y_ABOVE]
+     * so a free-falling player only rides a surface they actually stand on
+     * (the PS2 truck owns the sole walkable top at its height, so it skips
+     * the Y test). On multiple matches, take the highest top_y at/below the
+     * player — the surface the player is resting on, not one overhead. */
+    int   best = -1;
+    float best_y = -1e30f;
+    for (int i = 0; i < s_moving_n; i++) {
+        const EmMovingSurface *m = &s_moving[i];
+        if (pos[0] < m->minX || pos[0] > m->maxX) continue;
+        if (pos[2] < m->minZ || pos[2] > m->maxZ) continue;
+        if (pos[1] < m->top_y - EM_MOVING_Y_BELOW) continue;
+        if (pos[1] > m->top_y + EM_MOVING_Y_ABOVE) continue;
+        if (m->top_y > best_y) { best_y = m->top_y; best = i; }
+    }
+    if (best < 0) return 0;
+
+    /* §11.4 step 2: read the player position, ADD the surface velocity
+     * directly, write it back. No smoothing — the truck's accelerating
+     * fall is carried verbatim, which is the fail/death mechanic. */
+    const EmMovingSurface *m = &s_moving[best];
+    pos[0] += m->vel[0];
+    pos[1] += m->vel[1];
+    pos[2] += m->vel[2];
+    return 1;   /* "player is riding" (PS2 D_70003.._31F0 = 1) */
+}
+
+/* --- EM_CARRY_TEST=1 harness (headless, OS-free) ------------------------
+ *
+ * clear -> register a footprint with vel (0,-0.6667,0) at top_y -> a point
+ * inside the footprint at the right Y rides (carry==1, Y drops by 0.6667);
+ * the same point moved outside the footprint does not ride (carry==0, Y
+ * holds); a point far above top_y does not ride. -0.6667 is the truck's
+ * terminal fall velocity from §11.x. */
+static int carry_check(int cond, const char *what, int *fail)
+{
+    if (cond) return 1;
+    (*fail)++;
+    printf("carry test: CHECK FAILED — %s\n", what);
+    return 0;
+}
+
+int em_collision_moving_selftest(void)
+{
+    int fail = 0;
+    const float top_y = 100.0f;
+    const float vel[3] = { 0.0f, -0.6667f, 0.0f };
+
+    em_collision_moving_clear();
+    int slot = em_collision_moving_register(10.0f, 20.0f,   /* X span */
+                                            30.0f, 40.0f,   /* Z span */
+                                            top_y, vel);
+    carry_check(slot == 0, "first registration takes slot 0", &fail);
+
+    /* inside the footprint, standing on top_y -> rides, Y drops by 0.6667 */
+    float p_in[3] = { 15.0f, top_y, 35.0f };
+    int r_in = em_collision_moving_carry(p_in);
+    carry_check(r_in == 1, "point inside footprint at top_y rides", &fail);
+    carry_check(fabsf(p_in[1] - (top_y - 0.6667f)) < 1e-4f,
+                "rider Y dropped by the surface vel (0.6667)", &fail);
+    carry_check(p_in[0] == 15.0f && p_in[2] == 35.0f,
+                "rider X/Z unchanged (vel x/z = 0)", &fail);
+
+    /* outside the footprint -> no ride, Y holds */
+    float p_out[3] = { 100.0f, top_y, 35.0f };
+    int r_out = em_collision_moving_carry(p_out);
+    carry_check(r_out == 0, "point outside footprint does not ride", &fail);
+    carry_check(p_out[1] == top_y, "non-rider Y held", &fail);
+
+    /* inside X/Z but far above top_y (out of the Y band) -> no ride */
+    float p_high[3] = { 15.0f, top_y + 100.0f, 35.0f };
+    int r_high = em_collision_moving_carry(p_high);
+    carry_check(r_high == 0, "point far above top_y does not ride", &fail);
+    carry_check(p_high[1] == top_y + 100.0f, "wrong-Y point held", &fail);
+
+    printf("carry test: %s\n", fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    return fail;
+}
+
+/* --- Static blocking AABBs (the gated path-blocker primitive) ----------
+ *
+ * INVESTIGATION_area11_grate.md §5 — the AREA-11 GRATE's closed collision
+ * hull. A per-frame registry of world-axis-aligned solid boxes; the player
+ * wall-solve pushes the player OUT of any box they penetrated, AFTER the
+ * static EMCL wall solve. Unlike the single-sided EMCL polygon world, an
+ * AABB is a solid VOLUME: resolve along the axis of least horizontal
+ * penetration so the player cannot pass into it (the grate is a wall).
+ *
+ * Engine-global like the moving-surface table (a fixed scratch array, not
+ * bound to a collision world). Dormant until an actor registers — the
+ * GRATE actor (em_game.c) registers its closed hull each frame ONLY while
+ * the area is not powered, so once powered the registry is empty and the
+ * push-out is a no-op (movement identical to before). */
+
+#define EM_BLOCKER_MAX 8   /* fixed slots; AREA-11 needs exactly one (grate) */
+
+static EmBlockerAabb s_blocker[EM_BLOCKER_MAX];
+static int           s_blocker_n;
+
+void em_collision_blocker_clear(void)
+{
+    s_blocker_n = 0;
+}
+
+int em_collision_blocker_register(const EmBlockerAabb *aabb)
+{
+    if (!aabb || s_blocker_n >= EM_BLOCKER_MAX) return -1;
+    EmBlockerAabb *d = &s_blocker[s_blocker_n];
+    /* normalize so the overlap test below is order-independent */
+    d->minX = aabb->minX < aabb->maxX ? aabb->minX : aabb->maxX;
+    d->maxX = aabb->minX < aabb->maxX ? aabb->maxX : aabb->minX;
+    d->minZ = aabb->minZ < aabb->maxZ ? aabb->minZ : aabb->maxZ;
+    d->maxZ = aabb->minZ < aabb->maxZ ? aabb->maxZ : aabb->minZ;
+    d->minY = aabb->minY < aabb->maxY ? aabb->minY : aabb->maxY;
+    d->maxY = aabb->minY < aabb->maxY ? aabb->maxY : aabb->minY;
+    return s_blocker_n++;
+}
+
+int em_collision_blocker_probe(float pos[3], float radius)
+{
+    int pushed = 0;
+    for (int i = 0; i < s_blocker_n; i++) {
+        const EmBlockerAabb *a = &s_blocker[i];
+
+        /* Vertical gate: the player body band must overlap the blocker's
+         * Y span (a blocker the player is above/below does not eject). */
+        float body_lo = pos[1];
+        float body_hi = pos[1] + EM_BLOCKER_BODY_H;
+        if (body_hi < a->minY || body_lo > a->maxY) continue;
+
+        /* Horizontal overlap of the player cylinder (footprint expanded by
+         * `radius`) with the box footprint. The player penetrates when its
+         * centre lies within the box grown by radius on each side. */
+        float exMinX = a->minX - radius, exMaxX = a->maxX + radius;
+        float exMinZ = a->minZ - radius, exMaxZ = a->maxZ + radius;
+        if (pos[0] <= exMinX || pos[0] >= exMaxX) continue;
+        if (pos[2] <= exMinZ || pos[2] >= exMaxZ) continue;
+
+        /* Penetration depth to each of the four expanded faces; eject
+         * along the axis (and direction) of LEAST penetration — the
+         * standard AABB minimum-translation push-out. */
+        float pXlo = pos[0] - exMinX;   /* push toward -X exits here */
+        float pXhi = exMaxX - pos[0];   /* push toward +X */
+        float pZlo = pos[2] - exMinZ;   /* push toward -Z */
+        float pZhi = exMaxZ - pos[2];   /* push toward +Z */
+
+        float minX = pXlo < pXhi ? pXlo : pXhi;
+        float minZ = pZlo < pZhi ? pZlo : pZhi;
+        if (minX <= minZ) {
+            pos[0] = (pXlo < pXhi) ? exMinX : exMaxX;
+        } else {
+            pos[2] = (pZlo < pZhi) ? exMinZ : exMaxZ;
+        }
+        pushed++;
+    }
+    return pushed;
+}
+
+/* --- EM_BLOCKER_TEST=1 harness (headless, OS-free) ---------------------
+ *
+ * clear -> register one AABB -> a point INSIDE it is pushed out to the
+ * nearer face (least-penetration axis), Y untouched; a point OUTSIDE is
+ * unaffected; a point inside X/Z but ABOVE the blocker (out of the body
+ * band) is unaffected; with an empty registry no point moves. */
+int em_collision_blocker_selftest(void)
+{
+    int fail = 0;
+    em_collision_blocker_clear();
+
+    /* a box centred at (240,245,232.8)-ish, narrow in Z (the grate) */
+    EmBlockerAabb box = { 236.0f, 244.0f,   /* X */
+                          231.0f, 234.0f,   /* Z (narrow — push exits in Z) */
+                          240.0f, 250.0f }; /* Y */
+    int slot = em_collision_blocker_register(&box);
+    carry_check(slot == 0, "first blocker takes slot 0", &fail);
+
+    /* a point well inside, nearer the -Z face: pushed out in -Z, X/Y held */
+    float p_in[3] = { 240.0f, 245.0f, 232.0f };
+    int n_in = em_collision_blocker_probe(p_in, 1.0f);
+    carry_check(n_in == 1, "point inside the blocker is pushed once", &fail);
+    carry_check(p_in[2] <= 231.0f - 1.0f + 1e-4f,
+                "pushed out past the -Z face (radius-expanded)", &fail);
+    carry_check(p_in[0] == 240.0f, "blocker push leaves X untouched (Z axis won)",
+                &fail);
+    carry_check(p_in[1] == 245.0f, "blocker push never moves Y", &fail);
+
+    /* a point fully outside the footprint: untouched */
+    float p_out[3] = { 300.0f, 245.0f, 232.0f };
+    int n_out = em_collision_blocker_probe(p_out, 1.0f);
+    carry_check(n_out == 0, "point outside footprint is not pushed", &fail);
+    carry_check(p_out[0] == 300.0f && p_out[2] == 232.0f,
+                "outside point held", &fail);
+
+    /* a point inside X/Z but ABOVE the body band: untouched */
+    float p_high[3] = { 240.0f, 300.0f, 232.0f };
+    int n_high = em_collision_blocker_probe(p_high, 1.0f);
+    carry_check(n_high == 0, "point above the blocker body band is not pushed",
+                &fail);
+    carry_check(p_high[2] == 232.0f, "above-band point held", &fail);
+
+    /* empty registry: nothing moves */
+    em_collision_blocker_clear();
+    float p_clr[3] = { 240.0f, 245.0f, 232.0f };
+    int n_clr = em_collision_blocker_probe(p_clr, 1.0f);
+    carry_check(n_clr == 0, "empty registry pushes nothing", &fail);
+    carry_check(p_clr[2] == 232.0f, "empty-registry point held", &fail);
+
+    printf("blocker test: %s\n", fail == 0 ? "PASS" : "FAIL");
+    fflush(stdout);
+    return fail;
+}
+
+/* EM_CARRY_TEST=1 / EM_BLOCKER_TEST=1 hook. Self-contained so it needs no
+ * wiring in the reserved dispatcher files: a load-time constructor checks
+ * the env vars and runs the headless self-test(s), then exits with the
+ * pass/fail code. (GCC/Clang __attribute__((constructor)) — same family the
+ * rest of the port builds with; if a stricter toolchain lacks it, call the
+ * selftest functions directly from a test driver instead.) */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((constructor))
+static void em_carry_test_ctor(void)
+{
+    const char *e = getenv("EM_CARRY_TEST");
+    if (e && e[0] == '1') {
+        exit(em_collision_moving_selftest() == 0 ? 0 : 1);
+    }
+    e = getenv("EM_BLOCKER_TEST");
+    if (e && e[0] == '1') {
+        exit(em_collision_blocker_selftest() == 0 ? 0 : 1);
+    }
+}
+#endif

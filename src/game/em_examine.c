@@ -1,7 +1,15 @@
 /* em_examine.c — the use-scan EXAMINE interaction (decode ledger +
  * flagged deviations in em_examine.h).
  *
- * Engine sources, all static .s reads (2026-06-11 s66):
+ * Engine sources, all static .s reads (2026-06-11 s66). AUDIT NOTE
+ * (2026-07): every address in this list except func_001BA1A0 /
+ * func_001BA1F0 is AREA OVERLAY code (0x823500+), which the
+ * decompilation has NOT recovered — so the behavior shape, the op
+ * numbering and the presentation metrics below are one session's
+ * disassembly reading, NOT source-derived. Only the two interpreter
+ * entry points, plus func_00183EF0 / func_00184BA0 for the scan, can be
+ * re-checked against recovered C. See the PROVENANCE block at the top
+ * of em_examine.h.
  *   - the behavior shape: AREA02 overlay 0x824FA0 (the office examine —
  *     archetype 3, desc D_002758E0 {20,10}, script prime/pump
  *     func_001BA1A0/func_001BA1F0, re-arm on completion), AREA11
@@ -14,7 +22,8 @@
  *     GLOBAL lines ride em_hud_radio; AREA-bank chains (the per-area
  *     line-record tables D_00264DD0[area+1], 8-byte records
  *     {u16 dur, s16 voice_cue, u8 flag, u8 wait}) are presented here
- *     with the same decoded presentation (tall gray, centered, y 388).
+ *     with the same OBSERVED presentation (tall gray, centered, y 388 —
+ *     screen-space metrics read off a capture, not from recovered C).
  */
 #include "game/em_examine.h"
 
@@ -25,8 +34,21 @@
 
 #include "em_input.h"        /* EM_PAD_CROSS — the use-button mask */
 #include "game/em_hud.h"     /* em_hud_radio (GLOBAL lines) + text draw */
+#include "game/em_game.h"    /* contract-A: battery + terminal + elevator */
 
 #define EX_PI 3.14159265358979f
+
+/* FACE pre-roll phase id (ExSeq.phase): runs BEFORE pre-delay (phase 0).
+ * Distinct value so the existing 0/1/2 message/terminal switch is
+ * untouched. */
+#define EX_PHASE_FACE 3
+
+/* Watchdog cap on the FACE pivot. At the standing turn-in-place rate
+ * (22.5 deg/frame) a full +-180 deg pivot completes in <= 8 frames; this
+ * cap (a generous margin) guarantees the pivot can never soft-lock the
+ * sequence if the target is somehow unreachable. The pivot normally
+ * SNAPS well within it. */
+#define EX_FACE_MAX_FRAMES 16
 
 typedef struct {
     int   dur;                          /* text frames (record u16 dur) */
@@ -47,9 +69,41 @@ typedef struct {
     int   cooldown;                     /* re-arm cooldown (AREA11 +0x2A) */
     int   has_cam;
     float cam[3];                       /* op00 camera-cue eye */
+    int   has_face;                     /* op04 FACE pre-roll present:
+                                         * the scripted heading-target was
+                                         * exported (manifest `face <yaw>`).
+                                         * Without it the sequence runs as
+                                         * before (no pivot). */
+    float face_yaw;                     /* op04 scripted target YAW
+                                         * (record+0x24 — snow internal
+                                         * terminal = -1.3037 rad). The
+                                         * player pivots to this at the
+                                         * standing turn-in-place rate
+                                         * BEFORE the message. */
+    int   face_walk;                    /* op01 walk-to duration in frames
+                                         * (record+0x0C). 0 = no walk (the
+                                         * snow terminals: the use-scan
+                                         * already places the player within
+                                         * dist 5). Reserved for nonzero-
+                                         * duration examines elsewhere
+                                         * (office/drawbridge) — currently
+                                         * always 0 for the shipped scenes,
+                                         * the straight-line position LERP
+                                         * is FLAGGED-unimplemented. */
     int   n_rec;
     ExRec rec[EM_EXAMINE_RECS];
     int   cool_left;                    /* live cooldown counter */
+    int   is_terminal;                  /* AREA-11 INTERNAL elevator
+                                         * control terminal: the
+                                         * power-gated RIDE (record 19,
+                                         * ov 0x00827B10, on the platform).
+                                         * Only CHECKS power; runs anim
+                                         * 0x47 + the descent. */
+    int   is_battery_terminal;          /* AREA-11 OUTSIDE battery
+                                         * terminal: the battery-insert
+                                         * object (ov 0x008237E0, the
+                                         * upper ledge). Sets power; no
+                                         * descent. */
 } Examine;
 
 /* The running sequence (one at a time — the engine's single script
@@ -57,11 +111,18 @@ typedef struct {
  * while scripted mode pauses input). */
 typedef struct {
     int   slot;        /* -1 = idle */
-    int   phase;       /* 0 pre-delay, 1 message, 2 terminal frame */
+    int   phase;       /* 3 FACE pre-roll, 0 pre-delay, 1 message,
+                        * 2 terminal frame */
+    int   face_left;   /* FACE phase: frames left before the max-frame cap
+                        * forces the pivot to complete (a watchdog so a bad
+                        * target can never soft-lock the sequence) */
     int   wait;        /* frames left in the current phase step */
     int   rec;         /* chain record cursor */
     int   in_gap;      /* chain: presenting the blank gap record */
     int   gstarted;    /* gline handed to em_hud_radio */
+    int   no_message;  /* terminal powered/insert run: suppress the
+                        * refusal line (the engine's powered script
+                        * 0x82A750 is a different, line-less script) */
 } ExSeq;
 
 static struct {
@@ -119,6 +180,30 @@ int em_examine_text(int slot, int dur, int gap, const char *text)
     return 0;
 }
 
+int em_examine_set_terminal(int slot)
+{
+    if (slot < 0 || slot >= s.n) return -1;
+    s.e[slot].is_terminal = 1;
+    return 0;
+}
+
+int em_examine_set_battery_terminal(int slot)
+{
+    if (slot < 0 || slot >= s.n) return -1;
+    s.e[slot].is_battery_terminal = 1;
+    return 0;
+}
+
+int em_examine_set_face(int slot, float face_yaw, int walk_frames)
+{
+    if (slot < 0 || slot >= s.n) return -1;
+    Examine *e = &s.e[slot];
+    e->has_face  = 1;
+    e->face_yaw  = face_yaw;
+    e->face_walk = walk_frames > 0 ? walk_frames : 0;
+    return 0;
+}
+
 void em_examine_reset(void)
 {
     memset(&s, 0, sizeof s);
@@ -163,9 +248,20 @@ static float ex_norm_ang(float a)
     return a;
 }
 
-/* The use scan (func_00184BA0 walk + func_00183EF0 archetype geometry,
- * em_pickup.c shape): CROSS edge, XZ ring, dy window, pi/4 facing with
- * the 7-u auto pass; nearest passer wins. */
+/* The use scan (func_00184BA0 walk + func_00183EF0 archetype geometry):
+ * CROSS edge, XZ disc, asymmetric dy window, pi/2 facing with the 7-u
+ * auto pass; nearest passer wins.
+ *
+ * CORRECTED (audit): the facing half-angle is pi/2, not pi/4. Read in
+ * decomp Extermination/src/func_00183EF0.c, `case 3: case 4:` — the
+ * archetype-3 branch ends in `if (fabs(ang) <= 1.5707964f) { ... return
+ * 1; } return 0;` and RETURNS there; the pi/4 test (0.7853982f) at the
+ * tail of that function is only reached by archetypes 0/1/2, which
+ * `break` out of the switch. The pi/4 here was inherited from the DOOR
+ * use-scan (FINDINGS "side test within pi/2, then a pi/4 facing"), a
+ * different two-stage test. Consequence of the old value: examines
+ * silently refused to arm for approach angles between 45 and 90 degrees
+ * that the engine accepts. */
 static int examine_scan(const float pp[3], float pyaw)
 {
     int   best = -1;
@@ -181,8 +277,10 @@ static int examine_scan(const float pp[3], float pyaw)
         if (dy >= 0.0f ? dy > e->dy
                        : -dy > e->dy + EM_EXAMINE_DY_EXTRA) continue;
         if (d2 > EM_EXAMINE_AUTO_RING * EM_EXAMINE_AUTO_RING) {
+            /* func_00183EF0 case 3/4: bd > 7 -> ang = wrap(player_yaw -
+             * atan2(bx, bz)); accepted while |ang| <= 1.5707964f. */
             float fd = ex_norm_ang(atan2f(dx, dz) - pyaw);
-            if (fabsf(fd) > EX_PI * 0.25f) continue;
+            if (fabsf(fd) > EM_EXAMINE_FACE_HALF) continue;
         }
         if (d2 < best_d2) {
             best_d2 = d2;
@@ -195,23 +293,108 @@ static int examine_scan(const float pp[3], float pyaw)
 static void seq_start(int slot)
 {
     Examine *e = &s.e[slot];
-    s.seq.slot     = slot;
-    s.seq.phase    = 0;
-    s.seq.wait     = e->delay;          /* op0C pre-delay / op02 wait */
-    s.seq.rec      = 0;
-    s.seq.in_gap   = 0;
-    s.seq.gstarted = 0;
-    printf("examine: armed slot %d at (%.1f, %.1f, %.1f) — %s\n", slot,
+    s.seq.slot       = slot;
+    s.seq.phase      = 0;
+    s.seq.wait       = e->delay;        /* op0C pre-delay / op02 wait */
+    s.seq.rec        = 0;
+    s.seq.in_gap     = 0;
+    s.seq.gstarted   = 0;
+    s.seq.no_message = 0;
+    s.seq.face_left  = 0;
+
+    /* AREA-11 INTERNAL elevator control terminal (record 19, ov
+     * 0x00827B10, on the platform): the CORRECTED two-terminal flow
+     * (INVESTIGATION_area11_elevator.md "CORRECTED FLOW"). This terminal
+     * NO LONGER inserts the battery or sets power — it ONLY checks power
+     * and runs the ride. The power bit is set by the OUTSIDE battery
+     * terminal (is_battery_terminal, below). */
+    if (e->is_terminal) {
+        if (em_game_terminal_powered()) {
+            /* POWERED path — the engine's script 0x82A750: play the
+             * lever-throw (anim 0x47) ON THE PLAYER with input/movement
+             * locked for its duration, THEN opcode-9 INSTALL + run the
+             * elevator descent (ov 0x00828050). em_game_elevator_start
+             * is idempotent (a repeat after the ride is a no-op), so
+             * re-using a powered terminal just re-locks for the clip.
+             * Suppress the refusal line — the powered script carries no
+             * "no power" message. */
+            em_game_player_interact_anim(0x47);
+            em_game_elevator_start();
+            s.seq.no_message = 1;
+            printf("examine: slot %d — INTERNAL TERMINAL powered "
+                   "(anim 0x47 + lock, elevator descending)\n", slot);
+            return;
+        }
+        /* Unpowered -> fall through to the EXISTING unpowered refusal
+         * (the manifest's gline 0x1A + 300-frame cooldown), unchanged. */
+        printf("examine: slot %d — INTERNAL TERMINAL UNPOWERED refusal "
+               "(no power)\n", slot);
+    }
+
+    /* AREA-11 OUTSIDE battery terminal (ov 0x008237E0, the upper ledge):
+     * the battery-insert object. With the battery in hand it plays the
+     * insert clip (anim 0x14) ON THE PLAYER with input/movement locked,
+     * THEN makes power available (em_game_set_terminal_powered(1)). NO
+     * descent here. (INVESTIGATION_area11_elevator.md "OUTSIDE BATTERY
+     * TERMINAL"). FLAGGED: clip 0x14 + any insert cinematic were decoded
+     * under a forced game state and may be wrong — faithful-minimum
+     * (anim + lock + set power), no elaborate cutscene this pass. */
+    if (e->is_battery_terminal) {
+        if (em_game_has_battery() && !em_game_terminal_powered()) {
+            em_game_player_interact_anim(0x14);
+            em_game_set_terminal_powered(1);
+            s.seq.no_message = 1;
+            printf("examine: slot %d — BATTERY TERMINAL insert "
+                   "(anim 0x14 + lock, power available)\n", slot);
+            return;
+        }
+        if (em_game_terminal_powered()) {
+            /* Already inserted — brief no-op (no refusal, no clip). */
+            s.seq.no_message = 1;
+            printf("examine: slot %d — battery terminal already "
+                   "powered (no-op)\n", slot);
+            return;
+        }
+        /* No battery -> a short "need battery" refusal. Reuse the
+         * unpowered refusal/cooldown path (the manifest's gline +
+         * cooldown on this same line). FLAGGED: the exact "need battery"
+         * line is uncertain — reusing gline 0x1A ("...No power...") as
+         * the placeholder refusal, set on this examine's manifest line. */
+        printf("examine: slot %d — BATTERY TERMINAL refusal "
+               "(no battery)\n", slot);
+    }
+
+    /* op04 FACE pre-roll (INVESTIGATION_examine_walk_face.md §3): on the
+     * message/refusal path (the early-return powered/battery clip paths
+     * play their OWN facing clip and never reach here), if the examine
+     * ships a scripted face-yaw, pivot the player to it BEFORE the message.
+     * op01 walk-to is duration-0 for the snow terminals (the use-scan
+     * already places the player within dist 5), so the visible pre-roll
+     * is purely the FACE turn — the player stands and rotates in place to
+     * the scripted yaw at 22.5 deg/frame, then the line shows. A nonzero
+     * walk-to LERP (face_walk) is FLAGGED-unimplemented (no shipped scene
+     * sets it; office/drawbridge would). */
+    if (e->has_face) {
+        s.seq.phase     = EX_PHASE_FACE;
+        s.seq.face_left = EX_FACE_MAX_FRAMES;
+    }
+
+    printf("examine: armed slot %d at (%.1f, %.1f, %.1f) — %s%s\n", slot,
            e->pos[0], e->pos[1], e->pos[2],
-           e->gline >= 0 ? "global line" : "area chain");
+           e->gline >= 0 ? "global line" : "area chain",
+           e->has_face ? " (+ FACE pre-roll)" : "");
 }
 
 static void seq_finish(void)
 {
     Examine *e = &s.e[s.seq.slot];
-    e->cool_left = e->cooldown;         /* AREA11 +0x2A (0 elsewhere) */
+    /* The 300-frame cooldown belongs to the UNPOWERED refusal only
+     * (engine: the refusal path sets +0x2A = 0x12C; the powered script
+     * sets +0x2A = 0 — INVESTIGATION_area11_elevator.md §3). The
+     * powered/already-powered runs (no_message) do not arm it. */
+    e->cool_left = s.seq.no_message ? 0 : e->cooldown;
     printf("examine: slot %d done (re-arm%s)\n", s.seq.slot,
-           e->cooldown ? " after cooldown" : "ed");
+           e->cool_left ? " after cooldown" : "ed");
     s.seq.slot = -1;                    /* +0x0B = 0, sub-state 0 */
 }
 
@@ -224,7 +407,13 @@ void em_examine_update(const float player_pos[3], float player_yaw,
         if (s.e[i].cool_left > 0) s.e[i].cool_left--;
 
     if (s.seq.slot < 0) {
-        if (scan && (in->pressed & EM_PAD_CROSS)) {
+        /* Do not arm a new examine while a scripted interact anim (the
+         * insert/lever clip) or the elevator ride still owns the player
+         * — the press that started the interaction must not also
+         * double-trigger another examine on a subsequent frame
+         * (contract: em_game_player_interact_busy). */
+        if (scan && (in->pressed & EM_PAD_CROSS) &&
+            !em_game_player_interact_busy()) {
             int hit = examine_scan(player_pos, player_yaw);
             if (hit >= 0) seq_start(hit);
         }
@@ -233,10 +422,28 @@ void em_examine_update(const float player_pos[3], float player_yaw,
 
     Examine *e = &s.e[s.seq.slot];
     switch (s.seq.phase) {
+    case EX_PHASE_FACE:                  /* op04 FACE pivot (pre-message) */
+        /* Turn the locked player toward the scripted yaw at the standing
+         * turn-in-place rate (em_game_player_face_step = 22.5 deg/frame,
+         * SNAP-when-within). The player is held by em_examine_input_locked
+         * (player_move suppresses free locomotion the whole script), so
+         * this owns the heading. Advance to pre-delay once facing, or when
+         * the watchdog cap forces it (a target that can never be reached
+         * must not soft-lock the sequence). The op01 walk-to LERP is
+         * duration-0 here (snow) and so skipped — FLAGGED for nonzero. */
+        if (em_game_player_face_step(e->face_yaw) || --s.seq.face_left <= 0)
+            s.seq.phase = 0;             /* facing -> the existing pre-delay */
+        return;
     case 0:                              /* pre-delay (scripted mode on) */
         if (s.seq.wait-- > 0) return;
         s.seq.phase = 1;
-        if (e->gline >= 0) {
+        if (s.seq.no_message) {
+            /* terminal powered/insert run: no line (the powered script
+             * 0x82A750 carries none) — straight to the bookkeeping
+             * frame; the camera cue + input lock still framed the cue */
+            s.seq.phase = 2;
+            s.seq.wait  = 1;
+        } else if (e->gline >= 0) {
             em_hud_radio(e->gline);      /* the mode-2 machine owns it */
             s.seq.gstarted = 1;
         } else if (e->n_rec > 0) {

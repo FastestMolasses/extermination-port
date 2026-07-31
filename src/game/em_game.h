@@ -1,10 +1,23 @@
 /* em_game.h — the game task: the engine's slot-0 task chain as native C.
  *
  * Structural translation of the documented chain (FINDINGS.md "ENGINE
- * FRAME ANATOMY"): boot/flow task (func_001AB7E0) -> game task machine
- * (func_001ACEC0) -> sub-machine (func_001AD250) -> in-game frame machine
- * (func_001AE040) -> gameplay frame (func_001AE5E0). See em_game.c for the
- * per-function mapping. Today the gameplay frame drives the port's
+ * FRAME ANATOMY"): boot/flow task (func_001AB7E0 [byte-matched]) ->
+ * game task machine (func_001ACEC0 [NEARMISS]) -> sub-machine
+ * (func_001AD250 [byte-matched]) -> in-game frame machine ->
+ * per-level init (func_001AE5E0 [NEARMISS]).
+ *
+ * PROVENANCE, corrected by audit — two links of that chain were
+ * overstated:
+ *   - 0x001AE040 is `anim_frame_top_b` and is STILL UNDECOMPILED
+ *     (INCLUDE_ASM). Naming it as the decoded "in-game frame machine"
+ *     was never source-derived; treat the shape as OBSERVED.
+ *   - func_001AE5E0 IS recovered, but it is not the gameplay frame:
+ *     the C is a per-level INIT routine (bumps D_00810750, clears the
+ *     player block 0x008102B0 and the camera block 0x008101E0, then
+ *     runs the subsystem init sequence). The port's gameplay_frame is
+ *     a port construction, not a translation of it.
+ * See em_game.c for the per-function mapping. Today the port's frame
+ * drives the port's
  * scene/character rendering, interactive player movement (left stick,
  * camera-relative, through the engine's ANALOG GAIT quantizer —
  * turn-in-place / walk / run — and its 4.5-unit radial wall probes)
@@ -68,10 +81,16 @@ int em_game_scene_switch(const char *dir);
  * Engine model: a request writes the clip id halfword to player+0x1F2
  * and the playback rate float to +0x1F8 (door scripts do it through
  * op 0x0A sub 0; the weapon arbiters and the locomotion defaults use
- * the same mailbox). The per-frame COMMIT (func_00183090) copies
- * +0x1F2 -> +0x20C when they differ and calls anim_clip_init(actor,
- * id, rate): the id IS the container index in the actor's bound clip
+ * the same mailbox). CONFIRMED by audit against func_00183090
+ * [byte-matched]: the per-frame COMMIT compares +0x1F2 with +0x20C,
+ * and only when they DIFFER stores +0x1F2 -> +0x20C, clears the anim
+ * flag word +0x200 and calls anim_clip_init(actor, +0x20C, +0x1F8,
+ * 0.0f). The id IS the container index in the actor's bound clip
  * library (player: chunk28/f01_id3c — anim id == EMDL clip-table id).
+ * Same function shows the SCRIPTED path: +0x2F3 == 1 or 3 re-seeds the
+ * pose with bone_init_default_2(actor, +0x1F2) and advances +0x2F3 to
+ * 2 or 4 respectively, bypassing the compare entirely — that is the
+ * scripted-anim ownership handshake the interact lock below models.
  *
  * Natively: em_game_anim_request latches the request; actor_update
  * commits it on its next run (the engine's own one-frame request ->
@@ -127,10 +146,11 @@ int      em_game_anim_frame(void);
 void     em_game_anim_cancel(void);
 unsigned em_game_anim_active(void);
 
-/* MANUAL AIM STEER state (decoded 2026-06-11, func_0017ABA0 — the
- * player aim blends +0x278/+0x27C; full decode in em_game.c's "MANUAL
- * AIM STEER" block). While the armed stance is held, the left stick
- * (d-pad merged) steers:
+/* MANUAL AIM STEER state (func_0017ABA0 [NEARMISS] — the player aim
+ * blends +0x278/+0x27C; full decode, and one audit CORRECTION to the
+ * R2 rate table, in em_game_internal.h's "MANUAL AIM STEER" block).
+ * While the armed stance is held, the left stick (d-pad merged)
+ * steers:
  *   em_game_aim_pitch — the PITCH blend (+0x278): 0.5 center, 1 = full
  *     up, 0 = full down; INVERTED Y (stick up aims DOWN — the original
  *     behavior). It selects/blends the 0x112..0x11A aim-pose ladder,
@@ -144,6 +164,81 @@ unsigned em_game_anim_active(void);
 float em_game_aim_pitch(void);
 float em_game_aim_yaw_blend(void);
 void  em_game_aim_dir(float out[3]);
+
+/* AREA-11 OPENING PROGRESSION — game-state flags + the scripted elevator
+ * (decoded INVESTIGATION_area11_elevator.md; batch-2 contract A/D). The
+ * mandatory first objective: pick up the battery, power the terminal,
+ * ride the elevator DOWN to the room-move door.
+ *
+ * em_game_has_battery / em_game_set_battery — the engine's
+ *   D_00810811 byte ("battery in inventory"; 0xFF = held). em_pickup.c
+ *   sets it on the TAKE of the battery key-item (placement record 10,
+ *   item type 0x11). Faithful: the byte is 0/0xFF; the port carries a
+ *   0/1 flag mirroring it.
+ *
+ * em_game_terminal_powered / em_game_set_terminal_powered — the engine's
+ *   per-area unlock bit D_00810841[11] bit 7, SET when the battery is
+ *   inserted (the unlock-on-use handler 0x001584F4) and TESTED by the
+ *   terminal examine (record 19, ov 0x00827B10) to choose the powered
+ *   script (install the elevator) over the refusal script. em_examine.c
+ *   sets it when the terminal is used with the battery in hand.
+ *
+ * em_game_elevator_start — begin the 150-frame descent (the powered
+ *   script 0x82A750's opcode-9 install of ov 0x00828050). IDEMPOTENT:
+ *   a call while the ride is running or after it has finished is a
+ *   no-op (the engine installs the actor once per use; the port runs
+ *   the descent exactly once per scene). Rate -0.26667 u/frame for 150
+ *   frames = 40 units down (Y ~230 -> ~190), driving the player
+ *   ground-Y, the camera target-Y and the platform mesh-Y together;
+ *   sound 0x453 on start (INVESTIGATION_area11_elevator.md §4). */
+int  em_game_has_battery(void);
+void em_game_set_battery(int on);
+int  em_game_terminal_powered(void);
+void em_game_set_terminal_powered(int on);
+void em_game_elevator_start(void);
+
+/* SCRIPTED PLAYER INTERACTION ANIM + LOCK — the engine's "scripted-anim-
+ * owns-player" model (player+0x2F3 = 3), decoded for the CORRECTED two-
+ * terminal AREA-11 flow (INVESTIGATION_area11_elevator.md "CORRECTED
+ * FLOW" + "OUTSIDE BATTERY TERMINAL"). Both terminals play a one-shot
+ * scripted clip ON THE PLAYER and lock player input/movement for its
+ * duration: the OUTSIDE battery-insert clip 0x14, the INTERNAL lever-
+ * throw clip 0x47. The engine's op0A handler (0x001B9A00, player base
+ * 0x008102B0) writes player+0x1F2 = clip id, player+0x40 = clip ptr,
+ * player+0x2F3 = 3 — and the free-move action machine is suppressed while
+ * that scripted-anim state holds (LIVE: the lock is the scripted-anim
+ * state, NOT a control-mode flag — D_008101E4 stays 0).
+ *
+ * em_game_player_interact_anim — play `clip_id` once on the player at
+ *   rate 1.0 and lock player input/movement (turn + walk suppressed, the
+ *   same stand-still lock the elevator ride uses). When the clip ends,
+ *   control returns by itself. IDEMPOTENT: a call while a scripted
+ *   interact anim (or the elevator ride) already owns the player is a
+ *   no-op, so the examine logic may call it every frame the press holds.
+ *   FLAGGED: if the loaded player EMDL lacks `clip_id` the clip is a
+ *   no-op but the LOCK is still raised briefly (the engine locks on the
+ *   scripted-anim state regardless of clip resolution) — the faithful-
+ *   minimum; the exact insert clip 0x14 + any cinematic were decoded
+ *   under a FORCED game state and may be wrong (decode doc).
+ *
+ * em_game_player_interact_busy — 1 while a scripted interact anim, the
+ *   elevator ride, or an armed-and-waiting descent owns the player, so
+ *   the examine logic does not double-trigger a second interaction while
+ *   one is in flight.
+ *
+ * em_game_player_face_step — the examine op04 FACE pre-roll. Turn the
+ *   player body heading toward `target_yaw` by one standing turn-in-place
+ *   step (TURN_IP_GAIT03 = 0.3927 rad = 22.5 deg/frame, SNAP-when-within,
+ *   the decoded turn-toward stepper) and return 1 once the player is
+ *   facing it (snapped), else 0 (still turning). The examine sequence
+ *   (em_examine.c) calls this each frame while its input lock holds, so
+ *   the FACE pivot plays out before the message. Does NOT touch
+ *   player_move's desired-heading / movement-v3 path — the examine lock
+ *   already suppresses free locomotion for the script window.
+ *   INVESTIGATION_examine_walk_face.md §3. */
+void em_game_player_interact_anim(int clip_id);
+int  em_game_player_interact_busy(void);
+int  em_game_player_face_step(float target_yaw);
 
 #ifdef __cplusplus
 }

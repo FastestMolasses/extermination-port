@@ -18,9 +18,16 @@
 #include "game/em_sfx.h"
 
 /* --- Engine constants (FINDINGS "WEAPON SYSTEM") ----------------------- */
-#define WPN_MAG_MAX     30      /* func_0017B300: mag = min(30, reserve)   */
-#define WPN_RANGE       260.0f  /* func_001861C0 untargeted endpoint, and
-                                 * the acquisition max distance            */
+#define WPN_MAG_MAX     30      /* func_0017B300 (BYTE-MATCHED): mag =
+                                 * min(30, reserve)                        */
+/* 260 is the LASER / ACQUISITION range, both re-verified 2026-07-31:
+ *   func_00185760 (laser drawer): func_00103230(scratch, gun+0xC0, 260.0f)
+ *     then + gun+0xA0 -> the beam probe endpoint, and func_001E2BA0(...,
+ *     260.0f) for the drawn beam;
+ *   func_00199220 (acquisition):  `if (dist < 260.0f)` on the player->aim
+ *     point distance.
+ * It is NOT the bullet's free-flight range — see WPN_BULLET_FREE below. */
+#define WPN_RANGE       260.0f
 /* FIRE INTERVAL +0x2F4 (decoded 2026-06-11 from func_0017A8B0 — the
  * trigger-press handler the action machine func_001607D0 runs on every
  * FIRE press): the press latches +0x274 AND writes +0x2F4 = the FRAME
@@ -38,19 +45,38 @@
                                   * without the clip)                     */
 #define WPN_QUEUE_WINDOW   8     /* +0x2A press queue samples from
                                   * counter >= int(+0x2F4) - 8 — presses
-                                  * earlier in the cadence are DROPPED   */
-#define WPN_COUNT_STEP  2       /* +0x276 fire counter gains 2/frame       */
-#define WPN_BURST_LEN   3       /* burst family 20..23: +0x28 slti 3       */
-#define WPN_BURST_PAUSE 8       /* contract: burst pause = 8 ticks         */
-#define WPN_RAY_MASK    0x7u    /* func_001861C0: set mask 7 (hulls +
-                                 * cells + grid)                           */
-#define WPN_RAY_ID      0x20    /* func_001861C0: query id 0x20            */
-#define WPN_HIT_DMG     5       /* func_001B41F0(victim, ..., 5, 0): the
-                                 * bullet's damage written into the
-                                 * victim's +0x36 mailbox (crawler HP 1
-                                 * = one-shot kill)                        */
-#define WPN_OVERSHOOT   5.0f    /* targeted rays overshoot the aim point
-                                 * by 5 units (func_001861C0 step 1)       */
+                                  * earlier in the cadence are DROPPED
+                                  * (func_00170A60 case 11, BYTE-MATCHED) */
+#define WPN_COUNT_STEP  2       /* +0x276 fire counter gains 2/frame
+                                 * (func_00170A60 cases 11/22/31)          */
+#define WPN_BURST_LEN   3       /* burst family 20..23: `if (e[0x28] >= 3)`
+                                 * ends the burst (func_00170A60 case 22)  */
+#define WPN_RAY_MASK    0x7u    /* func_001861C0 / func_00185760:
+                                 * func_0019A570(origin, end, 7, 0x20)     */
+#define WPN_RAY_ID      0x20    /* the same query's id argument            */
+/* HIT-REACTION CODE 5 (CORRECTED 2026-07-31 — the old citation
+ * "func_001B41F0(victim, ..., 5, 0)" was wrong; func_001861C0 calls
+ * func_001B41F0(victim, hitPoint, gun+0xC0, aux) with FOUR arguments and
+ * that routine's own mailbox write is `victim+0x36 = p6 | p5`, from
+ * arguments this caller never supplies). The literal 5 comes from
+ * func_001861C0 itself, which stamps the struck actor's mailbox directly:
+ *   *(short *)((char *)s4 + 0x36) = 5;
+ * on the locked/secondary-hit leg. That is the value the port writes. */
+#define WPN_HIT_DMG     5
+#define WPN_OVERSHOOT   5.0f    /* func_001861C0 locked leg: normalize(
+                                 * target - origin) * 5.0f added to the
+                                 * target point (func_00102900(.., 5.0f))  */
+/* BULLET FREE-FLIGHT RANGE — CORRECTED 2026-07-31 (was 260, which is the
+ * LASER's range, not the bullet's). func_001861C0's un-locked leg is:
+ *     func_00103230(scratch, gun+0xC0, 4.5f);      // dir * 4.5
+ *     func_001028B8(scratch, scratch, gun+0xA0);   // + ray origin
+ * i.e. a shot with NO acquired target only reaches 4.5 units past the
+ * muzzle. That is the engine's design: the rifle is a lock-on weapon and
+ * the 3-slot func_00199220 acquisition (260-unit, screen-cone) is what
+ * actually puts rounds on target; an un-acquired shot is a near-miss by
+ * construction. The port previously flew un-acquired shots 260 units,
+ * which let it hit things the original never could. */
+#define WPN_BULLET_FREE 4.5f
 /* --- TARGET ACQUISITION — func_00199220 DECODED (2026-06-11; retires
  *     the old WPN_AIM_CONE distance+10-deg world-cone stand-in).
  *
@@ -70,10 +96,23 @@
  *      16/w < 0). Then:
  *        manual (aim option 0/2): |sx| <= 66 + 50*s AND
  *                                 |sy| <= 45 + 45*s
+ *                                 (func_00199220 uses func_0011DF78 =
+ *                                  fabs on each axis)
  *        lock-on (option 1):      sqrt(sx^2 + sy^2) <= 50 + 55*s
- *      where s = the gun's +0x214 spread float — NO writer exists in
- *      the boot ELF (zero-initialized actor scratch), so s = 0 and
- *      the cone is the fixed 66/45 box (lock radius 50);
+ *      where s = the gun's +0x214 float (func_00199220 reads it as
+ *      *(float *)(gun+0x1F0 + 0x24)).
+ *      SPREAD WRITER — CORRECTED 2026-07-31. The old note "NO writer
+ *      exists in the boot ELF" is FALSE: func_001854E0 writes it every
+ *      frame it runs, as a distance falloff off its own 65-unit probe:
+ *          miss                -> +0x24 = 0.0
+ *          hit at distance d   -> d2 = d - 20; d2 < 0 ? 1.0
+ *                                            : (240 - d2) / 240
+ *      func_00188630 picks WHICH drawer runs, though, and for this
+ *      port's stance (action code 0x31/0x34 with D_008105C8 == 0) it
+ *      runs func_00185760 — the laser drawer, which never touches
+ *      +0x24. func_001854E0 owns the alternate stance (codes 0x32/0x35).
+ *      So s = 0 remains behaviourally correct HERE, for the reason
+ *      below and not the one previously recorded;
  *   4. ACTOR RAY: muzzle (+0xA0) -> muzzle + (aim - muzzle)*1.2 (the
  *      20% validation overshoot; mode 1 mask 0x20) must hit THE
  *      candidate itself (*0x700031D4 == candidate — port:
@@ -93,7 +132,10 @@
 #define WPN_AIM_BOX_YS  45.0f
 #define WPN_AIM_LOCK_R  50.0f   /* lock-on cone: r <= 50 + 55*s            */
 #define WPN_AIM_LOCK_RS 55.0f
-#define WPN_AIM_SPREAD  0.0f    /* gun +0x214 spread: no writer in the ELF */
+#define WPN_AIM_SPREAD  0.0f    /* gun +0x214: written only by the OTHER
+                                 * stance drawer func_001854E0, which
+                                 * func_00188630 never selects for this
+                                 * port's stance — see the block above    */
 #define WPN_AIM_VRAY    1.2f    /* validation-ray overshoot factor (the
                                  * 0x3F99999A scale in func_00199220)      */
 
@@ -107,10 +149,11 @@
  *
  *     HALF = the baked ladder half-angle of the deflection side — the
  *     stance 0x1D/0x1E constants are 1.0469040/1.0470290 rad (the
- *     measured +-60-deg yaw poses) and 1.3957210/1.3972940 rad (the
+ *     measured +-60-deg yaw poses) and 1.3972940/1.3957210 rad (the
  *     ~80-deg pitch span; side picked by desired pitch vs 1.5693710 —
- *     in practice always the first: atan2 pitch never reaches 89.9
- *     deg). The 2D blend delta (yaw, pitch) is then normalized and
+ *     in practice always the FIRST, i.e. 1.3972940: atan2 pitch never
+ *     reaches 89.9 deg). The 2D blend delta (yaw, pitch) is then
+ *     normalized and
  *     stepped 0.02/frame; within 0.02 it SNAPS to the desired blends.
  *     Angles: desired yaw = atan2 of the XZ vector muzzle (gun +0xA0)
  *     -> aim point minus the body heading +0xC4 (wrapped); current
@@ -122,32 +165,68 @@
  *     = left here, right there; the engine's y-down world negates
  *     pitch angles) — magnitudes and per-side constants are the
  *     engine's. */
-#define WPN_STEER_EPS    3.78e-4f     /* 0x39C62E4D yaw side threshold  */
-#define WPN_STEER_YAW_P  1.0469040f   /* 0x3F8600F3 (+60-deg pose) rad  */
-#define WPN_STEER_YAW_N  1.0470290f   /* 0x3F86050C (-60-deg pose) rad  */
-#define WPN_STEER_PIT_T  1.5693710f   /* 0x3FC8E126 pitch side split    */
-#define WPN_STEER_PIT_A  1.3957210f   /* 0x3FB2A6FC (~79.97 deg) rad    */
-#define WPN_STEER_PIT_B  1.3972940f   /* 0x3FB2DA88 (~80.06 deg) rad    */
-#define WPN_STEER_STEP   0.02f        /* 0x3CA3D70A blend units/frame   */
+/* All six re-read 2026-07-31 from func_0017AF70's 0x1D/0x1E constant set
+ * (the "other" set 0.000594 / 1.045836 / -1.046307 / 1.565551 /
+ * 1.393529 / 1.398101 belongs to the 0x1F/0x20 R2 stance and is unused
+ * here). Engine forms — note both YAW arms reduce to the same sign
+ * because the "<=" arm divides by a NEGATIVE constant and subtracts:
+ *   yaw:   a <= 0.000378 ? cur - 0.5*(a-b)/(-1.047029)
+ *                        : cur + 0.5*(a-b)/( 1.046904)
+ *   pitch: a <= 1.569371 ? cur - 0.5*(a-b)/( 1.397294)
+ *                        : cur + 0.5*(b-a)/( 1.395721)
+ * i.e. YAW steps by +(desired-current) and PITCH by +(current-desired). */
+#define WPN_STEER_EPS    3.78e-4f     /* yaw side threshold             */
+#define WPN_STEER_YAW_P  1.0469040f   /* yaw divisor, a >  threshold    */
+#define WPN_STEER_YAW_N  1.0470290f   /* yaw divisor, a <= threshold    */
+#define WPN_STEER_PIT_T  1.5693710f   /* pitch side split               */
+/* CORRECTED 2026-07-31: the two pitch divisors were mapped to the wrong
+ * sides. func_0017AF70 uses 1.397294 on the `a <= 1.569371` arm and
+ * 1.395721 on the `a >` arm; the port had them swapped. */
+#define WPN_STEER_PIT_LE 1.3972940f   /* pitch divisor, a <= threshold  */
+#define WPN_STEER_PIT_GT 1.3957210f   /* pitch divisor, a >  threshold  */
+#define WPN_STEER_STEP   0.02f        /* 0.02 blend units/frame; the
+                                       * `mag <= 0.02f` arm SNAPS       */
 
-/* --- LASER SIGHT (em_weapon.h header block; s23 disasm) ---------------- */
-#define WPN_LASER_SEGS  32      /* func_001E2BA0: the beam is 32 GS LINE
-                                 * segments muzzle -> endpoint             */
-#define WPN_LASER_PHASE 0.025f  /* per-segment flicker-phase step factor:
-                                 * f21 = (0.1 * len) / 4.0 radians         */
-#define WPN_DOT_SIZE    3.0f    /* func_001854E0/760: endpoint dot sprite
-                                 * 3.0 units (locked-on uses 5.0)          */
-#define WPN_DOT_SIZE_LOCK 5.0f  /* func_00185760 locked arm: 5.0-unit dot  */
+/* --- LASER SIGHT (em_weapon.h header block) ----------------------------
+ * func_00185760 is the drawer func_00188630 selects for this port's
+ * stance (action code 0x31/0x34, D_008104A1 == 1, D_008105A2 != 0,
+ * D_008105C8 == 0). Re-verified 2026-07-31; its shape is
+ *     endpoint = gun+0xA0 + normalize(gun+0xC0) * 260.0f
+ *     if (func_0019A570(gun+0xA0, endpoint, 7, 0x20))
+ *         endpoint = the hit point (func_001031E0 from D_700031B0),
+ *         and the struck actor's +0x0A byte is stamped 0x80
+ *     func_001CD520(0, 2, endpoint, 0x20045BA5154222DC, f12, f12, 2.0f, rgba)
+ *     func_001E2BA0(gun+0x1F0, endpoint, tint, 260.0f)
+ * i.e. the endpoint the DOT sits on is the clipped one, and the beam is
+ * drawn to the same point. */
+/* SEGMENT COUNT / FLICKER STEP — DOWNGRADED 2026-07-31: these describe
+ * func_001E2BA0's interior, and func_001E2BA0 is still INCLUDE_ASM in
+ * the decomp (no recovered C). They are OBSERVED values from the s23
+ * capture read, not source-derived. Everything func_00185760 hands it
+ * (the two endpoints, the tint vec4, the 260.0f scale) IS confirmed. */
+#define WPN_LASER_SEGS  32      /* OBSERVED: beam drawn as 32 segments   */
+#define WPN_LASER_PHASE 0.025f  /* OBSERVED: per-segment phase step      */
+/* Dot sizes ARE confirmed — func_00185760 sets f12 = 5.0f on the
+ * D_008106E0-nonzero arm and 3.0f otherwise, and passes it as both
+ * quad extents to func_001CD520. */
+#define WPN_DOT_SIZE    3.0f    /* func_00185760 unlocked arm            */
+#define WPN_DOT_SIZE_LOCK 5.0f  /* func_00185760 locked arm              */
 #define WPN_LASER_WIDTH 0.12f   /* PORT VALUE: the engine beam is a GS
                                  * LINE prim = 1 screen pixel at 512x448;
                                  * ~0.12 world units reads as ~1 px at the
                                  * aim camera's typical 25-35 u depth
                                  * (1 px ~= z / 240 at zoom s = 480)       */
-/* func_00185760 beam base colors: unlocked (0.7, 0, 0, 1); with a
- * LOCKED target (D_008106E0 nonzero — port: target slot 0 filled by
- * the decoded func_00199220 acquisition) the engine switches to the
- * warm (1.0, 0.6, 0.2, 1) beam and the 5.0-unit dot with R/G/B =
- * (0x70/0x40/0x20 + rand5)/0x80. */
+/* func_00185760 beam base colors — CONFIRMED 2026-07-31 from the raw
+ * word constants it stages into its stack vec4 and hands func_001E2BA0:
+ *   unlocked: {0x3F333333, 0, 0, 0x3F800000} = (0.7, 0, 0, 1)
+ *   LOCKED (D_008106E0 nonzero — port: target slot 0, filled by the
+ *   func_00199220 acquisition):
+ *             {0x3F800000, 0x3F19999A, 0x3E4CCCCD, 0x3F800000}
+ *                                           = (1.0, 0.6, 0.2, 1)
+ * and the dot bytes, with v1 = (func_00122BB8() >> 0xF) & 0x1F:
+ *   unlocked: (v1 + 0x50, 0, 0, 0x80),  quad extent 3.0
+ *   LOCKED:   (v1 + 0x70, v1 + 0x40, v1 + 0x20, 0x80), extent 5.0
+ * (0x80 is GS 1.0, hence the port's /128.0f.) */
 static const float kLaserColor[4]     = { 0.7f, 0.0f, 0.0f, 1.0f };
 static const float kLaserColorLock[4] = { 1.0f, 0.6f, 0.2f, 1.0f };
 
@@ -271,7 +350,9 @@ enum {
     WPN_SUB_WAIT = 0, /* engine 0:    trigger wait; L3 reload honored   */
     WPN_SUB_SEMI,     /* engine 0xB:  semi cadence (+0x2A press queue)  */
     WPN_SUB_BURST,    /* engine 0x16: burst cadence (+0x28 round count) */
-    WPN_SUB_GAP,      /* engine 0x17: 8-tick burst gap; L3 honored      */
+    WPN_SUB_GAP,      /* engine 0x17: burst tail — a TRIGGER-RELEASE
+                       * wait, not a timer (CORRECTED 2026-07-31);
+                       * L3 reload honored                              */
     WPN_SUB_AUTO      /* engine 0x1F: auto cadence (held -> refire)     */
 };
 
@@ -285,15 +366,24 @@ enum {
  * state 3 handler; its own sub-mode byte +0x07 runs 0..3). When the
  * reload clip's END flag lands (sub-mode 2), the engine does NOT go
  * straight back to the AIM major state: it re-commits the aim-pose clip
- * (D_00248B88[sub], the ladder base) and arms an 8-tick aim-blend ramp
+ * (D_00248B88[sub], the ladder base) and arms a NINE-tick aim-blend ramp
  * — +0x28 = 8 with per-tick deltas (saved_blend - 0.5) / 8 — which
  * sub-mode 3 counts down before writing +0x06 = 2 (AIM) and restoring
  * the pre-reload blends from +0x2E0/+0x2E4. So the reload LOCKS firing
- * for the clip window PLUS these 8 ticks; the port's old window was the
- * clip alone. (The engine runs a symmetric 8-tick blend-IN before the
+ * for the clip window PLUS those nine ticks; the port's old window was the
+ * clip alone. (The engine runs a symmetric nine-tick blend-IN before the
  * clip too — sub-modes 0/1 — which the port does not model, see
  * em_weapon.h "RELOAD SOUNDS".) */
-#define WPN_RELOAD_RAMP     8   /* +0x28 = 8, func_0016F600 sub-mode 2->3  */
+/* RAMP LENGTH — CORRECTED 2026-07-31 to NINE ticks. The engine seeds
+ * +0x28 = 8 and its sub-mode 3 body is
+ *     cnt = *(short *)(arg0 + 0x28);
+ *     *(short *)(arg0 + 0x28) = cnt - 1;
+ *     if (cnt == 0) { ...commit +0x06 = 2... }
+ * — a PRE-decrement read, so the counter is seen as 8,7,...,1,0 and the
+ * commit lands on the ninth tick, not the eighth. The same shape drives
+ * func_0016F600's blend-in (sub-modes 0/1) and func_001703E0's 0x63/0x64
+ * holster blend. */
+#define WPN_RELOAD_RAMP     9
 /* FIRE-CHAIN TAIL (s29 live capture — scheduled like the casing 0x16A):
  * the wall impact 0x189 lands ~2 frames after the fire sound. The fire
  * event already spends one frame in the gun mailbox (shot at T, ray
@@ -322,17 +412,34 @@ enum {
  *                           flash anchor: func_00187CC0 copies +0xB0)
  *   fire dir     gun+0xC0 = normalize(tip - origin)
  *
- * idx for sub-weapon 0 remaps by the aim option D_00810CA4 (0 -> row 7,
- * 2 -> row 6, else row 0); the port is the manual-aim default (option
- * 0) -> row 7 = (6.0, 1.088, 0, 1). Both points share tbl.y and z = 0,
+ * ROW PICK (re-read 2026-07-31 from the byte-matched func_00188630;
+ * the old "else row 0" was loose): with `mode = D_00810525[0]` the
+ * global camera/view mode,
+ *     sel = (mode == 0 && D_00810CA4 == 0) ? 7
+ *         : (mode == 0 && D_00810CA4 == 2) ? 6
+ *         : mode;
+ * so only the aim-option remap is sub-weapon-ish; every other camera
+ * mode indexes the table BY THE MODE. The port is camera mode 0 with
+ * the manual-aim default (option 0) -> row 7 = (6.0, 1.088, 0, 1).
+ * Both points share tbl.y and z = 0,
  * so the fire direction is EXACTLY the hand bone's local +X axis — the
  * camera-aim relationship is carried by the ANIMATION (the aim-pose
  * ladder points that axis along the player's aim yaw; the pitch-step
  * blend +0x278 would add camera pitch, untranslated like the rest of
- * the vertical aim). The laser BEAM draw starts at gun+0x1F0 =
- * M * D_0024A2A0[0] = M * (3.6, 0.5, 0) — on the barrel just behind
- * the tip — while the RAY runs from the (-3, 1.088, 0) origin
- * (func_001854E0/760 head; s23). The hand matrix reaches em_weapon
+ * the vertical aim).
+ *
+ * BEAM-DRAW ORIGIN — DOWNGRADED 2026-07-31 to a PORT STAND-IN. The
+ * beam start is gun+0x1F0, and func_00188630 builds it as
+ *     func_001026A0(act + 0x1F0, *D_00275B40 + 0x90, D_0024A2A0 + mode*16);
+ * i.e. through the CAMERA matrix (*D_00275B40)+0x90, indexed by the
+ * camera MODE — not through the hand matrix and not by sub-weapon.
+ * The port has no equivalent camera-relative anchor wired into the
+ * beam pass, so it keeps drawing from the hand-frame point
+ * (WPN_BEAM_X, WPN_BEAM_Y, 0). Visually adjacent, provenance
+ * different — do not cite this as decoded. The RAY itself does run
+ * from the (-3, 1.088, 0) origin (func_00185760 probes
+ * func_0019A570(gun+0xA0, gun+0xA0 + dir*260, 7, 0x20)).
+ * The hand matrix reaches em_weapon
  * through em_gfx_last_skinned_bone (the gfx-side bone publish — one
  * frame of latency by construction, see em_gfx.h). */
 #define WPN_HAND_NODE   4u      /* rifle attach node (s9 attach decode)  */
@@ -346,15 +453,25 @@ enum {
                                   * EMDL has no weapon clips (and so no
                                   * trustworthy hand bone to read)        */
 
-/* --- MUZZLE FLASH (decoded 2026-06-11: func_00187CC0 -> the class-0xC
- *     FX actor func_001F4F40 / behavior func_001F5040, variant 0 for
- *     the SPR4) ---------------------------------------------------------
- * The engine spawns an FX actor at the barrel tip: chunk27 library
- * model 0x0D at init (a ~1.8-unit-radius radial puff), model 0x08 for
- * ticks 0..2 (a 4.9-unit forward star along local +X, +-2.3 radial,
- * with a func_001F4F90(2.4) line-burst pass), model 0x07 at tick 3
- * (same star shape), freed at tick 15; scale starts 0.15 + 0.05*rand01
- * and grows by a decaying velocity (vel 0.15, *0.8 per tick).
+/* --- MUZZLE FLASH (func_00187CC0 -> the class-0xC FX actor
+ *     func_001F4F40 / behavior func_001F5040; all numbers below
+ *     re-verified 2026-07-31 against those three files) ---------------
+ * func_00188630's camera-mode-0 arm fires func_001861C0 then
+ * func_00187CC0 in the SAME gun tick, both gated on the gun's +0x2E
+ * fire-event halfword (which it clears) — that is the port's
+ * one-frame latency, straight from the byte-matched source.
+ * func_00187CC0 then does func_00102948(fx+0xB0, gun+0xB0): the FX
+ * anchor IS the barrel tip. Its VARIANT byte (fx+0xD) is
+ *     D_00810525[0] == 3 ? (special ? 4 : 1) : (special ? 3 : 0)
+ * where `special` is func_0015D2F0() in {2, 0x82}; the port's ordinary
+ * camera-mode-0 case is variant 0, which is what is modelled here.
+ * func_001F5040 variant 0: chunk27 model 0x0D at init (state 0), model
+ * 0x08 on frames 0/1/2 with a func_001F4F90(arg, 2.4f) line-burst
+ * pass, model 0x07 on frame 3 (the binding persists from there), frame
+ * 0xF sets state 2 -> freed. Scale seeds
+ * 0.15f + 0.049999997f * (4.656613e-10f * rand) into fx+0x60/64/68 and
+ * grows by the step triple at fx+0x1F0+0x40/44/48 (seeded 0.15, *0.8
+ * every frame).
  * TEXTURES (exported 2026-06-11, export_props --fx — correcting the
  * s43 "one sheet" note): models 0x0D and 0x07 sample the 64x32 sheet
  * 0x...4220A0 full-frame (flash_puff.emtx); model 0x08's forward
@@ -454,7 +571,7 @@ static struct {
 
     int     timer;       /* DRAW/RELOAD/HOLSTER frames remaining          */
     int     ramp;        /* RELOAD RAMP-OUT ticks left (func_0016F600's
-                          * 8-tick aim-blend ramp after the clip's end
+                          * nine-tick aim-blend ramp after the clip's end
                           * flag — firing stays locked through it; 0 =
                           * the reload clip itself is still playing)      */
     int     fire_sub;    /* WPN_SUB_* — the engine's fire sub-state byte
@@ -477,7 +594,6 @@ static struct {
     int     pending;     /* +0x2A queued-shot flag (semi press latched
                           * during the cadence window)                    */
     int     burst;       /* +0x28 burst counter, rounds fired this burst  */
-    int     burst_pause; /* WPN_SUB_GAP ticks until the next burst        */
 
     int     light_on;    /* FLASHLIGHT preference flag (engine D_00810D3C:
                           * persists across aim sessions until toggled —
@@ -621,7 +737,7 @@ int em_weapon_draw_ticks(void)
     return anim_ticks(WPN_ANIM_DRAW, WPN_DRAW_RATE, WPN_DRAW_FRAMES);
 }
 
-/* The RELOAD state window is the clip PLUS the decoded 8-tick blend
+/* The RELOAD state window is the clip PLUS the decoded nine-tick blend
  * ramp-out (func_0016F600 sub-modes 2->3: the aim pose re-commits at
  * the clip's end flag, the major state only returns to AIM once the
  * ramp counter runs out) — firing is locked for the whole span. */
@@ -685,20 +801,26 @@ static void weapon_enter_holster(void)
 }
 
 /* RELOAD entry (engine major state 3 = func_0016F600): the reload clip
- * gates firing for its own length plus the decoded 8-tick ramp-out; the
+ * gates firing for its own length plus the decoded nine-tick ramp-out; the
  * ammo move (func_0017B300) already happened at the call site. Both
  * entries (dry-mag auto-reload and the manual top-up) go through here. */
 static void weapon_enter_reload(void)
 {
-    /* RELOAD SOUNDS: 0x163 at the reload START (the shared weapon-
-     * handling foley — same id the holster plays; func_0016F600 fires
-     * it with func_001FBD50(., 0x163, 0, 300.0f) in the SAME tick it
-     * requests the reload clip pair, so the port keeps them together at
-     * the state entry). The MAG-ACTION 0x168 is NOT a fixed offset into
-     * the window: it is DECODED as D_00248680[sub-weapon] (sub 0 = 360
-     * = 0x168 — the same id the s29 capture pinned), played by
-     * func_0016F600 the tick the reload clip's END flag lands, together
-     * with the ramp-out setup. See the RELOAD tick below. */
+    /* RELOAD SOUNDS — re-verified 2026-07-31 in func_0016F600 (its own
+     * sub-mode byte +0x07 runs 0..3 inside player major state 3):
+     *   sub-mode 1, on the blend counter reaching 0:
+     *       func_001749A0(arg0, D_00248B88[arg0[0x275]], 0, 0.0f);
+     *       func_001749A0(arg0, D_00248B98[arg0[0x275]], 0, 1.0f);
+     *       func_001FBD50(arg0, 0x163, 0, 300.0f);
+     *   so 0x163 and the clip PAIR really do land on one tick.
+     * PORT DEVIATION, on record: that tick is NOT the state entry — it
+     * is the END of the engine's 9-tick blend-in (sub-modes 0/1, the
+     * mirror of the ramp-out below), which the port does not model. The
+     * port's reload therefore starts ~9 ticks earlier than the
+     * original's. The MAG-ACTION sound is the table pick
+     * func_001FBD50(arg0, D_00248680[arg0[0x275]], 0, 300.0f) fired in
+     * sub-mode 2 the tick the clip-end flag lands — see the RELOAD tick
+     * below. (D_00248680[0] == 0x168 is a DATA read, not source.) */
     em_sfx_play(EM_SFX_WPN_HANDLE);
     /* HOLD-type request (2026-06-11 reload-stagger fix): a plain
      * request releases the clip at its end — with the commit latency
@@ -933,7 +1055,13 @@ static void weapon_acquire(const EmCollision *coll, const float pos[3],
         float hitp[3];
         if (em_enemy_ray_test(muzzle, end, hitp) != i) continue;
 
-        /* 5. world LOS: muzzle -> the actor ray's hit point clear    */
+        /* 5. world LOS: muzzle -> the actor ray's hit point clear.
+         *    Engine form is func_0019A570(muzzle, D_700031B0, 6, 0) —
+         *    mode 6 / mask 0, NOT the (7, 0x20) of the bullet/laser
+         *    probes. The port reuses its single world query because
+         *    em_collision only ever holds world geometry (actor hits
+         *    live in em_enemy_ray_test), so the set selector has no
+         *    effect here; flagged so the difference is on record. */
         EmCollHit h;
         if (coll && coll->poly_count &&
             em_collision_segment_query(coll, muzzle, hitp, WPN_RAY_MASK,
@@ -954,24 +1082,32 @@ static void weapon_acquire(const EmCollision *coll, const float pos[3],
     }
 }
 
-/* The +0x2F0 ROUND-ROBIN advance — the engine's stance-top mod-3
- * increment, gated on manual aim option (D_00810CA4 == 0, the port's
- * fixed mode) and the +0x274 trigger latch. The latch is set by
- * func_0017A8B0 on each trigger event (the fresh press, the queued-
- * semi refire arm, the auto-refire expiry) and cleared by every shot
- * state — net: ONE advance per shot for semi and full-auto; burst
- * rounds 2/3 chain through the step-back with the latch clear, so a
- * burst holds its opening slot. The port calls this at exactly those
- * trigger-accept points. */
+/* The +0x2F0 ROUND-ROBIN advance — CONFIRMED 2026-07-31 in the stance
+ * tops func_001703E0 (state 2) and func_0016FCF0 (state 2), which run
+ * the identical block once per AIM tick BEFORE the fire dispatch:
+ *     if (D_00810CA4[0] == 0 && p[0x274] != 0) {
+ *         p[0x2F0] = p[0x2F0] + 1;
+ *         if (p[0x2F0] > 2) p[0x2F0] = 0;
+ *     }
+ *     func_00199220(p);            // then the acquisition
+ * — so: manual aim option only, and only on a tick where the trigger
+ * latch +0x274 is up. func_0017A8B0 (BYTE-MATCHED) sets that latch on
+ * each trigger event; every shot state clears it. Net: ONE advance per
+ * shot for semi and full-auto; burst rounds 2/3 chain through the
+ * step-back, so a burst holds its opening slot. func_001703E0 state 0
+ * seeds +0x2F0 = 0 at the stance entry. The port calls this at exactly
+ * those trigger-accept points. */
 static void weapon_cycle_advance(void)
 {
     w.cycle = (w.cycle + 1) % 3;
 }
 
-/* LASER SIGHT raycast — the per-aim-frame half of func_001854E0/760:
- * the SAME segment query as the bullet (mode 7, mask 0x20) from the
- * muzzle along the fire direction, range 260; the laser clips at the
- * hit point and keeps drawing to the full 260-unit endpoint on a miss.
+/* LASER SIGHT raycast — the per-aim-frame half of func_00185760: the
+ * same query FORM as the bullet, func_0019A570(gun+0xA0, end, 7, 0x20),
+ * but its own range: the laser probes a full 260 units where an
+ * un-acquired bullet only reaches WPN_BULLET_FREE. The laser clips at
+ * the hit point and keeps drawing to the full 260-unit endpoint on a
+ * miss.
  * The engine's query reports the hit ACTOR in the scratchpad result
  * (*0x700031D4 — it even tags the victim's +0x0A "laser on me" byte);
  * the port's split runs em_enemy_ray_test beside the world query and
@@ -1029,22 +1165,29 @@ static void laser_update(const EmCollision *coll, const float pos[3],
 
 /* The gun-side fire-event consumption — func_001861C0, the BULLET.
  *
- * 1. ENDPOINT — the decoded 3-target ROUND-ROBIN (manual aim option,
- *    the port's fixed mode): the shot reads the +0x2F0 cycle index —
- *    1 -> slot E4, 2 -> slot E8 (each falling back to E0 when empty),
- *    else E0 — and aims at that target's CURRENT aim point
- *    (func_00183C40 re-queried at fire time), overshot by 5 units.
- *    The slots are this frame's func_00199220 acquisition
- *    (weapon_acquire); a stale index that died inside the one-frame
- *    fire-event latency is dropped (engine: the slot would be null by
- *    the gun tick). No target: muzzle + dir*260. (Lock-on option 1
+ * 1. ENDPOINT — the 3-target ROUND-ROBIN, re-verified 2026-07-31
+ *    against func_001861C0's opening block: the shot reads the byte at
+ *    D_008102B0+0x2F0 — 1 -> slot E4, 2 -> slot E8 (each falling back
+ *    to E0 when its slot is empty), anything else -> E0 — and aims at
+ *    that target's CURRENT aim point (func_00183C40 re-queried at fire
+ *    time), overshot by normalize(target-origin) * 5.0. The whole
+ *    lock-target block is additionally gated on the engine's game-mode
+ *    byte (D_008104E0 == 0xC or 0x29) and on the aim option
+ *    D_00810CA4 being 0 or 1; the port stands in normal gameplay with
+ *    option 0, so it takes the block unconditionally. The slots are
+ *    this frame's func_00199220 acquisition (weapon_acquire); a stale
+ *    index that died inside the one-frame fire-event latency is
+ *    dropped. NO TARGET: muzzle + dir*4.5 (WPN_BULLET_FREE — the
+ *    engine's un-locked leg; CORRECTED from 260). (Lock-on option 1
  *    always shoots E0 — not selectable yet, PORT_DIFFERENCES H16.)
  * 2. One world segment query (mask 7, id 0x20).
  * 3. VICTIM TEST before crediting the world hit: the segment against
  *    every live enemy's hit sphere (em_enemy_ray_test); the NEAREST of
  *    enemy-vs-world wins. An enemy hit applies damage through the
- *    victim's +0x36 mailbox (func_001B41F0's contract: code 5) — the
- *    enemy's own behavior consumes it next tick. Design note: the
+ *    victim's +0x36 mailbox — the code 5 is func_001861C0's own
+ *    `*(short *)((char *)s4 + 0x36) = 5;` stamp (see WPN_HIT_DMG; the
+ *    old "func_001B41F0(victim, ..., 5, 0)" citation was wrong) — and
+ *    the enemy's own behavior consumes it next tick. Design note: the
  *    world-geometry API (em_collision) stays untouched; actor hits go
  *    through em_enemy's own ray test, the native split of the engine's
  *    "hit actor pointer in the scratchpad result block" (*0x700031D4).
@@ -1084,9 +1227,13 @@ static void weapon_resolve_fire(const EmCollision *coll,
         end[1] = aim[1] + dir[1] * WPN_OVERSHOOT;
         end[2] = aim[2] + dir[2] * WPN_OVERSHOOT;
     } else {
-        end[0] = muzzle[0] + dir[0] * WPN_RANGE;
-        end[1] = muzzle[1] + dir[1] * WPN_RANGE;
-        end[2] = muzzle[2] + dir[2] * WPN_RANGE;
+        /* NO acquired target — CORRECTED 2026-07-31: the engine's
+         * un-locked leg reaches only 4.5 units past the ray origin
+         * (WPN_BULLET_FREE), not the laser's 260. An un-acquired shot
+         * is a near-miss by design; the acquisition is what aims. */
+        end[0] = muzzle[0] + dir[0] * WPN_BULLET_FREE;
+        end[1] = muzzle[1] + dir[1] * WPN_BULLET_FREE;
+        end[2] = muzzle[2] + dir[2] * WPN_BULLET_FREE;
     }
 
     int       hit = 0;
@@ -1183,6 +1330,13 @@ static void weapon_fire_logic(const EmFrameInput *in)
                 w.interval = semi_interval();
                 if (w.mag == 0) {
                     em_sfx_play(EM_SFX_WPN_DRY);
+                    /* engine state 0's dry arm ends with
+                     * `if (D_00810C61[0] != 0) e[7] = e[7] + 1;` —
+                     * burst/auto step to case 1, a trigger-release
+                     * wait; SEMI stays in state 0 (so a mashed trigger
+                     * keeps clicking). */
+                    if (w.fire_mode != EM_WPN_MODE_SEMI)
+                        w.fire_sub = WPN_SUB_GAP;
                 } else {
                     switch (w.fire_mode) {
                         case EM_WPN_MODE_BURST:
@@ -1251,42 +1405,67 @@ static void weapon_fire_logic(const EmFrameInput *in)
             break;
 
         case WPN_SUB_BURST:
-            /* Engine 0x16: cadence; +0x28 counts the burst rounds. */
+            /* Engine 0x16 (case 22): cadence; +0x28 counts the burst
+             * rounds. */
             w.counter += WPN_COUNT_STEP;
             if (w.counter >= (int)w.interval) {
                 w.counter   = 0;
-                w.laser_vis = 1;    /* +0x2F2 = 1 at the expiry head
-                                     * (engine .L00170F50)             */
+                w.laser_vis = 1;    /* +0x2F2 = 1 at the expiry head   */
                 if (w.mag == 0) {
                     if (weapon_reload(1) == 0) {
                         weapon_enter_reload();
                     } else {
-                        em_sfx_play(EM_SFX_WPN_DRY);    /* 0x169 */
-                        w.burst       = 0;
-                        w.fire_sub    = WPN_SUB_GAP;
-                        w.burst_pause = WPN_BURST_PAUSE;
+                        /* engine: the dry click only plays while the
+                         * burst is unfinished (`if (e[0x28] < 3)`),
+                         * then e[7]++ -> the release-wait 0x17. */
+                        if (w.burst < WPN_BURST_LEN)
+                            em_sfx_play(EM_SFX_WPN_DRY);    /* 0x169 */
+                        w.burst    = 0;
+                        w.fire_sub = WPN_SUB_GAP;
                     }
                 } else if (w.burst < WPN_BURST_LEN) {
                     w.burst++;
+                    /* ROUND INTERVAL — CORRECTED 2026-07-31. The engine
+                     * re-arms +0x2F4 = 12.0 in the SHOT state only while
+                     * `e[0x28] < 2` (func_00170A60 case 21), i.e. for
+                     * rounds 1 and 2. Round 3 keeps whatever the trigger
+                     * re-latch left there — func_0017A8B0 rewrites it to
+                     * the aim-ladder clip length — so the burst's TAIL
+                     * cadence is the long one, not another 6 frames.
+                     * (w.burst is the engine's e[0x28] + 1.) */
+                    w.interval  = (w.burst <= 2) ? WPN_INTERVAL_AUTO
+                                                 : semi_interval();
                     w.fire_next = 1;
                 } else {
-                    w.burst       = 0;
-                    w.fire_sub    = WPN_SUB_GAP;
-                    w.burst_pause = WPN_BURST_PAUSE;    /* engine 0x17 */
+                    w.burst    = 0;
+                    w.fire_sub = WPN_SUB_GAP;           /* engine 0x17 */
                 }
             }
             break;
 
         case WPN_SUB_GAP:
-            /* Engine 0x17: the 8-tick inter-burst pause; L3 manual
-             * reload is honored here (the second engine L3 site). */
+            /* Engine 0x17 (case 23) — CORRECTED 2026-07-31: this is NOT
+             * a timed pause. The engine body is the same release-wait
+             * shape as cases 1 and 32:
+             *     stop = func_001607D0(e);
+             *     if (stop == 0) { if (e[0x274]==0) stop = 1;
+             *                      else { e[0x274] = 0; stop = 0; } }
+             *     else stop = 0;
+             *     if (stop) e[7] = 0;
+             * func_001607D0 re-latches +0x274 for as long as the fire
+             * button is down (case 0x31's held/pressed arms both end in
+             * func_0017A8B0, which sets it), so the state only falls
+             * back to WAIT once the trigger is RELEASED. The port's old
+             * 8-tick WPN_BURST_PAUSE let a held trigger chain bursts
+             * forever at ~8 ticks apart. L3 manual reload is honored
+             * here — the second of the engine's two L3 sites. */
             if (in->pressed & EM_PAD_L3) {
                 if (weapon_reload(2) == 0) {
                     weapon_enter_reload();
                     break;
                 }
             }
-            if (w.burst_pause > 0 && --w.burst_pause == 0)
+            if (!(in->held & EM_PAD_CIRCLE))
                 w.fire_sub = WPN_SUB_WAIT;
             break;
 
@@ -1302,8 +1481,13 @@ static void weapon_fire_logic(const EmFrameInput *in)
                     if (weapon_reload(1) == 0) {
                         weapon_enter_reload();
                     } else {
+                        /* engine case 31: dry click, then e[7]++ ->
+                         * case 32, a trigger-RELEASE wait (the port
+                         * reuses WPN_SUB_GAP for it; the engine's 32
+                         * does not honor L3 there, the port's does —
+                         * a deliberate, harmless widening). */
                         em_sfx_play(EM_SFX_WPN_DRY);    /* 0x169 */
-                        w.fire_sub = WPN_SUB_WAIT;
+                        w.fire_sub = WPN_SUB_GAP;
                     }
                 } else if (in->held & EM_PAD_CIRCLE) {
                     weapon_cycle_advance();  /* auto refire: the expiry
@@ -1531,14 +1715,17 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
         w.flash--;
         w.flash_scale += w.flash_vel;
         w.flash_vel   *= WPN_FLASH_DECAY;
-        /* ROTATION LERP (func_001F5040 .L001F53A8, translated 2026-06-11
-         * — retires the 0.8^t intensity stand-in): from engine tick 4
-         * (age 6) the FX rotation triple chases -128 DEGREES at 0.35 of
-         * the gap per tick (one value written to all three components;
-         * variant 0 starts at 0) — the dying star rolls ~45 deg in its
-         * first lerp tick and settles toward -128. The port applies it
-         * as a roll around the gun axis (the star model's +X), the
-         * dominant visible component of the uniform Euler triple. */
+        /* ROTATION LERP — CONFIRMED 2026-07-31, func_001F5040 case 1's
+         * `default:` frame arm:
+         *     cur   = *(float *)(arg0 + 0x80);
+         *     eased = cur + (0.35f * (-128.0f - cur));
+         *     arg0+0x80 = arg0+0x84 = arg0+0x88 = eased;
+         * i.e. from frame 4 onward (frames 0..3 take the model-swap
+         * arms instead) the triple chases -128 at 0.35 of the gap per
+         * tick, one value to all three components. Variant 0 seeds the
+         * triple to 0.0f (only variants 3/4 seed -96.0f). The port
+         * applies it as a roll around the gun axis (the star model's
+         * +X), the dominant visible component of the uniform triple. */
         int eng_t = (WPN_FLASH_TICKS - w.flash) - 2;
         if (eng_t >= 4)
             w.flash_rot += (-128.0f - w.flash_rot) * 0.35f;
@@ -1617,7 +1804,7 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             /* anim 0x11B wait (major 3 = func_0016F600); the ammo move
              * already happened. DECODED shape: the clip plays to its
              * end flag, THEN the engine samples the draw hold once and
-             * either holsters or plays the mag sound + runs the 8-tick
+             * either holsters or plays the mag sound + runs the nine-tick
              * aim-blend ramp-out back into AIM. */
             if (getenv("EM_WEAPON_TRACE"))    /* runtime diagnosis aid:
                  * prints the clip the anim system actually plays each
@@ -1629,7 +1816,7 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             if (w.ramp > 0) {
                 /* RAMP-OUT (func_0016F600 sub-mode 3): the aim pose is
                  * already re-committed and the aim blends walk back to
-                 * their pre-reload values over 8 ticks; only when the
+                 * their pre-reload values over nine ticks; only when the
                  * counter runs out does the major state become 2 (AIM)
                  * and firing unlock. */
                 if (--w.ramp <= 0)
@@ -1641,9 +1828,16 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                  * reload therefore does NOT abort: the reload plays out
                  * and the holster commits HERE (+0x06 = 0x65). */
                 if (draw_held) {
-                    /* MAG ACTION — D_00248680[sub-weapon], sub 0 = 0x168
-                     * (func_001FBD50 at radius 300), fired on this exact
-                     * tick alongside the ramp-out setup. */
+                    /* Engine sub-mode 2's held arm, in order:
+                     *   arg0[7]++;
+                     *   func_001FBD50(arg0, D_00248680[arg0[0x275]],
+                     *                 0, 300.0f);       // MAG ACTION
+                     *   arg0+0x28 = 8;                  // ramp counter
+                     *   arg0+0x26C = (arg0+0x2E0 - 0.5f) / 8.0f;
+                     *   arg0+0x270 = (arg0+0x2E4 - 0.5f) / 8.0f;
+                     *   func_001749A0(arg0, D_00248B88[arg0[0x275]],
+                     *                 0, 0.0f);         // aim pose back
+                     * — the sound and the ramp arm on the same tick.  */
                     em_sfx_play(EM_SFX_WPN_MAG);
                     w.ramp = WPN_RELOAD_RAMP;
                 } else {
@@ -2159,8 +2353,8 @@ int em_weapon_lock_steer(const float player_pos[3], float player_yaw,
     float pd = atan2f(ty, sqrtf(tx * tx + tz * tz));
     float pc = atan2f(dir[1],
                       sqrtf(dir[0] * dir[0] + dir[2] * dir[2]));
-    float phalf = (-pd <= WPN_STEER_PIT_T) ? WPN_STEER_PIT_A
-                                           : WPN_STEER_PIT_B;
+    float phalf = (-pd <= WPN_STEER_PIT_T) ? WPN_STEER_PIT_LE
+                                           : WPN_STEER_PIT_GT;
     float p_des = pitch_in + 0.5f * (pd - pc) / phalf;
     if (p_des < 0.0f) p_des = 0.0f;
     if (p_des > 1.0f) p_des = 1.0f;

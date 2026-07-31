@@ -79,19 +79,29 @@
  *
  * THE BUG (s68 "CREATURE IDENTITY CORRECTION" — the port's
  * EM_ENEMY_KIND_BUG; full ledger in em_enemy.h "BUG KIND"). Decoded,
- * kept: HP 15 (variant A — func_00128390; variant B 30 and the
- * difficulty 30/50 column are recorded constants), the EVERY-TICK
- * +0x36 mailbox consumption (func_00128B80) with FLINCH below lethal
- * and DEATH at it (handler func_00129FC0), init/walk clip 1 (the
- * 90-f in-place WALK), flinch clip 0x1D, death clip 0x1B (EXPORTED
- * since s76 — the anim baker now handles the non-sentinel container,
- * so the corpse plays the real collapse; the frozen-pose fade is the
- * fallback only if it is ever absent). REAL MULTI-STATE
- * BRAIN (s76 — the two brains func_00128C10/func_0012A5D0 are decoded at
- * the STRUCTURAL level, FINDINGS "BUG BRAIN STATE MACHINES"; the
- * approach/lunge MAGNITUDES + the bite damage stay flagged port
- * constants — the move-helper bodies + the shared contact-damage value
- * are the s76 open items):
+ * kept: HP 15 (variant A — func_00128390, BYTE-MATCHED: it returns
+ * 15/30 while D_0081070A == 0 and 30/50 otherwise, selected by its
+ * second argument), the EVERY-TICK +0x36 mailbox consumption, and the
+ * clip set. CORRECTED 2026-07-31 — the mailbox path is a TWO-STAGE
+ * chain, and neither stage is what the old note said:
+ *   func_00128B80 (recovered) is only the ROUTER. `if (+0x36 == 0 &&
+ *   D_0081080F == 0) return 0;` else it forces actor[0]=3, actor[4]=2
+ *   (the reaction STATE) and clears actor[5]/[6]/[7], calls
+ *   func_0012E070(ctrl), and returns 1. It never compares HP and never
+ *   distinguishes flinch from death. (D_0081080F is a global instakill
+ *   flag: when set it copies +0x34 into +0x36 so the next stage always
+ *   runs the actor out of HP.)
+ *   func_00129FC0 (BYTE-MATCHED) is the reaction driver, and IT does
+ *   the arithmetic: case 0 subtracts the LOW BYTE of +0x36 from +0x34,
+ *   picks the knockdown clip 0x1B or the flinch clip 0x1D by the damage
+ *   word's 0x2000 bit / the controller state, and fires the death event
+ *   0x8000000C when HP hits 0; the corpse's own collapse clip is 0x20
+ *   (case 3, with sound 0x1B7) before the free in case 4.
+ * Clips therefore: init/walk 1 (the 90-f in-place WALK), flinch 0x1D,
+ * KNOCKDOWN 0x1B (untranslated), COLLAPSE 0x20 (BUG_CLIP_DEATH).
+ * The brain SHAPE below is a PORT construction: func_00128C10 /
+ * func_0012A5D0 are still stubs, and the one attack function we do have
+ * (func_0012C490) is a leap chain, not this:
  *
  *   INIT      HP = 15, yaw toward the player (PORT stand-in: the
  *             engine copies the nest record's rot, unexported) ->
@@ -108,12 +118,22 @@
  *             enemy_tick's every-tick mailbox path (a hit interrupts
  *             any attack phase into flinch).
  *   sub 2     WINDUP: the bite lead-in, BUG_WINDUP_F ticks -> BITE.
- *   sub 3     BITE (clip 0x13, func_0012C490): IN PLACE; the contact is
- *             the shared melee resolver func_001B5360 — a BUG_CONTACT_R
- *             (=6, VERIFIED) sphere BUG_CONTACT_FWD (=10, VERIFIED)
- *             ahead of the bug vs the player. A HIT -> LATCH (sub 5),
- *             not a one-shot bite (LIVE-VERIFIED 2026-06-12: the bug
- *             clings and the player MASHES CROSS to shake it off).
+ *   sub 3     BITE — PORT SHAPE, corrected 2026-07-31. Clip 0x13 IS in
+ *             func_0012C490, but nothing else in the old note survives
+ *             the decompilation: that function is a 9-state machine on
+ *             actor[6] whose state 2 plays clip 0x13 together with a
+ *             BODY HOP func_00128830(actor, 0, 0, -2.5) and sfx 0x1AE,
+ *             then chains clips 0x14 (hop 0,2.5,0) and 0x15 (hop
+ *             0,1.5,3) into a spin phase — it is a LEAP sequence, not an
+ *             in-place bite, and it contains NO contact test at all.
+ *             func_001B5360 is the shared GROUND-SNAP probe (see the
+ *             CORRECTION block at BUG_CONTACT_FWD), not a melee
+ *             resolver, so BUG_CONTACT_R / BUG_CONTACT_FWD are PORT
+ *             constants — the old "(=6, VERIFIED)" / "(=10, VERIFIED)"
+ *             tags were wrong. The port keeps its in-place strike; the
+ *             engine's real leap chain is UNTRANSLATED. A HIT -> LATCH
+ *             (sub 5) is an OBSERVED behaviour (2026-06-12 play), not a
+ *             decoded one.
  *   sub 4     RECOVER + cooldown (func_0012DD70), BUG_RECOVER_F -> sub 0.
  *   sub 5     LATCHED (LIVE s76): clings on the player at a per-bug
  *             bearing while em_game's player_struggle_tick drains health
@@ -314,18 +334,25 @@
  * transition out of idle is the burst):
  *
  *   0 INIT    HP(+0x34) = 1 -> IDLE. No probe vectors, no nest.
- *   4 IDLE    poll the +0x36 mailbox ONLY: HP 1 makes any nonzero hit
- *             lethal -> DEATH. NO alarm broadcast (the drum is not in the
+ *   4 IDLE    poll the +0x36 mailbox: HP 1 makes any nonzero hit lethal
+ *             -> DEATH. NO alarm broadcast (the drum is not in the
  *             placed-crawler whitelist {6,0x1C,0x1E,0x1F,0x50}) and NO
- *             alarm wake; NO proximity test (the engine arms its damage
- *             target via a proximity gate func_001B1D20 — the port keeps
- *             the drum shootable always, a faithful superset since at the
- *             opening the player can only shoot it from within range
- *             anyway, flagged). The idle pulse is a visual-only
- *             world-matrix wobble (enemy_build_palette: sin/cos of the
- *             RNG-seeded phase +0x74 + slow yaw drift; amplitudes are
- *             flagged PORT constants — the D_00246A00/D_00246A10 tables
- *             are not exported).
+ *             alarm wake. TWO CORRECTIONS (2026-07-31, off the recovered
+ *             func_00156620 state 1):
+ *             (a) there IS a player-distance test, and it is now ported:
+ *                 the state-1 tail computes the player->drum vector from
+ *                 the D_00810350 mirror and, inside 50 u (dist^2 <=
+ *                 50*50), sets actor[1] = 1 and publishes the drum to the
+ *                 target list via func_001B1D20; outside it takes the
+ *                 plain func_001B17A0 path and is NOT a target. See
+ *                 EGG_TARGET_R / enemy_in_target_range. The old "NO
+ *                 proximity test — shootable always" was wrong.
+ *             (b) there is NO idle wobble. State 1 touches no transform
+ *                 at all. The +0x74 field and the D_00246A00/D_00246A10
+ *                 tables the old note cited as wobble amplitudes are read
+ *                 in STATE 2 as the flung-debris aim angle / speed /
+ *                 pitch. The port's sine wobble was an invention and is
+ *                 REMOVED — an engine drum stands perfectly still.
  *   2 DEATH   the drum EXPLODES (INVESTIGATION "DEATH = EXPLOSION",
  *             LIVE-confirmed): the engine spawns a blast/FIREBALL (FX
  *             0x80000013 -> expanding child 0x8000006E) + a flash layer
@@ -564,12 +591,17 @@
                                    * decoded one. Also the rig-less fallback
                                    * fold of the segment arm (then it carries
                                    * the 15).                              */
-/* LATCH SEGMENT (s66 live decode): the engine resolve's FIRST arm is
- * func_0019AA80(slotA, slotB, 0x20) — the worm's neck->head rig
- * segment (node-table slots +0x34/+0x40 = rig nodes 13/16) swept
- * against the PLAYER's hit-volume list (player +0x58: bone-anchored
- * sphere records gated by three filter bytes; mask 0x20 selects
- * filter channel 1 — func_001A7280). The port stages the segment from
+/* LATCH SEGMENT. The engine resolve's FIRST arm is
+ * func_0019AA80(a, b, 0x20) — CONFIRMED as a SEGMENT query by the
+ * recovered func_0019AA80: it stages the two point args at
+ * 0x70003190/+0x10 and passes `arg2 & 0xFFFF` to func_001A7280, so
+ * 0x20 is a filter MASK, never a radius.
+ * DOWNGRADED (2026-07-31): the endpoints. func_00154120 reads both from
+ * the GLOBAL D_00275B40 — `*(char **)(D_00275B40 + 0x34) + 0xC0` and
+ * `*(char **)(D_00275B40 + 0x40) + 0xC0` — not from the worm actor it
+ * was handed. "Rig nodes 13/16, swept against the player's +0x58
+ * bone-anchored sphere list" is the s66 LIVE reading and stays
+ * OBSERVED, not source-derived. The port stages the segment from
  * the worm's OWN animated palette (translation columns of nodes
  * 13/16, world space after enemy_build_palette — one tick stale, the
  * pose the player SEES) and sweeps it against a PLAYER CAPSULE: the
@@ -578,10 +610,24 @@
  * radius 4.5, ~17-u height). */
 #define ENEMY_LATCH_NODE_A 13     /* neck — node-table slot +0x34 (s66)   */
 #define ENEMY_LATCH_NODE_B 16     /* head — node-table slot +0x40 (s66)   */
-#define ENEMY_ACTOR_SCALE 0.5f    /* func_00154040 -> actor +0x80: the
-                                    * live leech is HALF authored size
-                                    * (decoded; FINDINGS "CRAWLER
-                                    * RESOLVED" §4)                      */
+/* DOWNGRADED 2026-07-31 — this was recorded as "func_00154040 writes 0.5
+ * to actor +0x80, so the live leech is HALF authored size". The
+ * decompilation does not support that reading:
+ *   - func_00154040 (BYTE-MATCHED) writes FOUR floats, +0x80 = 0.5,
+ *     +0x84 = 0.875, +0x88 = 1.0, +0x8C = 1.0 — not a uniform scale;
+ *   - the actor pool allocator func_001AFA90 (BYTE-MATCHED) initialises
+ *     BOTH quads +0x60..+0x6C and +0x80..+0x8C to (1,1,1,1);
+ *   - func_001549C0 (the tendril render tail) writes the room-tint GREEN
+ *     into +0x84 as `(92 + k * (room.g - 92)) / 128` — i.e. +0x80..+0x8C
+ *     is the actor's RGBA MULTIPLIER, exactly as this file already
+ *     documents it in the Tendril struct.
+ * So func_00154040 gives the leech a cool (0.5, 0.875, 1.0, 1.0) TINT,
+ * and the decomp supplies NO actor scale at all. The 0.5 below stays
+ * because the port's lunge geometry was tuned around it (authored size
+ * arced the lunge over the player), but it is now a FLAGGED PORT
+ * constant, not a decoded one. The decoded tint is recorded and
+ * UNTRANSLATED (live crawlers still draw untinted). */
+#define ENEMY_ACTOR_SCALE 0.5f    /* PORT (flagged): render scale        */
 #define ENEMY_STALK_STANDOFF 10.0f /* stalk-slide stop distance (PORT
                                     * locomotion stand-in, flagged: the
                                     * engine's stalk root motion is its
@@ -790,15 +836,16 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * per-child pos offsets (unexported)   */
 
 /* --- Egg/growth fixture kind (see "EGG KIND" in the file header) --------
- * Engine values (FINDINGS s78 §5, func_00156620): HP 1 — any +0x36 write
- * is lethal — and the damage-only burst (NO children, NO husk rebind, NO
- * player damage, NO alarm broadcast). The procedural-wobble MECHANISM is
- * decoded (sin/cos of an RNG-seeded phase +0x74, amplitude tables
- * D_00246A00/D_00246A10 + a slow yaw drift); the amplitudes/periods are
- * flagged PORT constants — the engine tables are not exported. The egg is
- * a 1-node static mesh (assets/enemy_egg.emdl, the area-11 model-table
- * entry 0x0E carve, model byte 0x18 — decomp tools/export_props.py --egg),
- * so the wobble lives in the world matrix exactly like the crate jitter. */
+ * Engine values, all read off the recovered func_00156620: HP 1 (state 0
+ * writes `+0x34 = 1`) — any +0x36 write is lethal — and the damage-only
+ * burst (NO children, NO husk rebind, NO player damage, NO alarm
+ * broadcast). RETRACTED 2026-07-31: the "procedural wobble MECHANISM"
+ * this block used to claim as decoded does not exist. State 1 (armed
+ * idle) never touches a transform; +0x74 and the D_00246A00/D_00246A10
+ * tables are the STATE-2 flung-debris aim angle / speed / pitch. The
+ * drum is a 1-node static mesh (assets/enemy_egg.emdl, the area-11
+ * model-table entry 0x0E carve, model byte 0x18 — decomp
+ * tools/export_props.py --egg) and it stands still. */
 #define ENEMY_HP_EGG     1        /* fixture init HP (+0x34 = 1 — s78 §5) */
 #define EGG_BONE_MAX     4        /* 1-node mesh (header bone_count 1) +
                                    * the exporter's spare palette slot     */
@@ -811,8 +858,16 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * roughly the egg's body half-height
                                    * (the engine's func_001B1D20 target
                                    * volume is unexported)                 */
-#define EGG_PULSE_POS    0.10f    /* PORT: x/z wobble amplitude, units    */
-#define EGG_PULSE_YAW    0.05f    /* PORT: slow yaw-drift amplitude, rad  */
+/* DECODED (func_00156620 state 1, the tail after the mailbox test): the
+ * drum publishes itself as a damage target ONLY while the player is
+ * within 50 units — `d2 = |player(D_00810350) - pos|^2` compared against
+ * `50.0f * 50.0f` (the recovered C materialises the 2500 as an
+ * int-store/float-reload of 50.0 times 50.0f), then `actor[1] = 1;
+ * func_001B1D20(actor)` on the inside branch and the plain
+ * func_001B17A0 visible-actor path outside it. Outside 50 u the drum is
+ * NOT in the target list. (The old comment claimed there was no
+ * proximity test at all and kept the drum shootable from any range.) */
+#define EGG_TARGET_R     50.0f    /* target-list publish radius (decoded) */
 #define EGG_SFX_BREAK    0x1A1u   /* drum EXPLOSION sound (func_00156620
                                    * model-0x18 single-shot death path —
                                    * INVESTIGATION "DEATH = EXPLOSION",
@@ -909,12 +964,33 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * the pair to 30/50 (unbound: the
                                    * port has no difficulty plumbing)     */
 #define BUG_CLIP_WALK    1u       /* init clip: the 90-f in-place WALK    */
-#define BUG_CLIP_DEATH   0x1Bu    /* func_00129FC0 death clip — EXPORTED
-                                   * since s76 (the anim baker now handles
-                                   * the non-sentinel container); the
-                                   * corpse plays it. Falls back to the
-                                   * frozen-pose fade only if ever absent. */
-#define BUG_CLIP_FLINCH  0x1Du    /* func_00129FC0 flinch clip (exported) */
+/* CORRECTED (func_00129FC0, BYTE-MATCHED — read the reaction driver, not
+ * the old summary). The clip ids split THREE ways, and 0x1B is NOT the
+ * death clip:
+ *   case 0 (reaction entry) subtracts the damage and then picks
+ *          func_001287F0(actor, ctrl, 0x1B, 0.0f)  -> the KNOCKDOWN anim
+ *          when the damage word has bit 0x2000, or ctrl[0xFB] bit 7, or
+ *          ctrl+0xE4 is 0 / 0x400 / 0x500 — a HEAVY-HIT gate that has
+ *          nothing to do with lethality (it fires on survivable hits
+ *          too), and hands to reaction state 5;
+ *          else func_001287F0(..., 0x1D, 0.0f) -> the FLINCH anim.
+ *          Either way, HP <= 0 additionally fires the death event
+ *          func_001EFD90(0x8000000C, pos, rot).
+ *   case 1 waits for that anim to finish; if HP ran out it stages the
+ *          fall direction and picks reaction state 2 (func_0012D580,
+ *          undecoded) or 3.
+ *   case 3 is the COLLAPSE: func_001287F0(..., 0x20, 4.0f) +
+ *          func_001FBD50(actor, 0x1B7, 0, 300.0f).
+ *   case 4 then frees the actor (sound 0x1B5).
+ * So the corpse's own animation is 0x20; 0x1B is the knockdown reaction.
+ * The port asks for 0x20 first and falls back to 0x1B, then to the
+ * frozen-pose fade, so a bake that lacks either still degrades cleanly. */
+#define BUG_CLIP_DEATH   0x20u    /* func_00129FC0 case 3 collapse clip   */
+#define BUG_CLIP_KNOCKDN 0x1Bu    /* func_00129FC0 case 0 knockdown clip
+                                   * (heavy-hit reaction, survivable —
+                                   * UNTRANSLATED: the port has no
+                                   * knockdown branch, it flinches)       */
+#define BUG_CLIP_FLINCH  0x1Du    /* func_00129FC0 case 0 flinch clip     */
 #define BUG_CLIP_BITE    0x13u    /* func_0012C490 bite/snap LUNGE clip
                                    * (19 dec — IS in the s68 bake list)   */
 #define BUG_WALK_SPEED   0.16f    /* PORT: approach speed, units/frame    */
@@ -1475,6 +1551,13 @@ static struct {
     int        tt_trigs;     /* SCAN->DEPLOY edges seen (field 0)        */
     int        tt_retract[2];/* RETRACT entries seen since stage 2       */
     uint8_t    tt_psub[2];   /* previous-tick sub (edge detection)       */
+
+    /* Last player position this module saw (em_enemy_update). The
+     * DRUM's target gate needs it outside the update tick: func_00156620
+     * state 1 runs the player-distance test itself and only publishes
+     * the drum to the target list inside 50 u (EGG_TARGET_R). */
+    float      pp_last[3];
+    int        pp_seen;
 } s;
 
 static void enemy_build_palette(Enemy *e);
@@ -1899,7 +1982,14 @@ static int bug_mesh_get(EmGfx *gfx)
         s.bug_bones     = s.bug_model.bone_count;
         em_model_palette_at(&s.bug_model, 0, 0.0, s.bug_base);
         s.bclip_walk   = em_model_clip_index(&s.bug_model, BUG_CLIP_WALK);
+        /* CORRECTED (func_00129FC0 — see BUG_CLIP_DEATH): the corpse's
+         * own animation is the case-3 COLLAPSE clip 0x20; the old 0x1B
+         * is the case-0 KNOCKDOWN reaction. Ask for 0x20, fall back to
+         * 0x1B, then to the frozen-pose fade. */
         s.bclip_death  = em_model_clip_index(&s.bug_model, BUG_CLIP_DEATH);
+        if (s.bclip_death < 0)
+            s.bclip_death = em_model_clip_index(&s.bug_model,
+                                                BUG_CLIP_KNOCKDN);
         s.bclip_flinch = em_model_clip_index(&s.bug_model,
                                              BUG_CLIP_FLINCH);
         s.bclip_bite   = em_model_clip_index(&s.bug_model, BUG_CLIP_BITE);
@@ -1910,8 +2000,9 @@ static int bug_mesh_get(EmGfx *gfx)
                s.bug_model.vert_count, s.bug_model.index_count / 3,
                s.bug_bones, s.bug_model.clip_count, s.bclip_walk,
                s.bclip_bite, s.bclip_flinch, s.bclip_death,
-               s.bclip_death < 0 ? " (0x1B unexported — corpse-fade "
-                                   "death, s68)" : "");
+               s.bclip_death < 0 ? " (neither collapse 0x20 nor knockdown "
+                                   "0x1B exported — corpse-fade death)"
+                                 : "");
         return 0;
     }
 
@@ -2145,21 +2236,31 @@ static void enemy_alarm_broadcast(void)
             s.e[i].alarm = 1;
 }
 
-/* Consume the +0x36 mailbox — the CRATE's IDLE poll (the decoded
- * state-4 test is `+0x36 != 0`; HP 1 makes any nonzero value lethal)
- * and the BUG's every-tick poll (decoded func_00128B80 — HP 15, a
- * survivable hit returns 0 with the HP already debited and the
- * caller flinches on it). Low bits = amount (below the 0x2000 type
- * flag), matching the documented code layout. The WORM never reaches
- * this: its brain consumes nothing (J2 CLOSED s66 — the old
- * every-tick worm poll, the shootable stand-in, is REMOVED). The
- * subtractive shape is the canonical hurt helper func_00153B50,
- * whose death arm plays 0x7D8 (a FLAGGED stand-in for the bug: its
- * own handler func_00129FC0's audio is undecoded). */
+/* Consume the +0x36 mailbox — the CRATE's IDLE poll (decoded
+ * func_001551B0 state 4: the test is `+0x36 != 0`; HP 1 makes any
+ * nonzero value lethal) and the BUG's every-tick poll.
+ *
+ * AMOUNT = the LOW BYTE of +0x36 — CORRECTED (was `& 0x1FFF`). The
+ * bug's reaction driver func_00129FC0 (BYTE-MATCHED) reads the amount
+ * as `dec = *(unsigned char *)(arg0 + 0x36)` and does
+ * `+0x34 -= dec`, so bits 0x0100..0xFF00 are FLAGS, not amount:
+ * 0x4000 = play the hurt voice (arming a 60-frame cooldown at +0x28),
+ * 0x2000 = force the knockdown branch. (The other canonical hurt
+ * helper, func_00153B50, subtracts the whole halfword — but that one
+ * drives a different actor family; the bug's own handler is the byte
+ * form, and every port kind but the bug is HP 1, where the mask is
+ * moot.) The 0x2000 knockdown flag itself is UNTRANSLATED here.
+ *
+ * The WORM never reaches this: its brain consumes nothing (J2 CLOSED
+ * s66 — the old every-tick worm poll, the shootable stand-in, is
+ * REMOVED). The subtractive shape is the canonical hurt helper
+ * func_00153B50 (BYTE-MATCHED), whose death arm plays 0x7D8 and whose
+ * survive arm plays 0x7D4 — a FLAGGED stand-in for the bug, whose own
+ * handler func_00129FC0 actually plays 0x1B1 on every reaction. */
 static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
-    int amount = e->mailbox & 0x1FFF;
+    int amount = e->mailbox & 0xFF;    /* func_00129FC0: byte load @0x36 */
     e->mailbox = 0;
     e->hp      = (int16_t)(e->hp - amount);
     if (e->hp > 0) return 0;
@@ -2445,22 +2546,22 @@ static void enemy_build_palette(Enemy *e)
         yaw += sgn * amp * CRATE_JIT_YAW;
     }
 
-    /* EGG IDLE pulse — the documented procedural wobble (func_00156620:
-     * sin/cos of the RNG-seeded phase +0x74, amplitude tables
-     * D_00246A00/D_00246A10 + a slow yaw drift; s78 §5). Visual only —
-     * the state machine never moves the egg. Deterministic pure function
-     * of the update tick + the spawn slot, like the crate jitter; the
-     * amplitudes/periods are flagged PORT constants (the engine tables
-     * are not exported). Gated on IDLE: a destroyed egg holds its frozen
-     * pose for the corpse fade. */
-    if (e->kind == EM_ENEMY_KIND_EGG && e->active &&
-        e->state == EM_ENEMY_IDLE) {
-        float t  = (float)s.frame;
-        float ph = (float)e->seed * 2.3f;
-        x   += EGG_PULSE_POS * sinf(t * 0.061f + ph);
-        z   += EGG_PULSE_POS * sinf(t * 0.053f + ph * 1.7f);
-        yaw += EGG_PULSE_YAW * sinf(t * 0.029f + ph);
-    }
+    /* DRUM IDLE: NOTHING. The old "procedural wobble" here was a PORT
+     * INVENTION and is REMOVED (2026-07-31 fidelity audit). The
+     * recovered func_00156620 state 1 (armed idle) is exactly:
+     *
+     *     if (+0x36) { ...burst... }
+     *     (*(actor+0x4C))(actor);                 // render hook
+     *     v = player(D_00810350) - pos; d2 = |v|^2;
+     *     if (d2 <= 50*50) { actor[1] = 1; func_001B1D20(actor); }
+     *     else               func_001B17A0(actor);
+     *
+     * — no matrix touch, no phase, no jitter counter. The +0x74 field
+     * and the D_00246A00 / D_00246A10 tables the old comment cited as
+     * "wobble amplitudes" are read in STATE 2 phase 0 (after the
+     * explosion) as the flung-debris AIM ANGLE, SPEED (+0x38) and PITCH
+     * (+0x78) — they have nothing to do with an idle. An engine drum is
+     * a perfectly still prop. */
 
     const float c = cosf(yaw), sn = sinf(yaw);
 
@@ -2514,13 +2615,12 @@ static void enemy_build_palette(Enemy *e)
         memcpy(e->palette, s.base, s.bone_count * 16 * sizeof(float));
     }
 
-    /* WORM ACTOR SCALE — func_00154040 writes 0.5 to actor +0x80: the
-     * in-game leech is HALF the authored size (~11 u long, FINDINGS
-     * "CRAWLER RESOLVED"). The EMDL ships authored-size; scale the
-     * whole posed palette about the model origin (closes the s62
-     * "port applies actor scale" note that was never actually wired —
-     * the authored-size whip arced the lunge 28 u over the player's
-     * head, which is also why the latch segment could never connect). */
+    /* WORM RENDER SCALE — a FLAGGED PORT constant (see the DOWNGRADE at
+     * ENEMY_ACTOR_SCALE: actor +0x80..+0x8C is the RGBA multiplier, not
+     * a scale, so the decomp gives no scale here). Kept because the
+     * port's lunge geometry is tuned around it — the authored-size whip
+     * arced the lunge over the player's head and the latch segment could
+     * never connect. */
     if (e->kind == EM_ENEMY_KIND_CRAWLER && s.bone_count > 1) {
         for (uint32_t b = 0; b < bones; b++) {
             float *m = e->palette + b * 16;
@@ -3655,21 +3755,26 @@ static void crate_burst(Enemy *e, const float pp[3])
 /* BUG tick (s68 mailbox + s76 brain structure — see "THE BUG" in the
  * file header and FINDINGS "BUG BRAIN STATE MACHINES").
  *
- * The DECODED pieces: the EVERY-TICK mailbox consumption (func_00128B80
- * -> func_00129FC0: flinch below lethal, death at it; that lives in
- * enemy_tick, which sets sub=1 on a non-lethal hit and routes lethal to
- * DEATH) and the attack SHAPE — the two brains run a sense-gated
- * approach into a bite LUNGE (func_0012C490, clip 0x13) whose contact is
- * the shared melee resolver func_001B5360: a radius-6 sphere ~10u ahead
- * of the bug, tested vs the player and (on a hit) routed to the player
- * contact-damage latch. We mirror that with the same player-hit bridge
- * the worm uses (s.player_hit = 0x4000 | dmg).
+ * The DECODED piece is the mailbox chain only: func_00128B80 routes ANY
+ * nonzero +0x36 into the reaction state without looking at HP, and
+ * func_00129FC0 case 0 then debits the low byte of the mailbox from
+ * +0x34 and picks flinch / knockdown / death. The port folds that into
+ * enemy_tick (sub=1 on a survivable hit, DEATH when HP runs out).
+ *
+ * EVERYTHING BELOW IS A PORT CONSTRUCTION (corrected 2026-07-31). The
+ * old note claimed the bite was func_0012C490 clip 0x13 resolved by "the
+ * shared melee resolver func_001B5360, a radius-6 sphere ~10 u ahead".
+ * Both halves are refuted by the recovered C: func_001B5360 is the
+ * shared GROUND-SNAP probe (vertical, +10 Y up / 30 down, mask 6 — see
+ * the CORRECTION block at BUG_CONTACT_FWD), and func_0012C490 is a
+ * 9-state LEAP chain (clip 0x13 with a body hop and sfx 0x1AE, then
+ * clips 0x14/0x15 and a spin) that contains no contact test. The two
+ * real brains func_00128C10 / func_0012A5D0 are still undecompiled
+ * stubs. So the approach/bite shape, its timers, the contact box and
+ * BUG_BITE_DMG are all PORT choices, flagged at their definitions.
  *
  * sub: 0 APPROACH, 1 FLINCH (set by enemy_tick's mailbox path — keep
- * this id), 2 WINDUP, 3 LUNGE, 4 RECOVER. The approach/lunge speeds and
- * timers and the bite damage are FLAGGED PORT constants (the move-helper
- * bodies + the contact-damage VALUE are the s76 open items); the
- * +10u/radius-6 contact box is read from func_001B5360. */
+ * this id), 2 WINDUP, 3 BITE, 4 RECOVER, 5 LATCHED. */
 static void bug_attack_tick(const EmCollision *coll, Enemy *e,
                             const float pp[3])
 {
@@ -4108,14 +4213,16 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             break;
         }
         if (e->kind == EM_ENEMY_KIND_EGG) {
-            /* egg/growth fixture IDLE (func_00156620 state 1 armed-idle):
-             * poll the +0x36 mailbox ONLY — HP 1 makes any nonzero hit
-             * lethal -> burst. NO alarm broadcast and NO alarm wake (the
-             * egg is not in the placed-crawler whitelist and never reads
-             * +0x0A), NO proximity test, NO player reference: a passive
-             * destructible prop that only reacts to being shot (s78 §5).
-             * The idle pulse/wobble is a visual-only world-matrix
-             * perturbation (enemy_build_palette), like the crate jitter. */
+            /* DRUM IDLE (func_00156620 state 1 armed-idle): poll the
+             * +0x36 mailbox — HP 1 makes any nonzero hit lethal ->
+             * burst. NO alarm broadcast and NO alarm wake (the drum is
+             * not in the placed-crawler whitelist and never reads
+             * +0x0A). It DOES reference the player, but only for the
+             * target-list publish gate (dist^2 <= 50*50 -> actor[1] = 1
+             * + func_001B1D20), which lives in the query path here —
+             * enemy_in_target_range, not the tick. And it does NOT
+             * wobble: the old idle perturbation was a port invention and
+             * is removed (see enemy_build_palette / EGG_TARGET_R). */
             if (enemy_mailbox_poll(e, pp))
                 e->state = EM_ENEMY_DEATH;
             break;
@@ -4160,9 +4267,12 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             /* decoded: state 1 never polls +0x36 (damage defers) */
             crate_attack_tick(coll, e);
         } else if (e->kind == EM_ENEMY_KIND_BUG) {
-            /* the bug consumes the mailbox EVERY tick (decoded
-             * func_00128B80): lethal -> death, nonlethal -> flinch
-             * (the 0x1D window), else the minimal walk brain */
+            /* the bug consumes the mailbox EVERY tick. DECODED, with
+             * the split corrected: func_00128B80 only ROUTES any nonzero
+             * +0x36 into the reaction state (no HP compare lives there);
+             * func_00129FC0 case 0 is what debits the low byte from
+             * +0x34 and picks flinch clip 0x1D vs the death event
+             * 0x8000000C. The port collapses both into this poll. */
             int had = e->mailbox != 0;
             if (enemy_mailbox_poll(e, pp)) {
                 e->state = EM_ENEMY_DEATH;
@@ -4228,14 +4338,15 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             break;
         }
         if (e->kind == EM_ENEMY_KIND_BUG) {
-            /* bug death (s68 + s76): the gameplay slot frees immediately
-             * (alive/hit-tests off) while the corpse plays the real DEATH
-             * clip 0x1B (func_00129FC0) and alpha-fades. The clip is now
-             * exported (s76 anim-baker fix unblocked the non-sentinel
-             * container) so the bug collapses for real, then holds the
-             * last frame and fades; if it is ever missing, the frozen-
-             * pose fade stands in (pre-s76 fallback). No gibs — the husk
-             * burst set is the crate's; the bug's gore chain is undecoded. */
+            /* bug death: the gameplay slot frees immediately
+             * (alive/hit-tests off) while the corpse plays the DEATH
+             * clip and alpha-fades. CORRECTED — the collapse clip is
+             * 0x20 (func_00129FC0 case 3, played with sound 0x1B7 just
+             * before the case-4 free), NOT 0x1B; 0x1B is the case-0
+             * KNOCKDOWN reaction and survivable hits play it too. The
+             * loader asks for 0x20 first and falls back to 0x1B, then to
+             * the frozen-pose fade. No gibs — the husk burst set is the
+             * crate's; the bug's gore chain is undecoded. */
             e->state   = EM_ENEMY_FREE;
             e->active  = 0;
             e->mailbox = 0;
@@ -4282,6 +4393,10 @@ void em_enemy_update(const EmCollision *coll, const float player_pos[3])
      * THIS MODULE sees, so the run is self-contained — the real
      * player, camera and every other module are untouched. */
     const float *pp = player_pos;
+    s.pp_last[0] = player_pos[0];
+    s.pp_last[1] = player_pos[1];
+    s.pp_last[2] = player_pos[2];
+    s.pp_seen    = 1;
     if (s.tt_on) {
         if (!s.tt_armed)
             tt_arm(player_pos);
@@ -4470,6 +4585,22 @@ static int enemy_victim(const Enemy *e)
                                                * victim — it is excluded. */
 }
 
+/* The DRUM's own target-list gate — DECODED (func_00156620 state 1, see
+ * EGG_TARGET_R): the drum publishes itself to the target list through
+ * func_001B1D20 only while the player is inside 50 u; outside that it
+ * takes the plain func_001B17A0 visible-actor path and is not a
+ * candidate at all. `ref` is the query origin (the shooter for the ray
+ * / acquire paths, the last player position this module saw for the
+ * bare targetable gate). Every other kind is unconditional. */
+static int enemy_in_target_range(const Enemy *e, const float ref[3])
+{
+    if (e->kind != EM_ENEMY_KIND_EGG || !ref) return 1;
+    float dx = e->pos[0] - ref[0];
+    float dy = e->pos[1] - ref[1];
+    float dz = e->pos[2] - ref[2];
+    return dx * dx + dy * dy + dz * dz <= EGG_TARGET_R * EGG_TARGET_R;
+}
+
 /* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
  * and the gib demo stay byte-identical). */
 static float kind_aim_y(const Enemy *e)
@@ -4500,6 +4631,7 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
     for (int i = 0; i < s.n; i++) {
         const Enemy *e = &s.e[i];
         if (!e->active || !enemy_victim(e)) continue;  /* model filter */
+        if (!enemy_in_target_range(e, from)) continue; /* drum 50-u gate */
         float dx = e->pos[0] - from[0];
         float dz = e->pos[2] - from[2];
         float d  = sqrtf(dx * dx + dz * dz);
@@ -4521,11 +4653,14 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
  * targetable -> HP +0x34 != 0; the port's `active` covers the first
  * (death frees the slot immediately) and enemy_victim IS the 183B80
  * model switch (worms excluded — J2 s66: the auto-aim lock never
- * fills on a worm). */
+ * fills on a worm). The DRUM adds its own decoded 50-u publish gate
+ * (enemy_in_target_range), measured from the last player position this
+ * module saw — the same D_00810350 mirror func_00156620 reads. */
 int em_enemy_targetable(int i)
 {
     return i >= 0 && i < s.n && s.e[i].active &&
-           enemy_victim(&s.e[i]) && s.e[i].hp > 0;
+           enemy_victim(&s.e[i]) && s.e[i].hp > 0 &&
+           enemy_in_target_range(&s.e[i], s.pp_seen ? s.pp_last : NULL);
 }
 
 /* func_00183C40 class-keyed aim point (em_enemy.h): the hit-sphere
@@ -4590,6 +4725,7 @@ int em_enemy_ray_test(const float from[3], const float to[3],
                                    * worm (func_00183AC0 rejects model
                                    * 0x0D — J2 s66) and resolves the
                                    * world behind it instead */
+        if (!enemy_in_target_range(e, from)) continue; /* drum 50-u gate */
         float t;
         if (e->kind == EM_ENEMY_KIND_CRATE) {
             /* the engine's full box hull (s76) — a shot lands anywhere

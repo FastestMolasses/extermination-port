@@ -37,10 +37,15 @@
  *   door <file.emdl> <x> <y> <z> <yaw> <trigger_radius>
  *       [goto <scene-dir> <sx> <sy> <sz> <syaw>]
  *
- * The OPTIONAL goto tail is the decoded per-area DOOR DESTINATION
- * (FINDINGS "AREA TRANSITION LIFECYCLE": dest table D_0024E140[area]
- * [door_id & 0x7F], static in the boot ELF; spawn = the target
- * sub-state's real spawn-table record, pos + exit yaw). A goto door's
+ * The OPTIONAL goto tail is the decoded per-area DOOR DESTINATION. The
+ * dest-table shape is CONFIRMED in the byte-matched func_001BC150:
+ * `rec = D_0024E140[D_00810700] + (id & 0x7F) * 4`, then bit 7 of the
+ * id short selects the inter-area branch (rec[0] area, rec[1] entry,
+ * rec[2] ? rec[3] : 0xFF sub) vs the room-move branch
+ * (rec[side latch +0x2E]). The arrival spawn record shape is CONFIRMED
+ * in the byte-matched func_001B07C0: 0x30-byte records at
+ * D_0024D650[area][slot] + D_00810702 * 0x30, pos at +0/+4/+8, yaw at
+ * +0xC, walk-out flag at +0x14. A goto door's
  * transition COMMIT switches the ACTIVE SCENE at full black instead of
  * the same-scene re-place: em_game consumes em_door_goto_pending() and
  * runs em_game_scene_switch() + the spawn placement while the screen is
@@ -98,66 +103,100 @@
  *      through the scripted MOVE-TO walk (em_door_transit_active ->
  *      em_game player_move), per the walk-to of func_00182F90.
  *   2. OPEN phase (sub 3) — the door script D_0024DE40 (FINDINGS.md
- *      "DOOR SCRIPTS DECODED" s23), run on walk-to arrival: the player
- *      faces the door (the kickoff yaw snap) and plays anim 0x45
- *      (front) / 0x43 (back) at rate 1.0 through em_game's scripted-
- *      anim mailbox (op 0x0A sub 0) while the door clip + sound run
- *      (op 0x0B sub 6; captured clip window 77..97 vsyncs); the script
- *      waits 90 (front) / 70 (back) frames (op 0x02 STOP) -> commit
- *      (sub 4, func_001BC240 -> func_001BC150): 64-frame fade-out
- *      (func_001AEDE0(4,0) -> em_frame_fade_start). Room moves do NOT
- *      fade audio (only area changes do — s22).
+ *      "DOOR SCRIPTS DECODED" s23), run on walk-to arrival: op07 sub0
+ *      enters scripted mode, op0D sub5 fires a CHASE-CAMERA cue
+ *      (-20.0, hold 0x78 — NOT ported: em_door does not own the camera,
+ *      FLAGGED), then the player faces the door (the kickoff yaw snap)
+ *      and plays anim 0x45 (front) / 0x43 (back) at rate 1.0 through
+ *      em_game's scripted-anim mailbox (op 0x0A sub 0) while the door
+ *      clip + sound run (op 0x0B sub 6; captured clip window 77..97
+ *      vsyncs); the script waits 90 (front) / 70 (back) frames (op 0x02
+ *      STOP) — the 0x42B40000 / 0x428C0000 literals func_001BBE40
+ *      stores into the wait record — -> commit (sub 4,
+ *      func_001BC240 -> func_001BC150). func_001BC150 is byte-matched
+ *      and branches on the door id's bit 7: CLEAR = same-area room move
+ *      -> func_001AEDE0(4, 0), fade only, B8 = 2; SET = inter-area ->
+ *      func_001B0C00(4), fade + audio fades, B8 = 1. So room moves
+ *      genuinely do NOT fade audio. (The "64-frame" ramp length for
+ *      speed 4 is a capture, not something func_001AEDE0 states — it
+ *      only writes D_0028A9A0 = 3 / speed = 4.)
  *   3. while black: the player is RE-PLACED at the spawn point behind
  *      the door (door - 5*n on the far side, exit yaw — the spawn-table
  *      records flank their door at +-5 with exit pose); consumed by
- *      em_game through em_door_warp_pending(). The door starts closing
- *      (the engine re-arms when the request byte B8 clears, right after
- *      the re-place) and a 64-frame fade-in starts. The re-place ALSO
- *      starts the ARRIVAL WALK-OUT (below).
- *   4. ARRIVAL WALK-OUT (decoded 2026-06-11 — the engine's player state
- *      5/1, dispatcher func_0015B610 -> handler func_00183250): the
- *      re-place state func_001AE040[4] calls func_001B07C0(1), which
- *      reads the spawn record's +0x14 byte (1 in every decoded record)
- *      and puts the player actor in state 5 sub 1 — the scripted
- *      walk-out. Its sub-machine (+0x06 phases):
+ *      em_game through em_door_warp_pending(). The door SNAPS SHUT:
+ *      func_001BC290 (byte-matched) sees the request byte B8 clear at
+ *      the re-place and calls anim_clip_init(self, 0, 0, 0), resetting
+ *      the clip to the captured closed pose in one frame — it never
+ *      plays the clip backwards. A 64-frame fade-in starts. The
+ *      re-place ALSO starts the ARRIVAL WALK-OUT (below).
+ *   4. ARRIVAL WALK-OUT (the engine's player state 5/1, dispatcher
+ *      func_0015B610 -> handler func_00183250). PROVENANCE, split
+ *      honestly by the 2026-07-31 audit:
+ *        CONFIRMED — the byte-matched func_001B07C0 copies the spawn
+ *          record's +0x14 byte to player+0x0E and, when its own arg is
+ *          nonzero, a +0x0E of 1 writes player state/sub/phase =
+ *          5 / 1 / 0. The whole phase machine below is read out of the
+ *          byte-matched func_00183250.
+ *        NOT CONFIRMED — that the door re-place passes 1. That caller is
+ *          the in-game frame machine func_001AE040, still undecompiled;
+ *          the one recovered call site (src/anim_frame_top_a.c, the
+ *          0x001ACA20 attract machine) passes 0, which arms nothing. So
+ *          "every arrival walks out" is an OBSERVED port behaviour, not
+ *          a source-derived fact.
+ *      Its sub-machine (+0x06 phases):
  *        phase 0 (1 frame): request the locomotion clip at locIdx 2
  *                 (mode-1 anim table D_00248AB0[1][family*4+2]: family 0
  *                 unarmed -> id 2 = RUN; armed families -> the scripted
  *                 walks 0x4D/0x4E), ramp +0x38 = 0.3 u/tick
  *                 (D_00248870[2]), timer 0x32
- *        phase 1 (50 frames): clip plays, NO translation (the mover
+ *        phase 1 (timer 0x32): clip plays, NO translation (the mover
  *                 func_00178B90 is not called) — hidden under the
  *                 fade-in for its first ~64 frames
- *        phase 2 (30 frames): mover runs at 0.3 u/tick along the spawn
+ *        phase 2 (timer 0x1E): mover runs at 0.3 u/tick along the spawn
  *                 yaw
- *        phase 3 (30 frames): mover runs while the ramp decays
- *                 0.0113636/frame (0x3C3A2E8C) to 0 (~26 frames), the
- *                 base idle is requested (blend 12) — the player
+ *        phase 3 (timer 0x1E): mover runs, THEN the ramp decays
+ *                 0.0113636/frame (0x3C3A2E8C) to 0 (~26 frames), and
+ *                 the base idle is requested (blend 12.0) — the player
  *                 decelerates to a stop ~12.8 u out from the spawn
- *        exit: player state 1/0, action +0x1F0 = 0, spad 3B8D cleared.
+ *        exit: player state 1/0, phase 0, action +0x1F0 = 0, spad 3B8D
+ *                 cleared.
  *      The walk-out is UNINTERRUPTIBLE: state 5 never reads the stick.
- *      Total ~111 frames from the re-place.
+ *      TIMER SHAPE (corrected 2026-07-31): func_00183250 reads,
+ *      decrements and stores the +0x28 timer every frame and advances
+ *      the phase on the frame the READ value is 0, without calling the
+ *      mover on that hand-over frame. Each phase therefore costs its
+ *      count PLUS one frame: 51 + 31 + 31 = 113 frames from the
+ *      re-place, 60 of them moving. The old "50/30/30 / ~111 frames"
+ *      reading dropped the hand-over frames.
  *
  * THE TWO LOCKS (decoded 2026-06-11 — they are SEPARATE systems):
  *
  *   MOVEMENT lock — the player actor's STATE machine. From the use-arm
- *   the script/transit owns the player (scripted mode spad 0x70003B8D
- *   = 3 routes frames to the cutscene variant func_001AE6B0, which
- *   never runs free movement), and on arrival state 5/1 (the walk-out
- *   above) ignores the stick until its phases complete. Natively:
- *   em_door_movement_locked() — kickoff until the walk-out ends.
+ *   the script/transit owns the player: the use scan func_00184BA0
+ *   writes spad 0x70003B8D = 3 on the frame it arms a target, and the
+ *   frame dispatcher (src/anim_frame_top_a.c, state 4 sub 1) reads
+ *   `if (*(u8*)0x70003B8D == 0) func_001AE5E0(); else func_001AE6B0();`
+ *   — so ANY nonzero value routes the frame to the scripted variant.
+ *   ("never runs free movement" is the port's reading of that split,
+ *   not something func_001AE6B0's own body states.) On arrival state
+ *   5/1 (the walk-out above) ignores the stick until its phases
+ *   complete. Natively: em_door_movement_locked() — kickoff until the
+ *   walk-out ends.
  *
  *   MENU lock — the frame poll func_001AE7E0 (the gate that returns 2
- *   = "open the status screen" on Triangle/Start). It refuses while:
- *     - a transition request is pending (D_008106B8/B9 != 0),
- *     - the FADE machine is not idle (D_0028A9A0 — the +0xC0 sub-state
- *       — != 0: fade-out 3, hold-black 2, fade-in 1),
+ *   = "open the status screen" on Triangle/Start). Its refusals, in the
+ *   order the recovered function tests them:
+ *     - a transition request is pending (D_008106B8 != 0, D_008106B9
+ *       != 0),
+ *     - the FADE machine is not idle (D_0028A9A0 != 0; func_001AEDE0
+ *       sets it to 3 to arm the transit fade-out, so 3 = fade-out),
  *     - scripted mode is active (spad 0x70003B8D != 0).
- *   On ARRIVAL the re-place state's first call func_001AFCF0 CLEARS
- *   spad 3B8D (while the screen is still black), so the only menu gate
- *   left is the fade-in: Triangle/Start works again the moment the
- *   fade-in completes (~frame 64 of the ~111-frame walk-out — "about
- *   halfway through", while movement is still locked). Natively:
+ *   On ARRIVAL func_001AFCF0 CLEARS spad 3B8D (and memsets the whole
+ *   0x48-byte D_008106B0 block, which is where B8/B9 live) while the
+ *   screen is still black, so the only menu gate left is the fade-in:
+ *   Triangle/Start works again the moment the fade-in completes
+ *   (~frame 64 of the 113-frame walk-out — "about halfway through",
+ *   while movement is still locked). Natively:
  *   em_door_menu_locked() — kickoff until the fade-in completes.
  *   em_hud gates its open toggle on it (the func_001AE7E0 stand-in).
  *
@@ -203,17 +242,25 @@
  *    reload) needs the native area loader — goto doors approximate it
  *    with the scene switch (em_door_goto_pending). A goto SLIDER reuses
  *    that same commit after its walk-through (the native slider
- *    commit/fade interleave is unread — flagged); a plain slider ends
- *    its script with the player free on the far side, stays parted,
- *    and re-closes (clip reversed, the s32 flag) when the player
- *    leaves the scan radius.
+ *    commit/fade interleave is unread — flagged).
+ *  - A goto-less SLIDER is a PURE PORT INVENTION (audit 2026-07-31): it
+ *    ends its script with the player free on the far side, stays
+ *    parted, and re-closes by reversing the clip once the player leaves
+ *    the scan radius. func_001BB860 has no such state — its sub 2 goes
+ *    straight to sub 3 = func_001BC150, so in the engine EVERY slider
+ *    that opens commits a transition. Doing this properly needs slider
+ *    dest records in the manifest.
  *
  * COLLISION: the engine gives placed objects collision through per-uid
  * AABB records in the area state blob (movable-hull set, mask bit 0) —
  * NOT through the static world, and the office EMCL bake confirms both
  * doorways are open in the static sets. em_door_probe() is the native
  * movable-hull stand-in: a segment-vs-AABB test against every door that
- * is not fully open, consumed by the player move probe (em_game.c). The
+ * is not fully open, consumed by the player move probe (em_game.c).
+ * (OBSERVED, not decoded: nothing in the recovered door code clears or
+ * restores a collision word, so "a fully open door stops blocking" is a
+ * port rule. It matters less than it used to now that the close is a
+ * one-frame snap.) The
  * camera solver keeps the engine's own mask 6 (static only), so the
  * camera sees through doors exactly like the original.
  *
@@ -221,10 +268,13 @@
  * "DOOR SCRIPTS DECODED" s23 script D_0024DEC0 + the s45 clip-motion
  * verdicts + the s53/s56 locked-look camera):
  *
- *   GATE  func_001BC350 sub-state 0, model 0x15 ("security door"):
- *         unlock bitmask `D_00810841[area] & (1 << door_id)` — bit SET
- *         opens normally (func_001BBE40 mode 0), bit CLEAR runs the
- *         LOCKED TRY (mode 1 -> sub 1). D_00810841 is BSS: every
+ *   GATE  func_001BC350 sub-state 0, model byte +0x03 == 0x15 ("security
+ *         door"): `D_00810841[D_00810700] & (1 << *(short*)(self+0x34))`
+ *         — bit SET opens normally (func_001BBE40 mode 0 -> sub 3), bit
+ *         CLEAR runs the LOCKED TRY (mode 1 -> sub 1); any other model
+ *         byte skips the gate entirely and always takes mode 0. The
+ *         slider brain func_001BB860 runs the same gate for model bytes
+ *         0x16 / 0x17 / 0x3E. D_00810841 is BSS: every
  *         lock-gated door starts LOCKED until a game event (door
  *         panel / keycard script) sets its bit. Natively the manifest
  *         door line carries the decoded gate as a `locked` token
@@ -243,11 +293,12 @@
  *                 + 8 u to the HANDLE side (door-yaw left) + 10 up,
  *                 eye = target - 13 along the live camera yaw at
  *                 door.y + 12 (em_game consumes em_door_locked_look)
- *     op0A sub0   player anim 0x46 front / 0x44 back rate 1.0 — the
- *                 directory-verified TRY-THE-HANDLE-AND-FAIL gestures
- *                 (200 f, limbs only, exact return to rest; the
- *                 2026-06-11 bake re-verified peak node deviation
- *                 5.4/6.6 u at f64-68)
+ *     op0A sub0   player anim 0x46 front / 0x44 back rate 1.0 — the ids
+ *                 are DECODED (func_001BBE40 mode 1 stores them), but
+ *                 the read of them as TRY-THE-HANDLE-AND-FAIL gestures
+ *                 (200 f, limbs only, exact return to rest; peak node
+ *                 deviation 5.4/6.6 u at f64-68) is a MEASUREMENT off
+ *                 the clip bake, not anything the code states
  *     op0B sub0   DOOR clip engine id 3 front / 1 back — the lock-
  *                 fixture jiggle (s30: 200 f, panel still, fixture
  *                 rattle peaks ~f60-110, settles to rest), no sound
@@ -297,9 +348,13 @@ enum {
     EM_DOOR_LOCKED_END = 2, /* finish script D_0024DBC0 ran (engine sub
                              * 2: restore + re-arm next frame) */
     EM_DOOR_OPENING    = 3,
-    EM_DOOR_OPEN       = 4, /* one-frame transition COMMIT (func_001BC150) */
-    EM_DOOR_CLOSING    = 5  /* transition pending: fade-out -> re-place ->
-                             * close + fade-in -> re-arm (engine sub 5) */
+    EM_DOOR_OPEN       = 4, /* one-frame transition COMMIT (func_001BC240
+                             * -> func_001BC150) */
+    EM_DOOR_CLOSING    = 5  /* transition pending (engine sub 5,
+                             * func_001BC290): clip keeps advancing
+                             * forward through the fade-out; at the
+                             * re-place the request byte clears and the
+                             * clip SNAPS to the closed pose + re-arms */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU

@@ -885,7 +885,11 @@ static int engine_blank_lead(int v, int digits)
 
 /* Status-screen visibility — hidden by default (the original shows no
  * persistent HUD), flipped by a Triangle OR Start edge (both buttons
- * open the same screen — verified identical memory diff, FINDINGS). */
+ * open the same screen).  The "verified identical memory diff" that
+ * used to be cited here is an OBSERVATION, not a decode.  The
+ * source-derived part is func_001AE7E0's two-bit open test
+ * `(D_00810E74 & 0x800) || (D_00810E74 & 0x10)` — two buttons, one
+ * screen; naming them TRIANGLE and START is inference (em_hud.h). */
 static int s_shown = 0;
 
 /* MENU INHIBIT (em_hud.h) — the engine's D_008106B3 byte, mirrored
@@ -899,27 +903,44 @@ void em_hud_menu_inhibit(int inhibit)
     s_menu_inhibit = inhibit;
 }
 
-/* --- page navigation (FINDINGS "STATUS SUB-PAGES", session 31) --------
+/* --- page navigation — PORT MODEL, provenance DOWNGRADED -------------
  *
- * Hub hover = left stick (engine func_0020D930 mode 0): deflection
- * > 0.8, quadrant -> ctx +0x11: 1 down, 2 right, 3 up, 4 left; releases
- * back to 0 (hover, not latch). The hovered marker's rings swap blue ->
- * green. X (engine internal bit 0x40) enters the hovered page through
- * the controller's REMAP at func_0020CDC0 .L0020D294:
+ * PROVENANCE FIRST: every mapping below was previously written up as
+ * "the controller's REMAP at func_0020CDC0 .L0020D294".  func_0020CDC0
+ * is still an INCLUDE_ASM stub in the decomp — it has never been
+ * decompiled, so nothing here is source-derived.  Treat the whole block
+ * as OBSERVED behaviour plus port choices until that function lands.
  *
+ * What IS decoded and does support the surrounding design:
+ *   - func_001AE7E0 (NEARMISS, body-correct) is the mode classifier.
+ *     It returns 2 — "enter the status/menu mode" — for
+ *     `D_008106C5 != 0 || D_008106B0 != 0` (an external request or a
+ *     posted pickup) and, further down, for
+ *     `(D_00810E74 & 0x800) || (D_00810E74 & 0x10)` — two distinct
+ *     button-edge bits, which is the real basis for "two buttons open
+ *     the same screen".  Which two is inferred, not read: the same
+ *     edge word drives func_001AC480's menu walk, where 0x4000 steps
+ *     the selector forward and 0x1000 steps it back, so the low nibble
+ *     0x10/0x20/0x40/0x80 reads as the face buttons and 0x800 as
+ *     START.  Inference, flagged.
+ *   - func_0020CD80 (byte-matched) is a one-line thunk,
+ *     func_001FB9F0(2, 0x1000, 0x1000, 0x1000) — the same cue call the
+ *     menu walk uses for its move (cue 5) and confirm (0x5DD..0x5DF)
+ *     sounds.  So it fires cue 2.  That it is the *no-hover buzz* is
+ *     an assumption inherited from the stub write-up.
+ *
+ * PORT MODEL (unchanged behaviour, honestly labelled):
+ *   hub hover = left stick, deflection > 0.8, quadrant -> 1 down,
+ *   2 right, 3 up, 4 left, releasing back to 0.  X enters:
  *     hover 1 (down)  -> page 3  DATABASE SCREEN  (chunk 0x24)
  *     hover 2 (right) -> page 2  SPR4 SCREEN      (chunk 0x2C)
  *     hover 3 (up)    -> page 1  MAP SCREEN       (chunk 0x1E)
  *     hover 4 (left)  -> page 0  ITEM SCREEN      (chunk 0x1F)
- *
- * X with NO hover buzzes (func_0020CD80) and enters nothing. Inside a
- * page, Circle (0x20) returns to the hub (page views' exit path,
- * +0x10 <- 0x63); at the hub, Triangle/Start/Circle (mask 0x830)
- * closes the screen. The port adds Triangle as a page->hub back too
- * (the engine's per-page Triangle behavior is page-specific and not
- * fully decoded; flagged). Pages 4/5 (passcode keypads, chunks
- * 0x25/0x26) are NOT diamond-reachable — only the external request
- * byte D_008106C5 enters them — so the port's nav covers pages 0-3. */
+ *   X with no hover enters nothing; Circle or Triangle backs out of a
+ *   page; Triangle/Start/Circle closes at the hub.  The "engine edge
+ *   mask 0x830" that used to be quoted for the close is likewise from
+ *   the stub — unverified.  Pages 4/5 (passcode keypads, chunks
+ *   0x25/0x26) are not diamond-reachable in the port either. */
 static int s_hover = 0;     /* 0 none, 1 down, 2 right, 3 up, 4 left */
 static int s_page  = -1;    /* -1 = hub, 0..3 = entered page */
 
@@ -929,14 +950,16 @@ static const char *kPageNames[4] = {
     "ITEM SCREEN", "MAP SCREEN", "SPR4 SCREEN", "DATABASE SCREEN"
 };
 
-/* Hub help line — the engine's selection in func_0020CDC0: a hover
- * shows the hovered page's name (group-0 lines: 1 down -> 0 DATABASE
- * SCREEN, 2 right -> 9 SPR4 SCREEN, 3 up -> 2 MAP SCREEN, 4 left -> 1
- * ITEM SCREEN); idle shows the infection-graded diary line keyed on
- * v = 100 - (int)displayed-infection (.L0020D1AC thresholds): v == 100
- * -> NO line (D_002821B4 = 0), v >= 0x51 -> 4, >= 0x33 -> 5, >= 0x1F
- * -> 6, >= 0xB -> 7, > 0 -> 8, else (infection 100) -> 3 "Dennis
- * Infected". Returns the group-0 line id, or -1 = no help text. */
+/* Hub help line — PROVENANCE DOWNGRADED.  This selection was recorded
+ * as "the engine's selection in func_0020CDC0 .L0020D1AC", but
+ * func_0020CDC0 is an undecompiled INCLUDE_ASM stub: neither the
+ * hover->line mapping nor the 0x51/0x33/0x1F/0xB thresholds have been
+ * read out of recovered C.  Kept as the port's observed model, NOT as
+ * source-derived data.  A hover shows the hovered page's name (group-0
+ * lines: 1 down -> 0, 2 right -> 9, 3 up -> 2, 4 left -> 1); idle
+ * shows the infection-graded diary line keyed on
+ * v = 100 - (int)displayed-infection.  Returns the group-0 line id, or
+ * -1 = no help text. */
 static int hub_help_line(float inf_disp)
 {
     static const int kHoverLine[5] = { -1, 0, 9, 2, 1 };
@@ -994,8 +1017,10 @@ static int hud_forced_hover(void)
 static float s_disp_health    = -1.0f;
 static float s_disp_infection = -1.0f;
 
-/* Frame counter while visible — drives the highlight rotation (6 deg per
- * frame = the engine's 12 deg per 2 frames = 1 s per revolution). */
+/* Frame counter while visible — drives the highlight rotation.  The
+ * engine's own counter is the status ctx word counter[8], bumped once
+ * per drawn frame and used as 12.0f * ((counter[8] >> 1) % 30)
+ * (func_00208AD0, byte-matched): 30 stepped positions, 1 s per turn. */
 static uint32_t s_frames = 0;
 
 void em_hud_update(const EmFrameInput *in)
@@ -1012,12 +1037,20 @@ void em_hud_update(const EmFrameInput *in)
 
     if (!em_hud_visible()) {
         /* Closed: Triangle or Start opens the screen at the hub —
-         * UNLESS the door-transit MENU lock holds (the engine's open
-         * poll func_001AE7E0 returns 0 while the fade machine is not
-         * idle / scripted mode runs; the press is simply dropped, no
-         * latch). The lock clears at fade-in completion, so the menu
-         * already works mid arrival-walk-out, exactly like the
-         * original (em_door.h "THE TWO LOCKS"). */
+         * UNLESS a lock holds.  CONFIRMED against func_001AE7E0
+         * (NEARMISS, body-correct), which is a pure classifier with no
+         * latch of its own: it returns 0 (blocked) for D_008106B8,
+         * D_008106B9, the fade word D_0028A9A0, the scratchpad gate
+         * *0x70003B8D and the menu-inhibit byte D_008106B3, and only
+         * reaches its open test `(D_00810E74 & 0x800) ||
+         * (D_00810E74 & 0x10)` after all of them.  A blocked press is
+         * simply dropped.  em_door owns the fade/scripted half of that
+         * list (em_door.h "THE TWO LOCKS"), s_menu_inhibit the
+         * D_008106B3 half.
+         *
+         * Not modelled here: func_001AE7E0 also returns 1 whenever
+         * D_00810E50 != 4, i.e. the open test is unreachable outside
+         * that game state. */
         if ((in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)) &&
             !em_door_menu_locked() && !s_menu_inhibit) {
             s_shown = 1;
@@ -1035,7 +1068,10 @@ void em_hud_update(const EmFrameInput *in)
         return;
     }
 
-    /* Hub: Triangle/Start/Circle (engine edge mask 0x830) closes. */
+    /* Hub: Triangle/Start/Circle closes.  (The "engine edge mask 0x830"
+     * this used to cite comes from the func_0020CDC0 stub — unverified;
+     * the two OPEN bits 0x800|0x10 are the only part func_001AE7E0
+     * actually shows.) */
     if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START | EM_PAD_CIRCLE)) {
         s_shown = 0;
         s_hover = 0;
@@ -1058,8 +1094,10 @@ void em_hud_update(const EmFrameInput *in)
         }
     }
 
-    /* X enters the hovered page (no hover = the engine buzzes and
-     * enters nothing). */
+    /* X enters the hovered page; with no hover, nothing.  (The "buzz"
+     * on the empty press is func_0020CD80 = func_001FB9F0(2,...) — the
+     * thunk is byte-matched, but that the empty press is what CALLS it
+     * comes from the func_0020CDC0 stub.  The port plays no cue.) */
     if ((in->pressed & EM_PAD_CROSS) && s_hover > 0)
         s_page = kHoverToPage[s_hover];
 }
@@ -1106,9 +1144,20 @@ static float count_up(float *disp, float target)
  * cx=208; ring center y 197, label row y 118, value row y 262). */
 static void health_gauge(EmGfx *gfx, float hp, float hp_max)
 {
-    const float cx = 208.0f, cy = 197.0f;
+    /* Anchors re-derived from the BYTE-MATCHED call site: func_00209DF0
+     * calls func_00208AD0(ctx, 0xD0, 0xC4), and func_00208AD0 maps a
+     * canvas point to GS as (x + 0x700, (y >> 1) + 0x790).  So the ring
+     * centre is canvas (0xD0, 2 * (0xC4 >> 1)) = (208, 196) — the old
+     * 197 was a one-pixel guess. */
+    const float cx = 208.0f, cy = 196.0f;
 
     /* label: "HEALTH" centered on x=208 at y=118, marker 12 px left.
+     * The marker is the engine's own 8x8 underline rect: func_00208AD0
+     * calls func_00207F80(1, labelW+0x6F4, ((py-0x4C)>>1)+0x790,
+     * labelW+0x6FC, ((py-0x44)>>1)+0x790, 0x80CE6000) = canvas
+     * (labelW-12, 120) to (labelW-4, 128), colour 0x80CE6000 =
+     * (r 0, g 0x60, b 0xCE, a 0x80) — kMarkerBlue exactly.  y was 122
+     * here; the byte-matched arithmetic gives 120.
      * Engine quirk kept (func_00208AD0): the centering width comes from
      * the TALL-font width helper func_001CC170 (proportional — 54 px
      * for "HEALTH") while the label draws in the SMALL font at 12x12
@@ -1117,39 +1166,71 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
     if (em_hud_font_ready()) {
         const float label_x =
             cx - em_hud_text_width("HEALTH", EM_HUD_TEXT_TALL) * 0.5f;
-        marker(gfx, label_x - 12.0f, 122.0f);
+        marker(gfx, label_x - 12.0f, 120.0f);
         em_hud_text(gfx, label_x, 118.0f, "HEALTH", EM_HUD_TEXT_LABEL12);
     } else {
         const float label_x = cx - (6 * 12.0f) * 0.5f;
-        marker(gfx, label_x - 12.0f, 122.0f);
+        marker(gfx, label_x - 12.0f, 120.0f);
         text_placeholder(gfx, label_x, 118.0f, 6, 12.0f, 12.0f,
                          kTextWhite);
     }
 
     /* background ring r36-56, full circle (the engine passes 180..540);
-     * red pair when health <= 35. */
+     * red pair when health <= 35 — CONFIRMED against the byte-matched
+     * func_00208AD0: `if (D_00810858 > 35.0f)` selects the bright pair
+     * 192/224/0/128 + 224/128/24/128, the else arm the dim pair
+     * 160/0/0/128 + 192/0/0/128 (the kRingNorm / kRingLow pairs
+     * declared at the top of this file). */
     const float *ca = (hp <= 35.0f) ? kRingLowA : kRingNormA;
     const float *cb = (hp <= 35.0f) ? kRingLowB : kRingNormB;
     em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, 180.0f, 540.0f,
                         ca, cb, ca, cb);
 
-    /* fill arc r24-56: sweep = 360 * hp/100 starting at 180 deg. */
+    /* fill arc r24-56: sweep = 360 * hp/100 starting at 180 deg.
+     *
+     * PORT READING — NOT settled by the decomp.  func_00208AD0 re-uses
+     * the same 0x60-byte arc block for this pass and writes
+     *   D_00265398 = -180.0f + 360.0f * (D_00810858 / 100.0f);
+     *   D_0026539C = 180.0f;
+     * where the background pass wrote (180, 540).  Read as a (start,
+     * end) pair those are a 360-3.6*hp degree span, i.e. the arc would
+     * SHRINK as health rises; read as the engine's own comment has it
+     * ("angle, radius") it is a needle.  The radii and the block's
+     * static colours live in data we have not exported, so which of the
+     * two the pass paints is UNRESOLVED.  The growing light-blue fill
+     * below is the port's long-standing reading; do not treat it as
+     * source-derived until the 0x265390 block is dumped. */
     float frac = (hp_max > 0.0f) ? clamp01f(hp / hp_max) : 0.0f;
     if (frac > 0.0f)
         em_gfx_overlay_arc(gfx, cx, cy, 24.0f, 56.0f,
                            180.0f, 180.0f + 360.0f * frac, kRingFill);
 
-    /* rotating 120-deg highlight: two 60-deg arcs r36-56, gradient
-     * transparent -> bright -> transparent, advancing 6 deg/frame. */
-    float a = 180.0f + 6.0f * (float)(s_frames % 60u);
-    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a, a + 60.0f,
+    /* Rotating 120-deg highlight: two 60-deg arcs r36-56.  DECODED from
+     * the byte-matched func_00208AD0:
+     *   ang = 180.0f + 12.0f * (float)((counter[8] >> 1) % 30);
+     *   arc A spans (ang - 60, ang), arc B spans (ang, ang + 60);
+     * counter[8] is bumped once per drawn frame.  So the sweep STEPS
+     * 12 deg every 2 frames (30 steps = 1 revolution per second), it
+     * does not glide 6 deg/frame, and the leading edge of the pair sits
+     * at `ang`, not `ang + 120`.  Both were port approximations. */
+    float a = 180.0f + 12.0f * (float)((s_frames >> 1) % 30u);
+    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a - 60.0f, a,
                         kHiliteOff, kHiliteOff, kHiliteOn, kHiliteOn);
-    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a + 60.0f, a + 120.0f,
+    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a, a + 60.0f,
                         kHiliteOn, kHiliteOn, kHiliteOff, kHiliteOff);
 
-    /* value row " 75 / 100" 16 px at y=262: value x=166, "/" x=202,
-     * max x=214 (the given x steps imply a 12 px advance for the 16 px
-     * number font); red style when health <= 60.
+    /* value row " 75 / 100" 16 px at y=262 — every anchor here is the
+     * byte-matched func_00208AD0's own arithmetic with (px, py) =
+     * (0xD0, 0xC4): digits at px-0x2A = 166, the '/' string D_00273568
+     * at px+0x6FA-0x700 = 202, the max string at px+0x706-0x700 = 214,
+     * all on row ((py+0x42)>>1)*2 = 262.
+     *
+     * Red style when health <= 60 — CONFIRMED: func_00208AD0 picks the
+     * red glyph table D_00265528 when `D_008104E4 != 0` OR
+     * `D_00810858 <= 60.0f`, else the white D_00265510.  (The 35 that
+     * drives the ring above is a DIFFERENT threshold; do not merge the
+     * two.)  The D_008104E4 latch also swaps the max string from
+     * D_00273560 to D_00273558 and reddens it — still not modelled.
      *
      * The value is 3 places with leading zeros BLANKED, not zero-padded
      * — DECODED from func_00208AD0, which formats it as
@@ -1193,9 +1274,17 @@ static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
     /* segment bar: one 8x8 square per internal HALF-unit (storage
      * 0x810CB2 holds half-units; the EmPlayerStatus fields are the
      * displayed units = half-units >> 1, so squares = cur * 2), 12 per
-     * row wrapping below, drawn right-to-left from right edge x=104 at
-     * y=134, even columns staggered -1 px, color stepping
-     * magenta -> yellow in 1/12 increments along the row. */
+     * row wrapping below, drawn right-to-left, colour stepping
+     * magenta -> yellow in 1/12 increments along the row (the ramp is
+     * re-seeded per ROW in the engine, so col — not i — drives it).
+     *
+     * COLUMN X CORRECTED against func_00209280 (mode 0, x=0x10,
+     * y=0x76, w=8): it sets `x = x + w*11` = 104 and then, per cell,
+     * `xo = (i & 1) ? x - xOff : (x - xOff) - (w >> 3)` with
+     * xOff = col * w.  So the RIGHTMOST cell's left edge is 104 - 1 =
+     * 103 and each column steps 8 px left of that — the port was
+     * subtracting 8*(col+1) and so drew the whole bar one cell (8 px)
+     * too far left.  Row origin: yBase = y + 0x10 = 134, +8 per row. */
     int half_units = (int)cur * 2;
     for (int i = 0; i < half_units; i++) {
         int   col = i % 12, row = i / 12;
@@ -1203,7 +1292,7 @@ static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
         float c[4];
         for (int k = 0; k < 4; k++)
             c[k] = kBattMagenta[k] + (kBattYellow[k] - kBattMagenta[k]) * t;
-        float x = 104.0f - 8.0f * (float)(col + 1)
+        float x = 104.0f - 8.0f * (float)col
                   - ((col % 2) == 0 ? 1.0f : 0.0f);
         em_gfx_overlay_rect(gfx, x, 134.0f + 8.0f * (float)row,
                             8.0f, 8.0f, c);
@@ -1588,7 +1677,12 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
  * machine owns them exactly like the engine's GS fade. */
 
 /* Screen module 0x27 stand-in: the GAME OVER art screen the wait
- * state fades in (240-frame hold, CROSS-skippable — em_game). */
+ * state launches.  CONFIRMED against func_001AD4E0 (BYTE-MATCHED):
+ * state 0 seeds the u16 at slot+0x18 to 0xF0 = 240 frames, state 1
+ * calls func_001FF080(0, 0x27) (module 0x27), and state 3 leaves only
+ * when `D_0028A9A0 == 0 && (counter == 0 || (D_00810E74 & 0x40))` —
+ * a 240-frame hold that one button edge can cut short.  The art
+ * itself is unexported, so the black + title below is a stand-in. */
 void em_hud_game_over(EmGfx *gfx)
 {
     static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -1609,10 +1703,16 @@ void em_hud_game_over(EmGfx *gfx)
 /* Screen module 1 stand-in: the continue prompt (decoded flow; the
  * option LABELS are port guesses — em_hud.h).
  *
- * THREE options, cursor 0..2 — DECODED from func_001AC480, whose walk
- * increments the selector only while it is < 2 and decrements only
- * while it is nonzero, so the engine can never present anything else.
- * The clamp mirrors that bound rather than dropping the highlight. */
+ * THREE options, cursor 0..2 — CONFIRMED in func_001AC480 (NEARMISS,
+ * body-correct).  Its case 2 reads the selector at ctx+0xF:
+ *   forward edge: `if ((int)ctx[0xF] < 2) { cue 5; ctx[0xF]++; }`
+ *   back edge:    `if (*pf != 0)          { (*pf)--; cue 5; }`
+ * so the selector is bounded to 0..2 and the menu is exactly three
+ * options.  The clamp below mirrors that bound rather than dropping
+ * the highlight.  (Also decoded there, for whoever wires em_game: the
+ * initial selector is 0 normally but 1 when D_00275BDC is set, and the
+ * idle counter ctx[0xB] is seeded to 0x4B0 = 1200 frames and only
+ * ticks down while no button is held.) */
 void em_hud_continue(EmGfx *gfx, int cursor)
 {
     static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -1660,6 +1760,22 @@ void em_hud_found_show(int item_type)
 
 /* --- RADIO/EXAMINE MESSAGE MACHINE (engine mode 2 — em_hud.h) --------
  *
+ * CONFIRMED against func_001FCA10 (BYTE-MATCHED) and func_001FD950
+ * (NEARMISS, body-correct):
+ *   - func_001FCA10 dispatches on D_002821B4 and, in sub-state 2,
+ *     `if (D_002821BC > 0) D_002821BC--; else if (func_001FDB80(0,2)
+ *     == 1) D_002821B4 = 2;` — the machine ends by posting mode 2, and
+ *     it reads no pad anywhere.  Timer-only dismissal, as claimed.
+ *   - func_001FD950 picks the bank by bit 31 of the record's field
+ *     0x34: set -> D_0028A4E8[0] (the GLOBAL/examine slot), clear ->
+ *     D_0028A594[0].  It measures the first TWO segments with
+ *     func_001CC170 and draws at `x = 0x100 - (max >> 1)`, `y = 0xC2`
+ *     — i.e. centred on 256 of the 512-wide canvas, at the same
+ *     half-height y units the rest of the UI uses (RADIO_Y below).
+ *     It then does `if (rec[0x6C] > 0) { ...; rec[0x6C]--; return 0; }`
+ *     — the full string is re-emitted every frame for the record's
+ *     duration.  No typewriter, no panel, no pad read.
+ *
  * The engine machine (struct at D_002821B0, ticked by func_001FCA10
  * mode 2 -> func_001FDB80 -> func_001FD950): each frame increments the
  * frame counter, draws the line's FULL text (no per-char reveal exists
@@ -1689,7 +1805,13 @@ static int radio_duration(int line)
 
 #define RADIO_GROUP 9       /* the slot-0x16 bank rides messages.emsg as
                              * group 9 (tools/export_ui.py --messages) */
-#define RADIO_Y     388.0f  /* field 0xC2 = canvas y 388 (func_001FD950) */
+/* func_001FD950 passes y = 0xC2 = 194 to the blitter.  The engine's UI
+ * y coordinates are half-height (every call site in func_00208AD0 /
+ * func_00209DF0 builds GS y as (canvas_y >> 1) + 0x790), so 194 doubles
+ * to canvas 388 — near the bottom of the 448-tall canvas, where a
+ * subtitle belongs.  DERIVED, not read: the blitter func_001FC770's own
+ * transform has not been decompiled. */
+#define RADIO_Y     388.0f
 
 static struct {
     int active;     /* the engine's D_002821B4 == 1 window */
@@ -1802,29 +1924,47 @@ void em_hud_found_render(EmGfx *gfx)
                 EM_HUD_TEXT_TALL);
 }
 
-/* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard
- * (INVESTIGATION_area11_director.md §4.4 / FINDINGS s81). A one-shot,
- * top-centred title with a fade-in / hold / fade-out, riding the gameplay
- * HUD frame INDEPENDENTLY of the cinematic director. The engine reads the
- * string from a 32-byte-stride table at 0x00273B80 (AREA 11 -> idx1); the
- * port carries the decoded area-11 string here. Other areas have no
- * decoded string -> the card never arms.
+/* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard.
+ * A one-shot, top-centred title riding the gameplay HUD frame
+ * INDEPENDENTLY of the cinematic director.
  *
- * FADE COUNTS ARE FLAGGED (doc §F: the exact opening staggered-fade frame
- * counts are un-stopwatched). The port uses a reasonable short fade with a
- * ~2.5 s hold for live tuning. */
-#define AREA_TITLE_FADE_IN  24    /* fade-in frames (~0.4 s) — FLAGGED */
-#define AREA_TITLE_HOLD     150   /* full-opacity hold frames (~2.5 s)    */
-#define AREA_TITLE_FADE_OUT 36    /* fade-out frames (~0.6 s) — FLAGGED   */
-#define AREA_TITLE_Y        96.0f /* top-centred (the engine draws it high
-                                   * over the dimmed scene; canvas px)    */
+ * CORRECTED against func_001C5930 (the area-title actor behaviour;
+ * NEARMISS, body-correct):
+ *   - state 0 seeds the show counter `*(short *)(arg0 + 0x28) = 0x12C`
+ *     = 300 frames, and state 1 draws the string then decrements it,
+ *     stopping when it reaches 0.  The card therefore runs FIVE
+ *     seconds at 60 Hz — the port's 24+150+36 = 210-frame envelope was
+ *     invented.
+ *   - the draw is one unconditional
+ *       func_001CC1E0(1, 0x800 - (w >> 1), 0x7A2, 0xA, 0x14, str, 0)
+ *     per frame.  Nothing in the function varies alpha, so there is NO
+ *     fade-in/fade-out here; the port's envelope was invented too.  If
+ *     a fade is observed on hardware it comes from a global fade pass,
+ *     not from this card — do not re-add one here without evidence.
+ *   - the anchor decodes as canvas (256 - w/2, 36): x 0x800 - 0x700 =
+ *     256 is the centre of the 512-wide UI canvas (the port centres on
+ *     its own canvas, which is equivalent), and y (0x7A2 - 0x790) * 2 =
+ *     36 — the port was drawing at 96.
+ *
+ * NOT MODELLED (observed in the same function, no port data): after the
+ * 300 frames elapse the engine runs a SECOND 300-frame line, the
+ * sub-location name D_0026726C[func_001C5860()], at canvas x 0x896 -
+ * 0x700 - w/2 = 406 on the same row 36.
+ *
+ * STRING SOURCE — DOWNGRADED.  func_001C5930 does not read a
+ * 32-byte-stride table at 0x00273B80; it indexes a POINTER array
+ * D_002671C0[] with `D_00289B40[D_00810700][0] + D_00810701` (per-area
+ * base + sub-area byte).  The literal area-11 text below is retained as
+ * an OBSERVED capture, not as a decoded table lookup. */
+#define AREA_TITLE_FRAMES   300   /* func_001C5930: 0x12C, DECODED       */
+#define AREA_TITLE_Y        36.0f /* canvas y from GS 0x7A2, DECODED     */
 
-/* The decoded area-title strings (0x00273B80, 32-byte stride). Only the
- * AREA-11 opening string is decoded; NULL = no card for that area. */
+/* The area-title string. OBSERVED (see above), not table-decoded: only
+ * the AREA-11 opening line is known; NULL = no card for that area. */
 static const char *area_title_string(int area)
 {
     switch (area) {
-    case 11: return "FORT STEWART - REAR ENTRANCE";  /* idx1 (s81) */
+    case 11: return "FORT STEWART - REAR ENTRANCE";  /* OBSERVED */
     default: return NULL;
     }
 }
@@ -1841,8 +1981,7 @@ void em_hud_area_title(int area)
     s_area_title.str = str;
     s_area_title.t   = 0;
     printf("hud: AREA-TITLE CARD armed — \"%s\" (area %d, %d-frame card)\n",
-           str, area, AREA_TITLE_FADE_IN + AREA_TITLE_HOLD +
-           AREA_TITLE_FADE_OUT);
+           str, area, AREA_TITLE_FRAMES);
 }
 
 int em_hud_area_title_active(void)
@@ -1875,27 +2014,20 @@ static void title_text_alpha(EmGfx *gfx, float x, float y, const char *str,
 void em_hud_area_title_render(EmGfx *gfx)
 {
     if (!s_area_title.str) return;
-    int total = AREA_TITLE_FADE_IN + AREA_TITLE_HOLD + AREA_TITLE_FADE_OUT;
-    if (s_area_title.t >= total) {        /* card finished -> one-shot done */
+    if (s_area_title.t >= AREA_TITLE_FRAMES) {  /* one-shot done */
         s_area_title.str = NULL;
         return;
     }
-    int t = s_area_title.t++;
+    s_area_title.t++;
     if (!gfx) return;
     if (em_hud_visible()) return;          /* the status screen owns the UI */
     if (!em_hud_font_ready()) return;      /* no font -> queue nothing       */
 
-    /* fade-in -> hold (1.0) -> fade-out alpha envelope */
-    float a;
-    if (t < AREA_TITLE_FADE_IN)
-        a = (float)t / (float)AREA_TITLE_FADE_IN;
-    else if (t < AREA_TITLE_FADE_IN + AREA_TITLE_HOLD)
-        a = 1.0f;
-    else
-        a = (float)(total - t) / (float)AREA_TITLE_FADE_OUT;
-    if (a <= 0.0f) return;
-
+    /* Constant opacity for the whole 300-frame run — func_001C5930
+     * issues the same func_001CC1E0 call every frame with no alpha
+     * term.  (title_text_alpha is kept so the draw path stays the
+     * tall-font one; the alpha it is handed is simply 1.) */
     float w = em_hud_text_width(s_area_title.str, EM_HUD_TEXT_TALL);
     title_text_alpha(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, AREA_TITLE_Y,
-                     s_area_title.str, a);
+                     s_area_title.str, 1.0f);
 }

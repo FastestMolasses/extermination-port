@@ -23,7 +23,9 @@
  * the engine's 48-voice budget is hit, honored by the audio thread at
  * the next callback (FREE instead of mix), lowered by whoever retires or
  * re-claims the slot. See em_sfx.h "VOICE STEALING" for the engine
- * policy decode (func_00117428) this mirrors.
+ * policy decode (func_001172B8, the 0x90 note-on allocator) this
+ * mirrors — corrected 2026-07-31 from the func_00117428 that was cited
+ * here before, which serves the 0xA0 event path instead.
  */
 #include "game/em_sfx.h"
 
@@ -36,12 +38,26 @@
 #include "game/em_bgm.h"
 
 #define SFX_REGISTRY   "assets/sfx/sfx.txt"
-#define SFX_SOUND_MAX  64    /* registry entries (39 banks dedup to ~241
-                              * sounds total; one area uses far fewer)    */
-#define SFX_VOICE_BUDGET 48  /* the engine's voice table D_0027CCC0 size:
-                              * at 48 live voices the OLDEST is stolen
-                              * (func_00117428 pass 3 — em_sfx.h "VOICE
-                              * STEALING")                                */
+#define SFX_SOUND_MAX  96    /* registry entries (39 banks dedup to ~241
+                              * sounds total; one area uses far fewer).
+                              * Bumped 64 -> 96 (s82): the AREA-11 snow
+                              * footstep merge grew assets/sfx/sfx.txt to
+                              * 69 ids; at 64 the RUN-tier snow block
+                              * 0x5E..0x62 was dropped at load ("registry
+                              * full") and run-pace snow steps went
+                              * silent. 96 reloads the full set with
+                              * headroom — a pure array bound, no engine
+                              * semantics (the engine's own table holds
+                              * ~241).                                    */
+#define SFX_VOICE_BUDGET 48  /* the engine's voice table D_0027CCC0 size
+                              * (0x30 entries, stride 0x6A): at 48 live
+                              * voices the OLDEST is stolen — minimum
+                              * +0x0A note-on serial, func_001172B8
+                              * pass 2. NOT func_00117428: that allocator
+                              * serves the 0xA0 event path, while SFX
+                              * one-shots are 0x90 note-ons. Corrected
+                              * 2026-07-31; see em_sfx.h "VOICE
+                              * STEALING".                                */
 #define SFX_VOICE_MAX  64    /* physical slots: budget + 16 spares that
                               * absorb the one-callback kill latency      */
 #define SFX_DEV_RATE   48000 /* device rate when SFX brings it up first
@@ -131,10 +147,14 @@ void em_sfx_mix(float *out, int frames, int device_rate)
         const double    step = (double)snd->w.rate / (double)device_rate;
         double          pos  = v->pos;
         const long      last = snd->w.nframes - 1;
-        /* The engine-decoded stereo gain pair, baked at trigger time
-         * (func_001FBF50 -> channel +0x48/+0x4C), under the PORT
-         * headroom constant. gr may be negative: the behind-the-camera
-         * phase inversion. */
+        /* The stereo gain pair from the BYTE-MATCHED func_001FBF50
+         * (src/func_001FBF50.c), baked at trigger time: func_001FBD50
+         * hands it to func_001FB9F0(id, 0x1000, gainA, gainB), which
+         * reaches func_0011A218 -> channel +0x48/+0x4C. Under the PORT
+         * headroom constant. gr may be negative — func_001FBF50 writes
+         * float_to_int(scaled * k) with k down to -1, and func_0011A218
+         * accepts the full [-0x1000, 0x1000] range: the behind-the-
+         * camera phase inversion. */
         const float     wl   = v->gl * (SFX_GAIN / 32768.0f);
         const float     wr   = v->gr * (SFX_GAIN / 32768.0f);
         long            mixed = 0;
@@ -235,19 +255,30 @@ static float sfx_wrap_pi(float a)
     return a;
 }
 
-/* The decoded func_001FBF50 (see em_sfx.h "POSITIONAL AUDIO"): stereo
- * gain pair for a source at `pos` with attenuation `radius`, against
- * the em_sfx_listener state. Returns 0 = out of range (engine -1). */
+/* The BYTE-MATCHED func_001FBF50, line for line (src/func_001FBF50.c;
+ * see em_sfx.h "POSITIONAL AUDIO"): stereo gain pair for a source at
+ * `pos` with attenuation `radius`, against the em_sfx_listener state.
+ * Returns 0 = out of range (func_001FBF50 returns 0, which func_001FBD50
+ * reports as play_sound -1). */
 int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r)
 {
     *gain_l = *gain_r = 0.0f;
-    if (!s.lis_valid || radius <= 0.0f) {
+    if (!s.lis_valid) {
         /* no listener yet (early boot / headless): degrade to the
          * non-positional center/full submit — no cull, no pan */
         *gain_l = *gain_r = 1.0f;
         return 1;
     }
+    /* Engine parity: func_001FBF50's range test is `!(dist < radius)`,
+     * and dist is a magnitude (>= 0), so a non-positive radius culls
+     * EVERY source. The old code short-circuited radius <= 0 into the
+     * no-listener center/full path, which played sounds the engine
+     * would have refused to submit. (No translated call site passes a
+     * non-positive radius today — every one seen in the decomp passes
+     * 300.0f, with 450/500/800/1000 at a handful of untranslated
+     * sites — so this is a latent divergence, not an observed one.) */
+    if (radius <= 0.0f) return 0;
 
     /* DISTANCE: player listener (D_00810360), full 3-D (flat2d = 0 at
      * every translated call site). */
