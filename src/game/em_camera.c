@@ -15,6 +15,16 @@
 
 #include "game/em_game_internal.h"
 
+/* DOOR-CUT LOOK-AT HEIGHT — supersedes the header's DOORCAM_TGT_UP (13.0,
+ * an early PCSX2 eyeball). src/func_0018CBD0.c derives it as
+ *   11.0f + player.y + cam[0x8C] + 0.3f * (f3 - ang)
+ * with ang == 0 by construction (the cue re-places the eye at exactly
+ * |dist| = 20 away every call) and the pair (cam[0x8C], f3) = (6.0, -20)
+ * at the default camdist -46.8 / (2.0, -10) otherwise. Both rows land on
+ * player.y + 11 - and 11 is CAM_BASE_H, the same base the follow camera's
+ * target height builds on. See the block above camera_door_cinematic. */
+#define DOORCAM_TGT_H  CAM_BASE_H
+
 /* func_0018C6A0(src, dst, max) — the engine's HORIZONTAL chase
  * primitive, one axis: clamped proportional step. d = src - dst;
  * |d| <= 1.0 -> quarter-step snap (d/4); else move |d|/6 capped at max.
@@ -172,6 +182,12 @@ static void cam_eye_y_seek_00191D40(EmCamera *cam, float want, float rate)
 static void camera_walk_eye_0022FCA0(EmCamera *cam)
 {
     float follow = fabsf(g.cam_dist_param);          /* fabs(cam+0x0C) */
+    /* NOTE: the engine picks the slack off a DIFFERENT field —
+     * `*(float *)(p + 0x64) == -46.8f ? -20 : -10` — while the follow
+     * distance comes from p+0x0C. The port carries one camdist for
+     * both, which is exact for every scene it ships (both fields hold
+     * the same per-record value there) but would diverge on a record
+     * that sets them apart. */
     float slack  = (g.cam_dist_param == -46.8f) ? CAM_TETHER_SLACK
                                                 : 10.0f; /* cam+0x64 rule */
     float excess = cam->horiz_dist - follow;
@@ -274,8 +290,10 @@ static int cam_yaw_blocked(const EmCamera *cam, float yaw)
                                       EM_COLL_ID_NONE, &hit) != 0;
 }
 
-/* func_0018BC20 — mode dispatch (struct byte +0x06 over the cut/smooth
- * jump tables jtbl_0026D950/jtbl_0026D910). Natively only MODE 0 exists:
+/* func_0018BC20 — mode dispatch. Precisely (src/func_0018BC20.c): the
+ * TABLE is chosen by struct byte +0x05 (0 -> jtbl_0026D950 "cut",
+ * 1 -> jtbl_0026D910 "smooth"; any other value returns), and byte +0x06
+ * is the 16-way ACTION index into it. Natively only MODE 0 exists:
  * the generic player-relative follow (the smooth-table inline follow).
  * On the PS2, cut-table mode 0 is func_00195130 — the per-AREA camera
  * DIRECTOR, whose per-room logic lives in the area overlays (hardcoded
@@ -356,16 +374,27 @@ static void camera_mode1_aim(EmCamera *cam)
 
 static void camera_mode_dispatch(EmCamera *cam)
 {
-    /* The original gives the player NO free camera control — the only
-     * yaw inputs are the R1/R2 aim camera (mode 1), the L1 orient-
-     * behind and the idle auto-orient. All of them steer the authentic
-     * struct yaw (+0x44)/desired vectors; everything downstream
-     * consumes only those, exactly like an engine mode handler. */
+    /* The original gives the player NO free camera control. This is an
+     * ABSENCE argument, so cite it as such: neither src/func_0018BC20.c
+     * (the mode dispatch) nor src/func_001921D0.c (the follow tail)
+     * reads a stick axis anywhere — the only yaw inputs in the
+     * recovered call graph are the aim camera (action 1 ->
+     * func_00197D20), the L1 orient-behind (func_00191000, gated on the
+     * pad halfword at spad 0x70003B80) and the idle auto-orient
+     * (func_001921D0's +0x08 timer -> func_00193D90). func_001921D0
+     * does take a `freelook` argument that skips the whole tail, but no
+     * recovered caller passes it non-zero. All three steer the struct
+     * yaw (+0x44)/desired vectors; everything downstream consumes only
+     * those, exactly like an engine mode handler. */
     const EmFrameInput *in = em_frame_input();
     int aim_on = em_weapon_is_aiming() || g.r2_aim;
 
-    /* FIXED-CAMERA REGION (the mode-0 director's decoded room cameras —
-     * scene.txt `camregion`): inside, the room OWNS the camera. L1 is a
+    /* FIXED-CAMERA REGION. The room cameras themselves are scene DATA
+     * the port authors (scene.txt `camregion`), transcribed from PCSX2
+     * observation — the overlay director that owns them natively
+     * (func_00195130 + its per-area `jal 0x823FE0` hook) is NOT
+     * recovered, so nothing here is source-derived except the
+     * trigger-volume test shape. Inside, the room OWNS the camera. L1 is a
      * NO-OP ("L1 won't reorient because the room has a specified camera
      * angle"), the idle auto-orient is off, and only the aim camera
      * takes control — releasing it falls back to the room spec the
@@ -373,8 +402,10 @@ static void camera_mode_dispatch(EmCamera *cam)
     const EmCamRegion *rg = camregion_find();
     g.cam_region_on = (rg != NULL) && !aim_on;
 
-    /* MODE 1 — aim camera (decoded above; it runs inside fixed-camera
-     * regions too: "the R1 aim camera still runs"). */
+    /* MODE 1 — aim camera. It runs inside fixed-camera regions too:
+     * src/func_0018BC20.c reaches func_00197D20 straight off the action
+     * byte, with no region test anywhere on that path (the room
+     * director is a SIBLING action, case 0 -> func_00195130). */
     if (aim_on) {
         camera_mode1_aim(cam);
         g.cam_recenter = 0;
@@ -400,11 +431,17 @@ static void camera_mode_dispatch(EmCamera *cam)
      * aligned presses, and the orbit radius cam+0x4C = the actual
      * horiz eye<->target distance |D_0081069C| clamped into [7.0,
      * |cam+0x64| = 46.8]. (All four re-verified against
-     * src/func_001B0080.c's sibling src/func_00191000.c: the gate is
+     * src/func_00191000.c: the gate is
      * `D_00810E74 & *(u16*)0x70003B80`, the deadband literal is
      * 0.05235988f = 3 deg, and the clamp order is `< 7 -> 7` else
-     * `> fabs(cam+0x64) -> fabs(cam+0x64)`.)  It writes cam+0x06 = 3
-     * and cam+0x01 = 0 — PROVENANCE NOTE: +0x06 is the MODE byte this
+     * `> fabs(cam+0x64) -> fabs(cam+0x64)`. D_0081069C really is the
+     * ACTUAL pair's HORIZONTAL separation — src/func_0018C0D0.c writes
+     * it as sqrt(dx*dx + dz*dz) of D_008105E0 - D_008105D0, floored at
+     * 0.001 — so the port's eye/tgt radius below is the right source.
+     * One wording fix: the "+pi" arm keys off the player STATE byte
+     * +0x1F0 == 6, the same byte src/func_0015CBA0.c maps to action
+     * codes, not off an action code.)  It writes cam+0x06 = 3
+     * and cam+0x01 = 0 — PROVENANCE NOTE: +0x06 is the ACTION byte this
      * file's own func_0018BC20 comment describes, so calling this
      * "sub-state 3" below is loose; the state byte +0x01 is what
      * func_00193D90/func_001921D0 drive. Its MOTION
@@ -451,7 +488,13 @@ static void camera_mode_dispatch(EmCamera *cam)
      * cam[7] & 4 (turning negative) / & 2 (turning positive) — the port
      * substitutes a trial-yaw wall probe for those two solver bits.
      * The 0.2 deg/frame step itself is the 0x3B64C389 literal that
-     * src/func_00193D90.c feeds to func_001B12B0. */
+     * src/func_00193D90.c feeds to func_001B12B0 (= 0.0034906587f;
+     * the header's CAM_ORBIT_RATE spells 0.0034904801f = 0x3B64C08A,
+     * off by 1.8e-7 rad/frame — noted, not worth a header edit).
+     * The arm ALSO writes a per-press rate at cam+0x40 =
+     * max(0.022222f * fabs(d), 0.0034906587f); nothing in the
+     * recovered call graph reads it — func_00193D90 uses the fixed
+     * literal — so the port does not model it. */
     int idle_ok = g.gait == 0 && g.move_speed <= 0.0f &&
                   !g.cam_recenter && !(in->held & EM_PAD_L1) &&
                   !em_weapon_is_melee();
@@ -589,8 +632,14 @@ static void camera_mode_dispatch(EmCamera *cam)
      * arm (func_00191000) wrote it above; the placement shape is the
      * sub-state-2 one (motion handler unread, flagged). */
     if ((cam->orbit_on || g.cam_recenter) && !g.cam_region_on) {
+        /* AUDIT CORRECTION: src/func_00193D90.c writes exactly three
+         * fields — cam+0x44 (the stepped yaw), cam+0x10 and cam+0x18.
+         * It never touches cam+0x14, so the orbit is PURELY HORIZONTAL:
+         * the desired eye height simply persists from the last follow
+         * solve (camera_solve's bounds clamp still runs on it below).
+         * The port's `eye_des[1] = player.y + 19` reset snapped the
+         * camera height the frame the 481-frame orbit armed. */
         cam->eye_des[0] = cam->tgt_des[0] - sinf(cam->yaw) * cam->orbit_rad;
-        cam->eye_des[1] = g.pos[1] + CAM_EYE_HEIGHT;
         cam->eye_des[2] = cam->tgt_des[2] - cosf(cam->yaw) * cam->orbit_rad;
         cam->swing = 0;
     } else if (g.cam_region_on) {
@@ -608,19 +657,36 @@ static void camera_mode_dispatch(EmCamera *cam)
         cam->yaw = atan2f(g.pos[0] - rg->eye[0], g.pos[2] - rg->eye[2]);
         cam->swing = 0;
     } else {
-        /* THE EMERGENT FOLLOW CAMERA — both the MOVING-PLAYER tail
-         * (func_00230000) and the IDLE tail (func_001921D0
-         * .L00192DDC) run the SAME machinery, so the port collapses
-         * them into one branch (s76 idle-emergence pass — retires
-         * PORT_DIFFERENCES D14, the old yaw-anchored idle seat).
+        /* THE EMERGENT FOLLOW CAMERA. This branch is the MOVING-PLAYER
+         * tail translated literally: src/func_00230000.c = a
+         * func_0022FCA0 tether call plus
+         * func_00191D40(cam, cam[0x8C] + (11 + (cam[0x5C] + player.y)),
+         * 4.0f), which is exactly the two calls below.
+         *
+         * AUDIT CORRECTION to the old "both tails run the SAME
+         * machinery" claim: they do NOT. src/func_001921D0.c's idle
+         * tail (states 1/0x26/0x27) INLINES its own, richer version —
+         * same >0 pull-in and same dead band, but the over-closed arm
+         * adds an arc-side sign latch gated on D_00810698 < 23.3 and
+         * cam[7] & 0x1F, and its height want carries an extra dip term
+         * (`11 + cam[0x8C] + (player.y + (cam[0x5C] - k))` with
+         * k = 0.5*(slack + 20) at the -46.8 camdist, k = clamp(slack +
+         * 10, >= -10) otherwise) that RAISES the idle eye as the player
+         * backs the camera into a wall. The port runs the moving tail
+         * for both, so that idle rise is missing — a known, now-honest
+         * port difference, not an equivalence.
          *
          *  - The desired eye x/z rides the tow-rope TETHER
          *    (func_0022FCA0: drag at |camdist| = 46.8, the
          *    [follow-slack, follow] dead-band freeze) over the
          *    previous frame's actual eye.
-         *  - The desired eye height seeks the IDLE row +19
-         *    (func_00191D40; the port has no +0x236 elevated latch so
-         *    the row is constant idle — no walk dive, PCSX2-verified).
+         *  - The desired eye height seeks player.y + 11 + cam[0x5C] +
+         *    cam[0x8C] = +19 (src/func_00230000.c passes exactly that
+         *    sum with rate 4.0; src/func_00191D40.c then steps |d|/10
+         *    capped at the rate, d/5 inside 1 u). The port has no
+         *    +0x236 elevated latch, so src/func_00191390.c's row stays
+         *    the default (6.0 / 2.0) for every state it can reach —
+         *    no walk dive.
          *  - The wall solver (cam_solver_0018DD20, run in
          *    camera_solve below) then pulls the seat in / shoves it
          *    laterally / raises it over the AREA-11 entry wall.
@@ -689,8 +755,13 @@ float cam_wrap_pi(float a)               /* func_001B1470 */
  * -> func_0018F870 [decoded s64, cam_solver_0018F870 below]. The
  * dispatcher also runs a
  * pre-pass func_0018D330 that publishes sight-ray bits to cam+0x5A
- * and the overhead-ceiling Y to cam+0x60 — no decoded consumer yet,
- * untranslated.)
+ * and the overhead-ceiling Y to cam+0x60. src/func_0018D330.c is
+ * recovered — bit 0x80 = an overhead ceiling exists (and its Y goes to
+ * cam+0x60), bits 1/8/0x10 come from a 20-u (9-u in aim style) sight
+ * probe at player.y + 11 — and it now HAS decoded consumers:
+ * func_00191D40 vetoes a descent on cam+0x5A & 1 and func_00197870
+ * raises the aim eye floor to +11 on cam+0x5A & 0x10. Both are
+ * untranslated here; the port never sets cam+0x5A.)
  *
  * Decoded policy, in order:
  *  1. PRIMARY PROBE: desired target -> desired eye EXTENDED 1.5 u.
@@ -939,10 +1010,23 @@ static int cam_solver_0018DD20(EmCamera *cam)
                     gate = cam_dot3(sh.normal, hdir);
                     if (gate < SOLV_CROSS_DOT) { hit_ok = 0; gate = -1.0f; }
                 } else {
+                    /* AUDIT CORRECTION (src/func_0018DD20.c): the engine
+                     * ACCEPTS a side hit outright unless its normal nearly
+                     * OPPOSES the first hit's — the graze test and the
+                     * confirm re-probe live INSIDE the `dot < -0.998`
+                     * arm, as the tie-breaker for "is this the same wall
+                     * seen from behind, or a second wall?":
+                     *   dot = f(sideN, firstN);
+                     *   if (dot < -0.998f) { far-end graze -> reject;
+                     *                        else re-probe from the 1st
+                     *                        hit point at eye height }
+                     * The port had the two arms swapped: it rejected every
+                     * opposing hit outright and ran the graze/confirm
+                     * cascade on ordinary side hits — so it slid the eye
+                     * in corridors the engine leaves alone and refused the
+                     * slide where the engine performs it. */
                     gate = cam_dot3(sh.normal, first_n);
                     if (gate < SOLV_OPPOSE_DOT) {
-                        hit_ok = 0; gate = -1.0f;
-                    } else {
                         float d[3] = { sh.point[0] - end[0],
                                        sh.point[1] - end[1],
                                        sh.point[2] - end[2] };
@@ -1201,12 +1285,16 @@ static int cam_solver_0018F870(EmCamera *cam)
         /* 2. FIRST STAGE — no waiver, no wedge eject. */
         if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN |
                     EM_SURF_FLOOR | EM_SURF_SLOPE)) {     /* 0xD800 */
+            /* AUDIT CORRECTION: src/func_0018F870.c ASSIGNS here
+             * ("flags = 8;" / "flags = 0x10;"), clearing the primary-hit
+             * bit 1 exactly like the follow solver's ceiling duck. The
+             * port OR-ed, leaving 9 / 0x11 in cam->hit. */
             if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
                 if (first_pt[1] < cam->y_lo) cam->y_lo = first_pt[1];
-                bits |= 8;
+                bits = 8;
             } else {
                 if (first_pt[1] > cam->y_hi) cam->y_hi = first_pt[1];
-                bits |= 0x10;
+                bits = 0x10;
             }
             eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
             eye[1] = first_pt[1];          /* full copy: ride the hit */
@@ -1556,10 +1644,23 @@ void camera_solve(EmCamera *cam)
         cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], cap);
         cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], cap);
     } else if (cam->tgt_soft > 0) {
+        /* AUDIT CORRECTION (src/func_001916C0.c tail, the cam+0xA0
+         * consumer): x/z chase at 1.0 u/frame, but the HEIGHT rate is
+         * fabs(d)/4 (fabs(d)/20 on the "fast settle" states 0/1/2 the
+         * port cannot reach), i.e. a proportional close, not a 1.0 cap;
+         * and the window ENDS EARLY once |d| <= 0.15:
+         *   d = tgtDes.y - tgt.y;
+         *   if (fabs(d) <= 0.15f) cam+0xA0 = 0;
+         *   func_0018C4B0(actualTgt, tgtDes.y, fabs(d)/4);
+         * The port's flat 1.0 cap closed the vertical re-blend far too
+         * fast on a large drop and never took the early exit. */
+        float d = cam->tgt_des[1] - cam->tgt[1];
+        float dy = fabsf(d);
         cam->tgt_soft--;
         cam->tgt[0] = cam_chase_h(cam->tgt[0], cam->tgt_des[0], 1.0f);
         cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], 1.0f);
-        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], 1.0f);
+        if (dy <= 0.15f) cam->tgt_soft = 0;
+        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], dy / 4.0f);
     } else {
         cam->tgt[0] = cam->tgt_des[0];
         cam->tgt[1] = cam->tgt_des[1];
@@ -1697,8 +1798,13 @@ void camera_commit(EmCamera *cam)
     }
 }
 
-/* DOOR-TRANSIT CINEMATIC CAMERA — DECODED + LIVE-VERIFIED (the "DOOR
- * CAMERA CUES" constants block above; two PCSX2 transits). Once the
+/* DOOR-TRANSIT CINEMATIC CAMERA. The CUT GEOMETRY is source-derived
+ * (src/func_0018CBD0.c — see the derivation at the cut below); the
+ * SEQUENCING around it (when the cue fires, the hold, the plane
+ * crossing, the re-seat) is a port reconstruction from two PCSX2
+ * transits plus src/func_001B0460.c, not a decoded script interpreter.
+ * Treat the ordering below as observed, the constants as decoded.
+ * Once the
  * walk-to arrives and the door script begins, the OPEN script's op
  * 0x0D sub 5 cue fires — a HARD CUT to 20 u behind the STAGING POINT
  * along the THROUGH-DOOR axis at +19, looking at the staging point
@@ -1786,15 +1892,31 @@ static void camera_door_cinematic(EmCamera *cam)
             g.doorcam     = 4;
             return;
         }
-        /* op 0x0D sub 5 (func_0018CBD0, dist -20; live-verified
-         * geometry — the constants block above): 20 u behind the
+        /* op 0x0D sub 5 (func_0018CBD0, dist -20): 20 u behind the
          * SNAPPED pose along the THROUGH-DOOR axis at head height,
-         * looking at the staging point slightly below (+13). The
-         * camera heading itself snaps to the door axis (the
-         * engine's cam Euler +0x30 <- spad 3B50). */
+         * looking at the staging point. The camera heading itself
+         * snaps to the door axis (the engine's cam Euler +0x30 <-
+         * spad 3B50).
+         *
+         * AUDIT CORRECTION — the TARGET height. src/func_0018CBD0.c
+         * places the eye first (eye = target + rotY(spad3B50)*(0,0,d),
+         * so the horizontal separation is exactly |d| = 20), then
+         * derives BOTH heights from the standard camera rows:
+         *   ang  = horizDist(target,eye) - fabs(d)          -> 0
+         *   f4/f5 = cam+0x8C / cam+0x5C  (6/2 at camdist -46.8,
+         *                                 2/6 otherwise)
+         *   f20  = f3 - ang = f3         (f3 = -20 / -10 by camdist)
+         *   target.y = 11 + player.y + f4 + 0.3f*f20
+         *   eye.y    = 11 + f4 + f5 + player.y
+         * eye.y is 19 on both rows, matching DOORCAM_EYE_UP. target.y,
+         * however, is 11 + 6 - 6 = player.y + 11 at the default
+         * camdist (and 11 + 2 - 3 = +10 on the other row) — the
+         * ordinary tether-limit target height. The header's
+         * DOORCAM_TGT_UP = 13 is what 11 + f4 alone gives: an earlier
+         * PCSX2 eyeball that dropped the 0.3*f20 dip term. */
         cam->yaw = g.doorcut_yaw;
         cam->tgt_des[0] = g.doorcut_pos[0];
-        cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
+        cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_H;
         cam->tgt_des[2] = g.doorcut_pos[2];
         cam->eye_des[0] = g.doorcut_pos[0]
                         - sinf(g.doorcut_yaw) * DOORCAM_EYE_BACK;
@@ -1852,13 +1974,17 @@ static void camera_door_cinematic(EmCamera *cam)
      * the tgt_soft window (camera_solve's chase arm runs only outside
      * the lock, so chase here directly). */
     cam->tgt_des[0] = g.pos[0];
-    cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_UP;
+    cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_H;   /* see the cut above */
     cam->tgt_des[2] = g.pos[2];
     if (cam->tgt_soft > 0) {
+        /* same func_001916C0 tail rates as camera_solve's window arm */
+        float d  = cam->tgt_des[1] - cam->tgt[1];
+        float dy = fabsf(d);
         cam->tgt_soft--;
         cam->tgt[0] = cam_chase_h(cam->tgt[0], cam->tgt_des[0], 1.0f);
         cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], 1.0f);
-        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], 1.0f);
+        if (dy <= 0.15f) cam->tgt_soft = 0;
+        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], dy / 4.0f);
     } else {
         memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
     }
@@ -1918,13 +2044,17 @@ void camera_update(void)
      * commit runs — the engine's frozen top modes 1/2 shape. The DOOR
      * TRANSIT no longer freezes: the decoded script camera cue runs
      * instead (camera_door_cinematic — the walk-to approach holds
-     * still, then the op 0x0D sub 5 cinematic cut + held angle; the
+     * still, then the op 0x0D sub 5 cinematic cue + held angle; the
      * post-warp re-seat still happens while the screen is black,
      * gameplay_frame). */
     if (cam->top_mode == 0 && !em_hud_is_open()) {
         /* AREA-11 OPENING DIRECTOR camera (highest priority): while an
          * establishing-cutscene beat runs it OWNS the camera outright —
-         * the literal eye->target keyframes (cuts hold, blends lerp). It
+         * the eye->target keyframes are scene DATA the port authors
+         * (director_camera + scene.txt), reconstructed from PCSX2
+         * capture; the overlay director that drives them natively is
+         * not among the recovered functions, so no source backs the
+         * keyframe values. Treat them as observed. It
          * is dormant outside a beat (returns 0), so the normal chase and
          * the examine/door cues below are untouched the rest of the
          * time. On the frame the beat ends it does a one-shot chase

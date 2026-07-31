@@ -91,12 +91,23 @@
  *     if (D_00810CA4[0] == 0 && p[0x274] != 0) {
  *         p[0x2F0]++;  if (p[0x2F0] > 2) p[0x2F0] = 0;
  *     }
- * once per AIM tick, immediately before func_00199220 and the fire
- * dispatch; func_001703E0 state 0 seeds +0x2F0 = 0 at the stance
- * entry. The trigger latch +0x274 is set by func_0017A8B0 on each
- * trigger event and cleared by every shot state, so each shot advances
- * the cycle once; burst rounds 2/3 chain through the step-back. The
- * shot then aims at slot[cycle] — func_001861C0 reads the byte at
+ * once per AIM tick (in func_001703E0 immediately before func_00199220
+ * and the fire dispatch; func_0016FCF0 runs the same increment but
+ * feeds its lock from func_00185A10/func_00185E30 instead — it never
+ * calls func_00199220). func_001703E0 state 0 seeds +0x2F0 = 0 at the
+ * stance entry. The trigger latch +0x274 is set by func_0017A8B0 on
+ * each accepted trigger event and cleared by every shot state.
+ * WHICH ROUNDS ADVANCE — CORRECTED 2026-07-31 against the BYTE-MATCHED
+ * func_00170A60; the previous note had the last two backwards:
+ *   semi press / semi queued refire  ADVANCE (case 11 leaves
+ *     +0x274 = 1 on the way out);
+ *   burst rounds 2 and 3             ADVANCE (case 22's chain arm
+ *     `if (e[0x274] != 0) e[7]--;` does not clear the latch that
+ *     func_001607D0 just re-armed) — a burst walks the slots;
+ *   full-auto refires                DO NOT (case 31 is the same shape
+ *     plus an explicit `e[0x274] = 0;`) — a held auto burst pours every
+ *     round into the slot the opening press selected.
+ * The shot then aims at slot[cycle] — func_001861C0 reads the byte at
  * D_008102B0+0x2F0: 1 -> E4, 2 -> E8 (each falling back to E0 when the
  * slot is empty), anything else -> E0. The engine's reticle markers
  * over the slots (func_001DD170, in func_00199220's tail) are
@@ -110,6 +121,19 @@
  *
  * FIRE MODES (D_00810C61): 0 = semi (engine sub-states 0xA/0xB),
  * 1 = 3-round burst (0x14..0x17), 2 = full-auto (0x1E..0x20).
+ * TRIGGER EDGE vs LEVEL — CONFIRMED 2026-07-31 in func_001607D0's armed
+ * cases (0x31/0x32/0x34/0x35), which all read
+ *     if (D_00810E74 & FIRE) { if (D_00810C61 != 0) return 0;
+ *                              return func_0017A8B0(p, 0); }
+ *     if (D_00810E70 & FIRE) { if (D_00810C61 == 0) return 0;
+ *                              return func_0017A8B0(p, 0); }
+ * i.e. SEMI latches +0x274 on the PRESS edge only, BURST and AUTO latch
+ * it from the HELD level only (and consequently skip the press frame).
+ * The port fired all three off the press edge, so a burst/auto trigger
+ * that was already down when the machine returned to the trigger-wait
+ * state — the ordinary case after a dry-mag auto reload — stalled until
+ * the player released and re-pressed. It now splits by fire mode.
+ * A released burst also ends at the round in flight (see 0x14..0x17).
  * CADENCE INTERVAL +0x2F4 — func_0017A8B0 is BYTE-MATCHED and stores
  *     *(float *)(arg0 + 0x2F4) = (float)func_001C61D0(*(int *)(arg0+0x40), v);
  * where v is the first entry of the stance's clip table (D_00248B70 for
@@ -159,7 +183,18 @@
  *        queued -> step back to the shot state (fires the NEXT tick),
  *        OR back to WAIT.
  *   0x14..0x17  BURST: same cadence; +0x28 counts the rounds and 3 ends
- *        the burst into 0x17. CORRECTED 2026-07-31 — 0x17 is NOT an
+ *        the burst into 0x17. The chain to rounds 2/3 is CONDITIONAL —
+ *        CORRECTED 2026-07-31; case 22's arm is
+ *            else if (func_001607D0(e, 1) == 0) {
+ *                if (e[0x274] != 0) e[7]--;   // fire the next round
+ *                else               e[7] = 0; // straight back to WAIT
+ *            }
+ *        and in burst mode only func_001607D0's HELD arm re-arms +0x274,
+ *        so RELEASING the trigger mid-burst ends it at the round in
+ *        flight (a tap = one round) and drops to the trigger-wait state
+ *        0, NOT to the 0x17 release wait. The port used to chain all
+ *        three rounds unconditionally and then always land in 0x17.
+ *        CORRECTED 2026-07-31 — 0x17 is NOT an
  *        8-tick pause. It is a TRIGGER-RELEASE wait, the same body as
  *        states 1 and 0x20:
  *            stop = func_001607D0(e);
@@ -308,8 +343,10 @@
  *     phase start, 0.025*len step" — lives inside func_001E2BA0, which
  *     is still INCLUDE_ASM in the decomp. That shape is OBSERVED from
  *     the s23 capture, not source-derived; do not treat it as decoded.
- *   DOT (func_001CD520 billboard at the endpoint) — CONFIRMED. The
- *     engine call is
+ *   DOT (func_001CD520 at the endpoint) — the CALL is CONFIRMED
+ *     (func_00185760 stages every argument below); calling the result a
+ *     BILLBOARD is an inference, not a decode — func_001CD520 itself is
+ *     still INCLUDE_ASM, re-checked 2026-07-31. The engine call is
  *       func_001CD520(0, 2, endpoint, 0x20045BA5154222DCLL,
  *                     f12, f12, 2.0f, packed_rgba)
  *     with f12 = 3.0f unlocked / 5.0f locked, and, for
@@ -359,8 +396,10 @@
  *           idle before the aim pose recommitted — a full-pose snap
  *           at every reload end; the engine's stance top re-selects
  *           the stance pose every frame, no idle interlude). The
- *           state window is the clip length PLUS the decoded 8-tick
- *           blend ramp-out (func_0016F600 sub-mode 3 — the aim pose
+ *           state window is the clip length PLUS the decoded NINE-tick
+ *           blend ramp-out (func_0016F600 sub-mode 3 — the counter is
+ *           seeded 8 and read before its decrement, see "RELOAD SHAPE";
+ *           this line still said "8-tick" after that correction — the aim pose
  *           re-commits at the clip's end flag but the major state
  *           only returns to AIM once the ramp counter expires, so
  *           firing stays locked for the whole span). The DRAW clip
@@ -483,6 +522,13 @@
  * the press toggles. The flag is a PERSISTENT PREFERENCE:
  *   - toggle ON: flag set, sound 0x179 vol 300 (pinned);
  *   - toggle OFF (second press): silent (engine: 1->0 plays nothing);
+ *   - REPLAY ON DRAW — CONFIRMED 2026-07-31, and now wired: the
+ *     draw-completion routine func_0016F530 (BYTE-MATCHED) ends with
+ *         if (D_00810CA6 == 0 && D_00810D3C != 0) {
+ *             func_001FBD50(&D_008102B0, 0x179, 0, 300.0f);
+ *             D_008106C7 = 1; }
+ *     so re-drawing the rifle with the light already on re-announces it
+ *     with 0x179. The port kept the flag but emitted no sound;
  *   - NO timer, NO auto-off, ZERO battery drain — the light never
  *     runs out (user-attested vs the original; the s28b 300-frame
  *     burst the port previously hung off this toggle belongs to the
@@ -561,8 +607,14 @@
  *     chain is checked on the WHIFF path — a CONFIRMED hit instead
  *     EARLY-EXITS to the recover states (engine: the target's +0x0A
  *     flag read back the tick after the mailbox write -> state 0x50).
- *   - RECOVER (states 0x50/0x51/0x52, hit-confirm only): 4-tick pause,
- *     then anim 0x10F (25 fr, blend 4.0), then the 0x63/0x64 exit ramp.
+ *   - RECOVER (states 0x50/0x51/0x52, hit-confirm only): a FIVE-tick
+ *     pause — CORRECTED 2026-07-31; 0x50 seeds +0x28 = 4 and 0x51 reads
+ *     the counter before its own decrement (`t = +0x28; +0x28 = t - 1;
+ *     if (t == 0)`), so it is seen as 4,3,2,1,0 and the clip commits on
+ *     the fifth tick. Same pre-decrement shape as the reload ramp
+ *     (NINE, not eight); verified in func_001735C0 and in the
+ *     BYTE-MATCHED func_00173E60. Then anim 0x10F (25 fr, idx-0 arm,
+ *     blend 4.0 — idx 1 uses 0x1C1), then the 0x63/0x64 exit ramp.
  *     A whiffed swing exits at clip end with NO recover anim.
  *
  * HEAVY (mode 0x22, func_00173E60): anim 0x10E (50 fr, via the
@@ -632,11 +684,16 @@ enum {
                            * CONFIRMED): func_0017B300(., 0) reload-if-
                            * empty, then func_001749A0(., 0x110, 0, 1.0f);
                            * the same entry zeroes +0x276, +0x274, +0x2F2,
-                           * +0x2F0, +0x275 and the gun mailbox +0x2E, and
-                           * seeds the aim blends to 0.5. Sound 0x162.
-                           * Major 1 (wait for the 0x1000 event bit) is
-                           * collapsed into it — holding R1 is already
-                           * the port's draw input                        */
+                           * +0x2F0, +0x275 and the mailbox halfword +0x2E,
+                           * and seeds the aim blends to 0.5. NO SOUND —
+                           * corrected 2026-07-31: state 0 plays nothing.
+                           * Major 1 (wait for the 0x1000 clip-end bit) is
+                           * collapsed into the port's DRAW timer, and its
+                           * exit — func_0016F530, BYTE-MATCHED — is what
+                           * fires 0x162 at vol 300 (not 150) plus a 0x179
+                           * re-announce when the flashlight preference
+                           * D_00810D3C is already set. The port now plays
+                           * both at DRAW -> AIM                          */
     EM_WPN_AIM,           /* major 2 AIM/FIRE loop (fire sub-machine)      */
     EM_WPN_RELOAD,        /* major 3 (func_0016F600): anim 0x11B gates
                            * firing; the mag is already refilled

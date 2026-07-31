@@ -166,10 +166,23 @@ EmGameState g;
  *                             tail (it asserts same-scene re-place
  *                             geometry on the west door).
  *   enemy crawler <x> <y> <z> <yaw>
- *                             one WORM (the kind-0xD func_00153F10
- *                             brain — born attacking; the engine never
- *                             places one, port convenience); owned by
- *                             em_enemy.c.
+ *                             one WORM (the kind-0xD leech, engine
+ *                             brain func_00153F10 — born attacking:
+ *                             its BYTE-MATCHED init src/func_00154040.c
+ *                             yaws the fresh actor straight at the
+ *                             player mirror, `+0xC4 =
+ *                             func_001B1240(self+0xB0, spec,
+ *                             D_00810350, D_00810358)`, with no
+ *                             distance gate anywhere (FINDINGS
+ *                             "func_00153F10 / func_00154040 (worm) —
+ *                             acquisition is unconditional").
+ *                             PROVENANCE: func_00153F10 itself is only
+ *                             recovered as an all-word stub — no
+ *                             readable C — so every claim about the
+ *                             brain's states rests on FINDINGS' .s read
+ *                             plus func_00154040, not on recovered C.
+ *                             The engine never places one, port
+ *                             convenience; owned by em_enemy.c.
  *   enemy crate <x> <y> <z> <yaw> [bugs <n>] [variant <v>]
  *                             one DISGUISED CRATE (the placed crawler
  *                             func_001551B0 — em_enemy.h "CRATE
@@ -227,11 +240,20 @@ EmGameState g;
  *                             blank frames (the engine's empty odd
  *                             bank lines).
  *   camregion <x0> <z0> <x1> <z1> <ygate> <ex> <ey> <ez>
- *                             one FIXED-CAMERA trigger volume (the mode-0
- *                             director func_00195130's decoded room-camera
- *                             bindings — the D_0024A5F0 XZ-quad records;
- *                             export_level.py --camregions). Player inside
- *                             the XZ rect with |player.y - ygate| < 4: the
+ *                             one FIXED-CAMERA trigger volume. The region
+ *                             test itself is src/func_00194D10.c (NEARMISS
+ *                             — logic authoritative): it runs
+ *                             func_001B1EA0(0, player+0xA0,
+ *                             &D_0024A5F0[idx], 4) — point-in-polygon over
+ *                             the 0x40-byte quad record (4 corners, all 3
+ *                             shipped records axis-aligned) — and then
+ *                             `d < 4.0f` on |player.y - corner0.y|, so the
+ *                             y gate is STRICTLY less than 4. The mode-0
+ *                             director src/func_00195130.c (NEARMISS) is
+ *                             only the caller that binds a record to an
+ *                             area case; export_level.py --camregions.
+ *                             Player inside the XZ rect with
+ *                             |player.y - ygate| < 4: the
  *                             camera eye is PINNED at (ex, ey, ez) (target
  *                             keeps tracking the player), L1 and the idle
  *                             auto-orient are ignored, R1 aim still works
@@ -1634,9 +1656,15 @@ static void player_hurt_tick(void)
     }
     if (g.pd_phase == 3) {
         /* fading: at full black the engine parks the player machine
-         * and func_001AE040's state-1 tail fires (D_008106B9 latch &&
-         * fade == 2) -> the GAME-OVER WAIT (the decoded chain in the
-         * PD block doc). Port: enter GO_SCREEN — module-0x27 screen
+         * and func_001AE040's state-1 tail is believed to fire
+         * (D_008106B9 latch && fade == 2) -> the GAME-OVER WAIT.
+         * PROVENANCE: func_001AE040 is NOT recovered — there is no
+         * src/func_001AE040.c in the decomp at all — so this hand-off
+         * is OBSERVED/inferred from the FINDINGS call-graph note
+         * ("func_001AD4D0 = j func_001AE040 ... in-game frame machine,
+         * jr-table 0x0026DD30"), not read out of recovered C. What IS
+         * byte-matched is the WAIT it hands to: src/func_001AD4E0.c
+         * (see game_over_tick). Port: enter GO_SCREEN — module-0x27 screen
          * stand-in + FADE-IN + the 240 hold; from the next frame the
          * world is FROZEN (the gameplay_frame gate) and game_over_tick
          * owns the flow, modeling the engine's task replacement. */
@@ -1652,9 +1680,24 @@ static void player_hurt_tick(void)
 }
 
 /* Passive per-frame vitals (func_0015D100 infected arm + the spine's
- * kill plane + the +0x20E i-frame countdown). The hazard-room drain
- * arm and the func_0015D000 heartbeat rumble are untranslated (see
- * the PD block doc). */
+ * kill plane + the +0x20E i-frame countdown).
+ * RE-VERIFIED against src/func_0015D100.c (BYTE-MATCHED — authoritative):
+ * both arms are gated on func_0021BB00(self) == 0 (entity not busy),
+ * and the flag byte +0x234 (the INFECTED latch) picks the arm:
+ *   +0x234 != 0  INFECTED: counter +0x2FC++ every frame; at >= 0xF0
+ *                (240) reset it and, if health <= 2.0f, set event byte
+ *                = 2, pending +0x224 = 2.0f and damage type +0xF = 0x63
+ *                (the infected-drain death) WITHOUT subtracting;
+ *                otherwise health -= 2.0f, effect 0x80000063, then the
+ *                low-health latch +0x235 |= 1 at health <= 35.0f.
+ *                (`health <= 2` then death is arithmetically identical
+ *                to the port's `health -= 2; death if <= 0`.)
+ *   +0x234 == 0  HAZARD-ROOM arm — UNTRANSLATED, but now pinned:
+ *                gated on func_001B0070() & 4, D_008106C8 & 0x60 and
+ *                D_00810C7E == 0; counter +0x300 at >= 0x168 (360, NOT
+ *                240) drains health by 1.0f (not 2.0f), and at
+ *                health <= 1.0f forces event 2 + pending 1.0f.
+ * The func_0015D000 heartbeat rumble is untranslated (PD block doc). */
 static void player_vitals_tick(void)
 {
     if (g.pd_iframes > 0) g.pd_iframes--;
@@ -1695,8 +1738,16 @@ static void player_vitals_tick(void)
  * the 0x4B0 = 1200 prompt timer (decremented only on input-free frames,
  * re-armed on any held frame), confirm mask 0x840, DOWN 0x4000 /
  * UP 0x1000 with the cursor clamped to 0..2, and sounds 0x5DD/0x5DE/
- * 0x5DF + move blip 5; src/func_001AC070.c (BYTE-MATCHED) is the outer
- * flow whose state 4 reinstalls func_001ACEC0. Runs every
+ * 0x5DF + move blip 5, and its sub-0 cursor INIT is
+ * `GS[0xF] = (D_00275BDC == 0) ? 0 : 1` — the from-death flag
+ * D_00275BDC is set to 1 by src/func_001ADF00.c, so GO_CURSOR_DEATH = 1
+ * is source-derived. src/func_001AC070.c (NEARMISS — 97.95%, logic
+ * authoritative but NOT byte-matched; the earlier "BYTE-MATCHED" note
+ * here was wrong) is the outer flow whose state 4 does
+ * func_001AB790(func_001ACEC0) and returns without the
+ * func_001D2830(3,1) tail. Its state-2 CONFIRM dispatch reads that same
+ * GS[0xF]: 0 -> state 4 + D_00275BE0 = 0 (CONTINUE), 1 -> func_00225A00()
+ * + state 5 (LOAD), 2 -> state 6 + GS[0xC] = 0 (sub-screen). Runs every
  * frame from GO_SCREEN on (the frozen-world gate in gameplay_frame
  * calls it — the engine's game task is REPLACED here, so the world
  * does not simulate). Presentation: em_hud_game_over /
@@ -1775,9 +1826,18 @@ static void game_over_tick(void)
         } else {
             /* options 1 (load game) / 2 (sub-screen): the engine's
              * targets (func_00225A00 memory-card flow / func_00200A40)
-             * have no native counterpart — no save system. Both
-             * RETURN TO THE PROMPT (the engine's own cancel/done path
-             * for each); FLAGGED untranslated sub-screens. */
+             * have no native counterpart — no save system.
+             * CORRECTED (src/func_001AC070.c, NEARMISS): only option 2
+             * really is a return-to-prompt — state 6 polls
+             * func_00200A40() and goes back to state 2. Option 1 is
+             * state 5, which polls func_00225AC0(0): verdict 1 =
+             * CANCEL -> back to state 2 (the prompt), but verdict 2 =
+             * a SUCCESSFUL LOAD -> func_001AF150(), D_00275BE0 = 1 and
+             * state 4, i.e. it reinstalls the gameplay task exactly
+             * like CONTINUE. The port has no save system, so it takes
+             * option 1's CANCEL path only — a deliberate stand-in for
+             * the load path, NOT the engine's whole behaviour.
+             * FLAGGED untranslated sub-screens. */
             g.go_state  = GO_PROMPT;
             g.go_frames = 0;
             g.go_timer  = GO_PROMPT_FRAMES;
@@ -1906,6 +1966,12 @@ int em_game_player_interact_busy(void)
  * scripted yaw to the heading-target slot 0x810374 and the player's own
  * turn/heading machine (func_00174AC0 + func_001B12B0) eases the body
  * onto it; this is that ease, driven by the locked examine sequence.
+ * PROVENANCE: of that pair only src/func_00174AC0.c is readable C
+ * (NEARMISS 98.48%). src/func_001B12B0.c is an ALL-WORD stub — byte-
+ * correct for the build but with NO recovered logic — and 0x001B9C10 is
+ * a data/handler address, not a recovered function. The 22.5 deg/frame
+ * rate itself comes from FINDINGS "GROUND LOCOMOTION", not from either
+ * of those two files; treat the easing shape as OBSERVED, not decoded.
  *
  * This does NOT touch player_move's desired-heading / movement-v3 path:
  * the examine lock in player_move (em_examine_input_locked) already
@@ -2536,7 +2602,15 @@ static void render_env_init(void) {}
 
 
 
-/* func_0018CE60 — the vertical-bounds SETTLE helper (decoded s64; the
+/* func_0018CE60 — the vertical-bounds SETTLE helper. RE-VERIFIED against
+ * src/func_0018CE60.c (NEARMISS — logic authoritative): every constant
+ * below reads out of that file literally — `mode = (arg2 == 2) ? 7 : 6`
+ * at entry, the -/+200.0f probe endpoints, `+= 2.0f` on the style-2 arm
+ * vs `+= 6.0f` when `*(float *)(cam + 0x5C) == 1.0f` else `+= 17.0f`,
+ * the `<= 0.17f` normal test, the ceiling `-= 1.0f`, the
+ * `lower = upper - 3.0f` cross-fix, the stores to cam+0x50 / cam+0x54
+ * and the `if (arg2 != 5)` guard on the desired-eye-Y clamp.
+ * (decoded s64; the
  * s10 note "settle vs world: 2x func_0019A910 ray queries" was this).
  * Probes 200 down / 200 up from `pt` (mask 7 for style 2, else 6) and
  * derives the eye-Y bounds:
@@ -2856,7 +2930,17 @@ static float director_letterbox_alpha(void)
  *
  * The engine's identity-UI-camera 3D pass: while the status screen is
  * up, the 3D frame is a black field with ONLY the player model
- * turntabling on it (func_0020E6F0 on the menu's private static-actor
+ * turntabling on it. RE-VERIFIED against src/func_0020E6F0.c
+ * (BYTE-MATCHED — authoritative): its state 0 binds the model from the
+ * PLAYER VARIANT table, seeds rotation +0xC0/+0xC4 = pi/+0xC8, seeds the
+ * infection tint at +0x80/+0x84/+0x88, takes the position from the
+ * view-matrix columns at D_00810610, and binds the clip by DISPLAYED
+ * health D_00810858 (> 35 -> 0x1C2, else 0xA — the port's
+ * clip_menu / clip_menu_low pair); state 1 runs the breathe ramp
+ * +0x38 between 1.0 and 1.3 (UI_RAMP_MAX), wraps the yaw and calls
+ * anim_advance_time; states 2/3/default free the slot. The actor is
+ * re-created on every open, which is why the port re-inits on the
+ * visible edge.  (func_0020E6F0 on the menu's private static-actor
  * stage — the world is not drawn at all; s44 verified there is no
  * other draw under the background tiles). The port mirrors that by
  * flushing this scene INSTEAD of the recorded world chain whenever the
@@ -3098,6 +3182,19 @@ static void ui_scene_render(EmGfx *gfx)
  *                                           func_00102738 is a dot)
  *   dir0 = normalize(dir0*w0 + sum toLamp * 10k)
  *   col0 = col0 + sum lampcol * 2k         (x128 registration scale)
+ * RE-VERIFIED against src/func_001D8340.c (BYTE-MATCHED — authoritative):
+ * the 32-entry 0x80-stride scan at D_00275670, the `+0x24C > 0` weight
+ * gate, `len = func_00102738(probe, probe)` (a DOT, so |toLamp|^2)
+ * clamped up to 1.0f, `f = (0.1f * ent[+0x2C]) / len`, and the 10*f /
+ * 2*f scales all read out literally. Two engine steps the port folds
+ * away, both benign for the look but named here so nobody re-derives
+ * them: (1) the two accumulators are SEEDED from the constant quads
+ * D_00253170 / D_00253180 before dir0*w0 is added, not from zero; and
+ * (2) the 10*f-scaled offset is transformed through the lamp's own
+ * matrix at ent+0x40 (func_001026A0) before it is accumulated. The
+ * cam-fill basis is confirmed a TRANSPOSE, not a general inverse:
+ * `copy_qw4(im, D_00810610); func_00102798(im, im);` and func_00102798
+ * is the 4x4 MMI transpose (src/func_00102798.c, BYTE-MATCHED).
  * Omitted, documented: the engine's per-lamp +-1.8 deg random-walk
  * flicker rotation (func_001D7C30 type-1 path, slot +0x40) and the
  * story-flag lamp gates (func_001F68B0) — lamps register
@@ -4649,7 +4746,11 @@ static void enemy_test_script(void)
  * fidelity note: the open status menu PAUSES the game — gameplay_frame
  * gates the whole world update on em_hud_is_open()) PLUS the decoded
  * MENU-LOCK gate (em_door.h "THE TWO LOCKS": the engine's open poll
- * func_001AE7E0 refuses while the fade machine runs; the lock ends at
+ * func_001AE7E0 refuses while the fade machine runs — RE-VERIFIED in
+ * src/func_001AE7E0.c (NEARMISS 99.10%, logic authoritative): the
+ * classifier returns 0 (= blocked) on `if (D_0028A9A0 != 0) return 0;`,
+ * D_0028A9A0 being the same fade-machine state the game-over chain
+ * polls for idle/hold-black; the lock ends at
  * fade-in completion, BEFORE the arrival walk-out finishes — so the
  * menu opens mid-walk-out while movement is still locked). Spawned at
  * the door-test corridor position (72, 0, -225 facing -X, the west
@@ -6114,6 +6215,13 @@ static void gameplay_frame(void)
      * func_0018F870 PULLS IT IN at constant height (hit + 0.5 along
      * the player->eye ray) — the over-shoulder view framed from the
      * wall plane, no rise, no slide-away ("R1 keeps the pull-in").
+     * RE-VERIFIED in src/func_0018F870.c (NEARMISS, logic
+     * authoritative): the step-1 probe runs focus -> normalize(eye -
+     * focus) * 1.5 + eye, and on a hit the scratch vector is re-derived
+     * as the UNIT focus->eye direction and the eye is written
+     * `self+0x10 += 0.5f * dir.x` / `self+0x18 += 0.5f * dir.z` off the
+     * hit point — X and Z only, self+0x14 (Y) untouched. So "0.5 units
+     * off the surface, height held" is literal, not an approximation.
      * Default capture frame 420; EM_CAMERA_TRACE=1 prints the solve. */
     if (g.capture_aim == 5) {
         if      (g.frame_no == 0)   move_test_inject('s', 1);
@@ -6506,7 +6614,22 @@ static void gameplay_frame(void)
      * infects, it does not wound — the old health consume here was the
      * P3/C12 gap). Then the processor (func_0021C440 generic tail)
      * applies and routes to flinch/death, and the passive vitals tick
-     * (drain/kill plane/i-frames) runs. */
+     * (drain/kill plane/i-frames) runs.
+     * RE-VERIFIED (src/func_0021C440.c, NEARMISS — 99.77%): the
+     * processor itself never touches health. Its generic tail is
+     * `if (!+0x224 && !+0x22C) skip; if (func_0021BC40(p)) skip;` then
+     * +0x224 -> func_0021C350 (health apply, variant +0x1F1 = 0, or 4
+     * when the type byte +0xF == 0xC) and +0x22C -> func_0021C270
+     * (infection apply, variant +0x1F1 = 1) — which is exactly the
+     * port's player_apply_health / player_apply_infection split. It
+     * then routes on health <= 0 to the death entry (marker 0x3F when
+     * +0xF == 0x63 or the infected latch +0x234 == 1, else 0x40) and
+     * otherwise to the flinch entry (marker 0x3E). Its tail also
+     * carries the low-health latch verbatim: `if (+0x220 <= 35.0f)
+     * +0x235 |= 1` — the source of PD_LOW_HEALTH = 35.0f. The
+     * +0x224 = HEALTH / +0x22C = INFECTION reading and the pad's 5.0
+     * are FINDINGS' player-producer table (D_008104D4 / D_008104DC),
+     * not this function, which only sees them as two pending floats. */
     {
         int hitcode = em_enemy_player_hit_take();
         if (hitcode & 0x4000)

@@ -103,9 +103,12 @@
  *      *(float *)(gun+0x1F0 + 0x24)).
  *      SPREAD WRITER — CORRECTED 2026-07-31. The old note "NO writer
  *      exists in the boot ELF" is FALSE: func_001854E0 writes it every
- *      frame it runs, as a distance falloff off its own 65-unit probe:
- *          miss                -> +0x24 = 0.0
- *          hit at distance d   -> d2 = d - 20; d2 < 0 ? 1.0
+ *      frame it runs, as a distance falloff off its own 65-unit probe
+ *      (re-read in full 2026-07-31 — the ray is scaled 65.0f but the
+ *      falloff is gated on 260.0f, so the zero leg has two entries):
+ *          probe miss          -> +0x24 = 0.0
+ *          hit at d >= 260     -> +0x24 = 0.0 (same store, goto)
+ *          hit at d <  260     -> d2 = d - 20; d2 < 0 ? 1.0
  *                                            : (240 - d2) / 240
  *      func_00188630 picks WHICH drawer runs, though, and for this
  *      port's stance (action code 0x31/0x34 with D_008105C8 == 0) it
@@ -543,7 +546,20 @@ static const char *const kFxFiles[4] = {
 #define MELEE_DMG_L2      3      /* state-2 write                         */
 #define MELEE_DMG_L3      5      /* state-3 write                         */
 #define MELEE_DMG_HEAVY   15     /* func_00173E60 (0xF)                   */
-#define MELEE_RECOV_PAUSE 4      /* engine state 0x50: +0x28 = 4 ticks    */
+/* RECOVER PAUSE — CORRECTED 2026-07-31 to FIVE ticks. Engine state 0x50
+ * seeds `*(short *)(p + 0x28) = 4;` and falls straight into 0x51, whose
+ * body READS the counter BEFORE its own decrement:
+ *     t = *(short *)(p + 0x28);
+ *     *(short *)(p + 0x28) = t - 1;
+ *     if (t == 0) { ...commit anim 0x10F... }
+ * so the counter is seen as 4,3,2,1,0 and the recover clip commits on the
+ * FIFTH tick, not the fourth. Verified in BOTH melee machines —
+ * func_001735C0 (NEARMISS, states 0x50/0x51) and func_00173E60
+ * (BYTE-MATCHED, same two states). This is the identical pre-decrement
+ * shape already corrected for the reload ramp (WPN_RELOAD_RAMP, NINE not
+ * eight) and func_001703E0's 0x63/0x64 holster blend. */
+#define MELEE_RECOV_PAUSE 5      /* engine 0x50/0x51: +0x28 = 4, read
+                                  * before its decrement -> 5 ticks       */
 #define MELEE_RECOV_RATE  1.0f   /* property-table rate (1.0; the 4.0 the
                                   * engine passes the arbiter is BLEND)   */
 /* Fallback clip lengths (flagged; used only when the player EMDL lacks
@@ -1082,21 +1098,37 @@ static void weapon_acquire(const EmCollision *coll, const float pos[3],
     }
 }
 
-/* The +0x2F0 ROUND-ROBIN advance — CONFIRMED 2026-07-31 in the stance
- * tops func_001703E0 (state 2) and func_0016FCF0 (state 2), which run
- * the identical block once per AIM tick BEFORE the fire dispatch:
+/* The +0x2F0 ROUND-ROBIN advance — the stance tops func_001703E0
+ * (BYTE-MATCHED, state 2) and func_0016FCF0 (BYTE-MATCHED, state 2) run
+ * the same block once per AIM tick:
  *     if (D_00810CA4[0] == 0 && p[0x274] != 0) {
  *         p[0x2F0] = p[0x2F0] + 1;
  *         if (p[0x2F0] > 2) p[0x2F0] = 0;
  *     }
- *     func_00199220(p);            // then the acquisition
- * — so: manual aim option only, and only on a tick where the trigger
- * latch +0x274 is up. func_0017A8B0 (BYTE-MATCHED) sets that latch on
- * each trigger event; every shot state clears it. Net: ONE advance per
- * shot for semi and full-auto; burst rounds 2/3 chain through the
- * step-back, so a burst holds its opening slot. func_001703E0 state 0
- * seeds +0x2F0 = 0 at the stance entry. The port calls this at exactly
- * those trigger-accept points. */
+ * (in func_001703E0 that block is immediately followed by the
+ * func_00199220 acquisition and then the +0x275 fire dispatch;
+ * func_0016FCF0 runs the same increment but drives its lock through
+ * func_00185A10/func_00185E30 instead — citation tightened 2026-07-31).
+ * So: manual aim option only, and only on a tick where the trigger latch
+ * +0x274 is up. func_0017A8B0 (BYTE-MATCHED) sets that latch on each
+ * accepted trigger event; every shot state clears it again.
+ *
+ * WHICH CHAINED ROUNDS ADVANCE — CORRECTED 2026-07-31 against the
+ * BYTE-MATCHED func_00170A60. The three cadence-expiry arms differ in
+ * exactly this, and the old note ("one advance per shot for semi and
+ * full-auto; a burst holds its opening slot") had two of them backwards:
+ *   case 11 (SEMI queued): `e[0x2F2] = 1; e[0x274] = 1; e[7]--;`
+ *        -> latch left SET  -> the next tick's stance top ADVANCES.
+ *   case 22 (BURST rounds 2/3): `... else if (func_001607D0(e,1) == 0)
+ *        { if (e[0x274] != 0) e[7]--; else e[7] = 0; }` — the latch that
+ *        func_001607D0 just re-armed is NOT cleared -> ADVANCES too, so
+ *        a burst walks the slots round by round.
+ *   case 31 (AUTO refire): the same shape but with an explicit
+ *        `e[7]--; e[0x274] = 0;` — the latch is CLEARED on the way out,
+ *        so the stance top sees nothing and full-auto KEEPS ITS SLOT for
+ *        the whole held burst.
+ * func_001703E0 state 0 seeds +0x2F0 = 0 at the stance entry. The port
+ * calls this at exactly the advancing trigger-accept points. */
 static void weapon_cycle_advance(void)
 {
     w.cycle = (w.cycle + 1) % 3;
@@ -1322,7 +1354,27 @@ static void weapon_fire_logic(const EmFrameInput *in)
              * here (.L00170C08) — the laser shows whenever the gun is
              * between cadences. */
             w.laser_vis = 1;
-            if (in->pressed & EM_PAD_CIRCLE) {
+            /* TRIGGER EDGE vs LEVEL — CORRECTED 2026-07-31. The latch
+             * +0x274 that this state fires on is set by func_0017A8B0,
+             * and func_001607D0's armed cases (0x31/0x32/0x34/0x35)
+             * route to it through a fire-mode split:
+             *     if (D_00810E74 & FIRE) {                  // PRESSED
+             *         if (D_00810C61 != 0) return 0;        //   semi only
+             *         return func_0017A8B0(p, 0); }
+             *     if (D_00810E70 & FIRE) {                  // HELD
+             *         if (D_00810C61 == 0) return 0;        //   burst/auto
+             *         return func_0017A8B0(p, 0); }
+             * so SEMI is edge-triggered and BURST/AUTO are LEVEL-
+             * triggered. The port fired every mode off the press edge,
+             * which meant a full-auto or burst trigger that was already
+             * down when the state machine returned to WAIT (the common
+             * case: the dry-mag auto reload finishes while the player is
+             * still holding fire) would sit there doing nothing until
+             * the trigger was released and re-pressed. */
+            const int trigger = (w.fire_mode == EM_WPN_MODE_SEMI)
+                                    ? (in->pressed & EM_PAD_CIRCLE)
+                                    : (in->held & EM_PAD_CIRCLE);
+            if (trigger) {
                 /* the press runs func_0017A8B0: latch + refresh the
                  * interval from the ladder clip (semi keeps it; the
                  * burst/auto FIRE states overwrite 12.0 per round —
@@ -1423,8 +1475,24 @@ static void weapon_fire_logic(const EmFrameInput *in)
                         w.burst    = 0;
                         w.fire_sub = WPN_SUB_GAP;
                     }
-                } else if (w.burst < WPN_BURST_LEN) {
+                } else if (w.burst < WPN_BURST_LEN &&
+                           (in->held & EM_PAD_CIRCLE)) {
+                    /* HELD GATE — CORRECTED 2026-07-31. The engine's
+                     * burst does NOT free-run: case 22's chain arm is
+                     *     else if (func_001607D0(e, 1) == 0) {
+                     *         if (e[0x274] != 0) e[7]--;   // next round
+                     *         else               e[7] = 0; // back to WAIT
+                     *     }
+                     * and in burst mode (D_00810C61 == 1) func_001607D0
+                     * only re-arms +0x274 from its HELD arm. Releasing
+                     * the trigger mid-burst therefore ENDS the burst at
+                     * the round in flight — a tap is one round, not
+                     * three. The port chained all three unconditionally. */
                     w.burst++;
+                    /* the re-armed latch is NOT cleared here (unlike the
+                     * auto arm below), so the stance top advances the
+                     * round-robin for burst rounds 2 and 3 */
+                    weapon_cycle_advance();
                     /* ROUND INTERVAL — CORRECTED 2026-07-31. The engine
                      * re-arms +0x2F4 = 12.0 in the SHOT state only while
                      * `e[0x28] < 2` (func_00170A60 case 21), i.e. for
@@ -1436,9 +1504,18 @@ static void weapon_fire_logic(const EmFrameInput *in)
                     w.interval  = (w.burst <= 2) ? WPN_INTERVAL_AUTO
                                                  : semi_interval();
                     w.fire_next = 1;
-                } else {
+                } else if (w.burst >= WPN_BURST_LEN) {
+                    /* burst COMPLETE (engine `if (e[0x28] >= 3) e[7]++`)
+                     * -> 0x17, the trigger-RELEASE wait */
                     w.burst    = 0;
                     w.fire_sub = WPN_SUB_GAP;           /* engine 0x17 */
+                } else {
+                    /* trigger released with rounds left: the engine's
+                     * `else e[7] = 0;` — straight back to WAIT, NOT to
+                     * the 0x17 release wait (which would swallow the
+                     * next press until another release). */
+                    w.burst    = 0;
+                    w.fire_sub = WPN_SUB_WAIT;
                 }
             }
             break;
@@ -1490,11 +1567,16 @@ static void weapon_fire_logic(const EmFrameInput *in)
                         w.fire_sub = WPN_SUB_GAP;
                     }
                 } else if (in->held & EM_PAD_CIRCLE) {
-                    weapon_cycle_advance();  /* auto refire: the expiry
-                                              * tick's func_001607D0 ->
-                                              * func_0017A8B0 re-latch
-                                              * advances the round-robin
-                                              * once per round           */
+                    /* NO round-robin advance — CORRECTED 2026-07-31.
+                     * func_001607D0 re-arms +0x274 here just like the
+                     * burst arm does, but case 31 CLEARS it again on the
+                     * way out:
+                     *     if (e[0x274] != 0) { e[7]--; e[0x274] = 0; }
+                     * so the next tick's stance top sees no latch and
+                     * the cycle stands still. Full-auto therefore pours
+                     * every round of a held burst into the SAME slot;
+                     * only the initial press advances it. The port used
+                     * to advance per round, spraying the three slots. */
                     w.fire_next = 1;
                 } else {
                     w.fire_sub = WPN_SUB_WAIT;
@@ -1736,13 +1818,22 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
     switch (w.state) {
         case EM_WPN_HOLSTERED:
             if (draw_held && m.state == EM_MELEE_IDLE) {
-                /* major 0 ENTER: reload-if-empty, anim 0x110 at the
-                 * property-table rate 1.4, sound 0x162 @vol150
-                 * (func_0016F530). The ENTER reload is covered by the
-                 * draw anim — no RELOAD state, but it counts as a
-                 * reload. */
+                /* major 0 ENTER — BYTE-MATCHED func_001703E0 state 0:
+                 *     func_0017B300(arg0, 0);            // reload if dry
+                 *     p[6]++; p[0x278] = 0.5f; p[0x2F2] = 0;
+                 *     *(short *)(p + 0x2E) = 0; p[0x275] = 0;
+                 *     func_001749A0(p, 0x110, 0, 1.0f);  // draw clip
+                 *     p[0x27C] = 0.5f; p[7] = 0; p[0x302] = 0;
+                 *     *(short *)(p + 0x276) = 0; p[0x2F0] = 0;
+                 *     p[0x274] = 0;
+                 * NOTE — SOUND MOVED 2026-07-31: there is NO sound in
+                 * this state. 0x162 lives in func_0016F530 (also
+                 * BYTE-MATCHED), which func_001703E0 calls from state 1
+                 * on the clip-END event bit (`if (p[0x200] & 0x1000)`),
+                 * i.e. at the DRAW->AIM transition — see EM_WPN_DRAW
+                 * below. The ENTER reload is covered by the draw anim —
+                 * no RELOAD state, but it counts as a reload. */
                 if (weapon_reload(0) == 0) w.reloads++;
-                em_sfx_play(EM_SFX_WPN_DRAW);
                 /* HOLD-type for the same reason as the reload (the
                  * draw's tail otherwise pops through idle for a frame
                  * before the aim hold commits). */
@@ -1755,6 +1846,32 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             if (!draw_held) {
                 weapon_enter_holster();     /* 0x65: anim 0x111, 0x163 */
             } else if (--w.timer <= 0) {
+                /* DRAW -> AIM: the engine's func_001703E0 state 1 arm,
+                 *     if (p[0x200] & 0x1000) {          // draw clip end
+                 *         p[6]++;                       // -> major 2
+                 *         func_0016F530(arg0, 0);
+                 *         func_001749A0(p, D_00248B88[p[0x275]], 0, 0.0f);
+                 *     }
+                 * and func_0016F530 (BYTE-MATCHED) is where the weapon-
+                 * ready foley actually fires:
+                 *     p[0x1F1] = 1; if (arg1 == 0) p[0x318] = 3;
+                 *     if (p[0x317]) p[0x317] = 0;
+                 *     p[0x2F2] = 1; *(short *)(p + 0x2E) = 1;
+                 *     func_001FBD50(arg0, 0x162, 0, 300.0f);
+                 *     if (D_00810CA6 == 0 && D_00810D3C != 0) {
+                 *         func_001FBD50(&D_008102B0, 0x179, 0, 300.0f);
+                 *         D_008106C7 = 1;
+                 *     }
+                 * CORRECTED 2026-07-31 on two counts: 0x162 plays at the
+                 * END of the draw clip (the port played it at the stance
+                 * entry, a whole draw window early), at volume 300 (the
+                 * old note said 150), and a flashlight preference that is
+                 * already ON re-announces itself with 0x179 on every
+                 * draw — the "replayed on the next rifle draw" behaviour
+                 * the header describes, which the port never emitted. */
+                em_sfx_play(EM_SFX_WPN_DRAW);           /* 0x162 */
+                if (w.light_on)
+                    em_sfx_play(EM_SFX_SUB_TOGGLE);     /* 0x179 replay */
                 weapon_enter_aim();         /* major 2: hold pose 0x112 */
                 w.pending = 0;
                 w.burst   = 0;

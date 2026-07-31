@@ -29,11 +29,19 @@
  * called as func_00208AD0(ctx, 0xD0, 0xC4) and maps a canvas point to
  * GS as (x + 0x700, (y >> 1) + 0x790), so the centre is (208, 196) —
  * "197" was a one-pixel guess) with the <=35 red bg-ring state and the
- * stepped 1 s rotating highlight (12 deg every 2 frames); the
- * light-blue fill arc r24-56 = 360deg*hp/100 from 180deg is a PORT
- * READING of the same arc block, see em_hud.c — UNRESOLVED, the
- * engine's angle pair could equally describe a shrinking span. Drawn
- * through the em_gfx annular-arc
+ * stepped 1 s rotating highlight (12 deg every 2 frames).
+ *
+ * RING FILL CORRECTED (2026-07 audit): the port used to draw a
+ * light-blue arc r24-56 GROWING from 180 deg with health. func_00208AD0
+ * re-uses one arc block for both ring passes and writes the pair
+ * (180, 540) for the first and (-180 + 3.6*hp, 180) for the second; the
+ * two rotating-highlight blocks in the same byte-matched function get
+ * (ang - 60, ang) and (ang, ang + 60) at the identical offsets, which
+ * settles the pair as (start, end). So the second pass is the DEPLETED
+ * span 180 + 3.6*hp .. 540 at the SAME radii (36-56, one block), and it
+ * shrinks to nothing at full health. The port now draws that; its
+ * colour is a flagged dark stand-in (the block's static colours are
+ * unexported). Drawn through the em_gfx annular-arc
  * primitive; the BATTERY half-unit square bar at (16,118); the SPR4
  * reserve row at (16,190) (the real screen shows NO magazine state —
  * reserve only); INFECTION as text positions only (there is NO infection
@@ -191,6 +199,10 @@
  * reads " 75 / 100" — the port previously guessed zero-padding for
  * health and left-packing for reserve/infection.
  *
+ * The GLYPH CELL each of those four readouts draws in is a separate
+ * question and was also wrong; see the style table below for the cells
+ * actually read out of the four call sites.
+ *
  * EM_HUD_FORCE=1 in the environment (checked once, on first render call)
  * forces the status screen VISIBLE regardless of the toggle — for
  * headless capture tests of the overlay itself. Hidden is the default,
@@ -232,10 +244,28 @@ typedef struct {
 } EmPlayerStatus;
 
 /* Text styles — each pairs one of the two engine fonts with the glyph
- * cell + style color the status screen uses (style records 0x265510..):
+ * cell + style color the status screen uses (style records 0x265510..).
+ *
+ * GLYPH CELLS CORRECTED (2026-07 audit): every cell below is now the
+ * literal (w, h) pair the engine hands func_001CBA50 at the matching
+ * call site, read out of the recovered C — the port previously used one
+ * 12x16 "NUM16" cell for four readouts that the engine draws at three
+ * different sizes:
+ *   health value / '/' / max  func_00208AD0 (BYTE-MATCHED): 0xC, 0xC
+ *   battery caption "04/06"   func_00209280 (NEARMISS):     16, 16
+ *   SPR4 reserve count        func_00209860 (NEARMISS):     0x10, 0x10
+ *   infection "NN%"           func_00209DF0 (BYTE-MATCHED): 0x10, 0x10
+ *   "DENNIS RILEY"            func_00209DF0 (BYTE-MATCHED): 0xC, 0x10
+ *   profile bio rows          func_00209DF0 (BYTE-MATCHED): 0xA, 0xA
+ *   every LABEL row           func_00208AD0/9280/9860:      0xC, 0xC
+ *
  *   LABEL12      small font, 12x12 cell, white  — "HEALTH", "BATTERY"...
- *   NUM16        small font, 12x16 cell, white  — numbers ("075 / 100")
- *   NUM16_RED    small font, 12x16 cell, red    — low-health value
+ *   NUM12        small font, 12x12 cell, white  — health row (" 75 / 100")
+ *   NUM12_RED    small font, 12x12 cell, red    — low-health value
+ *   NUM16        small font, 16x16 cell, white  — battery / reserve /
+ *                                                 infection readouts
+ *   NUM16_RED    small font, 16x16 cell, red    — (no engine call site
+ *                                                 known; kept for callers)
  *   TALL         tall font, 1:1 (h 20), white   — "INFECTION"
  *   TALL_DARKRED tall font, 1:1 (h 20), dark red— "INFECTED"
  *   NAME12_BLUE  small font, 12x16 cell, blue   — "DENNIS RILEY"
@@ -248,6 +278,8 @@ typedef struct {
  *                markup records, so the default is what shows) */
 typedef enum {
     EM_HUD_TEXT_LABEL12,
+    EM_HUD_TEXT_NUM12,
+    EM_HUD_TEXT_NUM12_RED,
     EM_HUD_TEXT_NUM16,
     EM_HUD_TEXT_NUM16_RED,
     EM_HUD_TEXT_TALL,
@@ -308,7 +340,9 @@ void em_hud_menu_inhibit(int inhibit);
  *     opaque black base + "GAME OVER" centered in the tall font (dark red —
  *     the engine's INFECTED text style, the only red tall style it
  *     ships). No prompt line: the engine screen carries none we know
- *     of (the hold is CROSS-skippable, silently). The old blinking
+ *     of (the hold is skippable by the 0x40 edge bit — calling that bit
+ *     CROSS is the same flagged inference as the open bits above, and
+ *     the skip is silent). The old blinking
  *     "PRESS START" invention is retired with the START-restart.
  *
  *   em_hud_continue   = screen module 1 — CONFIRMED: func_001AC480
@@ -384,9 +418,13 @@ void em_hud_found_render(EmGfx *gfx);
  *     D_002671C0[] with `D_00289B40[D_00810700][0] + D_00810701`
  *     (per-area base + sub-area byte). The area-11 text the port
  *     carries is an OBSERVED capture, not a decoded table entry.
- *   - NOT MODELLED (seen in the same function): once the 300 frames
- *     elapse, a SECOND 300-frame line — the sub-location name
- *     D_0026726C[func_001C5860()] — draws at canvas x 406, row 36.
+ *   - NOT MODELLED (read in the same function), and RE-READ: once the
+ *     300 frames elapse a SECOND 300-frame line draws centred on canvas
+ *     x 406, row 36, from D_0026726C[band].  It is NOT a sub-location
+ *     name: `band` is func_001C5860() (BYTE-MATCHED), which buckets
+ *     100 - infection (D_008104D8) into 0..5 at 80/50/30/10/0, the line
+ *     is skipped while band == 0, and its timer restarts on a band
+ *     change — an infection-status placard.
  *
  * em_hud_area_title(area) arms the card ONCE for the given area on scene
  * entry (em_game's scene-load hook). Only area 11 has a known string;
@@ -428,10 +466,13 @@ int  em_hud_area_title_active(void);
  *                measures the first TWO segments with func_001CC170
  *                and draws at `x = 0x100 - (max >> 1)` = 256 -
  *                max/2 on the 512-wide UI canvas, `y = 0xC2` (194).
- *                The doubling of 194 to canvas 388 is DERIVED from
- *                the engine's half-height y convention elsewhere
- *                ((canvas_y >> 1) + 0x790), not read: func_001FC770
- *                is not decompiled. The '\n' step is likewise
+ *                The doubling of 194 to canvas 388 is now READ, not
+ *                derived: func_001FC770 (BYTE-MATCHED) is a passthrough
+ *                to func_001FC7B0 (NEARMISS), whose draw is
+ *                func_001CC1E0(1, base + 0x700, y + 0x790, 0xA, 0x14,
+ *                buf, cfg[5]) — the y is added to 0x790 unhalved, so it
+ *                is already in half-height units and canvas y = 388,
+ *                and x is plain canvas. The '\n' step IS still
  *                DERIVED — func_001FE070 advances the pen by
  *                `(D_00264CD8 + D_00264CE0) >> 1`, font-metric data
  *                we have not exported; 24 canvas px is the port's

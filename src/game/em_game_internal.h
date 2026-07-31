@@ -115,11 +115,17 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define FRAME_DT        (1.0f / 60.0f)
 #define WALK_SPEED      15.0f   /* units/sec — scripted door MOVE-TO only */
 
-/* AREA-11 ELEVATOR DESCENT (ov 0x00828050; decoded
- * INVESTIGATION_area11_elevator.md §4). The first-use (0x81083A == 0)
- * DOWN run: add the rate to the player ground-Y, the camera target-Y and
- * the platform mesh-Y each frame for 150 frames = 40.0 units (Y~230 ->
- * Y~190). rate const 0xBE888889. */
+/* AREA-11 ELEVATOR DESCENT — DOWNGRADED by audit: OBSERVED, not
+ * source-derived. The cited body lives in the OVERLAY (ov 0x00828050);
+ * no overlay code is in the decomp (there is no src/func_0082*.c), and
+ * the cited INVESTIGATION_area11_elevator.md does not exist in either
+ * repo, so nothing here is re-checkable against recovered C. The
+ * numbers below come from a live PCSX2 read and should be treated as
+ * a port stand-in until the overlay is disassembled.
+ * Observed first-use (0x81083A == 0) DOWN run: add the rate to the
+ * player ground-Y, the camera target-Y and the platform mesh-Y each
+ * frame for 150 frames = 40.0 units (Y~230 -> Y~190). rate const
+ * 0xBE888889. */
 #define ELEV_RATE_DOWN  (-0.266667f) /* +0x2E8: 0xBE888889 u/frame, DOWN */
 #define ELEV_FRAMES     150          /* +0x2EC < 0x96 */
 #define ELEV_SFX_DOWN   0x453u       /* func_001FBD50(300, 0x453) — down */
@@ -272,27 +278,42 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define AIM_POSE_YAW_DEG  60.0f
 
 /* PLAYER WALL RADIUS — re-verified against func_001764E0 [NEARMISS]:
- * the engine's wall response is NOT a zero-width move segment. The
- * walk integrator fires FIVE radial probes per pass, rotating the
- * local probe vector by yaw + D_00248950[i] (i = 0..4).
- *   ANKLE pass (loop 1): local vector literally (0, 0.05, 4.5, 1) —
- *     the recovered C builds that quad on the stack — queried with
- *     mask 6 (static world). GATED: it runs only while the actor is
- *     in state 1 sub 1 (arg0+4 == 1 && arg0+5 == 1).
- *   CHEST pass (loop 2): the rotated D_002488C0 vector plus a scratch
+ * the engine's wall response is NOT a zero-width move segment. Both
+ * passes rotate a local probe vector by yaw + D_00248950[i], but they
+ * do NOT run the same number of probes:
+ *   ANKLE pass (loop 1): FIVE probes, i = 0..4 (`do {...} while (i <
+ *     5)`). Local vector literally (0, 0.05, 4.5, 1) — the recovered C
+ *     builds that quad on the stack — queried with mask 6 (static
+ *     world). GATED: it runs only while the actor is in state 1 sub 1
+ *     (arg0+4 == 1 && arg0+5 == 1).
+ *   CHEST pass (loop 2): CORRECTED (audit) — EIGHT probes, j = 0..7
+ *     (`do {...} while (j < 8)`), each hit setting bit (1 << j) of the
+ *     actor's contact mask +0x314, so the byte carries eight lanes.
+ *     The old "FIVE radial probes per pass" reading was wrong for this
+ *     loop. Vector = the rotated D_002488C0 quad plus a scratch
  *     (0, 4.01, 0, 1) offset (4.01 is an INSTRUCTION immediate in the
  *     loop, not a field of D_002488C0), queried with mask 7 (+ movable
  *     hulls = doors).
- * On a wall-class hit the engine adds the spad 0x700031C0 overshoot
+ * ANKLE hit response: the engine adds the spad 0x700031C0 overshoot
  * back into the actor position — all THREE components x/y/z, not just
- * x/z. The effective wall standoff is 4.5 units; the old zero-radius
- * pre-move probe is why the player clipped halfway into walls.
+ * x/z — for wall-class hits (surface halfword & 0xFF00 == 0x1000 or
+ * 0x800; the 0x2000 movable class needs its owner's bytes +2/+3 to be
+ * 4/2, else a normal-angle window rejects it).
+ * CHEST hit response is NOT that add: loop 2 routes every hit through
+ * func_00176390 [NEARMISS] -> func_00176180 (still an unread stub), so
+ * the port's "pos += hit - end" on the chest pass is an APPROXIMATION,
+ * flagged. The effective wall standoff is 4.5 units; the old
+ * zero-radius pre-move probe is why the player clipped into walls.
  * Sliding emerges exactly like the PS2: only probes pointing into the
  * wall push back, each along its own direction, so motion parallel to
  * the wall survives.
- * NOT re-checkable from the C: D_00248950's five angle values are ELF
+ * NOT re-checkable from the C: D_00248950's angle values are ELF
  * .data. {0, +45, -45, +90, -90} deg is the s38 data-dump reading and
- * stands as OBSERVED, not source-derived. */
+ * stands as OBSERVED, not source-derived — and it covers only the
+ * first FIVE entries; loop 2's j = 0..7 indexing proves the table has
+ * at least EIGHT. PORT GAP (em_game.c, owned by another pass):
+ * player_wall_probes runs 5 directions x 2 passes, so the chest pass
+ * is missing three of the engine's eight lanes. */
 #define PLAYER_WALL_RADIUS 4.5f   /* the (0, y, 4.5) local probe vector */
 #define PROBE_ANKLE_LIFT   0.05f  /* loop-1 local y (0x3D4CCCCD) */
 #define PROBE_CHEST_LIFT   4.01f  /* loop-2 scratch y immediate */
@@ -336,7 +357,11 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * [byte-matched], which resolves the clip as D_00248AB0[0][self+0x235]
  * (func_0017B490/func_0017B460) — "anim id 0" is therefore the value
  * of that table entry for the unarmed variant, i.e. DATA, not a
- * literal in the code. The engine also gates the fidget on
+ * literal in the code. func_0017B490 [byte-matched] also carries an
+ * OVERRIDE arm the port does not model: when self+0x236 == 0 &&
+ * !(self+0x235 & 1) && (func_001B0070() & 4) the index is REPLACED by
+ * a fixed 4, i.e. the request becomes D_00248AB0[0][4] — the same
+ * unarmed gate the fidget uses, plus a global mode bit. The engine also gates the fidget on
  * self+0x236 == 0 && !(self+0x235 & 1) (unarmed), which the port does
  * not model. (FINDINGS "PLAYER IDLE CYCLE"): the player
  * mode-0 top func_00161020 requests the BASE idle anim id 0 (the
@@ -727,8 +752,16 @@ enum {
     GO_SCREEN,         /* GAME OVER screen: fade-in + 240 hold + skip */
     GO_SCREEN_OUT,     /* fading to black (engine wait sub 4)         */
     GO_PROMPT,         /* CONTINUE prompt: fade-in + cursor + timer   */
-    GO_PROMPT_CONFIRM, /* confirmed: fading out; dispatch at black    */
-    GO_PROMPT_TIMEOUT  /* idle timeout: fading out; engine -> title   */
+    GO_PROMPT_CONFIRM, /* confirmed: fading out; dispatch at black —
+                        * func_001AC480 [NEARMISS] state 2 fires
+                        * func_001AEDE0(4,0) + the per-option sound and
+                        * moves to state 3, which returns the verdict 1
+                        * only once D_0028A9A0[0] == 2 (hold-black)    */
+    GO_PROMPT_TIMEOUT  /* idle timeout: fading out; engine -> title —
+                        * func_001AC480 state 2 with no held button
+                        * counts task+0x16 to 0, fades out and moves to
+                        * state 4 (verdict 3; a held button there fades
+                        * back IN and returns to state 2)             */
 };
 
 /* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
@@ -759,13 +792,20 @@ enum {
                                    live capture measured +17. */
 #define CAM_AIM_OFFSET  6.0f    /* struct +0x8C idle/default table value.
                                    CONFIRMED by audit — func_00191390
-                                   [byte-matched] is a state switch that
-                                   writes (+0x8C, +0x5C) = (6, 2) for
-                                   states 1/3 at the -46.8 param and
-                                   (2, 6) at -31.2 (sum 8 either way),
+                                   [byte-matched, asm-word leaf] is a
+                                   state switch that writes
+                                   (+0x8C, +0x5C) = (6, 2) for states 1/3
+                                   AND for every state it does not name
+                                   (the fall-through lands on the same
+                                   test), flipping to (2, 6) when
+                                   cam+0x64 == -31.2 (sum 8 either way);
                                    (-3, 1) for states 2/4/0xF, (0, 2) for
-                                   6/7/8/9/0x2C/0x2D, (11, 2) for 0x13,
-                                   and sets +0x98 = 23.0 when +0x6D != 0 */
+                                   6/7/8/9/0x2C/0x2D, (11, 2) for 0x13.
+                                   It also clears +0x94/+0x98 on entry and
+                                   sets +0x98 = 23.0 when +0x6D != 0.
+                                   NOTE the test is `== -31.2`, so "the
+                                   -46.8 param" really means "anything
+                                   that is not -31.2". */
 #define CAM_TGT_CAP_XZ  2.0f    /* desired-target x/z chase cap, u/frame
                                    (func_001916C0 walk+idle cases; the old
                                    0.8 was the smooth-table inline's cap) */
@@ -852,9 +892,16 @@ enum {
  *    untranslated pre-pass bit +0x5A & 1). Not modeled (no native
  *    reach, flagged): cam+0x98 (+23 when the pre-pass sets +0x6D),
  *    the area-0x10/0x03 clamps, the AREA11 region-1 height swap
- *    (func_00194D10 idx 1 -> constant 6.0 replaces 0x8C, i.e. the
- *    walking eye rides 9 u HIGHER inside that rect — this corrects
- *    the old s50 "+12 AIM target-height tweak" guess), and the
+ *    (func_00230000 [byte-matched] case 11: when func_00194D10(self,
+ *    other, 1) reports the player inside region 1 the goal becomes
+ *    6.0 + 11 + cam+0x5C + player.y — a constant 6.0 REPLACING
+ *    cam+0x8C. CORRECTED (audit): the size of that swap is whatever
+ *    0x8C currently holds, so it is +9 only for the ELEVATED family
+ *    (0x8C = -3); on an ordinary ground walk (state 3, 0x8C = 6) it is
+ *    a NO-OP, and +4 in a -31.2 record (0x8C = 2). The old flat "the
+ *    walking eye rides 9 u HIGHER inside that rect" was reading the
+ *    elevated row. This still retires the s50 "+12 AIM target-height
+ *    tweak" guess), and the
  *    area-0 fall cam (player.y < -83: eye (120, -1590), target y ->
  *    -67.5, style-5 solve, manual 4.0 chase).
  *  - tail (every walk frame): cam+0x44 = atan2 of the ACTUAL pair —
@@ -1024,12 +1071,20 @@ enum {
                                     gate on non-floor-class normals      */
 #define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek
                                    MOTION: the orient-to-heading family
-                                   rate (func_001921D0 states 7/0x2C/0x2D,
-                                   float 0x3D0EFA35 = 2 deg/frame). The
-                                   sub-state-3 motion handler is still
-                                   unread — rate flagged. The ARM is now
-                                   decoded (func_00191000, s64): see the
-                                   L1 block in camera_mode_dispatch. */
+                                   rate (func_001921D0 [NEARMISS] states
+                                   7/0x2C/0x2D, 0.034906585f = 2 deg/f,
+                                   fed to func_001B12B0(goal, cur, rate);
+                                   state 7 aims at pi + player yaw, i.e.
+                                   BEHIND). Re-read by audit; one nuance:
+                                   0x2C/0x2D run 2 deg/f only until the
+                                   alignment latch cam+0x6C sets, after
+                                   which they hold at 0.0034906587f =
+                                   0.2 deg/f. The sub-state-3 motion
+                                   handler is still unread — the rate
+                                   the port uses stays flagged. The ARM
+                                   is decoded (func_00191000
+                                   [byte-matched]): see the L1 block in
+                                   camera_mode_dispatch. */
 #define CAM_L1_MIN_RAD   7.0f   /* func_00191000 orbit-radius clamp:
                                    cam+0x4C = |D_0081069C| forced into
                                    [7.0, |cam+0x64| = 46.8]              */
@@ -1081,9 +1136,17 @@ enum {
  *     +11 — port keeps +2); actual target chases at 0.6/frame, eye at
  *     4.0/frame; anti-close: horizontal eye<->player dist < 7 raises
  *     EYE.y to player.y + 18 + f20;
- *   dispatcher tail: if EYE.y > player.y + 23 and the horizontal
- *     eye<->player distance < 8, the eye is pushed out to EXACTLY 8
- *     along its own heading (the min-distance clamp);
+ *   dispatcher tail — CORRECTED (audit), the comparison was INVERTED:
+ *     func_00197D20 [byte-matched] case 1 reads
+ *       `if (D_008105D4 < 23.0f + *(float *)(arg1 + 0xA4))`
+ *     (D_008105D4 = the ACTUAL eye Y, arg1+0xA4 = player Y), so the
+ *     min-distance clamp runs while the eye is BELOW player.y + 23 —
+ *     a LOW eye that would otherwise slide inside the player — not
+ *     above it. Inside that gate, a horizontal eye<->player distance
+ *     < 8 pushes the eye out to EXACTLY 8 along its own heading. It
+ *     also lives ONLY in the ENTRY sub-state arm (case 1); the steady
+ *     arm (case 2 -> func_00197870) returns without it. em_camera.c
+ *     has since been fixed to test `<`;
  *   release (player states 0xC/0x29): the engine swaps to transition
  *     mode 2 (func_00198650, untranslated) — the port re-seeds the
  *     chase yaw from the actual eye->player heading and lets mode-0
@@ -1120,11 +1183,23 @@ enum {
  *     behind the player's through-door pose and the NORMAL solve runs
  *     — live the engine parked at (104, 29, -250.4) looking down at
  *     the walked-out player (the door wall behind the eye engages the
- *     decoded constant-height func_0018DD20 solve; the +10 over the
- *     default height comes from the walk-state camera handler
- *     func_00230000, unread — the old func_00191000 attribution was
- *     wrong: s64 decoded that one as the L1 re-orient ARM; it never
- *     places the eye).
+ *     decoded constant-height func_0018DD20 solve).
+ *     THE +10 — CORRECTED (audit), attribution twice wrong. It is not
+ *     func_00191000 (s64 was right that that one is only the L1
+ *     re-orient ARM: it writes cam+6/+1/+0x48/+0x4C and never places
+ *     the eye) and it is not func_00230000 either — that one IS
+ *     recovered now [byte-matched] and its goal is the ordinary
+ *     11 + cam+0x5C + (cam+0x8C or the region-1 constant 6.0) above
+ *     player.y = 19. The over-close HEIGHT BOOST in func_001921D0's
+ *     [NEARMISS] free-look tail produces it: when the tether slack
+ *     falls below the limit the desired eye height becomes
+ *       11 + cam+0x8C + player.y + (cam+0x5C - scratch)
+ *     with scratch = 0.5*(slack - lim) in the -46.8 family and
+ *     (slack - lim) FLOORED AT -10.0 otherwise (`if (d < -10.0f) d =
+ *     -10.0f`) — i.e. a rise of up to exactly +10 over the default
+ *     ride in the non -46.8 family, which is the family the office
+ *     records (-31.2) sit in. The port does not model the boost
+ *     (flagged).
  *   LOCKED try (script D_0024DEC0 record 2, op 0x09 -> func_001BBBF0):
  *     TARGET = door pos + 8 u toward the HANDLE side (the door-yaw
  *     left: (-8*cos(dyaw), +10, +8*sin(dyaw))) and EYE = TARGET -
@@ -1152,9 +1227,13 @@ enum {
 #define LOCKCAM_EYE_UP     12.0f  /* door.y + 12 */
 
 /* ===================================================================== *
- * AREA-11 OPENING DIRECTOR — the D_00810813 step machine (decoded:
- * INVESTIGATION_area11_director.md "OPENING CINEMATIC — CAMERA
- * CHOREOGRAPHY"). The class-0x09 scripting-spine actor (record 12, ov
+ * AREA-11 OPENING DIRECTOR — the D_00810813 step machine. DOWNGRADED by
+ * audit: OBSERVED (live RAM), NOT source-derived. The cited body
+ * func_008253B0 is OVERLAY code that is absent from the decomp, and
+ * the cited INVESTIGATION_area11_director.md is not in either repo, so
+ * no keyframe, gate or step value below can be re-checked against
+ * recovered C. Treat the whole block as a live-capture reconstruction.
+ * The class-0x09 scripting-spine actor (record 12, ov
  * 0x8253F0, body func_008253B0) drives the global step byte D_00810813
  * (0 -> 0x10 -> 0x20 -> 0xFF) running THREE zone+Y-gated establishing
  * cutscenes as the player walks the opening area. Each beat is a
@@ -1309,10 +1388,15 @@ typedef struct {
                              (kept across clear frames, engine-true) */
     float    var_5c;      /* +0x5C: solver height variant, init 2.0.
                              WRITER FOUND (s65): the pre-step
-                             func_00191390 per-state table — walk
-                             states write 1.0 (head-clear 13 / floor
-                             pad 6: the low walk ride), idle 2.0
-                             (-31.2 areas: 6.0 — same pad rule) */
+                             func_00191390 per-state table. CORRECTED
+                             (audit) — name the STATES, not "walk"/
+                             "idle" (the s71 pass showed 2/4/0xF are
+                             the ELEVATED family, not ordinary
+                             locomotion): states 2/4/0xF write 1.0
+                             (head-clear 13 / floor pad 6, the low
+                             ride); states 1/3 and every unlisted
+                             state write 2.0, or 6.0 when
+                             cam+0x64 == -31.2 (same pad rule) */
     float    wall_yaw;    /* +0x90: published heading of the blocking
                              surface normal, atan2(n.x, n.z) wrapped */
     uint8_t  swing;       /* +0x03: walk-tether swing latch (0 = none,
@@ -1325,10 +1409,15 @@ typedef struct {
                              stale when the solver reads it — engine) */
     float    aim_h;       /* +0x8C: height offset above player Y, driven
                              per frame by the pre-step table
-                             (camera_prestep_00191390, s65): idle 6.0,
-                             walk -3.0. Feeds the target height (11 +
-                             0x8C) and the walk eye base (11 + 0x5C +
-                             0x8C); the aim camera proper is MODE 1 */
+                             (camera_prestep_00191390, s65). CORRECTED
+                             (audit), same state-id fix as var_5c:
+                             states 1/3 + every unlisted state get 6.0
+                             (2.0 in a -31.2 record), states 2/4/0xF
+                             (the ELEVATED family) get -3.0, 6/7/8/9/
+                             0x2C/0x2D get 0.0 and 0x13 gets 11.0.
+                             Feeds the target height (11 + 0x8C) and
+                             the eye base (11 + 0x5C + 0x8C); the aim
+                             camera proper is MODE 1 */
     uint8_t  aim_phase;   /* MODE-1 sub-machine (+0x01 in mode 1):
                              0 = off, 1 = entry blend (func_00197740),
                              2 = steady aim (func_00197870) */
@@ -1500,7 +1589,13 @@ typedef struct {
                                   * spad 3B40 equivalent) */
     float      doorcut_yaw;      /* latched THROUGH-DOOR yaw (the
                                   * kickoff snap; spad 3B50 equivalent
-                                  * — the cut's Euler, live-verified) */
+                                  * — the cut's Euler, live-verified).
+                                  * Grounded by audit: func_0018CBD0
+                                  * [NEARMISS] opens by copying
+                                  * D_70003B50 into cam+0x30 and builds
+                                  * the cut basis from THAT, so the cut
+                                  * really does ride the snapshot pose,
+                                  * never the live camera heading. */
 
     /* player status (the engine globals em_hud.h documents; static demo
      * values until the weapon/health systems are translated) */
@@ -1541,9 +1636,15 @@ typedef struct {
     int        go_cursor;      /* prompt cursor (engine task+0xF;
                                 * from-death init = 1) */
     int        go_restart;     /* continue confirmed: scene reload
-                                * latch, serviced by the frame machine
-                                * (the engine's reinstalled gameplay
-                                * task) */
+                                * latch, serviced by the frame machine.
+                                * Grounded by audit: func_001AC070
+                                * [NEARMISS] state 2 sends cursor 0 to
+                                * state 4 with D_00275BE0 = 0, and state
+                                * 4 runs func_001AB790(func_001ACEC0)
+                                * and returns WITHOUT the common tail —
+                                * the gameplay task is reinstalled
+                                * wholesale, which is what this latch
+                                * stands in for. */
 
     /* the camera block the recorded chain consumes (native K = P*V) */
     float      viewproj[16];
@@ -1593,7 +1694,15 @@ typedef struct {
      * seat side, the wedge needs a reverse-probe hit that the single-
      * sided collision misses, and the 5.5-u side probes run PARALLEL to
      * the faced wall — proven across s79 iterations 1-4 with a live
-     * geometry probe of snow.emcl). Rather than corrupt the byte-faithful
+     * geometry probe of snow.emcl). AUDIT STATUS: UNRESOLVED, and
+     * deliberately so. The three solver facts the argument leans on are
+     * confirmed in func_0018DD20 [NEARMISS] (pull-in 0.5 along the
+     * sight line, a wedge arm that needs the reverse probe to hit, and
+     * 5.5-u side probes); the CONCLUSION that no branch reaches +44 u
+     * is a property of snow.emcl's geometry, not of the recovered C, so
+     * it cannot be re-derived from the decomp. Treat the seat as a
+     * scene-data workaround, not a decoded behaviour.
+     * Rather than corrupt the byte-faithful
      * solver with a fake branch, the known emergent result is SEATED here
      * for the one scene that needs it: a data line, like the engine's own
      * data-driven spawn-record cameras. eye.y SEEKS from ey0 (the seat
@@ -1614,7 +1723,12 @@ typedef struct {
      * lines, export_level.py --lightrig: the decoded per-room rig
      * table D_00251C50 record for this scene's (area<<8)|sub key plus
      * the room's placed-lamp list). The engine selects the rig by the
-     * area/sub bytes D_00810700/701 (func_001D7B30) — a sub-state
+     * area/sub bytes D_00810700/701 (func_001D7B30 [byte-matched],
+     * re-read by audit: key = (D_00810700 << 8) + D_00810701, linear
+     * scan of at most 45 records at stride 0x78 comparing the record's
+     * first word, and NO-MATCH falls back to the table BASE record —
+     * plus an override key 0xF00 whenever func_001D2910(8) is
+     * non-zero, which the port does not model) — a sub-state
      * flip IS a scene switch in the port, so the rig is per-scene
      * constant by the engine's own mechanism (no spatial room bounds
      * exist or are invented; see char_rig_build). rig_on = 0 (no
@@ -1784,9 +1898,12 @@ typedef struct {
     unsigned    gt_flinch;       /* death test: committed flinch clip */
     float       gt_health0;      /* death test: health before a hit */
 
-    /* AREA-11 OPENING PROGRESSION (decoded INVESTIGATION_area11_elevator
-     * .md; batch-2 contract A/D). Two persistent game-state flags + the
-     * scripted elevator descent actor (ov 0x00828050). */
+    /* AREA-11 OPENING PROGRESSION — DOWNGRADED by audit: OBSERVED, not
+     * decoded. The scripted elevator actor is OVERLAY code
+     * (ov 0x00828050) that the decomp does not contain, and the cited
+     * INVESTIGATION_area11_elevator.md is absent from both repos; the
+     * flag ADDRESSES below are live-RAM readings. Two persistent
+     * game-state flags + the scripted elevator descent actor. */
     int         have_battery;    /* engine D_00810811 == 0xFF (battery in
                                   * inventory). 0/1 mirror; set by
                                   * em_pickup.c on the battery take */
@@ -1854,8 +1971,11 @@ typedef struct {
     EmBlockerAabb grate_box;     /* the CLOSED hull, world AABB (mesh-derived
                                   * at install, slides with the bars) */
 
-    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — decoded
-     * INVESTIGATION_area11_director.md). The 3-beat establishing
+    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — OBSERVED,
+     * see the DOWNGRADED note on the director block above: the driving
+     * body is overlay code the decomp does not have and the cited
+     * INVESTIGATION_area11_director.md is not in either repo). The
+     * 3-beat establishing
      * cinematic. cine_step is the persistent milestone byte (reset to 0
      * at scene arm, like the elevator actor — the opening plays once in
      * AREA-11). The rest is the per-beat transient (cleared when a beat

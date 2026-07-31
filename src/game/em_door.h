@@ -7,27 +7,50 @@
  *                  sub-state byte +0x05) -> em_door_update()
  *   func_00184BA0  player-side USE SCAN — run by its callers
  *                  (func_00160220/func_001612D0/func_0016DE40) ONLY on
- *                  the USE-button press edge: D_00810E74 (cur & ~prev
- *                  held — the edge mask) & spad 0x70003B76 (config
- *                  mask, default 0x0040 = CROSS). Decoded 2026-06-11
- *                  s58; doors have NO walk-into trigger (the old
- *                  state-0x2D reading guarded the class-7 prefix only).
- *                  Per-candidate test = func_00183EF0 CLASS-5 branch
- *                  (read in full 2026-06-11): horizontal dist <= 10 /
- *                  |dy| <= 8 (desc D_002755F0) measured from the
- *                  DOORWAY CENTER (hinge + 5 u along the panel for
- *                  models 3/0x15 — the placement origin is the HINGE
- *                  corner), side test, then facing within pi/4 of
- *                  through-door. No LOS, no auto ring (those were the
- *                  class-7 prefix)
+ *                  the USE-button press edge. CONFIRMED 2026-07-31: all
+ *                  three recovered callers gate the call on
+ *                  `D_00810E74 & *(u16*)0x70003B76`. That D_00810E74 is
+ *                  specifically the "cur & ~prev" EDGE mask, and that
+ *                  the config mask defaults to 0x0040 = CROSS, are DATA
+ *                  readings — neither is stated by any recovered
+ *                  function. Doors have NO walk-into trigger: the
+ *                  0x2D prefix in func_00183EF0 is
+ *                  `if (player+0x1F0 == 0x2D) { if (kind != 7) return 0;
+ *                  ... }`, i.e. it EXCLUDES class-5 outright.
+ *                  Per-candidate test = the func_00183EF0 CLASS-5 branch
+ *                  (re-read in full 2026-07-31, NEARMISS so its logic is
+ *                  authoritative): for model bytes 3 / 0x15 the distance
+ *                  is measured from the DOORWAY CENTER
+ *                    `(door.x - 5*cos(door_yaw), door.z + 5*sin(door_yaw))`
+ *                  (the placement origin is the HINGE corner; the same
+ *                  5-u lateral term the kickoff uses), then
+ *                    dist  <= desc[0]   and   |dy| <= desc[1]
+ *                  where desc = *(float**)(obj+0x30). The 10 / 8 values
+ *                  are the DATA in D_002755F0, not code. Then the side
+ *                  test (bearing-vs-door-yaw <= pi/2 picks which of
+ *                  player_yaw / player_yaw+pi is compared), and finally
+ *                  `|ang| <= 0.7853982f` = pi/4 of through-door. No LOS
+ *                  and no auto-ring return-2 anywhere in the class-5
+ *                  path — func_0019A910 and the `return 2` both live in
+ *                  the 0x2D/class-7 prefix and the kind-4 sub-0x2C case
  *                  -> the trigger scan inside em_door_update()
- *   func_001BC300  per-frame articulation + publish/draw (DECODED: it
- *                  runs func_001C68C0 — placement transform from the
- *                  actor's pos/orientation/SCALE, then the bone palette
- *                  through the skeleton evaluator keyed on the model
- *                  byte — then refreshes the actor's spatial anchor 10 u
- *                  above the placement origin and calls its own +0x4C
- *                  method) -> em_door_palette build + the draw accessors
+ *   func_001BC300  per-frame articulation + publish/draw (CONFIRMED
+ *                  against the byte-matched func_001BC300 /
+ *                  func_001C68C0, audit 2026-07-31): it runs
+ *                  func_001C68C0 =
+ *                    `build_trs_matrix(o+0xD0, o+0xB0, o+0xC0, o+0x60);
+ *                     func_001C9940(o+0x110, *(u8*)(o+0xC), o+0xD0);`
+ *                  — placement transform from the actor's
+ *                  pos(+0xB0)/orientation(+0xC0)/SCALE(+0x60), then the
+ *                  bone palette through the skeleton evaluator keyed on
+ *                  the actor byte +0x0C (CORRECTED 2026-07-31: this
+ *                  comment used to say "the model byte", which in this
+ *                  header means +0x03 — the lock/family byte. The
+ *                  evaluator does NOT read +0x03). func_001BC300 then
+ *                  calls func_001B1B30(self, x, 10.0f + y, z) — the
+ *                  actor's spatial anchor 10 u above the placement
+ *                  origin — and its own +0x4C method
+ *                  -> em_door_palette build + the draw accessors
  *
  * Door instances come from the SCENE MANIFEST's doors section (one line
  * per placed door, written by the decomp repo's export_props.py --doors /
@@ -37,22 +60,31 @@
  *   door <file.emdl> <x> <y> <z> <yaw> <trigger_radius>
  *       [goto <scene-dir> <sx> <sy> <sz> <syaw>]
  *
- * The OPTIONAL goto tail is the decoded per-area DOOR DESTINATION. The
- * dest-table shape is CONFIRMED in the byte-matched func_001BC150:
+ * The OPTIONAL goto tail is the per-area DOOR DESTINATION. The
+ * dest-table SHAPE is CONFIRMED in the byte-matched func_001BC150:
  * `rec = D_0024E140[D_00810700] + (id & 0x7F) * 4`, then bit 7 of the
  * id short selects the inter-area branch (rec[0] area, rec[1] entry,
- * rec[2] ? rec[3] : 0xFF sub) vs the room-move branch
- * (rec[side latch +0x2E]). The arrival spawn record shape is CONFIRMED
- * in the byte-matched func_001B07C0: 0x30-byte records at
- * D_0024D650[area][slot] + D_00810702 * 0x30, pos at +0/+4/+8, yaw at
- * +0xC, walk-out flag at +0x14. A goto door's
+ * rec[2] ? rec[3] : 0xFF sub) vs the room-move branch, which reads
+ * `rec[*(u16*)(self+0x2E)]` — the side latch INDEXES the record.
+ * The arrival spawn record shape is confirmed in func_001B07C0
+ * (NEARMISS 99.04%, so its body is authoritative but not byte-exact —
+ * CORRECTED 2026-07-31, this used to say "byte-matched"): 0x30-byte
+ * records at D_0024D650[area][slot] + D_00810702 * 0x30, pos at
+ * +0/+4/+8, yaw at +0xC, walk-out flag at +0x14. Those are the record
+ * SHAPES; the concrete area/entry NUMBERS the exporter writes into a
+ * goto tail come from reading the D_0024E140 / D_0024D650 tables as
+ * DATA — no recovered function states them. A goto door's
  * transition COMMIT switches the ACTIVE SCENE at full black instead of
  * the same-scene re-place: em_game consumes em_door_goto_pending() and
  * runs em_game_scene_switch() + the spawn placement while the screen is
  * black (the engine's B8==1 area-change shape, minus the audio fade;
  * BGM and the sfx registry persist). <scene-dir> with no '/' is the
- * SIBLING directory name of the current scene dir. 2026-06-11: the
- * shipped links are now the REAL decoded inter-area destinations —
+ * SIBLING directory name of the current scene dir. 2026-06-11 (scoped
+ * 2026-07-31: everything in this paragraph is the exporter's read of
+ * the D_0024E140 / D_0024D650 tables as DATA — the record SHAPES are
+ * decoded from func_001BC150 / func_001B07C0, the area and entry
+ * NUMBERS below are not stated by any recovered function): the
+ * shipped links are the real in-table inter-area destinations —
  * AREA01 sub 0 (the drawbridge room, chunk05.n0) is exported as
  * scene_drawbridge, so the office west door (door id 1|0x80 -> AREA01
  * entry 5), office0's m15 door (id 0|0x80 -> AREA01 entry 3) and the
@@ -72,15 +104,27 @@
  *
  *   doorsfx <front-id> <back-id>
  *
- * the D_0024DB80 sound pair the engine patches into the open script
- * (DECODED from func_001BBD60: pair = D_0024DB80[link >> 8], played as
- * pair[side]; office doors' links are 0x02xx -> pair[2] = 0x3FD front /
- * 0x3FE back). One global line is a FLAGGED simplification — per-door
+ * the D_0024DB80 sound pair the engine patches into the open script.
+ * CONFIRMED 2026-07-31 in the byte-matched func_001BBD60, which is
+ * exactly
+ *   `a1[6] = *(u16*)(D_0024DB80 + ((*(short*)(door+0x56) & 0xFF00) >> 8)
+ *                                 * 4 + *(u16*)(door+0x2E) * 2);`
+ * i.e. row = link >> 8 at a 4-byte (2 x u16) stride, entry = the side
+ * latch, patched into script record word 6. The concrete ids (office
+ * links 0x02xx -> 0x3FD front / 0x3FE back) are DATA read out of
+ * D_0024DB80, not something the function states. One global line is a
+ * FLAGGED simplification — per-door
  * pairs need the manifest door lines to carry the placement LINK
  * halfword (export_props.py owns them). Without the line the legacy
- * placeholder OPEN id fires (em_sfx.h). There is no close id at all:
- * func_001BBD20, the last candidate for one, plays the same OPEN pair,
- * so the door close is silent in the port exactly as in the engine.
+ * placeholder OPEN id fires (em_sfx.h). No close id has been found:
+ * func_001BBD20, the last candidate for one, is byte-matched and reads
+ * the SAME D_0024DB80 row off the same +0x56 link (its caller picks the
+ * entry) before `func_001FBD50(obj, id, a2, 300.0f)` — a positional cue
+ * at radius 300, from the open table. TIGHTENED 2026-07-31: that makes
+ * "there is no separate close sound" well supported, but nothing in the
+ * recovered set shows func_001BBD20 being invoked at close time, so
+ * "the door close is silent in the engine" stays an OBSERVATION rather
+ * than a decoded fact. The port is silent on close either way.
  *
  * The EMDL is the door's own articulated model in DOOR-LOCAL space
  * (bone 0 = the door panel, bone 1 = the lock fixture; frame 0 = the
@@ -91,12 +135,21 @@
  * DOOR TRANSIT — the FULL captured sequence (FINDINGS.md "AREA
  * TRANSITION LIFECYCLE", s22 room-move timeline), natively:
  *
- *   1. use-arm (+0x0B = 4) -> kickoff (func_001BBE40, byte-decoded
- *      2026-06-11): latch the player's side, LOCK player input
- *      (movement + actions ignored, camera frozen — the two-lock split
- *      below: em_door_movement_locked / em_door_menu_locked, both set
- *      here), snap the player yaw through the door,
- *      and walk the player to the STAGING point = doorway CENTER
+ *   1. use-arm (+0x0B = 4) -> kickoff (func_001BBE40, byte-matched;
+ *      re-read 2026-07-31): its own gate is the BIT test
+ *      `if (door[0xB] & 4)`, not an equality. It latches the player's
+ *      side into +0x2E from |norm(bearing - door_yaw)| <= pi/2, patches
+ *      the shared script records, snaps the player yaw through the
+ *      door, MOVE-TOs the staging point, queues the script and pumps it
+ *      (func_001BA1A0 + func_001BA1F0). PROVENANCE CORRECTED
+ *      2026-07-31: func_001BBE40 does NOT itself set either lock — it
+ *      writes no lock global at all. The MOVEMENT lock is already up
+ *      before it runs (the use scan func_00184BA0 writes spad
+ *      0x70003B8D = 3 on the frame it arms the door), and the rest of
+ *      the scripted-mode state comes from the queued script's op07
+ *      sub0. The port sets both locks at the kickoff because that is
+ *      the frame the port's scan and arm coincide.
+ *      Kickoff walks the player to the STAGING point = doorway CENTER
  *      (hinge + 5 u along the panel) + 5*n on his own side — both s22
  *      captures reproduce exactly ((104, -247.2) / (62, -225.5)). The
  *      engine SNAPs there in one frame; the port drives the same point
@@ -121,9 +174,17 @@
  *      speed 4 is a capture, not something func_001AEDE0 states — it
  *      only writes D_0028A9A0 = 3 / speed = 4.)
  *   3. while black: the player is RE-PLACED at the spawn point behind
- *      the door (door - 5*n on the far side, exit yaw — the spawn-table
- *      records flank their door at +-5 with exit pose); consumed by
- *      em_game through em_door_warp_pending(). The door SNAPS SHUT:
+ *      the door (door - 5*n on the far side, exit yaw); consumed by
+ *      em_game through em_door_warp_pending(). CORRECTED 2026-07-31:
+ *      this used to add "the spawn-table records flank their door at
+ *      +-5", which the port's own cited numbers contradict — office
+ *      recs 2/3 at (104, -245) / (104, -259) against centre
+ *      (104, -252.2) are +7.2 / -6.8, i.e. ~+-7. The 5.0 is the
+ *      KICKOFF staging literal out of func_001BBE40, a different
+ *      quantity; the port reuses it to SYNTHESISE a far-side re-place
+ *      for non-goto doors, so that stand-in lands ~2 u shy of a real
+ *      record. Goto doors carry the real decoded record and are
+ *      unaffected. The door SNAPS SHUT:
  *      func_001BC290 (byte-matched) sees the request byte B8 clear at
  *      the re-place and calls anim_clip_init(self, 0, 0, 0), resetting
  *      the clip to the captured closed pose in one frame — it never
@@ -161,13 +222,22 @@
  *        exit: player state 1/0, phase 0, action +0x1F0 = 0, spad 3B8D
  *                 cleared.
  *      The walk-out is UNINTERRUPTIBLE: state 5 never reads the stick.
- *      TIMER SHAPE (corrected 2026-07-31): func_00183250 reads,
- *      decrements and stores the +0x28 timer every frame and advances
- *      the phase on the frame the READ value is 0, without calling the
- *      mover on that hand-over frame. Each phase therefore costs its
- *      count PLUS one frame: 51 + 31 + 31 = 113 frames from the
- *      re-place, 60 of them moving. The old "50/30/30 / ~111 frames"
- *      reading dropped the hand-over frames.
+ *      TIMER SHAPE (corrected 2026-07-31, re-derived from the
+ *      byte-matched func_00183250 — it is stored as `asm`/.word, so
+ *      this was read out of the instruction stream, not from readable
+ *      C): each phase does `lh v1,0x28(s0); addiu v0,v1,-1;
+ *      bnez v1,<exit>; sh v0,0x28(s0)` — read, decrement and store
+ *      every frame, advance the phase on the frame the READ value is 0,
+ *      and do NOT call the mover (func_00178B90) on that hand-over
+ *      frame. Each phase therefore costs its count PLUS one frame:
+ *      51 + 31 + 31 = 113 frames of phases 1-3, 60 of them moving.
+ *      PORT DEVIATION (flagged 2026-07-31): the engine ALSO spends one
+ *      whole frame in phase 0 (its body just arms the clip/ramp/timer
+ *      and returns), so the engine's true cost from the re-place is
+ *      114 frames. em_door.c's walkout_start folds phase 0 into the
+ *      re-place frame and enters at phase 1, so the port runs 113 —
+ *      one frame short. Not worth a behaviour change on its own; do
+ *      not "fix" 113 to 114 without also moving walkout_start.
  *
  * THE TWO LOCKS (decoded 2026-06-11 — they are SEPARATE systems):
  *
@@ -184,13 +254,19 @@
  *   walk-out ends.
  *
  *   MENU lock — the frame poll func_001AE7E0 (the gate that returns 2
- *   = "open the status screen" on Triangle/Start). Its refusals, in the
- *   order the recovered function tests them:
- *     - a transition request is pending (D_008106B8 != 0, D_008106B9
- *       != 0),
+ *   = "open the status screen" on Triangle/Start; the 2-means-status
+ *   reading is the port's, the function only returns the code). Its
+ *   return-0 refusals, in the exact order the recovered function tests
+ *   them (CONFIRMED 2026-07-31, NEARMISS 99.10%):
+ *     - a transition request is pending (D_008106B8 != 0, then
+ *       D_008106B9 != 0),
+ *     - [interleaved non-refusals: D_008106CE -> 3; D_008106C5 or
+ *       D_008106B0 -> 2],
  *     - the FADE machine is not idle (D_0028A9A0 != 0; func_001AEDE0
  *       sets it to 3 to arm the transit fade-out, so 3 = fade-out),
- *     - scripted mode is active (spad 0x70003B8D != 0).
+ *     - scripted mode is active (spad 0x70003B8D != 0),
+ *     - [then D_00810E74 & 0x100 or D_00810E50 != 4 -> 1],
+ *     - D_008106B3 != 0 (added 2026-07-31 — the old list omitted it).
  *   On ARRIVAL func_001AFCF0 CLEARS spad 3B8D (and memsets the whole
  *   0x48-byte D_008106B0 block, which is where B8/B9 live) while the
  *   screen is still black, so the only menu gate left is the fade-in:
@@ -200,14 +276,33 @@
  *   em_door_menu_locked() — kickoff until the fade-in completes.
  *   em_hud gates its open toggle on it (the func_001AE7E0 stand-in).
  *
- * SLIDERS (m17/m09 — the variant brain func_001BB860, DECODED
- * 2026-06-11; closes the s32 "variant lifecycle unread" flag): sliding
- * doors do NOT run the m03 transit. The trigger is the same +0x0B
- * use-arm — the CROSS-edge use scan above (s58; the s56 "walk-into, no
- * button" reading is OVERTURNED) — and the trigger
- * sub func_001BB560 then snaps the player yaw through the door, stages
- * him at door_pos - 6.0 * forward (func_00182F90 instant translate; 6.0
- * — not the m03 5.0) and queues the OPEN script D_0024D900: scripted-
+ * SLIDERS (the variant brain func_001BB860): sliding doors do NOT run
+ * the m03 transit.
+ *
+ * FAMILY CORRECTED 2026-07-31. This block used to be headed "m17/m09".
+ * The model bytes (+0x03) the recovered slider code actually tests are
+ *   func_001BB560: 0x08, 0x16          (side-latch inversion)
+ *   func_001BB860: 0x16, 0x17, 0x3E    (lock gate)
+ *   func_001BB400: 0x08, 0x16 single-leaf; 0x3D, 0x3E wide travel
+ * i.e. the slider family is {0x08, 0x16, 0x17, 0x3D, 0x3E}, disjoint
+ * from the hinged {0x03, 0x15} that func_00183EF0 and func_001BC350
+ * test. 0x09 appears NOWHERE in the recovered door code — it survives
+ * only as the port exporter's filename convention (FLAGGED). The old
+ * `0x09 || 0x17` classifier sent m08/m16/m3D/m3E placements through the
+ * HINGED brain; em_door.c's door_model_get was fixed for this on the
+ * same date.
+ *
+ * The trigger is the same +0x0B bit-2 use-arm — the CROSS-edge use scan
+ * above (the s56 "walk-into, no button" reading is OVERTURNED) — and the
+ * trigger sub func_001BB560 then snaps the player yaw through the door,
+ * latches the side into +0x2E from the bearing test and, for model bytes
+ * 0x08 / 0x16 ONLY, INVERTS that latch (`latch = 1 - latch`; CONFIRMED
+ * in the byte-matched func_001BB560, added to this header 2026-07-31 —
+ * the inversion hits the latch alone, the yaw snap above it is written
+ * from the UNINVERTED test). It then stages the player at
+ * door_pos - 6.0 * (sin, cos)(snapped yaw) (func_00182F90 instant
+ * translate; 6.0 — not the m03 5.0) and queues the OPEN script
+ * D_0024D900: scripted-
  * mode enter (input lock, NO fade), chase-camera cue, ONE positional
  * door sound, the NATIVE SLIDE func_001BB400 (DECODED: the two panels
  * part symmetrically at 0.2 u/frame — single-leaf placements, flags2
@@ -215,10 +310,13 @@
  * i.e. 46 frames; the wide flags2 0x3D/0x3E pair runs to 13.0 u = 66
  * frames. The EMDL's baked 46-frame clip is exactly the 9.0-u case),
  * then op01-sub8 = a
- * scripted player WALK-THROUGH (walk clip; there is NO player
- * door-gesture anim anywhere in the slider script — the user-verified
- * PCSX2 behavior: the panels part and the player walks through with no
- * door gesture). Lock-gated placements (flags2 0x16/0x17/0x3E vs the
+ * scripted player WALK-THROUGH (walk clip). The absence of a player
+ * door-gesture anim in the slider script is an OBSERVATION, on two
+ * legs, neither of them recovered C: the script data D_0024D900 carries
+ * no op0A player-anim record (unlike the hinged D_0024DE40, whose 0x45/
+ * 0x43 ids func_001BBE40 does patch in code), and the user's own PCSX2
+ * run shows the panels parting with no gesture. Scoped 2026-07-31.
+ * Lock-gated placements (flags2 0x16/0x17/0x3E vs the
  * D_00810841 unlock bits) run a LOCKED script (camera + VO, no motion)
  * — not in the port (no lock bitmask, flagged). See em_door.c "SLIDER
  * (m17/m09) VARIANT BRAIN" for the full decode + port mapping.
@@ -289,10 +387,19 @@
  *     op07 sub2   scripted-mode enter (both locks; the fade-arm variant
  *                 func_001AEB60(4) is a fade-IN arm — no visual effect
  *                 on a bright screen, not ported)
- *     op09        func_001BBBF0 locked-look camera CUT: target = door
- *                 + 8 u to the HANDLE side (door-yaw left) + 10 up,
- *                 eye = target - 13 along the live camera yaw at
- *                 door.y + 12 (em_game consumes em_door_locked_look)
+ *     op09        func_001BBBF0 locked-look camera CUT. CONFIRMED
+ *                 2026-07-31 (NEARMISS, logic authoritative):
+ *                   target = (door.x - 8*cos(door_yaw),
+ *                             door.y + 10,
+ *                             door.z + 8*sin(door_yaw))
+ *                   eye    = (target.x - 13*sin(D_00810374),
+ *                             door.y + 12,      <- door.y, NOT target.y
+ *                             target.z - 13*cos(D_00810374))
+ *                 The +-8 lateral term is the same sign convention as
+ *                 the doorway-centre 5-u term, i.e. the HANDLE side;
+ *                 D_00810374 is a global yaw the port stands in for
+ *                 with the kickoff snap yaw (em_game consumes
+ *                 em_door_locked_look)
  *     op0A sub0   player anim 0x46 front / 0x44 back rate 1.0 — the ids
  *                 are DECODED (func_001BBE40 mode 1 stores them), but
  *                 the read of them as TRY-THE-HANDLE-AND-FAIL gestures
@@ -305,10 +412,25 @@
  *     op02        wait 60 frames
  *     op17 sub0   positional sound 0x3F2 — the LOCKED RATTLE (fires
  *                 exactly as the fixture motion peaks)
- *     op09        func_001BBAE0 locked "VO" — decoded 2026-06-11: a
- *                 TEXT-ONLY RADIO MESSAGE (link bits 0-5 ->
- *                 jtbl_0026E1A0 -> global message line; every shipped
- *                 line's voice-cue field is -1, so there is NO audio).
+ *     op09        func_001BBAE0 locked "VO" — DOWNGRADED 2026-07-31.
+ *                 What the BYTE-MATCHED func_001BBAE0 actually does:
+ *                 it is a one-shot issue + ready-poll on the 4-word
+ *                 request block at 0x002821B0. On its latch byte st[4]
+ *                 == 0 it writes D_002821B0 = 2 (request kind),
+ *                 D_002821B4 = 1 (busy), derives
+ *                 `kind = *(char*)(obj+0x56) & 0x3F` and maps it
+ *                 0->0x80000006 1->0x80000000 2->0x80000002
+ *                 3->0x80000008 4->0x8000000A 5->0x80000004 into
+ *                 D_002821B8, clears D_002821BC and latches st[4] = 1;
+ *                 kind >= 6 returns 1 having issued NOTHING. Then it
+ *                 polls, returning 1 once D_002821B4 reaches 2.
+ *                 So "link bits 0-5 select a message" is supported (as
+ *                 a 6-entry map, which mwcc lowered to jtbl_0026E1A0).
+ *                 "TEXT-ONLY", "global message line" and "every shipped
+ *                 line's voice-cue field is -1, so there is NO audio"
+ *                 are NOT: none of that is in this function, and
+ *                 whatever services D_002821B0 is not recovered. Treat
+ *                 the silence as OBSERVED, not decoded.
  *                 The optional scene.txt `lockedvo <id-hex>` line (the
  *                 gen_sfx_registry.py decode emits it only if a real
  *                 cue ever resolves) plays through em_sfx here;

@@ -4,9 +4,17 @@
  * State machine (FINDINGS "FIRST INTERACTIVE OBJECTS" + "AREA TRANSITION
  * LIFECYCLE" s22, func_001BC350 RUN sub-states, engine numbering kept):
  *
- *   0 CLOSED   armed (+0x0B != 0, by the use scan or a neighbor panel)
- *              -> LOCK GATE (model 0x15 vs D_00810841 — natively the
- *              manifest `locked` token vs em_door_unlock) -> transit
+ *   0 CLOSED   armed (+0x0B = 4, set by the use scan — func_00184BA0
+ *              flags exactly ONE winner per press and nothing else in
+ *              the recovered code writes +0x0B; the old "or a neighbor
+ *              panel" clause was DOWNGRADED 2026-07-31, it had no
+ *              support in any recovered function)
+ *              -> LOCK GATE (func_001BC350 sub 0 applies it ONLY when
+ *              the model byte +0x03 == 0x15; every other hinged model
+ *              takes kickoff mode 0 unconditionally. Sliders have their
+ *              own gate on 0x16/0x17/0x3E in func_001BB860. The port
+ *              stands in with the manifest `locked` token +
+ *              em_door_unlock for D_00810841) -> transit
  *              kickoff (func_001BBE40: SIDE LATCH +0x2E, INPUT LOCK,
  *              walk-to the staging point door + 5*n) -> 3, or kickoff
  *              mode 1 -> 1 when the gate refuses.
@@ -16,8 +24,16 @@
  *              the 60-frame mark + the radio/examine message line 6
  *              (em_hud_radio, 118 f), wait message done + clip end
  *              -> 2. No fade, no warp — the door stays shut.
- *   2 LOCKED'  finish script D_0024DBC0 ran (op07 sub4: camera +
- *              control restored at the 1->2 edge) -> re-arm, 0.
+ *   2 LOCKED'  the finish script D_0024DBC0 is QUEUED at the 1->2 edge
+ *              (func_001BC350 sub 1: `if (func_001BC0E0(...)) {
+ *              func_001BA1A0(blk, D_0024DBC0); sub++; }`) and RUNS
+ *              during sub 2, which pumps until done, then clears +0x0B
+ *              and returns to sub 0. Its op07 sub4 EXIT is what
+ *              restores camera + control. The port collapses the queue
+ *              and the pump into one edge — it releases both locks at
+ *              the TRY -> LOCKED_END transition, one frame earlier than
+ *              the engine's script teardown (D_0024DBC0's own contents
+ *              are script DATA and are not in the recovered code).
  *   3 OPENING  walk-to arrival, then the OPEN script D_0024DE40
  *              (FINDINGS "DOOR SCRIPTS DECODED" s23): player anim
  *              0x45 front / 0x43 back at rate 1.0 (op 0x0A sub 0, via
@@ -94,26 +110,52 @@
 #define DOOR_BONE_MAX   16    /* palette slots incl. the EMDL identity slot */
 #define DOOR_PI         3.14159265f
 
-/* Use-scan constants — func_00183EF0 CLASS-5 path, fully read 2026-06-11
- * (FINDINGS "DOOR USE SCAN + STAGING MATH"; retires the s17 class-7
- * extrapolation). For door models 3/0x15 (hinged m03 family — the
- * placement origin is the panel's HINGE corner) the scan measures from
- * the DOORWAY CENTER, 5 u from the hinge toward the free/handle edge:
+/* Use-scan constants — read out of src/func_00183EF0.c (NEARMISS 99.41%:
+ * body-correct readable C, only its scheduling is not byte-exact).
+ *
+ * CITATION CORRECTED 2026-07-31 (audit). The older wording, "the
+ * func_00183EF0 CLASS-5 path", sends the next reader to the wrong
+ * branch. func_00183EF0 switches on the candidate's CLASS SELECTOR byte
+ * +0x08 (values 0..5), and its `case 5:` is an unrelated test (planar
+ * dist^2 <= 196, |dy| <= 4, accept — no facing window at all). The DOOR
+ * test lives in the selector-0 branch, guarded by the candidate's KIND
+ * nibble — `kind = *(u8 *)(cand + 2) & ~0xE0` — being 5. Read it as
+ * "selector 0, kind 5", not "class 5".
+ *
+ * Inside that branch the model byte +0x03 splits the measurement point:
+ * for `sub == 3 || sub == 0x15` (hinged m03 family — the placement
+ * origin is the panel's HINGE corner) the scan measures from the
+ * DOORWAY CENTER, 5 u from the hinge toward the free/handle edge:
  *
  *     center = door_pos + 5 * (-cos(yaw), 0, +sin(yaw))
  *
- * (other models — m17/m09 sliders whose origin is already the doorway
- * center — use door_pos directly). Conditions, in engine order:
+ * (every other model — the sliders, whose origin is already the doorway
+ * center — falls to the else arm and uses door_pos directly, which is
+ * why d->center is model-conditional). Conditions, in engine order:
  *     horizontal dist(player, center) <= desc[0] = 10.0   (D_002755F0)
  *     |player_y - door_y|             <= desc[1] =  8.0
  *     side:   |norm(atan2(player - door_pos) - yaw)| <= pi/2 -> front
  *     facing: |norm(player_yaw + (front ? pi : 0) - yaw)| <= pi/4
- * No LOS query and no 2-u auto ring exist in the class-5 path (both were
- * the class-7 prefix) — the old port LOS "doorway pocket" exemption and
- * the auto ring are retired. The manifest radius carries desc[0]. */
+ * (the pi/2 side test and the pi/4 facing window are the literals
+ * 1.5707964f and 0.7853982f in that function; the two desc[] VALUES are
+ * .data we cannot read from recovered C — 10.0/8.0 are OBSERVED, and
+ * the manifest radius carries desc[0] per door.)
+ *
+ * No LOS query and no 2-u auto ring exist on this path — both belong to
+ * the KIND-7 prefix the function takes when the player is in state 0x2D
+ * (`if (player+0x1F0 == 0x2D) { if (kind != 7) return 0; ... }`, with
+ * its own dist^2 <= 144 gate and `dist < 4.0 -> take immediately` ring).
+ * Doors are kind 5, so in state 0x2D they are rejected outright. The old
+ * port LOS "doorway pocket" exemption and the auto ring are retired.
+ *
+ * NOTE the sliders are initialised against a DIFFERENT desc record —
+ * func_001BB520 (slider INIT) stores &D_002755E8 at +0x30 where
+ * func_001BBDA0 (hinged INIT) stores &D_002755F0 — so slider desc[0]/
+ * desc[1] need not equal 10.0/8.0. The port applies the same manifest
+ * radius and the same vertical limit to both. FLAGGED. */
 #define DOOR_CENTER_OFF   5.0f   /* hinge -> doorway center, m03/m15 only */
-#define DOOR_VERT_LIMIT   8.0f   /* desc[1] (D_002755F0[1]) */
-#define DOOR_FACING_ANG   (DOOR_PI * 0.25f)   /* pi/4 yaw window */
+#define DOOR_VERT_LIMIT   8.0f   /* desc[1] — OBSERVED, .data not readable */
+#define DOOR_FACING_ANG   (DOOR_PI * 0.25f)   /* 0.7853982f in the engine */
 
 /* PLACEHOLDER swing timing — flagged: the real clip length is unknown.
  * The engine advances its clip 1.0/frame and the two live-captured
@@ -122,20 +164,44 @@
 #define DOOR_SWING_FRAMES 90.0f
 #define DOOR_SWING_ANGLE  (DOOR_PI * 0.5f)
 
-/* SLIDER (m17/m09) VARIANT BRAIN — func_001BB860, decoded 2026-06-11
- * (closes the s32 "variant lifecycle unread" flag; replaces the m03
- * stand-in for these models):
+/* SLIDER VARIANT BRAIN — func_001BB860 (NEARMISS 57.68%: its dispatch
+ * SHAPE is faithful, only its register/branch lowering is not exact).
+ *
+ *   THE FAMILY (CORRECTED 2026-07-31, audit). The model byte +0x03
+ *   values the recovered slider code actually tests are
+ *
+ *        0x08, 0x16   func_001BB560 side-latch inversion +
+ *                     func_001BB400 SINGLE-LEAF branch
+ *        0x16, 0x17,  func_001BB860 lock gate
+ *        0x3E
+ *        0x3D, 0x3E   func_001BB400 WIDE 13.0-u travel
+ *
+ *   i.e. the slider family is {0x08, 0x16, 0x17, 0x3D, 0x3E}, disjoint
+ *   from the hinged family {0x03, 0x15} that func_00183EF0 and
+ *   func_001BC350 test. 0x09 appears NOWHERE in the recovered door code
+ *   — the port's old `mb == 0x09 || mb == 0x17` classifier therefore
+ *   ran m08/m16/m3D/m3E placements through the HINGED m03 brain (player
+ *   gesture anim, 90/70 wait, hinge swing) instead of the slider brain.
+ *   door_model_get now recognises the full decoded set; 0x09 is kept
+ *   only as the port exporter's own naming convention (FLAGGED — no
+ *   recovered function supports it).
  *
  *   TRIGGER  the same +0x0B-bit-2 use-arm as the m03 family — the use
  *            scan func_00184BA0 runs ONLY on the USE-button press edge
  *            (every caller gates on D_00810E74 & spad-0x70003B76 =
- *            CROSS, decoded 2026-06-11 s58 — see door_trigger_scan),
- *            so sliders arm on CROSS inside the class-5 window exactly
- *            like hinged doors. The s56 "walk-into, no button" reading
- *            is OVERTURNED.
+ *            CROSS — see door_trigger_scan), so sliders arm on CROSS
+ *            inside the selector-0/kind-5 window exactly like hinged
+ *            doors. The s56 "walk-into, no button" reading is
+ *            OVERTURNED.
  *   KICKOFF  the trigger sub func_001BB560: side latch +0x2E from the
- *            door->player bearing vs the door yaw (flags2 8/0x16 invert
- *            it — single-leaf variants mount reversed), player yaw
+ *            door->player bearing vs the door yaw, then
+ *            `if (mb == 8 || mb == 0x16) latch = 1 - latch` — the
+ *            single-leaf variants mount reversed. NOTE the inversion
+ *            hits ONLY the latch: the yaw snap at +0xC4 is written from
+ *            the UNINVERTED bearing test, above it. The port reproduces
+ *            that split (CORRECTED 2026-07-31 — it used to skip the
+ *            inversion entirely, so single-leaf sliders played the
+ *            wrong side's sound). Player yaw
  *            SNAPPED through the door, player SNAPPED (func_00182F90
  *            instant translate) to the staging point door_pos - 6.0 *
  *            (sin, cos)(snapped yaw) — 6.0, not the m03 family's 5.0;
@@ -154,12 +220,14 @@
  *            it passes the travel limit. Single-leaf placements —
  *            flags2 8/0x16 — move slot 0 alone; every other placement
  *            moves slot 1 by -0.2 and slot 2 by +0.2, the two panels
- *            parting symmetrically. Travel limit 9.0 u, except flags2
- *            0x3D/0x3E which run to 13.0 u: 46 frames of slide, or 66
- *            for the wide pair. The port EMDL bakes exactly the 9.0-u
- *            case as its 46-frame clip, pumped 1.0/frame; the 13.0-u
- *            variant and the single/double leaf split ride the baked
- *            clip, since the manifest carries no flags2 byte), then
+ *            parting symmetrically. Travel limit 9.0 u, except model
+ *            bytes 0x3D/0x3E which run to 13.0 u. The test is a strict
+ *            `< -9.0` / `< -13.0` on the accumulated slot, so the
+ *            leading panel needs 46 steps to clear 9.0 and 66 to clear
+ *            13.0 — the port now selects between them off the model
+ *            byte (CORRECTED 2026-07-31; the 66-frame case used to run
+ *            as 46). The port EMDL bakes the 9.0-u case as its
+ *            46-frame clip, pumped 1.0/frame), then
  *            op01 sub8 = scripted player WALK-THROUGH (func_001B94F0
  *            move-to,
  *            walk clip — the player crosses the open doorway; NO
@@ -172,7 +240,13 @@
  *            sub 0). NOTE what that means: in the engine EVERY slider
  *            that opens COMMITS A TRANSITION, exactly like the m03
  *            family — there is no "stays parted" state and no reverse
- *            slide anywhere in the slider code. The port only carries
+ *            slide anywhere in the slider code. sub 4's native, the
+ *            byte-matched func_001BB7F0, settles it outright: on the
+ *            frame the transition byte D_008106B8 clears it writes 0
+ *            straight into the panel translation slots (slot 0 alone
+ *            for mb 8/0x16, else slots 1 and 2) and clears +0x0B — a
+ *            SNAP back to shut, the exact counterpart of the hinged
+ *            func_001BC290. The port only carries
  *            dest records for goto doors, so a plain (goto-less) slider
  *            takes a PORT STAND-IN: it stays parted and runs its slide
  *            clip backwards once the player leaves the scan radius.
@@ -182,14 +256,13 @@
  *            it correctly needs slider dest records in the manifest. */
 #define SLIDER_POINT_DIST 6.0f  /* func_001BB560 staging: 6.0 * (sin,cos) */
 #define SLIDER_LEAVE_PAD  2.0f  /* re-close hysteresis past the radius */
-/* Native-slide length, DECODED from func_001BB400: 0.2 u/frame until the
- * leading panel passes 9.0 u = 46 frames. Used only when a slider EMDL
- * carries no baked clip — the shipped bake is this exact length, so the
- * fallback now runs the engine's own duration instead of the hinged
- * PLACEHOLDER swing below. (The wide 0x3D/0x3E pair runs to 13.0 u = 66
- * frames; the port has no flags2 byte to select it — see the SLIDER
- * block above.) */
-#define SLIDER_SLIDE_FRAMES 46.0f
+/* Native-slide length, read out of the byte-matched src/func_001BB400.c:
+ * 0.2 u/frame until the leading panel's accumulated offset tests
+ * `< -9.0` — 45 steps land exactly on -9.0, so the 46th is the first to
+ * pass and report done. Model bytes 0x3D/0x3E test `< -13.0` instead:
+ * 66 frames. Used only when a slider EMDL carries no baked clip. */
+#define SLIDER_SLIDE_FRAMES      46.0f
+#define SLIDER_SLIDE_FRAMES_WIDE 66.0f   /* model 0x3D/0x3E: 13.0 u */
 
 /* Staging/spawn offset along the door normal: the engine stages the
  * player at CENTER +- 5.0 * n on his own side. DECODED from the
@@ -209,9 +282,18 @@
  * enters the COSINE kernel while E2A8's enters the SINE kernel);
  * func_00136630's forward step — x += v*sin(yaw), z += v*cos(yaw) —
  * confirms the engine's forward = (sin yaw, cos yaw) convention the
- * formula above is written in. The spawn-table records flank the CENTER
- * at ~+-5 with exit yaw (office rec 2/3 = (104, -245)/(104, -259) vs
- * center (104, -252.2)). */
+ * formula above is written in.
+ *
+ * CORRECTED 2026-07-31 (audit): this block used to say the spawn-table
+ * records "flank the CENTER at ~+-5", which contradicts the very
+ * numbers it cites — office rec 2/3 = (104, -245) and (104, -259)
+ * against center (104, -252.2) are +7.2 and -6.8, i.e. ~+-7, NOT ~+-5.
+ * The 5.0 below is the KICKOFF's own staging distance (the literal
+ * func_001BBE40 stores), which is a different thing from the arrival
+ * spawn record; the port reuses it to synthesise a far-side re-place
+ * for non-goto doors and that stand-in therefore lands ~2 u shy of
+ * where a real record would. Goto doors carry the real decoded
+ * record and are unaffected. */
 #define DOOR_POINT_DIST   5.0f
 
 /* OPEN-phase script values — DECODED from the byte-matched
@@ -249,13 +331,17 @@
  *  - locked rattle sound id 0x3F2 (op 0x17 sub 0; em_sfx.h).
  *  - locked "VO" = the RADIO/EXAMINE MESSAGE machine (em_hud_radio;
  *    FINDINGS "RADIO-MESSAGE MACHINE DECODED" 2026-06-11): the op09
- *    native func_001BBAE0 starts engine mode 2 on the GLOBAL line
- *    selected by the door LINK's low 6 bits via jtbl_0026E1A0 (sel
- *    0..5 -> lines 6/0/2/8/0xA/4). BOTH shipped lock-gated doors
- *    (office0/drawbridge m15, links 0x0200) carry sel 0 -> line 6
+ *    native func_001BBAE0 (BYTE-MATCHED — re-read this audit) writes
+ *    the request block at 0x002821B0: kind word = 2 (engine mode 2),
+ *    status = 1 (busy), then a selector derived from `*(char *)(door +
+ *    0x56) & 0x3F` — the LINK halfword's low 6 bits — mapped
+ *    sel 0..5 -> 0x80000006/0/2/8/0xA/4, i.e. lines 6/0/2/8/0xA/4, with
+ *    sel >= 6 bailing without issuing at all. BOTH shipped lock-gated
+ *    doors (office0/drawbridge m15, links 0x0200) carry sel 0 -> line 6
  *    "It's locked and won't open." (118 frames, centered text, no
- *    audio). The native is PUMPED until the message machine reports
- *    done, so the locked script cannot finish before the text clears
+ *    audio — DATA, not readable from recovered C). The native's poll
+ *    phase returns done only once the servicer advances the status word
+ *    to 2, so the locked script cannot finish before the text clears
  *    — the port blocks its finish edge on em_hud_radio_active() the
  *    same way. The voice-cue field of every global record is -1; the
  *    optional scene.txt `lockedvo <id-hex>` audio slot stays honored
@@ -315,17 +401,29 @@
 #define DOOR_FADE_SPEED   EM_FADE_SPEED_DOOR
 
 /* ARRIVAL WALK-OUT constants — READ OUT of the byte-matched
- * src/func_00183250.c (player state 5/1; the file is an asm-word body,
- * so the values below are the literals its own instruction stream
- * loads): phase byte +0x06, phase timer halfword +0x28, speed ramp
- * +0x38, locomotion index byte +0x25C.
+ * src/func_00183250.c (player state 5/1). RE-VERIFIED 2026-07-31
+ * (audit): that file has no recovered C, only an asm-word body, so
+ * every value below was re-read out of its literal stream this pass and
+ * each one checked out. Fields: phase byte +0x06, phase timer halfword
+ * +0x28, speed ramp +0x38, locomotion index byte +0x25C.
  *   phase 0 (1 frame): +0x25C = 2 (locIdx 2), +0x38 = 0x3E99999A =
  *            0.3f, +0x07 = 0, timer = 0x32 = 50, phase -> 1
  *   phase 1: timer only, NO mover call            (timer 0x1E = 30 next)
  *   phase 2: mover call, timer                    (timer 0x1E = 30 next)
- *   phase 3: mover call, then +0x38 -= 0x3C3A2E8C clamped at 0, and the
- *            base-idle blend 12.0f is requested once the ramp hits 0
+ *   phase 3: mover call FIRST, then ramp -= 0x3C3A2E8C (= 0.011363636f);
+ *            if the result would go negative the ramp is stored as 0 and
+ *            a 12.0f (0x41400000) base-idle blend is requested. That
+ *            blend request fires on EVERY frame from the crossing
+ *            onward, not once — the older "requested once the ramp hits
+ *            0" wording was wrong. The port does not model the blend at
+ *            all (em_game owns clip blending); only the clamp matters
+ *            here, and it matches.
  *   exit:    +0x04 = 1, +0x05 = 0, +0x06 = 0, +0x1F0 = 0, spad 3B8D = 0
+ *   NOT MODELLED HERE: the function's common tail runs on EVERY frame of
+ *            the state and applies +0xB4 -= 0.2f (0xBE4CCCCD) before a
+ *            ground-resolve call — a vertical settle that belongs to
+ *            em_game's mover, not to em_door. Noted so nobody reads the
+ *            phase table as the whole of state 5/1.
  * TIMER SEMANTICS (the engine shape, reproduced in walkout_tick): the
  * timer is read, decremented and stored EVERY frame and the phase
  * advances on the frame the read yields 0 — so each phase costs its
@@ -349,20 +447,32 @@ typedef struct {
     float      base[DOOR_BONE_MAX * 16];
     float      lo[3], hi[3];
     int        has_clip;     /* frame_count > 1: real baked clip present */
-    int        slider;       /* engine model byte 0x09/0x17: the sliding-
-                              * door family — variant brain func_001BB860
-                              * (CROSS use-arm, native slide, scripted
-                              * walk-through; see the SLIDER block above).
-                              * Parsed from the door_mXX filename like
-                              * `hinged` (FLAGGED: filename convention). */
-    int        hinged;       /* engine model byte 3/0x15 (placement origin
-                              * = the hinge corner): use scan + staging
-                              * measure from the doorway CENTER, 5 u along
-                              * the panel (func_00183EF0 class-5 branch /
-                              * func_001BBE40). Parsed from the exporter's
-                              * doors/door_mXX.emdl name — the manifest's
-                              * model-byte carrier (FLAGGED: filename
-                              * convention, not a record field). */
+    unsigned   mb;           /* engine model byte (actor +0x03), parsed
+                              * from the exporter's doors/door_mXX.emdl
+                              * name — the manifest's only model-byte
+                              * carrier (FLAGGED: filename convention,
+                              * not a record field). The flags below are
+                              * derived from it. */
+    int        slider;       /* mb in the DECODED slider family {0x08,
+                              * 0x16, 0x17, 0x3D, 0x3E} (plus the port's
+                              * own 0x09 convention): variant brain
+                              * func_001BB860 — CROSS use-arm, native
+                              * slide, scripted walk-through. See the
+                              * SLIDER block above for the byte-by-byte
+                              * derivation. */
+    int        sl_single;    /* mb 0x08/0x16: SINGLE-LEAF. func_001BB400
+                              * moves panel slot 0 alone, and
+                              * func_001BB560 INVERTS the side latch
+                              * (these mount reversed). */
+    int        sl_wide;      /* mb 0x3D/0x3E: func_001BB400 runs the
+                              * leading panel to 13.0 u, not 9.0 —
+                              * 66 frames of slide instead of 46. */
+    int        hinged;       /* mb 3/0x15 (placement origin = the hinge
+                              * corner): use scan + staging measure from
+                              * the doorway CENTER, 5 u along the panel
+                              * (func_00183EF0 selector-0/kind-5 branch,
+                              * `sub == 3 || sub == 0x15`, and the same
+                              * lateral term in func_001BBE40). */
 } DoorModel;
 
 typedef struct {
@@ -375,8 +485,8 @@ typedef struct {
     float    radius;         /* use-scan distance, desc[0] = 10.0 */
     uint8_t  state;          /* actor +0x05 sub-state (engine values) */
     uint8_t  armed;          /* actor +0x0B activation flags (scan: 4) */
-    int      slider;         /* model is the m17/m09 slider family —
-                              * runs the func_001BB860 variant flow */
+    int      slider;         /* model is in the slider family — runs the
+                              * func_001BB860 variant flow */
     int      sl_phase;       /* slider OPENING sub-phase: 0 = staging
                               * walk, 1 = native slide pump, 2 =
                               * scripted walk-through */
@@ -551,26 +661,47 @@ static int door_model_get(EmGfx *gfx, const char *scene_dir,
     em_model_palette_at(&dm->model, 0, 0.0, dm->base);
     dm->has_clip = dm->model.frame_count > 1;
 
-    /* Engine model byte from the exporter's doors/door_mXX.emdl name:
-     * func_00183EF0's class-5 branch keys the doorway-center offset on
-     * model == 3 || model == 0x15 (the hinged m03 family; their
-     * placement origin is the hinge corner). Unparseable names default
-     * to hinged=0 (center == pos — correct for the m17/m09 sliders,
-     * whose origin is the doorway center). */
-    /* UNRESOLVED (audit 2026-07-31): 0x03 / 0x15 are exactly the two
-     * bytes func_00183EF0 tests, so `hinged` is solid. The slider bytes
-     * appearing in the recovered slider code are 0x08, 0x16, 0x17, 0x3D
-     * and 0x3E (func_001BB560's side-latch inversion, func_001BB400's
-     * single-leaf and wide-travel branches, func_001BB860's lock gate) —
-     * 0x09 is NOT among them. Left as-is because the exporter's mXX
-     * numbering is its own convention and no shipped door uses 0x08. */
-    dm->hinged = 0;
-    dm->slider = 0;
+    /* Engine model byte (actor +0x03) from the exporter's
+     * doors/door_mXX.emdl name — the manifest's only carrier for it.
+     *
+     * CORRECTED 2026-07-31 (audit). The previous classifier was
+     *     hinged = (mb == 0x03 || mb == 0x15);
+     *     slider = (mb == 0x09 || mb == 0x17);
+     * `hinged` is right — 0x03 and 0x15 are exactly the two bytes
+     * func_00183EF0 tests (`sub == 3 || sub == 0x15`) and the only one
+     * func_001BC350's lock gate tests is 0x15. But `slider` was wrong in
+     * both directions. The bytes the recovered SLIDER code tests are:
+     *     func_001BB560   mb == 8 || mb == 0x16   (side-latch inversion)
+     *     func_001BB400   mb == 8 || mb == 0x16   (single-leaf branch)
+     *                     mb == 0x3E || mb == 0x3D (13.0-u wide travel)
+     *     func_001BB860   mb == 0x16 || mb == 0x17 || mb == 0x3E (lock)
+     * so the family is {0x08, 0x16, 0x17, 0x3D, 0x3E}. 0x09 appears in
+     * NO recovered door function. Under the old test an m08/m16/m3D/m3E
+     * door fell through to the hinged m03 brain: player gesture anim,
+     * 90/70 open wait, hinge swing — visibly the wrong door. The decoded
+     * set is now recognised; 0x09 is kept alongside it purely as the
+     * port exporter's existing naming convention (FLAGGED — unsupported
+     * by any recovered function, dropping it would break shipped assets
+     * named door_m09).
+     *
+     * Unparseable names default to hinged = slider = 0, which still
+     * gives center == pos and the m03 flow — the safe historical
+     * behaviour. */
+    dm->mb        = 0;
+    dm->hinged    = 0;
+    dm->slider    = 0;
+    dm->sl_single = 0;
+    dm->sl_wide   = 0;
     const char *m = strstr(file, "_m");
     if (m) {
         unsigned mb = (unsigned)strtoul(m + 2, NULL, 16);
+        dm->mb     = mb;
         dm->hinged = (mb == 0x03 || mb == 0x15);
-        dm->slider = (mb == 0x09 || mb == 0x17);
+        dm->slider = (mb == 0x08 || mb == 0x16 || mb == 0x17 ||
+                      mb == 0x3D || mb == 0x3E ||
+                      mb == 0x09 /* port convention only */);
+        dm->sl_single = (mb == 0x08 || mb == 0x16);
+        dm->sl_wide   = (mb == 0x3D || mb == 0x3E);
     }
 
     /* Door-local AABB of the POSED closed mesh (palette * position) —
@@ -692,12 +823,17 @@ int em_door_set_goto(int i, const char *target, const float spawn[3],
 /* ------------------------------------------------------------------ */
 
 /* Open fraction 0..1 from the clip time. */
-/* No-clip fallback length. Sliders get the DECODED native-slide
- * duration (func_001BB400: 0.2 u/frame to 9.0 u = 46 frames); hinged
- * doors keep the PLACEHOLDER swing length. */
+/* No-clip fallback length. Sliders get the DECODED native-slide duration
+ * (func_001BB400: 0.2 u/frame; 46 frames to clear 9.0 u, or 66 for the
+ * mb 0x3D/0x3E wide pair whose limit is 13.0 u — the wide case was
+ * running as 46 before the 2026-07-31 audit). Hinged doors keep the
+ * PLACEHOLDER swing length. */
 static float door_fallback_frames(const Door *d)
 {
-    return d->slider ? SLIDER_SLIDE_FRAMES : DOOR_SWING_FRAMES;
+    if (!d->slider)
+        return DOOR_SWING_FRAMES;
+    return s.models[d->model].sl_wide ? SLIDER_SLIDE_FRAMES_WIDE
+                                      : SLIDER_SLIDE_FRAMES;
 }
 
 static float door_open_frac(const Door *d)
@@ -824,20 +960,29 @@ static float door_norm_ang(float a)
  * mask) and spad 0x70003B76 is the config-mask block's USE entry,
  * default 0x0040 = CROSS (s29). There is NO walk-into arming for ANY
  * door family: the +0x1F0 == 0x2D check inside func_00183EF0 guards
- * only the CLASS-7 prefix (LOS / dist^2 <= 144 / 2-u ring / facing
- * dot), and when the player IS in 0x2D the class-5 door branch is
- * unreachable (the function returns 0 for non-class-7 candidates). So
- * CROSS — pressed in a normal ground state inside the class-5 window —
- * is the one and only door trigger, hinged and slider alike. This is
- * why s22's analog-only pad injection never armed a door organically.
- * The port's in->pressed has exactly the D_00810E74 edge semantics. */
+ * only the KIND-7 prefix (LOS / dist^2 <= 144 / 2-u take-immediately
+ * ring / facing dot), and when the player IS in 0x2D that prefix
+ * returns 0 for every candidate whose kind is not 7 — doors are kind 5,
+ * so the door branch is unreachable there. So CROSS — pressed in a
+ * normal ground state inside the door window — is the one and only door
+ * trigger, hinged and slider alike. This is why s22's analog-only pad
+ * injection never armed a door organically. The port's in->pressed has
+ * exactly the D_00810E74 edge semantics.
+ *
+ * WINNER SELECTION: func_00184BA0 keeps the candidate with the SMALLEST
+ * value the predicate parked at spad 0x70003B98, seeded at 10000.0f;
+ * for the door branch that scratch holds the planar distance to the
+ * measurement point, so "nearest wins". The port's smallest-d2 pick is
+ * the same ordering. (The predicate's `return 2` immediate-take exists
+ * only on the kind-7/0x2D path, never for doors.) */
 static void door_trigger_scan(const EmCollision *coll, const float pp[3],
                               float pyaw, const EmFrameInput *in)
 {
     int   best = -1;
     float best_d2 = 1e30f;
 
-    (void)coll;   /* class-5 doors do no LOS query (decoded 2026-06-11) */
+    (void)coll;   /* the door branch does no LOS query — the raycasts in
+                   * func_00183EF0 all sit on other kinds/selectors */
     if (!(in->pressed & EM_PAD_CROSS))
         return;   /* the use-button press edge — the scan's only entry */
 
@@ -926,8 +1071,9 @@ static void door_transit_kickoff(Door *d, const float pp[3])
          *   spad[2] -= 5.0f * cos(player+0xC4)
          *
          * with no model-byte test anywhere in the function. Only the
-         * USE SCAN gates that same term on the model byte (func_00183EF0
-         * class-5 branch: `sub == 3 || sub == 0x15`), which is why
+         * USE SCAN gates that same term on the model byte (the
+         * selector-0 / kind-5 branch of func_00183EF0:
+         * `sub == 3 || sub == 0x15`), which is why
          * d->center is model-conditional. Driving the staging point off
          * d->center made a non-hinged, non-slider door stage 5 u off
          * the engine's point along the door plane. */
@@ -959,15 +1105,22 @@ static void door_transit_kickoff(Door *d, const float pp[3])
  * locks (op07 sub0 — no fade on the slider open). */
 static void slider_kickoff(Door *d, const float pp[3])
 {
-    /* bearing(door -> player) within pi/2 of the door yaw = front */
+    /* bearing(door -> player) within pi/2 of the door yaw = near side */
     float bearing = atan2f(pp[0] - d->pos[0], pp[2] - d->pos[2]);
-    d->front      = fabsf(door_norm_ang(bearing - d->yaw)) <= DOOR_PI * 0.5f;
-    /* yaw snap: front side walks along yaw+pi, back side along yaw —
-     * always THROUGH the doorway (func_001BB560's +0xC4 writes; the
-     * flags2-8/0x16 single-leaf inversion is not in the manifest,
-     * flagged) */
-    d->transit_yaw   = d->front ? d->yaw + DOOR_PI : d->yaw;
+    int   near_front =
+        fabsf(door_norm_ang(bearing - d->yaw)) <= DOOR_PI * 0.5f;
+    /* yaw snap: near-front walks along yaw+pi, far side along yaw —
+     * always THROUGH the doorway. func_001BB560 writes +0xC4 from the
+     * UNINVERTED bearing test, so the snap uses near_front directly. */
+    d->transit_yaw   = near_front ? d->yaw + DOOR_PI : d->yaw;
     d->transit_yaw   = door_norm_ang(d->transit_yaw);
+    /* SIDE LATCH (+0x2E): the same bearing test, but func_001BB560 then
+     * runs `if (mb == 8 || mb == 0x16) latch = 1 - latch` — the
+     * single-leaf variants mount reversed. CORRECTED 2026-07-31 (audit):
+     * the port used to skip the inversion outright, so a single-leaf
+     * slider selected the wrong half of the D_0024DB80 sound pair. The
+     * inversion touches the LATCH only, never the yaw snap above. */
+    d->front = s.models[d->model].sl_single ? !near_front : near_front;
     d->transit_to[0] = d->pos[0] - SLIDER_POINT_DIST * sinf(d->transit_yaw);
     d->transit_to[1] = pp[1];
     d->transit_to[2] = d->pos[2] - SLIDER_POINT_DIST * cosf(d->transit_yaw);
@@ -1033,10 +1186,14 @@ static void walkout_tick(void)
     }
 }
 
-/* Arm the walk-out at the re-place post. MECHANISM confirmed in the
- * byte-matched src/func_001B07C0.c: it copies the spawn record's +0x14
- * byte into player+0x0E and, when its own arg is nonzero, a +0x0E of 1
- * writes player state/sub/phase = 5 / 1 / 0 — the walk-out. WHAT THE
+/* Arm the walk-out at the re-place post. MECHANISM confirmed in
+ * src/func_001B07C0.c — which is NEARMISS (99.04%), NOT byte-matched as
+ * this comment used to claim (provenance CORRECTED 2026-07-31). Its
+ * body is authoritative, only its scheduling is not exact: it copies the
+ * spawn record's +0x14 byte into player+0x0E and, when its own arg is
+ * nonzero, a +0x0E of 1 writes player state/sub/phase = 5 / 1 / 0 — the
+ * walk-out. (It also force-clears +0x0E to 0 whenever the fixed-camera
+ * flag D_00275BE0 == 1, so a cutscene arrival never walks out.) WHAT THE
  * DOOR RE-PLACE PASSES IS NOT CONFIRMED: the caller is the in-game
  * frame machine func_001AE040, which is still undecompiled; the one
  * recovered call site (src/anim_frame_top_a.c, the 0x001ACA20 attract
@@ -1091,10 +1248,23 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
             if (d->armed) {        /* sub 0 -> kickoff -> sub 1 or 3 */
                 d->armed  = 0;
                 d->clip_t = 0.0f;
-                /* THE LOCK GATE (func_001BC350 sub 0, em_door.h "THE
-                 * LOCKED SEQUENCE"): D_00810841 bit clear -> kickoff
-                 * mode 1 -> the LOCKED TRY (engine sub 1). The same
-                 * side-latch/yaw-snap/staging walk runs either way. */
+                /* THE LOCK GATE (func_001BC350 sub 0 / func_001BB860
+                 * sub 0, em_door.h "THE LOCKED SEQUENCE"): the bit test
+                 * is `D_00810841[D_00810700] & (1 << door_id)` where the
+                 * door id is the +0x34 short; clear -> kickoff mode 1 ->
+                 * the LOCKED TRY (engine sub 1). The same
+                 * side-latch/yaw-snap/staging walk runs either way —
+                 * func_001BBE40/func_001BB560 do all of that BEFORE
+                 * splitting on the mode.
+                 *
+                 * SCOPE (audit 2026-07-31): the engine reaches the gate
+                 * at all only for model byte 0x15 (hinged) or 0x16/0x17/
+                 * 0x3E (slider); every other door byte takes mode 0
+                 * unconditionally, so it can never be locked. The port
+                 * applies the manifest `locked` token to whatever door
+                 * carries it, model byte irrelevant. Harmless for the
+                 * shipped set (both lock-gated doors are m15) but it is
+                 * a PORT STAND-IN, not the engine's rule. */
                 int refused = d->lock_gated && !d->unlocked;
                 d->state = refused ? EM_DOOR_LOCKED_TRY : EM_DOOR_OPENING;
                 if (d->slider)

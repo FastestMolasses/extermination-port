@@ -145,8 +145,12 @@
  *   DEATH     (state) gameplay slot frees immediately; the corpse plays
  *             the real DEATH clip 0x1B (s76) then holds + alpha-fades (no
  *             gibs — the husk set is the crate's; the bug's own gore
- *             chain is undecoded). Death sound: the shared 0x7D8 hurt-
- *             helper arm (PORT stand-in — func_00129FC0's audio undecoded).
+ *             chain is undecoded). Death sound CORRECTED 2026-07-31:
+ *             func_00129FC0's audio IS decoded — 0x1B1 on every reaction
+ *             entry (case 0), 0x1B7 with the collapse clip (case 3),
+ *             0x1B5 at the free (case 4). The port now plays 0x1B1 on
+ *             any hit and 0x1B7 on death; the shared 0x7D8 stand-in is
+ *             gone. See the BUG_SFX_* block.
  *
  * THE WORM / LEECH (FINDINGS §4, brain func_00153F10 + sub-machine
  * func_00154120, init func_00154040 — the port's EM_ENEMY_KIND_CRAWLER;
@@ -339,14 +343,18 @@
  *             placed-crawler whitelist {6,0x1C,0x1E,0x1F,0x50}) and NO
  *             alarm wake. TWO CORRECTIONS (2026-07-31, off the recovered
  *             func_00156620 state 1):
- *             (a) there IS a player-distance test, and it is now ported:
- *                 the state-1 tail computes the player->drum vector from
- *                 the D_00810350 mirror and, inside 50 u (dist^2 <=
- *                 50*50), sets actor[1] = 1 and publishes the drum to the
- *                 target list via func_001B1D20; outside it takes the
- *                 plain func_001B17A0 path and is NOT a target. See
- *                 EGG_TARGET_R / enemy_in_target_range. The old "NO
- *                 proximity test — shootable always" was wrong.
+ *             (a) there IS a player-distance test in the state-1 tail:
+ *                 inside 50 u (dist^2 <= 50*50 off the D_00810350
+ *                 mirror) it sets actor[1] = 1 and calls func_001B1D20;
+ *                 outside it calls func_001B17A0. RE-READ 2026-07-31:
+ *                 that is a VISIBILITY OVERRIDE for the contact pass,
+ *                 not a shootability gate — func_001B17A0 republishes
+ *                 the drum through func_001B1B70 whenever it is visible,
+ *                 and the auto-aim reads a different list entirely
+ *                 (func_00199220). The session that turned this into a
+ *                 50-u targeting cut-off made distant drums impossible
+ *                 to shoot; that cut-off is REMOVED and the test is
+ *                 recorded UNTRANSLATED. See EGG_TARGET_R.
  *             (b) there is NO idle wobble. State 1 touches no transform
  *                 at all. The +0x74 field and the D_00246A00/D_00246A10
  *                 tables the old note cited as wobble amplitudes are read
@@ -420,8 +428,11 @@
  *            gameplay frames) + player inside 3x the parent pad
  *            footprint, |dy| <= 3 + recY. Trigger: anchor = (player X,
  *            pad Y, player Z); 12 targets = anchor + polar(r, theta),
- *            theta uniform, r = 5.5 +- 2.0 u (pair idx 0) / 7.0 +-
- *            2.5 u (idx 1) — concentric rings; valid = target inside
+ *            theta uniform, r = 5.5 + 2.0*rand01 u (pair idx 0) /
+ *            7.0 + 2.5*rand01 u (idx 1) — CORRECTED 2026-07-31 off
+ *            func_001549C0 case 0: the draw is one-sided (BASE is the
+ *            inner edge), so the rings really are concentric —
+ *            [5.5, 7.5) and [7.0, 9.5); valid = target inside
  *            the 0.92x pad ellipse (the engine's atan2 + radius-at-
  *            angle formula == the normalized point-in-ellipse test);
  *            phase = rand 48..127, vel/ramp = 0, girth = the cycling
@@ -858,16 +869,40 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * roughly the egg's body half-height
                                    * (the engine's func_001B1D20 target
                                    * volume is unexported)                 */
-/* DECODED (func_00156620 state 1, the tail after the mailbox test): the
- * drum publishes itself as a damage target ONLY while the player is
- * within 50 units — `d2 = |player(D_00810350) - pos|^2` compared against
- * `50.0f * 50.0f` (the recovered C materialises the 2500 as an
- * int-store/float-reload of 50.0 times 50.0f), then `actor[1] = 1;
- * func_001B1D20(actor)` on the inside branch and the plain
- * func_001B17A0 visible-actor path outside it. Outside 50 u the drum is
- * NOT in the target list. (The old comment claimed there was no
- * proximity test at all and kept the drum shootable from any range.) */
-#define EGG_TARGET_R     50.0f    /* target-list publish radius (decoded) */
+/* THE 50-UNIT TEST — RE-READ 2026-07-31, and the previous reading of it
+ * was wrong in a way that broke shooting drums.
+ *
+ * What func_00156620 state 1 really does at its tail:
+ *     d2 = |D_00810350(player) - pos|^2;            // func_00102738
+ *     if (d2 <= 50.0f * 50.0f) { actor[1] = 1; func_001B1D20(actor); }
+ *     else                     { func_001B17A0(actor); }
+ * (the recovered C materialises the 2500 as an int-store/float-reload of
+ * 50.0 times 50.0f). The distance and the two calls are all CONFIRMED.
+ * What they MEAN is the part that was mis-attributed:
+ *   - func_001B1D20 (BYTE-MATCHED) pushes actor+0x14 onto the per-frame
+ *     list D_00275B80/D_00275B88 (cap 0x80). That list is the CONTACT
+ *     pass's inner list: func_001A9000 walks it and, for type bytes
+ *     {0x2A, 0x18, 0x0C, 0x0A} — 0x18 IS the drum — calls func_001A8F40,
+ *     which writes the damage word 0x2014 into the object's own +0x36
+ *     when a class-5 outer entity is within `3.0 + cfg radius`. It is a
+ *     PROXIMITY-CONTACT publish, not a shooting/auto-aim publish.
+ *   - the AUTO-AIM acquisition func_00199220 does not read that list at
+ *     all: it walks the global entity list D_00275B8C/D_00275B94 gated by
+ *     func_00183B80 + `+0x34 != 0` + a 260-unit range + the screen cone.
+ *   - and func_001B17A0 (BYTE-MATCHED, the `else` branch) is the ordinary
+ *     visible-actor tick: it stores func_001B1630(pos) into actor[1] and,
+ *     when that is nonzero, calls func_001B1B70 — whose class-4 arm is
+ *     func_001B1D20 again. So a drum outside 50 u still lands on the very
+ *     same list whenever it is visible.
+ * So the 50-unit branch is a VISIBILITY OVERRIDE: inside 50 u the drum
+ * forces actor[1] = 1 and publishes unconditionally, bypassing the
+ * func_001B1630 cone/range cull. It never gates shootability, and it is
+ * UNTRANSLATED here (this module has no visibility cull to override).
+ * The port's hard 50-u targetability gate is REMOVED — it made every
+ * drum further away un-shootable and un-aimable, which the engine does
+ * not do. */
+#define EGG_TARGET_R     50.0f    /* the decoded forced-publish radius;
+                                   * recorded, UNTRANSLATED (see above)   */
 #define EGG_SFX_BREAK    0x1A1u   /* drum EXPLOSION sound (func_00156620
                                    * model-0x18 single-shot death path —
                                    * INVESTIGATION "DEATH = EXPLOSION",
@@ -991,6 +1026,25 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * UNTRANSLATED: the port has no
                                    * knockdown branch, it flinches)       */
 #define BUG_CLIP_FLINCH  0x1Du    /* func_00129FC0 case 0 flinch clip     */
+/* BUG AUDIO — DECODED (func_00129FC0, BYTE-MATCHED). The old note that
+ * "func_00129FC0's audio is undecoded" is false: the recovered driver
+ * plays three distinct sounds, none of them the generic 0x7D8 the port
+ * was using for a bug.
+ *   case 0 (EVERY reaction entry, survivable or lethal):
+ *          func_001FBD50(actor, 0x1B1, 0, 300.0f) — the hurt grunt. It
+ *          is unconditional; the separate 0x4000 flag on the damage word
+ *          only gates the VOICE event 0x80000027 (with a 60-frame
+ *          cooldown at +0x28), which is a different channel.
+ *   case 3 (COLLAPSE, alongside clip 0x20):
+ *          func_001FBD50(actor, 0x1B7, 0, 300.0f).
+ *   case 4 (the free): func_001FC580(actor, 0x1B5).
+ * The port collapses the reaction chain into one mailbox poll, so it
+ * plays 0x1B1 on any hit and 0x1B7 on the lethal one. 0x1B5 is recorded;
+ * the port frees in the same tick as the collapse, so firing both there
+ * would double up — UNTRANSLATED, flagged. */
+#define BUG_SFX_HURT     0x1B1u   /* func_00129FC0 case 0, range 300      */
+#define BUG_SFX_COLLAPSE 0x1B7u   /* func_00129FC0 case 3, range 300      */
+#define BUG_SFX_FREE     0x1B5u   /* func_00129FC0 case 4 — UNTRANSLATED  */
 #define BUG_CLIP_BITE    0x13u    /* func_0012C490 bite/snap LUNGE clip
                                    * (19 dec — IS in the s68 bake list)   */
 #define BUG_WALK_SPEED   0.16f    /* PORT: approach speed, units/frame    */
@@ -1154,8 +1208,18 @@ static const float GEN_DELAY[3] = { 1800.0f, 3600.0f, 5400.0f };
                                    * soundmap = sfx/snd_0615.wav (88 ms
                                    * squelch) — noted in the registry,
                                    * silent until the user maps it.      */
+/* CORRECTED 2026-07-31 (func_001549C0 case 0, the SCAN scatter loop):
+ * the draw is ONE-SIDED, not centred. The recovered C reads
+ *     radius = 5.5f + 2.0f * (rand() * 1/2^31)     when +0x2E == 0
+ *     radius = 7.0f + 2.5f * (rand() * 1/2^31)     otherwise
+ * so the ring spans [5.5, 7.5) for pair 0 and [7.0, 9.5) for pair 1 —
+ * BASE is the inner edge and SPAN the outward spread. The port used to
+ * build `BASE - SPAN + rand01 * 2 * SPAN`, i.e. [3.5, 7.5) / [4.5, 9.5),
+ * which pulled a third of every field's spikes inside the engine's inner
+ * radius and stacked both rings on top of each other instead of leaving
+ * them concentric. */
 static const float TF_RING_BASE[2] = { 5.5f, 7.0f };  /* pair idx 0 / 1 */
-static const float TF_RING_SPAN[2] = { 2.0f, 2.5f };  /* +- ring spread */
+static const float TF_RING_SPAN[2] = { 2.0f, 2.5f };  /* OUTWARD spread */
 static const float TF_HOLD_R2[2]   = { 4.0f, 16.0f }; /* hold dist^2:
                                                         * 2 u / 4 u      */
 /* D_0026D320 — the cycling girth table: scale-X/Z numerators / 256
@@ -2255,14 +2319,21 @@ static void enemy_alarm_broadcast(void)
  * s66 — the old every-tick worm poll, the shootable stand-in, is
  * REMOVED). The subtractive shape is the canonical hurt helper
  * func_00153B50 (BYTE-MATCHED), whose death arm plays 0x7D8 and whose
- * survive arm plays 0x7D4 — a FLAGGED stand-in for the bug, whose own
- * handler func_00129FC0 actually plays 0x1B1 on every reaction. */
+ * survive arm plays 0x7D4. CORRECTED 2026-07-31: the BUG no longer
+ * borrows those — its own driver func_00129FC0 plays 0x1B1 on every
+ * reaction and 0x1B7 at the collapse, and the port now does too. 0x7D8
+ * remains only for the husk partner (its audio really is undecoded). */
 static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
     int amount = e->mailbox & 0xFF;    /* func_00129FC0: byte load @0x36 */
     e->mailbox = 0;
     e->hp      = (int16_t)(e->hp - amount);
+    /* DECODED (func_00129FC0 case 0): the bug's reaction entry plays
+     * 0x1B1 unconditionally, on survivable hits as well as lethal ones —
+     * the port had no hurt sound at all here. */
+    if (e->kind == EM_ENEMY_KIND_BUG)
+        em_sfx_play_at(BUG_SFX_HURT, e->pos, 300.0f);
     if (e->hp > 0) return 0;
     if (e->kind == EM_ENEMY_KIND_EGG) {
         /* the metal DRUM explodes (func_00156620 model-0x18 path):
@@ -2279,10 +2350,19 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
          * sound (0x19D / 0x19E — crate_burst below). The generic 0x7D8
          * this arm used to play for a crate was never in the engine's
          * path. */
+    } else if (e->kind == EM_ENEMY_KIND_BUG) {
+        /* CORRECTED 2026-07-31: the bug does NOT use the generic 0x7D8
+         * hurt-helper death. Its own driver func_00129FC0 (BYTE-MATCHED)
+         * plays 0x1B7 with the collapse clip 0x20 in case 3 — see the
+         * BUG_SFX_* block. (0x1B5, the case-4 free, is UNTRANSLATED: the
+         * port frees in the same tick.) */
+        em_sfx_play_at(BUG_SFX_COLLAPSE, e->pos, 300.0f);
     } else {
         /* 0x7D8 — engine func_00153B50 plays it positional at the dying
          * actor: play_sound(actor, 0x7D8, 0, 300.0) (radius read off the
-         * call site's f12 = 0x43960000) */
+         * call site's f12 = 0x43960000). This arm is now only the HUSK
+         * PARTNER, whose own death audio is undecoded — flagged
+         * stand-in. */
         em_sfx_play_at(EM_SFX_ENEMY_DEATH, e->pos, 300.0f);
     }
     /* Lethal: record the hit vector for the gib knockback. The engine
@@ -3102,9 +3182,11 @@ static void tf_scatter(Tendril *t, const float pp[3])
         TfSpike *sp = &t->sp[i];
         float th = (float)(gib_rng() % 65536u) *
                    (2.0f * ENEMY_PI / 65536.0f);
-        float r  = TF_RING_BASE[t->pair] - TF_RING_SPAN[t->pair] +
+        /* CORRECTED: BASE + SPAN * rand01 — the engine's one-sided draw
+         * (func_001549C0 case 0), NOT BASE +- SPAN. See TF_RING_BASE. */
+        float r  = TF_RING_BASE[t->pair] +
                    (float)(gib_rng() % 65536u) / 65536.0f *
-                   (2.0f * TF_RING_SPAN[t->pair]);
+                   TF_RING_SPAN[t->pair];
         sp->x = t->anchor[0] + sinf(th) * r;
         sp->z = t->anchor[2] + cosf(th) * r;
         {
@@ -4218,9 +4300,10 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
              * burst. NO alarm broadcast and NO alarm wake (the drum is
              * not in the placed-crawler whitelist and never reads
              * +0x0A). It DOES reference the player, but only for the
-             * target-list publish gate (dist^2 <= 50*50 -> actor[1] = 1
-             * + func_001B1D20), which lives in the query path here —
-             * enemy_in_target_range, not the tick. And it does NOT
+             * contact-pass forced publish (dist^2 <= 50*50 -> actor[1]
+             * = 1 + func_001B1D20) — a visibility override, NOT a
+             * shootability gate, and UNTRANSLATED here (see
+             * EGG_TARGET_R). And it does NOT
              * wobble: the old idle perturbation was a port invention and
              * is removed (see enemy_build_palette / EGG_TARGET_R). */
             if (enemy_mailbox_poll(e, pp))
@@ -4543,10 +4626,19 @@ int em_enemy_latched_count(void)
 
 void em_enemy_shake_off(void)
 {
-    /* LIVE-VERIFIED 2026-06-12: the player's shake-off throws every
-     * clinging bug off AND KILLS it (the engine's func_001EFE00 throw
-     * broadcast notifies the latched bug to die) — they do NOT detach
-     * and re-approach. A knockback away, then the death sequence. */
+    /* OBSERVED 2026-06-12 (play capture), not source-derived — the
+     * behaviour below is kept, its provenance is DOWNGRADED 2026-07-31:
+     * the shake-off throws every clinging bug off AND KILLS it, rather
+     * than detaching it to re-approach.
+     * The old citation ("the engine's func_001EFE00 throw broadcast")
+     * does not hold up. func_001EFE00 is still an asm-void in the decomp
+     * (no readable C at all), and every call site we CAN read uses it as
+     * a generic event fire/query keyed by an id — func_00129FC0 calls it
+     * as func_001EFE00(0x80000027, actor) to raise the hurt voice and as
+     * func_001EFE00(0x8000000F, actor) as a predicate. There is no
+     * evidence in the recovered code of a "throw broadcast", and no
+     * latch/shake-off state machine has been decompiled at all, so this
+     * whole arm stays a PORT construction on top of a play observation. */
     for (int i = 0; i < s.n; i++) {
         Enemy *e = &s.e[i];
         if (e->active && e->kind == EM_ENEMY_KIND_BUG &&
@@ -4562,14 +4654,30 @@ void em_enemy_shake_off(void)
     }
 }
 
-/* THE VICTIM FILTER — the engine's MODEL-keyed switch (J2 CLOSED s66:
- * func_00183AC0 for bullets/melee and func_00183B80 for the
- * targetable gate BOTH reject model 0x0D by name; the worm's class
- * byte IS 2 — the model exclusion is doing the work, deliberately).
- * Port mapping: the CRATE (model 0x06 family, victim while +0x9F ==
- * 0 — `active` covers it) and the BUG (global models 0x0F/0x10 —
- * mailbox-shootable, s68) are victims; the WORM is rejected — rays
- * pass through, auto-aim never locks, melee whiffs. */
+/* THE VICTIM FILTER — CONFIRMED 2026-07-31 by decoding func_00183B80
+ * (it ships as an asm-void `.word` leaf, so it had never actually been
+ * read; the whole body is 47 instructions and decodes cleanly). It
+ * returns, for actor `a`:
+ *     class = byte[a+2] & ~0xE0;  if (class != 2)      -> 0
+ *     model = byte[a+3];
+ *       0x0D, 0x0E, 0x0F, 0x13                          -> 0
+ *       0x06                                            -> byte[a+0x9F] == 0
+ *       0x12                                            -> byte[a+0x0D] == 1
+ *       anything else (0x18, 0x29, 0x1C/0x1E/0x1F/0x50) -> 1
+ * That CONFIRMS the two readings this port depends on: 0x0D (the leech)
+ * is rejected by name — J2 stays closed — and the placed crate 0x06 is a
+ * victim exactly while +0x9F is 0. It also confirms two the port asserts
+ * elsewhere: 0x0E (the tendril field) is rejected, matching the field's
+ * exclusion from acquire/ray_test/alive, and the drum 0x18 falls to the
+ * accepting default, so it is shootable.
+ * ONE OPEN ITEM, left honest rather than guessed: 0x0F is in the REJECT
+ * set. The port calls the bug "global models 0x0F/0x10", but those are
+ * asset/creature-table slots (em_enemy.h "BUG KIND"), and nothing we have
+ * recovered pins the bug actor's +0x03 TYPE byte — the crate's nest
+ * records copy +0x03 straight out of disc data (func_001551B0 state 2),
+ * so the two numbering spaces need not coincide. The bug therefore stays
+ * a victim here (it is mailbox-shootable in every capture); if its type
+ * byte is ever shown to be 0x0F this filter has to drop it. */
 static int enemy_victim(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ||
@@ -4585,20 +4693,24 @@ static int enemy_victim(const Enemy *e)
                                                * victim — it is excluded. */
 }
 
-/* The DRUM's own target-list gate — DECODED (func_00156620 state 1, see
- * EGG_TARGET_R): the drum publishes itself to the target list through
- * func_001B1D20 only while the player is inside 50 u; outside that it
- * takes the plain func_001B17A0 visible-actor path and is not a
- * candidate at all. `ref` is the query origin (the shooter for the ray
- * / acquire paths, the last player position this module saw for the
- * bare targetable gate). Every other kind is unconditional. */
+/* CORRECTED 2026-07-31 — there is NO per-kind targeting-range gate.
+ * This used to exclude the drum beyond EGG_TARGET_R on the reading that
+ * func_00156620's 50-unit test published it to "the target list". It
+ * does not: see the long note at EGG_TARGET_R. func_001B1D20 feeds the
+ * CONTACT pass (func_001A9000 -> func_001A8F40), the auto-aim walks a
+ * different list entirely (func_00199220 over D_00275B8C), and outside
+ * 50 u func_001B17A0 publishes the drum anyway whenever it is visible.
+ * The engine's own range limit on acquisition is func_00199220's 260
+ * units, which lives on the weapon side, not here — so this gate is now
+ * unconditional and the drum is shootable at any range, as in-game.
+ * Kept as a hook (and to leave every call site untouched) rather than
+ * unpicked, since a later scene-visibility channel is the honest place
+ * for the forced-publish override. */
 static int enemy_in_target_range(const Enemy *e, const float ref[3])
 {
-    if (e->kind != EM_ENEMY_KIND_EGG || !ref) return 1;
-    float dx = e->pos[0] - ref[0];
-    float dy = e->pos[1] - ref[1];
-    float dz = e->pos[2] - ref[2];
-    return dx * dx + dy * dy + dz * dz <= EGG_TARGET_R * EGG_TARGET_R;
+    (void)e;
+    (void)ref;
+    return 1;
 }
 
 /* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
@@ -4653,9 +4765,10 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
  * targetable -> HP +0x34 != 0; the port's `active` covers the first
  * (death frees the slot immediately) and enemy_victim IS the 183B80
  * model switch (worms excluded — J2 s66: the auto-aim lock never
- * fills on a worm). The DRUM adds its own decoded 50-u publish gate
- * (enemy_in_target_range), measured from the last player position this
- * module saw — the same D_00810350 mirror func_00156620 reads. */
+ * fills on a worm). CORRECTED 2026-07-31: the drum's extra 50-u gate is
+ * gone — func_00156620's 50-u branch is a contact-pass visibility
+ * override, not a targeting gate (EGG_TARGET_R), and func_00199220's
+ * own range limit is 260 u on the weapon side. */
 int em_enemy_targetable(int i)
 {
     return i >= 0 && i < s.n && s.e[i].active &&

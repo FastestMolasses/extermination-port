@@ -112,24 +112,38 @@ void scene_manifest_load(void)
             g.opencam_tgt[2] = z;
         } else if (sscanf(line, "camregion %f %f %f %f %f %f %f %f",
                           &x, &z, &y, &yaw, &r, &gx, &gy, &gz) == 8) {
-            /* Fixed-camera trigger volume (x0 z0 x1 z1 ygate ex ey ez) —
-             * the mode-0 director room cameras. DECODED (audit 2026-07-31,
-             * verified against the recovered C, not just the notes):
+            /* Fixed-camera trigger volume (x0 z0 x1 z1 recy ex ey ez) —
+             * the mode-0 director room cameras. CONFIRMED (audit
+             * 2026-07-31, re-read line-by-line against the recovered C):
              *   - src/func_00195130.c (NEARMISS, the mode-0 area-camera
              *     director) switches on the area byte D_00810700 and, in a
              *     case that fires, writes the desired eye cam+0x10/14/18
-             *     from float immediates — e.g. area 6 (snow):
-             *     `func_00194D10(cam, player, 2)` then eye
-             *     (-367.7, 90.0, -598.4) approached at 0.7/frame. Those
-             *     immediates are what a `camregion` line carries.
-             *   - src/func_00194D10.c (NEARMISS) is the region test itself:
-             *     point-in-polygon over the stride-0x40 record
-             *     D_0024A5F0[idx] AND |player.y - rec.y| < 4.0f. The port
-             *     mirrors that gate as CAM_REGION_YGATE (4.0f, em_game.c).
-             * The engine record is a 4-corner quad; the three shipped
-             * records are axis-aligned rects, so the port stores a rect.
-             * Reusing the scratch floats: x=x0 z=z0 y=x1 yaw=z1 r=ygate
-             * g*=eye. */
+             *     from float immediates. Area 6 (snow), verbatim:
+             *       `else if (func_00194D10(arg0, arg1, 2) != 0) {
+             *          func_0018D7B0(arg0, 5); *(f*)(arg0+0x14) = 90.0f;
+             *          if (func_0018C4B0(&D_008105D0, *(f*)(arg0+0x14),
+             *                            0.7f) != 0) {
+             *            *(f*)(arg0+0x10) = -367.7f;
+             *            *(f*)(arg0+0x18) = -598.4f;
+             *            func_0018C6A0(arg0+0x10, &D_008105D0, 0.7f); } }`
+             *     i.e. eye (-367.7, 90.0, -598.4) approached at 0.7/frame.
+             *     Those immediates are what a `camregion` line carries.
+             *   - src/func_00194D10.c (NEARMISS) is the region test:
+             *       `if (func_001B1EA0(0, a1+0xA0, D_0024A5F0+idx*0x40, 4))
+             *          return fabs(*(f*)(a1+0xA4)
+             *                      - *(f*)(D_0024A5F4+idx*0x40)) < 4.0f;`
+             *     So: a 4-corner containment probe on the player position
+             *     against the stride-0x40 record, AND a strict
+             *     |player.y - rec.y| < 4.0f elevation gate. The 4.0f is
+             *     code; the "point-in-polygon" reading of the probe is an
+             *     inference from its `4` argument — func_001B1EA0 itself
+             *     is still hand-written asm, so its shape is NOT decoded.
+             *     The port mirrors the elevation gate as CAM_REGION_YGATE
+             *     (4.0f, em_game_internal.h; em_camera.c applies it).
+             * The three shipped records are axis-aligned rects, so the
+             * port stores a rect. Reusing the scratch floats:
+             * x=x0 z=z0 y=x1 yaw=z1 r=rec.y (the gate CENTRE, not a
+             * half-width — the +-4.0 comes from CAM_REGION_YGATE) g*=eye. */
             if (g.n_camregion < CAM_REGION_MAX) {
                 EmCamRegion *cr = &g.camregion[g.n_camregion++];
                 cr->x0 = x < y ? x : y;
@@ -211,14 +225,19 @@ void scene_manifest_load(void)
              * --door-locked) is spliced out of a working copy so the goto
              * sscanf below keeps its fixed shape.
              *
-             * The lock gate is DECODED (audit 2026-07-31): the hinged-door
-             * brain src/func_001BC350.c (NEARMISS) sub-state 0 tests, for
-             * model byte self[3] == 0x15 only,
+             * The lock gate is CONFIRMED (audit 2026-07-31, re-read in
+             * src/func_001BC350.c — NEARMISS 99.53%, so its LOGIC is
+             * authoritative): sub-state 0 tests, for model byte
+             * self[3] == 0x15 ONLY,
              *   D_00810841[D_00810700] & (1 << *(short *)(self + 0x34))
-             * where +0x34 is the door id. Bit SET = unlocked (the door
-             * opens); bit CLEAR = the locked sequence. D_00810841 is BSS,
-             * so every lock-gated door starts LOCKED — which is why the
-             * manifest carries `locked` as an explicit per-door token. */
+             * where +0x34 is the door id. Bit SET -> func_001BBE40(...,0)
+             * (opens, sub 3); bit CLEAR -> func_001BBE40(...,1) (the
+             * locked sequence, sub 1). Any OTHER model byte skips the
+             * gate and always takes mode 0. D_00810841 is BSS, so every
+             * lock-gated door starts LOCKED — which is why the manifest
+             * carries `locked` as an explicit per-door token. The slider
+             * brain src/func_001BB860.c runs the same gate for model
+             * bytes 0x16 / 0x17 / 0x3E. */
             float p[3] = { x, y, z };
             char  dline[512];
             int   locked = 0;
@@ -240,20 +259,26 @@ void scene_manifest_load(void)
                               "door %*s %*f %*f %*f %*f %*f goto "
                               "%63s %f %f %f %f",
                               gname, &gx, &gy, &gz, &gyaw) == 5)) {
-                /* Decoded destination tail (em_door.h): the commit
-                 * scene-switches instead of re-placing. DECODED and
-                 * BYTE-MATCHED (audit 2026-07-31) —
-                 * src/func_001BC150.c is the transition commit:
+                /* Destination tail (em_door.h): the commit scene-switches
+                 * instead of re-placing. CONFIRMED against the
+                 * BYTE-MATCHED src/func_001BC150.c (audit 2026-07-31) —
+                 * the transition commit, transcribed:
                  *   rec = D_0024E140[D_00810700] + 4*(self[0x34] & 0x7F)
+                 *         (BYTE pointer; the *4 is the record stride)
                  *   *(short*)(self+0x34) & 0x80 set -> inter-AREA change
-                 *      (fade func_001B0C00(4); request B8=1,
+                 *      (func_001B0C00(4); request B8=1,
                  *       B5=rec[0] next area, B7=rec[1] entry,
                  *       B6 = rec[2] ? rec[3] : 0xFF sub-state)
                  *   bit clear -> same-area room move (func_001AEDE0(4,0);
-                 *       B8=2, B7=rec[side latch *(u16*)(self+0x2E)])
-                 * So bit 7 of the door id IS the "leads to another area"
-                 * flag, and the port's `goto` tail is the exporter's
-                 * rendering of the bit-7 case. EM_DOOR_TEST
+                 *       B8=2, B7=rec[*(u16*)(self+0x2E)] — the SIDE LATCH
+                 *       indexes the record, it is not an addend)
+                 * func_001B0C00 (also byte-matched) is exactly
+                 * `func_001AEDE0(p,0); func_001FAD70(0..2, p, 1);` — the
+                 * same fade arm as the room move PLUS three audio-channel
+                 * fades, which is why room moves genuinely do not fade
+                 * audio. So bit 7 of the door id IS the "leads to another
+                 * area" flag, and the port's `goto` tail is the
+                 * exporter's rendering of the bit-7 case. EM_DOOR_TEST
                  * asserts the same-scene re-place geometry on this
                  * very door, so it runs with goto tails ignored —
                  * EM_PAUSE_TEST's door leg (the mid-walk-out menu
@@ -386,13 +411,16 @@ void scene_manifest_load(void)
              *    match; do not re-add an envelope here without evidence.
              *
              *  - "the string table (0x00273B80)" — func_001C5930 does not
-             *    read a 32-byte-stride table at that address. It indexes a
-             *    POINTER array, D_002671C0[idx], with
-             *    idx = D_00289B40[D_00810700][0] + D_00810701 (per-area
-             *    base + sub-area byte). The port's area-11 line is an
-             *    OBSERVED capture, not a decoded table read, and the port
-             *    keys it on the area alone — the engine's sub-area term
-             *    (D_00810701) is NOT modelled.
+             *    read a 32-byte-stride table at that address. Its case 0
+             *    computes, verbatim,
+             *      `*(short*)(arg0+0x2A) = D_00289B40[D_00810700][0];
+             *       *(short*)(arg0+0x2A) += D_00810701;`
+             *    and its case 1 draws `D_002671C0[*(short*)(arg0+0x2A)]`
+             *    — a POINTER array indexed by (per-area base + sub-area
+             *    byte). RE-CONFIRMED 2026-07-31. The port's area-11 line
+             *    is an OBSERVED capture, not a decoded table read, and the
+             *    port keys it on the area alone — the engine's sub-area
+             *    term (D_00810701) is NOT modelled.
              *
              *  - "first-gameplay-frame trigger" — more precisely, the arm
              *    is func_001C5930's case 0 (the overlay state byte

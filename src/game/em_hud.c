@@ -5,11 +5,15 @@
  * (FINDINGS.md "STATUS SCREEN LAYOUT", session 25) on the engine's own
  * 512x448 UI canvas (origin top-left, y down):
  *
- *   (208,197)  HEALTH ring gauge — bg ring r36-56 (yellow-green/orange
- *              radial gradient; red pair when health <= 35), light-blue
- *              fill arc r24-56 sweeping 360*hp/100 deg from 180, and the
- *              rotating 120-deg highlight (two 60-deg gradient arcs,
- *              12 deg per 2 frames = one revolution per second).
+ *   (208,196)  HEALTH ring gauge — ring r36-56 (yellow-green/orange
+ *              radial gradient; red pair when health <= 35), the
+ *              DEPLETED arc over 180+3.6*hp .. 540 at the same radii
+ *              (it shrinks to nothing at full health — see the
+ *              correction note in health_gauge), and the rotating
+ *              120-deg highlight (two 60-deg gradient arcs, 12 deg per
+ *              2 frames = one revolution per second).  Anchors and
+ *              angles all re-read from the byte-matched func_00208AD0 /
+ *              func_00209DF0 call pair.
  *   (16,118)   BATTERY block — 8x8 squares, one per internal HALF-unit,
  *              12 per row, right-to-left from x=104 at y=134, per-square
  *              magenta->yellow gradient steps, -1 px stagger on even
@@ -96,7 +100,12 @@ static const float kRingNormA[4]   = GS(192, 224,  0, 128); /* yellow-green */
 static const float kRingNormB[4]   = GS(224, 128, 24, 128); /* orange */
 static const float kRingLowA[4]    = GS(160,   0,  0, 128); /* red pair */
 static const float kRingLowB[4]    = GS(192,   0,  0, 128);
-static const float kRingFill[4]    = GS(  0, 153, 255, 128); /* light blue */
+
+/* The ring's DEPLETED segment (func_00208AD0's second pass over the same
+ * D_00265390 block — see health_gauge).  The block's static colour is
+ * unexported data, so this dark "unlit" tone is a FLAGGED stand-in, not
+ * a decoded value; only the SPAN below is source-derived. */
+static const float kRingEmpty[4]   = { 0.0f, 0.0f, 0.0f, 0.55f };
 
 /* Rotating-highlight stand-in: the engine draws transparent<->(80,80,80)
  * arcs in additive blend mode 1; with the alpha-blend-only overlay pass
@@ -112,10 +121,13 @@ static const float kBattYellow[4]  = GS(255, 230,  52, 128);
 /* Help panel (64,64,64,0x40) — exact. */
 static const float kHelpPanel[4]   = GS(64, 64, 64, 64);
 
-/* Pager-diamond marker colors (engine arc blocks 0x265270 disc r0-16,
- * 0x2652D0 ring r10-12, 0x265330 ring r14-16 — inner->outer radial
- * gradients read from the live param blocks; idle BLUE state, hovered
- * GREEN state — FINDINGS "STATUS SCREEN LAYOUT" item 2). */
+/* Pager-diamond marker colors.  The three arc blocks are 0x265270 (disc
+ * r0-16), 0x2652D0 (ring r10-12) and 0x265330 (ring r14-16); the radii
+ * come from FINDINGS "STATUS SCREEN LAYOUT" item 2, the GREEN/BLUE pairs
+ * below from func_00209DF0 (BYTE-MATCHED), which writes only the
+ * 0x265330 block's G/B components: idle (128,255) then (64,64), hovered
+ * (240,0) then (200,0).  R and A are static data we have not exported —
+ * the 0 red and 128 alpha here are the port's assumption. */
 static const float kDiscWhite[4]   = GS(255, 255, 255, 128);
 static const float kDiscFade[4]    = GS(  0,   0,   0,   0);
 static const float kRingIn[4]      = GS(  0, 128, 255, 128);
@@ -715,9 +727,13 @@ static const struct {
 } kTextStyles[] = {
     [EM_HUD_TEXT_LABEL12]      = { FONT_SMALL, 12.0f, 12.0f,
                                    { 1.0f, 1.0f, 1.0f, 1.0f } },
-    [EM_HUD_TEXT_NUM16]        = { FONT_SMALL, 12.0f, 16.0f,
+    [EM_HUD_TEXT_NUM12]        = { FONT_SMALL, 12.0f, 12.0f,
                                    { 1.0f, 1.0f, 1.0f, 1.0f } },
-    [EM_HUD_TEXT_NUM16_RED]    = { FONT_SMALL, 12.0f, 16.0f,
+    [EM_HUD_TEXT_NUM12_RED]    = { FONT_SMALL, 12.0f, 12.0f,
+                                   { 1.0f, 0.0f, 0.0f, 1.0f } },
+    [EM_HUD_TEXT_NUM16]        = { FONT_SMALL, 16.0f, 16.0f,
+                                   { 1.0f, 1.0f, 1.0f, 1.0f } },
+    [EM_HUD_TEXT_NUM16_RED]    = { FONT_SMALL, 16.0f, 16.0f,
                                    { 1.0f, 0.0f, 0.0f, 1.0f } },
     [EM_HUD_TEXT_TALL]         = { FONT_TALL,  0.0f, 20.0f,
                                    { 1.0f, 1.0f, 1.0f, 1.0f } },
@@ -928,10 +944,26 @@ void em_hud_menu_inhibit(int inhibit)
  *     menu walk uses for its move (cue 5) and confirm (0x5DD..0x5DF)
  *     sounds.  So it fires cue 2.  That it is the *no-hover buzz* is
  *     an assumption inherited from the stub write-up.
+ *   - func_0020D930 (NEARMISS, body-correct) IS the hover quantizer,
+ *     and its mode-0 arm settles the quadrant mapping the port uses.
+ *     It reads the stick angle from the scratchpad float 0x700038AC and
+ *     writes ctx[0x11]:
+ *       ang <  -0.7853982 (-pi/4) .. -2.3561945 -> 3
+ *       ang <   0.7853982 ( pi/4)               -> 2
+ *       ang <   2.3561945 (3pi/4)               -> 1
+ *       otherwise (and the -pi..-2.670354 wedge) -> 4 (resp. 1)
+ *     i.e. right = 2, down = 1, left = 4, up = 3 for a y-down atan2 —
+ *     the port's quadrant table, and it lines up with func_00209DF0's
+ *     `i == arg0[0x11] - 1` marker order (bottom, right, top, left).
+ *     A state CHANGE fires cue 5; a failed gate resets ctx[0x11] to 0
+ *     ("released" -> no hover), which the port mirrors.
+ *     NOT from the source: the 0.8 deflection figure.  The engine gates
+ *     on func_00128350(0x700038A8) + func_00100130(), neither of which
+ *     is decompiled; 0.8 is the port's noise floor.
  *
  * PORT MODEL (unchanged behaviour, honestly labelled):
- *   hub hover = left stick, deflection > 0.8, quadrant -> 1 down,
- *   2 right, 3 up, 4 left, releasing back to 0.  X enters:
+ *   hub hover = left stick, deflection > 0.8 (PORT FIGURE), quadrant ->
+ *   1 down, 2 right, 3 up, 4 left, releasing back to 0.  X enters:
  *     hover 1 (down)  -> page 3  DATABASE SCREEN  (chunk 0x24)
  *     hover 2 (right) -> page 2  SPR4 SCREEN      (chunk 0x2C)
  *     hover 3 (up)    -> page 1  MAP SCREEN       (chunk 0x1E)
@@ -1078,9 +1110,10 @@ void em_hud_update(const EmFrameInput *in)
         return;
     }
 
-    /* Stick hover among the pager diamonds (engine func_0020D930
-     * mode 0: deflection > 0.8, atan2 quadrant; raw bytes are
-     * 0x80-centered, 0x00 = left/up). */
+    /* Stick hover among the pager diamonds — the quadrant mapping is
+     * func_0020D930's mode-0 arm (NEARMISS; thresholds +-pi/4, +-3pi/4
+     * -> right 2 / down 1 / left 4 / up 3), the 0.8 deflection floor is
+     * the port's.  Raw bytes are 0x80-centered, 0x00 = left/up. */
     {
         float dx = ((float)in->lx - 128.0f) / 128.0f;
         float dy = ((float)in->ly - 128.0f) / 128.0f;
@@ -1186,24 +1219,37 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
     em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, 180.0f, 540.0f,
                         ca, cb, ca, cb);
 
-    /* fill arc r24-56: sweep = 360 * hp/100 starting at 180 deg.
+    /* DEPLETED (empty) arc — CORRECTED.  The port used to draw a
+     * light-blue fill GROWING from 180 deg with health, at a different
+     * inner radius (24).  Both halves of that were wrong.
      *
-     * PORT READING — NOT settled by the decomp.  func_00208AD0 re-uses
-     * the same 0x60-byte arc block for this pass and writes
+     * func_00208AD0 (BYTE-MATCHED) re-uses the SAME 0x60-byte arc block
+     * (D_00265390) it just drew the ring with, writing only
      *   D_00265398 = -180.0f + 360.0f * (D_00810858 / 100.0f);
      *   D_0026539C = 180.0f;
-     * where the background pass wrote (180, 540).  Read as a (start,
-     * end) pair those are a 360-3.6*hp degree span, i.e. the arc would
-     * SHRINK as health rises; read as the engine's own comment has it
-     * ("angle, radius") it is a needle.  The radii and the block's
-     * static colours live in data we have not exported, so which of the
-     * two the pass paints is UNRESOLVED.  The growing light-blue fill
-     * below is the port's long-standing reading; do not treat it as
-     * source-derived until the 0x265390 block is dumped. */
+     * where the first pass wrote (180, 540).
+     *
+     * +0x08/+0x0C of these blocks is a (start, end) ANGLE pair, and that
+     * is settled inside this same byte-matched function: the two
+     * rotating-highlight blocks get D_00265458/5C = (ang - 60, ang) and
+     * D_002654B8/BC = (ang, ang + 60) at the identical offsets — a pair
+     * that tracks the sweep every frame cannot be "angle, radius".
+     *
+     * So the second pass spans (-180 + 3.6*hp) .. 180, i.e. (mod 360)
+     * 180 + 3.6*hp .. 540: the TAIL of the first pass's full sweep.  It
+     * SHRINKS to nothing at hp 100 and covers the whole ring at hp 0 —
+     * the EMPTY segment, re-painting the base ring over the depleted
+     * part.  Same block => same radii as the pass above, so r36-56.
+     *
+     * COLOUR still UNRESOLVED: the block's static colours are unexported
+     * data.  Because it is the same block, this pass is the same colour
+     * as the base ring — which the port has merged into the health
+     * gradient pair above — so a dark "unlit" stand-in is used here and
+     * is FLAGGED, not source-derived. */
     float frac = (hp_max > 0.0f) ? clamp01f(hp / hp_max) : 0.0f;
-    if (frac > 0.0f)
-        em_gfx_overlay_arc(gfx, cx, cy, 24.0f, 56.0f,
-                           180.0f, 180.0f + 360.0f * frac, kRingFill);
+    if (frac < 1.0f)
+        em_gfx_overlay_arc(gfx, cx, cy, 36.0f, 56.0f,
+                           180.0f + 360.0f * frac, 540.0f, kRingEmpty);
 
     /* Rotating 120-deg highlight: two 60-deg arcs r36-56.  DECODED from
      * the byte-matched func_00208AD0:
@@ -1219,7 +1265,7 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
     em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a, a + 60.0f,
                         kHiliteOn, kHiliteOn, kHiliteOff, kHiliteOff);
 
-    /* value row " 75 / 100" 16 px at y=262 — every anchor here is the
+    /* value row " 75 / 100" at y=262 — every anchor here is the
      * byte-matched func_00208AD0's own arithmetic with (px, py) =
      * (0xD0, 0xC4): digits at px-0x2A = 166, the '/' string D_00273568
      * at px+0x6FA-0x700 = 202, the max string at px+0x706-0x700 = 214,
@@ -1236,26 +1282,30 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
      * — DECODED from func_00208AD0, which formats it as
      * func_001C5FB0(health, 3, 1): the blank flag is set, so 75 draws
      * as " 75" (right-aligned, lead column empty) and only a full 100
-     * fills all three places. The old "075" was a port guess. */
+     * fills all three places. The old "075" was a port guess.
+     *
+     * CELL CORRECTED: all three runs here go out as func_001CBA50(...,
+     * 0xC, 0xC, ...) — a 12x12 cell, the same one the labels use, NOT
+     * the 12x16 the port was drawing them at. */
     int hp_i = (int)hp;
     if (hp_i < 0) hp_i = 0;
     if (em_hud_font_ready()) {
         char buf[8];
         engine_digits(buf, sizeof buf, hp_i, 3, 1);
         em_hud_text(gfx, 166.0f, 262.0f, buf,
-                    hp <= 60.0f ? EM_HUD_TEXT_NUM16_RED
-                                : EM_HUD_TEXT_NUM16);
-        em_hud_text(gfx, 202.0f, 262.0f, "/", EM_HUD_TEXT_NUM16);
+                    hp <= 60.0f ? EM_HUD_TEXT_NUM12_RED
+                                : EM_HUD_TEXT_NUM12);
+        em_hud_text(gfx, 202.0f, 262.0f, "/", EM_HUD_TEXT_NUM12);
         snprintf(buf, sizeof buf, "%d", (int)hp_max);
-        em_hud_text(gfx, 214.0f, 262.0f, buf, EM_HUD_TEXT_NUM16);
+        em_hud_text(gfx, 214.0f, 262.0f, buf, EM_HUD_TEXT_NUM12);
     } else {
         const float *style = (hp <= 60.0f) ? kTextRed : kTextWhite;
         int lead = engine_blank_lead(hp_i, 3);
         text_placeholder(gfx, 166.0f + 12.0f * (float)lead, 262.0f,
-                         3 - lead, 12.0f, 16.0f, style);
-        text_placeholder(gfx, 202.0f, 262.0f, 1, 12.0f, 16.0f,
+                         3 - lead, 12.0f, 12.0f, style);
+        text_placeholder(gfx, 202.0f, 262.0f, 1, 12.0f, 12.0f,
                          kTextWhite);
-        text_placeholder(gfx, 214.0f, 262.0f, 3, 12.0f, 16.0f,
+        text_placeholder(gfx, 214.0f, 262.0f, 3, 12.0f, 12.0f,
                          kTextWhite);
     }
 }
@@ -1298,12 +1348,17 @@ static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
                             8.0f, 8.0f, c);
     }
 
-    /* "04/06" 16 px at (32,170): 2-digit ZERO-padded current + '/' +
-     * 2-digit zero-padded max. DECODED from func_00209280, which builds
-     * the caption as func_001C5FB0(0x810CB2>>1, 2, 0) + "/" +
+    /* "04/06" at (32,170): 2-digit ZERO-padded current + '/' + 2-digit
+     * zero-padded max. DECODED from func_00209280, which builds the
+     * caption as func_001C5FB0(0x810CB2>>1, 2, 0) + D_00273568 ("/") +
      * func_001C5FB0(0x810CB7>>1, 2, 0) — the blank flag is CLEAR here,
      * so unlike the health/reserve/infection readouts this one really
-     * does print "04", not " 4". */
+     * does print "04", not " 4".
+     *
+     * Anchor from the same function with (x, y) = (0x10, 0x76): canvas
+     * x = x + 0x10 = 32, row ((y + 0x34) >> 1) * 2 = 170.  CELL
+     * CORRECTED: the blit is func_001CBA50(..., 16, 16, ...) — a 16x16
+     * cell, not the 12x16 the port was using. */
     if (em_hud_font_ready()) {
         char buf[12];
         char lo[8], hi[8];
@@ -1313,7 +1368,7 @@ static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
         em_hud_text(gfx, 32.0f, 170.0f, buf, EM_HUD_TEXT_NUM16);
     } else {
         int dd = decimal_digits(cur) > 2 ? decimal_digits(cur) : 2;
-        text_placeholder(gfx, 32.0f, 170.0f, dd + 1 + 2, 12.0f, 16.0f,
+        text_placeholder(gfx, 32.0f, 170.0f, dd + 1 + 2, 16.0f, 16.0f,
                          kTextWhite);
     }
 }
@@ -1339,12 +1394,17 @@ static void spr4_block(EmGfx *gfx, int16_t reserve)
     if (!s_decor_active)
         text_placeholder(gfx, 16.0f, 262.0f, 1, 24.0f, 24.0f, kTextWhite);
 
-    /* reserve count, 16 px digits at (42,266): a 4-place field whose
-     * leading zeros are BLANKED — DECODED from func_00209860, which
-     * formats D_00810CB4 as func_001C5FB0(reserve, 4, 1). The blank
-     * flag means the field keeps all 4 places and the digits sit
-     * right-aligned in it, so 120 draws as " 120" starting one cell in,
-     * NOT left-aligned at x=42 (the old port reading of "trim"). */
+    /* reserve count at (42,266): a 4-place field whose leading zeros are
+     * BLANKED — DECODED from func_00209860, which formats D_00810CB4 as
+     * func_001C5FB0(reserve, 4, 1). The blank flag means the field keeps
+     * all 4 places and the digits sit right-aligned in it, so 120 draws
+     * as " 120" starting one cell in, NOT left-aligned at x=42 (the old
+     * port reading of "trim").
+     *
+     * Anchor from the same function with (arg0, arg1) = (0x10, 0xBE):
+     * canvas x = arg0 + 0x1A = 42, row ((arg1 + 0x4C) >> 1) * 2 = 266.
+     * CELL CORRECTED: the blit is func_001CBA50(..., 0x10, 0x10, ...) —
+     * a 16x16 cell, not 12x16. */
     int res_i = reserve;
     if (res_i < 0) res_i = 0;
     if (em_hud_font_ready()) {
@@ -1353,9 +1413,19 @@ static void spr4_block(EmGfx *gfx, int16_t reserve)
         em_hud_text(gfx, 42.0f, 266.0f, buf, EM_HUD_TEXT_NUM16);
     } else {
         int lead = engine_blank_lead(res_i, 4);
-        text_placeholder(gfx, 42.0f + 12.0f * (float)lead, 266.0f,
-                         4 - lead, 12.0f, 16.0f, kTextWhite);
+        text_placeholder(gfx, 42.0f + 16.0f * (float)lead, 266.0f,
+                         4 - lead, 16.0f, 16.0f, kTextWhite);
     }
+
+    /* NOT MODELLED (read in func_00209860, recorded so nobody thinks the
+     * block is complete): a SECOND weapon row below this one — a 24x24
+     * icon at (16, 286) and a second func_001C5FB0(n, 4, 1) count at
+     * (42, 290), same 16x16 cell.  It is gated on the weapon-slot bytes
+     * D_00810CA4/D_00810CA6 (slot 2 shows D_00810CB0; sub-types 1/2/3
+     * show D_00810CA8/D_00810CAA; sub-type 4 shows
+     * D_00810CAE + 100 * D_00810CAC with a trailing "%" string and a
+     * left-shifted anchor when the field's lead place is blank).  The
+     * port carries no second-weapon state, so nothing is drawn. */
 }
 
 /* INFECTION — text only (the real screen has NO infection bar): either
@@ -1374,10 +1444,22 @@ static void infection_block(EmGfx *gfx, float infection)
         return;
     }
     /* value = a 3-place blank-suppressed field with '%' appended —
-     * DECODED from func_00209DF0, which draws this row as
-     * func_001C5FB0(infection, 3, 1) with the '%' string concatenated
-     * onto it. So 60 renders " 60%" (lead cell blank, digits pinned to
-     * the same columns as a 3-digit value), not a left-packed "60%". */
+     * DECODED from func_00209DF0 (BYTE-MATCHED), which draws this row as
+     *   func_00123168(D_002862C0, func_001C5FB0(n, 3, 1));
+     *   func_00122EF0(D_002862C0, D_00273570);          // the "%"
+     *   func_001CBA50(1, 0x828, 0x820, 0x10, 0x10, ...);
+     * So 60 renders " 60%" (lead cell blank, digits pinned to the same
+     * columns as a 3-digit value), not a left-packed "60%".
+     * Anchors: canvas x 0x828 - 0x700 = 296, row (0x820 - 0x790) * 2 =
+     * 288.  CELL CORRECTED to the engine's 16x16 (was 12x16).
+     *
+     * The 100%% branch is the one above: func_001CC1E0(1, 0x822, 0x812,
+     * 0xA, 0x14, D_00267290, D_00265520) = tall font 10x20 at canvas
+     * (290, 260) in the D_00265520 style.  The label branch here is
+     * func_001CC1E0(1, 0x828, 0x812, 0xA, 0x14, D_00267294, 0) — canvas
+     * (296, 260), and note the style argument is 0, i.e. the engine's
+     * DEFAULT text colour rather than an explicit style record.  The
+     * port draws it white; that colour is UNRESOLVED. */
     int inf_i = (int)infection;
     if (inf_i < 0) inf_i = 0;
     if (em_hud_font_ready()) {
@@ -1390,8 +1472,8 @@ static void infection_block(EmGfx *gfx, float infection)
         text_placeholder(gfx, 296.0f, 260.0f, 9, 10.0f, 20.0f,
                          kTextWhite);
         int lead = engine_blank_lead(inf_i, 3);
-        text_placeholder(gfx, 296.0f + 12.0f * (float)lead, 288.0f,
-                         (3 - lead) + 1, 12.0f, 16.0f,
+        text_placeholder(gfx, 296.0f + 16.0f * (float)lead, 288.0f,
+                         (3 - lead) + 1, 16.0f, 16.0f,
                          kTextWhite);   /* "NN" + "%" */
     }
 }
@@ -1410,8 +1492,28 @@ static void decor(EmGfx *gfx)
 
     /* Page-selector diamond around (432,320): markers bottom/right/top/
      * left (= stick hover ids 1/2/3/4), each = white fading disc r0-16
-     * + two gradient rings — blue idle, GREEN while stick-hovered (the
-     * engine's live hover state, FINDINGS item 2). */
+     * + two gradient rings.
+     *
+     * MARKER POSITIONS CONFIRMED against func_00209DF0 (BYTE-MATCHED):
+     * its i = 0..3 loop writes the trio D_00265270/2D0/330 to
+     * 16*(w + 0x700) / 16*((h >> 1) + 0x790) with (w, h) =
+     * (0x1B0,0x178), (0x1DC,0x140), (0x1B0,0x108), (0x184,0x140) —
+     * canvas (432,376), (476,320), (432,264), (388,320), in that order.
+     * The same loop keys its highlight on `i == arg0[0x11] - 1`, and
+     * arg0[0x11] is exactly the byte func_0020D930 writes (see the nav
+     * block), so marker index i == hover id i+1.
+     *
+     * HOVER RECOLOUR CORRECTED: the port used to recolour BOTH rings.
+     * func_00209DF0 writes colour only into the D_00265330 block —
+     * D_00265354/58 (quad 0 G,B) and D_00265364/68 (quad 1 G,B), plus
+     * the mirrored 0x265374/78 and 0x265384/88 — leaving D_00265270 and
+     * D_002652D0 with their static colours (it only re-anchors them).
+     * So only the OUTER ring changes state; the inner ring stays blue.
+     * The values themselves are read straight out of that function:
+     * idle (G,B) = (128,255) and (64,64), hovered (240,0) and (200,0) —
+     * the kRingIn/kRingOut and kRingHovIn/kRingHovOut pairs below.  (The
+     * R and A components are not written there and remain the port's
+     * assumption.) */
     static const float kMarker[4][2] = {
         { 432.0f, 376.0f },   /* hover 1 (bottom) -> DATABASE */
         { 476.0f, 320.0f },   /* hover 2 (right)  -> SPR4     */
@@ -1426,7 +1528,7 @@ static void decor(EmGfx *gfx)
         em_gfx_overlay_arc4(gfx, cx, cy,  0.0f, 16.0f, 0.0f, 360.0f,
                             kDiscWhite, kDiscFade, kDiscWhite, kDiscFade);
         em_gfx_overlay_arc4(gfx, cx, cy, 10.0f, 12.0f, 0.0f, 360.0f,
-                            rin, rout, rin, rout);
+                            kRingIn, kRingOut, kRingIn, kRingOut);
         em_gfx_overlay_arc4(gfx, cx, cy, 14.0f, 16.0f, 0.0f, 360.0f,
                             rin, rout, rin, rout);
     }
@@ -1805,12 +1907,15 @@ static int radio_duration(int line)
 
 #define RADIO_GROUP 9       /* the slot-0x16 bank rides messages.emsg as
                              * group 9 (tools/export_ui.py --messages) */
-/* func_001FD950 passes y = 0xC2 = 194 to the blitter.  The engine's UI
- * y coordinates are half-height (every call site in func_00208AD0 /
- * func_00209DF0 builds GS y as (canvas_y >> 1) + 0x790), so 194 doubles
- * to canvas 388 — near the bottom of the 448-tall canvas, where a
- * subtitle belongs.  DERIVED, not read: the blitter func_001FC770's own
- * transform has not been decompiled. */
+/* func_001FD950 passes y = 0xC2 = 194 to the blitter.  UPGRADED from
+ * DERIVED to READ: func_001FC770 (BYTE-MATCHED) forwards straight to
+ * func_001FC7B0 (NEARMISS, body-correct), whose draw is
+ *   func_001CC1E0(1, base + 0x700, arg1 + 0x790, 0xA, 0x14, buf, cfg[5])
+ * — the y argument is added to 0x790 with NO halving, so it is already
+ * in the GS half-height units, and canvas y = 194 * 2 = 388: near the
+ * bottom of the 448-tall canvas, where a subtitle belongs.  (The same
+ * call fixes the tall 10x20 cell and confirms x is plain canvas: the
+ * pen is base + 0x700.) */
 #define RADIO_Y     388.0f
 
 static struct {
@@ -1946,10 +2051,21 @@ void em_hud_found_render(EmGfx *gfx)
  *     its own canvas, which is equivalent), and y (0x7A2 - 0x790) * 2 =
  *     36 — the port was drawing at 96.
  *
- * NOT MODELLED (observed in the same function, no port data): after the
- * 300 frames elapse the engine runs a SECOND 300-frame line, the
- * sub-location name D_0026726C[func_001C5860()], at canvas x 0x896 -
- * 0x700 - w/2 = 406 on the same row 36.
+ * NOT MODELLED (read in the same function, no port data) — and the old
+ * description of it was wrong.  After the first 300 frames (arg0[5]
+ * reaches 1) the engine runs a SECOND 300-frame line at canvas x
+ * 0x896 - 0x700 - w/2 = 406 - w/2 on the same row 36, from
+ * D_0026726C[band].  `band` is NOT a sub-location id: it is
+ * func_001C5860() (BYTE-MATCHED), which buckets 100.0f - D_008104D8 —
+ * the INFECTION value — into 0..5 by the descending thresholds
+ * 80/50/30/10/0.  The line is skipped entirely while band == 0 (i.e.
+ * infection under 20), and the 300-frame timer restarts whenever the
+ * band changes, so it is an infection-status placard, not a place name.
+ *
+ * ALSO NOT MODELLED: the first line's draw is gated on the scratchpad
+ * game-mode byte 0x70003B8D being 2 or 3; outside that the counter
+ * still runs but nothing is drawn.  The port's equivalent gate is the
+ * "status screen owns the UI" check in the render below.
  *
  * STRING SOURCE — DOWNGRADED.  func_001C5930 does not read a
  * 32-byte-stride table at 0x00273B80; it indexes a POINTER array
