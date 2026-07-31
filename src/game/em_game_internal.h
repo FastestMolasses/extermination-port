@@ -1762,6 +1762,12 @@ typedef struct {
     int         area_title_armed; /* the title card was armed this scene */
 } EmGameState;
 
+/* Compose a loaded palette with a placement transform: T(pos) * R_y(yaw).
+ * Shared with em_props.c, whose set pieces pose through the same path the
+ * player and doors use (defined in em_game.c). */
+void palette_apply_placement(float *pal, uint32_t bone_count,
+                             const float pos[3], float yaw);
+
 /* The one gameplay state object (defined in em_game.c). */
 extern EmGameState g;
 
