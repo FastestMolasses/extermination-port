@@ -21,8 +21,13 @@
  *                  through-door. No LOS, no auto ring (those were the
  *                  class-7 prefix)
  *                  -> the trigger scan inside em_door_update()
- *   func_001BC300  per-frame articulation + publish/draw
- *                  -> em_door_palette build + the draw accessors
+ *   func_001BC300  per-frame articulation + publish/draw (DECODED: it
+ *                  runs func_001C68C0 — placement transform from the
+ *                  actor's pos/orientation/SCALE, then the bone palette
+ *                  through the skeleton evaluator keyed on the model
+ *                  byte — then refreshes the actor's spatial anchor 10 u
+ *                  above the placement origin and calls its own +0x4C
+ *                  method) -> em_door_palette build + the draw accessors
  *
  * Door instances come from the SCENE MANIFEST's doors section (one line
  * per placed door, written by the decomp repo's export_props.py --doors /
@@ -63,12 +68,14 @@
  *   doorsfx <front-id> <back-id>
  *
  * the D_0024DB80 sound pair the engine patches into the open script
- * (FINDINGS "DOOR SCRIPTS DECODED" s23: pair = D_0024DB80[link >> 8],
- * played as pair[side]; office doors' links are 0x02xx -> pair[2] =
- * 0x3FD front / 0x3FE back). One global line is a FLAGGED
- * simplification — per-door pairs need the manifest door lines to
- * carry the placement LINK halfword (export_props.py owns them).
- * Without the line the legacy placeholder ids fire (em_sfx.h).
+ * (DECODED from func_001BBD60: pair = D_0024DB80[link >> 8], played as
+ * pair[side]; office doors' links are 0x02xx -> pair[2] = 0x3FD front /
+ * 0x3FE back). One global line is a FLAGGED simplification — per-door
+ * pairs need the manifest door lines to carry the placement LINK
+ * halfword (export_props.py owns them). Without the line the legacy
+ * placeholder OPEN id fires (em_sfx.h). There is no close id at all:
+ * func_001BBD20, the last candidate for one, plays the same OPEN pair,
+ * so the door close is silent in the port exactly as in the engine.
  *
  * The EMDL is the door's own articulated model in DOOR-LOCAL space
  * (bone 0 = the door panel, bone 1 = the lock fixture; frame 0 = the
@@ -163,8 +170,12 @@
  * him at door_pos - 6.0 * forward (func_00182F90 instant translate; 6.0
  * — not the m03 5.0) and queues the OPEN script D_0024D900: scripted-
  * mode enter (input lock, NO fade), chase-camera cue, ONE positional
- * door sound, the NATIVE SLIDE func_001BB400 (panels part 0.2 u/frame
- * to 9.0 u — the EMDL's baked 46-frame clip), then op01-sub8 = a
+ * door sound, the NATIVE SLIDE func_001BB400 (DECODED: the two panels
+ * part symmetrically at 0.2 u/frame — single-leaf placements, flags2
+ * 8/0x16, move one panel only — until the leading panel passes 9.0 u,
+ * i.e. 46 frames; the wide flags2 0x3D/0x3E pair runs to 13.0 u = 66
+ * frames. The EMDL's baked 46-frame clip is exactly the 9.0-u case),
+ * then op01-sub8 = a
  * scripted player WALK-THROUGH (walk clip; there is NO player
  * door-gesture anim anywhere in the slider script — the user-verified
  * PCSX2 behavior: the panels part and the player walks through with no

@@ -43,13 +43,26 @@
  * slide, scripted walk-through, no fade, no player anim; see the
  * "SLIDER (m17/m09) VARIANT BRAIN" block below and em_door.h.
  *
- * Articulation: the engine evaluates a keyframe clip on the door's bone
- * slots (func_001BC300 -> func_001C68C0). The shipped door EMDLs carry
- * the real disc clips (s30/s32, slot-0x39 bank ids [0,2,1,3]); a
- * single-frame EMDL falls back to the legacy PLACEHOLDER hinge swing
- * below (90 degrees about the placement origin's Y axis — the panel's
- * hinge edge sits at local x = 0). A real baked clip (frame_count > 1)
- * plays at 1.0 frame/tick, exactly the engine rate.
+ * Articulation — DECODED from func_001BC300 / func_001C68C0: the door's
+ * per-frame tail is func_001C68C0 (build the placement transform at
+ * +0xD0 from the actor's position +0xB0, orientation +0xC0 and SCALE
+ * +0x60, then compose the bone palette at +0x110 through the skeleton
+ * evaluator, keyed on the actor's model byte +0x0C), then an anchor
+ * refresh fed (x, y + 10, z) — the door's spatial anchor sits 10 u ABOVE
+ * its placement origin — then the actor's own +0x4C method.
+ * door_build_palette performs the same composition in the opposite order
+ * (clip pose first, then T(pos) * R_y(yaw)), which is equivalent. The
+ * one decoded input the port does not carry is the SCALE slot: the
+ * placement LINK's bits 6/7 select 1.5x/2.0x and the manifest has no
+ * link halfword yet (FLAGGED).
+ *
+ * The shipped door EMDLs carry the real disc clips (s30/s32, slot-0x39
+ * bank ids [0,2,1,3]); a single-frame EMDL falls back to the legacy
+ * PLACEHOLDER hinge swing below (90 degrees about the placement origin's
+ * Y axis — the panel's hinge edge sits at local x = 0). A real baked
+ * clip (frame_count > 1) plays at 1.0 frame/tick, exactly the engine
+ * rate (the pump func_001BC0E0 advances the clip by a literal 1.0 every
+ * frame the anim block is active).
  */
 #include "game/em_door.h"
 
@@ -124,10 +137,19 @@
  *            lock, NO fade), op0D sub5 chase-camera cue (not owned by
  *            em_door — port camera keeps chasing, flagged), op17 sub0
  *            positional door sound, op09 = func_001BB400 NATIVE SLIDE
- *            (bone +0x7C keyed translation, 0.2 u/frame until the
- *            panels part 9.0 u — the port EMDL bakes exactly that as
- *            its 46-frame clip, pumped 1.0/frame), then op01 sub8 =
- *            scripted player WALK-THROUGH (func_001B94F0 move-to,
+ *            (DECODED: the native drives the model's bone +0x7C
+ *            translation slot 0.2 u/frame and reports "done" the frame
+ *            it passes the travel limit. Single-leaf placements —
+ *            flags2 8/0x16 — move slot 0 alone; every other placement
+ *            moves slot 1 by -0.2 and slot 2 by +0.2, the two panels
+ *            parting symmetrically. Travel limit 9.0 u, except flags2
+ *            0x3D/0x3E which run to 13.0 u: 46 frames of slide, or 66
+ *            for the wide pair. The port EMDL bakes exactly the 9.0-u
+ *            case as its 46-frame clip, pumped 1.0/frame; the 13.0-u
+ *            variant and the single/double leaf split ride the baked
+ *            clip, since the manifest carries no flags2 byte), then
+ *            op01 sub8 = scripted player WALK-THROUGH (func_001B94F0
+ *            move-to,
  *            walk clip — the player crosses the open doorway; NO
  *            player door-gesture anim anywhere in the script).
  *   AFTER    brain state 3 = the transition COMMIT (func_001BC150,
@@ -140,10 +162,18 @@
  *            radius (the s32-flagged reverse, motion-identical). */
 #define SLIDER_POINT_DIST 6.0f  /* func_001BB560 staging: 6.0 * (sin,cos) */
 #define SLIDER_LEAVE_PAD  2.0f  /* re-close hysteresis past the radius */
+/* Native-slide length, DECODED from func_001BB400: 0.2 u/frame until the
+ * leading panel passes 9.0 u = 46 frames. Used only when a slider EMDL
+ * carries no baked clip — the shipped bake is this exact length, so the
+ * fallback now runs the engine's own duration instead of the hinged
+ * PLACEHOLDER swing below. (The wide 0x3D/0x3E pair runs to 13.0 u = 66
+ * frames; the port has no flags2 byte to select it — see the SLIDER
+ * block above.) */
+#define SLIDER_SLIDE_FRAMES 46.0f
 
 /* Staging/spawn offset along the door normal: the engine stages the
- * player at CENTER +- 5.0 * n on his own side. Decoded exactly from
- * func_001BBE40 (2026-06-11; both s22 live captures reproduce to the
+ * player at CENTER +- 5.0 * n on his own side. DECODED from the
+ * byte-matched func_001BBE40 (both s22 live captures reproduce to the
  * digit — (104, -247.2) and (62, -225.5)):
  *
  *     pyaw = norm(door_yaw + (front ? pi : 0))      (the yaw snap)
@@ -152,37 +182,48 @@
  *     sz = door_z + 5*sin(door_yaw) - 5*cos(pyaw)
  *
  * = doorway CENTER (the same 5-u hinge->handle lateral term as the use
- * scan) + 5 u out of the door plane on the player's side. NOTE the
- * decomp stub src/func_001BBE40.c annotated its trig externs swapped;
- * func_0011DE90 = cosf, func_0011E2A8 = sinf (pinned by the captures
- * AND by func_00136630's forward-step x += v*E2A8 / z += v*DE90 with
- * the engine's forward = (sin yaw, cos yaw)). The spawn-table records
- * flank the CENTER at ~+-5 with exit yaw (office rec 2/3 = (104, -245)/
- * (104, -259) vs center (104, -252.2)). */
+ * scan) + 5 u out of the door plane on the player's side, with w = 1.0.
+ * The trig identity behind it is now settled outright by the recovered
+ * kernels: func_0011DE90 = cosf and func_0011E2A8 = sinf (both are the
+ * fdlibm reduce-then-kernel shape, and DE90's |x| < pi/4 fast path
+ * enters the COSINE kernel while E2A8's enters the SINE kernel);
+ * func_00136630's forward step — x += v*sin(yaw), z += v*cos(yaw) —
+ * confirms the engine's forward = (sin yaw, cos yaw) convention the
+ * formula above is written in. The spawn-table records flank the CENTER
+ * at ~+-5 with exit yaw (office rec 2/3 = (104, -245)/(104, -259) vs
+ * center (104, -252.2)). */
 #define DOOR_POINT_DIST   5.0f
 
-/* OPEN-phase script values (FINDINGS "DOOR SCRIPTS DECODED" s23 — the
- * D_0024DE40 open script, records patched by side at kickoff):
+/* OPEN-phase script values — DECODED from the byte-matched
+ * func_001BBE40, which patches the shared D_0024DE40 records by side
+ * before queuing the script:
  *  - player anim id (op 0x0A sub 0, rate 1.0): 0x45 front / 0x43 back
  *    — the reach-out/walk-through clips, played through the scripted-
  *    anim mailbox (em_game_anim_request; id == library container).
- *  - phase duration (the op 0x02 STOP wait): 90.0 front / 70.0 back
- *    frames, then the script ends and the transition COMMIT runs.
- * SIDE: the s17 front test — bearing(player - door) within pi/2 of the
- * door yaw (i.e. the player stands on the side the door faces, +n). */
+ *  - phase duration (the op 0x02 STOP wait): the kickoff stores the
+ *    literals 0x42B40000 = 90.0 front and 0x428C0000 = 70.0 back into
+ *    the wait record, then the script ends and the COMMIT runs.
+ * SIDE: the front test is the kickoff's own — |norm(bearing(door ->
+ * player) - door_yaw)| <= pi/2 latches the side byte to 0 (front, the
+ * side the door faces, +n), otherwise 1 (back). */
 #define DOOR_ANIM_OPEN_FRONT  0x45
 #define DOOR_ANIM_OPEN_BACK   0x43
 #define DOOR_WAIT_FRONT       90.0f
 #define DOOR_WAIT_BACK        70.0f
 
-/* LOCKED-TRY script values (em_door.h "THE LOCKED SEQUENCE" — script
- * D_0024DEC0, FINDINGS s23; clip/anim identities re-verified by the
- * 2026-06-11 directory bake):
+/* LOCKED-TRY script values — em_door.h "THE LOCKED SEQUENCE", script
+ * D_0024DEC0. The per-side ids below are DECODED from the byte-matched
+ * func_001BBE40's locked branch (mode 1), which patches the same shared
+ * records the open branch does and — unlike mode 0 — does NOT run the
+ * sound-pair patch func_001BBD60, so the locked try is door-silent
+ * apart from its own rattle record:
  *  - player anim id (op 0x0A sub 0, rate 1.0): 0x46 front / 0x44 back
  *    — the try-the-handle-and-fail gestures (200 f, return to rest).
  *  - door clip ENGINE id (op 0x0B sub 0, no sound): 3 front / 1 back
  *    — the lock-fixture jiggle (s30; the EMDLs carry the real clips,
  *    resolved per id through em_model_clip_index).
+ * mode 1 also leaves the WAIT record alone (only mode 0 writes 90/70),
+ * so the wait below is the locked script's own static value:
  *  - the op 0x02 wait before the rattle record: 60 frames (the fixture
  *    motion peaks f60-110 — the sound lands on the shake).
  *  - locked rattle sound id 0x3F2 (op 0x17 sub 0; em_sfx.h).
@@ -217,14 +258,15 @@
                                       * doors) -> GLOBAL examine line 6,
                                       * "It's locked and won't open." */
 
-/* Door SOUND pair — FINDINGS "DOOR SCRIPTS DECODED" s23: the open
- * script's op 0x0B sub 6 record is patched by func_001BBD60 with
+/* Door SOUND pair — DECODED from func_001BBD60: the open script's
+ * op 0x0B sub 6 record gets its sound word overwritten with
  * D_0024DB80[link >> 8][side], a [front_id, back_id] halfword pair
- * table indexed by the placement LINK halfword's high byte (door
- * family ids 0x3FB..0x40E). The port's manifest does not carry the
- * per-door link yet (export_props owns the door lines), so the pair
- * arrives as ONE optional GLOBAL scene.txt line, generated alongside
- * the registry by the decomp repo's tools/gen_sfx_registry.py:
+ * table indexed by the placement LINK halfword's high byte (the door
+ * family ids 0x3FB..0x40E), with `side` = the kickoff's own side latch
+ * (0 front / 1 back). The port's manifest does not carry the per-door
+ * link yet (export_props owns the door lines), so the pair arrives as
+ * ONE optional GLOBAL scene.txt line, generated alongside the registry
+ * by the decomp repo's tools/gen_sfx_registry.py:
  *
  *     doorsfx <front-id> <back-id>     (e.g. office: doorsfx 0x3FD 0x3FE
  *                                       = D_0024DB80[2], both office
@@ -233,13 +275,19 @@
  * em_game's manifest parser skips unknown keywords, so em_door scans
  * scene.txt itself (once, at the first em_door_add). With the line
  * present the open chain plays the side-correct pair id exactly like
- * the engine record, and the legacy close-at-black placeholder play is
- * dropped (the decoded open script D_0024DE40 carries a SINGLE sound
- * record; no close sound is decoded — func_001BBD20 is a possible
- * close path, revisit). Without the line, the previous PLACEHOLDER
- * behavior is preserved bit-for-bit (EM_SFX_DOOR_OPEN/CLOSE, which an
- * unmapped registry turns into silent no-ops). FLAGGED simplification
- * until the manifest door lines grow the link halfword. */
+ * the engine record; without it the legacy PLACEHOLDER open id fires as
+ * before (EM_SFX_DOOR_OPEN, which an unmapped registry turns into a
+ * silent no-op). FLAGGED simplification until the manifest door lines
+ * grow the link halfword.
+ *
+ * THE CLOSE IS SILENT, unconditionally — the last open question here is
+ * now settled by func_001BBD20, which was the only remaining "maybe the
+ * close plays something" candidate: it is not a close path at all but
+ * the direct-play sibling of func_001BBD60, reading the SAME
+ * D_0024DB80[link >> 8][side] OPEN pair and handing it to the
+ * positional play call at radius 300. There is no close-sound id
+ * anywhere in the door data, so the port plays nothing at the re-place;
+ * the old EM_SFX_DOOR_CLOSE placeholder is retired. */
 #define DOOR_SFX_KEYWORD  "doorsfx"
 
 /* Fade speed for the transit fades — the captured func_001AEDE0 speed
@@ -593,11 +641,19 @@ int em_door_set_goto(int i, const char *target, const float spawn[3],
 /* ------------------------------------------------------------------ */
 
 /* Open fraction 0..1 from the clip time. */
+/* No-clip fallback length. Sliders get the DECODED native-slide
+ * duration (func_001BB400: 0.2 u/frame to 9.0 u = 46 frames); hinged
+ * doors keep the PLACEHOLDER swing length. */
+static float door_fallback_frames(const Door *d)
+{
+    return d->slider ? SLIDER_SLIDE_FRAMES : DOOR_SWING_FRAMES;
+}
+
 static float door_open_frac(const Door *d)
 {
     const DoorModel *dm = &s.models[d->model];
     float total = dm->has_clip ? (float)(dm->model.frame_count - 1)
-                               : DOOR_SWING_FRAMES;
+                               : door_fallback_frames(d);
     float f = d->clip_t / total;
     return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 }
@@ -606,7 +662,7 @@ static float door_clip_total(const Door *d)
 {
     const DoorModel *dm = &s.models[d->model];
     if (!dm->has_clip)
-        return DOOR_SWING_FRAMES;
+        return door_fallback_frames(d);
     uint32_t ci = (d->clip_idx > 0 &&
                    (uint32_t)d->clip_idx < dm->model.clip_count)
                   ? (uint32_t)d->clip_idx : 0;
@@ -761,12 +817,14 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
         s.doors[best].armed = 4;   /* the scan's +0x0B value */
 }
 
-/* func_001BBE40 — the transit KICKOFF, byte-decoded 2026-06-11 (the
- * 91.5%-matched C stub src/func_001BBE40.c, trig labels corrected:
- * func_0011DE90 = cos, func_0011E2A8 = sin; both s22 captured staging
- * points reproduce exactly). Latch the player's side, snap the player
- * yaw to the door normal (front: door_yaw + pi; back: door_yaw), LOCK
- * input, and walk the player to the STAGING point
+/* func_001BBE40 — the transit KICKOFF, now DECODED from the
+ * byte-matched src/func_001BBE40.c (its trig externs read
+ * func_0011DE90 = cos, func_0011E2A8 = sin, both confirmed against the
+ * recovered kernels; both s22 captured staging points reproduce
+ * exactly). Latch the player's side, snap the player yaw to the door
+ * normal — front: norm(pi + door_yaw), back: norm(door_yaw), BOTH
+ * wrapped through the engine's angle normalizer — LOCK input, and walk
+ * the player to the STAGING point
  *
  *     staging = (door_x - 5*cos(door_yaw) - 5*sin(pyaw),
  *                player_y,
@@ -799,8 +857,13 @@ static void door_transit_kickoff(Door *d, const float pp[3])
     d->phase_t      = 0.0f;
     d->anim_started = 0;
     /* yaw snap = travel direction = the exit yaw (spawn recs face AWAY
-     * from the door — s22 "yaw facing AWAY (exit pose)") */
-    d->transit_yaw   = d->front ? d->yaw + DOOR_PI : d->yaw;
+     * from the door — s22 "yaw facing AWAY (exit pose)"). func_001BBE40
+     * writes the player's yaw through the angle normalizer on BOTH
+     * sides, so the value handed to em_game (staging walk, warp pose,
+     * walk-out, locked-look cut) is always wrapped to (-pi, pi] — the
+     * port normalizes here for the same reason the slider kickoff
+     * does. */
+    d->transit_yaw   = door_norm_ang(d->front ? d->yaw + DOOR_PI : d->yaw);
     {
         /* the exact func_001BBE40 staging algebra (lateral center term
          * folded into d->center; pyaw = the snapped yaw) */
@@ -1216,16 +1279,13 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                      * walk-out clip. */
                     em_game_anim_cancel();
                     em_frame_fade_start(-1, DOOR_FADE_SPEED);
-                    /* Close sound: the decoded open script D_0024DE40
-                     * carries a SINGLE sound record — no close sound is
-                     * engine-documented (func_001BBD20 is a possible
-                     * close path, undecoded). With the real pair active
-                     * the port stays faithful and plays NOTHING here;
-                     * the legacy PLACEHOLDER fires only in the
-                     * no-doorsfx configuration, as before. */
-                    if (!s.sfx_real)
-                        em_sfx_play_at(EM_SFX_DOOR_CLOSE, d->pos,
-                                       300.0f);     /* PLACEHOLDER */
+                    /* NO close sound — DECODED (see DOOR_SFX_KEYWORD):
+                     * the open script carries a single sound record and
+                     * func_001BBD20, the last unread candidate for a
+                     * close path, turns out to play the SAME open pair
+                     * D_0024DB80[link >> 8][side]. The door close is
+                     * silent in the original, so it is silent here; the
+                     * old EM_SFX_DOOR_CLOSE placeholder is gone. */
                 }
                 break;
             }

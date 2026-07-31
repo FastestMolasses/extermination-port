@@ -18,38 +18,58 @@
  *             with a placed-crawler model byte {6,0x1C,0x1E,0x1F,0x50}
  *             and the on-surface flag — the WHOLE live list, no radius.
  *             Else own alarm set -> clear it, +0x2A = 6, -> 1.
- *             Else the disguise jitter. THE ENGINE HAS NO PROXIMITY
- *             TEST HERE — state 4 never reads the player position; the
- *             old ~10-u burst trigger and the 32-u wake were port
- *             inventions and are REMOVED.
+ *             Else the disguise jitter — decoded as a rattle (sound
+ *             0x19C @300) + a random 0..255-tick wait + a 4-frame
+ *             shudder, and gated on the crate still owing its nest group
+ *             a child (see CRATE_JIT_* below). THE ENGINE HAS NO
+ *             PROXIMITY TEST HERE — state 4 never reads the player
+ *             position; the old ~10-u burst trigger and the 32-u wake
+ *             were port inventions and are REMOVED.
  *   1 ATTACK  the suicide hop-run, and it is BLIND: no player reference
  *             anywhere in the engine's state 1. sub 0 STEER: +0x2A--;
  *             probe the 4 diagonals; >= 3 blocked (or both opposite
  *             pairs) -> hold, and at +0x2A == 0 -> back to 4 (the
  *             pending mailbox then kills it on the next IDLE tick —
  *             decoded deferral). Else rotate the heading +-0.0524 rad
- *             away from a blocked side, or RNG-perturb it (+-1/120 rad)
- *             when open; first launch arms the attack timer +0x2A = 180
- *             (0xB4; variant 6 instead uses 5x its height — n/a here).
- *             sub 1 HOP: integrate, 0.052/tick gravity. Timer expired
- *             or surface lost -> CLEAR +0x36 (damage taken mid-run is
+ *             away from a blocked side, or RNG-perturb it when open
+ *             (three euler deltas: +-1/120 rad on X and Z, +-1/100 on
+ *             Y); first launch arms the attack timer +0x2A — 0xB4 = 180
+ *             for every variant EXCEPT model byte 6, which instead gets
+ *             60 * its world Y / 12 (the port's default crate IS byte 6,
+ *             so this branch is live here — the old "n/a" was wrong).
+ *             sub 1 HOP: a 0x1E = 30-frame arc first (Y only), then the
+ *             horizontal velocity is built as 11.0 * the chosen euler
+ *             delta and the ballistic phase integrates under 0.052/tick
+ *             gravity. Probe returns 4 (STATIC WORLD hit) or the timer
+ *             runs out -> CLEAR +0x36 (damage taken mid-run is
  *             absorbed) -> 2. STATE 1 NEVER POLLS THE MAILBOX — the
  *             old IDLE+ATTACK poll widening is removed. (Port
  *             locomotion stand-in: repeated hops with re-steer on
  *             landing; the engine runs one long leap.)
- *   2 DEATH   engine: NEST-CHILD spawns (the s68 registry: BUGS or
- *             items — see "CRATE KIND" below) + gore FX + a MODEL
- *             REBIND to the burst-husk/gib models (library 0x22/0x29),
- *             and — when killed by DAMAGE (+0x36 nonzero, variants
- *             6/0x1E) — knockback: the hit vector in scratch
- *             D_700036E0 RNG-rotated (90/180/270 deg), velocity set
- *             from it, then a corpse slide that settles on the floor.
+ *   2 DEATH   engine sub 0: NEST-CHILD spawns (the s68 registry: BUGS
+ *             or items — see "CRATE KIND" below), the variant's burst
+ *             sound (0x19D / 0x19E) and its two gore FX, a 6-tick
+ *             recover timer, and — ONLY when killed by DAMAGE (+0x36
+ *             nonzero) and only for variants 6/0x1E — a MODEL REBIND to
+ *             the burst-husk models (library 0x22 / 0x29) plus a random
+ *             QUARTER-TURN of the corpse: an identity matrix in the
+ *             scratch D_700036E0 rotated by an RNG draw of 0..3 * 90
+ *             deg, multiplied into the actor transform with the render
+ *             position preserved. No velocity is written and no corpse
+ *             slide runs — the old "knockback along the RNG-rotated hit
+ *             vector" reading is retracted. Every other variant (and any
+ *             timer/suicide burst) drops straight to state 3. Sub 1 then
+ *             re-probes the four corners with mask 6 and frees once
+ *             fewer than three are blocked — but that whole loop is
+ *             gated on +0x52 != 0, which is 0 for a placed crate, so the
+ *             rebound husk of a shot crate simply persists.
  *             Port: gameplay despawns immediately; on a LETHAL HIT the
  *             visual layer launches 3-5 GIB instances (the exported
  *             library burst set, assets/gibs/ — see "GIB LAYER"
- *             below) with exactly that knockback shape; the
- *             contact/suicide burst (mailbox empty, engine takes the
- *             no-knockback arm) and the missing-assets case keep the
+ *             below), a PORT scatter that borrows the engine's
+ *             quarter-turn draw as a bearing; the contact/suicide burst
+ *             (mailbox empty, engine skips the rebind entirely) and the
+ *             missing-assets case keep the
  *             corpse placeholder: the frozen pose ALPHA-FADES out in
  *             place (white tint, 1 -> 0 over ENEMY_FADE_FRAMES
  *             through em_gfx_draw_skinned_tinted — the engine fades
@@ -193,7 +213,10 @@
  * GIB LAYER (FINDINGS "GIB SET", decomp tools/export_props.py --gibs):
  * the burst-death visual. The engine rebinds the dead actor's model to
  * library entry 0x22 or 0x29 of chunk27/f01_id37.bin — the burst-husk
- * models — and knocks the corpse along the RNG-rotated hit vector.
+ * models — and gives it a random quarter-turn (0/90/180/270 deg). It
+ * does NOT knock the corpse anywhere: the decompiled state-2 arm writes
+ * no velocity, so the scatter below is a PORT visual that reuses the
+ * quarter-turn draw as a launch bearing.
  * The PICK is decoded (2026-06-11, func_001551B0 @0x156380): model
  * byte 6 -> husk A 0x22 (brown — the wooden crate of every exported
  * scene), else husk B 0x29 (grey-cyan; the 0x1C/0x1E/0x1F variants).
@@ -241,11 +264,15 @@
  *
  *   0 INIT    HP = 1 -> 4.
  *   4 IDLE    render the crate mesh with the PROCEDURAL jitter (the
- *             documented D_002468B0/B4/B8 x/z world-matrix perturbation
- *             — implemented as deterministic sines of the update tick:
- *             a slow chitter envelope gating a small x/z wiggle + yaw
- *             wobble; amplitudes/periods are flagged port constants;
- *             the engine runs the jitter in state 4 ONLY).
+ *             D_002468B0/B4/B8 x/z + yaw world-matrix perturbation). The
+ *             CYCLE is decoded: rattle sound 0x19C, a random 0..255-tick
+ *             wait, then a 4-frame shudder on the odd counter values
+ *             below 9 and a clean restore at 0 — and the whole thing is
+ *             gated on the crate still owing its nest group a child, so
+ *             a gore-only crate never moves. Amplitudes stay flagged
+ *             port constants; the engine runs the jitter in state 4
+ *             ONLY. (The old "deterministic sines" envelope was a port
+ *             invention and is REPLACED.)
  *             Poll the +0x36 mailbox (HP 1: any hit is lethal, hit_dir
  *             = player -> crate) -> 2 + the GROUP-ALARM BROADCAST.
  *             Own alarm -> ATTACK: the crate HOPS AS THE CRATE (the
@@ -269,6 +296,69 @@
  *             The pre-s68 WORM hatch is REMOVED (no nest anywhere
  *             installs func_00153F10 — generator pads only).
  *   3 FREE    slot inactive.
+ *
+ * THE EGG / DRUM FIXTURE (FINDINGS s78 §5 + INVESTIGATION_area11_egg_vs
+ * _barrel.md, brain func_00156620 — the port's EM_ENEMY_KIND_EGG; the
+ * AREA-11 opening carries 2, at (300.0, 249.7, 327.9) and
+ * (292.2, 249.7, 326.1)). RE-IDENTIFIED (2026-06-17): this is an
+ * industrial metal DRUM/canister destructible — a "barrel"-class prop
+ * (115 placements, 10 areas, models 0x18/0xA/0xC), NOT an organic egg.
+ * model byte 0x18 / kind 0x46, HP 1 — NOT a hatcher and NOT a crate
+ * variant. Passive set-dressing that EXPLODES when shot (the kind stays
+ * named ..._EGG until a later rename pass; only the DEATH behaviour is
+ * the drum's here): no children, no husk rebind, no attack, no movement,
+ * no proximity aggro, no alarm broadcast, no player reference anywhere in
+ * its tick. Decoded machine (engine +0x04 values 0 init / 1 armed-idle /
+ * 2 active-burst / 3 free; the port collapses the pulse-on-damage detail
+ * into the shared IDLE -> DEATH path since the engine's only observable
+ * transition out of idle is the burst):
+ *
+ *   0 INIT    HP(+0x34) = 1 -> IDLE. No probe vectors, no nest.
+ *   4 IDLE    poll the +0x36 mailbox ONLY: HP 1 makes any nonzero hit
+ *             lethal -> DEATH. NO alarm broadcast (the drum is not in the
+ *             placed-crawler whitelist {6,0x1C,0x1E,0x1F,0x50}) and NO
+ *             alarm wake; NO proximity test (the engine arms its damage
+ *             target via a proximity gate func_001B1D20 — the port keeps
+ *             the drum shootable always, a faithful superset since at the
+ *             opening the player can only shoot it from within range
+ *             anyway, flagged). The idle pulse is a visual-only
+ *             world-matrix wobble (enemy_build_palette: sin/cos of the
+ *             RNG-seeded phase +0x74 + slow yaw drift; amplitudes are
+ *             flagged PORT constants — the D_00246A00/D_00246A10 tables
+ *             are not exported).
+ *   2 DEATH   the drum EXPLODES (INVESTIGATION "DEATH = EXPLOSION",
+ *             LIVE-confirmed): the engine spawns a blast/FIREBALL (FX
+ *             0x80000013 -> expanding child 0x8000006E) + a flash layer
+ *             (0x8000001C) at the drum pos with Y+7, flings debris, plays
+ *             explosion sound 0x1A1, and self-FREES — the drum vanishes
+ *             BEHIND the blast (no corpse fade). PURELY VISUAL: no husk
+ *             rebind, no children, no knockback, NO player/actor damage,
+ *             NO chain (LIVE: player stayed at 100.0 HP). (The richer
+ *             second-hit/settle variant adds a 99-particle spray
+ *             0x8000002E + sound 0x1A0 — not the single-shot baseline.)
+ *             Port: free the slot immediately with NO fade and fire
+ *             egg_explode() — ONE expanding fireball-flash billboard +
+ *             5-8 radial debris chunks reusing the gib system (egg_explode
+ *             / gib_update). The break sound 0x1A1 rides the lethal poll
+ *             (enemy_mailbox_poll, model-0x18 path). FLAGGED port stand-
+ *             ins: (a) the fireball is an alpha-blended tinted quad
+ *             through the enemy draw chain, not the engine's ADDITIVE
+ *             0x8000006E sprite — the true additive .emtx billboard path
+ *             lives in em_weapon.c / the gfx beam queue, out of this
+ *             module's reach; (b) debris reuse the crate's grey-cyan
+ *             husk-B family (no drum-specific shard set is exported);
+ *             (c) sound 0x1A1 IS now in the loaded sfx registry, so
+ *             em_sfx_play_at resolves and plays it (the SFX_SOUND_MAX bump
+ *             brought the AREA-11 ids into the bank).
+ *   3 FREE    slot inactive.
+ *
+ * MESH: assets/enemy_egg.emdl (the area-11 per-area model-table entry
+ * 0x0E carve, model byte 0x18 — decomp tools/export_props.py --egg; a
+ * capped-cylinder DRUM mesh, body + lid node) when present; else a
+ * PLACEHOLDER upright box (runtime, original vertices, NOT disc data).
+ * Instances come from the SCENE MANIFEST `enemy egg <x> <y> <z> <yaw>`
+ * lines (parsed by em_game.c next to the other enemy lines, dispatched
+ * here via em_enemy_add_kind with EM_ENEMY_KIND_EGG).
  *
  * GENERATOR KIND (em_enemy.h "GENERATOR"; FINDINGS "GENERATOR —
  * func_0015A2C0 RESOLVED", session 28): the engine's organic floor pad
@@ -414,6 +504,21 @@
  * 0x30 story swap) ships as assets/enemy_bug_infected.emdl but the
  * flag machinery is unmodeled, flagged in em_enemy.h "BUG KIND". */
 #define BUG_ASSET        "assets/enemy_bug.emdl"
+/* The AREA-11 egg/growth fixture (s78 §5/§8): the area-11 per-area
+ * model-table entry 0x0E (placement model byte 0x18) baked to a static
+ * 1-node mesh (decomp tools/export_props.py --egg). No global default —
+ * the egg is AREA-11 content, so a scene without it never loads this. */
+#define EGG_ASSET        "assets/enemy_egg.emdl"
+/* The AREA-11 DOOR-HUSK PAIR (deferred records 7/8 @(387,231.8,290.3) —
+ * FINDINGS "Door-position creature/husk set-piece"; INVESTIGATION_first_
+ * level_area11 §5.2; INVESTIGATION_area11_director §5). Both meshes are
+ * SCENE-LOCAL AREA-11 content (carved + verified: model 0x1A = the
+ * scripted creature, model 0x29 = the shootable burst-husk-B), so they
+ * live under <scene>/props/ and never load for a scene that lacks them.
+ * The runtime active-scene dir is symlinked to assets/scene (main.c
+ * scene_redirect), exactly like the scene-local crate probe. */
+#define HUSK_CREATURE_ASSET "assets/scene/props/area_husk_creature.emdl"
+#define HUSK_PARTNER_ASSET  "assets/scene/props/area_husk_partner.emdl"
 #define ENEMY_BONE_MAX   32
 #define ENEMY_PI         3.14159265f
 
@@ -436,11 +541,29 @@
                                    * (0x3D8EFA35 -> func_001B12B0)        */
 #define ENEMY_GRAVITY    0.052f   /* hop vertical integration, per tick
                                    * (0x3D54FDF4 = 0.051999)              */
-#define ENEMY_CONTACT_R  6.0f     /* lunge-resolve second arm: radius-6
-                                   * contact (func_0019A570(a, b, 6, 0) —
-                                   * latch-FREE in the engine); also the
-                                   * rig-less fallback fold of the
-                                   * segment arm (then it carries the 15) */
+#define ENEMY_CONTACT_R  6.0f     /* PORT (flagged — was mis-read as an
+                                   * engine value): the lunge-resolve second
+                                   * arm calls func_0019A570(from, to, 6, 0),
+                                   * and the DECODE of that function (its own
+                                   * body: `flags = arg2 & 0xFF` then three
+                                   * independent `flags & 1 / & 2 / & 4`
+                                   * channel tests) shows arg2 is a COLLISION
+                                   * CHANNEL MASK, not a radius — bit0 = the
+                                   * entity list (func_001A6440, arg3 = the
+                                   * 16-bit exclusion id), bit1 = the area
+                                   * hulls + published class-4 actors
+                                   * (func_001A0B10/func_0019F730), bit2 =
+                                   * the static world collision tree
+                                   * (func_0019D330/func_0019C830). The two
+                                   * point args are a SEGMENT (from/to staged
+                                   * at 0x70003190/0x700031A0), so there is no
+                                   * sphere and no "6 units" anywhere. The
+                                   * port keeps a 6-unit contact sphere as its
+                                   * OWN stand-in for the unexported volume —
+                                   * the number is now a port choice, not a
+                                   * decoded one. Also the rig-less fallback
+                                   * fold of the segment arm (then it carries
+                                   * the 15).                              */
 /* LATCH SEGMENT (s66 live decode): the engine resolve's FIRST arm is
  * func_0019AA80(slotA, slotB, 0x20) — the worm's neck->head rig
  * segment (node-table slots +0x34/+0x40 = rig nodes 13/16) swept
@@ -469,9 +592,18 @@
 #define PLAYER_HV_Y0     2.0f     /* capsule foot, above ground Y (PORT)  */
 #define PLAYER_HV_Y1     15.0f    /* capsule head, above ground Y (PORT)  */
 #define ENEMY_STEER_TICKS  6      /* +0x2A = 6 at the alarm wake          */
-#define ENEMY_ATTACK_TICKS 180    /* +0x2A = 0xB4 at the hop launch: the
-                                   * crate's suicide-run timer (variant 6
-                                   * instead uses 5x its height — n/a)    */
+#define ENEMY_ATTACK_TICKS 180    /* +0x2A = 0xB4 at the hop launch — the
+                                   * suicide-run timer for every variant
+                                   * EXCEPT model byte 6 (see below)      */
+/* DECODED (func_001551B0 state 1 sub 0, the run-timer arm): model byte 6
+ * — the wooden crate, i.e. the port's DEFAULT variant — does NOT get the
+ * 0xB4 constant. It gets `(short)(60.0f * actor+0xB4 / 12.0f)`, i.e. FIVE
+ * TIMES THE ACTOR'S WORLD Y at launch. The old "5x its height — n/a here"
+ * note was wrong twice over: it is the world Y (not a body height), and it
+ * applies to exactly the variant the port ships. A crate placed low to the
+ * world origin therefore gets a very short run; a high placement runs long. */
+#define ENEMY_ATTACK_Y_NUM 60.0f
+#define ENEMY_ATTACK_Y_DEN 12.0f
 #define ENEMY_APPROACH_F 90       /* worm sub 0 window: the engine gates
                                    * on its bound anim's end (id chain
                                    * unverified) — port mapping: the
@@ -585,8 +717,65 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
 #define CRATE_AIM_Y      7.0f     /* reticle / auto-aim point = box centre */
 #define CRATE_HIT_R      8.0f     /* sphere radius (box hull is primary;
                                    * kept for any non-box fallback path)  */
+/* DISGUISE JITTER — the CYCLE is now DECODED (func_001551B0 state 4, the
+ * `+0x0E & 1` block); only the table VALUES stay unexported:
+ *
+ *   - the whole block is gated on flag bit 0 of actor +0x0E, and INIT
+ *     CLEARS that bit when the crate's nest group has no un-triggered
+ *     record left (state 0 walks the group and counts them). A gore-only
+ *     crate therefore sits PERFECTLY STILL — the wiggle is the nest tell,
+ *     not a universal prop idle. Port equivalent: `children > 0`.
+ *   - counter +0x238 starts at -1. On every tick with counter < 0 the
+ *     engine plays sound 0x19C positionally at range 300
+ *     (func_001FBD50(self, 0x19C, 0, 300.0f)), then redraws the counter
+ *     as rand 0..255 and the table ROW +0x23C as rand 0..6.
+ *   - while the counter runs down it does NOTHING until it reaches 8.
+ *     Only on ODD counter values below 9 (7, 5, 3, 1 — four frames,
+ *     alternating with clean ones) does it apply one wiggle step: a yaw
+ *     rotation from D_002468B0 and x/z render-position offsets from the
+ *     parallel D_002468B4/D_002468B8, all indexed [row][(counter-1)>>1],
+ *     i.e. 7 rows x 4 columns of 3 floats. At counter == 0 the base world
+ *     matrix is restored, so the burst always settles clean.
+ *
+ * So the idle is: a rattle sound, a random wait of up to ~4 s, a 4-frame
+ * shudder, repeat — NOT the continuous sine envelope the port used to run
+ * (that was invented). The amplitudes below and the 4-step column shape
+ * remain FLAGGED PORT constants (the D_002468B0/B4/B8 rows are not
+ * exported); the LCG stands in for the engine frame RNG, as elsewhere. */
 #define CRATE_JIT_POS    0.08f    /* PORT: x/z wiggle amplitude, units    */
 #define CRATE_JIT_YAW    0.02f    /* PORT: yaw wobble amplitude, rad      */
+#define CRATE_JIT_WAIT   256      /* counter draw 0..255 (decoded span)   */
+#define CRATE_JIT_ROWS   7        /* table row draw 0..6 (decoded span)   */
+#define CRATE_SFX_IDLE   0x19Cu   /* idle rattle at each cycle start      */
+/* PORT: the per-step magnitude shape standing in for one D_002468B0 row
+ * (4 columns, applied in the decoded order col 3, 2, 1, 0 as the counter
+ * walks 7 -> 1). Flagged — the engine rows are not exported. */
+static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
+
+/* BURST audio/FX — DECODED (func_001551B0 state 2 sub 0, the per-model
+ * arm). Each placed-crawler variant plays one positional sound through
+ * func_001FC580 plus two gore effects through func_001EFD90(code, pos,
+ * rot):
+ *      byte 6    -> 0x19D, FX 0x8000000A + 0x80000015
+ *      byte 0x1E -> 0x19D, FX 0x80000031 + 0x80000015
+ *      byte 0x1C -> 0x19E, FX 0x8000000B + 0x80000014
+ *      byte 0x50 -> 0x19E, FX 0x8000000B + 0x80000014
+ *      byte 0x1F -> 0x19E, FX 0x80000032 + 0x80000014
+ * The port plays the sound (em_sfx resolves it if the user's sfx.txt maps
+ * it, silent otherwise) and RECORDS the FX ids — the gore particle chain
+ * lives outside this module, so the visible burst stays the gib scatter
+ * (flagged, as for the husk partner). The generic 0x7D8 hurt-helper death
+ * sound the port used to play for a crate is REMOVED: state 4 hands
+ * straight to state 2 without touching the shared hurt helper, so the
+ * engine never plays 0x7D8 for a placed crawler. */
+#define CRATE_SFX_BURST_A 0x19Du  /* model byte 6 / 0x1E                  */
+#define CRATE_SFX_BURST_B 0x19Eu  /* model byte 0x1C / 0x50 / 0x1F        */
+#define CRATE_FX_BURST_6  0x8000000Au /* recorded; gore chain unported    */
+#define CRATE_FX_BURST_1C 0x8000000Bu
+#define CRATE_FX_BURST_1E 0x80000031u
+#define CRATE_FX_BURST_1F 0x80000032u
+#define CRATE_FX_GORE_A   0x80000015u /* byte 6/0x1E second effect        */
+#define CRATE_FX_GORE_B   0x80000014u /* byte 0x1C/0x50/0x1F second       */
 #define CRATE_BUGS_DEFAULT 0      /* nest-group fallback for a manifest
                                    * crate line WITHOUT `bugs <n>`: the
                                    * gore-only majority (12 of the office's
@@ -600,17 +789,120 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
                                    * stand-in for the nest records'
                                    * per-child pos offsets (unexported)   */
 
+/* --- Egg/growth fixture kind (see "EGG KIND" in the file header) --------
+ * Engine values (FINDINGS s78 §5, func_00156620): HP 1 — any +0x36 write
+ * is lethal — and the damage-only burst (NO children, NO husk rebind, NO
+ * player damage, NO alarm broadcast). The procedural-wobble MECHANISM is
+ * decoded (sin/cos of an RNG-seeded phase +0x74, amplitude tables
+ * D_00246A00/D_00246A10 + a slow yaw drift); the amplitudes/periods are
+ * flagged PORT constants — the engine tables are not exported. The egg is
+ * a 1-node static mesh (assets/enemy_egg.emdl, the area-11 model-table
+ * entry 0x0E carve, model byte 0x18 — decomp tools/export_props.py --egg),
+ * so the wobble lives in the world matrix exactly like the crate jitter. */
+#define ENEMY_HP_EGG     1        /* fixture init HP (+0x34 = 1 — s78 §5) */
+#define EGG_BONE_MAX     4        /* 1-node mesh (header bone_count 1) +
+                                   * the exporter's spare palette slot     */
+#define EGG_AIM_Y        4.0f     /* reticle / auto-aim point: mid-height
+                                   * of the ~8-u egg (PORT — the engine
+                                   * hit volume's exact extents are not
+                                   * exported; the mesh is +12 Y-shifted
+                                   * area-table geom, see FINDINGS s78 §8) */
+#define EGG_HIT_R        4.0f     /* PORT: bullet hit-sphere radius —
+                                   * roughly the egg's body half-height
+                                   * (the engine's func_001B1D20 target
+                                   * volume is unexported)                 */
+#define EGG_PULSE_POS    0.10f    /* PORT: x/z wobble amplitude, units    */
+#define EGG_PULSE_YAW    0.05f    /* PORT: slow yaw-drift amplitude, rad  */
+#define EGG_SFX_BREAK    0x1A1u   /* drum EXPLOSION sound (func_00156620
+                                   * model-0x18 single-shot death path —
+                                   * INVESTIGATION "DEATH = EXPLOSION",
+                                   * live-captured 2026-06-17 @ ra
+                                   * 0x0015691C: func_001FC580 a1=0x1A1.
+                                   * The richer second-hit/settle variant
+                                   * is 0x1A0. Both 0x1A1 and 0x1A0 are now
+                                   * in the loaded sfx registry
+                                   * (assets/sfx/sfx.txt), so em_sfx_play_at
+                                   * resolves and plays them — the
+                                   * SFX_SOUND_MAX bump brought the AREA-11
+                                   * ids into the bank.) */
+
+/* --- Egg/drum EXPLOSION (INVESTIGATION "DEATH = EXPLOSION") -------------
+ * The model-0x18 drum does NOT alpha-fade on death — it EXPLODES: an
+ * expanding fireball/flash billboard (engine FX 0x80000013 -> child
+ * 0x8000006E + flash layer 0x8000001C) at the drum pos with Y+7, plus
+ * flung debris chunks. PURELY VISUAL — no radius/blast damage, no chain
+ * (LIVE: player stayed at 100.0 HP). The port reuses the gib system for
+ * the debris and an in-module expanding-billboard "flash gib" for the
+ * fireball (the truly-additive .emtx billboard path lives in em_weapon.c
+ * / the gfx beam queue, out of this module's reach — FLAGGED: the flash
+ * here is an alpha-blended tinted quad through the enemy draw chain, not
+ * the engine's additive 0x8000006E sprite). */
+#define EGG_BLAST_LIFT   7.0f     /* fireball origin Y+7 (LIVE: FX param
+                                   * block pos was drum XZ, Y raised +7.0) */
+#define EGG_DEBRIS_MIN   5        /* flung chunks: 5..8 (spec ~5-8)        */
+#define EGG_DEBRIS_SPAN  4
+#define EGG_FLASH_FRAMES 14       /* fireball life ~12-16 ticks            */
+#define EGG_FLASH_R0     6.0f     /* start radius (units)                  */
+#define EGG_FLASH_R1     20.0f    /* peak radius (the 0x80000013 scale
+                                   * table tops at 10/15/20 u — INVEST.)   */
+#define EGG_FLASH_RGB_R  1.0f     /* bright orange-yellow fireball tint    */
+#define EGG_FLASH_RGB_G  0.65f
+#define EGG_FLASH_RGB_B  0.18f
+
+/* --- AREA-11 DOOR-HUSK PAIR (see "DOOR-HUSK PAIR" in the file header /
+ * em_enemy.h kinds 4/5) ------------------------------------------------
+ * Records 7/8 @(387,231.8,290.3), the staged "first-monster moment" by
+ * the room-move door. The pair is SELF-CONTAINED (its own timer/proximity
+ * state machine — func_00825900 / func_001B0FD0, states 0..4 + the live
+ * 0x64 scripted timer), reading NO story flag: it is NOT driven by the
+ * D_00810813 director (INVESTIGATION_area11_director §5 — static negative).
+ * At the OPENING both are STAGED-INERT: present/visible but not aggroing,
+ * not moving, not attacking — the opening must stay enemy-free (owner
+ * requirement + §5.2 verdict ZERO ACTIVE ENEMIES). Port discipline mirrors
+ * the crate/egg INIT->IDLE: spawn -> hold an inert IDLE forever.
+ *
+ * Both are STATIC posed meshes here (no anim layer is wired — the engine's
+ * scripted creature clips and the husk's animation are undecoded; the
+ * meshes carve a single rest pose). The creature is NOT shootable; the
+ * husk partner IS (HP 1, mailbox poll, burst on death).                  */
+#define HUSK_CREATURE_BONE_MAX 32  /* multi-node rig — generous cap; the
+                                    * actual bone_count is read from the
+                                    * carved mesh and clamped to this      */
+#define HUSK_PARTNER_BONE_MAX  32
+#define HUSK_CREATURE_AIM_Y    4.0f /* unused (creature not shootable) —
+                                    * kept for parity with the other kinds */
+#define HUSK_CREATURE_HIT_R    4.0f
+/* The shootable husk partner (ov 0x827490, model 0x29): HP 1 — any +0x36
+ * write is lethal — and on death it BURSTS with gore FX 0x80000045 (the
+ * engine's burst particle). The port reuses the husk-B gib/explosion path
+ * (grey-cyan family, the same 0x29 husk-B set the crate variant!=6 rebind
+ * uses); FX 0x80000045 is the engine's exact particle id — NOT directly
+ * reproducible here (the additive particle subsystem lives outside this
+ * module), so it is FLAGGED and the visible burst is the reused gib
+ * scatter. The engine actor is partner-linked (puid 0x50) with taken-bit
+ * persistence; the port models only the shootable/burst arm — the link
+ * and across-visit persistence are FLAGGED (the port re-spawns on every
+ * scene load, like the egg/crate). */
+#define HUSK_PARTNER_HP        1     /* +0x34 = 1 (HP-1 shootable husk)    */
+#define HUSK_PARTNER_AIM_Y     6.0f  /* PORT: reticle/auto-aim center —
+                                      * mid-height of the 0x29 husk-B body
+                                      * (14x14, 8 tall — FINDINGS s24); the
+                                      * engine target volume is unexported  */
+#define HUSK_PARTNER_HIT_R     7.0f  /* PORT: bullet hit-sphere ~ the husk
+                                      * body half-extent (the engine
+                                      * func_001B1D20 volume is unexported) */
+#define HUSK_PARTNER_FX_BURST  0x80000045u /* gore burst particle (engine
+                                      * id; FLAGGED — reused gib scatter)  */
+
 /* --- Bug kind (s68/s76 — see "THE BUG" in the file header) --------------
  * Engine values: HP, the every-tick mailbox consumption, the clip ids,
  * and (s76) the attack SHAPE — the brains' state machine is decoded
  * (FINDINGS "BUG BRAIN STATE MACHINES"): spawn-pose -> sense-gated
  * approach -> IN-PLACE bite (clip 0x13, func_0012C490) -> recover, with
- * the hurt/death already wired. The bite's contact is the shared melee
- * resolver func_001B5360: a radius-6 sphere ~10u ahead of the bug vs the
- * player (BUG_CONTACT_FWD/_R below are READ from that function). The
- * bite TIMERS and BUG_BITE_DMG stay FLAGGED PORT constants (the
- * per-attack timing and the shared contact-damage VALUE live in the
- * undecoded move-helper bodies + contact subsystem — s76 open). */
+ * the hurt/death already wired. The bite's CONTACT VOLUME is NOT decoded:
+ * the shared helper it was attributed to (func_001B5360) turned out to be
+ * the ground-snap probe, see the correction block below. The bite timers,
+ * the contact box and BUG_BITE_DMG are all FLAGGED PORT constants. */
 #define BUG_HP_A         15       /* func_00128390 variant A (slot 0x0F)  */
 #define BUG_HP_B         30       /* variant B (slot 0x10) — recorded;
                                    * difficulty byte D_0081070A raises
@@ -640,16 +932,32 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
 #define BUG_WINDUP_F     16       /* PORT: bite lead-in ticks             */
 #define BUG_BITE_F       10       /* PORT: bite active/contact window     */
 #define BUG_RECOVER_F    28       /* PORT: wind-down + cooldown ticks     */
-#define BUG_CONTACT_FWD  10.0f    /* VERIFIED (func_001B5360): the attack
-                                   * box is pushed +10u ahead of the bug  */
-#define BUG_CONTACT_R    6.0f     /* VERIFIED (func_001B5360 -> _0019A570):
-                                   * radius-6 contact sphere vs the player */
-#define BUG_BITE_DMG     5        /* s76: func_001B5360 applies a per-
-                                   * attack-class damage (jtbl_0026DEA0 on
-                                   * entity+0x3 -> {2,3.5,4.2,5,6,6.5,8});
-                                   * class 5 -> 5.0 is the candidate but
-                                   * the bug's +0x3 is unpinned, so 5 stays
-                                   * FLAGGED (also = the worm touch tier).  */
+/* CORRECTION (func_001B5360 + func_0019A570 both recovered): the three
+ * constants below were recorded as "VERIFIED" off func_001B5360, and that
+ * reading does not survive the decompilation. func_001B5360 is not a melee
+ * contact resolver at all — it is the shared GROUND-SNAP helper. It copies
+ * the actor's transform block (+0xB0) into the scratch vectors, raises the
+ * start point by +10.0 in Y (up, not forward), drops the end point to
+ * start.y - 30.0 (- 200.0 for model byte 4), traces that VERTICAL segment
+ * with func_0019A570(from, to, 6, 0), and on a hit blends +0xB0 toward the
+ * hit surface with a weight chosen by a 13-entry jump table on the actor's
+ * MODEL byte +0x03: {2.0, 3.5, 4.2 (default), 5.0, 6.0, 6.5, 8.0}. Those
+ * are BLEND WEIGHTS handed to func_001F9100/func_001F9180 together with the
+ * hit point and the surface record — not damage amounts. And the "6" is
+ * func_0019A570's channel MASK (see ENEMY_CONTACT_R above), not a radius.
+ * The call sites agree: func_001B5360 is called from ~17 brain functions
+ * including the bug's own HURT/DEATH handler func_00129FC0, which would
+ * never run an attack box.
+ * So: the bug's real bite volume and its damage value are NOT decoded. The
+ * numbers below keep their behaviour (they are a reasonable reach for the
+ * authored body) but they are PORT constants, flagged like the timers. */
+#define BUG_CONTACT_FWD  10.0f    /* PORT: contact box pushed ahead of the
+                                   * bug (was mis-attributed to _001B5360) */
+#define BUG_CONTACT_R    6.0f     /* PORT: contact sphere radius (ditto)   */
+#define BUG_BITE_DMG     5        /* PORT: bite damage — the jtbl_0026DEA0
+                                   * "damage tiers" turned out to be
+                                   * ground-snap blend weights (above), so
+                                   * this is a plain port choice           */
 /* s76 LATCH / shake-off (user-confirmed: clip 54 = the player shaking the
  * bugs off): a connecting bite LATCHES the bug onto the player instead of
  * a one-shot bite — it clings and drains until the player shakes it off
@@ -712,9 +1020,34 @@ static const uint8_t GEN_TBL[2][4][8] = {
 /* D_002481F0 — inter-worm delay pool, frames (30/60/90 s at 60 Hz). */
 static const float GEN_DELAY[3] = { 1800.0f, 3600.0f, 5400.0f };
 
-/* Placeholder-mound visual (PORT, flagged): height of the unit mound
- * mesh and the phase-driven swell factor standing in for the engine's
- * +0x80 VU-morph blend. Original geometry, NOT disc data. */
+/* PAD GEOMETRY — what the engine actually builds (func_001E9580, BYTE-
+ * MATCHED, called from the generator init func_0015A2C0):
+ *   - the pad owns an 0xA060-byte per-instance record: a 0x60 header,
+ *     then a vertex lattice at +0x60 (stride 0x10, row stride 0x200), a
+ *     UV lattice at +0x4060 and two int lattices at +0x8060/+0x9060.
+ *   - init fills an 8 x 8 patch. FOOTPRINT (this confirms the port's
+ *     scaling choice): func_0015A2C0 passes the config row's X and Z
+ *     half-extents DOUBLED, so the cell spacing is the full config box.
+ *     Vertex i/j lands at origin + halfExtent * (i/3 - 1) — a span of
+ *     [-1, +4/3] half-extents, i.e. the box plus a third of it hanging
+ *     off the +X/+Z side (an off-by-one in the original: 8 samples
+ *     divided by 6).
+ *   - REST SHAPE: every vertex sits at the pad's own Y. Vertices in the
+ *     dome interior (weight t = (3 - hypot(i-3, j-3)) / 4 above 0.1) get
+ *     one small random lift of 0.15 + 0.05 * rand/2^31 — so the pad is
+ *     essentially a FLAT membrane with a ~0.15..0.20 unit stipple in the
+ *     middle, not a raised mound. The dome only appears once the sim
+ *     runs: t (saturated to 1.0 above 0.15, else doubled, clamped at 0)
+ *     is stored per vertex at +0x6C as the morph weight, and the physics
+ *     params are +0x40 = 0.005 / +0x44 = 0.445 / +0x48 = 50.0 /
+ *     +0x4C = -9.0 / +0x50 = -1.7 (per-area overrides exist). UVs are
+ *     (i/8, j/8).
+ * The port keeps the placeholder mound: the REST lattice is decoded but
+ * the OPEN shape is the undecoded VU/soft-body step, and a flat patch
+ * would simply hide the pad's breathing with nothing decoded to replace
+ * it. Height and swell below stay flagged PORT constants; the footprint
+ * scaling in gen_build_palette is now CONFIRMED against the engine.
+ * Original geometry, NOT disc data. */
 #define GEN_PAD_HEIGHT    1.6f
 #define GEN_PAD_SWELL     0.6f    /* Y scale grows to 1+this at phase 1 */
 #define GEN_BONES         1
@@ -759,19 +1092,33 @@ static const int16_t TF_GIRTH[4] = { 0xB4, 0xDA, 0xFF, 0x180 };
  *   rgb = (BASE + (1 - ph) * (ROOM - BASE)) / 128,  ph = parent +0x80
  *
  * BASE = the vivid green (6, 92, 1) the field reaches at full pad
- * open; ROOM = this room's rec from the engine's 22-rec room-tint
- * table D_00246800 (key = AREA<<8|ROOM, u8 c0..c3).
- * TODO(room-tint): D_00246800 is UNDECODED port-side — decode the
- * table in the decomp repo and key it per scene. Until then the port
- * uses the NEUTRAL rec (128, 128, 128): the office AREA02 rows are
- * (128,128,128,2)/(128,102,122,2), so neutral white is the right rest
- * blend for the captured scene (spikes sit room-colored while the pad
- * is closed and turn green as it opens).
+ * open; ROOM = this room's rec keyed by AREA<<8|ROOM.
+ * ROOM TINT — now DECODED. func_001E9580 (byte-matched) carries the same
+ * per-room RGB set inline, switched on exactly that key
+ * ((D_00810700 << 8) | D_00810701), and its office rows reproduce the two
+ * this port already recorded. The full decoded set, key -> (R, G, B):
+ *      0x0000, 0x0200                  -> (128, 128, 128)
+ *      0x0001, 0x1001, 0x0002, 0x0101,
+ *      0x0601, 0x0202, 0x0600          -> (128, 102, 122)
+ *      0x0100, 0x0D00                  -> (128, 110, 128)
+ *      0x0401                          -> (128,  88,  88)
+ *      0x0700                          -> (125,  96, 128)
+ *      0x0702, 0x0703                  -> (127, 104, 128)
+ *      0x0803                          -> ( 97,  95, 128)
+ *      0x1300                          -> ( 95,  80, 128)
+ *      0x0300, 0x0400, 0x1000, 0x1301,
+ *      0x1400, and anything unlisted   -> (128, 110, 128)
+ * The port has no area/room identity to key on (scenes are manifests, not
+ * area+room ids), so TF_TINT_ROOM stays the AREA02 room-0 row 0x0200 =
+ * (128, 128, 128) — which is the correct rec for the captured office
+ * scene, not a neutral guess any more. A future scene-identity channel can
+ * key straight into the table above.
  * ALPHA = ramp/300 — the deploy fade-in/out tied to the ramp (engine:
  * roomC.w/128 reached over the first 16 ramp units; the ramp/cap form
  * keeps the fade on the same deploy timeline without the undecoded
  * room alpha target — flagged with the TODO above). */
 static const float TF_TINT_BASE[3] = {   6.0f, 92.0f,   1.0f };
+/* DECODED row 0x0200 (AREA02, room 0) — see the table above. */
 static const float TF_TINT_ROOM[3] = { 128.0f, 128.0f, 128.0f };
 
 /* --- Port placeholders (not exported from the disc; flagged) ----------- */
@@ -782,8 +1129,25 @@ static const float TF_TINT_ROOM[3] = { 128.0f, 128.0f, 128.0f };
                                    * maps to one exported number)         */
 #define ENEMY_HOP_VY     0.42f    /* initial vertical velocity (~16-frame
                                    * airtime under the 0.052 gravity)     */
-#define ENEMY_PROBE_LEN  6.0f     /* diagonal steer-probe length          */
-#define ENEMY_PROBE_LIFT 1.0f     /* probe height above the feet          */
+/* DECODED (func_001551B0 state 0, the +0x2D0..+0x2EC corner table): the
+ * four steer probes sit at the corners of the crawler's own SQUARE
+ * footprint. INIT rotates the vector (r, 0, r) by the spawn world matrix
+ * and lays the corners out 90 deg apart around the origin, with
+ *      r = 4.5961943  for model byte 6 and 0x1E   (= 3.25 * sqrt2)
+ *      r = 2.1213202  for model byte 0x1C/0x50/0x1F (= 1.5 * sqrt2)
+ * so the corner radius is r * sqrt2 = 6.5 units for the wooden crate and
+ * 3.0 for the small variants. Each probe is a VERTICAL 2-unit column
+ * spanning [pos.y - 1, pos.y + 1] at that corner (func_0019AB20 puts the
+ * point at pos.y - 1 and walks the delta -2.0 upward into the start).
+ * PORT deviations, flagged: the port re-derives the corners from the LIVE
+ * heading every tick (the engine snapshots them at INIT and never moves
+ * them again, so an engine crawler probes the same four world columns for
+ * its whole life), and it casts a horizontal ray at ENEMY_PROBE_LIFT
+ * rather than a vertical column — the port's collision helper has no
+ * column query. The reach and the lift are the decoded ones. */
+#define ENEMY_PROBE_LEN  6.5f     /* corner radius, model byte 6/0x1E     */
+#define ENEMY_PROBE_LEN_SMALL 3.0f /* corner radius, byte 0x1C/0x50/0x1F  */
+#define ENEMY_PROBE_LIFT 1.0f     /* probe band half-height above/below   */
 #define ENEMY_HIT_R      3.0f     /* bullet hit-sphere radius             */
 #define ENEMY_AIM_Y      2.0f     /* aim/hit-sphere center above the feet */
 #define ENEMY_FLOOR_UP   8.0f     /* floor-query window (em_game values)  */
@@ -799,14 +1163,31 @@ typedef struct {
                            * / 3 lunge (the decoded func_00154120 subs)  */
     uint8_t alarm;        /* actor +0x0A group-alarm flag (crate only —
                            * the worm and bug brains never read it)      */
-    uint8_t on_surface;   /* actor +0x52 on-surface flag — the engine's
-                           * group-alarm broadcast only WAKES a crate when
-                           * this is set, and it is 0 for every placed
-                           * crate (live-read s76: drawbridge/office
-                           * floors), so a destroyed crate wakes no
-                           * neighbour. Set at INIT from a floor probe the
-                           * port doesn't model → stays 0 (engine-true for
-                           * all shipped scenes). Default 0 via memset.    */
+    uint8_t on_surface;   /* actor +0x52 — the engine's group-alarm
+                           * broadcast only WAKES a crate when this is set,
+                           * and it is 0 for every placed crate (live-read
+                           * s76), so a destroyed crate wakes no neighbour.
+                           * The DECODE explains why, and inverts the old
+                           * "on-surface" reading: INIT (func_001551B0 state
+                           * 0) fires ONE probe down the actor's own column,
+                           * from pos.y + 1 to pos.y - 2, and writes
+                           *      +0x52 = 0 when the probe returns 4
+                           *      +0x52 = 1 otherwise
+                           * Return 4 is func_0019AB20's STATIC-WORLD channel
+                           * (func_0019C830, the level collision tree);
+                           * return 2 is the area hulls / class-4 actors and
+                           * 0 is a clean miss. So +0x52 == 0 means "resting
+                           * on level geometry" — the normal case for every
+                           * placement — and +0x52 == 1 means the crawler is
+                           * standing on a prop or on nothing. The alarm and
+                           * the state-2 recovery loop are gated on the
+                           * UNUSUAL value. func_001AFA90 (byte-matched pool
+                           * alloc) zeroes +0x52 at allocation, so a spawned
+                           * child starts here too. Kept 0 port-side: the
+                           * name is historical.                            */
+    int16_t jit_t;        /* actor +0x238 disguise-jitter counter (-1 =
+                           * redraw + rattle this tick; see CRATE_JIT_*)   */
+    uint8_t jit_row;      /* actor +0x23C jitter table row, 0..6           */
     uint8_t children;     /* crate: nest-group bug count hatched at the
                            * burst (the s68 registry group size; the
                            * manifest `bugs <n>` channel)                */
@@ -816,9 +1197,12 @@ typedef struct {
                            * scene's crates). Picks the husk family on
                            * the damage-kill burst (decoded
                            * func_001551B0 @0x156380: 6 -> husk 0x22,
-                           * else 0x29) and, engine-true, would gate
-                           * the knockback arm (6/0x1E only — the port
-                           * launches for both, flagged)                */
+                           * else 0x29). It also gates the engine's
+                           * post-death arm (6/0x1E only) and, on byte
+                           * 6, swaps the suicide-run timer for the
+                           * world-Y formula — see crate_attack_tick
+                           * and crate_burst. The port launches gibs
+                           * for both families (flagged).              */
     uint8_t atk_armed;    /* crate: the 180-tick attack timer was armed
                            * at the first hop launch (port split of the
                            * engine's reused +0x2A — see ATTACK)         */
@@ -870,19 +1254,30 @@ typedef struct {
     float      base[GIB_BONE_MAX * 16];   /* frame-0 (identity) palette */
 } GibModel;
 
-/* One airborne/resting gib instance (visual only). */
+/* One airborne/resting gib instance (visual only). Also stands in for the
+ * egg/drum EXPLOSION fireball: a `flash` gib is stationary, draws the
+ * procedural billboard mesh (s.flash_mesh), expands its `scale` from
+ * EGG_FLASH_R0 -> R1 and fades over EGG_FLASH_FRAMES (the in-module
+ * approximation of the engine's additive 0x80000013->0x8000006E sprite —
+ * see "DEATH = EXPLOSION" in the egg constants block). */
 typedef struct {
     int   active;
+    int   flash;          /* 1 = fireball billboard (not a debris chunk) */
     int   fam;            /* husk family (GIB_FAM_A/B — see GIB_FILES)   */
     int   model;          /* index into s.gibm[fam]                      */
     float pos[3];
     float vel[3];         /* 0.052/tick gravity on [1]                   */
     float yaw, spin;      /* tumble (PORT visual)                        */
+    float scale;          /* uniform scale (1 for debris; the expanding
+                           * radius for a flash billboard)               */
     float y0;             /* launch height = floor fallback (same rule
                            * as the hop's hop_y0)                        */
     int   age;            /* ticks since launch -> rest -> fade -> free  */
+    int   life;           /* flash: total ticks before free (EGG_FLASH_
+                           * FRAMES); debris ignore it                   */
     float tint[4];        /* per-draw RGBA: white, alpha 1 while live /
-                           * resting, 1 -> 0 over the fade window        */
+                           * resting, 1 -> 0 over the fade window (the
+                           * flash carries a bright fireball RGB)        */
     float palette[GIB_BONE_MAX * 16];
 } Gib;
 
@@ -983,6 +1378,33 @@ static struct {
     uint32_t   crate_bones;
     float      crate_base[CRATE_BONE_MAX * 16];
 
+    /* egg/growth fixture mesh (loaded only when an egg is placed, so
+     * scenes without one — every level but AREA-11 so far — keep
+     * byte-identical output). 1-node static mesh, no clips. */
+    int        egg_tried;
+    EmGfxMesh *egg_mesh;
+    EmModel    egg_model;
+    int        egg_has_model;
+    uint32_t   egg_bones;
+    float      egg_base[EGG_BONE_MAX * 16];
+
+    /* AREA-11 door-husk pair meshes (scene-local — loaded only when a
+     * husk_creature / husk_partner line is placed, so every other scene
+     * keeps byte-identical output). Static posed meshes, no clips. */
+    int        husk_c_tried;
+    EmGfxMesh *husk_c_mesh;
+    EmModel    husk_c_model;
+    int        husk_c_has_model;
+    uint32_t   husk_c_bones;
+    float      husk_c_base[HUSK_CREATURE_BONE_MAX * 16];
+
+    int        husk_p_tried;
+    EmGfxMesh *husk_p_mesh;
+    EmModel    husk_p_model;
+    int        husk_p_has_model;
+    uint32_t   husk_p_bones;
+    float      husk_p_base[HUSK_PARTNER_BONE_MAX * 16];
+
     Enemy      e[ENEMY_SLOT_MAX];
     int        n;
 
@@ -993,6 +1415,13 @@ static struct {
     GibModel   gibm[GIB_FAMILY_N][GIB_FAM_FILES];
     int        gibm_n[GIB_FAMILY_N]; /* loaded models per husk family
                                       * (0 = that family fades only)     */
+    /* egg/drum EXPLOSION fireball billboard (procedural quad — original
+     * vertices, NOT disc data; the in-module stand-in for the additive
+     * 0x80000013->0x8000006E sprite, "DEATH = EXPLOSION"). Built lazily
+     * on the first egg/drum spawn; flash gibs draw it via the gib path. */
+    int        flash_tried;
+    EmGfxMesh *flash_mesh;
+    float      flash_base[GIB_BONE_MAX * 16];   /* unit-quad identity pose */
     Gib        gib[ENEMY_SLOT_MAX];
     int        gib_tail;     /* virtual draw slots in use (compact top)  */
     int        gib_next;     /* round-robin cursor over a family's
@@ -1049,6 +1478,7 @@ static struct {
 } s;
 
 static void enemy_build_palette(Enemy *e);
+static int  flash_mesh_get(EmGfx *gfx);   /* egg/drum fireball billboard */
 
 void em_enemy_reset(void)
 {
@@ -1282,6 +1712,154 @@ static int crate_mesh_get(EmGfx *gfx)
     return 0;
 }
 
+/* Load the egg/growth fixture mesh once (first EGG spawn only): the
+ * area-11 model-table entry 0x0E carve (assets/enemy_egg.emdl, model byte
+ * 0x18 — decomp tools/export_props.py --egg), else a PLACEHOLDER upright
+ * ovoid box (runtime-generated, original vertices, NOT disc data). The
+ * egg is a 1-node static mesh — the procedural pulse lives in the world
+ * matrix (enemy_build_palette), like the crate jitter. Returns 0 ok. */
+static int egg_mesh_get(EmGfx *gfx)
+{
+    if (s.egg_mesh) return 0;
+    if (s.egg_tried) return -1;
+    s.egg_tried = 1;
+
+    if (em_model_load(&s.egg_model, EGG_ASSET) == 0) {
+        if (s.egg_model.bone_count > EGG_BONE_MAX) {
+            fprintf(stderr, "enemy: %s: %u bones > %d\n", EGG_ASSET,
+                    s.egg_model.bone_count, EGG_BONE_MAX);
+            em_model_free(&s.egg_model);
+            return -1;
+        }
+        s.egg_mesh = em_gfx_mesh_create(gfx, s.egg_model.verts,
+                                        s.egg_model.vert_count,
+                                        s.egg_model.indices,
+                                        s.egg_model.index_count,
+                                        (const EmGfxTexDesc *)
+                                        s.egg_model.texs,
+                                        s.egg_model.tex_count,
+                                        s.egg_model.texels,
+                                        s.egg_model.flags);
+        if (!s.egg_mesh) {
+            em_model_free(&s.egg_model);
+            return -1;
+        }
+        s.egg_has_model = 1;
+        s.egg_bones     = s.egg_model.bone_count;
+        em_model_palette_at(&s.egg_model, 0, 0.0, s.egg_base);
+        printf("egg model: %s — %u verts, %u tris, %u texture(s)\n",
+               EGG_ASSET, s.egg_model.vert_count,
+               s.egg_model.index_count / 3, s.egg_model.tex_count);
+        return 0;
+    }
+
+    /* PLACEHOLDER egg: an upright ovoid-ish box (~4 wide, ~8 tall). */
+    float    verts[24 * 10];
+    uint32_t indices[36];
+    uint32_t nv = 0, ni = 0;
+    const float lo[3] = { -2.0f, 0.0f, -2.0f };
+    const float hi[3] = {  2.0f, 8.0f,  2.0f };
+    box_emit(verts, &nv, indices, &ni, lo, hi);
+    s.egg_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
+                                    NULL, 0, NULL, 0);
+    if (!s.egg_mesh) return -1;
+    s.egg_bones = 1;
+    mat4_identity(s.egg_base);
+    printf("egg model: no %s — PLACEHOLDER ovoid box (export with the "
+           "decomp repo's tools/export_props.py --egg)\n", EGG_ASSET);
+    return 0;
+}
+
+/* Load the AREA-11 door-husk CREATURE mesh once (first husk_creature
+ * spawn): <scene>/props/area_husk_creature.emdl (model 0x1A — the
+ * scripted creature carve, verified). No placeholder fallback: the
+ * husk pair is AREA-11-specific scripted content with no procedural
+ * stand-in, so a missing mesh skips the actor (logged) rather than
+ * inventing a box. Static posed mesh — the scripted creature clips are
+ * undecoded (frame-0 rest pose only). Returns 0 ok. */
+static int husk_creature_mesh_get(EmGfx *gfx)
+{
+    if (s.husk_c_mesh) return 0;
+    if (s.husk_c_tried) return -1;
+    s.husk_c_tried = 1;
+
+    if (em_model_load(&s.husk_c_model, HUSK_CREATURE_ASSET) != 0) {
+        fprintf(stderr, "enemy: %s not found — door-husk CREATURE "
+                "skipped (AREA-11 scripted content, no placeholder)\n",
+                HUSK_CREATURE_ASSET);
+        return -1;
+    }
+    if (s.husk_c_model.bone_count > HUSK_CREATURE_BONE_MAX) {
+        fprintf(stderr, "enemy: %s: %u bones > %d\n", HUSK_CREATURE_ASSET,
+                s.husk_c_model.bone_count, HUSK_CREATURE_BONE_MAX);
+        em_model_free(&s.husk_c_model);
+        return -1;
+    }
+    s.husk_c_mesh = em_gfx_mesh_create(gfx, s.husk_c_model.verts,
+                                       s.husk_c_model.vert_count,
+                                       s.husk_c_model.indices,
+                                       s.husk_c_model.index_count,
+                                       (const EmGfxTexDesc *)
+                                       s.husk_c_model.texs,
+                                       s.husk_c_model.tex_count,
+                                       s.husk_c_model.texels,
+                                       s.husk_c_model.flags);
+    if (!s.husk_c_mesh) {
+        em_model_free(&s.husk_c_model);
+        return -1;
+    }
+    s.husk_c_has_model = 1;
+    s.husk_c_bones     = s.husk_c_model.bone_count;
+    em_model_palette_at(&s.husk_c_model, 0, 0.0, s.husk_c_base);
+    printf("husk creature model: %s — %u verts, %u tris, %u texture(s)\n",
+           HUSK_CREATURE_ASSET, s.husk_c_model.vert_count,
+           s.husk_c_model.index_count / 3, s.husk_c_model.tex_count);
+    return 0;
+}
+
+/* Load the AREA-11 door-husk PARTNER mesh once (first husk_partner
+ * spawn): <scene>/props/area_husk_partner.emdl (model 0x29 burst-husk-B,
+ * verified). Same no-placeholder policy as the creature. Returns 0 ok. */
+static int husk_partner_mesh_get(EmGfx *gfx)
+{
+    if (s.husk_p_mesh) return 0;
+    if (s.husk_p_tried) return -1;
+    s.husk_p_tried = 1;
+
+    if (em_model_load(&s.husk_p_model, HUSK_PARTNER_ASSET) != 0) {
+        fprintf(stderr, "enemy: %s not found — door-husk PARTNER "
+                "skipped (AREA-11 scripted content, no placeholder)\n",
+                HUSK_PARTNER_ASSET);
+        return -1;
+    }
+    if (s.husk_p_model.bone_count > HUSK_PARTNER_BONE_MAX) {
+        fprintf(stderr, "enemy: %s: %u bones > %d\n", HUSK_PARTNER_ASSET,
+                s.husk_p_model.bone_count, HUSK_PARTNER_BONE_MAX);
+        em_model_free(&s.husk_p_model);
+        return -1;
+    }
+    s.husk_p_mesh = em_gfx_mesh_create(gfx, s.husk_p_model.verts,
+                                       s.husk_p_model.vert_count,
+                                       s.husk_p_model.indices,
+                                       s.husk_p_model.index_count,
+                                       (const EmGfxTexDesc *)
+                                       s.husk_p_model.texs,
+                                       s.husk_p_model.tex_count,
+                                       s.husk_p_model.texels,
+                                       s.husk_p_model.flags);
+    if (!s.husk_p_mesh) {
+        em_model_free(&s.husk_p_model);
+        return -1;
+    }
+    s.husk_p_has_model = 1;
+    s.husk_p_bones     = s.husk_p_model.bone_count;
+    em_model_palette_at(&s.husk_p_model, 0, 0.0, s.husk_p_base);
+    printf("husk partner model: %s — %u verts, %u tris, %u texture(s)\n",
+           HUSK_PARTNER_ASSET, s.husk_p_model.vert_count,
+           s.husk_p_model.index_count / 3, s.husk_p_model.tex_count);
+    return 0;
+}
+
 /* Load the BUG hatchling mesh + clips once (first bug or crate spawn —
  * the crate burst hatches bugs inside em_enemy_update, without a gfx
  * handle, so the crate add preloads this): assets/enemy_bug.emdl =
@@ -1453,7 +2031,11 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
     enemy_build_palette(e);
     printf("enemy %d: %s at (%.1f, %.1f, %.1f) yaw %.3f\n", s.n,
            kind == EM_ENEMY_KIND_CRATE ? "crate"
-           : kind == EM_ENEMY_KIND_BUG ? "bug" : "crawler",
+           : kind == EM_ENEMY_KIND_BUG ? "bug"
+           : kind == EM_ENEMY_KIND_EGG ? "egg"
+           : kind == EM_ENEMY_KIND_HUSK_CREATURE ? "husk_creature (staged-inert)"
+           : kind == EM_ENEMY_KIND_HUSK_PARTNER ? "husk_partner (staged-inert, shootable)"
+           : "crawler",
            pos[0], pos[1], pos[2], yaw);
     return s.n++;
 }
@@ -1474,6 +2056,44 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
         if (s.n >= ENEMY_SLOT_MAX) return -1;
         if (bug_mesh_get(gfx) != 0) return -1;
         return enemy_spawn(EM_ENEMY_KIND_BUG, pos, yaw);
+    }
+    if (kind == EM_ENEMY_KIND_EGG) {
+        /* the AREA-11 metal DRUM (func_00156620 / model 0x18): a
+         * stationary destructible prop — load its mesh and spawn it idle.
+         * Its death EXPLODES (INVESTIGATION "DEATH = EXPLOSION"): preload
+         * the debris gib set (the grey-cyan/metal husk-B family stands in
+         * for drum shrapnel — flagged) AND build the fireball billboard
+         * mesh now, while we still hold the gfx handle (egg_explode runs
+         * in em_enemy_update, which has none). */
+        if (s.n >= ENEMY_SLOT_MAX) return -1;
+        if (egg_mesh_get(gfx) != 0) return -1;
+        gib_models_load(gfx);     /* debris chunks (idempotent)          */
+        flash_mesh_get(gfx);      /* fireball quad (logged if it fails)  */
+        return enemy_spawn(EM_ENEMY_KIND_EGG, pos, yaw);
+    }
+    if (kind == EM_ENEMY_KIND_HUSK_CREATURE) {
+        /* AREA-11 door-husk scripted creature (ov 0x825940, model 0x1A):
+         * a STAGED-INERT scripted actor — spawns and holds an inert idle
+         * (no aggro, no movement, no attack) so the opening stays
+         * enemy-free. NOT shootable. The engine spawns one child via
+         * func_001AFA90 (param 0x7A) — a SEPARATE undecoded mesh, FLAGGED:
+         * the port does NOT invent it (em_enemy.h kind 4). */
+        if (s.n >= ENEMY_SLOT_MAX) return -1;
+        if (husk_creature_mesh_get(gfx) != 0) return -1;
+        return enemy_spawn(EM_ENEMY_KIND_HUSK_CREATURE, pos, yaw);
+    }
+    if (kind == EM_ENEMY_KIND_HUSK_PARTNER) {
+        /* AREA-11 door-husk SHOOTABLE husk (ov 0x827490, model 0x29):
+         * HP 1, shootable, STAGED-INERT (no aggro/movement/attack). On
+         * its damage mailbox it bursts with FX 0x80000045 (flagged) —
+         * reuse the husk-B gib/explosion path, so preload the gib set +
+         * fireball billboard now while a gfx handle is held (the burst
+         * runs in em_enemy_update without one). */
+        if (s.n >= ENEMY_SLOT_MAX) return -1;
+        if (husk_partner_mesh_get(gfx) != 0) return -1;
+        gib_models_load(gfx);     /* husk-B debris (idempotent)          */
+        flash_mesh_get(gfx);      /* burst flash quad (logged if absent) */
+        return enemy_spawn(EM_ENEMY_KIND_HUSK_PARTNER, pos, yaw);
     }
     if (kind != EM_ENEMY_KIND_CRATE) return -1;
     return em_enemy_add_crate(gfx, pos, yaw, -1, -1);
@@ -1543,10 +2163,27 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
     e->mailbox = 0;
     e->hp      = (int16_t)(e->hp - amount);
     if (e->hp > 0) return 0;
-    /* 0x7D8 — engine func_00153B50 plays it positional at the dying
-     * actor: play_sound(actor, 0x7D8, 0, 300.0) (radius read off the
-     * call site's f12 = 0x43960000) */
-    em_sfx_play_at(EM_SFX_ENEMY_DEATH, e->pos, 300.0f);
+    if (e->kind == EM_ENEMY_KIND_EGG) {
+        /* the metal DRUM explodes (func_00156620 model-0x18 path):
+         * play the real explosion sound 0x1A1 (LIVE-captured, ra
+         * 0x0015691C), NOT the generic 0x7D8 hurt-helper death. 0x1A1 is
+         * now in the loaded sfx registry (assets/sfx/sfx.txt), so
+         * em_sfx_play_at resolves and plays it — the SFX_SOUND_MAX bump
+         * brought the AREA-11 ids into the bank. */
+        em_sfx_play_at(EGG_SFX_BREAK, e->pos, 300.0f);
+    } else if (e->kind == EM_ENEMY_KIND_CRATE) {
+        /* the placed crawler plays NOTHING here: func_001551B0 state 4
+         * hands straight to state 2 without touching the shared hurt
+         * helper, and state 2 sub 0 is what plays the variant's burst
+         * sound (0x19D / 0x19E — crate_burst below). The generic 0x7D8
+         * this arm used to play for a crate was never in the engine's
+         * path. */
+    } else {
+        /* 0x7D8 — engine func_00153B50 plays it positional at the dying
+         * actor: play_sound(actor, 0x7D8, 0, 300.0) (radius read off the
+         * call site's f12 = 0x43960000) */
+        em_sfx_play_at(EM_SFX_ENEMY_DEATH, e->pos, 300.0f);
+    }
     /* Lethal: record the hit vector for the gib knockback. The engine
      * copies the attacker position into victim +0x70 (pair pass /
      * func_001B41F0); the port's only attacker is the player, so the
@@ -1779,32 +2416,66 @@ static void enemy_build_palette(Enemy *e)
     float z   = e->pos[2];
     uint32_t bones = e->kind == EM_ENEMY_KIND_CRATE ? s.crate_bones
                    : e->kind == EM_ENEMY_KIND_BUG   ? s.bug_bones
+                   : e->kind == EM_ENEMY_KIND_EGG   ? s.egg_bones
+                   : e->kind == EM_ENEMY_KIND_HUSK_CREATURE ? s.husk_c_bones
+                   : e->kind == EM_ENEMY_KIND_HUSK_PARTNER  ? s.husk_p_bones
                                                     : s.bone_count;
 
-    /* CRATE IDLE jitter — the documented procedural disguise wiggle
-     * (D_002468B0/B4/B8 perturb the world-matrix x/z translation; s23:
-     * no skeletal clips exist for the 1-node rig). Deterministic pure
-     * function of the update tick + the spawn slot, so runs and
-     * captures reproduce: a slow chitter envelope gates a small x/z
-     * wiggle and a yaw wobble (amplitudes/periods = flagged port
-     * constants; the engine's table values are not exported). The
-     * engine runs this block in STATE 4 ONLY — an alarmed crate hops
-     * instead (state 1), so the jitter gates on IDLE. */
+    /* CRATE IDLE jitter — the DECODED cycle (func_001551B0 state 4; the
+     * full derivation sits at CRATE_JIT_* in the constants block). The
+     * counter is stepped once per tick by enemy_tick; here we only render
+     * the step it selected. A wiggle frame is an ODD counter value below
+     * 9, and the table column is (counter - 1) >> 1 — so the burst runs
+     * columns 3, 2, 1, 0 on counters 7, 5, 3, 1 with a clean frame
+     * between each, and counter 0 restores the base pose. Amplitudes and
+     * the column shape are flagged port constants; the row (0..6) picks a
+     * bearing so different crates shudder differently. The engine runs
+     * this in STATE 4 ONLY — an alarmed crate hops instead. */
     if (e->kind == EM_ENEMY_KIND_CRATE && e->active &&
+        e->state == EM_ENEMY_IDLE &&
+        e->jit_t > 0 && e->jit_t < 9 && (e->jit_t & 1)) {
+        int   col = (e->jit_t - 1) >> 1;              /* decoded index   */
+        float amp = CRATE_JIT_COL[col];
+        float ang = (float)e->jit_row * 0.8975979f;   /* PORT: row -> a
+                                                       * bearing around
+                                                       * the crate       */
+        float sgn = (e->jit_row & 1) ? -1.0f : 1.0f;
+        x   += sgn * amp * CRATE_JIT_POS * sinf(ang);
+        z   += sgn * amp * CRATE_JIT_POS * cosf(ang);
+        yaw += sgn * amp * CRATE_JIT_YAW;
+    }
+
+    /* EGG IDLE pulse — the documented procedural wobble (func_00156620:
+     * sin/cos of the RNG-seeded phase +0x74, amplitude tables
+     * D_00246A00/D_00246A10 + a slow yaw drift; s78 §5). Visual only —
+     * the state machine never moves the egg. Deterministic pure function
+     * of the update tick + the spawn slot, like the crate jitter; the
+     * amplitudes/periods are flagged PORT constants (the engine tables
+     * are not exported). Gated on IDLE: a destroyed egg holds its frozen
+     * pose for the corpse fade. */
+    if (e->kind == EM_ENEMY_KIND_EGG && e->active &&
         e->state == EM_ENEMY_IDLE) {
-        float t   = (float)s.frame;
-        float ph  = (float)e->seed * 1.7f;
-        float env = sinf(t * 0.037f + ph * 3.1f);
-        if (env < 0.0f) env = 0.0f;          /* chitter ~half the time */
-        x   += env * CRATE_JIT_POS * sinf(t * 0.83f + ph);
-        z   += env * CRATE_JIT_POS * sinf(t * 0.67f + ph * 2.0f);
-        yaw += env * CRATE_JIT_YAW * sinf(t * 0.49f + ph);
+        float t  = (float)s.frame;
+        float ph = (float)e->seed * 2.3f;
+        x   += EGG_PULSE_POS * sinf(t * 0.061f + ph);
+        z   += EGG_PULSE_POS * sinf(t * 0.053f + ph * 1.7f);
+        yaw += EGG_PULSE_YAW * sinf(t * 0.029f + ph);
     }
 
     const float c = cosf(yaw), sn = sinf(yaw);
 
     if (e->kind == EM_ENEMY_KIND_CRATE) {
         memcpy(e->palette, s.crate_base, bones * 16 * sizeof(float));
+    } else if (e->kind == EM_ENEMY_KIND_EGG) {
+        memcpy(e->palette, s.egg_base, bones * 16 * sizeof(float));
+    } else if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
+        /* door-husk scripted creature: static rest pose (no anim layer —
+         * the scripted clips are undecoded). No idle jitter: the engine
+         * actor is a staged scripted creature, not a wiggling prop. */
+        memcpy(e->palette, s.husk_c_base, bones * 16 * sizeof(float));
+    } else if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
+        /* door-husk shootable husk: static rest pose (no anim layer). */
+        memcpy(e->palette, s.husk_p_base, bones * 16 * sizeof(float));
     } else if (e->kind == EM_ENEMY_KIND_BUG) {
         /* the bug pose: walk/flinch evaluation against the BUG model
          * (no actor scale — decoded s68: the brains write no runtime
@@ -1881,21 +2552,28 @@ static void enemy_build_palette(Enemy *e)
 /* Gib layer (visual only — see "GIB LAYER" in the file header)         */
 /* ------------------------------------------------------------------ */
 
-/* World palette of one gib: the model's identity base pose rotated by
- * the tumble yaw and translated to the instance position (the same
- * column rotation + translate composition as enemy_build_palette). */
+/* World palette of one gib: the model's identity base pose scaled by
+ * g->scale, rotated by the tumble yaw and translated to the instance
+ * position (the same column rotation + translate composition as
+ * enemy_build_palette). Debris gibs run scale 1; the egg/drum FLASH gib
+ * uses the expanding billboard mesh and ramps the scale (the fireball). */
 static void gib_build_palette(Gib *g)
 {
-    const GibModel *gm = &s.gibm[g->fam][g->model];
-    const float c = cosf(g->yaw), sn = sinf(g->yaw);
+    const float *base = g->flash ? s.flash_base
+                                 : s.gibm[g->fam][g->model].base;
+    const uint32_t bones = g->flash ? 1u
+                                    : s.gibm[g->fam][g->model].bone_count;
+    const float c  = cosf(g->yaw), sn = sinf(g->yaw);
+    const float sc = g->scale != 0.0f ? g->scale : 1.0f;
 
-    memcpy(g->palette, gm->base, gm->bone_count * 16 * sizeof(float));
-    for (uint32_t b = 0; b < gm->bone_count; b++) {
+    memcpy(g->palette, base, bones * 16 * sizeof(float));
+    for (uint32_t b = 0; b < bones; b++) {
         float *m = g->palette + b * 16;
-        for (int col = 0; col < 4; col++) {
+        for (int col = 0; col < 3; col++) {   /* basis cols only (not xlate) */
             float x = m[col * 4 + 0], z = m[col * 4 + 2];
-            m[col * 4 + 0] =  c * x + sn * z;
-            m[col * 4 + 2] = -sn * x + c * z;
+            m[col * 4 + 0] = (c * x + sn * z) * sc;
+            m[col * 4 + 2] = (-sn * x + c * z) * sc;
+            m[col * 4 + 1] *= sc;
         }
         m[12] += g->pos[0];
         m[13] += g->pos[1];
@@ -1931,10 +2609,21 @@ static int gib_burst(const Enemy *e)
         Gib *g = &s.gib[k];
         if (g->active) continue;
 
-        /* the documented rotation: hit vector turned by 90/180/270 deg
-         * (RNG), plus the flagged +-30 deg port jitter */
+        /* The engine's quarter-turn draw, corrected against the decode
+         * (func_001551B0 state 2 sub 0, damage-kill arm): it draws
+         * r = 0..3 and rotates by r * 90 deg — case 0 is a real outcome
+         * (no rotation), so the set is {0, 90, 180, 270}, four ways, not
+         * three. What it rotates is the CORPSE's own world matrix: the
+         * engine builds an identity in the scratch matrix D_700036E0,
+         * turns it by the draw, multiplies the actor transform by it and
+         * restores the render position — a random quarter-turn of the
+         * husk. It sets NO velocity and runs NO corpse slide (the old
+         * "knockback along the RNG-rotated hit vector" reading does not
+         * survive the decompilation). The port keeps using the draw as a
+         * scatter bearing off the hit vector, plus the flagged +-30 deg
+         * jitter — a PORT visual, now flagged as such. */
         float ang = atan2f(e->hit_dir[0], e->hit_dir[1])
-                  + GIB_ROT_STEP * (float)(1 + gib_rng() % 3)
+                  + GIB_ROT_STEP * (float)(gib_rng() % 4)
                   + (float)((int)(gib_rng() % (2 * GIB_JITTER_DEG + 1))
                             - GIB_JITTER_DEG) * (ENEMY_PI / 180.0f);
 
@@ -1955,6 +2644,7 @@ static int gib_burst(const Enemy *e)
         g->yaw    = ang;
         g->spin   = ((float)(gib_rng() % 2001) / 1000.0f - 1.0f)
                     * GIB_SPIN_MAX;
+        g->scale  = 1.0f;
         g->y0     = e->pos[1];
         /* white tint, opaque — alpha 1.0 takes the renderer's exact
          * untinted path until the exit fade walks it down */
@@ -1964,6 +2654,128 @@ static int gib_burst(const Enemy *e)
         spawned++;
     }
     return spawned;
+}
+
+/* Build the FLASH billboard mesh once (the fireball stand-in): a unit
+ * camera-agnostic double-sided quad in the XY plane, centered on the
+ * origin (gib_build_palette scales it to the blast radius and the gib
+ * pos puts it at the drum). Original vertices, NOT disc data — the same
+ * runtime-geometry contract as the placeholder boxes. Returns 0 on
+ * success, -1 once tried-and-failed (no asset, no retry). NOTE: this is
+ * an axial quad, not a true camera-facing billboard (the enemy draw
+ * chain has no per-draw camera-orientation hook); FLAGGED — the engine's
+ * 0x8000006E sprite is a real additive billboard, see "DEATH = EXPLOSION".
+ */
+static int flash_mesh_get(EmGfx *gfx)
+{
+    if (s.flash_mesh) return 0;
+    if (s.flash_tried) return -1;
+    s.flash_tried = 1;
+
+    /* a unit cube (+-0.5) of glowing geometry — box_emit gives a
+     * watertight 6-face box (24 verts / 36 indices); reading as a bright
+     * volume from any angle is a fair fireball stand-in (no texture: the
+     * fireball color comes entirely from the per-draw RGBA tint) */
+    static const float lo[3] = { -0.5f, -0.5f, -0.5f };
+    static const float hi[3] = {  0.5f,  0.5f,  0.5f };
+    float    verts[24 * 10];
+    uint32_t indices[36];
+    uint32_t nv = 0, ni = 0;
+    box_emit(verts, &nv, indices, &ni, lo, hi);
+
+    s.flash_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
+                                      NULL, 0, NULL, 0);
+    if (!s.flash_mesh) return -1;
+    mat4_identity(s.flash_base);
+    printf("enemy egg/drum: explosion fireball = runtime billboard quad "
+           "(in-module stand-in for the engine's additive 0x8000006E "
+           "sprite — em_weapon.c's .emtx beam queue is out of reach)\n");
+    return 0;
+}
+
+/* Egg/drum EXPLODE (func_00156620 model-0x18 death — INVESTIGATION
+ * "DEATH = EXPLOSION"): the drum vanishes behind a fireball + debris
+ * spray. PURELY VISUAL — no damage, no chain (the caller applies none).
+ * Spawns ONE expanding fireball flash gib at (x, y+7, z) and 5-8 debris
+ * chunks flung RADIALLY (omnidirectional — a drum bursts every way, not
+ * along a single hit vector). Reuses the gib pool + gib_update 1:1; the
+ * debris come from the grey-cyan husk-B set (the metal/industrial family
+ * — FLAGGED: no drum-specific shard set is exported, the crate's husk-B
+ * stands in). Returns the number of gib slots claimed (flash + debris). */
+static int egg_explode(const Enemy *e)
+{
+    int budget = ENEMY_SLOT_MAX - s.n;
+    int claimed = 0;
+
+    /* (1) the fireball FLASH — one expanding billboard at the blast
+     * origin (drum XZ, Y+7). Needs the billboard mesh; if it didn't
+     * build, the flash is skipped and only the debris fly. */
+    if (s.flash_mesh) {
+        for (int k = 0; k < budget; k++) {
+            Gib *g = &s.gib[k];
+            if (g->active) continue;
+            memset(g, 0, sizeof *g);
+            g->active = 1;
+            g->flash  = 1;
+            g->pos[0] = e->pos[0];
+            g->pos[1] = e->pos[1] + EGG_BLAST_LIFT;
+            g->pos[2] = e->pos[2];
+            g->scale  = EGG_FLASH_R0;
+            g->life   = EGG_FLASH_FRAMES;
+            g->y0     = e->pos[1];
+            g->tint[0] = EGG_FLASH_RGB_R;
+            g->tint[1] = EGG_FLASH_RGB_G;
+            g->tint[2] = EGG_FLASH_RGB_B;
+            g->tint[3] = 1.0f;
+            gib_build_palette(g);
+            if (k >= s.gib_tail) s.gib_tail = k + 1;
+            claimed++;
+            break;
+        }
+    }
+
+    /* (2) DEBRIS — 5-8 metal chunks flung radially under gravity. Uses
+     * the husk-B (grey-cyan/metal) family; if no gib models loaded, the
+     * debris are skipped (flash only). */
+    int want = EGG_DEBRIS_MIN + (int)(gib_rng() % EGG_DEBRIS_SPAN);
+    if (s.gibm_n[GIB_FAM_B] > 0) {
+        int flung = 0;
+        for (int k = 0; k < budget && flung < want; k++) {
+            Gib *g = &s.gib[k];
+            if (g->active) continue;
+
+            /* radial spray: an even fan around the drum + RNG jitter,
+             * so chunks scatter every direction (a drum, not a directed
+             * crate-corpse knockback) */
+            float ang = ((float)flung / (float)want) * (2.0f * ENEMY_PI)
+                      + (float)((int)(gib_rng() % (2 * GIB_JITTER_DEG + 1))
+                                - GIB_JITTER_DEG) * (ENEMY_PI / 180.0f);
+
+            memset(g, 0, sizeof *g);
+            g->active = 1;
+            g->fam    = GIB_FAM_B;
+            g->model  = (s.gibm_n[GIB_FAM_B] == 1)
+                        ? 0 : (int)(s.gib_next++ %
+                                    (unsigned)s.gibm_n[GIB_FAM_B]);
+            g->pos[0] = e->pos[0];
+            g->pos[1] = e->pos[1] + GIB_LAUNCH_LIFT;
+            g->pos[2] = e->pos[2];
+            g->vel[0] = sinf(ang) * GIB_SPEED;
+            g->vel[1] = GIB_VY;
+            g->vel[2] = cosf(ang) * GIB_SPEED;
+            g->yaw    = ang;
+            g->spin   = ((float)(gib_rng() % 2001) / 1000.0f - 1.0f)
+                        * GIB_SPIN_MAX;
+            g->scale  = 1.0f;
+            g->y0     = e->pos[1];
+            g->tint[0] = g->tint[1] = g->tint[2] = g->tint[3] = 1.0f;
+            gib_build_palette(g);
+            if (k >= s.gib_tail) s.gib_tail = k + 1;
+            flung++;
+            claimed++;
+        }
+    }
+    return claimed;
 }
 
 /* Per-tick gib integration: arc under the 0.052 gravity, land on the
@@ -1976,6 +2788,22 @@ static void gib_update(const EmCollision *coll)
         Gib *g = &s.gib[k];
         if (!g->active) continue;
         g->age++;
+        if (g->flash) {
+            /* the egg/drum fireball: expand R0 -> R1 and fade the alpha
+             * out over its life, then free. Stationary (no ballistic
+             * integration). The in-module additive-sprite stand-in. */
+            float t = (float)g->age / (float)g->life;
+            if (t > 1.0f) t = 1.0f;
+            g->scale   = EGG_FLASH_R0 + (EGG_FLASH_R1 - EGG_FLASH_R0) * t;
+            g->tint[3] = 1.0f - t;                 /* fade as it expands */
+            if (g->age >= g->life) {
+                g->active = 0;
+                continue;
+            }
+            gib_build_palette(g);
+            tail = k + 1;
+            continue;
+        }
         if (g->vel[0] != 0.0f || g->vel[1] != 0.0f || g->vel[2] != 0.0f) {
             g->pos[0] += g->vel[0];
             g->pos[2] += g->vel[2];
@@ -2031,11 +2859,12 @@ static void gen_build_palette(Gen *g)
 }
 
 /* PLACEHOLDER pad mesh (runtime-generated, our own original vertices,
- * NOT disc data — the engine's pad is procedural VU-morph geometry,
- * func_001E9580/001E9E60, and binds NO model-table entry, so there is
- * nothing to export; see the file header): a low three-tier mound on a
- * UNIT footprint (+-1), scaled per instance by the decoded config
- * extents in gen_build_palette. */
+ * NOT disc data — the engine's pad is a procedural 8x8 membrane lattice,
+ * func_001E9580 init + func_001E9E60 render, and binds NO model-table
+ * entry, so there is nothing to export; the decoded lattice and why the
+ * mound stays are documented at GEN_PAD_HEIGHT): a low three-tier mound
+ * on a UNIT footprint (+-1), scaled per instance by the config extents in
+ * gen_build_palette — a scaling the engine's own spacing confirms. */
 static int gen_mesh_get(EmGfx *gfx)
 {
     if (s.gen_mesh) return 0;
@@ -2783,6 +3612,17 @@ static void crate_burst(Enemy *e, const float pp[3])
     e->active = 0;
     e->fade   = 0;
 
+    /* DECODED (func_001551B0 state 2 sub 0): the burst opens with the
+     * variant's positional sound — 0x19D for model byte 6 / 0x1E, 0x19E
+     * for 0x1C / 0x50 / 0x1F — played through func_001FC580, whose own
+     * range argument is 300.0. The paired gore effects (CRATE_FX_* in the
+     * constants block) are recorded but not reproduced: the particle
+     * chain lives outside this module, so the gibs below remain the
+     * visible burst (flagged). */
+    em_sfx_play_at((e->variant == 6 || e->variant == 0x1E)
+                   ? CRATE_SFX_BURST_A : CRATE_SFX_BURST_B,
+                   e->pos, 300.0f);
+
     /* timer/suicide bursts (no recorded hit vector): scatter the husk
      * along the facing — the engine's no-knockback arm */
     if (!e->hit_lethal) {
@@ -2935,10 +3775,12 @@ static void bug_attack_tick(const EmCollision *coll, Enemy *e,
 static void crate_attack_tick(const EmCollision *coll, Enemy *e)
 {
     if (e->atk_armed && --e->retreat < 0) {
-        /* the 180-tick suicide-run timer expired (the engine also
-         * bursts on probe result 4 = surface lost — the port floor
+        /* the suicide-run timer expired. (The engine's other burst arm
+         * is the in-flight probe returning 4 — func_0019AB20's STATIC
+         * WORLD channel, i.e. the leap struck level geometry, NOT the
+         * "surface lost" this comment used to claim. The port's floor
          * query falls back instead of failing, so the timer is the
-         * port's only burst arm): absorb pending damage and burst. */
+         * port's only burst arm.) Absorb pending damage and burst. */
         e->mailbox    = 0;          /* decoded: sh zero, 0x36 pre-burst */
         e->hit_lethal = 0;
         e->state      = EM_ENEMY_DEATH;
@@ -2953,9 +3795,12 @@ static void crate_attack_tick(const EmCollision *coll, Enemy *e)
         int blocked = 0;
         static const float diag[4] = { 0.7854f, -0.7854f,
                                        2.3562f, -2.3562f };
+        /* decoded corner radius: 6.5 for the wooden crate (model byte 6)
+         * and its 0x1E sibling, 3.0 for the small variants */
+        float reach = (e->variant == 6 || e->variant == 0x1E)
+                      ? ENEMY_PROBE_LEN : ENEMY_PROBE_LEN_SMALL;
         for (int k = 0; k < 4; k++) {
-            bl[k] = enemy_probe(coll, e, e->yaw + diag[k],
-                                ENEMY_PROBE_LEN);
+            bl[k] = enemy_probe(coll, e, e->yaw + diag[k], reach);
             blocked += bl[k];
         }
         if (blocked >= 3 || (bl[0] && bl[3]) || (bl[1] && bl[2])) {
@@ -2977,12 +3822,26 @@ static void crate_attack_tick(const EmCollision *coll, Enemy *e)
                              ((float)(gib_rng() % 65536u) / 65536.0f
                               - 0.5f) / 60.0f);
         }
-        /* launch the hop; first launch arms the 180-tick run timer */
+        /* launch the hop; the first launch arms the run timer. DECODED
+         * split: model byte 6 (the wooden crate — the port's default
+         * variant) gets 60 * world-Y / 12, every other variant gets the
+         * 0xB4 = 180 constant. The old blanket 180 was wrong for exactly
+         * the crate the port ships. */
         e->vy     = ENEMY_HOP_VY;
         e->hop_y0 = e->pos[1];
         if (!e->atk_armed) {
             e->atk_armed = 1;
-            e->retreat   = ENEMY_ATTACK_TICKS;   /* +0x2A = 0xB4 */
+            if (e->variant == 6) {
+                /* the engine converts to int and stores into the s16
+                 * +0x2A — keep the same truncation */
+                float rt = ENEMY_ATTACK_Y_NUM * e->pos[1] /
+                           ENEMY_ATTACK_Y_DEN;
+                if (rt >  32767.0f) rt =  32767.0f;
+                if (rt < -32768.0f) rt = -32768.0f;
+                e->retreat = (int)(int16_t)(int)rt;
+            } else {
+                e->retreat = ENEMY_ATTACK_TICKS;   /* +0x2A = 0xB4 */
+            }
         }
         e->sub = 1;
     } else {
@@ -3173,8 +4032,37 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
     case EM_ENEMY_INIT:
         if (e->kind == EM_ENEMY_KIND_CRATE) {
             /* placed crawler: HP = 1, dormant (the engine also builds
-             * the probe vectors and resolves the nest registry) */
-            e->hp    = ENEMY_HP_CRATE;
+             * the probe corner table and resolves the nest registry).
+             * The jitter counter is armed to -1 exactly as INIT does
+             * (+0x238 = -1, +0x23C = 0), so the first IDLE tick rattles
+             * and draws the first wait — but only for a crate that still
+             * owes its nest group a child (decoded gate). */
+            e->hp      = ENEMY_HP_CRATE;
+            e->jit_t   = -1;
+            e->jit_row = 0;
+            e->state   = EM_ENEMY_IDLE;
+        } else if (e->kind == EM_ENEMY_KIND_EGG) {
+            /* egg/growth fixture (func_00156620): HP = 1, armed-idle.
+             * Purely passive decor — no probe vectors, no nest, no
+             * player reference (s78 §5). */
+            e->hp    = ENEMY_HP_EGG;
+            e->state = EM_ENEMY_IDLE;
+        } else if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
+            /* door-husk scripted creature (ov 0x825940): STAGED-INERT at
+             * the opening. The engine actor runs its own timer/proximity
+             * machine (states 0..4 + the 0x64 scripted timer), but the
+             * opening beat keeps it inert — so the port stages it directly
+             * to a held IDLE: NO HP (not shootable), NO player reference,
+             * NO aggro, NO movement, NO attack. It just stands by the
+             * door. (The scripted-timer wake schedule is undecoded —
+             * FLAGGED; the port holds the inert opening state.) */
+            e->hp    = 0;
+            e->state = EM_ENEMY_IDLE;
+        } else if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
+            /* door-husk shootable husk (ov 0x827490): HP 1, STAGED-INERT.
+             * It only reacts to being shot (poll +0x36 in IDLE) — no
+             * aggro/movement/attack at the opening. */
+            e->hp    = HUSK_PARTNER_HP;
             e->state = EM_ENEMY_IDLE;
         } else if (e->kind == EM_ENEMY_KIND_BUG) {
             /* bug INIT (s68): variant-A HP; yaw toward the player is
@@ -3197,9 +4085,44 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         break;
 
     case EM_ENEMY_IDLE:
-        /* crate only — worms never idle. Decoded state 4: the mailbox
-         * is the ONLY direct trigger (no proximity test exists); a
-         * kill broadcasts the group alarm to the placed-crawler kind;
+        if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
+            /* door-husk scripted creature: STAGED-INERT — it does NOTHING
+             * at the opening. NOT shootable (no mailbox poll), NO aggro,
+             * NO proximity test, NO movement. The engine's own scripted
+             * timer/proximity wake schedule (func_00825900 / func_001B0FD0,
+             * states 0..4 / 0x64) is undecoded — FLAGGED; the port holds
+             * the inert opening state so the opening stays enemy-free
+             * (INVESTIGATION_first_level_area11 §5.2). */
+            break;
+        }
+        if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
+            /* door-husk shootable husk IDLE: poll +0x36 ONLY — HP 1 makes
+             * any nonzero hit lethal -> burst. NO alarm broadcast / wake
+             * (it is not in the placed-crawler whitelist), NO proximity,
+             * NO player reference: STAGED-INERT, only reacts to being
+             * shot. (Same passive-destructible shape as the egg, minus the
+             * idle wobble — the husk is a scripted-set actor, not a
+             * wiggling prop.) */
+            if (enemy_mailbox_poll(e, pp))
+                e->state = EM_ENEMY_DEATH;
+            break;
+        }
+        if (e->kind == EM_ENEMY_KIND_EGG) {
+            /* egg/growth fixture IDLE (func_00156620 state 1 armed-idle):
+             * poll the +0x36 mailbox ONLY — HP 1 makes any nonzero hit
+             * lethal -> burst. NO alarm broadcast and NO alarm wake (the
+             * egg is not in the placed-crawler whitelist and never reads
+             * +0x0A), NO proximity test, NO player reference: a passive
+             * destructible prop that only reacts to being shot (s78 §5).
+             * The idle pulse/wobble is a visual-only world-matrix
+             * perturbation (enemy_build_palette), like the crate jitter. */
+            if (enemy_mailbox_poll(e, pp))
+                e->state = EM_ENEMY_DEATH;
+            break;
+        }
+        /* crate only below — worms never idle. Decoded state 4: the
+         * mailbox is the ONLY direct trigger (no proximity test exists);
+         * a kill broadcasts the group alarm to the placed-crawler kind;
          * the own alarm flag is the only other wake. */
         if (enemy_mailbox_poll(e, pp)) {
             enemy_alarm_broadcast();    /* decoded: list-wide, no radius */
@@ -3212,6 +4135,23 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             e->atk_armed = 0;
             e->sub       = 0;
             e->state     = EM_ENEMY_ATTACK;
+            break;
+        }
+        /* DISGUISE JITTER counter (decoded — CRATE_JIT_* block). Runs
+         * only while the crate still owes its nest group a child: INIT
+         * clears the enabling flag bit when the group has no untriggered
+         * record left, so a gore-only crate never moves at all. Counter
+         * expired -> rattle (sound 0x19C at range 300) and redraw the
+         * wait and the table row; otherwise just walk it down. The
+         * render step reads it in enemy_build_palette. */
+        if (e->children > 0) {
+            if (e->jit_t < 0) {
+                em_sfx_play_at(CRATE_SFX_IDLE, e->pos, 300.0f);
+                e->jit_t   = (int16_t)(gib_rng() % (uint32_t)CRATE_JIT_WAIT);
+                e->jit_row = (uint8_t)(gib_rng() % (uint32_t)CRATE_JIT_ROWS);
+            } else {
+                e->jit_t--;
+            }
         }
         break;
 
@@ -3247,6 +4187,44 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
     case EM_ENEMY_DEATH:
         if (e->kind == EM_ENEMY_KIND_CRATE) {
             crate_burst(e, pp);   /* husk gibs + the bugs (file header) */
+            break;
+        }
+        if (e->kind == EM_ENEMY_KIND_EGG) {
+            /* drum EXPLODE (func_00156620 model-0x18 death — INVESTIGATION
+             * "DEATH = EXPLOSION", live-confirmed 2026-06-17): the engine
+             * spawns the blast/fireball (FX 0x80000013 -> child 0x8000006E)
+             * + flash (0x8000001C) at the drum pos Y+7, flings debris, and
+             * frees IMMEDIATELY — the drum vanishes BEHIND the blast, no
+             * corpse fade. PURELY VISUAL: NO husk rebind, NO children, NO
+             * knockback, NO player/actor damage, NO chain, NO alarm (LIVE:
+             * player stayed at 100.0 HP). Port: free the slot with NO fade
+             * (e->fade = 0) and fire egg_explode() — the fireball flash gib
+             * + 5-8 radial debris chunks through the reused gib system. The
+             * explosion SOUND 0x1A1 already played on the lethal poll
+             * (enemy_mailbox_poll, the model-0x18 path). */
+            e->state   = EM_ENEMY_FREE;
+            e->active  = 0;
+            e->mailbox = 0;
+            e->fade    = 0;          /* no corpse fade — the blast hides it */
+            egg_explode(e);
+            break;
+        }
+        if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
+            /* door-husk shootable husk DEATH (ov 0x827490, model 0x29):
+             * the engine bursts with gore FX 0x80000045 (HUSK_PARTNER_FX_
+             * BURST — the exact particle id, FLAGGED: not reproducible in
+             * this module). The port reuses the husk-B gib/explosion path
+             * (egg_explode launches the grey-cyan husk-B family + a flash
+             * billboard — the SAME 0x29 burst-husk-B set this very husk's
+             * model is). The death sound already played on the lethal poll
+             * (enemy_mailbox_poll's generic-death branch). Free the slot
+             * with no corpse fade — the burst FX hides it. */
+            e->state   = EM_ENEMY_FREE;
+            e->active  = 0;
+            e->mailbox = 0;
+            e->fade    = 0;
+            egg_explode(e);          /* husk-B gib scatter + flash (stand-in
+                                      * for FX 0x80000045) */
             break;
         }
         if (e->kind == EM_ENEMY_KIND_BUG) {
@@ -3480,7 +4458,16 @@ void em_enemy_shake_off(void)
 static int enemy_victim(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ||
-           e->kind == EM_ENEMY_KIND_BUG;
+           e->kind == EM_ENEMY_KIND_BUG   ||
+           e->kind == EM_ENEMY_KIND_EGG   ||  /* model 0x18 is shootable —
+                                               * func_00156620 registers as
+                                               * a damage target (s78 §5) */
+           e->kind == EM_ENEMY_KIND_HUSK_PARTNER; /* model 0x29: the HP-1
+                                               * shootable husk (ov 0x827490
+                                               * polls +0x36). The husk
+                                               * CREATURE (model 0x1A) is the
+                                               * scripted actor and is NOT a
+                                               * victim — it is excluded. */
 }
 
 /* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
@@ -3488,13 +4475,19 @@ static int enemy_victim(const Enemy *e)
 static float kind_aim_y(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y
-         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_AIM_Y : ENEMY_AIM_Y;
+         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_AIM_Y
+         : e->kind == EM_ENEMY_KIND_EGG   ? EGG_AIM_Y
+         : e->kind == EM_ENEMY_KIND_HUSK_PARTNER ? HUSK_PARTNER_AIM_Y
+                                          : ENEMY_AIM_Y;
 }
 
 static float kind_hit_r(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R
-         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_HIT_R : ENEMY_HIT_R;
+         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_HIT_R
+         : e->kind == EM_ENEMY_KIND_EGG   ? EGG_HIT_R
+         : e->kind == EM_ENEMY_KIND_HUSK_PARTNER ? HUSK_PARTNER_HIT_R
+                                          : ENEMY_HIT_R;
 }
 
 int em_enemy_acquire(const float from[3], float yaw, float max_dist,
@@ -3676,6 +4669,13 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
             return 1;
         }
         if (!s.gib[k].active) return 0;
+        if (s.gib[k].flash) {              /* egg/drum fireball billboard */
+            if (!s.flash_mesh) return 0;
+            *mesh       = s.flash_mesh;
+            *palette    = s.gib[k].palette;
+            *bone_count = 1;
+            return 1;
+        }
         const GibModel *gm = &s.gibm[s.gib[k].fam][s.gib[k].model];
         *mesh       = gm->mesh;
         *palette    = s.gib[k].palette;
@@ -3695,6 +4695,27 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
         *mesh       = s.bug_mesh;
         *palette    = s.e[i].palette;
         *bone_count = s.bug_bones;
+        return 1;
+    }
+    if (s.e[i].kind == EM_ENEMY_KIND_EGG) {
+        if (!s.egg_mesh) return 0;
+        *mesh       = s.egg_mesh;
+        *palette    = s.e[i].palette;
+        *bone_count = s.egg_bones;
+        return 1;
+    }
+    if (s.e[i].kind == EM_ENEMY_KIND_HUSK_CREATURE) {
+        if (!s.husk_c_mesh) return 0;
+        *mesh       = s.husk_c_mesh;
+        *palette    = s.e[i].palette;
+        *bone_count = s.husk_c_bones;
+        return 1;
+    }
+    if (s.e[i].kind == EM_ENEMY_KIND_HUSK_PARTNER) {
+        if (!s.husk_p_mesh) return 0;
+        *mesh       = s.husk_p_mesh;
+        *palette    = s.e[i].palette;
+        *bone_count = s.husk_p_bones;
         return 1;
     }
     if (!s.mesh) return 0;
@@ -3798,11 +4819,28 @@ void em_enemy_shutdown(EmGfx *gfx)
         if (s.bug_has_model)
             em_model_free(&s.bug_model);
     }
+    if (s.egg_mesh) {
+        em_gfx_mesh_destroy(gfx, s.egg_mesh);
+        if (s.egg_has_model)
+            em_model_free(&s.egg_model);
+    }
+    if (s.husk_c_mesh) {
+        em_gfx_mesh_destroy(gfx, s.husk_c_mesh);
+        if (s.husk_c_has_model)
+            em_model_free(&s.husk_c_model);
+    }
+    if (s.husk_p_mesh) {
+        em_gfx_mesh_destroy(gfx, s.husk_p_mesh);
+        if (s.husk_p_has_model)
+            em_model_free(&s.husk_p_model);
+    }
     for (int f = 0; f < GIB_FAMILY_N; f++)
         for (int i = 0; i < s.gibm_n[f]; i++) {
             em_gfx_mesh_destroy(gfx, s.gibm[f][i].mesh);
             em_model_free(&s.gibm[f][i].model);
         }
+    if (s.flash_mesh)
+        em_gfx_mesh_destroy(gfx, s.flash_mesh);
     if (s.gen_mesh)
         em_gfx_mesh_destroy(gfx, s.gen_mesh);
     if (s.tf_mesh) {

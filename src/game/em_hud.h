@@ -136,10 +136,10 @@
  *
  * EmPlayerStatus mirrors the engine's canonical status storage:
  *
- *   health      player actor +0x220 (0x008104D0), float — "075 / 100"
+ *   health      player actor +0x220 (0x008104D0), float — " 75 / 100"
  *               (display max swaps to 60 under flag 0x8104E4 — not
  *               modeled yet)
- *   infection   player actor +0x228 (0x008104D8), float — "60%"
+ *   infection   player actor +0x228 (0x008104D8), float — " 60%"
  *   mag         D_00810C62, u8 — rounds in the current SPR4 magazine.
  *               NOT shown on the status hub (the real screen has no
  *               magazine display); kept for the future page-2 view.
@@ -149,6 +149,18 @@
  *               max at 0x810CB7, both shown >>1; the segment bar draws
  *               one square per half-unit (battery * 2). Block gated on
  *               0x810C7F != 0 — the port gates on battery_max != 0.
+ *
+ * NUMBER FORMATTING (DECODED from func_001C5FB0, the single formatter
+ * every readout goes through — see engine_digits() in em_hud.c): each
+ * readout is a fixed-width field of N places with the number RIGHT-
+ * aligned in it. A set blank flag turns the leading zeros into SPACES
+ * (the last place always prints), a clear one zero-pads. The call
+ * sites decode as: health 3 places blanked (func_00208AD0), reserve 4
+ * blanked (func_00209860), infection 3 blanked + '%' (func_00209DF0),
+ * battery 2 ZERO-padded on each side of the '/' (func_00209280).
+ * That is why "BATTERY 04/06" pads with zeros while the health row
+ * reads " 75 / 100" — the port previously guessed zero-padding for
+ * health and left-packing for reserve/infection.
  *
  * EM_HUD_FORCE=1 in the environment (checked once, on first render call)
  * forces the status screen VISIBLE regardless of the toggle — for
@@ -263,13 +275,28 @@ void em_hud_menu_inhibit(int inhibit);
  *
  *   em_hud_continue   = screen module 1 (the title/continue screen
  *     the machine func_001AC070 launches): opaque black base +
- *     "CONTINUE?" header + the 3 prompt options (cursor 0..2 — the
- *     engine's func_001AC480 walk). Option LABELS are port guesses
- *     (module text undecoded, FLAGGED): "CONTINUE" / "LOAD GAME" /
- *     "OPTIONS" — the decoded DISPATCH is real (0 reinstalls
- *     gameplay; 1 = the func_00225A00 memory-card flow; 2 = the
- *     func_00200A40 sub-screen). `cursor` = the highlighted option
+ *     "CONTINUE?" header + the 3 prompt options. Option LABELS are
+ *     port guesses (module text undecoded, FLAGGED): "CONTINUE" /
+ *     "LOAD GAME" / "OPTIONS". `cursor` = the highlighted option
  *     (tall white; others tall gray).
+ *
+ *     Everything about the WALK and the DISPATCH is now DECODED:
+ *       - func_001AC480 is the menu walk. The selector is a single
+ *         byte, moved down only while it is < 2 and up only while it
+ *         is nonzero — so it is exactly 3 options, 0..2, and
+ *         em_hud_continue clamps to that. Its confirm/move edges also
+ *         carry the per-slot cue ids and a 1200-frame (20 s at 60 Hz)
+ *         idle timeout that drops the menu out to the attract path —
+ *         facts for whoever wires em_game's machine, not this
+ *         presenter.
+ *       - func_001AC070 case 2 dispatches the confirmed selector:
+ *         0 hands off to the gameplay task func_001ACEC0 with the
+ *         "loaded a save" flag D_00275BE0 CLEAR; 1 runs
+ *         func_00225A00 (which resets the 212-byte save/load context
+ *         at D_00810040) and enters the func_00225AC0 card poll — a
+ *         successful load lands on the SAME gameplay task with that
+ *         flag SET; 2 enters the func_00200A40 sub-screen, which
+ *         returns to this menu when it completes.
  *
  * Missing font asset: the black base only. Both are queued by em_game
  * BEFORE the fade rect — the fade machine owns the screens exactly
@@ -293,6 +320,31 @@ void em_hud_continue(EmGfx *gfx, int cursor);
  * below. */
 void em_hud_found_show(int item_type);
 void em_hud_found_render(EmGfx *gfx);
+
+/* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard
+ * (INVESTIGATION_area11_director.md §4.4 / FINDINGS s81). In the ENGINE
+ * the title rides the gameplay HUD frame (func_001AE5E0 -> func_001AFD70
+ * -> func_001C5930), INDEPENDENT of the cinematic director: a hardcoded
+ * 32-byte-stride string table at 0x00273B80 (AREA 11 -> idx1 = the whole
+ * "FORT STEWART - REAR ENTRANCE" string) drawn top-centred as bitmap-font
+ * sprites with a staggered fade over a dimmed scene.
+ *
+ * em_hud_area_title(area) arms the card ONCE for the given area on scene
+ * entry (em_game's scene-load hook). Only area 11 has a decoded string;
+ * any other area is a silent no-op (the card never shows). em_hud_area_
+ * title_render(gfx) runs the fade machine and draws the centred title for
+ * one show, then clears itself. It is NOT a persistent HUD (one-shot) and
+ * does NOT touch the status screen or the cinematic letterbox. Hidden
+ * while the status screen is open; missing font queues nothing (no
+ * regression). The fade/hold frame counts are FLAGGED (the engine's exact
+ * opening staggered-fade counts are un-stopwatched, doc §F) — a
+ * reasonable ~short-fade / ~2.5 s-hold stand-in for live tuning. Call
+ * _render once per frame from the close-out (after em_hud_found_render).
+ *
+ * em_hud_area_title_active() = the card is still showing (for tests). */
+void em_hud_area_title(int area);
+void em_hud_area_title_render(EmGfx *gfx);
+int  em_hud_area_title_active(void);
 
 /* RADIO/EXAMINE MESSAGE MACHINE — the engine's mode-2 message machine
  * (D_002821B0 = 2; FINDINGS.md "RADIO-MESSAGE MACHINE DECODED",

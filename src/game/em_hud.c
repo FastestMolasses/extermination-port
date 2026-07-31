@@ -847,6 +847,42 @@ static int decimal_digits(int v)
     return n;
 }
 
+/* THE ENGINE NUMBER FORMATTER — DECODED from func_001C5FB0(value,
+ * digits, blank), the one routine every HUD readout formats through.
+ * It walks a per-place divisor table for `digits` places, so the field
+ * is ALWAYS `digits` wide and the number is right-aligned in it:
+ *
+ *   blank != 0  leading zeros come out as SPACES (0x20), not '0', and
+ *               the last place always prints a digit — 75 in 3 places
+ *               is " 75", 0 is "  0" (NOT a trimmed "75"/"0", and NOT
+ *               a zero-padded "075": the digits stay pinned to the
+ *               same right-hand column while the lead goes blank);
+ *   blank == 0  no suppression at all — genuine zero-padding ("04").
+ *
+ * Overflow/negatives are clamped here: the engine's divisor walk runs
+ * off the end of its digit range for those and emits junk glyphs (a
+ * '-' spliced mid-number for negatives), which is not behaviour worth
+ * reproducing. */
+static void engine_digits(char *buf, size_t cap, int v, int digits,
+                          int blank)
+{
+    int lim = 1;
+    for (int i = 0; i < digits; i++) lim *= 10;
+    if (v < 0)    v = 0;
+    if (v >= lim) v = lim - 1;
+    snprintf(buf, cap, blank ? "%*d" : "%0*d", digits, v);
+}
+
+/* Placeholder-path companion: how many of `digits` places the blank
+ * suppression leaves empty, i.e. how far right the inked digits start
+ * (font-less fallback only — with the font the spaces are in the
+ * string and em_hud_text does this on its own). */
+static int engine_blank_lead(int v, int digits)
+{
+    int lead = digits - decimal_digits(v);
+    return lead > 0 ? lead : 0;
+}
+
 /* Status-screen visibility — hidden by default (the original shows no
  * persistent HUD), flipped by a Triangle OR Start edge (both buttons
  * open the same screen — verified identical memory diff, FINDINGS). */
@@ -1111,14 +1147,20 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
     em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a + 60.0f, a + 120.0f,
                         kHiliteOn, kHiliteOn, kHiliteOff, kHiliteOff);
 
-    /* value row "075 / 100" 16 px at y=262: value x=166, "/" x=202,
+    /* value row " 75 / 100" 16 px at y=262: value x=166, "/" x=202,
      * max x=214 (the given x steps imply a 12 px advance for the 16 px
-     * number font); value 3 digits zero-padded (func_001C5FB0 digits=3,
-     * no trim), red style when health <= 60. */
+     * number font); red style when health <= 60.
+     *
+     * The value is 3 places with leading zeros BLANKED, not zero-padded
+     * — DECODED from func_00208AD0, which formats it as
+     * func_001C5FB0(health, 3, 1): the blank flag is set, so 75 draws
+     * as " 75" (right-aligned, lead column empty) and only a full 100
+     * fills all three places. The old "075" was a port guess. */
+    int hp_i = (int)hp;
+    if (hp_i < 0) hp_i = 0;
     if (em_hud_font_ready()) {
         char buf[8];
-        int  v = (int)hp;
-        snprintf(buf, sizeof buf, "%03d", v < 0 ? 0 : v);
+        engine_digits(buf, sizeof buf, hp_i, 3, 1);
         em_hud_text(gfx, 166.0f, 262.0f, buf,
                     hp <= 60.0f ? EM_HUD_TEXT_NUM16_RED
                                 : EM_HUD_TEXT_NUM16);
@@ -1127,7 +1169,9 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
         em_hud_text(gfx, 214.0f, 262.0f, buf, EM_HUD_TEXT_NUM16);
     } else {
         const float *style = (hp <= 60.0f) ? kTextRed : kTextWhite;
-        text_placeholder(gfx, 166.0f, 262.0f, 3, 12.0f, 16.0f, style);
+        int lead = engine_blank_lead(hp_i, 3);
+        text_placeholder(gfx, 166.0f + 12.0f * (float)lead, 262.0f,
+                         3 - lead, 12.0f, 16.0f, style);
         text_placeholder(gfx, 202.0f, 262.0f, 1, 12.0f, 16.0f,
                          kTextWhite);
         text_placeholder(gfx, 214.0f, 262.0f, 3, 12.0f, 16.0f,
@@ -1165,12 +1209,18 @@ static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
                             8.0f, 8.0f, c);
     }
 
-    /* "04/06" 16 px at (32,170): 2-digit zero-padded current + '/' +
-     * 2-digit max (the engine formats each side with digits=2). */
+    /* "04/06" 16 px at (32,170): 2-digit ZERO-padded current + '/' +
+     * 2-digit zero-padded max. DECODED from func_00209280, which builds
+     * the caption as func_001C5FB0(0x810CB2>>1, 2, 0) + "/" +
+     * func_001C5FB0(0x810CB7>>1, 2, 0) — the blank flag is CLEAR here,
+     * so unlike the health/reserve/infection readouts this one really
+     * does print "04", not " 4". */
     if (em_hud_font_ready()) {
         char buf[12];
-        snprintf(buf, sizeof buf, "%02u/%02u", (unsigned)cur,
-                 (unsigned)max);
+        char lo[8], hi[8];
+        engine_digits(lo, sizeof lo, (int)cur, 2, 0);
+        engine_digits(hi, sizeof hi, (int)max, 2, 0);
+        snprintf(buf, sizeof buf, "%s/%s", lo, hi);
         em_hud_text(gfx, 32.0f, 170.0f, buf, EM_HUD_TEXT_NUM16);
     } else {
         int dd = decimal_digits(cur) > 2 ? decimal_digits(cur) : 2;
@@ -1200,20 +1250,22 @@ static void spr4_block(EmGfx *gfx, int16_t reserve)
     if (!s_decor_active)
         text_placeholder(gfx, 16.0f, 262.0f, 1, 24.0f, 24.0f, kTextWhite);
 
-    /* reserve count, 16 px digits at (42,266), 4 digits trimmed (no
-     * leading zeros — func_001C5FB0 digits=4 with trim). */
+    /* reserve count, 16 px digits at (42,266): a 4-place field whose
+     * leading zeros are BLANKED — DECODED from func_00209860, which
+     * formats D_00810CB4 as func_001C5FB0(reserve, 4, 1). The blank
+     * flag means the field keeps all 4 places and the digits sit
+     * right-aligned in it, so 120 draws as " 120" starting one cell in,
+     * NOT left-aligned at x=42 (the old port reading of "trim"). */
+    int res_i = reserve;
+    if (res_i < 0) res_i = 0;
     if (em_hud_font_ready()) {
         char buf[8];
-        int  v = reserve;
-        if (v < 0)    v = 0;
-        if (v > 9999) v = 9999;
-        snprintf(buf, sizeof buf, "%d", v);
+        engine_digits(buf, sizeof buf, res_i, 4, 1);
         em_hud_text(gfx, 42.0f, 266.0f, buf, EM_HUD_TEXT_NUM16);
     } else {
-        int digits = decimal_digits(reserve);
-        if (digits > 4) digits = 4;
-        text_placeholder(gfx, 42.0f, 266.0f, digits, 12.0f, 16.0f,
-                         kTextWhite);
+        int lead = engine_blank_lead(res_i, 4);
+        text_placeholder(gfx, 42.0f + 12.0f * (float)lead, 266.0f,
+                         4 - lead, 12.0f, 16.0f, kTextWhite);
     }
 }
 
@@ -1232,16 +1284,25 @@ static void infection_block(EmGfx *gfx, float infection)
                              kTextDarkRed);
         return;
     }
+    /* value = a 3-place blank-suppressed field with '%' appended —
+     * DECODED from func_00209DF0, which draws this row as
+     * func_001C5FB0(infection, 3, 1) with the '%' string concatenated
+     * onto it. So 60 renders " 60%" (lead cell blank, digits pinned to
+     * the same columns as a 3-digit value), not a left-packed "60%". */
+    int inf_i = (int)infection;
+    if (inf_i < 0) inf_i = 0;
     if (em_hud_font_ready()) {
-        char buf[8];
+        char num[8], buf[12];
         em_hud_text(gfx, 296.0f, 260.0f, "INFECTION", EM_HUD_TEXT_TALL);
-        snprintf(buf, sizeof buf, "%d%%", (int)infection);
+        engine_digits(num, sizeof num, inf_i, 3, 1);
+        snprintf(buf, sizeof buf, "%s%%", num);
         em_hud_text(gfx, 296.0f, 288.0f, buf, EM_HUD_TEXT_NUM16);
     } else {
         text_placeholder(gfx, 296.0f, 260.0f, 9, 10.0f, 20.0f,
                          kTextWhite);
-        int digits = decimal_digits((int)infection);
-        text_placeholder(gfx, 296.0f, 288.0f, digits + 1, 12.0f, 16.0f,
+        int lead = engine_blank_lead(inf_i, 3);
+        text_placeholder(gfx, 296.0f + 12.0f * (float)lead, 288.0f,
+                         (3 - lead) + 1, 12.0f, 16.0f,
                          kTextWhite);   /* "NN" + "%" */
     }
 }
@@ -1546,13 +1607,20 @@ void em_hud_game_over(EmGfx *gfx)
 }
 
 /* Screen module 1 stand-in: the continue prompt (decoded flow; the
- * option LABELS are port guesses — em_hud.h). */
+ * option LABELS are port guesses — em_hud.h).
+ *
+ * THREE options, cursor 0..2 — DECODED from func_001AC480, whose walk
+ * increments the selector only while it is < 2 and decrements only
+ * while it is nonzero, so the engine can never present anything else.
+ * The clamp mirrors that bound rather than dropping the highlight. */
 void em_hud_continue(EmGfx *gfx, int cursor)
 {
     static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     static const char *kOpts[3]  = { "CONTINUE", "LOAD GAME",
                                      "OPTIONS" };
     if (!gfx) return;
+    if (cursor < 0) cursor = 0;
+    if (cursor > 2) cursor = 2;
     em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
                         EM_GFX_OVERLAY_H, kBlack);
     if (!em_hud_font_ready()) return;   /* font-less: black only */
@@ -1732,4 +1800,102 @@ void em_hud_found_render(EmGfx *gfx)
     float w = em_hud_text_width(line, EM_HUD_TEXT_TALL);
     em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 384.0f, line,
                 EM_HUD_TEXT_TALL);
+}
+
+/* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard
+ * (INVESTIGATION_area11_director.md §4.4 / FINDINGS s81). A one-shot,
+ * top-centred title with a fade-in / hold / fade-out, riding the gameplay
+ * HUD frame INDEPENDENTLY of the cinematic director. The engine reads the
+ * string from a 32-byte-stride table at 0x00273B80 (AREA 11 -> idx1); the
+ * port carries the decoded area-11 string here. Other areas have no
+ * decoded string -> the card never arms.
+ *
+ * FADE COUNTS ARE FLAGGED (doc §F: the exact opening staggered-fade frame
+ * counts are un-stopwatched). The port uses a reasonable short fade with a
+ * ~2.5 s hold for live tuning. */
+#define AREA_TITLE_FADE_IN  24    /* fade-in frames (~0.4 s) — FLAGGED */
+#define AREA_TITLE_HOLD     150   /* full-opacity hold frames (~2.5 s)    */
+#define AREA_TITLE_FADE_OUT 36    /* fade-out frames (~0.6 s) — FLAGGED   */
+#define AREA_TITLE_Y        96.0f /* top-centred (the engine draws it high
+                                   * over the dimmed scene; canvas px)    */
+
+/* The decoded area-title strings (0x00273B80, 32-byte stride). Only the
+ * AREA-11 opening string is decoded; NULL = no card for that area. */
+static const char *area_title_string(int area)
+{
+    switch (area) {
+    case 11: return "FORT STEWART - REAR ENTRANCE";  /* idx1 (s81) */
+    default: return NULL;
+    }
+}
+
+static struct {
+    const char *str;   /* the title string (NULL = inactive) */
+    int         t;     /* frames elapsed since arm */
+} s_area_title;
+
+void em_hud_area_title(int area)
+{
+    const char *str = area_title_string(area);
+    if (!str) return;                 /* no decoded string -> never shows */
+    s_area_title.str = str;
+    s_area_title.t   = 0;
+    printf("hud: AREA-TITLE CARD armed — \"%s\" (area %d, %d-frame card)\n",
+           str, area, AREA_TITLE_FADE_IN + AREA_TITLE_HOLD +
+           AREA_TITLE_FADE_OUT);
+}
+
+int em_hud_area_title_active(void)
+{
+    return s_area_title.str != NULL;
+}
+
+/* Draw a TALL-font string at (x, y) modulated to `alpha` — the fade-card
+ * path (em_hud_text uses the style's fixed alpha). Mirrors em_hud_text's
+ * tall branch: proportional advance, first `advance` texel columns. */
+static void title_text_alpha(EmGfx *gfx, float x, float y, const char *str,
+                             float alpha)
+{
+    if (!str || !font_ensure(gfx)) return;
+    const float cell_h = kTextStyles[EM_HUD_TEXT_TALL].cell_h;
+    const float rgba[4] = { 1.0f, 1.0f, 1.0f, alpha };
+    for (; *str; str++) {
+        unsigned char    c = (unsigned char)*str;
+        if (c < 0x20) continue;
+        const FontGlyph *g = font_glyph(FONT_TALL, c);
+        float adv = g ? (float)g->advance : 9.0f;
+        if (g)
+            em_gfx_overlay_glyph(gfx, x, y, adv, cell_h,
+                                 g->u, g->v, g->u + adv, g->v + g->h,
+                                 rgba);
+        x += adv;
+    }
+}
+
+void em_hud_area_title_render(EmGfx *gfx)
+{
+    if (!s_area_title.str) return;
+    int total = AREA_TITLE_FADE_IN + AREA_TITLE_HOLD + AREA_TITLE_FADE_OUT;
+    if (s_area_title.t >= total) {        /* card finished -> one-shot done */
+        s_area_title.str = NULL;
+        return;
+    }
+    int t = s_area_title.t++;
+    if (!gfx) return;
+    if (em_hud_visible()) return;          /* the status screen owns the UI */
+    if (!em_hud_font_ready()) return;      /* no font -> queue nothing       */
+
+    /* fade-in -> hold (1.0) -> fade-out alpha envelope */
+    float a;
+    if (t < AREA_TITLE_FADE_IN)
+        a = (float)t / (float)AREA_TITLE_FADE_IN;
+    else if (t < AREA_TITLE_FADE_IN + AREA_TITLE_HOLD)
+        a = 1.0f;
+    else
+        a = (float)(total - t) / (float)AREA_TITLE_FADE_OUT;
+    if (a <= 0.0f) return;
+
+    float w = em_hud_text_width(s_area_title.str, EM_HUD_TEXT_TALL);
+    title_text_alpha(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, AREA_TITLE_Y,
+                     s_area_title.str, a);
 }

@@ -128,14 +128,39 @@
  *                 "KNIFE / MELEE" block below). SQUARE while AIMING =
  *                 the FLASHLIGHT toggle (the "FLASHLIGHT" block below).
  *
- * RELOAD SOUNDS (live-pinned s29 — replaces the old 0xF002 placeholder
- * alias): reload START plays 0x163 (the shared weapon-handling foley,
- * same id as holster — and the engine's reload entry func_0016F600
- * indeed plays 0x163 right after its anim requests) and the MAG ACTION
- * plays 0x168 ~0.5 s into the reload anim (the distinctive reload
- * sound, snd_0351). em_weapon
- * schedules the mag-action tick from the reload entry; dropping the
- * stance mid-reload (holster) cancels the pending mag sound.
+ * RELOAD SOUNDS (live-pinned s29; TIMING DECODED 2026-07-31 from
+ * func_0016F600, the armed top's major-state-3 handler): reload START
+ * plays 0x163 (the shared weapon-handling foley, same id as holster —
+ * the engine fires it with func_001FBD50(., 0x163, 0, 300) in the same
+ * tick it requests the reload clip pair, so the port keeps the two
+ * together at the state entry). The MAG ACTION 0x168 (snd_0351) is NOT
+ * a fixed ~0.5 s offset as the port previously assumed: it is the
+ * per-sub-weapon table pick D_00248680[+0x275] (sub 0 = 360 = 0x168,
+ * which independently confirms the s29 id), and func_0016F600 plays it
+ * on the exact tick the reload clip's END flag lands — i.e. at the end
+ * of the clip window, together with the ramp-out setup. Dropping the
+ * stance mid-reload no longer cancels it: see RELOAD below.
+ *
+ * RELOAD SHAPE (DECODED 2026-07-31, func_0016F600's own sub-mode byte
+ * +0x07 running 0..3 inside major state 3):
+ *   0/1  an 8-tick aim-blend BLEND-IN (+0x28 = 8, per-tick deltas
+ *        (0.5 - blend) / 8 on +0x27C/+0x278, the pre-reload pair saved
+ *        to +0x2E0/+0x2E4) BEFORE the clip pair and 0x163 are
+ *        requested. NOT modelled by the port — the port has no aim
+ *        blends of its own and its reload-clip regression test pins
+ *        the clip at the state entry; the engine's reload therefore
+ *        starts 8 ticks later than the port's.
+ *   2    wait for the clip-end flag (+0x200 bit 0x1000). This is the
+ *        ONLY point the engine re-samples the weapon-draw hold, so
+ *        releasing R1 mid-reload does NOT abort the reload — it plays
+ *        out and the holster (+0x06 = 0x65) commits at the clip end.
+ *        Holding it instead plays D_00248680[sub] (0x168), re-commits
+ *        the aim-pose clip D_00248B88[sub] and arms the ramp-out.
+ *   3    an 8-tick blend RAMP-OUT back to the saved blends; only at
+ *        its expiry does +0x06 become 2 (AIM) and firing unlock.
+ * The port models 2 and 3: the RELOAD state window is now the clip
+ * length PLUS 8 ticks, and the mid-reload stance drop is deferred to
+ * the clip's end.
  *
  * FIRE-CHAIN TAIL (live-pinned s29, wired with the same scheduling
  * pattern): a shot that ray-hits the WORLD (not an enemy) plays the
@@ -215,8 +240,12 @@
  *           idle before the aim pose recommitted — a full-pose snap
  *           at every reload end; the engine's stance top re-selects
  *           the stance pose every frame, no idle interlude). The
- *           state window IS the clip length. The DRAW clip holds the
- *           same way.
+ *           state window is the clip length PLUS the decoded 8-tick
+ *           blend ramp-out (func_0016F600 sub-mode 3 — the aim pose
+ *           re-commits at the clip's end flag but the major state
+ *           only returns to AIM once the ramp counter expires, so
+ *           firing stays locked for the whole span). The DRAW clip
+ *           holds the same way.
  *   HOLSTER anim 0x111 once, then locomotion resumes by itself
  * Every state window gates on the committed clip's honest length
  * (em_game_anim_frames -> ceil(frames / rate) ticks); the old fixed
@@ -578,8 +607,11 @@ int em_weapon_last_hit(void); /* last resolved shot: 1 hit, 0 miss, -1 none */
 /* The honest state windows, in gameplay ticks: ceil(clip frames / rate)
  * for the committed anim (draw 0x110 @1.4, reload 0x11B @1.0, holster
  * 0x111 @1.0), or the flagged fallback constants when the loaded player
- * EMDL lacks the clip. The weapon self-test derives its checkpoint
- * schedule from these, so the test stays honest for any asset. */
+ * EMDL lacks the clip. em_weapon_reload_ticks adds the decoded 8-tick
+ * blend ramp-out (func_0016F600 sub-mode 3) — the RELOAD state, and the
+ * fire lock with it, outlasts the clip by those 8 ticks. The weapon
+ * self-test derives its checkpoint schedule from these, so the test
+ * stays honest for any asset. */
 int em_weapon_draw_ticks(void);
 int em_weapon_reload_ticks(void);
 int em_weapon_holster_ticks(void);

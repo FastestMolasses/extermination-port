@@ -34,12 +34,19 @@
  *                  init clip 1 = the 90-frame in-place WALK. The brains
  *                  are DECODED STRUCTURALLY (s76, FINDINGS "BUG BRAIN
  *                  STATE MACHINES"): a 5-state top dispatch + a per-pose
- *                  / 14-case move-helper jtbl; the bite (func_0012C490,
- *                  clip 0x13) damages the player via the SHARED contact
- *                  resolver func_001B5360 -> func_0019A570 (radius-6 box
- *                  +10u ahead). The port runs the real APPROACH -> BITE
- *                  -> RECOVER shape; the move-helper constants + the
- *                  contact-damage value stay flagged port magnitudes.
+ *                  / 14-case move-helper jtbl; the bite is
+ *                  func_0012C490, clip 0x13. RETRACTED: func_001B5360
+ *                  was recorded here as the "shared contact resolver
+ *                  (radius-6 box +10u ahead)" and it is nothing of the
+ *                  sort — the recovered C shows a GROUND-SNAP probe (up
+ *                  +10 in Y, down 30, or 200 for model byte 4) traced
+ *                  with func_0019A570(from, to, 6, 0), where 6 is that
+ *                  function's collision CHANNEL MASK, and blended into
+ *                  the actor transform with a per-model-byte weight.
+ *                  The bug's real bite volume and damage are NOT
+ *                  decoded. The port runs the real APPROACH -> BITE ->
+ *                  RECOVER shape; the move-helper constants, the contact
+ *                  box AND the damage value are flagged port magnitudes.
  *   actor +0x34    HIT POINTS, s16 (crate init = 1: any damage kills;
  *                  bug init = 15 variant A / 30 variant B
  *                  (func_00128390; 30/50 on the difficulty byte) —
@@ -73,15 +80,28 @@
  *   actor +0x0A    GROUP-ALARM flag: a damage-KILLED idle crawler walks
  *                  the whole live actor list (no radius), but the
  *                  engine's wake write (`sb 1, +0x0A`) is reached ONLY
- *                  for a recipient whose +0x52 (on-surface) flag is set
- *                  — and that is 0 on every placed crate (live-read s76),
- *                  so a destroyed crate wakes NO neighbour (user-reported
- *                  2026-06-12; the old "wakes every crate" was wrong).
+ *                  for a recipient whose +0x52 is set — and that is 0 on
+ *                  every placed crate (live-read s76), so a destroyed
+ *                  crate wakes NO neighbour (user-reported 2026-06-12;
+ *                  the old "wakes every crate" was wrong).
  *                  Worms are not whitelisted and never read it.
- *   +0x2D0..0x2EC  4 precomputed diagonal probe directions (INIT) — the
- *                  steer phase probes them with func_0019AB20 and turns
- *                  the heading +-3 deg/frame (0x3D56774F ~= 0.0524 rad)
- *                  away from blocked sides.
+ *   actor +0x52    NOT "on-surface" — the sense is the other way round.
+ *                  INIT probes the crawler's own column (pos.y+1 down to
+ *                  pos.y-2) and writes 0 when the probe returns 4, which
+ *                  is func_0019AB20's STATIC-WORLD channel, else 1. So 0
+ *                  = resting on level geometry (every placement) and 1 =
+ *                  standing on a prop or on nothing. The alarm wake and
+ *                  the state-2 recovery loop are both gated on the
+ *                  unusual value. func_001AFA90 zeroes it at allocation.
+ *   +0x2D0..0x2EC  4 precomputed diagonal probe CORNERS (INIT, absolute
+ *                  world positions that never move again): the vector
+ *                  (r,0,r) turned by the spawn matrix and laid out 90 deg
+ *                  apart, r = 4.5961943 for model byte 6/0x1E and
+ *                  2.1213202 for 0x1C/0x50/0x1F — corner radius 6.5 and
+ *                  3.0 units. The steer phase probes each as a vertical
+ *                  2-unit column with func_0019AB20 and turns the heading
+ *                  +-3 deg/frame (0x3D56774F ~= 0.0524 rad) away from
+ *                  blocked sides.
  *   hop physics    velocity integration with vertical gravity
  *                  0.052/tick (state 1 sub 1).
  *
@@ -92,7 +112,9 @@
  *    player-distance test (no func_0019AA80/func_0019A570 call, no
  *    player-position global); the old port-invented 32-u distance wake
  *    is REMOVED. AND the group-alarm wake is itself gated on the
- *    recipient's +0x52 (on-surface), which is 0 on every placed crate
+ *    recipient's +0x52, which is 0 on every placed crate BY
+ *    CONSTRUCTION (see +0x52 above: 0 is what the INIT column probe
+ *    writes when the crawler is resting on level geometry)
  *    — so in practice a placed crate NEVER wakes from a neighbour's
  *    death and just sits as a destructible box until damaged (s76,
  *    user-confirmed). A lone undamaged placement sits forever. The
@@ -124,13 +146,20 @@
  *    nodes 13 (neck) and 16 (head), staged as a segment in spad
  *    0x70003190 and swept against the player's hit-volume list
  *    (player +0x58: bone-anchored sphere records, filter mask 0x20 —
- *    func_001A7280). The port runs that shape: the worm's neck->head
- *    rig segment (palette nodes 13/16 when the leech asset is loaded)
- *    against a PLAYER CAPSULE stand-in for the unexported volume list
- *    (flagged constants in em_enemy.c); the radius-6 contact
- *    (func_0019A570) stays as the engine's second, latch-free arm.
- *    Without rig data (placeholder mesh) both arms still fold into
- *    the radius-6 contact carrying the latch (flagged fallback).
+ *    func_001A7280). That shape is CONFIRMED by the recovered
+ *    func_0019AA80: it stages the two point args as a segment at
+ *    0x70003190/+0x10 and hands arg2 & 0xFFFF straight to
+ *    func_001A7280. The port runs it: the worm's neck->head rig segment
+ *    (palette nodes 13/16 when the leech asset is loaded) against a
+ *    PLAYER CAPSULE stand-in for the unexported volume list (flagged
+ *    constants in em_enemy.c). The engine's second, latch-free arm is
+ *    func_0019A570 — ALSO a segment trace, not a sphere: its own body
+ *    reads arg2 as a 3-bit collision CHANNEL MASK (bit0 entity list,
+ *    bit1 area hulls + class-4 actors, bit2 static world) and arg3 as a
+ *    16-bit exclusion id, so the "radius 6" recorded here was a
+ *    misreading of the mask value 6. The port's 6-unit contact sphere
+ *    is now a flagged PORT stand-in. Without rig data (placeholder
+ *    mesh) both arms fold into that contact carrying the latch.
  *  - DEATH: the engine's state 2 spawns nest children, gore FX, a
  *    MODEL REBIND to the gib models (library entries 0x22/0x29 — the
  *    leech clip bank has NO death clip; FINDINGS "CRAWLER RESOLVED").
@@ -140,13 +169,19 @@
  *    scene's placements) -> husk 0x22 + its brown splinter family;
  *    any other variant -> husk 0x29 + the grey-cyan chunk family.
  *    The port's burst launches from the matching family, husk first
- *    (em_enemy.c GIB_FILES). When killed by damage the engine adds
- *    a knockback corpse-slide along the
- *    RNG-rotated (90/180/270 deg) hit vector. The gameplay slot still
- *    despawns immediately; VISUALLY a lethal hit now launches 3-5 gib
+ *    (em_enemy.c GIB_FILES). RETRACTED: the engine adds NO knockback
+ *    corpse-slide. The recovered state-2 arm builds an identity matrix
+ *    in the scratch D_700036E0, turns it by an RNG draw of 0..3
+ *    quarter-turns (so the set is {0, 90, 180, 270}, four ways) and
+ *    multiplies it into the corpse's own transform with the render
+ *    position preserved — a random re-orientation of the husk, and no
+ *    velocity anywhere. It also fires only for model bytes 6/0x1E, and
+ *    only on a damage kill. The gameplay slot still
+ *    despawns immediately; VISUALLY a lethal hit launches 3-5 gib
  *    instances from the exported burst set (assets/gibs/gib_*.emdl,
- *    decomp tools/export_props.py --gibs) with that documented
- *    knockback shape — arc under the 0.052 gravity, settle on the
+ *    decomp tools/export_props.py --gibs) — a PORT scatter that reuses
+ *    the quarter-turn draw as a bearing: arc under the 0.052 gravity,
+ *    settle on the
  *    floor query, rest ~3 s, then ALPHA-FADE out over the last 30
  *    frames (white tint, alpha 1 -> 0 through the chain's per-draw
  *    tint: em_gfx_draw_skinned_tinted, the engine's faded-actor
@@ -156,7 +191,8 @@
  *    em_enemy_count/em_enemy_draw/em_enemy_draw_tint, budgeted to
  *    EM_ENEMY_MAX). Nest children and the gore particle FX remain
  *    untranslated. Missing gib assets, and the contact/suicide burst
- *    (the engine's no-knockback arm), keep the VISUAL-ONLY corpse
+ *    (where the engine skips the rebind entirely), keep the VISUAL-ONLY
+ *    corpse
  *    placeholder — the frozen pose now fades out the same way
  *    instead of sinking (flagged in em_enemy.c). Debug:
  *    EM_ENEMY_GIBDEMO=<frame> forces a lethal damage-death on enemy 0
@@ -167,8 +203,8 @@
  *    hit-sphere radius are not exported from the disc; the port
  *    constants are flagged in em_enemy.c. The lunge travels at the
  *    lunge clip's authored 21.27 u/s root speed (engine data); the
- *    connect test is the decoded segment-vs-player arm + the radius-6
- *    contact (see LUNGE DAMAGE above).
+ *    connect test is the decoded segment-vs-player arm + the port's
+ *    6-unit contact stand-in (see LUNGE DAMAGE above).
  *
  * MESH: assets/enemy_crawler.emdl (EMD2/EMD3 via the em_model API,
  * disc-derived, generated locally, git-ignored) when present; otherwise
@@ -200,9 +236,14 @@
  *     em_enemy_add_kind with EM_ENEMY_KIND_CRATE) place one;
  *   - IDLE renders assets/enemy_crate.emdl (decomp repo
  *     tools/export_props.py --crate; placeholder box when absent) with
- *     a deterministic small x/z + yaw perturbation (the documented
- *     jitter MECHANISM; the amplitudes/periods are flagged port
- *     constants — the D_002468B0 table values are not exported);
+ *     the DECODED jitter CYCLE — rattle sound 0x19C at range 300, a
+ *     random 0..255-tick wait, then a four-frame shudder on the odd
+ *     counter values below 9 (table column (counter-1)>>1, row redrawn
+ *     0..6 each cycle) and a clean matrix restore at 0. The whole block
+ *     is gated on the crate still owing its nest group an untriggered
+ *     record, so a gore-only crate sits PERFECTLY STILL. The
+ *     amplitudes/periods are flagged port constants — the D_002468B0/
+ *     B4/B8 table values are not exported;
  *   - HP 1: DAMAGE (the +0x36 mailbox — bullet or knife) BURSTS it,
  *     broadcasting the group alarm; the engine has NO proximity
  *     trigger (decoded — the old ~10-u port trigger is removed). Husk
@@ -223,8 +264,11 @@
  *     to the mode-2 generator pads (already engine-true);
  *   - the group alarm sends the crate on the engine's blind suicide
  *     hop-run AS THE CRATE (decoded func_001551B0 state 1: probe-
- *     steered + RNG heading, no player seek, 180-tick timer, then the
- *     burst hatches the same nest group). Damage during the run
+ *     steered + RNG heading, no player seek, then the burst hatches the
+ *     same nest group). RUN TIMER, corrected: 0xB4 = 180 ticks is the
+ *     constant for every variant EXCEPT model byte 6, which instead
+ *     gets 60 * its world Y / 12 — and byte 6 IS the port's default
+ *     crate, so that branch is the live one here. Damage during the run
  *     defers/absorbs exactly as decoded (see em_enemy.c).
  *
  * BUG KIND (s68 "CREATURE IDENTITY CORRECTION" — the crate hatchling
@@ -256,6 +300,29 @@
  * Instances: hatched by crate bursts, or placed directly by manifest
  * `enemy bug <x> <y> <z> <yaw>` lines (port convenience standing in
  * for the registry's ordinary room-spawn records).
+ *
+ * EGG KIND (FINDINGS s78 §5 + INVESTIGATION_area11_egg_vs_barrel.md —
+ * brain func_00156620; the AREA-11 opening's 2 destructible fixtures):
+ * RE-IDENTIFIED 2026-06-17 as an industrial metal DRUM/canister
+ * destructible (115 placements, 10 areas), model byte 0x18 / kind 0x46,
+ * HP 1 — NOT an organic egg, NOT a hatcher and NOT a crate variant.
+ * Passive set-dressing that EXPLODES when shot (the kind keeps the name
+ * EM_ENEMY_KIND_EGG until a later rename pass; only its DEATH behaviour
+ * is the drum's). No children, no husk rebind, no attack, no movement,
+ * no proximity aggro, no alarm. Decoded, kept: HP 1 (any +0x36 kills),
+ * the damage-only EXPLOSION (a fireball/blast billboard FX 0x80000013
+ * -> 0x8000006E + flash 0x8000001C + flung debris + explosion sound
+ * 0x1A1, then self-free — INVESTIGATION "DEATH = EXPLOSION", live-
+ * confirmed; PURELY VISUAL, no radius damage, no chain), and the idle
+ * wobble MECHANISM (a visual-only world-matrix perturbation — the
+ * engine's amplitude tables D_00246A00/D_00246A10 are not exported, so
+ * the amplitudes/periods are flagged port constants). It is shootable
+ * (model 0x18 is in the victim whitelist — em_enemy_acquire/ray_test/
+ * targetable). MESH: assets/enemy_egg.emdl (the area-11 model-table
+ * entry 0x0E carve — decomp tools/export_props.py --egg; capped-cylinder
+ * drum mesh), placeholder upright box when absent. Instances: manifest
+ * `enemy egg <x> <y> <z> <yaw>` lines, dispatched here (em_enemy_add_kind
+ * with EM_ENEMY_KIND_EGG). Full ledger in em_enemy.c "THE EGG / DRUM".
  *
  * GENERATOR (FINDINGS "GENERATOR — func_0015A2C0 RESOLVED", session
  * 28): the engine's most-placed creature behavior (class 0x0D, model 3,
@@ -431,7 +498,7 @@ enum {
     EM_ENEMY_IDLE   = 4    /* dormant on the nest                       */
 };
 
-/* Spawn kinds — the three decoded engine brains:
+/* Spawn kinds — the decoded engine brains:
  * CRAWLER = the worm/leech (func_00153F10/func_00154120, the kind-0xD
  * runtime creature; born attacking — the engine never places one, so a
  * manifest `enemy crawler` line is a port convenience), CRATE = the
@@ -439,11 +506,76 @@ enum {
  * its nest group's BUGS on DAMAGE or at the end of its alarm-driven
  * suicide run — s68), BUG = the nest hatchling (func_00128C10/
  * func_0012A5D0, decoded structurally s76: approach -> in-place bite ->
- * recover with flagged port magnitudes — "BUG KIND" above). */
+ * recover with flagged port magnitudes — "BUG KIND" above), EGG = the
+ * AREA-11 egg/growth fixture func_00156620 (a stationary destructible
+ * decor PROP that bursts when shot — no children, no attack, no movement;
+ * "EGG KIND" above). */
 enum {
     EM_ENEMY_KIND_CRAWLER = 0,   /* the worm/leech creature            */
     EM_ENEMY_KIND_CRATE   = 1,   /* the placed crawler (disguise)      */
-    EM_ENEMY_KIND_BUG     = 2    /* the nest hatchling (s68)           */
+    EM_ENEMY_KIND_BUG     = 2,   /* the nest hatchling (s68)           */
+    EM_ENEMY_KIND_EGG     = 3,   /* the AREA-11 metal DRUM fixture
+                                  * (func_00156620 — FINDINGS s78 §5 +
+                                  * INVESTIGATION: a STATIONARY industrial
+                                  * destructible DRUM, model 0x18 / kind
+                                  * 0x46, HP 1. Set-dressing that EXPLODES
+                                  * when shot (fireball + debris + sound
+                                  * 0x1A1, purely visual); NO children, NO
+                                  * husk rebind, NO attack, NO movement, NO
+                                  * proximity aggro, NO blast damage. NOT a
+                                  * crate variant — its own kind. Name kept
+                                  * ..._EGG pending a later rename pass —
+                                  * see "EGG KIND" above / em_enemy.c)   */
+    EM_ENEMY_KIND_HUSK_CREATURE = 4, /* AREA-11 door-husk scripted creature
+                                  * (deferred record 7, ov 0x00825940 /
+                                  * func_00825900, model 0x1A — FINDINGS
+                                  * "Door-position creature/husk set-piece"
+                                  * + INVESTIGATION_first_level_area11 §5.2
+                                  * + INVESTIGATION_area11_director §5).
+                                  * The staged "first-monster moment" actor
+                                  * by the room-move door at (387,231.8,290.3).
+                                  * SELF-CONTAINED: its own timer/proximity
+                                  * state machine (states 0..4, the live
+                                  * 0x64 scripted timer), reads NO story flag
+                                  * — NOT driven by the D_00810813 director
+                                  * (director §5 static negative). At the
+                                  * OPENING it is STAGED-INERT: present and
+                                  * visible but not aggroing (the opening
+                                  * must stay enemy-free, owner-required).
+                                  * NOT shootable (it is the scripted actor,
+                                  * not the husk). Engine spawns one child
+                                  * through func_001AFA90(0x7A) — and that
+                                  * function is now byte-matched, so the
+                                  * param is settled: it is an actor CLASS
+                                  * byte, not a mesh id. func_001AFA90 masks
+                                  * it with ~0xE0, so 0x7A means class 0x1A
+                                  * with the two high flag bits (0x60) set,
+                                  * stores the whole byte at child +0x02,
+                                  * pops a 0x2F0-byte actor off the free
+                                  * list, gives it identity scales, a zero
+                                  * position and +0x94 = -1, and links it
+                                  * into the active list. It binds NO model
+                                  * at all — whatever the child renders comes
+                                  * from its own init, which is undecoded.
+                                  * FLAGGED, not invented.
+                                  * MESH: <scene>/props/area_husk_creature
+                                  * .emdl. See "DOOR-HUSK PAIR" in em_enemy.c */
+    EM_ENEMY_KIND_HUSK_PARTNER  = 5  /* AREA-11 door-husk SHOOTABLE husk
+                                  * (deferred record 8, ov 0x00827490 /
+                                  * func_00827490, model 0x29 burst-husk-B —
+                                  * same docs as HUSK_CREATURE). HP 1,
+                                  * shootable: polls its +0x36 mailbox and on
+                                  * death BURSTS with gore FX 0x80000045
+                                  * (flagged — not directly reproducible;
+                                  * the port reuses the gib/explosion FX
+                                  * path). Partner-linked (engine puid 0x50,
+                                  * taken-bit persistence — the port models
+                                  * the SHOOTABLE/BURST arm; the link/persist
+                                  * is flagged, see em_enemy.c). At the
+                                  * OPENING it too is STAGED-INERT (no aggro,
+                                  * no attack, no movement — it just stands
+                                  * shootable). MESH: <scene>/props/
+                                  * area_husk_partner.emdl */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU
@@ -458,7 +590,12 @@ int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw);
 /* Kind-aware spawn (manifest dispatch): EM_ENEMY_KIND_CRAWLER is
  * em_enemy_add; EM_ENEMY_KIND_BUG places one bug; EM_ENEMY_KIND_CRATE
  * places the disguised crate with the default nest-group size (and
- * preloads the bug + gib assets its burst will need). */
+ * preloads the bug + gib assets its burst will need);
+ * EM_ENEMY_KIND_HUSK_CREATURE / EM_ENEMY_KIND_HUSK_PARTNER place the
+ * AREA-11 door-husk pair, both STAGED-INERT at the opening (the
+ * creature is a scripted idle actor; the partner is HP-1 shootable —
+ * see "DOOR-HUSK PAIR" in em_enemy.c). The husk meshes are scene-local
+ * (<scene>/props/area_husk_creature.emdl / area_husk_partner.emdl). */
 int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
 
 /* Crate spawn with an explicit nest-group size (`enemy crate ... bugs

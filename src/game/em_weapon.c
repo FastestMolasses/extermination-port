@@ -281,11 +281,20 @@ enum {
 #define WPN_DRAW_FRAMES    15   /* anim 0x110 length stand-in (0.25 s)     */
 #define WPN_HOLSTER_FRAMES 15   /* anim 0x111 length stand-in              */
 #define WPN_RELOAD_FRAMES  60   /* anim 0x11B true length stand-in (1 s)   */
-#define WPN_RELOAD_MAG_TICK 30  /* MAG-ACTION sound 0x168 offset into the
-                                 * reload window: ~0.5 s after the reload
-                                 * start (s29 live capture) = 30 ticks at
-                                 * 60 Hz; clamped inside a shorter window  */
-/* FIRE-CHAIN TAIL (s29 live capture — scheduled like the reload's 0x168):
+/* RELOAD RAMP-OUT — DECODED from func_0016F600 (the armed top's major
+ * state 3 handler; its own sub-mode byte +0x07 runs 0..3). When the
+ * reload clip's END flag lands (sub-mode 2), the engine does NOT go
+ * straight back to the AIM major state: it re-commits the aim-pose clip
+ * (D_00248B88[sub], the ladder base) and arms an 8-tick aim-blend ramp
+ * — +0x28 = 8 with per-tick deltas (saved_blend - 0.5) / 8 — which
+ * sub-mode 3 counts down before writing +0x06 = 2 (AIM) and restoring
+ * the pre-reload blends from +0x2E0/+0x2E4. So the reload LOCKS firing
+ * for the clip window PLUS these 8 ticks; the port's old window was the
+ * clip alone. (The engine runs a symmetric 8-tick blend-IN before the
+ * clip too — sub-modes 0/1 — which the port does not model, see
+ * em_weapon.h "RELOAD SOUNDS".) */
+#define WPN_RELOAD_RAMP     8   /* +0x28 = 8, func_0016F600 sub-mode 2->3  */
+/* FIRE-CHAIN TAIL (s29 live capture — scheduled like the casing 0x16A):
  * the wall impact 0x189 lands ~2 frames after the fire sound. The fire
  * event already spends one frame in the gun mailbox (shot at T, ray
  * resolved at T+1), so the resolve arms ONE more tick and the sound
@@ -444,8 +453,10 @@ static struct {
     int16_t reserve;     /* D_00810CB4 — TOTAL pool including the mag     */
 
     int     timer;       /* DRAW/RELOAD/HOLSTER frames remaining          */
-    int     mag_sfx;     /* RELOAD ticks until the mag-action sound 0x168
-                          * (0 = none pending; cancelled by a stance drop) */
+    int     ramp;        /* RELOAD RAMP-OUT ticks left (func_0016F600's
+                          * 8-tick aim-blend ramp after the clip's end
+                          * flag — firing stays locked through it; 0 =
+                          * the reload clip itself is still playing)      */
     int     fire_sub;    /* WPN_SUB_* — the engine's fire sub-state byte
                           * +0x07 (family position collapsed)             */
     int     fire_next;   /* a chained shot is armed for the NEXT tick
@@ -610,9 +621,14 @@ int em_weapon_draw_ticks(void)
     return anim_ticks(WPN_ANIM_DRAW, WPN_DRAW_RATE, WPN_DRAW_FRAMES);
 }
 
+/* The RELOAD state window is the clip PLUS the decoded 8-tick blend
+ * ramp-out (func_0016F600 sub-modes 2->3: the aim pose re-commits at
+ * the clip's end flag, the major state only returns to AIM once the
+ * ramp counter runs out) — firing is locked for the whole span. */
 int em_weapon_reload_ticks(void)
 {
-    return anim_ticks(WPN_ANIM_RELOAD, 1.0f, WPN_RELOAD_FRAMES);
+    return anim_ticks(WPN_ANIM_RELOAD, 1.0f, WPN_RELOAD_FRAMES)
+           + WPN_RELOAD_RAMP;
 }
 
 int em_weapon_holster_ticks(void)
@@ -663,21 +679,26 @@ static void weapon_enter_holster(void)
     em_game_anim_request(WPN_ANIM_HOLSTER, 1.0f);   /* anim 0x111 */
     w.state     = EM_WPN_HOLSTER;
     w.timer     = em_weapon_holster_ticks();
-    w.mag_sfx   = 0;    /* stance drop mid-reload: no mag action played */
+    w.ramp      = 0;    /* holstering abandons any reload ramp-out      */
     w.fire_sub  = WPN_SUB_WAIT;
     w.fire_next = 0;
 }
 
-/* RELOAD entry (engine major state 3): anim 0x33 gates firing for the
- * clip's length; the ammo move (func_0017B300) already happened at the
- * call site. Both entries (dry-mag auto-reload and the manual top-up)
- * go through here. */
+/* RELOAD entry (engine major state 3 = func_0016F600): the reload clip
+ * gates firing for its own length plus the decoded 8-tick ramp-out; the
+ * ammo move (func_0017B300) already happened at the call site. Both
+ * entries (dry-mag auto-reload and the manual top-up) go through here. */
 static void weapon_enter_reload(void)
 {
-    /* RELOAD SOUNDS (live-pinned s29): 0x163 at the reload START (the
-     * shared weapon-handling foley — same id the holster plays), then
-     * 0x168 at the MAG ACTION ~0.5 s in (the distinctive reload sound),
-     * scheduled below and ticked by the RELOAD state. */
+    /* RELOAD SOUNDS: 0x163 at the reload START (the shared weapon-
+     * handling foley — same id the holster plays; func_0016F600 fires
+     * it with func_001FBD50(., 0x163, 0, 300.0f) in the SAME tick it
+     * requests the reload clip pair, so the port keeps them together at
+     * the state entry). The MAG-ACTION 0x168 is NOT a fixed offset into
+     * the window: it is DECODED as D_00248680[sub-weapon] (sub 0 = 360
+     * = 0x168 — the same id the s29 capture pinned), played by
+     * func_0016F600 the tick the reload clip's END flag lands, together
+     * with the ramp-out setup. See the RELOAD tick below. */
     em_sfx_play(EM_SFX_WPN_HANDLE);
     /* HOLD-type request (2026-06-11 reload-stagger fix): a plain
      * request releases the clip at its end — with the commit latency
@@ -695,10 +716,9 @@ static void weapon_enter_reload(void)
     w.fire_sub  = WPN_SUB_WAIT;
     w.fire_next = 0;
     w.state     = EM_WPN_RELOAD;
-    w.timer     = em_weapon_reload_ticks();
-    w.mag_sfx   = WPN_RELOAD_MAG_TICK < w.timer ? WPN_RELOAD_MAG_TICK
-                                                : w.timer - 1;
-    if (w.mag_sfx < 1) w.mag_sfx = 1;
+    w.timer     = em_weapon_reload_ticks() - WPN_RELOAD_RAMP;
+    w.ramp      = 0;            /* the clip runs first; the ramp arms at
+                                 * its end flag (func_0016F600 mode 2)  */
 }
 
 /* AIM entry (engine major state 2, and the post-reload re-entry): HOLD
@@ -1594,8 +1614,11 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             }
             break;
         case EM_WPN_RELOAD:
-            /* anim 0x11B wait (major 3); the ammo move already happened.
-             * MAG ACTION (s29): 0x168 fires ~0.5 s into the window. */
+            /* anim 0x11B wait (major 3 = func_0016F600); the ammo move
+             * already happened. DECODED shape: the clip plays to its
+             * end flag, THEN the engine samples the draw hold once and
+             * either holsters or plays the mag sound + runs the 8-tick
+             * aim-blend ramp-out back into AIM. */
             if (getenv("EM_WEAPON_TRACE"))    /* runtime diagnosis aid:
                  * prints the clip the anim system actually plays each
                  * reload tick (the 2026-06-11 stagger hunt's tool) */
@@ -1603,12 +1626,30 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                         "wpn trace: RELOAD tick %d committed clip 0x%X "
                         "frame %d\n", w.timer,
                         em_game_anim_active(), em_game_anim_frame());
-            if (w.mag_sfx > 0 && --w.mag_sfx == 0)
-                em_sfx_play(EM_SFX_WPN_MAG);
-            if (--w.timer <= 0)
-                weapon_enter_aim();         /* re-hold the aim pose */
-            if (!draw_held)                 /* stance drop mid-reload */
-                weapon_enter_holster();
+            if (w.ramp > 0) {
+                /* RAMP-OUT (func_0016F600 sub-mode 3): the aim pose is
+                 * already re-committed and the aim blends walk back to
+                 * their pre-reload values over 8 ticks; only when the
+                 * counter runs out does the major state become 2 (AIM)
+                 * and firing unlock. */
+                if (--w.ramp <= 0)
+                    weapon_enter_aim();     /* re-hold the aim pose */
+            } else if (--w.timer <= 0) {
+                /* CLIP END (sub-mode 2, gated on the clip-end flag
+                 * +0x200 bit 0x1000) — the ONLY point the engine looks
+                 * at the weapon-draw hold again. Releasing R1 mid-
+                 * reload therefore does NOT abort: the reload plays out
+                 * and the holster commits HERE (+0x06 = 0x65). */
+                if (draw_held) {
+                    /* MAG ACTION — D_00248680[sub-weapon], sub 0 = 0x168
+                     * (func_001FBD50 at radius 300), fired on this exact
+                     * tick alongside the ramp-out setup. */
+                    em_sfx_play(EM_SFX_WPN_MAG);
+                    w.ramp = WPN_RELOAD_RAMP;
+                } else {
+                    weapon_enter_holster();
+                }
+            }
             break;
         case EM_WPN_HOLSTER:
             if (--w.timer <= 0)
@@ -1750,13 +1791,22 @@ static void fx_load(EmGfx *gfx)
         }
         size_t   bytes = (size_t)tw * th * 4;
         uint8_t *rgba  = (uint8_t *)malloc(bytes);
-        if (rgba && fread(rgba, 1, bytes, f) == bytes &&
-            em_gfx_beam_texture_set(gfx, i, rgba, tw, th)) {
+        /* Split the read failure from the GPU-upload failure so the
+         * diagnostic is accurate. The weapon unit test STUBS
+         * em_gfx_beam_texture_set to return 0 (no GPU), so a perfectly good
+         * .emtx read would otherwise misreport as "truncated/failed" — a
+         * false asset fault. A good read with a refused upload is a
+         * gfx-stub/headless condition, not a bad file. */
+        if (!rgba || fread(rgba, 1, bytes, f) != bytes) {
+            fprintf(stderr, "weapon: %s: truncated/failed\n", kFxFiles[i]);
+        } else if (em_gfx_beam_texture_set(gfx, i, rgba, tw, th)) {
             fx.ok[i] = 1;
             fprintf(stderr, "weapon: fx sprite %s (%ux%u)\n",
                     kFxFiles[i], tw, th);
         } else {
-            fprintf(stderr, "weapon: %s: truncated/failed\n", kFxFiles[i]);
+            /* read OK, upload refused (e.g. headless/stubbed gfx) */
+            fprintf(stderr, "weapon: %s: read OK (%ux%u), GPU upload "
+                    "unavailable (headless/stub)\n", kFxFiles[i], tw, th);
         }
         free(rgba);
         fclose(f);
