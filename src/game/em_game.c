@@ -132,1454 +132,12 @@
 #include "game/em_pickup.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
+#include "game/em_truck.h"
 #include "game/em_weapon.h"
+#include "game/em_game_internal.h"
 
-#define MODEL_PATH     "assets/player.emdl"
-#define SCENE_DIR      "assets/scene"   /* boot default; g.scene_dir is
-                                         * the ACTIVE scene (runtime
-                                         * switch: em_game_scene_switch) */
-#define COLL_DEFAULT   "office.emcl"
-#define SCENE_MAX      16
-
-/* DEFAULT player spawn — the office room (chunk06.n1 level): the live
- * GS-dump capture has the character standing at ~(107.4, 0, -184); the
- * level floor there is y = 0 and the player EMDL is recentred at the
- * origin with its feet at y ~= 0. A scene manifest (scene.txt, below)
- * overrides this per scene; the office values stay as the no-manifest
- * defaults so an unmanifested assets/scene behaves exactly as before. */
-static const float kPlayerPos[3] = { 107.4f, 0.0f, -184.0f };
-
-/* Walkable-bounds FALLBACK: the office room's collision bbox (the id 0x44
- * file — FINDINGS.md "COLLISION WORLD", chunk06.n1). Used only when no
- * EMCL collision world is generated (assets/scene/office.emcl, from the
- * decomp repo's tools/export_collision.py); with the world loaded the
- * real engine queries run instead — em_collision_move_probe
- * (func_0019AD00 collide-and-slide) for movement and
- * em_collision_segment_query (func_0019A570) for the floor and the
- * camera solver. */
-static const float kRoomMin[2] = { -3.6f,  -296.0f };  /* x, z */
-static const float kRoomMax[2] = { 120.5f,    2.4f };
-
-/* Vertical floor-probe window: the engine's actor spine resolves height
- * with separate vertical segment queries through the same hub (e.g. the
- * frozen scratchpad query in FINDINGS, a y+200..y-200 down-probe). The
- * port probes from step-height above the feet to a drop window below. */
-#define FLOOR_PROBE_UP    8.0f
-#define FLOOR_PROBE_DOWN  8.0f
-
-/* (The old knee-height WALL_PROBE_LIFT and WALL_SKIN constants are
- * retired: wall response now runs the engine's own two-height radial
- * probes — ankle 0.05 / chest 4.01 with push-back, PLAYER WALL RADIUS
- * below — which never rest the probe START on a plane, so no skin is
- * needed, and the chest pass natively covers the snow-scene
- * foot-level sliver case the knee lift worked around.) */
-
-/* Movement / camera tuning. The loop is vsync-locked at 60 Hz exactly
- * like the PS2 original, so a fixed dt keeps everything deterministic.
- *
- * ANALOG GAIT — TIER-RAMP CORRECTED (2026-06-11, user PCSX2 report
- * "full stick should RUN" + the func_0017BC40 re-decode; overturns the
- * s31 "gait = locIdx+1" reading AND the CURIOSITIES "unreachable
- * sprint"): the stick quantizer func_001B5CC0 (rings 48/88/122) picks
- * the gait byte 0..3, and func_00174AC0 maps it to a TARGET speed
- * +0x240 = {0, 0.1, 0.3, 0.8} u/tick. The locomotion tier locIdx
- * (+0x25C) only ENTERS at gait-1 (func_001612D0 state 2); from there
- * the ramp func_0017BC40 accelerates +0x38 by D_00248880[tier] per
- * frame and PROMOTES the tier (+0x25C += 1) each time the speed
- * crosses the next tier's D_00248870 value, until tier speed ==
- * target. anim_matrix_player re-requests the tier's clip every frame
- * (sub 1 blends TOWARD the next tier's clip mid-ramp). So sustained:
- *
- *   gait 1 = WALK  tier 1, anim id 1, 0.1 u/tick =  6 u/s
- *   gait 2 = JOG   tier 2, anim id 2, 0.3 u/tick = 18 u/s
- *   gait 3 = RUN   tier 3, anim id 3, 0.8 u/tick = 48 u/s
- *
- * Keyboard full push = RUN (the PCSX2 full-stick behavior); the input
- * layer's modifier caps land each hold one ring down — Cmd 0.8 (raw
- * ~102) = the gait-2 JOG band, Option 0.5 (raw 64) = the gait-1 WALK
- * band (em_input.h GAIT HOLD TIERS). WALK_SPEED stays as the
- * door-transit scripted MOVE-TO speed only (em_door's walk, not stick
- * locomotion — the historical port constant keeps the transit
- * timings). Stick release runs the engine's RUN-DOWN (func_0017BC40
- * phase 2, C2): 0.03125 u/tick decay that CASCADES through every tier
- * (run -> jog -> walk -> stop), demoting at each tier's floor — not
- * stopping at the first boundary. The carried-gear x2 decay (actor
- * +0x314 & 0x1F) is OMITTED (the port has no gear-carry state) and the
- * mode-6 stop-skid anims ids 4/5 are untranslated — both flagged. */
-#define FRAME_DT        (1.0f / 60.0f)
-#define WALK_SPEED      15.0f   /* units/sec — scripted door MOVE-TO only */
-#define GAIT_RING_1     48.0f   /* func_001B5CC0 rings, raw stick units */
-#define GAIT_RING_2     88.0f
-#define GAIT_RING_3     122.0f
-#define GAIT_WALK_SPEED (0.1f * 60.0f)  /* D_00248870[1] u/tick @ 60 Hz */
-#define GAIT_JOG_SPEED  (0.3f * 60.0f)  /* D_00248870[2] */
-#define GAIT_RUN_SPEED  (0.8f * 60.0f)  /* D_00248870[3] — full stick */
-/* Tier-ramp tables (ELF .data, re-dumped 2026-06-11): per-frame accel
- * D_00248880 while ramping OUT of tier i, decel D_00248890 while
- * ramping DOWN from tier i, and the phase-2 run-down decay. u/tick. */
-#define GAIT_ACCEL_0    0.05f       /* D_00248880[0]: 0 -> 0.1   */
-#define GAIT_ACCEL_1    0.05f       /* D_00248880[1]: 0.1 -> 0.3 */
-#define GAIT_ACCEL_2    0.0625f     /* D_00248880[2]: 0.3 -> 0.8 */
-#define GAIT_DECEL_2    0.025f      /* D_00248890[2]: 0.3 -> 0.1 */
-#define GAIT_DECEL_3    0.0227273f  /* D_00248890[3]: 0.8 -> 0.3 */
-#define GAIT_RUNDOWN    0.03125f    /* func_0017BC40 phase-2 decay
-                                     * (0x3D000000; x2 with carried
-                                     * gear — untranslated) */
-/* BODY-HEADING TURN RATES — the engine's facing ease (func_00174AC0
- * rate select + func_001B12B0 turn-toward; decomp FINDINGS "GROUND
- * LOCOMOTION"). The invented TURN_SPEED 12 rad/s slide is RETIRED: the
- * body heading (g.yaw) eases toward the camera-relative DESIRED heading
- * at a per-frame rate banded by the gait/speed state, and velocity is
- * emitted along the EASED g.yaw, NOT the raw stick vector — so motion
- * CURVES into turns (the body lags the stick). rad/frame @ 60 Hz.
- *
- * TURN-IN-PLACE (move_speed == 0), banded by gait tier:
- *   gait 2 -> 4.0 deg/f ; gait 1 -> 8.0 deg/f ; gait 0/3 -> 22.5 deg/f
- * TURNING WHILE MOVING (move_speed > 0), banded by |delta| then by the
- * current ramped speed loco_upt (u/tick: walk 0.1, jog 0.3, run 0.8):
- *   |delta| <= 54 deg:  spd<=0.1 -> 4 ; spd<=0.3 -> 6 ; spd>0.3 -> 7
- *   |delta| >  54 deg:  spd<=0.1 -> 6 ; spd<=0.3 -> 9 ; spd>0.3 -> 10.5
- * The turn-toward SNAPS when |delta| <= the chosen rate (no overshoot /
- * jitter), else steps by sign(delta)*rate. */
-#define TURN_IP_GAIT2   0.0698132f  /* 4.0 deg/f, turn-in-place gait 2 */
-#define TURN_IP_GAIT1   0.1396263f  /* 8.0 deg/f, turn-in-place gait 1 */
-#define TURN_IP_GAIT03  0.3926991f  /* 22.5 deg/f, turn-in-place 0/3   */
-#define TURN_DELTA_BAND 0.9424778f  /* 54 deg — the |delta| split      */
-#define TURN_MV_NEAR_W  0.0698132f  /* near band: walk 4 deg/f         */
-#define TURN_MV_NEAR_J  0.1047198f  /*           jog  6 deg/f          */
-#define TURN_MV_NEAR_R  0.1221730f  /*           run  7 deg/f          */
-#define TURN_MV_FAR_W   0.1047198f  /* far  band: walk 6 deg/f         */
-#define TURN_MV_FAR_J   0.1570796f  /*           jog  9 deg/f          */
-#define TURN_MV_FAR_R   0.1832596f  /*           run  10.5 deg/f       */
-/* MANUAL AIM STEER — DECODED (2026-06-11, func_0017ABA0; retires the
- * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
- * drives the aim BLEND PAIR player +0x27C (yaw) / +0x278 (pitch),
- * both 0.5-centered in [0,1] (stance entry resets them to 0.5):
- *
- *   - per-frame rate = a 4-band table indexed by the axis deflection
- *     band |raw - 0x80| through func_001B5DC0's rings 49/89/123:
- *     R1-family stances 0x31/0x34: {0, 0.0025, 0.005, 0.015};
- *     R2-family 0x32/0x35: {0, 0.0016667, 0.005, 0.015};
- *   - YAW: blend +- rate / sin(pi*(0.5 + 0.6*(pitch-0.5))) (faster
- *     when pitched off level; exactly 1.0 at center); overflow past
- *     [0,1] clamps the blend and TURNS THE BODY by the excess (rad) *
- *     1.0 (R1 family) / 1.5 (R2 family) — the pose pans up to its
- *     +-60 deg yaw ladder first, then the player turns;
- *   - PITCH: blend +- (rate * mult) / 2 per frame — INVERTED Y (the
- *     raw axis byte >= 0x80 = stick DOWN increments the blend = aim
- *     UP; stick UP aims DOWN — "W = down", the user-attested original
- *     behavior); mult = 1.5 outside [0.3, 0.7] for the R1 family (and
- *     x1.8 for sub-weapon 4, not in the port); clamp [0, 1.0] for
- *     stances 0x31/0x32, [0, 0.75] for 0x34/0x35.
- *
- * The blends select/blend the 9-step AIM POSE LADDER 0x112..0x11A
- * (FINDINGS "aim-ladder tables") — measured from the baked clips
- * themselves (hand-bone +X fire direction): 0x112 center (+1.3 deg),
- * 0x113 up +81.3, 0x114 down -78.7, 0x115/0x116 level yaw -+60 (model
- * -X = SCREEN RIGHT in the port's basis), 0x117/0x118 up/down right,
- * 0x119/0x11A up/down left. The fire/laser ray follows the posed hand
- * bone automatically (em_weapon's muzzle anchor). */
-#define AIM_BAND_1      49.0f       /* func_001B5DC0 |raw-0x80| rings */
-#define AIM_BAND_2      89.0f
-#define AIM_BAND_3      123.0f
-#define AIM_PITCH_MAX_R1 1.0f       /* +0x278 clamp, stances 0x31/0x32 */
-#define AIM_POSE_UP_DEG   81.3f     /* measured ladder pose pitches */
-#define AIM_POSE_DOWN_DEG 78.7f
-#define AIM_POSE_CTR_DEG  1.3f
-#define AIM_POSE_YAW_DEG  60.0f
-
-/* PLAYER WALL RADIUS (decoded s38, FINDINGS "PLAYER WALL COLLISION
- * RADIUS"): the engine's wall response is NOT a zero-width move
- * segment — every frame the walk integrator func_001764E0 fires FIVE
- * radial probes of local vector (0, lift, 4.5) at yaw + D_00248950 =
- * {0, +45, -45, +90, -90} deg, at TWO heights: ankle y+0.05 (mask 6,
- * static world) and chest y+4.01 (mask 7, + movable hulls = doors),
- * and on a wall-class hit adds the hit-minus-end overshoot back into
- * actor x/z (the spad 0x700031C0 delta). The effective wall standoff
- * is 4.5 units — the old zero-radius pre-move probe is why the player
- * clipped halfway into walls. Sliding emerges exactly like the PS2:
- * only probes pointing into the wall push back, each along its own
- * direction, so motion parallel to the wall survives. */
-#define PLAYER_WALL_RADIUS 4.5f   /* the (0, y, 4.5) local probe vector */
-#define PROBE_ANKLE_LIFT   0.05f  /* loop-1 local y (sp+0x70 vector) */
-#define PROBE_CHEST_LIFT   4.01f  /* loop-2 local y (D_002488C0) */
-
-/* Animation clips + crossfade. Library clip ids (chunk28/f01_id3c —
- * for the player the anim id IS the container index, FINDINGS "ANIM ID
- * MAPPING"). The AUTHENTIC stick-locomotion ids — TIER-RAMP CORRECTED
- * 2026-06-11 (see ANALOG GAIT above; the s31 "full stick = id 2"
- * reading missed the func_0017BC40 tier promotion — the PCSX2 oracle
- * showed the port one tier slow everywhere):
- *
- *   stick deflection -> func_001B5CC0 quantizer (rings r=48/88/122) ->
- *   gait byte 0..3 (pad struct +0x17 = 0x810E57) -> player +0x23F ->
- *   target speed +0x240 (func_00174AC0) -> the tier ramp promotes
- *   locIdx +0x25C until D_00248870[locIdx] == target; anim id =
- *   D_00248AB0[mode 1][family*4 + locIdx] (func_0017B490/func_0017B460;
- *   unarmed family 0 row = {0, 1, 2, 3}).
- *
- * Sustained: gait 1 = WALK (id 1, 6 u/s), gait 2 = JOG (id 2,
- * 18 u/s), gait 3 full stick = RUN (id 3, 48 u/s). Tier 0 (id 0,
- * speed 0 — turn-in-place) is only the gait-1 ENTRY transient. All
- * three clips re-baked from the fixed-directory library 2026-06-11:
- * id 1 = 120-frame scissored stride (12.1 u root travel -> natural
- * 6.11 u/s; feet swing 7.3 u, arms 3.3 u); id 2 = 45-frame jog
- * (17.7 u -> 24.07 u/s; feet 8.4, arms 4.9) — the engine drives it at
- * 18 u/s = rate 0.75, exactly its hard-coded +0x204 = 0.75 at tier 2;
- * id 3 = 40-frame full arm-pump run (30.9 u -> 47.57 u/s; feet 10.1,
- * arms 6.8) at rate ~1.0 (0.8 u/tick = 48 u/s target). Playback rate
- * = move_speed / natural keeps the feet tracking the ground (stride
- * lock). Idle<->locomotion is a 0.15 s LINEAR palette blend — the
- * engine cross-fades clip transitions the same way (PROGRESS.md:
- * mid-blend live captures match no single clip); the mid-ramp
- * blend-toward-next-tier (anim_matrix_player sub 1) is approximated
- * by the same crossfade on the tier swap (flagged).
- *
- * IDLE CYCLE (decoded s38, FINDINGS "PLAYER IDLE CYCLE" — closes the
- * 2026-06-11 "true default-idle anim id" open item): the player
- * mode-0 top func_00161020 requests the BASE idle anim id 0 (the
- * 80-frame breathing idle; mode-0 family table D_00248A00[0] via
- * func_00174A50, blend arg 12.0 on entry), then runs a 300-frame
- * timer (+0x28 = 0x12C, 5 s). At zero it requests the IDLE FIDGET
- * id 0x15D = 349 — the 180-frame look-around (directory id; the
- * pre-fix exporter scan called this container "346") — with blend
- * arg 8.0, waits for the clip-end flag (+0x200 & 0x1000), then
- * re-requests the breathing idle (blend 8.0) and re-arms the timer:
- * the breathing/look-around loop you see when standing still. Stick
- * input, aim, melee or a scripted anim leaves mode 0 and resets the
- * cycle. Old assets without clip id 0 fall back to 349 alone (cycle
- * off). */
-#define CLIP_ID_IDLE    0u      /* breathing idle (engine mode-0 base) */
-#define CLIP_ID_FIDGET  349u    /* idle fidget 0x15D = look-around */
-#define CLIP_ID_WALK    1u      /* tier 1 (gait 1 / Option hold) */
-#define CLIP_ID_JOG     2u      /* tier 2 (gait 2 / Cmd hold) */
-#define CLIP_ID_RUN     3u      /* tier 3 (gait 3 = full stick) */
-#define WALK_CLIP_SPEED 6.11f   /* natural u/s at the baked 60 fps */
-#define JOG_CLIP_SPEED  24.07f  /* jog clip natural speed (45 fr) */
-#define RUN_CLIP_SPEED  47.57f  /* run clip natural speed (40 fr) */
-#define IDLE_FIDGET_FRAMES 300  /* +0x28 timer re-arm value (0x12C) */
-#define IDLE_BLEND_TIME (8.0f / 60.0f) /* the cycle's blend arg 8.0 */
-
-/* STATUS-MENU UI SCENE (FINDINGS.md "STATUS-MENU UI SCENE DECODED" —
- * func_0020CDC0 state 0 + the menu-player behavior func_0020E6F0):
- * while the status screen is up, the engine's 3D frame IS the menu
- * scene — the camera matrix 0x810610 goes IDENTITY and a dedicated
- * static-array actor renders the player turntabling on black, under
- * the animated tile background and the panels. Decoded constants:
- *   placement  view-space (7.4, 2.4, 40) of the identity UI camera
- *              (pos = camCol3 + 40*colZ + 7.4*colX + 2.4*colY); the
- *              actor scale is never written (stays the alloc's 1.0)
- *   rotation   init (0, pi, 0) — facing the camera (the publisher
- *              func_0020EC80's diag(-1)*rotY(pi) flip makes it
- *              upright/front in the y-down view); yaw += 0.01
- *              rad/frame, wrapped > pi -> -2pi (one rev ~10.5 s)
- *   anim       displayed health > 35 -> clip 0x1C2 (450), a SINGLE-
- *              FRAME stance (static pose; all motion is the spin);
- *              <= 35 -> clip 0xA (10), the 90-frame low-health idle;
- *              advance 1.0/frame; recovery past 35 swaps back to
- *              0x1C2 (no swap TO 0xA mid-open — init only)
- *   tint       per-actor color delta (-0.8, -1.0, -0.3) * infection
- *              * ramp (G clamped >= -127), ramp breathing 1.0 <-> 1.3
- *              at +-0.01/frame — the 2 s infected-skin pulse
- * Port mapping: the native y-up view (em_mat4_lookat_gs remaps the
- * engine's y-down GS view) puts the engine's view-down offset at
- * negative y, and the engine's +x maps screen-LEFT (the remap's X
- * negation) — the model lands ON the ring gauge, the real screen's
- * placement. THE UI PROJECTION IS THE ENGINE'S WORLD P AT s = 480 —
- * READ LIVE s66: with the hub open, ctx+0x2468 = 480.37, UNCHANGED
- * from gameplay (the 0.37 is a stalled zoom-lerp tail); P at +0x2340
- * = the standard (0.8s, 0.5s) rows and V at +0x2380 = identity with
- * m11 = -1 (the UI camera y-flip). There is NO separate menu
- * projection; the s49 empirical tan(fovy/2) = 0.74 pin (which implied
- * a menu zoom s ~= 324) is DEAD. Whatever the 0.74 pin was
- * compensating for lives in the MODEL TRANSFORM/placement: the s49
- * actor-position decode (view-space (7.4, 2.4, 40), func_0020E6F0
- * state 0) cannot reproduce the observed screen framing under the
- * real s = 480 P (it would project the model tiny and near-centered),
- * so one link of that placement chain is misread — OPEN. The port
- * keeps the VALIDATED screen framing (the s49 anchors: ring-center
- * column canvas x 208 = NDC -0.1875, vertical anchor NDC +0.0811,
- * the same apparent size) by RE-DERIVING the view-space placement
- * under the engine projection — preserve the vertical per-unit scale
- * and both NDC anchors:
- *   UI_SCENE_Z = 40 * 0.74 / (224/480)     = 444/7 = 63.428571
- *   UI_SCENE_X = 0.1875 * (320/480) * Z    = 7.928571
- *   UI_SCENE_Y = 0.0811 * (224/480) * Z    = 2.4 (unchanged)
- * (FLAGGED port-derived placement; the engine's 10/7 pixel-aspect
- * anisotropy now applies to the menu model exactly as it does to the
- * world — the old square-pixel pin drew it ~7% too wide.) The
- * additive engine tint is approximated
- * multiplicatively over the GS 128 base: rgb_mul = (128 + delta)/128.
- * The rig is orbited to the gfx stand-in light's azimuth (relative
- * camera<->player transform unchanged) so the camera-facing side is
- * lit — also explained at ui_scene_render. */
-#define UI_SCENE_X      7.928571f  /* re-derived under s=480 (above)  */
-#define UI_SCENE_Y     -2.4f       /* engine view-down 2.4, native y-up */
-#define UI_SCENE_Z      63.428571f /* re-derived under s=480 (above)  */
-#define UI_SCENE_ZOOM   480.0f     /* ctx+0x2468 with the hub open —
-                                    * the ORDINARY world zoom (s66)   */
-#define UI_SPIN_RATE    0.01f   /* yaw rad per frame (engine 0x3C23D70A) */
-#define UI_RAMP_RATE    0.01f   /* tint pulse step per frame */
-#define UI_RAMP_MAX     1.3f    /* tint pulse ceiling (0x3FA66666) */
-#define UI_LOW_HEALTH  35.0f    /* clip-select threshold (0x420C0000) */
-/* The UI rig's orbit azimuth = the gfx stand-in light's horizontal
- * direction, normalized ((0.4, 0.45)/0.602 — see the camera note in
- * ui_scene_render). */
-#define UI_CAM_DIR_X    0.6644f
-#define UI_CAM_DIR_Z    0.7474f
-#define CLIP_ID_MENU     450u   /* 0x1C2 — single-frame menu stance */
-#define CLIP_ID_MENU_LOW 10u    /* 0xA — low-health menu idle (90 fr) */
-
-/* FOOTSTEP TRIGGER FRAMES — the engine's per-anim-id property table
- * D_00248C90 (FINDINGS "ANIM ID MAPPING": frameA/frameB per row; the
- * per-frame func_00187350 fires the step sound + decal when the
- * committed clip time crosses them). Rows re-read from the user's
- * local boot ELF for the authentic ids: walk id 1 (120 fr) -> 72/21 —
- * the exact pair the s29 live capture metered at a partial-stick
- * gait; jog id 2 (45 fr) -> 26/3; run id 3 (40 fr) -> 21/2. Each
- * trigger plays the two-layer step — surface variant (material block
- * + tier sub-base) + gear/cloth variant, each with its own rand5 draw
- * (footstep_play below). */
-#define WALK_STEP_FRAME_A 72.0f /* D_00248C90[1].frameA */
-#define WALK_STEP_FRAME_B 21.0f /* D_00248C90[1].frameB */
-#define JOG_STEP_FRAME_A  26.0f /* D_00248C90[2].frameA */
-#define JOG_STEP_FRAME_B  3.0f  /* D_00248C90[2].frameB */
-#define RUN_STEP_FRAME_A  21.0f /* D_00248C90[3].frameA */
-#define RUN_STEP_FRAME_B  2.0f  /* D_00248C90[3].frameB */
-#define ANIM_BLEND_TIME 0.15f   /* seconds, idle<->walk crossfade */
-#define STICK_DEADZONE  0.25f
-#define EM_PI           3.14159265f
-
-/* PLAYER DAMAGE & DEATH (2026-06-11 damage-pipeline decode — the
- * engine's per-frame player damage processor func_0021C440, called at
- * the head of player states 1 and 2; the apply helpers func_0021C350
- * (health) / func_0021C270 (infection); the state-2 sub handlers
- * func_0021D800 (flinch), func_0021E240 (death), func_0021E830
- * (infected death); the terminal func_0021D2E0; the passive ticks
- * func_0015D100/func_0015D000; the kill-plane state-6 handler
- * func_0015D460).
- *
- * Engine model (player actor 0x008102B0):
- *   +0x224  pending HEALTH damage (float) — producers write it
- *           directly (leech latch 5.0 / leech lunge 15.0; s22b's
- *           "drain magnitude D_008104D4" IS this field); func_0021C350
- *           subtracts it from health +0x220, latches the low-health
- *           flag (+0x235 bit 0) at <= 35, floors at 0 with the event
- *           byte +0x00 = 2 (dying).
- *   +0x22C  pending INFECTION damage (float) — the breather-pad
- *           event-3 write (s33: pad sets +0x22C = 5.0); func_0021C270
- *           ADDS it to infection +0x228. At 100: infection clamps,
- *           health clamps to 60 and the display max swaps to 60
- *           (flag 0x8104E4 == player +0x234 — closes C14), the
- *           INFECTED latch +0x234 = 1 (with D_00810707/D_008106F1),
- *           sound 0x149 vol 300. This is the "Dennis Infected"
- *           consequence: NOT instant death — a reduced 60-HP cap plus
- *           a passive drain (func_0015D100: while +0x234 != 0, health
- *           -= 2.0 every 240 frames with effect 0x80000063; reaching
- *           0 sets event 2 with type 0x63 -> the INFECTED death).
- *   +0x0F   damage TYPE byte (D_008102BF) — typed/latch reactions
- *           1..0xB each pick their own state-2 sub + the marker anim
- *           ids 0x3B/0x3C/0x3E..0x40; only the GENERIC tail (type 0)
- *           is translated here — no typed producer exists natively
- *           yet (untranslated, flagged).
- *   +0x20E  post-hit invulnerability countdown — armed at flinch END
- *           (0x3C = 60 frames; 0x5A = 90 after a latch hit); the
- *           event byte returns to 1 (vulnerable) only at 0, and every
- *           producer requires event == 1, so the player is immune
- *           from hit-reaction start until the window expires.
- *
- * FLINCH (state 2 sub 0, func_0021D800): voice 0x152 (0x153 when the
- * hit was infection damage, +0x1F1 == 1) vol 300 + rumble; the REAL
- * clip is requested directly (the +0x1F0 = 0x3E write is a category
- * marker): RNG bit -> one of two flinch families, armed (+0x236)
- * 0x56/0x57, unarmed 0x1E/0x1F vs 0x20/0x21 (func_0021D1A0 picks the
- * side within the family — port: a second RNG bit, flagged),
- * infected 0x1C7. Clip end -> i-frames armed, exit to state 1.
- *
- * DEATH (state 2 sub 1, func_0021E240; health <= 0 in the processor):
- * phase 0 = rumble + voice 0x146 + body foley 0x151 (vol 300), clip
- * 0x2A (armed variant 0x5C via +0x236), root-motion mover; cues at
- * frames-remaining 80 (sound 0x156) and 16 (ground thud 0x14E,
- * infected 0x14F, + heavy rumble); clip end -> func_0021D2E0:
- * blood-pool effect 0x80000043 under the corpse (PORT: skipped, no
- * decal system — flagged), event = 2, corpse hold 0x78 = 120 frames,
- * then the standard fade-out func_001AEDE0(4,0). INFECTED death (sub
- * 3, func_0021E830) plays clip 0x1C4 (300 f succumb) with gore
- * effect 0x80000051 (PORT: skipped) and the same terminal.
- *
- * KILL PLANE (player spine, s15/s17): pos.y < -200 -> state 6
- * (func_0015D460): sub 0 zeroes health + event, sub 1 starts the same
- * fade-out, sub 2 parks. No anim, no sound.
- *
- * GAME OVER — THE DECODED CHAIN (s66 live + the s70 static decode of
- * func_001AD4E0 / func_001AC070 / func_001AC480; the old "screen id
- * D_008106CF via state 6" framing was the END-OF-LEVEL path —
- * D_008106CE/CF are never written on death):
- *
- *   vitals mirror (~0x0015CFB0)   health <= 0 latches D_008106B9 = 1
- *   func_001AE040 state-1 tail    latch && fade == 2 (hold-black) ->
- *                                 func_001AD140: game task 3/2
- *   GAME-OVER WAIT func_001AD4E0  sub 0: timer task+0x18 = 0xF0 = 240
- *                                 sub 1: busy gate; launch SCREEN
- *                                   MODULE 0x27 (func_001FF080(0,
- *                                   0x27)) — the GAME OVER art screen
- *                                 sub 2: module up -> FADE-IN
- *                                   (func_001AEE10) + audio cue
- *                                   func_001FA790(0, 0x1B) (the
- *                                   game-over jingle/stream — id
- *                                   identification flagged)
- *                                 sub 3: GS backdrop quad each frame
- *                                   (func_001ABF90); the 240 counts
- *                                   down THROUGH the fade-in; once
- *                                   the fade is idle, CROSS pressed-
- *                                   edge (D_00810E74 & 0x40 — the
- *                                   s-pad map pins 0x40 = CROSS) OR
- *                                   timer 0 -> FADE-OUT, sub 4
- *                                 sub 4: at hold-black func_001FAB50
- *                                   (audio stop) -> task state 9 = 4
- *   ARM func_001ADF00             clears, gp-0x7794 "from death" = 1,
- *                                 func_001AB790(func_001AC070): the
- *                                 game task fn is REPLACED WHOLESALE
- *                                 by the CONTINUE machine (the world
- *                                 stops existing; the title installs
- *                                 the same task with flag 0)
- *   CONTINUE func_001AC070        state 0: from-death -> state 2; the
- *                                 prompt sub-machine func_001AC480:
- *                                 launch SCREEN MODULE 1 (the title/
- *                                 continue screen), FADE-IN, then the
- *                                 interactive prompt — cursor task
- *                                 +0xF (from-death INIT = 1, title
- *                                 init = 0; 3 options 0..2), d-pad
- *                                 UP/DOWN = 0x1000/0x4000 moves it
- *                                 (sound 5), confirm = pressed &
- *                                 0x840 (START|CROSS) -> per-option
- *                                 confirm sound 0x5DD/0x5DE/0x5DF +
- *                                 FADE-OUT; idle timer task+0x16 =
- *                                 0x4B0 = 1200 (reset by any held
- *                                 button) -> timeout FADE-OUT to the
- *                                 title/attract cycle (held input
- *                                 mid-fade cancels back in). At
- *                                 hold-black the confirm dispatches:
- *                                 cursor 0 -> func_001AB790(
- *                                 func_001ACEC0) REINSTALLS the
- *                                 gameplay task (CONTINUE; D_00275BE0
- *                                 = 0), 1 -> the load-game screen
- *                                 (func_00225A00/func_00225AC0;
- *                                 success also reinstalls gameplay
- *                                 with D_00275BE0 = 1), 2 -> the
- *                                 func_00200A40 sub-screen, back to
- *                                 the prompt when done.
- *
- * The PORT runs that skeleton faithfully (game_over_tick + the frozen
- * world gate in gameplay_frame — the engine's task replacement is
- * modeled by halting the world sim like the menu pause): death fade ->
- * GAME-OVER screen fades IN (240-frame hold counted through the
- * fade, CROSS skips) -> fade out -> CONTINUE prompt fades in (cursor
- * init 1, d-pad moves, START/CROSS confirms, 1200-frame idle timeout)
- * -> fade out -> dispatch. FLAGGED stand-ins: the two screen modules'
- * art is unexported (em_hud_game_over / em_hud_continue draw the
- * skeleton presentation: black base + tall-font title / option
- * lines); option labels are port guesses (the module text is not
- * decoded); options 1/2 and the timeout have no native target (no
- * save system, no title screen) — all three return to the prompt,
- * documented at the dispatch; option 0 = the real continue (scene
- * reload + boot status restore, the engine's reinstalled-task area
- * re-entry).
- *
- * HEARTBEAT (func_0015D000): health <= 35 -> pad-rumble pulse
- * (func_001B61C0(0, 0xD0, 4, 0)) every 121 frames, <= 10 -> stronger
- * (0xE0) every 61. PURE RUMBLE — the port has no force-feedback
- * backend; documented not-applicable (no sound is involved).
- *
- * HAZARD-ROOM passive drain (func_0015D100 first arm: room attr bit
- * 4 + area flags & 0x60 + suit byte 0x810C7E == 0 -> health -= 1.0
- * every 360 frames) is untranslated — the port has no room-attribute
- * flags yet (flagged).
- *
- * The port's enemy producers post one mailbox int (em_enemy.h):
- * 0x4000 | 15 from the worm's lunge connect -> 15.0 pending HEALTH
- * damage (the DECODED lunge-latch magnitude D_008104D4 = 15.0,
- * func_00154120 sub 3 — replaces the invented 0x400A/10; whether
- * the engine's latch drains health or infection is undecoded,
- * flagged in em_enemy.h), and GEN_TRAP_HIT (5) from the open
- * breather pad -> 5.0 pending INFECTION (the engine pad writes
- * +0x22C = 5.0 — the old port consume burned it as health damage;
- * corrected). */
-#define PD_CLIP_FLINCH_A0    0x1Eu /* unarmed flinch, family A side 0 */
-#define PD_CLIP_FLINCH_A1    0x1Fu /* unarmed flinch, family A side 1 */
-#define PD_CLIP_FLINCH_B0    0x20u /* unarmed flinch, family B side 0 */
-#define PD_CLIP_FLINCH_B1    0x21u /* unarmed flinch, family B side 1 */
-#define PD_CLIP_FLINCH_ARM_A 0x56u /* armed flinch, family A */
-#define PD_CLIP_FLINCH_ARM_B 0x57u /* armed flinch, family B */
-#define PD_CLIP_FLINCH_INF  0x1C7u /* infected flinch (90 f) */
-#define PD_CLIP_DEATH        0x2Au /* normal death (130 f fall) */
-#define PD_CLIP_DEATH_ARM    0x5Cu /* armed death variant (130 f) */
-#define PD_CLIP_DEATH_INF   0x1C4u /* infected death (300 f succumb) */
-/* BUG LATCH / SHAKE-OFF — the CROSS-mash struggle (LIVE-VERIFIED 2026-06-
- * 12; FINDINGS "BUG LATCH / SHAKE-OFF — LIVE-VERIFIED"). Clips from the
- * struggle handlers func_0021F330/F850; the rates/threshold are flagged
- * PORT constants pending a live-read of the realised per-second rates. */
-#define PD_CLIP_CLING        0x2Cu  /* clinging idle (sub 0x0B phase 0)    */
-#define PD_CLIP_STRUGGLE     0x2Eu  /* per-CROSS struggle (sub 0x0C ph 0)  */
-#define PD_CLIP_THROWOFF     0x24u  /* final throw-off (sub 0x0C phase 6)  */
-#define PD_SFX_SHAKE        0x150u  /* struggle-start sound (func_0021F850) */
-#define PD_SFX_THROWOFF     0x14Du  /* throw-off sound (func_0021C120)     */
-#define PD_LATCH_HIT        10.0f   /* LIVE: health hit on the latch connect
-                                     * (+0x224 = 10.0; worm lunge was 15)  */
-#define PD_LATCH_INFECT     0.80f   /* FLAGGED: infection gained per frame
-                                     * per clinging bug (live: 0->100 fast
-                                     * — the real killer; needs a live rate)*/
-#define PD_LATCH_DRAIN      0.25f   /* FLAGGED: health drained per frame per
-                                     * clinging bug (live: 90->1 over the
-                                     * latch; needs a live rate)           */
-#define PD_STRUGGLE_WIN     16      /* FLAGGED: CROSS presses to throw the
-                                     * bug off (live counter advanced ~1 per
-                                     * press; real mashing is fast)        */
-#define PD_SFX_HURT         0x152u /* flinch grunt (health hit) */
-#define PD_SFX_HURT_INF     0x153u /* flinch grunt (infection hit) */
-#define PD_SFX_DEATH_VOICE  0x146u /* death voice (phase 0) */
-#define PD_SFX_DEATH_BODY   0x151u /* death body foley (phase 0) */
-#define PD_SFX_DEATH_FALL   0x156u /* mid-fall cue (T-80) */
-#define PD_SFX_DEATH_THUD   0x14Eu /* body hits the ground (T-16) */
-#define PD_SFX_DEATH_THUD_I 0x14Fu /* infected ground thud */
-#define PD_SFX_INFECTED     0x149u /* infection-hits-100 sting */
-#define PD_LOW_HEALTH       35.0f  /* +0x235 low-health latch (0x420C0000) */
-#define PD_INFECTED_MAX     60.0f  /* infected health cap (0x42700000) */
-#define PD_IFRAMES          60     /* +0x20E re-arm (0x3C; latch hits use
-                                    * 0x5A = 90 — no latch producer yet) */
-#define PD_CORPSE_HOLD      120    /* func_0021D2E0 wait (0x78) */
-#define PD_DRAIN_PERIOD     240    /* infected drain period (0xF0) */
-#define PD_DRAIN_AMOUNT     2.0f   /* infected drain per period */
-#define PD_KILL_PLANE     -200.0f  /* spine death check (Y < -200 -> st 6) */
-#define PD_DEATH_CUE_FALL   80     /* frames-remaining sound cue (0x156) */
-#define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
-
-/* GAME-OVER / CONTINUE machine (the decoded chain in the block doc
- * above — engine values from func_001AD4E0 / func_001AC480). */
-#define GO_HOLD_FRAMES    240      /* task+0x18 = 0xF0: the GAME OVER
-                                    * screen hold (counts through the
-                                    * fade-in; CROSS skips once the
-                                    * fade is idle) */
-#define GO_PROMPT_FRAMES  1200     /* task+0x16 = 0x4B0: continue-prompt
-                                    * idle timeout (reset by any held
-                                    * button) */
-#define GO_CURSOR_MAX     2        /* prompt options 0..2 (func_001AC480
-                                    * clamps the d-pad walk to < 2 on
-                                    * increment) */
-#define GO_CURSOR_DEATH   1        /* from-death cursor INIT (title = 0
-                                    * — func_001AC480 sub 0 on the
-                                    * D_00275BDC flag) */
-#define GO_SFX_MOVE       5u       /* cursor move blip (func_001FB9F0) */
-#define GO_SFX_CONFIRM0   0x5DDu   /* option-0 confirm */
-#define GO_SFX_CONFIRM1   0x5DEu   /* option-1 confirm */
-#define GO_SFX_CONFIRM2   0x5DFu   /* option-2 confirm */
-
-/* go_state values (the port's fold of task states 3-sub-2..4 + the
- * continue machine's state 2 — game_over_tick below). */
-enum {
-    GO_OFF = 0,
-    GO_ARMED,          /* death fade-out running (pd_phase 3)         */
-    GO_SCREEN,         /* GAME OVER screen: fade-in + 240 hold + skip */
-    GO_SCREEN_OUT,     /* fading to black (engine wait sub 4)         */
-    GO_PROMPT,         /* CONTINUE prompt: fade-in + cursor + timer   */
-    GO_PROMPT_CONFIRM, /* confirmed: fading out; dispatch at black    */
-    GO_PROMPT_TIMEOUT  /* idle timeout: fading out; engine -> title   */
-};
-
-/* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
- * SYSTEM" + the s65 walk-camera decode): idle eye ~33 u behind the
- * player (the tether band [follow - slack, follow]) and 19 u above the
- * player's ground Y; the cut-table target follow seeks player.y + 11 +
- * cam[0x8C] — +17 idle (matching the live state-01 measurement), +8
- * while moving. Chase caps: 2.0 u/frame x/z + 4.0 y for the target
- * pre-step (func_001916C0), 4.0 for the eye solver chase (style 0). */
-#define CAM_DIST        33.0f   /* legacy yaw-anchored desired-eye distance.
-                                   NO LONGER on the idle path (s76 idle-
-                                   emergence pass routed idle through the
-                                   tether + solver + entry seat — D14
-                                   retired). Still used by the doorcam /
-                                   examine-restore re-seats and the idle
-                                   auto-orbit / L1 placement (camera_desired_
-                                   eye, cam_yaw_blocked) until those are
-                                   ported to the emergent path too. */
-#define CAM_EYE_HEIGHT  19.0f   /* IDLE eye height above player ground Y =
-                                   11 + cam[0x5C] + cam[0x8C] (2 + 6 default;
-                                   the -31.2 areas use 6 + 2 — same sum.
-                                   func_00191390 + func_00230000, s65) */
-#define CAM_TGT_HEIGHT  17.0f   /* IDLE target height = player.y + 11 +
-                                   cam[0x8C](6) — func_001916C0 idle case
-                                   (cut table, decoded s65). The old 15.0
-                                   belonged to the SMOOTH-table inline
-                                   follow, which gameplay does not use; the
-                                   live capture measured +17. */
-#define CAM_AIM_OFFSET  6.0f    /* struct +0x8C idle/default table value
-                                   (func_00191390; walk states get -3.0) */
-#define CAM_TGT_CAP_XZ  2.0f    /* desired-target x/z chase cap, u/frame
-                                   (func_001916C0 walk+idle cases; the old
-                                   0.8 was the smooth-table inline's cap) */
-#define CAM_TGT_CAP_Y   4.0f    /* desired-target y seek cap (func_0018C4B0
-                                   calls inside func_001916C0) */
-#define CAM_TGT_DIP_K   0.3f    /* func_001916C0 IDLE case (.L00191834):
-                                   target.y want = player.y + 11 + cam[0x8C]
-                                   + 0.3 * shaped(excess) (0x3E99999A). With
-                                   excess = horiz_dist - |camdist|, this SAGS
-                                   the idle target while the camera is over-
-                                   close: at AREA-11 (horiz ~31.5, follow
-                                   46.8) excess -15.3 -> dip -4.6, tgt.y ->
-                                   player + 12.4 (the live read). The walk
-                                   states 2/4/0xF hit OTHER jumptable cases
-                                   with NO dip, so it is gated on idle. */
-#define CAM_TGT_DIP_CAP 7.0f    /* the excess re-map cap (0xC0E00000 = -7.0):
-                                   when excess < -slack the term is re-shaped
-                                   to (-2*slack - excess), floored at -7.0 */
-#define CAM_EYE_CAP     4.0f    /* eye chase rate cap, units/frame */
-#define CAM_NEAR_PUSH   4.0f    /* commit: view position = eye + 4*fwd */
-
-/* WALK-STATE CAMERA — DECODED 2026-06-11 s65 (func_00230000 router +
- * func_0022FCA0 eye tether + func_00191390 per-state height table +
- * func_00191D40 eye-height seek + func_001916C0 target follow). While
- * the player MOVES (states 2/4/0xF) the camera has NO heading policy
- * at all — the desired eye hangs on a TOW-ROPE behind the target:
- *
- *  - dist = D_00810690 (horiz desired eye<->target, last commit),
- *    follow = fabs(cam+0x0C) (per-record camera distance, -46.8
- *    default), excess = dist - follow.
- *  - excess > 0 (player walking AWAY): the eye slides toward the
- *    target x/z by the FULL excess, instantly — the eye trails the
- *    player's PATH at exactly `follow`, so the camera settles behind
- *    the movement heading asymptotically (the visible heading LAG:
- *    arc the player and the bearing swings only as the path drags it).
- *  - -slack <= excess <= 0: NOTHING moves (the dead band) — walking
- *    toward the camera consumes up to 20 u before any response.
- *    slack = 20.0 when cam+0x64 == -46.8, else 10.0.
- *  - excess < -slack (still closing): actual horiz dist (D_0081069C)
- *    > 8.6 -> the eye backs straight out by (excess + slack), pinning
- *    dist at follow - slack; <= 8.6 (cramped, wall behind) -> SWING:
- *    latch a direction by sign(cam+0x90 wall heading - eye->target
- *    yaw), then rotate the bearing 0.3 deg per unit of over-closure
- *    per frame AWAY from the wall and re-place the eye outward along
- *    it (the spad 3A28 bearing accumulates across latched frames).
- *  - heights — s71 CORRECTION (PCSX2 ground truth: the camera does
- *    NOT dive while walking): states 2/4/0xF are NOT ordinary
- *    locomotion. The +0x230 writer func_0015CBA0 picks 1-vs-2 and
- *    3-vs-4 on the player flag +0x236 — the ELEVATED/hang latch
- *    (func_001764E0: player >= 13.8 u above the floor probe;
- *    func_00162A40 sets it with +0x235 |= 2; cleared by
- *    func_00179680) — so 2/4/0xF = the FLAGGED family (idle/walk
- *    while elevated + the fall family; the area-0 fall cam lives in
- *    the same handler). ORDINARY walking is state 3 -> the
- *    func_001921D0 DEFAULT branch (.L00192DDC), which runs the SAME
- *    tow-rope pull (excess > 0 -> dir*excess) and the SAME
- *    func_00191D40 eye-Y seek with the SAME 11+0x5C+0x8C sum — but
- *    func_00191390's -3.0/1.0 row only matches states 2/4/0xF, so a
- *    GROUND walk keeps the IDLE row: eye player.y + 19, target + 17,
- *    solver floor pad 17 / head-clear 17.5. The low ride (eye +9 /
- *    target +8, floor pad 6, head-clear 13) belongs to the elevated
- *    family only, which the port does not model (no +0x236). The s67
- *    "walk = low ride" binding was a misread of the state ids.
- *  - eye-Y seek (func_00191D40): proportional 1/10 capped 4.0/frame
- *    (1/5 snap inside 1.0 u), desired clamped to the y_hi bound;
- *    RISE vetoed by solver bit 0x80, DESCENT by bit 0x40 (and the
- *    untranslated pre-pass bit +0x5A & 1). Not modeled (no native
- *    reach, flagged): cam+0x98 (+23 when the pre-pass sets +0x6D),
- *    the area-0x10/0x03 clamps, the AREA11 region-1 height swap
- *    (func_00194D10 idx 1 -> constant 6.0 replaces 0x8C, i.e. the
- *    walking eye rides 9 u HIGHER inside that rect — this corrects
- *    the old s50 "+12 AIM target-height tweak" guess), and the
- *    area-0 fall cam (player.y < -83: eye (120, -1590), target y ->
- *    -67.5, style-5 solve, manual 4.0 chase).
- *  - tail (every walk frame): cam+0x44 = atan2 of the ACTUAL pair —
- *    the camera heading is an OUTPUT of the tether, never an input.
- *  - L1 arm: func_00230000 runs it for states 2/0xF only (not 4);
- *    the port arms it for every gait (state<->gait map unpinned). */
-/* The follow distance is fabs(g.cam_dist_param) — the engine's
- * cam+0x0C (per-record, scene.txt `camdist`; default -46.8, office
- * records -31.2 [s66 live]); slack keys on the -46.8 default (the
- * engine tests cam+0x64 — the port folds record + area param into the
- * one scene knob). */
-#define CAM_TETHER_SLACK  20.0f  /* dead band at the -46.8 default
-                                    (engine: 20 when cam+0x64 == -46.8,
-                                    else 10) */
-#define CAM_TETHER_NEAR   8.6f   /* actual-dist gate (0x4109999A) below
-                                    which the back-out becomes the SWING */
-#define CAM_SWING_DPU     0.3f   /* swing rate, deg per unit of over-
-                                    closure per frame (0x3E99999A) */
-#define CAM_WALK_AIM_H   -3.0f   /* +0x8C ELEVATED-family table value
-                                    (states 2/4/0xF — unused since s71:
-                                    the port has no +0x236 latch; kept
-                                    for the future climb/fall port) */
-#define CAM_WALK_VAR5C    1.0f   /* +0x5C elevated-family table value
-                                    (unused, same note) */
-#define CAM_IDLE_VAR5C    2.0f   /* +0x5C idle/default table value */
-#define CAM_BASE_H       11.0f   /* the 11.0 both heights build on:
-                                    eye = 11 + 0x5C + 0x8C, tgt = 11 + 0x8C */
-
-/* CAMERA FIDELITY (2026-06-11, observed-behavior notes against the
- * real game — the original gives the player NO free camera control;
- * the old d-pad orbit was a port invention and is REMOVED):
- *
- *  - WALL RESPONSE — DECODED (2026-06-11 s61, the full 6984-byte
- *    func_0018DD20 .s read; the old PORT-INVENTED "rise search"
- *    [step 2.0 / ceiling 40 / margin 0.5] is RETIRED): the engine
- *    NEVER lifts the eye to clear a wall. A square-on wall block
- *    PULLS the desired eye to 0.5 u in front of the hit ALONG THE
- *    SIGHT LINE, x/z ONLY — the eye keeps its absolute height while
- *    the horizontal distance collapses, so the view tilts down over
- *    the player's head: the user-observed "camera rises to show the
- *    player's top" is APPARENT rise, emergent from constant-height
- *    pull-in + the commit's +4 forward near-push. It returns when
- *    the sight line clears because the mode handler re-poses the
- *    desired eye every frame. The AIM camera (mode 1) never runs this
- *    solver — it solves with STYLE 2 -> func_0018F870, ALSO DECODED
- *    (2026-06-11 s64, cam_solver_0018F870 below): R1 KEEPS the
- *    constant-height pull-in (hit + 0.5 along the player->eye ray)
- *    but with NO head-clear waiver, NO wedge eject, a corner SLIDE
- *    along the blocking wall, and a floor+2 (not +17) eye-Y bound.
- *    Full decoded policy in cam_solver_0018DD20 / cam_solver_0018F870
- *    below.
- *  - R1 (tap or hold) orients the camera behind the player and keeps
- *    it tracking the aim direction until release; L1 is a one-shot
- *    reorient-behind-the-player. Engine side these are camera-mode
- *    swaps (the s23 live aim capture ran mode 1); the seek rate is a
- *    PORT CONSTANT.
- *  - IDLE AUTO-ORIENT: left alone a little while, the camera SLOWLY
- *    swings behind the player — apparently only at default height —
- *    and if a wall blocks the rotation path it STOPS rather than
- *    repositioning. Delay/rate are PORT CONSTANTS (flagged).
- *  - Per-room FIXED ANGLES (2026-06-11 director decode, FINDINGS
- *    "MODE-0 CAMERA DIRECTOR DECODED"): cut-table mode 0 is the
- *    per-area camera director func_00195130, and its fixed cameras
- *    are MAIN-ELF data — hardcoded per-area cases (areas 0/4/6/8/
- *    0xB/0xD/0xE/0xF/0x11/0x13) + the XZ-quad trigger-volume table
- *    D_0024A5F0 (func_00194D10: point-in-quad + |player.y - rec.y|
- *    < 4 gate). NOT a general overlay hook: the lone `jal 0x823FE0`
- *    is the area-13/entry>=8 gate and lands mid-function in the
- *    shipped AREA13.BIN (dead/drifted). EXPORTED-AREA VERDICT:
- *    the DIRECTOR defines none for AREA02/AREA01 sub 0; AREA06
- *    (snow) has ONE region: X[-370,-340] x Z[-620,-600], y gate 60,
- *    fixed eye (-367.7, 90, -598.9) — scene_snow's `camregion` line.
- *    SECOND MECHANISM (decoded + live-verified 2026-06-11, this
- *    session — the user-observed SUPPLY-ROOM corner camera): room-
- *    ENTRY spawn records (D_0024D650[area][room], +0x10 word) arm
- *    per-room FIXED cameras via func_001B0460 — bit 7 = fixed flag
- *    (cam+0x05), low 7 bits = camera mode (cam+0x06), word>>8 =
- *    index into the eye table D_0024A8D0; the eye HARD-PLACES at
- *    entry and stays pinned while the room is occupied (target =
- *    player + 15). AREA02 room 1 entry 3 = the supply room behind
- *    the office double doors -> eye (116, 33, -300); exported as
- *    the office scene's `camregion` line (the rect spans the room
- *    behind the doorway plane — behavior-identical for an enclosed
- *    room). The port machinery is live: scene.txt `camregion x0 z0
- *    x1 z1 ygate ex ey ez` lines drive camera_mode_dispatch's
- *    in-region branch (fixed eye, L1/auto-orient ignored, R1 aim
- *    still runs, release snaps back INSTANTLY — the observed
- *    behavior: "letting go INSTANTLY snaps back to the room's
- *    setting"). EM_CAMREGION_TEST=1 proves the machinery with a
- *    flagged SYNTHETIC region (it replaces the scene list for the
- *    run); EM_CAPTURE_SUPPLY=1 walks the real supply-room transit.
- *    Engine refinement noted: the snow case approaches its spec at
- *    0.7 u/frame via the chase primitives; the port uses hard
- *    placement — which IS the engine shape for the spawn-record
- *    cameras (func_001B0460 hard-copies desired AND actual). */
-#define CAM_REGION_YGATE 4.0f   /* func_00194D10's |player.y - rec.y|
-                                   region gate, engine constant */
-/* func_0018DD20 solver constants — ALL engine immediates from the .s
- * (decoded 2026-06-11 s61; hex floats noted where non-obvious). */
-#define SOLV_EXT          1.5f   /* primary probe extension past the eye   */
-#define SOLV_GLANCE_COS   0.70710678f /* glancing gate (0x3F34FDF4, sin45):
-                                   dot(horiz sight dir, horiz hit normal)
-                                   below this = oblique wall              */
-#define SOLV_DIST_PARAM   46.8f  /* fabsf(cam+0x0C) — per-area param (the
-                                   -46.8 live in BOTH save states); the
-                                   head-clear waiver runs only while the
-                                   desired horiz eye<->target dist (the
-                                   commit's D_00810690) <= this           */
-#define SOLV_HEADCLR_H    17.5f  /* head-clear probe height over player.y
-                                   (0x418C0000; 13.0 when cam+0x5C == 1)  */
-#define SOLV_HEADCLR_H1   13.0f
-#define SOLV_PULL_IN      0.5f   /* pull-in standoff along the sight line */
-#define SOLV_WEDGE_DOT   -0.3f   /* reverse-probe "normals not opposing"
-                                   gate (0xBE99999A)                      */
-#define SOLV_WEDGE_EJECT  4.0f   /* wedge eject along the reverse normal  */
-#define SOLV_SIDE         5.5f   /* side-probe lateral reach              */
-#define SOLV_SIDE_BACK    3.0f   /* glancing variant: start offset to the
-                                   far side                               */
-#define SOLV_SIDE_FWD     1.5f   /* glancing variant: end pulled toward
-                                   the target                             */
-#define SOLV_SIDE_PAD     0.1f   /* candidate standoff along the side ray */
-#define SOLV_OPPOSE_DOT  -0.998f /* same-wall-seen-from-behind reject
-                                   (0xBF7F7CEE = -0.99800)                */
-#define SOLV_CROSS_DOT   -0.08f  /* ceiling-case side reject (0xBDA3D70A) */
-#define SOLV_GATE_HI      0.9f   /* non-glancing side response applies    */
-#define SOLV_GATE_LO     -0.3f   /*   only for gate dot in (-0.3, 0.9)    */
-#define SOLV_FLOOR_PAD    17.0f  /* eye-Y lower bound = floor-under-eye +
-                                   17 (0x41880000; 6.0 when +0x5C == 1)   */
-#define SOLV_FLOOR_PAD1   6.0f
-#define SOLV_CEIL_PAD     1.0f   /* eye-Y upper bound = ceiling - 1       */
-#define SOLV_BOUND_RANGE  200.0f /* bound probes reach 200 down/up        */
-#define SOLV_BOUND_PULL   1.5f   /* bound probes cast from the eye pulled
-                                   1.5 toward player + (0, 11, 0)         */
-#define SOLV_PLAYER_UP    11.0f
-/* func_0018F870 AIM/scope solver constants — engine immediates from the
- * full 0x16A4 .s read (DECODED 2026-06-11 s64; retires the old
- * CAM_WALL_MARGIN aim stand-in). Shares SOLV_EXT / SOLV_PULL_IN /
- * SOLV_SIDE / SOLV_SIDE_PAD / SOLV_CROSS_DOT / SOLV_OPPOSE_DOT /
- * SOLV_GATE_HI/LO / SOLV_BOUND_RANGE / SOLV_PLAYER_UP / SOLV_CEIL_PAD
- * with the follow solver above. */
-#define AIMS_GLANCE_COS  0.99f   /* 0x3F7D70A4 — square-on gate:
-                                    dot(horiz TARGET-ward sight dir,
-                                    horiz hit normal) < 0.99 = glancing
-                                    (much tighter than the follow
-                                    solver's sin45)                      */
-#define AIMS_CORNER_OFF  1.0f    /* corner lane runs 1 u off the wall   */
-#define AIMS_CORNER_BACK 3.0f    /* lane sweep: -3 .. +5.5 along it     */
-#define AIMS_WALL_DOT    0.9f    /* 0x3F666666 — corner lane accepts a
-                                    DIFFERENT wall only (dot vs the
-                                    first normal < 0.9)                  */
-#define AIMS_FLOOR_PAD   2.0f    /* aim eye-Y lower bound = floor + 2
-                                    (the follow solver keeps 17 — the
-                                    aim camera may ride low)             */
-#define AIMS_BOUND_PULL  1.0f    /* settle probes cast from the eye
-                                    pulled 1.0 toward player + 11 up
-                                    (follow: 1.5)                        */
-#define AIMS_SETTLE_NY   0.17f   /* 0x3E2E147B — func_0018CE60 walkable
-                                    gate on non-floor-class normals      */
-#define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek
-                                   MOTION: the orient-to-heading family
-                                   rate (func_001921D0 states 7/0x2C/0x2D,
-                                   float 0x3D0EFA35 = 2 deg/frame). The
-                                   sub-state-3 motion handler is still
-                                   unread — rate flagged. The ARM is now
-                                   decoded (func_00191000, s64): see the
-                                   L1 block in camera_mode_dispatch. */
-#define CAM_L1_MIN_RAD   7.0f   /* func_00191000 orbit-radius clamp:
-                                   cam+0x4C = |D_0081069C| forced into
-                                   [7.0, |cam+0x64| = 46.8]              */
-
-/* IDLE AUTO-ORIENT — DECODED (2026-06-11, func_001921D0 idle path +
- * func_00193D90, the director sub-state-2 orbit; replaces the old
- * 120-frame / 0.4 rad/s PORT constants):
- *   - the camera struct's own timer (+0x08) increments each idle-path
- *     frame while the player state is 1/2 and the solver byte (+0x07)
- *     has no block bits (engine mask 9); any other state resets it;
- *   - at >= 0x1E1 = 481 frames (~8.0 s — EXACTLY the 300-frame fidget
- *     timer + the 180-frame look-around clip 0x15D: the engine waits
- *     out the END of the look-around idle, the user-observed anchor)
- *     it arms the slow orbit IF |player heading - cam yaw| > 0.052368
- *     rad (3 deg deadband) and the rotation direction's solver wall
- *     bit is clear (delta < 0 needs ~bit4, else ~bit2);
- *   - the orbit (func_00193D90): yaw steps 0.0034907 rad/frame
- *     (0x3B64C389, 0.2 deg/frame) toward the saved player heading,
- *     eye = target - (sin,cos)(yaw) * the horizontal eye<->target
- *     distance saved at arm time (D_0081069C -> cam+0x4C); it cancels
- *     when aligned, when the player leaves state 1/2, or when the
- *     solver reports a wall in the rotation path (bits 0xD/0xB by
- *     direction — the port maps these onto its rotation-path segment
- *     test, cam_yaw_blocked). */
-#define CAM_IDLE_ORIENT_FRAMES 481        /* +0x08 >= 0x1E1 */
-#define CAM_IDLE_ORIENT_DEADBAND 0.052368f /* 3 deg (0x3D567750) */
-#define CAM_ORBIT_RATE  0.0034907f        /* rad/frame (0x3B64C389) */
-
-/* AIM CAMERA MODE 1 — DECODED (2026-06-11, func_00197D20 dispatcher +
- * func_00197740 entry / func_00197870 steady; replaces the +0x8C
- * target-height stand-in):
- *   entry (sub 1, until the aim pose commits): TARGET = player +
- *     rotY(cam euler +0x30)*(0, 19, 6), EYE = player + rotY*(0,19,-30);
- *     actual target chases at 0.4/frame, eye at 4.0/frame;
- *   steady (sub 2): TARGET = base + aim_dir*16 + (0,19,0) (base =
- *     player pos; the R2 stance state 0x2A uses the position saved at
- *     aim entry, spad D_70003040), EYE = player + rotEuler(player
- *     rot)*(0,0,-30) — i.e. 30 u behind the FACING, tracking the
- *     turn-in-place — with EYE.y = player.y + 19 - 30*dir.y (the
- *     -30*dir.y term clamped to >= -25; 22 + that = f20 in [-3,0])
- *     clamped into [player.y + 2, player.y + 30] (flagged areas use
- *     +11 — port keeps +2); actual target chases at 0.6/frame, eye at
- *     4.0/frame; anti-close: horizontal eye<->player dist < 7 raises
- *     EYE.y to player.y + 18 + f20;
- *   dispatcher tail: if EYE.y > player.y + 23 and the horizontal
- *     eye<->player distance < 8, the eye is pushed out to EXACTLY 8
- *     along its own heading (the min-distance clamp);
- *   release (player states 0xC/0x29): the engine swaps to transition
- *     mode 2 (func_00198650, untranslated) — the port re-seeds the
- *     chase yaw from the actual eye->player heading and lets mode-0
- *     chase blend back (the engine's own .L001935EC reset shape). */
-#define CAM_AIM_TGT_FWD   16.0f  /* target = base + dir*16 */
-#define CAM_AIM_TGT_UP    19.0f  /* + 19 up (0x41980000) */
-#define CAM_AIM_EYE_BACK  30.0f  /* eye 30 behind (0xC1F00000) */
-#define CAM_AIM_ENTRY_FWD 6.0f   /* entry target (0,19,6) */
-#define CAM_AIM_MIN_DIST  8.0f   /* dispatcher min horiz eye dist */
-
-/* DOOR CAMERA CUES — DECODED (2026-06-11, op 0x0D sub 5 func_001B7B30 +
- * func_0018CBD0, and the locked-look native func_001BBBF0).
- * RE-DERIVED + LIVE-VERIFIED 2026-06-11 (this session, two PCSX2
- * transits through the office double doors — the s53 "+27/+25 along
- * the live camera heading" reading was wrong on both axes):
- *   OPEN transit (script D_0024DE40 record 2, op 0x0D sub 5): the cue
- *     fires AFTER the kickoff snapped the player to the STAGING POINT
- *     with the THROUGH-DOOR yaw, and func_001B07C0's pose snapshot
- *     (spad 3B40/3B50) was refreshed with that snapped pose — so the
- *     cut Euler is the DOOR AXIS, never the live camera heading.
- *     A HARD CUT (solver style 1 = copy desired -> actual):
- *       EYE    = staging - 20*(sin,cos)(through yaw), EYE.y =
- *                player.y + 19  (func_0018CBD0: 11 + f4 + f5; f4/f5 =
- *                2/6 default, 6/2 in the -46.8 param areas — 19 BOTH)
- *       TARGET = staging, TARGET.y = player.y + 13  (11 + f4, default
- *                params; -46.8 areas: +17. The +0.3*f20 term in the .s
- *                is a steep-pitch shave with f20 = 0 here, live-read 0)
- *     then cam+0xA0 = 0x78: the actual TARGET re-blends toward the
- *     walking player at <= 1.0 u/frame (func_001916C0's tail) while
- *     the EYE holds — live: eye pinned at (104, 19, -277.2) while the
- *     player walked the doorway.
- *   ROOM-BOUNDARY RE-SEAT (live): when the walk-through crosses the
- *     doorway plane (the engine's room move), the chase re-seats
- *     behind the player's through-door pose and the NORMAL solve runs
- *     — live the engine parked at (104, 29, -250.4) looking down at
- *     the walked-out player (the door wall behind the eye engages the
- *     decoded constant-height func_0018DD20 solve; the +10 over the
- *     default height comes from the walk-state camera handler
- *     func_00230000, unread — the old func_00191000 attribution was
- *     wrong: s64 decoded that one as the L1 re-orient ARM; it never
- *     places the eye).
- *   LOCKED try (script D_0024DEC0 record 2, op 0x09 -> func_001BBBF0):
- *     TARGET = door pos + 8 u toward the HANDLE side (the door-yaw
- *     left: (-8*cos(dyaw), +10, +8*sin(dyaw))) and EYE = TARGET -
- *     13*(sin,cos)(camera yaw D_00810374) with EYE.y = door.y + 12 —
- *     the camera parked at the handle while the try animation plays;
- *     the finish script (op 0x07 sub 4) restores the saved camera. */
-#define DOORCAM_EYE_BACK   20.0f  /* op 0x0D sub 5 chase dist (-20.0) */
-#define DOORCAM_EYE_UP     19.0f  /* 11 + f4 + f5 (live: eye y 19.0) */
-#define DOORCAM_TGT_UP     13.0f  /* 11 + f4 (live: target y 13.0) */
-#define DOORCAM_TGT_SOFT   120    /* cam+0xA0 = 0x78 target re-blend */
-#define DOORCAM_PLANE      5.0f   /* staging -> doorway-center dist
-                                   * (s45 staging math): past this the
-                                   * player crossed the door plane */
-#define LOCKCAM_HANDLE_OFF 8.0f   /* func_001BBBF0 door-left offset */
-#define LOCKCAM_TGT_UP     10.0f
-#define LOCKCAM_EYE_BACK   13.0f
-#define LOCKCAM_EYE_UP     12.0f  /* door.y + 12 */
-
-/* Engine projection — ADOPTED (2026-06-11; the old TODO(projection) is
- * closed). The world renders through em_mat4_perspective_gs (em_math.h
- * — the full derivation lives there): the engine's per-frame P from
- * zoom s (render-ctx +0x2468, FINDINGS.md "CAMERA SYSTEM" section 3),
- * GS rows (0.8s,0,0,0) (0,0.5s,0,0) (2048,2048,bz,1) (0,0,az,0) mapped
- * exactly to the native 4:3 frame: tan(hfov/2) = 320/s, tan(vfov/2) =
- * 224/s (67.38 x 50.03 deg at s = 480 — the 10/7 tan ratio is the
- * 512x448->4:3 pixel-aspect anisotropy, reproduced); near/far are the
- * bit-exact decode of the Z-row literals: NEAR 0.1, FAR 16711680
- * (0xFF0000 — az = 0.1*(2^24-1), bz = 1 - az/far; the same far the
- * engine passes its parameterized builder func_001D2D20). The gfx
- * backend letterboxes the window to 4:3 (em_gfx_begin_frame), so the
- * baked aspect is the displayed aspect at any window size.
- *
- * Zoom s lives on the camera (EmCamera.zoom, the native ctx+0x2468):
- * default 480 (func_001D25F0 — every static caller passes 0x43F00000);
- * the scope camera (top_mode 3, func_0022EEF0) sets s = 224/tan(half-
- * vfov) ("224.0/x") and scripted lerps animate it (func_001D2590) —
- * both write the same field when they land.
- *
- * Truth check (EM_PROJ_TEST=1, proj_test_run below): with the state01
- * savestate's live camera this chain reproduces the engine's own
- * K = P*V screen positions to < 0.01 px on the PCSX2 frame. */
-#define ENGINE_CAM_ZOOM_S      480.0f      /* render-ctx +0x2468 default */
-#define ENGINE_CAM_ZOOM_SCOPE  224.0f      /* scope cam: s = 224/tan(v/2) */
-
-/* Task user-byte indices — mirror the live slot-0 record (state bytes
- * observed at record +8 / +9 / +0xB, i.e. user[0] / user[1] / user[3]). */
-#define GAME_BYTE_MAIN  0
-#define GAME_BYTE_SUB   1
-#define GAME_BYTE_FRAME 3
-
-typedef struct {
-    EmModel    model;
-    EmGfxMesh *mesh;
-    float     *palette;   /* static pose (frame 0), bone_count * 16 */
-} SceneItem;
-
-/* One recorded draw — the native render-chain element. `tint` is the
- * optional per-draw RGBA modulation (the engine's actor RGB multiplier
- * — em_gfx_draw_skinned_tinted, e34bd29): NULL = the opaque untinted
- * draw. Same pointer contract as `palette`: recorded at chain-build
- * time, the values the flush reads are the owning module's
- * current-frame ones. Today only em_enemy publishes tints (tendril
- * spikes + the gib/corpse death fades — em_enemy_draw_tint). */
-typedef struct {
-    EmGfxMesh   *mesh;
-    const float *palette;
-    uint32_t     bone_count;
-    const float *tint;
-} ChainDraw;
-
-/* CAMERA state — the native mirror of the engine's camera struct at
- * 0x008101E0 (0xD0 bytes) plus the global camera vector pool at
- * 0x008105D0.. (FINDINGS.md "CAMERA SYSTEM" section 1). Field comments
- * give the PS2 offsets/addresses; only what the mode-0 generic follow
- * consumes is live — the rest is carried so the per-room overlay
- * directors and the remaining mode handlers land in place. */
-typedef struct {
-    uint8_t  state;       /* +0x00: 0 = init one-shot, 1 = run */
-    uint8_t  sub_state;   /* +0x01: 0->1 ramp on first run frame (zeroes
-                             the mode timer) */
-    uint8_t  top_mode;    /* +0x04: 0 = normal play, 1/2 = frozen (commit
-                             only), 3 = scope/sniper func_0022EEF0 (TODO) */
-    uint8_t  table_sel;   /* +0x05: 0 = cut jtbl_0026D950, 1 = smooth
-                             jtbl_0026D910 */
-    uint8_t  mode;        /* +0x06: camera mode 0..15 — only mode 0
-                             (generic follow) implemented; see
-                             camera_mode_dispatch for the TODO list */
-    uint8_t  hit;         /* +0x07: follow-solver result byte */
-    uint16_t timer;       /* +0x08: mode timer */
-    float    zoom;        /* render-ctx +0x2468 zoom s — the projection
-                             scale (em_mat4_perspective_gs): default 480
-                             (ENGINE_CAM_ZOOM_S, set at camera init);
-                             the scope camera writes 224/tan(half-vfov)
-                             and scripted lerps animate it (engine
-                             func_001D25F0 / func_001D2590) */
-    float    eye_des[3];  /* +0x10: desired EYE (world) */
-    float    tgt_des[3];  /* +0x20: desired TARGET (world) */
-    float    yaw;         /* +0x44: eye->target heading; the R1/L1
-                             orient and the idle auto-orient steer it */
-    /* func_0018DD20 solver state (decoded s61) */
-    float    y_lo;        /* +0x50: eye-Y lower bound (floor-under-eye +
-                             17), re-probed every solve; init -200 */
-    float    y_hi;        /* +0x54: eye-Y upper bound (ceiling-over-eye -
-                             1, else eye + 200); init 1000 */
-    uint16_t hit_attr;    /* +0x58: primary-hit surface-class halfword
-                             (kept across clear frames, engine-true) */
-    float    var_5c;      /* +0x5C: solver height variant, init 2.0.
-                             WRITER FOUND (s65): the pre-step
-                             func_00191390 per-state table — walk
-                             states write 1.0 (head-clear 13 / floor
-                             pad 6: the low walk ride), idle 2.0
-                             (-31.2 areas: 6.0 — same pad rule) */
-    float    wall_yaw;    /* +0x90: published heading of the blocking
-                             surface normal, atan2(n.x, n.z) wrapped */
-    uint8_t  swing;       /* +0x03: walk-tether swing latch (0 = none,
-                             1/2 = direction picked vs wall_yaw —
-                             func_0022FCA0, decoded s65) */
-    float    swing_yaw;   /* spad 0x70003A28: the swing bearing
-                             accumulator (persists while latched) */
-    float    horiz_dist;  /* D_00810690: desired horiz eye<->target
-                             dist, written by the commit (one frame
-                             stale when the solver reads it — engine) */
-    float    aim_h;       /* +0x8C: height offset above player Y, driven
-                             per frame by the pre-step table
-                             (camera_prestep_00191390, s65): idle 6.0,
-                             walk -3.0. Feeds the target height (11 +
-                             0x8C) and the walk eye base (11 + 0x5C +
-                             0x8C); the aim camera proper is MODE 1 */
-    uint8_t  aim_phase;   /* MODE-1 sub-machine (+0x01 in mode 1):
-                             0 = off, 1 = entry blend (func_00197740),
-                             2 = steady aim (func_00197870) */
-    float    aim_entry[3];/* spad D_70003040: player pos saved at aim
-                             entry (the R2 stance's target base) */
-    /* IDLE AUTO-ORIENT orbit (director sub-state 2, func_00193D90) */
-    uint8_t  orbit_on;    /* orbit running (cam+0x01 == 2) */
-    float    orbit_tgt;   /* +0x48: saved player heading (goal yaw) */
-    float    orbit_rad;   /* +0x4C: |horiz eye<->target| at arm time —
-                             shared by the idle orbit (sub-state 2) and
-                             the L1 seek (sub-state 3, func_00191000:
-                             clamped into [7, 46.8]) */
-    /* DOOR-CINEMATIC target re-blend (cam+0xA0, func_001916C0 tail) */
-    int16_t  tgt_soft;    /* frames left: actual target chases desired
-                             at <= 1.0 u/frame instead of hard-copying */
-    /* global camera vector pool (the real per-frame camera output) */
-    float    eye[3];      /* D_008105D0: actual eye — chased toward
-                             eye_des, capped 4.0/frame */
-    float    tgt[3];      /* D_008105E0: actual target — copy of tgt_des
-                             (func_0018C0C0) */
-    float    up[3];       /* D_008105F0: (0,-1,0) — the engine's Y-DOWN
-                             view-up, set once at init */
-    float    fwd[3];      /* D_00810600: normalized forward (commit) */
-    float    view[16];    /* D_00810610: look-at view matrix */
-} EmCamera;
-
-/* CAMERA REGION — one mode-0 director fixed-camera trigger volume
- * (scene.txt `camregion`; the engine's D_0024A5F0 0x40-byte records =
- * 4 vec4 XZ-quad corners, axis-aligned rects in all shipped data, with
- * corner-0 y as the elevation gate; func_00194D10 tests point-in-quad
- * (func_001B1EA0 mode 0) + |player.y - y| < 4). Inside, the director
- * pins the desired EYE to the record's spec while the target keeps
- * tracking the player. */
-/* LIGHTING — max placed lamps per scene (the largest decoded list,
- * func_001F6760 key 0x200 / office0, has 8 records). */
-#define LAMP_MAX 16
-
-#define CAM_REGION_MAX 8
-typedef struct {
-    float x0, z0, x1, z1;  /* XZ rect (min/max) */
-    float ygate;           /* elevation gate center (+-CAM_REGION_YGATE) */
-    float eye[3];          /* the room's fixed camera eye spec */
-} EmCamRegion;
-
-static struct {
-    /* assets */
-    EmModel    model;            /* player */
-    EmGfxMesh *mesh;             /* player (NULL = not loaded) */
-    SceneItem  scene[SCENE_MAX];
-    int        n_scene;
-    float      player_palette[1024 * 16]; /* bone_count <= 1024 (loader) */
-
-    /* gameplay-frame state */
-    int        frame_no;         /* gameplay frames run */
-    uint8_t    frame_selector;   /* scratchpad 0x70003B8D: 0 = gameplay */
-
-    /* animation clips + idle<->locomotion crossfade */
-    int        clip_idle;        /* clip indices into model.clips */
-    int        clip_fidget;      /* idle fidget 349; -1 = none (old asset,
-                                  * cycle off) */
-    int        clip_walk;        /* -1 = no walk clip (EMD2 asset) */
-    int        clip_jog;         /* -1 = no jog clip (id 2) */
-    int        clip_run;         /* -1 = no run clip (id 3) */
-    int        loco_clip;        /* the ACTIVE locomotion clip index
-                                  * (walk/jog/run, by tier) */
-    float      loco_speed;       /* its natural ground speed, u/s */
-    double     walk_t;           /* locomotion clip time, s (rate-scaled) */
-    float      walk_w;           /* locomotion blend weight 0..1 */
-    double     step_prev;        /* last frame's loco-cycle position in
-                                  * clip FRAMES (footstep edge detect) */
-    int        gait;             /* this frame's stick gait 0..3
-                                  * (func_001B5CC0 quantizer) */
-    int        loco_tier;        /* locomotion tier (+0x25C locIdx): the
-                                  * speed ramp promotes/demotes it; the
-                                  * sustained tier == gait */
-    float      loco_upt;         /* ramped ground speed +0x38, u/tick */
-    float      move_speed;       /* this frame's ground speed, units/sec */
-    float      walk_palette[1024 * 16];  /* scratch for the blends */
-
-    /* STATUS-MENU UI SCENE (the constants block above): the menu
-     * player's private pose state — never touches the gameplay pose. */
-    int        clip_menu;        /* clip index of id 450; -1 = old asset */
-    int        clip_menu_low;    /* clip index of id 10; -1 = old asset */
-    int        ui_prev;          /* scene rendered last frame (edge) */
-    int        ui_low;           /* init picked the low-health clip */
-    float      ui_yaw;           /* turntable yaw (init pi, +0.01/frame) */
-    double     ui_t;             /* menu clip time, frames (1.0/frame) */
-    float      ui_ramp;          /* tint pulse 1.0 <-> 1.3 */
-    int        ui_ramp_dir;      /* 0 = rising, 1 = falling (+0x05) */
-    EmGfxMesh *ui_backplate;     /* fullscreen black quad (lazy) */
-    float      ui_palette[1024 * 16];    /* menu pose scratch */
-
-    /* IDLE CYCLE state (func_00161020 — see the clip-id block above) */
-    int        idle_phase;       /* 0 = breathing, 1 = fidget playing */
-    int        idle_timer;       /* frames left to the next fidget (+0x28) */
-    double     idle_t;           /* breathing clip time, seconds */
-    double     fid_t;            /* fidget clip time, seconds */
-    float      fid_w;            /* fidget blend weight 0..1 */
-
-    /* scripted-anim mailbox (em_game.h em_game_anim_request): the
-     * native player+0x1F2 request / +0x20C commit pair. sa_req/sa_cur
-     * hold library clip IDS (0 = none); sa_clip is the committed
-     * model clip-table index; sa_t the clip time in FRAMES. sa_hold
-     * (riding the request as sa_req_hold) marks a HELD POSE: the clip
-     * clamps at its last frame instead of returning to locomotion
-     * (em_game_anim_hold — the weapon aim pose). */
-    unsigned   sa_req;           /* requested clip id   (+0x1F2) */
-    float      sa_rate;          /* requested rate      (+0x1F8) */
-    int        sa_req_hold;      /* request is a hold (aim pose) */
-    unsigned   sa_cur;           /* committed clip id   (+0x20C) */
-    int        sa_clip;          /* committed clip index, -1 = none */
-    int        sa_hold;          /* committed clip holds its end pose */
-    double     sa_t;             /* scripted clip time, frames */
-
-    /* player world placement (the actor's position + facing) */
-    float      pos[3];           /* world position, feet on the floor */
-    float      yaw;              /* facing about +Y, radians; 0 = +Z */
-
-    /* collision world (id 0x44 -> EMCL; 0 polys = not loaded) */
-    EmCollision coll;
-
-    /* camera (struct 0x008101E0 + vector pool — see EmCamera above) */
-    EmCamera   cam;
-    int        cam_recenter;     /* R1/L1 orient-behind in progress (runs
-                                  * until aligned — gives the R1 TAP its
-                                  * full reorient) */
-    int        cam_idle;         /* frames with no camera-relevant input
-                                  * (drives the idle auto-orient) */
-    EmCamRegion camregion[CAM_REGION_MAX]; /* scene.txt `camregion` lines
-                                  * (the decoded D_0024A5F0 fixed-camera
-                                  * trigger volumes for this scene) */
-    int        n_camregion;
-    int        cam_region_on;    /* this frame's dispatch ran the in-region
-                                  * fixed placement (debug/test witness) */
-
-    /* MANUAL AIM STEER state (func_0017ABA0 — the player aim blends) */
-    float      aim_pitch;        /* +0x278: 0.5 center, 0 = full DOWN,
-                                  * 1 = full UP (stick-down raises it:
-                                  * the inverted-Y original behavior) */
-    float      aim_yawb;         /* +0x27C: 0.5 center, 1 = pose yaw
-                                  * SCREEN-LEFT limit, 0 = right (model
-                                  * -X = screen right; overflow turns
-                                  * the body) */
-    int        aim_was;          /* aiming last frame (entry detect) */
-    int        r2_aim;           /* R2-held armed stance 0x1E (code 0x32)
-                                  * — the engine's second aim stance
-                                  * (func_001607D0: held R2 -> mode
-                                  * 0x1E), run by em_game when em_weapon
-                                  * is not aiming */
-    float      aim_palette[1024 * 16];  /* ladder-blend scratch */
-
-    /* DOOR CINEMATIC camera (op 0x0D sub 5 + func_001BBBF0) */
-    int        doorcam;          /* 0 off, 1 = transit armed (walking),
-                                  * 2 = cinematic placed (cut done),
-                                  * 3 = post-warp (chase re-seated),
-                                  * 4 = LOCKED-LOOK hold (func_001BBBF0
-                                  * cut pinned until the finish script
-                                  * restores — em_door_locked_look) */
-    float      doorcut_pos[3];   /* latched STAGING point (the walk-to
-                                  * target = the engine's snap pose;
-                                  * spad 3B40 equivalent) */
-    float      doorcut_yaw;      /* latched THROUGH-DOOR yaw (the
-                                  * kickoff snap; spad 3B50 equivalent
-                                  * — the cut's Euler, live-verified) */
-
-    /* player status (the engine globals em_hud.h documents; static demo
-     * values until the weapon/health systems are translated) */
-    EmPlayerStatus status;
-
-    /* PLAYER DAMAGE & DEATH (see the PD_* constants block) — the
-     * port of the engine's player damage state (player actor fields
-     * in comments). pd_state mirrors the actor MAJOR state byte +0x04
-     * restricted to the translated values: 0 = state 1 (gameplay),
-     * 2 = state 2 (hit reaction / dying). */
-    int        pd_state;       /* 0 gameplay, 2 = hit reaction/death */
-    int        pd_sub;         /* +0x05: 0 flinch, 1 death, 3 infected
-                                * death (the kill plane reuses 1 with
-                                * no clip — engine state 6 has none) */
-    int        pd_phase;       /* +0x06 sequence phase */
-    int        pd_hold;        /* +0x28 corpse-hold countdown */
-    int        pd_iframes;     /* +0x20E post-flinch invuln countdown */
-    float      pd_pend_hp;     /* +0x224 pending health damage */
-    float      pd_pend_inf;    /* +0x22C pending infection damage */
-    int        pd_inf_hit;     /* +0x1F1 == 1: last applied hit was
-                                * infection (flinch voice select) */
-    int        pd_infected;    /* +0x234 INFECTED latch (infection 100) */
-    int        pd_low;         /* +0x235 bit 0 low-health latch */
-    int        pd_drain_t;     /* +0x2FC infected drain counter */
-    unsigned   pd_clip;        /* committed reaction clip (test/report) */
-    int        struggle_n;     /* bug-latch shake-off mash counter (CROSS) */
-    int        pd_cue_fall;    /* death-clip T-80 sound fired */
-    int        pd_cue_thud;    /* death-clip T-16 sound fired */
-    int        go_state;       /* GAME-OVER/CONTINUE machine (GO_*
-                                * enum at the PD block) */
-    int        go_frames;      /* frames in the current GO state */
-    int        go_hold;        /* GAME OVER screen countdown (engine
-                                * task+0x18 = 240; ticks through the
-                                * fade-in, CROSS skips) */
-    int        go_timer;       /* continue-prompt idle timeout (engine
-                                * task+0x16 = 1200; reset by any held
-                                * button) */
-    int        go_cursor;      /* prompt cursor (engine task+0xF;
-                                * from-death init = 1) */
-    int        go_restart;     /* continue confirmed: scene reload
-                                * latch, serviced by the frame machine
-                                * (the engine's reinstalled gameplay
-                                * task) */
-
-    /* the camera block the recorded chain consumes (native K = P*V) */
-    float      viewproj[16];
-
-    /* render chain (this frame's recorded draws) */
-    ChainDraw  chain[SCENE_MAX + 1 + EM_DOOR_MAX + EM_ENEMY_MAX
-                     + EM_PICKUP_MAX];
-    int        chain_len;
-    int        chain_test_triangle;
-
-    /* EM_BGM=<path.wav>: loop this cue WAV as level music (see boot task) */
-    const char *bgm_path;
-
-    /* SCENE MANIFEST (<scene_dir>/scene.txt) — per-scene boot config,
-     * written by the exporters. Defaults = the office values, so a
-     * missing manifest keeps the historical behavior bit-for-bit.
-     * scene_dir is the ACTIVE scene (boot: SCENE_DIR; changed at
-     * runtime by em_game_scene_switch — the goto-door area loader). */
-    char        scene_dir[224];  /* active scene directory */
-    float       spawn[3];        /* "spawn x y z yaw" — TRUE world coords */
-    float       spawn_yaw;       /* facing about +Y, radians; 0 = +Z */
-    char        coll_path[288];  /* "collision <file.emcl>" in scene_dir */
-    char        bgm_file[256];   /* "bgm <file.wav>" in scene_dir; "" = none */
-    float       cam_dist_param;  /* "camdist <f>" — the engine camera
-                                  * distance cam+0x0C/+0x64 (signed;
-                                  * default -46.8, office records -31.2).
-                                  * Walk tether + door re-seat consume
-                                  * fabs(); slack keys on == -46.8. */
-
-    /* OPENING-CAMERA SEAT (scene.txt `opencam` — s79 iteration 4). The
-     * AREA-11 opening idle camera is the engine's func_0018DD20 wall
-     * solver acting on a wall-buried entry seat; its settled +X eye is a
-     * 44-u lateral relocation from the -X-Z buried seat that the decoded
-     * solver branches STRUCTURALLY CANNOT produce (the pull-in keeps the
-     * seat side, the wedge needs a reverse-probe hit that the single-
-     * sided collision misses, and the 5.5-u side probes run PARALLEL to
-     * the faced wall — proven across s79 iterations 1-4 with a live
-     * geometry probe of snow.emcl). Rather than corrupt the byte-faithful
-     * solver with a fake branch, the known emergent result is SEATED here
-     * for the one scene that needs it: a data line, like the engine's own
-     * data-driven spawn-record cameras. eye.y SEEKS from ey0 (the seat
-     * height +19) to ey1 (the settled wall-clear height) at the engine
-     * eye-Y rate, reproducing the live +9.55 rise; eye.x/z and the target
-     * are pinned (the dead-band freeze). Absent line = no opening seat
-     * (every other scene runs the pure solver). */
-    int         opencam_on;      /* an `opencam` line was parsed         */
-    int         opencam_idle;    /* idle frames since the seat armed; the
-                                  * raise stops being applied once the
-                                  * 481-frame reorient takes over (cam
-                                  * orbit), and any move/aim disarms it    */
-    float       opencam_eye[3];  /* settled eye x / (rise target y) / z   */
-    float       opencam_ey0;     /* frame-0 eye.y (the seat height)       */
-    float       opencam_tgt[3];  /* the pinned look-at target             */
-
-    /* LIGHTING — the scene's CHARACTER LIGHT RIG (scene.txt light*
-     * lines, export_level.py --lightrig: the decoded per-room rig
-     * table D_00251C50 record for this scene's (area<<8)|sub key plus
-     * the room's placed-lamp list). The engine selects the rig by the
-     * area/sub bytes D_00810700/701 (func_001D7B30) — a sub-state
-     * flip IS a scene switch in the port, so the rig is per-scene
-     * constant by the engine's own mechanism (no spatial room bounds
-     * exist or are invented; see char_rig_build). rig_on = 0 (no
-     * manifest lines) keeps the historical shader stand-in. */
-    int         rig_on;          /* lightamb+lightcam+2 lightdir parsed */
-    float       rig_amb[3];      /* ambient row, engine 0..128 scale */
-    float       rig_cam_dir[3];  /* slot 0 fill dir, CAMERA-SPACE */
-    float       rig_cam_col[3];  /* slot 0 fill color */
-    float       rig_cam_w;       /* slot 0 dir weight in the lamp fold */
-    float       rig_dir[2][3];   /* slots 1/2 world-space directions */
-    float       rig_col[2][3];   /* slots 1/2 colors */
-    int         n_lamp;          /* placed lamps (func_001F6760 list) */
-    struct {
-        float pos[3];            /* world position */
-        float col[3];            /* color, x128 registration scale */
-        float inten;             /* intensity (slot +0x2C, x128) */
-    }           lamp[LAMP_MAX];
-
-    /* EM_CAPTURE / EM_MOVE_TEST / EM_DOOR_TEST debug instrumentation */
-    const char *capture_path;
-    int         capture_frame;
-    int         capture_aim;     /* EM_CAPTURE_AIM=1 — hold R1 from frame
-                                  * 0 so the capture shows the armed
-                                  * stance (aim pose + laser + camera);
-                                  * 3/4 = also hold stick down/up so the
-                                  * capture shows the aim-UP / aim-DOWN
-                                  * ladder pose (inverted Y) */
-    int         capture_door;    /* EM_CAPTURE_DOOR=1 — door-test spawn +
-                                  * approach + CROSS, no asserts: the
-                                  * capture frame samples the door-transit
-                                  * CINEMATIC camera (default frame 110) */
-    int         capture_supply;  /* EM_CAPTURE_SUPPLY=1 — spawn at the
-                                  * office double doors + CROSS: the
-                                  * transit crosses into the SUPPLY ROOM
-                                  * and the capture frame samples its
-                                  * spawn-record FIXED corner camera
-                                  * (default frame 360) */
-    int         capture_rise;    /* EM_CAPTURE_RISE=1 — hold 's' (walk at
-                                  * the camera) so the capture shows the
-                                  * wall-blocked camera looking down at
-                                  * the player (see gameplay_frame) */
-    int         capture_examine; /* EM_CAPTURE_EXAMINE=1 — snow scene:
-                                  * walk to the AREA11 switch + CROSS so
-                                  * the capture samples the refusal line
-                                  * ("Switch / No power...") presenting
-                                  * (see gameplay_frame) */
-    int         capture_orient;  /* EM_CAPTURE_ORIENT=1 — turn-in-place,
-                                  * then idle: the slow auto-orient demo */
-    int         capture_walk;    /* EM_CAPTURE_WALK=1 — hold 'w' (run
-                                  * AWAY from the camera) so the capture
-                                  * samples the plain moving-player chase
-                                  * framing: eye +19 / target +17 (the
-                                  * s71 idle-row correction — no dive
-                                  * toward the feet) */
-    int         cam_print;       /* EM_CAM_PRINT=1 — dump the settled
-                                  * camera state (eye/tgt/yaw/horiz dist)
-                                  * at the capture frame, any capture mode
-                                  * (the idle-emergence A/B read, s76) */
-    int         capture_locked;  /* EM_CAPTURE_LOCKED=N — drawbridge m15
-                                  * LOCKED-door try from approach variant
-                                  * N (1 = straight on, 2 = oblique SW —
-                                  * different prior camera orientations);
-                                  * the capture samples the locked-look
-                                  * cut and prints the camera at the
-                                  * capture frame: runs 1 and 2 must
-                                  * match (the s71 snap-yaw anchor) */
-    int         move_test;
-    int         move_legs[2];    /* EM_MOVE_LEGS=fwd,strafe frame counts */
-    int         move_expect_set; /* EM_MOVE_EXPECT=x,y,z final-pos override */
-    float       move_expect[3];
-    int         transit_test;    /* EM_TRANSIT_TEST=1 — scene-switch test */
-    int         slider_test;     /* EM_SLIDER_TEST=1 — sliding-door test
-                                  * (drawbridge scene, slider brain) */
-    int         locked_test;     /* EM_LOCKED_TEST=1 — locked-door test
-                                  * (drawbridge scene, m15 security
-                                  * door; refusal then unlock+retry) */
-    int         tt_door;         /* test door index (the goto west door) */
-    int         tt_ok_trigger;   /* X press put the goto door in OPENING */
-    int         tt_ok_lock;      /* input locked mid-transit */
-    int         tt_switch_frame; /* frame the active scene dir changed */
-    float       tt_max_fade;     /* peak fade level (must reach 1.0) */
-    int         door_test;       /* EM_DOOR_TEST=1 — door interaction test */
-    int         dt_door;         /* test door index (the west doorway) */
-    int         dt_ok_trigger;   /* X press put the door in OPENING */
-    int         dt_ok_lock;      /* input locked during the transit */
-    int         dt_ok_inputdead; /* held stick did NOT move the player */
-    int         dt_ok_anim;      /* scripted door anim 0x43 committed
-                                  * mid-open (back side of the test door) */
-    float       dt_min_x;        /* min player x while the door not OPEN */
-    float       dt_max_fade;     /* peak fade level seen (must reach 1.0) */
-    int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
-    int         wt_fail;         /* weapon test: failed checkpoints */
-    int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
-                                  * run, 2 = let-it-reach-the-player run,
-                                  * 3 = walk-at-the-crate burst run */
-    int         enemy_test4;     /* EM_ENEMY_TEST=4 armed (the generator
-                                  * run, owned by em_enemy.c) — the
-                                  * manifest parser skips generator lines
-                                  * so the run stays self-contained */
-    int         sfx_test;        /* EM_SFX_TEST=1 — one-shot mixer test */
-    int         pause_test;      /* EM_PAUSE_TEST=1 — status-pause test */
-    int         camregion_test;  /* EM_CAMREGION_TEST=1 — fixed-camera
-                                  * region test (synthetic office region) */
-    int         aim_test;        /* EM_AIM_TEST=1 — manual aim-steer +
-                                  * mode-1 aim-camera self-test */
-    int         pickup_test;     /* EM_PICKUP_TEST=1 — pickup collect /
-                                  * inventory / despawn / persistence-
-                                  * across-reload self-test */
-    int         pt_phase;        /* pickup test: script phase */
-    int         pt_fail;         /* pickup test: failed checkpoints */
-    int         pt_mark;         /* pickup test: phase anchor frame */
-    int         pt_slot;         /* pickup test: injected pickup slot */
-    int16_t     pt_r0;           /* pickup test: reserve before collect */
-    int         examine_test;    /* EM_EXAMINE_TEST=1 — examine arm /
-                                  * input pause / radio line / camera
-                                  * cue / chain / re-arm self-test */
-    int         ex_fail;         /* examine test: failed checkpoints */
-    int         examcam;         /* EXAMINE camera-cue pin latch (op00
-                                  * cut held while the sequence runs;
-                                  * release = one-shot chase restore,
-                                  * the op07-sub4 restore shape) */
-    int         melee_test;      /* EM_MELEE_TEST=1 — knife-vs-crate run */
-    int         mt_fail;         /* melee test: failed checkpoints */
-    int         mt_phase;        /* melee test: script phase */
-    int         mt_mark;         /* melee test: phase anchor frame */
-    int         et_spawned;      /* test enemy placed at scene init */
-    int         et_fail;         /* failed checkpoints */
-    float       et_d0;           /* spawn distance to the test enemy */
-    float       et_health0;      /* player health at frame 0 */
-    int         et_fired;        /* frame the kill-run shot was injected */
-    int         et_hit_frame;    /* frame the contact run lost health */
-    int         et_burst_frame;  /* crate run: frame the crate burst */
-    float       et_bd;           /* crate run: crate distance at burst */
-    float       et_wd0;          /* crate run: bug-1 distance at burst */
-    float       et_wd_min;       /* crate run: min bug-1 distance since */
-    int         et_worm_atk;     /* crate run: bug 1 reached ATTACK
-                                  * (field name predates the s68
-                                  * worm->bug hatch rebinding) */
-    int         death_test;      /* EM_DEATH_TEST=1 — flinch/death/
-                                  * game-over/restart self-test */
-    int         gt_phase;        /* death test: script phase */
-    int         gt_fail;         /* death test: failed checkpoints */
-    int         gt_mark;         /* death test: phase anchor frame */
-    unsigned    gt_flinch;       /* death test: committed flinch clip */
-    float       gt_health0;      /* death test: health before a hit */
-} g;
+/* The gameplay state object declared in em_game_internal.h. */
+EmGameState g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
  * there by the decomp repo's exporters (tools/export_level.py --spawn /
@@ -1690,6 +248,38 @@ static struct {
  *
  * A missing file or missing key leaves the office defaults in place, so
  * the default scene needs no manifest to keep its exact behavior. */
+/* AREA-11 elevator platform helpers (defined with the elevator actor
+ * below; forward-declared so the manifest parser can load/pose/free the
+ * platform mesh, and scene_unload can free it with the scene). */
+static void elevator_unload(EmGfx *gfx);
+static void elevator_pose(void);
+static void grate_unload(EmGfx *gfx);
+static void grate_pose(void);
+static void grate_update(void);
+static int  grate_install(EmGfx *gfx, const char *scene_dir,
+                          const char *name, const float pos[3], float yaw);
+
+/* manifest_word_token — does `line` contain `tok` as a WHOLE WORD
+ * (delimited by start-of-line/space on the left and end-of-line/space on
+ * the right)? Used for the trailing examine-line marker tokens
+ * ("terminal" / "battery_terminal") so a substring inside a path or
+ * another token can't trip them, and so the longer "battery_terminal"
+ * (which ends in "terminal") is not mis-matched by the "terminal" probe
+ * (the '_' before "terminal" fails the left delimiter). */
+static int manifest_word_token(const char *line, const char *tok)
+{
+    size_t tl = strlen(tok);
+    for (const char *p = strstr(line, tok); p; p = strstr(p + 1, tok)) {
+        char l = (p == line) ? ' ' : p[-1];
+        char r = p[tl];
+        int left_ok  = (l == ' ' || l == '\t');
+        int right_ok = (r == '\0' || r == ' ' || r == '\t' ||
+                        r == '\n' || r == '\r');
+        if (left_ok && right_ok) return 1;
+    }
+    return 0;
+}
+
 static void scene_manifest_load(void)
 {
     g.spawn[0]  = kPlayerPos[0];
@@ -1703,6 +293,10 @@ static void scene_manifest_load(void)
     g.n_camregion  = 0;     /* camera regions are per-scene data */
     g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
     g.n_lamp       = 0;
+    g.steam_on     = 0;     /* AREA-11 steam/FX emitter is per-scene data */
+    g.steam_lamp   = -1;
+    g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
+    g.fog_on       = 0;     /* LIGHTING: distance fog is per-scene data */
     int n_ldir = 0, have_amb = 0, have_cam = 0;
 
     char mf[256 + 16];
@@ -1772,6 +366,18 @@ static void scene_manifest_load(void)
                 printf("manifest: camregion limit (%d) hit, skipped: %s",
                        CAM_REGION_MAX, line);
             }
+        } else if (sscanf(line, "fog %f %f %f %f %f",
+                          &x, &y, &gx, &gy, &gz) == 5) {
+            /* LIGHTING — the scene's DISTANCE FOG (D_00251C50 record
+             * rec+4/+8 = near/far, rec+0xC/10/14 = RGB). x=near, y=far,
+             * gx/gy/gz = fog RGB on the engine 0..128 scale (the rig
+             * color convention; the gfx layer scales /128). near may be
+             * negative (AREA-11 -208 => even near geometry is partly
+             * fogged). Absent line => fog_on stays 0 (scene unfogged). */
+            g.fog_near   = x;
+            g.fog_far    = y;
+            g.fog_rgb[0] = gx; g.fog_rgb[1] = gy; g.fog_rgb[2] = gz;
+            g.fog_on     = 1;
         } else if (sscanf(line, "lightamb %f %f %f", &x, &y, &z) == 3) {
             /* LIGHTING — the scene rig's ambient row (engine 0..128
              * scale; D_00251C50 record +0x68). */
@@ -1864,6 +470,155 @@ static void scene_manifest_load(void)
                                      gyaw);
                 }
             }
+        } else if ((gn = sscanf(line, "elevator %255s %f %f %f %f",
+                                 name, &x, &y, &z, &yaw)) >= 4) {
+            /* AREA-11 ELEVATOR PLATFORM placement (batch-2 contract F).
+             * Form: `elevator <model.emdl> <x> <y> <z> [yaw]`. The mesh
+             * is the descending platform (ov 0x00828050 +0xB4); the ride
+             * (em_game_elevator_start / elevator_tick) drives this Y down
+             * with the player + camera. The placement spot is "right next
+             * to the battery terminal (224, 230, 250.7)"
+             * (INVESTIGATION_area11_elevator.md §4). Only one platform per
+             * scene; a second line replaces the first. The ride works
+             * WITHOUT this line (player + camera still descend — the
+             * platform just isn't drawn), so a missing/failed mesh is
+             * non-fatal. */
+            EmGfx *egfx = em_frame_gfx();
+            elevator_unload(egfx);          /* drop any prior platform */
+            g.elev_pos[0] = x;
+            g.elev_pos[1] = y;
+            g.elev_pos[2] = z;
+            g.elev_yaw    = (gn >= 5) ? yaw : 0.0f;
+            char epath[1024];
+            snprintf(epath, sizeof epath, "%s/%s", g.scene_dir, name);
+            if (em_model_load(&g.elev_model, epath) != 0) {
+                printf("manifest: elevator mesh %s failed to load — ride "
+                       "runs WITHOUT a platform (player+camera descend), "
+                       "FLAGGED\n", epath);
+            } else {
+                g.elev_mesh = em_gfx_mesh_create(
+                    egfx, g.elev_model.verts, g.elev_model.vert_count,
+                    g.elev_model.indices, g.elev_model.index_count,
+                    (const EmGfxTexDesc *)g.elev_model.texs,
+                    g.elev_model.tex_count, g.elev_model.texels,
+                    g.elev_model.flags);
+                g.elev_palette = malloc(g.elev_model.bone_count * 16 *
+                                        sizeof(float));
+                if (!g.elev_mesh || !g.elev_palette) {
+                    printf("manifest: elevator mesh %s GPU/palette alloc "
+                           "failed — ride runs WITHOUT a platform, "
+                           "FLAGGED\n", epath);
+                    elevator_unload(egfx);
+                } else {
+                    g.elev_has_mesh = 1;
+                    elevator_pose();        /* bake the placed frame-0 pose */
+                    printf("manifest: ELEVATOR platform %s at (%.1f, "
+                           "%.1f, %.1f) yaw %.3f — %u verts\n", name,
+                           x, y, z, g.elev_yaw, g.elev_model.vert_count);
+                }
+            }
+        } else if (sscanf(line, "truck %255s %f %f %f %f %f",
+                          name, &x, &y, &z, &yaw, &r) == 6) {
+            /* AREA-11 WEDGED TRUCK (placement record 16, behavior
+             * ov 0x00823FF0 + trigger record 17 ov 0x008251E0 — the
+             * "run across the top before it falls" set-piece;
+             * INVESTIGATION_first_level_area11.md §11). Form:
+             * `truck <model.emdl> <x> <y> <z> <rx> <ry>` (the placed pos +
+             * Euler tilt rx and yaw ry). The actor (em_truck.c) loads the
+             * mesh, seats the wedged pose, runs the trigger->fall machine,
+             * and registers its walkable-top footprint+velocity each frame
+             * so a player standing on top during the fall is carried DOWN
+             * into the crevice. One truck per scene; the ride/carry is
+             * owned by em_truck.c + the moving-surface registry. A missing
+             * mesh makes the whole set-piece absent (em_truck_install
+             * returns nonzero and reports). */
+            char tpath[1024];
+            snprintf(tpath, sizeof tpath, "%s/%s", g.scene_dir, name);
+            float tp[3] = { x, y, z };
+            if (em_truck_install(em_frame_gfx(), tpath, tp, yaw, r) == 0)
+                printf("manifest: WEDGED TRUCK %s at (%.1f, %.1f, %.1f) "
+                       "rx %.3f ry %.3f\n", name, x, y, z, yaw, r);
+            else
+                printf("manifest: truck line failed to load: %s", line);
+        } else if ((gn = sscanf(line, "grate %255s %f %f %f %f",
+                                 name, &x, &y, &z, &yaw)) >= 4) {
+            /* AREA-11 GATED GRATE (placement record 18, fn func_00159210 —
+             * the closed path-blocker that opens when the area is powered;
+             * INVESTIGATION_area11_grate.md). Form:
+             * `grate <model.emdl> <x> <y> <z> [yaw]`. The bars mesh (per-
+             * area id 0x04 = props/area_item_04.emdl) is rendered AND, while
+             * the area is NOT powered (em_game_terminal_powered, the unlock
+             * bit D_0081084C & 0x80 — 0 at a fresh new game), registers a
+             * SOLID blocker hull each frame so the player cannot pass. Once
+             * powered the hull is dropped and the bars SLIDE open. The hull
+             * is the mesh's own world AABB, derived at install from the
+             * loaded verts + the placement transform. One grate per scene; a
+             * second line replaces the first. A missing mesh disables the
+             * grate entirely (no blocker, no draw — matching the engine
+             * never instantiating record 18 without its model). This is the
+             * GATED representation of the bars; the OTHER param-0x04 prop
+             * (record 20, the unrelated static decor) stays a plain
+             * `pickup ... prop`. */
+            float gp[3] = { x, y, z };
+            if (grate_install(em_frame_gfx(), g.scene_dir, name, gp,
+                              (gn >= 5) ? yaw : 0.0f) == 0)
+                printf("manifest: GATED GRATE %s at (%.1f, %.1f, %.1f) "
+                       "yaw %.3f — closed blocker until powered\n",
+                       name, x, y, z, (gn >= 5) ? yaw : 0.0f);
+            else
+                printf("manifest: grate line failed to load: %s", line);
+        } else if (sscanf(line, "areatitle %d", &gk) == 1) {
+            /* AREA-TITLE CARD trigger (INVESTIGATION_area11_director.md
+             * §4.4). Form: `areatitle <area>`. Arms the one-shot opening
+             * placard ("FORT STEWART - REAR ENTRANCE" for area 11) ONCE on
+             * scene entry — em_hud owns the fade-in/hold/fade-out and the
+             * string table (0x00273B80). Independent of the cinematic
+             * director and the status HUD. Only decoded areas (11) show a
+             * card; any other area no-ops in em_hud_area_title. The card is
+             * armed here so it is bound to scene-LOAD (the engine's
+             * func_001C5930 first-gameplay-frame trigger). */
+            g.area_title_armed = 1;
+            em_hud_area_title(gk);
+        } else if (sscanf(line, "steam %f %f %f", &x, &y, &z) == 3) {
+            /* AREA-11 STEAM / FX EMITTER (placement record 7, ov 0x008235F0
+             * @ ~452,279,278 — INVESTIGATION_first_level_area11.md §3/§6).
+             * Form: `steam <x> <y> <z>`. Registers (1) the level's one
+             * dynamic POINT LIGHT (a subtle warm glow — pushed into the
+             * placed-lamp list, folded into actor lighting by
+             * char_rig_build exactly like a `lamp`), (2) the looping
+             * ambient hiss 0x413 (steam_tick retriggers it on a fixed
+             * interval — the port SFX path is one-shot, no loop primitive),
+             * and (3) a minimal billboard steam puff (em_gfx_beam_dot). One
+             * emitter per scene; a second line replaces the first. The glow
+             * is deliberately faint (STEAM_LAMP_INTEN) and far from the
+             * spawn so it does NOT wash out the dark snow scene. */
+            g.steam_on     = 1;
+            g.steam_pos[0] = x;
+            g.steam_pos[1] = y;
+            g.steam_pos[2] = z;
+            g.steam_snd_t  = 0;       /* fire the hiss on the first tick */
+            g.steam_fx_phase = 0.0f;
+            g.steam_lamp   = -1;
+            if (g.n_lamp < LAMP_MAX) {
+                /* the cosmetic warm point light (colors on the engine
+                 * 0..128 lamp scale, like the rig lightdir rows). */
+                g.steam_lamp = g.n_lamp;
+                g.lamp[g.n_lamp].pos[0] = x;
+                g.lamp[g.n_lamp].pos[1] = y;
+                g.lamp[g.n_lamp].pos[2] = z;
+                g.lamp[g.n_lamp].col[0] = STEAM_LAMP_COL_R * 128.0f;
+                g.lamp[g.n_lamp].col[1] = STEAM_LAMP_COL_G * 128.0f;
+                g.lamp[g.n_lamp].col[2] = STEAM_LAMP_COL_B * 128.0f;
+                g.lamp[g.n_lamp].inten  = STEAM_LAMP_INTEN;
+                g.n_lamp++;
+                printf("manifest: STEAM/FX EMITTER at (%.1f, %.1f, %.1f) — "
+                       "warm point light + looping hiss %#x + puff FX\n",
+                       x, y, z, STEAM_SND_ID);
+            } else {
+                printf("manifest: STEAM/FX EMITTER at (%.1f, %.1f, %.1f) — "
+                       "lamp budget full, glow skipped; hiss %#x + puff "
+                       "still active\n", x, y, z, STEAM_SND_ID);
+            }
         } else if ((gn = sscanf(line, "pickup %i %f %f %f %f %i "
                                 "%255s %63s",
                                 &gk, &x, &y, &z, &yaw, &gl,
@@ -1875,9 +630,19 @@ static void scene_manifest_load(void)
              * and/or the `prop` marker. */
             const char *model = NULL;
             int prop = 0;
+            /* The trailing "battery" token (batch-2 contract B) marks the
+             * AREA-11 battery key-item (placement record 10, item type
+             * 0x11). It is NOT a prop — it stays a normal collectible;
+             * em_pickup.c routes the TAKE of type 0x11 to
+             * em_game_set_battery(1) (the engine's D_00810811 = 0xFF), so
+             * the parser just needs to keep it collectible and not treat
+             * "battery" as a model filename. Recognized here only for the
+             * log; the type 0x11 in `gk` is what carries the routing. */
+            int battery = (gn >= 7 && strcmp(name,  "battery") == 0) ||
+                          (gn >= 8 && strcmp(gname, "battery") == 0);
             if (gn >= 7) {
-                if (strcmp(name, "prop") == 0) prop = 1;
-                else model = name;
+                if (strcmp(name, "prop") == 0)         prop  = 1;
+                else if (strcmp(name, "battery") != 0) model = name;
             }
             if (gn >= 8 && strcmp(gname, "prop") == 0) prop = 1;
             float p[3] = { x, y, z };
@@ -1885,6 +650,10 @@ static void scene_manifest_load(void)
                                    yaw, gl, model, prop);
             if (rc == -1)
                 printf("manifest: pickup line failed to load: %s", line);
+            else if (battery)
+                printf("manifest: BATTERY key-item (type %#x) at "
+                       "(%.1f, %.1f, %.1f) — take sets D_00810811\n",
+                       gk, p[0], p[1], p[2]);
             /* rc == -2: taken uid — the engine's silent cond-1 skip */
         } else if (sscanf(line, "examine %f %f %f %f %f %f",
                           &x, &y, &z, &yaw, &gx, &gy) == 6) {
@@ -1906,11 +675,67 @@ static void scene_manifest_load(void)
                 sscanf(t + 4, "%f %f %f",
                        &cam[0], &cam[1], &cam[2]) == 3)
                 camp = cam;
+            /* op04 FACE pre-roll (INVESTIGATION_examine_walk_face.md): the
+             * optional trailing `face <yaw> [walk N]` token — the scripted
+             * heading the player pivots to before the message (+ the op01
+             * walk-to duration, default 0 = no walk). Routed to
+             * em_examine_set_face after the add. */
+            int   exhasface = 0, exwalk = 0;
+            float exface = 0.0f;
+            if ((t = strstr(line, "face "))) {
+                exhasface = 1;
+                exface = strtof(t + 5, NULL);
+                const char *w = strstr(t, "walk ");
+                if (w) exwalk = (int)strtol(w + 5, NULL, 0);
+            }
             last_examine = em_examine_add(p, yaw, gx, gy, exline,
                                           exdelay, excool, camp);
             if (last_examine < 0)
                 printf("manifest: examine line failed to load: %s",
                        line);
+            /* FACE pre-roll is INDEPENDENT of the terminal markers — a
+             * single line carries both (the snow internal terminal has
+             * `terminal` AND `face -1.3037`), so set it here, not in the
+             * terminal-marker if/else chain below. */
+            if (last_examine >= 0 && exhasface) {
+                em_examine_set_face(last_examine, exface, exwalk);
+                printf("manifest: examine slot %d FACE pre-roll yaw %.4f "
+                       "rad (walk %d)\n", last_examine, exface, exwalk);
+            }
+            /* The trailing examine-line marker tokens (CORRECTED two-
+             * terminal flow, INVESTIGATION_area11_elevator.md). Matched as
+             * WHOLE WORDS (preceded by start/space, followed by end/space)
+             * so a stray substring in a path can't trip them — and so the
+             * "battery_terminal" token (which ends in "terminal") is NOT
+             * mis-read as the plain "terminal" token (its '_' fails the
+             * preceding-char test). Check the more-specific
+             * "battery_terminal" first.
+             *
+             *  - "battery_terminal" -> the AREA-11 OUTSIDE battery terminal
+             *    (ov 0x008237E0 @ 331.7,290,192.5): the battery-insert
+             *    object. em_examine_set_battery_terminal routes the USE
+             *    through the insert path (player clip 0x14 + lock, then
+             *    set power) when the battery is held; CHAIN2 owns that.
+             *  - "terminal" -> the AREA-11 INTERNAL elevator-control
+             *    terminal (ov 0x00827B10 @ 224,230,250.7) on the platform.
+             *    em_examine_set_terminal routes the USE through the
+             *    power-GATED ride: powered -> lever clip 0x47 + lock + the
+             *    descent; unpowered -> the EXISTING gline 0x1A refusal +
+             *    300-frame cooldown (unchanged). It no longer sets power
+             *    or checks the battery — it only CHECKS power. */
+            if (last_examine >= 0 &&
+                manifest_word_token(line, "battery_terminal")) {
+                em_examine_set_battery_terminal(last_examine);
+                printf("manifest: OUTSIDE BATTERY TERMINAL examine — slot "
+                       "%d at (%.1f, %.1f, %.1f) (battery-insert/power)\n",
+                       last_examine, p[0], p[1], p[2]);
+            } else if (last_examine >= 0 &&
+                       manifest_word_token(line, "terminal")) {
+                em_examine_set_terminal(last_examine);
+                printf("manifest: INTERNAL TERMINAL examine — slot %d at "
+                       "(%.1f, %.1f, %.1f) (power-gated elevator ride)\n",
+                       last_examine, p[0], p[1], p[2]);
+            }
         } else if ((gn = sscanf(line, "examinetext %d %d", &gk, &gl))
                    == 2) {
             /* chained AREA-bank record of the LAST examine line */
@@ -1945,10 +770,20 @@ static void scene_manifest_load(void)
             }
         } else if (sscanf(line, "enemy %255s %f %f %f %f", name,
                           &x, &y, &z, &yaw) == 5) {
-            /* Placed enemy instance (em_enemy.c). */
+            /* Placed enemy instance (em_enemy.c). The AREA-11 door-husk
+             * pair (`husk_creature` / `husk_partner`) ride the same enemy
+             * line: both spawn STAGED-INERT, so the opening stays
+             * enemy-free (INVESTIGATION_first_level_area11 §5.2) — no
+             * separate token or "inert" flag needed (the inertness is
+             * intrinsic to the kind, not a placement option). */
             int kind = strcmp(name, "crawler") == 0 ? EM_ENEMY_KIND_CRAWLER
                      : strcmp(name, "crate") == 0   ? EM_ENEMY_KIND_CRATE
                      : strcmp(name, "bug") == 0     ? EM_ENEMY_KIND_BUG
+                     : strcmp(name, "egg") == 0     ? EM_ENEMY_KIND_EGG
+                     : strcmp(name, "husk_creature") == 0
+                                              ? EM_ENEMY_KIND_HUSK_CREATURE
+                     : strcmp(name, "husk_partner") == 0
+                                              ? EM_ENEMY_KIND_HUSK_PARTNER
                                                     : -1;
             if (kind < 0) {
                 printf("manifest: unknown enemy kind, skipped: %s", line);
@@ -1989,6 +824,11 @@ static void scene_manifest_load(void)
                g.rig_amb[0], g.rig_amb[1], g.rig_amb[2],
                g.rig_cam_col[0], g.rig_cam_col[1], g.rig_cam_col[2],
                g.rig_cam_w, g.n_lamp);
+    if (g.fog_on)
+        printf("manifest: distance fog — near %g far %g, fog RGB "
+               "(%g %g %g) [0..128]\n",
+               g.fog_near, g.fog_far,
+               g.fog_rgb[0], g.fog_rgb[1], g.fog_rgb[2]);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
            "collision %s%s%s, %d door(s), %d enem%s, %d pickup(s), "
            "%d examine(s)\n", mf,
@@ -2087,6 +927,26 @@ static void scene_unload(EmGfx *gfx)
     em_examine_reset();         /* examine objects are per-scene
                                  * placements (no persistent state —
                                  * the engine re-arms them anyway) */
+    elevator_unload(gfx);       /* the AREA-11 platform mesh (re-parsed
+                                 * from the new scene's manifest) */
+    grate_unload(gfx);          /* the AREA-11 gated-grate bars + hull
+                                 * (re-installed from the new scene's
+                                 * `grate` line) */
+    em_truck_clear(gfx);        /* the AREA-11 wedged-truck actor + mesh
+                                 * (re-installed from the new scene's
+                                 * `truck` line) */
+    /* AREA-11 OPENING DIRECTOR — drop any in-flight beat at a scene
+     * change (belt-and-suspenders soft-lock guard: a beat can't actually
+     * be running across a switch, since the beat lock suppresses every
+     * use-scan that could trigger a goto door — but clearing here makes
+     * it impossible for a stale lock to survive into the next scene). The
+     * step byte re-arms to 0 in the scene-init state-0 arm; clear the
+     * transient now so the player is never locked between unload and arm. */
+    g.cine_active = 0;
+    g.cine_beat   = -1;
+    g.cine_kf     = 0;
+    g.cine_kf_t   = 0;
+    g.cine_was    = 0;
 }
 
 int em_game_scene_switch(const char *dir)
@@ -2307,6 +1167,32 @@ static void player_move_collide(float mx, float mz)
             break;
         from[1] = hit.point[1] - 1e-3f;
     }
+
+    /* MOVING-SURFACE CARRY (the AREA-11 truck top — em_collision.h §11.4,
+     * the PS2 truck convergence block 0x00825014). After the static floor
+     * snap above, consume the per-frame moving-surface registry: if the
+     * player footprint stands on a registered moving surface (the truck
+     * top) within its Y band, ADD that surface's velocity to the player.
+     * For the wedged truck this is vel 0 (no effect); for the FALLING truck
+     * it is the accelerating downward drop — so a player lingering on top
+     * is carried DOWN into the crevice (the fail), below the static floor
+     * the snap resolved. The single moving-surface touch in the player
+     * ground-solve (the truck registers in em_truck_update, run earlier
+     * this frame). Dormant — returns 0 — whenever no actor registered. */
+    em_collision_moving_carry(g.pos);
+
+    /* STATIC BLOCKER PUSH-OUT (the AREA-11 closed GRATE — em_collision.h
+     * §blocker, INVESTIGATION_area11_grate.md §5). After the static EMCL
+     * wall solve (player_wall_probes) and the floor snap, eject the player
+     * from any registered solid blocker AABB they have entered. The grate
+     * registers its closed hull each frame ONLY while the area is NOT
+     * powered (grate_update, run before actor_update), so once powered the
+     * registry is empty and this is a no-op — movement away from the grate
+     * is bit-for-bit unchanged (the probe returns 0 and touches nothing).
+     * This is the SINGLE blocker touch in the player ground-solve, the same
+     * minimal-addition shape as the moving-surface carry above. The wall
+     * radius is the same (0,y,4.5) probe radius the EMCL solve uses. */
+    em_collision_blocker_probe(g.pos, PLAYER_WALL_RADIUS);
 }
 
 /* player_turn_rate — func_00174AC0's banded rate select (rad/frame).
@@ -2347,6 +1233,66 @@ static void player_turn_toward(float desired, float rate)
     }
     while (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
     while (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
+}
+
+/* Per-tier target speed +0x38/D_00248870 (u/tick), shared by the tier
+ * ramp in player_move and the C1 cross-blend progress in the anim
+ * dispatch (loco_clip_for_tier / the +0x208 progress calc). */
+static const float kLocoTierSpeed[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
+
+/* player_move_cam_yaw — the engine's camera-relative move basis.
+ *
+ * FIX 1 (INVESTIGATION_movement_exact.md "DEEP A/B v2", live 2026-06-17):
+ * the engine builds the desired heading as stickAngle + D_008106A0, where
+ * D_008106A0 is the camera's HORIZONTAL VIEW yaw read from its ORIENTATION
+ * BASIS — concretely the atan2 angle of the COMMITTED FORWARD vector
+ * D_00810600 (FINDINGS "Global camera vector pool": "0x8106A0 atan2 angle
+ * of forward"), written by the commit func_0018C0D0 right after it builds
+ * forward = normalize(target - eye). It is NOT recomputed from the
+ * eye/target POSITIONS each frame, and it barely rotates while moving
+ * (live: ~0.004 rad/frame, ~constant over a whole run) because the
+ * committed forward is the damped/smoothed camera basis — so the move
+ * basis is STABLE during locomotion and the body eases onto a fixed
+ * desired heading, straightening the path.
+ *
+ * The previous attempt returned atan2(tgt - eye) recomputed from the raw
+ * actual eye/target positions. That is the EYE->TARGET geometric heading;
+ * the live A/B read it at ~-2.31 rad while the engine's D_008106A0 read
+ * ~+2.42 rad at the same pose. The two diverge because that expression
+ * swings with the chasing eye and is recomputed from positions rather
+ * than sourced from the maintained orientation.
+ *
+ * The faithful source is the committed forward ORIENTATION vector
+ * g.cam.fwd (= engine D_00810600 = normalize(tgt - eye), with the commit's
+ * degenerate "keep last forward" guard already baked in). Its XZ azimuth
+ * atan2(fwd.x, fwd.z) IS the geometric quantity D_008106A0 is the atan2 of.
+ * The live globals' -2.31 vs +2.42 gap is the engine-global-vs-port
+ * convention offset (the engine stores D_008106A0 in its own basis and
+ * pairs it with atan2(stickX,stickY); the port consumes the SAME geometric
+ * forward azimuth in its atan2(x,z) basis, paired with its (fx*-sy - fz*sx)
+ * stick rotation below) — feeding the engine's raw +2.42 into the port's
+ * atan2(x,z) pipeline would rotate movement 90 deg / mirror it. Sourcing
+ * the committed-forward azimuth keeps forward-press -> walk along the
+ * camera forward AND gives the engine's stable, non-swinging basis.
+ *
+ * g.cam.fwd is last frame's committed forward (actor_update -> player_move
+ * runs BEFORE camera_update/camera_commit), exactly as func_00174AC0 reads
+ * the prior-frame D_008106A0. Degenerate guard falls back to the
+ * eye->target azimuth, then the orbit yaw, so the value stays
+ * deterministic if the commit has not run yet. */
+static float player_move_cam_yaw(void)
+{
+    float fx = g.cam.fwd[0];
+    float fz = g.cam.fwd[2];
+    if (fx * fx + fz * fz >= 1e-6f)
+        return atan2f(fx, fz);       /* committed forward azimuth = D_008106A0 */
+    /* commit has not produced a forward yet: fall back to the eye->target
+     * azimuth (same geometric quantity), then the orbit yaw. */
+    float dx = g.cam.tgt[0] - g.cam.eye[0];
+    float dz = g.cam.tgt[2] - g.cam.eye[2];
+    if (dx * dx + dz * dz < 1e-6f)
+        return g.cam.yaw;
+    return atan2f(dx, dz);
 }
 
 /* Player movement (the port's first slice of the actor spine's physics
@@ -2432,11 +1378,49 @@ static void player_move(void)
     }
 
     /* EXAMINE SEQUENCE LOCK (em_examine.h): the examine script's op07
-     * sub2 enters scripted mode for the whole message presentation —
-     * the player stands (no scripted walk on the examine path; the
-     * engine's op01 walk-to in the AREA11 refusal is FLAGGED-omitted
-     * there). Same lock shape as the door transit above. */
+     * sub2 enters scripted mode for the whole sequence — free locomotion
+     * is suppressed (the player stands), but the sequence DOES drive the
+     * body heading itself: the op04 FACE pre-roll pivots the player to the
+     * scripted yaw at the standing turn rate via em_game_player_face_step
+     * (which calls player_turn_toward on g.yaw) BEFORE the message. The
+     * engine's op01 walk-to is duration-0 for the snow terminals (the
+     * use-scan already places the player within dist), so no scripted
+     * translation here — only the FACE turn. We must NOT zero/seed the
+     * heading here: this lock only kills move_speed/tier/upt so the floor
+     * solve and anim are stand-still, while the FACE phase owns g.yaw.
+     * Same lock shape as the door transit above. */
     if (em_examine_input_locked()) {
+        g.move_speed = 0.0f;
+        g.loco_tier  = 0;
+        g.loco_upt   = 0.0f;
+        return;
+    }
+
+    /* SCRIPTED INTERACT / ELEVATOR RIDE LOCK (CORRECTED two-terminal
+     * flow, INVESTIGATION_area11_elevator.md). Two cases share one
+     * stand-still lock — the engine's "scripted-anim-owns-player" state
+     * (player+0x2F3 = 3) and the powered descent both suppress free
+     * movement so the script owns the player:
+     *   - interact_active: a one-shot scripted clip is playing on the
+     *     player (the OUTSIDE battery-insert clip 0x14, the INTERNAL
+     *     lever-throw clip 0x47). Input/movement is suppressed for the
+     *     clip's duration; control returns when it ends.
+     *   - elev_state == 1: the platform is descending — the player
+     *     stands on it and is carried DOWN by the descent's direct Y
+     *     drive (elevator_tick, after actor_update), not by free
+     *     movement; standing here keeps the floor-snap above from
+     *     fighting that write to g.pos[1].
+     * em_game_player_interact_busy() reports both as busy so the examine
+     * logic does not double-trigger. FLAGGED: the original also gates
+     * input via a control-mode write — modeled here as the stand-still
+     * lock (no decoded control-mode value to mirror; the live decode
+     * confirmed D_008101E4 stays 0 — the lock IS the scripted-anim
+     * state, not a control-mode flag). elev_pending (the descent armed,
+     * waiting on the lever clip) is also locked so the one frame between
+     * the lever clip ending and the ride beginning (both resolved later
+     * this same frame in elevator_tick) does not leak free movement —
+     * exactly em_game_player_interact_busy()'s condition. */
+    if (em_game_player_interact_busy()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f;
@@ -2612,18 +1596,26 @@ static void player_move(void)
      * D_00248870 speed; the current speed accelerates/decelerates
      * toward it through the tier boundaries, promoting/demoting
      * loco_tier as each one is crossed. */
-    static const float kTier[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
+    const float *kTier = kLocoTierSpeed;   /* +0x38/D_00248870 (shared) */
+    /* Per-tier decel table D_00248890 (§2.3), indexed by current tier:
+     * tier 1 -> 0.05, tier 2 -> 0.025, tier 3 -> 0.0227273. (tier 0 is
+     * unused — decel only runs when loco_upt > target, i.e. tier >= 1.) */
+    static const float kDecel[4] = { 0.0f, 0.05f, 0.025f, 0.0227273f };
     if (gait == 0) {                  /* dead ring: idle / run-down */
-        if (g.loco_upt > 0.0f) {
-            /* RUN-DOWN (func_0017BC40 phase 2, C2): on stick release the
-             * carried speed bleeds 0.03125 u/tick per frame and CASCADES
-             * through every tier — run -> jog -> walk -> stop — demoting
-             * loco_tier at each tier's lower-speed FLOOR, not stopping at
-             * the first boundary. (The engine x2's the decay to 0.0625
-             * when carrying gear via actor +0x314 & 0x1F; the port has NO
-             * gear-carry state, so the x2 is OMITTED — flag.) Velocity is
-             * emitted along the held body heading g.yaw (no stick = no
-             * desired heading, so g.yaw just holds). */
+        /* RUN-DOWN applies to TIER 3 ONLY (func_0017BC40 §2.6): on stick
+         * release, tiers <= 2 (walk/jog) STOP INSTANTLY (phase 3,
+         * +0x38 = 0 that frame); only tier 3 (run) bleeds down (phase 2)
+         * at 0.03125 u/tick/frame, CASCADING tier-by-tier to each demote
+         * floor (run -> jog -> walk -> stop), carrying ~9 u. */
+        if (g.loco_upt > 0.0f && g.loco_tier >= 3) {
+            /* RUN-DOWN (func_0017BC40 phase 2, C2): the carried run speed
+             * bleeds 0.03125 u/tick per frame and CASCADES through every
+             * tier, demoting loco_tier at each tier's lower-speed FLOOR,
+             * not stopping at the first boundary. (The engine x2's the
+             * decay to 0.0625 when carrying gear via actor +0x314 & 0x1F;
+             * the port has NO gear-carry state, so the x2 is OMITTED —
+             * flag.) Velocity is emitted along the held body heading
+             * g.yaw (no stick = no desired heading, so g.yaw just holds). */
             g.loco_upt -= GAIT_RUNDOWN;   /* no gear-carry x2 in the port */
             /* Cascade the tier down past each floor we drop below. */
             while (g.loco_tier > 0 && g.loco_upt <= kTier[g.loco_tier - 1])
@@ -2643,22 +1635,136 @@ static void player_move(void)
                 }
                 return;
             }
-        } else {                      /* already stopped */
-            g.loco_tier = 0;
-            g.loco_upt  = 0.0f;
+        } else {
+            /* INSTANT STOP for tiers <= 2 (and the already-stopped case):
+             * walk/jog kill speed the frame the stick is released. */
+            g.loco_tier  = 0;
+            g.loco_upt   = 0.0f;
+            g.move_speed = 0.0f;
+
+            /* TURN-IN-PLACE (func_00174AC0, §2.5/2.7): a stick nudge inside
+             * the r <= 48 gait-0 ring still EASES the body heading toward
+             * atan2(stickX,stickY) + cameraYaw at the in-place rate
+             * 22.5 deg/frame (TURN_IP_GAIT03), with NO translation. Only
+             * runs when the stick is actually deflected (raw magnitude above
+             * a tiny epsilon, within the ring) and the player is idle (this
+             * is the not-run-down path). */
+            if (r > 1e-4f) {
+                /* Camera-relative DESIRED heading — the BYTE-FAITHFUL engine
+                 * closed form (INVESTIGATION_movement_exact.md "FORWARD-
+                 * DIRECTION RESOLUTION (definitive, static)", 2026-06-17):
+                 *   D_008106A0 = atan2(-fwd.z, fwd.x)  [func_0018C0D0]
+                 *   stickAngle = atan2(sx, -sy)        [func_00174AC0 +0x24C]
+                 *   desired    = wrap( stickAngle + pi + D_008106A0 )
+                 * and the identity atan2(x,z) == atan2(-z,x) + pi/2 (dev 1e-15)
+                 * collapses pi + D_008106A0 to player_move_cam_yaw() + pi/2,
+                 * giving the disasm-exact closed form below. Cardinals (with
+                 * cam_yaw = atan2(fwd.x,fwd.z) = player_move_cam_yaw()):
+                 *   FWD  (sx=0,  sy=-1): atan2(0,1)=0      -> cam_yaw + pi/2
+                 *   RIGHT(sx=1,  sy=0) : atan2(1,0)=+pi/2  -> cam_yaw + pi
+                 *   BACK (sx=0,  sy=+1): atan2(0,-1)=pi    -> cam_yaw - pi/2
+                 *   LEFT (sx=-1, sy=0) : atan2(-1,0)=-pi/2 -> cam_yaw
+                 * The prior "door-regression" form (cam_yaw + atan2(-sx,-sy))
+                 * was X-mirrored AND missing the +pi/2 — 90 deg off on the
+                 * axes, 180 deg off on the FWD-RIGHT diagonal. RESTORED. */
+                float sx = rdx / r, sy = rdy / r;
+                float desired = atan2f(sx, -sy) + player_move_cam_yaw()
+                              + (float)EM_PI * 0.5f;
+                while (desired >  EM_PI) desired -= 2.0f * EM_PI;
+                while (desired < -EM_PI) desired += 2.0f * EM_PI;
+                player_turn_toward(desired, TURN_IP_GAIT03);
+            }
         }
         player_wall_probes();         /* the idle top probes too */
         return;
     }
 
-    /* Locomotion ENTRY (func_001612D0 state 2): from idle the tier
-     * starts at gait-1 with that tier's speed; the ramp then promotes
-     * it to the gait. A gait change mid-run ramps from the current
-     * speed instead (no re-entry). */
-    if (g.loco_tier == 0 && g.loco_upt <= 0.0f) {
-        g.loco_tier = gait - 1;
-        g.loco_upt  = kTier[gait - 1];
+    /* Stick direction (normalized) -> camera-relative DESIRED heading.
+     * Camera basis on XZ: forward f points from the eye towards the
+     * player, screen-right is f x up = (-fz, 0, fx). Stick up walks
+     * away from the camera. The camera yaw is the engine's D_008106A0
+     * horizontal VIEW yaw (player_move_cam_yaw — C3), NOT the pitched
+     * eye->target heading cam+0x44, so the desired heading matches the
+     * engine and the body does not over-curve. This is the DESIRED
+     * heading (func_001B12B0's target); the BODY heading g.yaw is eased
+     * toward it below and the velocity is emitted ALONG g.yaw — KEEP
+     * this camera-relative derivation, change only what we move along. */
+    /* Camera-relative DESIRED heading (func_001B12B0's target) — the
+     * BYTE-FAITHFUL engine closed form (INVESTIGATION_movement_exact.md
+     * "FORWARD-DIRECTION RESOLUTION (definitive, static)", 2026-06-17;
+     * same derivation as the turn-in-place site above):
+     *   desired = atan2(sx, -sy) + player_move_cam_yaw() + pi/2   (wrapped)
+     * = wrap( stickAngle + pi + D_008106A0 ) with D_008106A0 =
+     * atan2(-fwd.z, fwd.x) = player_move_cam_yaw() - pi/2. So forward-press
+     * (sx=0,sy=-1) heads cam_yaw + pi/2 (90 deg off the camera-forward
+     * azimuth — a UNIVERSAL engine offset, disasm-proven over 3e5 random
+     * orientations, max dev 1e-15); RIGHT -> cam_yaw + pi; BACK ->
+     * cam_yaw - pi/2; LEFT -> cam_yaw. The prior X-mirrored, +pi/2-missing
+     * "door-regression" form is REPLACED — it was 90 deg off on the axes,
+     * 180 deg off on the FWD-RIGHT diagonal. Velocity is still emitted
+     * along the eased body heading g.yaw (func_00178B90, unchanged). */
+    float sx = rdx / r, sy = rdy / r;
+    float desired = atan2f(sx, -sy) + player_move_cam_yaw()
+                  + (float)EM_PI * 0.5f;
+    while (desired >  EM_PI) desired -= 2.0f * EM_PI;
+    while (desired < -EM_PI) desired += 2.0f * EM_PI;
+
+    /* STANDING-ENTRY TURN-IN-PLACE GATE + TIER-0 RAMP ENTRY
+     * (FIX 2 + FIX 3, INVESTIGATION_movement_exact.md "DEEP A/B v2", live
+     * 2026-06-17). The earlier attempt turned in place for exactly ONE
+     * frame, then immediately set loco_tier=gait-1 / loco_upt=0.3 and
+     * translated while still badly misaligned — the "curves out of the
+     * gate" and "snaps with no build-up" the owner sees. The live A/B
+     * shows the engine instead:
+     *   Phase 1 (FIX 3): while the desired heading differs from the body
+     *     by more than one in-place step (22.5 deg = TURN_IP_GAIT03), it
+     *     rotates IN PLACE at exactly 22.5 deg/frame with speed +0x38 = 0,
+     *     tier +0x25C = 0, NOT translating, for ceil(|dHeading|/22.5deg)
+     *     frames. Only once within 22.5 deg of desired does it commit.
+     *   Phase 2 (FIX 2): on commit it enters the ramp from TIER 0 / speed
+     *     ~0 and walks the FULL table {0,0.1,0.3,0.8} (the static
+     *     "entry gait-1/speed 0.3" decode was WRONG — live ramps from
+     *     zero), promoting 0->1->2->3 via the existing tier-promote loop.
+     */
+    int entry = (g.loco_tier == 0 && g.loco_upt <= 0.0f);
+    if (entry) {
+        /* wrapped |desired - g.yaw| (the engine's turn delta). */
+        float adiff = desired - g.yaw;
+        while (adiff >  EM_PI) adiff -= 2.0f * EM_PI;
+        while (adiff < -EM_PI) adiff += 2.0f * EM_PI;
+        if (adiff < 0.0f) adiff = -adiff;
+
+        if (adiff > TURN_IP_GAIT03) {
+            /* PHASE 1 (FIX 3): not yet aligned — turn in place at
+             * 22.5 deg/frame with speed pinned 0, do NOT set the entry
+             * tier/speed and do NOT translate this frame. The player
+             * remains a standing entry (loco_tier=0, loco_upt=0), so the
+             * next frame re-enters here until the body is within one step
+             * of desired. (Mirrors func_00174AC0 running the turn with
+             * +0x38 still 0 across all the misaligned frames, not just
+             * the first.) */
+            player_turn_toward(desired, TURN_IP_GAIT03);
+            g.move_speed = 0.0f;
+            g.loco_tier  = 0;
+            g.loco_upt   = 0.0f;
+            player_wall_probes();     /* the idle top probes (no translate) */
+            return;
+        }
+
+        /* PHASE 2 (FIX 2): aligned within one in-place step — close the
+         * remaining gap (the in-place snap) and COMMIT to the ramp from
+         * TIER 0 / speed 0. The tier ramp below walks the full table. */
+        player_turn_toward(desired, TURN_IP_GAIT03);
+        g.loco_tier = 0;
+        g.loco_upt  = 0.0f;
     }
+
+    /* THE TIER RAMP (func_0017BC40). On the entry frame this is the first
+     * accel step from TIER 0 / speed 0 (FIX 2: the entry just committed at
+     * loco_tier=0, loco_upt=0, so this adds the tier-0 accel 0.05 -> 0.05
+     * and walks the full {0,0.1,0.3,0.8} table over the following frames);
+     * on later frames it ramps from the carried speed (a mid-run gait
+     * change ramps in place). */
     {
         float target = kTier[gait];
         if (g.loco_upt < target) {            /* sub 1: accelerate */
@@ -2671,7 +1777,10 @@ static void player_move(void)
             }
             if (g.loco_upt > target) g.loco_upt = target;
         } else if (g.loco_upt > target) {     /* sub 2: decelerate */
-            float dec = g.loco_tier >= 3 ? GAIT_DECEL_3 : GAIT_DECEL_2;
+            /* Per-tier decel D_00248890[loco_tier] (§2.3): tier 1 = 0.05,
+             * tier 2 = 0.025, tier 3 = 0.0227273 — indexed by CURRENT tier
+             * (previously tier 1 wrongly shared tier 2's 0.025). */
+            float dec = kDecel[g.loco_tier];
             g.loco_upt -= dec;
             if (g.loco_tier > 0 && g.loco_upt <= kTier[g.loco_tier - 1]) {
                 g.loco_upt = kTier[g.loco_tier - 1];
@@ -2683,28 +1792,14 @@ static void player_move(void)
         }
     }
 
-    /* Stick direction (normalized) -> camera-relative DESIRED heading.
-     * Camera basis on XZ: forward f points from the eye towards the
-     * player, screen-right is f x up = (-fz, 0, fx). Stick up walks
-     * away from the camera. Reads only the camera struct's yaw
-     * (+0x44), so the EM_MOVE_TEST trajectory is independent of the
-     * eye smoothing. This is the DESIRED heading (func_001B12B0's
-     * target); the BODY heading g.yaw is eased toward it below and the
-     * velocity is emitted ALONG g.yaw — KEEP this camera-relative
-     * derivation, change only what we move along. */
-    float sx = rdx / r, sy = rdy / r;
-    float fx = sinf(g.cam.yaw), fz = cosf(g.cam.yaw);
-    float mx = fx * -sy - fz * sx;
-    float mz = fz * -sy + fx * sx;
-    float desired = atan2f(mx, mz);
-
-    /* EASE the body heading toward the desired heading, THEN move along
-     * the eased g.yaw (func_00174AC0 rate select + func_001B12B0
-     * turn-toward, decomp FINDINGS "GROUND LOCOMOTION"). Turning first
-     * and translating along the lagged body heading is what makes the
-     * motion CURVE into turns instead of sliding off the raw stick. The
-     * rate is banded by gait / current ramped speed / |delta|. */
-    {
+    /* STEADY-STATE TURN (subsequent move frames): ease the body heading
+     * toward the desired heading at the moving band (func_00174AC0 rate
+     * select + func_001B12B0 turn-toward), THEN move along the eased
+     * g.yaw. Turning first and translating along the lagged body heading
+     * is what makes the motion CURVE into turns instead of sliding off the
+     * raw stick. The rate is banded by gait / ramped speed / |delta|. The
+     * entry frame already turned in place above (C4) — do not turn twice. */
+    if (!entry) {
         float diff = desired - g.yaw;
         while (diff >  EM_PI) diff -= 2.0f * EM_PI;
         while (diff < -EM_PI) diff += 2.0f * EM_PI;
@@ -2844,8 +1939,8 @@ static void footstep_play(int tier)
     static int trace = -1;
     if (trace < 0) trace = getenv("EM_STEP_TRACE") != NULL;
     if (trace)
-        printf("step: tier %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
-               tier, attr, surf, gear);
+        printf("step: f%d tier %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
+               g.frame_no, tier, attr, surf, gear);
     /* engine: positional play_sound(actor, id, 0) radius 300 for both
      * layers (FINDINGS footstep decode) — source = the player, so the
      * gains come out center/full by the play_sound math itself */
@@ -3387,6 +2482,514 @@ static void game_over_tick(void)
     }
 }
 
+/* ================================================================== */
+/* AREA-11 OPENING PROGRESSION — game-state flags + the scripted        */
+/* elevator descent (ov 0x00828050). Decoded:                           */
+/* INVESTIGATION_area11_elevator.md. Batch-2 contract A/D.              */
+/* ================================================================== */
+
+/* Contract-A flag accessors (em_game.h). The engine stores these as the
+ * persistent game-state bytes D_00810811 (battery) and D_00810841[11]
+ * bit 7 (terminal powered); the port mirrors each as a 0/1 flag. */
+int  em_game_has_battery(void)        { return g.have_battery; }
+void em_game_set_battery(int on)      { g.have_battery = on ? 1 : 0; }
+int  em_game_terminal_powered(void)   { return g.terminal_powered; }
+void em_game_set_terminal_powered(int on) { g.terminal_powered = on ? 1 : 0; }
+
+/* em_game_player_interact_anim (CORRECTED two-terminal flow,
+ * INVESTIGATION_area11_elevator.md). Play a one-shot scripted clip ON THE
+ * PLAYER and lock player input/movement for its duration — the engine's
+ * "scripted-anim-owns-player" model (player+0x2F3 = 3): the script op0A
+ * handler 0x001B9A00 writes player+0x1F2 = clip id, player+0x40 = clip
+ * ptr, player+0x2F3 = 3, and the player's free-move action machine is
+ * suppressed while that state holds (LIVE: the outside insert clip = 0x14,
+ * the internal lever clip = 0x47, both rate 1.0, both lock via this
+ * scripted-anim state — NOT a control-mode flag).
+ *
+ * Natively this rides the same sa_* mailbox as em_game_anim_request (a
+ * one-shot: plays once at `rate`, holds its last frame, then locomotion
+ * resumes) and additionally raises interact_active, which player_move
+ * reads as a stand-still movement lock and em_game_player_interact_busy
+ * reports. actor_update detects the clip's end and drops the lock.
+ *
+ * IDEMPOTENT: a call for the clip that is already the running interact
+ * (or while any interact is busy) is a no-op, so the examine logic can
+ * call it every frame the press holds without re-triggering. If the
+ * loaded player EMDL lacks `clip_id` the anim request degrades to a
+ * no-op (em_game_anim_request returns 0) but the LOCK is still raised for
+ * a minimum window so the gating stays faithful (the engine locks on the
+ * scripted-anim state, which is set regardless of whether the clip
+ * resolves). */
+void em_game_player_interact_anim(int clip_id)
+{
+    if (clip_id <= 0) return;
+    /* already running (this clip, another interact, or the ride owns the
+     * player) — idempotent no-op */
+    if (g.interact_active || g.elev_state == 1) return;
+
+    g.interact_clip   = (unsigned)clip_id;
+    g.interact_active = 1;
+    g.interact_seen   = 0;        /* not yet committed (commit is next
+                                   * actor_update); end-detection waits */
+    /* Request the one-shot clip on the player (rate 1.0 — the live insert
+     * 0x14 / lever 0x47 rate). If the EMDL lacks the clip the request is
+     * a no-op and the clip will never commit; interact_seen then stays 0
+     * and the lock would never clear via the clip path, so for the
+     * missing-clip case we leave interact_seen pre-armed so the lock
+     * releases on the next actor_update (faithful-minimum: lock raised,
+     * clip absent — FLAGGED in em_game.h). */
+    if (!em_game_anim_request(g.interact_clip, 1.0f)) {
+        g.interact_seen = 1;      /* no clip to wait on — release next frame */
+        printf("interact: player clip %#x absent — lock-only (FLAGGED)\n",
+               clip_id);
+    } else {
+        printf("interact: player scripted clip %#x — input locked\n",
+               clip_id);
+    }
+}
+
+/* em_game_player_interact_busy — 1 while a scripted interact anim OR the
+ * elevator ride owns the player (the stand-still lock raised by
+ * em_game_player_interact_anim, or the 150-frame descent). The examine
+ * logic reads this so it does not double-trigger a second interaction
+ * while one is in flight. Also true while the descent is armed-and-
+ * waiting (elev_pending) so the brief window between the lever clip
+ * ending and the ride starting is still busy (no input leak).
+ *
+ * The AREA-11 OPENING DIRECTOR (cine_active) folds in here: while an
+ * establishing-cutscene beat runs the player is frozen (camera-only
+ * cinematic, no scripted walk — live-confirmed). This one read makes
+ * player_move suppress free movement AND the examine/pickup/door use
+ * scans suppress themselves for the beat's duration — the same lock
+ * shape as the elevator ride. cine_active only ever clears via the
+ * director's keyframe exhaustion (cine_beat_finish), so this can never
+ * latch a soft-lock. */
+int em_game_player_interact_busy(void)
+{
+    return g.interact_active || g.elev_state == 1 || g.elev_pending ||
+           g.cine_active;
+}
+
+/* em_game_player_face_step — the examine op04 FACE pre-roll: turn the
+ * player BODY heading (g.yaw) toward `target_yaw` by one turn-in-place
+ * step and report whether the player is now facing it. Reuses the
+ * decoded turn-toward stepper player_turn_toward at the standing
+ * turn-in-place rate TURN_IP_GAIT03 (0.3927 rad = 22.5 deg/frame, gait
+ * 0/3 — FINDINGS "GROUND LOCOMOTION" s78), which SNAPS when |delta| <=
+ * rate (no overshoot). The engine's op04 (handler 0x001B9C10) writes the
+ * scripted yaw to the heading-target slot 0x810374 and the player's own
+ * turn/heading machine (func_00174AC0 + func_001B12B0) eases the body
+ * onto it; this is that ease, driven by the locked examine sequence.
+ *
+ * This does NOT touch player_move's desired-heading / movement-v3 path:
+ * the examine lock in player_move (em_examine_input_locked) already
+ * suppresses free locomotion for the whole script window, so player_move
+ * never writes g.yaw while the FACE phase owns it. Returns 1 once g.yaw
+ * == target_yaw (snapped), else 0 (still turning).
+ *
+ * INVESTIGATION_examine_walk_face.md §3: op04 sub 8 is instantaneous to
+ * SET, but the pivot itself plays out over the following frames at the
+ * standing turn rate — that pivot is the missing interaction animation
+ * the owner flagged. */
+int em_game_player_face_step(float target_yaw)
+{
+    player_turn_toward(target_yaw, TURN_IP_GAIT03);
+    /* facing once the snap has landed g.yaw exactly on the target
+     * (player_turn_toward writes target_yaw verbatim on the snap step). */
+    float diff = target_yaw - g.yaw;
+    while (diff >  EM_PI) diff -= 2.0f * EM_PI;
+    while (diff < -EM_PI) diff += 2.0f * EM_PI;
+    return fabsf(diff) < 1e-4f;
+}
+
+/* Re-pose the elevator platform palette at its current world placement
+ * (the engine's func_001C6380 rigid pose each frame). The frame-0
+ * model-local palette was baked at load; we re-apply T(elev_pos) *
+ * R_y(elev_yaw) onto a fresh copy so the +0xB4 Y descent shows. Mirrors
+ * palette_apply_placement but for the platform model. */
+static void elevator_pose(void)
+{
+    if (!g.elev_has_mesh || !g.elev_palette) return;
+    /* rebuild frame-0 local, then place (palette_apply_placement is
+     * in-place and additive, so start from the model-local pose). */
+    em_model_palette_at(&g.elev_model, 0, 0.0, g.elev_palette);
+    palette_apply_placement(g.elev_palette, g.elev_model.bone_count,
+                            g.elev_pos, g.elev_yaw);
+}
+
+/* elevator_descent_begin — actually arm the DOWN run (state 0 -> 1):
+ * rate -0.26667 u/frame, sound 0x453 (func_001FBD50(300, 0x453)). Split
+ * out of em_game_elevator_start so both the immediate path (no interact
+ * anim in flight) and the deferred path (the lever anim 0x47 plays first,
+ * elevator_tick begins the ride when it ends) share one start. The
+ * 0x81083A pose flag is 0 at the first use, so the direction is DOWN —
+ * established three ways in the decode §4; the port always runs the
+ * first-use DOWN descent, the mandatory opening. */
+static void elevator_descent_begin(void)
+{
+    g.elev_pending = 0;
+    g.elev_state   = 1;
+    g.elev_frame   = 0;
+    g.elev_rate    = ELEV_RATE_DOWN;      /* +0x2E8 = 0xBE888889 */
+    /* func_001FBD50(300.0, 0x453, 0) — the positional down cue at the
+     * platform, radius 300. 0x453 IS now in the active sfx registry
+     * (assets/sfx/sfx.txt), so this cue resolves and plays — the
+     * SFX_SOUND_MAX bump brought the AREA-11 ids into the bank. (Was a
+     * silent no-op while only the office bank was loaded.) */
+    em_sfx_play_at(ELEV_SFX_DOWN, g.elev_has_mesh ? g.elev_pos : g.pos,
+                   300.0f);
+    printf("elevator: descent START — rate %.5f u/frame x %d frames "
+           "(%.1f u down), sfx %#x%s\n", g.elev_rate, ELEV_FRAMES,
+           -g.elev_rate * ELEV_FRAMES, ELEV_SFX_DOWN,
+           g.elev_has_mesh ? "" : " [no platform mesh — player+camera "
+           "descend only, FLAGGED]");
+}
+
+/* em_game_elevator_start (contract A/D) — the powered terminal script's
+ * opcode-9 install of the descent actor (ov 0x00828050). IDEMPOTENT:
+ * a call while descending (state 1), pending (armed, waiting on the lever
+ * anim) or after the run (state 2) is a no-op, matching the engine
+ * installing the actor exactly once per use and the port running the
+ * descent once per scene.
+ *
+ * SEQUENCING (CORRECTED two-terminal flow): the powered script 0x82A750
+ * plays the lever-throw anim 0x47 (op0A) BEFORE its op09 elevator
+ * install, so when the INTERNAL terminal calls
+ * em_game_player_interact_anim(0x47) and then this immediately, the
+ * descent must NOT begin until the lever clip finishes — otherwise the
+ * player would be carried down mid-anim with input leaking. If an
+ * interact anim is busy, ARM the descent (elev_pending) and let
+ * elevator_tick begin the ride the frame the lever clip ends. With no
+ * interact in flight (a direct/test call), begin immediately. */
+void em_game_elevator_start(void)
+{
+    if (g.elev_state != 0 || g.elev_pending) return;  /* once per scene */
+    if (g.interact_active) {
+        g.elev_pending = 1;          /* wait for the lever anim 0x47 */
+        printf("elevator: descent ARMED — waiting for the interact anim "
+               "to finish\n");
+        return;
+    }
+    elevator_descent_begin();
+}
+
+/* elevator_tick — the descent actor's per-frame State-1 carry
+ * (0x008280F0). While descending, add the rate to the player ground-Y
+ * (D_00810354 = g.pos[1]), the platform mesh-Y (+0xB4 = elev_pos[1]),
+ * and re-pose the platform; the camera target-Y (D_008105E4) follows
+ * g.pos[1] in the port's camera build (the engine writes it explicitly
+ * — same net result since the chase target is player.y + CAM_TGT_HEIGHT).
+ * Run the rate for ELEV_FRAMES then stop (state 2). Called from the
+ * gameplay frame AFTER actor_update (so the floor-snap there does not
+ * overwrite this write — the ride lock in player_move keeps the player
+ * standing) and BEFORE camera_update (so the camera target tracks the
+ * descended Y this frame). */
+static void elevator_tick(void)
+{
+    /* DEFERRED START: the powered terminal armed the descent (elev_pending)
+     * while the lever interact anim 0x47 was playing. actor_update (run
+     * earlier this frame) clears interact_active the frame the clip ends;
+     * begin the ride here so the lever anim plays fully locked FIRST and
+     * the descent's own lock then takes over with no input/motion leak. */
+    if (g.elev_pending && !g.interact_active && g.elev_state == 0)
+        elevator_descent_begin();
+
+    if (g.elev_state != 1) {
+        /* keep the platform posed at its rest/last Y while idle/done */
+        elevator_pose();
+        return;
+    }
+    g.pos[1]        += g.elev_rate;        /* D_00810354 player ground-Y */
+    g.elev_pos[1]   += g.elev_rate;        /* actor +0xB4 platform mesh-Y */
+    elevator_pose();                       /* func_001C6380 rigid re-pose */
+    if (++g.elev_frame >= ELEV_FRAMES) {   /* +0x2EC < 0x96 (150) */
+        g.elev_state = 2;                  /* done — runs once per scene */
+        printf("elevator: descent DONE — player y %.2f\n", g.pos[1]);
+    }
+}
+
+/* Free the elevator platform mesh/model/palette (scene unload). Also
+ * re-arms the descent STATE (state 0, not pending) — symmetric with
+ * grate_unload, which resets its flags. Called on every scene switch and
+ * every `elevator` manifest re-parse, so a scene that re-installs an
+ * elevator (or any future switch back into one) starts from idle. Without
+ * this, a prior scene's descent that reached state 2 ("done") would latch:
+ * em_game_elevator_start early-returns on elev_state != 0, so the lever
+ * would silently do nothing in the next scene. (new-game arm also zeroes
+ * these; this covers the mid-game scene-switch path the arm never runs.) */
+static void elevator_unload(EmGfx *gfx)
+{
+    if (g.elev_mesh)    em_gfx_mesh_destroy(gfx, g.elev_mesh);
+    if (g.elev_has_mesh) em_model_free(&g.elev_model);
+    free(g.elev_palette);
+    g.elev_mesh    = NULL;
+    g.elev_palette = NULL;
+    g.elev_has_mesh = 0;
+    g.elev_state   = 0;
+    g.elev_pending = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* AREA-11 GATED GRATE (func_00159210) — closed path-blocker + slide  */
+/* INVESTIGATION_area11_grate.md. The bars (per-area id 0x04) render   */
+/* AND register a SOLID blocker hull while the area is not powered     */
+/* (em_game_terminal_powered, D_0081084C & 0x80 — 0 at new game). On   */
+/* power the hull is dropped and the bars slide open over ~120 frames. */
+/* ------------------------------------------------------------------ */
+
+/* Re-pose the grate bars palette at the current placement, with the open
+ * slide applied as a world-X offset on top of the base pos (the engine's
+ * func_001C6380 rigid pose, plus the bars' keyframe retract — modeled here
+ * as a rigid lateral translation, see §4/FLAG). Mirrors elevator_pose. */
+static void grate_pose(void)
+{
+    if (!g.grate_present || !g.grate_palette) return;
+    float p[3] = { g.grate_pos[0] + g.grate_slide,
+                   g.grate_pos[1], g.grate_pos[2] };
+    em_model_palette_at(&g.grate_model, 0, 0.0, g.grate_palette);
+    palette_apply_placement(g.grate_palette, g.grate_model.bone_count,
+                            p, g.grate_yaw);
+}
+
+/* Compute the bars' world AABB at install — the CLOSED hull registered
+ * while the grate is locked.
+ *
+ * This hull is derived from the LIVE-DECODE model-local half-extents
+ * (GRATE_HALF_*, the bar-GRID box 23.42 x 8.0 x 6.4 — model instance
+ * 0x01350640 +0x24), NOT from the shipped area_item_04.emdl verts. That
+ * carved mesh is the param-0x04 static-prop blob (a single 6.1 x 14.0 x 2.1
+ * BAR), which is the WRONG geometry for record 18's grid (true model byte
+ * 0x24); skinning its frame-0 verts produced only a ~6.1u-wide hull the
+ * player could slip past (INVESTIGATION_area11_grate.md §5; PORT_GAPS_AREA11
+ * "hull extent reconcile 6.1u vs 23.4u"). The blocker must cover the whole
+ * grate opening, so we take the bar-grid half-extents centred on the actor
+ * origin (g.grate_pos) and orient them by the placement yaw, using the SAME
+ * rotation convention as palette_apply_placement so the box matches the
+ * (eventually corrected) render.
+ *
+ * The local box is centred on the origin (no pivot offset): the live decode
+ * lists a pivot offset for the shipped 1-bar mesh whose axes are permuted
+ * relative to the grid instance, so applying it to the grid extents is not
+ * faithful — origin-centred keeps the symmetric grid box squarely over the
+ * gate opening. (Render-mesh fidelity is flagged separately.) */
+static void grate_compute_box(void)
+{
+    const float c = cosf(g.grate_yaw), s = sinf(g.grate_yaw);
+    EmBlockerAabb b = { 1e30f, -1e30f, 1e30f, -1e30f, 1e30f, -1e30f };
+
+    /* 8 corners of the model-local half-extent box, rotated by yaw and
+     * translated to the actor origin (palette_apply_placement convention:
+     * x' = c*x + s*z ; z' = -s*x + c*z ; + pos). */
+    for (int sx = -1; sx <= 1; sx += 2)
+    for (int sy = -1; sy <= 1; sy += 2)
+    for (int sz = -1; sz <= 1; sz += 2) {
+        float mx = (float)sx * GRATE_HALF_X;
+        float my = (float)sy * GRATE_HALF_Y;
+        float mz = (float)sz * GRATE_HALF_Z;
+        float wx =  c*mx + s*mz + g.grate_pos[0];
+        float wy =  my            + g.grate_pos[1];
+        float wz = -s*mx + c*mz + g.grate_pos[2];
+        if (wx < b.minX) b.minX = wx; if (wx > b.maxX) b.maxX = wx;
+        if (wy < b.minY) b.minY = wy; if (wy > b.maxY) b.maxY = wy;
+        if (wz < b.minZ) b.minZ = wz; if (wz > b.maxZ) b.maxZ = wz;
+    }
+    g.grate_box = b;
+}
+
+/* Install the grate for this scene: load the bars mesh, build the closed
+ * hull from its verts, and seat it CLOSED (unlock bit clear at new game).
+ * Returns 0 on success, nonzero if the mesh failed (no grate then). One
+ * grate per scene; a second call replaces the first. Mirrors the elevator
+ * install. */
+static int grate_install(EmGfx *gfx, const char *scene_dir,
+                         const char *name, const float pos[3], float yaw)
+{
+    grate_unload(gfx);                          /* drop any prior grate */
+    g.grate_pos[0] = pos[0];
+    g.grate_pos[1] = pos[1];
+    g.grate_pos[2] = pos[2];
+    g.grate_yaw    = yaw;
+    g.grate_open   = 0;
+    g.grate_done   = 0;
+    g.grate_frame  = 0;
+    g.grate_slide  = 0.0f;
+
+    char path[1024];
+    snprintf(path, sizeof path, "%s/%s", scene_dir, name);
+    if (em_model_load(&g.grate_model, path) != 0) {
+        printf("manifest: grate mesh %s failed to load — grate ABSENT "
+               "(no blocker, no draw)\n", path);
+        return -1;
+    }
+    g.grate_mesh = em_gfx_mesh_create(
+        gfx, g.grate_model.verts, g.grate_model.vert_count,
+        g.grate_model.indices, g.grate_model.index_count,
+        (const EmGfxTexDesc *)g.grate_model.texs,
+        g.grate_model.tex_count, g.grate_model.texels,
+        g.grate_model.flags);
+    g.grate_palette = malloc(g.grate_model.bone_count * 16 * sizeof(float));
+    if (!g.grate_mesh || !g.grate_palette) {
+        printf("manifest: grate mesh %s GPU/palette alloc failed — grate "
+               "ABSENT\n", path);
+        grate_unload(gfx);
+        return -1;
+    }
+    g.grate_present = 1;
+    grate_compute_box();                        /* the closed hull */
+    grate_pose();                               /* bake the closed pose */
+    printf("manifest: GRATE hull (closed, bar-grid extents %.2fx%.2fx%.2f) "
+           "world AABB X[%.2f,%.2f] Y[%.2f,%.2f] Z[%.2f,%.2f] — render mesh "
+           "%u verts\n",
+           2.0f*GRATE_HALF_X, 2.0f*GRATE_HALF_Y, 2.0f*GRATE_HALF_Z,
+           g.grate_box.minX, g.grate_box.maxX,
+           g.grate_box.minY, g.grate_box.maxY,
+           g.grate_box.minZ, g.grate_box.maxZ, g.grate_model.vert_count);
+    return 0;
+}
+
+/* grate_update — the grate's per-frame brain (func_00159210's ACTIVE/open
+ * machine, condensed). Run ONCE per gameplay frame, BEFORE actor_update so
+ * the closed hull is registered before player_move's ground-solve consults
+ * em_collision_blocker_probe (the single player-code touch). The registry
+ * is cleared once at the top of the sim (em_collision_blocker_clear,
+ * alongside the moving-surface clear).
+ *
+ *   NOT powered  -> register the CLOSED hull (the grate blocks the path);
+ *                   bars stay at the closed pose.
+ *   powered      -> drop the hull (path opens) and run the ~120-frame
+ *                   SLIDE: the bars retract along world X by GRATE_SLIDE_DX
+ *                   (FLAGGED direction/extent — §4). After the slide the
+ *                   grate is fully open (done): no blocker, bars parked at
+ *                   the retracted pose. */
+static void grate_update(void)
+{
+    if (!g.grate_present) return;
+
+    int powered = em_game_terminal_powered();
+
+    if (!powered) {
+        /* CLOSED: register the solid hull each frame (per-frame registry,
+         * cleared at the top of the sim). The bars sit at the closed pose.
+         * N1: the registry caps at EM_BLOCKER_MAX (8) and returns -1 when
+         * full. AREA-11 uses 1 of 8, so this never fires today; but a future
+         * scene that ships a 9th blocker would otherwise have the grate hull
+         * SILENTLY dropped (the player would walk through a "closed" grate
+         * with no diagnostic — the exact silent-drop shape that bit the SFX
+         * cap). Log once on overflow, mirroring the loaders. */
+        if (em_collision_blocker_register(&g.grate_box) < 0) {
+            static int warned;
+            if (!warned) {
+                fprintf(stderr, "grate: blocker registry full — closed hull "
+                        "DROPPED; the grate will not block\n");
+                warned = 1;
+            }
+        }
+        g.grate_slide = 0.0f;
+        grate_pose();
+        return;
+    }
+
+    /* POWERED: the path is OPEN — drop the hull (do NOT register) and run
+     * the open slide. The hull removal happens at slide START (the §4 prior:
+     * the player is freed the moment the area powers, the bars then retract
+     * cosmetically). The slide is a rigid lateral retract; the keyframed
+     * bars motion couldn't be frozen live, so this is FLAGGED for tuning. */
+    if (!g.grate_open) {
+        g.grate_open  = 1;
+        g.grate_frame = 0;
+        printf("grate: OPEN — area powered, hull dropped, %d-frame slide "
+               "(+%.1f u world-X) BEGINS [FLAG: slide dir/extent]\n",
+               GRATE_SLIDE_FR, GRATE_SLIDE_DX);
+    }
+    if (!g.grate_done) {
+        g.grate_frame++;
+        float t = (float)g.grate_frame / (float)GRATE_SLIDE_FR;
+        if (t >= 1.0f) { t = 1.0f; g.grate_done = 1; }
+        g.grate_slide = GRATE_SLIDE_DX * t;     /* linear retract */
+        grate_pose();
+        if (g.grate_done)
+            printf("grate: slide DONE — bars fully retracted (+%.1f u)\n",
+                   g.grate_slide);
+    }
+}
+
+/* Free the grate mesh/model/palette (scene unload). */
+static void grate_unload(EmGfx *gfx)
+{
+    if (g.grate_mesh)    em_gfx_mesh_destroy(gfx, g.grate_mesh);
+    if (g.grate_present) em_model_free(&g.grate_model);
+    free(g.grate_palette);
+    g.grate_mesh    = NULL;
+    g.grate_palette = NULL;
+    g.grate_present = 0;
+    g.grate_open    = 0;
+    g.grate_done    = 0;
+    g.grate_slide   = 0.0f;
+    memset(&g.grate_box, 0, sizeof g.grate_box);
+}
+
+/* AREA-11 STEAM / FX EMITTER tick (placement record 7, ov 0x008235F0 —
+ * INVESTIGATION_first_level_area11.md §3/§6). The emitter's POINT LIGHT
+ * is registered in the placed-lamp list at parse time (folded into actor
+ * lighting by char_rig_build — no per-frame work). This tick owns the two
+ * time-varying parts: the LOOPING HISS (0x413, retriggered every
+ * STEAM_SND_PERIOD frames because the port SFX path is one-shot — there
+ * is no loop primitive in em_sfx; em_sfx_play_at culls it by distance like
+ * the engine's play_sound, so it is silent until the player is within
+ * STEAM_SND_RADIUS), and the PUFF FX phase. Dormant unless a `steam` line
+ * was parsed, so non-AREA-11 scenes do nothing. */
+static void steam_tick(void)
+{
+    if (!g.steam_on) return;
+    if (g.steam_snd_t <= 0) {
+        em_sfx_play_at(STEAM_SND_ID, g.steam_pos, STEAM_SND_RADIUS);
+        g.steam_snd_t = STEAM_SND_PERIOD;
+    } else {
+        g.steam_snd_t--;
+    }
+    /* puff cycle: a normalized 0..1 phase that the render reads to rise +
+     * fade the billboard (a looping vent puff). */
+    g.steam_fx_phase += 1.0f / 120.0f;     /* ~2 s loop @ 60 Hz */
+    if (g.steam_fx_phase >= 1.0f) g.steam_fx_phase -= 1.0f;
+}
+
+/* AREA-11 STEAM PUFF FX — a minimal billboard plume (em_gfx_beam_dot:
+ * additive camera-facing world quad, the same path the laser dot uses).
+ * Draws two offset puffs rising + fading on the looping phase. Queued in
+ * the world pass (a 3D draw must have run this frame, as for the laser).
+ * Cosmetic + optional per the task; the light + sound are the priority.
+ * No-op unless the emitter is present. */
+static void steam_fx_render(EmGfx *gfx)
+{
+    if (!g.steam_on || !gfx) return;
+    for (int i = 0; i < 2; i++) {
+        float ph = g.steam_fx_phase + 0.5f * (float)i;
+        if (ph >= 1.0f) ph -= 1.0f;
+        /* fade in over the first 20%, out over the last 50% (a soft puff) */
+        float a = ph < 0.2f ? ph / 0.2f
+                : ph > 0.5f ? (1.0f - ph) / 0.5f : 1.0f;
+        if (a <= 0.0f) continue;
+        float p[3] = { g.steam_pos[0],
+                       g.steam_pos[1] + STEAM_FX_RISE * ph,
+                       g.steam_pos[2] };
+        /* faint warm-white steam, low alpha so it stays subtle */
+        const float rgba[4] = { 0.85f, 0.82f, 0.78f, 0.22f * a };
+        em_gfx_beam_dot(gfx, p, STEAM_FX_SIZE * (0.6f + 0.8f * ph), rgba);
+    }
+}
+
+/* loco_clip_for_tier — the mode-1 id row {0,1,2,3} (idle/walk/jog/run)
+ * indexed by the ramped locIdx +0x25C (func_0017B490 row D_00248A10),
+ * with the same down-row fallback the asset-availability check uses:
+ * tier>=3 -> run, tier>=2 -> jog, else walk; missing clips drop a row.
+ * Used both for the active clip and (tier+1) for the C1 ramp cross-blend. */
+static int loco_clip_for_tier(int tier)
+{
+    if (tier >= 3 && g.clip_run >= 0) return g.clip_run;
+    if (tier >= 2 && g.clip_jog >= 0) return g.clip_jog;
+    return g.clip_walk;
+}
+
 /* func_0015BCF0 — player actor update. The engine's per-actor spine
  * (state/AI, anim-evaluator selection, physics, sound triggers); the
  * port's slice of it is movement (frame input -> position/yaw) plus the
@@ -3414,6 +3017,24 @@ static void game_over_tick(void)
  * door sequence re-places the player standing). */
 static void actor_update(void)
 {
+    /* SCRIPTED INTERACT anim end-detection (em_game_player_interact_anim).
+     * The interact clip is a one-shot through the sa_* mailbox: the
+     * request lands the frame em_game_player_interact_anim is called
+     * (from em_examine_update, AFTER this update ran), the commit fires
+     * here next frame (sa_cur -> interact_clip), and the clip clears
+     * itself back to sa_cur == 0 when it plays through. Track the commit
+     * (interact_seen) so the pre-commit frame (sa_cur still 0) does not
+     * release the lock early; once seen, sa_cur leaving the interact clip
+     * means the clip ended -> control returns (interact_active = 0). This
+     * runs BEFORE player_move so the movement lock is dropped the same
+     * frame the clip finishes (no extra locked frame). */
+    if (g.interact_active) {
+        if (g.sa_cur == g.interact_clip && g.interact_clip != 0)
+            g.interact_seen = 1;        /* committed + running */
+        else if (g.interact_seen)
+            g.interact_active = 0;      /* clip ended -> control returns */
+    }
+
     /* PLAYER STATE 2 (hit reaction / dying) replaces the free-move
      * spine entirely — the engine's state dispatch (func_0015BA50)
      * routes to the hurt machine instead of the action machine; the
@@ -3478,24 +3099,63 @@ static void actor_update(void)
     /* Locomotion clip by TIER (the mode-1 id row {0,1,2,3} indexed by
      * the ramped locIdx +0x25C, NOT the raw gait — the 2026-06-11
      * tier-ramp correction): walk for tier 1, jog for tier 2, run for
-     * tier 3, each falling back down-row when the asset lacks the
-     * clip. On a clip swap the cycle restarts — the engine re-inits
-     * the clip on an id change (anim_clip_init); the mid-ramp blend
-     * toward the next tier's clip rides the same crossfade (flagged).
+     * tier 3, each falling back down-row when the asset lacks the clip.
      * The DOOR TRANSIT scripted MOVE-TO (tier 1) keeps the walk clip;
-     * the ARRIVAL WALK-OUT (tier 2) plays the engine's jog clip. */
-    int loco = g.clip_walk;
-    if (g.loco_tier >= 3 && g.clip_run >= 0)
-        loco = g.clip_run;
-    else if (g.loco_tier >= 2 && g.clip_jog >= 0)
-        loco = g.clip_jog;
+     * the ARRIVAL WALK-OUT (tier 2) plays the engine's jog clip.
+     *
+     * C1 (INVESTIGATION_movement_exact.md §A.6, anim_matrix_player): the
+     * engine does NOT hard-cut jog->run on promotion. It CROSS-BLENDS the
+     * current-tier clip into the next-tier clip by the within-tier
+     * progress +0x208 over the ~8 accel frames, and CONTINUES the clip
+     * cycle across the swap (anim_clip_init is not re-run on the ramp).
+     * The port previously hard-swapped the single loco_clip and RESET the
+     * cycle (walk_t = 0) on promotion — the "snaps to the run animation"
+     * the owner reported. Fix: keep the cycle continuous, and evaluate
+     * both the current- and next-tier clip cross-blended by progress. */
+    int loco = loco_clip_for_tier(g.loco_tier);
     if (loco != g.loco_clip) {
         g.loco_clip  = loco;
         g.loco_speed = (loco >= 0 && loco == g.clip_run) ? RUN_CLIP_SPEED
                      : (loco >= 0 && loco == g.clip_jog) ? JOG_CLIP_SPEED
                                                          : WALK_CLIP_SPEED;
-        g.walk_t     = 0.0;
-        g.step_prev  = 0.0;
+        /* DO NOT reset walk_t/step_prev on a tier-driven swap (C1) — the
+         * jog->run cycle continues; resetting is the hard cut. */
+    }
+
+    /* WITHIN-TIER PROGRESS (the engine's +0x208/+0x204 driver, FIX 2 /
+     * C1+C2, LIVE-confirmed "DEEP A/B v2"): the within-current-tier
+     * fraction 0..1 = (loco_upt - kTier[tier]) / (kTier[tier+1] -
+     * kTier[tier]). At a sustained tier loco_upt == kTier[tier] so
+     * progress == 0; during accel it sweeps 0->1 and RE-BASES (resets to
+     * 0) at each tier promotion because loco_upt and kTier[tier] both
+     * step to the new tier's base. Valid for any accelerating tier 0..2;
+     * tier 3 (top) has no next tier so progress stays 0. This single
+     * fraction drives BOTH the +0x208 cross-blend and the +0x204 clip
+     * rate below. */
+    int   next_loco  = (g.loco_tier < 3) ? loco_clip_for_tier(g.loco_tier + 1)
+                                         : -1;
+    float progress = 0.0f;
+    if (g.loco_tier >= 0 && g.loco_tier < 3) {
+        float lo = kLocoTierSpeed[g.loco_tier];
+        float hi = kLocoTierSpeed[g.loco_tier + 1];
+        if (hi > lo) {
+            progress = (g.loco_upt - lo) / (hi - lo);
+            if (progress < 0.0f) progress = 0.0f;
+            if (progress > 1.0f) progress = 1.0f;
+        }
+    }
+
+    /* C1 CROSS-BLEND (+0x208): cross-fade the current-tier clip into the
+     * NEXT-tier clip by `progress` over the accel frames (jog id 2 ->
+     * run id 3, etc.). Only meaningful while a distinct higher-tier clip
+     * exists; tier 0's "walk" clip equals tier 1's when the asset lacks a
+     * separate idle-walk, so gate on a real, different next clip. */
+    float loco_blend = 0.0f;
+    if (g.loco_tier >= 1 && g.loco_tier < 3 && next_loco >= 0 &&
+        next_loco != g.loco_clip) {
+        loco_blend = progress;
+    } else {
+        next_loco = -1;        /* no next-tier morph this frame */
     }
 
     float target = 0.0f;
@@ -3505,7 +3165,19 @@ static void actor_update(void)
         if      (g.walk_w < target - step) g.walk_w += step;
         else if (g.walk_w > target + step) g.walk_w -= step;
         else                               g.walk_w  = target;
-        g.walk_t += (double)(FRAME_DT * g.move_speed / g.loco_speed);
+        /* CLIP PLAYBACK RATE (+0x204, FIX 2 / C2, LIVE-confirmed): the
+         * engine plays the (blended) loco clip at rate 1.0 + progress
+         * during accel — climbing 1.0 -> 2.0 within each tier, then
+         * RESETTING to 1.0 at each promotion (progress re-bases). This
+         * REPLACES the old stride-lock rate (move_speed / natural). walk_t
+         * is in seconds; advancing it by FRAME_DT plays at the clip's
+         * natural fps (rate 1.0), so the FRAME_DT * (1.0 + progress)
+         * increment realizes the engine's +0x204 multiplier. The cycle is
+         * continuous across the tier swap (no reset), so the rising rate
+         * and the cross-blend stay phase-locked, exactly the build-up. */
+        double clip_rate = g.move_speed > 0.0f ? (double)(1.0f + progress)
+                                               : 0.0;
+        g.walk_t += (double)FRAME_DT * clip_rate;
 
         /* FOOTSTEP triggers (footstep_play above): the loco-cycle
          * playhead in clip FRAMES — wrapping exactly like the palette
@@ -3625,11 +3297,31 @@ static void actor_update(void)
                                     g.player_palette[i]) * w;
     }
     if (g.walk_w > 0.0f && g.loco_clip >= 0) {
+        uint32_t n = g.model.bone_count * 16;
+
+        /* current-tier clip into walk_palette (the loco pose base) */
         const EmModelClip *cw = &g.model.clips[g.loco_clip];
         em_model_palette_at(&g.model, (uint32_t)g.loco_clip,
                             g.walk_t * cw->fps, g.walk_palette);
-        uint32_t n = g.model.bone_count * 16;
-        float    w = g.walk_w;
+
+        /* C1: cross-blend the NEXT-tier clip in by the ramp progress
+         * (+0x208). Both clips ride the SAME walk_t cycle clock (each
+         * scaled by its own fps) so the jog->run morph stays in phase as
+         * the cycle continues across the promotion. At progress 0 (a
+         * sustained tier) this is a no-op; sweeping 0->1 over the accel
+         * frames is the visible build-up. */
+        if (next_loco >= 0 && loco_blend > 0.0f) {
+            const EmModelClip *cn = &g.model.clips[next_loco];
+            em_model_palette_at(&g.model, (uint32_t)next_loco,
+                                g.walk_t * cn->fps, g.loco_palette);
+            float b = loco_blend;
+            for (uint32_t i = 0; i < n; i++)
+                g.walk_palette[i] += (g.loco_palette[i] -
+                                      g.walk_palette[i]) * b;
+        }
+
+        /* blend the (morphed) loco pose over idle by walk_w */
+        float w = g.walk_w;
         for (uint32_t i = 0; i < n; i++)
             g.player_palette[i] += (g.walk_palette[i] -
                                     g.player_palette[i]) * w;
@@ -3638,6 +3330,32 @@ static void actor_update(void)
                             g.pos, g.yaw);
     g.idle_t += FRAME_DT;   /* post-eval, matching the old g.t cadence
                              * (frame n evaluates the idle at n/60) */
+}
+
+/* Reserve the next render-chain slot, or NULL if the chain is full.
+ * The chain array is sized to the exact sum of every source cap
+ * (SCENE_MAX + 4 single-slot draws + EM_DOOR_MAX + EM_ENEMY_MAX +
+ * EM_PICKUP_MAX = CHAIN_CAP), so this never trips today. It is a DEFENSIVE
+ * guard against the L1 silent-overflow shape: the night's truck+grate
+ * additions already ate the sizing headroom once, and any future drift —
+ * a bumped EM_ENEMY_MAX, a 16th scene part landing while all four single
+ * draws are present, or a new single-slot draw added without widening the
+ * array — would otherwise corrupt the trailing file-scope `g` members
+ * (chain_test_triangle, bgm_path, …) with no diagnostic. Log once on a
+ * full chain instead, mirroring the loaders' overflow logs. */
+static ChainDraw *chain_push(void)
+{
+    if (g.chain_len >= CHAIN_CAP) {
+        static int warned;
+        if (!warned) {
+            fprintf(stderr, "render: chain full (%d) — draw DROPPED; widen "
+                    "g.chain[] (a source cap grew past its budget)\n",
+                    CHAIN_CAP);
+            warned = 1;
+        }
+        return NULL;
+    }
+    return &g.chain[g.chain_len++];
 }
 
 /* func_001D1C50 — render chain build. Records the frame's draws (the
@@ -3654,17 +3372,56 @@ static void render_chain_build(void)
         return;
     }
     for (int i = 0; i < g.n_scene; i++) {
-        g.chain[g.chain_len++] = (ChainDraw){ g.scene[i].mesh,
-                                              g.scene[i].palette,
-                                              g.scene[i].model.bone_count,
-                                              NULL };
+        ChainDraw *cd = chain_push();
+        if (!cd) return;
+        *cd = (ChainDraw){ g.scene[i].mesh,
+                           g.scene[i].palette,
+                           g.scene[i].model.bone_count,
+                           NULL };
+    }
+    /* ELEVATOR PLATFORM (the AREA-11 descent actor's own mesh, ov
+     * 0x00828050 +0xB4). Drawn as a rigid prop whose pose elevator_tick
+     * re-bakes each frame (the Y descends with the ride). Absent when
+     * no `elevator` manifest line/mesh is provided — the ride still
+     * works (player + camera descend), the platform just isn't shown. */
+    if (g.elev_has_mesh && g.elev_mesh && g.elev_palette) {
+        ChainDraw *cd = chain_push();
+        if (cd)
+            *cd = (ChainDraw){ g.elev_mesh, g.elev_palette,
+                               g.elev_model.bone_count, NULL };
+    }
+    /* GATED GRATE bars (AREA-11 record 18 — the per-area id 0x04 bars mesh).
+     * Drawn as a rigid prop whose pose grate_update re-bakes each frame (the
+     * closed pose while locked, the retracted pose during/after the open
+     * slide). The draw is owned by the grate object now (moved off the plain
+     * `pickup ... prop` line); absent when no `grate` line placed one. */
+    if (g.grate_present && g.grate_mesh && g.grate_palette) {
+        ChainDraw *cd = chain_push();
+        if (cd)
+            *cd = (ChainDraw){ g.grate_mesh, g.grate_palette,
+                               g.grate_model.bone_count, NULL };
+    }
+    /* WEDGED TRUCK (AREA-11 record 16 — the run-across set-piece). Drawn
+     * as a rigid prop whose pose em_truck_update re-bakes each frame (the
+     * placed wedged pose, then the falling/tumbling pose during the drop).
+     * Absent when no `truck` line placed one. */
+    {
+        EmGfxMesh   *tmesh;
+        const float *tpal;
+        uint32_t     tbones;
+        if (em_truck_draw(&tmesh, &tpal, &tbones)) {
+            ChainDraw *cd = chain_push();
+            if (cd)
+                *cd = (ChainDraw){ tmesh, tpal, tbones, NULL };
+        }
     }
     /* Interactive doors (actor draws — func_001BC300's publish). The
      * chain records palette POINTERS; em_door_update (the world-services
      * slot, after this build) writes this frame's pose into them before
      * the close-out flush. */
     for (int i = 0; i < em_door_count(); i++) {
-        ChainDraw *cd = &g.chain[g.chain_len++];
+        ChainDraw *cd = chain_push();
+        if (!cd) return;
         em_door_draw(i, &cd->mesh, &cd->palette, &cd->bone_count);
         cd->tint = NULL;          /* doors draw untinted */
     }
@@ -3675,6 +3432,7 @@ static void render_chain_build(void)
      * keeps drawing only while em_enemy's corpse fade runs, then
      * drops out. */
     for (int i = 0; i < em_enemy_count(); i++) {
+        if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
         ChainDraw *cd = &g.chain[g.chain_len];
         if (em_enemy_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
             cd->tint = em_enemy_draw_tint(i);
@@ -3685,6 +3443,7 @@ static void render_chain_build(void)
      * props, pose baked at placement; func_001C6380). A collected slot
      * stops drawing the frame it frees (em_pickup_draw returns 0). */
     for (int i = 0; i < em_pickup_count(); i++) {
+        if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
         ChainDraw *cd = &g.chain[g.chain_len];
         if (em_pickup_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
             cd->tint = NULL;       /* items draw untinted (the engine
@@ -3694,8 +3453,10 @@ static void render_chain_build(void)
         }
     }
     if (g.mesh) {
-        g.chain[g.chain_len++] = (ChainDraw){ g.mesh, g.player_palette,
-                                              g.model.bone_count, NULL };
+        ChainDraw *cd = chain_push();
+        if (cd)
+            *cd = (ChainDraw){ g.mesh, g.player_palette,
+                               g.model.bone_count, NULL };
     }
 }
 
@@ -5388,6 +5149,261 @@ static void camera_commit(EmCamera *cam)
     }
 }
 
+/* ===================================================================== *
+ * AREA-11 OPENING DIRECTOR — implementation
+ * ===================================================================== */
+
+/* The three beats, authoritative from INVESTIGATION_area11_director.md
+ * §G (the per-beat EYE/TARGET keyframes are the literal data the engine
+ * reads). WAIT keyframes (blend == -1) hold the prior framing; their
+ * eye/tgt are carried from the preceding cue so the held framing is
+ * exact. The zone AABBs + Y gates are the task-spec / doc §B/C/D values.
+ *
+ * NOTE ON BEAT-0 ZONE: the task spec and doc §B give the corrected live
+ * poly X[335,385] Z[228,255] Y[260,280]; the doc's older §1.2 table and
+ * §7 summary cite X[452,500] for beat 0 — those were the pre-correction
+ * reads. We use the §B/§G corrected zone (the keyframe pass is the most
+ * recent, live-RAM authoritative source). */
+static const CineBeat kCineBeats[3] = {
+    /* ---- BEAT 0 (step 0x00 -> 0x10): the vault-wheel sweep ---------- */
+    {
+        335.0f, 385.0f, 228.0f, 255.0f,   /* zone XZ */
+        260.0f, 280.0f,                   /* Y gate [260,280] */
+        0, CINE_STEP_BEAT1, 1,            /* no music; -> 0x10; register key */
+        15, {
+            { 0, 300, {356.0f,305.1f,209.4f}, {320.0f,303.5f,180.5f} },
+            { 0, 300, {281.0f,331.0f,171.0f}, {315.0f,305.5f,191.5f} },
+            { 0, 420, {395.0f,277.1f,272.4f}, {360.0f,284.5f,243.5f} },
+            { 0, 300, {281.0f,331.0f,171.0f}, {315.0f,305.5f,191.5f} },
+            { 0, 270, {325.0f,317.0f,310.0f}, {334.0f,300.0f,267.5f} },
+            { 1, 100, {379.0f,344.8f,275.5f}, {397.0f,307.0f,254.0f} },
+            {-1,  45, {379.0f,344.8f,275.5f}, {397.0f,307.0f,254.0f} },
+            { 1, 120, {351.0f,296.0f,295.5f}, {396.0f,286.0f,306.0f} },
+            {-1,  42, {351.0f,296.0f,295.5f}, {396.0f,286.0f,306.0f} },
+            { 1, 120, {476.0f,356.8f,325.9f}, {481.0f,322.2f,294.0f} },
+            {-1,  42, {476.0f,356.8f,325.9f}, {481.0f,322.2f,294.0f} },
+            { 1, 100, {380.0f,359.0f,237.0f}, {381.0f,320.0f,211.0f} },
+            {-1,  42, {380.0f,359.0f,237.0f}, {381.0f,320.0f,211.0f} },
+            { 1, 100, {309.0f,306.0f,235.0f}, {324.0f,307.0f,191.0f} },
+            {-1,  80, {309.0f,306.0f,235.0f}, {324.0f,307.0f,191.0f} },
+        }
+    },
+    /* ---- BEAT 1 (step 0x10 -> 0x20): music cue 0x97 ----------------- */
+    {
+        452.0f, 500.0f, 278.0f, 292.0f,   /* zone XZ */
+        -1.0e30f, 275.0f,                 /* Y gate: playerY <= 275 */
+        CINE_MUSIC_BEAT1, CINE_STEP_BEAT2, 0,
+        4, {
+            { 0,  60, {459.0f,301.0f,310.0f}, {484.0f,288.0f,272.5f} },
+            { 1, 100, {449.0f,366.0f,269.0f}, {465.0f,325.0f,254.0f} },
+            { 1,  60, {459.0f,301.0f,310.0f}, {484.0f,288.0f,272.5f} },
+            {-1,  90, {459.0f,301.0f,310.0f}, {484.0f,288.0f,272.5f} },
+        }
+    },
+    /* ---- BEAT 2 (step 0x20 -> 0xFF): music cue 0x99 ----------------- */
+    {
+        410.0f, 439.0f, 175.0f, 203.0f,   /* zone XZ */
+        -1.0e30f, 285.0f,                 /* Y gate: playerY <= 285 */
+        CINE_MUSIC_BEAT2, CINE_STEP_DONE, 0,
+        1, {
+            /* sub0 +0xC = 0 -> a one-shot hard cut; hold one frame so the
+             * music sting plays and the cut is visible before exit. */
+            { 0,   1, {460.8f,324.5f,201.0f}, {420.0f,303.9f,191.5f} },
+        }
+    },
+};
+
+/* Map the persistent step byte to the active beat index (or -1 = the
+ * director is parked: pre-beat-0 is index 0, done = -1). */
+static int cine_step_to_beat(uint8_t step)
+{
+    switch (step) {
+        case CINE_STEP_BEAT0: return 0;
+        case CINE_STEP_BEAT1: return 1;
+        case CINE_STEP_BEAT2: return 2;
+        default:              return -1;   /* 0xFF = done */
+    }
+}
+
+/* Player inside this beat's XZ AABB + Y gate (the doc's func_1B1EA0
+ * point-in-poly reduced to the axis-aligned rect, plus the floor tier
+ * gate). */
+static int cine_in_zone(const CineBeat *b)
+{
+    return g.pos[0] >= b->x0 && g.pos[0] <= b->x1 &&
+           g.pos[2] >= b->z0 && g.pos[2] <= b->z1 &&
+           g.pos[1] >= b->ylo && g.pos[1] <= b->yhi;
+}
+
+/* End the running beat CLEANLY: drop the lock, advance the step byte,
+ * fire the on-completion actions (music already fired at start per the
+ * scripts; the key-item + milestone fire here), and clear the transient
+ * so no soft-lock can persist. cine_was stays set for one frame so
+ * director_camera does its one-shot chase restore. */
+static void cine_beat_finish(void)
+{
+    const CineBeat *b = &kCineBeats[g.cine_beat];
+    g.cine_step   = b->next_step;
+    if (b->reg_keyitem) {
+        /* func_1C4760(1) — register the opening key-item (beat 0). The
+         * port has no separate key-item registry hook yet; the battery
+         * pickup is the AREA-11 key item and is handled by em_pickup.
+         * FLAGGED: faithful-minimum — the milestone advances; the
+         * key-item register is a decode-noted no-op here. */
+        printf("director: beat 0 complete — key-item register "
+               "(func_1C4760) [FLAGGED no-op]\n");
+    }
+    g.cine_active = 0;
+    g.cine_beat   = -1;
+    printf("director: beat done — D_00810813 = %#x\n", g.cine_step);
+}
+
+/* DIRECTOR TICK — run each gameplay frame BEFORE actor_update (so the
+ * lock is set before player_move reads em_game_player_interact_busy) and
+ * before camera_update (which reads cine_active/the keyframe state for
+ * the override). Tests the current step's zone; on entry starts the
+ * beat (raises the lock + letterbox, fires the music cue, seats the
+ * first keyframe); while running, advances the keyframes by their
+ * durations and finishes the beat when they run out.
+ *
+ * SAFETY: dormant unless a zone is entered. Never starts a beat while
+ * any OTHER lock owns the player (door transit, examine, elevator,
+ * damage) so the cinematics never collide. cine_active only ever clears
+ * via cine_beat_finish (keyframes exhausted) — there is no path that
+ * leaves it raised with no advancing program. */
+static void director_tick(void)
+{
+    /* OUTSIDE A BEAT: poll the current step's zone. The director is
+     * fully dormant here — no camera/lock side effects. */
+    if (!g.cine_active) {
+        /* don't arm if any other system owns the player this frame */
+        if (em_door_movement_locked() || em_examine_input_locked() ||
+            em_game_player_interact_busy() || player_damage_locked())
+            return;
+        int beat = cine_step_to_beat(g.cine_step);
+        if (beat < 0) return;                  /* director done (0xFF) */
+        const CineBeat *b = &kCineBeats[beat];
+        if (!cine_in_zone(b)) return;          /* not in the trigger zone */
+
+        /* ENTER the beat (op07): raise lock + letterbox, fire the music
+         * cue, seat keyframe 0. */
+        g.cine_active = 1;
+        g.cine_beat   = beat;
+        g.cine_kf     = 0;
+        g.cine_kf_t   = 0;
+        /* a BLEND first keyframe starts from the live camera; seed the
+         * blend start from the current actual eye/tgt. */
+        memcpy(g.cine_blend_eye, g.cam.eye, sizeof g.cine_blend_eye);
+        memcpy(g.cine_blend_tgt, g.cam.tgt, sizeof g.cine_blend_tgt);
+        if (b->music) {
+            /* op0C MUSIC cue. AREA-11 cue ids 0x97/0x99 ARE now in the
+             * shipped sfx registry (0x097/0x099 in assets/sfx/sfx.txt), so
+             * these cues resolve and play — the SFX_SOUND_MAX bump brought
+             * them into the bank. (Was a silent no-op while only the office
+             * bank was loaded.) */
+            em_sfx_play((unsigned)b->music);
+            printf("director: beat %d music cue %#x\n", beat, b->music);
+        }
+        printf("director: beat %d START — zone X[%.0f,%.0f] Z[%.0f,%.0f] "
+               "@ (%.1f,%.1f,%.1f) — letterbox + player lock\n", beat,
+               b->x0, b->x1, b->z0, b->z1, g.pos[0], g.pos[1], g.pos[2]);
+        return;
+    }
+
+    /* RUNNING: advance the keyframe program. */
+    const CineBeat *b = &kCineBeats[g.cine_beat];
+    g.cine_kf_t++;
+    if (g.cine_kf_t >= b->key[g.cine_kf].dur) {
+        /* advance to the next keyframe; seed a blend's live start from
+         * the keyframe we are leaving (its destination = the current
+         * framing). */
+        g.cine_kf++;
+        g.cine_kf_t = 0;
+        if (g.cine_kf >= b->n_key) {
+            cine_beat_finish();          /* program exhausted -> done */
+            return;
+        }
+        const CineKey *prev = &b->key[g.cine_kf - 1];
+        if (prev->blend >= 0) {
+            memcpy(g.cine_blend_eye, prev->eye, sizeof g.cine_blend_eye);
+            memcpy(g.cine_blend_tgt, prev->tgt, sizeof g.cine_blend_tgt);
+        }
+        /* else (leaving a WAIT) the blend start carries unchanged */
+    }
+}
+
+/* DIRECTOR CAMERA OVERRIDE — called from camera_update inside the
+ * top_mode-0 block, BEFORE the door/examine cues, so a running beat
+ * owns the camera outright. Writes cam->eye/tgt (and the desired
+ * mirrors) from the current keyframe: a CUT snaps and holds; a BLEND
+ * lerps from the keyframe's live start toward its destination across
+ * its duration; a WAIT holds the prior framing. Returns 1 while it owns
+ * the camera. On the frame the beat ends (cine_was set, cine_active
+ * cleared) it does a ONE-SHOT chase restore behind the unmoved player
+ * (the op18 / op07-sub4 restore — exactly the examcam release shape) and
+ * returns 0 so the normal chase resumes cleanly. */
+static int director_camera(EmCamera *cam)
+{
+    if (g.cine_active) {
+        const CineBeat *b = &kCineBeats[g.cine_beat];
+        const CineKey  *k = &b->key[g.cine_kf];
+        float eye[3], tgt[3];
+        if (k->blend == 1 && k->dur > 0) {
+            /* lerp from the live start toward the destination */
+            float t = (float)g.cine_kf_t / (float)k->dur;
+            if (t > 1.0f) t = 1.0f;
+            for (int i = 0; i < 3; i++) {
+                eye[i] = g.cine_blend_eye[i] +
+                         (k->eye[i] - g.cine_blend_eye[i]) * t;
+                tgt[i] = g.cine_blend_tgt[i] +
+                         (k->tgt[i] - g.cine_blend_tgt[i]) * t;
+            }
+        } else {
+            /* CUT or WAIT: hold the keyframe's framing exactly */
+            memcpy(eye, k->eye, sizeof eye);
+            memcpy(tgt, k->tgt, sizeof tgt);
+        }
+        memcpy(cam->eye_des, eye, sizeof eye);
+        memcpy(cam->tgt_des, tgt, sizeof tgt);
+        memcpy(cam->eye, eye, sizeof eye);
+        memcpy(cam->tgt, tgt, sizeof tgt);
+        cam->tgt_soft = 0;
+        g.cine_was = 1;
+        return 1;
+    }
+    if (g.cine_was) {
+        /* RESTORE (op18 / op07 sub4): one-shot chase re-seat behind the
+         * unmoved player, then hand the camera back to the normal solve
+         * (identical to the examcam release / locked-door finish). */
+        g.cine_was = 0;
+        cam->tgt_soft = 0;
+        cam->tgt_des[0] = g.pos[0];
+        cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+        cam->tgt_des[2] = g.pos[2];
+        camera_desired_eye(cam);
+        memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+        memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+    }
+    return 0;
+}
+
+/* Letterbox alpha for this frame (0 = no bars). Raised while a beat
+ * runs (cine_fade ramps up to CINE_BAR_FADE), dropped when it ends
+ * (ramps back to 0) — a minimal fade in/out around the s81 ~64-line
+ * top/bottom black bars. Called from frame_close_out. FLAGGED: the
+ * exact opening staggered-fade frame counts are un-stopwatched (doc
+ * §F); CINE_BAR_FADE is an approximation. */
+static float director_letterbox_alpha(void)
+{
+    if (g.cine_active) {
+        if (g.cine_fade < CINE_BAR_FADE) g.cine_fade++;
+    } else {
+        if (g.cine_fade > 0) g.cine_fade--;
+    }
+    if (g.cine_fade <= 0) return 0.0f;
+    return (float)g.cine_fade / (float)CINE_BAR_FADE;   /* 0..1 */
+}
+
 /* DOOR-TRANSIT CINEMATIC CAMERA — DECODED + LIVE-VERIFIED (the "DOOR
  * CAMERA CUES" constants block above; two PCSX2 transits). Once the
  * walk-to arrives and the door script begins, the OPEN script's op
@@ -5613,6 +5629,19 @@ static void camera_update(void)
      * post-warp re-seat still happens while the screen is black,
      * gameplay_frame). */
     if (cam->top_mode == 0 && !em_hud_is_open()) {
+        /* AREA-11 OPENING DIRECTOR camera (highest priority): while an
+         * establishing-cutscene beat runs it OWNS the camera outright —
+         * the literal eye->target keyframes (cuts hold, blends lerp). It
+         * is dormant outside a beat (returns 0), so the normal chase and
+         * the examine/door cues below are untouched the rest of the
+         * time. On the frame the beat ends it does a one-shot chase
+         * restore inside director_camera (the op18/op07-sub4 shape) and
+         * returns 0, handing the camera back cleanly. */
+        if (director_camera(cam)) {
+            camera_commit(cam);   /* func_0018C0D0(cam, 1) */
+            cam->timer++;
+            return;
+        }
         /* EXAMINE camera cue (em_examine.h): the script's op00 fixed
          * cut — eye from the decoded record, target framing the
          * examined object. Hard copy + hold pinned while the sequence
@@ -6023,6 +6052,16 @@ static void frame_close_out(void)
     } else if (g.chain_test_triangle) {
         em_gfx_draw_test_triangle(gfx);
     } else {
+        /* LIGHTING — DISTANCE FOG for the world flush. Per-frame, per-
+         * scene constant (the engine's per-area GS fog record), so set
+         * once for the whole chain: it tints BOTH the LEVEL meshes and
+         * the actor draws toward the fog color with view-space depth.
+         * fog_on = 0 (no `fog` line, e.g. office/drawbridge) leaves it
+         * OFF — those scenes render exactly as before. */
+        if (g.fog_on)
+            em_gfx_fog(gfx, g.fog_near, g.fog_far, g.fog_rgb);
+        else
+            em_gfx_fog_off(gfx);
         for (int i = 0; i < g.chain_len; i++) {
             const ChainDraw *cd = &g.chain[i];
             /* LIGHTING — actor draws (everything after the scene
@@ -6055,9 +6094,18 @@ static void frame_close_out(void)
                                     cd->palette, cd->bone_count);
         }
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
+        em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }
     g.ui_prev = ui_scene;     /* edge tracking for the scene re-init */
     em_hud_scene_3d(ui_scene);  /* background skips its base fill */
+
+    /* AREA-11 STEAM PUFF FX (record 7 — the cosmetic billboard plume;
+     * INVESTIGATION_first_level_area11.md §3/§6). Queued only over the
+     * WORLD flush (not the status-screen UI scene); the beam pass needs a
+     * 3D draw, which the world flush above provided. No-op without a
+     * `steam` line (other scenes untouched). */
+    if (!ui_scene)
+        steam_fx_render(gfx);
 
     /* Weapon feedback overlays (crosshair / muzzle-flash placeholders —
      * em_weapon.h "VISUAL FEEDBACK"); queues nothing while holstered, so
@@ -6099,6 +6147,34 @@ static void frame_close_out(void)
                                  * global radio machine can't address
                                  * (GLOBAL lines drew inside em_hud
                                  * just above) */
+    em_hud_area_title_render(gfx);  /* AREA-11 opening title card ("FORT
+                                 * STEWART - REAR ENTRANCE") — one-shot,
+                                 * fade-in/hold/fade-out, armed on AREA-11
+                                 * scene entry (INVESTIGATION_area11_
+                                 * director §4.4). Independent of the
+                                 * cinematic director; no-op once finished
+                                 * or in non-AREA-11 scenes. */
+
+    /* AREA-11 OPENING DIRECTOR letterbox (the op07 ENTER / op18 EXIT
+     * cinematic bars — INVESTIGATION_area11_director §4.3 / §E, s81
+     * live capture: two full-width ~64-line alpha-blended black quads,
+     * top + bottom of the frame, fade in/out). Drawn UNDER the screen
+     * fade so the fade still owns the whole frame. Queues nothing
+     * outside a beat (director_letterbox_alpha == 0), so every non-beat
+     * frame stays byte-identical. FLAGGED: the exact opening staggered-
+     * fade frame counts are un-stopwatched (doc §F) — CINE_BAR_FADE is
+     * an approximation of the fade window. */
+    {
+        float ba = director_letterbox_alpha();
+        if (ba > 0.0f) {
+            const float bar[4] = { 0.0f, 0.0f, 0.0f, ba };
+            em_gfx_overlay_rect(gfx, 0.0f, 0.0f,
+                                EM_GFX_OVERLAY_W, CINE_BAR_LINES, bar);
+            em_gfx_overlay_rect(gfx, 0.0f,
+                                EM_GFX_OVERLAY_H - CINE_BAR_LINES,
+                                EM_GFX_OVERLAY_W, CINE_BAR_LINES, bar);
+        }
+    }
 
     /* GAME-OVER / CONTINUE screens — drawn BEFORE the fade rect so
      * the fade machine owns them exactly like the engine (the screen
@@ -6191,19 +6267,24 @@ static void frame_close_out(void)
  *       chase-camera spiral). The two compound: the final yaw overshoots
  *       -pi/2 to ~-1.93 because the rotating camera bearing pushes the
  *       desired heading further around while the body chases it.
- * Deterministic endpoints (no RNG in the camera or mover; updated for
- * the body-heading ease — the pre-fix values assumed velocity along the
- * raw stick + an invented 12 rad/s slide and a straight first slide):
- *   collision world:  (86.503, 0.047, -177.498), yaw -1.9367
- *                     (y 0.047: the curved approach rests on a slightly
- *                      raised floor cell near the wall corner; < the
- *                      0.05 probe tol)
- *   bbox fallback:    (86.025, 0.000, -135.887), yaw -1.9032
- *                     (no probes, no wall — free motion, larger arc)
- * Those built-in expectations (and the 60/30-frame legs) are the OFFICE
- * scene's; for other scenes (manifest spawns) EM_MOVE_LEGS=fwd,strafe
- * resizes the two legs to reach that scene's wall and EM_MOVE_EXPECT=
- * x,y,z + EM_MOVE_YAW=<rad> override the expected final placement. */
+ * Deterministic endpoints (no RNG in the camera or mover).
+ * RE-PINNED + RE-ARMED 2026-06-17 (BYTE-FAITHFUL movement restore): the
+ * desired heading is now the disasm-exact closed form
+ * atan2(sx,-sy) + player_move_cam_yaw() + pi/2 (= wrap(stickAngle + pi +
+ * D_008106A0); INVESTIGATION_movement_exact.md "FORWARD-DIRECTION
+ * RESOLUTION (definitive, static)"). That is +90 deg off the prior
+ * X-mirrored door-regression form, so both legs walk a new heading and
+ * the default office scene (spawn 107.4,0,-184 yaw 0, office.emcl, legs
+ * 60/30) settles at a NEW deterministic wall-stop endpoint pos
+ * (107.404, 0.000, -205.266) yaw -3.1416 [wall stop] — captured from a
+ * clean post-restore run and verified IDENTICAL across two consecutive
+ * runs. This is the pinned collision-world baseline; the assertion is
+ * ARMED (the default office run asserts strictly — a movement regression
+ * FAILS it). Those built-in expectations (and the 60/30-frame legs) are
+ * the OFFICE scene's; for other scenes (manifest spawns) EM_MOVE_LEGS=
+ * fwd,strafe resizes the two legs to reach that scene's wall and
+ * EM_MOVE_EXPECT=x,y,z + EM_MOVE_YAW=<rad> override the expected final
+ * placement. */
 static void move_test_inject(int key, int down)
 {
     EmEvent ev;
@@ -6224,22 +6305,31 @@ static void move_test_script(void)
     } else if (n == g.move_legs[0] + g.move_legs[1]) {
         move_test_inject('d', 0);
     } else if (n == g.move_legs[0] + g.move_legs[1] + 1) {
-        /* RE-BASELINED 2026-06-13 (s76 idle-emergence pass): the
-         * wall-stop endpoint shifted from (86.503, 0.047, -177.498)
-         * yaw -1.9367 to the values below because the IDLE camera is
-         * now emergent (entry seat 46.8 behind the spawn yaw + the
-         * tether/solver + derived yaw) instead of the old yaw-anchored
-         * CAM_DIST=33 seat. The first move-test leg holds 'w' from
-         * frame 0 while the camera is still settling, so the
-         * camera-relative chase curve — and thus this endpoint —
-         * legitimately moved (x -0.037, z +0.149, yaw +0.031 rad). The
-         * delta is purely the camera change; the endpoint is
-         * deterministic across runs. The bbox (no-collision) branch is
-         * not exercised by the default office run and is left as-is. */
-        float ex   = g.coll.poly_count ?   86.466f :   86.025f;
-        float ey   = g.coll.poly_count ?    0.047f :    0.000f;
-        float ez   = g.coll.poly_count ? -177.349f : -135.887f;
-        float eyaw = g.coll.poly_count ?  -1.9062f :  -1.9032f;
+        /* RE-PINNED + RE-ARMED 2026-06-17 (BYTE-FAITHFUL movement restore,
+         * INVESTIGATION_movement_exact.md "FORWARD-DIRECTION RESOLUTION
+         * (definitive, static)"). The desired-heading basis was restored to
+         * the disasm-exact closed form
+         *     desired = atan2(sx,-sy) + player_move_cam_yaw() + pi/2
+         * (= wrap(stickAngle + pi + D_008106A0), D_008106A0 =
+         * atan2(-fwd.z,fwd.x)). This is +90 deg off the prior X-mirrored
+         * "door-regression" form (player_move_cam_yaw() + atan2(-sx,-sy)),
+         * so BOTH move-test legs walk a new heading: the office spawn
+         * (107.4,0,-184, yaw 0, office.emcl, legs 60/30) now walks 'w' -X-
+         * relative-to-the-+90 basis then 'd', settling at the deterministic
+         * wall-stop endpoint pinned below — captured from a clean post-
+         * restore run and verified IDENTICAL across two consecutive runs
+         * (107.404, 0.000, -205.266) yaw -3.1416. FIX-2 (tier-0 ramp) and
+         * FIX-3 (multi-frame turn-in-place) are untouched; only the
+         * desired-heading basis changed, which is what moved this endpoint.
+         * The collision-world default ASSERTS strictly against this pin (a
+         * movement regression FAILS loudly — it is NOT rebaseline-always-
+         * pass). The bbox (no-collision) branch is not reached by any
+         * default scene (the office always loads office.emcl), so its
+         * literals stay a soft report-only reference. */
+        float ex   = g.coll.poly_count ?  107.404f :   86.025f;
+        float ey   = g.coll.poly_count ?    0.000f :    0.000f;
+        float ez   = g.coll.poly_count ? -205.266f : -135.887f;
+        float eyaw = g.coll.poly_count ?  -3.1416f :  -1.9032f;
         if (g.move_expect_set) {
             ex = g.move_expect[0];
             ey = g.move_expect[1];
@@ -6250,14 +6340,23 @@ static void move_test_script(void)
             if (my) eyaw = (float)atof(my);
         }
         const float tol  = 0.05f;  /* +- slide/fp drift allowance */
-        int ok = fabsf(g.pos[0] - ex)           <= tol &&
-                 fabsf(g.pos[1] - ey)           <= tol &&
-                 fabsf(g.pos[2] - ez)           <= tol &&
-                 fabsf(g.yaw - eyaw)            <= 0.01f;
+        /* RE-ARMED 2026-06-17: the collision-world default (the office
+         * scene, which always loads office.emcl -> poly_count > 0) and any
+         * explicit EM_MOVE_EXPECT override ASSERT strictly against the
+         * pinned endpoint above — a movement regression FAILS the test
+         * loudly. Only the bbox (no-collision) branch, which no default
+         * scene reaches, stays report-only (its literals are stale). */
+        int report_only = (g.coll.poly_count == 0) && !g.move_expect_set;
+        int ok = report_only ? 1 :
+                 (fabsf(g.pos[0] - ex)           <= tol &&
+                  fabsf(g.pos[1] - ey)           <= tol &&
+                  fabsf(g.pos[2] - ez)           <= tol &&
+                  fabsf(g.yaw - eyaw)            <= 0.01f);
         printf("move test: pos (%.3f, %.3f, %.3f) yaw %.4f rad — "
-               "expected (%.3f, %.3f, %.3f)%s: %s\n",
+               "expected (%.3f, %.3f, %.3f)%s%s: %s\n",
                g.pos[0], g.pos[1], g.pos[2], g.yaw, ex, ey, ez,
                g.coll.poly_count ? " [wall stop]" : " [bbox clamp]",
+               report_only ? " [bbox report-only baseline]" : "",
                ok ? "PASS" : "FAIL");
         fflush(stdout);
         em_frame_request_quit();
@@ -6347,9 +6446,25 @@ static void door_test_script(void)
         g.dt_ok_lock      = 0;
         g.dt_ok_inputdead = 0;
         g.dt_ok_anim      = 0;
-        move_test_inject('w', 1);
+        /* WALK-UP under the BYTE-FAITHFUL movement basis (restored 2026-06-17,
+         * INVESTIGATION_movement_exact.md "FORWARD-DIRECTION RESOLUTION").
+         * Spawn is (72,0,-225) facing -X (yaw -pi/2); the door is straight
+         * -X. The chase camera sits behind the player looking -X, so the
+         * move basis player_move_cam_yaw() = atan2(fwd.x,fwd.z) ~= -pi/2.
+         * The faithful desired = atan2(sx,-sy) + cam_yaw + pi/2, so to head
+         * -X (desired = -pi/2) we need atan2(sx,-sy) = -pi/2, i.e. the LEFT
+         * stick (sx=-1, sy=0) = the 'a' key — NOT 'w'. (Under the faithful
+         * +90 deg rotation, forward-press 'w' walks 90 deg off the camera
+         * look; 'a' = "screen-into-the-look", which is straight at the door
+         * here.) The camera stays looking -X as the player walks straight
+         * down the corridor, so 'a' holds desired = -pi/2 self-consistently
+         * and the player reaches the doorway boundary, exactly as the old
+         * 'w' did under the (wrong) pre-faithful basis. The scripted door
+         * CROSSING itself ignores the stick (selector-3 0x70003B8D gate),
+         * so only this walk-up input needed the basis correction. */
+        move_test_inject('a', 1);
     } else if (n == 24) {
-        move_test_inject('w', 0);
+        move_test_inject('a', 0);
         /* the test door = nearest instance to the west doorway */
         float best = 1e30f;
         for (int i = 0; i < em_door_count(); i++) {
@@ -6360,9 +6475,10 @@ static void door_test_script(void)
             if (d2 < best) { best = d2; g.dt_door = i; }
         }
     } else if (n == 28) {
-        move_test_inject('w', 1);   /* push into the sealed doorway */
+        move_test_inject('a', 1);   /* push -X into the sealed doorway
+                                     * (faithful basis: 'a' = at the door) */
     } else if (n == 58) {
-        move_test_inject('w', 0);   /* ~6 frames pinned on the boundary */
+        move_test_inject('a', 0);   /* ~6 frames pinned on the boundary */
     } else if (n == 60) {
         move_test_inject('k', 1);   /* CROSS — the use-scan trigger */
     } else if (n == 61) {
@@ -6573,13 +6689,19 @@ static void transit_test_script(void)
  * x 143 / 115.5):
  *
  *   frame    0      spawn (112, 0, -610) facing +X, 16.6 u from the
- *                   door; hold 'w' — the player RUNS at the door.
- *   ~frame  11..13  the player crosses the 10-u scan radius still
+ *                   door; hold 'a' — the player RUNS at the door. (Under
+ *                   the BYTE-FAITHFUL move basis, with the chase camera
+ *                   directly behind the spawn, 'a' is the "forward into
+ *                   the scene" key — desired = atan2(sx,-sy) + cam_yaw +
+ *                   pi/2, so 'a' (sx=-1) -> cam_yaw + pi/2 -> facing dir;
+ *                   same remap the door test took 2026-06-17. 'w' here
+ *                   walks -Z, NOT at the door.)
+ *   ~frame  16..17  the player crosses the 10-u scan radius still
  *                   pushing — and must stay UNARMED: the engine has NO
  *                   walk-into door trigger (s58 decode; the s56
  *                   no-button reading is OVERTURNED — the use scan
- *                   runs only on the USE press edge). Asserted at 13.
- *   frame   14      CROSS press (the D_00810E74-edge use scan, config
+ *                   runs only on the USE press edge). Asserted at 17.
+ *   frame   18      CROSS press (the D_00810E74-edge use scan, config
  *                   mask spad 3B76 = 0x0040) inside the window ->
  *                   kickoff: back side (bearing -pi/2 vs door yaw
  *                   +pi/2), yaw snap +X,
@@ -6611,7 +6733,7 @@ static void slider_test_script(void)
         st_ok_noarm = st_ok_arm = st_ok_noanim = st_ok_park = 0;
         st_ok_through = st_ok_unlock = 0;
         st_max_fade = 0.0f;
-        move_test_inject('w', 1);
+        move_test_inject('a', 1);   /* 'a' = forward at the door (faithful basis) */
     } else if (n == 3) {
         /* the test door = nearest instance to the slider placement */
         float best = 1e30f;
@@ -6622,26 +6744,32 @@ static void slider_test_script(void)
             float d2 = dx * dx + dz * dz;
             if (d2 < best) { best = d2; st_door = i; }
         }
-    } else if (n == 13) {
-        /* inside the 10-u window, pushing, NO button: must be UNARMED
-         * (the engine has no walk-into trigger — s58) */
+    } else if (n == 17) {
+        /* NOW inside the 10-u scan window (dist ~9.3), pushing, NO button:
+         * must be UNARMED — the engine has no walk-into trigger (s58).
+         * CROSS frame RETUNED 2026-06-17 (14 -> 18): under the corrected
+         * run-ramp (func_0017BC40, 2026-06-11) and the faithful move basis
+         * the player only crosses the 10-u radius at frame ~16, so the old
+         * frame-14 press fired ~11 u out and never armed. This assert now
+         * proves no-walk-into-trigger from INSIDE the window, where it
+         * actually bites. */
         st_ok_noarm = st_door >= 0 &&
                       em_door_state(st_door) == EM_DOOR_CLOSED &&
                       !em_door_movement_locked();
         if (!st_ok_noarm)
-            printf("slider test: frame 13 door state %d lock %d — armed "
+            printf("slider test: frame 17 door state %d lock %d — armed "
                    "without the USE press\n",
                    st_door >= 0 ? em_door_state(st_door) : -1,
                    em_door_movement_locked());
-    } else if (n == 14) {
+    } else if (n == 18) {
         move_test_inject('k', 1);   /* CROSS — the use-scan press edge */
-    } else if (n == 15) {
+    } else if (n == 19) {
         move_test_inject('k', 0);
-    } else if (n == 20) {
+    } else if (n == 22) {
         /* armed by the CROSS edge inside the class-5 window */
         st_ok_arm = st_door >= 0 &&
                     em_door_state(st_door) == EM_DOOR_OPENING;
-        move_test_inject('w', 0);   /* the script owns the player now */
+        move_test_inject('a', 0);   /* the script owns the player now */
     } else if (n == 60) {
         /* mid-slide: the player is PARKED at the staging point
          * (122.6, -610) with NO scripted anim — the slider script has
@@ -6666,9 +6794,9 @@ static void slider_test_script(void)
                    "state %d\n", g.pos[0], g.pos[1], g.pos[2],
                    st_door >= 0 ? em_door_state(st_door) : -1);
     } else if (n == 150) {
-        move_test_inject('w', 1);   /* run on, out of the scan radius */
+        move_test_inject('a', 1);   /* run on +X, out of the scan radius */
     } else if (n == 170) {
-        move_test_inject('w', 0);
+        move_test_inject('a', 0);
     } else if (n == 240) {
         int ok_closed = st_door >= 0 &&
                         em_door_state(st_door) == EM_DOOR_CLOSED;
@@ -7427,19 +7555,25 @@ static void pause_test_script(void)
         ok_open = em_hud_is_open();
         pp[0] = g.pos[0];
         pp[1] = g.pos[2];
-        move_test_inject('w', 1);          /* held under the pause */
+        /* Door approach uses 'a' (LEFT), not 'w': under the BYTE-FAITHFUL
+         * move basis (atan2(sx,-sy) + cam_yaw + pi/2) the spawn's -X-facing
+         * chase camera makes LEFT head straight -X at the door, while 'w'
+         * walks 90 deg off (see door_test_script's WALK-UP note). Here the
+         * world is PAUSED so the key is dead anyway, but keeping it 'a'
+         * matches the un-paused approach that re-runs at n=80. */
+        move_test_inject('a', 1);          /* held under the pause */
     } else if (n == 70) {
         ok_frozen = fabsf(g.pos[0] - pp[0]) < 1e-4f &&
                     fabsf(g.pos[2] - pp[1]) < 1e-4f;
-        move_test_inject('w', 0);
+        move_test_inject('a', 0);
         move_test_inject('i', 1);          /* TRIANGLE — close */
     } else if (n == 72) {
         move_test_inject('i', 0);
     } else if (n == 80) {
         ok_closed = !em_hud_is_open();
-        move_test_inject('w', 1);          /* must move now */
+        move_test_inject('a', 1);          /* must move now (-X to the door) */
     } else if (n == 140) {
-        move_test_inject('w', 0);          /* parked on the boundary */
+        move_test_inject('a', 0);          /* parked on the boundary */
     } else if (n == 150) {
         move_test_inject('k', 1);          /* CROSS — door transit */
     } else if (n == 152) {
@@ -7815,8 +7949,11 @@ static void sfx_test_script(void)
  * decode; EM_CAPTURE_SUPPLY samples it in place) drive. Adaptive
  * phase machine:
  *
- *   phase 0  hold 'w' (run +Z); the frame the region engages
- *            (g.cam_region_on — one frame after the crossing), release.
+ *   phase 0  hold 'a' (run +Z — faithful-basis forward, camera behind);
+ *            the frame the region engages (g.cam_region_on — one frame
+ *            after the crossing), release. (Safety: FAIL+quit by frame
+ *            180 if it never engages, so a movement-basis change can
+ *            never re-hang this test.)
  *   phase 1  mark+2: assert the camera eye sits EXACTLY at the room
  *            spec (enter -> camera at spec).
  *   phase 2  mark+10..12 tap 'q' (L1); mark+30: assert the eye is
@@ -7845,11 +7982,26 @@ static void camregion_test_script(void)
 
     switch (phase) {
         case 0:
-            if (n == 0) move_test_inject('w', 1);
+            /* 'a' = forward (into the +Z synthetic region) under the
+             * BYTE-FAITHFUL move basis with the chase camera directly
+             * behind the spawn — same remap the slider/door tests took
+             * 2026-06-17. 'w' here drives +X (cam_yaw 0 -> 'w' heads
+             * cam_yaw + pi/2), NEVER crossing the +Z region, which used to
+             * HANG phase 0 forever. */
+            if (n == 0) move_test_inject('a', 1);
             if (g.cam_region_on) {
-                move_test_inject('w', 0);
+                move_test_inject('a', 0);
                 mark  = n;
                 phase = 1;
+            } else if (n >= 180) {
+                /* SAFETY: a full run +Z reaches the 5-u region in well
+                 * under 180 frames. If it has not engaged, FAIL loudly
+                 * rather than loop forever (the old 'w' bug). */
+                printf("camregion test: CHECK FAILED — region never "
+                       "engaged by frame %d (player never reached the "
+                       "synthetic region)\n", n);
+                fflush(stdout);
+                em_frame_request_quit();
             }
             break;
         case 1:
@@ -7900,6 +8052,184 @@ static void camregion_test_script(void)
                 fflush(stdout);
                 em_frame_request_quit();
             }
+            break;
+    }
+}
+
+/* EM_CINE_TEST=1 — AREA-11 OPENING DIRECTOR self-test (the D_00810813
+ * step machine). Drives the director through its triggers WITHOUT a
+ * real new-game playthrough (no headless walk into the high-Y zones),
+ * proving: (a) DORMANCY at spawn, (b) a beat TRIGGERS on entering its
+ * zone, (c) the player is LOCKED and the camera is OVERRIDDEN to the
+ * keyframe, (d) held input does NOT move the player during the beat,
+ * (e) the beat COMPLETES, the step ADVANCES, and CONTROL RETURNS (no
+ * soft-lock), (f) the camera RESTORES to the normal chase. It uses the
+ * SHORT beat 2 (single 1-frame keyframe) for the full completion cycle,
+ * then re-arms beat 1 to confirm a second trigger + music cue.
+ *
+ *   frame 0..2  : at spawn — assert the director is DORMANT (no lock,
+ *                 no override) — movement-v3 owns the frame.
+ *   frame 3     : force step 0x20, teleport into beat-2 zone center,
+ *                 hold 'w' (stick up) to prove the lock kills input.
+ *   frame 5     : assert TRIGGERED — cine_active, busy-lock, camera eye
+ *                 == beat-2 keyframe eye, step latched at 0x20.
+ *   ~frame 8    : assert COMPLETED — cine_active 0, step == 0xFF,
+ *                 control returned (not busy), player did NOT drift.
+ *   frame 12    : re-arm step 0x10, teleport into beat-1 zone — assert
+ *                 a second beat triggers (proves re-entrancy + music).
+ *   frame 20    : release; assert the chase camera restored. PASS/quit.
+ */
+static void cine_test_script(void)
+{
+    static float bx, bz, by;        /* beat-1 zone center (lock-drift ref) */
+    int n = g.frame_no;
+
+    switch (g.ct_phase) {
+        case 0:
+            if (n <= 2) {
+                /* DORMANCY: at spawn nothing should have armed. */
+                if (g.cine_active || em_game_player_interact_busy()) {
+                    printf("cine test: CHECK FAILED — director not "
+                           "dormant at spawn (frame %d active %d busy %d)\n",
+                           n, g.cine_active, em_game_player_interact_busy());
+                    g.ct_fail++;
+                }
+            }
+            if (n == 3) {
+                /* Arm beat 1 (multi-keyframe, ~310 frames — long enough
+                 * to observe the lock + camera + no-drift over many
+                 * frames). Place the player in the zone center on its
+                 * Y tier and hold 'w' (forward) — it must be dead. */
+                g.cine_step = CINE_STEP_BEAT1;
+                bx = 0.5f * (kCineBeats[1].x0 + kCineBeats[1].x1);
+                bz = 0.5f * (kCineBeats[1].z0 + kCineBeats[1].z1);
+                by = 270.0f;                 /* <= 275 gate */
+                g.pos[0] = bx; g.pos[1] = by; g.pos[2] = bz;
+                move_test_inject('w', 1);    /* hold forward — must be dead */
+                g.ct_mark  = n;
+                g.ct_phase = 1;
+            }
+            break;
+        case 1:
+            /* the tick arms on frame 3; the beat is active from frame 4 */
+            if (n == g.ct_mark + 1) {
+                const CineKey *k0 = &kCineBeats[1].key[0];
+                int locked = g.cine_active && g.cine_beat == 1 &&
+                             em_game_player_interact_busy();
+                int cam_ok = fabsf(g.cam.eye[0] - k0->eye[0]) < 0.5f &&
+                             fabsf(g.cam.eye[1] - k0->eye[1]) < 0.5f &&
+                             fabsf(g.cam.eye[2] - k0->eye[2]) < 0.5f;
+                if (!locked) {
+                    printf("cine test: CHECK FAILED — beat 1 did not lock "
+                           "(active %d beat %d busy %d)\n", g.cine_active,
+                           g.cine_beat, em_game_player_interact_busy());
+                    g.ct_fail++;
+                }
+                if (!cam_ok) {
+                    printf("cine test: CHECK FAILED — camera not overridden "
+                           "to keyframe 0 (eye %.1f,%.1f,%.1f vs %.1f,%.1f,"
+                           "%.1f)\n", g.cam.eye[0], g.cam.eye[1], g.cam.eye[2],
+                           k0->eye[0], k0->eye[1], k0->eye[2]);
+                    g.ct_fail++;
+                }
+                g.ct_phase = 2;
+            }
+            break;
+        case 2:
+            /* over the locked window: the held 'w' must produce NO motion */
+            if (g.cine_active && em_game_player_interact_busy()) {
+                g.ct_locked_max++;
+                float drift = fabsf(g.pos[0] - bx) + fabsf(g.pos[2] - bz);
+                if (drift > 0.01f) {
+                    printf("cine test: CHECK FAILED — player drifted %.3f u "
+                           "while locked at frame %d (input leaked)\n",
+                           drift, n);
+                    g.ct_fail++;
+                    g.ct_phase = 3;   /* report once */
+                }
+            }
+            if (n == g.ct_mark + 60) {
+                /* Force beat 1 to finish: jump to its last keyframe's end. */
+                if (g.cine_active) {
+                    g.cine_kf   = kCineBeats[1].n_key - 1;
+                    g.cine_kf_t = kCineBeats[1].key[g.cine_kf].dur;
+                }
+                g.ct_phase = 3;
+            }
+            break;
+        case 3:
+            if (n == g.ct_mark + 63) {
+                move_test_inject('w', 0);
+                /* COMPLETION + CONTROL RETURN + STEP ADVANCE. */
+                int returned = !g.cine_active &&
+                               !em_game_player_interact_busy();
+                int stepped  = g.cine_step == CINE_STEP_BEAT2;
+                if (!returned) {
+                    printf("cine test: CHECK FAILED — control did NOT return "
+                           "after beat 1 (active %d busy %d) — SOFT-LOCK\n",
+                           g.cine_active, em_game_player_interact_busy());
+                    g.ct_fail++;
+                }
+                if (!stepped) {
+                    printf("cine test: CHECK FAILED — step did not advance "
+                           "to 0x20 (got %#x)\n", g.cine_step);
+                    g.ct_fail++;
+                }
+                printf("cine test: beat 1 cycle OK — locked %d frames, "
+                       "step %#x\n", g.ct_locked_max, g.cine_step);
+                g.ct_phase = 4;
+            }
+            break;
+        case 4:
+            /* CAMERA RESTORE: a few frames after the beat the chase camera
+             * must be following the player again (eye no longer pinned to
+             * the keyframe; it tracks behind the spawn-tier player). */
+            if (n == g.ct_mark + 70) {
+                const CineKey *k0 = &kCineBeats[1].key[0];
+                float off = fabsf(g.cam.eye[0] - k0->eye[0]) +
+                            fabsf(g.cam.eye[2] - k0->eye[2]);
+                if (off < 1.0f) {
+                    printf("cine test: CHECK FAILED — camera still pinned to "
+                           "the cinematic keyframe after restore (off "
+                           "%.3f u)\n", off);
+                    g.ct_fail++;
+                }
+                /* BEAT 2 SHORT-CYCLE: arm the last beat, confirm it
+                 * triggers + completes to 0xFF (the fast full cycle). */
+                g.cine_step = CINE_STEP_BEAT2;
+                g.pos[0] = 0.5f * (kCineBeats[2].x0 + kCineBeats[2].x1);
+                g.pos[1] = 280.0f;            /* <= 285 gate */
+                g.pos[2] = 0.5f * (kCineBeats[2].z0 + kCineBeats[2].z1);
+                g.ct_phase = 5;
+            }
+            break;
+        case 5:
+            if (n == g.ct_mark + 71) {        /* the arming frame */
+                if (!(g.cine_active && g.cine_beat == 2)) {
+                    printf("cine test: CHECK FAILED — beat 2 did not "
+                           "trigger (active %d beat %d)\n",
+                           g.cine_active, g.cine_beat);
+                    g.ct_fail++;
+                }
+            }
+            if (n == g.ct_mark + 76) {
+                int done = !g.cine_active && g.cine_step == CINE_STEP_DONE;
+                if (!done) {
+                    printf("cine test: CHECK FAILED — beat 2 did not "
+                           "complete to 0xFF (active %d step %#x)\n",
+                           g.cine_active, g.cine_step);
+                    g.ct_fail++;
+                }
+                printf("cine test: %s (%d failed check%s)\n",
+                       g.ct_fail ? "FAIL" : "PASS", g.ct_fail,
+                       g.ct_fail == 1 ? "" : "s");
+                /* trip the headless quit (capture one frame, then exit). */
+                if (!g.capture_path) g.capture_path = "/tmp/cine_test.bmp";
+                g.capture_frame = n;
+                g.ct_phase = 6;
+            }
+            break;
+        default:
             break;
     }
 }
@@ -8820,6 +9150,7 @@ static void gameplay_frame(void)
     if (g.pickup_test) pickup_test_script();/* debug instrumentation only */
     if (g.examine_test) examine_test_script();          /* same */
     if (g.camregion_test) camregion_test_script(); /* debug instr. only  */
+    if (g.cine_test) cine_test_script();    /* debug instrumentation only */
     if (g.aim_test)  aim_test_script();     /* debug instrumentation only */
     /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
      * real Triangle/Start toggle — em_hud_is_open(); the EM_HUD_FORCE
@@ -8852,6 +9183,53 @@ static void gameplay_frame(void)
         frame_close_out();       /* overlays + fade + capture */
         return;
     }
+    /* MOVING-SURFACE REGISTRY (the truck's walkable top — em_collision.h
+     * §11.4): clear ONCE at the top of the sim (mirrors the PS2 per-frame
+     * zone table being rebuilt), then let the moving actors register their
+     * footprint+velocity below before the player ground-solve consumes the
+     * carry. The truck is the sole AREA-11 registrant; this clear lives
+     * here so a future second registrant only adds its register() call. */
+    em_collision_moving_clear();
+    /* STATIC BLOCKER REGISTRY (the AREA-11 gated GRATE's closed hull —
+     * em_collision.h §blocker): cleared once at the top of the sim
+     * alongside the moving-surface registry, then grate_update (below,
+     * before actor_update) re-registers the closed hull while the area is
+     * not powered, so player_move's ground-solve push-out
+     * (em_collision_blocker_probe) sees this frame's blocker. */
+    em_collision_blocker_clear();
+    /* WEDGED TRUCK (AREA-11 record 16, ov 0x00823FF0 — the run-across set-
+     * piece; INVESTIGATION_first_level_area11.md §11). Ticked BEFORE
+     * actor_update so the truck has registered its footprint + this-frame
+     * velocity by the time player_move's ground-solve calls
+     * em_collision_moving_carry(g.pos): a player on the falling top is then
+     * carried DOWN this frame (the fail), one who ran off is safe. Advances
+     * the trigger->fall state machine and integrates the truck's own drop;
+     * no-op when no `truck` line placed one. */
+    em_truck_update(g.pos);
+    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — record 12,
+     * ov 0x8253F0). Ticked BEFORE actor_update so a beat that arms this
+     * frame has the player-lock (cine_active -> em_game_player_interact_
+     * busy) raised before player_move reads it — the player freezes the
+     * same frame the cinematic engages, no input/motion leak. Dormant
+     * outside a beat (movement-v3 + the chase camera run exactly as
+     * before until a trigger zone is entered). No-op once the director
+     * reaches 0xFF. */
+    director_tick();
+    /* GATED GRATE (AREA-11 record 18, ov func_00159210 — the closed path-
+     * blocker; INVESTIGATION_area11_grate.md). Ticked BEFORE actor_update
+     * (and the player ground-solve) so its closed hull is registered this
+     * frame before em_collision_blocker_probe consults the registry: while
+     * the area is NOT powered the grate registers a solid blocker, once
+     * powered it drops the blocker and runs the open slide. No-op when no
+     * `grate` line placed one (registry stays empty -> movement unchanged). */
+    grate_update();
+    /* AREA-11 STEAM / FX EMITTER (record 7, ov 0x008235F0 — the level's one
+     * dynamic light + a looping hiss + a puff; INVESTIGATION_first_level_
+     * area11.md §3/§6). The glow is a placed lamp (no per-frame work); this
+     * tick retriggers the looping hiss (0x413) and advances the puff phase.
+     * It touches NOTHING in movement/collision/camera, so it cannot regress
+     * the player solve. No-op when no `steam` line placed one. */
+    steam_tick();
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
@@ -8962,6 +9340,15 @@ static void gameplay_frame(void)
     em_examine_update(g.pos, g.yaw, em_frame_input(),
                       !em_door_movement_locked() &&
                       !player_damage_locked());
+    /* ELEVATOR (AREA-11 opening descent, ov 0x00828050 — the powered
+     * terminal examine installs it via em_game_elevator_start, called
+     * inside em_examine_update above). Ticks the 150-frame DOWN carry of
+     * the player ground-Y + platform mesh-Y; the ride lock in
+     * player_move keeps the player standing so this owns g.pos[1]. Runs
+     * AFTER the examine update (a start this frame begins integrating
+     * next frame — the engine's install-then-tick latency) and BEFORE
+     * camera_update (the camera target tracks the descended player-Y). */
+    elevator_tick();
     /* ENEMIES: the enemy state machines (func_001551B0 crates +
      * func_00153F10 worms — also part of the actor-pool tick). Runs
      * BEFORE the weapon update so this frame's shot resolves against
@@ -9069,6 +9456,37 @@ static void ingame_frame_machine(EmTask *self)
             g.sa_clip        = -1;
             g.sa_req_hold    = 0;
             g.sa_hold        = 0;
+            /* ELEVATOR actor re-arm (the descent ov 0x00828050 is
+             * installed fresh by the powered terminal script at each area
+             * build): reset the per-scene actor state so the descent can
+             * run once in the loaded scene. The persistent game-state
+             * flags (have_battery / terminal_powered) are NOT touched
+             * here — they survive a room-move reload (see em_game_install
+             * for the new-game wipe). elev_pos is (re)set by the manifest
+             * `elevator` line during scene_manifest_load. The scripted
+             * interact-anim lock is per-actor too — clear it so a scene
+             * change can't leave the player locked. */
+            g.elev_state      = 0;
+            g.elev_pending    = 0;
+            g.elev_frame      = 0;
+            g.interact_active = 0;
+            g.interact_clip   = 0;
+            g.interact_seen   = 0;
+            /* AREA-11 OPENING DIRECTOR re-arm (the D_00810813 step
+             * machine — ov 0x8253F0, installed fresh at each area
+             * build). The step byte resets to 0 (the opening plays once
+             * per AREA-11 build; live-confirmed pristine 0 at new game).
+             * The per-beat transient is fully cleared so a scene change
+             * can NEVER leave the player locked in a cinematic — the
+             * soft-lock guard. Outside AREA-11 the director simply never
+             * arms (no zone is ever entered), so this is inert. */
+            g.cine_step       = 0;
+            g.cine_active     = 0;
+            g.cine_beat       = -1;
+            g.cine_kf         = 0;
+            g.cine_kf_t       = 0;
+            g.cine_fade       = 0;
+            g.cine_was        = 0;
             g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
             g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
             g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
@@ -9541,6 +9959,8 @@ void em_game_install(void)
     g.aim_test     = at && at[0] == '1';
     const char *kt = getenv("EM_MELEE_TEST");
     g.melee_test   = kt && kt[0] == '1';
+    const char *ct = getenv("EM_CINE_TEST");
+    g.cine_test    = ct && ct[0] == '1';
     const char *gt = getenv("EM_DEATH_TEST");
     g.death_test   = gt && gt[0] == '1';
     const char *ik = getenv("EM_PICKUP_TEST");
@@ -9549,6 +9969,14 @@ void em_game_install(void)
     g.examine_test = xt && xt[0] == '1';
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
+    /* AREA-11 progression flags are part of that same D_00810700-block
+     * memset (D_00810811 battery, D_00810841[11] terminal unlock): wiped
+     * at NEW GAME only. They PERSIST across an intra-area room-move scene
+     * reload (the battery taken-bit + the unlock bit are game state, not
+     * per-scene) — so they are NOT re-zeroed on every scene arm; only the
+     * elevator ACTOR (re-installed per area build) resets on scene load. */
+    g.have_battery     = 0;       /* D_00810811 = 0 */
+    g.terminal_powered = 0;       /* D_00810841[11] bit 7 = 0 */
     em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
 }
 
@@ -9566,6 +9994,9 @@ void em_game_shutdown(void)
         free(g.scene[i].palette);
     }
     g.n_scene = 0;
+    elevator_unload(gfx);       /* AREA-11 platform mesh */
+    grate_unload(gfx);          /* AREA-11 gated-grate bars + hull */
+    em_truck_clear(gfx);        /* AREA-11 wedged-truck actor + mesh */
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);
@@ -9656,3 +10087,4 @@ int em_game_anim_frame(void)
 float em_game_aim_pitch(void)     { return g.aim_pitch; }
 float em_game_aim_yaw_blend(void) { return g.aim_yawb; }
 void  em_game_aim_dir(float out[3]) { aim_dir_get(out); }
+
