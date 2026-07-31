@@ -38,7 +38,7 @@ def find_defs(lines: list[str], want: set[str]) -> dict[str, tuple[int, int]]:
     """name -> (first_idx, last_idx) covering the leading comment block + body."""
     out: dict[str, tuple[int, int]] = {}
     for idx, l in enumerate(lines):
-        m = re.match(r'^(?:static\s+)?[A-Za-z_][\w \*]*?\b([a-z_][a-z0-9_]*)\s*\(', l)
+        m = re.match(r'^(?:static\s+)?[A-Za-z_][\w \*]*?\b([A-Za-z_]\w*)\s*\(', l)
         if not m or m.group(1) not in want or m.group(1) in out:
             continue
         head = "\n".join(lines[idx:idx + 6])
@@ -71,7 +71,7 @@ def find_defs(lines: list[str], want: set[str]) -> dict[str, tuple[int, int]]:
 def signature_of(lines: list[str], name: str, span: tuple[int, int]) -> str:
     a, b = span
     dl = next(i for i in range(a, b + 1)
-              if re.match(r'^(?:static\s+)?[A-Za-z_][\w \*]*?\b' + name + r'\s*\(', lines[i]))
+              if re.match(r'^(?:static\s+)?[A-Za-z_][\w \*]*?\b' + re.escape(name) + r'\s*\(', lines[i]))
     parts, k = [], dl
     while "{" not in lines[k]:
         parts.append(lines[k])

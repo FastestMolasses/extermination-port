@@ -1902,6 +1902,19 @@ typedef struct {
 void palette_apply_placement(float *pal, uint32_t bone_count,
                              const float pos[3], float yaw);
 
+/* Aim direction for the current frame (player lane, defined in em_game.c).
+ * The camera's aim mode reads it to place the over-shoulder eye. */
+void aim_dir_get(float out[3]);
+
+/* Cinematic camera override (director lane, defined in em_game.c). Returns
+ * non-zero when the director has taken the camera this frame. */
+int director_camera(EmCamera *cam);
+
+/* Settle the camera inside the room bounds (camera lane, still defined in
+ * em_game.c because em_game.c also calls it; belongs in em_camera.c once the
+ * player split moves its other caller out). */
+void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3], int style);
+
 /* The one gameplay state object (defined in em_game.c). */
 extern EmGameState g;
 
