@@ -2102,6 +2102,10 @@ unsigned footstep_rand5(void);
 extern const float kLocoTierSpeed[4];
 int probe_wall_seg(const float start[3], const float target[3], int with_doors, EmCollHit *hit);
 
+/* Synthetic key injection for the scripted test paths (defined in
+ * em_game.c). Used by em_director.c's cine_test_script. */
+void move_test_inject(int key, int down);
+
 /* The one gameplay state object (defined in em_game.c). */
 extern EmGameState g;
 
