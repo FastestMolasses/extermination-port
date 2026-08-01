@@ -83,6 +83,27 @@
  * engine's 0x60-block arc func_002082B0). */
 #include "game/em_hud.h"
 
+/* Menu cues — the status screen was entirely silent. */
+#include "game/em_sfx.h"
+
+/* MENU UI CUES — DECODED. func_0020CD40 / func_0020CD60 / func_0020CDA0 are
+ * one-line thunks to func_001FB9F0(id, 0x1000, 0x1000, 0x1000) with ids 0, 1
+ * and 4. func_001FB9F0 is the sound engine's id resolver (it masks the id,
+ * bins it into the fixed / area-tabled / high-fixed record tables, resolves
+ * the bank slot through D_00281D50 and submits the note-on) — NOT an
+ * allocator, despite the stale "requests a 0x1000-aligned allocation of
+ * class N" headers those three thunk files still carry in the decomp.
+ *
+ * Caller decode pins each one: func_00201720 fires cue 4 on the row-changed
+ * edge and cue 1 on the cancel/back edges; func_00213A00 fires cue 4 on both
+ * list steps; func_00215870 fires cue 1 on the CIRCLE cancel.
+ *
+ * These are UI-cue ids in the same space as the game-over menu's 0x5DD..5DF,
+ * not the 0x1000 arguments (those are pitch/volume/pan, all default). */
+#define HUD_SFX_CONFIRM  0u   /* func_0020CD40 */
+#define HUD_SFX_CANCEL   1u   /* func_0020CD60 */
+#define HUD_SFX_MOVE     4u   /* func_0020CDA0 */
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1133,8 +1154,10 @@ void em_hud_update(const EmFrameInput *in)
     if (s_page >= 0) {
         /* Page view: Circle (engine exit path) or Triangle returns to
          * the hub; page content input is not modeled yet. */
-        if (in->pressed & (EM_PAD_CIRCLE | EM_PAD_TRIANGLE))
+        if (in->pressed & (EM_PAD_CIRCLE | EM_PAD_TRIANGLE)) {
             s_page = -1;
+            em_sfx_play(HUD_SFX_CANCEL);
+        }
         return;
     }
 
@@ -1145,6 +1168,7 @@ void em_hud_update(const EmFrameInput *in)
     if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START | EM_PAD_CIRCLE)) {
         s_shown = 0;
         s_hover = 0;
+        em_sfx_play(HUD_SFX_CANCEL);
         return;
     }
 
@@ -1153,6 +1177,7 @@ void em_hud_update(const EmFrameInput *in)
      * -> right 2 / down 1 / left 4 / up 3), the 0.8 deflection floor is
      * the port's.  Raw bytes are 0x80-centered, 0x00 = left/up. */
     {
+        const int hover_was = s_hover;
         float dx = ((float)in->lx - 128.0f) / 128.0f;
         float dy = ((float)in->ly - 128.0f) / 128.0f;
         if (dx * dx + dy * dy > 0.8f * 0.8f) {
@@ -1163,14 +1188,20 @@ void em_hud_update(const EmFrameInput *in)
         } else {
             s_hover = hud_forced_hover();   /* 0 unless EM_HUD_HOVER */
         }
+        /* Cue on the row CHANGE edge, matching func_00201720's
+         * row-changed test — not every frame the stick is deflected. */
+        if (s_hover != hover_was && s_hover > 0)
+            em_sfx_play(HUD_SFX_MOVE);
     }
 
     /* X enters the hovered page; with no hover, nothing.  (The "buzz"
      * on the empty press is func_0020CD80 = func_001FB9F0(2,...) — the
      * thunk is byte-matched, but that the empty press is what CALLS it
      * comes from the func_0020CDC0 stub.  The port plays no cue.) */
-    if ((in->pressed & EM_PAD_CROSS) && s_hover > 0)
+    if ((in->pressed & EM_PAD_CROSS) && s_hover > 0) {
         s_page = kHoverToPage[s_hover];
+        em_sfx_play(HUD_SFX_CONFIRM);
+    }
 }
 
 int em_hud_visible(void)
