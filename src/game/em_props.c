@@ -42,7 +42,17 @@ void elevator_descent_begin(void)
     g.elev_state   = 1;
     g.elev_frame   = 0;
     g.elev_rate    = ELEV_RATE_DOWN;      /* +0x2E8 = 0xBE888889 */
-    /* func_001FBD50(300.0, 0x453, 0) — the positional down cue at the
+    /* The positional down cue at the platform, radius 300. ARGUMENT
+     * ORDER CORRECTED (audit 2026-07-31): this used to be written
+     * "func_001FBD50(300.0, 0x453, 0)", which the BYTE-MATCHED
+     * src/func_001FBD50.c contradicts — its signature is
+     * `int func_001FBD50(void *a0, int a1, int a2, float f12)`, i.e. the
+     * FIRST argument is an emitter/actor POINTER (forwarded to
+     * func_001FBF50 together with the float in f12), and the sound id is
+     * a1, which it hands to func_001FB9F0 as that call's first argument.
+     * So the shape is func_001FBD50(<emitter>, 0x453, <n>, 300.0f). Only
+     * the comment was wrong; the port call below is unchanged.
+     * radius 300.
      * platform, radius 300. 0x453 IS now in the active sfx registry
      * (assets/sfx/sfx.txt), so this cue resolves and plays — the
      * SFX_SOUND_MAX bump brought the AREA-11 ids into the bank. (Was a

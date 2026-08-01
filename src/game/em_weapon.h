@@ -72,8 +72,9 @@
  * through its spad camera matrix 0x70003AC0; the +50s/+45s spread
  * terms ride the gun's +0x214 float, which — CORRECTED 2026-07-31 —
  * IS written: func_001854E0 sets it every frame it runs, as a
- * distance falloff off its own 65-unit probe (miss -> 0.0; hit at
- * d -> d2 = d - 20, then d2 < 0 ? 1.0 : (240 - d2)/240). It stays 0
+ * distance falloff off its own 65-unit probe — probe miss -> 0.0;
+ * hit at d >= 260 -> 0.0 (the same store, reached by goto); hit at
+ * d < 260 -> d2 = d - 20, then d2 < 0 ? 1.0 : (240 - d2)/240. It stays 0
  * for this port's stance only because func_00188630 selects the OTHER
  * drawer, func_00185760, for action codes 0x31/0x34 with
  * D_008105C8 == 0, and that drawer never touches +0x214), an actor ray
@@ -419,12 +420,12 @@
  *           the stance pose every frame, no idle interlude). The
  *           state window is the clip length PLUS the decoded NINE-tick
  *           blend ramp-out (func_0016F600 sub-mode 3 — the counter is
- *           seeded 8 and read before its decrement, see "RELOAD SHAPE";
- *           this line still said "8-tick" after that correction — the aim pose
- *           re-commits at the clip's end flag but the major state
- *           only returns to AIM once the ramp counter expires, so
- *           firing stays locked for the whole span). The DRAW clip
- *           holds the same way.
+ *           seeded 8 and read before its decrement, see "RELOAD SHAPE":
+ *           the aim pose D_00248B88[sub] re-commits at the clip's end
+ *           flag in sub-mode 2, but the major state only returns to AIM
+ *           (`arg0[6] = 2; arg0[7] = 0;` plus the +0x2E0/+0x2E4 blend
+ *           restore) once the ramp counter expires, so firing stays
+ *           locked for the whole span). The DRAW clip holds the same way.
  *   HOLSTER anim 0x111 once, then locomotion resumes by itself
  * Every state window gates on the committed clip's honest length
  * (em_game_anim_frames -> ceil(frames / rate) ticks); the old fixed
@@ -522,6 +523,12 @@
  * arms read the PRESSED mask, both draw arms the HELD mask, and the
  * draws are tested first — which is why em_weapon_update runs the
  * rifle switch before melee_update.
+ * DRAW REFUSAL, also in those cases and NOT modelled: each draw arm
+ * opens `if (*(unsigned char *)(p + 0x236) != 0) goto ret0;`, so the
+ * rifle cannot be drawn at all while the alternate-context byte +0x236
+ * is set — the same byte that selects the melee tables' idx-1 rows. The
+ * melee arms carry no such guard. The port has no +0x236 equivalent
+ * (idx 1 is untranslated), so it always takes the idx-0 world.
  *
  * FLASHLIGHT (2026-06-11 weapon-fidelity pass — user-attested identity
  * for the s36 open item "what does D_00810D3C arm?"; MODEL CORRECTED
@@ -778,10 +785,9 @@ enum {
                           * a FIVE-tick pause + anim 0x10F. 0x50 seeds
                           * +0x28 = 4 and 0x51 reads it BEFORE its own
                           * decrement, so it is seen as 4,3,2,1,0 —
-                          * verified in func_001735C0 and the BYTE-
-                          * MATCHED func_00173E60; MELEE_RECOV_PAUSE.
-                          * This line still said "4-tick" after that
-                          * correction landed in the code.             */
+                          * CONFIRMED 2026-07-31 in func_001735C0 and
+                          * the BYTE-MATCHED func_00173E60, whose 0x51
+                          * bodies are identical; MELEE_RECOV_PAUSE.   */
 };
 
 /* 1 while a melee attack (swing or recover) owns the player — em_game's
@@ -823,11 +829,29 @@ int em_weapon_flashlight(void);
  *     not have.
  *   func_0016F5D0 (byte-matched) — consumes it as a ONE-SHOT: if set,
  *     clears it. So the beacon is not simply a mirror of light_on.
- *   func_0018A6B0 — clears it whenever the mode byte D_00810CA6 leaves 0.
+ *   func_0018A6B0 — `if (D_00810CA6 != 0 && D_008106C7 != 0)
+ *     D_008106C7 = 0;` — clears it whenever the mode byte leaves 0.
  *   func_00185A10 — picks a movement mode on beacon == 0.
  *   func_0016F530 (byte-matched) — sets it on an entity state-kick,
  *     gated on D_00810CA6 == 0 && D_00810D3C != 0.
  *   func_00188ED0, func_001D1C50 — further gates, both NEARMISS.
+ *
+ * LIFECYCLE WIRED 2026-07-31 (this was a real behaviour gap, not just a
+ * missing accessor). The port raised the beacon with the Square toggle
+ * and lowered it with the Square toggle, and nothing else — i.e. exactly
+ * the mirror of light_on this block says it is not. The engine's two
+ * byte-matched writers say otherwise:
+ *   - LEAVING the armed stance consumes it. func_001607D0's four armed
+ *     cases 0x31/0x32/0x34/0x35 each answer a weapon-draw-hold release
+ *     with `*(char *)(p + 6) = 0x63; func_0016F5D0(p);`, and
+ *     func_0016F600 case 2's mid-reload holster leg calls it too — so
+ *     every holster clears D_008106C7 while D_00810D3C survives.
+ *     em_weapon's weapon_enter_holster() now does the same.
+ *   - RE-DRAWING re-raises it, in the SAME pair as the 0x179 cue:
+ *     func_0016F530 ends `if (D_00810CA6 == 0 && D_00810D3C != 0) {
+ *     func_001FBD50(&D_008102B0, 0x179, 0, 300.0f); D_008106C7 = 1; }`.
+ *     The port already played that cue at DRAW -> AIM but left the flag
+ *     alone; it now sets both.
  *
  * NOT YET WIRED TO ENEMIES, deliberately. func_00138900 is state 0 of a
  * six-state dispatcher (func_001386E0) for an actor family at 0x138xxx —

@@ -118,8 +118,10 @@ void camera_entry_seat(EmCamera *cam)
 }
 
 /* func_00191390 — the camera pre-step (DECODED s65; s71 STATE-ID
- * CORRECTION). RE-VERIFIED against src/func_00191390.c (byte-matched,
- * .word form; decoded by hand): sw zero,0x94 / sw zero,0x98, dispatch
+ * CORRECTION). RE-VERIFIED word-by-word against src/func_00191390.c
+ * (BYTE-MATCHED, .word form; the whole 66-word listing was hand-decoded
+ * for this audit and every row below is engine-literal): sw zero,0x94 /
+ * sw zero,0x98, dispatch
  * on lw a1,0x230(a1); codes 2/4/0xF -> 0x8C=-3.0, 0x5C=1.0; codes
  * 6/7/8/9/0x2C/0x2D -> 0.0/2.0; code 0x13 -> 11.0/2.0; codes 1/3 and
  * every other code fall into the cam+0x64 test (== -31.2 -> 2.0/6.0,
@@ -148,7 +150,9 @@ static void camera_prestep_00191390(EmCamera *cam)
 /* func_00191D40 — the walk camera's desired-EYE-HEIGHT seek (DECODED
  * s65; RE-VERIFIED against src/func_00191D40.c, which writes the eye
  * Y at arg0+0x14 while func_0022FCA0 owns +0x10/+0x18): want = base (+ cam+0x98, unfed) clamped to the y_hi bound;
- * proportional |d|/10 capped at `rate` (4.0 from func_00230000), d/5
+ * proportional |d|/10 capped at `rate` (4.0 — src/func_00230000.c
+ * [BYTE-MATCHED] passes exactly `func_00191D40(self, <sum>, 4.0f)`
+ * on both its case-11 and default arms), d/5
  * snap inside 1.0 u. A RISE is vetoed by solver bit 0x80, a DESCENT
  * by bit 0x40 (ceiling-/floor-clamped last solve) — the engine also
  * vetoes descent on the pre-pass sight bit +0x5A & 1 (untranslated).
@@ -334,11 +338,25 @@ static void camera_mode1_aim(EmCamera *cam)
         cam->aim_phase = 2;
 
     if (cam->aim_phase == 1) {
-        /* func_00197740: TARGET = player + rotY(cam euler)*(0,19,6),
-         * EYE = player + rotY*(0,19,-30). cam+0x30's yaw here is the
-         * chase camera's committed heading. No solver-side anti-close
-         * in this phase (func_00197740 never computes one). */
-        float ey = cam->yaw;
+        /* func_00197740: TARGET = player + rotY(spad3B50)*(0,19,6),
+         * EYE = player + rotY*(0,19,-30). No solver-side anti-close in
+         * this phase (func_00197740 never computes one).
+         *
+         * AUDIT CORRECTION — the YAW SOURCE. src/func_00197740.c opens
+         * with `func_00102948(arg0 + 0x30, &D_70003B50)` and builds the
+         * rotation from that copy, and spad D_70003B50 is the ACTOR's
+         * euler block: src/func_00182F90.c and src/func_0015BCF0.c both
+         * stage it as `func_00102948(D_70003B50, actor + 0xC0)`, and
+         * +0xC4 (its Y word) is the player heading every other camera
+         * function reads as `other + 0xC4` (src/func_001921D0.c,
+         * src/func_00191000.c). So the entry pose frames the player from
+         * the PLAYER'S FACING, not the chase camera's heading — the same
+         * anchor the steady phase below already uses (g.yaw, via
+         * src/func_00197870.c's identical D_70003B50 rotation). The port
+         * read cam->yaw here, so raising the weapon swung the entry shot
+         * to wherever the chase camera happened to sit and then popped to
+         * the facing on the first steady frame. */
+        float ey = g.yaw;
         cam_aim_f20 = 0.0f;
         cam->tgt_des[0] = g.pos[0] + sinf(ey) * CAM_AIM_ENTRY_FWD;
         cam->tgt_des[1] = g.pos[1] + CAM_AIM_TGT_UP;
@@ -409,7 +427,12 @@ static void camera_mode_dispatch(EmCamera *cam)
      * does take a `freelook` argument that skips the whole tail, but no
      * recovered caller passes it non-zero. All three steer the struct
      * yaw (+0x44)/desired vectors; everything downstream consumes only
-     * those, exactly like an engine mode handler. */
+     * those, exactly like an engine mode handler.
+     * (RE-VERIFIED: src/func_00193EB0.c routes ACTION CODES 1 and 0x21 —
+     * the arg1+0x230 word, NOT player states — into func_00191000, gated
+     * on `arg2 != 2 && arg0+5 == 0 && arg0+6 == 0`; src/func_00191000.c
+     * [BYTE-MATCHED] holds the only pad read in the recovered graph and
+     * src/func_001921D0.c the only idle timer.) */
     const EmFrameInput *in = em_frame_input();
     int aim_on = em_weapon_is_aiming() || g.r2_aim;
 
@@ -783,8 +806,10 @@ float cam_wrap_pi(float a)               /* func_001B1470 */
  * func_00230000) both call func_0018D7B0(cam, 0), which runs this
  * solver over collision mask 6 (static cells + grid, NO movable
  * hulls) and then smooth-chases the actual eye at cap 4.0/frame.
- * (Styles 3/4 — cinematic player states — take a reduced branch in
- * the same function; style 5 = director cams -> func_0018D910 [bounds
+ * (AUDIT CORRECTION: only STYLE 3 takes a reduced branch in the same
+ * function — src/func_0018DD20.c gates it on a literal `if (arg2 == 3)`
+ * and skips the head-clear waiver on the same test; style 4 runs the
+ * full path above. Style 5 = director cams -> func_0018D910 [bounds
  * maintenance only, cam_solver_0018D910 below]; style 2/6 = aim/scope
  * -> func_0018F870 [decoded s64, cam_solver_0018F870 below]. The
  * dispatcher also runs a
@@ -792,7 +817,8 @@ float cam_wrap_pi(float a)               /* func_001B1470 */
  * and the overhead-ceiling Y to cam+0x60. src/func_0018D330.c is
  * recovered — bit 0x80 = an overhead ceiling exists (and its Y goes to
  * cam+0x60), bits 1/8/0x10 come from a 20-u (9-u in aim style) sight
- * probe at player.y + 11 — and it now HAS decoded consumers:
+ * probe at player.y + 11 (bit 0x10 exists ONLY on the aim arm, from a
+ * second probe at player.y + 6) — and it now HAS decoded consumers:
  * func_00191D40 vetoes a descent on cam+0x5A & 1 and func_00197870
  * raises the aim eye floor to +11 on cam+0x5A & 0x10. Both are
  * untranslated here; the port never sets cam+0x5A.)
@@ -906,8 +932,16 @@ static int cam_solver_0018DD20(EmCamera *cam)
             glancing = 1;
         cam->wall_yaw = cam_wrap_pi(atan2f(first_n[0], first_n[2]));
 
-        /* 2. HEAD-CLEAR WAIVER (style != 3; dist inside the param). */
-        if (cam->horiz_dist - SOLV_DIST_PARAM <= 0.0f) {
+        /* 2. HEAD-CLEAR WAIVER (style != 3; dist inside the param).
+         * src/func_0018DD20.c gates it on
+         * `D_00810690 - fabs(arg0->f0C) <= 0.0f` — fabs of the PER-RECORD
+         * camdist at cam+0x0C, which the port carries as
+         * g.cam_dist_param (the same field camera_walk_eye_0022FCA0 and
+         * the follow tail read). The port compared against the literal
+         * SOLV_DIST_PARAM instead, so a scene with a non-default camdist
+         * waived (or refused to waive) low-wall blocks at the wrong
+         * distance. */
+        if (cam->horiz_dist - fabsf(g.cam_dist_param) <= 0.0f) {
             float h = (cam->var_5c == 1.0f) ? SOLV_HEADCLR_H1
                                             : SOLV_HEADCLR_H;
             float start[3] = { tgt[0], g.pos[1] + h, tgt[2] };
@@ -1211,8 +1245,9 @@ static int cam_solver_0018DD20(EmCamera *cam)
  * "R1 keeps the pull-in" is engine truth — the differences from the
  * follow solver are:
  *
- *  1. PRIMARY PROBE runs from the PLAYER POSITION (+0xB0) — not the
- *     desired target, which in aim rides the gun ray 16 u ahead — to
+ *  1. PRIMARY PROBE runs from the player record's RAISED BODY ANCHOR
+ *     at +0xB0 — not the desired target, which in aim rides the gun ray
+ *     16 u ahead, and NOT the ground root at +0xA0 either — to
  *     the desired eye extended 1.5 u. A hit sets result bit 1 (the
  *     follow solver's plain pull-in returns 0) and publishes the
  *     class (cam+0x58). GLANCING = dot(horiz TARGET-ward sight dir,
@@ -1250,10 +1285,12 @@ static int cam_solver_0018DD20(EmCamera *cam)
  *  4. FINAL Y POLICY (blocked, non-wall class): ceiling-class ->
  *     eye.y = min(eye.y, hit.y - 1); floor-class -> eye.y =
  *     max(eye.y, hit.y + 1).
- *  5. CONFIRM RE-PROBE (any response bits 0x1F): player pos -> eye;
- *     still blocked -> eye x/z = the NEW hit point (no pad).
- *  6. NEW BOUNDS for the NEXT frame (written, NOT applied): from the
- *     eye pulled 1.0 toward player + 11 up, 200 down (class 0x7000)
+ *  5. CONFIRM RE-PROBE (any response bits 0x1F): the +0xB0 anchor ->
+ *     eye; still blocked -> eye x/z = the NEW hit point (no pad).
+ *  6. NEW BOUNDS for the NEXT frame (written, NOT applied): this one
+ *     really does anchor on the GROUND ROOT (src/func_0018F870.c:
+ *     `func_00102948(D_700038F0, other + 0xA0); *0x700038F4 += 11.0f`),
+ *     from the eye pulled 1.0 toward player + 11 up, 200 down (0x7000)
  *     -> lower = floor + 2.0 (the follow solver's +17 becomes +2: the
  *     aim eye may ride 2 u over the floor — why aiming can look from
  *     ankle height); 200 up (0x8800) -> upper = ceiling - 1, else
@@ -1283,7 +1320,20 @@ static int cam_solver_0018F870(EmCamera *cam)
     float dir[3]      = { 0, 0, 0 };  /* spad 38A0' (unit player->eye)*/
     uint16_t attr = 0;
 
-    /* 1. PRIMARY PROBE — player position -> eye extended 1.5 u. */
+    /* 1. PRIMARY PROBE — the +0xB0 body anchor -> eye extended 1.5 u.
+     * PORT DIFFERENCE (flagged, not source-derived): src/func_0018F870.c
+     * casts this probe (and the step-5 confirm) from `other + 0xB0`, a
+     * RAISED anchor distinct from the ground root at +0xA0 — the same
+     * pair src/func_0018D330.c brackets when it probes from +0xB4 + 4
+     * DOWN to +0xA4 - 2, and the same split src/func_001916C0.c shows by
+     * writing `11 + arg1+0xA4` for the +0xA0 presets against a bare
+     * `arg1+0xB4` for the +0xB0 ones. Nothing in the recovered call
+     * graph pins the exact +0xB4 - +0xA4 offset, and the port models
+     * only one player position, so it substitutes the ground root here.
+     * Consequence: near a floor or slope this probe can catch geometry
+     * the engine's chest-height ray clears. Do NOT "fix" this by
+     * guessing the offset — recover the player record's +0xB0 writer
+     * first. */
     {
         float d[3] = { eye[0] - g.pos[0], eye[1] - g.pos[1],
                        eye[2] - g.pos[2] };
@@ -1803,8 +1853,10 @@ void camera_commit(EmCamera *cam)
      * is the rendered frame for exactly that state. The expected pixels
      * below were produced by projecting world points through THAT K and
      * mapping GS->frame (x: [1792,2304]->640, y: [1936,2160] field
-     * ->480); the player-root expectation (320.0, 441.1) was visually
-     * confirmed to land between the player's boots in the screenshot.
+     * ->480); the player-root expectation (320.0, 441.1) was checked BY
+     * EYE against the screenshot (it lands between the player's boots) —
+     * an OBSERVATION, not a source-derived result: no recovered function
+     * backs it. The numeric self-check below is what actually has teeth.
      * The check: run the savestate's eye/target/zoom through the PORT
      * chain — engine commit semantics (fwd, eye + 4*fwd near push,
      * em_mat4_lookat_gs) + em_mat4_perspective_gs + the 4:3 viewport
@@ -1880,9 +1932,13 @@ void camera_commit(EmCamera *cam)
  * Treat the ordering below as observed, the constants as decoded.
  * Once the
  * walk-to arrives and the door script begins, the OPEN script's op
- * 0x0D sub 5 cue fires — a HARD CUT to 20 u behind the STAGING POINT
- * along the THROUGH-DOOR axis at +19, looking at the staging point
- * (+13) — and the camera then HOLDS that eye while the actual target
+ * 0x0D sub 5 cue fires — a HARD CUT to 20 u behind the LIVE PLAYER
+ * POSITION along the THROUGH-DOOR axis at player.y + 19, looking at
+ * that same position at player.y + 11 (src/func_0018CBD0.c: target =
+ * arg1+0xA0 with +0x24 = 11 + player.y + f4 + 0.3*f20 = +11 on the
+ * default camdist row, eye.y = 11 + f4 + f5 + player.y = +19; the two
+ * AUDIT CORRECTIONs at the cut below carry the derivation) — and the
+ * camera then HOLDS that eye while the actual target
  * re-blends toward the walking player at <= 1.0 u/frame (the
  * cam+0xA0 = 120 window): the cinematic angle the door walk-through
  * plays under. When the player crosses the doorway plane (the room
@@ -2126,8 +2182,10 @@ void camera_update(void)
 
     /* STATUS-SCREEN PAUSE: dispatch + solve are skipped and only the
      * commit runs — the engine's frozen top modes 1/2 shape. The DOOR
-     * TRANSIT no longer freezes: the decoded script camera cue runs
-     * instead (camera_door_cinematic — the walk-to approach holds
+     * TRANSIT no longer freezes: the script camera cue runs instead
+     * (camera_door_cinematic — DECODED cut geometry from
+     * src/func_0018CBD0.c wrapped in OBSERVED sequencing; the walk-to
+     * approach holds
      * still, then the op 0x0D sub 5 cinematic cue + held angle; the
      * post-warp re-seat still happens while the screen is black,
      * gameplay_frame). */

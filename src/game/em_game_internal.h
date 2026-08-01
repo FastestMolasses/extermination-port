@@ -1163,7 +1163,14 @@ enum {
  * [byte-matched, asm-word leaf], and the same 0.0034906587f literal
  * appears in func_001921D0 [NEARMISS] as the arm-time floor on the
  * orbit rate (self+0x40) and as the post-latch rate of camera states
- * 0x2C/0x2D — three independent sightings of the same constant. */
+ * 0x2C/0x2D — three independent sightings of the same constant.
+ * DISAMBIGUATED (s86 audit): func_00193D90 feeds the literal STRAIGHT
+ * to func_001B12B0 (mtc1 of the lui 0x3B64 / ori 0xC389 pair into
+ * $f14) and never reads self+0x40, so the idle orbit really does run
+ * at a FLAT 0.2 deg/frame. func_001921D0's self+0x40 =
+ * 0.022222f * fabsf(delta), floored at this same value, belongs to a
+ * different (unread) motion handler — the port constant below is the
+ * orbit's actual rate, not just its floor. */
 #define CAM_ORBIT_RATE  0.0034906587f     /* rad/frame (0x3B64C389) */
 
 /* AIM CAMERA MODE 1 — DECODED (2026-06-11, func_00197D20 dispatcher +
@@ -1267,8 +1274,24 @@ enum {
  * term is the raw excess (desired horiz dist minus |chase dist|), and
  * at the door cut the eye is placed at exactly the chase distance, so
  * the excess is 0 and the shave vanishes. That is what makes the
- * recorded +13 the right value. func_001BBBF0 [NEARMISS] likewise
- * matches the LOCKCAM_* quartet below line for line. */
+ * recorded +13 the right value.
+ * RE-VERIFIED (s86 audit) — DO NOT "fix" this back by reading
+ * func_0018CBD0.c literally. That NEARMISS renders the shave seed as
+ * `t = f3 - ang; f20 = t;`, which taken at face value would make the
+ * door-cut target player.y + 10 (default family) / +11 (-46.8), NOT
+ * the live-measured +13/+17. The twin in func_001916C0 settles it:
+ * there the seed is the excess ITSELF (`0x70003A20 = D_00810690 -
+ * fabsf(cam+0xC)`), the reshape is `u = lim + (lim - t)` — exactly
+ * func_0018CBD0's `f20 = f3 + t` once t is the excess — and the cap
+ * is `if (!(u <= -7.0f)) u = -7.0f`, which func_0018CBD0 renders with
+ * the test and the assigned value both scrambled. Both reshape arms
+ * are gated on `ang < f3` and at the door cut ang == 0 (the eye is
+ * placed at exactly |speed| = 20 from the target, and ang is
+ * horizdist - fabsf(speed)), so no reshape runs and the shave is 0
+ * under the corrected reading. func_001BBBF0 [NEARMISS] likewise
+ * matches the LOCKCAM_* quartet below line for line: target =
+ * (door.x - 8*cos(door yaw), door.y + 10, door.z + 8*sin(door yaw)),
+ * then -= 13*sin/cos(D_00810374) on x/z with y = door.y + 12. */
 #define DOORCAM_EYE_BACK   20.0f  /* op 0x0D sub 5 chase dist (-20.0) */
 #define DOORCAM_EYE_UP     19.0f  /* 11 + f4 + f5 (live: eye y 19.0) */
 #define DOORCAM_TGT_UP     13.0f  /* 11 + f4 (live: target y 13.0) */
@@ -1429,8 +1452,19 @@ typedef struct {
                              scale (em_mat4_perspective_gs): default 480
                              (ENGINE_CAM_ZOOM_S, set at camera init);
                              the scope camera writes 224/tan(half-vfov)
-                             and scripted lerps animate it (engine
-                             func_001D25F0 / func_001D2590) */
+                             and scripted lerps animate it. WRITER
+                             CONFIRMED by audit: func_001D25F0
+                             [byte-matched] is the one-line setter —
+                             `D_00275670[0x2468] = fa0` plus a spad
+                             mirror at 0x70003B60 — and func_001D2590
+                             [byte-matched, asm-void] is the pair
+                             setter, feeding arg1/2 to func_0011E398
+                             (the fov side) and arg0/2 to
+                             func_001D25F0. NOTE the /2: the zoom
+                             func_001D2590 stores is HALF its first
+                             argument. The 480 default itself is a
+                             LIVE read (s66), not a literal in either
+                             function — observed, not source-derived. */
     float    eye_des[3];  /* +0x10: desired EYE (world) */
     float    tgt_des[3];  /* +0x20: desired TARGET (world) */
     float    yaw;         /* +0x44: eye->target heading; the R1/L1
@@ -1612,7 +1646,23 @@ typedef struct {
                                   * (drives the idle auto-orient) */
     EmCamRegion camregion[CAM_REGION_MAX]; /* scene.txt `camregion` lines
                                   * (the decoded D_0024A5F0 fixed-camera
-                                  * trigger volumes for this scene) */
+                                  * trigger volumes for this scene).
+                                  * CITATION TIGHTENED by audit — the
+                                  * claim rests on func_00194D10
+                                  * [NEARMISS], which probes
+                                  * func_001B1EA0(0, player+0xA0,
+                                  * &D_0024A5F0[i*0x40], 4) (an XZ
+                                  * point-in-quad over a stride-0x40
+                                  * record) and accepts only when
+                                  * fabsf(player.y - rec+0x04) < 4.0f;
+                                  * the caller is the director
+                                  * func_00195130 [NEARMISS]. The
+                                  * per-region EYE is NOT in that
+                                  * table — it comes from the separate
+                                  * spawn-record path (D_0024A8D0 via
+                                  * func_001B0460), so only the VOLUME
+                                  * half of this field is
+                                  * source-derived. */
     int        n_camregion;
     int        cam_region_on;    /* this frame's dispatch ran the in-region
                                   * fixed placement (debug/test witness) */

@@ -378,14 +378,18 @@ void em_hud_menu_inhibit(int inhibit);
  *         0, or 1 when D_00275BDC is set; and ctx[0xB] is seeded to
  *         0x4B0 = 1200 frames (20 s at 60 Hz) and decrements only
  *         while no button is held, dropping the menu out on zero.
- *       - func_001AC070 case 2 dispatches the confirmed selector:
- *         0 hands off to the gameplay task func_001ACEC0 with the
- *         "loaded a save" flag D_00275BE0 CLEAR; 1 runs
- *         func_00225A00 (which resets the 212-byte save/load context
- *         at D_00810040) and enters the func_00225AC0 card poll — a
- *         successful load lands on the SAME gameplay task with that
- *         flag SET; 2 enters the func_00200A40 sub-screen, which
- *         returns to this menu when it completes.
+ *       - func_001AC070 case 2 dispatches the confirmed selector
+ *         (re-read in the recovered C: on func_001AC480 returning 1 it
+ *         reads the selector GS[0xF] and sets its own state GS[8]):
+ *         0 -> state 4 = func_001AB790(func_001ACEC0), the gameplay
+ *         task, with the "loaded a save" flag D_00275BE0 CLEAR;
+ *         1 -> func_00225A00() (resets the 212-byte save/load context
+ *         at D_00810040), D_00275BE0 = 1, state 5 = the
+ *         func_00225AC0(0) card poll — its return 2 runs func_001AF150
+ *         and lands on state 4, the SAME gameplay task, flag SET
+ *         (return 1 = cancel, back to state 2, this menu);
+ *         2 -> state 6 = func_00200A40(), the sub-screen, which
+ *         returns to state 2 (this menu) when it reports nonzero.
  *
  * Missing font asset: the black base only. Both are queued by em_game
  * BEFORE the fade rect — the fade machine owns the screens exactly
@@ -425,6 +429,14 @@ void em_hud_found_render(EmGfx *gfx);
  *     port's fade-in/hold/fade-out envelope was invented and is gone.
  *   - the anchor decodes to canvas (256 - w/2, 36) on the 512-wide UI
  *     canvas — top-centred, but at y 36, not the port's old 96.
+ *     CANVAS CORRECTED (later audit): that "512-wide UI canvas" is
+ *     load-bearing and the port was ignoring it. The card's blitter is
+ *     the one func_001FC7B0 (NEARMISS) shows —
+ *     func_001CC1E0(1, x + 0x700, y + 0x790, 0xA, 0x14, str, 0) — the
+ *     same one the radio/examine text uses, so em_hud_area_title_render
+ *     now selects EM_GFX_STATUS_W/H like the radio path does instead of
+ *     centring on the 640-wide gameplay overlay (which drew every glyph
+ *     0.8x too narrow). y is unchanged: both canvases are 448 tall.
  *   - STRING SOURCE DOWNGRADED: the function does NOT read a 32-byte-
  *     stride table at 0x00273B80. It indexes the pointer array
  *     D_002671C0[] with `D_00289B40[D_00810700][0] + D_00810701`

@@ -72,13 +72,22 @@
  * goto-less slider neither fades nor commits — that is the flagged PORT
  * STAND-IN documented in the SLIDER block, not engine behaviour.
  *
- * Articulation — DECODED from func_001BC300 / func_001C68C0: the door's
- * per-frame tail is func_001C68C0 (build the placement transform at
- * +0xD0 from the actor's position +0xB0, orientation +0xC0 and SCALE
- * +0x60, then compose the bone palette at +0x110 through the skeleton
- * evaluator, keyed on the actor's model byte +0x0C), then an anchor
- * refresh fed (x, y + 10, z) — the door's spatial anchor sits 10 u ABOVE
- * its placement origin — then the actor's own +0x4C method.
+ * Articulation — DECODED from the byte-matched src/func_001BC300.c /
+ * src/func_001C68C0.c (both re-read this audit). func_001C68C0 is exactly
+ *     build_trs_matrix(o+0xD0, o+0xB0, o+0xC0, o+0x60);
+ *     func_001C9940(o+0x110, *(u8 *)(o + 0xC), o+0xD0);
+ * i.e. build the placement transform at +0xD0 from the actor's position
+ * +0xB0, orientation +0xC0 and SCALE +0x60, then compose the bone palette
+ * at +0x110 keyed on the actor byte +0x0C. SCOPED 2026-07-31 (audit): this
+ * line used to call +0x0C "the model byte", which everywhere else in this
+ * file means +0x03 (the lock/slide family byte) — +0x0C is a DIFFERENT
+ * field (the actor's bone count per func_001CB590), and calling
+ * func_001C9940 "the skeleton evaluator" is an inference: it is an
+ * undecompiled stub, so all the recovered C settles is the call shape and
+ * the +0x0C key. func_001BC300 then does an anchor refresh fed
+ * (x, y + 10, z) — func_001B1B30(self, x, 10.0f + y, z), the door's
+ * spatial anchor 10 u ABOVE its placement origin — then the actor's own
+ * +0x4C method.
  * door_build_palette performs the same composition in the opposite order
  * (clip pose first, then T(pos) * R_y(yaw)), which is equivalent.
  *
@@ -462,7 +471,13 @@
 #define WALKOUT_PHASE2_FRAMES 30      /* 0x1E: mover at full ramp        */
 #define WALKOUT_PHASE3_FRAMES 30      /* 0x1E: mover while ramp decays   */
 #define WALKOUT_SPEED_UPT     0.3f    /* u/tick — engine +0x38 init      */
-#define WALKOUT_RAMP_STEP     0.0113636f  /* 0x3C3A2E8C, per frame       */
+/* 0x3C3A2E8C decoded exactly: exponent 0x78 (2^-7), mantissa 0x3A2E8C ->
+ * 1.454437255859375 * 0.0078125 = 0.011362791061401367. TIGHTENED
+ * 2026-07-31 (audit): this used to read 0.0113636f, a hand-rounded 1/88
+ * that is ~8e-7 high per frame. The crossing frame is unchanged (0.3 /
+ * step = 26.4 either way, so the 27th decrement is the one that clamps),
+ * so this is fidelity, not a behaviour fix. */
+#define WALKOUT_RAMP_STEP     0.011362791f  /* 0x3C3A2E8C, per frame     */
 #define WALKOUT_TICK_HZ       60.0f   /* u/tick -> u/sec for the port    */
 
 typedef struct {
@@ -710,6 +725,31 @@ static int door_model_get(EmGfx *gfx, const char *scene_dir,
      * port exporter's existing naming convention (FLAGGED — unsupported
      * by any recovered function, dropping it would break shipped assets
      * named door_m09).
+     *
+     * PROVENANCE FLAG added 2026-07-31 (audit) — read this before
+     * trusting `mb`. The filename number is NOT guaranteed to be the
+     * engine's actor byte +0x03, which is what every decoded test above
+     * actually reads. FINDINGS ("door_m17 = fn 0x001BB860") records the
+     * office0 EAST door as `door_m17` while its placement flags2 (+0x03)
+     * is 0x83 — the exporter's mXX suffix comes from the model PARAM id
+     * (0x16 -> door_m15, 0x19 -> door_m17), not from +0x03. For the two
+     * shipped doors the two numberings happen to agree behaviourally:
+     * 0x17 and 0x83 both fall outside func_001BB400's single-leaf set
+     * {8, 0x16} and its wide set {0x3D, 0x3E}, so both take the twin
+     * 9.0-u branch, both fall outside func_001BB560's inversion set, and
+     * both fall outside the hinged {3, 0x15}. The one place they would
+     * diverge is func_001BB860's lock gate {0x16, 0x17, 0x3E}, which the
+     * port does not drive off `mb` at all (it uses the manifest `locked`
+     * token). So: no divergence today, but `mb` is a PORT STAND-IN for
+     * +0x03, not the byte itself. Do not add a filename->flags2 remap
+     * here without a decoded table — none exists in the recovered code.
+     *
+     * Also NOT decoded: which BRAIN a placement runs. The engine picks
+     * func_001BB860 (slider) vs func_001BC350 (hinged) from the
+     * placement's own behaviour pointer at +0x10; no recovered function
+     * derives it from a model byte. `slider` below is therefore a port
+     * inference from the byte-sets the two brains' INTERNALS test, not
+     * the engine's dispatch rule.
      *
      * Unparseable names default to hinged = slider = 0, which still
      * gives center == pos and the m03 flow — the safe historical
@@ -982,10 +1022,20 @@ static float door_norm_ang(float a)
  *
  *     D_00810E74 & *(u16 *)0x70003B76
  *
- * where D_00810E74 = cur_held & ~prev_held (func_001B5BC0: E70 =
- * current inverted raw pad, E72 = previous — E74 is the PRESS-EDGE
- * mask) and spad 0x70003B76 is the config-mask block's USE entry,
- * default 0x0040 = CROSS (s29). There is NO walk-into arming for ANY
+ * CITATION TIGHTENED 2026-07-31 (audit) — both halves re-read:
+ *   - all three callers carry the gate verbatim. func_00160220 line 31
+ *     `if ((D_00810E74 & *(unsigned short *)0x70003B76) != 0)`,
+ *     func_001612D0 case_2, and func_0016DE40 at three call sites
+ *     (`(D_00810E74[0] & *(unsigned short *)0x70003B76) != 0 &&
+ *     func_00184BA0(p) != 0`). No caller reaches the scan any other way.
+ *   - the byte-matched func_001B5BC0 settles the EDGE claim outright:
+ *     it stores E72 = prev_raw ^ 0xFFFF, E70 = cur_raw ^ 0xFFFF, then
+ *     `D_00810E74 = ~E72 & E70` = prev_raw & ~cur_raw. PS2 pad bits are
+ *     ACTIVE LOW in raw form, so that is (pressed now) & (not pressed
+ *     last) — the PRESS EDGE, exactly the port's in->pressed.
+ * spad 0x70003B76 is the config-mask block's USE entry, default
+ * 0x0040 = CROSS — that default is DATA (s29), not stated by any
+ * recovered function. There is NO walk-into arming for ANY
  * door family: the +0x1F0 == 0x2D check inside func_00183EF0 guards
  * only the KIND-7 prefix (LOS / dist^2 <= 144 / 2-u take-immediately
  * ring / facing dot), and when the player IS in 0x2D that prefix
@@ -1582,11 +1632,23 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                     }
                     d->did_warp    = 1;
                     s.unlock_armed = 1;
-                    /* The re-place arms the ARRIVAL WALK-OUT (engine
-                     * func_001B07C0: spawn rec +0x14 == 1 -> player
-                     * state 5/1) along the exit yaw — both the
-                     * same-scene re-place and the goto switch (the
-                     * engine walks out of EVERY decoded spawn). */
+                    /* The re-place arms the ARRIVAL WALK-OUT along the
+                     * exit yaw, for both the same-scene re-place and the
+                     * goto switch.
+                     *
+                     * DOWNGRADED 2026-07-31 (audit): the old tail here
+                     * read "the engine walks out of EVERY decoded
+                     * spawn", which contradicts walkout_start's own
+                     * provenance note below and overstates
+                     * src/func_001B07C0.c (NEARMISS 99.04%). What that
+                     * function actually requires is a CONJUNCTION:
+                     * D_00275BE0 != 1 (else +0x0E is force-cleared and
+                     * nothing arms), the spawn record's +0x14 byte == 1,
+                     * AND the caller's own arg nonzero. The door
+                     * re-place's caller is func_001AE040, still
+                     * undecompiled; the only recovered call site passes
+                     * 0. So the unconditional walk-out below is an
+                     * OBSERVED port rule, not a decoded one. */
                     walkout_start(s.warp_yaw);
                     /* Script teardown under black: the player anim
                      * resets with the re-place (the op 0x18 family's
@@ -1594,13 +1656,21 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                      * walk-out clip. */
                     em_game_anim_cancel();
                     em_frame_fade_start(-1, DOOR_FADE_SPEED);
-                    /* NO close sound — DECODED (see DOOR_SFX_KEYWORD):
-                     * the open script carries a single sound record and
-                     * func_001BBD20, the last unread candidate for a
-                     * close path, turns out to play the SAME open pair
-                     * D_0024DB80[link >> 8][side]. The door close is
-                     * silent in the original, so it is silent here; the
-                     * old EM_SFX_DOOR_CLOSE placeholder is gone. */
+                    /* NO close sound. DOWNGRADED 2026-07-31 (audit) to
+                     * match the DOOR_SFX_KEYWORD block, which had
+                     * already been scoped and which this comment still
+                     * contradicted by claiming "DECODED" and "silent in
+                     * the original". What IS decoded: the byte-matched
+                     * func_001BBD20 — the last candidate for a close
+                     * path — reads the SAME open pair
+                     * D_0024DB80[link >> 8][entry] and hands it to
+                     * func_001FBD50(obj, id, a2, 300.0f), so it is a
+                     * direct-play sibling of func_001BBD60, not a close
+                     * cue. What is NOT decoded: no recovered function is
+                     * shown being invoked at close time, and no separate
+                     * close id has surfaced. Treat the silence as
+                     * OBSERVED. The port plays nothing here; the old
+                     * EM_SFX_DOOR_CLOSE placeholder is gone. */
                 }
                 break;
             }

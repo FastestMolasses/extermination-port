@@ -525,7 +525,15 @@ static const char *const kFxFiles[4] = {
 /* --- KNIFE / MELEE constants (em_weapon.h "KNIFE / MELEE"; decoded
  *     2026-06-10 s36 — FINDINGS "KNIFE/MELEE DECODED". All table values
  *     are the boot-ELF row idx 0; idx 1 is the alternate-context row
- *     (+0x236), untranslated) ------------------------------------------ */
+ *     (+0x236), untranslated) ------------------------------------------
+ * CITATION TIGHTENED 2026-07-31 — every damage value, sound id, marker
+ * byte, gate table and chain table below was re-read directly from the
+ * two recovered machines: func_001735C0 (NEARMISS, the light combo:
+ * majors 1/2/3, each `*(short *)(*(p+0x18) + 0x36) = <dmg>` beside
+ * `func_001FBD50(p, <snd>, 0, 300.0f)` and `p[0x25E] = <marker>`) and
+ * func_00173E60 (BYTE-MATCHED, the heavy stab, state 2). The CLIP
+ * LENGTHS are the only ASSET-derived numbers here — no recovered
+ * function states one, and anim_ticks() prefers the loaded EMDL. */
 #define MELEE_ANIM_L1     0x10B  /* light hit 1, 35 fr (D_00248690[0][0]) */
 #define MELEE_ANIM_L2     0x10C  /* light hit 2, 35 fr (D_00248690[0][1]) */
 #define MELEE_ANIM_L3     0x10D  /* light hit 3, 50 fr (D_00248690[0][2]) */
@@ -810,7 +818,25 @@ static int weapon_reload(int mode)
 
 /* HOLSTER entry (engine major state 0x65): anim 0x111 + sound 0x163 —
  * every transition into the holster ramp goes through here, exactly the
- * single state-entry the engine plays the sound and anim on. */
+ * single state-entry the engine plays the sound and anim on. The two
+ * calls are func_001703E0 case 0x65 (BYTE-MATCHED):
+ *     func_001749A0(arg0, 0x111, 0, 1.0f);
+ *     func_001FBD50(p, 0x163, 0, 300.0f);
+ *
+ * LIGHT BEACON CLEARED HERE — CORRECTED 2026-07-31. Every engine path
+ * that leaves the armed stance runs func_0016F5D0 (BYTE-MATCHED), whose
+ * body ends
+ *     obj[0x1F1] = 2; obj[0x318] = 2; obj[0x2F2] = 0;
+ *     if (D_008106C7) { D_008106C7 = 0; }
+ * — the callers are func_001607D0's four armed cases 0x31/0x32/0x34/0x35
+ * on the weapon-draw-hold RELEASE (each sets +0x06 = 0x63 then calls it)
+ * and func_0016F600 case 2's mid-reload holster leg. So dropping the
+ * rifle CONSUMES the beacon while the flashlight PREFERENCE D_00810D3C
+ * stays set; func_0016F530 re-raises it at the next draw (see the
+ * DRAW -> AIM arm in em_weapon_update). The port used to leave the
+ * beacon latched from the toggle until the light was toggled off, which
+ * made it a plain mirror of light_on — the one thing em_weapon.h's
+ * "LIGHT BEACON" block says it is not. */
 static void weapon_enter_holster(void)
 {
     em_sfx_play(EM_SFX_WPN_HANDLE);     /* 0x163, state-0x65 entry (the
@@ -821,6 +847,7 @@ static void weapon_enter_holster(void)
     w.ramp      = 0;    /* holstering abandons any reload ramp-out      */
     w.fire_sub  = WPN_SUB_WAIT;
     w.fire_next = 0;
+    w.light_beacon = 0; /* func_0016F5D0's one-shot consume            */
 }
 
 /* RELOAD entry (engine major state 3 = func_0016F600): the reload clip
@@ -929,8 +956,11 @@ static void weapon_shot(void)
     if (w.mag == 0) return;             /* guard; callers gate the ammo */
     w.laser_vis = 0;      /* +0x2F2 = 0: every engine shot state hides
                            * the laser until the cadence expiry (the
-                           * decoded LASER HIDE WINDOW — the original
-                           * laser vanishes during the shot)             */
+                           * LASER HIDE WINDOW — CONFIRMED 2026-07-31 in
+                           * the BYTE-MATCHED func_00170A60, which does
+                           * `e[0x2F2] = 0;` in cases 10, 21 and 30 and
+                           * `e[0x2F2] = 1;` only at a cadence expiry
+                           * (11 queued / 22 / 31) or on a WAIT tick)    */
     w.mag--;
     w.reserve--;          /* the engine's TOTAL-pool rule: BOTH, per shot */
     w.shots++;
@@ -1743,11 +1773,12 @@ static void melee_update(const float pos[3], float yaw,
 
         case EM_MELEE_RECOVER:
             /* Engine 0x50/0x51: a FIVE-tick pause (MELEE_RECOV_PAUSE —
-             * +0x28 = 4 read before its own decrement; this comment
-             * still said "4-tick" after that correction), then the
-             * recover anim 0x10F (idx-0 arm; blend 4.0 — the port plays
-             * it at the property rate), then 0x52 waits the clip out
-             * -> exit. */
+             * 0x50 seeds +0x28 = 4 and 0x51 reads it before its own
+             * decrement; CONFIRMED 2026-07-31 in func_001735C0 and the
+             * BYTE-MATCHED func_00173E60), then the recover anim 0x10F
+             * (the +0x236 == 0 arm; 0x1C1 otherwise — blend 4.0, which
+             * the port plays at the property rate), then 0x52 waits the
+             * clip out -> exit. */
             if (m.recov_pause > 0) {
                 if (--m.recov_pause == 0) {
                     em_game_anim_request(MELEE_ANIM_RECOV,
@@ -1912,7 +1943,7 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                  * draw — the "replayed on the next rifle draw" behaviour
                  * the header describes, which the port never emitted. */
                 em_sfx_play(EM_SFX_WPN_DRAW);           /* 0x162 */
-                if (w.light_on)
+                if (w.light_on) {
                     /* 0x179 replay — POSITIONAL, corrected 2026-07-31.
                      * func_0016F530's re-announce is the byte-for-byte
                      * same call the Square toggle makes,
@@ -1924,6 +1955,20 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                      * channels. */
                     em_sfx_play_at(EM_SFX_SUB_TOGGLE, player_pos,
                                    300.0f);
+                    /* LIGHT BEACON RE-RAISED — CORRECTED 2026-07-31.
+                     * func_0016F530's replay arm is a PAIR, not just the
+                     * cue:
+                     *   if (D_00810CA6 == 0 && D_00810D3C != 0) {
+                     *       func_001FBD50(&D_008102B0, 0x179, 0, 300.0f);
+                     *       D_008106C7 = 1;
+                     *   }
+                     * The port emitted the sound and left the beacon
+                     * wherever the holster's func_0016F5D0 consume had
+                     * put it (0), so re-drawing with the light already
+                     * on announced the light but never re-armed the
+                     * flag its gameplay consumers read. */
+                    w.light_beacon = 1;
+                }
                 weapon_enter_aim();         /* major 2: hold pose 0x112 */
                 w.pending = 0;
                 w.burst   = 0;
@@ -2010,6 +2055,21 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                  * at the weapon-draw hold again. Releasing R1 mid-
                  * reload therefore does NOT abort: the reload plays out
                  * and the holster commits HERE (+0x06 = 0x65). */
+                /* WHICH HOLD — on record 2026-07-31. The engine's
+                 * sub-mode 2 test is BOTH weapon-draw config slots
+                 * against the HELD mask:
+                 *   if ((D_00810E70 & *0x70003B7C) ||
+                 *       (D_00810E70 & *0x70003B7E)) { ...continue... }
+                 *   else { arg0[6] = 0x65; ...holster... }
+                 * so R1 *or* R2 keeps the weapon out, and case 3 then
+                 * picks the stance from the R2 slot (0x1E/0x32 held,
+                 * 0x1D/0x31 released). The port's draw_held excludes R2
+                 * by the R2-OUTRANKS-R1 rule below, so pressing R2
+                 * during a reload holsters here where the engine would
+                 * carry on into the R2 stance. NOT corrected: the port
+                 * has no R2 stance in this module and the arbitration's
+                 * other half lives in em_game.c — a whole-transition
+                 * pass owns it, not a constant fix. */
                 if (draw_held) {
                     /* Engine sub-mode 2's held arm, in order:
                      *   arg0[7]++;
@@ -2050,12 +2110,18 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
      * R1 draw correctly wins over a melee press). */
     melee_update(player_pos, player_yaw, in);
 
-    /* LASER SIGHT refresh — the engine's drawers gate on the armed-
-     * stance CODE (player +0x1F0 in {0x31, 0x34} with phase +0x1F1 ==
-     * 1), which is held for the ENTIRE aim including the fire/recoil
-     * ticks (FINDINGS "LASER SIGHT DECODED": the laser runs the whole
-     * time the player aims) — i.e. the AIM/FIRE loop, but not the
-     * draw, reload (code 0x33) or holster clips. */
+    /* LASER SIGHT refresh — CITATION CORRECTED 2026-07-31. The gate is
+     * NOT the player struct's own +0x1F0/+0x1F1: the BYTE-MATCHED
+     * func_00188630 reads the GLOBAL mirrors,
+     *     k = D_008104A0[0];                       // armed action code
+     *     ... else if (k == 0x31 || k == 0x34)
+     *             if (D_008104A1[0] == 1)
+     *                 if (D_008105A2[0] != 0) ... run a laser drawer
+     * i.e. the action code (0x31/0x34 for this port's stance), the
+     * phase byte D_008104A1 == 1, and the +0x2F2 mirror D_008105A2.
+     * The code is held for the ENTIRE aim including the fire/recoil
+     * ticks — i.e. the AIM/FIRE loop, but not the draw, reload (code
+     * 0x33, set by func_00170A60's reload arms) or holster clips. */
     /* ... AND on the fire SM's +0x2F2 visible flag (the decoded LASER
      * HIDE WINDOW): the laser vanishes from every shot tick until that
      * shot's cadence expiry — during sustained fire it only blinks for

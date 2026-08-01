@@ -1197,7 +1197,9 @@ static float count_up(float *disp, float target)
 }
 
 /* HEALTH ring gauge at its real anchor (engine func_00208AD0 with
- * cx=208; ring center y 197, label row y 118, value row y 262). */
+ * cx=208; ring centre (208,196), label row y 118, value row y 262 —
+ * all three re-read from the byte-matched call site below; the "197"
+ * this line used to carry was the old one-pixel guess). */
 static void health_gauge(EmGfx *gfx, float hp, float hp_max)
 {
     /* Anchors re-derived from the BYTE-MATCHED call site: func_00209DF0
@@ -1817,12 +1819,19 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
                      EM_HUD_TEXT_TALL);
     }
 
+    /* PHASE CORRECTED (audit): func_00208AD0 (BYTE-MATCHED) opens with
+     * `counter[8] = counter[8] + 1;` and only THEN forms
+     * `180 + 12 * ((counter[8] >> 1) % 30)` — the bump precedes the
+     * draw, so the first drawn frame already uses counter 1.  The port
+     * bumped after the draws and so ran the whole rotation one frame
+     * out of phase with the original (180,180,192,192,... instead of
+     * 180,192,192,204,...). */
+    s_frames++;
+
     battery_block(gfx, st->battery, st->battery_max);
     spr4_block(gfx, st->reserve);
     health_gauge(gfx, hp, st->health_max);
     infection_block(gfx, inf);
-
-    s_frames++;
 
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }
@@ -2197,8 +2206,27 @@ void em_hud_area_title_render(EmGfx *gfx)
     /* Constant opacity for the whole 300-frame run — func_001C5930
      * issues the same func_001CC1E0 call every frame with no alpha
      * term.  (title_text_alpha is kept so the draw path stays the
-     * tall-font one; the alpha it is handed is simply 1.) */
+     * tall-font one; the alpha it is handed is simply 1.)
+     *
+     * CANVAS CORRECTED (audit): the card goes out through the SAME
+     * blitter as the radio/examine text — func_001CC1E0(1, x + 0x700,
+     * y + 0x790, 0xA, 0x14, ...), read in func_001FC7B0 (NEARMISS) —
+     * so its x is a coordinate on the engine's 512-wide UI canvas, not
+     * on the 640-wide gameplay overlay.  func_001C5930 centres it with
+     * `cx = 0x800 - (w >> 1)` = canvas 256 - w/2.  The port was
+     * laying it out on the 640x448 overlay canvas, which stretches to
+     * the same screen: every glyph came out 512/640 = 0.8x too narrow
+     * (and the whole line 20% short) next to the radio text, which
+     * already selects the 512 canvas.  Height is unaffected (both
+     * canvases are 448 tall), so AREA_TITLE_Y stays 36.
+     *
+     * COLOUR still UNRESOLVED: func_001C5930 passes 0 as the style
+     * argument (no style record), and func_001CC1E0 is hand-written
+     * asm in the decomp — what "no record" resolves to is not readable
+     * from recovered C.  White is the port's stand-in. */
+    em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
     float w = em_hud_text_width(s_area_title.str, EM_HUD_TEXT_TALL);
-    title_text_alpha(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, AREA_TITLE_Y,
+    title_text_alpha(gfx, (EM_GFX_STATUS_W - w) * 0.5f, AREA_TITLE_Y,
                      s_area_title.str, 1.0f);
+    em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }

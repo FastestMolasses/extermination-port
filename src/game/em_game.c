@@ -87,9 +87,16 @@
  * desired-eye solver the DECODED func_0018DD20 (style 0, mask 6 —
  * cam_solver_0018DD20, now in em_camera.c) against the same world;
  * CONFIRMED against src/func_0018DD20.c (NEARMISS — logic
- * authoritative): the wall arm writes only pos[0]/pos[2] (`+= 0.5f *
- * push`), leaving pos[1] alone, so the pull-in really is at constant
- * height. The player has
+ * authoritative), and SCOPED (audit 2026-07-31): in the style-0
+ * (arg2 != 3) block the plain-WALL case is the `resolved == 0` tail,
+ * which writes only pos[0]/pos[2] (`+= 0.5f * push`) and leaves pos[1]
+ * alone — that arm really is a constant-height pull-in, and it is the
+ * arm the chase camera hits. It is NOT the whole function: the sibling
+ * floor/ceiling arm (surface flags at +0x1A & 0x8800) does
+ * `pos[1] -= 1.0f` before the same X/Z push, and the style-3 arm
+ * (flags & 0xD800) copies the hit quad over pos[] with func_00102948
+ * and then pushes all THREE components. "Constant height" is the wall
+ * case only. The player has
  * NO free camera control — R1/L1 orient the camera behind the player,
  * idle auto-orients slowly, and a blocking wall PULLS the eye in at
  * constant height (which reads as the camera rising over the player —
@@ -268,10 +275,27 @@ EmGameState g;
  *   enemy generator <x> <y> <z> <yaw> [kind <k>] [link <n>]
  *                             one GENERATOR pad (engine class 0x0D /
  *                             func_0015A2C0 — em_enemy.h "GENERATOR");
- *                             kind/link are the decoded placement
- *                             fields (bare lines default to kind 1 /
- *                             link 2 — port defaults; engine placements
- *                             always carry both). EM_ENEMY_TEST=4 arms
+ *                             kind/link are the placement fields the
+ *                             pad's state-0 init consumes. CITATION
+ *                             TIGHTENED (audit 2026-07-31) against
+ *                             src/func_0015A2C0.c (NEARMISS — logic
+ *                             authoritative): state 0 binds the pad's
+ *                             behaviour row as `self+0x30 =
+ *                             &D_00248120[self->s16(+0x54) * 5]` (a
+ *                             5-float record) and then switches on the
+ *                             short at self+0x56 with exactly three
+ *                             live cases — 0 (leave as placed), 1 and
+ *                             2, which re-roll it out of D_002481B0 /
+ *                             D_002481D0 at `[(rand&3)<<3 |
+ *                             (D_008106EC/ED & 7)]`, bump that global
+ *                             counter, and on a rolled value of 1
+ *                             spawn a pair via func_0015A200(self,
+ *                             0xE, 0/1). So there really are two
+ *                             placement shorts; the recovered C does
+ *                             NOT name which manifest word is which,
+ *                             and the kind-1 / link-2 defaults are
+ *                             PORT DEFAULTS, not source-derived.
+ *                             EM_ENEMY_TEST=4 arms
  *                             its own pad inside em_enemy.c and skips
  *                             these lines so the run stays
  *                             self-contained.
@@ -1374,6 +1398,13 @@ static void render_env_init(void) {}
  * the `<= 0.17f` normal test, the ceiling `-= 1.0f`, the
  * `lower = upper - 3.0f` cross-fix, the stores to cam+0x50 / cam+0x54
  * and the `if (arg2 != 5)` guard on the desired-eye-Y clamp.
+ * RE-CONFIRMED line by line (audit 2026-07-31): every one of those
+ * constants is literal in src/func_0018CE60.c, and two more details
+ * the port already implements correctly are worth pinning so nobody
+ * "fixes" them — the floor class mask is +0x1A & 0x5000 (ceiling is
+ * & 0x8800), and the no-hit fallbacks are ASYMMETRIC: the floor miss
+ * carries `cam+0x50 - 200` (the PREVIOUS lower bound) while the
+ * ceiling miss uses `pt.y + 200`.
  * (decoded s64; the
  * s10 note "settle vs world: 2x func_0019A910 ray queries" was this).
  * Probes 200 down / 200 up from `pt` (mask 7 for style 2, else 6) and
@@ -1711,7 +1742,13 @@ static void ui_scene_render(EmGfx *gfx)
  * the 32-entry 0x80-stride scan at D_00275670, the `+0x24C > 0` weight
  * gate, `len = func_00102738(probe, probe)` (a DOT, so |toLamp|^2)
  * clamped up to 1.0f, `f = (0.1f * ent[+0x2C]) / len`, and the 10*f /
- * 2*f scales all read out literally. Two engine steps the port folds
+ * 2*f scales all read out literally. ONE CLARIFICATION (audit
+ * 2026-07-31): the gate field and the intensity field are the SAME
+ * word — the entry base is `base + j*0x80`, `ent = base + 0x220`, so
+ * `ent[+0x2C]` IS `base[+0x24C]`. A lamp's weight is its intensity;
+ * there is no second scalar, which is why the port's single
+ * `lamp[i].inten` (gate + numerator) is correct rather than a
+ * simplification. Two engine steps the port folds
  * away, both benign for the look but named here so nobody re-derives
  * them: (1) the two accumulators are SEEDED from the constant quads
  * D_00253170 / D_00253180 before dir0*w0 is added, not from zero; and
@@ -2457,7 +2494,7 @@ static void transit_test_script(void)
 }
 
 /* EM_SLIDER_TEST=1 — deterministic SLIDING-DOOR self-test (run with
- * EM_SCENE=assets/scene_drawbridge). Exercises the decoded m17/m09
+ * EM_SCENE=assets/scene_drawbridge). Exercises the m17/m09
  * variant brain func_001BB860 (em_door.h "SLIDERS") on the drawbridge
  * room's intra-room slider door 4 — door_m09 at (128.6, 0, -610) yaw
  * pi/2 (AREA01 sub-0 placement; room-move entries 9/8 flank it at
@@ -2476,6 +2513,27 @@ static void transit_test_script(void)
  *                   walk-into door trigger (s58 decode; the s56
  *                   no-button reading is OVERTURNED — the use scan
  *                   runs only on the USE press edge). Asserted at 17.
+ *                   PROVENANCE CHECKED (audit 2026-07-31), and NOT
+ *                   fully settled: src/func_001BB860.c (NEARMISS) is a
+ *                   generic actor state machine — states 0..3 on the
+ *                   byte at self+4, sub-states 0..4 on self+5, a
+ *                   story-flag gate `D_00810841[D_00810700] &
+ *                   (1 << self->s16(+0x34))` for kinds 0x16/0x17/0x3E,
+ *                   a virtual tick through self+0x4C, and states 2/3
+ *                   handed to func_001AFC10. Nothing in it is
+ *                   door- or slider-specific, so it does not by
+ *                   itself support "no walk-into trigger". It DOES
+ *                   carry a player-PROXIMITY arm the old note never
+ *                   mentioned: at the tail it takes the distance from
+ *                   the player mirror (D_00810350/54/58) to self+0xB0
+ *                   and, `if (d <= 20.0f)`, sets self+1 = 1 and — when
+ *                   self+2 & 0x80 — queues the actor via
+ *                   func_001B1DE0 (a 32-deep push of self[5] onto the
+ *                   D_00275B60 stack). What that latch feeds is NOT
+ *                   recovered. The "no walk-into trigger" reading
+ *                   still rests on the s58 .s read, not on this file;
+ *                   treat it as OBSERVED and re-check it before any
+ *                   door-arming change.
  *   frame   18      CROSS press (the D_00810E74-edge use scan, config
  *                   mask spad 3B76 = 0x0040) inside the window ->
  *                   kickoff: back side (bearing -pi/2 vs door yaw
@@ -2995,10 +3053,21 @@ static void weapon_test_script(void)
  *     reported by et_finish, not asserted untouched — see the leg.)
  *   EM_ENEMY_TEST=2 (contact run): ONE WORM 30 u ahead; weapon stays
  *     holstered; let the worm
- *     run its decoded sequence (approach 90 t -> stalk 120 t homing ->
- *     windup 45 t -> lunge). The lunge CONNECT posts the decoded latch
- *     15 (D_008104D4) and the worm bursts -> assert health dropped by
- *     exactly 15 and the worm despawned. (With the leech asset the
+ *     run its sequence (approach 90 t -> stalk 120 t homing ->
+ *     windup 45 t -> lunge). CITATION TIGHTENED (audit 2026-07-31)
+ *     against src/func_00154120.c (NEARMISS — the worm ATTACK
+ *     sub-machine on the byte at self+5, states 0..3): only the
+ *     120-tick homing leg is in the recovered C — state 0 arms
+ *     `self->s16(+0x28) = 0x78` on the clip-end bit 0x1000 and state 1
+ *     counts it down while easing the heading toward the player mirror
+ *     (`+0xC4 = func_001B12B0(aim, +0xC4, 0.0698131695f)` = 4 deg per
+ *     frame). The 90 and 45 counts are NOT in it; they rest on
+ *     FINDINGS' read of func_00153F10, which is only an all-word stub.
+ *     The lunge CONTACT LATCH *is* source-derived: state 3 writes
+ *     `D_008102BF = 2; D_008104D4 = 0x41700000` — literally 15.0f —
+ *     versus the state-0 brush-contact latch 0x40A00000 = 5.0f. The
+ *     worm bursts -> assert health dropped by exactly 15 and the worm
+ *     despawned. (With the leech asset the
  *     connect is the decoded neck->head SEGMENT arm; rig-less runs
  *     fold into the radius-6 contact — em_enemy.c LATCH SEGMENT.)
  *   EM_ENEMY_TEST=3 (crate run — RESTAGED s68): spawn a DISGUISED
@@ -4304,7 +4373,8 @@ finish:
  * (the PLAYER DAMAGE & DEATH machine + the s66/s70 GO machine above).
  * Scene init spawns ONE
  * worm 30 u ahead (the contact-run placement); frame 0 sets health
- * to 20 (instrumentation — two lunges at the DECODED latch 15 =
+ * to 20 (instrumentation — two lunges at the DECODED latch 15;
+ * src/func_00154120.c state 3 writes D_008104D4 = 0x41700000 = 15.0f —
  * flinch then death; a worm suicide-bursts on its lunge connect, so
  * phase 2 spawns the second killer). Adaptive phases:
  *
@@ -4665,9 +4735,13 @@ static void gameplay_frame(void)
      * backs away until the room's far wall blocks its desired eye and
      * the decoded func_0018DD20 solve PULLS IT IN at constant height
      * (cam_solver_0018DD20, em_camera.c; CONFIRMED against
-     * src/func_0018DD20.c [NEARMISS] — the wall arm adds 0.5f * push
-     * to pos[0]/pos[2] only, never pos[1]): the eye parks 0.5 u off
-     * the wall while
+     * src/func_0018DD20.c [NEARMISS] — SCOPED (audit 2026-07-31): the
+     * style-0 plain-WALL arm, i.e. the `resolved == 0` tail, adds
+     * 0.5f * push to pos[0]/pos[2] only and never pos[1]. The
+     * floor/ceiling sibling (+0x1A & 0x8800) does `pos[1] -= 1.0f`
+     * first, and the style-3 arm pushes all three components, so
+     * "constant height" is this capture's arm, not the function):
+     * the eye parks 0.5 u off the wall while
      * the player keeps closing, so the view tilts down over the
      * player's head — the user-observed "rise to show the player's
      * top", emergent. Use with EM_CAPTURE_FRAME around 280+ (office
@@ -4857,7 +4931,17 @@ static void gameplay_frame(void)
      * port's first pooled actors are the DOORS: per-frame behavior
      * (func_001BC350 state machine), the player use scan
      * (func_00184BA0) and articulation live in em_door_update.
-     * func_0015C160 / func_001F0360 — still untranslated. */
+     * CITATION CORRECTED (audit 2026-07-31): the old "func_0015C160 /
+     * func_001F0360 — still untranslated" note is stale; both are now
+     * BYTE-MATCHED. src/func_0015C160.c is the PLAYER-actor per-frame
+     * wrapper the three calls above already mirror — gated on
+     * D_008102B1, it runs func_001CB590(self, 0x320, self[9]), then
+     * (unless D_00810771 == 1) either func_001DA6A0(D_00275B44) when
+     * self+0x214 == 0 or func_0015BF90(self), and finally dispatches
+     * the hook pointer at self+0x4C. src/func_001F0360.c is a plain
+     * subsystem-tick barrel (six subsystem calls then func_001F0720
+     * for ids 0,1,3,4,5,6) with no gameplay state of its own. Neither
+     * adds behaviour this frame ordering is missing. */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
     /* GOTO-DOOR SCENE SWITCH (one-shot, at fade-out completion — screen
      * fully black): the runtime area/sub-state load. Free + reload the

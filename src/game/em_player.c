@@ -126,7 +126,20 @@ void player_move_collide(float mx, float mz)
  * Picks the body-heading ease rate from whether we are turning in place
  * (current ramped speed == 0) vs. moving, then by the gait tier (in
  * place) or by |delta| crossed with the ramped speed loco_upt (moving).
- * See the BODY-HEADING TURN RATES block above for the table. */
+ * See the BODY-HEADING TURN RATES block above for the table.
+ *
+ * CONFIRMED (audit 2026-07-31) — all nine rates re-read one by one out of
+ * src/func_00174AC0.c (NEARMISS, logic authoritative), arg1 == 1 arm:
+ *   +0x38 == 0.0f  (turn in place, keyed on the gait byte +0x23F)
+ *       1 -> 0.06981317   2 -> 0.13962634   else -> 0.39269909
+ *   otherwise, |wrap(ang - heading)| (func_0011DF78 = fabsf) split at
+ *   0.9424779, then keyed on the ramped speed +0x38:
+ *       > 0.9424779 (FAR):  <=0.1 -> 0.10471976  <=0.3 -> 0.15707964
+ *                           else  -> 0.18325958
+ *       <= 0.9424779 (NEAR):<=0.1 -> 0.06981317  <=0.3 -> 0.10471976
+ *                           else  -> 0.122173056
+ * which is TURN_IP_GAIT{1,2,03}, TURN_DELTA_BAND and the
+ * TURN_MV_{NEAR,FAR}_{W,J,R} rows exactly. */
 static float player_turn_rate(int gait, float upt, float adelta)
 {
     if (upt <= 0.0f) {                      /* TURN-IN-PLACE, by gait */
@@ -217,6 +230,57 @@ float player_move_cam_yaw(void)
     return atan2f(dx, dz);
 }
 
+/* player_stick_desired_yaw — the camera-relative DESIRED heading the body
+ * eases onto (func_001B12B0's target).
+ *
+ * CORRECTED (audit 2026-07-31 — this was MIRRORED, a real movement bug).
+ * Derived line-by-line out of src/func_00174AC0.c (NEARMISS, so its LOGIC
+ * is authoritative) and src/func_0018C0D0.c (NEARMISS). Verbatim from
+ * func_00174AC0:
+ *     +0x244 = func_0011DE90(pi * (D_00810E64 / 256.0f));
+ *     +0x248 = func_0011DE90(pi * (D_00810E65 / 256.0f));
+ *     +0x24C = func_0011E620(-(+0x248), +0x244);
+ *     ang    = func_001B1470(pi + (+0x24C) + D_008106A0);
+ * with func_0011E620(y, x) = atan2f (src/func_0011C4C8.c is verbatim
+ * fdlibm __ieee754_atan2f(y, x)), func_001B1470 = wrap to [-pi, pi], and
+ * func_0011DE90 = cosf (the only trig that maps a 0..255 stick byte
+ * through pi*raw/256 onto a centred [+1 .. -1] axis; its sibling
+ * func_0011E2A8 is the sinf used by func_0017ABA0's pitch scale).
+ *
+ * So the engine's two axis terms are u = cos(pi*rawX/256) and
+ * v = cos(pi*rawY/256) — i.e. u = -sin(pi/2 * sx), v = -sin(pi/2 * sy)
+ * for the linear right-positive / down-positive deflections sx, sy. Using
+ * the identity pi + atan2(a, b) == atan2(-a, -b):
+ *     ang = atan2(v, -u) + D_008106A0
+ * and src/func_0018C0D0.c writes
+ *     D_008106A0 = func_0011E620(-fwd.z, fwd.x)   (line 113, verbatim)
+ * from the just-committed forward spad 0x700038A0 (copied to D_00810600).
+ * An engine heading `a` therefore denotes the world direction
+ * (cos a, -sin a), while the port's g.yaw denotes (sin Y, cos Y), so
+ * Y = a + pi/2 and atan2(-fwd.z, fwd.x) = player_move_cam_yaw() - pi/2.
+ * The two pi/2 terms cancel:
+ *     Y = atan2(v, -u) + player_move_cam_yaw()
+ *
+ * Cardinals: FWD -> cam_yaw + pi/2, BACK -> cam_yaw - pi/2 (both UNCHANGED
+ * from the previous form, which is why the old live A/B looked right), but
+ * RIGHT -> cam_yaw and LEFT -> cam_yaw + pi — the old
+ * `atan2(sx,-sy) + cam_yaw + pi/2` had those two SWAPPED and every diagonal
+ * 90 deg out. atan2(sx,-sy) == pi/2 - atan2(-sy,sx) is a REFLECTION of the
+ * engine's stick map, and no constant offset can repair a reflection.
+ *
+ * Keeping the cos() axis warp (rather than normalising rdx/rdy) is also
+ * the engine's shape: on a partial diagonal (full X, half Y) the warp
+ * moves the heading ~9 deg versus a linear normalise. */
+static float player_stick_desired_yaw(const EmFrameInput *in)
+{
+    float u = cosf(EM_PI * ((float)in->lx / 256.0f));   /* +0x244 */
+    float v = cosf(EM_PI * ((float)in->ly / 256.0f));   /* +0x248 */
+    float desired = atan2f(v, -u) + player_move_cam_yaw();
+    while (desired >  EM_PI) desired -= 2.0f * EM_PI;
+    while (desired < -EM_PI) desired += 2.0f * EM_PI;
+    return desired;
+}
+
 /* Player movement (the port's first slice of the actor spine's physics
  * side): left stick = camera-relative DESIRED heading on the XZ plane;
  * the body heading g.yaw EASES toward it at the engine's banded turn
@@ -292,8 +356,14 @@ void player_move(void)
         }
     }
 
-    /* MOVEMENT LOCK (door transit — the decoded two-lock split,
-     * em_door.h "THE TWO LOCKS"): kickoff -> walk-out end. Free
+    /* MOVEMENT LOCK (door transit — the two-lock split described in
+     * em_door.h "THE TWO LOCKS"). DOWNGRADED (audit 2026-07-31): this
+     * used to read "the decoded two-lock split", but the comment cites
+     * no function and the split is not read out of any recovered C in
+     * the decomp — it is the PORT'S OWN model of the door sequence,
+     * built from observation. Treat it as port structure, not as
+     * source-derived. Behaviour left alone (no counter-evidence).
+     * Span: kickoff -> walk-out end. Free
      * movement is ignored — the player walks the scripted MOVE-TO /
      * walk-out above or stands (at the staging point). The MENU lock
      * is separate (em_door_menu_locked, consumed by em_hud) and ends
@@ -340,11 +410,15 @@ void player_move(void)
      *     movement; standing here keeps the floor-snap above from
      *     fighting that write to g.pos[1].
      * em_game_player_interact_busy() reports both as busy so the examine
-     * logic does not double-trigger. FLAGGED: the original also gates
-     * input via a control-mode write — modeled here as the stand-still
-     * lock (no decoded control-mode value to mirror; the live decode
-     * confirmed D_008101E4 stays 0 — the lock IS the scripted-anim
-     * state, not a control-mode flag). elev_pending (the descent armed,
+     * logic does not double-trigger. FLAGGED / DOWNGRADED (audit
+     * 2026-07-31): the "the live decode confirmed D_008101E4 stays 0"
+     * line used to read as a decode result. It is not one — it is an
+     * OBSERVATION from a PCSX2 session, and this comment cites no
+     * function. D_008101E4 does appear across the decomp corpus, but
+     * nothing recovered ties it to this lock either way, so the
+     * stand-still lock below stands as a PORT STAND-IN for whatever
+     * control-mode write the original does here, not as a mirror of it.
+     * Behaviour left alone. elev_pending (the descent armed,
      * waiting on the lever clip) is also locked so the one frame between
      * the lever clip ending and the ride beginning (both resolved later
      * this same frame in elevator_tick) does not leak free movement —
@@ -365,17 +439,24 @@ void player_move(void)
      * runs its planted pose + steer + camera side: the held aim pose
      * through its own anim mailbox.
      *
-     * FLAGGED DIVERGENCE (audit 2026-07-31) — STANCE PRIORITY IS
-     * INVERTED HERE. The port gives R1 priority (the `want` gate below
-     * refuses while em_weapon_is_aiming()). The recovered dispatcher
-     * src/func_001607D0.c (NEARMISS — logic authoritative) gives R2
-     * priority, in three places: from stance 0 it tests the R2 config
-     * mask (spad 0x70003B7E) BEFORE the R1 mask (0x70003B7C); stance
-     * 0x31 (R1) switches straight to 0x1E/0x32 the moment R2 is held;
-     * and stance 0x32 (R2) only falls back to 0x1D/0x31 once R2 is
-     * RELEASED and R1 is still held. Correcting this means suppressing
-     * R1's aim while R2 is held, which lives in em_weapon.c — out of
-     * this file's scope. Recorded, not fixed. */
+     * STANCE PRIORITY — CONFIRMED, and the port now matches (audit
+     * 2026-07-31; an earlier pass left a stale "recorded, not fixed"
+     * note here after the fix had already landed). Re-read in the
+     * recovered src/func_001607D0.c (NEARMISS — logic authoritative):
+     * R2 OUTRANKS R1 in three places.
+     *   - case 0x00 and cases 0x01..0x07 both test the R2 config mask
+     *     `D_00810E70 & *(u16 *)0x70003B7E` BEFORE the R1 mask
+     *     `... & *(u16 *)0x70003B7C`, and the R2 arm returns.
+     *   - case 0x31 (the R1 stance): `if (D_00810E70 & *(u16*)0x70003B7E)
+     *     { self[5] = 0x1E; self[0x1F0] = 0x32; self[0x318] = 1; }` —
+     *     it switches the frame R2 goes down.
+     *   - case 0x32 (the R2 stance) only falls back with
+     *     `if (!(D_00810E70 & 0x70003B7E)) { if (D_00810E70 &
+     *     0x70003B7C) { self[5] = 0x1D; self[0x1F0] = 0x31; } }` — R2
+     *     must be RELEASED first.
+     * The `want` gate below therefore does NOT defer to R1; the matching
+     * R1 suppression lives in em_weapon.c (`draw_held` requires
+     * `(held & EM_PAD_R2) == 0`), which is that file's business. */
     {
         const EmFrameInput *rin = em_frame_input();
         /* AUDIT CORRECTION (round 3 follow-up): R2 OUTRANKS R1. The
@@ -403,7 +484,40 @@ void player_move(void)
      * port's d-pad merge — arrows fold into the same axes, full
      * deflection) steers the aim BLENDS: pitch INVERTED-Y, yaw panning
      * the +-60 deg pose ladder first and turning the body only past
-     * the blend limit. */
+     * the blend limit.
+     *
+     * CONFIRMED (audit 2026-07-31) against src/func_0017ABA0.c (NEARMISS
+     * — logic authoritative) and its two helpers. Everything the block
+     * below implements reads out of that file literally: the two rate
+     * rows and their f20 body multipliers, the `pitch == 0.5f -> 1.0f`
+     * special case with `sin(pi * (0.5 +- 0.6*|pitch-0.5|))` either side
+     * (func_0011E2A8 = sinf; both arms collapse to the single
+     * `0.5 + 0.6*(pitch-0.5)` the port uses), the `step / 2.0f` on the
+     * pitch axis, the `pitch <= 0.3f || !(pitch < 0.7f)` 1.5x band that
+     * only applies in the 0x31/0x34 arm, the +0x27C overflow paying the
+     * excess into the body heading via func_001B1470 (wrap), and the
+     * manual-steer flag +0x302 = 1 that drops the target lock (the port
+     * spells that as "run the lock steer only when both bands are 0").
+     * The deflection bands are src/func_001B5DC0.c verbatim:
+     * `abs(raw-0x80) < 0x31 -> 0, < 0x59 -> 1, < 0x7B -> 2, else 3`
+     * = the AIM_BAND_1/2/3 49/89/123 the port uses.
+     * The pitch clamp is `lim = ((u32)(st2 - 0x31) < 2U) ? 1.0f : 0.75f`,
+     * i.e. 1.0 for stances 0x31/0x32 and 0.75 for 0x34/0x35; the port
+     * models only 0x31/0x32, so the constant AIM_PITCH_MAX_R1 (1.0f) is
+     * correct for every stance it can be in.
+     * NOT MODELLED (flag): the engine also scales the step when the actor
+     * byte +0x275 == 4 — `step *= 1.5f` on yaw, `step *= 1.8f` on pitch.
+     * The port has no +0x275 state to key that on, so it is omitted, not
+     * decided against.
+     * NOTE on sign convention: the engine's +0x27C RISES toward 1.0 on
+     * stick-right; the port's g.aim_yawb FALLS toward 0.0 (0.0 = the
+     * screen-right column, see aim_ladder_eval / aim_dir_get). The two
+     * are mirror-image encodings of the same blend, and both turn the
+     * body the SAME way (heading decreasing) once the blend saturates,
+     * so the resulting aim is identical. Left as-is deliberately: the
+     * port's 0 = right convention is threaded through the pose ladder
+     * and aim_dir_get, and the engine's own ladder mapping lives in
+     * anim_slot_index/D_00248B70, which is not recovered. */
     {
         int aim_now = em_weapon_is_aiming() || g.r2_aim;
         if (aim_now && !g.aim_was) {
@@ -537,7 +651,13 @@ void player_move(void)
 
     /* ANALOG GAIT — the engine's stick quantizer func_001B5CC0 on the
      * RAW 0x80-centered bytes: r = sqrt((x-128)^2 + (y-128)^2) through
-     * rings 48/88/122 -> gait byte (pad +0x17 -> player +0x23F). */
+     * rings 48/88/122 -> gait byte (pad +0x17 -> player +0x23F).
+     * CONFIRMED (audit 2026-07-31): src/func_001B5CC0.c is hand-written
+     * asm but fully legible — it forms (a0&0xFF)-0x80 and (a1&0xFF)-0x80,
+     * squares and sums them via mult/mult1, takes func_0011E748 (sqrt),
+     * then runs three `c.le.s` tests against the literals 0x42400000,
+     * 0x42B00000 and 0x42F40000 = 48.0f / 88.0f / 122.0f, returning
+     * 0/1/2/3. `<=` inclusive, exactly as the port writes it. */
     const EmFrameInput *in = em_frame_input();
     float rdx = (float)in->lx - 128.0f;
     float rdy = (float)in->ly - 128.0f;
@@ -565,19 +685,33 @@ void player_move(void)
          * at 0.03125 u/tick/frame, CASCADING tier-by-tier to each demote
          * floor (run -> jog -> walk -> stop), carrying ~9 u. */
         if (g.loco_upt > 0.0f && g.loco_tier >= 3) {
-            /* RUN-DOWN (func_0017BC40 phase 2, C2): the carried run speed
-             * bleeds 0.03125 u/tick per frame and CASCADES through every
-             * tier, demoting loco_tier at each tier's lower-speed FLOOR,
-             * not stopping at the first boundary. (The engine x2's the
-             * decay to 0.0625 when carrying gear via actor +0x314 & 0x1F;
-             * the port has NO gear-carry state, so the x2 is OMITTED —
-             * flag.) Velocity is emitted along the held body heading
-             * g.yaw (no stick = no desired heading, so g.yaw just holds). */
+            /* RUN-DOWN (func_0017BC40 case 2 — BYTE-MATCHED, authoritative).
+             * The carried run speed bleeds 0.03125 u/tick per frame until it
+             * reaches THIS tier's lower bound D_0024886C[i] (= kTier[i-1],
+             * FINDINGS: "D_0024886C (= row -1)"), and there it STOPS DEAD.
+             * Transcribed:
+             *     x = +0x38 - step;  hi = D_0024886C[i];
+             *     if (x <= hi) { +0x38 = hi;
+             *         if (+0x23F != 0) { mode = 1; i--; ... }
+             *         else { +0x38 = 0.0f; mode = 3; +0x1F1 = 0; } }
+             * +0x23F is the gait byte, which is 0 for the whole of a stick
+             * release, so the `else` arm is the one that runs: speed is
+             * zeroed and the actor drops to mode 3 (idle).
+             *
+             * CORRECTED (audit 2026-07-31): the port used to CASCADE — it
+             * kept subtracting 0.03125 past 0.3 through the jog and walk
+             * floors all the way to 0, coasting ~10.4 u over 26 frames with
+             * a long creeping tail. The engine covers ~8.8 u over the 16
+             * frames from 0.8 down to 0.3 and then cuts to zero. Both the
+             * distance and the shape of the stop were wrong.
+             *
+             * (The engine x2's the decay to 0.0625 when carrying gear via
+             * actor +0x314 & 0x1F; the port has NO gear-carry state, so the
+             * x2 is OMITTED — flag.) Velocity is emitted along the held body
+             * heading g.yaw (no stick = no desired heading, so g.yaw holds). */
+            float rundown_floor = kTier[g.loco_tier - 1];  /* D_0024886C[i] */
             g.loco_upt -= GAIT_RUNDOWN;   /* no gear-carry x2 in the port */
-            /* Cascade the tier down past each floor we drop below. */
-            while (g.loco_tier > 0 && g.loco_upt <= kTier[g.loco_tier - 1])
-                g.loco_tier--;
-            if (g.loco_upt <= 0.0f) {     /* bled to a full stop */
+            if (g.loco_upt <= rundown_floor) {  /* hit the floor -> STOP */
                 g.loco_tier = 0;
                 g.loco_upt  = 0.0f;
             } else {
@@ -607,29 +741,13 @@ void player_move(void)
              * a tiny epsilon, within the ring) and the player is idle (this
              * is the not-run-down path). */
             if (r > 1e-4f) {
-                /* Camera-relative DESIRED heading — the BYTE-FAITHFUL engine
-                 * closed form (INVESTIGATION_movement_exact.md "FORWARD-
-                 * DIRECTION RESOLUTION (definitive, static)", 2026-06-17):
-                 *   D_008106A0 = atan2(-fwd.z, fwd.x)  [func_0018C0D0]
-                 *   stickAngle = atan2(sx, -sy)        [func_00174AC0 +0x24C]
-                 *   desired    = wrap( stickAngle + pi + D_008106A0 )
-                 * and the identity atan2(x,z) == atan2(-z,x) + pi/2 (dev 1e-15)
-                 * collapses pi + D_008106A0 to player_move_cam_yaw() + pi/2,
-                 * giving the disasm-exact closed form below. Cardinals (with
-                 * cam_yaw = atan2(fwd.x,fwd.z) = player_move_cam_yaw()):
-                 *   FWD  (sx=0,  sy=-1): atan2(0,1)=0      -> cam_yaw + pi/2
-                 *   RIGHT(sx=1,  sy=0) : atan2(1,0)=+pi/2  -> cam_yaw + pi
-                 *   BACK (sx=0,  sy=+1): atan2(0,-1)=pi    -> cam_yaw - pi/2
-                 *   LEFT (sx=-1, sy=0) : atan2(-1,0)=-pi/2 -> cam_yaw
-                 * The prior "door-regression" form (cam_yaw + atan2(-sx,-sy))
-                 * was X-mirrored AND missing the +pi/2 — 90 deg off on the
-                 * axes, 180 deg off on the FWD-RIGHT diagonal. RESTORED. */
-                float sx = rdx / r, sy = rdy / r;
-                float desired = atan2f(sx, -sy) + player_move_cam_yaw()
-                              + (float)EM_PI * 0.5f;
-                while (desired >  EM_PI) desired -= 2.0f * EM_PI;
-                while (desired < -EM_PI) desired += 2.0f * EM_PI;
-                player_turn_toward(desired, TURN_IP_GAIT03);
+                /* Same camera-relative DESIRED heading as the moving path —
+                 * player_stick_desired_yaw(), derived out of the recovered
+                 * src/func_00174AC0.c. (This site used to carry its own copy
+                 * of the MIRRORED closed form; both sites are now one
+                 * helper so they cannot drift apart again.) */
+                player_turn_toward(player_stick_desired_yaw(in),
+                                   TURN_IP_GAIT03);
             }
         }
         player_wall_probes();         /* the idle top probes too */
@@ -646,25 +764,11 @@ void player_move(void)
      * heading (func_001B12B0's target); the BODY heading g.yaw is eased
      * toward it below and the velocity is emitted ALONG g.yaw — KEEP
      * this camera-relative derivation, change only what we move along. */
-    /* Camera-relative DESIRED heading (func_001B12B0's target) — the
-     * BYTE-FAITHFUL engine closed form (INVESTIGATION_movement_exact.md
-     * "FORWARD-DIRECTION RESOLUTION (definitive, static)", 2026-06-17;
-     * same derivation as the turn-in-place site above):
-     *   desired = atan2(sx, -sy) + player_move_cam_yaw() + pi/2   (wrapped)
-     * = wrap( stickAngle + pi + D_008106A0 ) with D_008106A0 =
-     * atan2(-fwd.z, fwd.x) = player_move_cam_yaw() - pi/2. So forward-press
-     * (sx=0,sy=-1) heads cam_yaw + pi/2 (90 deg off the camera-forward
-     * azimuth — a UNIVERSAL engine offset, disasm-proven over 3e5 random
-     * orientations, max dev 1e-15); RIGHT -> cam_yaw + pi; BACK ->
-     * cam_yaw - pi/2; LEFT -> cam_yaw. The prior X-mirrored, +pi/2-missing
-     * "door-regression" form is REPLACED — it was 90 deg off on the axes,
-     * 180 deg off on the FWD-RIGHT diagonal. Velocity is still emitted
-     * along the eased body heading g.yaw (func_00178B90, unchanged). */
-    float sx = rdx / r, sy = rdy / r;
-    float desired = atan2f(sx, -sy) + player_move_cam_yaw()
-                  + (float)EM_PI * 0.5f;
-    while (desired >  EM_PI) desired -= 2.0f * EM_PI;
-    while (desired < -EM_PI) desired += 2.0f * EM_PI;
+    /* Camera-relative DESIRED heading (func_001B12B0's target) — see
+     * player_stick_desired_yaw() for the derivation out of the recovered
+     * src/func_00174AC0.c. Velocity is still emitted along the eased body
+     * heading g.yaw (func_00178B90, unchanged). */
+    float desired = player_stick_desired_yaw(in);
 
     /* STANDING-ENTRY TURN-IN-PLACE GATE + TIER-0 RAMP ENTRY
      * (FIX 2 + FIX 3, INVESTIGATION_movement_exact.md "DEEP A/B v2", live

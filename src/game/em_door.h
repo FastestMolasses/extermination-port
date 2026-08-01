@@ -209,7 +209,16 @@
  *          record's +0x14 byte to player+0x0E and, when its own arg is
  *          nonzero, a +0x0E of 1 writes player state/sub/phase =
  *          5 / 1 / 0. The whole phase machine below is read out of the
- *          byte-matched func_00183250.
+ *          byte-matched func_00183250 (re-derived instruction by
+ *          instruction this audit — that file is an `asm`/.word body, so
+ *          there is no readable C to skim; every constant below was
+ *          taken out of its literal stream and every branch target
+ *          recomputed). The state-5 sub-1 -> func_00183250 link is
+ *          likewise re-read in the byte-matched func_0015B610, whose
+ *          sub-byte ladder is `lbu a0,0x5(s0)` then beql against
+ *          4/3/2/1/0 dispatching func_001834E0 / func_00183440 /
+ *          func_001833F0 / func_00183250 / func_00183240 — sub 1 is
+ *          func_00183250.
  *        NOT CONFIRMED — that the door re-place passes 1. That caller is
  *          the in-game frame machine func_001AE040, still undecompiled;
  *          the one recovered call site (src/anim_frame_top_a.c, the
@@ -228,9 +237,15 @@
  *        phase 2 (timer 0x1E): mover runs at 0.3 u/tick along the spawn
  *                 yaw
  *        phase 3 (timer 0x1E): mover runs, THEN the ramp decays
- *                 0.0113636/frame (0x3C3A2E8C) to 0 (~26 frames), and
- *                 the base idle is requested (blend 12.0) — the player
- *                 decelerates to a stop ~12.8 u out from the spawn
+ *                 0.011362791/frame (0x3C3A2E8C exactly — CORRECTED
+ *                 2026-07-31, the old 0.0113636 was a hand-rounded
+ *                 1/88) to 0 on the 27th decrement, and the base idle
+ *                 is requested (blend 12.0) on EVERY frame from the
+ *                 crossing onward, not once — the player decelerates to
+ *                 a stop ~13.1 u out from the spawn (9.0 u in phase 2
+ *                 plus ~4.1 u here; the "~12.8" this line used to state
+ *                 was already corrected in em_door.c's constant block
+ *                 and is fixed here to match)
  *        exit: player state 1/0, phase 0, action +0x1F0 = 0, spad 3B8D
  *                 cleared.
  *      The walk-out is UNINTERRUPTIBLE: state 5 never reads the stick.
@@ -279,9 +294,15 @@
  *     - scripted mode is active (spad 0x70003B8D != 0),
  *     - [then D_00810E74 & 0x100 or D_00810E50 != 4 -> 1],
  *     - D_008106B3 != 0 (added 2026-07-31 — the old list omitted it).
- *   On ARRIVAL func_001AFCF0 CLEARS spad 3B8D (and memsets the whole
- *   0x48-byte D_008106B0 block, which is where B8/B9 live) while the
- *   screen is still black, so the only menu gate left is the fade-in:
+ *   func_001AFCF0 CLEARS spad 3B8D (and memsets the whole 0x48-byte
+ *   D_008106B0 block, which is where B8/B9 live). Its BODY is
+ *   byte-matched and settles both of those writes. DOWNGRADED
+ *   2026-07-31 (audit): "On ARRIVAL" is NOT settled — the only
+ *   recovered call site is src/anim_frame_top_a.c's state-4 sub-0
+ *   ENTER-PLAY fanout (alongside func_001B07C0(0), func_001AEE10(4,0)
+ *   and the rest of the mode-enter chain), not a door arrival. Nothing
+ *   recovered shows it running at the door re-place. The port assumes
+ *   it does, so the only menu gate left is the fade-in:
  *   Triangle/Start works again the moment the fade-in completes
  *   (~frame 64 of the 113-frame walk-out — "about halfway through",
  *   while movement is still locked). Natively:
@@ -451,8 +472,17 @@
  *                 0->0x80000006 1->0x80000000 2->0x80000002
  *                 3->0x80000008 4->0x8000000A 5->0x80000004 into
  *                 D_002821B8, clears D_002821BC and latches st[4] = 1;
- *                 kind >= 6 returns 1 having issued NOTHING. Then it
- *                 polls, returning 1 once D_002821B4 reaches 2.
+ *                 kind >= 6 returns 1 WITHOUT writing the selector,
+ *                 WITHOUT clearing D_002821BC and WITHOUT latching
+ *                 st[4] — but the kind/status words D_002821B0 = 2 and
+ *                 D_002821B4 = 1 are stored ABOVE the switch and have
+ *                 already landed, so the block is left armed-but-
+ *                 unaddressed (CORRECTED 2026-07-31, audit: this line
+ *                 used to say "returns 1 having issued NOTHING", which
+ *                 the byte-matched src/func_001BBAE0.c contradicts, and
+ *                 which already disagreed with em_door.c's own
+ *                 DOOR_RADIO_LINE block). Then it polls, returning 1
+ *                 once D_002821B4 reaches 2.
  *                 So "link bits 0-5 select a message" is supported (as
  *                 a 6-entry map, which mwcc lowered to jtbl_0026E1A0).
  *                 "TEXT-ONLY", "global message line" and "every shipped
