@@ -2338,6 +2338,34 @@ static void camera_door_cinematic(EmCamera *cam)
  * the PREVIOUS frame's matrices, while the native chain is flushed at
  * close-out with this frame's — one frame less camera latency, same
  * 60 Hz math. */
+/* SCOPE / AIM FOV ZOOM — the curve is DECODED, the driver is not.
+ *
+ * func_001D2610(t) (byte-matched) is the engine's zoom driver. Its whole
+ * projection effect is one call:
+ *     func_001D2590(224.0f, radians(5.0f + 45.0f * (1.0f - t)))
+ * and func_001D2590 stores arg0 / tan(arg1 / 2) — verified in the asm: $f20
+ * holds arg0 untouched across the tan call, only arg1 is halved. So
+ *     zoom(t) = 224 / tan(radians(5 + 45*(1 - t)) / 2)
+ * a 50-degree vertical FOV at t = 0 narrowing to 5 degrees at t = 1.
+ *
+ * Self-check that pins it: zoom(0) = 224 / tan(25 deg) = 480.4, which IS the
+ * port's ENGINE_CAM_ZOOM_S default of 480 and the render-context +0x2468
+ * value. The unzoomed end of this curve and the engine's resting zoom are the
+ * same number, arrived at independently.
+ *
+ * BOUNDARY: the engine feeds t from the global D_00810248, and NO function in
+ * the recovered corpus writes that global — its driver is still in assembly.
+ * The ramp below (aim phase -> t) is therefore PORT-SIDE. The curve is the
+ * engine's; the schedule along it is ours, until that writer is decoded. */
+float em_camera_scope_zoom(float t)
+{
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    const float deg = 5.0f + 45.0f * (1.0f - t);
+    const float rad = 0.017453292f * deg;
+    return ENGINE_CAM_ZOOM_SCOPE / tanf(rad * 0.5f);
+}
+
 void camera_update(void)
 {
     EmCamera *cam = &g.cam;
