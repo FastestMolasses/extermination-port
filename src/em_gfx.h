@@ -164,13 +164,20 @@ void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
  * has no alpha (dst alpha is left untouched). The native translation of
  * the engine's SCREEN-FADE sprite blend (GS ALPHA_2 = 0xA1 / FIX 0x80:
  * Cv = (Cd - Cs)*128>>7 = Cd - Cs, saturating at 0 — decomp FINDINGS
- * "SCREEN-FADE BLEND"; CONFIRMED (audit) directly in the recovered C:
- * func_001AE900 initialises each fade display-list block with the
- * 64-bit literal `0xA1 | (0x80 << 32)` at +0x20, and func_001AEE70
- * packs the same 0xA1 there per frame. 0xA1 = A:Cd B:Cs C:FIX D:0,
- * i.e. Cv = (Cd - Cs)*FIX>>7, and FIX 0x80 makes the factor exactly 1;
- * the rect's own grey goes into the block's +0x30/+0x34/+0x38 RGB
- * words as the 0..255 fade level): a GREY rect with
+ * "SCREEN-FADE BLEND"; CONFIRMED (audit, re-checked a second time
+ * 2026-07-31) directly in the recovered C: func_001AE900 (BYTE-MATCHED)
+ * initialises each fade display-list block with the 64-bit literal
+ * `*((long long *)(hdr + 0x20)) = 0xA1 | (0x80LL << 0x20)`, and
+ * func_001AEE70 (NEARMISS) packs the same value there per frame,
+ * selecting it with `*(signed char *)(p + 0xC2) == 0` — and +0xC2 is
+ * written straight from the second argument of func_001AEE10
+ * (BYTE-MATCHED: `D_0028A9A2[0] = a1`), which is what makes the colour
+ * argument the subtract/add selector. 0xA1 = A:Cd B:Cs C:FIX D:0,
+ * i.e. Cv = (Cd - Cs)*FIX>>7, and FIX 0x80 makes the factor exactly 1.
+ * The GREY is engine truth too: func_001AEE70 stores the SAME short
+ * (p+0xC4, the fade level) into all three of the block's
+ * +0x30/+0x34/+0x38 RGB words, so r=g=b by construction): a GREY rect
+ * with
  * r=g=b=level SUBTRACTS the level from the frame, so shadows crush to
  * black early and highlights survive longest ("exposure pulled down"),
  * NOT a black cover dissolving in. (x, y, w, h) in virtual-canvas
@@ -422,23 +429,53 @@ void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
 
 /* The native translation of the engine's per-actor lighting model
  * (decomp FINDINGS "PER-ROOM LIGHT RIGS DECODED", 2026-06-11).
- * DOWNGRADED (audit, 2026-07): the model below is read out of VU1
- * MICROCODE at 0x23C780 plus the data table D_00251C50. Neither is in
- * the decompilation's recovered C — VU microcode is a separate ISA the
- * decomp does not target, and there is no Extermination/src/func_*.c
- * for the kernel. func_001D89D0 (the rig builder) IS an EE function,
- * but it was not re-checked in this audit. So treat the equations as
- * MICROCODE-OBSERVED, not source-derived: the
- * skinning kernel (VU1 0x23C780) lights every CHARACTER vertex as
+ *
+ * PROVENANCE, SPLIT (audit-2, 2026-07-31 — the previous audit deferred
+ * this and mis-attributed the EE side):
+ *   SOURCE-DERIVED. The EE half IS recovered, and it is NOT
+ *   func_001D89D0. Correcting that attribution:
+ *     - func_001D7B30 (BYTE-MATCHED) is the ROOM-RIG LOOKUP: a linear
+ *       search of D_00251C50 for the first of up to 0x2D entries of
+ *       stride 0x78 whose first word equals the area key
+ *       ((D_00810700 << 8) + D_00810701, or 0xF00 when func_001D2910(8)
+ *       is nonzero); NO MATCH FALLS BACK TO THE TABLE BASE rather than
+ *       failing — so every area always gets a rig.
+ *     - func_001D8130 (BYTE-MATCHED) loads it: 22 floats from that
+ *       entry into the active record D_00275688 = &D_00817BC0, zeroing
+ *       +0xB0 and writing 128.0f at +0x12C (the modulate identity the
+ *       0..128 scale below refers to).
+ *     - func_001D8340 (BYTE-MATCHED) composes the rig: THREE slots of
+ *       stride 0x10; slot 0 with the live flag set folds the inverted
+ *       D_00810610 matrix into its quat (the CAMERA fill), slots 1-2
+ *       take the rig eulers; then it scans the 32-entry, 0x80-stride
+ *       dynamic pool at D_00275670 and, per entry with weight
+ *       (+0x24C) > 0, accumulates a direction and a colour from that
+ *       light's position (+0x10) and colour (+0x20).
+ *     - func_001D7FA0 (BYTE-MATCHED) registers those dynamic point
+ *       lights and caps the pool at 32 verbatim: `if (idx >= 0x20)
+ *       return -1;`. So "3 light slots" and "<=32 dynamic point
+ *       lights" are engine truth, not observation.
+ *     - func_001D89D0 (NEARMISS) is the per-MODE DISPATCHER that drives
+ *       all of the above (modes 1/3/4/5/6 tail into func_001D8C30;
+ *       the default mode runs the load/compose chain). Calling it "the
+ *       rig builder" was wrong: it never touches D_00251C50 or the
+ *       light pool itself.
+ *   NOT SOURCE-DERIVED. The EQUATIONS below still are not: they are
+ *   read out of VU1 MICROCODE at 0x23C780, a separate ISA the decomp
+ *   does not target, and there is no Extermination/src/func_*.c for the
+ *   kernel. Treat them as MICROCODE-OBSERVED: the
+ *   skinning kernel (VU1 0x23C780) lights every CHARACTER vertex as
  *
  *   I_i  = max(dot(dir_i, N), 0)            (3 light slots)
  *   rgb  = min(amb + sum I_i * col_i, 255)  (col/amb on the 0..128
  *   shade = tex * rgb / 128                  GS-modulate scale)
  *
  * from the 4-qw color matrix at VU1 dmem 0x3F5 + the direction rows
- * folded into each node's normal matrix (func_001D89D0 builder: room
- * rig D_00251C50 + the camera fill in slot 0 + the dynamic point-light
- * fold). The CALLER composes the rig per draw (em_game's LIGHTING
+ * folded into each node's normal matrix (fed by the EE chain named
+ * above: func_001D7B30 room-rig lookup -> func_001D8130 load ->
+ * func_001D8340 camera fill in slot 0 + dynamic point-light fold).
+ * The "3 light slots" here is func_001D8340's own slot count.
+ * The CALLER composes the rig per draw (em_game's LIGHTING
  * hunks own the room-rig lookup, the camera-fill rotation and the
  * lamp fold — the engine does all three on the EE/VU0 too); this
  * struct is the composed, world-space result.

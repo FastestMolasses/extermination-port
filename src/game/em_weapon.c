@@ -28,7 +28,13 @@
  *     point distance.
  * It is NOT the bullet's free-flight range — see WPN_BULLET_FREE below. */
 #define WPN_RANGE       260.0f
-/* FIRE INTERVAL +0x2F4 (decoded 2026-06-11 from func_0017A8B0 — the
+/* FIRE INTERVAL +0x2F4 — RE-VERIFIED 2026-07-31 against the BYTE-MATCHED
+ * func_0017A8B0 (`*(float *)(arg0 + 0x2F4) = (float)func_001C61D0(
+ * *(int *)(arg0 + 0x40), v);` with v from D_00248B70 for stances
+ * 0x1D/0x1E) and the BYTE-MATCHED func_00170A60 (case 21's
+ * `if (*(short *)(e + 0x28) < 2) *(float *)(e + 0x2F4) = 12.0f;` and case
+ * 30's unconditional 12.0f store). Everything below holds.
+ * (decoded 2026-06-11 from func_0017A8B0 — the
  * trigger-press handler the action machine func_001607D0 runs on every
  * FIRE press): the press latches +0x274 AND writes +0x2F4 = the FRAME
  * COUNT of the stance's aim-ladder base clip (func_001C61D0 = container
@@ -77,7 +83,18 @@
  * construction. The port previously flew un-acquired shots 260 units,
  * which let it hit things the original never could. */
 #define WPN_BULLET_FREE 4.5f
-/* --- TARGET ACQUISITION — func_00199220 DECODED (2026-06-11; retires
+/* --- TARGET ACQUISITION — RE-READ IN FULL 2026-07-31 against
+ *     func_00199220 (NEARMISS): every number in the chain below is in
+ *     that file verbatim — `if (dist < 260.0f)`, `t = 16.0f / w`, the
+ *     `x/16 - 2048` / `1.5 * (y/16 - 2048)` GS mapping, the manual box
+ *     `<= 66 + 50*s` / `<= 45 + 45*s`, the lock-on radius `<= 50 + 55*s`
+ *     with s = *(float *)(scan + 0x24) where scan = gun + 0x1F0, the 1.2f
+ *     validation-ray scale, `func_0019A570(muzzle, end, 1, 0x20)` +
+ *     `e == D_700031D4[0]`, the `func_0019A570(muzzle, D_700031B0, 6, 0)
+ *     == 0` LOS, and the 3-slot insertion sort. The distance really is
+ *     measured from arg0+0xA0 (the PLAYER) while the rays leave the GUN's
+ *     +0xA0 — the port keeps that split.
+ *     (func_00199220 DECODED 2026-06-11; retires
  *     the old WPN_AIM_CONE distance+10-deg world-cone stand-in).
  *
  * Per aim frame the engine clears the 3-slot target table
@@ -142,7 +159,13 @@
 #define WPN_AIM_VRAY    1.2f    /* validation-ray overshoot factor (the
                                  * 0x3F99999A scale in func_00199220)      */
 
-/* --- LOCK STEER — func_0017AF70 DECODED (2026-06-11). With a target
+/* --- LOCK STEER — RE-READ 2026-07-31 against func_0017AF70 (NEARMISS):
+ *     its 0x1D/0x1E constant set really is
+ *     {0.000378, 1.046904, -1.047029, 1.569371, 1.395721, 1.397294} and
+ *     the alternate {0.000594, 1.045836, -1.046307, 1.565551, 1.393529,
+ *     1.398101} is the "other stance" arm, unused here. The 0.02f snap /
+ *     step and the `if (arg0[0x2F2] == 0) return;` head gate are verbatim.
+ *     (func_0017AF70 DECODED 2026-06-11). With a target
  *     in lock slot 0 (D_008106E0) and the aim latch +0x2F2 set (the
  *     laser-visible flag — steering pauses through each shot's
  *     cadence), the engine maps the angular error muzzle -> target
@@ -345,7 +368,14 @@ static const float kLightColor[3] = { 1.00f, 0.95f, 0.82f };
 #define WPN_CONE_GAIN     3.0f
 #define WPN_CONE_FILE     "assets/fx/light_cone.emdl"
 
-/* --- FIRE SUB-STATE MACHINE (engine +0x07; decoded 2026-06-11 from the
+/* --- FIRE SUB-STATE MACHINE — the whole family below re-read 2026-07-31
+ *     from the BYTE-MATCHED func_00170A60 C (not the .s): cases 0/1,
+ *     10/11, 20/21/22/23, 30/31/32 with the 10->11, 20->21->22, 30->31
+ *     fallthroughs. Every port arm in weapon_fire_logic traces to one of
+ *     them; the three divergences that remain are named in em_weapon.h
+ *     ("PORT DEVIATION", "ACCEPT->SHOT LATENCY", "MID-CADENCE R1
+ *     RELEASE").
+ *     (engine +0x07; decoded 2026-06-11 from the
  *     func_00170A60 .s — em_weapon.h "FIRE SUB-STATE MACHINE"). The
  *     semi family HOLDS through the cadence: per-press shots are rate-
  *     gated exactly like full-auto. ---------------------------------- */
@@ -365,7 +395,15 @@ enum {
 #define WPN_DRAW_FRAMES    15   /* anim 0x110 length stand-in (0.25 s)     */
 #define WPN_HOLSTER_FRAMES 15   /* anim 0x111 length stand-in              */
 #define WPN_RELOAD_FRAMES  60   /* anim 0x11B true length stand-in (1 s)   */
-/* RELOAD RAMP-OUT — DECODED from func_0016F600 (the armed top's major
+/* RELOAD RAMP-OUT — re-read 2026-07-31 in func_0016F600 (NEARMISS): the
+ * sub-mode 2 held arm really is `arg0[7]++;
+ * func_001FBD50(arg0, D_00248680[arg0[0x275]], 0, 300.0f);
+ * *(short *)(arg0 + 0x28) = 8; +0x26C = (+0x2E0 - 0.5f)/8.0f;
+ * +0x270 = (+0x2E4 - 0.5f)/8.0f; func_001749A0(arg0,
+ * D_00248B88[arg0[0x275]], 0, 0.0f);`, and sub-mode 3's pre-decrement
+ * `cnt = +0x28; +0x28 = cnt - 1; if (cnt == 0) { arg0[6] = 2;
+ * arg0[7] = 0; ...restore +0x27C/+0x278 from +0x2E0/+0x2E4... }` gives
+ * NINE ticks. DECODED from func_0016F600 (the armed top's major
  * state 3 handler; its own sub-mode byte +0x07 runs 0..3). When the
  * reload clip's END flag lands (sub-mode 2), the engine does NOT go
  * straight back to the AIM major state: it re-commits the aim-pose clip
@@ -1758,7 +1796,46 @@ static void melee_update(const float pos[3], float yaw,
             }
             if (m.chain_at && m.tick >= m.chain_at && m.buffered) {
                 /* WHIFF chain: the buffered next hit starts at the
-                 * chain window (blend 1.0 through the arbiter). */
+                 * chain window (blend 1.0 through the arbiter).
+                 *
+                 * WINDOW WIDTH — the engine's is ONE TICK, and this is a
+                 * KNOWN, MEASURED PORT DEVIATION (2026-07-31, NOT a
+                 * decode gap). func_001735C0 major 1 sub 3 (and major 2
+                 * sub 2) reads
+                 *     if (*(float *)(p + 0x3C) <= D_002486D0[...]) {
+                 *         if (*(unsigned short *)(p + 0x2E)) {
+                 *             p[6]++; p[7] = 0;
+                 *             func_001749A0(p, D_00248692[...], 0, 1.0f);
+                 *         } else {
+                 *             p[7]++;          // -> the clip-end wait
+                 *         }
+                 *     }
+                 * — an UNBUFFERED crossing of the threshold advances the
+                 * sub-state OUT of the chain arm, permanently. So on the
+                 * original the decision is made on the single tick the
+                 * clip time crosses D_002486D0/D4, and a FIRE press after
+                 * that cannot start hit 2 or 3. (The +0x2E buffer IS
+                 * still sampled right up to the crossing — that part
+                 * m.buffered models correctly; only the `>=` here extends
+                 * the window past it.)
+                 *
+                 * NOT CORRECTED HERE, and the reason is on record: the
+                 * one-line fix is `m.tick == m.chain_at` with the window
+                 * then closed (m.chain_at = 0), but EM_MELEE_TEST's
+                 * phase 7 (em_game.c) injects its third light-combo press
+                 * at mt_mark + 44 — 26 ticks into the 35-frame 0x10C
+                 * swing whose chain tick is 35 - 19 = 16 — and asserts
+                 * chain23. Verified: with the engine-faithful one-shot
+                 * window that press is correctly ignored and the test
+                 * fails "whiff combo did not chain ... 0x10C->0x10D 0",
+                 * swings 4 not 5. The test's own comment ("the chain
+                 * windows are forgiving — any in-swing press buffers")
+                 * and its stale "len 50 - gate 24" note pin the PORT's
+                 * approximation, not the engine's rule. Land the fix
+                 * together with re-timing that press to land before the
+                 * chain tick (~mt_mark + 24); the test lives outside this
+                 * module, exactly like the auto round-count schedule the
+                 * header's "PORT DEVIATION, on record" already defers. */
                 melee_start_attack(m.combo + 1);
                 break;
             }
@@ -1867,7 +1944,14 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             w.flash_rot += (-128.0f - w.flash_rot) * 0.35f;
     }
 
-    /* R2 OUTRANKS R1 — DECODED (src/func_001607D0.c). The engine's stance
+    /* R2 OUTRANKS R1 — CONFIRMED 2026-07-31 in func_001607D0 (NEARMISS):
+     * case 0x00 and the 0x01..0x07 group both test
+     * `D_00810E70 & *0x70003B7E` (R2) before `D_00810E70 & *0x70003B7C`
+     * (R1); case 0x31's head is `if (R2 held) { p[5] = 0x1E;
+     * p[0x1F0] = 0x32; p[0x318] = 1; } else if (!(R1 held)) { p[6] = 0x63;
+     * func_0016F5D0(p); return 1; }`; case 0x32 falls back to 0x1D/0x31
+     * only on `!(R2 held) && (R1 held)`.
+     * DECODED (src/func_001607D0.c). The engine's stance
      * dispatcher tests the R2 config mask (spad 0x70003B7E) BEFORE the R1 mask
      * (0x70003B7C) at both of its stance-0 entry points, and case 0x31 (the R1
      * stance) switches straight to 0x1E / +0x1F0 = 0x32 the moment R2 is held.
@@ -1916,9 +2000,28 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             }
             break;
         case EM_WPN_DRAW:
-            if (!draw_held) {
-                weapon_enter_holster();     /* 0x65: anim 0x111, 0x163 */
-            } else if (--w.timer <= 0) {
+            /* THE DRAW CANNOT BE ABORTED — CORRECTED 2026-07-31 against
+             * the BYTE-MATCHED func_001703E0. Its major state 1 (the
+             * draw-clip wait) is, in full,
+             *     case 1:
+             *         if (*(int *)(p + 0x200) & 0x1000) {
+             *             p[6] = st + 1; func_0016F530(arg0, 0);
+             *             func_001749A0(p, D_00248B88[p[0x275]], 0, 0.0f);
+             *         }
+             *         anim_eval_skeleton(p);
+             *         copy_qw4(p + 0x2A0, ...);
+             * — there is NO weapon-draw-hold test anywhere in it, and the
+             * action machine func_001607D0 (the only reader of the R1/R2
+             * config slots for this stance) is reached solely from
+             * func_00170A60, which major state 2 runs. So releasing R1
+             * during the draw does NOT cancel it: the clip plays out, the
+             * ready foley 0x162 fires at its end, and the holster commits
+             * on the FIRST AIM tick afterwards (case 0x31's release arm).
+             * The port used to holster mid-clip, which swallowed the 0x162
+             * cue and cut the draw animation short on every R1 tap — the
+             * same "abort" the reload path was already corrected not to do
+             * (see the RELOAD case below). */
+            if (--w.timer <= 0) {
                 /* DRAW -> AIM: the engine's func_001703E0 state 1 arm,
                  *     if (p[0x200] & 0x1000) {          // draw clip end
                  *         p[6]++;                       // -> major 2
@@ -2007,7 +2110,11 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 if (square) {
                     if (!w.light_on) {
                         w.light_on = 1;
-                        /* DECODED (func_0017A970, byte-matched): the engine
+                        /* DECODED (func_0017A970, BYTE-MATCHED; whole
+                         * D_00810CA6 == 0 / arg1 == 0 arm re-read
+                         * 2026-07-31 — rising edge sets D_00810D3C = 1,
+                         * plays the cue and sets D_008106C7 = 1; falling
+                         * edge clears both and plays nothing): the engine
                          * plays 0x179 POSITIONALLY —
                          * func_001FBD50(&D_008102B0, 0x179, 0, 300.0f) — not
                          * as a flat 2D cue. The port had em_sfx_play, which
@@ -2030,7 +2137,8 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             break;
         case EM_WPN_RELOAD:
             /* anim 0x11B wait (major 3 = func_0016F600); the ammo move
-             * already happened. DECODED shape: the clip plays to its
+             * already happened. DECODED shape, re-read 2026-07-31 from
+             * func_0016F600's four sub-modes: the clip plays to its
              * end flag, THEN the engine samples the draw hold once and
              * either holsters or plays the mag sound + runs the nine-tick
              * aim-blend ramp-out back into AIM. */
@@ -2122,7 +2230,11 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
      * The code is held for the ENTIRE aim including the fire/recoil
      * ticks — i.e. the AIM/FIRE loop, but not the draw, reload (code
      * 0x33, set by func_00170A60's reload arms) or holster clips. */
-    /* ... AND on the fire SM's +0x2F2 visible flag (the decoded LASER
+    /* ... AND on the fire SM's +0x2F2 visible flag (LASER HIDE WINDOW,
+     * re-confirmed 2026-07-31: the BYTE-MATCHED func_00170A60 writes
+     * e[0x2F2] = 0 in cases 10, 21 and 30 and e[0x2F2] = 1 only in case
+     * 11's queued arm, at the case 22 / case 31 expiry heads, and on a
+     * case 0 WAIT tick — the decoded LASER
      * HIDE WINDOW): the laser vanishes from every shot tick until that
      * shot's cadence expiry — during sustained fire it only blinks for
      * the single expiry tick of each chained round, exactly the

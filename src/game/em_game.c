@@ -28,7 +28,20 @@
  *                                        native selector never routes here
  *                                        yet.
  *
- * GAMEPLAY FRAME stages (func_001AE5E0) -> native:
+ * GAMEPLAY FRAME stages (func_001AE5E0) -> native. CONFIRMED literally
+ * (audit 2026-07-31) against src/func_001AE5E0.c [NEARMISS — logic
+ * authoritative]: that function is a 13-call straight line and the list
+ * below is its body in order, arguments included — bump the per-frame
+ * counters D_00810750 / 0x70003B68, then
+ *   func_001CB590(D_008102B0, 0x320, D_008102B9, frame); func_0015BCF0;
+ *   func_001CB5A0; func_001D1C50; func_001C1D00(D_008101D0);
+ *   func_001AFD70(0); func_0015C160; func_001F0360;
+ *   func_001CB590(D_008101E0, 0xD0, 0, 0); func_0018B9C0;
+ *   func_001CB5A0; func_001AAD00; func_001D1EA0(1).
+ * (This also OVERTURNS an earlier audit note in em_game.h that read
+ * func_001AE5E0 as "a per-level INIT routine" — there is no level setup
+ * in it; D_00810750 is bumped every call and handed straight to the
+ * first func_001CB590 as its 4th argument.)
  *   func_001CB590 actor-context begin    actor_context_begin() — marks the
  *                                        actor table the update writes
  *                                        (the engine sets the D_00275B40
@@ -757,9 +770,17 @@ int em_game_player_interact_busy(void)
  * PROVENANCE: of that pair only src/func_00174AC0.c is readable C
  * (NEARMISS 98.48%). src/func_001B12B0.c is an ALL-WORD stub — byte-
  * correct for the build but with NO recovered logic — and 0x001B9C10 is
- * a data/handler address, not a recovered function. The 22.5 deg/frame
- * rate itself comes from FINDINGS "GROUND LOCOMOTION", not from either
- * of those two files; treat the easing shape as OBSERVED, not decoded.
+ * a data/handler address, not a recovered function.
+ * CITATION TIGHTENED (audit 2026-07-31): the 0.39269909f literal IS in
+ * src/func_00174AC0.c, but its arm is narrower than "gait 0/3" — it is
+ * the `arg1 == 1` call form, with the speed float +0x38 == 0.0f
+ * (standing) and the gait byte +0x23F NOT 1 and NOT 2 (1 -> 0.06981317,
+ * 2 -> 0.13962634; the moving ladder in the sibling arm runs
+ * 0.10471976 / 0.15707964 / 0.18325958). The em_examine op04 pre-roll
+ * reusing that particular standing rate is still OBSERVED: no recovered
+ * examine-script function names it, and the cited
+ * INVESTIGATION_examine_walk_face.md exists in neither repo. Treat the
+ * easing shape as OBSERVED, not decoded.
  *
  * This does NOT touch player_move's desired-heading / movement-v3 path:
  * the examine lock in player_move (em_examine_input_locked) already
@@ -1103,12 +1124,32 @@ static void actor_update(void)
         g.step_prev = cyc;
     }
 
-    /* IDLE CYCLE (func_00161020 — see the clip-id block): while truly
-     * idle the 300-frame timer runs; at zero the fidget 349 plays once
-     * (8-frame cross-fade each way, the engine's blend arg) and the
-     * breathing idle restarts with the timer re-armed. Any movement,
-     * gait input, aim, melee or the door input lock leaves mode 0 and
-     * resets the cycle. */
+    /* IDLE CYCLE (func_00161020 [NEARMISS — logic authoritative], the
+     * case-1 sub-0 branch): while truly idle the 300-frame timer runs
+     * (+0x28 = 0x12C is literal); at zero the fidget 349 plays once
+     * (func_001749A0(self, 0x15D, 1, 8.0f) — 0x15D = 349, the 8.0 is the
+     * blend arg, hence the 8-frame cross-fade each way) and the
+     * breathing idle restarts with the timer re-armed (the sub-1 arm's
+     * clip-end bit 0x1000 -> +0x28 = 0x12C, func_00174A50(self, 8.0f)).
+     * Any movement, gait input, aim, melee or the door input lock leaves
+     * mode 0 and resets the cycle.
+     *
+     * CORRECTED (audit 2026-07-31) — the port used to fidget at ANY
+     * health. The engine gates the whole countdown on
+     * `+0x236 == 0 && !(+0x235 & 1)`, and +0x235 bit 0 is the LOW-HEALTH
+     * latch: SET at health <= 35 (src/func_0021C440.c's tail
+     * `if (+0x220 <= 35.0f) +0x235 |= 1`, and src/func_0015D100.c's two
+     * decay paths, both `<= 35.0f`), CLEARED again once health is back
+     * above it (src/func_0015C700.c: `if (hp > 35.0f) +0x235 &= 0x2`).
+     * So a hurt player never plays the look-around fidget — he only
+     * breathes; the latch being a pure function of health is why the
+     * gate below reads g.status.health directly (same PD_LOW_HEALTH =
+     * 35.0f constant the damage block derives from the same tail). It
+     * gates only the COUNTDOWN, exactly like the engine: a fidget
+     * already in flight when the latch trips plays out and re-arms
+     * normally, because the sub-1 arm carries no such gate. (+0x236 is
+     * a separate scripted-suppression byte with no native counterpart —
+     * deliberately not modelled.) */
     {
         int active = g.move_speed > 0.0f || g.gait != 0 ||
                      em_weapon_is_aiming() || em_weapon_is_melee() ||
@@ -1122,7 +1163,11 @@ static void actor_update(void)
         } else if (g.idle_phase == 0) {
             g.fid_w -= fstep;
             if (g.fid_w < 0.0f) g.fid_w = 0.0f;
-            if (--g.idle_timer <= 0) {     /* +0x28 hit 0: fidget */
+            /* the LOW-HEALTH latch (+0x235 & 1) FREEZES the countdown —
+             * the decrement lives inside the engine's gate, so a hurt
+             * player's timer neither runs nor resets */
+            if (g.status.health > PD_LOW_HEALTH &&
+                --g.idle_timer <= 0) {     /* +0x28 hit 0: fidget */
                 g.idle_phase = 1;
                 g.fid_t      = 0.0;
             }
@@ -1490,11 +1535,19 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
  * clip_menu / clip_menu_low pair); state 1 runs the breathe ramp
  * +0x38 between 1.0 and 1.3 (UI_RAMP_MAX), wraps the yaw and calls
  * anim_advance_time; states 2/3/default free the slot.
- * RE-CONFIRMED (audit 2026-07-31): the 0.01f ramp/yaw steps, the pi
+ * RE-CONFIRMED (audit 2026-07-31, second pass): the 0.01f ramp/yaw
+ * steps, the pi
  * seed and -2pi wrap, the -80/-100/-30 x 0.01 tint triple with the
- * -127 clamp on the G row, anim_advance_time(1.0f), and the clip swap
- * being SWAP-BACK ONLY (`health > 35 && +0xB == 1 -> 0x1C2`, never the
- * reverse) all read literally out of src/func_0020E6F0.c. The actor is
+ * -127 clamp on the G row, anim_advance_time(1.0f), the 1.3f ramp
+ * ceiling, the state-0 clip select `!(D_00810858 <= 35.0f) -> 0x1C2
+ * else 0xA`, and the clip swap
+ * being SWAP-BACK ONLY (`health > 35 && +0xB == 1 ->
+ * anim_clip_init(self, 0x1C2, 16.0f, 0.0f)`, never the
+ * reverse) all read literally out of src/func_0020E6F0.c. One detail
+ * the port folds: the engine's swap-back re-inits at rate 16.0f, while
+ * ui_scene_render just restarts ui_t and keeps its own 1.0/frame
+ * advance — a presentation-only difference on the menu turntable.
+ * The actor is
  * re-created on every open, which is why the port re-inits on the
  * visible edge.  (func_0020E6F0 on the menu's private static-actor
  * stage — the world is not drawn at all; s44 verified there is no
@@ -3068,8 +3121,13 @@ static void weapon_test_script(void)
  *     versus the state-0 brush-contact latch 0x40A00000 = 5.0f. The
  *     worm bursts -> assert health dropped by exactly 15 and the worm
  *     despawned. (With the leech asset the
- *     connect is the decoded neck->head SEGMENT arm; rig-less runs
- *     fold into the radius-6 contact — em_enemy.c LATCH SEGMENT.)
+ *     connect is the decoded neck->head SEGMENT arm — func_0019AA80 on
+ *     the two +0xC0 columns — which is the ONLY arm that writes the
+ *     latch; rig-less runs fold into the radius-6 contact, and that
+ *     fold is a PORT STAND-IN, not source-derived: state 3's
+ *     `func_0019A570(..., 6, 0)` else-branch only resets the worm to
+ *     +4 = 2 / +5 = 0 and deals NO damage. See em_enemy.c LATCH
+ *     SEGMENT — the fold lives there, not here.)
  *   EM_ENEMY_TEST=3 (crate run — RESTAGED s68): spawn a DISGUISED
  *     CRATE 25 units ahead instead (em_enemy.h "CRATE KIND"); weapon
  *     stays holstered, walk forward (W) INTO it. Assert the DISGUISE
@@ -3342,7 +3400,14 @@ static void enemy_test_script(void)
  * synthetic pan/attenuation vectors against the decoded func_001FBF50
  * math (center/full at the player, range cull, hard-left at 90 deg,
  * the behind-the-camera phase inversion, the 18-u proximity ramp —
- * em_sfx.h "POSITIONAL AUDIO"), exercises the play-path range cull
+ * em_sfx.h "POSITIONAL AUDIO"). CONFIRMED by audit 2026-07-31 against
+ * src/func_001FBF50.c (BYTE-MATCHED — authoritative): the range cull is
+ * `if (!(dist < range)) return 0;`, the magnitude is
+ * `vol * sin(pi/2 * (range - dist) / range)`, the near-field weight is
+ * `dist <= 18.0f ? 0.055555556f * dist : 1.0f` (1/18 exactly), and the
+ * pan scalar is `t^5 * w` pushed to the far channel by `± (1 - w)`,
+ * with func_001B1380's side test choosing which of the two out-params
+ * gets the full magnitude — the port's l/r split. Exercises the cull
  * (frame 50), bursts 60 plays to prove the 48-voice-budget OLDEST
  * steal with zero drops (frame 60), and prints the audio thread's
  * counters + PASS/FAIL at frame 120. Needs the registry: without
@@ -3353,10 +3418,18 @@ static void enemy_test_script(void)
  * gates the whole world update on em_hud_is_open()) PLUS the decoded
  * MENU-LOCK gate (em_door.h "THE TWO LOCKS": the engine's open poll
  * func_001AE7E0 refuses while the fade machine runs — RE-VERIFIED in
- * src/func_001AE7E0.c (NEARMISS 99.10%, logic authoritative): the
+ * src/func_001AE7E0.c (NEARMISS 99.97%, logic authoritative; the old
+ * "99.10%" here was a stale number): the
  * classifier returns 0 (= blocked) on `if (D_0028A9A0 != 0) return 0;`,
  * D_0028A9A0 being the same fade-machine state the game-over chain
- * polls for idle/hold-black; the lock ends at
+ * polls for idle/hold-black. TIGHTENED (audit 2026-07-31): that test is
+ * SIXTH in the chain, so it is not an unconditional veto — the earlier
+ * arms `if (D_008106CE) return 3;` and
+ * `if (D_008106C5 || D_008106B0) return 2;` still report their own
+ * nonzero mode DURING a fade. The port models only the blocked/allowed
+ * split, which is faithful for the door-transit case this gate serves
+ * (no native counterpart to those two mode globals exists). The lock
+ * ends at
  * fade-in completion, BEFORE the arrival walk-out finishes — so the
  * menu opens mid-walk-out while movement is still locked). Spawned at
  * the door-test corridor position (72, 0, -225 facing -X, the west
@@ -5077,9 +5150,19 @@ static void gameplay_frame(void)
      * port's player_apply_health / player_apply_infection split. It
      * then routes on health <= 0 to the death entry (marker 0x3F when
      * +0xF == 0x63 or the infected latch +0x234 == 1, else 0x40) and
-     * otherwise to the flinch entry (marker 0x3E). Its tail also
+     * otherwise to the flinch entry (marker 0x3E). The sub-state bytes
+     * are literal too and match the port's pd_sub: the death arms write
+     * +4 = 2 with +5 = 1 (ordinary) or +5 = 3 (the +0xF == 0x63 /
+     * infected-latch variant), the flinch arm +4 = 2 with +5 = 0. Its
+     * tail also
      * carries the low-health latch verbatim: `if (+0x220 <= 35.0f)
-     * +0x235 |= 1` — the source of PD_LOW_HEALTH = 35.0f. The
+     * +0x235 |= 1` — the source of PD_LOW_HEALTH = 35.0f, and (audit
+     * 2026-07-31) the same bit func_00161020 tests to SUPPRESS the idle
+     * fidget, so this threshold has a second, visible consequence: see
+     * the IDLE CYCLE block in actor_update. Note also that "never
+     * touches health" is scoped to this generic tail — the reaction
+     * arms above it DO seed +0x224 themselves (3.0 / 5.0 / 8.0, and
+     * once +0x224 = +0x220) before calling func_0021C350. The
      * +0x224 = HEALTH / +0x22C = INFECTION reading and the pad's 5.0
      * are FINDINGS' player-producer table (D_008104D4 / D_008104DC),
      * not this function, which only sees them as two pending floats. */
@@ -5301,8 +5384,14 @@ static void ingame_frame_machine(EmTask *self)
             em_weapon_reset(g.status.mag, g.status.reserve);
             /* EM_ENEMY_TEST spawn: test 2 places one WORM 30 units
              * ahead of the player spawn along the spawn facing (its
-             * own INIT yaws it at the player — the decoded
-             * func_00154040); tests 1/3 place a DISGUISED CRATE 12 /
+             * own INIT yaws it at the player — src/func_00154040.c,
+             * BYTE-MATCHED, RE-CONFIRMED by audit 2026-07-31: the
+             * heading write `+0xC4 = func_001B1240(self+0xB0, spec,
+             * D_00810350, D_00810358)` sits in the single
+             * `func_001B10B0(self, 0x14, 0x13) == 0` slot-reservation
+             * arm with no distance or line-of-sight test anywhere, so
+             * acquisition really is unconditional); tests 1/3 place a
+             * DISGUISED CRATE 12 /
              * 25 units ahead instead (see enemy_test_script). */
             /* EM_MELEE_TEST spawn: TWO DISGUISED CRATES — A 11.0 u dead
              * ahead (slot 0, inside the knife reach 12, inside the
@@ -5377,7 +5466,18 @@ static void ingame_frame_machine(EmTask *self)
             /* CONTINUE RESTART (the decoded dispatch: prompt cursor 0
              * confirmed at hold-black — the engine reinstalls the
              * gameplay task func_001ACEC0 with the from-death flag
-             * up and D_00275BE0 = 0; PD block doc): reload the active
+             * up and D_00275BE0 = 0; PD block doc).
+             * CITATION TIGHTENED (audit 2026-07-31) against
+             * src/func_001ACEC0.c (NEARMISS — logic authoritative):
+             * D_00275BE0 is read exactly once, in the re-installed
+             * task's state-0 arm, and it selects the ENTRY ROUTE —
+             * `+8 = (D_00275BE0 == 0) ? 1 : 2`. Route 1 polls
+             * func_001AD230 and then sets +8 = 3 with +9/+0xA/+0xB all
+             * zeroed (the fresh in-game arm the port reproduces here);
+             * route 2 goes straight to +8 = 3 but with +9 = 5 (the
+             * load-game sub-arm, which the port has no counterpart
+             * for). So the CONTINUE path really is the +9 = 0 arm.
+             * Reload the active
              * scene — the manifest re-run rebuilds doors/enemies/
              * collision — restore the boot status, clear the damage
              * machine, re-arm the scene-init state (player re-place +

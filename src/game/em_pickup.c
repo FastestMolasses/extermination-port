@@ -13,6 +13,14 @@
  *                         -> inventory_add() below
  *   free  func_001B1190(actor[+0x9A]) + func_001AFC10 -> taken-bit set
  *                         + slot dead
+ *
+ * RE-VERIFIED 2026-07-31 (second audit pass), quoting src/func_0015AFA0.c
+ * verbatim: `switch (*(unsigned char *)(actor + 4))` with
+ * `case 0: func_0015AC00(actor, sub)`, `case 1: func_0015AE20(actor, sub)`,
+ * `case 2: case 3: default: func_001B1190(*(unsigned char *)(actor + 0x9A),
+ * sub); func_001AFC10(actor)`, where `sub = actor + 0x1F0`. The three legs
+ * above are exactly that dispatch — no fourth state, and the taken-bit set
+ * really is fed the ONE BYTE at +0x9A.
  */
 #include "game/em_pickup.h"
 
@@ -123,6 +131,14 @@ static struct {
     int      found_pending;   /* item type for the Found line, -1 none */
 } g = { {0}, 0, {0}, 0, -1 };
 
+/* This frame's use-scan winner (func_00184BA0's single winner for the
+ * whole interactive list). Reset at every em_pickup_update entry; read
+ * by em_examine, which scans second — em_pickup.h "ONE WINNER PER
+ * PRESS". scan_dist is the PLANAR distance the engine parks at spad
+ * 0x70003B98 and compares with `<`. */
+static int   scan_slot = -1;
+static float scan_dist;
+
 /* ------------------------------------------------------------------ */
 
 /* func_001B11E0 — the taken-bit test. The engine's argument is the
@@ -156,8 +172,17 @@ int em_pickup_taken(int uid) { return taken_bit(uid); }
  * over-cap step SUBTRACTS the surplus packs' rounds from the reserve —
  * the old comment called it a fold-in no-op. The loaded-magazine
  * auto-fill is em_weapon's state and stays unported (FLAGGED in
- * em_pickup.h), as do the engine's per-weapon meter cases 0x11..0x16
- * and the raw-store case 0x0F, which take the default count here. */
+ * em_pickup.h).
+ *
+ * FLAGGED (audit 2026-07-31): the engine's switch has 14 more arms, and
+ * `default` is NOT the only one that writes the count array — cases
+ * 0x01/0x02/0x03/0x04/0x0C/0x0D/0x0E/0x1B/0x1C/0x1D also do
+ * `D_00810C64[arg0] += arg1`, UNCLAMPED, alongside a linked meter, while
+ * 0x11..0x16 move only a meter and 0x0F is a raw `= n`. Full ledger in
+ * em_pickup.h. The port keeps the uniform default clamp on purpose: it
+ * already folds take families 1/2 into this one array, so `type` here is
+ * not reliably the engine's stat index and per-case fidelity would be
+ * false precision. */
 static void inventory_add(int type, int n)
 {
     unsigned t = (unsigned)type & 0xFF;
@@ -350,6 +375,7 @@ void em_pickup_scene_clear(EmGfx *gfx)
         em_model_free(&s.models[i].model);
     }
     memset(&s, 0, sizeof s);
+    scan_slot = -1;                      /* slot indices are now stale */
     /* g (inventory + taken bits + pending events) deliberately
      * survives — see em_pickup.h. */
 }
@@ -407,7 +433,27 @@ static void pickup_trigger_scan(const float pp[3], float pyaw,
     if (best >= 0) {
         s.p[best].armed  = 4;            /* the scan's +0x0B value */
         s.p[best].take_t = EM_PICKUP_TAKE_FRAMES;
+        /* publish the winner for the cross-module single-winner rule
+         * (func_00184BA0 arms exactly one object per press; the engine
+         * compares the PLANAR distance it parks at spad 0x70003B98) */
+        scan_slot = best;
+        scan_dist = sqrtf(best_d2);
     }
+}
+
+int em_pickup_scan_dist(float *out_dist)
+{
+    if (scan_slot < 0) return 0;
+    if (out_dist) *out_dist = scan_dist;
+    return 1;
+}
+
+void em_pickup_scan_release(void)
+{
+    if (scan_slot < 0) return;
+    s.p[scan_slot].armed  = 0;           /* +0x0B back to 0 */
+    s.p[scan_slot].take_t = 0;
+    scan_slot = -1;
 }
 
 /* func_0015AE20's GRAB-ANIM patch (D_00248354 = rec[+0x14] of the op-A
@@ -462,6 +508,7 @@ static void pickup_take(Pickup *p, float player_y)
 void em_pickup_update(const float player_pos[3], float player_yaw,
                       const EmFrameInput *in, int scan)
 {
+    scan_slot = -1;                      /* last frame's winner expires */
     if (scan)
         pickup_trigger_scan(player_pos, player_yaw, in);
     /* Spinning display props (AREA-11 item-display, ov 0x00827630): advance

@@ -35,6 +35,7 @@
 #include "em_input.h"        /* EM_PAD_CROSS — the use-button mask */
 #include "game/em_hud.h"     /* em_hud_radio (GLOBAL lines) + text draw */
 #include "game/em_game.h"    /* contract-A: battery + terminal + elevator */
+#include "game/em_pickup.h"  /* the single-winner use-scan arbitration */
 
 #define EX_PI 3.14159265358979f
 
@@ -262,7 +263,7 @@ static float ex_norm_ang(float a)
  * different two-stage test. Consequence of the old value: examines
  * silently refused to arm for approach angles between 45 and 90 degrees
  * that the engine accepts. */
-static int examine_scan(const float pp[3], float pyaw)
+static int examine_scan(const float pp[3], float pyaw, float *out_dist)
 {
     int   best = -1;
     float best_d2 = 1e30f;
@@ -287,6 +288,9 @@ static int examine_scan(const float pp[3], float pyaw)
             best = i;
         }
     }
+    /* the engine compares the PLANAR distance (spad 0x70003B98), not the
+     * square — hand it back for the cross-module single-winner rule */
+    if (out_dist) *out_dist = best >= 0 ? sqrtf(best_d2) : 0.0f;
     return best;
 }
 
@@ -414,8 +418,31 @@ void em_examine_update(const float player_pos[3], float player_yaw,
          * (contract: em_game_player_interact_busy). */
         if (scan && (in->pressed & EM_PAD_CROSS) &&
             !em_game_player_interact_busy()) {
-            int hit = examine_scan(player_pos, player_yaw);
-            if (hit >= 0) seq_start(hit);
+            float hit_d = 0.0f;
+            int   hit   = examine_scan(player_pos, player_yaw, &hit_d);
+            if (hit >= 0) {
+                /* ONE WINNER PER PRESS (CORRECTED, audit 2026-07-31).
+                 * func_00184BA0 (recovered C) walks ONE interactive list
+                 * that holds items AND examine objects, keeps the single
+                 * smallest planar distance (`if (v < best) { best = v;
+                 * winner = obj; }`) and arms only that object
+                 * (`winner[0xB] = 4; return 1`). The port scans the two
+                 * kinds in separate modules, so a press near both used to
+                 * take the item AND start the examine script in the same
+                 * frame. em_pickup_update has already run this frame:
+                 * yield to its winner when it is nearer, otherwise take
+                 * the press back off it. (Ties go to the item — the
+                 * engine's strict `<` resolves them by list order, which
+                 * the port has no counterpart for.) */
+                float item_d = 0.0f;
+                if (em_pickup_scan_dist(&item_d) && item_d <= hit_d) {
+                    printf("examine: slot %d lost the press to a nearer "
+                           "item (%.2f <= %.2f)\n", hit, item_d, hit_d);
+                } else {
+                    em_pickup_scan_release();
+                    seq_start(hit);
+                }
+            }
         }
         return;
     }

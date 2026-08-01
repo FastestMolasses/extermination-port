@@ -11,15 +11,19 @@
  * "STATUS SCREEN LAYOUT" (session 25) is the narrative write-up; the
  * numbers here come from the functions.
  *
- *   (208,196)  HEALTH ring gauge — ring r36-56 (yellow-green/orange
- *              radial gradient; red pair when health <= 35), the
- *              DEPLETED arc over 180+3.6*hp .. 540 at the same radii
- *              (it shrinks to nothing at full health — see the
- *              correction note in health_gauge), and the rotating
- *              120-deg highlight (two 60-deg gradient arcs, 12 deg per
- *              2 frames = one revolution per second).  Anchors and
- *              angles all re-read from the byte-matched func_00208AD0 /
- *              func_00209DF0 call pair.
+ *   (208,196)  HEALTH ring gauge — TWO annuli, one per arc block:
+ *              the TRACK r24-56 light blue (block D_00265390, drawn at
+ *              180..540) and the coloured ring r36-56 over it
+ *              (block D_002653F0, yellow-green/orange radial gradient;
+ *              red pair when health <= 35).  Then the rotating 120-deg
+ *              highlight (two 60-deg gradient arcs, 12 deg per 2 frames
+ *              = one revolution per second), and last the DEPLETED arc
+ *              — the TRACK block again over 180+3.6*hp .. 540, masking
+ *              the coloured ring where health is missing (it shrinks to
+ *              nothing at full health).  Anchors, angles and the block
+ *              split all re-read from the byte-matched func_00208AD0 /
+ *              func_00209DF0 call pair; the blocks' static radii and the
+ *              track colour are FINDINGS item 7's VRAM capture.
  *   (16,118)   BATTERY block — 8x8 squares, one per internal HALF-unit,
  *              12 per row, right-to-left from x=104 at y=134, per-square
  *              magenta->yellow gradient steps, -1 px stagger on even
@@ -28,7 +32,8 @@
  *              magazine display; the old tick marks + /240 reserve bar
  *              were port inventions and are gone).
  *   (296,260)  INFECTION — text only on the real screen (there is no
- *              bar); placeholder blocks until a font renderer lands.
+ *              bar); label + "NN%" value at (296,288), or "INFECTED"
+ *              at (290,260) when the display copy reads exactly 100.
  *   (128,336)  help panel — translucent gray rect to (384,432), exact;
  *              with assets/messages.emsg + the font it carries the REAL
  *              engine help line (hovered page name / infection diary,
@@ -107,11 +112,21 @@ static const float kRingNormB[4]   = GS(224, 128, 24, 128); /* orange */
 static const float kRingLowA[4]    = GS(160,   0,  0, 128); /* red pair */
 static const float kRingLowB[4]    = GS(192,   0,  0, 128);
 
-/* The ring's DEPLETED segment (func_00208AD0's second pass over the same
- * D_00265390 block — see health_gauge).  The block's static colour is
- * unexported data, so this dark "unlit" tone is a FLAGGED stand-in, not
- * a decoded value; only the SPAN below is source-derived. */
-static const float kRingEmpty[4]   = { 0.0f, 0.0f, 0.0f, 0.55f };
+/* The ring's TRACK — arc block D_00265390, which func_00208AD0 draws
+ * TWICE (see health_gauge): once as the full 180..540 annulus and once
+ * again over the depleted span, masking the coloured ring there.
+ *
+ * COLOUR/RADII CORRECTED (2026-07, third audit pass).  The previous pass
+ * reasoned "same block as the ring above => r36-56, colour unknown" and
+ * used a dark stand-in.  That conflated two different blocks: the
+ * byte-matched func_00208AD0 writes the health gradient into
+ * D_00265410..D_0026544C, which is D_002653F0 + 0x20..+0x5C — i.e. the
+ * gradient belongs to block D_002653F0, NOT to D_00265390.  FINDINGS.md
+ * "STATUS SCREEN LAYOUT" item 7 has the two blocks' static data from a
+ * VRAM capture: D_002653F0 = r36-56 (the coloured ring) and D_00265390 =
+ * r24-56 light blue (0,153,255,128) (the track).  Same capture the
+ * r36-56 figure itself comes from. */
+static const float kRingTrack[4]   = GS(0, 153, 255, 128);
 
 /* Rotating-highlight stand-in: the engine draws transparent<->(80,80,80)
  * arcs in additive blend mode 1; with the alpha-blend-only overlay pass
@@ -1233,9 +1248,25 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
                          kTextWhite);
     }
 
-    /* background ring r36-56, full circle (the engine passes 180..540);
-     * red pair when health <= 35 — CONFIRMED against the byte-matched
-     * func_00208AD0: `if (D_00810858 > 35.0f)` selects the bright pair
+    /* TRACK ring r24-56, full circle — arc block D_00265390, the FIRST
+     * of the two prims func_00208AD0 (BYTE-MATCHED) submits before the
+     * highlight:
+     *   D_00265398 = 180.0f; D_0026539C = 540.0f;   // start, end
+     *   D_00265390/94 = centre;  func_002082B0(1, &D_00265390);
+     * BLOCK SPLIT CORRECTED (2026-07, third pass): the port used to draw
+     * ONE ring here and give it the health gradient.  There are two
+     * separate arc prims: this track, and the coloured ring below whose
+     * block is D_002653F0 (see kRingTrack at the top of this file). */
+    em_gfx_overlay_arc(gfx, cx, cy, 24.0f, 56.0f, 180.0f, 540.0f,
+                       kRingTrack);
+
+    /* Coloured ring r36-56, full circle — arc block D_002653F0, the
+     * SECOND prim.  func_00208AD0 writes only its four gradient RGBA
+     * slots (D_00265410..D_0026544C = D_002653F0 + 0x20..+0x5C) and its
+     * centre; the angles/radii are the block's static data (FINDINGS
+     * item 7: r36-56, 180..540).  Red pair when health <= 35 —
+     * CONFIRMED against the byte-matched function:
+     * `if (D_00810858 > 35.0f)` selects the bright pair
      * 192/224/0/128 + 224/128/24/128, the else arm the dim pair
      * 160/0/0/128 + 192/0/0/128 (the kRingNorm / kRingLow pairs
      * declared at the top of this file). */
@@ -1258,12 +1289,12 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
     em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a, a + 60.0f,
                         kHiliteOn, kHiliteOn, kHiliteOff, kHiliteOff);
 
-    /* DEPLETED (empty) arc — CORRECTED.  The port used to draw a
-     * light-blue fill GROWING from 180 deg with health, at a different
-     * inner radius (24).  Both halves of that were wrong.
+    /* DEPLETED (empty) arc — the LAST prim, a second pass over the TRACK
+     * block D_00265390 that re-paints the track colour over the depleted
+     * part of the coloured ring.
      *
      * func_00208AD0 (BYTE-MATCHED) re-uses the SAME 0x60-byte arc block
-     * (D_00265390) it just drew the ring with, writing only
+     * (D_00265390) it drew the track with, writing only
      *   D_00265398 = -180.0f + 360.0f * (D_00810858 / 100.0f);
      *   D_0026539C = 180.0f;
      * where the first pass wrote (180, 540).
@@ -1277,8 +1308,8 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
      * So the second pass spans (-180 + 3.6*hp) .. 180, i.e. (mod 360)
      * 180 + 3.6*hp .. 540: the TAIL of the first pass's full sweep.  It
      * SHRINKS to nothing at hp 100 and covers the whole ring at hp 0 —
-     * the EMPTY segment, re-painting the base ring over the depleted
-     * part.  Same block => same radii as the pass above, so r36-56.
+     * the EMPTY segment, re-painting the TRACK over the depleted part of
+     * the coloured ring.  Same block as the track => same radii, r24-56.
      *
      * DRAW ORDER CORRECTED (2026-07 audit, second pass): this arc is the
      * LAST primitive func_00208AD0 submits — after func_00207D00(1, 1),
@@ -1294,15 +1325,14 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
      * still draws the 60% ring.  hp is clamped to the same 0..100 the
      * engine's own 0-100 meter assumes.
      *
-     * COLOUR still UNRESOLVED: the block's static colours are unexported
-     * data.  Because it is the same block, this pass is the same colour
-     * as the base ring — which the port has merged into the health
-     * gradient pair above — so a dark "unlit" stand-in is used here and
-     * is FLAGGED, not source-derived. */
+     * COLOUR RESOLVED (2026-07, third pass): it is the TRACK block's own
+     * colour, light blue (0,153,255,128) — see kRingTrack.  The dark
+     * "unlit" stand-in that used to sit here came from mis-assigning the
+     * health gradient to this block; the gradient is D_002653F0's. */
     float frac = clamp01f(hp / 100.0f);
     if (frac < 1.0f)
-        em_gfx_overlay_arc(gfx, cx, cy, 36.0f, 56.0f,
-                           180.0f + 360.0f * frac, 540.0f, kRingEmpty);
+        em_gfx_overlay_arc(gfx, cx, cy, 24.0f, 56.0f,
+                           180.0f + 360.0f * frac, 540.0f, kRingTrack);
 
     /* value row " 75 / 100" at y=262 — every anchor here is the
      * byte-matched func_00208AD0's own arithmetic with (px, py) =
@@ -1786,12 +1816,26 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
      * replaces the hub composition entirely, exactly like the engine's
      * controller state 3. */
     if (s_page >= 0) {
-        /* s_frames is the engine's counter[8], and counter[8] is bumped
-         * ONLY inside func_00208AD0 (byte-matched, first statement) —
-         * which the hub drawer func_00209DF0 alone calls.  An entered
-         * page never touches it, so the ring highlight resumes where it
-         * left off on return; the port used to keep counting here and
-         * made the sweep jump. */
+        /* s_frames is the engine's counter[8], bumped by func_00208AD0
+         * (byte-matched, first statement).
+         *
+         * CORRECTED (2026-07, third audit pass): the note here used to
+         * say func_00209DF0 is the ONLY caller of func_00208AD0, so an
+         * entered page never bumps the counter.  That is FALSE —
+         * func_0020AE40 (byte-matched) also calls
+         * func_00208AD0(ctx, 0x1B6, 0x6E) plus
+         * func_00209280(ctx, 0x96, 0xB4, ..., 1), and func_0020AE40 is
+         * the sub-page HUD strip drawer invoked from the page tasks
+         * (func_00214570 / func_00215870 / func_00217090 / func_002177B0
+         * / func_00217FA0 / func_00218640 / func_00218D90).  So the real
+         * pages DO re-draw a repositioned health gauge + battery block
+         * and the sweep keeps turning while a page is open.
+         *
+         * Neither is modelled: the port's page views are placeholders,
+         * and it is not established which of the four pages the port
+         * exposes route through func_0020AE40.  s_frames is therefore
+         * left frozen here rather than guessing — UNRESOLVED, not a
+         * decoded behaviour. */
         page_render(gfx, s_page, st);
         em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
         return;
@@ -1954,13 +1998,15 @@ void em_hud_found_show(int item_type)
  * exist for script handshakes, but every GLOBAL record's flag byte is
  * 0xFF (none) — not modeled. */
 
-/* Decoded per-line durations — the GLOBAL record table D_00264DD0[0] =
- * 0x272DF0 (8-byte records {u16 dur, s16 voice_cue, u8 flag_idx, u8
- * wait_stream}, read from the user's local ELF): lines 0/2/4/8/0xE =
- * 148 frames, 6/0xA/0xC = 118. All six jtbl_0026E1A0 locked-door lines
- * are covered (sel 0..5 -> lines 6/0/2/8/0xA/4); every decoded cue is
- * -1 = silent. Lines past the decoded prefix use the table's common
- * 148 (FLAGGED default). */
+/* Per-line durations — the GLOBAL record table D_00264DD0[0] = 0x272DF0
+ * (8-byte records {u16 dur, s16 voice_cue, u8 flag_idx, u8 wait_stream}).
+ * PROVENANCE: these are DATA values read out of the user's local ELF,
+ * NOT recovered C — the machine that consumes them (func_001FD950,
+ * NEARMISS) is decompiled, the table contents are a capture.  Lines
+ * 0/2/4/8/0xE = 148 frames, 6/0xA/0xC = 118.  All six jtbl_0026E1A0
+ * locked-door lines are covered (sel 0..5 -> lines 6/0/2/8/0xA/4); every
+ * cue byte in the captured prefix is -1 = silent.  Lines past that
+ * prefix use the table's common 148 (FLAGGED default). */
 static int radio_duration(int line)
 {
     switch (line) {
@@ -2157,7 +2203,7 @@ static struct {
 void em_hud_area_title(int area)
 {
     const char *str = area_title_string(area);
-    if (!str) return;                 /* no decoded string -> never shows */
+    if (!str) return;                 /* no observed string -> never shows */
     s_area_title.str = str;
     s_area_title.t   = 0;
     printf("hud: AREA-TITLE CARD armed — \"%s\" (area %d, %d-frame card)\n",

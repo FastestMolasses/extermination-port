@@ -33,20 +33,32 @@
  *
  * RING FILL CORRECTED (2026-07 audit): the port used to draw a
  * light-blue arc r24-56 GROWING from 180 deg with health. func_00208AD0
- * re-uses one arc block for both ring passes and writes the pair
- * (180, 540) for the first and (-180 + 3.6*hp, 180) for the second; the
- * two rotating-highlight blocks in the same byte-matched function get
- * (ang - 60, ang) and (ang, ang + 60) at the identical offsets, which
- * settles the pair as (start, end). So the second pass is the DEPLETED
- * span 180 + 3.6*hp .. 540 at the SAME radii (36-56, one block), and it
- * shrinks to nothing at full health. The port now draws that; its
- * colour is a flagged dark stand-in (the block's static colours are
- * unexported). Two further corrections to it (2026-07, second audit
- * pass): the sweep divides by the LITERAL 100.0f, NOT by the displayed
- * maximum (the port rescaled it and so drew a full ring under the
- * infected 60-cap), and the arc is the LAST primitive the function
+ * re-uses ONE arc block (D_00265390) for two of the three ring passes
+ * and writes the pair (180, 540) for the first and (-180 + 3.6*hp, 180)
+ * for the second; the two rotating-highlight blocks in the same
+ * byte-matched function get (ang - 60, ang) and (ang, ang + 60) at the
+ * identical offsets, which settles the pair as (start, end). So the
+ * second pass is the DEPLETED span 180 + 3.6*hp .. 540, and it shrinks
+ * to nothing at full health. Two further corrections (2026-07, second
+ * audit pass): the sweep divides by the LITERAL 100.0f, NOT by the
+ * displayed maximum (the port rescaled it and so drew a full ring under
+ * the infected 60-cap), and the arc is the LAST primitive the function
  * submits — after the rotating highlight, which it therefore paints
- * over (the port drew it first). Drawn through the em_gfx annular-arc
+ * over (the port drew it first).
+ *
+ * BLOCK SPLIT CORRECTED (2026-07, THIRD audit pass): the second pass's
+ * radii/colour were then read off the WRONG block. func_00208AD0 writes
+ * the health gradient into D_00265410..D_0026544C, which is
+ * D_002653F0 + 0x20..+0x5C — the gradient belongs to arc block
+ * D_002653F0, a SEPARATE prim drawn after D_00265390, not to the block
+ * the depleted pass re-uses. FINDINGS.md item 7 has both blocks' static
+ * data from the same VRAM capture the r36-56 figure came from:
+ * D_002653F0 = r36-56 (the coloured ring), D_00265390 = r24-56 light
+ * blue (0,153,255,128). So the gauge is a light-blue TRACK annulus
+ * r24-56, the coloured ring r36-56 over its outer half, the highlight,
+ * and then the track colour re-painted over the depleted span — the
+ * dark "unlit" stand-in and the r36-56 depleted radii are both gone.
+ * Drawn through the em_gfx annular-arc
  * primitive; the BATTERY half-unit square bar at (16,118); the SPR4
  * reserve row at (16,190) (the real screen shows NO magazine state —
  * reserve only); INFECTION as text positions only (there is NO infection
@@ -515,9 +527,9 @@ int  em_hud_area_title_active(void);
  *
  * em_hud_radio(line) starts the machine on a GLOBAL bank line (a
  * 0x8000000X line word's low bits). The duration table carries the
- * decoded per-line values of the table at 0x272DF0 for the lines the
- * port can reach; unlisted lines use the bank's common 148-frame value
- * (FLAGGED default). The machine runs without assets (the timer
+ * per-line values captured from the DATA table at 0x272DF0 (an ELF
+ * read, not recovered C) for the lines the port can reach; unlisted
+ * lines use the bank's common 148-frame value (FLAGGED default). The machine runs without assets (the timer
  * semantics are engine truth; missing messages.emsg/font just draws
  * nothing — no regression), so script sequencing (em_door blocks its
  * locked finish on it, like the engine's pumped op09 native) is

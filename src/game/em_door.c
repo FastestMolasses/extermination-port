@@ -906,9 +906,32 @@ static float door_fallback_frames(const Door *d)
 static float door_open_frac(const Door *d)
 {
     const DoorModel *dm = &s.models[d->model];
-    float total = dm->has_clip ? (float)(dm->model.frame_count - 1)
-                               : door_fallback_frames(d);
-    float f = d->clip_t / total;
+    float total;
+    float f;
+
+    /* CORRECTED 2026-07-31 (audit) — THE LOCKED SEQUENCE MUST NOT SWING.
+     * This is only ever read by the PLACEHOLDER branch of
+     * door_build_palette, which has exactly one motion: the 90-degree
+     * hinge swing. The locked-try state pumps d->clip_t at 1.0/frame
+     * just like the open phase, so on a placeholder (single-frame) EMDL
+     * a REFUSING door swung itself wide open over 90 frames and then
+     * snapped shut at LOCKED_END.
+     *
+     * The recovered code says the panel never moves on this path. The
+     * byte-matched src/func_001BBE40.c mode 1 stores door clip ids 3
+     * (front) / 1 (back) into D_0024DD14 — a DIFFERENT pair from the
+     * open ids 2/0 it stores into D_0024DC54 in mode 0 — and the
+     * src/func_001BC350.c locked path runs sub 0 -> 1 -> 2 -> 0 without
+     * ever reaching the sub-4 commit (func_001BC240 -> func_001BC150),
+     * so no transition and no open ever happens. Hold the closed pose;
+     * a real baked EMDL takes the has_clip branch and plays the
+     * lock-fixture jiggle instead, unaffected by this. */
+    if (d->state == EM_DOOR_LOCKED_TRY || d->state == EM_DOOR_LOCKED_END)
+        return 0.0f;
+
+    total = dm->has_clip ? (float)(dm->model.frame_count - 1)
+                         : door_fallback_frames(d);
+    f = d->clip_t / total;
     return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 }
 

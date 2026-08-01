@@ -4,18 +4,28 @@
  * FRAME ANATOMY"): boot/flow task (func_001AB7E0 [byte-matched]) ->
  * game task machine (func_001ACEC0 [NEARMISS]) -> sub-machine
  * (func_001AD250 [byte-matched]) -> in-game frame machine ->
- * per-level init (func_001AE5E0 [NEARMISS]).
+ * GAMEPLAY FRAME (func_001AE5E0 [NEARMISS]).
  *
- * PROVENANCE, corrected by audit — two links of that chain were
- * overstated:
+ * PROVENANCE (audit 2026-07-31):
  *   - 0x001AE040 is `anim_frame_top_b` and is STILL UNDECOMPILED
  *     (INCLUDE_ASM). Naming it as the decoded "in-game frame machine"
  *     was never source-derived; treat the shape as OBSERVED.
- *   - func_001AE5E0 IS recovered, but it is not the gameplay frame:
- *     the C is a per-level INIT routine (bumps D_00810750, clears the
- *     player block 0x008102B0 and the camera block 0x008101E0, then
- *     runs the subsystem init sequence). The port's gameplay_frame is
- *     a port construction, not a translation of it.
+ *   - func_001AE5E0 IS the gameplay frame, and the mapping in em_game.c
+ *     is source-derived. An EARLIER AUDIT CALLED THIS WRONG ("a
+ *     per-level INIT routine ... the port's gameplay_frame is a port
+ *     construction"); that verdict is OVERTURNED. src/func_001AE5E0.c
+ *     [NEARMISS — logic authoritative] is a 13-call straight line whose
+ *     body is exactly the stage list em_game.c documents, arguments
+ *     included: bump the frame counter D_00810750 (and 0x70003B68),
+ *     func_001CB590(0x008102B0, 0x320, D_008102B9, frame) ->
+ *     func_0015BCF0 (player actor update) -> func_001CB5A0 ->
+ *     func_001D1C50 (render chain) -> func_001C1D00(0x008101D0) ->
+ *     func_001AFD70(0) -> func_0015C160 -> func_001F0360 ->
+ *     func_001CB590(0x008101E0, 0xD0, 0, 0) -> func_0018B9C0 (camera
+ *     machine) -> func_001CB5A0 -> func_001AAD00 -> func_001D1EA0(1).
+ *     Nothing in it is level setup; D_00810750 is a per-frame counter
+ *     (it is bumped on every call and handed to the first
+ *     func_001CB590 as its 4th argument).
  * See em_game.c for the per-function mapping. Today the port's frame
  * drives the port's
  * scene/character rendering, interactive player movement (left stick,
@@ -25,7 +35,11 @@
  * stride rate-scaled to ground speed) plus the decoded IDLE CYCLE
  * (breathing idle id 0, look-around fidget 349 every 300 frames —
  * re-confirmed by audit against func_00161020 [NEARMISS]: +0x28 =
- * 0x12C and func_001749A0(self, 0x15D, 1, 8.0f) are literal there),
+ * 0x12C and func_001749A0(self, 0x15D, 1, 8.0f) are literal there;
+ * CORRECTED 2026-07-31 — the same case-1 sub-0 branch gates the whole
+ * countdown on the LOW-HEALTH latch `!(+0x235 & 1)`, so a player at
+ * health <= 35 never fidgets, only breathes: see em_game.c "IDLE
+ * CYCLE"),
  * and
  * the engine's AUTHENTIC chase camera (struct 0x008101E0 mirror,
  * clamped proportional follow per FINDINGS.md "CAMERA SYSTEM"). The
@@ -84,16 +98,24 @@ int em_game_scene_switch(const char *dir);
  * Engine model: a request writes the clip id halfword to player+0x1F2
  * and the playback rate float to +0x1F8 (door scripts do it through
  * op 0x0A sub 0; the weapon arbiters and the locomotion defaults use
- * the same mailbox). CONFIRMED by audit against func_00183090
- * [byte-matched]: the per-frame COMMIT compares +0x1F2 with +0x20C,
- * and only when they DIFFER stores +0x1F2 -> +0x20C, clears the anim
- * flag word +0x200 and calls anim_clip_init(actor, +0x20C, +0x1F8,
- * 0.0f). The id IS the container index in the actor's bound clip
+ * the same mailbox). CONFIRMED by audit against src/func_00183090.c
+ * [byte-matched — hand-written asm that assembles to the original
+ * words, so it is authoritative]: the per-frame COMMIT compares +0x1F2
+ * with +0x20C, and only when they DIFFER stores +0x1F2 -> +0x20C,
+ * calls anim_clip_init(actor, +0x20C, +0x1F8, 0.0f) and then clears
+ * the anim flag word +0x200 (the clear is AFTER the call, not before;
+ * immaterial natively). Equal ids return with nothing done. The id IS
+ * the container index in the actor's bound clip
  * library (player: chunk28/f01_id3c — anim id == EMDL clip-table id).
  * Same function shows the SCRIPTED path: +0x2F3 == 1 or 3 re-seeds the
- * pose with bone_init_default_2(actor, +0x1F2) and advances +0x2F3 to
- * 2 or 4 respectively, bypassing the compare entirely — that is the
- * scripted-anim ownership handshake the interact lock below models.
+ * pose with bone_init_default_2(actor, +0x1F2), zeroes +0x200 and
+ * advances +0x2F3 to 2 or 4 respectively, bypassing the compare
+ * entirely — that is the scripted-anim ownership handshake the
+ * interact lock below models. TIGHTENED (audit 2026-07-31): every
+ * OTHER nonzero +0x2F3 — i.e. the advanced states 2 and 4 the re-seed
+ * itself writes — returns immediately WITHOUT committing, so the
+ * mailbox stays frozen for the whole scripted window, not just its
+ * first frame. Only +0x2F3 == 0 reaches the ordinary id compare.
  *
  * Natively: em_game_anim_request latches the request; actor_update
  * commits it on its next run (the engine's own one-frame request ->

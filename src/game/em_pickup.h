@@ -6,6 +6,19 @@
  * WRONG and the port carried the bugs; FINDINGS itself is still stale
  * on them).
  *
+ * SECOND AUDIT PASS 2026-07-31. Every "RE-VERIFIED"/"CONFIRMED" note in
+ * this header was re-read against the decomp source a second time and
+ * all of them hold verbatim (func_0015AFA0, func_001C4820, func_001B1190,
+ * func_001B11E0, func_0015AC00, func_0015AE20, func_00183EF0,
+ * func_001C40B0, func_001F1110, func_001F1180, func_001B6EA0,
+ * func_001C47A0/4720/4760). Two NEW corrections came out of that pass,
+ * marked CORRECTED-2 below:
+ *   (1) the use scan arms ONE object across the WHOLE interactive list
+ *       (func_00184BA0) — items and examines could both fire on a single
+ *       CROSS press in the port; and
+ *   (2) func_001C40B0's count-array ledger here was incomplete: ten cases
+ *       besides `default` also write the count array, UNCLAMPED.
+ *
  * THE DECODE OVERTURNS the s11/s15/s17 framing: the main placement
  * tables' kind-0xB records (class 0x0004, behavior func_001C4820 — the
  * office supply-room ammo-box/crate stacks) are DISPLAY PROPS in the
@@ -63,6 +76,16 @@
  *                   walks last frame's object list keeping only
  *                   objects with +0x00 bit 0, +0x02 bit 0x80 and
  *                   +0x0B == 0, per candidate:
+ *                   RE-VERIFIED: the walk keeps ONE winner for the whole
+ *                   press — `best = 10000.0f` then, per passing
+ *                   candidate, `v = *(float*)0x70003B98; if (v < best)
+ *                   { best = v; winner = obj; }`, and after the loop
+ *                   `winner[0xB] = 4; *(char*)0x70003B8D = 3; return 1`
+ *                   (a func_00183EF0 return of 2 short-circuits and arms
+ *                   that candidate immediately). ITEMS AND EXAMINE
+ *                   OBJECTS ARE ENTRIES OF THE SAME LIST, so one press
+ *                   can arm at most one of them — see CORRECTED-2 under
+ *                   PORT MAPPING.
  *   func_00183EF0   archetype-3 ITEM branch (jtbl_0026D810[3];
  *                   src/func_00183EF0.c, NEARMISS — logic
  *                   authoritative):
@@ -125,9 +148,35 @@
  *                   func_001C47A0.c, func_001C4720.c, func_001C4760.c)
  *   func_001C40B0   the inventory switch (s18's "0x001C4100";
  *                   src/func_001C40B0.c, NEARMISS — logic
- *                   authoritative). DEFAULT case only:
+ *                   authoritative). The DEFAULT case does
  *                   count[D_00810C64 + type] += n, then clamp
- *                   `>= 100 -> 99`. Case 0x10 SPR4 MAGAZINE takes NO
+ *                   `>= 100 -> 99`.
+ *                   CORRECTED-2 2026-07-31: "default case only" was
+ *                   WRONG. The recovered C's cases 0x01, 0x02, 0x03,
+ *                   0x04, 0x0C, 0x0D, 0x0E, 0x1B, 0x1C and 0x1D ALSO do
+ *                   `D_00810C64[arg0] += arg1` — but with NO clamp (the
+ *                   u8 simply wraps); their clamps apply to the linked
+ *                   METER, not to the count. Full ledger of the recovered
+ *                   switch, so nobody has to re-derive it:
+ *                     0x01           count += n; D_00810CA8 += 6
+ *                     0x02, 0x03     count += n; D_00810CAA += 6
+ *                     0x04           count += n; D_00810CAC += 1
+ *                                    (on cap also D_00810CAE = 0)
+ *                     0x0C,0x0D,0x0E count += n; D_00810CB0 += 1 ONLY
+ *                                    when D_00810C70/71/72 are all set
+ *                     0x0F           count = n (raw store, no add/clamp)
+ *                     0x10           the magazine case, below
+ *                     0x11 / 0x12    D_00810CA8 += n*6 / n*12 (no count)
+ *                     0x13 / 0x14    D_00810CAA += n*6 / n*12 (no count)
+ *                     0x15           D_00810CAC += n (no count; on cap
+ *                                    also D_00810CAE = 0)
+ *                     0x16           D_00810CB0 += n (no count)
+ *                     0x1B/0x1C/0x1D count += n; D_00810CB2 += n*12/36/48
+ *                                    with the D_00810CB7 "peak" raise +
+ *                                    clamp of CB2 to that peak
+ *                     default        count += n, clamp `>= 100 -> 99`
+ *                   Every meter clamp above is `>= 100 -> 99`.
+ *                   Case 0x10 SPR4 MAGAZINE takes NO
  *                   part of the default clamp; it does count += n,
  *                   pack counter D_00810C63 += n, reserve
  *                   D_00810CB4 += 30*n, empty mag D_00810C62
@@ -138,12 +187,15 @@
  *                   over-cap packs' rounds back OUT of the reserve.
  *                   FINDINGS and this header both said it "folds into
  *                   the reserve", and the port dropped it as a no-op.
- *                   Also NOTE (not a port bug, a documentation one):
- *                   cases 0x11..0x16 do NOT touch the count array at
- *                   all — they only move the per-weapon meters
- *                   D_00810CA8/AA/AC/AE/B0. Case 0x0F is a raw store
- *                   (`= n`, no add, no clamp). The port gives all of
- *                   them the default count — FLAGGED below.
+ *                   The port applies the DEFAULT clamp to every
+ *                   non-0x10 type, so it also clamps the ten cases the
+ *                   engine leaves unclamped and it gives 0x0F/0x11..0x16
+ *                   a count they never get — FLAGGED below, and left
+ *                   alone deliberately: the port already folds take
+ *                   families 1/2 into this one array, so a type here is
+ *                   NOT reliably the engine's stat index and per-case
+ *                   fidelity on top of that folding would be false
+ *                   precision.
  *   func_001AE7E0   the FOUND presentation: a nonzero D_008106B0 makes
  *                   the main-mode controller OPEN THE STATUS SCREEN,
  *                   which routes to the item's page/database record
@@ -169,10 +221,32 @@
  *    take path, above — not merely observed).
  *  - Collection condition = the decoded archetype-3 test (CROSS edge,
  *    10-u ring, the [-20.5, +3.5] dy window, **pi/2** facing with the
- *    7-u auto pass; nearest wins). The take-family-1/2 facing variants
+ *    7-u auto pass; nearest wins). RE-VERIFIED against
+ *    src/func_00183EF0.c `case 3: case 4:` — `bd <= **desc`, then
+ *    `dy >= 0 ? dy <= desc[1] : fabs(dy) <= 17.0f + desc[1]`, then
+ *    `bd <= 7.0f -> ang = 0` else `ang = wrap(player_yaw - atan2(bx,
+ *    bz))` accepted while `fabs(ang) <= 1.5707964f`. All four literals
+ *    (17.0f, 7.0f, 1.5707964f and the atan2 form) are in the recovered
+ *    C. The take-family-1/2 facing variants
  *    are NOT modeled (no placed family-1/2 item is closer than its ring
  *    to another pickup; the bearing test stands in — FLAGGED), but they
  *    share the pi/2 gate so the tolerance is right for all three.
+ *  - ONE WINNER PER PRESS (CORRECTED-2 2026-07-31). func_00184BA0 walks
+ *    a SINGLE interactive list — items, examine objects and the rest all
+ *    live in it — and arms exactly one object per CROSS press, the one
+ *    with the smallest planar distance (`if (v < best) { best = v;
+ *    winner = obj; }`, then `winner[0xB] = 4; return 1`). The port scans
+ *    items and examines in separate modules, so before this correction a
+ *    single press could take an item AND start an examine script in the
+ *    same frame. em_pickup now publishes this frame's item winner
+ *    (em_pickup_scan_dist) and can give it back (em_pickup_scan_release);
+ *    em_examine, which runs second, yields to a nearer item or releases a
+ *    farther one. STILL FLAGGED: doors are a third module and are not in
+ *    this arbitration — em_game gates them doors-first via the movement
+ *    lock (see em_game.c), which is an approximation of the same rule.
+ *    Tie-break: an exact distance tie goes to the ITEM (the engine's
+ *    `<` makes ties go to whichever object came first in the list, which
+ *    the port has no equivalent of).
  *  - The engine's archetype-3 LINE-OF-SIGHT re-check (func_00183EF0:
  *    when the candidate's class nibble is 7 or its think fn is
  *    func_00219550, a func_0019A910 raycast from player.y+16 to the
@@ -349,6 +423,18 @@ int em_pickup_found_take(void);
 
 /* Persistence introspection (self-test): the taken bit for `uid`. */
 int em_pickup_taken(int uid);
+
+/* USE-SCAN ARBITRATION (func_00184BA0's single-winner walk — see the
+ * "ONE WINNER PER PRESS" note above). Valid only for the remainder of
+ * the frame in which em_pickup_update ran; cleared at its next entry.
+ *   em_pickup_scan_dist   -> 1 and writes the winner's PLANAR distance
+ *                            (the engine's spad 0x70003B98 value) when
+ *                            THIS frame's scan armed an item, else 0.
+ *   em_pickup_scan_release-> give that arm back, because a nearer
+ *                            object elsewhere in the engine's one list
+ *                            won the press instead. */
+int  em_pickup_scan_dist(float *out_dist);
+void em_pickup_scan_release(void);
 
 #ifdef __cplusplus
 }

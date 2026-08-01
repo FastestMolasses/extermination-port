@@ -40,16 +40,23 @@
  *            (func_001BA1A0 primes the 0x40-byte-record interpreter,
  *            func_001BA1F0 pumps it).
  *
- *            CONFIRMED (audit) against the recovered C. func_001BA1A0
- *            (BYTE-MATCHED) writes the four-field cursor block that
- *            func_001BA1F0 reads at actor+0x1F0: [0]=1 (running),
- *            [4]=0 (timer), [8]=script pointer, byte[0xC]=0.
- *            func_001BA1F0 (NEARMISS) is the pump: opcode =
- *            *(int*)(rec+0) & 0xFFF dispatched through the 0x1000-entry
- *            table ftab_0024D880(actor, cursor, rec); flag bit31 = STOP
- *            (cursor[0] = -1, returns 3), bit30 = JUMP to *(rec+4),
+ *            CONFIRMED (audit, re-checked a second time 2026-07-31)
+ *            against the recovered C. func_001BA1A0 (BYTE-MATCHED) is
+ *            four stores and nothing else — `a0[0] = 1; a0[1] = 0;
+ *            a0[2] = a1; ((unsigned char *)a0)[0xC] = 0;` — i.e. the
+ *            cursor block func_001BA1F0 reads at actor+0x1F0:
+ *            [0]=1 (running), [4]=0 (timer), [8]=script pointer,
+ *            byte[0xC]=0. func_001BA1F0 (NEARMISS) is the pump:
+ *            `ftab_0024D880[*(int *)(n + 0) & 0xFFF](arg0, e, n)` — a
+ *            0x1000-entry table indexed by the record's low 12 bits.
+ *            The pump idles out on `*(int *)(e + 0) <= 0`. Record flag
+ *            bit31 = STOP (cursor[0] = -1), bit30 = JUMP to *(rec+4),
  *            else the cursor advances by 0x40 — so the 0x40-byte record
- *            stride and the opcode-nibble dispatch are engine truth.
+ *            stride and the opcode dispatch are engine truth. PRECISION
+ *            (audit-2): the return code is 3 only when a HANDLER returns
+ *            3; the bit31 STOP reached from the advance path sets
+ *            cursor[0] = -1 and returns 1. Nothing in the port keys on
+ *            that distinction, but do not quote "bit31 -> returns 3".
  *            The op NUMBERS below come from the AREA OVERLAY scripts,
  *            which are not in the decomp's recovered set: they are
  *            observation, not source-derived.
@@ -134,6 +141,18 @@
  *         at func_00183EF0's tail is archetype 0/1/2 only);
  *       * nearest passer wins (the engine leaves the planar distance
  *         at SPR 0x70003B98 for func_00184BA0 to compare).
+ *       * CORRECTED (audit-2, 2026-07-31) — ONE WINNER PER PRESS ACROSS
+ *         MODULES. func_00184BA0's recovered C walks a SINGLE
+ *         interactive list that contains items and examine objects
+ *         alike, keeps one `winner` by the smallest parked distance,
+ *         and arms only it (`winner[0xB] = 4; return 1`). The port
+ *         scans items (em_pickup) and examines here separately, so a
+ *         CROSS press near both used to take the item AND start the
+ *         examine script in the same frame. em_examine_update now runs
+ *         second and arbitrates through em_pickup_scan_dist /
+ *         em_pickup_scan_release (em_pickup.h "ONE WINNER PER PRESS").
+ *         STILL FLAGGED: doors are a third scanner and are gated only
+ *         doors-first by em_game's movement lock.
  *     Anchored at the manifest position. The AREA11 archetype-1 desc
  *     point ships AS the manifest position (engine values) — note
  *     func_00183EF0's real archetype-1 branch differs (desc-point xz,
@@ -170,13 +189,27 @@ extern "C" {
 #endif
 
 #define EM_EXAMINE_MAX        8   /* richest scene ships 2 */
-#define EM_EXAMINE_RECS       12  /* longest decoded chain = 9 records */
+#define EM_EXAMINE_RECS       12  /* longest OBSERVED chain = 9 records
+                                   * (read off an AREA01 overlay script,
+                                   * which the decomp has not recovered —
+                                   * not source-derived) */
 #define EM_EXAMINE_TEXT_MAX   160
 
-/* Decoded examine use-scan desc D_002758E0 (the default when the
- * manifest line carries no explicit pair). */
-#define EM_EXAMINE_RADIUS     20.0f
-#define EM_EXAMINE_DY         10.0f
+/* Examine use-scan desc D_002758E0 (the default when the manifest line
+ * carries no explicit pair).
+ * DOWNGRADED (audit-2, 2026-07-31): {20.0, 10.0} is NOT source-derived.
+ * D_002758E0 is .rodata; the recovered C (func_00183EF0) only ever
+ * DEREFERENCES the desc pointer at candidate+0x30 — the two floats
+ * themselves appear nowhere in the decompilation, only in FINDINGS
+ * "EXAMINE INTERACTION DECODED" §the-desc-table. Treat them as
+ * FINDINGS-asserted data (same tier as the item desc D_00275488
+ * {10.0, 3.5} — see em_pickup.h). The three constants BELOW are
+ * different: they are literals in the recovered C. */
+#define EM_EXAMINE_RADIUS     20.0f  /* desc[0] (FINDINGS-asserted)     */
+#define EM_EXAMINE_DY         10.0f  /* desc[1] (FINDINGS-asserted)     */
+/* CONFIRMED literals in src/func_00183EF0.c `case 3: case 4:` —
+ * `fabs(dy) <= 17.0f + desc[1]` for the item-above half of the window,
+ * and `bd <= 7.0f -> ang = 0.0f` for the facing auto-pass. */
 #define EM_EXAMINE_DY_EXTRA   17.0f  /* archetype dy widening, item-above */
 #define EM_EXAMINE_AUTO_RING   7.0f  /* facing auto-pass distance */
 /* Archetype-3 facing half-angle. CORRECTED (audit): func_00183EF0's

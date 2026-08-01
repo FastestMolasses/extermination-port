@@ -17,8 +17,17 @@
  *                  0x2D prefix in func_00183EF0 is
  *                  `if (player+0x1F0 == 0x2D) { if (kind != 7) return 0;
  *                  ... }`, i.e. it EXCLUDES class-5 outright.
- *                  Per-candidate test = the func_00183EF0 CLASS-5 branch
- *                  (re-read in full 2026-07-31, NEARMISS so its logic is
+ *                  Per-candidate test = the func_00183EF0 SELECTOR-0 /
+ *                  KIND-5 branch (citation tightened 2026-07-31 to match
+ *                  em_door.c's constants block, which had already been
+ *                  corrected: func_00183EF0 switches on the candidate's
+ *                  class SELECTOR byte +0x08, and its `case 5:` is an
+ *                  unrelated test — planar dist^2 <= 196, |dy| <= 4,
+ *                  accept, no facing window. The door test is inside
+ *                  `case 0:` guarded by the KIND nibble
+ *                  `*(u8*)(cand+2) & ~0xE0` being 5. Calling it "the
+ *                  CLASS-5 branch" sends the reader to the wrong arm.
+ *                  Re-read in full 2026-07-31; NEARMISS, so its logic is
  *                  authoritative): for model bytes 3 / 0x15 the distance
  *                  is measured from the DOORWAY CENTER
  *                    `(door.x - 5*cos(door_yaw), door.z + 5*sin(door_yaw))`
@@ -30,9 +39,15 @@
  *                  test (bearing-vs-door-yaw <= pi/2 picks which of
  *                  player_yaw / player_yaw+pi is compared), and finally
  *                  `|ang| <= 0.7853982f` = pi/4 of through-door. No LOS
- *                  and no auto-ring return-2 anywhere in the class-5
- *                  path — func_0019A910 and the `return 2` both live in
- *                  the 0x2D/class-7 prefix and the kind-4 sub-0x2C case
+ *                  and no auto-ring return-2 anywhere in the
+ *                  selector-0/kind-5 path. ENUMERATION CORRECTED
+ *                  2026-07-31 (audit): func_00183EF0 has THREE
+ *                  func_0019A910 raycast sites, not the two this used to
+ *                  list — the 0x2D/kind-7 prefix, the selector-0/kind-4
+ *                  sub-0x2C case, AND the selector-3/4 branch (gated on
+ *                  `(cand+2 & 0xF) == 7 || cand+0x10 == func_00219550`).
+ *                  None of them is on the door path; `return 2` really
+ *                  does occur only in the 0x2D/kind-7 prefix
  *                  -> the trigger scan inside em_door_update()
  *   func_001BC300  per-frame articulation + publish/draw (CONFIRMED
  *                  against the byte-matched func_001BC300 /

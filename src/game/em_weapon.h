@@ -29,13 +29,19 @@
  *                        NEXT tick, firing func_001861C0 +
  *                        func_00187CC0 together -> the port keeps this
  *                        exact one-frame latency. CONFIRMED against
- *                        both byte-matched files.
+ *                        both byte-matched files (re-checked
+ *                        2026-07-31: func_00170A60 cases 10/21/30 each
+ *                        do `*(short *)(*(e+0x20)+0x2E) = 1;` and
+ *                        func_00188630's camera-mode-0 arm is
+ *                        `if (act+0x2E) { act+0x2E = 0;
+ *                        func_001861C0(act); func_00187CC0(act); ... }`).
  *
  * ENEMY HITS (design choice, documented): on the PS2 the segment query
  * itself reports the hit ACTOR (*0x700031D4 in the scratchpad result
  * block) because movable hulls live in collision set 0. The port keeps
  * the em_collision world-geometry API untouched; instead the bullet (a)
- * aims at the round-robin slot of the decoded func_00199220 screen-cone
+ * aims at the round-robin slot of the func_00199220 screen-cone (whole
+ * chain re-read 2026-07-31; see the constants block in em_weapon.c)
  * acquisition (the "TARGET ACQUISITION" block below; +5-unit overshoot,
  * the engine's targeted-endpoint rule), and (b) runs em_enemy_ray_test —
  * segment vs every live enemy's hit sphere — BEFORE crediting the world
@@ -61,7 +67,8 @@
  * port used to fly un-acquired shots the full 260 units, which let it
  * hit at ranges the original never could.
  *
- * TARGET ACQUISITION + LOCK (func_00199220 DECODED 2026-06-11 — full
+ * TARGET ACQUISITION + LOCK (func_00199220 DECODED 2026-06-11, whole
+ * validity chain re-read 2026-07-31 — full
  * formula decode in em_weapon.c's constants block; retires the old
  * distance + 10-deg world-cone stand-in): every AIM tick the module
  * refreshes the engine's 3-slot target table (D_008106E0/E4/E8 -> the
@@ -150,6 +157,15 @@
  * the press frame, so its burst/auto trigger accepts one tick earlier
  * than the engine's. Not corrected: the weapon regression test pins the
  * auto round count to the port's schedule and lives outside this module.
+ * MID-CADENCE R1 RELEASE, on record (2026-07-31, no fix): only the
+ * TRIGGER-WAIT and release-wait sub-states (0, 1, 0x17, 0x20) call
+ * func_001607D0 at all — the cadence states 0xB/0x16/0x1F do not. So on
+ * the engine an R1 release DURING a shot's cadence is not even sampled
+ * until the cadence expires and the machine returns to state 0; the
+ * holster is deferred by up to a full interval. The port holsters from
+ * its AIM branch the same frame. Not corrected: the AIM branch is also
+ * the acquisition/steer/flashlight tick and deferring it belongs to the
+ * same whole-transition pass that owns the 0x63/0x64 blend.
  * ACCEPT->SHOT LATENCY, also on record: func_00170A60 case 0 only WRITES
  * the shot sub-state (e[7] = 0xA / 0x14 / 0x1E) and breaks — the shot
  * state body runs on the following tick. The port fires inside the
@@ -335,7 +351,7 @@
  * — so this port's stance (code 0x31, D_008105C8 == 0) draws through
  * func_00185760, the 260-unit beam+dot pass, and func_001854E0 (which
  * probes only 65 units and writes the +0x214 acquisition spread) owns
- * the alternate stance. LASER HIDE WINDOW: CONFIRMED — the +0x2F2
+ * the alternate stance. LASER HIDE WINDOW: CONFIRMED 2026-07-31 — the +0x2F2
  * (mirror D_008105A2) gate above applies to exactly the 0x31/0x34
  * group, and func_00170A60 CLEARS e[0x2F2] in every shot state
  * (cases 0xA/0x15/0x1E), re-setting it only at the cadence expiry
@@ -350,8 +366,9 @@
  * gun+0xA0 + dir*260 with the same query FORM as the bullet
  * (func_0019A570(origin, end, 7, 0x20)) and clips the laser at the hit
  * point (no hit: the full 260-unit endpoint — the laser still draws).
- * The 260 here is confirmed twice in func_00185760: once as the
- * func_00103230 probe scale, once as func_001E2BA0's last argument.
+ * The 260 here is confirmed twice in func_00185760 (re-read 2026-07-31):
+ * once as the func_00103230 probe scale, once as func_001E2BA0's last
+ * argument.
  * Note it is the LASER's range, not the bullet's — see UN-ACQUIRED
  * SHOTS above. Render, via em_gfx's world-space beam pass:
  *   BEAM (func_00185760 -> func_001E2BA0). The tint vec4 IS confirmed
@@ -406,7 +423,12 @@
  *           49/50/52/53 are unrelated clips (s23's id=index guess for
  *           them is corrected in FINDINGS).
  *   RELOAD  anim 0x11B (283) — THE TRUE RELOAD CLIP (decoded
- *           2026-06-11: func_0016F600's reload entry requests
+ *           2026-06-11, re-read 2026-07-31: func_0016F600 sub-mode 1's
+ *           expiry fires the clip PAIR
+ *           `func_001749A0(arg0, D_00248B88[+0x275], 0, 0.0f);`
+ *           `func_001749A0(arg0, D_00248B98[+0x275], 0, 1.0f);` then
+ *           `func_001FBD50(arg0, 0x163, 0, 300.0f);` —
+ *           func_0016F600's reload entry requests
  *           D_00248B98[sub-weapon]; sub 0 = 283, the slot after the
  *           aim ladder. The old 0x33 was the +0x1F0 ACTION CODE —
  *           library clip 51 is a KNOCKDOWN, the user's "stagger";
@@ -503,7 +525,10 @@
  *
  * ------------------------------------------------------------------------
  * KNIFE / MELEE (decoded 2026-06-10 s36 — decomp FINDINGS "KNIFE/MELEE
- * DECODED"; retires the s29 "SQUARE = unidentified action" open item).
+ * DECODED"; retires the s29 "SQUARE = unidentified action" open item.
+ * Both machines re-read 2026-07-31: func_001735C0 (NEARMISS) and the
+ * BYTE-MATCHED func_00173E60 confirm every damage / sound / marker /
+ * gate-table / recover-shape value quoted in this block).
  *
  * Engine architecture: the knife is permanent equipment with TWO attacks
  * on TWO DIFFERENT BUTTONS (NOT tap-vs-hold), dispatched by the action
@@ -637,6 +662,17 @@
  *     chain is checked on the WHIFF path — a CONFIRMED hit instead
  *     EARLY-EXITS to the recover states (engine: the target's +0x0A
  *     flag read back the tick after the mailbox write -> state 0x50).
+ *     ONE-SHOT WINDOW — the engine's chain window is a SINGLE TICK
+ *     (found 2026-07-31 in func_001735C0, majors 1 sub 3 / 2 sub 2): the
+ *     chain arm's else branch is `p[7]++`, so an UNBUFFERED crossing of
+ *     the D_002486D0/D4 threshold advances the sub-state out of the
+ *     chain arm for good and a FIRE press after the crossing can no
+ *     longer chain. The port holds the window open to the clip end
+ *     (`m.tick >= m.chain_at`) — a MEASURED DEVIATION, deferred, not a
+ *     decode gap: EM_MELEE_TEST phase 7 (em_game.c) presses 26 ticks
+ *     into a 35-frame swing whose chain tick is 16 and asserts the
+ *     chain, so the one-line fix fails that test until its press
+ *     schedule is re-timed. Full reasoning at the site in em_weapon.c.
  *   - RECOVER (states 0x50/0x51/0x52, hit-confirm only): a FIVE-tick
  *     pause — CORRECTED 2026-07-31; 0x50 seeds +0x28 = 4 and 0x51 reads
  *     the counter before its own decrement (`t = +0x28; +0x28 = t - 1;
@@ -724,7 +760,18 @@ enum {
                            * fires 0x162 at vol 300 (not 150) plus a 0x179
                            * re-announce when the flashlight preference
                            * D_00810D3C is already set. The port now plays
-                           * both at DRAW -> AIM                          */
+                           * both at DRAW -> AIM.
+                           * NOT ABORTABLE — CORRECTED 2026-07-31: major 1
+                           * contains no weapon-draw-hold test at all (its
+                           * whole body is the 0x1000 check plus
+                           * anim_eval_skeleton/copy_qw4), and
+                           * func_001607D0 — the only reader of the R1/R2
+                           * config slots in this stance — is reached only
+                           * from func_00170A60, which major 2 runs. An R1
+                           * release during the draw therefore plays the
+                           * clip out and holsters on the first AIM tick;
+                           * the port used to cut the clip and swallow the
+                           * 0x162 cue                                    */
     EM_WPN_AIM,           /* major 2 AIM/FIRE loop (fire sub-machine)      */
     EM_WPN_RELOAD,        /* major 3 (func_0016F600): anim 0x11B gates
                            * firing; the mag is already refilled
