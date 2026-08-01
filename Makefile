@@ -20,10 +20,10 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
 ifeq ($(UNAME),Darwin)
 CC        := clang
 SRC       := $(COMMON) \
-             src/platform/mac/em_platform_mac.m \
+             src/platform/mac/em_platform_mac.m src/platform/mac/em_gamepad_mac.m \
              src/gfx/metal/em_gfx_metal.m \
              src/audio/mac/em_audio_mac.c
-FRAMEWORKS := -framework Cocoa -framework Metal -framework QuartzCore \
+FRAMEWORKS := -framework Cocoa -framework GameController -framework Metal -framework QuartzCore \
               -framework AudioToolbox
 LDFLAGS   := $(FRAMEWORKS)
 endif

@@ -113,6 +113,8 @@
  */
 #include "game/em_frame.h"
 
+#include "em_gamepad.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,7 +313,11 @@ void em_frame_run(void)
         /* B: frame begin — acquire swapchain image + clear. */
         em_gfx_begin_frame(s_frame.gfx, 0.08f, 0.09f, 0.12f, 1.0f);
 
-        /* C (+I): input read/unpack into the frame input block. */
+        /* C (+I): input read/unpack into the frame input block.
+         * Sample any attached gamepad FIRST so its state is the one
+         * frame_input_read() unpacks (em_gamepad.h — the overlay replaces
+         * the keyboard map for the frame). */
+        em_gamepad_poll();
         frame_input_read();
 
         /* D: screen-fade machine (func_001AEDE0 tick) — armed by the

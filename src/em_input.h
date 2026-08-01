@@ -172,6 +172,13 @@ void em_input_init(void);
 void em_input_handle_event(const EmEvent *ev);
 
 /* Snapshot the current pad state into *out. */
+/* Push a real gamepad's state in (src/platform/<os>/, via em_gamepad.h).
+ * While set, it REPLACES the keyboard map for that frame; NULL clears it.
+ * Keeps this module OS-free — see em_gamepad.h for why a pad matters beyond
+ * convenience (force feedback, pressure-sensitive buttons, the analog gait
+ * rings are all decoded but unusable without one). */
+void em_input_set_gamepad(const EmPadState *gp);
+
 void em_input_pad(EmPadState *out);
 
 /* Name of the button at `bit_index` (0..15, canonical order above), e.g.

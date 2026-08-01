@@ -79,9 +79,24 @@ void em_input_handle_event(const EmEvent *ev)
     }
 }
 
+/* GAMEPAD OVERLAY (em_gamepad.h). em_input stays OS-free — the platform
+ * backend does the Apple/Win32/evdev work and pushes a finished EmPadState
+ * here. While a pad is attached its state REPLACES the keyboard's for that
+ * frame; NULL clears the overlay so unplugging falls straight back to the
+ * keyboard with no state carried across. */
+static EmPadState s_gp;
+static int        s_gp_present;
+
+void em_input_set_gamepad(const EmPadState *gp)
+{
+    if (gp) { s_gp = *gp; s_gp_present = 1; }
+    else    { s_gp_present = 0; }
+}
+
 void em_input_pad(EmPadState *out)
 {
     if (!out) return;
+    if (s_gp_present) { *out = s_gp; return; }
     out->buttons = s_in.buttons;
     /* Opposing keys cancel; -1 = left/up, +1 = right/down (em_input.h).
      * The GAIT HOLD TIERS (em_input.h): no modifier = FULL (RUN),
