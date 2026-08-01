@@ -364,6 +364,13 @@ void em_sfx_mix(float *out_interleaved_stereo, int frames, int device_rate);
 /* Free the preloaded samples. Game thread, AFTER em_bgm_shutdown() (the
  * device-teardown guarantee is what makes the sample memory safe to
  * free). Prints the mixed-voice counters if any one-shot ever played. */
+/* Stop every live voice immediately (engine func_001FBC50 — the audio
+ * reset/stop-all, mislabelled "Subsystem init" in the decomp). Call at a
+ * game-over, a scripted cut, or the script's op-0x17 sub-3 stop. This is a
+ * RUNTIME stop; em_sfx_shutdown() below is the process-exit teardown and must
+ * not be used for it. */
+void em_sfx_stop_all(void);
+
 void em_sfx_shutdown(void);
 
 /* Introspection (EM_SFX_TEST / debugging; game thread). */
