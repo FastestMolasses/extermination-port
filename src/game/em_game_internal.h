@@ -2091,6 +2091,11 @@ int director_camera(EmCamera *cam);
  * player split moves its other caller out). */
 void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3], int style);
 
+/* The engine's 5-bit LCG draw (defined in em_game.c). Shared because the
+ * damage lane's infection roll uses the same generator as the footstep
+ * picker — moves into em_player.c when the footstep lane is split. */
+unsigned footstep_rand5(void);
+
 /* The one gameplay state object (defined in em_game.c). */
 extern EmGameState g;
 
