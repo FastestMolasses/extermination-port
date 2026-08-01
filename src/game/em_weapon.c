@@ -1836,7 +1836,20 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
             w.flash_rot += (-128.0f - w.flash_rot) * 0.35f;
     }
 
-    const int draw_held = (in->held & EM_PAD_R1) != 0;
+    /* R2 OUTRANKS R1 — DECODED (src/func_001607D0.c). The engine's stance
+     * dispatcher tests the R2 config mask (spad 0x70003B7E) BEFORE the R1 mask
+     * (0x70003B7C) at both of its stance-0 entry points, and case 0x31 (the R1
+     * stance) switches straight to 0x1E / +0x1F0 = 0x32 the moment R2 is held.
+     * Case 0x32 only falls back to 0x1D / 0x31 once R2 is RELEASED and R1 is
+     * still held.
+     *
+     * The port had this inverted: em_game refused the R2 planted stance while
+     * em_weapon was aiming, so R1 won every contest. Holding R2 while already
+     * aiming did nothing, and rolling from R1 into R2 never changed stance.
+     * Suppressing the R1 draw here is the weapon-side half of the correction;
+     * em_game.c drops the matching !em_weapon_is_aiming() term. */
+    const int draw_held = (in->held & EM_PAD_R1) != 0 &&
+                          (in->held & EM_PAD_R2) == 0;
 
     switch (w.state) {
         case EM_WPN_HOLSTERED:

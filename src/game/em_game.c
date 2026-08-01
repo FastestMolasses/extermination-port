@@ -793,12 +793,19 @@ static void player_move(void)
      * this file's scope. Recorded, not fixed. */
     {
         const EmFrameInput *rin = em_frame_input();
-        int want = (rin->held & EM_PAD_R2) && !em_weapon_is_aiming() &&
-                   !em_weapon_is_melee();
+        /* AUDIT CORRECTION (round 3 follow-up): R2 OUTRANKS R1. The
+         * !em_weapon_is_aiming() term used to sit here, which gave R1
+         * priority — the exact inversion of func_001607D0, whose stance
+         * dispatcher tests the R2 mask BEFORE the R1 mask and whose case
+         * 0x31 (R1 stance) switches to 0x1E/0x32 the moment R2 is held.
+         * R1 is now suppressed while R2 is held, weapon-side, so this gate
+         * no longer has to defer to it. Melee still wins over both — the
+         * engine's melee states are a separate family this dispatcher is
+         * not reached from. */
+        int want = (rin->held & EM_PAD_R2) && !em_weapon_is_melee();
         if (want && !g.r2_aim)
             em_game_anim_hold(0x112, 1.0f);
-        else if (!want && g.r2_aim && !em_weapon_is_aiming() &&
-                 em_game_anim_active() == 0x112)
+        else if (!want && g.r2_aim && em_game_anim_active() == 0x112)
             em_game_anim_cancel();
         g.r2_aim = want;
     }
