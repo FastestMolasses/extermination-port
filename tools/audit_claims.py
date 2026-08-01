@@ -72,6 +72,10 @@ def main() -> int:
     ap.add_argument("--file")
     ap.add_argument("--json")
     ap.add_argument("--ungrounded", action="store_true")
+    ap.add_argument("--unaudited", action="store_true",
+                    help="only claims with no audit stamp in their context")
+    ap.add_argument("--stamp", default="2026-07-31",
+                    help="audit stamp that marks a claim as already verified")
     ap.add_argument("--context", type=int, default=6,
                     help="comment lines around the claim to carry along")
     a = ap.parse_args()
@@ -112,7 +116,11 @@ def main() -> int:
                 bucket = ("CHECKABLE" if usable
                           else "DATA" if uniq and all(c["status"] == "data" for c in uniq)
                           else "UNGROUNDED")
+                audited = a.stamp in ctx or "AUDIT CORRECTION" in ctx
+                if a.unaudited and audited:
+                    continue
                 per_file[rel].append({
+                    "audited": audited,
                     "line": i + 1,
                     "claim": CLAIM.search(line).group(1).upper(),
                     "bucket": bucket,
@@ -129,7 +137,8 @@ def main() -> int:
         for r in rows:
             tally[r["bucket"]] += 1
     total = sum(tally.values())
-    print(f"claims found: {total}")
+    aud = sum(1 for rows in per_file.values() for r in rows if r.get("audited"))
+    print(f"claims found: {total}   (already audited: {aud})")
     for b in ("CHECKABLE", "UNGROUNDED", "DATA"):
         print(f"    {b:11s} {tally[b]:4d}")
     print("\nCHECKABLE = cites a function we have recovered -> verify the claim against it")
