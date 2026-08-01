@@ -774,6 +774,40 @@ int em_weapon_melee_hits(void);   /* impact-tick victims since reset     */
  * left on the SEPARATE shoulder-light burst (the dormant s28b system;
  * 0 until its L3 input path is decoded) — self-test introspection. */
 int em_weapon_flashlight(void);
+
+/* --- LIGHT BEACON (engine D_008106C7) --------------------------------
+ *
+ * DECODED 2026-07-31 against the byte-matched func_0017A970. The engine
+ * keeps a SECOND flag alongside the flashlight preference: turning the
+ * light on sets D_008106C7, turning it off clears it. The port had no
+ * equivalent, which is why the flashlight here is purely cosmetic.
+ *
+ * It is what makes the light matter. Its consumers in the recovered C:
+ *
+ *   func_00138900 (byte-matched) — the 0x138xxx actor family's state 2.
+ *     While the beacon is set AND the listener (D_00810360) is within
+ *     150.0 units (func_001B15D0), a per-frame counter climbs; when it
+ *     ticks the actor ADVANCES OUT OF ITS DORMANT STATE, plays clip 3
+ *     and fires cue 0x816 at 300.0. Standing near a dormant actor with
+ *     the light on wakes it. That is a stealth mechanic the port does
+ *     not have.
+ *   func_0016F5D0 (byte-matched) — consumes it as a ONE-SHOT: if set,
+ *     clears it. So the beacon is not simply a mirror of light_on.
+ *   func_0018A6B0 — clears it whenever the mode byte D_00810CA6 leaves 0.
+ *   func_00185A10 — picks a movement mode on beacon == 0.
+ *   func_0016F530 (byte-matched) — sets it on an entity state-kick,
+ *     gated on D_00810CA6 == 0 && D_00810D3C != 0.
+ *   func_00188ED0, func_001D1C50 — further gates, both NEARMISS.
+ *
+ * NOT YET WIRED TO ENEMIES, deliberately. func_00138900 is state 0 of a
+ * six-state dispatcher (func_001386E0) for an actor family at 0x138xxx —
+ * it is NOT the crate (0x1551B0) or any kind this port currently models,
+ * and attaching its 150-unit wake to the crate would be inventing a
+ * mapping the decomp does not support. Wire it when that actor family is
+ * ported; the flag and its accessors are here so nothing has to be
+ * re-derived then. */
+int  em_weapon_light_beacon(void);
+void em_weapon_light_beacon_clear(void);
 int em_weapon_flashlight_timer(void);
 
 /* LASER visibility (self-tests): 1 = the beam pass draws the laser this

@@ -611,6 +611,13 @@ static struct {
                           * during the cadence window)                    */
     int     burst;       /* +0x28 burst counter, rounds fired this burst  */
 
+    int     light_beacon;/* engine D_008106C7 — raised with the light, cleared
+                          * with it (func_0017A970). NOT a duplicate of
+                          * light_on: the engine clears this one independently
+                          * in several places (func_0016F5D0 consumes it as a
+                          * one-shot; func_0018A6B0 drops it whenever the mode
+                          * byte leaves 0) while the light itself stays lit.
+                          * See em_weapon.h "LIGHT BEACON".               */
     int     light_on;    /* FLASHLIGHT preference flag (engine D_00810D3C:
                           * persists across aim sessions until toggled —
                           * NO timer; the spot renders only in AIM)       */
@@ -1910,9 +1917,23 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 if (square) {
                     if (!w.light_on) {
                         w.light_on = 1;
-                        em_sfx_play(EM_SFX_SUB_TOGGLE);     /* 0x179 */
+                        /* DECODED (func_0017A970, byte-matched): the engine
+                         * plays 0x179 POSITIONALLY —
+                         * func_001FBD50(&D_008102B0, 0x179, 0, 300.0f) — not
+                         * as a flat 2D cue. The port had em_sfx_play, which
+                         * keeps both channels at 1.0 regardless of where the
+                         * player is. */
+                        em_sfx_play_at(EM_SFX_SUB_TOGGLE, player_pos, 300.0f);
+                        /* DECODED (same function): turning the light ON also
+                         * raises the companion flag D_008106C7, and turning it
+                         * OFF lowers it. See the "LIGHT BEACON" block in
+                         * em_weapon.h — this flag is what makes the light
+                         * gameplay-relevant, and the port had no equivalent
+                         * at all. */
+                        w.light_beacon = 1;
                     } else {
                         w.light_on = 0;
+                        w.light_beacon = 0;
                     }
                 }
             }
@@ -2402,6 +2423,10 @@ int em_weapon_melee_hits(void)    { return m.hits; }
  * SEPARATE shoulder-light burst (the dormant s28b system; always 0
  * until its L3 input path is decoded and re-hooked). */
 int em_weapon_flashlight(void)       { return w.light_on; }
+/* LIGHT BEACON (engine D_008106C7) — see em_weapon.h. Exposed so the
+ * gameplay systems that consume it can be wired as they are decoded. */
+int em_weapon_light_beacon(void)     { return w.light_beacon; }
+void em_weapon_light_beacon_clear(void) { w.light_beacon = 0; }
 int em_weapon_flashlight_timer(void) { return w.shoulder_timer; }
 
 /* LASER introspection (self-tests): 1 = the laser draws this frame —
