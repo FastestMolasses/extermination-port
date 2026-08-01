@@ -57,10 +57,20 @@
  *              MOVEMENT when the walk-out phases end (113 frames — the
  *              two-lock split, em_door.h "THE TWO LOCKS") -> 0
  *
- * SLIDERS (m17/m09) run the decoded variant brain func_001BB860
- * instead — same CROSS use-arm (the one engine trigger, s58), native
- * slide, scripted walk-through, no fade, no player anim; see the
- * "SLIDER (m17/m09) VARIANT BRAIN" block below and em_door.h.
+ * SLIDERS (the decoded family {0x08, 0x16, 0x17, 0x3D, 0x3E}) run the
+ * variant brain func_001BB860 instead — same CROSS use-arm (the one
+ * engine trigger, s58), native slide, scripted walk-through, no player
+ * gesture anim; see the "SLIDER VARIANT BRAIN" block below and
+ * em_door.h. CORRECTED 2026-07-31 (audit): this line used to read
+ * "(m17/m09) ... no fade". Both halves were wrong. The family is the
+ * one above (0x09 is unsupported by any recovered function, m17 is only
+ * one member), and sliders DO fade — src/func_001BB860.c sub-state 3 is
+ * `func_001BC150(self); self[5]++;`, i.e. the SAME transition commit the
+ * hinged family runs, which arms func_001AEDE0(4,0) / func_001B0C00(4).
+ * The "no fade" belongs only to the slider OPEN script's op07 sub0
+ * (scripted-mode enter), not to the slider flow as a whole. The port's
+ * goto-less slider neither fades nor commits — that is the flagged PORT
+ * STAND-IN documented in the SLIDER block, not engine behaviour.
  *
  * Articulation — DECODED from func_001BC300 / func_001C68C0: the door's
  * per-frame tail is func_001C68C0 (build the placement transform at
@@ -335,17 +345,26 @@
  *    the request block at 0x002821B0: kind word = 2 (engine mode 2),
  *    status = 1 (busy), then a selector derived from `*(char *)(door +
  *    0x56) & 0x3F` — the LINK halfword's low 6 bits — mapped
- *    sel 0..5 -> 0x80000006/0/2/8/0xA/4, i.e. lines 6/0/2/8/0xA/4, with
- *    sel >= 6 bailing without issuing at all. BOTH shipped lock-gated
+ *    sel 0..5 -> 0x80000006/0/2/8/0xA/4, i.e. lines 6/0/2/8/0xA/4.
+ *    (TIGHTENED 2026-07-31: sel >= 6 returns 1 WITHOUT writing the
+ *    selector, but the kind/status words D_002821B0 = 2 and
+ *    D_002821B4 = 1 are already stored above the switch, so it does not
+ *    bail "without issuing at all" — it leaves the block armed-but-
+ *    unaddressed and skips the poll. Immaterial to the port: both
+ *    shipped locked doors are sel 0.) BOTH shipped lock-gated
  *    doors (office0/drawbridge m15, links 0x0200) carry sel 0 -> line 6
  *    "It's locked and won't open." (118 frames, centered text, no
  *    audio — DATA, not readable from recovered C). The native's poll
  *    phase returns done only once the servicer advances the status word
  *    to 2, so the locked script cannot finish before the text clears
  *    — the port blocks its finish edge on em_hud_radio_active() the
- *    same way. The voice-cue field of every global record is -1; the
- *    optional scene.txt `lockedvo <id-hex>` audio slot stays honored
- *    if the registry ever resolves a real cue (none do).
+ *    same way. DOWNGRADED 2026-07-31 (audit): "TEXT-ONLY", "the
+ *    voice-cue field of every global record is -1" and "no audio" are
+ *    NOT in func_001BBAE0 — it only issues the request and polls
+ *    D_002821B4; whatever services the 0x002821B0 block is not
+ *    recovered. Treat the silence as OBSERVED. The optional scene.txt
+ *    `lockedvo <id-hex>` audio slot stays honored if the registry ever
+ *    resolves a real cue (none do so far).
  *  - sliders' locked script D_0024DA40 = camera + wait 40 + the SAME
  *    VO native + exit (s56) — no exported locked slider exists; the
  *    port approximates with the hinged flow minus anim/clip/rattle
@@ -386,14 +405,17 @@
  * silent no-op). FLAGGED simplification until the manifest door lines
  * grow the link halfword.
  *
- * THE CLOSE IS SILENT, unconditionally — the last open question here is
- * now settled by func_001BBD20, which was the only remaining "maybe the
- * close plays something" candidate: it is not a close path at all but
- * the direct-play sibling of func_001BBD60, reading the SAME
- * D_0024DB80[link >> 8][side] OPEN pair and handing it to the
- * positional play call at radius 300. There is no close-sound id
- * anywhere in the door data, so the port plays nothing at the re-place;
- * the old EM_SFX_DOOR_CLOSE placeholder is retired. */
+ * THE CLOSE IS SILENT — well supported, but OBSERVED, not decoded
+ * (scoped 2026-07-31, audit). What IS decoded: func_001BBD20, the only
+ * remaining "maybe the close plays something" candidate, is byte-matched
+ * and is not a close path at all — it is the direct-play sibling of
+ * func_001BBD60, reading the SAME D_0024DB80[link >> 8][side] OPEN pair
+ * (`row = (*(short*)(door+0x56) & 0xFF00) >> 8`, entry from its own a1)
+ * and handing it to `func_001FBD50(obj, id, a2, 300.0f)`. What is NOT
+ * decoded: nothing in the recovered set shows any function being invoked
+ * at close time, and no separate close-sound id has surfaced. The port
+ * plays nothing at the re-place; the old EM_SFX_DOOR_CLOSE placeholder
+ * is retired. */
 #define DOOR_SFX_KEYWORD  "doorsfx"
 
 /* Fade speed for the transit fades — the captured func_001AEDE0 speed
@@ -428,9 +450,14 @@
  * timer is read, decremented and stored EVERY frame and the phase
  * advances on the frame the read yields 0 — so each phase costs its
  * count PLUS one hand-over frame, and the mover does NOT run on a
- * hand-over frame. Total 51 + 31 + 31 = 113 frames, 60 of them moving
- * (~12.8 u). The old "50/30/30, ~111 frames" reading dropped the
- * hand-over frames. */
+ * hand-over frame. Total 51 + 31 + 31 = 113 frames, 60 of them moving.
+ * The old "50/30/30, ~111 frames" reading dropped the hand-over frames.
+ * DISTANCE CORRECTED 2026-07-31 (audit): the travelled distance is
+ * ~13.1 u, not the "~12.8" this block used to state — phase 2 moves
+ * 30 * 0.3 = 9.0 u, and phase 3's 30 mover calls each run at the ramp
+ * value BEFORE that frame's decay (0.3, 0.2886, ... reaching 0 on the
+ * 27th), summing to ~4.1 u. Documentation only: the port derives the
+ * per-frame speed from the same ramp, so no constant changes. */
 #define WALKOUT_PHASE1_FRAMES 50      /* 0x32: clip only, no translation */
 #define WALKOUT_PHASE2_FRAMES 30      /* 0x1E: mover at full ramp        */
 #define WALKOUT_PHASE3_FRAMES 30      /* 0x1E: mover while ramp decays   */
@@ -1027,17 +1054,24 @@ static void door_trigger_scan(const EmCollision *coll, const float pp[3],
  *                door_z + 5*sin(door_yaw) - 5*cos(pyaw))
  *             = doorway CENTER + 5 u toward the player's side
  *
- * (s22: the engine SNAPs there; the port drives the same point through
- * the scripted MOVE-TO walk of func_00182F90 — flagged deviation). The
+ * (s22: the engine SNAPs there — CITATION TIGHTENED 2026-07-31:
+ * func_001BBE40 hands the staging point to func_00182F90, which the
+ * byte-matched src/func_00182F90.c shows is an INSTANT transform-apply
+ * over the player's 0xA0/0xB0/0xC0 slots, NOT a walk. The port drives
+ * the same point through a scripted MOVE-TO walk instead — that walk is
+ * the port's, the flagged deviation). The
  * far-side spawn point CENTER - 5*n approximates the spawn-table
  * re-place for non-goto doors (the real office records flank the
  * center at +-7; goto doors carry the real decoded spawn). The
  * scripted sequence is what carries the player across the grid
  * room-BOUNDARY planes (the doorways are statically sealed).
  *
- * NOTE this kickoff is the m03-family brain only — m17/m09 sliders run
- * their own decoded variant flow (slider_kickoff below, 2026-06-11;
- * the old "sliders ride the m03 machine" stand-in is retired). */
+ * NOTE this kickoff is the HINGED-family brain only (model bytes 0x03 /
+ * 0x15) — the slider family {0x08, 0x16, 0x17, 0x3D, 0x3E} runs its own
+ * decoded variant flow through func_001BB560 (slider_kickoff below,
+ * 2026-06-11; the old "sliders ride the m03 machine" stand-in is
+ * retired). Naming corrected 2026-07-31 (audit): "m17/m09" was never
+ * the family — see door_model_get. */
 static void door_transit_kickoff(Door *d, const float pp[3])
 {
     float nx = sinf(d->yaw), nz = cosf(d->yaw);

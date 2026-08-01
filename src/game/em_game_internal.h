@@ -211,24 +211,35 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * emitted along the EASED g.yaw, NOT the raw stick vector — so motion
  * CURVES into turns (the body lags the stick). rad/frame @ 60 Hz.
  *
- * TURN-IN-PLACE (move_speed == 0), banded by gait tier:
- *   gait 2 -> 4.0 deg/f ; gait 1 -> 8.0 deg/f ; gait 0/3 -> 22.5 deg/f
+ * TURN-IN-PLACE (move_speed == 0), banded by the gait byte +0x23F.
+ * CORRECTED (audit) — gaits 1 and 2 were SWAPPED here, and the swap had
+ * reached the constants below, so the port turned in place twice too
+ * fast on a gait-1 stick and half as fast on a gait-2 stick.
+ * func_00174AC0 [NEARMISS] reads, literally, in that order:
+ *   +0x23F == 1 -> func_001B12B0(ang, yaw, 0.06981317f)   =  4.0 deg/f
+ *   +0x23F == 2 -> func_001B12B0(ang, yaw, 0.13962634f)   =  8.0 deg/f
+ *   else (0/3)  -> func_001B12B0(ang, yaw, 0.39269909f)   = 22.5 deg/f
  * TURNING WHILE MOVING (move_speed > 0), banded by |delta| then by the
  * current ramped speed loco_upt (u/tick: walk 0.1, jog 0.3, run 0.8):
  *   |delta| <= 54 deg:  spd<=0.1 -> 4 ; spd<=0.3 -> 6 ; spd>0.3 -> 7
  *   |delta| >  54 deg:  spd<=0.1 -> 6 ; spd<=0.3 -> 9 ; spd>0.3 -> 10.5
  * The turn-toward SNAPS when |delta| <= the chosen rate (no overshoot /
  * jitter), else steps by sign(delta)*rate. */
-#define TURN_IP_GAIT2   0.0698132f  /* 4.0 deg/f, turn-in-place gait 2 */
-#define TURN_IP_GAIT1   0.1396263f  /* 8.0 deg/f, turn-in-place gait 1 */
-#define TURN_IP_GAIT03  0.3926991f  /* 22.5 deg/f, turn-in-place 0/3   */
-#define TURN_DELTA_BAND 0.9424778f  /* 54 deg — the |delta| split      */
-#define TURN_MV_NEAR_W  0.0698132f  /* near band: walk 4 deg/f         */
-#define TURN_MV_NEAR_J  0.1047198f  /*           jog  6 deg/f          */
-#define TURN_MV_NEAR_R  0.1221730f  /*           run  7 deg/f          */
-#define TURN_MV_FAR_W   0.1047198f  /* far  band: walk 6 deg/f         */
-#define TURN_MV_FAR_J   0.1570796f  /*           jog  9 deg/f          */
-#define TURN_MV_FAR_R   0.1832596f  /*           run  10.5 deg/f       */
+/* CORRECTED (audit): values swapped to match func_00174AC0's own
+ * gait-byte order — gait 1 is the SLOW in-place turn, gait 2 the fast
+ * one. Engine literals 0.06981317f / 0.13962634f / 0.39269909f. */
+#define TURN_IP_GAIT1   0.06981317f /* 4.0 deg/f, turn-in-place gait 1 */
+#define TURN_IP_GAIT2   0.13962634f /* 8.0 deg/f, turn-in-place gait 2 */
+#define TURN_IP_GAIT03  0.39269909f /* 22.5 deg/f, turn-in-place 0/3   */
+/* The moving-turn set is unchanged in MEANING but tightened to the exact
+ * func_00174AC0 literals (the old values were hand-rounded). */
+#define TURN_DELTA_BAND 0.9424779f   /* 54 deg — the |delta| split     */
+#define TURN_MV_NEAR_W  0.06981317f  /* near band: walk 4 deg/f        */
+#define TURN_MV_NEAR_J  0.10471976f  /*           jog  6 deg/f         */
+#define TURN_MV_NEAR_R  0.122173056f /*           run  7 deg/f         */
+#define TURN_MV_FAR_W   0.10471976f  /* far  band: walk 6 deg/f        */
+#define TURN_MV_FAR_J   0.15707964f  /*           jog  9 deg/f         */
+#define TURN_MV_FAR_R   0.18325958f  /*           run  10.5 deg/f      */
 /* MANUAL AIM STEER — DECODED, re-verified against the recovered C
  * (func_0017ABA0 [NEARMISS] + func_001B5DC0 [byte-matched]; retires the
  * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
@@ -272,6 +283,16 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define AIM_BAND_2      89.0f
 #define AIM_BAND_3      123.0f
 #define AIM_PITCH_MAX_R1 1.0f       /* +0x278 clamp, stances 0x31/0x32 */
+#define AIM_PITCH_MAX_R2 0.75f      /* +0x278 clamp, stances 0x34/0x35 —
+                                     * func_0017ABA0's `lim` else-arm.
+                                     * NOTE the clamp families are NOT the
+                                     * rate families: the rate table splits
+                                     * 0x31/0x34 vs the rest, the clamp
+                                     * splits (stance - 0x31 < 2) i.e.
+                                     * 0x31/0x32 vs the rest. The port
+                                     * models only the R1 stance, so this
+                                     * is carried unused until the 0x34/
+                                     * 0x35 sub-weapon stances land. */
 #define AIM_POSE_UP_DEG   81.3f     /* measured ladder pose pitches */
 #define AIM_POSE_DOWN_DEG 78.7f
 #define AIM_POSE_CTR_DEG  1.3f
@@ -573,10 +594,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *                                 func_001AC070 / func_001AC480
  *                                 notes.]
  *   GAME-OVER WAIT func_001AD4E0  sub 0: timer task+0x18 = 0xF0 = 240
- *                                 sub 1: busy gate; launch SCREEN
+ *                                 sub 1: raise the busy flag
+ *                                   D_00275BD8 = 1 and launch SCREEN
  *                                   MODULE 0x27 (func_001FF080(0,
- *                                   0x27)) — the GAME OVER art screen
- *                                 sub 2: module up -> FADE-IN
+ *                                   0x27)) — the GAME OVER art screen.
+ *                                   (Citation tightened by audit: the
+ *                                   busy GATE is sub 2's, not sub 1's)
+ *                                 sub 2: module up (D_00275BD8 back to
+ *                                   0) -> FADE-IN
  *                                   (func_001AEE10) + audio cue
  *                                   func_001FA790(0, 0x1B) (the
  *                                   game-over jingle/stream — id
@@ -789,7 +814,19 @@ enum {
                                    (cut table, decoded s65). The old 15.0
                                    belonged to the SMOOTH-table inline
                                    follow, which gameplay does not use; the
-                                   live capture measured +17. */
+                                   live capture measured +17.
+                                   FAMILY CAVEAT (audit): unlike the eye
+                                   height, this one is NOT family-neutral.
+                                   func_00191390 [byte-matched] writes
+                                   0x8C = 6 only when cam+0x64 != -31.2;
+                                   in a -31.2 record 0x8C = 2, so the
+                                   engine target rides player.y + 13
+                                   there. The port pins 17 for every
+                                   scene, which overstates the target
+                                   height by 4 in the office (-31.2)
+                                   records. Fix belongs with the runtime
+                                   in em_camera.c/em_game.c (another
+                                   pass owns those). */
 #define CAM_AIM_OFFSET  6.0f    /* struct +0x8C idle/default table value.
                                    CONFIRMED by audit — func_00191390
                                    [byte-matched, asm-word leaf] is a
@@ -1069,13 +1106,17 @@ enum {
                                     (follow: 1.5)                        */
 #define AIMS_SETTLE_NY   0.17f   /* 0x3E2E147B — func_0018CE60 walkable
                                     gate on non-floor-class normals      */
-#define CAM_L1_RATE     0.0349f /* rad/FRAME — the L1 orient-behind seek
+#define CAM_L1_RATE     0.034906585f /* rad/FRAME — the L1 orient-behind seek
                                    MOTION: the orient-to-heading family
                                    rate (func_001921D0 [NEARMISS] states
                                    7/0x2C/0x2D, 0.034906585f = 2 deg/f,
                                    fed to func_001B12B0(goal, cur, rate);
                                    state 7 aims at pi + player yaw, i.e.
-                                   BEHIND). Re-read by audit; one nuance:
+                                   BEHIND). Re-read + TIGHTENED by audit
+                                   (was a rounded 0.0349): the engine
+                                   literal is 0.034906585f, re-read in
+                                   func_001921D0 cases 7 and 0x2C/0x2D.
+                                   One nuance:
                                    0x2C/0x2D run 2 deg/f only until the
                                    alignment latch cam+0x6C sets, after
                                    which they hold at 0.0034906587f =
@@ -1115,10 +1156,15 @@ enum {
  * 0.052368 the old comment carried. Both func_001921D0 and the L1 arm
  * func_00191000 [byte-matched] compare against 0.05235988f. */
 #define CAM_IDLE_ORIENT_DEADBAND 0.05235988f /* 3 deg (0x3D567750) */
-/* CORRECTED (audit): 0x3B64C389 decodes to 0.0034904801 (a hair under
- * 0.2 deg/frame), not 0.0034907 — the literal is built lui 0x3B64 /
- * ori 0xC389 in func_00193D90 [byte-matched]. */
-#define CAM_ORBIT_RATE  0.0034904801f     /* rad/frame (0x3B64C389) */
+/* CORRECTED (2nd audit): 0x3B64C389 decodes to 0.0034906587, i.e.
+ * EXACTLY 0.2 deg/frame — NOT the 0.0034904801 the previous audit note
+ * claimed (that value is 0x3B64C08A, a different literal). The bit
+ * pattern is built lui 0x3B64 / ori 0xC389 in func_00193D90
+ * [byte-matched, asm-word leaf], and the same 0.0034906587f literal
+ * appears in func_001921D0 [NEARMISS] as the arm-time floor on the
+ * orbit rate (self+0x40) and as the post-latch rate of camera states
+ * 0x2C/0x2D — three independent sightings of the same constant. */
+#define CAM_ORBIT_RATE  0.0034906587f     /* rad/frame (0x3B64C389) */
 
 /* AIM CAMERA MODE 1 — DECODED (2026-06-11, func_00197D20 dispatcher +
  * func_00197740 entry / func_00197870 steady; replaces the +0x8C
@@ -1212,8 +1258,17 @@ enum {
  * tgt.y = 11 + f4 + player.y + 0.3*shave, with (f4, f5) = (6, 2) when
  * cam+0x64 == -46.8 and (2, 6) otherwise — so eye = +19 in BOTH
  * parameter families and the target is +13 default / +17 at -46.8,
- * exactly as recorded. func_001BBBF0 [NEARMISS] likewise matches the
- * LOCKCAM_* quartet below line for line. */
+ * exactly as recorded. (That family split agrees with func_00191390
+ * [byte-matched], which reaches the same pair from the opposite test,
+ * `cam+0x64 == -31.2`.) The +0.3*shave term: func_0018CBD0's NEARMISS
+ * renders the shared subexpression ambiguously, so the shaping value
+ * is read off the STRUCTURALLY IDENTICAL block in func_001916C0
+ * [NEARMISS, 98.80%, zero control-flow diff] — there the un-reshaped
+ * term is the raw excess (desired horiz dist minus |chase dist|), and
+ * at the door cut the eye is placed at exactly the chase distance, so
+ * the excess is 0 and the shave vanishes. That is what makes the
+ * recorded +13 the right value. func_001BBBF0 [NEARMISS] likewise
+ * matches the LOCKCAM_* quartet below line for line. */
 #define DOORCAM_EYE_BACK   20.0f  /* op 0x0D sub 5 chase dist (-20.0) */
 #define DOORCAM_EYE_UP     19.0f  /* 11 + f4 + f5 (live: eye y 19.0) */
 #define DOORCAM_TGT_UP     13.0f  /* 11 + f4 (live: target y 13.0) */
@@ -1313,10 +1368,11 @@ typedef struct {
  * ENGINE_CAM_ZOOM_SCOPE below.
  * CORRECTED (audit): func_001D2590 is NOT a "scripted lerp". The
  * recovered asm is a two-arg projection helper — it computes
- * func_001D25F0(a / tan(b / 2)) (halving both args, tan via
- * func_0011E398) — i.e. the same half-height/half-fov form the scope
- * path uses. Nothing in the recovered corpus interpolates this field;
- * every writer snaps it.
+ * func_001D25F0(a / tan(b / 2)) — only the SECOND argument is halved
+ * (re-read this pass: `a` is the dividend, NOT halved; the earlier
+ * "halving both args" was wrong), tan via func_0011E398. That is the
+ * same half-height/half-fov form the scope path uses. Nothing in the
+ * recovered corpus interpolates this field; every writer snaps it.
  *
  * Truth check (EM_PROJ_TEST=1, proj_test_run below): with the state01
  * savestate's live camera this chain reproduces the engine's own

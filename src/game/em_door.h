@@ -42,11 +42,15 @@
  *                     func_001C9940(o+0x110, *(u8*)(o+0xC), o+0xD0);`
  *                  — placement transform from the actor's
  *                  pos(+0xB0)/orientation(+0xC0)/SCALE(+0x60), then the
- *                  bone palette through the skeleton evaluator keyed on
+ *                  bone palette through func_001C9940 keyed on
  *                  the actor byte +0x0C (CORRECTED 2026-07-31: this
  *                  comment used to say "the model byte", which in this
- *                  header means +0x03 — the lock/family byte. The
- *                  evaluator does NOT read +0x03). func_001BC300 then
+ *                  header means +0x03 — the lock/family byte. That call
+ *                  does NOT read +0x03. SCOPED the same date: calling
+ *                  func_001C9940 "the skeleton evaluator" is an
+ *                  inference — it is an undecompiled stub. What the
+ *                  byte-matched func_001C68C0 settles is the call shape
+ *                  and the +0x0C key, nothing more). func_001BC300 then
  *                  calls func_001B1B30(self, x, 10.0f + y, z) — the
  *                  actor's spatial anchor 10 u above the placement
  *                  origin — and its own +0x4C method
@@ -171,8 +175,12 @@
  *      -> func_001AEDE0(4, 0), fade only, B8 = 2; SET = inter-area ->
  *      func_001B0C00(4), fade + audio fades, B8 = 1. So room moves
  *      genuinely do NOT fade audio. (The "64-frame" ramp length for
- *      speed 4 is a capture, not something func_001AEDE0 states — it
- *      only writes D_0028A9A0 = 3 / speed = 4.)
+ *      speed 4 is a capture, not something func_001AEDE0 states.
+ *      TIGHTENED 2026-07-31 (audit): the byte-matched func_001AEDE0
+ *      writes FOUR fields, not the two this used to list —
+ *      D_0028A9A0 = 3, D_0028A9A6 = speed (4), D_0028A9A3 = 3,
+ *      D_0028A9A2 = mode (0). Only D_0028A9A0 != 0 matters to the port:
+ *      that is the word func_001AE7E0 gates the menu on.)
  *   3. while black: the player is RE-PLACED at the spawn point behind
  *      the door (door - 5*n on the far side, exit yaw); consumed by
  *      em_game through em_door_warp_pending(). CORRECTED 2026-07-31:
@@ -193,7 +201,11 @@
  *   4. ARRIVAL WALK-OUT (the engine's player state 5/1, dispatcher
  *      func_0015B610 -> handler func_00183250). PROVENANCE, split
  *      honestly by the 2026-07-31 audit:
- *        CONFIRMED — the byte-matched func_001B07C0 copies the spawn
+ *        CONFIRMED — func_001B07C0 (NEARMISS 99.04%, so its LOGIC is
+ *          authoritative but not its scheduling — provenance fixed
+ *          2026-07-31; this line still said "byte-matched", contradicting
+ *          the dest-table paragraph above that had already corrected it)
+ *          copies the spawn
  *          record's +0x14 byte to player+0x0E and, when its own arg is
  *          nonzero, a +0x0E of 1 writes player state/sub/phase =
  *          5 / 1 / 0. The whole phase machine below is read out of the
@@ -276,8 +288,16 @@
  *   em_door_menu_locked() — kickoff until the fade-in completes.
  *   em_hud gates its open toggle on it (the func_001AE7E0 stand-in).
  *
- * SLIDERS (the variant brain func_001BB860): sliding doors do NOT run
- * the m03 transit.
+ * SLIDERS (the variant brain func_001BB860). CORRECTED 2026-07-31
+ * (audit): this line used to read "sliding doors do NOT run the m03
+ * transit", which the recovered brain flatly contradicts and which the
+ * FIDELITY note further down already argued against. src/func_001BB860.c
+ * sub-state 3 is `func_001BC150(self); self[5]++;` — the SAME transition
+ * commit func_001BC240 makes for the hinged family. What sliders do NOT
+ * run is the m03 SCRIPT: no player gesture anim, no 90/70 op02 wait, a
+ * 6.0-u staging offset instead of 5.0, and a native panel slide
+ * (func_001BB400) in place of the hinged clip. The transition itself is
+ * identical.
  *
  * FAMILY CORRECTED 2026-07-31. This block used to be headed "m17/m09".
  * The model bytes (+0x03) the recovered slider code actually tests are
@@ -319,7 +339,8 @@
  * Lock-gated placements (flags2 0x16/0x17/0x3E vs the
  * D_00810841 unlock bits) run a LOCKED script (camera + VO, no motion)
  * — not in the port (no lock bitmask, flagged). See em_door.c "SLIDER
- * (m17/m09) VARIANT BRAIN" for the full decode + port mapping.
+ * VARIANT BRAIN" for the full decode + port mapping (heading reference
+ * fixed 2026-07-31 — the old "(m17/m09)" title no longer exists).
  *
  * FIDELITY NOTES (remaining port deviations, each flagged in em_door.c):
  *  - TRIGGER IS NOT A DEVIATION (s58): the engine arms ALL doors on the
@@ -384,9 +405,17 @@
  *
  *   SCRIPT D_0024DEC0 (queued by func_001BBE40 mode 1, after the same
  *   side-latch/yaw-snap/staging walk as the open kickoff):
- *     op07 sub2   scripted-mode enter (both locks; the fade-arm variant
- *                 func_001AEB60(4) is a fade-IN arm — no visual effect
- *                 on a bright screen, not ported)
+ *     op07 sub2   scripted-mode enter (both locks; it also runs
+ *                 func_001AEB60(4). DOWNGRADED 2026-07-31 (audit):
+ *                 calling that "the fade-arm variant ... a fade-IN arm"
+ *                 overstates the recovered C. The byte-matched
+ *                 func_001AEB60 is `if (D_0028A8D0 == 1) return;
+ *                 D_0028A8D0 = 3; D_0028A8D2 = speed; D_0028A8D4 = 0;`
+ *                 — a DIFFERENT global block from the transit fade
+ *                 machine D_0028A9A0 that func_001AEDE0 drives, and
+ *                 nothing recovered says which direction its mode-3
+ *                 means. Not ported either way, so no behaviour rests
+ *                 on it.)
  *     op09        func_001BBBF0 locked-look camera CUT. CONFIRMED
  *                 2026-07-31 (NEARMISS, logic authoritative):
  *                   target = (door.x - 8*cos(door_yaw),

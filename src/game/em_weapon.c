@@ -901,8 +901,14 @@ static void weapon_enter_aim(void)
                                      * it — the port sets it at entry
                                      * (same frame the engine's WAIT
                                      * head runs)                        */
-    w.cycle     = 0;                /* +0x2F0 = 0 at stance entry
-                                     * (func_001703E0 state 0)           */
+    /* +0x2F0 is deliberately NOT reset here — CORRECTED 2026-07-31.
+     * Only the STANCE ENTRY zeroes it (func_001703E0 state 0, BYTE-
+     * MATCHED: `*(unsigned char *)(p + 0x2F0) = 0;`). The post-reload
+     * return to AIM is func_0016F600's sub-mode 3, which writes
+     * arg0[6] = 2, arg0[7] = 0 and restores +0x27C/+0x278 and NOTHING
+     * ELSE — the round-robin index survives the reload. This routine
+     * serves both entries, so resetting here snapped the aim back to
+     * slot 0 after every reload. The draw entry now zeroes it itself. */
     w.tgt[0] = w.tgt[1] = w.tgt[2] = -1;
 }
 
@@ -1706,9 +1712,16 @@ static void melee_update(const float pos[3], float yaw,
                 break;
             }
             if (m.tick > m.impact && m.confirm) {
-                /* Hit confirmed (the engine reads the target's +0x0A
-                 * the tick after the write): EARLY EXIT to the recover
-                 * states — a landed hit SKIPS the combo chain. */
+                /* Hit confirmed — CONFIRMED 2026-07-31 in both melee
+                 * machines: the post-impact sub-state opens with
+                 *     if ((*(unsigned char **)(p + 0x18))[0xA]) {
+                 *         p[6] = 0x50; ...free the sound handle... }
+                 * (func_001735C0 majors 1/2/3 and the BYTE-MATCHED
+                 * func_00173E60 state 3), i.e. the victim link's +0x0A
+                 * flag read back the tick AFTER the +0x36 write.
+                 * EARLY EXIT to the recover states — a landed hit SKIPS
+                 * the combo chain, which is only tested on the else
+                 * (whiff) arm. */
                 m.state       = EM_MELEE_RECOVER;
                 m.recov_pause = MELEE_RECOV_PAUSE;  /* state 0x50/0x51 */
                 break;
@@ -1729,9 +1742,12 @@ static void melee_update(const float pos[3], float yaw,
             break;
 
         case EM_MELEE_RECOVER:
-            /* Engine 0x50/0x51: 4-tick pause, then the recover anim
-             * 0x10F (idx-0 arm; blend 4.0 — the port plays it at the
-             * property rate), then 0x52 waits the clip out -> exit. */
+            /* Engine 0x50/0x51: a FIVE-tick pause (MELEE_RECOV_PAUSE —
+             * +0x28 = 4 read before its own decrement; this comment
+             * still said "4-tick" after that correction), then the
+             * recover anim 0x10F (idx-0 arm; blend 4.0 — the port plays
+             * it at the property rate), then 0x52 waits the clip out
+             * -> exit. */
             if (m.recov_pause > 0) {
                 if (--m.recov_pause == 0) {
                     em_game_anim_request(MELEE_ANIM_RECOV,
@@ -1847,6 +1863,12 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                 em_game_anim_hold(WPN_ANIM_DRAW, WPN_DRAW_RATE);
                 w.state = EM_WPN_DRAW;
                 w.timer = em_weapon_draw_ticks();
+                w.cycle = 0;    /* +0x2F0 = 0 — the STANCE ENTRY is the
+                                 * only writer that clears it (state 0's
+                                 * `p[0x2F0] = 0`); it used to live in
+                                 * weapon_enter_aim, which also runs at
+                                 * the post-reload AIM re-entry, where
+                                 * func_0016F600 leaves it alone        */
             }
             break;
         case EM_WPN_DRAW:
@@ -1878,7 +1900,17 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
                  * the header describes, which the port never emitted. */
                 em_sfx_play(EM_SFX_WPN_DRAW);           /* 0x162 */
                 if (w.light_on)
-                    em_sfx_play(EM_SFX_SUB_TOGGLE);     /* 0x179 replay */
+                    /* 0x179 replay — POSITIONAL, corrected 2026-07-31.
+                     * func_0016F530's re-announce is the byte-for-byte
+                     * same call the Square toggle makes,
+                     *   func_001FBD50(&D_008102B0, 0x179, 0, 300.0f);
+                     * so it has to be scheduled the same way. The
+                     * toggle site below was already moved to
+                     * em_sfx_play_at; this one was left flat, which put
+                     * the two identical engine cues on different
+                     * channels. */
+                    em_sfx_play_at(EM_SFX_SUB_TOGGLE, player_pos,
+                                   300.0f);
                 weapon_enter_aim();         /* major 2: hold pose 0x112 */
                 w.pending = 0;
                 w.burst   = 0;

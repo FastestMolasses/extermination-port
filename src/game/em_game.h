@@ -23,7 +23,10 @@
  * turn-in-place / walk / run — and its 4.5-unit radial wall probes)
  * with an idle<->locomotion crossfade (0.15 s linear palette blend,
  * stride rate-scaled to ground speed) plus the decoded IDLE CYCLE
- * (breathing idle id 0, look-around fidget 349 every 300 frames), and
+ * (breathing idle id 0, look-around fidget 349 every 300 frames —
+ * re-confirmed by audit against func_00161020 [NEARMISS]: +0x28 =
+ * 0x12C and func_001749A0(self, 0x15D, 1, 8.0f) are literal there),
+ * and
  * the engine's AUTHENTIC chase camera (struct 0x008101E0 mirror,
  * clamped proportional follow per FINDINGS.md "CAMERA SYSTEM"). The
  * player has NO free camera control (the original gives none): R1/L1
@@ -117,11 +120,15 @@ int em_game_scene_switch(const char *dir);
  * / em_game_anim_hold of a different id, or em_game_anim_cancel.
  *
  * em_game_anim_hold_restart is the FIRE-RECOIL variant (decoded s25,
- * FINDINGS "FIRE ANIM MECHANISM"): the engine plays NO separate fire
- * clip — while the player carries a firing stance code (+0x1F0 in
- * {0x31, 0x34}) the per-bone publisher bone_matrix_publish re-seeds
- * the COMMITTED aim-ladder clip every frame with sample time = the
- * fire counter (+0x276: 0 at every shot, +2/frame). The recoil snap
+ * FINDINGS "FIRE ANIM MECHANISM"; the re-seed half CONFIRMED by audit
+ * against bone_matrix_publish [byte-matched]): the engine plays NO
+ * separate fire clip — while the player carries a firing stance code
+ * (+0x1F0 in {0x31, 0x34}) the per-bone publisher bone_matrix_publish
+ * re-seeds the COMMITTED aim-ladder clip every frame with sample time
+ * = the fire counter, literally
+ *   anim_clip_arbiter(obj, id, 0.0f, (float)*(short *)(obj + 0x276)).
+ * The counter's own "+2/frame, 0 at every shot" cadence is NOT in that
+ * function and stays OBSERVED. The recoil snap
  * is baked into the FRONT frames of the aim-pose clip itself, so each
  * shot replays the clip from frame 0 and it settles back into the
  * clamped hold. Natively: if `clip_id` is already the committed hold,
@@ -165,10 +172,16 @@ float em_game_aim_pitch(void);
 float em_game_aim_yaw_blend(void);
 void  em_game_aim_dir(float out[3]);
 
-/* AREA-11 OPENING PROGRESSION — game-state flags + the scripted elevator
- * (decoded INVESTIGATION_area11_elevator.md; batch-2 contract A/D). The
- * mandatory first objective: pick up the battery, power the terminal,
- * ride the elevator DOWN to the room-move door.
+/* AREA-11 OPENING PROGRESSION — game-state flags + the scripted elevator.
+ * DOWNGRADED by audit: OBSERVED, not source-derived. The elevator body is
+ * OVERLAY code (ov 0x00828050) that the decomp does not contain, and the
+ * cited INVESTIGATION_area11_elevator.md exists in neither repo, so none
+ * of the flag addresses, the 150-frame ride or the sound id below can be
+ * re-checked against recovered C. They come from live PCSX2 reads; treat
+ * them as a port stand-in. (Same downgrade as the ELEVATOR block in
+ * em_game_internal.h.) The mandatory first objective as observed: pick up
+ * the battery, power the terminal, ride the elevator DOWN to the
+ * room-move door.
  *
  * em_game_has_battery / em_game_set_battery — the engine's
  *   D_00810811 byte ("battery in inventory"; 0xFF = held). em_pickup.c
@@ -199,15 +212,23 @@ void em_game_elevator_start(void);
 
 /* SCRIPTED PLAYER INTERACTION ANIM + LOCK — the engine's "scripted-anim-
  * owns-player" model (player+0x2F3 = 3), decoded for the CORRECTED two-
- * terminal AREA-11 flow (INVESTIGATION_area11_elevator.md "CORRECTED
- * FLOW" + "OUTSIDE BATTERY TERMINAL"). Both terminals play a one-shot
- * scripted clip ON THE PLAYER and lock player input/movement for its
- * duration: the OUTSIDE battery-insert clip 0x14, the INTERNAL lever-
- * throw clip 0x47. The engine's op0A handler (0x001B9A00, player base
- * 0x008102B0) writes player+0x1F2 = clip id, player+0x40 = clip ptr,
- * player+0x2F3 = 3 — and the free-move action machine is suppressed while
- * that scripted-anim state holds (LIVE: the lock is the scripted-anim
- * state, NOT a control-mode flag — D_008101E4 stays 0).
+ * terminal AREA-11 flow. PROVENANCE SPLIT (audit):
+ *   - the "+0x2F3 owns the player" MODEL is source-derived and holds:
+ *     func_00183090 [byte-matched] shows +0x2F3 == 1 or 3 re-seeding the
+ *     pose from +0x1F2 and bypassing the ordinary id-change commit
+ *     entirely (see the SCRIPTED PLAYER ANIM block above);
+ *   - everything AREA-11-SPECIFIC here is OBSERVED, not decoded. The
+ *     cited op0A handler address 0x001B9A00 is not a function boundary in
+ *     the decomp registry (no src/func_001B9A00.c, no FUNCTIONS.csv row),
+ *     and the cited INVESTIGATION_area11_elevator.md is in neither repo —
+ *     so the clip ids 0x14 / 0x47, the two-terminal ordering and the
+ *     +0x40 clip-pointer write rest on live RAM reads alone.
+ * As observed, both terminals play a one-shot scripted clip ON THE PLAYER
+ * and lock player input/movement for its duration: the OUTSIDE
+ * battery-insert clip 0x14, the INTERNAL lever-throw clip 0x47; the
+ * free-move action machine is suppressed while that scripted-anim state
+ * holds (LIVE: the lock is the scripted-anim state, NOT a control-mode
+ * flag — D_008101E4 stays 0).
  *
  * em_game_player_interact_anim — play `clip_id` once on the player at
  *   rate 1.0 and lock player input/movement (turn + walk suppressed, the
@@ -228,14 +249,19 @@ void em_game_elevator_start(void);
  *
  * em_game_player_face_step — the examine op04 FACE pre-roll. Turn the
  *   player body heading toward `target_yaw` by one standing turn-in-place
- *   step (TURN_IP_GAIT03 = 0.3927 rad = 22.5 deg/frame, SNAP-when-within,
- *   the decoded turn-toward stepper) and return 1 once the player is
- *   facing it (snapped), else 0 (still turning). The examine sequence
+ *   step (TURN_IP_GAIT03 = 0.39269909 rad = 22.5 deg/frame,
+ *   SNAP-when-within) and return 1 once the player is facing it
+ *   (snapped), else 0 (still turning). PROVENANCE SPLIT (audit): the
+ *   STEPPER is source-derived — func_00174AC0 [NEARMISS] drives the body
+ *   heading through func_001B12B0(goal, cur, rate) and picks 0.39269909f
+ *   for the standing gait-0/3 case. That the EXAMINE op04 pre-roll reuses
+ *   that particular rate is OBSERVED: the cited
+ *   INVESTIGATION_examine_walk_face.md exists in neither repo, and no
+ *   recovered examine-script function names it. The examine sequence
  *   (em_examine.c) calls this each frame while its input lock holds, so
  *   the FACE pivot plays out before the message. Does NOT touch
  *   player_move's desired-heading / movement-v3 path — the examine lock
- *   already suppresses free locomotion for the script window.
- *   INVESTIGATION_examine_walk_face.md §3. */
+ *   already suppresses free locomotion for the script window. */
 void em_game_player_interact_anim(int clip_id);
 int  em_game_player_interact_busy(void);
 int  em_game_player_face_step(float target_yaw);

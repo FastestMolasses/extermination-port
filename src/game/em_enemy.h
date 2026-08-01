@@ -77,10 +77,14 @@
  *                  when the difficulty byte D_0081070A is nonzero — so
  *                  slot 0x0F -> 15 HP, slot 0x10 -> 30 HP.
  *                  Mailbox ROUTER func_00128B80 is polled EVERY live
- *                  tick: on ANY nonzero +0x36 (or the global instakill
- *                  flag D_0081080F, which first copies +0x34 into +0x36)
- *                  it forces actor[0] = 3, state 2, subs 0 — it compares
- *                  no HP. Reaction driver func_00129FC0 (BYTE-MATCHED)
+ *                  tick: on ANY nonzero +0x36, or on the global
+ *                  instakill flag D_0081080F, it forces actor[0] = 3,
+ *                  state 2, subs 0 — it compares no HP. ORDER CORRECTED
+ *                  2026-07-31: the `+0x36 = +0x34` instakill copy is the
+ *                  LAST thing the router does, AFTER the state writes
+ *                  (and after func_0012E070) — it stages full-HP damage
+ *                  for the NEXT tick's driver, it does not precede the
+ *                  transition. Reaction driver func_00129FC0 (BYTE-MATCHED)
  *                  then debits the LOW BYTE of +0x36 from +0x34 and
  *                  plays flinch 0x1D, or knockdown 0x1B when the damage
  *                  word carries 0x2000, or sub[0xFB] has bit 7 set, or
@@ -124,10 +128,14 @@
  *                  the difficulty byte, via func_001289C0 ->
  *                  func_00128390 — genuinely consumed by func_00129FC0;
  *                  worm init = 10 — func_00154040 writes `+0x34 = 0xA` —
- *                  but VESTIGIAL: the whole recovered worm chain
- *                  (dispatcher func_00153F10, init func_00154040,
- *                  sub-machine func_00154120) contains NO +0x34 or +0x36
- *                  access, and the only +0x36 write in a worm's life is
+ *                  but VESTIGIAL, and CORRECTED 2026-07-31 (the old
+ *                  "the whole chain contains NO +0x34 access" contra-
+ *                  dicted its own previous sentence): that init store is
+ *                  the ONLY +0x34 touch in the worm chain — nothing ever
+ *                  reads it back. The dispatcher func_00153F10 carries no
+ *                  readable logic (byte-matched as raw .word) and the
+ *                  sub-machine func_00154120 accesses NEITHER +0x34 NOR
+ *                  +0x36 anywhere. The only +0x36 write in a worm's life is
  *                  the release teardown's `+0x36 = 0` (func_001AFC10,
  *                  BYTE-MATCHED). Worms are NOT shootable.)
  *   actor +0x36    INCOMING-DAMAGE MAILBOX, s16 — attackers write it,
@@ -144,9 +152,20 @@
  *                  reaction driver func_00129FC0); the worm never reads it.
  *                                                 -> em_enemy_damage()
  *   victim filter  BOTH filters are BYTE-MATCHED leaves and both were
- *                  read out in full 2026-07-31. Each first requires
- *                  `(actor[0x02] & 0x1F) == 2` — the class byte IS 2 —
- *                  and then switches on the MODEL byte actor[0x03]:
+ *                  read out in full 2026-07-31. CORRECTED 2026-07-31,
+ *                  the class mask: both leaves load the class byte with
+ *                  `lbu` and AND it with the sign-extended immediate
+ *                  0xFFFFFF1F, i.e. `(actor[0x02] & 0x9F) == 2` — NOT
+ *                  & 0x1F. Only the two flag bits 0x20/0x40 are masked
+ *                  off; bit 0x80 must be CLEAR for the actor to be a
+ *                  victim at all. (func_001AFA90 stores the WHOLE
+ *                  spawn byte at +0x02 and only its own class compare
+ *                  uses ~0xE0, so the two masks genuinely differ — a
+ *                  0x80-flagged class-2 actor allocates fine and is
+ *                  still rejected by both filters. em_enemy.c's filter
+ *                  must mask 0x9F, not 0x1F.)
+ *                  Each filter then switches on the MODEL byte
+ *                  actor[0x03]:
  *                    func_00183AC0 (bullet/laser victim): REJECTS models
  *                      0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13;
  *                      model 0x06 is a victim only while +0x9F == 0;
@@ -244,8 +263,12 @@
  *    then re-reads +0x36 purely to decide damage-kill vs suicide burst
  *    (see DEATH below). The port implements exactly this for the crate.
  *    The WORM consumes NOTHING — now source-confirmed, not just
- *    live-observed: func_00153F10 / func_00154040 / func_00154120
- *    contain no +0x34 or +0x36 access whatsoever. Combined with the
+ *    live-observed: func_00154120 (the whole live sub-machine) accesses
+ *    neither +0x34 nor +0x36, func_00153F10 is raw .word with no
+ *    readable logic, and func_00154040's `+0x34 = 0xA` is a write-only
+ *    init store nothing reads back (CORRECTED 2026-07-31 — the previous
+ *    blanket "no +0x34 access whatsoever" was wrong about the init).
+ *    So no worm code path CONSUMES either field. Combined with the
  *    model-0x0D rejection in both victim filters (file header), the old
  *    "unfound HP consumer" open item is CLOSED: there isn't one. HP=10
  *    is vestigial init data. The port's former every-tick worm mailbox
@@ -272,9 +295,16 @@
  *    func_0019AA80: it stages the two point args as a segment at
  *    0x70003190/+0x10, writes the two 1.0f constants, and hands
  *    `arg2 & 0xFFFF` straight to func_001A7280 — so 0x20 is a mask/id
- *    handed to the sweep, not a radius. (func_001A7280 is recovered but
- *    only as a low-confidence NEARMISS, so exactly what it does with
- *    that value is UNRESOLVED here.)
+ *    handed to the sweep, not a radius. TIGHTENED 2026-07-31: the
+ *    recovered func_001A7280 (a low-confidence 72% NEARMISS, but the
+ *    OUTER scan stage is the verified part) reads that argument as a
+ *    per-AXIS FLAG MASK — it tests bits 0x10 / 0x20 / 0x40 against each
+ *    collision record's own axis flag bytes (ANDed with the world flags
+ *    at +0x5C/0x5D/0x5E) and skips the record when the mask comes out
+ *    0. So 0x20 selects one axis class of world geometry for the sweep;
+ *    it is definitively NOT a distance. What the innermost per-vertex
+ *    accept/reject stage does with a passing record stays UNRESOLVED
+ *    (that stage is the low-confidence part of the recovery).
  *    DOWNGRADED 2026-07-31, the endpoints: the recovered func_00154120
  *    reads BOTH of them off the GLOBAL at D_00275B40 —
  *    `*(char **)(D_00275B40 + 0x34) + 0xC0` and
@@ -342,8 +372,15 @@
  *  - SPEED/RANGES: hop forward speed, hop airtime and the per-model
  *    hit-sphere radius are not exported from the disc; the port
  *    constants are flagged in em_enemy.c. The lunge travels at the
- *    lunge clip's authored 21.27 u/s root speed (engine data); the
- *    connect test is the decoded segment-vs-player arm + the port's
+ *    lunge clip's authored 21.27 u/s root speed — PROVENANCE TIGHTENED
+ *    2026-07-31: that number is ASSET data (the leech clip bank, clip 3
+ *    = 120 f with 42.2 u of root travel; decomp FINDINGS "CRAWLER
+ *    RESOLVED" clip-bank section), NOT a constant in any recovered
+ *    function. No decompiled C states a lunge speed. Note also that
+ *    func_00154040 writes 0.5f to actor+0x80 (anim scale), so the live
+ *    leech is half the authored size — if the port ever scales root
+ *    motion by that field, this figure needs re-deriving.
+ *    The connect test is the decoded segment-vs-player arm + the port's
  *    6-unit contact stand-in (see LUNGE DAMAGE above).
  *
  * MESH: assets/enemy_crawler.emdl (EMD2/EMD3 via the em_model API,
@@ -388,7 +425,10 @@
  *     when the counter hits 0. The whole block is gated on bit 0 of
  *     +0x0E, which INIT clears when the crate owes its nest group no
  *     untriggered record — so a gore-only crate sits PERFECTLY STILL.
- *     CONFIRMED. The amplitudes/periods are flagged port constants —
+ *     CONFIRMED (func_001551B0 state 0 clears bit 0 of +0x0E when the
+ *     record walk counts zero un-triggered records; state 4 runs the
+ *     whole rattle/shudder block only under `+0x0E & 1`).
+ *     The amplitudes/periods are flagged port constants —
  *     the D_002468B0/B4/B8 table values are not exported;
  *   - HP 1: DAMAGE (the +0x36 mailbox — bullet or knife) BURSTS it,
  *     broadcasting the group alarm; the engine has NO proximity
@@ -399,8 +439,16 @@
  *     if (t == 0) t = 1; p = *(char **)(D_0024D820[area] + (t +
  *     self[0x56]) * 4)`, then 0x2C-byte records until a leading -1,
  *     each un-triggered one (func_001B11E0 == 0) spawned through
- *     func_001AFA90(record[4]) with model = record[6], kind = record[8]
- *     and position = crate pos + record[0x10..0x18]. The per-area
+ *     func_001AFA90(record[4]) — record[4] is the CLASS byte, the
+ *     argument func_001AFA90 masks with ~0xE0 and stores whole at
+ *     child +0x02. The child fields the walk fills, CORRECTED
+ *     2026-07-31 to the offsets the recovered C actually writes:
+ *     child +0x03 (model) = record[6], child +0x2E = record[6] >> 8,
+ *     child +0x0D = record[8] (this is the field the old note
+ *     mislabelled "kind"; the placement kind/link pair is child
+ *     +0x54/+0x56 = record[0xC]/record[0xE]), child +0x9A =
+ *     record[2], and position = crate pos + record[0x10..0x18]
+ *     (rotation +0xC0..0xC8 = record[0x1C..0x24]). The per-area
  *     record CONTENTS below stay DATA (disc tables the port cannot
  *     read): office links 0-4
  *     carry 2/2/3/2/2 bug records, AREA03/06 nests carry ITEM records
@@ -438,8 +486,9 @@
  * BYTE-MATCHED — and the EVERY-TICK mailbox consumption. The two-stage
  * consumption chain and the clip roles are CONFIRMED 2026-07-31:
  * func_00128B80 is only the ROUTER (any nonzero +0x36, or the global
- * instakill flag D_0081080F which first copies +0x34 into +0x36,
- * forces actor[0] = 3 / state 2 / subs 0; it compares no HP), and
+ * instakill flag D_0081080F, forces actor[0] = 3 / state 2 / subs 0;
+ * it compares no HP, and when D_0081080F is set it copies +0x34 into
+ * +0x36 as its LAST act, staging a full-HP debit for the next tick), and
  * func_00129FC0 (BYTE-MATCHED) is the driver that subtracts the LOW
  * BYTE of +0x36 from +0x34 and plays FLINCH 0x1D, or KNOCKDOWN 0x1B
  * when the damage word carries 0x2000, or sub[0xFB] has bit 7 set, or
@@ -567,7 +616,11 @@
  *                  func_00153F10 as the child's brain) -> +0x2E++ ONLY
  *                  on a successful spawn; >= 4 -> sub 2 EXHAUSTED
  *                  forever (sub 2 has no body); else sub 1 = delay
- *                  D_002481F0[RNG%3] frames, counted down WITHOUT
+ *                  D_002481F0[i] frames where CORRECTED 2026-07-31
+ *                  `i = ((func_00122BB8() >> 16) * 3) >> 15` — a SCALED
+ *                  draw over 0..2, not the modulo the old note claimed
+ *                  (same range, different distribution: the top 15 bits
+ *                  are what select the row), counted down WITHOUT
  *                  needing the player, then sub 0 again. All CONFIRMED.
  *                  The values {1800, 3600, 5400} = 30/60/90 s are DATA.
  *   mode 1         sub 0: 100-frame in-box charge driving the morph
@@ -587,7 +640,7 @@
  *                  cap. CORRECTED 2026-07-31, the two supporting
  *                  arguments that used to stand here: (a) func_00183AC0
  *                  does not "reject class 0x0D" — it requires class
- *                  (+0x02 & 0x1F) == 2 and rejects a MODEL-byte set that
+ *                  (+0x02 & 0x9F) == 2 and rejects a MODEL-byte set that
  *                  does not include model 3; (b) the pair pass does NOT
  *                  skip model 3 — func_001A8BE0's `case 3` is exactly
  *                  the generator's arm. Neither argument holds; the
@@ -633,7 +686,10 @@
  * the pad. It deals NO damage (the pad's box pass does that), has no
  * HP, no mailbox, no hit sphere, never moves and never publishes to
  * the target lists: not shootable, not acquirable, not counted by
- * em_enemy_alive. Decoded machine (sub-state +0x05):
+ * em_enemy_alive. Decoded machine (sub-state +0x05) — every state
+ * below re-read 2026-07-31 out of the recovered tick func_001549C0
+ * (// NEARMISS) with its two BYTE-MATCHED gates func_00154460 (the
+ * SCAN trigger box) and func_001545B0 (the 0.92x ellipse reject):
  *
  *   spawn       a mode-1 generator attaches the pair (idx 0/1 —
  *               concentric rings) at pad init, parent-linked; nothing
@@ -641,7 +697,12 @@
  *   0 SCAN      trigger = player inside 3x the parent pad footprint
  *               (|dy| <= 3 + recY). On trigger: anchor = (player X,
  *               pad Y, player Z); scatter 12 targets on the ring
- *               r = 5.5 +- 2.0 u (idx 0) / 7.0 +- 2.5 u (idx 1)
+ *               r = 5.5 + rand01*2.0 u, i.e. 5.5..7.5 (idx 0) /
+ *               7.0 + rand01*2.5, i.e. 7.0..9.5 (idx 1)
+ *               (CORRECTED 2026-07-31 against func_001549C0 case 0:
+ *               the draw is ONE-SIDED — `5.5f + 2.0f * (rand * 2^-31)`
+ *               with rand in [0, 2^31) — never below the base radius.
+ *               The old "+-" reading let spikes erupt inside 5.5 u.)
  *               around the player, REJECTING points outside the
  *               0.92x pad ellipse; per record phase = rand 48..127,
  *               ramp 0, girth from the cycling {180,218,255,384}/256

@@ -85,7 +85,11 @@
  * The camera is the engine's own chase camera (clamped proportional
  * follow, FINDINGS.md "CAMERA SYSTEM" port contract) with its
  * desired-eye solver the DECODED func_0018DD20 (style 0, mask 6 —
- * cam_solver_0018DD20 below) against the same world; the player has
+ * cam_solver_0018DD20, now in em_camera.c) against the same world;
+ * CONFIRMED against src/func_0018DD20.c (NEARMISS — logic
+ * authoritative): the wall arm writes only pos[0]/pos[2] (`+= 0.5f *
+ * push`), leaving pos[1] alone, so the pull-in really is at constant
+ * height. The player has
  * NO free camera control — R1/L1 orient the camera behind the player,
  * idle auto-orients slowly, and a blocking wall PULLS the eye in at
  * constant height (which reads as the camera rising over the player —
@@ -774,7 +778,19 @@ static void player_move(void)
      * DOT-only drawer func_001854E0 and it has no fire-counter recoil
      * — both stay with em_weapon, noted there as pending). em_game
      * runs its planted pose + steer + camera side: the held aim pose
-     * through its own anim mailbox, R1 (em_weapon) taking priority. */
+     * through its own anim mailbox.
+     *
+     * FLAGGED DIVERGENCE (audit 2026-07-31) — STANCE PRIORITY IS
+     * INVERTED HERE. The port gives R1 priority (the `want` gate below
+     * refuses while em_weapon_is_aiming()). The recovered dispatcher
+     * src/func_001607D0.c (NEARMISS — logic authoritative) gives R2
+     * priority, in three places: from stance 0 it tests the R2 config
+     * mask (spad 0x70003B7E) BEFORE the R1 mask (0x70003B7C); stance
+     * 0x31 (R1) switches straight to 0x1E/0x32 the moment R2 is held;
+     * and stance 0x32 (R2) only falls back to 0x1D/0x31 once R2 is
+     * RELEASED and R1 is still held. Correcting this means suppressing
+     * R1's aim while R2 is held, which lives in em_weapon.c — out of
+     * this file's scope. Recorded, not fixed. */
     {
         const EmFrameInput *rin = em_frame_input();
         int want = (rin->held & EM_PAD_R2) && !em_weapon_is_aiming() &&
@@ -833,10 +849,19 @@ static void player_move(void)
         if (rawx == 0x80 && (ain->held & EM_PAD_UP))    rawy = 0x00;
         if (rawy == 0x80 && (ain->held & EM_PAD_DOWN))  rawy = 0xFF;
 
-        /* func_001B5DC0 deflection bands + the per-stance rate rows */
+        /* func_001B5DC0 deflection bands + the per-stance rate rows.
+         * Both rows read literally out of src/func_0017ABA0.c
+         * (NEARMISS — logic authoritative): the 0x31/0x34 arm is
+         * {0, 0.0025f, 0.005f, 0.015f} with f20 = 1.0f, the else arm
+         * (the R2 family 0x32/0x35) is {0, 0.0016666666f, 0.005f,
+         * 0.01f} with f20 = 1.5f.
+         * CORRECTED (audit 2026-07-31): kRateR2[3] was 0.015f — a
+         * transcription of the R1 row's top band. The recovered C
+         * reads `rate[3] = 0.01f` in that arm, so the port panned the
+         * R2 aim 50% too fast at full stick deflection. */
         static const float kRateR1[4] = { 0.0f, 0.0025f, 0.005f, 0.015f };
-        static const float kRateR2[4] = { 0.0f, 0.0016667f, 0.005f,
-                                          0.015f };
+        static const float kRateR2[4] = { 0.0f, 0.0016666666f, 0.005f,
+                                          0.01f };
         const float *rate = r1fam ? kRateR1 : kRateR2;
         float body_mul = r1fam ? 1.0f : 1.5f;   /* f20 */
         int bx = abs(rawx - 0x80), by = abs(rawy - 0x80);
@@ -1697,7 +1722,11 @@ static void player_hurt_tick(void)
  *                D_00810C7E == 0; counter +0x300 at >= 0x168 (360, NOT
  *                240) drains health by 1.0f (not 2.0f), and at
  *                health <= 1.0f forces event 2 + pending 1.0f.
- * The func_0015D000 heartbeat rumble is untranslated (PD block doc). */
+ * The func_0015D000 heartbeat rumble is untranslated (PD block doc).
+ * RE-CONFIRMED (audit 2026-07-31): every constant above reads out of
+ * src/func_0015D100.c literally — the 0xF0 / 0x168 periods, the 2.0f /
+ * 1.0f drains, the `<= 2.0f` / `<= 1.0f` death gates, the +0xF = 0x63
+ * type byte and the `<= 35.0f` +0x235 latch. */
 static void player_vitals_tick(void)
 {
     if (g.pd_iframes > 0) g.pd_iframes--;
@@ -1747,7 +1776,16 @@ static void player_vitals_tick(void)
  * func_001AB790(func_001ACEC0) and returns without the
  * func_001D2830(3,1) tail. Its state-2 CONFIRM dispatch reads that same
  * GS[0xF]: 0 -> state 4 + D_00275BE0 = 0 (CONTINUE), 1 -> func_00225A00()
- * + state 5 (LOAD), 2 -> state 6 + GS[0xC] = 0 (sub-screen). Runs every
+ * + state 5 + D_00275BE0 = 1 (LOAD), 2 -> state 6 + GS[0xC] = 0
+ * (sub-screen). RE-CONFIRMED line by line (audit 2026-07-31) against
+ * src/func_001AC480.c, src/func_001AD4E0.c and src/func_001AC070.c;
+ * the D_00275BDC = 1 write really is in src/func_001ADF00.c, and the
+ * masks check out against the s37 BYTE-SWAPPED pad map (0x40 = CROSS,
+ * 0x800 = START, so 0x840 = START|CROSS; 0x1000 = d-pad UP,
+ * 0x4000 = d-pad DOWN). One knowingly-unmirrored detail: the engine
+ * reads the prompt counter BEFORE decrementing and expires on the
+ * pre-decrement 0, i.e. 1201 frames to the port's 1200. Left alone —
+ * one frame in a 20 s idle timeout. Runs every
  * frame from GO_SCREEN on (the frozen-world gate in gameplay_frame
  * calls it — the engine's game task is REPLACED here, so the world
  * does not simulate). Presentation: em_hud_game_over /
@@ -2938,7 +2976,12 @@ static float director_letterbox_alpha(void)
  * health D_00810858 (> 35 -> 0x1C2, else 0xA — the port's
  * clip_menu / clip_menu_low pair); state 1 runs the breathe ramp
  * +0x38 between 1.0 and 1.3 (UI_RAMP_MAX), wraps the yaw and calls
- * anim_advance_time; states 2/3/default free the slot. The actor is
+ * anim_advance_time; states 2/3/default free the slot.
+ * RE-CONFIRMED (audit 2026-07-31): the 0.01f ramp/yaw steps, the pi
+ * seed and -2pi wrap, the -80/-100/-30 x 0.01 tint triple with the
+ * -127 clamp on the G row, anim_advance_time(1.0f), and the clip swap
+ * being SWAP-BACK ONLY (`health > 35 && +0xB == 1 -> 0x1C2`, never the
+ * reverse) all read literally out of src/func_0020E6F0.c. The actor is
  * re-created on every open, which is why the port re-inits on the
  * visible edge.  (func_0020E6F0 on the menu's private static-actor
  * stage — the world is not drawn at all; s44 verified there is no
@@ -3203,7 +3246,12 @@ static void ui_scene_render(EmGfx *gfx)
  * tint instead (same modulate, applied post-clamp).
  *
  * ROOM SELECTION: the engine keys the rig on (D_00810700<<8)|
- * D_00810701 — the AREA/SUB-STATE bytes, not spatial bounds. A
+ * D_00810701 — the AREA/SUB-STATE bytes, not spatial bounds. (One
+ * more fold, named so nobody re-derives it: the engine's COLOR
+ * accumulator is seeded by copying the live rig quad at +0xF0 over the
+ * D_00253180 constant, so the constant seed is dead there — the port's
+ * per-frame `sc = c0` start is the same thing for a rig that is
+ * republished each frame. Audit 2026-07-31.) A
  * sub-state flip is a scene switch in the port (each exported scene
  * is one (area, sub) pair), so the active scene's rig IS the engine's
  * room selection; no player-position mapping exists or is invented. */
@@ -3605,15 +3653,22 @@ static void move_test_script(void)
  * player on the z = -225 corridor line facing the WEST double door
  * (hinge/placement at (57, 0, -220.5), record [5] AREA02 state 1;
  * DOORWAY CENTER = hinge + 5 along the panel = (57, 0, -225.5) — the
- * decoded func_00183EF0 class-5 reference point, 2026-06-11) and
- * exercises the FULL s22 transit sequence end to end through the real
+ * decoded func_00183EF0 kind-5 reference point, 2026-06-11).
+ * CITATION TIGHTENED (audit 2026-07-31): that 5-unit offset is real
+ * but it is NOT the `+8 == 5` arm. src/func_00183EF0.c (NEARMISS)
+ * puts it in the `+8 == 0` arm, under `kind == 5 && (sub == 3 ||
+ * sub == 0x15)`, as `ref = (obj.x - 5*cos(yaw), obj.z + 5*sin(yaw))`,
+ * range-tested against rec[0] with |dy| <= rec[1] from the +0x30
+ * tuning record. The `+8 == 5` arm is a plain 14-u radius test
+ * (`dx*dx + dz*dz <= 196.0f`) with |dy| <= 4.0f and NO panel offset.)
+ * Exercises the FULL s22 transit sequence end to end through the real
  * input API:
  *
  *   frames  1..24   run -X (full push = gait 3; the tier ramp tops
  *                   out at 0.8 u/frame) to the boundary-wall standoff
  *                   x ~= 64.5 (inside the 10 u use-scan radius measured
  *                   from the CENTER; no button — the door must stay
- *                   CLOSED. Engine-true twice over: the class-5 scan
+ *                   CLOSED. Engine-true twice over: the kind-5 scan
  *                   has no auto ring, and the scan itself only runs on
  *                   the USE press edge — there is NO walk-into door
  *                   trigger at all, s58)
@@ -6222,6 +6277,12 @@ static void gameplay_frame(void)
      * `self+0x10 += 0.5f * dir.x` / `self+0x18 += 0.5f * dir.z` off the
      * hit point — X and Z only, self+0x14 (Y) untouched. So "0.5 units
      * off the surface, height held" is literal, not an approximation.
+     * SCOPED (audit 2026-07-31): that is the WALL arm, which is the one
+     * this capture exercises. The sibling floor/ceiling arm (surface
+     * flags +0x1A & 0xD800) copies the whole hit quad into self+0x10
+     * with func_00102948 first, so it DOES move the eye Y before
+     * applying the same 0.5 X/Z push — "height held" is the wall case
+     * only, not the function as a whole.
      * Default capture frame 420; EM_CAMERA_TRACE=1 prints the solve. */
     if (g.capture_aim == 5) {
         if      (g.frame_no == 0)   move_test_inject('s', 1);
@@ -6298,7 +6359,10 @@ static void gameplay_frame(void)
      * player about-faces and runs TOWARD the camera; the chase camera
      * backs away until the room's far wall blocks its desired eye and
      * the decoded func_0018DD20 solve PULLS IT IN at constant height
-     * (cam_solver_0018DD20): the eye parks 0.5 u off the wall while
+     * (cam_solver_0018DD20, em_camera.c; CONFIRMED against
+     * src/func_0018DD20.c [NEARMISS] — the wall arm adds 0.5f * push
+     * to pos[0]/pos[2] only, never pos[1]): the eye parks 0.5 u off
+     * the wall while
      * the player keeps closing, so the view tilts down over the
      * player's head — the user-observed "rise to show the player's
      * top", emergent. Use with EM_CAPTURE_FRAME around 280+ (office

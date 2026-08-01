@@ -41,7 +41,12 @@
  * span 180 + 3.6*hp .. 540 at the SAME radii (36-56, one block), and it
  * shrinks to nothing at full health. The port now draws that; its
  * colour is a flagged dark stand-in (the block's static colours are
- * unexported). Drawn through the em_gfx annular-arc
+ * unexported). Two further corrections to it (2026-07, second audit
+ * pass): the sweep divides by the LITERAL 100.0f, NOT by the displayed
+ * maximum (the port rescaled it and so drew a full ring under the
+ * infected 60-cap), and the arc is the LAST primitive the function
+ * submits — after the rotating highlight, which it therefore paints
+ * over (the port drew it first). Drawn through the em_gfx annular-arc
  * primitive; the BATTERY half-unit square bar at (16,118); the SPR4
  * reserve row at (16,190) (the real screen shows NO magazine state —
  * reserve only); INFECTION as text positions only (there is NO infection
@@ -178,8 +183,15 @@
  *   battery     the status screen's "04/06" pair in DISPLAY units.
  *               Engine storage is HALF-units: current at 0x810CB2,
  *               max at 0x810CB7, both shown >>1; the segment bar draws
- *               one square per half-unit (battery * 2). Block gated on
- *               0x810C7F != 0 — the port gates on battery_max != 0.
+ *               one square per half-unit (battery * 2). The 0x810C7F
+ *               gate covers ONLY the caption + segment grid — the 8x8
+ *               marker and the "BATTERY" label draw unconditionally in
+ *               func_00209280 (corrected 2026-07; the port used to hide
+ *               the whole block). The port stands in for that byte with
+ *               battery_max != 0. Because EmPlayerStatus carries the
+ *               DISPLAY units, an odd half-unit count is lost: the port
+ *               draws battery*2 squares where the engine draws the raw
+ *               0x810CB2 (a known, flagged model loss).
  *
  * NUMBER FORMATTING — CONFIRMED against func_001C5FB0 (NEARMISS,
  * body-correct), the single formatter every readout goes through (see

@@ -97,9 +97,16 @@
  * calls func_00199220). func_001703E0 state 0 seeds +0x2F0 = 0 at the
  * stance entry. The trigger latch +0x274 is set by func_0017A8B0 on
  * each accepted trigger event and cleared by every shot state.
- * WHICH ROUNDS ADVANCE — CORRECTED 2026-07-31 against the BYTE-MATCHED
- * func_00170A60; the previous note had the last two backwards:
- *   semi press / semi queued refire  ADVANCE (case 11 leaves
+ * WHICH ROUNDS ADVANCE — CORRECTED 2026-07-31, re-verified 2026-07-31
+ * against the BYTE-MATCHED func_00170A60 (the mechanism is always the
+ * same: a round advances iff +0x274 is STILL SET when the next tick's
+ * stance top runs, because the stance top's increment is the only
+ * writer of +0x2F0):
+ *   semi press                       ADVANCES — case 0 sets e[7] = 0xA
+ *     and BREAKS without clearing +0x274, so the shot state runs on the
+ *     NEXT tick, after the stance top has already incremented (see the
+ *     ACCEPT->SHOT LATENCY note below);
+ *   semi queued refire               ADVANCES (case 11 leaves
  *     +0x274 = 1 on the way out);
  *   burst rounds 2 and 3             ADVANCE (case 22's chain arm
  *     `if (e[0x274] != 0) e[7]--;` does not clear the latch that
@@ -128,12 +135,26 @@
  *     if (D_00810E70 & FIRE) { if (D_00810C61 == 0) return 0;
  *                              return func_0017A8B0(p, 0); }
  * i.e. SEMI latches +0x274 on the PRESS edge only, BURST and AUTO latch
- * it from the HELD level only (and consequently skip the press frame).
- * The port fired all three off the press edge, so a burst/auto trigger
- * that was already down when the machine returned to the trigger-wait
- * state — the ordinary case after a dry-mag auto reload — stalled until
- * the player released and re-pressed. It now splits by fire mode.
+ * it from the HELD level only. The port fired all three off the press
+ * edge, so a burst/auto trigger that was already down when the machine
+ * returned to the trigger-wait state — the ordinary case after a dry-mag
+ * auto reload — stalled until the player released and re-pressed. It now
+ * splits by fire mode.
  * A released burst also ends at the round in flight (see 0x14..0x17).
+ * PORT DEVIATION, on record (2026-07-31): on the engine the press frame
+ * has BOTH masks set, and the PRESSED arm is tested first — so in burst
+ * or auto mode that frame hits `if (D_00810C61 != 0) return 0;` and
+ * latches NOTHING. Burst/auto therefore latch on the frame AFTER the
+ * press. The port's WAIT arm reads the HELD mask, which is already up on
+ * the press frame, so its burst/auto trigger accepts one tick earlier
+ * than the engine's. Not corrected: the weapon regression test pins the
+ * auto round count to the port's schedule and lives outside this module.
+ * ACCEPT->SHOT LATENCY, also on record: func_00170A60 case 0 only WRITES
+ * the shot sub-state (e[7] = 0xA / 0x14 / 0x1E) and breaks — the shot
+ * state body runs on the following tick. The port fires inside the
+ * accept tick, so every port shot leads the engine's by one frame (two
+ * for burst/auto, with the press-frame skip above). The cadence that
+ * follows the shot is engine-exact either way.
  * CADENCE INTERVAL +0x2F4 — func_0017A8B0 is BYTE-MATCHED and stores
  *     *(float *)(arg0 + 0x2F4) = (float)func_001C61D0(*(int *)(arg0+0x40), v);
  * where v is the first entry of the stance's clip table (D_00248B70 for
@@ -594,9 +615,11 @@
  *   pre-directory-fix bake — the old enumeration shifted every player-
  *   library id >= 54 by up to +3, so "0x10B = 50fr" was really 0x10E's
  *   length. True directory lengths: 0x10B 35, 0x10C 35, 0x10D 50,
- *   0x10E 50, 0x10F 25, 0x110 20, 0x111 20, 0x112 25 — verified
- *   against a fresh fixed-resolver bake, byte-identical to the
- *   re-exported player.emdl.)
+ *   0x10E 50, 0x10F 25, 0x110 20, 0x111 20, 0x112 25 — ASSET-derived,
+ *   read from a fresh fixed-resolver bake that is byte-identical to the
+ *   re-exported player.emdl. These are clip-directory measurements, not
+ *   a source decode: no recovered function states a clip length, and
+ *   anim_ticks() prefers the loaded EMDL's own value anyway.)
  *
  *   - The swing sound + the damage-mailbox write fire together at the
  *     IMPACT gate, unconditionally (range gating is the TARGET's job,
@@ -657,10 +680,11 @@
  * renders this correctly with the corrected clips.
  *
  * KEY MAPPING: CIRCLE = L (light 3-chain, holstered only), SQUARE = J
- * (heavy stab holstered / FLASHLIGHT toggle while aiming) — both per
- * the engine default config (s36: CIRCLE -> mode 0x21 light combo,
- * SQUARE -> mode 0x22 heavy; verified NOT inverted in this module,
- * 2026-06-11 fidelity pass).
+ * (heavy stab holstered / FLASHLIGHT toggle while aiming). NOT
+ * inverted — re-checked 2026-07-31 directly in func_001607D0's unarmed
+ * case 0x00, where the CIRCLE slot (0x3B78) writes +5 = 0x21 /
+ * +0x1F0 = 0x36 and the SQUARE slot (0x3B74) writes +5 = 0x22 /
+ * +0x1F0 = 0x37, in that order.
  */
 #ifndef EM_WEAPON_H
 #define EM_WEAPON_H
@@ -751,7 +775,13 @@ enum {
                           * (engine majors 1..3 of func_001735C0, or
                           * 1..4 of func_00173E60)                      */
     EM_MELEE_RECOVER     /* hit-confirm recover (engine 0x50/0x51/0x52:
-                          * 4-tick pause + anim 0x10F)                  */
+                          * a FIVE-tick pause + anim 0x10F. 0x50 seeds
+                          * +0x28 = 4 and 0x51 reads it BEFORE its own
+                          * decrement, so it is seen as 4,3,2,1,0 —
+                          * verified in func_001735C0 and the BYTE-
+                          * MATCHED func_00173E60; MELEE_RECOV_PAUSE.
+                          * This line still said "4-tick" after that
+                          * correction landed in the code.             */
 };
 
 /* 1 while a melee attack (swing or recover) owns the player — em_game's

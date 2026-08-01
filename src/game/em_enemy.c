@@ -3,9 +3,11 @@
  *
  * THREE BRAINS share this module's slot pool (s62 condition decode of
  * the splat disassembly + the s68 creature-identity correction —
- * every trigger below is read off the instructions, not inferred;
- * the BUG brain is decoded structurally s76 with flagged port
- * magnitudes, see its block):
+ * every trigger below is read off the instructions, not inferred.
+ * DOWNGRADED 2026-07-31: the BUG brain is NOT "decoded structurally".
+ * Only its damage chain (func_00128B80 -> func_00129FC0) and its init
+ * HP (func_00128390) come from recovered C; the approach/bite/latch
+ * shape this file runs is a PORT construction, see its block):
  *
  * THE PLACED CRAWLER / CRATE (FINDINGS "ENEMY AI ARCHITECTURE" §3,
  * func_001551B0 — the port's EM_ENEMY_KIND_CRATE; engine lifecycle
@@ -99,9 +101,33 @@
  *   (case 3, with sound 0x1B7) before the free in case 4.
  * Clips therefore: init/walk 1 (the 90-f in-place WALK), flinch 0x1D,
  * KNOCKDOWN 0x1B (untranslated), COLLAPSE 0x20 (BUG_CLIP_DEATH).
- * The brain SHAPE below is a PORT construction: func_00128C10 /
- * func_0012A5D0 are still stubs, and the one attack function we do have
- * (func_0012C490) is a leap chain, not this:
+ * The brain SHAPE below is a PORT construction. CORRECTED 2026-07-31 —
+ * the old note said "func_00128C10 / func_0012A5D0 are still stubs".
+ * THAT IS FALSE: both are now recovered (NEARMISS 97.97% / 99.72%) and
+ * neither runs anything like the port's approach-standoff-bite cycle:
+ *   func_00128C10 is the NPC per-frame brain (state e[4], sub e[5],
+ *     creature kind e[0xD] 0..9, kinds 4/9 remapped to 3/8). Its live
+ *     state 1 is a SENSE + WANDER machine, not a pursuit: sub 0 stands
+ *     on clip 1 and wakes when func_001B13F0(player, self, 100.0f)
+ *     reports the player inside 100 u (kind < 4; kinds >= 4 use 20/40 u
+ *     by the b+0xE4>>8 near flag); sub 1 holds the alert clip while the
+ *     player stays inside 150 u (90 idle ticks outside it fall back to
+ *     sub 0) and commits at 24 u (10 u near) by picking a RANDOM heading,
+ *     not the player bearing; sub 2 turns to that heading at
+ *     0.34906587 rad/tick and hands to sub 3 with walk speed 0.8 and anim
+ *     rate 2.6; sub 3 walks on clip 6 turning at 0.06981317 rad/tick for a
+ *     table-drawn count, then turns +-0.69813174 rad and repeats; sub 8 is
+ *     the knockdown delegate. It reads the mailbox through func_00128B80
+ *     every tick, which is the one piece the port does reproduce.
+ *   func_0012A5D0 is a different actor family's main tick (its own
+ *     14-way movement table, of which func_0012C490 — the clip
+ *     0x13/0x14/0x15 LEAP chain with body hops and sfx 0x1AE — is one
+ *     entry). Nothing ties it to the crate-hatched bug.
+ * WHICH of those (if either) is the crate hatchling is NOT settled: the
+ * bug is identified by asset slot 0x0F/0x10, and nothing recovered pins
+ * the hatchling's actor +0x03 / +0x0D bytes. So the numbers above are
+ * recorded for a later pass and deliberately NOT wired in here — the
+ * port keeps its own shape rather than guess an identity:
  *
  *   INIT      HP = 15, yaw toward the player (PORT stand-in: the
  *             engine copies the nest record's rot, unexported) ->
@@ -364,13 +390,21 @@
  *   2 DEATH   the drum EXPLODES (INVESTIGATION "DEATH = EXPLOSION",
  *             LIVE-confirmed): the engine spawns a blast/FIREBALL (FX
  *             0x80000013 -> expanding child 0x8000006E) + a flash layer
- *             (0x8000001C) at the drum pos with Y+7, flings debris, plays
+ *             (0x8000001C) at the drum pos with Y+7, plays
  *             explosion sound 0x1A1, and self-FREES — the drum vanishes
  *             BEHIND the blast (no corpse fade). PURELY VISUAL: no husk
  *             rebind, no children, no knockback, NO player/actor damage,
- *             NO chain (LIVE: player stayed at 100.0 HP). (The richer
- *             second-hit/settle variant adds a 99-particle spray
- *             0x8000002E + sound 0x1A0 — not the single-shot baseline.)
+ *             NO chain (LIVE: player stayed at 100.0 HP). CORRECTED
+ *             2026-07-31 — "flings debris" is not the drum's own path:
+ *             func_00156620 state 2 phase 0 fires those two FX + 0x1A1
+ *             and arms +0x28 = 2, and phase 1 sends model byte 0x18 /
+ *             0x2A straight to state 3 (free) two ticks later. The
+ *             ballistic phases 2/3 (aim +0x74, speed +0x38, pitch +0x78,
+ *             0.06/tick pitch decay clamped at -4, landing FX
+ *             0x80000013 + 0x8000002E with sound 0x1A0) belong to model
+ *             bytes 0xA / 0xC, which ARE the flung pieces. Phase 0's
+ *             non-0x18/0x2A branch also swaps the spray FX 0x8000002E in
+ *             and plays 0x19F instead of 0x1A1.
  *             Port: free the slot immediately with NO fade and fire
  *             egg_explode() — ONE expanding fireball-flash billboard +
  *             5-8 radial debris chunks reusing the gib system (egg_explode
@@ -985,14 +1019,24 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                       * id; FLAGGED — reused gib scatter)  */
 
 /* --- Bug kind (s68/s76 — see "THE BUG" in the file header) --------------
- * Engine values: HP, the every-tick mailbox consumption, the clip ids,
- * and (s76) the attack SHAPE — the brains' state machine is decoded
- * (FINDINGS "BUG BRAIN STATE MACHINES"): spawn-pose -> sense-gated
- * approach -> IN-PLACE bite (clip 0x13, func_0012C490) -> recover, with
- * the hurt/death already wired. The bite's CONTACT VOLUME is NOT decoded:
- * the shared helper it was attributed to (func_001B5360) turned out to be
- * the ground-snap probe, see the correction block below. The bite timers,
- * the contact box and BUG_BITE_DMG are all FLAGGED PORT constants. */
+ * DOWNGRADED 2026-07-31. The old header here read "and (s76) the attack
+ * SHAPE — the brains' state machine is decoded ... spawn-pose ->
+ * sense-gated approach -> IN-PLACE bite (clip 0x13, func_0012C490) ->
+ * recover". No recovered function says that:
+ *   - func_0012C490 (BYTE-MATCHED) is a 9-state LEAP chain — clip 0x13
+ *     with a body hop func_00128830(actor, 0, 0, -2.5) and sfx 0x1AE,
+ *     then clips 0x14 (hop 0,2.5,0) and 0x15 (hop 0,1.5,3) — and it is
+ *     one entry in func_0012A5D0's movement table, with no contact test
+ *     anywhere in it;
+ *   - func_00128C10 (recovered since, NEARMISS) is a sense + WANDER
+ *     machine that turns to RANDOM headings, not a pursuit-and-bite (the
+ *     full read-out is in the file header's BUG block);
+ *   - func_001B5360, once credited with the bite box, is the shared
+ *     GROUND-SNAP probe (correction block below).
+ * What IS engine-derived here: the init HP (func_00128390), the
+ * every-tick mailbox consumption (func_00128B80 -> func_00129FC0), the
+ * clip ids and the reaction audio. The approach/bite/latch SHAPE, its
+ * timers, the contact box and BUG_BITE_DMG are all PORT choices. */
 #define BUG_HP_A         15       /* func_00128390 variant A (slot 0x0F)  */
 #define BUG_HP_B         30       /* variant B (slot 0x10) — recorded;
                                    * difficulty byte D_0081070A raises
@@ -1276,9 +1320,16 @@ static const float TF_TINT_ROOM[3] = { 128.0f, 128.0f, 128.0f };
  *      r = 4.5961943  for model byte 6 and 0x1E   (= 3.25 * sqrt2)
  *      r = 2.1213202  for model byte 0x1C/0x50/0x1F (= 1.5 * sqrt2)
  * so the corner radius is r * sqrt2 = 6.5 units for the wooden crate and
- * 3.0 for the small variants. Each probe is a VERTICAL 2-unit column
- * spanning [pos.y - 1, pos.y + 1] at that corner (func_0019AB20 puts the
- * point at pos.y - 1 and walks the delta -2.0 upward into the start).
+ * 3.0 for the small variants. CORRECTED 2026-07-31 — the column's SIGN:
+ * the steer probe starts at pos.y - 1.0 and carries the delta vector
+ * (_, -2.0, _), so it spans [pos.y - 3, pos.y - 1] and points DOWN, not
+ * up (the old "[pos.y - 1, pos.y + 1] ... walks the delta -2.0 upward"
+ * reading had it backwards). The INIT floor probe next to it is the same
+ * shape one unit lower: start pos.y - 2.0, delta -3.0. So the four steer
+ * probes are DOWNWARD ledge/prop soundings under the crawler's corners,
+ * and a corner counts blocked only on func_0019AB20 return 2 (area hulls
+ * / published class-4 actors) with the solid flag at 0x700031D4 set —
+ * NOT on the static world, which is return 4.
  * PORT deviations, flagged: the port re-derives the corners from the LIVE
  * heading every tick (the engine snapshots them at INIT and never moves
  * them again, so an engine crawler probes the same four world columns for
@@ -1310,7 +1361,8 @@ typedef struct {
                            * The DECODE explains why, and inverts the old
                            * "on-surface" reading: INIT (func_001551B0 state
                            * 0) fires ONE probe down the actor's own column,
-                           * from pos.y + 1 to pos.y - 2, and writes
+                           * from pos.y - 2.0 with the delta (_, -3.0, _)
+                           * — i.e. straight DOWN — and writes
                            *      +0x52 = 0 when the probe returns 4
                            *      +0x52 = 1 otherwise
                            * Return 4 is func_0019AB20's STATIC-WORLD channel
@@ -3850,10 +3902,18 @@ static void crate_burst(Enemy *e, const float pp[3])
  * shared GROUND-SNAP probe (vertical, +10 Y up / 30 down, mask 6 — see
  * the CORRECTION block at BUG_CONTACT_FWD), and func_0012C490 is a
  * 9-state LEAP chain (clip 0x13 with a body hop and sfx 0x1AE, then
- * clips 0x14/0x15 and a spin) that contains no contact test. The two
- * real brains func_00128C10 / func_0012A5D0 are still undecompiled
- * stubs. So the approach/bite shape, its timers, the contact box and
- * BUG_BITE_DMG are all PORT choices, flagged at their definitions.
+ * clips 0x14/0x15 and a spin) that contains no contact test.
+ * CORRECTED AGAIN 2026-07-31: the follow-up "the two real brains
+ * func_00128C10 / func_0012A5D0 are still undecompiled stubs" is ALSO
+ * false — both are recovered now (NEARMISS). func_00128C10's live state
+ * is a sense-then-WANDER machine (wake at 100 u, lose interest past
+ * 150 u after 90 ticks, commit at 24 u by turning to a RANDOM heading at
+ * 0.34906587 rad/tick, then walk at speed 0.8 / turn 0.06981317 for a
+ * table-drawn count) and func_0012A5D0 belongs to a different actor
+ * family. Neither is pinned to the crate hatchling, so nothing from them
+ * is wired in — see the file header's BUG block for the full read-out.
+ * So the approach/bite shape, its timers, the contact box and
+ * BUG_BITE_DMG remain PORT choices, flagged at their definitions.
  *
  * sub: 0 APPROACH, 1 FLINCH (set by enemy_tick's mailbox path — keep
  * this id), 2 WINDUP, 3 BITE, 4 RECOVER, 5 LATCHED. */
@@ -4386,9 +4446,20 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             /* drum EXPLODE (func_00156620 model-0x18 death — INVESTIGATION
              * "DEATH = EXPLOSION", live-confirmed 2026-06-17): the engine
              * spawns the blast/fireball (FX 0x80000013 -> child 0x8000006E)
-             * + flash (0x8000001C) at the drum pos Y+7, flings debris, and
-             * frees IMMEDIATELY — the drum vanishes BEHIND the blast, no
-             * corpse fade. PURELY VISUAL: NO husk rebind, NO children, NO
+             * + flash (0x8000001C) at the drum pos Y+7 and frees
+             * IMMEDIATELY — the drum vanishes BEHIND the blast, no
+             * corpse fade. CORRECTED 2026-07-31: "flings debris" is NOT in
+             * the drum's own path. func_00156620 state 2 phase 0 fires the
+             * two FX + sound 0x1A1 and sets +0x28 = 2; phase 1 counts those
+             * 2 ticks down and, for model byte 0x18 / 0x2A, goes straight to
+             * state 3 (free). The debris-integration phases 2/3 — the
+             * +0x74 aim / +0x38 speed / +0x78 pitch ballistic walk that ends
+             * in FX 0x8000002E + sound 0x1A0 — are reached only by the OTHER
+             * model bytes (0xA / 0xC), which are themselves flung pieces.
+             * Any debris a player sees around a drum comes from the FX chain,
+             * not from this actor. The port's chunks below are therefore a
+             * flagged PORT visual, not an engine behaviour.
+             * PURELY VISUAL: NO husk rebind, NO children, NO
              * knockback, NO player/actor damage, NO chain, NO alarm (LIVE:
              * player stayed at 100.0 HP). Port: free the slot with NO fade
              * (e->fade = 0) and fire egg_explode() — the fireball flash gib

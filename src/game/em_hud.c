@@ -1,9 +1,15 @@
 /* em_hud.c — native STATUS SCREEN rendering (see em_hud.h for the
  * engine mapping and the faithfulness notes).
  *
- * Composition follows the decoded draw chain of the real screen
- * (FINDINGS.md "STATUS SCREEN LAYOUT", session 25) on the engine's own
- * 512x448 UI canvas (origin top-left, y down):
+ * Composition follows the decoded draw chain of the real screen on the
+ * engine's own 512x448 UI canvas (origin top-left, y down).  Every
+ * anchor below was re-derived (2026-07 audit) from the recovered C of
+ * the hub drawer func_00209DF0 (BYTE-MATCHED) and the three block
+ * drawers it calls — func_00208AD0 (BYTE-MATCHED), func_00209280 and
+ * func_00209860 (both NEARMISS, body-correct) — using their own
+ * canvas->GS mapping (x + 0x700, (y >> 1) + 0x790).  FINDINGS.md
+ * "STATUS SCREEN LAYOUT" (session 25) is the narrative write-up; the
+ * numbers here come from the functions.
  *
  *   (208,196)  HEALTH ring gauge — ring r36-56 (yellow-green/orange
  *              radial gradient; red pair when health <= 35), the
@@ -819,9 +825,17 @@ float em_hud_text_width(const char *str, EmHudTextStyle style)
 }
 
 /* Multi-line bank text: draw `str` at (x, y), starting a new line at
- * each '\n'. Line advance 24 px = the engine's func_001FE070 newline
- * step ((D_00264CD8 20 + D_00264CE0 4) / 2 field lines = 24 canvas
- * px). No-op without the font, like em_hud_text. */
+ * each '\n'.
+ *
+ * LINE ADVANCE — PORT FIGURE, flagged (matches em_hud.h).  The engine's
+ * step is read but not resolvable: func_001FE070 does
+ * `pen += (D_00264CD8 + D_00264CE0) >> 1` and func_001FC7B0 does the
+ * same thing as `arg1 + ((cfg[4] + cfg[2]) >> 1)` on the D_00264CD0
+ * config block — the two agree, but D_00264CD8/D_00264CE0 are font-
+ * metric DATA we have not exported, so the numeric step is unknown.
+ * `pen` is in the GS half-height units (func_001FC7B0 adds it to 0x790
+ * unhalved), so the canvas step is D_00264CD8 + D_00264CE0.  24 canvas
+ * px is the port's stand-in.  No-op without the font, like em_hud_text. */
 static void msg_text(EmGfx *gfx, float x, float y, const char *str,
                      EmHudTextStyle style)
 {
@@ -947,11 +961,13 @@ void em_hud_menu_inhibit(int inhibit)
  *   - func_0020D930 (NEARMISS, body-correct) IS the hover quantizer,
  *     and its mode-0 arm settles the quadrant mapping the port uses.
  *     It reads the stick angle from the scratchpad float 0x700038AC and
- *     writes ctx[0x11]:
- *       ang <  -0.7853982 (-pi/4) .. -2.3561945 -> 3
+ *     writes ctx[0x11].  Its full mode-0 ladder, re-read verbatim:
+ *       ang <  -2.670354                        -> 1
+ *       ang <  -2.3561945 (-3pi/4)              -> 2
+ *       ang <  -0.7853982 (-pi/4)               -> 3
  *       ang <   0.7853982 ( pi/4)               -> 2
  *       ang <   2.3561945 (3pi/4)               -> 1
- *       otherwise (and the -pi..-2.670354 wedge) -> 4 (resp. 1)
+ *       otherwise                               -> 4
  *     i.e. right = 2, down = 1, left = 4, up = 3 for a y-down atan2 —
  *     the port's quadrant table, and it lines up with func_00209DF0's
  *     `i == arg0[0x11] - 1` marker order (bottom, right, top, left).
@@ -960,6 +976,13 @@ void em_hud_menu_inhibit(int inhibit)
  *     NOT from the source: the 0.8 deflection figure.  The engine gates
  *     on func_00128350(0x700038A8) + func_00100130(), neither of which
  *     is decompiled; 0.8 is the port's noise floor.
+ *     ALSO NOT reproduced: the two asymmetric wedges at the -pi seam.
+ *     A pure y-down atan2 quadrant split would give 4 (left) across
+ *     the whole -pi..-3pi/4 band, but the engine hands out 2 over
+ *     [-2.670354, -2.3561945) and 1 below -2.670354.  Whether that is
+ *     a deliberate bias or a different `ang` convention is UNRESOLVED
+ *     (0x700038AC is filled by func_001B62C0, not decompiled), so the
+ *     port keeps the plain quadrant split and this stays flagged.
  *
  * PORT MODEL (unchanged behaviour, honestly labelled):
  *   hub hover = left stick, deflection > 0.8 (PORT FIGURE), quadrant ->
@@ -1219,6 +1242,20 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
     em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, 180.0f, 540.0f,
                         ca, cb, ca, cb);
 
+    /* Rotating 120-deg highlight: two 60-deg arcs r36-56.  DECODED from
+     * the byte-matched func_00208AD0:
+     *   ang = 180.0f + 12.0f * (float)((counter[8] >> 1) % 30);
+     *   arc A spans (ang - 60, ang), arc B spans (ang, ang + 60);
+     * counter[8] is bumped once per drawn frame.  So the sweep STEPS
+     * 12 deg every 2 frames (30 steps = 1 revolution per second), it
+     * does not glide 6 deg/frame, and the leading edge of the pair sits
+     * at `ang`, not `ang + 120`.  Both were port approximations. */
+    float a = 180.0f + 12.0f * (float)((s_frames >> 1) % 30u);
+    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a - 60.0f, a,
+                        kHiliteOff, kHiliteOff, kHiliteOn, kHiliteOn);
+    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a, a + 60.0f,
+                        kHiliteOn, kHiliteOn, kHiliteOff, kHiliteOff);
+
     /* DEPLETED (empty) arc — CORRECTED.  The port used to draw a
      * light-blue fill GROWING from 180 deg with health, at a different
      * inner radius (24).  Both halves of that were wrong.
@@ -1241,29 +1278,29 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
      * the EMPTY segment, re-painting the base ring over the depleted
      * part.  Same block => same radii as the pass above, so r36-56.
      *
+     * DRAW ORDER CORRECTED (2026-07 audit, second pass): this arc is the
+     * LAST primitive func_00208AD0 submits — after func_00207D00(1, 1),
+     * the two highlight blocks and func_00207D00(1, 0).  The port drew
+     * it BEFORE the highlight, so the rotating sweep shone through the
+     * depleted part of the ring; in the original the depleted arc paints
+     * over it.  The order below is now the engine's.
+     *
+     * DIVISOR CORRECTED: the engine divides by the LITERAL 100.0f, not
+     * by the displayed maximum.  When the infected cap latches the
+     * display max to 60 (EmPlayerStatus.health_max = 60), the port used
+     * to rescale the sweep and drew a FULL ring at 60/60; the original
+     * still draws the 60% ring.  hp is clamped to the same 0..100 the
+     * engine's own 0-100 meter assumes.
+     *
      * COLOUR still UNRESOLVED: the block's static colours are unexported
      * data.  Because it is the same block, this pass is the same colour
      * as the base ring — which the port has merged into the health
      * gradient pair above — so a dark "unlit" stand-in is used here and
      * is FLAGGED, not source-derived. */
-    float frac = (hp_max > 0.0f) ? clamp01f(hp / hp_max) : 0.0f;
+    float frac = clamp01f(hp / 100.0f);
     if (frac < 1.0f)
         em_gfx_overlay_arc(gfx, cx, cy, 36.0f, 56.0f,
                            180.0f + 360.0f * frac, 540.0f, kRingEmpty);
-
-    /* Rotating 120-deg highlight: two 60-deg arcs r36-56.  DECODED from
-     * the byte-matched func_00208AD0:
-     *   ang = 180.0f + 12.0f * (float)((counter[8] >> 1) % 30);
-     *   arc A spans (ang - 60, ang), arc B spans (ang, ang + 60);
-     * counter[8] is bumped once per drawn frame.  So the sweep STEPS
-     * 12 deg every 2 frames (30 steps = 1 revolution per second), it
-     * does not glide 6 deg/frame, and the leading edge of the pair sits
-     * at `ang`, not `ang + 120`.  Both were port approximations. */
-    float a = 180.0f + 12.0f * (float)((s_frames >> 1) % 30u);
-    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a - 60.0f, a,
-                        kHiliteOff, kHiliteOff, kHiliteOn, kHiliteOn);
-    em_gfx_overlay_arc4(gfx, cx, cy, 36.0f, 56.0f, a, a + 60.0f,
-                        kHiliteOn, kHiliteOn, kHiliteOff, kHiliteOff);
 
     /* value row " 75 / 100" at y=262 — every anchor here is the
      * byte-matched func_00208AD0's own arithmetic with (px, py) =
@@ -1313,13 +1350,22 @@ static void health_gauge(EmGfx *gfx, float hp, float hp_max)
 /* BATTERY block at (16,118) (engine func_00209280, mode 0). */
 static void battery_block(EmGfx *gfx, uint8_t cur, uint8_t max)
 {
-    if (!max) return;   /* engine gate 0x810C7F == 0: block hidden */
-
+    /* GATE SCOPE CORRECTED (2026-07 audit): func_00209280 draws the 8x8
+     * underline marker and the "BATTERY" label in its `flag == 0` arm
+     * BEFORE it ever tests D_00810C7F — only the "cur/max" caption and
+     * the segment grid sit inside `if (D_00810C7F != 0)`.  The port used
+     * to return early on battery_max == 0 and so hid the whole block,
+     * including the marker + label the original keeps on screen. */
     marker(gfx, 16.0f, 120.0f);
     if (em_hud_font_ready())
         em_hud_text(gfx, 28.0f, 118.0f, "BATTERY", EM_HUD_TEXT_LABEL12);
     else
         text_placeholder(gfx, 28.0f, 118.0f, 7, 12.0f, 12.0f, kTextWhite);
+
+    /* Engine gate D_00810C7F == 0: caption + grid suppressed.  The port
+     * has no mirror of that byte, so battery_max != 0 stands in for it
+     * (PORT EQUIVALENT, flagged). */
+    if (!max) return;
 
     /* segment bar: one 8x8 square per internal HALF-unit (storage
      * 0x810CB2 holds half-units; the EmPlayerStatus fields are the
@@ -1434,7 +1480,11 @@ static void spr4_block(EmGfx *gfx, int16_t reserve)
  * blocks at the real tall-font (10x20) / number (16 px) metrics. */
 static void infection_block(EmGfx *gfx, float infection)
 {
-    if (infection >= 100.0f) {
+    /* The "INFECTED" branch is an EQUALITY test in the byte-matched
+     * func_00209DF0: `n = float_to_int(D_0081085C); if (n == 0x64)`.
+     * The port's old `>= 100.0f` also caught 101+, which the engine
+     * formats as a normal readout. */
+    if ((int)infection == 100) {
         if (em_hud_font_ready())
             em_hud_text(gfx, 290.0f, 260.0f, "INFECTED",
                         EM_HUD_TEXT_TALL_DARKRED);
@@ -1734,8 +1784,13 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
      * replaces the hub composition entirely, exactly like the engine's
      * controller state 3. */
     if (s_page >= 0) {
+        /* s_frames is the engine's counter[8], and counter[8] is bumped
+         * ONLY inside func_00208AD0 (byte-matched, first statement) —
+         * which the hub drawer func_00209DF0 alone calls.  An entered
+         * page never touches it, so the ring highlight resumes where it
+         * left off on return; the port used to keep counting here and
+         * made the sweep jump. */
         page_render(gfx, s_page, st);
-        s_frames++;
         em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
         return;
     }
