@@ -47,6 +47,46 @@ void em_gamepad_rumble(float big, float small, int frames);
  * before a haptics mapping is chosen. Any pointer may be NULL. */
 void em_gamepad_rumble_state(float *big, float *small, int *frames);
 
+/* --- RUMBLE EFFECT TABLE (engine D_0024D6F0) -------------------------
+ *
+ * Read directly out of the boot ELF, 4-byte stride {big, small, defaultDur}.
+ * func_001B1E20(id, dur) indexes this table and fires
+ * func_001B61C0(big, small, dur ? dur : defaultDur, 1); a NEGATIVE dur stops
+ * instead. Motor bytes are 0..255, durations are FRAMES.
+ *
+ * Note the shape: almost every effect drives the SMALL motor only. The big
+ * motor appears at level 1 in just two entries (4 and 6) — this pad model
+ * treats "big" as essentially on/off, so a port mapping that scales both
+ * motors linearly will feel wrong.
+ *
+ * Entries 12/13/14/15 have BOTH motors zero with long durations (240/160/
+ * 240/22) — they are silent timers, presumably used to hold a rumble slot
+ * busy rather than to vibrate. Do not "fix" them to non-zero.
+ *
+ * Call-site mapping is NOT done: the ids are known but which game event fires
+ * each one is only partly traced (effect 6 belongs to the scope camera
+ * func_0022EEF0, which this port has not implemented yet). Fill these in as
+ * the owning features land. */
+typedef struct { unsigned char big, small, dur; } EmRumbleEffect;
+
+static const EmRumbleEffect kEmRumbleTable[16] = {
+    {   0,  80,  60 }, {   0, 112,  60 }, {   0, 187,  60 }, {   0,  72,  60 },
+    {   1, 255,  60 }, {   0,  96,  60 }, {   1,   0,  20 }, {   0, 144,   5 },
+    {   0, 204,   5 }, {   0,  88,  15 }, {   0,  80,   8 }, {   0,   0,   0 },
+    {   0,   0, 240 }, {   0,   0, 160 }, {   0,   0, 240 }, {   0,   0,  22 },
+};
+
+/* Fire effect `id` from the table above. dur = 0 uses the table's default,
+ * dur < 0 stops. Mirrors func_001B1E20's dispatch exactly. */
+static inline void em_gamepad_rumble_effect(int id, int dur)
+{
+    if (id < 0 || id >= 16) return;
+    if (dur < 0) { em_gamepad_rumble(0.0f, 0.0f, 0); return; }
+    const EmRumbleEffect *e = &kEmRumbleTable[id];
+    em_gamepad_rumble(e->big / 255.0f, e->small / 255.0f,
+                      dur ? dur : e->dur);
+}
+
 #ifdef __cplusplus
 }
 #endif
