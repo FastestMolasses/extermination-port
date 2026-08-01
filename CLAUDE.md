@@ -65,6 +65,51 @@ of the engine's game-loop architecture (decomp repo
 `Extermination/docs/FINDINGS.md` "ENGINE FRAME ANATOMY" is the spec); its
 files map each native stage to the PS2 function it stands in for.
 
+## Verified backlog (2026-07-31 audit + gap triage)
+
+Five claim-audit rounds (207 corrections) and a gap triage of 48 byte-matched
+engine functions the port never referenced. What remains, with the ACTUAL
+blocker for each — none of these is blocked on more decomp reading:
+
+IMPLEMENTED THIS PASS, with an explicit decoded-vs-port boundary in the code:
+  * player gravity — func_00179880's -0.04/frame with a -4.0 terminal is the
+    engine's; the airborne ENTRY threshold is PORT-SIDE (func_001796C0, the
+    shared fall tick, is an all-.word leaf with no recoverable C).
+  * menu cues 0/1/4 (confirm/cancel/cursor) — the status screen was silent.
+  * em_sfx_stop_all — API only, deliberately NOT called (see below).
+  * em_camera_scope_zoom(t) = 224/tan(radians(5+45*(1-t))/2) — curve only; the
+    engine drives t from D_00810248, which NO recovered function writes.
+
+BLOCKED ON A GAMEPAD BACKEND (em_input.h: keyboard is "the only source today"):
+  * force feedback. func_001B1E20 is byte-matched and clear — a 4-byte-stride
+    effect table into {big, small, defaultDur}, negative duration = stop — but
+    there is no device to send it to and no way to verify a byte of it.
+  * controller presets B/C. func_001AF470 is an all-.word leaf with the preset
+    values as baked immediates, so implementing it means hand-decoding an input
+    mapping — and it remaps buttons the port does not read anyway.
+
+BLOCKED ON STATE THE PORT DOES NOT MODEL:
+  * settings sub-screen. func_00201290 (byte-matched) renders a 7-row menu,
+    highlight 0x80808080 vs dim 0x40404040, two 0x155 sub-rows inheriting the
+    preceding row's colour. But the row CONTENT comes from a settings struct
+    passed in; the options and their values are not in this function. Porting
+    the renderer without them means inventing the menu.
+  * sub-weapon ammo panel (func_0020BF20) — a 4-row icon+count table fed by the
+    per-sub-weapon counters. Same shape: the renderer is decoded, the counters
+    are engine state the port has no equivalent for yet.
+
+BLOCKED ON CALL-SITE EVIDENCE:
+  * em_sfx_stop_all placement. func_001FBC50 is defined `void f(void)` but its
+    twelve callers invoke it as (), (0), (st), (2,3), (st,q)... — they carry
+    WRONG extern declarations, the defect class that manufactured fictitious
+    compiler walls in the decomp. "The game-over family calls it" is therefore
+    not evidence about WHERE. Fix those externs before wiring.
+
+BLOCKED ON PLAYTEST:
+  * the fall entry threshold, and whether the aim-rate / turn-rate / R2-priority
+    corrections feel right. All four are verified correct against the recovered
+    C; none can be verified from here.
+
 ## State
 
 - macOS target works: Cocoa window + Metal, textured skinned character +
@@ -443,6 +488,27 @@ files map each native stage to the PS2 function it stands in for.
 - Windows: MSVC/clang-cl project (added when the D3D12 backend lands).
 
 ## Test harness note (recurring agent confusion)
-EM_SLIDER_TEST and EM_LOCKED_TEST REQUIRE `EM_SCENE=assets/scene_drawbridge`
-(their door fixtures live there). Run bare they exit with no verdict — that
-is NOT a failure. Verified passing at merged HEAD 2026-06-11.
+`tests/run_suite.sh` runs the whole EM_*_TEST suite with the right scene per
+test and a hard per-test watchdog, and prints a PASS/FAIL/NO-VERDICT table.
+Use it instead of hand-running tests — it encodes the gotchas below.
+
+- EM_SLIDER_TEST and EM_LOCKED_TEST REQUIRE `EM_SCENE=assets/scene_drawbridge`
+  (their door fixtures live there). Run bare they exit with no verdict — that
+  is NOT a failure.
+- EM_DOOR_TEST runs on the DEFAULT (office) scene — it stages its own door
+  fixture and relies on the office collision world's sealed x=60 wall. Forcing
+  it onto scene_drawbridge makes it fail (different collision geometry).
+- Scripted-walk tests inject keyboard stick keys. Under the BYTE-FAITHFUL move
+  basis (+pi/2, 2026-06-17) with the chase camera directly behind the spawn,
+  **'a' drives the player FORWARD (its facing direction), not 'w'** — 'w' heads
+  cam_yaw + pi/2 (sideways/back depending on spawn yaw). Tests that walk the
+  player toward a goal use 'a' (door, slider, camregion, pause). A test that
+  still used 'w' after the basis flip either FAILED (slider — stranded short of
+  the door) or HUNG (camregion — never reached its +Z region); both fixed
+  2026-06-17. New movement-driven tests must add a frame-N safety quit so a
+  future basis change FAILS loudly instead of looping forever.
+
+Full suite verified passing 2026-06-17 (run_suite.sh: PASS=20 FAIL=0
+NO-VERDICT=0, 0 hang) after the slider + camregion movement-basis fixes. The
+prior "all green" (2026-06-11) predated the movement fix and was never
+re-confirmed end-to-end because the camregion hang silently truncated the run.
