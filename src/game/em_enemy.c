@@ -684,7 +684,26 @@
                                    * 0.0698131695f fed to func_001B12B0   */
 #define ENEMY_GRAVITY    0.052f   /* hop vertical integration, per tick:
                                    * func_001551B0 state-1 sub-1 ballistic
-                                   * leg `+0x2C8 -= 0.052f`               */
+                                   * leg `+0x2C8 -= 0.052f`
+                                   *
+                                   * RE-VERIFIED 2026-07-31, DO NOT "fix" this
+                                   * to the shared 0.04f/-4.0f pair. The crate
+                                   * hop is NOT the shared gravity tick: the
+                                   * whole of func_001551B0 contains zero calls
+                                   * to func_00179880/func_001796C0, and its
+                                   * own decrement really is 0.052f with no
+                                   * terminal clamp. A gap-triage pass called
+                                   * this "port-invented" and it is not.
+                                   *
+                                   * Two look-alikes to avoid: func_001551B0
+                                   * also carries 0.052359875f (= pi/60, a
+                                   * 3-degree angle) fed to the matrix
+                                   * rotators func_00102B08/func_00102A60 —
+                                   * a rotation, not an acceleration; and the
+                                   * PLAYER falls by the shared -0.04f with a
+                                   * -4.0f terminal (func_00179880). Three
+                                   * similar-looking constants, three
+                                   * different jobs.                       */
 #define ENEMY_CONTACT_R  6.0f     /* PORT (flagged — was mis-read as an
                                    * engine value): the lunge-resolve second
                                    * arm calls func_0019A570(from, to, 6, 0),
