@@ -2096,6 +2096,12 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3], int style);
  * picker — moves into em_player.c when the footstep lane is split. */
 unsigned footstep_rand5(void);
 
+/* Locomotion speed tiers and the wall-segment probe (defined in em_game.c).
+ * Shared with em_player.c: both the player's own move and the gameplay
+ * frame's tier logic read the table. */
+extern const float kLocoTierSpeed[4];
+int probe_wall_seg(const float start[3], const float target[3], int with_doors, EmCollHit *hit);
+
 /* The one gameplay state object (defined in em_game.c). */
 extern EmGameState g;
 
