@@ -110,12 +110,21 @@ void player_move_collide(float mx, float mz)
              * dropping them. Now: when the floor is more than a step below,
              * integrate and fall; land when the integrated Y reaches it.
              *
-             * BOUNDARY, stated honestly: the ENTRY threshold and the landing
-             * test below are PORT-SIDE. The engine's shared fall tick
-             * (func_001796C0) is an all-.word assembly leaf with no
-             * recoverable C, so its airborne handoff is not source-derived
-             * here. Only the integrator itself is. Revisit when that
-             * function is decoded. */
+             * BOUNDARY, updated once func_001796C0 was recovered (99.909%,
+             * readable): the engine does NOT use a height threshold at all.
+             * Its tick decays the same accumulator with the same -0.04 and
+             * -4.0 clamp, but the LAND decision comes from func_00179450 — a
+             * query over the scratchpad trigger tables D_70003170 (flags) and
+             * D_700030F0 (heights), rebuilt each call by func_0019BC40. It
+             * walks the live entries, takes the first one below the actor,
+             * writes the delta to +0x258, and the caller lands when that
+             * delta drops past -4.01 or when no entry qualifies at all.
+             *
+             * So this threshold is not a stand-in for a constant we had not
+             * read — it is a DIFFERENT MECHANISM. Matching the engine means
+             * modelling that trigger table, which the port's collision layer
+             * does not expose today. Kept, and now honestly labelled: a port
+             * approximation of a table-driven handoff, not an unread number. */
             const float floor_y = hit.point[1];
             const float drop    = g.pos[1] - floor_y;
             if (drop > PLAYER_FALL_ENTRY) {
