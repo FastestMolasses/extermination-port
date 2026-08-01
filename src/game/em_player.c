@@ -29,16 +29,29 @@
  * MOVE-TO crosses the sealed boundary planes deliberately. */
 void player_wall_probes(void)
 {
-    static const float kProbeAngle[5] = {
-        0.0f, 0.7853982f, -0.7853982f, 1.5707964f, -1.5707964f
-    };                                       /* D_00248950, radians */
+    /* D_00248950, radians — the FULL eight-direction fan read out of the boot
+     * ELF: {0, +45, -45, +90, -90, +135, -135, 180} degrees.
+     *
+     * AUDIT CORRECTION (s86): the port carried only the first FIVE entries and
+     * ran both passes over them. func_001764E0 walks this one table with two
+     * different bounds — the ankle pass takes 5 lanes (`while (i < 5)`, scratch
+     * lift 0.05, probe mask 6) and the CHEST pass takes 8 (`while (j < 8)`,
+     * lift 4.01, mask 7, each hit setting bit 1<<j of +0x314). Truncating the
+     * chest pass to 5 left the player with no chest-height probe behind or
+     * behind-diagonal, so walls could be backed into. */
+    static const float kProbeAngle[8] = {
+        0.0f,        0.7853982f, -0.7853982f, 1.5707964f,
+        -1.5707964f, 2.3561945f, -2.3561945f, 3.1415927f
+    };
+    enum { PROBE_ANKLE_LANES = 5, PROBE_CHEST_LANES = 8 };
     if (!g.coll.poly_count)
         return;
-    for (int i = 0; i < 5; i++) {
-        float ang = g.yaw + kProbeAngle[i];
-        float dx  = sinf(ang) * PLAYER_WALL_RADIUS;
-        float dz  = cosf(ang) * PLAYER_WALL_RADIUS;
-        for (int pass = 0; pass < 2; pass++) {
+    for (int pass = 0; pass < 2; pass++) {
+        const int lanes = pass ? PROBE_CHEST_LANES : PROBE_ANKLE_LANES;
+        for (int i = 0; i < lanes; i++) {
+            float ang = g.yaw + kProbeAngle[i];
+            float dx  = sinf(ang) * PLAYER_WALL_RADIUS;
+            float dz  = cosf(ang) * PLAYER_WALL_RADIUS;
             float lift = pass ? PROBE_CHEST_LIFT : PROBE_ANKLE_LIFT;
             float from[3] = { g.pos[0], g.pos[1] + lift, g.pos[2] };
             float end[3]  = { from[0] + dx, from[1], from[2] + dz };
