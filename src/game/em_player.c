@@ -100,7 +100,37 @@ void player_move_collide(float mx, float mz)
             break;
         if (hit.surf_class == EM_SURF_FLOOR ||
             hit.surf_class == EM_SURF_SLOPE) {
-            g.pos[1] = hit.point[1];
+            /* GRAVITY — DECODED (func_00179880, readable C in the decomp):
+             *     v += -0.04f;  if (v < -4.0f) v = -4.0f;  actor.y += v;
+             * plus the airborne mode byte +0x25F = 2. Those two constants
+             * are the engine's, verified literally.
+             *
+             * The port used to SNAP g.pos[1] to the floor hit every frame,
+             * so stepping off a ledge teleported the player down instead of
+             * dropping them. Now: when the floor is more than a step below,
+             * integrate and fall; land when the integrated Y reaches it.
+             *
+             * BOUNDARY, stated honestly: the ENTRY threshold and the landing
+             * test below are PORT-SIDE. The engine's shared fall tick
+             * (func_001796C0) is an all-.word assembly leaf with no
+             * recoverable C, so its airborne handoff is not source-derived
+             * here. Only the integrator itself is. Revisit when that
+             * function is decoded. */
+            const float floor_y = hit.point[1];
+            const float drop    = g.pos[1] - floor_y;
+            if (drop > PLAYER_FALL_ENTRY) {
+                g.fall_vel += PLAYER_GRAVITY;
+                if (g.fall_vel < PLAYER_FALL_TERMINAL)
+                    g.fall_vel = PLAYER_FALL_TERMINAL;
+                g.pos[1] += g.fall_vel;
+                if (g.pos[1] <= floor_y) {      /* landed */
+                    g.pos[1]   = floor_y;
+                    g.fall_vel = 0.0f;
+                }
+            } else {
+                g.pos[1]   = floor_y;
+                g.fall_vel = 0.0f;
+            }
             break;
         }
         if (hit.point[1] - 1e-3f <= down[1])

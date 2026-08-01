@@ -2239,6 +2239,9 @@ typedef struct {
      * field only records that the card was armed for the active scene so a
      * re-entry re-arms it (and non-AREA-11 scenes never arm). */
     int         area_title_armed; /* the title card was armed this scene */
+    /* Vertical fall velocity (engine actor +0x2EC). Integrated by the
+     * gravity tick in player_move_collide; zeroed on landing. */
+    float       fall_vel;
 } EmGameState;
 
 /* Compose a loaded palette with a placement transform: T(pos) * R_y(yaw).
@@ -2264,6 +2267,14 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3], int style);
  * damage lane's infection roll uses the same generator as the footstep
  * picker — moves into em_player.c when the footstep lane is split. */
 unsigned footstep_rand5(void);
+
+/* GRAVITY (func_00179880, byte-matched): -0.04 per frame, terminal -4.0.
+ * PLAYER_FALL_ENTRY is PORT-SIDE — the engine's airborne handoff lives in
+ * func_001796C0, an all-.word leaf with no recoverable C. Chosen just above
+ * the largest single-frame floor step so stairs do not trigger a fall. */
+#define PLAYER_GRAVITY        (-0.04f)
+#define PLAYER_FALL_TERMINAL  (-4.0f)
+#define PLAYER_FALL_ENTRY     (1.5f)
 
 /* Locomotion speed tiers and the wall-segment probe (defined in em_game.c).
  * Shared with em_player.c: both the player's own move and the gameplay
