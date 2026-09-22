@@ -1955,7 +1955,8 @@ static void frame_close_out(void)
          * opaque owner meshes, with the owner's current world matrix. */
         em_pickup_lights_draw(gfx, g.viewproj);
         em_props_indicators_draw(gfx, g.viewproj);
-        em_snow_runtime_draw(gfx, g.viewproj);
+        em_snow_runtime_draw(gfx, g.cam.view,
+            g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }

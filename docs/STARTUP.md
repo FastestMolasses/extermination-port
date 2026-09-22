@@ -97,10 +97,12 @@ normal gameplay at frame 1400. This is not a claim of complete visual fidelity.
 
 The actual-input regression passed: held forward input produced zero movement
 through 1,303 opening ticks. After correcting a 90-degree stick-heading error,
-30 input ticks after fade completion moved the player16.100002 units toward the
-camera's forward azimuth, with a finite walkable original collision surface below.
-The heading helper passes2,360 original instruction cases. This verifies control
-handoff/direction; acceleration and animation timing are still under comparison.
+the original motor and final script camera now give 9.599989 units over30 input
+ticks, versus9.599849 in the original. The horizontal endpoint differs by
+0.000168. The heading helper passes2,360 original instruction cases and the
+motor11,482 cases. Run release now plays original stop clip5 and restores idle;
+other locomotion branches and pose blending remain under comparison. See
+`FIRST_CONTROL.md` for the trace, original addresses and remaining limits.
 Run from the port directory:
 
 ```sh

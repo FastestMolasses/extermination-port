@@ -92,9 +92,11 @@ submission. Scene unload/reload clears both state and texture. Other weather
 branches are rejected until their original behavior is recovered.
 
 The Metal path draws the recovered particles as textured additive sprites,
-with depth testing and no depth writes. Projection retains clip W for size
-and VU color attenuation. Texture sampling spans the original whole sprite.
-GS subpixel raster quantization and full pixel equivalence remain unverified.
+with depth testing and no depth writes. The verified projection helper now
+uses the live camera, preserves the original guard-band test and independently
+quantizes both GS corners. The backend retains the original reversed ST
+orientation and converts quantized GS depth to the existing native depth
+convention. Full raster/pixel equivalence remains unverified.
 Global random-consumer ordering is still incomplete, so particle locations
 are not claimed to match an arbitrary captured frame.
 
@@ -104,8 +106,8 @@ corrected exporter produces the original soft solid flake rather than the
 erroneous ring. See the decomp repository's `docs/CLUT_LAYOUT.md`.
 
 `make test-snow-runtime` exercises240 ticks using the real exported assets
-under ASan/UBSan, checks11,479 visible particle submissions for bounded finite
-data, and verifies clear/reload, missing assets, unsupported weather and GPU
+under ASan/UBSan, checks27,476 quantized particle submissions, including
+15,993 centers outside the viewport but inside the original guard band, and verifies clear/reload, missing assets, unsupported weather and GPU
 texture-allocation failure. These are integration checks, separate from the
 original-instruction generator/emitter comparisons above.
 
@@ -158,3 +160,93 @@ python3 tools/test_snow_tiles_reference.py \
   --reference-ee ../Extermination/build/startup-reference/opening_ee.bin \
   --reference-tiles ../Extermination/build/weather_reference/original_tiles.json
 ```
+
+## Projection, clipping and GIF submission
+
+`em_snow_projection.c` independently translates original VU instructions
+`00233FC0..00234270`. Its input is the actual VU6E..7C projection upload:
+three matrices, fog, depth bias and GIF tag. The immutable opening EE dump
+contains this upload immediately before each snow descriptor packet. It is
+not inferred from the last effect left in VU memory, which is another kind.
+
+`em_snow_projection_matrices` accepts the original Y-down, +Z-forward view
+matrix and the current zoom. A native Y-up, -Z-forward view converts by
+negating its Y and Z rows. Original `001D2960` builds the extent projection
+with `P00=0.8f*zoom`, `P11=0.5f*zoom`, center `(2048,2048)`, depth coefficients
+`0x3F664CB3` and `0x49CCCCCC`, and W=forward depth. `001CD370(0)` selects the
+1280 by 560 guard-band projection produced by `001D2D20`, with divisors640
+and280 and fixed near0.1/far16711680. The native builder preserves the
+observed depth pair1/-0.2. It is not a general emulator of EE scalar addition:
+naively truncating far-minus-near after full-precision host subtraction gives
+a different result because original operand alignment matters.
+
+At the captured zoom1011.6609497070312, actual P00/P11 are809.3287353515625
+and505.8304748535156. P00 uses the original binary32 literal0.8f and truncated
+multiplication. Zoom divisions use rounded binary32 results; matrix products
+and additions use the separately tested finite VU arithmetic. Constructing
+all three matrices from the captured original view and zoom reproduces all
+192 bytes. This does not establish that the port's live view/zoom construction
+is itself identical to the original SDK.
+
+The VU center test is `-abs(W) <= X,Y,Z <= abs(W)`, including equality. It
+uses a larger volume than the visible raster: native visible NDC corresponds
+to twice original clip X and minus1.25 times original clip Y. In the216
+captured snow tiles, the original submits261 of4,320 particles;146 submitted
+centers are outside the visible viewport but inside this guard band. The GS
+scissor handles their eventual raster coverage.
+
+The helper returns the raw FTOI4 XYZF2 qwords, after independent rounding of
+the plus and minus corners. PACKED XYZF2 extracts X/Y from low16 bits,
+Z from bits4..27 of the third word, and F from bits4..11 of the fourth word.
+The final decoded GS Z is therefore approximately `trunc(B+A/W+biasZ)`;
+the integer is not sixteen times that depth. The six-register GIF tag
+supplies TEX0, RGBAQ, ST, XYZF2, ST, XYZF2. ST `(0,0)` belongs to the
+**plus** corner and `(1,1)` to the **minus** corner. Both axes consequently
+run opposite to a conventional top-left `(0,0)` sprite. RGBAQ latches Q=1
+before the ST pair; the intermediate ST Q operand does not divide texture
+coordinates by zero. These packing rules follow the
+[Sony EE User's Manual, GIF PACKED formats](https://manuals.plus/m/55bdc71d3aebc33752a7dad6526b78248b6c258294fcf8a3ebed1f010da22365.pdf),
+section3.4.1, pages153–154.
+
+For native submission, decode each corner independently:
+
+```
+gsX = (rawX & 0xffff) / 16.0
+gsY = (rawY & 0xffff) / 16.0
+gsZ = (rawZ >> 4) & 0xffffff
+ndcX = (gsX - 2048) / 256
+ndcY = -(gsY - 2048) / 112
+```
+
+These GS half extents account for the512 by224 interlaced field raster
+presented at4:3. Preserve each corner's ST association when constructing
+native triangles; deriving one unquantized center and width loses the
+independent1/16-coordinate rounding.
+
+The native scene geometry retains its0..1 depth convention. If its projection
+coefficients are `p10` and `p14`, an affine conversion compatible with that
+convention is `nativeZ = -p10 + p14 * (gsZ - B - biasZ) / A`, where
+`A=1677721.5` and `B=0.8996078372001648`. Use the actual native coefficients
+rather than a newly rounded near/far reconstruction. This keeps the original
+snow depth quantization, but the rest of the geometry still uses native
+unquantized depth. The oracle establishes the original packed outputs, not
+identical raster/depth comparisons against every native surface.
+
+`make test-snow-projection-reference` runs1,055 synthetic boundary and random
+cases against the original instructions. The optional immutable snapshot
+adds all4,320 original snow particles, independently generated by those
+instructions, for5,375 total cases. Clip coordinates, both corner qwords,
+color and ST compare byte for byte (151,664 bytes in the snapshot run).
+The extended bounded VM also passes the existing1,280-case generator,
+1,000-case color and24-record captured-output regressions.
+
+```
+python3 tools/test_snow_projection_reference.py \
+  --reference-ee ../Extermination/build/startup-reference/opening_ee.bin \
+  --report build/weather_reference/projection_validation.json
+```
+
+The projection oracle models finite binary32 inputs and valid nonzero
+reciprocal denominators. Exceptional VU DIV/FTOI behavior, complete GS raster
+coverage and the live native camera's upstream arithmetic remain separate
+fidelity work.

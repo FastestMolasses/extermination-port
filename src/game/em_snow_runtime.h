@@ -7,6 +7,6 @@ int em_snow_runtime_load(EmGfx *gfx, const char *scene_dir,
                           const char *config, const char *texture,
                           unsigned flags);
 void em_snow_runtime_tick(const float eye[3], unsigned selector);
-void em_snow_runtime_draw(EmGfx *gfx, const float viewproj[16]);
+void em_snow_runtime_draw(EmGfx *gfx, const float view[16], float zoom);
 
 #endif

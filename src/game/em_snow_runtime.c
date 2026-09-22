@@ -1,8 +1,10 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_snow.h"
 #include "game/em_snow_particles.h"
+#include "game/em_snow_projection.h"
 #include "game/em_effect_color.h"
 #include "game/em_random.h"
+#include "em_math.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,7 +90,7 @@ void em_snow_runtime_tick(const float eye[3], unsigned selector)
     }
 }
 
-void em_snow_runtime_draw(EmGfx *gfx, const float viewproj[16])
+void em_snow_runtime_draw(EmGfx *gfx, const float view[16], float zoom)
 {
     if (!snow.loaded || !snow.count) return;
     /* E67C0 sets fog near=0, far=300 through 0021B9A0. Its descriptor's
@@ -96,33 +98,40 @@ void em_snow_runtime_draw(EmGfx *gfx, const float viewproj[16])
     /* Original snow DMA's VU7A stores -0.8500000238 (rounded DIV.S),
      * not the adjacent value produced by truncating this quotient. */
     float slope = (float)(255.0 / 300.0);
-    const float fog[4] = {255.0f, 2048.0f,
-        em_effect_float32(300.0 * slope), -slope};
-    float projection_x = sqrtf(viewproj[0]*viewproj[0] +
-        viewproj[4]*viewproj[4] + viewproj[8]*viewproj[8]);
-    float projection_y = sqrtf(viewproj[1]*viewproj[1] +
-        viewproj[5]*viewproj[5] + viewproj[9]*viewproj[9]);
+    EmSnowProjection projection = {0};
+    projection.fog[0] = 255.0f;
+    projection.fog[1] = 2048.0f;
+    projection.fog[2] = em_effect_float32(300.0 * slope);
+    projection.fog[3] = -slope;
+    float original_view[16], native_projection[16];
+    for (unsigned column = 0; column < 4; ++column)
+        for (unsigned row = 0; row < 4; ++row)
+            original_view[column*4+row] =
+                (row == 1 || row == 2) ? -view[column*4+row] : view[column*4+row];
+    em_snow_projection_matrices(&projection, original_view, zoom);
+    em_mat4_perspective_gs(native_projection, zoom);
     unsigned count = 0;
     for (unsigned i = 0; i < snow.count; ++i) {
         const EmSnowParticle *particle = &snow.particles[i];
+        EmSnowProjected sprite;
+        if (!em_snow_project(&projection, particle, &sprite)) continue;
         EmGfxParticle *out = &snow.projected[count];
-        for (unsigned row = 0; row < 4; ++row) {
-            float value = em_effect_float32((double)viewproj[row] * particle->position[0]);
-            for (unsigned column = 1; column < 4; ++column) {
-                float product = em_effect_float32((double)viewproj[column*4+row] * particle->position[column]);
-                value = em_effect_float32((double)value + product);
-            }
-            out->clip[row] = value;
+        for (unsigned corner = 0; corner < 2; ++corner) {
+            float x = (float)(sprite.xyzf[corner][0] & 0xffffU) / 16.0f;
+            float y = (float)(sprite.xyzf[corner][1] & 0xffffU) / 16.0f;
+            out->corner[corner][0] = (x - 2048.0f) / 256.0f;
+            out->corner[corner][1] = -(y - 2048.0f) / 112.0f;
         }
-        const float *clip = out->clip;
-        if (clip[3] <= 0 || fabsf(clip[0]) > clip[3] ||
-            fabsf(clip[1]) > clip[3] || clip[2] < 0 || clip[2] > clip[3]) continue;
-        uint32_t color[4];
-        em_snow_particles_color(particle->color, clip[3], fog, color);
+        /* Convert the quantized GS reciprocal depth to the native world's
+         * existing depth convention. This preserves sprite depth steps;
+         * it does not turn the native geometry pass into a GS rasterizer. */
+        float gs_depth = (float)((sprite.xyzf[0][2] >> 4) & 0xffffffU);
+        float inverse_w = (gs_depth - projection.extent_projection[10] -
+            projection.depth_bias[2]) / projection.extent_projection[14];
+        out->depth = -native_projection[10] + native_projection[14] * inverse_w;
+        memcpy(out->st, sprite.st, sizeof out->st);
         for (unsigned component = 0; component < 4; ++component)
-            out->color[component] = (float)color[component] / 128.0f;
-        out->half_extent[0] = projection_x * particle->half_size[0];
-        out->half_extent[1] = projection_y * particle->half_size[1];
+            out->color[component] = (float)sprite.color[component] / 128.0f;
         ++count;
     }
     em_gfx_particles_draw(gfx, snow.projected, count);

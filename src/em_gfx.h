@@ -348,12 +348,14 @@ void em_gfx_overlay_backdrop(EmGfx *gfx, float x, float y, float w, float h,
  * primitives per frame; overflow is dropped. */
 #define EM_GFX_BEAM_MAX 64
 
-/* Original additive particle sprites, already projected by the game-side
- * VU translation. half_extent is in homogeneous clip coordinates; the
- * four vertices share the center's depth and W. Color is GS RGB / 128. */
+/* Original additive particle sprites, projected and quantized by the
+ * game-side VU translation. Opposite corners retain their GIF order and
+ * texture coordinates; positions are native NDC and share one depth.
+ * The GS sprite uses Q=1, so texture interpolation is affine. */
 typedef struct EmGfxParticle {
-    float clip[4];
-    float half_extent[2];
+    float corner[2][2];
+    float depth;
+    float st[2][2];
     float color[4];
 } EmGfxParticle;
 int em_gfx_particle_texture_set(EmGfx *gfx, const uint8_t *rgba,

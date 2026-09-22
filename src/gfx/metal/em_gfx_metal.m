@@ -1466,15 +1466,16 @@ void em_gfx_particles_draw(EmGfx *g, const EmGfxParticle *particles,
         const EmGfxParticle *particle = &particles[i];
         for (unsigned vertex = 0; vertex < 6; ++vertex) {
             unsigned corner = corners[vertex];
-            float x = corner & 1 ? 1.0f : -1.0f;
-            float y = corner & 2 ? -1.0f : 1.0f;
+            unsigned x = corner & 1;
+            unsigned y = (corner >> 1) & 1;
             float *out = vertices + (i * 6 + vertex) * 12;
-            memcpy(out, particle->clip, 4 * sizeof(float));
-            out[0] += x * particle->half_extent[0];
-            out[1] += y * particle->half_extent[1];
+            out[0] = particle->corner[x][0];
+            out[1] = particle->corner[y][1];
+            out[2] = particle->depth;
+            out[3] = 1.0f;
             memcpy(out + 4, particle->color, 4 * sizeof(float));
-            out[8] = (corner & 1) ? 1.0f : 0.0f;
-            out[9] = (corner & 2) ? 1.0f : 0.0f;
+            out[8] = particle->st[x][0];
+            out[9] = particle->st[y][1];
             out[10] = out[11] = 0.0f;
         }
     }

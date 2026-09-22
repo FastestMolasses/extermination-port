@@ -14,7 +14,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c \
-           src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_runtime.c \
+           src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c \
            src/game/em_examine.c src/game/em_truck.c \
@@ -208,13 +208,17 @@ test-snow-particles-reference:
 test-snow-tiles-reference:
 	python3 tools/test_snow_tiles_reference.py
 
+.PHONY: test-snow-projection-reference
+test-snow-projection-reference:
+	python3 tools/test_snow_projection_reference.py
+
 test-snow-particles:
 	@mkdir -p build
 	$(CC) -std=c11 -O1 -g -ffp-contract=off -fsanitize=address,undefined -I src tests/test_snow_particles.c src/game/em_snow_particles.c -lm -o build/test_snow_particles
 	build/test_snow_particles ../Extermination/config/SCUS_971.12
 
 SNOW_RUNTIME_TEST_SRC := tests/snow_runtime_test.c src/game/em_snow_runtime.c \
-    src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_random.c
+    src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_random.c
 .PHONY: test-snow-runtime
 test-snow-runtime: $(SNOW_RUNTIME_TEST_SRC)
 	@mkdir -p build

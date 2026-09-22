@@ -23,7 +23,7 @@ def signed(x,b=32):return (x&((1<<b)-1))-(1<<b) if x&(1<<(b-1)) else x&((1<<b)-1
 class VU:
  def __init__(self,dmem):
   self.mem=bytearray(dmem);self.v=[[0]*4 for _ in range(32)];self.v[0][3]=bits(1)
-  self.vi=[0]*16;self.acc=[0.]*4;self.q=0.;self.r=0;self.i=0.;self.cycle=0;self.pending=[];self.mac=0;self.cf=0;self.kicks=[]
+  self.vi=[0]*16;self.acc=[0.]*4;self.q=0.;self.r=0;self.i=0.;self.cycle=0;self.pending=[];self.mac=0;self.cf=0;self.kicks=[];self.clips=[]
  def read(self,a):return list(struct.unpack_from('<4I',self.mem,a*16))
  def write(self,a,x):struct.pack_into('<4I',self.mem,a*16,*x)
  def run(self,pc,stop):
@@ -80,6 +80,7 @@ class VU:
      elif sub==9 and op==0x3e:accwrite=True;res=[fp(z-self.i) for z in x]
      elif sub==7 and op==0x3f:
       flag=False;mask=0;clip=0;boundary=abs(y[3])
+      self.clips.append(list(self.v[fs]))
       for c in range(3):
        if x[c]>boundary:clip|=1<<(c*2)
        if x[c]<-boundary:clip|=1<<(c*2+1)
