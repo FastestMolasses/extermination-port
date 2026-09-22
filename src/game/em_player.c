@@ -616,6 +616,15 @@ void player_move(void)
         return;
     }
 
+    int walking_before_use = g.loco_mode != 0;
+    int used = player_use_poll();
+    if (used != 0) {
+        /*61020 breaks to the idle physics tail;612D0 returns before
+         * its walking tail. Save the state before1798D0 clears it. */
+        if (used > 0 && !walking_before_use) player_wall_probes();
+        return;
+    }
+
     if (player_pose_entry_return_tick() || player_pose_idle_state_wait()) {
         g.gait = 0;
         g.move_speed = 0;
@@ -642,6 +651,20 @@ void player_move(void)
     g.gait       = gait;
     g.move_speed = 0.0f;
     unsigned translation_steps = 1;
+
+    if (player_pose_foot_stop_active()) {
+        if (gait) {
+            float desired = player_stick_desired_yaw(in);
+            float difference = desired - g.yaw;
+            while (difference > EM_PI) difference -= 2.0f * EM_PI;
+            while (difference <= -EM_PI) difference += 2.0f * EM_PI;
+            player_turn_toward(desired, player_turn_rate(gait, 0, fabsf(difference)));
+        }
+        if (player_pose_foot_stop_tick() < 0)
+            player_pose_invalidate("foot-placement stop callback failed");
+        player_wall_probes();
+        return;
+    }
 
     if (g.loco_reentry.phase == 2) g.loco_reentry.phase = 0;
     if (g.loco_reentry.phase == 1) {
@@ -786,8 +809,8 @@ void player_move(void)
     g.loco_rate = motor.rate;
     g.loco_blend = motor.blend;
     if (motor.mode == 3) {
-        /* 0017C030 mode3/tier3 requests original stop clip5. Tiers1/2
-         * use 0017B910's foot-placement solve, which remains unbound. */
+        /*0017C030 mode3/tier3 requests stop clip5. Tiers1/2 instead
+         * execute B910's foot-placement solve against source nodes17/18. */
         int stop_clip = em_model_clip_index(&g.model, 5);
         if (motor.tier == 3 && stop_clip >= 0) {
             g.loco_stop_clip = stop_clip;
@@ -800,7 +823,11 @@ void player_move(void)
             player_wall_probes();
             return;
         }
-        player_pose_invalidate("walk/jog foot-placement stop is not bound");
+        if (player_pose_foot_stop_begin()) {
+            player_wall_probes();
+            return;
+        }
+        player_pose_invalidate("foot-placement stop has no supported source pose");
         g.loco_mode = 0;
         g.loco_substate = 0;
         g.loco_tier = 0;
@@ -840,8 +867,7 @@ locomotion_translate:
         g.pos[1] = 0.0f;  /* flat floor (no collision world loaded) */
     }
 
-    /* Jog/walk foot-placement stops and the separate skid/pivot paths
-     * still require their complete original callbacks. */
+    /* The separate skid/pivot paths still need their original workers. */
 }
 
 /* rand5 — func_00179B90. PORT NOTE: a private deterministic LCG (ANSI

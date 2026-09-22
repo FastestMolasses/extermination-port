@@ -68,6 +68,25 @@ int use_reset(unsigned *out) {
     player_pose_source(out + 3, (float *)(out + 4), NULL, (int *)(out + 5));
     return 1;
 }
+static unsigned poll_count;
+static int accepted_use(void *context) {
+    ++poll_count;
+    return *(int *)context;
+}
+unsigned poll_gate(unsigned action, unsigned phase, unsigned fade_wait, int accepted) {
+    source.idle_return = 0;
+    source.idle_phase = action == 0 && phase == 1;
+    g.loco_mode = action == 1;
+    g.loco_entry_ticks = action == 0 && phase == 2;
+    g.loco_reentry.phase = action == 1 && phase == 0x63 ? 1 : 0;
+    if (action == 0 && phase >= 0x63) source.idle_return = phase;
+    fade.substate = fade_wait;
+    poll_count = 0;
+    player_use_set_hook(accepted_use, &accepted);
+    unsigned result = player_use_poll();
+    player_use_set_hook(NULL, NULL);
+    return poll_count * 2 + result;
+}
 '''
 
 
@@ -87,7 +106,9 @@ def main():
                         '-I' + str(ROOT / 'src'), str(source),
                         str(ROOT / 'src/game/em_player_pose.c'),
                         str(ROOT / 'src/game/em_pose_bank.c'),
-                        str(ROOT / 'src/game/em_pose_transition.c'), '-lm', '-o', str(library)], check=True)
+                        str(ROOT / 'src/game/em_pose_transition.c'),
+                        str(ROOT / 'src/game/em_player_foot_stop.c'),
+                        str(ROOT / 'src/game/em_camera_rotation.c'), '-lm', '-o', str(library)], check=True)
         native = C.CDLL(str(library))
         native.load.argtypes = [C.c_char_p]
         native.align_input.argtypes = [C.POINTER(C.c_float)] * 3
@@ -168,6 +189,32 @@ def main():
             assert requests == [bits(0)]
             assert all(original.load(PLAYER + offset, 1) == 0 for offset in (5, 6, 0x1F0, 0x25C))
         report['use_reset_cases'] = 7
+        count = 0
+        for action, phases in ((0, (0, 1, 2, 0x63, 0x64)), (1, (0, 1, 0x63))):
+            for phase in phases:
+                for fade_wait in (0, 1):
+                    for accepted in (0, 1):
+                        original = ScanOracle(elf)
+                        original.save(PLAYER + 6, phase, 1)
+                        original.save(PLAYER + 0x28, 300, 2)
+                        original.save(PLAYER + 0x1F0, 1, 1)
+                        original.save(0x28A9A0, fade_wait, 2)
+                        calls = []
+                        def use(o):
+                            calls.append('Use')
+                            o.r[2] = accepted
+                        original.calls[0x160220] = use
+                        for address in (0x1607D0, 0x174AC0):
+                            original.calls[address] = lambda o: o.r.__setitem__(2, 0)
+                        for address in (0x1764E0, 0x175900, 0x1756E0, 0x1796C0,
+                                        0x174A50, 0x17BC40, 0x17C030, 0x178B90, 0x17C540):
+                            original.calls[address] = lambda o: None
+                        original.run(0x161020 if action == 0 else 0x1612D0, (PLAYER,))
+                        actual = native.poll_gate(action, phase, fade_wait, accepted)
+                        assert actual == len(calls) * 2 + int(bool(calls) and accepted), (
+                            action, phase, fade_wait, accepted, actual, calls)
+                        count += 1
+        report['use_poll_state_gates'] = count
     report['scope'] = 'original state instructions and bounded VU arithmetic; cache matrix shifts are host adaptation'
     output = ROOT / 'build/player_pose_channels/host_reference.json'
     output.write_text(json.dumps(report, indent=2) + '\n')

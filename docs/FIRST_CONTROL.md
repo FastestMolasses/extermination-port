@@ -66,8 +66,7 @@ checks 2,360 raw-pad/camera cases; its SDK trigonometric calls are host models,
 so this is not a byte-faithful replacement of the SDK transcendental library.
 
 Remaining limitations: interrupted initial entry/release,
-jog/walk foot-placement stops and other movement-state families need their
-complete callbacks; pose blending is
+other movement-state families still need their complete callbacks; pose blending is
 still interpolation of exported matrices rather than original bone quaternion
 blending. Ordinary idle phase at handoff is not yet proven bit-for-bit. The
 movement and camera endpoints are close, not identical.

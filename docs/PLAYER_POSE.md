@@ -108,8 +108,8 @@ blend 8), run stop (clip 5, source 4, blend 6), return from that stop (idle,
 blend 12), interrupted run stop (clip 2, source 27, blend 4), and idle fidget
 (15D, source 0, blend 8, then default blend 8). Their callback timing must come
 from the existing original-backed state workers; comparing rendered weights
-does not identify a clip request. Clip 4 is available but its full foot-placement
-state callback remains outside this binding.
+does not identify a clip request. Walk and jog foot-placement stops are now
+bound through the separate original B910/C030 worker described below.
 
 Only the acquired idle/script paths use `em_player_pose_palette` until
 ordinary display blending is replaced. The palette includes the 21-node
@@ -173,21 +173,60 @@ callback ownership, release without an extra idle advance, placement/Euler
 mirrors and explicit invalid-source failure under ASan/UBSan. The first idle
 callback seeds counter300; case1 is blocked by the original transition-fade
 state while its animation continues to advance. End-to-end scene interaction
-regression and walk/jog foot-placement stop source workers remain required.
+regression remains required.
 None of these checks makes the legacy displayed locomotion matrix blend faithful.
 
 
-The follow-up host binding restores the aborted walk-entry states99/100 and
+The follow-up host binding restores the aborted walk-entry states 99/100 and
 consumes the previous animation multiplier even when locomotion mode is idle;
 a pending turn can legitimately leave that multiplier zero. The successful
 Use caller now has an explicit `player_pose_use_accepted()` operation: original
-1798D0 clears movement and conditionally requests default clip0/blend0 before
+1798D0 clears movement and conditionally requests default clip 0/blend 0 before
 the next callback acquires script ownership. An already-idle cursor survives.
 
-`tools/test_player_pose_host_reference.py` executes the original182F90 with its
-SDK vector callees in1,203 cases, including captured panel/elevator placements.
+`tools/test_player_pose_host_reference.py` executes original 182F90 with its
+SDK vector callees in 1,203 cases, including captured panel/elevator placements.
 All tested feet, hip and saved-Euler words agree after bounded VU rounding.
-It also checks187 original61020 aborted-entry callbacks and7 original1798D0
-reset cases. Shifting native cached matrices remains a host adaptation; the
+It also checks 187 original 61020 aborted-entry callbacks, 7 original 1798D0
+reset cases, and 32 idle/walking Use-poll gates. Shifting native cached matrices remains a host adaptation; the
 original alignment function only shifts the position mirrors. The sanitizer
 host test passes the corresponding lifecycle and invalid-source cases.
+
+`player_use_set_hook` installs the real Use check after the current action
+priority branches, before ordinary movement. It is separate from the earlier
+player-stage takeover hook. Original idle case 1 gates Use on the fade state;
+idle entry case 2 does not. Return states 99/100 and walking re-entry state 63
+do not poll. An accepted idle check continues its physics tail, whereas an
+accepted walking check returns before that tail, matching 61020 and 612D0.
+
+## Walk and jog foot-placement stops
+
+`em_player_foot_stop.c` implements 0017B910 entry and 0017C030 mode 5. Entry
+evaluates the existing raw source skeleton, then selects foot node 18 when
+remaining time is below the original healthy-row boundary (58 for walk, 24
+for jog), or node 17 otherwise. These are source node positions rather than
+the legacy tier-blended display. Their planar distance from working feet is
+rotated by the original SDK Euler routines to produce each callback's step.
+
+Walk retains clip 1 and halves its residual planting interval, clamped to at
+least one. Its moving callbacks publish animation multiplier 2. Jog requests
+clip 4 at frame 0 with blend 10, moves for ten callbacks, then waits for the
+original clip-end flag. Both return through idle state 0 on the following
+callback and its default blend 12. The new path publishes channel-derived
+palettes only during this stop and its idle return; ordinary gait display
+blending retains its documented approximation.
+
+`make test-player-foot-stop-reference` executes 618 original B910 entries and
+16,179 C030 callbacks, including the original software square root and SDK
+matrix/vector routines. Given equal evaluated foot-node inputs, every checked
+step, duration, rate and output-position word matches. Source-hierarchy world
+matrix error remains the separately measured tolerance above, not a claim of
+bit-identical foot-node positions for every pose.
+
+The optional `EM_CONTROL_LOW_GAIT=1` or `2` setting extends the real
+`EM_STARTUP_TEST=newgame-control` input fixture. It uses Option/Command plus W
+for 60 callbacks after the opening, releases movement for 100, and requires
+the foot-stop worker to execute and return to a valid idle source. It does not
+seed positions or animation clocks. This is a native integration check; its
+final displacement has not been compared with an equal-duration original
+low-gait runtime capture.

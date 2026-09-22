@@ -980,6 +980,8 @@ static void actor_update(void)
         return;
     }
 
+    if (player_pose_foot_stop_palette() != 0) return;
+
     if (g.loco_reentry.phase) {
         const EmPlayerReentry *reentry = &g.loco_reentry;
         unsigned count = g.model.bone_count * 16;

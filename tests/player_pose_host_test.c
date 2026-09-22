@@ -76,10 +76,37 @@ static int interaction(void *context)
     return 1;
 }
 
+static int use(void *context)
+{
+    ++*(unsigned *)context;
+    return player_pose_use_accepted() ? 1 : -1;
+}
+
 int main(void)
 {
     reset();
     expected(0, 80, 0);
+
+    unsigned polls = 0;
+    player_use_set_hook(use, &polls);
+    assert(!player_use_poll() && !polls); /* idle case0 */
+    ordinary();
+    fade.substate = 1;
+    assert(!player_use_poll() && !polls); /* gated idle case1 */
+    g.loco_entry_ticks = 8;
+    assert(player_use_poll() == 1 && polls == 1); /* case2 ignores fade */
+    player_pose_entry_cancel();
+    assert(!player_use_poll() && polls == 1); /* case99 */
+    assert(player_pose_entry_return_tick());
+    assert(!player_use_poll() && polls == 1); /* case100 */
+    reset();
+    player_use_set_hook(use, &polls);
+    g.loco_mode = 4;
+    g.loco_reentry.phase = 1;
+    assert(!player_use_poll() && polls == 1); /* walking case63 */
+    g.loco_reentry.phase = 2;
+    assert(player_use_poll() == 1 && polls == 2); /* next case0 falls to1 */
+    reset();
 
     reset();
     g.loco_entry_ticks = 8;
@@ -120,6 +147,40 @@ int main(void)
     player_pose_finish_state();
     expected(0, 80, 0);
     assert(!g.loco_mode && !g.loco_tier && g.loco_upt == 0);
+
+    for (unsigned tier = 1; tier <= 2; ++tier) {
+        reset();
+        player_pose_request(tier, tier == 1 ? 64 : 10, 0, 1);
+        g.loco_tier = tier;
+        g.loco_mode = 3;
+        assert(player_pose_foot_stop_begin());
+        if (tier == 2) expected(4, 10, 1);
+        assert(player_pose_foot_stop_palette() == 1);
+        unsigned ticks = 0;
+        while (player_pose_foot_stop_active()) {
+            assert(player_pose_stage() == 0);
+            g.loco_rate = 1; /* ordinary player-stage reset */
+            assert(player_pose_foot_stop_tick() >= 0);
+            player_pose_finish_state();
+            assert(player_pose_foot_stop_palette() == 1);
+            assert(++ticks < 80);
+        }
+        assert(g.loco_stop.phase == 3);
+        assert(player_pose_stage() == 0);
+        g.loco_stop.phase = 4;
+        player_pose_idle_enter();
+        player_pose_finish_state();
+        expected(0, 12, 1);
+        for (unsigned i = 0; i < 12; ++i) {
+            assert(player_pose_stage() == 0);
+            g.loco_rate = 1;
+            player_pose_finish_state();
+            assert(player_pose_foot_stop_palette() == 1);
+        }
+        expected(0, 80, 0);
+        assert(player_pose_use_accepted());
+        assert(!player_pose_foot_stop_active() && !g.loco_stop.phase);
+    }
     /* Immutable03 has fade level251; after120 ordinary callbacks the
      * immutable04 idle cursor is40, with its countdown still at243. */
     fade = (EmTransitionFade){1, 0, 2, 251, 4};

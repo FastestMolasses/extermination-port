@@ -1,5 +1,6 @@
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
+#include "game/em_player_foot_stop.h"
 
 #include <math.h>
 
@@ -12,6 +13,9 @@ static struct {
     int idle_count;
     int idle_handled;
     unsigned idle_return;
+    EmPlayerFootStop foot_stop;
+    int previous_foot;
+    int foot_display;
     int previous_entry;
     unsigned previous_stop;
     unsigned previous_reentry;
@@ -21,12 +25,38 @@ static struct {
     int saved_euler_valid;
     int (*stage_hook)(void *);
     void *stage_context;
+    int (*use_hook)(void *);
+    void *use_context;
 } source;
 
 void player_pose_set_stage_hook(int (*hook)(void *), void *context)
 {
     source.stage_hook = hook;
     source.stage_context = context;
+}
+
+void player_use_set_hook(int (*hook)(void *), void *context)
+{
+    source.use_hook = hook;
+    source.use_context = context;
+}
+
+int player_use_poll(void)
+{
+    if (!source.use_hook || source.idle_return || g.loco_reentry.phase == 1) return 0;
+    /*61020 checks Use in case1 after its fade gate, and in entry case2
+     * without that gate. Its99/100 return states do not poll.612D0's
+     * ordinary walking case1 does poll; re-entry case63 does not. */
+    if (!g.loco_mode && !g.loco_entry_ticks &&
+        (!source.idle_phase || em_frame_transition()->substate != 0))
+        return 0;
+    int result = source.use_hook(source.use_context);
+    if (result < 0 || result > 1) {
+        fprintf(stderr, "player Use worker failed at frame %d\n", g.frame_no);
+        em_frame_request_quit();
+        return -1;
+    }
+    return result;
 }
 
 int player_pose_load(const char *path)
@@ -67,6 +97,7 @@ int player_pose_opening_release(void)
     source.idle_phase = source.idle_fidget = 0;
     source.idle_count = 300;
     source.idle_return = 0;
+    source.foot_stop.active = source.foot_display = 0;
     g.loco_rate = 1;
     g.idle_t = 0;
     return publish_current();
@@ -95,6 +126,7 @@ int player_pose_stage(void)
     source.previous_entry = g.loco_entry_ticks;
     source.previous_stop = g.loco_stop.phase;
     source.previous_reentry = g.loco_reentry.phase;
+    source.previous_foot = source.foot_stop.active;
     if (source.started && !source.pose.acquired && source.pose.valid) {
         if (g.pd_state == 2) {
             player_pose_invalidate("damage animation worker is not bound");
@@ -166,6 +198,69 @@ int player_pose_entry_return_tick(void)
     return 1;
 }
 
+int player_pose_foot_stop_begin(void)
+{
+    if (!source.started || !source.pose.valid || source.pose.acquired ||
+        source.pose.transition.active || (g.loco_tier != 1 && g.loco_tier != 2))
+        return 0;
+    float local[22 * 16];
+    float euler[3] = {0, g.yaw, 0};
+    if (!em_player_pose_palette(&source.pose, local, 22)) return 0;
+    /*B910 first evaluates the source skeleton. Its two endpoint nodes
+     * are17/18 in the actor+110 pointer array. Display-tier blending must
+     * not be used to reconstruct this source pose. */
+    palette_apply_placement(local, 22, g.pos, g.yaw);
+    if (!em_player_foot_stop_begin(&source.foot_stop, g.loco_tier,
+            source.pose.playback.remaining, local + 17 * 16 + 12,
+            local + 18 * 16 + 12, g.pos, euler))
+        return 0;
+    if (g.loco_tier == 2 && !em_player_pose_select(&source.pose, 4, 0, 10, 0)) {
+        source.foot_stop.active = 0;
+        return 0;
+    }
+    source.foot_display = 1;
+    g.loco_mode = 5;
+    g.loco_upt = g.move_speed = 0;
+    g.loco_animation_step = 0;
+    return 1;
+}
+
+int player_pose_foot_stop_active(void)
+{
+    return source.started && source.pose.valid && source.foot_stop.active;
+}
+
+int player_pose_foot_stop_tick(void)
+{
+    if (!player_pose_foot_stop_active()) return -1;
+    int active = em_player_foot_stop_tick(&source.foot_stop, source.pose.flags,
+                                         g.pos, &g.loco_rate);
+    if (active < 0) return -1;
+    if (!active) {
+        /*612D0 sees mode0 and returns to idle state0. The following
+         * callback executes61020 case0, requesting its blend12. */
+        g.loco_mode = g.loco_substate = g.loco_tier = 0;
+        g.loco_stop.phase = 3;
+    }
+    g.loco_upt = g.move_speed = 0;
+    g.loco_animation_step = 0;
+    return active;
+}
+
+int player_pose_foot_stop_palette(void)
+{
+    if (!source.foot_display) return 0;
+    if (!source.foot_stop.active && !g.loco_stop.phase) {
+        source.foot_display = 0;
+        return 0;
+    }
+    if (!publish_current()) {
+        player_pose_invalidate("foot-stop source palette failed");
+        return -1;
+    }
+    return 1;
+}
+
 int player_pose_idle_state_wait(void)
 {
     return source.started && source.pose.valid && !g.loco_mode && !g.loco_entry_ticks &&
@@ -174,7 +269,9 @@ int player_pose_idle_state_wait(void)
 
 void player_pose_finish_state(void)
 {
-    if (!source.started || !source.pose.valid || source.pose.acquired || source.idle_return) return;
+    if (!source.started || !source.pose.valid || source.pose.acquired || source.idle_return ||
+        source.foot_stop.active || source.previous_foot)
+        return;
     if (g.status.health <= PD_LOW_HEALTH) {
         player_pose_invalidate("low-health pose variant is not bound");
         return;
@@ -337,6 +434,7 @@ int player_pose_use_accepted(void)
     g.idle_t = (source.pose.playback.clip->duration - source.pose.playback.remaining) / 60.0;
     source.idle_phase = source.idle_fidget = 0;
     source.idle_return = 0;
+    source.foot_stop.active = source.foot_display = 0;
     source.idle_handled = 1;
     return publish_current();
 }
@@ -367,6 +465,7 @@ int player_pose_release(void)
     g.idle_t = (source.pose.playback.clip->duration - source.pose.playback.remaining) / 60.0;
     source.idle_phase = source.idle_fidget = 0;
     source.idle_return = 0;
+    source.foot_stop.active = source.foot_display = 0;
     source.idle_count = 300;
     /* Release follows the consumed script/idle callback. Publish its default
      * reset now, then let the next ordinary callback advance it exactly once. */

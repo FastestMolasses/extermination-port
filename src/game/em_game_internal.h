@@ -2186,6 +2186,8 @@ void palette_apply_placement(float *pal, uint32_t bone_count,
 /* Original-channel player source and shared interaction host boundary.
  * The stage hook returns -1 fault,0 ordinary callback,1 callback consumed. */
 void player_pose_set_stage_hook(int (*hook)(void *), void *context);
+void player_use_set_hook(int (*hook)(void *), void *context);
+int player_use_poll(void);
 int player_pose_load(const char *path);
 void player_pose_unload(void);
 int player_pose_opening_release(void);
@@ -2195,6 +2197,10 @@ void player_pose_request(unsigned clip, float frame, unsigned blend, int force);
 void player_pose_idle_enter(void);
 void player_pose_entry_cancel(void);
 int player_pose_entry_return_tick(void);
+int player_pose_foot_stop_begin(void);
+int player_pose_foot_stop_active(void);
+int player_pose_foot_stop_tick(void);
+int player_pose_foot_stop_palette(void);
 int player_pose_idle_state_wait(void);
 void player_pose_invalidate(const char *reason);
 int player_pose_acquire(void);

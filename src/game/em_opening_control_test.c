@@ -12,6 +12,7 @@
  * Movie/menu automation is the existing frontend test path. */
 static struct {
     int active, failed, phase, moving_ticks, locked_ticks, stop_ticks, reentry_ticks;
+    int low_gait, foot_stop_seen;
     float locked_start[3], move_start[3], max_locked_distance;
     float reentry_previous[3];
 } test;
@@ -22,6 +23,10 @@ static void key(int down)
     event.type=down ? EM_EVENT_KEY_DOWN : EM_EVENT_KEY_UP;
     event.key='w';
     em_input_handle_event(&event);
+    if (!down && test.low_gait) {
+        event.key = test.low_gait == 1 ? EM_KEY_ALT : EM_KEY_CMD;
+        em_input_handle_event(&event);
+    }
 }
 
 static void fail(const char *reason)
@@ -37,6 +42,9 @@ void em_opening_control_test_begin(void)
     memset(&test,0,sizeof test);
     const char *value=getenv("EM_STARTUP_TEST");
     test.active=value && strcmp(value,"newgame-control")==0;
+    const char *gait = getenv("EM_CONTROL_LOW_GAIT");
+    if (gait && (strcmp(gait, "1") == 0 || strcmp(gait, "2") == 0))
+        test.low_gait = atoi(gait);
 }
 
 void em_opening_control_test_before_frame(void)
@@ -51,9 +59,15 @@ void em_opening_control_test_before_frame(void)
         fprintf(stderr,"newgame control test: holding W through automatic opening\n");
     } else if (test.phase==2 && em_frame_transition()->substate==0) {
         memcpy(test.move_start,g.pos,sizeof test.move_start);
+        if (test.low_gait) {
+            EmEvent event = {.type = EM_EVENT_KEY_DOWN,
+                .key = test.low_gait == 1 ? EM_KEY_ALT : EM_KEY_CMD};
+            em_input_handle_event(&event);
+        }
         key(1); /* arrives at the next real frame input snapshot */
         test.phase=3;
-        fprintf(stderr,"newgame control test: fade clear; moving for 30 input ticks\n");
+        fprintf(stderr,"newgame control test: fade clear; moving for %d input ticks\n",
+                test.low_gait ? 60 : 30);
     }
 }
 
@@ -101,7 +115,7 @@ void em_opening_control_test_after_frame(void)
             }
             test.phase=2;
         }
-    } else if (test.phase==3 && input->ly==0 && input->lx==0x80) {
+    } else if (test.phase==3 && input->ly<0x80 && input->lx==0x80) {
         if (em_opening_runtime_busy() || g.frame_selector || em_frame_transition()->substate) {
             fail("movement test started before control/fade handoff");return;
         }
@@ -119,15 +133,18 @@ void em_opening_control_test_after_frame(void)
                     c->tgt[0],c->tgt[1],c->tgt[2],c->fwd[0],c->fwd[1],c->fwd[2],
                     c->yaw,c->hit,g.loco_clip,g.walk_t,g.loco_rate,g.loco_blend);
         }
-        if (test.moving_ticks!=30) return;
+        if (test.moving_ticks != (test.low_gait ? 60 : 30)) return;
         key(0);
         float dx=g.pos[0]-test.move_start[0], dz=g.pos[2]-test.move_start[2];
         float distance=sqrtf(dx*dx+dz*dz);
         /* Original immutable state04: exact30 raw[128,0] input frames
          * travel9.599849. The tolerance permits the remaining camera
          * rounding/evolution difference, but rejects the old16.1 ramp. */
-        if (fabsf(distance-9.6f)>.01f) {
+        if (!test.low_gait && fabsf(distance-9.6f)>.01f) {
             fail("30 input ticks disagree with original first-control distance");return;
+        }
+        if (test.low_gait && (g.loco_tier != test.low_gait || distance <= 0)) {
+            fail("low-gait fixture did not reach its requested movement tier");return;
         }
         float top[3]={g.pos[0],g.pos[1]+2.0f,g.pos[2]};
         float bottom[3]={g.pos[0],g.pos[1]-2.0f,g.pos[2]};
@@ -141,7 +158,7 @@ void em_opening_control_test_after_frame(void)
                 "move_ticks=%d displacement=%.6f pos=(%.6f,%.6f,%.6f) ground=%.6f\n",
                 test.locked_ticks,test.max_locked_distance,test.moving_ticks,distance,
                 g.pos[0],g.pos[1],g.pos[2],ground.point[1]);
-        if (getenv("EM_CONTROL_STOP_TEST") || getenv("EM_CONTROL_REENTRY_TEST")) {
+        if (test.low_gait || getenv("EM_CONTROL_STOP_TEST") || getenv("EM_CONTROL_REENTRY_TEST")) {
             test.phase=5;
             fprintf(stderr,"newgame control test: released W; validating original run-stop\n");
             return;
@@ -151,11 +168,29 @@ void em_opening_control_test_after_frame(void)
         em_frame_request_quit(); /* end_frame still services the queued capture */
     } else if (test.phase==5) {
         ++test.stop_ticks;
+        test.foot_stop_seen |= player_pose_foot_stop_active();
         if (getenv("EM_CONTROL_TRACE"))
             fprintf(stderr,"stop sample: tick=%d speed=%.9g mode=%u phase=%u "
                     "blend=%u source=%u idle_timer=%d\n",test.stop_ticks,
                     g.loco_upt,g.loco_mode,g.loco_stop.phase,
                     g.loco_stop.blend_left,g.loco_stop.frame,g.idle_timer);
+        if (test.low_gait) {
+            if (test.stop_ticks < 100) return;
+            unsigned clip;
+            int transition;
+            if (!test.foot_stop_seen || player_pose_foot_stop_active() ||
+                !player_pose_source(&clip, NULL, NULL, &transition) ||
+                clip != 0 || transition || g.loco_mode || g.loco_stop.phase) {
+                fail("low-gait foot stop did not return to a valid idle source");return;
+            }
+            fprintf(stderr, "newgame foot-stop test: PASS gait=%d release_ticks=%d "
+                    "source=idle position=(%.9g,%.9g,%.9g)\n", test.low_gait,
+                    test.stop_ticks, g.pos[0], g.pos[1], g.pos[2]);
+            if (g.capture_path) em_gfx_request_capture(em_frame_gfx(), g.capture_path);
+            test.phase = 4;
+            em_frame_request_quit();
+            return;
+        }
         if (getenv("EM_CONTROL_REENTRY_TEST") && test.stop_ticks==18) {
             memcpy(test.reentry_previous,g.pos,sizeof test.reentry_previous);
             key(1);
