@@ -298,8 +298,8 @@ void em_gfx_overlay_sprite(EmGfx *gfx, float x, float y, float w, float h,
                            const float rgba[4]);
 
 /* Original00207D00 UI modes. Mixed calls preserve sprite submission order,
- * including clamps between additive/subtractive draws. Opaque mode retains
- * the original TEST alpha>0 cutout, then replaces destination RGBA. */
+ * including clamps between additive/subtractive draws. Subtract and opaque
+ * retain the original TEST alpha>0 cutout; opaque replaces destination RGBA. */
 typedef enum {
     EM_GFX_UI_ALPHA=0,    /* GS ALPHA44: Cs*As+Cd*(1-As) */
     EM_GFX_UI_ADD=1,      /* GS ALPHA68/FIX80: Cs+Cd */
@@ -308,6 +308,12 @@ typedef enum {
 } EmGfxOverlayBlend;
 void em_gfx_overlay_sprite_blend(EmGfx *gfx,float x,float y,float w,float h,
     float u0,float v0,float u1,float v1,const float rgba[4],EmGfxOverlayBlend blend);
+
+/* One Gouraud triangle in the same ordered decor stream. Sampling one
+ * white atlas texel carries an originally untextured GS triangle without
+ * changing its per-vertex color or blend mode. Returns0 on queue failure. */
+int em_gfx_overlay_triangle(EmGfx *gfx, const float xy[3][2],
+    const float rgba[3][4], float white_u, float white_v, EmGfxOverlayBlend blend);
 
 /* --- overlay BACKDROP layer (the animated UI background) -------------- */
 

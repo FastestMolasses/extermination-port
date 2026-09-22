@@ -7,8 +7,8 @@ static void quad(EmGfx *gfx, int column, const float color[4], EmGfxOverlayBlend
                  int transparent_texel)
 {
     float u = transparent_texel ? 1.5f : 0.5f;
-    em_gfx_overlay_sprite_blend(gfx, column * 80.0f, 0, 80, 448, u, 0.5f, u, 0.5f,
-                               color, blend);
+    em_gfx_overlay_sprite_blend(gfx, column * (640.0f / 11), 0, 640.0f / 11, 448, u, 0.5f, u, 0.5f,
+                                color, blend);
 }
 
 int main(int argc, char **argv)
@@ -22,7 +22,8 @@ int main(int argc, char **argv)
     assert(em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI, texture, 2, 1));
     const float color[] = {0.1f, 0.2f, 0.3f, 0.5f};
     const float bright[] = {0.9f, 0.9f, 0.9f, 0};
-    const float dark[] = {0.4f, 0.4f, 0.4f, 0};
+    const float dark[] = {0.4f, 0.4f, 0.4f, 1};
+    const float transparent[] = {0.1f, 0.2f, 0.3f, 0};
     for (int frame = 0; frame < 3; ++frame) {
         EmEvent event;
         while (em_window_poll(window, &event)) {
@@ -39,6 +40,11 @@ int main(int argc, char **argv)
         quad(gfx, 5, bright, EM_GFX_UI_ADD, 0);
         quad(gfx, 6, color, EM_GFX_UI_OPAQUE, 1);
         quad(gfx, 7, color, EM_GFX_UI_ADD, 1);
+        quad(gfx, 8, color, EM_GFX_UI_SUBTRACT, 1);
+        quad(gfx, 9, transparent, EM_GFX_UI_SUBTRACT, 0);
+        const float xy[3][2] = {{640.0f * 10 / 11, 0}, {640, 0}, {640.0f * 10.5f / 11, 448}};
+        const float colors[3][4] = {{0.4f, 0, 0, 0}, {0, 0.4f, 0, 0}, {0, 0, 0.4f, 0}};
+        assert(em_gfx_overlay_triangle(gfx, xy, colors, 0.5f, 0.5f, EM_GFX_UI_ADD));
         if (frame == 2)
             em_gfx_request_capture(gfx, argv[1]);
         em_gfx_end_frame(gfx);

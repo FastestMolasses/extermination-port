@@ -328,3 +328,26 @@ original subtract and opaque modes use TEST alpha>0; transparent source
 fragments leave the destination untouched. Additive mode ignores alpha.
 The Metal path preserves mixed-mode submission order and its intervening
 clamps. This GPU fixture is synthetic and contains no original assets.
+
+The subsequent `em_item_trail` core implements1B62C0 normalization,
+20AC70's16-slot ring and1D66A0's GS triangle packet. Its169 stick cases
+and22,016 fixed16 triangles over43 moving/decaying callbacks agree with
+the original instructions and ring bytes. SDK sine/cosine/atan2/square
+root results and integer conversion are explicit oracle boundaries;
+that test does not claim whole-SDK errno or transcendental equivalence.
+The original PRIM4C is an untextured Gouraud strip whose alternating
+center/outer vertices produce32 visible fan triangles per slot. Its RGB
+uses intensity/255, unlike the128-based modulation of textured sprites.
+
+The ordered overlay triangle API passes a synthetic interpolated-color
+pixel fixture alongside the ten existing blend tests. The three-frame
+original-artwork screenshot is `build/item_ui_visual/root.png`, generated
+by `tests/item_ui_visual.c`. Static icon, connector and help-box placement
+align with the saved original root. The center glow now uses the original
+intensity scale. This fixture starts the shared backdrop animation fresh;
+background phase and GS/Metal raster filtering remain explicit differences.
+
+The readable1D66A0 source also had an incorrect context expression. Its
+cursor is at `*(D275670) + 0x10 + 4*slot`. Correcting the pointer and slot
+scaling improves the measured C similarity67.06% to68.56%. It remains
+assembly-backed and the full original-build verification gate passes.

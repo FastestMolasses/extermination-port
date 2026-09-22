@@ -1316,6 +1316,26 @@ void em_gfx_overlay_sprite_blend(EmGfx *g,float x,float y,float w,float h,
     if (g->spriteVertCount!=start) g->spriteBlend[start/6]=(uint8_t)blend;
 }
 
+int em_gfx_overlay_triangle(EmGfx *g, const float xy[3][2], const float rgba[3][4],
+                            float u, float v, EmGfxOverlayBlend blend)
+{
+    if (!g || !xy || !rgba || blend < EM_GFX_UI_ALPHA || blend > EM_GFX_UI_OPAQUE ||
+        !g->overlayTex[EM_GFX_OVERLAY_TEX_UI] ||
+        g->spriteVertCount + 6 > EM_GFX_OVERLAY_MAX * 6)
+        return 0;
+    uint32_t start = g->spriteVertCount;
+    for (unsigned vertex = 0; vertex < 3; ++vertex)
+        texquad_push(g, g->spriteVerts, &g->spriteVertCount, EM_GFX_OVERLAY_TEX_UI,
+                     xy[vertex][0], xy[vertex][1], u, v, rgba[vertex]);
+    /* The decor queue uses six-vertex records. A zero-area second triangle
+     * preserves that grouping and ordering without rasterizing more pixels. */
+    for (unsigned vertex = 0; vertex < 3; ++vertex)
+        texquad_push(g, g->spriteVerts, &g->spriteVertCount, EM_GFX_OVERLAY_TEX_UI,
+                     xy[0][0], xy[0][1], u, v, rgba[0]);
+    g->spriteBlend[start / 6] = (uint8_t)blend;
+    return 1;
+}
+
 /* Queue one BACKDROP quad — UI slot, bottom layer (em_gfx.h). */
 void em_gfx_overlay_backdrop(EmGfx *g, float x, float y, float w, float h,
                              float u0, float v0, float u1, float v1,
@@ -2041,7 +2061,9 @@ static void texquad_flush(EmGfx *g, int slot, float *verts_data,
         EmBlendMode blend=EM_BLEND_ALPHA;
         NSString *fragment=@"f_glyph";
         if (mode==EM_GFX_UI_ADD) {pipeline=&g->spriteAddPipeline;blend=EM_BLEND_ADD;}
-        else if (mode==EM_GFX_UI_SUBTRACT) {pipeline=&g->spriteSubPipeline;blend=EM_BLEND_RSUB;}
+        else if (mode==EM_GFX_UI_SUBTRACT) {
+            pipeline=&g->spriteSubPipeline;blend=EM_BLEND_RSUB;fragment=@"f_glyph_opaque";
+        }
         else if (mode==EM_GFX_UI_OPAQUE) {
             pipeline=&g->spriteOpaquePipeline;blend=EM_BLEND_OPAQUE;fragment=@"f_glyph_opaque";
         }

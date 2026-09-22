@@ -30,10 +30,11 @@ def main():
     assert data[:2] == b'BM' and struct.unpack_from('<H', data, 28)[0] == 24
     stride = (width * 3 + 3) & ~3
     expected = [(.15, .3, .45), (.3, .6, .9), (.1, .2, .3), (.1, .2, .3),
-                (.6, .6, .6), (.9, .9, 1), (.2, .4, .6), (.3, .6, .9)]
+                (.6, .6, .6), (.9, .9, 1), (.2, .4, .6), (.3, .6, .9),
+                (.2, .4, .6), (.2, .4, .6), (.3, .5, .8)]
     samples = []
     for column, color in enumerate(expected):
-        x, y = int((column + .5) * width / 8), abs(height) // 2
+        x, y = int((column + .5) * width / len(expected)), abs(height) // 2
         address = offset + y * stride + x * 3
         pixel = tuple(reversed(data[address:address + 3]))
         assert all(abs(pixel[i] - round(color[i] * 255)) <= 1 for i in range(3)), \
@@ -41,6 +42,8 @@ def main():
         samples.append(pixel)
     report = {'samples': samples, 'four_blend_modes': 'PASS', 'mixed_clamp_order': 'PASS',
               'opaque_alpha_zero_discard': 'PASS', 'additive_ignores_alpha': 'PASS',
+              'subtract_alpha_zero_discard': 'PASS',
+              'gouraud_triangle': 'PASS',
               'unorm_rounding_tolerance': 1}
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))
