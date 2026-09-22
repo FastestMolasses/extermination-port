@@ -17,7 +17,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
-           src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_bgm.c \
+           src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_roger.c src/game/em_roger_assets.c \
            src/game/em_roger_runtime.c src/game/em_face_model.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
@@ -212,6 +212,13 @@ test-roger-assets: tests/roger_assets_test.c src/game/em_roger_assets.c
 	@mkdir -p build
 	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/roger_assets_test.c src/game/em_roger_assets.c src/em_model.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_script.c -o build/roger_assets_test
 	build/roger_assets_test
+
+.PHONY: test-door-original test-door-original-runtime
+test-door-original:
+	python3 tools/test_door_original_reference.py
+
+test-door-original-runtime:
+	python3 tools/test_door_original_runtime.py
 
 .PHONY: test-roger-cinematic-reference
 test-roger-cinematic-reference:
