@@ -36,12 +36,14 @@ int em_panel_message_load(EmPanelMessage *message, const char *path)
         fclose(f);
         return 0;
     }
-    int valid = fread(text, 1, size, f) == size && fgetc(f) == EOF;
+    unsigned first_line = u16(records);
+    int valid = fread(text, 1, size, f) == size && fgetc(f) == EOF &&
+                (first_line == 0x18 || first_line == 0x1A);
     fclose(f);
     for (unsigned i = 0; valid && i < 2; i++) {
         unsigned char *r = records + i * 20;
         unsigned offset = u32(r + 8), length = u32(r + 12);
-        valid = u16(r) == 0x18 + i && u16(r + 4) == 0xFFFF && r[6] == 255 && r[7] == i &&
+        valid = u16(r) == first_line + i && u16(r + 4) == 0xFFFF && r[6] == 255 && r[7] == i &&
                 r[16] <= 32 && offset < size && length < size - offset;
         if (valid)
             valid = text[offset + length] == 0 && !memchr(text + offset, 0, length);
@@ -78,7 +80,9 @@ void em_panel_message_free(EmPanelMessage *message)
 
 int em_panel_message_start(EmPanelMessage *message, uint32_t token, uint32_t delay)
 {
-    if (!message || !message->text || token != 0x80000018 || delay > INT_MAX || message->phase == 1)
+    if (!message || !message->text ||
+        token != (0x80000000u | message->lines[0].line) ||
+        delay > INT_MAX || message->phase == 1)
         return 0;
     message->phase = 1;
     message->delay = delay;

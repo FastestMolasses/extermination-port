@@ -1,5 +1,6 @@
-/* Global message80000018 through original FCA10/FDB80/FD790/FD950.
- * The asset retains the original timing and terminal record. */
+/* First-level global messages80000018(panel) and8000001A(elevator refusal)
+ * through original FCA10/FDB80/FD790/FD950. Each instance loads its own
+ * original timing, string and terminal record; requests must match that asset. */
 #ifndef EM_PANEL_MESSAGE_H
 #define EM_PANEL_MESSAGE_H
 #include "game/em_opening_media.h"

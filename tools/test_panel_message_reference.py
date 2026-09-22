@@ -18,10 +18,10 @@ ROOT=Path(__file__).resolve().parents[1]
 RETURN=0xBADF00D
 
 class Original(Base):
-    def __init__(self,elf,delay):
+    def __init__(self,elf,delay,first_line=0x18):
         super().__init__(elf,Status(1,0,0,0,0,0),0)
         self.put(0x2821B0,2);self.put(0x2821B4,1)
-        self.put(0x2821B8,0x80000018);self.put(0x2821BC,delay)
+        self.put(0x2821B8,0x80000000|first_line);self.put(0x2821BC,delay)
         self.draw=-1;self.cleanup=0
 
     def plain(self,word):
@@ -92,7 +92,7 @@ BRIDGE=r'''
 static EmPanelMessage message;
 int load(const char *path) {return em_panel_message_load(&message,path);}
 void close_message(void) {em_panel_message_free(&message);}
-int start(unsigned delay) {return em_panel_message_start(&message,0x80000018,delay);}
+int start(unsigned token,unsigned delay) {return em_panel_message_start(&message,token,delay);}
 void tick(int a,int b,int *result) {
     result[2]=em_panel_message_tick(&message,a,b);
     result[0]=message.phase;
@@ -115,20 +115,22 @@ def main():
     native=C.CDLL(str(library));native.load.argtypes=[C.c_char_p]
     native.tick.argtypes=[C.c_int,C.c_int,C.POINTER(C.c_int)]
     count=0
-    for delay in (0,1,30):
-        for busy_kind in (0,1,2):
-            assert native.load(str(ROOT/'assets/scene_snow/panel/terminal.emod').encode())==1
-            assert native.start(delay)==1
-            original=Original(elf,delay);values=(C.c_int*3)();visible=0
-            for frame in range(delay+165):
-                busy=frame<delay+155
-                a=int(busy and busy_kind==1);b=int(busy and busy_kind==2)
-                expected=original.tick(a,b);native.tick(a,b,values)
-                assert tuple(values)==expected,(delay,busy_kind,frame,tuple(values),expected)
-                visible+=values[1]==0x18;count+=1
-            assert visible==149
-            native.close_message()
-    report={'original_worker_callbacks':count,'global_line18_visible_draws':149,
+    for first_line,asset in ((0x18,'panel/terminal.emod'),(0x1A,'elevator_refusal.emod')):
+        for delay in (0,1,30):
+            for busy_kind in (0,1,2):
+                assert native.load(str(ROOT/'assets/scene_snow'/asset).encode())==1
+                assert native.start(0x80000000|(first_line^2),delay)==0
+                assert native.start(0x80000000|first_line,delay)==1
+                original=Original(elf,delay,first_line);values=(C.c_int*3)();visible=0
+                for frame in range(delay+165):
+                    busy=frame<delay+155
+                    a=int(busy and busy_kind==1);b=int(busy and busy_kind==2)
+                    expected=original.tick(a,b);native.tick(a,b,values)
+                    assert tuple(values)==expected,(first_line,delay,busy_kind,frame,tuple(values),expected)
+                    visible+=values[1]==first_line;count+=1
+                assert visible==149
+                native.close_message()
+    report={'original_worker_callbacks':count,'global_lines18_and1A_visible_draws_each':149,
             'delay_and_both_stream_gates':'PASS','glyph_rendering':'explicit boundary'}
     (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report))
