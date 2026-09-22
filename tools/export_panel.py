@@ -31,6 +31,7 @@ def main():
     from audio_export import ElfImage
     from export_ui import decode_token_lm, pack_shelf, parse_outer
     from gs_vram import read_localmem
+    from export_opening_media import parse_lines, write_dialogue
     elf = ElfImage(args.decomp/'config/SCUS_971.12')
     assert hashlib.sha256(elf.data).hexdigest() == ELF_HASH, 'Unexpected original ELF'
     ram = (capture/'eeMemory.bin').read_bytes()
@@ -86,6 +87,25 @@ def main():
         texts.append(text_record(data, outer, line, f'group{group}'))
     global_bank = (args.decomp/'extract/chunk03/f14_id16.bin').read_bytes()
     texts.append(text_record(global_bank, 0, 0x18, 'global'))
+    # Same001FD790/001FD950 presenter as the opening, but bit31 selects the
+    # global timing/text banks. Keep the terminal record and original timer;
+    # the panel's opcodeC waits for actual presenter completion.
+    global_lines = parse_lines(global_bank, 0)
+    timing_base = elf.u32(0x264DD0)
+    message_records = []
+    for index in range(0x18, len(global_lines)):
+        duration, voice, speaker, terminal, unused = struct.unpack(
+            '<HhBBH', elf.read(timing_base+index*8, 8))
+        assert voice == -1 and speaker == 255 and terminal in (0, 1) and not unused
+        value, skew = global_lines[index]
+        message_records.append(dict(line=index, duration=duration, voice=voice,
+            speaker=speaker, terminal=terminal, text=value, skew=skew))
+        if terminal:
+            break
+    assert len(message_records) == 2 and message_records[-1]['terminal']
+    cfg = struct.unpack('<6I', elf.read(0x264CD0, 24))
+    write_dialogue(args.out/'terminal.emod', message_records,
+        2*((cfg[2]+cfg[4])>>1), elf.u32(0x26EC10)&0xFFFFFF, 0x100505)
     outer = directory + struct.unpack_from('<I', data, directory_off+5*16)[0]
     texts.append(text_record(data,outer,0x19,'group5'))
     text_blob = bytearray()
@@ -113,6 +133,9 @@ def main():
     report = {'elf_sha256':ELF_HASH,'capture_sha256':hashlib.sha256(ram).hexdigest(),
               'script_entries':[hex(x) for x in SCRIPT_ENTRIES],
               'script_sha256':hashlib.sha256(program).hexdigest(),
+              'terminal_message':{'token':'80000018','timing_table':hex(timing_base),
+                  'records':[{k:v for k,v in record.items() if k!='text'}
+                             for record in message_records]},
               'camera_command':{'callback':'0018CBD0','distance':'current camera+0C',
                                 'solve_modes':[5,1],'camera_A0':120},
               'animation':{'bank':'chunk28/f01_id3c.bin','id':348,

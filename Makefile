@@ -20,6 +20,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_sfx.c src/game/em_pickup.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
+           src/game/em_interaction_runtime.c src/game/em_status_frame.c src/game/em_panel_message.c \
+           src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
 
 # ---------------------------------------------------------------- macOS
@@ -213,6 +215,20 @@ test-interaction-frame-reference:
 test-interaction-animation-reference:
 	python3 tools/test_interaction_animation_reference.py
 
+.PHONY: test-interaction-runtime
+test-interaction-runtime:
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/interaction_runtime_test.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c src/game/em_script.c src/em_model.c -lm -o build/interaction_runtime_test
+	build/interaction_runtime_test
+
+.PHONY: test-status-frame-reference
+test-status-frame-reference:
+	python3 tools/test_status_frame_reference.py
+
+.PHONY: test-panel-message-reference
+test-panel-message-reference:
+	python3 tools/test_panel_message_reference.py
+
 test-collision-faces-reference:
 	python3 tools/test_collision_faces_reference.py
 
@@ -222,6 +238,12 @@ test-panel-program:
 	build/panel_program_test assets/scene_snow/panel/scripts.emsc
 
 .PHONY: test-elevator-reference
+.PHONY: test-elevator-runtime
+test-elevator-runtime:
+	mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/elevator_runtime_test.c src/game/em_elevator_runtime.c src/game/em_elevator_program.c src/game/em_elevator.c src/game/em_interaction_runtime.c src/game/em_interaction_animation.c src/game/em_interaction_frame.c src/game/em_script.c src/em_model.c -lm -o build/elevator_runtime_test
+	build/elevator_runtime_test assets/scene_snow/elevator.emsc assets/player.emdl
+
 test-elevator-reference:
 	python3 tools/test_elevator_reference.py
 	python3 tools/test_elevator_commands_reference.py

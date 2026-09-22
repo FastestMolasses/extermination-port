@@ -151,7 +151,7 @@ texture and clip byte; it refuses to overwrite a differing existing15C.
 
 Remaining live bindings: global use arbitration and player alignment,
 the original shared frame/status entry and exit, the actual message-worker
-completion signal, and camera retarget/probe styles5 and1. The camera
+completion signal, and the player takeover/release pose transitions. The camera
 command calls0018CBD0 using the current distance and scratchpad rotation,
 then0018D7B0 modes5/1; a fixed authored camera or the old door-camera helper
 is not an equivalent substitute. The native panel stays unbound until
@@ -161,7 +161,7 @@ The isolated `em_camera_retarget_seed` now implements CBD0's scalar tail
 at an explicit transformed-offset boundary. Its948 original-instruction
 cases match float bits under the bounded EE arithmetic model, and the
 original panel camera matches exactly. Rotation and SDK square root are
-helper boundaries, and styles5/1 are not covered. The readable decomp was
+helper boundaries. The readable decomp was
 corrected from an erroneous unconditional falloff and inverted clamp;
 its measured object similarity improved91.78% to94.04%, while it remains
 assembly-backed. The full PS2 six-stage gate passes.
@@ -170,3 +170,70 @@ The panel program's message completion hook uses -1 for failure,0 for
 waiting and1 for completion. Negative results fault the script and cannot
 run its later battery callback; the sanitizer-backed program test covers
 that failure path as well as missing camera bindings and callback timing.
+
+## Shared camera and frame worker boundaries
+
+`em_camera_probe` now implements the original0018D330 prepass and the
+AREA11 branch of0018D910. The original-instruction comparison covers216
+prepass and432 bounds cases, including query endpoints, class filters,
+ground78, overhead flags and the crossed-bound correction. Query results
+and vector normalization are explicit boundaries; no general VU or
+collision-engine equivalence is claimed.
+
+`camera_interaction_retarget_area11` connects that prepass/bounds work,
+CBD0 and the existing DD20 solver with mask6. Its captured panel fixture
+matches eye, target, hit/ground flags and overhead exactly; the maximum
+bounds error is0.000030517578125 against an explicit0.00006103515625
+host/EE tolerance. The verified fixture has zero seed Euler angles. The
+hook rejects other rotations instead of substituting host trigonometry.
+The actual panel body belongs to cell-world set2 and therefore remains
+included by mask6; it is not a guessed movable hull.
+
+`em_interaction_frame` recovers001B82D0 sub2/sub4 state writes and ordered
+letterbox/projection/audio calls. Its2592 original-instruction cases include
+existing readiness, pending player takeover, release, skip and camera-mode
+branches. It deliberately does not produce player readiness itself.
+
+`em_interaction_runtime` gives panel/elevator adapters one shared owner
+token and connects the verified frame/animation cores at explicit host
+worker boundaries. Successful actual takeover publishes182D70 readiness
+immediately. A blocked takeover remains blocked; absent hooks fault.
+The original001AE040 status branch does not run the ordinary player task,
+so the runtime consumes no animation or acquisition callbacks there.
+After selector release,0015BA50 advances the player before0015B530 calls
+182DF0; the runtime preserves that order and clears ownership only after
+the real release hook succeeds. A finished clip holds its terminal pose.
+The sanitizer test covers competing owners, paused pending commits,
+endpoint hold, blend1 pose preservation and failed release. This is an
+integration contract test, not a second original-instruction oracle.
+
+`tools/export_interaction_idle.py` replaces only clip0 with80 frames from
+the original player bank. Confirmation remaining75 corresponds to cursor5,
+not elapsed75; its21 matrices agree with the original capture within
+0.00006103515625. Existing nonzero clips, geometry and textures are
+preserved. Acquisition still requires the original per-node blend8 from
+the previous source channels; a matrix blend or immediate idle-pose snap
+is not provided as a fallback.
+
+`em_status_frame` implements original 001AE040's status entry and phases3/5.
+Its432 original-instruction comparisons match state bytes and ordered
+external calls. Entry resets the UI/sound/stream workers and changes the
+control mode. Phase3 waits for the real stream gate and calls the status
+page worker; only that worker's actual completion permits phase5. Exit
+publishes the camera, restores ordinary control and issues the original
+music/fade requests. Negative or missing host workers fault. Page drawing,
+stream completion and sound/render side effects remain explicit host
+boundaries, not a claim of complete native status integration.
+
+The panel's message token80000018 uses the global timing table at272DF0.
+Record18 has148 ticks and record19 is its zero-duration terminal; neither
+has a voice cue or actor-talk slot. `export_panel.py` now writes both records
+and their original strings to ignored `terminal.emod`. `em_panel_message`
+reuses the opening's FD790/FD950 dialogue clock and subtitle renderer.
+It respects the actual request delay and stream flags155/156; it has no
+input dismissal or typewriter effect. The original chain FCA10/FDB80/
+FD790/FD950 agrees across1578 worker callbacks, including delays0/1/30
+and either stream busy flag. The full line appears149 times because the
+zero-timer completion call also draws it. The phase2 completion signal
+remains visible to the next script tick and is cleared by the following
+message-service tick. Glyph drawing is an explicit oracle boundary.

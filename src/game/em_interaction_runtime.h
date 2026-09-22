@@ -1,0 +1,67 @@
+/* Shared ownership around the proven interaction frame and animation cores.
+ * One instance belongs to one game world; panel/elevator adapters pass their
+ * own stable owner token. Host worker boundaries remain explicit. */
+#ifndef EM_INTERACTION_RUNTIME_H
+#define EM_INTERACTION_RUNTIME_H
+
+#include "game/em_interaction_animation.h"
+#include "game/em_interaction_frame.h"
+
+typedef struct {
+    void *context;
+    /* Called at the ordinary player stage. acquire must perform the real
+     * 0015B130 takeover, including accepted default-clip init and182D70.
+     * -1 failure,0 blocked,1 accepted. It must not wait for blend8 to finish.
+     * The runtime publishes player_ready only on1. */
+    int (*acquire_player)(void *);
+    /* Default clip continues until a script requests a verified animation.
+     * Same palette result contract as em_interaction_animation_tick. */
+    int (*idle_player_tick)(void *,float *local_palette);
+    /* Original182DF0, including any required default-clip transition.
+     * Return1 only after the release operation was accepted. */
+    int (*release_player)(void *);
+    /* Apply actor placement to the local palette, update the rendered pose
+     * and hip mirrors. Return1 on success. No matrix blending here. */
+    int (*publish_palette)(void *,const float *local_palette);
+    EmInteractionFrameEmit frame_event;
+    int (*camera_retarget)(void *); /* Current adapter's verified command. */
+} EmInteractionRuntimeHooks;
+
+typedef struct {
+    const void *owner;
+    EmInteractionFrame *frame;
+    const EmModel *model;
+    EmInteractionAnimation animation;
+    EmInteractionRuntimeHooks hooks;
+    float *local_palette;
+    int failed;
+} EmInteractionRuntime;
+
+/* local_palette has at least model->bone_count*16 floats and belongs to
+ * the caller. init does not overwrite live frame state or player poses. */
+int em_interaction_runtime_init(EmInteractionRuntime *runtime,
+    EmInteractionFrame *frame,const EmModel *model,float *local_palette,
+    const EmInteractionRuntimeHooks *hooks);
+/* After original single-winner use arbitration/alignment, claim the owner
+ * and publish selector3. A competing token cannot replace a live owner. */
+int em_interaction_runtime_claim(EmInteractionRuntime *runtime,const void *owner);
+int em_interaction_runtime_owns(const EmInteractionRuntime *runtime,const void *owner);
+const void *em_interaction_runtime_owner(const EmInteractionRuntime *runtime);
+int em_interaction_runtime_camera_owned(const EmInteractionRuntime *runtime);
+
+EmScriptCommandResult em_interaction_runtime_frame(EmInteractionRuntime *runtime,
+    const void *owner,EmScript *script,const unsigned char *record);
+int em_interaction_runtime_camera_retarget(EmInteractionRuntime *runtime,const void *owner);
+int em_interaction_runtime_animation_start(EmInteractionRuntime *runtime,
+    const void *owner,uint16_t clip,float rate,float blend);
+/* -1 failure/inactive,0 waiting,1 actual animation end flag. */
+int em_interaction_runtime_animation_done(const EmInteractionRuntime *runtime,const void *owner);
+
+/* Call exactly once at the actual player stage. ordinary_tasks_enabled=0
+ * during original status/menu frames: no acquisition, cursor or release
+ * advances. Returns-1 failure,0 no takeover,1 player owned for this call.
+ * When selector clears, the original player advances first, then182DF0
+ * releases it. Ownership clears only after successful release. */
+int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime,int ordinary_tasks_enabled);
+
+#endif

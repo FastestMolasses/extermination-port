@@ -51,6 +51,27 @@ and completes on the next. The clip47 request uses rate1/blend1; opcodeA/sub3
 waits for the real animation end flag. The refusal waits on actual message1A.
 Its frame sub2/sub4, chase camera and message worker remain host responsibilities.
 
+`em_elevator_runtime` now connects the owner and exported program to the shared
+interaction runtime. Winning the use scan claims one stable owner and sets
+armed bit4; a competing interaction cannot replace it. Player and pooled-owner
+callbacks remain separate to preserve the original task order. Status frames
+freeze both. A failed camera/message/animation binding retains ownership and
+does not toggle the elevator or masquerade as script completion.
+
+`make test-elevator-runtime` runs the actual elevator program and player model
+under ASan/UBSan, using the verified frame/animation clocks and motion helper.
+Relative to use tick0, clip47 commits at8, reports its real end flag at209,
+enters carry at210, completes the owner at363, and releases the player at364.
+Both ride directions pass;150 paused calls change no clocks. A401-poll refusal
+fixture verifies that only host message completion releases the script.
+Acquisition/release pose channels, the world camera/presenter, and the use scan
+remain explicit host boundaries; this is not yet a live scene integration.
+
+Executing original00828050 for all151 carry calls also confirms an important
+rounding distinction: descending player Y ends at189.99832153320312; ascending
+ends at229.9993896484375. Only the elevator owner's completion snaps to190/230.
+The test checks the exact carried float bits and final camera target separately.
+
 `make test-elevator-program` uses the exported scripts under ASan/UBSan with
 explicit frame/player/camera/message boundaries. It checks refusal, both ride
 directions, both camera waits,150 carry callbacks, the final3 script ticks
