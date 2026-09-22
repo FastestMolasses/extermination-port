@@ -19,7 +19,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_roger.c src/game/em_roger_assets.c \
-           src/game/em_roger_runtime.c src/game/em_face_model.c \
+           src/game/em_roger_runtime.c src/game/em_face_model.c src/game/em_player_face_host.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
@@ -533,3 +533,7 @@ test-door-program:
 .PHONY: test-door-program-runtime
 test-door-program-runtime:
 	python3 tools/test_door_program_runtime.py
+
+.PHONY: test-player-face-host
+test-player-face-host:
+	python3 tools/test_player_face_host.py
