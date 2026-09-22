@@ -159,6 +159,8 @@
 #include "game/em_truck.h"
 #include "game/em_weapon.h"
 #include "game/em_game_internal.h"
+#include "game/em_effect_color.h"
+#include "game/em_random.h"
 #include "game/em_director.h"
 #include "game/em_player.h"
 #include "game/em_player_damage.h"
@@ -839,10 +841,20 @@ void em_game_elevator_start(void)
 
 
 
-/* AREA-11 STEAM / FX EMITTER tick (placement record 7, ov 0x008235F0 —
- * INVESTIGATION_first_level_area11.md §3/§6). The emitter's POINT LIGHT
- * is registered in the placed-lamp list at parse time (folded into actor
- * lighting by char_rig_build — no per-frame work). This tick owns the two
+static uint32_t point_light_random(void *context)
+{
+    (void)context;
+    return em_random_next();
+}
+
+static void point_light_tick(void)
+{
+    if (g.point_lights_loaded)
+        em_point_light_tick(&g.point_lights, g.point_lights_area_key,
+                            point_light_random, NULL);
+}
+
+/* Legacy steam audio/FX approximation. This tick owns the two
  * time-varying parts: the LOOPING HISS (0x413, retriggered every
  * STEAM_SND_PERIOD frames because the port SFX path is one-shot — there
  * is no loop primitive in em_sfx; em_sfx_play_at culls it by distance like
@@ -1792,39 +1804,18 @@ static void ui_scene_render(EmGfx *gfx)
  * the ENGINE view basis from cam fwd/up (em_mat4_lookat_gs negates
  * its rows for Metal NDC, so the basis is re-derived, not read back).
  *
- * Then the DYNAMIC POINT-LIGHT FOLD (func_001D8340 tail; gate
- * func_001D8270 excludes a fixed type list + large models — the port
- * applies the fold to every actor draw; `anchor` = the draw's bone-0
- * world translation, the engine's node light-reference column +0xC0):
- *   k    = 0.1 * I / max(|toLamp|^2, 1)    (UN-normalized offset —
- *                                           func_00102738 is a dot)
- *   dir0 = normalize(dir0*w0 + sum toLamp * 10k)
- *   col0 = col0 + sum lampcol * 2k         (x128 registration scale)
- * RE-VERIFIED against src/func_001D8340.c (BYTE-MATCHED — authoritative):
- * the 32-entry 0x80-stride scan at D_00275670, the `+0x24C > 0` weight
- * gate, `len = func_00102738(probe, probe)` (a DOT, so |toLamp|^2)
- * clamped up to 1.0f, `f = (0.1f * ent[+0x2C]) / len`, and the 10*f /
- * 2*f scales all read out literally. ONE CLARIFICATION (audit
- * 2026-07-31): the gate field and the intensity field are the SAME
- * word — the entry base is `base + j*0x80`, `ent = base + 0x220`, so
- * `ent[+0x2C]` IS `base[+0x24C]`. A lamp's weight is its intensity;
- * there is no second scalar, which is why the port's single
- * `lamp[i].inten` (gate + numerator) is correct rather than a
- * simplification. Two engine steps the port folds
- * away, both benign for the look but named here so nobody re-derives
- * them: (1) the two accumulators are SEEDED from the constant quads
- * D_00253170 / D_00253180 before dir0*w0 is added, not from zero; and
- * (2) the 10*f-scaled offset is transformed through the lamp's own
- * matrix at ent+0x40 (func_001026A0) before it is accumulated. The
- * cam-fill basis is confirmed a TRANSPOSE, not a general inverse:
- * `copy_qw4(im, D_00810610); func_00102798(im, im);` and func_00102798
- * is the 4x4 MMI transpose (src/func_00102798.c, BYTE-MATCHED).
- * Omitted, documented: the engine's per-lamp +-1.8 deg random-walk
- * flicker rotation (func_001D7C30 type-1 path, slot +0x40) and the
- * story-flag lamp gates (func_001F68B0) — lamps register
- * unconditionally. The actor RGB multiplier the engine folds into the
- * color rows (func_001D8690, actor +0x80) rides the port's per-draw
- * tint instead (same modulate, applied post-clamp).
+ * AREA11's original pool uses em_point_light_fold: the 001D8340 scan,
+ * inverse-square weighting, per-slot flicker matrix and normalization.
+ * The two seed qwords at 00253170/80 are zero; the color accumulator is
+ * replaced by the camera color before scanning. Original opening actors
+ * use verified light-reference bones 1/2/0 and pass the 001D8270 gate.
+ * Eligibility for other actor types remains unaudited. Faces bypass the
+ * fold, as their original 001D88B0 owner is null.
+ *
+ * Other scenes retain the legacy lamp path below, which omits the
+ * original flicker matrices and story-flag gates. Actor RGB/self-glow
+ * before the color clamp also remains separate: existing post-draw tint
+ * is preserved and is not asserted equivalent to the original order.
  *
  * ROOM SELECTION: the engine keys the rig on (D_00810700<<8)|
  * D_00810701 — the AREA/SUB-STATE bytes, not spatial bounds. (One
@@ -1870,7 +1861,16 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
             c0[c] = g.rig_cam_col[c];
         }
     }
-    if (fold_lamps && anchor && g.n_lamp) {
+    if (fold_lamps && anchor && g.point_lights_loaded) {
+        float direction[4], color[4] = { c0[0], c0[1], c0[2], g.rig_cam_w };
+        const float point[4] = { anchor[0], anchor[1], anchor[2], 1.0f };
+        for (unsigned axis = 0; axis < 3; ++axis)
+            direction[axis] = em_effect_float32((double)d0[axis] * g.rig_cam_w);
+        direction[3] = 0.0f;
+        em_point_light_fold(direction, color, &g.point_lights, point);
+        memcpy(d0, direction, sizeof d0);
+        memcpy(c0, color, sizeof c0);
+    } else if (fold_lamps && anchor && g.n_lamp) {
         float sd[3] = { d0[0] * g.rig_cam_w, d0[1] * g.rig_cam_w,
                         d0[2] * g.rig_cam_w };
         float sc[3] = { c0[0], c0[1], c0[2] };
@@ -5016,16 +5016,12 @@ static void gameplay_frame(void)
     director_tick();
     /* Keep the original static panel transform; this model never slides. */
     grate_update();
-    /* AREA-11 STEAM / FX EMITTER (record 7, ov 0x008235F0 — the level's one
-     * dynamic light + a looping hiss + a puff; INVESTIGATION_first_level_
-     * area11.md §3/§6). The glow is a placed lamp (no per-frame work); this
-     * tick retriggers the looping hiss (0x413) and advances the puff phase.
-     * It touches NOTHING in movement/collision/camera, so it cannot regress
-     * the player solve. No-op when no `steam` line placed one. */
+    /* Legacy steam audio/FX; independent of the original room light. */
     steam_tick();
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
+    point_light_tick();      /* 001D1C50 -> 001D7C30, before pooled actors */
     em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
     render_chain_build();    /* func_001D1C50 — render chain build    */
     render_env_init();       /* func_001C1D00(0x008101D0)             */
@@ -5247,6 +5243,7 @@ static void cutscene_frame(void)
      * expire each frame, just as they do in the ordinary gameplay path. */
     em_collision_moving_clear();
     em_collision_blocker_clear();
+    point_light_tick();      /* 001AE6B0 calls 001D1C50 before actor pools */
     em_opening_runtime_tick();
     steam_tick();
     grate_update();

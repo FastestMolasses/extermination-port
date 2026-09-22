@@ -36,6 +36,108 @@
 #define EPS_FACING 1e-5f   /* 0xB727C5AC / 0x3727C5AC in the walkers */
 #define MOVE_PROBE_PAD 0.01f  /* func_0019AD00 f12 = 0x3C23D70A */
 
+/* Finite binary32 arithmetic in the original compact-face routines uses
+ * R5900 round-toward-zero after each operation. */
+static float face_float(double value)
+{
+    float result=(float)value;
+    if ((value>0 && result>value) || (value<0 && result<value))
+        result=nextafterf(result,0);
+    return result;
+}
+
+int em_collision_box_face(const EmCollBoxFace *box, const float start[3],
+                          const float end[3], int movement, EmCollHit *hit)
+{
+    unsigned face=box->face;
+    if (!face || face>6 || (movement && (face==3 || face==4))) return 0;
+    float delta[3], lo[3], hi[3], relative[3];
+    for (unsigned k=0;k<3;++k) {
+        delta[k]=face_float((double)end[k]-start[k]);
+        if (delta[k]<0 ? face==2*k+2 : face==2*k+1) return 0;
+        float other=face_float((double)box->origin[k]+box->extent[k]);
+        lo[k]=box->extent[k]>0 ? box->origin[k] : other;
+        hi[k]=box->extent[k]>0 ? other : box->origin[k];
+        relative[k]=face_float((double)box->origin[k]-start[k]);
+    }
+    unsigned axis=(face-1)/2;
+    float remaining=face_float((double)lo[axis]-end[axis]);
+    if (!(face_float((double)relative[axis]*remaining)<0)) return 0;
+    float t=face_float((double)relative[axis]/delta[axis]);
+    float point[3];
+    for (unsigned k=0;k<3;++k) {
+        if (k==axis) point[k]=box->origin[k];
+        else if (movement && k==1) {
+            point[k]=end[k];
+            if (point[k]<lo[k] || point[k]>hi[k]) return 0;
+        } else {
+            float offset=movement
+                ? face_float((double)face_float((double)delta[k]*relative[axis])/delta[axis])
+                : face_float((double)delta[k]*t);
+            point[k]=face_float((double)start[k]+offset);
+            if (!(point[k]>lo[k] && point[k]<hi[k])) return 0;
+        }
+    }
+    if (hit) {
+        memset(hit,0,sizeof *hit);
+        memcpy(hit->point,point,sizeof point);
+        hit->normal[axis]=(face&1) ? 1.0f : -1.0f;
+        hit->surf_class=axis==1 ? ((face&1) ? EM_SURF_FLOOR : EM_SURF_CEIL) : EM_SURF_WALL;
+        hit->kind=EM_COLL_SET_CELLS;
+    }
+    return 1;
+}
+
+int em_collision_cell_load(EmCollCell *cell, const char *path)
+{
+    FILE *file=fopen(path,"rb");
+    if (!file) return -1;
+    uint32_t header[5];
+    EmCollCell next={0};
+    if (fread(header,sizeof header,1,file)!=1 || memcmp(header,"EMCB",4) ||
+        header[1]!=1 || header[2]>255 || header[3]>255 || !header[4] ||
+        header[4]>256) goto fail;
+    next.uid=header[2];next.attr=header[3];next.face_count=header[4];
+    if (fread(next.bbox,sizeof next.bbox,1,file)!=1) goto fail;
+    for (unsigned k=0;k<6;++k) if (!isfinite(next.bbox[k])) goto fail;
+    for (unsigned k=0;k<3;++k) if (next.bbox[k]>next.bbox[k+3]) goto fail;
+    next.faces=malloc(next.face_count*sizeof *next.faces);
+    if (!next.faces || fread(next.faces,sizeof *next.faces,next.face_count,file)!=next.face_count ||
+        fgetc(file)!=EOF) goto fail;
+    for (unsigned i=0;i<next.face_count;++i) {
+        const EmCollBoxFace *face=next.faces+i;
+        if (!face->face || face->face>6) goto fail;
+        for (unsigned k=0;k<3;++k)
+            if (!isfinite(face->origin[k]) || !isfinite(face->extent[k])) goto fail;
+    }
+    fclose(file);em_collision_cell_free(cell);*cell=next;return 0;
+fail:
+    fclose(file);free(next.faces);return -1;
+}
+
+void em_collision_cell_free(EmCollCell *cell)
+{
+    free(cell->faces);memset(cell,0,sizeof *cell);
+}
+
+int em_collision_cell_bind(EmCollision *c, const EmCollCell *cell)
+{
+    if (!cell || !cell->faces || !cell->face_count) return 0;
+    for (unsigned i=0;i<c->actor_cell_count;++i)
+        if (c->actor_cells[i]->uid==cell->uid) { c->actor_cells[i]=cell;return 1; }
+    if (c->actor_cell_count==32) return 0;
+    c->actor_cells[c->actor_cell_count++]=cell;return 1;
+}
+
+void em_collision_cell_unbind(EmCollision *c, unsigned uid)
+{
+    for (unsigned i=0;i<c->actor_cell_count;++i) if (c->actor_cells[i]->uid==uid) {
+        memmove(c->actor_cells+i,c->actor_cells+i+1,
+            (c->actor_cell_count-i-1)*sizeof *c->actor_cells);
+        --c->actor_cell_count;return;
+    }
+}
+
 int em_collision_load(EmCollision *c, const char *path)
 {
     memset(c, 0, sizeof *c);
@@ -132,6 +234,32 @@ static int attr_passes(uint8_t attr, int id, QueryFamily family)
     }
 }
 
+/* The published class4 actor list is the cell world's second pass
+ * (0019FE50/001A0B10/001A1390). Cell18's owner keeps its authored world
+ * box throughout the battery interaction; no model-space transform is
+ * applied. Polygon cells and other compact primitive types remain on
+ * their existing paths until their asset/lifecycle bindings are recovered. */
+static int actor_cell_walk(const EmCollision *c, int id, QueryFamily family,
+                           const float start[3], float end[3], EmCollHit *hit)
+{
+    int found=0;
+    for (unsigned i=0;i<c->actor_cell_count;++i) {
+        const EmCollCell *cell=c->actor_cells[i];
+        if (!attr_passes((uint8_t)cell->attr,id,family)) continue;
+        for (unsigned j=0;j<cell->face_count;++j) {
+            EmCollHit next;
+            if (!em_collision_box_face(cell->faces+j,start,end,
+                                       family==QUERY_MOVEMENT,&next)) continue;
+            memcpy(end,next.point,12);
+            next.poly=-(int)cell->uid-1;
+            next.attr=(uint8_t)cell->attr;
+            if (hit) *hit=next;
+            found=1;
+        }
+    }
+    return found;
+}
+
 /* One poly vs the (clamped) segment — func_0019ED80 / func_001A4030.
  * On accept clamps end[] to the hit and returns 1. */
 static int poly_test(const EmCollision *c, const EmCollPoly *p,
@@ -215,6 +343,10 @@ static int segment_query(const EmCollision *c, const float from[3],
             kind = EM_COLL_SET_CELLS;
             poly = r;
         }
+        if (actor_cell_walk(c,id,family,from,end,hit)) {
+            kind=EM_COLL_SET_CELLS;
+            poly=-1;
+        }
     }
     if (mask & EM_COLL_SET_GRID) {
         if ((r = set_walk(c, EM_COLL_SET_GRID, id, family, from, end)) >= 0) {
@@ -223,7 +355,7 @@ static int segment_query(const EmCollision *c, const float from[3],
         }
     }
     if (!kind) return 0;
-    stage_hit(c, hit, poly, kind, end);
+    if (poly>=0) stage_hit(c, hit, poly, kind, end);
     if (hit) {
         hit->delta[0] = end[0] - to[0];
         hit->delta[1] = end[1] - to[1];
@@ -270,6 +402,10 @@ int em_collision_move_probe(const EmCollision *c, float pos[3],
             kind = EM_COLL_SET_CELLS;
             poly = r;
         }
+        if (actor_cell_walk(c,0,QUERY_MOVEMENT,start,end,hit)) {
+            kind=EM_COLL_SET_CELLS;
+            poly=-1;
+        }
     }
     if (mask & EM_COLL_SET_GRID) {
         if ((r = set_walk(c, EM_COLL_SET_GRID, 0, QUERY_MOVEMENT, start, end)) >= 0) {
@@ -284,7 +420,7 @@ int em_collision_move_probe(const EmCollision *c, float pos[3],
          * pre-move, so pos = target + delta lands on the same point. */
         float delta[3] = { end[0] - target[0], end[1] - target[1],
                            end[2] - target[2] };
-        stage_hit(c, hit, poly, kind, end);
+        if (poly>=0) stage_hit(c, hit, poly, kind, end);
         if (hit) memcpy(hit->delta, delta, 12);
         if (mask & EM_COLL_SLIDE) {
             pos[0] = target[0] + delta[0];

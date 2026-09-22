@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Replace the lever clip47 palettes using original stateful channel sampling.
+"""Replace the interaction idle clip0 palettes using original stateful channel sampling.
 
-Requires the owner's original animation bank and captured lever-animation EE
+Requires the owner's original animation bank and captured panel-confirmation EE
 state. The capture must match the source bank and all21 world-space bone
 matrices before any asset is changed. Other clips, mesh, textures, parent and
 clip tables remain byte-identical. Generated assets and reports stay ignored.
@@ -15,7 +15,7 @@ import struct
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-CLIP_ID = 0x47
+CLIP_ID = 0
 ACTOR = 0x8102B0
 BANK = 0xD689C0
 
@@ -35,16 +35,14 @@ def main():
     from export_native import mat_identity
 
     bank = (args.decomp/'extract/chunk28/f01_id3c.bin').read_bytes()
-    reference = args.reference_ee or args.decomp/'build/startup-reference/elevator/clip47_ee.bin'
+    reference = args.reference_ee or args.decomp/'build/startup-reference/panel/eeMemory.bin'
     ram = reference.read_bytes()
     assert struct.unpack_from('<I', ram, ACTOR+0x40)[0] == BANK
     assert ram[BANK:BANK+len(bank)] == bank, 'Original animation bank mismatch'
     assert struct.unpack_from('<H', ram, ACTOR+0x20C)[0] == CLIP_ID
     header = struct.unpack_from('<I', bank, 4+CLIP_ID*4)[0]
     clip = OpeningClip(bank, header)
-    assert (clip.bones, clip.length) == (21, 200)
-    assert struct.unpack_from('<h', bank, header+4)[0] == -2
-    assert struct.unpack_from('<I', bank, header+0x14)[0] == 0
+    assert (clip.bones, clip.length) == (21, 80)
     owner = [struct.unpack_from('<4f', ram, ACTOR+0xD0+c*16) for c in range(4)]
     assert tuple(owner[3][:3]) == struct.unpack_from('<3f', ram, ACTOR+0xA0)
     expected = original_palette(ram, ACTOR, clip.bones)
@@ -74,7 +72,7 @@ def main():
                 translation.velocity = scale.velocity = (0.0, 0.0, 0.0)
     nearest = min(range(clip.length), key=errors.__getitem__)
     remaining = struct.unpack_from('<f', ram, ACTOR+0x3C)[0]
-    assert nearest == 39 and remaining == 161.0, 'Unexpected reference cursor'
+    assert nearest == 5 and remaining == 75.0, 'Unexpected reference cursor'
     assert errors[nearest] <= 0.0001, ('Original bone palettes differ', errors[nearest])
 
     data = args.player.read_bytes()
@@ -89,7 +87,7 @@ def main():
     assert textures_at <= len(data)
     entries = [struct.unpack_from('<IIIf', data, clips_at+i*16) for i in range(nclips)]
     selected = [entry for entry in entries if entry[0] == CLIP_ID]
-    assert len(selected) == 1 and selected[0][2:] == (200, 60.0)
+    assert len(selected) == 1 and selected[0][2:] == (80, 60.0)
     _, first_frame, count, _ = selected[0]
     assert first_frame+count <= nframes
     for entry in entries:
@@ -107,14 +105,14 @@ def main():
     result = data[:start]+replacement+data[end:]
     assert len(result) == len(data) and result[:start] == data[:start] and result[end:] == data[end:]
 
-    output = ROOT/'build/elevator_clip_export'
+    output = ROOT/'build/interaction_idle_export'
     output.mkdir(parents=True, exist_ok=True)
     changed = result != data
     if changed:
-        backup = output/'player_before_clip47.emdl'
+        backup = output/'player_before_idle0.emdl'
         if not backup.exists():
             backup.write_bytes(data)
-        staged = args.player.with_name(args.player.name+'.clip47.tmp')
+        staged = args.player.with_name(args.player.name+'.idle0.tmp')
         staged.write_bytes(result)
         staged.replace(args.player)
     report = {
@@ -129,11 +127,11 @@ def main():
         'textures_sha256': sha256(data[textures_at:]),
         'changed_byte_count': sum(a != b for a, b in zip(data[start:end], replacement)),
         'root_motion': 'zero; actor world placement preserved',
-        'limits': 'Captured frame39 validates21 world matrices; native transition blending remains separate.'
+        'limits': 'Captured frame5 validates21 world matrices; native transition blending remains separate.'
     }
     report_path = output/('result.json' if changed else 'idempotence.json')
     report_path.write_text(json.dumps(report, indent=2)+'\n')
-    print(f'Lever clip47 {"replaced" if changed else "already verified"}: '
+    print(f'Interaction idle clip0 {"replaced" if changed else "already verified"}: '
           f'{count} frames,21 original bones; captured matrix error {errors[nearest]:.9g}; '
           f'{nclips-1} other clips and all mesh/texture bytes preserved')
 

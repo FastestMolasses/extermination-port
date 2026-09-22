@@ -35,6 +35,7 @@
 #include "game/em_hud.h"
 #include "game/em_pickup.h"
 #include "game/em_player_motor.h"
+#include "game/em_point_light.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
 #include "game/em_truck.h"
@@ -131,28 +132,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define ELEV_FRAMES     150          /* +0x2EC < 0x96 */
 #define ELEV_SFX_DOWN   0x453u       /* func_001FBD50(300, 0x453) — down */
 
-/* AREA-11 STEAM / FX EMITTER (placement record 7, ov 0x008235F0 — the
- * level's ONE active dynamic light + a looping hiss + a steam puff;
- * INVESTIGATION_first_level_area11.md §3/§6). The light is COSMETIC and
- * far (~200 u) from the spawn — kept SUBTLE so it does not wash out the
- * dark snow scene. Color is a warm/orange glow (live render-context read
- * ≈ (1659,415,104)x, i.e. a strongly warm ratio); intensity is folded
- * into the lamp inverse-square term in char_rig_build, so a small value
- * gives only a faint local lift. */
+/* Legacy steam audio/FX approximation. The original auxiliary point light
+ * is an independent room table, handled by EmPointLightPool below. */
 #define STEAM_SND_ID      0x413u   /* the looping ambient hiss (sfx.txt) */
 #define STEAM_SND_RADIUS  300.0f   /* play_sound radius (the bank default) */
 #define STEAM_SND_PERIOD  90       /* frames between hiss retriggers — the
                                     * port emulates a loop (em_sfx is
                                     * one-shot); ~1.5 s, well under the
                                     * clip length so it reads continuous */
-#define STEAM_LAMP_COL_R  0.78f    /* warm glow color (normalized 0..1, on
-                                    * the engine 0..128 lamp scale below) */
-#define STEAM_LAMP_COL_G  0.42f
-#define STEAM_LAMP_COL_B  0.18f
-#define STEAM_LAMP_INTEN  14.0f    /* lamp intensity (x128 reg scale) —
-                                    * SUBTLE: small so the inverse-square
-                                    * fold only lifts actors very near the
-                                    * emitter, leaving the spawn dark */
 #define STEAM_FX_SIZE     2.2f     /* steam puff billboard size (world u) */
 #define STEAM_FX_RISE     6.0f     /* puff vertical travel over one cycle */
 #define GAIT_RING_1     48.0f   /* func_001B5CC0 rings, raw stick units */
@@ -1530,6 +1517,7 @@ typedef struct {
                              observed, not source-derived. */
     float    eye_des[3];  /* +0x10: desired EYE (world) */
     float    tgt_des[3];  /* +0x20: desired TARGET (world) */
+    float    seed_euler[3]; /* +0x30: original interaction retarget rotation */
     float    yaw;         /* +0x44: eye->target heading; the R1/L1
                              orient and the idle auto-orient steer it */
     /* func_0018DD20 solver state (decoded s61) */
@@ -1539,6 +1527,9 @@ typedef struct {
                              1, else eye + 200); init 1000 */
     uint16_t hit_attr;    /* +0x58: primary-hit surface-class halfword
                              (kept across clear frames, engine-true) */
+    uint16_t probe_flags; /* +0x5A: original collision prepass flags */
+    float    overhead_y; /* +0x60: overhead contact Y; only written on hit */
+    uint8_t  ground_attr78; /* +0x6D: ground contact attribute 0x78 */
     float    var_5c;      /* +0x5C: solver height variant, init 2.0.
                              WRITER FOUND (s65): the pre-step
                              func_00191390 per-state table. CORRECTED
@@ -1653,6 +1644,8 @@ typedef struct {
     int        loco_tier;        /* locomotion tier (+0x25C locIdx): the
                                   * speed ramp promotes/demotes it; the
                                   * sustained tier == gait */
+    uint8_t    probe_low_clearance; /* original +236; initial AREA11 value0 */
+    uint8_t    probe_block_mask; /* original +314 radial lane results */
     float      loco_upt;         /* ramped ground speed +0x38, u/tick */
     uint8_t    loco_mode, loco_substate; /* original +1F0/+1F1 scalar motor */
     int        loco_entry_ticks; /* pending 0017B5C0 eight-tick clip blend */
@@ -1943,6 +1936,9 @@ typedef struct {
         float col[3];            /* color, x128 registration scale */
         float inten;             /* intensity (slot +0x2C, x128) */
     }           lamp[LAMP_MAX];
+    EmPointLightPool point_lights; /* original active/staging pool */
+    uint16_t    point_lights_area_key;
+    int         point_lights_loaded;
 
     /* LIGHTING — the scene's DISTANCE FOG (scene.txt `fog` line,
      * export_level.py / the D_00251C50 rig record fog fields rec+4/+8 =
@@ -2178,21 +2174,16 @@ typedef struct {
     int         cine_fade;       /* letterbox fade accumulator (0..FADE) */
     int         cine_was;        /* a beat ran last frame (restore edge) */
 
-    /* AREA-11 STEAM / FX EMITTER (placement record 7, ov 0x008235F0 @
-     * ~452,279,278 — INVESTIGATION_first_level_area11.md §3/§6, the level's
-     * ONE active dynamic light). The emitter carries (1) a cosmetic warm
-     * POINT LIGHT (registered into the placed-lamp list at install, folded
-     * into actor lighting by char_rig_build like any lamp), (2) a looping
-     * ambient hiss (sound 0x413, retriggered on a fixed interval since the
+    /* Legacy AREA11 steam audio/FX approximation, separate from the
+     * authored auxiliary lamp. It carries a looping ambient hiss
+     * (sound 0x413, retriggered on a fixed interval since the
      * port SFX path is one-shot only — em_sfx has no loop primitive), and
-     * (3) a minimal billboard steam PUFF FX (em_gfx_beam_dot, additive
+     * a minimal billboard steam PUFF FX (em_gfx_beam_dot, additive
      * camera-facing). `steam` scene verb; one emitter per scene. Absent
-     * line => steam_on 0 => no light/sound/FX (other scenes untouched). */
+     * line => steam_on 0 => no sound/FX (other scenes untouched). */
     int         steam_on;        /* a `steam` line was parsed */
     float       steam_pos[3];    /* emitter world position */
     int         steam_snd_t;     /* frames until the next 0x413 retrigger */
-    int         steam_lamp;      /* index into g.lamp[] of the emitter glow
-                                  * (-1 = not registered) */
     float       steam_fx_phase;  /* puff animation phase (rise + fade loop) */
 
     /* AREA-11 AREA-TITLE CARD ("FORT STEWART - REAR ENTRANCE", string table

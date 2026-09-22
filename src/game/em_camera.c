@@ -12,6 +12,8 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_camera.h"
+#include "game/em_camera_probe.h"
+#include "game/em_camera_retarget.h"
 
 #include "game/em_game_internal.h"
 
@@ -1819,6 +1821,64 @@ static void cam_solver_0018D910(EmCamera *cam)
     if (lo > hi) lo = hi - 3.0f;
     cam->y_lo = lo;
     cam->y_hi = hi;
+}
+
+static int interaction_camera_query(void *context,const float from[3],
+    const float to[3],int ground_only,EmCollHit *hit)
+{
+    const EmCollision *world=context;
+    if (!world->blob) return -1;
+    if (!ground_only)
+        return em_collision_camera_query(world,from,to,6,hit);
+    /* 0019B7D0 ->0019E280 admits only grid attribute0x78. The original
+     * rank table accelerates this set; one-poly views retain its filter
+     * without modifying the shared collision world or query state. */
+    for (uint32_t i=0;i<world->poly_count;++i) {
+        if (world->polys[i].set!=EM_COLL_SET_GRID || world->polys[i].attr!=0x78)
+            continue;
+        EmCollision one=*world;
+        one.polys=world->polys+i;one.poly_count=1;
+        if (em_collision_camera_query(&one,from,to,EM_COLL_SET_GRID,hit)) return 4;
+    }
+    return 0;
+}
+
+static int interaction_camera_prepass(EmCamera *cam,const float hip[3])
+{
+    EmCameraProbe probe={cam->probe_flags,cam->ground_attr78,cam->overhead_y};
+    if (!em_camera_interaction_probe(&probe,cam->eye_des,g.pos,hip,
+                                      interaction_camera_query,&g.coll)) return 0;
+    cam->probe_flags=probe.flags;
+    cam->ground_attr78=probe.ground78;
+    cam->overhead_y=probe.overhead_y;
+    return 1;
+}
+
+int camera_interaction_retarget_area11(EmCamera *cam,const float hip[3],
+                                     const float seed_euler[3],float preset_distance)
+{
+    if (!cam || !hip || !seed_euler || !g.coll.blob) return 0;
+    /* Full SDK rotation is a separate porting task. Reject other rotations
+     * instead of changing the first-level panel's proven zero-rotation path. */
+    for (int i=0;i<3;++i) if (seed_euler[i]!=0) return 0;
+    memcpy(cam->seed_euler,seed_euler,sizeof cam->seed_euler);
+    const float offset[3]={0,0,g.cam_dist_param};
+    em_camera_retarget_seed(g.pos,offset,g.cam_dist_param,preset_distance,
+                            cam->eye_des,cam->tgt_des);
+    /* 0018D7B0 style5: prepass, bounds update, hit=0, no actual-vector copy. */
+    if (!interaction_camera_prepass(cam,hip)) return 0;
+    float bounds[2]={cam->y_lo,cam->y_hi};
+    if (!em_camera_interaction_bounds11(bounds,cam->eye_des,g.pos,cam->var_5c,
+                                        interaction_camera_query,&g.coll)) return 0;
+    cam->y_lo=bounds[0];cam->y_hi=bounds[1];cam->hit=0;
+    /* Style1 shares DD20's style0 branches (only style3 differs inside
+     * that body), then publishes desired vectors without follow chasing. */
+    if (!interaction_camera_prepass(cam,hip)) return 0;
+    cam->hit=(uint8_t)cam_solver_0018DD20(cam);
+    memcpy(cam->tgt,cam->tgt_des,sizeof cam->tgt);
+    memcpy(cam->eye,cam->eye_des,sizeof cam->eye);
+    cam->tgt_soft=120;
+    return 1;
 }
 
 /* func_0018D7B0 (style 0) — the desired-eye solver dispatcher.

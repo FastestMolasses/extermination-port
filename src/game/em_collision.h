@@ -13,7 +13,8 @@
  * Collision sets (mask bits, the engine's):
  *   bit 0 (1) movable-object hulls (func_001A6440)  — no native objects
  *             yet; accepted in the mask, currently never hits.
- *   bit 1 (2) static cell/n-gon world (func_001A0B10 -> func_001A4030)
+ *   bit 1 (2) cell world, including published class4 actor cells
+ *             (func_001A0B10 -> func_001A4030 / compact face tests)
  *   bit 2 (4) "grid" world (func_0019D330 -> func_0019ED80) — a polygon
  *             soup with a rank-table acceleration index, NOT a quantized
  *             heightfield; it owns the walkable floor. CONFIRMED (audit)
@@ -27,9 +28,10 @@
  *   bit 31    move-probe only: apply the collide-and-slide correction
  *             (hit-minus-target delta) to the actor x/z.
  *
- * Both worlds share one polygon shape — plane + convex vertex ring +
- * outward edge normals — so the native EMCL container bakes them into a
- * single poly list tagged with its engine set bit (see
+ * Polygon records in both worlds share a plane, convex vertex ring and
+ * outward edge normals. The native EMCL container combines those polygon
+ * lists, tagged with their engine set bit. Compact actor-cell box faces
+ * use separate EMCB assets and preserve their original owner lifetime (see
  * tools/export_collision.py in the decomp repo for the disc-side layout).
  *
  * Zero dependencies beyond libc; loads the git-ignored, user-generated
@@ -79,6 +81,19 @@ typedef struct {
     uint8_t  pad;
 } EmCollPoly;
 
+/* Original cell type0x2000: a single directed face, not a solid AABB.
+ * Signed extents retain the authored face orientation. */
+typedef struct {
+    uint32_t face;
+    float origin[3], extent[3];
+} EmCollBoxFace;
+
+typedef struct {
+    uint32_t uid, attr, face_count;
+    float bbox[6];
+    EmCollBoxFace *faces;
+} EmCollCell;
+
 typedef struct {
     uint32_t   vert_count;
     uint32_t   poly_count;
@@ -90,6 +105,8 @@ typedef struct {
     uint16_t  *indices;      /* index_count */
     float     *edge_n;       /* index_count * 3, outward edge normals */
     void      *blob;         /* single backing allocation */
+    const EmCollCell *actor_cells[32]; /* published class4 cell owners */
+    unsigned actor_cell_count;
 } EmCollision;
 
 /* Query result — the native mirror of the scratchpad result block. */
@@ -106,6 +123,16 @@ typedef struct {
 /* Load / free an EMCL collision world. Returns 0 on success. */
 int  em_collision_load(EmCollision *c, const char *path);
 void em_collision_free(EmCollision *c);
+
+/* Optional compact cells are published by their actual scene actor. They
+ * participate in set2, including mask6 queries; they are not set1 hulls. */
+int em_collision_cell_load(EmCollCell *cell, const char *path);
+void em_collision_cell_free(EmCollCell *cell);
+int em_collision_cell_bind(EmCollision *c, const EmCollCell *cell);
+void em_collision_cell_unbind(EmCollision *c, unsigned uid);
+/* 001A4D10 (horizontal movement) / 001A50A0 (segment/camera). */
+int em_collision_box_face(const EmCollBoxFace *face, const float start[3],
+                          const float end[3], int movement, EmCollHit *hit);
 
 /* func_0019A570 — segment query. Tests the sets in `mask` (low bits) and
  * returns the set bit of the nearest hit, or 0 for no hit. `id` gates the

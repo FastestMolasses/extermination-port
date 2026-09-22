@@ -19,6 +19,12 @@ void camera_commit(EmCamera *cam);
 void camera_commit_cinematic(EmCamera *cam);
 void camera_desired_eye(EmCamera *cam);
 void camera_entry_seat(EmCamera *cam);
+/* Original panel opcodeD/sub3 sequence: seed, probe style5, solve style1,
+ * publish vectors, camera+A0=120. AREA11 only. Returns0 if the collision
+ * world is absent or the requested scratchpad rotation is unsupported.
+ * The first-level panel's proven aligned rotation is exactly zero. */
+int camera_interaction_retarget_area11(EmCamera *cam,const float player_hip[3],
+                                     const float seed_euler[3],float preset_distance);
 float cam_dot3(const float a[3], const float b[3]);
 float cam_wrap_pi(float a)               /* func_001B1470 */;
 void cam_norm3(float v[3])               /* func_00102760 */;

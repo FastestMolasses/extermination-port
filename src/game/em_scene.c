@@ -53,8 +53,9 @@ void scene_manifest_load(void)
     g.n_camregion  = 0;     /* camera regions are per-scene data */
     g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
     g.n_lamp       = 0;
+    g.point_lights_loaded = 0;
+    em_point_light_reset(&g.point_lights);
     g.steam_on     = 0;     /* AREA-11 steam/FX emitter is per-scene data */
-    g.steam_lamp   = -1;
     g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
     g.opencam_on   = 0;     /* the opening-camera seat is per-scene data too:
                              * without this reset a scene with no `opencam`
@@ -199,6 +200,17 @@ void scene_manifest_load(void)
                 g.rig_col[n_ldir][0] = gx; g.rig_col[n_ldir][1] = gy;
                 g.rig_col[n_ldir][2] = gz;
                 n_ldir++;
+            }
+        } else if (sscanf(line, "pointlights %255s", name) == 1) {
+            char path[560];
+            snprintf(path, sizeof path, "%s/%s", g.scene_dir, name);
+            if (!em_point_light_load(&g.point_lights, &g.point_lights_area_key, path)) {
+                fprintf(stderr, "manifest: required original point lights failed: %s\n", path);
+                em_frame_request_quit();
+            } else {
+                g.point_lights_loaded = 1;
+                printf("manifest: original point lights %#x: %d registrations\n",
+                       g.point_lights_area_key, g.point_lights.pending_count);
             }
         } else if (sscanf(line, "lamp %f %f %f %f %f %f %f",
                           &x, &y, &z, &gx, &gy, &gz, &gyaw) == 7) {
@@ -429,45 +441,15 @@ void scene_manifest_load(void)
             g.area_title_armed = 1;
             em_hud_area_title(gk);
         } else if (sscanf(line, "steam %f %f %f", &x, &y, &z) == 3) {
-            /* AREA-11 STEAM / FX EMITTER (placement record 7, ov 0x008235F0
-             * @ ~452,279,278 — INVESTIGATION_first_level_area11.md §3/§6).
-             * Form: `steam <x> <y> <z>`. Registers (1) the level's one
-             * dynamic POINT LIGHT (a subtle warm glow — pushed into the
-             * placed-lamp list, folded into actor lighting by
-             * char_rig_build exactly like a `lamp`), (2) the looping
-             * ambient hiss 0x413 (steam_tick retriggers it on a fixed
-             * interval — the port SFX path is one-shot, no loop primitive),
-             * and (3) a minimal billboard steam puff (em_gfx_beam_dot). One
-             * emitter per scene; a second line replaces the first. The glow
-             * is deliberately faint (STEAM_LAMP_INTEN) and far from the
-             * spawn so it does NOT wash out the dark snow scene. */
+            /* Legacy steam audio/FX approximation. Original point lights
+             * come from the separate authored room table above. */
             g.steam_on     = 1;
             g.steam_pos[0] = x;
             g.steam_pos[1] = y;
             g.steam_pos[2] = z;
             g.steam_snd_t  = 0;       /* fire the hiss on the first tick */
             g.steam_fx_phase = 0.0f;
-            g.steam_lamp   = -1;
-            if (g.n_lamp < LAMP_MAX) {
-                /* the cosmetic warm point light (colors on the engine
-                 * 0..128 lamp scale, like the rig lightdir rows). */
-                g.steam_lamp = g.n_lamp;
-                g.lamp[g.n_lamp].pos[0] = x;
-                g.lamp[g.n_lamp].pos[1] = y;
-                g.lamp[g.n_lamp].pos[2] = z;
-                g.lamp[g.n_lamp].col[0] = STEAM_LAMP_COL_R * 128.0f;
-                g.lamp[g.n_lamp].col[1] = STEAM_LAMP_COL_G * 128.0f;
-                g.lamp[g.n_lamp].col[2] = STEAM_LAMP_COL_B * 128.0f;
-                g.lamp[g.n_lamp].inten  = STEAM_LAMP_INTEN;
-                g.n_lamp++;
-                printf("manifest: STEAM/FX EMITTER at (%.1f, %.1f, %.1f) — "
-                       "warm point light + looping hiss %#x + puff FX\n",
-                       x, y, z, STEAM_SND_ID);
-            } else {
-                printf("manifest: STEAM/FX EMITTER at (%.1f, %.1f, %.1f) — "
-                       "lamp budget full, glow skipped; hiss %#x + puff "
-                       "still active\n", x, y, z, STEAM_SND_ID);
-            }
+            printf("manifest: legacy steam audio/FX at (%.1f, %.1f, %.1f)\n", x, y, z);
         } else if ((gn = sscanf(line, "pickup %i %f %f %f %f %i "
                                 "%255s %63s",
                                 &gk, &x, &y, &z, &yaw, &gl,

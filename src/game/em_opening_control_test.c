@@ -172,19 +172,22 @@ void em_opening_control_test_after_frame(void)
         float distance=sqrtf(dx*dx+dz*dz);
         memcpy(test.reentry_previous,g.pos,sizeof test.reentry_previous);
         fprintf(stderr,"reentry sample: tick=%u speed=%.9g phase=%u blend=%u "
-                "tier=%d clip=%d source=%.9g displacement=%.9g\n",
+                "tier=%d clip=%d source=%.9g displacement=%.9g "
+                "blocked=%02x pos=(%.9g,%.9g,%.9g) yaw=%.9g\n",
                 tick+1,g.loco_upt,g.loco_reentry.phase,g.loco_reentry.blend_left,
-                g.loco_tier,g.loco_clip,g.walk_t*60.0,distance);
+                g.loco_tier,g.loco_clip,g.walk_t*60.0,distance,g.probe_block_mask,
+                g.pos[0],g.pos[1],g.pos[2],g.yaw);
         if (g.loco_upt!=speeds[tick] || g.loco_reentry.phase!=phases[tick] ||
             g.loco_tier!=2 || g.loco_stop.phase ||
             (tick<6 && fabsf(distance-(tick==0?.6f:.3f))>.001f) ||
+            (tick>=6 && (g.probe_block_mask!=2 || distance>=g.loco_upt-.02f)) ||
             (tick<5 && fabs(g.walk_t*60.0-27.0)>.00001)) {
             fail("run-stop interruption disagrees with original request/blend/ramp");return;
         }
         if (test.reentry_ticks==8) {
             key(0);
             fprintf(stderr,"newgame reentry test: PASS doubled request motion, "
-                    "four-tick blend and original scalar re-arm\n");
+                    "four-tick blend, scalar re-arm and original panel contact\n");
             if (g.capture_path) em_gfx_request_capture(em_frame_gfx(),g.capture_path);
             test.phase=4;
             em_frame_request_quit();

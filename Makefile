@@ -14,10 +14,12 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
+           src/game/em_point_light.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
+           src/game/em_camera_probe.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
 
 # ---------------------------------------------------------------- macOS
@@ -198,6 +200,22 @@ test-battery-ui-reference:
 test-camera-retarget-reference:
 	python3 tools/test_camera_retarget_reference.py
 
+.PHONY: test-camera-probe-reference test-camera-interaction-fixture test-interaction-frame-reference test-interaction-animation-reference test-collision-faces-reference
+test-camera-probe-reference:
+	python3 tools/test_camera_probe_reference.py
+
+test-camera-interaction-fixture:
+	python3 tools/test_camera_interaction_fixture.py
+
+test-interaction-frame-reference:
+	python3 tools/test_interaction_frame_reference.py
+
+test-interaction-animation-reference:
+	python3 tools/test_interaction_animation_reference.py
+
+test-collision-faces-reference:
+	python3 tools/test_collision_faces_reference.py
+
 test-panel-program:
 	@mkdir -p build
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/panel_program_test.c src/game/em_panel_program.c src/game/em_script.c src/game/em_panel.c -lm -o build/panel_program_test
@@ -236,6 +254,15 @@ test-snow-projection-reference:
 	python3 tools/test_snow_projection_reference.py
 
 .PHONY: test-lighting-reference test-lighting
+.PHONY: test-point-light-reference test-point-light
+test-point-light-reference:
+	python3 tools/test_point_light_reference.py
+
+test-point-light: tests/test_point_light.c src/game/em_point_light.c src/game/em_point_light.h
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/test_point_light.c src/game/em_point_light.c -lm -o build/test_point_light
+	./build/test_point_light
+
 test-lighting-reference:
 	python3 tools/audit_opening_lighting.py
 

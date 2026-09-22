@@ -15,6 +15,7 @@ import struct
 import sys
 
 from export_pickup_lights import load_tool
+from export_area11_panel_collision import export_panel_cell
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -157,6 +158,7 @@ def main():
                              vertices=len(sections[0][0]),
                              triangles=len(sections[0][2])//3))
     update_manifest(args.scene/'scene.txt', panel, elevator)
+    export_panel_cell(decomp,args.scene)
     print(json.dumps(dict(panel=panel, elevator=elevator, models=metadata), indent=2))
 
 

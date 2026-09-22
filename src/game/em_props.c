@@ -18,6 +18,7 @@ typedef struct {
 } PropIndicator;
 
 static PropIndicator indicators[2]; /* model75 panel; model10 elevator */
+static EmCollCell panel_cell;
 
 static void indicator_unload(EmGfx *gfx, PropIndicator *indicator)
 {
@@ -123,6 +124,12 @@ int grate_install(EmGfx *gfx, const char *scene_dir,
         grate_unload(gfx);
         return -1;
     }
+    snprintf(path,sizeof path,"%s/props/panel_cell18.emcb",scene_dir);
+    if (em_collision_cell_load(&panel_cell,path)!=0) {
+        fprintf(stderr,"panel: missing original cell18 collision: %s\n",path);
+        grate_unload(gfx);
+        return -1;
+    }
     grate_pose();
     printf("manifest: original AREA11 model04 panel at (%.1f, %.1f, %.1f)\n",
            pos[0],pos[1],pos[2]);
@@ -132,10 +139,15 @@ int grate_install(EmGfx *gfx, const char *scene_dir,
 void grate_update(void)
 {
     grate_pose();
+    /* Original 00159210's live owner is published in D275B7C;
+     * its uid18 was verified in the original first-control state. Its battery/menu phase does not remove the cell. */
+    if (g.grate_present) em_collision_cell_bind(&g.coll,&panel_cell);
 }
 
 void grate_unload(EmGfx *gfx)
 {
+    em_collision_cell_unbind(&g.coll,panel_cell.uid);
+    em_collision_cell_free(&panel_cell);
     indicator_unload(gfx,&indicators[0]);
     if (g.grate_mesh) em_gfx_mesh_destroy(gfx,g.grate_mesh);
     em_model_free(&g.grate_model);

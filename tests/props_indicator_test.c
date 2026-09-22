@@ -5,6 +5,17 @@ EmGameState g;
 static int draws, random_calls;
 static unsigned sound_id;
 static float last_palette[32], last_tint[4];
+static int collision_published;
+
+/* This fixture isolates owner lifetime; the separate collision tests run
+ * the real loader, original face instructions and set2 query composition. */
+int em_collision_cell_load(EmCollCell *cell, const char *path)
+{ assert(strstr(path,"panel_cell18.emcb")); cell->uid=18;return 0; }
+void em_collision_cell_free(EmCollCell *cell) { memset(cell,0,sizeof *cell); }
+int em_collision_cell_bind(EmCollision *world, const EmCollCell *cell)
+{ (void)world; assert(cell->uid==18);collision_published=1;return 1; }
+void em_collision_cell_unbind(EmCollision *world, unsigned uid)
+{ (void)world;(void)uid;collision_published=0; }
 
 uint32_t em_random_next(void) { ++random_calls; return 0x40000000; }
 int em_game_terminal_powered(void) { return g.terminal_powered; }
@@ -62,6 +73,7 @@ int main(void)
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
     const float panel[3]={240,245,232.8f}, vp[16]={0};
     assert(grate_install(gfx,"scene","panel",panel,-3.14159274f)==0);
+    grate_update();assert(collision_published);
     assert(em_props_indicator_install(gfx,"scene","panel","red")==0);
     em_model_load(&g.elev_model,"elevator");
     g.elev_mesh=(EmGfxMesh *)(uintptr_t)2;
@@ -87,6 +99,7 @@ int main(void)
     assert(g.grate_palette[12]==240 && g.grate_palette[13]==245);
     em_props_panel_complete();
     assert(!indicators[0].visible);
+    assert(collision_published);
     g.terminal_powered=0;
     for (int i=0;i<16;++i) em_props_indicators_tick();
     assert(indicators[1].level==0 && indicators[1].tint[0]==1);
@@ -108,6 +121,7 @@ int main(void)
     assert(g.elev_pos[1]==230 && g.pos[1]==229.9993896484375f);
     elevator_unload(gfx);
     grate_unload(gfx);
+    assert(!collision_published);
     assert(!indicators[0].mesh && !indicators[1].mesh);
     int previous=draws;
     em_props_indicators_tick();

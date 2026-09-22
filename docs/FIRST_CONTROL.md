@@ -65,8 +65,7 @@ binary assets are embedded in the test. `make test-player-heading-reference`
 checks 2,360 raw-pad/camera cases; its SDK trigonometric calls are host models,
 so this is not a byte-faithful replacement of the SDK transcendental library.
 
-Remaining limitations: native ground/wall response does not yet supply the
-original +314 obstruction flags to the motor; interrupted initial entry/release,
+Remaining limitations: interrupted initial entry/release,
 jog/walk foot-placement stops and other movement-state families need their
 complete callbacks; pose blending is
 still interpolation of exported matrices rather than original bone quaternion
@@ -140,7 +139,65 @@ displacement. `EM_CONTROL_REENTRY_TEST=1` extends the real native New Game input
 fixture through this interruption and checks the first eight callbacks.
 The full native GPU regression passed: request displacement0.6000003, four
 subsequent0.3 movements at source27, scalar re-arm, then0.3625/0.425. Original
-collision corrections reduce later motion near the railing, so these matching
+collision corrections reduce later motion near the panel (identified below), so these matching
 scalar values and the first six clear movements do not establish identical
 collision ordering or response. Local native
 evidence: `build/opening_control/reentry_run.log` and `reentry.png`.
+
+## Upper-body contact with the battery panel
+
+The contact previously described as a railing is the battery panel's original
+cell18 box. A second immutable-state04 replay captures the full actor bytes
+through the interrupted run (`../Extermination/build/startup-reference/
+collision_run_poll.json`). At frame4140 the obstruction byte+314 becomes0x02;
++236 remains0, surface mode+23B is5, and the slope remains0.0016297102. The
+movement correction is therefore not a slope-speed multiplier or clearance
+transition. Before correction the working position is(239.097763,229.888199,
+226.572159); afterward XZ is(239.060745,226.391342).
+
+Original world directory4 points to chunk15/f12_id44+0x39800. Cell18 contains
+five type0x2000 directed box faces, with bounds X237.999969..241.999969,
+Y242.200027..248.100021,Z230.800018..232.800018. These compact faces were omitted
+by the polygon-only EMCL exporter. The live original class4 owner7AA590,
+behavior00159210, publishes uid18/attribute0x46 in D275B7C. This is the actor
+pass of collision set2, so mask6 includes it; it is not a set1 movable hull.
+
+The native `panel_cell18.emcb` is exported directly from those cell records.
+The real panel's install/update/unload lifetime owns publication, including
+while the battery interaction runs and after its indicator switches off.
+Movement uses original001A4D10 semantics; camera/segment uses001A50A0. These
+functions differ at vertical boundaries and in floating arithmetic order:
+movement admits Y endpoints and multiplies before division; the general
+segment checks both cross axes strictly and divides before multiplying.
+The native finite arithmetic rounds toward zero after each operation.
+
+Original001764E0 tests each of eight lanes at4.01 and then18 units (13.8 when
++236 is set), refreshing the corrected position between rays. The native
+main lanes now include that upper probe in the same order and publish their
++314 bits to the scalar motor. At frame4140 upper lane1 reaches cell18's
+Z230.800018 front face and reproduces the captured XZ correction within0.0001.
+The lower ray is clear. Removing the panel's live cell binding removes the
+contact, so this result depends on original owner geometry rather than a
+coordinate-specific movement adjustment.
+
+`python3 tools/test_collision_faces_reference.py` executes the original
+A4D10/A50A0 bytes for4,800 cases, including721 byte-exact hit records, verifies
+all locally exported panel face bytes, and checks the captured first contact.
+The collision and props tests cover set masks, nearest-hit composition,
+strict segment versus inclusive movement edges, and owner lifetime.
+
+Remaining collision work: the low-clearance/ledge writer and special ankle
+slope-response branches are not translated. The current ankle pass still runs
+in idle as well as movement. Only the proven panel compact cell is published;
+other compact cells, generic movable hulls and full original query acceleration
+remain separate work. Native SDK trigonometry and ordinary polygon arithmetic
+still prevent a whole-query bit-identical claim.
+
+Full native regression (`build/opening_control/panel_contact_run.log` and
+`panel_contact.png`) passed the ordinary opening,30 held input ticks,18 released
+ticks and8 re-entry ticks. The first30 ticks retain displacement9.599989;
+opening input remains locked for1,303 ticks with zero movement. Re-entry
+callbacks7/8 now report obstruction0x02 and displacements0.266091/0.306747.
+The final native XZ is(238.753937,226.391403), versus original frame4141
+(238.753982,226.391403): X differs by0.000046 and Z is identical. No speed,
+position or camera value was tuned to obtain this contact.

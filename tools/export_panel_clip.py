@@ -32,6 +32,8 @@ def main():
     header=struct.unpack_from('<I',bank,4+348*4)[0]
     clip=OpeningClip(bank,header)
     assert (clip.bones,clip.length)==(21,121)
+    assert struct.unpack_from('<h',bank,header+4)[0]==-2
+    assert struct.unpack_from('<I',bank,header+0x14)[0]==0
     assert struct.unpack_from('<H',ram,actor+0x20C)[0]==348
     owner=[struct.unpack_from('<4f',ram,actor+0xD0+c*16) for c in range(4)]
     assert tuple(owner[3][:3])==struct.unpack_from('<3f',ram,actor+0xA0)

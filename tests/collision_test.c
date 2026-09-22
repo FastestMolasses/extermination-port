@@ -61,6 +61,25 @@ int main(int argc, char **argv)
     polygon.attr = 0x50;
     assert(!em_collision_camera_query(&world, from, to, 0, NULL));
     assert(!em_collision_camera_query(&world, to, from, EM_COLL_SET_GRID, NULL));
+    /* Published actor cells belong to set2. Their lifetime and nearest
+     * result must survive composition with the pre-existing grid set. */
+    EmCollBoxFace face={.face=5,.origin={-1,-1,.5f},.extent={2,2,0}};
+    EmCollCell cell={.uid=18,.attr=0x46,.face_count=1,.faces=&face};
+    EmCollHit compact;
+    polygon.attr=0;
+    assert(em_collision_cell_bind(&world,&cell));
+    assert(em_collision_cell_bind(&world,&cell) && world.actor_cell_count==1);
+    assert(em_collision_segment_query(&world,from,to,6,0,&compact)==2);
+    assert(compact.poly==-19 && compact.attr==0x46 && compact.point[2]==.5f);
+    assert(em_collision_camera_query(&world,from,to,6,&compact)==2);
+    assert(!em_collision_camera_query(&world,from,to,1,&compact));
+    assert(em_collision_camera_query(&world,from,to,4,&compact)==4);
+    float edge_from[]={0,-1,1},edge_to[]={0,-1,-1};
+    assert(!em_collision_segment_query(&world,edge_from,edge_to,2,0,&compact));
+    assert(em_collision_move_probe(&world,edge_from,edge_to,2,&compact)==2);
+    em_collision_cell_unbind(&world,18);
+    assert(world.actor_cell_count==0);
+    assert(em_collision_segment_query(&world,from,to,6,0,&compact)==4);
     if (!dump) printf("collision test: %u gate cases, mask and backface: PASS\n", checks);
     return 0;
 }

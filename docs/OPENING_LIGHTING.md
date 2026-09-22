@@ -97,13 +97,12 @@ binaries and a SHA-256 receipt in `visual_validation.json`.
 
 ## Remaining scope
 
-The original AREA11 point-light pool is not empty. Its captured light is at
-`(451.6, 279, 277.2)`, with intensity about `414.72`, RGB about
-`(1658.88, 414.72, 103.68)` and a changing rotation matrix. The existing native
-steam light instead uses a fixed intensity of 14 and a guessed warm color.
-Recovering that controller and its global RNG timing is separate work. The
-new face rig correctly bypasses it; body lighting still receives the current
-native point-light composition.
+The original AREA11 point-light pool is now recovered in
+[AREA11_POINT_LIGHT.md](AREA11_POINT_LIGHT.md). Its auxiliary placement table,
+color/intensity, random angle update and dynamic fold replace the former
+guessed steam light. The face rig bypasses it as before. Whole-game RNG call
+ordering remains a fidelity dependency, so native flicker angles are not
+claimed to equal an arbitrary original captured frame.
 
 The ordinary native rig currently supplies identity actor RGB to the matrix
 builder. Existing post-draw tint handling is retained; original actor RGB and

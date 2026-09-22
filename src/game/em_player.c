@@ -17,59 +17,40 @@
 
 #include "game/em_game_internal.h"
 
-/* func_001764E0 — the engine's RADIAL WALL PROBES (the real player
- * hitbox; see the PLAYER WALL RADIUS block above). Five directions
- * yaw + {0, +45, -45, +90, -90} deg (D_00248950), each probed twice —
- * ankle y+0.05 over the static sets and chest y+4.01 with the movable
- * hulls (doors) joined in — and every wall-class hit pushes the actor
- * back by the probe's overshoot (pos += hit - end, the spad
- * 0x700031C0 delta), exactly the engine's response. Each probe runs
- * from the ALREADY-corrected position, like the PS2 loop re-reading
- * actor +0xB0 per iteration. Runs every free/idle frame (the engine
- * fires it from both the idle top func_00161020 and the walk top
- * func_001612D0); scripted door transits skip it — the engine's
- * MOVE-TO crosses the sealed boundary planes deliberately. */
+/* 001764E0 rereads the corrected actor position before every ray. Its
+ * eight main lanes each test4.01 and then18 (13.8 when +236 is set).
+ * The first-control capture has +236=0. The low-clearance/ledge state
+ * writer and the ankle slope-response branches still need translation;
+ * adding the upper ray does not claim those separate paths are complete. */
 void player_wall_probes(void)
 {
-    /* D_00248950, radians — the FULL eight-direction fan read out of the boot
-     * ELF: {0, +45, -45, +90, -90, +135, -135, 180} degrees.
-     *
-     * AUDIT CORRECTION (s86): the port carried only the first FIVE entries and
-     * ran both passes over them. func_001764E0 walks this one table with two
-     * different bounds — the ankle pass takes 5 lanes (`while (i < 5)`, scratch
-     * lift 0.05, probe mask 6) and the CHEST pass takes 8 (`while (j < 8)`,
-     * lift 4.01, mask 7, each hit setting bit 1<<j of +0x314). Truncating the
-     * chest pass to 5 left the player with no chest-height probe behind or
-     * behind-diagonal, so walls could be backed into. */
-    static const float kProbeAngle[8] = {
-        0.0f,        0.7853982f, -0.7853982f, 1.5707964f,
+    static const float angles[8] = {
+        0.0f, .7853982f, -.7853982f, 1.5707964f,
         -1.5707964f, 2.3561945f, -2.3561945f, 3.1415927f
     };
-    enum { PROBE_ANKLE_LANES = 5, PROBE_CHEST_LANES = 8 };
-    if (!g.coll.poly_count)
-        return;
-    for (int pass = 0; pass < 2; pass++) {
-        const int lanes = pass ? PROBE_CHEST_LANES : PROBE_ANKLE_LANES;
-        for (int i = 0; i < lanes; i++) {
-            float ang = g.yaw + kProbeAngle[i];
-            float dx  = sinf(ang) * PLAYER_WALL_RADIUS;
-            float dz  = cosf(ang) * PLAYER_WALL_RADIUS;
-            float lift = pass ? PROBE_CHEST_LIFT : PROBE_ANKLE_LIFT;
-            float from[3] = { g.pos[0], g.pos[1] + lift, g.pos[2] };
-            float end[3]  = { from[0] + dx, from[1], from[2] + dz };
-            EmCollHit hit;
-            if (probe_wall_seg(from, end, pass /* doors: chest only */,
-                               &hit)) {
-                static int trace = -1;
-                if (trace < 0) trace = getenv("EM_PROBE_TRACE") != NULL;
-                if (trace)
-                    printf("probe: frame %d dir %d pass %d pos (%.2f, "
-                           "%.2f) hit (%.2f, %.2f) push (%.3f, %.3f)\n",
-                           g.frame_no, i, pass, g.pos[0], g.pos[2],
-                           hit.point[0], hit.point[2],
-                           hit.point[0] - end[0], hit.point[2] - end[2]);
-                g.pos[0] += hit.point[0] - end[0];
-                g.pos[2] += hit.point[2] - end[2];
+    if (!g.coll.poly_count) return;
+    g.probe_block_mask=0;
+    for (int pass=0;pass<2;++pass) {
+        int lanes=pass ? 8 : 5;
+        for (int lane=0;lane<lanes;++lane) {
+            float angle=g.yaw+angles[lane];
+            float dx=sinf(angle)*PLAYER_WALL_RADIUS;
+            float dz=cosf(angle)*PLAYER_WALL_RADIUS;
+            for (int upper=0;upper<(pass ? 2 : 1);++upper) {
+                float lift=!pass ? PROBE_ANKLE_LIFT : !upper ? PROBE_CHEST_LIFT
+                    : g.probe_low_clearance ? 13.8f : 18.0f;
+                float from[3]={g.pos[0],g.pos[1]+lift,g.pos[2]};
+                float end[3]={from[0]+dx,from[1],from[2]+dz};
+                EmCollHit hit;
+                if (!probe_wall_seg(from,end,pass,&hit)) continue;
+                static int trace=-1;
+                if (trace<0) trace=getenv("EM_PROBE_TRACE")!=NULL;
+                if (trace) printf("probe: frame %d lane %d lift %.2f cell/poly %d "
+                    "push (%.6f, %.6f)\n",g.frame_no,lane,lift,hit.poly,
+                    hit.point[0]-end[0],hit.point[2]-end[2]);
+                g.pos[0]+=hit.point[0]-end[0];
+                g.pos[2]+=hit.point[2]-end[2];
+                if (pass) g.probe_block_mask|=(uint8_t)(1u<<lane);
             }
         }
     }
@@ -773,7 +754,7 @@ void player_move(void)
     EmPlayerMotor motor = {
         g.loco_upt, kLocoTierSpeed[gait], g.loco_rate, g.loco_blend,
         g.loco_mode, g.loco_substate, (uint8_t)g.loco_tier,
-        (uint8_t)gait, 0
+        (uint8_t)gait, g.probe_block_mask
     };
     em_player_motor_tick(&motor);
     g.loco_mode = motor.mode;
