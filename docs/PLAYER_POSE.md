@@ -173,5 +173,21 @@ callback ownership, release without an extra idle advance, placement/Euler
 mirrors and explicit invalid-source failure under ASan/UBSan. The first idle
 callback seeds counter300; case1 is blocked by the original transition-fade
 state while its animation continues to advance. End-to-end scene interaction
-regression and walk/jog stop and aborted-entry source workers remain required.
+regression and walk/jog foot-placement stop source workers remain required.
 None of these checks makes the legacy displayed locomotion matrix blend faithful.
+
+
+The follow-up host binding restores the aborted walk-entry states99/100 and
+consumes the previous animation multiplier even when locomotion mode is idle;
+a pending turn can legitimately leave that multiplier zero. The successful
+Use caller now has an explicit `player_pose_use_accepted()` operation: original
+1798D0 clears movement and conditionally requests default clip0/blend0 before
+the next callback acquires script ownership. An already-idle cursor survives.
+
+`tools/test_player_pose_host_reference.py` executes the original182F90 with its
+SDK vector callees in1,203 cases, including captured panel/elevator placements.
+All tested feet, hip and saved-Euler words agree after bounded VU rounding.
+It also checks187 original61020 aborted-entry callbacks and7 original1798D0
+reset cases. Shifting native cached matrices remains a host adaptation; the
+original alignment function only shifts the position mirrors. The sanitizer
+host test passes the corresponding lifecycle and invalid-source cases.

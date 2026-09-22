@@ -616,7 +616,7 @@ void player_move(void)
         return;
     }
 
-    if (player_pose_idle_state_wait()) {
+    if (player_pose_entry_return_tick() || player_pose_idle_state_wait()) {
         g.gait = 0;
         g.move_speed = 0;
         player_wall_probes();
@@ -732,8 +732,10 @@ void player_move(void)
         }
         if (g.loco_entry_ticks > 1) --g.loco_entry_ticks;
         else g.loco_entry_ticks = still_turning ? -1 : 0;
+        if (g.loco_entry_ticks < 0)
+            g.loco_rate = 0; /*00161020 case2 holds the pose while turning. */
         if (!g.loco_entry_ticks && !gait)
-            player_pose_invalidate("aborted walk-entry callbacks are not bound");
+            player_pose_entry_cancel();
         if (g.loco_entry_ticks == 0 && gait) {
             g.loco_mode = 1;
             g.loco_substate = 1;

@@ -2193,9 +2193,12 @@ int player_pose_stage(void);
 void player_pose_finish_state(void);
 void player_pose_request(unsigned clip, float frame, unsigned blend, int force);
 void player_pose_idle_enter(void);
+void player_pose_entry_cancel(void);
+int player_pose_entry_return_tick(void);
 int player_pose_idle_state_wait(void);
 void player_pose_invalidate(const char *reason);
 int player_pose_acquire(void);
+int player_pose_use_accepted(void);
 int player_pose_idle_tick(float *local_palette);
 int player_pose_release(void);
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,

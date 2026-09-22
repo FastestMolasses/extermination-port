@@ -80,6 +80,46 @@ int main(void)
 {
     reset();
     expected(0, 80, 0);
+
+    reset();
+    g.loco_entry_ticks = 8;
+    player_pose_request(1, 64, 8, 1);
+    for (unsigned i = 0; i < 8; ++i) {
+        assert(player_pose_stage() == 0);
+        --g.loco_entry_ticks;
+    }
+    expected(1, 56, 0);
+    player_pose_entry_cancel();
+    player_pose_finish_state();
+    expected(1, 56, 0); /* State99 is assigned without a request. */
+    assert(player_pose_stage() == 0 && player_pose_entry_return_tick());
+    player_pose_finish_state();
+    expected(0, 8, 1);
+    for (unsigned i = 0; i < 8; ++i) {
+        assert(player_pose_stage() == 0 && player_pose_entry_return_tick());
+        player_pose_finish_state();
+    }
+    expected(0, 80, 0);
+    assert(!player_pose_entry_return_tick());
+    /* A pending small-stick turn freezes the original rate despite idle
+     * mode0. The next callback's animation step must consume that zero. */
+    g.loco_rate = 0;
+    assert(player_pose_stage() == 0);
+    expected(0, 80, 0);
+
+    reset();
+    ordinary();
+    assert(player_pose_use_accepted());
+    player_pose_finish_state();
+    expected(0, 79, 0); /* Same-idle Use never restarts. */
+    player_pose_request(2, 12, 0, 1);
+    g.loco_mode = 1;
+    g.loco_tier = 2;
+    g.loco_upt = .3f;
+    assert(player_pose_use_accepted());
+    player_pose_finish_state();
+    expected(0, 80, 0);
+    assert(!g.loco_mode && !g.loco_tier && g.loco_upt == 0);
     /* Immutable03 has fade level251; after120 ordinary callbacks the
      * immutable04 idle cursor is40, with its countdown still at243. */
     fade = (EmTransitionFade){1, 0, 2, 251, 4};

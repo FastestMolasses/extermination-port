@@ -1,4 +1,5 @@
 #include "game/em_game_internal.h"
+#include "game/em_effect_color.h"
 
 #include <math.h>
 
@@ -10,6 +11,7 @@ static struct {
     int idle_fidget;
     int idle_count;
     int idle_handled;
+    unsigned idle_return;
     int previous_entry;
     unsigned previous_stop;
     unsigned previous_reentry;
@@ -64,6 +66,8 @@ int player_pose_opening_release(void)
     source.started = 1;
     source.idle_phase = source.idle_fidget = 0;
     source.idle_count = 300;
+    source.idle_return = 0;
+    g.loco_rate = 1;
     g.idle_t = 0;
     return publish_current();
 }
@@ -97,7 +101,7 @@ int player_pose_stage(void)
         } else {
             /*0015BA50 consumes the prior multiplier before its state
              * callback resets it. Idle also advances while speed is zero. */
-            float rate = g.loco_mode ? g.loco_rate : 1;
+            float rate = g.loco_rate;
             if (!em_player_pose_advance(&source.pose, rate, 0))
                 player_pose_invalidate("original animation advance failed");
         }
@@ -133,6 +137,35 @@ void player_pose_idle_enter(void)
     source.idle_handled = 1;
 }
 
+void player_pose_entry_cancel(void)
+{
+    if (!source.started || !source.pose.valid) return;
+    /*00161020 case2 changes only the state to99 on released input. Its
+     * default request belongs to the following callback, not this one. */
+    source.idle_return = 0x63;
+    source.idle_handled = 1;
+}
+
+int player_pose_entry_return_tick(void)
+{
+    if (!source.started || !source.pose.valid || !source.idle_return) return 0;
+    source.idle_handled = 1;
+    if (source.idle_return == 0x63) {
+        player_pose_request(0, 0, 8, 0);
+        source.idle_return = 0x64;
+    } else if (!(source.pose.flags & 0x8000)) {
+        source.idle_return = 0;
+        source.idle_phase = 1;
+        source.idle_fidget = 0;
+        source.idle_count = 300;
+        g.idle_phase = 0;
+        g.idle_timer = 300;
+    }
+    /* Both99 and100 ignore movement. The callback clearing100 restores
+     * case1 but does not also dispatch it or decrement its fresh counter. */
+    return 1;
+}
+
 int player_pose_idle_state_wait(void)
 {
     return source.started && source.pose.valid && !g.loco_mode && !g.loco_entry_ticks &&
@@ -141,7 +174,7 @@ int player_pose_idle_state_wait(void)
 
 void player_pose_finish_state(void)
 {
-    if (!source.started || !source.pose.valid || source.pose.acquired) return;
+    if (!source.started || !source.pose.valid || source.pose.acquired || source.idle_return) return;
     if (g.status.health <= PD_LOW_HEALTH) {
         player_pose_invalidate("low-health pose variant is not bound");
         return;
@@ -228,10 +261,11 @@ int player_pose_align(const float position[3])
         /*182F90 forms target-A0, then adds that delta to feet, hip and
          * scratch hip. Keep the native displayed cache coherent as a host
          * adaptation; the original routine itself does not rewrite matrices. */
-        float delta = position[axis] - g.pos[axis];
-        g.pos[axis] += delta;
+        float delta = em_effect_float32((double)position[axis] - g.pos[axis]);
+        g.pos[axis] = em_effect_float32((double)g.pos[axis] + delta);
         for (unsigned bone = 0; bone < 22; ++bone)
-            g.player_palette[bone * 16 + 12 + axis] += delta;
+            g.player_palette[bone * 16 + 12 + axis] = em_effect_float32(
+                (double)g.player_palette[bone * 16 + 12 + axis] + delta);
     }
     player_pose_finish_palette();
     return 1;
@@ -286,6 +320,27 @@ int player_pose_acquire(void)
     return publish_current() ? 1 : -1;
 }
 
+int player_pose_use_accepted(void)
+{
+    if (!source.started || !source.pose.valid || source.pose.acquired ||
+        !em_player_pose_select(&source.pose, 0, 0, 0, 0))
+        return 0;
+    /*001798D0 precedes the successful160220 action25 assignment. It
+     * clears movement and requests default blend0; same-idle preserves
+     * its cursor.182D70 acquisition occurs in the next player callback. */
+    g.loco_upt = g.move_speed = 0;
+    g.loco_tier = g.loco_mode = g.loco_substate = 0;
+    g.loco_entry_ticks = 0;
+    g.loco_stop.phase = g.loco_reentry.phase = 0;
+    g.gait = 0;
+    g.walk_w = g.fid_w = 0;
+    g.idle_t = (source.pose.playback.clip->duration - source.pose.playback.remaining) / 60.0;
+    source.idle_phase = source.idle_fidget = 0;
+    source.idle_return = 0;
+    source.idle_handled = 1;
+    return publish_current();
+}
+
 int player_pose_idle_tick(float *local_palette)
 {
     return em_player_pose_idle_tick(&source.pose, local_palette, g.model.bone_count);
@@ -311,6 +366,7 @@ int player_pose_release(void)
     g.idle_timer = 300;
     g.idle_t = (source.pose.playback.clip->duration - source.pose.playback.remaining) / 60.0;
     source.idle_phase = source.idle_fidget = 0;
+    source.idle_return = 0;
     source.idle_count = 300;
     /* Release follows the consumed script/idle callback. Publish its default
      * reset now, then let the next ordinary callback advance it exactly once. */
