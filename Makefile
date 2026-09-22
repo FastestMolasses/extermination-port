@@ -19,6 +19,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_roger.c src/game/em_roger_assets.c \
+           src/game/em_roger_runtime.c src/game/em_face_model.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
@@ -210,6 +211,13 @@ test-roger-assets: tests/roger_assets_test.c src/game/em_roger_assets.c
 	@mkdir -p build
 	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/roger_assets_test.c src/game/em_roger_assets.c src/em_model.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_script.c -o build/roger_assets_test
 	build/roger_assets_test
+
+.PHONY: test-roger-runtime
+test-roger-runtime:
+	@mkdir -p build
+	python3 tools/test_roger_encounter_reference.py
+	$(CC) -std=c11 -O1 -ffp-contract=off -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/roger_runtime_test.c src/game/em_roger_runtime.c src/game/em_roger_assets.c src/game/em_roger.c src/game/em_face_model.c src/game/em_opening_face.c src/game/em_interaction_scene.c src/game/em_interaction_scan.c src/em_model.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_script.c -o build/roger_runtime_test
+	build/roger_runtime_test
 
 test-pickup-original: tests/pickup_original_test.c src/game/em_pickup.c $(PICKUP_ORIGINAL_TEST_SRC)
 	@mkdir -p build
