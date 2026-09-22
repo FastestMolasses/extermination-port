@@ -181,5 +181,34 @@ captured guessed placements, select every exported model.
 floats, indicator initialization and color ramps, independent panel
 completion, fixed panel placement, exact elevator rate/150-tick duration,
 reverse ride, and resource cleanup under ASan/UBSan. Combined with the
-pickup fixtures, eight original child colors match bit for bit. Native
-screenshot comparison of these new indicator/body exports is still pending.
+pickup fixtures, eight original child colors match bit for bit. The native
+opening-to-control capture now includes the corrected elevator body and
+red indicator. Remaining geometry differences are still under audit.
+
+The panel interaction's original script, BATTERY confirmation and inventory
+semantics are documented in [AREA11_PANEL.md](AREA11_PANEL.md). Its tested
+host core stays unbound until the real UI and script handlers are ready.
+
+## Pickup body skeleton correction
+
+The missing green strips and flattened box were not evidence for an
+invented light offset. Original global model72 has three authored nodes,
+parents `[-1,0,1]`, with all geometry in slots1 and2. Node1 translates
+by `(0,.880000114,0)`; node2 adds `(0,.999999523,2.21170902)`. The old
+`export_pickup_items` path discarded those slots and wrote every vertex
+against an identity palette. The lid and base consequently overlapped.
+
+`export_pickup_lights.py` now also exports the original model72 body,
+retaining node-local positions, normal attributes, node indices and its
+rest palette. The native pickup pose builder already composes this palette
+with the owner's placement. The new body has 372 vertices /220 triangles;
+the EMDL has three original nodes plus its ordinary fallback identity slot.
+Its entire 27,392-byte source model matches the immutable original RAM
+capture. `tools/test_pickup_model_reference.py` compares all six original
+owners' node worlds and confirms the exported slots and hierarchy. Small
+remaining matrix differences reflect host versus EE composition rounding;
+this validation does not claim bit-identical matrix arithmetic.
+
+The apparent lower duplicate of the power panel also appears in the
+original playable capture and belongs to model04's own geometry. Comparing
+its placed triangles with all six static scene meshes finds no duplicates.

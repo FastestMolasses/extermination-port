@@ -104,10 +104,33 @@ int main(void)
     em_pickup_update(pos,0,&input,0);
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1 && random_calls==1); /* owner took: no stale effect */
+    /* AREA11 UID0B01 is original item1B. 001C40B0 adds 12 internal
+     * half-units, not merely an item count or ammunition. */
+    assert(em_pickup_item_count(0x1b)==1);
+    assert(em_pickup_battery_charge()==12 && em_pickup_battery_capacity()==12);
     em_pickup_scene_clear(gfx);
+    assert(em_pickup_battery_charge()==12); /* global inventory persists */
     assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-2);
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1);
-    puts("pickup light color, initialization, transform and lifetime: PASS");
+    em_pickup_battery_set_charge(2);
+    inventory_add(0x1c,1);
+    assert(em_pickup_battery_charge()==36 && em_pickup_battery_capacity()==36);
+    em_pickup_battery_set_charge(5);
+    inventory_add(0x1b,1);
+    assert(em_pickup_battery_charge()==17 && em_pickup_battery_capacity()==36);
+    inventory_add(0x1d,1);
+    assert(em_pickup_battery_charge()==48 && em_pickup_battery_capacity()==48);
+    g.count[0x1b]=255;
+    inventory_add(0x1b,1);
+    assert(em_pickup_item_count(0x1b)==0); /* original byte store wraps */
+    assert(em_pickup_battery_charge()==48 && em_pickup_ammo_take()==0);
+    em_pickup_battery_set_charge(-1);
+    assert(em_pickup_battery_charge()==0);
+    em_pickup_battery_set_charge(100);
+    assert(em_pickup_battery_charge()==48);
+    em_pickup_reset();
+    assert(em_pickup_battery_charge()==0 && em_pickup_battery_capacity()==0);
+    puts("pickup indicators and original battery inventory: PASS");
     return 0;
 }

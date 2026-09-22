@@ -34,6 +34,7 @@
 #include "game/em_frame.h"
 #include "game/em_hud.h"
 #include "game/em_pickup.h"
+#include "game/em_player_motor.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
 #include "game/em_truck.h"
@@ -1653,6 +1654,13 @@ typedef struct {
                                   * speed ramp promotes/demotes it; the
                                   * sustained tier == gait */
     float      loco_upt;         /* ramped ground speed +0x38, u/tick */
+    uint8_t    loco_mode, loco_substate; /* original +1F0/+1F1 scalar motor */
+    int        loco_entry_ticks; /* pending 0017B5C0 eight-tick clip blend */
+    float      loco_rate, loco_blend; /* published +204/+208 */
+    float      loco_animation_step; /* prior +204 consumed by0015BA50 */
+    EmPlayerStop loco_stop;
+    int        loco_stop_clip;
+    float      loco_stop_from[1024 * 16]; /* frozen world pose at blend request */
     float      move_speed;       /* this frame's ground speed, units/sec */
     float      walk_palette[1024 * 16];  /* scratch for the blends */
     float      loco_palette[1024 * 16];  /* C1: next-tier clip scratch for

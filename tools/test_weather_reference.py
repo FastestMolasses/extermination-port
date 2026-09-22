@@ -3,8 +3,11 @@
 
 Rendering is intercepted at its two original calls. Tests compare actor state,
 random consumption and render parameters; this does not validate VU rendering.
-The bounded EE interpreter rounds finite arithmetic toward zero. No original
-instructions, captures or tables are embedded in this tool.
+The bounded EE interpreter rounds finite arithmetic toward zero. This checks
+instruction flow and operation order under that arithmetic model, not every
+physical EE rounding edge. In particular the captured controller buffers do
+not distinguish the strength division's rounding. No original instructions,
+captures or tables are embedded in this tool.
 """
 from __future__ import annotations
 import ctypes as C

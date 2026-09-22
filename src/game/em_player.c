@@ -13,6 +13,7 @@
 
 #include "game/em_player.h"
 #include "game/em_player_heading.h"
+#include "game/em_player_motor.h"
 
 #include "game/em_game_internal.h"
 
@@ -266,6 +267,10 @@ static float player_stick_desired_yaw(const EmFrameInput *in)
  * old room-bbox clamp keeps the repo runnable standalone. */
 void player_move(void)
 {
+    /* 0015BA50 advances animation with the previous +204 output, then
+     * resets that one-shot multiplier before the locomotion callback. */
+    g.loco_animation_step = g.loco_mode ? g.loco_rate : 0;
+    g.loco_rate = 1;
     g.gait = 0;          /* re-quantized below; scripted paths leave 0 */
 
     /* DOOR TRANSIT (the engine's gameplay-frame selector 3, spad
@@ -285,7 +290,7 @@ void player_move(void)
             float step = WALK_SPEED * FRAME_DT;
             g.move_speed = WALK_SPEED;     /* drive the walk clip */
             g.loco_tier  = 1;              /* scripted walk = tier-1 clip */
-            g.loco_upt   = 0.0f;           /* free-move ramp re-arms */
+            g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;           /* free-move ramp re-arms */
             g.yaw        = tyaw;
             if (len <= step || len < 1e-6f) {
                 g.pos[0] = tt[0];
@@ -323,7 +328,7 @@ void player_move(void)
              * JOG, 0.3 u/tick) even during the in-place phase. */
             g.move_speed = wspeed > 0.0f ? wspeed : GAIT_JOG_SPEED;
             g.loco_tier  = 2;
-            g.loco_upt   = 0.0f;           /* free-move ramp re-arms */
+            g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;           /* free-move ramp re-arms */
             g.pos[0] += sinf(wyaw) * wspeed * FRAME_DT;
             g.pos[2] += cosf(wyaw) * wspeed * FRAME_DT;
             return;
@@ -346,7 +351,7 @@ void player_move(void)
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
                                     * re-entry re-arms the tier ramp */
-        g.loco_upt   = 0.0f;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
         return;
     }
 
@@ -365,7 +370,7 @@ void player_move(void)
     if (em_examine_input_locked()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
-        g.loco_upt   = 0.0f;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
         return;
     }
 
@@ -400,7 +405,7 @@ void player_move(void)
     if (em_game_player_interact_busy()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
-        g.loco_upt   = 0.0f;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
         return;
     }
 
@@ -517,7 +522,7 @@ void player_move(void)
     if (em_weapon_is_aiming() || g.r2_aim) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* armed modes replace locomotion */
-        g.loco_upt   = 0.0f;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
         const EmFrameInput *ain = em_frame_input();
         int r1fam = !g.r2_aim || em_weapon_is_aiming(); /* stance 0x31 */
 
@@ -619,7 +624,7 @@ void player_move(void)
     if (em_weapon_is_melee()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* melee modes replace locomotion */
-        g.loco_upt   = 0.0f;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
         return;
     }
 
@@ -642,193 +647,120 @@ void player_move(void)
     g.gait       = gait;
     g.move_speed = 0.0f;
 
-    /* THE TIER RAMP (func_0017BC40 — the 2026-06-11 re-decode; the
-     * engine's +0x38/+0x25C pair): the target is the gait's
-     * D_00248870 speed; the current speed accelerates/decelerates
-     * toward it through the tier boundaries, promoting/demoting
-     * loco_tier as each one is crossed. */
-    const float *kTier = kLocoTierSpeed;   /* +0x38/D_00248870 (shared) */
-    /* Per-tier decel table D_00248890 (§2.3), indexed by current tier:
-     * tier 1 -> 0.05, tier 2 -> 0.025, tier 3 -> 0.0227273. (tier 0 is
-     * unused — decel only runs when loco_upt > target, i.e. tier >= 1.) */
-    static const float kDecel[4] = { 0.0f, 0.05f, 0.025f, 0.0227273f };
-    if (gait == 0) {                  /* dead ring: idle / run-down */
-        /* RUN-DOWN applies to TIER 3 ONLY (func_0017BC40 §2.6): on stick
-         * release, tiers <= 2 (walk/jog) STOP INSTANTLY (phase 3,
-         * +0x38 = 0 that frame); only tier 3 (run) bleeds down (phase 2)
-         * at 0.03125 u/tick/frame, CASCADING tier-by-tier to each demote
-         * floor (run -> jog -> walk -> stop), carrying ~9 u. */
-        if (g.loco_upt > 0.0f && g.loco_tier >= 3) {
-            /* RUN-DOWN (func_0017BC40 case 2 — BYTE-MATCHED, authoritative).
-             * The carried run speed bleeds 0.03125 u/tick per frame until it
-             * reaches THIS tier's lower bound D_0024886C[i] (= kTier[i-1],
-             * FINDINGS: "D_0024886C (= row -1)"), and there it STOPS DEAD.
-             * Transcribed:
-             *     x = +0x38 - step;  hi = D_0024886C[i];
-             *     if (x <= hi) { +0x38 = hi;
-             *         if (+0x23F != 0) { mode = 1; i--; ... }
-             *         else { +0x38 = 0.0f; mode = 3; +0x1F1 = 0; } }
-             * +0x23F is the gait byte, which is 0 for the whole of a stick
-             * release, so the `else` arm is the one that runs: speed is
-             * zeroed and the actor drops to mode 3 (idle).
-             *
-             * CORRECTED (audit 2026-07-31): the port used to CASCADE — it
-             * kept subtracting 0.03125 past 0.3 through the jog and walk
-             * floors all the way to 0, coasting ~10.4 u over 26 frames with
-             * a long creeping tail. The engine covers ~8.8 u over the 16
-             * frames from 0.8 down to 0.3 and then cuts to zero. Both the
-             * distance and the shape of the stop were wrong.
-             *
-             * (The engine x2's the decay to 0.0625 when carrying gear via
-             * actor +0x314 & 0x1F; the port has NO gear-carry state, so the
-             * x2 is OMITTED — flag.) Velocity is emitted along the held body
-             * heading g.yaw (no stick = no desired heading, so g.yaw holds). */
-            float rundown_floor = kTier[g.loco_tier - 1];  /* D_0024886C[i] */
-            g.loco_upt -= GAIT_RUNDOWN;   /* no gear-carry x2 in the port */
-            if (g.loco_upt <= rundown_floor) {  /* hit the floor -> STOP */
-                g.loco_tier = 0;
-                g.loco_upt  = 0.0f;
-            } else {
-                g.move_speed = g.loco_upt * 60.0f;
-                float rx = sinf(g.yaw), rz = cosf(g.yaw);
-                if (g.coll.poly_count)
-                    player_move_collide(rx * g.move_speed * FRAME_DT,
-                                        rz * g.move_speed * FRAME_DT);
-                else {
-                    g.pos[0] += rx * g.move_speed * FRAME_DT;
-                    g.pos[2] += rz * g.move_speed * FRAME_DT;
-                }
-                return;
-            }
+    if (g.loco_stop.phase) {
+        if (g.loco_stop.phase == 4 && gait) {
+            /* Idle state accepts a fresh request during its blend. */
+            g.loco_stop.phase = 0;
         } else {
-            /* INSTANT STOP for tiers <= 2 (and the already-stopped case):
-             * walk/jog kill speed the frame the stick is released. */
-            g.loco_tier  = 0;
-            g.loco_upt   = 0.0f;
-            g.move_speed = 0.0f;
-
-            /* TURN-IN-PLACE (func_00174AC0, §2.5/2.7): a stick nudge inside
-             * the r <= 48 gait-0 ring still EASES the body heading toward
-             * atan2(stickX,stickY) + cameraYaw at the in-place rate
-             * 22.5 deg/frame (TURN_IP_GAIT03), with NO translation. Only
-             * runs when the stick is actually deflected (raw magnitude above
-             * a tiny epsilon, within the ring) and the player is idle (this
-             * is the not-run-down path). */
-            if (r > 1e-4f) {
-                /* Same camera-relative DESIRED heading as the moving path —
-                 * player_stick_desired_yaw(), derived out of the recovered
-                 * src/func_00174AC0.c. (This site used to carry its own copy
-                 * of the MIRRORED closed form; both sites are now one
-                 * helper so they cannot drift apart again.) */
-                player_turn_toward(player_stick_desired_yaw(in),
-                                   TURN_IP_GAIT03);
+            unsigned before = g.loco_stop.phase;
+            em_player_stop_tick(&g.loco_stop);
+            g.loco_upt = g.move_speed = 0;
+            g.loco_animation_step = 0;
+            if (g.loco_stop.phase >= 3) {
+                g.loco_mode = 0;
+                g.loco_substate = 0;
+                g.loco_tier = 0;
             }
+            if (before == 4 && g.loco_stop.phase)
+                --g.idle_timer; /* idle case1 counts during its blend */
+            if (before == 3) {
+                g.idle_t = 0;
+                g.idle_phase = 0;
+                g.idle_timer = IDLE_FIDGET_FRAMES;
+                g.fid_w = g.walk_w = 0;
+            }
+            player_wall_probes();
+            return;
         }
-        player_wall_probes();         /* the idle top probes too */
+    }
+
+    /* Idle 00161020 requests the walk clip with an eight-tick blend at
+     * 0017B5C0, then waits for +200 bit 0x8000 before changing to walk state.
+     * The request callback itself does not turn or translate. The original
+     * first-control trace confirms input at 4086, handoff 4094, motion 4095. */
+    if (g.loco_entry_ticks != 0) {
+        if (gait) {
+            float desired = player_stick_desired_yaw(in);
+            player_turn_toward(desired, player_turn_rate(gait, 0, 0));
+        }
+        int still_turning = 0;
+        if (gait == 1) {
+            float difference = player_stick_desired_yaw(in) - g.yaw;
+            while (difference > EM_PI) difference -= 2.0f * EM_PI;
+            while (difference <= -EM_PI) difference += 2.0f * EM_PI;
+            still_turning = difference != 0;
+        }
+        if (g.loco_entry_ticks > 1) --g.loco_entry_ticks;
+        else g.loco_entry_ticks = still_turning ? -1 : 0;
+        if (g.loco_entry_ticks == 0 && gait) {
+            g.loco_mode = 1;
+            g.loco_substate = 1;
+        }
+        player_wall_probes();
+        return;
+    }
+    if (g.loco_mode == 0) {
+        if (gait) {
+            g.loco_entry_ticks = 8;
+            g.loco_rate = 1;
+            g.loco_blend = 0;
+            /* Original bank clip 1 has 120 frames; 0017B5C0 starts at
+             * frames - D00248740[0], where the remaining segment is 56. */
+            if (g.clip_walk >= 0) {
+                const EmModelClip *clip = &g.model.clips[g.clip_walk];
+                g.walk_t = ((double)clip->frame_count - 56.0) / clip->fps;
+                g.loco_clip = g.clip_walk;
+            }
+            g.walk_w = 0;
+        }
+        player_wall_probes();
         return;
     }
 
-    /* 00174AC0 selects the desired body yaw from raw pad bytes and the
-     * previously committed forward. 00178B90 translates along the eased
-     * body yaw using X=sin(yaw), Z=cos(yaw). */
-    float desired = player_stick_desired_yaw(in);
-
-    /* STANDING-ENTRY TURN-IN-PLACE GATE + TIER-0 RAMP ENTRY
-     * (FIX 2 + FIX 3, INVESTIGATION_movement_exact.md "DEEP A/B v2", live
-     * 2026-06-17). The earlier attempt turned in place for exactly ONE
-     * frame, then immediately set loco_tier=gait-1 / loco_upt=0.3 and
-     * translated while still badly misaligned — the "curves out of the
-     * gate" and "snaps with no build-up" the owner sees. The live A/B
-     * shows the engine instead:
-     *   Phase 1 (FIX 3): while the desired heading differs from the body
-     *     by more than one in-place step (22.5 deg = TURN_IP_GAIT03), it
-     *     rotates IN PLACE at exactly 22.5 deg/frame with speed +0x38 = 0,
-     *     tier +0x25C = 0, NOT translating, for ceil(|dHeading|/22.5deg)
-     *     frames. Only once within 22.5 deg of desired does it commit.
-     *   Phase 2 (FIX 2): on commit it enters the ramp from TIER 0 / speed
-     *     ~0 and walks the FULL table {0,0.1,0.3,0.8} (the static
-     *     "entry gait-1/speed 0.3" decode was WRONG — live ramps from
-     *     zero), promoting 0->1->2->3 via the existing tier-promote loop.
-     */
-    int entry = (g.loco_tier == 0 && g.loco_upt <= 0.0f);
-    if (entry) {
-        /* wrapped |desired - g.yaw| (the engine's turn delta). */
-        float adiff = desired - g.yaw;
-        while (adiff >  EM_PI) adiff -= 2.0f * EM_PI;
-        while (adiff < -EM_PI) adiff += 2.0f * EM_PI;
-        if (adiff < 0.0f) adiff = -adiff;
-
-        if (adiff > TURN_IP_GAIT03) {
-            /* PHASE 1 (FIX 3): not yet aligned — turn in place at
-             * 22.5 deg/frame with speed pinned 0, do NOT set the entry
-             * tier/speed and do NOT translate this frame. The player
-             * remains a standing entry (loco_tier=0, loco_upt=0), so the
-             * next frame re-enters here until the body is within one step
-             * of desired. (Mirrors func_00174AC0 running the turn with
-             * +0x38 still 0 across all the misaligned frames, not just
-             * the first.) */
-            player_turn_toward(desired, TURN_IP_GAIT03);
-            g.move_speed = 0.0f;
-            g.loco_tier  = 0;
-            g.loco_upt   = 0.0f;
-            player_wall_probes();     /* the idle top probes (no translate) */
+    /* 001612D0 calls heading 00174AC0 before scalar motor 0017BC40.
+     * Select the turn band using the previous speed. Gait 0 returns before
+     * heading work, including small analog nudges inside the deadzone. */
+    if (gait) {
+        float desired = player_stick_desired_yaw(in);
+        float diff = desired - g.yaw;
+        while (diff > EM_PI) diff -= 2.0f * EM_PI;
+        while (diff <= -EM_PI) diff += 2.0f * EM_PI;
+        player_turn_toward(desired,
+                          player_turn_rate(gait, g.loco_upt, fabsf(diff)));
+    }
+    EmPlayerMotor motor = {
+        g.loco_upt, kLocoTierSpeed[gait], g.loco_rate, g.loco_blend,
+        g.loco_mode, g.loco_substate, (uint8_t)g.loco_tier,
+        (uint8_t)gait, 0
+    };
+    em_player_motor_tick(&motor);
+    g.loco_mode = motor.mode;
+    g.loco_substate = motor.substate;
+    g.loco_tier = motor.tier;
+    g.loco_upt = motor.speed;
+    g.loco_rate = motor.rate;
+    g.loco_blend = motor.blend;
+    if (motor.mode == 3) {
+        /* 0017C030 mode3/tier3 requests original stop clip5. Tiers1/2
+         * use 0017B910's foot-placement solve, which remains unbound. */
+        int stop_clip = em_model_clip_index(&g.model, 5);
+        if (motor.tier == 3 && stop_clip >= 0) {
+            g.loco_stop_clip = stop_clip;
+            em_player_stop_begin(&g.loco_stop,
+                                 g.model.clips[stop_clip].frame_count);
+            g.loco_mode = 4;
+            g.loco_upt = g.move_speed = 0;
+            g.loco_animation_step = 0;
+            player_wall_probes();
             return;
         }
-
-        /* PHASE 2 (FIX 2): aligned within one in-place step — close the
-         * remaining gap (the in-place snap) and COMMIT to the ramp from
-         * TIER 0 / speed 0. The tier ramp below walks the full table. */
-        player_turn_toward(desired, TURN_IP_GAIT03);
+        g.loco_mode = 0;
+        g.loco_substate = 0;
         g.loco_tier = 0;
-        g.loco_upt  = 0.0f;
-    }
-
-    /* THE TIER RAMP (func_0017BC40). On the entry frame this is the first
-     * accel step from TIER 0 / speed 0 (FIX 2: the entry just committed at
-     * loco_tier=0, loco_upt=0, so this adds the tier-0 accel 0.05 -> 0.05
-     * and walks the full {0,0.1,0.3,0.8} table over the following frames);
-     * on later frames it ramps from the carried speed (a mid-run gait
-     * change ramps in place). */
-    {
-        float target = kTier[gait];
-        if (g.loco_upt < target) {            /* sub 1: accelerate */
-            float acc = g.loco_tier <= 0 ? GAIT_ACCEL_0
-                      : g.loco_tier == 1 ? GAIT_ACCEL_1 : GAIT_ACCEL_2;
-            g.loco_upt += acc;
-            if (g.loco_tier < 3 && g.loco_upt >= kTier[g.loco_tier + 1]) {
-                g.loco_upt = kTier[g.loco_tier + 1];
-                g.loco_tier++;                /* +0x25C += 1 */
-            }
-            if (g.loco_upt > target) g.loco_upt = target;
-        } else if (g.loco_upt > target) {     /* sub 2: decelerate */
-            /* Per-tier decel D_00248890[loco_tier] (§2.3): tier 1 = 0.05,
-             * tier 2 = 0.025, tier 3 = 0.0227273 — indexed by CURRENT tier
-             * (previously tier 1 wrongly shared tier 2's 0.025). */
-            float dec = kDecel[g.loco_tier];
-            g.loco_upt -= dec;
-            if (g.loco_tier > 0 && g.loco_upt <= kTier[g.loco_tier - 1]) {
-                g.loco_upt = kTier[g.loco_tier - 1];
-                g.loco_tier--;                /* +0x25C -= 1 */
-            }
-            if (g.loco_upt < target) g.loco_upt = target;
-        } else {
-            g.loco_tier = gait;               /* at tier: sustained */
-        }
-    }
-
-    /* STEADY-STATE TURN (subsequent move frames): ease the body heading
-     * toward the desired heading at the moving band (func_00174AC0 rate
-     * select + func_001B12B0 turn-toward), THEN move along the eased
-     * g.yaw. Turning first and translating along the lagged body heading
-     * is what makes the motion CURVE into turns instead of sliding off the
-     * raw stick. The rate is banded by gait / ramped speed / |delta|. The
-     * entry frame already turned in place above (C4) — do not turn twice. */
-    if (!entry) {
-        float diff = desired - g.yaw;
-        while (diff >  EM_PI) diff -= 2.0f * EM_PI;
-        while (diff < -EM_PI) diff += 2.0f * EM_PI;
-        float rate = player_turn_rate(gait, g.loco_upt, fabsf(diff));
-        player_turn_toward(desired, rate);
+        g.loco_upt = 0;
+        g.move_speed = 0;
+        player_wall_probes();
+        return;
     }
 
     /* The ramped speed drives this frame (sustained: gait 1 = WALK

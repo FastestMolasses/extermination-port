@@ -175,7 +175,8 @@
  *                                    with the D_00810CB7 "peak" raise +
  *                                    clamp of CB2 to that peak
  *                     default        count += n, clamp `>= 100 -> 99`
- *                   Every meter clamp above is `>= 100 -> 99`.
+ *                   The non-battery consumable meter clamps above are
+ *                   `>= 100 -> 99`; battery charge uses its capacity.
  *                   Case 0x10 SPR4 MAGAZINE takes NO
  *                   part of the default clamp; it does count += n,
  *                   pack counter D_00810C63 += n, reserve
@@ -188,14 +189,16 @@
  *                   FINDINGS and this header both said it "folds into
  *                   the reserve", and the port dropped it as a no-op.
  *                   The port applies the DEFAULT clamp to every
- *                   non-0x10 type, so it also clamps the ten cases the
+ *                   type outside 0x10 and 0x1B..0x1D, so it clamps the seven cases the
  *                   engine leaves unclamped and it gives 0x0F/0x11..0x16
  *                   a count they never get — FLAGGED below, and left
  *                   alone deliberately: the port already folds take
  *                   families 1/2 into this one array, so a type here is
  *                   NOT reliably the engine's stat index and per-case
  *                   fidelity on top of that folding would be false
- *                   precision.
+ *                   precision. Battery types 0x1B..0x1D now preserve
+ *                   the original wrapping count and half-unit charge /
+ *                   capacity behavior; their AREA11 records are verified.
  *   func_001AE7E0   the FOUND presentation: a nonzero D_008106B0 makes
  *                   the main-mode controller OPEN THE STATUS SCREEN,
  *                   which routes to the item's page/database record
@@ -420,6 +423,15 @@ void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16]);
 const uint8_t *em_pickup_items(void);          /* [256] */
 uint8_t        em_pickup_item_count(int type);
 uint8_t        em_pickup_mag_packs(void);
+
+/* Original battery charge/capacity (001C40B0 cases 0x1B..0x1D), in
+ * HALF-units. UI display units are these values >> 1. The setter is
+ * for the original battery menu's timed discharge/recharge; it clamps
+ * invalid host requests to [0, capacity]. Both survive scene clears and
+ * are wiped only by em_pickup_reset, like the inventory counts. */
+int  em_pickup_battery_charge(void);
+int  em_pickup_battery_capacity(void);
+void em_pickup_battery_set_charge(int half_units);
 
 /* One-shot event takes (consumed by em_game's pickup hunk):
  *  - ammo: reserve rounds to add (func_001C40B0 case 0x10's 30/pack);

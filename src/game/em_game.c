@@ -167,6 +167,7 @@
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_opening_actor.h"
+#include "game/em_snow_runtime.h"
 #include "game/em_opening_control_test.h"
 
 /* The gameplay state object declared in em_game_internal.h. */
@@ -838,19 +839,6 @@ void em_game_elevator_start(void)
 
 
 
-/* ------------------------------------------------------------------ */
-/* AREA-11 GATED GRATE (func_00159210) — closed path-blocker + slide  */
-/* INVESTIGATION_area11_grate.md. The bars (per-area id 0x04) render   */
-/* AND register a SOLID blocker hull while the area is not powered     */
-/* (em_game_terminal_powered, D_0081084C & 0x80 — 0 at new game). On   */
-/* power the hull is dropped and the bars slide open over ~120 frames. */
-/* ------------------------------------------------------------------ */
-
-
-
-
-
-
 /* AREA-11 STEAM / FX EMITTER tick (placement record 7, ov 0x008235F0 —
  * INVESTIGATION_first_level_area11.md §3/§6). The emitter's POINT LIGHT
  * is registered in the placed-lamp list at parse time (folded into actor
@@ -1019,88 +1007,77 @@ static void actor_update(void)
         return;
     }
 
-    /* Locomotion clip by TIER (the mode-1 id row {0,1,2,3} indexed by
-     * the ramped locIdx +0x25C, NOT the raw gait — the 2026-06-11
-     * tier-ramp correction): walk for tier 1, jog for tier 2, run for
-     * tier 3, each falling back down-row when the asset lacks the clip.
-     * The DOOR TRANSIT scripted MOVE-TO (tier 1) keeps the walk clip;
-     * the ARRIVAL WALK-OUT (tier 2) plays the engine's jog clip.
-     *
-     * C1 (INVESTIGATION_movement_exact.md §A.6, anim_matrix_player): the
-     * engine does NOT hard-cut jog->run on promotion. It CROSS-BLENDS the
-     * current-tier clip into the next-tier clip by the within-tier
-     * progress +0x208 over the ~8 accel frames, and CONTINUES the clip
-     * cycle across the swap (anim_clip_init is not re-run on the ramp).
-     * The port previously hard-swapped the single loco_clip and RESET the
-     * cycle (walk_t = 0) on promotion — the "snaps to the run animation"
-     * the owner reported. Fix: keep the cycle continuous, and evaluate
-     * both the current- and next-tier clip cross-blended by progress. */
+    /* The run-stop and return-to-idle callbacks own the pose until their
+     * non-looping clip/blend finishes. Matrix interpolation remains the
+     * host approximation; clip selection, source time and gates are original. */
+    if (g.loco_stop.phase) {
+        const EmPlayerStop *stop = &g.loco_stop;
+        unsigned count = g.model.bone_count * 16;
+        int to_idle = stop->phase == 4;
+        unsigned blend_duration = to_idle ? 12 : 6;
+        if ((stop->phase == 1 || to_idle) && stop->blend_left == blend_duration)
+            memcpy(g.loco_stop_from, g.player_palette, count * sizeof(float));
+        int clip = to_idle ? g.clip_idle : g.loco_stop_clip;
+        em_model_palette_at(&g.model, (uint32_t)clip,
+                            to_idle ? 0 : stop->frame, g.player_palette);
+        palette_apply_placement(g.player_palette, g.model.bone_count, g.pos, g.yaw);
+        if (stop->phase == 1 || to_idle) {
+            float weight = 1.0f - (float)stop->blend_left / blend_duration;
+            for (unsigned i = 0; i < count; ++i)
+                g.player_palette[i] = g.loco_stop_from[i] +
+                    (g.player_palette[i] - g.loco_stop_from[i]) * weight;
+        }
+        return;
+    }
+
+    /* Original 0017B660 selects gait clips at scalar tier boundaries.
+     * Pose interpolation below still approximates original bone NLERP
+     * with exported matrices; timing/phase do not establish pose fidelity. */
+    /* The scalar rate is consumed before the state callback (0015BA50). */
+    g.walk_t += (double)g.loco_animation_step / 60.0;
     int loco = loco_clip_for_tier(g.loco_tier);
     if (loco != g.loco_clip) {
+        /* 0017B660 transfers normalized cycle position between lengths. */
+        if (g.loco_clip >= 0 && loco >= 0) {
+            const EmModelClip *old = &g.model.clips[g.loco_clip];
+            const EmModelClip *next = &g.model.clips[loco];
+            double phase = fmod(g.walk_t * old->fps, old->frame_count)
+                           / old->frame_count;
+            g.walk_t = phase * next->frame_count / next->fps;
+        }
         g.loco_clip  = loco;
         g.loco_speed = (loco >= 0 && loco == g.clip_run) ? RUN_CLIP_SPEED
                      : (loco >= 0 && loco == g.clip_jog) ? JOG_CLIP_SPEED
                                                          : WALK_CLIP_SPEED;
-        /* DO NOT reset walk_t/step_prev on a tier-driven swap (C1) — the
-         * jog->run cycle continues; resetting is the hard cut. */
+        /* Keep step_prev for the existing footstep edge detector. */
     }
 
-    /* WITHIN-TIER PROGRESS (the engine's +0x208/+0x204 driver, FIX 2 /
-     * C1+C2, LIVE-confirmed "DEEP A/B v2"): the within-current-tier
-     * fraction 0..1 = (loco_upt - kTier[tier]) / (kTier[tier+1] -
-     * kTier[tier]). At a sustained tier loco_upt == kTier[tier] so
-     * progress == 0; during accel it sweeps 0->1 and RE-BASES (resets to
-     * 0) at each tier promotion because loco_upt and kTier[tier] both
-     * step to the new tier's base. Valid for any accelerating tier 0..2;
-     * tier 3 (top) has no next tier so progress stays 0. This single
-     * fraction drives BOTH the +0x208 cross-blend and the +0x204 clip
-     * rate below. */
-    int   next_loco  = (g.loco_tier < 3) ? loco_clip_for_tier(g.loco_tier + 1)
-                                         : -1;
-    float progress = 0.0f;
-    if (g.loco_tier >= 0 && g.loco_tier < 3) {
-        float lo = kLocoTierSpeed[g.loco_tier];
-        float hi = kLocoTierSpeed[g.loco_tier + 1];
-        if (hi > lo) {
-            progress = (g.loco_upt - lo) / (hi - lo);
-            if (progress < 0.0f) progress = 0.0f;
-            if (progress > 1.0f) progress = 1.0f;
-        }
-    }
-
-    /* C1 CROSS-BLEND (+0x208): cross-fade the current-tier clip into the
-     * NEXT-tier clip by `progress` over the accel frames (jog id 2 ->
-     * run id 3, etc.). Only meaningful while a distinct higher-tier clip
-     * exists; tier 0's "walk" clip equals tier 1's when the asset lacks a
-     * separate idle-walk, so gate on a real, different next clip. */
-    float loco_blend = 0.0f;
-    if (g.loco_tier >= 1 && g.loco_tier < 3 && next_loco >= 0 &&
-        next_loco != g.loco_clip) {
-        loco_blend = progress;
-    } else {
-        next_loco = -1;        /* no next-tier morph this frame */
-    }
+    /* 0017B660 mixes only while the scalar substate rises/falls. A
+     * boundary callback selects one clip; +208 can retain its previous
+     * value and must not be inferred again from the new tier's speed. */
+    int next_tier = g.loco_substate == 1 ? g.loco_tier + 1
+                  : g.loco_substate == 2 ? g.loco_tier - 1 : -1;
+    int next_loco = next_tier >= 1 && next_tier <= 3
+                    ? loco_clip_for_tier(next_tier) : -1;
+    float loco_blend = g.loco_mode == 1 && g.loco_tier > 0 &&
+                       next_loco >= 0 && next_loco != g.loco_clip
+                       ? g.loco_blend : 0;
 
     float target = 0.0f;
     if (g.loco_clip >= 0) {
-        target = g.move_speed > 0.0f ? 1.0f : 0.0f;
-        float step = FRAME_DT / ANIM_BLEND_TIME;
-        if      (g.walk_w < target - step) g.walk_w += step;
-        else if (g.walk_w > target + step) g.walk_w -= step;
-        else                               g.walk_w  = target;
-        /* CLIP PLAYBACK RATE (+0x204, FIX 2 / C2, LIVE-confirmed): the
-         * engine plays the (blended) loco clip at rate 1.0 + progress
-         * during accel — climbing 1.0 -> 2.0 within each tier, then
-         * RESETTING to 1.0 at each promotion (progress re-bases). This
-         * REPLACES the old stride-lock rate (move_speed / natural). walk_t
-         * is in seconds; advancing it by FRAME_DT plays at the clip's
-         * natural fps (rate 1.0), so the FRAME_DT * (1.0 + progress)
-         * increment realizes the engine's +0x204 multiplier. The cycle is
-         * continuous across the tier swap (no reset), so the rising rate
-         * and the cross-blend stay phase-locked, exactly the build-up. */
-        double clip_rate = g.move_speed > 0.0f ? (double)(1.0f + progress)
-                                               : 0.0;
-        g.walk_t += (double)FRAME_DT * clip_rate;
+        target = (g.move_speed > 0.0f || g.loco_entry_ticks != 0 ||
+                  g.loco_mode != 0) ? 1.0f : 0.0f;
+        if (g.loco_entry_ticks > 0) {
+            g.walk_w = (8.0f - g.loco_entry_ticks) / 8.0f;
+        } else if (g.loco_entry_ticks < 0 ||
+                   (g.loco_mode == 1 && g.loco_upt == 0)) {
+            g.walk_w = 1;
+        } else {
+            float step = FRAME_DT / ANIM_BLEND_TIME;
+            if (g.walk_w < target - step) g.walk_w += step;
+            else if (g.walk_w > target + step) g.walk_w -= step;
+            else g.walk_w = target;
+        }
 
         /* FOOTSTEP triggers (footstep_play above): the loco-cycle
          * playhead in clip FRAMES — wrapping exactly like the palette
@@ -1260,7 +1237,9 @@ static void actor_update(void)
         if (next_loco >= 0 && loco_blend > 0.0f) {
             const EmModelClip *cn = &g.model.clips[next_loco];
             em_model_palette_at(&g.model, (uint32_t)next_loco,
-                                g.walk_t * cn->fps, g.loco_palette);
+                                fmod(g.walk_t * cw->fps, cw->frame_count)
+                                * cn->frame_count / cw->frame_count,
+                                g.loco_palette);
             float b = loco_blend;
             for (uint32_t i = 0; i < n; i++)
                 g.walk_palette[i] += (g.loco_palette[i] -
@@ -1337,11 +1316,8 @@ static void render_chain_build(void)
             *cd = (ChainDraw){ g.elev_mesh, g.elev_palette,
                                g.elev_model.bone_count, NULL };
     }
-    /* GATED GRATE bars (AREA-11 record 18 — the per-area id 0x04 bars mesh).
-     * Drawn as a rigid prop whose pose grate_update re-bakes each frame (the
-     * closed pose while locked, the retracted pose during/after the open
-     * slide). The draw is owned by the grate object now (moved off the plain
-     * `pickup ... prop` line); absent when no `grate` line placed one. */
+    /* AREA11's static power panel, original record18/model04. The legacy
+     * manifest and struct field names retain the former grate label. */
     if (g.grate_present && g.grate_mesh && g.grate_palette) {
         ChainDraw *cd = chain_push();
         if (cd)
@@ -1979,6 +1955,7 @@ static void frame_close_out(void)
          * opaque owner meshes, with the owner's current world matrix. */
         em_pickup_lights_draw(gfx, g.viewproj);
         em_props_indicators_draw(gfx, g.viewproj);
+        em_snow_runtime_draw(gfx, g.viewproj);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }
@@ -2021,6 +1998,8 @@ static void frame_close_out(void)
     em_hud_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
+    g.status.battery = em_pickup_battery_charge() >> 1;
+    g.status.battery_max = em_pickup_battery_capacity() >> 1;
     g.status.items   = em_pickup_items();   /* the D_00810C64 mirror —
                                              * the ITEM page's real
                                              * per-type counts */
@@ -4996,13 +4975,7 @@ static void gameplay_frame(void)
      * before until a trigger zone is entered). No-op once the director
      * reaches 0xFF. */
     director_tick();
-    /* GATED GRATE (AREA-11 record 18, ov func_00159210 — the closed path-
-     * blocker; INVESTIGATION_area11_grate.md). Ticked BEFORE actor_update
-     * (and the player ground-solve) so its closed hull is registered this
-     * frame before em_collision_blocker_probe consults the registry: while
-     * the area is NOT powered the grate registers a solid blocker, once
-     * powered it drops the blocker and runs the open slide. No-op when no
-     * `grate` line placed one (registry stays empty -> movement unchanged). */
+    /* Keep the original static panel transform; this model never slides. */
     grate_update();
     /* AREA-11 STEAM / FX EMITTER (record 7, ov 0x008235F0 — the level's one
      * dynamic light + a looping hiss + a puff; INVESTIGATION_first_level_
@@ -5096,6 +5069,7 @@ static void gameplay_frame(void)
      * DOORS-FIRST: a press that armed a door has engaged the movement
      * lock by now, which suppresses the item scan (the engine's
      * scripted-frame spad-3B8D gate shape). Damage lock likewise. */
+    em_snow_runtime_tick(g.cam.eye, 0);
     em_pickup_update(g.pos, g.yaw, em_frame_input(),
                      !em_door_movement_locked() &&
                      !player_damage_locked());
@@ -5228,6 +5202,8 @@ static void gameplay_frame(void)
  * bank0x98, so ordinary movement/weapon/menu handlers do not run. */
 static void cutscene_frame(void)
 {
+    float previous_eye[3];
+    memcpy(previous_eye, g.cam.eye, sizeof previous_eye);
     /* This path also runs world actors. Their transient collision entries
      * expire each frame, just as they do in the ordinary gameplay path. */
     em_collision_moving_clear();
@@ -5235,6 +5211,7 @@ static void cutscene_frame(void)
     em_opening_runtime_tick();
     steam_tick();
     grate_update();
+    em_snow_runtime_tick(previous_eye, 1);
     em_pickup_update(g.pos, g.yaw, em_frame_input(), 0);
     em_props_indicators_tick();
     render_chain_build();
@@ -5274,6 +5251,9 @@ static void ingame_frame_machine(EmTask *self)
             g.gait           = 0;
             g.loco_tier      = 0;     /* tier ramp re-armed (+0x25C/+0x38) */
             g.loco_upt       = 0.0f;
+            g.loco_mode = g.loco_substate = 0;
+            g.loco_entry_ticks = 0;
+            g.loco_stop.phase = 0;
             g.cam_recenter   = 0;
             g.cam_idle       = 0;
             g.frame_no       = 0;
@@ -5856,11 +5836,12 @@ void em_game_shutdown(void)
     }
     g.n_scene = 0;
     elevator_unload(gfx);       /* AREA-11 platform mesh */
-    grate_unload(gfx);          /* AREA-11 gated-grate bars + hull */
+    grate_unload(gfx);          /* AREA-11 power-panel mesh */
     em_truck_clear(gfx);        /* AREA-11 wedged-truck actor + mesh */
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);
+    em_snow_runtime_clear(gfx);
     em_examine_reset();
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */

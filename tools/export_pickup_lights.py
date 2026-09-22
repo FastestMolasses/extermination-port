@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Export AREA11's original pickup child meshes and explicit owner bindings.
+"""Export AREA11's original pickup bodies, lights and explicit owner bindings.
 
 00219550 creates model73 through 001C5570(parent,color,model,1). Its
 001C5680 child draws through 001CABA0: an unlit, additive mesh, never a
 billboard. Placement and persistence belong to the original deferred item
 record. Inputs and generated assets remain local and ignored.
+The owner model72 preserves its three authored rest nodes; the historical
+static export discarded slots1/2 and collapsed the lid into the base.
 """
 from __future__ import annotations
 
@@ -19,6 +21,41 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 BEGIN = '# BEGIN ORIGINAL PICKUP LIGHTS'
 END = '# END ORIGINAL PICKUP LIGHTS'
+
+
+def owner_rest_mesh(props, library: bytes):
+    """Model72's original node-local vertices, normals and rest palette."""
+    offset = props.table_entry_offset(library, 0, 0x72)
+    parents, rests = props.model_rec_nodes(library, offset)
+    if parents != [-1, 0, 1]:
+        raise ValueError('Unverified pickup body skeleton')
+    worlds = props._rest_world34(parents, rests)
+    frame = [tuple(tuple(world[row][column] for row in range(3)) +
+                   (1.0 if column == 3 else 0.0,)
+                   for column in range(4)) for world in worlds]
+    positions, normals, indices, bones, uvs, texture_ids = [], [], [], [], [], []
+    textures, welded = [], {}
+    texture_id = props.make_tex_of(textures, {})
+    for tex0, corners, parity in props.model_tris_slots(library, offset):
+        texture = texture_id(tex0)
+        triangle = []
+        for position, normal, uv, bone in corners:
+            if bone not in (1, 2):
+                raise ValueError('Unverified pickup geometry node')
+            key = (tuple(position), tuple(normal[:3]), tuple(uv), bone, texture)
+            vertex = welded.get(key)
+            if vertex is None:
+                vertex = len(positions)
+                welded[key] = vertex
+                positions.append(key[0]); normals.append(key[1])
+                uvs.append(key[2]); bones.append(bone); texture_ids.append(texture)
+            triangle.append(vertex)
+        a, b, c = triangle
+        indices.extend((c, b, a) if parity else (c, a, b))
+    if not positions:
+        raise ValueError('Pickup owner has no original geometry')
+    return ([(positions, normals, indices, bones, uvs, texture_ids)],
+            textures, parents, [frame], offset)
 
 
 def load_tool(path: Path, name: str):
@@ -133,6 +170,15 @@ def main() -> None:
     if model_id != 0x73 or color != (0.0, 1.0, 0.0, 0.25):
         raise ValueError('Unverified pickup child variant')
     library = (decomp/'extract/chunk27/f01_id37.bin').read_bytes()
+    gs = args.gs or decomp/'build/startup-reference/opening_gs.bin'
+    body, body_textures, parents, frames, body_offset = owner_rest_mesh(props, library)
+    body_entries, body_texels = props.lvl.build_texture_blob(None, body_textures, p2s=gs)
+    if len(body_entries) != len(body_textures) or any(
+            e['w'] != 1 << t['tw'] or e['h'] != 1 << t['th']
+            for e, t in zip(body_entries, body_textures)):
+        raise ValueError('Original pickup body texture was not resolved')
+    props.en.write_emdl(args.scene/'props/item_72.emdl', body, [], parents,
+                       frames, 30.0, body_entries, body_texels, flags=0)
     offset = props.table_entry_offset(library, 0, model_id)
     if any(slot != 0 for _, corners, _ in props.model_tris_slots(library, offset)
            for _, _, _, slot in corners):
@@ -141,7 +187,6 @@ def main() -> None:
     # Lighting mode1 zeroes normal rows; no guessed normal lighting is
     # baked into these vertices. The additive draw uses only texture/tint.
     sections[0][1][:] = [(1.0, 1.0, 1.0)] * len(sections[0][0])
-    gs = args.gs or decomp/'build/startup-reference/opening_gs.bin'
     entries, texels = props.lvl.build_texture_blob(None, textures, p2s=gs)
     if len(entries) != 1 or entries[0]['w'] != 16 or entries[0]['h'] != 16:
         raise ValueError('Original pickup light texture was not resolved')
@@ -154,7 +199,10 @@ def main() -> None:
     print(json.dumps(dict(model=model_id, library_offset=offset,
                           vertices=len(sections[0][0]),
                           triangles=len(sections[0][2])//3,
-                          color=color, owners=records), indent=2))
+                          color=color, owners=records,
+                          owner_model=dict(model=0x72, library_offset=body_offset,
+                              parents=parents, vertices=len(body[0][0]),
+                              triangles=len(body[0][2])//3)), indent=2))
 
 
 if __name__ == '__main__':

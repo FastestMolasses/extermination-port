@@ -11,7 +11,7 @@
 /* This fixture drives real input events, never player/camera positions.
  * Movie/menu automation is the existing frontend test path. */
 static struct {
-    int active, failed, phase, moving_ticks, locked_ticks;
+    int active, failed, phase, moving_ticks, locked_ticks, stop_ticks;
     float locked_start[3], move_start[3], max_locked_distance;
 } test;
 
@@ -92,11 +92,30 @@ void em_opening_control_test_after_frame(void)
         if (em_opening_runtime_busy() || g.frame_selector || em_frame_transition()->substate) {
             fail("movement test started before control/fade handoff");return;
         }
-        if (++test.moving_ticks!=30) return;
+        ++test.moving_ticks;
+        if (getenv("EM_CONTROL_TRACE")) {
+            const EmCamera *c = &g.cam;
+            fprintf(stderr, "control sample: tick=%d frame=%d speed=%.9g yaw=%.9g "
+                    "mode=%u sub=%u tier=%d entry=%d pos=(%.9g,%.9g,%.9g) "
+                    "eye=(%.9g,%.9g,%.9g) target=(%.9g,%.9g,%.9g) "
+                    "forward=(%.9g,%.9g,%.9g) camyaw=%.9g hit=%u "
+                    "clip=%d clip_time=%.9g rate=%.9g blend=%.9g\n",
+                    test.moving_ticks,g.frame_no,g.loco_upt,g.yaw,
+                    g.loco_mode,g.loco_substate,g.loco_tier,g.loco_entry_ticks,
+                    g.pos[0],g.pos[1],g.pos[2],c->eye[0],c->eye[1],c->eye[2],
+                    c->tgt[0],c->tgt[1],c->tgt[2],c->fwd[0],c->fwd[1],c->fwd[2],
+                    c->yaw,c->hit,g.loco_clip,g.walk_t,g.loco_rate,g.loco_blend);
+        }
+        if (test.moving_ticks!=30) return;
         key(0);
         float dx=g.pos[0]-test.move_start[0], dz=g.pos[2]-test.move_start[2];
         float distance=sqrtf(dx*dx+dz*dz);
-        if (distance<.25f || distance>30.0f) {fail("30 input ticks produced invalid displacement");return;}
+        /* Original immutable state04: exact30 raw[128,0] input frames
+         * travel9.599849. The tolerance permits the remaining camera
+         * rounding/evolution difference, but rejects the old16.1 ramp. */
+        if (fabsf(distance-9.6f)>.01f) {
+            fail("30 input ticks disagree with original first-control distance");return;
+        }
         float top[3]={g.pos[0],g.pos[1]+2.0f,g.pos[2]};
         float bottom[3]={g.pos[0],g.pos[1]-2.0f,g.pos[2]};
         EmCollHit ground;
@@ -109,9 +128,34 @@ void em_opening_control_test_after_frame(void)
                 "move_ticks=%d displacement=%.6f pos=(%.6f,%.6f,%.6f) ground=%.6f\n",
                 test.locked_ticks,test.max_locked_distance,test.moving_ticks,distance,
                 g.pos[0],g.pos[1],g.pos[2],ground.point[1]);
+        if (getenv("EM_CONTROL_STOP_TEST")) {
+            test.phase=5;
+            fprintf(stderr,"newgame control test: released W; validating original run-stop\n");
+            return;
+        }
         if (g.capture_path) em_gfx_request_capture(em_frame_gfx(),g.capture_path);
         test.phase=4;
         em_frame_request_quit(); /* end_frame still services the queued capture */
+    } else if (test.phase==5) {
+        ++test.stop_ticks;
+        if (getenv("EM_CONTROL_TRACE"))
+            fprintf(stderr,"stop sample: tick=%d speed=%.9g mode=%u phase=%u "
+                    "blend=%u source=%u idle_timer=%d\n",test.stop_ticks,
+                    g.loco_upt,g.loco_mode,g.loco_stop.phase,
+                    g.loco_stop.blend_left,g.loco_stop.frame,g.idle_timer);
+        if (test.stop_ticks<60) return;
+        float dx=g.pos[0]-test.move_start[0], dz=g.pos[2]-test.move_start[2];
+        float distance=sqrtf(dx*dx+dz*dz);
+        if (fabsf(distance-18.65f)>.03f || g.loco_upt!=0 ||
+            g.loco_mode!=0 || g.loco_stop.phase!=0) {
+            fail("run-stop timeline or final displacement disagrees with original");return;
+        }
+        fprintf(stderr,"newgame stop test: PASS release_ticks=%d "
+                "total_displacement=%.6f idle_timer=%d\n",
+                test.stop_ticks,distance,g.idle_timer);
+        if (g.capture_path) em_gfx_request_capture(em_frame_gfx(),g.capture_path);
+        test.phase=4;
+        em_frame_request_quit();
     }
 }
 

@@ -123,6 +123,8 @@ struct EmGfx {
      * additive beam pass sampling these registered slots. */
     id<MTLTexture>               beamTex[EM_GFX_BEAM_TEX_MAX];
     id<MTLRenderPipelineState>   beamTexPipeline;  /* additive, textured */
+    id<MTLTexture>               particleTexture;
+    id<MTLRenderPipelineState>   particlePipeline;
     /* Last skinned draw's leading bone matrices (em_gfx_last_skinned_bone
      * — the native bone-publish; the chain draws the player LAST, so this
      * is the player palette between frames). COPIED at draw time: palette
@@ -253,6 +255,24 @@ static NSString *const kBeamTexShaderSrc =
 "    return o;\n"
 "}\n"
 "fragment float4 f_beamtex(VOut in [[stage_in]],\n"
+"                          texture2d<float> tex [[texture(0)]],\n"
+"                          sampler smp [[sampler(0)]]) {\n"
+"    return tex.sample(smp, in.uv) * in.color;\n"
+"}\n";
+
+static NSString *const kParticleShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct VOut { float4 pos [[position]]; float4 color; float2 uv; };\n"
+"vertex VOut v_particle(uint vid [[vertex_id]],\n"
+"                         const device float4 *data [[buffer(0)]]) {\n"
+"    VOut out;\n"
+"    out.pos = data[vid*3];\n"
+"    out.color = data[vid*3+1];\n"
+"    out.uv = data[vid*3+2].xy;\n"
+"    return out;\n"
+"}\n"
+"fragment float4 f_particle(VOut in [[stage_in]],\n"
 "                          texture2d<float> tex [[texture(0)]],\n"
 "                          sampler smp [[sampler(0)]]) {\n"
 "    return tex.sample(smp, in.uv) * in.color;\n"
@@ -574,6 +594,8 @@ void em_gfx_destroy(EmGfx *g)
     [g->glowPipeline release];
     [g->beamPipeline release];
     [g->beamTexPipeline release];
+    [g->particleTexture release];
+    [g->particlePipeline release];
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
         [g->beamTex[i] release];
     [g->glyphPipeline release];
@@ -1393,6 +1415,82 @@ void em_gfx_beam_tri_tex(EmGfx *g, int slot, const float p[9],
     memcpy(t->uv, uv,   sizeof(t->uv));
     memcpy(t->c,  rgba, sizeof(t->c));
     t->tex = slot;
+}
+
+int em_gfx_particle_texture_set(EmGfx *g, const uint8_t *rgba,
+                                 uint32_t width, uint32_t height)
+{
+    if (!g) return 0;
+    if (!rgba && !width && !height) {
+        [g->particleTexture release];
+        g->particleTexture = nil;
+        return 1;
+    }
+    if (!rgba || !width || !height || width > 256 || height > 256) return 0;
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+        width:width height:height mipmapped:NO];
+    descriptor.usage = MTLTextureUsageShaderRead;
+    id<MTLTexture> texture = [g->device newTextureWithDescriptor:descriptor];
+    if (!texture) return 0;
+    [texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
+              mipmapLevel:0 withBytes:rgba bytesPerRow:width * 4];
+    [g->particleTexture release];
+    g->particleTexture = texture;
+    return 1;
+}
+
+void em_gfx_particles_draw(EmGfx *g, const EmGfxParticle *particles,
+                            unsigned count)
+{
+    if (!g || !g->enc || !g->particleTexture || !particles || !count || count > 4096)
+        return;
+    if (!g->particlePipeline)
+        g->particlePipeline = build_pipeline(g, kParticleShaderSrc,
+            @"v_particle", @"f_particle", EM_BLEND_ADD);
+    if (!g->particlePipeline) return;
+    if (!g->clampSampler) {
+        MTLSamplerDescriptor *descriptor = [[MTLSamplerDescriptor alloc] init];
+        descriptor.minFilter = MTLSamplerMinMagFilterLinear;
+        descriptor.magFilter = MTLSamplerMinMagFilterLinear;
+        descriptor.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        descriptor.tAddressMode = MTLSamplerAddressModeClampToEdge;
+        g->clampSampler = [g->device newSamplerStateWithDescriptor:descriptor];
+        [descriptor release];
+    }
+    ensure_depth_states(g);
+    float *vertices = malloc((size_t)count * 6 * 12 * sizeof(float));
+    if (!vertices) return;
+    const unsigned corners[6] = {0, 1, 2, 1, 3, 2};
+    for (unsigned i = 0; i < count; ++i) {
+        const EmGfxParticle *particle = &particles[i];
+        for (unsigned vertex = 0; vertex < 6; ++vertex) {
+            unsigned corner = corners[vertex];
+            float x = corner & 1 ? 1.0f : -1.0f;
+            float y = corner & 2 ? -1.0f : 1.0f;
+            float *out = vertices + (i * 6 + vertex) * 12;
+            memcpy(out, particle->clip, 4 * sizeof(float));
+            out[0] += x * particle->half_extent[0];
+            out[1] += y * particle->half_extent[1];
+            memcpy(out + 4, particle->color, 4 * sizeof(float));
+            out[8] = (corner & 1) ? 1.0f : 0.0f;
+            out[9] = (corner & 2) ? 1.0f : 0.0f;
+            out[10] = out[11] = 0.0f;
+        }
+    }
+    id<MTLBuffer> buffer = [g->device newBufferWithBytes:vertices
+        length:(NSUInteger)count * 6 * 12 * sizeof(float)
+        options:MTLResourceStorageModeShared];
+    free(vertices);
+    if (!buffer) return;
+    [g->enc setRenderPipelineState:g->particlePipeline];
+    [g->enc setDepthStencilState:g->depthGlow];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBuffer:buffer offset:0 atIndex:0];
+    [g->enc setFragmentTexture:g->particleTexture atIndex:0];
+    [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count * 6];
+    [buffer release];
 }
 
 /* Set this frame's flashlight spot (em_gfx.h "Flashlight spot light" —

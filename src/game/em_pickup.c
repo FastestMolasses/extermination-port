@@ -138,12 +138,14 @@ static struct {
 static struct {
     uint8_t  count[256];      /* D_00810C64 mirror: u8 per item type */
     uint8_t  mag_packs;       /* D_00810C63 mirror */
+    int16_t  battery_charge;  /* D_00810CB2: internal half-units */
+    uint8_t  battery_capacity;/* D_00810CB7: internal half-units */
     uint32_t taken[2048];     /* D_00810860 mirror: bit (area<<8)|puid
                                * (engine: u32[8] x area — same bits,
                                * one flat array) */
     int      ammo_pending;    /* case-0x10 reserve rounds for em_game */
     int      found_pending;   /* item type for the Found line, -1 none */
-} g = { {0}, 0, {0}, 0, -1 };
+} g = { .found_pending = -1 };
 
 /* This frame's use-scan winner (func_00184BA0's single winner for the
  * whole interactive list). Reset at every em_pickup_update entry; read
@@ -190,16 +192,31 @@ int em_pickup_taken(int uid) { return taken_bit(uid); }
  *
  * FLAGGED (audit 2026-07-31): the engine's switch has 14 more arms, and
  * `default` is NOT the only one that writes the count array — cases
- * 0x01/0x02/0x03/0x04/0x0C/0x0D/0x0E/0x1B/0x1C/0x1D also do
+ * 0x01/0x02/0x03/0x04/0x0C/0x0D/0x0E also do
  * `D_00810C64[arg0] += arg1`, UNCLAMPED, alongside a linked meter, while
  * 0x11..0x16 move only a meter and 0x0F is a raw `= n`. Full ledger in
  * em_pickup.h. The port keeps the uniform default clamp on purpose: it
  * already folds take families 1/2 into this one array, so `type` here is
- * not reliably the engine's stat index and per-case fidelity would be
- * false precision. */
+ * not reliably the engine's stat index. Battery types 0x1B..0x1D are
+ * proven by AREA11's original deferred-item records and preserve their
+ * own count and half-unit meter semantics below. */
 static void inventory_add(int type, int n)
 {
     unsigned t = (unsigned)type & 0xFF;
+
+    if (t >= 0x1B && t <= 0x1D) {
+        static const int capacity[3] = {12, 36, 48};
+        int units = capacity[t - 0x1B];
+        /* The original count store wraps at 8 bits; only charge is
+         * capped. Finding a smaller pack never shrinks the capacity. */
+        g.count[t] = (uint8_t)(g.count[t] + n);
+        g.battery_charge = (int16_t)(g.battery_charge + n * units);
+        if (g.battery_capacity < units)
+            g.battery_capacity = (uint8_t)units;
+        if (g.battery_charge > g.battery_capacity)
+            g.battery_charge = g.battery_capacity;
+        return;
+    }
 
     if (t == EM_PICKUP_TYPE_MAG) {
         int packs  = g.mag_packs + n;
@@ -298,8 +315,9 @@ static float pickup_model_scale(const char *model_file)
     }
 }
 
-/* func_001C6380 — the rigid-prop pose: world TRS (here T * R_y(yaw) * S)
- * applied to every bone slot, baked once (items never animate). */
+/* func_001C6380 — world TRS applied to each authored rest-node palette.
+ * Static pickup bodies keep their original node offsets: model72 has
+ * separate base/lid nodes, which must not all become identity matrices. */
 static void pickup_build_palette(Pickup *p)
 {
     if (p->model < 0) return;
@@ -627,6 +645,15 @@ int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
 const uint8_t *em_pickup_items(void)        { return g.count; }
 uint8_t em_pickup_item_count(int type)      { return g.count[type & 0xFF]; }
 uint8_t em_pickup_mag_packs(void)           { return g.mag_packs; }
+int em_pickup_battery_charge(void)          { return g.battery_charge; }
+int em_pickup_battery_capacity(void)        { return g.battery_capacity; }
+
+void em_pickup_battery_set_charge(int half_units)
+{
+    if (half_units < 0) half_units = 0;
+    if (half_units > g.battery_capacity) half_units = g.battery_capacity;
+    g.battery_charge = (int16_t)half_units;
+}
 
 int em_pickup_ammo_take(void)
 {

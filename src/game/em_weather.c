@@ -3,8 +3,10 @@
 #include <math.h>
 #include <string.h>
 
-/* Finite binary32 arithmetic with the EE's truncation after each operation.
- * A double represents binary32 sums/products exactly before this rounding. */
+/* Finite binary32 operation ordering used by the original-instruction
+ * oracle. Captured state supports the controller updates; the intensity
+ * division's rounding has not been independently distinguished in RAM.
+ * Do not infer EE DIV.S behavior from VU arithmetic (see em_snow.c). */
 static float weather_float(double value)
 {
     float result = (float)value;

@@ -15,6 +15,7 @@
 #include "game/em_game_internal.h"
 /* the scene loader installs and tears down the placed set pieces */
 #include "game/em_props.h"
+#include "game/em_snow_runtime.h"
 
 /* manifest_word_token — does `line` contain `tok` as a WHOLE WORD
  * (delimited by start-of-line/space on the left and end-of-line/space on
@@ -39,6 +40,7 @@ static int manifest_word_token(const char *line, const char *tok)
 
 void scene_manifest_load(void)
 {
+    em_snow_runtime_clear(em_frame_gfx());
     em_enemy_set_scene_directory(g.scene_dir);
     g.spawn[0]  = kPlayerPos[0];
     g.spawn[1]  = kPlayerPos[1];
@@ -366,28 +368,15 @@ void scene_manifest_load(void)
                 printf("manifest: truck line failed to load: %s", line);
         } else if ((gn = sscanf(line, "grate %255s %f %f %f %f",
                                  name, &x, &y, &z, &yaw)) >= 4) {
-            /* AREA-11 GATED GRATE (placement record 18, fn func_00159210 —
-             * the closed path-blocker that opens when the area is powered;
-             * INVESTIGATION_area11_grate.md). Form:
-             * `grate <model.emdl> <x> <y> <z> [yaw]`. The bars mesh (per-
-             * area id 0x04 = props/area_item_04.emdl) is rendered AND, while
-             * the area is NOT powered (em_game_terminal_powered, the unlock
-             * bit D_0081084C & 0x80 — 0 at a fresh new game), registers a
-             * SOLID blocker hull each frame so the player cannot pass. Once
-             * powered the hull is dropped and the bars SLIDE open. The hull
-             * is the mesh's own world AABB, derived at install from the
-             * loaded verts + the placement transform. One grate per scene; a
-             * second line replaces the first. A missing mesh disables the
-             * grate entirely (no blocker, no draw — matching the engine
-             * never instantiating record 18 without its model). This is the
-             * GATED representation of the bars; the OTHER param-0x04 prop
-             * (record 20, the unrelated static decor) stays a plain
-             * `pickup ... prop`. */
+            /* Legacy manifest name for AREA11's static power panel,
+             * placement18 /00159210 /per-area model04. The prior sliding
+             * grate interpretation and generated blocker hull were wrong.
+             * Record20 reuses this mesh as ordinary static scenery. */
             float gp[3] = { x, y, z };
             if (grate_install(em_frame_gfx(), g.scene_dir, name, gp,
                               (gn >= 5) ? yaw : 0.0f) == 0)
-                printf("manifest: GATED GRATE %s at (%.1f, %.1f, %.1f) "
-                       "yaw %.3f — closed blocker until powered\n",
+                printf("manifest: power panel %s at (%.1f, %.1f, %.1f) "
+                       "yaw %.3f\n",
                        name, x, y, z, (gn >= 5) ? yaw : 0.0f);
             else
                 printf("manifest: grate line failed to load: %s", line);
@@ -511,6 +500,10 @@ void scene_manifest_load(void)
                        "(%.1f, %.1f, %.1f) — take sets D_00810811\n",
                        gk, p[0], p[1], p[2]);
             /* rc == -2: taken uid — the engine's silent cond-1 skip */
+        } else if (sscanf(line, "weather %i %255s %63s", &gk, name, gname) == 3) {
+            if (!em_snow_runtime_load(em_frame_gfx(), g.scene_dir, name, gname,
+                                       (unsigned)gk))
+                fprintf(stderr, "manifest: original weather assets failed: %s", line);
         } else if (sscanf(line, "prop_indicator %63s %255s", gname, name) == 2) {
             if (em_props_indicator_install(em_frame_gfx(), g.scene_dir,
                                             gname, name) < 0)
@@ -778,6 +771,7 @@ int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
  * they persist across the switch (em_game.h em_game_scene_switch). */
 void scene_unload(EmGfx *gfx)
 {
+    em_snow_runtime_clear(gfx);
     for (int i = 0; i < g.n_scene; i++) {
         em_gfx_mesh_destroy(gfx, g.scene[i].mesh);
         em_model_free(&g.scene[i].model);
@@ -797,7 +791,7 @@ void scene_unload(EmGfx *gfx)
                                  * the engine re-arms them anyway) */
     elevator_unload(gfx);       /* the AREA-11 platform mesh (re-parsed
                                  * from the new scene's manifest) */
-    grate_unload(gfx);          /* the AREA-11 gated-grate bars + hull
+    grate_unload(gfx);          /* the AREA-11 static power-panel mesh
                                  * (re-installed from the new scene's
                                  * `grate` line) */
     em_truck_clear(gfx);        /* the AREA-11 wedged-truck actor + mesh
