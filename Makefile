@@ -190,6 +190,13 @@ test-panel-reference:
 .PHONY: test-elevator-reference
 test-elevator-reference:
 	python3 tools/test_elevator_reference.py
+	python3 tools/test_elevator_commands_reference.py
+
+.PHONY: test-elevator-program
+test-elevator-program:
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/elevator_program_test.c src/game/em_elevator_program.c src/game/em_elevator.c src/game/em_script.c -lm -o build/elevator_program_test
+	build/elevator_program_test assets/scene_snow/elevator.emsc
 
 test-panel-interaction: tests/panel_interaction_test.c src/game/em_panel.c src/game/em_panel.h
 	@mkdir -p build

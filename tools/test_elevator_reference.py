@@ -33,7 +33,7 @@ def number(value):
     return struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
 
 
-def oracle(overlay, case):
+def oracle(overlay, case, motion=None):
     phase, armed, lower, timer, level, powered, done = case
     memory = {}; registers = [0]*32; floats = [0]*32; events = []
     def save(address, value, size=4):
@@ -55,6 +55,13 @@ def oracle(overlay, case):
     save(0x810700, 11, 1); save(0x81084c, 128 if powered else 0, 1)
     save(0x81083a, lower, 1)
     registers[4], registers[29], registers[31] = ACTOR, 0x2000000, RETURN
+    if motion is not None:
+        ticks, rate, owner_y, player_y, target_y = motion
+        registers[5] = 0x920000
+        save(registers[5]+4, phase, 1)
+        save(ACTOR+0x2ec, ticks); save(ACTOR+0x2e8, bits(rate))
+        save(ACTOR+0xb4, bits(owner_y)); save(0x810354, bits(player_y))
+        save(0x8105e4, bits(target_y))
     def execute(word):
         op, rs, rt, rd = word >> 26, word >> 21 & 31, word >> 16 & 31, word >> 11 & 31
         immediate = signed(word & 65535, 16)
@@ -80,6 +87,11 @@ def oracle(overlay, case):
             if rs == 4: floats[rd] = registers[rt]
             elif rs == 20 and word & 63 == 32: floats[word >> 6 & 31] = bits(float(signed(floats[rd])))
             elif rs == 16 and word & 63 == 3: floats[word >> 6 & 31] = bits(number(floats[rd])/number(floats[rt]))
+            elif rs == 16 and word & 63 == 0:
+                value = number(floats[rd])+number(floats[rt])
+                result = bits(value)
+                if abs(number(result)) > abs(value): result -= 1
+                floats[word >> 6 & 31] = result
             else: raise AssertionError(('COP1', hex(word)))
         elif op == 28 and word & 63 == 40:
             assert registers[rs] == 0 or registers[rt] == 0
@@ -93,11 +105,15 @@ def oracle(overlay, case):
         elif op == 57: save(address, floats[rt])
         else: raise AssertionError(('opcode', op, hex(word)))
         registers[0] = 0
-    pc = 0x827b10
+    pc = 0x827b10 if motion is None else 0x828050
     external = (0x1ba1a0, 0x1ba1f0, 0x1fbd50, 0x1c6380,
                 0x1a2370, 0x102958, 0x1b17a0, VIRTUAL)
     for _ in range(2000):
         if pc == RETURN:
+            if motion is not None:
+                state = (load(0x920004, 1), signed(load(ACTOR+0x2ec)),
+                         *(load(a) for a in (ACTOR+0x2e8, ACTOR+0xb4, 0x810354, 0x8105e4)))
+                return state, events, registers[2]
             state = (load(ACTOR+5, 1), load(ACTOR+11, 1), load(0x81083a, 1),
                      signed(load(ACTOR+0x2a, 2), 16), signed(load(ACTOR+0x28, 2), 16),
                      load(ACTOR+0xb4), *(load(a) for a in (0x82a7c4, 0x82a844, 0x82a944)))
@@ -111,7 +127,7 @@ def oracle(overlay, case):
             elif pc == VIRTUAL: events.append(('actor',))
             pc = registers[31] & 0xffffffff
             continue
-        assert 0x827b10 <= pc < 0x828050, hex(pc)
+        assert 0x827b10 <= pc < (0x828050 if motion is None else 0x8281e0), hex(pc)
         word = load(pc); op = word >> 26; rs = word >> 21 & 31; rt = word >> 16 & 31
         if op in (1, 4, 5, 6, 7, 20, 21):
             if op == 1:
@@ -140,6 +156,8 @@ class Elevator(C.Structure):
     _fields_ = [('phase', C.c_uint8), ('armed', C.c_uint8), ('lower', C.c_uint8),
                 ('timer', C.c_int16), ('level', C.c_int16), ('height', C.c_float),
                 ('heights', C.c_float*3)]
+class Motion(C.Structure):
+    _fields_ = [('phase', C.c_uint8), ('ticks', C.c_int32), ('rate', C.c_float)]
 START = C.CFUNCTYPE(None, C.c_void_p, C.c_uint32)
 TICK = C.CFUNCTYPE(C.c_int, C.c_void_p)
 SOUND = C.CFUNCTYPE(None, C.c_void_p, C.c_uint, C.c_float)
@@ -162,6 +180,8 @@ def main():
     native = C.CDLL(str(library))
     native.em_elevator_init.argtypes = [C.POINTER(Elevator), C.c_int]
     native.em_elevator_tick.argtypes = [C.POINTER(Elevator), C.c_int, C.POINTER(Hooks)]
+    native.em_elevator_motion_tick.argtypes = [C.POINTER(Motion), C.c_int,
+        C.POINTER(C.c_float), C.POINTER(C.c_float), C.POINTER(C.c_float), C.POINTER(Hooks)]
     count = 0
     for case in itertools.product((0,1,2),(0,4,5),(0,1),(-3,0,119,120,300),
                                   (-3,0,1,120,127,128,160),(0,1),(0,1)):
@@ -181,8 +201,26 @@ def main():
         assert actual == expected, dict(case=case, actual=actual, expected=expected)
         count += 1
     print(f'Original00827B10 active owner: {count} state/call-order cases PASS')
+    motion_count = 0
+    for phase, lower, ticks, rate, position in itertools.product(
+            (0,1,2), (0,1), (-1,0,149,150,0x7fffffff),
+            (-0.26666668,0.26666668), (190,230,-0.1,16777216)):
+        state = Motion(phase, ticks, rate)
+        y = [C.c_float(position), C.c_float(position+10.8904), C.c_float(position+15)]
+        events = []
+        hooks = Hooks(None, START(), TICK(),
+            SOUND(lambda _, cue, radius: events.append(('sound', cue, bits(radius)))),
+            POSE(lambda _, height: events.append(('pose', bits(height)))), EVENT(), EVENT())
+        result = native.em_elevator_motion_tick(C.byref(state), lower,
+            *(C.byref(value) for value in y), C.byref(hooks))
+        actual = ((state.phase, state.ticks, bits(state.rate), *(bits(v.value) for v in y)), events, result)
+        expected = oracle(overlay, (phase,0,lower,0,0,0,0),
+            (ticks, number(bits(rate)), position, number(bits(position+10.8904)), number(bits(position+15))))
+        assert actual == expected, dict(case=(phase,lower,ticks,rate,position),actual=actual,expected=expected)
+        motion_count += 1
+    print(f'Original00828050 elevator carry: {motion_count} state/float/call-order cases PASS')
     (output/'owner_validation.json').write_text(json.dumps({
-        'cases': count, 'overlay_sha256': hashlib.sha256(overlay).hexdigest(),
+        'cases': count, 'motion_cases': motion_count, 'overlay_sha256': hashlib.sha256(overlay).hexdigest(),
         'entry': '00827B10', 'scope': 'active owner state1; external script/graphics hooks'
     }, indent=2)+'\n')
 

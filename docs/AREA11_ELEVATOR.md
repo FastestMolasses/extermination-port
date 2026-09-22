@@ -34,4 +34,27 @@ both positions, power/completion combinations, signed counter boundaries and
 indicator levels. It compares owner fields, three patched script heights and
 sound/script/pose/indicator/actor callback order. Model allocation, script
 handlers, collision and final rendering are explicit external boundaries.
-No end-to-end elevator fidelity is claimed from this core test.
+The same target checks240 original00828050 carry cases and20 boot-handler
+command cases. Motion initialization chooses sound452/453 and waits one call;
+then each of150 calls independently truncates the platform+B4, player origin+A4
+(global00810354) and camera target Y additions before rebuilding the platform.
+It does not toggle the owner's lower/upper state. The command oracle executes
+original001B94F0/001B9C10/001B8FC0/001B9A00 instructions, comparing direct fields,
+phase and alignment/publication call counts. Full player placement00182F90 and
+camera publication001DD980 are intercepted boundaries.
+
+`em_elevator_program` now reads these actual records and routes their commands
+to required typed host bindings. Opcode1/sub1 places the player immediately;
+it is not a timed walk. Opcode4/sub8 sets yaw immediately. Zero-duration
+opcode0/sub0 copies and publishes the camera on one call, yields, then publishes
+and completes on the next. The clip47 request uses rate1/blend1; opcodeA/sub3
+waits for the real animation end flag. The refusal waits on actual message1A.
+Its frame sub2/sub4, chase camera and message worker remain host responsibilities.
+
+`make test-elevator-program` uses the exported scripts under ASan/UBSan with
+explicit frame/player/camera/message boundaries. It checks refusal, both ride
+directions, both camera waits,150 carry callbacks, the final3 script ticks
+before owner completion, and missing/failed binding paths. A negative host
+script result cannot masquerade as completion or toggle the elevator.
+The live legacy examine/elevator path is still unbound to this adapter;
+these tests do not establish end-to-end elevator fidelity.

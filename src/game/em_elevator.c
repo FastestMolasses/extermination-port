@@ -1,4 +1,5 @@
 #include "game/em_elevator.h"
+#include "game/em_effect_color.h"
 #include <string.h>
 
 static void set_height(EmElevator *owner)
@@ -34,7 +35,9 @@ int em_elevator_tick(EmElevator *owner, int powered,
          * The refusal's300 sentinel suppresses the tick120 sound. */
         if (owner->sound_timer < 120 && ++owner->sound_timer == 120)
             hooks->sound(hooks->context, 0x19a, 300.0f);
-        if (hooks->tick_script(hooks->context)) {
+        int result = hooks->tick_script(hooks->context);
+        if (result < 0) return -1;
+        if (result > 0) {
             owner->phase = owner->armed = 0;
             if (powered) {
                 owner->lower = !owner->lower;
@@ -55,4 +58,32 @@ int em_elevator_tick(EmElevator *owner, int powered,
         if (owner->indicator_level < 0) owner->indicator_level = 0;
     }
     return 0;
+}
+
+int em_elevator_motion_tick(EmElevatorMotion *motion, int lower,
+                             float *owner_y, float *player_y,
+                             float *camera_target_y,
+                             const EmElevatorHooks *hooks)
+{
+    if (!motion || !owner_y || !player_y || !camera_target_y || !hooks ||
+        !hooks->sound || !hooks->rebuild_pose) return -1;
+    if (motion->phase == 0) {
+        motion->ticks = 0;
+        hooks->sound(hooks->context, lower ? 0x452 : 0x453, 300.0f);
+        motion->rate = lower ? 0.26666668f : -0.26666668f;
+        motion->phase = 1;
+        return 0;
+    }
+    if (motion->phase == 1) {
+        *owner_y = em_effect_float32((double)*owner_y + motion->rate);
+        *player_y = em_effect_float32((double)*player_y + motion->rate);
+        *camera_target_y = em_effect_float32((double)*camera_target_y + motion->rate);
+        hooks->rebuild_pose(hooks->context, *owner_y);
+        /* Original signed32 counter. Use unsigned addition for defined
+         * wrapping, then inspect its signed value as the EE branch does. */
+        uint32_t next = (uint32_t)motion->ticks + 1;
+        memcpy(&motion->ticks, &next, sizeof next);
+        return motion->ticks >= 150;
+    }
+    return 1;
 }
