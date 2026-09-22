@@ -105,12 +105,15 @@ int em_panel_candidate(const EmPanel *panel, const float owner[3],
      * above still uses the EE's separate truncating float operations. */
     float planar=sqrtf(squared);
     if (!(planar<=9.5f)) return 0;
+    /* Original183EF0 publishes scratch3B98 before the later height and
+     * facing gates. A subsequent candidate may consume this shared score
+     * even when this panel is rejected. */
+    if (distance) *distance=planar;
     float dy=em_effect_float32((double)player[1]-owner[1]);
     if (!(sqrtf(em_effect_float32((double)dy*dy))<=20.0f)) return 0;
     float angle=em_effect_float32(3.1415927410125732421875+(double)player_yaw);
     angle=panel_wrap(em_effect_float32((double)angle-owner_yaw));
     if (!(fabsf(angle)<=0.785398185253143310546875f)) return 0;
-    if (distance) *distance=planar;
     return 1;
 }
 

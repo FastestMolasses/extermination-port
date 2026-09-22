@@ -28,6 +28,14 @@ browse; this test supplies a later status exit and does not implement Back
 as closing the page. Scene wiring and full menu/camera/render comparisons
 remain required; this adapter test is not an end-to-end fidelity claim.
 
+The fixture begins at an explicit shared-owner claim. The later Use-caller
+audit in `INTERACTION_SCAN.md` additionally recovers001798D0: a winning
+ordinary Use scan requests the default clip with blend0 before setting
+action25. The following player callback then performs selector takeover.
+Thus the fixture's direct acquisition from walking tests a supported raw
+source transition, not the usual complete walk-to-panel Use path. The live
+host must preserve that earlier default-clip request and callback boundary.
+
 The normal scene's static model04 panel is original placement18 at
 `(240,245,232.800003)`, yaw `-pi`, behavior `00159210`, class84/subtype24.
 Its owner is the power switch; the former Roger-at331.7 battery-console
