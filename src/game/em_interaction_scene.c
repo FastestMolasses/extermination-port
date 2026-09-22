@@ -153,3 +153,50 @@ int em_interaction_scene_scan(EmInteractionScene *scene,EmInteractionScanState *
     return em_interaction_scan(state,scene->list.active,scene->list.active_count,
                                predicate,context,winner_index);
 }
+
+typedef struct {
+    EmInteractionPredicate predicate;
+    void *context;
+    int failed;
+} CheckedPredicate;
+
+static int checked_predicate(void *context, const EmInteractionCandidate *entry, float *score)
+{
+    CheckedPredicate *checked = context;
+    if (checked->failed) return 0;
+    int result = checked->predicate(checked->context, entry, score);
+    if (result < 0) {
+        checked->failed = 1;
+        return 0;
+    }
+    return result;
+}
+
+int em_interaction_scene_scan_checked(EmInteractionScene *scene, EmInteractionScanState *state,
+    EmInteractionPredicate predicate, void *context, size_t *winner_index)
+{
+    if (winner_index) *winner_index = SIZE_MAX;
+    if (!scene || !state) return -1;
+    if (state->selector || state->fade_wait || state->inhibited) return 0;
+    const size_t count = scene->list.active_count;
+    if (count > EM_INTERACTION_CAPACITY || (count && !predicate)) return -1;
+    EmInteractionCandidate entries[EM_INTERACTION_CAPACITY];
+    uint8_t arms[EM_INTERACTION_CAPACITY];
+    for (size_t i = 0; i < count; ++i) {
+        if (!candidate(scene->list.active[i].owner, &entries[i])) return -1;
+        arms[i] = *entries[i].armed;
+        entries[i].armed = &arms[i];
+    }
+    EmInteractionScanState next = *state;
+    CheckedPredicate checked = {predicate, context, 0};
+    size_t winner;
+    int result = em_interaction_scan(&next, entries, count, checked_predicate, &checked, &winner);
+    if (result < 0 || checked.failed) return -1;
+    if (result) {
+        EmInteractionSceneOwner *owner = entries[winner].owner;
+        *owner->live_armed = arms[winner];
+    }
+    *state = next;
+    if (winner_index) *winner_index = winner;
+    return result;
+}

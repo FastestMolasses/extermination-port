@@ -57,4 +57,10 @@ void em_interaction_scene_publish(EmInteractionScene *scene);
 int em_interaction_scene_scan(EmInteractionScene *scene,EmInteractionScanState *state,
                               EmInteractionPredicate predicate,void *context,
                               size_t *winner_index);
+/* Native predicates may return-1 for a missing required worker. This
+ * wrapper retains original valid-result ordering and score behavior, but
+ * commits no owner arm or scan state when any evaluated predicate fails.
+ * A failed native service is never an eligible original actor. */
+int em_interaction_scene_scan_checked(EmInteractionScene *scene, EmInteractionScanState *state,
+    EmInteractionPredicate predicate, void *context, size_t *winner_index);
 #endif

@@ -18,6 +18,17 @@ static int eligible(void *context,const EmInteractionCandidate *candidate,float 
     return 1;
 }
 
+typedef struct { unsigned calls, fail_at, immediate_at; } PredicateState;
+static int worker(void *context, const EmInteractionCandidate *candidate, float *score)
+{
+    PredicateState *state = context;
+    assert(candidate->owner && !*candidate->armed);
+    ++state->calls;
+    if (state->calls == state->fail_at) return -1;
+    *score = 4;
+    return state->calls == state->immediate_at ? 2 : 1;
+}
+
 int main(int argc,char **argv)
 {
     assert(argc==2);
@@ -54,6 +65,30 @@ int main(int argc,char **argv)
     assert(em_interaction_scene_scan(&scene,&state,NULL,NULL,&winner)==0 && state.score==7);
     state.selector=0;
     assert(em_interaction_scene_scan(&scene,&state,eligible,&context,&winner)==-1);
+
+    scene.owners[9].live_armed = &armed[9];
+    memset(armed, 0, sizeof armed);
+    status[10] = 1;
+    for (unsigned fail_at = 1; fail_at <= 11; ++fail_at) {
+        PredicateState operation = {.fail_at = fail_at};
+        state = (EmInteractionScanState){.score = 17};
+        assert(em_interaction_scene_scan_checked(&scene, &state, worker, &operation, &winner) == -1);
+        assert(operation.calls == fail_at && state.score == 17 && !state.selector && winner == SIZE_MAX);
+        for (unsigned i = 0; i < 11; ++i) assert(!armed[i]);
+    }
+    /* Original immediate2 stops evaluation. A later unavailable worker
+     * is not reached; successful ties retain first published order. */
+    PredicateState operation = {.fail_at = 4, .immediate_at = 3};
+    state = (EmInteractionScanState){0};
+    assert(em_interaction_scene_scan_checked(&scene, &state, worker, &operation, &winner) == 1);
+    assert(operation.calls == 3 && winner == 2 && armed[8] == 4 && state.selector == 3);
+    memset(armed, 0, sizeof armed);
+    operation = (PredicateState){0}; state = (EmInteractionScanState){0};
+    assert(em_interaction_scene_scan_checked(&scene, &state, worker, &operation, &winner) == 1);
+    assert(operation.calls == 11 && winner == 0 && armed[10] == 4);
+    state = (EmInteractionScanState){.inhibited = 1, .score = 13};
+    assert(em_interaction_scene_scan_checked(&scene, &state, NULL, NULL, &winner) == 0);
+    assert(state.score == 13 && winner == SIZE_MAX);
 
     FILE *file=fopen(argv[1],"rb");assert(file);
     unsigned char bytes[4096];size_t size=fread(bytes,1,sizeof bytes,file);fclose(file);
