@@ -63,7 +63,8 @@ struct EmGfx {
     /* Textured overlay: TWO texture slots (EM_GFX_OVERLAY_TEX_FONT /
      * _UI), each with its own quad queue (float4 NDC pos + float4 color
      * + float4 uv, uv.xy normalized at queue time) and its own
-     * EM_GFX_OVERLAY_MAX budget. Flush order after the untextured
+     * budget (EM_GFX_OVERLAY_MAX for glyphs, EM_GFX_DECOR_MAX for UI).
+     * Flush order after the untextured
      * primitives: UI decor sprites first, font glyphs last — decor sits
      * over the scene dim and the diamond arcs, text over everything. */
     id<MTLTexture>               overlayTex[2];
@@ -73,9 +74,9 @@ struct EmGfx {
     id<MTLSamplerState>          clampSampler;   /* linear, clamp-to-edge */
     float                        glyphVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
     uint32_t                     glyphVertCount;
-    float                        spriteVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
+    float                        spriteVerts[EM_GFX_DECOR_MAX * 6 * 12];
     uint32_t                     spriteVertCount;
-    uint8_t                      spriteBlend[EM_GFX_OVERLAY_MAX];
+    uint8_t                      spriteBlend[EM_GFX_DECOR_MAX];
     /* Backdrop layer (em_gfx_overlay_backdrop / _backdrop_fill): the
      * animated UI background — UI-slot quads + an optional full-frame
      * solid fill, flushed FIRST in the overlay sequence (bottom layer,
@@ -1248,7 +1249,7 @@ static void texquad_push(EmGfx *g, float *verts, uint32_t *count, int slot,
 
 /* Queue one textured overlay quad into a slot's queue: canvas-space rect
  * sampling the slot's texture at texel UVs (u0,v0)-(u1,v1). `cap` is the
- * queue's quad budget (EM_GFX_OVERLAY_MAX, or EM_GFX_BACKDROP_MAX for
+ * queue's quad budget (EM_GFX_OVERLAY_MAX, EM_GFX_DECOR_MAX, or EM_GFX_BACKDROP_MAX for
  * the backdrop queue). */
 static void texquad_queue(EmGfx *g, float *verts, uint32_t *count, int slot,
                           uint32_t cap,
@@ -1311,7 +1312,7 @@ void em_gfx_overlay_sprite_blend(EmGfx *g,float x,float y,float w,float h,
     if (!g || blend<EM_GFX_UI_ALPHA || blend>EM_GFX_UI_OPAQUE) return;
     uint32_t start=g->spriteVertCount;
     texquad_queue(g, g->spriteVerts, &g->spriteVertCount,
-                  EM_GFX_OVERLAY_TEX_UI, EM_GFX_OVERLAY_MAX,
+                  EM_GFX_OVERLAY_TEX_UI, EM_GFX_DECOR_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
     if (g->spriteVertCount!=start) g->spriteBlend[start/6]=(uint8_t)blend;
 }
@@ -1321,7 +1322,7 @@ int em_gfx_overlay_triangle(EmGfx *g, const float xy[3][2], const float rgba[3][
 {
     if (!g || !xy || !rgba || blend < EM_GFX_UI_ALPHA || blend > EM_GFX_UI_OPAQUE ||
         !g->overlayTex[EM_GFX_OVERLAY_TEX_UI] ||
-        g->spriteVertCount + 6 > EM_GFX_OVERLAY_MAX * 6)
+        g->spriteVertCount + 6 > EM_GFX_DECOR_MAX * 6)
         return 0;
     uint32_t start = g->spriteVertCount;
     for (unsigned vertex = 0; vertex < 3; ++vertex)

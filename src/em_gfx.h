@@ -168,10 +168,12 @@ void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h);
  * between begin_frame and end_frame; with nothing queued the pass does
  * not run (frame output is bit-identical to pre-overlay builds). The
  * per-frame budget is EM_GFX_OVERLAY_MAX quads (one rect = one quad, one
- * arc = one quad per tessellation segment); overflow is dropped. (1024:
- * the status hub's pager-diamond markers are 12 full-circle arcs on top
- * of the ring gauge — ~900 quads on the busiest frame.) */
+ * arc = one quad per tessellation segment); overflow is dropped. */
 #define EM_GFX_OVERLAY_MAX 1024
+/* Original MAIN's ordered arcs, marker lines and cursor require 2,376
+ * decor records in the captured first-level fixture. Keep its capacity
+ * separate from the untextured and font queues. */
+#define EM_GFX_DECOR_MAX 4096
 void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
                          const float rgba[4]);
 
@@ -288,10 +290,10 @@ void em_gfx_overlay_glyph_skew(EmGfx *gfx, float x, float y, float w, float h,
 
 /* Queue one TEXTURED overlay quad sampling the UI-DECOR slot — same
  * parameters, sampling and blend as em_gfx_overlay_glyph, own
- * EM_GFX_OVERLAY_MAX quad budget. Decor sprites flush in one draw AFTER
- * the untextured overlay primitives (so the title/legend/icons sit over
- * the scene dim and the pager-diamond arcs, the engine's hub draw
- * order) and BEFORE the glyph quads (text stays on top). No-op without
+ * EM_GFX_DECOR_MAX quad budget. Decor records preserve their submission
+ * and blend order after untextured overlay primitives and before glyphs.
+ * Original untextured Gouraud UI geometry also uses this ordered queue
+ * through a white helper texel. No-op without
  * a registered UI texture. */
 void em_gfx_overlay_sprite(EmGfx *gfx, float x, float y, float w, float h,
                            float u0, float v0, float u1, float v1,

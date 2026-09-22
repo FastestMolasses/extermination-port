@@ -49,5 +49,30 @@ repository's `build/startup-reference/status-hub/`, including `hub.png`,
 EE RAM, GS data, scratchpad and the transition trace. The image confirms
 the full-body Dennis and SPR4 models, original profile text, health gauge
 and inventory readouts. `tools/export_status_hub.py` is ongoing artwork
-recovery from that actual resident GS state; its dynamic workers remain
-unbound while their geometry and lifecycle are being verified.
+recovery from that actual resident GS state. It executes the original main
+drawer into ten hover/terminal-infection layouts and exports nine textures
+and ten help strings. A separate frozen trace expands the original health,
+battery and ammunition workers into 70 ordered commands. The original
+numeric formatter runs; byte string copy/append/length and font packet
+workers are explicit boundaries. The live dynamic workers remain unbound.
+
+The readable `tests/status_hub_visual.c` consumes generated, ignored
+commands through `tools/test_status_hub_visual.py`. It exercises original
+arcs, marker endpoints, sprites and text through the native Metal backend.
+Build with that tool, and run only after reserving the shared GPU. The
+fixture's line segments expand to one-GS-pixel parallelograms; precise
+line endpoint coverage remains a rasterization boundary. The original
+models are excluded explicitly, and the moving background starts at a
+fresh phase. This fixture is never used as a frozen live menu.
+
+The recovered frame requires 2,376 ordered decor records: 758 arc
+triangles, 1,080 line triangles, 512 cursor triangles and 26 sprites or
+rectangles. The former 1,024-record limit rejected valid original geometry.
+`EM_GFX_DECOR_MAX` now gives only Metal's decor queue 4,096 records,
+preserving the separate font and untextured budgets. The extra decor
+storage is 887,808 bytes. The GPU fixture accepts exactly 4,096 records,
+rejects the next one, resets for the following frame and renders all
+original commands. It exits successfully and saves ignored
+`build/status_hub_visual/hub.png`; its source counterpart is the original
+state14 image above. Vulkan and D3D12 remain unimplemented backend
+skeletons; this check makes no cross-platform rendering claim.
