@@ -1,4 +1,4 @@
-/* Verified current-bank panel15C/lever47 animation timing. Ownership and
+/* Verified current-bank pickup40..42/panel15C/lever47 timing. Ownership and
  * player takeover/release belong to the shared interaction runtime. */
 #ifndef EM_INTERACTION_ANIMATION_H
 #define EM_INTERACTION_ANIMATION_H
@@ -16,7 +16,7 @@ typedef struct {
 } EmInteractionAnimation;
 
 void em_interaction_animation_clear(EmInteractionAnimation *animation);
-/* Accept only the independently exported47/15C, rate1 and blend0/1.
+/* Accept only independently exported40..42/47/15C, rate1 and blend0/1.
  * Return1 when accepted,0 for a missing/unsupported asset or argument.
  * Re-requesting the current clip preserves its cursor, as00183090 does. */
 int em_interaction_animation_request(EmInteractionAnimation *animation,

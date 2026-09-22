@@ -42,7 +42,7 @@ int em_player_pose_gait_base(EmPlayerPose *pose, unsigned tier, unsigned substat
 int em_player_pose_acquire(EmPlayerPose *pose);
 int em_player_pose_idle_tick(EmPlayerPose *pose, float *local_palette, unsigned palette_bones);
 /* 00182DF0, limited to the exported healthy first-level clip row. Release
- * from47/15C forces idle with blend0; other non-idle clips follow table flags. */
+ * from40..42/47/15C forces idle with blend0; other clips follow table flags. */
 int em_player_pose_release(EmPlayerPose *pose);
 
 /* Optional EmInteractionRuntime pose worker. Call after EVERY scripted

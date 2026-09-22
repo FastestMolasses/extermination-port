@@ -16,8 +16,9 @@ from test_interaction_animation_reference import Original as Clock, NODE
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTOR, RETURN = 0x600000, 0xBADF00D
-CLIPS = (0, 1, 2, 3, 4, 5, 0x47, 0x15C, 0x15D)
-LENGTHS = {0: 80, 1: 120, 2: 45, 3: 40, 4: 20, 5: 10, 0x47: 200, 0x15C: 121, 0x15D: 180}
+CLIPS = (0, 1, 2, 3, 4, 5, 0x40, 0x41, 0x42, 0x47, 0x15C, 0x15D)
+LENGTHS = {0: 80, 1: 120, 2: 45, 3: 40, 4: 20, 5: 10, 0x40: 45, 0x41: 45, 0x42: 45,
+           0x47: 200, 0x15C: 121, 0x15D: 180}
 
 
 class Original(Base):

@@ -13,7 +13,7 @@ acquire, idle, script and release helpers.
 `../Extermination/extract/chunk28/f01_id3c.bin`, runtime bank `0xD689C0`. The
 ignored `assets/player_channels.empc` contains decoded keys, original key times,
 hold flags, parent indices and clip headers for clips `0x00`, `0x01`, `0x02`,
-`0x03`, `0x04`, `0x05`, `0x47`, `0x15C` and `0x15D`.
+`0x03`, `0x04`, `0x05`, `0x40`, `0x41`, `0x42`, `0x47`, `0x15C` and `0x15D`.
 There are 21 original nodes and a trailing identity palette slot in the native
 model. No original binary content is checked in.
 
@@ -61,7 +61,7 @@ core, and replaces a published baked palette with the channel-derived palette.
 A missing callback faults instead of silently seeking to a later frame.
 
 Release 00182DF0 tests the original `D00248C90[clip * 6]` halfword. The row is
-zero for 47, 15C and 15D, so it first forces 00174AB0 (clip 0, flags 1, blend 0).
+zero for 40–42, 47, 15C and 15D, so it first forces 00174AB0 (clip 0, flags 1, blend 0).
 Its subsequent default-clip blend-16 request sees the already-current clip 0
 and returns without reinitializing it. A same-idle release also preserves the
 cursor. The flagged locomotion rows 1 through 5 can use the blend-16 branch.
@@ -137,16 +137,16 @@ between saved 3B50 and live actor C0 for camera D5.
 
 `make test-player-pose` runs ASan/UBSan tests against the exported bank. It covers
 conditional acquisition/release, interrupted transitions, missing-callback
-detection and all 662 scripted 47/15C callbacks used by the original clock test.
+detection and all 962 scripted 40–42/47/15C callbacks used by the original clock test.
 `make test-pose-reference` runs three independent source-address checks:
 
 - 15,600 executed original quaternion/TRS/velocity/channel comparisons, with
   8/16 transition intervals and fractional steps.
-- All 4,700 exported nonterminal keys against the original decode functions.
+- All 5,590 exported nonterminal keys against the original decode functions.
   Four immutable original captures match 2,100 channel float words and 252 key
   cursors exactly: opening handoff idle 0, first-control idle 40, panel idle 5,
   and panel animation 15C at frame 30.
-- 5,467 conditional request/release, normalized gait cursor restoration and
+- 6,553 conditional request/release, normalized gait cursor restoration and
   original source-frame conversion routine. The clock comparison additionally
   exercises fractional rates, split-step flags, loops and terminal holds.
 
@@ -230,3 +230,26 @@ the foot-stop worker to execute and return to a valid idle source. It does not
 seed positions or animation clocks. This is a native integration check; its
 final displacement has not been compared with an equal-duration original
 low-gait runtime capture.
+
+## Pickup animation subset
+
+The original current-bank headers for pickup clips 40, 41 and 42 occur at
+offsets `0x543F0`, `0x55530` and `0x56810`. Each has 21 nodes, 45 frames,
+next clip -2, initial blend 0 and no event table. Their original D00248C90
+rows have release flag 0 and rate 1. The original whole animation bank is
+byte-equal to the immutable panel-confirmation EE capture.
+
+`tools/export_pickup_player_clips.py` replaces only these three EMDL palette
+ranges from the decoded raw source channels. It checks hierarchy, headers and
+nonoverlapping ranges, then verifies that all 54 other clips, geometry, texture
+bytes and tables remain unchanged. Running it again is byte-idempotent. The
+raw worker accepts the same three clips and processes every blend-1 commit,
+sample and terminal callback. Release forces default clip 0 with blend 0.
+
+The original clock oracle retains the previous 662 panel/lever callbacks and
+adds 300 pickup callbacks, covering blend 0 and 1, repeat requests, terminal
+holds and release. With blend 1, each pickup first publishes its terminal flag
+at callback 46 when the commit callback is numbered 0. Raw key decoding is
+checked for every exported pickup key. A live pickup matrix capture remains
+outstanding; the earlier captured matrix tolerances cover the shared evaluator
+on idle/panel fixtures and are not a per-pose byte-match claim for pickups.

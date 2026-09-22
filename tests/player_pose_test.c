@@ -78,14 +78,15 @@ int main(void)
     assert(em_player_pose_advance(&pose, 6, 0));
     assert(!pose.transition.active && pose.playback.remaining == 6);
 
-    EmModelClip clips[2] = {{0x47, 0, 200, 60}, {0x15C, 200, 121, 60}};
+    EmModelClip clips[] = {{0x47, 0, 200, 60}, {0x15C, 200, 121, 60},
+                           {0x40, 321, 45, 60}, {0x41, 366, 45, 60}, {0x42, 411, 45, 60}};
     EmModel model = {0};
     model.bone_count = 22;
     model.clips = clips;
-    model.clip_count = 2;
+    model.clip_count = sizeof clips / sizeof *clips;
     model.palette = palette;
     unsigned callbacks = 0;
-    for (unsigned clip = 0; clip < 2; ++clip) {
+    for (unsigned clip = 0; clip < model.clip_count; ++clip) {
         for (unsigned blend = 0; blend < 2; ++blend) {
             EmInteractionAnimation animation;
             em_interaction_animation_clear(&animation);

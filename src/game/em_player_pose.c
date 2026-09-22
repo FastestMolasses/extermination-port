@@ -139,10 +139,10 @@ int em_player_pose_release(EmPlayerPose *pose)
     if (!pose || !pose->valid || !pose->acquired) return 0;
     unsigned clip = pose->playback.clip->id;
     if (clip != 0) {
-        /* Original D00248C90[id*6] is0 for47/15C/15D,1 for clips1..5.
+        /* Original D00248C90[id*6] is0 for40..42/47/15C/15D,1 for clips1..5.
          * The zero row forces174AB0 (idle0,flags1,blend0) before174A50.
          * Its subsequent blend16 request then sees current==requested. */
-        if (clip == 0x47 || clip == 0x15C || clip == 0x15D) {
+        if ((clip >= 0x40 && clip <= 0x42) || clip == 0x47 || clip == 0x15C || clip == 0x15D) {
             if (!em_player_pose_select(pose, 0, 0, 0, 1)) return 0;
         } else if (clip > 5) {
             return 0;
@@ -164,7 +164,8 @@ int em_player_pose_script_tick(EmPlayerPose *pose, const EmInteractionAnimation 
 {
     if (!pose || !pose->acquired || !animation || !animation->active ||
         (palette_result != 0 && palette_result != 1) ||
-        (animation->current_clip != 0x47 && animation->current_clip != 0x15C))
+        (animation->current_clip != 0x47 && animation->current_clip != 0x15C &&
+         (animation->current_clip < 0x40 || animation->current_clip > 0x42)))
         return 0;
 
     if (!pose->script_active || pose->script_clip != animation->current_clip) {

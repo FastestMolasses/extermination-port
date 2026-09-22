@@ -3,8 +3,10 @@
 
 static unsigned original_duration(uint16_t clip)
 {
-    /* Both original headers terminate with next=-2 and have no event table.
-     * Their source-only exporters verify these banks against captured RAM. */
+    /* These original headers terminate with next=-2 and have no event
+     * table. The pickup40/41/42 source offsets are543F0/55530/56810 in
+     * the same original player bank as lever47 and panel15C. */
+    if (clip >= 0x40 && clip <= 0x42) return 45;
     return clip == 0x47 ? 200 : clip == 0x15C ? 121 : 0;
 }
 

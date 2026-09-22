@@ -98,7 +98,7 @@ int captured_palette(const EmPoseBank *bank, unsigned clip, unsigned ticks, floa
         native.em_pose_bank_free.argtypes=[C.POINTER(Bank)]
         native.captured_palette.argtypes=[C.POINTER(Bank),C.c_uint,C.c_uint,C.POINTER(C.c_float)]
         assert native.em_pose_bank_load(C.byref(bank),str(ROOT/'assets/player_channels.empc').encode())
-        assert (bank.bone_count,bank.clip_count)==(21,9)
+        assert (bank.bone_count,bank.clip_count)==(21,12)
         elf=(ROOT.parent/'Extermination/config/SCUS_971.12').read_bytes()
         source=(ROOT.parent/'Extermination/extract/chunk28/f01_id3c.bin').read_bytes()
         decoder=Original(elf);decoded=0
@@ -178,7 +178,9 @@ int captured_palette(const EmPoseBank *bank, unsigned clip, unsigned ticks, floa
                 assert native.em_pose_playback_channels(C.byref(state),poses)
                 assert native.em_pose_playback_advance(C.byref(state),1,0)
             assert bool(state.flags&0x1000)==(clip.next==-2)
+        loop_count = bank.clip_count
         native.em_pose_bank_free(C.byref(bank))
-        print('pose bank captured original PASS:4700 decoded keys,2100 channel floats,252 key cursors;9 clip loop/end paths')
+        print(f'pose bank captured original PASS:{decoded} decoded keys,2100 channel floats,'
+              f'252 key cursors;{loop_count} clip loop/end paths')
         print('native hierarchy capture matrix errors:',[(r['clip'],r['frame'],r['native_hierarchy_matrix_max_error']) for r in report['additional_captures']])
 if __name__=='__main__':main()
