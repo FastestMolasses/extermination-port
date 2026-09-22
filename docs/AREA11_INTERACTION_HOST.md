@@ -22,11 +22,14 @@ not claimed unassisted original playthrough timings. Direct owner claims,
 the previous published list, ordinary camera evolution, GPU submission and
 audio devices are explicit fixture boundaries.
 
-Audio asset coverage remains incomplete: the current native SFX manifest
-has no entries for panel cues3EE/3EF, and its existing sound API silently
-ignores unmapped IDs. The fixture verifies the requested cues and ordering,
-not audible panel effects. Those original sound-bank bindings must be
-recovered before claiming the live interaction is complete.
+Loading now requires the verified AREA11 sound bank and selects its area
+remap only after all other host resources are bound. Teardown clears that
+selection. Cue `3EE` is accepted as original silence; `3EF` uses the original
+sample, pitch and voice gains. A missing cue fails the script callback.
+The fixture checks selection, missing-bank cleanup and reload, while its
+audio device remains a boundary. The separate actual-mixer and original
+driver proofs are described in `AREA11_PANEL_SFX.md`; hardware interpolation,
+reverb and scheduling remain unfinished.
 
 Across status callbacks, raw pose channels, displayed palettes and panel/
 elevator script state stay frozen. The final status frame remains consumed;

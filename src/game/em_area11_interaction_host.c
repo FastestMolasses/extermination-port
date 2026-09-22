@@ -150,6 +150,9 @@ static int battery_open(void *context, EmPanel *owner, uint8_t request)
 static int sound(void *context, uint32_t cue)
 {
     (void)context;
+    /* An original absent remap is accepted silence. A missing asset is
+     * a failed binding and must not let the script claim successful audio. */
+    if (!em_sfx_cue_state(cue)) return 0;
     em_sfx_play(cue);
     return 1;
 }
@@ -487,6 +490,7 @@ int em_area11_interaction_host_load(const char *directory,
         !em_interaction_scene_bind(&world.scene, world.elevator_record->source_id,
         &world.elevator, &world.elevator_status, &world.elevator_class, &world.elevator.owner.armed))
         goto failed;
+    if (!em_sfx_set_area(11, 0)) goto failed;
     world.loaded = 1;
     return 1;
 failed:
@@ -498,6 +502,7 @@ void em_area11_interaction_host_clear(void)
 {
     /* This is whole-world teardown: detach the player before releasing
      * its owner tokens. Ordinary script completion uses player_tick. */
+    em_sfx_set_area(-1, -1);
     world.shared.owner = NULL;
     em_status_runtime_free(world.status);
     em_panel_runtime_free(&world.panel);

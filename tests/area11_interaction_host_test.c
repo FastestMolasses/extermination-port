@@ -21,6 +21,7 @@
 EmGameState g;
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
+static int sfx_selected, sfx_bank_available = 1;
 static float panel_target[3], panel_yaw;
 
 int em_gfx_overlay_texture_set(EmGfx *g, int slot, const uint8_t *p, uint32_t w, uint32_t h)
@@ -107,7 +108,21 @@ int em_gfx_overlay_triangle(EmGfx *g, const float xy[3][2], const float rgba[3][
 void em_hud_subtitle(EmGfx *gfx, const char *text, float y, float height, float skew,
                      uint32_t color, uint32_t outline)
 { (void)gfx; (void)text; (void)y; (void)height; (void)skew; (void)color; (void)outline; }
-void em_sfx_play(unsigned cue) { (void)cue; ++sounds; }
+int em_sfx_set_area(int area, int sub)
+{
+    sfx_selected = 0;
+    if (area != 11 || sub != 0) return 1;
+    if (!sfx_bank_available) return 0;
+    sfx_selected = 1;
+    return 1;
+}
+int em_sfx_cue_state(unsigned cue)
+{
+    if (cue == 0x3EE || cue == 0x3EF)
+        return sfx_selected ? (cue == 0x3EE ? 2 : 1) : 0;
+    return 1; /* Legacy status/menu cues are outside this audio fixture. */
+}
+void em_sfx_play(unsigned cue) { assert(em_sfx_cue_state(cue)); ++sounds; }
 void em_sfx_play_at(unsigned cue, const float *position, float radius)
 { assert(position && radius > 0); em_sfx_play(cue); }
 void em_sfx_stop_all(void) {}
@@ -201,6 +216,7 @@ static void setup(int reset_inventory)
     player_pose_finish_palette();
     assert(em_opening_media_prepare("assets/scene_snow") == 0);
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    assert(sfx_selected);
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
 }
 
@@ -211,6 +227,7 @@ static void teardown(void)
     player_pose_unload();
     em_pickup_scene_clear(NULL);
     em_area11_interaction_host_clear();
+    assert(!sfx_selected);
     assert(!em_area11_interaction_host_shared() && !player_pose_owned());
     em_opening_media_shutdown();
     em_collision_free(&g.coll);
@@ -473,6 +490,23 @@ static void owned_teardown(void)
     puts("AREA11 native host acquired teardown/reload PASS");
 }
 
+static void missing_sound_bank(void)
+{
+    setup(1);
+    player_pose_set_stage_hook(NULL, NULL);
+    em_area11_interaction_host_clear();
+    sfx_bank_available = 0;
+    assert(!em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    assert(!em_area11_interaction_host_scene() && !sfx_selected);
+    sfx_bank_available = 1;
+    assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    assert(sfx_selected && em_sfx_cue_state(0x3EE) == 2);
+    player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
+    assert(!outer(0) && !em_area11_interaction_host_failed());
+    teardown();
+    puts("AREA11 native host missing sound bank and reload PASS");
+}
+
 int main(void)
 {
     no_battery();
@@ -480,6 +514,7 @@ int main(void)
     panel_menu(0);
     panel_menu(1);
     owned_teardown();
+    missing_sound_bank();
     puts("AREA11 native interaction host PASS");
     return 0;
 }
