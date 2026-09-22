@@ -44,7 +44,7 @@ class Original(ScanOracle):
                 self.plain(self.load(pc + 4))
                 if target in self.calls:
                     self.calls[target](self)
-                    pc += 8
+                    pc = self.r[31]
                 else:
                     pc = target
                 continue
@@ -55,11 +55,11 @@ class Original(ScanOracle):
                     continue
                 branch = pc + 4 + offset if taken else pc + 8
             elif op in (6, 7):
-                taken = signed(self.r[rs]) <= 0 if op == 6 else signed(self.r[rs]) > 0
+                taken = signed(self.r[rs], 64) <= 0 if op == 6 else signed(self.r[rs], 64) > 0
                 branch = pc + 4 + offset if taken else pc + 8
             elif op == 1:
                 assert rt in (0, 1)
-                taken = signed(self.r[rs]) < 0 if rt == 0 else signed(self.r[rs]) >= 0
+                taken = signed(self.r[rs], 64) < 0 if rt == 0 else signed(self.r[rs], 64) >= 0
                 branch = pc + 4 + offset if taken else pc + 8
             elif op == 17 and rs == 8:
                 taken = self.condition == bool(rt & 1)
@@ -83,9 +83,42 @@ class Original(ScanOracle):
     def plain(self, word):
         op, rs, rt, rd = word >> 26, word >> 21 & 31, word >> 16 & 31, word >> 11 & 31
         fn = word & 63
-        if op == 0 and fn in (6, 7):
-            value = self.r[rt] & 0xffffffff if fn == 6 else signed(self.r[rt])
-            self.r[rd] = (value >> (self.r[rs] & 31)) & 0xffffffff
+        # EE word instructions sign-extend into64-bit scalar registers.
+        # The SDK soft-double packer additionally needs64-bit SLTU masks.
+        def word_result(value):
+            return signed(value) & 0xffffffffffffffff
+        if op == 0 and fn in (0, 2, 3, 4, 6, 7, 33, 35):
+            shift = self.r[rs] & 31 if fn in (4, 6, 7) else word >> 6 & 31
+            if fn in (0, 4):
+                value = self.r[rt] << shift
+            elif fn in (2, 6):
+                value = (self.r[rt] & 0xffffffff) >> shift
+            elif fn in (3, 7):
+                value = signed(self.r[rt]) >> shift
+            elif fn == 33:
+                value = self.r[rs] + self.r[rt]
+            else:
+                value = self.r[rs] - self.r[rt]
+            self.r[rd] = word_result(value)
+        elif op == 0 and fn in (42, 43):
+            a = signed(self.r[rs], 64) if fn == 42 else self.r[rs] & 0xffffffffffffffff
+            b = signed(self.r[rt], 64) if fn == 42 else self.r[rt] & 0xffffffffffffffff
+            self.r[rd] = int(a < b)
+        elif op in (8, 9):
+            self.r[rt] = word_result(self.r[rs] + signed(word & 65535, 16))
+        elif op == 10:
+            self.r[rt] = int(signed(self.r[rs], 64) < signed(word & 65535, 16))
+        elif op == 11:
+            self.r[rt] = int((self.r[rs] & 0xffffffffffffffff) <
+                             (signed(word & 65535, 16) & 0xffffffffffffffff))
+        elif op == 15:
+            self.r[rt] = word_result((word & 65535) << 16)
+        elif op in (32, 33, 35):
+            size = {32: 1, 33: 2, 35: 4}[op]
+            address = (self.r[rs] + signed(word & 65535, 16)) & 0xffffffff
+            self.r[rt] = signed(self.load(address, size), size * 8) & 0xffffffffffffffff
+        elif op == 17 and rs == 0:
+            self.r[rt] = word_result(self.f[rd])
         elif op == 0 and fn in (45, 47):
             self.r[rd] = (self.r[rs] + self.r[rt] if fn == 45 else self.r[rs] - self.r[rt]) & 0xffffffffffffffff
         elif op == 0 and fn in (10, 11):
