@@ -8,6 +8,7 @@ typedef struct {
     int acquire_result, acquires, idles, published, releases, cameras, events;
     int release_result, last_event;
     int pose_calls, pose_commits;
+    int cinematic_calls, cinematic_result;
     float last_pose;
 } Host;
 
@@ -52,6 +53,14 @@ static int camera(void *context)
     Host *h = context;
     h->cameras++;
     return 1;
+}
+
+static int cinematic_player(void *context, float *palette)
+{
+    Host *host = context;
+    ++host->cinematic_calls;
+    palette[0] = 96;
+    return host->cinematic_result;
 }
 
 static int pose_worker(void *context, const EmInteractionAnimation *animation,
@@ -170,6 +179,35 @@ int main(void)
     assert(em_interaction_runtime_init(&runtime, &frame, &model, local, &hooks));
     assert(em_interaction_runtime_claim(&runtime, &panel));
     assert(em_interaction_runtime_player_tick(&runtime, 1) == -1 && !frame.player_ready);
+
+    /* Ready2 requires the attached-face/body worker. Status suppresses the
+     * whole callback, and leaving ready2 resumes the ordinary idle worker. */
+    memset(&frame, 0, sizeof frame);
+    hooks.acquire_player = acquire;
+    assert(em_interaction_runtime_init(&runtime, &frame, &model, local, &hooks));
+    assert(em_interaction_runtime_claim(&runtime, &panel));
+    frame.player_ready = 2;
+    assert(em_interaction_runtime_player_tick(&runtime, 1) == -1 && runtime.failed);
+    assert(em_interaction_runtime_owner(&runtime) == &panel);
+    memset(&frame, 0, sizeof frame);
+    assert(em_interaction_runtime_init(&runtime, &frame, &model, local, &hooks));
+    assert(em_interaction_runtime_set_cinematic_player_worker(&runtime, cinematic_player));
+    assert(em_interaction_runtime_claim(&runtime, &panel));
+    assert(!em_interaction_runtime_set_cinematic_player_worker(&runtime, NULL));
+    frame.player_ready = 2;
+    host.cinematic_result = 1;
+    prior = host.published;
+    for (unsigned i = 0; i < 120; ++i)
+        assert(em_interaction_runtime_player_tick(&runtime, 0) == 0);
+    assert(host.published == prior && !host.cinematic_calls);
+    assert(em_interaction_runtime_player_tick(&runtime, 1) == 1);
+    assert(host.cinematic_calls == 1 && host.last_pose == 96 && host.published == prior + 1);
+    frame.player_ready = 1; /* original frame/sub4 releases the face */
+    frame.selector = 0;
+    host.release_result = 1;
+    assert(em_interaction_runtime_player_tick(&runtime, 1) == 1);
+    assert(host.cinematic_calls == 1 && host.last_pose == -42 && !runtime.owner);
+    assert(!frame.player_ready);
     free(model.palette);
     puts("Shared interaction ownership, real readiness boundary, status freeze, palette order and "
          "release faults: PASS");

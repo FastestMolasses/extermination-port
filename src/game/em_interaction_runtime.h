@@ -35,6 +35,11 @@ typedef struct {
 typedef int (*EmInteractionPoseWorker)(void *, const EmInteractionAnimation *, int palette_result,
                                        float *local_palette);
 
+/* Player-ready2 means the extra face object is attached. This worker must
+ * tick that face before body request/advance and produce the actual palette.
+ * It uses hooks.context and returns the same -1/0/1 palette result contract. */
+typedef int (*EmInteractionCinematicPlayerWorker)(void *, float *local_palette);
+
 typedef struct {
     const void *owner;
     EmInteractionFrame *frame;
@@ -42,6 +47,7 @@ typedef struct {
     EmInteractionAnimation animation;
     EmInteractionRuntimeHooks hooks;
     EmInteractionPoseWorker pose_worker;
+    EmInteractionCinematicPlayerWorker cinematic_player_worker;
     float *local_palette;
     int failed;
 } EmInteractionRuntime;
@@ -54,6 +60,8 @@ int em_interaction_runtime_init(EmInteractionRuntime *runtime, EmInteractionFram
 /* Configure before claiming an owner; callback uses hooks.context. */
 int em_interaction_runtime_set_pose_worker(EmInteractionRuntime *runtime,
                                            EmInteractionPoseWorker worker);
+int em_interaction_runtime_set_cinematic_player_worker(EmInteractionRuntime *runtime,
+    EmInteractionCinematicPlayerWorker worker);
 /* After original single-winner use arbitration/alignment, claim the owner
  * and publish selector3. A competing token cannot replace a live owner. */
 int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owner);

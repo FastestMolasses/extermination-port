@@ -7,6 +7,10 @@
 static struct {
     EmPoseBank bank;
     EmPlayerPose pose;
+    const EmPoseBank *cinematic_bank;
+    unsigned cinematic_clip;
+    uint8_t cinematic_mode; /* original player+2F3: pending1, active2 */
+    float cinematic_rate;
     int started;
     int idle_phase;
     int idle_fidget;
@@ -62,6 +66,8 @@ int player_use_poll(void)
 int player_pose_load(const char *path)
 {
     source.started = source.hip_valid = source.saved_euler_valid = 0;
+    source.cinematic_bank = NULL;
+    source.cinematic_mode = 0;
     memset(&source.pose, 0, sizeof source.pose);
     if (em_pose_bank_load(&source.bank, path)) return 1;
     fprintf(stderr, "player pose: original channel bank unavailable: %s\n", path);
@@ -93,6 +99,8 @@ int player_pose_opening_release(void)
     /* Original external-bank release182DF0 ->1C63E0; immutable state03
      * has idle0 remaining80 before the next ordinary player callback. */
     if (!em_player_pose_init(&source.pose, &source.bank, 0, 0)) return 0;
+    source.cinematic_bank = NULL;
+    source.cinematic_mode = 0;
     source.started = 1;
     source.idle_phase = source.idle_fidget = 0;
     source.idle_count = 300;
@@ -317,7 +325,11 @@ int player_pose_publish(const float *local_palette)
     for (unsigned i = 0; i < 22 * 16; ++i)
         if (!isfinite(local_palette[i])) return 0;
     memcpy(g.player_palette, local_palette, 22 * 16 * sizeof *local_palette);
-    palette_apply_placement(g.player_palette, 22, g.pos, g.yaw);
+    /*0015BCF0 mode2 chooses1C6960: identity owner matrix. Cinematic
+     * channels already contain world placement; applying g.pos duplicates it.
+     * Pending mode1 preserves the old cached display until the player stage. */
+    if (source.cinematic_mode != 2)
+        palette_apply_placement(g.player_palette, 22, g.pos, g.yaw);
     memcpy(source.hip, g.player_palette + 16 + 12, sizeof source.hip);
     source.hip_valid = 1;
     return 1;
@@ -457,19 +469,78 @@ int player_pose_use_accepted(void)
 
 int player_pose_idle_tick(float *local_palette)
 {
+    if (source.cinematic_mode)
+        return player_pose_cinematic_tick(local_palette, 0);
     return em_player_pose_idle_tick(&source.pose, local_palette, g.model.bone_count);
+}
+
+int player_pose_cinematic_request(const EmPoseBank *bank, unsigned clip, float rate)
+{
+    if (!source.started || !source.pose.valid || !source.pose.acquired || !bank ||
+        bank->bone_count != 21 || !bank->clips || !isfinite(rate) || rate < 0 || rate > 4 ||
+        clip > 32767 || source.pose.script_active)
+        return 0;
+    for (unsigned i = 0; i < 21; ++i)
+        if (bank->parents[i] != source.bank.parents[i]) return 0;
+    unsigned index;
+    for (index = 0; index < bank->clip_count && bank->clips[index].id != clip; ++index) {}
+    if (index == bank->clip_count) return 0;
+    /*001B9A00/sub1 publishes the request, mode1/rate and clears the last
+     * animation result. It does not initialize or advance any source channels. */
+    source.cinematic_bank = bank;
+    source.cinematic_clip = clip;
+    source.cinematic_rate = rate;
+    source.cinematic_mode = 1;
+    source.pose.flags = 0;
+    return 1;
+}
+
+int player_pose_cinematic_tick(float *local_palette, int freeze_motion)
+{
+    if (!source.started || !source.pose.valid || !source.pose.acquired ||
+        !source.cinematic_bank || !source.cinematic_mode || !local_palette)
+        return -1;
+    if (source.cinematic_mode == 1) {
+        EmPlayerPose next;
+        if (!em_player_pose_init(&next, source.cinematic_bank, source.cinematic_clip, 0))
+            return -1;
+        next.acquired = 1;
+        source.pose = next;
+        source.cinematic_mode = 2;
+        source.pose.flags = 0;
+    }
+    /*83090 returns1 after the special-bank initializer, so5BA50 advances
+     * by the requested rate on this SAME callback. Ordinary changed requests
+     * return0 and do not advance; that separate path remains unchanged. */
+    if (!em_player_pose_advance(&source.pose, source.cinematic_rate, freeze_motion))
+        return -1;
+    return em_player_pose_palette(&source.pose, local_palette, g.model.bone_count) ? 1 : -1;
+}
+
+int player_pose_cinematic_active(void)
+{
+    return source.started && source.pose.valid && source.cinematic_mode != 0;
 }
 
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette)
 {
+    if (source.cinematic_mode) return 0;
     return em_player_pose_script_tick(&source.pose, animation, result, local_palette,
                                       g.model.bone_count);
 }
 
 int player_pose_release(void)
 {
-    if (!em_player_pose_release(&source.pose)) return 0;
+    if (source.cinematic_mode) {
+        /*182DF0's nonzero2F3 branch restores the default bank and initializes
+         * healthy row0 before releasing. It does not blend foreign channels
+         * into an ordinary clip with the same numeric ID. */
+        if (!source.pose.acquired || !em_player_pose_init(&source.pose, &source.bank, 0, 0))
+            return 0;
+        source.cinematic_bank = NULL;
+        source.cinematic_mode = 0;
+    } else if (!em_player_pose_release(&source.pose)) return 0;
     g.loco_mode = g.loco_substate = g.loco_tier = 0;
     g.loco_entry_ticks = 0;
     g.loco_stop.phase = g.loco_reentry.phase = 0;

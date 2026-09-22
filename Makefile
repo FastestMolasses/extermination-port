@@ -228,6 +228,10 @@ test-roger-cinematic-reference:
 test-interaction-cinematic-reference:
 	python3 tools/test_interaction_cinematic_reference.py
 
+.PHONY: test-player-cinematic-reference
+test-player-cinematic-reference:
+	python3 tools/test_player_cinematic_reference.py
+
 .PHONY: test-roger-runtime
 test-roger-runtime:
 	@mkdir -p build

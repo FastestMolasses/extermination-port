@@ -41,6 +41,15 @@ int em_interaction_runtime_set_pose_worker(EmInteractionRuntime *runtime,
     return 1;
 }
 
+int em_interaction_runtime_set_cinematic_player_worker(EmInteractionRuntime *runtime,
+    EmInteractionCinematicPlayerWorker worker)
+{
+    if (!runtime || runtime->failed || runtime->owner)
+        return 0;
+    runtime->cinematic_player_worker = worker;
+    return 1;
+}
+
 int em_interaction_runtime_owns(const EmInteractionRuntime *runtime, const void *owner)
 {
     return runtime && owner && !runtime->failed && runtime->owner == owner;
@@ -126,12 +135,16 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
          * Advancing the newly acquired default clip here would add a tick. */
         return 1;
     }
-    /* External skeleton ready2 requires a different player worker. Neither
-     * panel nor elevator installs one; don't pass it to the ordinary sampler. */
-    if (frame->player_ready != 1)
+    if (frame->player_ready != 1 && frame->player_ready != 2)
         return fault(runtime);
     int palette_result;
-    if (runtime->animation.active)
+    if (frame->player_ready == 2) {
+        /* The face attachment has its own required update before body
+         * animation. Absence of that worker cannot fall back to ordinary idle. */
+        if (!runtime->cinematic_player_worker)
+            return fault(runtime);
+        palette_result = runtime->cinematic_player_worker(hooks->context, runtime->local_palette);
+    } else if (runtime->animation.active)
         palette_result = em_interaction_animation_tick(&runtime->animation, runtime->model,
                                                        runtime->local_palette);
     else if (hooks->idle_player_tick)
@@ -140,7 +153,7 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
         return fault(runtime);
     if (palette_result < 0 || palette_result > 1)
         return fault(runtime);
-    if (runtime->animation.active && runtime->pose_worker &&
+    if (frame->player_ready == 1 && runtime->animation.active && runtime->pose_worker &&
         runtime->pose_worker(hooks->context, &runtime->animation, palette_result,
                              runtime->local_palette) != 1)
         return fault(runtime);

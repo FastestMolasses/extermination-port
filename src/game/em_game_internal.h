@@ -2206,6 +2206,12 @@ void player_pose_invalidate(const char *reason);
 int player_pose_acquire(void);
 int player_pose_use_accepted(void);
 int player_pose_idle_tick(float *local_palette);
+/* Original0A/sub1 request and next-player-stage83090 special-bank commit.
+ * Bank is borrowed until release/unload. Caller must tick its attached face
+ * separately before this body worker when shared player-ready is2. */
+int player_pose_cinematic_request(const EmPoseBank *bank, unsigned clip, float rate);
+int player_pose_cinematic_tick(float *local_palette, int freeze_motion);
+int player_pose_cinematic_active(void);
 int player_pose_release(void);
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette);

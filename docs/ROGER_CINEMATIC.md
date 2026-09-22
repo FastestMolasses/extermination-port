@@ -23,3 +23,33 @@ game.
 These checks establish resource decoding and camera sampling. Shared player
 ownership, clip binding and playback timing, camera mode transitions, messages,
 audio and the complete live encounter remain separate integration work.
+
+## Native player bank ownership
+
+The player pose host now accepts the original op0A/sub1 bank request through
+`player_pose_cinematic_request`. This borrows a verified compatible bank until
+release. The command publishes pending mode1, clip/rate and a cleared result;
+it does not initialize or advance channels. On the next player callback,
+`00183090` commits the requested clip at source0, changes mode1 to2 and returns1.
+The caller therefore advances by the requested rate on that same callback:
+Roger's first player sample is source0.5 with 690.5 frames remaining.
+
+Mode2 uses the identity owner matrix (`001C6960`), so the host publishes its
+world-positioned channel palette without adding the ordinary player position
+and yaw. Hip mirrors come from that same palette. Release follows the original
+nonzero2F3 branch: restore the default bank and healthy idle0 directly, leaving
+80 frames before the next ordinary callback advances to79. Numeric clip IDs
+from the two banks must not be blended as though they shared a bank.
+
+`make test-player-cinematic-reference` executes the original request,
+initializer, animation clock and release. It compares 1,388 player callbacks,
+the first sample-call order, bank transitions and release state. The actual
+bank and shared ownership fixture passes ASan/UBSan, including 120 frozen
+status callbacks, world-palette/hip publication and the final consumed release
+callback. The original channel sampler is intercepted in this timing proof;
+the authored keys have the separate decoder proof above.
+
+Shared player-ready2 now requires an explicitly installed face/body worker.
+Status suppresses that whole worker, and a missing worker retains a fault.
+The fixture's face and frame side effects are boundaries; this checkpoint does
+not yet install the actual Dennis face, Roger camera or media into the scene.
