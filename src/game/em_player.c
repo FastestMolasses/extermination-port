@@ -12,6 +12,7 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_player.h"
+#include "game/em_player_heading.h"
 
 #include "game/em_game_internal.h"
 
@@ -227,110 +228,31 @@ void player_turn_toward(float desired, float rate)
     while (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
 }
 
-/* player_move_cam_yaw — the engine's camera-relative move basis.
- *
- * FIX 1 (INVESTIGATION_movement_exact.md "DEEP A/B v2", live 2026-06-17):
- * the engine builds the desired heading as stickAngle + D_008106A0, where
- * D_008106A0 is the camera's HORIZONTAL VIEW yaw read from its ORIENTATION
- * BASIS — concretely the atan2 angle of the COMMITTED FORWARD vector
- * D_00810600 (FINDINGS "Global camera vector pool": "0x8106A0 atan2 angle
- * of forward"), written by the commit func_0018C0D0 right after it builds
- * forward = normalize(target - eye). It is NOT recomputed from the
- * eye/target POSITIONS each frame, and it barely rotates while moving
- * (live: ~0.004 rad/frame, ~constant over a whole run) because the
- * committed forward is the damped/smoothed camera basis — so the move
- * basis is STABLE during locomotion and the body eases onto a fixed
- * desired heading, straightening the path.
- *
- * The previous attempt returned atan2(tgt - eye) recomputed from the raw
- * actual eye/target positions. That is the EYE->TARGET geometric heading;
- * the live A/B read it at ~-2.31 rad while the engine's D_008106A0 read
- * ~+2.42 rad at the same pose. The two diverge because that expression
- * swings with the chasing eye and is recomputed from positions rather
- * than sourced from the maintained orientation.
- *
- * The faithful source is the committed forward ORIENTATION vector
- * g.cam.fwd (= engine D_00810600 = normalize(tgt - eye), with the commit's
- * degenerate "keep last forward" guard already baked in). Its XZ azimuth
- * atan2(fwd.x, fwd.z) IS the geometric quantity D_008106A0 is the atan2 of.
- * The live globals' -2.31 vs +2.42 gap is the engine-global-vs-port
- * convention offset (the engine stores D_008106A0 in its own basis and
- * pairs it with atan2(stickX,stickY); the port consumes the SAME geometric
- * forward azimuth in its atan2(x,z) basis, paired with its (fx*-sy - fz*sx)
- * stick rotation below) — feeding the engine's raw +2.42 into the port's
- * atan2(x,z) pipeline would rotate movement 90 deg / mirror it. Sourcing
- * the committed-forward azimuth keeps forward-press -> walk along the
- * camera forward AND gives the engine's stable, non-swinging basis.
- *
- * g.cam.fwd is last frame's committed forward (actor_update -> player_move
- * runs BEFORE camera_update/camera_commit), exactly as func_00174AC0 reads
- * the prior-frame D_008106A0. Degenerate guard falls back to the
- * eye->target azimuth, then the orbit yaw, so the value stays
- * deterministic if the commit has not run yet. */
+/* Horizontal azimuth of the prior frame's committed camera forward.
+ * This convenience value uses atan2(X,Z). The original D008106A0 has a
+ * different camera basis, atan2(-Z,X), computed by em_player_stick_heading.
+ * Both original and native body yaw move along (sin(yaw),cos(yaw)); no
+ * conversion is applied to the resulting desired body heading. */
 float player_move_cam_yaw(void)
 {
-    float fx = g.cam.fwd[0];
-    float fz = g.cam.fwd[2];
-    if (fx * fx + fz * fz >= 1e-6f)
-        return atan2f(fx, fz);       /* committed forward azimuth = D_008106A0 */
-    /* commit has not produced a forward yet: fall back to the eye->target
-     * azimuth (same geometric quantity), then the orbit yaw. */
-    float dx = g.cam.tgt[0] - g.cam.eye[0];
-    float dz = g.cam.tgt[2] - g.cam.eye[2];
-    if (dx * dx + dz * dz < 1e-6f)
-        return g.cam.yaw;
-    return atan2f(dx, dz);
+    float fx=g.cam.fwd[0], fz=g.cam.fwd[2];
+    if (fx*fx+fz*fz>=1e-6f) return atan2f(fx,fz);
+    float dx=g.cam.tgt[0]-g.cam.eye[0];
+    float dz=g.cam.tgt[2]-g.cam.eye[2];
+    if (dx*dx+dz*dz<1e-6f) return g.cam.yaw;
+    return atan2f(dx,dz);
 }
 
-/* player_stick_desired_yaw — the camera-relative DESIRED heading the body
- * eases onto (func_001B12B0's target).
- *
- * CORRECTED (audit 2026-07-31 — this was MIRRORED, a real movement bug).
- * Derived line-by-line out of src/func_00174AC0.c (NEARMISS, so its LOGIC
- * is authoritative) and src/func_0018C0D0.c (NEARMISS). Verbatim from
- * func_00174AC0:
- *     +0x244 = func_0011DE90(pi * (D_00810E64 / 256.0f));
- *     +0x248 = func_0011DE90(pi * (D_00810E65 / 256.0f));
- *     +0x24C = func_0011E620(-(+0x248), +0x244);
- *     ang    = func_001B1470(pi + (+0x24C) + D_008106A0);
- * with func_0011E620(y, x) = atan2f (src/func_0011C4C8.c is verbatim
- * fdlibm __ieee754_atan2f(y, x)), func_001B1470 = wrap to [-pi, pi], and
- * func_0011DE90 = cosf (the only trig that maps a 0..255 stick byte
- * through pi*raw/256 onto a centred [+1 .. -1] axis; its sibling
- * func_0011E2A8 is the sinf used by func_0017ABA0's pitch scale).
- *
- * So the engine's two axis terms are u = cos(pi*rawX/256) and
- * v = cos(pi*rawY/256) — i.e. u = -sin(pi/2 * sx), v = -sin(pi/2 * sy)
- * for the linear right-positive / down-positive deflections sx, sy. Using
- * the identity pi + atan2(a, b) == atan2(-a, -b):
- *     ang = atan2(v, -u) + D_008106A0
- * and src/func_0018C0D0.c writes
- *     D_008106A0 = func_0011E620(-fwd.z, fwd.x)   (line 113, verbatim)
- * from the just-committed forward spad 0x700038A0 (copied to D_00810600).
- * An engine heading `a` therefore denotes the world direction
- * (cos a, -sin a), while the port's g.yaw denotes (sin Y, cos Y), so
- * Y = a + pi/2 and atan2(-fwd.z, fwd.x) = player_move_cam_yaw() - pi/2.
- * The two pi/2 terms cancel:
- *     Y = atan2(v, -u) + player_move_cam_yaw()
- *
- * Cardinals: FWD -> cam_yaw + pi/2, BACK -> cam_yaw - pi/2 (both UNCHANGED
- * from the previous form, which is why the old live A/B looked right), but
- * RIGHT -> cam_yaw and LEFT -> cam_yaw + pi — the old
- * `atan2(sx,-sy) + cam_yaw + pi/2` had those two SWAPPED and every diagonal
- * 90 deg out. atan2(sx,-sy) == pi/2 - atan2(-sy,sx) is a REFLECTION of the
- * engine's stick map, and no constant offset can repair a reflection.
- *
- * Keeping the cos() axis warp (rather than normalising rdx/rdy) is also
- * the engine's shape: on a partial diagonal (full X, half Y) the warp
- * moves the heading ~9 deg versus a linear normalise. */
 static float player_stick_desired_yaw(const EmFrameInput *in)
 {
-    float u = cosf(EM_PI * ((float)in->lx / 256.0f));   /* +0x244 */
-    float v = cosf(EM_PI * ((float)in->ly / 256.0f));   /* +0x248 */
-    float desired = atan2f(v, -u) + player_move_cam_yaw();
-    while (desired >  EM_PI) desired -= 2.0f * EM_PI;
-    while (desired < -EM_PI) desired += 2.0f * EM_PI;
-    return desired;
+    float fx=g.cam.fwd[0], fz=g.cam.fwd[2];
+    if (fx*fx+fz*fz<1e-6f) {
+        /* Host initialization fallback before the first camera commit. */
+        float yaw=player_move_cam_yaw();
+        fx=sinf(yaw);
+        fz=cosf(yaw);
+    }
+    return em_player_stick_heading(in->lx,in->ly,fx,fz);
 }
 
 /* Player movement (the port's first slice of the actor spine's physics
@@ -806,20 +728,9 @@ void player_move(void)
         return;
     }
 
-    /* Stick direction (normalized) -> camera-relative DESIRED heading.
-     * Camera basis on XZ: forward f points from the eye towards the
-     * player, screen-right is f x up = (-fz, 0, fx). Stick up walks
-     * away from the camera. The camera yaw is the engine's D_008106A0
-     * horizontal VIEW yaw (player_move_cam_yaw — C3), NOT the pitched
-     * eye->target heading cam+0x44, so the desired heading matches the
-     * engine and the body does not over-curve. This is the DESIRED
-     * heading (func_001B12B0's target); the BODY heading g.yaw is eased
-     * toward it below and the velocity is emitted ALONG g.yaw — KEEP
-     * this camera-relative derivation, change only what we move along. */
-    /* Camera-relative DESIRED heading (func_001B12B0's target) — see
-     * player_stick_desired_yaw() for the derivation out of the recovered
-     * src/func_00174AC0.c. Velocity is still emitted along the eased body
-     * heading g.yaw (func_00178B90, unchanged). */
+    /* 00174AC0 selects the desired body yaw from raw pad bytes and the
+     * previously committed forward. 00178B90 translates along the eased
+     * body yaw using X=sin(yaw), Z=cos(yaw). */
     float desired = player_stick_desired_yaw(in);
 
     /* STANDING-ENTRY TURN-IN-PLACE GATE + TIER-0 RAMP ENTRY

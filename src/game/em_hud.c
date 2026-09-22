@@ -842,6 +842,42 @@ void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
     }
 }
 
+
+void em_hud_subtitle(EmGfx *gfx, const char *str, float y, float line_height,
+                     float skew, uint32_t rgb, uint32_t outline)
+{
+    if (!gfx || !str || !font_ensure(gfx)) return;
+    unsigned widths[2] = {0, 0}, row = 0;
+    for (const unsigned char *p = (const unsigned char *)str; *p && row < 2; p++) {
+        if (*p == '\n') { row++; continue; }
+        const FontGlyph *g = font_glyph(FONT_TALL, *p);
+        if (*p >= 0x20) widths[row] += g ? g->advance : 9;
+    }
+    unsigned widest = widths[0] > widths[1] ? widths[0] : widths[1];
+    float origin = 256.0f - (float)(widest >> 1);
+    em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
+    /* Original four outline offsets use half-height GS y units, thus
+     * the vertical offsets are two full-canvas pixels. */
+    const float offsets[5][2] = {{0,-2},{1,0},{0,2},{-1,0},{0,0}};
+    for (unsigned pass = 0; pass < 5; pass++) {
+        uint32_t color = pass == 4 ? rgb : outline;
+        float rgba[4] = {(color & 255) / 128.0f,
+                         ((color >> 8) & 255) / 128.0f,
+                         ((color >> 16) & 255) / 128.0f, 1.0f};
+        float x = origin + offsets[pass][0], py = y + offsets[pass][1];
+        for (const unsigned char *p = (const unsigned char *)str; *p; p++) {
+            if (*p == '\n') { x = origin + offsets[pass][0]; py += line_height; continue; }
+            if (*p < 0x20) continue;
+            const FontGlyph *g = font_glyph(FONT_TALL, *p);
+            float advance = g ? g->advance : 9;
+            if (g) em_gfx_overlay_glyph_skew(gfx, x, py, advance, 20, skew,
+                         g->u, g->v, g->u + advance, g->v + g->h, rgba);
+            x += advance;
+        }
+    }
+    em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+}
+
 float em_hud_text_width(const char *str, EmHudTextStyle style)
 {
     if (!str || !em_hud_font_ready()) return 0.0f;

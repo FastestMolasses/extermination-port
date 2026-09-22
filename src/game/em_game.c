@@ -3,7 +3,7 @@
  * Engine chain (FINDINGS.md "ENGINE FRAME ANATOMY") and what stands in for
  * each stage here:
  *
- *   func_001AB7E0  boot/flow task        game_boot_task() — one frame:
+ *   func_001AB7E0  boot/flow task        game_load_task() — one frame:
  *                                        loads the player model + scene
  *                                        parts, then re-registers slot 0
  *                                        with the game task (exactly how
@@ -165,6 +165,9 @@
 #include "game/em_camera.h"
 #include "game/em_scene.h"
 #include "game/em_props.h"
+#include "game/em_opening_runtime.h"
+#include "game/em_opening_actor.h"
+#include "game/em_opening_control_test.h"
 
 /* The gameplay state object declared in em_game_internal.h. */
 EmGameState g;
@@ -754,7 +757,7 @@ void em_game_player_interact_anim(int clip_id)
 int em_game_player_interact_busy(void)
 {
     return g.interact_active || g.elev_state == 1 || g.elev_pending ||
-           g.cine_active;
+           g.cine_active || em_opening_runtime_busy();
 }
 
 /* em_game_player_face_step — the examine op04 FACE pre-roll: turn the
@@ -1396,7 +1399,7 @@ static void render_chain_build(void)
             g.chain_len++;
         }
     }
-    if (g.mesh) {
+    if (g.mesh && !em_opening_runtime_actors_active()) {
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.mesh, g.player_palette,
@@ -1477,8 +1480,8 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
     float probe[3] = { pt[0], pt[1] - SOLV_BOUND_RANGE, pt[2] };
     float lo, hi;
 
-    if (em_collision_segment_query(&g.coll, pt, probe, mask,
-                                   EM_COLL_ID_NONE, &hit)) {
+    if (em_collision_camera_query(&g.coll, pt, probe, mask,
+                                   &hit)) {
         lo = hit.point[1];
         if ((hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE)) ||
             hit.normal[1] > AIMS_SETTLE_NY)
@@ -1487,8 +1490,8 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
         lo = cam->y_lo - SOLV_BOUND_RANGE;
     }
     probe[1] = pt[1] + SOLV_BOUND_RANGE;
-    if (em_collision_segment_query(&g.coll, pt, probe, mask,
-                                   EM_COLL_ID_NONE, &hit)) {
+    if (em_collision_camera_query(&g.coll, pt, probe, mask,
+                                   &hit)) {
         hi = hit.point[1];
         if ((hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) ||
             -hit.normal[1] > AIMS_SETTLE_NY)
@@ -1903,7 +1906,8 @@ static void frame_close_out(void)
      * OR the EM_HUD_FORCE capture hook) and the real background will
      * draw over it. Without the player asset or the ui.emui backdrop
      * the old path runs unchanged (asset-absent frames byte-identical). */
-    int ui_scene = g.mesh && em_hud_visible() && em_hud_backdrop_ready(gfx);
+    int ui_scene = !em_opening_runtime_busy() && g.mesh &&
+                   em_hud_visible() && em_hud_backdrop_ready(gfx);
 
     if (ui_scene) {
         ui_scene_render(gfx);
@@ -1951,6 +1955,30 @@ static void frame_close_out(void)
                 em_gfx_draw_skinned(gfx, cd->mesh, g.viewproj,
                                     cd->palette, cd->bone_count);
         }
+        /* Original opening palettes already contain world placement.
+         * They replace the ordinary player pose only while the script
+         * owns the actors. The same scene lighting applies to each. */
+        if (em_opening_runtime_actors_active()) {
+            for (unsigned index=0;index<3;++index) {
+                EmGfxMesh *mesh;
+                const float *palette;
+                uint32_t bone_count;
+                if (!em_opening_actor_record(index,
+                        em_opening_runtime_half_tick(),&mesh,&palette,
+                        &bone_count)) continue;
+                if (g.rig_on) {
+                    EmGfxCharRig rig;
+                    unsigned anchor_bone=bone_count>1?1:0;
+                    char_rig_build(&rig,palette+anchor_bone*16+12,index==0);
+                    em_gfx_char_rig(gfx,&rig);
+                } else em_gfx_char_rig(gfx,NULL);
+                em_gfx_draw_skinned(gfx,mesh,g.viewproj,palette,bone_count);
+            }
+        }
+        /* Original pickup children use unlit additive drawing after the
+         * opaque owner meshes, with the owner's current world matrix. */
+        em_pickup_lights_draw(gfx, g.viewproj);
+        em_props_indicators_draw(gfx, g.viewproj);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }
@@ -1985,7 +2013,8 @@ static void frame_close_out(void)
      * game-over screen, where START means restart): the open press is
      * dropped inside em_hud_update. */
     em_hud_menu_inhibit(player_damage_locked() ||
-                        em_examine_input_locked());  /* examine = the
+                        em_examine_input_locked() ||
+                        em_opening_runtime_busy());  /* examine = the
                                   * op07 scripted-mode window — the
                                   * engine's menu poll never runs while
                                   * spad 3B8D owns the frame */
@@ -2005,7 +2034,10 @@ static void frame_close_out(void)
                                  * global radio machine can't address
                                  * (GLOBAL lines drew inside em_hud
                                  * just above) */
-    em_hud_area_title_render(gfx);  /* AREA-11 opening title card ("FORT
+    em_hud_area_title_render(g.frame_selector ? NULL : gfx);
+                                /* 001C5930 suppresses selectors1/2/3,
+                                 * but its 300-frame lifetime still ticks.
+                                 * AREA-11 opening title card ("FORT
                                  * STEWART - REAR ENTRANCE") — one-shot,
                                  * fade-in/hold/fade-out, armed on AREA-11
                                  * scene entry (INVESTIGATION_area11_
@@ -2047,27 +2079,9 @@ static void frame_close_out(void)
     else if (g.go_state >= GO_PROMPT)
         em_hud_continue(gfx, g.go_cursor);
 
-    /* SCREEN FADE — the step-D machine, drawn last so it covers the
-     * scene AND the status screen (the engine's fade owns the whole GS
-     * frame). The engine blend is SUBTRACTIVE (out = max(0, pixel -
-     * level), GS ALPHA_2 0xA1/FIX 0x80 — decoded 2026-06-11, see
-     * em_frame.h): a GREY full-screen sprite with R=G=B=level is
-     * subtracted from every frame pixel, so shadows crush to black
-     * first and highlights survive longest. The overlay pass carries
-     * that exact op (em_gfx_overlay_rect_sub: reverse-subtract,
-     * ONE/ONE on RGB, flushed over the HUD) — the former black-quad
-     * alpha approximation and its residual gap are gone. Level 0
-     * queues nothing: the default frame stays byte-identical. */
-    {
-        float l = em_frame_fade_level();
-        if (l > 0.0f) {
-            const float grey[3] = { l, l, l };
-            em_gfx_overlay_rect_sub(gfx, 0.0f, 0.0f, EM_GFX_OVERLAY_W,
-                                    EM_GFX_OVERLAY_H, grey);
-        }
-    }
+    /* em_frame owns transition ticking/drawing after task dispatch. */
 
-    if (g.capture_path && g.frame_no == g.capture_frame)
+    if (!em_opening_control_test_active() && g.capture_path && g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
 
     /* EM_CAM_PRINT=1 — the settled camera-state witness (s76 idle-
@@ -2089,10 +2103,12 @@ static void frame_close_out(void)
                c->eye[1] - g.pos[1], c->tgt[1] - g.pos[1]);
     }
 
+    em_opening_control_test_after_frame();
     g.frame_no++;
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
-    if (g.capture_path && !g.move_test && !g.weapon_test && !g.door_test &&
+    if (!em_opening_control_test_active() && g.capture_path &&
+        !g.move_test && !g.weapon_test && !g.door_test &&
         !g.transit_test && !g.slider_test &&
         g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();
@@ -4998,6 +5014,7 @@ static void gameplay_frame(void)
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
+    em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
     render_chain_build();    /* func_001D1C50 — render chain build    */
     render_env_init();       /* func_001C1D00(0x008101D0)             */
     /* func_001AFD70(0) — the actor-pool tick (world services). The
@@ -5082,6 +5099,7 @@ static void gameplay_frame(void)
     em_pickup_update(g.pos, g.yaw, em_frame_input(),
                      !em_door_movement_locked() &&
                      !player_damage_locked());
+    em_props_indicators_tick();
     {
         /* Collection events (one-shot takes — em_pickup.h):
          *  - FOUND: the engine posts D_008106B0/B1 and auto-opens the
@@ -5205,16 +5223,25 @@ static void gameplay_frame(void)
     frame_close_out();       /* func_001CB5A0/001AAD00/001D1EA0(1)    */
 }
 
-/* func_001AE6B0 — cutscene/scripted frame variant. Skeleton only: the
- * native selector never routes here yet. The original polls the frame
- * input block's button words for mask 0x0900 (the third halfword,
- * 0x00810E74) to allow skipping. */
+/* 001AE6B0 keeps actors, camera and presentation running while the
+ * script owns input. The player’s opening pose comes from original
+ * bank0x98, so ordinary movement/weapon/menu handlers do not run. */
 static void cutscene_frame(void)
 {
-    const EmFrameInput *in = em_frame_input();
-    if (in->pressed & 0x0900) {
-        /* skip request — unhandled until cutscenes exist natively */
-    }
+    /* This path also runs world actors. Their transient collision entries
+     * expire each frame, just as they do in the ordinary gameplay path. */
+    em_collision_moving_clear();
+    em_collision_blocker_clear();
+    em_opening_runtime_tick();
+    steam_tick();
+    grate_update();
+    em_pickup_update(g.pos, g.yaw, em_frame_input(), 0);
+    em_props_indicators_tick();
+    render_chain_build();
+    render_env_init();
+    if (!em_opening_runtime_camera()) camera_update();
+    em_sfx_listener(g.pos,g.cam.eye,g.cam.yaw);
+    frame_close_out();
 }
 
 /* ------------------------------------------------------------------ */
@@ -5460,8 +5487,9 @@ static void ingame_frame_machine(EmTask *self)
                 if (et_spawn < 0)
                     printf("enemy test: spawn failed\n");
             }
+            em_opening_runtime_scene_ready();
             self->user[GAME_BYTE_FRAME] = 1;
-            /* fall through — the engine's init frame still renders */
+            /* Native init currently also presents the first world frame. */
         case 1:
             /* CONTINUE RESTART (the decoded dispatch: prompt cursor 0
              * confirmed at hold-black — the engine reinstalls the
@@ -5523,6 +5551,7 @@ static void ingame_frame_machine(EmTask *self)
              * camera math; FINDINGS.md "CAMERA SYSTEM" corrections),
              * func_001AE7E0 end-of-level poll — all pending translation),
              * then the frame-variant selector (scratchpad 0x70003B8D). */
+            em_opening_control_test_before_frame();
             if (g.frame_selector)
                 cutscene_frame();   /* func_001AE6B0 */
             else
@@ -5574,10 +5603,9 @@ static void game_task(void)
     }
 }
 
-/* func_001AB7E0 — boot/flow task: first dispatch loads the assets, then
- * slot 0 is re-registered with the game task, exactly mirroring the live
- * engine (slot 0 = func_001ACEC0 after boot). */
-static void game_boot_task(void)
+/* Native gameplay asset loader, used after the frontend/new-game flow
+ * or explicitly by EM_SKIP_STARTUP. It is not the PS2 boot task. */
+static void game_load_task(void)
 {
     EmGfx *gfx = em_frame_gfx();
 
@@ -5676,11 +5704,11 @@ static void game_boot_task(void)
         em_bgm_play(g.bgm_path, 1);  /* func_001FB0B0(cue) — looping BGM */
     } else if (g.bgm_file[0]) {
         char path[560];
-        snprintf(path, sizeof path, "%s/%s", SCENE_DIR, g.bgm_file);
+        snprintf(path, sizeof path, "%s/%s", g.scene_dir, g.bgm_file);
         em_bgm_play(path, 1);
     }
 
-    em_task_register(0, game_task);  /* func_001AB740(0, func_001ACEC0) */
+    em_task_replace_current(game_task);
 }
 
 void em_game_install(void)
@@ -5793,8 +5821,24 @@ void em_game_install(void)
      * per-scene) — so they are NOT re-zeroed on every scene arm; only the
      * elevator ACTOR (re-installed per area build) resets on scene load. */
     g.have_battery     = 0;       /* D_00810811 = 0 */
+    g.opening_event_39 = 0;
+    g.opening_key_item_zero = 0;
     g.terminal_powered = 0;       /* D_00810841[11] bit 7 = 0 */
-    em_task_register(0, game_boot_task);  /* func_001AB740(0, 0x001AB7E0) */
+    em_task_register(0, game_load_task);
+}
+
+void em_game_install_new(void)
+{
+    em_game_install();
+    /* func_001AF2C0 clears the inventory/area block and establishes these
+     * health, magazine, reserve and battery values. The frontend's replay
+     * of movie selector 0 precedes func_001AD360's area 11.0 commit. */
+    g.status = (EmPlayerStatus){ .health = 100.0f, .health_max = 100.0f,
+        .infection = 0.0f, .mag = 30, .mag_max = 30, .reserve = 60,
+        .battery = 0, .battery_max = 0 };
+    snprintf(g.scene_dir, sizeof g.scene_dir, "%s", "assets/scene_snow");
+    em_opening_runtime_request();
+    em_opening_control_test_begin();
 }
 
 void em_game_shutdown(void)
@@ -5820,6 +5864,7 @@ void em_game_shutdown(void)
     em_examine_reset();
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
+    em_opening_runtime_shutdown(); /* PCM release after device teardown */
     em_sfx_shutdown();  /* AFTER em_bgm_shutdown — the device-teardown
                          * guarantee makes the sample memory freeable */
 }
@@ -5904,4 +5949,3 @@ int em_game_anim_frame(void)
 float em_game_aim_pitch(void)     { return g.aim_pitch; }
 float em_game_aim_yaw_blend(void) { return g.aim_yawb; }
 void  em_game_aim_dir(float out[3]) { aim_dir_get(out); }
-

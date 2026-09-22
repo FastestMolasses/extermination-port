@@ -69,6 +69,10 @@ extern "C" {
  * replaces itself with the game task. */
 void em_game_install(void);
 
+/* New-game handoff after the original intro movie. Uses func_001AF2C0's
+ * player defaults and area 11.0 instead of the debug save-state fixture. */
+void em_game_install_new(void);
+
 /* Release everything the game loaded (GPU meshes, models). Call after
  * em_frame_run() returns, before the gfx device is destroyed. */
 void em_game_shutdown(void);

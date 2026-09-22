@@ -12,25 +12,19 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_director.h"
+#include "game/em_area11_flow.h"
 
 #include "game/em_game_internal.h"
 /* the director gates on the damage lock and seeds the camera */
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
 
-/* The beat table moved here with its owners: every reader of it is a
- * director function. */
-/* The three beats, authoritative from INVESTIGATION_area11_director.md
- * §G (the per-beat EYE/TARGET keyframes are the literal data the engine
- * reads). WAIT keyframes (blend == -1) hold the prior framing; their
- * eye/tgt are carried from the preceding cue so the held framing is
- * exact. The zone AABBs + Y gates are the task-spec / doc §B/C/D values.
- *
- * NOTE ON BEAT-0 ZONE: the task spec and doc §B give the corrected live
- * poly X[335,385] Z[228,255] Y[260,280]; the doc's older §1.2 table and
- * §7 summary cite X[452,500] for beat 0 — those were the pre-correction
- * reads. We use the §B/§G corrected zone (the keyframe pass is the most
- * recent, live-RAM authoritative source). */
+/* Camera-program approximation retained pending the original script VM.
+ * Trigger selection is recovered independently in em_area11_flow.c from
+ * runtime AREA11 addresses (the old splat labels were shifted by 0x40).
+ * This table still omits script commands: move-to readiness, mode/fade
+ * entry, event-counter waits, message cues and teardown. Its keyframe
+ * durations alone are not an exact execution timeline. */
 static const CineBeat kCineBeats[3] = {
     /* ---- BEAT 0 (step 0x00 -> 0x10): the vault-wheel sweep ---------- */
     {
@@ -58,7 +52,7 @@ static const CineBeat kCineBeats[3] = {
     /* ---- BEAT 1 (step 0x10 -> 0x20): music cue 0x97 ----------------- */
     {
         452.0f, 500.0f, 278.0f, 292.0f,   /* zone XZ */
-        -1.0e30f, 275.0f,                 /* Y gate: playerY <= 275 */
+        275.0f, INFINITY,                /* Y gate: playerY >= 275 */
         CINE_MUSIC_BEAT1, CINE_STEP_BEAT2, 0,
         4, {
             { 0,  60, {459.0f,301.0f,310.0f}, {484.0f,288.0f,272.5f} },
@@ -70,7 +64,7 @@ static const CineBeat kCineBeats[3] = {
     /* ---- BEAT 2 (step 0x20 -> 0xFF): music cue 0x99 ----------------- */
     {
         410.0f, 439.0f, 175.0f, 203.0f,   /* zone XZ */
-        -1.0e30f, 285.0f,                 /* Y gate: playerY <= 285 */
+        285.0f, INFINITY,                /* Y gate: playerY >= 285 */
         CINE_MUSIC_BEAT2, CINE_STEP_DONE, 0,
         1, {
             /* sub0 +0xC = 0 -> a one-shot hard cut; hold one frame so the
@@ -84,22 +78,38 @@ static const CineBeat kCineBeats[3] = {
  * director is parked: pre-beat-0 is index 0, done = -1). */
 int cine_step_to_beat(uint8_t step)
 {
-    switch (step) {
-        case CINE_STEP_BEAT0: return 0;
-        case CINE_STEP_BEAT1: return 1;
-        case CINE_STEP_BEAT2: return 2;
-        default:              return -1;   /* 0xFF = done */
-    }
+    return em_area11_beat_for_step(step);
 }
 
-/* Player inside this beat's XZ AABB + Y gate (the doc's func_1B1EA0
- * point-in-poly reduced to the axis-aligned rect, plus the floor tier
- * gate). */
-int cine_in_zone(const CineBeat *b)
+static EmArea11Triggers s_triggers;
+static char s_trigger_path[sizeof g.scene_dir + 32];
+static int s_trigger_loaded;
+
+static int director_load_triggers(void)
 {
-    return g.pos[0] >= b->x0 && g.pos[0] <= b->x1 &&
-           g.pos[2] >= b->z0 && g.pos[2] <= b->z1 &&
-           g.pos[1] >= b->ylo && g.pos[1] <= b->yhi;
+    char path[sizeof s_trigger_path];
+    /* The legacy cinematic harness runs on its own fixture scene. */
+    snprintf(path, sizeof path, "%s/area11_flow.emaf",
+             g.cine_test ? "assets/scene_snow" : g.scene_dir);
+    if (strcmp(path, s_trigger_path)) {
+        snprintf(s_trigger_path, sizeof s_trigger_path, "%s", path);
+        s_trigger_loaded = em_area11_triggers_load(&s_triggers,path);
+        if (s_trigger_loaded)
+            printf("director: loaded original AREA11 trigger polygons from %s\n",path);
+        else if (g.cine_test || strstr(g.scene_dir,"snow"))
+            fprintf(stderr,"director: AREA11 triggers unavailable: %s; "
+                    "run tools/export_area11_flow.py\n",path);
+    }
+    return s_trigger_loaded;
+}
+
+int cine_in_zone(const CineBeat *beat)
+{
+    int index = -1;
+    for (int i = 0; i < 3; ++i)
+        if (beat == &kCineBeats[i]) index = i;
+    return index >= 0 && director_load_triggers() &&
+           em_area11_trigger_contains(&s_triggers,index,g.pos);
 }
 
 /* End the running beat CLEANLY: drop the lock, advance the step byte,
@@ -110,7 +120,7 @@ int cine_in_zone(const CineBeat *b)
 void cine_beat_finish(void)
 {
     const CineBeat *b = &kCineBeats[g.cine_beat];
-    g.cine_step   = b->next_step;
+    g.cine_step   = em_area11_step_after_beat(g.cine_beat);
     if (b->reg_keyitem) {
         /* func_1C4760(1) — register the opening key-item (beat 0). The
          * port has no separate key-item registry hook yet; the battery
@@ -318,7 +328,7 @@ void cine_test_script(void)
                 g.cine_step = CINE_STEP_BEAT1;
                 bx = 0.5f * (kCineBeats[1].x0 + kCineBeats[1].x1);
                 bz = 0.5f * (kCineBeats[1].z0 + kCineBeats[1].z1);
-                by = 270.0f;                 /* <= 275 gate */
+                by = 280.0f;                 /* original >= 275 gate */
                 g.pos[0] = bx; g.pos[1] = by; g.pos[2] = bz;
                 move_test_inject('w', 1);    /* hold forward — must be dead */
                 g.ct_mark  = n;

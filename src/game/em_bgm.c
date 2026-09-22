@@ -34,6 +34,8 @@
 
 #include "em_audio.h"
 #include "game/em_sfx.h"
+#include "game/em_startup_audio.h"
+#include "game/em_opening_media.h"
 
 /* ~1 s fade, the shape of the engine's func_001FAE70(1) fade-out-then-
  * start transition (and the fade-in on the far side). */
@@ -49,6 +51,9 @@ typedef struct {
     int      channels; /* 1 or 2 */
     int      rate;
     int      loop;
+    int      tick_fade; /* immutable after publication */
+    float    volume, volume_step; /* game thread only, 0..16383 */
+    atomic_int volume_units; /* game thread -> callback */
 } BgmTrack;
 
 static struct {
@@ -105,7 +110,7 @@ static void bgm_render(void *user, float *out, int frames)
                                                    memory_order_acquire);
                 s.at_serial = want;
                 s.at_pos    = 0;
-                s.at_gain   = 0.0f;
+                s.at_gain   = s.at_track && s.at_track->tick_fade ? 1.0f : 0.0f;
                 if (cut)
                     atomic_store_explicit(&s.hard_cut, 0,
                                           memory_order_relaxed);
@@ -126,8 +131,11 @@ static void bgm_render(void *user, float *out, int frames)
             const int16_t *src = t->pcm + s.at_pos * t->channels;
             l = (float)src[0] / 32768.0f;
             r = (t->channels == 2) ? (float)src[1] / 32768.0f : l;
-            l *= s.at_gain;
-            r *= s.at_gain;
+            float gain = t->tick_fade ?
+                atomic_load_explicit(&t->volume_units, memory_order_relaxed) / 16383.0f * s.at_gain :
+                s.at_gain;
+            l *= gain;
+            r *= gain;
             s.at_pos++;
             mixed++;
             if (s.at_pos >= t->nframes && t->loop)
@@ -148,6 +156,8 @@ static void bgm_render(void *user, float *out, int frames)
      * s.device_rate is written before em_audio_create and never changes
      * while the device exists, so this read is race-free. */
     em_sfx_mix(out, frames, s.device_rate);
+    em_startup_audio_mix(out, frames, s.device_rate);
+    em_opening_media_mix(out, frames, s.device_rate);
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,12 +254,14 @@ static void bgm_track_free(BgmTrack *t)
 /* Publish a new current track (or NULL = stop). The previously published
  * track is moved to the pending-retire list, freed by em_bgm_service once
  * the audio thread acks a newer serial. */
+static void bgm_reclaim(void);
+
 static void bgm_publish(BgmTrack *t, int cut)
 {
     BgmTrack *old = s.published;
     if (old) {
         if (s.n_pending == BGM_PENDING_MAX)
-            em_bgm_service();               /* try to reclaim a slot */
+            bgm_reclaim();                  /* no extra volume-service tick */
         if (s.n_pending == BGM_PENDING_MAX) {
             /* The audio thread is impossibly far behind (or the device
              * died). Leak rather than free under its feet. */
@@ -294,15 +306,18 @@ int em_bgm_device_rate(void)
     return s.audio ? s.device_rate : 0;
 }
 
-int em_bgm_play(const char *path, int loop)
+static int bgm_play(const char *path, int loop, int tick_fade, unsigned fade_ticks)
 {
-    BgmTrack *t = malloc(sizeof *t);
+    BgmTrack *t = calloc(1, sizeof *t);
     if (!t) return -1;
     if (bgm_wav_load(path, t) != 0) {
         free(t);
         return -1;
     }
     t->loop = loop ? 1 : 0;
+    t->tick_fade = tick_fade;
+    t->volume_step = fade_ticks ? 16383.0f / (float)fade_ticks : 16383.0f;
+    atomic_init(&t->volume_units, 0);
 
     if (!s.audio) {
         /* First play: open the device at the track's rate (the engine
@@ -321,10 +336,16 @@ int em_bgm_play(const char *path, int loop)
     printf("bgm: %s — %ld frames @ %d Hz, %d ch (%.1f s)%s\n", path,
            t->nframes, t->rate, t->channels,
            (double)t->nframes / t->rate, t->loop ? ", looping" : "");
-    bgm_publish(t, 0);          /* fade-out current, fade-in new */
+    bgm_publish(t, tick_fade); /* original restart cuts the old stream */
     s.started = 1;
     return 0;
 }
+
+int em_bgm_play(const char *path, int loop)
+{ return bgm_play(path, loop, 0, 0); }
+
+int em_bgm_play_ticks(const char *path, int loop, unsigned fade_ticks)
+{ return bgm_play(path, loop, 1, fade_ticks); }
 
 void em_bgm_stop(int fade)
 {
@@ -332,7 +353,7 @@ void em_bgm_stop(int fade)
     bgm_publish(NULL, fade ? 0 : 1);
 }
 
-void em_bgm_service(void)
+static void bgm_reclaim(void)
 {
     if (!s.n_pending) return;
     unsigned ack = atomic_load_explicit(&s.ack, memory_order_acquire);
@@ -346,6 +367,20 @@ void em_bgm_service(void)
             s.pending[kept++] = s.pending[i];
     }
     s.n_pending = kept;
+}
+
+void em_bgm_service(void)
+{
+    BgmTrack *t = s.published;
+    if (t && t->tick_fade && t->volume_step != 0.0f) {
+        t->volume += t->volume_step;
+        if (t->volume >= 16383.0f) {
+            t->volume = 16383.0f;
+            t->volume_step = 0.0f;
+        }
+        atomic_store_explicit(&t->volume_units, (int)t->volume, memory_order_relaxed);
+    }
+    bgm_reclaim();
 }
 
 void em_bgm_shutdown(void)

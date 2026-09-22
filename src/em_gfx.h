@@ -82,6 +82,12 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts,
                               const EmGfxTexDesc *texs, uint32_t tex_count,
                               const uint8_t *texels, uint32_t flags);
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh);
+/* Replace only positions (packed xyz triples), preserving the mesh's exact
+ * vertex order, normals, UVs, bone/texture indices and triangle partition.
+ * Returns0 on invalid size/allocation failure, leaving the old mesh intact.
+ * In-flight draws retain their previous vertex buffer. */
+int em_gfx_mesh_update_positions(EmGfx *gfx, EmGfxMesh *mesh,
+                                const float *positions, uint32_t vert_count);
 
 /* Draw a skinned mesh inside the current frame.
  *
@@ -119,6 +125,15 @@ void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
 void em_gfx_draw_skinned_tinted(EmGfx *gfx, EmGfxMesh *mesh,
                                 const float *viewproj, const float *palette,
                                 uint32_t bone_count, const float rgba[4]);
+
+/* Original effect draw class 2 (001CABA0): keep mesh geometry and palette,
+ * ignore its normals, and modulate texture RGB by rgba. GS ALPHA 0x68 /
+ * FIX 0x80 adds Cs + Cd, with depth test on and depth/alpha writes off.
+ * This does not turn mesh vertices into camera-facing billboards. RGB may
+ * exceed 1: original mode-1 color values range from 1/128 to 255/128. */
+void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh,
+                                  const float *viewproj, const float *palette,
+                                  uint32_t bone_count, const float rgba[4]);
 
 /* --- 2D overlay pass (HUD) ------------------------------------------- */
 
@@ -186,13 +201,21 @@ void em_gfx_overlay_rect(EmGfx *gfx, float x, float y, float w, float h,
  * rects/arcs, the decor sprites AND the font glyphs: the engine's fade
  * owns the whole GS frame, darkening the HUD with the scene. With
  * nothing queued the draw does not run (frame output stays
- * byte-identical to pre-subtract builds). The engine's ADDITIVE variant
- * (0x68 = A:Cs B:0 C:FIX D:Cd -> Cv = Cs + Cd, fade to WHITE; selected
- * by the colour argument of func_001AEDE0 / func_001AEE10 being 1, and
- * packed by the same func_001AEE70 store) has no port caller yet and is
- * not exposed. */
+ * byte-identical to pre-subtract builds). Additive rectangles below
+ * share this queue; mixed subtract/add calls preserve their order. */
 #define EM_GFX_OVERLAY_SUB_MAX 16
 void em_gfx_overlay_rect_sub(EmGfx *gfx, float x, float y, float w, float h,
+                             const float rgb[3]);
+
+/* Same subtractive blend, after the scene but before UI/text. Used by
+ * the original letterbox effect; subtitles must remain visible over it. */
+void em_gfx_overlay_rect_sub_before_text(EmGfx *gfx, float x, float y,
+                                        float w, float h, const float rgb[3]);
+
+/* Queue a saturating ADDITIVE rectangle, min(1, dst + rgb), with
+ * destination alpha preserved. Original transition colour!=0 selects
+ * GS ALPHA 0x68/FIX 0x80. Same final-pass queue/budget as _rect_sub. */
+void em_gfx_overlay_rect_add(EmGfx *gfx, float x, float y, float w, float h,
                              const float rgb[3]);
 
 /* Queue one ANNULAR-ARC segment (ring sector) — the native translation
@@ -254,6 +277,13 @@ int em_gfx_overlay_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
 void em_gfx_overlay_glyph(EmGfx *gfx, float x, float y, float w, float h,
                           float u0, float v0, float u1, float v1,
                           const float rgba[4]);
+
+/* Same font quad, with its top edge shifted right by top_skew pixels.
+ * Original 001CC3B0 uses this parallelogram for message markup tag 3. */
+void em_gfx_overlay_glyph_skew(EmGfx *gfx, float x, float y, float w, float h,
+                              float top_skew,
+                              float u0, float v0, float u1, float v1,
+                              const float rgba[4]);
 
 /* Queue one TEXTURED overlay quad sampling the UI-DECOR slot — same
  * parameters, sampling and blend as em_gfx_overlay_glyph, own

@@ -407,6 +407,14 @@ int em_pickup_count(void);
 int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
                    uint32_t *bone_count);
 
+/* 00219550's separate model73 child, allocated through 001C5570. The
+ * manifest binds it explicitly to a pickup UID. Transform and lifetime
+ * follow that owner; color.xyz is the original base RGB and color.w the
+ * random brightness amplitude (001F54E0). Returns -2 for a taken owner. */
+int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
+                        const char *model_file, const float color[4]);
+void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16]);
+
 /* Inventory — the D_00810C64 mirror (one u8 count per item type),
  * plus the magazine-pack counter (D_00810C63 mirror). */
 const uint8_t *em_pickup_items(void);          /* [256] */

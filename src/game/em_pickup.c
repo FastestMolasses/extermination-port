@@ -32,6 +32,8 @@
 #include "em_input.h"   /* EM_PAD_CROSS — the use-button mask */
 #include "em_model.h"
 #include "game/em_game.h"  /* em_game_set_battery — contract-A (em_game.c) */
+#include "game/em_random.h"
+#include "game/em_effect_color.h"
 
 #define PICKUP_PI 3.14159265358979f
 
@@ -110,10 +112,22 @@ typedef struct {
     float   palette[PICKUP_BONE_MAX * 16];
 } Pickup;
 
+typedef struct {
+    int owner;
+    int model;
+    int initialized;
+    int visible;
+    float color[4];
+    float tint[4];
+    float palette[PICKUP_BONE_MAX * 16];
+} PickupLight;
+
 static struct {
     PickupModel models[PICKUP_MODEL_MAX];
     int         n_models;
     Pickup      p[EM_PICKUP_MAX];
+    PickupLight lights[EM_PICKUP_MAX];
+    int         n_lights;
     int         n;            /* slots in use (dead slots stay counted
                                * until the scene clears — draw returns
                                * 0 for them, like the enemy contract) */
@@ -533,6 +547,66 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
          * flags) before the synchronous take effect. */
         if (--p->take_t <= 0)
             pickup_take(p, player_pos[1]);
+    }
+    /* 001C5680: initialize without drawing once, then run 001F54E0 every
+     * ordinary frame, including while the opening owns player controls.
+     * Its even-frame stack copy is unused by the original call, so it
+     * does not change the supplied brightness amplitude. */
+    for (int i=0;i<s.n_lights;++i) {
+        PickupLight *light=&s.lights[i];
+        Pickup *owner=&s.p[light->owner];
+        light->visible=0;
+        if (!owner->used) continue;
+        if (!light->initialized) {
+            light->initialized=1;
+            continue;
+        }
+        em_effect_color(em_random_next(),light->color,light->tint);
+        light->visible=1;
+    }
+}
+
+int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
+                        const char *model_file, const float color[4])
+{
+    if (!gfx || !scene_dir || !model_file || !color || owner_uid<=0 ||
+        s.n_lights>=EM_PICKUP_MAX) return -1;
+    for (int channel=0;channel<4;++channel)
+        if (!isfinite(color[channel]) || color[channel]<0.0f ||
+            color[channel]>1.0f) return -1;
+    int owner=-1;
+    for (int i=0;i<s.n;++i)
+        if (s.p[i].uid==owner_uid) {
+            if (owner>=0 || s.p[i].prop) return -1;
+            owner=i;
+        }
+    if (owner<0) return taken_bit(owner_uid) ? -2 : -1;
+    for (int i=0;i<s.n_lights;++i)
+        if (s.lights[i].owner==owner) return -1;
+    int model=pickup_model_get(gfx,scene_dir,model_file);
+    if (model<0) return -1;
+    PickupLight *light=&s.lights[s.n_lights];
+    memset(light,0,sizeof *light);
+    light->owner=owner;
+    light->model=model;
+    memcpy(light->color,color,sizeof light->color);
+    return s.n_lights++;
+}
+
+void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16])
+{
+    for (int i=0;i<s.n_lights;++i) {
+        PickupLight *light=&s.lights[i];
+        Pickup *owner=&s.p[light->owner];
+        if (!light->visible || !owner->used) continue;
+        PickupModel *model=&s.models[light->model];
+        /* Original model73 uses bone0; all three original nodes carry
+         * the same parent placement matrix. Native EMDL also includes
+         * its ordinary identity fallback slot. */
+        for (uint32_t bone=0;bone<model->model.bone_count;++bone)
+            memcpy(light->palette+bone*16,owner->palette,16*sizeof(float));
+        em_gfx_draw_skinned_additive(gfx,model->mesh,viewproj,light->palette,
+                                     model->model.bone_count,light->tint);
     }
 }
 

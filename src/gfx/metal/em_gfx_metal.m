@@ -50,14 +50,15 @@ struct EmGfx {
     float                        overlayVerts[EM_GFX_OVERLAY_MAX * 6 * 8];
     uint32_t                     overlayVertCount;
     float                        overlayW, overlayH;
-    /* Reverse-subtract overlay rects (em_gfx_overlay_rect_sub — the
-     * screen fade's GS ALPHA_2 0xA1 blend): own queue in the same NDC
-     * pos + color layout, own PSO (ReverseSubtract ONE/ONE on RGB, dst
-     * alpha kept), flushed LAST in the overlay sequence — the fade
-     * darkens the HUD with the scene. */
+    /* Final screen effects: one ordered queue of reverse-subtract
+     * (GS 0xA1) and additive (GS 0x68) rects. Separate PSOs preserve
+     * destination alpha; mixed calls keep their order at the clamps. */
     float                        subVerts[EM_GFX_OVERLAY_SUB_MAX * 6 * 8];
     uint32_t                     subVertCount;
+    bool                         subAdd[EM_GFX_OVERLAY_SUB_MAX];
+    bool                         subBeforeText[EM_GFX_OVERLAY_SUB_MAX];
     id<MTLRenderPipelineState>   subPipeline;
+    id<MTLRenderPipelineState>   addOverlayPipeline;
     /* Textured overlay: TWO texture slots (EM_GFX_OVERLAY_TEX_FONT /
      * _UI), each with its own quad queue (float4 NDC pos + float4 color
      * + float4 uv, uv.xy normalized at queue time) and its own
@@ -577,6 +578,7 @@ void em_gfx_destroy(EmGfx *g)
         [g->beamTex[i] release];
     [g->glyphPipeline release];
     [g->subPipeline release];
+    [g->addOverlayPipeline release];
     [g->overlayTex[0] release];
     [g->overlayTex[1] release];
     [g->clampSampler release];
@@ -817,6 +819,26 @@ void em_gfx_mesh_destroy(EmGfx *g, EmGfxMesh *m)
     free(m);
 }
 
+int em_gfx_mesh_update_positions(EmGfx *g, EmGfxMesh *m,
+                                 const float *positions, uint32_t count)
+{
+    if (!g || !m || !positions || !count ||
+        [m->vbuf length]!=(NSUInteger)count*10*sizeof(float)) return 0;
+    /* A fresh buffer preserves positions already referenced by an encoded
+     * or executing command buffer. Metal's command buffer retains resources
+     * used by its encoders; replacing our ownership does not race that draw. */
+    id<MTLBuffer> next=[g->device newBufferWithBytes:[m->vbuf contents]
+                                    length:[m->vbuf length]
+                                   options:MTLResourceStorageModeShared];
+    if (!next) return 0;
+    float *vertices=(float *)[next contents];
+    for (uint32_t i=0;i<count;++i)
+        memcpy(vertices+(size_t)i*10,positions+(size_t)i*3,3*sizeof(float));
+    [m->vbuf release];
+    m->vbuf=next;
+    return 1;
+}
+
 /* Wrapper: a skinned draw with no color modulation is a tinted draw with
  * opaque white — the multiply-by-1.0 identity, so output stays
  * bit-identical to the pre-tint pipeline. */
@@ -840,9 +862,9 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
  * fading gib must not occlude what shows through it. The texture
  * alpha-test cutout (base.a < 0.5 discard) still applies under any tint:
  * cutout holes stay holes while fading. */
-void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
-                                const float *palette, uint32_t bone_count,
-                                const float rgba[4])
+static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
+                         const float *palette, uint32_t bone_count,
+                         const float rgba[4], bool additive)
 {
     if (!g || !g->enc || !m || !viewproj || !palette || !bone_count || !rgba)
         return;
@@ -852,17 +874,19 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     g->everViewProj = true;
     /* Record the leading bone matrices — the native bone-publish for
      * equipment consumers (em_gfx.h "last skinned palette"). */
-    g->lastBoneCount = bone_count < EM_GFX_TRACK_BONES ? bone_count
-                                                       : EM_GFX_TRACK_BONES;
-    memcpy(g->lastBones, palette,
-           (size_t)g->lastBoneCount * 16 * sizeof(float));
-    if (!g->skinPipeline) {
+    if (!additive) {
+        g->lastBoneCount = bone_count < EM_GFX_TRACK_BONES ? bone_count
+                                                           : EM_GFX_TRACK_BONES;
+        memcpy(g->lastBones, palette,
+               (size_t)g->lastBoneCount * 16 * sizeof(float));
+    }
+    if (!additive && !g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin",
                                          EM_BLEND_ALPHA);
         if (!g->skinPipeline) return;
     }
-    if (m->glow_count && !g->glowPipeline) {
+    if ((additive || m->glow_count) && !g->glowPipeline) {
         g->glowPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin",
                                          EM_BLEND_ADD);
@@ -878,10 +902,10 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         g->repeatSampler = [g->device newSamplerStateWithDescriptor:sd];
         [sd release];
     }
-    [g->enc setRenderPipelineState:g->skinPipeline];
+    [g->enc setRenderPipelineState:(additive ? g->glowPipeline : g->skinPipeline)];
     /* Threshold rule (see the comment above): a tint alpha below 1.0
      * selects the translucent state — depth test on, write off. */
-    bool translucent = rgba[3] < 1.0f;
+    bool translucent = additive || rgba[3] < 1.0f;
     [g->enc setDepthStencilState:(translucent ? g->depthGlow : g->depthOn)];
     /* Strip winding from the PS2 data is not normalised yet — draw
      * double-sided until the translated GS context supplies cull state. */
@@ -893,7 +917,7 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                    atIndex:1];
     [g->enc setVertexBytes:viewproj length:64 atIndex:2];
     [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
-    uint32_t mode = m->flags;
+    uint32_t mode = m->flags | (additive ? 2u : 0u);
     [g->enc setVertexBytes:&mode length:4 atIndex:4];
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentBytes:rgba length:16 atIndex:1];
@@ -926,6 +950,20 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                           indexBuffer:m->ibuf
                     indexBufferOffset:(NSUInteger)m->opaque_count * 4];
     }
+}
+
+void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
+                                const float *palette, uint32_t bone_count,
+                                const float rgba[4])
+{
+    draw_skinned(g,m,viewproj,palette,bone_count,rgba,false);
+}
+
+void em_gfx_draw_skinned_additive(EmGfx *g, EmGfxMesh *m, const float *viewproj,
+                                  const float *palette, uint32_t bone_count,
+                                  const float rgba[4])
+{
+    draw_skinned(g,m,viewproj,palette,bone_count,rgba,true);
 }
 
 /* Select the virtual canvas for subsequent overlay queueing (em_gfx.h —
@@ -984,13 +1022,15 @@ void em_gfx_overlay_rect(EmGfx *g, float x, float y, float w, float h,
  * vertex path as em_gfx_overlay_rect into the dedicated sub queue
  * (own PSO, flushed last). The color's alpha slot is set to 1 but the
  * blend never reads it (factors ONE/ONE on RGB, dst alpha kept). */
-void em_gfx_overlay_rect_sub(EmGfx *g, float x, float y, float w, float h,
-                             const float rgb[3])
+static void overlay_rect_effect(EmGfx *g, float x, float y, float w, float h,
+                                 const float rgb[3], bool add, bool before_text)
 {
     if (!g || !rgb ||
         g->subVertCount + 6 > EM_GFX_OVERLAY_SUB_MAX * 6)
         return;
     const float rgba[4] = { rgb[0], rgb[1], rgb[2], 1.0f };
+    g->subAdd[g->subVertCount / 6] = add;
+    g->subBeforeText[g->subVertCount / 6] = before_text;
     float *verts = g->subVerts;
     uint32_t *n  = &g->subVertCount;
     overlay_push_to(g, verts, n, x,     y,     rgba);   /* tri 1 */
@@ -999,6 +1039,24 @@ void em_gfx_overlay_rect_sub(EmGfx *g, float x, float y, float w, float h,
     overlay_push_to(g, verts, n, x + w, y,     rgba);   /* tri 2 */
     overlay_push_to(g, verts, n, x + w, y + h, rgba);
     overlay_push_to(g, verts, n, x,     y + h, rgba);
+}
+
+void em_gfx_overlay_rect_sub(EmGfx *g, float x, float y, float w, float h,
+                             const float rgb[3])
+{
+    overlay_rect_effect(g, x, y, w, h, rgb, false, false);
+}
+
+void em_gfx_overlay_rect_sub_before_text(EmGfx *g, float x, float y,
+                                        float w, float h, const float rgb[3])
+{
+    overlay_rect_effect(g, x, y, w, h, rgb, false, true);
+}
+
+void em_gfx_overlay_rect_add(EmGfx *g, float x, float y, float w, float h,
+                             const float rgb[3])
+{
+    overlay_rect_effect(g, x, y, w, h, rgb, true, false);
 }
 
 /* Queue one annular-arc segment (em_gfx.h — the translation of the
@@ -1126,6 +1184,25 @@ void em_gfx_overlay_glyph(EmGfx *g, float x, float y, float w, float h,
     texquad_queue(g, g->glyphVerts, &g->glyphVertCount,
                   EM_GFX_OVERLAY_TEX_FONT, EM_GFX_OVERLAY_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
+}
+
+/* Original subtitle markup offsets only the glyph's top edge. */
+void em_gfx_overlay_glyph_skew(EmGfx *g, float x, float y, float w, float h,
+                              float skew,
+                              float u0, float v0, float u1, float v1,
+                              const float rgba[4])
+{
+    if (!g || !rgba || !g->overlayTex[EM_GFX_OVERLAY_TEX_FONT] ||
+        g->glyphVertCount + 6 > EM_GFX_OVERLAY_MAX * 6) return;
+    float *v = g->glyphVerts;
+    uint32_t *n = &g->glyphVertCount;
+    int slot = EM_GFX_OVERLAY_TEX_FONT;
+    texquad_push(g, v, n, slot, x + skew,     y,     u0, v0, rgba);
+    texquad_push(g, v, n, slot, x + w + skew, y,     u1, v0, rgba);
+    texquad_push(g, v, n, slot, x,            y + h, u0, v1, rgba);
+    texquad_push(g, v, n, slot, x + w + skew, y,     u1, v0, rgba);
+    texquad_push(g, v, n, slot, x + w,        y + h, u1, v1, rgba);
+    texquad_push(g, v, n, slot, x,            y + h, u0, v1, rgba);
 }
 
 /* Queue one UI-decor-slot quad (em_gfx.h). */
@@ -1676,35 +1753,44 @@ static void overlay_flush(EmGfx *g)
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
-/* Flush the queued REVERSE-SUBTRACT rects (em_gfx_overlay_rect_sub):
- * one draw at the VERY END of the overlay sequence — after the
- * untextured primitives, the decor sprites and the font glyphs — so
- * the screen fade darkens the whole frame, HUD included (the engine's
- * fade owns the GS frame). Same depth-off state and vertex layout as
- * overlay_flush; only the PSO differs (ReverseSubtract ONE/ONE on RGB,
- * dst alpha kept). With nothing queued the draw does not run. */
-static void overlay_sub_flush(EmGfx *g)
+/* Letterbox effects precede text; full-screen effects follow it. Within
+ * either layer preserve mixed subtract/add order at the color clamps. */
+static void overlay_sub_flush(EmGfx *g, bool before_text)
 {
     uint32_t verts = g->subVertCount;
-    g->subVertCount = 0;
+    if (!before_text) g->subVertCount = 0;
     if (!verts || !g->enc) return;
-    if (!g->subPipeline) {
-        g->subPipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
-                                        @"f_main", EM_BLEND_RSUB);
-        if (!g->subPipeline) return;
-    }
     ensure_depth_states(g);
     /* Small queue (EM_GFX_OVERLAY_SUB_MAX = 16 quads = 3 KB) — fits
      * under Metal's 4 KB setVertexBytes ceiling, no MTLBuffer needed. */
-    [g->enc setRenderPipelineState:g->subPipeline];
     [g->enc setDepthStencilState:g->depthOff];
     [g->enc setCullMode:MTLCullModeNone];
     [g->enc setVertexBytes:g->subVerts
                     length:(NSUInteger)verts * 8 * sizeof(float)
                    atIndex:0];
-    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
-               vertexStart:0
-               vertexCount:(NSUInteger)verts];
+    /* Preserve original packet order for mixed black/white effects:
+     * subtract then add is different from add then subtract at clamps. */
+    for (uint32_t start = 0; start < verts;) {
+        if (g->subBeforeText[start / 6] != before_text) {
+            start += 6;
+            continue;
+        }
+        bool add = g->subAdd[start / 6];
+        uint32_t end = start + 6;
+        while (end < verts && g->subAdd[end / 6] == add &&
+               g->subBeforeText[end / 6] == before_text) end += 6;
+        id<MTLRenderPipelineState> *pipeline =
+            add ? &g->addOverlayPipeline : &g->subPipeline;
+        if (!*pipeline)
+            *pipeline = build_pipeline(g, kTestShaderSrc, @"v_main",
+                                        @"f_main", add ? EM_BLEND_ADD : EM_BLEND_RSUB);
+        if (!*pipeline) return;
+        [g->enc setRenderPipelineState:*pipeline];
+        [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                   vertexStart:(NSUInteger)start
+                   vertexCount:(NSUInteger)(end - start)];
+        start = end;
+    }
 }
 
 /* Flush one slot's queued TEXTURED overlay quads: one draw after
@@ -1844,13 +1930,14 @@ void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
     beam_flush(g);      /* world-space beams: after 3D, under the overlay */
+    overlay_sub_flush(g, true); /* letterbox subtracts scene beneath text */
     backdrop_flush(g);  /* UI background: bottom of the overlay sequence */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,     /* decor over the rects  */
                   g->spriteVerts, &g->spriteVertCount);
     texquad_flush(g, EM_GFX_OVERLAY_TEX_FONT,   /* text over everything  */
                   g->glyphVerts, &g->glyphVertCount);
-    overlay_sub_flush(g);  /* screen fade last: it darkens the whole frame */
+    overlay_sub_flush(g, false); /* screen fade darkens the whole frame */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 
     id<MTLBuffer> shot = nil;

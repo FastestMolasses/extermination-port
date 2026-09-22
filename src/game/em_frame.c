@@ -1,115 +1,21 @@
-/* em_frame.c — per-frame phase sequence (PS2 main loop func_001AAE40).
+/* Native presentation loop for original main 001AAE40.
  *
- * PS2 step -> native step mapping (FINDINGS.md "ENGINE FRAME ANATOMY"):
+ * The readable gs_readback_queue_run.c establishes the relevant order:
+ * frame begin -> input unpack -> 001AEBE0 letterbox fade -> task dispatch
+ * -> audio service -> 001AEE70 full-screen transition -> optional blocking
+ * movie 00203350 -> movie-only frame close and second transition tick
+ * -> vsync/present -> parity and main-frame count.
  *
- *  A  clear vsync flag (0x00810E98)      NO-OP — the flag exists for the
- *                                        VBLANK ISR handshake; natively the
- *                                        blocking present IS the vsync wait,
- *                                        so there is no flag and no ISR.
- *  B  func_001D1AE0 frame begin          em_gfx_begin_frame() — the PS2
- *     (select per-frame CPU packet       selects the parity-indexed packet
- *     arena, ~0x95800 bytes/frame)       arena; natively the gfx backend
- *                                        acquires the swapchain image and
- *                                        opens the frame's command stream.
- *  C  func_001B57E0 input read/unpack    frame_input_read() — OS event pump
- *     (libpad RPC buffer 0x00810E40 ->   feeds em_input (the "unpacker");
- *     frame block 0x00810E60..7B)        snapshot lands in the EmFrameInput
- *                                        block, edges computed here.
- *  D  func_001AEBE0 screen-fade machine  frame_fade_tick() — the native
- *     (its own arms are func_001AEB60/    fade level machine (64-frame ramp
- *     func_001AEBA0(speed); the port      at the captured door speed 4); the
- *     models the step-G sibling — see     engine's draw is a SUBTRACTIVE
- *     the CORRECTED note below)           grey sprite (GS ALPHA Cd - Cs —
- *                                        CONFIRMED, em_frame.h), drawn at
- *                                        close-out as a grey reverse-
- *                                        subtract overlay rect at the
- *                                        level (em_gfx_overlay_rect_sub).
+ * Hardware packet/DMA/GS bookkeeping belongs to the native gfx backend.
+ * Input edge computation is part of the original unpacker 001B5940;
+ * 001B5B70 is an actuator countdown, not edge post-processing. Native
+ * input uses canonical EM_PAD bits, while original button words swap
+ * their high/low bytes. See em_frame.h for the explicit boundary.
  *
- *     CORRECTED (audit). The old text said step D's machine is "armed by
- *     func_001AEDE0(speed, dir)". Both halves were wrong, and the two
- *     engine fade machines were conflated:
- *       - func_001AEBE0 (step D) drives the block at D_0028A8D0/D2/D4 and
- *         is armed by func_001AEB60(speed) [state 3, level := 0, ramp up
- *         to 0xFF, then state 1] and func_001AEBA0(speed) [state 2,
- *         level := 0xFF, ramp down to 0, then state 0]. Both RESET the
- *         level at arm time and no-op when already settled at the
- *         destination end.
- *       - func_001AEDE0 arms the OTHER machine — the D_0028A8E0 block
- *         (+0xC0 sub-state, +0xC2 colour, +0xC3 mode, +0xC4 alpha,
- *         +0xC6 step) ticked by func_001AEE70, i.e. steps G/O below.
- *         Its arms do NOT reset the alpha, so it ramps from wherever it
- *         is. That is the behaviour the port implements, and it is what
- *         em_frame.h's fade API documents, so the CODE is right and the
- *         step-D citation was the error.
- *       - func_001AEDE0's SECOND argument is the COLOUR/blend select
- *         (+0xC2), not a direction: 0 packs GS ALPHA 0xA1 (Cv = Cd - Cs,
- *         subtractive, fade to black), 1 packs 0x68 (Cv = Cs + Cd,
- *         additive, fade to white). Direction is chosen by WHICH arm you
- *         call — func_001AEDE0 sets mode 3 (alpha rises to 0xFF = the
- *         port's "fade out"), func_001AEE10 sets mode 2 (alpha falls to
- *         0 = the port's "fade in"). Read in decomp
- *         Extermination/src/func_001AEDE0.c (byte-matched),
- *         func_001AEB60.c, func_001AEBA0.c, func_001AED80.c,
- *         func_001AEE10.c and func_001AEE70.c / func_001AE900.c.
- *  E  func_001AB6A0 TASK DISPATCH        em_task_dispatch() — ALL game
- *                                        logic, exactly as on PS2.
- *  F  func_001FCA10 audio service        em_bgm_service() — em_audio is
- *                                        pull-model (the OS audio thread
- *                                        mixes), so the per-frame call is
- *                                        only the game-thread half of the
- *                                        BGM stream: retire swapped-out
- *                                        tracks the audio thread has
- *                                        acked. The PS2 pumped IOP RPC
- *                                        here.
- *  G  func_001AEE70 transition/          NO-OP HOOK — same family as D.
- *     brightness machine
- *  H  func_001FB100 audio service        folded into F — one native
- *                                        service call covers all three
- *                                        PS2 pumps (no RPC to drain).
- *  I  func_001B5B70 input post-process   folded into C — pressed/released
- *                                        edges are computed at snapshot
- *                                        time; nothing left to do here.
- *  J  func_00100A60 VIF1/GIF/VU1 sync    NO-OP — no DMA paths or vector
- *     + conditional VU0/VU1 macro block  units; GPU/CPU sync is owned by
- *                                        the gfx backend.
- *  K  func_001D7410 GS-VRAM readback     NO-OP — gated OFF (*(gp-0x7768))
- *                                        in every live sample on PS2 too.
- *  L  func_001AB590 DMA CHCR watchdog    NO-OP — guards against wedged
- *                                        D0/D1/D2 DMA channels; no DMA
- *                                        controller exists natively.
- *  M  conditional func_00203350 audio    folded into F — as H.
- *  N  func_001D1C10 frame-end render     NO-OP — closes the per-frame
- *     bookkeeping                        packet arena; natively the command
- *                                        stream is closed by end_frame (P).
- *  O  func_001AEE70 (second fade tick)   NO-OP HOOK — as G.
- *  P  poll 0x00810E98 until set (vsync   em_gfx_end_frame() — submit +
- *     wait; the VBLANK ISR func_001AB140 present; the blocking present is
- *     sets it and wakes the audio        the native vsync wait. No ISR, no
- *     thread)                            wakeup: the OS audio thread is
- *                                        driven by the audio device itself.
- *  Q  T0_COUNT = 0                       NO-OP — EE hardware timer reset.
- *  R  func_001AB4E0 display offset       NO-OP — CRTC display-area offset;
- *                                        the window system owns placement.
- *  S  PutDispEnv x2 (FIELD-indexed       NO-OP — the dispenv flip selects
- *     dispenv flip)                      which GS buffer the CRTC scans
- *                                        out; the swapchain does this.
- *  T  func_0010BAA0 GS register apply    NO-OP — GS privileged registers
- *                                        have no native counterpart.
- *  U  func_00100550 per-frame GS env     NO-OP — double-buffered GS context
- *     (0x00810EA0 + parity*0x28)         (scissor/frame/zbuf); the render
- *                                        pass set up in B covers it.
- *  V  func_001D2300 render frame-flip    NO-OP — swapchain bookkeeping.
- *     bookkeeping
- *  W  frame parity ^= 1 (0x00810E80);    kept — parity + lifetime counter
- *     counters++ (0x70003B64)            (em_frame_parity/em_frame_counter),
- *                                        the engine's double-buffer index.
- *
- * Debug instrumentation (port-side, not engine structure): EM_INPUT_TEST=1
- * prints one line per pad-state change from step C, exactly as the
- * pre-architecture shell did. EM_MOVE_TEST=1 (the game-side scripted
- * movement self-test, em_game.c) makes step C stop feeding REAL key events
- * into em_input, so stray keystrokes hitting the focused window can't
- * perturb the deterministic script; window-quit and Esc still work.
+ * A native movie pump presents incrementally while the ordinary engine
+ * iteration is suspended. This preserves the blocking movie call's task,
+ * fade, audio-service and main-counter behavior without blocking the OS
+ * event loop. Its return completes the one pending main iteration.
  */
 #include "game/em_frame.h"
 
@@ -118,11 +24,13 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "em_input.h"
 #include "game/em_bgm.h"
 #include "game/em_task.h"
+#include "game/em_opening_media.h"
 
 static struct {
     EmWindow    *win;
@@ -130,13 +38,20 @@ static struct {
     bool         quit;
     uint32_t     counter;     /* 0x70003B64 lifetime frame counter */
     uint32_t     parity;      /* 0x00810E80 frame index (0/1) */
-    EmFrameInput input;       /* 0x00810E60 frame input block */
+    EmFrameInput input;       /* native input, original masks byte-swapped */
     uint16_t     prev_held;   /* previous frame's buttons, for edges */
-    /* screen-fade machine (step G, func_001AEE70; armed by
-     * func_001AEDE0 / func_001AEE10) */
-    int          fade_alpha;  /* 0 = clear .. 255 = full subtract (+0xC4) */
-    int          fade_dir;    /* +1 fading out, -1 fading in, 0 settled */
-    int          fade_speed;  /* engine step per frame (+0xC6) */
+    EmScreenFade screen_fade;         /* 001AEBE0: letterbox bars */
+    EmTransitionFade transition;     /* 001AEE70: full-screen effect */
+    uint8_t      screen_request;      /* 0x70003B90 drawing gate */
+    uint8_t      screen_suppress;     /* 0x008106C4 drawing gate */
+    bool         movie_active;        /* 0x00821058 == 1 */
+    bool         movie_suspended;     /* main iteration stopped at phase M */
+    bool         suspended_draw_transition;
+    EmFrameMoviePump movie_pump;
+    void        *movie_user;
+    bool         pace_initialized;
+    bool         uncapped;
+    struct timespec next_deadline;
     /* EM_INPUT_TEST bookkeeping */
     bool         input_test;
     EmPadState   prev_pad;
@@ -146,6 +61,7 @@ static struct {
 
 void em_frame_init(EmWindow *win, EmGfx *gfx)
 {
+    memset(&s_frame, 0, sizeof s_frame);
     s_frame.win     = win;
     s_frame.gfx     = gfx;
     s_frame.quit    = false;
@@ -153,6 +69,8 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
     s_frame.parity  = 0;
     s_frame.input   = (EmFrameInput){ 0x80, 0x80, 0x80, 0x80, 0, 0, 0 };
     s_frame.prev_held = 0;
+    em_screen_fade_init(&s_frame.screen_fade);
+    em_transition_fade_init(&s_frame.transition);
 
     em_input_init();
     em_task_init();
@@ -166,39 +84,84 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
 
 void em_frame_request_quit(void)        { s_frame.quit = true; }
 
-/* Arm the screen fade. dir > 0 == func_001AEDE0(speed, 0) (mode 3, the
- * alpha RISES toward 0xFF -> darker); dir < 0 == func_001AEE10(speed, 0)
- * (mode 2, the alpha FALLS toward 0 -> clear). Neither engine arm resets
- * the alpha, so a re-arm mid-ramp reverses from the current level — that
- * is reproduced here. See em_frame.h. */
 void em_frame_fade_start(int dir, int speed)
 {
-    s_frame.fade_dir   = (dir > 0) ? 1 : -1;
-    s_frame.fade_speed = speed;
+    em_frame_fade_start_colour(dir, speed, EM_FADE_BLACK);
 }
 
-float em_frame_fade_level(void)  { return s_frame.fade_alpha / 255.0f; }
-int   em_frame_fade_active(void) { return s_frame.fade_dir != 0; }
-
-/* Step-G machine, one tick (func_001AEE70 modes 2/3). CORRECTED (audit):
- * the engine's fade level is the INTEGER sprite grey 0..0xFF at
- * D_0028A8E0+0xC4, stepped by the whole-number speed at +0xC6 and
- * clamped at 0 / 0xFF — not a float ramp in units of speed/256. Full
- * subtraction is alpha 0xFF, so the exposed level is alpha/255. Speed 4
- * still lands on the captured 64-frame door fade (0xFF/4 -> 64 steps);
- * the intermediate levels are now the engine's exact ones. */
-static void frame_fade_tick(void)
+void em_frame_fade_start_colour(int dir, int speed, uint8_t colour)
 {
-    if (!s_frame.fade_dir) return;
-    s_frame.fade_alpha += s_frame.fade_dir * s_frame.fade_speed;
-    if (s_frame.fade_alpha >= 255) {          /* mode 3 clamp at 0xFF */
-        s_frame.fade_alpha = 255;
-        if (s_frame.fade_dir > 0) s_frame.fade_dir = 0;
-    }
-    if (s_frame.fade_alpha <= 0) {            /* mode 2 clamp at 0 */
-        s_frame.fade_alpha = 0;
-        if (s_frame.fade_dir < 0) s_frame.fade_dir = 0;
-    }
+    if (dir > 0)
+        em_transition_fade_out(&s_frame.transition, (int16_t)speed, colour);
+    else
+        em_transition_fade_in(&s_frame.transition, (int16_t)speed, colour);
+}
+
+void em_frame_fade_clear(uint8_t colour)
+{
+    em_transition_fade_clear(&s_frame.transition, colour);
+}
+
+void em_frame_fade_full(uint8_t colour)
+{
+    em_transition_fade_full(&s_frame.transition, colour);
+}
+
+const EmTransitionFade *em_frame_transition(void) { return &s_frame.transition; }
+float em_frame_fade_level(void) { return s_frame.transition.level / 255.0f; }
+int em_frame_fade_active(void)
+{
+    return s_frame.transition.substate == 1 || s_frame.transition.substate == 3;
+}
+
+void em_frame_set_movie_active(int active) { s_frame.movie_active = active != 0; }
+
+void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
+{
+    s_frame.movie_pump = pump;
+    s_frame.movie_user = user;
+}
+
+void em_frame_screen_fade_start(int dir, int speed)
+{
+    if (dir > 0)
+        em_screen_fade_out(&s_frame.screen_fade, (int16_t)speed);
+    else
+        em_screen_fade_in(&s_frame.screen_fade, (int16_t)speed);
+}
+
+void em_frame_screen_fade_gate(uint8_t request, uint8_t suppress)
+{
+    s_frame.screen_request = request;
+    s_frame.screen_suppress = suppress;
+}
+
+const EmScreenFade *em_frame_screen_fade(void) { return &s_frame.screen_fade; }
+
+static void frame_transition_draw(void)
+{
+    float level = em_frame_fade_level();
+    float rgb[3] = {level, level, level};
+    em_gfx_overlay_canvas(s_frame.gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+    if (s_frame.transition.colour == EM_FADE_BLACK)
+        em_gfx_overlay_rect_sub(s_frame.gfx, 0, 0, EM_GFX_OVERLAY_W,
+                                EM_GFX_OVERLAY_H, rgb);
+    else
+        em_gfx_overlay_rect_add(s_frame.gfx, 0, 0, EM_GFX_OVERLAY_W,
+                                EM_GFX_OVERLAY_H, rgb);
+}
+
+static void frame_screen_fade_draw(void)
+{
+    /* 001AE900's two rectangles cover the first/last 32 of 224 field
+     * lines, hence 64 of the native 448-line canvas. */
+    const float bar_height = EM_GFX_OVERLAY_H / 7.0f;
+    float level = s_frame.screen_fade.level / 255.0f;
+    float rgb[3] = {level, level, level};
+    em_gfx_overlay_canvas(s_frame.gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+    em_gfx_overlay_rect_sub_before_text(s_frame.gfx, 0, 0, EM_GFX_OVERLAY_W, bar_height, rgb);
+    em_gfx_overlay_rect_sub_before_text(s_frame.gfx, 0, EM_GFX_OVERLAY_H - bar_height,
+                            EM_GFX_OVERLAY_W, bar_height, rgb);
 }
 const EmFrameInput *em_frame_input(void){ return &s_frame.input; }
 EmWindow *em_frame_window(void)         { return s_frame.win; }
@@ -238,9 +201,8 @@ static bool pad_changed(const EmPadState *a, const EmPadState *b)
            a->rx != b->rx || a->ry != b->ry;
 }
 
-/* Step C: pump platform events into em_input (and the quit logic), then
- * unpack the pad snapshot into the frame input block. Step I's edge
- * post-processing is folded in here. */
+/* Step C: pump platform events and unpack the native pad snapshot.
+ * Press edges correspond to original 001B5940, with native bit order. */
 static void frame_input_read(void)
 {
     EmEvent ev;
@@ -281,80 +243,88 @@ static void frame_input_read(void)
  * em_frame_run. Monotonic absolute deadlines via clock_gettime. */
 static void frame_pace_ntsc(void)
 {
-    static int      uncapped = -1;
-    static long     period_ns = 0;
-    static struct timespec next;
-    if (uncapped < 0) {
+    const long period_ns = 16683350L;
+    struct timespec *next = &s_frame.next_deadline;
+    if (!s_frame.pace_initialized) {
         const char *e = getenv("EM_UNCAPPED");
-        uncapped = (e && e[0] == '1');
-        period_ns = (long)(1e9 * 1.001 / 60.0); /* 16,683,350 ns */
-        clock_gettime(CLOCK_MONOTONIC, &next);
+        s_frame.uncapped = (e && e[0] == '1');
+        s_frame.pace_initialized = true;
+        clock_gettime(CLOCK_MONOTONIC, next);
     }
-    if (uncapped) return;
-    next.tv_nsec += period_ns;
-    while (next.tv_nsec >= 1000000000L) { next.tv_nsec -= 1000000000L; next.tv_sec++; }
+    if (s_frame.uncapped) return;
+    next->tv_nsec += period_ns;
+    while (next->tv_nsec >= 1000000000L) { next->tv_nsec -= 1000000000L; next->tv_sec++; }
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    if (now.tv_sec > next.tv_sec ||
-        (now.tv_sec == next.tv_sec && now.tv_nsec >= next.tv_nsec)) {
-        next = now; /* behind schedule: reset the deadline, no catch-up burst */
+    if (now.tv_sec > next->tv_sec ||
+        (now.tv_sec == next->tv_sec && now.tv_nsec >= next->tv_nsec)) {
+        *next = now; /* behind schedule: reset deadline without a catch-up burst */
         return;
     }
-    struct timespec rem = { next.tv_sec - now.tv_sec, next.tv_nsec - now.tv_nsec };
+    struct timespec rem = { next->tv_sec - now.tv_sec, next->tv_nsec - now.tv_nsec };
     if (rem.tv_nsec < 0) { rem.tv_nsec += 1000000000L; rem.tv_sec--; }
     nanosleep(&rem, NULL);
+}
+
+int em_frame_step(void)
+{
+    if (s_frame.quit) return 0;
+
+    /* B/C: native frame begin and the original input-unpack phase. */
+    em_gfx_begin_frame(s_frame.gfx, 0.08f, 0.09f, 0.12f, 1.0f);
+    em_gamepad_poll();
+    frame_input_read();
+
+    if (s_frame.movie_suspended) goto movie_phase;
+
+    /* D: 001AEBE0 updates the separate letterbox effect before tasks. */
+    if (em_screen_fade_tick(&s_frame.screen_fade, s_frame.screen_request,
+                            s_frame.screen_suppress))
+        frame_screen_fade_draw();
+
+    /* E/F/G: task requests affect the transition's SAME-frame tick. */
+    em_task_dispatch();
+    em_bgm_service();
+    /* Original message presentation overlays the already queued bars,
+     * then the full-screen transition composites over the whole image. */
+    em_opening_media_render(s_frame.gfx);
+    s_frame.suspended_draw_transition =
+        em_transition_fade_tick(&s_frame.transition) != 0;
+
+    /* 00203350 blocks the original main iteration at M while playing.
+     * Native presentation is incremental, so preserve that suspension
+     * across calls: input/media/presentation run but tasks, fades and
+     * the main iteration counter do not advance during playback. */
+    if (s_frame.movie_active) s_frame.movie_suspended = true;
+movie_phase:
+    if (s_frame.movie_suspended) {
+        if (s_frame.movie_active && s_frame.movie_pump)
+            s_frame.movie_active = s_frame.movie_pump(s_frame.movie_user) != 0;
+        if (s_frame.movie_active && !s_frame.quit) {
+            em_gfx_end_frame(s_frame.gfx);
+            return 1;
+        }
+        /* N/O occur once after the blocking movie function returns. */
+        s_frame.movie_suspended = false;
+        s_frame.suspended_draw_transition |=
+            em_transition_fade_tick(&s_frame.transition) != 0;
+    }
+    if (s_frame.suspended_draw_transition)
+        frame_transition_draw();
+
+    em_gfx_end_frame(s_frame.gfx);
+    s_frame.parity ^= 1u;
+    s_frame.counter++;
+    return !s_frame.quit;
 }
 
 void em_frame_run(void)
 {
     while (!s_frame.quit) {
-        /* A: clear vsync flag — no-op (see mapping table). */
-
-        /* B: frame begin — acquire swapchain image + clear. */
-        em_gfx_begin_frame(s_frame.gfx, 0.08f, 0.09f, 0.12f, 1.0f);
-
-        /* C (+I): input read/unpack into the frame input block.
-         * Sample any attached gamepad FIRST so its state is the one
-         * frame_input_read() unpacks (em_gamepad.h — the overlay replaces
-         * the keyboard map for the frame). */
-        em_gamepad_poll();
-        frame_input_read();
-
-        /* D: screen-fade machine (func_001AEDE0 tick) — armed by the
-         * door-transit commit (em_door.c); the level is DRAWN as the
-         * close-out's full-screen overlay rect (em_game.c). */
-        frame_fade_tick();
-
-        /* E: TASK DISPATCH — all game logic. */
-        em_task_dispatch();
-
-        /* F: audio service — the game-thread half of the pull-model BGM
-         * stream (em_bgm.c); the PS2's H and M pumps are folded in. */
-        em_bgm_service();
-
-        /* G, H: transition machine / audio service — no-op hook /
-         * folded into F. */
-
-        /* J, K, L, M: VU sync / GS readback / DMA watchdog / audio —
-         * no-op + folded into F (PS2 hardware paths; see mapping table). */
-
-        /* N, O: frame-end render bookkeeping / second fade tick — no-op. */
-
-        /* P..V: vsync wait, timer reset, dispenv flip, GS env apply,
-         * frame-flip bookkeeping — submit + blocking present. */
-        em_gfx_end_frame(s_frame.gfx);
-
-        /* P (pacing): the PS2 engine ticks once per NTSC vblank
-         * (~59.94 Hz — the vsync ISR func_001AB140 sets the wait flag).
-         * The native present rate follows the DISPLAY (120 Hz ProMotion
-         * runs everything 2x fast), so pace the loop to the NTSC tick
-         * here, in the same slot where the PS2 waited for vblank.
-         * EM_UNCAPPED=1 disables (profiling). Absolute-deadline pacing:
-         * drift-free, skips ahead after stalls instead of compounding. */
+        em_frame_step();
+        /* One logic tick per NTSC vblank, independent of display rate.
+         * Sleeping belongs only to the interactive loop, not the
+         * deterministic single-frame interface used by headless tests. */
         frame_pace_ntsc();
-
-        /* W: frame parity flip + lifetime counter. */
-        s_frame.parity ^= 1u;
-        s_frame.counter++;
     }
 }

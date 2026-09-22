@@ -16,6 +16,11 @@
 #include "em_platform.h"
 #include "game/em_frame.h"
 #include "game/em_game.h"
+#include "game/em_frontend.h"
+#include "game/em_startup_audio.h"
+#include "game/em_opening_runtime.h"
+#include "game/em_opening_control_test.h"
+#include "game/em_random.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -74,6 +79,7 @@ static void scene_redirect(void)
     env_make_absolute("EM_CAPTURE", cwd);
     env_make_absolute("EM_AUDIO_FILE", cwd);
     env_make_absolute("EM_BGM", cwd);
+    env_make_absolute("EM_STARTUP_CAPTURE_DIR", cwd);
 
     char stage_tmpl[] = "/tmp/em_scene_XXXXXX";
     char *stage = mkdtemp(stage_tmpl);
@@ -309,11 +315,18 @@ int main(void)
     /* Engine bring-up: frame loop env + input + task table, then the boot
      * task into slot 0 (the engine init's func_001AB740(0, boot)). */
     em_frame_init(win, gfx);
-    em_game_install();
+    em_random_seed(0x45); /* original anim_frame_top_a SDK RNG seed */
+    const char *skip_startup = getenv("EM_SKIP_STARTUP");
+    if (skip_startup && strcmp(skip_startup, "1") == 0)
+        em_game_install();  /* explicit gameplay/debug fixture */
+    else
+        em_frontend_install();
 
     em_frame_run();
 
+    em_frontend_shutdown();
     em_game_shutdown();
+    em_startup_audio_shutdown();  /* shared device has stopped its callback */
     if (audio) {
         em_audio_destroy(audio); /* blocks: no callback after this */
         if (audio_mode == 1)
@@ -332,5 +345,6 @@ int main(void)
     free((void *)audio_wav.pcm);
     em_gfx_destroy(gfx);
     em_window_destroy(win);
-    return 0;
+    return em_frontend_failed() || em_opening_runtime_failed() ||
+           em_opening_control_test_failed() ? 1 : 0;
 }

@@ -1169,6 +1169,10 @@ void em_enemy_pos(int i, float out[3]);
 /* Destroy the GPU mesh + free the model. */
 void em_enemy_shutdown(EmGfx *gfx);
 
+/* Host asset resolution for the next scene's enemy models. Call after the
+ * previous scene is unloaded and before adding its placed actors. */
+void em_enemy_set_scene_directory(const char *directory);
+
 #ifdef __cplusplus
 }
 #endif

@@ -39,6 +39,7 @@ static int manifest_word_token(const char *line, const char *tok)
 
 void scene_manifest_load(void)
 {
+    em_enemy_set_scene_directory(g.scene_dir);
     g.spawn[0]  = kPlayerPos[0];
     g.spawn[1]  = kPlayerPos[1];
     g.spawn[2]  = kPlayerPos[2];
@@ -489,14 +490,10 @@ void scene_manifest_load(void)
              * and/or the `prop` marker. */
             const char *model = NULL;
             int prop = 0;
-            /* The trailing "battery" token (batch-2 contract B) marks the
-             * AREA-11 battery key-item (placement record 10, item type
-             * 0x11). It is NOT a prop — it stays a normal collectible;
-             * em_pickup.c routes the TAKE of type 0x11 to
-             * em_game_set_battery(1) (the engine's D_00810811 = 0xFF), so
-             * the parser just needs to keep it collectible and not treat
-             * "battery" as a model filename. Recognized here only for the
-             * log; the type 0x11 in `gk` is what carries the routing. */
+            /* Compatibility with older generated fixture manifests.
+             * "battery" is a marker, not a model path. The original
+             * AREA11 entry does not place the key item asserted by those
+             * fixtures; normal exports must use original placement data. */
             int battery = (gn >= 7 && strcmp(name,  "battery") == 0) ||
                           (gn >= 8 && strcmp(gname, "battery") == 0);
             if (gn >= 7) {
@@ -514,6 +511,18 @@ void scene_manifest_load(void)
                        "(%.1f, %.1f, %.1f) — take sets D_00810811\n",
                        gk, p[0], p[1], p[2]);
             /* rc == -2: taken uid — the engine's silent cond-1 skip */
+        } else if (sscanf(line, "prop_indicator %63s %255s", gname, name) == 2) {
+            if (em_props_indicator_install(em_frame_gfx(), g.scene_dir,
+                                            gname, name) < 0)
+                fprintf(stderr, "manifest: prop indicator failed: %s", line);
+        } else if (sscanf(line, "pickup_light %i %255s %f %f %f %f",
+                          &gk, name, &x, &y, &z, &yaw) == 6) {
+            /* Child model 73 follows the already loaded owner's matrix.
+             * The four values are original RGB factors and amplitude. */
+            const float color[4] = {x, y, z, yaw};
+            if (em_pickup_light_add(em_frame_gfx(), g.scene_dir, gk,
+                                    name, color) == -1)
+                fprintf(stderr, "manifest: pickup light failed: %s", line);
         } else if (sscanf(line, "examine %f %f %f %f %f %f",
                           &x, &y, &z, &yaw, &gx, &gy) == 6) {
             /* EXAMINE object (em_examine.c — grammar in the manifest

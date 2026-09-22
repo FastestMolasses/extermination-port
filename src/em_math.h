@@ -125,32 +125,21 @@ static inline void em_mat4_perspective_gs(float *m, float zoom_s)
     m[14] = (EM_GS_NEAR * EM_GS_FAR) / (EM_GS_NEAR - EM_GS_FAR);
 }
 
-/* Engine-faithful look-at builder (decomp func_00102CD0, the
- * sceVu0CameraMatrix-style builder the camera commit func_0018C0D0 feeds —
- * FINDINGS.md "CAMERA SYSTEM" section 3). Inputs are the engine's: a view
- * POSITION (the commit passes eye + 4*forward), a NORMALIZED forward, and
- * the engine's view-up — the global D_008105F0 = (0,-1,0).
+/* Native view builder for original camera inputs (0018C0D0/00102CD0).
+ * The caller supplies the final view position: ordinary gameplay can push
+ * it along forward, while opening cinematic mode3 uses the authored eye.
  *
- * Handedness reconciliation (PS2 -> native): the engine's view space is
- * GS-shaped — +y DOWN (matching the GS raster, where screen y grows
- * downward) and +z INTO the screen (w_clip = z_view; a left-handed basis:
- * with s = fwd x up_gs and u = s x fwd, s x u = -fwd). The port's
- * em_mat4_perspective expects the opposite on both axes: y-up NDC
- * (Metal/D3D12/Vulkan) and right-handed -z forward. The remap negates all
- * three view-axis rows:
- *   - Y row:  GS y-down raster -> native y-up NDC;
- *   - Z row:  left-handed +z-forward -> right-handed -z-forward;
- *   - X row:  the two flips above alone would mirror the image; the X
- *     negation restores the screen chirality (level layout / texture
- *     text) that the port's renderer is validated against.
- * The result is numerically identical to em_mat4_lookat(pos, pos+fwd,
- * up=(0,1,0)); building it through the engine's convention keeps the
- * FINDINGS port contract explicit in code. */
+ * The original GS view has Y down and positive Z into the screen. Native
+ * projection needs Y up and negative Z forward. A captured opening view
+ * confirms that Y/Z rows change sign and X remains unchanged, including
+ * their translation terms. tools/test_camera_reference.py checks this
+ * mapping against original RAM; host arithmetic has small rounding error.
+ */
 static inline void em_mat4_lookat_gs(float *m, const float *pos,
                                      const float *fwd, const float *up_gs)
 {
-    /* Engine basis: s = fwd x up_gs (view +x), u = s x fwd (view +y,
-     * world-down when up_gs = (0,-1,0)), view +z = fwd. */
+    /* This temporary s is the NEGATIVE original X row. Its cross with
+     * forward gives the original Y row; forward is the original Z row. */
     float sx = fwd[1] * up_gs[2] - fwd[2] * up_gs[1];
     float sy = fwd[2] * up_gs[0] - fwd[0] * up_gs[2];
     float sz = fwd[0] * up_gs[1] - fwd[1] * up_gs[0];
@@ -161,9 +150,9 @@ static inline void em_mat4_lookat_gs(float *m, const float *pos,
     float uy = sz * fwd[0] - sx * fwd[2];
     float uz = sx * fwd[1] - sy * fwd[0];
 
-    /* Engine rows are (s, u, fwd) with translation -row.pos; the
-     * reconciliation negates every view-axis row (translation included),
-     * so the negated values are written directly. */
+    /* Native rows: original X, negative original Y, negative original Z.
+     * Since s was constructed with the opposite sign, all three local
+     * vectors are negated here. Translation uses the same row signs. */
     m[0] = -sx;     m[4] = -sy;     m[8]  = -sz;
     m[1] = -ux;     m[5] = -uy;     m[9]  = -uz;
     m[2] = -fwd[0]; m[6] = -fwd[1]; m[10] = -fwd[2];

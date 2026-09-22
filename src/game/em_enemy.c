@@ -647,10 +647,14 @@
  * SCENE-LOCAL AREA-11 content (carved + verified: model 0x1A = the
  * scripted creature, model 0x29 = the shootable burst-husk-B), so they
  * live under <scene>/props/ and never load for a scene that lacks them.
- * The runtime active-scene dir is symlinked to assets/scene (main.c
- * scene_redirect), exactly like the scene-local crate probe. */
-#define HUSK_CREATURE_ASSET "assets/scene/props/area_husk_creature.emdl"
-#define HUSK_PARTNER_ASSET  "assets/scene/props/area_husk_partner.emdl"
+ * The scene loader supplies the active directory explicitly: New Game
+ * and room transitions can change it without main.c's EM_SCENE fixture. */
+static char enemy_scene_dir[512] = "assets/scene";
+
+void em_enemy_set_scene_directory(const char *directory)
+{
+    snprintf(enemy_scene_dir, sizeof enemy_scene_dir, "%s", directory);
+}
 #define ENEMY_BONE_MAX   32
 #define ENEMY_PI         3.14159265f
 
@@ -2024,20 +2028,16 @@ static int crate_mesh_get(EmGfx *gfx)
     if (s.crate_tried) return -1;
     s.crate_tried = 1;
 
-    /* Per-scene crate probe (decomp FINDINGS s34 §3): under the EM_SCENE
-     * shadow stage "assets/scene" IS the active scene directory, so a scene
-     * may carry props/enemy_crate.emdl (props/ is a subdir, never slurped
-     * by scene_load as level geometry); scenes without one — and the
-     * default scene — fall back to the global CRATE_ASSET box, keeping
-     * default behavior byte-identical (the existence check keeps the
-     * loader's cannot-open noise out of default logs). Both crates are
-     * 1-bone, so CRATE_BONE_MAX needs no change. */
-    static const char SCENE_CRATE[] = "assets/scene/props/enemy_crate.emdl";
+    /* An area may override the shared crate model. Resolve that override
+     * from the active scene, including normal New Game and room changes. */
+    char scene_crate[sizeof enemy_scene_dir + 32];
+    snprintf(scene_crate, sizeof scene_crate, "%s/props/enemy_crate.emdl",
+             enemy_scene_dir);
     const char *path = NULL;
-    FILE *sc = fopen(SCENE_CRATE, "rb");
+    FILE *sc = fopen(scene_crate, "rb");
     if (sc) fclose(sc);
-    if (sc && em_model_load(&s.crate_model, SCENE_CRATE) == 0)
-        path = SCENE_CRATE;
+    if (sc && em_model_load(&s.crate_model, scene_crate) == 0)
+        path = scene_crate;
     else if (em_model_load(&s.crate_model, CRATE_ASSET) == 0)
         path = CRATE_ASSET;
     if (path) {
@@ -2156,15 +2156,17 @@ static int husk_creature_mesh_get(EmGfx *gfx)
     if (s.husk_c_mesh) return 0;
     if (s.husk_c_tried) return -1;
     s.husk_c_tried = 1;
+    char path[sizeof enemy_scene_dir + 40];
+    snprintf(path, sizeof path, "%s/props/area_husk_creature.emdl", enemy_scene_dir);
 
-    if (em_model_load(&s.husk_c_model, HUSK_CREATURE_ASSET) != 0) {
+    if (em_model_load(&s.husk_c_model, path) != 0) {
         fprintf(stderr, "enemy: %s not found — door-husk CREATURE "
                 "skipped (AREA-11 scripted content, no placeholder)\n",
-                HUSK_CREATURE_ASSET);
+                path);
         return -1;
     }
     if (s.husk_c_model.bone_count > HUSK_CREATURE_BONE_MAX) {
-        fprintf(stderr, "enemy: %s: %u bones > %d\n", HUSK_CREATURE_ASSET,
+        fprintf(stderr, "enemy: %s: %u bones > %d\n", path,
                 s.husk_c_model.bone_count, HUSK_CREATURE_BONE_MAX);
         em_model_free(&s.husk_c_model);
         return -1;
@@ -2186,7 +2188,7 @@ static int husk_creature_mesh_get(EmGfx *gfx)
     s.husk_c_bones     = s.husk_c_model.bone_count;
     em_model_palette_at(&s.husk_c_model, 0, 0.0, s.husk_c_base);
     printf("husk creature model: %s — %u verts, %u tris, %u texture(s)\n",
-           HUSK_CREATURE_ASSET, s.husk_c_model.vert_count,
+           path, s.husk_c_model.vert_count,
            s.husk_c_model.index_count / 3, s.husk_c_model.tex_count);
     return 0;
 }
@@ -2199,15 +2201,17 @@ static int husk_partner_mesh_get(EmGfx *gfx)
     if (s.husk_p_mesh) return 0;
     if (s.husk_p_tried) return -1;
     s.husk_p_tried = 1;
+    char path[sizeof enemy_scene_dir + 40];
+    snprintf(path, sizeof path, "%s/props/area_husk_partner.emdl", enemy_scene_dir);
 
-    if (em_model_load(&s.husk_p_model, HUSK_PARTNER_ASSET) != 0) {
+    if (em_model_load(&s.husk_p_model, path) != 0) {
         fprintf(stderr, "enemy: %s not found — door-husk PARTNER "
                 "skipped (AREA-11 scripted content, no placeholder)\n",
-                HUSK_PARTNER_ASSET);
+                path);
         return -1;
     }
     if (s.husk_p_model.bone_count > HUSK_PARTNER_BONE_MAX) {
-        fprintf(stderr, "enemy: %s: %u bones > %d\n", HUSK_PARTNER_ASSET,
+        fprintf(stderr, "enemy: %s: %u bones > %d\n", path,
                 s.husk_p_model.bone_count, HUSK_PARTNER_BONE_MAX);
         em_model_free(&s.husk_p_model);
         return -1;
@@ -2229,7 +2233,7 @@ static int husk_partner_mesh_get(EmGfx *gfx)
     s.husk_p_bones     = s.husk_p_model.bone_count;
     em_model_palette_at(&s.husk_p_model, 0, 0.0, s.husk_p_base);
     printf("husk partner model: %s — %u verts, %u tris, %u texture(s)\n",
-           HUSK_PARTNER_ASSET, s.husk_p_model.vert_count,
+           path, s.husk_p_model.vert_count,
            s.husk_p_model.index_count / 3, s.husk_p_model.tex_count);
     return 0;
 }

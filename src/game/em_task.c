@@ -12,14 +12,26 @@ void em_task_init(void)
     s_current = NULL;
 }
 
+static EmTask *task_arm(EmTask *t, EmTaskFn fn)
+{
+    t->state  = EM_TASK_STATE_START;
+    t->fn     = fn;
+    /* Both 001AB740 and 001AB790 clear four words, original +8..+0x17.
+     * The last eight bytes of task-private storage survive replacement. */
+    memset(t->user, 0, EM_TASK_RESET_BYTES);
+    return t;
+}
+
 EmTask *em_task_register(int slot, EmTaskFn fn)
 {
     if (slot < 0 || slot >= EM_TASK_SLOTS) return NULL;
-    EmTask *t = &s_table[slot];
-    t->state  = EM_TASK_STATE_START;
-    t->fn     = fn;
-    memset(t->user, 0, sizeof t->user);
-    return t;
+    return task_arm(&s_table[slot], fn);
+}
+
+EmTask *em_task_replace_current(EmTaskFn fn)
+{
+    if (!s_current) return NULL;
+    return task_arm(s_current, fn);
 }
 
 void em_task_dispatch(void)

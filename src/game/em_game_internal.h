@@ -130,38 +130,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define ELEV_FRAMES     150          /* +0x2EC < 0x96 */
 #define ELEV_SFX_DOWN   0x453u       /* func_001FBD50(300, 0x453) — down */
 
-/* AREA-11 GRATE open SLIDE (INVESTIGATION_area11_grate.md §4). The open is
- * the opcode-7 120-frame beat (0x42f00000 = 120.0) in the grate's open
- * script; the visible motion is the bars retracting along their long world
- * axis. PINNED [ASM]: 120 frames. FLAGGED [FLAG]: the slide DIRECTION and
- * EXTENT were not frozen live (the engine proximity bits that drive the
- * keyframed bars clip can't be forced from a paused session); the working
- * assumption from the gap doc + the mesh geometry is a LATERAL retract along
- * the gate's long axis by ~its own width. At yaw -pi the bars' long axis is
- * world X; GRATE_SLIDE_DX is the full-open lateral offset, tuned to roughly
- * one bar-width so the path clears. Both are flagged for a live-capture
- * refinement (the §4 player-proximity pass). */
-#define GRATE_SLIDE_FR  120          /* opcode-7 beat = 120.0 frames */
-#define GRATE_SLIDE_DX  12.0f        /* [FLAG] lateral retract extent (u) */
-
-/* CLOSED-HULL half-extents of the AREA-11 grate bars, MODEL-LOCAL
- * (INVESTIGATION_area11_grate.md §1/§5, LIVE read of model instance
- * 0x01350640 header +0x24). These are the authoritative blocking extents:
- * a wide/short/thin bar-GRID, half-extents (11.71, 4.0, 3.2) = a
- * 23.42 x 8.0 x 6.4 box. The local long axis (11.71) is mapped to world
- * by the placement yaw (at AREA-11's -pi it lands on world X).
- *
- * NOTE — these do NOT come from the shipped area_item_04.emdl mesh: that
- * carved file is the param-0x04 STATIC-prop blob (2 bones / 333 v, a single
- * 6.1 x 14.0 x 2.1 BAR), which is NOT record 18's true model byte 0x24 grid.
- * Deriving the hull from that mesh gave only a ~6.1u-wide box that the player
- * could slip past. The render still uses the shipped mesh (a flagged mesh-
- * fidelity nit, not a blocker bug); the BLOCKER uses the live grid extents so
- * the whole grate opening is closed. See grate_compute_box. */
-#define GRATE_HALF_X    11.71f       /* model-local long (bar-grid width) */
-#define GRATE_HALF_Y    4.0f         /* model-local height */
-#define GRATE_HALF_Z    3.2f         /* model-local depth */
-
 /* AREA-11 STEAM / FX EMITTER (placement record 7, ov 0x008235F0 — the
  * level's ONE active dynamic light + a looping hiss + a steam puff;
  * INVESTIGATION_first_level_area11.md §3/§6). The light is COSMETIC and
@@ -1388,19 +1356,15 @@ enum {
 #define LOCKCAM_EYE_UP     12.0f  /* door.y + 12 */
 
 /* ===================================================================== *
- * AREA-11 OPENING DIRECTOR — the D_00810813 step machine. DOWNGRADED by
- * audit: OBSERVED (live RAM), NOT source-derived. The cited body
- * func_008253B0 is OVERLAY code that is absent from the decomp, and
- * the cited INVESTIGATION_area11_director.md is not in either repo, so
- * no keyframe, gate or step value below can be re-checked against
- * recovered C. Treat the whole block as a live-capture reconstruction.
- * The class-0x09 scripting-spine actor (record 12, ov
- * 0x8253F0, body func_008253B0) drives the global step byte D_00810813
- * (0 -> 0x10 -> 0x20 -> 0xFF) running THREE zone+Y-gated establishing
- * cutscenes as the player walks the opening area. Each beat is a
- * LETTERBOX-GATED, PLAYER-LOCKED, CAMERA-ONLY program of literal
- * eye->target keyframes (the authoritative live-RAM vectors from the
- * doc's §B/C/D tables).
+ * AREA11 event director. Milestone selection, polygon geometry and Y
+ * gates are recovered from runtime 0x008253F0..0x008257A0 and loaded by
+ * em_area11_flow. The three programs are triggered during traversal;
+ * none is active at the New Game spawn. The old overlay symbol map was
+ * shifted by 0x40, so use runtime addresses when consulting evidence.
+ *
+ * The camera-keyframe executor remains an approximation: it does not
+ * implement every command in the original scripts. Correct triggers do
+ * not establish that the resulting cutscenes are faithful.
  *
  * GATING / SAFETY: the director is DORMANT (cine_active == 0) outside a
  * beat — the camera (movement-v3 chase) and player movement run EXACTLY
@@ -1437,10 +1401,9 @@ typedef struct {
     float tgt[3];
 } CineKey;
 
-/* One beat = a trigger zone (XZ AABB + Y gate) + a keyframe program +
- * the on-completion milestone/music/key-item actions. The zone test is
- * the doc's func_1B1EA0 point-in-poly reduced to its axis-aligned AABB
- * (all three polys are rects) plus the floor-tier Y gate. */
+/* Camera program plus descriptive bounds for logging/test placement.
+ * Trigger inclusion uses the exported quadrilateral in em_area11_flow,
+ * not these bounds; the second polygon is not axis-aligned. */
 typedef struct {
     float   x0, x1, z0, z1;   /* trigger XZ AABB (world) */
     float   ylo, yhi;         /* Y gate band [ylo, yhi] */
@@ -1667,6 +1630,8 @@ typedef struct {
     /* gameplay-frame state */
     int        frame_no;         /* gameplay frames run */
     uint8_t    frame_selector;   /* scratchpad 0x70003B8D: 0 = gameplay */
+    uint8_t    opening_event_39; /* D_00810791: automatic opening state */
+    uint8_t    opening_key_item_zero; /* D_00810CC3[0], 001C4760(0,1) */
 
     /* animation clips + idle<->locomotion crossfade */
     int        clip_idle;        /* clip indices into model.clips */
@@ -2175,26 +2140,15 @@ typedef struct {
                                   * descends with the ride */
     float       elev_yaw;        /* platform facing */
 
-    /* AREA-11 GATED GRATE (placement record 18, fn func_00159210 — the
-     * closed path-blocker that opens when the area is powered; decode in
-     * INVESTIGATION_area11_grate.md). The bars mesh (per-area id 0x04) is a
-     * SOLID blocker while the unlock bit is clear (the same bit the
-     * elevator gates on — em_game_terminal_powered, D_0081084C & 0x80);
-     * once powered it stops blocking and the bars SLIDE open over ~120
-     * frames. Spawns CLOSED at a fresh new game (the bit is 0). */
-    int         grate_present;   /* a parsed+loaded grate this scene */
-    int         grate_open;      /* the open SLIDE has begun (powered) */
-    int         grate_done;      /* the slide finished (fully retracted) */
-    int         grate_frame;     /* slide frame counter 0..GRATE_SLIDE_FR */
-    EmModel     grate_model;     /* bars model (valid if grate_present) */
-    EmGfxMesh  *grate_mesh;      /* bars GPU mesh */
-    float      *grate_palette;   /* bars pose palette (world-placed) */
-    float       grate_pos[3];    /* bars placement (world); slide adds to X */
-    float       grate_yaw;       /* bars facing (-pi for AREA-11) */
-    float       grate_slide;     /* current world-X slide offset (grows to
-                                  * GRATE_SLIDE_DX over the open) */
-    EmBlockerAabb grate_box;     /* the CLOSED hull, world AABB (mesh-derived
-                                  * at install, slides with the bars) */
+    /* Original AREA11 switch actor00159210 / per-area model04.
+     * Legacy grate_* field names remain local to the scene/props boundary;
+     * this actor has no translated gate slide or synthetic blocker. */
+    int         grate_present;
+    EmModel     grate_model;
+    EmGfxMesh  *grate_mesh;
+    float      *grate_palette;
+    float       grate_pos[3];
+    float       grate_yaw;
 
     /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — OBSERVED,
      * see the DOWNGRADED note on the director block above: the driving

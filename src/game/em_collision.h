@@ -54,12 +54,10 @@ extern "C" {
  * probes (player = 0), -1 for plain segment queries. Conditional surfaces
  * (attr 0x50..0x59) are gated against it:
  * 0x50 never collides, 0x51 only id 0, 0x52 only id 2, 0x53 skipped for
- * id -1, 0x54..0x59 always collide.
- * PARTLY UNRESOLVED (audit): the engine's four sibling walkers disagree
- * on 0x53 and on 0x54..0x59 — the recovered func_0019D330 reads the
- * opposite polarity from the recovered func_001A0B10. The port keeps the
- * func_001A0B10 reading; the full comparison and the reasoning are in
- * attr_passes() in em_collision.c. */
+ * id -1, 0x54..0x59 always collide, >=0x5A never collide.
+ * Movement probes admit 0x50 as well. Camera queries instead reject only
+ * 0x51..0x53, independently of query ID. These are distinct original
+ * walker families; see attr_passes() in em_collision.c. */
 #define EM_COLL_ID_NONE (-1)
 
 /* Surface classification halfword (SPR 0x700030CA). CONFIRMED (audit)
@@ -116,6 +114,11 @@ void em_collision_free(EmCollision *c);
 int em_collision_segment_query(const EmCollision *c, const float from[3],
                                const float to[3], unsigned mask, int id,
                                EmCollHit *hit);
+
+/* func_0019A910 — camera segment query. Like the segment API, with the
+ * camera world's filter: skip 0x51..0x53, admit 0x50 and >=0x54. */
+int em_collision_camera_query(const EmCollision *c, const float from[3],
+                              const float to[3], unsigned mask, EmCollHit *hit);
 
 /* func_0019AD00 — actor move probe with collide-and-slide response.
  * Probes horizontally from (pos.x, target.y, pos.z) to `target` extended

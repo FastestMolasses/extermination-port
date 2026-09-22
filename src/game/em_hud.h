@@ -326,6 +326,12 @@ void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
  * centering helper). 0 while the font asset is missing. */
 float em_hud_text_width(const char *str, EmHudTextStyle style);
 
+/* Original 001FD950 centering and 001CC3B0 five-pass outlined tall text.
+ * First two lines determine the common x; markup top_skew is in pixels.
+ * rgb/outline are original packed 0xBBGGRR colors, not invented styling. */
+void em_hud_subtitle(EmGfx *gfx, const char *str, float y, float line_height,
+                     float top_skew, uint32_t rgb, uint32_t outline);
+
 /* Is the font sheet loaded? (placeholder rects are the fallback) */
 int em_hud_font_ready(void);
 

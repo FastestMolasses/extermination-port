@@ -105,36 +105,29 @@ static uint16_t surf_classify(const float n[3])
     return (r <= 3.0f) ? EM_SURF_STEEPDN : EM_SURF_CEIL;
 }
 
-/* Conditional-surface gate — the attr 0x50..0x59 dispatch against the
- * query id (SPR 0x7000324E). Returns 0 = skip this poly.
- *
- * PARTLY UNRESOLVED (audit). The engine has four sibling walkers and
- * they do NOT agree, so this gate cannot be pinned from one citation:
- *   func_0019D770 (camera family):  skip 0x51..0x53 unconditionally;
- *                                   everything else passes.
- *   func_0019CF50:                  as above, plus skip attr >= 0x5A.
- *   func_0019D330 (grid, cited by   0x50 never; 0x51 id==0; 0x52 id==2;
- *   em_collision.h):                0x53 id==-1; 0x54..0x59 SKIPPED.
- *   func_001A0B10 (cell hulls, on   0x50 never; 0x51 id==0; 0x52 id==2;
- *   the entity kind byte, not the   0x53 skipped when id==-1;
- *   poly attr):                     0x54..0x59 pass; >= 0x5A skipped.
- * The two id-aware readings are recovered from NEARMISS C and are
- * mutually contradictory on 0x53 and on 0x54..0x59. func_001A0B10's is
- * a plain continue-chain that maps 1:1 onto the original branches;
- * func_0019D330's is a single fused boolean, exactly the shape a
- * decompiler mis-associates, and its 0x54..0x59 verdict also disagrees
- * with BOTH of its own grid siblings. So this keeps func_001A0B10's
- * polarity (which is also what docs/FINDINGS.md records) rather than
- * flipping a gameplay gate on the weaker reading. FLAGGED: settle 0x53
- * against the raw func_0019D330 branches before trusting either. */
-static int attr_passes(uint8_t attr, int id)
+typedef enum {
+    QUERY_SEGMENT,       /* 0019A570 -> 001A0B10 / 0019D330 */
+    QUERY_MOVEMENT,      /* 0019AD00 -> 0019FE50 / 0019CB60 */
+    QUERY_CAMERA        /* 0019A910 -> 001A1390 / 0019D770 */
+} QueryFamily;
+
+/* The original walkers deliberately use different surface gates. Verified
+ * against the raw branch blocks, not the former erroneous 0019D330 C:
+ * segment rejects 0x50 and >=0x5A; movement rejects >=0x5A but admits
+ * 0x50; camera rejects only 0x51..0x53 and does not use the actor ID.
+ * The shared ID tests below apply to segment/movement only.
+ * EMCL v1 loses cell-record attributes (exports them as zero), so this
+ * fixes grid gates; complete cell-record filtering needs richer assets. */
+static int attr_passes(uint8_t attr, int id, QueryFamily family)
 {
-    if (attr < 0x50 || attr > 0x59) return 1;
+    if (family == QUERY_CAMERA) return attr < 0x51 || attr >= 0x54;
+    if (attr >= 0x5A) return 0;
+    if (attr < 0x50) return 1;
     switch (attr) {
-        case 0x50: return 0;
+        case 0x50: return family == QUERY_MOVEMENT;
         case 0x51: return id == 0;
         case 0x52: return id == 2;
-        case 0x53: return id != -1;   /* FLAGGED: see above */
+        case 0x53: return id != -1;
         default:   return 1;          /* 0x54..0x59 */
     }
 }
@@ -180,14 +173,14 @@ static int poly_test(const EmCollision *c, const EmCollPoly *p,
 /* Walk one collision set over the clamped segment. Returns the index of
  * the (new) nearest-hit poly or -1. Mirrors the per-set walkers; the
  * conditional-surface gate applies where func_0019D330 applies it. */
-static int set_walk(const EmCollision *c, uint8_t set, int id,
+static int set_walk(const EmCollision *c, uint8_t set, int id, QueryFamily family,
                     const float start[3], float end[3])
 {
     int best = -1;
     for (uint32_t i = 0; i < c->poly_count; i++) {
         const EmCollPoly *p = &c->polys[i];
         if (p->set != set) continue;
-        if (!attr_passes(p->attr, id)) continue;
+        if (!attr_passes(p->attr, id, family)) continue;
         if (poly_test(c, p, start, end)) best = (int)i;
     }
     return best;
@@ -206,9 +199,9 @@ static void stage_hit(const EmCollision *c, EmCollHit *hit, int poly,
     hit->surf_class = surf_classify(p->plane);
 }
 
-int em_collision_segment_query(const EmCollision *c, const float from[3],
-                               const float to[3], unsigned mask, int id,
-                               EmCollHit *hit)
+static int segment_query(const EmCollision *c, const float from[3],
+                         const float to[3], unsigned mask, int id,
+                         QueryFamily family, EmCollHit *hit)
 {
     if (!c || !c->blob) return 0;
     float end[3] = { to[0], to[1], to[2] };
@@ -218,13 +211,13 @@ int em_collision_segment_query(const EmCollision *c, const float from[3],
      * cells (bit 1), grid (bit 2); each set only beats the previous by
      * hitting nearer, because the segment end stays clamped. */
     if (mask & EM_COLL_SET_CELLS) {
-        if ((r = set_walk(c, EM_COLL_SET_CELLS, id, from, end)) >= 0) {
+        if ((r = set_walk(c, EM_COLL_SET_CELLS, id, family, from, end)) >= 0) {
             kind = EM_COLL_SET_CELLS;
             poly = r;
         }
     }
     if (mask & EM_COLL_SET_GRID) {
-        if ((r = set_walk(c, EM_COLL_SET_GRID, id, from, end)) >= 0) {
+        if ((r = set_walk(c, EM_COLL_SET_GRID, id, family, from, end)) >= 0) {
             kind = EM_COLL_SET_GRID;
             poly = r;
         }
@@ -237,6 +230,19 @@ int em_collision_segment_query(const EmCollision *c, const float from[3],
         hit->delta[2] = end[2] - to[2];
     }
     return kind;
+}
+
+int em_collision_segment_query(const EmCollision *c, const float from[3],
+                               const float to[3], unsigned mask, int id,
+                               EmCollHit *hit)
+{
+    return segment_query(c, from, to, mask, id, QUERY_SEGMENT, hit);
+}
+
+int em_collision_camera_query(const EmCollision *c, const float from[3],
+                              const float to[3], unsigned mask, EmCollHit *hit)
+{
+    return segment_query(c, from, to, mask, EM_COLL_ID_NONE, QUERY_CAMERA, hit);
 }
 
 int em_collision_move_probe(const EmCollision *c, float pos[3],
@@ -260,13 +266,13 @@ int em_collision_move_probe(const EmCollision *c, float pos[3],
 
     int kind = 0, poly = -1, r;
     if (mask & EM_COLL_SET_CELLS) {
-        if ((r = set_walk(c, EM_COLL_SET_CELLS, 0, start, end)) >= 0) {
+        if ((r = set_walk(c, EM_COLL_SET_CELLS, 0, QUERY_MOVEMENT, start, end)) >= 0) {
             kind = EM_COLL_SET_CELLS;
             poly = r;
         }
     }
     if (mask & EM_COLL_SET_GRID) {
-        if ((r = set_walk(c, EM_COLL_SET_GRID, 0, start, end)) >= 0) {
+        if ((r = set_walk(c, EM_COLL_SET_GRID, 0, QUERY_MOVEMENT, start, end)) >= 0) {
             kind = EM_COLL_SET_GRID;
             poly = r;
         }

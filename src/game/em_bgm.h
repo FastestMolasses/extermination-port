@@ -45,6 +45,11 @@ extern "C" {
  * current music untouched. */
 int em_bgm_play(const char *path, int loop);
 
+/* 001FAB50 + 001FABF0: release the previous stream immediately, then
+ * add 16383/fade_ticks once per em_bgm_service. The caller supplies the
+ * original duration (001FAE70 uses 270 + seven RNG bits). */
+int em_bgm_play_ticks(const char *path, int loop, unsigned fade_ticks);
+
 /* Stop the music: fade out over ~1 s when `fade` is nonzero, cut
  * immediately when 0 (the func_001FABB0 hard stop). Game thread only;
  * a no-op when nothing is playing. */

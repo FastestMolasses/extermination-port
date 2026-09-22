@@ -1,19 +1,18 @@
-/* em_frame.h — the engine's per-frame phase sequence, translated to native C.
+/* Frame loop and native input/presentation contract.
  *
- * Faithful structural translation of the PS2 main loop func_001AAE40
- * (decomp repo, docs/FINDINGS.md "ENGINE FRAME ANATOMY", steps A..W).
- * em_frame_run() executes the same phases in the same order, with the
- * port's em_* subsystems standing in for the PS2 hardware; steps that only
- * exist because of PS2 hardware are documented no-ops (full table in
- * em_frame.c).
+ * Original 001AAE40 drives separate letterbox and full-screen transition
+ * machines around task dispatch; em_fade.h provides their exact state
+ * transitions. em_frame_step exposes one presentation step for tests and
+ * for the interactive loop, without sleeping.
  *
- * FRAME INPUT BLOCK — mirrors the engine block at 0x00810E60..0x00810E7B
- * that func_001B57E0 -> func_001B5F40 unpacks from the raw libpad RPC
- * buffer each frame (step C). Natively the OS event pump is the "RPC
- * buffer" and em_input is the unpacker; the result is the same shape:
- * analog bytes (0x80-centered) + button halfwords as current/pressed/
- * released triples. Button bits are the EM_PAD_* mask (canonical
- * DualShock 2 order, active-high — see em_input.h).
+ * INPUT BOUNDARY: native EM_PAD masks use canonical DualShock 2 bit
+ * positions. Original 001B5940 swaps the button word's bytes, so original
+ * Start 0x0800 is native EM_PAD_START 0x0008, for example. Always use
+ * EM_PAD names in native consumers; swap bytes when comparing original
+ * traces. The original six halfwords at 0x00810E70 are held, previous
+ * held, pressed, previous pressed, directional repeat, repeat countdown.
+ * The native released field below is useful host state, not a claimed
+ * binary overlay of one of those original fields.
  */
 #ifndef EM_FRAME_H
 #define EM_FRAME_H
@@ -22,6 +21,7 @@
 
 #include "em_gfx.h"
 #include "em_platform.h"
+#include "game/em_fade.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,12 +32,10 @@ typedef struct {
      * right/down), the engine's representation: FINDINGS pins lx/ly at
      * block +4/+5 (0x00810E64/65, forced to 0x80 on pad failure). */
     uint8_t  lx, ly, rx, ry;
-    /* Button halfword triple (block +0x10/+0x12/+0x14 = 0x00810E70/72/74).
-     * The original block carries a second triple at +0x16..+0x1A
-     * (0x810E76/78/7A); the single-pad port carries one. */
+    /* Native convenience fields, not the original memory layout. */
     uint16_t held;      /* buttons currently down */
-    uint16_t pressed;   /* went down this frame  (edge, computed step C/I) */
-    uint16_t released;  /* went up this frame    (edge, computed step C/I) */
+    uint16_t pressed;   /* went down this frame (original +4, byte-swapped) */
+    uint16_t released;  /* went up this frame (native convenience) */
 } EmFrameInput;
 
 /* Bind the loop to the platform window + gfx device and reset the task
@@ -49,6 +47,10 @@ void em_frame_init(EmWindow *win, EmGfx *gfx);
  * ESC) or by em_frame_request_quit(). The PS2 loop never returns; natively
  * this returns so main can tear down cleanly. */
 void em_frame_run(void);
+
+/* Execute one presentation step without pacing. Returns zero on quit.
+ * A blocked movie may need many presentation steps per engine frame. */
+int em_frame_step(void);
 
 /* Ask the loop to stop after the current frame completes. */
 void em_frame_request_quit(void);
@@ -68,65 +70,40 @@ uint32_t em_frame_counter(void);
  * the engine's double-buffered per-frame resources. */
 uint32_t em_frame_parity(void);
 
-/* --- SCREEN-FADE MACHINE (func_001AEDE0 family) -----------------------
- * The engine's full-screen fade: func_001AEDE0(speed, mode) arms it and
- * the main loop ticks it (the 0x0028A8E0 transition/brightness machine,
- * func_001AEE70; header fields +0xC0 sub-state / +0xC3 state / +0xC4
- * level / +0xC6 step — D_0028A9A0 IS the +0xC0 sub-state other systems
- * gate on). The captured speed is 4 -> a 64-frame ramp (level steps
- * speed/256 per frame), used by BOTH door-transition fades (FINDINGS.md
- * "AREA TRANSITION LIFECYCLE": commit runs func_001AEDE0(4,0) fade-out;
- * the re-place state arms the fade-in via func_001AEE10(4,0), the same
- * machine ramping back down).
- *
- * THE REAL BLEND (decoded 2026-06-11 from the packet init func_001AEA50
- * + the per-frame writer func_001AEE70): the fade is NOT a black quad
- * alpha-blended over the frame. The machine owns a double-buffered VIF
- * DIRECT packet (FLUSH/NOP/NOP/DIRECT-5) whose GIF tag draws ONE
- * full-screen SPRITE (PRIM 0x346: sprite, ABE on, FST, context 2) with
- * a packed A+D pair, an RGBAQ and two XYZF2 vertices:
- *
- *   +0x20  A+D -> ALPHA_2 (reg 0x43), per the +0xC2 mode byte:
- *          mode 0: data 0x00000080_000000A1 = A=Cd B=Cs C=FIX D=0,
- *                  FIX=0x80  ->  Cv = (Cd - Cs)*128>>7 = Cd - Cs
- *                  (SUBTRACTIVE: dest minus source, saturating at 0)
- *          mode 1: data 0x00000080_00000068 = A=Cs B=0 C=FIX D=Cd
- *                  ->  Cv = Cs + Cd  (ADDITIVE: fade to WHITE)
- *   +0x30  RGBAQ R=G=B = the LEVEL (0..255), A=0x80 (unused: C=FIX)
- *   +0x40/+0x50  XYZF2 corners (0x7000,0x7900)-(0x9000,0x8700) 12.4
- *
- * So the door fade (mode 0) SUBTRACTS the grey level from every frame
- * pixel: out = max(0, pixel - level). Dark pixels crush to black early,
- * highlights survive longest — the "exposure being pulled down" look,
- * NOT a black cover dissolving in.
- *
- * NATIVE TRANSLATION (gap closed 2026-06-11): the overlay pass carries
- * the decoded blend directly — em_gfx_overlay_rect_sub (em_gfx.h) is a
- * reverse-subtract rect (out = max(0, dst - src.rgb), factors ONE/ONE
- * on RGB, dst alpha kept; Metal: MTLBlendOperationReverseSubtract).
- * em_game's close-out draws a full-screen GREY quad through it with
- * rgb = em_frame_fade_level() — per-pixel identical to the GS sprite:
- * shadows clip to 0 once level >= pixel, a pure-white pixel stays
- * visible until level 255. The interim black-quad stand-in (alpha =
- * 1-(1-l)^2, the mean-luminance approximation) and its documented
- * residual gap are retired with it. Level 0 queues nothing, so the
- * default frame stays byte-identical. The additive mode-1 fade (to
- * white) still has no port caller and is not implemented. */
-#define EM_FADE_SPEED_DOOR 4   /* the captured door-transit fade speed */
-
-/* Arm a fade: dir > 0 fades OUT (toward black), dir < 0 fades IN (toward
- * clear); `speed` in engine units (level moves speed/256 per frame, so
- * speed 4 = 64 frames full ramp). */
-void em_frame_fade_start(int dir, int speed);
-
-/* Current fade level: 0.0 = clear, 1.0 = full subtraction (black) —
- * the engine's +0xC4 level, normalized. The grey the close-out's
- * subtract rect draws with (em_game.c), and the value the PROGRESS
- * tests/gates read. */
+/* Full-screen transition: 001AED80/001AEDB0 force clear/full;
+ * 001AEDE0/001AEE10 arm from the existing level. Colour 0 subtracts to
+ * black; nonzero adds to white. The frame loop owns ticking AND drawing.
+ * Level is an integer 0..255 and normalization is level/255, not /256.
+ * Fade-in settles only after crossing below zero, exactly as the original.
+ */
+#define EM_FADE_SPEED_DOOR 4
+void em_frame_fade_start(int dir, int speed); /* black convenience */
+void em_frame_fade_start_colour(int dir, int speed, uint8_t colour);
+void em_frame_fade_clear(uint8_t colour);
+void em_frame_fade_full(uint8_t colour);
+const EmTransitionFade *em_frame_transition(void);
 float em_frame_fade_level(void);
+int em_frame_fade_active(void); /* substate 1 or 3 */
 
-/* Nonzero while a ramp is still in motion (level not yet at its end). */
-int em_frame_fade_active(void);
+/* Separate 001AEBE0 letterbox-bar effect, before task dispatch. The
+ * original two rectangles cover 32/224 field lines at top and bottom.
+ * Positive dir calls 001AEB60, nonpositive calls 001AEBA0. Gate mirrors
+ * 0x70003B90 and 0x008106C4; it suppresses drawing, never state updates. */
+void em_frame_screen_fade_start(int dir, int speed);
+void em_frame_screen_fade_gate(uint8_t request, uint8_t suppress);
+const EmScreenFade *em_frame_screen_fade(void);
+
+/* Native continuation of original blocking 00203350. Arm movie_active
+ * during task dispatch, and install a pump that presents one movie frame
+ * and returns 1 while playing or 0 once complete. While suspended only
+ * input, the pump and presentation run: no normal tasks, fades, BGM
+ * service, frame counter or parity advancement. Completion performs the
+ * original one extra transition tick and completes the main iteration.
+ * The callback can read em_frame_input() to honor movie skip requests.
+ */
+typedef int (*EmFrameMoviePump)(void *user);
+void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user);
+void em_frame_set_movie_active(int active);
 
 #ifdef __cplusplus
 }

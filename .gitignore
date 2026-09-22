@@ -6,6 +6,8 @@ build/
 *.exe
 *.pdb
 *.dSYM/
+__pycache__/
+*.py[cod]
 
 # Disc-derived material — NEVER commit (see CLAUDE.md). The port consumes the
 # user's own decompiled code + their own legally-dumped disc assets at build

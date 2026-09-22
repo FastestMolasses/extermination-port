@@ -328,9 +328,9 @@ static int cam_yaw_blocked(const EmCamera *cam, float yaw)
                      g.pos[1] + CAM_EYE_HEIGHT,
                      g.pos[2] - cosf(yaw) * CAM_DIST };
     EmCollHit hit;
-    return em_collision_segment_query(&g.coll, (float *)cam->tgt_des, eye,
+    return em_collision_camera_query(&g.coll, (float *)cam->tgt_des, eye,
                                       EM_COLL_SET_CELLS | EM_COLL_SET_GRID,
-                                      EM_COLL_ID_NONE, &hit) != 0;
+                                      &hit) != 0;
 }
 
 /* func_0018BC20 — mode dispatch. Precisely (src/func_0018BC20.c): the
@@ -1072,8 +1072,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
         ext_eye[1] = eye[1] + SOLV_EXT * d[1];
         ext_eye[2] = eye[2] + SOLV_EXT * d[2];
     }
-    blocked = em_collision_segment_query(&g.coll, tgt, ext_eye, mask,
-                                         EM_COLL_ID_NONE, &hit) != 0;
+    blocked = em_collision_camera_query(&g.coll, tgt, ext_eye, mask,
+                                         &hit) != 0;
     if (blocked) {
         attr = hit.surf_class;
         cam->hit_attr = attr;                          /* cam+0x58 */
@@ -1110,8 +1110,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
                                             : SOLV_HEADCLR_H;
             float start[3] = { tgt[0], g.pos[1] + h, tgt[2] };
             EmCollHit h2;
-            if (!em_collision_segment_query(&g.coll, start, ext_eye, mask,
-                                            EM_COLL_ID_NONE, &h2)) {
+            if (!em_collision_camera_query(&g.coll, start, ext_eye, mask,
+                                            &h2)) {
                 blocked = 0;            /* raised line sees the eye */
             } else if (h2.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
                 float dx = h2.point[0] - ext_eye[0];
@@ -1139,8 +1139,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
                 handled = 1;
             } else if (attr & EM_SURF_WALL) {               /* 0x2000 */
                 EmCollHit rh;
-                if (em_collision_segment_query(&g.coll, ext_eye, tgt,
-                                               mask, EM_COLL_ID_NONE,
+                if (em_collision_camera_query(&g.coll, ext_eye, tgt,
+                                               mask,
                                                &rh) &&
                     (rh.surf_class & EM_SURF_WALL) &&
                     cam_dot3(rh.normal, first_n) > SOLV_WEDGE_DOT) {
@@ -1231,8 +1231,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
                 end[1] = eye[1] - SOLV_SIDE_FWD * twd[1];
                 end[2] = eye[2] - SOLV_SIDE_FWD * twd[2] + sgn * sv[2];
             }
-            int hit_ok = em_collision_segment_query(&g.coll, start, end,
-                                                    mask, EM_COLL_ID_NONE,
+            int hit_ok = em_collision_camera_query(&g.coll, start, end,
+                                                    mask,
                                                     &sh) != 0;
             gate = 0.0f;
             if (hit_ok && blocked) {
@@ -1268,9 +1268,9 @@ static int cam_solver_0018DD20(EmCamera *cam)
                             /* confirm: 1st hit point at eye height */
                             float cs[3] = { first_pt[0], eye[1],
                                             first_pt[2] };
-                            hit_ok = em_collision_segment_query(
+                            hit_ok = em_collision_camera_query(
                                          &g.coll, cs, end, mask,
-                                         EM_COLL_ID_NONE, &sh) != 0;
+                                         &sh) != 0;
                             if (hit_ok) {
                                 gate = cam_dot3(sh.normal, first_n);
                                 if (gate < SOLV_OPPOSE_DOT) {
@@ -1377,8 +1377,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
         probe[0] = pb[0];
         probe[1] = pb[1] - SOLV_BOUND_RANGE;     /* floor, 200 down */
         probe[2] = pb[2];
-        if (em_collision_segment_query(&g.coll, pb, probe, mask,
-                                       EM_COLL_ID_NONE, &hit) &&
+        if (em_collision_camera_query(&g.coll, pb, probe, mask,
+                                       &hit) &&
             (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
                                EM_SURF_WALL)))   /* 0x7000, verbatim */
             lo = hit.point[1] + (cam->var_5c == 1.0f ? SOLV_FLOOR_PAD1
@@ -1386,8 +1386,8 @@ static int cam_solver_0018DD20(EmCamera *cam)
         else
             lo = cam->y_lo - SOLV_BOUND_RANGE;
         probe[1] = pb[1] + SOLV_BOUND_RANGE;     /* ceiling, 200 up */
-        if (em_collision_segment_query(&g.coll, pb, probe, mask,
-                                       EM_COLL_ID_NONE, &hit) &&
+        if (em_collision_camera_query(&g.coll, pb, probe, mask,
+                                       &hit) &&
             (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
             hi = hit.point[1] - SOLV_CEIL_PAD;
         else
@@ -1518,8 +1518,8 @@ static int cam_solver_0018F870(EmCamera *cam)
         ext_eye[1] = eye[1] + SOLV_EXT * d[1];
         ext_eye[2] = eye[2] + SOLV_EXT * d[2];
     }
-    blocked = em_collision_segment_query(&g.coll, g.pos, ext_eye, mask,
-                                         EM_COLL_ID_NONE, &hit);
+    blocked = em_collision_camera_query(&g.coll, g.pos, ext_eye, mask,
+                                         &hit);
     if (blocked) {
         int from_grid = hit.kind == EM_COLL_SET_GRID; /* hub return 4 */
         bits = 1;                     /* a plain aim block returns 1  */
@@ -1607,8 +1607,8 @@ static int cam_solver_0018F870(EmCamera *cam)
             float en[3] = { base[0] + sgn * av[0],
                             base[1],
                             base[2] + sgn * av[2] };
-            if (em_collision_segment_query(&g.coll, st, en, mask,
-                                           EM_COLL_ID_NONE, &hit) &&
+            if (em_collision_camera_query(&g.coll, st, en, mask,
+                                           &hit) &&
                 (hit.surf_class & EM_SURF_WALL) &&
                 cam_dot3(hit.normal, first_n) < AIMS_WALL_DOT) {
                 eye[0] = hit.point[0] - sgn * av[0];
@@ -1643,8 +1643,8 @@ static int cam_solver_0018F870(EmCamera *cam)
             en[0] = eye[0] + sgn * sv[0];
             en[1] = eye[1];
             en[2] = eye[2] + sgn * sv[2];
-            if (!em_collision_segment_query(&g.coll, st, en, mask,
-                                            EM_COLL_ID_NONE, &hit))
+            if (!em_collision_camera_query(&g.coll, st, en, mask,
+                                            &hit))
                 continue;
             gate = 0.0f;
             if (blocked) {            /* glancing-only validation */
@@ -1725,8 +1725,8 @@ static int cam_solver_0018F870(EmCamera *cam)
      * player->eye line; still blocked -> park ON the new hit (x/z,
      * height kept, no pad). */
     if ((bits & 0x1F) &&
-        em_collision_segment_query(&g.coll, g.pos, eye, mask,
-                                   EM_COLL_ID_NONE, &hit)) {
+        em_collision_camera_query(&g.coll, g.pos, eye, mask,
+                                   &hit)) {
         eye[0] = hit.point[0];
         eye[2] = hit.point[2];
     }
@@ -1745,16 +1745,16 @@ static int cam_solver_0018F870(EmCamera *cam)
         probe[0] = pb[0];
         probe[1] = pb[1] - SOLV_BOUND_RANGE;
         probe[2] = pb[2];
-        if (em_collision_segment_query(&g.coll, pb, probe, mask,
-                                       EM_COLL_ID_NONE, &hit) &&
+        if (em_collision_camera_query(&g.coll, pb, probe, mask,
+                                       &hit) &&
             (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
                                EM_SURF_WALL)))   /* 0x7000, verbatim */
             lo = hit.point[1] + AIMS_FLOOR_PAD;
         else
             lo = cam->y_lo - SOLV_BOUND_RANGE;
         probe[1] = pb[1] + SOLV_BOUND_RANGE;
-        if (em_collision_segment_query(&g.coll, pb, probe, mask,
-                                       EM_COLL_ID_NONE, &hit) &&
+        if (em_collision_camera_query(&g.coll, pb, probe, mask,
+                                       &hit) &&
             (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
             hi = hit.point[1] - SOLV_CEIL_PAD;
         else
@@ -1805,8 +1805,8 @@ static void cam_solver_0018D910(EmCamera *cam)
     probe[0] = pb[0];
     probe[1] = pb[1] - SOLV_BOUND_RANGE;
     probe[2] = pb[2];
-    if (em_collision_segment_query(&g.coll, pb, probe, mask,
-                                   EM_COLL_ID_NONE, &hit) &&
+    if (em_collision_camera_query(&g.coll, pb, probe, mask,
+                                   &hit) &&
         (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
                            EM_SURF_WALL)))        /* 0x7000, verbatim */
         lo = hit.point[1] + (cam->var_5c == 1.0f ? SOLV_FLOOR_PAD1
@@ -1814,8 +1814,8 @@ static void cam_solver_0018D910(EmCamera *cam)
     else
         lo = cam->y_lo - SOLV_BOUND_RANGE;
     probe[1] = pb[1] + SOLV_BOUND_RANGE;
-    if (em_collision_segment_query(&g.coll, pb, probe, mask,
-                                   EM_COLL_ID_NONE, &hit) &&
+    if (em_collision_camera_query(&g.coll, pb, probe, mask,
+                                   &hit) &&
         (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
         hi = hit.point[1] - SOLV_CEIL_PAD;
     else
@@ -1999,7 +1999,7 @@ void camera_solve(EmCamera *cam)
  * old port 50-deg-at-window-aspect perspective with invented 0.5/500-800
  * clip planes is retired. The matrix bakes the 4:3 frame; the gfx
  * letterbox keeps that the displayed aspect at any window size. */
-void camera_commit(EmCamera *cam)
+static void camera_commit_view(EmCamera *cam, float near_push)
 {
     float dx  = cam->tgt[0] - cam->eye[0];
     float dy  = cam->tgt[1] - cam->eye[1];
@@ -2011,9 +2011,9 @@ void camera_commit(EmCamera *cam)
         cam->fwd[2] = dz / len;
     }
 
-    float pos[3] = { cam->eye[0] + CAM_NEAR_PUSH * cam->fwd[0],
-                     cam->eye[1] + CAM_NEAR_PUSH * cam->fwd[1],
-                     cam->eye[2] + CAM_NEAR_PUSH * cam->fwd[2] };
+    float pos[3] = { cam->eye[0] + near_push * cam->fwd[0],
+                     cam->eye[1] + near_push * cam->fwd[1],
+                     cam->eye[2] + near_push * cam->fwd[2] };
     em_mat4_lookat_gs(cam->view, pos, cam->fwd, cam->up);
 
     /* Commit bookkeeping (engine step 4): D_00810690 = the DESIRED
@@ -2109,6 +2109,19 @@ void camera_commit(EmCamera *cam)
             em_frame_request_quit();
         }
     }
+}
+
+void camera_commit(EmCamera *cam)
+{
+    camera_commit_view(cam, CAM_NEAR_PUSH);
+}
+
+void camera_commit_cinematic(EmCamera *cam)
+{
+    /* Original 0018C0D0(cam,0), cam+4==3: copy the authored eye.
+     * The opening RAM view matrix confirms zero displacement. Applying
+     * the ordinary gameplay push here visibly enlarges close-up shots. */
+    camera_commit_view(cam, 0.0f);
 }
 
 /* DOOR-TRANSIT CINEMATIC CAMERA. The CUT GEOMETRY is source-derived

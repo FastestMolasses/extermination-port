@@ -15,6 +15,8 @@
 void camera_update(void);
 void camera_solve(EmCamera *cam);
 void camera_commit(EmCamera *cam);
+/* Authored cinematic camera mode 3 has no forward displacement. */
+void camera_commit_cinematic(EmCamera *cam);
 void camera_desired_eye(EmCamera *cam);
 void camera_entry_seat(EmCamera *cam);
 float cam_dot3(const float a[3], const float b[3]);
