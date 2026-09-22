@@ -66,8 +66,8 @@ checks 2,360 raw-pad/camera cases; its SDK trigonometric calls are host models,
 so this is not a byte-faithful replacement of the SDK transcendental library.
 
 Remaining limitations: native ground/wall response does not yet supply the
-original +314 obstruction flags to the motor; interrupted entry/release and
-jog/walk foot-placement stops and interrupted run-stop re-entry need their
+original +314 obstruction flags to the motor; interrupted initial entry/release,
+jog/walk foot-placement stops and other movement-state families need their
 complete callbacks; pose blending is
 still interpolation of exported matrices rather than original bone quaternion
 blending. Ordinary idle phase at handoff is not yet proven bit-for-bit. The
@@ -101,3 +101,40 @@ latch at that copy. Both normal and skip tests begin with the stale latch set
 and verify that the original placement owns the handoff. The resulting full
 control trace reduces the prior 0.0085 horizontal endpoint difference to
 0.000168. This does not establish identical camera behavior or floor arithmetic.
+
+## Input during the run-stop clip
+
+An additional original probe starts from the same immutable state04, holds
+forward for30 ticks, releases until clip5 begins, then holds forward again.
+Its archive hash is unchanged. Local evidence:
+`../Extermination/build/startup-reference/interrupted_run_poll.json`.
+
+At original frame4134, the first new input reaches 0017C030 mode4. Input gait
+greater than1 takes priority over the animation end flag. The handler sets
+player phase0x63 and calls 0017C440(player,1). C440 selects tier `gait-1`, reads
+its speed from D00248870, translates once, resolves the normal locomotion clip,
+and requests a four-tick blend at `clipLength-18` for tier2 or `clipLength-46`
+otherwise. The enclosing 001612D0 walk callback then calls 00178B90(player,0),
+producing a second translation before the single ordinary wall/floor service.
+
+The original request frame therefore moves0.599975 at speed0.3 and selects jog
+clip2, source27. The next four callbacks move0.3 while waiting for the animation
+blend. 0017C540 then restores ordinary walk phase0 and scalar substate0; the next
+callback re-arms the scalar rise, and the following callback reaches0.3625.
+The native binding now retains this request, pose clock, movement count and
+handoff. Its frozen blend source remains in actor space so movement does not
+leave the displayed body behind its collision position. The blend itself still
+uses exported matrices rather than original per-bone quaternion interpolation.
+
+`tools/test_player_reentry_reference.py`, invoked by the existing motor test,
+executes the original C440/C540 instruction bytes for48 request/handoff cases.
+It verifies scalar changes, call order/arguments, four-tick blend and clip source
+time. Translation and animation callees are explicit hooks, not simulated
+claims of those callees; the separate live capture verifies the doubled request
+displacement. `EM_CONTROL_REENTRY_TEST=1` extends the real native New Game input
+fixture through this interruption and checks the first eight callbacks.
+The full native GPU regression passed: request displacement0.6000003, four
+subsequent0.3 movements at source27, scalar re-arm, then0.3625/0.425. Original
+collision corrections reduce later motion near the railing, so these matching
+scalar values do not establish identical collision response. Local native
+evidence: `build/opening_control/reentry_run.log` and `reentry.png`.

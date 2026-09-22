@@ -117,3 +117,27 @@ void em_player_stop_tick(EmPlayerStop *s)
         break;
     }
 }
+
+int em_player_reentry_begin(EmPlayerReentry *r, EmPlayerMotor *m,
+                           unsigned gait, unsigned frames)
+{
+    unsigned remaining = gait == 3 ? 18 : 46;
+    if (!r || !m || gait < 2 || gait > 3 || frames < remaining) return 0;
+    m->tier = gait - 1;
+    m->speed = speed[m->tier];
+    m->mode = 1;
+    *r = (EmPlayerReentry){1, 4, frames - remaining};
+    return 1;
+}
+
+void em_player_reentry_tick(EmPlayerReentry *r, EmPlayerMotor *m)
+{
+    if (!r || !m || r->phase != 1) return;
+    if (--r->blend_left == 0) {
+        r->phase = 2;
+        /* 0017C540 restores walk phase0 and scalar substate0. Both
+         * valid interruption tiers are nonzero. */
+        m->mode = 1;
+        m->substate = 0;
+    }
+}

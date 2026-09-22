@@ -1659,6 +1659,7 @@ typedef struct {
     float      loco_rate, loco_blend; /* published +204/+208 */
     float      loco_animation_step; /* prior +204 consumed by0015BA50 */
     EmPlayerStop loco_stop;
+    EmPlayerReentry loco_reentry;
     int        loco_stop_clip;
     float      loco_stop_from[1024 * 16]; /* frozen world pose at blend request */
     float      move_speed;       /* this frame's ground speed, units/sec */

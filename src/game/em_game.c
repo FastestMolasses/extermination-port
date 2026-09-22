@@ -928,6 +928,8 @@ static int loco_clip_for_tier(int tier)
  * door sequence re-places the player standing). */
 static void actor_update(void)
 {
+    const float previous_position[3]={g.pos[0],g.pos[1],g.pos[2]};
+    const float previous_yaw=g.yaw;
     /* SCRIPTED INTERACT anim end-detection (em_game_player_interact_anim).
      * The interact clip is a one-shot through the sa_* mailbox: the
      * request lands the frame em_game_player_interact_anim is called
@@ -956,6 +958,7 @@ static void actor_update(void)
         g.gait       = 0;
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
+        g.loco_reentry.phase = 0;
     } else {
         player_move();
     }
@@ -1004,6 +1007,33 @@ static void actor_update(void)
                                               * mode 0: cycle re-armed */
         g.idle_phase = 0;
         g.fid_w      = 0.0f;
+        return;
+    }
+
+    if (g.loco_reentry.phase) {
+        const EmPlayerReentry *reentry = &g.loco_reentry;
+        unsigned count = g.model.bone_count * 16;
+        if (reentry->blend_left == 4) {
+            memcpy(g.loco_stop_from, g.player_palette, count * sizeof(float));
+            /* Keep the frozen pose in actor space while the player moves.
+             * Blending two world placements would leave the displayed body
+             * behind its collision position during the request frame. */
+            for (unsigned bone=0;bone<g.model.bone_count;++bone) {
+                float *matrix=g.loco_stop_from+bone*16;
+                for (unsigned axis=0;axis<3;++axis)
+                    matrix[12+axis]-=previous_position[axis];
+            }
+            const float origin[3]={0,0,0};
+            palette_apply_placement(g.loco_stop_from,g.model.bone_count,
+                                    origin,-previous_yaw);
+        }
+        em_model_palette_at(&g.model, (uint32_t)g.loco_clip,
+                            reentry->frame, g.player_palette);
+        float weight = 1.0f - (float)reentry->blend_left / 4.0f;
+        for (unsigned i = 0; i < count; ++i)
+            g.player_palette[i] = g.loco_stop_from[i] +
+                (g.player_palette[i] - g.loco_stop_from[i]) * weight;
+        palette_apply_placement(g.player_palette, g.model.bone_count, g.pos, g.yaw);
         return;
     }
 
@@ -5255,6 +5285,7 @@ static void ingame_frame_machine(EmTask *self)
             g.loco_mode = g.loco_substate = 0;
             g.loco_entry_ticks = 0;
             g.loco_stop.phase = 0;
+            g.loco_reentry.phase = 0;
             g.cam_recenter   = 0;
             g.cam_idle       = 0;
             g.frame_no       = 0;

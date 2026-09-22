@@ -290,7 +290,7 @@ void player_move(void)
             float step = WALK_SPEED * FRAME_DT;
             g.move_speed = WALK_SPEED;     /* drive the walk clip */
             g.loco_tier  = 1;              /* scripted walk = tier-1 clip */
-            g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;           /* free-move ramp re-arms */
+            g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;           /* free-move ramp re-arms */
             g.yaw        = tyaw;
             if (len <= step || len < 1e-6f) {
                 g.pos[0] = tt[0];
@@ -328,7 +328,7 @@ void player_move(void)
              * JOG, 0.3 u/tick) even during the in-place phase. */
             g.move_speed = wspeed > 0.0f ? wspeed : GAIT_JOG_SPEED;
             g.loco_tier  = 2;
-            g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;           /* free-move ramp re-arms */
+            g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;           /* free-move ramp re-arms */
             g.pos[0] += sinf(wyaw) * wspeed * FRAME_DT;
             g.pos[2] += cosf(wyaw) * wspeed * FRAME_DT;
             return;
@@ -351,7 +351,7 @@ void player_move(void)
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
                                     * re-entry re-arms the tier ramp */
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
         return;
     }
 
@@ -370,7 +370,7 @@ void player_move(void)
     if (em_examine_input_locked()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
         return;
     }
 
@@ -405,7 +405,7 @@ void player_move(void)
     if (em_game_player_interact_busy()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
         return;
     }
 
@@ -522,7 +522,7 @@ void player_move(void)
     if (em_weapon_is_aiming() || g.r2_aim) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* armed modes replace locomotion */
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
         const EmFrameInput *ain = em_frame_input();
         int r1fam = !g.r2_aim || em_weapon_is_aiming(); /* stance 0x31 */
 
@@ -624,7 +624,7 @@ void player_move(void)
     if (em_weapon_is_melee()) {
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* melee modes replace locomotion */
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0;
+        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
         return;
     }
 
@@ -646,8 +646,50 @@ void player_move(void)
               : r <= GAIT_RING_3 ? 2 : 3;
     g.gait       = gait;
     g.move_speed = 0.0f;
+    unsigned translation_steps = 1;
+
+    if (g.loco_reentry.phase == 2) g.loco_reentry.phase = 0;
+    if (g.loco_reentry.phase == 1) {
+        if (gait) {
+            float desired = player_stick_desired_yaw(in);
+            float diff = desired - g.yaw;
+            while (diff > EM_PI) diff -= 2.0f * EM_PI;
+            while (diff <= -EM_PI) diff += 2.0f * EM_PI;
+            player_turn_toward(desired, player_turn_rate(gait, g.loco_upt, fabsf(diff)));
+        }
+        EmPlayerMotor current = {.mode=g.loco_mode, .substate=g.loco_substate};
+        em_player_reentry_tick(&g.loco_reentry, &current);
+        g.loco_mode=current.mode;
+        g.loco_substate=current.substate;
+        g.loco_animation_step=0;
+        goto locomotion_translate;
+    }
 
     if (g.loco_stop.phase) {
+        if (g.loco_stop.phase <= 2 && gait > 1) {
+            /* 0017C030 mode4 gives input priority over the stop end flag.
+             * C440 chooses gait-1, moves once with argument1, and requests
+             * a four-tick blend. The walk callback then moves again with
+             * argument0. Original frame4134 confirms both translations. */
+            int clip = gait == 3 ? g.clip_jog : g.clip_walk;
+            EmPlayerMotor resumed = {.substate=g.loco_substate};
+            if (clip >= 0 && em_player_reentry_begin(&g.loco_reentry, &resumed,
+                                      gait, g.model.clips[clip].frame_count)) {
+                float desired = player_stick_desired_yaw(in);
+                player_turn_toward(desired, player_turn_rate(gait, 0, 0));
+                g.loco_tier=resumed.tier;
+                g.loco_upt=resumed.speed;
+                g.loco_mode=resumed.mode;
+                g.loco_substate=resumed.substate;
+                g.loco_clip=clip;
+                g.walk_t=(double)g.loco_reentry.frame/g.model.clips[clip].fps;
+                g.walk_w=1;
+                g.loco_animation_step=0;
+                g.loco_stop.phase=0;
+                translation_steps=2;
+                goto locomotion_translate;
+            }
+        }
         if (g.loco_stop.phase == 4 && gait) {
             /* Idle state accepts a fresh request during its blend. */
             g.loco_stop.phase = 0;
@@ -767,8 +809,16 @@ void player_move(void)
      * 6 u/s, gait 2 = JOG 18 u/s, gait 3 = RUN 48 u/s). VELOCITY IS
      * EMITTED ALONG g.yaw (the eased body heading), NOT the raw stick
      * vector (mx, mz) — the body lags the stick, so the path curves. */
+locomotion_translate:
     g.move_speed = g.loco_upt * 60.0f;
     float vx = sinf(g.yaw), vz = cosf(g.yaw);
+
+    /* The two original re-entry translations precede the single ordinary
+     * wall/floor service. Keep separate float additions for the first step. */
+    if (translation_steps == 2) {
+        g.pos[0] += vx * g.move_speed * FRAME_DT;
+        g.pos[2] += vz * g.move_speed * FRAME_DT;
+    }
 
     if (g.coll.poly_count) {
         player_move_collide(vx * g.move_speed * FRAME_DT,
@@ -783,11 +833,8 @@ void player_move(void)
         g.pos[1] = 0.0f;  /* flat floor (no collision world loaded) */
     }
 
-    /* TODO(stop-skid/pivot, FINDINGS "GROUND LOCOMOTION"): the engine's
-     * mode-6 stop-skid anims (ids 4/5) and the pivot / 180-deg about-face
-     * are OUT OF SCOPE here — they need clips 4/5 re-exported into
-     * player.emdl before they can play, and the about-face is its own
-     * mode. The facing ease above is the steady-turn model only. */
+    /* Jog/walk foot-placement stops and the separate skid/pivot paths
+     * still require their complete original callbacks. */
 }
 
 /* rand5 — func_00179B90. PORT NOTE: a private deterministic LCG (ANSI

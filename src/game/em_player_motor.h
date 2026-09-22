@@ -21,4 +21,14 @@ typedef struct EmPlayerStop {
 void em_player_stop_begin(EmPlayerStop *stop, unsigned clip_frames);
 void em_player_stop_tick(EmPlayerStop *stop);
 
+/* 0017C440 requests the previous gait tier during a run-stop interruption.
+ * Phase2 is the callback that clears the blend flag; normal scalar updates
+ * resume on the following callback. */
+typedef struct EmPlayerReentry {
+    unsigned phase, blend_left, frame;
+} EmPlayerReentry;
+int em_player_reentry_begin(EmPlayerReentry *reentry, EmPlayerMotor *motor,
+                           unsigned gait, unsigned clip_frames);
+void em_player_reentry_tick(EmPlayerReentry *reentry, EmPlayerMotor *motor);
+
 #endif

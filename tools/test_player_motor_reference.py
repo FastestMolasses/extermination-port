@@ -115,6 +115,8 @@ def main():
     lib=out/'motor.so'
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off','-shared','-fPIC','-Isrc','src/game/em_player_motor.c','-lm','-o',str(lib)],cwd=ROOT,check=True)
     native=C.CDLL(str(lib));native.em_player_motor_tick.argtypes=[C.POINTER(Motor)]
+    from test_player_reentry_reference import check_reentry
+    check_reentry(elf,native,Motor)
     rng=random.Random(0x17bc40);checks=0
     for _ in range(12000):
         m=Motor();m.mode=rng.randrange(8);m.substate=rng.randrange(4);m.tier=rng.randrange(4)
