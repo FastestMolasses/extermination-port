@@ -58,8 +58,8 @@ typedef struct {
                                   level data ships prebaked lighting)
                                   instead of the directional stand-in. */
 
-/* Per-vertex bone-word layout (mirrors EM_MODEL_VERT_* in em_model.h):
- * low 24 bits = palette slot, bit 31 = BILLBOARD+ADDITIVE glow vertex.
+/* Per-vertex bone-word layout: low24 bits = palette slot, bit31 = the
+ * EM_MODEL_VERT_BILLBOARD glow vertex, and bit30 = native face-draw metadata.
  * For glow vertices the position is the anchor point (bone-local) and the
  * "normal" slot is the camera-plane corner offset in world units (x =
  * camera right, y = camera up). Mesh creation partitions triangles so the
@@ -69,6 +69,7 @@ typedef struct {
  * of the draw's viewproj matrix. */
 #define EM_GFX_VERT_BONE_MASK 0x00FFFFFFu
 #define EM_GFX_VERT_BILLBOARD 0x80000000u
+#define EM_GFX_VERT_FACE_LIGHT 0x40000000u /* separately submitted original face */
 
 /* Create a static skinned mesh. `verts` is vert_count records of 10 32-bit
  * words: float pos[3], float normal[3], float uv[2], uint32 bone, uint32
@@ -547,6 +548,11 @@ typedef struct {
  * are replaced by the rig math (the flashlight spot still applies to
  * the LEVEL path — that deviation is level-only by design). */
 void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig);
+
+/* Original faces use 001D88B0: camera fill enabled, dynamic light folding
+ * disabled. Publish this after the body rig for a mesh with FACE_LIGHT
+ * vertices. Setting the body rig clears this override. */
+void em_gfx_char_face_rig(EmGfx *gfx, const EmGfxCharRig *rig);
 
 /* --- Distance fog (the per-area GS fog) -------------------------------- */
 

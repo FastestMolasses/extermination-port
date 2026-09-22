@@ -14,6 +14,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <AppKit/AppKit.h>
 #include "em_gfx.h"
+#include "game/em_lighting.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -141,13 +142,14 @@ struct EmGfx {
      * on row-0 w > 0, keeping no-spot frames bit-identical. */
     float                        spot[16];
     /* Per-draw character light rig (em_gfx_char_rig — em_gfx.h). Seven
-     * float4 rows bound as fragment buffer 3 of every skinned draw:
+     * float4 rows used to prepare integer colors at authored vertices:
      *   [0..2] = dir_i.xyz (world), w unused
      *   [3..5] = col_i.rgb (0..128 scale), w unused
      *   [6]    = amb.rgb (0..128), w = enable (0 = off)
      * All-zero = OFF: the shader's character path runs the EXACT
      * historical stand-in arithmetic (rig-less frames byte-identical). */
     float                        rig[28];
+    float                        face_rig[28]; /* separate original face draw */
     /* Per-frame distance fog (em_gfx_fog — em_gfx.h). Two float4 rows
      * bound as fragment buffer 4 of every skinned draw:
      *   [0] = rgb (engine 0..128 scale), w = enable (0 = off)
@@ -308,13 +310,15 @@ static NSString *const kSkinShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
 "struct VOut { float4 pos [[position]]; float3 nrm; float3 wpos;\n"
+"              float3 light_rgb [[center_no_perspective]];\n"
 "              float2 uv; uint slice [[flat]]; };\n"
 "vertex VOut v_skin(uint vid [[vertex_id]],\n"
 "                   const device uint *vdata [[buffer(0)]],\n"
 "                   const device float4x4 *palette [[buffer(1)]],\n"
 "                   constant float4x4 &viewproj [[buffer(2)]],\n"
 "                   const device float2 *tscale [[buffer(3)]],\n"
-"                   constant uint &mode [[buffer(4)]]) {\n"
+"                   constant uint &mode [[buffer(4)]],\n"
+"                   const device uint4 *vertex_rgba [[buffer(5)]]) {\n"
 "    const device float *fw = (const device float *)vdata;\n"
 "    float3 p = float3(fw[vid*10+0], fw[vid*10+1], fw[vid*10+2]);\n"
 "    float3 n = float3(fw[vid*10+3], fw[vid*10+4], fw[vid*10+5]);\n"
@@ -323,6 +327,8 @@ static NSString *const kSkinShaderSrc =
 "    uint  bw  = vdata[vid*10+8];\n"
 "    float4x4 M = palette[bw & 0x00FFFFFFu];\n"
 "    VOut o;\n"
+"    o.light_rgb = (mode & 4u) ? float3(vertex_rgba[vid].xyz & 255u) / 128.0\n"
+"                              : float3(1.0);\n"
 "    if (bw & 0x80000000u) {\n"
 "        /* camera-facing glow quad: anchor + corner along camera right/up\n"
 "         * (viewproj row r = float3(vp[0][r], vp[1][r], vp[2][r])). */\n"
@@ -395,7 +401,6 @@ static NSString *const kSkinShaderSrc =
 "                       constant uint &mode [[buffer(0)]],\n"
 "                       constant float4 &tint [[buffer(1)]],\n"
 "                       constant float4 *spot [[buffer(2)]],\n"
-"                       constant float4 *rig  [[buffer(3)]],\n"
 "                       constant float4 *fog  [[buffer(4)]]) {\n"
 "    float4 base = float4(0.55, 0.62, 0.70, 1.0);\n"
 "    if (in.slice != 0xFFFFFFFFu) {\n"
@@ -422,29 +427,19 @@ static NSString *const kSkinShaderSrc =
 "        return float4(fog_apply(base.rgb * lit, in.pos.w, fog), base.a)\n"
 "             * tint;\n"
 "    }\n"
-"    /* CHARACTER path. With a rig bound (em_gfx_char_rig — the\n"
-"     * engine's per-actor VU1 light matrix, decomp FINDINGS \"PER-ROOM\n"
-"     * LIGHT RIGS DECODED\"): the kernel-exact composition\n"
-"     *   rgb = min(amb + sum max(dot(dir_i, N), 0)*col_i, 255)/128\n"
-"     * (maxbcx clamp at 0, minibcx clamp at bias+255, GS modulate\n"
-"     * /128 — VU1 0x23C780). The flashlight spot never lights this\n"
-"     * path (level-only deviation), and the rig REPLACES the old\n"
-"     * degenerate camera-fill exception (the menu turntable now\n"
-"     * rides the real room rig). */\n"
-"    float3 N = normalize(in.nrm);\n"
-"    if (rig[6].w > 0.0) {\n"
-"        float3 acc = rig[6].xyz;\n"
-"        acc += max(dot(N, rig[0].xyz), 0.0) * rig[3].xyz;\n"
-"        acc += max(dot(N, rig[1].xyz), 0.0) * rig[4].xyz;\n"
-"        acc += max(dot(N, rig[2].xyz), 0.0) * rig[5].xyz;\n"
-"        float3 lit = min(acc, 255.0) * (1.0 / 128.0);\n"
-"        return float4(fog_apply(base.rgb * lit, in.pos.w, fog), base.a)\n"
+"    /* Original VU lighting produces integer colors at authored\n"
+"     * vertices. GS Gouraud interpolation is linear in screen space;\n"
+"     * normalizing an interpolated normal and lighting per fragment\n"
+"     * changes the original face/body shading. */\n"
+"    if (mode & 4u) {\n"
+"        return float4(fog_apply(base.rgb * in.light_rgb, in.pos.w, fog), base.a)\n"
 "             * tint;\n"
 "    }\n"
 "    /* rig-less fallback: the historical directional stand-in (kept\n"
 "     * EXACTLY — rig-off frames stay byte-identical); the degenerate\n"
 "     * camera-fill spot exception (cos_inner <= -1) still applies\n"
 "     * here for any rig-less caller. */\n"
+"    float3 N = normalize(in.nrm);\n"
 "    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
 "    float  d = max(dot(N, L), 0.0);\n"
 "    float3 lit = float3(0.30 + 0.70 * d);\n"
@@ -627,6 +622,7 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->overlayH    = EM_GFX_OVERLAY_H;
     memset(g->spot, 0, sizeof(g->spot)); /* flashlight spot is per-frame */
     memset(g->rig,  0, sizeof(g->rig));  /* character rig is per-frame   */
+    memset(g->face_rig, 0, sizeof(g->face_rig));
     memset(g->fog,  0, sizeof(g->fog));  /* distance fog is per-frame    */
 
     /* keep the swapchain sized to the backing store */
@@ -884,6 +880,49 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
  * fading gib must not occlude what shows through it. The texture
  * alpha-test cutout (base.a < 0.5 discard) still applies under any tint:
  * cutout holes stay holes while fading. */
+static id<MTLBuffer> vertex_lighting_buffer(EmGfx *g, EmGfxMesh *mesh,
+                                           const float *palette,
+                                           uint32_t bone_count)
+{
+    unsigned rig_count = g->face_rig[27] > 0.0f ? 2 : 1;
+    EmLightingMatrices *matrices = malloc((size_t)bone_count * rig_count * sizeof *matrices);
+    if (!matrices) return nil;
+    for (unsigned rig_index = 0; rig_index < rig_count; ++rig_index) {
+        const float *rig = rig_index ? g->face_rig : g->rig;
+        for (uint32_t bone = 0; bone < bone_count; ++bone) {
+            if (!em_lighting_matrices(&matrices[(size_t)rig_index*bone_count+bone],
+                                      palette + (size_t)bone*16, rig, rig+12, rig+24)) {
+                free(matrices);
+                return nil;
+            }
+        }
+    }
+    NSUInteger count = [mesh->vbuf length] / 40;
+    id<MTLBuffer> buffer = [g->device newBufferWithLength:count*16
+                                               options:MTLResourceStorageModeShared];
+    if (!buffer) {
+        free(matrices);
+        return nil;
+    }
+    const float *vertices = [mesh->vbuf contents];
+    uint32_t *colors = [buffer contents];
+    for (NSUInteger vertex = 0; vertex < count; ++vertex) {
+        uint32_t bone_word;
+        memcpy(&bone_word, vertices + vertex*10+8, sizeof bone_word);
+        uint32_t bone = bone_word & 0x00ffffffu;
+        int face = (bone_word & EM_GFX_VERT_FACE_LIGHT) != 0;
+        if (bone >= bone_count || (face && rig_count < 2)) {
+            [buffer release];
+            free(matrices);
+            return nil;
+        }
+        em_lighting_vertex(colors + vertex*4, vertices + vertex*10+3,
+                           &matrices[(size_t)face*bone_count+bone]);
+    }
+    free(matrices);
+    return buffer;
+}
+
 static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                          const float *palette, uint32_t bone_count,
                          const float rgba[4], bool additive)
@@ -940,11 +979,24 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setVertexBytes:viewproj length:64 atIndex:2];
     [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
     uint32_t mode = m->flags | (additive ? 2u : 0u);
+    id<MTLBuffer> vertex_colors = nil;
+    if (!(mode & 3u) && g->rig[27] > 0.0f) {
+        vertex_colors = vertex_lighting_buffer(g, m, palette, bone_count);
+        if (!vertex_colors) {
+            fprintf(stderr, "gfx: failed to prepare original vertex lighting\n");
+            return;
+        }
+        mode |= 4u;
+        [g->enc setVertexBuffer:vertex_colors offset:0 atIndex:5];
+    } else {
+        /* The disabled shader branch does not consume colors. Binding the
+         * existing vertex buffer still keeps the entire indexed range valid. */
+        [g->enc setVertexBuffer:m->vbuf offset:0 atIndex:5];
+    }
     [g->enc setVertexBytes:&mode length:4 atIndex:4];
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentBytes:rgba length:16 atIndex:1];
     [g->enc setFragmentBytes:g->spot length:sizeof(g->spot) atIndex:2];
-    [g->enc setFragmentBytes:g->rig length:sizeof(g->rig) atIndex:3];
     [g->enc setFragmentBytes:g->fog length:sizeof(g->fog) atIndex:4];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
@@ -972,6 +1024,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                           indexBuffer:m->ibuf
                     indexBufferOffset:(NSUInteger)m->opaque_count * 4];
     }
+    [vertex_colors release];
 }
 
 void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
@@ -1552,6 +1605,7 @@ void em_gfx_fog_off(EmGfx *g)
 void em_gfx_char_rig(EmGfx *g, const EmGfxCharRig *rig)
 {
     if (!g) return;
+    memset(g->face_rig, 0, sizeof(g->face_rig));
     if (!rig) {
         memset(g->rig, 0, sizeof(g->rig));
         return;
@@ -1560,6 +1614,17 @@ void em_gfx_char_rig(EmGfx *g, const EmGfxCharRig *rig)
     memcpy(&g->rig[12], rig->col, sizeof(rig->col));
     memcpy(&g->rig[24], rig->amb, sizeof(rig->amb));
     g->rig[27] = 1.0f;                               /* enable */
+}
+
+void em_gfx_char_face_rig(EmGfx *g, const EmGfxCharRig *rig)
+{
+    if (!g) return;
+    memset(g->face_rig, 0, sizeof(g->face_rig));
+    if (!rig) return;
+    memcpy(g->face_rig, rig->dir, sizeof(rig->dir));
+    memcpy(g->face_rig+12, rig->col, sizeof(rig->col));
+    memcpy(g->face_rig+24, rig->amb, sizeof(rig->amb));
+    g->face_rig[27] = 1.0f;
 }
 
 static void beam_norm3(float v[3])

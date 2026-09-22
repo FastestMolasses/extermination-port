@@ -1609,7 +1609,7 @@ static EmGfxMesh *ui_backplate_ensure(EmGfx *gfx)
 /* LIGHTING — per-actor rig composer (defined with the close-out flush
  * below; the menu turntable consumes it too). */
 static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
-                           int cam_fill);
+                           int cam_fill, int fold_lamps);
 
 static void ui_scene_render(EmGfx *gfx)
 {
@@ -1729,7 +1729,7 @@ static void ui_scene_render(EmGfx *gfx)
      * the turntable never regresses to black-on-black. */
     if (g.rig_on) {
         EmGfxCharRig rig;
-        char_rig_build(&rig, NULL, 0);
+        char_rig_build(&rig, NULL, 0, 1);
         em_gfx_char_rig(gfx, &rig);
     } else {
         static const float kFill[3] = { 0.62f, 0.62f, 0.62f };
@@ -1837,7 +1837,7 @@ static void ui_scene_render(EmGfx *gfx)
  * is one (area, sub) pair), so the active scene's rig IS the engine's
  * room selection; no player-position mapping exists or is invented. */
 static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
-                           int cam_fill)
+                           int cam_fill, int fold_lamps)
 {
     memset(out, 0, sizeof *out);
     for (int s = 0; s < 2; s++) {
@@ -1870,7 +1870,7 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
             c0[c] = g.rig_cam_col[c];
         }
     }
-    if (anchor && g.n_lamp) {
+    if (fold_lamps && anchor && g.n_lamp) {
         float sd[3] = { d0[0] * g.rig_cam_w, d0[1] * g.rig_cam_w,
                         d0[2] * g.rig_cam_w };
         float sc[3] = { c0[0], c0[1], c0[2] };
@@ -1948,7 +1948,7 @@ static void frame_close_out(void)
                                           cd->palette[13],
                                           cd->palette[14] };
                 char_rig_build(&rig, anchor,
-                               cd->palette == g.player_palette);
+                               cd->palette == g.player_palette, 1);
                 em_gfx_char_rig(gfx, &rig);
             } else {
                 em_gfx_char_rig(gfx, NULL);
@@ -1974,9 +1974,17 @@ static void frame_close_out(void)
                         &bone_count)) continue;
                 if (g.rig_on) {
                     EmGfxCharRig rig;
-                    unsigned anchor_bone=bone_count>1?1:0;
-                    char_rig_build(&rig,palette+anchor_bone*16+12,index==0);
+                    /* Original actor+98 selects light-reference bones
+                     * 1/2/0; actor+2 bit0x20 is set on both humans. */
+                    unsigned anchor_bone=index==0?1:index==1?2:0;
+                    char_rig_build(&rig,palette+anchor_bone*16+12,index<2,1);
                     em_gfx_char_rig(gfx,&rig);
+                    if (index < 2) {
+                        /* Original face 001D88B0 enables camera fill and
+                         * passes owner=NULL, bypassing dynamic lamps. */
+                        char_rig_build(&rig,NULL,1,0);
+                        em_gfx_char_face_rig(gfx,&rig);
+                    }
                 } else em_gfx_char_rig(gfx,NULL);
                 em_gfx_draw_skinned(gfx,mesh,g.viewproj,palette,bone_count);
             }

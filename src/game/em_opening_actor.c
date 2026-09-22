@@ -94,6 +94,8 @@ static int attach_face(OpeningActor *actor, const char *directory,
     for(uint32_t i=0;i<face.vert_count;++i) {
         float *v=vertices+((size_t)body->vert_count+i)*10;
         if(vertex_word(v,8)!=7 || vertex_word(v,9)>=face.tex_count) goto done;
+        uint32_t face_bone=7|EM_GFX_VERT_FACE_LIGHT;
+        memcpy(v+8,&face_bone,sizeof face_bone);
         uint32_t texture=vertex_word(v,9)+body->tex_count;
         memcpy(v+9,&texture,sizeof texture);
     }

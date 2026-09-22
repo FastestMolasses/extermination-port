@@ -13,7 +13,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c \
-           src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c \
+           src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c \
@@ -234,6 +234,15 @@ test-snow-tiles-reference:
 .PHONY: test-snow-projection-reference
 test-snow-projection-reference:
 	python3 tools/test_snow_projection_reference.py
+
+.PHONY: test-lighting-reference test-lighting
+test-lighting-reference:
+	python3 tools/audit_opening_lighting.py
+
+test-lighting: tests/test_lighting.c src/game/em_lighting.c src/game/em_lighting.h
+	@mkdir -p build
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/test_lighting.c src/game/em_lighting.c -lm -o build/test_lighting
+	build/test_lighting
 
 test-snow-particles:
 	@mkdir -p build

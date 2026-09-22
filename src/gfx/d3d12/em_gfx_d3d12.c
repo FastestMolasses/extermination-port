@@ -12,6 +12,9 @@
 #include "em_gfx.h"
 #include <stddef.h>
 
+void em_gfx_char_face_rig(EmGfx *gfx, const EmGfxCharRig *rig)
+{ (void)gfx; (void)rig; } /* TODO */
+
 EmGfx *em_gfx_create(EmWindow *win) { (void)win; return NULL; } /* TODO */
 void   em_gfx_destroy(EmGfx *gfx) { (void)gfx; }
 void   em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)

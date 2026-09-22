@@ -44,6 +44,16 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *vertices,
     (void)gfx;
     assert(vertices && vertex_count && indices && index_count);
     assert(textures && texture_count && texels && flags==0);
+    unsigned faces=0;
+    for(uint32_t i=0;i<vertex_count;++i) {
+        uint32_t bone;
+        memcpy(&bone,vertices+(size_t)i*10+8,sizeof bone);
+        if(bone&EM_GFX_VERT_FACE_LIGHT) {
+            assert((bone&EM_GFX_VERT_BONE_MASK)==7);
+            ++faces;
+        }
+    }
+    assert(faces==(live_meshes==0?850u:live_meshes==1?701u:0u));
     ++live_meshes;
     uint32_t *mesh=malloc(sizeof *mesh);assert(mesh);*mesh=vertex_count;
     return (EmGfxMesh *)mesh;
