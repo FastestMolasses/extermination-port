@@ -1,4 +1,4 @@
-/* Persistent original panel BATTERY/ITEM status adapter.
+/* Persistent original panel and pickup BATTERY/ITEM status adapter.
  * Unimplemented hub/child pages remain explicit workers, never cancellation. */
 #ifndef EM_STATUS_RUNTIME_H
 #define EM_STATUS_RUNTIME_H
@@ -33,7 +33,9 @@ typedef struct {
     int (*frame_event)(void *, EmStatusFrameEvent, const EmStatusFrame *);
     int (*page_event)(void *, EmStatusPageEvent, unsigned argument);
     int (*sound)(void *, uint32_t cue); /* original4096 on all volume axes */
-    /*−1 failure,0 not eligible,1 the original185420 resolves this owner. */
+    /*−1 failure,0 not eligible,1 the original185420 resolves this owner.
+     * Pickup browsing supplies NULL: return0 only for an actual empty
+     * lookup, and−1 for an eligible device not supported by this adapter. */
     int (*owner_available)(void *, EmPanel *owner, unsigned item_id);
     /* The original successful149F0 exit sets selector70003B8D=3 after the
      * inventory/owner updates. This hook publishes that shared state. */
@@ -47,6 +49,9 @@ typedef struct {
      * another ITEM child. Missing workers fault and retain ownership. */
     int (*other_page_tick)(void *, EmStatusPage *, const EmStatusInput *);
     int (*other_page_render)(void *, EmGfx *, const EmStatusPage *);
+    /* Required for pickup request1/item1B..1D. Original149F0 writes charge
+     * then capacity before clearing the request and starting its notice. */
+    int (*write_battery_capacity)(void *, uint16_t charge, uint8_t capacity);
 } EmStatusRuntimeHooks;
 
 EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,
@@ -55,6 +60,9 @@ void em_status_runtime_free(EmStatusRuntime *); /* owner tears down the game fir
 /* Called by the original panel callback; queues globals without consuming
  * the remainder of the current ordinary task callback. */
 int em_status_runtime_battery_open(EmStatusRuntime *, EmPanel *owner, uint8_t request);
+/* Called after the pickup inventory mutation, before opcode09 yields.
+ * Accepts only the verified battery request kind1/index1B..1D. */
+int em_status_runtime_pickup_request(EmStatusRuntime *, uint8_t kind, uint8_t index);
 /* Call at the beginning of each ordinary outer frame. Return1 means the
  * whole frame belongs to status, including the final phase5 release frame;
  * return0 permits ordinary tasks,−1 is a retained-ownership fault. */

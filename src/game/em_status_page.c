@@ -73,7 +73,8 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         return -1;
     switch (state->phase) {
     case 0:
-        if (state->request != 1 || !(state->request_kind & 0xC0))
+        if (state->request != 1 || (!(state->request_kind & 0xC0) &&
+                                    (state->request_kind < 0x1B || state->request_kind >= 0x1E)))
             return -1;
         if (!emit(worker, context, state, EM_STATUS_PAGE_BLACK_HOLD, 0) ||
             !emit(worker, context, state, EM_STATUS_PAGE_OPEN_SOUND, 0))

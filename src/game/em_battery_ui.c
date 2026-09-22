@@ -18,11 +18,13 @@ struct EmBatteryUI {
     uint8_t *data, *pixels;
     uint32_t width, height;
     Sprite sprites[28];
-    Text text[8];
+    Text text[11];
     EmPanel *owner;
     EmPanelBatteryMenu menu;
     EmPanelMenuPhase draw_phase;
     int active, uploaded, kind, draw_charge, error_timer, draw_error;
+    unsigned text_count;
+    int notice_timer, notice_kind, draw_notice;
 };
 
 static uint32_t u32(const uint8_t *p)
@@ -36,8 +38,10 @@ EmBatteryUI *em_battery_ui_load(const char *path)
     if (!f)
         return NULL;
     uint8_t header[32];
-    if (fread(header, 1, 32, f) != 32 || memcmp(header, "EMBA", 4) || u32(header + 4) != 1 ||
-        u32(header + 16) != 28 || u32(header + 20) != 8) {
+    if (fread(header, 1, 32, f) != 32 || memcmp(header, "EMBA", 4) ||
+        !((u32(header + 4) == 1 && u32(header + 20) == 8) ||
+          (u32(header + 4) == 2 && u32(header + 20) == 11)) ||
+        u32(header + 16) != 28) {
         fclose(f);
         return NULL;
     }
@@ -62,6 +66,7 @@ EmBatteryUI *em_battery_ui_load(const char *path)
     fclose(f);
     ui->width = w;
     ui->height = h;
+    ui->text_count = u32(header + 20);
     uint8_t *p = ui->data;
     for (unsigned i = 0; i < 28; i++, p += 32) {
         Sprite *s = &ui->sprites[i];
@@ -74,7 +79,7 @@ EmBatteryUI *em_battery_ui_load(const char *path)
             goto invalid;
     }
     uint8_t *end = p + texts;
-    for (unsigned i = 0; i < 8; i++) {
+    for (unsigned i = 0; i < ui->text_count; i++) {
         if (end - p < 8)
             goto invalid;
         uint32_t length = u32(p), count = u32(p + 4);
@@ -113,19 +118,25 @@ void em_battery_ui_free(EmBatteryUI *ui)
     free(ui);
 }
 
-int em_battery_ui_begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
+static int begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
 {
-    if (!ui || !owner || kind < 0 || kind > 2 || charge < 0 || charge > 255)
+    if (!ui || kind < 0 || kind > 2 || charge < 0 || charge > 255)
         return 0;
     ui->owner = owner;
     ui->kind = kind;
     ui->active = 1;
     ui->uploaded = 0;
     ui->error_timer = ui->draw_error = 0;
+    ui->notice_timer = ui->draw_notice = 0;
     em_panel_battery_begin(&ui->menu, charge);
     ui->draw_charge = charge;
     ui->draw_phase = ui->menu.phase;
     return 1;
+}
+
+int em_battery_ui_begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
+{
+    return owner && begin(ui, owner, charge, kind);
 }
 
 unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int owner_available)
@@ -135,6 +146,15 @@ unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int 
     ui->draw_phase = ui->menu.phase;
     ui->draw_charge = *charge;
     ui->draw_error = ui->error_timer != 0;
+    ui->draw_notice = ui->notice_timer && ui->notice_kind == ui->kind;
+    if (ui->notice_timer) {
+        --ui->notice_timer;
+        if (buttons & 0x5060) {
+            ui->notice_timer = 0;
+            return EM_PANEL_MENU_CANCEL;
+        }
+        return 0;
+    }
     if (ui->error_timer) {
         if (buttons & 0x60) {
             ui->error_timer = 0;
@@ -152,6 +172,8 @@ unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int 
                 ui->error_timer = 240;
                 return EM_BATTERY_NO_DEVICE_SOUND;
             }
+            if (!ui->owner)
+                return EM_BATTERY_UNSUPPORTED_OWNER;
             em_panel_battery_begin(&ui->menu, *charge);
             return EM_PANEL_MENU_ACCEPT;
         }
@@ -162,9 +184,19 @@ unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int 
 
 int em_battery_ui_begin_browse(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
 {
-    if (!em_battery_ui_begin(ui, owner, charge, kind))
+    if (!begin(ui, owner, charge, kind))
         return 0;
     ui->menu.phase = ui->draw_phase = EM_PANEL_MENU_BROWSE;
+    return 1;
+}
+
+int em_battery_ui_begin_pickup(EmBatteryUI *ui, int charge, int selected_kind, int acquired_kind)
+{
+    if (!ui || ui->text_count != 11 || acquired_kind < 0 || acquired_kind > 2 ||
+        !em_battery_ui_begin_browse(ui, NULL, charge, selected_kind))
+        return 0;
+    ui->notice_kind = acquired_kind;
+    ui->notice_timer = 240;
     return 1;
 }
 
@@ -174,6 +206,8 @@ unsigned em_battery_ui_original_step(const EmBatteryUI *ui)
         return 0;
     if (ui->error_timer)
         return 8;
+    if (ui->notice_timer)
+        return 3;
     switch (ui->menu.phase) {
     case EM_PANEL_MENU_BROWSE:
         return 1;
@@ -282,7 +316,9 @@ int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned hel
     gs_sprite(ui, gfx, 18 + ui->kind * 3, 0x89F0, 0x83E0, 64, 64, 0x40808080);
     gs_sprite(ui, gfx, (held & 0x1000) ? 11 : 9, 0x7800, 0x7B30, 32, 32, 0x80808080);
     gs_sprite(ui, gfx, (held & 0x4000) ? 12 : 10, 0x7800, 0x8240, 32, 32, 0x80808080);
-    if (ui->draw_error)
+    if (ui->draw_notice)
+        text(ui, gfx, 8 + ui->kind, 138, 336);
+    else if (ui->draw_error)
         text(ui, gfx, 7, 138, 336);
     else if (ui->draw_phase == EM_PANEL_MENU_CONFIRM) {
         text(ui, gfx, 1, 138, 336);

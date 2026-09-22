@@ -119,7 +119,7 @@ def main():
     native.em_status_page_tick.argtypes = [C.POINTER(State), C.c_uint, Worker, C.c_void_p]
     checks = 0
     cases = []
-    for current, primary, secondary, kind in itertools.product((1, 2), (0, 2), range(6), (0x40, 0x82, 0xFF)):
+    for current, primary, secondary, kind in itertools.product((0, 1, 2), (0, 2), range(6), (0x1B, 0x1C, 0x1D, 0x40, 0x82, 0xFF)):
         cases.append((0, 0, 0, 0, 1, 0, 0, 0, current, primary, secondary, 0, kind))
     for phase, step, transition, busy, request, status, buttons, screen in itertools.product(
             (3, 4), range(3), range(3), (0, 1), (0, 1), (0, 0xFF), (0, 0x810), (0, 0x63)):

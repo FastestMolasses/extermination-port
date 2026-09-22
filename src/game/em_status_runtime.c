@@ -114,6 +114,22 @@ static int battery_tick(EmStatusRuntime *runtime)
         page->item.message_phase = 0;
         page->item.message_group = 3;
         if (page->request) {
+            if (page->request == 1 && page->request_kind >= 0x1B && page->request_kind < 0x1E) {
+                static const uint8_t capacities[3] = {12, 36, 48};
+                int acquired_kind = page->request_kind - 0x1B;
+                uint8_t capacity = capacities[acquired_kind];
+                if (!runtime->hooks.write_battery_capacity ||
+                    !em_battery_ui_begin_pickup(runtime->battery, capacity, runtime->battery_kind,
+                                                acquired_kind) ||
+                    runtime->hooks.write_battery_capacity(runtime->hooks.context, capacity,
+                                                          capacity) != 1)
+                    return 0;
+                runtime->inventory.charge = runtime->inventory.capacity = capacity;
+                page->item.message_group = acquired_kind == runtime->battery_kind ? 4 : 3;
+                page->request = 0;
+                page->item.step = 3;
+                return 1;
+            }
             if (!(page->request_kind & 0x80) ||
                 !em_battery_ui_begin(runtime->battery, runtime->owner, runtime->inventory.charge,
                                      runtime->battery_kind))
@@ -135,10 +151,14 @@ static int battery_tick(EmStatusRuntime *runtime)
                                                    0x1B + (unsigned)runtime->battery_kind);
         if (available < 0 || available > 1)
             return 0;
+        if (available && !runtime->owner)
+            return 0; /* A different eligible device requires its actual owner binding. */
     }
     int charge = runtime->inventory.charge;
     unsigned events =
         em_battery_ui_tick(runtime->battery, runtime->input.pressed, &charge, available);
+    if (events & EM_BATTERY_UNSUPPORTED_OWNER)
+        return 0;
     if (charge != runtime->inventory.charge) {
         if (charge < 0 || charge > 255 ||
             runtime->hooks.write_charge(runtime->hooks.context, (uint16_t)charge) != 1)
@@ -167,10 +187,13 @@ static int battery_tick(EmStatusRuntime *runtime)
     if (page->item.step == 6 && before == 4)
         page->request = 1; /* Original confirmation protects the discharge from outer exit. */
     if (page->item.step == 1 && before != 1) {
-        page->item.message_phase = 0;
+        page->item.message_phase = before == 3 ? 1 : 0;
         page->item.message_group = 3;
     } else if (before == 6) {
         page->item.message_phase = 0;
+    } else if (before == 3) {
+        page->item.message_phase = 1;
+        page->item.message_line = 27 + (unsigned)runtime->battery_kind;
     } else {
         page->item.message_phase = 1;
         page->item.message_group = before == 1 ? 3 : 5;
@@ -312,6 +335,18 @@ int em_status_runtime_battery_open(EmStatusRuntime *runtime, EmPanel *owner, uin
     runtime->owner = owner;
     runtime->page.request = 1;
     runtime->page.request_kind = request;
+    runtime->queued = 1;
+    return 1;
+}
+
+int em_status_runtime_pickup_request(EmStatusRuntime *runtime, uint8_t kind, uint8_t index)
+{
+    if (!runtime || runtime->failed || runtime->queued || runtime->frame.phase != 1 || kind != 1 ||
+        index < 0x1B || index >= 0x1E || !runtime->hooks.write_battery_capacity)
+        return 0;
+    runtime->owner = NULL;
+    runtime->page.request = kind;
+    runtime->page.request_kind = index;
     runtime->queued = 1;
     return 1;
 }

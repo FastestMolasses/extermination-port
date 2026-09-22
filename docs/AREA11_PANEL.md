@@ -367,3 +367,37 @@ faults when an inventory write or an unimplemented hub worker fails. The
 required world services and broader status pages remain explicit boundaries.
 Modules32..35 are actual DATA chunks50..53 and include audio-bank work;
 a timer or an unrelated texture's presence cannot stand in for their readiness.
+
+Battery pickup status now follows original request1/index1B..1D, independently
+of the panel request82. After the pickup inventory mutation, its opcode09
+yields; the next outer frame acquires status before the pickup script's
+terminal opcode07/sub4 can release its owner. The adapter preserves that
+pending request and leaves the final status release frame consumed.
+
+Original149F0 selects the highest owned battery row, sets charge and capacity
+to the acquired pack's12/36/48 half-units, clears the pending request, and
+enters state3 with counter240. The displayed acquisition text comes from
+original message group4, lines27..29; if the acquired pack is not the selected
+highest pack, the original retains ordinary group3 help. EMBA version2 adds
+these three strings without changing the existing sprites or text records.
+The loader continues accepting version1 for the older panel path.
+
+State3 draws the BATTERY page, decrements its counter, and returns to browsing
+when it expires or a button in mask5060 is pressed. A button dismissal plays
+the original Back cue. It does not confirm power or close status. The outer
+Triangle/Start exit still goes through CDC0/E0C0. Browsing Cross calls the
+actual185420 device lookup; an empty result produces original group5 line25
+and its error banner. A different eligible owner requires a real binding,
+and is a fault rather than an invented empty lookup or confirmation.
+
+Validation now includes1,352 CDC0/exit cases and84 original149F0 acquisition
+and input cases covering11,904 notice callbacks. The actual-asset sanitizer
+fixture checks pickup entry, notice dismissal, empty-device browsing, outer
+exit, final-frame consumption and retained inventory-write failure. The
+original29-quad panel packet comparison still passes after the EMBA extension.
+The shared list/draw workers and final pickup pixels remain separate checks;
+no original pickup-menu screenshot comparison is claimed by these tests.
+
+The full original SDK numerical cursor path is now implemented and tested in
+[ITEM_SDK_MATH.md](ITEM_SDK_MATH.md), removing the host-libm boundary from the
+new end-to-end stick and triangle oracle.

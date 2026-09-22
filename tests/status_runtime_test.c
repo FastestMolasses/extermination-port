@@ -127,6 +127,14 @@ static int write_charge(void *c, uint16_t charge)
     ++world->writes;
     return 1;
 }
+static int write_capacity(void *c, uint16_t charge, uint8_t capacity)
+{
+    World *world = c;
+    if (!write_charge(c, charge))
+        return 0;
+    world->inventory.capacity = capacity;
+    return 1;
+}
 static int frame_event(void *c, EmStatusFrameEvent event, const EmStatusFrame *state)
 {
     (void)event;
@@ -150,7 +158,8 @@ static int sound(void *c, uint32_t cue)
 }
 static int available(void *c, EmPanel *owner, unsigned item)
 {
-    assert(owner && item == 0x1B);
+    (void)owner;
+    assert(item == 0x1B);
     return ((World *)c)->available;
 }
 static int finished(void *c, EmPanel *owner)
@@ -174,7 +183,8 @@ static int ready_module(void *c, unsigned module)
     return world->ready;
 }
 
-static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery, const char *item)
+static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery, const char *item,
+                               int pickup)
 {
     *world = (World){
         .inventory = {.battery_count = {1, 0, 0}, .charge = 12, .capacity = 12, .status = 1},
@@ -190,11 +200,21 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery
                                   .owner_available = available,
                                   .battery_finished = finished,
                                   .module_begin = begin_module,
-                                  .module_ready = ready_module};
+                                  .module_ready = ready_module,
+                                  .write_battery_capacity = write_capacity};
     EmStatusRuntime *runtime = em_status_runtime_load(battery, item, &math, &hooks);
     assert(runtime);
     em_panel_init(owner, 0);
-    assert(em_status_runtime_battery_open(runtime, owner, 0x82));
+    if (pickup) {
+        world->available = 0;
+        world->inventory.status = 0;
+        world->inventory.primary = 0xFF;
+        assert(!em_status_runtime_pickup_request(runtime, 2, 0x1B));
+        assert(!em_status_runtime_pickup_request(runtime, 1, 0x17));
+        assert(em_status_runtime_pickup_request(runtime, 1, 0x1B));
+    } else {
+        assert(em_status_runtime_battery_open(runtime, owner, 0x82));
+    }
     assert(!em_status_runtime_battery_open(runtime, owner, 0x82));
     assert(em_status_runtime_ordinary_enabled(runtime));
     return runtime;
@@ -222,7 +242,7 @@ int main(int argc, char **argv)
     assert(argc == 3);
     World world;
     EmPanel owner;
-    EmStatusRuntime *runtime = create(&world, &owner, argv[1], argv[2]);
+    EmStatusRuntime *runtime = create(&world, &owner, argv[1], argv[2], 0);
     confirmation(runtime);
     assert(tick(runtime, 0x8040, 128, 128) == 1);
     assert(em_status_runtime_page(runtime)->request == 1);
@@ -241,7 +261,7 @@ int main(int argc, char **argv)
     assert(!world.begins);
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2]);
+    runtime = create(&world, &owner, argv[1], argv[2], 0);
     confirmation(runtime);
     assert(tick(runtime, 0x40, 128, 128) == 1); /* Default No. */
     assert(!owner.charged && world.inventory.charge == 12);
@@ -272,7 +292,7 @@ int main(int argc, char **argv)
            !em_status_runtime_ordinary_enabled(runtime));
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2]);
+    runtime = create(&world, &owner, argv[1], argv[2], 0);
     confirmation(runtime);
     assert(tick(runtime, 0x40, 128, 128) == 1);
     world.inventory.secondary = 1; /* Original exit now requires module32. */
@@ -290,13 +310,47 @@ int main(int argc, char **argv)
     assert(tick(runtime, 0, 128, 128) == 0);
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2]);
+    runtime = create(&world, &owner, argv[1], argv[2], 0);
     confirmation(runtime);
     assert(tick(runtime, 0x8040, 128, 128) == 1);
     world.fail_write = 1;
     assert(tick(runtime, 0, 128, 128) == -1);
     assert(!owner.charged && world.inventory.charge == 12 &&
            !em_status_runtime_ordinary_enabled(runtime));
+    em_status_runtime_free(runtime);
+    runtime = create(&world, &owner, argv[1], argv[2], 1);
+    for (unsigned i = 0; i < 7; ++i)
+        assert(tick(runtime, 0, 128, 128) == 1);
+    assert(em_status_runtime_page(runtime)->item.step == 3);
+    assert(em_status_runtime_page(runtime)->item.message_group == 4);
+    assert(world.writes == 1 && world.inventory.charge == 12 && world.inventory.capacity == 12);
+    assert(!world.finished && !owner.charged);
+    assert(tick(runtime, 0x40, 128, 128) == 1); /* Notice dismisses to browse. */
+    assert(em_status_runtime_page(runtime)->item.step == 1);
+    assert(em_status_runtime_page(runtime)->item.message_group == 3);
+    assert(tick(runtime, 0x40, 128, 128) == 1); /* Actual empty device lookup. */
+    assert(em_status_runtime_page(runtime)->item.step == 8);
+    assert(world.sounds[world.sound_count - 1] == 2);
+    assert(!world.finished && !owner.charged && world.inventory.charge == 12);
+    assert(tick(runtime, 0x10, 128, 128) == 1); /* Real outer Triangle exit. */
+    unsigned consumed = 0;
+    while (tick(runtime, 0, 128, 128) == 1) {
+        assert(!em_status_runtime_ordinary_enabled(runtime));
+        assert(++consumed < 8);
+    }
+    assert(consumed == 3 && em_status_runtime_ordinary_enabled(runtime));
+    assert(!world.finished && !world.begins);
+    em_status_runtime_free(runtime);
+
+    runtime = create(&world, &owner, argv[1], argv[2], 1);
+    world.inventory.charge = 7;
+    world.inventory.capacity = 11;
+    world.fail_write = 1;
+    for (unsigned i = 0; i < 6; ++i)
+        assert(tick(runtime, 0, 128, 128) == 1);
+    assert(tick(runtime, 0, 128, 128) == -1);
+    assert(!em_status_runtime_ordinary_enabled(runtime));
+    assert(world.inventory.charge == 7 && world.inventory.capacity == 11 && !world.writes);
     em_status_runtime_free(runtime);
     puts("PASS original status adapter: default No, Back/ITEM/reselect, real discharge/reload "
          "gates, final-frame ownership and fault retention");

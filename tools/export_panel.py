@@ -108,6 +108,10 @@ def main():
         2*((cfg[2]+cfg[4])>>1), elf.u32(0x26EC10)&0xFFFFFF, 0x100505)
     outer = directory + struct.unpack_from('<I', data, directory_off+5*16)[0]
     texts.append(text_record(data,outer,0x19,'group5'))
+    # Acquisition state3 retains group4 while the acquired row is selected.
+    outer = directory + struct.unpack_from('<I', data, directory_off+4*16)[0]
+    for line in (0x1B, 0x1C, 0x1D):
+        texts.append(text_record(data, outer, line, 'group4'))
     text_blob = bytearray()
     for value, spans in texts:
         text_blob += struct.pack('<II', len(value)+1, len(spans))
@@ -117,7 +121,7 @@ def main():
     # original shared background state, and RGBA8 sheet.
     background = elf.read(0x2655A0, 3*32)
     payload = records + text_blob + background + atlas
-    header = struct.pack('<4s7I', b'EMBA', 1, width, height, len(tokens),
+    header = struct.pack('<4s7I', b'EMBA', 2, width, height, len(tokens),
                          len(texts), len(text_blob), len(payload))
     (args.out/'battery.emba').write_bytes(header+payload)
 
@@ -146,7 +150,8 @@ def main():
               'atlas':[{'id':i,'tex0':f'{token:016x}','x':uv[0],'y':uv[1],
                         'w':m['w'],'h':m['h']} for i,(token,uv,(_,m)) in
                        enumerate(zip(tokens,positions,decoded))],
-              'text_sources':['5:0','5:8','5:9','3:27','3:28','3:29','global:18','5:25']}
+              'text_sources':['5:0','5:8','5:9','3:27','3:28','3:29','global:18','5:25',
+                              '4:27','4:28','4:29']}
     (args.out/'source.json').write_text(json.dumps(report,indent=2)+'\n')
     print(f'Panel: original scripts, {len(tokens)} textures, {len(texts)} strings and clip15C -> {args.out}')
 

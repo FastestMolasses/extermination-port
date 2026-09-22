@@ -23,7 +23,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
-           src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_status_runtime.c \
+           src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
+           src/game/em_status_runtime.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
@@ -306,6 +307,13 @@ test-item-trail-reference:
 
 test-item-sdk-math-reference:
 	python3 tools/test_item_sdk_math_reference.py
+
+.PHONY: test-battery-pickup-reference test-item-device-reference
+test-battery-pickup-reference:
+	python3 tools/test_battery_pickup_reference.py
+
+test-item-device-reference:
+	python3 tools/test_item_device_reference.py
 
 test-status-runtime:
 	@mkdir -p build/status_page_reference
