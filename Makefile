@@ -22,7 +22,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
-           src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_status_runtime.c \
+           src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
+           src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_status_runtime.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
@@ -191,6 +192,17 @@ test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_p
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_light_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
 	build/pickup_light_test
 
+PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c
+.PHONY: test-pickup-owner-reference test-pickup-original
+test-pickup-owner-reference:
+	python3 tools/test_pickup_owner_reference.py
+	python3 tools/test_pickup_motion_reference.py
+
+test-pickup-original: tests/pickup_original_test.c src/game/em_pickup.c $(PICKUP_ORIGINAL_TEST_SRC)
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_original_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
+	build/pickup_original_test
+
 .PHONY: test-panel-reference test-panel-interaction
 test-panel-reference:
 	python3 tools/test_panel_reference.py
@@ -249,6 +261,10 @@ test-player-pose-host:
 	    -o build/player_pose_channels/player_pose_host_test
 	./build/player_pose_channels/player_pose_host_test
 
+.PHONY: test-player-foot-stop-reference
+test-player-foot-stop-reference:
+	python3 tools/test_player_foot_stop_reference.py
+
 .PHONY: test-interaction-runtime
 test-interaction-runtime:
 	@mkdir -p build
@@ -283,6 +299,18 @@ test-item-root-reference:
 
 test-item-ui-reference:
 	python3 tools/test_item_ui_reference.py
+
+.PHONY: test-item-trail-reference test-item-sdk-math-reference test-status-runtime
+test-item-trail-reference:
+	python3 tools/test_item_trail_reference.py
+
+test-item-sdk-math-reference:
+	python3 tools/test_item_sdk_math_reference.py
+
+test-status-runtime:
+	@mkdir -p build/status_page_reference
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_runtime_test.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c -lm -o build/status_page_reference/status_runtime_test
+	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir
 
 .PHONY: test-panel-message-reference
 test-panel-message-reference:
@@ -402,29 +430,3 @@ test-player-heading-reference:
 .PHONY: test-player-motor-reference
 test-player-motor-reference:
 	python3 tools/test_player_motor_reference.py
-
-.PHONY: test-item-trail-reference
-test-item-trail-reference:
-	python3 tools/test_item_trail_reference.py
-
-.PHONY: test-player-foot-stop-reference
-test-player-foot-stop-reference:
-	python3 tools/test_player_foot_stop_reference.py
-
-.PHONY: test-status-runtime
-test-status-runtime:
-	@mkdir -p build/status_page_reference
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_runtime_test.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c -lm -o build/status_page_reference/status_runtime_test
-	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir
-
-PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c
-.PHONY: test-pickup-owner-reference test-pickup-original
-test-pickup-owner-reference:
-	python3 tools/test_pickup_owner_reference.py
-	python3 tools/test_pickup_motion_reference.py
-
-test-pickup-original: tests/pickup_original_test.c src/game/em_pickup.c $(PICKUP_ORIGINAL_TEST_SRC)
-	@mkdir -p build
-	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_original_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
-	build/pickup_original_test
-
