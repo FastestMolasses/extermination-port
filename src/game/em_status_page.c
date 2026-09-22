@@ -73,8 +73,10 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         return -1;
     switch (state->phase) {
     case 0:
-        if (state->request != 1 || (!(state->request_kind & 0xC0) &&
-                                    (state->request_kind < 0x1B || state->request_kind >= 0x1E)))
+        if ((!state->request && state->status_request) ||
+            (state->request && (state->request != 1 ||
+                                (!(state->request_kind & 0xC0) &&
+                                 (state->request_kind < 0x1B || state->request_kind >= 0x1E)))))
             return -1;
         if (!emit(worker, context, state, EM_STATUS_PAGE_BLACK_HOLD, 0) ||
             !emit(worker, context, state, EM_STATUS_PAGE_OPEN_SOUND, 0))
@@ -85,6 +87,8 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         state->phase = 1;
         state->saved_status = state->current_status;
         state->saved_module = inventory_module(state);
+        if (!state->request)
+            break;
         state->phase = 3;
         state->item.screen = 0;
         state->step = 2;

@@ -1,4 +1,5 @@
 #include "game/em_hud.h"
+#include "game/em_status_hub.h"
 #include "game/em_status_runtime.h"
 #include <assert.h>
 #include <math.h>
@@ -10,6 +11,7 @@ typedef struct {
     unsigned sounds[256], sound_count, triangle_count, upload_count;
     unsigned finished, module, begins, ready, writes, frame_events, page_events;
     int fail_write, available;
+    unsigned hub_workers, hub_draws;
 } World;
 
 static World *drawing;
@@ -183,6 +185,32 @@ static int ready_module(void *c, unsigned module)
     return world->ready;
 }
 
+static int hub_worker(void *context, EmStatusPage *page, EmStatusHubEvent event, unsigned argument)
+{
+    (void)page;
+    World *world = context;
+    ++world->hub_workers;
+    if (event == EM_STATUS_HUB_SOUND)
+        return sound(context, argument);
+    return 1; /* Explicit draw/model boundary in this lifecycle fixture. */
+}
+
+static int hub_tick(void *context, EmStatusPage *page, const EmStatusInput *input)
+{
+    EmItemMath math = {NULL, sine, cosine, angle, root};
+    EmItemStick stick;
+    return em_item_stick_sample(&stick, input->stick_x, input->stick_y, &math) &&
+           em_status_hub_tick(page, 0, input->pressed, &stick, hub_worker, context) == 0;
+}
+
+static int hub_render(void *context, EmGfx *gfx, const EmStatusPage *page)
+{
+    (void)gfx;
+    (void)page;
+    ++((World *)context)->hub_draws;
+    return 1; /* Renderer is separately validated; do not invent a game host. */
+}
+
 static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery, const char *item,
                                int pickup)
 {
@@ -202,10 +230,17 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery
                                   .module_begin = begin_module,
                                   .module_ready = ready_module,
                                   .write_battery_capacity = write_capacity};
+    if (pickup == 2) {
+        hooks.other_page_tick = hub_tick;
+        hooks.other_page_render = hub_render;
+    }
     EmStatusRuntime *runtime = em_status_runtime_load(battery, item, &math, &hooks);
     assert(runtime);
     em_panel_init(owner, 0);
-    if (pickup) {
+    if (pickup == 2) {
+        assert(em_status_runtime_open(runtime));
+        assert(!em_status_runtime_open(runtime));
+    } else if (pickup) {
         world->available = 0;
         world->inventory.status = 0;
         world->inventory.primary = 0xFF;
@@ -213,6 +248,7 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery
         assert(!em_status_runtime_pickup_request(runtime, 1, 0x17));
         assert(em_status_runtime_pickup_request(runtime, 1, 0x1B));
     } else {
+        assert(!em_status_runtime_open(runtime)); /* Missing actual hub workers. */
         assert(em_status_runtime_battery_open(runtime, owner, 0x82));
     }
     assert(!em_status_runtime_battery_open(runtime, owner, 0x82));
@@ -351,6 +387,36 @@ int main(int argc, char **argv)
     assert(tick(runtime, 0, 128, 128) == -1);
     assert(!em_status_runtime_ordinary_enabled(runtime));
     assert(world.inventory.charge == 7 && world.inventory.capacity == 11 && !world.writes);
+    em_status_runtime_free(runtime);
+    runtime = create(&world, &owner, argv[1], argv[2], 2);
+    unsigned steps = 0;
+    while (em_status_runtime_page(runtime)->phase != 1 ||
+           em_status_runtime_page(runtime)->step != 1) {
+        assert(tick(runtime, 0, 128, 128) == 1 && ++steps < 20);
+    }
+    assert(!world.finished && !world.writes && !world.begins);
+    assert(tick(runtime, 0x40, 0, 128) == 1); /* Actual hub left sector -> ITEM. */
+    assert(em_status_runtime_page(runtime)->phase == 3);
+    assert(em_status_runtime_page(runtime)->item.screen == 0);
+    steps = 0;
+    while (em_status_runtime_page(runtime)->item.state != 1 ||
+           em_status_runtime_page(runtime)->step != 2) {
+        assert(tick(runtime, 0, 128, 128) == 1 && ++steps < 20);
+    }
+    assert(tick(runtime, 0x20, 128, 128) == 1); /* ITEM Back, then actual hub. */
+    steps = 0;
+    while (em_status_runtime_page(runtime)->phase != 1 ||
+           em_status_runtime_page(runtime)->step != 1) {
+        assert(tick(runtime, 0, 128, 128) == 1 && ++steps < 20);
+    }
+    assert(tick(runtime, 0x10, 128, 128) == 1);
+    assert(em_status_runtime_page(runtime)->phase == 5);
+    steps = 0;
+    while (tick(runtime, 0, 128, 128) == 1) {
+        assert(!em_status_runtime_ordinary_enabled(runtime) && ++steps < 8);
+    }
+    assert(em_status_runtime_ordinary_enabled(runtime));
+    assert(world.hub_workers && !world.finished && !world.writes && !owner.charged);
     em_status_runtime_free(runtime);
     puts("PASS original status adapter: default No, Back/ITEM/reselect, real discharge/reload "
          "gates, final-frame ownership and fault retention");

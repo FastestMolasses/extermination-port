@@ -38,7 +38,8 @@ typedef int (*EmStatusPageWorker)(void *context, EmStatusPage *state, EmStatusPa
                                   unsigned argument);
 
 /*0 waiting,1 actual exit completed,-1 unsupported route or worker failure.
- * Cold entry supports original panel request1 with kind&C0 and battery
+ * Cold entry supports the normal hub (request0/status_request0), original
+ * panel request1 with kind&C0 and battery
  * acquisition indices1B..1D. Phase3
  * supports ITEM screen0 and the original63 return to the status hub. */
 int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorker worker,

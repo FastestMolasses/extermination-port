@@ -327,6 +327,17 @@ void em_status_runtime_free(EmStatusRuntime *runtime)
     free(runtime);
 }
 
+int em_status_runtime_open(EmStatusRuntime *runtime)
+{
+    if (!runtime || runtime->failed || runtime->queued || runtime->frame.phase != 1 ||
+        !runtime->hooks.other_page_tick || !runtime->hooks.other_page_render ||
+        runtime->page.request || runtime->page.status_request)
+        return 0;
+    runtime->owner = NULL;
+    runtime->queued = 1;
+    return 1;
+}
+
 int em_status_runtime_battery_open(EmStatusRuntime *runtime, EmPanel *owner, uint8_t request)
 {
     if (!runtime || !owner || runtime->failed || runtime->queued || runtime->frame.phase != 1 ||

@@ -12,7 +12,7 @@ typedef struct {
     int error;
 } EmItemSdkMath;
 
-/* The UI supplies finite angles in [-float(pi), float(pi)] and nonnegative
+/* The UI supplies finite angles in [-float(4*pi), float(4*pi)] and nonnegative
  * finite square-root inputs. Values outside those domains return NaN.
  * atan coefficients are copied from the original exported EMIS resource. */
 int em_item_sdk_math_bind(EmItemSdkMath *state, const EmInteractionMath *atan, EmItemMath *workers);

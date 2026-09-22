@@ -11,7 +11,9 @@ from the camera matrix SDK's trigonometric implementation. The native
 module retains their quadrant selection, `0011C7B0` reduction and
 `0011D770`/`0011CCC8` kernels, with an explicit rounding step for each EE
 scalar sum and product. The supported input domain is the finite
-`[-float(pi), float(pi)]` interval actually supplied by the UI's atan2.
+`[-float(4*pi), float(4*pi)]` interval covering the UI's atan2 and the
+normal status hub's rotating gauges. The medium reducer retains the first
+eight entries of the original `0026C490` cancellation table.
 The larger SDK range reducer is deliberately outside this module's scope.
 
 Square root follows the integer digit-by-digit body `0011CB90`, including
@@ -30,13 +32,13 @@ through later ordinary calls, as in the original wrapper.
 `make test-item-sdk-math-reference` executes the user's pinned original
 ELF directly in a bounded instruction oracle. It compares:
 
-- 2,962 sine/cosine results across 1,481 angles, including reduction and
+- 6,418 sine/cosine results across 3,209 angles, including reduction and
   cancellation boundaries and signed zero;
 - 922 square-root results, including positive subnormals and large finite
   inputs;
 - all four signed-zero atan2 combinations through the full wrapper,
   software double conversions, default error helper and errno store;
-- 1,183 raw stick-byte pairs through the complete `001B62C0` SDK call
+- 1,184 raw stick-byte pairs through the complete `001B62C0` SDK call
   chain, with all four output floats compared by bits;
 - 43 complete cursor ring callbacks and 22,016 fixed-point triangles,
   including the original software float-to-integer helper. Only the

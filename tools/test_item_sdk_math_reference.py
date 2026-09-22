@@ -189,7 +189,8 @@ def build():
 def main():
     elf = (ROOT.parent / 'Extermination/config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA
-    assert struct.unpack_from('<I', elf, 0x26c494 - 0x100000 + 0x300)[0] == 0x40490f00
+    cancellation = struct.unpack_from('<8I', elf, 0x26c490 - 0x100000 + 0x300)
+    assert cancellation[1] == 0x40490f00
     native, output = build()
     rng = random.Random(0x11e2a8)
     # Kernel boundaries, reduction cancellation and exact signed zero.
@@ -200,7 +201,12 @@ def main():
             magnitude = threshold + delta
             if magnitude <= 0x40490fdb:
                 angle_bits.update((magnitude, magnitude | 0x80000000))
-    angle_bits.update(bits(rng.uniform(-3.14159265, 3.14159265)) for _ in range(1200))
+    for threshold in (*cancellation, 0x41490fdb):
+        for delta in range(-16, 17):
+            magnitude = threshold + delta
+            if magnitude <= 0x41490fdb:
+                angle_bits.update((magnitude, magnitude | 0x80000000))
+    angle_bits.update(bits(rng.uniform(-12.5663706, 12.5663706)) for _ in range(2400))
     for encoded in sorted(angle_bits):
         value = number(encoded)
         for name, entry in (('sine', 0x11e2a8), ('cosine', 0x11de90)):
@@ -278,7 +284,7 @@ def main():
               'full_sdk_ring_frames': len(frames), 'full_sdk_triangles': triangles,
               'scope_zero_cases': projection_cases,
               'scope_zero_projection_bits': '43F02F4F',
-              'domain': 'finite ITEM angles in [-float(pi),float(pi)]; nonnegative binary32 sqrt',
+              'domain': 'finite UI angles in [-float(4*pi),float(4*pi)]; nonnegative binary32 sqrt',
               'boundaries': 'bounded EE arithmetic model; errno copied into explicit UI context, not process-global state; GS/Metal rasterization'}
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))

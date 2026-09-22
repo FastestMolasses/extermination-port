@@ -26,6 +26,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
+           src/game/em_item_geometry.c src/game/em_status_hub.c \
            src/game/em_status_runtime.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c \
@@ -352,6 +353,13 @@ test-item-trail-reference:
 test-item-sdk-math-reference:
 	python3 tools/test_item_sdk_math_reference.py
 
+.PHONY: test-item-geometry-reference test-status-hub-reference
+test-item-geometry-reference:
+	python3 tools/test_item_geometry_reference.py
+
+test-status-hub-reference:
+	python3 tools/test_status_hub_reference.py
+
 .PHONY: test-battery-pickup-reference test-item-device-reference
 test-battery-pickup-reference:
 	python3 tools/test_battery_pickup_reference.py
@@ -361,7 +369,7 @@ test-item-device-reference:
 
 test-status-runtime:
 	@mkdir -p build/status_page_reference
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_runtime_test.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c -lm -o build/status_page_reference/status_runtime_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c -lm -o build/status_page_reference/status_runtime_test
 	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir
 
 .PHONY: test-panel-message-reference

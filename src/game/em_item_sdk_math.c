@@ -71,8 +71,8 @@ static float cosine_kernel(float x, float tail)
     return subtract(subtract(1.0f, q), subtract(subtract(multiply(z, 0.5f), q), correction));
 }
 
-/* 0011C7B0's bounded UI domain. Its large-argument multiword reducer is
- * unreachable for an atan2 angle and is deliberately not approximated. */
+/* 0011C7B0's bounded UI domain covers the stick and rotating status gauges.
+ * Its large-argument multiword reducer remains deliberately unsupported. */
 static int reduce_angle(float x, float *high, float *low)
 {
     const float first = 0x1.921fp+0f, first_tail = 0x1.6a8886p-17f;
@@ -103,8 +103,10 @@ static int reduce_angle(float x, float *high, float *low)
     float r = subtract(magnitude, multiply(n, first));
     float w = multiply(n, first_tail);
     *high = subtract(r, w);
-    /* In this domain n is2, and original26C490[1] is0x40490f00. */
-    if ((absolute & 0xffffff00) == 0x40490f00) {
+    /* Original26C490 cancellation table; the supported domain needs n<=8. */
+    static const uint32_t cancellation[8] = {0x3fc90f00, 0x40490f00, 0x4096cb00, 0x40c90f00,
+                                             0x40fb5300, 0x4116cb00, 0x412fed00, 0x41490f00};
+    if ((absolute & 0xffffff00) == cancellation[quadrant - 1]) {
         int exponent = (int)(absolute >> 23);
         if (exponent - (int)((bits(*high) >> 23) & 255) > 8) {
             float previous = r;
@@ -133,7 +135,7 @@ static int reduce_angle(float x, float *high, float *low)
 float em_item_sdk_sine(float angle)
 {
     uint32_t absolute = bits(angle) & 0x7fffffff;
-    if (absolute > 0x40490fdb)
+    if (absolute > 0x41490fdb)
         return NAN;
     if (absolute <= 0x3f490fd8)
         return sine_kernel(angle, 0, 0);
@@ -151,7 +153,7 @@ float em_item_sdk_sine(float angle)
 float em_item_sdk_cosine(float angle)
 {
     uint32_t absolute = bits(angle) & 0x7fffffff;
-    if (absolute > 0x40490fdb)
+    if (absolute > 0x41490fdb)
         return NAN;
     if (absolute <= 0x3f490fd8)
         return cosine_kernel(angle, 0);

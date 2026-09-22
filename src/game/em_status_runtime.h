@@ -57,6 +57,10 @@ typedef struct {
 EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,
                                         const EmItemMath *, const EmStatusRuntimeHooks *);
 void em_status_runtime_free(EmStatusRuntime *); /* owner tears down the game first */
+/* Queue the original normal status route (B0=0/C5=0), after the host's
+ * actual gameplay input gates. Requires both real hub workers; it does
+ * not substitute a panel request or silently accept unsupported artwork. */
+int em_status_runtime_open(EmStatusRuntime *);
 /* Called by the original panel callback; queues globals without consuming
  * the remainder of the current ordinary task callback. */
 int em_status_runtime_battery_open(EmStatusRuntime *, EmPanel *owner, uint8_t request);
