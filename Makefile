@@ -22,6 +22,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_status_frame.c src/game/em_panel_message.c \
+           src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
 
@@ -219,6 +220,22 @@ test-interaction-frame-reference:
 
 test-interaction-animation-reference:
 	python3 tools/test_interaction_animation_reference.py
+
+.PHONY: test-player-pose test-pose-reference
+test-player-pose: tests/player_pose_test.c src/game/em_player_pose.c src/game/em_pose_bank.c \
+                 src/game/em_pose_transition.c src/game/em_interaction_animation.c \
+                 src/game/em_player_pose.h src/game/em_pose_bank.h src/game/em_pose_transition.h src/game/em_pose_math.h
+	@mkdir -p build/player_pose_channels
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc \
+	    tests/player_pose_test.c src/game/em_player_pose.c src/game/em_pose_bank.c \
+	    src/game/em_pose_transition.c src/game/em_interaction_animation.c -lm \
+	    -o build/player_pose_channels/player_pose_test
+	./build/player_pose_channels/player_pose_test
+
+test-pose-reference:
+	python3 tools/test_pose_transition_reference.py
+	python3 tools/test_pose_bank_reference.py
+	python3 tools/test_player_pose_reference.py
 
 .PHONY: test-interaction-runtime
 test-interaction-runtime:
