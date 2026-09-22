@@ -17,7 +17,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c \
-           src/game/em_examine.c src/game/em_truck.c \
+           src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
 
 # ---------------------------------------------------------------- macOS
@@ -186,6 +186,22 @@ test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_p
 .PHONY: test-panel-reference test-panel-interaction
 test-panel-reference:
 	python3 tools/test_panel_reference.py
+
+.PHONY: test-battery-reference test-battery-ui-reference test-panel-program
+test-battery-reference:
+	python3 tools/test_battery_reference.py
+
+test-battery-ui-reference:
+	python3 tools/test_battery_ui_reference.py
+
+.PHONY: test-camera-retarget-reference
+test-camera-retarget-reference:
+	python3 tools/test_camera_retarget_reference.py
+
+test-panel-program:
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/panel_program_test.c src/game/em_panel_program.c src/game/em_script.c src/game/em_panel.c -lm -o build/panel_program_test
+	build/panel_program_test assets/scene_snow/panel/scripts.emsc
 
 .PHONY: test-elevator-reference
 test-elevator-reference:

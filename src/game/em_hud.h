@@ -322,6 +322,18 @@ typedef enum {
 void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
                  EmHudTextStyle style);
 
+/* Same glyph metrics, with original packed 0xBBGGRR message color.
+ * Used by recovered tag2 text spans; GS color128 is unity. */
+void em_hud_text_color(EmGfx *gfx, float x, float y, const char *str,
+                        EmHudTextStyle style, uint32_t rgb);
+
+/* A recovered independent page temporarily owns the shared decor slot.
+ * Invalidate after replacing it so the next hub/page draw reloads its
+ * sheet. Background state remains shared across page transitions. */
+void em_hud_decor_invalidate(void);
+void em_hud_background_sprite(EmGfx *gfx, float u, float v,
+                              float width, float height);
+
 /* Pixel width `str` would occupy in `style` (the engine's func_001CC170
  * centering helper). 0 while the font asset is missing. */
 float em_hud_text_width(const char *str, EmHudTextStyle style);

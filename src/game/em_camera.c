@@ -15,14 +15,10 @@
 
 #include "game/em_game_internal.h"
 
-/* DOOR-CUT LOOK-AT HEIGHT — supersedes the header's DOORCAM_TGT_UP (13.0,
- * an early PCSX2 eyeball). src/func_0018CBD0.c derives it as
- *   11.0f + player.y + cam[0x8C] + 0.3f * (f3 - ang)
- * with ang == 0 by construction (the cue re-places the eye at exactly
- * |dist| = 20 away every call) and the pair (cam[0x8C], f3) = (6.0, -20)
- * at the default camdist -46.8 / (2.0, -10) otherwise. Both rows land on
- * player.y + 11 - and 11 is CAM_BASE_H, the same base the follow camera's
- * target height builds on. See the block above camera_door_cinematic. */
+/* Legacy door approximation, pending the original script adapter. The old
+ * claim that CBD0 proves this +11 height was based on incorrect NEARMISS C.
+ * The verified seed in em_camera_retarget.c gives +17 for the ordinary
+ * preset with zero rotation. Do not reuse this approximation for panels. */
 #define DOORCAM_TGT_H  CAM_BASE_H
 
 /* func_0018C6A0(src, dst, max) — the engine's HORIZONTAL chase
@@ -2222,46 +2218,10 @@ static void camera_door_cinematic(EmCamera *cam)
             g.doorcam     = 4;
             return;
         }
-        /* op 0x0D sub 5 (func_0018CBD0, dist -20): 20 u behind the
-         * SNAPPED pose along the THROUGH-DOOR axis at head height,
-         * looking at the staging point. The camera heading itself
-         * snaps to the door axis (the engine's cam Euler +0x30 <-
-         * spad 3B50).
-         *
-         * AUDIT CORRECTION — the TARGET height. src/func_0018CBD0.c
-         * places the eye first (eye = target + rotY(spad3B50)*(0,0,d),
-         * so the horizontal separation is exactly |d| = 20), then
-         * derives BOTH heights from the standard camera rows:
-         *   ang  = horizDist(target,eye) - fabs(d)          -> 0
-         *   f4/f5 = cam+0x8C / cam+0x5C  (6/2 at camdist -46.8,
-         *                                 2/6 otherwise)
-         *   f20  = f3 - ang = f3         (f3 = -20 / -10 by camdist)
-         *   target.y = 11 + player.y + f4 + 0.3f*f20
-         *   eye.y    = 11 + f4 + f5 + player.y
-         * eye.y is 19 on both rows, matching DOORCAM_EYE_UP. target.y,
-         * however, is 11 + 6 - 6 = player.y + 11 at the default
-         * camdist (and 11 + 2 - 3 = +10 on the other row) — the
-         * ordinary tether-limit target height. The header's
-         * DOORCAM_TGT_UP = 13 is what 11 + f4 alone gives: an earlier
-         * PCSX2 eyeball that dropped the 0.3*f20 dip term.
-         * RE-CONFIRMED 2026-07 audit against src/func_0018CBD0.c
-         * [NEARMISS 91.78%]. `ang` is literally
-         * `sqrtf(dx*dx + dz*dz) - fabsf(speed)` over the offset the
-         * function itself just applied, and that offset is purely
-         * horizontal (rotY * (0, 0, speed)), so ang == 0 by
-         * construction — the `if (ang < f3)` arms are unreachable at
-         * the shipped |speed| = 20 and both heights collapse to the
-         * constants used below.
-         *
-         * AUDIT CORRECTION 2 — the ANCHOR. func_0018CBD0's very first
-         * placement is `func_00102948(arg0 + 0x20, arg1 + 0xA0)`: the
-         * target is the LIVE PLAYER POSITION, and the eye is then
-         * derived from it (`arg0+0x10 = rotY(spad3B50)*(0,0,d)` then
-         * `+= arg0+0x20/0x24/0x28` component-wise). The port anchored
-         * both on the latched staging point. The two coincide on a
-         * clean arrival — which is why this never showed — but the
-         * engine reads the player, so the port does too now; the
-         * staging point survives only as the through-door axis. */
+        /* Legacy sub5 approximation. It uses the live player+A0 anchor,
+         * but its height constants are not the verified CBD0 calculation.
+         * Keep it separate from the original panel sub3 adapter until the
+         * complete door script and camera solver calls are recovered. */
         cam->yaw = g.doorcut_yaw;
         cam->tgt_des[0] = g.pos[0];
         cam->tgt_des[1] = g.pos[1] + DOORCAM_TGT_H;

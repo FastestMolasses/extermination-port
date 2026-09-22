@@ -44,7 +44,7 @@ with an immediate interpreter tick and starting one for the next tick.
 
 Original002149F0 uses existing message-bank group5 lines8/9 for the
 two-unit confirmation and insufficient-charge result. It defaults to No.
-Original input bits8000/2000 select Yes/No, with Up taking precedence;
+Original input bits8000/2000 select Yes/No, with Left taking precedence;
 40 confirms and20 cancels back to the battery list. The ordinary request
 opens confirmation even when charge is low: selecting Yes tests charge
 and then shows the insufficient result for240 ticks or until40/20.
@@ -87,12 +87,86 @@ cases against the host core. Script handlers, alignment and graphics are
 explicit external boundaries in that oracle. `tests/panel_interaction_test.c`
 checks the eligibility boundaries, refusal/cancellation/success paths,
 default No, insufficient-charge duration,61-tick discharge and early finish
-under ASan/UBSan. Menu logic is source-derived and has not yet been compared
-with a captured original menu session. `test-pickup-lights` also checks
+under ASan/UBSan. `tools/test_battery_reference.py` additionally executes
+original002149F0 over936 confirmation/discharge cases and compares phase,
+cursor, timers, charge, owner flags, completion and sound-call order.
+`test-pickup-lights` also checks
 the actual item1B take and charge/capacity persistence/refill/count wrapping.
 
-Remaining binding work: the original BATTERY page rendering/input flow,
-global scan arbitration, consistent player alignment, camera retargeting,
-animation15C assets, the original script records and handler adapters,
-and the global power-bit callback. No end-to-end panel fidelity is claimed
-until those bindings and an original session comparison are complete.
+## Captured original page and exported program
+
+The isolated original session used the pristine first-control state04,
+then explicitly seeded a small battery and the use-scan result in a
+disposable session. This is a controlled interaction fixture, not evidence
+that the player has naturally collected the item or walked to the panel.
+The original game performed alignment, message/status transitions, battery
+discharge, animation and the final power callback. New isolated slots08,
+07 and06 preserve confirmation, animation and completion; state04 was not
+overwritten. The emulator exited after capture.
+
+Ignored `Extermination/build/startup-reference/panel/` holds `confirm.png`,
+the matching `eeMemory.bin`/`gs.bin`, `panel_animation.png`,
+`animation_ee.bin`/`animation_scratchpad.bin`, `completed.png` and sampled
+interaction/completion traces. The final original flag at0081084C is80.
+The trace field named `position` reads player+B0, the animated hip. It
+must not be confused with player+A0 or actor matrix+D0's translation:
+those remain `(239.699997,229.890442,223.800003)` throughout this fixture.
+
+`tools/export_panel.py` exports the local ELF's script arena246F20..247E20
+as EMSC,27 original BATTERY TEX0 references,8 original message strings
+with their tag2 color spans, the original background-state record and the
+unmodified clip15C channel bytes. The extra white atlas texel implements
+the original untextured No-cursor rectangle inside the ordered native
+decor queue. It is not replacement game artwork. Source addresses/hashes
+remain in the ignored asset report.
+
+The standalone `em_battery_ui` module draws the original frame, labels,
+pack icon, arrows, half-unit meter and Yes/No cursor; uses actual text
+and color spans; and preserves No, Back, unavailable-device and discharge
+states. `tools/test_battery_ui_reference.py` verifies every one of its29
+confirmation decor/cursor submissions against the original EE GIF packet
+buffers: TEX0, RGBA and both XY endpoints match exactly. Its loader and
+flow test run with ASan/UBSan. Original text metrics264CD8+264CE0 resolve
+to24 canvas pixels per line in the captured page. Text glyph rasterization
+and shared background float/GS-color quantization are outside this packet
+comparison; no native framebuffer identity is claimed.
+
+`em_panel_program` uses the shared original script sequencer and typed
+handlers for timer2, frame7, callback9, playerA, messageC and cameraD.
+It patches the original message operands and requires real host operations.
+Its post-menu script requests15C at tick1, sound3EF at tick14, power bit80
+then sound3EE at tick127, and frame release at tick128. These sound/power
+ticks agree with original sampled retarget frame8087, sound8101 and
+power8214. Missing bindings cause a fault; they never advance as success.
+
+`tools/export_panel_clip.py` resolves direct clip15C from the runtime
+player bankD689C0, whole-byte identical to chunk28/f01_id3c.bin, at1C2E50.
+It bakes121 frames with the recovered stateful channels at rate1.0 and
+unnormalized quaternion blend. The original zero-translation root channel
+requires no extra actor movement; node1 contains the animated hip.
+Frame30's21 world matrices match the captured original with maximum
+absolute error0.00006103515625, explicitly a host/EE rounding tolerance.
+The exporter appends this clip while preserving every existing mesh,
+texture and clip byte; it refuses to overwrite a differing existing15C.
+
+Remaining live bindings: global use arbitration and player alignment,
+the original shared frame/status entry and exit, the actual message-worker
+completion signal, and camera retarget/probe styles5 and1. The camera
+command calls0018CBD0 using the current distance and scratchpad rotation,
+then0018D7B0 modes5/1; a fixed authored camera or the old door-camera helper
+is not an equivalent substitute. The native panel stays unbound until
+these host adapters are ready. No end-to-end panel fidelity is claimed.
+
+The isolated `em_camera_retarget_seed` now implements CBD0's scalar tail
+at an explicit transformed-offset boundary. Its948 original-instruction
+cases match float bits under the bounded EE arithmetic model, and the
+original panel camera matches exactly. Rotation and SDK square root are
+helper boundaries, and styles5/1 are not covered. The readable decomp was
+corrected from an erroneous unconditional falloff and inverted clamp;
+its measured object similarity improved91.78% to94.04%, while it remains
+assembly-backed. The full PS2 six-stage gate passes.
+
+The panel program's message completion hook uses -1 for failure,0 for
+waiting and1 for completion. Negative results fault the script and cannot
+run its later battery callback; the sanitizer-backed program test covers
+that failure path as well as missing camera bindings and callback timing.

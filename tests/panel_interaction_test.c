@@ -61,7 +61,7 @@ int main(void)
     assert(menu.phase==EM_PANEL_MENU_BROWSE && charge==12 && !panel.charged);
     em_panel_battery_begin(&menu,charge);
     assert(em_panel_battery_step(&panel,&menu,0xa000,&charge)==EM_PANEL_MENU_CURSOR);
-    assert(!menu.no_selected); /* Up takes precedence over Down */
+    assert(!menu.no_selected); /* Left takes precedence over Right */
     assert(em_panel_battery_step(&panel,&menu,0x40,&charge)==EM_PANEL_MENU_ACCEPT);
     assert(menu.phase==EM_PANEL_MENU_DISCHARGE && charge==12);
     assert(em_panel_battery_step(&panel,&menu,0,&charge)==EM_PANEL_MENU_UNIT_SOUND);

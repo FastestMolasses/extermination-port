@@ -82,6 +82,7 @@
  * em_gfx_overlay_arc4 annular-arc primitive — the translation of the
  * engine's 0x60-block arc func_002082B0). */
 #include "game/em_hud.h"
+#include "game/em_random.h"
 
 /* Menu cues — the status screen was entirely silent. */
 #include "game/em_sfx.h"
@@ -606,6 +607,11 @@ static int ui_ensure(EmGfx *gfx)
     return slot_ensure(gfx, SLOT_HUB) != NULL;
 }
 
+void em_hud_decor_invalidate(void)
+{
+    s_slot_owner = SLOT_NONE;
+}
+
 /* --- animated UI background (engine func_0020A7A0) --------------------
  *
  * Decoded draw chain (FINDINGS.md "STATUS SCREEN BACKGROUND"): every
@@ -651,12 +657,10 @@ static BgLayer s_bgl[3] = {
     { 0.0f, 0.0f,  0.0f, 0 },
 };
 
-/* Deterministic stand-in for the engine's rand() in the pulse re-seed. */
+/* Original shared SDK RNG; page transitions do not create a second stream. */
 static uint32_t bg_rand(void)
 {
-    static uint32_t s = 0x2655A0u;   /* fixed seed: reproducible runs */
-    s = s * 1103515245u + 12345u;
-    return s >> 16;
+    return em_random_next();
 }
 
 /* Find the active sheet's BACKDROP record (x == -32767), or NULL. */
@@ -758,6 +762,19 @@ static int background_render(EmGfx *gfx, const UiSheet *ui)
     return 1;
 }
 
+void em_hud_background_sprite(EmGfx *gfx, float u, float v,
+                              float width, float height)
+{
+    UiSprite sprite={.u=(uint16_t)u,.v=(uint16_t)v,
+        .w=(uint16_t)width,.h=(uint16_t)height,
+        .x=BACKDROP_XY,.y=BACKDROP_XY,.dw=256,.dh=128};
+    UiSheet sheet={.state=1,.sprites=&sprite,.sprite_count=1};
+    int old_scene=s_scene3d;
+    s_scene3d=0; /* This page has no UI-camera character model. */
+    background_render(gfx,&sheet);
+    s_scene3d=old_scene;
+}
+
 /* Style table — font face + glyph cell + engine style color (8-byte
  * records 0x265510..; GS 0x80 = full intensity). The 12 px label and
  * 12x16 number cells are the status screen's func_001CBA50 parameters
@@ -806,8 +823,8 @@ static const FontGlyph *font_glyph(int face, unsigned char c)
     return &s_font.glyphs[s_font.face[face].first + idx];
 }
 
-void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
-                 EmHudTextStyle style)
+static void hud_text_color(EmGfx *gfx, float x, float y, const char *str,
+                            EmHudTextStyle style, const float rgba[4])
 {
     if (!str || !font_ensure(gfx)) return;
     int   face   = kTextStyles[style].face;
@@ -827,7 +844,7 @@ void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
                 em_gfx_overlay_glyph(gfx, x, y, adv, cell_h,
                                      g->u, g->v,
                                      g->u + adv, g->v + g->h,
-                                     kTextStyles[style].rgba);
+                                     rgba);
             x += adv;
         } else {
             /* small: full 16x16 texel cell GS-scaled to the style cell;
@@ -836,10 +853,24 @@ void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
                 em_gfx_overlay_glyph(gfx, x, y, cell_w, cell_h,
                                      g->u, g->v,
                                      g->u + g->w, g->v + g->h,
-                                     kTextStyles[style].rgba);
+                                     rgba);
             x += cell_w;
         }
     }
+}
+
+void em_hud_text(EmGfx *gfx, float x, float y, const char *str,
+                 EmHudTextStyle style)
+{
+    hud_text_color(gfx,x,y,str,style,kTextStyles[style].rgba);
+}
+
+void em_hud_text_color(EmGfx *gfx, float x, float y, const char *str,
+                        EmHudTextStyle style, uint32_t rgb)
+{
+    const float rgba[4]={(rgb&255)/128.0f,((rgb>>8)&255)/128.0f,
+                         ((rgb>>16)&255)/128.0f,1.0f};
+    hud_text_color(gfx,x,y,str,style,rgba);
 }
 
 
