@@ -87,6 +87,7 @@ void em_gfx_draw_skinned(EmGfx *gfx,EmGfxMesh *mesh,const float *vp,
 }
 static void start(const char *scene) {
     memset(&g,0,sizeof g);memset(&input,0,sizeof input);
+    g.opencam_on=1;g.opencam_idle=100;
     quit=subtitles=look_up=rumble=commits=0;
     snprintf(g.scene_dir,sizeof g.scene_dir,"%s",scene);
     em_transition_fade_init(&fade);em_transition_fade_full(&fade,0);
@@ -130,6 +131,7 @@ static void run(int skip,int shutdown_after) {
     assert(g.have_battery==1 && g.opening_key_item_zero==1);
     assert(g.pos[0]==250.8000030517578f && g.pos[1]==229.89999389648438f && g.pos[2]==209);
     assert(g.yaw==0.6108652949333191f);
+    assert(!g.opencam_on && !g.opencam_idle);
     assert(g.cam.eye[0]==268.20001220703125f && g.cam.eye[1]==258.5f && g.cam.eye[2]==182.8000030517578f);
     assert(g.cam.tgt[0]==250.8000030517578f && g.cam.tgt[1]==242.3000030517578f && g.cam.tgt[2]==209);
     assert(!em_opening_runtime_actors_active() && !em_opening_runtime_failed());

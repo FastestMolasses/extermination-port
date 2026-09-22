@@ -222,6 +222,11 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
         }
         if (sub==0 && em_script_f32(record,0x0C)==0.0f) {
             if (script->phase==0) {
+                /* 001B8FC0 owns the final camera placement. The legacy
+                 * scene-manifest seat must not replace this script record
+                 * on the following ordinary camera update. */
+                g.opencam_on=0;
+                g.opencam_idle=0;
                 record_vector(g.cam.eye,record,0x20);
                 record_vector(g.cam.tgt,record,0x30);
                 memcpy(g.cam.eye_des,g.cam.eye,sizeof g.cam.eye);
