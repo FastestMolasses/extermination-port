@@ -58,3 +58,19 @@ before owner completion, and missing/failed binding paths. A negative host
 script result cannot masquerade as completion or toggle the elevator.
 The live legacy examine/elevator path is still unbound to this adapter;
 these tests do not establish end-to-end elevator fidelity.
+
+`tools/export_elevator_clip.py` replaces only the existing clip47 palettes
+with the original stateful channel sampler and unnormalized quaternion blend.
+It validates the complete animation bank and skeleton against a new original
+EE capture, then checks all21 world bone matrices at source frame39. Maximum
+matrix error is0.0000610352, versus0.00436401 for the old baked clip. All200
+sampled frames have zero root-channel translation; actor+A0 stays the world
+origin. The reference actor+3C value161 is remaining time, not source frame161.
+The exporter preserves all56 other clips, mesh, textures, tables and file size;
+a second run changes no bytes. Native transition blending remains separate.
+
+The isolated original fixture starts from the saved post-panel state06 and
+writes only arm bit4 to the actual elevator owner at7AA880. It does not seed
+player, camera or animation state. New slot11 captures the resulting clip47;
+the starting archive remains unchanged. Local capture/report files live under
+decomp `build/startup-reference/elevator/` and port `build/elevator_clip_export/`.
