@@ -14,8 +14,14 @@
 
 void camera_update(void);
 void camera_solve(EmCamera *cam);
+/* Original0018C0D0(cam,1), including the status phase5 commit. The forward
+ * offset is+4 except mode0xA uses-1; top_mode3 does not bypass this branch. */
 void camera_commit(EmCamera *cam);
-/* Authored cinematic camera mode 3 has no forward displacement. */
+/* Explicit original argument. With argument0, top_mode3 uses the authored
+ * eye; other top modes push+4 only when mode is1/2, otherwise use the eye.
+ * This only commits the view; it does not advance the recovery countdown. */
+void camera_commit_original(EmCamera *cam, int argument);
+/* Original0018C0D0(cam,0), used by the opening's top_mode3 camera. */
 void camera_commit_cinematic(EmCamera *cam);
 void camera_desired_eye(EmCamera *cam);
 void camera_entry_seat(EmCamera *cam);

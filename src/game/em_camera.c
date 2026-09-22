@@ -2175,7 +2175,20 @@ static void camera_commit_view(EmCamera *cam, float near_push)
 
 void camera_commit(EmCamera *cam)
 {
-    camera_commit_view(cam, CAM_NEAR_PUSH);
+    camera_commit_original(cam, 1);
+}
+
+void camera_commit_original(EmCamera *cam, int argument)
+{
+    float near_push;
+    if (argument) {
+        near_push = cam->mode == 0xA ? -1.0f : CAM_NEAR_PUSH;
+    } else if (cam->top_mode == 3) {
+        near_push = 0.0f;
+    } else {
+        near_push = cam->mode == 1 || cam->mode == 2 ? CAM_NEAR_PUSH : 0.0f;
+    }
+    camera_commit_view(cam, near_push);
 }
 
 void camera_commit_cinematic(EmCamera *cam)
@@ -2183,7 +2196,7 @@ void camera_commit_cinematic(EmCamera *cam)
     /* Original 0018C0D0(cam,0), cam+4==3: copy the authored eye.
      * The opening RAM view matrix confirms zero displacement. Applying
      * the ordinary gameplay push here visibly enlarges close-up shots. */
-    camera_commit_view(cam, 0.0f);
+    camera_commit_original(cam, 0);
 }
 
 /* DOOR-TRANSIT CINEMATIC CAMERA. The CUT GEOMETRY is source-derived

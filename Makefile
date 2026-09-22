@@ -21,6 +21,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_sfx.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
+           src/game/em_interaction_alignment.c src/game/em_interaction_projection.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
@@ -227,8 +228,20 @@ test-camera-interaction-fixture:
 	python3 tools/test_camera_interaction_fixture.py
 
 .PHONY: test-camera-rotation-reference
+.PHONY: test-camera-commit-reference test-interaction-recovery-reference
+test-camera-commit-reference:
+	python3 tools/test_camera_commit_reference.py
+
+test-interaction-recovery-reference:
+	python3 tools/test_interaction_recovery_reference.py
+
 test-camera-rotation-reference:
 	python3 tools/test_camera_rotation_reference.py
+
+.PHONY: test-interaction-geometry-reference
+test-interaction-geometry-reference:
+	python3 tools/test_interaction_alignment_reference.py
+	python3 tools/test_interaction_projection_reference.py
 
 test-interaction-frame-reference:
 	python3 tools/test_interaction_frame_reference.py
