@@ -36,6 +36,7 @@
 #include <string.h>
 
 #include "game/em_bgm.h"
+#include "game/em_sfx_bank.h"
 
 #define SFX_REGISTRY   "assets/sfx/sfx.txt"
 #define SFX_SOUND_MAX  96    /* registry entries (39 banks dedup to ~241
@@ -75,6 +76,7 @@ enum { V_FREE = 0, V_STAGING, V_READY, V_PLAYING };
 typedef struct {
     unsigned id;
     EmBgmWav w;          /* preloaded PCM16 (em_bgm's shared reader) */
+    const EmSfxCue *cue; /* scoped original A0 parameters, or NULL */
 } SfxSound;
 
 typedef struct {
@@ -88,6 +90,7 @@ typedef struct {
                              * GAME-thread only: steal victim pick    */
     double          pos;  /* source frame cursor (fractional resample);
                            * audio thread advances it while PLAYING   */
+    uint64_t        output_frame; /* exact rational cursor for EMSF */
 } SfxVoice;
 
 static struct {
@@ -98,6 +101,10 @@ static struct {
     int      drops;          /* plays dropped: 64 physical slots busy */
     int      steals;         /* oldest-voice kills at the 48 budget   */
     int      culls;          /* play_at beyond radius (engine -1)     */
+    int      absent;         /* original remap FF: deliberately silent */
+    EmSfxBank bank;
+    SfxSound bank_sounds[2]; /* PCM is owned by bank, never freed here */
+    int      bank_selected;
     unsigned serial;         /* monotonically increasing play counter
                               * (the engine's D_0027F740+0x34)        */
     /* listener mirror (em_sfx_listener; game thread) */
@@ -144,6 +151,28 @@ void em_sfx_mix(float *out, int frames, int device_rate)
         }
 
         const SfxSound *snd  = v->snd;
+        if (snd->cue) {
+            /* Original A0 pitch and voice gains bypass the legacy WAV
+             * headroom multiplier. Only this scoped non-positional cue
+             * has a verified end-to-end driver mapping. */
+            float pair[2];
+            long mixed = 0;
+            live++;
+            for (int i = 0; i < frames; ++i) {
+                if (!em_sfx_cue_frame(snd->cue, v->output_frame,
+                                      (unsigned)device_rate, pair)) break;
+                out[2*i] += pair[0] * v->gl;
+                out[2*i+1] += pair[1] * v->gr;
+                ++v->output_frame;
+                ++mixed;
+            }
+            if (mixed) atomic_fetch_add_explicit(&s.frames_mixed, mixed,
+                                                 memory_order_relaxed);
+            if (!em_sfx_cue_frame(snd->cue, v->output_frame,
+                                  (unsigned)device_rate, pair))
+                atomic_store_explicit(&v->state, V_FREE, memory_order_release);
+            continue;
+        }
         const double    step = (double)snd->w.rate / (double)device_rate;
         double          pos  = v->pos;
         const long      last = snd->w.nframes - 1;
@@ -205,10 +234,9 @@ void em_sfx_mix(float *out, int frames, int device_rate)
 int em_sfx_init(void)
 {
     FILE *f = fopen(SFX_REGISTRY, "r");
-    if (!f) return 0;   /* no registry = module disabled, silently */
 
     char line[640];
-    while (fgets(line, sizeof line, f)) {
+    while (f && fgets(line, sizeof line, f)) {
         unsigned id;
         char     path[512];
         char    *p = line;
@@ -229,12 +257,29 @@ int em_sfx_init(void)
         snd->id = id;
         s.n_sounds++;
     }
-    fclose(f);
+    if (f) fclose(f);
+
+    if (em_sfx_bank_load(&s.bank, "assets/sfx/area11/panel_sfx.emsf")) {
+        for (unsigned i = 0; i < s.bank.count; ++i) {
+            s.bank_sounds[i].id = s.bank.cues[i].id;
+            s.bank_sounds[i].cue = &s.bank.cues[i];
+        }
+        printf("sfx: original AREA11 panel bank ready (one cue, one absent remap)\n");
+    }
 
     if (s.n_sounds)
         printf("sfx: %d sound(s) preloaded from %s\n", s.n_sounds,
                SFX_REGISTRY);
-    return s.n_sounds;
+    return s.n_sounds + (s.bank.count ? 1 : 0);
+}
+
+int em_sfx_set_area(int area, int sub)
+{
+    s.bank_selected = 0;
+    if (area != 11 || sub != 0) return 1;
+    if (s.bank.count != 2) return 0;
+    s.bank_selected = 1;
+    return 1;
 }
 
 void em_sfx_listener(const float player_pos[3], const float cam_eye[3],
@@ -371,12 +416,17 @@ static void sfx_submit(const SfxSound *snd, float gl, float gr)
     v->gr     = gr;
     v->serial = s.serial++;
     v->pos    = 0.0;
+    v->output_frame = 0;
     atomic_store_explicit(&v->state, V_READY, memory_order_release);
     s.plays++;
 }
 
 static const SfxSound *sfx_lookup(unsigned id)
 {
+    if (s.bank_selected) {
+        for (unsigned i = 0; i < s.bank.count; ++i)
+            if (s.bank_sounds[i].id == id) return &s.bank_sounds[i];
+    }
     for (int i = 0; i < s.n_sounds; i++)
         if (s.sounds[i].id == id) return &s.sounds[i];
     return NULL;
@@ -384,9 +434,12 @@ static const SfxSound *sfx_lookup(unsigned id)
 
 void em_sfx_play(unsigned id)
 {
-    if (!s.n_sounds) return;            /* module disabled */
     const SfxSound *snd = sfx_lookup(id);
     if (!snd) return;                   /* unmapped id: silent no-op */
+    if (snd->cue && (snd->cue->flags & EM_SFX_CUE_ABSENT)) {
+        ++s.absent;
+        return;
+    }
     /* center/full — func_001FB9F0(id, 0x1000, 0x1000, 0x1000), also the
      * exact play_sound result for a player-attached source */
     sfx_submit(snd, 1.0f, 1.0f);
@@ -394,9 +447,13 @@ void em_sfx_play(unsigned id)
 
 void em_sfx_play_at(unsigned id, const float pos[3], float radius)
 {
-    if (!s.n_sounds || !pos) return;
+    if (!pos) return;
     const SfxSound *snd = sfx_lookup(id);
     if (!snd) return;
+    if (snd->cue && (snd->cue->flags & EM_SFX_CUE_ABSENT)) {
+        ++s.absent;
+        return;
+    }
     float gl, gr;
     if (!em_sfx_compute_gains(pos, radius, &gl, &gr)) {
         s.culls++;                      /* engine play_sound -1 */
@@ -455,6 +512,7 @@ void em_sfx_shutdown(void)
                                     memory_order_relaxed));
     for (int i = 0; i < s.n_sounds; i++)
         free(s.sounds[i].w.pcm);
+    em_sfx_bank_free(&s.bank);
     memset(&s, 0, sizeof s);
 }
 
@@ -465,6 +523,14 @@ int  em_sfx_plays(void)       { return s.plays; }
 int  em_sfx_drops(void)       { return s.drops; }
 int  em_sfx_steals(void)      { return s.steals; }
 int  em_sfx_culls(void)       { return s.culls; }
+int  em_sfx_absent_cues(void) { return s.absent; }
+
+int em_sfx_cue_state(unsigned id)
+{
+    const SfxSound *sound = sfx_lookup(id);
+    if (!sound) return 0;
+    return sound->cue && (sound->cue->flags & EM_SFX_CUE_ABSENT) ? 2 : 1;
+}
 
 long em_sfx_frames_mixed(void)
 {

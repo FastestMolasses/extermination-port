@@ -13,22 +13,17 @@
  *   - Natively the bank's id -> sample resolution is a small text registry,
  *     assets/sfx/sfx.txt: one "<id-hex> <wav-path>" line per sound (the
  *     WAVs are the user's own local audio_export.py decodes; '#' starts a
- *     comment). NO registry file = the whole module is a silent no-op —
- *     byte-for-byte the pre-SFX behavior. An id that is not listed (or
- *     whose WAV failed to load) is likewise a silent no-op per play.
- *   - Per-sound playback rate: PINNED — the "NOT decoded yet" note that
- *     used to sit here was STALE (audit 2026-07-31). FINDINGS.md "SShd
- *     bank format — SOLVED via the loader/trigger decomp" pins the tone
- *     record (+0x2 u8 center note, +0x3 s8 fine) and the exact trigger
- *     rate 44100 * 2^((310 - 192 + 16*(note - center) + fine) / 192) Hz
- *     (func_00115E50 -> func_00117918's 2^(x/192) ladder, rescaled
- *     x 0xAC44/0xBB80 = 44100/48000). tools/audio_export.py already BAKES
- *     that per-tone rate into each exported WAV header, so playing every
- *     WAV at its own stored rate — resampled to the device rate in the
- *     mixer — IS the engine-correct result, not a fallback, and the
- *     registry needs no pitch column. NOT modeled: the runtime
- *     LFO/portamento updater func_00116598, which keeps re-writing the
- *     SPU2 pitch register after key-on.
+ *     comment). Unavailable legacy entries are silent. The independent
+ *     scoped EMSF bank can load even when this registry is absent.
+ *   - Legacy WAV rates are exporter estimates, not hardware proof. The
+ *     AREA11 panel audit found both a wrong ladder anchor and a wrong bend
+ *     assumption in the old exporter; do not apply its formula to A0 cues.
+ *   - The scoped EMSF bank separately preserves the original AREA11 A0
+ *     pitch, Q14 gains, ADSR and absent remap. Call em_sfx_set_area only
+ *     after the host has bound that area. Its source cursor is rational;
+ *     linear sample interpolation, global voice allocation, command timing,
+ *     reverb and final BGM/master mix remain native boundaries. See
+ *     docs/AREA11_PANEL_SFX.md for original-word tests and exact scope.
  *
  * POSITIONAL AUDIO — the engine's play_sound and its 3-D volume/pan
  * solver. Re-verified 2026-07-31 against the BYTE-MATCHED decomp
@@ -309,12 +304,21 @@ extern "C" {
 #define EM_SFX_DOOR_CLOSE   0xF001u /* LEGACY fallback — the engine's open
                                      * script has NO close sound record   */
 
-/* Load the id -> WAV registry (assets/sfx/sfx.txt) and preload every
- * listed PCM16 WAV. Missing registry = SFX disabled (silent no-ops
- * everywhere, zero behavior change); a bad line/WAV skips that entry with
- * a stderr note. Returns the number of sounds loaded. Game thread, once,
- * at boot. */
+/* Load legacy WAVs and the independent AREA11 EMSF bank. A bad legacy
+ * entry is skipped; an invalid EMSF bank is unavailable as a whole.
+ * Returns the number of audible assets loaded. Game thread, once at boot. */
 int em_sfx_init(void);
+
+/* Select the original area remap after loading its host. (11,0) requires
+ * the complete audited bank and returns zero if it is unavailable. All
+ * other pairs clear selection and return one; use (-1,-1) on teardown.
+ * Already-playing voices retain immutable bank data through completion. */
+int em_sfx_set_area(int area, int sub);
+
+/* Current scope: 0 unavailable, 1 audible asset loaded, 2 intentional
+ * original FF remap (accepted as silence, does not allocate a voice). */
+int em_sfx_cue_state(unsigned id);
+int em_sfx_absent_cues(void);
 
 /* Fire one one-shot voice for the engine sound id at CENTER/FULL — the
  * engine's non-positional submit form AND the exact play_sound result for
