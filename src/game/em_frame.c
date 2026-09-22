@@ -107,6 +107,11 @@ void em_frame_fade_full(uint8_t colour)
     em_transition_fade_full(&s_frame.transition, colour);
 }
 
+void em_frame_fade_flash(int speed)
+{
+    em_transition_fade_flash(&s_frame.transition, (int16_t)speed);
+}
+
 const EmTransitionFade *em_frame_transition(void) { return &s_frame.transition; }
 float em_frame_fade_level(void) { return s_frame.transition.level / 255.0f; }
 int em_frame_fade_active(void)

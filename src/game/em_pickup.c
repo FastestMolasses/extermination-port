@@ -830,6 +830,14 @@ void em_pickup_battery_set_charge(int half_units)
     g.battery_charge = (int16_t)half_units;
 }
 
+int em_pickup_battery_set_capacity_charge(uint16_t charge, uint8_t capacity)
+{
+    if (charge > capacity) return 0;
+    g.battery_charge = (int16_t)charge;
+    g.battery_capacity = capacity;
+    return 1;
+}
+
 int em_pickup_ammo_take(void)
 {
     int n = g.ammo_pending;

@@ -101,6 +101,9 @@ uint8_t        em_pickup_mag_packs(void);
 int  em_pickup_battery_charge(void);
 int  em_pickup_battery_capacity(void);
 void em_pickup_battery_set_charge(int half_units);
+/* Original149F0 pickup notice writes these two inventory fields together;
+ * it does not consume an item or change the item-count array. */
+int em_pickup_battery_set_capacity_charge(uint16_t charge, uint8_t capacity);
 
 /* One-shot event takes (consumed by em_game's pickup hunk):
  *  - ammo: reserve rounds to add (func_001C40B0 case 0x10's 30/pack);

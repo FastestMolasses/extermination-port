@@ -81,6 +81,8 @@ void em_frame_fade_start(int dir, int speed); /* black convenience */
 void em_frame_fade_start_colour(int dir, int speed, uint8_t colour);
 void em_frame_fade_clear(uint8_t colour);
 void em_frame_fade_full(uint8_t colour);
+/* Original001AEE40 state4 flash, followed by its own fade lifecycle. */
+void em_frame_fade_flash(int speed);
 const EmTransitionFade *em_frame_transition(void);
 float em_frame_fade_level(void);
 int em_frame_fade_active(void); /* substate 1 or 3 */
