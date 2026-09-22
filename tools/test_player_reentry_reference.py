@@ -24,6 +24,7 @@ class Reentry(C.Structure):
 class Original:
     def __init__(self,elf,gait,family,frames):
         self.elf=elf;self.mem={};self.r=[0]*32;self.f=[0]*32;self.calls=[]
+        self.condition=False;self.hooks={}
         self.r[4]=ACTOR;self.r[5]=1;self.r[29]=0x70001000;self.r[31]=RETURN
         self.frames=frames;self.clip=100+family*4+gait-1
         self.put(ACTOR+0x23f,gait,1);self.put(ACTOR+0x235,family,1)
@@ -62,23 +63,35 @@ class Original:
             fd,fn=w>>6&31,w&63
             if rs==4:f[rd]=r[rt]
             elif rs==20 and fn==32:f[fd]=bits(float(signed(f[rd])))
-            elif rs==16 and fn==1:f[fd]=bits(number(f[rd])-number(f[rt]))
+            elif rs==16:
+                x,y=number(f[rd]),number(f[rt])
+                if fn in (0,1,2,3):
+                    value=x+y if fn==0 else x-y if fn==1 else x*y if fn==2 else x/y
+                    rounded=number(bits(value))
+                    f[fd]=bits(rounded)-(1 if abs(rounded)>abs(value) else 0)
+                elif fn==6:f[fd]=f[rd]
+                elif fn==50:self.condition=x==y
+                elif fn==52:self.condition=x<y
+                elif fn==54:self.condition=x<=y
+                else:raise AssertionError(('FPU.S',fn))
             else:raise AssertionError(('FPU',rs,fn))
         else:raise AssertionError(('opcode',op,hex(w)))
         r[0]=0
     def run(self,pc):
         for _ in range(180):
             if pc==RETURN:return
-            assert 0x17c440<=pc<0x17c5c0,hex(pc)
+            assert 0x17c440<=pc<0x17c5c0 or 0x178b90<=pc<0x178ec0,hex(pc)
             w=self.get(pc);op,rs,rt=w>>26,w>>21&31,w>>16&31
             im=w&65535;im=im if im<32768 else im-65536
             branch=None
             if op in (4,5):branch=pc+4+im*4 if (self.r[rs]==self.r[rt])==(op==4) else pc+8
+            elif op==17 and rs==8:branch=pc+4+im*4 if self.condition==bool(rt&1) else pc+8
             elif op==0 and w&63==8:branch=self.r[rs]
             elif op==3:
                 callee=(w&0x3ffffff)<<2;self.r[31]=pc+8;self.plain(self.get(pc+4))
                 args=self.r[4:8];self.calls.append((callee,args[:],[number(self.f[12]),number(self.f[13])]))
-                if callee==0x178b90:
+                if callee in self.hooks:self.hooks[callee](self)
+                elif callee==0x178b90:
                     assert args[:2]==[ACTOR,1]
                 elif callee==0x17b490:
                     assert args==[ACTOR,1,self.get(ACTOR+0x235,1),self.get(ACTOR+0x25c,1)]
@@ -130,4 +143,48 @@ def check_reentry(elf,native,Motor):
             if tick<4:native.em_player_reentry_tick(C.byref(r),C.byref(m))
         old=rows[first-1]['base'];new=rows[first]['base']
         assert abs(math.hypot(new[0]-old[0],new[2]-old[2])-.6)<.0001
+    check_translation_order(elf)
     print('player reentry original-instruction PASS',checks,'request/handoff cases; live interruption matched' if live.exists() else 'request/handoff cases')
+
+
+def check_translation_order(elf):
+    """Execute the original short-step path with a synthetic radial barrier.
+
+    This isolates argument1's intermediate probe and argument0's deferred probe.
+    SDK sin/cos are host hooks; this is call-order evidence, not a trig oracle.
+    """
+    checks=0
+    for speed in (.1,.3,.8,-.3):
+        for probe_inside in (0,1):
+            original=Original(elf,3,0,45)
+            original.r[5]=probe_inside
+            original.put(ACTOR+0x38,bits(speed));original.put(ACTOR+0xc4,bits(0))
+            events=[]
+            def probe(o):
+                z=number(o.get(ACTOR+0xb8));events.append(z)
+                o.put(ACTOR+0xb8,bits(min(z,.2)))
+            original.hooks={
+                0x11df78:lambda o:o.f.__setitem__(0,bits(abs(number(o.f[12])))),
+                0x11e2a8:lambda o:o.f.__setitem__(0,bits(math.sin(number(o.f[12])))),
+                0x11de90:lambda o:o.f.__setitem__(0,bits(math.cos(number(o.f[12])))),
+                0x1764e0:probe,
+            }
+            original.run(0x178b90)
+            assert len(events)==probe_inside
+            expected=min(number(bits(speed)),number(bits(.2))) if probe_inside else number(bits(speed))
+            assert number(original.get(ACTOR+0xb8))==expected
+            checks+=1
+    # One re-entry request: first step probes at0.3 and is pushed to0.2;
+    # the deferred-probe second step reaches0.5 before the ordinary pass.
+    original=Original(elf,3,0,45);original.put(ACTOR+0x38,bits(.3))
+    events=[]
+    def probe(o):
+        z=number(o.get(ACTOR+0xb8));events.append(z);o.put(ACTOR+0xb8,bits(min(z,.2)))
+    original.hooks={0x11df78:lambda o:o.f.__setitem__(0,bits(abs(number(o.f[12])))),
+                    0x11e2a8:lambda o:o.f.__setitem__(0,bits(0)),
+                    0x11de90:lambda o:o.f.__setitem__(0,bits(1)),0x1764e0:probe}
+    original.run(0x178b90)
+    original.r[4]=ACTOR;original.r[5]=0;original.r[31]=RETURN
+    original.run(0x178b90);probe(original)
+    assert events==[number(bits(.3)),.5],events
+    print('original translation-order PASS',checks+1,'short-step and blocked re-entry cases')

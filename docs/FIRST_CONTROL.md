@@ -115,7 +115,12 @@ player phase0x63 and calls 0017C440(player,1). C440 selects tier `gait-1`, reads
 its speed from D00248870, translates once, resolves the normal locomotion clip,
 and requests a four-tick blend at `clipLength-18` for tier2 or `clipLength-46`
 otherwise. The enclosing 001612D0 walk callback then calls 00178B90(player,0),
-producing a second translation before the single ordinary wall/floor service.
+producing a second translation. Argument1 performs radial probes immediately
+after its translation; argument0 skips that internal pass. The enclosing walk
+callback then performs its ordinary radial probes and floor service. Thus the
+two translations have a radial pass between them, followed by another radial
+pass and the floor service. The initial native re-entry commit omitted that
+intermediate pass; its follow-up restores it from the original branch/call.
 
 The original request frame therefore moves0.599975 at speed0.3 and selects jog
 clip2, source27. The next four callbacks move0.3 while waiting for the animation
@@ -136,5 +141,6 @@ fixture through this interruption and checks the first eight callbacks.
 The full native GPU regression passed: request displacement0.6000003, four
 subsequent0.3 movements at source27, scalar re-arm, then0.3625/0.425. Original
 collision corrections reduce later motion near the railing, so these matching
-scalar values do not establish identical collision response. Local native
+scalar values and the first six clear movements do not establish identical
+collision ordering or response. Local native
 evidence: `build/opening_control/reentry_run.log` and `reentry.png`.

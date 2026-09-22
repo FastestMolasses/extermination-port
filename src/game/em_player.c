@@ -813,11 +813,13 @@ locomotion_translate:
     g.move_speed = g.loco_upt * 60.0f;
     float vx = sinf(g.yaw), vz = cosf(g.yaw);
 
-    /* The two original re-entry translations precede the single ordinary
-     * wall/floor service. Keep separate float additions for the first step. */
+    /* 00178B90's argument1 runs radial probes immediately after the first
+     * translation. The outer argument0 translation then reaches the ordinary
+     * radial/floor service. Keep both additions and this intermediate pass. */
     if (translation_steps == 2) {
         g.pos[0] += vx * g.move_speed * FRAME_DT;
         g.pos[2] += vz * g.move_speed * FRAME_DT;
+        player_wall_probes();
     }
 
     if (g.coll.poly_count) {
