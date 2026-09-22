@@ -14,7 +14,7 @@
  *     archetype 3, desc D_002758E0 {20,10}, script prime/pump
  *     func_001BA1A0/func_001BA1F0, re-arm on completion), AREA11
  *     0x827B10 (the switch refusal — D_00810841 unlock-bit gate,
- *     300-frame cooldown), AREA06 0x824340, AREA07 0x823DA0.
+ *     sound-delay counter), AREA06 0x824340, AREA07 0x823DA0.
  *   - the script shape: 0x40-byte records, op07 sub2 enter / op00
  *     camera cue / op02 wait / op0C message (line word + pre-delay) /
  *     op0D sub5 chase cue / op07 sub4|STOP exit.
@@ -67,7 +67,7 @@ typedef struct {
     float dist, dy;                     /* use-scan desc */
     int   gline;                        /* GLOBAL bank line, -1 = chain */
     int   delay;                        /* op0C pre-delay frames */
-    int   cooldown;                     /* re-arm cooldown (AREA11 +0x2A) */
+    int   cooldown;                     /* optional legacy manifest delay */
     int   has_cam;
     float cam[3];                       /* op00 camera-cue eye */
     int   has_face;                     /* op04 FACE pre-roll present:
@@ -329,8 +329,8 @@ static void seq_start(int slot)
                    "(anim 0x47 + lock, elevator descending)\n", slot);
             return;
         }
-        /* Unpowered -> fall through to the EXISTING unpowered refusal
-         * (the manifest's gline 0x1A + 300-frame cooldown), unchanged. */
+        /* The legacy message adapter presents original global line1A.
+         * Original owner+2A is a sound counter, not a refusal cooldown. */
         printf("examine: slot %d — INTERNAL TERMINAL UNPOWERED refusal "
                "(no power)\n", slot);
     }
@@ -392,10 +392,8 @@ static void seq_start(int slot)
 static void seq_finish(void)
 {
     Examine *e = &s.e[s.seq.slot];
-    /* The 300-frame cooldown belongs to the UNPOWERED refusal only
-     * (engine: the refusal path sets +0x2A = 0x12C; the powered script
-     * sets +0x2A = 0 — INVESTIGATION_area11_elevator.md §3). The
-     * powered/already-powered runs (no_message) do not arm it. */
+    /* Optional legacy manifest delay. AREA11's owner+2A is a sound
+     * counter and must not be exported as a cooldown here. */
     e->cool_left = s.seq.no_message ? 0 : e->cooldown;
     printf("examine: slot %d done (re-arm%s)\n", s.seq.slot,
            e->cool_left ? " after cooldown" : "ed");
@@ -405,8 +403,7 @@ static void seq_finish(void)
 void em_examine_update(const float player_pos[3], float player_yaw,
                        const EmFrameInput *in, int scan)
 {
-    /* cooldowns tick regardless (the engine's +0x2A countdown runs in
-     * the behavior's per-frame sub-state) */
+    /* Legacy per-object re-arm delays, where explicitly requested. */
     for (int i = 0; i < s.n; i++)
         if (s.e[i].cool_left > 0) s.e[i].cool_left--;
 

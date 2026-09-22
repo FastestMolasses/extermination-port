@@ -187,6 +187,10 @@ test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_p
 test-panel-reference:
 	python3 tools/test_panel_reference.py
 
+.PHONY: test-elevator-reference
+test-elevator-reference:
+	python3 tools/test_elevator_reference.py
+
 test-panel-interaction: tests/panel_interaction_test.c src/game/em_panel.c src/game/em_panel.h
 	@mkdir -p build
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/panel_interaction_test.c src/game/em_panel.c -lm -o build/panel_interaction_test
