@@ -1,0 +1,70 @@
+/* Persistent original panel BATTERY/ITEM status adapter.
+ * Unimplemented hub/child pages remain explicit workers, never cancellation. */
+#ifndef EM_STATUS_RUNTIME_H
+#define EM_STATUS_RUNTIME_H
+
+#include "em_gfx.h"
+#include "game/em_item_trail.h"
+#include "game/em_panel.h"
+#include "game/em_status_frame.h"
+#include "game/em_status_page.h"
+
+typedef struct EmStatusRuntime EmStatusRuntime;
+
+typedef struct {
+    uint8_t battery_count[3]; /* original item1B/1C/1D */
+    uint16_t charge;
+    uint8_t capacity, status, primary, secondary; /*810CB7/C60/CA4/CA6 */
+} EmStatusInventory;
+
+typedef struct {
+    uint16_t pressed, held;   /* original D810E74 and held-button word */
+    uint8_t stick_x, stick_y; /* original D810E64/E65 */
+    uint8_t audio_busy;       /* actual D282157 worker gate */
+} EmStatusInput;
+
+typedef struct {
+    void *context;
+    int (*read_inventory)(void *, EmStatusInventory *);
+    int (*write_charge)(void *, uint16_t charge);
+    /* These are the actual outer1AE040 and page CDC0/E0C0 world effects.
+     * Return1 only after accepting the operation. RESET_UI is also handled
+     * internally without clearing the original pending global request. */
+    int (*frame_event)(void *, EmStatusFrameEvent, const EmStatusFrame *);
+    int (*page_event)(void *, EmStatusPageEvent, unsigned argument);
+    int (*sound)(void *, uint32_t cue); /* original4096 on all volume axes */
+    /*−1 failure,0 not eligible,1 the original185420 resolves this owner. */
+    int (*owner_available)(void *, EmPanel *owner, unsigned item_id);
+    /* The original successful149F0 exit sets selector70003B8D=3 after the
+     * inventory/owner updates. This hook publishes that shared state. */
+    int (*battery_finished)(void *, EmPanel *owner);
+    /* Adapter owns its parsed modules1F/21. Other actual module reloads
+     * (e.g.32..35 on exit) require these workers: begin1 accepted;
+     * ready−1 failure,0 pending,1 complete. */
+    int (*module_begin)(void *, unsigned module);
+    int (*module_ready)(void *, unsigned module);
+    /* Required only when navigation reaches the broader status hub or
+     * another ITEM child. Missing workers fault and retain ownership. */
+    int (*other_page_tick)(void *, EmStatusPage *, const EmStatusInput *);
+    int (*other_page_render)(void *, EmGfx *, const EmStatusPage *);
+} EmStatusRuntimeHooks;
+
+EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,
+                                        const EmItemMath *, const EmStatusRuntimeHooks *);
+void em_status_runtime_free(EmStatusRuntime *); /* owner tears down the game first */
+/* Called by the original panel callback; queues globals without consuming
+ * the remainder of the current ordinary task callback. */
+int em_status_runtime_battery_open(EmStatusRuntime *, EmPanel *owner, uint8_t request);
+/* Call at the beginning of each ordinary outer frame. Return1 means the
+ * whole frame belongs to status, including the final phase5 release frame;
+ * return0 permits ordinary tasks,−1 is a retained-ownership fault. */
+int em_status_runtime_tick(EmStatusRuntime *, const EmStatusInput *);
+int em_status_runtime_ordinary_enabled(const EmStatusRuntime *);
+/* Submit the page selected by the preceding update once. Repeated calls in
+ * the same frame are no-ops, so neither glow nor shared background advances
+ * twice. No inventory/animation/script state is ticked here.1 success,−1 fault. */
+int em_status_runtime_render(EmStatusRuntime *, EmGfx *);
+const EmStatusFrame *em_status_runtime_frame(const EmStatusRuntime *);
+const EmStatusPage *em_status_runtime_page(const EmStatusRuntime *);
+
+#endif

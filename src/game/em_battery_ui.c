@@ -160,6 +160,34 @@ unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int 
     return em_panel_battery_step(ui->owner, &ui->menu, buttons, charge);
 }
 
+int em_battery_ui_begin_browse(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
+{
+    if (!em_battery_ui_begin(ui, owner, charge, kind))
+        return 0;
+    ui->menu.phase = ui->draw_phase = EM_PANEL_MENU_BROWSE;
+    return 1;
+}
+
+unsigned em_battery_ui_original_step(const EmBatteryUI *ui)
+{
+    if (!ui || !ui->active)
+        return 0;
+    if (ui->error_timer)
+        return 8;
+    switch (ui->menu.phase) {
+    case EM_PANEL_MENU_BROWSE:
+        return 1;
+    case EM_PANEL_MENU_CONFIRM:
+        return 4;
+    case EM_PANEL_MENU_INSUFFICIENT:
+        return 5;
+    case EM_PANEL_MENU_DISCHARGE:
+    case EM_PANEL_MENU_COMPLETE:
+        return 6;
+    }
+    return 0;
+}
+
 static void sprite(EmBatteryUI *ui, EmGfx *gfx, int id, float x, float y, float w, float h,
                    uint32_t rgba)
 {

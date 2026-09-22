@@ -17,6 +17,9 @@ void em_battery_ui_free(EmBatteryUI *ui);
 /* kind0/1/2 selects the highest available original battery item1B/1C/1D.
  * Returns0 for missing data/owner. Does not acquire the status dispatcher. */
 int em_battery_ui_begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind);
+/* Original149F0 state0 with no pending request falls through to browsing. */
+int em_battery_ui_begin_browse(EmBatteryUI *ui, EmPanel *owner, int charge, int kind);
+unsigned em_battery_ui_original_step(const EmBatteryUI *ui);
 /* buttons are original D810E74. Returns EM_PANEL_MENU_* sound/finish
  * events, NO_DEVICE_SOUND and BACK_TO_STATUS. owner_available is the
  * original00185420 lookup result when reselecting the battery row.

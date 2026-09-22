@@ -351,3 +351,19 @@ The readable1D66A0 source also had an incorrect context expression. Its
 cursor is at `*(D275670) + 0x10 + 4*slot`. Correcting the pointer and slot
 scaling improves the measured C similarity67.06% to68.56%. It remains
 assembly-backed and the full original-build verification gate passes.
+
+
+`em_status_runtime` now owns the persistent outer frame/page lifecycle,
+BATTERY page, ITEM page and cached trail submissions. It loads the actual
+exported artwork and text, accepts a panel request without consuming the
+rest of that ordinary callback, and consumes every later status frame,
+including the final phase5 release frame. Repeated rendering does not tick
+state or generate another trail sample.
+
+`make test-status-runtime` passes actual-asset ASan/UBSan cases for61 discharge
+callbacks, default No, Back to ITEM, battery re-selection, a50-callback wait
+for an actual module-ready signal, final-frame consumption, and retained
+faults when an inventory write or an unimplemented hub worker fails. The
+required world services and broader status pages remain explicit boundaries.
+Modules32..35 are actual DATA chunks50..53 and include audio-bank work;
+a timer or an unrelated texture's presence cannot stand in for their readiness.
