@@ -212,6 +212,10 @@ test-roger-assets: tests/roger_assets_test.c src/game/em_roger_assets.c
 	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/roger_assets_test.c src/game/em_roger_assets.c src/em_model.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_script.c -o build/roger_assets_test
 	build/roger_assets_test
 
+.PHONY: test-roger-cinematic-reference
+test-roger-cinematic-reference:
+	python3 tools/test_roger_cinematic_reference.py
+
 .PHONY: test-roger-runtime
 test-roger-runtime:
 	@mkdir -p build
