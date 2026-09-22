@@ -6,18 +6,18 @@ EmScriptCommandResult em_interaction_frame_command(EmInteractionFrame *state,
     EmInteractionFrameEmit emit, void *context)
 {
     if (!state || !script || !emit) return EM_SCRIPT_UNSUPPORTED;
-    if (subcommand==2) {
+    if (subcommand==2 || subcommand==13) {
         switch ((uint8_t)script->phase) {
         case 0:
             if (state->ready) return EM_SCRIPT_ADVANCE;
-            state->camera_top=1;
-            state->selector=2;
-            if (!emit(context,EM_INTERACTION_BARS_ENTER))
+            state->camera_top=subcommand==13 ? 2 : 1;
+            state->selector=subcommand==13 ? 1 : 2;
+            if (subcommand==2 && !emit(context,EM_INTERACTION_BARS_ENTER))
                 return EM_SCRIPT_UNSUPPORTED;
             script->phase=1;
             state->counter=0;
             script->skip_request=0;
-            memset(state->activity,0,sizeof state->activity);
+            if (subcommand==2) memset(state->activity,0,sizeof state->activity);
             state->auxiliary=0;
             break;
         case 1:

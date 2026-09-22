@@ -18,7 +18,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
-           src/game/em_sfx.c src/game/em_pickup.c \
+           src/game/em_sfx.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
@@ -188,7 +188,7 @@ test-opening-runtime: $(OPENING_TEST_SRC)
 .PHONY: test-pickup-lights
 test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h
 	@mkdir -p build
-	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_light_test.c -o build/pickup_light_test
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_light_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
 	build/pickup_light_test
 
 .PHONY: test-panel-reference test-panel-interaction
@@ -416,3 +416,15 @@ test-status-runtime:
 	@mkdir -p build/status_page_reference
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_runtime_test.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c -lm -o build/status_page_reference/status_runtime_test
 	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir
+
+PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c
+.PHONY: test-pickup-owner-reference test-pickup-original
+test-pickup-owner-reference:
+	python3 tools/test_pickup_owner_reference.py
+	python3 tools/test_pickup_motion_reference.py
+
+test-pickup-original: tests/pickup_original_test.c src/game/em_pickup.c $(PICKUP_ORIGINAL_TEST_SRC)
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_original_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
+	build/pickup_original_test
+

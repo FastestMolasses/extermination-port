@@ -20,6 +20,11 @@ int em_model_load(EmModel *m, const char *path)
     return 0;
 }
 void em_model_free(EmModel *m) { memset(m,0,sizeof *m); }
+int em_model_clip_index(const EmModel *m, uint32_t clip)
+{
+    for (uint32_t i=0; i<m->clip_count; ++i) if (m->clips[i].id == clip) return (int)i;
+    return -1;
+}
 void em_model_palette_at(const EmModel *m, uint32_t clip, double time,
                          float *out)
 {

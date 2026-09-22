@@ -181,7 +181,7 @@ is class10/selector0, radius10, height20 and bearing tolerance pi/4.
 
 Version1 is local little-endian data:20-byte header `EMIS`, version1,
 area/sub key `0B00`, owner count11, record stride80. It is followed by19
-float SDK coefficients (`atan_low[4]`, `atan_high[4]`, `atan_coefficients[11]`).
+float SDK coefficients (`atan_high[4]`, `atan_low[4]`, `atan_coefficients[11]`).
 Each80-byte record has a32-byte metadata prefix followed by12 floats:
 
 | Offset | Field |

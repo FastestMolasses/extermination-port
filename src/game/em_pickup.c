@@ -1,28 +1,10 @@
-/* em_pickup.c — collectible items + display props (the decoded engine
- * pickup system; the decode ledger and the port-mapping flags live in
- * em_pickup.h).
- *
- * Engine shape per instance (one pooled actor, behavior func_0015AFA0 —
- * BYTE-MATCHED in src/func_0015AFA0.c, a switch on the actor state byte
- * +0x04 that dispatches exactly the three legs below):
- *   INIT  func_0015AC00  -> em_pickup_add (scale switch + model bind +
- *                           the rigid-prop pose stamp func_001C6380:
- *                           world TRS into every bone slot)
- *   ARMED func_0015AE20  -> the take countdown inside em_pickup_update
- *   take  func_001B6EA0 -> func_001C47A0/4720/4760 -> func_001C40B0
- *                         -> inventory_add() below
- *   free  func_001B1190(actor[+0x9A]) + func_001AFC10 -> taken-bit set
- *                         + slot dead
- *
- * RE-VERIFIED 2026-07-31 (second audit pass), quoting src/func_0015AFA0.c
- * verbatim: `switch (*(unsigned char *)(actor + 4))` with
- * `case 0: func_0015AC00(actor, sub)`, `case 1: func_0015AE20(actor, sub)`,
- * `case 2: case 3: default: func_001B1190(*(unsigned char *)(actor + 0x9A),
- * sub); func_001AFC10(actor)`, where `sub = actor + 0x1F0`. The three legs
- * above are exactly that dispatch — no fourth state, and the taken-bit set
- * really is fed the ONE BYTE at +0x9A.
+/* Pickup render instances and persistent inventory.
+ * Canonical AREA11 owners/programs enter through em_pickup_original.h.
+ * Unbound scenes retain an explicitly legacy scan/countdown path below.
  */
 #include "game/em_pickup.h"
+#include "game/em_pickup_original.h"
+#include "game/em_pickup_program.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -110,6 +92,12 @@ typedef struct {
                            * scale switch, the S leg of func_001C6380's
                            * world TRS (1.0 / 1.5 / 2.0) */
     float   palette[PICKUP_BONE_MAX * 16];
+    int original_bound, original_visible, original_failed;
+    uint32_t source_id, publication_rank;
+    EmPickupOwner original;
+    EmPickupProgram program;
+    EmInteractionRuntime *interaction;
+    EmPickupOriginalHooks original_hooks;
 } Pickup;
 
 typedef struct {
@@ -131,12 +119,15 @@ static struct {
     int         n;            /* slots in use (dead slots stay counted
                                * until the scene clears — draw returns
                                * 0 for them, like the enemy contract) */
+    int canonical_pickups;
 } s;
 
 /* --- persistent game state (survives scene clears — the engine's
  * D_00810700-block globals; wiped only by em_pickup_reset) ----------- */
 static struct {
     uint8_t  count[256];      /* D_00810C64 mirror: u8 per item type */
+    uint8_t  maps[256], keys[256]; /* separate original CB8 / CC3 families */
+    uint8_t  status, primary, secondary; /* C60/CA4/CA6 */
     uint8_t  mag_packs;       /* D_00810C63 mirror */
     int16_t  battery_charge;  /* D_00810CB2: internal half-units */
     uint8_t  battery_capacity;/* D_00810CB7: internal half-units */
@@ -145,7 +136,7 @@ static struct {
                                * one flat array) */
     int      ammo_pending;    /* case-0x10 reserve rounds for em_game */
     int      found_pending;   /* item type for the Found line, -1 none */
-} g = { .found_pending = -1 };
+} g = { .found_pending = -1, .primary = 0xFF };
 
 /* This frame's use-scan winner (func_00184BA0's single winner for the
  * whole interactive list). Reset at every em_pickup_update entry; read
@@ -402,6 +393,7 @@ int em_pickup_add(EmGfx *gfx, const char *scene_dir, int type,
 
 void em_pickup_scene_clear(EmGfx *gfx)
 {
+    for (int i = 0; i < s.n; ++i) em_pickup_program_free(&s.p[i].program);
     for (int i = 0; i < s.n_models; i++) {
         em_gfx_mesh_destroy(gfx, s.models[i].mesh);
         em_model_free(&s.models[i].model);
@@ -416,6 +408,7 @@ void em_pickup_reset(void)
 {
     memset(&g, 0, sizeof g);
     g.found_pending = -1;
+    g.primary = 0xFF;
 }
 
 /* Wrap an angle to (-pi, pi] — the engine's func_001B1470. */
@@ -541,7 +534,7 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
                       const EmFrameInput *in, int scan)
 {
     scan_slot = -1;                      /* last frame's winner expires */
-    if (scan)
+    if (scan && !s.canonical_pickups)
         pickup_trigger_scan(player_pos, player_yaw, in);
     /* Spinning display props (AREA-11 item-display, ov 0x00827630): advance
      * the Y-spin and re-bake the rigid-prop pose this frame. The engine does
@@ -557,7 +550,7 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
     }
     for (int i = 0; i < s.n; i++) {
         Pickup *p = &s.p[i];
-        if (!p->used || !p->armed) continue;
+        if (!p->used || p->original_bound || !p->armed) continue;
         /* the armed handler func_0015AE20: the take script runs for a
          * couple of scripted frames, then the op-9 take fires and the
          * actor frees. The take plays the height-selected player grab
@@ -575,6 +568,7 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
         Pickup *owner=&s.p[light->owner];
         light->visible=0;
         if (!owner->used) continue;
+        if (owner->original_bound && owner->original.child_status == 3) continue;
         if (!light->initialized) {
             light->initialized=1;
             continue;
@@ -636,6 +630,7 @@ int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
     if (i < 0 || i >= s.n) return 0;
     Pickup *p = &s.p[i];
     if (!p->used || p->model < 0) return 0;
+    if (p->original_bound && !p->original_visible) return 0;
     *mesh       = s.models[p->model].mesh;
     *palette    = p->palette;
     *bone_count = s.models[p->model].model.bone_count;
@@ -647,6 +642,186 @@ uint8_t em_pickup_item_count(int type)      { return g.count[type & 0xFF]; }
 uint8_t em_pickup_mag_packs(void)           { return g.mag_packs; }
 int em_pickup_battery_charge(void)          { return g.battery_charge; }
 int em_pickup_battery_capacity(void)        { return g.battery_capacity; }
+
+const uint8_t *em_pickup_maps(void) { return g.maps; }
+const uint8_t *em_pickup_keys(void) { return g.keys; }
+
+void em_pickup_equipment_read(uint8_t *status, uint8_t *primary, uint8_t *secondary)
+{
+    if (status) *status = g.status;
+    if (primary) *primary = g.primary;
+    if (secondary) *secondary = g.secondary;
+}
+
+void em_pickup_equipment_write(uint8_t status, uint8_t primary, uint8_t secondary)
+{
+    g.status = status;
+    g.primary = primary;
+    g.secondary = secondary;
+}
+
+static EmScriptCommandResult original_frame(void *context, EmScript *script,
+                                            const unsigned char *record)
+{
+    Pickup *p = context;
+    return em_interaction_runtime_frame(p->interaction, &p->original, script, record);
+}
+
+static int original_turn(void *context, float step)
+{
+    Pickup *p = context;
+    return p->original_hooks.turn(p->original_hooks.context, p->source_id, p->pos, step);
+}
+
+static int original_camera(void *context, EmScript *script)
+{
+    Pickup *p = context;
+    return p->original_hooks.camera(p->original_hooks.context, p->source_id, p->pos, script);
+}
+
+static int original_animation(void *context, uint16_t clip, float rate, float blend)
+{
+    Pickup *p = context;
+    return em_interaction_runtime_animation_start(p->interaction, &p->original, clip, rate, blend);
+}
+
+static int original_animation_done(void *context)
+{
+    Pickup *p = context;
+    return em_interaction_runtime_animation_done(p->interaction, &p->original);
+}
+
+static int original_add_item(void *context, uint16_t type, int amount)
+{
+    (void)context;
+    inventory_add(type, amount);
+    return 1;
+}
+
+static int original_take(void *context)
+{
+    Pickup *p = context;
+    EmPickupStatusRequest request = {0};
+    if (em_pickup_owner_take(&p->original, g.maps, g.keys, &request,
+                              original_add_item, p) != 1) return 0;
+    return !request.kind || p->original_hooks.status_request(
+        p->original_hooks.context, request.kind, request.index) == 1;
+}
+
+static int original_start(void *context, uint32_t entry, uint16_t clip)
+{
+    Pickup *p = context;
+    return em_interaction_runtime_owns(p->interaction, &p->original) &&
+           em_pickup_program_start(&p->program, entry, clip);
+}
+
+static int original_tick(void *context)
+{
+    Pickup *p = context;
+    return em_interaction_runtime_owns(p->interaction, &p->original) ?
+           em_pickup_program_tick(&p->program) : -1;
+}
+
+static int original_event(void *context, EmPickupOwnerEvent event, uint32_t argument)
+{
+    Pickup *p = context;
+    switch (event) {
+    case EM_PICKUP_OWNER_PERSIST:
+        if (argument) {
+            unsigned uid = (unsigned)p->uid & 0xFFFF;
+            g.taken[uid >> 5] |= 1u << (uid & 31);
+        }
+        return 1;
+    case EM_PICKUP_OWNER_FREE:
+        p->used = 0;
+        p->original_visible = 0;
+        return 1;
+    case EM_PICKUP_OWNER_STOP_CHILD:
+        for (int i=0; i<s.n_lights; ++i)
+            if (&s.p[s.lights[i].owner] == p) s.lights[i].visible = 0;
+        return 1;
+    case EM_PICKUP_OWNER_DRAW:
+        p->original_visible = 1;
+        return 1;
+    default:
+        return p->original_hooks.event(p->original_hooks.context, p->source_id, event, argument);
+    }
+}
+
+int em_pickup_original_bind(const EmInteractionSceneOwner *record,
+    EmInteractionRuntime *interaction, const char *script_path, const EmPickupOriginalHooks *hooks)
+{
+    if (!record || record->role != EM_INTERACTION_PICKUP || !interaction || !script_path ||
+        !hooks || !hooks->turn || !hooks->camera || !hooks->status_request || !hooks->event ||
+        record->selector != 3 || record->item_type > 255 ||
+        (record->callback != 0x15AFA0 && record->callback != 0x219550)) return 0;
+    Pickup *p = NULL;
+    for (int i=0; i<s.n; ++i) if (s.p[i].uid == record->uid && !s.p[i].prop) {
+        if (p) return 0;
+        p = &s.p[i];
+    }
+    if (!p) {
+        if (!taken_bit(record->uid)) return 0;
+        s.canonical_pickups = 1;
+        return -2;
+    }
+    if (p->original_bound || !p->used || p->type != (int)record->item_type) return 0;
+    EmPickupProgramHooks program_hooks = {p, original_frame, original_turn, original_camera,
+        original_animation, original_animation_done, original_take};
+    if (!em_pickup_program_load(&p->program, script_path, record->callback, &program_hooks)) return 0;
+    p->original = (EmPickupOwner){.callback=record->callback, .item_type=(uint16_t)record->item_type,
+        .uid=(uint8_t)record->uid, .status=record->initial_status, .class_flags=record->class_flags,
+        .subtype=record->subtype, .lifecycle=1, .child_status=1};
+    for (int i=0; i<s.n_lights; ++i)
+        if (&s.p[s.lights[i].owner] == p) p->original.has_child = 1;
+    p->source_id = record->source_id;
+    p->publication_rank = record->publication_rank;
+    p->interaction = interaction;
+    p->original_hooks = *hooks;
+    p->original_bound = 1;
+    memcpy(p->pos, record->position, sizeof p->pos);
+    p->yaw = record->angles[1];
+    pickup_build_palette(p);
+    s.canonical_pickups = 1;
+    scan_slot = -1;
+    return 1;
+}
+
+EmPickupOwner *em_pickup_original_owner(uint16_t uid)
+{
+    for (int i=0; i<s.n; ++i)
+        if (s.p[i].original_bound && s.p[i].uid == uid) return &s.p[i].original;
+    return NULL;
+}
+
+int em_pickup_original_active(void) { return s.canonical_pickups; }
+
+int em_pickup_original_tick(float player_y, uint8_t action, uint8_t no_grab,
+                             uint8_t scripted_frame, int ordinary_tasks_enabled)
+{
+    if (!ordinary_tasks_enabled) return 1;
+    uint32_t previous = 0;
+    int first = 1;
+    for (;;) {
+        Pickup *next = NULL;
+        for (int i=0; i<s.n; ++i) {
+            Pickup *p = &s.p[i];
+            if (!p->original_bound || (!first && p->publication_rank <= previous)) continue;
+            if (!next || p->publication_rank < next->publication_rank) next = p;
+        }
+        if (!next) return 1;
+        previous = next->publication_rank;
+        first = 0;
+        next->original_visible = 0;
+        if (next->original_failed) return -1;
+        EmPickupOwnerHooks hooks = {next, original_start, original_tick, original_event};
+        if (em_pickup_owner_tick(&next->original, next->pos[1], player_y, action,
+                                  no_grab, scripted_frame, &hooks) < 0) {
+            next->original_failed = 1;
+            return -1;
+        }
+    }
+}
 
 void em_pickup_battery_set_charge(int half_units)
 {

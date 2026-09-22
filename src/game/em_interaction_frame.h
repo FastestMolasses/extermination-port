@@ -1,4 +1,6 @@
-/* Original 001B82D0 sub2/sub4 shared by ordinary interaction scripts. */
+/* Original 001B82D0 sub2/sub4/sub13 shared by ordinary interaction scripts.
+ * Pickup sub13 uses selector1/camera_top2 without entering letterbox bars
+ * or clearing the activity array; it still waits for the real player. */
 #ifndef EM_INTERACTION_FRAME_H
 #define EM_INTERACTION_FRAME_H
 #include "game/em_script.h"

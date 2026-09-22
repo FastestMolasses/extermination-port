@@ -56,7 +56,10 @@ int em_interaction_elevator_candidate(const float descriptor[6],
 
 /* Local exporter reads these19 original SDK coefficients at0026C5D8.
  * No generated approximation or platform atan2 is substituted. */
-typedef struct { float atan_low[4], atan_high[4], atan_coefficients[11]; } EmInteractionMath;
+/* Original26C5D8 begins with high parts, followed by low parts at26C5E8.
+ * Older decompilation comments reversed these names; data order matters
+ * even though either arrangement is algebraically close in real numbers. */
+typedef struct { float atan_high[4], atan_low[4], atan_coefficients[11]; } EmInteractionMath;
 
 /* Finite-input numerical0011C4C8/0011DBB8 path, with original SDK tables.
  * The0011E620 zero-vector wrapper's error callback/errno are not modeled;
