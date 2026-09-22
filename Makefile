@@ -232,6 +232,13 @@ test-interaction-cinematic-reference:
 test-player-cinematic-reference:
 	python3 tools/test_player_cinematic_reference.py
 
+.PHONY: test-roger-encounter-capture test-face-allocation-reference
+test-roger-encounter-capture:
+	python3 tools/test_roger_encounter_capture.py
+
+test-face-allocation-reference:
+	python3 tools/test_face_allocation_reference.py
+
 .PHONY: test-roger-runtime
 test-roger-runtime:
 	@mkdir -p build

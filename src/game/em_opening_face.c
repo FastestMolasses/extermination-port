@@ -4,9 +4,10 @@
 
 void em_opening_face_init(EmOpeningFace *f, uint8_t speed)
 {
-    /* Fresh native allocation. Original AF780 reuses a pool slot; recovering
-     * its earlier contents is still required for identical initial weights.
-     * No arbitrary captured frame is substituted for those contents. */
+    /* Original AF890 clears all208 bytes before returning an object to
+     * AF780's pool. Captured first-control/status player allocations are
+     * zero, including weights. Existing attached faces instead use the
+     * partial reset below; global random-call ordering is separate. */
     memset(f,0,sizeof *f);
     em_opening_face_reset(f);
     f->speed=speed;

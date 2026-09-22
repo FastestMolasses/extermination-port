@@ -53,3 +53,38 @@ Shared player-ready2 now requires an explicitly installed face/body worker.
 Status suppresses that whole worker, and a missing worker retains a fault.
 The fixture's face and frame side effects are boundaries; this checkpoint does
 not yet install the actual Dennis face, Roger camera or media into the scene.
+
+## Original encounter capture
+
+`make test-roger-encounter-capture` checks a fresh original encounter save
+against the native raw pose and camera samplers. The fixture starts from
+immutable first-control state03 and places only the player's position/hip
+inside Roger's actual trigger polygon. This is a controlled trigger test,
+not evidence of correct player movement into that polygon.
+
+At source25.5, all1,050 player/Roger channel float words and126 key cursors
+agree exactly. Player world matrices differ by at most0.000092; Roger's by
+0.000123. Both actor owner matrices are identity: the player uses C6960,
+while Roger's script zeroes its placement before C68C0. The camera samples
+source25.0 before its time advances to25.5. Eye/target bytes agree exactly;
+the native view matrix differs by at most0.000123. Camera ownership top3
+coexists with camera mode8, so these fields must not be conflated.
+
+Both actors have attached faces, suppressed body head7 and face speed1.
+The stored body bone7 matrix remains intact; its draw upload is suppressed.
+The capture is local under `build/startup-reference/roger-encounter` in the
+decomp repository, with EE SHA256
+`f68fff65edfee5cca97aed9daa3ce7de11e7eae528726b5760ed5e567e7a93dd`.
+
+`make test-face-allocation-reference` executes the full original player
+face attach/reset/free path. The first-control and status-hub captures
+allocate zeroed pool blocks, and AF890 clears all208 object bytes on free.
+All88 native face-state bytes match original initialization. Another256
+existing-face cases confirm that repeated attachment uses a partial reset:
+weights and wait fields survive, then speed becomes1. This closes the
+initial-pool-content question for those tested player allocations; subsequent
+random-call order and face rasterization remain separate work.
+
+Player dialogue calls D06E0 directly when slot0 starts/stops. The player's
+83090 callback ticks its face before the body; it does not consume Roger's
+activity-byte convention. The live message binding must preserve that order.
