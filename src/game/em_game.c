@@ -761,7 +761,7 @@ void em_game_player_interact_anim(int clip_id)
 int em_game_player_interact_busy(void)
 {
     return g.interact_active || g.elev_state == 1 || g.elev_pending ||
-           g.cine_active || em_opening_runtime_busy();
+           g.cine_active || em_opening_runtime_busy() || player_pose_owned();
 }
 
 /* em_game_player_face_step — the examine op04 FACE pre-roll: turn the
@@ -894,6 +894,9 @@ static int loco_clip_for_tier(int tier)
  * door sequence re-places the player standing). */
 static void actor_update(void)
 {
+    /*0015BA50 advances source channels before0015B130 can take ownership.
+     * An accepted shared callback consumes this player stage completely. */
+    if (player_pose_stage() != 0) return;
     const float previous_position[3]={g.pos[0],g.pos[1],g.pos[2]};
     const float previous_yaw=g.yaw;
     /* SCRIPTED INTERACT anim end-detection (em_game_player_interact_anim).
@@ -928,6 +931,7 @@ static void actor_update(void)
     } else {
         player_move();
     }
+    player_pose_finish_state();
     if (!g.mesh) return;
 
     /* scripted-anim COMMIT (func_00183090: +0x1F2 != +0x20C). */
@@ -4966,6 +4970,7 @@ static void gameplay_frame(void)
     grate_update();
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
+    player_pose_finish_palette(); /* original hip/Euler scratch publication */
     actor_context_end();     /* func_001CB5A0                         */
     point_light_tick();      /* 001D1C50 -> 001D7C30, before pooled actors */
     em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
@@ -5575,6 +5580,7 @@ static void game_load_task(void)
 
     /* Optional character asset (disc-derived, generated locally). */
     if (em_model_load(&g.model, MODEL_PATH) == 0) {
+        (void)player_pose_load("assets/player_channels.empc");
         g.mesh = em_gfx_mesh_create(gfx, g.model.verts, g.model.vert_count,
                                     g.model.indices, g.model.index_count,
                                     (const EmGfxTexDesc *)g.model.texs,
@@ -5677,6 +5683,7 @@ static void game_load_task(void)
 
 void em_game_install(void)
 {
+    player_pose_unload();
     memset(&g, 0, sizeof g);
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", SCENE_DIR);
     /* Player status — static demo values matching the live test save
@@ -5807,6 +5814,7 @@ void em_game_install_new(void)
 
 void em_game_shutdown(void)
 {
+    player_pose_unload();
     EmGfx *gfx = em_frame_gfx();
     if (g.mesh) {
         em_gfx_mesh_destroy(gfx, g.mesh);

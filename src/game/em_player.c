@@ -265,6 +265,7 @@ void player_move(void)
     {
         float tt[3], tyaw;
         if (em_door_transit_active(tt, &tyaw)) {
+            player_pose_invalidate("legacy door transit source is not recovered");
             float dx   = tt[0] - g.pos[0];
             float dz   = tt[2] - g.pos[2];
             float len  = sqrtf(dx * dx + dz * dz);
@@ -303,6 +304,7 @@ void player_move(void)
     {
         float wyaw, wspeed;
         if (em_door_walkout_active(&wyaw, &wspeed)) {
+            player_pose_invalidate("legacy door arrival source is not recovered");
             g.yaw        = wyaw;
             /* Drive the locomotion clip at the engine's commanded tier:
              * the walk-out plays the locIdx-2 clip (family 0 -> id 2 =
@@ -329,6 +331,7 @@ void player_move(void)
      * is separate (em_door_menu_locked, consumed by em_hud) and ends
      * earlier, at fade-in completion. */
     if (em_door_movement_locked()) {
+        player_pose_invalidate("legacy door interaction source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
                                     * re-entry re-arms the tier ramp */
@@ -349,6 +352,7 @@ void player_move(void)
      * solve and anim are stand-still, while the FACE phase owns g.yaw.
      * Same lock shape as the door transit above. */
     if (em_examine_input_locked()) {
+        player_pose_invalidate("legacy examine source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
@@ -384,6 +388,7 @@ void player_move(void)
      * this same frame in elevator_tick) does not leak free movement —
      * exactly em_game_player_interact_busy()'s condition. */
     if (em_game_player_interact_busy()) {
+        player_pose_invalidate("legacy interaction source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
@@ -501,6 +506,7 @@ void player_move(void)
         g.aim_was = aim_now;
     }
     if (em_weapon_is_aiming() || g.r2_aim) {
+        player_pose_invalidate("aim node adjustments are not bound");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* armed modes replace locomotion */
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
@@ -603,9 +609,17 @@ void player_move(void)
      * yaw steer (func_00173DD0, D_002486F0 rates) is untranslated
      * (flagged in em_weapon.h), so no turn-in-place here either. */
     if (em_weapon_is_melee()) {
+        player_pose_invalidate("melee source channels are not exported");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* melee modes replace locomotion */
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
+        return;
+    }
+
+    if (player_pose_idle_state_wait()) {
+        g.gait = 0;
+        g.move_speed = 0;
+        player_wall_probes();
         return;
     }
 
@@ -663,6 +677,8 @@ void player_move(void)
                 g.loco_mode=resumed.mode;
                 g.loco_substate=resumed.substate;
                 g.loco_clip=clip;
+                player_pose_request(g.model.clips[clip].id,
+                                    (float)g.loco_reentry.frame, 4, 1);
                 g.walk_t=(double)g.loco_reentry.frame/g.model.clips[clip].fps;
                 g.walk_w=1;
                 g.loco_animation_step=0;
@@ -687,6 +703,7 @@ void player_move(void)
             if (before == 4 && g.loco_stop.phase)
                 --g.idle_timer; /* idle case1 counts during its blend */
             if (before == 3) {
+                player_pose_idle_enter();
                 g.idle_t = 0;
                 g.idle_phase = 0;
                 g.idle_timer = IDLE_FIDGET_FRAMES;
@@ -715,6 +732,8 @@ void player_move(void)
         }
         if (g.loco_entry_ticks > 1) --g.loco_entry_ticks;
         else g.loco_entry_ticks = still_turning ? -1 : 0;
+        if (!g.loco_entry_ticks && !gait)
+            player_pose_invalidate("aborted walk-entry callbacks are not bound");
         if (g.loco_entry_ticks == 0 && gait) {
             g.loco_mode = 1;
             g.loco_substate = 1;
@@ -731,6 +750,7 @@ void player_move(void)
              * frames - D00248740[0], where the remaining segment is 56. */
             if (g.clip_walk >= 0) {
                 const EmModelClip *clip = &g.model.clips[g.clip_walk];
+                player_pose_request(1, (float)clip->frame_count - 56, 8, 1);
                 g.walk_t = ((double)clip->frame_count - 56.0) / clip->fps;
                 g.loco_clip = g.clip_walk;
             }
@@ -771,12 +791,14 @@ void player_move(void)
             g.loco_stop_clip = stop_clip;
             em_player_stop_begin(&g.loco_stop,
                                  g.model.clips[stop_clip].frame_count);
+            player_pose_request(5, (float)g.loco_stop.frame, 6, 1);
             g.loco_mode = 4;
             g.loco_upt = g.move_speed = 0;
             g.loco_animation_step = 0;
             player_wall_probes();
             return;
         }
+        player_pose_invalidate("walk/jog foot-placement stop is not bound");
         g.loco_mode = 0;
         g.loco_substate = 0;
         g.loco_tier = 0;

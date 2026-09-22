@@ -160,6 +160,7 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             script->skip_request=0;
             g.frame_selector=0;
             g.cam.top_mode=0;
+            if (!player_pose_opening_release()) return EM_SCRIPT_UNSUPPORTED;
             return skipped ? EM_SCRIPT_ABORT : EM_SCRIPT_ADVANCE;
         }
         return EM_SCRIPT_UNSUPPORTED;

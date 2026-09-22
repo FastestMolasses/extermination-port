@@ -23,7 +23,12 @@ EmGameState g;
 static EmTransitionFade fade;
 static EmScreenFade bars;
 static EmFrameInput input;
-static int quit, meshes, subtitles, look_up, rumble, commits;
+static int quit, meshes, subtitles, look_up, rumble, commits, pose_releases;
+int player_pose_opening_release(void) {
+    assert(g.frame_selector==0);
+    ++pose_releases;
+    return 1;
+}
 static EmAudioCallback audio_callback;
 static void *audio_user;
 EmGfx *em_frame_gfx(void) { return (EmGfx *)&meshes; }
@@ -88,7 +93,7 @@ void em_gfx_draw_skinned(EmGfx *gfx,EmGfxMesh *mesh,const float *vp,
 static void start(const char *scene) {
     memset(&g,0,sizeof g);memset(&input,0,sizeof input);
     g.opencam_on=1;g.opencam_idle=100;
-    quit=subtitles=look_up=rumble=commits=0;
+    quit=subtitles=look_up=rumble=commits=pose_releases=0;
     snprintf(g.scene_dir,sizeof g.scene_dir,"%s",scene);
     em_transition_fade_init(&fade);em_transition_fade_full(&fade,0);
     em_screen_fade_init(&bars);em_random_seed(0x45);
@@ -135,6 +140,7 @@ static void run(int skip,int shutdown_after) {
     assert(g.cam.eye[0]==268.20001220703125f && g.cam.eye[1]==258.5f && g.cam.eye[2]==182.8000030517578f);
     assert(g.cam.tgt[0]==250.8000030517578f && g.cam.tgt[1]==242.3000030517578f && g.cam.tgt[2]==209);
     assert(!em_opening_runtime_actors_active() && !em_opening_runtime_failed());
+    assert(pose_releases==1);
     if(skip) assert(skip_sent && actor_frames<1292);
     else assert(actor_frames==1293 && rumble==1);
     for(int i=0;i<10;i++) em_opening_runtime_tick();

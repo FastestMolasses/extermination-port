@@ -2,9 +2,10 @@
 
 The new pose core retains original quaternion, translation and scale channels.
 It supplies the source pose for interaction acquisition and release without
-decomposing the port's displayed matrices. It is not yet bound to ordinary
-gameplay by these files; the scene host must publish the actual clip events and
-call order described below.
+decomposing the port's displayed matrices. `em_player_pose_host.c` tracks the
+ordinary source at the real player callback boundary while retaining the
+existing ordinary display. The shared interaction scene host can consume its
+acquire, idle, script and release helpers.
 
 ## Original evidence
 
@@ -102,7 +103,7 @@ the displayed tier blend. The original displayed blend itself uses 001C9D50's
 matrix-to-quaternion conversion; this is not permission to decompose the
 displayed result as an interaction source.
 
-The already recovered first-level requests are walk entry (clip 1, source 64,
+The bound first-level requests are walk entry (clip 1, source 64,
 blend 8), run stop (clip 5, source 4, blend 6), return from that stop (idle,
 blend 12), interrupted run stop (clip 2, source 27, blend 4), and idle fidget
 (15D, source 0, blend 8, then default blend 8). Their callback timing must come
@@ -110,11 +111,27 @@ from the existing original-backed state workers; comparing rendered weights
 does not identify a clip request. Clip 4 is available but its full foot-placement
 state callback remains outside this binding.
 
-Only the acquired idle/script paths should use `em_player_pose_palette` until
+Only the acquired idle/script paths use `em_player_pose_palette` until
 ordinary display blending is replaced. The palette includes the 21-node
 actor-local hierarchy and its identity slot. The host applies owner placement
 and publishes hip mirrors after a successful palette result. Status/menu frames
 freeze all of these animation workers.
+
+`player_pose_set_stage_hook` installs a worker returning -1 on failure, 0 when
+ordinary processing should continue, or 1 when the callback was consumed. An
+already acquired player requires a consumed callback. Missing source data or an
+unsupported ordinary worker is reported explicitly; it cannot be replaced with
+a display-matrix decomposition or guessed cursor. Ordinary unsupported actions
+can still display through the legacy renderer, but subsequent acquisition fails.
+
+`player_pose_align` applies the original 00182F90 delta (target minus feet) to
+feet and cached hip. It also shifts the native displayed palette as a host cache
+adaptation; the original routine itself does not write matrices. `player_pose_face`
+changes live yaw and republishes placement without advancing channels. Op4/sub8
+at 001B9C10 does not update saved scratch Euler. `player_pose_script_euler` retains
+that saved value until alignment or the real 0015BCF0 player-tail equivalent.
+The tail also refreshes the displayed bone-1 hip. This preserves the distinction
+between saved 3B50 and live actor C0 for camera D5.
 
 ## Validation and remaining boundaries
 
@@ -143,6 +160,18 @@ need their own original-backed worker before this palette path can cover them.
 
 The initial eight-callback transition has an original-instruction oracle but
 has not yet been compared against a live capture of all eight displayed poses.
-Ordinary gameplay host wiring and its end-to-end interaction regression remain
-required. None of these checks makes the legacy displayed locomotion matrix
-blend faithful.
+The live host regression completed the original opening with 1,303 movement-
+locked callbacks, then 30 movement, 18 run-stop and 8 interrupted-stop callbacks.
+`tools/test_player_pose_live_reference.py` compares these 56 consecutive source
+states with the original full-actor trace: clip, remaining float bits, transition
+bit and flags all match exactly. This includes the first stop advance of 1.8:
+remaining 6 becomes 4.199999809265137, as recorded in the original. Resetting its
+rate to one at the stop request would be incorrect.
+
+`make test-player-pose-host` checks idle/fade countdown, fidget timing, shared
+callback ownership, release without an extra idle advance, placement/Euler
+mirrors and explicit invalid-source failure under ASan/UBSan. The first idle
+callback seeds counter300; case1 is blocked by the original transition-fade
+state while its animation continues to advance. End-to-end scene interaction
+regression and walk/jog stop and aborted-entry source workers remain required.
+None of these checks makes the legacy displayed locomotion matrix blend faithful.

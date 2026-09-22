@@ -64,6 +64,18 @@ void em_opening_control_test_after_frame(void)
         if (!isfinite(g.pos[axis]) || !isfinite(g.cam.eye[axis]) ||
             !isfinite(g.cam.tgt[axis])) {fail("nonfinite player/camera");return;}
     const EmFrameInput *input=em_frame_input();
+    if (test.phase >= 2 && test.phase != 4) {
+        unsigned clip, flags;
+        float remaining;
+        int transition;
+        if (!player_pose_source(&clip, &remaining, &flags, &transition)) {
+            fail("original player source channels became unavailable");
+            return;
+        }
+        if (getenv("EM_CONTROL_TRACE"))
+            fprintf(stderr, "pose sample: frame=%d clip=%u remaining=%.9g transition=%d flags=%08x\n",
+                    g.frame_no, clip, remaining, transition, flags);
+    }
     if (test.phase==1) {
         if (em_opening_runtime_busy()) {
             /* Frame input is the original unsigned pad byte, not the

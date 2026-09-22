@@ -23,7 +23,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
-           src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c \
+           src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
 
@@ -237,6 +237,15 @@ test-pose-reference:
 	python3 tools/test_pose_transition_reference.py
 	python3 tools/test_pose_bank_reference.py
 	python3 tools/test_player_pose_reference.py
+
+.PHONY: test-player-pose-host
+test-player-pose-host:
+	@mkdir -p build/player_pose_channels
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc \
+	    tests/player_pose_host_test.c src/game/em_player_pose_host.c src/game/em_player_pose.c \
+	    src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_fade.c -lm \
+	    -o build/player_pose_channels/player_pose_host_test
+	./build/player_pose_channels/player_pose_host_test
 
 .PHONY: test-interaction-runtime
 test-interaction-runtime:

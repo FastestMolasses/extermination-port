@@ -35,6 +35,7 @@
 #include "game/em_hud.h"
 #include "game/em_pickup.h"
 #include "game/em_player_motor.h"
+#include "game/em_player_pose.h"
 #include "game/em_point_light.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
@@ -2181,6 +2182,32 @@ typedef struct {
  * player and doors use (defined in em_game.c). */
 void palette_apply_placement(float *pal, uint32_t bone_count,
                              const float pos[3], float yaw);
+
+/* Original-channel player source and shared interaction host boundary.
+ * The stage hook returns -1 fault,0 ordinary callback,1 callback consumed. */
+void player_pose_set_stage_hook(int (*hook)(void *), void *context);
+int player_pose_load(const char *path);
+void player_pose_unload(void);
+int player_pose_opening_release(void);
+int player_pose_stage(void);
+void player_pose_finish_state(void);
+void player_pose_request(unsigned clip, float frame, unsigned blend, int force);
+void player_pose_idle_enter(void);
+int player_pose_idle_state_wait(void);
+void player_pose_invalidate(const char *reason);
+int player_pose_acquire(void);
+int player_pose_idle_tick(float *local_palette);
+int player_pose_release(void);
+int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
+                            float *local_palette);
+int player_pose_publish(const float *local_palette);
+int player_pose_hip(float out[3]);
+void player_pose_finish_palette(void);
+int player_pose_align(const float position[3]);
+int player_pose_face(float yaw);
+int player_pose_script_euler(float out[3]);
+int player_pose_owned(void);
+int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *transition);
 
 /* Aim direction for the current frame (player lane, defined in em_game.c).
  * The camera's aim mode reads it to place the over-shoulder eye. */
