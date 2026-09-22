@@ -1,5 +1,33 @@
 # AREA11 power panel: original interaction evidence
 
+## Shared runtime adapter
+
+`em_panel_runtime` now connects the original owner and exported programs to
+one `EmInteractionRuntime`. The owner token survives the BATTERY menu, the
+post-menu script and the following player-release callback. Status frames
+freeze both the owner and its script. Failed alignment, camera, message,
+status, sound, power or indicator bindings stop the adapter and retain its
+owner token; they never count as successful completion.
+
+`make test-panel-runtime` combines the actual script and message assets with
+the original frame handshake, raw player pose channels and battery-discharge
+core under ASan/UBSan. Six full sequences cover idle and walking acquisition,
+no battery, cancellation and successful discharge. The global message is
+visible149 times; the empty terminal record is not a visible message frame.
+The menu request occurs at ordinary callback154. After the explicit status
+exit boundary, clip15C commits at157, sound3EF occurs at169, power at282,
+frame exit at283 and player release at284. Paused menu time is excluded from
+these ordinary-callback numbers. The post-menu offsets remain14/127/128 for
+sound/power/frame exit. Release from15C resets the raw idle cursor to0.
+
+The fixture also freezes150 callbacks without changing any owner, script,
+message or pose state, and checks eight distinct failed host operations.
+Geometry, camera/audio side effects and the status dispatcher's eventual
+exit are explicit fixture boundaries. Cancellation returns to BATTERY
+browse; this test supplies a later status exit and does not implement Back
+as closing the page. Scene wiring and full menu/camera/render comparisons
+remain required; this adapter test is not an end-to-end fidelity claim.
+
 The normal scene's static model04 panel is original placement18 at
 `(240,245,232.800003)`, yaw `-pi`, behavior `00159210`, class84/subtype24.
 Its owner is the power switch; the former Roger-at331.7 battery-console
@@ -244,3 +272,51 @@ and either stream busy flag. The full line appears149 times because the
 zero-timer completion call also draws it. The phase2 completion signal
 remains visible to the next script tick and is cleared by the following
 message-service tick. Glyph drawing is an explicit oracle boundary.
+
+## ITEM root and status lifecycle
+
+The original confirmation's No/Circle route first returns to BATTERY
+browsing. Circle there loads module1F and returns to the radial ITEM menu.
+Circle on that root sets screen63, which returns to the broader status
+hub. It does not close the panel interaction. Triangle/Start can close
+the status dispatcher only after its pending request, stream gate and
+status request permit the original810 mask check.
+
+An isolated capture from the pristine confirmation fixture preserves the
+original root in local state12 and ignored `panel/root/` EE/GS/screenshot
+artifacts. Only two actual Circle presses were used; no menu state bytes
+were patched. The source confirmation fixture was not overwritten.
+
+`em_item_root` implements0020EE50 at explicit draw, sound, module-loading
+and child-page boundaries. Its3,024 original-instruction cases compare
+all represented state bytes and ordered calls. Another540 cases execute
+the original D930 ITEM angle table, including values immediately around
+every threshold. The magnitude gate converts binary32 to a soft double
+and compares against double0.8. The old readable decomp discarded both
+comparison arguments; restoring them improves its measured object
+similarity66.34% to67.98%, while it remains assembly-backed.
+
+`em_status_page` implements the panel cold request, ITEM branch and exit
+of0020CDC0, plus0020E0C0 and the001FEF70 inventory-module lookup. Its1,208
+original-instruction cases cover the real asset-busy gates, successful
+completion, input exit, changed-module reload, restore callbacks and
+return through screen63. No timer fabricates an asynchronous completion.
+The broader status hub and other child pages remain required workers;
+missing or failed workers return a fault and retain status ownership.
+
+`export_item_root.py` executes the original0020F170/0020F2A0 drawers for
+all six hover states and exports their ordered commands,17 original GS
+textures and five group1 help strings into ignored EMIRv2 data. The
+native `em_item_ui` loader/renderer matches all107 original commands,
+including blend changes and the analog trail's position within the
+queue. Its sanitizer fixture also verifies shared-atlas invalidation.
+The trail remains a mandatory worker: the original0020AC70 calls an
+additive Gouraud fan, not a cursor image. That geometry worker and raw
+stick normalization remain to be bound before a complete root-page
+pixel comparison or live panel integration is claimed.
+
+The shared overlay regression now covers ten pixel samples. Both
+original subtract and opaque modes use TEST alpha>0; transparent source
+fragments leave the destination untouched. Additive mode ignores alpha.
+The Metal path preserves mixed-mode submission order and its intervening
+clamps. This GPU fixture is synthetic and contains no original assets.

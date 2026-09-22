@@ -19,7 +19,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_pickup.c \
-           src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
+           src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_status_frame.c src/game/em_panel_message.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c \
@@ -262,6 +262,16 @@ test-panel-program:
 	@mkdir -p build
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/panel_program_test.c src/game/em_panel_program.c src/game/em_script.c src/game/em_panel.c -lm -o build/panel_program_test
 	build/panel_program_test assets/scene_snow/panel/scripts.emsc
+
+.PHONY: test-panel-runtime
+test-panel-runtime:
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc \
+	    tests/panel_runtime_test.c src/game/em_panel_runtime.c src/game/em_panel_program.c src/game/em_panel.c \
+	    src/game/em_interaction_runtime.c src/game/em_interaction_animation.c src/game/em_interaction_frame.c \
+	    src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c \
+	    src/game/em_panel_message.c src/game/em_opening_media.c src/game/em_script.c src/em_model.c -lm -o build/panel_runtime_test
+	build/panel_runtime_test
 
 .PHONY: test-elevator-reference
 .PHONY: test-elevator-runtime
