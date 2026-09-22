@@ -41,8 +41,10 @@ Native integration loads an exported `point_lights.emlp` resource and ticks
 the original pool at the `001D1C50` phase: after ordinary player update and
 before pooled actors, or before actor updates during the opening. The shared
 `em_random_next` supplies its RNG calls. The guessed steam light registration
-is removed. Legacy steam audio and billboard FX remain separate, unaudited
-approximations.
+is removed. The separate particle owner is now recovered in
+[AREA11_EFFECT.md](AREA11_EFFECT.md); its old steam billboards and audio
+retriggers were fabricated. Nearby original sound/contact binding remains
+unfinished.
 
 ## Validation
 

@@ -72,6 +72,25 @@ rounding distinction: descending player Y ends at189.99832153320312; ascending
 ends at229.9993896484375. Only the elevator owner's completion snaps to190/230.
 The test checks the exact carried float bits and final camera target separately.
 
+The refusal's D/sub5 camera now has a complete first-level binding through
+`camera_interaction_retarget_distance_area11`. The argument is−20; current
+camera+C and preset camera+64 both remain−46.8 in the captured reference.
+`em_camera_rotation` follows original001029C0/00102C58/001026A0, including
+Z/Y/X order, the SDK polynomial, zero-angle no-op, homogeneous components
+and each VU operation's rounding.972 original-instruction matrix/offset
+cases match all77,760 output bytes in the bounded arithmetic model.
+
+A fresh original refusal capture in slot13 starts from immutable post-panel
+slot06, clears only the area power bit and arms the actual elevator owner.
+It does not write player pose or camera fields. The source archive hash is
+unchanged and the isolated emulator exits0. At yaw−1.3037610054016113, native
+eye/target coordinates, camera bounds and hit/probe/ground flags match the
+capture exactly. The native overhead collision result differs by one float
+ULP,0.000030517578125; that limitation is recorded under the existing camera
+collision tolerance. The panel fixture remains unchanged. Reproduce with
+`make test-camera-rotation-reference test-camera-interaction-fixture`.
+This is not a claim of complete camera-solver or PS2 hardware equivalence.
+
 `make test-elevator-program` uses the exported scripts under ASan/UBSan with
 explicit frame/player/camera/message boundaries. It checks refusal, both ride
 directions, both camera waits,150 carry callbacks, the final3 script ticks

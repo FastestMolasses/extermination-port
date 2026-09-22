@@ -40,4 +40,10 @@ void em_snow_projection_matrices(EmSnowProjection *projection,
 int em_snow_project(const EmSnowProjection *projection,
                     const EmSnowParticle *particle, EmSnowProjected *out);
 
+/* 00231770 sprite variant used by AREA11 owner008235F0: same GS
+ * projection, without the snow program's extra near-camera attenuation. */
+int em_effect_sprite_project(const EmSnowProjection *projection,
+                             const EmSnowParticle *particle,
+                             EmSnowProjected *out);
+
 #endif

@@ -21,7 +21,8 @@ def fp(x):
  return r
 def signed(x,b=32):return (x&((1<<b)-1))-(1<<b) if x&(1<<(b-1)) else x&((1<<b)-1)
 class VU:
- def __init__(self,dmem):
+ def __init__(self,dmem,program_start=0x233828):
+  self.program_start=program_start
   self.mem=bytearray(dmem);self.v=[[0]*4 for _ in range(32)];self.v[0][3]=bits(1)
   self.vi=[0]*16;self.acc=[0.]*4;self.q=0.;self.r=0;self.i=0.;self.cycle=0;self.pending=[];self.mac=0;self.cf=0;self.kicks=[];self.clips=[]
  def read(self,a):return list(struct.unpack_from('<4I',self.mem,a*16))
@@ -29,8 +30,8 @@ class VU:
  def run(self,pc,stop):
   # The ELF stores two MPG fragments, separated by one header qword's
   # second half. Logical VU branch offsets do not include that gap.
-  def instruction_index(address):return (address-0x233828-(8 if address>=0x234030 else 0))//8
-  def address(index):return 0x233828+index*8+(8 if index>=256 else 0)
+  def instruction_index(address):return (address-self.program_start-(8 if address>=self.program_start+0x808 else 0))//8
+  def address(index):return self.program_start+index*8+(8 if index>=256 else 0)
   branch=None
   for _ in range(100000):
    if pc==stop:return

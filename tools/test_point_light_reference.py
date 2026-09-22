@@ -54,6 +54,7 @@ class Oracle:
         self.condition = False
         self.rng_values = iter(rng_values)
         self.rng_calls = 0
+        self.calls = {}
         self.truncate_ee_division = False
         self.save(0x275670, CONTEXT)
         self.r[28], self.r[29] = 0x27d370, STACK
@@ -189,6 +190,8 @@ class Oracle:
                 self.plain(self.load(pc+4))
                 if target == 0x122bb8:
                     self.r[2] = next(self.rng_values); self.rng_calls += 1; pc += 8
+                elif target in self.calls:
+                    self.calls[target](self); pc += 8
                 else: pc = target
                 continue
             if op in (4,5,20,21):

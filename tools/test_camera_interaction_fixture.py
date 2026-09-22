@@ -22,9 +22,9 @@ def main():
     output=ROOT/'build/camera_interaction';output.mkdir(parents=True,exist_ok=True)
     library=output/'fixture.dylib'
     subprocess.run(['cc','-dynamiclib','-Wl,-undefined,dynamic_lookup','-Wl,-dead_strip',
-        '-Wl,-exported_symbol,_test_retarget','-O1','-g','-Isrc',
+        '-Wl,-exported_symbol,_test_retarget','-Wl,-exported_symbol,_test_refusal','-O1','-g','-Isrc',
         'tests/camera_interaction_fixture.c','src/game/em_camera.c',
-        'src/game/em_camera_probe.c','src/game/em_camera_retarget.c',
+        'src/game/em_camera_probe.c','src/game/em_camera_retarget.c','src/game/em_camera_rotation.c',
         'src/game/em_collision.c','-lm','-o',str(library)],cwd=ROOT,check=True)
     native=C.CDLL(str(library))
     native.test_retarget.argtypes=[C.c_char_p,C.c_char_p,C.POINTER(C.c_float)]
@@ -45,6 +45,32 @@ def main():
             'general_DD20_or_collision_equivalence':False}
     (output/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     print('captured original panel camera fixture PASS',json.dumps(report))
+    refusal=ROOT.parent/'Extermination/build/startup-reference/elevator/refusal/eeMemory.bin'
+    assert refusal.is_file(),'Capture original refusal in fresh slot13 first'
+    native.test_refusal.argtypes=[C.c_char_p,C.c_char_p,C.POINTER(C.c_float)]
+    assert native.test_refusal(str(refusal).encode(),str(world).encode(),result)==1
+    ram=refusal.read_bytes()
+    expected=[struct.unpack_from('<f',ram,camera+offset+i*4)[0]
+              for offset in (0x10,0x20) for i in range(3)]
+    expected.extend(struct.unpack_from('<f',ram,camera+offset)[0] for offset in (0x50,0x54))
+    expected.extend((ram[camera+7],struct.unpack_from('<H',ram,camera+0x5A)[0],
+                     ram[camera+0x6D],struct.unpack_from('<f',ram,camera+0x60)[0]))
+    assert list(result[:6])==expected[:6],('refusal eye/target',list(result),expected)
+    assert list(result[8:11])==expected[8:11],('refusal probe flags',list(result),expected)
+    bound_error=max(abs(result[i]-expected[i]) for i in (6,7))
+    assert bound_error<=0.00006103515625,('refusal bounds',list(result),expected)
+    # The existing native collision walker also supplies the overhead point.
+    # In this second fixture it differs by one float ULP; expose that error
+    # under the same collision-position tolerance used for the bounds.
+    overhead_error=abs(result[11]-expected[11])
+    assert overhead_error<=0.00006103515625,('refusal overhead',list(result),expected)
+    report={'eye_and_target_exact':True,'hit_probe_and_ground_flags_exact':True,
+            'max_bound_error':bound_error,'overhead_error':overhead_error,'distance':-20,
+            'current_and_preset_distance':struct.unpack_from('<f',ram,camera+0xC)[0],
+            'original_rotation':struct.unpack_from('<3f',ram,camera+0x30),
+            'general_DD20_or_collision_equivalence':False}
+    (output/'refusal.json').write_text(json.dumps(report,indent=2)+'\n')
+    print('captured original elevator refusal camera fixture PASS',json.dumps(report))
 
 
 if __name__=='__main__':main()

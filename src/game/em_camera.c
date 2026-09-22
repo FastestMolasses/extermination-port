@@ -12,6 +12,7 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_camera.h"
+#include "game/em_camera_rotation.h"
 #include "game/em_camera_probe.h"
 #include "game/em_camera_retarget.h"
 
@@ -1857,13 +1858,18 @@ static int interaction_camera_prepass(EmCamera *cam,const float hip[3])
 int camera_interaction_retarget_area11(EmCamera *cam,const float hip[3],
                                      const float seed_euler[3],float preset_distance)
 {
+    return camera_interaction_retarget_distance_area11(cam, hip, seed_euler,
+        g.cam_dist_param, preset_distance);
+}
+
+int camera_interaction_retarget_distance_area11(EmCamera *cam, const float hip[3],
+    const float seed_euler[3], float distance, float preset_distance)
+{
     if (!cam || !hip || !seed_euler || !g.coll.blob) return 0;
-    /* Full SDK rotation is a separate porting task. Reject other rotations
-     * instead of changing the first-level panel's proven zero-rotation path. */
-    for (int i=0;i<3;++i) if (seed_euler[i]!=0) return 0;
+    float matrix[16], offset[4];
+    if (!em_camera_rotation_offset(seed_euler, distance, matrix, offset)) return 0;
     memcpy(cam->seed_euler,seed_euler,sizeof cam->seed_euler);
-    const float offset[3]={0,0,g.cam_dist_param};
-    em_camera_retarget_seed(g.pos,offset,g.cam_dist_param,preset_distance,
+    em_camera_retarget_seed(g.pos,offset,distance,preset_distance,
                             cam->eye_des,cam->tgt_des);
     /* 0018D7B0 style5: prepass, bounds update, hit=0, no actual-vector copy. */
     if (!interaction_camera_prepass(cam,hip)) return 0;

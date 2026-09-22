@@ -46,3 +46,10 @@ int em_gfx_particle_texture_set(EmGfx *gfx, const uint8_t *rgba,
 void em_gfx_particles_draw(EmGfx *gfx, const EmGfxParticle *particles,
                             unsigned count)
 { (void)gfx; (void)particles; (void)count; } /* TODO */
+int em_gfx_particle_texture_set_slot(EmGfx *gfx, unsigned slot,
+                                      const uint8_t *rgba,
+                                      uint32_t width, uint32_t height)
+{ (void)slot; return em_gfx_particle_texture_set(gfx, rgba, width, height); }
+void em_gfx_particles_draw_slot(EmGfx *gfx, unsigned slot,
+                                 const EmGfxParticle *particles, unsigned count)
+{ (void)slot; em_gfx_particles_draw(gfx, particles, count); }

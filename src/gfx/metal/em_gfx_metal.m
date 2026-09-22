@@ -69,11 +69,13 @@ struct EmGfx {
     id<MTLTexture>               overlayTex[2];
     float                        overlayTexW[2], overlayTexH[2];
     id<MTLRenderPipelineState>   glyphPipeline;  /* textured overlay PSO  */
+    id<MTLRenderPipelineState>   spriteAddPipeline, spriteSubPipeline, spriteOpaquePipeline;
     id<MTLSamplerState>          clampSampler;   /* linear, clamp-to-edge */
     float                        glyphVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
     uint32_t                     glyphVertCount;
     float                        spriteVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
     uint32_t                     spriteVertCount;
+    uint8_t                      spriteBlend[EM_GFX_OVERLAY_MAX];
     /* Backdrop layer (em_gfx_overlay_backdrop / _backdrop_fill): the
      * animated UI background — UI-slot quads + an optional full-frame
      * solid fill, flushed FIRST in the overlay sequence (bottom layer,
@@ -124,7 +126,7 @@ struct EmGfx {
      * additive beam pass sampling these registered slots. */
     id<MTLTexture>               beamTex[EM_GFX_BEAM_TEX_MAX];
     id<MTLRenderPipelineState>   beamTexPipeline;  /* additive, textured */
-    id<MTLTexture>               particleTexture;
+    id<MTLTexture>               particleTexture[EM_GFX_PARTICLE_TEX_MAX];
     id<MTLRenderPipelineState>   particlePipeline;
     /* Last skinned draw's leading bone matrices (em_gfx_last_skinned_bone
      * — the native bone-publish; the chain draws the player LAST, so this
@@ -216,6 +218,13 @@ static NSString *const kGlyphShaderSrc =
 "                        texture2d<float> tex [[texture(0)]],\n"
 "                        sampler smp [[sampler(0)]]) {\n"
 "    return tex.sample(smp, in.uv) * in.color;\n"
+"}\n"
+"fragment float4 f_glyph_opaque(VOut in [[stage_in]],\n"
+"                        texture2d<float> tex [[texture(0)]],\n"
+"                        sampler smp [[sampler(0)]]) {\n"
+"    float4 color = tex.sample(smp, in.uv) * in.color;\n"
+"    if (color.a <= 0.0) discard_fragment();\n"
+"    return color;\n"
 "}\n";
 
 /* Beam shader — world-space position + color through the camera, compiled
@@ -455,6 +464,7 @@ typedef enum {
     EM_BLEND_ADD,   /* additive (A=Cs B=0 C=FIX 0x80 D=Cd): src + dst     */
     EM_BLEND_RSUB,  /* reverse subtract (A=Cd B=Cs C=FIX 0x80 D=0):
                        max(0, dst - src) — the screen-fade sprite blend   */
+    EM_BLEND_OPAQUE,
 } EmBlendMode;
 
 /* Compile MSL source at runtime and build a pipeline for the swapchain +
@@ -492,6 +502,9 @@ static id<MTLRenderPipelineState> build_pipeline(EmGfx *g, NSString *src,
      * target exactly like the GS clamp, and dest alpha is kept. */
     pd.colorAttachments[0].blendingEnabled = YES;
     switch (blend) {
+    case EM_BLEND_OPAQUE:
+        pd.colorAttachments[0].blendingEnabled = NO;
+        break;
     case EM_BLEND_ADD:
         pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorOne;
         pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOne;
@@ -589,11 +602,15 @@ void em_gfx_destroy(EmGfx *g)
     [g->glowPipeline release];
     [g->beamPipeline release];
     [g->beamTexPipeline release];
-    [g->particleTexture release];
+    for (unsigned i = 0; i < EM_GFX_PARTICLE_TEX_MAX; ++i)
+        [g->particleTexture[i] release];
     [g->particlePipeline release];
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
         [g->beamTex[i] release];
     [g->glyphPipeline release];
+    [g->spriteAddPipeline release];
+    [g->spriteSubPipeline release];
+    [g->spriteOpaquePipeline release];
     [g->subPipeline release];
     [g->addOverlayPipeline release];
     [g->overlayTex[0] release];
@@ -1285,10 +1302,18 @@ void em_gfx_overlay_sprite(EmGfx *g, float x, float y, float w, float h,
                            float u0, float v0, float u1, float v1,
                            const float rgba[4])
 {
-    if (!g) return;
+    em_gfx_overlay_sprite_blend(g,x,y,w,h,u0,v0,u1,v1,rgba,EM_GFX_UI_ALPHA);
+}
+
+void em_gfx_overlay_sprite_blend(EmGfx *g,float x,float y,float w,float h,
+    float u0,float v0,float u1,float v1,const float rgba[4],EmGfxOverlayBlend blend)
+{
+    if (!g || blend<EM_GFX_UI_ALPHA || blend>EM_GFX_UI_OPAQUE) return;
+    uint32_t start=g->spriteVertCount;
     texquad_queue(g, g->spriteVerts, &g->spriteVertCount,
                   EM_GFX_OVERLAY_TEX_UI, EM_GFX_OVERLAY_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
+    if (g->spriteVertCount!=start) g->spriteBlend[start/6]=(uint8_t)blend;
 }
 
 /* Queue one BACKDROP quad — UI slot, bottom layer (em_gfx.h). */
@@ -1470,13 +1495,14 @@ void em_gfx_beam_tri_tex(EmGfx *g, int slot, const float p[9],
     t->tex = slot;
 }
 
-int em_gfx_particle_texture_set(EmGfx *g, const uint8_t *rgba,
-                                 uint32_t width, uint32_t height)
+int em_gfx_particle_texture_set_slot(EmGfx *g, unsigned slot,
+                                      const uint8_t *rgba,
+                                      uint32_t width, uint32_t height)
 {
-    if (!g) return 0;
+    if (!g || slot >= EM_GFX_PARTICLE_TEX_MAX) return 0;
     if (!rgba && !width && !height) {
-        [g->particleTexture release];
-        g->particleTexture = nil;
+        [g->particleTexture[slot] release];
+        g->particleTexture[slot] = nil;
         return 1;
     }
     if (!rgba || !width || !height || width > 256 || height > 256) return 0;
@@ -1488,15 +1514,16 @@ int em_gfx_particle_texture_set(EmGfx *g, const uint8_t *rgba,
     if (!texture) return 0;
     [texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
               mipmapLevel:0 withBytes:rgba bytesPerRow:width * 4];
-    [g->particleTexture release];
-    g->particleTexture = texture;
+    [g->particleTexture[slot] release];
+    g->particleTexture[slot] = texture;
     return 1;
 }
 
-void em_gfx_particles_draw(EmGfx *g, const EmGfxParticle *particles,
-                            unsigned count)
+void em_gfx_particles_draw_slot(EmGfx *g, unsigned slot,
+                                 const EmGfxParticle *particles, unsigned count)
 {
-    if (!g || !g->enc || !g->particleTexture || !particles || !count || count > 4096)
+    if (!g || !g->enc || slot >= EM_GFX_PARTICLE_TEX_MAX ||
+        !g->particleTexture[slot] || !particles || !count || count > 4096)
         return;
     if (!g->particlePipeline)
         g->particlePipeline = build_pipeline(g, kParticleShaderSrc,
@@ -1541,10 +1568,22 @@ void em_gfx_particles_draw(EmGfx *g, const EmGfxParticle *particles,
     [g->enc setDepthStencilState:g->depthGlow];
     [g->enc setCullMode:MTLCullModeNone];
     [g->enc setVertexBuffer:buffer offset:0 atIndex:0];
-    [g->enc setFragmentTexture:g->particleTexture atIndex:0];
+    [g->enc setFragmentTexture:g->particleTexture[slot] atIndex:0];
     [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count * 6];
     [buffer release];
+}
+
+int em_gfx_particle_texture_set(EmGfx *g, const uint8_t *rgba,
+                                 uint32_t width, uint32_t height)
+{
+    return em_gfx_particle_texture_set_slot(g, 0, rgba, width, height);
+}
+
+void em_gfx_particles_draw(EmGfx *g, const EmGfxParticle *particles,
+                            unsigned count)
+{
+    em_gfx_particles_draw_slot(g, 0, particles, count);
 }
 
 /* Set this frame's flashlight spot (em_gfx.h "Flashlight spot light" —
@@ -1963,7 +2002,7 @@ static void overlay_sub_flush(EmGfx *g, bool before_text)
  * MMAG/MMIN=1). Called for the UI-decor slot first, the font slot last
  * (decor under text — see em_gfx.h). */
 static void texquad_flush(EmGfx *g, int slot, float *verts_data,
-                          uint32_t *count)
+                          uint32_t *count,const uint8_t *blend_modes)
 {
     uint32_t verts = *count;
     *count = 0;
@@ -1989,15 +2028,31 @@ static void texquad_flush(EmGfx *g, int slot, float *verts_data,
                                length:(NSUInteger)verts * 12 * sizeof(float)
                               options:MTLResourceStorageModeShared];
     if (!vbuf) return;
-    [g->enc setRenderPipelineState:g->glyphPipeline];
     [g->enc setDepthStencilState:g->depthOff];
     [g->enc setCullMode:MTLCullModeNone];
     [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
     [g->enc setFragmentTexture:g->overlayTex[slot] atIndex:0];
     [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
-    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
-               vertexStart:0
-               vertexCount:(NSUInteger)verts];
+    for (uint32_t start=0;start<verts;) {
+        unsigned mode=blend_modes ? blend_modes[start/6] : EM_GFX_UI_ALPHA;
+        uint32_t end=start+6;
+        while (end<verts && (!blend_modes || blend_modes[end/6]==mode)) end+=6;
+        id<MTLRenderPipelineState> *pipeline=&g->glyphPipeline;
+        EmBlendMode blend=EM_BLEND_ALPHA;
+        NSString *fragment=@"f_glyph";
+        if (mode==EM_GFX_UI_ADD) {pipeline=&g->spriteAddPipeline;blend=EM_BLEND_ADD;}
+        else if (mode==EM_GFX_UI_SUBTRACT) {pipeline=&g->spriteSubPipeline;blend=EM_BLEND_RSUB;}
+        else if (mode==EM_GFX_UI_OPAQUE) {
+            pipeline=&g->spriteOpaquePipeline;blend=EM_BLEND_OPAQUE;fragment=@"f_glyph_opaque";
+        }
+        if (!*pipeline) *pipeline=build_pipeline(g,kGlyphShaderSrc,@"v_glyph",fragment,blend);
+        if (!*pipeline) break;
+        [g->enc setRenderPipelineState:*pipeline];
+        [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                   vertexStart:(NSUInteger)start
+                   vertexCount:(NSUInteger)(end-start)];
+        start=end;
+    }
     [vbuf release];   /* the in-flight command buffer keeps it alive */
 }
 
@@ -2043,7 +2098,7 @@ static void backdrop_flush(EmGfx *g)
         }
     }
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,
-                  g->backdropVerts, &g->backdropVertCount);
+                  g->backdropVerts, &g->backdropVertCount,NULL);
 }
 
 void em_gfx_request_capture(EmGfx *g, const char *path)
@@ -2098,9 +2153,9 @@ void em_gfx_end_frame(EmGfx *g)
     backdrop_flush(g);  /* UI background: bottom of the overlay sequence */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,     /* decor over the rects  */
-                  g->spriteVerts, &g->spriteVertCount);
+                  g->spriteVerts, &g->spriteVertCount,g->spriteBlend);
     texquad_flush(g, EM_GFX_OVERLAY_TEX_FONT,   /* text over everything  */
-                  g->glyphVerts, &g->glyphVertCount);
+                  g->glyphVerts, &g->glyphVertCount,NULL);
     overlay_sub_flush(g, false); /* screen fade darkens the whole frame */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 

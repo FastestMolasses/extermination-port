@@ -170,6 +170,7 @@
 #include "game/em_opening_runtime.h"
 #include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
+#include "game/em_area11_effect_runtime.h"
 #include "game/em_opening_control_test.h"
 
 /* The gameplay state object declared in em_game_internal.h. */
@@ -852,53 +853,6 @@ static void point_light_tick(void)
     if (g.point_lights_loaded)
         em_point_light_tick(&g.point_lights, g.point_lights_area_key,
                             point_light_random, NULL);
-}
-
-/* Legacy steam audio/FX approximation. This tick owns the two
- * time-varying parts: the LOOPING HISS (0x413, retriggered every
- * STEAM_SND_PERIOD frames because the port SFX path is one-shot — there
- * is no loop primitive in em_sfx; em_sfx_play_at culls it by distance like
- * the engine's play_sound, so it is silent until the player is within
- * STEAM_SND_RADIUS), and the PUFF FX phase. Dormant unless a `steam` line
- * was parsed, so non-AREA-11 scenes do nothing. */
-static void steam_tick(void)
-{
-    if (!g.steam_on) return;
-    if (g.steam_snd_t <= 0) {
-        em_sfx_play_at(STEAM_SND_ID, g.steam_pos, STEAM_SND_RADIUS);
-        g.steam_snd_t = STEAM_SND_PERIOD;
-    } else {
-        g.steam_snd_t--;
-    }
-    /* puff cycle: a normalized 0..1 phase that the render reads to rise +
-     * fade the billboard (a looping vent puff). */
-    g.steam_fx_phase += 1.0f / 120.0f;     /* ~2 s loop @ 60 Hz */
-    if (g.steam_fx_phase >= 1.0f) g.steam_fx_phase -= 1.0f;
-}
-
-/* AREA-11 STEAM PUFF FX — a minimal billboard plume (em_gfx_beam_dot:
- * additive camera-facing world quad, the same path the laser dot uses).
- * Draws two offset puffs rising + fading on the looping phase. Queued in
- * the world pass (a 3D draw must have run this frame, as for the laser).
- * Cosmetic + optional per the task; the light + sound are the priority.
- * No-op unless the emitter is present. */
-static void steam_fx_render(EmGfx *gfx)
-{
-    if (!g.steam_on || !gfx) return;
-    for (int i = 0; i < 2; i++) {
-        float ph = g.steam_fx_phase + 0.5f * (float)i;
-        if (ph >= 1.0f) ph -= 1.0f;
-        /* fade in over the first 20%, out over the last 50% (a soft puff) */
-        float a = ph < 0.2f ? ph / 0.2f
-                : ph > 0.5f ? (1.0f - ph) / 0.5f : 1.0f;
-        if (a <= 0.0f) continue;
-        float p[3] = { g.steam_pos[0],
-                       g.steam_pos[1] + STEAM_FX_RISE * ph,
-                       g.steam_pos[2] };
-        /* faint warm-white steam, low alpha so it stays subtle */
-        const float rgba[4] = { 0.85f, 0.82f, 0.78f, 0.22f * a };
-        em_gfx_beam_dot(gfx, p, STEAM_FX_SIZE * (0.6f + 0.8f * ph), rgba);
-    }
 }
 
 /* loco_clip_for_tier — the mode-1 id row {0,1,2,3} (idle/walk/jog/run)
@@ -1995,19 +1949,13 @@ static void frame_close_out(void)
         em_props_indicators_draw(gfx, g.viewproj);
         em_snow_runtime_draw(gfx, g.cam.view,
             g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
+        em_area11_effect_runtime_draw(gfx, g.cam.view,
+            g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }
     g.ui_prev = ui_scene;     /* edge tracking for the scene re-init */
     em_hud_scene_3d(ui_scene);  /* background skips its base fill */
-
-    /* AREA-11 STEAM PUFF FX (record 7 — the cosmetic billboard plume;
-     * INVESTIGATION_first_level_area11.md §3/§6). Queued only over the
-     * WORLD flush (not the status-screen UI scene); the beam pass needs a
-     * 3D draw, which the world flush above provided. No-op without a
-     * `steam` line (other scenes untouched). */
-    if (!ui_scene)
-        steam_fx_render(gfx);
 
     /* Weapon feedback overlays (crosshair / muzzle-flash placeholders —
      * em_weapon.h "VISUAL FEEDBACK"); queues nothing while holstered, so
@@ -5016,13 +4964,12 @@ static void gameplay_frame(void)
     director_tick();
     /* Keep the original static panel transform; this model never slides. */
     grate_update();
-    /* Legacy steam audio/FX; independent of the original room light. */
-    steam_tick();
     actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     actor_context_end();     /* func_001CB5A0                         */
     point_light_tick();      /* 001D1C50 -> 001D7C30, before pooled actors */
     em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
+    em_area11_effect_runtime_tick();
     render_chain_build();    /* func_001D1C50 — render chain build    */
     render_env_init();       /* func_001C1D00(0x008101D0)             */
     /* func_001AFD70(0) — the actor-pool tick (world services). The
@@ -5245,7 +5192,7 @@ static void cutscene_frame(void)
     em_collision_blocker_clear();
     point_light_tick();      /* 001AE6B0 calls 001D1C50 before actor pools */
     em_opening_runtime_tick();
-    steam_tick();
+    em_area11_effect_runtime_tick();
     grate_update();
     em_snow_runtime_tick(previous_eye, 1);
     em_pickup_update(g.pos, g.yaw, em_frame_input(), 0);
@@ -5879,6 +5826,7 @@ void em_game_shutdown(void)
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);
     em_snow_runtime_clear(gfx);
+    em_area11_effect_runtime_clear(gfx);
     em_examine_reset();
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */

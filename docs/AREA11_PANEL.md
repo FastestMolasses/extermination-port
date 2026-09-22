@@ -185,7 +185,11 @@ CBD0 and the existing DD20 solver with mask6. Its captured panel fixture
 matches eye, target, hit/ground flags and overhead exactly; the maximum
 bounds error is0.000030517578125 against an explicit0.00006103515625
 host/EE tolerance. The verified fixture has zero seed Euler angles. The
-hook rejects other rotations instead of substituting host trigonometry.
+original fixture established the initial zero-rotation path. The subsequent
+`em_camera_rotation` implementation now covers finite normalized Euler angles:
+972 original SDK matrix/offset cases pass byte-for-byte, and a nonzero-yaw
+elevator refusal capture matches all six camera coordinates. See
+`AREA11_ELEVATOR.md` for the separate one-ULP overhead collision limitation.
 The actual panel body belongs to cell-world set2 and therefore remains
 included by mask6; it is not a guessed movable hull.
 
@@ -211,9 +215,12 @@ integration contract test, not a second original-instruction oracle.
 the original player bank. Confirmation remaining75 corresponds to cursor5,
 not elapsed75; its21 matrices agree with the original capture within
 0.00006103515625. Existing nonzero clips, geometry and textures are
-preserved. Acquisition still requires the original per-node blend8 from
-the previous source channels; a matrix blend or immediate idle-pose snap
-is not provided as a fallback.
+preserved. Acquisition's default-clip request has flags0: an already-active
+idle0 keeps its cursor, while a different source clip requires the original
+per-node blend8. Neither case adds a readiness delay. Release from47/15C
+forces idle0 with flags1/blend0; its subsequent default/blend16 request
+then does nothing because idle0 is already active. A matrix blend is not
+provided as a fallback for a required source-channel transition.
 
 `em_status_frame` implements original 001AE040's status entry and phases3/5.
 Its432 original-instruction comparisons match state bytes and ordered

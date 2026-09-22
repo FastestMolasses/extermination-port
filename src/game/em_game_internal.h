@@ -132,16 +132,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define ELEV_FRAMES     150          /* +0x2EC < 0x96 */
 #define ELEV_SFX_DOWN   0x453u       /* func_001FBD50(300, 0x453) — down */
 
-/* Legacy steam audio/FX approximation. The original auxiliary point light
- * is an independent room table, handled by EmPointLightPool below. */
-#define STEAM_SND_ID      0x413u   /* the looping ambient hiss (sfx.txt) */
-#define STEAM_SND_RADIUS  300.0f   /* play_sound radius (the bank default) */
-#define STEAM_SND_PERIOD  90       /* frames between hiss retriggers — the
-                                    * port emulates a loop (em_sfx is
-                                    * one-shot); ~1.5 s, well under the
-                                    * clip length so it reads continuous */
-#define STEAM_FX_SIZE     2.2f     /* steam puff billboard size (world u) */
-#define STEAM_FX_RISE     6.0f     /* puff vertical travel over one cycle */
 #define GAIT_RING_1     48.0f   /* func_001B5CC0 rings, raw stick units */
 #define GAIT_RING_2     88.0f
 #define GAIT_RING_3     122.0f
@@ -2173,18 +2163,6 @@ typedef struct {
     float       cine_blend_tgt[3];  /* a BLEND keyframe's live start tgt */
     int         cine_fade;       /* letterbox fade accumulator (0..FADE) */
     int         cine_was;        /* a beat ran last frame (restore edge) */
-
-    /* Legacy AREA11 steam audio/FX approximation, separate from the
-     * authored auxiliary lamp. It carries a looping ambient hiss
-     * (sound 0x413, retriggered on a fixed interval since the
-     * port SFX path is one-shot only — em_sfx has no loop primitive), and
-     * a minimal billboard steam PUFF FX (em_gfx_beam_dot, additive
-     * camera-facing). `steam` scene verb; one emitter per scene. Absent
-     * line => steam_on 0 => no sound/FX (other scenes untouched). */
-    int         steam_on;        /* a `steam` line was parsed */
-    float       steam_pos[3];    /* emitter world position */
-    int         steam_snd_t;     /* frames until the next 0x413 retrigger */
-    float       steam_fx_phase;  /* puff animation phase (rise + fade loop) */
 
     /* AREA-11 AREA-TITLE CARD ("FORT STEWART - REAR ENTRANCE", string table
      * 0x00273B80 idx1 — INVESTIGATION_area11_director.md §4.4. Rides the

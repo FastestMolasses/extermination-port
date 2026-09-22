@@ -16,6 +16,7 @@
 /* the scene loader installs and tears down the placed set pieces */
 #include "game/em_props.h"
 #include "game/em_snow_runtime.h"
+#include "game/em_area11_effect_runtime.h"
 
 /* manifest_word_token — does `line` contain `tok` as a WHOLE WORD
  * (delimited by start-of-line/space on the left and end-of-line/space on
@@ -41,6 +42,7 @@ static int manifest_word_token(const char *line, const char *tok)
 void scene_manifest_load(void)
 {
     em_snow_runtime_clear(em_frame_gfx());
+    em_area11_effect_runtime_clear(em_frame_gfx());
     em_enemy_set_scene_directory(g.scene_dir);
     g.spawn[0]  = kPlayerPos[0];
     g.spawn[1]  = kPlayerPos[1];
@@ -55,7 +57,6 @@ void scene_manifest_load(void)
     g.n_lamp       = 0;
     g.point_lights_loaded = 0;
     em_point_light_reset(&g.point_lights);
-    g.steam_on     = 0;     /* AREA-11 steam/FX emitter is per-scene data */
     g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
     g.opencam_on   = 0;     /* the opening-camera seat is per-scene data too:
                              * without this reset a scene with no `opencam`
@@ -440,16 +441,13 @@ void scene_manifest_load(void)
              * the port — it is bookkeeping only, not a behaviour gate. */
             g.area_title_armed = 1;
             em_hud_area_title(gk);
-        } else if (sscanf(line, "steam %f %f %f", &x, &y, &z) == 3) {
-            /* Legacy steam audio/FX approximation. Original point lights
-             * come from the separate authored room table above. */
-            g.steam_on     = 1;
-            g.steam_pos[0] = x;
-            g.steam_pos[1] = y;
-            g.steam_pos[2] = z;
-            g.steam_snd_t  = 0;       /* fire the hiss on the first tick */
-            g.steam_fx_phase = 0.0f;
-            printf("manifest: legacy steam audio/FX at (%.1f, %.1f, %.1f)\n", x, y, z);
+        } else if (sscanf(line, "area11effect %255s %63s", name, gname) == 2) {
+            if (!em_area11_effect_runtime_load(em_frame_gfx(), g.scene_dir, name, gname)) {
+                fprintf(stderr, "manifest: required AREA11 effect failed to load\n");
+                em_frame_request_quit();
+            } else {
+                printf("manifest: original AREA11 effect, 80 particles; audio/contact binding pending\n");
+            }
         } else if ((gn = sscanf(line, "pickup %i %f %f %f %f %i "
                                 "%255s %63s",
                                 &gk, &x, &y, &z, &yaw, &gl,
@@ -754,6 +752,7 @@ int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
 void scene_unload(EmGfx *gfx)
 {
     em_snow_runtime_clear(gfx);
+    em_area11_effect_runtime_clear(gfx);
     for (int i = 0; i < g.n_scene; i++) {
         em_gfx_mesh_destroy(gfx, g.scene[i].mesh);
         em_model_free(&g.scene[i].model);

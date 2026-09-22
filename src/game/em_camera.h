@@ -22,9 +22,15 @@ void camera_entry_seat(EmCamera *cam);
 /* Original panel opcodeD/sub3 sequence: seed, probe style5, solve style1,
  * publish vectors, camera+A0=120. AREA11 only. Returns0 if the collision
  * world is absent or the requested scratchpad rotation is unsupported.
- * The first-level panel's proven aligned rotation is exactly zero. */
+ * Normalized Euler rotations use the original SDK polynomial; the panel
+ * fixture is zero and the elevator refusal fixture has nonzero yaw. */
 int camera_interaction_retarget_area11(EmCamera *cam,const float player_hip[3],
                                      const float seed_euler[3],float preset_distance);
+/* D/sub5 uses distance-20, independent of both current camera+C and preset+64.
+ * The original Z/Y/X rotation and homogeneous offset are applied before the
+ * same prepass/bounds/solver sequence. No camera+C field is overwritten. */
+int camera_interaction_retarget_distance_area11(EmCamera *cam, const float player_hip[3],
+    const float seed_euler[3], float distance, float preset_distance);
 float cam_dot3(const float a[3], const float b[3]);
 float cam_wrap_pi(float a)               /* func_001B1470 */;
 void cam_norm3(float v[3])               /* func_00102760 */;

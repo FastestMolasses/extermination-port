@@ -297,6 +297,18 @@ void em_gfx_overlay_sprite(EmGfx *gfx, float x, float y, float w, float h,
                            float u0, float v0, float u1, float v1,
                            const float rgba[4]);
 
+/* Original00207D00 UI modes. Mixed calls preserve sprite submission order,
+ * including clamps between additive/subtractive draws. Opaque mode retains
+ * the original TEST alpha>0 cutout, then replaces destination RGBA. */
+typedef enum {
+    EM_GFX_UI_ALPHA=0,    /* GS ALPHA44: Cs*As+Cd*(1-As) */
+    EM_GFX_UI_ADD=1,      /* GS ALPHA68/FIX80: Cs+Cd */
+    EM_GFX_UI_SUBTRACT=2, /* GS ALPHA62/FIX80: Cd-Cs */
+    EM_GFX_UI_OPAQUE=3    /* GS ALPHAA8/FIX80: Cs */
+} EmGfxOverlayBlend;
+void em_gfx_overlay_sprite_blend(EmGfx *gfx,float x,float y,float w,float h,
+    float u0,float v0,float u1,float v1,const float rgba[4],EmGfxOverlayBlend blend);
+
 /* --- overlay BACKDROP layer (the animated UI background) -------------- */
 
 /* The engine draws every status/UI screen over an ANIMATED FULL-SCREEN
@@ -359,6 +371,13 @@ typedef struct EmGfxParticle {
     float st[2][2];
     float color[4];
 } EmGfxParticle;
+#define EM_GFX_PARTICLE_TEX_MAX 4
+int em_gfx_particle_texture_set_slot(EmGfx *gfx, unsigned slot,
+                                      const uint8_t *rgba,
+                                      uint32_t width, uint32_t height);
+void em_gfx_particles_draw_slot(EmGfx *gfx, unsigned slot,
+                                 const EmGfxParticle *particles, unsigned count);
+/* Existing snowfall owns slot0; independent effects retain their textures. */
 int em_gfx_particle_texture_set(EmGfx *gfx, const uint8_t *rgba,
                                  uint32_t width, uint32_t height);
 void em_gfx_particles_draw(EmGfx *gfx, const EmGfxParticle *particles,

@@ -63,8 +63,9 @@ static uint32_t fixed4(float value)
     return (uint32_t)(int32_t)scaled;
 }
 
-int em_snow_project(const EmSnowProjection *projection,
-                    const EmSnowParticle *particle, EmSnowProjected *out)
+static int project(const EmSnowProjection *projection,
+                   const EmSnowParticle *particle, EmSnowProjected *out,
+                   int snow_near_fade)
 {
     /* The original matrix chain uses a constant1 for translation even if
      * the scratch particle's W differs. Preserve that operand explicitly. */
@@ -101,7 +102,16 @@ int em_snow_project(const EmSnowProjection *projection,
 
     screen[3] = add(projection->fog[2], multiply(projection->fog[3], clip_w));
     screen[3] = fmaxf(fminf(screen[3], projection->fog[0]), 0.0f);
-    em_snow_particles_color(particle->color, clip_w, projection->fog, out->color);
+    if (snow_near_fade) {
+        em_snow_particles_color(particle->color, clip_w, projection->fog, out->color);
+    } else {
+        /* 00231770's sprite program shares the projection instructions,
+         * but does not apply 00233800's additional min(depth/50,1). */
+        for (unsigned component = 0; component < 4; ++component) {
+            float value = multiply(particle->color[component], 1.0f / 256.0f);
+            out->color[component] = (uint32_t)(int32_t)multiply(value, screen[3]);
+        }
+    }
     for (unsigned axis = 0; axis < 4; ++axis) {
         out->xyzf[0][axis] = fixed4(add(screen[axis], extent[axis]));
         out->xyzf[1][axis] = fixed4(add(screen[axis], -extent[axis]));
@@ -109,4 +119,17 @@ int em_snow_project(const EmSnowProjection *projection,
     out->st[0][0] = out->st[0][1] = 0.0f;
     out->st[1][0] = out->st[1][1] = 1.0f;
     return 1;
+}
+
+int em_snow_project(const EmSnowProjection *projection,
+                    const EmSnowParticle *particle, EmSnowProjected *out)
+{
+    return project(projection, particle, out, 1);
+}
+
+int em_effect_sprite_project(const EmSnowProjection *projection,
+                             const EmSnowParticle *particle,
+                             EmSnowProjected *out)
+{
+    return project(projection, particle, out, 0);
 }
