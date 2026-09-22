@@ -13,9 +13,19 @@ acquire, idle, script and release helpers.
 `../Extermination/extract/chunk28/f01_id3c.bin`, runtime bank `0xD689C0`. The
 ignored `assets/player_channels.empc` contains decoded keys, original key times,
 hold flags, parent indices and clip headers for clips `0x00`, `0x01`, `0x02`,
-`0x03`, `0x04`, `0x05`, `0x40`, `0x41`, `0x42`, `0x47`, `0x15C` and `0x15D`.
+`0x03`, `0x04`, `0x05`, `0x40`, `0x41`, `0x42`, `0x43`, `0x45`, `0x47`,
+`0x15C` and `0x15D`.
 There are 21 original nodes and a trailing identity palette slot in the native
 model. No original binary content is checked in.
+
+Door43/45 use original headers57AF0/5D320:21 nodes,150 frames,next=-2,
+blend0 and no event table. Their twelve-byte rows at248C90 are
+`(0,0,0,0,1.0)`, so release forces idle0/blend0 before the ordinary
+same-clip blend16 request. `export_door_player_clips.py` replaces only those
+two existing palette slots; the other55 model clips and every geometry,
+texture and table byte survive unchanged. Adding their raw keys also
+preserves all12 existing EMPC clip payloads exactly. No live door-player
+matrix capture has yet been asserted.
 
 The following sources establish the implemented boundaries:
 

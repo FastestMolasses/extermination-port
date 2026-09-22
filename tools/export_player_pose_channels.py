@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 import sys
 ROOT=Path(__file__).resolve().parents[1]
-CLIPS=(0,1,2,3,4,5,0x40,0x41,0x42,0x47,0x15c,0x15d)
+CLIPS=(0,1,2,3,4,5,0x40,0x41,0x42,0x43,0x45,0x47,0x15c,0x15d)
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)

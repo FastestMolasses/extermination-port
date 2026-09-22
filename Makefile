@@ -17,7 +17,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
-           src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_bgm.c \
+           src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_roger.c src/game/em_roger_assets.c \
            src/game/em_roger_runtime.c src/game/em_face_model.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
@@ -513,3 +513,16 @@ test-area11-sfx-reference:
 
 test-area11-sfx:
 	python3 tools/test_area11_sfx_runtime.py
+
+# Original door transit and shared-player program.
+.PHONY: test-door-transit
+test-door-transit:
+	python3 tools/test_door_transit_reference.py
+
+.PHONY: test-door-program
+test-door-program:
+	python3 tools/test_door_program_reference.py
+
+.PHONY: test-door-program-runtime
+test-door-program-runtime:
+	python3 tools/test_door_program_runtime.py

@@ -79,7 +79,8 @@ int main(void)
     assert(!pose.transition.active && pose.playback.remaining == 6);
 
     EmModelClip clips[] = {{0x47, 0, 200, 60}, {0x15C, 200, 121, 60},
-                           {0x40, 321, 45, 60}, {0x41, 366, 45, 60}, {0x42, 411, 45, 60}};
+                           {0x40, 321, 45, 60}, {0x41, 366, 45, 60}, {0x42, 411, 45, 60},
+                           {0x43, 456, 150, 60}, {0x45, 606, 150, 60}};
     EmModel model = {0};
     model.bone_count = 22;
     model.clips = clips;

@@ -182,7 +182,8 @@ def main():
     assert native.load(str(ROOT/'assets/player.emdl').encode()) == 0
     rows = []
     comparisons = 0
-    for clip, duration in ((0x47, 200), (0x15C, 121), (0x40, 45), (0x41, 45), (0x42, 45)):
+    for clip, duration in ((0x47, 200), (0x15C, 121), (0x40, 45), (0x41, 45),
+                           (0x42, 45), (0x43, 150), (0x45, 150)):
         header = struct.unpack_from('<I', bank, 4+clip*4)[0]
         assert struct.unpack_from('<HHh', bank, header) == (21, duration, -2)
         assert struct.unpack_from('<I', bank, header+0x14)[0] == 0

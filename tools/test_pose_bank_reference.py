@@ -98,7 +98,7 @@ int captured_palette(const EmPoseBank *bank, unsigned clip, unsigned ticks, floa
         native.em_pose_bank_free.argtypes=[C.POINTER(Bank)]
         native.captured_palette.argtypes=[C.POINTER(Bank),C.c_uint,C.c_uint,C.POINTER(C.c_float)]
         assert native.em_pose_bank_load(C.byref(bank),str(ROOT/'assets/player_channels.empc').encode())
-        assert (bank.bone_count,bank.clip_count)==(21,12)
+        assert (bank.bone_count,bank.clip_count)==(21,14)
         elf=(ROOT.parent/'Extermination/config/SCUS_971.12').read_bytes()
         source=(ROOT.parent/'Extermination/extract/chunk28/f01_id3c.bin').read_bytes()
         decoder=Original(elf);decoded=0

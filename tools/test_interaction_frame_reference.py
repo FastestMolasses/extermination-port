@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute original001B82D0 sub2/sub4/sub13 against the shared interaction core.
+"""Execute original001B82D0 sub0/sub2/sub4/sub13 against the shared interaction core.
 
 Reads original instructions from the user's ELF. Fade, projection, audio and
 skeleton calls are intercepted and compared in order. The original activity
@@ -144,7 +144,7 @@ def main():
                                               C.c_uint,C.c_int,callback,C.c_void_p]
     count=0
     for sub,phase,selector,ready,player,mode,skip,skip_phase,immediate in itertools.product(
-            (2,4,13),(0,1,2),(0,1,2,3),(0,1),(0,1,2),(0,3),(0,2),(0,1,2),(0,1)):
+            (0,2,4,13),(0,1,2,0x123400,0x123401),(0,1,2,3),(0,1),(0,1,2),(0,3),(0,2),(0,1,2),(0,1)):
         state=Frame(selector,player,ready,4,5,6,7,mode,8,9,
                     (C.c_uint8*12)(*range(12)),321,12,470,(C.c_float*4)(1,2,3,4))
         expected=oracle(elf,state,phase,skip_phase,skip,sub,immediate)

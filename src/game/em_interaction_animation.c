@@ -5,8 +5,10 @@ static unsigned original_duration(uint16_t clip)
 {
     /* These original headers terminate with next=-2 and have no event
      * table. The pickup40/41/42 source offsets are543F0/55530/56810 in
-     * the same original player bank as lever47 and panel15C. */
+     * the same original player bank as door43/45, lever47 and panel15C.
+     * Door headers57AF0/5D320 each contain150 source frames. */
     if (clip >= 0x40 && clip <= 0x42) return 45;
+    if (clip == 0x43 || clip == 0x45) return 150;
     return clip == 0x47 ? 200 : clip == 0x15C ? 121 : 0;
 }
 

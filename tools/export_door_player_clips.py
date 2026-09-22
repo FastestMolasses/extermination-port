@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Replace pickup40/41/42 palettes from the validated original node-channel bank.
+"""Replace door43/45 palettes from the validated original node-channel bank.
 
 Original header and release/rate rows are checked before changing the asset.
 The matching original whole player bank is verified against an immutable EE
 capture. Other animation slots, geometry, texture bytes and all tables remain
-unchanged. No captured pickup matrix sequence is claimed by this exporter.
+unchanged. No captured door-player matrix sequence is claimed by this exporter.
 """
 import argparse
 import ctypes as C
@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CLIPS = {0x40: 0x543F0, 0x41: 0x55530, 0x42: 0x56810}
+CLIPS = {0x43: 0x57AF0, 0x45: 0x5D320}
 
 BRIDGE = r'''
 #include "game/em_player_pose.h"
@@ -50,11 +50,11 @@ def main():
     headers = []
     for clip, address in CLIPS.items():
         assert struct.unpack_from('<I', bank, 4 + clip * 4)[0] == address
-        assert struct.unpack_from('<HHhh', bank, address) == (21, 45, -2, 0)
+        assert struct.unpack_from('<HHhh', bank, address) == (21, 150, -2, 0)
         assert struct.unpack_from('<I', bank, address + 20)[0] == 0
         assert struct.unpack_from('<4hf', elf, 0x248C90 + clip * 12 - 0x100000 + 0x300) == (0, 0, 0, 0, 1)
         headers.append({'clip': clip, 'source_offset': address, 'nodes': 21,
-                        'frames': 45, 'next': -2, 'blend': 0, 'event_table': 0,
+                        'frames': 150, 'next': -2, 'blend': 0, 'event_table': 0,
                         'release_flags': 0, 'rate': 1})
     data = args.player.read_bytes()
     magic, bones, verts, indices, frames, fps, textures, flags, clip_count = struct.unpack_from('<4sIIIIfIII', data)
@@ -69,7 +69,7 @@ def main():
     entries = [struct.unpack_from('<IIIf', data, clips_at + 16 * i) for i in range(clip_count)]
     result = bytearray(data)
     changed_ranges = []
-    with tempfile.TemporaryDirectory(prefix='pickup_pose_export_') as folder:
+    with tempfile.TemporaryDirectory(prefix='door_pose_export_') as folder:
         source = Path(folder) / 'bridge.c'
         library = Path(folder) / 'pose.dylib'
         source.write_text(BRIDGE)
@@ -85,7 +85,7 @@ def main():
         palette = (C.c_float * (22 * 16))()
         for clip in CLIPS:
             selected = [entry for entry in entries if entry[0] == clip]
-            assert len(selected) == 1 and selected[0][2:] == (45, 60.0)
+            assert len(selected) == 1 and selected[0][2:] == (150, 60.0)
             _, first, count, _ = selected[0]
             assert first + count <= frames
             for other, start, length, _ in entries:
@@ -106,13 +106,13 @@ def main():
         cursor = end
     assert result[cursor:] == data[cursor:]
     assert result[:palettes_at] == data[:palettes_at] and result[textures_at:] == data[textures_at:]
-    folder = ROOT / 'build/pickup_player_export'
+    folder = ROOT / 'build/door_player_export'
     folder.mkdir(parents=True, exist_ok=True)
     changed = result != data
     if changed:
-        backup = folder / 'player_before_pickup_poses.emdl'
+        backup = folder / 'player_before_door_poses.emdl'
         if not backup.exists(): backup.write_bytes(data)
-        temporary = args.player.with_name(args.player.name + '.pickup.tmp')
+        temporary = args.player.with_name(args.player.name + '.door.tmp')
         temporary.write_bytes(result)
         temporary.replace(args.player)
     report = {'changed': changed, 'source_bank_sha256': sha(bank), 'headers': headers,
@@ -120,11 +120,11 @@ def main():
               'before_sha256': sha(data), 'after_sha256': sha(result),
               'geometry_sha256': sha(data[mesh_at:palettes_at]),
               'textures_sha256': sha(data[textures_at:]),
-              'preserved_other_clips': clip_count - 3,
+              'preserved_other_clips': clip_count - len(CLIPS),
               'changed_byte_count': sum(a != b for a, b in zip(data, result)),
-              'boundaries': 'Raw key decoding and clocks have original-instruction oracles; no live pickup matrix capture yet.'}
+              'boundaries': 'Raw key decoding and clocks have original-instruction oracles; no live door matrix capture yet.'}
     (folder / ('result.json' if changed else 'idempotence.json')).write_text(json.dumps(report, indent=2) + '\n')
-    print('pickup pose export PASS:', json.dumps(report))
+    print('door pose export PASS:', json.dumps(report))
 
 
 if __name__ == '__main__':
