@@ -351,7 +351,8 @@ int player_pose_script_euler(float out[3])
 
 int player_pose_align(const float position[3])
 {
-    if (!position || !source.started || !source.pose.valid || g.model.bone_count != 22) return 0;
+    if (!position || !source.started || !source.pose.valid || !source.hip_valid ||
+        g.model.bone_count != 22) return 0;
     for (unsigned axis = 0; axis < 3; ++axis)
         if (!isfinite(position[axis])) return 0;
     for (unsigned axis = 0; axis < 3; ++axis) {
@@ -360,11 +361,17 @@ int player_pose_align(const float position[3])
          * adaptation; the original routine itself does not rewrite matrices. */
         float delta = em_effect_float32((double)position[axis] - g.pos[axis]);
         g.pos[axis] = em_effect_float32((double)g.pos[axis] + delta);
+        source.hip[axis] = em_effect_float32((double)source.hip[axis] + delta);
         for (unsigned bone = 0; bone < 22; ++bone)
             g.player_palette[bone * 16 + 12 + axis] = em_effect_float32(
                 (double)g.player_palette[bone * 16 + 12 + axis] + delta);
     }
-    player_pose_finish_palette();
+    /* A preceding face command may already rotate the displayed cache.
+     *182F90 shifts the existing B0/3B40 values; only the player tail reads
+     * node1 again. It does copy the current actor Euler to3B50 here. */
+    source.saved_euler[0] = source.saved_euler[2] = 0;
+    source.saved_euler[1] = g.yaw;
+    source.saved_euler_valid = 1;
     return 1;
 }
 
@@ -374,7 +381,18 @@ int player_pose_face(float yaw)
         return 0;
     float old_yaw = g.yaw;
     g.yaw = yaw;
-    if (source.pose.acquired) return publish_current();
+    if (source.pose.acquired) {
+        float hip[3];
+        int hip_valid = source.hip_valid;
+        memcpy(hip, source.hip, sizeof hip);
+        int result = publish_current();
+        /*001B9C10/sub8 changes C4 and its dirty marker only. Keep the
+         * displayed orientation current without prematurely changing the
+         * original B0/3B40 inputs used by a following camera command. */
+        memcpy(source.hip, hip, sizeof hip);
+        source.hip_valid = hip_valid;
+        return result;
+    }
 
     /*001B9C10 sub8 writes only live C4 and its dirty marker. Before actual
      * acquisition, rotate the displayed host cache without replacing its
@@ -398,9 +416,7 @@ int player_pose_face(float yaw)
             }
         }
     }
-    memcpy(source.hip, g.player_palette + 16 + 12, sizeof source.hip);
-    source.hip_valid = 1;
-    /* Saved3B50 remains unchanged until182F90 or the real player tail. */
+    /* Hip and saved3B50 remain unchanged until182F90 or the player tail. */
     return 1;
 }
 

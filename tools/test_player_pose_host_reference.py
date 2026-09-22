@@ -44,6 +44,12 @@ int align_to(const float *target, float *out) {
     if (!player_pose_hip(out + 3) || !player_pose_script_euler(out + 6)) return 0;
     return 1;
 }
+void face_owned(int owned) { source.pose.acquired = owned; }
+int face_to(float yaw, float *out) {
+    if (!player_pose_face(yaw)) return 0;
+    memcpy(out, g.pos, 12);
+    return player_pose_hip(out + 3) && player_pose_script_euler(out + 6);
+}
 void cancel_entry(void) {
     em_player_pose_init(&source.pose, &source.bank, 1, 64);
     player_pose_entry_cancel();
@@ -113,6 +119,7 @@ def main():
         native.load.argtypes = [C.c_char_p]
         native.align_input.argtypes = [C.POINTER(C.c_float)] * 3
         native.align_to.argtypes = [C.POINTER(C.c_float)] * 2
+        native.face_to.argtypes = [C.c_float, C.POINTER(C.c_float)]
         native.return_state.argtypes = [C.POINTER(C.c_uint)]
         native.use_start.argtypes = [C.c_uint, C.c_float]
         native.use_reset.argtypes = [C.POINTER(C.c_uint)]
@@ -145,6 +152,40 @@ def main():
             assert bytes(output) == expected, (list(feet), list(target), list(output), expected.hex())
             assert original.read(PLAYER + 0xB0, 12) == original.read(0x70003B40, 12)
         report['alignment_sdk_cases'] = len(cases)
+
+        count = 0
+        player_global = 0x8102B0  #1B9C10/sub8 writes the global player.
+        for owned in (0, 1):
+            native.face_owned(owned)
+            for feet, hip, target, euler in cases[:200] + cases[-3:]:
+                for face_first in (False, True):
+                    original = ScanOracle(elf)
+                    original.write(player_global + 0xA0, bytes(feet) + struct.pack('<f', 1))
+                    original.write(player_global + 0xB0, bytes(hip) + struct.pack('<f', 1))
+                    original.write(player_global + 0xC0, bytes(euler) + struct.pack('<f', 1))
+                    original.write(0x70003B40, bytes(hip) + struct.pack('<f', 1))
+                    original.write(0x70003B50, bytes(euler) + struct.pack('<f', 1))
+                    original.write(TARGET, bytes(target) + struct.pack('<f', 1))
+                    record = TARGET + 0x100
+                    original.save(record + 8, 8)
+                    original.save(record + 0x24, bits(-1.3037610054016113))
+                    native.align_input(feet, hip, euler)
+                    output = (C.c_float * 9)()
+                    for face in ((True, False) if face_first else (False, True)):
+                        if face:
+                            original.run(0x1B9C10, (player_global, 0, record))
+                            assert native.face_to(number(bits(-1.3037610054016113)), output)
+                        else:
+                            original.run(0x182F90, (player_global, TARGET))
+                            assert native.align_to(target, output)
+                        expected = (original.read(player_global + 0xA0, 12) +
+                                    original.read(player_global + 0xB0, 12) +
+                                    original.read(0x70003B50, 12))
+                        assert bytes(output) == expected, (owned, face_first, face, list(output))
+                        assert original.read(player_global + 0xB0, 12) == original.read(0x70003B40, 12)
+                        count += 1
+        native.face_owned(0)
+        report['face_alignment_order_callbacks'] = count
 
         count = 0
         for held in range(17):

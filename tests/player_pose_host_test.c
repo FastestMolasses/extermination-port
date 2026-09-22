@@ -228,12 +228,37 @@ int main(void)
     assert(fabsf(hip_after[0] - hip_before[0] + 2) < .0001f);
     assert(fabsf(hip_after[1] - hip_before[1] - 1) < .0001f);
     assert(fabsf(hip_after[2] - hip_before[2] - 3) < .0001f);
+    memcpy(hip_before, hip_after, sizeof hip_before);
     assert(player_pose_face(-1.3037610054016113f));
     float current[3];
     assert(player_pose_script_euler(current) && current[1] == saved[1]);
+    assert(player_pose_hip(hip_after));
+    assert(!memcmp(hip_before, hip_after, sizeof hip_before));
     player_pose_finish_palette();
     assert(player_pose_script_euler(current) && current[1] == g.yaw);
+    assert(player_pose_hip(hip_after));
+    assert(!memcmp(hip_after, g.player_palette + 28, sizeof hip_after));
     expected(0, 76, 0);
+
+    /* Refusal align->face->camera and panel face->align both preserve
+     * the original hip until the following real player callback. */
+    reset();
+    for (unsigned i = 0; i < 5; ++i) ordinary();
+    assert(player_pose_acquire() == 1);
+    float lever[3] = {222, 230, 250};
+    assert(player_pose_align(lever));
+    assert(player_pose_hip(hip_before));
+    assert(player_pose_face(-1.3037610054016113f));
+    assert(player_pose_hip(hip_after));
+    assert(!memcmp(hip_before, hip_after, sizeof hip_before));
+    assert(memcmp(hip_after, g.player_palette + 28, sizeof hip_after));
+    assert(player_pose_align(lever));
+    assert(player_pose_hip(hip_after));
+    assert(!memcmp(hip_before, hip_after, sizeof hip_before));
+    player_pose_finish_palette();
+    assert(player_pose_hip(hip_after));
+    assert(!memcmp(hip_after, g.player_palette + 28, sizeof hip_after));
+    assert(player_pose_release());
 
     /* Script release resets its default at the end of the consumed frame. */
     assert(player_pose_acquire() == 1);
