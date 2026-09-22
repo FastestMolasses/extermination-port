@@ -22,6 +22,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_runtime.c src/game/em_status_frame.c src/game/em_panel_message.c \
+           src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c
@@ -246,6 +247,16 @@ test-interaction-runtime:
 .PHONY: test-status-frame-reference
 test-status-frame-reference:
 	python3 tools/test_status_frame_reference.py
+
+.PHONY: test-status-page-reference test-item-root-reference test-item-ui-reference
+test-status-page-reference:
+	python3 tools/test_status_page_reference.py
+
+test-item-root-reference:
+	python3 tools/test_item_root_reference.py
+
+test-item-ui-reference:
+	python3 tools/test_item_ui_reference.py
 
 .PHONY: test-panel-message-reference
 test-panel-message-reference:
