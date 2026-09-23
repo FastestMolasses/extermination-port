@@ -15,6 +15,7 @@
 #import <AppKit/AppKit.h>
 #include "em_gfx.h"
 #include "game/em_lighting.h"
+#include "gfx/metal/em_fog_gs.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -153,10 +154,11 @@ struct EmGfx {
      * historical stand-in arithmetic (rig-less frames byte-identical). */
     float                        rig[28];
     float                        face_rig[28]; /* separate original face draw */
-    /* Per-frame distance fog (em_gfx_fog — em_gfx.h). Two float4 rows
-     * bound as fragment buffer 4 of every skinned draw:
-     *   [0] = rgb (engine 0..128 scale), w = enable (0 = off)
-     *   [1] = (near_z, far_z, 0, 0), view-space depth in engine units
+    /* Per-frame distance fog (em_gfx_fog — em_gfx.h, em_fog_gs.h). Two
+     * float4 rows bound as vertex buffer 6 and fragment buffer 4 of every
+     * skinned draw:
+     *   [0] = GS FOGCOL as [0,1] colour (channel / 255), w = enable
+     *   [1] = (A, B, 0, 0), the 0021B920 VU fog coefficients
      * All-zero is the OFF state (the begin_frame reset): the shader's
      * fog blend is gated on row-0 w > 0, so fog-less scenes (office,
      * drawbridge) run the EXACT pre-fog arithmetic and stay
@@ -321,6 +323,7 @@ static NSString *const kSkinShaderSrc =
 "using namespace metal;\n"
 "struct VOut { float4 pos [[position]]; float3 nrm; float3 wpos;\n"
 "              float3 light_rgb [[center_no_perspective]];\n"
+"              float fog_f [[center_no_perspective]];\n"
 "              float2 uv; uint slice [[flat]]; };\n"
 "vertex VOut v_skin(uint vid [[vertex_id]],\n"
 "                   const device uint *vdata [[buffer(0)]],\n"
@@ -328,7 +331,8 @@ static NSString *const kSkinShaderSrc =
 "                   constant float4x4 &viewproj [[buffer(2)]],\n"
 "                   const device float2 *tscale [[buffer(3)]],\n"
 "                   constant uint &mode [[buffer(4)]],\n"
-"                   const device uint4 *vertex_rgba [[buffer(5)]]) {\n"
+"                   const device uint4 *vertex_rgba [[buffer(5)]],\n"
+"                   constant float4 *fog [[buffer(6)]]) {\n"
 "    const device float *fw = (const device float *)vdata;\n"
 "    float3 p = float3(fw[vid*10+0], fw[vid*10+1], fw[vid*10+2]);\n"
 "    float3 n = float3(fw[vid*10+3], fw[vid*10+4], fw[vid*10+5]);\n"
@@ -358,6 +362,12 @@ static NSString *const kSkinShaderSrc =
 "        o.nrm = (mode & 1u) ? n : (M * float4(n, 0.0)).xyz;\n"
 "        o.wpos = (M * float4(p, 1.0)).xyz;\n"
 "    }\n"
+"    /* GS fog F per vertex (em_fog_gs.h): the 0023C780 kernel computes\n"
+"     * F = A + B * clip_w, clamps to [0,255] and keeps its integer part\n"
+"     * in XYZF2; the GS interpolates F linearly in screen space, hence\n"
+"     * center_no_perspective. 255 = unfogged when fog is off. */\n"
+"    o.fog_f = (fog[0].w > 0.0)\n"
+"        ? floor(clamp(fog[1].x + fog[1].y * o.pos.w, 0.0, 255.0)) : 255.0;\n"
 "    o.slice = tex;\n"
 "    o.uv = (tex == 0xFFFFFFFFu) ? float2(0.0) : uv * tscale[tex];\n"
 "    return o;\n"
@@ -389,21 +399,15 @@ static NSString *const kSkinShaderSrc =
 "               : max(dot(normalize(nrm), -L), 0.0);\n"
 "    return spot[3].rgb * (cone * att * ndl);\n"
 "}\n"
-"/* Distance fog (em_gfx_fog — the engine's per-area GS fog record).\n"
-" * Rows: [0] rgb (0..128) + enable, [1] (near_z, far_z).\n"
-" * z_view is the engine view-space depth, which under the GS-shaped\n"
-" * projection equals clip w; the fragment's [[position]].w is 1/w_clip,\n"
-" * so z_view = 1/in.pos.w — no extra matrix needed.\n"
-" * f = (z - near) / (far - near), clamped to [0,1]. The NEAR term is\n"
-" * deliberately NOT floored at z=0: the shipped records use a NEGATIVE\n"
-" * near (e.g. -208 with far 304), so geometry at the camera is already\n"
-" * ~40% fogged (208/512) exactly as the reference renders it. */\n"
-"static float3 fog_apply(float3 c, float w_recip, constant float4 *fog) {\n"
+"/* Distance fog (em_gfx_fog, em_fog_gs.h — the per-area GS fog).\n"
+" * Rows: [0] FOGCOL as [0,1] colour + enable, [1] (A, B) coefficients.\n"
+" * f255 is the GS F value interpolated from the vertices (255 keeps the\n"
+" * colour, 0 is pure FOGCOL). The GS blends toward FOGCOL by F / 255\n"
+" * in 8-bit arithmetic; this is the float mix without that\n"
+" * quantization. */\n"
+"static float3 fog_apply(float3 c, float f255, constant float4 *fog) {\n"
 "    if (fog[0].w <= 0.0) return c;\n"
-"    float z = 1.0 / max(w_recip, 1e-6);\n"
-"    float d = fog[1].y - fog[1].x;\n"
-"    float f = (abs(d) < 1e-6) ? 0.0 : clamp((z - fog[1].x) / d, 0.0, 1.0);\n"
-"    return mix(c, fog[0].rgb * (1.0 / 128.0), f);\n"
+"    return mix(fog[0].rgb, c, f255 * (1.0 / 255.0));\n"
 "}\n"
 "fragment float4 f_skin(VOut in [[stage_in]],\n"
 "                       texture2d_array<float> texs [[texture(0)]],\n"
@@ -434,7 +438,7 @@ static NSString *const kSkinShaderSrc =
 "        float3 lit = clamp(in.nrm, 0.0, 1.0);\n"
 "        if (spot[0].w > 0.0)\n"
 "            lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
-"        return float4(fog_apply(base.rgb * lit, in.pos.w, fog), base.a)\n"
+"        return float4(fog_apply(base.rgb * lit, in.fog_f, fog), base.a)\n"
 "             * tint;\n"
 "    }\n"
 "    /* Original VU lighting produces integer colors at authored\n"
@@ -442,7 +446,7 @@ static NSString *const kSkinShaderSrc =
 "     * normalizing an interpolated normal and lighting per fragment\n"
 "     * changes the original face/body shading. */\n"
 "    if (mode & 4u) {\n"
-"        return float4(fog_apply(base.rgb * in.light_rgb, in.pos.w, fog), base.a)\n"
+"        return float4(fog_apply(base.rgb * in.light_rgb, in.fog_f, fog), base.a)\n"
 "             * tint;\n"
 "    }\n"
 "    /* rig-less fallback: the historical directional stand-in (kept\n"
@@ -455,7 +459,7 @@ static NSString *const kSkinShaderSrc =
 "    float3 lit = float3(0.30 + 0.70 * d);\n"
 "    if (spot[0].w > 0.0 && spot[2].x <= -1.0)\n"
 "        lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
-"    return float4(fog_apply(base.rgb * lit, in.pos.w, fog), base.a) * tint;\n"
+"    return float4(fog_apply(base.rgb * lit, in.fog_f, fog), base.a) * tint;\n"
 "}\n";
 
 /* Blend state selector for build_pipeline — the three GS ALPHA configs
@@ -1012,6 +1016,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         [g->enc setVertexBuffer:m->vbuf offset:0 atIndex:5];
     }
     [g->enc setVertexBytes:&mode length:4 atIndex:4];
+    [g->enc setVertexBytes:g->fog length:sizeof(g->fog) atIndex:6];
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
     [g->enc setFragmentBytes:rgba length:16 atIndex:1];
     [g->enc setFragmentBytes:g->spot length:sizeof(g->spot) atIndex:2];
@@ -1628,22 +1633,27 @@ void em_gfx_spot_light(EmGfx *g, const float pos[3], const float dir[3],
 }
 
 /* Set this frame's distance fog (em_gfx.h "distance fog" — the engine's
- * per-area GS fog record). Stored as the two fragment-buffer rows the
- * skinned shader consumes; begin_frame resets the enable to 0, so a
- * scene with no fog record never enables it. `rgb` arrives on the engine
- * 0..128 scale (the EmGfxCharRig convention); the shader applies the
- * 1/128 scale, so 48 reads as the same grey as a rig lightamb of 32.
- * near_z/far_z are view-space depths in engine units and may be
- * negative — the shipped records use a negative near so geometry at the
- * camera is already partly fogged. Applies to the LEVEL and CHARACTER
- * paths; additive glow draws are unaffected. */
+ * per-area GS fog record). Stored as the two rows the skinned shader
+ * consumes (vertex buffer 6, fragment buffer 4); begin_frame resets the
+ * enable to 0, so a scene with no fog record never enables it.
+ * `rgb` is the record's fog colour as written to GS FOGCOL by 0021BA80,
+ * i.e. 0..255 framebuffer units (NOT the 0..128 modulate scale), so it is
+ * stored as channel / 255. near_z/far_z are the record's near/far; the
+ * stored coefficients are exactly 0021B920's (em_fog_gs.h), and the
+ * vertex shader evaluates F = A + B * clip_w like the 0023C780 kernel.
+ * Applies to the LEVEL and CHARACTER paths; additive glow draws are
+ * unaffected. */
 void em_gfx_fog(EmGfx *g, float near_z, float far_z, const float rgb[3])
 {
     if (!g || !rgb) return;
-    g->fog[0] = rgb[0]; g->fog[1] = rgb[1]; g->fog[2] = rgb[2];
+    float coef[2];
+    em_fog_gs_coefficients(near_z, far_z, coef);
+    g->fog[0] = em_fog_gs_color_unit(rgb[0]);
+    g->fog[1] = em_fog_gs_color_unit(rgb[1]);
+    g->fog[2] = em_fog_gs_color_unit(rgb[2]);
     g->fog[3] = 1.0f;                                /* enable */
-    g->fog[4] = near_z; g->fog[5] = far_z;
-    g->fog[6] = 0.0f;   g->fog[7] = 0.0f;
+    g->fog[4] = coef[0]; g->fog[5] = coef[1];
+    g->fog[6] = 0.0f;    g->fog[7] = 0.0f;
 }
 
 /* Disable distance fog for subsequent draws. Zeroing the enable makes the

@@ -30,7 +30,7 @@ static const CineBeat kCineBeats[3] = {
     {
         335.0f, 385.0f, 228.0f, 255.0f,   /* zone XZ */
         260.0f, 280.0f,                   /* Y gate [260,280] */
-        0, CINE_STEP_BEAT1, 1,            /* no music; -> 0x10; register key */
+        0, CINE_STEP_BEAT1, 1,            /* no op0C line; -> 0x10; register key */
         15, {
             { 0, 300, {356.0f,305.1f,209.4f}, {320.0f,303.5f,180.5f} },
             { 0, 300, {281.0f,331.0f,171.0f}, {315.0f,305.5f,191.5f} },
@@ -49,7 +49,7 @@ static const CineBeat kCineBeats[3] = {
             {-1,  80, {309.0f,306.0f,235.0f}, {324.0f,307.0f,191.0f} },
         }
     },
-    /* ---- BEAT 1 (step 0x10 -> 0x20): music cue 0x97 ----------------- */
+    /* ---- BEAT 1 (step 0x10 -> 0x20): op0C message line 0x97 -------- */
     {
         452.0f, 500.0f, 278.0f, 292.0f,   /* zone XZ */
         275.0f, INFINITY,                /* Y gate: playerY >= 275 */
@@ -61,14 +61,14 @@ static const CineBeat kCineBeats[3] = {
             {-1,  90, {459.0f,301.0f,310.0f}, {484.0f,288.0f,272.5f} },
         }
     },
-    /* ---- BEAT 2 (step 0x20 -> 0xFF): music cue 0x99 ----------------- */
+    /* ---- BEAT 2 (step 0x20 -> 0xFF): op0C message line 0x99 -------- */
     {
         410.0f, 439.0f, 175.0f, 203.0f,   /* zone XZ */
         285.0f, INFINITY,                /* Y gate: playerY >= 285 */
         CINE_MUSIC_BEAT2, CINE_STEP_DONE, 0,
         1, {
             /* sub0 +0xC = 0 -> a one-shot hard cut; hold one frame so the
-             * music sting plays and the cut is visible before exit. */
+             * cut is visible before exit. */
             { 0,   1, {460.8f,324.5f,201.0f}, {420.0f,303.9f,191.5f} },
         }
     },
@@ -113,10 +113,9 @@ int cine_in_zone(const CineBeat *beat)
 }
 
 /* End the running beat CLEANLY: drop the lock, advance the step byte,
- * fire the on-completion actions (music already fired at start per the
- * scripts; the key-item + milestone fire here), and clear the transient
- * so no soft-lock can persist. cine_was stays set for one frame so
- * director_camera does its one-shot chase restore. */
+ * fire the on-completion actions (key-item + milestone), and clear the
+ * transient so no soft-lock can persist. cine_was stays set for one frame
+ * so director_camera does its one-shot chase restore. */
 void cine_beat_finish(void)
 {
     const CineBeat *b = &kCineBeats[g.cine_beat];
@@ -139,9 +138,9 @@ void cine_beat_finish(void)
  * lock is set before player_move reads em_game_player_interact_busy) and
  * before camera_update (which reads cine_active/the keyframe state for
  * the override). Tests the current step's zone; on entry starts the
- * beat (raises the lock + letterbox, fires the music cue, seats the
- * first keyframe); while running, advances the keyframes by their
- * durations and finishes the beat when they run out.
+ * beat (raises the lock + letterbox, seats the first keyframe); while
+ * running, advances the keyframes by their durations and finishes the
+ * beat when they run out.
  *
  * SAFETY: dormant unless a zone is entered. Never starts a beat while
  * any OTHER lock owns the player (door transit, examine, elevator,
@@ -162,8 +161,8 @@ void director_tick(void)
         const CineBeat *b = &kCineBeats[beat];
         if (!cine_in_zone(b)) return;          /* not in the trigger zone */
 
-        /* ENTER the beat (op07): raise lock + letterbox, fire the music
-         * cue, seat keyframe 0. */
+        /* ENTER the beat (op07): raise lock + letterbox, seat keyframe 0.
+         * (The op0C message line is not yet presented; WP-8/WP-10.) */
         g.cine_active = 1;
         g.cine_beat   = beat;
         g.cine_kf     = 0;
@@ -173,13 +172,12 @@ void director_tick(void)
         memcpy(g.cine_blend_eye, g.cam.eye, sizeof g.cine_blend_eye);
         memcpy(g.cine_blend_tgt, g.cam.tgt, sizeof g.cine_blend_tgt);
         if (b->music) {
-            /* op0C MUSIC cue. AREA-11 cue ids 0x97/0x99 ARE now in the
-             * shipped sfx registry (0x097/0x099 in assets/sfx/sfx.txt), so
-             * these cues resolve and play — the SFX_SOUND_MAX bump brought
-             * them into the bank. (Was a silent no-op while only the office
-             * bank was loaded.) */
-            em_sfx_play((unsigned)b->music);
-            printf("director: beat %d music cue %#x\n", beat, b->music);
+            /* 0x97/0x99 are NOT sound ids: op0C sub0 is the message op
+             * 001B7D60 (request kind 2, line word rec+0x14 -> a text line
+             * plus a VOICE.DAT cue). No sound is played here; the message
+             * and voice push arrive with the script host (WP-8/WP-10). */
+            printf("director: beat %d op0C message line %#x (not played; "
+                   "WP-8/WP-10)\n", beat, b->music);
         }
         printf("director: beat %d START — zone X[%.0f,%.0f] Z[%.0f,%.0f] "
                "@ (%.1f,%.1f,%.1f) — letterbox + player lock\n", beat,
@@ -290,7 +288,7 @@ float director_letterbox_alpha(void)
  * (e) the beat COMPLETES, the step ADVANCES, and CONTROL RETURNS (no
  * soft-lock), (f) the camera RESTORES to the normal chase. It uses the
  * SHORT beat 2 (single 1-frame keyframe) for the full completion cycle,
- * then re-arms beat 1 to confirm a second trigger + music cue.
+ * then re-arms beat 1 to confirm a second trigger.
  *
  *   frame 0..2  : at spawn — assert the director is DORMANT (no lock,
  *                 no override) — movement-v3 owns the frame.
@@ -301,7 +299,7 @@ float director_letterbox_alpha(void)
  *   ~frame 8    : assert COMPLETED — cine_active 0, step == 0xFF,
  *                 control returned (not busy), player did NOT drift.
  *   frame 12    : re-arm step 0x10, teleport into beat-1 zone — assert
- *                 a second beat triggers (proves re-entrancy + music).
+ *                 a second beat triggers (proves re-entrancy).
  *   frame 20    : release; assert the chase camera restored. PASS/quit.
  */
 void cine_test_script(void)

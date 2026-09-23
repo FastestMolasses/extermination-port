@@ -29,39 +29,14 @@
  * elevator.md §2). */
 #define EM_PICKUP_TYPE_BATTERY  0x11
 
-/* AREA-11 ITEM-DISPLAY decor (placement records 1/2, behavior ov
- * 0x00827630, param 0x13 -> mesh area_item_13.emdl). It is a ROTATING
- * display: the engine actor's per-frame heading at +0xC8 is fed into the
- * rigid-prop pose builder func_001C6380 (= pickup_build_palette below)
- * every frame, so the whole prop spins about its vertical (Y/heading)
- * axis — the SAME axis as the baked R_y(yaw) here.
- *
- * PROVENANCE (rechecked 2026-07-31): the numbers below came from a LIVE PCSX2
- * read of overlay code at ov 0x00827630 (@0x82776c.. / common tail @0x82784c
- * `add.s f0=[+0xC8],f1=[+0x38]`) in an earlier session. Overlay code is NOT in
- * the decomp corpus — there is no recovered C at 0x0082xxxx and FINDINGS.md
- * does not mention 0x00827630 — so NONE of it is re-checkable here. Treat it
- * as an OBSERVATION, not a decode: the engine spin was read as a TRIGGERED
- * spin-up/hold/spin-down, the per-frame step at actor+0x38 ramping from 0 at
- * 0.0029088 rad/f^2 (0x3B3EA2F2) to a cap of 0.349066 rad/f (0x3EB2B8C3 =
- * 20 deg/frame), holding, then ramping back to 0, with heading += step each
- * frame. The trigger was read as the story/insert state (state byte +0x05),
- * which the port's scripting spine does not model, so a faithful TRIGGER is
- * not reproducible.
- * Reproduce the OBSERVABLE outcome — a rotating display — as a SUBTLE
- * continuous Y-spin at a small fraction of the decoded active cap. This is
- * additive cosmetic decor; it is inherently AREA-11-only because type 0x13
- * display props exist solely in scene_snow's manifest (no other scene ships
- * a `pickup 0x13`). FLAGGED: continuous rate is a faithful stand-in, not the
- * byte-exact triggered ramp (em_pickup.h). */
-#define EM_PICKUP_TYPE_DISPLAY  0x13
-#define PICKUP_DISPLAY_SPIN     0.0174532925f   /* rad/frame ~1 deg/f, a
-                                                 * subtle decor spin (the
-                                                 * OBSERVED active cap was
-                                                 * 0.349 rad/f — see the
-                                                 * provenance note above;
-                                                 * this is a gentle idle
-                                                 * fraction of it) */
+/* AREA-11 placement records 1/2 (manifest `pickup 0x13 ... prop`, mesh
+ * area_item_13.emdl) are driven in the original by the overlay behaviour
+ * 00827630: a timed spin cycle on actor +0xC8 (the rot.z leg of
+ * build_trs_matrix, not the placement yaw) with a 60-tick wait, ramp,
+ * hold and ramp down, sound 0x451 and a player hit box. None of that is
+ * translated yet, so the port draws these props STATIC at their placement
+ * pose. The former constant 1 deg/frame yaw spin was invented and has been
+ * removed; the real cycle arrives with WP-11 (overlay oracle for 00827630). */
 
 #define PICKUP_BONE_MAX  8     /* item EMDLs are 1-node statics today */
 #define PICKUP_MODEL_MAX 12    /* distinct model files per scene */
@@ -83,11 +58,6 @@ typedef struct {
     float   yaw;          /* placement ry (actor +0xC4) */
     uint8_t armed;        /* actor +0x0B (the scan writes 4) */
     int     take_t;       /* armed countdown, EM_PICKUP_TAKE_FRAMES.. */
-    float   spin_rate;    /* per-frame Y-spin (rad/f); 0 = static prop.
-                           * Set for AREA-11 item-display props (type 0x13,
-                           * ov 0x00827630): the engine spins the whole prop
-                           * about its heading +0xC8 each frame. */
-    float   spin_ang;     /* accumulated spin yaw, added to the baked R_y */
     float   scale;        /* actor +0x60..+0x68 — func_0015AC00's INIT
                            * scale switch, the S leg of func_001C6380's
                            * world TRS (1.0 / 1.5 / 2.0) */
@@ -315,12 +285,7 @@ static void pickup_build_palette(Pickup *p)
     PickupModel *pm = &s.models[p->model];
     uint32_t n = pm->model.bone_count;
     memcpy(p->palette, pm->base, n * 16 * sizeof(float));
-    /* Spinning display props (type 0x13, ov 0x00827630) add the per-frame
-     * accumulated yaw on top of the placement yaw — the engine feeds
-     * heading(+0xC8) into this same pose builder (func_001C6380) each
-     * frame, so the whole prop rotates about its vertical axis. spin_ang
-     * is 0 for every other prop (static pose, baked once). */
-    const float ry = p->yaw + p->spin_ang;
+    const float ry = p->yaw;
     const float c = cosf(ry), sn = sinf(ry);
     for (uint32_t b = 0; b < n; b++) {
         float *m = p->palette + b * 16;
@@ -366,12 +331,6 @@ int em_pickup_add(EmGfx *gfx, const char *scene_dir, int type,
     p->pos[2] = pos[2];
     p->yaw    = yaw;
     p->scale  = 1.0f;
-    /* AREA-11 ITEM-DISPLAY (records 1/2, ov 0x00827630, param 0x13): a
-     * rotating display — give it a subtle continuous Y-spin. Only the
-     * placed display PROP gets it (never a collectible); type 0x13 props
-     * exist solely in scene_snow, so this is inherently scene-isolated. */
-    if (prop && (type & 0xFF) == EM_PICKUP_TYPE_DISPLAY)
-        p->spin_rate = PICKUP_DISPLAY_SPIN;
     if (model_file) {
         /* func_0015AC00's INIT scale runs for COLLECTIBLES only — the
          * kind-0xB props init through func_001C4820/func_001B0FD0. */
@@ -536,18 +495,6 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
     scan_slot = -1;                      /* last frame's winner expires */
     if (scan && !s.canonical_pickups)
         pickup_trigger_scan(player_pos, player_yaw, in);
-    /* Spinning display props (AREA-11 item-display, ov 0x00827630): advance
-     * the Y-spin and re-bake the rigid-prop pose this frame. The engine does
-     * exactly this — heading(+0xC8) += step each frame, then func_001C6380
-     * rebuilds the pose. Runs regardless of the take/scan gates (decor, not a
-     * collectible) and is a no-op for every other prop (spin_rate 0). */
-    for (int i = 0; i < s.n; i++) {
-        Pickup *p = &s.p[i];
-        if (!p->used || p->spin_rate == 0.0f) continue;
-        p->spin_ang += p->spin_rate;
-        if (p->spin_ang >= PICKUP_PI * 2.0f) p->spin_ang -= PICKUP_PI * 2.0f;
-        pickup_build_palette(p);
-    }
     for (int i = 0; i < s.n; i++) {
         Pickup *p = &s.p[i];
         if (!p->used || p->original_bound || !p->armed) continue;

@@ -212,3 +212,49 @@ this validation does not claim bit-identical matrix arithmetic.
 The apparent lower duplicate of the power panel also appears in the
 original playable capture and belongs to model04's own geometry. Comparing
 its placed triangles with all six static scene meshes finds no duplicates.
+
+## WP-1 world corrections (fog, truck, fan pair, director cue)
+
+**World fog (H17).** `001D8FD0` reads the AREA11 record (key `0x0B00`):
+near `-209`, far `304`, and fog colour ints `48,48,48`. `0021B920` stores
+the VU fog constants `(255, 2048, far*s, -s)` with `s = 255/(far-near)`.
+`0021BA80` packs the colour into GS FOGCOL. The VU1 skinning kernel
+`0023C780` computes `F = A + B*clip_w` per vertex, clamps it to `[0,255]` and
+writes the integer part into XYZF2. The GS then blends toward FOGCOL by `F/255`.
+`export_level.py --lightrig` now writes `fog -209 304 48 48 48` from the
+record into the light-rig block. It also drops any older standalone `fog`
+line. The Metal backend takes its coefficients from
+`src/gfx/metal/em_fog_gs.h` and evaluates `F` per vertex. It interpolates
+`F` without perspective correction, as the GS does. FOGCOL is scaled as
+framebuffer units (`/255`). The previous shader scaled the colour by `/128`
+(twice as bright) and computed a perspective-correct fraction per fragment.
+`tools/test_area11_fog_reference.py` executes original `001D8FD0` and compares
+its render-context fog block with three AREA11 RAM captures. It checks FOGCOL
+`0x303030` in the opening GS freeze. It matches the header's coefficients bit
+for bit and matches its per-vertex `F` with the executed kernel fog
+instructions (1,291 cases). It also checks the manifest line. The MSL copy
+of the `F` formula uses ordinary float rounding and is not executed by the
+test. It can differ by one `F` step exactly at an integer boundary. The
+blend is a float mix, without the GS 8-bit quantization. Only the skinning
+kernel's fog path was read. Whether each level/actor PRIM sets FGE, and
+the level kernel's own fog instructions, remain WP-13 work.
+
+**Truck (H16).** The trigger `008251E0` only starts camera script `0x8292C0`
+and then sets `D_00810792 = 1`. The truck `00823FF0` arms only when the
+player stands on it (actor kind 9 at `D_008104C4`). The port's AABB trigger,
+65-frame fall, -0.9 rad tumble and moving-surface carry were invented. They
+are removed. The truck is drawn static at its manifest placement and
+registers nothing. `EM_TRUCK_TEST` now asserts that interim contract. WP-12
+translates both overlay functions.
+
+**Fan pair (H20).** Records 1/2 (`pickup 0x13 ... prop`) are driven by
+`00827630`, a timed spin cycle on actor `+0xC8`. `build_trs_matrix` feeds
+that value to its third rotation helper. It is not the placement yaw. The
+init also seeds `+0xC8` to plus or minus pi/4, selected by actor `+0x2E`.
+The port's constant 1 deg/frame yaw spin is removed. The props are static
+at their placement pose; WP-11 translates the cycle.
+
+**Director cue (H10 partial).** Beats 1/2 carry op `0x0C` sub 0, arg 151/153.
+That op is the message op `001B7D60` (request kind 2, a line plus a VOICE.DAT
+cue), not a sound. The `em_sfx_play(0x97/0x99)` calls are removed. No
+replacement is invented; WP-8/WP-10 bring the message service.
