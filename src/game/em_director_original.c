@@ -26,13 +26,13 @@ static int fail(uint32_t *fault_address, uint32_t address)
 /* One beat's constants, read from its body. */
 typedef struct {
     uint32_t body;        /* runtime entry */
-    uint32_t y_low;       /* c.lt.s bound: Y below it rejects */
-    uint32_t y_high;      /* c.le.s bound (beat 0 only; 0 = none) */
-    uint32_t quad;        /* 001B1EA0 a2 */
-    uint32_t script;      /* 001BA1A0 a1 */
+    uint32_t y_low;       /* lower bound: Y < it rejects */
+    uint32_t y_high;      /* upper bound: Y <= it passes (beat 0 only; 0 = none) */
+    uint32_t quad;        /* 001B1EA0's third argument */
+    uint32_t script;      /* 001BA1A0's second argument */
     uint8_t completion;   /* D_00810813 store */
-    uint32_t y_read;      /* lwc1 D_00810354 */
-    uint32_t step_store;  /* sb D_00810813 */
+    uint32_t y_read;      /* the load of D_00810354 (Y) */
+    uint32_t step_store;  /* the byte store to D_00810813 */
 } Beat;
 
 static const Beat kBeats[3] = {
@@ -129,7 +129,7 @@ int em_director_original_0011DBB8(const EmDirectorAtanTables *t, float x, float 
         return 0;
     }
     float r = pose_sub(t->hi[id], pose_sub(pose_sub(sum, t->lo[id]), x));
-    *result = (int32_t)hx < 0 ? -r : r;                    /* neg.s at 0x11DE48 */
+    *result = (int32_t)hx < 0 ? -r : r;                    /* sign negate at 0x11DE48 */
     return 0;
 }
 
@@ -187,7 +187,7 @@ int em_director_original_001B1EA0(int32_t mode, const float *point, const float 
 {
     if (!result)
         return -1;
-    /* 0x1B1EC4 slti 3 / 0x1B1ED0 beqz: fewer than three vertices returns 0. */
+    /* 0x1B1EC4..0x1B1ED0: count < 3 -> fewer than three vertices returns 0. */
     if (count < 3) {
         *result = 0;
         return 0;
@@ -208,19 +208,19 @@ int em_director_original_001B1EA0(int32_t mode, const float *point, const float 
         const float *cur = polygon[i], *nxt = polygon[next];
         if (!isfinite(cur[0]) || !isfinite(cur[2]) || !isfinite(nxt[0]) || !isfinite(nxt[2]))
             return -1;
-        float bx = pose_sub(nxt[0], point[0]);   /* sub.s f3 = next.x - p.x */
-        float ax = pose_sub(cur[0], point[0]);   /* sub.s f4 = cur.x - p.x */
-        float bz = pose_sub(nxt[2], point[2]);   /* sub.s f1 = next.z - p.z */
-        float az = pose_sub(cur[2], point[2]);   /* sub.s f0 = cur.z - p.z */
-        /* mula.s f1, f4; msub.s f12 = ACC - f3 * f0. */
+        float bx = pose_sub(nxt[0], point[0]);   /* next.x - p.x */
+        float ax = pose_sub(cur[0], point[0]);   /* cur.x - p.x */
+        float bz = pose_sub(nxt[2], point[2]);   /* next.z - p.z */
+        float az = pose_sub(cur[2], point[2]);   /* cur.z - p.z */
+        /* cross = ACC(bz * ax) - bx * az, through the FPU accumulator. */
         float cross = pose_msub(pose_mul(bz, ax), bx, az);
-        /* mula.s f3, f4; madd.s f13 = ACC + f1 * f0 (the jal delay slot). */
+        /* dot = ACC(bx * ax) + bz * az (issued in the call's delay slot). */
         float dot = pose_madd(pose_mul(bx, ax), bz, az);
         float angle;
         if (!isfinite(cross) || !isfinite(dot) ||
-            em_director_original_0011E620(tables, cross, dot, &angle) < 0)   /* jal at 0x1B1F6C */
+            em_director_original_0011E620(tables, cross, dot, &angle) < 0)   /* call at 0x1B1F6C */
             return -1;
-        total = pose_add(total, angle);           /* add.s f20 = f20 + f0 */
+        total = pose_add(total, angle);           /* total += angle */
         if (!isfinite(total))
             return -1;
     }
@@ -311,7 +311,7 @@ static int beat(int index, const EmDirectorOriginalNode *node, const EmDirectorO
     if (!quad)
         return fail(fault_address, b->quad);
     int32_t inside = 0;
-    /* jal 001B1EA0 with a0 = 0, a1 = &D_00810350, a2 = quad, a3 = 4. */
+    /* 001B1EA0(0, &D_00810350, quad, 4). */
     if (em_director_original_001B1EA0(0, world->d810350, quad, 4, world->d26C5D8, &inside) < 0)
         return fail(fault_address, 0x001B1EA0u);
     if (!inside)

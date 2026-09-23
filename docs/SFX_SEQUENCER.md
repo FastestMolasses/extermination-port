@@ -28,16 +28,16 @@ The current export has 71 entries: 68 audible, 3 absent and 0 unsupported.
 | `0011A070(track \| hard<<15)` | `em_sfx_driver_stop` | **asm** |
 | `00119890(1, track)` = 2 while `+0x32` | `em_sfx_driver_status`, `em_sfx_track_status` | Decomp C |
 | `001FC3C0` + `001FBDB0` + `001FBD50`, `001FC520` | `em_sfx_service_step/_release`, `em_sfx_loop_service/_release` | **asm** |
-| `001FB100` copies D_00281B70 → D_00281C30 (`block_copy(dst, src)`: `lq` from a1, `sq` to a0) | `em_sfx_frame_snapshot` | `block_copy` words |
+| `001FB100` copies D_00281B70 → D_00281C30 (`block_copy(dst, src)`: quadword loads from src, quadword stores to dst) | `em_sfx_frame_snapshot` | `block_copy` words |
 | Flush: NON (`0xD`, when changed), EON (`0xC`, when changed), KON (`0xA`), KOFF (`0xB`) | tick epilogue | Decomp C plus IOP driver |
 
 ### Where the decomp C is wrong (the lockstep caught or the asm settled)
 
-- **`00119EA0` `+0x42`**: the asm is `t2 = 1; movz t2, zero, (handle & 0x8000)`. So `+0x42 = 1` only for handles with 0x8000. The C has this inverted.
+- **`00119EA0` `+0x42`**: the asm sets the value to 1 and then conditionally clears it to 0 when `handle & 0x8000` is zero. So `+0x42 = 1` only for handles with 0x8000. The C has this inverted.
   - Registry tracks therefore do **not** force the effect send.
   - Only tones with flag 0x80 route to reverb.
   - The earlier statement in `SFX_PITCH.md` that every SFX track sets the effect mask was wrong. It is corrected there.
-- **`001176E0`**: the asm collects two masks. One holds matches owned by this track. The other (the `bnel` likely-slot `or`) holds matches owned by other tracks. `movz` uses the second only when the first is empty. The C ORs both into the same mask.
+- **`001176E0`**: the asm collects two masks. One holds matches owned by this track. The other (an OR done in a branch-likely delay slot) holds matches owned by other tracks. A conditional move uses the second only when the first is empty. The C ORs both into the same mask.
 - **`00117428` pass 3**: the three minimum trackers start at −1 and compare with `slt` (signed), so no candidate is ever recorded.
   - Only a released kind-1 voice is returned. **Kind-2 SFX voices are never stolen.**
   - With all 44 non-stream voices busy, a key-on gets −1 and is dropped.

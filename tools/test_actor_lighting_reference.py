@@ -34,9 +34,9 @@ D. Vertices. For every record of every bound model, the original object
    original colours to size the removed error.
 E. 001D8270 over every type byte and boundary radii, and 001D8690 over
    random actor RGB, against em_lighting_fold_gate/em_lighting_actor_rgb.
-F. R11. The level kernel's colour conversion (LOI 65536 at 00237218,
-   ADDI.y 00237220, ADDy 002373B0 into the RGBAQ slot of the 0x4126 GIF
-   tag) runs on every distinct AREA11 level record colour: the RGBAQ low
+F. R11. The level kernel's colour conversion (I = 65536.0 at 00237218,
+   vf9.y = vf0.y + I at 00237220, colour + vf9.y at 002373B0 into the RGBAQ slot of
+   the 0x4126 GIF tag) runs on every distinct AREA11 level record colour: the RGBAQ low
    byte is floor(128*c), so colour 1.0 is GS 128 (modulate identity).
 """
 from pathlib import Path
@@ -235,9 +235,9 @@ def level_color_rgbaq(color):
     """Original level kernel colour slice on one record colour."""
     machine = vu.VU(bytearray(16384), program_start=0x2371B0)
     machine.color_only = True
-    machine.run(0x237218, 0x237228)          # LOI 65536; ADDI.y vf9
+    machine.run(0x237218, 0x237228)          # I = 65536.0; vf9.y = vf0.y + I (= 65536.0)
     machine.v[10] = [bits(c) for c in color]
-    machine.run(0x2373B0, 0x2373B8)          # ADDy vf14, vf10, vf9y
+    machine.run(0x2373B0, 0x2373B8)          # vf14 = vf10 + vf9.y (broadcast over the lanes)
     return list(machine.v[14])
 
 

@@ -19,9 +19,10 @@ Neither depends on the texture.
 1. **PRIM** comes from the level kernel's GIF-tag template.
    - The level kernel is the VU1 code that the CALL `0x00237180` packet
      uploads.
-   - It loads VU1 dmem 1020 (0x3FC) with `lq vf01,1020(vi00)` at
-     `0x002373F0`. It stores that qword at the head of every output buffer
-     with `sq vf01,132(vi13)` at `0x002373F8`, before `xgkick vi11`.
+   - At `0x002373F0` it loads the qword at VU1 dmem 1020 (0x3FC). At
+     `0x002373F8` it stores that qword at the head of every output buffer
+     (132 qwords past the buffer base), before the buffer is kicked to the
+     GIF.
    - The clip kernel `0x00239C90` loads dmem 1017/1018 (0x3F9/0x3FA) at
      `0x0023A0B0`/`0x0023A090`.
    - The level chain uploads those qwords from channel 0, `D_00816440`.
@@ -71,8 +72,8 @@ normal-carrying records of `f17_id93.bin` (05_movables) use TFX 2
 test is As = At.
 
 - The level kernel sends RGBAQ A = the low byte of float(65536 + w), where
-  w is the record's colour.w: `LOI 65536` at `0x00237218`, `ADDy` at
-  `0x002373B0`. Colour records have w = 1.0, so A = 128 and MODULATE gives
+  w is the record's colour.w: I = 65536.0 at `0x00237218`, vf9.y = I at
+  `0x00237220`, and colour + vf9.y (broadcast to all lanes) at `0x002373B0`. Colour records have w = 1.0, so A = 128 and MODULATE gives
   As = At*128>>7 = At.
 - Normal records have w = 0, so A = 0 and HIGHLIGHT gives As = At + 0. Its
   RGB, Ct*Cf>>7 + 0, is the same as MODULATE.

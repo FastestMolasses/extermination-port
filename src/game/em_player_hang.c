@@ -5,7 +5,7 @@
  * asm-word leaf 0017F240 and of the VU0 leaf 001028B8. Every comment address
  * is the original instruction the line translates. EE COP1 and VU0 arithmetic
  * goes through em_ee_float.h on raw binary32 bits; loads and stores of floats
- * the original only moves (lwc1/swc1, mov.s) copy the bits. */
+ * the original only moves (float loads, stores and moves) copy the bits. */
 #include "game/em_player_hang.h"
 #include "game/em_ee_float.h"
 
@@ -14,7 +14,7 @@
 
 #define FAULT(expr) do { if ((expr) < 0) return -1; } while (0)
 
-/* Binary32 constants as the original materializes them (lui/ori). */
+/* Binary32 constants as the original materializes them (upper-half immediate, low half OR'd in). */
 #define K_0       UINT32_C(0x00000000)
 #define K_0_5     UINT32_C(0x3F000000)
 #define K_1       UINT32_C(0x3F800000)
@@ -58,7 +58,7 @@ static float fl(uint32_t bits) { return em_ee_float(bits); }
 
 int em_player_hang_0017F240(EmPlayerLiveActor *a, int arg)
 {
-    /* 0017F240..0017F270: +224 == 0 and +22C == 0 (c.eq.s against $zero)
+    /* 0017F240..0017F270: +224 == 0 and +22C == 0 (EE float compares against 0.0)
      * with +F bit 1 clear returns 0 at once (0017F27C delay slot). */
     if (em_ee_c_eq_bits(w32(a, 0x224), K_0) && em_ee_c_eq_bits(w32(a, 0x22C), K_0) &&
         !(u8(a, 0xF) & 2))
@@ -87,7 +87,7 @@ int em_player_hang_vadd(void *context, float out[4], const float a[4], const flo
     uint32_t x[4], y[4], z[4] = { 0, 0, 0, 0 };
     memcpy(x, a, sizeof x);
     memcpy(y, b, sizeof y);
-    /* vadd.xyzw $vf6, $vf4, $vf5 */
+    /* 001028B8: out.xyzw = a.xyzw + b.xyzw, one VU0 add over all four lanes */
     if (em_vu_vec_bits(EM_VU_ADD, 15, EM_VU_NO_BC, x, y, 0, NULL, z) != EM_EE_FLOAT_OK) return -1;
     memcpy(out, z, sizeof z);
     return 0;
@@ -312,7 +312,7 @@ static int state_3(HangCall *c)
         FAULT(gait(a, &g));                          /* 00164DD0 */
         uint32_t held = w32(a, 0x26C);               /* 00164DDC */
         uint32_t floor = kD00248600[g];              /* 00164DE8 */
-        /* 00164DEC: +26C <= table stores the table value (bc1tl's mov.s),
+        /* 00164DEC: +26C <= table stores the table value (the branch-likely delay-slot float copy),
          * else stores back the loaded bits. */
         set32(a, 0x26C, em_ee_c_le_bits(held, floor) ? floor : held);
     }

@@ -230,8 +230,8 @@
  *          taken out of its literal stream and every branch target
  *          recomputed). The state-5 sub-1 -> func_00183250 link is
  *          likewise re-read in the byte-matched func_0015B610, whose
- *          sub-byte ladder is `lbu a0,0x5(s0)` then beql against
- *          4/3/2/1/0 dispatching func_001834E0 / func_00183440 /
+ *          sub-byte ladder reads the unsigned byte +0x05 and compares it
+ *          against 4/3/2/1/0, dispatching func_001834E0 / func_00183440 /
  *          func_001833F0 / func_00183250 / func_00183240 — sub 1 is
  *          func_00183250.
  *        NOT CONFIRMED — that the door re-place passes 1. That caller is
@@ -267,9 +267,9 @@
  *      TIMER SHAPE (corrected 2026-07-31, re-derived from the
  *      byte-matched func_00183250 — it is stored as `asm`/.word, so
  *      this was read out of the instruction stream, not from readable
- *      C): each phase does `lh v1,0x28(s0); addiu v0,v1,-1;
- *      bnez v1,<exit>; sh v0,0x28(s0)` — read, decrement and store
- *      every frame, advance the phase on the frame the READ value is 0,
+ *      C): each phase reads the halfword timer t = +0x28, stores
+ *      t - 1 back to +0x28, and returns early while t != 0 — read, decrement and
+ *      store every frame, advance the phase on the frame the READ value is 0,
  *      and do NOT call the mover (func_00178B90) on that hand-over
  *      frame. Each phase therefore costs its count PLUS one frame:
  *      51 + 31 + 31 = 113 frames of phases 1-3, 60 of them moving.

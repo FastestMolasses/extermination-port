@@ -45,6 +45,13 @@ built from one codebase (full rules: `docs/PORT_PROFILES.md`).
   ELF, extracted assets, original code/data, disassembly. Assets are generated
   locally from the user's own disc into ignored `assets/` / `data/` / `build/`.
   Scan every staged diff for data blobs before committing.
+- **No disassembly in code comments or docs.** A translation cites original
+  addresses and says what the code does (in words or C-like expressions over
+  named fields); it never reproduces the instruction stream — no
+  "mnemonic operands" comment per line, no pasted listing blocks. Naming a
+  single instruction in running prose to explain a rule is fine. Run
+  `python3 tools/check_no_disassembly.py --staged` in the leak scan before
+  every commit.
 - **Stay isolated from the user's other code/repos** (esp. the separate
   commercial game). The only permitted cross-repo relationship is the sibling
   `Extermination/` decomp.

@@ -295,17 +295,17 @@ def validate_ops(elf):
     """The added ops on synthetic words before any original code runs."""
     o = ShadowRam(elf, bytes(16))
     o.r[9] = 0x11112222_33334444_55556666_77778888; o.r[8] = 0xAAAABBBB_CCCCDDDD_EEEEFFFF_00001111
-    o.plain(0x70000000 | 9 << 21 | 8 << 16 | 12 << 11 | 0x12 << 6 | 8)   # pextlw $12, $9, $8
+    o.plain(0x70000000 | 9 << 21 | 8 << 16 | 12 << 11 | 0x12 << 6 | 8)   # r12 = low words of r8/r9 interleaved
     w = lambda v, i: (v >> (32*i)) & 0xFFFFFFFF
     assert o.r[12] == (w(o.r[8], 0) | w(o.r[9], 0) << 32 | w(o.r[8], 1) << 64 | w(o.r[9], 1) << 96)
     o.r[5] = 0x8000_0000_0000_0000
-    o.plain(0x0005283F)       # dsra32 $5, $5, 0
+    o.plain(0x0005283F)       # r5 = r5 >> 32, arithmetic
     assert o.r[5] == 0xFFFF_FFFF_8000_0000
     o.f[1], o.f[2] = bits(3.0), bits(0.1)
-    o.plain(0x46020818)       # adda.s ACC = f1 + f2
+    o.plain(0x46020818)       # FPU accumulator = f1 + f2
     assert o.facc == fp(3.0+number(bits(0.1)))
     o.v[1] = [bits(2.0), bits(-3.0), bits(0.5), bits(1.0)]
-    o.macro(0x4BC109FF)       # vclipw.xyz vf1, vf1w
+    o.macro(0x4BC109FF)       # clip test of the x/y/z lanes of vf1 against its |w|
     assert o.clip == (1 | 8)
 
 
@@ -1109,16 +1109,16 @@ def gate_case(item):
 
 def area_switch(elf, lib, ram, scratch, stats):
     """Every key of 001D98A0's area switch (0x1D9C44..0x1D9E78), read from
-    the ELF's addiu/beq pairs, through the native module; plus every other
-    key 0x0000..0x17FF, which must select no alpha matrix."""
+    the ELF's key-load / compare-branch pairs, through the native module;
+    plus every other key 0x0000..0x17FF, which must select no alpha matrix."""
     word = lambda a: u32(elf, a-0x100000+0x300)
     targets = {0x1D9E98: 2, 0x1D9E7C: 1}
     keys = {}
     for b in range(0x1D9C4C, 0x1D9E78, 4):
-        if word(b) >> 16 != 0x1043: continue                 # beq v0, v1, target
-        a = max(x for x in range(b-24, b, 4) if word(x) >> 16 == 0x2403)   # addiu v1, zero, imm
+        if word(b) >> 16 != 0x1043: continue                 # branch if r2 == r3
+        a = max(x for x in range(b-24, b, 4) if word(x) >> 16 == 0x2403)   # r3 = imm (the key)
         keys[word(a) & 0xFFFF] = targets[b+4+(signed(word(b) & 0xFFFF, 16) << 2)]
-    assert word(0x1D9CBC) >> 26 == 4 and word(0x1D9CBC) >> 16 & 31 == 0   # beqz v0 -> key 0
+    assert word(0x1D9CBC) >> 26 == 4 and word(0x1D9CBC) >> 16 & 31 == 0   # branch-if-zero -> key 0
     keys[0] = targets[0x1D9CC0+(signed(word(0x1D9CBC) & 0xFFFF, 16) << 2)]
     assert len(keys) == 45, len(keys)
     scene = scene_view(ram, scratch)
@@ -1312,7 +1312,7 @@ SIL_KERNEL = 0x23C750
 KERNEL_MPG = {BOX_KERNEL: (0x2371B0, 79), SIL_KERNEL: (0x23C780, 62),
               RECEIVER_KERNEL: (0x23C230, 70)}
 # The clip kernels' micro address reached only for a triangle that passed
-# every skip test of the loop (data ADC, fcand 0x03FFFF, the six fcor
+# every skip test of the loop (data ADC, the 18-bit clip-history AND test, the six clip-flag OR
 # plane tests, i >= 2): 0023E8A0 xtop at 0x070, 00239C90 xtop at 0x06E.
 CLIP_ENTRY = {CLIP_KERNEL: 0x070*8, BOX_CLIP_KERNEL: 0x06E*8}
 PROXY_EMDL = ROOT/'assets/player_shadow.emdl'

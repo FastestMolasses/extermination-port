@@ -182,9 +182,9 @@ class TaskOracle(Oracle):
             r[rd] = (r[rt] << sa) & M64
         elif op == 0 and fn == 60:  # dsll32
             r[rd] = (r[rt] << (sa+32)) & M64
-        elif op == 28 and fn == 9 and sa == 0x0E:  # pcpyld rd, rs, rt
+        elif op == 28 and fn == 9 and sa == 0x0E:  # pcpyld (upper half from rs, lower half from rt)
             r[rd] = ((r[rs] & M64) << 64) | (r[rt] & M64)
-        elif op == 28 and fn == 41 and sa == 0x1B:  # pcpyh rd, rt
+        elif op == 28 and fn == 41 and sa == 0x1B:  # pcpyh (each 64-bit half's low halfword copied to its 4 halfwords)
             lo, hi = r[rt] & 0xFFFF, r[rt] >> 64 & 0xFFFF
             r[rd] = sum(lo << (16*i) for i in range(4)) | sum(hi << (64+16*i) for i in range(4))
         else:
@@ -584,13 +584,14 @@ def validate_extensions(elf):
     for a, b in ((0, 1), (1, 0), (0xFFFFFFFF, 1), (1, 0xFFFFFFFF), (5, 5), (0x80000000, 0x7FFFFFFF)):
         o = TaskOracle(elf)
         o.r[4], o.r[5] = a, b
-        o.plain((4 << 21) | (5 << 16) | (2 << 11) | 43)  # sltu v0, a0, a1
+        o.plain((4 << 21) | (5 << 16) | (2 << 11) | 43)  # r2 = unsigned r4 < r5
         assert o.r[2] == int(a < b), (hex(a), hex(b))
         for imm in (0, 6, 0x7FFF, 0xFFFF):
-            o.plain((11 << 26) | (4 << 21) | (3 << 16) | imm)  # sltiu v1, a0, imm
+            o.plain((11 << 26) | (4 << 21) | (3 << 16) | imm)  # r3 = unsigned r4 < sign-extended imm
             assert o.r[3] == int(a < (signed(imm, 16) & M64)), (hex(a), hex(imm))
             checks += 1
-    # The original memset 00121A28 (sltiu, dsll, pcpyh, pcpyld, sq, sd, sb, beql).
+    # The original memset 00121A28 (unsigned compares, doubleword shifts,
+    # halfword/doubleword packing, quad/double/byte stores, branch-likely).
     rng = random.Random(0x121A28)
     for align in range(16):
         for length in (0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 0x48, 80):

@@ -127,12 +127,12 @@ void camera_entry_seat(EmCamera *cam)
 /* func_00191390 — the camera pre-step (DECODED s65; s71 STATE-ID
  * CORRECTION). RE-VERIFIED word-by-word against src/func_00191390.c
  * (BYTE-MATCHED, .word form; the whole 66-word listing was hand-decoded
- * for this audit and every row below is engine-literal): sw zero,0x94 /
- * sw zero,0x98, dispatch
- * on lw a1,0x230(a1); codes 2/4/0xF -> 0x8C=-3.0, 0x5C=1.0; codes
+ * for this audit and every row below is engine-literal): cam+0x94 = 0,
+ * cam+0x98 = 0, then a dispatch on the player's action code (player
+ * +0x230); codes 2/4/0xF -> 0x8C=-3.0, 0x5C=1.0; codes
  * 6/7/8/9/0x2C/0x2D -> 0.0/2.0; code 0x13 -> 11.0/2.0; codes 1/3 and
  * every other code fall into the cam+0x64 test (== -31.2 -> 2.0/6.0,
- * else 6.0/2.0); tail lb 0x6D, non-zero -> sw 23.0 to +0x98.
+ * else 6.0/2.0); tail: signed byte +0x6D non-zero -> +0x98 = 23.0.
  * It zeroes the per-frame extras (+0x94/+0x98) and writes
  * the PER-STATE height params +0x8C/+0x5C every frame. The -3.0/1.0
  * row matches player states 2/4/0xF ONLY — the +0x236 ELEVATED/hang
@@ -155,10 +155,10 @@ void camera_entry_seat(EmCamera *cam)
  * arg0+0x6D).
  * RE-CONFIRMED 2026-07 audit: the 66-word listing in
  * src/func_00191390.c was re-disassembled instruction by instruction
- * this pass. Every row above is engine-literal — the beq chain targets
- * resolve to 0x13 -> (11.0, 2.0); 6/7/8/9/0x2C/0x2D -> (0.0, 2.0);
- * 2/4/0xF -> (-3.0, 1.0); 1/3/default -> the lwc1 f1,0x64 vs
- * 0xC1F99999 (-31.2) c.eq.s, equal -> (2.0, 6.0) else (6.0, 2.0). */
+ * this pass. Every row above is engine-literal — the compare chain's
+ * targets resolve to 0x13 -> (11.0, 2.0); 6/7/8/9/0x2C/0x2D -> (0.0, 2.0);
+ * 2/4/0xF -> (-3.0, 1.0); 1/3/default -> float cam+0x64 == 0xC1F99999
+ * (-31.2) ? (2.0, 6.0) : (6.0, 2.0). */
 static void camera_prestep_00191390(EmCamera *cam)
 {
     cam->aim_h  = CAM_AIM_OFFSET;     /* +0x8C = 6.0 */
@@ -356,8 +356,9 @@ static int cam_yaw_blocked(const EmCamera *cam, float yaw)
  * 15.0 + player.y, 1.0), then func_0018C0C0 + func_00193EB0) — the port
  * does not model it at all. camera_update's table_sel is 0 accordingly.
  * The per-AREA room logic inside func_00195130 reaches the overlays
- * through the hardcoded `jal 0x823FE0` hook: the survival-horror PER-ROOM
- * FIXED/rail camera angles. Those fixed angles are real and pending.
+ * through a hardcoded call to the overlay hook 0x823FE0: the
+ * survival-horror PER-ROOM FIXED/rail camera angles. Those fixed angles
+ * are real and pending.
  * TODO(camera-modes): translate the overlay directors and handlers 1..15
  * as the overlay code is decompiled — one-shot reposition (5 -> 7),
  * timed hold (6), init/fallback settle (8, func_001914A0 — CONFIRMED
@@ -522,7 +523,7 @@ static void camera_mode_dispatch(EmCamera *cam)
     /* FIXED-CAMERA REGION. The room cameras themselves are scene DATA
      * the port authors (scene.txt `camregion`), transcribed from PCSX2
      * observation — the overlay director that owns them natively
-     * (func_00195130 + its per-area `jal 0x823FE0` hook) is NOT
+     * (func_00195130 + its per-area call to the 0x823FE0 hook) is NOT
      * recovered, so nothing here is source-derived except the
      * trigger-volume test shape. Inside, the room OWNS the camera. L1 is a
      * NO-OP ("L1 won't reorient because the room has a specified camera
@@ -771,8 +772,8 @@ static void camera_mode_dispatch(EmCamera *cam)
      * re-mapped by `if (t < lim) { u = lim + (lim - t); if (!(u <=
      * -7.0f)) u = -7.0f; }` and lim = `arg0+0x64 == -46.8f ? -20 : -10`
      * — the exact shape below. The chase primitives are byte-anchored
-     * too: src/func_0018C6A0.c divides by 6.0 (lui 0x40C0) with a d/4
-     * snap inside 1.0, src/func_0018C4B0.c by 8.0 (lui 0x4100) with the
+     * too: src/func_0018C6A0.c divides by 6.0 (binary32 0x40C00000) with a d/4
+     * snap inside 1.0, src/func_0018C4B0.c by 8.0 (0x41000000) with the
      * same d/4 snap.
      *
      * AUDIT CORRECTION: the DIP case is NOT "idle only". src/func_001916C0.c
@@ -794,7 +795,7 @@ static void camera_mode_dispatch(EmCamera *cam)
      * else if (arg2 == 2) <direct store>` — neither arm fires). The
      * follow path (src/func_00195130.c state 0/1) passes 0, but the
      * AUTO-ORBIT path passes 1: src/func_00193D90.c's first act is
-     * `func_001916C0(cam, player, 1)` (a2 = 1 in the jal's setup pair).
+     * `func_001916C0(cam, player, 1)` (third argument = 1 at the call).
      * So while the 481-frame orbit runs, the desired target FREEZES its
      * height and only tracks the player horizontally. */
     cam->tgt_des[0] = cam_chase_h(cam->tgt_des[0], g.pos[0], CAM_TGT_CAP_XZ);

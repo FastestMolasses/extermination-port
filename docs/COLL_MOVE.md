@@ -38,8 +38,10 @@ which it is not).
    and `0x700031D4` are cleared (0x0019AD60..0x0019ADB0).
 2. The end is pushed 1% of a unit further (0x0019ADAC..0x0019ADE8):
    `dir = 00103230(00102760(end − start), 0.01)`, `end += dir`. Every one
-   of these is a VU0 macro routine (vsub.xyzw; vmul.xyz, vaddy.x, vaddz.x,
-   vsqrt, vaddq.x, vdiv (3,0), vsub.xyzw, vmulq.xyz; vmulx.xyz; vadd.xyzw).
+   of these is a VU0 macro routine: a four-lane difference; a normalise
+   (the x/y/z squares summed, a VU square root, the reciprocal 1/length
+   from the VU divider, the xyz lanes scaled by it); a scale of the xyz
+   lanes by the x lane of the factor; and a four-lane sum.
 3. **Flag bit 0, when actor +0 bit 0 is set** (0x0019ADF0..0x0019AEC4):
    - a class-0 actor (+2 & 0x1F == 0) calls `001A6440(0x40)`. A nonzero
      result is vetoed when the entity it left in `0x700031D4` has +0x52
@@ -102,13 +104,14 @@ names the two extents the other way round (its `lox` holds the maximum).
 
 - The end height must lie in [cy − half, cy + half]. Half is the radius
   for 0x8000 and +0x14 for 0x4000.
-- The x/z line's closest point is computed with `001028E8` (vmul.xyzw),
+- The x/z line's closest point is computed with `001028E8` (a four-lane VU0 product),
   then EE add, neg, div and mul.
 - It misses when d² > r², and when the start is strictly inside the circle.
 - The half chord and the segment length come from two SDK `0011E748` sqrt
   calls.
 - Candidate 1 = closest − u·hc, then candidate 2 = closest + u·hc
-  (adda/madd). A candidate is accepted when its x lies strictly between the
+  (through the EE float accumulator: an accumulate step, then a multiply-add).
+  A candidate is accepted when its x lies strictly between the
   segment's x ends in the direction of travel, **or** its z does.
 - A hit writes `point` = (x, end.y, z), `cell_normal` = ((x − cx)/r, 0,
   (z − cz)/r) and `cell_class` = 0x2000. There is no facing test.

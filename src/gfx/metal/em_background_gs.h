@@ -238,7 +238,7 @@ static inline void em_background_gs_grid(const EmBackgroundGsAsset *a,
 {
     float y = a->origin[1];
     for (unsigned row = 0; row < EM_BACKGROUND_GS_GRID; ++row) {
-        float x = a->origin[0];                 /* lq vf10.x, 516(vi00) */
+        float x = a->origin[0];                 /* x reloaded from dmem 516 each row */
         for (unsigned column = 0; column < EM_BACKGROUND_GS_GRID; ++column) {
             float d[3];
             for (unsigned lane = 0; lane < 3; ++lane) {

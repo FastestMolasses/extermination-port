@@ -32,7 +32,7 @@ static float tr(double value)
 static float add(float a, float b) { return tr((double)a + (double)b); }
 static float sub(float a, float b) { return tr((double)a - (double)b); }
 static float mul(float a, float b) { return tr((double)a * (double)b); }
-/* EE div.s: rounded (the point-light oracle's established semantics). */
+/* EE float divide: rounded (the point-light oracle's established semantics). */
 static float divide(float a, float b) { return a / b; }
 
 static float f32_of(uint32_t bits)
@@ -50,7 +50,7 @@ static void identity(float m[16])
     m[0] = m[5] = m[10] = m[15] = 1.0f;
 }
 
-/* VU0 vmulax/vmadday/vmaddaz/vmaddw over the rows r0..r3 of `m`:
+/* VU0 multiply-accumulate chain over the rows r0..r3 of `m`:
  * out = r0*v.x + r1*v.y + r2*v.z + r3*v.w, every product and sum truncated
  * in that order (the macro-mode ACC chain of 001026A0/001026D0). */
 static void vu0_transform(float out[4], const float m[16], const float v[4])
@@ -75,7 +75,7 @@ static void vu0_product(float dst[16], const float a[16], const float b[16])
     memcpy(dst, out, sizeof out);
 }
 
-/* 00102918(dst, src, v): rows 0..2 copied, row 3 xyz += v (vadd.xyz). */
+/* 00102918(dst, src, v): rows 0..2 copied, row 3 xyz += v (one VU0 add of the xyz lanes). */
 static void vu0_translate(float m[16], const float v[4])
 {
     for (int lane = 0; lane < 3; ++lane) m[12+lane] = add(m[12+lane], v[lane]);
@@ -93,7 +93,7 @@ static void vu0_rotate_zero(float m[16])
     vu0_product(m, r, m);
 }
 
-/* vclipw.xyz fs, fs.w */
+/* VU clip test of the x/y/z lanes against |w|: bits +x, -x, +y, -y, +z, -z */
 static uint32_t clipw(const float v[4])
 {
     float w = fabsf(v[3]);
@@ -212,8 +212,8 @@ static int in_list(const uint16_t *list, size_t n, uint32_t key)
 
 /* ---- 001D98A0 ------------------------------------------------------------ */
 
-/* 00102718(dst, a, b): vopmula.xyz ACC, a, b; vopmsub.xyz dst, b, a;
- * vsub.w dst.w = dst.w - dst.w. */
+/* 00102718(dst, a, b): the VU0 outer-product pair — ACC = a.yzx * b.zxy,
+ * then dst.xyz = ACC - b.yzx * a.zxy — and dst.w = dst.w - dst.w (0). */
 static void cross(float out[4], const float a[4], const float b[4])
 {
     float acc0 = mul(a[1], b[2]), acc1 = mul(a[2], b[0]), acc2 = mul(a[0], b[1]);
@@ -248,13 +248,14 @@ static void light_setup(EmShadowOriginalPlan *plan, EmShadowOriginalState *state
     /* D_00817F80 = (0, 0 - L.z, L.y - 0, 0), normalized (EE FPU). */
     float r0 = 0.0f, r1 = sub(0.0f, light[2]), r2 = sub(light[1], 0.0f);
     float len2 = mul(r0, r0);
-    len2 = add(len2, mul(r1, r1));          /* adda.s */
-    len2 = add(len2, mul(r2, r2));          /* madd.s */
+    len2 = add(len2, mul(r1, r1));          /* accumulator add */
+    len2 = add(len2, mul(r2, r2));          /* multiply-add */
     /* 0011E748 (sqrt) only ever sees 1.0 here: L is the constant above. */
     float inv = divide(1.0f, (float)sqrt((double)len2));
     float right[4] = {mul(r0, inv), mul(r1, inv), mul(r2, inv), 0.0f};
     qcopy(plan->right_817F80, right);
-    /* D_00817F90 = L x right via mula.s / msub.s */
+    /* D_00817F90 = L x right through the FPU accumulator (product, then
+     * multiply-subtract) */
     float upv[4];
     upv[0] = sub(mul(light[1], right[2]), mul(light[2], right[1]));
     upv[1] = sub(mul(light[2], right[0]), mul(light[0], right[2]));
@@ -314,7 +315,7 @@ static void light_setup(EmShadowOriginalPlan *plan, EmShadowOriginalState *state
     memcpy(plan->uv_24B0, sp40, 64);          /* copy_qw4(ctx+0x24B0, sp40) */
 }
 
-/* 00102738: vmul.xyz; vaddy.x; vaddz.x */
+/* 00102738: the VU0 dot product — xyz lanes multiplied, then x + y, then + z */
 static float dot3(const float a[4], const float b[4])
 {
     float x = mul(a[0], b[0]), y = mul(a[1], b[1]), z = mul(a[2], b[2]);
@@ -328,7 +329,7 @@ static void box_pass(EmShadowOriginalBox *box, int32_t model, const float anchor
 {
     float tpos[4], w[16], m[16], zero[16];
     qcopy(tpos, anchor);
-    tpos[3] = 1.0f;                                   /* sw 1.0, 0xDC(sp) */
+    tpos[3] = 1.0f;                                   /* w = 1.0 in the stack copy */
     identity(w);
     identity(m);
     float f = mul(f32_of(0x3DCCCCCDu), size);         /* 0.1 * size */
@@ -349,7 +350,7 @@ static void box_pass(EmShadowOriginalBox *box, int32_t model, const float anchor
     vu0_product(box->normal, zero, w);
     for (int lane = 0; lane < 4; ++lane)              /* 001028B8(D_70003470, rgba, D_0026E610) */
         box->color_row[lane] = add(rgba[lane], 8388608.0f);
-    /* 00128250 at 0x1DA5BC/5C8/5D8/5E8 (A, B, G, R); sll 24/16/8 and or, no masking. */
+    /* 00128250 at 0x1DA5BC/5C8/5D8/5E8 (A, B, G, R); (A<<24)|(B<<16)|(G<<8)|R, no masking. */
     box->rgbaq = (f2u_00128250(rgba[3]) << 24) | (f2u_00128250(rgba[2]) << 16) |
                  (f2u_00128250(rgba[1]) << 8) | f2u_00128250(rgba[0]);
     float wv[16];
@@ -487,7 +488,7 @@ int em_shadow_original_001DA6A0(const uint8_t *actor, const uint8_t *const *node
     if (common != 0) return 0;
 
     /* node spread: the shipped loop keeps the MINIMUM in all four
-     * accumulators (c.lt.s + bc1f/bc1fl both select x when x <= acc). */
+     * accumulators (both compare-and-branch arms select x when x <= acc). */
     float first[4];
     if (node_qword(nodes, node_slots, 1, 0xC0, first, fault)) return -1;
     float minx = first[0], minz = first[2];
@@ -502,7 +503,7 @@ int em_shadow_original_001DA6A0(const uint8_t *actor, const uint8_t *const *node
         if (!(bz < z)) bz = z;
     }
     float dx = sub(bx, ax), dz = sub(bz, az);
-    float d2 = add(mul(dx, dx), mul(dz, dz));      /* mula.s ; madd.s */
+    float d2 = add(mul(dx, dx), mul(dz, dz));      /* through the FPU accumulator */
     plan->spread = (float)sqrt((double)d2);        /* 0011E748: d2 is 0 */
     if (!(plan->spread <= 7.0f)) plan->box_size = add(1.0f, mul(2.0f, plan->spread));
 
@@ -566,11 +567,11 @@ int em_shadow_original_001DA6A0(const uint8_t *actor, const uint8_t *const *node
 void em_shadow_original_receiver_vertex(const float uv[16], const float p[3],
                                         float out[4], uint32_t *alpha)
 {
-    float v[4] = {p[0], p[1], p[2], 1.0f};  /* vf00.w */
+    float v[4] = {p[0], p[1], p[2], 1.0f};  /* w = 1 (the VU constant register's w) */
     vu0_transform(out, uv, v);
     float a = out[3];
-    if (a > 8388863.0f) a = 8388863.0f;      /* minibcx.w vf10, vf11, vf09x */
-    if (a < 8388608.0f) a = 8388608.0f;      /* maxbcy.w vf10, vf10, vf09y */
+    if (a > 8388863.0f) a = 8388863.0f;      /* w lane: VU minimum against the x constant */
+    if (a < 8388608.0f) a = 8388608.0f;      /* w lane: VU maximum against the y constant */
     if (alpha) *alpha = (uint32_t)(a - 8388608.0f);
 }
 

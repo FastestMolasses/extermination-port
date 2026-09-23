@@ -25,10 +25,11 @@
  *    24-bit history. Vertex i goes on to the clipping code when its data
  *    word (qword 3 lane w, low 16 bits) has none of the flag bits
  *    (R 0xA000, B 0x8000), the history of vertices i-2..i is non-zero
- *    (fcand 0x03FFFF), the three are not all outside one guard plane (six
- *    fcor tests) and i >= 2. After the loop: XGKICK of dmem 1019.
+ *    (an AND test of the history's low 18 bits), the three are not all
+ *    outside one guard plane (six clip-flag OR tests) and i >= 2. After the
+ *    loop: GIF kick of dmem 1019.
  * 2. Clip entry (0x06A.. R / 0x068.. B): vi11/vi14/vi10 saved to dmem 250,
- *    XGKICK of dmem 1019, packet header at vi4 = 1185 - TOP: [dmem 1018,
+ *    GIF kick of dmem 1019, packet header at vi4 = 1185 - TOP: [dmem 1018,
  *    vertex i qword 0, dmem 1017]. Each of vertices i-2, i-1, i goes
  *    through the vertex routine with M = the four qwords at its data
  *    word's address (R: the ST matrix is the next four):
@@ -52,9 +53,10 @@
  *    appended; more than 9 triangles aborts the entry), two out moves both,
  *    three out collapses the triangle onto (2048, 2048, 0, 0).
  * 5. Output (0x215.. R / 0x219.. B): per vertex XYZ -> fog F = max(min(A +
- *    B * w, 255), 0) (template row 1021 = (255, 2048, A, B)), ftoi4 of
- *    (x, y, z, F) (B clamps z to 8388607 first); RGBAQ slot ftoi0; the
- *    dmem 1017 copy gets NLOOP 3n | EOP; XGKICK vi4. vi11/vi14/vi10 are
+ *    B * w, 255), 0) (template row 1021 = (255, 2048, A, B)), (x, y, z, F)
+ *    to fixed point with 4 fraction bits (B clamps z to 8388607 first); the
+ *    RGBAQ slot to plain integers; the dmem 1017 copy gets NLOOP 3n | EOP;
+ *    GIF kick of the packet at vi4. vi11/vi14/vi10 are
  *    restored and the loop goes on with the M the entry left in vf28..31
  *    (vertex i's matrix, or dmem 0..3 after a w-plane case).
  *
@@ -207,7 +209,7 @@ static inline void emvu_fix0(EmVu1Clip *u)
     u->vi[0] = 0u;
 }
 
-/* lq.xyzw vfT, a / sq.xyzw vfS, a (addresses wrap at 1024 qwords) */
+/* vfT = dmem[a] (all lanes) / dmem[a] = vfS (all lanes); addresses wrap at 1024 qwords */
 static inline void emvu_lq(EmVu1Clip *u, unsigned t, uint32_t a)
 {
     if (t) memcpy(u->vf[t], u->m[a & 1023u].w, 16);
@@ -218,13 +220,13 @@ static inline void emvu_sq(EmVu1Clip *u, unsigned s, uint32_t a)
     memcpy(u->m[a & 1023u].w, u->vf[s], 16);
 }
 
-/* ilw.w viT, a: the low 16 bits of lane w */
+/* integer load: viT = the low 16 bits of lane w of dmem[a] */
 static inline void emvu_ilw_w(EmVu1Clip *u, unsigned t, uint32_t a)
 {
     if (t) u->vi[t] = u->m[a & 1023u].w[3] & 0xFFFFu;
 }
 
-/* isw.<lane> viT, a */
+/* integer store: dmem[a].lane = viT (low 16 bits) */
 static inline void emvu_isw(EmVu1Clip *u, unsigned t, uint32_t a, unsigned lane)
 {
     u->m[a & 1023u].w[lane] = u->vi[t] & 0xFFFFu;
@@ -235,7 +237,7 @@ static inline void emvu_set(EmVu1Clip *u, unsigned d, unsigned c, float v)
     if (d) u->vf[d][c] = emvu_w(v);
 }
 
-/* sub / add .mask vfD, vfS, vfT */
+/* vfD = vfS - vfT / vfS + vfT in the masked lanes */
 static inline void emvu_sub(EmVu1Clip *u, unsigned d, unsigned s, unsigned t, unsigned mask)
 {
     float r[4];
@@ -252,7 +254,7 @@ static inline void emvu_add(EmVu1Clip *u, unsigned d, unsigned s, unsigned t, un
     for (unsigned c = 0; c < 4; ++c) if (emvu_lane(mask, c)) emvu_set(u, d, c, r[c]);
 }
 
-/* addbc / subbc .mask vfD, vfS, vfT.bc */
+/* vfD = vfS + vfT.bc in the masked lanes (broadcast lane bc) */
 static inline void emvu_addbc(EmVu1Clip *u, unsigned d, unsigned s, unsigned t,
                               unsigned bc, unsigned mask)
 {
@@ -262,7 +264,7 @@ static inline void emvu_addbc(EmVu1Clip *u, unsigned d, unsigned s, unsigned t,
     for (unsigned c = 0; c < 4; ++c) if (emvu_lane(mask, c)) emvu_set(u, d, c, r[c]);
 }
 
-/* mulq / muli / addi .mask vfD, vfS */
+/* vfD = vfS * Q / vfS * I / vfS + I in the masked lanes */
 static inline void emvu_mulq(EmVu1Clip *u, unsigned d, unsigned s, unsigned mask)
 {
     float r[4];
@@ -304,7 +306,7 @@ static inline void emvu_max_v(EmVu1Clip *u, unsigned d, unsigned s, float b, uns
     }
 }
 
-/* move.mask vfT, vfS: raw words */
+/* vfT = vfS in the masked lanes: raw words */
 static inline void emvu_move(EmVu1Clip *u, unsigned t, unsigned s, unsigned mask)
 {
     uint32_t src[4];
@@ -312,7 +314,7 @@ static inline void emvu_move(EmVu1Clip *u, unsigned t, unsigned s, unsigned mask
     for (unsigned c = 0; c < 4; ++c) if (emvu_lane(mask, c) && t) u->vf[t][c] = src[c];
 }
 
-/* mulax / madday / maddaz with vfM..vfM+2 and maddw vfD, vfM+3, vf00w:
+/* The accumulate chain over rows vfM..vfM+2 plus row vfM+3 times w = 1:
  * vfD = p x [vfM..vfM+3] (row-vector, w = 1). */
 static inline void emvu_xform(EmVu1Clip *u, unsigned d, unsigned mreg, unsigned p)
 {
@@ -365,7 +367,7 @@ static inline uint32_t emvu_sign(const EmVu1Clip *u, unsigned r, unsigned c)
     return u->vf[r][c] >> 31;
 }
 
-/* ftoi0 / ftoi4 .xyzw vfT, vfS. Returns -1 outside int32. */
+/* vfT.xyzw = vfS.xyzw converted to int32 with 0 or 4 fraction bits. Returns -1 outside int32. */
 static inline int emvu_ftoi(EmVu1Clip *u, unsigned t, unsigned s, double scale)
 {
     uint32_t r[4];
@@ -436,7 +438,7 @@ static inline void emvu_box_vertex(EmVu1Clip *u)
     u->i = 128.0f;                                        /* 0x040 I */
     emvu_muli(u, 4, 4, EMVU_XYZW);                        /* 0x041 */
     emvu_div(u, u->vf[0][3], u->vf[1][3]);                /* 0x042 */
-    emvu_addbc(u, 3, 3, 0, 3, EMVU_Z);                    /* 0x043 addw.z */
+    emvu_addbc(u, 3, 3, 0, 3, EMVU_Z);                    /* 0x043 z += 1 */
     emvu_mulq(u, 1, 1, EMVU_XYZ);                         /* 0x04A */
     emvu_mulq(u, 3, 3, EMVU_XYZ);                         /* 0x04B */
     emvu_sq(u, 4, u->vi[12] + 1u);                        /* 0x04D */
@@ -444,8 +446,8 @@ static inline void emvu_box_vertex(EmVu1Clip *u)
     emvu_sq(u, 3, u->vi[12] + 0u);
 }
 
-/* The camera of an original vertex (the w-plane cases): ilw.w of its data
- * word (unused), vf28..31 = dmem 0..3, vfD = vfD x camera. */
+/* The camera of an original vertex (the w-plane cases): an integer load of
+ * its data word (unused), vf28..31 = dmem 0..3, vfD = vfD x camera. */
 static inline void emvu_camera0(EmVu1Clip *u, unsigned d)
 {
     for (unsigned k = 0; k < 4; ++k) emvu_lq(u, 28 + k, k);
@@ -492,8 +494,9 @@ static inline void emvu_edge(EmVu1Clip *u, unsigned a, unsigned b, unsigned lane
 }
 
 /* Project a clip-space point vfP and its ST vfS: Q = 1/w, P.xyz *= Q,
- * S.z = 1, S.xyz *= Q. `zero_first`: sub.z S, S, S then addw.z (R and the
- * B one-behind case); else addw.z S, vf00, vf00w (B two-behind case). */
+ * S.z = 1, S.xyz *= Q. `zero_first`: S.z = S.z - S.z, then S.z += 1 (R
+ * and the B one-behind case); else S.z = 0 + 1 from the constant register
+ * (B two-behind case). */
 static inline void emvu_project(EmVu1Clip *u, unsigned p, unsigned s, int zero_first)
 {
     emvu_div(u, u->vf[0][3], u->vf[p][3]);
@@ -609,7 +612,7 @@ static inline void emvu_s_two(EmVu1Clip *u, uint32_t a10, uint32_t a11, uint32_t
 }
 
 /* One out (L2AD / L32B): vf10 out. Returns 1 when the triangle count
- * passes 9 (the entry aborts, L25D). The edge-10-12 point (sub vf1 =
+ * passes 9 (the entry aborts, L25D). The edge-10-12 point (vf1 =
  * vf12 - vf10: the operands are the other way round here) is the new
  * triangle's first vertex. */
 static inline int emvu_s_one(EmVu1Clip *u, uint32_t a10, uint32_t a11, uint32_t a12,
@@ -688,13 +691,13 @@ static inline int emvu_s_plane(EmVu1Clip *u, unsigned lane, float limit, int hig
     return 0;
 }
 
-/* lq.w vfT, a (B 0x0FB loads only lane w) */
+/* vfT.w = dmem[a].w (B 0x0FB loads only lane w) */
 static inline void emvu_lq_w(EmVu1Clip *u, unsigned t, uint32_t a)
 {
     if (t) u->vf[t][3] = u->m[a & 1023u].w[3];
 }
 
-/* fcor vi1, imm: every CLIP bit outside `imm` is set. */
+/* The clip-flag OR test: every CLIP bit outside `imm` is set. */
 static inline int emvu_fcor(uint32_t cf, uint32_t imm)
 {
     return ((cf | imm) & 0xFFFFFFu) == 0xFFFFFFu;
@@ -866,7 +869,7 @@ static inline int em_vu1_shadow_clip_run(int kernel, EmVu1Qword *dmem, uint32_t 
     u.vi[14] = u.top;
     u.vi[11] = 32u;
     emvu_lq(&u, 15, 1021u);
-    u.cf = 0u;                                           /* fcset 0 */
+    u.cf = 0u;                                           /* clip flags = 0 */
     u.vi[15] = flags;
     emvu_lq(&u, 7, 1022u);
     emvu_lq(&u, 8, 1023u);
@@ -880,9 +883,9 @@ static inline int em_vu1_shadow_clip_run(int kernel, EmVu1Qword *dmem, uint32_t 
         emvu_xform(&u, 2, 28, 5);
         {
             float acc[4], r[4];
-            for (unsigned c = 0; c < 4; ++c)           /* mula.xyzw ACC, vf7, vf2 */
+            for (unsigned c = 0; c < 4; ++c)           /* ACC = vf7 * vf2, per lane */
                 acc[c] = emvu_fmac((double)emvu_rd(u.vf[7][c]) * (double)emvu_rd(u.vf[2][c]));
-            for (unsigned c = 0; c < 4; ++c) {         /* maddw.xyzw vf3, vf8, vf2w */
+            for (unsigned c = 0; c < 4; ++c) {         /* vf3 = ACC + vf8 * vf2.w */
                 const float prod = emvu_trunc((double)emvu_rd(u.vf[8][c]) *
                                               (double)emvu_rd(u.vf[2][3]));
                 r[c] = emvu_fmac((double)acc[c] + (double)prod);

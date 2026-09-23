@@ -267,7 +267,7 @@
  *             filters (func_00183AC0 / func_00183B80) reject model
  *             0x0D by name, and a live full-lifecycle memcheck saw
  *             ZERO +0x34/+0x36 accesses besides the release
- *             teardown's `sh zero, 0x36` (func_001AFC10), with two
+ *             teardown's +0x36 = 0 store (func_001AFC10), with two
  *             shots fired into it mid-stalk. HP=10 is vestigial init
  *             data; the old "unfound HP consumer" open item is CLOSED
  *             (there isn't one) and the port's shootable-worm mailbox
@@ -2520,7 +2520,7 @@ int em_enemy_add_crate(EmGfx *gfx, const float pos[3], float yaw,
 static void enemy_alarm_broadcast(void)
 {
     /* Decoded list-wide, no-radius wake (func_001551B0 state-4
-     * broadcast, CONFIRMED 2026-07-31) — but the engine reaches its `sb 1, +0x0A` wake ONLY
+     * broadcast, CONFIRMED 2026-07-31) — but the engine reaches its +0x0A = 1 byte store (the wake) ONLY
      * for a recipient with `+0x52 != 0` (on-surface). That flag is 0 on
      * every placed crate (live-read s76), so a destroyed crate wakes NO
      * neighbour — matching the original (user-reported 2026-06-12 that
@@ -4494,8 +4494,8 @@ static void worm_attack_tick(const EmCollision *coll, Enemy *e,
         if (--e->t28 <= 0) {
             /* missed: the engine releases the actor (state 3) — no
              * burst, no gore, no corpse. The release teardown is the
-             * worm's ONLY +0x36 access (func_001AFC10 `sh zero,
-             * 0x36` — s66): clear any unconsumed write with it. */
+             * worm's ONLY +0x36 access (func_001AFC10's +0x36 = 0
+             * halfword store — s66): clear any unconsumed write with it. */
             e->state   = EM_ENEMY_FREE;
             e->active  = 0;
             e->fade    = 0;
@@ -4671,7 +4671,7 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         } else {
             /* the worm consumes NOTHING (J2 CLOSED s66): no mailbox
              * poll — a write just sits until the slot frees, exactly
-             * the engine's teardown-only `sh zero, 0x36` */
+             * the engine's teardown-only +0x36 = 0 store */
             worm_attack_tick(coll, e, pp);
         }
         break;

@@ -41,7 +41,7 @@ static void setw(EmPlayerLiveActor *a, unsigned at, uint32_t v) { em_live_set_u3
 static int16_t h(const EmPlayerLiveActor *a, unsigned at) { return (int16_t)em_live_u16(a, at); }
 static void seth(EmPlayerLiveActor *a, unsigned at, int v) { em_live_set_u16(a, at, (uint16_t)v); }
 
-/* c.eq.s x, 0 / c.le.s / c.lt.s on the record's words. */
+/* EE float compares (x == 0, <=, <) on the record's words. */
 static int is_zero(const EmPlayerLiveActor *a, unsigned at) { return em_ee_c_eq_bits(w(a, at), ZERO); }
 static int le(uint32_t x, uint32_t y) { return em_ee_c_le_bits(x, y); }
 
@@ -161,7 +161,7 @@ int32_t em_player_float_to_int(uint32_t v)
     if (e < 0) return 0;                                     /* 00128200 */
     if (e >= 31) return sign ? INT32_MIN : INT32_MAX;        /* 00128208 -> 00128210 */
     uint32_t r = ((frac << 7) | UINT32_C(0x40000000)) >> (30 - e);  /* 00128234 */
-    return sign ? (int32_t)(0u - r) : (int32_t)r;            /* 0012823C movn */
+    return sign ? (int32_t)(0u - r) : (int32_t)r;            /* 0012823C: negated when the sign is set */
 }
 
 /* ---- worker readiness (fail-stop before the first write) -------------- */
@@ -828,7 +828,7 @@ int em_player_stage_anim_advance(void *host, EmPlayerLiveActor *a, float step_in
             if (h(a, 0x2C) & 0x8000) flags = (int16_t)(uint16_t)((uint16_t)flags | 0x8000u);   /* 001C6780 */
         }
     }
-    *out = (uint32_t)(int32_t)flags;                         /* 0015BA50: sw v0, +200 */
+    *out = (uint32_t)(int32_t)flags;                         /* 0015BA50: the result word stored to +200 */
     return 0;
 }
 

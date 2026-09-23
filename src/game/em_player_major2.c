@@ -23,8 +23,8 @@ static void set8(EmPlayerLiveActor *a, unsigned at, unsigned v) { em_live_set_u8
 static uint32_t u32(const EmPlayerLiveActor *a, unsigned at) { return em_live_u32(a, at); }
 static void set32(EmPlayerLiveActor *a, unsigned at, uint32_t v) { em_live_set_u32(a, at, v); }
 
-/* c.eq.s / c.le.s / c.lt.s of a record float against an immediate, as the
- * EE compares (DAZ, sign-keeping saturation). */
+/* The equal / less-or-equal / less-than tests of a record float against an
+ * immediate, as the EE's float compares (DAZ, sign-keeping saturation). */
 static int f_eq(const EmPlayerLiveActor *a, unsigned at, float k)
 {
     return em_ee_c_eq_bits(u32(a, at), em_ee_bits(k));
@@ -53,11 +53,11 @@ static int context_of(void *context, EmPlayerLiveActor *a, const Workers **w,
 static int hit_cues(EmPlayerLiveActor *a, const Workers *w)
 {
     void *c = w->context;
-    if (!f_eq(a, 0x224, 0.0f)) {               /* c.eq.s +224, 0; bc1t */
+    if (!f_eq(a, 0x224, 0.0f)) {               /* float +224 != 0.0 */
         CALL(w->sound(c, a, 0x152, 0, 300.0f));
         CALL(w->w0021C350(c, a));
     }
-    if (!f_eq(a, 0x22C, 0.0f)) {               /* c.eq.s +22C, 0; bc1t */
+    if (!f_eq(a, 0x22C, 0.0f)) {               /* float +22C != 0.0 */
         CALL(w->sound(c, a, 0x153, 0, 300.0f));
         CALL(w->w0021C270(c, a));
     }
@@ -75,15 +75,15 @@ static int root_motion(EmPlayerLiveActor *a, const Workers *w)
     uint32_t node;
     int ignored;
     CALL(w->root_node(c, 8, &node));
-    set32(a, 0x38, em_ee_sub_bits(node, u32(a, 0x21C)));     /* sub.s node8, +21C */
+    set32(a, 0x38, em_ee_sub_bits(node, u32(a, 0x21C)));     /* +38 = node8 - +21C */
     CALL(w->root_node(c, 8, &node));
     set32(a, 0x21C, node);
     CALL(w->translate(c, a, 1));
     CALL(w->root_node(c, 4, &node));
-    set32(a, 0x2EC, em_ee_sub_bits(node, u32(a, 0x2E4)));    /* sub.s node4, +2E4 */
+    set32(a, 0x2EC, em_ee_sub_bits(node, u32(a, 0x2E4)));    /* +2EC = node4 - +2E4 */
     CALL(w->root_node(c, 4, &node));
     set32(a, 0x2E4, node);
-    set32(a, 0xB4, em_ee_add_bits(u32(a, 0xB4), u32(a, 0x2EC)));   /* add.s +B4, +2EC */
+    set32(a, 0xB4, em_ee_add_bits(u32(a, 0xB4), u32(a, 0x2EC)));   /* +B4 = +B4 + +2EC */
     CALL(w->floor(c, a, 1, &ignored));
     return 0;
 }
@@ -210,7 +210,7 @@ int em_player_major2_00221FC0(void *context, EmPlayerLiveActor *a)
         if (u8(a, 0x2F1) == 0) clip = alt == 0 ? 0x102 : 0x104;
         else clip = alt == 0 ? 0x103 : 0x105;
         CALL(w->request(c, a, clip, 0, 8.0f));
-        set32(a, 0xB4, u32(a, 0x294));                 /* 0022221C: swc1 +294 -> +B4 */
+        set32(a, 0xB4, u32(a, 0x294));                 /* 0022221C: +B4 = +294 (float copy) */
         return 0;
     }
     case 1:                                            /* 00222224 */

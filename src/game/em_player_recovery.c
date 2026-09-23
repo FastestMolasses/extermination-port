@@ -19,7 +19,7 @@ typedef uint32_t F;   /* a binary32 bit pattern */
 
 #define FAULT(expr) do { if ((expr) < 0) return -1; } while (0)
 
-/* Constants as the instructions load them (lui/ori words). */
+/* Constants as the instructions load them (upper-half immediate, low half OR'd in). */
 #define K_ZERO      UINT32_C(0x00000000)
 #define K_ONE       UINT32_C(0x3F800000)
 #define K_HALF      UINT32_C(0x3F000000)
@@ -65,7 +65,7 @@ static F neg(F a) { return em_ee_neg_bits(a); }
 static int lt(F a, F b) { return em_ee_c_lt_bits(a, b); }
 static int le(F a, F b) { return em_ee_c_le_bits(a, b); }
 static int eq(F a, F b) { return em_ee_c_eq_bits(a, b); }
-/* mula.s x, x ; madd.s d = ACC + z*z */
+/* ACC = x*x, then d = ACC + z*z through the EE float accumulator */
 static F sum_squares(F x, F z) { return em_ee_madd_bits(em_ee_mula_bits(x, x), z, z); }
 
 static F bits_of(float v) { return em_ee_bits(v); }
@@ -129,8 +129,9 @@ static int32_t float_to_int(F b)
     return negative ? (int32_t)(0u - magnitude) : (int32_t)magnitude;
 }
 
-/* 001026A0(out, M, v): VMULAx.xyzw, VMADDAy.xyzw, VMADDAz.xyzw, VMADDw.xyzw
- * over the rows M[0..3]. */
+/* 001026A0(out, M, v): out = M[0]*v.x + M[1]*v.y + M[2]*v.z + M[3]*v.w over
+ * all four lanes, summed in the VU0 accumulator (first product into ACC, the
+ * next two added into ACC, the last added straight into out). */
 static int mat_apply(const F m[16], const F v[4], F out[4])
 {
     F acc[4] = { 0, 0, 0, 0 };
@@ -141,7 +142,7 @@ static int mat_apply(const F m[16], const F v[4], F out[4])
     return 0;
 }
 
-/* 001028B8(out, a, b): VADD.xyzw out = a + b. */
+/* 001028B8(out, a, b): out.xyzw = a + b (one VU0 add). */
 static int vec_add(const F a[4], const F b[4], F out[4])
 {
     return em_vu_vec_bits(EM_VU_ADD, 15, EM_VU_NO_BC, a, b, 0, NULL, out) == EM_EE_FLOAT_OK ? 0 : -1;
@@ -528,7 +529,7 @@ static int w_attribute(const EmPlayerRecoveryWorkers *w, const EmPlayerClimbTabl
 {
     int value = 0;
     FAULT(w->attribute(w->context, t, i, &value));
-    *attr = (int)(int16_t)value;                                       /* dsll32/dsra32 16 */
+    *attr = (int)(int16_t)value;                                       /* sign-extend the low halfword */
     return 0;
 }
 

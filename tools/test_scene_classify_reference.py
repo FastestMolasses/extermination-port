@@ -133,8 +133,8 @@ def validate_lhu(elf):
                 o.save(0x500100 + offset, value, 2)
                 o.save(0x500100 + offset + 2, 0xA5A5, 2)  # a neighbour must not leak
                 o.save(0x500000, (op << 26) | (4 << 21) | (2 << 16) | (offset & 0xFFFF))
-                o.save(0x500004, 0x03E00008)  # jr ra
-                o.save(0x500008, 0)           # nop
+                o.save(0x500004, 0x03E00008)  # return to the caller
+                o.save(0x500008, 0)           # empty delay slot
                 o.run(0x500000, [0x500100])
                 assert o.r[2] == expected & 0xFFFFFFFF, (op, hex(value), offset, hex(o.r[2]))
                 checked += 1
