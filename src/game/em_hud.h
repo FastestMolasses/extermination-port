@@ -9,9 +9,10 @@
  * by default, em_hud_update() flips visibility on either button's edge.
  *
  * PROVENANCE (corrected): this used to read "verified: both route to
- * the same controller, func_0020CDC0". func_0020CDC0 is an
- * undecompiled INCLUDE_ASM stub and verifies nothing. What IS recovered
- * is func_001AE7E0 (NEARMISS, body-correct), the mode classifier: it
+ * the same controller, func_0020CDC0". func_0020CDC0 (the status-screen
+ * controller anim_frame_top_b runs in state 3) is now NEARMISS readable
+ * C, but it is not what classifies the buttons. That is
+ * func_001AE7E0 (NEARMISS, body-correct), the mode classifier: it
  * returns 2 = "enter status mode" for `(D_00810E74 & 0x800) ||
  * (D_00810E74 & 0x10)` — two distinct edge bits of one button word —
  * and, separately, for `D_008106C5 != 0 || D_008106B0 != 0` (external

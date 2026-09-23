@@ -13,30 +13,25 @@
 
 #include "em_input.h"   /* EM_PAD_CROSS — the use-button mask */
 #include "em_model.h"
-#include "game/em_game.h"  /* em_game_set_battery — contract-A (em_game.c) */
+#include "game/em_game.h"  /* em_game_player_interact_anim (em_game.c) */
 #include "game/em_random.h"
 #include "game/em_effect_color.h"
 
 #define PICKUP_PI 3.14159265358979f
 
-/* The AREA-11 battery key-item. The engine's placement record 10
- * (behavior ov 0x00823E80) is item TYPE 0x11; its take path does
- * `li 0xFF; sb -> D_00810811` — the "battery in inventory" byte. The
- * port routes that flag through em_game_set_battery on the take (the
- * collectible reaches em_pickup via the manifest `pickup 0x11 ...`
- * line the ELEVATOR parser emits with the trailing "battery" token;
- * item type 0x11 is the engine-true identifier — INVESTIGATION_area11_
- * elevator.md §2). */
-#define EM_PICKUP_TYPE_BATTERY  0x11
-
 /* AREA-11 placement records 1/2 (manifest `pickup 0x13 ... prop`, mesh
  * area_item_13.emdl) are driven in the original by the overlay behaviour
  * 00827630: a timed spin cycle on actor +0xC8 (the rot.z leg of
  * build_trs_matrix, not the placement yaw) with a 60-tick wait, ramp,
- * hold and ramp down, sound 0x451 and a player hit box. None of that is
- * translated yet, so the port draws these props STATIC at their placement
- * pose. The former constant 1 deg/frame yaw spin was invented and has been
- * removed; the real cycle arrives with WP-11 (overlay oracle for 00827630). */
+ * hold and ramp down, sound 0x451 and a player hit box. The cycle is not
+ * translated yet (WP-11, overlay oracle for 00827630); the port draws the
+ * pair STATIC. 00827630's state-0 init rot.z (+/-pi/4 by +0x2E) is
+ * implemented by em_pickup_owner_init_pose, but it applies ONLY when the
+ * manifest pickup line carries `owner 0x827630 <flags2>`; without that
+ * suffix (the local manifest as of this writing) the fans are drawn with
+ * placement yaw only. The former constant 1 deg/frame yaw spin was
+ * invented and has been removed. */
+#define PICKUP_OWNER_FAN 0x00827630u
 
 #define PICKUP_BONE_MAX  8     /* item EMDLs are 1-node statics today */
 #define PICKUP_MODEL_MAX 12    /* distinct model files per scene */
@@ -56,6 +51,8 @@ typedef struct {
     int     prop;         /* display prop: render-only (kind-0xB) */
     float   pos[3];       /* placement (actor +0xB0) */
     float   yaw;          /* placement ry (actor +0xC4) */
+    float   roll;         /* rot.z (actor +0xC8), 0 unless an owner init
+                           * sets it (em_pickup_owner_init_pose) */
     uint8_t armed;        /* actor +0x0B (the scan writes 4) */
     int     take_t;       /* armed countdown, EM_PICKUP_TAKE_FRAMES.. */
     float   scale;        /* actor +0x60..+0x68 — func_0015AC00's INIT
@@ -278,7 +275,12 @@ static float pickup_model_scale(const char *model_file)
 
 /* func_001C6380 — world TRS applied to each authored rest-node palette.
  * Static pickup bodies keep their original node offsets: model72 has
- * separate base/lid nodes, which must not all become identity matrices. */
+ * separate base/lid nodes, which must not all become identity matrices.
+ * build_trs_matrix (0x001C94B0) applies rot.x, rot.y, then rot.z, each
+ * left-multiplied, so a nonzero rot.z (p->roll) rotates about the WORLD Z
+ * axis after the yaw. Checked against the +0xD0 world matrices of both
+ * 00827630 actors in the three AREA11 EE captures (rot.z = +/-0.68,
+ * +/-0.84, +/-1.79; placement rot.x is 0 for every pickup record). */
 static void pickup_build_palette(Pickup *p)
 {
     if (p->model < 0) return;
@@ -302,6 +304,14 @@ static void pickup_build_palette(Pickup *p)
             float x = m[col * 4 + 0], z = m[col * 4 + 2];
             m[col * 4 + 0] =  c * x + sn * z;
             m[col * 4 + 2] = -sn * x + c * z;
+        }
+        if (p->roll != 0.0f) {
+            const float cz = cosf(p->roll), sz = sinf(p->roll);
+            for (int col = 0; col < 4; col++) {
+                float x = m[col * 4 + 0], y = m[col * 4 + 1];
+                m[col * 4 + 0] = cz * x - sz * y;
+                m[col * 4 + 1] = sz * x + cz * y;
+            }
         }
         m[12] += p->pos[0];
         m[13] += p->pos[1];
@@ -363,11 +373,49 @@ void em_pickup_scene_clear(EmGfx *gfx)
      * survives — see em_pickup.h. */
 }
 
+/* The state-0 init of a placed prop's overlay owner, for owners whose
+ * per-frame behaviour is not translated yet. Only 00827630 (the AREA11 fan
+ * pair) is known; any other owner is refused (-1) so a manifest cannot
+ * silently claim an untranslated init. 00827630 state 0 (runtime
+ * 0x00827680..0x008276B4): 001B0FD0, +0x38 (spin rate) = 0, then
+ * +0xC8 = +0x2E == 0 ? 0x3F490FDB (+pi/4) : 0xBF490FDB (-pi/4). +0x2E is
+ * the placement record's +0x03 byte (records 1/2: 0 and 1). */
+int em_pickup_owner_init_pose(int slot, uint32_t owner, unsigned flags2)
+{
+    if (slot < 0 || slot >= s.n || !s.p[slot].used) return -1;
+    if (owner != PICKUP_OWNER_FAN) return -1;
+    Pickup *p = &s.p[slot];
+    p->roll = flags2 == 0 ? 0x1.921fb6p-1f : -0x1.921fb6p-1f;
+    pickup_build_palette(p);
+    return 0;
+}
+
+/* func_001AF2C0 (src/func_001AF2C0.c, NEARMISS; the values are checked
+ * against the executed original by tools/test_continue_reset_reference.py)
+ * — the part of the new-game reset em_pickup mirrors. After the 0x640-byte
+ * D_00810700 memset it stores C60 = 0, count[0] (C64) = count[5] (C69) =
+ * count[7] (C6B) = count[0x17] (C7B) = 1, CA4 = 0xFF, CA6 = 0, CB2 = CB7 = 0,
+ * then calls 001C40B0(0x10, 2): count[0x10] += 2 and C63 += 2. That call's
+ * reserve (CB4) and loaded-magazine (C62) writes are overwritten by
+ * 001AF2C0's own C62 = 30 / CB4 = 60 stores, which em_game mirrors
+ * (game_state_new_game), so no ammo_pending rounds are queued here.
+ * Not mirrored by em_pickup: CA5 = 5 / CA7 = 7 (equipment bytes read by
+ * 0015C310/0018AB00/001B17A0) and D20..D23 = 1. */
 void em_pickup_reset(void)
 {
     memset(&g, 0, sizeof g);
     g.found_pending = -1;
-    g.primary = 0xFF;
+    g.status = 0;                        /* C60 */
+    g.count[0x00] = 1;                   /* C64 */
+    g.count[0x05] = 1;                   /* C69 */
+    g.count[0x07] = 1;                   /* C6B */
+    g.count[0x17] = 1;                   /* C7B */
+    g.primary = 0xFF;                    /* CA4 */
+    g.secondary = 0;                     /* CA6 */
+    g.battery_charge = 0;                /* CB2 */
+    g.battery_capacity = 0;              /* CB7 */
+    g.count[EM_PICKUP_TYPE_MAG] = 2;     /* 001C40B0(0x10, 2): C74 += 2 */
+    g.mag_packs = 2;                     /*                    C63 += 2 */
 }
 
 /* Wrap an angle to (-pi, pi] — the engine's func_001B1470. */
@@ -474,19 +522,13 @@ static void pickup_take(Pickup *p, float player_y)
         unsigned u = (unsigned)p->uid & 0xFFFF;
         g.taken[u >> 5] |= 1u << (u & 31);
     }
-    /* The AREA-11 battery key-item: its take sets the engine's
-     * D_00810811 = 0xFF (INVESTIGATION_area11_elevator.md §2). Route
-     * that through the persistent game state so the terminal's
-     * powered-vs-refusal branch (em_examine.c, contract C) can gate on
-     * it. The taken-bit above already makes the battery persist (it
-     * never re-spawns once taken — em_pickup_add's cond-1 suppression);
-     * this just mirrors the inventory byte. */
-    if ((p->type & 0xFF) == EM_PICKUP_TYPE_BATTERY)
-        em_game_set_battery(1);
+    /* The former type-0x11 hook here mirrored D_00810811 as a "battery"
+     * flag. That byte is the AREA11 opening controller's completion flag
+     * (overlay 0x00823F74..80), and AREA11 record 10 is that controller,
+     * not a type-0x11 pickup, so the hook was removed. */
     p->used = 0;                         /* func_001AFC10 — despawn */
-    printf("pickup: took type %#04x (count %u, uid %#06x)%s\n",
-           p->type, g.count[p->type & 0xFF], (unsigned)p->uid,
-           (p->type & 0xFF) == EM_PICKUP_TYPE_BATTERY ? " [BATTERY]" : "");
+    printf("pickup: took type %#04x (count %u, uid %#06x)\n",
+           p->type, g.count[p->type & 0xFF], (unsigned)p->uid);
 }
 
 void em_pickup_update(const float player_pos[3], float player_yaw,

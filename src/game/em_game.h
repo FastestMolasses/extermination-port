@@ -7,9 +7,12 @@
  * GAMEPLAY FRAME (func_001AE5E0 [NEARMISS]).
  *
  * PROVENANCE (audit 2026-07-31):
- *   - 0x001AE040 is `anim_frame_top_b` and is STILL UNDECOMPILED
- *     (INCLUDE_ASM). Naming it as the decoded "in-game frame machine"
- *     was never source-derived; treat the shape as OBSERVED.
+ *   - 0x001AE040 is `anim_frame_top_b`, now recovered as NEARMISS
+ *     readable C (src/anim_frame_top_b.c in the decomp repo). It is the
+ *     in-game frame machine (task +0xB); its states are recorded in
+ *     docs/SCENE_COORDINATOR_DESIGN.md §2.3 from that C, the .s and a
+ *     measured trace. The port's ingame_frame_machine does not yet follow
+ *     them (WP-3).
  *   - func_001AE5E0 IS the gameplay frame, and the mapping in em_game.c
  *     is source-derived. An EARLIER AUDIT CALLED THIS WRONG ("a
  *     per-level INIT routine ... the port's gameplay_frame is a port
@@ -49,12 +52,14 @@
  * pulling in (em_game.c "CAMERA FIDELITY"). While the status screen is
  * open the world simulation PAUSES (gate on em_hud_is_open()). Real
  * game logic replaces the skeleton arms as the decomp repo recovers
- * it. Per-scene boot config (player spawn, collision filename,
- * optional bgm) comes from the SCENE MANIFEST assets/scene/scene.txt
- * (exporter-written; missing = office defaults). EM_BGM=<path.wav> makes
- * the boot->game handoff start looping level music through em_bgm (the
- * engine's func_001FB0B0 BGM model); with neither the manifest bgm key
- * nor the env set, silence — behavior unchanged.
+ * it. Per-scene boot config (player spawn, collision filename) comes
+ * from the SCENE MANIFEST assets/scene/scene.txt (exporter-written;
+ * missing = office defaults). A manifest `bgm` key is accepted and
+ * IGNORED: no original code starts music from scene data (area music is
+ * 001FAE70's cue choice, not mirrored yet). EM_BGM=<path.wav> is a
+ * debug-only listening override with no original counterpart: the
+ * boot->game handoff loops that file through em_bgm. Without it, the
+ * port plays no level music.
  */
 #ifndef EM_GAME_H
 #define EM_GAME_H
@@ -209,18 +214,24 @@ void  em_game_aim_dir(float out[3]);
  * the battery, power the terminal, ride the elevator DOWN to the
  * room-move door.
  *
- * em_game_has_battery / em_game_set_battery — the engine's
- *   D_00810811 byte ("battery in inventory"; 0xFF = held). em_pickup.c
- *   sets it on the TAKE of the battery key-item (placement record 10,
- *   item type 0x11). Faithful: the byte is 0/0xFF; the port carries a
- *   0/1 flag mirroring it.
+ * D_00810811 is NOT a battery flag. It is the opening-complete byte: the
+ *   AREA11 opening controller 00823E80 stores 0xFF there at
+ *   0x00823F74..80 when its script ends (g.opening_complete; executed by
+ *   tools/test_continue_reset_reference.py). The byte is also index 0xB9
+ *   of the D_00810758 event array, so event writes could reach it; that
+ *   has not been audited. No pickup take writes it, and there is no
+ *   battery accessor here.
  *
  * em_game_terminal_powered / em_game_set_terminal_powered — the engine's
- *   per-area unlock bit D_00810841[11] bit 7, SET when the battery is
- *   inserted (the unlock-on-use handler 0x001584F4) and TESTED by the
- *   terminal examine (record 19, ov 0x00827B10) to choose the powered
- *   script (install the elevator) over the refusal script. em_examine.c
- *   sets it when the terminal is used with the battery in hand.
+ *   per-area unlock bit D_00810841[11] bit 7 (D_0081084C & 0x80). In the
+ *   original it is set by 001580C0 (1 << actor +0x2E into
+ *   D_00810841[area], sound 0x3EE), the panel program's record callback,
+ *   and tested by the terminal owner (record 19, ov 0x00827B10) to pick
+ *   the powered script over the refusal script. In the port the only
+ *   writer is the AREA11 interaction host's power hook (em_area11_
+ *   interaction_host.c, mirroring 001580C0), which is not wired into the
+ *   live frame yet; em_game_set_terminal_powered has no caller. 001AF2C0's
+ *   memset clears the bit (game_state_new_game).
  *
  * em_game_elevator_start — begin the 150-frame descent (the powered
  *   script 0x82A750's opcode-9 install of ov 0x00828050). IDEMPOTENT:
@@ -230,15 +241,13 @@ void  em_game_aim_dir(float out[3]);
  *   frames = 40 units down (Y ~230 -> ~190), driving the player
  *   ground-Y, the camera target-Y and the platform mesh-Y together;
  *   sound 0x453 on start (INVESTIGATION_area11_elevator.md §4). */
-int  em_game_has_battery(void);
-void em_game_set_battery(int on);
 int  em_game_terminal_powered(void);
 void em_game_set_terminal_powered(int on);
 void em_game_elevator_start(void);
 
 /* SCRIPTED PLAYER INTERACTION ANIM + LOCK — the engine's "scripted-anim-
- * owns-player" model (player+0x2F3 = 3), decoded for the CORRECTED two-
- * terminal AREA-11 flow. PROVENANCE SPLIT (audit):
+ * owns-player" model (player+0x2F3 = 3), applied to the AREA-11 power
+ * panel + ride terminal flow. PROVENANCE SPLIT (audit):
  *   - the "+0x2F3 owns the player" MODEL is source-derived and holds:
  *     func_00183090 [byte-matched] shows +0x2F3 == 1 or 3 re-seeding the
  *     pose from +0x1F2 and bypassing the ordinary id-change commit
@@ -247,11 +256,15 @@ void em_game_elevator_start(void);
  *     cited op0A handler address 0x001B9A00 is not a function boundary in
  *     the decomp registry (no src/func_001B9A00.c, no FUNCTIONS.csv row),
  *     and the cited INVESTIGATION_area11_elevator.md is in neither repo —
- *     so the clip ids 0x14 / 0x47, the two-terminal ordering and the
- *     +0x40 clip-pointer write rest on live RAM reads alone.
- * As observed, both terminals play a one-shot scripted clip ON THE PLAYER
- * and lock player input/movement for its duration: the OUTSIDE
- * battery-insert clip 0x14, the INTERNAL lever-throw clip 0x47; the
+ *     so the clip ids 0x14 / 0x47, their assignment to the two
+ *     interactions and the +0x40 clip-pointer write rest on live RAM
+ *     reads alone.
+ * The two interactions are the power panel (00159210 / 001580C0, which
+ * sets the terminal-power bit) and the ride terminal (overlay 00827B10,
+ * which tests it). As observed on live RAM, a one-shot scripted clip
+ * plays ON THE PLAYER and locks player input/movement for its duration;
+ * clips 0x14 and 0x47 were both seen there (the port's ride path plays
+ * 0x47; which interaction plays 0x14 is not decoded); the
  * free-move action machine is suppressed while that scripted-anim state
  * holds (LIVE: the lock is the scripted-anim state, NOT a control-mode
  * flag — D_008101E4 stays 0).

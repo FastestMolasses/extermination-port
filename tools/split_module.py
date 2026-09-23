@@ -25,6 +25,22 @@ Usage:
   split_module.py --src src/game/em_game.c --module em_camera \\
       --export camera_update,camera_solve --internal cam_norm3,cam_wrap_pi \\
       --title "camera system" [--dry-run]
+
+Options added for the S5 split (docs/SCENE_COORDINATOR_DESIGN.md section 6):
+  --decl-into HEADER   append the exported prototypes to an existing header
+                       (before its final #endif) instead of writing
+                       <module>.h; the source file then gains no new #include.
+  --copy-includes      start the new .c with every #include line of --src, so
+                       moved bodies compile unchanged (unused includes are
+                       harmless; pruning them is not a move).
+  --greedy-comments    a function's leading block also takes blank-separated
+                       comment paragraphs above it, back to the previous code
+                       line (e.g. a long rationale split from the function by
+                       one blank line). It stops at code and at section
+                       banners ("/* ====..." or "/* ----..." rule lines).
+Forward declarations of moved INTERNAL (static) functions are removed from
+--src and re-emitted at the top of the new .c, because a moved body may call
+a moved static that is defined later in the file.
 """
 from __future__ import annotations
 
@@ -34,7 +50,38 @@ import re
 import sys
 
 
-def find_defs(lines: list[str], want: set[str]) -> dict[str, tuple[int, int]]:
+def is_comment(line: str) -> bool:
+    return line.lstrip().startswith(("/*", "*", "*/", "//"))
+
+
+def leading_start(lines: list[str], idx: int, greedy: bool) -> int:
+    """First line of the comment block that documents the code at idx."""
+    # walk back over the contiguous comment block
+    i = idx
+    while i > 0 and is_comment(lines[i - 1]):
+        i -= 1
+    if greedy:
+        # take whole comment paragraphs above a blank gap, stopping at
+        # code or at a section banner ("/* ====" / "/* ----" rule line),
+        # which belongs to the file section, not to the function
+        k = i
+        while True:
+            b = k
+            while b > 0 and not lines[b - 1].strip():
+                b -= 1
+            if b == 0 or not is_comment(lines[b - 1]):
+                break
+            top = b - 1
+            while top > 0 and is_comment(lines[top - 1]):
+                top -= 1
+            if re.match(r'^\s*/\*\s*[=-]{10,}', lines[top]):
+                break
+            k = i = top
+    return i
+
+
+def find_defs(lines: list[str], want: set[str],
+              greedy: bool = False) -> dict[str, tuple[int, int]]:
     """name -> (first_idx, last_idx) covering the leading comment block + body."""
     out: dict[str, tuple[int, int]] = {}
     for idx, l in enumerate(lines):
@@ -46,10 +93,7 @@ def find_defs(lines: list[str], want: set[str]) -> dict[str, tuple[int, int]]:
         before_brace = head.split("{")[0]
         if ";" in before_brace and ")" in before_brace and "{" not in head[:len(before_brace)]:
             continue
-        # walk back over the contiguous comment block
-        i = idx
-        while i > 0 and lines[i - 1].lstrip().startswith(("/*", "*", "*/", "//")):
-            i -= 1
+        i = leading_start(lines, idx, greedy)
         # forward to the closing brace at depth 0
         j, depth, seen = idx, 0, False
         while j < len(lines):
@@ -88,6 +132,10 @@ def main() -> int:
     ap.add_argument("--internal", default="", help="comma-separated, stay static")
     ap.add_argument("--title", default="")
     ap.add_argument("--blurb", default="")
+    ap.add_argument("--decl-into", default="",
+                    help="existing header that receives the exported prototypes")
+    ap.add_argument("--copy-includes", action="store_true")
+    ap.add_argument("--greedy-comments", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
@@ -98,10 +146,33 @@ def main() -> int:
         sys.exit("error: nothing to move")
 
     lines = open(a.src, errors="ignore").read().split("\n")
-    found = find_defs(lines, want)
+    found = find_defs(lines, want, a.greedy_comments)
     missing = want - set(found)
     if missing:
         sys.exit(f"error: no definition found for: {', '.join(sorted(missing))}")
+
+    # A forward declaration of a moved static that sits directly above
+    # another moved function (only blank lines between) travels with that
+    # function, text unchanged, so the moved file keeps the original layout.
+    starts = {x: n for n, (x, _y) in found.items()}
+    fwd_decl = re.compile(r'^static\s+[A-Za-z_][\w \*]*\b(' +
+                          "|".join(map(re.escape, internal or ["$^"])) + r')\s*\(')
+    for idx, l in enumerate(lines):
+        if not fwd_decl.match(l):
+            continue
+        j = idx
+        while j < len(lines) and ";" not in lines[j] and "{" not in lines[j]:
+            j += 1
+        if j >= len(lines) or ";" not in lines[j]:
+            continue
+        nxt = j + 1
+        while nxt < len(lines) and not lines[nxt].strip():
+            nxt += 1
+        if nxt in starts:
+            n = starts.pop(nxt)
+            new_start = leading_start(lines, idx, a.greedy_comments)
+            found[n] = (new_start, found[n][1])
+            starts[new_start] = n
 
     blocks = sorted(found.items(), key=lambda kv: kv[1][0])
     moved: set[int] = set()
@@ -129,18 +200,41 @@ def main() -> int:
            f"/* The subsystem's shared types and state live here. */\n"
            f"#include \"game/em_game_internal.h\"\n\n"
            + "\n".join(decls) + f"\n\n#endif /* {guard} */\n")
+    proto_re = re.compile(r'^static\s+[A-Za-z_][\w \*]*\b(' +
+                          "|".join(map(re.escape, internal or ["$^"])) + r')\s*\(')
+    fwd_internal: list[tuple[int, int]] = []
+    for idx, l in enumerate(lines):
+        if idx in moved or not proto_re.match(l):
+            continue
+        j = idx
+        while j < len(lines) and ";" not in lines[j] and "{" not in lines[j]:
+            j += 1
+        if j < len(lines) and ";" in lines[j]:
+            fwd_internal.append((idx, j))
+    fwd_lines: set[int] = set()
+    for x, y in fwd_internal:
+        fwd_lines.update(range(x, y + 1))
+    fwd_text = "".join("\n".join(lines[x:y + 1]) + "\n" for x, y in fwd_internal)
+
+    if a.copy_includes:
+        incs = [l for l in lines if l.startswith("#include")]
+        inc_text = "\n".join(incs) + "\n"
+    else:
+        own = "" if a.decl_into else f"#include \"game/{a.module}.h\"\n\n"
+        inc_text = own + "#include \"game/em_game_internal.h\"\n"
     src = (f"/* {a.module}.c — {title}.\n *\n * {blurb}\n *\n"
            " * Every function here reads the shared gameplay state (EmGameState g), so\n"
            " * this module takes the subsystem's internal header rather than owning\n"
            " * private state — the same single state block the engine keeps in its\n"
            " * gameplay globals, now viewed from one more file. */\n\n"
-           f"#include \"game/{a.module}.h\"\n\n#include \"game/em_game_internal.h\"\n\n"
+           + inc_text + "\n"
+           + (fwd_text + "\n" if fwd_text else "")
            + "\n\n".join(body) + "\n")
 
     keep, i = [], 0
     fwd = re.compile(r'^static\s+[A-Za-z_][\w \*]*\b(' + "|".join(map(re.escape, exported)) + r')\s*\(')
     while i < len(lines):
-        if i in moved:
+        if i in moved or i in fwd_lines:
             i += 1
             continue
         if exported and fwd.match(lines[i]):
@@ -150,22 +244,34 @@ def main() -> int:
             continue
         keep.append(lines[i])
         i += 1
-    out_src = "\n".join(keep).replace(
-        '#include "game/em_game_internal.h"',
-        f'#include "game/em_game_internal.h"\n#include "game/{a.module}.h"', 1)
+    out_src = "\n".join(keep)
+    if not a.decl_into:
+        out_src = out_src.replace(
+            '#include "game/em_game_internal.h"',
+            f'#include "game/em_game_internal.h"\n#include "game/{a.module}.h"', 1)
 
     print(f"moving {len(blocks)} function(s), {len(moved)} lines")
     for n, (x, y) in blocks:
         print(f"   {n:30s} lines {x+1}..{y+1}  {'[export]' if n in exported else '[static]'}")
+    for x, y in fwd_internal:
+        print(f"   forward decl lines {x+1}..{y+1} -> {a.module}.c")
     print(f"{a.src}: {len(lines)} -> {len(keep)} lines")
     if a.dry_run:
         print("(dry run — nothing written)")
         return 0
 
-    open(os.path.join(d, a.module + ".h"), "w").write(hdr)
+    if a.decl_into:
+        htxt = open(a.decl_into).read()
+        cut = htxt.rstrip().rfind("#endif")
+        if cut < 0:
+            sys.exit(f"error: no #endif in {a.decl_into}")
+        add = (f"/* Defined in {a.module}.c ({title}). */\n" + "\n".join(decls) + "\n\n")
+        open(a.decl_into, "w").write(htxt[:cut] + add + htxt[cut:])
+    else:
+        open(os.path.join(d, a.module + ".h"), "w").write(hdr)
     open(os.path.join(d, a.module + ".c"), "w").write(src)
     open(a.src, "w").write(out_src)
-    print(f"wrote {d}/{a.module}.c and {d}/{a.module}.h")
+    print(f"wrote {d}/{a.module}.c and " + (a.decl_into or f"{d}/{a.module}.h"))
     print("NOW RUN make — couplings are found by the compiler, not by this script.")
     return 0
 

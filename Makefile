@@ -11,7 +11,7 @@ BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
-           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
+           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
@@ -251,6 +251,36 @@ test-random-seed-reference:
 .PHONY: test-frame-input
 test-frame-input:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c -lm -o build/frame_input_test && ./build/frame_input_test
+
+.PHONY: test-scene-classify
+test-scene-classify:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/scene_classify_test.c src/game/em_scene_classify.c -o build/scene_classify_test && ./build/scene_classify_test
+
+.PHONY: test-scene-classify-reference
+test-scene-classify-reference:
+	python3 tools/test_scene_classify_reference.py
+
+.PHONY: test-scene-frame-reference
+test-scene-frame-reference:
+	python3 tools/test_scene_frame_reference.py
+
+.PHONY: test-scene-task-reference
+test-scene-task-reference:
+	python3 tools/test_scene_task_reference.py
+
+.PHONY: test-actor-pool
+test-actor-pool:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/actor_pool_test.c src/game/em_actor_pool.c -o build/actor_pool_test && ./build/actor_pool_test
+	python3 tools/test_actor_pool_reference.py
+
+.PHONY: test-frame-trace
+test-frame-trace:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_trace_test.c src/game/em_frame_trace.c -o build/frame_trace_test && ./build/frame_trace_test
+	python3 tools/compare_frame_order.py --self-test
+
+.PHONY: test-actor-census
+test-actor-census:
+	python3 tools/test_actor_census_reference.py
 
 .PHONY: test-roger-media-reference
 test-roger-media-reference:

@@ -57,13 +57,22 @@ int em_pickup_add(EmGfx *gfx, const char *scene_dir, int type,
                   const float pos[3], float yaw, int uid,
                   const char *model_file, int prop);
 
+/* Apply the state-0 init pose of placed prop `slot`'s original overlay
+ * owner (the manifest's `owner <fn> <flags2>` suffix; flags2 = placement
+ * record +0x03 -> actor +0x2E). Supported: 0x00827630 (the AREA11 fan
+ * pair: rot.z = +pi/4 when flags2 == 0, else -pi/4). Returns 0, or -1 for
+ * a bad slot or an owner whose init is not translated. */
+int em_pickup_owner_init_pose(int slot, uint32_t owner, unsigned flags2);
+
 /* Free the scene's instances + meshes. Inventory and the taken-bit
  * set SURVIVE (engine: D_00810C64/D_00810860 are global game state —
  * that survival IS the pickup persistence across scene reloads). */
 void em_pickup_scene_clear(EmGfx *gfx);
 
-/* New-game wipe: inventory + taken bits (boot only; the engine memsets
- * the 0x640-byte game-state block at D_00810700 — func_001AF2C0). */
+/* New-game reset (func_001AF2C0): wipe inventory + taken bits (the
+ * engine memsets the 0x640-byte game-state block at D_00810700), then
+ * apply 001AF2C0's inventory seeds: counts 0/5/7/0x17 = 1, count 0x10 = 2
+ * and magazine packs 2 (001C40B0(0x10, 2)), primary 0xFF. */
 void em_pickup_reset(void);
 
 /* Per-frame: the use scan (CROSS edge -> arm) + armed-take pump.

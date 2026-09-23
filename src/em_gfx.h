@@ -483,18 +483,20 @@ void em_gfx_beam_tri_tex(EmGfx *gfx, int slot, const float p[9],
  * cone: full intensity inside cos(angle) >= cos_inner, smoothstep fade
  * to 0 at cos_outer.
  *
- * ENGINE TRUTH + DOCUMENTED DEVIATION (decomp FINDINGS "FLASHLIGHT
- * RENDER DECODE", 2026-06-11): the boot ELF draws NOTHING for the
- * flashlight toggle — no beam geometry, no glow sprite, no light-matrix
- * change is keyed on player +0xA or D_00810D3C (their only consumers
- * are gameplay: enemy detection, poses, sounds). The engine's per-actor
- * VU1 light matrix (func_001D89D0: per-room rig D_00251C50 + an
- * ALWAYS-ON camera-direction light, flag +0x2 bit 0x20, set once for
- * the player at init + <=32 dynamic point lights, func_001D7FA0) lights
- * CHARACTERS only; LEVEL geometry ships baked vertex colors and is
- * never dynamically lit. The port adds this forward spot term so the
- * toggle has the player-visible result the original light fixture
- * implies — a deliberate, flagged deviation, not a translation. */
+ * ENGINE TRUTH + DOCUMENTED DEVIATION. The old claim that the boot ELF
+ * draws nothing for the flashlight is REFUTED (FIRST_LEVEL_AUDIT R03/R04):
+ * 0017A970 sets the gun-light draw enable D_008106C7 together with
+ * D_00810D3C; while it is set, 00188ED0 calls 00187780, which (unless
+ * area flag 001B0070() & 0x20000000) calls 001D9530, the cone-shell draw
+ * of chunk27 library meshes 0x10/0x11/0x16 under the gun light matrix.
+ * That cone draw is NOT translated. The engine's per-actor VU1 light
+ * matrix (func_001D89D0: per-room rig D_00251C50 + an ALWAYS-ON
+ * camera-direction light, flag +0x2 bit 0x20, set once for the player at
+ * init + <=32 dynamic point lights, func_001D7FA0) lights CHARACTERS
+ * only; LEVEL geometry ships baked vertex colors and is never
+ * dynamically lit. This forward spot term is therefore a port stand-in,
+ * not a translation: the original's visible result is the cone mesh,
+ * not per-pixel light on the level. */
 void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
                        const float rgb[3], float range,
                        float cos_inner, float cos_outer);
@@ -583,30 +585,27 @@ void em_gfx_char_face_rig(EmGfx *gfx, const EmGfxCharRig *rig);
 
 /* --- Distance fog (the per-area GS fog) -------------------------------- */
 
-/* The native translation of the engine's GS distance fog (decomp FINDINGS
- * "CAMERA SYSTEM" section: func_001D8FD0 reads the per-area 0x78-byte
- * record from D_00251C50 — rec+4/+8 = fog near/far, rec+0xC/10/14 = fog
- * RGB — and func_0021B970/func_0021BA80 program the GS fog coefficients
- *   A = 255*far/(far-near)   B = -255/(far-near)   (ctx+0xA0)
- * so the GS per-vertex fog factor is F = A + B*z_view, clamped 0..255,
- * and the GS blends  out = (F/255)*Cs + (1 - F/255)*Cfog. Equivalently
- * the fog FRACTION is f = 1 - F/255 = clamp((z_view - near)/(far - near),
- * 0, 1): geometry at z_view <= near keeps its color (f=0), at z_view >=
- * far is the pure fog color (f=1). AREA-11 (key 0x0B00) uses near=-208,
- * far=304, fog RGB (48,48,48) on the engine 0..128 modulate scale — the
- * NEGATIVE near means even geometry at the camera (z_view=0) is already
- * ~40% fogged (f = 208/512), which the port reproduces (the near term is
- * NOT clamped to 0). z_view is the engine view-space depth = the port's
- * clip-space w (the GS-shaped projection's w_clip = z_view), so the
- * fragment derives it from the interpolated clip w — no extra matrix.
+/* The native translation of the engine's GS distance fog
+ * (src/gfx/metal/em_fog_gs.h has the full original chain). 001D8FD0 reads
+ * the per-area 0x78-byte record from D_00251C50 — rec+4/+8 = fog near/far,
+ * rec+0xC/10/14 = fog colour ints — and 0021B970/0021B920 store the VU
+ * coefficients A = 255*far/(far-near), B = -255/(far-near) at ctx+0xA0,
+ * while 0021BA80 packs the ints into GS FOGCOL (0..255 framebuffer
+ * units). The VU1 kernel at 0023C780 computes F = clamp(A + B*clip_w,
+ * 0, 255) per VERTEX and writes floor(F) into XYZF2; the GS interpolates
+ * F across the primitive and blends out = (F/255)*Cs + (1 - F/255)*FOGCOL.
+ * AREA-11 (key 0x0B00) uses near = -209, far = 304, FOGCOL (48,48,48).
+ * The NEGATIVE near means geometry at the camera (clip_w = 0) is already
+ * partly fogged (F = A ~ 151); the near term is not clamped to 0. clip_w
+ * is the port's clip-space w (the GS-shaped projection), so the vertex
+ * shader evaluates F from it directly.
  *
  * Per-frame state (like em_gfx_spot_light), reset OFF at begin_frame:
  * applies to BOTH the LEVEL path (baked vertex color) and the CHARACTER
- * path of the skinned shader. `rgb` is on the engine 0..128 scale (the
- * same convention as EmGfxCharRig col/amb); the backend scales by 1/128
- * to the [0,1] color the shader blends toward, so 48 reads as the same
- * grey as the rig's lightamb 32. A scene with NO fog record never calls
- * this, so fog-less scenes (office, drawbridge) stay byte-identical. */
+ * path of the skinned shader. `rgb` is FOGCOL in 0..255 GS units; the
+ * backend stores channel / 255 (em_fog_gs_color_unit). A scene with NO
+ * fog record never calls this, so fog-less scenes (office, drawbridge)
+ * stay byte-identical. Checked by tools/test_area11_fog_reference.py. */
 void em_gfx_fog(EmGfx *gfx, float near_z, float far_z, const float rgb[3]);
 
 /* Disable distance fog again (begin_frame also resets to OFF). Fog-off

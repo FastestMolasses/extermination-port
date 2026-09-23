@@ -295,15 +295,15 @@ static void seq_start(int slot)
     s.seq.face_left  = 0;
 
     /* AREA-11 INTERNAL elevator control terminal (record 19, ov
-     * 0x00827B10, on the platform): the CORRECTED two-terminal flow
-     * (INVESTIGATION_area11_elevator.md "CORRECTED FLOW"). This terminal
-     * NO LONGER inserts the battery or sets power — it ONLY checks power
-     * and runs the ride. In the original the power bit D_00810841[11]
-     * bit 7 is set by the panel program's callback 001580C0 (panel
-     * 00159210), bound only in the not-yet-live interaction host (WP-4).
-     * The former "battery_terminal" insert path was removed: it was
-     * attributed to 008237E0, which is Roger's controller (story byte
-     * D_008107D8 dispatch), with no battery or power behavior. */
+     * 0x00827B10, on the platform). Its owner only TESTS the power bit
+     * D_00810841[area] & (1 << +0x2E) and starts script 0x82A750 (set)
+     * or the refusal 0x82A990 (clear) via 001BA1A0; it never sets it.
+     * The setter is 001580C0, the record callback of the power panel's
+     * program (00159210), bound only in the not-yet-live interaction
+     * host (WP-4). The former "battery_terminal" insert path was
+     * removed: it was attributed to 008237E0, which is Roger's
+     * controller (story byte D_008107D8 dispatch), with no battery or
+     * power behavior. */
     if (e->is_terminal) {
         if (em_game_terminal_powered()) {
             /* POWERED path — the engine's script 0x82A750: play the

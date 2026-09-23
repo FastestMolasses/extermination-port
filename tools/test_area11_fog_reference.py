@@ -33,9 +33,12 @@ CONTEXT = plr.CONTEXT
 M64 = (1 << 64) - 1
 RIG_TABLE, RIG_COUNT, RIG_SIZE = 0x251C50, 45, 0x78
 KERNEL = 0x23C780
-# the kernel's fog slice: mulAz.w ACC; maddbcw.w vf08; minibcx.w vf08;
-# maxbcx.w vf06; ftoi4 vf07 (XYZF2 packing of F)
-FOG_SLICE = (0x23C8A0, 0x23C8A8, 0x23C8C8, 0x23C8E8, 0x23C928)
+# the kernel's fog slice, every upper op on the F lane in program order:
+# mulAz.w ACC; maddbcw.w vf08; minibcx.w vf08; maxbcx.w vf06;
+# addbcy.w vf06 += vf27.y (0x23C908, the 2048.0 bias from the ctx block);
+# ftoi4 vf07 (XYZF2 packing of F). The ibeq at 0x23C8F8 skips 0x23C908 and
+# 0x23C928 together, so both are on the same path.
+FOG_SLICE = (0x23C8A0, 0x23C8A8, 0x23C8C8, 0x23C8E8, 0x23C908, 0x23C928)
 bits, number = plr.bits, plr.number
 
 
@@ -144,6 +147,12 @@ def main():
             assert native.color_unit(channel) == C.c_float(channel/255.0).value
 
         snow.ELF = elf
+        # 0x23C908's upper word must be addbcy.w vf06, vf06, vf27 (fields
+        # only; no original bytes embedded), and vf27.y is the 2048.0 bias.
+        upper = struct.unpack_from('<I', elf, 0x23C908+4-0x100000+0x300)[0]
+        assert (upper >> 21 & 15, upper >> 16 & 31, upper >> 11 & 31,
+                upper >> 6 & 31, upper & 63) == (1, 27, 6, 6, 1), hex(upper)
+        assert coefficients[1] == 2048.0, coefficients
         a, b = coefficients[2], coefficients[3]
         samples = [0.1, 1.0, 50.0, 100.0, 303.9, 304.0, 304.1, 500.0, 5000.0, -209.0, -208.9]
         for k in range(256):                     # every F integer boundary

@@ -125,12 +125,19 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
   area 0x0B / sub 0 / entry 0. Both native paths apply the same reset:
   `game_state_new_game` plus `em_pickup_reset`. The old Continue values
   (75/60/4/120/4-6) were copied from a debug fixture and have been removed.
-  Continue now restarts in AREA11 wherever the player died. Because the
-  memset clears `D_00810791`/`D_00810811`, the opening controller runs again.
+  Continue now restarts in AREA11 wherever the player died. The memset
+  clears event byte `D_00810791` (`D_00810758[0x39]`), and the opening
+  controller 00823E80 skips its script only when that byte is 0xFF
+  (`001BA1C0(.., 0x39)` in its state 1); it does not read `D_00810811`. So
+  the rebuilt area should replay the opening, but that is inferred from the
+  instructions: no original Continue has been captured.
   `tools/test_continue_reset_reference.py` runs `001AF2C0` on captured AREA11
-  RAM and compares 11 mirrored fields. The inventory seeds (item counts
-  0/5/7/0x17 = 1, 0x10 = 2, mag packs 2) belong to `em_pickup_reset`. They are
-  printed by that test but do not yet match. Continue resets only these
+  RAM and compares 11 mirrored `EmGameState` fields. `em_pickup_reset` now
+  applies the inventory seeds (item counts 0/5/7/0x17 = 1, 0x10 = 2, magazine
+  packs 2, primary 0xFF), and the same test compares them, with item counts
+  0x00..0x3F and the other em_pickup fields, against the executed original.
+  `CA5`/`CA7` (5/7) and `D20..D23` (1) are not mirrored by any port module
+  yet. Continue resets only these
   mirrored fields (plus the death/prompt state and the pickup table); unlike
   New Game it does not memset the whole native game state, so other port
   state (for example director state other than `cine_step`) carries over.
@@ -140,8 +147,9 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
 - `D_00810811` is the opening-complete byte (`g.opening_complete`), not a
   battery flag. The opening controller 00823E80 stores 0xFF there at
   0x00823F74..80, when script 0x828FC0 ends. The same test executes that
-  slice. The fabricated `battery_terminal` examine path and the `battery`
-  pickup marker have been removed.
+  slice. The fabricated `battery_terminal` examine path, the `battery`
+  pickup marker, the type-0x11 take hook in `em_pickup.c` and
+  `em_game_set_battery` / `em_game_has_battery` have been removed.
 - No music starts from scene data. The manifest `bgm` line is ignored.
   Original area music is chosen by `001FAE70` from `D_008106C8` bits 8..15;
   the AREA11 captures give cue 25. `anim_frame_top_b` state 0 calls

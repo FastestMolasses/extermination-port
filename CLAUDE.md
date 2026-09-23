@@ -100,12 +100,14 @@ BLOCKED ON STATE THE PORT DOES NOT MODEL:
     are engine state the port has no equivalent for yet.
 
 STALE, CORRECTED (first-level audit H22/AM-06):
-  * em_sfx_stop_all placement is no longer blocked. func_001FBC50 is stop-all
-    SFX; the mismatched argument lists in some decomp callers' externs do not
-    move the original call sites (anim_frame_top_b state 1 calls it on
-    status/SELECT/end-screen entry). em_sfx_stop_all is now called by
-    em_frontend.c, em_opening_media_audio_start and the interaction host's
-    EM_STATUS_RESET_SOUNDS handler (live with the status frame machine, WP-5).
+  * em_sfx_stop_all placement is no longer blocked by missing evidence.
+    func_001FBC50 is stop-all SFX; the mismatched argument lists in some
+    decomp callers' externs do not move the original call sites
+    (anim_frame_top_b state 1 calls it when 001AE7E0 returns 1, 2 or 3).
+    That in-game placement is NOT live yet: it is mirrored only by the
+    AREA11 interaction host's EM_STATUS_RESET_SOUNDS handler, and the host
+    is not wired into the live frame (WP-3/WP-5). The live callers today are
+    em_frontend.c and em_opening_media_audio_start.
 
 BLOCKED ON PLAYTEST:
   * the fall entry threshold, and whether the aim-rate / turn-rate / R2-priority
@@ -261,8 +263,10 @@ BLOCKED ON PLAYTEST:
   overstated it). ORIGINAL (src/func_001B7B30.c case 5 +
   src/func_0018CBD0.c [NEARMISS]): the door script's op 0x0D sub 5 calls
   func_0018CBD0(cam, player, -20.0) — target = player +0xA0, eye = target
-  + rot(spad 3B50) * (0, 0, -20) — then func_0018D7B0 styles 5 and 1
-  (prepass/bounds, then the solver) and sets cam+0xA0 = 0x78. CBD0's
+  + rot(spad 3B50) * (0, 0, -20) — then func_0018D7B0 style 5 (the
+  0018D330 prepass, then 0018D910, with result 0 stored to cam+7) and
+  style 1 (0018D330, then the 0018DD20 solver, whose result is stored),
+  and sets cam+0xA0 = 0x78. CBD0's
   heights depend on cam+0x64: the -46.8 preset (the AREA11 default) gives
   target +17 / eye +19 before compression falloff; other presets (the
   -31.2 office records) give target +13 / eye +19. The 2026-06-11 PCSX2

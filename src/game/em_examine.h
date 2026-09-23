@@ -231,18 +231,20 @@ int em_examine_text(int slot, int dur, int gap, const char *text);
  * (the manifest's trailing "terminal" token; the engine's interactive
  * record 19, behavior ov 0x00827B10 at 224,230,250.7 — the grey control
  * box that sits ON the descending platform). This is the POWER-GATED
- * RIDE terminal. The CORRECTED two-terminal flow
- * (INVESTIGATION_area11_elevator.md "CORRECTED FLOW") splits the old
- * single-terminal model: this internal terminal NO LONGER inserts the
- * battery or sets power — it only CHECKS power and runs the ride.
- * When used:
- *   - powered (em_game_terminal_powered()) -> the powered script
- *     0x82A750 path: em_game_player_interact_anim(0x47) (the lever-throw
- *     clip + input/movement lock) THEN em_game_elevator_start() (the
- *     opcode-9 install of the descent actor ov 0x00828050)
- *   - unpowered -> the EXISTING unpowered refusal (gline 0x1A +
- *     300-frame cooldown), unchanged
- * The ELEVATOR parser (em_game.c) calls this after em_examine_add when
+ * RIDE terminal. What the overlay code establishes: when armed
+ * (+0x0B & 4) the owner tests D_00810841[D_00810700] & (1 << +0x2E) and
+ * starts script 0x82A750 through 001BA1A0 when the bit is set, else the
+ * refusal script 0x82A990. It never sets that bit: the only setter is
+ * 001580C0, the record callback of the separate power panel's program
+ * (00159210). So power (panel) and ride (this terminal) are two objects.
+ * When used, the port:
+ *   - powered (em_game_terminal_powered()) -> the 0x82A750 path as
+ *     modelled here: em_game_player_interact_anim(0x47) (lever-throw clip
+ *     + input/movement lock) THEN em_game_elevator_start() (the opcode-9
+ *     install of the descent actor ov 0x00828050). Those script contents
+ *     were read from live RAM, not executed (em_game.h downgrade).
+ *   - unpowered -> the refusal (gline 0x1A + 300-frame cooldown)
+ * The manifest parser (em_scene.c) calls this after em_examine_add when
  * it sees the "terminal" token. Returns 0 / -1 (bad slot). */
 int em_examine_set_terminal(int slot);
 

@@ -58,6 +58,8 @@ Presentation also has confirmed global errors:
 
 Summary: the *pieces* are largely verified; the *wiring* and the *live scene coordinator* are the missing work, and several live fabrications must be removed.
 
+**Status update (2026-09-22, after WP-0..WP-2 landed):** the truck fall, the fan spin, the director sounds, the Continue demo stats, the missing fog and the permanent pose invalidation above are fixed (see the WP-0..WP-2 status lines in §4). The invented fan spin is removed, so the fan pair is drawn static. The 00827630 init rot.z (±π/4 by record +0x03) is implemented in em_pickup, but it is applied only once the manifest pickup lines carry `owner 0x827630 <flags2>`. That is PENDING: the local manifest (assets/scene_snow/scene.txt) has not been updated, so the running port still draws both fans with placement yaw only. The wiring gaps (no terminal power, no Roger encounter, no exit, legacy Use/door/status paths) are still open.
+
 ---
 
 ## 2. Live call graph (normal run)
@@ -160,19 +162,20 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   - roger-media: DONE. Clock off-by-one fixed per 001FD790/001FD950/001FDB80. 4,143 ticks match.
   - status-hub-ui: DONE. v2 EMHS exporter. 167 streams / 19,968 commands against executed 00209DF0. Clock and trail are now caller-owned.
 - **Removes fabrication:** no.
+- **Status: DONE.** The three lanes are committed (face-host 62c58ed, roger-media 8efed7d, status-hub-ui e1d88a4). `em_status_hub_ui.c` is in COMMON and both Makefile targets exist. `tools/test_area11_interaction_host.py` was re-run on 2026-09-22 after those commits: all three scenarios PASS.
 
 ### WP-1 Neutralize live fabrications that need no new infrastructure
 - **Scope. Each item is independently committable:**
-  - **H8:** Continue applies the 001AF2C0 reset (the same values as New Game) and clears the D_00810700 block progress flags.
-  - **H10 partial:** delete `em_sfx_play(0x97/0x99)` in `em_director.c:175-182`.
-  - **H16:** truck static (remove the AABB trigger and fall), leaving a TODO.
-  - **H20:** stop the constant spin on type-0x13 props.
-  - **H17:** add the fog record (−209, 304, 48,48,48) to the scene_snow manifest via the exporter.
-  - **AM-22/INV-23:** do not auto-start manifest BGM on the New Game path.
-  - **SI-02/AM-17:** route `wpn_rand` and `footstep_rand5` through `em_random_next()` with the original bit extraction (00179B90: rand()&7 folded).
-  - **R03/R04 (not adversarially verified; FINDINGS s51 says no render consumer):** gate the flashlight spot and cone off by default.
-  - **R09/ORCH-27:** clear to black until the original clear is found.
-  - **ORCH-03, W24, INV-14, INV-15:** delete the dead `battery_terminal` path and the type-0x11 hook, and rename `have_battery` to the opening-complete byte D_00810811.
+  - **H8:** Continue applies the 001AF2C0 reset (the same values as New Game) and clears the D_00810700 block progress flags. **DONE** (9d4a631). The 001AF2C0 inventory seeds (item counts 0/5/7/0x17 = 1, 0x10 = 2, magazine packs 2) are now applied by `em_pickup_reset` and checked against the executed original (cleanup-game lane, uncommitted at the time of writing).
+  - **H10 partial:** delete `em_sfx_play(0x97/0x99)` in `em_director.c:175-182`. **DONE** (da41660).
+  - **H16:** truck static (remove the AABB trigger and fall), leaving a TODO. **DONE** (da41660).
+  - **H20:** stop the constant spin on type-0x13 props. **DONE** (da41660). The static pose now also applies 00827630's init rot.z (±π/4 by record +0x03) when the manifest line carries `owner 0x827630 <flags2>` (cleanup-game lane). PENDING: the local manifest lines do not carry the suffix yet, so the live fans are still yaw-only.
+  - **H17:** add the fog record (−209, 304, 48,48,48) to the scene_snow manifest via the exporter. **DONE** (port da41660, exporter decomp 7ae3b07; `test-area11-fog-reference`).
+  - **AM-22/INV-23:** do not auto-start manifest BGM on the New Game path. **DONE** (9d4a631).
+  - **SI-02/AM-17:** route `wpn_rand` and `footstep_rand5` through `em_random_next()` with the original bit extraction (00179B90: rand()&7 folded). **DONE** (7095fd6, `test-player-random-reference`).
+  - **R03/R04: REFUTED — do not gate the cone off.** The original draws the flashlight cone: 0017A970 sets the draw enable D_008106C7 with D_00810D3C, 00188ED0 calls 00187780 while it is set, and 00187780 calls 001D9530, the cone-shell draw (unless area flag 001B0070() & 0x20000000). Recorded in 7095fd6. The port's per-pixel spot term is still a stand-in (`em_gfx.h`).
+  - **R09/ORCH-27:** clear to black until the original clear is found. OPEN (no commit addresses it).
+  - **ORCH-03, W24, INV-14, INV-15:** delete the dead `battery_terminal` path and the type-0x11 hook, and rename `have_battery` to the opening-complete byte D_00810811. **DONE:** `battery_terminal` and the rename in 9d4a631; the type-0x11 take hook and `em_game_set_battery` / `em_game_has_battery` removed by the cleanup-game lane.
 - **Originals:** 001AF2C0, 001B7D60, 001D8FD0, 00122BB8, 00179B90.
 - **Verification:**
   - The existing suites must stay green.
@@ -187,6 +190,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Verification:** `test_player_pose_host_reference.py`, `test_player_pose_live_reference.py`, `test_player_foot_stop_reference.py`. Add a new case: aim, release, then run stop, and assert the foot-stop still fires.
 - **Depends on:** nothing. **Blocks:** WP-4 (acquire faults on an invalid pose).
 - **Removes fabrication:** yes (port-only state).
+- **Status: DONE** (7095fd6). Legacy releases re-seed through 00182DF0's path; `test_player_pose_host_reference.py` executes 0x182DF0 and includes the aim-release-then-stop case.
 
 ### WP-3 Live scene coordinator (backbone)
 - **Scope:**
@@ -381,6 +385,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 ### Refuted (do not re-report)
 - **ORCH-05, "the AREA11 door is the level exit; route it through an area transition": REFUTED.** 001BC150 with door id bit 7 clear (captured RAM, all AREA11 captures) is a **same-area room move** (B8=2) to spawn entry 2 or 1. It is never an area change. The surviving defect is medium: the port re-places at a computed point about 10 u off with the wrong yaw and never writes 0x810702 (tracked in WP-7).
 - **W17, "the door husk pair should be an active set piece in the first level": REFUTED.** 00825940 stays dormant in state 0x64 while event flag 0x30 (D_00810788) is clear. Every AREA11 capture shows the flag at 0, creature state 0x64, and the partner in state 1. The inert creature is faithful for the first visit. The residue is low: missing partner taken-bit persistence (it respawns on reload), the approximated partner shot reaction (FX 0x80000045, 0x426/0x427, stays drawn), and the invisible model-0x7A child.
+- **R03/R04, "the boot ELF draws nothing for the flashlight; gate the spot and cone off": REFUTED.** 0017A970 sets D_008106C7 with D_00810D3C; 00188ED0 calls 00187780 while D_008106C7 is set; 00187780 calls 001D9530, which draws the cone shell (chunk27 meshes 0x10/0x11/0x16) under the gun light matrix, skipped only when 001B0070() & 0x20000000. The original cone is not translated; the port's spot term is a stand-in.
 - **INV-08, "manager 1 (00823CE0) second cinematic reached in the first level": REFUTED.** It only waits on flag 0x30. Within AREA11, only its own script sets that flag, after the cinematic has already started. The only op06 sub0 record that sets it to 1 is in AREA17.BIN. This is revisit content, low priority. INV-09 (manager 3, 008257A0) has the same D_00810788 gate and is therefore also revisit content (not adversarially checked, but it goes dormant when D_00810788==0 per its C).
 - **Partial corrections to confirmed items. Do not repeat the original wording:**
   - ORCH-10/CAM-17: kCineBeats values *are* original record data.
@@ -413,20 +418,21 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 | ORCH-22/SI-28 | Main-loop phase order has no oracle; step I (001B5B70 rumble countdown) is not called | Instruction trace of 0x001AAE40 over a captured frame. |
 | INV-02 | AREA01 sub 1 scene is not exported | Exporter run for area 1 sub 1 from the user's disc. |
 
-### Label and documentation corrections found (not edited here)
+### Label and documentation corrections found (status as of 2026-09-22)
 - Port:
-  - CLAUDE.md gait-hold paragraph (P30: gait 1 translates at 0.1).
-  - CLAUDE.md "DECODED + LIVE-VERIFIED" door camera (CAM-06).
-  - Stale "eye +9 / target +8" (CAM-08).
-  - `em_camera.c:366` calls 0022EEF0 "scope/sniper" (it is the cutscene timeline).
-  - `render_chain_build` is labelled 001D1C50 (that function is the per-frame fog/GS setup).
-  - `em_hud.c` says 0020CDC0 is undecompiled.
-  - `em_sfx.c:477` "NOT YET CALLED" is stale.
-  - `em_random.c` / `main.c` 0x45 seed attribution (SI-01).
-  - `em_opening_runtime.c` op 0x14/op6 handler addresses (SI-22).
-- Decomp headers:
+  - CLAUDE.md gait-hold paragraph (P30: gait 1 translates at 0.1). CORRECTED (9f00668).
+  - CLAUDE.md "DECODED + LIVE-VERIFIED" door camera (CAM-06). CORRECTED (9f00668); the style 5/1 wording was made exact by the cleanup-game lane.
+  - Stale "eye +9 / target +8" (CAM-08). CORRECTED in CLAUDE.md (9f00668, walking camera heights).
+  - `em_camera.c:366` calls 0022EEF0 "scope/sniper" (it is the cutscene timeline). CORRECTED (9f00668).
+  - `render_chain_build` is labelled 001D1C50 (that function is the per-frame fog/GS setup). CORRECTED: `em_game.c` now calls it a port-only collector that runs at the 001D1C50 slot.
+  - `em_hud.c` says 0020CDC0 is undecompiled. CORRECTED (9f00668); the same claim in `em_hud.h` and `em_game_internal.h` was corrected by the cleanup-game lane.
+  - `em_sfx.c:477` "NOT YET CALLED" is stale. CORRECTED (9f00668).
+  - `em_random.c` / `main.c` 0x45 seed attribution (SI-01). CORRECTED (f338b46: the cold-boot seed is 1).
+  - `em_opening_runtime.c` op 0x14/op6 handler addresses (SI-22). CORRECTED: the handlers now cite ftab_0024D880[6] = 001BA080 and [0x14] = 001BAC00, which match the ELF table. The open SI-22 timing question in the table above remains.
+  - Also corrected by the cleanup-game lane: `em_game.h` "0x1AE040 still undecompiled" (it is NEARMISS `anim_frame_top_b.c`), the D_00810811 "battery" docs, the director's op0C "music" names (now message lines), the fog comments (FOGCOL 0..255, near -209, F per vertex) and the "boot ELF draws NOTHING" flashlight comment.
+- Decomp: the four function headers are CORRECTED in decomp 7ae3b07; the FINDINGS item carries a CORRECTION paragraph in "ENGINE FRAME ANATOMY".
   - 001FAE70 "reticle selector": it is the stream-resume cue selector.
   - 0020CDC0 / 002149F0 / anim_frame_top_b "save/load / title-attract": they are the status/battery/in-game frame machines.
   - 001FBC50 "subsystem init": it is stop-all SFX.
   - 001735C0 "boss machine": it is the player light melee.
-  - FINDINGS "ENGINE FRAME ANATOMY" lists steps N/O as unconditional; they are gated on D_00821058==1.
+  - FINDINGS "ENGINE FRAME ANATOMY" lists steps N/O as unconditional; they are gated on D_00821058==1. CORRECTED.

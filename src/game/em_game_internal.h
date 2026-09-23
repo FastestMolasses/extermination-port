@@ -378,9 +378,9 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * PROVENANCE SPLIT (audit): the menu-player behavior func_0020E6F0 and
  * its publisher func_0020EC80 are BYTE-MATCHED — everything in the
  * "Decoded constants" list below was re-read out of them and holds.
- * The screen host func_0020CDC0 is still an INCLUDE_ASM stub, so the
- * "camera matrix 0x810610 goes IDENTITY" framing is OBSERVED (the s66
- * live read), not source-derived; do not treat it as decoded.
+ * The screen host func_0020CDC0 is now NEARMISS readable C, but the
+ * "camera matrix 0x810610 goes IDENTITY" framing has not been re-checked
+ * against it: it stays OBSERVED (the s66 live read), not source-derived.
  * While the status screen is up the engine's 3D frame IS the menu
  * scene — a dedicated static-array actor renders the player
  * turntabling on black, under the animated tile background and the
@@ -439,8 +439,8 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * camera<->player transform unchanged) so the camera-facing side is
  * lit — also explained at ui_scene_render.
  * AUDIT 2026-07-31 - all four source-derived bullets HOLD, re-read in func_0020E6F0 and
- * func_0020EC80. func_0020CDC0 is still INCLUDE_ASM, so the camera-identity framing correctly
- * stays OBSERVED.
+ * func_0020EC80. func_0020CDC0 (now NEARMISS C) has not been re-read for the camera-identity
+ * framing, so it stays OBSERVED.
  * */
 #define UI_SCENE_X      7.928571f  /* re-derived under s=480 (above)  */
 #define UI_SCENE_Y     -2.4f       /* engine view-down 2.4, native y-up */
@@ -555,12 +555,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *                                 function — observed, not decoded]
  *   0x001AE040 state-1 tail       latch && fade == 2 (hold-black) ->
  *                                 func_001AD140: game task 3/2
- *                                 [DOWNGRADED by audit: 0x001AE040 is
- *                                 `anim_frame_top_b`, still an
- *                                 INCLUDE_ASM stub — this hand-off is
- *                                 OBSERVED, never source-derived. The
- *                                 two links BELOW it are decoded and
- *                                 hold: see the func_001AD4E0 /
+ *                                 [0x001AE040 is `anim_frame_top_b`,
+ *                                 now NEARMISS readable C: state 1,
+ *                                 after the variant, calls 001AD140
+ *                                 when D_008106B9 != 0 and
+ *                                 D_0028A9A0 == 2
+ *                                 (SCENE_COORDINATOR_DESIGN.md §2.3).
+ *                                 The two links BELOW it are decoded:
+ *                                 see the func_001AD4E0 /
  *                                 func_001AC070 / func_001AC480
  *                                 notes.]
  *   GAME-OVER WAIT func_001AD4E0  sub 0: timer task+0x18 = 0xF0 = 240
@@ -1365,8 +1367,14 @@ enum {
 #define CINE_STEP_BEAT1   0x10
 #define CINE_STEP_BEAT2   0x20
 #define CINE_STEP_DONE    0xFF
-#define CINE_MUSIC_BEAT1  0x97     /* op0C cue id (151) — AREA-11 bank */
-#define CINE_MUSIC_BEAT2  0x99     /* op0C cue id (153) */
+/* op0C sub0 = 001B7D60, the message op: rec+0x14 is a message LINE word
+ * (-> D_002821B8), not a sound or music cue. Lines 151/153. */
+#define CINE_MESSAGE_LINE_BEAT1 0x97
+#define CINE_MESSAGE_LINE_BEAT2 0x99
+/* TRANSITIONAL aliases for em_director.c (not this lane's file); drop them
+ * once its two initializers and b->music read use the names above. */
+#define CINE_MUSIC_BEAT1  CINE_MESSAGE_LINE_BEAT1
+#define CINE_MUSIC_BEAT2  CINE_MESSAGE_LINE_BEAT2
 #define CINE_BAR_LINES    64.0f    /* s81: ~64-line top/bottom black bars */
 #define CINE_BAR_FADE     20       /* approximate raise/drop fade window
                                     * (FLAGGED: exact opening staggered-
@@ -1392,7 +1400,11 @@ typedef struct {
 typedef struct {
     float   x0, x1, z0, z1;   /* trigger XZ AABB (world) */
     float   ylo, yhi;         /* Y gate band [ylo, yhi] */
-    int     music;            /* sfx/music cue id at start, 0 = none */
+    int     music;            /* MISNAMED: the op0C (001B7D60) message
+                               * line word at beat start, 0 = none — not
+                               * a sound or music cue. Rename to
+                               * message_line together with
+                               * em_director.c's `b->music` read. */
     uint8_t next_step;        /* D_00810813 value on completion */
     int     reg_keyitem;      /* func_1C4760(1) on completion (beat 0) */
     int     n_key;
@@ -1947,18 +1959,19 @@ typedef struct {
 
     /* LIGHTING — the scene's DISTANCE FOG (scene.txt `fog` line,
      * export_level.py / the D_00251C50 rig record fog fields rec+4/+8 =
-     * near/far, rec+0xC/10/14 = RGB). The engine programs GS fog coefs
-     * A = 255*far/(far-near), B = -255/(far-near) and blends every
-     * fragment toward the fog color by f = clamp((z_view-near)/(far-
-     * near),0,1) (func_001D8FD0 -> func_0021B970/BA80). AREA-11 (key
-     * 0x0B00) = near -208, far 304, fog RGB (48,48,48). fog_on = 0 (no
-     * `fog` line) leaves the scene unfogged (office/drawbridge stay
-     * byte-identical). RGB on the engine 0..128 scale (the rig color
-     * convention); the gfx layer scales /128. */
+     * near/far, rec+0xC/10/14 = RGB). 001D8FD0 (-> 0021B970/0021BA80)
+     * writes the render-ctx fog block: coefficients
+     * a = 255*far/(far-near), b = -255/(far-near) and FOGCOL = the record
+     * RGB (0..255 GS units). The VU1 kernel (0x23C8A0..0x23C928) computes
+     * F = clamp(a + b*w, 0, 255) per VERTEX (w = the vertex's clip w) and
+     * the GS blends toward FOGCOL by F; em_fog_gs.h mirrors it
+     * (tools/test_area11_fog_reference.py). AREA-11 (key 0x0B00) =
+     * near -209, far 304, FOGCOL (48,48,48). fog_on = 0 (no `fog` line)
+     * leaves the scene unfogged (office/drawbridge stay byte-identical). */
     int         fog_on;          /* a `fog` line was parsed */
     float       fog_near;        /* GS fog near (view-space depth; may be <0) */
     float       fog_far;         /* GS fog far */
-    float       fog_rgb[3];      /* fog color, engine 0..128 scale */
+    float       fog_rgb[3];      /* GS FOGCOL, 0..255 units */
 
     /* EM_CAPTURE / EM_MOVE_TEST / EM_DOOR_TEST debug instrumentation */
     const char *capture_path;
@@ -2106,12 +2119,18 @@ typedef struct {
      * byte, not a battery: see opening_complete.)
      * AUDIT 2026-07-31 - DOWNGRADED stands: nothing in this block cites recovered C.
      * */
-    int         terminal_powered;/* engine D_00810841[11] bit 7 (terminal
-                                  * powered by the battery insert). 0/1;
-                                  * set by em_examine.c on the powered use */
+    int         terminal_powered;/* engine D_00810841[11] bit 7
+                                  * (D_0081084C & 0x80), 0/1. Original
+                                  * setter: 001580C0, the panel program's
+                                  * callback. Port setter: only the AREA11
+                                  * interaction host's power hook (mirrors
+                                  * 001580C0; not wired live yet). Read by
+                                  * em_examine.c (record 19 terminal) and
+                                  * em_props.c; cleared by
+                                  * game_state_new_game (001AF2C0). */
     /* SCRIPTED PLAYER INTERACT anim + lock (em_game.h
-     * em_game_player_interact_anim / _busy; CORRECTED two-terminal flow,
-     * INVESTIGATION_area11_elevator.md). The engine "scripted-anim-owns-
+     * em_game_player_interact_anim / _busy; AREA11 panel/terminal flow,
+     * observed on live RAM). The engine "scripted-anim-owns-
      * player" model (player+0x2F3 = 3): a one-shot clip plays on the
      * player while movement + turn input are suppressed for its duration,
      * then control returns. Same lock shape as the elevator ride. */
@@ -2291,11 +2310,40 @@ unsigned footstep_rand5(void);
 extern const float kLocoTierSpeed[4];
 int probe_wall_seg(const float start[3], const float target[3], int with_doors, EmCollHit *hit);
 
-/* Synthetic key injection for the scripted test paths (defined in
- * em_game.c). Used by em_director.c's cine_test_script. */
-void move_test_inject(int key, int down);
-
 /* The one gameplay state object (defined in em_game.c). */
 extern EmGameState g;
+
+/* ------------------------------------------------------------------ */
+/* World-frame stages (S5 of docs/SCENE_COORDINATOR_DESIGN.md)          */
+/* ------------------------------------------------------------------ */
+/* Each stage is named by the original function whose frame position it
+ * occupies and wraps the port code that already ran at that position,
+ * unchanged. Return convention of the scene cores (design section 3.1):
+ * >= 0 done, -1 = fault (the stage has no port code yet). A stage that
+ * returns -1 is not called by the legacy frames. */
+
+/* em_player_frame.c */
+int em_player_0015BCF0(void);   /* player actor update                */
+int em_player_0015C160(void);   /* player post-step: NOT ported, -1   */
+
+/* em_render_frame.c */
+int em_render_001D1C50(void);   /* per-frame point-light tick          */
+int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
+int em_render_001AAD00(void);   /* close-out hooks: NOT ported, -1     */
+int em_render_001D1EA0(int a0); /* today's close-out (flush, overlays) */
+int em_camera_0018B9C0(void);   /* camera_update + em_sfx_listener     */
+
+/* Port-native draw-list collector and the close-out body, still called
+ * directly by the status and game-over gates of gameplay_frame
+ * (em_render_frame.c). */
+void render_chain_build(void);
+void frame_close_out(void);
+
+/* Env-gated self-tests (em_game_selftest.c). em_game_selftest_pre_frame
+ * runs every EM_*_TEST script and EM_CAPTURE_* injection at the head of
+ * gameplay_frame. move_test_inject is the synthetic key injection those
+ * scripts use; em_director.c's cine_test_script uses it too. */
+void em_game_selftest_pre_frame(void);
+void move_test_inject(int key, int down);
 
 #endif /* EM_GAME_INTERNAL_H */

@@ -9,7 +9,6 @@ static float drawn_palette[32], drawn_tint[4];
 static uint32_t random_value;
 
 uint32_t em_random_next(void) { ++random_calls; return random_value; }
-void em_game_set_battery(int on) { (void)on; }
 void em_game_player_interact_anim(int clip) { (void)clip; }
 
 int em_model_load(EmModel *m, const char *path)
@@ -136,6 +135,33 @@ int main(void)
     assert(em_pickup_battery_charge()==48);
     em_pickup_reset();
     assert(em_pickup_battery_charge()==0 && em_pickup_battery_capacity()==0);
+    /* 001AF2C0's seeds (tools/test_continue_reset_reference.py checks
+     * every em_pickup field against the executed original). */
+    assert(em_pickup_item_count(0)==1 && em_pickup_item_count(5)==1 &&
+           em_pickup_item_count(7)==1 && em_pickup_item_count(0x17)==1 &&
+           em_pickup_item_count(0x10)==2 && em_pickup_mag_packs()==2);
+    assert(em_pickup_ammo_take()==0);
+
+    /* 00827630 state-0 init pose (AREA11 fan pair). Record 1 (+0x2E 0,
+     * yaw -pi) gets rot.z +pi/4, record 2 (+0x2E 1, yaw 0) -pi/4, and
+     * build_trs_matrix applies rot.z about world Z after the yaw (the
+     * +0xD0 matrices of both actors in the AREA11 captures). */
+    em_pickup_scene_clear(gfx);
+    const float fan1[3]={329.3f,309.3f,159.8f}, fan2[3]={329.3f,309.3f,160.8f};
+    const float r=0.70710677f;
+    int f1=em_pickup_add(gfx,"scene",0x13,fan1,-PICKUP_PI,0,"props/area_item_13.emdl",1);
+    int f2=em_pickup_add(gfx,"scene",0x13,fan2,0,0,"props/area_item_13.emdl",1);
+    assert(f1==0 && f2==1);
+    assert(em_pickup_owner_init_pose(f1,0x827630,0)==0);
+    assert(em_pickup_owner_init_pose(f2,0x827630,1)==0);
+    assert(em_pickup_owner_init_pose(f2,0x827490,1)==-1); /* not translated */
+    assert(em_pickup_owner_init_pose(7,0x827630,0)==-1);
+    const float *p1=s.p[f1].palette, *p2=s.p[f2].palette;
+    assert(fabsf(p1[0]+r)<1e-6f && fabsf(p1[1]+r)<1e-6f && fabsf(p1[2])<1e-6f);
+    assert(fabsf(p1[4]+r)<1e-6f && fabsf(p1[5]-r)<1e-6f && fabsf(p1[10]+1)<1e-6f);
+    assert(fabsf(p2[0]-r)<1e-6f && fabsf(p2[1]+r)<1e-6f && fabsf(p2[2])<1e-6f);
+    assert(fabsf(p2[4]-r)<1e-6f && fabsf(p2[5]-r)<1e-6f && fabsf(p2[10]-1)<1e-6f);
+    assert(p1[12]==fan1[0] && p1[13]==fan1[1] && p1[14]==fan1[2]);
     puts("pickup indicators and original battery inventory: PASS");
     return 0;
 }

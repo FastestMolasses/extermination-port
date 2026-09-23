@@ -166,11 +166,13 @@ void scene_manifest_load(void)
         } else if (sscanf(line, "fog %f %f %f %f %f",
                           &x, &y, &gx, &gy, &gz) == 5) {
             /* LIGHTING — the scene's DISTANCE FOG (D_00251C50 record
-             * rec+4/+8 = near/far, rec+0xC/10/14 = RGB). x=near, y=far,
-             * gx/gy/gz = fog RGB on the engine 0..128 scale (the rig
-             * color convention; the gfx layer scales /128). near may be
-             * negative (AREA-11 -208 => even near geometry is partly
-             * fogged). Absent line => fog_on stays 0 (scene unfogged). */
+             * rec+4/+8 = near/far, rec+0xC/10/14 = colour ints). x=near,
+             * y=far, gx/gy/gz = GS FOGCOL channels in 0..255 units
+             * (0021BA80; the gfx layer stores channel / 255). near may be
+             * negative (AREA-11 -209, so even near geometry is partly
+             * fogged). Absent line => fog_on stays 0 (scene unfogged).
+             * tools/test_area11_fog_reference.py checks the line against
+             * the original record. */
             g.fog_near   = x;
             g.fog_far    = y;
             g.fog_rgb[0] = gx; g.fog_rgb[1] = gy; g.fog_rgb[2] = gz;
@@ -358,19 +360,16 @@ void scene_manifest_load(void)
             }
         } else if (sscanf(line, "truck %255s %f %f %f %f %f",
                           name, &x, &y, &z, &yaw, &r) == 6) {
-            /* AREA-11 WEDGED TRUCK (placement record 16, behavior
-             * ov 0x00823FF0 + trigger record 17 ov 0x008251E0 — the
-             * "run across the top before it falls" set-piece;
-             * INVESTIGATION_first_level_area11.md §11). Form:
-             * `truck <model.emdl> <x> <y> <z> <rx> <ry>` (the placed pos +
-             * Euler tilt rx and yaw ry). The actor (em_truck.c) loads the
-             * mesh, seats the wedged pose, runs the trigger->fall machine,
-             * and registers its walkable-top footprint+velocity each frame
-             * so a player standing on top during the fall is carried DOWN
-             * into the crevice. One truck per scene; the ride/carry is
-             * owned by em_truck.c + the moving-surface registry. A missing
-             * mesh makes the whole set-piece absent (em_truck_install
-             * returns nonzero and reports). */
+            /* AREA-11 WEDGED TRUCK (placement record 16, overlay owner
+             * 00823FF0). Form: `truck <model.emdl> <x> <y> <z> <rx> <ry>`
+             * (the placed pos + Euler tilt rx and yaw ry). em_truck.c
+             * loads the mesh and draws it STATIC at that pose: the
+             * original stand-on trigger, fall sequence and D_00810792
+             * persistence (and record 17, 008251E0, which only starts a
+             * camera script) are not translated until WP-12 (em_truck.h).
+             * No trigger, motion or moving-surface registration. One
+             * truck per scene; a missing mesh makes it absent
+             * (em_truck_install returns nonzero and reports). */
             char tpath[1024];
             snprintf(tpath, sizeof tpath, "%s/%s", g.scene_dir, name);
             float tp[3] = { x, y, z };
@@ -475,6 +474,22 @@ void scene_manifest_load(void)
             if (rc == -1)
                 printf("manifest: pickup line failed to load: %s", line);
             /* rc == -2: taken uid — the engine's silent cond-1 skip */
+            /* Optional `owner <fn> <flags2>` suffix on a prop line: the
+             * placement record's behaviour (+0x24) and +0x03 byte, whose
+             * state-0 init pose em_pickup applies (00827630 only). An
+             * owner the port cannot initialise stops the load. */
+            const char *ow = strstr(line, " owner ");
+            if (ow && rc >= 0) {
+                int owner = 0, flags2 = 0;
+                if (!prop || sscanf(ow, " owner %i %i", &owner, &flags2) != 2 ||
+                    flags2 < 0 ||
+                    em_pickup_owner_init_pose(rc, (uint32_t)owner,
+                                              (unsigned)flags2) != 0) {
+                    fprintf(stderr, "manifest: pickup owner init "
+                            "unsupported: %s", line);
+                    em_frame_request_quit();
+                }
+            }
         } else if (sscanf(line, "weather %i %255s %63s", &gk, name, gname) == 3) {
             if (!em_snow_runtime_load(em_frame_gfx(), g.scene_dir, name, gname,
                                        (unsigned)gk))
@@ -642,7 +657,7 @@ void scene_manifest_load(void)
                g.rig_cam_w, g.n_lamp);
     if (g.fog_on)
         printf("manifest: distance fog — near %g far %g, fog RGB "
-               "(%g %g %g) [0..128]\n",
+               "(%g %g %g) FOGCOL [0..255]\n",
                g.fog_near, g.fog_far,
                g.fog_rgb[0], g.fog_rgb[1], g.fog_rgb[2]);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "

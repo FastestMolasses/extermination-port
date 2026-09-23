@@ -9,6 +9,13 @@ src/game/em_game_internal.h, applied by em_game_install_new and by the
 game-over option-0 restart) must produce the same values for every field
 EmGameState mirrors.
 
+The inventory part of 001AF2C0 is mirrored by em_pickup_reset
+(src/game/em_pickup.c). A shim that includes em_pickup.c dirties the
+native inventory the same way, runs em_pickup_reset, and every
+em_pickup-owned field (item counts 0x00..0x3F at D_00810C64, magazine
+packs C63, C60, CA4, CA6, battery CB2/CB7, key item CC3) must equal the
+executed original.
+
 It also executes the AREA11 opening controller's completion slice
 (overlay 0x00823F6C..0x00823F84, resident in the capture) to show that
 D_00810811 is the opening-complete byte the port now names
@@ -105,6 +112,7 @@ def run_original(elf, ram):
         0x810CC3: (1, 1), 0x810813: (0x20, 1),
         0x81084C: (o.load(0x81084C, 1) | 0x80, 1),
     }
+    dirty.update(PICKUP_DIRTY)
     for address, (value, size) in dirty.items():
         o.save(address, value, size)
     o.run(0x1AF2C0)
@@ -123,6 +131,99 @@ def build_native():
     probe = Probe()
     native.continue_reset_probe(C.byref(probe))
     return probe
+
+
+# Inventory bytes dirtied on both sides before the reset (original address:
+# value); the native shim writes the same values into em_pickup's mirror.
+PICKUP_DIRTY = {
+    0x810C60: (3, 1), 0x810C63: (7, 1), 0x810C64: (9, 1), 0x810C74: (7, 1),
+    0x810C7F: (1, 1), 0x810CA4: (2, 1), 0x810CA6: (4, 1),
+}
+PICKUP_SHIM = r"""
+#include <assert.h>
+#include "game/em_pickup.c"
+/* Model/GPU/player boundaries em_pickup_reset never reaches: fail-stop. */
+#define UNREACHED() (fprintf(stderr, "pickup probe: %s reached\n", __func__), abort())
+uint32_t em_random_next(void) { UNREACHED(); }
+void em_game_player_interact_anim(int clip) { (void)clip; UNREACHED(); }
+int em_model_load(EmModel *m, const char *path) { (void)m; (void)path; UNREACHED(); }
+void em_model_free(EmModel *m) { (void)m; UNREACHED(); }
+int em_model_clip_index(const EmModel *m, uint32_t clip) { (void)m; (void)clip; UNREACHED(); }
+void em_model_palette_at(const EmModel *m, uint32_t clip, double time, float *out)
+{ (void)m; (void)clip; (void)time; (void)out; UNREACHED(); }
+EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t count,
+                              const uint32_t *indices, uint32_t index_count,
+                              const EmGfxTexDesc *texs, uint32_t tex_count,
+                              const uint8_t *texels, uint32_t flags)
+{ (void)gfx; (void)verts; (void)count; (void)indices; (void)index_count;
+  (void)texs; (void)tex_count; (void)texels; (void)flags; UNREACHED(); }
+void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh) { (void)gfx; (void)mesh; UNREACHED(); }
+void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
+                                  const float *palette, uint32_t count, const float rgba[4])
+{ (void)gfx; (void)mesh; (void)viewproj; (void)palette; (void)count; (void)rgba; UNREACHED(); }
+void pickup_probe(uint8_t *count, uint8_t *out)
+{
+    /* the same dirty state as PICKUP_DIRTY, then the reset */
+    g.status = 3; g.mag_packs = 7; g.count[0x00] = 9; g.count[0x10] = 7;
+    g.count[0x1B] = 1; g.primary = 2; g.secondary = 4;
+    g.battery_charge = 8; g.battery_capacity = 12; g.keys[0] = 1;
+    em_pickup_reset();
+    memcpy(count, em_pickup_items(), 256);
+    uint8_t status, primary, secondary;
+    em_pickup_equipment_read(&status, &primary, &secondary);
+    out[0] = em_pickup_mag_packs(); out[1] = status; out[2] = primary;
+    out[3] = secondary; out[4] = (uint8_t)em_pickup_battery_charge();
+    out[5] = (uint8_t)(em_pickup_battery_charge() >> 8);
+    out[6] = (uint8_t)em_pickup_battery_capacity(); out[7] = em_pickup_keys()[0];
+}
+"""
+
+
+def build_native_pickup():
+    """em_pickup_reset through a shim linked with the pickup-owner sources
+    (the same set as the Makefile's PICKUP_ORIGINAL_TEST_SRC)."""
+    out = ROOT / 'build/continue_reset_reference'
+    out.mkdir(parents=True, exist_ok=True)
+    source = out / 'pickup_probe.c'
+    source.write_text(PICKUP_SHIM)
+    lib = out / ('pickup_probe.dylib' if sys.platform == 'darwin' else 'pickup_probe.so')
+    owners = ['src/game/em_pickup_owner.c', 'src/game/em_pickup_program.c',
+              'src/game/em_script.c', 'src/game/em_interaction_runtime.c',
+              'src/game/em_interaction_frame.c', 'src/game/em_interaction_animation.c']
+    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                    '-shared', '-fPIC', '-Isrc', str(source), *owners,
+                    '-lm', '-o', str(lib)], cwd=ROOT, check=True)
+    native = C.CDLL(str(lib))
+    count, values = (C.c_uint8 * 256)(), (C.c_uint8 * 8)()
+    native.pickup_probe(count, values)
+    return bytes(count), bytes(values)
+
+
+def check_pickup_reset(o):
+    """em_pickup_reset vs the executed 001AF2C0 inventory writes."""
+    count, values = build_native_pickup()
+    fields = [(f'item count C64[{i:#04x}]', o.load(0x810C64 + i, 1), count[i])
+              for i in range(0x40)]
+    fields += [
+        ('magazine packs D_00810C63', o.load(0x810C63, 1), values[0]),
+        ('D_00810C60', o.load(0x810C60, 1), values[1]),
+        ('primary D_00810CA4', o.load(0x810CA4, 1), values[2]),
+        ('secondary D_00810CA6', o.load(0x810CA6, 1), values[3]),
+        ('battery D_00810CB2', o.load(0x810CB2, 2), values[4] | values[5] << 8),
+        ('battery max D_00810CB7', o.load(0x810CB7, 1), values[6]),
+        ('key item 0 D_00810CC3', o.load(0x810CC3, 1), values[7]),
+    ]
+    # The seeds themselves, so a zero-only mirror cannot pass.
+    assert [o.load(0x810C64 + i, 1) for i in (0, 5, 7, 0x10, 0x17)] == [1, 1, 1, 2, 1]
+    assert o.load(0x810C63, 1) == 2 and o.load(0x810CA4, 1) == 0xFF
+    failed = 0
+    for name, original, native in fields:
+        if original != native:
+            failed += 1
+            print(f'BAD {name}: original {original:#x}, native {native:#x}')
+    print(f'{"ok " if not failed else "BAD"} em_pickup_reset: {len(fields)} '
+          'inventory fields vs executed 001AF2C0')
+    return failed
 
 
 def main():
@@ -152,21 +253,19 @@ def main():
         failed += not ok
         print(f"{'ok ' if ok else 'BAD'} {name}: original {original:#x}, native {native:#x}")
     assert number(o.load(0x810858)) == 100.0
+    failed += check_pickup_reset(o)
 
-    # Original writes EmGameState does not own (inventory in em_pickup.c,
-    # area/options/pad bytes elsewhere). Reported, not asserted here.
-    print('outside this check (not EmGameState):')
+    # Original writes neither EmGameState nor em_pickup mirrors (area bytes,
+    # equipment CA5/CA7, D20..D23). Reported, not asserted here.
+    print('not mirrored by this check:')
     print('  area bytes 700..705 =', o.read(0x810700, 6).hex(),
-          '| item counts C64[0,5,7,0x10,0x17] =',
-          [o.load(0x810C64 + i, 1) for i in (0, 5, 7, 0x10, 0x17)],
-          '| mag packs C63 =', o.load(0x810C63, 1),
-          '| CA4..CA7 =', o.read(0x810CA4, 4).hex(),
+          '| CA5, CA7 =', o.load(0x810CA5, 1), o.load(0x810CA7, 1),
           '| D20..D23 =', o.read(0x810D20, 4).hex())
     if failed:
         print(f'continue reset reference: {failed} field(s) differ — FAIL')
         return 1
-    print(f'continue reset reference: {len(fields)} fields match executed '
-          '001AF2C0 — PASS')
+    print(f'continue reset reference: {len(fields)} EmGameState fields and '
+          'the em_pickup inventory match executed 001AF2C0 — PASS')
     return 0
 
 
