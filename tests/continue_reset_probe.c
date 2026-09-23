@@ -3,6 +3,7 @@
  * to a dirtied state and exposes the result as engine-shaped values.
  * Header-only: no gameplay module is linked. */
 #include "game/em_game_internal.h"
+#include "game/em_scene_state.h"
 
 EmGameState g;
 
@@ -31,9 +32,15 @@ void continue_reset_probe(ContinueResetProbe *out)
     g.opening_event_39 = 0xFF;
     g.opening_key_item_zero = 1;
     g.cine_step = 0x20;
-    g.terminal_powered = 1;
+    /* D_0081084C is a canonical D2 progress byte since WP-4: 001AF2C0's
+     * memset reaches it through em_scene_progress_reset_001AF2C0 (called by
+     * em_pickup_reset in the game). */
+    static EmSceneState scene;
+    uint8_t *power = em_scene_progress_at(&scene, 0x0081084Cu, 1);
+    *power = 0x80;
 
     game_state_new_game(&g);
+    em_scene_progress_reset_001AF2C0(&scene);
 
     memcpy(&out->health_bits, &g.status.health, 4);
     memcpy(&out->infection_bits, &g.status.infection, 4);
@@ -45,5 +52,5 @@ void continue_reset_probe(ContinueResetProbe *out)
     out->event_39 = g.opening_event_39;
     out->key_item_zero = g.opening_key_item_zero;
     out->cine_step = g.cine_step;
-    out->terminal_powered = (uint32_t)g.terminal_powered;
+    out->terminal_powered = (uint32_t)(*power >> 7);
 }

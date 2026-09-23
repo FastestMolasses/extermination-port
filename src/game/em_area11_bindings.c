@@ -56,6 +56,7 @@
 #include <string.h>
 
 #include "game/em_area11_effect_runtime.h"
+#include "game/em_area11_interaction_host.h"
 #include "game/em_director.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
@@ -379,14 +380,18 @@ static int tick_truck(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 00159210 panel: state 0's child (see the file comment), then the legacy
- * grate_update (both variants, as both legacy blocks ran it). The powered
- * bit is D_00810841[0x0B] bit (+0x2E); the port keeps only bit 7 of that
- * byte (em_game_terminal_powered, the D_0081084C mirror), so any other bit
- * faults. */
+/* 00159210 panel (area11[18]). State 0 (the first call): the child (see the
+ * file comment); the powered bit is D_00810841[0x0B] bit (+0x2E), the
+ * canonical D_0081084C bit 7 (em_game_terminal_powered), so any other bit
+ * faults. Later calls are state 1, the original owner in the AREA11
+ * interaction host (WP-4): em_area11_interaction_host_panel_tick runs
+ * 00159210/00157860 and its 001B17A0 publication tail, in both variants.
+ * grate_update keeps the port's static panel pose and binds the original
+ * cell-18 collision (em_props.c) on every call, as it did before. */
 static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
+    grate_update();
     if (!node->ticked) {
         if (actor->model == 0x2C) {
             if (spawn_001C5570(actor, 0x74, 1, 0) < 0)
@@ -398,20 +403,41 @@ static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
             if (!em_game_terminal_powered() && spawn_001C5570(actor, 0x75, 1, 0) < 0)
                 return -1;
         }
+        em_area11_interaction_host_set_panel_address(address_of(actor));
+        return 1;
     }
-    grate_update();
+    if (em_area11_interaction_host_panel_tick() < 0)
+        return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED, "00159210: the interaction host failed");
     return 1;
 }
 
-/* 0x827B10 terminal: its first tick spawns the 001C5760 child (+0xD 0x10,
- * +0xA 0) measured at 0x827C20 (INTERIM); the legacy examine + elevator
- * code runs in gameplay only, as in the legacy blocks. */
+/* 0x827B10 terminal and elevator (area11[19]). State 0 (the first call):
+ * the floor placement (D_0081083A -> +0xB4 190/230, 001C6380; the host's
+ * em_area11_interaction_host_elevator_state0), then the 001C5760 child (+0xD 0x10, +0xA 0) measured at 0x827C20 (INTERIM
+ * spawn); the owner reads D_00810841[0x0B] bit (+0x2E), which only bit 7
+ * of the canonical D_0081084C stores. Later calls are state 1, the
+ * original owner in the AREA11 interaction host (WP-4): refusal 0x82A990
+ * or powered 0x82A750 with the carry 00828050, and its 001B17A0
+ * publication, in both variants. The legacy em_examine terminal and the
+ * legacy ride it ran were retired in WP-4. */
 static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    if (!node->ticked && spawn_001C5570(actor, 0x10, 0, 1) < 0)
-        return -1;
-    if (!world->cutscene)
-        em_game_legacy_examine_tick();
+    (void)world;
+    if (!node->ticked) {
+        if (s_scene->d810700 != 0x0B || actor->flags2 != 7)
+            return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX,
+                         "00827B10 reads a D_00810841 bit the port does not store");
+        /* 0x827B54..0x827BF0: +0xB4 from D_0081083A, then 001C6380,
+         * before the child spawn at 0x827C18. */
+        if (em_area11_interaction_host_elevator_state0() < 0)
+            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                         "00827B10 state 0: the interaction host failed");
+        if (spawn_001C5570(actor, 0x10, 0, 1) < 0)
+            return -1;
+        return 1;
+    }
+    if (em_area11_interaction_host_elevator_tick() < 0)
+        return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED, "00827B10: the interaction host failed");
     return 1;
 }
 
@@ -528,8 +554,9 @@ static const Binding k_bindings[] = {
      NULL},
     {0x008251E0u, "truck: legacy em_truck_update (group head)", "group: truck", GROUP_TRUCK, tick_truck,
      NULL},
-    {0x00159210u, "panel: legacy grate_update", NULL, GROUP_NONE, tick_panel, NULL},
-    {0x00827B10u, "terminal: legacy em_examine + elevator_tick", NULL, GROUP_NONE, tick_terminal, NULL},
+    {0x00159210u, "panel: em_area11_interaction_host_panel_tick", NULL, GROUP_NONE, tick_panel, NULL},
+    {0x00827B10u, "terminal: em_area11_interaction_host_elevator_tick", NULL, GROUP_NONE, tick_terminal,
+     NULL},
     {0x001C4820u, "prop: render-only", NULL, GROUP_NONE, NULL,
      "001C4820 (area11[20]): render-only; the port draws it from the scene props"},
     {0x001E55F0u, "weather: em_weather over the node's state (em_snow_runtime)", NULL, GROUP_NONE,

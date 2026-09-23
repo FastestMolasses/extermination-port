@@ -39,9 +39,11 @@ host must preserve that earlier default-clip request and callback boundary.
 The normal scene's static model04 panel is original placement18 at
 `(240,245,232.800003)`, yaw `-pi`, behavior `00159210`, class84/subtype24.
 Its owner is the power switch; the former Roger-at331.7 battery-console
-binding was incorrect. `em_panel.c` is a readable host core, currently
-**unbound**: the native scene does not offer a substitute confirmation or
-silently switch power on when the required UI/script bindings are absent.
+binding was incorrect. `em_panel.c` is a readable host core; since WP-4
+(2026-09-23) it is live through the AREA11 interaction host at pool node #26
+(AREA11_INTERACTION_HOST.md). The scene still never offers a substitute
+confirmation or switches power on without the original script: the power bit
+is the canonical D_0081084C, set only by 001580C0.
 
 ## Interaction and owner state
 
@@ -190,8 +192,10 @@ the original shared frame/status entry and exit, the actual message-worker
 completion signal, and the player takeover/release pose transitions. The camera
 command calls0018CBD0 using the current distance and scratchpad rotation,
 then0018D7B0 modes5/1; a fixed authored camera or the old door-camera helper
-is not an equivalent substitute. The native panel stays unbound until
-these host adapters are ready. No end-to-end panel fidelity is claimed.
+is not an equivalent substitute. (Historical: these bindings landed with
+WP-4. The level smoke now plays the panel with the battery end to end and
+matches route beat 03 row for row outside the status page's module load; see
+LEVEL_SMOKE.md.)
 
 The isolated `em_camera_retarget_seed` now implements CBD0's scalar tail
 at an explicit transformed-offset boundary. Its948 original-instruction

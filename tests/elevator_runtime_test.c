@@ -170,10 +170,11 @@ static void run(EmModel *model, const char *path, int powered, int lower)
         assert(f.elevator.motion.ticks==150 && f.poses==151);
         assert(f.elevator.owner.lower!=lower);
         assert(f.elevator.owner.height==(lower?230:190));
-        /* Original00828050 executed for the complete151-call carry:
-         * accumulation leaves the player slightly short; only the owner's
-         * final callback snaps to the exact landing. Do not snap both. */
-        uint32_t carried=lower?0x4365ffd8u:0x433dff92u;
+        /* Original00828050's 150 add.s steps with the EE guard-bit add:
+         * route 04_elevator_ride carries the player from 230 to 190.00061
+         * (f394..f543); up, 229.99939. Only the owner's final callback
+         * snaps its own Y to the exact landing. Do not snap both. */
+        uint32_t carried=lower?0x4365ffd8u:0x433e0028u;
         assert(bits(f.player[1])==carried && bits(f.carried_height)==carried);
         assert(f.target[1]==(lower?245:205));
         assert(f.camera_sets==2 && f.camera_publishes==4 && !f.chases);

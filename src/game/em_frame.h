@@ -133,6 +133,18 @@ const EmScreenFade *em_frame_screen_fade(void);
  */
 typedef int (*EmFrameMoviePump)(void *user);
 void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user);
+
+/* Main-loop step F, 001FCA10 (the shared message service), right after the
+ * task dispatch (step E): a scene whose owners start messages registers its
+ * presenter here (since WP-4 the AREA11 interaction host's panel and
+ * terminal messages). tick returns -1 on a fault (the frame quits), render
+ * draws with the opening media's line, under the transition. NULL clears. */
+typedef struct {
+    int (*tick)(void *context);
+    void (*render)(void *context, EmGfx *gfx);
+    void *context;
+} EmFrameMessageService;
+void em_frame_set_message_service(const EmFrameMessageService *service);
 void em_frame_set_movie_active(int active);
 
 #ifdef __cplusplus

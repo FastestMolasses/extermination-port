@@ -32,3 +32,11 @@ and descriptor. Return values and the shared score bits agree throughout.
 This establishes the predicate. The distant door's live publication,
 controller and transit script remain separate integration requirements;
 the helper does not validate the legacy native door implementation.
+
+**Live (WP-4, 2026-09-23).** The AREA11 interaction host runs this scan at
+the player's Use poll for the two owners it binds, the panel and the
+elevator, through `em_interaction_scene_scan_checked` over the list their
+001B17A0 tails published the frame before. The pickups, the distant door and
+Roger are not published yet: until WP-6/7/9 bind them, their legacy scans run
+separately (W22), so a press within reach of both a legacy owner and the panel
+or elevator is not arbitrated as in the original.

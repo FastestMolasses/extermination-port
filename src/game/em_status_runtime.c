@@ -397,6 +397,52 @@ int em_status_runtime_tick(EmStatusRuntime *runtime, const EmStatusInput *input)
     return 1;
 }
 
+int em_status_runtime_page_open(EmStatusRuntime *runtime, EmPanel *owner)
+{
+    if (!runtime || runtime->failed || runtime->queued || em_status_frame_active(&runtime->frame))
+        return fail(runtime);
+    runtime->draw_kind = DRAW_NONE;
+    runtime->rendered = 0;
+    runtime->owner = owner;
+    /* frame_worker's RESET_UI: the page reset plus the host's event. */
+    return frame_worker(runtime, EM_STATUS_RESET_UI) ? 1 : fail(runtime);
+}
+
+int em_status_runtime_page_tick(EmStatusRuntime *runtime, const EmStatusInput *input, uint8_t *b0,
+                                uint8_t *b1, uint8_t *c5, uint8_t *cc)
+{
+    if (!runtime || !input || !b0 || !b1 || !c5 || !cc || runtime->failed || runtime->queued ||
+        em_status_frame_active(&runtime->frame))
+        return fail(runtime);
+    runtime->draw_kind = DRAW_NONE;
+    runtime->rendered = 0;
+    runtime->input = *input;
+    if (runtime->hooks.read_inventory(runtime->hooks.context, &runtime->inventory) != 1 ||
+        runtime->inventory.charge > 255 || !module_ready(runtime))
+        return fail(runtime);
+    EmStatusPage *page = &runtime->page;
+    page->current_status = runtime->inventory.status;
+    page->inventory_primary = runtime->inventory.primary;
+    page->inventory_secondary = runtime->inventory.secondary;
+    page->request = *b0;
+    page->request_kind = *b1;
+    page->status_request = *c5;
+    page->restore_textures = *cc;
+    int result = em_status_page_tick(page, input->pressed, page_worker, runtime);
+    *b0 = page->request;
+    *b1 = page->request_kind;
+    *c5 = page->status_request;
+    *cc = page->restore_textures;
+    if (result < 0 || result > 1)
+        return fail(runtime);
+    if (result == 1) {
+        em_battery_ui_close(runtime->battery);
+        em_item_ui_deactivate(runtime->item);
+        runtime->owner = NULL;
+    }
+    return result;
+}
+
 static int render_trail(void *context, EmGfx *gfx, float x, float y, float u, float v)
 {
     EmStatusRuntime *runtime = context;

@@ -37,15 +37,22 @@ WRITERS = {
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 0 (=2) and op 4 (=0)",
         "game/em_scene_bindings.c": "001B0C60 area-change request (=3; S12a)",
+        "game/em_area11_interaction_host.c": "WP-4: the host's frame view store (001B82D0 sub0/2/13 "
+                                             "=2/1, sub4 =0; 00184BA0's winner claim =3) and "
+                                             "002149F0's successful exit (=3)",
     },
     "spad3B91": {
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_scene_frame.c": "001AE6B0 promotes 1 -> 2 (0x1AE6E0)",
         "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 0 (=0), phase 3 (=1), op 4 (=0)",
+        "game/em_area11_interaction_host.c": "WP-4: the running script's skip byte stored back after "
+                                             "its owner tick (001B82D0 sub0/sub4 clear it)",
     },
     "spad3B92": {
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 3 (=1, 0x1B874C) and op 4 (=0, 0x1B8940)",
+        "game/em_area11_interaction_host.c": "WP-4: the host's frame view store (001B82D0 sub0/2/13 "
+                                             "phase 1 =1, sub4 =0)",
     },
     "d810E74": {
         "game/em_frame.c": "em_frame_scene_input: step C (001B5940) in the original layout",
@@ -68,18 +75,21 @@ ALLOWED = [
     {"file": "game/em_script.h", "name": "skip_request",
      "reason": "the interpreter's per-tick view of canonical 3B91 (relabelled in S11b): "
                "em_opening_runtime publishes the canonical byte before each tick and writes "
-               "both, never back; the unwired interaction hosts (em_interaction_frame/"
-               "cinematic) still keep their own value",
-     "removed_by": "WP-4 (interaction host publishes canonical 3B91)"},
+               "both; since WP-4 the AREA11 interaction host loads it before each owner tick "
+               "and stores it after (script_load/script_store)",
+     "removed_by": "permanent (a per-tick view)"},
     {"file": "game/em_interaction_frame.h", "name": "selector",
-     "reason": "unwired interaction host's 3B8D field (never called on the live path)",
-     "removed_by": "WP-4"},
+     "reason": "per-call view of canonical 3B8D (relabelled in WP-4): the AREA11 interaction host "
+               "loads the whole EmInteractionFrame from the canonical storage before every entry "
+               "point and stores it after (view_load/view_store); no value survives between calls",
+     "removed_by": "permanent (a per-call view)"},
     {"file": "game/em_interaction_frame.h", "name": "ready",
-     "reason": "unwired interaction host's 3B92 field (never called on the live path)",
-     "removed_by": "WP-4"},
+     "reason": "per-call view of canonical 3B92, as `selector` above (relabelled in WP-4)",
+     "removed_by": "permanent (a per-call view)"},
     {"file": "game/em_interaction_scan.h", "name": "selector",
-     "reason": "unwired interaction scan's 3B8D input (never called on the live path)",
-     "removed_by": "WP-6"},
+     "reason": "the 00184BA0 gate's per-call input: the AREA11 interaction host's Use scan (live "
+               "since WP-4) fills it from canonical 3B8D before every scan and never stores it",
+     "removed_by": "permanent (a per-call input)"},
 ]
 
 BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92", re.IGNORECASE)

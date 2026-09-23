@@ -72,6 +72,24 @@ int em_status_runtime_pickup_request(EmStatusRuntime *, uint8_t kind, uint8_t in
  * return0 permits ordinary tasks,−1 is a retained-ownership fault. */
 int em_status_runtime_tick(EmStatusRuntime *, const EmStatusInput *);
 int em_status_runtime_ordinary_enabled(const EmStatusRuntime *);
+
+/* The live scene route (WP-4): 0x1AE040 states 3/5 run in the scene core
+ * (em_scene_frame.c, em_status_frame over the canonical task bytes), so
+ * only the page layer runs here, at the core's worker positions. These
+ * never touch the runtime's own EmStatusFrame, so the ordinary gate above
+ * stays open for the host's owners.
+ *   page_open  0020E060: clears the page block D_00810130 (the RESET_UI
+ *              event) and binds the owner the request's D_008106D0 names
+ *              (NULL for a pickup request). 1 accepted, -1 fault.
+ *   page_tick  0020CDC0 over the request bytes: b0, b1, c5 and cc point at the
+ *              canonical D_008106B0/B1/C5/CC, loaded into the page before
+ *              the tick and stored back after it (the page reads and
+ *              clears them as the original does). 0 waiting, 1 the page
+ *              completed its 0020E0C0 exit, -1 fault.
+ * em_status_runtime_render draws what the last page_tick selected. */
+int em_status_runtime_page_open(EmStatusRuntime *, EmPanel *owner);
+int em_status_runtime_page_tick(EmStatusRuntime *, const EmStatusInput *, uint8_t *b0,
+                                uint8_t *b1, uint8_t *c5, uint8_t *cc);
 /* Submit the page selected by the preceding update once. Repeated calls in
  * the same frame are no-ops, so neither glow nor shared background advances
  * twice. No inventory/animation/script state is ticked here.1 success,−1 fault. */

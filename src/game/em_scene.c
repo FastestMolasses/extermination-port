@@ -508,6 +508,18 @@ void scene_manifest_load(void)
                 fprintf(stderr, "manifest: pickup light failed: %s", line);
         } else if (sscanf(line, "examine %f %f %f %f %f %f",
                           &x, &y, &z, &yaw, &gx, &gy) == 6) {
+            /* The trailing "terminal" marker names AREA11's internal
+             * elevator control terminal (224, 230, 250.7). Since WP-4
+             * that is the original owner 00827B10, bound in the AREA11
+             * interaction host at its pool node (record 19): the legacy
+             * examine stand-in is not loaded, and a following
+             * examinetext line has no slot to chain onto. */
+            if (manifest_word_token(line, "terminal")) {
+                last_examine = -1;
+                printf("manifest: examine terminal line skipped (the original "
+                       "owner 00827B10 runs in the AREA11 interaction host)\n");
+                continue;
+            }
             /* EXAMINE object (em_examine.c — grammar in the manifest
              * doc above): optional tokens parsed by keyword so the
              * exporter can omit any of them. */
@@ -544,28 +556,10 @@ void scene_manifest_load(void)
             if (last_examine < 0)
                 printf("manifest: examine line failed to load: %s",
                        line);
-            /* FACE pre-roll is INDEPENDENT of the terminal markers — a
-             * single line carries both (the snow internal terminal has
-             * `terminal` AND `face -1.3037`), so set it here, not in the
-             * terminal-marker if/else chain below. */
             if (last_examine >= 0 && exhasface) {
                 em_examine_set_face(last_examine, exface, exwalk);
                 printf("manifest: examine slot %d FACE pre-roll yaw %.4f "
                        "rad (walk %d)\n", last_examine, exface, exwalk);
-            }
-            /* The trailing examine-line marker token "terminal": the
-             * AREA-11 INTERNAL elevator-control terminal (ov 0x00827B10
-             * @ 224,230,250.7). em_examine_set_terminal routes the USE
-             * through the power-gated ride; it only CHECKS power. The
-             * former "battery_terminal" token (an insert/power path
-             * attributed to 008237E0, which is Roger's controller) was
-             * fabricated and is no longer recognized. */
-            if (last_examine >= 0 &&
-                manifest_word_token(line, "terminal")) {
-                em_examine_set_terminal(last_examine);
-                printf("manifest: INTERNAL TERMINAL examine — slot %d at "
-                       "(%.1f, %.1f, %.1f) (power-gated elevator ride)\n",
-                       last_examine, p[0], p[1], p[2]);
             }
         } else if ((gn = sscanf(line, "examinetext %d %d", &gk, &gl))
                    == 2) {

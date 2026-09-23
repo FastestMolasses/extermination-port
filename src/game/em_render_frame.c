@@ -51,8 +51,12 @@
 #include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
+#include "game/em_area11_interaction_host.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
+
+/* See em_render_001D1EA0. */
+static int s_request_status_frame;
 
 static uint32_t point_light_random(void *context)
 {
@@ -575,7 +579,10 @@ void frame_close_out(void)
     int ui_scene = !em_opening_runtime_busy() && g.mesh &&
                    em_hud_visible() && em_hud_backdrop_ready(gfx);
 
-    if (ui_scene) {
+    if (s_request_status_frame) {
+        if (em_area11_interaction_host_status_render(gfx) != 1)
+            em_frame_request_quit(); /* the host latched and reported the fault */
+    } else if (ui_scene) {
         ui_scene_render(gfx);
     } else if (g.chain_test_triangle) {
         em_gfx_draw_test_triangle(gfx);
@@ -816,10 +823,17 @@ int em_render_001C1D00(void)
  * accepted and not consumed: in the status frame (state 3, a0 = 0; S11b)
  * it still redraws the frozen world chain (or the status UI scene) where
  * the original skips 001E0D70/001DDA00, as the legacy frozen frame did. */
+/* 001D1EA0(a0) (src/func_001D1EA0.c): a0 != 0 flushes the world
+ * (001E0D70/001DDA00) before the overlay list; the status frames pass 0.
+ * Since WP-4 a status screen opened on a pending request (the AREA11
+ * panel's BATTERY page) draws the host's original page with no world
+ * flush under it (s_request_status_frame, frame_close_out); the interim
+ * em_hud hub keeps its UI scene path. */
 int em_render_001D1EA0(int a0)
 {
-    (void)a0;
+    s_request_status_frame = a0 == 0 && em_area11_interaction_host_status_route();
     frame_close_out();
+    s_request_status_frame = 0;
     return 0;
 }
 
@@ -838,8 +852,20 @@ int em_render_001ABF90(void)
 /* func_0018B9C0 position of the gameplay variant (after the bindings'
  * 001CB590(0x008101E0, 0xD0, 0) worker). Wraps the two calls
  * gameplay_frame made there, in the same order. */
+/* 0018B9C0's head (NEARMISS, logic recovered): the global cooldown
+ * D_008106EF decays by one per camera stage (0x46 after a status screen,
+ * 0x50 after an interaction script; 00184BA0 refuses the Use scan while it
+ * is nonzero). The canonical byte is EmSceneState's request block. */
+static void camera_cooldown_0018B9C0(void)
+{
+    uint8_t *ef = &em_scene_state()->req[EM_SCENE_REQ_EF];
+    if (*ef)
+        --*ef;
+}
+
 int em_camera_0018B9C0(void)
 {
+    camera_cooldown_0018B9C0();
     camera_update();         /* func_0018B9C0 camera state machine    */
     em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);  /* positional-audio
                               * listeners: player = distance
@@ -855,6 +881,7 @@ int em_camera_0018B9C0(void)
  * otherwise the chase camera; then the positional-audio listeners. */
 int em_camera_0018B9C0_opening(void)
 {
+    camera_cooldown_0018B9C0();
     if (!em_opening_runtime_camera())
         camera_update();
     em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);

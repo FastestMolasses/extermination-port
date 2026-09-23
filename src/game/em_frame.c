@@ -50,6 +50,7 @@ static struct {
     bool         suspended_draw_transition;
     EmFrameMoviePump movie_pump;
     void        *movie_user;
+    EmFrameMessageService message;    /* step F 001FCA10 presenter */
     bool         pace_initialized;
     bool         uncapped;
     struct timespec next_deadline;
@@ -126,6 +127,14 @@ void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
 {
     s_frame.movie_pump = pump;
     s_frame.movie_user = user;
+}
+
+void em_frame_set_message_service(const EmFrameMessageService *service)
+{
+    if (service)
+        s_frame.message = *service;
+    else
+        memset(&s_frame.message, 0, sizeof s_frame.message);
 }
 
 void em_frame_screen_fade_start(int dir, int speed)
@@ -301,10 +310,15 @@ int em_frame_step(void)
 
     /* E/F/G: task requests affect the transition's SAME-frame tick. */
     em_task_dispatch();
+    /* F: 001FCA10, the message service, after every script worker. */
+    if (s_frame.message.tick && s_frame.message.tick(s_frame.message.context) < 0)
+        s_frame.quit = true;
     em_bgm_service();
     /* Original message presentation overlays the already queued bars,
      * then the full-screen transition composites over the whole image. */
     em_opening_media_render(s_frame.gfx);
+    if (s_frame.message.render)
+        s_frame.message.render(s_frame.message.context, s_frame.gfx);
     s_frame.suspended_draw_transition =
         em_transition_fade_tick(&s_frame.transition) != 0;
 

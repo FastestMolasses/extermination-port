@@ -11,8 +11,6 @@
 #include "em_gfx.h"
 
 void elevator_pose(void);
-void elevator_descent_begin(void);
-void elevator_tick(void);
 void elevator_unload(EmGfx *gfx);
 int grate_install(EmGfx *gfx, const char *scene_dir,
                          const char *name, const float pos[3], float yaw);

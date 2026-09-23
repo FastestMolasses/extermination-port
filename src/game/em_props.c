@@ -28,55 +28,17 @@ static void indicator_unload(EmGfx *gfx, PropIndicator *indicator)
     memset(indicator,0,sizeof *indicator);
 }
 
-/* 00827B10 owns per-area model0F. Script helper00828050 moves this
- * same actor; its model10 child copies the parent's node0 world matrix. */
-static int elevator_lower;
-
+/* 00827B10 owns per-area model0F. Its carry 00828050 (the host's
+ * elevator program, em_elevator_runtime) moves this same actor through
+ * g.elev_pos[1]; its model10 child copies the parent's node0 world matrix.
+ * The legacy 150-frame ride (elevator_tick/elevator_descent_begin) that
+ * stood in for the owner was retired in WP-4. */
 void elevator_pose(void)
 {
     if (!g.elev_has_mesh || !g.elev_palette) return;
     em_model_palette_at(&g.elev_model,0,0.0,g.elev_palette);
     palette_apply_placement(g.elev_palette,g.elev_model.bone_count,
                             g.elev_pos,g.elev_yaw);
-}
-
-/* Original callback00828050 phase0: choose direction from81083A, play
- * cue452/453, and return without moving during this initialization tick.
- * Legacy function name retained for the existing interaction boundary. */
-void elevator_descent_begin(void)
-{
-    g.elev_pending=0;
-    g.elev_state=1;
-    g.elev_frame=-1;
-    g.elev_rate=elevator_lower ? 0.26666668f : -0.26666668f;
-    em_sfx_play_at(elevator_lower ? 0x452u : 0x453u,
-                   g.elev_has_mesh ? g.elev_pos : g.pos,300.0f);
-}
-
-void elevator_tick(void)
-{
-    if (g.elev_pending && !g.interact_active && g.elev_state==0)
-        elevator_descent_begin();
-    if (g.elev_state!=1) {
-        elevator_pose();
-        return;
-    }
-    if (g.elev_frame<0) {
-        g.elev_frame=0;
-        return;
-    }
-    /* Original EE add.s truncates each new Y independently. The camera
-     * target follows player Y in the host camera update. */
-    g.pos[1]=em_effect_float32((double)g.pos[1]+g.elev_rate);
-    g.elev_pos[1]=em_effect_float32((double)g.elev_pos[1]+g.elev_rate);
-    if (++g.elev_frame>=150) {
-        /* The owning827B10 script completes: toggle81083A and snap its
-         * own Y exactly. The original supports another ride in reverse. */
-        elevator_lower=!elevator_lower;
-        g.elev_pos[1]=elevator_lower ? 190.0f : 230.0f;
-        g.elev_state=0;
-    }
-    elevator_pose();
 }
 
 void elevator_unload(EmGfx *gfx)
@@ -88,9 +50,6 @@ void elevator_unload(EmGfx *gfx)
     g.elev_mesh=NULL;
     g.elev_palette=NULL;
     g.elev_has_mesh=0;
-    g.elev_state=0;
-    g.elev_pending=0;
-    elevator_lower=0;
 }
 
 /* The historical grate_* API names now refer to the actual model04

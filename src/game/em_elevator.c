@@ -1,5 +1,5 @@
 #include "game/em_elevator.h"
-#include "game/em_effect_color.h"
+#include "game/em_pose_math.h"
 #include <string.h>
 
 static void set_height(EmElevator *owner)
@@ -75,9 +75,14 @@ int em_elevator_motion_tick(EmElevatorMotion *motion, int lower,
         return 0;
     }
     if (motion->phase == 1) {
-        *owner_y = em_effect_float32((double)*owner_y + motion->rate);
-        *player_y = em_effect_float32((double)*player_y + motion->rate);
-        *camera_target_y = em_effect_float32((double)*camera_target_y + motion->rate);
+        /* Three add.s (0x8280FC, 0x828114, 0x828128): the EE's single-
+         * guard-bit add (em_pose_math.h pose_add), not a plain truncation.
+         * Route capture 04_elevator_ride holds all 150 player Y values of
+         * the descent (f394..f543, ending 190.00061); a truncating add would
+         * end at 189.99832. */
+        *owner_y = pose_add(*owner_y, motion->rate);
+        *player_y = pose_add(*player_y, motion->rate);
+        *camera_target_y = pose_add(*camera_target_y, motion->rate);
         hooks->rebuild_pose(hooks->context, *owner_y);
         /* Original signed32 counter. Use unsigned addition for defined
          * wrapping, then inspect its signed value as the EE branch does. */

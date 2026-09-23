@@ -6,6 +6,9 @@
 #define EM_INTERACTION_FRAME_H
 #include "game/em_script.h"
 
+/* A per-call view: the hosts load it from the bytes' canonical storage
+ * before a command and store it back after (em_area11_interaction_host.c
+ * view_load/view_store, em_area_script.c frame_load/frame_store). */
 typedef struct {
     uint8_t selector;       /* scratch3B8D */
     uint8_t player_ready;   /* scratch3B8F, owned by the player worker */

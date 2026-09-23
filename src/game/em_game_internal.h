@@ -2100,53 +2100,24 @@ typedef struct {
     unsigned    gt_flinch;       /* death test: committed flinch clip */
     float       gt_health0;      /* death test: health before a hit */
 
-    /* AREA-11 OPENING PROGRESSION — DOWNGRADED by audit: OBSERVED, not
-     * decoded. The scripted elevator actor is OVERLAY code
-     * (ov 0x00828050) that the decomp does not contain, and the cited
-     * INVESTIGATION_area11_elevator.md is absent from both repos; the
-     * flag ADDRESSES below are live-RAM readings. One persistent
-     * game-state flag + the scripted elevator descent actor. (The former
-     * "have_battery" flag was D_00810811, which is the opening-complete
-     * byte, not a battery: see opening_complete.)
-     * AUDIT 2026-07-31 - DOWNGRADED stands: nothing in this block cites recovered C.
-     * */
-    int         terminal_powered;/* engine D_00810841[11] bit 7
-                                  * (D_0081084C & 0x80), 0/1. Original
-                                  * setter: 001580C0, the panel program's
-                                  * callback. Port setter: only the AREA11
-                                  * interaction host's power hook (mirrors
-                                  * 001580C0; not wired live yet). Read by
-                                  * em_examine.c (record 19 terminal) and
-                                  * em_props.c; cleared by
-                                  * game_state_new_game (001AF2C0). */
-    /* SCRIPTED PLAYER INTERACT anim + lock (em_game.h
-     * em_game_player_interact_anim / _busy; AREA11 panel/terminal flow,
-     * observed on live RAM). The engine "scripted-anim-owns-
-     * player" model (player+0x2F3 = 3): a one-shot clip plays on the
-     * player while movement + turn input are suppressed for its duration,
-     * then control returns. Same lock shape as the elevator ride. */
-    int         interact_active; /* player+0x2F3 == 3: a scripted interact
-                                  * clip owns the player (movement locked) */
-    unsigned    interact_clip;   /* the requested interact clip id (for
-                                  * idempotency — a repeat of the running
-                                  * clip is a no-op) */
+    /* The AREA11 power byte D_0081084C (formerly terminal_powered) is a
+     * canonical D2 progress byte since WP-4 (em_scene_state.h,
+     * em_game_terminal_powered). The legacy elevator ride (elev_state,
+     * elev_pending, elev_frame, elev_rate) was retired in WP-4: the
+     * original owners 00159210 / 00827B10 and the carry 00828050 run in
+     * the AREA11 interaction host (em_area11_interaction_host.c). */
+    /* SCRIPTED PLAYER INTERACT clip + lock (em_game.h
+     * em_game_player_interact_anim / _busy): a port stand-in for the
+     * engine's player+0x2F3 = 3 state, used only by the legacy pickup
+     * take since WP-4 (WP-6 replaces it). */
+    int         interact_active; /* a scripted interact clip owns the
+                                  * player (movement locked) */
+    unsigned    interact_clip;   /* the requested interact clip id */
     int         interact_seen;   /* the request has been COMMITTED at least
                                   * once (sa_cur reached interact_clip) —
                                   * gates the end detection so the pre-
                                   * commit frame (sa_cur still 0) does not
                                   * clear the lock prematurely */
-    /* ELEVATOR descent (ov 0x00828050): state 0 = idle/never-run,
-     * 1 = descending, 2 = done. Runs exactly ONCE per scene. */
-    int         elev_state;      /* +0x04: 0 idle, 1 descending, 2 done */
-    int         elev_pending;    /* descent armed (powered terminal's
-                                  * opcode-9 install) but WAITING for the
-                                  * lever interact anim to finish first —
-                                  * the powered script plays anim 0x47
-                                  * (op0A) BEFORE the op09 install, so the
-                                  * ride must not integrate until the clip
-                                  * is done (no input/motion leak) */
-    int         elev_frame;      /* +0x2EC: descent frame counter 0..150 */
-    float       elev_rate;       /* +0x2E8: -0.26667 u/frame (DOWN) */
     /* ELEVATOR PLATFORM mesh (optional — manifest `elevator <model> x y
      * z`). When present it descends with the ride; when absent the ride
      * still works (player + camera descend) and the missing mesh is
@@ -2219,7 +2190,6 @@ static inline void game_state_new_game(EmGameState *s)
     s->opening_key_item_zero = 0;
     s->opening_complete      = 0;
     s->cine_step             = 0;
-    s->terminal_powered      = 0;
 }
 
 /* Compose a loaded palette with a placement transform: T(pos) * R_y(yaw).

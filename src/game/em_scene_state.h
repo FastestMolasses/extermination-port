@@ -82,8 +82,8 @@ typedef enum {
  * bytes D_00810700..702, D_00810730[] and the D_00810750 counter) or by a port
  * mirror that has not been migrated yet (for example g.opening_event_39 =
  * D_00810791, g.opening_complete = D_00810811, g.cine_step = D_00810813,
- * g.terminal_powered = D_0081084C bit 7, the em_pickup item counts from
- * D_00810C64, the magazine and battery bytes). em_scene_progress_at() refuses
+ * the em_pickup item counts from D_00810C64, the magazine and battery
+ * bytes). em_scene_progress_at() refuses
  * a reserved byte (NULL), so nothing can read or write a second copy through
  * it.
  *
@@ -94,6 +94,17 @@ typedef enum {
  *   D_00810794           S12a  event 0x3C (D_00810758[0x3C]), read by the
  *                              record-13 manager 008257A0 through 001BA1C0;
  *                              no port mirror, no port writer.
+ *   D_0081083A           WP-4  the AREA11 elevator's floor byte: 00827B10
+ *                              state 0 reads it (190/230 heights), its
+ *                              completion toggles it when powered; no
+ *                              port mirror existed (EmElevator.lower is
+ *                              the owner's view, loaded and stored around
+ *                              each owner callback).
+ *   D_0081084C           WP-4  D_00810841[0x0B], AREA11's power byte:
+ *                              001580C0 sets bit (1 << panel +0x2E) = 0x80,
+ *                              00159210 state 0 and 00827B10 test it;
+ *                              migrated from g.terminal_powered. Other
+ *                              areas' D_00810841 bytes stay reserved.
  *   D_00810860..D_00810B3F
  *                        S10b  per-area taken bits, u32[8] per area
  *                              (001B11E0 test, 001B1190 set, 001B64F0 clear);
@@ -121,6 +132,8 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
     } migrated[] = {
         {0x00810788u, 0x00810789u},
         {0x00810794u, 0x00810795u},
+        {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
+        {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
         {0x00810CA4u, 0x00810CA8u},
     };

@@ -2,8 +2,7 @@
 #include "../src/game/em_props.c"
 
 EmGameState g;
-static int draws, random_calls;
-static unsigned sound_id;
+static int draws, random_calls, powered;
 static float last_palette[32], last_tint[4];
 static int collision_published;
 
@@ -18,9 +17,8 @@ void em_collision_cell_unbind(EmCollision *world, unsigned uid)
 { (void)world;(void)uid;collision_published=0; }
 
 uint32_t em_random_next(void) { ++random_calls; return 0x40000000; }
-int em_game_terminal_powered(void) { return g.terminal_powered; }
-void em_sfx_play_at(unsigned id, const float pos[3], float radius)
-{ (void)pos; assert(radius==300); sound_id=id; }
+/* D_0081084C bit 7 (the canonical progress byte in the game). */
+int em_game_terminal_powered(void) { return powered; }
 int em_model_load(EmModel *m, const char *path)
 { (void)path; memset(m,0,sizeof *m); m->bone_count=2; return 0; }
 void em_model_free(EmModel *m) { memset(m,0,sizeof *m); }
@@ -89,7 +87,7 @@ int main(void)
     em_props_indicators_draw(gfx,vp);
     assert(draws==2 && random_calls==2 && last_tint[0]==1);
     assert(last_palette[12]==224 && last_palette[13]==230);
-    g.terminal_powered=1;
+    powered=1;
     for (int i=0;i<16;++i) {
         grate_update();
         em_props_indicators_tick();
@@ -100,25 +98,13 @@ int main(void)
     em_props_panel_complete();
     assert(!indicators[0].visible);
     assert(collision_published);
-    g.terminal_powered=0;
+    powered=0;
     for (int i=0;i<16;++i) em_props_indicators_tick();
     assert(indicators[1].level==0 && indicators[1].tint[0]==1);
 
-    g.pos[1]=230;
-    elevator_descent_begin();
-    elevator_tick();
-    assert(g.pos[1]==230 && g.elev_frame==0 && sound_id==0x453);
-    for (int i=0;i<149;++i) elevator_tick();
-    assert(g.elev_state==1);
-    elevator_tick();
-    assert(g.elev_state==0 && g.elev_pos[1]==190);
-    assert(g.pos[1]==189.99832153320312f); /* original EE add sequence */
-    g.pos[1]=190;
-    elevator_descent_begin();
-    elevator_tick();
-    assert(sound_id==0x452 && g.elev_frame==0);
-    for (int i=0;i<150;++i) elevator_tick();
-    assert(g.elev_pos[1]==230 && g.pos[1]==229.9993896484375f);
+    /* The ride (00828050's carry) moved to the AREA11 interaction host in
+     * WP-4 (tools/test_elevator_reference.py checks it against route 04);
+     * the legacy elevator_tick this test drove is gone. */
     elevator_unload(gfx);
     grate_unload(gfx);
     assert(!collision_published);
@@ -127,6 +113,6 @@ int main(void)
     em_props_indicators_tick();
     em_props_indicators_draw(gfx,vp);
     assert(draws==previous);
-    puts("original prop indicators, fixed panel and elevator callback: PASS");
+    puts("original prop indicators and fixed panel: PASS");
     return 0;
 }

@@ -10,6 +10,7 @@
 #include "game/em_pickup_original.h"
 #include "game/em_props.h"
 #include "game/em_random.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 
 /* The owner token addresses remain stable until whole-world teardown. */
@@ -31,6 +32,18 @@ static struct {
     float panel_world[16];
     uint8_t panel_class, elevator_status, elevator_class;
     int loaded, failed, status_draw_context, status_ui_context;
+    /* WP-4 live binding: the panel pool record's original address (its
+     * +0x14, the value 00157F60 stores in D_008106D0), the shared 00183EF0 score
+     * scratch 0x70003B98, the 0020E060 route of the open status screen and
+     * a failed 001B17A0 publication inside a void owner hook. */
+    uint32_t panel_address;
+    /* D_002821B0 (the request kind) and D_002821B8 (the token) as the
+     * message command 001B7D60 case 0 stores them; 001FC9B0 clears them
+     * with the rest of the block. The phase D_002821B4 is the presenter's
+     * own, the delay D_002821BC its countdown. */
+    uint32_t message_kind, message_token;
+    float scan_score;
+    int status_route, offer_failed;
 } world;
 
 static int camera_publish(void *context);
@@ -154,6 +167,9 @@ static int message_start(void *context, uint32_t token, uint32_t delay)
         token == 0x8000001Au ? &world.elevator_message : NULL;
     if (!message || (world.message && world.message->phase == 1) ||
         !em_panel_message_start(message, token, delay)) return 0;
+    /* 001B7D60 case 0: D_002821B0 = 2, B4 = 1, B8 = req[5], BC = req[6]. */
+    world.message_kind = 2;
+    world.message_token = token;
     world.message = message;
     world.frame.message_phase = (int32_t)message->phase;
     return 1;
@@ -165,11 +181,22 @@ static int message_done(void *context)
     return world.message ? em_panel_message_done(world.message) : -1;
 }
 
+/* 00157F60's request tail for the type-24 panel (em_panel_battery_request
+ * already cleared +A/+B and restored +0 = 1): D_008106B1 = 0x80 + cost,
+ * D_008106B0 = 1, D_008106D0 = the owner's +0x14 (its own address). The
+ * classifier 001AE7E0 then returns 2 on the next tick and 0x1AE040 opens
+ * the status screen, whose 0020E060/0020CDC0 take the host route below. */
 static int battery_open(void *context, EmPanel *owner, uint8_t request)
 {
     (void)context;
-    return owner == &world.panel.owner &&
-        em_status_runtime_battery_open(world.status, owner, request) == 1;
+    EmSceneState *scene = em_scene_state();
+    uint8_t *d0 = em_scene_req_at(scene, 0x008106D0u);
+    if (owner != &world.panel.owner || !world.panel_address || !d0 ||
+        request != 0x80 + owner->cost) return 0;
+    scene->req[EM_SCENE_REQ_B1] = request;
+    scene->req[EM_SCENE_REQ_B0] = 1;
+    for (unsigned i = 0; i < 4; ++i) d0[i] = (uint8_t)(world.panel_address >> (8 * i));
+    return 1;
 }
 
 static int sound(void *context, uint32_t cue)
@@ -182,12 +209,27 @@ static int sound(void *context, uint32_t cue)
     return 1;
 }
 
+/* 001580C0 for the type-24 panel: D_00810841[D_00810700] |= 1 << panel
+ * +0x2E (7, checked at the node's state 0), then 001FB9F0(0x3EE) (the
+ * program's following sound call). The byte is canonical D2 progress
+ * (em_scene_state.h); only AREA11's D_0081084C is migrated. */
 static int power(void *context, uint8_t mask)
 {
     (void)context;
-    if (mask != 0x80) return 0;
-    g.terminal_powered = 1;
+    EmSceneState *scene = em_scene_state();
+    uint8_t *byte = em_scene_progress_at(scene, 0x00810841u + scene->d810700, 1);
+    if (mask != 0x80 || !byte) return 0;
+    *byte |= mask;
     return 1;
+}
+
+/* D_00810841[D_00810700] bit (+0x2E = 7), as 00159210 state 0 and 00827B10
+ * read it (the same canonical byte em_game_terminal_powered reads). */
+static int powered(void)
+{
+    EmSceneState *scene = em_scene_state();
+    const uint8_t *byte = em_scene_progress_at(scene, 0x00810841u + scene->d810700, 1);
+    return byte && (*byte & 0x80) != 0;
 }
 
 static int stop_indicator(void *context)
@@ -251,10 +293,11 @@ static int status_frame_event(void *context, EmStatusFrameEvent event,
     case EM_STATUS_MODE_ZERO:
         return 1; /* The page controls the native overlay submission mode. */
     case EM_STATUS_BLACK_HOLD:
-        /* The original phase3 completion and interaction scripts write
-         * the SAME byte. Publish only its status write, never a stale
-         * status copy after ordinary camera callbacks start decrementing. */
-        if (frame->phase == 5) world.frame.recovery_lock = frame->recovery_lock;
+        /* Only the runtime's own frame machine (the fixture's stand-in for
+         * 0x1AE040 states 3/5) emits this; the live scene core writes
+         * D_008106EF = 0x46 itself. Publish that status write to the same
+         * canonical byte the interaction scripts write. */
+        if (frame->phase == 5) em_scene_state()->req[EM_SCENE_REQ_EF] = frame->recovery_lock;
         em_frame_fade_full(0);
         return 1;
     case EM_STATUS_END_FRAME:
@@ -344,12 +387,39 @@ static int owner_available(void *context, EmPanel *panel, unsigned item_id)
     return panel && selected == panel ? 1 : -1;
 }
 
+/* 002149F0's successful exit writes 70003B8D = 3 after the inventory and
+ * owner updates (em_status_runtime.h battery_finished). The status screen
+ * freezes every owner, so the byte is written canonically here, not
+ * through the shared frame view. */
 static int battery_finished(void *context, EmPanel *panel)
 {
     (void)context;
     if (panel != &world.panel.owner) return 0;
-    world.frame.selector = 3;
+    em_scene_state()->spad3B8D = 3;
     return 1;
+}
+
+/* The status page's own cues (001FB9F0 with 0x0B open, 0x0D close, 0/1
+ * accept/back, 2 no device, 4 cursor, 5 hover, 6 discharge unit) are the
+ * system sound set, which no exporter produces yet (WP-14): they reach
+ * em_sfx_play, which drops an unmapped id, and are reported once here, as
+ * the legacy em_hud status screen's cues 0/1/4 already are. Every other
+ * cue keeps the strict script contract above. */
+static int status_sound(void *context, uint32_t cue)
+{
+    static const uint8_t system_cues[] = {0x0, 0x1, 0x2, 0x4, 0x5, 0x6, 0xB, 0xD};
+    for (size_t i = 0; i < sizeof system_cues; ++i) {
+        if (cue != system_cues[i] || em_sfx_cue_state(cue)) continue;
+        static uint16_t reported;
+        if (!(reported & (1u << cue))) {
+            reported |= (uint16_t)(1u << cue);
+            fprintf(stderr, "AREA11 interaction: status cue 0x%X has no exported sample "
+                    "(system sound set, WP-14); silent\n", (unsigned)cue);
+        }
+        em_sfx_play(cue);
+        return 1;
+    }
+    return sound(context, cue);
 }
 
 static EmStatusRuntimeHooks native_status_hooks(void)
@@ -357,7 +427,7 @@ static EmStatusRuntimeHooks native_status_hooks(void)
     return (EmStatusRuntimeHooks){.read_inventory = read_inventory,
         .write_charge = write_charge, .write_battery_capacity = write_capacity,
         .frame_event = status_frame_event, .page_event = status_page_event,
-        .sound = sound, .owner_available = owner_available,
+        .sound = status_sound, .owner_available = owner_available,
         .battery_finished = battery_finished};
 }
 
@@ -426,32 +496,102 @@ static void elevator_copy_child(void *context)
      * matrix directly. There is no stale separate native transform. */
 }
 
+/* 001B17A0 (byte-matched), the owners' state-1 tail: +1 = 001B1630(+0xB0,
+ * +0xB4, +0xB8), the camera cone/range gate against D_008105D0 and
+ * D_00810600 (g.cam.eye/fwd), and when visible 001B1B70, which pushes an
+ * owner with class bit 0x80 onto the pending interactive list (001B1DE0).
+ * 001AAD00 swaps that list in at the end of the frame
+ * (em_area11_interaction_host_publish). The port draws the props from its
+ * own draw list, so the +1 drawn byte has no reader here. */
+static int offer(const EmInteractionSceneOwner *record, const float position[3])
+{
+    return em_interaction_scene_offer(&world.scene, record->source_id, position,
+                                      g.cam.eye, g.cam.fwd) >= 0;
+}
+
+/* 00827B10's tail at 0x827E78: 001B17A0 (publication), then its virtual
+ * +0x4C update, which has no port counterpart. */
 static void elevator_update_actor(void *context)
 {
     (void)context;
-    /* Publication is performed by the scene walker after this owner
-     * callback. The original generic update cannot dispatch a second tick. */
+    const float position[3] = {g.elev_pos[0], world.elevator.owner.height, g.elev_pos[2]};
+    if (!offer(world.elevator_record, position)) world.offer_failed = 1;
+}
+
+/* ------------------------------------------------ the shared frame view
+ *
+ * EmInteractionFrame (em_interaction_frame.h) is the per-call view the
+ * frame, cinematic and runtime cores read and write. Its bytes live in
+ * their canonical storage: spad 3B8D/3B8F/3B92/3B84 and D_008106D4..DF,
+ * D_008106EF, D_008106F3 in EmSceneState, the camera block D_008101E1/E3/
+ * E4/E6 and the vector D_008105F0 in the port camera g.cam, the message
+ * phase D_002821B4 in the host's message presenter. Every host entry point
+ * loads the view before it runs a core and stores it after, so no second
+ * copy survives between calls. D_008101E2 has no port storage yet (only
+ * 001B82D0 sub4 writes it, to 0; nothing in the port reads it): it stays
+ * in the view. The projection zoom is carried by the 001D2610/001D25F0
+ * events, not stored back. The running script's skip byte (em_script.h
+ * skip_request, the per-tick view of 3B91) is loaded and stored around the
+ * owner that ticks it. */
+static void view_load(void)
+{
+    EmSceneState *scene = em_scene_state();
+    EmInteractionFrame *f = &world.frame;
+    f->selector = scene->spad3B8D;
+    f->player_ready = scene->spad3B8F;
+    f->ready = scene->spad3B92;
+    f->counter = scene->spad3B84;
+    f->camera_phase = g.cam.sub_state;
+    f->camera_swing = g.cam.swing;
+    f->camera_top = g.cam.top_mode;
+    f->camera_mode = g.cam.mode;
+    f->recovery_lock = scene->req[EM_SCENE_REQ_EF];
+    f->auxiliary = scene->req[EM_SCENE_REQ_F3];
+    memcpy(f->activity, em_scene_req_at(scene, 0x008106D4u), sizeof f->activity);
+    memcpy(f->up, g.cam.up, 3 * sizeof(float));
+    f->up[3] = 1;
+    if (world.message) f->message_phase = (int32_t)world.message->phase;
+}
+
+static void view_store(void)
+{
+    EmSceneState *scene = em_scene_state();
+    const EmInteractionFrame *f = &world.frame;
+    scene->spad3B8D = f->selector;
+    scene->spad3B8F = f->player_ready;
+    scene->spad3B92 = f->ready;
+    scene->spad3B84 = f->counter;
+    g.cam.sub_state = f->camera_phase;
+    g.cam.swing = f->camera_swing;
+    g.cam.top_mode = f->camera_top;
+    g.cam.mode = f->camera_mode;
+    scene->req[EM_SCENE_REQ_EF] = f->recovery_lock;
+    scene->req[EM_SCENE_REQ_F3] = f->auxiliary;
+    memcpy(em_scene_req_at(scene, 0x008106D4u), f->activity, sizeof f->activity);
+    memcpy(g.cam.up, f->up, 3 * sizeof(float));
+    if (world.message) world.message->phase = (uint32_t)f->message_phase;
+}
+
+static void script_load(EmScript *script)
+{
+    script->skip_request = em_scene_state()->spad3B91;
+}
+
+static void script_store(const EmScript *script)
+{
+    em_scene_state()->spad3B91 = (uint8_t)script->skip_request;
 }
 
 void em_area11_interaction_host_camera_fields(void)
 {
-    g.cam.sub_state = world.frame.camera_phase;
-    g.cam.top_mode = world.frame.camera_top;
-    g.cam.mode = world.frame.camera_mode;
+    if (world.loaded) view_store();
 }
 
-static void begin_owner(void)
+/* D_0081083A: the elevator owner's floor byte (EmElevator.lower is its
+ * view; canonical D2 progress since WP-4). */
+static uint8_t *elevator_floor(void)
 {
-    world.frame.camera_phase = g.cam.sub_state;
-    world.frame.camera_top = g.cam.top_mode;
-    world.frame.camera_mode = g.cam.mode;
-    if (world.message) world.frame.message_phase = (int32_t)world.message->phase;
-}
-
-static void finish_owner(void)
-{
-    em_area11_interaction_host_camera_fields();
-    if (world.message) world.message->phase = (uint32_t)world.frame.message_phase;
+    return em_scene_progress_at(em_scene_state(), 0x0081083Au, 1);
 }
 
 int em_area11_interaction_host_load(const char *directory,
@@ -493,14 +633,17 @@ int em_area11_interaction_host_load(const char *directory,
     EmPanelRuntimeHooks panel = {NULL, align_panel, message_start, message_done,
                                   battery_open, sound, power, stop_indicator};
     snprintf(path, sizeof path, "%s/panel/scripts.emsc", directory);
-    if (!em_panel_runtime_load(&world.panel, path, g.terminal_powered, &world.shared, &panel))
+    /* 00159210 state 0 parks the panel when its power bit is already set. */
+    if (!em_panel_runtime_load(&world.panel, path, powered(), &world.shared, &panel))
         goto failed;
     EmElevatorRuntimeHooks elevator = {NULL, align_player, face_player, camera_set,
         camera_publish, camera_chase, message_start, message_done, elevator_sound,
         elevator_rebuild, elevator_copy_child, elevator_update_actor};
     snprintf(path, sizeof path, "%s/elevator.emsc", directory);
-    if (!em_elevator_runtime_load(&world.elevator, path, 0, &world.shared,
-                                  &g.pos[1], &g.cam.tgt[1], &elevator)) goto failed;
+    /* 00827B10 state 0 reads D_0081083A for its 190/230 floor. */
+    const uint8_t *floor = elevator_floor();
+    if (!floor || !em_elevator_runtime_load(&world.elevator, path, *floor != 0, &world.shared,
+                                            &g.pos[1], &g.cam.tgt[1], &elevator)) goto failed;
     snprintf(path, sizeof path, "%s/panel/terminal.emod", directory);
     if (!em_panel_message_load(&world.panel_message, path)) goto failed;
     snprintf(path, sizeof path, "%s/elevator_refusal.emod", directory);
@@ -513,6 +656,7 @@ int em_area11_interaction_host_load(const char *directory,
     world.panel_class = world.panel_record->class_flags;
     world.elevator_class = world.elevator_record->class_flags;
     world.elevator_status = world.elevator_record->initial_status;
+    world.elevator_record->descriptor[1] = world.elevator.owner.lower ? 190 : 230;
     if (!em_interaction_scene_bind(&world.scene, world.panel_record->source_id,
         &world.panel, &world.panel.owner.status, &world.panel_class, &world.panel.owner.armed) ||
         !em_interaction_scene_bind(&world.scene, world.elevator_record->source_id,
@@ -553,18 +697,21 @@ int em_area11_interaction_host_failed(void) { return world.failed; }
 int em_area11_interaction_host_face_attach(void)
 {
     if (!world.loaded || world.failed) return 0;
+    view_load();
     if (!world.shared.owner || (world.frame.player_ready != 1 && world.frame.player_ready != 2) ||
         !em_player_face_host_attach(&world.face)) {
         fail("face attachment");
         return 0;
     }
     world.frame.player_ready = 2;
+    view_store();
     return 1;
 }
 
 int em_area11_interaction_host_face_talk(uint8_t talking)
 {
     if (!world.loaded || world.failed) return 0;
+    view_load();
     if (!world.shared.owner || world.frame.player_ready != 2 ||
         !em_player_face_host_talk(&world.face, talking)) {
         fail("direct face talk event");
@@ -577,6 +724,7 @@ int em_area11_interaction_host_player_record(EmGfxMesh **mesh, const float **pal
                                             uint32_t *bones, const EmModel **model)
 {
     if (!world.loaded || world.failed || !mesh || !palette || !bones || !model) return -1;
+    view_load();
     int result = em_player_face_host_record(&world.face, mesh, model);
     if (result < 0 || (world.frame.player_ready == 2) != (result == 1))
         return fail("alternate player draw");
@@ -597,39 +745,235 @@ int em_area11_interaction_host_player(void *unused)
 {
     (void)unused;
     if (!world.loaded || world.failed) return -1;
+    view_load();
     int result = em_interaction_runtime_player_tick(&world.shared,
         em_status_runtime_ordinary_enabled(world.status));
+    view_store();
     return result < 0 ? fail("player worker") : result;
+}
+
+/* ---------------------------------------------------------- the Use scan
+ *
+ * 00160220's head (NEARMISS; logic recovered): (D_00810E74 & *(u16
+ * *)0x70003B76) != 0 -> 00184BA0; a winner -> 001798D0(player), +5 = 0x25,
+ * +6 = 0, return 1. 0x70003B76 is the USE entry of the pad config block,
+ * whose default is 0x0040, CROSS in the original layout (em_input.h); the
+ * port has no configurable block. 00184BA0 (byte-matched): gated on 3B8D,
+ * D_0028A9A0 and D_008106EF, clears the score 0x70003B98, walks the
+ * previous frame's published list and arms the winner (+0xB = 4) with
+ * 3B8D = 3 (em_interaction_scene_scan_checked over em_interaction_scan).
+ * The per-object test is 00183EF0 (byte-matched): the panel's class-4
+ * selector-0 type-24 branch (em_panel_candidate) and the elevator's
+ * selector-1 branch (em_interaction_elevator_candidate). Its top-level
+ * player +0x1F0 == 0x2D path rejects every class but 7; the port polls Use
+ * only from the 00161020/001612D0 callbacks (player_use_poll), whose
+ * states never hold 0x2D (only 0016D130 writes it), so the action passed is
+ * 0. Only the owners bound here are published: the pickups, the door and
+ * Roger keep their legacy scans until WP-6/7/9 bind them (W22). */
+enum { USE_MASK_3B76 = 0x0040 };
+
+static int use_predicate(void *context, const EmInteractionCandidate *candidate, float *score)
+{
+    (void)context;
+    const EmInteractionSceneOwner *record = candidate->owner;
+    if (record == world.panel_record)
+        return em_panel_candidate(&world.panel.owner, record->position, record->angles[1], g.pos,
+                                  g.yaw, score);
+    if (record == world.elevator_record)
+        return em_interaction_elevator_candidate(record->descriptor, g.pos, g.yaw, 0, score);
+    return -1; /* only the two bound owners are ever offered */
+}
+
+int em_area11_interaction_host_use(void *unused)
+{
+    (void)unused;
+    if (!world.loaded || world.failed) return -1;
+    EmSceneState *scene = em_scene_state();
+    if (!(scene->d810E74 & USE_MASK_3B76)) return 0;
+    EmInteractionScanState state = {scene->spad3B8D, (int16_t)em_frame_transition()->substate,
+                                    scene->req[EM_SCENE_REQ_EF], world.scan_score};
+    size_t winner;
+    int result = em_interaction_scene_scan_checked(&world.scene, &state, use_predicate, NULL,
+                                                   &winner);
+    world.scan_score = state.score;
+    if (result < 0) return fail("00184BA0 use scan");
+    if (!result) return 0;
+    /* The winner's controller takes the shared owner token; the claim is
+     * 00184BA0's 3B8D = 3 through the frame view (scan_checked armed +0xB). */
+    view_load();
+    const EmInteractionSceneOwner *record = world.scene.list.active[winner].owner;
+    int claimed = em_interaction_runtime_claim(&world.shared, record->native_owner);
+    view_store();
+    if (!claimed || scene->spad3B8D != 3) return fail("00184BA0 winner claim");
+    if (!player_pose_use_accepted()) return fail("001798D0 use acceptance");
+    return 1;
 }
 
 int em_area11_interaction_host_panel_tick(void)
 {
     if (!world.loaded || world.failed) return -1;
-    begin_owner();
-    int result = em_panel_runtime_tick(&world.panel, em_pickup_item_count(0x1B) != 0,
-                                        em_status_runtime_ordinary_enabled(world.status));
-    finish_owner();
-    return result < 0 ? fail("panel worker") : result;
+    if (!em_status_runtime_ordinary_enabled(world.status)) return 0;
+    view_load();
+    script_load(&world.panel.program.script);
+    int result = em_panel_runtime_tick(&world.panel, em_pickup_item_count(0x1B) != 0, 1);
+    script_store(&world.panel.program.script);
+    view_store();
+    if (result < 0) return fail("panel worker");
+    /* 00159210 state 1 always ends with 001B17A0(p), then its virtual. */
+    return offer(world.panel_record, world.panel_record->position) ? 0 : fail("panel publication");
+}
+
+/* 00827B10 state 0 (overlay AREA11, 0x827B54..0x827BF0): it loads
+ * D_0081083A, stores 190.0 or 230.0 into its +0xB4 and into the script's
+ * height words (the fields em_elevator_init derives from the same byte),
+ * then 001B0FD0 and 001C6380 build its matrix from +0xB0/+0xC0; its
+ * 001AFA90 child copies that position (the port's indicator reads the
+ * parent's node0 matrix). The manifest placement (em_scene.c) is always
+ * the upper floor, so without this an AREA11 rebuild after the ride would
+ * draw the elevator at 230 while the owner and its Use descriptor say 190.
+ * State 0 runs on a fresh actor, before its first 001B17A0 offer: an owner
+ * that already ran is a fault, not something to re-initialize. */
+int em_area11_interaction_host_elevator_state0(void)
+{
+    if (!world.loaded || world.failed) return -1;
+    const uint8_t *floor = elevator_floor();
+    if (!floor) return fail("D_0081083A");
+    if (world.elevator.owner.phase || world.elevator.owner.armed)
+        return fail("00827B10 state 0 after the owner ran");
+    em_elevator_init(&world.elevator.owner, *floor != 0);
+    world.elevator_record->descriptor[1] = world.elevator.owner.lower ? 190 : 230;
+    elevator_rebuild(NULL, world.elevator.owner.height);
+    return 0;
 }
 
 int em_area11_interaction_host_elevator_tick(void)
 {
     if (!world.loaded || world.failed) return -1;
-    begin_owner();
-    int result = em_elevator_runtime_tick(&world.elevator, g.terminal_powered,
-                                            em_status_runtime_ordinary_enabled(world.status));
-    finish_owner();
+    if (!em_status_runtime_ordinary_enabled(world.status)) return 0;
+    uint8_t *floor = elevator_floor();
+    if (!floor) return fail("D_0081083A");
+    world.elevator.owner.lower = *floor != 0;
+    view_load();
+    script_load(&world.elevator.program.script);
+    world.offer_failed = 0;
+    int result = em_elevator_runtime_tick(&world.elevator, powered(), 1);
+    script_store(&world.elevator.program.script);
+    view_store();
+    *floor = world.elevator.owner.lower;
     world.elevator_record->descriptor[1] = world.elevator.owner.lower ? 190 : 230;
-    return result < 0 ? fail("elevator worker") : result;
+    if (result < 0) return fail("elevator worker");
+    return world.offer_failed ? fail("elevator publication") : result;
+}
+
+/* 001AAD00's interactive-list swap (D_00275B5C/B64 = the pending list, then
+ * the pending list is emptied); its other hooks and class lists have no
+ * port counterpart yet. */
+void em_area11_interaction_host_publish(void)
+{
+    if (world.loaded && !world.failed) em_interaction_scene_publish(&world.scene);
+}
+
+/* ------------------------------------------------ status requests (0020E060/0020CDC0)
+ *
+ * A status screen that opens on a pending request (D_008106B0 != 0: the
+ * panel's 00157F60 BATTERY request) runs the original page layer of the
+ * host's status runtime at the scene core's 0020E060 and 0020CDC0
+ * positions; D_008106D0 names the owner the page talks to. */
+int em_area11_interaction_host_status_open(void)
+{
+    if (!world.loaded || world.failed) return -1;
+    EmSceneState *scene = em_scene_state();
+    const uint8_t *d0 = em_scene_req_at(scene, 0x008106D0u);
+    uint32_t address = (uint32_t)d0[0] | (uint32_t)d0[1] << 8 | (uint32_t)d0[2] << 16 |
+                       (uint32_t)d0[3] << 24;
+    EmPanel *owner = NULL;
+    if (scene->req[EM_SCENE_REQ_B1] & 0x80) {
+        /* The BATTERY route talks to the panel D_008106D0 names. */
+        if (!world.panel_address || address != world.panel_address)
+            return fail("0020E060: D_008106D0 is not the bound panel");
+        owner = &world.panel.owner;
+    }
+    if (em_status_runtime_page_open(world.status, owner) != 1) return fail("0020E060");
+    world.status_route = 1;
+    return 1;
+}
+
+int em_area11_interaction_host_status_page(const EmStatusInput *input)
+{
+    if (!world.loaded || world.failed || !world.status_route) return -1;
+    EmSceneState *scene = em_scene_state();
+    int result = em_status_runtime_page_tick(world.status, input, &scene->req[EM_SCENE_REQ_B0],
+        &scene->req[EM_SCENE_REQ_B1], &scene->req[EM_SCENE_REQ_C5],
+        em_scene_req_at(scene, 0x008106CCu));
+    if (result < 0) return fail("0020CDC0");
+    return result;
+}
+
+/* 1 from the 0020E060 that took the request route until the next status
+ * open: the status frames' 001D1EA0(0) draws this route's page. */
+int em_area11_interaction_host_status_route(void)
+{
+    return world.loaded && !world.failed && world.status_route;
+}
+
+int em_area11_interaction_host_status_render(EmGfx *gfx)
+{
+    if (!world.loaded || world.failed) return -1;
+    return em_status_runtime_render(world.status, gfx) == 1 ? 1 : fail("status draw");
+}
+
+void em_area11_interaction_host_status_clear_route(void)
+{
+    world.status_route = 0;
+}
+
+void em_area11_interaction_host_set_panel_address(uint32_t panel)
+{
+    world.panel_address = panel;
 }
 
 int em_area11_interaction_host_message_tick(int busy155, int busy156)
 {
     if (!world.loaded || world.failed) return -1;
     if (!em_status_runtime_ordinary_enabled(world.status) || !world.message) return 0;
-    em_panel_message_tick(world.message, busy155, busy156);
-    world.frame.message_phase = (int32_t)world.message->phase;
+    /* 1: phase 2's FDB80(1)/001FC9B0 teardown, which memsets the block
+     * D_002821B0..+0x9C (kind and token included). */
+    if (em_panel_message_tick(world.message, busy155, busy156) == 1)
+        world.message_kind = world.message_token = 0;
     return 1;
+}
+
+/* The step-F service (em_frame_set_message_service). D_00282155/156, the
+ * voice lanes 1/2 that 001FA5F0/001FA790 mark busy, have no port player:
+ * no voice cue is pushed on the first-level route before Roger, and the
+ * panel and terminal lines 0x80000018/0x8000001A are text-only, so both
+ * read 0 (FINDINGS: idle for text-only lines). */
+static int message_service_tick(void *context)
+{
+    (void)context;
+    return em_area11_interaction_host_message_tick(0, 0) < 0 ? -1 : 0;
+}
+
+static void message_service_render(void *context, EmGfx *gfx)
+{
+    (void)context;
+    em_area11_interaction_host_message_render(gfx);
+}
+
+void em_area11_interaction_host_message_block(uint32_t block[3])
+{
+    block[0] = block[1] = block[2] = 0;
+    if (!world.loaded || !world.message || !world.message->phase) return;
+    block[0] = world.message_kind;
+    block[1] = world.message->phase;
+    block[2] = world.message_token;
+}
+
+const EmFrameMessageService *em_area11_interaction_host_message_service(void)
+{
+    static const EmFrameMessageService service = {message_service_tick, message_service_render,
+                                                  NULL};
+    return &service;
 }
 
 void em_area11_interaction_host_message_render(EmGfx *gfx)

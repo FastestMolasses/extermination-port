@@ -1,6 +1,7 @@
 # Level smoke: the first level, live, phase by phase
 
-Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23). The smoke plays the
+Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
+elevator refusal, the panel and the elevator ride). The smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
 
@@ -12,12 +13,21 @@ A phase whose original owners are not live in the port yet reports
 runs for that owner today. A NOT-LIVE line is not a pass: nothing past it has
 been verified.
 
+A NOT-LIVE phase that a later live phase needs the state of is **driven**:
+its runner plays it through the owner's current port binding, the run reports
+`NOT-LIVE driven`, and the capture checker skips it. Today that is the
+battery pickup (legacy em_pickup until WP-6), which the panel phase needs for
+item 0x1B. The later phases compare only their own windows, so nothing the
+legacy take leaves behind is compared (the original's ITEM request leaves
+B1 = 0x1B, the legacy take leaves 0).
+
 ## Running it
 
 ```sh
-make test-level-smoke                  # the whole route (about 7 s today)
+make test-level-smoke                  # the whole route (about 9 s today)
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
+EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
 ```
 
 The make target does the following:
@@ -59,10 +69,10 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 |---|---|---|---|---|
 | first_control | 01 row f0 (slot 04) | 0x1AE040 state 1 / 001AE5E0, 49 pool nodes | yes (S12a) | — |
 | status | 01 status exit; frame_trace2 `status_04.json` | 001AE7E0 r==2 → state 3 → 5 → 1 | yes (S11b) | — |
-| battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | no | WP-6, WP-5 |
-| elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | no | WP-4, WP-8 |
-| panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | no | WP-4, WP-5 |
-| elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | no | WP-4 |
+| battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | driven (legacy em_pickup) | WP-6, WP-5 |
+| elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | yes (WP-4) | — |
+| panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
+| elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | yes (WP-4) | — |
 | boxes | 05 | ledge climb onto crates r4/r3 (001551B0) | no | climb wiring (WP-15), WP-18 |
 | slide | 06 | slope slide 0016C6A0 | no | slide wiring (WP-15) |
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | no | WP-12, WP-10 |
@@ -145,6 +155,98 @@ must assert the press-to-close delay from 0020E0C0 itself, and should use a
 one-frame tap capture if the hold length is in doubt. The smoke therefore
 aligns the close on the +B = 5 tick, not on the press, until 0020CDC0 is
 translated (WP-5).
+
+### Navigation (the route phases)
+
+The runners drive the analog stick and the buttons through the gamepad
+overlay (`em_input_set_gamepad`, the pad path a DualShock takes), with the
+closed loop of route_capture.py: the stick points at a world (x, z) target
+relative to the camera forward D_00810600 (stick up = forward, right =
+(-fz, fx)); `nav_goto`, `nav_face`, `nav_settle` and `nav_press` mirror its
+goto, face, settle and press. A pad attached to the machine replaces the
+overlay (em_gamepad) and would disturb a run. The targets are route_capture's
+(the terminal: (229, 250.4), then (223.5, 250.4) at half stick, face
+-1.3037; the battery: (211.6, 227.2), tolerance 5), except the panel's: the
+original's walk carried the player past route_capture's (239.7, 222) to
+(241.4, 225.3) before the press (beat 03 f228), the port's stops shorter,
+so the runner aims at (240.5, 225) (00183EF0's panel radius is 9.5 around
+(240, 232.8)).
+
+### battery (driven)
+
+Walk to g0.0, press Cross, wait for item 0x1B, settle. Not verified.
+
+### elevator_refusal, panel, elevator
+
+**In process:** the Use scan wins (3B8D leaves 0 within 60 frames of the
+press); the refusal shows message 0x8000001A, the letterbox and camera byte
+1, keeps the power bit clear and releases the player; the panel opens the
+BATTERY page on the 00157F60 request (B0 = 1, B1 = 0x82), the runner selects
+Yes as route_capture does (30 frames, LEFT, 10 frames, Cross), the discharge
+leaves item 0x1B with charge 8 and the power bit 0x80 is set before the
+release; the ride leaves the player at y 190 (to 0.01) with the floor byte
+D_0081083A = 1.
+
+**Against the captures** (routes 02, 03, 04; `tools/test_level_smoke.py`):
+aligned on the scan tick (the first tick with 3B8D != 0 after the press, the
+tick whose D_00810750 the run prints) and the beat's first row with 3B8D != 0,
+row for row through the release and 25 rows after it: the spad bytes
+0x70003B8C..93, the cinematic camera byte D_008101E4, the letterbox block
+D_0028A8D0, the message block D_002821B0 (kind, phase, token; sampled after
+step F), the power byte D_0081084C, the player X/Z from the script's
+placement on, the player Y while the script owns the player (the ride's 150
+carried values included), the heading from the script's facing on, and the
+camera eye/target D_008105D0/E0 from the script's first shot until the
+release (at the panel with the retained-Y offset). The
+panel is compared in two windows: from the scan through the status open (plus
+B0/B1 from the request row), and from the Yes confirmation (B0 0 -> 1)
+through the discharge, the exit, script 0x247BE0, the power bit and the
+release (plus B0/B1); its player Y is checked as retained (001B6F00 keeps
+the ground Y of the approach, which is navigation input). The tick log gained
+the fields these need (em_scene_bindings.c): `screen8`, `msg_pre`, `cam4`,
+`power`, `floor`, `pos_post`, `yaw_post`, `eye_post`, `tgt_post`. Negative
+controls (one tampered letterbox byte, carried Y, camera eye, power byte,
+message phase, message kind or message token in a copy of the log) each fail
+the check.
+
+*What the message block measures.* The host logs the block as the message
+command 001B7D60 case 0 stored it (kind D_002821B0 = 2, token D_002821B8 =
+the script record's req[5]) and 001FC9B0 cleared it, with the presenter's
+own phase D_002821B4. The token is therefore the one the running script
+passed (0x80000018 panel, 0x8000001A refusal) and the phase carries the
+presenter's timing; the kind is 001B7D60's constant 2, so a match on it only
+shows that a message command started and has not been torn down. (Until the
+WP-4 fix round the host synthesized mode 2 and picked the token from the
+active presenter, which measured the phase only.)
+
+**Known divergences, reported, not compared:**
+- *The status page's module load.* The original's ITEM root waits 25 frames
+  on its load of module 0x21, the BATTERY page (item state 3, route 03
+  f390..f414), before the prompt; the port's status modules are resident, so its prompt consumes the
+  request 7 ticks after the post against the original's 30. Everything from
+  the Yes confirmation on is tick-exact. WP-5 owns the status module loader.
+- *The ground after the release.* The original re-grounds the player on its
+  first ordinary callback: on the elevator actor 0x7AA880 (y 229.99998 up,
+  189.99998 down) and at the panel (229.88731). The port has no moving-actor
+  floor and keeps the scripted Y (230, 190.00061, the approach Y). The floor
+  and actor collision belong to the player-floor and collision lanes.
+- *The camera after a release.* The original's follow keeps the script's
+  eye X/Z and eases only its height; the port's follow camera (em_camera
+  mode 0) moves the eye behind the player, and the camera block's +7 (the
+  solver's hit byte) differs after the ride. Only the cinematic byte +4 is
+  compared after the release; the follow camera is WP-16's.
+- *The messages of the status page* (mode 4) run inside the port's page, not
+  in the logged block; mode-4 rows are skipped.
+- *The panel's player and camera Y.* The panel windows check the player Y as
+  retained (equal to the port's own approach Y, not the capture's) and the
+  scripted camera Y with that same offset; the prompt window between the
+  request and the Yes press is not compared (the module load above).
+- *D_00282157 and the voice lanes D_00282155/156* read 0. D_00282157 is the
+  phase of 001FA0D0's asynchronous disc read (em_scene_bindings.c
+  r_00282157; the port's reads complete within their call), passed through
+  that reader to 0x1AE040 state 3 and to the status page input (which does
+  not read it). The voice lanes have no port player; no voice cue is pushed
+  on the route before Roger and both messages are text-only.
 
 ## Adding a phase (the contract for WP-4 onward)
 

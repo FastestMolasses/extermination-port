@@ -98,7 +98,7 @@ static void actor_update(void)
     /* SCRIPTED INTERACT anim end-detection (em_game_player_interact_anim).
      * The interact clip is a one-shot through the sa_* mailbox: the
      * request lands the frame em_game_player_interact_anim is called
-     * (from em_examine_update, AFTER this update ran), the commit fires
+     * (from the legacy pickup take, AFTER this update ran), the commit fires
      * here next frame (sa_cur -> interact_clip), and the clip clears
      * itself back to sa_cur == 0 when it plays through. Track the commit
      * (interact_seen) so the pre-commit frame (sa_cur still 0) does not

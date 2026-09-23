@@ -34,7 +34,7 @@
 
 #include "em_input.h"        /* EM_PAD_CROSS — the use-button mask */
 #include "game/em_hud.h"     /* em_hud_radio (GLOBAL lines) + text draw */
-#include "game/em_game.h"    /* contract-A: terminal power + elevator */
+#include "game/em_game.h"    /* interact-busy gate and the FACE step */
 #include "game/em_pickup.h"  /* the single-winner use-scan arbitration */
 
 #define EX_PI 3.14159265358979f
@@ -94,12 +94,6 @@ typedef struct {
     int   n_rec;
     ExRec rec[EM_EXAMINE_RECS];
     int   cool_left;                    /* live cooldown counter */
-    int   is_terminal;                  /* AREA-11 INTERNAL elevator
-                                         * control terminal: the
-                                         * power-gated RIDE (record 19,
-                                         * ov 0x00827B10, on the platform).
-                                         * Only CHECKS power; runs anim
-                                         * 0x47 + the descent. */
 } Examine;
 
 /* The running sequence (one at a time — the engine's single script
@@ -116,9 +110,6 @@ typedef struct {
     int   rec;         /* chain record cursor */
     int   in_gap;      /* chain: presenting the blank gap record */
     int   gstarted;    /* gline handed to em_hud_radio */
-    int   no_message;  /* terminal powered/insert run: suppress the
-                        * refusal line (the engine's powered script
-                        * 0x82A750 is a different, line-less script) */
 } ExSeq;
 
 static struct {
@@ -173,13 +164,6 @@ int em_examine_text(int slot, int dur, int gap, const char *text)
         }
     }
     r->text[o] = '\0';
-    return 0;
-}
-
-int em_examine_set_terminal(int slot)
-{
-    if (slot < 0 || slot >= s.n) return -1;
-    s.e[slot].is_terminal = 1;
     return 0;
 }
 
@@ -291,41 +275,7 @@ static void seq_start(int slot)
     s.seq.rec        = 0;
     s.seq.in_gap     = 0;
     s.seq.gstarted   = 0;
-    s.seq.no_message = 0;
     s.seq.face_left  = 0;
-
-    /* AREA-11 INTERNAL elevator control terminal (record 19, ov
-     * 0x00827B10, on the platform). Its owner only TESTS the power bit
-     * D_00810841[area] & (1 << +0x2E) and starts script 0x82A750 (set)
-     * or the refusal 0x82A990 (clear) via 001BA1A0; it never sets it.
-     * The setter is 001580C0, the record callback of the power panel's
-     * program (00159210), bound only in the not-yet-live interaction
-     * host (WP-4). The former "battery_terminal" insert path was
-     * removed: it was attributed to 008237E0, which is Roger's
-     * controller (story byte D_008107D8 dispatch), with no battery or
-     * power behavior. */
-    if (e->is_terminal) {
-        if (em_game_terminal_powered()) {
-            /* POWERED path — the engine's script 0x82A750: play the
-             * lever-throw (anim 0x47) ON THE PLAYER with input/movement
-             * locked for its duration, THEN opcode-9 INSTALL + run the
-             * elevator descent (ov 0x00828050). em_game_elevator_start
-             * is idempotent (a repeat after the ride is a no-op), so
-             * re-using a powered terminal just re-locks for the clip.
-             * Suppress the refusal line — the powered script carries no
-             * "no power" message. */
-            em_game_player_interact_anim(0x47);
-            em_game_elevator_start();
-            s.seq.no_message = 1;
-            printf("examine: slot %d — INTERNAL TERMINAL powered "
-                   "(anim 0x47 + lock, elevator descending)\n", slot);
-            return;
-        }
-        /* The legacy message adapter presents original global line1A.
-         * Original owner+2A is a sound counter, not a refusal cooldown. */
-        printf("examine: slot %d — INTERNAL TERMINAL UNPOWERED refusal "
-               "(no power)\n", slot);
-    }
 
     /* op04 FACE pre-roll (INVESTIGATION_examine_walk_face.md §3): on the
      * message/refusal path (the early-return powered clip path plays its
@@ -353,7 +303,7 @@ static void seq_finish(void)
     Examine *e = &s.e[s.seq.slot];
     /* Optional legacy manifest delay. AREA11's owner+2A is a sound
      * counter and must not be exported as a cooldown here. */
-    e->cool_left = s.seq.no_message ? 0 : e->cooldown;
+    e->cool_left = e->cooldown;
     printf("examine: slot %d done (re-arm%s)\n", s.seq.slot,
            e->cool_left ? " after cooldown" : "ed");
     s.seq.slot = -1;                    /* +0x0B = 0, sub-state 0 */
@@ -367,11 +317,8 @@ void em_examine_update(const float player_pos[3], float player_yaw,
         if (s.e[i].cool_left > 0) s.e[i].cool_left--;
 
     if (s.seq.slot < 0) {
-        /* Do not arm a new examine while a scripted interact anim (the
-         * insert/lever clip) or the elevator ride still owns the player
-         * — the press that started the interaction must not also
-         * double-trigger another examine on a subsequent frame
-         * (contract: em_game_player_interact_busy). */
+        /* Do not arm a new examine while another interaction owns the
+         * player (contract: em_game_player_interact_busy). */
         if (scan && (in->pressed & EM_PAD_CROSS) &&
             !em_game_player_interact_busy()) {
             float hit_d = 0.0f;
@@ -420,13 +367,7 @@ void em_examine_update(const float player_pos[3], float player_yaw,
     case 0:                              /* pre-delay (scripted mode on) */
         if (s.seq.wait-- > 0) return;
         s.seq.phase = 1;
-        if (s.seq.no_message) {
-            /* terminal powered/insert run: no line (the powered script
-             * 0x82A750 carries none) — straight to the bookkeeping
-             * frame; the camera cue + input lock still framed the cue */
-            s.seq.phase = 2;
-            s.seq.wait  = 1;
-        } else if (e->gline >= 0) {
+        if (e->gline >= 0) {
             em_hud_radio(e->gline);      /* the mode-2 machine owns it */
             s.seq.gstarted = 1;
         } else if (e->n_rec > 0) {

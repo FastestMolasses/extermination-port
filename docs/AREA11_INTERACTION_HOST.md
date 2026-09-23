@@ -7,10 +7,63 @@ and native inventory, camera, sound, music, fade and UI services. Alternate
 hooks remain available for explicit host boundaries. Missing required work
 faults; it never silently completes a script or grants panel power.
 
-The module is built but is not yet installed in the live scene loop. The
-complete 11-owner publication/Use walker, original Roger/door runtimes and
-normal status hub are subsequent integration requirements. Loading this
-module does not create another independent proximity scan.
+## Live binding (WP-4, 2026-09-23)
+
+The host is live in AREA11 (SCENE_COORDINATOR_DESIGN.md section 6, "WP-4
+landed"):
+
+- **Lifecycle.** The scene bindings load it at the state-0 rebuild, after
+  001B6990 has placed the roster (w_001B6990), and install the Use hook
+  (`em_area11_interaction_host_use`), the player-stage hook
+  (`em_area11_interaction_host_player`) and the step-F message service
+  (`em_area11_interaction_host_message_service`, run by em_frame after the
+  task, 001FCA10's position). w_001AFCA0 and game shutdown detach and clear it.
+- **Owners.** Pool node #26 (00159210, area11[18]) runs
+  `em_area11_interaction_host_panel_tick` from its second call (state 1),
+  #27 (00827B10, area11[19]) `em_area11_interaction_host_elevator_tick`; the
+  first call is each owner's state 0 (its child). The terminal's state 0
+  also places the actor (0x827B54..0x827BF0: D_0081083A selects 190/230 for
+  +0xB4 and the script heights, then 001C6380 builds the matrix):
+  `em_area11_interaction_host_elevator_state0` re-derives the owner from
+  the floor byte, sets the Use descriptor height and rebuilds the elevator
+  pose at that height, before the child spawn (0x827C18). The manifest
+  placement is always the upper floor, so an AREA11 rebuild after the ride
+  would otherwise draw the elevator at 230 under an owner at 190. Each state-1 tick ends
+  with the owner's 001B17A0 publication (the 001B1630 cone/range gate, then
+  001B1B70), and 001AAD00 swaps the list in (`_publish`).
+- **Use.** On D_00810E74 & 0x40 the hook runs 00184BA0 over the published
+  list (the panel's type-24 predicate, the elevator's selector-1 predicate),
+  arms the winner, claims the shared owner (3B8D = 3) and runs 001798D0. It
+  returns 0 without a winner, so the player's own Use actions follow.
+- **Status requests.** The panel's 00157F60 posts B0 = 1 / B1 = 0x82 /
+  D_008106D0 = the panel's record address. The scene core opens the status
+  screen on it; its 0020E060/0020CDC0 run `_status_open`/`_status_page`, the
+  original page layer over the canonical request bytes, drawn by
+  `_status_render` at 001D1EA0(0). 002149F0's exit writes 3B8D = 3.
+- **Canonical storage.** The shared EmInteractionFrame is a per-call view:
+  every entry point loads it from EmSceneState (3B8D, 3B8F, 3B92, 3B84,
+  D_008106D4..DF, D_008106EF, D_008106F3), the port camera (D_008101E1/E3/E4/
+  E6, D_008105F0) and the message presenter, and stores it back. The message
+  block the tick log reads (`_message_block`) is the kind and token the
+  message command 001B7D60 case 0 stored when the script started the
+  message (D_002821B0 = 2, D_002821B8 = the record's req[5]), cleared by the
+  presenter's phase-2 teardown (001FC9B0), with the presenter's phase. The panel's
+  power bit is D_0081084C and the elevator's floor D_0081083A, both canonical
+  D2 progress bytes.
+
+The runtime's own status frame machine (`em_status_runtime_tick`,
+`_battery_open`, `_pickup_request`) is no longer on the live path; the
+fixture below still drives it as its stand-in for 0x1AE040 states 3/5 (WP-5
+retires it).
+
+The fixture's `elevator_state0_floor` scenario loads the host with
+D_0081083A = 1 and = 0 over the manifest's 230 placement and asserts that
+00827B10's state 0 leaves the drawn elevator Y (g.elev_pos[1], the input of
+elevator_pose), the owner height, the three script heights and the Use
+descriptor's height at 190/205/245 (lower) or 230/245/205 (upper), and that
+a second state 0 on an owner that already armed faults.
+
+## Fixture
 
 The actual-asset sanitizer fixture links the native player pose host, raw
 channels, model, collision, camera, scripts, inventory and status modules.
@@ -81,6 +134,13 @@ bound. The status pause uses the actual pickup request, so it runs after
 adds the item (`001C40B0`) before requesting status, and the real battery
 page rejects a request with an empty inventory. Roger's live script, camera
 and media are not driven by this fixture.
+
+Since WP-4 the fixture keeps the host's canonical bytes in its own
+EmSceneState: it stores the view after its direct owner claims, decays
+D_008106EF at its camera stage and hands the panel's canonical request to the
+runtime's own frame machine (`bridge_status_request`). The callback counts
+are unchanged (156, 118, 170, 285). The live route is checked end to end by
+`make test-level-smoke` against the route captures (LEVEL_SMOKE.md).
 
 Run `make test-area11-interaction-host` for the AddressSanitizer and
 UndefinedBehaviorSanitizer fixture. Existing original-instruction oracles

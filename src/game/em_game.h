@@ -203,16 +203,7 @@ float em_game_aim_pitch(void);
 float em_game_aim_yaw_blend(void);
 void  em_game_aim_dir(float out[3]);
 
-/* AREA-11 OPENING PROGRESSION — game-state flags + the scripted elevator.
- * DOWNGRADED by audit: OBSERVED, not source-derived. The elevator body is
- * OVERLAY code (ov 0x00828050) that the decomp does not contain, and the
- * cited INVESTIGATION_area11_elevator.md exists in neither repo, so none
- * of the flag addresses, the 150-frame ride or the sound id below can be
- * re-checked against recovered C. They come from live PCSX2 reads; treat
- * them as a port stand-in. (Same downgrade as the ELEVATOR block in
- * em_game_internal.h.) The mandatory first objective as observed: pick up
- * the battery, power the terminal, ride the elevator DOWN to the
- * room-move door.
+/* AREA-11 PROGRESSION.
  *
  * D_00810811 is NOT a battery flag. It is the opening-complete byte: the
  *   AREA11 opening controller 00823E80 stores 0xFF there at
@@ -222,69 +213,30 @@ void  em_game_aim_dir(float out[3]);
  *   has not been audited. No pickup take writes it, and there is no
  *   battery accessor here.
  *
- * em_game_terminal_powered / em_game_set_terminal_powered — the engine's
- *   per-area unlock bit D_00810841[11] bit 7 (D_0081084C & 0x80). In the
- *   original it is set by 001580C0 (1 << actor +0x2E into
- *   D_00810841[area], sound 0x3EE), the panel program's record callback,
- *   and tested by the terminal owner (record 19, ov 0x00827B10) to pick
- *   the powered script over the refusal script. In the port the only
- *   writer is the AREA11 interaction host's power hook (em_area11_
- *   interaction_host.c, mirroring 001580C0), which is not wired into the
- *   live frame yet; em_game_set_terminal_powered has no caller. 001AF2C0's
- *   memset clears the bit (game_state_new_game).
- *
- * em_game_elevator_start — begin the 150-frame descent (the powered
- *   script 0x82A750's opcode-9 install of ov 0x00828050). IDEMPOTENT:
- *   a call while the ride is running or after it has finished is a
- *   no-op (the engine installs the actor once per use; the port runs
- *   the descent exactly once per scene). Rate -0.26667 u/frame for 150
- *   frames = 40 units down (Y ~230 -> ~190), driving the player
- *   ground-Y, the camera target-Y and the platform mesh-Y together;
- *   sound 0x453 on start (INVESTIGATION_area11_elevator.md §4). */
+ * em_game_terminal_powered — bit 7 of the per-area power byte
+ *   D_00810841[D_00810700] (D_0081084C for AREA11), read from the
+ *   canonical D2 progress region (em_scene_state.h, migrated in WP-4). In
+ *   the original it is set by 001580C0 (1 << panel +0x2E, sound 0x3EE),
+ *   the panel program's record callback, which the AREA11 interaction
+ *   host binds; the terminal owner 00827B10 tests it to pick its powered
+ *   script 0x82A750 over the refusal 0x82A990. 001AF2C0's memset clears
+ *   it (em_scene_progress_reset_001AF2C0). The legacy elevator ride and
+ *   the scripted interact-clip lock that used to live here were retired
+ *   in WP-4 with the examine terminal: the ride is the original carry
+ *   00828050 inside the host's elevator program. */
 int  em_game_terminal_powered(void);
-void em_game_set_terminal_powered(int on);
-void em_game_elevator_start(void);
 
-/* SCRIPTED PLAYER INTERACTION ANIM + LOCK — the engine's "scripted-anim-
- * owns-player" model (player+0x2F3 = 3), applied to the AREA-11 power
- * panel + ride terminal flow. PROVENANCE SPLIT (audit):
- *   - the "+0x2F3 owns the player" MODEL is source-derived and holds:
- *     func_00183090 [byte-matched] shows +0x2F3 == 1 or 3 re-seeding the
- *     pose from +0x1F2 and bypassing the ordinary id-change commit
- *     entirely (see the SCRIPTED PLAYER ANIM block above);
- *   - everything AREA-11-SPECIFIC here is OBSERVED, not decoded. The
- *     cited op0A handler address 0x001B9A00 is not a function boundary in
- *     the decomp registry (no src/func_001B9A00.c, no FUNCTIONS.csv row),
- *     and the cited INVESTIGATION_area11_elevator.md is in neither repo —
- *     so the clip ids 0x14 / 0x47, their assignment to the two
- *     interactions and the +0x40 clip-pointer write rest on live RAM
- *     reads alone.
- * The two interactions are the power panel (00159210 / 001580C0, which
- * sets the terminal-power bit) and the ride terminal (overlay 00827B10,
- * which tests it). As observed on live RAM, a one-shot scripted clip
- * plays ON THE PLAYER and locks player input/movement for its duration;
- * clips 0x14 and 0x47 were both seen there (the port's ride path plays
- * 0x47; which interaction plays 0x14 is not decoded); the
- * free-move action machine is suppressed while that scripted-anim state
- * holds (LIVE: the lock is the scripted-anim state, NOT a control-mode
- * flag — D_008101E4 stays 0).
+/* em_game_player_interact_anim — play `clip_id` once on the player at
+ *   rate 1.0 and lock player input/movement (a port stand-in for the
+ *   engine's player+0x2F3 = 3 scripted-anim state; see em_game.c). Its
+ *   only caller since WP-4 is the legacy pickup take (the grab clip),
+ *   which WP-6 replaces. IDEMPOTENT while an interact is busy.
  *
- * em_game_player_interact_anim — play `clip_id` once on the player at
- *   rate 1.0 and lock player input/movement (turn + walk suppressed, the
- *   same stand-still lock the elevator ride uses). When the clip ends,
- *   control returns by itself. IDEMPOTENT: a call while a scripted
- *   interact anim (or the elevator ride) already owns the player is a
- *   no-op, so the examine logic may call it every frame the press holds.
- *   FLAGGED: if the loaded player EMDL lacks `clip_id` the clip is a
- *   no-op but the LOCK is still raised briefly (the engine locks on the
- *   scripted-anim state regardless of clip resolution) — the faithful-
- *   minimum; the exact insert clip 0x14 + any cinematic were decoded
- *   under a FORCED game state and may be wrong (decode doc).
- *
- * em_game_player_interact_busy — 1 while a scripted interact anim, the
- *   elevator ride, or an armed-and-waiting descent owns the player, so
- *   the examine logic does not double-trigger a second interaction while
- *   one is in flight.
+ * em_game_player_interact_busy — 1 while the legacy interact clip, the
+ *   legacy opening director beat (cine_active), the opening runtime or an
+ *   acquired original player source (the interaction host's 0015B130
+ *   takeover) owns the player, so the legacy use scans (examine, pickups,
+ *   doors) do not start a second interaction while one is in flight.
  *
  * em_game_player_face_step — the examine op04 FACE pre-roll. Turn the
  *   player body heading toward `target_yaw` by one standing turn-in-place

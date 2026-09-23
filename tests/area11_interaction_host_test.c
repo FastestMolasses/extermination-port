@@ -188,6 +188,34 @@ void palette_apply_placement(float *palette, uint32_t count, const float positio
     }
 }
 
+/* A pool record address for the panel (the game passes its node's). */
+enum { PANEL_ADDRESS = 0x7AA590 };
+
+static int powered(void)
+{
+    const uint8_t *power = em_scene_progress_at(em_scene_state(), 0x0081084Cu, 1);
+    return power && (*power & 0x80);
+}
+
+/* The fixture's stand-in for 0x1AE040's r == 2 arm: the panel's 00157F60
+ * posts B0 = 1 / B1 = 0x82 / D_008106D0 canonically (the live scene core
+ * opens the status screen on it and routes 0020E060/0020CDC0 to the host's
+ * page layer); here the request is handed to the runtime's own frame
+ * machine, and the page copy takes over B0. */
+static void bridge_status_request(void)
+{
+    EmSceneState *scene = em_scene_state();
+    if (!scene->req[EM_SCENE_REQ_B0]) return;
+    const uint8_t *d0 = em_scene_req_at(scene, 0x008106D0u);
+    uint32_t owner = (uint32_t)d0[0] | (uint32_t)d0[1] << 8 | (uint32_t)d0[2] << 16 |
+                     (uint32_t)d0[3] << 24;
+    assert(scene->req[EM_SCENE_REQ_B0] == 1 && scene->req[EM_SCENE_REQ_B1] == 0x82 &&
+           owner == PANEL_ADDRESS);
+    assert(em_status_runtime_battery_open(em_area11_interaction_host_status(),
+        &em_area11_interaction_host_panel()->owner, scene->req[EM_SCENE_REQ_B1]) == 1);
+    scene->req[EM_SCENE_REQ_B0] = 0;
+}
+
 static float word(const unsigned char *ram, unsigned address)
 { float value; memcpy(&value, ram + address, 4); return value; }
 
@@ -227,6 +255,14 @@ static void setup(int reset_inventory)
     assert(!fseek(file, 0x810374, SEEK_SET) && fread(&panel_yaw, sizeof(float), 1, file) == 1);
     fclose(file);
     if (reset_inventory) em_pickup_reset();
+    /* The canonical scene bytes the host's view and owners use (the game
+     * keeps them in em_scene_bindings.c): AREA11, and a fresh request
+     * block, selector and cooldown for each scenario. */
+    EmSceneState *scene = em_scene_state();
+    memset(scene->req, 0, sizeof scene->req);
+    scene->spad3B8D = scene->spad3B8F = scene->spad3B92 = scene->spad3B91 = 0;
+    scene->spad3B84 = 0;
+    scene->d810700 = 0x0B;
     em_frame_fade_clear(0);
     em_random_seed(0x45);
     assert(player_pose_load("assets/player_channels.empc"));
@@ -235,6 +271,7 @@ static void setup(int reset_inventory)
     assert(em_opening_media_prepare("assets/scene_snow") == 0);
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
     assert(sfx_selected);
+    em_area11_interaction_host_set_panel_address(PANEL_ADDRESS);
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
 }
 
@@ -263,6 +300,7 @@ static int outer(unsigned pressed)
     EmScript panel_script = em_area11_interaction_host_panel()->program.script;
     EmScript elevator_script = em_area11_interaction_host_elevator()->program.script;
     EmInteractionAnimation animation = em_area11_interaction_host_shared()->animation;
+    bridge_status_request();
     int result = em_status_runtime_tick(status, &input);
     if (result < 0) {
         const EmStatusFrame *f = em_status_runtime_frame(status);
@@ -325,9 +363,11 @@ static int outer(unsigned pressed)
     assert(em_area11_interaction_host_message_tick(0, 0) >= 0);
     assert(g.cam.top_mode == frame->camera_top && g.cam.sub_state == frame->camera_phase &&
            g.cam.mode == frame->camera_mode);
-    /* Explicit original camera-stage scheduling; full follow evolution is
-     * outside this interaction fixture. A status-only commit never gets here. */
-    if (frame->recovery_lock) --frame->recovery_lock;
+    /* Explicit original camera-stage scheduling (0018B9C0 decays the
+     * canonical D_008106EF); full follow evolution is outside this
+     * interaction fixture. A status-only commit never gets here. */
+    uint8_t *cooldown = &em_scene_state()->req[EM_SCENE_REQ_EF];
+    if (*cooldown) --*cooldown;
     camera_commit(&g.cam);
     return 0;
 }
@@ -395,6 +435,7 @@ static void first_battery(void)
     EmPickupOwner *owner = em_pickup_original_owner(record->uid);
     assert(owner && player_pose_use_accepted());
     assert(em_interaction_runtime_claim(shared, owner));
+    em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     owner->armed = 4;
     unsigned previous_requests = status_requests, ticks = 0;
     while (status_requests == previous_requests) {
@@ -413,11 +454,11 @@ static void first_battery(void)
     while (em_status_runtime_frame(status)->phase != 1) {
         assert(outer(0) == 1); assert(++consumed < 8);
     }
-    assert(shared->frame->recovery_lock == 70);
+    assert(em_scene_state()->req[EM_SCENE_REQ_EF] == 70);
     assert(!em_status_runtime_ordinary_enabled(status) && shared->owner == owner);
     assert(isfinite(em_area11_interaction_host_projection()->scale));
     do { assert(!outer(0)); assert(++ticks < 520); } while (shared->owner);
-    assert(!player_pose_owned() && owner->lifecycle == 3 && !g.terminal_powered);
+    assert(!player_pose_owned() && owner->lifecycle == 3 && !powered());
     printf("AREA11 native host first battery: %u callbacks, status release70 PASS\n", ticks);
     teardown();
 }
@@ -427,10 +468,11 @@ static void no_battery(void)
     setup(1);
     EmPanelRuntime *panel = em_area11_interaction_host_panel();
     assert(em_panel_runtime_arm(panel));
+    em_area11_interaction_host_camera_fields(); /* the arm's 3B8D = 3 */
     unsigned ticks = 0;
     do { assert(!outer(0)); assert(++ticks < 300); }
     while (em_area11_interaction_host_shared()->owner);
-    assert(panel->owner.phase == 0 && panel->owner.status == 1 && !g.terminal_powered);
+    assert(panel->owner.phase == 0 && panel->owner.status == 1 && !powered());
     assert(!player_pose_owned() && g.cam.top_mode == 0 && g.cam.zoom == 480);
     printf("AREA11 native host no-battery: %u ordinary callbacks PASS\n", ticks);
     teardown();
@@ -452,6 +494,7 @@ static void panel_menu(int discharge)
     EmPanelRuntime *panel = em_area11_interaction_host_panel();
     assert(player_pose_use_accepted());
     assert(em_panel_runtime_arm(panel));
+    em_area11_interaction_host_camera_fields(); /* the arm's 3B8D = 3 */
     unsigned ticks = 0, old_resumes = resumes, old_indicators = indicators;
     while (!outer(0)) assert(++ticks < 200);
     for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
@@ -478,7 +521,7 @@ static void panel_menu(int discharge)
     while (em_status_runtime_frame(status)->phase != 1) {
         assert(outer(0) == 1); assert(++consumed < 8);
     }
-    assert(shared->frame->recovery_lock == 70 && resumes == old_resumes + 1);
+    assert(em_scene_state()->req[EM_SCENE_REQ_EF] == 70 && resumes == old_resumes + 1);
     assert(!em_status_runtime_ordinary_enabled(status));
     assert(shared->owner == panel && player_pose_owned());
     const EmInteractionProjection *projection = em_area11_interaction_host_projection();
@@ -487,7 +530,7 @@ static void panel_menu(int discharge)
     assert(!player_pose_owned() && g.cam.top_mode == 0 && g.cam.zoom == 480);
     assert(em_pickup_item_count(0x1B) == 1 && em_pickup_battery_capacity() == 12);
     assert(em_pickup_battery_charge() == (discharge ? 8 : 12));
-    assert(g.terminal_powered == discharge && indicators == old_indicators + (unsigned)discharge);
+    assert(powered() == discharge && indicators == old_indicators + (unsigned)discharge);
     assert(panel->owner.phase == (discharge ? 3 : 0));
     printf("AREA11 native host panel discharge%d: %u ordinary callbacks PASS\n", discharge, ticks);
     teardown();
@@ -497,6 +540,7 @@ static void owned_teardown(void)
 {
     setup(1);
     assert(em_panel_runtime_arm(em_area11_interaction_host_panel()));
+    em_area11_interaction_host_camera_fields(); /* the arm's 3B8D = 3 */
     assert(!outer(0));
     assert(player_pose_owned() && em_area11_interaction_host_shared()->owner);
     teardown(); /* Hooks/pose detach before canonical owner addresses vanish. */
@@ -506,6 +550,39 @@ static void owned_teardown(void)
     assert(!em_area11_interaction_host_failed());
     teardown();
     puts("AREA11 native host acquired teardown/reload PASS");
+}
+
+/* 00827B10 state 0 (0x827B54..0x827BF0): D_0081083A selects the actor's
+ * +0xB4 floor and 001C6380 rebuilds its matrix. A rebuild after the ride
+ * (floor byte 1) must draw the elevator at 190, where the owner and its
+ * Use descriptor are; the manifest placement is always 230. */
+static void elevator_state0_floor(void)
+{
+    for (int lower = 1; lower >= 0; --lower) {
+        em_pickup_reset(); /* the D_00810700 progress reset, then the floor */
+        uint8_t *floor = em_scene_progress_at(em_scene_state(), 0x0081083Au, 1);
+        assert(floor);
+        *floor = (uint8_t)lower;
+        setup(0);
+        g.elev_pos[1] = 230; /* em_scene.c's manifest placement */
+        assert(em_area11_interaction_host_elevator_state0() == 0);
+        const float expected = lower ? 190.0f : 230.0f;
+        const EmInteractionSceneOwner *record = em_interaction_scene_role(
+            em_area11_interaction_host_scene(), EM_INTERACTION_ELEVATOR);
+        const EmElevator *owner = &em_area11_interaction_host_elevator()->owner;
+        assert(record && g.elev_pos[1] == expected && owner->height == expected &&
+               record->descriptor[1] == expected && owner->lower == lower);
+        assert(owner->script_heights[0] == expected &&
+               owner->script_heights[1] == (lower ? 205.0f : 245.0f) &&
+               owner->script_heights[2] == (lower ? 245.0f : 205.0f));
+        /* State 0 runs once, on a fresh actor: after an arm it faults. */
+        em_area11_interaction_host_elevator()->owner.armed = 4;
+        assert(em_area11_interaction_host_elevator_state0() < 0);
+        assert(em_area11_interaction_host_failed());
+        teardown();
+        *floor = 0;
+    }
+    puts("AREA11 native host 00827B10 state 0 floor placement (190/230) PASS");
 }
 
 static void missing_sound_bank(void)
@@ -539,6 +616,7 @@ static void cinematic_face(int reject_update)
     static const unsigned owner_token = 0x8283D0;
     assert(player_pose_use_accepted());
     assert(em_interaction_runtime_claim(shared, &owner_token));
+    em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     assert(!outer(0) && player_pose_owned() && shared->frame->player_ready == 1);
     unsigned clip, flags; float remaining; int transition;
     assert(player_pose_source(&clip, &remaining, &flags, &transition));
@@ -551,7 +629,7 @@ static void cinematic_face(int reject_update)
     assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == 1);
     assert(mesh && palette == g.player_palette && bones == 22 && model != &g.model);
     assert(!model->palette && model->vert_count > g.model.vert_count);
-    shared->frame->activity[0] = 0xA5;
+    *em_scene_req_at(em_scene_state(), 0x008106D4u) = 0xA5; /* the mailbox D_008106D4 */
     assert(em_area11_interaction_host_face_talk(1));
     assert(em_area11_interaction_host_face_state()->talking == 1);
     assert(!outer(0)); /* Face is active before the deferred foreign request. */
@@ -627,6 +705,7 @@ int main(void)
     panel_menu(0);
     panel_menu(1);
     owned_teardown();
+    elevator_state0_floor();
     missing_sound_bank();
     puts("AREA11 native interaction host PASS");
     return 0;

@@ -206,6 +206,7 @@
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_scene_bindings.h"
+#include "game/em_area11_interaction_host.h"
 
 /* The gameplay state object declared in em_game_internal.h. */
 EmGameState g;
@@ -694,27 +695,37 @@ static void continue_tick(void)
 }
 
 /* ================================================================== */
-/* AREA-11 OPENING PROGRESSION — game-state flags + the scripted        */
-/* elevator descent (ov 0x00828050). Decoded:                           */
-/* INVESTIGATION_area11_elevator.md. Batch-2 contract A/D.              */
+/* AREA-11 PROGRESSION — the power byte                                 */
 /* ================================================================== */
 
-/* Terminal-unlock accessors (em_game.h). D_00810841[11] bit 7
- * (D_0081084C & 0x80) is mirrored as a 0/1 flag. D_00810811 is not a
- * battery flag: it is the opening-complete byte the AREA11 opening
- * controller 00823E80 stores at 0x00823F74..80 (g.opening_complete). */
-int  em_game_terminal_powered(void)   { return g.terminal_powered; }
-void em_game_set_terminal_powered(int on) { g.terminal_powered = on ? 1 : 0; }
+/* em_game_terminal_powered (em_game.h): bit 7 of D_00810841[D_00810700],
+ * the canonical D2 progress byte (em_scene_state.h; D_0081084C for
+ * AREA11, migrated in WP-4). The original writer is 001580C0 (the panel
+ * program's record callback, bound in the AREA11 interaction host); the
+ * readers are 00159210 state 0, 00827B10 and its indicator. Only
+ * AREA11's byte is canonical: any other area reads as unpowered and is
+ * reported once (no scene outside AREA11 has a powered owner). */
+int em_game_terminal_powered(void)
+{
+    EmSceneState *scene = em_scene_state();
+    const uint8_t *power = em_scene_progress_at(scene, 0x00810841u + scene->d810700, 1);
+    if (!power) {
+        static int reported;
+        if (!reported++)
+            fprintf(stderr, "em_game: D_00810841[%02X] is not a canonical progress byte "
+                    "(only AREA11's D_0081084C is); read as unpowered\n", scene->d810700);
+        return 0;
+    }
+    return (*power & 0x80) != 0;
+}
 
-/* em_game_player_interact_anim (AREA11 panel/terminal flow; clip ids
- * observed on live RAM, see em_game.h). Play a one-shot scripted clip ON THE
- * PLAYER and lock player input/movement for its duration — the engine's
- * "scripted-anim-owns-player" model (player+0x2F3 = 3): the script op0A
- * handler 0x001B9A00 writes player+0x1F2 = clip id, player+0x40 = clip
- * ptr, player+0x2F3 = 3, and the player's free-move action machine is
- * suppressed while that state holds (LIVE: the outside insert clip = 0x14,
- * the internal lever clip = 0x47, both rate 1.0, both lock via this
- * scripted-anim state — NOT a control-mode flag).
+/* em_game_player_interact_anim (em_game.h). Play a one-shot scripted
+ * clip ON THE PLAYER and lock player input/movement for its duration: the
+ * port stand-in for the engine's "scripted-anim-owns-player" state
+ * (player+0x2F3 = 3). Since WP-4 its only caller is the legacy pickup take
+ * (em_pickup.c pickup_take, the grab clip; WP-6 replaces it with the
+ * original take script); the AREA11 panel and terminal run their original
+ * owners in the interaction host instead.
  *
  * Natively this rides the same sa_* mailbox as em_game_anim_request (a
  * one-shot: plays once at `rate`, holds its last frame, then locomotion
@@ -722,32 +733,19 @@ void em_game_set_terminal_powered(int on) { g.terminal_powered = on ? 1 : 0; }
  * reads as a stand-still movement lock and em_game_player_interact_busy
  * reports. actor_update detects the clip's end and drops the lock.
  *
- * IDEMPOTENT: a call for the clip that is already the running interact
- * (or while any interact is busy) is a no-op, so the examine logic can
- * call it every frame the press holds without re-triggering. If the
- * loaded player EMDL lacks `clip_id` the anim request degrades to a
- * no-op (em_game_anim_request returns 0) but the LOCK is still raised for
- * a minimum window so the gating stays faithful (the engine locks on the
- * scripted-anim state, which is set regardless of whether the clip
- * resolves). */
+ * IDEMPOTENT: a call while an interact is busy is a no-op. If the loaded
+ * player EMDL lacks `clip_id` the anim request degrades to a no-op
+ * (em_game_anim_request returns 0) and the lock releases on the next
+ * actor_update. */
 void em_game_player_interact_anim(int clip_id)
 {
     if (clip_id <= 0) return;
-    /* already running (this clip, another interact, or the ride owns the
-     * player) — idempotent no-op */
-    if (g.interact_active || g.elev_state == 1) return;
+    if (g.interact_active) return;
 
     g.interact_clip   = (unsigned)clip_id;
     g.interact_active = 1;
     g.interact_seen   = 0;        /* not yet committed (commit is next
                                    * actor_update); end-detection waits */
-    /* Request the one-shot clip on the player (rate 1.0 — the live insert
-     * 0x14 / lever 0x47 rate). If the EMDL lacks the clip the request is
-     * a no-op and the clip will never commit; interact_seen then stays 0
-     * and the lock would never clear via the clip path, so for the
-     * missing-clip case we leave interact_seen pre-armed so the lock
-     * releases on the next actor_update (faithful-minimum: lock raised,
-     * clip absent — FLAGGED in em_game.h). */
     if (!em_game_anim_request(g.interact_clip, 1.0f)) {
         g.interact_seen = 1;      /* no clip to wait on — release next frame */
         printf("interact: player clip %#x absent — lock-only (FLAGGED)\n",
@@ -758,26 +756,18 @@ void em_game_player_interact_anim(int clip_id)
     }
 }
 
-/* em_game_player_interact_busy — 1 while a scripted interact anim OR the
- * elevator ride owns the player (the stand-still lock raised by
- * em_game_player_interact_anim, or the 150-frame descent). The examine
- * logic reads this so it does not double-trigger a second interaction
- * while one is in flight. Also true while the descent is armed-and-
- * waiting (elev_pending) so the brief window between the lever clip
- * ending and the ride starting is still busy (no input leak).
- *
- * The AREA-11 OPENING DIRECTOR (cine_active) folds in here: while an
- * establishing-cutscene beat runs the player is frozen (camera-only
- * cinematic, no scripted walk — live-confirmed). This one read makes
- * player_move suppress free movement AND the examine/pickup/door use
- * scans suppress themselves for the beat's duration — the same lock
- * shape as the elevator ride. cine_active only ever clears via the
- * director's keyframe exhaustion (cine_beat_finish), so this can never
- * latch a soft-lock. */
+/* em_game_player_interact_busy — 1 while a port stand-in or an original
+ * interaction owns the player: the legacy interact clip (the pickup grab),
+ * the legacy AREA-11 opening director (cine_active; the player is frozen
+ * for a beat), the opening runtime, or an acquired original player source
+ * (player_pose_owned: the AREA11 interaction host's 0015B130 takeover).
+ * The legacy elevator ride that used to fold in here was retired in WP-4
+ * with the examine terminal (the terminal is the original owner 00827B10
+ * in the interaction host). */
 int em_game_player_interact_busy(void)
 {
-    return g.interact_active || g.elev_state == 1 || g.elev_pending ||
-           g.cine_active || em_opening_runtime_busy() || player_pose_owned();
+    return g.interact_active || g.cine_active || em_opening_runtime_busy() ||
+           player_pose_owned();
 }
 
 /* em_game_player_face_step — the examine op04 FACE pre-roll: turn the
@@ -825,42 +815,6 @@ int em_game_player_face_step(float target_yaw)
     while (diff < -EM_PI) diff += 2.0f * EM_PI;
     return fabsf(diff) < 1e-4f;
 }
-
-
-
-/* em_game_elevator_start (contract A/D) — the powered terminal script's
- * opcode-9 install of the descent actor (ov 0x00828050). IDEMPOTENT:
- * a call while descending (state 1), pending (armed, waiting on the lever
- * anim) or after the run (state 2) is a no-op, matching the engine
- * installing the actor exactly once per use and the port running the
- * descent once per scene.
- *
- * SEQUENCING (as observed): the powered script 0x82A750
- * plays the lever-throw anim 0x47 (op0A) BEFORE its op09 elevator
- * install, so when the INTERNAL terminal calls
- * em_game_player_interact_anim(0x47) and then this immediately, the
- * descent must NOT begin until the lever clip finishes — otherwise the
- * player would be carried down mid-anim with input leaking. If an
- * interact anim is busy, ARM the descent (elev_pending) and let
- * elevator_tick begin the ride the frame the lever clip ends. With no
- * interact in flight (a direct/test call), begin immediately. */
-void em_game_elevator_start(void)
-{
-    if (g.elev_state != 0 || g.elev_pending) return;  /* once per scene */
-    if (g.interact_active) {
-        g.elev_pending = 1;          /* wait for the lever anim 0x47 */
-        printf("elevator: descent ARMED — waiting for the interact anim "
-               "to finish\n");
-        return;
-    }
-    elevator_descent_begin();
-}
-
-
-
-
-
-
 
 
 
@@ -1225,15 +1179,9 @@ void em_game_legacy_examine_tick(void)
     em_examine_update(g.pos, g.yaw, em_frame_input(),
                       !em_door_movement_locked() &&
                       !player_damage_locked());
-    /* ELEVATOR (AREA-11 opening descent, ov 0x00828050 — the powered
-     * terminal examine installs it via em_game_elevator_start, called
-     * inside em_examine_update above). Ticks the 150-frame DOWN carry of
-     * the player ground-Y + platform mesh-Y; the ride lock in
-     * player_move keeps the player standing so this owns g.pos[1]. Runs
-     * AFTER the examine update (a start this frame begins integrating
-     * next frame — the engine's install-then-tick latency) and BEFORE
-     * camera_update (the camera target tracks the descended player-Y). */
-    elevator_tick();
+    /* The AREA11 elevator is no longer ticked here: its owner 00827B10
+     * (the terminal and the 00828050 carry) runs in the AREA11 interaction
+     * host at its pool node since WP-4, and no other scene has one. */
 }
 
 void em_game_legacy_enemy_tick(void)
@@ -1397,19 +1345,8 @@ void em_game_legacy_state0(void)
     g.sa_clip        = -1;
     g.sa_req_hold    = 0;
     g.sa_hold        = 0;
-    /* ELEVATOR actor re-arm (the descent ov 0x00828050 is
-     * installed fresh by the powered terminal script at each area
-     * build): reset the per-scene actor state so the descent can
-     * run once in the loaded scene. The persistent game-state
-     * flags (opening_complete / terminal_powered) are NOT touched
-     * here — they survive a room-move reload (see em_game_install
-     * for the new-game wipe). elev_pos is (re)set by the manifest
-     * `elevator` line during scene_manifest_load. The scripted
-     * interact-anim lock is per-actor too — clear it so a scene
+    /* The legacy interact-clip lock is per-actor: clear it so a scene
      * change can't leave the player locked. */
-    g.elev_state      = 0;
-    g.elev_pending    = 0;
-    g.elev_frame      = 0;
     g.interact_active = 0;
     g.interact_clip   = 0;
     g.interact_seen   = 0;
@@ -1998,6 +1935,12 @@ void em_game_install_new(void)
 
 void em_game_shutdown(void)
 {
+    /* Whole-world teardown of the AREA11 interaction host (WP-4): hooks
+     * first, then its owner tokens, face meshes and status UI. */
+    player_use_set_hook(NULL, NULL);
+    player_pose_set_stage_hook(NULL, NULL);
+    em_frame_set_message_service(NULL);
+    em_area11_interaction_host_clear();
     player_pose_unload();
     EmGfx *gfx = em_frame_gfx();
     if (g.mesh) {

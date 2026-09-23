@@ -33,6 +33,21 @@ def number(value):
     return struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
 
 
+def guard_add(a, b):
+    """EE add.s: the operand with the smaller exponent keeps one guard bit
+    below the other's precision, then the sum truncates (em_pose_math.h
+    pose_add; route capture 04_elevator_ride's 150 carry values)."""
+    difference = (a >> 23 & 255) - (b >> 23 & 255)
+    def trim(value, shift):
+        return value & (0x80000000 if shift >= 25 else (0xffffffff << (shift - 1)) & 0xffffffff)
+    if difference > 0: b = trim(b, difference)
+    elif difference < 0: a = trim(a, -difference)
+    value = number(a)+number(b)
+    result = bits(value)
+    if abs(number(result)) > abs(value): result -= 1
+    return result
+
+
 def oracle(overlay, case, motion=None):
     phase, armed, lower, timer, level, powered, done = case
     memory = {}; registers = [0]*32; floats = [0]*32; events = []
@@ -88,10 +103,7 @@ def oracle(overlay, case, motion=None):
             elif rs == 20 and word & 63 == 32: floats[word >> 6 & 31] = bits(float(signed(floats[rd])))
             elif rs == 16 and word & 63 == 3: floats[word >> 6 & 31] = bits(number(floats[rd])/number(floats[rt]))
             elif rs == 16 and word & 63 == 0:
-                value = number(floats[rd])+number(floats[rt])
-                result = bits(value)
-                if abs(number(result)) > abs(value): result -= 1
-                floats[word >> 6 & 31] = result
+                floats[word >> 6 & 31] = guard_add(floats[rd], floats[rt])
             else: raise AssertionError(('COP1', hex(word)))
         elif op == 28 and word & 63 == 40:
             assert registers[rs] == 0 or registers[rt] == 0
@@ -219,6 +231,35 @@ def main():
         assert actual == expected, dict(case=(phase,lower,ticks,rate,position),actual=actual,expected=expected)
         motion_count += 1
     print(f'Original00828050 elevator carry: {motion_count} state/float/call-order cases PASS')
+    # The played original ride (FIRST_LEVEL_ROUTE.md beat 04): its trace
+    # rows hold the player Y (0x810354, printed to 5 decimals) of all 150
+    # carry calls. Native and oracle carries from the captured start must
+    # reproduce every row; a plain truncating add ends at 189.99832, the
+    # capture at 190.00061.
+    route = ROOT.parent/'Extermination/build/s87/route/04_elevator_ride/trace.json'
+    assert route.exists(), f'route capture missing: {route} (docs/FIRST_LEVEL_ROUTE.md)'
+    rows = json.loads(route.read_text())['rows']
+    first = next(i for i in range(1, len(rows)) if rows[i-1]['pos'][1] == 230.0 and rows[i]['pos'][1] < 230.0)
+    captured = [row['pos'][1] for row in rows[first:first+150]]
+    state = Motion(0, 0, 0.0)
+    y = [C.c_float(230.0), C.c_float(230.0), C.c_float(245.0)]
+    hooks = Hooks(None, START(), TICK(), SOUND(lambda *_: None), POSE(lambda *_: None), EVENT(), EVENT())
+    carried, oracle_y = [], (0, 0.0, 230.0, 230.0, 245.0)
+    oracle_phase = 0
+    for call in range(151):
+        result = native.em_elevator_motion_tick(C.byref(state), 0, *(C.byref(v) for v in y), C.byref(hooks))
+        expected = oracle(overlay, (oracle_phase,0,0,0,0,0,0), oracle_y)
+        o_phase, o_ticks, o_rate, o_owner, o_player, o_target = expected[0]
+        assert bits(y[1].value) == o_player, ('carry call', call, y[1].value, number(o_player))
+        oracle_phase = o_phase
+        oracle_y = (signed(o_ticks), number(o_rate), number(o_owner), number(o_player), number(o_target))
+        if call: carried.append(y[1].value)
+        if result: break
+    assert len(carried) == 150 and [round(v, 5) for v in carried] == captured, \
+        ('carry vs route 04', [(i, v, c) for i, (v, c) in enumerate(zip(carried, captured))
+                               if round(v, 5) != c][:5])
+    print(f'Original00828050 descent: 150 carried player Y equal route 04_elevator_ride '
+          f'f{rows[first]["f"]}..f{rows[first+149]["f"]} (ends {carried[-1]:.8g})')
     (output/'owner_validation.json').write_text(json.dumps({
         'cases': count, 'motion_cases': motion_count, 'overlay_sha256': hashlib.sha256(overlay).hexdigest(),
         'entry': '00827B10', 'scope': 'active owner state1; external script/graphics hooks'

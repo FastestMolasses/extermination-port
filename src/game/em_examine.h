@@ -88,19 +88,13 @@
  *                  presents whatever bank loaded last (stale-bank
  *                  quirk); entered from AREA01 (the port's only route
  *                  in) that is the drawbridge bank lines 0..2.
- *   scene_snow     AREA11 [19]: the unpowered switch, desc-point
- *                  archetype {(222, 230, 250.4), r 5, dy 20} —
- *                  refusal script 0x82A990: GLOBAL line 0x1A
- *                  ("Switch / No power...", 148 frames), chase cue
- *                  only, 300-frame re-arm cooldown. This is the INTERNAL
- *                  elevator control terminal (ov 0x00827B10, on the
- *                  platform): the powered path 0x82A750 (gated on the
- *                  D_00810841 unlock bit) plays anim 0x47 + installs the
- *                  descent actor 0x00828050. The internal terminal only
- *                  CHECKS power and runs the ride
- *                  (em_examine_set_terminal). The power bit comes from
- *                  the panel program (00159210 -> 001580C0), not from
- *                  an examine object.
+ *   scene_snow     AREA11 [19] is NOT an examine object in the port since
+ *                  WP-4: the internal elevator control terminal is the
+ *                  original owner 00827B10 (refusal 0x82A990 / powered
+ *                  0x82A750 and the carry 00828050), bound in the AREA11
+ *                  interaction host (em_area11_interaction_host.c). The
+ *                  scene loader skips the manifest's legacy `terminal`
+ *                  examine line.
  *                  AREA06 switch (the same world mesh): message
  *                  script 0x827040 — camera cue + AREA06 bank line 0
  *                  (208 frames, voice cue 40). FLAGGED: in the engine
@@ -226,27 +220,6 @@ int em_examine_add(const float pos[3], float yaw, float dist, float dy,
 /* Append one chained area-bank record (text for `dur` frames, then
  * `gap` blank frames) to instance `slot`. Returns 0 / -1. */
 int em_examine_text(int slot, int dur, int gap, const char *text);
-
-/* Mark instance `slot` as the AREA-11 INTERNAL ELEVATOR CONTROL TERMINAL
- * (the manifest's trailing "terminal" token; the engine's interactive
- * record 19, behavior ov 0x00827B10 at 224,230,250.7 — the grey control
- * box that sits ON the descending platform). This is the POWER-GATED
- * RIDE terminal. What the overlay code establishes: when armed
- * (+0x0B & 4) the owner tests D_00810841[D_00810700] & (1 << +0x2E) and
- * starts script 0x82A750 through 001BA1A0 when the bit is set, else the
- * refusal script 0x82A990. It never sets that bit: the only setter is
- * 001580C0, the record callback of the separate power panel's program
- * (00159210). So power (panel) and ride (this terminal) are two objects.
- * When used, the port:
- *   - powered (em_game_terminal_powered()) -> the 0x82A750 path as
- *     modelled here: em_game_player_interact_anim(0x47) (lever-throw clip
- *     + input/movement lock) THEN em_game_elevator_start() (the opcode-9
- *     install of the descent actor ov 0x00828050). Those script contents
- *     were read from live RAM, not executed (em_game.h downgrade).
- *   - unpowered -> the refusal (gline 0x1A + 300-frame cooldown)
- * The manifest parser (em_scene.c) calls this after em_examine_add when
- * it sees the "terminal" token. Returns 0 / -1 (bad slot). */
-int em_examine_set_terminal(int slot);
 
 /* Attach the op04 FACE pre-roll (INVESTIGATION_examine_walk_face.md) to
  * instance `slot`: the SCRIPTED target heading-yaw the player pivots to

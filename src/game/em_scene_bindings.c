@@ -94,6 +94,7 @@
 #include "game/em_actor_pool.h"
 #include "game/em_actor_roster.h"
 #include "game/em_area11_bindings.h"
+#include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_door.h"
 #include "game/em_game.h"
@@ -103,6 +104,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_hud.h"
 #include "game/em_load_veil.h"
+#include "game/em_opening_runtime.h"
 #include "game/em_pickup.h"
 #include "game/em_pickup_original.h"
 #include "game/em_scene_classify.h"
@@ -235,7 +237,9 @@ static const struct {
     [UM_0015C160] = {0x0015C160u, "player post-step (001DA6A0 or 0015BF90, then the +0x4C draw method); "
                                   "the port draws the player from its draw list"},
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
-    [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class-list swap; no port counterpart"},
+    [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class lists other than the "
+                                  "interactive list (the AREA11 interaction host publishes that one, "
+                                  "WP-4); no port counterpart"},
     [UM_001FABB0] = {0x001FABB0u, "stream stop (status open, game over); the port's music keeps "
                                   "playing (H22, WP-5)"},
     [UM_00119828] = {0x00119828u, "SPU stream-channel volume (status open); the port's stream "
@@ -378,6 +382,7 @@ static struct {
     uint8_t fade8[8];
     uint32_t pos[3], yaw;
     int weather, title, door[3];
+    uint32_t msg[3];
 } s_tick;
 
 static FILE *log_file(void)
@@ -489,6 +494,9 @@ static void log_tick_begin(void)
     s_tick.door[0] = em_door_count() > 0 ? em_door_state(0) : -1;
     s_tick.door[1] = em_door_movement_locked();
     s_tick.door[2] = em_door_menu_locked();
+    /* The message block after the previous tick's step F (001FCA10 runs
+     * after the task), the route rows' post-frame sample of it. */
+    em_area11_interaction_host_message_block(s_tick.msg);
 }
 
 static void log_tick_end(int rc)
@@ -512,6 +520,40 @@ static void log_tick_end(int rc)
     fprintf(f, ", \"pos\": [%u, %u, %u], \"yaw\": %u, \"weather\": %d, \"title\": %d, "
             "\"door\": [%d, %d, %d]", s_tick.pos[0], s_tick.pos[1], s_tick.pos[2], s_tick.yaw,
             s_tick.weather, s_tick.title, s_tick.door[0], s_tick.door[1], s_tick.door[2]);
+    /* WP-4: at the tick end (the route rows' post-frame sample): the
+     * letterbox block D_0028A8D0 in its original layout (the 001AEBE0 machine
+     * ticks at step D, before the task), the camera block bytes
+     * D_008101E4..E7 (the port camera's storage), the canonical progress
+     * bytes D_0081084C (power) and D_0081083A (elevator floor), the
+     * player position/heading and the camera vectors D_008105D0/E0. At the
+     * tick start ("msg_pre": the previous
+     * tick's post-frame value, since step F follows the task): the message
+     * block D_002821B0 as the AREA11 interaction host's presenter holds it
+     * (mode, phase, token; zero while idle). */
+    {
+        const EmScreenFade *bars = em_frame_screen_fade();
+        uint8_t screen[8], *q = screen;
+        put_le(&q, (uint16_t)bars->state, 2);
+        put_le(&q, (uint16_t)bars->step, 2);
+        put_le(&q, (uint32_t)bars->level, 4);
+        const uint32_t *message = s_tick.msg;
+        uint8_t cam4[4] = {g.cam.top_mode, g.cam.table_sel, g.cam.mode, g.cam.hit};
+        const uint8_t *power = em_scene_progress_at(&s_state, 0x0081084Cu, 1);
+        const uint8_t *floor = em_scene_progress_at(&s_state, 0x0081083Au, 1);
+        uint32_t pos[3], yaw, eye[3], tgt[3];
+        memcpy(pos, g.pos, sizeof pos);
+        memcpy(&yaw, &g.yaw, sizeof yaw);
+        memcpy(eye, g.cam.eye, sizeof eye);
+        memcpy(tgt, g.cam.tgt, sizeof tgt);
+        fputs(", \"screen8\": ", f);
+        log_hex(f, screen, sizeof screen);
+        fprintf(f, ", \"msg_pre\": [%u, %u, %u], \"cam4\": ", message[0], message[1], message[2]);
+        log_hex(f, cam4, sizeof cam4);
+        fprintf(f, ", \"power\": %d, \"floor\": %d, \"pos_post\": [%u, %u, %u], \"yaw_post\": %u",
+                power ? *power : -1, floor ? *floor : -1, pos[0], pos[1], pos[2], yaw);
+        fprintf(f, ", \"eye_post\": [%u, %u, %u], \"tgt_post\": [%u, %u, %u]", eye[0], eye[1], eye[2],
+                tgt[0], tgt[1], tgt[2]);
+    }
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
     for (int i = 0; i < s_tick.ntrace; ++i)
@@ -622,6 +664,13 @@ static int roster_scene(void)
 static int w_001AFCA0(void *ctx)
 {
     (void)ctx;
+    /* The AREA11 interaction host's owners die with the pool (001AF8E0):
+     * detach the player's Use and stage hooks, then free the owner tokens
+     * (em_area11_interaction_host.h: whole-world teardown). */
+    player_use_set_hook(NULL, NULL);
+    player_pose_set_stage_hook(NULL, NULL);
+    em_frame_set_message_service(NULL);
+    em_area11_interaction_host_clear();
     em_game_legacy_state0();
     if (!roster_scene()) {
         em_game_legacy_manifest_spawn();
@@ -995,9 +1044,25 @@ static int w_001B6990(void *ctx)
             }
         }
     s_pool_mode = POOL_ROSTER;
-    return em_actor_roster_spawn_001B6990(&s_roster, &s_pool, &s_state,
-                                          (EmActorRosterProgress *)em_scene_progress_spawn_view(&s_state),
-                                          em_area11_bind_roster, NULL, NULL);
+    int rc = em_actor_roster_spawn_001B6990(&s_roster, &s_pool, &s_state,
+                                            (EmActorRosterProgress *)em_scene_progress_spawn_view(&s_state),
+                                            em_area11_bind_roster, NULL, NULL);
+    if (rc < 0)
+        return rc;
+    /* WP-4: the native services of the panel 00159210 (area11[18]) and the
+     * terminal 00827B10 (area11[19]) that 001B6990 just placed: the AREA11
+     * interaction host, its Use scan inside the player callbacks (00160220
+     * via player_use_poll) and its shared player worker at the player stage
+     * (0015B130/00182DF0 via player_pose_stage). A host that cannot load
+     * faults here rather than leave the two owners without behaviour. */
+    if (!em_area11_interaction_host_load(g.scene_dir, NULL, NULL)) {
+        fprintf(stderr, "em_scene: 001B6990: the AREA11 interaction host did not load\n");
+        return em_scene_fault(&s_state, 0x00159210u, EM_SCENE_FAULT_NULL_WORKER);
+    }
+    player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
+    player_use_set_hook(em_area11_interaction_host_use, NULL);
+    em_frame_set_message_service(em_area11_interaction_host_message_service());
+    return rc;
 }
 
 /* 001C1DC0. AREA11: its 001C1EA0 pass spawns the weather node (interim,
@@ -1113,6 +1178,15 @@ static int w_0015BCF0(void *ctx, uint32_t actor)
          * not guess its children there. */
         if (s_player_init_pending && s_pool_mode == POOL_ROSTER)
             return em_scene_fault(&s_state, 0x0015C420u, EM_SCENE_FAULT_NULL_WORKER);
+        /* The original runs 0015BCF0 in this variant too. While the opening
+         * runtime owns the player its pose comes from the opening's bank
+         * (design risk 2, the interim opening path). Otherwise (WP-4: an
+         * AREA11 interaction's 3B8D = 3 or 2) the player stage runs, so the
+         * interaction host's shared player worker (0015B130 takeover,
+         * scripted animation, 00182DF0 release) runs at its original
+         * position, between 001AFD70(1) and 001AFD70(2). */
+        if (!em_opening_runtime_busy())
+            return em_player_0015BCF0();
         return unmirrored(UM_0015BCF0_CUTSCENE);
     }
     return -1;
@@ -1215,10 +1289,17 @@ static int w_0018B9C0(void *ctx, uint32_t actor)
     return -1;
 }
 
+/* 001AAD00: its interactive-list swap (D_00275B5C/B64 <- the list the
+ * owners' 001B1B70 filled this frame) is the AREA11 interaction host's
+ * publication (WP-4); the rest stays unmirrored. */
 static int w_001AAD00(void *ctx)
 {
     (void)ctx;
-    return in_variant() ? unmirrored(UM_001AAD00) : -1;
+    if (!in_variant())
+        return -1;
+    if (s_pool_mode == POOL_ROSTER)
+        em_area11_interaction_host_publish();
+    return unmirrored(UM_001AAD00);
 }
 
 /* 001D1EA0(1) ends both variants; status state 3 ends with 001D1EA0(0)
@@ -1255,11 +1336,22 @@ static int w_001D1EA0(void *ctx, int a0)
  *   001FABB0, 00119828, 001D2830, 001E0CC0, 001FAE70, 001D1EF0: unmirrored
  *   (reported); the music is H22 (WP-5). */
 
+/* A status screen opened on a pending request (B0 != 0: since WP-4 the
+ * panel's 00157F60 BATTERY request, D_008106D0 = the panel) runs the
+ * original page layer in the AREA11 interaction host (em_status_page /
+ * em_battery_ui over the canonical B0/B1/C5/CC); one opened by START or
+ * TRIANGLE (B0 == 0) keeps the interim em_hud hub until WP-5. */
+static int s_status_request_route;
+
 static int w_0020E060(void *ctx)
 {
     (void)ctx;
     if (s_entry_state != 1 && s_entry_state != 4)
         return -1; /* only the state-1 classifier arm calls it */
+    s_status_request_route = s_state.req[EM_SCENE_REQ_B0] != 0;
+    if (s_status_request_route)
+        return em_area11_interaction_host_status_open() == 1 ? 0 : -1;
+    em_area11_interaction_host_status_clear_route();
     em_hud_status_open();
     return 0;
 }
@@ -1269,6 +1361,16 @@ static int w_0020CDC0(void *ctx)
     (void)ctx;
     if (!in_status_frame())
         return -1;
+    if (s_status_request_route) {
+        const EmPadUnpack *pad = em_frame_pad_block();
+        /* D_00282157 through the same reader 0x1AE040 state 3 uses (the
+         * disc-read phase, 0 at every tick boundary in the port: see
+         * r_00282157). The page layer does not read it; the ITEM root's
+         * module-0x21 load wait (route 03 f390..f414) is WP-5. */
+        EmStatusInput input = {s_state.d810E74, s_state.d810E70, pad->lx, pad->ly,
+                               r_00282157(NULL)};
+        return em_area11_interaction_host_status_page(&input);
+    }
     int closed = em_hud_status_tick(em_frame_input());
     if (closed < 0)
         return -1;

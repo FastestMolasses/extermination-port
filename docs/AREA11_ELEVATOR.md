@@ -1,8 +1,15 @@
 # Original elevator interaction
 
-`em_elevator.c` translates active owner00827B10 independently of the old
-`em_examine` shortcut. It is currently unbound while the original script
-commands, camera and player alignment are connected. Model creation and
+`em_elevator.c` translates active owner00827B10. Since WP-4 it is live
+through the AREA11 interaction host at pool node #27 (AREA11_INTERACTION_HOST.md);
+the old `em_examine` terminal and the legacy ride (`elevator_tick`) are
+retired, and the level smoke matches the refusal and the ride with route
+beats 02 and 04 row for row. Its state 0 (0x827B54..0x827BF0) is bound
+too: the floor byte D_0081083A selects the actor's +0xB4 (190 or 230) and
+the script heights, and 001C6380 builds its matrix before the child spawn;
+the host's `em_area11_interaction_host_elevator_state0` places the port's
+elevator mesh there, so an AREA11 rebuild after the ride draws it at the
+lower floor. Model creation and
 indicator allocation remain scene responsibilities; this core does not
 manufacture missing actors or report a missing script as completed.
 
@@ -67,10 +74,15 @@ fixture verifies that only host message completion releases the script.
 Acquisition/release pose channels, the world camera/presenter, and the use scan
 remain explicit host boundaries; this is not yet a live scene integration.
 
-Executing original00828050 for all151 carry calls also confirms an important
-rounding distinction: descending player Y ends at189.99832153320312; ascending
-ends at229.9993896484375. Only the elevator owner's completion snaps to190/230.
-The test checks the exact carried float bits and final camera target separately.
+**Correction (WP-4, 2026-09-23).** The carry's three add.s are the EE's
+single-guard-bit add (em_pose_math.h `pose_add`, the model the fan, truck,
+director and pose captures settled), not a plain truncation. The played ride
+(route 04_elevator_ride) holds all 150 carried player Y values, f394..f543,
+ending at 190.00061; the truncating model this section used to claim
+(189.99832153320312 down, 229.9993896484375 up) matches none of them after
+the first step. `em_elevator.c` and the oracle's add.s now use the guard-bit
+model, and `make test-elevator-reference` replays the capture's 150 values
+through both. Only the owner's completion snaps its own Y to 190/230.
 
 The refusal's D/sub5 camera now has a complete first-level binding through
 `camera_interaction_retarget_distance_area11`. The argument is−20; current

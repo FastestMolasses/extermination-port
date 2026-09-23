@@ -8,7 +8,9 @@
  * EM_LEVEL_SMOKE_UNTIL (default: the last phase). It drives only pad input,
  * never positions or state. A phase whose original owners are not live in
  * the port yet reports NOT-LIVE with the step that makes it live, and the
- * phases after it are not run (the route is sequential). */
+ * phases after it are not run (the route is sequential), unless a later live
+ * phase needs its state: then it is driven through its legacy binding and
+ * reported "NOT-LIVE driven" (docs/LEVEL_SMOKE.md). */
 #ifndef EM_LEVEL_SMOKE_TEST_H
 #define EM_LEVEL_SMOKE_TEST_H
 
