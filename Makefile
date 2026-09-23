@@ -335,6 +335,14 @@ test-player-floor-reference:
 test-player-probe-reference:
 	python3 tools/test_player_probe_reference.py
 
+.PHONY: test-shadow-original
+test-shadow-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/shadow_original_test.c src/game/em_shadow_original.c -lm -o build/shadow_original_test && ./build/shadow_original_test
+
+.PHONY: test-shadow-original-reference
+test-shadow-original-reference:
+	python3 tools/test_shadow_original_reference.py
+
 .PHONY: test-roger-media-reference
 test-roger-media-reference:
 	python3 tools/test_roger_media_reference.py
