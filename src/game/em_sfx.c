@@ -20,12 +20,17 @@
  *
  * VOICE STEALING rides the same protocol through one extra atomic per
  * slot (`kill`): raised by the game thread on the oldest live voice when
- * the engine's 48-voice budget is hit, honored by the audio thread at
- * the next callback (FREE instead of mix), lowered by whoever retires or
- * re-claims the slot. See em_sfx.h "VOICE STEALING" for the engine
- * policy decode (func_001172B8, the 0x90 note-on allocator) this
- * mirrors — corrected 2026-07-31 from the func_00117428 that was cited
- * here before, which serves the 0xA0 event path instead.
+ * the 48-slot budget is hit, honored by the audio thread at the next
+ * callback (FREE instead of mix), lowered by whoever retires or re-claims
+ * the slot. This is a PORT policy: every trigger script is A0 events,
+ * whose voices come from func_00117428 (00115850), which is not
+ * reproduced (em_sfx.h "VOICE STEALING").
+ *
+ * PITCH/GAIN (WP-14, H19/AM-02): the legacy WAV registry is retired. Each
+ * slot is one trigger-script instance from the EMSR registry: every A0
+ * voice starts at its sequencer tick with its integer SPU pitch and its
+ * two Q14 volume words (em_sfx_volume_words), exactly the values the
+ * original 00115850 submits as voice commands 6 and 1.
  */
 #include "game/em_sfx.h"
 
@@ -38,35 +43,14 @@
 #include "game/em_bgm.h"
 #include "game/em_sfx_bank.h"
 
-#define SFX_REGISTRY   "assets/sfx/sfx.txt"
-#define SFX_SOUND_MAX  96    /* registry entries (39 banks dedup to ~241
-                              * sounds total; one area uses far fewer).
-                              * Bumped 64 -> 96 (s82): the AREA-11 snow
-                              * footstep merge grew assets/sfx/sfx.txt to
-                              * 69 ids; at 64 the RUN-tier snow block
-                              * 0x5E..0x62 was dropped at load ("registry
-                              * full") and run-pace snow steps went
-                              * silent. 96 reloads the full set with
-                              * headroom — a pure array bound, no engine
-                              * semantics (the engine's own table holds
-                              * ~241).                                    */
-#define SFX_VOICE_BUDGET 48  /* the engine's voice table D_0027CCC0 size
-                              * (0x30 entries, stride 0x6A): at 48 live
-                              * voices the OLDEST is stolen — minimum
-                              * +0x0A note-on serial, func_001172B8
-                              * pass 2. NOT func_00117428: that allocator
-                              * serves the 0xA0 event path, while SFX
-                              * one-shots are 0x90 note-ons. Corrected
-                              * 2026-07-31; see em_sfx.h "VOICE
-                              * STEALING".                                */
+#define SFX_REGISTRY   "assets/sfx/sfx_registry.emsr"
+#define SFX_VOICE_BUDGET 48  /* the driver's 0x30 track slots (D_0027E0C0);
+                              * the steal choice itself is a PORT policy,
+                              * see em_sfx.h "VOICE STEALING"            */
 #define SFX_VOICE_MAX  64    /* physical slots: budget + 16 spares that
                               * absorb the one-callback kill latency      */
 #define SFX_DEV_RATE   48000 /* device rate when SFX brings it up first
                               * (the BGM/stream native rate)             */
-#define SFX_GAIN       0.6f  /* per-voice mix gain — PORT headroom choice
-                              * on top of the engine-exact 0..1 stereo
-                              * pair; keeps BGM + a few simultaneous
-                              * shots inside [-1,1]                      */
 #define SFX_PAN_NEAR   18.0f /* func_001FBF50 proximity pan ramp: |t|
                               * forced toward 1 (center) inside 18 u     */
 #define SFX_PI         3.14159265358979323846f
@@ -75,33 +59,40 @@ enum { V_FREE = 0, V_STAGING, V_READY, V_PLAYING };
 
 typedef struct {
     unsigned id;
-    EmBgmWav w;          /* preloaded PCM16 (em_bgm's shared reader) */
-    const EmSfxCue *cue; /* scoped original A0 parameters, or NULL */
+    const EmSfxCue *cue;     /* audited AREA11 panel cue, or NULL       */
+    const EmSfxEntry *entry; /* EMSR registry entry, or NULL            */
 } SfxSound;
+
+enum { LOOKUP_NONE = 0, LOOKUP_AUDIBLE, LOOKUP_ABSENT, LOOKUP_UNSUPPORTED,
+       LOOKUP_UNSCOPED };
 
 typedef struct {
     atomic_int      state;
     atomic_int      kill; /* steal request: game raises, audio (or the
                            * next claimer) lowers — see em_sfx.h       */
-    const SfxSound *snd;  /* written in STAGING, read after READY     */
-    float           gl;   /* stereo gain pair (1.0 = engine 0x1000;   */
-    float           gr;   /*  signed: behind = inverted far channel)  */
+    SfxSound        snd;  /* written in STAGING, read after READY     */
+    float           gl;   /* panel cue: request pair (1.0 = 0x1000)   */
+    float           gr;
+    float           gain[EM_SFX_EVENT_MAX][2]; /* registry: Q14 volume
+                           * words per A0 voice, as float gains        */
     unsigned        serial; /* note-on order (engine voice+0x0A) —
                              * GAME-thread only: steal victim pick    */
-    double          pos;  /* source frame cursor (fractional resample);
-                           * audio thread advances it while PLAYING   */
-    uint64_t        output_frame; /* exact rational cursor for EMSF */
+    uint64_t        output_frame; /* exact rational cursor, from key-on */
 } SfxVoice;
 
 static struct {
     /* game thread */
-    SfxSound sounds[SFX_SOUND_MAX];
-    int      n_sounds;
+    EmSfxRegistry registry;  /* immutable from init until shutdown     */
+    int      n_sounds;       /* audible registry entries              */
+    int      area, sub;      /* em_sfx_set_area scope, -1 = none      */
+    unsigned char reported[4096 / 8]; /* one diagnostic per id        */
     int      plays;          /* accepted plays                        */
     int      drops;          /* plays dropped: 64 physical slots busy */
     int      steals;         /* oldest-voice kills at the 48 budget   */
     int      culls;          /* play_at beyond radius (engine -1)     */
     int      absent;         /* original remap FF: deliberately silent */
+    int      unsupported;    /* registry UNSUPPORTED: silent, reported */
+    int      unscoped;       /* area-dependent id with no area selected */
     EmSfxBank bank;
     SfxSound bank_sounds[2]; /* PCM is owned by bank, never freed here */
     int      bank_selected;
@@ -122,6 +113,41 @@ static struct {
 /* ------------------------------------------------------------------ */
 /* Audio-thread side                                                    */
 /* ------------------------------------------------------------------ */
+
+/* One registry voice slot: every A0 voice of the script starts at its
+ * sequencer tick (converted at the NTSC field rate), plays its source at
+ * the SPU pitch word, and ends at its non-loop sample end. */
+static long sfx_mix_entry(SfxVoice *v, float *out, int frames,
+                          unsigned rate, int *done)
+{
+    const EmSfxEntry *entry = v->snd.entry;
+    uint64_t start[EM_SFX_EVENT_MAX], stop[EM_SFX_EVENT_MAX], end = 0;
+    for (unsigned e = 0; e < entry->count; ++e) {
+        const EmSfxEvent *event = &entry->events[e];
+        start[e] = em_sfx_tick_frame(event->tick, rate);
+        stop[e] = start[e] + em_sfx_event_frames(
+            &s.registry.samples[event->sample], event->pitch, rate);
+        if (stop[e] > end) end = stop[e];
+    }
+    long mixed = 0;
+    for (int i = 0; i < frames && v->output_frame < end; ++i) {
+        const uint64_t at = v->output_frame;
+        for (unsigned e = 0; e < entry->count; ++e) {
+            float value;
+            if (at < start[e] || at >= stop[e]) continue;
+            const EmSfxEvent *event = &entry->events[e];
+            if (!em_sfx_event_sample(&s.registry.samples[event->sample],
+                                     event->pitch, at - start[e], rate,
+                                     &value)) continue;
+            out[2 * i] += value * v->gain[e][0];
+            out[2 * i + 1] += value * v->gain[e][1];
+        }
+        ++v->output_frame;
+        ++mixed;
+    }
+    *done = v->output_frame >= end;
+    return mixed;
+}
 
 void em_sfx_mix(float *out, int frames, int device_rate)
 {
@@ -149,75 +175,34 @@ void em_sfx_mix(float *out, int frames, int device_rate)
             atomic_store_explicit(&v->state, V_PLAYING,
                                   memory_order_relaxed);
         }
-
-        const SfxSound *snd  = v->snd;
-        if (snd->cue) {
-            /* Original A0 pitch and voice gains bypass the legacy WAV
-             * headroom multiplier. Only this scoped non-positional cue
-             * has a verified end-to-end driver mapping. */
-            float pair[2];
-            long mixed = 0;
-            live++;
-            for (int i = 0; i < frames; ++i) {
-                if (!em_sfx_cue_frame(snd->cue, v->output_frame,
-                                      (unsigned)device_rate, pair)) break;
-                out[2*i] += pair[0] * v->gl;
-                out[2*i+1] += pair[1] * v->gr;
-                ++v->output_frame;
-                ++mixed;
-            }
+        live++;
+        if (v->snd.entry) {
+            int done = 0;
+            long mixed = sfx_mix_entry(v, out, frames, (unsigned)device_rate,
+                                       &done);
             if (mixed) atomic_fetch_add_explicit(&s.frames_mixed, mixed,
                                                  memory_order_relaxed);
-            if (!em_sfx_cue_frame(snd->cue, v->output_frame,
-                                  (unsigned)device_rate, pair))
+            if (done)
                 atomic_store_explicit(&v->state, V_FREE, memory_order_release);
             continue;
         }
-        const double    step = (double)snd->w.rate / (double)device_rate;
-        double          pos  = v->pos;
-        const long      last = snd->w.nframes - 1;
-        /* The stereo gain pair from the BYTE-MATCHED func_001FBF50
-         * (src/func_001FBF50.c), baked at trigger time: func_001FBD50
-         * hands it to func_001FB9F0(id, 0x1000, gainA, gainB), which
-         * reaches func_0011A218 -> channel +0x48/+0x4C. Under the PORT
-         * headroom constant. gr may be negative — func_001FBF50 writes
-         * float_to_int(scaled * k) with k down to -1, and func_0011A218
-         * accepts the full [-0x1000, 0x1000] range: the behind-the-
-         * camera phase inversion. */
-        const float     wl   = v->gl * (SFX_GAIN / 32768.0f);
-        const float     wr   = v->gr * (SFX_GAIN / 32768.0f);
-        long            mixed = 0;
-        live++;
-
-        for (int i = 0; i < frames; i++) {
-            long ip = (long)pos;
-            if (ip >= snd->w.nframes) break;
-            /* Linear resample (clamped at the tail). */
-            float  fr = (float)(pos - (double)ip);
-            long   in = ip < last ? ip + 1 : last;
-            const int16_t *a = snd->w.pcm + ip * snd->w.channels;
-            const int16_t *b = snd->w.pcm + in * snd->w.channels;
-            float l0 = (float)a[0], l1 = (float)b[0];
-            float r0, r1;
-            if (snd->w.channels == 2) {
-                r0 = (float)a[1];
-                r1 = (float)b[1];
-            } else {
-                r0 = l0;
-                r1 = l1;
-            }
-            float l = (l0 + (l1 - l0) * fr) * wl;
-            float r = (r0 + (r1 - r0) * fr) * wr;
-            out[i * 2 + 0] += l;
-            out[i * 2 + 1] += r;
-            pos += step;
-            mixed++;
+        /* Audited AREA11 panel cue: original A0 pitch, Q14 voice gains and
+         * its verified steady envelope (em_sfx_cue_frame). */
+        const EmSfxCue *cue = v->snd.cue;
+        float pair[2];
+        long mixed = 0;
+        for (int i = 0; i < frames; ++i) {
+            if (!em_sfx_cue_frame(cue, v->output_frame,
+                                  (unsigned)device_rate, pair)) break;
+            out[2*i] += pair[0] * v->gl;
+            out[2*i+1] += pair[1] * v->gr;
+            ++v->output_frame;
+            ++mixed;
         }
-        v->pos = pos;
-        if (mixed)
-            atomic_fetch_add_explicit(&s.frames_mixed, mixed,
-                                      memory_order_relaxed);
-        if (pos >= (double)snd->w.nframes)   /* done — recycle the slot */
+        if (mixed) atomic_fetch_add_explicit(&s.frames_mixed, mixed,
+                                             memory_order_relaxed);
+        if (!em_sfx_cue_frame(cue, v->output_frame,
+                              (unsigned)device_rate, pair))
             atomic_store_explicit(&v->state, V_FREE, memory_order_release);
     }
 
@@ -233,31 +218,17 @@ void em_sfx_mix(float *out, int frames, int device_rate)
 
 int em_sfx_init(void)
 {
-    FILE *f = fopen(SFX_REGISTRY, "r");
-
-    char line[640];
-    while (f && fgets(line, sizeof line, f)) {
-        unsigned id;
-        char     path[512];
-        char    *p = line;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p == '#' || *p == '\n' || *p == '\0') continue;
-        if (sscanf(p, "%x %511s", &id, path) != 2) {
-            fprintf(stderr, "sfx: bad registry line: %s", line);
-            continue;
-        }
-        if (s.n_sounds >= SFX_SOUND_MAX) {
-            fprintf(stderr, "sfx: registry full (%d) — ignoring 0x%X\n",
-                    SFX_SOUND_MAX, id);
-            continue;
-        }
-        SfxSound *snd = &s.sounds[s.n_sounds];
-        if (em_bgm_wav_read(path, &snd->w, "sfx") != 0)
-            continue;   /* reader already printed the reason */
-        snd->id = id;
-        s.n_sounds++;
+    s.area = s.sub = -1;
+    if (em_sfx_registry_load(&s.registry, SFX_REGISTRY)) {
+        for (unsigned i = 0; i < s.registry.entry_count; ++i)
+            s.n_sounds += s.registry.entries[i].state == EM_SFX_STATE_AUDIBLE;
+        printf("sfx: %d audible id(s) of %u registry entries from %s\n",
+               s.n_sounds, s.registry.entry_count, SFX_REGISTRY);
+    } else {
+        fprintf(stderr, "sfx: %s missing or invalid (run "
+                "tools/export_sfx_registry.py); registry ids are silent\n",
+                SFX_REGISTRY);
     }
-    if (f) fclose(f);
 
     if (em_sfx_bank_load(&s.bank, "assets/sfx/area11/panel_sfx.emsf")) {
         for (unsigned i = 0; i < s.bank.count; ++i) {
@@ -266,19 +237,18 @@ int em_sfx_init(void)
         }
         printf("sfx: original AREA11 panel bank ready (one cue, one absent remap)\n");
     }
-
-    if (s.n_sounds)
-        printf("sfx: %d sound(s) preloaded from %s\n", s.n_sounds,
-               SFX_REGISTRY);
     return s.n_sounds + (s.bank.count ? 1 : 0);
 }
 
 int em_sfx_set_area(int area, int sub)
 {
     s.bank_selected = 0;
-    if (area != 11 || sub != 0) return 1;
-    if (s.bank.count != 2) return 0;
-    s.bank_selected = 1;
+    s.area = s.sub = -1;
+    if (area < 0 || sub < 0) return 1;
+    if (area == 11 && sub == 0 && s.bank.count != 2) return 0;
+    s.area = area;
+    s.sub = sub;
+    s.bank_selected = area == 11 && sub == 0;
     return 1;
 }
 
@@ -357,10 +327,11 @@ int em_sfx_compute_gains(const float pos[3], float radius,
     return 1;
 }
 
-/* Claim a slot and publish one voice with the given gain pair —
- * including the engine steal policy (em_sfx.h "VOICE STEALING"): at
- * SFX_VOICE_BUDGET live voices the OLDEST (minimum serial) is killed. */
-static void sfx_submit(const SfxSound *snd, float gl, float gr)
+/* Claim a slot and publish one script instance. `left`/`right` are the
+ * original request words (0x1000 = full) that 001FB9F0 hands to 0011A218.
+ * Includes the port steal policy (em_sfx.h "VOICE STEALING"): at
+ * SFX_VOICE_BUDGET live slots the OLDEST (minimum serial) is killed. */
+static void sfx_submit(const SfxSound *snd, int32_t left, int32_t right)
 {
     /* The device is em_bgm's; bring it up if music hasn't already. */
     if (em_bgm_device_ensure(SFX_DEV_RATE) != 0) return;
@@ -390,13 +361,10 @@ static void sfx_submit(const SfxSound *snd, float gl, float gr)
         }
     }
     if (free_idx < 0) {
-        s.drops++;                       /* 64 physical busy — engine
-                                          * equivalent: allocator -1   */
+        s.drops++;                       /* 64 physical busy           */
         return;
     }
     if (live >= SFX_VOICE_BUDGET && victim >= 0) {
-        /* engine pass 3: steal the oldest (priorities engine-equal
-         * across shipped SFX tones — the gate always passes) */
         atomic_store_explicit(&s.voices[victim].kill, 1,
                               memory_order_release);
         s.steals++;
@@ -411,55 +379,106 @@ static void sfx_submit(const SfxSound *snd, float gl, float gr)
         return;
     }
     atomic_store_explicit(&v->kill, 0, memory_order_relaxed);
-    v->snd    = snd;
-    v->gl     = gl;
-    v->gr     = gr;
+    v->snd    = *snd;
+    v->gl     = (float)left / 4096.0f;
+    v->gr     = (float)right / 4096.0f;
+    if (snd->entry) {
+        /* 00115850 -> 001179E0: one volume-word pair per A0 voice. */
+        for (unsigned e = 0; e < snd->entry->count; ++e) {
+            uint16_t words[2];
+            em_sfx_volume_words(snd->entry->events[e].scalar,
+                                snd->entry->events[e].pan, left, right, words);
+            v->gain[e][0] = em_sfx_volume_gain(words[0]);
+            v->gain[e][1] = em_sfx_volume_gain(words[1]);
+        }
+    }
     v->serial = s.serial++;
-    v->pos    = 0.0;
     v->output_frame = 0;
     atomic_store_explicit(&v->state, V_READY, memory_order_release);
     s.plays++;
 }
 
-static const SfxSound *sfx_lookup(unsigned id)
+/* Scope order: the audited panel bank (AREA11 selected), then the registry
+ * entry of the selected area, then the area-independent entry. An id known
+ * only for another area, with no area selected, is an unbound scope. */
+static int sfx_lookup(unsigned id, SfxSound *out)
 {
+    memset(out, 0, sizeof *out);
+    out->id = id;
     if (s.bank_selected) {
-        for (unsigned i = 0; i < s.bank.count; ++i)
-            if (s.bank_sounds[i].id == id) return &s.bank_sounds[i];
+        for (unsigned i = 0; i < s.bank.count; ++i) {
+            if (s.bank_sounds[i].id != id) continue;
+            *out = s.bank_sounds[i];
+            return (s.bank_sounds[i].cue->flags & EM_SFX_CUE_ABSENT)
+                ? LOOKUP_ABSENT : LOOKUP_AUDIBLE;
+        }
     }
-    for (int i = 0; i < s.n_sounds; i++)
-        if (s.sounds[i].id == id) return &s.sounds[i];
-    return NULL;
+    const EmSfxEntry *entry = NULL;
+    if (s.area >= 0)
+        entry = em_sfx_registry_find(&s.registry, id, s.area, s.sub);
+    if (!entry) entry = em_sfx_registry_find(&s.registry, id, -1, -1);
+    if (!entry) {
+        /* Exported only for other areas: the selected scope (or the lack
+         * of one) has no original resolution here -- never borrow one. */
+        for (unsigned i = 0; i < s.registry.entry_count; ++i)
+            if (s.registry.entries[i].id == id) return LOOKUP_UNSCOPED;
+        return LOOKUP_NONE;
+    }
+    out->entry = entry;
+    if (entry->state == EM_SFX_STATE_ABSENT) return LOOKUP_ABSENT;
+    if (entry->state == EM_SFX_STATE_UNSUPPORTED) return LOOKUP_UNSUPPORTED;
+    return LOOKUP_AUDIBLE;
+}
+
+static void sfx_report(unsigned id, const char *what)
+{
+    unsigned bit = id & 4095u;
+    if (s.reported[bit >> 3] & (1u << (bit & 7))) return;
+    s.reported[bit >> 3] |= (unsigned char)(1u << (bit & 7));
+    fprintf(stderr, "sfx: id 0x%X %s\n", id, what);
+}
+
+/* Shared gate: returns 1 when the id should be submitted. */
+static int sfx_accept(unsigned id, SfxSound *snd)
+{
+    switch (sfx_lookup(id, snd)) {
+    case LOOKUP_AUDIBLE: return 1;
+    case LOOKUP_ABSENT: ++s.absent; return 0;
+    case LOOKUP_UNSUPPORTED:
+        ++s.unsupported;
+        sfx_report(id, "needs driver features the native mixer does not "
+                       "reproduce (docs/SFX_PITCH.md); silent");
+        return 0;
+    case LOOKUP_UNSCOPED:
+        ++s.unscoped;
+        sfx_report(id, "is area-dependent and was not exported for the "
+                       "em_sfx_set_area scope (or none is bound); silent");
+        return 0;
+    default: return 0;           /* unmapped id: silent no-op */
+    }
 }
 
 void em_sfx_play(unsigned id)
 {
-    const SfxSound *snd = sfx_lookup(id);
-    if (!snd) return;                   /* unmapped id: silent no-op */
-    if (snd->cue && (snd->cue->flags & EM_SFX_CUE_ABSENT)) {
-        ++s.absent;
-        return;
-    }
+    SfxSound snd;
+    if (!sfx_accept(id, &snd)) return;
     /* center/full — func_001FB9F0(id, 0x1000, 0x1000, 0x1000), also the
      * exact play_sound result for a player-attached source */
-    sfx_submit(snd, 1.0f, 1.0f);
+    sfx_submit(&snd, 0x1000, 0x1000);
 }
 
 void em_sfx_play_at(unsigned id, const float pos[3], float radius)
 {
     if (!pos) return;
-    const SfxSound *snd = sfx_lookup(id);
-    if (!snd) return;
-    if (snd->cue && (snd->cue->flags & EM_SFX_CUE_ABSENT)) {
-        ++s.absent;
-        return;
-    }
+    SfxSound snd;
+    if (!sfx_accept(id, &snd)) return;
     float gl, gr;
     if (!em_sfx_compute_gains(pos, radius, &gl, &gr)) {
         s.culls++;                      /* engine play_sound -1 */
         return;
     }
-    sfx_submit(snd, gl, gr);
+    /* 001FBF50 hands float_to_int(4096 * gain) words to 001FB9F0. */
+    sfx_submit(&snd, em_sfx_request_word(gl), em_sfx_request_word(gr));
 }
 
 /* Stop every live voice immediately — DECODED from func_001FBC50.
@@ -513,8 +532,7 @@ void em_sfx_shutdown(void)
                atomic_load_explicit(&s.frames_mixed, memory_order_relaxed),
                atomic_load_explicit(&s.max_concurrent,
                                     memory_order_relaxed));
-    for (int i = 0; i < s.n_sounds; i++)
-        free(s.sounds[i].w.pcm);
+    em_sfx_registry_free(&s.registry);
     em_sfx_bank_free(&s.bank);
     memset(&s, 0, sizeof s);
 }
@@ -527,12 +545,17 @@ int  em_sfx_drops(void)       { return s.drops; }
 int  em_sfx_steals(void)      { return s.steals; }
 int  em_sfx_culls(void)       { return s.culls; }
 int  em_sfx_absent_cues(void) { return s.absent; }
+int  em_sfx_unsupported_cues(void) { return s.unsupported; }
+int  em_sfx_unscoped_cues(void)    { return s.unscoped; }
 
 int em_sfx_cue_state(unsigned id)
 {
-    const SfxSound *sound = sfx_lookup(id);
-    if (!sound) return 0;
-    return sound->cue && (sound->cue->flags & EM_SFX_CUE_ABSENT) ? 2 : 1;
+    SfxSound snd;
+    switch (sfx_lookup(id, &snd)) {
+    case LOOKUP_AUDIBLE: return 1;
+    case LOOKUP_ABSENT: return 2;
+    default: return 0;
+    }
 }
 
 long em_sfx_frames_mixed(void)

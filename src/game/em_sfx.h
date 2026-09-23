@@ -4,26 +4,32 @@
  *
  * Engine model being mirrored:
  *   - The PS2 triggers an SFX by SOUND ID through the bank's trigger-script
- *     table (note-on event scripts; func_001152D8 status 0x90 ->
- *     func_00115E50 voice setup). Gameplay code asks for ids — 0x162 weapon
+ *     table (A0 event scripts; func_001152D8 status 0xA0 ->
+ *     func_00115850 voice setup). Gameplay code asks for ids — 0x162 weapon
  *     draw, 0x163 holster/reload-start, 0x164/0x165 fire, 0x168 reload mag
  *     action, 0x169 dry click, the footstep surface + gear layers,
  *     0x7D8 the canonical hurt-helper death (func_00153B50) — and the
  *     sequencer mixes the voices over the streamed BGM on the SPU2.
- *   - Natively the bank's id -> sample resolution is a small text registry,
- *     assets/sfx/sfx.txt: one "<id-hex> <wav-path>" line per sound (the
- *     WAVs are the user's own local audio_export.py decodes; '#' starts a
- *     comment). Unavailable legacy entries are silent. The independent
- *     scoped EMSF bank can load even when this registry is absent.
- *   - Legacy WAV rates are exporter estimates, not hardware proof. The
- *     AREA11 panel audit found both a wrong ladder anchor and a wrong bend
- *     assumption in the old exporter; do not apply its formula to A0 cues.
- *   - The scoped EMSF bank separately preserves the original AREA11 A0
- *     pitch, Q14 gains, ADSR and absent remap. Call em_sfx_set_area only
- *     after the host has bound that area. Its source cursor is rational;
- *     linear sample interpolation, global voice allocation, command timing,
- *     reverb and final BGM/master mix remain native boundaries. See
- *     docs/AREA11_PANEL_SFX.md for original-word tests and exact scope.
+ *   - Natively the id -> script resolution is the EMSR registry
+ *     assets/sfx/sfx_registry.emsr (tools/export_sfx_registry.py, from the
+ *     user's own disc data). Every trigger script is A0 events (00115850),
+ *     and each entry keeps, per A0 voice, the sequencer tick, the integer
+ *     SPU pitch word (bend 0x40 -> 00117918 -> *44100/48000) and the
+ *     001179E0 volume inputs, so the mixer applies the ORIGINAL Q14 volume
+ *     words (docs/SFX_PITCH.md; WP-14, H19/AM-01/AM-02). The legacy
+ *     sfx.txt WAV registry and its x1.531-sharp rates are retired.
+ *   - Entries are scoped: (-1,-1) for group-1 global records, else the
+ *     (area, sub) the id was resolved for. em_sfx_set_area selects the
+ *     scope; an area-dependent id with no scope bound is silent and
+ *     counted (em_sfx_unscoped_cues), never guessed from another area.
+ *     Ids whose scripts need unreproduced driver features (controllers,
+ *     looping samples, sustained key-off) are UNSUPPORTED: silent,
+ *     counted, reported once.
+ *   - The scoped EMSF bank separately preserves the original AREA11 panel
+ *     cue with its verified steady envelope and takes precedence while
+ *     (11,0) is selected. See docs/AREA11_PANEL_SFX.md.
+ *   - Native boundaries: linear interpolation, no ADSR/reverb, sequencer
+ *     ticks at the NTSC field rate, no 00117428 voice allocation.
  *
  * POSITIONAL AUDIO — the engine's play_sound and its 3-D volume/pan
  * solver. Re-verified 2026-07-31 against the BYTE-MATCHED decomp
@@ -36,11 +42,14 @@
  *   pair is computed ONCE at trigger time (no per-frame re-pan) and
  *   submitted as func_001FB9F0(id, 0x1000, gainA, gainB). Downstream
  *   chain, all re-read this audit: func_001FB9F0 -> func_0011A218(voice,
- *   gainA, gainB) (BYTE-MATCHED) stores them at channel +0x48/+0x4C
- *   (clamped to [-0x1000, 0x1000]); func_001179E0 then forms the two
+ *   gainA, gainB) (BYTE-MATCHED) stores them at track +0x48/+0x4C only
+ *   when BOTH lie in [-0x1000, 0x1000] (otherwise the 00119EA0 defaults
+ *   0x1000/0x1000 stay); func_001179E0 then forms the two
  *   output volumes as (t * (panLUT >> 8) * ch[+0x48]) >> 19 and
  *   (t * (panLUT & 0xFF) * ch[+0x4C]) >> 19, where panLUT = voice +0x32
- *   = D_00242630[note >> 2] (func_00115E50). So +0x48 pairs with the
+ *   = D_00242630[tone_pan >> 2] (00115850 via 00117BA0(4,0); the
+ *   (short) result is then halved into the SPU word, see
+ *   em_sfx_volume_words). So +0x48 pairs with the
  *   pan-LUT HIGH byte and +0x4C with the LOW byte; with the LUT's
  *   pan-0 entry (0x80,0x00) that pins gainA = LEFT. Decoded math,
  *   normalized to 1.0 = 0x1000:
@@ -85,8 +94,8 @@
  *     MONO option (D_0028215B == 1 -> both channels = vol) has no port
  *     setting yet and is not modeled.
  *
- *   em_sfx_play(id) (no position) keeps BOTH channels at 1.0 — exactly
- *   the engine's non-positional submit func_001FB9F0(id, 0x1000,
+ *   em_sfx_play(id) (no position) submits requests 0x1000/0x1000 —
+ *   exactly the engine's non-positional submit func_001FB9F0(id, 0x1000,
  *   0x1000, 0x1000) — the water/footing one-shots use this form
  *   verbatim: FINDINGS "FOOTSTEP SURFACE TABLE" pins func_00187DE0 as
  *   func_001FB9F0(0xCA shallow / 0xDB deep, 0x1000 x3) and func_00187EA0
@@ -97,15 +106,17 @@
  *   player-attached sounds (footsteps, weapon handling, shots, casing,
  *   hurt/death voice) are center/full BY THE ENGINE MATH, so their
  *   call sites stay on em_sfx_play.
+ *   em_sfx_play_at (positional) instead submits float_to_int(4096 *
+ *   gain) per channel (001FBF50 -> 001281C0, truncation toward zero).
  *
- * VOICE STEALING — CORRECTED 2026-07-31 (audit). The text that used to
- * sit here cited func_00117428 and described ITS three passes. That is
- * the WRONG allocator for one-shot SFX: func_001152D8's MIDI-status
- * dispatch routes 0x90 note-on to func_00115E50 (the voice setup this
- * header names at the top), and func_00115E50 allocates through
- * func_001172B8. func_00117428's ONLY caller is func_00115850, the
- * 0xA0 event handler. Verified by reading src/func_001152D8.c (the
- * 0x90/0xA0 switch), src/func_00115E50.c and src/func_00115850.c.
+ * VOICE STEALING — RE-CORRECTED 2026-09 (WP-14). Every registry trigger
+ * script consists of A0 events (the exporter rejects anything else), and
+ * 001152D8 routes 0xA0 to func_00115850, which allocates through
+ * func_00117428 (same-tone retrigger pass, free pass, priority-gated
+ * oldest pass). The 2026-07-31 note below described func_001172B8, the
+ * 0x90 note-on allocator, which these scripts never reach. Neither
+ * allocator is reproduced: the port policy below is an approximation.
+ * The superseded text is kept for its 001172B8 decode:
  *
  *   func_001172B8(tone_byte0) — src/func_001172B8.c, a NEARMISS (its
  *   logic is authoritative, its scheduling is not) — walks the 48-entry
@@ -304,21 +315,26 @@ extern "C" {
 #define EM_SFX_DOOR_CLOSE   0xF001u /* LEGACY fallback — the engine's open
                                      * script has NO close sound record   */
 
-/* Load legacy WAVs and the independent AREA11 EMSF bank. A bad legacy
- * entry is skipped; an invalid EMSF bank is unavailable as a whole.
- * Returns the number of audible assets loaded. Game thread, once at boot. */
+/* Load the EMSR registry and the independent AREA11 EMSF bank. Either
+ * file that is missing or invalid is unavailable as a whole (reported).
+ * Returns the audible registry entries plus one for the panel bank. Game
+ * thread, once at boot. */
 int em_sfx_init(void);
 
-/* Select the original area remap after loading its host. (11,0) requires
- * the complete audited bank and returns zero if it is unavailable. All
- * other pairs clear selection and return one; use (-1,-1) on teardown.
- * Already-playing voices retain immutable bank data through completion. */
+/* Select the original (area, sub) scope after loading its scene (the
+ * D_00810700/701 pair 001FB9F0 reads). (11,0) requires the complete
+ * audited panel bank and returns zero (scope cleared) if it is missing.
+ * Other pairs select their registry scope and return one; (-1,-1) clears.
+ * Already-playing voices retain immutable data through completion. */
 int em_sfx_set_area(int area, int sub);
 
 /* Current scope: 0 unavailable, 1 audible asset loaded, 2 intentional
  * original FF remap (accepted as silence, does not allocate a voice). */
 int em_sfx_cue_state(unsigned id);
 int em_sfx_absent_cues(void);
+int em_sfx_unsupported_cues(void); /* UNSUPPORTED registry plays refused */
+int em_sfx_unscoped_cues(void);    /* area-dependent plays whose scope
+                                    * (or lack of one) was not exported  */
 
 /* Fire one one-shot voice for the engine sound id at CENTER/FULL — the
  * engine's non-positional submit form AND the exact play_sound result for
@@ -359,8 +375,8 @@ int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r);
 
 /* AUDIO-THREAD mixer half: SUM all live one-shot voices into the
- * interleaved stereo buffer (which already holds the BGM frames),
- * resampling each voice from its WAV rate to `device_rate`. Called by
+ * interleaved stereo buffer (which already holds the BGM frames), each
+ * A0 voice at its SPU pitch (4096 = 48 kHz) and Q14 volume words. Called by
  * em_bgm's render callback only — real-time safe per the em_audio.h
  * contract (no locks/allocation/IO). A no-op while no voices are live. */
 void em_sfx_mix(float *out_interleaved_stereo, int frames, int device_rate);
@@ -378,7 +394,7 @@ void em_sfx_stop_all(void);
 void em_sfx_shutdown(void);
 
 /* Introspection (EM_SFX_TEST / debugging; game thread). */
-int  em_sfx_sound_count(void);    /* registry entries loaded            */
+int  em_sfx_sound_count(void);    /* audible registry entries loaded    */
 int  em_sfx_plays(void);          /* accepted em_sfx_play(_at) calls    */
 int  em_sfx_drops(void);          /* plays dropped (64 physical busy)   */
 int  em_sfx_steals(void);         /* oldest-voice kills at the 48 budget*/

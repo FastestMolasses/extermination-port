@@ -13,6 +13,7 @@ import subprocess
 from export_area11_sfx import ROOT,DECOMP,ELF_SHA,Elf,source,pitch,stereo_gain,u32
 from test_roger_reference import RogerOracle
 from test_point_light_reference import signed
+import ctypes as C
 
 class SfxOracle(RogerOracle):
  def plain(self,w):
@@ -41,7 +42,21 @@ class SfxOracle(RogerOracle):
    value=a*b;self.lo1=signed(value)&0xffffffffffffffff;self.hi1=signed(value>>32)&0xffffffffffffffff
    if rd:self.r[rd]=self.lo1
   elif op==28 and fn in (16,18):self.r[rd]=self.hi1 if fn==16 else self.lo1
+  elif op==28 and fn in (26,27):                       # DIV1 / DIVU1
+   a=signed(self.r[rs]) if fn==26 else self.r[rs]&0xffffffff
+   b=signed(self.r[rt]) if fn==26 else self.r[rt]&0xffffffff
+   assert b
+   q=abs(a)//abs(b)*(-1 if (a<0)!=(b<0) else 1)
+   self.lo1=signed(q)&0xffffffffffffffff;self.hi1=signed(a-q*b)&0xffffffffffffffff
   elif op==0 and fn==39:self.r[rd]=~(self.r[rs]|self.r[rt])&0xffffffffffffffff
+  elif op==28 and fn==41 and w>>6&31==0x1B:           # PCPYH (memset 00121A28)
+   value=0
+   for half in range(2):
+    h=self.r[rt]>>(64*half)&0xffff
+    value|=(h*0x0001000100010001)<<(64*half)
+   self.r[rd]=value
+  elif op==28 and fn==9 and w>>6&31==0x0E:            # PCPYLD
+   self.r[rd]=(self.r[rs]&0xffffffffffffffff)<<64|(self.r[rt]&0xffffffffffffffff)
   else:super().plain(w)
   self.r[0]=0
 
@@ -123,6 +138,187 @@ p=Path('build/startup-reference/portable-data/sstates/SCUS-97112 (0AE679AF).02.p
         limit='Original driver and libsd execute; hardware register stores are observed, not synthesized sound')
 
 
+# ---- EMSR registry: every exported id AREA11 can play (WP-14) -------------
+
+REQUESTS=((0x1000,0x1000),(0x800,-0x400),(0,0x1000),(-0x1000,0x7FF),(0x1001,0x200))
+TRACK_TABLE,VOICE_TABLE=0x27E0C0,0x27CCC0
+
+
+def parse_emsr(blob):
+    """Independent reader of the registry the native loader consumes."""
+    magic,version,sample_count,entry_count,reserved=struct.unpack_from('<4sIIII',blob)
+    assert (magic,version,reserved)==(b'EMSR',1,0)
+    at=20;entries=[]
+    for _ in range(entry_count):
+        sid,area,sub,state,count,reason,zero=struct.unpack_from('<IhhBBHI',blob,at);at+=16
+        assert zero==0
+        events=[]
+        for _ in range(count):
+            events.append(dict(zip(('tick','sample','pitch','pan','scalar','adsr1','adsr2','flags'),
+                struct.unpack_from('<HHHHIHHB',blob,at))));at+=20
+        entries.append(dict(id=sid,scope=[area,sub],state=state,reason=reason,events=events))
+    samples=[]
+    for _ in range(sample_count):
+        frames=u32(blob,at);at+=4
+        samples.append(blob[at:at+2*frames]);at+=2*frames
+    assert at==len(blob)
+    return entries,samples
+
+
+def native_bank():
+    out=ROOT/'build/area11_sfx_reference';out.mkdir(parents=True,exist_ok=True)
+    library=out/'libem_sfx_bank.dylib'
+    subprocess.run(['cc','-std=c11','-O1','-Wall','-Wextra','-Werror','-shared','-fPIC',
+        '-Isrc','src/game/em_sfx_bank.c','-o',str(library)],cwd=ROOT,check=True)
+    lib=C.CDLL(str(library))
+    lib.em_sfx_volume_words.argtypes=[C.c_uint32,C.c_uint16,C.c_int32,C.c_int32,C.POINTER(C.c_uint16)]
+    lib.em_sfx_request_word.argtypes=[C.c_float];lib.em_sfx_request_word.restype=C.c_int32
+    def words(scalar,pan,left,right):
+        pair=(C.c_uint16*2)()
+        lib.em_sfx_volume_words(scalar,pan,left,right,pair)
+        return list(pair)
+    return lib,words
+
+
+def registry_oracle(elf,ram):
+    import export_sfx_registry as X
+    out=ROOT/'build/area11_sfx_reference/registry'
+    report=X.export(out)
+    blob=(out/'sfx_registry.emsr').read_bytes()
+    installed=ROOT/'assets/sfx/sfx_registry.emsr'
+    if installed.exists():
+        assert installed.read_bytes()==blob,'assets/sfx/sfx_registry.emsr is stale: re-run the exporter'
+    entries,samples=parse_emsr(blob)
+    assert len(entries)==len(report['entries'])
+    for mine,theirs in zip(entries,report['entries']):
+        voices=[e for e in theirs.get('events',[]) if e['kind']=='voice']
+        assert (mine['id'],mine['scope'],mine['state'])==(theirs['id'],theirs['scope'],theirs['state'])
+        assert [(e['tick'],e['sample'],e['pitch'],e['pan'],e['scalar'],e['adsr1'],e['adsr2'],e['flags'])
+                for e in mine['events']]==[(e['tick'],e['sample'],e['pitch'],e['pan'],e['scalar'],
+                e['adsr1'],e['adsr2'],e['flags']) for e in voices]
+    # Bank binding: both captures register the same handles; each RAM header
+    # equals the bound container bank except the per-track bend bytes.
+    xelf=X.Elf();bindings=X.area_bindings(xelf)[(11,0)]['groups']
+    handles={}
+    for capture in ('opening_ee.bin','playable_ee.bin'):
+        data=(DECOMP/'build/startup-reference'/capture).read_bytes()
+        assert data[0x810700:0x810702]==bytes([11,0])
+        assert struct.unpack_from('<H',data,0x27F740+0x3A)[0]==60      # tick divisor
+        assert struct.unpack_from('<H',data,0x27F778)[0]==0             # stereo
+        for group,banks in bindings.items():
+            for index,bank in enumerate(banks):
+                handle=u32(data,0x281D50+4*(group*0x14+index))
+                use,header,spu=struct.unpack_from('<3I',data,0x27C6C0+12*handle)
+                assert use==1
+                expected=bank.data[bank.hd:bank.header_end]
+                actual=data[header:header+len(expected)]
+                state=u32(expected,0x20)
+                mutable={state+0x10+16*t+0xA for t in range(48)}
+                assert all(a==b or i in mutable for i,(a,b) in enumerate(zip(actual,expected))),(capture,group,index)
+                handles[(bank.name,bank.row)]=(handle,spu<<3,bank.body)
+        for group in range(6):
+            for index in range(0x14):
+                if group in bindings and index<len(bindings[group]):continue
+                handle=u32(data,0x281D50+4*(group*0x14+index))
+                assert handle in (0,3),(group,index,handle)   # 0 = unregistered, 3 = group-3 music
+    spu=(DECOMP/'build/area11_sfx_reference/original_spu2.bin').read_bytes()
+    spu_checked=0
+    sample_address={}
+    for sample in report['samples']:
+        for (name,row),(handle,base,body) in handles.items():
+            bank=[b for g in bindings.values() for b in g if (b.name,b.row)==(name,row)][0]
+            if name==sample['container'] and body<=sample['offset']<body+bank.body_size:
+                data=(DECOMP/name).read_bytes()
+                raw=data[sample['offset']:sample['offset']+sample['adpcm_bytes']]
+                address=base+sample['offset']-body
+                assert spu[0x10004+address:0x10004+address+len(raw)]==raw
+                sample_address[sample['index']]=address
+                spu_checked+=1
+                break
+    lib,native_words=native_bank()
+    area11=[e for e in report['entries'] if e['scope'] in ([-1,-1],[11,0])]
+    cases=voices_checked=0;summary=[]
+    for entry in area11:
+        for left,right in REQUESTS:
+            o=original(elf.data,ram,0)
+            for (name,row),(handle,base,body) in handles.items():
+                bank=[b for g in bindings.values() for b in g if (b.name,b.row)==(name,row)][0]
+                header=u32(ram,0x27C6C0+12*handle+4)
+                o.write(header,ram[header:header+bank.header_end-bank.hd])
+            o.write(0x27F778,ram[0x27F778:0x27F77A])
+            o.run(0x1FB9F0,(entry['id'],0x1000,left&0xFFFFFFFFFFFFFFFF,right&0xFFFFFFFFFFFFFFFF))  # 64-bit sign-extended GPRs
+            track=signed(o.r[2])
+            if entry['state']==X.STATE_ABSENT:
+                assert track==-1,hex(entry['id']);cases+=1;continue
+            assert track==0,(hex(entry['id']),track)
+            commands=[];tick=[0]
+            o.calls[0x1157F0]=lambda r:commands.append((tick[0],)+tuple(r.r[i]&0xFFFFFFFF for i in range(4,8)))
+            o.calls[0x1191F0]=lambda r:None
+            limit=1500 if entry['state']==X.STATE_UNSUPPORTED else 80
+            for tick[0] in range(limit):
+                o.run(0x1152D8)
+                if o.load(TRACK_TABLE+0x34,2)==0:break
+            else:
+                assert entry['state']==X.STATE_UNSUPPORTED,('track did not end',hex(entry['id']))
+            if entry['state']==X.STATE_UNSUPPORTED:
+                summary.append(dict(id=entry['id'],reason=entry['reason'],ticks=tick[0]+1,
+                    ended=o.load(TRACK_TABLE+0x34,2)==0,
+                    key_on=sum(bin(c[3]|c[4]<<24).count('1') for c in commands if c[1]==0xA),
+                    key_off=sum(bin(c[3]|c[4]<<24).count('1') for c in commands if c[1]==0xB),
+                    commands=len(commands)))
+                cases+=1;break
+            request=(left,right) if all(-0x1000<=x<=0x1000 for x in (left,right)) else (0x1000,0x1000)
+            assert not [c for c in commands if c[1]==0xB],hex(entry['id'])
+            live={}
+            exported=[e for e in entry['events'] if e['kind']=='voice']
+            # Every exported voice must fall inside the executed track, and
+            # each must be matched by exactly one started original voice.
+            assert all(e['tick']<=tick[0] for e in exported),(hex(entry['id']),tick[0])
+            case_voices=0
+            for t in range(tick[0]+1):
+                these=[c[1:] for c in commands if c[0]==t]
+                on=0
+                for c in these:
+                    if c[0]==0xA:on|=c[2]|c[3]<<24
+                started=[]
+                for v in range(48):
+                    if not on>>v&1:continue
+                    first={cmd:next(c for c in these if c[0]==cmd and c[1]==v) for cmd in (6,1,5,3)}
+                    started.append((first[6][2],first[1][2],first[1][3],first[5][2],first[3][2],first[3][3]))
+                    live[v]=started[-1]
+                for c in these:          # re-sends must repeat the voice's values
+                    if c[0]==6:assert c[2]==live[c[1]][0]
+                    if c[0]==1:assert (c[2],c[3])==live[c[1]][1:3]
+                expected=[]
+                for e in entry['events']:
+                    if e['kind']!='voice' or e['tick']!=t:continue
+                    words=X.volume_words(e['scalar'],e['pan'],*request)
+                    assert native_words(e['scalar'],e['pan'],left,right)==list(words)
+                    expected.append((e['pitch'],*words,sample_address[e['sample']]+0,e['adsr1'],e['adsr2']))
+                assert sorted(started)==sorted(expected),(hex(entry['id']),t,started,expected)
+                voices_checked+=len(started);case_voices+=len(started)
+            assert case_voices==len(exported),(hex(entry['id']),case_voices,len(exported))
+            cases+=1
+    # The PCPYH/PCPYLD extension serves the original memset 00121A28 that
+    # 00118EC0 uses to free tracks; check that routine on known fills.
+    for fill,length,offset in ((0xAB,0x78,0),(0x5C,0x21,0),(0x11,7,3),(0,0x6A,6)):
+        o=SfxOracle(elf.data);o.write(0x990000,bytes(range(256))*2)
+        o.run(0x121A28,(0x990000+offset,fill,length))
+        memory=o.read(0x990000,512)
+        assert memory[offset:offset+length]==bytes([fill])*length
+        assert memory[:offset]==(bytes(range(256))*2)[:offset]
+        assert memory[offset+length:]==(bytes(range(256))*2)[offset+length:]
+    # 001FBF50 float_to_int: executed original (software __fixsfsi).
+    for value in (4095.9,-4095.9,0.75,-0.75,2217.5,-1.0,0.0):
+        o=SfxOracle(elf.data);o.run(0x1281C0,floats=(value,))
+        assert signed(o.r[2])==lib.em_sfx_request_word(C.c_float(value/4096.0)),value
+        assert signed(o.r[2])==int(value),value
+    return dict(entries=len(report['entries']),area11_entries=len(area11),cases=cases,
+        voices_checked=voices_checked,spu_samples_checked=spu_checked,requests=REQUESTS,
+        unsupported=summary,registry_sha256=report['registry_sha256'],
+        office_scope='2.1 entries exported from a coverage-matched region; no capture, not executed')
+
+
 def main():
     elf=Elf();ram=(DECOMP/'build/startup-reference/playable_ee.bin').read_bytes()
     adpcm,metadata=source();container=(DECOMP/'extract/chunk15/f00_id43.bin').read_bytes()
@@ -184,7 +380,8 @@ def main():
     spu=original_spu.read_bytes();at=0x10004+0x1E2010
     assert spu[at:at+len(adpcm)]==adpcm
     iop=iop_registers(elf.data)
-    report=dict(elf_sha256=ELF_SHA,dispatch_cases=dispatch_cases,pitch_cases=pitch_cases,iop=iop,
+    registry=registry_oracle(elf,ram)
+    report=dict(elf_sha256=ELF_SHA,dispatch_cases=dispatch_cases,pitch_cases=pitch_cases,iop=iop,registry=registry,
         commands=events,loaded_sample_bytes=len(adpcm),loaded_sample_sha256=hashlib.sha256(adpcm).hexdigest(),
         source=metadata,limits=['Controlled initially free track/voice allocation; no full mixer-state claim',
         '1157F0 hardware command sink is replaced; all dispatch/pitch/gain words execute',
@@ -192,5 +389,9 @@ def main():
     out=ROOT/'build/area11_sfx_reference';out.mkdir(parents=True,exist_ok=True)
     (out/'original_report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(f'PASS {dispatch_cases} original panel dispatch/voice/end-track cases; {pitch_cases} pitch cases; {len(adpcm)} live SPU sample bytes; 336 original IOP/libsd register writes')
+    print(f"PASS registry: {registry['area11_entries']} AREA11-playable entries x {len(REQUESTS)} requests "
+          f"({registry['cases']} executed cases, {registry['voices_checked']} A0 voices: pitch/volume/address/ADSR words "
+          f"= original 001FB9F0+001152D8+00115850 commands), {registry['spu_samples_checked']} samples = live SPU RAM, "
+          f"{len(registry['unsupported'])} unsupported ids recorded")
 
 if __name__=='__main__':main()

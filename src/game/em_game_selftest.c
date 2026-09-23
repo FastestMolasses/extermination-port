@@ -1741,8 +1741,12 @@ static void sfx_test_script(void)
     static int live_at_burst;
     int n = g.frame_no;
     if (n == 10 || n == 20 || n == 30) {
+        /* Third one-shot: 0x165, a group-1 global (-1,-1) audible id.
+         * 0x7D8 is area-dependent (001FB9F0 area remap) and is FF
+         * (absent) in the office preset scope 2.1, so it cannot be a
+         * play this test counts. */
         static const unsigned ids[3] = { EM_SFX_WPN_DRAW, EM_SFX_WPN_FIRE,
-                                         EM_SFX_ENEMY_DEATH };
+                                         0x165u };
         em_sfx_play(ids[n / 10 - 1]);
     } else if (n == 40) {
         /* PAN/ATTENUATION assertions against the func_001FBF50 decode
@@ -1804,6 +1808,9 @@ static void sfx_test_script(void)
         /* steals = max(0, live_at_burst_voices + 60 - 48); the three
          * early voices may have ended -> accept the 12..15 band. */
         int  ok = em_sfx_sound_count() > 0 && em_sfx_plays() == 63 &&
+                  em_sfx_unscoped_cues() == 0 &&
+                  em_sfx_unsupported_cues() == 0 &&
+                  em_sfx_cue_state(EM_SFX_ENEMY_DEATH) == 0 &&
                   em_sfx_drops() == 0 && em_sfx_culls() == 1 &&
                   steals >= 12 && steals <= 15 &&
                   ok_gain == 1 && mixed > 0 && peak >= 2;

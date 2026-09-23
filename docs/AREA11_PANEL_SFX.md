@@ -136,3 +136,13 @@ The full native build also passes. Headless mixer validation exercises the
 actual `em_sfx_play` / `em_sfx_mix` path; no audible original-vs-native
 capture or SPU2 output comparison is claimed. Generated reports and mixed
 fixtures are in `build/area11_sfx_reference/`.
+
+## Relation to the EMSR registry (WP-14)
+
+`docs/SFX_PITCH.md` describes the general registry. It resolves 0x3EF for
+(11,0) through the same original path, with the same pitch 862 and
+volume words 2217/2217. It resolves 0x3EE as absent. While (11,0) is
+selected this bank still takes precedence, because it alone carries the
+verified steady envelope. The registry oracle in
+`tools/test_area11_sfx_reference.py` extends the dispatch check above to
+every exported id AREA11 can play.
