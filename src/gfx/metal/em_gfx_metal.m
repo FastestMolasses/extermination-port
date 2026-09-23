@@ -17,6 +17,7 @@
 #include "em_platform.h"
 #include "game/em_lighting.h"
 #include "gfx/metal/em_fog_gs.h"
+#include "gfx/metal/em_background_gs.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -176,6 +177,13 @@ struct EmGfx {
      * drawbridge) run the EXACT pre-fog arithmetic and stay
      * byte-identical. */
     float                        fog[8];
+    /* Level background (em_gfx_background_* — em_gfx.h,
+     * em_background_gs.h): the parsed asset (bgAsset.rgba points into
+     * bgFile), its texture, and the pipeline of the 31 strips. */
+    uint8_t                     *bgFile;
+    EmBackgroundGsAsset          bgAsset;
+    id<MTLTexture>               bgTexture;
+    id<MTLRenderPipelineState>   bgPipeline;
 };
 
 struct EmGfxMesh {
@@ -293,6 +301,31 @@ static NSString *const kBeamTexShaderSrc =
 "                          texture2d<float> tex [[texture(0)]],\n"
 "                          sampler smp [[sampler(0)]]) {\n"
 "    return tex.sample(smp, in.uv) * in.color;\n"
+"}\n";
+
+/* Background shader (em_gfx_background_draw): 2 float4s per vertex, the
+ * NDC position of the kernel's GS 12.4 XY and the ST pair. Q is 1.0 (the
+ * RGBAQ 001E1E60 sends), so ST interpolates affinely. The fragment is the
+ * GS MODULATE with TCC 0: rgb = texel * RGBAQ / 128 (clamped like the GS
+ * COLCLAMP), alpha = RGBAQ A. */
+static NSString *const kBackgroundShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct VOut { float4 pos [[position]];\n"
+"              float2 st [[center_no_perspective]]; };\n"
+"vertex VOut v_background(uint vid [[vertex_id]],\n"
+"                         const device float4 *data [[buffer(0)]]) {\n"
+"    VOut o;\n"
+"    o.pos = float4(data[vid*2].xy, 0.0, 1.0);\n"
+"    o.st  = data[vid*2 + 1].xy;\n"
+"    return o;\n"
+"}\n"
+"fragment float4 f_background(VOut in [[stage_in]],\n"
+"                             texture2d<float> tex [[texture(0)]],\n"
+"                             sampler smp [[sampler(0)]],\n"
+"                             constant float4 &rgbaq [[buffer(0)]]) {\n"
+"    float3 c = min(tex.sample(smp, in.st).rgb * rgbaq.rgb, float3(1.0));\n"
+"    return float4(c, rgbaq.a);\n"
 "}\n";
 
 static NSString *const kParticleShaderSrc =
@@ -658,6 +691,9 @@ void em_gfx_destroy(EmGfx *g)
     for (unsigned i = 0; i < EM_GFX_PARTICLE_TEX_MAX; ++i)
         [g->particleTexture[i] release];
     [g->particlePipeline release];
+    [g->bgTexture release];
+    [g->bgPipeline release];
+    free(g->bgFile);
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
         [g->beamTex[i] release];
     [g->glyphPipeline release];
@@ -1812,6 +1848,152 @@ void em_gfx_fog_off(EmGfx *g)
 {
     if (!g) return;
     memset(g->fog, 0, sizeof(g->fog));
+}
+
+/* --- Level background (em_gfx.h; em_background_gs.h has the original) -- */
+
+void em_gfx_background_unload(EmGfx *g)
+{
+    if (!g) return;
+    [g->bgTexture release];
+    g->bgTexture = nil;
+    free(g->bgFile);
+    g->bgFile = NULL;
+    memset(&g->bgAsset, 0, sizeof g->bgAsset);
+}
+
+int em_gfx_background_ready(EmGfx *g)
+{
+    return g && g->bgTexture ? 1 : 0;
+}
+
+int em_gfx_background_load(EmGfx *g, const char *path)
+{
+    if (!g || !g->device || !path) return -1;
+    em_gfx_background_unload(g);
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "background: %s: cannot open\n", path);
+        return -1;
+    }
+    uint8_t *buf = NULL;
+    long len = -1;
+    if (fseek(f, 0, SEEK_END) == 0) len = ftell(f);
+    if (len > 0 && len <= (long)(EM_BACKGROUND_GS_HEADER + 1024u * 1024u * 4u)
+        && fseek(f, 0, SEEK_SET) == 0) {
+        buf = (uint8_t *)malloc((size_t)len);
+        if (buf && fread(buf, 1, (size_t)len, f) != (size_t)len) {
+            free(buf);
+            buf = NULL;
+        }
+    }
+    fclose(f);
+    EmBackgroundGsAsset asset;
+    int parsed = buf ? em_background_gs_parse(buf, (size_t)len, &asset) : -1;
+    if (parsed != 0) {
+        fprintf(stderr, "background: %s: not a version-2 EMBG asset (%d)\n",
+                path, parsed);
+        free(buf);
+        return -2;
+    }
+    const char *why = em_background_gs_unsupported(&asset);
+    if (why) {
+        fprintf(stderr, "background: %s: GS state not reproduced: %s\n",
+                path, why);
+        free(buf);
+        return -3;
+    }
+    MTLTextureDescriptor *td = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                     width:asset.tex_w
+                                    height:asset.tex_h
+                                 mipmapped:NO];
+    td.usage = MTLTextureUsageShaderRead;
+    id<MTLTexture> tex = [g->device newTextureWithDescriptor:td];
+    if (!tex) {
+        free(buf);
+        return -4;
+    }
+    [tex replaceRegion:MTLRegionMake2D(0, 0, asset.tex_w, asset.tex_h)
+           mipmapLevel:0
+             withBytes:asset.rgba
+           bytesPerRow:(NSUInteger)asset.tex_w * 4];
+    g->bgFile = buf;
+    g->bgAsset = asset;
+    g->bgTexture = tex;          /* +1 from newTextureWithDescriptor */
+    return 0;
+}
+
+void em_gfx_background_draw(EmGfx *g, const float view[16], float zoom_s)
+{
+    if (!g || !g->enc || !g->bgTexture || !view) return;
+    if (!g->bgPipeline)
+        g->bgPipeline = build_pipeline(g, kBackgroundShaderSrc,
+            @"v_background", @"f_background", EM_BLEND_OPAQUE);
+    if (!g->bgPipeline) return;
+    if (!g->clampSampler) {
+        /* CLAMP_1 WMS/WMT CLAMP, TEX1 MMAG/MMIN LINEAR (the unsupported
+         * check refused every other state). */
+        MTLSamplerDescriptor *sd = [[MTLSamplerDescriptor alloc] init];
+        sd.minFilter = MTLSamplerMinMagFilterLinear;
+        sd.magFilter = MTLSamplerMinMagFilterLinear;
+        sd.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
+        g->clampSampler = [g->device newSamplerStateWithDescriptor:sd];
+        [sd release];
+        if (!g->clampSampler) return;
+    }
+    ensure_depth_states(g);
+
+    /* 001E1E60: view copy -> D_00253570; kernel 0x0023C990: the grid. */
+    float original[16], m[16];
+    em_background_gs_original_view(view, original);
+    em_background_gs_matrix(original, m);
+    static EmBackgroundGsVertex grid[EM_BACKGROUND_GS_GRID]
+                                    [EM_BACKGROUND_GS_GRID];
+    em_background_gs_grid(&g->bgAsset, m, zoom_s, grid);
+
+    /* One kick per row pair: (r,c), (r+1,c) for c = 0..31. GS XY 12.4
+     * maps onto NDC by the GS pixel-footprint convention of the port's
+     * world projection (em_background_gs_ndc: GS X 2048 = NDC 0, 256 and
+     * 112 field pixels per NDC unit). */
+    enum { STRIP = EM_BACKGROUND_GS_GRID * 2,
+           STRIPS = EM_BACKGROUND_GS_GRID - 1 };
+    static float verts[STRIPS * STRIP * 8];
+    unsigned n = 0;
+    for (unsigned r = 0; r < STRIPS; ++r)
+        for (unsigned c = 0; c < EM_BACKGROUND_GS_GRID; ++c)
+            for (unsigned k = 0; k < 2; ++k) {
+                const EmBackgroundGsVertex *v = &grid[r + k][c];
+                float *o = verts + (n++) * 8;
+                em_background_gs_ndc(v->xy, o);
+                o[2] = 0.0f;
+                o[3] = 1.0f;
+                o[4] = v->st[0];
+                o[5] = v->st[1];
+                o[6] = 0.0f;
+                o[7] = 0.0f;
+            }
+    id<MTLBuffer> buffer = [g->device newBufferWithBytes:verts
+        length:sizeof verts options:MTLResourceStorageModeShared];
+    if (!buffer) return;
+    const uint32_t q = g->bgAsset.rgbaq;
+    const float rgbaq[4] = {
+        (float)(q & 0xffu) / 128.0f, (float)(q >> 8 & 0xffu) / 128.0f,
+        (float)(q >> 16 & 0xffu) / 128.0f, (float)(q >> 24 & 0xffu) / 128.0f,
+    };
+    [g->enc setRenderPipelineState:g->bgPipeline];
+    [g->enc setDepthStencilState:g->depthOff];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBuffer:buffer offset:0 atIndex:0];
+    [g->enc setFragmentTexture:g->bgTexture atIndex:0];
+    [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
+    [g->enc setFragmentBytes:rgbaq length:sizeof rgbaq atIndex:0];
+    for (unsigned r = 0; r < STRIPS; ++r)
+        [g->enc drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                   vertexStart:r * STRIP
+                   vertexCount:STRIP];
+    [buffer release];
 }
 
 /* Set the character light rig consumed by subsequent skinned draws

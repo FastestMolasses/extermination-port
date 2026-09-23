@@ -675,6 +675,40 @@ void em_gfx_fog(EmGfx *gfx, float near_z, float far_z, const float rgb[3]);
  * frames run the EXACT pre-fog shader arithmetic — byte-identical. */
 void em_gfx_fog_off(EmGfx *gfx);
 
+/* --- Level background (the textured "sky" grid behind the level) ------- */
+
+/* The original does not clear the colour buffer per frame (the frame
+ * clear 001D2300 REFs is a Z-only sprite). Behind the level it draws a
+ * full-screen textured grid first in the world chain: 001E1E60 (render
+ * channel 3, CALLed by 001D2300 right after the Z clear) uploads the
+ * camera matrix and grid constants, and the VU1 kernel 0x0023C990 turns
+ * them into 31 triangle strips whose ST come from the view direction of
+ * each grid point (src/gfx/metal/em_background_gs.h, docs/BACKGROUND.md).
+ *
+ * em_gfx_background_load reads the asset the decomp's
+ * `export_level.py --background` writes (the scene manifest's
+ * `background <file>` line) and returns 0, or a negative value when the
+ * file is missing or invalid, or when its GS state is one the backend
+ * does not reproduce (the reason is printed; nothing is drawn — there is
+ * no stand-in). It replaces any previous background. unload drops it
+ * (scene switch to an area without one). ready reports whether one is
+ * loaded. */
+int  em_gfx_background_load(EmGfx *gfx, const char *path);
+void em_gfx_background_unload(EmGfx *gfx);
+int  em_gfx_background_ready(EmGfx *gfx);
+
+/* Draw the loaded background immediately (no-op when none is loaded).
+ * Call it once per world frame BEFORE any other 3D draw — the original
+ * draws it first and later draws cover it; it tests and writes no depth
+ * (TEST ZTST ALWAYS, ZBUF ZMSK 1). `view` is the frame's native view
+ * matrix (em_mat4_lookat_gs, the one the level draws use) and zoom_s the
+ * engine zoom (ctx+0x2468 — em_mat4_perspective_gs's argument). The draw
+ * turns the view back into the original ctx+0x2380 by negating rows 1
+ * and 2; that the native view IS the original with those rows negated is
+ * checked by tools/test_camera_reference.py, not by the background test.
+ * The rest is checked by tools/test_background_reference.py. */
+void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
+
 /* --- last skinned palette (the published bone matrices) ---------------- */
 
 /* The engine PUBLISHES bone world matrices for equipment consumers: the
