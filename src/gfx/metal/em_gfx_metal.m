@@ -148,10 +148,11 @@ struct EmGfx {
     /* Per-draw character light rig (em_gfx_char_rig — em_gfx.h). Seven
      * float4 rows used to prepare integer colors at authored vertices:
      *   [0..2] = dir_i.xyz (world), w unused
-     *   [3..5] = col_i.rgb (0..128 scale), w unused
+     *   [3..5] = col_i.rgb (0..128 scale; caller applies actor RGB), w unused
      *   [6]    = amb.rgb (0..128), w = enable (0 = off)
-     * All-zero = OFF: the shader's character path runs the EXACT
-     * historical stand-in arithmetic (rig-less frames byte-identical). */
+     * All-zero = OFF: a normal-carrying mesh is then NOT drawn (the
+     * original always resolves a room rig, 001D7B30 falls back to entry 0;
+     * the former rig-less 0.30+0.70*N.L stand-in was invented, H18). */
     float                        rig[28];
     float                        face_rig[28]; /* separate original face draw */
     /* Per-frame distance fog (em_gfx_fog — em_gfx.h, em_fog_gs.h). Two
@@ -180,6 +181,10 @@ struct EmGfxMesh {
     id<MTLBuffer>  scaleBuf;
     uint32_t       tex_count;
     uint32_t       flags;      /* EM_GFX_MESH_* */
+    /* H18: set once this mesh has been reported for a rig-less opaque
+     * draw, so every offending mesh is reported (once) instead of only
+     * the first one of the session. */
+    uint8_t        rig_warned;
 };
 
 #define EM_DEPTH_FORMAT MTLPixelFormatDepth32Float
@@ -300,12 +305,15 @@ static NSString *const kParticleShaderSrc =
  * slices hold each texture TILED to a common pow-2 size so sampler REPEAT
  * reproduces GS wrap). This mirrors the VU1 soft-skinner: vertex positions
  * are bone-local, world = palette[bone] * pos. Fragment = texture sample
- * (per-triangle slice via [[flat]]) modulated by directional light;
+ * (per-triangle slice via [[flat]]) modulated by the vertex color;
  * untextured vertices (tex == ~0u) keep the flat grey. A per-draw mode word
- * (fragment buffer 0) selects shading: 0 = directional stand-in light from
- * the normal; bit 0 set = the "normal" slot is a baked RGB vertex color
- * (static level geometry ships its lighting prebaked) and the fragment is
- * texture * color, the GS modulate path; bit 1 set = the GLOW pass (drawn
+ * (fragment buffer 0) selects shading: bit 2 = the original object-kernel
+ * colors em_lighting prepared at the authored vertices (vertex buffer 5,
+ * integer GS RGB interpolated screen-linearly); bit 0 set = the "normal"
+ * slot is a baked RGB vertex color (static level geometry ships its
+ * lighting prebaked) and the fragment is texture * color, the GS modulate
+ * path; a normal-carrying draw without a rig is rejected before encoding
+ * (no stand-in light exists); bit 1 set = the GLOW pass (drawn
  * additively): the fragment is the texture sample alone, no alpha-test
  * cutout (the GS glow draws never update alpha or Z). Fragment buffer 1 is
  * the per-draw RGBA tint (em_gfx_draw_skinned_tinted — the GS RGBAQ actor
@@ -375,19 +383,11 @@ static NSString *const kSkinShaderSrc =
 "/* Flashlight spot term (em_gfx_spot_light — port deviation, see\n"
 " * em_gfx.h: the engine never lights geometry from the toggle). Rows:\n"
 " * [0] pos + enable, [1] dir + range, [2] cone cosines, [3] rgb.\n"
-" * LEVEL-ONLY (2026-06-11 weapon-visual pass): only the baked-vertex-\n"
-" * color LEVEL path (mode bit 0) adds it — the projected disc on the\n"
-" * walls/floor. The directional CHARACTER path no longer takes the\n"
-" * term: a muzzle-anchored spot points AWAY from the player, so in the\n"
-" * reference the player/gun are never lit by their own light (the old\n"
-" * N.L character wrap could rim-light the arms at glancing angles).\n"
-" * EXCEPTION — the CAMERA-FILL signature (cos_inner <= -1, a cone\n"
-" * covering the whole sphere; the status menu's turntable fill,\n"
-" * em_game ui_scene_render): that degenerate spot ALSO lights the\n"
-" * character path, wrapped by N.(-L) — the menu player must read\n"
-" * while the flashlight must never light its own holder. */\n"
-"static float3 spot_term(float3 wpos, float3 nrm, uint mode,\n"
-"                        constant float4 *spot) {\n"
+" * LEVEL-ONLY: only the baked-vertex-color LEVEL path (mode bit 0)\n"
+" * adds it — the projected disc on the walls/floor. Actor draws take\n"
+" * only the original em_lighting colors (H18: the former N.L character\n"
+" * wrap and its camera-fill exception were invented). */\n"
+"static float3 spot_term(float3 wpos, constant float4 *spot) {\n"
 "    if (spot[0].w <= 0.0) return float3(0.0);\n"
 "    float3 toF = wpos - spot[0].xyz;\n"
 "    float dist = max(length(toF), 1e-4);\n"
@@ -395,9 +395,7 @@ static NSString *const kSkinShaderSrc =
 "    float cone = smoothstep(spot[2].y, spot[2].x, dot(L, spot[1].xyz));\n"
 "    float att  = clamp(1.0 - dist / spot[1].w, 0.0, 1.0);\n"
 "    att *= att;\n"
-"    float ndl  = (mode & 1u) ? 1.0\n"
-"               : max(dot(normalize(nrm), -L), 0.0);\n"
-"    return spot[3].rgb * (cone * att * ndl);\n"
+"    return spot[3].rgb * (cone * att);\n"
 "}\n"
 "/* Distance fog (em_gfx_fog, em_fog_gs.h — the per-area GS fog).\n"
 " * Rows: [0] FOGCOL as [0,1] colour + enable, [1] (A, B) coefficients.\n"
@@ -434,10 +432,14 @@ static NSString *const kSkinShaderSrc =
 "    /* The spot add stays behind the enable branch so spot-off frames\n"
 "     * run the EXACT pre-spot arithmetic (byte-identical captures). */\n"
 "    if (mode & 1u) {\n"
-"        /* baked vertex color (GS modulate) + the flashlight spot */\n"
-"        float3 lit = clamp(in.nrm, 0.0, 1.0);\n"
+"        /* baked vertex color (GS modulate) + the flashlight spot. The\n"
+"         * level kernel adds 65536.0 (LOI 00237218, ADDI.y 00237220,\n"
+"         * ADDy 002373B0) and PACKED RGBAQ takes the low byte:\n"
+"         * floor(128*c), so 1.0 is GS 128 (identity) and colors up to\n"
+"         * 255/128 over-brighten like the GS. */\n"
+"        float3 lit = clamp(in.nrm, 0.0, 255.0 / 128.0);\n"
 "        if (spot[0].w > 0.0)\n"
-"            lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
+"            lit += spot_term(in.wpos, spot);\n"
 "        return float4(fog_apply(base.rgb * lit, in.fog_f, fog), base.a)\n"
 "             * tint;\n"
 "    }\n"
@@ -449,17 +451,10 @@ static NSString *const kSkinShaderSrc =
 "        return float4(fog_apply(base.rgb * in.light_rgb, in.fog_f, fog), base.a)\n"
 "             * tint;\n"
 "    }\n"
-"    /* rig-less fallback: the historical directional stand-in (kept\n"
-"     * EXACTLY — rig-off frames stay byte-identical); the degenerate\n"
-"     * camera-fill spot exception (cos_inner <= -1) still applies\n"
-"     * here for any rig-less caller. */\n"
-"    float3 N = normalize(in.nrm);\n"
-"    float3 L = normalize(float3(0.4, 0.8, 0.45));\n"
-"    float  d = max(dot(N, L), 0.0);\n"
-"    float3 lit = float3(0.30 + 0.70 * d);\n"
-"    if (spot[0].w > 0.0 && spot[2].x <= -1.0)\n"
-"        lit += spot_term(in.wpos, in.nrm, mode, spot);\n"
-"    return float4(fog_apply(base.rgb * lit, in.fog_f, fog), base.a) * tint;\n"
+"    /* draw_skinned never encodes a normal-carrying draw without its\n"
+"     * em_lighting colors; there is no stand-in light to fall back on. */\n"
+"    discard_fragment();\n"
+"    return float4(0.0);\n"
 "}\n";
 
 /* Blend state selector for build_pipeline — the three GS ALPHA configs
@@ -1002,19 +997,37 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
     uint32_t mode = m->flags | (additive ? 2u : 0u);
     id<MTLBuffer> vertex_colors = nil;
-    if (!(mode & 3u) && g->rig[27] > 0.0f) {
-        vertex_colors = vertex_lighting_buffer(g, m, palette, bone_count);
-        if (!vertex_colors) {
-            fprintf(stderr, "gfx: failed to prepare original vertex lighting\n");
-            return;
+    bool opaque = m->opaque_count != 0;
+    if (opaque && !(mode & 3u)) {
+        if (!(g->rig[27] > 0.0f)) {
+            /* H18: the original lights every actor draw with a room rig
+             * (001D89D0 mode 0; 001D7B30 never fails). A missing rig is a
+             * caller contract fault, not a cue for an invented light:
+             * the opaque set is not drawn (the additive glow set, which
+             * never takes light, still is). Reported once PER MESH: a
+             * session-wide flag let the first offender (the status-menu
+             * backplate, drawn before any em_gfx_char_rig) hide later
+             * contract violations. */
+            if (!m->rig_warned) {
+                fprintf(stderr, "gfx: normal-carrying mesh %p drawn without "
+                        "a light rig — opaque draw rejected "
+                        "(em_gfx_char_rig)\n", (void *)m);
+                m->rig_warned = 1;
+            }
+            opaque = false;
+        } else {
+            vertex_colors = vertex_lighting_buffer(g, m, palette, bone_count);
+            if (!vertex_colors) {
+                fprintf(stderr, "gfx: failed to prepare original vertex lighting\n");
+                return;
+            }
+            mode |= 4u;
         }
-        mode |= 4u;
-        [g->enc setVertexBuffer:vertex_colors offset:0 atIndex:5];
-    } else {
-        /* The disabled shader branch does not consume colors. Binding the
-         * existing vertex buffer still keeps the entire indexed range valid. */
-        [g->enc setVertexBuffer:m->vbuf offset:0 atIndex:5];
     }
+    /* Without em_lighting colors the shader never reads buffer 5; binding
+     * the vertex buffer keeps the indexed range valid. */
+    [g->enc setVertexBuffer:(vertex_colors ? vertex_colors : m->vbuf)
+                     offset:0 atIndex:5];
     [g->enc setVertexBytes:&mode length:4 atIndex:4];
     [g->enc setVertexBytes:g->fog length:sizeof(g->fog) atIndex:6];
     [g->enc setFragmentBytes:&mode length:4 atIndex:0];
@@ -1023,7 +1036,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setFragmentBytes:g->fog length:sizeof(g->fog) atIndex:4];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
-    if (m->opaque_count)
+    if (opaque)
         [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                            indexCount:m->opaque_count
                             indexType:MTLIndexTypeUInt32
@@ -1667,9 +1680,9 @@ void em_gfx_fog_off(EmGfx *g)
 
 /* Set the character light rig consumed by subsequent skinned draws
  * (em_gfx.h "Character light rig" — the engine's per-actor VU1 light
- * matrix). Stored as the seven fragment-buffer rows the skinned shader
- * consumes; NULL (or begin_frame) zeroes the enable so the character
- * path falls back to the historical stand-in. The rows bind per draw —
+ * matrix). Stored as the seven rows vertex_lighting_buffer feeds to
+ * em_lighting; NULL (or begin_frame) zeroes the enable, after which a
+ * normal-carrying draw is rejected (no stand-in light). The rows bind per draw —
  * em_game sets a fresh rig before each actor draw of the close-out
  * flush, exactly like the engine rebuilding the matrix per actor. */
 void em_gfx_char_rig(EmGfx *g, const EmGfxCharRig *rig)

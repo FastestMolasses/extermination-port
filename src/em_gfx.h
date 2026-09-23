@@ -55,8 +55,12 @@ typedef struct {
 /* Mesh creation flags (mirrors EM_MODEL_FLAG_* in em_model.h). */
 #define EM_GFX_MESH_VCOLOR 1u  /* "normal" slot carries a baked RGB vertex
                                   color: shade = texture * color (the PS2
-                                  level data ships prebaked lighting)
-                                  instead of the directional stand-in. */
+                                  level data ships prebaked lighting; the
+                                  level kernel submits floor(128*c), so
+                                  1.0 = GS 128, the modulate identity).
+                                  Without it the slot is the authored
+                                  object-kernel normal, lit only through
+                                  em_gfx_char_rig (FIRST_LEVEL_AUDIT H18). */
 
 /* Per-vertex bone-word layout: low24 bits = palette slot, bit31 = the
  * EM_MODEL_VERT_BILLBOARD glow vertex, and bit30 = native face-draw metadata.
@@ -471,9 +475,9 @@ void em_gfx_beam_tri_tex(EmGfx *gfx, int slot, const float p[9],
  * the directional CHARACTER path takes no term (2026-06-11
  * weapon-visual pass — the muzzle-anchored flashlight must never
  * light the player/gun; the reference beam lights the room only).
- * EXCEPTION: the degenerate CAMERA-FILL signature (cos_inner <= -1,
- * a cone covering the whole sphere — em_game's status-menu turntable
- * fill) ALSO lights the character path, wrapped by N.(-L). Reset OFF
+ * Normal-carrying (actor) draws never take this term: the former
+ * degenerate camera-fill exception (cos_inner <= -1) lit them with an
+ * invented N.(-L) wrap and is removed (H18). Reset OFF
  * at em_gfx_begin_frame; with no call the frame output is
  * bit-identical to pre-spot builds (the shader adds exactly 0).
  *
@@ -559,7 +563,21 @@ void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
  * dir rows are world-space (not necessarily unit — the engine's slot-0
  * fold normalizes, slots 1/2 come unit from the rig table); col/amb on
  * the engine 0..128 scale (128 = modulate identity; values above 128
- * over-brighten toward the 255 clamp, exactly the GS headroom). */
+ * over-brighten toward the 255 clamp, exactly the GS headroom).
+ *
+ * CALLER CONTRACT (verified per vertex against executed 001D89D0 and the
+ * captured AREA11 DMA units, tools/test_actor_lighting_reference.py,
+ * docs/ACTOR_LIGHTING.md):
+ *   - slot 0 is zero unless actor+2 bit 0x20 (camera fill);
+ *   - the point-light fold runs only when em_lighting_fold_gate(actor
+ *     type byte +3, model radius +0x20) passes (001D8270);
+ *   - the fold/camera light point is the node selected by actor+0x98
+ *     (node world +0xC0), or actor+0xB0 when it is 0xFF;
+ *   - col rows and amb carry the actor RGB (actor+0x80..0x88) product,
+ *     em_lighting_actor_rgb (001D8690); the self-glow of actor+2 bit
+ *     0x40 is not representable here;
+ *   - every normal-carrying mesh vertex is lit with its own node's world
+ *     matrix (the palette slot the vertex names). */
 typedef struct {
     float dir[3][4];   /* light directions, slots 0..2 (w unused) */
     float col[3][4];   /* light colors, 0..128 scale (w unused)   */
@@ -569,13 +587,13 @@ typedef struct {
 /* Set the rig consumed by SUBSEQUENT skinned draws' character path
  * (mesh without EM_GFX_MESH_VCOLOR; the baked-vertex-color LEVEL path
  * and the glow pass never take it — engine truth: level geometry is
- * never dynamically lit). NULL disables it again: the character path
- * falls back to the historical directional stand-in (0.30 + 0.70*N.L,
- * invented light), keeping rig-less frames byte-identical to pre-rig
- * builds. Reset to NULL at em_gfx_begin_frame. While a rig is active
- * the stand-in AND the spot term's degenerate camera-fill exception
- * are replaced by the rig math (the flashlight spot still applies to
- * the LEVEL path — that deviation is level-only by design). */
+ * never dynamically lit). NULL disables it again. Reset to NULL at
+ * em_gfx_begin_frame. A normal-carrying mesh drawn without a rig is NOT
+ * drawn (its opaque set is rejected; the diagnostic prints once per
+ * mesh): the original always has a rig (001D7B30 falls back to table
+ * entry 0), and the former rig-less 0.30 + 0.70*N.L stand-in was
+ * invented (H18). The
+ * flashlight spot applies only to the LEVEL path. */
 void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig);
 
 /* Original faces use 001D88B0: camera fill enabled, dynamic light folding

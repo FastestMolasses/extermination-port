@@ -75,3 +75,32 @@ void em_lighting_vertex(uint32_t packed_rgba[4], const float normal[3],
         memcpy(&packed_rgba[channel], &value, sizeof value);
     }
 }
+
+int em_lighting_actor_rgb(float colors[12], float ambient[4],
+                          const float actor_rgb[3])
+{
+    for (unsigned channel = 0; channel < 3; ++channel)
+        if (!isfinite(actor_rgb[channel]) || !isfinite(ambient[channel]))
+            return 0;
+    for (unsigned light = 0; light < 3; ++light)
+        for (unsigned channel = 0; channel < 3; ++channel)
+            if (!isfinite(colors[light*4+channel])) return 0;
+    for (unsigned light = 0; light < 3; ++light)
+        for (unsigned channel = 0; channel < 3; ++channel)
+            colors[light*4+channel] = multiply(colors[light*4+channel],
+                                               actor_rgb[channel]);
+    for (unsigned channel = 0; channel < 3; ++channel)
+        ambient[channel] = multiply(ambient[channel], actor_rgb[channel]);
+    return 1;
+}
+
+int em_lighting_fold_gate(unsigned type, float model_radius)
+{
+    switch (type & 0xffu) {
+    case 0x03: case 0x08: case 0x09: case 0x0b: case 0x0d:
+    case 0x15: case 0x16: case 0x17: case 0x3d: case 0x3e:
+        return 0;
+    default:
+        return model_radius < 30.0f;
+    }
+}

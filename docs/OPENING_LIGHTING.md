@@ -105,8 +105,13 @@ ordering remains a fidelity dependency, so native flicker angles are not
 claimed to equal an arbitrary original captured frame.
 
 The ordinary native rig currently supplies identity actor RGB to the matrix
-builder. Existing post-draw tint handling is retained; original actor RGB and
-self-glow before the color clamp are not claimed complete. Existing texture
+builder. `em_lighting_actor_rgb` now reproduces the 001D8690 multiply and
+`em_lighting_fold_gate` reproduces 001D8270. Both are verified against the
+AREA11 actors in [ACTOR_LIGHTING.md](ACTOR_LIGHTING.md), but the caller does
+not use them yet. Existing post-draw tint handling is retained; self-glow
+(actor+2 bit 0x40) before the color clamp is not claimed complete. The
+rig-less shader stand-in is deleted: a normal mesh drawn without a rig is
+rejected. Existing texture
 alpha/blend handling and fog remain separate from this RGB correction. Native
 bone/camera arithmetic, quantized GS raster positions, GS interpolation
 precision and occlusion against unquantized native geometry also remain
