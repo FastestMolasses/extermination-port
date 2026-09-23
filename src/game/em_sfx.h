@@ -12,24 +12,28 @@
  *     sequencer mixes the voices over the streamed BGM on the SPU2.
  *   - Natively the id -> script resolution is the EMSR registry
  *     assets/sfx/sfx_registry.emsr (tools/export_sfx_registry.py, from the
- *     user's own disc data). Every trigger script is A0 events (00115850),
- *     and each entry keeps, per A0 voice, the sequencer tick, the integer
- *     SPU pitch word (bend 0x40 -> 00117918 -> *44100/48000) and the
- *     001179E0 volume inputs, so the mixer applies the ORIGINAL Q14 volume
- *     words (docs/SFX_PITCH.md; WP-14, H19/AM-01/AM-02). The legacy
- *     sfx.txt WAV registry and its x1.531-sharp rates are retired.
+ *     user's own disc data): each trigger script decoded into timed
+ *     operations (A0 key-on / key-off, B0 41 portamento, FF 2F end). The
+ *     translated sound driver (em_sfx_bank.h, docs/SFX_SEQUENCER.md) runs
+ *     them per sequencer tick exactly as 001152D8 does: 00119EA0 tracks,
+ *     00117428 voice allocation, 001176E0 key-off, 00118078/00116598
+ *     portamento and re-sends, 00118EC0 reaping, with the ORIGINAL SPU
+ *     pitch, Q14 volume and ADSR words (docs/SFX_PITCH.md; WP-14,
+ *     H19/AM-01/AM-02/AM-03/AM-18/AM-26/AM-27).
  *   - Entries are scoped: (-1,-1) for group-1 global records, else the
  *     (area, sub) the id was resolved for. em_sfx_set_area selects the
  *     scope; an area-dependent id with no scope bound is silent and
  *     counted (em_sfx_unscoped_cues), never guessed from another area.
- *     Ids whose scripts need unreproduced driver features (controllers,
- *     looping samples, sustained key-off) are UNSUPPORTED: silent,
- *     counted, reported once.
+ *     Ids whose scripts need unreproduced driver features (other
+ *     controllers, noise, modulation, volume sweeps) are UNSUPPORTED:
+ *     silent, counted, reported once. The current export has none.
  *   - The scoped EMSF bank separately preserves the original AREA11 panel
  *     cue with its verified steady envelope and takes precedence while
  *     (11,0) is selected. See docs/AREA11_PANEL_SFX.md.
- *   - Native boundaries: linear interpolation, no ADSR/reverb, sequencer
- *     ticks at the NTSC field rate, no 00117428 voice allocation.
+ *   - Native boundaries: linear interpolation (not SPU2 Gaussian), no
+ *     reverb, the SPU2 ADSR is a documented-semantics model (checked only
+ *     against PCSX2 ENVX feedback), sequencer ticks at the NTSC field
+ *     rate.
  *
  * POSITIONAL AUDIO — the engine's play_sound and its 3-D volume/pan
  * solver. Re-verified 2026-07-31 against the BYTE-MATCHED decomp
@@ -109,81 +113,34 @@
  *   em_sfx_play_at (positional) instead submits float_to_int(4096 *
  *   gain) per channel (001FBF50 -> 001281C0, truncation toward zero).
  *
- * VOICE STEALING — RE-CORRECTED 2026-09 (WP-14). Every registry trigger
- * script consists of A0 events (the exporter rejects anything else), and
- * 001152D8 routes 0xA0 to func_00115850, which allocates through
- * func_00117428 (same-tone retrigger pass, free pass, priority-gated
- * oldest pass). The 2026-07-31 note below described func_001172B8, the
- * 0x90 note-on allocator, which these scripts never reach. Neither
- * allocator is reproduced: the port policy below is an approximation.
- * The superseded text is kept for its 001172B8 decode:
- *
- *   func_001172B8(tone_byte0) — src/func_001172B8.c, a NEARMISS (its
- *   logic is authoritative, its scheduling is not) — walks the 48-entry
- *   voice table D_0027CCC0 (stride 0x6A) round-robin from the shared
- *   cursor D_0027F740+0x30:
- *     1. FIRST busy voice (+0x00 != 0) whose state +0x1A == 3 is taken
- *        and reused in place;
- *     2. else, among +0x1A == 1 voices, the OLDEST — minimum +0x0A, the
- *        note-on serial stamped at trigger time from the D_0027F740+0x34
- *        counter (func_00115E50: voice.f0A = *(u16*)(D_0027F740+0x34))
- *        — with the +0x08 == 1 group ranked ahead of the +0x08 != 1
- *        group;
- *     3. else -1, and func_00115E50 breaks out of its tone loop: the
- *        note-on is silently dropped.
- *   There is NO priority gate and NO "same tone byte0 + bank handle"
- *   retrigger pass anywhere in func_001172B8. Both of those belong to
- *   func_00117428, which func_00115850 calls as
- *   func_00117428(tone[0], tone[1], handle) and which gates its steals
- *   on arg1 >= victim +0x1E. The old note that "byte0 is 0 on every
- *   shipped SFX tone, so retrigger never fires" is therefore moot on
- *   this path either way — the pass does not exist here. (The +0x1E =
- *   tone byte1 = priority and +0x20 = tone byte0 identifications do
- *   hold: func_00115E50 writes voice.f1E = tone[1] and voice.f20 =
- *   tone[0]. They just are not consulted by the note-on allocator.)
- *
- *   PORT POLICY (faithful-feasible): the engine's 48-voice budget over
- *   64 physical slots; when 48 voices are live the OLDEST live voice
- *   (minimum play serial) is killed — the same minimum-+0x0A rule as
- *   func_001172B8 pass 2, and with no priority gate, exactly like the
- *   engine on this path. Pass 1 (reuse a +0x1A == 3 voice) has no port
- *   analogue: port one-shots have no decaying/released state. The
- *   +0x08 sub-ranking inside pass 2 is a driver flag we do not model.
- *   The kill is honored by the audio thread at its next callback — the
- *   engine's own steal is likewise deferred to the next driver tick
- *   through the func_001157F0 command queue — and the 16 spare slots
- *   absorb that latency, so a play is dropped only when 64 slots are
- *   busy (unreachable in practice, still counted in em_sfx_drops).
+ * VOICE ALLOCATION (WP-14, AM-18): the port-policy "oldest voice steal"
+ * is retired. Key-ons allocate through the translated 00117428 exactly as
+ * shipped: same-tone retrigger pass (tone byte 0 != 0), round-robin free
+ * pass from the shared cursor D_0027F740+0x30, and a pass-3 steal whose
+ * minimum trackers start at -1 with signed compares, so only a released
+ * kind-1 (note) voice is ever taken: SFX voices are never stolen and a
+ * key-on with all 44 non-stream voices busy is dropped (counted in
+ * em_sfx_voice_refusals). A 49th concurrent track is refused by 00119EA0
+ * (em_sfx_drops). Both refusals are verified against original execution
+ * (tools/test_area11_sfx_reference.py "exhaustion"). em_sfx_steals() is
+ * therefore always 0.
  *
  * DEVICE OWNERSHIP: em_bgm owns the single em_audio device (em_audio.h pull
  * model). em_sfx NEVER opens a device — em_bgm's render callback calls
- * em_sfx_mix() to sum the one-shot voices into the same buffer, and
+ * em_sfx_mix() to sum the SFX voices into the same buffer, and
  * em_sfx_play() asks em_bgm to bring the shared device up (at the BGM
  * default 48 kHz) if music has not already done so.
  *
  * THREADING (per the em_audio.h contract): single producer (game thread) /
- * single consumer (the OS audio thread). Samples are preloaded PCM16 at
- * registry-load time and immutable until shutdown, so the audio thread only
- * ever reads memory. Each voice slot carries an atomic state word:
- *
- *      game thread                      audio thread (inside bgm_render)
- *      -----------                      --------------------------------
- *      CAS FREE -> STAGING
- *      write sound ptr, pos = 0
- *      store READY      (release) --->  load (acquire): READY -> adopt
- *                                       (PLAYING), resample-mix, sum;
- *                                       sample exhausted ->
- *                                 <---  store FREE (release)
- *
- * The game thread touches only FREE slots (the CAS), the audio thread only
- * non-FREE ones; no locks, no allocation, no I/O on the audio thread.
- * STEALING extends the protocol with one atomic `kill` flag per slot: the
- * game thread raises it on the chosen victim (never on a slot it already
- * raised it on); the audio thread, on seeing kill up on a READY/PLAYING
- * slot, lowers it and stores FREE instead of mixing. kill is lowered by
- * the claimer inside STAGING too (a victim can finish naturally and be
- * re-claimed before the audio thread ever saw the flag), and the READY
- * release-store publishes that clear with the other fields.
+ * single consumer (the OS audio thread). The driver (tracks, voices, SPU
+ * model) belongs to the audio thread; the game thread sees one atomic
+ * state word per original track (em_sfx.c "TRACK HAND-OFF"): it picks the
+ * lowest FREE track and publishes the start (READY, release store); the
+ * audio thread adopts it at its next sequencer tick and publishes FREE
+ * when the original reaper frees the track. Stops (0011A070) and gain
+ * updates (0011A218) cross the same way. Samples are preloaded PCM16 at
+ * registry-load time and immutable until shutdown; no locks, no
+ * allocation, no I/O on the audio thread.
  *
  * Call ordering (game thread): em_sfx_init() at boot (after the manifest,
  * before plays), em_sfx_play() during gameplay, em_sfx_shutdown() AFTER
@@ -192,6 +149,8 @@
  */
 #ifndef EM_SFX_H
 #define EM_SFX_H
+
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -336,7 +295,7 @@ int em_sfx_unsupported_cues(void); /* UNSUPPORTED registry plays refused */
 int em_sfx_unscoped_cues(void);    /* area-dependent plays whose scope
                                     * (or lack of one) was not exported  */
 
-/* Fire one one-shot voice for the engine sound id at CENTER/FULL — the
+/* Start the engine sound id's trigger script at CENTER/FULL — the
  * engine's non-positional submit form AND the exact play_sound result for
  * a player-attached source (see "POSITIONAL AUDIO" above). Unknown/
  * unloaded id or disabled module = silent no-op. Brings the shared audio
@@ -355,11 +314,9 @@ void em_sfx_listener(const float player_pos[3], const float cam_eye[3],
 
 /* POSITIONAL one-shot — the native play_sound(obj, id, 0, radius). The
  * stereo gain pair from the BYTE-MATCHED src/func_001FBF50.c is computed
- * ONCE here and baked into the voice; "no per-frame re-pan" re-verified
- * 2026-07-31: the pair lands in channel +0x48/+0x4C via func_0011A218
- * and nothing else in the driver rewrites those two words (they are
- * otherwise only initialised to 0x1000 by func_00119650/func_00119EA0),
- * so it is static for the life of the voice. A source at d >= radius is
+ * ONCE here and lands in track +0x48/+0x4C via func_0011A218; only
+ * 0011A218 rewrites those words later, which play_sound never does (the
+ * looped service em_sfx_loop_service does, through 001FBDB0). A source at d >= radius is
  * culled exactly like the engine — func_001FBF50 does
  * `if (!(dist < radius)) return 0;` BEFORE submitting anything, and
  * func_001FBD50 turns that into its -1 return. Counted in
@@ -374,30 +331,54 @@ void em_sfx_play_at(unsigned id, const float pos[3], float radius);
 int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r);
 
-/* AUDIO-THREAD mixer half: SUM all live one-shot voices into the
- * interleaved stereo buffer (which already holds the BGM frames), each
- * A0 voice at its SPU pitch (4096 = 48 kHz) and Q14 volume words. Called by
- * em_bgm's render callback only — real-time safe per the em_audio.h
- * contract (no locks/allocation/IO). A no-op while no voices are live. */
+/* AUDIO-THREAD mixer half: runs the sound driver's sequencer ticks and
+ * SUMS every sounding SPU voice into the interleaved stereo buffer (which
+ * already holds the BGM frames): SPU pitch (4096 = 48 kHz), loop replay,
+ * ADSR at the 48 kHz clock and Q14 volume words. Called by em_bgm's render
+ * callback only — real-time safe per the em_audio.h contract (no
+ * locks/allocation/IO). A no-op while nothing is live. */
 void em_sfx_mix(float *out_interleaved_stereo, int frames, int device_rate);
+
+/* LOOPED POSITIONAL SERVICE — func_001FC3C0, called every frame by an
+ * owner that keeps a sound alive (the AREA11 flame/steam effect owner
+ * 001E3D90 passes 0x411/0x412/0x413 with radius 100, AM-12). `handle` is
+ * the owner's service word (-1 initially). On (frame + ordinal) % 10 == 0
+ * (the scratchpad frame counter 0x70003B68 plus the owner's active-list
+ * ordinal 0x70003B8A) it starts the id positionally (001FBD50: 001FBF50
+ * gains, 001FB9F0) or, while the track is still allocated, re-pans it
+ * (001FBDB0: 0011A218, or 0011A070 when out of range). A changed id or a
+ * cleared D_00281C30 entry drops the handle. Verified against original
+ * execution. Game thread only; returns the new handle. */
+int32_t em_sfx_loop_service(int32_t *handle, unsigned id, const float pos[3],
+                            float radius, int32_t frame, int16_t ordinal);
+/* func_001FC520: stop a live service handle (0011A070) and clear it. */
+void em_sfx_loop_release(int32_t *handle);
+/* func_001FB100's per-frame D_00281C30 <- D_00281B70 copy (frame step H);
+ * the service reads the snapshot. Call once per frame where 001FB100 runs. */
+void em_sfx_frame_snapshot(void);
+
+/* Stop every live voice (engine func_001FBC50 — the audio reset/stop-all,
+ * mislabelled "Subsystem init" in the decomp): every allocated track is
+ * hard-stopped (0011A070 | 0x8000) and the service tables return to -1.
+ * Honored at the next audio callback, where the stopped voices are
+ * silenced at once. Call at a game-over, a scripted cut, or the script's
+ * op-0x17 sub-3 stop. This is a RUNTIME stop; em_sfx_shutdown() below is
+ * the process-exit teardown and must not be used for it. */
+void em_sfx_stop_all(void);
 
 /* Free the preloaded samples. Game thread, AFTER em_bgm_shutdown() (the
  * device-teardown guarantee is what makes the sample memory safe to
- * free). Prints the mixed-voice counters if any one-shot ever played. */
-/* Stop every live voice immediately (engine func_001FBC50 — the audio
- * reset/stop-all, mislabelled "Subsystem init" in the decomp). Call at a
- * game-over, a scripted cut, or the script's op-0x17 sub-3 stop. This is a
- * RUNTIME stop; em_sfx_shutdown() below is the process-exit teardown and must
- * not be used for it. */
-void em_sfx_stop_all(void);
+ * free). Prints the counters if any sound ever played. */
 
 void em_sfx_shutdown(void);
 
 /* Introspection (EM_SFX_TEST / debugging; game thread). */
 int  em_sfx_sound_count(void);    /* audible registry entries loaded    */
-int  em_sfx_plays(void);          /* accepted em_sfx_play(_at) calls    */
-int  em_sfx_drops(void);          /* plays dropped (64 physical busy)   */
-int  em_sfx_steals(void);         /* oldest-voice kills at the 48 budget*/
+int  em_sfx_plays(void);          /* plays that were given a track      */
+int  em_sfx_drops(void);          /* plays refused: all 48 tracks busy  */
+int  em_sfx_steals(void);         /* always 0: 00117428 never steals SFX */
+unsigned em_sfx_voice_refusals(void); /* key-ons 00117428 found no voice */
+int  em_sfx_track_status(int track);  /* 00119890(1, track): 2 or 0     */
 int  em_sfx_culls(void);          /* play_at sources culled at >=radius */
 long em_sfx_frames_mixed(void);   /* summed voice frames mixed so far   */
 int  em_sfx_max_concurrent(void); /* peak simultaneous live voices      */

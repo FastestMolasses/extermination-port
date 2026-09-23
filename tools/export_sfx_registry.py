@@ -39,17 +39,16 @@ AREA11_EXTRA_IDS = (0x3EE, 0x3EF)
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
     'script': 1,           # a status other than A0 / FF 2F in the script
-    'looping sample': 2,   # repeat flag at the sample end (AM-03)
+    'looping sample': 2,   # repeat without loop start / unsettled loop body
     'sweep volume': 3,     # tone +0x0A != 0 (001179E0 sweep form)
     'modulation': 4,       # tone flag 0x20 (00115850 voice +0x14)
     'noise': 5,            # tone flag 0x02 (voice command 0x33)
-    'sustained key-off': 6,  # velocity-0 key-off of a tone flag 0x01 voice
+    'sustained key-off': 6,  # retired in EMSR v2 (key-off runs natively)
     'unbound bank': 7,     # bank slot not registered for this area
     'track defaults': 8,   # channel defaults differ between track slots
     'pitch range': 9,      # pitch outside 1..0x3FFF
     'no voice': 10,        # script produces no voice at all
 }
-EVENT_MAX = 8
 
 
 def load_decomp_module(name):
@@ -190,16 +189,132 @@ def area_bindings(elf):
     return bindings
 
 
+ADPCM_FRAME, ADPCM_SAMPLES = 16, 28
+ADPCM_COEFS = ((0, 0), (60, 0), (115, -52), (98, -55), (122, -60))
+
+
 def sample_blocks(bank, tone_sample):
+    """ADPCM blocks from the tone's start through the first end-flag block.
+
+    Returns (offset, raw, loop_start_block): the SPU2 repeats from the last
+    loop-start (flag 0x04) block when the end block also carries the repeat
+    flag 0x02; None when the sample ends (flag 0x01 alone)."""
     start = bank.body + (tone_sample << 3)
     end = start
+    loop_start = None
     while True:
-        if end + 16 > len(bank.data):
+        if end + ADPCM_FRAME > len(bank.data):
             raise ValueError('sample lacks an end flag')
         flags = bank.data[end + 1]
-        end += 16
+        if flags & 4:
+            loop_start = (end - start) // ADPCM_FRAME
+        end += ADPCM_FRAME
         if flags & 1:
-            return start, bank.data[start:end], bool(flags & 2)
+            raw = bank.data[start:end]
+            if not flags & 2:
+                return start, raw, None
+            if loop_start is None:
+                raise Unsupported('looping sample', 'repeat without loop start')
+            return start, raw, loop_start
+
+
+def decode_blocks(raw, first, count, history):
+    """SPU ADPCM blocks [first, first+count) from a (hist1, hist2) state.
+
+    Filters 0..4 and shifts 0..12 only; anything else is refused by the
+    caller (no decoder behaviour outside that range is claimed)."""
+    hist1, hist2 = history
+    out = []
+    for block in range(first, first + count):
+        at = block * ADPCM_FRAME
+        shift, predictor = raw[at] & 0xF, raw[at] >> 4
+        c1, c2 = ADPCM_COEFS[predictor]
+        for i in range(ADPCM_SAMPLES):
+            nibble = raw[at + 2 + (i >> 1)] >> (4 * (i & 1)) & 0xF
+            nibble -= 16 if nibble > 7 else 0
+            value = (nibble << (12 - shift)) + ((hist1 * c1 + hist2 * c2) >> 6)
+            value = max(-32768, min(32767, value))
+            hist2, hist1 = hist1, value
+            out.append(value)
+    return out, (hist1, hist2)
+
+
+def sample_pcm(raw, loop_start):
+    """(pcm, loop_body): the key-on pass decoded from zero history; for a
+    looping sample also the body as replayed with the history carried over
+    from the loop end. The export requires the third pass to repeat the
+    second, so the native mixer may replay one fixed body."""
+    blocks = len(raw) // ADPCM_FRAME
+    for block in range(blocks):
+        if raw[block * ADPCM_FRAME] & 0xF > 12 or raw[block * ADPCM_FRAME] >> 4 > 4:
+            raise Unsupported('script', 'ADPCM shift/filter outside 0..12/0..4')
+    pcm, history = decode_blocks(raw, 0, blocks, (0, 0))
+    if loop_start is None:
+        return pcm, None
+    body, history = decode_blocks(raw, loop_start, blocks - loop_start, history)
+    again, _ = decode_blocks(raw, loop_start, blocks - loop_start, history)
+    if again != body:
+        raise Unsupported('looping sample', 'loop body does not settle')
+    return pcm, body
+
+
+def script_events(data, position, limit=0x1000):
+    """001152D8 SFX-track event loop over one trigger script.
+
+    00117088 fetch with running status (a data byte re-uses the stored
+    status and the cursor steps back one), 00118E60 big-endian VLQ delta,
+    the track accumulator +0x20 (+= delta<<12, the tail subtracts
+    +0x1C = 0x1E0000/60 per tick while the track runs). Dispatch:
+      A0 note vel prog   00115850 (vel 0 -> 001176E0 key-off), cursor +4
+      B0 41 a2 a3 prog note  00118078 portamento set-up, cursor +6
+      FF 2F 00           00117C28 end of track (no delta)
+    Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
+    """
+    events, running, acc, tick = [], None, 0, 0
+    end = min(position + limit, len(data))
+    while position < end:
+        if data[position] & 0x80:
+            running = data[position]
+            position += 1
+        if running is None:
+            raise Unsupported('script', 'no status')
+        if running == 0xFF:
+            if data[position:position + 2] != b'\x2f\x00':
+                raise Unsupported('script', f'unsupported meta 0x{data[position]:02X}')
+            events.append(dict(kind='end', tick=tick))
+            return events
+        if running & 0xF0 == 0xA0:
+            note, vel, prog = data[position:position + 3]
+            position += 3
+            events.append(dict(kind='a0', tick=tick, note=note, vel=vel, prog=prog))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x41:
+            _, length, depth, prog, note = data[position:position + 5]
+            position += 5
+            events.append(dict(kind='portamento', tick=tick, note=note, prog=prog,
+                               length=length, depth=depth))
+        elif running & 0xF0 == 0xB0:
+            raise Unsupported('script', f'unsupported controller 0x{data[position]:02X}')
+        else:
+            raise Unsupported('script', f'unsupported status 0x{running:02X}')
+        delta = 0
+        while True:
+            byte = data[position]
+            position += 1
+            delta = delta << 7 | byte & 0x7F
+            if not byte & 0x80:
+                break
+        acc += delta << 12
+        while acc > 0:
+            acc -= A.SEQ_TICK
+            tick += 1
+    raise Unsupported('script', 'truncated')
+
+
+OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END = 1, 2, 3, 4
+OP_MAX = 32
+# D_00241D70 entries exported for 00117918: the A0 bend is always 0x40, so
+# indices stay within (11|12)*16 + fine(-128..127) + 0xD0 +- 15 (portamento).
+LADDER_COUNT = 0x240
 
 
 def resolve(elf, bindings, sound_id, area, sub, samples):
@@ -221,9 +336,7 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
         if position is None:
             return dict(base, state=STATE_ABSENT,
                         note='00119EA0 returns -1 (no script)')
-        events, status = A.parse_script(bank.data, position)
-        if status != 'end':
-            raise Unsupported('script', status)
+        events = script_events(bank.data, position)
         hd = bank.hd
         state = hd + bank.u32(hd + 0x20)
         programs = hd + bank.u32(hd + 0x24)
@@ -237,22 +350,24 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
         if any(c[j] != channels[0][j] for c in channels for j in (3, 0xC, 0xE)):
             raise Unsupported('track defaults')
         channel = channels[0]
-        voices, out = [], []
+        out = []
         for event in events:
+            if event['kind'] == 'end':
+                out.append(dict(kind='end', op=OP_END, tick=event['tick']))
+                continue
+            if event['kind'] == 'portamento':
+                out.append(dict(event, op=OP_PORTAMENTO))
+                continue
+            if event['vel'] == 0:
+                # 001176E0: keys off this track's sustained (voice +0x0C)
+                # voices with the same note and program byte, at run time.
+                out.append(dict(kind='key-off', op=OP_KEY_OFF, tick=event['tick'],
+                                note=event['note'], prog=event['prog']))
+                continue
             # SFX-mode program: offset table at state+0x312 (00117088).
             program = programs + bank.u16(state + 0x312 + 2 * event['prog'])
             assert program == programs + bank.u16(programs + 2 + 2 * event['prog'])
             slot = event['note'] - bank.u8(program + 6)
-            if event['vel'] == 0:
-                # 001176E0 keys off only voices whose tone had flag 0x01
-                # (voice +0x0C) with the same note and program byte.
-                for voice in voices:
-                    if (voice['note'] == event['note'] and
-                            voice['prog'] == event['prog'] and voice['flags'] & 1):
-                        raise Unsupported('sustained key-off', f"note {event['note']}")
-                out.append(dict(kind='key-off no-op', tick=event['tick'],
-                                note=event['note']))
-                continue
             if slot < 0:
                 out.append(dict(kind='no voice (note below program)',
                                 tick=event['tick'], note=event['note']))
@@ -267,8 +382,8 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
             if flags & 0x02:
                 raise Unsupported('noise', f'tone flags {flags:#x}')
             bend_range = bank.u8(program + 4) if flags & 0x10 else tone[13]
-            pitch = A.a0_pitch(elf, tone[2], event['note'],
-                               struct.unpack('b', tone[3:4])[0], bend_range)
+            fine = struct.unpack('b', tone[3:4])[0]
+            pitch = A.a0_pitch(elf, tone[2], event['note'], fine, bend_range)
             if not 0 < pitch <= 0x3FFF:
                 raise Unsupported('pitch range', str(pitch))
             velocity = bank.u8(velocities + event['vel'] + 2)
@@ -276,33 +391,35 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                       bank.u8(program + 1) * master) >> 27
             pan = elf.u16(A.PAN_TABLE + 2 * (tone[12] >> 2))
             tone_sample = struct.unpack_from('<H', tone, 4)[0]
-            offset, raw, loops = sample_blocks(bank, tone_sample)
-            if loops:
-                raise Unsupported('looping sample', f'{bank.name}+{offset:#x}')
+            offset, raw, loop_block = sample_blocks(bank, tone_sample)
             key = (bank.name, offset)
             if key not in samples:
+                pcm, body = sample_pcm(raw, loop_block)
                 samples[key] = dict(index=len(samples), container=bank.name,
-                                    offset=offset, adpcm=raw)
-            voices.append(dict(note=event['note'], prog=event['prog'], flags=flags))
+                                    offset=offset, adpcm=raw, pcm=pcm, body=body,
+                                    loop_start=None if loop_block is None
+                                    else loop_block * ADPCM_SAMPLES)
             left, right = volume_words(scalar, pan)
-            out.append(dict(kind='voice', tick=event['tick'], wait=event['wait'],
+            out.append(dict(kind='voice', op=OP_KEY_ON, tick=event['tick'],
                             note=event['note'], velocity=event['vel'],
                             prog=event['prog'], program_offset=program,
-                            tone_offset=tone_at, center=tone[2],
-                            fine=struct.unpack('b', tone[3:4])[0],
+                            tone_offset=tone_at, center=tone[2], fine=fine,
+                            range=tone[13], alloc=tone[0], priority=tone[1],
                             pitch=pitch, scalar=scalar, pan=pan,
                             adsr1=struct.unpack_from('<H', tone, 6)[0],
                             adsr2=struct.unpack_from('<H', tone, 8)[0],
                             flags=flags, reverb=bool(flags & 0x80),
+                            sustained=bool(flags & 0x01),
                             tone_sample=tone_sample, sample=samples[key]['index'],
+                            loops=loop_block is not None,
                             unit_words=[left, right]))
-        audible = [e for e in out if e['kind'] == 'voice']
-        if not audible:
+        if not [e for e in out if e.get('op') == OP_KEY_ON]:
             raise Unsupported('no voice')
-        if len(audible) > EVENT_MAX:
-            raise Unsupported('script', f'{len(audible)} voices')
+        if len([e for e in out if 'op' in e]) > OP_MAX:
+            raise Unsupported('script', f'more than {OP_MAX} operations')
         return dict(base, state=STATE_AUDIBLE, bank=f'{bank.name}#row{bank.row}',
-                    bank_header=hd, script_offset=position, events=out)
+                    bank_header=hd, bank_handle_group=group,
+                    script_offset=position, events=out)
     except Unsupported as error:
         return dict(base, state=STATE_UNSUPPORTED, reason=error.reason,
                     detail=error.detail)
@@ -344,49 +461,67 @@ def export(out_dir: Path):
                     continue
             entries.append(entry)
     entries.sort(key=lambda e: (e['scope'], e['id']))
-    pcm = {}
-    for sample in samples.values():
-        pcm[sample['index']] = A.decode_adpcm(sample['adpcm'])
-    blob = bytearray(struct.pack('<4sIIII', b'EMSR', 1, len(samples),
-                                 len(entries), 0))
+    ordered = sorted(samples.values(), key=lambda s: s['index'])
+    for sample in ordered:
+        # Cross-check the loop-aware decoder against the shared decoder.
+        packed = struct.pack(f"<{len(sample['pcm'])}h", *sample['pcm'])
+        assert packed == A.decode_adpcm(sample['adpcm']), sample['offset']
+    ladder = [elf.u16(A.PITCH_LADDER + 2 * i) for i in range(LADDER_COUNT)]
+    blob = bytearray(struct.pack('<4sIIIII', b'EMSR', 2, len(ordered),
+                                 len(entries), LADDER_COUNT, 0))
+    blob += struct.pack(f'<{LADDER_COUNT}H', *ladder)
     for entry in entries:
-        voices = [e for e in entry.get('events', []) if e['kind'] == 'voice']
-        blob += struct.pack('<IhhBBHI', entry['id'], *entry['scope'],
-                            entry['state'], len(voices),
-                            REASONS.get(entry.get('reason'), 0), 0)
-        for event in voices:
-            blob += struct.pack('<HHHHIHHBBH', event['tick'], event['sample'],
-                                event['pitch'], event['pan'], event['scalar'],
-                                event['adsr1'], event['adsr2'], event['flags'],
-                                0, 0)
-    for index in range(len(samples)):
-        data = pcm[index]
-        blob += struct.pack('<I', len(data) // 2) + data
+        ops = [e for e in entry.get('events', []) if 'op' in e]
+        # Voice +0x22 is the D_00281D50 handle; within one scene the
+        # (group, bank) pair names it uniquely, which is all 00117428,
+        # 001176E0 and 00118078 compare.
+        bank = (entry['record'][0] << 8 | entry['record'][1]
+                if entry['state'] == STATE_AUDIBLE else 0)
+        blob += struct.pack('<IhhBBHHH', entry['id'], *entry['scope'],
+                            entry['state'], len(ops),
+                            REASONS.get(entry.get('reason'), 0), bank, 0)
+        for op in ops:
+            blob += struct.pack(
+                '<HBBBBHHHIHHBbBBBBBBI', op['tick'], op['op'], op.get('note', 0),
+                op.get('prog', 0), op.get('flags', 0), op.get('sample', 0),
+                op.get('pitch', 0), op.get('pan', 0), op.get('scalar', 0),
+                op.get('adsr1', 0), op.get('adsr2', 0), op.get('center', 0),
+                op.get('fine', 0), op.get('range', 0), op.get('alloc', 0),
+                op.get('priority', 0), op.get('length', 0), op.get('depth', 0),
+                0, 0)
+    for sample in ordered:
+        loop = sample['loop_start']
+        blob += struct.pack('<II', len(sample['pcm']),
+                            0xFFFFFFFF if loop is None else loop)
+        blob += struct.pack(f"<{len(sample['pcm'])}h", *sample['pcm'])
+        if loop is not None:
+            assert len(sample['body']) == len(sample['pcm']) - loop
+            blob += struct.pack(f"<{len(sample['body'])}h", *sample['body'])
     out_dir.mkdir(parents=True, exist_ok=True)
     registry = out_dir / 'sfx_registry.emsr'
     registry.write_bytes(bytes(blob))
     report = dict(
-        elf_sha256=ELF_SHA, format='EMSR v1 (see docs/SFX_PITCH.md)',
+        elf_sha256=ELF_SHA, format='EMSR v2 (see docs/SFX_PITCH.md)',
         sequencer_tick=f'{A.SEQ_TICK} (0x1E0000/60), 8 delta units per tick',
         bindings={f'{a}.{s}': b['binding'] for (a, s), b in bindings.items()},
+        ladder=dict(address=A.PITCH_LADDER, count=LADDER_COUNT),
         samples=[dict(index=s['index'], container=s['container'],
                       offset=s['offset'], adpcm_bytes=len(s['adpcm']),
                       adpcm_sha256=hashlib.sha256(s['adpcm']).hexdigest(),
-                      source_frames=len(pcm[s['index']]) // 2)
-                 for s in samples.values()],
+                      source_frames=len(s['pcm']), loop_start=s['loop_start'])
+                 for s in ordered],
         entries=entries,
         registry_sha256=hashlib.sha256(bytes(blob)).hexdigest(),
-        boundaries=['ADSR envelopes are exported but not applied natively',
+        boundaries=['SPU2 ADSR stepping is a documented-semantics hardware model',
                     'reverb routing (all SFX tracks set the effect mask) is dry',
                     'linear interpolation, not SPU2 Gaussian',
-                    'sequencer tick converted at the NTSC field rate 60000/1001',
-                    'voice allocation (00117428) is not reproduced'])
+                    'sequencer tick converted at the NTSC field rate 60000/1001'])
     (out_dir / 'sfx_registry.json').write_text(json.dumps(report, indent=1) + '\n')
     counts = {state: sum(e['state'] == state for e in entries)
               for state in (STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED)}
     print(f'Exported {len(entries)} registry entries ({counts[1]} audible, '
           f'{counts[2]} originally absent, {counts[3]} unsupported), '
-          f'{len(samples)} samples -> {registry}')
+          f'{len(ordered)} samples -> {registry}')
     return report
 
 
