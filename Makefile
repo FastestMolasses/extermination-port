@@ -423,6 +423,19 @@ test-player-slide-reference:
 test-background-reference:
 	python3 tools/test_background_reference.py
 
+.PHONY: test-director-original
+test-director-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/director_original_test.c src/game/em_director_original.c -lm -o build/director_original_test && ./build/director_original_test ../Extermination/extract/OVERLAY/AREA11.BIN ../Extermination/config/SCUS_971.12
+	python3 tools/test_director_original_reference.py
+
+.PHONY: test-actor-collision
+test-actor-collision:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/actor_collision_test.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c -lm -o build/actor_collision_test && ./build/actor_collision_test
+
+.PHONY: test-actor-collision-reference
+test-actor-collision-reference:
+	python3 tools/test_actor_collision_reference.py
+
 .PHONY: test-roger-media-reference
 test-roger-media-reference:
 	python3 tools/test_roger_media_reference.py
