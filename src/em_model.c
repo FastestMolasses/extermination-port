@@ -56,6 +56,15 @@ int em_model_load(EmModel *m, const char *path)
         return 1;
     }
 
+    /* Bit 3 (EM_MODEL_FLAG_GSMAT) puts a GS draw-state code in every tex
+     * entry; a flagged file without textures has nothing to carry it. */
+    if ((hdr.flags & EM_MODEL_FLAG_GSMAT) && hdr.tex_count == 0) {
+        fprintf(stderr, "emdl: %s flags GS materials but has no textures\n",
+                path);
+        fclose(f);
+        return 1;
+    }
+
     m->bone_count  = hdr.bone_count;
     m->vert_count  = hdr.vert_count;
     m->index_count = hdr.index_count;

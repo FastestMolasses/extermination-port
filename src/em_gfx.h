@@ -62,6 +62,49 @@ typedef struct {
                                   object-kernel normal, lit only through
                                   em_gfx_char_rig (FIRST_LEVEL_AUDIT H18). */
 
+/* EM_GFX_MESH_GSMAT: every EmGfxTexDesc.reserved carries that texture's
+ * ORIGINAL GS draw-state code (FIRST_LEVEL_AUDIT R10/R25; the decode and
+ * its evidence are in docs/LEVEL_MATERIALS.md). The exporter
+ * (export_level.py --gs-materials) writes it together with a per-texture
+ * JSON record of the raw register values. The code keeps the fields a
+ * backend needs:
+ *
+ *   bits  0..13  TEST_1 bits 0..13 (ATE, ATST, AREF, AFAIL)
+ *   bit  14      PRIM.ABE of the kernel's GIF template (VU1 dmem 0x3FC)
+ *   bits 15..22  ALPHA_1 bits 0..7 (the A, B, C, D selectors)
+ *   bit  23      TEX0.TCC
+ *   bits 24..25  TEX0.TFX
+ *   bit  26      TEX1.MMAG
+ *   bits 27..29  TEX1.MMIN
+ *   bits 30..31  CLAMP_1 wrap mode (WMS; the exporter requires WMT == WMS)
+ *
+ * Every AREA11 level texture decodes to the depth-tested class-0 state:
+ * the packet 001D0F20 builds at arena+0xBA0+0x5A0 (D_00815360) plus the
+ * level kernel's template PRIM. That is TEST 0x5000D (alpha GREATER than
+ * AREF 0, fail = KEEP), PRIM ABE 0 (no blending), ALPHA 0xA8 (unused while
+ * ABE is 0), TEX1 0x60 (bilinear, no mipmaps) and CLAMP 0 (REPEAT). A
+ * backend rejects a code with fields it does not implement; it does not
+ * approximate them. Meshes without this flag (actors) are drawn opaque
+ * with the same class-0 alpha test, because every textured opaque
+ * object-kernel draw in the captures (0023C750/0023C480) uses it.
+ * The flag is bit 3, not bit 1: binaries that predate it OR the mesh flags
+ * into the shader mode word, where bits 1 and 2 select glow and lit
+ * shading; bit 3 is inert there. */
+#define EM_GFX_MESH_GSMAT 8u
+#define EM_GFX_GSMAT_TEST(c)  ((uint32_t)(c) & 0x3FFFu)
+#define EM_GFX_GSMAT_ABE(c)   (((uint32_t)(c) >> 14) & 1u)
+#define EM_GFX_GSMAT_ALPHA(c) (((uint32_t)(c) >> 15) & 0xFFu)
+#define EM_GFX_GSMAT_TCC(c)   (((uint32_t)(c) >> 23) & 1u)
+#define EM_GFX_GSMAT_TFX(c)   (((uint32_t)(c) >> 24) & 3u)
+#define EM_GFX_GSMAT_MMAG(c)  (((uint32_t)(c) >> 26) & 1u)
+#define EM_GFX_GSMAT_MMIN(c)  (((uint32_t)(c) >> 27) & 7u)
+#define EM_GFX_GSMAT_WRAP(c)  (((uint32_t)(c) >> 30) & 3u)
+/* Sub-fields of EM_GFX_GSMAT_TEST (GS TEST_1 layout). */
+#define EM_GFX_GS_TEST_ATE(t)   ((uint32_t)(t) & 1u)
+#define EM_GFX_GS_TEST_ATST(t)  (((uint32_t)(t) >> 1) & 7u)
+#define EM_GFX_GS_TEST_AREF(t)  (((uint32_t)(t) >> 4) & 0xFFu)
+#define EM_GFX_GS_TEST_AFAIL(t) (((uint32_t)(t) >> 12) & 3u)
+
 /* Per-vertex bone-word layout: low24 bits = palette slot, bit31 = the
  * EM_MODEL_VERT_BILLBOARD glow vertex, and bit30 = native face-draw metadata.
  * For glow vertices the position is the anchor point (bone-local) and the
@@ -120,13 +163,15 @@ void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
  *     by walking the actor alpha down before freeing them.
  *
  * THRESHOLD RULE: rgba[3] >= 1.0 draws OPAQUE — the exact
- * em_gfx_draw_skinned state (depth write on; with opaque white the output
- * is bit-identical to the untinted call). rgba[3] < 1.0 draws TRANSLUCENT:
- * fragment alpha < 1 goes through standard alpha blending, and the depth
- * WRITE is disabled for the draw (depth TEST stays on) — the GS ZMSK=1
- * state of the engine's faded actor draws, so a fading gib never occludes
- * the scene behind it. The texture alpha-test cutout applies under any
- * tint. em_gfx_draw_skinned is a wrapper passing opaque white. */
+ * em_gfx_draw_skinned state: the decoded GS class 0 (EM_GFX_MESH_GSMAT
+ * above) with blending off, depth write on and the TEST_1 alpha test that
+ * drops only texels whose filtered alpha is 0. rgba[3] < 1.0 draws
+ * TRANSLUCENT: fragment alpha < 1 goes through standard alpha blending,
+ * and the depth WRITE is disabled for the draw (depth TEST stays on) —
+ * the GS ZMSK=1 state of the engine's faded actor draws, so a fading gib
+ * never occludes the scene behind it; this path keeps the port's alpha
+ * 0.5 cutout (its GS state is not decoded). em_gfx_draw_skinned is a
+ * wrapper passing opaque white. */
 void em_gfx_draw_skinned_tinted(EmGfx *gfx, EmGfxMesh *mesh,
                                 const float *viewproj, const float *palette,
                                 uint32_t bone_count, const float rgba[4]);

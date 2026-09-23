@@ -16,7 +16,11 @@
  *   u32   tex_count
  *   u32   flags        (bit 0: the "normal" slot carries a baked vertex
  *                       COLOR, not a normal — static level geometry ships
- *                       its lighting prebaked; see tools/export_level.py)
+ *                       its lighting prebaked; see tools/export_level.py;
+ *                       bit 3: every tex entry's `reserved` word is the
+ *                       texture's original GS draw-state code — see
+ *                       EM_GFX_MESH_GSMAT in em_gfx.h and
+ *                       docs/LEVEL_MATERIALS.md; older files carry 0)
  *   u32   clip_count    (EMD3 only, >= 1)
  *   i32   parents[bone_count]
  *   tex   { u32 width, height, byte_offset, reserved } x tex_count
@@ -73,6 +77,7 @@ typedef struct {
 #define EM_MODEL_VERT_WORDS 10u  /* pos3, nrm3, uv2, bone, tex */
 #define EM_MODEL_NO_TEX     0xFFFFFFFFu
 #define EM_MODEL_FLAG_VCOLOR 1u  /* nrm slot = baked vertex color */
+#define EM_MODEL_FLAG_GSMAT  8u  /* tex reserved = GS draw-state code */
 
 /* Vertex bone-word layout: low 24 bits = palette slot, high 8 = flags. */
 #define EM_MODEL_VERT_BONE_MASK 0x00FFFFFFu

@@ -29,6 +29,10 @@ struct EmGfx {
     id<MTLCommandQueue>          queue;
     id<MTLRenderPipelineState>   testPipeline; /* lazily built for the test draw */
     id<MTLRenderPipelineState>   skinPipeline; /* lazily built for skinned draws */
+    /* Opaque skinned draws: GS class 0, PRIM ABE 0 — blending OFF
+     * (docs/LEVEL_MATERIALS.md). skinPipeline keeps standard alpha
+     * blending for the port's translucent tint path (rgba[3] < 1). */
+    id<MTLRenderPipelineState>   skinOpaquePipeline;
     id<MTLRenderPipelineState>   glowPipeline; /* additive (ONE/ONE) glow pass */
     id<MTLSamplerState>          repeatSampler; /* linear, REPEAT (PS2 tiling) */
     id<MTLDepthStencilState>     depthOn;      /* less-equal, write */
@@ -188,6 +192,11 @@ struct EmGfxMesh {
     id<MTLBuffer>  scaleBuf;
     uint32_t       tex_count;
     uint32_t       flags;      /* EM_GFX_MESH_* */
+    /* One GS draw-state code per texture slice (em_gfx.h EM_GFX_MESH_GSMAT
+     * layout): the exported code for flagged meshes, the class-0 default
+     * (kGsClass0Code) otherwise. The fragment shader reads its TEST_1
+     * fields for the alpha test of opaque draws. */
+    id<MTLBuffer>  matBuf;
     /* H18: set once this mesh has been reported for a rig-less opaque
      * draw, so every offending mesh is reported (once) instead of only
      * the first one of the session. */
@@ -338,6 +347,7 @@ static NSString *const kSkinShaderSrc =
 "using namespace metal;\n"
 "struct VOut { float4 pos [[position]]; float3 nrm; float3 wpos;\n"
 "              float3 light_rgb [[center_no_perspective]];\n"
+"              float3 vcol [[center_no_perspective]];\n"
 "              float fog_f [[center_no_perspective]];\n"
 "              float2 uv; uint slice [[flat]]; };\n"
 "vertex VOut v_skin(uint vid [[vertex_id]],\n"
@@ -377,6 +387,10 @@ static NSString *const kSkinShaderSrc =
 "        o.nrm = (mode & 1u) ? n : (M * float4(n, 0.0)).xyz;\n"
 "        o.wpos = (M * float4(p, 1.0)).xyz;\n"
 "    }\n"
+"    /* Baked level colour (mode bit 0). The kernel writes it to RGBAQ\n"
+"     * and the GS Gouraud-interpolates it (template PRIM IIP 1) linearly\n"
+"     * in SCREEN space, like light_rgb: center_no_perspective (R25). */\n"
+"    o.vcol = (mode & 1u) ? n : float3(1.0);\n"
 "    /* GS fog F per vertex (em_fog_gs.h): the 0023C780 kernel computes\n"
 "     * F = A + B * clip_w, clamps to [0,255] and keeps its integer part\n"
 "     * in XYZF2; the GS interpolates F linearly in screen space, hence\n"
@@ -414,21 +428,51 @@ static NSString *const kSkinShaderSrc =
 "    if (fog[0].w <= 0.0) return c;\n"
 "    return mix(fog[0].rgb, c, f255 * (1.0 / 255.0));\n"
 "}\n"
+"/* GS TEST_1 alpha test (docs/LEVEL_MATERIALS.md). `a` is the filtered\n"
+" * texel alpha as exported (GS alpha At stored as min(255, 2*At)). For\n"
+" * the decoded draws As = At: the level runs TFX modulate with Af 128\n"
+" * (As = At*128>>7) and actors TFX highlight with Af 0 (As = At + 0).\n"
+" * The GS truncates the bilinear result to an integer; 128 is exported\n"
+" * as 255. AFAIL is KEEP (the only value mesh creation accepts), so a\n"
+" * failing fragment writes neither colour nor depth. */\n"
+"static bool gs_alpha_test(float a, uint test) {\n"
+"    if (!(test & 1u)) return true;\n"
+"    float as = (a >= 1.0) ? 128.0 : floor(a * 127.5 + 0.001);\n"
+"    float aref = float((test >> 4) & 0xFFu);\n"
+"    switch ((test >> 1) & 7u) {\n"
+"    case 0u: return false;\n"
+"    case 1u: return true;\n"
+"    case 2u: return as < aref;\n"
+"    case 3u: return as <= aref;\n"
+"    case 4u: return as == aref;\n"
+"    case 5u: return as >= aref;\n"
+"    case 6u: return as > aref;\n"
+"    default: return as != aref;\n"
+"    }\n"
+"}\n"
 "fragment float4 f_skin(VOut in [[stage_in]],\n"
 "                       texture2d_array<float> texs [[texture(0)]],\n"
 "                       sampler smp [[sampler(0)]],\n"
 "                       constant uint &mode [[buffer(0)]],\n"
 "                       constant float4 &tint [[buffer(1)]],\n"
 "                       constant float4 *spot [[buffer(2)]],\n"
-"                       constant float4 *fog  [[buffer(4)]]) {\n"
+"                       constant float4 *fog  [[buffer(4)]],\n"
+"                       const device uint *gsmat [[buffer(5)]]) {\n"
 "    float4 base = float4(0.55, 0.62, 0.70, 1.0);\n"
 "    if (in.slice != 0xFFFFFFFFu) {\n"
 "        base = texs.sample(smp, in.uv, in.slice);\n"
-"        /* PS2 CLUT alpha is mostly binary (0 / 0x80): alpha-test the\n"
-"         * cutout texels (grates, glass edges) so depth stays correct;\n"
-"         * residual partial alpha goes through the blend stage. The glow\n"
-"         * pass skips the test: additive draws never punch holes. */\n"
-"        if (!(mode & 2u) && base.a < 0.5) discard_fragment();\n"
+"        /* Mode bit 3 = an opaque draw in the decoded GS class 0: the\n"
+"         * per-slice TEST_1 alpha test (ATST GREATER, AREF 0: only\n"
+"         * texels whose filtered alpha is 0 are dropped) with blending\n"
+"         * off. Otherwise (the port's translucent tint path, not\n"
+"         * decoded) the legacy cutout at alpha 0.5 applies. The glow\n"
+"         * pass skips both: additive draws never punch holes. */\n"
+"        if (mode & 8u) {\n"
+"            if (!gs_alpha_test(base.a, gsmat[in.slice] & 0x3FFFu))\n"
+"                discard_fragment();\n"
+"        } else if (!(mode & 2u) && base.a < 0.5) {\n"
+"            discard_fragment();\n"
+"        }\n"
 "    }\n"
 "    if (mode & 2u) {\n"
 "        /* additive glow: Cv = Cs + Cd (GS ALPHA FIX=0x80); the layer\n"
@@ -444,7 +488,7 @@ static NSString *const kSkinShaderSrc =
 "         * ADDy 002373B0) and PACKED RGBAQ takes the low byte:\n"
 "         * floor(128*c), so 1.0 is GS 128 (identity) and colors up to\n"
 "         * 255/128 over-brighten like the GS. */\n"
-"        float3 lit = clamp(in.nrm, 0.0, 255.0 / 128.0);\n"
+"        float3 lit = clamp(in.vcol, 0.0, 255.0 / 128.0);\n"
 "        if (spot[0].w > 0.0)\n"
 "            lit += spot_term(in.wpos, spot);\n"
 "        return float4(fog_apply(base.rgb * lit, in.fog_f, fog), base.a)\n"
@@ -607,6 +651,7 @@ void em_gfx_destroy(EmGfx *g)
     if (!g) return;
     [g->testPipeline release];
     [g->skinPipeline release];
+    [g->skinOpaquePipeline release];
     [g->glowPipeline release];
     [g->beamPipeline release];
     [g->beamTexPipeline release];
@@ -765,6 +810,38 @@ void em_gfx_draw_test_triangle(EmGfx *g)
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 }
 
+/* GS class-0 draw state (docs/LEVEL_MATERIALS.md) for meshes without
+ * exported codes: TEST_1 bits 0..13 of 0x5000D (ATE 1, ATST GREATER,
+ * AREF 0, AFAIL KEEP), PRIM ABE 0, ALPHA 0xA8, TCC 1, TEX1 MMAG/MMIN
+ * LINEAR, CLAMP REPEAT — the env packet 001D0F20 builds at
+ * arena+0xBA0+0x5A0 (D_00815360) that every textured opaque object-kernel
+ * draw in the captures uses. TFX is left 0 here: the backend does not
+ * read it (actor records carry TFX 2 with Af 0, which shades like
+ * modulate). */
+static const uint32_t kGsClass0Code =
+    0x000Du | (0xA8u << 15) | (1u << 23) | (1u << 26) | (1u << 27);
+
+/* Accept only the GS state this backend reproduces exactly as decoded:
+ * alpha fail = KEEP, no blending, RGBA texture, modulate (TFX 0, level
+ * Af 128) or highlight (TFX 2, Af 0 — the exporter checks every record),
+ * MMAG and MMIN LINEAR (the code carries no MXL, so mipmapped MMIN values
+ * are refused too) and REPEAT. Anything else is refused rather than
+ * approximated. */
+static const char *gsmat_unsupported(uint32_t c)
+{
+    uint32_t test = EM_GFX_GSMAT_TEST(c);
+    if (EM_GFX_GS_TEST_ATE(test) && EM_GFX_GS_TEST_AFAIL(test) != 0)
+        return "alpha-test AFAIL other than KEEP";
+    if (EM_GFX_GSMAT_ABE(c)) return "alpha blending (PRIM ABE 1)";
+    if (!EM_GFX_GSMAT_TCC(c)) return "RGB-only texture (TCC 0)";
+    if (EM_GFX_GSMAT_TFX(c) != 0 && EM_GFX_GSMAT_TFX(c) != 2)
+        return "texture function DECAL/HIGHLIGHT2";
+    if (!EM_GFX_GSMAT_MMAG(c) || EM_GFX_GSMAT_MMIN(c) != 1)
+        return "a texture filter other than LINEAR/LINEAR";
+    if (EM_GFX_GSMAT_WRAP(c) != 0) return "CLAMP/REGION wrap mode";
+    return NULL;
+}
+
 EmGfxMesh *em_gfx_mesh_create(EmGfx *g, const float *verts,
                               uint32_t vert_count, const uint32_t *indices,
                               uint32_t index_count,
@@ -772,6 +849,20 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *g, const float *verts,
                               const uint8_t *texels, uint32_t flags)
 {
     if (!g || !verts || !indices || !vert_count || !index_count) return NULL;
+    if ((flags & EM_GFX_MESH_GSMAT) && (!texs || !tex_count)) {
+        fprintf(stderr, "gfx: GS material codes flagged on a mesh without "
+                "textures — mesh rejected\n");
+        return NULL;
+    }
+    for (uint32_t i = 0; (flags & EM_GFX_MESH_GSMAT) && i < tex_count; i++) {
+        const char *why = gsmat_unsupported(texs[i].reserved);
+        if (why) {
+            fprintf(stderr, "gfx: texture %u GS code %08X uses %s, which "
+                    "the Metal backend does not implement — mesh rejected\n",
+                    i, texs[i].reserved, why);
+            return NULL;
+        }
+    }
     EmGfxMesh *m = (EmGfxMesh *)calloc(1, sizeof(EmGfxMesh));
     m->flags = flags;
     m->vbuf = [g->device newBufferWithBytes:verts
@@ -858,7 +949,18 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *g, const float *verts,
     free(scales);
     m->tex_count = tex_count;
 
-    if (!m->vbuf || !m->ibuf || !m->texArray || !m->scaleBuf) {
+    uint32_t *codes = (uint32_t *)malloc((size_t)slices * sizeof(uint32_t));
+    if (codes) {
+        for (uint32_t i = 0; i < slices; i++)
+            codes[i] = ((flags & EM_GFX_MESH_GSMAT) && i < tex_count)
+                     ? texs[i].reserved : kGsClass0Code;
+        m->matBuf = [g->device newBufferWithBytes:codes
+                                           length:(NSUInteger)slices * 4
+                                          options:MTLResourceStorageModeShared];
+        free(codes);
+    }
+
+    if (!m->vbuf || !m->ibuf || !m->texArray || !m->scaleBuf || !m->matBuf) {
         em_gfx_mesh_destroy(g, m);
         return NULL;
     }
@@ -873,6 +975,7 @@ void em_gfx_mesh_destroy(EmGfx *g, EmGfxMesh *m)
     [m->ibuf release];
     [m->texArray release];
     [m->scaleBuf release];
+    [m->matBuf release];
     free(m);
 }
 
@@ -906,19 +1009,15 @@ void em_gfx_draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     em_gfx_draw_skinned_tinted(g, m, viewproj, palette, bone_count, white);
 }
 
-/* Tinted skinned draw (em_gfx.h — the GS RGBAQ per-draw modulate). Same
- * pipeline as em_gfx_draw_skinned: the tint rides as ONE extra
- * setFragmentBytes (fragment buffer 1) into the same PSO — no PSO variant
- * is needed because the skin pipeline already runs with standard alpha
- * blending (opaque texels carry alpha 1, so the blend is the identity for
- * the opaque case). THRESHOLD RULE: rgba[3] >= 1.0 → opaque draw, depth
- * write ON (the em_gfx_draw_skinned state, byte-identical with a white
- * tint); rgba[3] < 1.0 → translucent draw: the fragment alpha drops below
- * 1 so the existing blend takes over, and depth WRITE goes off (ZMSK=1,
- * test kept on) like the GS state of the engine's faded actor draws — a
- * fading gib must not occlude what shows through it. The texture
- * alpha-test cutout (base.a < 0.5 discard) still applies under any tint:
- * cutout holes stay holes while fading. */
+/* Tinted skinned draw (em_gfx.h — the GS RGBAQ per-draw modulate). The
+ * tint rides as ONE extra setFragmentBytes (fragment buffer 1).
+ * THRESHOLD RULE: rgba[3] >= 1.0 → opaque draw in the decoded GS class 0
+ * (docs/LEVEL_MATERIALS.md): blending OFF (PRIM ABE 0), depth write ON,
+ * and the per-slice TEST_1 alpha test (only texels whose filtered alpha
+ * is 0 are dropped). rgba[3] < 1.0 → translucent draw (port path, not
+ * decoded): standard alpha blending, depth WRITE off (ZMSK=1, test kept
+ * on) so a fading gib never occludes what shows through it, and the
+ * legacy alpha 0.5 cutout, so cutout holes stay holes while fading. */
 static id<MTLBuffer> vertex_lighting_buffer(EmGfx *g, EmGfxMesh *mesh,
                                            const float *palette,
                                            uint32_t bone_count)
@@ -980,11 +1079,22 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         memcpy(g->lastBones, palette,
                (size_t)g->lastBoneCount * 16 * sizeof(float));
     }
-    if (!additive && !g->skinPipeline) {
+    /* Opaque (tint alpha >= 1, non-additive) draws are the decoded GS
+     * class 0: blending off (PRIM ABE 0) and the per-slice TEST_1 alpha
+     * test (mode bit 3). The translucent tint path keeps the alpha
+     * pipeline and the legacy cutout (port path, not decoded). */
+    bool class0 = !additive && rgba[3] >= 1.0f;
+    if (!additive && !class0 && !g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin",
                                          EM_BLEND_ALPHA);
         if (!g->skinPipeline) return;
+    }
+    if (class0 && !g->skinOpaquePipeline) {
+        g->skinOpaquePipeline = build_pipeline(g, kSkinShaderSrc,
+                                               @"v_skin", @"f_skin",
+                                               EM_BLEND_OPAQUE);
+        if (!g->skinOpaquePipeline) return;
     }
     if ((additive || m->glow_count) && !g->glowPipeline) {
         g->glowPipeline = build_pipeline(g, kSkinShaderSrc,
@@ -1002,7 +1112,9 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         g->repeatSampler = [g->device newSamplerStateWithDescriptor:sd];
         [sd release];
     }
-    [g->enc setRenderPipelineState:(additive ? g->glowPipeline : g->skinPipeline)];
+    [g->enc setRenderPipelineState:(additive ? g->glowPipeline
+                                    : class0 ? g->skinOpaquePipeline
+                                    : g->skinPipeline)];
     /* Threshold rule (see the comment above): a tint alpha below 1.0
      * selects the translucent state — depth test on, write off. */
     bool translucent = additive || rgba[3] < 1.0f;
@@ -1017,7 +1129,8 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                    atIndex:1];
     [g->enc setVertexBytes:viewproj length:64 atIndex:2];
     [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
-    uint32_t mode = m->flags | (additive ? 2u : 0u);
+    uint32_t mode = (m->flags & EM_GFX_MESH_VCOLOR) | (additive ? 2u : 0u)
+                  | (class0 ? 8u : 0u);
     id<MTLBuffer> vertex_colors = nil;
     bool opaque = m->opaque_count != 0;
     if (opaque && !(mode & 3u)) {
@@ -1056,6 +1169,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setFragmentBytes:rgba length:16 atIndex:1];
     [g->enc setFragmentBytes:g->spot length:sizeof(g->spot) atIndex:2];
     [g->enc setFragmentBytes:g->fog length:sizeof(g->fog) atIndex:4];
+    [g->enc setFragmentBuffer:m->matBuf offset:0 atIndex:5];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
     if (opaque)
@@ -1071,7 +1185,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
      * Mode bit 1 tells the fragment shader to skip the alpha-test cutout
      * and emit the texture sample alone. */
     if (m->glow_count && g->glowPipeline) {
-        uint32_t glow_mode = mode | 2u;
+        uint32_t glow_mode = (mode & ~8u) | 2u;
         [g->enc setRenderPipelineState:g->glowPipeline];
         [g->enc setDepthStencilState:g->depthGlow];
         [g->enc setVertexBytes:&glow_mode length:4 atIndex:4];

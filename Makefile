@@ -344,6 +344,10 @@ test-shadow-original:
 test-shadow-original-reference:
 	python3 tools/test_shadow_original_reference.py
 
+.PHONY: test-level-material-reference
+test-level-material-reference:
+	python3 tools/test_level_material_reference.py
+
 .PHONY: test-roger-media-reference
 test-roger-media-reference:
 	python3 tools/test_roger_media_reference.py
