@@ -26,7 +26,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
-           src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c \
+           src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c \
@@ -385,6 +385,10 @@ test-item-geometry-reference:
 
 test-status-hub-reference:
 	python3 tools/test_status_hub_reference.py
+
+.PHONY: test-status-hub-ui-reference
+test-status-hub-ui-reference:
+	python3 tools/test_status_hub_ui_reference.py
 
 .PHONY: test-status-draw-reference
 test-status-draw-reference:

@@ -29,10 +29,11 @@ cases and 5,562 vertices against the original function, its vector
 helpers and full SDK bodies. The remaining boundary is GS/Metal
 rasterization, not a claimed hardware-equivalent renderer.
 
-The normal hub is not yet bound into the live status adapter. It still
-requires original resident artwork and the status draw-model workers
-`0020E250`, `0020E3A0`, `0020E1E0`, and `0020E6F0`. Those workers must be
-provided before advertising a complete normal status menu.
+The normal hub is not yet bound into the live status adapter. Its 2D
+layer now exists as `em_status_hub_ui` (below), but the status draw-model
+workers `0020E250`, `0020E3A0`, `0020E1E0` and `0020E6F0` and the
+`0020A7A0` moving background are still required separate workers. They
+must be provided before advertising a complete normal status menu.
 
 The stable host entry is `em_status_runtime_open()`. The host must first
 apply the original gameplay input gates; this function queues B0=0/C5=0
@@ -50,8 +51,8 @@ EE RAM, GS data, scratchpad and the transition trace. The image confirms
 the full-body Dennis and SPR4 models, original profile text, health gauge
 and inventory readouts. `tools/export_status_hub.py` is ongoing artwork
 recovery from that actual resident GS state. It executes the original main
-drawer into ten hover/terminal-infection layouts and exports nine textures
-and ten help strings. A separate frozen trace expands the original health,
+drawer into ten hover/terminal-infection layouts and exports thirteen
+textures (including every `00209860` secondary icon) and ten help lines. A separate frozen trace expands the original health,
 battery and ammunition workers into 70 ordered commands. The original
 numeric formatter runs; byte string copy/append/length and font packet
 workers are explicit boundaries. The live dynamic workers remain unbound.
@@ -105,3 +106,56 @@ core rejects those unsupported selectors before emitting commands; 144
 such cases verify rejection. It does not fabricate an icon or close the
 status page. The corrected PS2 source remains an assembly-backed near
 match, measured separately in the decomp repository.
+
+## Live 2D adapter (`em_status_hub_ui`)
+
+`em_status_hub_ui.c` prepares the complete `00209DF0` call stream once per
+original call and renders it on the 512x448 status canvas. It owns no
+layout: `tools/export_status_hub.py` writes ignored version-2
+`status_hub.emhs` records from executing `00209DF0` for every hover and
+the terminal-infection branch, including each `00207D00` mode call. At
+prepare time the health `00208AD0`, battery `00209280` and ammunition
+`00209860` records run through `em_status_draw.c`, the infection figure is
+rebuilt as `001C5FB0(n,3,1)` plus the resident `00273570` string, and the
+`0020AC70` trail at base (432,272) runs through `em_item_trail.c`. The
+exporter also executes the `001FCA10` mode-4 presenter
+(`001FCB90(0x8A,0xA8,0,line)` through `001FE070`/`001FC7B0`) over the
+captured RAM, so the ten group-0 help lines are original tall-font calls,
+split per line 12 GS half-lines apart, in style `0x606060`.
+
+The earlier uncommitted header was corrected against the original code:
+
+* The UI+20 clock is shared status UI state, not page state. `00208AD0`
+  also runs from `0020AE40` pages with flag 8 (`002160B0`), and only the
+  UI memsets `0020E060` (outer reset) and `001AF690` clear it. The caller
+  passes the clock to `em_status_hub_ui_prepare`.
+* The trail is the shared `D_00821300` ring and `D_00275C90` cursor. It
+  is reset by `0020E020` on hub (`0020CDC0` step 0), ITEM (`0020EE50`) and
+  other page entry (`00211970`, `0020DFA0`). The caller passes it too.
+* The proposed background layer was removed. `em_hud_background_sprite`
+  is not a verified `0020A7A0` and paints an opaque fill that would cover
+  the status models. The background stays an explicit required worker.
+
+Reference check: `python3 tools/test_status_hub_ui_reference.py`
+compares 167 prepared streams (19,968 ordered calls) with original
+`00209DF0` execution. The cases cover five hovers, every infection figure
+0..100 (including truncation), health/warning thresholds, clock wrap,
+battery charge/capacity/equipment and every ammunition selector. It also
+compares 22 help calls with `001FCB90`, and 20 trail frames (10,240
+triangles plus ring state) with `001B62C0`/`0020AC70` at the hub base, with
+a `0020E020` reset. One rendered frame (2,434 renderer calls) is compared
+with the original records and executed `002082B0` arcs. The clock
+ownership check executes `0020AE40` (flags 8/2/1), `0020E060` and
+`001AF690`. The test rejects 21 malformed record/atlas files. The
+asset-backed ASan/UBSan fixture `tests/status_hub_ui_test.c` covers the
+lifecycle, atlas invalidation, rejected display values (including the
+inherited-TEX0 selector) and injected font/texture/triangle failures, all
+latched.
+
+Boundaries: SDK transcendental values (host libm on both sides), byte
+string copy/append/length/memset workers, glyph metrics, one-GS-pixel
+marker line coverage and final GS/Metal pixels. Metal flushes glyphs after
+all decor, so text is composited above sprites the original submits after
+it; the prepared stream keeps the original order. The adapter is not yet
+called by `em_status_runtime`.
+
