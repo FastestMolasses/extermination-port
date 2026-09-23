@@ -17,6 +17,7 @@
 
 #include "game/em_player.h"
 #include "game/em_player_reversal.h"
+#include "game/em_scene_bindings.h"
 
 EmGameState g;
 const float kLocoTierSpeed[4] = {0.0f, 0.1f, 0.3f, 0.8f};
@@ -158,10 +159,19 @@ int em_collision_segment_query(const EmCollision *c, const float a[3], const flo
 }
 int em_collision_moving_carry(float pos[3]) { (void)pos; assert(!"carry"); return 0; }
 int em_collision_blocker_probe(float pos[3], float radius) { (void)pos; (void)radius; assert(!"blocker"); return 0; }
-int probe_wall_seg(const float a[3], const float b[3], int pass, EmCollHit *hit)
+int em_collision_move_probe(const EmCollision *c, float pos[3], const float target[3],
+                            unsigned mask, EmCollHit *hit)
 {
-    (void)a; (void)b; (void)pass; (void)hit; assert(!"probe"); return 0;
+    (void)c; (void)pos; (void)target; (void)mask; (void)hit; assert(!"probe"); return 0;
 }
+int em_door_count(void) { assert(!"door"); return 0; }
+int em_door_probe(const float from[3], const float to[3], EmCollHit *hit)
+{
+    (void)from; (void)to; (void)hit; assert(!"door"); return 0;
+}
+/* D_00810700 for the probe workers (never reached without collision). */
+static EmSceneState scene_state;
+EmSceneState *em_scene_state(void) { return &scene_state; }
 
 static uint32_t effects[16];
 static unsigned effect_count;

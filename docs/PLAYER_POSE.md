@@ -320,3 +320,11 @@ at callback 46 when the commit callback is numbered 0. Raw key decoding is
 checked for every exported pickup key. A live pickup matrix capture remains
 outstanding; the earlier captured matrix tolerances cover the shared evaluator
 on idle/panel fixtures and are not a per-pose byte-match claim for pickups.
+
+## Footstep clock (WP-15 P14/P15)
+
+The footstep dispatcher 00187350 reads the same source state this host
+exposes through `player_pose_source`: clip +20C, remaining clock +3C (the
+transition clock during a blend) and flags +200. Over the re-entry fixture
+those three values match the original capture on every frame 4094-4141
+(`PLAYER_FLOOR.md`).

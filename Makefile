@@ -29,7 +29,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
-           src/game/em_player_foot_stop.c \
+           src/game/em_player_foot_stop.c src/game/em_player_floor.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
@@ -321,7 +321,19 @@ test-player-reversal-reference:
 
 .PHONY: test-player-reversal-host
 test-player-reversal-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_reversal_host_test.c src/game/em_player.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c -lm -o build/player_reversal_host_test && ./build/player_reversal_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_reversal_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c -lm -o build/player_reversal_host_test && ./build/player_reversal_host_test
+
+.PHONY: test-player-footstep-reference
+test-player-footstep-reference:
+	python3 tools/test_player_footstep_reference.py
+
+.PHONY: test-player-floor-reference
+test-player-floor-reference:
+	python3 tools/test_player_floor_reference.py
+
+.PHONY: test-player-probe-reference
+test-player-probe-reference:
+	python3 tools/test_player_probe_reference.py
 
 .PHONY: test-roger-media-reference
 test-roger-media-reference:

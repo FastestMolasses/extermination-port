@@ -12,53 +12,227 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_player.h"
+#include "game/em_effect_color.h"
+#include "game/em_player_floor.h"
 #include "game/em_player_heading.h"
 #include "game/em_player_motor.h"
 #include "game/em_player_reversal.h"
 #include "game/em_random.h"
+#include "game/em_scene_bindings.h"
 
 #include "game/em_game_internal.h"
 
 static uint8_t footstep_floor_attr(void);
 static float player_turn_rate(int gait, float upt, float adelta);
 
-/* 001764E0 rereads the corrected actor position before every ray. Its
- * eight main lanes each test4.01 and then18 (13.8 when +236 is set).
- * The first-control capture has +236=0. The low-clearance/ledge state
- * writer and the ankle slope-response branches still need translation;
- * adding the upper ray does not claim those separate paths are complete. */
-void player_wall_probes(void)
+/* ---- WP-15 P16: 001764E0 radial probes over the port's collision -------
+ * em_player_floor.c translates 001764E0 (with 00176390/00176BE0/001762E0/
+ * 00176C80) and 001756E0; test_player_probe_reference.py runs the original
+ * instructions. This binding supplies the probe workers:
+ *   0019AD00/0019AFE0 -> em_collision_move_probe (movement walkers) plus the
+ *     port's door hulls (em_door_probe) for mask bit 0; nearest hit wins,
+ *     as the original's clamped segment does.
+ *   001760C0 -> 0019AB20 over (at.y - 0.001 .. at.y + height) at the lane
+ *     end, through em_collision_segment_query. The original uses the
+ *     0019F730/0019C830 walkers, which the port has not translated; the
+ *     segment walkers stand in for them (flagged in PLAYER_FLOOR.md).
+ * The ankle pass runs only in the walk callback: 001764E0 tests +4==1 and
+ * +5==1 at the callback tail, which the port's +1F0 mirrors (docs). */
+static struct {
+    uint8_t previous;      /* D_00275B00[4] */
+    uint8_t inherited_s1;  /* the caller's $s1: 1, or 001612D0's resume clip */
+    unsigned faults;
+    int reported;
+} probe;
+
+static void probe_fault(const char *what)
 {
-    static const float angles[8] = {
-        0.0f, .7853982f, -.7853982f, 1.5707964f,
-        -1.5707964f, 2.3561945f, -2.3561945f, 3.1415927f
-    };
-    if (!g.coll.poly_count) return;
-    g.probe_block_mask=0;
-    for (int pass=0;pass<2;++pass) {
-        int lanes=pass ? 8 : 5;
-        for (int lane=0;lane<lanes;++lane) {
-            float angle=g.yaw+angles[lane];
-            float dx=sinf(angle)*PLAYER_WALL_RADIUS;
-            float dz=cosf(angle)*PLAYER_WALL_RADIUS;
-            for (int upper=0;upper<(pass ? 2 : 1);++upper) {
-                float lift=!pass ? PROBE_ANKLE_LIFT : !upper ? PROBE_CHEST_LIFT
-                    : g.probe_low_clearance ? 13.8f : 18.0f;
-                float from[3]={g.pos[0],g.pos[1]+lift,g.pos[2]};
-                float end[3]={from[0]+dx,from[1],from[2]+dz};
-                EmCollHit hit;
-                if (!probe_wall_seg(from,end,pass,&hit)) continue;
-                static int trace=-1;
-                if (trace<0) trace=getenv("EM_PROBE_TRACE")!=NULL;
-                if (trace) printf("probe: frame %d lane %d lift %.2f cell/poly %d "
-                    "push (%.6f, %.6f)\n",g.frame_no,lane,lift,hit.poly,
-                    hit.point[0]-end[0],hit.point[2]-end[2]);
-                g.pos[0]+=hit.point[0]-end[0];
-                g.pos[2]+=hit.point[2]-end[2];
-                if (pass) g.probe_block_mask|=(uint8_t)(1u<<lane);
-            }
+    ++probe.faults;
+    if (!probe.reported) {
+        probe.reported = 1;
+        fprintf(stderr, "player probes: %s at frame %d (counted)\n", what, g.frame_no);
+    }
+}
+
+unsigned player_probe_faults(void) { return probe.faults; }
+
+static void probe_hit_from(const EmCollHit *hit, int kind, const float target[3],
+                           EmPlayerProbeHit *out)
+{
+    memset(out, 0, sizeof *out);
+    out->kind = kind;
+    out->node = (uint16_t)(hit->surf_class | hit->attr);
+    memcpy(out->point, hit->point, sizeof out->point);
+    memcpy(out->normal, hit->normal, sizeof out->normal);
+    for (unsigned axis = 0; axis < 3; ++axis)
+        out->delta[axis] = em_effect_float32((double)hit->point[axis] - target[axis]);
+    if (kind == EM_COLL_SET_HULLS) {
+        /* The port's door hulls: class-5 owners (em_door_original.h). */
+        out->entity = 1;
+        out->entity_flags = 5;
+    } else if (hit->poly < 0) {
+        /* A published class-4 actor cell. Only the AREA11 panel (uid 18)
+         * is published; its owner bytes +2/+3 are 0x84/0x24 in the captured
+         * playable RAM (owner 0x7AA590). */
+        out->entity = 1;
+        out->entity_flags = 0x84;
+        out->entity_type = 0x24;
+        if (hit->poly != -19) probe_fault("unpublished actor-cell owner bytes");
+    }
+}
+
+static int probe_movement(const float position[3], const float target[3], unsigned mask,
+                          EmPlayerProbeHit *out)
+{
+    EmCollHit hit, door;
+    float start[3] = { position[0], target[1], position[2] };
+    int kind = em_collision_move_probe(&g.coll, start, target,
+                                       mask & (EM_COLL_SET_CELLS | EM_COLL_SET_GRID), &hit);
+    int door_kind = 0;
+    if ((mask & EM_COLL_SET_HULLS) && em_door_count() && em_door_probe(start, target, &door))
+        door_kind = EM_COLL_SET_HULLS;
+    if (door_kind) {
+        float ds = 0, dd = 0;
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            float a = hit.point[axis] - start[axis], b = door.point[axis] - start[axis];
+            ds += a * a; dd += b * b;
+        }
+        if (!kind || dd < ds) {
+            probe_hit_from(&door, door_kind, target, out);
+            return door_kind;
         }
     }
+    if (!kind) { memset(out, 0, sizeof *out); return 0; }
+    probe_hit_from(&hit, kind, target, out);
+    return kind;
+}
+
+static int probe_move(void *context, const float position[3], const float target[3],
+                      unsigned mask, EmPlayerProbeHit *hit)
+{
+    (void)context;
+    return probe_movement(position, target, mask, hit);
+}
+
+static int probe_sweep(void *context, const float from[3], const float to[3],
+                       unsigned mask, EmPlayerProbeHit *hit)
+{
+    (void)context;
+    return probe_movement(from, to, mask, hit);
+}
+
+static int probe_column(void *context, const float at[3], float height, EmPlayerProbeHit *hit)
+{
+    (void)context;
+    /* 001760C0 stores at + (0,height,0); 0019AB20 starts height below it,
+     * nudged 0.001 against the probe direction. EE float order. */
+    float top = em_effect_float32((double)at[1] + height);
+    float bottom = em_effect_float32((double)em_effect_float32((double)top - height) +
+                                     (height < 0.0f ? 0.001f : -0.001f));
+    float from[3] = { at[0], bottom, at[2] };
+    float to[3] = { at[0], top, at[2] };
+    EmCollHit found;
+    int kind = em_collision_segment_query(&g.coll, from, to,
+                                          EM_COLL_SET_CELLS | EM_COLL_SET_GRID, 0, &found);
+    if (!kind) { memset(hit, 0, sizeof *hit); return 0; }
+    probe_hit_from(&found, kind, to, hit);
+    return kind;
+}
+
+static int probe_hull_shove(void *context, const float target[3])
+{
+    (void)context; (void)target;
+    probe_fault("00176180 class-2 hull shove is not bound");
+    return 0;
+}
+
+static int probe_target_shove(void *context)
+{
+    (void)context;
+    probe_fault("001762E0 area-2 target shove is not bound");
+    return 0;
+}
+
+static int probe_pose(void *context, float blend)
+{
+    (void)context; (void)blend;
+    /* 00174A50 requests the +235 row default; rows 2/3 are not exported. */
+    probe_fault("00174A50 low-clearance row request is not bound");
+    return 0;
+}
+
+static float probe_sqrt(void *context, float x) { (void)context; return sqrtf(x); }
+static float probe_atan(void *context, float x) { (void)context; return atanf(x); }
+
+static const EmPlayerProbeWorkers kProbeWorkers = {
+    NULL, probe_move, probe_sweep, probe_column, probe_hull_shove, probe_target_shove,
+    probe_pose, probe_sqrt, probe_atan
+};
+
+static void probe_actor(EmPlayerProbeActor *actor)
+{
+    memset(actor, 0, sizeof *actor);
+    memcpy(actor->position, g.pos, sizeof actor->position);
+    actor->yaw = g.yaw;
+    actor->speed = g.loco_upt;
+    actor->major = 1;
+    /* +5 at the callback tail: 1 in the walk callback, 0 in idle; the tick
+     * that ends a walk (+1F0 back to 0) has already written +5=0, and the
+     * idle entry handoff has written +5=1 with +1F0=1. */
+    actor->state = g.loco_mode != 0 ? 1 : 0;
+    actor->mode = (uint8_t)g.loco_mode;
+    actor->variant = (uint8_t)g.loco_substate;
+    actor->row = (uint8_t)((g.status.health <= PD_LOW_HEALTH ? 1 : 0) |
+                           (g.probe_low_clearance ? 2 : 0));
+    actor->special = g.probe_low_clearance;
+    actor->obstruction = g.probe_block_mask;
+    actor->contact = 1;
+}
+
+void player_wall_probes(void)
+{
+    if (!g.coll.poly_count) return;
+    EmPlayerProbeActor actor;
+    probe_actor(&actor);
+    EmPlayerProbeScene scene = { em_scene_state()->d810700,
+                                 probe.inherited_s1 ? probe.inherited_s1 : 1, probe.previous };
+    probe.inherited_s1 = 1;
+    if (em_player_wall_probes(&actor, &scene, &kProbeWorkers) < 0) {
+        probe_fault("001764E0 worker fault");
+        return;
+    }
+    static int trace = -1;
+    if (trace < 0) trace = getenv("EM_PROBE_TRACE") != NULL;
+    if (trace)
+        printf("probe: frame %d lanes 0x%02X push (%.6f, %.6f, %.6f) low %u\n", g.frame_no,
+               actor.obstruction, actor.position[0] - g.pos[0],
+               actor.position[1] - g.pos[1], actor.position[2] - g.pos[2], actor.special);
+    memcpy(g.pos, actor.position, sizeof g.pos);
+    g.probe_block_mask = actor.obstruction;
+    g.probe_low_clearance = actor.special;
+    probe.previous = scene.previous_obstruction;
+}
+
+/* 001756E0 after the floor service: release (or keep) the low clearance. */
+static void player_clearance_release(void)
+{
+    if (!g.coll.poly_count) return;
+    EmPlayerProbeActor actor;
+    probe_actor(&actor);
+    EmPlayerProbeScene scene = { em_scene_state()->d810700, 1, probe.previous };
+    if (em_player_clearance_release(&actor, &scene, &kProbeWorkers) < 0) {
+        probe_fault("001756E0 worker fault");
+        return;
+    }
+    g.probe_low_clearance = actor.special;
+}
+
+/* The callback tail without the port's floor snap (idle and stopped ticks):
+ * 001764E0, then 001756E0 (00175900/001796C0 are not bound; see docs). */
+static void player_probe_tail(void)
+{
+    player_wall_probes();
+    player_clearance_release();
 }
 
 void player_move_collide(float mx, float mz)
@@ -134,6 +308,9 @@ void player_move_collide(float mx, float mz)
             break;
         from[1] = hit.point[1] - 1e-3f;
     }
+
+    /* 001756E0 follows the floor service in the callback tail. */
+    player_clearance_release();
 
     /* MOVING-SURFACE CARRY (em_collision.h moving-surface registry).
      * After the static floor snap above, consume the per-frame registry:
@@ -396,12 +573,13 @@ static void reversal_actor(EmPlayerReversalActor *actor, int gait)
     actor->variant = g.loco_substate;
     actor->tier = (uint8_t)g.loco_tier;
     actor->gait = (uint8_t)gait;
-    /* +235 row: bit 0 is the low-health latch (health <= 35); bit 1
-     * (rows 2/3) is not modelled, as in the pose host. +236 and
-     * D_008106C8 bit 2 (the 0017B490 row-4 override) are clear in every
-     * captured AREA11 state. */
-    actor->row = g.status.health <= PD_LOW_HEALTH ? 1 : 0;
-    actor->special = 0;
+    /* +235 row: bit 0 is the low-health latch (health <= 35); bit 1 is the
+     * low clearance 001764E0/001756E0 keep with +236 (rows 2/3 have no
+     * exported clips, so the clip lookup refuses them). D_008106C8 bit 2
+     * (the 0017B490 row-4 override) is clear in every captured AREA11 state. */
+    actor->row = (uint8_t)((g.status.health <= PD_LOW_HEALTH ? 1 : 0) |
+                           (g.probe_low_clearance ? 2 : 0));
+    actor->special = g.probe_low_clearance;
     actor->global_mode = 0;
     /* +23A: the floor attribute 00175900 stores each callback (probed at
      * the current position). +23C/+23D water depth states are untranslated
@@ -505,7 +683,9 @@ static int reversal_state2_tick(const EmFrameInput *in, int gait)
         g.loco_upt = g.move_speed = 0;
     } else if (actor.walk_state == 1) {
         /* Resumed walking at gait-1: the ordinary display continues from
-         * the requested source frame. */
+         * the requested source frame. 001612D0 keeps the 0017B490 clip id
+         * in $s1, which this tick's 001764E0 inherits. */
+        probe.inherited_s1 = (uint8_t)reversal.requested_clip;
         int index = em_model_clip_index(&g.model, reversal.requested_clip);
         reversal.walk_state = 0;
         reversal.display = 0;
@@ -941,7 +1121,7 @@ void player_move(void)
         /* 00161020 breaks to the idle physics tail; 001612D0 returns
          * before its walking tail. Save the state before 001798D0 clears
          * it. */
-        if (used > 0 && !walking_before_use) player_wall_probes();
+        if (used > 0 && !walking_before_use) player_probe_tail();
         return;
     }
 
@@ -949,7 +1129,7 @@ void player_move(void)
         (player_pose_entry_return_tick() || player_pose_idle_state_wait())) {
         g.gait = 0;
         g.move_speed = 0;
-        player_wall_probes();
+        player_probe_tail();
         return;
     }
 
@@ -969,7 +1149,7 @@ void player_move(void)
         /* 001612D0 case 2: 00174AC0, the surface effect / resume / idle
          * decision, 0017BC40 and 0017C030, then 00178B90(p,0) and the tail. */
         if (!reversal_state2_tick(in, gait)) {
-            player_wall_probes();
+            player_probe_tail();
             return;
         }
         goto locomotion_translate;
@@ -983,9 +1163,15 @@ void player_move(void)
             while (difference <= -EM_PI) difference += 2.0f * EM_PI;
             player_turn_toward(desired, player_turn_rate(gait, 0, fabsf(difference)));
         }
-        if (player_pose_foot_stop_tick() < 0)
+        /* 0017C030 mode 5 ends with +1F0=0, +25C=0 and the step mailbox
+         * 0x81 (tier 1) or 0x82; 00187350 plays that step the same frame. */
+        unsigned stop_tier = g.loco_tier;
+        int stop_active = player_pose_foot_stop_tick();
+        if (stop_active < 0)
             player_pose_invalidate("foot-placement stop callback failed");
-        player_wall_probes();
+        else if (stop_active == 0)
+            player_footstep_post(stop_tier == 1 ? 0x81 : 0x82);
+        player_probe_tail();
         return;
     }
 
@@ -1040,6 +1226,10 @@ void player_move(void)
         } else {
             unsigned before = g.loco_stop.phase;
             em_player_stop_tick(&g.loco_stop);
+            /* Phase 2 -> 3 is 0017C030 mode 4 seeing the end flag: +1F0=0,
+             * +25C=0 and the step mailbox 0x83. */
+            if (before == 2 && g.loco_stop.phase == 3)
+                player_footstep_post(0x83);
             g.loco_upt = g.move_speed = 0;
             g.loco_animation_step = 0;
             if (g.loco_stop.phase >= 3) {
@@ -1056,7 +1246,7 @@ void player_move(void)
                 g.idle_timer = IDLE_FIDGET_FRAMES;
                 g.fid_w = g.walk_w = 0;
             }
-            player_wall_probes();
+            player_probe_tail();
             return;
         }
     }
@@ -1087,7 +1277,7 @@ void player_move(void)
             g.loco_mode = 1;
             g.loco_substate = 1;
         }
-        player_wall_probes();
+        player_probe_tail();
         return;
     }
     if (g.loco_mode == 0) {
@@ -1105,7 +1295,7 @@ void player_move(void)
             }
             g.walk_w = 0;
         }
-        player_wall_probes();
+        player_probe_tail();
         return;
     }
 
@@ -1154,7 +1344,7 @@ void player_move(void)
         workers.context = &actor;
         if (em_player_reversal_animation(&actor, &workers) < 0) {
             reversal_fault("0017C030 case 7");
-            player_wall_probes();
+            player_probe_tail();
             return;
         }
         em_player_reversal_walk_tail(&actor);
@@ -1174,11 +1364,11 @@ void player_move(void)
             g.loco_mode = 4;
             g.loco_upt = g.move_speed = 0;
             g.loco_animation_step = 0;
-            player_wall_probes();
+            player_probe_tail();
             return;
         }
         if (player_pose_foot_stop_begin()) {
-            player_wall_probes();
+            player_probe_tail();
             return;
         }
         player_pose_unsupported_hold("foot-placement stop begin failed");
@@ -1187,7 +1377,7 @@ void player_move(void)
         g.loco_tier = 0;
         g.loco_upt = 0;
         g.move_speed = 0;
-        player_wall_probes();
+        player_probe_tail();
         return;
     }
 
@@ -1306,6 +1496,183 @@ void footstep_play(int tier)
      * gains come out center/full by the play_sound math itself */
     em_sfx_play_at(surf, g.pos, 300.0f);
     em_sfx_play_at(gear, g.pos, 300.0f);
+}
+
+/* ---- WP-15 P14/P15: 00187350 footstep dispatch ---------------------------
+ * The original triggers steps from the source animation clock, not from the
+ * display: 0015BCF0 calls 00187350 once per player stage, after the state
+ * callback and the skeleton evaluation. em_player_floor.c holds the
+ * translation (test_player_footstep_reference.py). This binding supplies the
+ * actor bytes the port keeps elsewhere and the workers:
+ *   00179B90 -> footstep_rand5, 00122BB8 -> em_random_next,
+ *   001FBD50(actor, id, 0, 300) -> em_sfx_play_at(id, feet, 300),
+ *   001EFD90 / 001F0460 / 001E8B90 -> coordinator-bound workers.
+ * An unbound effect/decal/wade worker is a counted fault (reported once);
+ * the step state still advances, as the original does after those calls. */
+static struct {
+    uint8_t step;       /* +25E */
+    int16_t wet;        /* +212 */
+    uint8_t surface;    /* +23A as last written by the floor service */
+    int surface_valid;
+    unsigned faults;
+    int reported;
+    int (*effect)(void *context, uint32_t id, const float position[3],
+                  const float rotation[3]);
+    void *effect_context;
+    int (*decal)(void *context, const float position[3], float yaw, float pitch);
+    void *decal_context;
+    int (*wade)(void *context, const float position[3], float level);
+    void *wade_context;
+} footstep;
+
+void player_footstep_set_workers(
+    int (*effect)(void *context, uint32_t id, const float position[3],
+                  const float rotation[3]), void *effect_context,
+    int (*decal)(void *context, const float position[3], float yaw, float pitch),
+    void *decal_context,
+    int (*wade)(void *context, const float position[3], float level),
+    void *wade_context)
+{
+    footstep.effect = effect; footstep.effect_context = effect_context;
+    footstep.decal = decal; footstep.decal_context = decal_context;
+    footstep.wade = wade; footstep.wade_context = wade_context;
+}
+
+unsigned player_footstep_faults(void) { return footstep.faults; }
+
+void player_footstep_reset(void)
+{
+    footstep.step = 0;
+    footstep.wet = 0;
+    footstep.surface_valid = 0;
+}
+
+/* 0017C030 writes the step mailbox when a stop ends: mode 4 posts 0x83,
+ * mode 5 posts 0x81 (tier 1) or 0x82. 00187350 consumes it that frame. */
+void player_footstep_post(uint8_t code)
+{
+    footstep.step = code;
+}
+
+uint8_t player_footstep_phase(void) { return footstep.step; }
+
+static void footstep_fault(const char *worker)
+{
+    ++footstep.faults;
+    if (!footstep.reported) {
+        footstep.reported = 1;
+        fprintf(stderr, "player footstep: %s worker is not bound (frame %d); "
+                "faults are counted by player_footstep_faults\n", worker, g.frame_no);
+    }
+}
+
+static int step_random5(void *context, unsigned *value)
+{
+    (void)context;
+    *value = footstep_rand5();
+    return 0;
+}
+
+static int step_random(void *context, uint32_t *value)
+{
+    (void)context;
+    *value = em_random_next();
+    return 0;
+}
+
+static int step_sound(void *context, unsigned id)
+{
+    (void)context;
+    /* 00182430 ignores 001FBD50's result (a culled source returns -1). */
+    em_sfx_play_at(id, g.pos, 300.0f);
+    return 0;
+}
+
+static int step_effect(void *context, uint32_t id, const float position[3],
+                       const float rotation[3])
+{
+    (void)context;
+    if (!footstep.effect) { footstep_fault("001EFD90 effect"); return 0; }
+    return footstep.effect(footstep.effect_context, id, position, rotation);
+}
+
+static int step_decal(void *context, const float position[3], float yaw, float pitch)
+{
+    (void)context;
+    if (!footstep.decal) { footstep_fault("001F0460 decal"); return 0; }
+    return footstep.decal(footstep.decal_context, position, yaw, pitch);
+}
+
+static int step_wade(void *context, const float position[3], float level)
+{
+    (void)context;
+    if (!footstep.wade) { footstep_fault("001E8B90 wade"); return 0; }
+    return footstep.wade(footstep.wade_context, position, level);
+}
+
+/* +23A for the dispatcher: the floor service's stored byte once it has run,
+ * else the current floor probe (see footstep_floor_attr). */
+static uint8_t footstep_surface(void)
+{
+    return footstep.surface_valid ? footstep.surface : footstep_floor_attr();
+}
+
+int player_footstep_0187350(uint32_t frame, uint8_t area)
+{
+    EmPlayerStepActor actor;
+    memset(&actor, 0, sizeof actor);
+    memcpy(actor.position, g.pos, sizeof actor.position);
+    actor.rotation[1] = g.yaw;           /* the port's player has yaw only */
+    actor.speed = g.loco_upt;
+    actor.surface_y = g.pos[1];
+    actor.mode = (uint8_t)g.loco_mode;
+    actor.tier = (uint8_t)g.loco_tier;
+    actor.step = footstep.step;
+    actor.wet = footstep.wet;
+    actor.surface = footstep_surface();
+    actor.contact = 1;
+    actor.obstruction = g.probe_block_mask;
+    if (actor.mode == 0x01 || actor.mode == 0x02 || actor.mode == 0x2F || actor.mode == 0x41) {
+        unsigned clip, flags;
+        float remaining;
+        if (!player_pose_source(&clip, &remaining, &flags, NULL)) {
+            ++footstep.faults;
+            fprintf(stderr, "player footstep: locomotion mode %u without an original "
+                    "source clock at frame %d\n", actor.mode, g.frame_no);
+            return -1;
+        }
+        actor.clip = (int16_t)clip;
+        actor.clock = remaining;
+        actor.anim_flags = flags;
+    }
+    /* Skeleton nodes 17/18 (D_00275B40+0x44/+0x48, world translation +C0).
+     * The player stage's evaluated palette, as player_pose_finish_palette
+     * reads node 1 for the hip. */
+    const float *foot17 = NULL, *foot18 = NULL;
+    if (g.model.bone_count > 18) {
+        foot17 = g.player_palette + 17 * 16 + 12;
+        foot18 = g.player_palette + 18 * 16 + 12;
+    }
+    EmPlayerStepScene scene = { foot17, foot18, frame, area };
+    EmPlayerStepWorkers workers = {
+        NULL, step_random5, step_random, step_sound, step_effect, step_decal, step_wade
+    };
+    uint8_t step_before = actor.step;
+    int result = em_player_footstep_tick(&actor, &scene, &workers);
+    static int trace = -1;
+    if (trace < 0) trace = getenv("EM_STEP_TRACE") != NULL;
+    if (trace)
+        printf("footstep: frame %d mode %u clip %d clock %.3f flags 0x%X tier %u "
+               "surface %u step %u->%u\n", g.frame_no, actor.mode, actor.clip,
+               actor.clock, actor.anim_flags, actor.tier, actor.surface,
+               step_before, actor.step);
+    footstep.step = actor.step;
+    footstep.wet = actor.wet;
+    if (result < 0) {
+        ++footstep.faults;
+        fprintf(stderr, "player footstep: 00187350 fault at frame %d\n", g.frame_no);
+    }
+    return result;
 }
 
 /* Cyclic edge test: did the looping clip playhead cross `trig` going

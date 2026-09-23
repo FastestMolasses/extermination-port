@@ -186,12 +186,34 @@ all locally exported panel face bytes, and checks the captured first contact.
 The collision and props tests cover set masks, nearest-hit composition,
 strict segment versus inclusive movement edges, and owner lifetime.
 
-Remaining collision work: the low-clearance/ledge writer and special ankle
-slope-response branches are not translated. The current ankle pass still runs
-in idle as well as movement. Only the proven panel compact cell is published;
+Remaining collision work: superseded in part by WP-15 P16 (next paragraph
+and `PLAYER_FLOOR.md`). Only the proven panel compact cell is published;
 other compact cells, generic movable hulls and full original query acceleration
-remain separate work. Native SDK trigonometry and ordinary polygon arithmetic
-still prevent a whole-query bit-identical claim.
+remain separate work. Ordinary polygon arithmetic and the unported 0019AB20
+column walkers still prevent a whole-query bit-identical claim.
+
+WP-15 P16 replaced the port's probe loop with the translated 001764E0
+(`em_player_floor.c`, oracle `tools/test_player_probe_reference.py`):
+
+- The ankle pass runs only in the walk callback (+5 == 1 at the tail).
+- Lane targets come from the SDK rotation (bit-exact), not host sinf/cosf.
+- Floor-class hits are ignored rather than stepped past.
+- The response applies the whole delta (00176BE0).
+- The overhead column probe, the crawl test 00176C80 and the low-clearance
+  writer (+236) run, and 001756E0 releases +236 after the floor snap.
+
+newgame-control still reports 9.599989 with the same endpoint. The stop and
+low-gait fixtures are unchanged. The re-entry panel contact now reports
+0.266112/0.306763 and a final XZ of (238.753906,226.391418) against the
+original (238.753982,226.391403). The previous values were
+0.266091/0.306747 and (238.753937,226.391403).
+
+## Footsteps (WP-15 P14/P15)
+
+Steps fire from the source clock through the translated 00187350
+(`PLAYER_FLOOR.md`). Over the re-entry fixture, the native step phase, mode,
+tier, clip and remaining clock match the original capture on all 48 frames
+4094-4141. That result needs the pending em_player_frame.c call site.
 
 Full native regression (`build/opening_control/panel_contact_run.log` and
 `panel_contact.png`) passed the ordinary opening,30 held input ticks,18 released

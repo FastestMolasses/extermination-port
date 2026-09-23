@@ -48,6 +48,34 @@ unsigned player_reversal_faults(void);
  * stays disengaged until display, effect worker and clips 6/7 are all bound. */
 void player_reversal_bind_display(int bound);
 
+/* WP-15 P14/P15 footsteps (docs/PLAYER_FLOOR.md). 0015BCF0 calls 00187350
+ * once per player stage after the state callback and skeleton evaluation:
+ * the player stage calls player_footstep_0187350(spad 3B68, D_00810700)
+ * after actor_update. It replaces the display-clock step_crossed trigger
+ * (step_crossed/footstep_play stay only until that call site is removed).
+ * Returns 0, or -1 on a fault (reported, counted).
+ * player_footstep_set_workers binds 001EFD90 (effect id, position, actor
+ * Euler), 001F0460 (wet-floor decal: position, yaw, pitch) and 001E8B90
+ * (wade level); a reached unbound worker is a counted fault.
+ * player_footstep_post is the 0017C030/melee step mailbox (0x80|tier). */
+int player_footstep_0187350(uint32_t frame, uint8_t area);
+void player_footstep_set_workers(
+    int (*effect)(void *context, uint32_t id, const float position[3],
+                  const float rotation[3]), void *effect_context,
+    int (*decal)(void *context, const float position[3], float yaw, float pitch),
+    void *decal_context,
+    int (*wade)(void *context, const float position[3], float level),
+    void *wade_context);
+unsigned player_footstep_faults(void);
+void player_footstep_reset(void);
+void player_footstep_post(uint8_t code);
+uint8_t player_footstep_phase(void);
+
+/* WP-15 P16 (docs/PLAYER_FLOOR.md): player_wall_probes runs the translated
+ * 001764E0 over the port's collision; unbound workers it reaches (00176180,
+ * 001762E0 shove, 00174A50 row request) are counted here. */
+unsigned player_probe_faults(void);
+
 /* Called from the gameplay frame in em_game.c as well as from this module. */
 int  aim_ladder_eval(double t);
 int  step_crossed(double prev, double cur, double trig);
