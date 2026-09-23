@@ -457,7 +457,7 @@ def export_emcl():
     OUT.mkdir(parents=True, exist_ok=True)
     out = OUT / 'snow.emcl'
     command = [sys.executable, str(EXPORTER)] + [str(DECOMP / 'extract/chunk15' / f) for f in CHUNK15]
-    command += ['-o', str(out), '--at', '218.592,201.789']
+    command += ['-o', str(out), '--at', '218.592,201.789', '--node-class']
     for beat in VERIFY_BEATS:
         command += ['--verify-ram', str(ROUTE / beat / 'eeMemory.bin')]
     command += ['--verify-ram', str(PLAYABLE)]

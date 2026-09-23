@@ -116,8 +116,10 @@ All EE COP1 and VU0 macro arithmetic goes through `em_ee_float.h`.
 ## 3. Grid data: the EMCL node class and rank section
 
 The grid walkers need data that the EMCL poly records did not carry. The
-decomp exporter `../Extermination/tools/export_collision.py` now writes it.
-The change is limited to this data:
+decomp exporter `../Extermination/tools/export_collision.py` writes it when
+given `--node-class` (off by default, so a default re-export stays
+byte-identical to the installed asset until the coordinator binds the
+original floor service). The change is limited to this data:
 
 - **Node class (header flag bit 1, `EM_COLL_FLAG_NODE_CLASS`).** Each grid
   poly's pad byte is node +0x1B. `em_collision.c` already reports it as the
@@ -182,7 +184,7 @@ cd ../Extermination && python3 tools/export_collision.py \
   extract/chunk15/f07_id52.bin extract/chunk15/f08_id4d.bin extract/chunk15/f09_id53.bin \
   extract/chunk15/f10_id5b.bin extract/chunk15/f11_id4a.bin extract/chunk15/f12_id44.bin \
   -o ../extermination-port/assets/scene_snow/snow.emcl --at 218.592,201.789 \
-  --verify-ram build/s87/route/06_hill_slide/eeMemory.bin
+  --node-class --verify-ram build/s87/route/06_hill_slide/eeMemory.bin
 ```
 
 After installing, re-run:
