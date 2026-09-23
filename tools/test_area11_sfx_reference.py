@@ -14,6 +14,7 @@ from export_area11_sfx import ROOT,DECOMP,ELF_SHA,Elf,source,pitch,stereo_gain,u
 from test_roger_reference import RogerOracle
 from test_point_light_reference import signed
 import ctypes as C
+from reference_mode import FULL, MODE, banner, parallel_map, part, pick
 
 class SfxOracle(RogerOracle):
  def plain(self,w):
@@ -122,7 +123,10 @@ p=Path('build/startup-reference/portable-data/sstates/SCUS-97112 (0AE679AF).02.p
                 self.hardware.append((address&0x1FFFFFFF,value&((1<<(8*size))-1),size))
             super().save(address,value,size)
     o=Iop(elf);o.hardware=[];o.write(0,ram)
-    for voice in range(48):
+    # Quick: both ends of each SPU2 core (0/1, 23 | 24/25, 47) and one
+    # mid voice per core; the full run sets up all 48.
+    voices=range(48) if FULL else (0,1,11,23,24,25,36,47)
+    for voice in voices:
         o.hardware=[]
         for command in ((6,voice,862,0),(1,voice,2217,2217),
                         (5,voice,0x1E2010,0),(3,voice,0x80FF,0x5FD0)):
@@ -155,7 +159,7 @@ p=Path('build/startup-reference/portable-data/sstates/SCUS-97112 (0AE679AF).02.p
         kon=[i for i,h in enumerate(o.hardware) if h[0] in (0x1F9001A0,0x1F9005A0)]
         koff=[i for i,h in enumerate(o.hardware) if h[0] in (0x1F9001A4,0x1F9005A4)]
         assert max(kon)<min(koff)
-    return dict(voices=48,register_writes=48*7,switch_register_writes=switches,
+    return dict(voices=len(voices),register_writes=len(voices)*7,switch_register_writes=switches,
         unrelocated_module_words=checked,
         module_sha256=hashlib.sha256(raw).hexdigest(),captured_base=base,
         limit='Original driver and libsd execute; hardware register stores are observed, not synthesized sound')
@@ -453,6 +457,88 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
     return stats
 
 
+# Pass A/B/C lockstep runs are module-level functions so a quick run can
+# spread them over forked workers (each run is independent: its own oracle
+# and native driver). A full run calls them serially, in the original order.
+_SFX={}
+
+
+def _registry_case(job):
+    """Pass A: one entry and request pair, zero feedback. Returns A0 voices."""
+    entry,left,right=job
+    X,lib,registry=_SFX['X'],_SFX['lib'],_SFX['registry']
+    sample_address,native_words=_SFX['sample_address'],_SFX['native_words']
+    if entry['state']==X.STATE_ABSENT:
+        o=registry.oracle()
+        o.run(0x1FB9F0,(entry['id'],0x1000,left&0xFFFFFFFFFFFFFFFF,right&0xFFFFFFFFFFFFFFFF))
+        assert signed(o.r[2])==-1,hex(entry['id'])
+        shim=lib.shim_new(str(registry.path).encode(),STREAM_VOICES,0,0,0,1)
+        assert lib.shim_start(shim,entry['id'],11,0,left,right)==-1
+        lib.shim_free(shim)
+        return 0
+    assert entry['state']==X.STATE_AUDIBLE,hex(entry['id'])
+    request=(left,right) if all(-0x1000<=x<=0x1000 for x in (left,right)) else (0x1000,0x1000)
+    ops=[e for e in entry['events'] if 'op' in e]
+    key_ons=[e for e in ops if e['op']==X.OP_KEY_ON]
+    portamento=any(e['op']==X.OP_PORTAMENTO for e in ops)
+    live={};started_total=[0];offs=[0]
+    def observe(tick,commands,entry=entry,request=request,key_ons=key_ons,
+                portamento=portamento,live=live,started_total=started_total,offs=offs):
+        on=0
+        for c in commands:
+            if c[0]==0xA:on|=c[2]|c[3]<<24
+            if c[0]==0xB:offs[0]|=c[2]|c[3]<<24
+        started=[]
+        for v in range(48):
+            if not on>>v&1:continue
+            first={cmd:next(c for c in commands if c[0]==cmd and c[1]==v) for cmd in (6,1,5,3)}
+            started.append((first[6][2],first[1][2],first[1][3],first[5][2],first[3][2],first[3][3]))
+            live[v]=started[-1]
+        for c in commands:
+            if c[0]==6 and not portamento:assert c[2]==live[c[1]][0]
+            if c[0]==1:assert (c[2],c[3])==live[c[1]][1:3]
+        expected=[]
+        for e in key_ons:
+            if e['tick']!=tick:continue
+            words=X.volume_words(e['scalar'],e['pan'],*request)
+            assert native_words(e['scalar'],e['pan'],left,right)==list(words)
+            expected.append((e['pitch'],*words,sample_address[e['sample']],e['adsr1'],e['adsr2']))
+        assert sorted(started)==sorted(expected),(hex(entry['id']),tick,started,expected)
+        started_total[0]+=len(started)
+    last=max(e['tick'] for e in ops)
+    lockstep(lib,registry,{0:[('start',entry['id'],left,right)]},'zero',observe,
+             settle=lambda tick,lib,s,last=last:tick>last+3 and not lib.shim_allocated(s))
+    assert started_total[0]==len(key_ons),(hex(entry['id']),started_total[0],len(key_ons))
+    # Key-offs only where the script keys off a sustained tone.
+    sustained_offs=any(e['op']==X.OP_KEY_OFF and any(k['note']==e['note'] and k['sustained']
+                       for k in key_ons) for e in ops)
+    assert bool(offs[0])==sustained_offs,hex(entry['id'])
+    return started_total[0]
+
+
+def _model_case(entry):
+    """Pass B: one audible entry with the SPU2 model's ENVX feedback."""
+    return lockstep(_SFX['lib'],_SFX['registry'],{0:[('start',entry['id'],0x800,-0x400)]})
+
+
+def _scenario_case(scenario):
+    """Pass C: one concurrent scenario with model feedback."""
+    return lockstep(_SFX['lib'],_SFX['registry'],scenario)
+
+
+def _sfx_job(tagged):
+    kind,job=tagged
+    return {'A':_registry_case,'B':_model_case,'C':_scenario_case}[kind](job)
+
+
+def _sfx_cost(tagged):
+    """Rough tick count, so the longest lockstep runs start first."""
+    kind,job=tagged
+    if kind=='C':return 1000+max(job)
+    entry=job[0] if kind=='A' else job
+    return max([e['tick'] for e in entry.get('events',()) if 'op' in e] or [0])
+
+
 def registry_oracle(elf,ram):
     import export_sfx_registry as X
     import random
@@ -537,63 +623,15 @@ def registry_oracle(elf,ram):
     # request pairs: absent ids return -1; every exported key-on starts
     # exactly one voice whose 6/1/5/3 words equal the exported ones;
     # re-sent words repeat unless a portamento moves the pitch.
-    cases=voices_checked=0
-    for entry in area11:
-        for left,right in REQUESTS:
-            if entry['state']==X.STATE_ABSENT:
-                o=registry.oracle()
-                o.run(0x1FB9F0,(entry['id'],0x1000,left&0xFFFFFFFFFFFFFFFF,right&0xFFFFFFFFFFFFFFFF))
-                assert signed(o.r[2])==-1,hex(entry['id'])
-                shim=lib.shim_new(str(registry.path).encode(),STREAM_VOICES,0,0,0,1)
-                assert lib.shim_start(shim,entry['id'],11,0,left,right)==-1
-                lib.shim_free(shim)
-                cases+=1;continue
-            assert entry['state']==X.STATE_AUDIBLE,hex(entry['id'])
-            request=(left,right) if all(-0x1000<=x<=0x1000 for x in (left,right)) else (0x1000,0x1000)
-            ops=[e for e in entry['events'] if 'op' in e]
-            key_ons=[e for e in ops if e['op']==X.OP_KEY_ON]
-            portamento=any(e['op']==X.OP_PORTAMENTO for e in ops)
-            live={};started_total=[0];offs=[0]
-            def observe(tick,commands,entry=entry,request=request,key_ons=key_ons,
-                        portamento=portamento,live=live,started_total=started_total,offs=offs):
-                on=0
-                for c in commands:
-                    if c[0]==0xA:on|=c[2]|c[3]<<24
-                    if c[0]==0xB:offs[0]|=c[2]|c[3]<<24
-                started=[]
-                for v in range(48):
-                    if not on>>v&1:continue
-                    first={cmd:next(c for c in commands if c[0]==cmd and c[1]==v) for cmd in (6,1,5,3)}
-                    started.append((first[6][2],first[1][2],first[1][3],first[5][2],first[3][2],first[3][3]))
-                    live[v]=started[-1]
-                for c in commands:
-                    if c[0]==6 and not portamento:assert c[2]==live[c[1]][0]
-                    if c[0]==1:assert (c[2],c[3])==live[c[1]][1:3]
-                expected=[]
-                for e in key_ons:
-                    if e['tick']!=tick:continue
-                    words=X.volume_words(e['scalar'],e['pan'],*request)
-                    assert native_words(e['scalar'],e['pan'],left,right)==list(words)
-                    expected.append((e['pitch'],*words,sample_address[e['sample']],e['adsr1'],e['adsr2']))
-                assert sorted(started)==sorted(expected),(hex(entry['id']),tick,started,expected)
-                started_total[0]+=len(started)
-            last=max(e['tick'] for e in ops)
-            lockstep(lib,registry,{0:[('start',entry['id'],left,right)]},'zero',observe,
-                     settle=lambda tick,lib,s,last=last:tick>last+3 and not lib.shim_allocated(s))
-            assert started_total[0]==len(key_ons),(hex(entry['id']),started_total[0],len(key_ons))
-            # Key-offs only where the script keys off a sustained tone.
-            sustained_offs=any(e['op']==X.OP_KEY_OFF and any(k['note']==e['note'] and k['sustained']
-                               for k in key_ons) for e in ops)
-            assert bool(offs[0])==sustained_offs,hex(entry['id'])
-            voices_checked+=started_total[0];cases+=1
+    _SFX.update(X=X,lib=lib,registry=registry,sample_address=sample_address,native_words=native_words)
+    # Quick: every entry (absent ones with all five requests); each audible
+    # entry with one request pair, rotating so every pair, including the two
+    # out-of-range pairs, is exercised.
+    jobs=[(entry,left,right) for number,entry in enumerate(area11)
+          for left,right in (REQUESTS if FULL or entry['state']==X.STATE_ABSENT else (REQUESTS[number%len(REQUESTS)],))]
     # Pass B: every audible AREA11 entry alone with the SPU2 model's ENVX as
     # the reaper feedback, until every voice has ended and every track is free.
-    model=dict(entries=0,ticks=0,commands=0,key_on=0,key_off=0,pitch=0,volume=0)
-    for entry in area11:
-        if entry['state']!=X.STATE_AUDIBLE:continue
-        stats=lockstep(lib,registry,{0:[('start',entry['id'],0x800,-0x400)]})
-        model['entries']+=1
-        for key in ('ticks','commands','key_on','key_off','pitch','volume'):model[key]+=stats[key]
+    audible_entries=[e for e in area11 if e['state']==X.STATE_AUDIBLE]
     # Pass C: concurrent scenarios.
     scenarios={}
     # 001FC3C0-style flame re-trigger, requests on a live loop, soft and hard stops.
@@ -621,10 +659,23 @@ def registry_oracle(elf,ram):
                                              rng.randrange(-0x1000,0x1001)))
         if rng.random()<0.03:actions.append(('stop',rng.randrange(8),int(rng.random()<0.3)))
         if actions:plan[tick]=actions
-    scenarios['random']=plan
-    concurrent={}
-    for name,scenario in scenarios.items():
-        concurrent[name]=lockstep(lib,registry,scenario)
+    # Quick: the same generated plan cut to its first 80 ticks.
+    scenarios['random']=plan if FULL else {tick:actions for tick,actions in plan.items() if tick<80}
+    # Passes A, B and C in that order. A full run executes them serially; a
+    # quick run spreads the independent lockstep runs over forked workers,
+    # longest first, and receives the results in the same order.
+    tagged=[('A',job) for job in jobs]+[('B',e) for e in audible_entries]+[('C',x) for x in scenarios.values()]
+    if FULL:
+        results=[_sfx_job(job) for job in tagged]
+    else:
+        results=parallel_map(_sfx_job,tagged,cost=_sfx_cost)
+    voices=results[:len(jobs)]
+    cases,voices_checked=len(voices),sum(voices)
+    model=dict(entries=0,ticks=0,commands=0,key_on=0,key_off=0,pitch=0,volume=0)
+    for stats in results[len(jobs):len(jobs)+len(audible_entries)]:
+        model['entries']+=1
+        for key in ('ticks','commands','key_on','key_off','pitch','volume'):model[key]+=stats[key]
+    concurrent=dict(zip(scenarios,results[len(jobs)+len(audible_entries):]))
     # 48 tracks start (the 49th 0x14D and the 0x413 are refused -1), all 44
     # non-stream voices key on and the remaining key-ons find no voice.
     exhaustion=concurrent['exhaustion']
@@ -633,7 +684,7 @@ def registry_oracle(elf,ram):
     # 00117428 directly on random voice tables (cursor included).
     allocations=0
     shim=lib.shim_new(str(registry.path).encode(),0,0,0,0,0)
-    for case in range(1500):
+    for case in range(pick(1500,150)):
         o=SfxOracle(elf.data)
         fields=[]
         for v in range(48):
@@ -657,7 +708,7 @@ def registry_oracle(elf,ram):
     # the native loop service: every callee call, the handle and D_00281B70.
     loop_cases=0
     shim=lib.shim_new(str(registry.path).encode(),0,0,0,0,0)
-    for case in range(3000):
+    for case in range(pick(3000,300)):
         release=case%5==4
         ids=(0x411,0x412,0x413)
         requested=[rng.choice((-1,-1)+ids) for _ in range(48)]
@@ -761,7 +812,11 @@ def main():
         assert differences in ([],[1400]),differences
         if differences:assert actual[1400]==64 and expected_header[1400]==0
     events=[];dispatch_cases=0
-    for slot,left,right in itertools.product(range(48),(0,0x800,0x1000),(0,0x1000)):
+    dispatch_all=list(itertools.product(range(48),(0,0x800,0x1000),(0,0x1000)))
+    # Quick: every track slot once, the six request pairs rotating over the
+    # slots (slot 0 keeps 0x1000/0x1000, whose commands the report records).
+    dispatch_run=dispatch_all if FULL else [c for i,c in enumerate(dispatch_all) if i%6==(i//6+5)%6]
+    for slot,left,right in dispatch_run:
         o=original(elf.data,ram,slot)
         o.run(0x1FB9F0,(0x3EE,0x1000,left,right));assert signed(o.r[2])==-1
         o.run(0x1FB9F0,(0x3EF,0x1000,left,right));assert o.r[2]==slot
@@ -808,15 +863,21 @@ def main():
     assert spu[at:at+len(adpcm)]==adpcm
     iop=iop_registers(elf.data)
     registry=registry_oracle(elf,ram)
-    report=dict(elf_sha256=ELF_SHA,dispatch_cases=dispatch_cases,pitch_cases=pitch_cases,iop=iop,registry=registry,
+    report=dict(mode=MODE,elf_sha256=ELF_SHA,dispatch_cases=dispatch_cases,pitch_cases=pitch_cases,iop=iop,registry=registry,
         commands=events,loaded_sample_bytes=len(adpcm),loaded_sample_sha256=hashlib.sha256(adpcm).hexdigest(),
         source=metadata,limits=['Controlled initially free track/voice allocation; no full mixer-state claim',
         '1157F0 hardware command sink is replaced; all dispatch/pitch/gain words execute',
         'SPU2 ADSR is a documented-semantics model checked only against PCSX2 ENVX feedback; no SPU2 output capture',
         'No SPU2 interpolation, reverb or final output waveform comparison'])
+    banner(part(dispatch_cases,len(dispatch_all),'dispatch cases (every slot, every request pair)'),
+           part(pitch_cases,216,'pitch cases'),part(iop['voices'],48,'IOP voices'),
+           part(registry['cases'],335,'registry entry x request cases (every entry, every request)'),
+           part(registry['allocations'],1500,'00117428 tables'),part(registry['loop_service_cases'],3000,'loop-service cases'),
+           f"random scenario {registry['concurrent']['random']['ticks']} ticks; SPU/bank captures, "
+           f"{len(registry['envx'])} ENVX capture words, model-feedback entries, services and exhaustion scenarios in full")
     out=ROOT/'build/area11_sfx_reference';out.mkdir(parents=True,exist_ok=True)
     (out/'original_report.json').write_text(json.dumps(report,indent=2)+'\n')
-    print(f'PASS {dispatch_cases} original panel dispatch/voice/end-track cases; {pitch_cases} pitch cases; {len(adpcm)} live SPU sample bytes; 336 original IOP/libsd register writes')
+    print(f"PASS {dispatch_cases} original panel dispatch/voice/end-track cases; {pitch_cases} pitch cases; {len(adpcm)} live SPU sample bytes; {iop['register_writes']} original IOP/libsd register writes")
     model=registry['model_feedback'];concurrent=registry['concurrent']
     print(f"PASS registry: {registry['area11_entries']} AREA11-playable entries x {len(REQUESTS)} requests "
           f"({registry['cases']} executed cases, {registry['voices_checked']} A0 voices: pitch/volume/address/ADSR words "

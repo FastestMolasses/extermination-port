@@ -9,6 +9,7 @@ recovered operations. This does not claim universal hardware rounding.
 from pathlib import Path
 import ctypes as C, struct, subprocess, json, math, random, argparse
 ROOT=Path(__file__).resolve().parents[1]
+from reference_mode import FULL, MODE, banner, part
 ENTRY,END,ACTOR,RETURN=0x1E67C0,0x1E6F60,0x600000,0xBADF00D
 LIB=C.CDLL(None)
 LIB.sinf.argtypes=[C.c_float];LIB.sinf.restype=C.c_float
@@ -217,11 +218,16 @@ def main():
     native=C.CDLL(str(lib));emit=native.em_snow_tiles
     emit.argtypes=[C.POINTER(Weather),C.POINTER(Config),C.c_float,C.POINTER(C.c_float),C.POINTER(Tile)]
     rng=random.Random(0x1e67c0);cases=0;tile_count=0;sdk_matrix_error=0.0;sdk_matrix_matches=0
+    # The full sweep draws 12 random weather states per strength. Every draw
+    # is made in both modes (same stream); quick runs the first 6 of each
+    # strength: every strength, including 0 and 1, with fresh seeds/phases.
+    per_strength=12 if FULL else 6
     for strength in [0.0,0.1,0.5,1.0]:
         for case in range(12):
             w=Weather();w.seed=rng.randrange(0x100000000);w.state=1
             for i in range(6):w.phase[i]=rng.uniform(1.0,2.0);w.drift[i]=rng.uniform(-0.2,1.5)
             eye=[rng.uniform(-800,800) for _ in range(3)]
+            if case>=per_strength:continue
             before=bytes(w)
             expected,tiles,_,_=oracle(elf,before,strength,eye,descriptor,host_sine=True)
             out=(Tile*108)();emit(C.byref(w),C.byref(config),strength,(C.c_float*3)(*eye),out)
@@ -238,7 +244,9 @@ def main():
                 sdk_matrix_error=max(sdk_matrix_error,difference)
                 sdk_matrix_matches+=difference==0.0
             cases+=1;tile_count+=108
-    report={'status':'PASS','instruction_flow_cases':cases,'tiles_compared':tile_count,
+    banner(part(cases,48,'instruction-flow cases (every strength)'),
+           'captured snapshot comparison in full when --reference-ee/--reference-tiles are given')
+    report={'status':'PASS','mode':MODE,'instruction_flow_cases':cases,'tiles_compared':tile_count,
             'flow_sine_dependency':'host sinf shared with native; original SDK waveform checked separately',
             'original_sdk_matrix_exact_matches':sdk_matrix_matches,
             'original_sdk_matrix_comparisons':tile_count,

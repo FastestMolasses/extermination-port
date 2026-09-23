@@ -26,6 +26,7 @@ import subprocess
 import sys
 
 from test_point_light_reference import Oracle as Base, signed
+from reference_mode import FULL, MODE, banner, part
 
 ROOT = Path(__file__).resolve().parents[1]
 POOL, SIZE, COUNT = 0x7A5640, 0x2F0, 0x100
@@ -502,17 +503,28 @@ def main():
     stats = dict(cases=0, walks=0, visits=0, fault_cases=0, fault_original_called_freed=0,
                  fault_original_walked_free_list=0, reserve_allocs=0, reserve_refused=0)
     rng = random.Random(0x1AFD70)
-    for length in range(0, 41):
+    # Quick: every walk mode and mode pair at the empty/single/small lengths,
+    # mid lengths and the 40-node maximum, and every fault mode at the
+    # shortest, mid and longest lists. Same seed; the stream is consumed per
+    # run case, so quick inputs are a deterministic sample, not a prefix.
+    lengths = range(0, 41) if FULL else (0, 1, 2, 3, 5, 8, 12, 16, 21, 29, 35, 40)
+    fault_lengths = range(2, 41, 2) if FULL else (2, 4, 10, 18, 30, 40)
+    for length in lengths:
         for modes in ([0], [1], [2], [3], [1, 2], [0, 0]):
             run_case(elf, lib, rng, length, modes, stats=stats)
-    for length in range(2, 41, 2):
+    for length in fault_lengths:
         for mode in (0, 1, 2, 3):
             # Retry when no node the mode ticks has a successor.
             for _ in range(20):
                 if run_case(elf, lib, rng, length, [mode], fault=True, stats=stats): break
             else: raise AssertionError(('no fault owner', length, mode))
     reserve_cases(elf, lib, stats)
-    report = dict(status='PASS', **stats, original_elf_sha256=ELF_SHA256,
+    if not FULL:
+        # The sample must still reach both original fault hazards.
+        assert stats['fault_original_called_freed'] and stats['fault_original_walked_free_list'], stats
+    banner(part(stats['cases'], 246, 'walk cases (every mode set)'), part(stats['fault_cases'], 80, 'freed-next fault cases (every mode)'),
+           f"{stats['reserve_allocs']} reserve/exhaustion allocations in full")
+    report = dict(status='PASS', mode=MODE, **stats, original_elf_sha256=ELF_SHA256,
                   executed=['001AF8E0', '001AFA90', '001AFA50', '001AFC10', '001AF800', '001AFBC0',
                             '001AFD70', '001CB590', '001CB5B0'],
                   boundary='func_00121A28 memset (argument-checked stub)')

@@ -52,6 +52,7 @@ from test_actor_pool_reference import (Original as PoolOriginal, POOL, SIZE, COU
                                        RESET, ALLOC, FREE_FN, WALK, ELF_SHA256)
 from export_area11_roster import (build_area11_roster, walk_roster, encode_roster, elf_overlay_reader,
                                   OVERLAY_ARENA, OVERLAY_SIZE, D_0024D820, D_0024D7C0)
+from reference_mode import MODE, banner, part, pick
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent/'Extermination'
@@ -654,7 +655,12 @@ def main():
         per_capture[name] = census(name, ram, overlay, roster_bytes, entries, image, title, registry, stats)
 
     rng = random.Random(0x1B6990)
-    for case in range(400):
+    # Quick: the first 100 synthetic tables of the same stream (~50 ms each);
+    # the coverage assertion below still requires every synthetic class
+    # (condition/alloc/0x0B skips, prime runs incl. the zero key, progress
+    # writes, class 2 and recycled +0x2E halfwords).
+    synthetic = pick(400, 100)
+    for case in range(synthetic):
         run_synthetic(elf, lib, rng, case, stats)
     for key in ('synthetic_condition_skips', 'synthetic_alloc_failures', 'synthetic_class_0b_skips',
                 'synthetic_prime_runs', 'synthetic_prime_zero_key', 'synthetic_progress_changed', 'synthetic_class2',
@@ -662,7 +668,10 @@ def main():
         assert stats[key] > 0, ('synthetic coverage', key)
     fail_stop(elf, overlay, lib, roster_bytes, stats)
 
-    report = dict(status='PASS', **stats, area11=summary, asset=asset_state,
+    banner(part(stats['synthetic_cases'], 400, 'synthetic spawn tables'),
+           f"{stats['area11_spawn_cases']} AREA11 capture spawns, {stats['census_captures']} capture censuses, "
+           f"{stats['extension_checks']} ISA extension and {stats['fail_stop_checks']} fail-stop checks in full")
+    report = dict(status='PASS', mode=MODE, **stats, area11=summary, asset=asset_state,
                   captures=per_capture, registry_rows=count,
                   executed=['001AF8E0', '001B6990', '001B6910', '001B65C0', '001B64F0', '001B6660', '001B11E0',
                             '001AFA90', '001AFA50', '001AFC10', '001AF800', '001AFBC0', '001C5C50'],

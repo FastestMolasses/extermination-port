@@ -25,6 +25,7 @@ from test_item_geometry_reference import original_arc
 from test_item_trail_reference import (Original as TrailOriginal, Stick, Trail, Math, Unary, Atan,
                                        HOST, BASE, CONTEXT, PACKET)
 from test_point_light_reference import bits, number
+from reference_mode import FULL, MODE, banner, parallel_map, part
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'assets/scene_snow/panel'
@@ -158,26 +159,62 @@ def native_stream(native, ui):
     return commands
 
 
-def cases():
-    yield from (dict(BASE_CASE, hover=h, infection=i) for h, i in itertools.product(
-        range(5), (0.0, 0.5, 9.99, 35.5, 99.99, 100.0)))
+INFECTIONS = (0.0, 0.5, 9.99, 35.5, 99.99, 100.0)
+HEALTHS = (0.0, 35.0, 35.01, 60.0, 60.5, 100.0)
+
+
+def case_classes():
+    """(class, full-sweep cases, cases a quick run keeps) in full-sweep order.
+
+    Each stream costs ~0.5 s of original execution, so quick mode keeps every
+    class and its boundaries: each hover page and each infection value (on a
+    diagonal), the formatter's width/truncation edges, every health threshold
+    (alternating warning), the clock wrap points, the unequipped battery, each
+    charge and capacity edge, and every ammo selector combination."""
+    hover_infection = [dict(BASE_CASE, hover=h, infection=i)
+                       for h, i in itertools.product(range(5), INFECTIONS)]
     # Every 209DF0 formatter value, including truncation just below 100.
-    yield from (dict(BASE_CASE, infection=n + (0.75 if n % 2 else 0.0)) for n in range(1, 100))
-    for health, warning in itertools.product((0.0, 35.0, 35.01, 60.0, 60.5, 100.0), (0, 1)):
-        yield dict(BASE_CASE, hover=1, health=health, warning=warning)
-    for clock in (59, 60, 0x7fffffff, 0xffffffff):
-        yield dict(BASE_CASE, hover=3, health=50.0, clock=clock)
-    yield dict(BASE_CASE, equipped=0)
-    for charge, capacity in itertools.product((0, 1, 13, 47, 255), (12, 198)):
-        yield dict(BASE_CASE, hover=4, charge=charge, capacity=capacity)
-    for primary, secondary, amounts, reserve in (
-            (0, 0, (0, 0, 0, 0, 0), 0), (0, 1, (99, 0, 0, 0, 0), 9999), (0, 2, (0, 7, 0, 0, 0), 5),
-            (0, 3, (0, 120, 0, 0, 0), 60), (0, 4, (0, 0, 99, 99, 0), 60),
-            (0, 4, (0, 0, 1, 5, 0), 60), (0, 4, (0, 0, 0, 0, 0), 60),
-            (2, 0, (0, 0, 0, 0, 30), 60), (2, 7, (0, 0, 0, 0, 999), 60),
-            (1, 4, (0, 0, 12, 34, 0), 1), (255, 3, (0, 45, 0, 0, 0), 60)):
-        yield dict(BASE_CASE, hover=2, infection=35.5, primary=primary, secondary=secondary,
-                   amounts=amounts, reserve=reserve)
+    formatter = [dict(BASE_CASE, infection=n + (0.75 if n % 2 else 0.0)) for n in range(1, 100)]
+    health = [dict(BASE_CASE, hover=1, health=h, warning=w)
+              for h, w in itertools.product(HEALTHS, (0, 1))]
+    clock = [dict(BASE_CASE, hover=3, health=50.0, clock=c) for c in (59, 60, 0x7fffffff, 0xffffffff)]
+    unequipped = [dict(BASE_CASE, equipped=0)]
+    battery = [dict(BASE_CASE, hover=4, charge=c, capacity=k)
+               for c, k in itertools.product((0, 1, 13, 47, 255), (12, 198))]
+    ammo = [dict(BASE_CASE, hover=2, infection=35.5, primary=primary, secondary=secondary,
+                 amounts=amounts, reserve=reserve)
+            for primary, secondary, amounts, reserve in (
+                (0, 0, (0, 0, 0, 0, 0), 0), (0, 1, (99, 0, 0, 0, 0), 9999), (0, 2, (0, 7, 0, 0, 0), 5),
+                (0, 3, (0, 120, 0, 0, 0), 60), (0, 4, (0, 0, 99, 99, 0), 60),
+                (0, 4, (0, 0, 1, 5, 0), 60), (0, 4, (0, 0, 0, 0, 0), 60),
+                (2, 0, (0, 0, 0, 0, 30), 60), (2, 7, (0, 0, 0, 0, 999), 60),
+                (1, 4, (0, 0, 12, 34, 0), 1), (255, 3, (0, 45, 0, 0, 0), 60))]
+    diagonal = {(h, INFECTIONS[h]) for h in range(5)} | {(0, INFECTIONS[5])}
+    edges = ((0, 12), (1, 198), (13, 12), (47, 198), (255, 12))
+    return [
+        ('hover x infection', hover_infection,
+         [c for c in hover_infection if (c['hover'], c['infection']) in diagonal]),
+        ('formatter values', formatter,
+         [c for c in formatter if int(c['infection']) in (1, 2, 9, 10, 99)]),
+        ('health x warning', health,
+         [c for i, c in enumerate(health) if i % 2 == HEALTHS.index(c['health']) % 2]),
+        ('clock wrap', clock, clock),
+        ('unequipped battery', unequipped, unequipped),
+        ('charge x capacity', battery, [c for c in battery if (c['charge'], c['capacity']) in edges]),
+        ('ammo selectors', ammo, ammo),
+    ]
+
+
+def cases():
+    return [case for _, members, _ in case_classes() for case in members]
+
+
+_ORACLE_INPUT = []
+
+
+def _original_stream_job(case):
+    """One original 209DF0 stream in a forked worker (quick mode)."""
+    return original_stream(*_ORACLE_INPUT, case)
 
 
 def hub_trail_tick(o, x, y):
@@ -338,9 +375,18 @@ def main():
         return ui
 
     # 1. Ordered 209DF0 streams across hover, infection and equipment.
+    classes = case_classes()
+    selected = [case for _, members, keep in classes for case in (members if FULL else keep)]
+    banner(part(len(selected), sum(len(m) for _, m, _ in classes), 'original 209DF0 streams') + ' ('
+           + ', '.join(f'{label} {len(m) if FULL else len(k)}/{len(m)}' for label, m, k in classes)
+           + '); help lines, trail, render, clock ownership and malformed resources run in full')
+    if FULL:
+        originals = (original_stream(elf, ram, case) for case in selected)
+    else:
+        _ORACLE_INPUT[:] = [elf, ram]
+        originals = parallel_map(_original_stream_job, selected)
     checked = streams = 0
-    for case in cases():
-        want_clock, wanted = original_stream(elf, ram, case)
+    for case, (want_clock, wanted) in zip(selected, originals):
         ui = load()
         clock, trail, stick = C.c_uint32(case['clock']), Trail(), Stick()
         assert native.em_status_hub_ui_prepare(ui, C.byref(display(case)), C.byref(stick),
@@ -448,7 +494,7 @@ def main():
     result = subprocess.run([str(fixture), records, atlas_path], cwd=ROOT, check=True,
                             capture_output=True, text=True)
     assert result.stdout.strip() == 'PASS', result.stdout + result.stderr
-    report = {'original_209DF0_streams': streams, 'exact_ordered_commands': checked,
+    report = {'mode': MODE, 'original_209DF0_streams': streams, 'exact_ordered_commands': checked,
               'original_help_calls': help_checked, 'hub_trail_frames': len(frames) - resets,
               'original_trail_triangles': trail_triangles, 'original_20E020_resets': resets,
               'rendered_calls_vs_original': rendered, 'ui_clock_ownership_checks': clock_checks,

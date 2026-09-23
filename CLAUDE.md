@@ -125,7 +125,10 @@ less. Use representative cases plus the boundary cases in the default run;
 put exhaustive sweeps behind `EM_TEST_FULL=1` and run them only when the module
 or its original function changes. Where the underlying decomp function is
 byte-matched and the translation has passed a full sweep, a small verified
-sample per run is enough.
+sample per run is enough. Python reference tests use `tools/reference_mode.py`
+(`select`/`pick` for the quick sample, `banner` for the "mode quick: N of M"
+line, `parallel_map` to spread independent oracle cases over forked workers;
+`EM_TEST_JOBS=1` forces serial).
 
 **No windows.** Automated runs must never put a window in front of the user.
 The app is headless automatically whenever a test/capture/trace variable is set

@@ -17,6 +17,7 @@ from test_interaction_pickup_reference import Math as AtanMath
 from test_item_trail_reference import Math, Stick, Trail, Emit, Original as TrailOriginal
 from test_point_light_reference import bits, number, signed, RETURN
 from pathlib import Path
+from reference_mode import FULL, MODE, banner, part, select
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -206,8 +207,13 @@ def main():
             magnitude = threshold + delta
             if magnitude <= 0x41490fdb:
                 angle_bits.update((magnitude, magnitude | 0x80000000))
+    angle_edges = set(angle_bits)
     angle_bits.update(bits(rng.uniform(-12.5663706, 12.5663706)) for _ in range(2400))
-    for encoded in sorted(angle_bits):
+    # Quick: every kernel/reduction boundary above, plus a fixed-seed sample
+    # of the random angles.
+    angle_run = select(sorted(angle_bits), len(angle_edges) + 240, 0x11DE90,
+                       keep=lambda _, encoded: encoded in angle_edges)
+    for encoded in angle_run:
         value = number(encoded)
         for name, entry in (('sine', 0x11e2a8), ('cosine', 0x11de90)):
             expected = Original(elf).unary(entry, value)
@@ -215,10 +221,15 @@ def main():
             assert actual == expected, (name, hex(encoded), value, hex(actual), hex(expected))
     square_bits = {0, 0x80000000, 1, 0x007fffff, 0x00800000, 0x3f800000,
                    0x47000000, 0x7f7fffff}
+    square_edges = set(square_bits)
     square_bits.update(bits(float(x * x + y * y)) for x in range(-128, 128, 13)
                        for y in range(-128, 128, 17))
     square_bits.update(rng.randrange(1, 0x7f800000) for _ in range(600))
-    for encoded in sorted(square_bits):
+    # Quick: the denormal/normal/exact-square/max boundaries plus a sample of
+    # the stick-radius grid and the random finite values.
+    square_run = select(sorted(square_bits), len(square_edges) + 200, 0x11E748,
+                        keep=lambda _, encoded: encoded in square_edges)
+    for encoded in square_run:
         value = number(encoded)
         expected = Original(elf).unary(0x11e748, value)
         actual = bits(native.em_item_sdk_sqrt(value))
@@ -235,8 +246,12 @@ def main():
             assert original.load(0x950000) == state.error == 0x21
     axes = {(x, y) for x in (0, 1, 32, 64, 96, 127, 128, 129, 160, 192, 224, 254, 255)
                    for y in (0, 1, 32, 64, 96, 127, 128, 129, 160, 192, 224, 254, 255)}
+    axis_edges = set(axes)
     axes.update((rng.randrange(256), rng.randrange(256)) for _ in range(1024))
-    for x, y in sorted(axes):
+    # Quick: the whole edge/centre/diagonal grid plus a sample of random axes.
+    axes_run = select(sorted(axes), len(axis_edges) + 96, 0x1B62C0,
+                      keep=lambda _, xy: xy in axis_edges)
+    for x, y in axes_run:
         original = Original(elf)
         original.save(0x24295c, 0x950000)
         expected = original.stick(x, y)
@@ -249,6 +264,12 @@ def main():
     original.save(0x275c90, 0)
     original.calls[0x207d00] = TrailOriginal.check_mode
     frames = [(128, 128)] * 3 + [(0, 0), (255, 0), (255, 255), (0, 255)] * 5 + [(128, 128)] * 20
+    # Each frame executes ~0.27 s of original trail code. Quick keeps rest,
+    # every corner, and enough rest frames to wrap the 16-slot ring back to
+    # rest; the full timeline repeats the corner sweep five times.
+    frames_total = len(frames)
+    if not FULL:
+        frames = [(128, 128)] + [(0, 0), (255, 0), (255, 255), (0, 255)] + [(128, 128)] * 17
     triangles = 0
     for x, y in frames:
         expected_state, expected_triangles = original.tick(x, y)
@@ -278,9 +299,13 @@ def main():
                 original.run(0x1d2610, floats=(0,))
                 assert calls == [('distance', 0x43f02f4f), ('fog', bits(20), bits(far))], calls
                 projection_cases += 1
-    report = {'sin_cos_values': len(angle_bits), 'sin_cos_exact_results': 2 * len(angle_bits),
-              'sqrt_exact_results': len(square_bits), 'numerical_original_bodies': 'PASS',
-              'neutral_wrapper_errno_cases': 4, 'full_sdk_stick_cases': len(axes),
+    banner(part(len(angle_run), len(angle_bits), f'sin/cos angles ({len(angle_edges)} boundaries)'),
+           part(len(square_run), len(square_bits), f'sqrt values ({len(square_edges)} boundaries)'),
+           part(len(axes_run), len(axes), f'stick axes ({len(axis_edges)} grid)'),
+           part(len(frames), frames_total, 'trail frames'), f'{projection_cases} projection and 4 errno cases in full')
+    report = {'mode': MODE, 'sin_cos_values': len(angle_run), 'sin_cos_exact_results': 2 * len(angle_run),
+              'sqrt_exact_results': len(square_run), 'numerical_original_bodies': 'PASS',
+              'neutral_wrapper_errno_cases': 4, 'full_sdk_stick_cases': len(axes_run),
               'full_sdk_ring_frames': len(frames), 'full_sdk_triangles': triangles,
               'scope_zero_cases': projection_cases,
               'scope_zero_projection_bits': '43F02F4F',

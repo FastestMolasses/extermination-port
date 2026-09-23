@@ -11,6 +11,7 @@ import sys
 from export_status_hub import Original, ELF_SHA, UI
 from test_point_light_reference import bits, number
 from status_ammo_source_probe import compile_readable_ammo
+from reference_mode import MODE, banner, part, select
 
 ROOT=Path(__file__).resolve().parents[1]
 class Data(C.Structure):
@@ -106,8 +107,13 @@ def main():
         Arc(lambda _,a:emit(('arc',C.string_at(a,96)))),
         Sprite(lambda _,x,y,w,h,c,t:emit(('sprite',x,y,w,h,c,t))))
     healths=[0,.01,34.99,35,number(bits(35)+1),59.99,60,number(bits(60)+1),99.99,100]
-    cases=itertools.product((0,1,2,59,60,61,0x7fffffff,0xfffffffe,0xffffffff),
-                            healths,(0,1,2),((208,196),(0,0),(512,448),(-100,-77)))
+    health_all=list(itertools.product((0,1,2,59,60,61,0x7fffffff,0xfffffffe,0xffffffff),
+                            healths,(0,1,2),((208,196),(0,0),(512,448),(-100,-77))))
+    # Quick: every health threshold with every warning, every counter wrap
+    # point and every position, the last case (it sizes the failure sweep),
+    # plus a fixed-seed sample of the product.
+    cases=select(health_all,360,0x208AD0,axes=(lambda c:(c[1],c[2]),lambda c:c[0],lambda c:c[3]),
+                 keep=lambda i,c:i==len(health_all)-1)
     checked=commands=0
     for counter,health,warning,(x,y) in cases:
         health=number(bits(health));want_counter,wanted=expected(elf,ram,counter,health,warning,x,y)
@@ -126,10 +132,14 @@ def main():
     failure[:]=[-1,0]
     battery_data=BatteryData(d.white,o.string_bytes(o.load(0x26729c)),d.separator)
     battery_cases=0
-    for charge,compact,(x,y),equipped in itertools.product(
-            (0,1,11,12,13,35,36,47,48,49,198,255),(0,1,2),
-            ((16,118),(-100,-77)),(0,1)):
-        capacity=(12,36,48,198,255)[battery_cases%5]
+    # The full sweep rotates the capacity with the case index; a quick run
+    # keeps each case's full-sweep capacity, every charge/capacity edge,
+    # every compact mode, position and equipped state.
+    battery_all=[(charge,compact,xy,equipped,(12,36,48,198,255)[index%5]) for index,(charge,compact,xy,equipped)
+                 in enumerate(itertools.product((0,1,11,12,13,35,36,47,48,49,198,255),(0,1,2),
+                                                ((16,118),(-100,-77)),(0,1)))]
+    battery_selected=select(battery_all,72,0x209280,axes=(lambda c:c[0],lambda c:c[4],lambda c:(c[1],c[3]),lambda c:c[2]))
+    for charge,compact,(x,y),equipped,capacity in battery_selected:
         original=Original(elf,ram,0,0,True)
         original.save(0x810cb2,charge,2);original.save(0x810cb7,capacity,1)
         original.save(0x810c7f,equipped,1)
@@ -143,9 +153,14 @@ def main():
         battery_cases+=1;commands+=len(calls)
     ammo_data=AmmoData(d.white,o.string_bytes(o.load(0x2672a0)),o.string_bytes(0x273570))
     ammo_cases=invalid_selectors=0
-    for primary,secondary,n,(x,y) in itertools.product(
+    # Quick: every rejected selector (native only), every primary/secondary
+    # pair, every amount edge and both positions, plus a fixed-seed sample.
+    ammo_all=list(itertools.product(
             (0,1,2,255),(0,1,2,3,4,5,255),(-32768,-999,-1,0,1,9,60,99,100,999,9999,32767),
-            ((16,190),(-100,-77))):
+            ((16,190),(-100,-77))))
+    ammo_selected=select(ammo_all,320,0x209860,axes=(lambda c:(c[0],c[1]),lambda c:c[2],lambda c:c[3]),
+                         keep=lambda i,c:c[0]!=2 and c[1]>4)
+    for primary,secondary,n,(x,y) in ammo_selected:
         original=Original(elf,ram,0,0,True)
         inv=AmmoInventory(primary,secondary,(C.c_int16*5)(n,n, n//100,n%100,n),n)
         if primary != 2 and secondary > 4:
@@ -193,7 +208,10 @@ def main():
     inv=AmmoInventory(0,4,(C.c_int16*5)(1,2,3,4,5),60)
     failed_workers(lambda:native.em_status_ammo_draw(C.byref(inv),16,190,
                           C.byref(ammo_data),C.byref(workers)))
-    report={'original_health_cases':checked,'exact_ordered_commands':commands,
+    banner(part(checked,len(health_all),'health cases'),part(len(battery_selected),len(battery_all),'battery cases'),
+           part(ammo_cases+invalid_selectors,len(ammo_all),f'ammo cases ({invalid_selectors} rejected selectors)'),
+           f'{inherited_textures} inherited-TEX0 and {failures} failed-worker boundaries in full')
+    report={'mode':MODE,'original_health_cases':checked,'exact_ordered_commands':commands,
              'original_battery_cases':battery_cases,'original_ammo_cases':ammo_cases,
              'canonical_ammo_source_cases':ammo_cases,
              'rejected_invalid_selectors':invalid_selectors,'original_inherited_TEX0_cases':inherited_textures,

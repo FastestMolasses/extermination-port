@@ -12,6 +12,7 @@ from test_camera_reference import Track
 from test_item_sdk_math_reference import Original
 from test_interaction_scan_reference import ELF_SHA
 from test_point_light_reference import bits, number
+from reference_mode import MODE, banner, part, select
 
 ROOT = Path(__file__).resolve().parents[1]
 CAMERA, TABLE = 0x8101E0, 0x1400000
@@ -78,6 +79,11 @@ def main():
     cases = [(time, None, None) for time in times]
     cases += [(.25, roll, fov) for roll in (-180, -90, -1, 0, 1, 90, 180)
               for fov in (-100, -.1, .1, .5, 20, 45, 46, 100)]
+    # Quick: the eight time boundaries (before/at start, the captured t=25,
+    # the end and past it), every roll x fov projection boundary, plus a
+    # fixed-seed sample of the 1,382 sample-aligned times and 80 random ones.
+    total_cases = len(cases)
+    cases = select(cases, 480, 0x22EC30, keep=lambda i, c: i < 8 or c[1] is not None)
     events = 0
     waits = 0
     captured = None
@@ -157,7 +163,9 @@ def main():
         '-o', str(executable)], cwd=ROOT, check=True)
     result = subprocess.run([str(executable)], cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE)
     (out/'sanitizer.log').write_text(result.stdout)
-    report = {'original_driver_cases': len(cases), 'original_script_wait_cases': waits,
+    banner(part(len(cases), total_cases, 'original driver cases (all 8 time boundaries, all 56 roll x fov)'),
+           'captured t=25 comparison, malformed projections and sanitizer run in full')
+    report = {'mode': MODE, 'original_driver_cases': len(cases), 'original_script_wait_cases': waits,
         'ordered_service_observations': events,
         'exact_state_bytes': True, 'original_capture': captured, 'sanitizer': 'PASS',
         'scope': 'scene1; full original sampler, tangent and rotation; projection publication and three end workers observed'}

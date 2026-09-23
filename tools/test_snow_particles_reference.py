@@ -160,6 +160,8 @@ import argparse, ctypes as C, random, subprocess, tempfile, json
 class Particle(C.Structure):
  _fields_=[('position',C.c_float*4),('color',C.c_float*4),('half_size',C.c_float*4),('source_index',C.c_uint32)]
 
+from reference_mode import FULL, MODE, banner, part, select
+
 def main():
  global ELF
  p=argparse.ArgumentParser(description=__doc__)
@@ -180,7 +182,11 @@ def main():
     struct.pack_into('<4f',desc,80,0.2,0.8,0.1,0.0)
     params=[phase,rng.random(),1.e-6,rng.random()]
     matrix=[1.,0.,0.,0.,0.,0.9829571843,0.1838346422,0.,0.,-0.1838346422,0.9829571843,0.,300.,254.901535,201.627594,1.]
-    cases.append((desc,params,matrix))
+    cases.append((desc,params,matrix,(flags,count,phase)))
+ # Quick: every flags value with every count, every count with every phase,
+ # plus a fixed-seed sample of the 32x5x8 product.
+ total_cases=len(cases)
+ cases=select(cases,512,0x233828,axes=(lambda c:c[3][:2],lambda c:c[3][1:]))
  with tempfile.TemporaryDirectory(prefix='em-snow-') as tmp:
   lib=Path(tmp)/'snow.dylib'
   subprocess.run(['cc','-std=c11','-O2','-ffp-contract=off','-shared','-fPIC','-I'+str(ROOT/'src'),str(ROOT/'src/game/em_snow_particles.c'),'-o',str(lib)],check=True)
@@ -193,7 +199,7 @@ def main():
    n=generate(d,(C.c_float*80)(*lookup),(C.c_float*4)(*params),(C.c_float*16)(*matrix),out,256)
    assert n>=0,n
    return out,n
-  for desc,params,matrix in cases:
+  for desc,params,matrix,_ in cases:
    mem=bytearray(16384)
    for i,x in enumerate(lookup):struct.pack_into('<f',mem,i*16,x)
    mem[0x500:0x590]=desc;struct.pack_into('<4f',mem,0x590,*params);struct.pack_into('<16f',mem,0x5a0,*matrix)
@@ -225,8 +231,9 @@ def main():
     runtime_particles+=1
   color_cases=0
   for depth in [0.01,1.,20.,49.999,50.,51.,100.,250.,300.,400.]:
-   for _ in range(100):
+   for sample in range(100):
     color=[rng.random()*255 for _ in range(4)]
+    if not FULL and sample>=40:continue
     fog=[255.,2048.,151.11111450195312,-0.49707603454589844]
     vm=VU(bytearray(16384));vm.color_only=True
     vm.v[8][3]=bits(depth);vm.v[15][3]=bits(depth);vm.v[28]=list(map(bits,fog));vm.v[14]=list(map(bits,color));vm.q=1.
@@ -236,5 +243,7 @@ def main():
     shade((C.c_float*4)(*color),depth,(C.c_float*4)(*fog),actual)
     assert list(actual)==expected,('projectioncolor',depth,list(actual),expected)
     color_cases+=1
-  print(json.dumps({'status':'PASS','original_instruction_cases':len(cases),'particle_records_compared':count_checked,'original_runtime_particles':runtime_particles,'original_runtime_float_bytes_equal':runtime_float_bytes,'projected_color_cases':color_cases}))
+  banner(part(len(cases),total_cases,'original VU generator cases (every flags x count, count x phase)'),
+         part(color_cases,1000,'projected colour cases (every depth)'))
+  print(json.dumps({'status':'PASS','mode':MODE,'original_instruction_cases':len(cases),'particle_records_compared':count_checked,'original_runtime_particles':runtime_particles,'original_runtime_float_bytes_equal':runtime_float_bytes,'projected_color_cases':color_cases}))
 if __name__=='__main__':main()

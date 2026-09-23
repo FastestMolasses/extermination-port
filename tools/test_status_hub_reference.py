@@ -13,6 +13,7 @@ from test_item_sdk_math_reference import Original, ELF_SHA
 from test_status_page_reference import State, FIELDS, ITEM_FIELDS
 from test_item_trail_reference import Stick
 from test_point_light_reference import bits, number, signed
+from reference_mode import MODE, banner, part, select
 
 ROOT = Path(__file__).resolve().parents[1]
 UI, DRAW = 0x810130, 0x970000
@@ -78,28 +79,36 @@ def main():
     checks = 0
     cases = itertools.product((0, 1), range(5), (0, 0x20, 0x10, 0x800, 0x40, 0x60),
                                (0, 19.99, 20, 49, 69, 89, 99.9, 100))
-    for step, old_hover, buttons, infection in cases:
-        samples = itertools.product(magnitudes, angles) if step else [(0, 0)]
-        for magnitude, angle in samples:
-            state = State()
-            state.active, state.phase, state.step = 1, 1, step
-            state.item.hover = old_hover
-            state.item.message_mode, state.item.message_phase = 2, 2
-            state.item.message_group, state.item.message_line = 3, 41
-            stick = Stick(0, 0, magnitude, angle)
-            try:
-                wanted, calls, result = expected(elf, state, infection, buttons, stick)
-            except AssertionError as error:
-                raise AssertionError((step, old_hover, buttons, infection, magnitude, angle), error) from error
-            actual = []
-            worker = Worker(lambda _, __, event, arg: (actual.append((event, arg)), 1)[1])
-            got = native.em_status_hub_tick(C.byref(state), infection, buttons,
-                                             C.byref(stick), worker, None)
-            assert bytes(state) == bytes(wanted), (step, old_hover, infection, magnitude, angle,
-                                                  list(bytes(state)), list(bytes(wanted)))
-            assert got == result and actual == calls, (got, result, actual, calls)
-            checks += 1
-    report = {'original_hub_state_and_call_cases': checks, 'normal_hub_and_hover': 'PASS',
+    full = [(step, old_hover, buttons, infection, magnitude, angle)
+            for step, old_hover, buttons, infection in cases
+            for magnitude, angle in (itertools.product(magnitudes, angles) if step else [(0, 0)])]
+    # Quick: every step/hover/button combination, every infection threshold,
+    # every stick magnitude x sector-boundary angle, every hover x angle and
+    # button x magnitude pairing, plus a fixed-seed sample of the product.
+    selected = select(full, 5000, 0x20CDC0, axes=(
+        lambda c: c[:3], lambda c: c[3], lambda c: (c[0], c[4], c[5]),
+        lambda c: (c[0], c[1], c[5]), lambda c: (c[0], c[2], c[4])))
+    for step, old_hover, buttons, infection, magnitude, angle in selected:
+        state = State()
+        state.active, state.phase, state.step = 1, 1, step
+        state.item.hover = old_hover
+        state.item.message_mode, state.item.message_phase = 2, 2
+        state.item.message_group, state.item.message_line = 3, 41
+        stick = Stick(0, 0, magnitude, angle)
+        try:
+            wanted, calls, result = expected(elf, state, infection, buttons, stick)
+        except AssertionError as error:
+            raise AssertionError((step, old_hover, buttons, infection, magnitude, angle), error) from error
+        actual = []
+        worker = Worker(lambda _, __, event, arg: (actual.append((event, arg)), 1)[1])
+        got = native.em_status_hub_tick(C.byref(state), infection, buttons,
+                                         C.byref(stick), worker, None)
+        assert bytes(state) == bytes(wanted), (step, old_hover, infection, magnitude, angle,
+                                              list(bytes(state)), list(bytes(wanted)))
+        assert got == result and actual == calls, (got, result, actual, calls)
+        checks += 1
+    banner(part(checks, len(full), 'original hub state/call cases'))
+    report = {'mode': MODE, 'original_hub_state_and_call_cases': checks, 'normal_hub_and_hover': 'PASS',
               'boundaries': 'draw-record actors, background and209DF0 renderer; normalphase1only'}
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))

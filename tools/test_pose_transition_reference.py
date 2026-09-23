@@ -86,6 +86,8 @@ class Transition(C.Structure):
               ('source',Pose*64),('target',Pose*64),('current',Pose*64),
               ('translation_velocity',(C.c_float*3)*64),('scale_velocity',(C.c_float*3)*64)]
 
+from reference_mode import FULL, banner, part
+
 def main():
     elf=(ROOT.parent/'Extermination/config/SCUS_971.12').read_bytes();rng=random.Random(0x1c8d50);checks=0
     with tempfile.TemporaryDirectory(prefix='em_pose_reference_') as folder:
@@ -97,12 +99,17 @@ def main():
         native.em_pose_transition_tick.argtypes=[C.POINTER(Transition)]
         native.em_pose_transition_step.argtypes=[C.POINTER(Transition),C.c_float]
         native.em_pose_channels_matrix.argtypes=[C.POINTER(C.c_float),C.POINTER(Pose)]
+        cases_run=0
         for case in range(600):
             source=Pose();target=Pose()
             for p in (source,target):
                 p.translation[:]=[rng.uniform(-500,500) for _ in range(3)]
                 p.scale[:]=[rng.uniform(.1,2) for _ in range(3)]
                 p.rotation[:]=[rng.uniform(-1,1) for _ in range(4)]
+            # Quick: the first 120 poses of the same stream; the case index
+            # cycles 8/16-tick durations and 1/.5/.75 steps (all six pairs).
+            if not FULL and case>=120:continue
+            cases_run+=1
             o=Original(elf);o.vector(A,source.rotation);o.vector(B,target.rotation)
             for fraction in (-.25,0,.125,.5,.875,1,1.25):
                 out=(C.c_float*4)();native.em_pose_quaternion_blend(out,source.rotation,target.rotation,fraction)
@@ -139,5 +146,6 @@ def main():
                 checks+=1
             assert native.em_pose_transition_step(C.byref(s),step)==0
             assert bytes(s.current[0])==bytes(target)
+        banner(part(cases_run,600,'random pose pairs (every duration x step pair, 7 blend fractions each)'))
         print('pose transition original-instruction PASS',checks,'quaternion/TRS/velocity/channel cases;8/16 intervals, fractional steps and target reset')
 if __name__=='__main__':main()
