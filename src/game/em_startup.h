@@ -30,6 +30,11 @@ typedef enum {
     EM_STARTUP_ATTRACT           /* id = cycle 0..2; complete on original exit */
 } EmStartupEventKind;
 
+/* anim_frame_top_a (attract demo) returns 2 while the held word has any
+ * of original 0x9F0: START, SELECT, TRIANGLE, CIRCLE, CROSS, SQUARE.
+ * Canonical EM_PAD bits (em_input.h). */
+#define EM_STARTUP_ATTRACT_EXIT 0xF009u
+
 typedef struct {
     EmStartupEventKind kind;
     uint32_t serial;             /* nonzero: host must call complete(serial,...) */

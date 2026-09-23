@@ -7,10 +7,11 @@
  * -> vsync/present -> parity and main-frame count.
  *
  * Hardware packet/DMA/GS bookkeeping belongs to the native gfx backend.
- * Input edge computation is part of the original unpacker 001B5940;
- * 001B5B70 is an actuator countdown, not edge post-processing. Native
- * input uses canonical EM_PAD bits, while original button words swap
- * their high/low bytes. See em_frame.h for the explicit boundary.
+ * Step C runs the original unpacker 001B5940 (em_pad_unpack) on a libpad
+ * buffer built from the native pad; 001B5B70 is an actuator countdown,
+ * not edge post-processing. Native consumers see canonical EM_PAD bits,
+ * while original button words swap their high/low bytes. See em_frame.h
+ * for the explicit boundary.
  *
  * A native movie pump presents incrementally while the ordinary engine
  * iteration is suspended. This preserves the blocking movie call's task,
@@ -38,8 +39,8 @@ static struct {
     bool         quit;
     uint32_t     counter;     /* 0x70003B64 lifetime frame counter */
     uint32_t     parity;      /* 0x00810E80 frame index (0/1) */
-    EmFrameInput input;       /* native input, original masks byte-swapped */
-    uint16_t     prev_held;   /* previous frame's buttons, for edges */
+    EmFrameInput input;       /* canonical view of pad_block */
+    EmPadUnpack  pad_block;   /* 0x00810E70 block + 0x00810E40 analog bytes */
     EmScreenFade screen_fade;         /* 001AEBE0: letterbox bars */
     EmTransitionFade transition;     /* 001AEE70: full-screen effect */
     uint8_t      screen_request;      /* 0x70003B90 drawing gate */
@@ -68,7 +69,7 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
     s_frame.counter = 0;
     s_frame.parity  = 0;
     s_frame.input   = (EmFrameInput){ 0x80, 0x80, 0x80, 0x80, 0, 0, 0 };
-    s_frame.prev_held = 0;
+    /* pad_block stays zero, like the original .bss block. */
     em_screen_fade_init(&s_frame.screen_fade);
     em_transition_fade_init(&s_frame.transition);
 
@@ -169,19 +170,11 @@ static void frame_screen_fade_draw(void)
                             EM_GFX_OVERLAY_W, bar_height, rgb);
 }
 const EmFrameInput *em_frame_input(void){ return &s_frame.input; }
+const EmPadUnpack *em_frame_pad_block(void) { return &s_frame.pad_block; }
 EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
 uint32_t  em_frame_counter(void)        { return s_frame.counter; }
 uint32_t  em_frame_parity(void)         { return s_frame.parity; }
-
-/* float [-1,1] -> raw 0x80-centered stick byte (0x00 / 0x80 / 0xFF). */
-static uint8_t stick_byte(float axis)
-{
-    int v = 0x80 + (int)(axis * 128.0f);
-    if (v < 0)   v = 0;
-    if (v > 255) v = 255;
-    return (uint8_t)v;
-}
 
 /* EM_INPUT_TEST=1: one compact line per pad-state change. */
 static void input_test_print(const EmPadState *pad)
@@ -206,8 +199,10 @@ static bool pad_changed(const EmPadState *a, const EmPadState *b)
            a->rx != b->rx || a->ry != b->ry;
 }
 
-/* Step C: pump platform events and unpack the native pad snapshot.
- * Press edges correspond to original 001B5940, with native bit order. */
+/* Step C: pump platform events, then 001B57E0 -> 001B5F40 -> 001B5940.
+ * The native pad is a connected DualShock in the stable libpad state, so
+ * 001B5F40 always takes its analog call (state 6: a2 = 1) on port 0. A
+ * native read never fails, so 001B57E0's failure clear is not reachable. */
 static void frame_input_read(void)
 {
     EmEvent ev;
@@ -233,15 +228,19 @@ static void frame_input_read(void)
         s_frame.prev_pad = pad;
     }
 
+    uint8_t raw[8];
+    EmPadUnpack *block = &s_frame.pad_block;
+    em_pad_raw(&pad, raw);
+    (void)em_pad_unpack(block, raw, 0, 1);
+
     EmFrameInput *in = &s_frame.input;
-    in->lx       = stick_byte(pad.lx);
-    in->ly       = stick_byte(pad.ly);
-    in->rx       = stick_byte(pad.rx);
-    in->ry       = stick_byte(pad.ry);
-    in->held     = pad.buttons;
-    in->pressed  = (uint16_t)(pad.buttons & ~s_frame.prev_held);
-    in->released = (uint16_t)(s_frame.prev_held & ~pad.buttons);
-    s_frame.prev_held = pad.buttons;
+    in->lx       = block->lx;
+    in->ly       = block->ly;
+    in->rx       = block->rx;
+    in->ry       = block->ry;
+    in->held     = em_pad_swap(block->held);
+    in->pressed  = em_pad_swap(block->pressed);
+    in->released = em_pad_swap((uint16_t)(block->prev_held & ~block->held));
 }
 
 /* NTSC frame pacing (~59.94 Hz = 60/1.001). See the call site in
@@ -276,7 +275,9 @@ int em_frame_step(void)
     if (s_frame.quit) return 0;
 
     /* B/C: native frame begin and the original input-unpack phase. */
-    em_gfx_begin_frame(s_frame.gfx, 0.08f, 0.09f, 0.12f, 1.0f);
+    /* 001AB370 sets both sceGsDBuffDc clear colours (0x00811020/0x00811190)
+     * to RGBA 0,0,0,0x80: the original draw buffer clears to black. */
+    em_gfx_begin_frame(s_frame.gfx, 0.0f, 0.0f, 0.0f, 1.0f);
     em_gamepad_poll();
     frame_input_read();
 

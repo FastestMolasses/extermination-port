@@ -67,8 +67,9 @@
  * ENGINE DEFAULT BUTTON CONFIG (live-pinned 2026-06-10 s29 — decomp repo
  * FINDINGS.md "GAMEPLAY SOUND IDS PINNED LIVE"). The engine reads actions
  * through a CONFIG-MASK BLOCK of u16 slots at scratchpad 0x70003B70..7E,
- * tested against the held-buttons word D_00810E74. That word is the DS2
- * digital halfword BYTE-SWAPPED, so the engine masks decode as:
+ * tested against the pressed-edge word D_00810E74 (001B5940: held & ~prev).
+ * The block words are the DS2 digital halfword BYTE-SWAPPED, so the
+ * engine masks decode as:
  *
  *   0x0001 L2   0x0002 R2     0x0004 L1    0x0008 R1
  *   0x0010 TRI  0x0020 CIRCLE 0x0040 CROSS 0x0080 SQUARE
@@ -184,6 +185,41 @@ void em_input_pad(EmPadState *out);
 /* Name of the button at `bit_index` (0..15, canonical order above), e.g.
  * 14 -> "CROSS". Returns "?" for out-of-range values. For debug output. */
 const char *em_pad_button_name(int bit_index);
+
+/* ORIGINAL PAD UNPACK (001B5940, called by 001B5F40 from step C 001B57E0).
+ * Fields mirror the original storage: the six halfwords at 0x00810E70 in
+ * the original BYTE-SWAPPED layout (START = 0x0800, UP = 0x1000), the
+ * analog bytes of the pad struct 0x00810E40 at +0x24..+0x27
+ * (0x00810E64..67) and its gait byte at +0x17 (0x00810E57). The whole
+ * translation is checked instruction-for-instruction by
+ * tools/test_input_block_reference.py. Zero-initialize (original .bss). */
+typedef struct {
+    uint16_t held;          /* 0x810E70 processed held mask */
+    uint16_t prev_held;     /* 0x810E72 previous held mask */
+    uint16_t pressed;       /* 0x810E74 held & ~prev_held */
+    uint16_t prev_pressed;  /* 0x810E76 previous pressed mask */
+    uint16_t repeat;        /* 0x810E78 pressed with D-pad auto-repeat */
+    int16_t  repeat_timer;  /* 0x810E7A repeat countdown (32, then 10) */
+    uint8_t  lx, ly;        /* 0x810E64/65 left stick (quantized when gait) */
+    uint8_t  rx, ry;        /* 0x810E66/67 right stick, always raw */
+    uint8_t  gait;          /* 0x810E57 001B5CC0 ring 0..3 */
+} EmPadUnpack;
+
+/* Byte swap between canonical EM_PAD_* bits and the original layout. */
+uint16_t em_pad_swap(uint16_t mask);
+
+/* Native pad -> the 8-byte libpad read buffer 001B5940 consumes: status 0,
+ * mode 0x73, active-low button bytes, then right x/y and left x/y bytes
+ * (0x80-centred; float axis v maps to 0x80 + (int)(v * 128), clamped).
+ * The conversion is native host adaptation, not an original function. */
+void em_pad_raw(const EmPadState *pad, uint8_t raw[8]);
+
+/* One 001B5940 call. `port` is pad struct +4 (the D-pad/stick exchange
+ * only happens on port 0); `analog` is its third argument (1 when
+ * 001B5F40 sees libpad state 6, 0 for state 2). Returns 0 without
+ * touching *u when raw[0] (libpad status) is nonzero, else 1. */
+int em_pad_unpack(EmPadUnpack *u, const uint8_t raw[8], unsigned port,
+                  int analog);
 
 #ifdef __cplusplus
 }

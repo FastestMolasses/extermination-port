@@ -28,6 +28,7 @@ static struct {
     EmMovie *movie;
     uint32_t movie_serial;
     int movie_skip, new_game_movie;
+    uint32_t attract_serial;
     unsigned movie_frames;
     uint64_t movie_picture;
     double movie_pts;
@@ -162,8 +163,9 @@ static int movie_pump(void *unused)
         held |= EM_PAD_START;
     int skip_ready = f.have_movie_frame && f.movie_picture >= 11;
     if (f.new_game_movie) {
-        if (skip_ready && (held & (EM_PAD_START | EM_PAD_CROSS | EM_PAD_CIRCLE |
-                                  EM_PAD_SQUARE | EM_PAD_TRIANGLE))) f.movie_skip = 1;
+        /* 002036E0 skips on held & (spad 0x70003B90 ? 0x800 : 0x8F0); the
+         * game task 001ACEC0 sets 0x70003B90 = 2, so only START skips. */
+        if (skip_ready && (held & EM_PAD_START)) f.movie_skip = 1;
     } else {
         em_startup_movie_input(&f.flow, held, skip_ready);
     }
@@ -175,8 +177,13 @@ static int movie_pump(void *unused)
     f.movie = NULL;
     f.texture_screen = -1;
     if (f.new_game_movie && !f.failed) {
+        /* 001AD250 case 0 forces the transition to full black (001AEDB0)
+         * when the movie completes; the AREA11 opening script's own fades
+         * reveal the scene. The 001ADF50 loading veil (0021B180/0021B550,
+         * drawn between those states) is not ported: the screen stays
+         * black instead (WP-17 residue). */
+        em_frame_fade_full(EM_FADE_BLACK);
         em_game_install_new();
-        em_frame_fade_start(-1, 4);
     } else {
         em_startup_complete(&f.flow, f.movie_serial, f.failed ? -1 : 1);
     }
@@ -191,6 +198,19 @@ static int native_storage_ready(void)
     if (mkdir("data/save", 0700) && errno != EEXIST) return 0;
     struct stat st;
     return stat("data/save", &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/* anim_frame_top_a states 0/1/3/4 return 2 while D_00810E70 & 0x9F0
+ * (EM_STARTUP_ATTRACT_EXIT); 001AC070 state 3 then tears down and
+ * re-enters the title. The demo's other exits (0xE10 demo frames,
+ * 001ACE70, death/pause at fade 2) need the demo itself. */
+static void attract_abort(void)
+{
+    if (!f.attract_serial ||
+        !(em_frame_input()->held & EM_STARTUP_ATTRACT_EXIT)) return;
+    uint32_t serial = f.attract_serial;
+    f.attract_serial = 0;
+    em_startup_complete(&f.flow, serial, 2);
 }
 
 static void notify(void *unused, const EmStartupEvent *event)
@@ -251,9 +271,15 @@ static void notify(void *unused, const EmStartupEvent *event)
     case EM_STARTUP_NEW_GAME:
         begin_movie(0, 1);
         return;
+    case EM_STARTUP_ATTRACT:
+        /* anim_frame_top_a (the attract demo) is not ported (WP-17
+         * residue): the screen stays black and only its button exit is
+         * served, see attract_abort. */
+        f.attract_serial = event->serial;
+        attract_abort();
+        return;
     case EM_STARTUP_LOAD_GAME:
     case EM_STARTUP_OPTIONS:
-    case EM_STARTUP_ATTRACT:
         fprintf(stderr, "startup: service %d awaits native translation\n", event->kind);
         /* Preserve pending state rather than manufacturing an outcome. */
         return;
@@ -267,6 +293,7 @@ static void startup_task(void)
     const EmFrameInput *pad = em_frame_input();
     EmStartupInput input = {pad->held, pad->pressed,
                             em_frame_transition()->substate, 0};
+    attract_abort();
     int expected_cursor = -1;
     if (f.test && em_startup_view(&f.flow, &input).interactive) {
         /* End-to-end fixture: exercise the rendered menu through the same

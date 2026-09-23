@@ -11,8 +11,15 @@
  * EM_PAD names in native consumers; swap bytes when comparing original
  * traces. The original six halfwords at 0x00810E70 are held, previous
  * held, pressed, previous pressed, directional repeat, repeat countdown.
- * The native released field below is useful host state, not a claimed
- * binary overlay of one of those original fields.
+ * em_frame_pad_block() exposes them (original layout) with the analog
+ * bytes and the gait byte. The native released field below is useful host
+ * state, not a claimed binary overlay of one of those original fields.
+ *
+ * 001B5940 (port 0, analog read) rewrites the pad before any consumer:
+ * with the left stick inside the gait-0 ring a held D-pad becomes stick
+ * bytes with gait 3; with the stick outside it the D-pad bits are
+ * replaced by stick-derived bits (bytes < 0x10 / >= 0xE1) and lx/ly are
+ * quantized. So held/pressed below can carry stick-made D-pad bits.
  */
 #ifndef EM_FRAME_H
 #define EM_FRAME_H
@@ -20,6 +27,7 @@
 #include <stdint.h>
 
 #include "em_gfx.h"
+#include "em_input.h"
 #include "em_platform.h"
 #include "game/em_fade.h"
 
@@ -28,14 +36,13 @@ extern "C" {
 #endif
 
 typedef struct {
-    /* Analog sticks as raw 0x80-centered bytes (0x00 = left/up, 0xFF =
-     * right/down), the engine's representation: FINDINGS pins lx/ly at
-     * block +4/+5 (0x00810E64/65, forced to 0x80 on pad failure). */
+    /* Analog sticks as 0x80-centered bytes (0x00 = left/up, 0xFF =
+     * right/down) after 001B5940: 0x00810E64..67. */
     uint8_t  lx, ly, rx, ry;
-    /* Native convenience fields, not the original memory layout. */
-    uint16_t held;      /* buttons currently down */
-    uint16_t pressed;   /* went down this frame (original +4, byte-swapped) */
-    uint16_t released;  /* went up this frame (native convenience) */
+    /* Canonical (byte-swapped) views of the original block. */
+    uint16_t held;      /* 0x810E70 processed held mask */
+    uint16_t pressed;   /* 0x810E74 held & ~previous held */
+    uint16_t released;  /* previous held & ~held (native convenience) */
 } EmFrameInput;
 
 /* Bind the loop to the platform window + gfx device and reset the task
@@ -57,6 +64,11 @@ void em_frame_request_quit(void);
 
 /* The current frame's input block (updated at step C each frame). */
 const EmFrameInput *em_frame_input(void);
+
+/* The same step-C result in the original layout: halfwords 0x00810E70..7A
+ * (including the repeat word 0x00810E78), analog 0x00810E64..67 and the
+ * 001B5CC0 gait byte 0x00810E57. */
+const EmPadUnpack *em_frame_pad_block(void);
 
 /* Loop environment accessors for game code (the engine reaches its
  * equivalents through globals). */

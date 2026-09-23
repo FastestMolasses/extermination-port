@@ -1,9 +1,12 @@
 #include "game/em_random.h"
 
-/* anim_frame_top_a seeds 0x45 through func_00122BA8 during boot.
+/* Cold-boot state: the ELF's initialized SDK word at (*D_0024295C)+0x58
+ * (0x002426C8) is 1. The only seeding call, func_00122BA8(0x45), is in
+ * anim_frame_top_a (0x001ACA20) state 4 sub 0, i.e. attract-demo start;
+ * no overlay calls it. Cold boot -> New Game therefore starts from 1.
  * Call ordering from other, still untranslated systems remains unaudited;
  * identical arithmetic alone does not give an identical whole-game stream. */
-static uint32_t random_state = 0x45;
+static uint32_t random_state = 1;
 
 uint32_t em_random_step(uint32_t *state)
 {

@@ -330,12 +330,15 @@ static void title_tick(EmStartup *s, const EmStartupInput *in)
     case 2:
         menu_tick(s, in);
         break;
-    case 3:
+    case 3:                         /* 001AC070 state 3: anim_frame_top_a */
         if (s->sub == 0) {
             s->sub = 1;
             s->screen = EM_STARTUP_SCREEN_EXTERNAL;
             request(s, EM_STARTUP_ATTRACT, (int)s->attract_cycle);
-        } else if (poll(s)) {
+        }
+        /* anim_frame_top_a can return 2 on its first call (state 0 input
+         * gate), so a synchronous completion is honoured in this tick. */
+        if (poll(s)) {
             s->attract_cycle = (s->attract_cycle + 1) % 3;
             emit(s, EM_STARTUP_AUDIO_STOP, 0, 0);
             fade(s, EM_STARTUP_FADE_FULL, 0);

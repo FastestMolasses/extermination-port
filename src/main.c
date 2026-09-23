@@ -20,7 +20,6 @@
 #include "game/em_startup_audio.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_opening_control_test.h"
-#include "game/em_random.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -315,7 +314,8 @@ int main(void)
     /* Engine bring-up: frame loop env + input + task table, then the boot
      * task into slot 0 (the engine init's func_001AB740(0, boot)). */
     em_frame_init(win, gfx);
-    em_random_seed(0x45); /* original anim_frame_top_a SDK RNG seed */
+    /* No seed here: the original main never seeds the SDK RNG; its state
+     * starts at the ELF's initialized value 1 (em_random.c). */
     const char *skip_startup = getenv("EM_SKIP_STARTUP");
     if (skip_startup && strcmp(skip_startup, "1") == 0)
         em_game_install();  /* explicit gameplay/debug fixture */
