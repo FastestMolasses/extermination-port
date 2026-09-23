@@ -2647,6 +2647,37 @@ int em_gfx_shadow_alpha_clear(EmGfx *g)
     return 0;
 }
 
+/* The clip kernels on the CPU: one result buffer per call. */
+static EmVu1ClipResult *shadow_clip_result(void)
+{
+    return malloc(sizeof(EmVu1ClipResult));
+}
+
+/* Run clip kernel `kernel` (em_vu1_shadow_clip.h) on one batch and append
+ * the triangles it kicks as points p of `cam`'s space (the GS pixel and
+ * w = 1/Q, em_shadow_gs_clip_unproject) with their ST, A and F to `vtx`.
+ * Returns the vertex count appended, or -1 (the kernel faulted, a data
+ * word names a matrix other than dmem 0, an undecodable packet, a singular
+ * camera, more than `cap` vertices). */
+static int shadow_clip_batch(int kernel, const float cam[16], const float *st,
+                             const float k1021[4], const float (*qw3)[4],
+                             EmVu1Qword *dmem, EmVu1ClipResult *res,
+                             EmShadowGsClipVertex *gv, uint32_t cap,
+                             float (*pos)[3])
+{
+    if (em_shadow_gs_clip_dmem(kernel, cam, st, k1021, qw3, EM_SHADOW_GS_CLIP_TOP, dmem))
+        return -1;
+    if (em_vu1_shadow_clip_run(kernel, dmem, EM_SHADOW_GS_CLIP_TOP, res)) return -1;
+    const int n = em_shadow_gs_clip_vertices(kernel, res, gv, cap);
+    if (n < 0) return -1;
+    for (int v = 0; v < n; ++v) {
+        if (!(gv[v].kq != 0.0f) || !isfinite(1.0f / gv[v].kq)) return -1;
+        if (em_shadow_gs_clip_unproject(cam, gv[v].x, gv[v].y, 1.0f / gv[v].kq, pos[v]))
+            return -1;
+    }
+    return n;
+}
+
 int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
                       const float world[16], const float clip[16],
                       uint32_t rgbaq, const float viewproj[16])
@@ -2657,13 +2688,21 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
         return shadow_fail(g, SHADOW_WARN_INPUT, "box input missing");
     if (!shadow_alpha_ready(g))
         return shadow_fail(g, SHADOW_WARN_GPU, "alpha pipeline unavailable");
+    /* The fog row only reaches the F of the kicked vertices, which PRIM
+     * 0x044 / 0x043 (FGE 0) never uses. */
     float k1021[4] = { 255.0f, 2048.0f, 0.0f, 0.0f }, k1022[4], k1023[4];
     em_shadow_gs_level_rows(k1022, k1023);
     const uint32_t n = model->vertex_count;
+    const uint32_t batches = n / EM_GFX_SHADOW_BATCH;
+    const uint32_t clip_cap = 30u * 27u;          /* per batch */
     EmShadowGsVertex *out = malloc(sizeof *out * n);
-    float (*tri)[4] = malloc(sizeof *tri * 3 * n);
-    if (!out || !tri) {
-        free(out); free(tri);
+    float (*tri)[4] = malloc(sizeof *tri * (3 * n + clip_cap * batches));
+    EmVu1Qword *dmem = malloc(sizeof *dmem * EM_VU1_DMEM_QWORDS);
+    EmVu1ClipResult *res = shadow_clip_result();
+    EmShadowGsClipVertex *gv = malloc(sizeof *gv * clip_cap);
+    float (*cp)[3] = malloc(sizeof *cp * clip_cap);
+    if (!out || !tri || !dmem || !res || !gv || !cp) {
+        free(out); free(tri); free(dmem); free(res); free(gv); free(cp);
         return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
     }
     const float (*qw3)[4] = (const float (*)[4])model->qw3;
@@ -2674,12 +2713,9 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
                                      EM_GFX_SHADOW_BATCH, out + b))
             bad = 1;                     /* EM_SHADOW_GS_ADC_STALE */
         for (uint32_t i = b + 2; i < b + EM_GFX_SHADOW_BATCH && !bad; ++i) {
-            const uint32_t why = out[i].why;
-            /* 00239C90 (001DA310 runs it for every box) draws exactly
-             * these; its clipping is not translated. */
-            if (em_shadow_gs_needs_clip(why, i - b)) { bad = 2; break; }
-            /* 00237180 kicks only vertices without ADC. */
-            if (why) continue;
+            /* 00237180 kicks only vertices without ADC; the triangles it
+             * leaves for CLIP are 00239C90's (below). */
+            if (out[i].why) continue;
             for (unsigned k = 0; k < 3; ++k) {
                 const float *p = qw3[i - 2 + k];
                 for (unsigned l = 0; l < 3; ++l)
@@ -2691,13 +2727,30 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
         }
     }
     free(out);
+    /* 001DA310 runs 00239C90 after the box, over the same batches: its
+     * triangles (model space from the pass's clip matrix, then W). */
+    for (uint32_t b = 0; b < n && !bad; b += EM_GFX_SHADOW_BATCH) {
+        const int v = shadow_clip_batch(EM_VU1_CLIP_BOX, clip, NULL, k1021, qw3 + b,
+                                        dmem, res, gv, clip_cap, cp);
+        if (v < 0) { bad = 2; break; }
+        for (int k = 0; k < v; ++k) {
+            const float *p = cp[k];
+            for (unsigned l = 0; l < 3; ++l)
+                tri[count][l] = p[0] * world[l] + p[1] * world[4 + l] +
+                                p[2] * world[8 + l] + world[12 + l];
+            tri[count][3] = 1.0f;
+            ++count;
+        }
+    }
+    free(dmem); free(res); free(gv); free(cp);
     if (bad) {
         free(tri);
         return shadow_fail(g, bad == 1 ? SHADOW_WARN_STALE : SHADOW_WARN_CLIP,
                            bad == 1 ? "box strip starts without ADC (kernel "
                                       "state not modelled)"
-                                    : "box triangle for clip kernel 00239C90 "
-                                      "(not translated)");
+                                    : "box clip kernel 00239C90 fault (an FTOI "
+                                      "outside int32, a data word naming "
+                                      "another matrix, a singular camera)");
     }
     if (count) {
         id<MTLBuffer> vb = [g->device newBufferWithBytes:tri
@@ -2880,20 +2933,15 @@ int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
     const float (*qw3)[4] = (const float (*)[4])object->qw3;
     uint32_t count = 0;
     int clip = 0;
-    for (uint32_t b = 0; b < n && !clip; b += EM_GFX_SHADOW_BATCH) {
+    for (uint32_t b = 0; b < n; b += EM_GFX_SHADOW_BATCH) {
         em_shadow_gs_receiver_batch(g->shadowCam, g->shadowUV, k1021, k1022,
                                     k1023, qw3 + b, EM_GFX_SHADOW_BATCH, out + b);
         for (uint32_t i = b + 2; i < b + EM_GFX_SHADOW_BATCH; ++i) {
             /* 0023C200 kicks the triangle only when its last vertex has no
              * ADC (data flag or guard-band CLIP). A class-2 object's
-             * 0023E8A0 re-pass draws the CLIP ones (not translated: fault
-             * before anything of the object is drawn); classes 0 and 1
-             * have no re-pass, so nothing draws them. */
+             * 0023E8A0 re-pass (below) draws the CLIP ones; classes 0
+             * and 1 have no re-pass, so nothing draws them. */
             const uint32_t why = out[i].xyzf.why;
-            if (cls == 2u && em_shadow_gs_needs_clip(why, i - b)) {
-                clip = 1;
-                break;
-            }
             if (why) continue;
             for (unsigned k = 0; k < 3; ++k) {
                 const uint32_t j = i - 2 + k;
@@ -2916,10 +2964,52 @@ int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
         }
     }
     free(out);
+    /* Class 2: 001D5C80 runs 0023E8A0 over the same batches after the whole
+     * object (001D4FB0, 001D1F80(0,2,6), 001D4B50, 001D4CD0). Its
+     * triangles come after the object's own, as on the GS. */
+    if (cls == 2u) {
+        const uint32_t clip_cap = 30u * 27u;
+        EmVu1Qword *dmem = malloc(sizeof *dmem * EM_VU1_DMEM_QWORDS);
+        EmVu1ClipResult *res = shadow_clip_result();
+        EmShadowGsClipVertex *gv = malloc(sizeof *gv * clip_cap);
+        float (*cp)[3] = malloc(sizeof *cp * clip_cap);
+        float *rec2 = dmem && res && gv && cp
+            ? realloc(rec, sizeof(float) * 10 * (3 * n + clip_cap * (n / EM_GFX_SHADOW_BATCH)))
+            : NULL;
+        uint32_t (*rgba2)[4] = rec2
+            ? realloc(rgba, sizeof *rgba * (3 * n + clip_cap * (n / EM_GFX_SHADOW_BATCH)))
+            : NULL;
+        if (rec2) rec = rec2;
+        if (rgba2) rgba = rgba2;
+        if (!rec2 || !rgba2) clip = 2;
+        for (uint32_t b = 0; b < n && !clip; b += EM_GFX_SHADOW_BATCH) {
+            const int v = shadow_clip_batch(EM_VU1_CLIP_RECEIVER, g->shadowCam,
+                                            g->shadowUV, k1021, qw3 + b, dmem,
+                                            res, gv, clip_cap, cp);
+            if (v < 0) { clip = 1; break; }
+            for (int k = 0; k < v; ++k) {
+                float *r = rec + (size_t)count * 10;
+                uint32_t zero = 0, notex = 0;
+                r[0] = cp[k][0]; r[1] = cp[k][1]; r[2] = cp[k][2];
+                r[3] = r[4] = r[5] = 0.0f;
+                r[6] = gv[k].s / gv[k].q; r[7] = gv[k].t / gv[k].q;
+                memcpy(r + 8, &zero, 4);
+                memcpy(r + 9, &notex, 4);
+                rgba[count][0] = gv[k].a;
+                rgba[count][1] = gv[k].f;
+                rgba[count][2] = rgba[count][3] = 0;
+                ++count;
+            }
+        }
+        free(dmem); free(res); free(gv); free(cp);
+    }
     if (clip) {
         free(rec); free(rgba);
-        return shadow_fail(g, SHADOW_WARN_CLIP, "receiver triangle for clip "
-                           "kernel 0023E8A0 (not translated)");
+        return shadow_fail(g, clip == 2 ? SHADOW_WARN_INPUT : SHADOW_WARN_CLIP,
+                           clip == 2 ? "out of memory"
+                                     : "receiver clip kernel 0023E8A0 fault (an "
+                                       "FTOI outside int32, a data word naming "
+                                       "another matrix, a singular camera)");
     }
     if (count) {
         static const float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0,

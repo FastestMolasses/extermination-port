@@ -399,6 +399,10 @@ test-shadow-original:
 test-shadow-original-reference:
 	python3 tools/test_shadow_original_reference.py
 
+.PHONY: test-ee-float-model
+test-ee-float-model:
+	python3 tools/test_ee_float_model.py
+
 .PHONY: test-level-material-reference
 test-level-material-reference:
 	python3 tools/test_level_material_reference.py

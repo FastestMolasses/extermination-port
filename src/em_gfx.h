@@ -726,13 +726,13 @@ void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
  *   w_receiver (each)  -> em_gfx_shadow_receiver(gfx, strips, object->cls)
  *   w_receiver_end     -> em_gfx_shadow_receiver_end
  *
- * The guard-band clip kernels are not translated: 00239C90 (run by
- * 001DA310 after every box) and 0023E8A0 (001D5C80's re-pass of a class-2
- * receiver: 001D4FB0, 001D1F80(0,2,6), 001D4B50, 001D4CD0) draw only the
- * triangles em_shadow_gs_needs_clip names, so em_gfx_shadow_box and a
- * class-2 em_gfx_shadow_receiver return -1 when their input has one and
- * draw everything else exactly; a class 0/1 receiver has no re-pass and
- * never draws those triangles.
+ * The guard-band clip kernels 00239C90 (run by 001DA310 after every box)
+ * and 0023E8A0 (001D5C80's re-pass of a class-2 receiver: 001D4FB0,
+ * 001D1F80(0,2,6), 001D4B50, 001D4CD0) are translated in
+ * src/game/em_vu1_shadow_clip.h. em_gfx_shadow_box and a class-2
+ * em_gfx_shadow_receiver run them on the CPU and draw what they kick after
+ * the kernel's own triangles; a class 0/1 receiver has no re-pass and never
+ * draws those triangles.
  *
  * Original matrices are passed as the 16 floats of their memory (rows
  * contiguous, row-vector convention, exactly as em_shadow_original's plan
@@ -740,7 +740,7 @@ void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
  * matrix the level meshes are drawn with). Every call returns 0, or -1
  * when it cannot draw exactly what the original draws (outside a frame, a
  * missing input, a GPU without framebuffer fetch, receivers without the
- * frame's fog, a strip the kernel model cannot decide, the per-frame
+ * frame's fog, a clip-kernel fault, the per-frame
  * target budget); the reason is printed once per session. There is no
  * stand-in: a caller turns -1 into its fault. */
 
@@ -765,10 +765,10 @@ int em_gfx_shadow_alpha_clear(EmGfx *gfx);
  * write destination alpha = the A byte of `rgbaq` where they lie in front
  * of the frame's depth (GEQUAL, no depth write); colour is kept. `world`
  * is the box plan's W (placement), `clip` its (W x V) x P (the kernel's
- * dmem 0..3, which decides the cull). Returns -1, drawing nothing, when a
- * triangle is left to the clip kernel 00239C90 (a vertex outside the guard
- * band and not all three outside one guard plane): its clipping is not
- * translated. */
+ * dmem 0..3, which decides the cull), then 00239C90's clipped triangles.
+ * Returns -1 only when that kernel faults (FTOI outside int32), a data word
+ * names a matrix other than dmem 0, or a kicked point cannot be
+ * unprojected. */
 int em_gfx_shadow_box(EmGfx *gfx, const EmGfxShadowStrips *model,
                       const float world[16], const float clip[16],
                       uint32_t rgbaq, const float viewproj[16]);
@@ -804,9 +804,8 @@ int em_gfx_shadow_receiver_begin(EmGfx *gfx, const float uv[16],
  * exactly as the level mesh's (identity palette), so the level's own
  * depth passes. Triangles with a vertex outside the guard band are not
  * drawn by 0023C200; for cls 2 the original then runs 0023E8A0 over the
- * same strips, which draws their clipped parts: not translated, so a
- * class-2 object with such a triangle returns -1 before drawing any of
- * it. cls > 2 returns -1. */
+ * same strips, and its clipped triangles are drawn after the object's own
+ * (-1 only on the faults named for the box). cls > 2 returns -1. */
 int em_gfx_shadow_receiver(EmGfx *gfx, const EmGfxShadowStrips *object,
                            uint32_t cls);
 

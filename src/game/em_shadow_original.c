@@ -6,6 +6,8 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #pragma STDC FP_CONTRACT OFF
@@ -570,4 +572,150 @@ void em_shadow_original_receiver_vertex(const float uv[16], const float p[3],
     if (a > 8388863.0f) a = 8388863.0f;      /* minibcx.w vf10, vf11, vf09x */
     if (a < 8388608.0f) a = 8388608.0f;      /* maxbcy.w vf10, vf10, vf09y */
     if (alpha) *alpha = (uint32_t)(a - 8388608.0f);
+}
+
+/* ---- the receivers' original data (asset) ------------------------------ */
+
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static float rdf(const uint8_t *p)
+{
+    const uint32_t b = rd32(p);
+    float f;
+    memcpy(&f, &b, sizeof f);
+    return f;
+}
+
+void em_shadow_receivers_free(EmShadowReceivers *r)
+{
+    if (!r) return;
+    if (r->object)
+        for (uint32_t i = 0; i < r->slots; ++i) free((void *)r->object[i].qw3);
+    free((void *)r->box[0].qw3);
+    free((void *)r->box[1].qw3);
+    free(r->object);
+    free(r->blob);
+    memset(r, 0, sizeof *r);
+}
+
+/* One record: id, batches, AABB, batches x 128 qwords. */
+static int receiver_record(const uint8_t *data, size_t size, size_t *at,
+                           EmShadowReceiverObject *o)
+{
+    if (size - *at < 32u) return -1;
+    const uint8_t *h = data + *at;
+    o->id = (int32_t)rd32(h);
+    o->batches = rd32(h + 4);
+    for (unsigned k = 0; k < 3; ++k) {
+        o->bmin[k] = rdf(h + 8 + 4 * k);
+        o->bmax[k] = rdf(h + 20 + 4 * k);
+    }
+    *at += 32u;
+    if (o->batches == 0u || o->batches > (size - *at) / 2048u) return -1;
+    o->qwords = (const uint32_t *)(const void *)(data + *at);
+    float *q3 = malloc(sizeof(float) * 128u * o->batches);
+    if (!q3) return -1;
+    for (uint32_t v = 0; v < 32u * o->batches; ++v)
+        for (unsigned k = 0; k < 4; ++k) q3[4 * v + k] = rdf(data + *at + 64u * v + 48u + 4u * k);
+    o->qw3 = q3;
+    *at += 2048u * o->batches;
+    return 0;
+}
+
+int em_shadow_receivers_load(EmShadowReceivers *r, const char *path)
+{
+    if (!r) return -1;
+    memset(r, 0, sizeof *r);
+    FILE *f = path ? fopen(path, "rb") : NULL;
+    if (!f) return -1;
+    uint8_t *data = NULL;
+    long size = -1;
+    if (fseek(f, 0, SEEK_END) == 0) size = ftell(f);
+    if (size >= 0x38 && fseek(f, 0, SEEK_SET) == 0) {
+        data = malloc((size_t)size);
+        if (data && fread(data, 1, (size_t)size, f) != (size_t)size) {
+            free(data);
+            data = NULL;
+        }
+    }
+    fclose(f);
+    if (!data) return -1;
+    r->blob = data;
+    const size_t n = (size_t)size;
+    const uint32_t words = rd32(data + 0x28), slots = rd32(data + 0x2C), boxes = rd32(data + 0x30);
+    if (memcmp(data, "EMSR", 4) != 0 || rd32(data + 4) != 1u || boxes != 2u || slots < 2u ||
+        slots > 0x8000u || words > (n - 0x38u) / 4u) {
+        em_shadow_receivers_free(r);
+        return -1;
+    }
+    r->rows_144 = (int32_t)rd32(data + 8);
+    r->stride_148 = (int32_t)rd32(data + 12);
+    for (unsigned k = 0; k < 6; ++k) r->f150[k] = rdf(data + 16 + 4 * k);
+    if (r->rows_144 <= 0 || r->stride_148 <= 0 ||
+        (uint64_t)r->rows_144 * (uint64_t)r->stride_148 * 4u != words) {
+        em_shadow_receivers_free(r);
+        return -1;
+    }
+    r->grid = (const int32_t *)(const void *)(data + 0x38);
+    r->grid_words = words;
+    r->slots = slots;
+    r->object = calloc(slots, sizeof *r->object);
+    if (!r->object) { em_shadow_receivers_free(r); return -1; }
+    size_t at = 0x38u + 4u * words;
+    for (uint32_t id = 1; id < slots; ++id) {
+        if (receiver_record(data, n, &at, &r->object[id]) || r->object[id].id != (int32_t)id) {
+            em_shadow_receivers_free(r);
+            return -1;
+        }
+    }
+    for (unsigned b = 0; b < 2; ++b) {
+        if (receiver_record(data, n, &at, &r->box[b]) ||
+            r->box[b].id != (b ? EM_SHADOW_BOX_MODEL_BACK : EM_SHADOW_BOX_MODEL_FRONT)) {
+            em_shadow_receivers_free(r);
+            return -1;
+        }
+    }
+    if (at != n) { em_shadow_receivers_free(r); return -1; }
+    return 0;
+}
+
+void em_shadow_receivers_scene(const EmShadowReceivers *r, EmShadowOriginalScene *scene)
+{
+    if (!r || !scene) return;
+    scene->grid_140 = r->grid;
+    scene->grid_words = r->grid_words;
+    scene->stride_148 = r->stride_148;
+    scene->cell_x_150 = r->f150[0];
+    scene->cell_z_154 = r->f150[1];
+    scene->origin_x_158 = r->f150[2];
+    scene->origin_z_15C = r->f150[3];
+}
+
+const EmShadowReceiverObject *em_shadow_receivers_object(const EmShadowReceivers *r,
+                                                         int32_t id)
+{
+    const uint32_t a1 = (uint32_t)id & 0xFFFFu & 0xFFFF7FFFu;   /* 001C6120 */
+    if (!r || !r->object || a1 == 0u || a1 >= r->slots) return NULL;
+    return &r->object[a1];
+}
+
+int em_shadow_receivers_bounds(void *ctx, int32_t id, float bmin[3], float bmax[3])
+{
+    const EmShadowReceiverObject *o = em_shadow_receivers_object(ctx, id);
+    if (!o) return -1;
+    memcpy(bmin, o->bmin, sizeof o->bmin);
+    memcpy(bmax, o->bmax, sizeof o->bmax);
+    return 0;
+}
+
+const EmShadowReceiverObject *em_shadow_receivers_box(const EmShadowReceivers *r,
+                                                      int32_t model)
+{
+    if (!r) return NULL;
+    if (model == EM_SHADOW_BOX_MODEL_FRONT && r->box[0].qw3) return &r->box[0];
+    if (model == EM_SHADOW_BOX_MODEL_BACK && r->box[1].qw3) return &r->box[1];
+    return NULL;
 }

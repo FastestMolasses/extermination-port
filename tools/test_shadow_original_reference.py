@@ -54,14 +54,29 @@ F. GS side (src/gfx/metal/em_shadow_gs.h, the Metal em_gfx_shadow_*). Each
    to the header's. The clip kernels 00239C90 and 0023E8A0 run too: each
    clip batch holds its kernel batch's vertices, matrix and template rows,
    the triangles its loop sends to the clipping code are exactly the
-   header's em_shadow_gs_needs_clip set, and it draws nothing else (the
-   polygons it draws are counted, not compared: the clipping is not
-   translated). The proxy EMDL's triangles must be the silhouette kernel's
-   kicked triangles. Then, in a headless window, the Metal backend's
-   silhouette target must equal those triangles rasterized at the GS
-   sample points, texel for texel, its receiver pixel pipeline must give
-   em_shadow_gs_receiver_pixel's result, and a strip with a triangle for a
-   clip kernel must fault (box, class-2 receiver) or be skipped (class 0).
+   header's em_shadow_gs_needs_clip set, and it draws nothing else. The
+   proxy EMDL's triangles must be the silhouette kernel's kicked
+   triangles. Then, in a headless window, the Metal backend's silhouette
+   target must equal those triangles rasterized at the GS sample points,
+   texel for texel, and its receiver pixel pipeline must give
+   em_shadow_gs_receiver_pixel's result.
+G. Clip kernels (src/game/em_vu1_shadow_clip.h, the translation). Every
+   clip batch of the seven captures and of all 15 AREA11 route beats
+   (../Extermination/build/s87/route; per beat the native 001DA6A0 must
+   draw without a fault and the executed chain must carry the plan's
+   boxes, receivers, classes and worker order) runs through the
+   translation, which must XGKICK what the executed kernel kicks: dmem
+   address, order and every packet byte. The backend's own dmem image
+   (em_shadow_gs_clip_dmem: plan matrices, template, fog row, qword 3
+   only) must give the same GS vertices, which must unproject within 1/16
+   pixel. Synthetic batches (quick 32, full 192) must match too and reach
+   both outcomes of every conditional branch of both programs but the two
+   CLIP_UNREACHABLE_TAKEN names; an FTOI result outside int32 must fault
+   the translation at exactly that kick. The receiver asset
+   (assets/scene_snow/shadow_receivers.emsr, em_shadow_receivers_load)
+   must equal each capture's grid, bounds and uploaded batches. In Metal a
+   class-2 receiver and a box with a clipped triangle must draw it; class 0
+   must not.
 --capture BEAT (not part of the default run): a headless native frame of a
    route beat (../Extermination/build/s87/route/BEAT) with and without the
    shadow, written to build/captures/shadow/, and the shadow-region metric
@@ -79,7 +94,7 @@ import subprocess
 import sys
 
 import test_actor_lighting_reference as al
-from reference_mode import FULL, banner, part, select, parallel_map
+from reference_mode import FULL, banner, part, pick, select, parallel_map
 import test_level_material_reference as lm
 import test_snow_particles_reference as vu
 from test_point_light_reference import signed, bits, number, fp, RETURN
@@ -395,6 +410,89 @@ class Fault(C.Structure):
     _fields_ = [('address', C.c_uint32), ('code', C.c_int32)]
 
 
+class ReceiverObject(C.Structure):
+    _fields_ = [('id', C.c_int32), ('batches', C.c_uint32), ('bmin', C.c_float*3), ('bmax', C.c_float*3),
+                ('qw3', C.POINTER(C.c_float)), ('qwords', C.POINTER(C.c_uint32))]
+
+
+class Receivers(C.Structure):
+    """EmShadowReceivers (em_shadow_original.h)."""
+    _fields_ = [('rows_144', C.c_int32), ('stride_148', C.c_int32), ('f150', C.c_float*6),
+                ('grid', C.POINTER(C.c_int32)), ('grid_words', C.c_uint32), ('slots', C.c_uint32),
+                ('object', C.POINTER(ReceiverObject)), ('box', ReceiverObject*2), ('blob', C.c_void_p)]
+
+
+RECEIVERS_ASSET = ROOT/'assets/scene_snow/shadow_receivers.emsr'
+RECEIVERS = [None]
+
+
+def receivers_asset(lib):
+    """The loaded asset (once per process), or None when it is missing."""
+    if RECEIVERS[0] is None and RECEIVERS_ASSET.exists():
+        r = Receivers()
+        assert lib.em_shadow_receivers_load(C.byref(r), str(RECEIVERS_ASSET).encode()) == 0, \
+            'em_shadow_receivers_load refused the asset'
+        RECEIVERS[0] = r
+    return RECEIVERS[0]
+
+
+def asset_checks(lib, name, ram, scene, plan, batches, stats):
+    """The exported receiver data (export_shadow_receivers.py, loaded by
+    em_shadow_receivers_load) against the capture: the grid and ctx+0x144..
+    +0x164 equal RAM; the native 001DA6A0 with the asset's grid and
+    w_object_bounds (em_shadow_receivers_scene / _bounds) gives the same
+    receivers and classes; every receiver and box batch the chain uploads
+    equals the asset object's batch, all 128 qwords."""
+    r = receivers_asset(lib)
+    if r is None:
+        stats['asset_skipped'] = stats.get('asset_skipped', 0)+1
+        return
+    ctx = u32(ram, CONTEXT_PTR)
+    words = r.grid_words
+    assert (r.rows_144, r.stride_148) == (u32(ram, ctx+0x144), u32(ram, ctx+0x148)), (name, 'grid shape')
+    assert bytes(C.string_at(r.grid, 4*words)) == ram[u32(ram, ctx+0x140):u32(ram, ctx+0x140)+4*words], \
+        (name, 'grid ids')
+    assert fbytes(r.f150) == ram[ctx+0x150:ctx+0x168], (name, 'ctx+0x150..+0x164')
+    s2 = Scene.from_buffer_copy(scene)
+    lib.em_shadow_receivers_scene(C.byref(r), C.byref(s2))
+    nat = NativeRun(lib, ram, s2, bounds=BOUNDS(lambda _, i, lo, hi: lib.em_shadow_receivers_bounds(
+        C.addressof(r), i, lo, hi)))
+    p = nat.plan
+    assert nat.result == 1 and nat.fault.code == 0, (name, 'asset plan', nat.result, nat.fault.code)
+    assert [(p.receiver[i].id, p.receiver[i].cls, p.receiver[i].clip_lo, p.receiver[i].clip_hi)
+            for i in range(p.receiver_count)] == \
+           [(plan.receiver[i].id, plan.receiver[i].cls, plan.receiver[i].clip_lo, plan.receiver[i].clip_hi)
+            for i in range(plan.receiver_count)], (name, 'asset plan receivers')
+    by_src = {}
+    for kernel, top, before, _, src, _ in batches:
+        if kernel in (RECEIVER_KERNEL, BOX_KERNEL):
+            by_src.setdefault((kernel, src), []).append(bytes(before[top*16:(top+128)*16]))
+    checked = 0
+    for i in range(plan.receiver_count):
+        ident = plan.receiver[i].id
+        o = lib.em_shadow_receivers_object(C.byref(r), ident)
+        assert o, (name, 'no asset object', ident)
+        o = o.contents
+        got = by_src[(RECEIVER_KERNEL, object_address(ram, ident)+0x40)]
+        assert o.batches == len(got), (name, 'asset batches', ident, o.batches, len(got))
+        for b in range(o.batches):
+            assert C.string_at(C.addressof(o.qwords.contents)+2048*b, 2048) == got[b], (name, ident, b)
+            checked += 1
+        lo = [struct.unpack_from('<f', ram, object_address(ram, ident)+0x14+4*k)[0] for k in range(3)]
+        assert list(o.bmin) == lo, (name, 'AABB', ident)
+    library = u32(ram, 0x28A56C)
+    for k in range(2):
+        model = plan.box[k].model
+        o = lib.em_shadow_receivers_box(C.byref(r), model).contents
+        addr = (library + (signed(u32(ram, library+4*model+4)) >> 2 << 2)) & 0xFFFFFFFF
+        got = by_src[(BOX_KERNEL, addr+0x40)]
+        assert o.batches == len(got) and C.string_at(C.addressof(o.qwords.contents), 2048) == got[0], \
+            (name, 'asset box model', hex(model))
+        checked += 1
+    stats['asset_batches_checked'] = stats.get('asset_batches_checked', 0)+checked
+    stats['asset_captures'] = stats.get('asset_captures', 0)+1
+
+
 def native_library(out):
     lib_path = out/'shadow.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
@@ -407,6 +505,15 @@ def native_library(out):
     lib.em_shadow_original_receiver_vertex.argtypes = [C.POINTER(C.c_float), C.POINTER(C.c_float),
                                                        C.POINTER(C.c_float), C.POINTER(C.c_uint32)]
     lib.em_shadow_original_route_0015C160.argtypes = [C.c_uint8, C.c_uint8, C.c_uint32, C.POINTER(Fault)]
+    lib.em_shadow_receivers_load.argtypes = [C.POINTER(Receivers), C.c_char_p]
+    lib.em_shadow_receivers_free.argtypes = [C.POINTER(Receivers)]
+    lib.em_shadow_receivers_scene.argtypes = [C.POINTER(Receivers), C.POINTER(Scene)]
+    lib.em_shadow_receivers_object.argtypes = [C.POINTER(Receivers), C.c_int32]
+    lib.em_shadow_receivers_object.restype = C.POINTER(ReceiverObject)
+    lib.em_shadow_receivers_box.argtypes = [C.POINTER(Receivers), C.c_int32]
+    lib.em_shadow_receivers_box.restype = C.POINTER(ReceiverObject)
+    lib.em_shadow_receivers_bounds.argtypes = [C.c_void_p, C.c_int32, C.POINTER(C.c_float),
+                                               C.POINTER(C.c_float)]
     return lib
 
 
@@ -436,7 +543,7 @@ def scene_view(ram, scratch):
 
 
 class NativeRun:
-    def __init__(self, lib, ram, scene, actor=None, nodes=None, ff0=None, fail_at=None):
+    def __init__(self, lib, ram, scene, actor=None, nodes=None, ff0=None, fail_at=None, bounds=None):
         self.log = []
         self.ram = ram
         actor = actor if actor is not None else ram[PLAYER:PLAYER+0x320]
@@ -458,14 +565,14 @@ class NativeRun:
             self.log.append(name)
             return -1 if self.fail_at == name else value
 
-        def bounds(_, ident, lo, hi):
+        def ram_bounds(_, ident, lo, hi):
             self.log.append(('bounds', ident))
             obj = object_address(ram, ident)
             for i in range(3):
                 lo[i] = struct.unpack_from('<f', ram, obj+0x14+4*i)[0]
                 hi[i] = struct.unpack_from('<f', ram, obj+0x24+4*i)[0]
             return -1 if self.fail_at == 'bounds' else 0
-        self.cb = [BOUNDS(bounds), PLAIN(lambda _: rec('alpha_clear')),
+        self.cb = [bounds if bounds is not None else BOUNDS(ram_bounds), PLAIN(lambda _: rec('alpha_clear')),
                    BOXFN(lambda _, b: rec(('box', b.contents.model))),
                    SILFN(lambda _, k, vp: rec(('silhouette', k))),
                    UVFN(lambda _, uv: rec('receiver_begin')),
@@ -853,8 +960,9 @@ def run_capture(elf, lib, name, ee, sp, status, stats, report):
     stats['receiver_vertices'] = stats.get('receiver_vertices', 0)+vertices
     # F. GS side: kernels and GS state of the executed chain
     batches = kernel_replay(elf, buf, units)
+    asset_checks(lib, name, ram, scene, p, batches, stats)
     whys = kernel_checks(GSLIB, name, status, ram, batches, p, stats, entry)
-    clip_kernel_checks(GSLIB, name, batches, whys, p, ram, stats, entry)
+    clip_kernel_checks(GSLIB, name, batches, whys, p, ram, stats, entry, scene.camera_3AC0)
     gs_state_checks(GSLIB, name, buf, start, end, stats, entry)
     if status == 'exact' and PROXY_EMDL.exists():
         tris, xy = kicked_silhouette(batches)
@@ -1176,6 +1284,18 @@ void receiver_batch(const float *camera, const float *uv, const float *k1021,
 }
 void bone(const float *node, const float *vp, float *out) { em_shadow_gs_bone(node, vp, out); }
 unsigned needs_clip(unsigned why, unsigned i) { return em_shadow_gs_needs_clip(why, i); }
+/* src/game/em_vu1_shadow_clip.h (through em_shadow_gs.h) */
+int clip_run(int kernel, EmVu1Qword *dmem, unsigned top, EmVu1ClipResult *out)
+{ return em_vu1_shadow_clip_run(kernel, dmem, top, out); }
+void clip_template(int kernel, EmVu1Qword *rows) { em_shadow_gs_clip_template(kernel, rows); }
+int clip_dmem(int kernel, const float *camera, const float *st, const float *k1021,
+              const float *qw3, unsigned top, EmVu1Qword *dmem)
+{ return em_shadow_gs_clip_dmem(kernel, camera, st, k1021, (const float (*)[4])qw3, top, dmem); }
+int clip_vertices(int kernel, const EmVu1ClipResult *r, EmShadowGsClipVertex *out, unsigned cap)
+{ return em_shadow_gs_clip_vertices(kernel, r, out, cap); }
+int clip_unproject(const float *cam, float x, float y, float w, float *p)
+{ return em_shadow_gs_clip_unproject(cam, x, y, w, p); }
+unsigned clip_top(void) { return EM_SHADOW_GS_CLIP_TOP; }
 unsigned bilinear(float u, float v, const uint8_t *alpha)
 { return em_shadow_gs_bilinear_alpha(u, v, alpha); }
 int pixel(unsigned at, unsigned a, unsigned f, const unsigned *fogcol,
@@ -1200,6 +1320,32 @@ GSLIB = None
 METAL_CASES = []   # (capture, ram, silhouette vp, kicked XY triangles)
 
 
+class ClipKick(C.Structure):
+    _fields_ = [('addr', C.c_uint32), ('vertex', C.c_uint32), ('first', C.c_uint32), ('count', C.c_uint32)]
+
+
+CLIP_MAX_QWORDS = 30*(1+84)+1
+
+
+class ClipResult(C.Structure):
+    """EmVu1ClipResult (src/game/em_vu1_shadow_clip.h)."""
+    _fields_ = [('fault', C.c_uint32), ('entries', C.c_uint32), ('entry', C.c_uint8*32),
+                ('kicks', C.c_uint32), ('qwords', C.c_uint32), ('kick', ClipKick*61),
+                ('qw', C.c_uint32*(4*CLIP_MAX_QWORDS))]
+
+    def kicked(self):
+        """[(dmem address, packet bytes)] in kick order."""
+        raw = bytes(self.qw)
+        return [(self.kick[i].addr, raw[16*self.kick[i].first:16*(self.kick[i].first+self.kick[i].count)])
+                for i in range(self.kicks)]
+
+
+class ClipVertex(C.Structure):
+    _fields_ = [('x', C.c_float), ('y', C.c_float), ('z', C.c_uint32), ('f', C.c_uint32),
+                ('s', C.c_float), ('t', C.c_float), ('q', C.c_float), ('a', C.c_uint32),
+                ('kq', C.c_float)]
+
+
 def gs_library(out):
     src, lib_path = out/'shadow_gs.c', out/'shadow_gs.dylib'
     src.write_text(GS_SHIM)
@@ -1209,6 +1355,13 @@ def gs_library(out):
     lib.unsupported.restype = C.c_char_p
     lib.bilinear.argtypes = [C.c_float, C.c_float, C.c_char_p]
     lib.coefficients.argtypes = [C.c_float, C.c_float, C.POINTER(C.c_float)]
+    lib.clip_run.argtypes = [C.c_int, C.c_char_p, C.c_uint, C.POINTER(ClipResult)]
+    lib.clip_template.argtypes = [C.c_int, C.c_char_p]
+    lib.clip_dmem.argtypes = [C.c_int, C.POINTER(C.c_float), C.POINTER(C.c_float),
+                              C.POINTER(C.c_float), C.POINTER(C.c_float), C.c_uint, C.c_char_p]
+    lib.clip_vertices.argtypes = [C.c_int, C.POINTER(ClipResult), C.POINTER(ClipVertex), C.c_uint]
+    lib.clip_unproject.argtypes = [C.POINTER(C.c_float), C.c_float, C.c_float, C.c_float,
+                                   C.POINTER(C.c_float)]
     return lib
 
 
@@ -1280,6 +1433,7 @@ class VU1:
         self.top = 0; self.kicks = []; self.resume = None
         self.executed = 0
         self.watch = set(); self.events = []   # micro addresses -> ('pc', pc, vi11)
+        self.ftoi_out = 0   # FTOI results outside int32 (wrapped here; not established)
 
     def rd(self, a): return list(struct.unpack_from('<4I', self.mem, (a & 1023)*16))
     def wr(self, a, x): struct.pack_into('<4I', self.mem, (a & 1023)*16, *x)
@@ -1352,6 +1506,7 @@ class VU1:
                 # out-of-range results wrap here (the header saturates;
                 # the hardware result is not established, compare_words)
                 res = [math.trunc(v*scale) & 0xFFFFFFFF for v in x]
+                self.ftoi_out += sum(1 for c in FIELDS(mask) if not -2**31 <= math.trunc(x[c]*scale) < 2**31)
                 dest = ft; intw = True; flags = False
             elif code in (0x13C, 0x13D, 0x13E, 0x13F):    # itof0/4/12/15
                 scale = (1, 16, 4096, 32768)[code & 3]
@@ -1504,7 +1659,7 @@ class VU1:
             elif fn == 0x6BC: vi[t] = self.top
             elif fn == 0x6FC:
                 self.kicks.append((vi[s], gif_packets(self.mem, vi[s])))
-                self.events.append(('kick', vi[s], self.kicks[-1][1]))
+                self.events.append(('kick', vi[s], self.kicks[-1][1], gif_raw(self.mem, vi[s])))
             else: raise AssertionError(('VU lower special', hex(pc), hex(lo)))
         else: raise AssertionError(('VU lower', hex(pc), hex(lo)))
         return nxt
@@ -1624,6 +1779,20 @@ def kernel_replay(elf, buf, units):
         if tid == 1: vif(a+16, a+16+16*qwc)
         elif tid == 3: vif(addr, addr+16*qwc)
     return out
+
+
+def gif_raw(mem, at):
+    """The bytes of the GIF packet an XGKICK of dmem qword `at` sends: its
+    tags and data up to the EOP tag (PACKED NLOOP x NREG, REGLIST (NLOOP x
+    NREG + 1) / 2, IMAGE NLOOP qwords)."""
+    q = at
+    for _ in range(64):
+        lo = struct.unpack_from('<Q', mem, (q & 1023)*16)[0]
+        nloop, nreg, flg, eop = lo & 0x7FFF, (lo >> 60) or 16, (lo >> 58) & 3, lo >> 15 & 1
+        q += 1 + (nloop*nreg if flg == 0 else (nloop*nreg+1)//2 if flg == 1 else nloop)
+        if eop:
+            return b''.join(bytes(mem[(a & 1023)*16:(a & 1023)*16+16]) for a in range(at, q))
+    raise AssertionError('GIF packet without EOP')
 
 
 def gif_packets(mem, at):
@@ -1766,7 +1935,88 @@ def kernel_checks(gslib, name, status, ram, batches, plan, stats, entry):
     return whys
 
 
-def clip_kernel_checks(gslib, name, batches, whys, plan, ram, stats, entry):
+CLIP_ID = {CLIP_KERNEL: 0, BOX_CLIP_KERNEL: 1}          # EM_VU1_CLIP_RECEIVER / _BOX
+CLIP_TEMPLATE_ELF = {CLIP_KERNEL: 0x251750, BOX_CLIP_KERNEL: 0x251550}   # +0x10..+0x40
+
+
+def native_clip(gslib, kernel, mem, top):
+    """em_vu1_shadow_clip_run over a copy of `mem`: (rc, result)."""
+    buf = C.create_string_buffer(bytes(mem), 16384)
+    res = ClipResult()
+    rc = gslib.clip_run(CLIP_ID[kernel], buf, top, C.byref(res))
+    return rc, res
+
+
+def clip_drawn(gslib, kernel, res):
+    """em_shadow_gs_clip_vertices of a result: the GS vertices, 3 per
+    triangle, as tuples (x, y, z, f, s, t, q, a, kq)."""
+    out = (ClipVertex*(30*27))()
+    n = gslib.clip_vertices(CLIP_ID[kernel], C.byref(res), out, 30*27)
+    assert n >= 0, ('clip packet the GS decode refuses', hex(kernel))
+    return [(v.x, v.y, v.z, v.f, v.s, v.t, v.q, v.a, v.kq) for v in out[:n]]
+
+
+def clip_native_checks(gslib, name, kernel, top, before, events, camera, st, stats):
+    """The translation (src/game/em_vu1_shadow_clip.h) against the executed
+    kernel on one clip batch: the same XGKICKs (dmem address, order, every
+    packet byte) and the same clip entries. Then the backend's own dmem
+    image (em_shadow_gs_clip_dmem: the plan's matrices, the template, the
+    fog row of em_gfx_fog(-209, 304), qword 3 only) must give the same GS
+    vertices (em_shadow_gs_clip_vertices): all fields for the receivers,
+    X, Y, Z and the kernel's Q for the box (its ST and RGBAQ slots go to NOP
+    registers and PRIM 0x043 has FGE 0). Every vertex must unproject
+    (em_shadow_gs_clip_unproject) to a point that projects back onto it."""
+    label = f'{name} {hex(kernel)} top {top}'
+    want = [(ev[1], ev[3]) for ev in events if ev[0] == 'kick']
+    entries = [32-ev[2] for ev in events if ev[0] == 'pc']
+    rc, res = native_clip(gslib, kernel, before, top)
+    assert rc == 0 and res.fault == 0, (label, 'native clip fault', res.fault)
+    got = res.kicked()
+    if got != want:
+        for k, ((ga, gr), (wa, wr)) in enumerate(zip(got, want)):
+            if (ga, gr) != (wa, wr):
+                raise AssertionError((label, 'kick', k, ga, wa, gr.hex()[:96], wr.hex()[:96]))
+        raise AssertionError((label, 'kick count', len(got), len(want)))
+    assert list(res.entry[:res.entries]) == entries, (label, 'clip entries', entries)
+    rows = C.create_string_buffer(64)
+    gslib.clip_template(CLIP_ID[kernel], rows)
+    elf_rows = ELF_BYTES[0][CLIP_TEMPLATE_ELF[kernel]+0x10-0x100000+0x300:][:64]
+    assert rows.raw == elf_rows == bytes(before[1017*16:1021*16]), (label, 'template rows 1017..1020')
+    real = clip_drawn(gslib, kernel, res)
+    # the backend's image
+    assert bytes(before[:64]) == fbytes(camera), (label, 'dmem 0..3 is not the plan matrix')
+    if st is not None:
+        assert bytes(before[64:128]) == fbytes(st), (label, 'dmem 4..7 is not ctx+0x24B0')
+    coef = (C.c_float*2)()
+    gslib.coefficients(-209.0, 304.0, coef)
+    k1021 = [255.0, 2048.0, coef[0], coef[1]] if kernel == CLIP_KERNEL else [255.0, 2048.0, 0.0, 0.0]
+    qw3 = [x for q in batch_qw3(before, top) for x in q]
+    image = C.create_string_buffer(16384)
+    assert gslib.clip_dmem(CLIP_ID[kernel], f4a(camera), f4a(st) if st is not None else None, f4a(k1021),
+                           f4a(qw3), gslib.clip_top(), image) == 0, (label, 'backend dmem image refused')
+    rc, bres = native_clip(gslib, kernel, image.raw, gslib.clip_top())
+    assert rc == 0, (label, 'backend image clip fault', bres.fault)
+    backend = clip_drawn(gslib, kernel, bres)
+    key = (lambda v: v) if kernel == CLIP_KERNEL else (lambda v: v[:3]+v[8:])
+    assert [key(v) for v in backend] == [key(v) for v in real], (label, 'backend image draws differently')
+    for v in backend:
+        pnt = (C.c_float*3)()
+        w = 1.0/v[8]
+        assert gslib.clip_unproject(f4a(camera), v[0], v[1], w, pnt) == 0, (label, 'unproject', v)
+        c = [sum(pnt[r]*camera[r*4+k] for r in range(3))+camera[12+k] for k in range(4)]
+        # within the GS 12.4 grid (the point is binary32)
+        assert abs(c[3]-w) <= 1e-3*max(1.0, abs(w)) and abs(c[0]/c[3]-v[0]) <= 1/16 and \
+            abs(c[1]/c[3]-v[1]) <= 1/16, (label, 'unprojected point', v, c)
+    for k in ('batches', 'kicks', 'packets', 'packet_bytes', 'vertices'):
+        stats.setdefault('clip_native_'+k, 0)
+    stats['clip_native_batches'] += 1
+    stats['clip_native_kicks'] += len(want)
+    stats['clip_native_packets'] += sum(1 for a, _ in want if a != 1019)
+    stats['clip_native_packet_bytes'] += sum(len(r) for _, r in want)
+    stats['clip_native_vertices'] += len(real)
+
+
+def clip_kernel_checks(gslib, name, batches, whys, plan, ram, stats, entry, camera):
     """The guard-band clip kernels 00239C90 (box) and 0023E8A0 (receivers)
     executed as VU1 instructions on every batch the chain gives them.
     Each clip batch must hold the same 32 vertex qwords, the same dmem 0..3
@@ -1778,9 +2028,10 @@ def clip_kernel_checks(gslib, name, batches, whys, plan, ram, stats, entry):
     must come after such an entry; every other kick must be the empty
     packet at dmem 1019 (NLOOP 0, EOP). So the two passes never draw one
     triangle twice, and a batch without such a triangle draws nothing in
-    the clip pass. The polygons drawn are counted, not compared (the
-    clipping is not translated)."""
+    the clip pass. Every clip batch is then run through the translation
+    (clip_native_checks), kick for kick."""
     main_of = {BOX_CLIP_KERNEL: BOX_KERNEL, CLIP_KERNEL: RECEIVER_KERNEL}
+    box_index = 0
     counts = {'batches': 0, 'needs_clip': 0, 'rejected': 0, 'polygons': 0, 'polygon_vertices': 0,
               'empty_kicks': 0}
     polygon_prims = set()
@@ -1809,7 +2060,7 @@ def clip_kernel_checks(gslib, name, batches, whys, plan, ram, stats, entry):
                 if ev[0] == 'pc':
                     current = 32-ev[2]; got.append(current)
                     continue
-                _, at, packets = ev
+                _, at, packets = ev[:3]
                 drawn = [pk for pk in packets if pk[0] is not None or pk[2]]
                 if at == 1019 and all(pk[0] is None and not pk[2] for pk in packets):
                     counts['empty_kicks'] += 1
@@ -1824,6 +2075,13 @@ def clip_kernel_checks(gslib, name, batches, whys, plan, ram, stats, entry):
                 (label, 'clipped triangles', sorted(got), sorted(want))
             counts['needs_clip'] += len(want)
             counts['batches'] += 1
+            if ck == BOX_CLIP_KERNEL:
+                clip_native_checks(gslib, name, ck, ctop, cbefore, events,
+                                   list(plan.box[box_index].clip_pass), None, stats)
+            else:
+                clip_native_checks(gslib, name, ck, ctop, cbefore, events, list(camera),
+                                   list(plan.uv_24B0), stats)
+        if kernel == BOX_CLIP_KERNEL: box_index += 1
         j = e
     # boundary: the strip's first two vertices. The captures have no
     # CLIP-only triangle there, so the first clip batch of each kernel is
@@ -1874,6 +2132,9 @@ def clip_kernel_checks(gslib, name, batches, whys, plan, ram, stats, entry):
         want = sorted(i for i in range(32) if gslib.needs_clip(why[i], i))
         assert got == want and min(got) == 2, \
             (name, hex(kernel), 'synthetic first-vertices batch', got, want, why[:6])
+        rc, res = native_clip(gslib, kernel, mem, ctop)
+        assert rc == 0 and res.kicked() == [(ev[1], ev[3]) for ev in vu1.events if ev[0] == 'kick'], \
+            (name, hex(kernel), 'synthetic first-vertices batch: translation kicks')
         counts['synthetic_boundary_batches'] = counts.get('synthetic_boundary_batches', 0)+1
     # class 0/1 receivers get no clip pass: their triangles 0023C200 left
     # undrawn for CLIP are drawn by nothing (counted)
@@ -2246,48 +2507,81 @@ def metal_receiver_pixels(metal, gslib, stats, report):
             stats['metal_receiver_pixels'] = stats.get('metal_receiver_pixels', 0)+1
     report['metal_receiver_pixels'] = rows
 
-    # Fail-stop of the untranslated clip kernels: a strip whose last
-    # triangle has a vertex far outside the guard band (+x only, so not
-    # rejected). Receivers: class 2 (0023E8A0 re-pass) returns -1 and
-    # draws nothing of the object; class 0 draws the other triangle and
-    # skips that one (no re-pass: nothing draws it). Box: -1 (00239C90
-    # runs after every box).
+    # The clip kernels in the backend: a strip whose second triangle has a
+    # vertex outside the guard band (GS X 7168: +x only, so not rejected; its data
+    # word +1.0 keeps the clip kernels' back-face test from dropping it).
+    # The camera is w = 40 z (row 2) and GS X = 256 x + 2048, so the plane
+    # z = 0.5 sits at w = 20 as above, the quad spans 512 GS pixels and the
+    # x, y, w columns are regular (em_shadow_gs_clip_unproject). NDC
+    # (0.5, 0.5) lies only in that
+    # triangle. Receivers: class 2 (0023E8A0 re-pass) shadows it, class 0
+    # (no re-pass) leaves the frame. Box: 00239C90's part of the box writes
+    # destination alpha 128 there, so a following receiver over the whole
+    # frame passes DATE there; without the box it does not.
     lib.em_gfx_shadow_box.argtypes = [C.c_void_p, C.POINTER(Strips), C.POINTER(C.c_float),
                                       C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_float)]
     lib.em_gfx_shadow_alpha_clear.argtypes = [C.c_void_p]
     w = 20.0
-    camera = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 2048.0*w, 2048.0*w, 0, w]
+    camera = [256.0*w, 0, 0, 0, 0, 256.0*w, 0, 0, 2048.0*40, 2048.0*40, 0, 40.0, 0, 0, 0, 0]
     uv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.5, 1.0, 8388608.0+200]
     word = lambda u: struct.unpack('<f', struct.pack('<I', u))[0]
-    pos = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0e6, 1.0)]
-    q = []
-    for (x, y), fl in zip(pos, [0x3F808000, 0xBF80C000, 0x3F800000, 0xBF800000]):
-        q += [x, y, 0.5, word(fl)]
-    q += [0.0, 0.0, 0.0, word(0xBF80C000)]*28
-    strips = Strips(f4a(q), 32)
+
+    def strip_of(pos, flags):
+        q = []
+        for (x, y), fl in zip(pos, flags):
+            q += [x, y, 0.5, word(fl)]
+        q += [0.0, 0.0, 0.0, word(0xBF80C000)]*28
+        return Strips(f4a(q), 32)
+    clipped = strip_of([(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (20.0, 1.0)],
+                       [0x3F808000, 0xBF80C000, 0x3F800000, 0x3F800000])
+    whole = strip_of([(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)],
+                     [0x3F808000, 0xBF80C000, 0x3F800000, 0xBF800000])
+    coef = (C.c_float*2)(); gslib.coefficients(-209.0, 304.0, coef)
+    f = int(max(min(fp(fp(1.0*coef[0])+fp(coef[1]*w)), 255.0), 0.0))
+    out = C.create_string_buffer(4)
+    assert gslib.pixel(255, 200, f, (C.c_uint*3)(*fogcol), bytes(cd)+b'\xff', out)
+    shadowed = tuple(out.raw[:3])
     results = {}
-    for case in ('receiver cls 2', 'receiver cls 0', 'box'):
+    for case in ('receiver cls 2', 'receiver cls 0', 'box', 'no box'):
         lib.em_gfx_begin_frame(gfx, cd[0]/255.0, cd[1]/255.0, cd[2]/255.0, 1.0)
         lib.em_gfx_fog(gfx, -209.0, 304.0, fog_rgb)
-        assert lib.em_gfx_shadow_silhouette(gfx, verts, 4, idx, 6, f4a(ident), 1, f4a(vp)) == 0
-        if case == 'box':
-            assert lib.em_gfx_shadow_alpha_clear(gfx) == 0
-            r = lib.em_gfx_shadow_box(gfx, C.byref(strips), f4a(ident), f4a(camera), 0x80000000, f4a(ident))
+        rets = []
+        if case in ('box', 'no box'):
+            rets.append(lib.em_gfx_shadow_alpha_clear(gfx))
+            if case == 'box':
+                rets.append(lib.em_gfx_shadow_box(gfx, C.byref(clipped), f4a(ident), f4a(camera),
+                                                  0x80000000, f4a(ident)))
+        rets.append(lib.em_gfx_shadow_silhouette(gfx, verts, 4, idx, 6, f4a(ident), 1, f4a(vp)))
+        rets.append(lib.em_gfx_shadow_receiver_begin(gfx, f4a(uv), f4a(camera), f4a(ident)))
+        if case.startswith('receiver'):
+            rets.append(lib.em_gfx_shadow_receiver(gfx, C.byref(clipped), 2 if case.endswith('2') else 0))
         else:
-            assert lib.em_gfx_shadow_receiver_begin(gfx, f4a(uv), f4a(camera), f4a(ident)) == 0
-            r = lib.em_gfx_shadow_receiver(gfx, C.byref(strips), 2 if case.endswith('2') else 0)
-            assert lib.em_gfx_shadow_receiver_end(gfx) == 0
-        path = tmp/'failstop.bmp'
+            rets.append(lib.em_gfx_shadow_receiver(gfx, C.byref(whole), 0))
+        rets.append(lib.em_gfx_shadow_receiver_end(gfx))
+        path = tmp/'clip.bmp'
         lib.em_gfx_request_capture(gfx, str(path).encode())
         lib.em_gfx_end_frame(gfx)
-        results[case] = (r, read_bmp_centre(path))
-    assert results['receiver cls 2'] == (-1, cd), results
-    assert results['receiver cls 0'][0] == 0, results
-    assert results['box'][0] == -1, results
-    report['metal_fail_stop'] = {k: [v[0], list(v[1])] for k, v in results.items()}
-    stats['metal_fail_stop_cases'] = len(results)
+        results[case] = (rets, read_bmp_at(path, 0.75, 0.25))
+    assert all(r == 0 for rets, _ in results.values() for r in rets), results
+    assert results['receiver cls 2'][1] == shadowed, (results, shadowed)
+    assert results['receiver cls 0'][1] == cd, results
+    assert results['box'][1] == shadowed, (results, shadowed)
+    assert results['no box'][1] == cd, results
+    report['metal_clip'] = {k: list(v[1]) for k, v in results.items()}
+    stats['metal_clip_cases'] = len(results)
     for p in tmp.iterdir(): p.unlink()
     tmp.rmdir()
+
+
+def read_bmp_at(path, fx, fy):
+    """The pixel at (fx * width, fy * height) from the top-left."""
+    d = path.read_bytes()
+    off, w, h, bpp = u32(d, 10), u32(d, 18), struct.unpack_from('<i', d, 22)[0], d[28]
+    stride = (w*bpp//8+3) & ~3
+    x, y = int(fx*w), int(fy*abs(h))
+    yy = abs(h)-1-y if h > 0 else y
+    o = off+yy*stride+x*bpp//8
+    return (d[o+2], d[o+1], d[o])
 
 
 def read_bmp_centre(path):
@@ -2510,6 +2804,202 @@ def capture_bounds(metric):
     assert abs(metric['native_ratio']-metric['original_ratio']) <= CAPTURE_RATIO_TOL, (beat, metric)
 
 
+# ------------------------------------------ G. clip kernels on the route ----
+def route_clip_beat(elf, lib, beat, stats):
+    """One AREA11 route beat (FIRST_LEVEL_ROUTE.md): the native 001DA6A0
+    over the beat's RAM must draw without a fault; 001CB590 + 001DA6A0 run
+    as original instructions over the same RAM must build the chain whose
+    box uploads, receiver objects, clip classes and worker order are the
+    plan's; its VU1 kernels are executed (kernel_checks) and every clip
+    batch goes through clip_kernel_checks (the translation kick for kick,
+    and the backend's own dmem image)."""
+    folder = ROUTE/beat
+    ram = (folder/'eeMemory.bin').read_bytes()
+    scratch = (folder/'scratchpad.bin').read_bytes()
+    scene = scene_view(ram, scratch)
+    nat = NativeRun(lib, ram, scene)
+    p = nat.plan
+    assert nat.result == 1 and p.drawn == 1 and nat.fault.code == 0, (beat, nat.result, nat.fault.code)
+    o, end, _ = execute(elf, ram, scratch, 0x1F00000)
+    buf = bytearray(ram)
+    for a in range(0x1F00000, end): buf[a] = o.load(a, 1)
+    units = walk(buf, 0x1F00000, end)
+    box_checks(buf, units, p, ram, stats)
+    first = [j for j, u in enumerate(units) if u[1] == 5 and u[3] == RECEIVER_KERNEL][0]
+    expected = []
+    for i in range(p.receiver_count):
+        addr = object_address(ram, p.receiver[i].id)+0x40
+        expected.append((addr, RECEIVER_KERNEL))
+        if p.receiver[i].cls == 2: expected.append((addr, CLIP_KERNEL))
+    assert receiver_sequence(units, first-3) == expected, (beat, 'receiver sequence')
+    log = [x for x in nat.log if not (isinstance(x, tuple) and x[0] == 'bounds')]
+    want = ['alpha_clear', ('box', 0x14), ('box', 0x15), ('silhouette', p.kind), 'receiver_begin'] + \
+           [('receiver', p.receiver[i].id, p.receiver[i].cls) for i in range(p.receiver_count)] + ['receiver_end']
+    assert log == want, (beat, 'worker order', log[:8])
+    batches = kernel_replay(elf, buf, units)
+    entry = {'beat': beat, 'receivers': p.receiver_count,
+             'classes': [p.receiver[i].cls for i in range(p.receiver_count)]}
+    asset_checks(lib, beat, ram, scene, p, batches, stats)
+    whys = kernel_checks(GSLIB, beat, 'route', ram, batches, p, stats, entry)
+    before = dict(stats)
+    clip_kernel_checks(GSLIB, beat, batches, whys, p, ram, stats, entry, scene.camera_3AC0)
+    entry['clip_batches'] = stats.get('clip_native_batches', 0)-before.get('clip_native_batches', 0)
+    entry['clip_packets'] = stats.get('clip_native_packets', 0)-before.get('clip_native_packets', 0)
+    entry['clip_vertices'] = stats.get('clip_native_vertices', 0)-before.get('clip_native_vertices', 0)
+    return entry
+
+
+# Synthetic clip batches: the translation against the executed kernel on
+# batches built to reach every branch of both programs. Positions are
+# chosen in GS space (X, Y, w) and solved back through the playable
+# capture's camera / box clip matrix; qwords 0..2 are random. Styles:
+#   near    w in [-3, 3] around the screen (plane w = 0.1 cases, back faces)
+#   wide    X, Y far outside the guard band (screen planes, split triangles)
+#   mix     both
+#   behind  w in (0, 0.1) with the camera's z column zeroed (otherwise the
+#           +z guard plane rejects every triangle behind w = 0.1 before the
+#           clip entry): the all-behind abort
+#   huge    triangles around all four sides (more than 9 triangles: abort)
+#   far     w up to 2e8
+#   negz    the z column negated (the -z guard plane reject)
+#   ftoi    receivers: z column x 1e6; box: qword 2 x 1e8 (FTOI results
+#           outside int32: the translation must fault exactly there)
+CLIP_STYLES = ('near', 'wide', 'mix', 'behind', 'huge', 'far', 'negz', 'ftoi')
+# Conditional branches whose taken side no batch can reach: the triangle
+# cap test inside the x planes' one-vertex-out case (R 0x2E0, B 0x2E6).
+# The w plane leaves at most 2 triangles and each plane at most doubles
+# them, so the x planes end with at most 8; only the y planes can pass 9.
+CLIP_UNREACHABLE_TAKEN = {CLIP_KERNEL: {0x2E0}, BOX_CLIP_KERNEL: {0x2E6}}
+SYNTH_BASE = {}
+
+
+def solve_gs(m, x, y, w):
+    """p with [p, 1] x m = (x w, y w, ., w) (x, y, w columns; Cramer)."""
+    a = [[m[r*4+c] for r in range(3)] for c in (0, 1, 3)]
+    b = [x*w-m[12], y*w-m[13], w-m[15]]
+    det = lambda t: t[0][0]*(t[1][1]*t[2][2]-t[1][2]*t[2][1])-t[0][1]*(t[1][0]*t[2][2]-t[1][2]*t[2][0]) + \
+        t[0][2]*(t[1][0]*t[2][1]-t[1][1]*t[2][0])
+    d = det(a)
+    out = []
+    for j in range(3):
+        t = [row[:] for row in a]
+        for i in range(3): t[i][j] = b[i]
+        out.append(det(t)/d)
+    return out
+
+
+def synthetic_batch(kernel, style, seed):
+    """(top, dmem bytes) of one synthetic clip batch."""
+    rng = random.Random(seed)
+    camera, uv, clip_pass, k1021 = SYNTH_BASE['camera'], SYNTH_BASE['uv'], SYNTH_BASE['clip'], SYNTH_BASE['k1021']
+    m = list(camera if kernel == CLIP_KERNEL else clip_pass)
+    if style == 'behind':
+        for r in range(4): m[4*r+2] = 0.0
+    elif style == 'negz':
+        for r in range(4): m[4*r+2] = -m[4*r+2]
+    elif style == 'ftoi' and kernel == CLIP_KERNEL:
+        for r in range(4): m[4*r+2] = m[4*r+2]*1e6
+    top = GSLIB.clip_top()
+    pos = []
+    for i in range(32):
+        if style == 'near':
+            w, x, y = rng.uniform(-3, 3), rng.uniform(1500, 2600), rng.uniform(1500, 2600)
+        elif style == 'wide':
+            w, x, y = rng.uniform(0.5, 40), rng.uniform(-6000, 10000), rng.uniform(-6000, 10000)
+        elif style == 'behind':
+            w = rng.choice([rng.uniform(0.001, 0.099), rng.uniform(0.001, 0.099), rng.uniform(0.1, 3)])
+            x, y = rng.choice([-6000.0, 2048.0, 10000.0])+rng.uniform(-500, 500), rng.uniform(1000, 3000)
+        elif style == 'huge':
+            w = rng.uniform(0.2, 30)
+            x = rng.choice([-20000.0, 25000.0, 2048.0])+rng.uniform(-3000, 3000)
+            y = rng.choice([-20000.0, 25000.0, 2048.0])+rng.uniform(-3000, 3000)
+        elif style == 'far':
+            w, x, y = rng.choice([rng.uniform(2e7, 2e8), rng.uniform(1, 100)]), rng.uniform(-3000, 7000), \
+                rng.uniform(-3000, 7000)
+        elif style in ('negz', 'ftoi'):
+            w, x, y = rng.uniform(0.5, 50), rng.uniform(-3000, 7000), rng.uniform(-3000, 7000)
+        else:
+            w = rng.choice([rng.uniform(-10, 0.3), rng.uniform(0.05, 60)])
+            x, y = rng.uniform(-3000, 7000), rng.uniform(-3000, 7000)
+        word = rng.choice([0x3F800000, 0xBF800000, 0x3F800000, 0xBF800000, 0x3F808000, 0x3F802000])
+        pos.append(solve_gs(m, x, y, w) + [struct.unpack('<f', struct.pack('<I', word))[0]])
+    image = C.create_string_buffer(16384)
+    assert GSLIB.clip_dmem(CLIP_ID[kernel], f4a(m), f4a(uv) if kernel == CLIP_KERNEL else None, f4a(k1021),
+                           f4a([v for q in pos for v in q]), top, image) == 0
+    mem = bytearray(image.raw)
+    for i in range(32):
+        at = (top+4*i)*16
+        struct.pack_into('<2I', mem, at, rng.getrandbits(32), rng.getrandbits(32))
+        scale = 1e8 if style == 'ftoi' and kernel == BOX_CLIP_KERNEL else 1.0
+        struct.pack_into('<8f', mem, at+16, *[rng.uniform(-2, 2)*scale for _ in range(8)])
+    return top, bytes(mem)
+
+
+def clip_branches(kernel):
+    """Every conditional branch of the loaded program: [micro pc]."""
+    out = []
+    for q in range(2048):
+        lo, up = struct.unpack_from('<II', ELF_PROGRAM[kernel], 8*q)
+        if not up >> 31 and lo >> 25 in (0x28, 0x29, 0x2C, 0x2D, 0x2E, 0x2F):
+            out.append(q)
+    return out
+
+
+def synthetic_clip_worker(item):
+    """One synthetic batch through the executed kernel (fresh VU1, every
+    micro address watched) and the translation: equal kicks, or, when an
+    FTOI result lies outside int32, a translation fault at exactly that
+    kick. Returns (kernel, taken/not-taken branch edges, stats)."""
+    kernel, style, seed = item
+    top, mem = synthetic_batch(kernel, style, seed)
+    vu1 = VU1(ELF_BYTES[0])
+    load_program(vu1, ELF_BYTES[0], kernel)
+    vu1.mem[:] = mem; vu1.top = top; vu1.watch = set(range(0, 16384, 8))
+    vu1.run(0)
+    pcs = [e[1]//8 for e in vu1.events if e[0] == 'pc']
+    want = [(e[1], e[3]) for e in vu1.events if e[0] == 'kick']
+    rc, res = native_clip(GSLIB, kernel, mem, top)
+    got = res.kicked()
+    label = (hex(kernel), style, seed)
+    st = {'clip_synthetic_batches': 1, 'clip_synthetic_kicks': len(want),
+          'clip_synthetic_packets': sum(1 for a, _ in want if a != 1019)}
+    if vu1.ftoi_out:
+        assert rc == -1 and res.fault == 2, (label, 'FTOI outside int32 without a translation fault')
+        assert got == want[:len(got)] and len(got) < len(want), (label, 'kicks before the FTOI fault')
+        st['clip_synthetic_ftoi_faults'] = 1
+    else:
+        assert rc == 0, (label, 'translation fault', res.fault)
+        assert got == want, (label, 'kicks', len(got), len(want),
+                             next((k for k, (g, w) in enumerate(zip(got, want)) if g != w), None))
+        assert list(res.entry[:res.entries]) == [32-ev[2] for ev in vu1.events
+                                                 if ev[0] == 'pc' and ev[1] == CLIP_ENTRY[kernel]], label
+    return kernel, set(zip(pcs, pcs[1:])), st
+
+
+def clip_coverage(edges, stats, report):
+    """Both outcomes of every conditional branch of both clip programs are
+    reached by the synthetic batches, except the taken side of the two
+    branches CLIP_UNREACHABLE_TAKEN names."""
+    rows = {}
+    for kernel in (CLIP_KERNEL, BOX_CLIP_KERNEL):
+        missing = set()
+        branches = clip_branches(kernel)
+        for q in branches:
+            lo = struct.unpack_from('<I', ELF_PROGRAM[kernel], 8*q)[0]
+            target = q+1+signed(lo & 0x7FF, 11)
+            if (q+1, target) not in edges[kernel]: missing.add(('taken', q))
+            if (q+1, q+2) not in edges[kernel]: missing.add(('not taken', q))
+        want = {('taken', q) for q in CLIP_UNREACHABLE_TAKEN[kernel]}
+        assert missing == want, (hex(kernel), 'branch outcomes not reached',
+                                 sorted((k, hex(q)) for k, q in missing - want))
+        rows[hex(kernel)] = {'branches': len(branches), 'unreached_taken': sorted(hex(q) for _, q in want)}
+        stats['clip_branches_covered'] = stats.get('clip_branches_covered', 0)+len(branches)
+    report['clip_coverage'] = rows
+
+
+ELF_PROGRAM = {}
+
+
 def merge_stats(dst, src):
     for k, v in src.items():
         if isinstance(v, dict):
@@ -2532,6 +3022,62 @@ def capture_worker(item):
     return report['captures'], stats, [(n, ee, vp, xy) for n, _, vp, xy in METAL_CASES]
 
 
+def section_g_worker(item):
+    """A route beat or a synthetic clip batch, in a forked worker."""
+    if item[0] == 'beat':
+        stats = {'alpha_histogram': {}}
+        entry = route_clip_beat(*RUN, item[1], stats)
+        return 'beat', entry, stats
+    return ('synthetic',) + synthetic_clip_worker(item[1:])
+
+
+def section_g_items(elf, lib):
+    """G. The clip kernels 00239C90 / 0023E8A0: all 15 route beats
+    (route_clip_beat) and the synthetic batches (quick: two per style and
+    kernel; EM_TEST_FULL=1: twelve). Run in the same worker pool as the
+    captures; section_g_finish takes their results."""
+    beats = sorted(p.name for p in ROUTE.iterdir() if p.is_dir() and p.name[:2].isdigit())
+    assert len(beats) == 15, ('route beats', beats)
+    ram = (REF/'playable_ee.bin').read_bytes()
+    scene = scene_view(ram, None)
+    nat = NativeRun(lib, ram, scene)
+    coef = (C.c_float*2)()
+    GSLIB.coefficients(-209.0, 304.0, coef)
+    SYNTH_BASE.update(camera=list(scene.camera_3AC0), uv=list(nat.plan.uv_24B0),
+                      clip=list(nat.plan.box[0].clip_pass), k1021=[255.0, 2048.0, coef[0], coef[1]])
+    for kernel in (CLIP_KERNEL, BOX_CLIP_KERNEL):
+        vu1 = VU1(elf)
+        load_program(vu1, elf, kernel)
+        ELF_PROGRAM[kernel] = bytes(vu1.code)
+    per_style = pick(12, 2)
+    return [('beat', b) for b in beats] + \
+        [('synthetic', k, style, 1000*n+j) for k in (CLIP_KERNEL, BOX_CLIP_KERNEL)
+         for j, style in enumerate(CLIP_STYLES) for n in range(per_style)]
+
+
+def section_g_finish(results, report, stats):
+    edges = {CLIP_KERNEL: set(), BOX_CLIP_KERNEL: set()}
+    rows = []
+    for result in results:
+        if result[0] == 'beat':
+            rows.append(result[1])
+            merge_stats(stats, result[2])
+        else:
+            _, kernel, e, st = result
+            edges[kernel] |= e
+            merge_stats(stats, st)
+    report['route_clip'] = rows
+    clip_coverage(edges, stats, report)
+    return len(rows), stats.get('clip_synthetic_batches', 0)
+
+
+def main_worker(item):
+    """A capture (capture_worker) or a section G item, in a forked worker."""
+    if item[0] == 'capture':
+        return capture_worker(item[1])
+    return section_g_worker(item)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -2541,6 +3087,7 @@ def main():
     elf = (DECOMP/'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA256, 'not the pinned SCUS-97112 ELF'
     vu.ELF = elf
+    ELF_BYTES[0] = elf
     out = ROOT/'build/shadow_original_reference'; out.mkdir(parents=True, exist_ok=True)
     validate_ops(elf)
     check_mpg(elf)
@@ -2559,12 +3106,16 @@ def main():
     rotation_probe(elf, stats)
     global RUN
     RUN = (elf, lib)
-    cost = {'roger-encounter': 3, 'opening': 3, 'handoff': 2}
+    cost = {'roger-encounter': 6, 'opening': 6, 'handoff': 4}
     metal_cases = []
-    for entries, delta, cases in parallel_map(capture_worker, CAPTURES, cost=lambda c: cost.get(c[0], 1)):
+    items = [('capture', c) for c in CAPTURES] + section_g_items(elf, lib)
+    weight = lambda it: cost.get(it[1][0], 2) if it[0] == 'capture' else 2 if it[0] == 'beat' else 1
+    results = parallel_map(main_worker, items, cost=weight)
+    for entries, delta, cases in results[:len(CAPTURES)]:
         report['captures'] += entries
         merge_stats(stats, delta)
         metal_cases += [(n, (REF/ee).read_bytes(), vp, xy) for n, ee, vp, xy in cases]
+    beats, synthetic = section_g_finish(results[len(CAPTURES):], report, stats)
     base = ((REF/'playable_ee.bin').read_bytes(), None)
     state_blocks(base[0], stats)
     for name, ee, sp in NOT_DRAWN:
@@ -2603,7 +3154,14 @@ def main():
               'clip batches', c['clip_batches'])
     for c in report.get('not_drawn_captures', []):
         print('not drawn:', c)
-    banner(part(stats['area_keys_checked'], stats['area_keys_total'], 'area keys'))
+    for r in report['route_clip']:
+        print('route', r['beat'], 'receivers', r['receivers'], 'clip batches', r['clip_batches'],
+              'drawing clip packets', r['clip_packets'], 'clip vertices', r['clip_vertices'])
+    if stats.get('asset_skipped'):
+        print(f"receiver asset missing: {stats['asset_skipped']} asset checks skipped "
+              "(run tools/export_shadow_receivers.py)")
+    banner(part(stats['area_keys_checked'], stats['area_keys_total'], 'area keys'),
+           part(synthetic, 12*len(CLIP_STYLES)*2, 'synthetic clip batches'), f'{beats} route beats')
     print('PASS test_shadow_original_reference')
 
 

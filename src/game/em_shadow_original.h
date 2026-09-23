@@ -40,7 +40,8 @@
  * untranslated 0015BF90 route (em_shadow_original_route_0015C160) latches a
  * fault; the call returns -1 and every later call returns -1.
  *
- * stdint only; no dependency on any port subsystem. */
+ * The receiver data asset (em_shadow_receivers_*, below) is read with
+ * stdio; the routine itself has no dependency on any port subsystem. */
 #ifndef EM_SHADOW_ORIGINAL_H
 #define EM_SHADOW_ORIGINAL_H
 
@@ -228,6 +229,57 @@ static inline uint32_t em_shadow_original_receiver_rgba(uint32_t alpha)
 {
     return alpha << 24;
 }
+
+/* --- the receivers' original data (asset) -------------------------------
+ * `assets/scene_snow/shadow_receivers.emsr`, written from the user's disc
+ * by ../Extermination/tools/export_shadow_receivers.py (checked there
+ * against captured RAM): the level cell grid 001D52E0 publishes (object 0
+ * of the bank *D_0028A5A0: ctx+0x144 rows, +0x148 stride, +0x150..+0x164,
+ * ctx+0x140 = the ids), every bank object's AABB (obj+0x14 / +0x24) and the
+ * 32-vertex batches its +0x40 VIF data unpacks, and the chunk27 library box
+ * models 0x14 / 0x15 in the same form. */
+typedef struct {
+    int32_t id;
+    uint32_t batches;         /* 32 vertices each */
+    float bmin[3], bmax[3];   /* obj+0x14..+0x1C, obj+0x24..+0x2C */
+    const float *qw3;         /* batches x 32 x 4: qword 3 of each vertex
+                                 (x, y, z, data word), EmGfxShadowStrips.qw3 */
+    const uint32_t *qwords;   /* batches x 128 x 4 words: the four qwords of
+                                 each vertex as UNPACK writes them */
+} EmShadowReceiverObject;
+
+typedef struct {
+    int32_t rows_144, stride_148;
+    float f150[6];            /* ctx+0x150..+0x164 */
+    const int32_t *grid;      /* ctx+0x140: rows x stride cells x 4 ids */
+    uint32_t grid_words;
+    uint32_t slots;           /* bank word 0: object ids 1..slots-1 */
+    EmShadowReceiverObject *object;   /* [slots], by id (object[0] unused) */
+    EmShadowReceiverObject box[2];    /* library models 0x14, 0x15 */
+    void *blob;
+} EmShadowReceivers;
+
+/* Load / free the asset. Returns 0, or -1 (missing file, wrong magic or
+ * version, a size or count that does not match the file) with *r zeroed. */
+int em_shadow_receivers_load(EmShadowReceivers *r, const char *path);
+void em_shadow_receivers_free(EmShadowReceivers *r);
+
+/* The grid fields of an EmShadowOriginalScene (grid_140, grid_words,
+ * stride_148, cell_x_150 .. origin_z_15C), as 001D52E0 publishes them. */
+void em_shadow_receivers_scene(const EmShadowReceivers *r, EmShadowOriginalScene *scene);
+
+/* 001C6120(*D_0028A5A0, id) (id & 0xFFFF & ~0x8000): the object, or NULL
+ * when the id has no record. */
+const EmShadowReceiverObject *em_shadow_receivers_object(const EmShadowReceivers *r,
+                                                         int32_t id);
+
+/* w_object_bounds over the asset (ctx = the EmShadowReceivers): 0, or -1
+ * for an id without a record. */
+int em_shadow_receivers_bounds(void *ctx, int32_t id, float bmin[3], float bmax[3]);
+
+/* The box model of a w_box call (model 0x14 or 0x15), or NULL. */
+const EmShadowReceiverObject *em_shadow_receivers_box(const EmShadowReceivers *r,
+                                                      int32_t model);
 
 #ifdef __cplusplus
 }

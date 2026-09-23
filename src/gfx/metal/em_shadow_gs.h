@@ -48,6 +48,7 @@
 #define EM_SHADOW_GS_H
 
 #include "gfx/metal/em_fog_gs.h"
+#include "game/em_vu1_shadow_clip.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -328,10 +329,10 @@ typedef struct {
  * 0xFF7DF7, 0xFEFBEF, 0xFDF7DF) and i >= 2 (isubiu vi1, vi11, 0x1E;
  * ibgtz). Exactly the triangles that kernel left undrawn for CLIP (the
  * same history test), minus the rejected ones, so the two passes never
- * draw one triangle twice. The clipping itself (planes w = 0.1 and screen
- * X, Y = 4.0 / 4088.0 by the constants it loads; triangle-list kicks, PRIM
- * 0x07B, in the receiver captures) is NOT translated:
- * em_shadow_gs_needs_clip names the triangles a caller must fault on. */
+ * draw one triangle twice. The clipping itself is translated in
+ * src/game/em_vu1_shadow_clip.h; em_shadow_gs_clip_dmem /
+ * em_shadow_gs_clip_vertices below run it for a backend and decode what it
+ * kicks. em_shadow_gs_needs_clip names the triangles it takes. */
 static inline uint32_t em_shadow_gs_reject(uint32_t hist)
 {
     static const uint32_t plane[6] = { 0x001041u, 0x002082u, 0x004104u,
@@ -599,6 +600,182 @@ static inline int em_shadow_gs_receiver_pixel(uint32_t at, uint32_t a,
     }
     out[3] = (uint8_t)as;
     return 1;
+}
+
+/* ------------------------------------------- clip kernels, backend side -- */
+
+/* dmem 1017..1020 of the two clip kernels' templates: the qwords +0x10..
+ * +0x40 of D_00251750 (receivers, D_008169C0) and D_00251550 (box,
+ * D_008166C0), which skin_arena_init copies verbatim (the reference test
+ * reads both from the ELF and from every captured batch). 1017: the
+ * triangle-list tag (NLOOP 3, EOP, PRE, NREG 3; receivers PRIM 0x07B REGS
+ * ST RGBAQ XYZF2, box PRIM 0x043 REGS NOP NOP XYZF2); 1018: a one-register
+ * tag (NLOOP 1; receivers REGS NOP, box REGS TEX0_1) for the vertex's
+ * qword 0; 1019: NLOOP 0, EOP; 1020: the kernel's own batch tag. */
+static inline void em_shadow_gs_clip_template(int kernel, EmVu1Qword rows[4])
+{
+    const int box = kernel == EM_VU1_CLIP_BOX;
+    const uint32_t v[4][4] = {
+        { 0x8003u, box ? 0x3021C000u : 0x303DC000u, box ? 0x4FFu : 0x412u, 0u },
+        { 0x1u, 0x10000000u, box ? 0x6u : 0xFu, 0u },
+        { 0x8000u, 0u, 0u, 0u },
+        { 0x8020u, box ? 0x40224000u : 0x403E4000u, box ? 0x4FFFu : 0x412Fu, 0u },
+    };
+    memcpy(rows, v, sizeof v);
+}
+
+/* The VU1 data memory a clip batch runs on, from what a backend has:
+ * dmem 0..3 = `camera` (receivers: D_70003AC0; box: the pass's (W x V) x
+ * P), dmem 4..7 = `st` (receivers: ctx+0x24B0, uploaded by 001D49D0 to
+ * dmem 4; box: NULL -> 0, the box kernel loads dmem 4..7 but never uses
+ * them), 1017..1020 the template, 1021 = `k1021` (255, 2048, A, B), 1022 /
+ * 1023 the level guard rows, and the batch at `top`: qword 3 of each vertex
+ * from `qw3`, qwords 0..2 zero. What the backends draw does not depend on
+ * qwords 0..2: the receiver kernel overwrites what it loads from qwords 1
+ * and 2, the box kernel sends its ST and RGBAQ slots to NOP registers, and
+ * qword 0 of vertex i goes to the 1018 tag's register (receivers NOP, box
+ * TEX0_1 of an untextured pass); the reference test checks every captured
+ * clip batch both ways. The matrices are addressed by the data word
+ * (low 16 bits, wrapping at 1024 qwords): returns -1 when a vertex names
+ * any address but 0, which only dmem 0..7 above would answer. */
+static inline int em_shadow_gs_clip_dmem(int kernel, const float camera[16],
+    const float *st, const float k1021[4], const float (*qw3)[4], uint32_t top,
+    EmVu1Qword *dmem)
+{
+    float k1022[4], k1023[4];
+    memset(dmem, 0, sizeof(EmVu1Qword) * EM_VU1_DMEM_QWORDS);
+    memcpy(dmem + 0, camera, 64);
+    if (st) memcpy(dmem + 4, st, 64);
+    em_shadow_gs_clip_template(kernel, dmem + 1017);
+    memcpy(dmem + 1021, k1021, 16);
+    em_shadow_gs_level_rows(k1022, k1023);
+    memcpy(dmem + 1022, k1022, 16);
+    memcpy(dmem + 1023, k1023, 16);
+    for (uint32_t i = 0; i < 32u; ++i) {
+        uint32_t word;
+        memcpy(&word, &qw3[i][3], 4);
+        if ((word & 0xFFFFu & 1023u) != 0u) return -1;
+        memcpy(dmem + ((top + 4u * i + 3u) & 1023u), qw3[i], 16);
+    }
+    return 0;
+}
+
+/* The TOP a backend runs a clip batch at: the chains' VIF BASE 0x190 (the
+ * first of the two double buffers; the kicked content does not depend on
+ * which). */
+#define EM_SHADOW_GS_CLIP_TOP 0x190u
+
+/* One vertex the GS receives from a clip kernel's triangle list. */
+typedef struct {
+    float x, y;          /* XYZF2 X, Y (12.4 -> pixels, GS window) */
+    uint32_t z, f;       /* Z (24 bits), F */
+    float s, t, q;       /* ST (PACKED ST also sets Q); box: not sent */
+    uint32_t a;          /* RGBAQ A; box: not sent */
+    float kq;            /* the kernel's Q = 1/w of the vertex: word 2 of
+                            its first slot, which both kernels fill with
+                            (S, T, 1) x Q (receivers send it to ST, the box
+                            to a NOP register) */
+} EmShadowGsClipVertex;
+
+/* The drawing kicks of one clip batch as the GS takes them: every packet
+ * but the empty 1019 one is [1018 tag + its data qword, 1017 triangle-list
+ * tag + 3n vertices]; per PACKED register ST sets S, T, Q, RGBAQ the
+ * colour, XYZF2 queues a vertex and every third one draws a triangle.
+ * `out` receives 3 vertices per triangle (at most `cap`). Returns the
+ * vertex count, or -1 for anything outside that shape (another register,
+ * an ADC vertex, a partial triangle, PRIM other than the template's). */
+static inline int em_shadow_gs_clip_vertices(int kernel, const EmVu1ClipResult *r,
+                                             EmShadowGsClipVertex *out, uint32_t cap)
+{
+    const uint32_t prim_want = kernel == EM_VU1_CLIP_BOX ? 0x043u : 0x07Bu;
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < r->kicks; ++k) {
+        const EmVu1ClipKick *kick = &r->kick[k];
+        const EmVu1Qword *q = r->qw + kick->first, *end = q + kick->count;
+        EmShadowGsClipVertex cur;
+        memset(&cur, 0, sizeof cur);
+        uint32_t queued = 0;
+        int eop = 0;
+        while (q < end && !eop) {
+            const uint32_t nloop = q->w[0] & 0x7FFFu, flg = (q->w[1] >> 26) & 3u;
+            uint32_t nreg = q->w[1] >> 28;
+            const uint64_t regs = (uint64_t)q->w[2] | (uint64_t)q->w[3] << 32;
+            if (!nreg) nreg = 16u;
+            eop = (q->w[0] >> 15) & 1u;
+            if (flg != 0u) return -1;
+            if ((q->w[1] >> 14) & 1u) {                       /* PRE */
+                if (((q->w[1] >> 15) & 0x7FFu) != prim_want) return -1;
+            }
+            ++q;
+            for (uint32_t l = 0; l < nloop; ++l) {
+                for (uint32_t g = 0; g < nreg; ++g, ++q) {
+                    if (q >= end) return -1;
+                    const uint32_t reg = (uint32_t)(regs >> (4u * g)) & 15u;
+                    if (g == 0u && nreg == 3u) cur.kq = emvu_f(q->w[2]);
+                    if (reg == 0xFu || reg == 0x6u) continue; /* NOP, TEX0_1 */
+                    if (reg == 0x2u) {
+                        cur.s = emvu_f(q->w[0]); cur.t = emvu_f(q->w[1]);
+                        cur.q = emvu_f(q->w[2]);
+                    } else if (reg == 0x1u) {
+                        cur.a = q->w[3] & 0xFFu;
+                    } else if (reg == 0x4u) {
+                        if ((q->w[3] >> 15) & 1u) return -1;  /* ADC */
+                        if (n >= cap) return -1;
+                        cur.x = (float)(q->w[0] & 0xFFFFu) / 16.0f;
+                        cur.y = (float)(q->w[1] & 0xFFFFu) / 16.0f;
+                        cur.z = q->w[2] >> 4 & 0xFFFFFFu;
+                        cur.f = q->w[3] >> 4 & 0xFFu;
+                        out[n++] = cur;
+                        ++queued;
+                    } else {
+                        return -1;
+                    }
+                }
+            }
+        }
+        if (q != end || queued % 3u) return -1;
+    }
+    return (int)n;
+}
+
+/* The point of GS pixel (x, y) at clip-space w under `cam` (row-vector,
+ * GS clip x = X * w, y = Y * w): the solution p of [p, 1] x cam = (x * w,
+ * y * w, ., w) on the x, y and w columns. The backends draw a clip
+ * kernel's vertices through their own view-projection from this point,
+ * so they meet the level's depth the way the kernel's other triangles do
+ * (w = 1/Q of the vertex's ST, which both kernels compute). Returns -1
+ * when the columns are singular or the binary32 point does not project
+ * back onto (x, y) within the GS 1/16-pixel grid and onto w within 1e-3. */
+static inline int em_shadow_gs_clip_unproject(const float cam[16], float x,
+                                              float y, float w, float p[3])
+{
+    const double a[3][3] = {
+        { cam[0], cam[4], cam[8] }, { cam[1], cam[5], cam[9] },
+        { cam[3], cam[7], cam[11] } };
+    const double b[3] = { (double)x * w - cam[12], (double)y * w - cam[13],
+                          (double)w - cam[15] };
+    const double det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) -
+                       a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+                       a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+    if (!(det != 0.0) || !isfinite(det)) return -1;
+    for (unsigned c = 0; c < 3; ++c) {
+        double m[3][3];
+        memcpy(m, a, sizeof m);
+        for (unsigned r = 0; r < 3; ++r) m[r][c] = b[r];
+        const double d = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+                         m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+                         m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        p[c] = (float)(d / det);
+        if (!isfinite(p[c])) return -1;
+    }
+    double back[4];
+    for (unsigned k = 0; k < 4; ++k)
+        back[k] = (double)p[0] * cam[k] + (double)p[1] * cam[4 + k] +
+                  (double)p[2] * cam[8 + k] + cam[12 + k];
+    if (!(fabs(back[3] - w) <= 1e-3 * fmax(1.0, fabs((double)w)))) return -1;
+    if (!(fabs(back[0] / back[3] - x) <= 1.0 / 16.0) ||
+        !(fabs(back[1] / back[3] - y) <= 1.0 / 16.0)) return -1;
+    return 0;
 }
 
 #endif /* EM_SHADOW_GS_H */
