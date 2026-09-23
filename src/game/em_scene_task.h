@@ -57,6 +57,11 @@ int em_sf_001AD140(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w);
 /* 001ADF00 and 001AFCF0 do not touch the task record. */
 int em_sf_001ADF00(EmSceneState *s, const EmSceneWorkers *w);
 int em_sf_001AFCF0(EmSceneState *s, const EmSceneWorkers *w);
+/* 0018AB00 (byte-matched), called by 0x1AE040 state 4 (S12b): writes
+ * D_008106C6 from the equipment bytes D_00810CA4/CA7 (canonical D2 progress).
+ * 0, or -1 with the fault latched (at 0x0018AB00) when the bytes are not
+ * canonical. No callees. */
+int em_sf_0018AB00(EmSceneState *s);
 
 #ifdef __cplusplus
 }

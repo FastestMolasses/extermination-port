@@ -80,10 +80,10 @@
  *   without effect and are reported once on stderr, so a trace that shows
  *   the call is never mistaken for the port doing it.
  * Not bound until later steps, therefore NULL: the unported classifier arms
- * (r == 1 and state 2, r == 3 and state 6), +9 = 3 (001AD740) and state 4
- * (0018AB00, 0018D7B0; S12b; w_001B07C0 and w_0018C0D0 also refuse state
- * 4's calls). Since S12a B8 = 1 has a port writer (the 001B0C60
- * translation); B8 = 2 (the room move) has none until S12b.
+ * (r == 1 and state 2, r == 3 and state 6) and +9 = 3 (001AD740). Since S12a
+ * B8 = 1 has a port writer (the 001B0C60 translation); since S12b B8 = 2 has
+ * one (the AREA11 door's 001BC150, em_door.c) and state 4 is bound (see "the
+ * room move" below).
  */
 #include "game/em_scene_bindings.h"
 
@@ -95,6 +95,7 @@
 #include "game/em_actor_roster.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_camera.h"
+#include "game/em_door.h"
 #include "game/em_game.h"
 #include "game/em_frame.h"
 #include "game/em_frame_trace.h"
@@ -203,6 +204,8 @@ enum {
     UM_0021B1B0,
     UM_0021B500,
     UM_001FAD70,
+    UM_0018D7B0,
+    UM_0018C0D0_STATE4,
     UM_COUNT
 };
 
@@ -254,6 +257,13 @@ static const struct {
     [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
     [UM_001FAD70] = {0x001FAD70u, "001B0C00: stream channel volume fade (x3); the port's stream player "
                                   "has no per-channel gain"},
+    [UM_0018D7B0] = {0x0018D7B0u, "state 4 camera solve (mode 1: 0018D330, 0018DD20, then the camera "
+                                  "block's eye/target copied to D_008105D0/E0); the camera block has no "
+                                  "canonical storage: the legacy chase camera re-armed by the 001B0460 "
+                                  "stand-in seats, solves and commits at this tick's 0018B9C0 stage"},
+    [UM_0018C0D0_STATE4] = {0x0018C0D0u, "state 4 camera commit (a1 = 1); the re-armed legacy camera "
+                                         "has no seated view until this tick's 0018B9C0 stage, which "
+                                         "commits it (camera_commit)"},
 };
 
 static uint64_t s_unmirrored_seen;     /* reached at least once */
@@ -347,8 +357,12 @@ static uint8_t r_008102B9(void *ctx)
  * block, the area bytes, D_00810730, ...), the veil block before and after,
  * the fade substate at the tick start, the worker trace of the tick, the
  * results of 0021B550 and 001AD230, and the state around a 001AD010 call.
- * The test replays each chain tick through the executed original. It never
- * changes behaviour. */
+ * The test replays each chain tick through the executed original. Since S12b
+ * each line also carries, at the tick start (the original's main-loop-top
+ * sample: the 0x28A9A0 fade ticks after the task), the fade block in its
+ * original layout, the player position/heading bits, the live 001E55F0 and
+ * 001C5930 node counts and the first door's state and locks, for
+ * tools/test_room_move_reference.py. It never changes behaviour. */
 enum { LOG_SNAP = 168, LOG_VEIL = 0x1C, LOG_TRACE_MAX = 96 };
 static FILE *s_log;
 static int s_log_checked;
@@ -361,6 +375,9 @@ static struct {
     int r_0021B550, r_001AD230;
     int d010;
     uint8_t d010_pre[LOG_SNAP], d010_post[LOG_SNAP];
+    uint8_t fade8[8];
+    uint32_t pos[3], yaw;
+    int weather, title, door[3];
 } s_tick;
 
 static FILE *log_file(void)
@@ -458,6 +475,20 @@ static void log_tick_begin(void)
     s_tick.fade = em_frame_transition()->substate;
     log_snapshot(s_tick.pre);
     log_veil(s_tick.veil_pre);
+    const EmTransitionFade *fade = em_frame_transition();
+    uint8_t *p = s_tick.fade8;
+    put_le(&p, (uint16_t)fade->substate, 2);
+    *p++ = fade->colour;
+    *p++ = (uint8_t)fade->mode;
+    put_le(&p, (uint16_t)fade->level, 2);
+    put_le(&p, (uint16_t)fade->step, 2);
+    memcpy(s_tick.pos, g.pos, sizeof s_tick.pos);
+    memcpy(&s_tick.yaw, &g.yaw, sizeof s_tick.yaw);
+    s_tick.weather = em_scene_bindings_pool_count(0x001E55F0u);
+    s_tick.title = em_scene_bindings_pool_count(0x001C5930u);
+    s_tick.door[0] = em_door_count() > 0 ? em_door_state(0) : -1;
+    s_tick.door[1] = em_door_movement_locked();
+    s_tick.door[2] = em_door_menu_locked();
 }
 
 static void log_tick_end(int rc)
@@ -476,6 +507,11 @@ static void log_tick_end(int rc)
     log_hex(f, s_tick.veil_pre, LOG_VEIL);
     fputs(", \"veil_post\": ", f);
     log_hex(f, veil, LOG_VEIL);
+    fputs(", \"fade8\": ", f);
+    log_hex(f, s_tick.fade8, sizeof s_tick.fade8);
+    fprintf(f, ", \"pos\": [%u, %u, %u], \"yaw\": %u, \"weather\": %d, \"title\": %d, "
+            "\"door\": [%d, %d, %d]", s_tick.pos[0], s_tick.pos[1], s_tick.pos[2], s_tick.yaw,
+            s_tick.weather, s_tick.title, s_tick.door[0], s_tick.door[1], s_tick.door[2]);
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
     for (int i = 0; i < s_tick.ntrace; ++i)
@@ -651,9 +687,16 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *   0015C1F0          reported no-port-code (the port's one player model)
  *   001B0460          the legacy chase re-arm (em_game_legacy_camera_rearm),
  *                     reported, after the placed pose is committed to g
- * Refused (fault): arg0 != 0 (state 4's re-place, S12b) and D_00275BE0 == 1
- * (the load-game pose D_00810710..728 has no canonical storage; its only
- * writer, 0x1AE040 state 2, is unported). After the translation the port's
+ *   +0x224/+0x22C     g.pd_pend_hp/g.pd_pend_inf (arg0 1 drops them)
+ *   +0x00             arg0 1 with pending damage writes 1: no port storage
+ *                     (1 in every capture)
+ *   +0x04/+0x05/+0x06 arg0 1 with the record's +0x14 byte 1 writes 5/1/0,
+ *                     the walk-out state 5/1: the legacy walk-out
+ *                     (em_door_room_move_arrival, S12b)
+ * arg0 is 0 in state 0 and 1 in state 4 (S12b, "the room move" below); any
+ * other pairing is refused (fault), as is D_00275BE0 == 1 (the load-game
+ * pose D_00810710..728 has no canonical storage; its only writer, 0x1AE040
+ * state 2, is unported). After the state-0 placement the port's
  * placement-dependent fixtures run (em_game_legacy_state0_fixtures).
  * A scene without an original roster keeps its manifest spawn (001AFCA0). */
 
@@ -671,6 +714,8 @@ static void spawn_commit(const EmSpawnIo *io)
     g.status.infection = io->player.f228;
     g.pd_infected = io->player.b234;
     g.pd_low = io->player.b235;
+    g.pd_pend_hp = io->player.f224;
+    g.pd_pend_inf = io->player.f22C;
     uint8_t status, primary, secondary;
     em_pickup_equipment_read(&status, &primary, &secondary);
     em_pickup_equipment_write(io->d810C60, primary, secondary);
@@ -687,11 +732,15 @@ static int spawn_w_0015C1F0(void *ctx, uint32_t player)
     return unmirrored(UM_0015C1F0);
 }
 
+/* 001B0460(a0). Its only a0 test (0x1B0460 .. block_14) is "a0 != 0 and
+ * D_008104E0 is 0x10 or 0x12"; D_008104E0 is player +0x230, which 001B07C0
+ * stored 0 just before the call, so a0 = 1 (state 4) takes the same arm as
+ * a0 = 0 and the one stand-in serves both. */
 static int spawn_w_001B0460(void *ctx, int a0)
 {
     (void)ctx;
     bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_001B0460, (uint32_t)a0, 0, 0, 0);
-    if (a0 != 0 || !s_spawn_io)
+    if ((a0 != 0 && a0 != 1) || !s_spawn_io || s_spawn_io->player.w230 != 0)
         return -1;
     spawn_commit(s_spawn_io);
     em_game_legacy_camera_rearm();
@@ -703,7 +752,8 @@ static int w_001B07C0(void *ctx, int a0)
     (void)ctx;
     if (!roster_scene())
         return unmirrored(UM_001B07C0_LEGACY_WORLD);
-    if (a0 != 0 || s_state.d275BE0 == 1)
+    if (a0 != (s_entry_state == 4 ? 1 : 0) || (s_entry_state != 0 && s_entry_state != 4) ||
+        s_state.d275BE0 == 1)
         return -1;
     if (!s_spawn_table_loaded) {
         if (em_spawn_table_load(&s_spawn_table, EM_SPAWN_TABLE_PATH) != 0) {
@@ -753,7 +803,17 @@ static int w_001B07C0(void *ctx, int a0)
     if (rc < 0)
         return em_scene_fault(&s_state, io.fault.address, (EmSceneFaultCode)io.fault.code);
     spawn_commit(&io);
-    em_game_legacy_state0_fixtures();
+    if (a0 == 0) {
+        em_game_legacy_state0_fixtures();
+        return 0;
+    }
+    /* State 4: the player state 001B07C0 wrote (5/1/0 = the walk-out) and
+     * the end of the door sequence; 0x1AE040 clears the cinematic byte
+     * D_008101E4 below (0x1AE0BC), which the legacy camera keeps as
+     * g.doorcam: 3 = the door cinematic is over (the legacy warp's value). */
+    em_door_room_move_arrival(io.player.b004 == 5 && io.player.b005 == 1 && io.player.b006 == 0,
+                              g.yaw);
+    g.doorcam = 3;
     return 0;
 }
 
@@ -951,13 +1011,21 @@ static int w_001C1DC0(void *ctx)
     return em_area11_spawn_weather_001C1EA0();
 }
 
-/* 001C5C50: the area-title node (byte-matched; em_actor_roster). */
+/* 001C5C50: the area-title node (byte-matched; em_actor_roster), from
+ * 0x1AE040 states 0 and 4. The card the node shows is the legacy em_hud
+ * title: state 0's is armed by the manifest `areatitle` line at the area
+ * read; state 4 (the room move, S12b) has no area read, so the new node's
+ * card (its case 0: 0x12C ticks of D_002671C0[D_00289B40[700][0] + 701])
+ * is armed here. The legacy card is keyed on the area byte alone. */
 static int w_001C5C50(void *ctx)
 {
     (void)ctx;
     if (s_pool_mode != POOL_ROSTER)
         return unmirrored(UM_001C5C50_LEGACY_WORLD);
-    return em_actor_roster_spawn_001C5C50(&s_pool, &s_state, em_area11_bind_roster, NULL, NULL);
+    int rc = em_actor_roster_spawn_001C5C50(&s_pool, &s_state, em_area11_bind_roster, NULL, NULL);
+    if (rc >= 0 && s_entry_state == 4)
+        em_hud_area_title(s_state.d810700);
+    return rc;
 }
 
 /* ------------------------------------------- world-frame variants (S10a) */
@@ -1228,8 +1296,12 @@ static int w_001AEDB0(void *ctx, uint8_t a0)
 static int w_0018C0D0(void *ctx, uint32_t a0, int a1)
 {
     (void)ctx;
-    if (a0 != D_CAMERA || s_entry_state != 5)
-        return -1; /* state 4's call is not bound until S12b */
+    if (a0 != D_CAMERA)
+        return -1;
+    if (s_entry_state == 4 && a1 == 1)
+        return unmirrored(UM_0018C0D0_STATE4);
+    if (s_entry_state != 5)
+        return -1;
     camera_commit_original(&g.cam, a1);
     return 0;
 }
@@ -1246,6 +1318,38 @@ static int w_001AEE40(void *ctx, int16_t a0)
         return 0;
     }
     return -1;
+}
+
+/* ------------------------------------------- the room move (S12b; design 5)
+ *
+ * The AREA11 door's 001BC150 (em_door.c) starts the fade 001AEDE0(4, 0) and
+ * posts B8 = 2 with B7 = its destination entry; while B8 is set the
+ * classifier returns 0 and the world keeps ticking; at D_0028A9A0 == 2 the
+ * 001AD010 core sets D_00810702 = B7 and +B = 4; the next tick 0x1AE040
+ * state 4 re-places and falls into state 1 in the same tick. Its workers:
+ *   001AFCF0          the S3 core (clears the request block: B8 = 0)
+ *   0018AB00          em_sf_0018AB00 (em_scene_task.c; D_008106C6)
+ *   001B07C0(1)       w_001B07C0 above (the spawn translation; the arrival)
+ *   001C1DC0          the weather node for the new D_008106C8 (the old one
+ *                     frees itself: em_area11_bindings.c tick_weather)
+ *   0018D7B0(cam, 1), 0018C0D0(cam, 1)  reported (UM_0018D7B0 and
+ *                     UM_0018C0D0_STATE4)
+ *   001AEE10(4, 0)    the fade-in (em_fade.c)
+ *   001FAE70(0)       reported (UM_001FAE70)
+ *   001C5C50          the new area-title node (the old one left on B8) */
+
+static int w_0018AB00(void *ctx)
+{
+    (void)ctx;
+    return s_entry_state == 4 ? em_sf_0018AB00(&s_state) : -1;
+}
+
+static int w_0018D7B0(void *ctx, uint32_t a0, int a1)
+{
+    (void)ctx;
+    if (a0 != D_CAMERA || a1 != 1 || s_entry_state != 4)
+        return -1;
+    return unmirrored(UM_0018D7B0);
 }
 
 /* ------------------------------------------- game over (S11b; design 5)
@@ -1426,6 +1530,10 @@ static void bindings_init(void)
     w->w_001AEDB0 = w_001AEDB0;
     w->w_0018C0D0 = w_0018C0D0;
 
+    /* The room move (S12b): 0x1AE040 state 4. */
+    w->w_0018AB00 = w_0018AB00;
+    w->w_0018D7B0 = w_0018D7B0;
+
     /* Game over (S11b): 001AD4E0 and 001ADF00. */
     w->w_001D2880 = um_001D2880;
     w->w_001FF080 = w_001FF080;
@@ -1477,6 +1585,16 @@ int em_scene_bindings_pool_census(void)
     int n = 0;
     for (const EmActor *a = s_pool.head; a && n <= EM_ACTOR_POOL_CAPACITY; a = a->next)
         ++n;
+    return n;
+}
+
+int em_scene_bindings_pool_count(uint32_t callback)
+{
+    if (s_pool_mode != POOL_ROSTER)
+        return -1;
+    int n = 0, walked = 0;
+    for (const EmActor *a = s_pool.head; a && walked <= EM_ACTOR_POOL_CAPACITY; a = a->next, ++walked)
+        n += a->callback == callback;
     return n;
 }
 

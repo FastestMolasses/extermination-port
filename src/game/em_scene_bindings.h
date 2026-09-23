@@ -63,6 +63,9 @@ int em_scene_request_area_change_001B0C60(int a, int b, int c);
 /* The number of live nodes in the actor pool (D_00275BC0 list length) when
  * the pool holds the AREA11 roster, else -1 (test instrumentation). */
 int em_scene_bindings_pool_census(void);
+/* The number of live AREA11 pool nodes with this original callback, or -1
+ * without a roster pool (test instrumentation, S12b). */
+int em_scene_bindings_pool_count(uint32_t callback);
 
 /* ---- Legacy port code the bindings call (implemented in em_game.c) ----
  * Each one is today's code, moved unchanged out of the retired

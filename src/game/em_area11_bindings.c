@@ -35,6 +35,15 @@
  *   00159210  state 0: model 0x2C -> 001C5570(p, .., 0x74, 1); otherwise,
  *             unless bit (+0x2E) of D_00810841[D_00810700] is set, 001C5570(p,
  *             .., 0x75, 1).
+ *   001E55F0  NEARMISS (logic checked; translated in em_weather.c, oracle
+ *             test_weather_reference): state 1 ends with D_008106B8 == 2 &&
+ *             D_0028A9A0 == 2 -> +4 = 3; states 2/3 call 001AFC10(self).
+ *   001C5930  NEARMISS; its lifecycle read from the .s: +4 == 3 or 2 ->
+ *             001AFC10(self) (0x1C5954/0x1C5960 -> 0x1C5C24); +4 == 0 ->
+ *             state 0, +4 = 1 (0x1C59C0..0x1C59CC); +4 == 1 -> with +5 == 1,
+ *             or +5 == 0 after the card timer step, D_008106B8 != 0 -> +4 = 3
+ *             (0x1C5AA8..0x1C5ABC). +5 only goes 0 -> 1 (0x1C5A9C..0x1C5AA4)
+ *             and 001AFC10 clears it, so the B8 test runs on every state-1 call.
  *   Overlay owners (no static code): ORIGINAL_FRAME_ORDER.md section 6
  *   measured, on the first world frame, 0x825940 (deferred g0.7) spawning a
  *   001C5680 child (+0xD 0x7A), 0x827B10 (area11[19]) spawning a 001C5760
@@ -48,6 +57,8 @@
 
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_director.h"
+#include "game/em_frame.h"
+#include "game/em_hud.h"
 #include "game/em_manager_008257A0.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
@@ -83,6 +94,9 @@ struct Node {
     uint8_t ticked;   /* first behaviour call done */
     uint8_t head;     /* runs its group's port code */
     uint32_t link;    /* original +0x24 (the owner of an effect child) */
+    /* 001E55F0 nodes: the actor's own weather state (its +4 byte and +0x1F0
+     * block, em_weather.h); zeroed by bind_node, so a new actor seeds. */
+    EmWeather weather;
 };
 
 static Node s_nodes[EM_ACTOR_POOL_CAPACITY];
@@ -401,18 +415,52 @@ static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 001E55F0 weather node: the legacy snow tick. The cutscene block passed the
- * camera eye from before this frame's camera stage (copied at its start);
- * the gameplay block passed the live eye after the door's warp re-seat. */
+/* Free the node's own actor from inside its behaviour (001AFC10(self)); the
+ * pool walk continues with the next node it saved. */
+static int free_self_001AFC10(EmActor *actor)
+{
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, actor) < 0)
+        return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED, "001AFC10 failed");
+    return 1;
+}
+
+/* 001E55F0 weather node: em_weather's translation over the node's own state,
+ * drawing through the snow runtime. The cutscene block passed the camera eye
+ * from before this frame's camera stage (copied at its start); the gameplay
+ * block passed the live eye. The room move (S12b): at the end of state 1,
+ * D_008106B8 == 2 with D_0028A9A0 == 2 selects state 3; the next call frees
+ * the actor (the 001C1DC0 of 0x1AE040 state 4 has spawned its successor). */
 static int tick_weather(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    (void)actor;
+    int released = em_snow_runtime_tick_actor(
+        &node->weather, world->cutscene ? s_walk_eye : g.cam.eye, world->cutscene ? 1u : 0u,
+        s_scene->req[EM_SCENE_REQ_B8], (unsigned)(int)em_frame_transition()->substate);
+    return released ? free_self_001AFC10(actor) : 1;
+}
+
+/* 001C5930 area-title node: its lifecycle (evidence above); the card itself
+ * is the legacy em_hud title (armed by the manifest `areatitle` at the area
+ * read, and by 0x1AE040 state 4's 001C5C50 adapter). State 0's +0x28/+0x2A/
+ * +0x1F0 stores and the 001C5860 sub-location line have no port storage. */
+static int tick_area_title(EmActor *actor, Node *node, const EmArea11World *world)
+{
     (void)node;
-    if (world->cutscene)
-        em_snow_runtime_tick(s_walk_eye, 1);
-    else
-        em_snow_runtime_tick(g.cam.eye, 0);
-    return 1;
+    (void)world;
+    switch (actor->u04[0]) {
+    case 0:
+        actor->u04[0] = 1;
+        return 1;
+    case 1:
+        if (s_scene->req[EM_SCENE_REQ_B8] != 0)
+            actor->u04[0] = 3;
+        return 1;
+    case 2:
+    case 3:
+        em_hud_area_title_stop();
+        return free_self_001AFC10(actor);
+    default:
+        return 1;
+    }
 }
 
 /* Indicator children (001C5680 x7, 001C5760; ORIGINAL_FRAME_ORDER #39-#48).
@@ -484,9 +532,10 @@ static const Binding k_bindings[] = {
     {0x00827B10u, "terminal: legacy em_examine + elevator_tick", NULL, GROUP_NONE, tick_terminal, NULL},
     {0x001C4820u, "prop: render-only", NULL, GROUP_NONE, NULL,
      "001C4820 (area11[20]): render-only; the port draws it from the scene props"},
-    {0x001E55F0u, "weather: legacy em_snow_runtime_tick", NULL, GROUP_NONE, tick_weather, NULL},
-    {0x001C5930u, "area title: em_hud at the close-out", NULL, GROUP_NONE, NULL,
-     "001C5930 area title: the legacy em_hud title ticks and draws in frame_close_out"},
+    {0x001E55F0u, "weather: em_weather over the node's state (em_snow_runtime)", NULL, GROUP_NONE,
+     tick_weather, NULL},
+    {0x001C5930u, "area title: lifecycle; the legacy em_hud card draws at the close-out", NULL,
+     GROUP_NONE, tick_area_title, NULL},
     {0x0018A6B0u, "player equipment: no port draw", NULL, GROUP_NONE, NULL,
      "0018A6B0 x7 player attached equipment (D3, Q5): the port has no equipment-model draw"},
     {0x001E2560u, "head-bone sprite effect: UNBOUND", NULL, GROUP_NONE, NULL,

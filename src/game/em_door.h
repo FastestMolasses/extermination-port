@@ -608,6 +608,21 @@ int em_door_rattles(void);
 int em_door_goto_pending(char *dir, unsigned dir_size, float out_pos[3],
                          float *out_yaw);
 
+/* 0x1AE040 state 4's re-place of a room move (S12b), called by the
+ * 001B07C0(1) adapter after the player is placed: `walkout` is 001B07C0's
+ * player state 5/1/0 (the spawn record's +0x14 byte == 1), run by the
+ * legacy walk-out along `exit_yaw` (the record heading). A door sequence in
+ * flight ends here: the script teardown (em_game_anim_cancel), the menu
+ * unlock armed for the fade-in end, and the movement lock released unless
+ * the walk-out holds it. */
+void em_door_room_move_arrival(int walkout, float exit_yaw);
+
+/* Test instrumentation (EM_ROOM_MOVE_TEST, S12b): put the first closed door
+ * bound to an original room move into the state its open script ends in
+ * (sub 4, side latch `side`, both locks held), so that its next tick runs
+ * the real 001BC240/001BC150 commit. Returns the door index, or -1. */
+int em_door_room_move_request_test(int side);
+
 /* Scene switch teardown: free every door instance + model/mesh like
  * em_door_shutdown, but PRESERVE the transit-wide state (both locks,
  * the armed fade-in unlock, and the arrival walk-out — the switch

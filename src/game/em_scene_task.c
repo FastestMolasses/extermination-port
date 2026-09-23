@@ -97,6 +97,36 @@ int em_sf_001AFCF0(EmSceneState *s, const EmSceneWorkers *w)
     return ST_CALL0(s, w, F, 0x001FC9B0u, w_001FC9B0) < 0 ? -1 : 0;
 }
 
+/* ------------------------------------------------------------ 0018AB00 */
+
+/* 0018AB00 (byte-matched, src/func_0018AB00.c): D_008106C6 = 5/4/3 for
+ * D_00810CA4 = 0/1/2; otherwise 1 for D_00810CA7 == 8, 2 for 9, else 0. Both
+ * source bytes are read as unsigned bytes (lbu). */
+int em_sf_0018AB00(EmSceneState *s)
+{
+    if (em_scene_faulted(s))
+        return -1;
+    const uint8_t *ca4 = em_scene_progress_at(s, 0x00810CA4u, 1);
+    const uint8_t *ca7 = em_scene_progress_at(s, 0x00810CA7u, 1);
+    if (!ca4 || !ca7)
+        return em_scene_fault(s, 0x0018AB00u, EM_SCENE_FAULT_BAD_INDEX);
+    uint8_t c6;
+    if (*ca4 == 0)
+        c6 = 5;
+    else if (*ca4 == 1)
+        c6 = 4;
+    else if (*ca4 == 2)
+        c6 = 3;
+    else if (*ca7 == 8)
+        c6 = 1;
+    else if (*ca7 == 9)
+        c6 = 2;
+    else
+        c6 = 0;
+    s->req[EM_SCENE_REQ_C6] = c6;
+    return 0;
+}
+
 /* ------------------------------------------------------------ 001AD140 */
 
 /* 001AD140 (byte-matched): +8=3, +9=2, +A=+B=0, then 001FC9B0, 001FBC50,

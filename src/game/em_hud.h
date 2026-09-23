@@ -507,6 +507,10 @@ void em_hud_found_render(EmGfx *gfx);
 void em_hud_area_title(int area);
 void em_hud_area_title_render(EmGfx *gfx);
 int  em_hud_area_title_active(void);
+/* The card's 001C5930 actor left (its state 1 saw D_008106B8 != 0, then
+ * 001AFC10 freed it: 0x1C5AA8..0x1C5ABC, 0x1C5C24): the card stops drawing.
+ * Called by the AREA11 area-title node adapter (S12b), never by a pool reset. */
+void em_hud_area_title_stop(void);
 
 /* RADIO/EXAMINE MESSAGE MACHINE — the engine's mode-2 message machine
  * (D_002821B0 = 2; FINDINGS.md "RADIO-MESSAGE MACHINE DECODED",

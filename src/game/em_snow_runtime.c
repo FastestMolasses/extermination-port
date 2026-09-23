@@ -69,12 +69,23 @@ static uint32_t weather_random(void *context)
 
 void em_snow_runtime_tick(const float eye[3], unsigned selector)
 {
+    (void)em_snow_runtime_tick_actor(&snow.weather, eye, selector, 0, 0);
+}
+
+int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned selector,
+                               unsigned transition, unsigned fade_state)
+{
+    if (!snow.loaded) {
+        snow.count = 0;
+        return 0;
+    }
+    EmWeatherFrame frame = em_weather_tick(weather, snow.flags, 0x0b00, selector,
+                                           transition, fade_state, weather_random, NULL);
+    if (frame.released)
+        return 1;
     snow.count = 0;
-    if (!snow.loaded) return;
-    EmWeatherFrame frame = em_weather_tick(&snow.weather, snow.flags, 0x0b00,
-                                            selector, 0, 0, weather_random, NULL);
-    if (frame.draw != 1) return;
-    em_snow_tiles(&snow.weather, &snow.config, frame.strength, eye, snow.tiles);
+    if (frame.draw != 1) return 0;
+    em_snow_tiles(weather, &snow.config, frame.strength, eye, snow.tiles);
     for (unsigned i = 0; i < EM_SNOW_TILE_COUNT; ++i) {
         const EmSnowTile *tile = &snow.tiles[i];
         int count = em_snow_particles_generate(tile->descriptor, snow.config.lookup,
@@ -84,10 +95,11 @@ void em_snow_runtime_tick(const float eye[3], unsigned selector)
             fprintf(stderr, "snow: original particle generation failed\n");
             snow.loaded = 0;
             snow.count = 0;
-            return;
+            return 0;
         }
         snow.count += (unsigned)count;
     }
+    return 0;
 }
 
 void em_snow_runtime_draw(EmGfx *gfx, const float view[16], float zoom)

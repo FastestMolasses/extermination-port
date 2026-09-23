@@ -313,6 +313,20 @@ test-area-load-reference: $(BIN)
 	grep -q "area change test: PASS" build/area_load_reference/run.log
 	python3 tools/test_area_load_reference.py --log build/area_load_reference/ticks.jsonl
 
+# S12b: the room move. 0018AB00 against the executed original, and a headless
+# New Game whose AREA11 door commits a room move at first control
+# (EM_ROOM_MOVE_TEST): its ticks (EM_AREA_CHANGE_LOG) are compared with the
+# original route capture 09_fence_door and 001AD010 is replayed through the
+# executed original.
+.PHONY: test-room-move-reference
+test-room-move-reference: $(BIN)
+	mkdir -p build/room_move_reference
+	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-control EM_ROOM_MOVE_TEST=1 \
+	    EM_AREA_CHANGE_LOG=build/room_move_reference/ticks.jsonl $(BIN) > build/room_move_reference/run.log 2>&1
+	grep -q "newgame control test: PASS" build/room_move_reference/run.log
+	grep -q "room move test: PASS" build/room_move_reference/run.log
+	python3 tools/test_room_move_reference.py --log build/room_move_reference/ticks.jsonl
+
 .PHONY: test-message-service
 test-message-service:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/message_service_test.c src/game/em_message_service.c -o build/message_service_test && ./build/message_service_test

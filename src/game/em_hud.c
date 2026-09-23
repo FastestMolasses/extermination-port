@@ -2304,6 +2304,12 @@ int em_hud_area_title_active(void)
     return s_area_title.str != NULL;
 }
 
+void em_hud_area_title_stop(void)
+{
+    s_area_title.str = NULL;
+    s_area_title.t   = 0;
+}
+
 /* Draw a TALL-font string at (x, y) modulated to `alpha` — the fade-card
  * path (em_hud_text uses the style's fixed alpha). Mirrors em_hud_text's
  * tall branch: proportional advance, first `advance` texel columns. */

@@ -50,3 +50,15 @@ owner-walker integration remain separate. The locked subtype15 program has
 additional native workers and is deliberately unsupported by this AREA11
 subtype3 adapter. Arming without a required worker retains a concrete fault;
 it never invents a locked-door response or a successful room change.
+
+## Live room move (S12b, 2026-09-23)
+
+The live AREA11 door is still the legacy `em_door` sequence (use scan, walk-to,
+open script), but its commit and re-place are original. `em_door.c` binds the
+manifest door to `source.emdo` (door id 0, destination row 2/1/0/0) and
+commits through `em_door_transit_commit`: 001AEDE0(4, 0), B8 = 2, B7 = the
+side's entry (side 0 → entry 2, side 1 → entry 1). Its sub 5 is 001BC290: it
+closes when 0x1AE040 state 4's 001AFCF0 clears B8. The re-place is state 4's
+byte-matched 001B07C0(1) over the exported spawn table; only entry 1 carries
+the walk-out byte. `make test-room-move-reference` compares the live tick
+sequence with the original route capture 09_fence_door (f407..f476).
