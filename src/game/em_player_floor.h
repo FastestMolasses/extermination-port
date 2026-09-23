@@ -98,6 +98,19 @@ float em_player_sdk_wrap(float angle);
  * 001026A0(out, M, local): an actor-relative point. */
 void em_player_sdk_lane_point(float yaw, float offset, const float position[3],
                               const float local[4], float out[4]);
+/* 001029C0, 00102BB0(M, M, angle) with the angle as given (no wrap), then
+ * 00102918(M, M, position) when position is not NULL, and 001026A0(out, M,
+ * local). Used by the slide (0016CD70, 0016C570) and climb routines. */
+void em_player_sdk_yaw_transform(float angle, const float position[3],
+                                 const float local[4], float out[4]);
+/* build_trs_matrix: 001029C0, 00102B08(rot x), 00102BB0(rot y),
+ * 00102A60(rot z), rows 0..2 scaled by scale x/y/z, 00102918(position). */
+void em_player_sdk_trs(float out[16], const float position[3], const float rotation[3],
+                       const float scale[3]);
+/* 001029C0 then 00102BB0(M, M, angle). */
+void em_player_sdk_yaw_matrix(float angle, float out[16]);
+/* 001026A0(out, M, local). */
+void em_player_sdk_apply(const float matrix[16], const float local[4], float out[4]);
 
 /* ---- 001796C0 fall-state check, 00179450 floor-table query --------------- */
 

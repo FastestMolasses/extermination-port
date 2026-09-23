@@ -297,21 +297,58 @@ static void sdk_combine(const float c[4][4], const float v[4], float out[4])
     }
 }
 
-/* 00102BB0(M, M, angle): rotate each of the four quadwords about Y. */
-static void sdk_rotate_y(float m[4][4], float angle)
+/* 00102B08 (X), 00102BB0 (Y), 00102A60 (Z): M = M x R, row by row. */
+static void sdk_rotate(float m[4][4], float angle, int axis)
 {
     float s, c;
     sdk_sine_cosine(angle, &s, &c);
-    const float r[4][4] = {
-        { c, 0.0f, f32_sub(0.0f, s), 0.0f },
-        { 0.0f, 1.0f, 0.0f, 0.0f },
-        { s, 0.0f, c, 0.0f },
-        { 0.0f, 0.0f, 0.0f, 1.0f },
-    };
+    float ns = f32_sub(0.0f, s);
+    float r[4][4] = {{0}};
+    if (axis == 0) {
+        r[0][0] = 1.0f; r[1][1] = c; r[1][2] = s; r[2][1] = ns; r[2][2] = c;
+    } else if (axis == 1) {
+        r[0][0] = c; r[0][2] = ns; r[1][1] = 1.0f; r[2][0] = s; r[2][2] = c;
+    } else {
+        r[0][0] = c; r[0][1] = s; r[1][0] = ns; r[1][1] = c; r[2][2] = 1.0f;
+    }
+    r[3][3] = 1.0f;
     for (unsigned k = 0; k < 4; ++k) {
         float in[4] = { m[k][0], m[k][1], m[k][2], m[k][3] };
-        sdk_combine(r, in, m[k]);
+        sdk_combine((const float (*)[4])r, in, m[k]);
     }
+}
+
+static void sdk_rotate_y(float m[4][4], float angle) { sdk_rotate(m, angle, 1); }
+
+void em_player_sdk_trs(float out[16], const float position[3], const float rotation[3],
+                       const float scale[3])
+{
+    float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};      /* 001029C0 */
+    sdk_rotate(m, rotation[0], 0);
+    sdk_rotate(m, rotation[1], 1);
+    sdk_rotate(m, rotation[2], 2);
+    for (unsigned row = 0; row < 3; ++row)                            /* vmul[xyz].xyz */
+        for (unsigned axis = 0; axis < 3; ++axis)
+            m[row][axis] = f32_mul(m[row][axis], scale[row]);
+    for (unsigned axis = 0; axis < 3; ++axis)                         /* 00102918 */
+        m[3][axis] = f32_add(m[3][axis], position[axis]);
+    for (unsigned i = 0; i < 16; ++i) out[i] = m[i / 4][i % 4];
+}
+
+void em_player_sdk_yaw_matrix(float angle, float out[16])
+{
+    float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
+    sdk_rotate_y(m, angle);
+    for (unsigned i = 0; i < 16; ++i) out[i] = m[i / 4][i % 4];
+}
+
+void em_player_sdk_apply(const float matrix[16], const float local[4], float out[4])
+{
+    float m[4][4];
+    for (unsigned i = 0; i < 16; ++i) m[i / 4][i % 4] = matrix[i];
+    float result[4];
+    sdk_combine((const float (*)[4])m, local, result);
+    for (unsigned i = 0; i < 4; ++i) out[i] = result[i];
 }
 
 void em_player_sdk_lane_point(float yaw, float offset, const float position[3],
@@ -321,6 +358,17 @@ void em_player_sdk_lane_point(float yaw, float offset, const float position[3],
     sdk_rotate_y(m, em_player_sdk_wrap(f32_add(yaw, offset)));
     for (unsigned axis = 0; axis < 3; ++axis)                         /* 00102918 */
         m[3][axis] = f32_add(m[3][axis], position[axis]);
+    sdk_combine((const float (*)[4])m, local, out);                   /* 001026A0 */
+}
+
+void em_player_sdk_yaw_transform(float angle, const float position[3],
+                                 const float local[4], float out[4])
+{
+    float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};      /* 001029C0 */
+    sdk_rotate_y(m, angle);
+    if (position)
+        for (unsigned axis = 0; axis < 3; ++axis)                     /* 00102918 */
+            m[3][axis] = f32_add(m[3][axis], position[axis]);
     sdk_combine((const float (*)[4])m, local, out);                   /* 001026A0 */
 }
 

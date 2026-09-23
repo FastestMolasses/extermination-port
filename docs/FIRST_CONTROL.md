@@ -303,8 +303,10 @@ stop, re-entry and low-gait variants report 18.649982, re-entry PASS,
 
 ## Climbing and sliding (AREA11 crates and hill)
 
-The original has no automatic step-up: crates are climbed only on a Use press
-(00160220 -> 0015DF10 -> climb state 2, or the running vault state 3), and the
+Ledges that block the move probe, such as the AREA11 crates, are climbed only
+on a Use press (00160220 -> 0015DF10 -> climb state 2, or the running vault
+state 3); the floor service 00175900 still settles onto floors within its
+13.8-unit vertical probe (PLAYER_FLOOR.md P17) without Use. The
 hill slide starts from an authored class-0x1000 floor contact (state 0x1C).
 Both are translated and verified against the original instructions and
 against whole-world original runs over the captured AREA11 RAM; see

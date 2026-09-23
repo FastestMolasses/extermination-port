@@ -271,3 +271,18 @@ frames.
   is not translated.
 - Until both exist, the port keeps PLAYER_FALL_ENTRY. Its comment already
   names it a port-side stand-in for this table-driven hand-off.
+
+## Slide entry and the authored floor class (climb-slide lane)
+
+The 001796C0 slide entry above (+237 from a class-0x1000 contact) is the
+AREA11 hill slide. For grid hits the class 00175CF0 records is the node's
+authored byte +0x1B (the result record is the node), not a normal-ratio
+class: in the captured AREA11 grid 18 nodes carry 0x1000, all on the hill.
+`EmCollPoly.pad` now carries that byte when the EMCL header sets
+`EM_COLL_FLAG_NODE_CLASS`; the exporter change is pending, so current assets
+keep the old normal-derived class. The slide state itself (0016C6A0) and the
+Use-press climb (0015DF10, states 2/3) are translated and verified in
+`docs/PLAYER_CLIMB_SLIDE.md`. `em_player_floor.c` also exports the shared SDK
+helpers they use (`em_player_sdk_trs`, `em_player_sdk_yaw_matrix`,
+`em_player_sdk_apply`, `em_player_sdk_yaw_transform`); the probe oracle is
+unchanged and passes.

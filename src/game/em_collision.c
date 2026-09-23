@@ -324,7 +324,12 @@ static void stage_hit(const EmCollision *c, EmCollHit *hit, int poly,
     hit->kind       = kind;
     hit->poly       = poly;
     hit->attr       = p->attr;
-    hit->surf_class = surf_classify(p->plane);
+    /* Grid hits carry the node's authored class (EM_COLL_FLAG_NODE_CLASS);
+     * an EMCL without it keeps the older normal-derived class. */
+    if (p->set == EM_COLL_SET_GRID && (c->flags & EM_COLL_FLAG_NODE_CLASS))
+        hit->surf_class = (uint16_t)(p->pad << 8);
+    else
+        hit->surf_class = surf_classify(p->plane);
 }
 
 static int segment_query(const EmCollision *c, const float from[3],
@@ -719,3 +724,172 @@ static void em_carry_test_ctor(void)
     }
 }
 #endif
+
+/* ---- func_0019BC40 column table ------------------------------------------ */
+
+static float column_sqrt(const EmCollColumnMath *m, float x)
+{
+    return m && m->sqrt ? m->sqrt(m->context, x) : sqrtf(x);
+}
+
+static float column_atan(const EmCollColumnMath *m, float x)
+{
+    return m && m->atan ? m->atan(m->context, x) : atanf(x);
+}
+
+/* 00102738: vmul.xyz, then x + y, then + z, each VU operation truncated. */
+static float column_dot(const float a[3], const float b[3])
+{
+    float x=face_float((double)a[0]*b[0]), y=face_float((double)a[1]*b[1]);
+    float z=face_float((double)a[2]*b[2]);
+    return face_float((double)face_float((double)x+y)+z);
+}
+
+/* 001A5760 for a type-0x2000 face: out[0]/out[2] top crossing, out[1]/out[3]
+ * bottom crossing, extra[0]/extra[1] the 0x7000319C / 0x700031AC values. */
+static int column_face(const EmCollBoxFace *f, float x, float z, float out[4], float extra[2])
+{
+    if (f->face != 3 && f->face != 4) return 0;
+    float xlo, xhi, zlo, zhi;
+    if (f->extent[0] < 0) { xhi = f->origin[0]; xlo = face_float((double)xhi + f->extent[0]); }
+    else { xlo = f->origin[0]; xhi = face_float((double)xlo + f->extent[0]); }
+    if (f->extent[2] < 0) { zhi = f->origin[2]; zlo = face_float((double)zhi + f->extent[2]); }
+    else { zlo = f->origin[2]; zhi = face_float((double)zlo + f->extent[2]); }
+    if (x <= xlo || !(x < xhi)) return 0;
+    if (z <= zlo || !(z < zhi)) return 0;
+    union { uint32_t u; float f; } big = { 0x7F7FC99Eu }, small = { 0x322BCC77u },
+                                    negbig = { 0xFF7FC99Eu }, negsmall = { 0xB22BCC77u };
+    if (f->face == 3) {
+        out[0] = f->origin[1]; out[1] = big.f; out[2] = 1.0f; out[3] = 0.0f;
+        extra[0] = small.f;
+    } else {
+        out[0] = negbig.f; out[1] = f->origin[1]; out[2] = 0.0f; out[3] = -1.0f;
+        extra[1] = negsmall.f;
+    }
+    return 1;
+}
+
+/* 0019F330(pos, pos + (0,1,0), q, node): q[1] the crossing height, q[3] the
+ * signed slope complement. */
+static int column_node(const EmCollision *c, const EmCollPoly *p, const float a[3],
+                       const EmCollColumnMath *m, float q[4])
+{
+    /* 0019BC40 passes v1 = pos and v2 = pos with y + 1.0; 001028D0 takes the
+     * difference, so d.y is (y + 1) - y in EE arithmetic, not exactly 1. */
+    const float d[3] = { face_float((double)a[0] - a[0]),
+                         face_float((double)face_float((double)a[1] + 1.0f) - a[1]),
+                         face_float((double)a[2] - a[2]) };
+    const float n[3] = { p->plane[0], p->plane[1], p->plane[2] };
+    float along = column_dot(d, n);
+    float t = face_float((double)face_float((double)p->plane[3] - column_dot(n, a)) / along);
+    float hit[3];
+    for (int k = 0; k < 3; ++k)                         /* 00103230, 001028B8 */
+        hit[k] = face_float((double)face_float((double)d[k] * t) + a[k]);
+    for (unsigned k = 0; k < p->vcount; ++k) {
+        const float *v = c->verts + 3u * c->indices[p->first + k];
+        const float *e = c->edge_n + 3u * (p->first + k);
+        float rel[3];
+        for (int j = 0; j < 3; ++j) rel[j] = face_float((double)hit[j] - v[j]);
+        if (!(column_dot(rel, e) <= 1e-5f)) return 0;
+    }
+    for (int k = 0; k < 3; ++k) q[k] = hit[k];
+    float h = column_sqrt(m, face_float((double)face_float((double)n[0] * n[0]) +
+                                        face_float((double)n[2] * n[2])));
+    union { uint32_t u; float f; } big = { 0x7F7FC99Eu };
+    float ratio = h < 1e-4f ? big.f : face_float((double)fabsf(n[1]) / h);
+    const float half_pi = 1.57079637050628662f;
+    float angle = face_float((double)half_pi - column_atan(m, ratio));
+    q[3] = n[1] < 0.0f ? -angle : angle;
+    return 1;
+}
+
+int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *owners,
+                              unsigned owner_count, const float pos[3],
+                              const EmCollColumnMath *math, EmCollColumn *out)
+{
+    short order[EM_COLL_COLUMN_MAX];
+    uint16_t flags[EM_COLL_COLUMN_MAX];
+    float dist[EM_COLL_COLUMN_MAX], extra[EM_COLL_COLUMN_MAX];
+    int owner[EM_COLL_COLUMN_MAX], poly[EM_COLL_COLUMN_MAX];
+    int n = 0;
+    memset(out, 0, sizeof *out);
+    for (unsigned i = 0; i < owner_count; ++i) {
+        const EmCollColumnOwner *o = owners + i;
+        if (!o->alive || o->owner_class != 4 || o->uid == 0xFF || !o->cell) continue;
+        const EmCollCell *cell = o->cell;
+        if (pos[0] < cell->bbox[0] || !(pos[0] <= cell->bbox[3])) continue;
+        if (pos[2] < cell->bbox[2] || !(pos[2] <= cell->bbox[5])) continue;
+        float spare[2] = { 0.0f, 0.0f };
+        for (unsigned j = 0; j < cell->face_count; ++j) {
+            float cross[4];
+            if (!column_face(cell->faces + j, pos[0], pos[2], cross, spare)) continue;
+            if (!(n < EM_COLL_COLUMN_MAX)) break;
+            if (cross[0] > -3.4e37f) {
+                order[n] = (short)n; dist[n] = cross[0]; owner[n] = (int)i; poly[n] = -1;
+                flags[n] = 0x8000; extra[n] = spare[0];
+                if (!(cross[2] <= 0.0f)) flags[n] |= 1;
+                ++n;
+            }
+            if (!(n < EM_COLL_COLUMN_MAX)) break;
+            if (cross[1] < 3.4e37f) {
+                order[n] = (short)n; dist[n] = cross[1]; owner[n] = (int)i; poly[n] = -1;
+                flags[n] = 0x8000; extra[n] = spare[1];
+                if (!(cross[3] <= 0.0f)) flags[n] |= 1;
+                ++n;
+            }
+        }
+    }
+    if (c && c->blob) {
+        for (uint32_t i = 0; i < c->poly_count; ++i) {
+            const EmCollPoly *p = &c->polys[i];
+            if (p->set != EM_COLL_SET_GRID) continue;
+            if (fabsf(p->plane[1]) < 0.001f) continue;              /* 0011DF78 */
+            if (p->attr >= 0x50) continue;
+            float q[4];
+            if (!column_node(c, p, pos, math, q)) continue;
+            if (!(n < EM_COLL_COLUMN_MAX)) break;
+            dist[n] = q[1]; owner[n] = -1; poly[n] = (int)i; order[n] = (short)n;
+            flags[n] = 0x4000;
+            if (!(q[3] <= 0.0f)) flags[n] |= 1;
+            extra[n] = q[3];
+            ++n;
+        }
+    }
+    for (int i = 0; i < n; ++i) {                                   /* selection sort */
+        int k = i;
+        for (int j = i + 1; j < n; ++j)
+            if (!(dist[order[k]] <= dist[order[j]])) k = j;
+        if (k != i) { short t = order[i]; order[i] = order[k]; order[k] = t; }
+    }
+    if (n <= 0) return 0;
+    for (int i = 0; i < n - 1; ++i) {
+        if (fabsf(face_float((double)dist[order[i]] - dist[order[i + 1]])) < 3.0f) {
+            for (int side = 1; side >= 0; --side) {
+                int b = order[i + side];
+                if (flags[b] & 0x8000) flags[b] |= 0x80;
+                else if (poly[b] >= 0 && c->polys[poly[b]].attr < 0x32) flags[b] |= 0x80;
+            }
+        } else {
+            flags[order[i]] &= (uint16_t)~0x80;
+            flags[order[i + 1]] &= (uint16_t)~0x80;
+        }
+    }
+    if (!(flags[order[0]] & 1)) flags[order[0]] &= (uint16_t)~0x80;
+    if (flags[order[n - 1]] & 1) flags[order[n - 1]] &= (uint16_t)~0x80;
+    int count = 0;
+    for (int i = 0; i < n; ++i) {
+        int b = order[i];
+        if (flags[b] & 0x80) continue;
+        out->flags[count] = flags[b];
+        out->height[count] = dist[b];
+        out->aux[count] = extra[b];
+        out->owner[count] = owner[b];
+        out->poly[count] = poly[b];
+        if (owner[b] >= 0) out->object_kind[count] = owners[owner[b]].kind54;
+        else out->object_node[count] = (int16_t)(c->polys[poly[b]].attr |
+                                                 (c->polys[poly[b]].pad << 8));
+        ++count;
+    }
+    out->count = count;
+    return count;
+}
