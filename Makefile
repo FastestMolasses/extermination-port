@@ -376,6 +376,26 @@ test-shadow-original-reference:
 test-level-material-reference:
 	python3 tools/test_level_material_reference.py
 
+.PHONY: test-area-script
+test-area-script:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/area_script_test.c src/game/em_area_script.c src/game/em_script.c src/game/em_message_service.c src/game/em_interaction_frame.c src/game/em_interaction_cinematic.c src/game/em_cinematic_playback.c src/game/em_cinematic_camera.c src/game/em_camera_rotation.c src/game/em_item_sdk_math.c src/game/em_interaction_scan.c src/game/em_item_trail.c src/game/em_fan_original.c -lm -o build/area_script_test && ./build/area_script_test assets/scene_snow/roger/programs.emsc assets/scene_snow/elevator.emsc assets/scene_snow/panel/scripts.emsc ../Extermination/extract/OVERLAY/AREA11.BIN
+
+.PHONY: test-area-script-reference
+test-area-script-reference:
+	python3 tools/test_area_script_reference.py
+
+.PHONY: test-player-climb-reference
+test-player-climb-reference:
+	python3 tools/test_player_climb_reference.py
+
+.PHONY: test-player-slide-reference
+test-player-slide-reference:
+	python3 tools/test_player_slide_reference.py
+
+.PHONY: test-background-reference
+test-background-reference:
+	python3 tools/test_background_reference.py
+
 .PHONY: test-roger-media-reference
 test-roger-media-reference:
 	python3 tools/test_roger_media_reference.py
