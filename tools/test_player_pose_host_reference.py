@@ -3,6 +3,8 @@
 
 182F90 executes its original SDK vector callees. Idle-return callbacks execute
 61020 with animation selection and unrelated physics as recorded boundaries.
+The legacy stand-in re-seed executes 182DF0's nonzero-2F3 branch with the
+channel initializer 1C63E0 and model lookup 1C6150 as recorded boundaries.
 No instruction bytes are embedded or loaded by the native game.
 """
 import ctypes as C
@@ -14,6 +16,7 @@ import subprocess
 import tempfile
 
 from test_interaction_scan_reference import ScanOracle, PLAYER, bits, number
+from test_point_light_reference import signed
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = 0x940000
@@ -78,6 +81,24 @@ static unsigned poll_count;
 static int accepted_use(void *context) {
     ++poll_count;
     return *(int *)context;
+}
+int legacy_cycle(float health, unsigned *out) {
+    em_player_pose_init(&source.pose, &source.bank, 2, 10); /* a jog source */
+    g.status.health = health;
+    g.loco_mode = 1; g.loco_tier = 2;
+    player_pose_legacy_hold("oracle stand-in");
+    int released = player_pose_legacy_release();
+    memset(out, 0, 7 * sizeof *out);
+    out[0] = released;
+    player_pose_source(out + 1, (float *)(out + 2), NULL, (int *)(out + 3));
+    out[4] = g.loco_mode; out[5] = source.idle_phase; out[6] = source.idle_count;
+    g.status.health = 100;
+    player_pose_legacy_release();
+    return released;
+}
+int bank_has(unsigned clip) {
+    EmPosePlayback playback;
+    return em_pose_playback_begin(&playback, &source.bank, clip, 0);
 }
 unsigned poll_gate(unsigned action, unsigned phase, unsigned fade_wait, int accepted) {
     source.idle_return = 0;
@@ -256,6 +277,31 @@ def main():
                             action, phase, fade_wait, accepted, actual, calls)
                         count += 1
         report['use_poll_state_gates'] = count
+
+        native.legacy_cycle.argtypes = [C.c_float, C.POINTER(C.c_uint)]
+        for row in (0, 1):
+            original = ScanOracle(elf)
+            original.save(PLAYER + 0x2F3, 1, 1)
+            original.save(PLAYER + 0x235, row, 1)
+            original.save(PLAYER + 4, 3, 1)
+            original.save(PLAYER + 5, 0x1D, 1)
+            original.save(PLAYER + 0x1F0, 0x31, 1)
+            seeded = []
+            original.calls[0x1C6150] = lambda o: o.r.__setitem__(2, 21)
+            original.calls[0x1C63E0] = lambda o: seeded.append(signed(o.r[5] & 0xFFFF, 16))
+            original.run(0x182DF0, (PLAYER,))
+            assert len(seeded) == 1
+            assert [original.load(PLAYER + offset, 1) for offset in (4, 5, 6, 0x1F0, 0x2F3)] == \
+                [1, 0, 0, 0, 0]
+            output = (C.c_uint * 7)()
+            if row == 0:
+                assert native.legacy_cycle(100.0, output) == 1
+                assert list(output) == [1, seeded[0], bits(80), 0, 0, 0, 300], list(output)
+            else:
+                # Row1's default is not in the exported bank, so the host holds.
+                assert seeded[0] == 0x0A and not native.bank_has(seeded[0])
+                assert native.legacy_cycle(35.0, output) == 0 and output[1] == 0
+            report['legacy_reseed_row%d_clip' % row] = seeded[0]
     report['scope'] = 'original state instructions and bounded VU arithmetic; cache matrix shifts are host adaptation'
     output = ROOT / 'build/player_pose_channels/host_reference.json'
     output.write_text(json.dumps(report, indent=2) + '\n')

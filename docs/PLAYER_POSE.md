@@ -131,8 +131,41 @@ freeze all of these animation workers.
 ordinary processing should continue, or 1 when the callback was consumed. An
 already acquired player requires a consumed callback. Missing source data or an
 unsupported ordinary worker is reported explicitly; it cannot be replaced with
-a display-matrix decomposition or guessed cursor. Ordinary unsupported actions
-can still display through the legacy renderer, but subsequent acquisition fails.
+a display-matrix decomposition or guessed cursor.
+
+Legacy stand-ins (WP-2/H12). Aim, R2, melee, door transit/arrival/lock,
+examine, interact, the hit machine, the legacy scripted-clip mailbox and low
+health still display through the legacy renderer and
+have no original source channels. They call `player_pose_legacy_hold()`
+(declared in `em_player.h`), which freezes the source: no advance, and ordinary
+requests, Use polling, foot-stop and idle work are skipped. The source is not
+destroyed. Once `player_move` gets past every stand-in, it calls
+`player_pose_legacy_release()`. That re-seeds the source as 00182DF0's
+nonzero-2F3 branch does: `bone_init_default_2(D_00248A00[+235])` initializes
+the row default at frame 0 with no blend, and the tail leaves idle state 0 with
+counter 300. This is the only 00182DF0 path that does not read the previous
+channels, and the stand-ins have no channels to read. The row is an
+approximation: the original indexes D_00248A00 with the whole +235 byte, but
+the host derives it from live health only (row 0 healthy, row 1 at or below
+35). Bit 1 of +235 (set by 001756E0, 00161790, 00162190, 00162A40; rows 2/3,
+clips 0x4B/0x55) is not modelled, and bit 0 is a latch (set when 0021C350 or
+0015D100 take +220 to 35 or below, cleared by 0015C700), not a live comparison.
+The host keeps holding while `pd_state == 2`, `sa_req/sa_cur` is set, or health
+is at or below 35. Acquisition re-seeds a source held by a player-driven
+stand-in (aim, R2, melee, door, examine, interact) first; this is a host
+adaptation, and 00182B30's refusal set is not modelled. While the hit, `sa_*`
+or low-health hold is active, acquisition is refused explicitly (-1 with the
+owner message). Row 1 (low health) defaults to clip 0x0A, which is not
+exported, so at low health the hold stays.
+
+A failed foot-stop begin (transition blend still active, palette or solve
+failure, tier-2 select failure) is a native unsupported path, not an original
+stand-in. `player_pose_unsupported_hold()` reports it once with the reason and
+holds; the next `player_move` then snaps the source to the row default with no
+blend. That snap is a host adaptation: 0017C030 mode 3 runs the 0017B910 solve
+without this failure case. `player_pose_invalidate()` is kept only for genuine native failures:
+a failed advance, an unknown clip, a failed re-seed, or a foot-stop callback
+fault.
 
 `player_pose_align` applies the original 00182F90 delta (target minus feet) to
 feet and cached hip. It also shifts the native displayed palette as a host cache
@@ -180,7 +213,12 @@ rate to one at the stop request would be incorrect.
 
 `make test-player-pose-host` checks idle/fade countdown, fidget timing, shared
 callback ownership, release without an extra idle advance, placement/Euler
-mirrors and explicit invalid-source failure under ASan/UBSan. The first idle
+mirrors, the legacy hold/re-seed lifecycle, and explicit invalid-source failure
+under ASan/UBSan. The legacy case holds for 30 callbacks, releases, and then
+jogs. The tier-2 foot-placement stop still fires and runs to phase 3. The
+clip-5 stop request is accepted, and acquisition succeeds, both after release
+and directly from a held source. Acquisition is refused (-1) while the hit and
+`sa_*` holds are active. The first idle
 callback seeds counter300; case1 is blocked by the original transition-fade
 state while its animation continues to advance. End-to-end scene interaction
 regression remains required.
@@ -198,7 +236,11 @@ the next callback acquires script ownership. An already-idle cursor survives.
 SDK vector callees in 1,203 cases, including captured panel/elevator placements.
 All tested feet, hip and saved-Euler words agree after bounded VU rounding.
 It also checks 187 original 61020 aborted-entry callbacks, 7 original 1798D0
-reset cases, and 32 idle/walking Use-poll gates. Shifting native cached matrices remains a host adaptation; the
+reset cases, and 32 idle/walking Use-poll gates. It also executes
+00182DF0's 2F3 branch for rows 0 and 1, with 1C63E0 and 1C6150 as recorded
+boundaries. Row 0 seeds clip 0, and the native legacy release produces clip 0,
+remaining 80, no transition, and idle state 0 with counter 300. Row 1 seeds clip
+0x0A, which is absent from the bank, and the native host refuses the re-seed. Shifting native cached matrices remains a host adaptation; the
 original alignment function only shifts the position mirrors. The sanitizer
 host test passes the corresponding lifecycle and invalid-source cases.
 

@@ -596,15 +596,15 @@
  * code (em_weapon.c "SHOULDER-LIGHT BURST") but it is UNHOOKED from
  * Square — nothing arms it until the L3 stealth-light input path is
  * decoded. em_weapon_flashlight_timer() introspects it (always 0).
- * RENDERING (2026-06-11 render-decode session — retires the s47 "visual
- * TODO" flag): the ENGINE TRUTH, pinned by an exhaustive static sweep
- * of the boot ELF (decomp FINDINGS "FLASHLIGHT RENDER DECODE"), is that
- * the toggle draws NOTHING — no beam geometry, no glow sprite, and no
- * vertex-light change is keyed on D_00810D3C or player +0xA (their only
- * readers are gameplay: the enemy-AI awareness checks, the pose-row
- * substitution and the sounds; the engine's per-actor VU1 light matrix
- * carries an ALWAYS-ON camera-direction light instead, and level
- * geometry is baked). The port deliberately DEVIATES: em_weapon_update
+ * RENDERING: CORRECTED (WP-1 R03/R04 check). The s51 "toggle draws
+ * NOTHING" verdict swept only D_00810D3C/+0xA readers. The toggle
+ * 0017A970 also sets D_008106C7, and the gun tick 00188ED0 reads it:
+ * in the armed stances (+4==1, +5 0x1D..0x20; or +4==2, +5 0x17/0x18)
+ * it calls 00187780, which draws the glow sprite 00187690 and, unless
+ * area flag 0x20000000, 001D9530 = the chunk27 cone shells 0x10/0x11/
+ * 0x16. Outside those stances 00188ED0 clears D_008106C7. So the
+ * original DOES draw a light; 00187780 is untranslated and the port's
+ * spot term + single cone mesh below approximate it: em_weapon_update
  * sets the gfx layer's forward SPOT term (em_gfx_spot_light) from the
  * hand-frame muzzle ray (the laser's anchor; yaw fallback without the
  * clips) — gated EXACTLY like the laser, AIM phase only: light and

@@ -66,6 +66,15 @@ int em_game_anim_frames(unsigned clip_id)
 unsigned em_game_anim_active(void) { return 0; }
 int      em_game_anim_frame(void)  { return -1; }
 
+/* Shared SDK stream (func_00122BB8, em_random.c): same arithmetic, local
+ * state so the test stays self-contained. */
+uint32_t em_random_next(void)
+{
+    static uint32_t state = 0x45;
+    state = state * UINT32_C(0x41C64E6D) + UINT32_C(0x3039);
+    return state & UINT32_C(0x7FFFFFFF);
+}
+
 static int sfx_count[0x800];
 void em_sfx_play(unsigned id) { if (id < 0x800) sfx_count[id]++; }
 void em_sfx_play_at(unsigned id, const float pos[3], float radius)

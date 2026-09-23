@@ -1,4 +1,5 @@
 #include "game/em_game_internal.h"
+#include "game/em_player.h"
 
 #include <assert.h>
 #include <math.h>
@@ -270,6 +271,103 @@ int main(void)
     assert(player_pose_release());
     expected(0, 80, 0);
 
+    /* WP-2/H12: a legacy stand-in (aim) freezes the source; its release
+     * re-seeds the row default like00182DF0 via1C63E0 (clip0, frame0, no
+     * blend, idle state0). The foot-stop and acquisition keep working. */
+    for (unsigned attempt = 0; attempt < 2; ++attempt) {
+        reset();
+        for (unsigned i = 0; i < 5; ++i) ordinary();
+        expected(0, 75, 0);
+        for (unsigned i = 0; i < 30; ++i) {
+            ++g.frame_no;
+            assert(player_pose_stage() == 0);
+            player_pose_legacy_hold("test aim stand-in");
+            player_pose_finish_state();
+        }
+        assert(!player_pose_source(NULL, NULL, NULL, NULL)); /* frozen, not advanced */
+        assert(!player_pose_foot_stop_begin() && !player_pose_idle_state_wait());
+        player_pose_request(2, 10, 0, 1);                   /* ignored while held */
+        if (attempt == 1) {
+            /* Acquisition from the stand-in (0015B130 from armed stances). */
+            assert(player_pose_acquire() == 1);
+            expected(0, 80, 0);
+            assert(player_pose_release());
+            expected(0, 80, 0);
+            continue;
+        }
+        assert(player_pose_stage() == 0); /* release frame: no advance while held */
+        g.loco_mode = 1;
+        g.loco_tier = 2;
+        assert(player_pose_legacy_release() == 1);
+        expected(0, 80, 0);
+        assert(!g.loco_mode && !g.loco_tier && g.idle_timer == 300);
+        assert(player_pose_idle_state_wait());
+        player_pose_finish_state(); /* idle case0 request is the same clip */
+        expected(0, 80, 0);
+        ordinary();
+        expected(0, 79, 0);
+        /* Jog, then the tier-2 foot-placement stop still fires. */
+        player_pose_request(2, 10, 0, 1);
+        g.loco_tier = 2;
+        g.loco_mode = 3;
+        assert(player_pose_foot_stop_begin());
+        expected(4, 10, 1);
+        unsigned ticks = 0;
+        while (player_pose_foot_stop_active()) {
+            assert(player_pose_stage() == 0);
+            g.loco_rate = 1;
+            assert(player_pose_foot_stop_tick() >= 0);
+            player_pose_finish_state();
+            assert(++ticks < 80);
+        }
+        assert(g.loco_stop.phase == 3);
+        /* The run tier's clip5 stop request is accepted again as well. */
+        player_pose_request(5, 0, 6, 1);
+        expected(5, 6, 1); /* six-tick blend toward clip5 */
+        assert(player_pose_acquire() == 1);
+        assert(player_pose_release());
+    }
+
+    /* Held stand-ins the host checks itself keep holding until they end. */
+    reset();
+    player_pose_legacy_hold("test hit stand-in");
+    g.pd_state = 2;
+    assert(player_pose_stage() == 0 && player_pose_legacy_release() == 0);
+    /* Acquire must not re-seed past a busy original state (hit / sa_*):
+     * 00182B30/0015B610 admission is not modelled, so it is refused. */
+    assert(player_pose_acquire() == -1 && !player_pose_owned());
+    assert(!player_pose_source(NULL, NULL, NULL, NULL)); /* still held */
+    g.pd_state = 0;
+    g.sa_cur = 0x111;
+    assert(player_pose_legacy_release() == 0);
+    assert(player_pose_acquire() == -1 && !player_pose_owned());
+    assert(!player_pose_source(NULL, NULL, NULL, NULL));
+    g.sa_cur = 0;
+    g.sa_req = 0x111;
+    assert(player_pose_legacy_release() == 0);
+    assert(player_pose_acquire() == -1 && !player_pose_owned());
+    assert(!player_pose_source(NULL, NULL, NULL, NULL));
+    g.sa_req = 0;
+    g.status.health = PD_LOW_HEALTH; /* row1 default clip0x0A is not exported */
+    assert(player_pose_legacy_release() == 0 && player_pose_acquire() == -1);
+    g.status.health = 100;
+    assert(player_pose_legacy_release() == 1);
+    expected(0, 80, 0);
+    assert(player_pose_acquire() == 1 && player_pose_release());
+
+    /* A failed foot-stop begin (blend still active) is a native unsupported
+     * path: reported once, held, then re-seeded to the row default. */
+    reset();
+    for (unsigned i = 0; i < 5; ++i) ordinary();
+    player_pose_request(2, 10, 12, 1); /* blend toward the jog clip */
+    g.loco_tier = 2;
+    g.loco_mode = 3;
+    assert(!player_pose_foot_stop_begin());
+    player_pose_unsupported_hold("test foot-stop begin failed");
+    assert(!player_pose_source(NULL, NULL, NULL, NULL));
+    assert(player_pose_legacy_release() == 1);
+    expected(0, 80, 0);
+
     player_pose_invalidate("intentional unsupported-source test");
     assert(!player_pose_source(NULL, NULL, NULL, NULL));
     mode = 1;
@@ -277,6 +375,6 @@ int main(void)
     assert(player_pose_stage() == -1 && quit == 1);
     player_pose_unload();
     puts("player pose host PASS: real idle/fade timing, ownership callback order, alignment/Euler "
-         "mirrors, explicit unsupported source");
+         "mirrors, legacy hold/re-seed, explicit unsupported source");
     return 0;
 }

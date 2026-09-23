@@ -14,6 +14,7 @@
 #include "game/em_player.h"
 #include "game/em_player_heading.h"
 #include "game/em_player_motor.h"
+#include "game/em_random.h"
 
 #include "game/em_game_internal.h"
 
@@ -265,7 +266,7 @@ void player_move(void)
     {
         float tt[3], tyaw;
         if (em_door_transit_active(tt, &tyaw)) {
-            player_pose_invalidate("legacy door transit source is not recovered");
+            player_pose_legacy_hold("legacy door transit source is not recovered");
             float dx   = tt[0] - g.pos[0];
             float dz   = tt[2] - g.pos[2];
             float len  = sqrtf(dx * dx + dz * dz);
@@ -304,7 +305,7 @@ void player_move(void)
     {
         float wyaw, wspeed;
         if (em_door_walkout_active(&wyaw, &wspeed)) {
-            player_pose_invalidate("legacy door arrival source is not recovered");
+            player_pose_legacy_hold("legacy door arrival source is not recovered");
             g.yaw        = wyaw;
             /* Drive the locomotion clip at the engine's commanded tier:
              * the walk-out plays the locIdx-2 clip (family 0 -> id 2 =
@@ -331,7 +332,7 @@ void player_move(void)
      * is separate (em_door_menu_locked, consumed by em_hud) and ends
      * earlier, at fade-in completion. */
     if (em_door_movement_locked()) {
-        player_pose_invalidate("legacy door interaction source is not recovered");
+        player_pose_legacy_hold("legacy door interaction source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
                                     * re-entry re-arms the tier ramp */
@@ -352,7 +353,7 @@ void player_move(void)
      * solve and anim are stand-still, while the FACE phase owns g.yaw.
      * Same lock shape as the door transit above. */
     if (em_examine_input_locked()) {
-        player_pose_invalidate("legacy examine source is not recovered");
+        player_pose_legacy_hold("legacy examine source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
@@ -388,7 +389,7 @@ void player_move(void)
      * this same frame in elevator_tick) does not leak free movement —
      * exactly em_game_player_interact_busy()'s condition. */
     if (em_game_player_interact_busy()) {
-        player_pose_invalidate("legacy interaction source is not recovered");
+        player_pose_legacy_hold("legacy interaction source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
@@ -506,7 +507,7 @@ void player_move(void)
         g.aim_was = aim_now;
     }
     if (em_weapon_is_aiming() || g.r2_aim) {
-        player_pose_invalidate("aim node adjustments are not bound");
+        player_pose_legacy_hold("aim node adjustments are not bound");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* armed modes replace locomotion */
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
@@ -609,12 +610,17 @@ void player_move(void)
      * yaw steer (func_00173DD0, D_002486F0 rates) is untranslated
      * (flagged in em_weapon.h), so no turn-in-place here either. */
     if (em_weapon_is_melee()) {
-        player_pose_invalidate("melee source channels are not exported");
+        player_pose_legacy_hold("melee source channels are not exported");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* melee modes replace locomotion */
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
         return;
     }
+
+    /* WP-2/H12: every stand-in above has released this frame. Re-seed the
+     * frozen source at its row default (00182DF0 via1C63E0); the hit,
+     * scripted-clip and low-health holds are rechecked by the host. */
+    (void)player_pose_legacy_release();
 
     int walking_before_use = g.loco_mode != 0;
     int used = player_use_poll();
@@ -827,7 +833,7 @@ void player_move(void)
             player_wall_probes();
             return;
         }
-        player_pose_invalidate("foot-placement stop has no supported source pose");
+        player_pose_unsupported_hold("foot-placement stop begin failed");
         g.loco_mode = 0;
         g.loco_substate = 0;
         g.loco_tier = 0;
@@ -870,16 +876,12 @@ locomotion_translate:
     /* The separate skid/pivot paths still need their original workers. */
 }
 
-/* rand5 — func_00179B90. PORT NOTE: a private deterministic LCG (ANSI
- * minimal-standard constants, high bits) stands in for the EE libc
- * rand() the engine draws from, so the self-tests reproduce run to
- * run; the engine never seeds rand either. */
+/* rand5 — func_00179B90 (byte-matched): func_00122BB8() & 7, with 5..7
+ * folded to 0..2. func_00122BB8 is the shared SDK stream (SI-02/AM-17). */
 unsigned footstep_rand5(void)
 {
-    static uint32_t s = 0x00187350u;   /* seed: the slice's own vaddr */
-    s = s * 1103515245u + 12345u;
-    unsigned v = (s >> 16) & 7u;
-    return v >= 5u ? v - 5u : v;
+    unsigned value = em_random_next() & 7u;
+    return value < 5u ? value : value - 5u;
 }
 
 /* Floor surface attr — the footing update func_00175900's attr copy:

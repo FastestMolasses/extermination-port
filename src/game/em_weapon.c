@@ -15,6 +15,7 @@
 #include "em_model.h"
 #include "game/em_enemy.h"
 #include "game/em_game.h"
+#include "game/em_random.h"
 #include "game/em_sfx.h"
 
 /* --- Engine constants (FINDINGS "WEAPON SYSTEM") ----------------------- */
@@ -331,10 +332,9 @@ static const float kLaserColorLock[4] = { 1.0f, 0.6f, 0.2f, 1.0f };
                                    * switch sound (soundmap snd_0361);
                                    * local define — em_sfx.h untouched  */
 
-/* FLASHLIGHT SPOT (the port's documented DEVIATION — em_weapon.h
- * "RENDERING" / em_gfx.h "Flashlight spot light": the engine renders
- * NOTHING for the toggle, so these are PORT VALUES, flagged, not
- * decoded constants — tuned 2026-06-11 against the user's reference
+/* FLASHLIGHT SPOT (a port APPROXIMATION of the untranslated 00187780
+ * glow/cone draw — em_weapon.h "RENDERING"; these are PORT VALUES,
+ * flagged, not decoded constants — tuned 2026-06-11 against the user's reference
  * capture of the original). Pose = the hand-frame muzzle ray (the
  * laser's anchor and axis; yaw fallback without the clips). The
  * reference shows a SHARP-EDGED projected disc on the wall (a tight
@@ -531,7 +531,7 @@ enum {
  * draws instead. */
 #define WPN_FLASH_TICKS    16    /* FX lifetime: freed at tick 15        */
 #define WPN_FLASH_S0       0.15f /* initial scale (+ 0.05 * rand01)      */
-#define WPN_FLASH_S0_RND   0.05f
+#define WPN_FLASH_S0_RND   0.049999997f /* 001F5040 literal 0x3D4CCCCC */
 #define WPN_FLASH_VEL      0.15f /* scale velocity, *0.8 per tick        */
 #define WPN_FLASH_DECAY    0.8f
 #define WPN_FLASH_STAR_LEN 4.9f  /* model 0x08 +X extent (measured)      */
@@ -737,7 +737,8 @@ static struct {
                             * hand-frame (3.6, 0.5, 0) point; the RAY
                             * itself runs from the (-3, 1.088, 0) origin  */
     float    laser_b[3];   /* clipped endpoint (gun +0x200 vec)           */
-    uint32_t rng;          /* flicker LCG (engine: func_00122BB8 rand)    */
+    int      laser_rnd5;   /* 00185760 dot draw: (rand >> 15) & 0x1F       */
+    float    laser_phase;  /* 001E2BA0 beam phase: rand / 2^31 * 2pi       */
 
     EmGfx   *gfx;          /* cached each em_weapon_render call: the
                             * update stage reads the published hand-bone
@@ -762,14 +763,6 @@ static struct {
     int swings;      /* introspection: attacks started since reset     */
     int hits;        /* introspection: impact-tick victims since reset */
 } m;
-
-/* The flicker random source — engine func_00122BB8 is the C-library
- * rand(); a freestanding LCG keeps the port deterministic per run. */
-static uint32_t wpn_rand(void)
-{
-    w.rng = w.rng * 1103515245u + 12345u;
-    return (w.rng >> 16) & 0x7FFF;
-}
 
 void em_weapon_reset(uint8_t mag, int16_t reserve)
 {
@@ -1229,6 +1222,18 @@ static void weapon_cycle_advance(void)
 static void laser_update(const EmCollision *coll, const float pos[3],
                          float yaw)
 {
+    /* Shared func_00122BB8 stream in 00185760's gun-tick order: two
+     * discarded draws, the dot draw, then 001E2BA0's beam phase.
+     * PORT NOTE: only the 00185760 variant is modelled. 00188630 selects
+     * 00185760 or 001854E0 (one draw) from D_008104A0 (0x31/0x34 vs
+     * 0x32/0x35), D_008104A1, D_008105A2 (0x31/0x34 only) and D_008105C8;
+     * 001854E0 and that selector are untranslated, so shared-stream
+     * consumption can diverge from the original for those states. */
+    (void)em_random_next();
+    (void)em_random_next();
+    w.laser_rnd5  = (int)((em_random_next() >> 15) & 0x1Fu);
+    w.laser_phase = (float)em_random_next() / 2147483648.0f * 6.28318548f;
+
     float muzzle[3], dir[3];
     weapon_muzzle_ray(pos, yaw, muzzle, dir, NULL);
 
@@ -1398,8 +1403,9 @@ static void weapon_resolve_fire(const EmCollision *coll,
      * spawns a fresh pool actor per shot; the port keeps one slot (at
      * the 6-tick full-auto cadence the brightest window dominates). */
     w.flash       = WPN_FLASH_TICKS;
+    /* 001F5040 init: 0.15 + 0.049999997 * (2^-31 * rand), shared stream. */
     w.flash_scale = WPN_FLASH_S0 +
-                    WPN_FLASH_S0_RND * (float)wpn_rand() / 32768.0f;
+                    WPN_FLASH_S0_RND * (4.656613e-10f * (float)em_random_next());
     w.flash_vel   = WPN_FLASH_VEL;
     w.flash_rot   = 0.0f;   /* +0x80 rotation triple: variant 0 inits 0 */
     memcpy(w.flash_pos, tip, sizeof w.flash_pos);
@@ -2243,9 +2249,8 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
     if (w.laser_on)
         laser_update(coll, player_pos, player_yaw);
 
-    /* FLASHLIGHT SPOT pose + set (the PORT's documented deviation —
-     * em_weapon.h "RENDERING": the engine draws nothing for the
-     * toggle). Gated EXACTLY like the laser: the light is visible ONLY
+    /* FLASHLIGHT SPOT pose + set (a port approximation of 00188ED0 ->
+     * 00187780, em_weapon.h "RENDERING"). Gated EXACTLY like the laser: the light is visible ONLY
      * in the AIM phase — not during the draw, reload or holster clips
      * and not holstered (the real game: light + laser appear only
      * while aiming, vanish together during a reload; the PREFERENCE
@@ -2542,7 +2547,8 @@ void em_weapon_render(EmGfx *gfx)
                        w.laser_b[1] - w.laser_a[1],
                        w.laser_b[2] - w.laser_a[2] };
         float len   = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        float phase = (float)wpn_rand() / 32768.0f * 6.2831853f;
+        int   rnd5  = w.laser_rnd5;    /* drawn by this tick's laser_update */
+        float phase = w.laser_phase;
         float dph   = WPN_LASER_PHASE * len;
         float pa[3] = { w.laser_a[0], w.laser_a[1], w.laser_a[2] };
         float ca[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -2568,7 +2574,6 @@ void em_weapon_render(EmGfx *gfx)
          * (func_00185760's warm arm): R/G/B = (0x70/0x40/0x20 +
          * rand5)/0x80, 5.0-unit quad. Fallback: the 3-layer
          * flat-color glow. */
-        int   rnd5  = (int)(wpn_rand() & 0x1F);
         float dot[3];
         if (locked) {
             dot[0] = (float)(0x70 + rnd5) / 128.0f;
