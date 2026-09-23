@@ -256,40 +256,61 @@ typedef struct { uint8_t major, state; const char *routine; } StateRef;
 /* FLOOR's closure (docs/FIRST_CONTROL.md "FLOOR state closure"): from the
  * roots 001796C0 writes (5 through 00179680, 0x1C), every (+4, +5) written by
  * a reached state routine or its callees, followed until it hands back to
- * +4 = 1, +5 = 0/1 (the port's idle/walk). Surface 0x39 (0017F9E0 /
- * 0017FB90, reached only from 00175CF0) is left out: no AREA11 grid node
- * carries it, and the floor service faults on it (live_surface39).
- * INCOMPLETE (open): the +4 = 2 reaction states that the stage worker
- * 0021C440 enters on a pending hit/damage, and the stores of 0015D100 and
- * 00182DF0/001838B0, are not followed yet (docs/FIRST_CONTROL.md "Known
- * gap"). Do not enable FLOOR until they are added or ruled out. */
+ * +4 = 1, +5 = 0/1 (the port's idle/walk), and every (+4, +5) written by the
+ * stage workers that run on every +4 = 1 / 2 stage: 0021C440 (from 0015B130
+ * and 0015B770) and the 0021D6C0 it calls. 0015D100 writes no +4/+5 (it only
+ * arms 0021C440's +224/+F), and 0015B530's callees 00182DF0 / 001838B0 /
+ * 001837B0 / 00183910 / 00162DB0 / 00163B40 write only pairs already listed
+ * (00182DF0: +4 1 with +5 0 or 0xC; 001838B0: +4 4 +5 0). The +4 = 2
+ * reaction states reach +4 1 +5 7 (0021D800 at 0021DAF8), 0x14/0x1F/0x20
+ * (00223C70 at 00223F48/00223F2C/00223EFC), 0x1C/0x1D/0x1E (0021D530 at
+ * 0021D554/0021D5BC/0021D588) and +4 2 +5 3/0x16, all listed. Surface 0x39
+ * (0017F9E0 / 0017FB90, reached only from 00175CF0) is left out: no AREA11
+ * grid node carries it, and the floor service faults on it (live_surface39). */
 static const StateRef kFloorStates[] = {
     { 1, 0x05, "00162DB0 fall (00179680)" },
-    { 1, 0x07, "001639E0 (00162DB0 at 001632BC/00163420, 0016C6A0 at 0016CCA8)" },
+    { 1, 0x07, "001639E0 (00162DB0 at 001632BC/00163420, 0016C6A0 at 0016CCA8, 0021D800 at 0021DAF8)" },
     { 1, 0x08, "00163B40 landing (0017C580 at 0017C590)" },
     { 1, 0x09, "001647D0 hang (00162DB0 at 00163290)" },
     { 1, 0x04, "00162A40 (0017C860, from 001639E0)" },
-    { 1, 0x0C, "001662D0 (001647D0 at 0016570C)" },
+    { 1, 0x0C, "001662D0 (001647D0 at 0016570C, 00182DF0 at 00182F24)" },
     { 1, 0x0E, "00168050 (001647D0 at 0016575C)" },
     { 1, 0x10, "00169730 (001662D0 at 00167C38)" },
     { 1, 0x12, "0016AE40 (002230A0)" },
     { 1, 0x13, "0016B790 (001696A0 at 001696D4)" },
-    { 1, 0x14, "0016B8A0 (0016B790 at 0016B87C)" },
+    { 1, 0x14, "0016B8A0 (0016B790 at 0016B87C, 00223C70 at 00223F48/002240D4)" },
     { 1, 0x18, "0016D130 (001647D0 at 001657E8)" },
     { 1, 0x19, "0016DE40 (0016D130 at 0016D544)" },
     { 1, 0x1A, "0016EBA0 (0016D130 at 0016D6D0)" },
-    { 1, 0x1C, "0016C6A0 slide (001796C0 at 0017973C)" },
-    { 1, 0x1D, "0016FCF0 (001607D0)" }, { 1, 0x1E, "001703E0 (001607D0)" },
-    { 1, 0x1F, "001729A0 (001607D0)" }, { 1, 0x20, "00173000 (001607D0)" },
+    { 1, 0x1C, "0016C6A0 slide (001796C0 at 0017973C, 0021D530 at 0021D554)" },
+    { 1, 0x1D, "0016FCF0 (001607D0, 0021D530 at 0021D5BC)" },
+    { 1, 0x1E, "001703E0 (001607D0, 0021D530 at 0021D588)" },
+    { 1, 0x1F, "001729A0 (001607D0, 00223C70 at 00223F2C/002240B4)" },
+    { 1, 0x20, "00173000 (001607D0, 00223C70 at 00223EFC/00224084)" },
     { 1, 0x21, "001735C0 (001607D0)" }, { 1, 0x22, "00173E60 (001607D0)" },
-    { 2, 0x03, "0021E830 (0017C580 at 0017C600)" },
-    { 2, 0x04, "00221FC0 (00181110 at 0018115C)" },
+    { 2, 0x00, "0021D800 (0021C440 at 0021CCB8/0021CE90/0021D100)" },
+    { 2, 0x17, "0021D800 (0021C440 at 0021CCB4/0021CE8C/0021D0C0)" },
+    { 2, 0x01, "0021E240 (0021C440 at 0021C7FC/0021CDF8/0021CFE0, 0021F330 at 0021F530)" },
+    { 2, 0x02, "0021E490 (0021C440 at 0021D0FC)" },
+    { 2, 0x18, "0021E490 (0021C440 at 0021D0B4)" },
+    { 2, 0x03, "0021E830 (0017C580 at 0017C600, 0021C440 at 0021C7E0/0021CC04/0021CDDC/0021CFC4, "
+               "0021F330 at 0021F518, 00223C70 at 00224244)" },
+    { 2, 0x04, "00221FC0 (00181110 at 0018115C, 0021C440 at 0021C860)" },
     { 2, 0x05, "00222580 (00181180 at 001811CC)" },
     { 2, 0x06, "00222AD0 (0017F240 at 0017F2A0)" },
     { 2, 0x07, "002230A0 (00181D70 at 00181DFC)" },
+    { 2, 0x0A, "00223C70 (0021D6C0 at 0021D7C8, from 0021C440)" },
+    { 2, 0x0B, "0021F330 (0021C440 at 0021CA7C: D_0081083C)" },
+    { 2, 0x0C, "0021F850 (0021C440 at 0021C5B0: +F 1)" },
+    { 2, 0x0F, "002202C0 (0021C440 at 0021C700/0021C744: +F 3/5)" },
+    { 2, 0x10, "0021DBB0 (0021C440 at 0021C6BC: +F 2)" },
+    { 2, 0x11, "0021E9C0 (0021C440 at 0021C81C: +F 6)" },
+    { 2, 0x12, "0021EAD0 (0021C440 at 0021C89C: +F 7)" },
+    { 2, 0x13, "0021EAD0 (0021C440 at 0021C93C: +F 0xA)" },
+    { 2, 0x14, "0021EF30 (0021C440 at 0021C978: +F 0xB)" },
     { 2, 0x16, "00225570 (0021D250 at 0021D270: +23A 0x5D)" },
     { 2, 0x19, "002255C0 (001823E0 at 00182408)" },
-    { 4, WHOLE, "0015B530 (0015B130's prelude under 0x70003B8D)" },
+    { 4, WHOLE, "0015B530 (0015B130's prelude under 0x70003B8D, 001838B0 at 001838E4)" },
     { 6, WHOLE, "0015D460 (0015BCF0: +B4 < -200)" },
 };
 /* USE's roots beyond that closure (what they reach is already in it). */

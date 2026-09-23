@@ -136,11 +136,11 @@ It verifies scalar changes, call order/arguments, four-tick blend and clip sourc
 time. Translation and animation callees are explicit hooks, not simulated
 claims of those callees; the separate live capture verifies the doubled request
 displacement. `EM_CONTROL_REENTRY_TEST=1` extends the real native New Game input
-fixture through this interruption and checks the first eight callbacks. `EM_CONTROL_STATUS_TEST=1`
-(S11b) instead presses START after the 30 movement ticks, holds the status
-screen for 30 frames and closes it with TRIANGLE, checking that the world
-stays frozen (D_00810750, player position, camera eye) until state 5 returns
-to state 1.
+fixture through this interruption and checks the first eight callbacks. The
+former `EM_CONTROL_STATUS_TEST=1` status variant (S11b) is retired (WP-5): it
+asserted the interim screen's same-frame close, and the level smoke's status
+phase (docs/LEVEL_SMOKE.md) checks the same open, frozen frames and close
+against status_04, including the original's two-tick 0020E0C0 exit.
 The full native GPU regression passed: request displacement0.6000003, four
 subsequent0.3 movements at source27, scalar re-arm, then0.3625/0.425. Original
 collision corrections reduce later motion near the panel (identified below), so these matching
@@ -407,6 +407,22 @@ routine bound, or the first such transition would fault and quit.
   routine and in every routine it calls (up to 5 levels deep) were listed
   from the user's split listing, pairing each +5 store with its block's +4
   store.
+- **Stage workers (closed 2026-09-23, lane player-reaction-states).** The
+  expansion also follows every routine the stage runs on each +4 = 1 / 2
+  frame, to 6 levels. PLAYER_REACTION.md section 2 has the detail.
+  - 0021C440 (from 0015B130 and 0015B770) and its 0021D6C0 enter +4 = 2
+    with +5 0/0x17, 1, 2/0x18, 0xA, 0xB, 0xC, 0xF, 0x10, 0x11, 0x12/0x13 and
+    0x14, and the already listed 3 and 4.
+  - 0015D100 writes no +4/+5. It only arms 0021C440's +224/+F.
+  - 0015B530's callees write only listed pairs. 00182DF0 writes +4 1 with
+    +5 0, or with 0xC when +1F0 is 0x17 (00182D40). 001838B0 writes +4 4
+    +5 0 after 001662D0.
+  - The new states exit only to listed pairs: +4 1 +5 7, 0x14, 0x1C..0x20
+    and 0/1, and +4 2 +5 3/0x16.
+  - Two static stores of 0021C440 cannot run: 0021CC20 (+5 1 in hit_a,
+    which needs +234 1) and 0021C604 (case 2 with +1F0 0x2C and +D != 2,
+    already returned at 0021BB00). The entries cite only the stores that
+    can run.
 - **Resolved by reading the decomp.** Stores whose value or pairing a
   listing scan could not settle were read in the decomp C: 0017C540 always
   ends with +4 = 1; 00221FC0, 00222580, 00222AD0, 002230A0 and 0021D530 pair
@@ -415,18 +431,18 @@ routine bound, or the first such transition would fault and quit.
 - **Left out.** Surface 0x39's handlers 0017F9E0/0017FB90, whose only caller
   is 00175CF0, are excluded: AREA11 has no 0x39 grid node, and the live
   floor service faults on one.
-- **Known gap (open, review 2026-09-23).** The expansion followed the state
-  routines and their callees, but not the stage workers that 0015B130 and
-  0015B770 run every frame. 0021C440 (byte-matched) enters +4 = 2 reaction
-  states from a pending hit or damage: +5 = 0/0x17 (0021D800), 1 (0021E240),
-  0xB (0021F330), 0xC (0021F850), 0xF (002202C0), 0x10 (0021DBB0), 0x11
-  (0021E9C0), 0x12/0x13 (0021EAD0), 0x14 (0021EF30) and 2/0x18 (0021E490).
-  0015D100 and 00182DF0/001838B0 (through 0015B530) have not been followed
-  either. The table below is therefore **not yet the whole closure**. The
-  gate cannot engage today (its workers are unbound), but it must not be
-  enabled until these states and whatever they reach are added, or until
-  original evidence shows that no hitter, +224/+22C source or +23B 6/0xA
-  surface can be active during a FLOOR state in AREA11.
+- **The former known gap is closed.** The 2026-09-23 review found that
+  the stage workers had not been followed. They now are (above), and their
+  states are in the table.
+- **AREA11 reachability is not decided.** It is observed, not proven. All
+  15 route captures and both startup captures show:
+  - health 100, +F 0, +224 = +22C = 0, +234 0;
+  - D_0081083C 0;
+  - D_008106C8 bit 2 clear (0015D100's room drain inert);
+  - no +23A 6/0x5B or +23B 0xA grid node.
+
+  The states are therefore translated rather than ruled out
+  (PLAYER_REACTION.md section 6).
 
 The closure (`kFloorStates` in `em_player.c`; the report prints the routine
 and the write for each):
@@ -434,24 +450,35 @@ and the write for each):
 | +4 | +5 | Routine | Entered by |
 |---|---|---|---|
 | 1 | 5 | 00162DB0 fall | 00179680 |
-| 1 | 7 | 001639E0 | 00162DB0 at 001632BC / 00163420 (+1F0 0xD); 0016C6A0 at 0016CCA8 |
+| 1 | 7 | 001639E0 | 00162DB0 at 001632BC / 00163420 (+1F0 0xD); 0016C6A0 at 0016CCA8; 0021D800 at 0021DAF8 |
 | 1 | 8 | 00163B40 landing | 0017C580 at 0017C590 (+1F0 0xF), called from 00162DB0, 001639E0 and 0016C6A0 |
 | 1 | 9 | 001647D0 hang | 00162DB0 at 00163290 |
 | 1 | 4 | 00162A40 | 0017C860 (from 001639E0) |
-| 1 | 0xC, 0xE, 0x18 | 001662D0, 00168050, 0016D130 | 001647D0 at 0016570C, 0016575C, 001657E8 |
+| 1 | 0xC, 0xE, 0x18 | 001662D0, 00168050, 0016D130 | 001647D0 at 0016570C, 0016575C, 001657E8; 0xC also 00182DF0 at 00182F24 |
 | 1 | 0x10 | 00169730 | 001662D0 at 00167C38 |
 | 1 | 0x12 | 0016AE40 | 002230A0 |
-| 1 | 0x13, 0x14 | 0016B790, 0016B8A0 | 001696A0 at 001696D4; 0016B790 at 0016B87C |
+| 1 | 0x13, 0x14 | 0016B790, 0016B8A0 | 001696A0 at 001696D4; 0016B790 at 0016B87C; 0x14 also 00223C70 at 00223F48 / 002240D4 |
 | 1 | 0x19, 0x1A | 0016DE40, 0016EBA0 | 0016D130 at 0016D544, 0016D6D0 |
-| 1 | 0x1C | 0016C6A0 slide | 001796C0 at 0017973C |
-| 1 | 0x1D..0x22 | 0016FCF0, 001703E0, 001729A0, 00173000, 001735C0, 00173E60 | 001607D0 (from 0016B790) |
-| 2 | 3 | 0021E830 | 0017C580's reset at 0017C600 (+0xF 0x63, or 001000E0 with +234 1) |
-| 2 | 4, 5 | 00221FC0, 00222580 | 00181110 at 0018115C, 00181180 at 001811CC |
+| 1 | 0x1C | 0016C6A0 slide | 001796C0 at 0017973C; 0021D530 at 0021D554 |
+| 1 | 0x1D..0x22 | 0016FCF0, 001703E0, 001729A0, 00173000, 001735C0, 00173E60 | 001607D0 (from 0016B790); 0x1D / 0x1E also 0021D530 at 0021D5BC / 0021D588; 0x1F / 0x20 also 00223C70 at 00223F2C, 002240B4 / 00223EFC, 00224084 |
+| 2 | 0, 0x17 | 0021D800 | 0021C440 at 0021CCB8 / 0021CE90 / 0021D100 (0) and 0021CCB4 / 0021CE8C / 0021D0C0 (0x17) |
+| 2 | 1 | 0021E240 | 0021C440 at 0021C7FC / 0021CDF8 / 0021CFE0; 0021F330 at 0021F530 |
+| 2 | 2, 0x18 | 0021E490 | 0021C440 at 0021D0FC / 0021D0B4 (+228 >= 100 with D_008106F1) |
+| 2 | 3 | 0021E830 | 0017C580's reset at 0017C600 (+0xF 0x63, or 001000E0 with +234 1); 0021C440 at 0021C7E0 / 0021CC04 / 0021CDDC / 0021CFC4; 0021F330 at 0021F518; 00223C70 at 00224244 |
+| 2 | 4, 5 | 00221FC0, 00222580 | 00181110 at 0018115C (and 0021C440 at 0021C860, +F 7 on +1F0 0x17), 00181180 at 001811CC |
 | 2 | 6 | 00222AD0 | 0017F240 at 0017F2A0 (from 001647D0) |
 | 2 | 7 | 002230A0 | 00181D70 at 00181DFC |
+| 2 | 0xA | 00223C70 | 0021D6C0 at 0021D7C8 (from 0021C440 on 0021D640) |
+| 2 | 0xB | 0021F330 | 0021C440 at 0021CA7C (D_0081083C) |
+| 2 | 0xC | 0021F850 | 0021C440 at 0021C5B0 (+F 1) |
+| 2 | 0xF | 002202C0 | 0021C440 at 0021C700 / 0021C744 (+F 3 / 5) |
+| 2 | 0x10 | 0021DBB0 | 0021C440 at 0021C6BC (+F 2) |
+| 2 | 0x11 | 0021E9C0 | 0021C440 at 0021C81C (+F 6) |
+| 2 | 0x12, 0x13 | 0021EAD0 | 0021C440 at 0021C89C / 0021C93C (+F 7 / 0xA) |
+| 2 | 0x14 | 0021EF30 | 0021C440 at 0021C978 (+F 0xB) |
 | 2 | 0x16 | 00225570 | 0021D250 at 0021D270 (00162DB0 on +23A 0x5D; AREA11 has 70 such nodes) |
 | 2 | 0x19 | 002255C0 | 001823E0 at 00182408 |
-| 4 | any | 0015B530 | 0015B130's prelude under 0x70003B8D |
+| 4 | any | 0015B530 | 0015B130's prelude under 0x70003B8D; 001838B0 at 001838E4 |
 | 6 | any | 0015D460 | 0015BCF0's +B4 < -200 check |
 
 The previous round listed only 5, 8 and 0x1C. 5 does land through 8, but
@@ -484,16 +511,25 @@ node class is a data prerequisite; the rest are workers or callbacks.
   0019DF10, and 001A32C0 and 0019E640.
 - The EMCL lacks the node class: the exporter must write node +0x1B
   (PLAYER_CLIMB_SLIDE.md section 6 item 2).
-- **Closure callbacks.** Of the closure, only 0x1C has an adapter
-  (`em_player_slide_live_state`, whose workers 00224B80, 00224290, 0017C580,
-  0021D250, 0021D2E0 and 00178B90 are unbound, and whose chained clips 0x5E
-  and 0x73 are not exported). No other callback is translated, 0015D460
-  excepted (`em_player_stage_0015D460`, which needs 001AEDE0).
-- **Stage workers.** None is bound, and all are untranslated:
+- **Closure callbacks.** The adapters that exist:
+  - 0x1C: `em_player_slide_live_state`. Its workers 00224B80, 00224290,
+    0017C580, 0021D250, 0021D2E0 and 00178B90 are unbound, and its chained
+    clips 0x5E and 0x73 are not exported.
+  - The +4 = 2 reaction states 0/0x17, 1, 2/0x18, 0xA, 0xB, 0xC, 0xF, 0x10,
+    0x11, 0x12/0x13 and 0x14: `em_player_reaction_live_*`
+    (PLAYER_REACTION.md). Their workers are unbound.
+  - 0015D460: `em_player_stage_0015D460`, which needs 001AEDE0.
+
+  No other closure callback is translated. +4 = 2 +5 3, 4, 5, 6, 7, 0x16
+  and 0x19 belong to lane player-major2-states.
+- **Stage workers.** None is bound:
   - the D_00248C98 data (the rate at +8 of each D_00248C90 row);
   - 001C64F0 (the display's source advance);
   - 00183090, 0021C440, 0015D100 and 0015D000;
   - 00182B30, 00182D70 and 00174A50.
+
+  Lane player-stage-workers is translating them (em_player_stage_workers.c,
+  PLAYER_STAGE_WORKERS.md).
 
   The port's `player_damage_tick` models 0021C440 / 0015D100 / 0015D000 for
   its own idle/walk. When the coordinator binds them, the port's copies must
@@ -538,6 +574,19 @@ node class is a data prerequisite; the rest are workers or callbacks.
     `EmPlayerClimbLive` { workers, `player_states_floor_service`,
     `player_states_wall_probes`, `player_states_fall_check`, NULL, scene,
     `em_actor_collision_player_link_kind` }.
+  - `b.stage.state2[i]` = `em_player_reaction_live_*` with an
+    `EmPlayerReaction` { workers (`floor = player_states_floor_service`,
+    `probes = player_states_wall_probes`, ...), scene, refresh }. The
+    indices are `[0]`/`[0x17]`, `[1]`, `[2]`/`[0x18]`, `[0xA]`, `[0xB]`,
+    `[0xC]`, `[0xF]`, `[0x10]`, `[0x11]`, `[0x12]`/`[0x13]` and `[0x14]`
+    (PLAYER_REACTION.md section 5).
+    Its `w0021C270` / `w0021C350` are lane player-stage-workers'
+    `em_player_0021C270` / `em_player_0021C350`.
+    `EmPlayerReactionScene.d8106F1` points at `EmPlayerStageScene.d8106F1`.
+  - The live layer runs 0015B130 (so 0021C440 / 0015D100 / 0015D000) only
+    on stages it owns, not on the port's own idle/walk. Reactions from
+    idle/walk need that ordering added around the port's callbacks, and
+    `player_damage_tick` retired.
 - **The display.** Call `player_states_bind_display(1)` once the display
   stage draws the source clip of each bound state and advances it by the
   stage's +34 (`stage.advance` returns anim_advance_time's +200 flags).
@@ -581,6 +630,17 @@ node class is a data prerequisite; the rest are workers or callbacks.
     +4, the +0 & 2 test, the 0x17 commit case, 00174A50's 8.0, the area
     0x15 test, dropping 0x70003B8F = 1, both +1 = 0 writes, 0015B770's
     phase-4 case, and the busy +1F1 test.
+- `tools/test_player_reaction_reference.py` (PLAYER_REACTION.md section 4)
+  executes the original eleven reaction states with their helpers, against
+  em_player_reaction.c:
+  - It compares all 0x320 actor bytes, the scene bytes, the return values
+    and every worker call with its arguments, at exit and also at entry to
+    every worker call (the actor and scene bytes each callee is handed), so
+    a store moved across a call fails. COP1 goes through
+    tools/ee_float_model.py.
+  - It asserts that all 3,334 reachable original instructions run and that
+    every conditional branch goes both ways.
+  - Cases: 8,000 + 400 by default, 40,000 + 6,000 in `EM_TEST_FULL=1`.
 - `tests/player_states_host_test.c` (ASan/UBSan) links the real
   `em_player.c`, `em_player_floor.c` and actor-collision ground worker over
   a synthetic published owner. It checks:
@@ -599,6 +659,10 @@ node class is a data prerequisite; the rest are workers or callbacks.
   - the -200 check, then 0015D460's two stages and 001AEDE0(4, 0);
   - the prelude (+1F0 0x17 forces 4/0xC, then 0015B530), case 0x19 under the
     takeover, 0021C440 skipping, and the countdown;
+  - a reaction (section 12). A 0021C440 stand-in makes its 0021C81C store
+    (+4 2 +5 0x11) on a stage 0015B130 owns. 0015B770 runs
+    `em_player_reaction_live_0021E9C0` over the real floor service, and its
+    clip end hands back to the port's idle;
   - fail-stop, and the adapters refusing unbound workers.
 - `tools/test_player_floor_reference.py` also checks the owner flow on real
   captured worlds (PLAYER_FLOOR.md). The original 00175900 and the native

@@ -401,11 +401,47 @@ test-shadow-original-reference:
 
 .PHONY: test-player-states-host
 test-player-states-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c -lm -o build/player_states_host_test && ./build/player_states_host_test
 
 .PHONY: test-ee-float-model
 test-ee-float-model:
 	python3 tools/test_ee_float_model.py
+
+.PHONY: test-player-stage-workers-reference
+test-player-stage-workers-reference:
+	python3 tools/test_player_stage_workers_reference.py
+
+.PHONY: test-coll-probe-reference
+test-coll-probe-reference:
+	python3 tools/test_coll_probe_reference.py
+
+.PHONY: test-coll-move-reference
+test-coll-move-reference:
+	python3 tools/test_coll_move_reference.py
+
+.PHONY: test-player-fall-reference
+test-player-fall-reference:
+	python3 tools/test_player_fall_reference.py
+
+.PHONY: test-player-major2-reference
+test-player-major2-reference:
+	python3 tools/test_player_major2_reference.py
+
+.PHONY: test-player-reaction-reference
+test-player-reaction-reference:
+	python3 tools/test_player_reaction_reference.py
+
+.PHONY: test-player-hang-reference
+test-player-hang-reference:
+	python3 tools/test_player_hang_reference.py
+
+.PHONY: test-player-recovery-reference
+test-player-recovery-reference:
+	python3 tools/test_player_recovery_reference.py
+
+.PHONY: test-player-recovery-route
+test-player-recovery-route:
+	EM_TEST_ROUTE=1 python3 tools/test_player_recovery_reference.py
 
 .PHONY: test-ee-float-header
 test-ee-float-header:

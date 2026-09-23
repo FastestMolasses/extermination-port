@@ -14,7 +14,12 @@
  *   - 00175640 over EmActor records (em_actor_collision_player_link);
  *   - the fall (state 5) and slide (state 0x1C) entries park the port's
  *     locomotion and the next stage runs the bound state callback;
- *   - the 0x5A first-contact sound, and fail-stop on a failing worker.
+ *   - the 0x5A first-contact sound, and fail-stop on a failing worker;
+ *   - a +4 = 2 reaction state (em_player_reaction.c 0021E9C0, oracle-tested by
+ *     tools/test_player_reaction_reference.py) bound in 0015B770's table:
+ *     entered by the 0021C440 stage worker (a fake that makes its store),
+ *     run with its EmPlayerReaction context over the real floor service, and
+ *     handed back to the port's idle.
  * No disc data. Build (ASan/UBSan), see the Makefile target
  * test-player-states-host. */
 #include <assert.h>
@@ -26,6 +31,7 @@
 #include "game/em_effect_color.h"
 #include "game/em_player.h"
 #include "game/em_player_climb.h"
+#include "game/em_player_reaction.h"
 #include "game/em_player_slide.h"
 #include "game/em_scene_bindings.h"
 
@@ -266,10 +272,11 @@ enum { SC_ADVANCE, SC_COMMIT, SC_REACTION, SC_DRAIN, SC_HEARTBEAT, SC_CHECK, SC_
        SC_FADE };
 static float advanced_step;
 static int reaction_result;
+static uint32_t advance_flags = 0x10;
 static int w_rate(void *c, int clip, float *rate) { (void)c; *rate = clip == 1 ? 1.25f : 1.0f; return 0; }
 static int w_advance(void *c, EmPlayerLiveActor *a, float step, uint32_t *flags)
 {
-    (void)c; (void)a; ++stage_calls[SC_ADVANCE]; advanced_step = step; *flags = 0x10; return 0;
+    (void)c; (void)a; ++stage_calls[SC_ADVANCE]; advanced_step = step; *flags = advance_flags; return 0;
 }
 static int w_commit(void *c, EmPlayerLiveActor *a, int *r) { (void)c; (void)a; ++stage_calls[SC_COMMIT]; *r = 0; return 0; }
 static int w_reaction(void *c, EmPlayerLiveActor *a, int *r)
@@ -284,6 +291,92 @@ static int w_row(void *c, EmPlayerLiveActor *a, float blend) { (void)c; (void)a;
 static int fade_args[2];
 static int w_fade(void *c, int a0, int a1) { (void)c; ++stage_calls[SC_FADE]; fade_args[0] = a0; fade_args[1] = a1; return 0; }
 static EmPlayerStageFade fade = { NULL, w_fade };
+
+/* The 0021E9C0 reaction bound through EmPlayerReaction: recording workers,
+ * the real floor service over the live actor, a refresh that fills the root
+ * translation. The fake 0021C440 enters +4 2 +5 0x11 (its store at
+ * 0021C81C) once and reports a reaction. */
+static char reaction_calls[32];
+static unsigned reaction_call_count, refreshes;
+static void rnote(char c) { if (reaction_call_count < 32) reaction_calls[reaction_call_count++] = c; }
+static int r_request(void *c, EmPlayerLiveActor *a, int clip, int force, float blend)
+{
+    (void)c; (void)a; (void)force; (void)blend; assert(clip == 0x20); rnote('q'); return 0;
+}
+static int r_arbiter(void *c, EmPlayerLiveActor *a, int clip, float blend, float frame)
+{
+    (void)c; (void)a; (void)clip; (void)blend; (void)frame; rnote('A'); return 0;
+}
+static int r_frames(void *c, EmPlayerLiveActor *a, int clip, int *frames)
+{
+    (void)c; (void)a; (void)clip; *frames = 0; rnote('F'); return 0;
+}
+static int r_sound(void *c, EmPlayerLiveActor *a, unsigned id)
+{
+    (void)c; (void)a; assert(id == 0x154); rnote('s'); return 0;
+}
+static int r_rumble(void *c, int x, int y, int z, int u)
+{
+    (void)c; assert(x == 0 && y == 0xC0 && z == 5 && u == 1); rnote('r'); return 0;
+}
+static int r_random(void *c, uint32_t *v) { (void)c; *v = 0; rnote('R'); return 0; }
+static int r_effect(void *c, uint32_t id, const float p[4], const float q[4])
+{
+    (void)c; (void)id; (void)p; (void)q; rnote('e'); return 0;
+}
+static int r_attach(void *c, EmPlayerLiveActor *a, uint32_t id, uint32_t *h)
+{
+    (void)c; (void)a; (void)id; *h = 0; rnote('a'); return 0;
+}
+static int r_floor(void *c, EmPlayerLiveActor *a, int search, int *result)
+{
+    rnote('f');
+    return player_states_floor_service(c, a, search, result);
+}
+static int r_translate(void *c, EmPlayerLiveActor *a, int arg)
+{
+    (void)c; (void)a; assert(arg == 1); rnote('t'); return 0;
+}
+static int r_actor(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; rnote('p'); return 0; }
+static int r_heading(void *c, EmPlayerLiveActor *a, int arg) { (void)c; (void)a; (void)arg; rnote('h'); return 0; }
+static int r_skeleton(void *c, EmPlayerLiveActor *a, float n[3])
+{
+    (void)c; (void)a; n[0] = n[1] = n[2] = 0; rnote('k'); return 0;
+}
+static int r_fade(void *c, int x, int y) { (void)c; (void)x; (void)y; rnote('d'); return 0; }
+static int r_plain(void *c) { (void)c; rnote('m'); return 0; }
+static float r_atan2(void *c, float y, float x) { (void)c; rnote('T'); return atan2f(y, x); }
+static int r_w0021C270(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; rnote('M'); return 0; }
+static int r_w0021C350(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; rnote('D'); return 0; }
+static uint8_t shared_8106F1;            /* the one D_008106F1 byte */
+static EmPlayerReactionScene reaction_scene = { .d8106F1 = &shared_8106F1 };
+static int r_refresh(void *c, EmPlayerReactionScene *s)
+{
+    (void)c; ++refreshes; s->root8 = 1.5f; return 0;
+}
+static EmPlayerReaction reaction_binding = {
+    { NULL, r_request, r_arbiter, r_frames, r_sound, r_rumble, r_random, r_effect, r_attach,
+      r_floor, r_translate, r_actor, r_heading, r_skeleton, r_fade, r_actor, r_plain,
+      r_atan2, r_w0021C270, r_w0021C350 },
+    &reaction_scene, r_refresh, NULL
+};
+/* A 0021C440 stand-in for this binding test only: once, it makes the store
+ * 0021C440 makes for a pending +F 6 with health > 0 (+4 2 +5 0x11 +6 0 +1F0
+ * 0x3E at 0021C81C, +F |= 0x80) and reports a start. The translation is lane
+ * player-stage-workers' (em_player_stage_workers.c). */
+static int reaction_entries;
+static int w_reaction_enter(void *c, EmPlayerLiveActor *a, int *r)
+{
+    (void)c; ++stage_calls[SC_REACTION];
+    *r = 0;
+    if (reaction_entries-- > 0) {
+        em_live_set_u8(a, 4, 2); em_live_set_u8(a, 5, 0x11); em_live_set_u8(a, 6, 0);
+        em_live_set_u8(a, 0x1F0, 0x3E);
+        em_live_set_u8(a, 0xF, em_live_u8(a, 0xF) | 0x80);
+        *r = 1;
+    }
+    return 0;
+}
 
 static EmPlayerStatesBinding full_binding(void)
 {
@@ -306,7 +399,8 @@ static EmPlayerStatesBinding full_binding(void)
                                        0x14, 0x18, 0x19, 0x1A, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
                                        0x21, 0x22, 0x24 };
     for (unsigned i = 0; i < sizeof kStates; ++i) w->state[kStates[i]] = fake_state;
-    static const uint8_t kStates2[] = { 3, 4, 5, 6, 7, 0x16, 0x19 };
+    static const uint8_t kStates2[] = { 0, 1, 2, 3, 4, 5, 6, 7, 0xA, 0xB, 0xC, 0xF, 0x10, 0x11,
+                                        0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19 };
     for (unsigned i = 0; i < sizeof kStates2; ++i) w->state2[kStates2[i]] = fake_state2;
     w->major[4] = fake_major; w->major_context[4] = (void *)(uintptr_t)4;
     w->major[6] = em_player_stage_0015D460; w->major_context[6] = &fade;
@@ -356,6 +450,7 @@ static void reset(void)
     memset(stage_calls, 0, sizeof stage_calls);
     memset(&scene_state, 0, sizeof scene_state);
     reaction_result = 0;
+    advance_flags = 0x10;
     state_exit_major = 1;
     memset(&head_hit, 0, sizeof head_hit);
     head_hit.kind = 4; head_hit.node = 0x4005; head_hit.point[1] = 10;
@@ -651,6 +746,48 @@ int main(void)
     assert(stage_calls[SC_HEARTBEAT] == 1);
     /* D_008106B3 is unknown while D_00810CB6 is not canonical. */
     assert(player_states_busy() == -1);
+
+    /* 12. A reaction: 0021C440 (the stand-in above) enters +4 2 +5 0x11 on a
+     *     stage the translated 0015B130 owns (the fall, +5 5: the port's own
+     *     idle/walk stages do not run 0015B130), so the state dispatch and
+     *     the countdown are skipped; 0015B770 then
+     *     runs em_player_reaction_live_0021E9C0 from state2[0x11]: sub-state
+     *     0 (sound 0x154, rumble, clip 0x20, 00179880, 00175900), sub-state 1
+     *     integrating the root (+38 = 1.5 - 0) and translating, and on the clip
+     *     end (+200 & 0x1000) 0017C540 hands back to +4 1 +5 0, where the
+     *     port's idle takes over through stop phase 3. */
+    reset();
+    b = full_binding();
+    b.stage.reaction = w_reaction_enter;
+    b.stage.state2[0x11] = em_player_reaction_live_0021E9C0;
+    b.stage.state2_context[0x11] = &reaction_binding;
+    player_states_bind(&b);
+    reaction_entries = 1; reaction_call_count = 0; refreshes = 0;
+    em_live_set_f32(player_states_actor_mut(), 0x220, 100.0f);
+    em_live_set_u8(player_states_actor_mut(), 5, 5);
+    em_live_set_u8(player_states_actor_mut(), 0xF, 6);
+    tick();
+    assert(em_live_u8(a, 4) == 2 && em_live_u8(a, 5) == 0x11 && em_live_u8(a, 0xF) == 0x86);
+    assert(reaction_call_count == 0 && refreshes == 0);
+    assert(state_runs[5] == 0 && stage_calls[SC_HEARTBEAT] == 0);
+    tick();
+    assert(refreshes == 1 && em_live_u8(a, 6) == 1 && memcmp(reaction_calls, "srqf", 4) == 0);
+    tick();
+    assert(refreshes == 2 && em_live_f32(a, 0x38) == 1.5f && em_live_f32(a, 0x21C) == 1.5f);
+    assert(memcmp(reaction_calls + 4, "tf", 2) == 0 && em_live_u8(a, 4) == 2);
+    advance_flags = 0x1000;
+    tick();
+    assert(em_live_u8(a, 4) == 1 && em_live_u8(a, 5) == 0 && em_live_u8(a, 0xF) == 0);
+    assert(em_live_u16(a, 0x20E) == 0x3C && em_live_u8(a, 0x25C) == 0);
+    assert(g.loco_mode == 0 && g.loco_stop.phase == 3 && quit_requests == 0);
+    advance_flags = 0x10;
+    /* The adapter refuses (before any write) without its scene. */
+    reaction_binding.scene = NULL;
+    EmPlayerLiveActor *m12 = player_states_actor_mut();
+    EmPlayerLiveActor kept = *m12;
+    assert(em_player_reaction_live_0021E9C0(&reaction_binding, m12) == -1);
+    assert(memcmp(&kept, m12, sizeof kept) == 0);
+    reaction_binding.scene = &reaction_scene;
 
     /* 8. The state adapters refuse to run with any worker unbound, before
      *    touching the live actor (their mirrors are checked against the
