@@ -74,12 +74,16 @@ typedef struct {
     int (*placement_matrix)(void *, float matrix[16]);
     /* 00102958(*D_00275B40 + 0x90, +0xD0): bone-0 pose matrix publish. */
     int (*pose)(void *, const float matrix[16]);
-    /* 001A2370(actor, +0xD0): re-transform the hull, rebuild its AABB. */
+    /* 001A2370(actor, +0xD0): re-transform the hull, rebuild its AABB.
+     * Translated: em_actor_collision_owner_hull (docs/ACTOR_COLLISION.md);
+     * the captured uid-14 hull is the disc hull x the truck's +0xD0. */
     int (*hull)(void *, const float matrix[16]);
     /* Hull header of table *0x70003250 entry (+0xE >> 8): min xyz, max xyz,
-     * as last rebuilt by 001A2370. Read before this tick's hull call. */
+     * as last rebuilt by 001A2370. Read before this tick's hull call.
+     * Translated: em_actor_collision_owner_hull_bounds. */
     int (*hull_bounds)(void *, float bounds[6]);
-    int (*publish)(void *);                 /* 001B1B70 */
+    /* 001B1B70: em_actor_collision_owner_publish (class 4 -> 001B1D20). */
+    int (*publish)(void *);
     int (*draw)(void *);                    /* virtual +0x4C */
     int (*rumble)(void *, int effect);      /* 001B1E20(effect, 0) */
     int (*effect)(void *, uint32_t id, const float position[4]); /* 001EFD20 */

@@ -35,6 +35,7 @@
 
 #define EPS_FACING 1e-5f   /* 0xB727C5AC / 0x3727C5AC in the walkers */
 #define MOVE_PROBE_PAD 0.01f  /* func_0019AD00 f12 = 0x3C23D70A */
+#define FLT_MAX_EE 3.40282347e38f /* 0x7F7FFFFF: EE overflow result */
 
 /* Finite binary32 arithmetic in the original compact-face routines uses
  * R5900 round-toward-zero after each operation. */
@@ -803,16 +804,20 @@ static int column_node(const EmCollision *c, const EmCollPoly *p, const float a[
     return 1;
 }
 
+int em_collision_column_box_face(const EmCollBoxFace *face, float x, float z,
+                                 float out[4], float extra[2])
+{
+    return face && out && extra ? column_face(face, x, z, out, extra) : 0;
+}
+
+/* 0019BC40 pass 1 over EmCollCell owners (type-0x2000 faces only). */
 int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *owners,
                               unsigned owner_count, const float pos[3],
                               const EmCollColumnMath *math, EmCollColumn *out)
 {
-    short order[EM_COLL_COLUMN_MAX];
-    uint16_t flags[EM_COLL_COLUMN_MAX];
-    float dist[EM_COLL_COLUMN_MAX], extra[EM_COLL_COLUMN_MAX];
-    int owner[EM_COLL_COLUMN_MAX], poly[EM_COLL_COLUMN_MAX];
+    EmCollColumnSeed seed;
     int n = 0;
-    memset(out, 0, sizeof *out);
+    memset(&seed, 0, sizeof seed);
     for (unsigned i = 0; i < owner_count; ++i) {
         const EmCollColumnOwner *o = owners + i;
         if (!o->alive || o->owner_class != 4 || o->uid == 0xFF || !o->cell) continue;
@@ -825,19 +830,43 @@ int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *own
             if (!column_face(cell->faces + j, pos[0], pos[2], cross, spare)) continue;
             if (!(n < EM_COLL_COLUMN_MAX)) break;
             if (cross[0] > -3.4e37f) {
-                order[n] = (short)n; dist[n] = cross[0]; owner[n] = (int)i; poly[n] = -1;
-                flags[n] = 0x8000; extra[n] = spare[0];
-                if (!(cross[2] <= 0.0f)) flags[n] |= 1;
+                seed.height[n] = cross[0]; seed.owner[n] = (int)i; seed.kind[n] = o->kind54;
+                seed.flags[n] = 0x8000; seed.aux[n] = spare[0];
+                if (!(cross[2] <= 0.0f)) seed.flags[n] |= 1;
                 ++n;
             }
             if (!(n < EM_COLL_COLUMN_MAX)) break;
             if (cross[1] < 3.4e37f) {
-                order[n] = (short)n; dist[n] = cross[1]; owner[n] = (int)i; poly[n] = -1;
-                flags[n] = 0x8000; extra[n] = spare[1];
-                if (!(cross[3] <= 0.0f)) flags[n] |= 1;
+                seed.height[n] = cross[1]; seed.owner[n] = (int)i; seed.kind[n] = o->kind54;
+                seed.flags[n] = 0x8000; seed.aux[n] = spare[1];
+                if (!(cross[3] <= 0.0f)) seed.flags[n] |= 1;
                 ++n;
             }
         }
+    }
+    seed.count = n;
+    int count = em_collision_column_finish(c, &seed, pos, math, out);
+    return count < 0 ? 0 : count;
+}
+
+/* 0019BC40 pass 2 (grid), the selection sort, the close-pair cull and the
+ * compaction, over pass-1 candidates the caller collected. */
+int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *seed,
+                               const float pos[3], const EmCollColumnMath *math,
+                               EmCollColumn *out)
+{
+    short order[EM_COLL_COLUMN_MAX];
+    uint16_t flags[EM_COLL_COLUMN_MAX];
+    float dist[EM_COLL_COLUMN_MAX], extra[EM_COLL_COLUMN_MAX];
+    int owner[EM_COLL_COLUMN_MAX], poly[EM_COLL_COLUMN_MAX];
+    uint8_t kind[EM_COLL_COLUMN_MAX];
+    memset(out, 0, sizeof *out);
+    if (!seed || seed->count < 0 || seed->count > EM_COLL_COLUMN_MAX) return -1;
+    int n = seed->count;
+    for (int i = 0; i < n; ++i) {
+        order[i] = (short)i; dist[i] = seed->height[i]; extra[i] = seed->aux[i];
+        flags[i] = seed->flags[i]; owner[i] = seed->owner[i]; poly[i] = -1; kind[i] = seed->kind[i];
+        if (!(flags[i] & 0x8000) || owner[i] < 0) return -1;
     }
     if (c && c->blob) {
         for (uint32_t i = 0; i < c->poly_count; ++i) {
@@ -848,7 +877,7 @@ int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *own
             float q[4];
             if (!column_node(c, p, pos, math, q)) continue;
             if (!(n < EM_COLL_COLUMN_MAX)) break;
-            dist[n] = q[1]; owner[n] = -1; poly[n] = (int)i; order[n] = (short)n;
+            dist[n] = q[1]; owner[n] = -1; poly[n] = (int)i; order[n] = (short)n; kind[n] = 0;
             flags[n] = 0x4000;
             if (!(q[3] <= 0.0f)) flags[n] |= 1;
             extra[n] = q[3];
@@ -885,11 +914,112 @@ int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *own
         out->aux[count] = extra[b];
         out->owner[count] = owner[b];
         out->poly[count] = poly[b];
-        if (owner[b] >= 0) out->object_kind[count] = owners[owner[b]].kind54;
+        if (owner[b] >= 0) out->object_kind[count] = kind[b];
         else out->object_node[count] = (int16_t)(c->polys[poly[b]].attr |
                                                  (c->polys[poly[b]].pad << 8));
         ++count;
     }
     out->count = count;
     return count;
+}
+
+/* ---- 0019C830 / 0019ED80: the vertical grid pass ------------------------- */
+
+/* The EE single-precision model the original-instruction oracles share:
+ * truncate toward zero, overflow to the largest finite value, denormal
+ * results to zero. */
+static float grid_f(double value)
+{
+    if (value != value) return 0.0f;
+    double magnitude = fabs(value);
+    if (magnitude >= 3.4028234663852886e38) return value < 0 ? -FLT_MAX_EE : FLT_MAX_EE;
+    if (magnitude == 0.0) return (float)value;                    /* keeps -0 */
+    if (magnitude < 1.1754943508222875e-38) return 0.0f;
+    return face_float(value);
+}
+
+static float grid_dot(const float a[3], const float b[3])     /* 00102738 */
+{
+    float x = grid_f((double)a[0] * b[0]), y = grid_f((double)a[1] * b[1]);
+    float z = grid_f((double)a[2] * b[2]);
+    return grid_f((double)grid_f((double)x + y) + z);
+}
+
+static float grid_div(float x, float y)                           /* div.s */
+{
+    if (y == 0.0f) return (signbit(x) != signbit(y)) ? -FLT_MAX_EE : FLT_MAX_EE;
+    return grid_f((double)x / y);
+}
+
+/* 0019ED80(segment, node) over EMCL poly `p`: 1 with hit[] on accept. */
+static int grid_node_test(const EmCollision *c, const EmCollPoly *p, const float qa[3],
+                          const float qb[3], float hit[3])
+{
+    float dir[3], n[3] = { p->plane[0], p->plane[1], p->plane[2] };
+    for (int k = 0; k < 3; ++k) dir[k] = grid_f((double)qb[k] - qa[k]);   /* 001028D0 */
+    float along = grid_dot(dir, n);
+    if (!(along <= -1e-5f)) return 0;
+    float t = grid_div(grid_f((double)p->plane[3] - grid_dot(n, qa)), along);
+    for (int k = 0; k < 3; ++k)                                   /* 00103230, 001028B8 */
+        hit[k] = grid_f((double)qa[k] + grid_f((double)dir[k] * t));
+    for (int k = 0; k < 3; ++k) {
+        if (qa[k] <= qb[k]) {
+            if (!(qa[k] <= hit[k]) || qb[k] < hit[k]) return 0;
+        } else {
+            if (qa[k] < hit[k] || !(qb[k] <= hit[k])) return 0;
+        }
+    }
+    for (unsigned k = 0; k < p->vcount; ++k) {
+        const float *v = c->verts + 3u * c->indices[p->first + k];
+        const float *e = c->edge_n + 3u * (p->first + k);
+        float rel[3];
+        for (int j = 0; j < 3; ++j) rel[j] = grid_f((double)hit[j] - v[j]);
+        if (!(grid_dot(rel, e) <= 1e-5f)) return 0;
+    }
+    return 1;
+}
+
+static int grid_vertical(const EmCollision *c, const float start[3], float end[3],
+                         int query_class, const int *order, unsigned count,
+                         float point[3], int *poly)
+{
+    if (!c || !c->blob || !start || !end) return 0;
+    int found = -1;
+    float last[3] = { 0.0f, 0.0f, 0.0f };
+    unsigned total = order ? count : c->poly_count;
+    for (unsigned k = 0; k < total; ++k) {
+        uint32_t i = order ? (uint32_t)order[k] : k;
+        if (order && (order[k] < 0 || i >= c->poly_count)) return -1;
+        const EmCollPoly *p = &c->polys[i];
+        if (p->set != EM_COLL_SET_GRID) { if (order) return -1; continue; }
+        int16_t kind = p->attr;                                   /* 0x70003B88 */
+        if (kind >= 0x5A) continue;
+        if (kind == 0x51 && query_class != 0) continue;
+        if (kind == 0x52 && query_class != 2) continue;
+        if (kind == 0x53 && query_class == -1) continue;
+        float hit[3];
+        if (!grid_node_test(c, p, start, end, hit)) continue;
+        end[1] = hit[1];                                          /* 0x700031A4 */
+        memcpy(last, hit, sizeof last);
+        found = (int)i;
+    }
+    if (found < 0) return 0;
+    if (point) memcpy(point, last, sizeof last);
+    if (poly) *poly = found;
+    return 1;
+}
+
+int em_collision_grid_vertical(const EmCollision *c, const float start[3], float end[3],
+                               int query_class, float point[3], int *poly)
+{
+    return grid_vertical(c, start, end, query_class, NULL, 0, point, poly);
+}
+
+int em_collision_grid_vertical_nodes(const EmCollision *c, const float start[3], float end[3],
+                                     int query_class, const int *polys, unsigned count,
+                                     float point[3], int *poly)
+{
+    static const int none[1] = { 0 };
+    if (!polys && count) return -1;
+    return grid_vertical(c, start, end, query_class, polys ? polys : none, count, point, poly);
 }

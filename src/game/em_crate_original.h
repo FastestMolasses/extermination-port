@@ -108,10 +108,11 @@ typedef struct {
     void *context;
     int (*allocate_model)(void *);          /* 001B0EA0: 1 not ready, 0 ready */
     int (*bone_init)(void *);               /* bone_init_default_1(self) */
-    int (*publish)(void *);                 /* 001B1B70(self) */
+    int (*publish)(void *);                 /* 001B1B70(self): em_actor_collision_owner_publish */
     int (*place)(void *, float world[16]);  /* 001C6380(self) */
     /* 0019AB20(self, from, {?,dy,?}, mode). position is the owner's +0xB0:
-     * mode bit31 lets the worker snap position[1]. */
+     * mode bit31 lets the worker snap position[1]. Translated:
+     * em_actor_collision_owner_probe (docs/ACTOR_COLLISION.md). */
     int (*probe)(void *, float position[4], const float from[3], float dy,
                  uint32_t mode, EmCrateProbe *);
     int (*random)(void *, uint32_t *);      /* 00122BB8 */

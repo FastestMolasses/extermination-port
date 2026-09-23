@@ -218,8 +218,11 @@ typedef struct {
     uint8_t object_kind[EM_COLL_COLUMN_MAX]; /* cell: owner +0x54 */
 } EmCollColumn;
 
-/* The SDK transcendental calls 0019F330 makes (0011E748 sqrt, 0011DBB8 atan)
- * as host models, as elsewhere in the port; NULL selects sqrtf/atanf. */
+/* The SDK transcendental calls 0019F330 makes (0011E748 sqrt, 0011DBB8 atan).
+ * em_actor_collision_column_0019BC40 requires both workers (it faults
+ * without them; docs/ACTOR_COLLISION.md section 7 names the translations
+ * to bind). em_collision_column_table (the climb lane's legacy EmCollCell
+ * entry) still falls back to host sqrtf/atanf on NULL: NOT ORIGINAL. */
 typedef struct {
     float (*sqrt)(void *context, float x);
     float (*atan)(void *context, float x);
@@ -231,7 +234,74 @@ int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *own
                               unsigned owner_count, const float pos[3],
                               const EmCollColumnMath *math, EmCollColumn *out);
 
-/* --- Moving walkable surfaces (footprint-AABB + velocity carry) -------
+/* The same 0019BC40 split at its pass boundary, for callers that walk the
+ * published owners over the original-layout cells themselves (all four prim
+ * types; src/game/em_actor_collision.c). `seed` holds the pass-1 candidates
+ * in the order 0019BC40 records them (count <= EM_COLL_COLUMN_MAX; `owner`
+ * is the caller's owner index, reported back in out->owner, and `kind` the
+ * owner's +0x54 byte, reported in out->object_kind). This runs pass 2 (the
+ * grid, KNOWN INEXACT as above), the selection sort, the close-pair cull
+ * and the compaction. Returns the survivor count, or -1 for a malformed
+ * seed. */
+typedef struct {
+    int count;
+    uint16_t flags[EM_COLL_COLUMN_MAX];
+    float height[EM_COLL_COLUMN_MAX];
+    float aux[EM_COLL_COLUMN_MAX];
+    int owner[EM_COLL_COLUMN_MAX];
+    uint8_t kind[EM_COLL_COLUMN_MAX];
+} EmCollColumnSeed;
+
+int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *seed,
+                               const float pos[3], const EmCollColumnMath *math,
+                               EmCollColumn *out);
+
+/* 001A5760 for one type-0x2000 face at column (x, z): 1 when the face
+ * crosses it. out[0]/out[2] the top crossing and its flag lane, out[1]/out[3]
+ * the bottom crossing; extra[0] receives the 0x7000319C value (face 3),
+ * extra[1] the 0x700031AC value (face 4); the other is left untouched, as
+ * the original leaves the scratch word. */
+int em_collision_column_box_face(const EmCollBoxFace *face, float x, float z,
+                                 float out[4], float extra[2]);
+
+/* --- 0019C830 / 0019ED80: the grid pass of the vertical probe 0019AB20 ---
+ *
+ * Walks the grid polys (set EM_COLL_SET_GRID, in EMCL node order) against
+ * the segment start -> end, gated as 0019C830 gates node +0x1A (the query
+ * class is 0x7000324E: >= 0x5A never, 0x51 only class 0, 0x52 only class 2,
+ * 0x53 not for class -1; 0x50 and the rest always), each through 0019ED80
+ * with EE arithmetic. Every hit clamps end[1] (0x700031A4) to the hit
+ * height, so later nodes must be nearer; the last hit wins. Returns 1 on a
+ * hit with point (0x700031B0, the last hit's point, restored by 0019C830)
+ * and the poly index (0x700031D0 names that node), else 0 and end[] is
+ * untouched. KNOWN INEXACT like every EMCL grid walk: 0019C830 visits only
+ * the nodes one rank-table span admits and whose rank bounds (node
+ * +0x0C..+0x16) admit the point; the EMCL carries neither, so this visits
+ * every node (docs/ACTOR_COLLISION.md). */
+int em_collision_grid_vertical(const EmCollision *c, const float start[3], float end[3],
+                               int query_class, float point[3], int *poly);
+/* The same walk over the given grid polys in the given order: the nodes and
+ * the order 0019C830's rank-table span visits (the only part of the grid
+ * pass the EMCL cannot reproduce: every hit clamps end[1], so a different
+ * visit order can move the final height by an ulp or pick another node at
+ * equal heights). Returns 1 / 0 as above, or -1 for an index that is not a
+ * grid poly. */
+int em_collision_grid_vertical_nodes(const EmCollision *c, const float start[3], float end[3],
+                                     int query_class, const int *polys, unsigned count,
+                                     float point[3], int *poly);
+
+/* --- LEGACY, NOT ORIGINAL: the moving-surface and blocker registries ----
+ *
+ * The two registries below predate the original actor-cell path and are not
+ * translations: the Y band, the body height and the push-out rule are port
+ * constants. The original truck is a published class-4 owner whose uid-14
+ * n-gon hull 001A2370 re-transforms each tick, found under the feet by
+ * 0019AB20 (src/game/em_actor_collision.c), and its 00825014 carry is part
+ * of em_truck_original. They stay only while em_game.c / em_player.c /
+ * em_truck.c / em_props.c still call them; retire them when the coordinator
+ * binds em_actor_collision (docs/ACTOR_COLLISION.md section 7).
+ *
+ * --- Moving walkable surfaces (footprint-AABB + velocity carry) -------
  *
  * The "player rides a moving surface" primitive (decomp repo
  * Extermination/docs/INVESTIGATION_first_level_area11.md §11.4, the
