@@ -1598,6 +1598,17 @@ int em_scene_bindings_pool_count(uint32_t callback)
     return n;
 }
 
+const char *em_scene_bindings_pool_binding(uint32_t callback)
+{
+    if (s_pool_mode != POOL_ROSTER)
+        return NULL;
+    int walked = 0;
+    for (const EmActor *a = s_pool.head; a && walked <= EM_ACTOR_POOL_CAPACITY; a = a->next, ++walked)
+        if (a->callback == callback)
+            return em_area11_node_binding(a);
+    return NULL;
+}
+
 void em_scene_bindings_fixture_loaded(EmTask *record)
 {
     if (!record)

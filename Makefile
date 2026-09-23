@@ -12,7 +12,7 @@ CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_player_reversal.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
-           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c \
+           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
@@ -326,6 +326,19 @@ test-room-move-reference: $(BIN)
 	grep -q "newgame control test: PASS" build/room_move_reference/run.log
 	grep -q "room move test: PASS" build/room_move_reference/run.log
 	python3 tools/test_room_move_reference.py --log build/room_move_reference/ticks.jsonl
+
+# S13: the live first-level smoke. A headless New Game walks the route of
+# docs/FIRST_LEVEL_ROUTE.md phase by phase (EM_LEVEL_SMOKE_UNTIL, default
+# the whole route); live phases must pass in process and against the
+# original captures (tools/test_level_smoke.py), later phases report
+# NOT-LIVE with the step they wait on (docs/LEVEL_SMOKE.md).
+.PHONY: test-level-smoke
+test-level-smoke: $(BIN)
+	mkdir -p build/level_smoke
+	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl \
+	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
+	grep "level smoke:" build/level_smoke/run.log
+	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log
 
 .PHONY: test-message-service
 test-message-service:

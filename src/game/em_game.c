@@ -203,6 +203,7 @@
 #include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
+#include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_scene_bindings.h"
 
@@ -1990,6 +1991,7 @@ void em_game_install_new(void)
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", AREA11_SCENE_DIR);
     em_opening_runtime_request();
     em_opening_control_test_begin();
+    em_level_smoke_test_begin();
     em_scene_state()->d275BE0 = 0;
     (void)em_task_register(0, em_scene_task_001ACEC0);
 }

@@ -51,6 +51,7 @@
 #include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
+#include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 
 static uint32_t point_light_random(void *context)
@@ -745,7 +746,8 @@ void frame_close_out(void)
 
     /* em_frame owns transition ticking/drawing after task dispatch. */
 
-    if (!em_opening_control_test_active() && g.capture_path && g.frame_no == g.capture_frame)
+    if (!em_opening_control_test_active() && !em_level_smoke_test_active() && g.capture_path &&
+        g.frame_no == g.capture_frame)
         em_gfx_request_capture(gfx, g.capture_path);
 
     /* EM_CAM_PRINT=1 — the settled camera-state witness (s76 idle-
@@ -768,10 +770,11 @@ void frame_close_out(void)
     }
 
     em_opening_control_test_after_frame();
+    em_level_smoke_test_after_frame();
     g.frame_no++;
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
-    if (!em_opening_control_test_active() && g.capture_path &&
+    if (!em_opening_control_test_active() && !em_level_smoke_test_active() && g.capture_path &&
         !g.move_test && !g.weapon_test && !g.door_test &&
         !g.transit_test && !g.slider_test &&
         g.frame_no > g.capture_frame + 1)

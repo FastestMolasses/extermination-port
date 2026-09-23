@@ -45,6 +45,15 @@ static struct {
     char error[512];
 } f;
 
+/* The EM_STARTUP_TEST fixtures that choose New Game on the title menu:
+ * "newgame", "newgame-control" (em_opening_control_test.c) and
+ * "newgame-level" (the S13 level smoke, em_level_smoke_test.c). */
+static int new_game_test(const char *test)
+{
+    return strcmp(test, "newgame") == 0 || strcmp(test, "newgame-control") == 0 ||
+           strcmp(test, "newgame-level") == 0;
+}
+
 static uint32_t le32(const unsigned char *p)
 {
     return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
@@ -161,7 +170,7 @@ static int movie_pump(void *unused)
     /* Original stream +8 is a completed-picture index, not game ticks.
      * PTS-derived indices preserve the gate even if presentation drops frames. */
     uint16_t held = em_frame_input()->held;
-    if (f.test && (strcmp(f.test, "skip") == 0 || (strcmp(f.test, "newgame") == 0 || strcmp(f.test, "newgame-control") == 0)) &&
+    if (f.test && (strcmp(f.test, "skip") == 0 || new_game_test(f.test)) &&
         f.movie_pts >= 2.0)
         held |= EM_PAD_START;
     int skip_ready = f.have_movie_frame && f.movie_picture >= 11;
@@ -319,7 +328,7 @@ static void startup_task(void)
         case 10: input.held = input.pressed = EM_PAD_UP; expected_cursor = 0; break;
         case 12: input.held = input.pressed = EM_PAD_UP; expected_cursor = 0; break;
         case 14:
-            if ((strcmp(f.test, "newgame") == 0 || strcmp(f.test, "newgame-control") == 0))
+            if (new_game_test(f.test))
                 input.held = input.pressed = EM_PAD_CROSS;
             break;
         }

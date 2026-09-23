@@ -19,6 +19,7 @@
 #include "game/em_frontend.h"
 #include "game/em_startup_audio.h"
 #include "game/em_opening_runtime.h"
+#include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 
 #include <dirent.h>
@@ -346,5 +347,5 @@ int main(void)
     em_gfx_destroy(gfx);
     em_window_destroy(win);
     return em_frontend_failed() || em_opening_runtime_failed() ||
-           em_opening_control_test_failed() ? 1 : 0;
+           em_opening_control_test_failed() || em_level_smoke_test_failed() ? 1 : 0;
 }
