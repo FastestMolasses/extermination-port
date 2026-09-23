@@ -88,3 +88,25 @@ random-call order and face rasterization remain separate work.
 Player dialogue calls D06E0 directly when slot0 starts/stops. The player's
 83090 callback ticks its face before the body; it does not consume Roger's
 activity-byte convention. The live message binding must preserve that order.
+
+## Camera playback worker
+
+`em_cinematic_playback` runs the original event-free scene1 camera path
+(`001B8FC0` sub6 and `0022EEF0`). Each ordinary tick samples the exported
+track, publishes the DD980 camera block, derives the up vector through the
+original rotation helper and converts the clamped FOV to zoom through the
+original finite tangent kernel. Time advances by 0.5 per tick. At the
+endpoint every invocation repeats the three restore services until the
+script releases ownership; the 001B7B30 sub0 wait restores presentation
+without moving the cursor or giving up camera_top3.
+
+The tangent coefficients are 13 floats sliced from the user's own ELF by
+`tools/export_roger_cinematic.py` into ignored
+`assets/scene_snow/roger/camera_projection.emcp`; no original data lives in
+source. `make test-cinematic-playback-reference` compares 1,526 original
+driver cases and 1,470 script-wait cases with original instruction
+execution, checks 1,547 ordered service observations, and matches the
+captured source25 up vector and zoom (428.7239) byte for byte. An
+ASan/UBSan fixture covers endpoints, malformed resources and each failing
+service. Only scene1 is admitted; other scene IDs need their own timeline
+workers. The worker is not yet installed in the live encounter.

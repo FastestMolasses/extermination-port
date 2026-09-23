@@ -220,6 +220,10 @@ test-door-original:
 test-door-original-runtime:
 	python3 tools/test_door_original_runtime.py
 
+.PHONY: test-cinematic-playback-reference
+test-cinematic-playback-reference:
+	python3 tools/test_cinematic_playback_reference.py
+
 .PHONY: test-roger-cinematic-reference
 test-roger-cinematic-reference:
 	python3 tools/test_roger_cinematic_reference.py

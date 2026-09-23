@@ -48,9 +48,17 @@ def main():
     camera_path = output / 'encounter_camera.emcc'
     camera = export_camera(source, BANK, camera_path)
     assert camera['duration'] == duration
+    # Original finite tangent kernel coefficients, consumed by the native
+    # projection worker. Keep these disc-derived data out of native source.
+    elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    assert hashlib.sha256(elf).hexdigest() == 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
+    start = 0x26C598 - 0x100000 + 0x300
+    projection = struct.pack('<4sII', b'EMCP', 1, 13) + elf[start:start+52]
+    (output / 'camera_projection.emcp').write_bytes(projection)
     report = {'source_sha256': hashlib.sha256(data).hexdigest(), 'bank': BANK,
               'runtime_bank': runtime, 'player_header': header, 'player_keys': keys,
               'player_sha256': hashlib.sha256(payload).hexdigest(), 'camera': camera,
+              'projection_sha256': hashlib.sha256(projection).hexdigest(),
               'scope': 'original resources; encounter script and host ownership separate'}
     folder = ROOT / 'build/roger_cinematic'
     folder.mkdir(parents=True, exist_ok=True)
