@@ -1,11 +1,16 @@
-/* Scene coordinator bindings, step S8 (legacy mode). See em_scene_bindings.h
- * and docs/SCENE_COORDINATOR_DESIGN.md sections 3.1, 6 (S8) and 10.1.
+/* Scene coordinator bindings, steps S8-S9 (legacy mode). See
+ * em_scene_bindings.h and docs/SCENE_COORDINATOR_DESIGN.md sections 3.1,
+ * 6 (S8, S9) and 10.1.
  *
- * What is live after S8:
+ * What is live after S9:
  *   - the slot-0 task is em_scene_task_001ACEC0, which runs the S3 cores
  *     001ACEC0 -> 001AD250 and, through the w_001AD4D0 binding (the original
  *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040 with
  *     the lead's Q1 entry point (em_sf_001AE040_q1);
+ *   - S9: the state-0 tick returns. 0x1AE040 state 0 ends with
+ *     `b .L001AE5CC` (0x1AE0DC, the epilogue), never falling into state 1,
+ *     so the tick that rebuilds the area runs no world variant; the first
+ *     world frame (001AE5E0/001AE6B0) is the next task tick;
  *   - spad 3B90 (001ACEC0 writes 2 every tick) and C4 are forwarded to the
  *     step-D letterbox gate at the end of every task tick (design 2.1);
  *   - the S6 trace contract (design 10.1) when EM_FRAME_TRACE is set.
@@ -13,7 +18,7 @@
  * Worker bindings. Every worker the chain reaches in legacy mode is bound;
  * every other worker is NULL and faults when reached (fail-stop):
  *   w_001AD4D0            -> frame machine entry (legacy Continue hook,
- *                            trace frame state, 0x1AE040, legacy fall-through)
+ *                            trace frame state, 0x1AE040)
  *   w_001AE5E0/w_001AE6B0 -> ONE legacy world worker (em_game_legacy_world_frame)
  *   w_001AFCA0            -> spad 31F4 = 0 (001AFCA0 stores it) after the
  *                            port's native state-0 re-arm (em_game_legacy_state0)
@@ -49,9 +54,8 @@ static EmSceneState s_state;
 static EmSceneWorkers s_workers;
 static int s_ready;
 
-/* Legacy-mode flags (bindings only; see em_scene_bindings.h). */
-static const int s_legacy_state0_frame = 1; /* retired by S9 */
-static const int s_classifier_shadow = 1;   /* retired by S11a/S11b */
+/* Legacy-mode flag (bindings only; see em_scene_bindings.h). */
+static const int s_classifier_shadow = 1; /* retired by S11a/S11b */
 
 /* The slot-0 record's user bytes for the tick in progress. */
 static uint8_t *s_user;
@@ -112,7 +116,7 @@ static void report_unmirrored(void)
     uint32_t fresh = s_unmirrored_seen & ~s_unmirrored_reported;
     if (!fresh)
         return;
-    fprintf(stderr, "em_scene: legacy mode (S8): reached without port code:");
+    fprintf(stderr, "em_scene: legacy mode: reached without port code:");
     for (int i = 0; i < UM_COUNT; ++i)
         if (fresh & (1u << i))
             fprintf(stderr, " %08X (%s);", (unsigned)s_unmirrored[i].address,
@@ -240,12 +244,9 @@ static int w_001AD4D0(void *ctx)
     if (t)
         em_frame_trace_frame_state(t, s_user, s_state.spad3B8D,
                                    em_frame_transition()->substate);
-    int entered_state0 = *frame_state == 0;
+    /* One 0x1AE040 run per tick. State 0 returns after its eleven calls
+     * (0x1AE0DC b .L001AE5CC), so a rebuild tick draws no world frame. */
     if (frame_machine() < 0)
-        return -1;
-    /* legacy_state0_frame (retired by S9): the port's historical state-0
-     * fall-through into the state-1 world frame in the same tick. */
-    if (s_legacy_state0_frame && entered_state0 && *frame_state == 1 && frame_machine() < 0)
         return -1;
     /* Shadow mode: nothing may act on the classifier. With no writer of the
      * canonical request block or input words, 001AE7E0 returns 0 and state 1

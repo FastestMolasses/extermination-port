@@ -1343,9 +1343,8 @@ void em_game_legacy_state0(void)
      * behind the player on the next frame, along the spawn
      * facing). Since S8 the frame core 0x1AE040 runs state 0 and
      * the bindings (em_scene_bindings.c) call this at the 001AFCA0
-     * position; their legacy_state0_frame flag still falls through
-     * into the world frame in the same tick, which the original does
-     * not (removed by S9). */
+     * position; since S9 the tick ends there, as the original's does
+     * (no world frame until the next tick). */
     g.walk_t         = 0.0;
     g.walk_w         = 0.0f;
     g.step_prev      = 0.0;   /* footstep edge state re-armed */

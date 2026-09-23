@@ -5,13 +5,13 @@
  * canonical EmSceneState, fills the EmSceneWorkers table, and exports the
  * slot-0 game task em_scene_task_001ACEC0.
  *
- * STEP S8 (LEGACY MODE). The slot-0 task runs the original chain
- * 001ACEC0 -> 001AD250 -> 001AD4D0 -> 0x1AE040 through the cores. Two
- * bindings-only flags keep today's port behaviour until the steps that
- * retire them:
- *   - legacy_state0_frame (retired by S9): after 0x1AE040 state 0 returns,
- *     the bindings run state 1 in the same tick (the port's historical
- *     fall-through; the original draws no world frame on the state-0 tick).
+ * STEPS S8-S9 (LEGACY MODE). The slot-0 task runs the original chain
+ * 001ACEC0 -> 001AD250 -> 001AD4D0 -> 0x1AE040 through the cores, once per
+ * tick. Since S9 the state-0 tick returns without a world frame, as the
+ * original does (0x1AE040 state 0 ends with a branch to its epilogue at
+ * 0x1AE0DC); the port's former same-tick fall-through into state 1 is gone.
+ * One bindings-only flag keeps today's port behaviour until the steps that
+ * retire it:
  *   - classifier shadow (retired by S11a/S11b): the canonical input words
  *     D_00810E74/E70 are not written yet, so the core's 001AE7E0 cannot see a
  *     button press and returns 0; the trace records a SHADOW classifier result
@@ -44,7 +44,8 @@ void em_scene_task_001ACEC0(void);
  * this with the replaced record, which writes the task bytes 001ADF50's
  * completion leaves in 001ACEC0 state 3 (001AD250 +9=5 arm: +9=1, +A=+B=0;
  * +8=3 from 001ACEC0 state 1/2). The first task tick then enters 0x1AE040
- * state 0, as the port's frame machine did before S8. */
+ * state 0 (the rebuild, no world frame); the second is the first world
+ * frame. */
 void em_scene_bindings_legacy_loaded(EmTask *record);
 
 /* ---- Legacy port code the S8 bindings call (implemented in em_game.c) ----
