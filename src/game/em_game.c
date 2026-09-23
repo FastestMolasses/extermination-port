@@ -8,26 +8,28 @@
  *                                        parts, then re-registers slot 0
  *                                        with the game task (exactly how
  *                                        the engine replaces it live).
- *   func_001ACEC0  game task machine     game_task() — switch on the slot
- *                  (state byte task+8)   record's user byte 0.
- *   func_001AD250  sub-machine           game_sub_machine() — user byte 1;
- *                  (6 states, jr-table   the live arm reaches the in-game
- *                  0x0026DCB0)           frame machine through the
- *                                        trampoline func_001AD4D0
- *                                        (= j func_001AE040).
- *   func_001AE040  in-game frame machine ingame_frame_machine() — user
- *                  (anim_frame_top_b,    byte 3 (task+0xB). State 0 builds
- *                  NEARMISS; state byte  the area and returns without a
- *                  task+0xB)             world frame; state 1 polls
- *                                        001AE7E0, then (when D_00275BD8
- *                                        is 0) runs the variant picked
- *                                        by scratchpad 0x70003B8D. See
- *                                        docs/SCENE_COORDINATOR_DESIGN.md
- *                                        §2.3.
+ *                                        Until S12a it also stands in for
+ *                                        the load arms 001AD1A0..001ADF50:
+ *                                        the record starts at +8=3, +9=1,
+ *                                        +B=0 (em_scene_bindings_legacy_
+ *                                        loaded).
+ *   func_001ACEC0  game task machine     em_scene_task_001ACEC0 (S8,
+ *   func_001AD250  sub-machine           em_scene_bindings.c) runs the
+ *   func_001AE040  in-game frame machine translated cores em_sf_001ACEC0,
+ *                                        em_sf_001AD250 and (through the
+ *                                        001AD4D0 jump) em_sf_001AE040;
+ *                                        see docs/SCENE_COORDINATOR_DESIGN.md
+ *                                        sections 2.2, 2.3 and 6 (S8).
+ *                                        Legacy hooks in this file:
+ *                                        em_game_legacy_state0 (state 0,
+ *                                        001AFCA0 position),
+ *                                        em_game_legacy_continue_restart,
+ *                                        em_game_legacy_world_frame.
  *   func_001AE5E0  GAMEPLAY FRAME        gameplay_frame() — see below.
- *   func_001AE6B0  cutscene variant      cutscene_frame() — skeleton; the
- *                                        native selector never routes here
- *                                        yet.
+ *   func_001AE6B0  cutscene variant      cutscene_frame(), chosen by the
+ *                                        port's g.frame_selector (the
+ *                                        spad 0x70003B8D stand-in until
+ *                                        S11a).
  *
  * GAMEPLAY FRAME stages (func_001AE5E0) -> native. CONFIRMED literally
  * (audit 2026-07-31) against src/func_001AE5E0.c [NEARMISS — logic
@@ -181,6 +183,7 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_opening_control_test.h"
+#include "game/em_scene_bindings.h"
 
 /* The gameplay state object declared in em_game_internal.h. */
 EmGameState g;
@@ -1311,386 +1314,353 @@ static void cutscene_frame(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* State machines (slot-0 task chain)                                  */
+/* Legacy slot-0 hooks (called by em_scene_bindings.c, step S8)       */
 /* ------------------------------------------------------------------ */
 
-/* func_001AE040 — in-game frame machine (state byte task+0xB). */
-static void ingame_frame_machine(EmTask *self)
+/* Since S8 the slot-0 task is em_scene_task_001ACEC0: the original chain
+ * 001ACEC0 -> 001AD250 -> 001AD4D0 -> 0x1AE040 runs through the coordinator
+ * cores (em_scene_task.c, em_scene_frame.c), and the port's former
+ * game_task / game_sub_machine / ingame_frame_machine bodies are retired.
+ * The three hooks below are today's port code, moved unchanged, that the
+ * bindings call at the original positions (docs/SCENE_COORDINATOR_DESIGN.md
+ * section 6, S8). */
+
+/* 0x1AE040 state 0 (bound at the 001AFCA0 position). */
+void em_game_legacy_state0(void)
 {
-    switch (self->user[GAME_BYTE_FRAME]) {
-        case 0:
-            /* Area-build arm. Original anim_frame_top_b (0x001AE040,
-             * NEARMISS) state 0 sets +B = 1 and calls, in order, 001AFCA0
-             * (player-struct wipe, actor-pool reset, overlay install),
-             * 001AFCF0, 001B07C0(0), 001B6990 (deferred group, then the
-             * placement roster), 001D19E0, 001C1DC0, 00199C50,
-             * 001AEE40(4), 001FAE70(1) (area music), 001C5C50 and
-             * 001D1EF0, then RETURNS: no world frame that tick
-             * (SCENE_COORDINATOR_DESIGN.md §2.3). Natively this arm
-             * re-arms port state instead: the spawn-table stand-in is the
-             * scene manifest's spawn (the office kPlayerPos default;
-             * origin with no scene loaded), and the camera struct is
-             * zeroed back to its init state (the one-shot setup arms it
-             * behind the player on the next frame, along the spawn
-             * facing). It then falls through into the world frame in the
-             * same tick, which the original does not (WP-3). */
-            g.walk_t         = 0.0;
-            g.walk_w         = 0.0f;
-            g.step_prev      = 0.0;   /* footstep edge state re-armed */
-            g.idle_t         = 0.0;   /* idle cycle re-armed (mode-0
-                                       * entry: breathing + 300-frame
-                                       * fidget timer) */
-            g.idle_phase     = 0;
-            g.idle_timer     = IDLE_FIDGET_FRAMES;
-            g.fid_t          = 0.0;
-            g.fid_w          = 0.0f;
-            g.gait           = 0;
-            g.loco_tier      = 0;     /* tier ramp re-armed (+0x25C/+0x38) */
-            g.loco_upt       = 0.0f;
-            g.loco_mode = g.loco_substate = 0;
-            g.loco_entry_ticks = 0;
-            g.loco_stop.phase = 0;
-            g.loco_reentry.phase = 0;
-            g.cam_recenter   = 0;
-            g.cam_idle       = 0;
-            g.frame_no       = 0;
-            g.frame_selector = 0;
-            g.sa_req         = 0;     /* scripted-anim mailbox cleared */
-            g.sa_cur         = 0;     /* (player anim re-init state)   */
-            g.sa_clip        = -1;
-            g.sa_req_hold    = 0;
-            g.sa_hold        = 0;
-            /* ELEVATOR actor re-arm (the descent ov 0x00828050 is
-             * installed fresh by the powered terminal script at each area
-             * build): reset the per-scene actor state so the descent can
-             * run once in the loaded scene. The persistent game-state
-             * flags (opening_complete / terminal_powered) are NOT touched
-             * here — they survive a room-move reload (see em_game_install
-             * for the new-game wipe). elev_pos is (re)set by the manifest
-             * `elevator` line during scene_manifest_load. The scripted
-             * interact-anim lock is per-actor too — clear it so a scene
-             * change can't leave the player locked. */
-            g.elev_state      = 0;
-            g.elev_pending    = 0;
-            g.elev_frame      = 0;
-            g.interact_active = 0;
-            g.interact_clip   = 0;
-            g.interact_seen   = 0;
-            /* AREA-11 OPENING DIRECTOR re-arm (the D_00810813 step
-             * machine — ov 0x8253F0, installed fresh at each area
-             * build). The step byte resets to 0 (the opening plays once
-             * per AREA-11 build; live-confirmed pristine 0 at new game).
-             * The per-beat transient is fully cleared so a scene change
-             * can NEVER leave the player locked in a cinematic — the
-             * soft-lock guard. Outside AREA-11 the director simply never
-             * arms (no zone is ever entered), so this is inert. */
-            g.cine_step       = 0;
-            g.cine_active     = 0;
-            g.cine_beat       = -1;
-            g.cine_kf         = 0;
-            g.cine_kf_t       = 0;
-            g.cine_fade       = 0;
-            g.cine_was        = 0;
-            g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
-            g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
-            g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
-            g.yaw    = g.n_scene ? g.spawn_yaw : 0.0f;
-            if (g.door_test || g.capture_door || g.pause_test) {
-                /* EM_DOOR_TEST / EM_CAPTURE_DOOR / EM_PAUSE_TEST spawn:
-                 * the z = -225 corridor line in front of the west
-                 * double door, facing -X (see door_test_script;
-                 * EM_PAUSE_TEST uses the same approach for its door leg
-                 * — the mid-walk-out menu check). */
-                g.pos[0] = 72.0f;
-                g.pos[1] = 0.0f;
-                g.pos[2] = -225.0f;
-                g.yaw    = -EM_PI * 0.5f;
-            }
-            if (g.capture_supply) {
-                /* EM_CAPTURE_SUPPLY spawn: on the x = 104 doorway-center
-                 * column of the office DOUBLE DOORS (door id 2), facing
-                 * them (south, yaw pi) — the approach + CROSS below
-                 * carries the transit into the SUPPLY ROOM (area 2 room
-                 * 1 entry 3), whose spawn-record FIXED camera the
-                 * capture frame samples. */
-                g.pos[0] = 104.0f;
-                g.pos[1] = 0.0f;
-                g.pos[2] = -238.0f;
-                g.yaw    = EM_PI;
-            }
-            if (g.transit_test) {
-                /* EM_TRANSIT_TEST spawn: on the west DOORWAY-CENTER z
-                 * line (z = -225.5 — the placement pos is the HINGE
-                 * corner; the decoded use scan measures from the
-                 * center), 9 u east of it, facing it (see
-                 * transit_test_script). */
-                g.pos[0] = 66.0f;
-                g.pos[1] = 0.0f;
-                g.pos[2] = -225.5f;
-                g.yaw    = -EM_PI * 0.5f;
-            }
-            if (g.slider_test) {
-                /* EM_SLIDER_TEST spawn (scene_drawbridge): on the
-                 * slider door 4's z = -610 line, 16.6 u west of it,
-                 * facing +X (see slider_test_script). */
-                g.pos[0] = 112.0f;
-                g.pos[1] = 0.0f;
-                g.pos[2] = -610.0f;
-                g.yaw    = EM_PI * 0.5f;
-            }
-            if (g.locked_test) {
-                /* EM_LOCKED_TEST spawn (scene_drawbridge): on the m15
-                 * security door's doorway-center column (center
-                 * (-25.5, -192)), BACK side, 9 u out, facing the door
-                 * (+Z) — see locked_test_script. */
-                g.pos[0] = -25.5f;
-                g.pos[1] = 0.0f;
-                g.pos[2] = -201.0f;
-                g.yaw    = 0.0f;
-            }
-            memset(&g.cam, 0, sizeof g.cam);
-            g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
-            g.cam_region_on = 0;
-            /* EM_CAMREGION_TEST: SYNTHETIC test region (FLAGGED — it
-             * REPLACES the scene's region list for the run, so the
-             * test stays spawn-local and deterministic even now that
-             * the office carries the REAL supply-room line, the
-             * spawn-record camera decode in the CAMERA FIDELITY
-             * block). A strip starting 5 u down +Z of the spawn (the
-             * run-forward corridor; the wall radius stops the player
-             * ~14 u in, well inside), with the fixed eye raised
-             * BEHIND the spawn looking INTO the strip (real room
-             * cameras watch the room — and camera-relative 'w' then
-             * keeps pushing the player deeper, not back across the
-             * boundary): entering it must pin the camera there.
-             * scene_snow's REAL region (AREA06, D_0024A5F0[2]) and
-             * the supply-room line exercise this same machinery. */
-            if (g.camregion_test) {
-                g.n_camregion  = 1;
-                g.camregion[0] = (EmCamRegion){
-                    .x0 = g.pos[0] - 25.0f, .z0 = g.pos[2] + 5.0f,
-                    .x1 = g.pos[0] + 25.0f, .z1 = g.pos[2] + 34.0f,
-                    .ygate  = g.pos[1],
-                    .eye    = { g.pos[0] - 6.0f, g.pos[1] + 24.0f,
-                                g.pos[2] - 12.0f } };
-                printf("camregion test: SYNTHETIC region armed — "
-                       "X[%.1f,%.1f] Z[%.1f,%.1f], eye (%.1f, %.1f, "
-                       "%.1f)\n",
-                       g.camregion[0].x0, g.camregion[0].x1,
-                       g.camregion[0].z0, g.camregion[0].z1,
-                       g.camregion[0].eye[0], g.camregion[0].eye[1],
-                       g.camregion[0].eye[2]);
-            }
-            /* Weapon context init (the engine's HUD/weapon-context arm):
-             * holstered, ammo from the demo status (live test save:
-             * mag 4, reserve 120). The HUD mirrors the weapon live from
-             * here on (frame_close_out). */
-            em_weapon_reset(g.status.mag, g.status.reserve);
-            /* EM_ENEMY_TEST spawn: test 2 places one WORM 30 units
-             * ahead of the player spawn along the spawn facing (its
-             * own INIT yaws it at the player — src/func_00154040.c,
-             * BYTE-MATCHED, RE-CONFIRMED by audit 2026-07-31: the
-             * heading write `+0xC4 = func_001B1240(self+0xB0, spec,
-             * D_00810350, D_00810358)` sits in the single
-             * `func_001B10B0(self, 0x14, 0x13) == 0` slot-reservation
-             * arm with no distance or line-of-sight test anywhere, so
-             * acquisition really is unconditional); tests 1/3 place a
-             * DISGUISED CRATE 12 /
-             * 25 units ahead instead (see enemy_test_script). */
-            /* EM_MELEE_TEST spawn: TWO DISGUISED CRATES — A 11.0 u dead
-             * ahead (slot 0, inside the knife reach 12, inside the
-             * office spawn's 14-u wall plane — the LIGHT-combo kill)
-             * and B 25 u BEHIND the player down the open south
-             * corridor (slot 1 — the group-alarm WITNESS: the decoded
-             * broadcast walks the whole live list with NO radius, so
-             * a crate clear across the room must wake too). B faces
-             * south (away): its alarm-driven suicide hop runs down
-             * the open corridor — never near the melee cone — and its
-             * 180-tick timer bursts it there. (Facing it at the 14-u
-             * wall boxed the steer in and the engine-true budget
-             * returned it to dormancy — the run needs open ground.) */
-            if (g.melee_test && !g.et_spawned) {
-                g.et_spawned = 1;
-                float fx = sinf(g.yaw), fz = cosf(g.yaw);
-                float pa[3] = { g.pos[0] + fx * 11.0f, g.pos[1],
-                                g.pos[2] + fz * 11.0f };
-                float pb[3] = { g.pos[0] - fx * 25.0f, g.pos[1],
-                                g.pos[2] - fz * 25.0f };
-                /* explicit nest count (2) — CRATE_BUGS_DEFAULT is now 0
-                 * (a tag-less crate hatches nothing, s76), so the test
-                 * crates must request their bugs like a real scene line */
-                if (em_enemy_add_crate(em_frame_gfx(), pa, g.yaw + EM_PI,
-                                       2, 6) < 0 ||
-                    em_enemy_add_crate(em_frame_gfx(), pb, g.yaw + EM_PI,
-                                       2, 6) < 0)
-                    printf("melee test: spawn failed\n");
-            }
-            /* EM_DEATH_TEST shares the contact-run placement: one
-             * worm 30 u dead ahead (death_test_script). */
-            if ((g.enemy_test || g.death_test) && !g.et_spawned) {
-                g.et_spawned = 1;
-                /* test 1 (kill run, restaged s66): the SHOOTABLE
-                 * target is a CRATE 12 u dead ahead — inside the
-                 * office wall plane 14 u out, so the world ray ranks
-                 * behind the victim. Test 3: crate 25 u down the open
-                 * corridor (about-face below). Test 2 / death test:
-                 * one worm 30 u ahead. */
-                int   ek = (g.enemy_test == 1 || g.enemy_test == 3)
-                           ? EM_ENEMY_KIND_CRATE
-                           : EM_ENEMY_KIND_CRAWLER;
-                float ed = g.enemy_test == 1 ? 12.0f
-                         : g.enemy_test == 3 ? 25.0f : 30.0f;
-                /* Crate run only: the office spawn faces a wall plane
-                 * 14 u ahead (see the kill-run wall note), so a walking
-                 * player could never reach point-blank range at a
-                 * crate 25 u beyond it. About-face the spawn pose
-                 * (player + chase camera — the one-shot camera arm
-                 * reads g.cam.yaw next frame) so the crate goes 25 u
-                 * down the OPEN south corridor, still dead ahead. */
-                if (g.enemy_test == 3) {
-                    g.yaw    += EM_PI;
-                    g.cam.yaw = g.yaw;
-                }
-                float ep[3] = { g.pos[0] + sinf(g.yaw) * ed,
-                                g.pos[1],
-                                g.pos[2] + cosf(g.yaw) * ed };
-                /* a CRATE target requests its nest explicitly (2 bugs)
-                 * — the default is now 0 (s76); a worm uses add_kind */
-                int et_spawn = (ek == EM_ENEMY_KIND_CRATE)
-                    ? em_enemy_add_crate(em_frame_gfx(), ep, g.yaw + EM_PI,
-                                         2, 6)
-                    : em_enemy_add_kind(em_frame_gfx(), ek, ep,
-                                        g.yaw + EM_PI);
-                if (et_spawn < 0)
-                    printf("enemy test: spawn failed\n");
-            }
-            em_opening_runtime_scene_ready();
-            self->user[GAME_BYTE_FRAME] = 1;
-            /* Native init currently also presents the first world frame. */
-        case 1:
-            /* GAME-OVER OPTION 0 RESTART. src/func_001AC070.c (NEARMISS,
-             * logic authoritative) state 2 confirm with cursor 0 goes to
-             * state 4 with D_00275BE0 = 0 and reinstalls func_001ACEC0 —
-             * the title's NEW GAME route. The from-death flag
-             * D_00275BDC (001AC070 state 0 / 001AC480 state 0) skips the
-             * load wait and sets the initial cursor to 1; it does not
-             * change the cursor-0 dispatch:
-             *   001ACEC0 state 1 -> 001AD230 -> 001AF2C0 (new-game reset)
-             *   001AD250 sub 0 -> 001AD360 step 4: area 0x0B/0/0
-             *   001AD250 sub 5 -> 001ADF50 area build, then gameplay.
-             * So the restart is AREA11 sub 0 entry 0 with the new-game
-             * state wherever the player died. The memset clears event
-             * byte D_00810791 (D_00810758[0x39]), which is what the
-             * opening controller 00823E80 tests (001BA1C0(.., 0x39) in
-             * its state 1) to skip its script; it does not read
-             * D_00810811. That the rebuilt area therefore replays the
-             * opening is inferred from those instructions, not measured:
-             * no original Continue has been captured. 001AD360 step 0 calls
-             * 001FABB0 (stream stop): mirrored by em_bgm_stop(0) below.
-             * Only the fields game_state_new_game mirrors (plus pd_* /
-             * go_* and the pickup table) are reset here; New Game's
-             * em_game_install memsets all of g, so other port state
-             * (e.g. director state other than cine_step) survives a
-             * Continue. Not mirrored yet: 001AD360 steps 0-2 also call
-             * 001D1EF0, and step 1 re-requests movie selector 0
-             * (E900.PSS), which the native frontend owns. */
-            if (g.go_restart) {
-                g.go_restart  = 0;
-                g.go_state    = GO_OFF;
-                g.go_frames   = 0;
-                g.go_hold     = 0;
-                g.go_timer    = 0;
-                g.go_cursor   = 0;
-                g.pd_state    = 0;
-                g.pd_sub      = 0;
-                g.pd_phase    = 0;
-                g.pd_hold     = 0;
-                g.pd_iframes  = 0;
-                g.pd_pend_hp  = 0.0f;
-                g.pd_pend_inf = 0.0f;
-                g.pd_drain_t  = 0;
-                g.pd_clip     = 0;
-                g.pd_infected = 0;
-                g.pd_low      = 0;
-                em_bgm_stop(0);            /* 001AD360 step 0: 001FABB0 */
-                em_pickup_reset();         /* 001AF2C0 D_00810700 memset */
-                game_state_new_game(&g);   /* 001AF2C0 mirrored fields   */
-                g.et_spawned = 0;     /* self-tests may re-spawn */
-                /* The area build recreates the player actor: return the
-                 * pose source to its pre-opening load state, as the New
-                 * Game load does (game_load_task). */
-                player_pose_unload();
-                if (g.mesh) (void)player_pose_load(PLAYER_CHANNELS_PATH);
-                em_opening_runtime_request();
-                if (em_game_scene_switch(AREA11_SCENE_DIR) != 0) {
-                    fprintf(stderr, "continue: original restart area "
-                            "(AREA11, %s) unavailable\n", AREA11_SCENE_DIR);
-                    em_frame_request_quit();
-                    break;
-                }
-                em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-                self->user[GAME_BYTE_FRAME] = 0;
-                ingame_frame_machine(self);   /* re-init this frame */
-                break;
-            }
-            /* Live arm = original state 1: r = 001AE7E0 (r 1/2/3 move to
-             * states 2/3/6, not translated here); otherwise, only while
-             * D_00275BD8 (load busy) is 0, the variant chosen by
-             * scratchpad 0x70003B8D runs (001AE5E0 when 0, else
-             * 001AE6B0), followed by the B9/B8 door-request checks. The
-             * 001AFCF0 / 001B07C0(1) / 001C1DC0 calls belong to state 4
-             * (the resume arm), not to every frame
-             * (SCENE_COORDINATOR_DESIGN.md §2.3). */
-            em_opening_control_test_before_frame();
-            if (g.frame_selector)
-                cutscene_frame();   /* func_001AE6B0 */
-            else
-                gameplay_frame();   /* func_001AE5E0 */
-            break;
-        default:
-            /* Remaining jr-table 0x0026DD30 arms (pause/level-exit paths)
-             * — pending translation. */
-            break;
+    /* Area-build arm. Original anim_frame_top_b (0x001AE040,
+     * NEARMISS) state 0 sets +B = 1 and calls, in order, 001AFCA0
+     * (player-struct wipe, actor-pool reset, overlay install),
+     * 001AFCF0, 001B07C0(0), 001B6990 (deferred group, then the
+     * placement roster), 001D19E0, 001C1DC0, 00199C50,
+     * 001AEE40(4), 001FAE70(1) (area music), 001C5C50 and
+     * 001D1EF0, then RETURNS: no world frame that tick
+     * (SCENE_COORDINATOR_DESIGN.md §2.3). Natively this arm
+     * re-arms port state instead: the spawn-table stand-in is the
+     * scene manifest's spawn (the office kPlayerPos default;
+     * origin with no scene loaded), and the camera struct is
+     * zeroed back to its init state (the one-shot setup arms it
+     * behind the player on the next frame, along the spawn
+     * facing). Since S8 the frame core 0x1AE040 runs state 0 and
+     * the bindings (em_scene_bindings.c) call this at the 001AFCA0
+     * position; their legacy_state0_frame flag still falls through
+     * into the world frame in the same tick, which the original does
+     * not (removed by S9). */
+    g.walk_t         = 0.0;
+    g.walk_w         = 0.0f;
+    g.step_prev      = 0.0;   /* footstep edge state re-armed */
+    g.idle_t         = 0.0;   /* idle cycle re-armed (mode-0
+                               * entry: breathing + 300-frame
+                               * fidget timer) */
+    g.idle_phase     = 0;
+    g.idle_timer     = IDLE_FIDGET_FRAMES;
+    g.fid_t          = 0.0;
+    g.fid_w          = 0.0f;
+    g.gait           = 0;
+    g.loco_tier      = 0;     /* tier ramp re-armed (+0x25C/+0x38) */
+    g.loco_upt       = 0.0f;
+    g.loco_mode = g.loco_substate = 0;
+    g.loco_entry_ticks = 0;
+    g.loco_stop.phase = 0;
+    g.loco_reentry.phase = 0;
+    g.cam_recenter   = 0;
+    g.cam_idle       = 0;
+    g.frame_no       = 0;
+    g.frame_selector = 0;
+    g.sa_req         = 0;     /* scripted-anim mailbox cleared */
+    g.sa_cur         = 0;     /* (player anim re-init state)   */
+    g.sa_clip        = -1;
+    g.sa_req_hold    = 0;
+    g.sa_hold        = 0;
+    /* ELEVATOR actor re-arm (the descent ov 0x00828050 is
+     * installed fresh by the powered terminal script at each area
+     * build): reset the per-scene actor state so the descent can
+     * run once in the loaded scene. The persistent game-state
+     * flags (opening_complete / terminal_powered) are NOT touched
+     * here — they survive a room-move reload (see em_game_install
+     * for the new-game wipe). elev_pos is (re)set by the manifest
+     * `elevator` line during scene_manifest_load. The scripted
+     * interact-anim lock is per-actor too — clear it so a scene
+     * change can't leave the player locked. */
+    g.elev_state      = 0;
+    g.elev_pending    = 0;
+    g.elev_frame      = 0;
+    g.interact_active = 0;
+    g.interact_clip   = 0;
+    g.interact_seen   = 0;
+    /* AREA-11 OPENING DIRECTOR re-arm (the D_00810813 step
+     * machine — ov 0x8253F0, installed fresh at each area
+     * build). The step byte resets to 0 (the opening plays once
+     * per AREA-11 build; live-confirmed pristine 0 at new game).
+     * The per-beat transient is fully cleared so a scene change
+     * can NEVER leave the player locked in a cinematic — the
+     * soft-lock guard. Outside AREA-11 the director simply never
+     * arms (no zone is ever entered), so this is inert. */
+    g.cine_step       = 0;
+    g.cine_active     = 0;
+    g.cine_beat       = -1;
+    g.cine_kf         = 0;
+    g.cine_kf_t       = 0;
+    g.cine_fade       = 0;
+    g.cine_was        = 0;
+    g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
+    g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
+    g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
+    g.yaw    = g.n_scene ? g.spawn_yaw : 0.0f;
+    if (g.door_test || g.capture_door || g.pause_test) {
+        /* EM_DOOR_TEST / EM_CAPTURE_DOOR / EM_PAUSE_TEST spawn:
+         * the z = -225 corridor line in front of the west
+         * double door, facing -X (see door_test_script;
+         * EM_PAUSE_TEST uses the same approach for its door leg
+         * — the mid-walk-out menu check). */
+        g.pos[0] = 72.0f;
+        g.pos[1] = 0.0f;
+        g.pos[2] = -225.0f;
+        g.yaw    = -EM_PI * 0.5f;
     }
+    if (g.capture_supply) {
+        /* EM_CAPTURE_SUPPLY spawn: on the x = 104 doorway-center
+         * column of the office DOUBLE DOORS (door id 2), facing
+         * them (south, yaw pi) — the approach + CROSS below
+         * carries the transit into the SUPPLY ROOM (area 2 room
+         * 1 entry 3), whose spawn-record FIXED camera the
+         * capture frame samples. */
+        g.pos[0] = 104.0f;
+        g.pos[1] = 0.0f;
+        g.pos[2] = -238.0f;
+        g.yaw    = EM_PI;
+    }
+    if (g.transit_test) {
+        /* EM_TRANSIT_TEST spawn: on the west DOORWAY-CENTER z
+         * line (z = -225.5 — the placement pos is the HINGE
+         * corner; the decoded use scan measures from the
+         * center), 9 u east of it, facing it (see
+         * transit_test_script). */
+        g.pos[0] = 66.0f;
+        g.pos[1] = 0.0f;
+        g.pos[2] = -225.5f;
+        g.yaw    = -EM_PI * 0.5f;
+    }
+    if (g.slider_test) {
+        /* EM_SLIDER_TEST spawn (scene_drawbridge): on the
+         * slider door 4's z = -610 line, 16.6 u west of it,
+         * facing +X (see slider_test_script). */
+        g.pos[0] = 112.0f;
+        g.pos[1] = 0.0f;
+        g.pos[2] = -610.0f;
+        g.yaw    = EM_PI * 0.5f;
+    }
+    if (g.locked_test) {
+        /* EM_LOCKED_TEST spawn (scene_drawbridge): on the m15
+         * security door's doorway-center column (center
+         * (-25.5, -192)), BACK side, 9 u out, facing the door
+         * (+Z) — see locked_test_script. */
+        g.pos[0] = -25.5f;
+        g.pos[1] = 0.0f;
+        g.pos[2] = -201.0f;
+        g.yaw    = 0.0f;
+    }
+    memset(&g.cam, 0, sizeof g.cam);
+    g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
+    g.cam_region_on = 0;
+    /* EM_CAMREGION_TEST: SYNTHETIC test region (FLAGGED — it
+     * REPLACES the scene's region list for the run, so the
+     * test stays spawn-local and deterministic even now that
+     * the office carries the REAL supply-room line, the
+     * spawn-record camera decode in the CAMERA FIDELITY
+     * block). A strip starting 5 u down +Z of the spawn (the
+     * run-forward corridor; the wall radius stops the player
+     * ~14 u in, well inside), with the fixed eye raised
+     * BEHIND the spawn looking INTO the strip (real room
+     * cameras watch the room — and camera-relative 'w' then
+     * keeps pushing the player deeper, not back across the
+     * boundary): entering it must pin the camera there.
+     * scene_snow's REAL region (AREA06, D_0024A5F0[2]) and
+     * the supply-room line exercise this same machinery. */
+    if (g.camregion_test) {
+        g.n_camregion  = 1;
+        g.camregion[0] = (EmCamRegion){
+            .x0 = g.pos[0] - 25.0f, .z0 = g.pos[2] + 5.0f,
+            .x1 = g.pos[0] + 25.0f, .z1 = g.pos[2] + 34.0f,
+            .ygate  = g.pos[1],
+            .eye    = { g.pos[0] - 6.0f, g.pos[1] + 24.0f,
+                        g.pos[2] - 12.0f } };
+        printf("camregion test: SYNTHETIC region armed — "
+               "X[%.1f,%.1f] Z[%.1f,%.1f], eye (%.1f, %.1f, "
+               "%.1f)\n",
+               g.camregion[0].x0, g.camregion[0].x1,
+               g.camregion[0].z0, g.camregion[0].z1,
+               g.camregion[0].eye[0], g.camregion[0].eye[1],
+               g.camregion[0].eye[2]);
+    }
+    /* Weapon context init (the engine's HUD/weapon-context arm):
+     * holstered, ammo from the demo status (live test save:
+     * mag 4, reserve 120). The HUD mirrors the weapon live from
+     * here on (frame_close_out). */
+    em_weapon_reset(g.status.mag, g.status.reserve);
+    /* EM_ENEMY_TEST spawn: test 2 places one WORM 30 units
+     * ahead of the player spawn along the spawn facing (its
+     * own INIT yaws it at the player — src/func_00154040.c,
+     * BYTE-MATCHED, RE-CONFIRMED by audit 2026-07-31: the
+     * heading write `+0xC4 = func_001B1240(self+0xB0, spec,
+     * D_00810350, D_00810358)` sits in the single
+     * `func_001B10B0(self, 0x14, 0x13) == 0` slot-reservation
+     * arm with no distance or line-of-sight test anywhere, so
+     * acquisition really is unconditional); tests 1/3 place a
+     * DISGUISED CRATE 12 /
+     * 25 units ahead instead (see enemy_test_script). */
+    /* EM_MELEE_TEST spawn: TWO DISGUISED CRATES — A 11.0 u dead
+     * ahead (slot 0, inside the knife reach 12, inside the
+     * office spawn's 14-u wall plane — the LIGHT-combo kill)
+     * and B 25 u BEHIND the player down the open south
+     * corridor (slot 1 — the group-alarm WITNESS: the decoded
+     * broadcast walks the whole live list with NO radius, so
+     * a crate clear across the room must wake too). B faces
+     * south (away): its alarm-driven suicide hop runs down
+     * the open corridor — never near the melee cone — and its
+     * 180-tick timer bursts it there. (Facing it at the 14-u
+     * wall boxed the steer in and the engine-true budget
+     * returned it to dormancy — the run needs open ground.) */
+    if (g.melee_test && !g.et_spawned) {
+        g.et_spawned = 1;
+        float fx = sinf(g.yaw), fz = cosf(g.yaw);
+        float pa[3] = { g.pos[0] + fx * 11.0f, g.pos[1],
+                        g.pos[2] + fz * 11.0f };
+        float pb[3] = { g.pos[0] - fx * 25.0f, g.pos[1],
+                        g.pos[2] - fz * 25.0f };
+        /* explicit nest count (2) — CRATE_BUGS_DEFAULT is now 0
+         * (a tag-less crate hatches nothing, s76), so the test
+         * crates must request their bugs like a real scene line */
+        if (em_enemy_add_crate(em_frame_gfx(), pa, g.yaw + EM_PI,
+                               2, 6) < 0 ||
+            em_enemy_add_crate(em_frame_gfx(), pb, g.yaw + EM_PI,
+                               2, 6) < 0)
+            printf("melee test: spawn failed\n");
+    }
+    /* EM_DEATH_TEST shares the contact-run placement: one
+     * worm 30 u dead ahead (death_test_script). */
+    if ((g.enemy_test || g.death_test) && !g.et_spawned) {
+        g.et_spawned = 1;
+        /* test 1 (kill run, restaged s66): the SHOOTABLE
+         * target is a CRATE 12 u dead ahead — inside the
+         * office wall plane 14 u out, so the world ray ranks
+         * behind the victim. Test 3: crate 25 u down the open
+         * corridor (about-face below). Test 2 / death test:
+         * one worm 30 u ahead. */
+        int   ek = (g.enemy_test == 1 || g.enemy_test == 3)
+                   ? EM_ENEMY_KIND_CRATE
+                   : EM_ENEMY_KIND_CRAWLER;
+        float ed = g.enemy_test == 1 ? 12.0f
+                 : g.enemy_test == 3 ? 25.0f : 30.0f;
+        /* Crate run only: the office spawn faces a wall plane
+         * 14 u ahead (see the kill-run wall note), so a walking
+         * player could never reach point-blank range at a
+         * crate 25 u beyond it. About-face the spawn pose
+         * (player + chase camera — the one-shot camera arm
+         * reads g.cam.yaw next frame) so the crate goes 25 u
+         * down the OPEN south corridor, still dead ahead. */
+        if (g.enemy_test == 3) {
+            g.yaw    += EM_PI;
+            g.cam.yaw = g.yaw;
+        }
+        float ep[3] = { g.pos[0] + sinf(g.yaw) * ed,
+                        g.pos[1],
+                        g.pos[2] + cosf(g.yaw) * ed };
+        /* a CRATE target requests its nest explicitly (2 bugs)
+         * — the default is now 0 (s76); a worm uses add_kind */
+        int et_spawn = (ek == EM_ENEMY_KIND_CRATE)
+            ? em_enemy_add_crate(em_frame_gfx(), ep, g.yaw + EM_PI,
+                                 2, 6)
+            : em_enemy_add_kind(em_frame_gfx(), ek, ep,
+                                g.yaw + EM_PI);
+        if (et_spawn < 0)
+            printf("enemy test: spawn failed\n");
+    }
+    em_opening_runtime_scene_ready();
 }
 
-/* func_001AD250 — game sub-machine (state byte task+9; 6 states in
- * jr-table 0x0026DCB0). The live arm reaches the in-game frame machine
- * through the trampoline func_001AD4D0 (= j func_001AE040). */
-static void game_sub_machine(EmTask *self)
+/* Continue restart, serviced at the 0x1AE040 entry while +B == 1 (where
+ * the retired frame machine serviced it). Returns 1 when the bindings must
+ * rebuild from state 0 this tick, 0 when no restart is pending, -1 when the
+ * restart area is unavailable (quit requested, no frame this tick). */
+int em_game_legacy_continue_restart(void)
 {
-    switch (self->user[GAME_BYTE_SUB]) {
-        case 0:
-            /* Setup arm — natively nothing to stage yet. */
-            self->user[GAME_BYTE_SUB] = 1;
-            /* fall through */
-        case 1:
-            ingame_frame_machine(self);  /* via the func_001AD4D0 jump */
-            break;
-        default:
-            /* States 2..5 (menu/loading/teardown arms) — pending. */
-            break;
+    /* GAME-OVER OPTION 0 RESTART. src/func_001AC070.c (NEARMISS,
+     * logic authoritative) state 2 confirm with cursor 0 goes to
+     * state 4 with D_00275BE0 = 0 and reinstalls func_001ACEC0 —
+     * the title's NEW GAME route. The from-death flag
+     * D_00275BDC (001AC070 state 0 / 001AC480 state 0) skips the
+     * load wait and sets the initial cursor to 1; it does not
+     * change the cursor-0 dispatch:
+     *   001ACEC0 state 1 -> 001AD230 -> 001AF2C0 (new-game reset)
+     *   001AD250 sub 0 -> 001AD360 step 4: area 0x0B/0/0
+     *   001AD250 sub 5 -> 001ADF50 area build, then gameplay.
+     * So the restart is AREA11 sub 0 entry 0 with the new-game
+     * state wherever the player died. The memset clears event
+     * byte D_00810791 (D_00810758[0x39]), which is what the
+     * opening controller 00823E80 tests (001BA1C0(.., 0x39) in
+     * its state 1) to skip its script; it does not read
+     * D_00810811. That the rebuilt area therefore replays the
+     * opening is inferred from those instructions, not measured:
+     * no original Continue has been captured. 001AD360 step 0 calls
+     * 001FABB0 (stream stop): mirrored by em_bgm_stop(0) below.
+     * Only the fields game_state_new_game mirrors (plus pd_* /
+     * go_* and the pickup table) are reset here; New Game's
+     * em_game_install memsets all of g, so other port state
+     * (e.g. director state other than cine_step) survives a
+     * Continue. Not mirrored yet: 001AD360 steps 0-2 also call
+     * 001D1EF0, and step 1 re-requests movie selector 0
+     * (E900.PSS), which the native frontend owns. */
+    if (g.go_restart) {
+        g.go_restart  = 0;
+        g.go_state    = GO_OFF;
+        g.go_frames   = 0;
+        g.go_hold     = 0;
+        g.go_timer    = 0;
+        g.go_cursor   = 0;
+        g.pd_state    = 0;
+        g.pd_sub      = 0;
+        g.pd_phase    = 0;
+        g.pd_hold     = 0;
+        g.pd_iframes  = 0;
+        g.pd_pend_hp  = 0.0f;
+        g.pd_pend_inf = 0.0f;
+        g.pd_drain_t  = 0;
+        g.pd_clip     = 0;
+        g.pd_infected = 0;
+        g.pd_low      = 0;
+        em_bgm_stop(0);            /* 001AD360 step 0: 001FABB0 */
+        em_pickup_reset();         /* 001AF2C0 D_00810700 memset */
+        game_state_new_game(&g);   /* 001AF2C0 mirrored fields   */
+        g.et_spawned = 0;     /* self-tests may re-spawn */
+        /* The area build recreates the player actor: return the
+         * pose source to its pre-opening load state, as the New
+         * Game load does (game_load_task). */
+        player_pose_unload();
+        if (g.mesh) (void)player_pose_load(PLAYER_CHANNELS_PATH);
+        em_opening_runtime_request();
+        if (em_game_scene_switch(AREA11_SCENE_DIR) != 0) {
+            fprintf(stderr, "continue: original restart area "
+                    "(AREA11, %s) unavailable\n", AREA11_SCENE_DIR);
+            em_frame_request_quit();
+            return -1;
+        }
+        em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+        return 1;                     /* rebuild from state 0 this tick */
     }
+    return 0;
 }
 
-/* func_001ACEC0 — game task machine (state byte task+8; live value 3). */
-static void game_task(void)
+/* 0x1AE040 state 1 world frame: the ONE legacy worker the bindings bind to
+ * both 001AE5E0 and 001AE6B0. The port's selector is still g.frame_selector
+ * (canonical spad 3B8D replaces it in S11a); the frame bodies are unchanged. */
+void em_game_legacy_world_frame(void)
 {
-    EmTask *self = em_task_current();
-    switch (self->user[GAME_BYTE_MAIN]) {
-        case 0:
-            /* Entry arm. The original walks intermediate mode arms (the
-             * live record sits at state 3); the skeleton jumps straight
-             * to the in-game arm. */
-            self->user[GAME_BYTE_MAIN] = 3;
-            /* fall through */
-        case 3:
-            game_sub_machine(self);      /* func_001AD250 */
-            break;
-        default:
-            /* Other mode arms (title/menu flows) — pending. */
-            break;
-    }
+    em_opening_control_test_before_frame();
+    if (g.frame_selector)
+        cutscene_frame();   /* func_001AE6B0 */
+    else
+        gameplay_frame();   /* func_001AE5E0 */
 }
 
 /* Native gameplay asset loader, used after the frontend/new-game flow
@@ -1795,7 +1765,10 @@ static void game_load_task(void)
     if (g.bgm_path)
         em_bgm_play(g.bgm_path, 1);
 
-    em_task_replace_current(game_task);
+    /* Legacy load (S8): this loader stands in for 001AD1A0..001ADF50
+     * until S12a, so the record starts where 001ADF50 leaves it. */
+    em_scene_bindings_legacy_loaded(
+        em_task_replace_current(em_scene_task_001ACEC0));
 }
 
 void em_game_install(void)
