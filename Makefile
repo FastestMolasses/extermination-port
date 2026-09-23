@@ -526,6 +526,14 @@ test-camera-area11-specials-reference:
 test-player-closure-10-12-19-reference:
 	python3 tools/test_player_closure_10_12_19_reference.py
 
+.PHONY: test-roger-actor-original
+test-roger-actor-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/roger_actor_original_test.c src/game/em_roger_actor_original.c -lm -o build/roger_actor_original_test && ./build/roger_actor_original_test
+
+.PHONY: test-roger-actor-original-reference
+test-roger-actor-original-reference:
+	python3 tools/test_roger_actor_original_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
