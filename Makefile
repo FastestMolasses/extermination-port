@@ -224,6 +224,10 @@ test-door-original-runtime:
 test-cinematic-playback-reference:
 	python3 tools/test_cinematic_playback_reference.py
 
+.PHONY: test-roger-media-reference
+test-roger-media-reference:
+	python3 tools/test_roger_media_reference.py
+
 .PHONY: test-roger-cinematic-reference
 test-roger-cinematic-reference:
 	python3 tools/test_roger_cinematic_reference.py

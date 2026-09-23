@@ -17,11 +17,14 @@ typedef struct {
 typedef struct {
     const EmOpeningLine *lines;
     unsigned count, next, displayed, remaining;
-    int active;
+    int active, loaded;
 } EmOpeningDialogue;
 
 /* 001FD790/001FD950: duration N is drawn N+1 times; zero-duration,
- * nonterminal records are skipped. No keyboard dismissal/typewriter. */
+ * nonterminal records are skipped. No keyboard dismissal/typewriter.
+ * next/remaining/loaded mirror D_002821B0 +0x60/+0x6C/+0x5C after each
+ * 001FCA10 message tick: a completed line leaves the timer at zero and the
+ * following record's duration is loaded on the next tick. */
 void em_opening_dialogue_start(EmOpeningDialogue *d,
                               const EmOpeningLine *lines, unsigned count);
 void em_opening_dialogue_tick(EmOpeningDialogue *d);

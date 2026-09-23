@@ -15,31 +15,38 @@ enum { MAX_LINES = 128, MAX_TEXT = 65536, MAX_FADE_VALUES = 64 };
 void em_opening_dialogue_start(EmOpeningDialogue *d,
                               const EmOpeningLine *lines, unsigned count)
 {
+    /* 001FDB80(1): the record index (+0x60), timer (+0x6C) and loaded
+     * state (+0x5C) all start at zero; nothing is loaded before a tick. */
     memset(d, 0, sizeof *d);
     d->lines = lines;
     d->count = count;
     d->displayed = UINT_MAX;
     d->active = lines && count;
-    if (d->active) d->remaining = lines[0].duration;
 }
 
 void em_opening_dialogue_tick(EmOpeningDialogue *d)
 {
     d->displayed = UINT_MAX;
     if (!d->active) return;
-    while (d->next < d->count && !d->remaining &&
-           !d->lines[d->next].duration && !d->lines[d->next].terminal) {
-        d->next++;
-        if (d->next < d->count) d->remaining = d->lines[d->next].duration;
+    if (!d->loaded) {
+        /* 001FD790: skip zero-duration nonterminal records, then load the
+         * record's duration into the timer on this same tick. */
+        while (d->next < d->count && !d->lines[d->next].duration &&
+               !d->lines[d->next].terminal)
+            d->next++;
+        if (d->next >= d->count) { d->active = 0; return; }
+        d->remaining = d->lines[d->next].duration;
+        d->loaded = 1;
     }
-    if (d->next >= d->count) { d->active = 0; return; }
-    const EmOpeningLine *line = &d->lines[d->next];
+    /* 001FD950: draw every tick; a positive timer counts down. */
     d->displayed = d->next;
     if (d->remaining) { d->remaining--; return; }
-    if (line->terminal) { d->active = 0; return; }
+    /* 001FDB80: a terminal completion ends the sequence (001FCA10 mode 2);
+     * otherwise +0x60 advances and 001FD790 loads it on the next tick. */
+    if (d->lines[d->next].terminal) { d->active = 0; return; }
     d->next++;
-    if (d->next < d->count) d->remaining = d->lines[d->next].duration;
-    else d->active = 0;
+    d->loaded = 0;
+    if (d->next >= d->count) d->active = 0;
 }
 
 const EmOpeningLine *em_opening_dialogue_line(const EmOpeningDialogue *d)

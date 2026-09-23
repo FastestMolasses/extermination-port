@@ -110,3 +110,47 @@ captured source25 up vector and zoom (428.7239) byte for byte. An
 ASan/UBSan fixture covers endpoints, malformed resources and each failing
 service. Only scene1 is admitted; other scene IDs need their own timeline
 workers. The worker is not yet installed in the live encounter.
+
+## Roger encounter media
+
+`tools/export_roger_media.py` writes ignored `assets/scene_snow/roger/`
+`encounter.emod`, `encounter.wav`, `encounter_resume.wav` and `media.json`
+from the user's ELF, AREA11 overlay, `extract/chunk15/f12_id44.bin` and
+`STREAM/MUSIC.DAT`. The 19 message records come from timing table
+`D_00264DD0[11 + 1]` (the index `001FD790` uses for area byte 11); every
+record has voice -1 and the exporter rejects any other voice. The frame
+command's stream key 0 maps through the `0026EC60` area table to cue 29;
+the resume stream is cue 25 from `D_008106C8` bits 8..14.
+
+`python3 tools/test_roger_media_reference.py` verifies:
+
+- EMOD records/text against the export, WAV PCM hashes against the report,
+  the capture's in-RAM text block byte for byte against the source file, and
+  captured cue 29 at `00282178`. EMOD y is 388, twice the `001FD950` GS draw
+  row 0xC2.
+- 4,143 original `001FCA10` message ticks (start delays 0, 1 and 30) against
+  the native clock in `em_opening_media.c`. On every tick the drawn record,
+  the record index `+0x60`, the timer `+0x6C`, the loaded state `+0x5C` and
+  the talk mask `+0x64` of `D_002821B0` match the native state. The test also
+  checks the player talk calls (1,0,1,0) for the two speaker-0 lines, the
+  terminal completion (mode 2, then two stop-lane calls and a clear), and nine
+  message-block fields against the capture after the 52nd tick.
+- 21 original handshake cases: `001FD4C0` key-to-cue mapping (0/25/102 and
+  a miss), overlay program `001B82D0` phases 0-3 with the actual command
+  bytes, and `001FAE70` resuming cue 25 with an injected RNG result.
+
+Clock fix: after a line's completion draw, `001FDB80` only clears `+0x5C` and
+advances `+0x60`. `001FD790` loads the next duration on the following tick.
+The native clock used to preload that duration in the completion tick, so
+its timer read 79 where the original read 0. The drawn line and talk mask
+were already right. The clock now loads the duration lazily, and a new
+`loaded` field mirrors `+0x5C`. The opening and panel-message users of the
+clock still pass their tests.
+
+Boundaries: glyph layout/width/drawing (`001FE480`, `001FE530`, `001CC170`,
+`001FE070`), player-face calls (`001D06E0`), stream/SPU calls, the RNG and
+the block clear are stubs or injected replies. Only message mode
+`D_008106F5` 0 is exercised; the voice lookup hits in `001FD580`/`001FD6A0`
+are unreachable with voice -1 and are not modeled natively. PCM is exact
+ADPCM decode, not SPU2 output. Nothing installs this media, the clock or the
+resume stream into the live Roger encounter yet.
