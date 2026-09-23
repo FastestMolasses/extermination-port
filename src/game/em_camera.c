@@ -2472,8 +2472,10 @@ void camera_update(void)
         cam->timer     = 0;
     }
 
-    /* STATUS-SCREEN PAUSE: dispatch + solve are skipped and only the
-     * commit runs — the engine's frozen top modes 1/2 shape. The DOOR
+    /* The status screen no longer reaches this function: since S11b its
+     * frames are frame-machine state 3, which runs no camera stage
+     * (0018B9C0 is only in the world-frame variants; state 5 commits
+     * through 0018C0D0 = camera_commit). The DOOR
      * TRANSIT no longer freezes: the script camera cue runs instead
      * (camera_door_cinematic — DECODED cut geometry from
      * src/func_0018CBD0.c wrapped in OBSERVED sequencing; the walk-to
@@ -2481,7 +2483,7 @@ void camera_update(void)
      * still, then the op 0x0D sub 5 cinematic cue + held angle; the
      * post-warp re-seat still happens while the screen is black,
      * em_game_legacy_door_tick). */
-    if (cam->top_mode == 0 && !em_hud_is_open()) {
+    if (cam->top_mode == 0) {
         /* AREA-11 OPENING DIRECTOR camera (highest priority): while an
          * establishing-cutscene beat runs it OWNS the camera outright —
          * the eye->target keyframes are scene DATA the port authors

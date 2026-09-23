@@ -49,6 +49,7 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_opening_control_test.h"
+#include "game/em_scene_bindings.h"
 
 /* loco_clip_for_tier — the mode-1 id row {0,1,2,3} (idle/walk/jog/run)
  * indexed by the ramped locIdx +0x25C (func_0017B490 row D_00248A10),
@@ -459,22 +460,95 @@ static void actor_update(void)
 /* Stage functions (S5, docs/SCENE_COORDINATOR_DESIGN.md section 4.5)  */
 /* ------------------------------------------------------------------ */
 
+/* The damage/vitals tick (moved here from the 001AFD70 legacy block in
+ * S11b, design 4.5: the original runs its damage processor 0021C440 and
+ * vitals 0015D100 inside 0015BCF0, through 0015BA50). A hit an owner posts
+ * during frame N's pool walk is therefore processed by frame N+1's player
+ * stage, as in the original. */
+static void player_damage_tick(void)
+{
+    /* PLAYER DAMAGE pipeline (em_player_damage.c; the PD_* block). The port's enemy
+     * producers post one mailbox int (em_enemy.h, +0x36 code layout);
+     * the engine's player producers instead write the pending-damage
+     * floats directly — the bridge maps the two codes onto the decoded
+     * fields: the worm's lunge connect (type bit 0x4000, amount 15 =
+     * the decoded lunge latch D_008104D4) -> pending
+     * HEALTH +0x224; the open breather pad (GEN_TRAP_HIT = 5, the s33
+     * event-3 write) -> pending INFECTION +0x22C = 5.0 (the engine pad
+     * infects, it does not wound — the old health consume here was the
+     * P3/C12 gap). Then the processor (func_0021C440 generic tail)
+     * applies and routes to flinch/death, and the passive vitals tick
+     * (drain/kill plane/i-frames) runs.
+     * RE-VERIFIED (src/func_0021C440.c, NEARMISS — 99.77%): the
+     * processor itself never touches health. Its generic tail is
+     * `if (!+0x224 && !+0x22C) skip; if (func_0021BC40(p)) skip;` then
+     * +0x224 -> func_0021C350 (health apply, variant +0x1F1 = 0, or 4
+     * when the type byte +0xF == 0xC) and +0x22C -> func_0021C270
+     * (infection apply, variant +0x1F1 = 1) — which is exactly the
+     * port's player_apply_health / player_apply_infection split. It
+     * then routes on health <= 0 to the death entry (marker 0x3F when
+     * +0xF == 0x63 or the infected latch +0x234 == 1, else 0x40) and
+     * otherwise to the flinch entry (marker 0x3E). The sub-state bytes
+     * are literal too and match the port's pd_sub: the death arms write
+     * +4 = 2 with +5 = 1 (ordinary) or +5 = 3 (the +0xF == 0x63 /
+     * infected-latch variant), the flinch arm +4 = 2 with +5 = 0. Its
+     * tail also
+     * carries the low-health latch verbatim: `if (+0x220 <= 35.0f)
+     * +0x235 |= 1` — the source of PD_LOW_HEALTH = 35.0f, and (audit
+     * 2026-07-31) the same bit func_00161020 tests to SUPPRESS the idle
+     * fidget, so this threshold has a second, visible consequence: see
+     * the IDLE CYCLE block in actor_update. Note also that "never
+     * touches health" is scoped to this generic tail — the reaction
+     * arms above it DO seed +0x224 themselves (3.0 / 5.0 / 8.0, and
+     * once +0x224 = +0x220) before calling func_0021C350. The
+     * +0x224 = HEALTH / +0x22C = INFECTION reading and the pad's 5.0
+     * are FINDINGS' player-producer table (D_008104D4 / D_008104DC),
+     * not this function, which only sees them as two pending floats. */
+    {
+        int hitcode = em_enemy_player_hit_take();
+        if (hitcode & 0x4000)
+            g.pd_pend_hp += (float)(hitcode & 0xFFF);
+        else if (hitcode)
+            g.pd_pend_inf += (float)hitcode;
+        player_damage_process();
+        player_struggle_tick();      /* bug-latch struggle (mash CROSS) */
+        player_vitals_tick();
+    }
+}
+
 /* func_0015BCF0 position of func_001AE5E0 (design section 2.4, item 3),
  * reached through the bindings' w_0015BCF0 with a0 = the player 0x8102B0.
  * The surrounding 001CB590(player) and 001CB5A0 (an empty leaf) are the
  * bindings' own workers since S10a. player_pose_finish_palette stays here
  * because that is where it ran (design 10.2 Q2: the original produces the
- * final palette inside 0015BCF0). The damage/vitals tick that the design
- * also assigns to this stage still runs at the 001AFD70 position until
- * S11b (em_game_legacy_player_residue: after the AREA11 pool walk since
- * S10b, or inside a legacy_world node's block), together with the port's
- * death latch (g.go_state), its stand-in for the B9 write: the canonical
- * B9 has no port writer yet. In the cutscene
- * variant the bindings do not call this: the port poses the player through
- * the opening runtime (design risk 2). */
+ * final palette inside 0015BCF0). Since S11b this stage also runs:
+ *   - the damage/vitals tick (player_damage_tick above), after the pose,
+ *     in the relative order it had in the legacy block;
+ *   - the menu-inhibit byte B3 (D_008106B3), whose original writer is
+ *     0015BA50's tail (em_hud.h "STATUS OPEN/CLOSE" lists its conditions).
+ *     The port has no translation of those conditions; it writes the
+ *     legacy screen's former open gate (damage/death lock, examine
+ *     sequence, opening runtime, door menu lock) into the canonical byte,
+ *     an interim stand-in until the player spine is translated (WP-15);
+ *   - the B9 write of 0015CF90 (byte-matched, src/func_0015CF90.c):
+ *     `if (+0x220 <= 0.0f && D_008106B9 == 0) D_008106B9 = 1`, +0x220
+ *     being the player's health (g.status.health). 0015CF90's other
+ *     stores (D_00810706/707 = +0x235/+0x234, D_00810858/85C = +0x220/
+ *     +0x228) target progress/display bytes that are not canonical yet
+ *     (D2); the port's status screen keeps its own display copies.
+ * In the cutscene variant the bindings do not call this: the port poses
+ * the player through the opening runtime (design risk 2). */
 int em_player_0015BCF0(void)
 {
     actor_update();          /* func_0015BCF0 — player actor update   */
     player_pose_finish_palette(); /* original hip/Euler scratch publication */
+    player_damage_tick();
+    EmSceneState *scene = em_scene_state();
+    scene->req[EM_SCENE_REQ_B3] = (uint8_t)(player_damage_locked() ||
+                                            em_examine_input_locked() ||
+                                            em_opening_runtime_busy() ||
+                                            em_door_menu_locked());
+    if (g.status.health <= 0.0f && scene->req[EM_SCENE_REQ_B9] == 0)
+        scene->req[EM_SCENE_REQ_B9] = 1;
     return 0;
 }

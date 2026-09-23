@@ -47,6 +47,7 @@
 #include "game/em_scene.h"
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
@@ -671,22 +672,15 @@ void frame_close_out(void)
      * draws them last). HIDDEN by default — the original shows no
      * persistent HUD — and toggled by a TRIANGLE/START press (edge);
      * shown, the 3D frame underneath is the UI scene above (or the
-     * flagged dim fallback without assets) and the world simulation is
-     * paused by the gate in em_game_legacy_variant_head. EM_HUD_FORCE=1 forces it
-     * visible for overlay tests. The ammo readout is LIVE: mag/reserve
-     * mirror the weapon state (D_00810C62 / D_00810CB4) every frame,
-     * exactly like the engine UI re-reading the globals. */
-    /* MENU INHIBIT (engine D_008106B3, written every frame by the
-     * player spine: nonzero while hit-reacting/dying — and at the
-     * game-over screen, where START means restart): the open press is
-     * dropped inside em_hud_update. */
-    em_hud_menu_inhibit(player_damage_locked() ||
-                        em_examine_input_locked() ||
-                        em_opening_runtime_busy());  /* examine = the
-                                  * op07 scripted-mode window — the
-                                  * engine's menu poll never runs while
-                                  * spad 3B8D owns the frame */
-    em_hud_update(em_frame_input());
+     * flagged dim fallback without assets). Since S11b the original frame
+     * machine opens and closes it and freezes the world while it shows
+     * (state 3: 0020CDC0 = em_hud_status_tick, then this close-out as
+     * 001D1EA0(0)); see em_hud.h "STATUS OPEN/CLOSE". EM_HUD_FORCE=1
+     * forces it visible for overlay tests (its navigation hook below).
+     * The ammo readout is LIVE: mag/reserve mirror the weapon state
+     * (D_00810C62 / D_00810CB4) every frame, exactly like the engine UI
+     * re-reading the globals. */
+    em_hud_forced_update(em_frame_input());
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
     g.status.battery = em_pickup_battery_charge() >> 1;
@@ -704,7 +698,7 @@ void frame_close_out(void)
                                  * global radio machine can't address
                                  * (GLOBAL lines drew inside em_hud
                                  * just above) */
-    em_hud_area_title_render(g.frame_selector ? NULL : gfx);
+    em_hud_area_title_render(em_scene_state()->spad3B8D ? NULL : gfx);
                                 /* 001C5930 suppresses selectors1/2/3,
                                  * but its 300-frame lifetime still ticks.
                                  * AREA-11 opening title card ("FORT
@@ -744,7 +738,7 @@ void frame_close_out(void)
      * byte-identical. Presentation = the FLAGGED module stand-ins
      * (em_hud.h): module 0x27 -> em_hud_game_over, module 1 ->
      * em_hud_continue (cursor highlight). */
-    if (g.go_state == GO_SCREEN || g.go_state == GO_SCREEN_OUT)
+    if (g.go_state == GO_SCREEN)
         em_hud_game_over(gfx);
     else if (g.go_state >= GO_PROMPT)
         em_hud_continue(gfx, g.go_cursor);
@@ -816,10 +810,24 @@ int em_render_001C1D00(void)
  * always 001CB800. Wraps today's close-out unchanged: the world flush,
  * overlays, the status screen, the capture hook and the frame counter.
  * frame_close_out does not yet distinguish a0, so the argument is
- * accepted and not consumed. */
+ * accepted and not consumed: in the status frame (state 3, a0 = 0; S11b)
+ * it still redraws the frozen world chain (or the status UI scene) where
+ * the original skips 001E0D70/001DDA00, as the legacy frozen frame did. */
 int em_render_001D1EA0(int a0)
 {
     (void)a0;
+    frame_close_out();
+    return 0;
+}
+
+/* func_001ABF90 position of the byte-matched 001AD4E0 (game-over steps 3
+ * and 4 push its GS packet every tick: the screen module 0x27 image). The
+ * port has no module 0x27 art; it draws today's close-out, whose
+ * em_hud_game_over stand-in (g.go_state == GO_SCREEN, set at the
+ * 001FF080(0, 0x27) binding) covers the frozen world with an opaque base
+ * under the transition fade, as the legacy game-over frame did. */
+int em_render_001ABF90(void)
+{
     frame_close_out();
     return 0;
 }

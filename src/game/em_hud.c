@@ -110,13 +110,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "em_input.h"   /* EM_PAD_TRIANGLE / EM_PAD_START — toggle bits */
-#include "game/em_door.h"   /* em_door_menu_locked — the open gate
-                             * (the engine's menu poll func_001AE7E0
-                             * refuses while the fade machine runs or
-                             * scripted mode is active; em_door owns the
-                             * decoded transit window — em_door.h "THE
-                             * TWO LOCKS") */
+#include "em_input.h"   /* EM_PAD_TRIANGLE / START / CIRCLE — close bits */
 
 /* GS color -> float rgba: components are /255; GS alpha 0x80 = 1.0. */
 #define GS(r, g, b, a) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, \
@@ -1017,24 +1011,13 @@ static int engine_blank_lead(int v, int digits)
 }
 
 /* Status-screen visibility — hidden by default (the original shows no
- * persistent HUD), flipped by a Triangle OR Start edge (both buttons
- * open the same screen).  The "verified identical memory diff" that
- * used to be cited here is an OBSERVATION, not a decode.  The
- * source-derived part is func_001AE7E0's two-bit open test
- * `(D_00810E74 & 0x800) || (D_00810E74 & 0x10)` — two buttons, one
- * screen; naming them TRIANGLE and START is inference (em_hud.h). */
+ * persistent HUD). Since S11b the screen no longer opens itself: the
+ * scene coordinator's classifier 001AE7E0 decides (START/TRIANGLE edge
+ * `(D_00810E74 & 0x800) || (D_00810E74 & 0x10)`, or a B0/C5 request,
+ * gated by B8/B9/fade/3B8D/B3), its r == 2 arm calls 0020E060, bound to
+ * em_hud_status_open, and frame-machine state 3 calls 0020CDC0, bound to
+ * em_hud_status_tick, until that reports the close (em_hud.h). */
 static int s_shown = 0;
-
-/* MENU INHIBIT (em_hud.h) — the engine's D_008106B3 byte, mirrored
- * here by em_game's per-frame write: while set, the open press below
- * is dropped (the engine's player spine sets it while hit-reacting/
- * dying; the port adds the game-over screen, where START restarts). */
-static int s_menu_inhibit = 0;
-
-void em_hud_menu_inhibit(int inhibit)
-{
-    s_menu_inhibit = inhibit;
-}
 
 /* --- page navigation — PORT MODEL, provenance DOWNGRADED -------------
  *
@@ -1190,43 +1173,21 @@ static float s_disp_infection = -1.0f;
  * (func_00208AD0, byte-matched): 30 stepped positions, 1 s per turn. */
 static uint32_t s_frames = 0;
 
-void em_hud_update(const EmFrameInput *in)
+/* One-time nav init for forced captures: EM_HUD_FORCE bypasses the
+ * open, so apply EM_HUD_PAGE here. */
+static void hud_nav_init(void)
 {
-    /* One-time nav init for forced captures: EM_HUD_FORCE bypasses the
-     * open edge, so apply EM_HUD_PAGE here. */
     static int nav_init = 0;
     if (!nav_init) {
         nav_init = 1;
         if (hud_forced()) s_page = hud_forced_page();
     }
+}
 
-    if (!in) return;
-
-    if (!em_hud_visible()) {
-        /* Closed: Triangle or Start opens the screen at the hub —
-         * UNLESS a lock holds.  CONFIRMED against func_001AE7E0
-         * (NEARMISS, body-correct), which is a pure classifier with no
-         * latch of its own: it returns 0 (blocked) for D_008106B8,
-         * D_008106B9, the fade word D_0028A9A0, the scratchpad gate
-         * *0x70003B8D and the menu-inhibit byte D_008106B3, and only
-         * reaches its open test `(D_00810E74 & 0x800) ||
-         * (D_00810E74 & 0x10)` after all of them.  A blocked press is
-         * simply dropped.  em_door owns the fade/scripted half of that
-         * list (em_door.h "THE TWO LOCKS"), s_menu_inhibit the
-         * D_008106B3 half.
-         *
-         * Not modelled here: func_001AE7E0 also returns 1 whenever
-         * D_00810E50 != 4, i.e. the open test is unreachable outside
-         * that game state. */
-        if ((in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START)) &&
-            !em_door_menu_locked() && !s_menu_inhibit) {
-            s_shown = 1;
-            s_hover = 0;
-            s_page  = hud_forced_page();   /* -1 unless EM_HUD_PAGE */
-        }
-        return;
-    }
-
+/* The legacy screen's navigation (page view, hub close, hover, page
+ * entry) over this frame's edges. Returns 1 when the hub closed. */
+static int hud_nav(const EmFrameInput *in)
+{
     if (s_page >= 0) {
         /* Page view: Circle (engine exit path) or Triangle returns to
          * the hub; page content input is not modeled yet. */
@@ -1234,7 +1195,7 @@ void em_hud_update(const EmFrameInput *in)
             s_page = -1;
             em_sfx_play(HUD_SFX_CANCEL);
         }
-        return;
+        return 0;
     }
 
     /* Hub: Triangle/Start/Circle closes.  (The engine edge mask is 0x830
@@ -1245,7 +1206,7 @@ void em_hud_update(const EmFrameInput *in)
         s_shown = 0;
         s_hover = 0;
         em_sfx_play(HUD_SFX_CANCEL);
-        return;
+        return 1;
     }
 
     /* Stick hover among the pager diamonds — the quadrant mapping is
@@ -1278,21 +1239,42 @@ void em_hud_update(const EmFrameInput *in)
         s_page = kHoverToPage[s_hover];
         em_sfx_play(HUD_SFX_CONFIRM);
     }
+    return 0;
+}
+
+/* The 0020E060 position (em_hud.h). The original clears the 0xA0-byte
+ * status block D_00810130 (src/func_0020E060.c); the legacy screen's
+ * counterpart is its open state: shown, hub, no hover. */
+void em_hud_status_open(void)
+{
+    hud_nav_init();
+    s_shown = 1;
+    s_hover = 0;
+    s_page  = hud_forced_page();   /* -1 unless EM_HUD_PAGE */
+}
+
+/* The 0020CDC0 position (em_hud.h). */
+int em_hud_status_tick(const EmFrameInput *in)
+{
+    hud_nav_init();
+    if (!in || !s_shown)
+        return -1; /* 0020CDC0 is only reached while the screen is open */
+    return hud_nav(in);
+}
+
+/* EM_HUD_FORCE hook (em_hud.h): the forced screen navigates while the
+ * real one is closed. */
+void em_hud_forced_update(const EmFrameInput *in)
+{
+    hud_nav_init();
+    if (!in || !hud_forced() || s_shown)
+        return;
+    (void)hud_nav(in);
 }
 
 int em_hud_visible(void)
 {
     return s_shown || hud_forced();
-}
-
-/* The pause-gate query (em_hud.h): the REAL toggle only — em_game halts
- * the world simulation on this while the menu is up (the engine's open
- * flag 0x8106C4). EM_HUD_FORCE is deliberately excluded: it is a
- * render-only capture hook and the headless overlay captures need
- * gameplay to keep running underneath. */
-int em_hud_is_open(void)
-{
-    return s_shown;
 }
 
 /* Can the ACTIVE sheet (the hub's ui.emui, or the entered page's

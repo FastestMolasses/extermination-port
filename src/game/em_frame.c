@@ -171,6 +171,17 @@ static void frame_screen_fade_draw(void)
 }
 const EmFrameInput *em_frame_input(void){ return &s_frame.input; }
 const EmPadUnpack *em_frame_pad_block(void) { return &s_frame.pad_block; }
+
+/* See em_frame.h: the original-layout words need no remapping; the native
+ * EM_PAD view (s_frame.input) is the swapped one. */
+void em_frame_scene_input(EmSceneState *scene)
+{
+    if (!scene)
+        return;
+    scene->d810E74 = s_frame.pad_block.pressed;
+    scene->d810E70 = s_frame.pad_block.held;
+    scene->d810E50 = 4;
+}
 EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
 uint32_t  em_frame_counter(void)        { return s_frame.counter; }

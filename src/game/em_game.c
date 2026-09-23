@@ -22,16 +22,17 @@
  *                                        sections 2.2, 2.3 and 6 (S8).
  *                                        Legacy hooks in this file:
  *                                        em_game_legacy_state0 (state 0,
- *                                        001AFCA0 position),
- *                                        em_game_legacy_continue_restart.
+ *                                        001AFCA0 position) and the
+ *                                        interim 001AC070 continue task
+ *                                        (em_game_legacy_continue_task_
+ *                                        001AC070, S11b).
  *   func_001AE5E0  GAMEPLAY FRAME        since S10a the cores
  *   func_001AE6B0  cutscene variant      em_sf_001AE5E0 / em_sf_001AE6B0
  *                                        call the stage workers in the
  *                                        original order; the variant is
- *                                        chosen by canonical 3B8D, which
- *                                        the bindings publish from the
- *                                        port's g.frame_selector until
- *                                        S11a. Legacy hooks here:
+ *                                        chosen by canonical 3B8D (its
+ *                                        only storage since S11a).
+ *                                        Legacy hooks here:
  *                                        em_game_legacy_variant_head and
  *                                        the legacy world pieces the pool
  *                                        nodes call (the 001AFD70
@@ -141,7 +142,8 @@
  * idle auto-orients slowly, and a blocking wall PULLS the eye in at
  * constant height (which reads as the camera rising over the player —
  * the CAMERA FIDELITY block below). While the status screen is open the world
- * simulation PAUSES (the gate in em_game_legacy_variant_head). Esc still quits
+ * is frozen: the frame machine is in state 3, which runs no world frame
+ * (S11b; SCENE_COORDINATOR_DESIGN.md section 5). Esc still quits
  * (em_frame.c step C).
  *
  * SCENE MANIFEST: assets/scene/scene.txt (see scene_manifest_load) gives
@@ -564,68 +566,45 @@ const float kLocoTierSpeed[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
 
 
 
-/* GAME-OVER / CONTINUE machine — the decoded engine chain (PD block
- * doc: func_001AD4E0 wait subs 2..4 + func_001AC070/func_001AC480
- * continue states), folded into one port state machine. RE-VERIFIED:
- * src/func_001AD4E0.c (BYTE-MATCHED) sets the 0xF0 = 240 hold at sub 0
- * and leaves sub 3 on `D_0028A9A0==0 && (counter==0 || D_00810E74&0x40)`
- * = fade idle && (expiry || CROSS); src/func_001AC480.c case 2 carries
- * the 0x4B0 = 1200 prompt timer (decremented only on input-free frames,
- * re-armed on any held frame), confirm mask 0x840, DOWN 0x4000 /
+/* GAME-OVER / CONTINUE. Since S11b the game-over half runs as the
+ * original chain in the scene coordinator: the player stage writes B9
+ * (0015CF90, em_player_frame.c); at fade substate 2, 0x1AE040 state 1
+ * calls 001AD140 (+9 = 2); 001AD250 then runs the byte-matched 001AD4E0
+ * core (the 0xF0 hold at +0x18, the CROSS skip D_00810E74 & 0x40 once
+ * D_0028A9A0 == 0, the fades) and 001ADF00, whose 001AB790(001AC070)
+ * replaces the game task. The bindings (em_scene_bindings.c) bind that
+ * chain's workers; the port's legacy pieces stand in only where the
+ * original is not translated: the GAME OVER screen module 0x27
+ * (001FF080(0, 0x27) sets g.go_state = GO_SCREEN, the em_hud_game_over
+ * stand-in drawn at the 001ABF90 packet position) and the CONTINUE task
+ * 001AC070 below.
+ *
+ * em_game_legacy_continue_task_001AC070 — the interim 001AC070 (the
+ * decoded continue flow; FLAGGED legacy stand-in until 001AC070 and
+ * 001AC480 are translated). RE-VERIFIED: src/func_001AC480.c case 2
+ * carries the 0x4B0 = 1200 prompt timer (decremented only on input-free
+ * frames, re-armed on any held frame), confirm mask 0x840, DOWN 0x4000 /
  * UP 0x1000 with the cursor clamped to 0..2, and sounds 0x5DD/0x5DE/
  * 0x5DF + move blip 5, and its sub-0 cursor INIT is
- * `GS[0xF] = (D_00275BDC == 0) ? 0 : 1` — the from-death flag
- * D_00275BDC is set to 1 by src/func_001ADF00.c, so GO_CURSOR_DEATH = 1
- * is source-derived. src/func_001AC070.c (NEARMISS — 97.95%, logic
- * authoritative but NOT byte-matched; the earlier "BYTE-MATCHED" note
- * here was wrong) is the outer flow whose state 4 does
- * func_001AB790(func_001ACEC0) and returns without the
- * func_001D2830(3,1) tail. Its state-2 CONFIRM dispatch reads that same
- * GS[0xF]: 0 -> state 4 + D_00275BE0 = 0 (CONTINUE), 1 -> func_00225A00()
- * + state 5 + D_00275BE0 = 1 (LOAD), 2 -> state 6 + GS[0xC] = 0
- * (sub-screen). RE-CONFIRMED line by line (audit 2026-07-31) against
- * src/func_001AC480.c, src/func_001AD4E0.c and src/func_001AC070.c;
- * the D_00275BDC = 1 write really is in src/func_001ADF00.c, and the
- * masks check out against the s37 BYTE-SWAPPED pad map (0x40 = CROSS,
- * 0x800 = START, so 0x840 = START|CROSS; 0x1000 = d-pad UP,
- * 0x4000 = d-pad DOWN). One knowingly-unmirrored detail: the engine
- * reads the prompt counter BEFORE decrementing and expires on the
- * pre-decrement 0, i.e. 1201 frames to the port's 1200. Left alone —
- * one frame in a 20 s idle timeout. Runs every
- * frame from GO_SCREEN on (the frozen-world gate in em_game_legacy_variant_head
- * calls it — the engine's game task is REPLACED here, so the world
- * does not simulate). Presentation: em_hud_game_over /
- * em_hud_continue, drawn UNDER the fade in frame_close_out. */
-static void game_over_tick(void)
+ * `GS[0xF] = (D_00275BDC == 0) ? 0 : 1` — D_00275BDC is set to 1 by
+ * 001ADF00 (canonical d275BDC). src/func_001AC070.c (NEARMISS — 97.95%,
+ * logic authoritative but NOT byte-matched) is the outer flow whose
+ * state 4 does func_001AB790(func_001ACEC0). Its state-2 CONFIRM
+ * dispatch reads that same GS[0xF]: 0 -> state 4 + D_00275BE0 = 0
+ * (CONTINUE), 1 -> func_00225A00() + state 5 + D_00275BE0 = 1 (LOAD),
+ * 2 -> state 6 + GS[0xC] = 0 (sub-screen). The masks check out against
+ * the s37 BYTE-SWAPPED pad map (0x40 = CROSS, 0x800 = START, so 0x840 =
+ * START|CROSS; 0x1000 = d-pad UP, 0x4000 = d-pad DOWN). One
+ * knowingly-unmirrored detail: the engine reads the prompt counter BEFORE
+ * decrementing and expires on the pre-decrement 0, i.e. 1201 frames to
+ * the port's 1200. Presentation: em_hud_continue, drawn UNDER the fade in
+ * frame_close_out. */
+static void continue_tick(void)
 {
     const EmFrameInput *in = em_frame_input();
-    if (g.go_state < GO_SCREEN) return;
+    if (g.go_state < GO_PROMPT) return;
     g.go_frames++;
     switch (g.go_state) {
-    case GO_SCREEN:
-        /* engine wait sub 3: the 240 counts down THROUGH the fade-in;
-         * skip/expiry only fire once the fade machine is idle. */
-        if (g.go_hold > 0) g.go_hold--;
-        if (em_frame_fade_level() > 0.0f) break;     /* fade busy */
-        if (g.go_hold == 0 || (in->pressed & EM_PAD_CROSS)) {
-            /* CROSS skip (D_00810E74 & 0x40) or timer expiry ->
-             * fade-out (func_001AEDE0(4,0)) */
-            em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
-            g.go_state  = GO_SCREEN_OUT;
-            g.go_frames = 0;
-        }
-        break;
-    case GO_SCREEN_OUT:
-        /* engine wait sub 4: at hold-black stop the cue + arm the
-         * CONTINUE machine (func_001ADF00 task replacement). */
-        if (em_frame_fade_level() >= 1.0f) {
-            g.go_state  = GO_PROMPT;
-            g.go_frames = 0;
-            g.go_timer  = GO_PROMPT_FRAMES;        /* task+0x16       */
-            g.go_cursor = GO_CURSOR_DEATH;         /* from-death = 1  */
-            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-        }
-        break;
     case GO_PROMPT:
         /* func_001AC480 sub 2 — gated until the fade is idle. */
         if (em_frame_fade_level() > 0.0f) break;
@@ -1035,8 +1014,8 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
  * retired gameplay_frame/cutscene_frame monoliths, moved without change
  * except for position:
  *   - em_game_legacy_variant_head: instrumentation at the head of both
- *     variants, plus the status/game-over frozen frame of the gameplay one
- *     (retired by S11b);
+ *     variants (its status/game-over frozen frame was retired by S11b:
+ *     the frame machine's states 3/5 and the 001AD4E0 chain replace it);
  *   - em_game_legacy_pool_gameplay / em_game_legacy_pool_cutscene: the
  *     001AFD70 position (001AE5E0 walks mode 0; 001AE6B0 walks mode 1).
  *     Each is ONE block holding every other world update of the old
@@ -1050,50 +1029,19 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
  * 008253F0 manager and 00159210 panel are pool nodes; 001AE5E0 calls
  * 0015BCF0 at 0x1AE628 and 001AFD70 at 0x1AE64C). */
 
-/* Head of both world-frame variants. Returns 1 when the gameplay variant
- * ran the frozen frame instead (the status screen is open or the game-over
- * machine owns the frame): the bindings then skip the variant's stages. */
-int em_game_legacy_variant_head(int cutscene)
+/* Head of both world-frame variants: test instrumentation only. The
+ * status-screen and game-over frozen frames that used to run here were
+ * retired by S11b: the status screen is frame-machine state 3 (0020CDC0,
+ * world frozen) and state 5, and game over is B9 -> 001AD140 -> 001AD4E0
+ * -> 001ADF00 (em_scene_bindings.c). */
+void em_game_legacy_variant_head(int cutscene)
 {
     em_opening_control_test_before_frame();
     if (cutscene)
-        return 0;
+        return;
     em_game_selftest_pre_frame();   /* every EM_*_TEST script and EM_CAPTURE_*
                                      * input injection (em_game_selftest.c)
                                      * — debug instrumentation only */
-
-    /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
-     * real Triangle/Start toggle — em_hud_is_open(); the EM_HUD_FORCE
-     * capture hook deliberately does NOT pause, see em_hud.h) the
-     * world simulation HALTS: no actor/door/enemy/weapon updates, no
-     * camera dispatch — the player cannot move, exactly the original's
-     * menu pause. The frame still renders: the chain re-records from
-     * the modules' frozen palettes, the camera commits (window-resize
-     * safe), and the close-out runs em_hud_update so the screen can be
-     * closed (the toggle stays live) — idle/animation clocks freeze
-     * because actor_update never runs. */
-    if (em_hud_is_open()) {
-        render_chain_build();    /* frozen poses, current scene */
-        camera_update();         /* freeze path: commit only (above) */
-        frame_close_out();       /* flush + hud toggle + fade + capture */
-        return 1;
-    }
-    /* GAME-OVER / CONTINUE GATE: from GO_SCREEN on, the engine's
-     * gameplay task is parked (wait state) and then REPLACED WHOLESALE
-     * by the continue machine (s66/s70 — the PD block doc): the world
-     * stops existing. The port models that the same way the menu
-     * pause does — the world simulation halts, the frame still
-     * renders (the screens' opaque base hides the dead scene), and
-     * game_over_tick owns input/fades/dispatch. The restart latch is
-     * serviced by the frame machine before this frame re-runs. */
-    if (g.go_state >= GO_SCREEN) {
-        game_over_tick();        /* the continue-machine slice */
-        render_chain_build();    /* frozen world under the screens */
-        camera_update();         /* commit only */
-        frame_close_out();       /* overlays + fade + capture */
-        return 1;
-    }
-    return 0;
 }
 
 /* ---- 001AE5E0's 001AFD70(0) position: the legacy world pieces ----
@@ -1295,60 +1243,11 @@ void em_game_legacy_enemy_tick(void)
     em_enemy_update(&g.coll, g.pos);
 }
 
-/* The player-side residue of the legacy block: the damage/vitals tick with
- * the port's death latch (S11b moves it into w_0015BCF0 with the B9 write)
- * and the weapon update (WP-15). It has no pool owner in the original. */
+/* The player-side residue of the legacy block: the weapon update (WP-15).
+ * It has no pool owner in the original. (The damage/vitals tick that also
+ * ran here moved to the player stage in S11b, em_player_frame.c.) */
 void em_game_legacy_player_residue(void)
 {
-    /* PLAYER DAMAGE pipeline (the PD_* block above). The port's enemy
-     * producers post one mailbox int (em_enemy.h, +0x36 code layout);
-     * the engine's player producers instead write the pending-damage
-     * floats directly — the bridge maps the two codes onto the decoded
-     * fields: the worm's lunge connect (type bit 0x4000, amount 15 =
-     * the decoded lunge latch D_008104D4) -> pending
-     * HEALTH +0x224; the open breather pad (GEN_TRAP_HIT = 5, the s33
-     * event-3 write) -> pending INFECTION +0x22C = 5.0 (the engine pad
-     * infects, it does not wound — the old health consume here was the
-     * P3/C12 gap). Then the processor (func_0021C440 generic tail)
-     * applies and routes to flinch/death, and the passive vitals tick
-     * (drain/kill plane/i-frames) runs.
-     * RE-VERIFIED (src/func_0021C440.c, NEARMISS — 99.77%): the
-     * processor itself never touches health. Its generic tail is
-     * `if (!+0x224 && !+0x22C) skip; if (func_0021BC40(p)) skip;` then
-     * +0x224 -> func_0021C350 (health apply, variant +0x1F1 = 0, or 4
-     * when the type byte +0xF == 0xC) and +0x22C -> func_0021C270
-     * (infection apply, variant +0x1F1 = 1) — which is exactly the
-     * port's player_apply_health / player_apply_infection split. It
-     * then routes on health <= 0 to the death entry (marker 0x3F when
-     * +0xF == 0x63 or the infected latch +0x234 == 1, else 0x40) and
-     * otherwise to the flinch entry (marker 0x3E). The sub-state bytes
-     * are literal too and match the port's pd_sub: the death arms write
-     * +4 = 2 with +5 = 1 (ordinary) or +5 = 3 (the +0xF == 0x63 /
-     * infected-latch variant), the flinch arm +4 = 2 with +5 = 0. Its
-     * tail also
-     * carries the low-health latch verbatim: `if (+0x220 <= 35.0f)
-     * +0x235 |= 1` — the source of PD_LOW_HEALTH = 35.0f, and (audit
-     * 2026-07-31) the same bit func_00161020 tests to SUPPRESS the idle
-     * fidget, so this threshold has a second, visible consequence: see
-     * the IDLE CYCLE block in actor_update. Note also that "never
-     * touches health" is scoped to this generic tail — the reaction
-     * arms above it DO seed +0x224 themselves (3.0 / 5.0 / 8.0, and
-     * once +0x224 = +0x220) before calling func_0021C350. The
-     * +0x224 = HEALTH / +0x22C = INFECTION reading and the pad's 5.0
-     * are FINDINGS' player-producer table (D_008104D4 / D_008104DC),
-     * not this function, which only sees them as two pending floats. */
-    {
-        int hitcode = em_enemy_player_hit_take();
-        if (hitcode & 0x4000)
-            g.pd_pend_hp += (float)(hitcode & 0xFFF);
-        else if (hitcode)
-            g.pd_pend_inf += (float)hitcode;
-        player_damage_process();
-        player_struggle_tick();      /* bug-latch struggle (mash CROSS) */
-        player_vitals_tick();
-        /* (the GO machine ticks from the frozen gate above once
-         * GO_SCREEN is reached — the live path never runs it) */
-    }
     /* WEAPON: the player-side armed-stance/fire state machine (engine:
      * part of the player actor update, modes 0x1D..0x20) plus the
      * gun-actor fire-event consumption (engine: pool tick, one-frame
@@ -1490,7 +1389,6 @@ void em_game_legacy_state0(void)
     g.cam_recenter   = 0;
     g.cam_idle       = 0;
     g.frame_no       = 0;
-    g.frame_selector = 0;
     g.sa_req         = 0;     /* scripted-anim mailbox cleared */
     g.sa_cur         = 0;     /* (player anim re-init state)   */
     g.sa_clip        = -1;
@@ -1703,11 +1601,11 @@ void em_game_legacy_state0(void)
     em_opening_runtime_scene_ready();
 }
 
-/* Continue restart, serviced at the 0x1AE040 entry while +B == 1 (where
- * the retired frame machine serviced it). Returns 1 when the bindings must
- * rebuild from state 0 this tick, 0 when no restart is pending, -1 when the
- * restart area is unavailable (quit requested, no frame this tick). */
-int em_game_legacy_continue_restart(void)
+/* Continue restart (game-over option 0), run by the interim 001AC070 task
+ * below when the prompt latched g.go_restart. Returns 1 when the restart
+ * ran and the game task must be reinstalled, 0 when no restart is pending,
+ * -1 when the restart area is unavailable (quit requested). */
+static int continue_restart(void)
 {
     /* GAME-OVER OPTION 0 RESTART. src/func_001AC070.c (NEARMISS,
      * logic authoritative) state 2 confirm with cursor 0 goes to
@@ -1739,7 +1637,6 @@ int em_game_legacy_continue_restart(void)
         g.go_restart  = 0;
         g.go_state    = GO_OFF;
         g.go_frames   = 0;
-        g.go_hold     = 0;
         g.go_timer    = 0;
         g.go_cursor   = 0;
         g.pd_state    = 0;
@@ -1770,9 +1667,39 @@ int em_game_legacy_continue_restart(void)
             return -1;
         }
         em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-        return 1;                     /* rebuild from state 0 this tick */
+        return 1;                     /* reinstall the game task */
     }
     return 0;
+}
+
+/* The interim 001AC070 (see continue_tick): the task 001ADF00 installs
+ * through 001AB790(0x1AC070) (em_scene_bindings.c w_001AB790). Its first
+ * tick enters the prompt the way the decoded flow does from death
+ * (001AC480 sub 0: screen module 1, cursor = D_00275BDC ? 1 : 0, fade
+ * in); every tick runs the prompt and draws the frame (the frozen world
+ * under em_hud_continue's opaque base). Option 0's restart is serviced at
+ * the start of the next tick: the New Game-route reset (continue_restart)
+ * and 001AC070 state 4's 001AB790(001ACEC0), with the legacy load's task
+ * bytes (em_scene_bindings_legacy_loaded: +8 = 3, +9 = 1, +B = 0), so the
+ * next scene-task tick rebuilds AREA11 from state 0. */
+void em_game_legacy_continue_task_001AC070(void)
+{
+    if (g.go_restart) {
+        int restart = continue_restart();
+        if (restart > 0)
+            em_scene_bindings_legacy_loaded(
+                em_task_replace_current(em_scene_task_001ACEC0));
+        return; /* no frame this tick (quit requested when < 0) */
+    }
+    if (g.go_state < GO_PROMPT) {
+        g.go_state  = GO_PROMPT;
+        g.go_frames = 0;
+        g.go_timer  = GO_PROMPT_FRAMES;                  /* task+0x16 */
+        g.go_cursor = em_scene_state()->d275BDC ? 1 : 0; /* 001AC480 sub 0 */
+        em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
+    }
+    continue_tick();
+    frame_close_out();
 }
 
 /* Native gameplay asset loader, used after the frontend/new-game flow

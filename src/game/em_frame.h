@@ -30,6 +30,7 @@
 #include "em_input.h"
 #include "em_platform.h"
 #include "game/em_fade.h"
+#include "game/em_scene_state.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,6 +70,21 @@ const EmFrameInput *em_frame_input(void);
  * (including the repeat word 0x00810E78), analog 0x00810E64..67 and the
  * 001B5CC0 gait byte 0x00810E57. */
 const EmPadUnpack *em_frame_pad_block(void);
+
+/* The one translation of step C's result into the scene coordinator's
+ * canonical input bytes (design 3.2, S11a), in the ORIGINAL layout:
+ *   D_00810E74 (pressed edge) and D_00810E70 (held) are the halfwords
+ *   001B5940 stores, i.e. em_frame_pad_block()->pressed / ->held, unswapped;
+ *   D_00810E50 is byte +0x10 of the pad record D_00810E40 (001B57E0 passes
+ *   it to 001B5F40), which 001B5F40 sets to 4 once the pad is initialised
+ *   (sb at 0x1B604C); it is 4 in every original capture (design 10.2 Q8).
+ *   The native pad is always that connected, initialised analog DualShock
+ *   (see frame_input_read), so it is always 4, and 001B57E0's read-failure
+ *   clear (0x1B5804..0x1B5844) is unreachable.
+ * The slot-0 scene task calls it at the start of every tick, after this
+ * frame's step C and before any original code reads the words; no other
+ * module writes them. */
+void em_frame_scene_input(EmSceneState *scene);
 
 /* Loop environment accessors for game code (the engine reaches its
  * equivalents through globals). */

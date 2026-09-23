@@ -186,7 +186,8 @@ test-bgm-ticks: tests/bgm_tick_test.c src/game/em_bgm.c
 OPENING_TEST_SRC := tests/opening_runtime_test.c src/game/em_opening_runtime.c \
     src/game/em_area11_opening.c src/game/em_script.c src/game/em_cinematic_camera.c \
     src/game/em_opening_actor.c src/game/em_opening_face.c src/em_model.c src/game/em_opening_media.c \
-    src/game/em_bgm.c src/game/em_random.c src/game/em_fade.c
+    src/game/em_bgm.c src/game/em_random.c src/game/em_fade.c \
+    src/game/em_scene_frame.c src/game/em_scene_classify.c src/game/em_status_frame.c
 .PHONY: test-opening-runtime
 test-opening-runtime: $(OPENING_TEST_SRC)
 	@mkdir -p build
@@ -258,6 +259,10 @@ test-frame-input:
 .PHONY: test-scene-classify
 test-scene-classify:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/scene_classify_test.c src/game/em_scene_classify.c -o build/scene_classify_test && ./build/scene_classify_test
+
+.PHONY: test-scene-no-shadow
+test-scene-no-shadow:
+	python3 tools/test_scene_no_shadow.py
 
 .PHONY: test-scene-classify-reference
 test-scene-classify-reference:

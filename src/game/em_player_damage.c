@@ -344,29 +344,12 @@ void player_hurt_tick(void)
         }
         return;
     }
-    if (g.pd_phase == 3) {
-        /* fading: at full black the engine parks the player machine
-         * and func_001AE040's state-1 tail is believed to fire
-         * (D_008106B9 latch && fade == 2) -> the GAME-OVER WAIT.
-         * PROVENANCE: func_001AE040 is NOT recovered — there is no
-         * src/func_001AE040.c in the decomp at all — so this hand-off
-         * is OBSERVED/inferred from the FINDINGS call-graph note
-         * ("func_001AD4D0 = j func_001AE040 ... in-game frame machine,
-         * jr-table 0x0026DD30"), not read out of recovered C. What IS
-         * byte-matched is the WAIT it hands to: src/func_001AD4E0.c
-         * (see game_over_tick). Port: enter GO_SCREEN — module-0x27 screen
-         * stand-in + FADE-IN + the 240 hold; from the next frame the
-         * world is FROZEN (the em_game_legacy_variant_head gate) and game_over_tick
-         * owns the flow, modeling the engine's task replacement. */
-        if (em_frame_fade_level() >= 1.0f) {
-            g.pd_phase  = 4;
-            g.go_state  = GO_SCREEN;
-            g.go_frames = 0;
-            g.go_hold   = GO_HOLD_FRAMES;          /* task+0x18 = 0xF0 */
-            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR); /* func_001AEE10 */
-        }
-    }
-    /* phase 4: parked dead under the game-over/continue screens */
+    /* phase 3: parked dead in the fade-out. The hand-off at full black
+     * is the frame machine's since S11b: B9 was written by the player
+     * stage (0015CF90) when health reached 0, and 0x1AE040 state 1 calls
+     * 001AD140 once D_0028A9A0 == 2 (after the variant), which moves the
+     * game task to the byte-matched 001AD4E0 game-over screen; the world
+     * frame (this tick) no longer runs after that. */
 }
 
 /* Passive per-frame vitals (func_0015D100 infected arm + the spine's

@@ -15,7 +15,12 @@ typedef struct {
     int32_t phase;           /* actor+0x1F4: per-command state */
     uint32_t pc;             /* actor+0x1F8: original address */
     int8_t skip_phase;       /* actor+0x1FC */
-    uint8_t skip_request;    /* host copy of global scratchpad 0x70003B91 */
+    /* The interpreter's per-tick VIEW of scratchpad 0x70003B91, whose one
+     * storage is the canonical EmSceneState byte (design 3.2): the host
+     * publishes the canonical value here before each tick and writes both
+     * when its command writes 3B91; this field is never written back. The
+     * 1 -> 2 promotion is 001AE6B0's (0x1AE6E0), on the canonical byte. */
+    uint8_t skip_request;    /* per-tick view of canonical 3B91 */
 } EmScript;
 
 typedef enum {

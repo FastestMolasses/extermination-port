@@ -3,6 +3,7 @@
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
+#include "game/em_scene_bindings.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +16,74 @@ static struct {
     int low_gait, foot_stop_seen;
     float locked_start[3], move_start[3], max_locked_distance;
     float reentry_previous[3];
+    /* EM_CONTROL_STATUS_TEST: START opens the status screen at first
+     * control, TRIANGLE closes it (S11b). */
+    int status, status_frames, resumed_frames;
+    float frozen_pos[3], frozen_eye[3];
+    int32_t frozen_variants;
 } test;
+
+static void fail(const char *reason);
+
+static void pad_key(int key, int down)
+{
+    EmEvent event={0};
+    event.type=down ? EM_EVENT_KEY_DOWN : EM_EVENT_KEY_UP;
+    event.key=key;
+    em_input_handle_event(&event);
+}
+
+static int world_unchanged(void)
+{
+    for (unsigned axis=0;axis<3;++axis)
+        if (g.pos[axis]!=test.frozen_pos[axis] || g.cam.eye[axis]!=test.frozen_eye[axis])
+            return 0;
+    return em_scene_state()->d810750==test.frozen_variants;
+}
+
+/* Status open/close from first control (S11b; SCENE_COORDINATOR_DESIGN.md
+ * section 5 and ORIGINAL_FRAME_ORDER.md section 2 / Q7): a START edge makes
+ * 001AE7E0 return 2; the r == 2 arm and state 3 sub-step 0 draw nothing;
+ * every state-3 frame (0020CDC0 -> em_hud_status_tick, then 001D1EA0(0))
+ * leaves the world frozen: no variant (D_00810750 unchanged), no player or
+ * camera update. A TRIANGLE edge closes the hub (0x830); the close frame
+ * sets the full black hold, state 5 runs one frame without a world frame,
+ * then state 1 resumes the gameplay variant under 001AEE40(0x20)'s fade-in.
+ * The frame-order check against st14 reads this run's EM_FRAME_TRACE. */
+static void status_after_frame(void)
+{
+    if (test.phase==7) {
+        pad_key(EM_KEY_RETURN,0);
+        if (!em_hud_visible()) {fail("START did not open the status screen");return;}
+        if (!world_unchanged()) {fail("world advanced while the status screen opened");return;}
+        test.phase=8;
+    } else if (test.phase==8) {
+        if (!em_hud_visible() || !world_unchanged()) {
+            fail("status screen closed or world advanced while it showed");return;
+        }
+        if (++test.status_frames==30) {
+            pad_key('i',1); /* TRIANGLE */
+            test.phase=9;
+        }
+    } else if (test.phase==9) {
+        pad_key('i',0);
+        if (em_hud_visible()) {fail("TRIANGLE did not close the status screen");return;}
+        if (!world_unchanged()) {fail("world advanced on the status close frame");return;}
+        test.phase=10;
+    } else if (test.phase==10) {
+        if (em_hud_visible()) {fail("status screen reopened");return;}
+        if (em_scene_state()->d810750!=test.frozen_variants+1+test.resumed_frames) {
+            fail("world frames after the close are not one variant per frame");return;
+        }
+        ++test.resumed_frames;
+        if (em_frame_transition()->substate!=0) return;
+        fprintf(stderr,"newgame status test: PASS status_frames=%d resumed_frames=%d "
+                "variants_frozen_at=%d\n",test.status_frames,test.resumed_frames,
+                (int)test.frozen_variants);
+        test.phase=4;
+        em_frame_request_quit();
+    }
+}
 
 static void key(int down)
 {
@@ -42,6 +110,7 @@ void em_opening_control_test_begin(void)
     memset(&test,0,sizeof test);
     const char *value=getenv("EM_STARTUP_TEST");
     test.active=value && strcmp(value,"newgame-control")==0;
+    test.status = getenv("EM_CONTROL_STATUS_TEST") != NULL;
     const char *gait = getenv("EM_CONTROL_LOW_GAIT");
     if (gait && (strcmp(gait, "1") == 0 || strcmp(gait, "2") == 0))
         test.low_gait = atoi(gait);
@@ -104,19 +173,20 @@ void em_opening_control_test_after_frame(void)
             }
         } else {
             key(0);
-            if (test.locked_ticks<300 || g.frame_selector!=0 ||
+            if (test.locked_ticks<300 || em_scene_state()->spad3B8D!=0 ||
                 g.opening_event_39!=0xFF || g.opening_complete!=0xFF ||
                 g.opening_key_item_zero!=1) {
                 fprintf(stderr,"newgame control test: locked=%d selector=%u "
                         "event39=%u eventB9=%u key0=%u pad=(%u,%u)\n",
-                        test.locked_ticks,g.frame_selector,g.opening_event_39,
+                        test.locked_ticks,em_scene_state()->spad3B8D,g.opening_event_39,
                         g.opening_complete,g.opening_key_item_zero,input->lx,input->ly);
                 fail("opening completed without validated lock/story handoff");return;
             }
             test.phase=2;
         }
     } else if (test.phase==3 && input->ly<0x80 && input->lx==0x80) {
-        if (em_opening_runtime_busy() || g.frame_selector || em_frame_transition()->substate) {
+        if (em_opening_runtime_busy() || em_scene_state()->spad3B8D ||
+            em_frame_transition()->substate) {
             fail("movement test started before control/fade handoff");return;
         }
         ++test.moving_ticks;
@@ -163,9 +233,23 @@ void em_opening_control_test_after_frame(void)
             fprintf(stderr,"newgame control test: released W; validating original run-stop\n");
             return;
         }
+        if (test.status) {
+            /* This is the end of world frame N; the key reaches
+             * D_00810E74 at frame N+1's step C, so 001AE7E0 returns 2
+             * before any further world frame runs. */
+            memcpy(test.frozen_pos,g.pos,sizeof test.frozen_pos);
+            memcpy(test.frozen_eye,g.cam.eye,sizeof test.frozen_eye);
+            test.frozen_variants=em_scene_state()->d810750;
+            pad_key(EM_KEY_RETURN,1);
+            test.phase=7;
+            fprintf(stderr,"newgame status test: START pressed at first control\n");
+            return;
+        }
         if (g.capture_path) em_gfx_request_capture(em_frame_gfx(),g.capture_path);
         test.phase=4;
         em_frame_request_quit(); /* end_frame still services the queued capture */
+    } else if (test.phase>=7 && test.phase<=10) {
+        status_after_frame();
     } else if (test.phase==5) {
         ++test.stop_ticks;
         test.foot_stop_seen |= player_pose_foot_stop_active();

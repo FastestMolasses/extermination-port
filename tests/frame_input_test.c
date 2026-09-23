@@ -60,6 +60,11 @@ int main(void)
     assert(in->lx == 0x80 && in->ly == 0x00);
     assert(in->held == (EM_PAD_UP | EM_PAD_START) && in->pressed == in->held);
     assert(em_frame_pad_block()->held == 0x1800 && em_frame_pad_block()->gait == 3);
+    /* S11a: the scene coordinator's D_00810E74/E70/E50 are the same words,
+     * unswapped (START 0x0800, UP 0x1000), and E50 is 001B5F40's 4. */
+    EmSceneState scene = {0};
+    em_frame_scene_input(&scene);
+    assert(scene.d810E74 == 0x1800 && scene.d810E70 == 0x1800 && scene.d810E50 == 4);
 
     /* Full right stick replaces the held D-pad bits (001B5D70) and is
      * quantized (001B5C90); the gait comes from the raw bytes. */

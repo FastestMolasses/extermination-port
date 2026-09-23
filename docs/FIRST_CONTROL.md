@@ -136,7 +136,11 @@ It verifies scalar changes, call order/arguments, four-tick blend and clip sourc
 time. Translation and animation callees are explicit hooks, not simulated
 claims of those callees; the separate live capture verifies the doubled request
 displacement. `EM_CONTROL_REENTRY_TEST=1` extends the real native New Game input
-fixture through this interruption and checks the first eight callbacks.
+fixture through this interruption and checks the first eight callbacks. `EM_CONTROL_STATUS_TEST=1`
+(S11b) instead presses START after the 30 movement ticks, holds the status
+screen for 30 frames and closes it with TRIANGLE, checking that the world
+stays frozen (D_00810750, player position, camera eye) until state 5 returns
+to state 1.
 The full native GPU regression passed: request displacement0.6000003, four
 subsequent0.3 movements at source27, scalar re-arm, then0.3625/0.425. Original
 collision corrections reduce later motion near the panel (identified below), so these matching
@@ -296,3 +300,12 @@ items are:
 `EM_STARTUP_TEST=newgame-control` still reports displacement 9.599989. The
 stop, re-entry and low-gait variants report 18.649982, re-entry PASS,
 4.049953 and 14.350012. No native reversal input fixture exists yet.
+
+## Climbing and sliding (AREA11 crates and hill)
+
+The original has no automatic step-up: crates are climbed only on a Use press
+(00160220 -> 0015DF10 -> climb state 2, or the running vault state 3), and the
+hill slide starts from an authored class-0x1000 floor contact (state 0x1C).
+Both are translated and verified against the original instructions and
+against whole-world original runs over the captured AREA11 RAM; see
+`PLAYER_CLIMB_SLIDE.md`. They are not wired into the live player yet.

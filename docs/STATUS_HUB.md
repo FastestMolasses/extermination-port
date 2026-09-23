@@ -29,6 +29,16 @@ cases and 5,562 vertices against the original function, its vector
 helpers and full SDK bodies. The remaining boundary is GS/Metal
 rasterization, not a claimed hardware-equivalent renderer.
 
+Live open/close (S11b, 2026-09-23): the scene coordinator runs the
+original frame machine, so a START/TRIANGLE edge in gameplay makes
+001AE7E0 return 2, the r == 2 arm calls 0020E060, and state 3 calls
+0020CDC0 every frame (world frozen) until it returns nonzero, then state 5
+returns to state 1 (the st14 frame order; SCENE_COORDINATOR_DESIGN.md
+section 6, S11b). Until WP-5 those two positions are bound to the legacy
+`em_hud` (`em_hud_status_open`/`em_hud_status_tick`), not to this hub.
+`EM_STARTUP_TEST=newgame-control EM_CONTROL_STATUS_TEST=1` exercises the
+open, 30 status frames and the TRIANGLE close from first control.
+
 The normal hub is not yet bound into the live status adapter. Its 2D
 layer now exists as `em_status_hub_ui` (below), but the status draw-model
 workers `0020E250`, `0020E3A0`, `0020E1E0` and `0020E6F0` and the

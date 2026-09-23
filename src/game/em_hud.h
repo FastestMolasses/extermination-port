@@ -1,12 +1,13 @@
-/* em_hud.h — native STATUS SCREEN: the Triangle/Start-toggled player
- * status display.
+/* em_hud.h — native STATUS SCREEN: the legacy player status display that
+ * the scene coordinator opens and closes (see "STATUS OPEN/CLOSE" below).
  *
  * FAITHFULNESS (FINDINGS.md "STATUS SCREEN LAYOUT", session-25 full
  * draw-chain decode + the earlier "INVENTORY LOCATED" captures): the
  * original game shows NO persistent HUD during play. The status display
  * is a status SCREEN opened by TWO buttons, modelled here as TRIANGLE
  * or START, with no separate pause menu. The port mirrors that: hidden
- * by default, em_hud_update() flips visibility on either button's edge.
+ * by default; since S11b the original frame machine opens and closes it
+ * (em_hud_status_open / em_hud_status_tick).
  *
  * PROVENANCE (corrected): this used to read "verified: both route to
  * the same controller, func_0020CDC0". func_0020CDC0 (the status-screen
@@ -348,27 +349,38 @@ void em_hud_subtitle(EmGfx *gfx, const char *str, float y, float line_height,
 /* Is the font sheet loaded? (placeholder rects are the fallback) */
 int em_hud_font_ready(void);
 
-/* Per-frame toggle poll: a TRIANGLE or START press (edge, in->pressed)
- * flips the status screen's visibility — both buttons open the same
- * screen in the engine. Call once per gameplay frame with the frame
- * input block. */
-void em_hud_update(const EmFrameInput *in);
+/* STATUS OPEN/CLOSE (S11b; SCENE_COORDINATOR_DESIGN.md section 5,
+ * "Status"). The screen no longer toggles itself. The scene coordinator
+ * runs the original frame machine: 001AE7E0 returns 2 on a START/
+ * TRIANGLE edge (D_00810E74 & 0x810) or a B0/C5 request, unless B8, B9,
+ * the fade, 3B8D or the menu-inhibit byte B3 blocks it; the r == 2 arm
+ * then calls 0020E060 and frame-machine state 3 calls 0020CDC0 every
+ * frame (world frozen) until it returns nonzero, then state 5 returns to
+ * state 1. Until WP-5 binds those positions to em_status_runtime, the
+ * bindings (em_scene_bindings.c) bind them to this legacy screen:
+ *   em_hud_status_open  = the 0020E060 position: shows the screen at the
+ *                         hub (the original clears its 0xA0-byte status
+ *                         block D_00810130 there);
+ *   em_hud_status_tick  = the 0020CDC0 position: this frame's legacy
+ *                         navigation; returns 1 when the hub closed
+ *                         (TRIANGLE/START/CIRCLE, the original hub's 0x830
+ *                         edge mask), else 0, and -1 when the screen is
+ *                         not open (0020CDC0 is only reached while it is).
+ * The legacy page views and their content remain the port's (H9, WP-5).
+ *
+ * The menu-inhibit byte B3 (D_008106B3) is canonical in EmSceneState; its
+ * original writer is the player spine's tail (func_0015BA50, BYTE-MATCHED),
+ * which clears it and sets it to 1 when ANY of D_008106F1 != 0, the
+ * knockdown word *(short *)(p + 0x276) != 0, the anim id p[0x1F0] == 0x33,
+ * D_00810CB6 != 0, or p[4] == 2 && p[5] in {0xB..0xF} && p[0x1F1] == 1.
+ * The port writes it at the player stage (em_player_frame.c). */
+void em_hud_status_open(void);
+int em_hud_status_tick(const EmFrameInput *in);
 
-/* MENU INHIBIT — the engine's D_008106B3 byte, rewritten every frame
- * by the player spine (func_0015BA50, BYTE-MATCHED). CORRECTED: the
- * old wording ("state 2 OUTSIDE the allowed subs") inverted the test.
- * The tail clears the byte at entry and sets it to 1 when ANY of:
- *   D_008106F1 != 0, the knockdown word *(short *)(p + 0x276) != 0,
- *   the anim id p[0x1F0] == 0x33, D_00810CB6 != 0, or
- *   p[4] == 2 && p[5] IS one of {0xB, 0xC, 0xD, 0xE, 0xF} &&
- *   p[0x1F1] == 1
- * — i.e. state 2 INSIDE that specific sub-state set, not outside it.
- * With the byte set, func_001AE7E0 returns 0 before it ever reaches
- * its open test, so the open press is simply dropped. em_game writes it once
- * per frame from the player damage state (it also covers the
- * game-over/continue screens, where START/CROSS belong to the
- * decoded prompt machine). */
-void em_hud_menu_inhibit(int inhibit);
+/* EM_HUD_FORCE debug hook: while the forced screen shows and the real one
+ * is closed, apply EM_HUD_PAGE/EM_HUD_HOVER and the legacy navigation.
+ * No effect without EM_HUD_FORCE=1. */
+void em_hud_forced_update(const EmFrameInput *in);
 
 /* GAME-OVER + CONTINUE PRESENTATION — the FLAGGED module stand-ins
  * for the two screens whose FLOW is decoded (s66/s70, em_game's PLAYER
@@ -561,17 +573,9 @@ void em_hud_radio(int line_id);
 int  em_hud_radio_active(void);
 int  em_hud_radio_frames(void);
 
-/* Is the status screen currently shown? (toggle state OR EM_HUD_FORCE) */
+/* Is the status screen currently shown? (open OR EM_HUD_FORCE) */
 int em_hud_visible(void);
 
-/* Is the status screen OPEN — the hub or any entered page — by the real
- * Triangle/Start toggle? The PAUSE-GATE query: the engine halts gameplay
- * while its menu is up (flag 0x8106C4 = 1 between open and close), and
- * em_game gates the world simulation on this. Unlike em_hud_visible()
- * this deliberately EXCLUDES the EM_HUD_FORCE capture hook: FORCE is a
- * render-only overlay switch, and the headless overlay captures rely on
- * gameplay still reaching its capture frame underneath. */
-int em_hud_is_open(void);
 
 /* Will the ACTIVE sheet (hub or entered page) draw the real animated
  * background this frame? (it carries a BACKDROP record — loads the

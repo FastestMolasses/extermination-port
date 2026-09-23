@@ -10,6 +10,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_opening_actor.h"
 #include "game/em_opening_media.h"
+#include "game/em_scene_bindings.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -26,7 +27,7 @@ static struct {
     int actors_active, camera_active, camera_owned;
     uint32_t half_tick;
     float camera_time;
-    uint8_t player_phase, cinematic_ready;
+    uint8_t player_phase;
 } s;
 
 static void fail(const char *service)
@@ -50,7 +51,7 @@ void em_opening_runtime_request(void)
     s.actors_active=s.camera_active=s.camera_owned=0;
     s.half_tick=0;
     s.camera_time=0;
-    s.player_phase=s.cinematic_ready=0;
+    s.player_phase=0;
 }
 
 void em_opening_runtime_scene_ready(void)
@@ -89,6 +90,21 @@ static void record_vector(float dst[3], const unsigned char *record,
         dst[axis]=em_script_f32(record,offset+4*axis);
 }
 
+/* Scratchpad 0x70003B91 (design 3.2, S11a): its one storage is the
+ * canonical EmSceneState byte. 001BA1F0 reads it directly (0x1BA284,
+ * 0x1BA3EC); em_script reads EmScript.skip_request instead, so that field is
+ * a per-tick view: em_opening_runtime_tick publishes the canonical byte into
+ * it before the script runs, and every write here goes to both, so the
+ * interpreter sees a write within the same tick, as the original does. The
+ * view is never written back (em_script_start clearing it at script start
+ * is not an original 3B91 write: 001BA1A0 does not store 3B91). The 1 -> 2
+ * promotion is 001AE6B0's (0x1AE6E0), in em_sf_001AE6B0. */
+static void skip_request_set(EmScript *script, uint8_t value)
+{
+    em_scene_state()->spad3B91=value;
+    script->skip_request=value;
+}
+
 static void camera_restore(void)
 {
     s.camera_active=0;
@@ -109,10 +125,15 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
         if (sub==12) {
             switch (script->phase) {
             case 0:
-                if (s.cinematic_ready) return EM_SCRIPT_ADVANCE;
+                /* 001B82D0 ops 9..12 phase 0: nothing while spad 3B92 is
+                 * set (lbu at 0x1B85E8); else 3B8D = 2 (0x1B8608), 3B84 = 0
+                 * (sh at 0x1B8610), 3B91 = 0 (0x1B861C). */
+                if (em_scene_state()->spad3B92) return EM_SCRIPT_ADVANCE;
                 if (em_script_u32(record,0x18)!=0x66)
                     return EM_SCRIPT_UNSUPPORTED;
-                g.frame_selector=2;
+                em_scene_state()->spad3B8D=2;
+                em_scene_state()->spad3B84=0;
+                skip_request_set(script,0);
                 g.cam.top_mode=1;
                 em_frame_fade_start(1,4);
                 if (em_opening_media_audio_start()!=0)
@@ -137,9 +158,9 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             case 3:
                 if (!em_opening_media_audio_ready()) return EM_SCRIPT_WAIT;
                 em_frame_fade_start(-1,16);
-                s.cinematic_ready=1;
+                em_scene_state()->spad3B92=1; /* phase 3: 0x1B874C */
                 script->skip_phase=1;
-                script->skip_request=1;
+                skip_request_set(script,1); /* op 12: 3B91 = 1 (0x1B8778) */
                 return EM_SCRIPT_ADVANCE;
             default: return EM_SCRIPT_UNSUPPORTED;
             }
@@ -153,12 +174,15 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             em_opening_media_stop();
             s.actors_active=0;
             s.camera_owned=0;
-            s.cinematic_ready=0;
+            /* op 4 teardown: 3B92 = 0 (0x1B891C abort / 0x1B8940). */
+            em_scene_state()->spad3B92=0;
             s.player_phase=1;
-            int skipped=script->skip_request==2 && script->skip_phase==2;
+            /* 001B82D0 op 5 -> op 4: 3B91 read at 0x1B88DC; 3B8D = 0 and
+             * 3B91 = 0 at 0x1B8914/0x1B892C (abort) or 0x1B8938/0x1B8950. */
+            int skipped=em_scene_state()->spad3B91==2 && script->skip_phase==2;
             script->skip_phase=0;
-            script->skip_request=0;
-            g.frame_selector=0;
+            skip_request_set(script,0);
+            em_scene_state()->spad3B8D=0;
             g.cam.top_mode=0;
             if (!player_pose_opening_release()) return EM_SCRIPT_UNSUPPORTED;
             return skipped ? EM_SCRIPT_ABORT : EM_SCRIPT_ADVANCE;
@@ -302,14 +326,12 @@ void em_opening_runtime_tick(void)
 {
     if (!s.requested || !s.ready || s.finished || s.failed) return;
     EmScript *script=&s.controller.script;
-    /* 001AE6B0's 0x900 edge mask only admits skip once the entering
-     * full-screen fade has finished. It sets the global request; the
-     * interpreter scans to op18 during its normal actor callback. */
-    if (script->skip_request==1 && em_frame_transition()->substate==0 &&
-        (em_frame_input()->pressed&(EM_PAD_START|EM_PAD_SELECT)))
-        script->skip_request=2;
+    /* The interpreter's view of 3B91 for this tick (see skip_request_set).
+     * 001AE6B0 has already promoted 1 -> 2 this frame when START or SELECT
+     * was pressed with the fade idle. */
+    script->skip_request=em_scene_state()->spad3B91;
     if (s.actors_active) ++s.half_tick;
-    if (g.frame_selector && s.player_phase==0) s.player_phase=1;
+    if (em_scene_state()->spad3B8D && s.player_phase==0) s.player_phase=1;
     EmScriptResult result=em_area11_opening_tick(&s.controller,1,
                           g.opening_event_39,resolve,execute,notify,NULL);
     if (result==EM_SCRIPT_FAULT) { fail("script command binding"); return; }

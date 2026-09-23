@@ -50,7 +50,7 @@
  * orient the camera behind the player, an idle camera slowly
  * auto-orients, and a wall behind the camera makes it RISE instead of
  * pulling in (em_game.c "CAMERA FIDELITY"). While the status screen is
- * open the world simulation PAUSES (gate on em_hud_is_open()). Real
+ * open the world is frozen (frame-machine state 3, S11b). Real
  * game logic replaces the skeleton arms as the decomp repo recovers
  * it. Per-scene boot config (player spawn, collision filename) comes
  * from the SCENE MANIFEST assets/scene/scene.txt (exporter-written;

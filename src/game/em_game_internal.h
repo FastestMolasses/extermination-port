@@ -620,13 +620,14 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *                                 func_00200A40 sub-screen, back to
  *                                 the prompt when done.
  *
- * The PORT runs that skeleton faithfully (game_over_tick + the frozen
- * world gate in em_game_legacy_variant_head — the engine's task replacement is
- * modeled by halting the world sim like the menu pause): death fade ->
- * GAME-OVER screen fades IN (240-frame hold counted through the
- * fade, CROSS skips) -> fade out -> CONTINUE prompt fades in (cursor
- * init 1, d-pad moves, START/CROSS confirms, 1200-frame idle timeout)
- * -> fade out -> dispatch. FLAGGED stand-ins: the two screen modules'
+ * Since S11b the PORT runs the game-over half as that original chain in
+ * the scene coordinator: B9 (0015CF90 at the player stage) -> 001AD140 at
+ * fade substate 2 -> the byte-matched 001AD4E0 core (the 240 hold, the
+ * CROSS skip, the fades) -> 001ADF00 -> 001AB790(001AC070), which
+ * replaces the game task with the interim 001AC070 (the legacy continue
+ * prompt, em_game_legacy_continue_task_001AC070: cursor init from
+ * D_00275BDC, d-pad moves, START/CROSS confirms, 1200-frame idle timeout,
+ * fade out, dispatch). FLAGGED stand-ins: the two screen modules'
  * art is unexported (em_hud_game_over / em_hud_continue draw the
  * skeleton presentation: black base + tall-font title / option
  * lines); option labels are port guesses (the module text is not
@@ -738,31 +739,25 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * D_00275BDC and incremented only while < 2; and 5 / 0x5DD / 0x5DE / 0x5DF all issued through
  * func_001FB9F0.
  * */
-#define GO_HOLD_FRAMES    240      /* task+0x18 = 0xF0: the GAME OVER
-                                    * screen hold (counts through the
-                                    * fade-in; CROSS skips once the
-                                    * fade is idle) */
 #define GO_PROMPT_FRAMES  1200     /* task+0x16 = 0x4B0: continue-prompt
                                     * idle timeout (reset by any held
                                     * button) */
 #define GO_CURSOR_MAX     2        /* prompt options 0..2 (func_001AC480
                                     * clamps the d-pad walk to < 2 on
                                     * increment) */
-#define GO_CURSOR_DEATH   1        /* from-death cursor INIT (title = 0
-                                    * — func_001AC480 sub 0 on the
-                                    * D_00275BDC flag) */
 #define GO_SFX_MOVE       5u       /* cursor move blip (func_001FB9F0) */
 #define GO_SFX_CONFIRM0   0x5DDu   /* option-0 confirm */
 #define GO_SFX_CONFIRM1   0x5DEu   /* option-1 confirm */
 #define GO_SFX_CONFIRM2   0x5DFu   /* option-2 confirm */
 
-/* go_state values (the port's fold of task states 3-sub-2..4 + the
- * continue machine's state 2 — game_over_tick below). */
+/* go_state values: the death latch, the GAME OVER screen module
+ * stand-in (set by the 001FF080(0, 0x27) binding; the 001AD4E0 core owns
+ * its timing) and the interim 001AC070's continue prompt (continue_tick
+ * in em_game.c). */
 enum {
     GO_OFF = 0,
     GO_ARMED,          /* death fade-out running (pd_phase 3)         */
-    GO_SCREEN,         /* GAME OVER screen: fade-in + 240 hold + skip */
-    GO_SCREEN_OUT,     /* fading to black (engine wait sub 4)         */
+    GO_SCREEN,         /* GAME OVER screen module 0x27 stand-in shown */
     GO_PROMPT,         /* CONTINUE prompt: fade-in + cursor + timer   */
     GO_PROMPT_CONFIRM, /* confirmed: fading out; dispatch at black —
                         * func_001AC480 [NEARMISS] state 2 fires
@@ -1630,7 +1625,6 @@ typedef struct {
 
     /* gameplay-frame state */
     int        frame_no;         /* gameplay frames run */
-    uint8_t    frame_selector;   /* scratchpad 0x70003B8D: 0 = gameplay */
     uint8_t    opening_event_39; /* D_00810791: automatic opening state */
     uint8_t    opening_key_item_zero; /* D_00810CC3[0], 001C4760(0,1) */
     uint8_t    opening_complete; /* D_00810811 (event flag 0xB9): the
@@ -1822,17 +1816,14 @@ typedef struct {
     int        go_state;       /* GAME-OVER/CONTINUE machine (GO_*
                                 * enum at the PD block) */
     int        go_frames;      /* frames in the current GO state */
-    int        go_hold;        /* GAME OVER screen countdown (engine
-                                * task+0x18 = 240; ticks through the
-                                * fade-in, CROSS skips) */
     int        go_timer;       /* continue-prompt idle timeout (engine
                                 * task+0x16 = 1200; reset by any held
                                 * button) */
     int        go_cursor;      /* prompt cursor (engine task+0xF;
-                                * from-death init = 1) */
+                                * init D_00275BDC ? 1 : 0) */
     int        go_restart;     /* option 0 confirmed: New Game-route
                                 * restart latch (001AF2C0 reset + AREA11),
-                                * serviced by the frame machine.
+                                * serviced by the interim 001AC070 task.
                                 * Grounded by audit: func_001AC070
                                 * [NEARMISS] state 2 sends cursor 0 to
                                 * state 4 with D_00275BE0 = 0, and state
@@ -2330,12 +2321,12 @@ int em_player_0015BCF0(void);   /* player actor update (gameplay only) */
 int em_render_001D1C50(void);   /* per-frame point-light tick          */
 int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
 int em_render_001D1EA0(int a0); /* today's close-out (flush, overlays) */
+int em_render_001ABF90(void);   /* 001AD4E0's game-over screen packet  */
 int em_camera_0018B9C0(void);   /* camera_update + em_sfx_listener     */
 int em_camera_0018B9C0_opening(void); /* cutscene variant's camera stage */
 
-/* Port-native draw-list collector and the close-out body, also called
- * directly by the status and game-over frozen frame
- * (em_game_legacy_variant_head; em_render_frame.c). */
+/* Port-native draw-list collector and the close-out body (the latter also
+ * drawn by the interim 001AC070 continue task, em_game.c). */
 void render_chain_build(void);
 void frame_close_out(void);
 

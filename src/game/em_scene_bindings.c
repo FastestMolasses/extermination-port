@@ -1,8 +1,7 @@
-/* Scene coordinator bindings, steps S8-S10b (legacy mode). See
- * em_scene_bindings.h and docs/SCENE_COORDINATOR_DESIGN.md sections 3.1,
- * 6 (S8, S9, S10a, S10b) and 10.1.
+/* Scene coordinator bindings, steps S8-S11b. See em_scene_bindings.h and
+ * docs/SCENE_COORDINATOR_DESIGN.md sections 3.1, 5, 6 (S8 .. S11b) and 10.
  *
- * What is live after S10b:
+ * What is live after S11b:
  *   - the slot-0 task is em_scene_task_001ACEC0, which runs the S3 cores
  *     001ACEC0 -> 001AD250 and, through the w_001AD4D0 binding (the original
  *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040 with
@@ -24,30 +23,41 @@
  *     bound by em_area11_bindings.c and traced per node. A scene without an
  *     original roster (office, drawbridge) gets one legacy_world node at
  *     001B6990 whose behaviour is the S10a legacy block, unchanged;
- *   - S10a interim (retired by S11a): canonical 3B8D is published from the
- *     port's g.frame_selector at the 0x1AE040 entry, before the frame state
- *     is traced and before 0x1AE040 reads it. The port's 3B8D writers (the
- *     opening runtime's counterpart of 001B82D0) still write
- *     g.frame_selector, and they run inside the world frame's 001AFD70
- *     block, so a selector written during frame N picks frame N+1's variant,
- *     as in the original. 001AFCF0 (states 0 and 4) clears canonical 3B8D;
- *     the port's state-0 re-arm clears g.frame_selector at the same tick;
+ *   - S11a: spad 3B8D and 3B91 have one storage, s_state. The port's
+ *     writers are the ported counterparts of the original writers (the
+ *     opening runtime's 001B82D0 op-12/op-5 counterpart, 001AFCF0, and
+ *     001AE6B0's 3B91 1 -> 2 promotion); they write it where the original
+ *     does, inside the world frame's 001AFD70 walk, so a selector written
+ *     during frame N picks frame N+1's variant. The input words D_00810E74,
+ *     D_00810E70 and D_00810E50 are written at the start of every tick by
+ *     em_frame_scene_input (em_frame.c), the one translation of step C;
+ *     spad 3B92 is canonical too (lead decision D5; em_opening_runtime.c
+ *     writes it where 001B82D0 does);
+ *   - S11b: the frame machine acts on 001AE7E0. r == 2 (a START/TRIANGLE
+ *     edge in gameplay, or a B0/C5 request) opens the status screen:
+ *     states 3 and 5 run with the world frozen (see "status screen"
+ *     below). B9, written by the player stage (0015CF90), leads at fade
+ *     substate 2 to 001AD140 -> 001AD4E0 -> 001ADF00, which replaces this
+ *     task with the interim 001AC070 (see "game over" below). The
+ *     unported arms (r == 1: 0022A650/001FB9F0, reachable only through
+ *     SELECT, withheld under Q1, or E50 != 4, never written; r == 3 /
+ *     state 6: 001FF030/001FEFE0, reachable only through CE, never written;
+ *     +9 = 3: 001AD740, reachable only through 3B93, never written in
+ *     AREA11) fault at their NULL workers;
  *   - spad 3B90 (001ACEC0 writes 2 every tick) and C4 are forwarded to the
  *     step-D letterbox gate at the end of every task tick (design 2.1);
  *   - the S6 trace contract (design 10.1) when EM_FRAME_TRACE is set.
  *
  * Worker bindings. Every worker the chain reaches in legacy mode is bound;
  * every other worker is NULL and faults when reached (fail-stop):
- *   w_001AD4D0            -> frame machine entry (legacy Continue hook,
- *                            3B8D publication, trace frame state, 0x1AE040)
+ *   w_001AD4D0            -> frame machine entry (trace frame state,
+ *                            0x1AE040)
  *   w_001AE5E0/w_001AE6B0 -> the variant cores, after the legacy head
- *                            (em_game_legacy_variant_head: test hooks and,
- *                            in gameplay, the status/game-over frozen frame
- *                            that S11b retires; while it runs, the variant's
- *                            stages do not)
+ *                            (em_game_legacy_variant_head: test hooks)
  *   variant stage workers -> see "world-frame stage workers" below. They
- *                            fault outside a variant (state 3's 001D1C50 /
- *                            001D1EA0(0) are not bound until S11b).
+ *                            fault outside a variant, except 001D1C50 and
+ *                            001D1EA0(0) in status state 3.
+ *   status / game-over    -> see those sections below.
  *   w_001AFCA0            -> the port's native state-0 re-arm
  *                            (em_game_legacy_state0), the pool reset 001AF8E0,
  *                            then spad 31F4 = 0 (001AFCA0 stores it)
@@ -60,13 +70,11 @@
  *   with no port code at their original position. Their bindings return
  *   without effect and are reported once on stderr, so a trace that shows
  *   the call is never mistaken for the port doing it.
- * Not reached in legacy mode, therefore NULL: the load arms (001AD1A0,
- * 001AD230, 001AD360's and 001ADF50's callees), the game-over arms, the
- * status/unported classifier arms (states 2, 3, 5, 6) and state 4. The
- * canonical request block has no port writer until S11b/S12b, so B8/B9 stay
- * 0 and 001AD140/001AD010 are never entered; if they were, their
- * 001FC9B0/001FBC50/001FABB0 calls would reach NULL 001FBC50/001FABB0 and
- * fault.
+ * Not bound until later steps, therefore NULL: the load arms (001AD1A0,
+ * 001AD230, 001AD360's and 001ADF50's remaining callees), the unported
+ * classifier arms (r == 1 and state 2, r == 3 and state 6), +9 = 3
+ * (001AD740) and state 4 (0018AB00, 0018D7B0; S12b). B8 has no port
+ * writer until S12b, so 001AD010 is never entered.
  */
 #include "game/em_scene_bindings.h"
 
@@ -77,13 +85,16 @@
 #include "game/em_actor_pool.h"
 #include "game/em_actor_roster.h"
 #include "game/em_area11_bindings.h"
+#include "game/em_camera.h"
 #include "game/em_game.h"
 #include "game/em_frame.h"
 #include "game/em_frame_trace.h"
 #include "game/em_game_internal.h"
+#include "game/em_hud.h"
 #include "game/em_scene_classify.h"
 #include "game/em_scene_frame.h"
 #include "game/em_scene_task.h"
+#include "game/em_sfx.h"
 #include "game/em_scene_workers.h"
 
 /* ------------------------------------------------------------ storage */
@@ -109,8 +120,11 @@ static int s_pool_mode = POOL_NONE;
  * spawns the attached-equipment and 001E2560 children). */
 static int s_player_init_pending;
 
-/* Legacy-mode flag (bindings only; see em_scene_bindings.h). */
-static const int s_classifier_shadow = 1; /* retired by S11a/S11b */
+/* The frame-machine state byte +B as 0x1AE040 was entered this tick
+ * (w_001AD4D0), or -1 outside it. Workers that the original reaches from
+ * several states use it to refuse, or to tell apart, a call (status state
+ * 3/5 versus the world variants; state 0 versus state 5). */
+static int s_entry_state = -1;
 
 /* The slot-0 record's user bytes for the tick in progress. */
 static uint8_t *s_user;
@@ -158,6 +172,14 @@ enum {
     UM_0015C160,
     UM_001F0360,
     UM_001AAD00,
+    UM_001FABB0,
+    UM_00119828,
+    UM_001D2830,
+    UM_001E0CC0,
+    UM_001D2880,
+    UM_001FA790,
+    UM_001FAB50,
+    UM_00810D38,
     UM_COUNT
 };
 
@@ -174,8 +196,10 @@ static const struct {
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (interim, em_area11_bindings.c)"},
     [UM_00199C50] = {0x00199C50u, "no port counterpart"},
-    [UM_001AEE40] = {0x001AEE40u, "area-entry flash fade(4); not mirrored"},
-    [UM_001FAE70] = {0x001FAE70u, "area music cue; not mirrored (game_load_task note)"},
+    [UM_001AEE40] = {0x001AEE40u, "state-0 area-entry flash fade(4); not mirrored (the state-5 "
+                                  "call is em_frame_fade_flash)"},
+    [UM_001FAE70] = {0x001FAE70u, "area music cue (state 0 area entry, state 5 status close); "
+                                  "not mirrored (game_load_task note; H22, WP-5)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
     [UM_001D1EF0] = {0x001D1EF0u, "no port counterpart"},
@@ -187,6 +211,16 @@ static const struct {
                                   "the port draws the player from its draw list"},
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
     [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class-list swap; no port counterpart"},
+    [UM_001FABB0] = {0x001FABB0u, "stream stop (status open, game over); the port's music keeps "
+                                  "playing (H22, WP-5)"},
+    [UM_00119828] = {0x00119828u, "SPU stream-channel volume (status open); the port's stream "
+                                  "player has no per-channel gain"},
+    [UM_001D2830] = {0x001D2830u, "display-list context registration; no port counterpart"},
+    [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset; no port counterpart"},
+    [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
+    [UM_001FA790] = {0x001FA790u, "game-over stream cue 0x1B; the cue is not exported"},
+    [UM_001FAB50] = {0x001FAB50u, "music channel release (game over); not mirrored (H22, WP-5)"},
+    [UM_00810D38] = {0x00810D38u, "001ADF00's current-BGM word store; the port has no D_00810D38"},
 };
 
 static uint32_t s_unmirrored_seen;     /* reached at least once */
@@ -217,9 +251,23 @@ static int um_001FC9B0(void *ctx) { (void)ctx; return unmirrored(UM_001FC9B0); }
 static int um_001B07C0(void *ctx, int a0) { (void)ctx; (void)a0; return unmirrored(UM_001B07C0); }
 static int um_001D19E0(void *ctx) { (void)ctx; return unmirrored(UM_001D19E0); }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
-static int um_001AEE40(void *ctx, int16_t a0) { (void)ctx; (void)a0; return unmirrored(UM_001AEE40); }
 static int um_001FAE70(void *ctx, int a0) { (void)ctx; (void)a0; return unmirrored(UM_001FAE70); }
 static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
+static int um_001FABB0(void *ctx) { (void)ctx; return unmirrored(UM_001FABB0); }
+static int um_00119828(void *ctx, int a0, int a1, int a2)
+{
+    (void)ctx;
+    (void)a0;
+    (void)a1;
+    (void)a2;
+    return unmirrored(UM_00119828);
+}
+static int um_001D2830(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001D2830); }
+static int um_001E0CC0(void *ctx) { (void)ctx; return unmirrored(UM_001E0CC0); }
+static int um_001D2880(void *ctx) { (void)ctx; return unmirrored(UM_001D2880); }
+static int um_001FA790(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001FA790); }
+static int um_001FAB50(void *ctx) { (void)ctx; return unmirrored(UM_001FAB50); }
+static int um_s_00810D38(void *ctx, int32_t value) { (void)ctx; (void)value; return unmirrored(UM_00810D38); }
 
 /* ------------------------------------------------------------ readers */
 
@@ -227,6 +275,17 @@ static int16_t r_0028A9A0(void *ctx)
 {
     (void)ctx;
     return em_frame_transition()->substate;
+}
+
+/* D_00282157: the phase byte of 001FA0D0's asynchronous disc-read
+ * sequencer (src/func_001FA0D0.c; 001FABB0 clears it). It is nonzero only
+ * while a read is in flight between frames. The port's readers complete
+ * inside the call that starts them, so no read is ever in flight at a tick
+ * boundary: phase 0. Read by 0x1AE040 state 3 sub-step 0 (and state 6). */
+static uint8_t r_00282157(void *ctx)
+{
+    (void)ctx;
+    return 0;
 }
 
 static uint32_t r_00275B44(void *ctx)
@@ -250,18 +309,13 @@ static uint8_t r_008102B9(void *ctx)
 /* ------------------------------------------------------------ trace */
 
 /* The classifier result recorded for this tick (design 10.1: once per
- * classifier run). Shadow mode: the canonical state with the input words
- * taken from the step-C pad block in the original layout, through the same
- * Q1 entry the core uses. Recorded only; the core acts on the canonical state. */
-static int32_t shadow_classifier(void)
+ * classifier run): 001AE7E0 over the canonical state, through the same Q1
+ * entry the core uses, so it is the result the core acts on. Since S11a the
+ * canonical input words are written every tick (em_frame_scene_input), so
+ * no pad-block substitution is needed. */
+static int32_t traced_classifier(void)
 {
-    EmSceneState view = s_state;
-    if (s_classifier_shadow) {
-        const EmPadUnpack *pad = em_frame_pad_block();
-        view.d810E74 = pad->pressed;
-        view.d810E70 = pad->held;
-    }
-    return em_scene_classify_q1(&view, em_frame_transition()->substate, NULL);
+    return em_scene_classify_q1(&s_state, em_frame_transition()->substate, NULL);
 }
 
 static void bindings_trace(void *ctx, uint32_t caller, uint32_t callee, uint32_t a0,
@@ -271,7 +325,7 @@ static void bindings_trace(void *ctx, uint32_t caller, uint32_t callee, uint32_t
     if (caller == 0x001AE040u && callee == 0x001AE7E0u) {
         EmFrameTrace *t = em_frame_trace_env();
         if (t)
-            em_frame_trace_classifier(t, shadow_classifier());
+            em_frame_trace_classifier(t, traced_classifier());
     }
 }
 
@@ -403,8 +457,7 @@ static int w_001C5C50(void *ctx)
 static int w_001AE5E0(void *ctx)
 {
     (void)ctx;
-    if (em_game_legacy_variant_head(0))
-        return 0; /* status/game-over frozen frame ran (retired by S11b) */
+    em_game_legacy_variant_head(0);
     s_variant = VARIANT_GAMEPLAY;
     int rc = em_sf_001AE5E0(&s_state, &s_workers);
     s_variant = VARIANT_NONE;
@@ -415,7 +468,7 @@ static int w_001AE5E0(void *ctx)
 static int w_001AE6B0(void *ctx)
 {
     (void)ctx;
-    (void)em_game_legacy_variant_head(1); /* never a frozen frame */
+    em_game_legacy_variant_head(1);
     s_variant = VARIANT_CUTSCENE;
     int rc = em_sf_001AE6B0(&s_state, &s_workers);
     s_variant = VARIANT_NONE;
@@ -494,10 +547,18 @@ static int w_001CB5A0(void *ctx)
     return in_variant() ? 0 : -1;
 }
 
+/* Status state 3 sub-step 1 (0x1AE460): the same function takes its
+ * D_008106C4 != 0 path (001D2830(6,0) instead of the world-light setup),
+ * but still ends with 001D7C30, the point-light tick the port runs here. */
+static int in_status_frame(void)
+{
+    return s_entry_state == 3;
+}
+
 static int w_001D1C50(void *ctx)
 {
     (void)ctx;
-    return in_variant() ? em_render_001D1C50() : -1;
+    return in_variant() || in_status_frame() ? em_render_001D1C50() : -1;
 }
 
 static int w_001C1D00(void *ctx, uint32_t a0)
@@ -583,12 +644,171 @@ static int w_001AAD00(void *ctx)
     return in_variant() ? unmirrored(UM_001AAD00) : -1;
 }
 
+/* 001D1EA0(1) ends both variants; status state 3 ends with 001D1EA0(0)
+ * (0x1AE4B4), the frozen-world frame. */
 static int w_001D1EA0(void *ctx, int a0)
 {
     (void)ctx;
-    if (!in_variant() || a0 != 1)
+    if (in_variant() && a0 == 1)
+        return em_render_001D1EA0(1);
+    if (in_status_frame() && a0 == 0)
+        return em_render_001D1EA0(0);
+    return -1;
+}
+
+/* ------------------------------------ status screen (S11b; design 5)
+ *
+ * 001AE7E0 r == 2 in state 1 (0x1AE1CC): 0020E060, C4 = 1, +B = 3,
+ * 001FBC50, 001FABB0, 00119828(0/1, 0x3FFF, 0x3FFF). State 3 sub-step 1:
+ * 001D1C50, 001D2830(3,1), 0020CDC0 and, when it returns nonzero,
+ * 001E0CC0(0), +B = 5, EF = 0x46, 001AEDB0(0); always 001D1EA0(0). State
+ * 5: 001AEDB0(0), 001D1EF0, 0018C0D0(camera, 1), C4 = 0, +B = 1,
+ * 001FAE70(1), 001AEE40(0x20). No owner, player or camera stage runs in
+ * states 3 and 5 (trace st14).
+ *   0020E060  -> em_hud_status_open (interim until WP-5; em_hud.h)
+ *   0020CDC0  -> em_hud_status_tick (interim until WP-5); on the close it
+ *                clears canonical B0 and C5, the request bytes the status
+ *                stack consumes (src/func_0020CDC0.c clears B0; C5 selects
+ *                the passcode pages)
+ *   001FBC50  -> em_sfx_stop_all (its translation, em_sfx.h)
+ *   001AEDB0  -> em_frame_fade_full (001AEDB0's translation, em_fade.c)
+ *   0018C0D0  -> camera_commit_original(&g.cam, a1) (em_camera.h)
+ *   001AEE40  -> state 5: em_frame_fade_flash (em_fade.c); the state-0
+ *                area-entry call stays unmirrored
+ *   001FABB0, 00119828, 001D2830, 001E0CC0, 001FAE70, 001D1EF0: unmirrored
+ *   (reported); the music is H22 (WP-5). */
+
+static int w_0020E060(void *ctx)
+{
+    (void)ctx;
+    if (s_entry_state != 1 && s_entry_state != 4)
+        return -1; /* only the state-1 classifier arm calls it */
+    em_hud_status_open();
+    return 0;
+}
+
+static int w_0020CDC0(void *ctx)
+{
+    (void)ctx;
+    if (!in_status_frame())
         return -1;
-    return em_render_001D1EA0(1);
+    int closed = em_hud_status_tick(em_frame_input());
+    if (closed < 0)
+        return -1;
+    if (closed) {
+        s_state.req[EM_SCENE_REQ_B0] = 0;
+        s_state.req[EM_SCENE_REQ_C5] = 0;
+    }
+    return closed;
+}
+
+static int w_001FBC50(void *ctx)
+{
+    (void)ctx;
+    em_sfx_stop_all();
+    return 0;
+}
+
+static int w_001AEDB0(void *ctx, uint8_t a0)
+{
+    (void)ctx;
+    em_frame_fade_full(a0);
+    return 0;
+}
+
+static int w_0018C0D0(void *ctx, uint32_t a0, int a1)
+{
+    (void)ctx;
+    if (a0 != D_CAMERA || s_entry_state != 5)
+        return -1; /* state 4's call is not bound until S12b */
+    camera_commit_original(&g.cam, a1);
+    return 0;
+}
+
+static int w_001AEE40(void *ctx, int16_t a0)
+{
+    (void)ctx;
+    if (s_entry_state == 5) {
+        em_frame_fade_flash(a0);
+        return 0;
+    }
+    return unmirrored(UM_001AEE40);
+}
+
+/* ------------------------------------------- game over (S11b; design 5)
+ *
+ * B9 (written by the player stage, 0015CF90) -> 0x1AE040 state 1 calls
+ * 001AD140 at D_0028A9A0 == 2 (+8 = 3, +9 = 2) -> 001AD250 runs the
+ * byte-matched 001AD4E0 core -> +9 = 4 -> 001ADF00 -> 001AB790(001AC070).
+ * The 001AD4E0 core owns the timing (the 0xF0 hold at +0x18, the CROSS
+ * skip, the fades); its workers:
+ *   001FF080(0, 0x27) -> screen module 0x27: the legacy em_hud_game_over
+ *                        stand-in (g.go_state = GO_SCREEN). The port has no
+ *                        asynchronous module load, so the module is
+ *                        resident at once and the busy byte D_00275BD8 the
+ *                        core raised is cleared here (the original loader
+ *                        clears it when its read completes)
+ *   001ABF90(packet)  -> em_render_001ABF90: the frame, with the stand-in
+ *   001AEE10, 001AEDE0 -> the translated fades (em_fade.c)
+ *   001D2880, 001FA790(0, 0x1B), 001FAB50, the D_00810D38 store: unmirrored
+ * 001ADF00's 001AEBA0(0xFF) is em_screen_fade_in (em_fade.c) and its
+ * 001AB790(0x1AC070) replaces the game task with the interim 001AC070
+ * (em_game_legacy_continue_task_001AC070: the legacy continue prompt,
+ * which reinstalls this task on Continue). */
+
+static int in_game_over(void)
+{
+    const uint8_t *sub = em_scene_task_byte(s_user, EM_SCENE_TASK_09);
+    return sub && (*sub == 2 || *sub == 4);
+}
+
+static int w_001FF080(void *ctx, int a0, int a1)
+{
+    (void)ctx;
+    if (a0 != 0 || a1 != 0x27 || !in_game_over())
+        return -1; /* the area load (1, 0) is S12a's */
+    g.go_state = GO_SCREEN;
+    s_state.d275BD8 = 0;
+    return 0;
+}
+
+static int w_001ABF90(void *ctx, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3)
+{
+    (void)ctx;
+    (void)a0;
+    (void)a1;
+    (void)a2;
+    (void)a3;
+    return in_game_over() ? em_render_001ABF90() : -1;
+}
+
+static int w_001AEE10(void *ctx, int16_t a0, uint8_t a1)
+{
+    (void)ctx;
+    em_frame_fade_start_colour(-1, a0, a1);
+    return 0;
+}
+
+static int w_001AEDE0(void *ctx, int16_t a0, uint8_t a1)
+{
+    (void)ctx;
+    em_frame_fade_start_colour(1, a0, a1);
+    return 0;
+}
+
+static int w_001AEBA0(void *ctx, int16_t a0)
+{
+    (void)ctx;
+    em_frame_screen_fade_start(-1, a0);
+    return 0;
+}
+
+static int w_001AB790(void *ctx, uint32_t fn)
+{
+    (void)ctx;
+    if (fn != EM_SCENE_FN_001AC070)
+        return -1;
+    return em_task_replace_current(em_game_legacy_continue_task_001AC070) ? 0 : -1;
 }
 
 /* ------------------------------------------------------ frame machine */
@@ -611,34 +831,17 @@ static int w_001AD4D0(void *ctx)
     uint8_t *frame_state = em_scene_task_byte(s_user, EM_SCENE_TASK_0B);
     if (!frame_state)
         return em_scene_fault(&s_state, 0x001AD4D0u, EM_SCENE_FAULT_BAD_INDEX);
-    /* Legacy Continue (retired by S11b): the port services the game-over
-     * restart here, where its frame machine did, and rebuilds from state 0. */
-    if (*frame_state == 1) {
-        int restart = em_game_legacy_continue_restart();
-        if (restart < 0)
-            return 0; /* quit already requested; no frame, as before S8 */
-        if (restart > 0) {
-            *frame_state = 0;
-            legacy_commit_area11(); /* the restart area is AREA11.0.0 */
-        }
-    }
-    /* S10a interim, retired by S11a: publish the port's selector into
-     * canonical 3B8D (see the file comment). */
-    s_state.spad3B8D = g.frame_selector;
     EmFrameTrace *t = em_frame_trace_env();
     if (t)
         em_frame_trace_frame_state(t, s_user, s_state.spad3B8D,
                                    em_frame_transition()->substate);
     /* One 0x1AE040 run per tick. State 0 returns after its eleven calls
-     * (0x1AE0DC b .L001AE5CC), so a rebuild tick draws no world frame. */
-    if (frame_machine() < 0)
-        return -1;
-    /* Shadow mode: nothing may act on the classifier. With no writer of the
-     * canonical request block or input words, 001AE7E0 returns 0 and state 1
-     * stays 1; anything else is a bindings defect. */
-    if (s_classifier_shadow && *frame_state != 1)
-        return em_scene_fault(&s_state, 0x001AE7E0u, EM_SCENE_FAULT_BAD_RESULT);
-    return 0;
+     * (0x1AE0DC b .L001AE5CC), so a rebuild tick draws no world frame.
+     * Since S11b the machine acts on its classifier (design 2.3, 5). */
+    s_entry_state = *frame_state;
+    int rc = frame_machine();
+    s_entry_state = -1;
+    return rc < 0 ? -1 : 0;
 }
 
 /* ------------------------------------------------------------ setup */
@@ -648,10 +851,6 @@ static void bindings_init(void)
     if (s_ready)
         return;
     s_ready = 1;
-    /* D_00810E50 = 4 in every original capture (design 10.2 Q8); written
-     * here until S11a's input translation owns it. 001AE7E0 returns 1
-     * (unported 0022A650) for any other value. */
-    s_state.d810E50 = 4;
     em_actor_pool_reset_001AF8E0(&s_pool);
     em_area11_bindings_attach(&s_pool, &s_state);
 
@@ -659,6 +858,7 @@ static void bindings_init(void)
     w->ctx = NULL;
     w->trace = em_frame_trace_env() ? bindings_trace : NULL;
     w->r_0028A9A0 = r_0028A9A0;
+    w->r_00282157 = r_00282157;
     w->r_00275B44 = r_00275B44;
     w->r_008102B9 = r_008102B9;
 
@@ -688,10 +888,33 @@ static void bindings_init(void)
     w->w_001D19E0 = um_001D19E0;
     w->w_001C1DC0 = w_001C1DC0;
     w->w_00199C50 = um_00199C50;
-    w->w_001AEE40 = um_001AEE40;
+    w->w_001AEE40 = w_001AEE40;
     w->w_001FAE70 = um_001FAE70;
     w->w_001C5C50 = w_001C5C50;
     w->w_001D1EF0 = um_001D1EF0;
+
+    /* Status screen (S11b). */
+    w->w_0020E060 = w_0020E060;
+    w->w_001FBC50 = w_001FBC50;
+    w->w_001FABB0 = um_001FABB0;
+    w->w_00119828 = um_00119828;
+    w->w_001D2830 = um_001D2830;
+    w->w_0020CDC0 = w_0020CDC0;
+    w->w_001E0CC0 = um_001E0CC0;
+    w->w_001AEDB0 = w_001AEDB0;
+    w->w_0018C0D0 = w_0018C0D0;
+
+    /* Game over (S11b): 001AD4E0 and 001ADF00. */
+    w->w_001D2880 = um_001D2880;
+    w->w_001FF080 = w_001FF080;
+    w->w_001AEE10 = w_001AEE10;
+    w->w_001FA790 = um_001FA790;
+    w->w_001ABF90 = w_001ABF90;
+    w->w_001AEDE0 = w_001AEDE0;
+    w->w_001FAB50 = um_001FAB50;
+    w->s_00810D38 = um_s_00810D38;
+    w->w_001AEBA0 = w_001AEBA0;
+    w->w_001AB790 = w_001AB790;
 }
 
 void em_scene_bindings_legacy_loaded(EmTask *record)
@@ -717,6 +940,8 @@ void em_scene_task_001ACEC0(void)
         return; /* fail-stop: the task does nothing after a fault */
     EmTask *self = em_task_current();
     s_user = self ? self->user : NULL;
+    /* D_00810E74/E70/E50 as step C left them this frame (design 3.2). */
+    em_frame_scene_input(&s_state);
     EmFrameTrace *t = em_frame_trace_env();
     if (t)
         em_frame_trace_tick_begin(t, em_frame_counter());
