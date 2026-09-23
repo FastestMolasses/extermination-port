@@ -1,0 +1,4 @@
+{
+  "comment": "Intentional, documented differences between the native frame trace and the original traces in Extermination/build/s87/frame_trace/ (tools/compare_frame_order.py; SCENE_COORDINATOR_DESIGN.md section 3.3). Each entry: id, kind (missing = an original event the native side may lack; extra = a native event the original lacks; field = a per-frame field that may differ, only 'classifier'), traces (original names or '*'), event pattern (any of op/fn/target/callback/record; addresses as hex) or field, reason (with evidence), removed_by (the WP-n or Sn step that deletes the entry). The list must only shrink: add an entry only in the step that introduces the documented difference.",
+  "entries": []
+}
