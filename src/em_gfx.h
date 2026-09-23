@@ -709,6 +709,115 @@ int  em_gfx_background_ready(EmGfx *gfx);
  * The rest is checked by tools/test_background_reference.py. */
 void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
 
+/* --- Player drop shadow: the GS side of 001DA6A0 ------------------------ */
+
+/* The draws the original chain 001DA6A0 builds (docs/SHADOW_ORIGINAL.md,
+ * src/gfx/metal/em_shadow_gs.h for the register values and the kernel
+ * arithmetic). src/game/em_shadow_original computes every input; each
+ * call below is one of its workers and must be made in its worker order,
+ * inside a frame, after the level and the walked actors and before the
+ * player's own draw (gameplay 001AE5E0 calls 001DA6A0 at 0x1AE654 after
+ * 001AFD70(0)):
+ *
+ *   w_alpha_clear      -> em_gfx_shadow_alpha_clear
+ *   w_box (x2)         -> em_gfx_shadow_box
+ *   w_silhouette       -> em_gfx_shadow_silhouette
+ *   w_receiver_begin   -> em_gfx_shadow_receiver_begin
+ *   w_receiver (each)  -> em_gfx_shadow_receiver(gfx, strips, object->cls)
+ *   w_receiver_end     -> em_gfx_shadow_receiver_end
+ *
+ * The guard-band clip kernels are not translated: 00239C90 (run by
+ * 001DA310 after every box) and 0023E8A0 (001D5C80's re-pass of a class-2
+ * receiver: 001D4FB0, 001D1F80(0,2,6), 001D4B50, 001D4CD0) draw only the
+ * triangles em_shadow_gs_needs_clip names, so em_gfx_shadow_box and a
+ * class-2 em_gfx_shadow_receiver return -1 when their input has one and
+ * draw everything else exactly; a class 0/1 receiver has no re-pass and
+ * never draws those triangles.
+ *
+ * Original matrices are passed as the 16 floats of their memory (rows
+ * contiguous, row-vector convention, exactly as em_shadow_original's plan
+ * holds them). `viewproj` is the frame's native column-major P*V (the
+ * matrix the level meshes are drawn with). Every call returns 0, or -1
+ * when it cannot draw exactly what the original draws (outside a frame, a
+ * missing input, a GPU without framebuffer fetch, receivers without the
+ * frame's fog, a strip the kernel model cannot decide, the per-frame
+ * target budget); the reason is printed once per session. There is no
+ * stand-in: a caller turns -1 into its fault. */
+
+/* The VU1 vertex lists of the original models: `qw3` holds vertex_count
+ * position qwords in kick order (x, y, z as floats, then the vertex's data
+ * word, whose bits carry the ADC flags and whose float value is the strip
+ * winding sign); every EM_GFX_SHADOW_BATCH vertices are one GS packet of
+ * the kernel (NLOOP 32). */
+#define EM_GFX_SHADOW_BATCH 32u
+#define EM_GFX_SHADOW_TARGET_MAX 8u   /* silhouettes per frame */
+typedef struct {
+    const float *qw3;
+    uint32_t vertex_count;   /* a multiple of EM_GFX_SHADOW_BATCH */
+} EmGfxShadowStrips;
+
+/* 001DA290: destination alpha of the whole game frame becomes 0; colour
+ * and depth are kept. */
+int em_gfx_shadow_alpha_clear(EmGfx *gfx);
+
+/* 001DA310: one box model (the chunk27 library model 0x14 or 0x15, as
+ * its original strips) through kernel 00237180's cull: its triangles
+ * write destination alpha = the A byte of `rgbaq` where they lie in front
+ * of the frame's depth (GEQUAL, no depth write); colour is kept. `world`
+ * is the box plan's W (placement), `clip` its (W x V) x P (the kernel's
+ * dmem 0..3, which decides the cull). Returns -1, drawing nothing, when a
+ * triangle is left to the clip kernel 00239C90 (a vertex outside the guard
+ * band and not all three outside one guard plane): its clipping is not
+ * translated. */
+int em_gfx_shadow_box(EmGfx *gfx, const EmGfxShadowStrips *model,
+                      const float world[16], const float clip[16],
+                      uint32_t rgbaq, const float viewproj[16]);
+
+/* 001D9EE0: clear a 128x128 target to (128,128,128,0) and draw the proxy
+ * mesh in it with the flat colour (128,255,255,255): vertex i of `verts`
+ * (EMDL records, EM_GFX_VERT_BONE_MASK = node slot) goes through
+ * node[slot] (+0x90 of the actor's node, row-vector 16 floats) x `vp`
+ * (D_70003AC0 of the call) exactly as 001C7420 + kernel 0023C750 compute
+ * it, then to the GS 12.4 grid; triangles with a vertex outside the
+ * kernel's guard band are not drawn (kernel ADC). The receivers of this
+ * frame's next em_gfx_shadow_receiver_begin sample this target. */
+int em_gfx_shadow_silhouette(EmGfx *gfx, const float *verts, uint32_t vert_count,
+                             const uint32_t *indices, uint32_t index_count,
+                             const float *nodes, uint32_t node_count,
+                             const float vp[16]);
+
+/* 001D4CD0: bind the receiver pass. `uv` = ctx+0x24B0 (dmem 8), `camera`
+ * = D_70003AC0 (dmem 0; it gives Q and fog F per vertex). Needs the
+ * frame's em_gfx_fog (the template fog row and FOGCOL). */
+int em_gfx_shadow_receiver_begin(EmGfx *gfx, const float uv[16],
+                                 const float camera[16],
+                                 const float viewproj[16]);
+
+/* 001D4FB0 for one receiver object of class `cls` (em_shadow_original's
+ * receiver clip class: 0 on screen, 1 inside the guard band, 2 leaving
+ * it): redraw the level object's original strips with kernel 0023C200's
+ * per-vertex ST,
+ * RGBAQ (0,0,0,A) and F, sampling the silhouette target with the GS pixel
+ * pipeline: bilinear MODULATE, fog, alpha test A > 0, destination alpha
+ * bit 7 set, depth GEQUAL without write, Cv = (Cs - Cd) * As >> 7 + Cd,
+ * written alpha As. The positions go through `viewproj` of the begin call
+ * exactly as the level mesh's (identity palette), so the level's own
+ * depth passes. Triangles with a vertex outside the guard band are not
+ * drawn by 0023C200; for cls 2 the original then runs 0023E8A0 over the
+ * same strips, which draws their clipped parts: not translated, so a
+ * class-2 object with such a triangle returns -1 before drawing any of
+ * it. cls > 2 returns -1. */
+int em_gfx_shadow_receiver(EmGfx *gfx, const EmGfxShadowStrips *object,
+                           uint32_t cls);
+
+/* 001D1FF0(0, 1): end the receiver pass. */
+int em_gfx_shadow_receiver_end(EmGfx *gfx);
+
+/* Test hook: after em_gfx_end_frame, copy the last silhouette target of
+ * that frame as 128x128 RGBA8 rows (target pixel (x, y) = GS window
+ * (1984 + x, 1984 + y)). Returns 0, or -1 when no silhouette was drawn. */
+int em_gfx_shadow_target_read(EmGfx *gfx, uint8_t *rgba);
+
 /* --- last skinned palette (the published bone matrices) ---------------- */
 
 /* The engine PUBLISHES bone world matrices for equipment consumers: the

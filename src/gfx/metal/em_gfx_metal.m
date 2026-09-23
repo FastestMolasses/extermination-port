@@ -18,6 +18,7 @@
 #include "game/em_lighting.h"
 #include "gfx/metal/em_fog_gs.h"
 #include "gfx/metal/em_background_gs.h"
+#include "gfx/metal/em_shadow_gs.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -184,6 +185,23 @@ struct EmGfx {
     EmBackgroundGsAsset          bgAsset;
     id<MTLTexture>               bgTexture;
     id<MTLRenderPipelineState>   bgPipeline;
+    /* Player drop shadow (em_gfx_shadow_* — em_gfx.h, em_shadow_gs.h).
+     * shadowAlphaPipeline: alpha-only colour write (001DA290 / 001DA310
+     * state (2,9)); shadowSilPipeline: the 128x128 target (001D9EE0);
+     * shadowRecvPipeline: v_skin + the GS receiver pixel pipeline with
+     * framebuffer fetch (001D5C80). One target per silhouette of the
+     * frame, each rendered by its own command buffer committed at once,
+     * so it executes before the frame's buffer that samples it. */
+    id<MTLRenderPipelineState>   shadowAlphaPipeline;
+    id<MTLRenderPipelineState>   shadowSilPipeline;
+    id<MTLRenderPipelineState>   shadowRecvPipeline;
+    id<MTLTexture>               shadowTarget[EM_GFX_SHADOW_TARGET_MAX];
+    uint32_t                     shadowTargets;     /* used this frame */
+    int                          shadowCurrent;     /* last silhouette, -1 */
+    id<MTLTexture>               shadowLast;        /* for the read hook */
+    bool                         shadowRecvOpen;
+    float                        shadowUV[16], shadowCam[16], shadowVP[16];
+    uint32_t                     shadowWarned;      /* reasons printed */
 };
 
 struct EmGfxMesh {
@@ -539,6 +557,43 @@ static NSString *const kSkinShaderSrc =
 "     * em_lighting colors; there is no stand-in light to fall back on. */\n"
 "    discard_fragment();\n"
 "    return float4(0.0);\n"
+"}\n"
+"/* Shadow receiver pixel (em_gfx_shadow_receiver, em_shadow_gs.h\n"
+" * em_shadow_gs_bilinear_alpha / em_shadow_gs_receiver_pixel): v_skin runs\n"
+" * with mode 4, so light_rgb carries the kernel's RGBAQ A and fog F / 128\n"
+" * (screen-linear interpolation) and uv the 0023C200 (u, v) (perspective,\n"
+" * S/Q and T/Q). dst is the frame pixel (framebuffer fetch). APPROXIMATION,\n"
+" * not verified against a GS dump of a drawn shadow: A and F per pixel are\n"
+" * floor(value * 128 + 0.001) of Metal's float interpolation; the GS's own\n"
+" * Gouraud/DDA stepping of A and F is not modelled and the 0.001 epsilon\n"
+" * is a heuristic (docs/SHADOW_ORIGINAL.md, open items). */\n"
+"fragment float4 f_shadow_receiver(VOut in [[stage_in]],\n"
+"        float4 dst [[color(0)]],\n"
+"        texture2d<float, access::read> sil [[texture(0)]],\n"
+"        constant float4 *fog [[buffer(4)]]) {\n"
+"    int uu = int(floor(in.uv.x * 2048.0)) - 8;\n"
+"    int vv = int(floor(in.uv.y * 2048.0)) - 8;\n"
+"    int fu = uu & 15, fv = vv & 15;\n"
+"    int x0 = clamp(uu >> 4, 0, 127), x1 = clamp((uu >> 4) + 1, 0, 127);\n"
+"    int y0 = clamp(vv >> 4, 0, 127), y1 = clamp((vv >> 4) + 1, 0, 127);\n"
+"    uint a00 = uint(round(sil.read(uint2(x0, y0)).a * 255.0));\n"
+"    uint a10 = uint(round(sil.read(uint2(x1, y0)).a * 255.0));\n"
+"    uint a01 = uint(round(sil.read(uint2(x0, y1)).a * 255.0));\n"
+"    uint a11 = uint(round(sil.read(uint2(x1, y1)).a * 255.0));\n"
+"    uint at = (a00 * uint((16 - fu) * (16 - fv)) + a10 * uint(fu * (16 - fv))\n"
+"             + a01 * uint((16 - fu) * fv) + a11 * uint(fu * fv)) >> 8;\n"
+"    uint a = uint(floor(in.light_rgb.x * 128.0 + 0.001));\n"
+"    uint f = uint(floor(in.light_rgb.y * 128.0 + 0.001));\n"
+"    uint as = min((at * a) >> 7, 255u);\n"
+"    if (as == 0u) discard_fragment();\n"
+"    uint4 d = uint4(round(dst * 255.0));\n"
+"    if ((d.a & 0x80u) == 0u) discard_fragment();\n"
+"    int3 fc = int3(round(fog[0].rgb * 255.0));\n"
+"    int3 cs = int3((uint3(255u - f) * uint3(fc)) >> 8);\n"
+"    int3 dc = int3(d.rgb);\n"
+"    float3 prod = float3((cs - dc) * int(as));\n"
+"    int3 c = clamp(int3(floor(prod / 128.0)) + dc, 0, 255);\n"
+"    return float4(float3(c) / 255.0, float(as) / 255.0);\n"
 "}\n";
 
 /* Blend state selector for build_pipeline — the three GS ALPHA configs
@@ -673,9 +728,14 @@ EmGfx *em_gfx_create(EmWindow *win)
 
     layer.device          = dev;
     layer.pixelFormat     = MTLPixelFormatBGRA8Unorm;
+    /* The frame's alpha channel is the GS destination alpha (the shadow
+     * chain writes it; em_gfx_shadow_*); the PS2 display never shows it,
+     * so neither may the window. */
+    layer.opaque          = YES;
     /* NO so the drawable can be blit-read by the capture path. */
     layer.framebufferOnly = NO;
     g->headless = em_headless();
+    g->shadowCurrent = -1;
     return g;
 }
 
@@ -693,6 +753,12 @@ void em_gfx_destroy(EmGfx *g)
     [g->particlePipeline release];
     [g->bgTexture release];
     [g->bgPipeline release];
+    [g->shadowAlphaPipeline release];
+    [g->shadowSilPipeline release];
+    [g->shadowRecvPipeline release];
+    for (unsigned i = 0; i < EM_GFX_SHADOW_TARGET_MAX; i++)
+        [g->shadowTarget[i] release];
+    [g->shadowLast release];
     free(g->bgFile);
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
         [g->beamTex[i] release];
@@ -731,6 +797,9 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     memset(g->rig,  0, sizeof(g->rig));  /* character rig is per-frame   */
     memset(g->face_rig, 0, sizeof(g->face_rig));
     memset(g->fog,  0, sizeof(g->fog));  /* distance fog is per-frame    */
+    g->shadowTargets  = 0;               /* shadow targets are per-frame  */
+    g->shadowCurrent  = -1;
+    g->shadowRecvOpen = false;
 
     /* keep the swapchain sized to the backing store */
     NSSize sz = g->view.bounds.size;
@@ -2463,6 +2532,460 @@ static void backdrop_flush(EmGfx *g)
     }
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,
                   g->backdropVerts, &g->backdropVertCount,NULL);
+}
+
+/* --- Player drop shadow (em_gfx.h, em_shadow_gs.h) ----------------------- */
+
+/* Shadow shaders. v_shadow_world: world position through the frame's
+ * viewproj (the box faces). v_shadow_ndc: a position already in clip
+ * space (the 001DA290 strip, the silhouette's GS 12.4 vertices).
+ * f_shadow_alpha writes only the source alpha (the pipeline masks RGB):
+ * ALPHA 0xA9 with FIX 0x80 keeps Cd and AFAIL FB_ONLY writes As.
+ * f_shadow_silhouette is the flat RGBAQ 0xFFFFFF80. */
+static NSString *const kShadowShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct VOut { float4 pos [[position]]; };\n"
+"vertex VOut v_shadow_world(uint vid [[vertex_id]],\n"
+"                           const device float4 *p [[buffer(0)]],\n"
+"                           constant float4x4 &viewproj [[buffer(1)]]) {\n"
+"    VOut o; o.pos = viewproj * float4(p[vid].xyz, 1.0); return o;\n"
+"}\n"
+"vertex VOut v_shadow_ndc(uint vid [[vertex_id]],\n"
+"                         const device float4 *p [[buffer(0)]]) {\n"
+"    VOut o; o.pos = p[vid]; return o;\n"
+"}\n"
+"fragment float4 f_shadow_alpha(VOut in [[stage_in]],\n"
+"                               constant float &alpha [[buffer(0)]]) {\n"
+"    return float4(0.0, 0.0, 0.0, alpha);\n"
+"}\n"
+"fragment float4 f_shadow_silhouette(VOut in [[stage_in]]) {\n"
+"    return float4(128.0 / 255.0, 1.0, 1.0, 1.0);\n"
+"}\n";
+
+enum {
+    SHADOW_WARN_FRAME = 1u, SHADOW_WARN_FETCH = 2u, SHADOW_WARN_INPUT = 4u,
+    SHADOW_WARN_STALE = 8u, SHADOW_WARN_CLIP = 16u, SHADOW_WARN_TARGETS = 32u,
+    SHADOW_WARN_FOG = 64u, SHADOW_WARN_ORDER = 128u, SHADOW_WARN_GPU = 256u,
+};
+
+static int shadow_fail(EmGfx *g, uint32_t why, const char *what)
+{
+    if (g && !(g->shadowWarned & why)) {
+        g->shadowWarned |= why;
+        fprintf(stderr, "gfx: shadow: %s — not drawn\n", what);
+    }
+    return -1;
+}
+
+/* A pipeline for the shadow passes: colour format `fmt`, depth attachment
+ * when `depth`, colour write mask `mask`, blending off. +1 retained. */
+static id<MTLRenderPipelineState> shadow_pipeline(EmGfx *g, NSString *src,
+    NSString *vfn, NSString *ffn, MTLPixelFormat fmt, bool depth,
+    MTLColorWriteMask mask)
+{
+    NSError *err = nil;
+    id<MTLLibrary> lib = [g->device newLibraryWithSource:src options:nil
+                                                   error:&err];
+    if (!lib) {
+        fprintf(stderr, "metal: shadow shader compile failed: %s\n",
+                err ? err.localizedDescription.UTF8String : "(unknown)");
+        return nil;
+    }
+    id<MTLFunction> v = [lib newFunctionWithName:vfn];
+    id<MTLFunction> f = [lib newFunctionWithName:ffn];
+    MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
+    pd.vertexFunction = v;
+    pd.fragmentFunction = f;
+    pd.colorAttachments[0].pixelFormat = fmt;
+    pd.colorAttachments[0].blendingEnabled = NO;
+    pd.colorAttachments[0].writeMask = mask;
+    if (depth) pd.depthAttachmentPixelFormat = EM_DEPTH_FORMAT;
+    id<MTLRenderPipelineState> pso =
+        [g->device newRenderPipelineStateWithDescriptor:pd error:&err];
+    [pd release];
+    [v release];
+    [f release];
+    [lib release];
+    if (!pso)
+        fprintf(stderr, "metal: shadow pipeline build failed: %s\n",
+                err ? err.localizedDescription.UTF8String : "(unknown)");
+    return pso;
+}
+
+static bool shadow_alpha_ready(EmGfx *g)
+{
+    if (!g->shadowAlphaPipeline)
+        g->shadowAlphaPipeline = shadow_pipeline(g, kShadowShaderSrc,
+            @"v_shadow_world", @"f_shadow_alpha", g->layer.pixelFormat, true,
+            MTLColorWriteMaskAlpha);
+    ensure_depth_states(g);
+    return g->shadowAlphaPipeline != nil;
+}
+
+int em_gfx_shadow_alpha_clear(EmGfx *g)
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!shadow_alpha_ready(g))
+        return shadow_fail(g, SHADOW_WARN_GPU, "alpha pipeline unavailable");
+    /* The 001DA290 strip covers the whole field: the 4:3 game frame. */
+    static const float quad[6][4] = {
+        { -1.0f,  1.0f, 0.0f, 1.0f }, { 1.0f,  1.0f, 0.0f, 1.0f },
+        { -1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f,  1.0f, 0.0f, 1.0f },
+        {  1.0f, -1.0f, 0.0f, 1.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
+    };
+    static const float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0,
+                                     0, 0, 1, 0, 0, 0, 0, 1 };
+    const float alpha = 0.0f;                    /* RGBAQ A of the strip */
+    [g->enc setRenderPipelineState:g->shadowAlphaPipeline];
+    [g->enc setDepthStencilState:g->depthOff];   /* Z 0xFFFFFFFF GEQUAL */
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBytes:quad length:sizeof quad atIndex:0];
+    [g->enc setVertexBytes:ident length:sizeof ident atIndex:1];
+    [g->enc setFragmentBytes:&alpha length:4 atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    return 0;
+}
+
+int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
+                      const float world[16], const float clip[16],
+                      uint32_t rgbaq, const float viewproj[16])
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!model || !model->qw3 || !model->vertex_count ||
+        model->vertex_count % EM_GFX_SHADOW_BATCH || !world || !clip || !viewproj)
+        return shadow_fail(g, SHADOW_WARN_INPUT, "box input missing");
+    if (!shadow_alpha_ready(g))
+        return shadow_fail(g, SHADOW_WARN_GPU, "alpha pipeline unavailable");
+    float k1021[4] = { 255.0f, 2048.0f, 0.0f, 0.0f }, k1022[4], k1023[4];
+    em_shadow_gs_level_rows(k1022, k1023);
+    const uint32_t n = model->vertex_count;
+    EmShadowGsVertex *out = malloc(sizeof *out * n);
+    float (*tri)[4] = malloc(sizeof *tri * 3 * n);
+    if (!out || !tri) {
+        free(out); free(tri);
+        return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
+    }
+    const float (*qw3)[4] = (const float (*)[4])model->qw3;
+    uint32_t count = 0;
+    int bad = 0;
+    for (uint32_t b = 0; b < n && !bad; b += EM_GFX_SHADOW_BATCH) {
+        if (em_shadow_gs_level_batch(clip, k1021, k1022, k1023, qw3 + b,
+                                     EM_GFX_SHADOW_BATCH, out + b))
+            bad = 1;                     /* EM_SHADOW_GS_ADC_STALE */
+        for (uint32_t i = b + 2; i < b + EM_GFX_SHADOW_BATCH && !bad; ++i) {
+            const uint32_t why = out[i].why;
+            /* 00239C90 (001DA310 runs it for every box) draws exactly
+             * these; its clipping is not translated. */
+            if (em_shadow_gs_needs_clip(why, i - b)) { bad = 2; break; }
+            /* 00237180 kicks only vertices without ADC. */
+            if (why) continue;
+            for (unsigned k = 0; k < 3; ++k) {
+                const float *p = qw3[i - 2 + k];
+                for (unsigned l = 0; l < 3; ++l)
+                    tri[count][l] = p[0] * world[l] + p[1] * world[4 + l] +
+                                    p[2] * world[8 + l] + world[12 + l];
+                tri[count][3] = 1.0f;
+                ++count;
+            }
+        }
+    }
+    free(out);
+    if (bad) {
+        free(tri);
+        return shadow_fail(g, bad == 1 ? SHADOW_WARN_STALE : SHADOW_WARN_CLIP,
+                           bad == 1 ? "box strip starts without ADC (kernel "
+                                      "state not modelled)"
+                                    : "box triangle for clip kernel 00239C90 "
+                                      "(not translated)");
+    }
+    if (count) {
+        id<MTLBuffer> vb = [g->device newBufferWithBytes:tri
+                                                  length:sizeof *tri * count
+                                                 options:MTLResourceStorageModeShared];
+        const float alpha = (float)(rgbaq >> 24) / 255.0f;
+        [g->enc setRenderPipelineState:g->shadowAlphaPipeline];
+        [g->enc setDepthStencilState:g->depthGlow];  /* GEQUAL, ZMSK 1 */
+        [g->enc setCullMode:MTLCullModeNone];
+        [g->enc setVertexBuffer:vb offset:0 atIndex:0];
+        [g->enc setVertexBytes:viewproj length:64 atIndex:1];
+        [g->enc setFragmentBytes:&alpha length:4 atIndex:0];
+        [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+                   vertexCount:count];
+        [vb release];
+    }
+    free(tri);
+    return 0;
+}
+
+int em_gfx_shadow_silhouette(EmGfx *g, const float *verts, uint32_t vert_count,
+                             const uint32_t *indices, uint32_t index_count,
+                             const float *nodes, uint32_t node_count,
+                             const float vp[16])
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!verts || !vert_count || !indices || !index_count || index_count % 3 ||
+        !nodes || !node_count || !vp)
+        return shadow_fail(g, SHADOW_WARN_INPUT, "silhouette input missing");
+    if (g->shadowTargets >= EM_GFX_SHADOW_TARGET_MAX)
+        return shadow_fail(g, SHADOW_WARN_TARGETS, "more silhouettes than "
+                           "EM_GFX_SHADOW_TARGET_MAX in one frame");
+    if (!g->shadowSilPipeline)
+        g->shadowSilPipeline = shadow_pipeline(g, kShadowShaderSrc,
+            @"v_shadow_ndc", @"f_shadow_silhouette", MTLPixelFormatRGBA8Unorm,
+            false, MTLColorWriteMaskAll);
+    if (!g->shadowSilPipeline)
+        return shadow_fail(g, SHADOW_WARN_GPU, "silhouette pipeline unavailable");
+    const uint32_t slot = g->shadowTargets;
+    if (!g->shadowTarget[slot]) {
+        MTLTextureDescriptor *td = [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                         width:EM_SHADOW_GS_TARGET_SIZE
+                                        height:EM_SHADOW_GS_TARGET_SIZE
+                                     mipmapped:NO];
+        td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        td.storageMode = MTLStorageModePrivate;
+        g->shadowTarget[slot] = [g->device newTextureWithDescriptor:td];
+        if (!g->shadowTarget[slot])
+            return shadow_fail(g, SHADOW_WARN_GPU, "target allocation failed");
+    }
+    /* 001C7420 + kernel 0023C750 on the CPU, bit for bit: bone = node x vp,
+     * c = p x bone, XYZ2 = ftoi4(c.xyz / c.w); ADC for the guard band. */
+    float k1021[4] = { 255.0f, 2048.0f, 0.0f, 0.0f }, k1022[4], k1023[4];
+    em_shadow_gs_object_rows(k1022, k1023);
+    float *bones = malloc(sizeof(float) * 16 * node_count);
+    float (*pos)[4] = malloc(sizeof *pos * vert_count);
+    uint8_t *clipped = malloc(vert_count);
+    float (*tri)[4] = malloc(sizeof *tri * index_count);
+    if (!bones || !pos || !clipped || !tri) {
+        free(bones); free(pos); free(clipped); free(tri);
+        return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
+    }
+    for (uint32_t b = 0; b < node_count; ++b)
+        em_shadow_gs_bone(nodes + 16 * b, vp, bones + 16 * b);
+    int bad = 0;
+    for (uint32_t i = 0; i < vert_count && !bad; ++i) {
+        const float *rec = verts + (size_t)i * 10;
+        uint32_t bone;
+        memcpy(&bone, rec + 8, 4);
+        bone &= EM_GFX_VERT_BONE_MASK;
+        if (bone >= node_count) { bad = 1; break; }
+        float q3[1][4] = { { rec[0], rec[1], rec[2], 0.0f } };
+        const float *bp = bones + 16 * bone;
+        EmShadowGsVertex v;
+        em_shadow_gs_object_batch(&bp, k1021, k1022, k1023,
+                                  (const float (*)[4])q3, 1, &v);
+        clipped[i] = (v.why & EM_SHADOW_GS_ADC_CLIP) ? 1u : 0u;
+        float ndc[2];
+        em_shadow_gs_target_ndc((float)(v.w[0] & 0xFFFF) / 16.0f,
+                                (float)(v.w[1] & 0xFFFF) / 16.0f, ndc);
+        pos[i][0] = ndc[0]; pos[i][1] = ndc[1]; pos[i][2] = 0.0f; pos[i][3] = 1.0f;
+    }
+    uint32_t count = 0;
+    for (uint32_t t = 0; t + 2 < index_count && !bad; t += 3) {
+        const uint32_t a = indices[t], b = indices[t + 1], c = indices[t + 2];
+        if (a >= vert_count || b >= vert_count || c >= vert_count) { bad = 1; break; }
+        if (clipped[a] || clipped[b] || clipped[c]) continue;
+        memcpy(tri[count++], pos[a], 16);
+        memcpy(tri[count++], pos[b], 16);
+        memcpy(tri[count++], pos[c], 16);
+    }
+    free(bones); free(pos); free(clipped);
+    if (bad) {
+        free(tri);
+        return shadow_fail(g, SHADOW_WARN_INPUT, "silhouette vertex/node out of range");
+    }
+    id<MTLCommandBuffer> cb = [g->queue commandBuffer];
+    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+    rp.colorAttachments[0].texture = g->shadowTarget[slot];
+    rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+    rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+    /* The D_00817E20 sprite: RGBAQ (128,128,128,0) over pixels 0..127. */
+    rp.colorAttachments[0].clearColor =
+        MTLClearColorMake(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 0.0);
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
+    [enc setViewport:(MTLViewport){ 0.0, 0.0, EM_SHADOW_GS_TARGET_SIZE,
+                                    EM_SHADOW_GS_TARGET_SIZE, 0.0, 1.0 }];
+    if (count) {
+        id<MTLBuffer> vb = [g->device newBufferWithBytes:tri
+                                                  length:sizeof *tri * count
+                                                 options:MTLResourceStorageModeShared];
+        [enc setRenderPipelineState:g->shadowSilPipeline];
+        [enc setCullMode:MTLCullModeNone];          /* 0023C750 never culls */
+        [enc setVertexBuffer:vb offset:0 atIndex:0];
+        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count];
+        [vb release];
+    }
+    [enc endEncoding];
+    /* Committed now: it runs before the frame's command buffer (committed
+     * by end_frame), whose receivers sample the target. */
+    [cb commit];
+    free(tri);
+    g->shadowCurrent = (int)slot;
+    g->shadowTargets++;
+    [g->shadowLast release];
+    g->shadowLast = [g->shadowTarget[slot] retain];
+    return 0;
+}
+
+int em_gfx_shadow_receiver_begin(EmGfx *g, const float uv[16],
+                                 const float camera[16],
+                                 const float viewproj[16])
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!uv || !camera || !viewproj)
+        return shadow_fail(g, SHADOW_WARN_INPUT, "receiver input missing");
+    if (g->shadowCurrent < 0)
+        return shadow_fail(g, SHADOW_WARN_ORDER, "receivers before a silhouette");
+    if (!(g->fog[3] > 0.0f))
+        return shadow_fail(g, SHADOW_WARN_FOG, "receivers without the frame's "
+                           "fog (em_gfx_fog)");
+    if (![g->device supportsFamily:MTLGPUFamilyApple1])
+        return shadow_fail(g, SHADOW_WARN_FETCH, "the GPU has no framebuffer "
+                           "fetch (destination-alpha test and GS blend)");
+    if (!g->shadowRecvPipeline)
+        g->shadowRecvPipeline = shadow_pipeline(g, kSkinShaderSrc, @"v_skin",
+            @"f_shadow_receiver", g->layer.pixelFormat, true, MTLColorWriteMaskAll);
+    if (!g->shadowRecvPipeline)
+        return shadow_fail(g, SHADOW_WARN_GPU, "receiver pipeline unavailable");
+    ensure_depth_states(g);
+    memcpy(g->shadowUV, uv, 64);
+    memcpy(g->shadowCam, camera, 64);
+    memcpy(g->shadowVP, viewproj, 64);
+    g->shadowRecvOpen = true;
+    return 0;
+}
+
+int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
+                           uint32_t cls)
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!g->shadowRecvOpen)
+        return shadow_fail(g, SHADOW_WARN_ORDER, "receiver outside begin/end");
+    if (!object || !object->qw3 || !object->vertex_count ||
+        object->vertex_count % EM_GFX_SHADOW_BATCH || cls > 2u)
+        return shadow_fail(g, SHADOW_WARN_INPUT, "receiver strips missing");
+    /* The template fog row: (255, 2048, A, B) from the frame's em_gfx_fog;
+     * guard rows as the level template's. */
+    float k1021[4] = { 255.0f, 2048.0f, g->fog[4], g->fog[5] }, k1022[4], k1023[4];
+    em_shadow_gs_level_rows(k1022, k1023);
+    const uint32_t n = object->vertex_count;
+    EmShadowGsReceiverVertex *out = malloc(sizeof *out * n);
+    float *rec = malloc(sizeof(float) * 10 * 3 * n);
+    uint32_t (*rgba)[4] = malloc(sizeof *rgba * 3 * n);
+    if (!out || !rec || !rgba) {
+        free(out); free(rec); free(rgba);
+        return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
+    }
+    const float (*qw3)[4] = (const float (*)[4])object->qw3;
+    uint32_t count = 0;
+    int clip = 0;
+    for (uint32_t b = 0; b < n && !clip; b += EM_GFX_SHADOW_BATCH) {
+        em_shadow_gs_receiver_batch(g->shadowCam, g->shadowUV, k1021, k1022,
+                                    k1023, qw3 + b, EM_GFX_SHADOW_BATCH, out + b);
+        for (uint32_t i = b + 2; i < b + EM_GFX_SHADOW_BATCH; ++i) {
+            /* 0023C200 kicks the triangle only when its last vertex has no
+             * ADC (data flag or guard-band CLIP). A class-2 object's
+             * 0023E8A0 re-pass draws the CLIP ones (not translated: fault
+             * before anything of the object is drawn); classes 0 and 1
+             * have no re-pass, so nothing draws them. */
+            const uint32_t why = out[i].xyzf.why;
+            if (cls == 2u && em_shadow_gs_needs_clip(why, i - b)) {
+                clip = 1;
+                break;
+            }
+            if (why) continue;
+            for (unsigned k = 0; k < 3; ++k) {
+                const uint32_t j = i - 2 + k;
+                float *r = rec + (size_t)count * 10;
+                uint32_t zero = 0, notex = 0;
+                /* The kernel's (u, v) = (S, T) / Q: the pixel samples at
+                 * S/Q, T/Q; Metal's perspective interpolation of (u, v)
+                 * is that division. */
+                const float u = out[j].s / out[j].q, v = out[j].t / out[j].q;
+                r[0] = qw3[j][0]; r[1] = qw3[j][1]; r[2] = qw3[j][2];
+                r[3] = r[4] = r[5] = 0.0f;
+                r[6] = u; r[7] = v;
+                memcpy(r + 8, &zero, 4);
+                memcpy(r + 9, &notex, 4);
+                rgba[count][0] = out[j].a;
+                rgba[count][1] = (uint32_t)(out[j].xyzf.w[3] >> 4) & 0xFFu;
+                rgba[count][2] = rgba[count][3] = 0;
+                ++count;
+            }
+        }
+    }
+    free(out);
+    if (clip) {
+        free(rec); free(rgba);
+        return shadow_fail(g, SHADOW_WARN_CLIP, "receiver triangle for clip "
+                           "kernel 0023E8A0 (not translated)");
+    }
+    if (count) {
+        static const float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0,
+                                         0, 0, 1, 0, 0, 0, 0, 1 };
+        static const float scale[2] = { 1.0f, 1.0f };
+        const uint32_t mode = 4u;          /* light_rgb = (A, F) / 128 */
+        const float nofog[8] = { 0 };      /* v_skin's own fog_f unused */
+        id<MTLBuffer> vb = [g->device newBufferWithBytes:rec
+                                                  length:sizeof(float) * 10 * count
+                                                 options:MTLResourceStorageModeShared];
+        id<MTLBuffer> cb = [g->device newBufferWithBytes:rgba
+                                                  length:sizeof *rgba * count
+                                                 options:MTLResourceStorageModeShared];
+        [g->enc setRenderPipelineState:g->shadowRecvPipeline];
+        [g->enc setDepthStencilState:g->depthGlow];   /* GEQUAL, ZMSK 1 */
+        [g->enc setCullMode:MTLCullModeNone];         /* 0023C200 never culls */
+        [g->enc setVertexBuffer:vb offset:0 atIndex:0];
+        [g->enc setVertexBytes:ident length:64 atIndex:1];
+        [g->enc setVertexBytes:g->shadowVP length:64 atIndex:2];
+        [g->enc setVertexBytes:scale length:8 atIndex:3];
+        [g->enc setVertexBytes:&mode length:4 atIndex:4];
+        [g->enc setVertexBuffer:cb offset:0 atIndex:5];
+        [g->enc setVertexBytes:nofog length:sizeof nofog atIndex:6];
+        [g->enc setFragmentTexture:g->shadowTarget[g->shadowCurrent] atIndex:0];
+        [g->enc setFragmentBytes:g->fog length:sizeof(g->fog) atIndex:4];
+        [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count];
+        [vb release];
+        [cb release];
+    }
+    free(rec);
+    free(rgba);
+    return 0;
+}
+
+int em_gfx_shadow_receiver_end(EmGfx *g)
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!g->shadowRecvOpen)
+        return shadow_fail(g, SHADOW_WARN_ORDER, "receiver end without begin");
+    g->shadowRecvOpen = false;
+    return 0;
+}
+
+int em_gfx_shadow_target_read(EmGfx *g, uint8_t *rgba)
+{
+    if (!g || !rgba || !g->shadowLast) return -1;
+    @autoreleasepool {   /* called outside begin/end_frame */
+    const NSUInteger row = EM_SHADOW_GS_TARGET_SIZE * 4;
+    id<MTLBuffer> buf = [g->device newBufferWithLength:row * EM_SHADOW_GS_TARGET_SIZE
+                                               options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> cb = [g->queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromTexture:g->shadowLast sourceSlice:0 sourceLevel:0
+             sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(EM_SHADOW_GS_TARGET_SIZE,
+                                      EM_SHADOW_GS_TARGET_SIZE, 1)
+                 toBuffer:buf destinationOffset:0
+    destinationBytesPerRow:row
+  destinationBytesPerImage:row * EM_SHADOW_GS_TARGET_SIZE];
+    [blit endEncoding];
+    [cb commit];
+    [cb waitUntilCompleted];
+    memcpy(rgba, buf.contents, row * EM_SHADOW_GS_TARGET_SIZE);
+    [buf release];
+    }
+    return 0;
 }
 
 void em_gfx_request_capture(EmGfx *g, const char *path)

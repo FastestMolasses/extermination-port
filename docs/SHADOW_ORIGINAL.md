@@ -119,10 +119,10 @@ volume mask:
 | light | `001D98A0(anchor, variant, 8.0)` | L = `D_00817F70` = (0,-1,0,0), the result of rotations by the constant angle 0. `D_00817F20` = V, the view from anchor+(0,6,0): x' = anchor.z - z, y' = x - anchor.x, z' = anchor.y + 6 - y. ctx+0x24B0 = V x diag(1/16,1/16,1,1) x T(0.5,0.5) x alpha matrix, which gives u = x'/16 + 0.5, v = y'/16 + 0.5 and w = 8388608 + base - 2z'. `D_00817FF0` = L; `D_00817FC0` = up x (previous L x up), which is 0 in practice. |
 | spread | inline | The loop is meant to measure the node spread, but all four accumulators keep the minimum (`c.lt.s` with `bc1f`/`bc1fl`). The spread is therefore 0 and the box size stays 16. Unit = 128/16 = 8. |
 | picks | `001DA080` | `D_00817FB0` = the node with the smallest dot with L (the highest node). `D_00817FA0` = the far pick, which stays node 1 while `D_00817FC0` is 0. |
-| alpha clear | `001DA290`, `001DA1E0` | Full-frame sprite (1792..2304, 1936..2160, Z 0xFFFFFF) in state block (2,9): ALPHA 0xA9 (Cd kept), TEST 0x51001 (alpha test NEVER, fail FB_ONLY), ZTST GEQUAL, ZMSK. The frame's destination alpha becomes 0 and its colour is unchanged. |
+| alpha clear | `001DA290`, `001DA1E0` | A DIRECT two-triangle strip (PRIM 0x044, REGS RGBAQ + 4 XYZF2) over the whole field (1792..2304, 1936..2160, Z word 0xFFFFFFFF, RGBAQ 0) in state block (2,9): ALPHA 0xA9 (Cd kept), TEST 0x51001 (alpha test NEVER, fail FB_ONLY), ZTST GEQUAL, ZMSK. The frame's destination alpha becomes 0 and its colour is unchanged. (Earlier versions of this table called it a sprite.) |
 | box x2 | `001DA310` | Outward cube (model 0x14, chunk27 library, ±5) with RGBAQ (0,128,0,128), then inward cube (model 0x15) with RGBAQ (128,0,0,1). The RGBAQ bytes come from `00128250` (0x1DA5BC..0x1DA5E8), the soft-float float-to-unsigned conversion: NaN, zero and negatives give 0, values of 2^32 and up give 0xFFFFFFFF, the rest truncate; the bytes are shifted and OR-ed without masking. Both use W = scale(1.6,4,1.6) + (0,-20,0) + anchor. Two kernels run: 00237180, then 00239C90 (clipping). Both receive (W x V) x P. The first uploads of W x `D_70003AC0` and W x 0 are overwritten before any MSCAL. Result: destination-alpha bit 7 marks visible surfaces between the box's front and back faces. |
 | silhouette | `001D9EE0` | Packet `D_00817E20`: FRAME FBP 0x12C (GS byte 0x258000), FBW 2, PSMCT32; XYOFFSET 1984; SCISSOR 128x128; TEST ZTST ALWAYS; a sprite clears the target to (128,128,128,0). The VP is `D_70003AC0` = V x diag(8,8,1,1) x [GS rows: centre 2048, Z 0.8996 / 1677721.5]. `001C7420` uploads the actor's 21 world-space node matrices (node+0x90 of the `+0x110` nodes) x VP. Around that call 001D9EE0 saves the actor qword `+0x80`, zeroes `+0x80/+0x84/+0x88` and restores it afterwards (0x1D9FFC..0x1DA024). `001D4740(D_0028A490[kind])` draws the proxy mesh; for the player that is `extract/chunk03/f32_id28.bin`. The template has only XYZ2 per vertex and no ABE. Every pixel is the A+D RGBAQ 0xFFFFFF80 = (128,255,255,255). |
-| receivers | `001D5C80(D_00817FB0)` | Level grid (ctx+0x140, stride +0x148, cell +0x150/+0x154, origin +0x158/+0x15C). The cells cover ±15 around the highest node, never fewer than 3x3, clamped to 0..31, z-major, 4 slots each. Each object with id > 0 is clip-tested with its AABB against 1024x448 x `D_00810610` (trivial reject), then against the 4096 guard band. Kernel 0023C200 draws each object; objects outside the guard band are drawn again by 0023E8A0. Before the loop, `001D4CD0` sets state block (2,6): TEST 0x5C00D (alpha > 0, DATE with DATM=1, ZTST GEQUAL), ALPHA 0x44 = (Cs - Cd) x As / 128 + Cd, ZMSK. It also sets CLAMP 5, TEX1 bilinear, and TEX0 0x5DC00A580 (TBP 0x2580, TBW 2, PSMCT32, 128x128, TCC 1, TFX MODULATE). ctx+0x24B0 goes to dmem 8. |
+| receivers | `001D5C80(D_00817FB0)` | Level grid (ctx+0x140, stride +0x148, cell +0x150/+0x154, origin +0x158/+0x15C). The cells cover ±15 around the highest node, never fewer than 3x3, clamped to 0..31, z-major, 4 slots each. Each object with id > 0 is clip-tested with its AABB against 1024x448 x `D_00810610` (trivial reject), then against the 4096 guard band. Kernel 0023C200 draws each object; an object leaving the guard band (class 2) gets a second pass with 0023E8A0 over the same strips, which draws only the triangles 0023C200 left undrawn for CLIP (clipped; see GS side). Before the loop, `001D4CD0` sets state block (2,6): TEST 0x5C00D (alpha > 0, DATE with DATM=1, ZTST GEQUAL), ALPHA 0x44 = (Cs - Cd) x As / 128 + Cd, ZMSK. It also sets CLAMP 5, TEX1 bilinear, and TEX0 0x5DC00A580 (TBP 0x2580, TBW 2, PSMCT32, 128x128, TCC 1, TFX MODULATE). ctx+0x24B0 goes to dmem 8. |
 
 Receiver kernel 0023C200, per vertex:
 
@@ -217,7 +217,8 @@ slice.
     receiver lists.
   - The area switch: its 45 keys are read from the ELF's addiu/beq pairs
     (0x1D9C4C..0x1D9E74), and all 6,144 keys 0x0000..0x17FF select the
-    same alpha matrix natively.
+    same alpha matrix natively (`EM_TEST_FULL=1`; the default run checks
+    256 of them, see F).
 - **C. Kernel.** The 0023C200 VU1 program runs after a VIF replay (BASE
   0x190, OFFSET 0x101) on all 108 receiver batches of the seven captures:
   3,456 vertices and 96,768 bytes. Every ST and RGBAQ equals the native slice scaled by the
@@ -242,6 +243,243 @@ slice.
   box/VP/UV geometry, alpha 39 at 16 below the light, clamps, the area and variant switch, the kinds, early returns,
   every NULL and failing worker, a missing node, the grid bounds and the
   overflow.
+- **F. GS side** (`em_shadow_gs.h`, the Metal backend). For each of the
+  seven captures:
+  - The executed chain is replayed as the DMAC/VIF1/GIF would, from the
+    head of its display list (an END tag written at the chain's end in a
+    copy); the registers in force at all 374 draws of the chains and 61
+    clip-kernel kicks equal the header's state (table above), and
+    `em_shadow_gs_unsupported` accepts each.
+  - Every program the chain CALLs runs as original VU1 instructions on one
+    persistent VU1: the kernel packet's MPG blocks are loaded into micro
+    memory and its STCYCL/BASE/OFFSET applied, then MSCAL and MSCNT run.
+    Model: in-order issue, a VF operand still in the 4-cycle pipeline
+    stalls, MAC/status/clip flags visible 4 cycles after the op, Q 7
+    cycles after DIV, a pair's lower op reads before its upper op writes,
+    XGKICK snapshots its packet. The box, silhouette and receiver kernels:
+    448 box, 4,704 silhouette and 6,368 receiver vertices. Every kicked
+    XYZF2/XYZ2 word, ST and RGBAQ equals `em_shadow_gs_level_batch`,
+    `_object_batch` and `_receiver_batch`, including every ADC bit and
+    reason (84 box triangles culled, 84 drawn, none clipped; 66 receiver
+    vertices left to 0023E8A0). The one exception is three words of
+    guard-band-clipped vertices whose screen value overflows ftoi4: the
+    header saturates, the interpreter wraps, and the hardware result is
+    not established; those vertices are never drawn by the kernel. The
+    earlier receiver replay (C) runs only the MSCAL batches (108); this one
+    also runs the MSCNT batches (199).
+  - The clip kernels 00239C90 (box, 14 batches) and 0023E8A0 (receivers,
+    47 batches) run on every batch the chains give them. Each clip batch
+    holds the same 32 vertex qwords, dmem 0..3 matrix and template rows as
+    the kernel batch before it, and the triangles its loop sends to the
+    clipping code (micro 0x070 / 0x06E reached, vertex i = 32 - vi11) are
+    exactly `em_shadow_gs_needs_clip` of that batch: 30 triangles (36
+    more are CLIP but rejected by one plane). It kicks nothing else but
+    the empty packet at dmem 1019 (NLOOP 0; 91 kicks). The receiver
+    clipper drew 27 triangle lists (PRIM 0x07B, 183 vertices; counted,
+    not compared); the box clipper drew nothing. Class 0/1 receivers of
+    the captures have no triangle for a clip kernel. The captures have no
+    such triangle at a strip's first two vertices, so the first clip batch
+    of each kernel is run again with vertices 0 and 1 moved outside the
+    guard band (11 synthetic batches): the loop starts at i = 2 as the
+    header says.
+  - The template rows dmem 1021..1023 of every batch (17,280 bytes) and
+    001C7420's bone rows (5,376 bytes, via `em_shadow_gs_bone`).
+  - `assets/player_shadow.emdl`'s 394 triangles equal the 394 triangles
+    the silhouette kernel kicks, as (bone slot, position) sets, in the four
+    exact captures.
+  - Metal: `em_gfx_shadow_silhouette` in a headless window renders each
+    exact capture's target; all 65,536 texels are one of the two original
+    values and equal the kernel's kicked triangles rasterized with the GS
+    sample points and the top-left rule: 0 differing texels (1,510,
+    1,427, 1,512 and 1,276 covered). The receiver pipeline over a
+    (91,106,106) frame gives the `em_shadow_gs_receiver_pixel` result for
+    A = 36, 90, 200, once and twice (A 36: (52,58,58), As 71, the second
+    draw fails the destination-alpha test). Fail-stop: a strip whose last
+    triangle has a vertex far outside the guard band makes
+    `em_gfx_shadow_box` and a class-2 `em_gfx_shadow_receiver` return -1
+    with nothing drawn (the frame pixel stays (91,106,106)); class 0
+    returns 0 and skips that triangle.
+  - Quick mode samples 256 of the 6,144 area keys (every listed key, its
+    neighbours and both ends); `EM_TEST_FULL=1` runs all. Captures and
+    gate cases run in forked workers; the default run takes about 6 s
+    (full: 17 s).
+- **Capture metric** (`python3 tools/test_shadow_original_reference.py
+  --capture BEAT`, not in the default run). It renders the beat's frame
+  headless (background, the six zone meshes with the area fog, then the
+  chain through `em_gfx_shadow_*` with the native module's plan over the
+  beat's RAM; box and receiver strips are the original objects' vertex
+  lists from the chain executed over that RAM, each receiver object with
+  its class) and writes
+  `build/captures/shadow/native_{noshadow,shadow,player}.bmp`, then
+  compares the shadow region (pixels the shadow changed, the player's
+  excluded) with the beat's `original.png`. It fails on any worker fault
+  and outside `capture_bounds`: IoU with the original's dark pixels >=
+  0.80, shadowed/lit luminance ratio within 0.05 of the original's.
+
+  | Beat | shadow px | IoU | ratio native / original | classes |
+  |---|---|---|---|---|
+  | 01_battery | 847 | 0.841 | 0.601 / 0.600 | 16 x 1, 1 x 0 |
+  | 08_truck_crossing | 785 | 0.837 | 0.585 / 0.590 | 0 and 1 |
+  | 12_crevice_jump | 805 | 0.861 | 0.605 / 0.593 | 11 x 1, 1 x 2 (no clip triangle) |
+
+  Faults (a class-2 receiver with a triangle for 0023E8A0): 02, 04, 05,
+  06_hill_slide (the beat quoted by the previous round, IoU 0.853 with
+  the Metal-clipped stand-in), 07, 09, 11, 13, 14. No fault but outside
+  the bounds: 00 and 03 (the original region is black, (0,0,0)), 10
+  (IoU 0.70, ratio 0.667 vs 0.496: the harness's frame has no level
+  lighting, so the lit snow is brighter than the original's). This is the
+  harness's rendering, not the live port: the port draws no shadow until
+  the binding lands.
+
+## GS side (native)
+
+`src/gfx/metal/em_shadow_gs.h` holds the GS state of every draw of the
+chain and the three kernels' per-vertex arithmetic; the Metal backend
+(`em_gfx_shadow_*` in `src/em_gfx.h`, `src/gfx/metal/em_gfx_metal.m`)
+draws with it. What the captured chains carry (checked in all seven
+captures, section F below):
+
+| Draw | GIF PRIM / REGS | GS state |
+|---|---|---|
+| alpha clear | DIRECT 0x044, RGBAQ + 4 XYZF2 | frame env, ZBUF ZMSK 1, TEST 0x51001, ALPHA 0x80000000A9 |
+| box (x2) | template D_008166C0: 0x044, XYZF2, NLOOP 32 | as above; RGBAQ per call (A+D) |
+| target clear | A+D sprite (PRIM 6) | FRAME 0x2012C, ZBUF 0x102000010, XYOFFSET 1984, SCISSOR 0..127, TEST 0x30000, RGBAQ (128,128,128,0) |
+| silhouette | template D_008168C0: 0x004, XYZ2, NLOOP 32 | target FRAME/XYOFFSET/SCISSOR, ZBUF 0x101000070, TEST 0x3000D, RGBAQ 0xFFFFFF80 |
+| receivers | template D_008169C0: 0x07C, ST + RGBAQ + XYZF2, NLOOP 32 | frame env, ZBUF ZMSK 1, TEST 0x5C00D, ALPHA 0x44, TEX0 0x5DC00A580, TEX1 0x60, CLAMP 5; COLCLAMP 1, DTHE 0, PABE 0, FBA 0; FOGCOL 0x303030 |
+
+"Frame env" is the list's D_008143D0: FBW 8 PSMCT32 with FBP 0 or 0x38
+(the two buffers alternate) and XYOFFSET (1792, 1936) plus the field's
+half line on alternate fields. Every main-frame draw of a chain uses
+that one environment.
+
+Kernels (MPG at 0x2371B0, 0x23C780, 0x23C230):
+
+- **00237180** (box): clip = p x (W x V) x P, XYZ = ftoi4(clip / w),
+  F from the template fog row. It **culls**: ADC is set on a vertex when
+  its data word has bit 15, when any of the last three vertices is
+  outside the guard band (the clip kernel 00239C90 takes those), or when
+  (e_i.x * e_{i-1}.y - e_{i-1}.x * e_i.y) * w_i is negative (e = screen
+  edge, w_i = the data word as a float, the strip's winding sign;
+  msubbcy, mulbcw and `fsand` 0x2 at 0x237378). The models 0x14 and 0x15
+  are ±5 cubes of six 4-vertex strips; 0x15 has the opposite winding, so
+  0x14 draws the three faces that face the camera (alpha 128) and 0x15 the
+  three that face away (alpha 1). Every capture draws 12 of the 24
+  triangles per model pair.
+- **0023C750 / 0023C780** (silhouette): the bone matrix comes from the
+  dmem address in the data word's low 10 bits (the other bits are flags);
+  ADC from bit 15 and the guard band only. It never culls.
+- **0023C200** (receivers): ADC from data-word bits 15 and 13 (vi12 =
+  0xA000) and the guard band; no cull. 5,999 of the 6,368 receiver
+  vertices in the captures carry bit 13 or 15, so only a few triangles
+  of each receiver object are drawn.
+
+- **00239C90 / 0023E8A0** (clip kernels, 1,183 and 1,235 instructions in
+  five MPG blocks each, micro 0x000.., BASE 0x190 OFFSET 0x101). 001DA310
+  runs 00239C90 after every box (`001D4FB0` then `001D4C20`); 001D5C80
+  runs 0023E8A0 only for a class-2 receiver (`001D4FB0`, `001D1F80(0,2,6)`,
+  `001D4B50`, `001D4CD0`). Each gets the same batch and matrix as the
+  kernel before it and repeats its transform, guard rows and CLIP per
+  vertex. The loop sends a triangle (strip vertices i-2..i) on to the
+  clipping code only when vertex i has no data ADC (0x8000 box, 0xA000
+  receivers), the CLIP history is non-zero (`fcand` 0x03FFFF), the three
+  vertices are not all outside one guard plane (six `fcor` tests,
+  `em_shadow_gs_reject`) and i >= 2. That is exactly the triangles the
+  first kernel left undrawn for CLIP, minus the rejected ones, so no
+  triangle is drawn twice (`em_shadow_gs_needs_clip`; checked on every
+  clip batch, section F). The clipping itself is not translated: it
+  clips against w = 0.1 and screen X, Y = 4.0 / 4088.0 (the constants it
+  loads), and in the captures the receiver clipper kicks triangle lists
+  (PRIM 0x07B, ST + RGBAQ + XYZF2), each after an empty packet at dmem
+  1019.
+
+The template rows dmem 1021..1023 are (255, 2048, A, B) with AREA11's fog
+coefficients (em_fog_gs_coefficients(-209, 304), bit-exact) and the guard
+rows (x / 2040 - (256/255) w: the guard band is GS 8..4088).
+
+Backend (`em_gfx_shadow_*`):
+
+- **alpha clear / box**: an alpha-only colour write (RGB mask off), depth
+  test GEQUAL (the port's LessEqual) without write. The box triangles are
+  the ones 00237180 kicks, decided on the CPU with the kernel's own
+  arithmetic from the model's strips and `clip`, then drawn at W x p
+  through the frame's native viewproj. A triangle for 00239C90 makes the
+  call return -1 before anything is drawn (its clipping is not
+  translated); none of the captured boxes has one.
+- **silhouette**: 001C7420's bone rows (node+0x90 x VP) and the kernel's
+  XYZ2 are computed on the CPU bit for bit; the 128x128 RGBA8 target is
+  cleared to (128,128,128,0) and the triangles are drawn at the GS 12.4
+  positions, mapped so that Metal pixel centres are the GS sample points.
+  Each silhouette has its own target, rendered by a command buffer that
+  is committed at once, so it runs before the frame buffer samples it.
+- **receivers**: per vertex, (u, v) = (S/Q, T/Q), the RGBAQ A and F come
+  from 0023C200's arithmetic on the CPU; the position goes through
+  `v_skin` with an identity palette, the same vertex function and matrix
+  the level zones use, so the level's own depth passes GEQUAL. The
+  fragment function reproduces the GS pixel pipeline with framebuffer
+  fetch: 4-bit-weight bilinear of the target alpha (texel grid 1/16,
+  half-texel offset, CLAMP), MODULATE (Cf = 0, Af = At * A >> 7), fog
+  (255 - F) * FOGCOL >> 8, alpha test As > 0, destination alpha bit 7,
+  ALPHA 0x44 with COLCLAMP, written alpha As. A second receiver on the
+  same pixel therefore passes only where the first wrote As >= 128, as
+  on the GS. The per-pixel A and F are an APPROXIMATION: floor(x * 128 +
+  0.001) of Metal's screen-linear float interpolation. The GS's own
+  Gouraud stepping is not modelled, the 0.001 is a heuristic, and no GS
+  dump of a drawn shadow checks it (open items).
+- **receiver classes**: `em_gfx_shadow_receiver(gfx, strips, cls)`. The
+  triangles 0023C200 leaves undrawn for CLIP are drawn by nobody for
+  class 0/1 (skipped) and by 0023E8A0 for class 2: a class-2 object with
+  such a triangle returns -1 before any of it is drawn. A class-2 object
+  without one is drawn exactly (0023E8A0 kicks only the empty packet).
+- The frame's alpha channel is the GS destination alpha; the CAMetalLayer
+  is set opaque so it is never shown.
+
+### Binding (for the scene coordinator)
+
+The render stage calls `em_shadow_original_001DA6A0` at the 001AE5E0
+(gameplay, 0x1AE654) / 001AE6B0 (cutscene, 0x1AE798) slot: after the
+level and the walked actors, before the player's own draw. Today
+`frame_close_out` draws the player as the last chain entry, so the loop
+must stop before it, run the shadow, then draw the player. The route is
+`em_shadow_original_route_0015C160(D_008102B1, D_00810771, player+0x214)`
+(it is the player post-step 0015C160, a pool/actor worker of the player,
+not a separate pool node). Workers, with `gfx` the frame device and `vp`
+the frame's native P*V (`g.viewproj`, the one the zones are drawn with):
+
+```c
+w_object_bounds(ctx, id, lo, hi)  /* level object AABB obj+0x14..+0x2C: needs an asset */
+w_alpha_clear(ctx)                -> em_gfx_shadow_alpha_clear(gfx)
+w_box(ctx, box)                   -> em_gfx_shadow_box(gfx, &box_model[box->model == 0x15],
+                                        box->world, box->clip_pass, box->rgbaq, vp)
+w_silhouette(ctx, kind, sil_vp)   -> em_gfx_shadow_silhouette(gfx, proxy->verts, proxy->vert_count,
+                                        proxy->indices, proxy->index_count,
+                                        nodes /* node+0x90 of each actor+0x110 node */,
+                                        actor[0x0C] /* node count */, sil_vp)
+w_receiver_begin(ctx, uv)         -> em_gfx_shadow_receiver_begin(gfx, uv, scene.camera_3AC0, vp)
+w_receiver(ctx, object)           -> em_gfx_shadow_receiver(gfx, &level_object[object->id], object->cls)
+w_receiver_end(ctx)               -> em_gfx_shadow_receiver_end(gfx)
+```
+
+The receiver call covers the whole original sequence for its class:
+class 0/1 is `001D4FB0`; class 2 is `001D4FB0`, `001D1F80(0,2,6)`,
+`001D4B50` (0023E8A0 over the same strips), `001D4CD0`, and the one call
+returns -1 when that 0023E8A0 pass would draw (a triangle
+`em_shadow_gs_needs_clip` names). The worker must pass `object->cls`
+unchanged and must not split class 2 into two draws. Likewise
+`em_gfx_shadow_box` stands for 00237180 and 00239C90 together.
+
+Every call returns -1 when it cannot draw what the original draws; the
+worker returns that, and em_shadow_original latches the fault. `proxy` is
+`assets/player_shadow.emdl` for kind 0x28 (any other kind has no asset:
+fault). `em_gfx_fog` must be set for the frame before the receivers (the
+world flush already does). Inputs the port does not have yet, all needed
+for a live binding: the level cell grid (ctx+0x140, +0x148 stride,
++0x150..+0x15C), each level object's AABB and VU1 vertex list (the
+position qword of every vertex of the object's `+0x40` VIF data, 32
+vertices per batch, as `EmGfxShadowStrips`), and the chunk27 library
+models 0x14/0x15 in the same form. They are disc data and need an
+exporter; the receiver positions are bit-identical to the zone meshes'
+vertices (checked on 800 receiver vertices of elevator/clip47), which
+is what makes the depth test pass.
 
 ## Asset
 
@@ -283,16 +521,40 @@ baked frame.
   leading code of each group (table under "Other actors"). Only 0x6C and
   0x6A call `001DA6A0` unconditionally; 0x68 is category 9 and needs
   `+0x56 != 0`; the area-0x0D `001BA7F0` route belongs to 0x61, not 0x5E.
+- **LEVEL_MATERIALS.md "21 untextured object-kernel kicks per frame with
+  TEST 0x3000D (depth ALWAYS) and ZMSK 1, source blob at 0x012D0000, not
+  yet identified"** are the silhouette: the proxy mesh
+  D_0028A490[0x28] at 0x012D1A00 (2,730 qwords, 21 batches) drawn into
+  the 128x128 target.
 - **`src/func_001D2960.c` calls the ctx+0x2240..0x2300 variants
   "offscreen/shadow/reflection".** That is unsupported. The shadow uses
   only 0x2240, as the gate's clip matrix.
 
 ## Limits and open items
 
-- The GS side is not implemented in `em_gfx`: offscreen target, box mask,
-  receiver blend. See the binding notes in the lane report.
-- The 0023E8A0 clip kernel (guard-band objects) is not executed per
-  vertex. Its uploads (UV to dmem 4, camera) are checked.
+- The GS side is implemented in the Metal backend but not bound: the
+  level grid, object AABBs, object vertex lists and the box models need
+  an exporter (Binding above). D3D12/Vulkan do not implement it.
+- The clipping of 00239C90 and 0023E8A0 is not translated. Which
+  triangles they take is (header, checked on all 61 clip batches), and
+  they never redraw a triangle the first kernel drew; the backend returns
+  -1 whenever one of them would draw. With the current captures that
+  fault hits 9 of the 15 route beats (a class-2 receiver near the
+  camera), so the live shadow needs this translation: 0023E8A0's
+  1,235-instruction clipper (w = 0.1, X/Y 4.0 / 4088.0, triangle lists
+  PRIM 0x07B), and 00239C90 for the box (no captured box needs it). The
+  VU1 interpreter already executes both and would be the oracle, kick
+  for kick. Its timing model (stalls, flag latency) is checked only
+  through the three kernels whose kicks it reproduces.
+- The per-pixel A/F interpolation (floor of Metal's float value plus a
+  0.001 epsilon) is an approximation; the GS bilinear 4-bit weights are
+  modelled from the GS behaviour. Neither is checked against a GS dump
+  of a drawn shadow (none exists).
+- ftoi4 outside int32: not established (the header saturates, the
+  interpreter wraps); it only affects guard-band vertices that are never
+  drawn (3 words in the captures).
+- Framebuffer fetch (the destination-alpha test and the GS blend) needs an
+  Apple GPU; elsewhere the receivers return -1.
 - handoff: the receiver section of the captured list differs from what
   the capture-time RAM produces (see A). The later step that moved the
   pose and view is not identified.
