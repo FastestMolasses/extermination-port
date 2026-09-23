@@ -76,3 +76,32 @@ original commands. It exits successfully and saves ignored
 `build/status_hub_visual/hub.png`; its source counterpart is the original
 state14 image above. Vulkan and D3D12 remain unimplemented backend
 skeletons; this check makes no cross-platform rendering claim.
+
+The dynamic preparation core `em_status_draw.c` now recovers the actual
+health `208AD0`, battery `209280` and ammunition `209860` calls. It keeps
+original GS coordinates, styles, text, TEX0 values, blend changes and call
+order. The health counter advances once per accepted draw preparation;
+it is the original UI+20 clock, separate from the trail reset. Battery
+charge/capacity remain half-units, including the compact/large layouts,
+12-cell rows and original vector color increments. Resource labels and
+arc records come from the user's original assets. These functions prepare
+commands; the live menu renderer and status model actors remain unbound.
+
+`make test-status-draw-reference` compares 1,080 health cases, 144 battery
+cases and 528 supported ammunition cases with original instruction
+execution, for 22,206 ordered commands. The ammo cases also compile and
+execute the corrected canonical readable PS2 source through a documented
+64-bit host pointer shim. The numeric formatter runs in the original
+oracle, including negative and over-width inventory probes; byte string
+copy/append/length and final font/graphics workers remain boundaries.
+All 219 injected worker failures stop preparation and report failure.
+
+The ammo audit corrected the readable source's missing initial UI argument
+and ordinary-secondary field width (three places, while reserve and fuel
+percentage use four). Unknown secondary values with primary other than2
+reach an original draw with the caller's incoming `s0` as TEX0. Six seeded
+register cases prove that this is not a zero-texture default. The native
+core rejects those unsupported selectors before emitting commands; 144
+such cases verify rejection. It does not fabricate an icon or close the
+status page. The corrected PS2 source remains an assembly-backed near
+match, measured separately in the decomp repository.
