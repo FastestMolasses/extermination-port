@@ -407,6 +407,10 @@ test-player-states-host:
 test-ee-float-model:
 	python3 tools/test_ee_float_model.py
 
+.PHONY: test-ee-float-header
+test-ee-float-header:
+	python3 tools/test_ee_float_header.py
+
 .PHONY: test-level-material-reference
 test-level-material-reference:
 	python3 tools/test_level_material_reference.py

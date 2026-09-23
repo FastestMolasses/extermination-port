@@ -3,7 +3,7 @@
 Settled 2026-09-23 by the `ee-float-model` lane. This is the reference for
 every oracle and native helper that reproduces EE FPU (COP1) or VU0 macro
 (COP2) arithmetic. Executable form: `tools/ee_float_model.py`. Test:
-`tools/test_ee_float_model.py`.
+`tools/test_ee_float_model.py`. Native form: `src/game/em_ee_float.h` (§6).
 
 ## 1. How it was measured
 
@@ -241,3 +241,73 @@ both sides share the same wrong model, so harmonize the pair in one commit
 and re-run the affected reference test plus the route captures. The single
 shared fix with the widest reach is `Oracle.plain` in
 test_point_light_reference.py (pre-trim for COP1 add/sub).
+
+## 6. Native header
+
+`src/game/em_ee_float.h` is the C form of this model. **Every new native
+translation of original COP1 or VU0-macro arithmetic uses it**, not local
+float helpers. The §5c harmonizations should move modules onto it, each
+together with its oracle twin (see the binding note above).
+
+- **Exactness.** All arithmetic is on integers (significands in `uint64_t`),
+  and no host float operation is performed. The host rounding mode, FTZ/DAZ
+  state and FMA contraction therefore cannot change a result. The test
+  disassembles the compiled shim and fails on any host FP instruction that
+  rounds. Compares are allowed: clang turns the raw-bit NaN tests into an
+  unordered `fcmp`, which is exact in every mode. The header also compiles
+  clean under `-std=c11 -Wall -Wextra -Wpedantic -Wconversion
+  -Wsign-conversion -Wshadow -Werror` with clang and GCC 14.
+- **Where it leaves the model's big integers.** Each change is exact for the
+  reason given:
+  - *Sum.* The smaller operand is aligned exactly up to an exponent distance
+    of 39. Beyond that it becomes a sticky 1. At any distance of 25 or more
+    it cannot carry into the kept bits, and it only borrows one unit from
+    them.
+  - *Quotient.* It is 39 bits wide, and the remainder becomes the sticky bit,
+    which decides nearest-even exactly as the 50-bit quotient does.
+  - *VSQRT.* It takes the root of m·2³⁸, which has at least 31 bits, so
+    truncating it to 24 bits equals truncating the exact root.
+- **API.** A name ending in `_bits` works on raw `uint32_t` binary32
+  patterns. The same name without the suffix is the float form, which
+  converts with `memcpy`. Integer words are `uint32_t` in the `_bits` form and
+  `int32_t` in the float form.
+
+  | model | header |
+  |---|---|
+  | `ee_add/sub/mul/div` | `em_ee_add/sub/mul/div[_bits](fs, ft)` |
+  | `ee_madd/ee_msub(acc, fs, ft)` | `em_ee_madd/msub[_bits](acc, fs, ft)`. MSUB is ACC − fs·ft. |
+  | `ee_adda/suba/mula` | `em_ee_adda/suba/mula[_bits](fs, ft)`, which return the new ACC |
+  | `ee_neg/mov/cvt_w_s/cvt_s_w`, `ee_c_eq/lt/le` | the same names with `em_` (the compares return 0 or 1) |
+  | `VU_FORMS` + `vu_lane` | `em_vu_form_lookup` then `em_vu_form_lane_bits`; `em_vu_lane[_bits]`; `em_vu_vec[_bits]` for a whole register (broadcast, Q, the VOPMULA/VOPMSUB swizzle, and the dest mask, where unwritten lanes keep their value) |
+  | `vu_div` | `em_vu_div[_bits](fs.fsf, ft.ftf, fsf, ftf, &q)` |
+  | `vu_sqrt`, `vu_ftoi(·, 0/4)`, `vu_itof(·, 0/4)`, `vu_max/min`, `vu_abs` | `em_vu_sqrt`, `em_vu_ftoi0/4`, `em_vu_itof0/4`, `em_vu_max/min`, `em_vu_abs` |
+
+  The ops are enumerated as `em_vu_op` (`EM_VU_ADD` … `EM_VU_OPMSUB`), and a
+  non-broadcast form passes `EM_VU_NO_BC` as its bc.
+- **Unmeasured forms fail.** The header's counterpart of `UnmeasuredCase` is a
+  status code. A form the original never executes returns
+  `EM_EE_FLOAT_UNMEASURED` (−1) and writes nothing; this applies to the
+  (op, dest, bc) forms and to the VDIV (fsf, ftf) forms. `em_vu_vec` returns
+  `EM_EE_FLOAT_NO_OPERAND` (−2) when it is given a NULL array that the op
+  reads. A caller treats any nonzero status as a fault (fail-stop).
+- **Not provided,** because nothing was measured (§2, §3):
+  - EE: SQRT.S, RSQRT.S, ABS.S, MAX.S, MIN.S, MADDA.S and MSUBA.S;
+  - VU: VRSQRT and the other VU forms absent from the ELF, plus VFTOI12/15
+    and VITOF12/15;
+  - FCR31 and MAC flags, and Q timing.
+- **Float return values** keep every bit on x86-64 and arm64. On a 32-bit x87
+  host, use `_bits` wherever a signalling NaN may pass through a return value.
+- **Test.** `python3 tools/test_ee_float_header.py` (`make
+  test-ee-float-header`) generates a ctypes shim under `build/ee_float_header/`
+  and builds it with UBSan in trap mode. It then checks:
+  - all 33,800 recordings, through both the `_bits` and the float API;
+  - the 800 free-running block runs;
+  - the form table against `VU_FORMS` / `VU_DIV_FORMS` for every
+    (op, dest, bc) and (fsf, ftf) pair;
+  - that refused calls leave their outputs untouched;
+  - a seeded random differential against `ee_float_model.py`, which includes
+    constructed near-midpoint quotients, near-square roots, signed-zero
+    pairs, and FTZ and saturation partners.
+
+  It reports 105,000 random cases in about 1 s by default, and 4.2 M in about
+  4 s with `EM_TEST_FULL=1`. Missing recordings are a hard failure.
