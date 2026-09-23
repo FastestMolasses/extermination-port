@@ -22,6 +22,7 @@ static struct {
     EmElevatorRuntime elevator;
     EmPanelMessage panel_message, elevator_message;
     EmPanelMessage *message;
+    EmPlayerFaceHost face;
     EmStatusRuntime *status;
     EmItemSdkMath item_sdk;
     EmItemMath item_math;
@@ -73,6 +74,29 @@ static int pose(void *context, const EmInteractionAnimation *animation, int resu
     return player_pose_script_tick(animation, result, palette);
 }
 
+static uint32_t face_random(void *context)
+{
+    (void)context;
+    return em_random_next();
+}
+
+static int cinematic_player(void *context, float *palette)
+{
+    (void)context;
+    /*83090 advances the attached face before choosing a body request. A
+     * prepared mesh alone is not an attached original face allocation. */
+    if (!world.face.attached || !em_player_face_host_tick_before_body(&world.face)) return -1;
+    if (player_pose_cinematic_active()) return player_pose_cinematic_tick(palette, 0);
+    if (world.shared.animation.active) {
+        int result = em_interaction_animation_tick(&world.shared.animation, &g.model, palette);
+        if (result < 0 || !player_pose_script_tick(&world.shared.animation, result, palette)) return -1;
+        return result;
+    }
+    /* B81D0 can precede op0A/sub1's foreign-bank request. Keep the actual
+     * acquired ordinary source until that deferred request is published. */
+    return player_pose_idle_tick(palette);
+}
+
 static int frame_event(void *context, EmInteractionFrameEvent event)
 {
     (void)context;
@@ -95,10 +119,11 @@ static int frame_event(void *context, EmInteractionFrameEvent event)
         em_frame_fade_start(-1, 4);
         return 1;
     case EM_INTERACTION_RELEASE_SKELETON:
+        if (!world.face.attached || world.face.failed) return 0;
+        em_player_face_host_detach(&world.face);
+        return 1; /* The original frame core writes player_ready1 next. */
     case EM_INTERACTION_RESUME_MUSIC:
-        /* These are the alternate-skeleton/aborted-script routes. The
-         * ordinary first-level interactions never exercise either worker;
-         * missing bindings must retain ownership if a new route reaches it. */
+        /* Aborted cinematic music remains a required separate binding. */
         return 0;
     }
     return 0;
@@ -434,7 +459,7 @@ int em_area11_interaction_host_load(const char *directory,
 {
     if (!directory || ((!math) != (!status_hooks)) || world.loaded ||
         !g.grate_present || !g.elev_has_mesh || !g.coll.blob ||
-        g.model.bone_count != 22) return 0;
+        g.model.bone_count != 22 || !em_frame_gfx()) return 0;
     memset(&world, 0, sizeof world);
     char path[1024];
     snprintf(path, sizeof path, "%s/interaction.emis", directory);
@@ -461,7 +486,10 @@ int em_area11_interaction_host_load(const char *directory,
                                          frame_event, retarget};
     if (!em_interaction_runtime_init(&world.shared, &world.frame, &g.model,
                                       world.local_palette, &shared) ||
-        !em_interaction_runtime_set_pose_worker(&world.shared, pose)) goto failed;
+        !em_interaction_runtime_set_pose_worker(&world.shared, pose) ||
+        !em_interaction_runtime_set_cinematic_player_worker(&world.shared, cinematic_player) ||
+        !em_player_face_host_load(&world.face, em_frame_gfx(), &g.model, directory,
+                                  face_random, NULL)) goto failed;
     EmPanelRuntimeHooks panel = {NULL, align_panel, message_start, message_done,
                                   battery_open, sound, power, stop_indicator};
     snprintf(path, sizeof path, "%s/panel/scripts.emsc", directory);
@@ -504,6 +532,7 @@ void em_area11_interaction_host_clear(void)
      * its owner tokens. Ordinary script completion uses player_tick. */
     em_sfx_set_area(-1, -1);
     world.shared.owner = NULL;
+    em_player_face_host_free(&world.face);
     em_status_runtime_free(world.status);
     em_panel_runtime_free(&world.panel);
     em_elevator_runtime_free(&world.elevator);
@@ -520,6 +549,49 @@ EmStatusRuntime *em_area11_interaction_host_status(void) { return world.loaded ?
 const EmInteractionProjection *em_area11_interaction_host_projection(void)
 { return world.loaded ? &world.projection : NULL; }
 int em_area11_interaction_host_failed(void) { return world.failed; }
+
+int em_area11_interaction_host_face_attach(void)
+{
+    if (!world.loaded || world.failed) return 0;
+    if (!world.shared.owner || (world.frame.player_ready != 1 && world.frame.player_ready != 2) ||
+        !em_player_face_host_attach(&world.face)) {
+        fail("face attachment");
+        return 0;
+    }
+    world.frame.player_ready = 2;
+    return 1;
+}
+
+int em_area11_interaction_host_face_talk(uint8_t talking)
+{
+    if (!world.loaded || world.failed) return 0;
+    if (!world.shared.owner || world.frame.player_ready != 2 ||
+        !em_player_face_host_talk(&world.face, talking)) {
+        fail("direct face talk event");
+        return 0;
+    }
+    return 1;
+}
+
+int em_area11_interaction_host_player_record(EmGfxMesh **mesh, const float **palette,
+                                            uint32_t *bones, const EmModel **model)
+{
+    if (!world.loaded || world.failed || !mesh || !palette || !bones || !model) return -1;
+    int result = em_player_face_host_record(&world.face, mesh, model);
+    if (result < 0 || (world.frame.player_ready == 2) != (result == 1))
+        return fail("alternate player draw");
+    if (!result) return 0;
+    if (!player_pose_owned() || !player_pose_source(NULL, NULL, NULL, NULL))
+        return fail("alternate player palette");
+    *palette = g.player_palette;
+    *bones = g.model.bone_count;
+    return 1;
+}
+
+const EmOpeningFace *em_area11_interaction_host_face_state(void)
+{
+    return world.loaded && !world.failed ? em_player_face_host_state(&world.face) : NULL;
+}
 
 int em_area11_interaction_host_player(void *unused)
 {

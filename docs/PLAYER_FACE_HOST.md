@@ -96,6 +96,8 @@ face cases prove the partial reset. Thus the earlier uncertainty about
 fresh Dennis allocation contents is resolved for these captures; arbitrary
 captured face weights are not used as universal initial state.
 
-No shared host, Makefile, body pose worker or renderer is changed by this
-module's initial handoff. Live dialogue integration and a paired original
-cinematic rendering comparison remain the caller's integration boundary.
+`em_area11_interaction_host` now owns one instance: it loads it with the
+host, attaches at the B81D0 service, forwards the direct FD950 talk events,
+ticks it first in the ready2 player worker and detaches at the frame close
+(see `AREA11_INTERACTION_HOST.md`). The live Roger script/dialogue binding
+and a paired original cinematic rendering comparison remain open.

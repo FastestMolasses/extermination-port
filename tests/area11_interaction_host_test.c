@@ -22,6 +22,9 @@ EmGameState g;
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
 static int sfx_selected, sfx_bank_available = 1;
+static unsigned face_updates;
+static int fail_face_update;
+static float face_update_body_remaining;
 static float panel_target[3], panel_yaw;
 
 int em_gfx_overlay_texture_set(EmGfx *g, int slot, const uint8_t *p, uint32_t w, uint32_t h)
@@ -154,6 +157,16 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t vertices,
     return (EmGfxMesh *)1;
 }
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh) { (void)gfx; (void)mesh; }
+int em_gfx_mesh_update_positions(EmGfx *gfx, EmGfxMesh *mesh, const float *positions,
+                                  uint32_t count)
+{
+    assert(gfx && mesh && positions && count > g.model.vert_count);
+    for (uint32_t i = 0; i < count * 3; ++i) assert(isfinite(positions[i]));
+    unsigned clip, flags; int transition;
+    assert(player_pose_source(&clip, &face_update_body_remaining, &flags, &transition));
+    ++face_updates;
+    return !fail_face_update;
+}
 
 /* The ordinary host's existing placement boundary; raw channel state never
  * comes from this displayed palette. */
@@ -177,6 +190,7 @@ static float word(const unsigned char *ram, unsigned address)
 static void setup(int reset_inventory)
 {
     memset(&g, 0, sizeof g);
+    em_frame_init(NULL, (EmGfx *)1);
     assert(!em_model_load(&g.model, "assets/player.emdl"));
     assert(!em_collision_load(&g.coll, "assets/scene_snow/snow.emcl"));
     g.mesh = (EmGfxMesh *)1;
@@ -507,10 +521,105 @@ static void missing_sound_bank(void)
     puts("AREA11 native host missing sound bank and reload PASS");
 }
 
+static void cinematic_face(int reject_update)
+{
+    /* Keep the battery actually acquired by first_battery. The status pause
+     * below reuses the original pickup request, which the pickup program
+     * issues only after 1C40B0 has added the item; an empty inventory is not
+     * a reachable request state and the real battery page rejects it. */
+    setup(0);
+    assert(em_pickup_item_count(0x1B) == 1 && em_pickup_battery_charge() == 12);
+    EmPoseBank foreign = {0};
+    assert(em_pose_bank_load(&foreign, "assets/scene_snow/roger/encounter_player.empc"));
+    EmInteractionRuntime *shared = em_area11_interaction_host_shared();
+    static const unsigned owner_token = 0x8283D0;
+    assert(player_pose_use_accepted());
+    assert(em_interaction_runtime_claim(shared, &owner_token));
+    assert(!outer(0) && player_pose_owned() && shared->frame->player_ready == 1);
+    unsigned clip, flags; float remaining; int transition;
+    assert(player_pose_source(&clip, &remaining, &flags, &transition));
+    float ordinary[22 * 16]; memcpy(ordinary, g.player_palette, sizeof ordinary);
+    unsigned previous_updates = face_updates;
+    assert(em_area11_interaction_host_face_attach());
+    assert(face_updates == previous_updates + 1 && shared->frame->player_ready == 2);
+    assert(!memcmp(ordinary, g.player_palette, sizeof ordinary));
+    EmGfxMesh *mesh; const float *palette; uint32_t bones; const EmModel *model;
+    assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == 1);
+    assert(mesh && palette == g.player_palette && bones == 22 && model != &g.model);
+    assert(!model->palette && model->vert_count > g.model.vert_count);
+    shared->frame->activity[0] = 0xA5;
+    assert(em_area11_interaction_host_face_talk(1));
+    assert(em_area11_interaction_host_face_state()->talking == 1);
+    assert(!outer(0)); /* Face is active before the deferred foreign request. */
+    assert(face_update_body_remaining == remaining && !player_pose_cinematic_active());
+    assert(shared->frame->activity[0] == 0xA5);
+    assert(player_pose_source(&clip, &remaining, &flags, &transition));
+    memcpy(ordinary, g.player_palette, sizeof ordinary);
+    assert(player_pose_cinematic_request(&foreign, 1, .5f));
+    assert(!memcmp(ordinary, g.player_palette, sizeof ordinary));
+    unsigned before = face_updates;
+    fail_face_update = reject_update;
+    if (reject_update) {
+        assert(em_area11_interaction_host_player(NULL) == -1);
+        assert(shared->owner == &owner_token && player_pose_owned() && shared->failed);
+        assert(em_area11_interaction_host_failed() && shared->frame->player_ready == 2);
+        assert(!memcmp(ordinary, g.player_palette, sizeof ordinary));
+        float unchanged;
+        assert(player_pose_source(&clip, &unchanged, &flags, &transition) && unchanged == remaining);
+        assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == -1);
+        fail_face_update = 0;
+        teardown();
+        em_pose_bank_free(&foreign);
+        puts("AREA11 native host retained face failure before foreign-body bind PASS");
+        return;
+    }
+    assert(!outer(0));
+    assert(face_updates == before + 1 && face_update_body_remaining == remaining);
+    assert(player_pose_source(&clip, &remaining, &flags, &transition));
+    assert(clip == 1 && remaining == 690.5f && player_pose_cinematic_active());
+    assert(em_area11_interaction_host_face_talk(0));
+    assert(!em_area11_interaction_host_face_state()->talking && shared->frame->activity[0] == 0xA5);
+
+    /* Original status consumes the frame: neither face nor foreign body
+     * advances, even if their host service is accidentally queried. */
+    EmOpeningFace paused = *em_area11_interaction_host_face_state();
+    assert(em_status_runtime_pickup_request(em_area11_interaction_host_status(), 1, 0x1B));
+    assert(outer(0) == 1);
+    before = face_updates;
+    assert(em_area11_interaction_host_player(NULL) == 0);
+    assert(face_updates == before && !memcmp(&paused, em_area11_interaction_host_face_state(), sizeof paused));
+    /* Clear this standalone controlled status request via the real page. */
+    for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
+    assert(outer(0x40) == 1);
+    assert(outer(0x10) == 1);
+    while (em_status_runtime_frame(em_area11_interaction_host_status())->phase != 1)
+        assert(outer(0) == 1);
+
+    EmScript script = {0}; unsigned char record[32] = {0};
+    record[0] = 7; record[8] = 4;
+    assert(em_interaction_runtime_frame(shared, &owner_token, &script, record) == EM_SCRIPT_ADVANCE);
+    em_area11_interaction_host_camera_fields();
+    assert(shared->frame->player_ready == 1 && !shared->frame->selector);
+    assert(shared->owner == &owner_token && player_pose_owned() && player_pose_cinematic_active());
+    assert(!em_area11_interaction_host_face_state());
+    assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == 0);
+    before = face_updates;
+    assert(!outer(0)); /* One final body tick, then original default-bank release. */
+    assert(face_updates == before && !shared->owner && !player_pose_owned());
+    assert(!player_pose_cinematic_active() && shared->frame->player_ready == 0);
+    assert(player_pose_source(&clip, &remaining, &flags, &transition));
+    assert(clip == 0 && remaining == 80);
+    teardown();
+    em_pose_bank_free(&foreign);
+    puts("AREA11 native host face/deferred foreign request/status pause/frame4/default idle PASS");
+}
+
 int main(void)
 {
     no_battery();
     first_battery();
+    cinematic_face(0);
+    cinematic_face(1);
     panel_menu(0);
     panel_menu(1);
     owned_teardown();

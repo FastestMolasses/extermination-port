@@ -13,7 +13,7 @@ MODULES = (
     'em_elevator_runtime em_elevator_program em_elevator em_status_runtime em_status_frame '
     'em_status_page em_item_root em_item_ui em_item_trail em_item_sdk_math em_item_device '
     'em_battery_ui em_pickup em_pickup_owner em_pickup_program em_pickup_motion em_opening_media '
-    'em_script em_frame em_fade em_random'
+    'em_script em_frame em_fade em_random em_task em_player_face_host em_face_model em_opening_face'
 ).split()
 
 
@@ -25,7 +25,7 @@ def main():
                     '-ffp-contract=off', '-fsanitize=address,undefined', '-Wl,-dead_strip',
                     '-Isrc', 'tests/area11_interaction_host_test.c',
                     *(f'src/game/{module}.c' for module in MODULES),
-                    'src/em_model.c', '-lm', '-o', str(executable)], cwd=ROOT, check=True)
+                    'src/em_model.c', 'src/em_input.c', '-lm', '-o', str(executable)], cwd=ROOT, check=True)
     result = subprocess.run([str(executable)], cwd=ROOT, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (output / 'result.log').write_text(result.stdout)

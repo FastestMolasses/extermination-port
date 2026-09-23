@@ -51,6 +51,37 @@ player pose before freeing owner tokens with host_clear. Ordinary completion
 instead releases ownership in the next shared player callback. The fixture
 also checks teardown during an acquired interaction followed by clean reload.
 
+## Dennis cinematic face
+
+The host owns an `EmPlayerFaceHost` prepared at load from the actual player
+EMDL and `opening/player_face.*` (resource preparation only; the face stays
+detached and consumes no RNG). `em_area11_interaction_host_face_attach` is the
+`001B81D0` service: it attaches the face and writes player_ready2. It requires
+the shared owner and ready1/2 and faults otherwise. The original's immediate
+(`ev+0x14`) `001B82D0` branch can call `001B81D0` while `70003B8F` is still 0;
+that pre-acquisition route is not modelled and fails loudly.
+`em_area11_interaction_host_face_talk` is the direct `001FD950` ->
+`001D06E0` event and is accepted only at ready2; it never touches the
+activity mailbox.
+
+With ready2 the shared runtime calls the host's cinematic player worker.
+Like `00183090`, it ticks the face (`001D0C70` -> `001D0720`) before any body
+work, then advances the deferred foreign bank, an active shared animation or
+the ordinary source. The frame core's close (`001B82D0` op4/6) emits
+RELEASE_SKELETON only at ready2; the host detaches the face (`001CA770`) and
+the core writes ready1. `em_area11_interaction_host_player_record` returns the
+alternate face mesh with the current player palette only while ready2.
+
+The fixture's `cinematic_face` scenarios attach, talk, request the foreign
+bank on the next callback (source0.5, 690.5 remaining), pause everything
+through a status page, close with frame4, and release to default idle0 at 80.
+A rejected face GPU update retains ownership and faults before the body is
+bound. The status pause uses the actual pickup request, so it runs after
+`first_battery` and keeps that acquired battery: the original pickup program
+adds the item (`001C40B0`) before requesting status, and the real battery
+page rejects a request with an empty inventory. Roger's live script, camera
+and media are not driven by this fixture.
+
 Run `make test-area11-interaction-host` for the AddressSanitizer and
 UndefinedBehaviorSanitizer fixture. Existing original-instruction oracles
 remain the evidence for individual numerical routines and controller rules;
