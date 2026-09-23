@@ -223,12 +223,4 @@ int em_truck_static_selftest(void)
     return fail;
 }
 
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((constructor))
-static void em_truck_test_ctor(void)
-{
-    const char *e = getenv("EM_TRUCK_TEST");
-    if (e && e[0] == '1')
-        exit(em_truck_static_selftest() == 0 ? 0 : 1);
-}
-#endif
+/* EM_TRUCK_TEST (legacy self-test) retired 2026-09-23. */

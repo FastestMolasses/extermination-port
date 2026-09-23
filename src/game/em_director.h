@@ -17,7 +17,5 @@ int director_camera(EmCamera *cam);
 float director_letterbox_alpha(void);
 int cine_step_to_beat(uint8_t step);
 int cine_in_zone(const CineBeat *b);
-void cine_beat_finish(void);
-void cine_test_script(void);
 
 #endif /* EM_DIRECTOR_H */

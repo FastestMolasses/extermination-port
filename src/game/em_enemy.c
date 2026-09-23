@@ -1864,13 +1864,8 @@ void em_enemy_reset(void)
      * em_door_reset: boot resets once before adding). */
     memset(&s, 0, sizeof s);
     s.rng  = 0x2A5613u;   /* fixed LCG seed: deterministic runs/captures */
-    s.demo = -1;
-    const char *gd = getenv("EM_ENEMY_GIBDEMO");
-    if (gd && *gd)
-        s.demo = atoi(gd);
-    /* EM_ENEMY_TEST=4 — the generator run is owned HERE (em_game.c only
-     * arms values 1..3; see the file header). */
-    const char *et = getenv("EM_ENEMY_TEST");
+    s.demo = -1;   /* EM_ENEMY_GIBDEMO / EM_ENEMY_TEST legacy runs retired 2026-09-23 */
+    const char *et = NULL;
     if (et && et[0] == '4' && et[1] == '\0') {
         s.gt_on        = 1;
         s.gt_gen       = -1;

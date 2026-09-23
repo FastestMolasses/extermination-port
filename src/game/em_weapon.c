@@ -773,11 +773,7 @@ void em_weapon_reset(uint8_t mag, int16_t reserve)
     w.reserve  = reserve;
     w.last_hit = -1;
     w.tgt[0] = w.tgt[1] = w.tgt[2] = -1;   /* D_008106E0/E4/E8 clear */
-    /* EM_CAPTURE_LIGHT=1: arm the one-shot synthetic flashlight toggle
-     * (em_weapon.h "RENDERING" — debug instrumentation only; it rides
-     * the exact Square-press code path on the first aim frame). */
-    const char *cl = getenv("EM_CAPTURE_LIGHT");
-    w.light_cap = cl && cl[0] == '1';
+    w.light_cap = 0;   /* EM_CAPTURE_LIGHT legacy capture retired 2026-09-23 */
 }
 
 /* HONEST state windows from the committed clip lengths: the scripted
