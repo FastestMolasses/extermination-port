@@ -555,3 +555,75 @@ A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses 
 - ORIGINAL_FRAME_ORDER #30: it is the area title.
 - em_game.h "0x1AE040 still undecompiled".
 - em_game.c: the case-0 and :5523 comments.
+
+---
+
+## 10. Phase 1 landed (2026-09-22) — facts Phase 2 must use
+
+Committed: S1 `em_scene_state.h`, `em_scene_workers.h`, `em_scene_classify.{h,c}`; S2 `em_scene_frame.{h,c}`;
+S3 `em_scene_task.{h,c}`; S4 `em_actor_pool.{h,c}`; S6 `em_frame_trace.{h,c}` + `tools/compare_frame_order.py`;
+S7 `em_actor_roster.{h,c}` + `tools/export_area11_roster.py`; S5 split (`em_player_frame.c`, `em_render_frame.c`,
+`em_game_selftest.c`, now in COMMON). Only the S5 files are in COMMON; S8/S10b add the cores when they wire them.
+Make targets: test-scene-classify(-reference), test-scene-frame-reference, test-scene-task-reference,
+test-actor-pool, test-frame-trace, test-actor-census.
+
+### 10.1 Interfaces as built (supersede section 3 where they differ)
+- `em_sf_001AE7E0(const EmSceneState *, int16_t d0028A9A0)`: the fade halfword is read through a worker and
+  passed in (D_0028A9A0 is not owned). Task bytes +8..+0x1F stay in `EmTask.user`; `em_scene_state.h` gives
+  original-offset accessors over `user` (no second copy).
+- Extra workers beyond section 3.2: stores `s_00821058`, `s_00275C78` (001AD360 step 1), `s_00810D38`
+  (001ADF00); readers `r_00275B44`, `r_008102B9` (variant arguments).
+- Q1 entry point: `em_sf_001AE040_q1` (bindings choose it and log `EM_SCENE_Q1_UNPORTED_MESSAGE` once).
+- States 3/5 delegate to `em_status_frame` through a published/refreshed view.
+- Task cores: 001ADF00 and 001AFCF0 take `(s, w)`; the rest `(s, user, w)`. 001AD360/001ADF50 return the
+  original 0/4; others 0 or -1 on fault. Bind `w_001AD140`, `w_001AD010`, `w_001AFCF0` to the S3 cores.
+- 001AD360 steps (from the .s): 0: 001D1EF0, 001FABB0, +A++ · 1: 001D1EF0; when D_00282157==0:
+  D_00275C78=0 then D_00821058=1, +A++ · 2: 001D1EF0, +A++ · 3: +A++, +0x18(u16)=0, +0x10=0, falls into 4
+  (+A 3->5 in one tick) · 4: 001D2830(3,1), 700=0x0B, 701=702=0, D_00810730[0x0B]=0, +A++ · 5: 001D1EF0,
+  return 4 · +A>=6: return 0.
+- Pool: calls take `EmSceneState*`; the walk writes spad 3B8A and latches faults into `scene->fault`. The walk
+  trace hook is `EmActorTraceFn(ctx, caller, callee, actor_address, actor)` — S8/S10b need a small adapter
+  into the frame-trace stream. The pool does NOT reset the 001AF8E0 class-list block D_00275B54..BB8: assign
+  it to the 001AAD00/class-list owner at the 001AFCA0 position. `EmActor` still lacks `flags2` (+0x2E,
+  written by 001B6660/001B6990, untouched by alloc/free) — add it before S10b and store it on spawn.
+- Trace contract (S6): core-internal jals 001ACEC0->001AD250 (0x1ACFF4) and 0x1AE040->001AE7E0 (0x1AE154) go
+  through the trace hook; bindings set `w->trace = em_frame_trace_env_hook` when `em_frame_trace_env()` is
+  non-NULL, call `em_frame_trace_tick_begin/end` around each task tick, `em_frame_trace_frame_state` at the
+  0x1AE040 entry, `em_frame_trace_classifier` once per classifier run, and `em_frame_trace_node(callback,
+  class, record, binding)` once per ticked node with the tracer's record tags ("area11[i]", "deferred[gG.J]").
+- S5 stubs: `em_player_0015C160` and `em_render_001AAD00` have no port code and fault; the cutscene camera
+  stage sits behind `em_opening_runtime_camera()`; damage/vitals and the death latch remain in the pool block
+  (moving them is S10a/S11b).
+
+### 10.2 Open questions settled by the second PCSX2 trace (ORIGINAL_FRAME_ORDER.md section 6)
+- **Q2** The player's final palette is produced inside 0015BCF0 (anim_eval_skeleton at 0x15BD64 in gameplay,
+  001C6960 at 0x15BDBC in cutscenes; tail copies to 3B40/3B50). 0015C160 -> 001CAA00 only draws.
+- **Q3** Record 13 (overlay 0x8257A0) frees itself via 001AFC10 on the second world frame after load; the
+  slot 0x7A96E0 is later reused by 001BAC00's opening actor 001BB0E0.
+- **Q4** 001E55F0, 001E2560 and 001EA240 all come through the effect allocator 001EF9D0: 001E55F0 from
+  001C1DC0 (state 4) -> 001C1EA0 -> 001EFD20 (weather type 0x17); 001E2560 from 0015C420 -> 001F0120 (player)
+  and from 001BA8E0 (Roger, opening actor); 001EA240 = footstep effect type 0x28 from 00187350 ->
+  00187EE0 -> 001EFD90, about every 23 frames while walking.
+- **Q5** 0018A6B0 x7 are the player's attached equipment models (0015C420: 0018A880(4,0) at player+0x18;
+  0015C310: (0,0) at +0x20, (1,0), (1,0x10), (2,CA5), (2,CA6), (2,CA7)); each tick rewrites one bone's world
+  matrix at a player bone and draws via 001CAA00. 001E2560 is a periodic head-bone sprite effect (60-99 tick
+  countdown, +0x244 ramp 0->1.5 at 0.02/tick, GIF via 001CFBE0), ending on owner death/+4>=2 — not turret AI.
+- **Q6** 3B92=1 and 3B91=1 are written by 001B82D0 (0x1B874C/0x1B8778) reached from the opening controller
+  0x823E80 via 001BA1F0; cleared at script end (0x1B8940) and by 001AFCF0 at load. 3B93 is never nonzero in
+  AREA11 (only AREA21.BIN stores it).
+- **Q7 (partial)** No 3B8D writer runs during status state 3; the 2 is inherited from the panel battery
+  script. Close: state 3 -> +B=5 -> one state-5 frame with no world variant -> state 1, which runs 001AE6B0 while
+  3B8D=2 (14 frames until the panel script clears it). A status opened from gameplay keeps 3B8D=0.
+- **Q8** E50=4 (pad initialised; analog DualShock ID 7) in every capture — the port's E50=4 is correct.
+- Also settled: AREA11 has no passive hazard drain (D_008106C8=0x20081910, &0x60=0); 001FAE70 picks cue 25
+  (29 during Roger, 63 in the opening), fade 270+((LCG>>16)&0x7F). Unsettled: R09 original clear colour.
+
+### 10.3 Lead decisions
+- **D2 (2026-09-22): canonical game-progress storage.** The whole 0x640-byte block at D_00810700 that
+  001AF2C0 resets (area bytes, D_00810730 table, D_00810758 slot table, D_00810778/788, the D_00810860
+  per-area bits, D_00810B40, opening-complete D_00810811, power bits D_00810841, inventory D_00810C60..) gets
+  ONE canonical owner inside `EmSceneState` (an `EmProgress` region addressed by original offset). Existing
+  port mirrors (`g.opening_complete`, em_pickup counts/taken bits, `terminal_powered`, weapon ammo) become
+  accessors over it in the step that first touches them; no step may add a second copy.
+- **D3:** bind the seven 0018A6B0 nodes to the player's attached-equipment draw (Q5) rather than leaving them
+  UNBOUND; the legacy weapon code keeps its position inside the player stage until WP-15 replaces it.
