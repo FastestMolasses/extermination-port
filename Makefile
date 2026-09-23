@@ -534,6 +534,46 @@ test-roger-actor-original:
 test-roger-actor-original-reference:
 	python3 tools/test_roger_actor_original_reference.py
 
+.PHONY: test-player-closure-0e-18-reference
+test-player-closure-0e-18-reference:
+	python3 tools/test_player_closure_0e_18_reference.py
+
+.PHONY: test-coll-segment-walkers-reference
+test-coll-segment-walkers-reference:
+	python3 tools/test_coll_segment_walkers_reference.py
+
+.PHONY: test-script-host-workers-reference
+test-script-host-workers-reference:
+	python3 tools/test_script_host_workers_reference.py
+
+.PHONY: test-script-host-workers
+test-script-host-workers:
+	@mkdir -p build/script_host_workers
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/script_host_workers_test.c src/game/em_script_host_workers.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c src/game/em_script.c -o build/script_host_workers/script_host_workers_test
+	build/script_host_workers/script_host_workers_test build/script_host_workers
+
+.PHONY: test-sdk-soft-float-reference
+test-sdk-soft-float-reference:
+	python3 tools/test_sdk_soft_float_reference.py
+
+.PHONY: test-sdk-soft-float
+test-sdk-soft-float:
+	@mkdir -p build/sdk_soft_float
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=undefined -Isrc tests/sdk_soft_float_test.c src/game/em_sdk_soft_float.c src/game/em_sdk_math_original.c -lm -o build/sdk_soft_float/sdk_soft_float_test
+	build/sdk_soft_float/sdk_soft_float_test ../Extermination/config/SCUS_971.12
+
+.PHONY: test-shadow-actor-route-reference
+test-shadow-actor-route-reference:
+	python3 tools/test_shadow_actor_route_reference.py
+
+.PHONY: test-camera-follow-original-reference
+test-camera-follow-original-reference:
+	python3 tools/test_camera_follow_original_reference.py
+
+.PHONY: test-camera-follow-original
+test-camera-follow-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/camera_follow_original_test.c src/game/em_camera_follow_original.c src/game/em_sdk_math_original.c -lm -o build/camera_follow_original_test && ./build/camera_follow_original_test
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
