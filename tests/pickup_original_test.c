@@ -88,7 +88,7 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     assert(host.status_calls==1 && host.index==type);
     assert(host.kind==(subtype==0?1:subtype==1?2:3));
     assert(!em_pickup_taken(metadata.uid) && s.p[0].used && owner->lifecycle==1);
-    assert(em_pickup_found_take()==-1);
+    assert(!em_scene_state()->req[EM_SCENE_REQ_B0]); /* no legacy take request */
     if (!subtype) assert(em_pickup_item_count(type)==1);
     else if (subtype==1) assert(em_pickup_maps()[type]==1 && !em_pickup_item_count(type));
     else assert(em_pickup_keys()[type]==1 && !em_pickup_item_count(type));
@@ -109,7 +109,7 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     assert(em_interaction_runtime_player_tick(&interaction,1)>=0);
     assert(em_pickup_original_tick(229.9f,action,0,frame.ready,1)==1);
     assert(owner->freed && !s.p[0].used && em_pickup_taken(metadata.uid));
-    assert(em_pickup_found_take()==-1 && !em_interaction_runtime_owner(&interaction));
+    assert(!em_scene_state()->req[EM_SCENE_REQ_B0] && !em_interaction_runtime_owner(&interaction));
     em_pickup_scene_clear(gfx);
     assert(em_pickup_original_bind(&metadata,&interaction,path,&hooks)==-2);
     assert(em_pickup_original_active());

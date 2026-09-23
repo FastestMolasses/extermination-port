@@ -102,8 +102,7 @@ static struct {
     int16_t  battery_charge;  /* D_00810CB2: internal half-units */
     uint8_t  battery_capacity;/* D_00810CB7: internal half-units */
     int      ammo_pending;    /* case-0x10 reserve rounds for em_game */
-    int      found_pending;   /* item type for the Found line, -1 none */
-} g = { .found_pending = -1 };
+} g;
 
 /* This frame's use-scan winner (func_00184BA0's single winner for the
  * whole interactive list). Reset at every em_pickup_update entry; read
@@ -449,7 +448,6 @@ void em_pickup_reset(void)
      * CA4..CA7 among them), with 001AF2C0's stores to them. */
     em_scene_progress_reset_001AF2C0(em_scene_state());
     memset(&g, 0, sizeof g);
-    g.found_pending = -1;
     g.status = 0;                        /* C60 */
     g.count[0x00] = 1;                   /* C64 */
     g.count[0x05] = 1;                   /* C69 */
@@ -557,7 +555,32 @@ static void pickup_take(Pickup *p, float player_y)
 {
     em_game_player_interact_anim(pickup_grab_clip(p->pos[1], player_y));
     inventory_add(p->type, 1);
-    g.found_pending = p->type;           /* D_008106B0/B1 request */
+    /* 001B6EA0 take family 0 -> 001C47A0 (byte-matched): 001C40B0, then
+     * D_008106B0 = 1 and D_008106B1 = type. The classifier 001AE7E0 then
+     * returns 2 and 0x1AE040 opens the status screen, whose 0020CDC0 case 0
+     * maps a battery (B1 0x1B..0x1D) to the ITEM page, message 3 (the
+     * host's request route: em_status_page, the ITEM root, the BATTERY
+     * page's acquisition notice). The battery types are family 0 in
+     * AREA11's deferred-item records (scene.txt). The pages every other
+     * take selects have no translation (0020CDC0: MAP 0020F950 for B0 = 2,
+     * SPR4 00211970 for B1 < 0x17, DATABASE 00214020 for B0 = 3, the ITEM
+     * child 002160B0 for B1 0x1E..0x22), so those takes post no request
+     * and show nothing until they are translated (WP-6). */
+    if (p->type >= 0x1B && p->type <= 0x1D) {
+        EmSceneState *scene = em_scene_state();
+        scene->req[EM_SCENE_REQ_B0] = 1;
+        scene->req[EM_SCENE_REQ_B1] = (uint8_t)p->type;
+    } else {
+        /* The withheld request is reported, never silent. The legacy take
+         * does not carry the record's family byte (+3), which selects
+         * 001C47A0/4720/4760 (B0 = 1/2/3), so the page is named by the
+         * type as 0020CDC0 case 0 would map it under family 0. */
+        const char *page = p->type < 0x17 ? "SPR4 00211970" : "the ITEM child 002160B0";
+        fprintf(stderr, "pickup: take of type %#04x withholds its 001B6EA0 status request "
+                "(B0 = 1/2/3, B1 = type): 0020CDC0 would open %s (or MAP 0020F950 / "
+                "DATABASE 00214020 for families 1/2), which is not translated (WP-5/WP-6)\n",
+                p->type, page);
+    }
     /* func_001B1190 (byte-matched): the engine is handed the one-byte
      * puid from actor +0x9A and returns without touching the array when
      * that byte is 0 — the guard is on the PUID BYTE, not on the port's
@@ -889,9 +912,3 @@ int em_pickup_ammo_take(void)
     return n;
 }
 
-int em_pickup_found_take(void)
-{
-    int t = g.found_pending;
-    g.found_pending = -1;
-    return t;
-}

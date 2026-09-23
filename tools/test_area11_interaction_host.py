@@ -12,7 +12,8 @@ MODULES = (
     'em_collision em_panel_runtime em_panel_program em_panel em_panel_message '
     'em_elevator_runtime em_elevator_program em_elevator em_status_runtime em_status_frame '
     'em_status_page em_item_root em_item_ui em_item_trail em_item_sdk_math em_item_device '
-    'em_battery_ui em_pickup em_pickup_owner em_pickup_program em_pickup_motion em_opening_media '
+    'em_battery_ui em_status_hub em_status_hub_ui em_status_draw em_status_models em_status_scene_original '
+    'em_owner_services_original em_item_geometry em_pickup em_pickup_owner em_pickup_program em_pickup_motion em_opening_media '
     'em_script em_frame em_fade em_random em_task em_player_face_host em_face_model em_opening_face'
 ).split()
 

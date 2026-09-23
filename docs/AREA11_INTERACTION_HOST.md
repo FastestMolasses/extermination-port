@@ -35,11 +35,33 @@ landed"):
   list (the panel's type-24 predicate, the elevator's selector-1 predicate),
   arms the winner, claims the shared owner (3B8D = 3) and runs 001798D0. It
   returns 0 without a winner, so the player's own Use actions follow.
-- **Status requests.** The panel's 00157F60 posts B0 = 1 / B1 = 0x82 /
-  D_008106D0 = the panel's record address. The scene core opens the status
-  screen on it; its 0020E060/0020CDC0 run `_status_open`/`_status_page`, the
-  original page layer over the canonical request bytes, drawn by
-  `_status_render` at 001D1EA0(0). 002149F0's exit writes 3B8D = 3.
+- **Status screens (WP-4 requests, WP-5 all).** The scene core's
+  0020E060/0020CDC0 run `_status_open`/`_status_page`, the original page
+  layer over the canonical request bytes, for every status screen, drawn by
+  `_status_render` at 001D1EA0(0): the panel's 00157F60 request (B0 = 1 /
+  B1 = 0x82 / D_008106D0 = the panel's record address; 002149F0's exit
+  writes 3B8D = 3), a battery pickup's 001C47A0 request (B0 = 1 / B1 =
+  0x1B..0x1D: the ITEM page's BATTERY acquisition notice) and START/TRIANGLE
+  (B0 == 0: the hub phase). The panel owner is bound only for B0 != 0 with
+  B1 & 0x80 (a stale B1 stays after a request). The hub phase is the
+  original `em_status_hub` inside the runtime (WP-5;
+  `em_status_runtime_bind_hub` with `panel/status_hub.emhs` and
+  `panel/status_hub_atlas.emha`). The host supplies its 00209DF0 inputs
+  (`hub_display`: D_00810858/5C, D_008104E4 = g.pd_infected, C7F, CB2/CB7,
+  CA4/CA6, CB4; CA8..CB0 fault) and its status models: `em_status_models`
+  (loaded from `assets/status_models`, tools/export_status_models.py) runs
+  the hub's model workers (`hub_models`: 001AFF10 + 0020E6F0, 0020E250 and
+  001B0000), the page events CONFIGURE (0020DFA0's pool clear and UI view),
+  CLEAR_DRAW (001AFEB0) and RESET_DRAW (001AFE60), and draws the queued
+  models (`hub_models_draw`) between the background and the 2D layer
+  (STATUS_SCENE.md section 7). It also loads the SDK tables of 0020A7A0's
+  sine (`assets/sdk_math_tables.emsm`). ITEM children other than BATTERY
+  fault (no other_page hooks). The fixture's `status_hub_route` scenario
+  checks the hub's draw cadence (nothing at sub-state 0, one 0020A7A0 step,
+  the backdrop flushed before the seven model draws, and one 00209DF0 per
+  sub-state-1 frame, UI+0x20), hover 4 + X into ITEM and Back to the hub
+  with the texture slot re-uploaded, the 0020E0C0 exit's two extra ticks
+  and the fault on X at hover 3 (MAP).
 - **Canonical storage.** The shared EmInteractionFrame is a per-call view:
   every entry point loads it from EmSceneState (3B8D, 3B8F, 3B92, 3B84,
   D_008106D4..DF, D_008106EF, D_008106F3), the port camera (D_008101E1/E3/E4/
@@ -53,8 +75,8 @@ landed"):
 
 The runtime's own status frame machine (`em_status_runtime_tick`,
 `_battery_open`, `_pickup_request`) is no longer on the live path; the
-fixture below still drives it as its stand-in for 0x1AE040 states 3/5 (WP-5
-retires it).
+fixture below still drives it as its stand-in for 0x1AE040 states 3/5. It
+goes when the fixtures drive the page route (WP-5 remainder).
 
 The fixture's `elevator_state0_floor` scenario loads the host with
 D_0081083A = 1 and = 0 over the manifest's 230 placement and asserts that

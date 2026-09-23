@@ -81,8 +81,8 @@
  *    a sin-pulsed alpha, plus the periodic full-screen "zoom burst"),
  *    composited through the em_gfx backdrop queue so it sits UNDER all
  *    panels. The hub uses the ui.emui BACKDROP record (TBP 0x1E40);
- *    each entered page uses its own ui_pageN.emui BACKDROP record (the
- *    engine passes a per-screen tile token). Without a BACKDROP record
+ *    the layers are the translated 0020A7A0 (em_status_background.h),
+ *    shared with the original ITEM and BATTERY pages. Without a BACKDROP record
  *    (old/missing asset) the full-screen dim rect remains the flagged
  *    fallback. The ROTATING PLAYER MODEL is RENDERED (FINDINGS.md
  *    "STATUS SCREEN UI SCENE", func_0020E6F0 — BYTE-MATCHED, and every
@@ -134,31 +134,15 @@
  *    ui.emui none of this queues — the frame is identical to the
  *    pre-decor build (missing asset = no regression). Engine blend
  *    mode 3 on the icons is approximated with standard alpha blend.
- *  - PAGE NAVIGATION (FINDINGS.md "STATUS SUB-PAGES", session 31) is
- *    modeled as a skeleton: left-stick hover among the pager diamonds
- *    (deflection > 0.8, quadrant -> hover 1 down / 2 right / 3 up /
- *    4 left, engine func_0020D930; the hovered marker's rings render
- *    the engine's GREEN state), X enters the hovered page through the
- *    controller's remap (func_0020CDC0: down->DATABASE, right->SPR4,
- *    up->MAP, left->ITEM; X with no hover enters nothing — the engine
- *    buzzes), Circle or Triangle returns to the hub, and at the hub
+ *  - PAGE NAVIGATION: none (WP-5). Left-stick hover among the pager
+ *    diamonds (deflection > 0.8, quadrant -> hover 1 down / 2 right / 3
+ *    up / 4 left; the hovered marker's rings render the engine's GREEN
+ *    state) only picks the help line; X enters nothing; at the hub
  *    Triangle/Start/Circle (engine edge mask 0x830) closes the screen.
- *    An entered page draws its exported background/decor textures from
- *    assets/ui_pageN.emui (decomp repo tools/export_ui.py --page N,
- *    run by the user against their own extract/ chunks; page 0 ITEM =
- *    chunk 0x1F, 1 MAP = 0x1E, 2 SPR4 = 0x2C, 3 DATABASE = 0x24) at
- *    the recorded anchors — title art is asm-anchored at (8,0);
- *    background-tile/legend anchors are flagged ASSUMED in the
- *    exporter; sheet-only records (no statically known position) are
- *    skipped. Page INTERIORS (item lists, map cursor, weapon
- *    customization, database records) are mostly NOT modeled: every
- *    page view carries an amber flag strip ("CONTENT TBD", or
- *    "PARTIAL: AMMO/BATTERY ONLY" on the ITEM page when its basic
- *    interior renders), and a missing page asset falls back to a
- *    flagged placeholder panel. The engine's passcode keypad pages 4/5
- *    (chunks 0x25/0x26, entered only via the external request byte
- *    D_008106C5, never from the diamond) are not reachable in the
- *    port either.
+ *    The former page views (placeholder interiors with a "CONTENT TBD" /
+ *    "PARTIAL" strip) were invented and are deleted; the original pages
+ *    enter through the original hub core em_status_hub once its model
+ *    workers are translated.
  *  - MESSAGE-BANK TEXT renders when assets/messages.emsg is present
  *    (decomp repo tools/export_ui.py --messages, run by the user
  *    against their own extract/chunk00; the engine's group/line text
@@ -170,19 +154,10 @@
  *        0x51/0x33/0x1F/0xB; infection 0 = no line, 100 = "Dennis
  *        Infected"), tall font at the engine's (138,336) anchor,
  *        24 px '\n' steps;
- *      - the ITEM page renders a basic real interior: the engine's
- *        category labels (bank group 1 — BATTERY/EQUIPMENT/EVENT/
- *        HEALING ITEMS + MAIN MENU; row layout ASSUMED) plus the only
- *        item counts the port models: the carried battery pack (bank
- *        catalog name by capacity, charge from EmPlayerStatus) and
- *        "SPR4 MAGAZINE" x reserve/30 (PORT LABEL, derived count —
- *        the engine's per-type inventory array D_00810C64 is not
- *        translated yet; everything else stays flagged).
  *    Missing bank (or font) => none of this queues — frames identical
  *    to the pre-bank build.
  *  - Not yet composed: the page-tab strips, the spinning cyan double
- *    ring + sparkle emitter (animated; cadence unverified), page
- *    sub-screen interiors (see above), the rotating player model.
+ *    ring + sparkle emitter (animated; cadence unverified).
  *
  * EmPlayerStatus mirrors the engine's canonical status storage:
  *
@@ -192,7 +167,7 @@
  *   infection   player actor +0x228 (0x008104D8), float — " 60%"
  *   mag         D_00810C62, u8 — rounds in the current SPR4 magazine.
  *               NOT shown on the status hub (the real screen has no
- *               magazine display); kept for the future page-2 view.
+ *               magazine display).
  *   reserve     D_00810CB4, s16 — SPR4 reserve rounds (the "120")
  *   battery     the status screen's "04/06" pair in DISPLAY units.
  *               Engine storage is HALF-units: current at 0x810CB2,
@@ -233,10 +208,8 @@
  * forces the status screen VISIBLE regardless of the toggle — for
  * headless capture tests of the overlay itself. Hidden is the default,
  * so the default frame is already the status-screen-free one.
- * EM_HUD_PAGE=<0..3> (with FORCE) starts with that page entered;
  * EM_HUD_HOVER=<1..4> (with FORCE) holds that pager hover at the hub —
- * both are capture hooks; without them navigation only changes on
- * input, so the forced hub capture is byte-identical to pre-nav builds.
+ * a capture hook; without it the hover only changes on input.
  */
 #ifndef EM_HUD_H
 #define EM_HUD_H
@@ -333,8 +306,6 @@ void em_hud_text_color(EmGfx *gfx, float x, float y, const char *str,
  * Invalidate after replacing it so the next hub/page draw reloads its
  * sheet. Background state remains shared across page transitions. */
 void em_hud_decor_invalidate(void);
-void em_hud_background_sprite(EmGfx *gfx, float u, float v,
-                              float width, float height);
 
 /* Pixel width `str` would occupy in `style` (the engine's func_001CC170
  * centering helper). 0 while the font asset is missing. */
@@ -349,24 +320,25 @@ void em_hud_subtitle(EmGfx *gfx, const char *str, float y, float line_height,
 /* Is the font sheet loaded? (placeholder rects are the fallback) */
 int em_hud_font_ready(void);
 
-/* STATUS OPEN/CLOSE (S11b; SCENE_COORDINATOR_DESIGN.md section 5,
- * "Status"). The screen no longer toggles itself. The scene coordinator
+/* STATUS OPEN/CLOSE (S11b, WP-5; SCENE_COORDINATOR_DESIGN.md section 5,
+ * "Status"). The screen does not toggle itself. The scene coordinator
  * runs the original frame machine: 001AE7E0 returns 2 on a START/
  * TRIANGLE edge (D_00810E74 & 0x810) or a B0/C5 request, unless B8, B9,
  * the fade, 3B8D or the menu-inhibit byte B3 blocks it; the r == 2 arm
  * then calls 0020E060 and frame-machine state 3 calls 0020CDC0 every
  * frame (world frozen) until it returns nonzero, then state 5 returns to
- * state 1. Until WP-5 binds those positions to em_status_runtime, the
- * bindings (em_scene_bindings.c) bind them to this legacy screen:
- *   em_hud_status_open  = the 0020E060 position: shows the screen at the
- *                         hub (the original clears its 0xA0-byte status
- *                         block D_00810130 there);
- *   em_hud_status_tick  = the 0020CDC0 position: this frame's legacy
- *                         navigation; returns 1 when the hub closed
- *                         (TRIANGLE/START/CIRCLE, the original hub's 0x830
- *                         edge mask), else 0, and -1 when the screen is
- *                         not open (0020CDC0 is only reached while it is).
- * The legacy page views and their content remain the port's (H9, WP-5).
+ * state 1. In AREA11 both positions run the original page core
+ * (em_status_page in the interaction host's status runtime): its cold
+ * entry, the original hub (em_status_hub), the ITEM/BATTERY pages and the
+ * 0020E0C0 exit; this legacy screen is not used there (since WP-5).
+ * Scenes without the AREA11 host keep the legacy screen at both
+ * positions (em_scene_bindings.c w_0020E060/w_0020CDC0):
+ *   em_hud_status_open  = the screen's entry: shown, no hover;
+ *   em_hud_status_tick  = its frame: the legacy hover and the close;
+ *                         returns 1 on the close edge (TRIANGLE/START/
+ *                         CIRCLE, the original hub's 0x830 edge mask),
+ *                         else 0, and -1 when the screen is not open;
+ *   em_hud_status_hide  = the screen has closed.
  *
  * The menu-inhibit byte B3 (D_008106B3) is canonical in EmSceneState; its
  * original writer is the player spine's tail (func_0015BA50, BYTE-MATCHED),
@@ -376,9 +348,10 @@ int em_hud_font_ready(void);
  * The port writes it at the player stage (em_player_frame.c). */
 void em_hud_status_open(void);
 int em_hud_status_tick(const EmFrameInput *in);
+void em_hud_status_hide(void);
 
 /* EM_HUD_FORCE debug hook: while the forced screen shows and the real one
- * is closed, apply EM_HUD_PAGE/EM_HUD_HOVER and the legacy navigation.
+ * is closed, apply EM_HUD_HOVER and the legacy navigation.
  * No effect without EM_HUD_FORCE=1. */
 void em_hud_forced_update(const EmFrameInput *in);
 
@@ -440,22 +413,12 @@ void em_hud_forced_update(const EmFrameInput *in);
 void em_hud_game_over(EmGfx *gfx);
 void em_hud_continue(EmGfx *gfx, int cursor);
 
-/* FOUND LINE (2026-06-11 pickup decode — em_pickup.h): in the ENGINE a
- * collected item posts D_008106B0/B1 and the main-mode controller
- * func_001AE7E0 AUTO-OPENS the status screen at the item's record,
- * whose text is message-bank group 4 — the literal "Found:\n<NAME>\n
- * <description>" entries, indexed by item TYPE. The port's page
- * interiors are CONTENT TBD, so the stand-in (FLAGGED) is a transient
- * in-world line: em_hud_found_show(type) arms it and
- * em_hud_found_render draws "Found: <NAME>" (the group-4 entry's name
- * line, tall font, centered low) for ~2.5 s of gameplay frames.
- * Hidden while the status screen is open; missing bank falls back to
- * "Found: ITEM <type>"; missing font queues nothing. Call _render once
- * per frame from the close-out (after em_hud_render). It is also the
- * per-frame tick + draw hook of the RADIO/EXAMINE message machine
- * below. */
-void em_hud_found_show(int item_type);
-void em_hud_found_render(EmGfx *gfx);
+/* The per-frame tick + draw hook of the RADIO/EXAMINE message machine
+ * below; call once per frame from the close-out (after em_hud_render).
+ * (A collected item posts D_008106B0/B1 and 001AE7E0 opens the status
+ * screen at its record: em_pickup.c pickup_take, WP-5. The former
+ * in-world "Found" line was a port stand-in and is deleted.) */
+void em_hud_radio_render(EmGfx *gfx);
 
 /* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard
  * (INVESTIGATION_area11_director.md §4.4 / FINDINGS s81). In the ENGINE
@@ -501,7 +464,7 @@ void em_hud_found_render(EmGfx *gfx);
  * persistent HUD (one-shot) and does NOT touch the status screen or the
  * cinematic letterbox. Hidden while the status screen is open; missing
  * font queues nothing (no regression). Call _render once per frame from
- * the close-out (after em_hud_found_render).
+ * the close-out (after em_hud_radio_render).
  *
  * em_hud_area_title_active() = the card is still showing (for tests). */
 void em_hud_area_title(int area);
@@ -581,7 +544,7 @@ int  em_hud_radio_frames(void);
 int em_hud_visible(void);
 
 
-/* Will the ACTIVE sheet (hub or entered page) draw the real animated
+/* Will the hub sheet draw the real animated
  * background this frame? (it carries a BACKDROP record — loads the
  * sheet lazily, so callable before em_hud_render). em_game gates the
  * UI-camera 3D scene on this: with no record the screen still uses the

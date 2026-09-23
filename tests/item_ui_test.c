@@ -21,10 +21,15 @@ void em_gfx_overlay_canvas(EmGfx *gfx, float width, float height)
 void em_hud_decor_invalidate(void)
 {
 }
-void em_hud_background_sprite(EmGfx *gfx, float u, float v, float width, float height)
+int em_status_background_render(struct EmGfx *gfx, float u, float v, float width, float height)
 {
     (void)gfx;
     printf("B %.9g %.9g %.9g %.9g\n", u, v, width, height);
+    return 1;
+}
+void em_status_background_frame(struct EmGfx *gfx)
+{
+    (void)gfx;
 }
 void em_hud_text_color(EmGfx *gfx, float x, float y, const char *text, EmHudTextStyle style,
                        uint32_t color)

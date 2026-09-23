@@ -33,6 +33,9 @@ unsigned em_battery_ui_original_step(const EmBatteryUI *ui);
 unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int owner_available);
 int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned held_buttons);
 void em_battery_ui_close(EmBatteryUI *ui);
+/* Another page replaced the shared UI texture slot: upload again on the
+ * next render (the page state is kept). */
+void em_battery_ui_deactivate(EmBatteryUI *ui);
 EmPanelMenuPhase em_battery_ui_phase(const EmBatteryUI *ui);
 const char *em_battery_ui_terminal_text(const EmBatteryUI *ui);
 #endif

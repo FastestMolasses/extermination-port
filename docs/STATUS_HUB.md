@@ -29,25 +29,85 @@ cases and 5,562 vertices against the original function, its vector
 helpers and full SDK bodies. The remaining boundary is GS/Metal
 rasterization, not a claimed hardware-equivalent renderer.
 
-Live open/close (S11b, 2026-09-23): the scene coordinator runs the
+Live open/close (S11b, WP-5; 2026-09-23): the scene coordinator runs the
 original frame machine, so a START/TRIANGLE edge in gameplay makes
 001AE7E0 return 2, the r == 2 arm calls 0020E060, and state 3 calls
 0020CDC0 every frame (world frozen) until it returns nonzero, then state 5
 returns to state 1 (the st14 frame order; SCENE_COORDINATOR_DESIGN.md
-section 6, S11b). Until WP-5 those two positions are bound to the legacy
-`em_hud` (`em_hud_status_open`/`em_hud_status_tick`), not to this hub.
-`EM_STARTUP_TEST=newgame-control EM_CONTROL_STATUS_TEST=1` exercises the
-open, 30 status frames and the TRIANGLE close from first control.
+section 6, S11b). In AREA11 those two positions run the original page core
+for every status screen (`em_status_page` in the interaction host's
+`em_status_runtime`): the cold entry, this hub, the ITEM root, the BATTERY
+page and the 0020E0C0 exit, whose two extra ticks after the close edge
+match status_04 (`make test-level-smoke` asserts it). Scenes without the
+AREA11 host keep the legacy em_hud screen.
 
-The normal hub is not yet bound into the live status adapter. Its 2D
-layer now exists as `em_status_hub_ui` (below), but the status draw-model
-workers `0020E250`, `0020E3A0`, `0020E1E0` and `0020E6F0` and the
-`0020A7A0` moving background are still required separate workers. They
-must be provided before advertising a complete normal status menu.
+Since the WP-5 fix round this hub is live: the runtime's hub phase
+(`em_status_runtime_bind_hub`) runs `em_status_hub_tick` with
+`em_status_hub_ui` as its DRAW and `em_status_background` as its
+BACKGROUND (the hub tile 0x20045EE59D421E40, taken from the hub atlas).
+The runtime owns the UI+0x20 clock (zeroed by the 0020E060 memset,
+advanced by 00208AD0 inside `em_status_hub_ui_prepare`) and the shared
+trail (reset by 0020E020 at sub-state 0). Sub-state 0 draws nothing; each
+sub-state-1 frame steps 0020A7A0 once and prepares 00209DF0 once, and the
+render draws the background, then the prepared stream, then the group-0
+help line while D_002821B4 == 1. The hub, ITEM and BATTERY adapters share
+the UI texture slot, so the page that draws marks the others' uploads
+stale. X on hover 4 enters ITEM through the page core; hovers 1-3
+(DATABASE, SPR4, MAP) fault there until those pages are translated.
 
-The stable host entry is `em_status_runtime_open()`. The host must first
-apply the original gameplay input gates; this function queues B0=0/C5=0
-only when both actual hub workers are installed. The pure page core now
+The status draw models are live (WP-5, 2026-09-23). The host's
+`hub_models` binds the model workers to `em_status_models`
+(docs/STATUS_SCENE.md section 7), which runs the translations of
+`em_status_scene_original` over the static actor pool D_0028B020:
+`0020E250` (the equipment letter models: `0020E3A0` codes, `0020E1E0`
+binds them from the letter bank D_0028A56C, `0020E460` ticks them),
+`0020E6F0` (the menu player, clips 0x1C2/0xA, with `0020EC80`) and
+`001B0000` (the pool walk). The page events bind 0020DFA0 (001AFE60 and the
+UI view D_00810610), 001AFEB0 and 001AFE60. The models are drawn by their
+`001CB580` draws on 0020DFA0's UI camera, after the background and before
+the 2D layer (`em_status_runtime_render`, section "Draw order" of
+STATUS_SCENE.md). `tools/export_status_models.py` exports the menu player,
+its two clips and the six glyph models the captured inventory spawns
+('/', '@', '0', '1', '2', '8'); any other glyph, variant or costume faults.
+`make test-status-models` runs the workers over the status-hub capture:
+at the tenth walk the menu player's breathe/yaw equal the capture, pool
+records 0..7 equal it in every modelled byte, and all 27 node world
+matrices are bit-exact. The level smoke asserts the seven records and one
+draw per record per hub frame after the first.
+
+`0020A7A0`, the moving background, is translated: `em_status_background.c`
+(pure; the one shared D_002655A0 state lives in
+`em_status_background_draw.c`, drawn by the hub, the ITEM page and the
+BATTERY page). Its live sine is the translated original sinf 0011E2A8
+(`em_sdk_math_original`) over the ELF window D_0026C170..D_0026C658
+(`tools/export_sdk_math_tables.py` -> `assets/sdk_math_tables.emsm`).
+`make test-status-background-reference` executes the original 0020A7A0 and
+0011E2A8 (EE FPU model) over the .data image, consecutive frames, every
+pulse boundary, both scroll wraps and a burst sweep, and over the
+D_002655A0 blocks of the status-hub and panel RAM captures, whose layer-2
+burst offsets are exactly (phase / 0.25 + 1) EE adds of 0.3; the native
+step reproduces those captured bits (an IEEE add does not), and a host
+sinf in place of 0011E2A8 fails. It is the only D_002655A0 translation.
+
+Sprite orientation and blend (00207E40): UV (0, 0) goes with the bottom
+vertex (y0 + 8h), so the GS draws the texture's last memory row at the top.
+The atlases (export_ui.py `decode_token_lm`) store row y = memory row
+h - 1 - y, so the port's top-left (u, v) is the original's top edge. 00207D00(1,
+0) selects GS ALPHA 0x44 (Cs*As + Cd*(1 - As)); the tile's TEX0 has TCC 1,
+TFX 0 (modulate), which the backdrop quad's colour/128 reproduces. The
+orientation was checked against the status-hub display image (a one-off
+measurement, 2026-09-23): the three layers were rendered from the
+capture's own D_002655A0 block with the atlas tile in the four U/V
+orientations and correlated with hub.png in background-only areas. The
+port's orientation correlates 0.90 and 0.94 in the two clean areas
+(x 390..420 x y 0..200 and x 160..300 x y 0..20 of the 512x448 canvas);
+V flipped gives 0.23 and -0.18, U flipped 0.31 and 0.20, both flipped 0.23
+and 0.08.
+
+The live entry is the page route (`em_status_runtime_page_open` and
+`_page_tick` at the scene core's 0020E060/0020CDC0, over the canonical
+request bytes). `em_status_runtime_open()` belongs to the runtime's own
+frame path, which only the sanitizer fixtures still drive. The pure page core now
 accepts that original cold-entry branch. The page oracle passes 1,460
 state/call cases, and the sanitizer lifecycle fixture covers normal open,
 hub selection of ITEM, ITEM Back to the hub, and the real phase-5 exit.
@@ -65,16 +125,23 @@ drawer into ten hover/terminal-infection layouts and exports thirteen
 textures (including every `00209860` secondary icon) and ten help lines. A separate frozen trace expands the original health,
 battery and ammunition workers into 70 ordered commands. The original
 numeric formatter runs; byte string copy/append/length and font packet
-workers are explicit boundaries. The live dynamic workers remain unbound.
+workers are explicit boundaries. The dynamic workers run live through `em_status_hub_ui`.
 
 The readable `tests/status_hub_visual.c` consumes generated, ignored
 commands through `tools/test_status_hub_visual.py`. It exercises original
 arcs, marker endpoints, sprites and text through the native Metal backend.
-Build with that tool, and run only after reserving the shared GPU. The
-fixture's line segments expand to one-GS-pixel parallelograms; precise
-line endpoint coverage remains a rasterization boundary. The original
-models are excluded explicitly, and the moving background starts at a
-fresh phase. This fixture is never used as a frozen live menu.
+Build with that tool, and run (`--run`, which opens a window) only after
+reserving the shared GPU. The fixture's line segments expand to
+one-GS-pixel parallelograms; precise line endpoint coverage remains a
+rasterization boundary. The original models are excluded explicitly, and
+the moving background starts at a fresh phase. This fixture is never used
+as a frozen live menu. The live hub, models included, is rendered headless
+by the level smoke: `EM_LEVEL_SMOKE_UNTIL=status
+EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` writes the hub frame of walk 10.
+Compared with hub.png (2026-09-23), the menu player's bright-pixel box is
+(371..439, 46..191) against the capture's (372..438, 46..192) in the
+640x480 image, and the SPR4 model and ammunition icon sit where the
+capture shows them.
 
 The recovered frame requires 2,376 ordered decor records: 758 arc
 triangles, 1,080 line triangles, 512 cursor triangles and 26 sprites or
@@ -83,8 +150,8 @@ rectangles. The former 1,024-record limit rejected valid original geometry.
 preserving the separate font and untextured budgets. The extra decor
 storage is 887,808 bytes. The GPU fixture accepts exactly 4,096 records,
 rejects the next one, resets for the following frame and renders all
-original commands. It exits successfully and saves ignored
-`build/status_hub_visual/hub.png`; its source counterpart is the original
+original commands. It exits successfully and saves an ignored
+`build/status_hub_visual/hub.bmp`; its source counterpart is the original
 state14 image above. Vulkan and D3D12 remain unimplemented backend
 skeletons; this check makes no cross-platform rendering claim.
 
@@ -96,7 +163,7 @@ it is the original UI+20 clock, separate from the trail reset. Battery
 charge/capacity remain half-units, including the compact/large layouts,
 12-cell rows and original vector color increments. Resource labels and
 arc records come from the user's original assets. These functions prepare
-commands; the live menu renderer and status model actors remain unbound.
+commands; `em_status_hub_ui` renders them live.
 
 `make test-status-draw-reference` compares 1,080 health cases, 144 battery
 cases and 528 supported ammunition cases with original instruction
@@ -143,8 +210,9 @@ The earlier uncommitted header was corrected against the original code:
   is reset by `0020E020` on hub (`0020CDC0` step 0), ITEM (`0020EE50`) and
   other page entry (`00211970`, `0020DFA0`). The caller passes it too.
 * The proposed background layer was removed. `em_hud_background_sprite`
-  is not a verified `0020A7A0` and paints an opaque fill that would cover
-  the status models. The background stays an explicit required worker.
+  was not a verified `0020A7A0` (it is deleted since WP-5); the translated
+  `em_status_background` is the hub's EM_STATUS_HUB_BACKGROUND worker when
+  this hub is bound.
 
 Reference check: `python3 tools/test_status_hub_ui_reference.py`
 compares 167 prepared streams (19,968 ordered calls) with original
@@ -166,6 +234,5 @@ Boundaries: SDK transcendental values (host libm on both sides), byte
 string copy/append/length/memset workers, glyph metrics, one-GS-pixel
 marker line coverage and final GS/Metal pixels. Metal flushes glyphs after
 all decor, so text is composited above sprites the original submits after
-it; the prepared stream keeps the original order. The adapter is not yet
-called by `em_status_runtime`.
+it; the prepared stream keeps the original order. Since the WP-5 fix round the runtime calls it as the hub worker's DRAW.
 

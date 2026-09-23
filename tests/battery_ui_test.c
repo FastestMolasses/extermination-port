@@ -9,8 +9,10 @@ int em_gfx_overlay_texture_set(EmGfx *g,int slot,const uint8_t *p,uint32_t w,uin
 void em_gfx_overlay_canvas(EmGfx *g,float w,float h)
 {(void)g;(void)w;(void)h;}
 void em_hud_decor_invalidate(void) {}
-void em_hud_background_sprite(EmGfx *g,float u,float v,float w,float h)
-{(void)g;(void)u;(void)v;(void)w;(void)h;}
+int em_status_background_render(struct EmGfx *g,float u,float v,float w,float h)
+{(void)g;(void)u;(void)v;(void)w;(void)h;return 1;}
+void em_status_background_frame(struct EmGfx *g)
+{(void)g;}
 void em_hud_text(EmGfx *g,float x,float y,const char *s,EmHudTextStyle style)
 {(void)g;(void)x;(void)y;(void)s;(void)style;}
 void em_hud_text_color(EmGfx *g,float x,float y,const char *s,EmHudTextStyle style,uint32_t c)

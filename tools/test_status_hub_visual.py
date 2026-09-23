@@ -48,6 +48,8 @@ def main():
              'tests/status_hub_visual.c','src/game/em_hud.c','src/game/em_item_geometry.c',
              'src/game/em_item_sdk_math.c','src/game/em_item_trail.c',
              'src/game/em_interaction_scan.c','src/game/em_random.c',
+             'src/game/em_status_background.c','src/game/em_status_background_draw.c',
+             'src/game/em_sdk_math_original.c',
              'src/platform/mac/em_platform_mac.m','src/platform/mac/em_gamepad_mac.m',
              'src/gfx/metal/em_gfx_metal.m','-framework','Cocoa','-framework','Metal',
              '-framework','QuartzCore','-framework','GameController','-Wl,-dead_strip',

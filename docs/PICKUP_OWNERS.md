@@ -1,7 +1,10 @@
 # Original AREA11 pickup owners
 
 The canonical adapter in `em_pickup_original.h` replaces the independent
-nearest-item scan, two-frame take, and `Found` text for bound AREA11 pickups.
+nearest-item scan and two-frame take for bound AREA11 pickups (the legacy
+`Found` line is deleted since WP-5; the legacy take posts the battery's
+original 001C47A0 request instead, and every other take reports on stderr
+the 001B6EA0 request it withholds and the page 0020CDC0 would open).
 It consumes the previous-frame winner selected by `em_interaction_scene`,
 runs the original exported programs, and queues the real status request.
 The game host owns Use acceptance, shared player takeover, status pages,
@@ -114,7 +117,7 @@ retains ordinary update/render order for child indicators and other actors.
 
 After binding, `em_pickup_update` cannot independently arm an item. Bound
 owners cannot reach its countdown, synchronous grab, fake battery-key
-shortcut, or `Found` event. Real status presentation and cue playback stay
+shortcut, or request post. Real status presentation and cue playback stay
 explicit required callbacks. The class7 aura rendering worker is a visible
 remaining boundary; this change does not fabricate an aura.
 

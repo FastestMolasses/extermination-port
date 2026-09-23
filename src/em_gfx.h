@@ -382,10 +382,9 @@ int em_gfx_overlay_triangle(EmGfx *gfx, const float xy[3][2],
 #define EM_GFX_BACKDROP_MAX 64
 
 /* Queue a full-FRAME solid fill at the very bottom of the overlay pass —
- * the stand-in for the engine's UI-camera scene behind the background
- * layers (a black frame; the rotating player model on it is a documented
- * TODO). Drawn before any backdrop quads, covering the whole drawable.
- * One per frame (the last call wins). */
+ * the black frame behind the background layers. Drawn before any
+ * backdrop quads, covering the whole drawable. One per frame (the last
+ * call wins). */
 void em_gfx_overlay_backdrop_fill(EmGfx *gfx, const float rgba[4]);
 
 /* Queue one TEXTURED backdrop quad sampling the UI-DECOR slot — same
@@ -397,6 +396,19 @@ void em_gfx_overlay_backdrop_fill(EmGfx *gfx, const float rgba[4]);
 void em_gfx_overlay_backdrop(EmGfx *gfx, float x, float y, float w, float h,
                              float u0, float v0, float u1, float v1,
                              const float rgba[4]);
+
+/* The ordered 2D layer: draw the backdrop fill and quads queued so far
+ * NOW, in call order with the frame's 3D draws, instead of at the start
+ * of end_frame's overlay pass. The status hub needs it: 0020CDC0 phase 1
+ * step 1 emits 0020A7A0's background sprites, then 001B0000's model
+ * packets (the menu player and the equipment models, drawn with
+ * em_gfx_draw_skinned right after this call), then 00209DF0's 2D layer
+ * (the ordinary overlay queues, still flushed by end_frame after every 3D
+ * draw). Depth is neither tested nor written, so the models composite
+ * over the backdrop. The flushed queues are empty afterwards, so
+ * end_frame does not draw them twice. No-op outside begin/end_frame or
+ * with nothing queued. */
+void em_gfx_overlay_backdrop_flush(EmGfx *gfx);
 
 /* --- World-space beam pass (laser sight) ------------------------------ */
 

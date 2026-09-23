@@ -1,5 +1,6 @@
 #include "game/em_item_ui.h"
 #include "game/em_hud.h"
+#include "game/em_status_background.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -197,7 +198,13 @@ int em_item_ui_render(EmItemUI *ui, EmGfx *gfx, unsigned hover, int line, EmItem
         unsigned kind = word(p);
         Sprite *sprite = &ui->sprites[word(p + 8)];
         if (kind == 1) {
-            em_hud_background_sprite(gfx, sprite->u, sprite->v, sprite->w, sprite->h);
+            /* 0020A7A0 with the ITEM tile, over the status frame's black. */
+            em_status_background_frame(gfx);
+            if (!em_status_background_render(gfx, sprite->u, sprite->v, sprite->w,
+                                             sprite->h)) {
+                em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+                return 0;
+            }
         } else if (kind == 2) {
             Sprite *white = &ui->sprites[ui->white_index];
             if (!trail(context, gfx, word(p + 12), word(p + 16), white->u + 0.5f,

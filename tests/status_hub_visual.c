@@ -3,6 +3,7 @@
 
 #include "em_gfx.h"
 #include "game/em_hud.h"
+#include "game/em_status_background.h"
 #include "game/em_item_geometry.h"
 #include "game/em_item_sdk_math.h"
 #include <assert.h>
@@ -193,7 +194,9 @@ static void render(void)
 {
     em_gfx_overlay_canvas(gfx, 512, 448);
     const Sprite *background = find_sprite(0x20045ee59d421e40ULL);
-    em_hud_background_sprite(gfx, background->x, background->y, background->w, background->h);
+    em_status_background_frame(gfx);
+    assert(em_status_background_render(gfx, background->x, background->y, background->w,
+                                       background->h));
 
 #include EM_STATUS_HUB_COMMANDS
 
@@ -207,6 +210,9 @@ int main(int argc, char **argv)
     gfx = em_gfx_create(window);
     assert(gfx);
     load_atlas();
+    /* 0020A7A0's sine 0011E2A8 reads the SDK tables of the user's ELF
+     * (tools/export_sdk_math_tables.py). */
+    assert(em_status_background_load_sdk("assets/sdk_math_tables.emsm"));
     em_gfx_begin_frame(gfx, 0, 0, 0, 1);
     const float empty_xy[3][2] = {{0, 0}, {0, 0}, {0, 0}}, empty_color[3][4] = {{0}};
     for (unsigned i = 0; i < EM_GFX_DECOR_MAX; i++)

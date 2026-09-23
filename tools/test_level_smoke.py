@@ -31,12 +31,17 @@ status
     two ticks before to three after each must equal the capture in task
     +8/+9/+B/+C, the spad bytes, D_008106B0/C5/CE and whether 001AE5E0 ran;
     every tick between is state 3 sub-step 1 without a variant, as in the
-    capture. The exit fade (001AEDB0 at the close, 001AEE40(0x20) in state 5)
+    capture. The close must take as many ticks more than the open, counted
+    from the tick whose D_00810E74 holds the edge, as in status_04 (two:
+    0020E0C0's exit runs case 0 and case 2 after the hub's edge frame).
+    The exit fade (001AEDB0 at the close, 001AEE40(0x20) in state 5)
     must equal route 01_battery's status exit row for row, from its first
     fade substate-2 row to the row where the fade is idle again.
 battery
-    NOT-LIVE, driven through the legacy pickup (WP-6) only so the panel phase
-    has item 0x1B; never checked. Later phases compare their own windows only
+    NOT-LIVE, driven through the legacy pickup (WP-6) so the panel phase has
+    item 0x1B; its status pop-up (the take's B0 = 1/B1 = 0x1B request, the
+    ITEM page's BATTERY acquisition notice, the TRIANGLE exit) is asserted
+    in process only (the take and its timing are the legacy owner's). Later phases compare their own windows only
     (the original's leftover B1 = 0x1B from the ITEM request is not compared).
 elevator_refusal, elevator
     Aligned on the scan tick (the first tick with 3B8D != 0 after the press,
@@ -80,6 +85,7 @@ STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
 F_001AE5E0 = 0x1AE5E0
 SPAD = 0x70003B8C
 WINDOW = (-2, 4)          # ticks before / after an alignment tick (exclusive end)
+STATUS_04_PRESSES = (10, 200)  # frame_trace2/exp_status.py: TRIANGLE pressed at f10 and f200
 
 
 def snap(tick, key='post'):
@@ -171,6 +177,16 @@ def check_status(ticks, run, state):
             ('status tick', ticks[i]['tick'], p)
     for i in range(oo + 1, cc):
         assert (orig[i]['task'][2:], orig[i]['variant']) == ((3, 1), False), ('capture status frame', i)
+    # The press-to-+B delays, measured from the tick whose D_00810E74 holds
+    # the START/TRIANGLE edge (& 0x810): 0020CDC0's close runs 0020E0C0's
+    # exit (case 0, then case 2) after the hub's edge frame, so the close
+    # takes two ticks more than the open. status_04 (exp_status.py pressed
+    # TRIANGLE at f10 and f200): +B = 3 at f12, +B = 5 at f204.
+    orig_extra = (cc - STATUS_04_PRESSES[1]) - (oo - STATUS_04_PRESSES[0])
+    e_open = next(i for i in range(fc + 1, o + 1) if tsr.get(bytes.fromhex(ticks[i]['post']), 0x810E74, 2) & 0x810)
+    e_close = next(i for i in range(o + 1, c + 1) if tsr.get(bytes.fromhex(ticks[i]['post']), 0x810E74, 2) & 0x810)
+    port_extra = (c - e_close) - (o - e_open)
+    assert port_extra == orig_extra, ('close latency over the open', port_extra, orig_extra)
     rows = route_rows('01_battery')
     r0 = next(i for i, r in enumerate(rows) if fade_substate(r['fade'][:16]) == 2)
     r1 = next(i for i in range(r0 + 1, len(rows)) if fade_substate(rows[i]['fade'][:16]) == 0)
@@ -182,7 +198,8 @@ def check_status(ticks, run, state):
     print(f'status: PASS (open at tick {ticks[o]["tick"]}, close at {ticks[c]["tick"]}: the ticks around '
           f'each equal status_04 frames {oo + WINDOW[0]}..{oo + WINDOW[1] - 1} and '
           f'{cc + WINDOW[0]}..{cc + WINDOW[1] - 1} in task bytes, spad, B0/C5/CE and variant; '
-          f'{c - o - 1} state-3 ticks without a variant; exit fade identical to route 01_battery '
+          f'{c - o - 1} state-3 ticks without a variant; the close takes {port_extra} ticks more than the '
+          f'open after its edge, as in status_04; exit fade identical to route 01_battery '
           f'f{rows[r0]["f"]}..f{rows[r1]["f"]})')
 
 

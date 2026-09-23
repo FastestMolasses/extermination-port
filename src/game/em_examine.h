@@ -247,7 +247,7 @@ void em_examine_update(const float player_pos[3], float player_yaw,
 
 /* Chain-text presenter draw (the mode-2 presentation for AREA-bank
  * chains; GLOBAL lines draw through em_hud's own radio machine).
- * Call once per frame from the close-out, after em_hud_found_render. */
+ * Call once per frame from the close-out, after em_hud_radio_render. */
 void em_examine_render(EmGfx *gfx);
 
 /* Sequence introspection:

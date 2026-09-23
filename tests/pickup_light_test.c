@@ -115,6 +115,9 @@ int main(void)
      * half-units, not merely an item count or ammunition. */
     assert(em_pickup_item_count(0x1b)==1);
     assert(em_pickup_battery_charge()==12 && em_pickup_battery_capacity()==12);
+    /* 001B6EA0 family 0 -> 001C47A0: the status request B0 = 1, B1 = 0x1B. */
+    assert(em_scene_state()->req[EM_SCENE_REQ_B0]==1 &&
+           em_scene_state()->req[EM_SCENE_REQ_B1]==0x1b);
     em_pickup_scene_clear(gfx);
     assert(em_pickup_battery_charge()==12); /* global inventory persists */
     assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-2);

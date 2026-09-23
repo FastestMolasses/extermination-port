@@ -579,7 +579,7 @@ void frame_close_out(void)
     int ui_scene = !em_opening_runtime_busy() && g.mesh &&
                    em_hud_visible() && em_hud_backdrop_ready(gfx);
 
-    if (s_request_status_frame) {
+    if (s_request_status_frame && !em_hud_visible()) {
         if (em_area11_interaction_host_status_render(gfx) != 1)
             em_frame_request_quit(); /* the host latched and reported the fault */
     } else if (ui_scene) {
@@ -697,10 +697,7 @@ void frame_close_out(void)
                                              * the ITEM page's real
                                              * per-type counts */
     em_hud_render(gfx, &g.status);
-    em_hud_found_render(gfx);   /* transient "Found: <name>" line over
-                                 * gameplay (hidden while the menu is
-                                 * open) — the pickup decode's flagged
-                                 * status-auto-open stand-in */
+    em_hud_radio_render(gfx);   /* the radio/examine message machine */
     em_examine_render(gfx);     /* EXAMINE area-bank chain text — the
                                  * mode-2 presentation for lines the
                                  * global radio machine can't address
@@ -825,10 +822,9 @@ int em_render_001C1D00(void)
  * the original skips 001E0D70/001DDA00, as the legacy frozen frame did. */
 /* 001D1EA0(a0) (src/func_001D1EA0.c): a0 != 0 flushes the world
  * (001E0D70/001DDA00) before the overlay list; the status frames pass 0.
- * Since WP-4 a status screen opened on a pending request (the AREA11
- * panel's BATTERY page) draws the host's original page with no world
- * flush under it (s_request_status_frame, frame_close_out); the interim
- * em_hud hub keeps its UI scene path. */
+ * In AREA11 (since WP-4 for requests, WP-5 for every status screen) the
+ * status frames draw the host's original page (the hub, ITEM or BATTERY)
+ * with no world flush under it (s_request_status_frame, frame_close_out). */
 int em_render_001D1EA0(int a0)
 {
     s_request_status_frame = a0 == 0 && em_area11_interaction_host_status_route();

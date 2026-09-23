@@ -31,6 +31,9 @@ EmInteractionRuntime *em_area11_interaction_host_shared(void);
 EmPanelRuntime *em_area11_interaction_host_panel(void);
 EmElevatorRuntime *em_area11_interaction_host_elevator(void);
 EmStatusRuntime *em_area11_interaction_host_status(void);
+/* The hub's static actor pool and model draws (em_status_models), for the
+ * level smoke. */
+const struct EmStatusModels *em_area11_interaction_host_status_models(void);
 const EmInteractionProjection *em_area11_interaction_host_projection(void);
 
 /* Original B81D0 and FD950 services. Return1 only on success; a required
@@ -67,10 +70,11 @@ int em_area11_interaction_host_elevator_state0(void);
 void em_area11_interaction_host_set_panel_address(uint32_t panel);
 /* 001AAD00's interactive-list swap. */
 void em_area11_interaction_host_publish(void);
-/* Status screens opened on a pending request (D_008106B0 != 0): 0020E060
- * (open, 1 or -1), 0020CDC0 (page, 0 waiting / 1 exit done / -1) and the
- * status frames' draw. clear_route marks a status screen opened without a
- * request (the interim hub, WP-5); route reports the open one's route. */
+/* Every AREA11 status screen (a pending request D_008106B0 != 0, or the
+ * START/TRIANGLE hub): 0020E060 (open, 1 or -1), 0020CDC0 (page, 0 waiting
+ * / 1 exit done / -1) and the status frames' draw. clear_route marks a
+ * status screen opened outside the host (the legacy em_hud screen of
+ * other scenes); route reports the open one's route. */
 int em_area11_interaction_host_status_open(void);
 int em_area11_interaction_host_status_page(const EmStatusInput *input);
 int em_area11_interaction_host_status_render(EmGfx *gfx);

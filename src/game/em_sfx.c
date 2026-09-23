@@ -619,10 +619,16 @@ void em_sfx_frame_snapshot(void)
  * callback start; the audited panel-cue slots are killed there too.
  *
  * CALLERS: em_frontend.c (movie start, EM_STARTUP_AUDIO_STOP),
- * em_opening_media_audio_start, and the interaction host's
- * EM_STATUS_RESET_SOUNDS handler (em_status_frame's 001FBC50 step on
- * status open, first-level audit H22/AM-06). Not wired at the death
- * entry: that entry has just started the death voice and body cues.
+ * em_opening_media_audio_start, the scene bindings' w_001FBC50 (0x1AE040
+ * state 1's status open, r == 2, and its r == 1 arm; with the translated
+ * 001FABB0 stream stop and the state-5 001FAE70(1) resume the status audio
+ * stops and resumes on the original's schedule, but 001FBC50's and
+ * 001FC280's 00119828(0/1, 0x1999, 0x1999) stream volumes are only
+ * reported (UM_00119828: the port's streams have no per-channel gain), so
+ * H22/AM-06 stays partial, WP-5) and the
+ * interaction host's EM_STATUS_RESET_SOUNDS handler (the fixtures' status
+ * frame machine). Not wired at the death entry: that entry has just
+ * started the death voice and body cues.
  * Safe to call from the game thread. */
 void em_sfx_stop_all(void)
 {

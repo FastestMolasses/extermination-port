@@ -38,6 +38,24 @@ entries contain the camera, Dennis animation, and Roger animation. Runtime
 resource slot 0x98 points at this bank. The camera has 646 source frames and 647
 samples including lookahead, and advances 0.5 per ordinary tick.
 
+The AREA11 interaction host (the status screens) also needs two assets and
+refuses to load without them:
+
+```sh
+python3 tools/export_sdk_math_tables.py   # assets/sdk_math_tables.emsm
+python3 tools/export_status_models.py     # assets/status_models/
+```
+
+- `assets/sdk_math_tables.emsm` is the boot ELF's SDK float-math window
+  D_0026C170..D_0026C658. The status background 0020A7A0 draws its sine
+  through the translated SDK sinf 0011E2A8 over it (docs/SDK_MATH_ORIGINAL.md;
+  `make test-sdk-math-original test-sdk-math-original-reference`).
+- `assets/status_models/` holds the status hub's 3D models: the menu player,
+  its two clips and the equipment letter models of D_0028A56C. Their
+  textures come from the status-hub capture's GS memory
+  (../Extermination/build/startup-reference/status-hub), like the opening
+  actors below (docs/STATUS_SCENE.md section 7; `make test-status-models`).
+
 Opening body/equipment export currently also requires a captured original GS
 state for its textures. See the sibling decomp docs/OPENING_ACTORS.md for the
 exact command and byte comparisons. A disc-only texture pipeline remains work.
@@ -156,7 +174,15 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
   `001FAE70(1)` at area entry. The opening controller stops streams when its
   script starts and resumes cue 25 at the end. The area-entry call is not
   mirrored yet: it also draws one `rand()`, and whole-game RNG order is
-  unaudited. `EM_BGM` remains a debug-only override.
+  unaudited. The status close's `001FAE70(1)` (0x1AE040 state 5) is
+  translated since WP-5 (em_scene_bindings.c w_001FAE70), as is the stream
+  stop `001FABB0` at the status open and at 001AD360 step 0. The stream
+  volume is not matched: `001FBC50` (status open) and `001FC280` (status
+  close, the spawn record's +0x20 low half) set stream channels 0/1 to
+  0x1999 in AREA11, and the port's streams have no per-channel gain, so
+  those `00119828` calls are reported (UM_00119828) and the resumed cue 25
+  plays at full scale. `001FAE70`'s infected override (D_008104E4 == 1:
+  cue 0x18) faults. `EM_BGM` remains a debug-only override.
 
 ## Remaining fidelity work
 

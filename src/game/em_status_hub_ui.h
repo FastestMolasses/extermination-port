@@ -73,6 +73,14 @@ int em_status_hub_ui_prepare(EmStatusHubUI *ui, const EmStatusHubDisplay *displa
  * missing or failed preparation or a renderer failure (latched). */
 int em_status_hub_ui_render(EmStatusHubUI *ui, EmGfx *gfx, int help_line);
 
+/* Make the hub atlas the UI slot's texture (after another page replaced
+ * it; a no-op while it is still bound). 1 bound, 0 failure (latched). */
+int em_status_hub_ui_bind(EmStatusHubUI *ui, EmGfx *gfx);
+/* The atlas rectangle (u, v, w, h in atlas pixels) of an original TEX0 the
+ * atlas holds, such as the hub's 0020A7A0 tile 0x20045EE59D421E40
+ * (tools/export_status_hub.py exports it). 1 found, 0 not in the atlas. */
+int em_status_hub_ui_tile(const EmStatusHubUI *ui, uint64_t tex0, float out[4]);
+
 /* Read-only view of the prepared stream and the original help-line calls. */
 unsigned em_status_hub_ui_command_count(const EmStatusHubUI *ui);
 int em_status_hub_ui_command(const EmStatusHubUI *ui, unsigned index, EmStatusHubUICommand *out);

@@ -116,6 +116,12 @@ typedef enum {
  *                              attachment spawn): CA4/CA6 migrated from
  *                              em_pickup's primary/secondary mirror; CA5/CA7
  *                              had no port storage.
+ *   D_00810D38..D_00810D3B
+ *                        WP-5  the current-BGM word (sw/lw): 001ADF00 and
+ *                              001AD740 store 0, 001FB0B0 stores its cue
+ *                              (no AREA11 or boot caller: only other areas'
+ *                              overlays jal it), 001FAE70 and 001FAFD0 read
+ *                              it. No port mirror existed.
  */
 #define EM_SCENE_PROGRESS_BASE 0x00810700u
 #define EM_SCENE_PROGRESS_SIZE 0x640u
@@ -136,6 +142,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
         {0x00810CA4u, 0x00810CA8u},
+        {0x00810D38u, 0x00810D3Cu}, /* current-BGM word (WP-5) */
     };
     if (size == 0 || address + size < address)
         return 0;

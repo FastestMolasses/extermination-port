@@ -1143,18 +1143,13 @@ void em_game_legacy_pickup_update(int gameplay)
 void em_game_legacy_pickup_collect(void)
 {
     {
-        /* Collection events (one-shot takes — em_pickup.h):
-         *  - FOUND: the engine posts D_008106B0/B1 and auto-opens the
-         *    status screen at the item's record; the port stand-in is
-         *    the em_hud Found line (flagged there).
+        /* Collection events (one-shot takes — em_pickup.h; the take
+         * itself posts the D_008106B0/B1 status request, pickup_take):
          *  - AMMO (func_001C40B0 case 0x10, +30 reserve per pack):
          *    applied through em_weapon_reset — the module's only ammo
          *    writer — so only while the machine is quiescent
          *    (HOLSTERED, no melee); otherwise the rounds stay pending
          *    inside em_pickup until the stance settles. */
-        int found = em_pickup_found_take();
-        if (found >= 0)
-            em_hud_found_show(found);
         if (em_weapon_state() == EM_WPN_HOLSTERED &&
             !em_weapon_is_melee()) {
             int rounds = em_pickup_ammo_take();
@@ -1594,10 +1589,8 @@ static int continue_restart(void)
      * 001AD230 -> em_game_new_game_reset_001AF2C0, 001AD360 with
      * the intro movie at step 1, the 001ADF50 area read, state 0),
      * so only the port's own game-over and damage stand-ins are
-     * cleared here. 001AD360 step 0 calls 001FABB0 (stream stop),
-     * which the bindings do not mirror yet (H22, WP-5): the legacy
-     * em_bgm_stop(0) below keeps the port's music stop on Continue
-     * until then. Other port state (e.g. director state other than
+     * cleared here; the music stops at 001AD360 step 0's 001FABB0
+     * (w_001FABB0, since WP-5). Other port state (e.g. director state other than
      * cine_step) survives a Continue, as before. */
     if (g.go_restart) {
         g.go_restart  = 0;
@@ -1616,7 +1609,6 @@ static int continue_restart(void)
         g.pd_clip     = 0;
         g.pd_infected = 0;
         g.pd_low      = 0;
-        em_bgm_stop(0);            /* see above (001FABB0, H22) */
         g.et_spawned = 0;     /* self-tests may re-spawn */
         em_opening_runtime_request();
         return 1;                     /* reinstall the game task */

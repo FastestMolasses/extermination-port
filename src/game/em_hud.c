@@ -45,13 +45,12 @@
  * plus the pager-diamond marker rings and the profile bio block.
  * Without the asset the decor pass queues nothing (no regression).
  *
- * PAGE NAVIGATION (skeleton — see the nav block + em_hud.h): stick
- * hover among the pager diamonds (green hovered marker), X enters the
- * hovered page (ITEM/MAP/SPR4/DATABASE via the engine's remap), the
- * page view draws its exported ui_pageN.emui background textures plus
- * an amber flag strip, Circle/Triangle exits back to the hub. The ITEM
- * page additionally renders a basic real interior (bank category
- * labels + the two modeled item counts — see page_render).
+ * PAGE NAVIGATION: none. The legacy page views (placeholder interiors
+ * with a "CONTENT TBD"/"PARTIAL" strip) were invented and are deleted
+ * (WP-5): X on a hovered diamond enters nothing until the original
+ * pages are translated. Since WP-5 the AREA11 interaction host runs the
+ * original hub (em_status_hub) instead; this legacy screen serves only
+ * scenes without that host.
  *
  * TEXT renders through the REAL game fonts when assets/font.emfn is
  * present (see the "UI font" block below): every label/number ("HEALTH",
@@ -67,8 +66,7 @@
  * background_render below): black UI-scene base + two scrolling tilings
  * + the periodic zoom burst of the screen's own 128x64 tile, through
  * the em_gfx backdrop queue (bottom of the overlay pass). The hub tile
- * is the dark blue-gray circuit-board texture at GS TBP 0x1E40; each
- * page carries its own tile in ui_pageN.emui.
+ * is the dark blue-gray circuit-board texture at GS TBP 0x1E40.
  *
  * STAND-INS (flagged, see em_hud.h): the scene-dim rect remains the
  * FALLBACK background when no BACKDROP record exists (old/missing
@@ -82,7 +80,7 @@
  * em_gfx_overlay_arc4 annular-arc primitive — the translation of the
  * engine's 0x60-block arc func_002082B0). */
 #include "game/em_hud.h"
-#include "game/em_random.h"
+#include "game/em_status_background.h"
 
 /* Menu cues — the status screen was entirely silent. */
 #include "game/em_sfx.h"
@@ -101,9 +99,7 @@
  *
  * These are UI-cue ids in the same space as the game-over menu's 0x5DD..5DF,
  * not the 0x1000 arguments (those are pitch/volume/pan, all default). */
-#define HUD_SFX_CONFIRM  0u   /* func_0020CD40 */
 #define HUD_SFX_CANCEL   1u   /* func_0020CD60 */
-#define HUD_SFX_MOVE     4u   /* func_0020CDA0 */
 
 #include <math.h>
 #include <stdio.h>
@@ -172,13 +168,6 @@ static const float kRingOut[4]     = GS(  0,  64,  64, 128);
 static const float kRingHovIn[4]   = GS(  0, 240,   0, 128);
 static const float kRingHovOut[4]  = GS(  0, 200,   0, 128);
 
-/* Page-view placeholder fill (flagged stand-in — used when the page's
- * ui_pageN.emui asset is missing, and as the keypad page's permanent
- * fill until its data-driven textures are decoded). */
-static const float kPagePanel[4]   = GS( 16,  20,  48, 96);
-/* "Content TBD" flag strip color (amber, clearly non-authentic). */
-static const float kTbdAmber[3]    = { 1.0f, 0.75f, 0.2f };
-
 /* Decor sprites draw white-modulated (the engine passes 0x80808080). */
 static const float kSpriteWhite[4] = GS(255, 255, 255, 128);
 
@@ -194,17 +183,6 @@ static const float kTextDarkRed[3] = { 96.0f / 255.0f, 8.0f / 255.0f,
  * active sheet has no BACKDROP record (old/missing asset). With the
  * record present, background_render below draws the real thing. */
 static const float kSceneDim[4]    = { 0.0f, 0.0f, 0.0f, 0.60f };
-
-/* The UI-camera base frame behind the background layers: black (the
- * engine's identity-camera scene is empty except the rotating player
- * model). Queued only when em_game did NOT render the real UI-camera
- * 3D scene this frame (em_hud_scene_3d below). */
-static const float kUiSceneBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-/* Background-layer modulate color: the engine passes (96,96,96, 64*sin)
- * — GS modulate is Ct*Cs/128, so 96 = 0.75 brightness, 64 = 0.5 alpha. */
-#define BG_MOD   (96.0f / 128.0f)
-#define BG_ALPHA (64.0f / 128.0f)
 
 static float clamp01f(float v)
 {
@@ -496,10 +474,9 @@ typedef struct {
 } UiSheet;
 
 static UiSheet s_ui;                 /* hub decor (assets/ui.emui) */
-static UiSheet s_page_ui[4];         /* pages 0-3 (assets/ui_pageN.emui) */
 
 /* Which sheet the EM_GFX_OVERLAY_TEX_UI slot currently holds:
- * -2 = none yet, -1 = hub decor, 0..3 = that page's sheet. */
+ * -2 = none yet (or another page took the slot), -1 = hub decor. */
 #define SLOT_NONE (-2)
 #define SLOT_HUB  (-1)
 static int s_slot_owner = SLOT_NONE;
@@ -568,22 +545,14 @@ static void emui_parse(UiSheet *ui, const char *path, uint32_t max_dim)
     }
 }
 
-/* Make `owner`'s sheet the resident UI-slot texture (re-registering on
- * hub<->page transitions, the port's version of the engine's per-page
- * texture re-stream). Returns the parsed sheet, or NULL if its asset is
- * unavailable / the slot could not be (re)registered. */
+/* Make the hub sheet the resident UI-slot texture (re-registering after
+ * another status page took the slot, the port's version of the engine's
+ * per-page texture re-stream). Returns the parsed sheet, or NULL if its
+ * asset is unavailable / the slot could not be (re)registered. */
 static UiSheet *slot_ensure(EmGfx *gfx, int owner)
 {
-    UiSheet *ui;
-    if (owner == SLOT_HUB) {
-        ui = &s_ui;
-        emui_parse(ui, "assets/ui.emui", 4096);
-    } else {
-        char path[64];
-        ui = &s_page_ui[owner];
-        snprintf(path, sizeof path, "assets/ui_page%d.emui", owner);
-        emui_parse(ui, path, 4096);
-    }
+    UiSheet *ui = &s_ui;
+    emui_parse(ui, "assets/ui.emui", 4096);
     if (ui->state != 1) return NULL;
     if (s_slot_owner != owner) {
         if (!gfx || !em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI,
@@ -608,54 +577,11 @@ void em_hud_decor_invalidate(void)
 
 /* --- animated UI background (engine func_0020A7A0) --------------------
  *
- * Decoded draw chain (FINDINGS.md "STATUS SCREEN BACKGROUND"): every
- * status/UI screen calls the universal background drawer with ONE
- * per-screen 128x64 PSMT4 tile token before its panels. It composites
- * THREE layers over the black UI-camera frame, each with persistent
- * state (the engine's three 0x20-byte blocks at D_002655A0; .data init
- * {0,0,90,0} / {0,0,90,0} / {0,0,0,0} — state persists across opens,
- * there is no per-open reset):
- *
- *   layer 0  full-screen tiling of the tile at 2x (256x128 canvas px),
- *            scrolling LEFT 0.5 px/frame (+0x00 -= 0.5, wrap 0 -> 255);
- *            alpha 64*sin(phase deg) with phase pinned at 90 = constant
- *            64. Grid phase: cols at x === int(p0) (mod 256), rows at
- *            y === 96 (mod 128) — the engine's GS grid (x 0x400..0xC00
- *            step 0x100, field y 0x400..0xC00 step 0x40) lands on those
- *            residues inside the 512x448 canvas.
- *   layer 1  same tiling, scrolling UP 1 canvas px/frame (+0x04 -= 0.5
- *            field lines, wrap 0 -> 255; rows at y === 96 + 2*int(p1)
- *            mod 128), alpha PULSED: while timer >= 0 it counts down
- *            (alpha 0 — phase was reset); then phase += 0.25/frame and
- *            alpha = 64*sin(phase) (12 s in/out breath); at phase 180
- *            -> timer = 60 + 3*(rand()%60), phase/scroll reset.
- *   layer 2  periodic full-screen ZOOM BURST: same pulse timer; while
- *            active the tile stretches over the whole canvas expanding
- *            0.3 px/frame per side past each edge (quad (-p0,-p1,
- *            512+2*p0, 448+2*p1), p += 0.3/frame) at alpha 64*sin(phase).
- *
- * All layers draw the tile with modulate (96,96,96) at blend mode 0.
- * The port queues only the grid cells intersecting the canvas (the
- * engine emits the full off-screen grid; identical pixels) and skips
- * zero-alpha layers. rand() is a fixed-seed LCG — deterministic, so
- * headless captures reproduce. */
-typedef struct {
-    float p0, p1;       /* block +0x00/+0x04 — scroll / burst offsets */
-    float phase;        /* block +0x08 — alpha phase, degrees         */
-    int   timer;        /* block +0x0C — pulse cooldown; < 0 = active */
-} BgLayer;
-
-static BgLayer s_bgl[3] = {
-    { 0.0f, 0.0f, 90.0f, 0 },     /* D_002655A0 .data init values */
-    { 0.0f, 0.0f, 90.0f, 0 },
-    { 0.0f, 0.0f,  0.0f, 0 },
-};
-
-/* Original shared SDK RNG; page transitions do not create a second stream. */
-static uint32_t bg_rand(void)
-{
-    return em_random_next();
-}
+ * Every status screen calls 0020A7A0 with its own tile before its panels.
+ * Its translation, with the one shared D_002655A0 state, is
+ * em_status_background (oracle-checked, make
+ * test-status-background-reference); this legacy hub only supplies the
+ * tile from its sheet's BACKDROP record. */
 
 /* Find the active sheet's BACKDROP record (x == -32767), or NULL. */
 static const UiSprite *backdrop_record(const UiSheet *ui)
@@ -681,8 +607,7 @@ void em_hud_scene_3d(int rendered)
     s_scene3d = rendered ? 1 : 0;
 }
 
-/* Queue one frame of the animated background through the em_gfx
- * backdrop layer (bottom of the overlay pass). Returns 1 when drawn;
+/* Queue one frame of the animated background. Returns 1 when drawn;
  * 0 when the sheet has no BACKDROP record (caller dims instead). */
 static int background_render(EmGfx *gfx, const UiSheet *ui)
 {
@@ -696,77 +621,9 @@ static int background_render(EmGfx *gfx, const UiSheet *ui)
      * 3D draw). Without the 3D scene (no player asset) the fill remains
      * the flagged stand-in for the engine's UI-camera frame. */
     if (!s_scene3d)
-        em_gfx_overlay_backdrop_fill(gfx, kUiSceneBlack);
-
-    const float u0 = (float)bd->u, v0 = (float)bd->v;
-    const float u1 = (float)(bd->u + bd->w), v1 = (float)(bd->v + bd->h);
-    const float tw = (float)bd->dw, th = (float)bd->dh;  /* 256x128 */
-    const float deg2rad = 0.01745329252f;
-
-    for (int i = 0; i < 3; i++) {
-        BgLayer *L = &s_bgl[i];
-
-        /* pulse timer — layers 1/2 only (engine .L0020A810) */
-        if (i > 0) {
-            if (L->timer >= 0) {
-                L->timer--;
-            } else {
-                L->phase += 0.25f;
-                if (L->phase >= 180.0f) {
-                    L->timer = 60 + 3 * (int)(bg_rand() % 60u);
-                    L->phase = 0.0f;
-                    L->p0 = L->p1 = 0.0f;
-                }
-            }
-        }
-
-        if (i == 2) {
-            /* zoom burst — only while active (engine .L0020A9D8) */
-            if (L->timer >= 0) continue;
-            L->p0 += 0.3f;
-            L->p1 += 0.3f;
-            float a = BG_ALPHA * sinf(L->phase * deg2rad);
-            if (a <= 0.0f) continue;
-            const float c[4] = { BG_MOD, BG_MOD, BG_MOD, a };
-            em_gfx_overlay_backdrop(gfx, -L->p0, -L->p1,
-                                    EM_GFX_STATUS_W + 2.0f * L->p0,
-                                    EM_GFX_STATUS_H + 2.0f * L->p1,
-                                    u0, v0, u1, v1, c);
-            continue;
-        }
-
-        /* tiled scroll layers (engine grid loop) */
-        if (i == 0) {                       /* .L0020A8B8: left scroll  */
-            L->p0 -= 0.5f;
-            if (L->p0 < 0.0f) L->p0 = 255.0f;
-        } else {                            /* .L0020A948: up scroll    */
-            L->p1 -= 0.5f;
-            if (L->p1 < 0.0f) L->p1 = 255.0f;
-        }
-        float a = BG_ALPHA * sinf(L->phase * deg2rad);
-        if (a <= 0.0f) continue;
-        const float c[4] = { BG_MOD, BG_MOD, BG_MOD, a };
-        float xph = (float)(((int)L->p0) % (int)tw);
-        float yph = (float)((96 + 2 * (int)L->p1) % (int)th);
-        for (float y = yph - th; y < EM_GFX_STATUS_H; y += th)
-            for (float x = xph - tw; x < EM_GFX_STATUS_W; x += tw)
-                em_gfx_overlay_backdrop(gfx, x, y, tw, th,
-                                        u0, v0, u1, v1, c);
-    }
-    return 1;
-}
-
-void em_hud_background_sprite(EmGfx *gfx, float u, float v,
-                              float width, float height)
-{
-    UiSprite sprite={.u=(uint16_t)u,.v=(uint16_t)v,
-        .w=(uint16_t)width,.h=(uint16_t)height,
-        .x=BACKDROP_XY,.y=BACKDROP_XY,.dw=256,.dh=128};
-    UiSheet sheet={.state=1,.sprites=&sprite,.sprite_count=1};
-    int old_scene=s_scene3d;
-    s_scene3d=0; /* This page has no UI-camera character model. */
-    background_render(gfx,&sheet);
-    s_scene3d=old_scene;
+        em_status_background_frame(gfx);
+    return em_status_background_render(gfx, (float)bd->u, (float)bd->v, (float)bd->w,
+                                       (float)bd->h);
 }
 
 /* Style table — font face + glyph cell + engine style color (8-byte
@@ -1077,26 +934,18 @@ static int s_shown = 0;
  *     (0x700038AC is filled by func_001B62C0, not decompiled), so the
  *     port keeps the plain quadrant split and this stays flagged.
  *
- * PORT MODEL (unchanged behaviour, honestly labelled):
+ * PORT MODEL (legacy, honestly labelled; scenes without the AREA11 host):
  *   hub hover = left stick, deflection > 0.8 (PORT FIGURE), quadrant ->
- *   1 down, 2 right, 3 up, 4 left, releasing back to 0.  X enters:
- *     hover 1 (down)  -> page 3  DATABASE SCREEN  (chunk 0x24)
- *     hover 2 (right) -> page 2  SPR4 SCREEN      (chunk 0x2C)
- *     hover 3 (up)    -> page 1  MAP SCREEN       (chunk 0x1E)
- *     hover 4 (left)  -> page 0  ITEM SCREEN      (chunk 0x1F)
- *   X with no hover enters nothing; Circle or Triangle backs out of a
- *   page; Triangle/Start/Circle closes at the hub.  The engine edge
- *   mask for the close is 0x830 (src/func_0020CDC0.c phase 1/2 sub-
- *   state 1).  Pages 4/5 (passcode keypads, chunks
- *   0x25/0x26) are not diamond-reachable in the port either. */
+ *   1 down, 2 right, 3 up, 4 left, releasing back to 0; it only selects
+ *   the help line and the highlighted diamond (no cue: the former hover
+ *   cue 4 was not the original's 0020D930 cue 5 and is deleted).
+ *   Triangle/Start/Circle closes (the engine edge mask 0x830, src/
+ *   func_0020CDC0.c phase 1/2 sub-state 1). X enters nothing: the
+ *   invented page views are deleted, and the original pages (ITEM
+ *   0020EE50, MAP 0020F950, SPR4 00211970, DATABASE 00214020) enter
+ *   through the original hub core em_status_hub once its status-model
+ *   workers are translated (WP-5 remainder). */
 static int s_hover = 0;     /* 0 none, 1 down, 2 right, 3 up, 4 left */
-static int s_page  = -1;    /* -1 = hub, 0..3 = entered page */
-
-static const int kHoverToPage[5] = { -1, 3, 2, 1, 0 };
-
-static const char *kPageNames[4] = {
-    "ITEM SCREEN", "MAP SCREEN", "SPR4 SCREEN", "DATABASE SCREEN"
-};
 
 /* Hub help line.  This selection was recorded as "the engine's
  * selection in func_0020CDC0 .L0020D1AC"; the stale "undecompiled stub"
@@ -1136,19 +985,6 @@ static int hud_forced(void)
     return force;
 }
 
-/* EM_HUD_PAGE=<0..3> — start with that page entered (test hook for
- * page-view captures; meaningful together with EM_HUD_FORCE=1). */
-static int hud_forced_page(void)
-{
-    static int page = -2;
-    if (page == -2) {
-        const char *e = getenv("EM_HUD_PAGE");
-        page = (e && e[0] >= '0' && e[0] <= '3' && !e[1]) ? e[0] - '0'
-                                                          : -1;
-    }
-    return page;
-}
-
 /* EM_HUD_HOVER=<1..4> — hold that pager hover at the hub (test hook for
  * the green hovered-marker state; meaningful with EM_HUD_FORCE=1). */
 static int hud_forced_hover(void)
@@ -1173,37 +1009,14 @@ static float s_disp_infection = -1.0f;
  * (func_00208AD0, byte-matched): 30 stepped positions, 1 s per turn. */
 static uint32_t s_frames = 0;
 
-/* One-time nav init for forced captures: EM_HUD_FORCE bypasses the
- * open, so apply EM_HUD_PAGE here. */
-static void hud_nav_init(void)
-{
-    static int nav_init = 0;
-    if (!nav_init) {
-        nav_init = 1;
-        if (hud_forced()) s_page = hud_forced_page();
-    }
-}
-
-/* The legacy screen's navigation (page view, hub close, hover, page
- * entry) over this frame's edges. Returns 1 when the hub closed. */
+/* The legacy hub's navigation over this frame's edges (the close and the
+ * hover). Returns 1 on the close edge; the caller hides the hub. */
 static int hud_nav(const EmFrameInput *in)
 {
-    if (s_page >= 0) {
-        /* Page view: Circle (engine exit path) or Triangle returns to
-         * the hub; page content input is not modeled yet. */
-        if (in->pressed & (EM_PAD_CIRCLE | EM_PAD_TRIANGLE)) {
-            s_page = -1;
-            em_sfx_play(HUD_SFX_CANCEL);
-        }
-        return 0;
-    }
-
-    /* Hub: Triangle/Start/Circle closes.  (The engine edge mask is 0x830
-     * — src/func_0020CDC0.c phase 1/2 sub-state 1, readable NEARMISS C;
-     * the stale "stub" note is corrected.  The two OPEN bits 0x800|0x10
-     * are func_001AE7E0's.) */
+    /* Triangle/Start/Circle closes; 0020CD60's cue 1. (The engine edge
+     * mask is 0x830 — src/func_0020CDC0.c phase 1/2 sub-state 1; the two
+     * OPEN bits 0x800|0x10 are func_001AE7E0's.) */
     if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START | EM_PAD_CIRCLE)) {
-        s_shown = 0;
         s_hover = 0;
         em_sfx_play(HUD_SFX_CANCEL);
         return 1;
@@ -1213,50 +1026,35 @@ static int hud_nav(const EmFrameInput *in)
      * func_0020D930's mode-0 arm (NEARMISS; thresholds +-pi/4, +-3pi/4
      * -> right 2 / down 1 / left 4 / up 3), the 0.8 deflection floor is
      * the port's.  Raw bytes are 0x80-centered, 0x00 = left/up. */
-    {
-        const int hover_was = s_hover;
-        float dx = ((float)in->lx - 128.0f) / 128.0f;
-        float dy = ((float)in->ly - 128.0f) / 128.0f;
-        if (dx * dx + dy * dy > 0.8f * 0.8f) {
-            if (dx >  0.0f && dx >=  dy && dx >= -dy)      s_hover = 2;
-            else if (dx < 0.0f && -dx >= dy && -dx >= -dy) s_hover = 4;
-            else if (dy > 0.0f)                            s_hover = 1;
-            else                                           s_hover = 3;
-        } else {
-            s_hover = hud_forced_hover();   /* 0 unless EM_HUD_HOVER */
-        }
-        /* Cue on the row CHANGE edge, matching func_00201720's
-         * row-changed test — not every frame the stick is deflected. */
-        if (s_hover != hover_was && s_hover > 0)
-            em_sfx_play(HUD_SFX_MOVE);
-    }
-
-    /* X enters the hovered page; with no hover, nothing.  (The "buzz"
-     * on the empty press is func_0020CD80 = func_001FB9F0(2,...); src/
-     * func_0020CDC0.c calls it on edge 0x40 with no hover.  This legacy
-     * hub plays no cue for it; em_status_hub is the original path.) */
-    if ((in->pressed & EM_PAD_CROSS) && s_hover > 0) {
-        s_page = kHoverToPage[s_hover];
-        em_sfx_play(HUD_SFX_CONFIRM);
+    float dx = ((float)in->lx - 128.0f) / 128.0f;
+    float dy = ((float)in->ly - 128.0f) / 128.0f;
+    if (dx * dx + dy * dy > 0.8f * 0.8f) {
+        if (dx >  0.0f && dx >=  dy && dx >= -dy)      s_hover = 2;
+        else if (dx < 0.0f && -dx >= dy && -dx >= -dy) s_hover = 4;
+        else if (dy > 0.0f)                            s_hover = 1;
+        else                                           s_hover = 3;
+    } else {
+        s_hover = hud_forced_hover();   /* 0 unless EM_HUD_HOVER */
     }
     return 0;
 }
 
-/* The 0020E060 position (em_hud.h). The original clears the 0xA0-byte
- * status block D_00810130 (src/func_0020E060.c); the legacy screen's
- * counterpart is its open state: shown, hub, no hover. */
+/* The legacy screen's entry (em_hud.h): shown, no hover. */
 void em_hud_status_open(void)
 {
-    hud_nav_init();
     s_shown = 1;
     s_hover = 0;
-    s_page  = hud_forced_page();   /* -1 unless EM_HUD_PAGE */
 }
 
-/* The 0020CDC0 position (em_hud.h). */
+void em_hud_status_hide(void)
+{
+    s_shown = 0;
+    s_hover = 0;
+}
+
+/* The legacy screen's tick (em_hud.h). */
 int em_hud_status_tick(const EmFrameInput *in)
 {
-    hud_nav_init();
     if (!in || !s_shown)
         return -1; /* 0020CDC0 is only reached while the screen is open */
     return hud_nav(in);
@@ -1266,7 +1064,6 @@ int em_hud_status_tick(const EmFrameInput *in)
  * real one is closed. */
 void em_hud_forced_update(const EmFrameInput *in)
 {
-    hud_nav_init();
     if (!in || !hud_forced() || s_shown)
         return;
     (void)hud_nav(in);
@@ -1277,8 +1074,7 @@ int em_hud_visible(void)
     return s_shown || hud_forced();
 }
 
-/* Can the ACTIVE sheet (the hub's ui.emui, or the entered page's
- * ui_pageN.emui) draw the real animated background? em_game gates the
+/* Can the hub's sheet (ui.emui) draw the real animated background? em_game gates the
  * UI-camera 3D scene on this: without a BACKDROP record the screen
  * falls back to the translucent scene-dim over the live frame (the old
  * stand-in), where a player-only 3D pass would be wrong — and the
@@ -1286,8 +1082,7 @@ int em_hud_visible(void)
  * builds. */
 int em_hud_backdrop_ready(EmGfx *gfx)
 {
-    return backdrop_record(slot_ensure(gfx, s_page >= 0 ? s_page
-                                                        : SLOT_HUB)) != NULL;
+    return backdrop_record(slot_ensure(gfx, SLOT_HUB)) != NULL;
 }
 
 /* Step a display copy +-1/frame toward `target` (engine count-up). */
@@ -1737,147 +1532,6 @@ static void decor(EmGfx *gfx)
     }
 }
 
-/* PAGE VIEW (skeleton) — the entered sub-screen. Draws the page's
- * exported background/decor records (assets/ui_pageN.emui, produced by
- * the decomp repo's tools/export_ui.py --page N from the user's own
- * extract/ chunks) at their recorded anchors; records exported
- * sheet-only (x = -32768, no statically known canvas position) are
- * skipped. Pages without an asset — and page content itself — render
- * as a clearly flagged placeholder: the dark panel fill and the amber
- * CONTENT TBD strip are deliberate non-authentic markers, not guesses
- * at the real layout. */
-static void page_render(EmGfx *gfx, int page, const EmPlayerStatus *st)
-{
-    UiSheet *ui = slot_ensure(gfx, page);
-    int      partial = 0;       /* page 0: real interior rows drawn */
-
-    if (ui) {
-        for (uint32_t i = 0; i < ui->sprite_count; i++) {
-            const UiSprite *s = &ui->sprites[i];
-            if (s->x <= BACKDROP_XY) continue;   /* sheet-only/backdrop */
-            em_gfx_overlay_sprite(gfx, (float)s->x, (float)s->y,
-                                  (float)s->dw, (float)s->dh,
-                                  (float)s->u, (float)s->v,
-                                  (float)(s->u + s->w),
-                                  (float)(s->v + s->h), kSpriteWhite);
-        }
-    } else {
-        /* No asset: flagged placeholder fill + title-area block. */
-        em_gfx_overlay_rect(gfx, 8.0f, 8.0f, 496.0f, 432.0f, kPagePanel);
-        text_placeholder(gfx, 8.0f, 0.0f, 8, 16.0f, 64.0f / 4.0f,
-                         kTextWhite);
-    }
-
-    /* ITEM page (0) basic interior — the engine's category hub
-     * (view func_0020EE50, drawer func_0020F2A0) titles its banners
-     * with the message bank's group-1 entries; the port draws those
-     * REAL labels (first in-entry line of each) as a list. Row order
-     * and positions are ASSUMED (the engine's banner anchors exported
-     * sheet-only). Item COUNTS: the engine keeps a per-type u8 count
-     * array (D_00810C64, FINDINGS "INVENTORY LOCATED") which the port
-     * does not model yet — only the ammo/battery state in
-     * EmPlayerStatus exists, so exactly two item rows render, flagged:
-     *  - BATTERY ITEMS: the carried pack as the bank's catalog name
-     *    (group 3 lines 27/28/29 = 6/18/24 GAUGE, picked by the pack's
-     *    display capacity) + its charge "cur/max";
-     *  - EQUIPMENT ITEMS: "SPR4 MAGAZINE" (PORT LABEL — the engine's
-     *    catalog has no magazine entry; ammo types are "\" placeholder
-     *    lines) x full-magazine equivalents = reserve / 30 (the
-     *    engine tracks the pack count separately in D_00810C63; this
-     *    is a derived stand-in). */
-    if (page == 0 && st && em_hud_font_ready()) {
-        static const int kCatRows[5] = { 0, 1, 2, 4, 3 };  /* BATTERY,
-            EQUIPMENT, EVENT, HEALING, MAIN MENU (group-1 lines;
-            display order ASSUMED) */
-        float y = 88.0f;
-        for (int i = 0; i < 5; i++) {
-            const char *cat = msg_line(1, (uint32_t)kCatRows[i]);
-            if (!cat) break;                 /* bank missing: no rows */
-            partial = 1;
-            /* label = the entry's first '\n' line */
-            char label[40];
-            size_t n = 0;
-            while (cat[n] && cat[n] != '\n' && n < sizeof label - 1) {
-                label[n] = cat[n];
-                n++;
-            }
-            label[n] = '\0';
-            em_hud_text(gfx, 48.0f, y, label, EM_HUD_TEXT_TALL);
-            y += 24.0f;
-            char row[48];
-            row[0] = '\0';
-            if (kCatRows[i] == 0) {          /* BATTERY ITEMS */
-                const char *pk =
-                    st->battery_max ==  6 ? msg_line(3, 27) :
-                    st->battery_max == 18 ? msg_line(3, 28) :
-                    st->battery_max == 24 ? msg_line(3, 29) : NULL;
-                char name[28] = "BATTERY PACK";   /* fallback */
-                if (pk) {
-                    size_t m = 0;
-                    while (pk[m] && pk[m] != '\n' && m < sizeof name - 1) {
-                        name[m] = pk[m];
-                        m++;
-                    }
-                    name[m] = '\0';
-                }
-                snprintf(row, sizeof row, "%s x01 %02u/%02u", name,
-                         (unsigned)st->battery,
-                         (unsigned)st->battery_max);
-            } else if (kCatRows[i] == 1) {   /* EQUIPMENT ITEMS */
-                /* 2026-06-11 pickup decode: with the inventory array
-                 * present (st->items = em_pickup_items(), the
-                 * D_00810C64 mirror) the row shows the REAL catalog
-                 * name (message-bank group 4 entry 0x10's name line —
-                 * group 3's 0x10 is a placeholder glyph) and the real
-                 * per-type count[0x10] (= the D_00810C63 pack
-                 * counter's value through case 0x10). The derived
-                 * reserve/30 stand-in stays the array-less fallback. */
-                const char *nm = msg_line(4, 0x10);
-                char name[28] = "SPR4 MAGAZINE";   /* PORT LABEL fallback */
-                const char *p = nm ? strchr(nm, '\n') : NULL;
-                if (p) {                           /* skip "Found:" */
-                    size_t m = 0;
-                    p++;
-                    while (p[m] && p[m] != '\n' && m < sizeof name - 1) {
-                        name[m] = p[m];
-                        m++;
-                    }
-                    name[m] = '\0';
-                }
-                int mags = st->items ? st->items[0x10]
-                         : st->reserve > 0 ? st->reserve / 30 : 0;
-                snprintf(row, sizeof row, "%s x%02d", name, mags);
-            }
-            if (row[0]) {
-                em_hud_text(gfx, 64.0f, y, row, EM_HUD_TEXT_NUM16);
-                y += 24.0f;
-            }
-            y += 16.0f;
-        }
-    }
-
-    /* Amber flag strip — page interiors are placeholder (CONTENT TBD)
-     * or, on the ITEM page with the bank loaded, deliberately partial
-     * (only the modeled ammo/battery rows). */
-    {
-        const float strip[4] = { kTbdAmber[0], kTbdAmber[1], kTbdAmber[2],
-                                 0.25f };
-        em_gfx_overlay_rect(gfx, 128.0f, 392.0f, 256.0f, 24.0f, strip);
-        if (em_hud_font_ready()) {
-            char label[48];
-            if (partial)
-                snprintf(label, sizeof label,
-                         "PARTIAL: AMMO/BATTERY ONLY");
-            else
-                snprintf(label, sizeof label, "%s - CONTENT TBD",
-                         kPageNames[page]);
-            float w = em_hud_text_width(label, EM_HUD_TEXT_TALL);
-            em_hud_text(gfx, 256.0f - w * 0.5f, 394.0f, label,
-                        EM_HUD_TEXT_TALL);
-        }
-    }
-}
-
 void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
 {
     /* Hidden (the default): queue NOTHING — the frame is byte-identical
@@ -1890,45 +1544,13 @@ void em_hud_render(EmGfx *gfx, const EmPlayerStatus *st)
     em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
 
     /* The REAL background (the engine's animated UI background,
-     * func_0020A7A0) when the active sheet — the hub's ui.emui or the
-     * entered page's ui_pageN.emui — carries a BACKDROP record: black
-     * base + the three animated tile layers through the em_gfx backdrop
-     * queue, under every panel. No record (old/missing asset) => the
-     * flagged translucent scene-dim fallback. */
-    if (!background_render(gfx,
-                           slot_ensure(gfx, s_page >= 0 ? s_page
-                                                        : SLOT_HUB)))
+     * func_0020A7A0) when the hub's ui.emui carries a BACKDROP record:
+     * black base + the three animated tile layers through the em_gfx
+     * backdrop queue, under every panel. No record (old/missing asset)
+     * => the flagged translucent scene-dim fallback. */
+    if (!background_render(gfx, slot_ensure(gfx, SLOT_HUB)))
         em_gfx_overlay_rect(gfx, 0.0f, 0.0f, EM_GFX_STATUS_W,
                             EM_GFX_STATUS_H, kSceneDim);
-
-    /* Entered page (stick hover + X on the hub diamond): the page view
-     * replaces the hub composition entirely, exactly like the engine's
-     * controller state 3. */
-    if (s_page >= 0) {
-        /* s_frames is the engine's counter[8], bumped by func_00208AD0
-         * (byte-matched, first statement).
-         *
-         * CORRECTED (2026-07, third audit pass): the note here used to
-         * say func_00209DF0 is the ONLY caller of func_00208AD0, so an
-         * entered page never bumps the counter.  That is FALSE —
-         * func_0020AE40 (byte-matched) also calls
-         * func_00208AD0(ctx, 0x1B6, 0x6E) plus
-         * func_00209280(ctx, 0x96, 0xB4, ..., 1), and func_0020AE40 is
-         * the sub-page HUD strip drawer invoked from the page tasks
-         * (func_00214570 / func_00215870 / func_00217090 / func_002177B0
-         * / func_00217FA0 / func_00218640 / func_00218D90).  So the real
-         * pages DO re-draw a repositioned health gauge + battery block
-         * and the sweep keeps turning while a page is open.
-         *
-         * Neither is modelled: the port's page views are placeholders,
-         * and it is not established which of the four pages the port
-         * exposes route through func_0020AE40.  s_frames is therefore
-         * left frozen here rather than guessing — UNRESOLVED, not a
-         * decoded behaviour. */
-        page_render(gfx, s_page, st);
-        em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
-        return;
-    }
 
     /* Decor: title art, button legend, page icons, pager diamond,
      * profile block — only with assets/ui.emui (see decor above). */
@@ -2040,23 +1662,6 @@ void em_hud_continue(EmGfx *gfx, int cursor)
     }
 }
 
-/* FOUND LINE — PORT STAND-IN, FLAGGED (em_hud.h; 2026-06-11 pickup
- * decode). The engine auto-opens the status screen at the collected
- * item's record (D_008106B0/B1 -> func_001AE7E0 mode 2); its text is
- * message-bank group 4: "Found:\n<NAME>\n<description>", indexed by
- * item TYPE. The port draws the "Found: <NAME>" composite as a
- * transient line over gameplay instead. */
-#define FOUND_FRAMES 150          /* ~2.5 s — PORT cadence */
-
-static int s_found_type  = -1;
-static int s_found_timer = 0;
-
-void em_hud_found_show(int item_type)
-{
-    s_found_type  = item_type;
-    s_found_timer = FOUND_FRAMES;
-}
-
 /* --- RADIO/EXAMINE MESSAGE MACHINE (engine mode 2 — em_hud.h) --------
  *
  * CONFIRMED against func_001FCA10 (BYTE-MATCHED) and func_001FD950
@@ -2146,7 +1751,7 @@ int em_hud_radio_frames(void)
 }
 
 /* One machine tick + draw (called every gameplay frame from
- * em_hud_found_render — the close-out's transient-text hook). The
+ * em_hud_radio_render — the close-out's per-frame text hook). The
  * TIMER always runs (engine truth — em_door's locked finish blocks on
  * it like the pumped op09 native); the draw needs the bank + font and
  * skips while the status screen owns the display. */
@@ -2194,38 +1799,11 @@ static void radio_tick_render(EmGfx *gfx)
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }
 
-void em_hud_found_render(EmGfx *gfx)
+/* The close-out's per-frame text hook: the mode-2 radio/examine machine
+ * pumps every frame. */
+void em_hud_radio_render(EmGfx *gfx)
 {
-    /* the mode-2 radio/examine machine pumps every frame, found line
-     * or not (this function is the close-out's per-frame text hook) */
     radio_tick_render(gfx);
-
-    if (s_found_timer <= 0 || !gfx) return;
-    if (em_hud_visible()) return;        /* the menu owns the screen */
-    s_found_timer--;
-    if (!em_hud_font_ready()) return;
-
-    char line[64];
-    const char *e = msg_line(4, (uint32_t)s_found_type);
-    const char *p = e ? strchr(e, '\n') : NULL;
-    if (p) {
-        /* "Found:" + the entry's NAME line */
-        char name[40];
-        size_t m = 0;
-        p++;
-        while (p[m] && p[m] != '\n' && m < sizeof name - 1) {
-            name[m] = p[m];
-            m++;
-        }
-        name[m] = '\0';
-        snprintf(line, sizeof line, "Found: %s", name);
-    } else {
-        snprintf(line, sizeof line, "Found: ITEM %02X",
-                 (unsigned)s_found_type & 0xFF);
-    }
-    float w = em_hud_text_width(line, EM_HUD_TEXT_TALL);
-    em_hud_text(gfx, (EM_GFX_OVERLAY_W - w) * 0.5f, 384.0f, line,
-                EM_HUD_TEXT_TALL);
 }
 
 /* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard.

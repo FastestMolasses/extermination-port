@@ -1,6 +1,7 @@
 #include "game/em_battery_ui.h"
 #include "game/em_effect_color.h"
 #include "game/em_hud.h"
+#include "game/em_status_background.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -295,8 +296,13 @@ int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned hel
         ui->uploaded = 1;
     }
     em_gfx_overlay_canvas(gfx, 512, 448);
+    /* 0020A7A0 with the page's tile, over the status frame's black. */
     Sprite *bg = &ui->sprites[26];
-    em_hud_background_sprite(gfx, bg->u, bg->v, bg->w, bg->h);
+    em_status_background_frame(gfx);
+    if (!em_status_background_render(gfx, bg->u, bg->v, bg->w, bg->h)) {
+        em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+        return 0;
+    }
     /* Original0020AE40 flags2 in call order. */
     gs_sprite(ui, gfx, 0, 0x7000, 0x7B40, 256, 128, 0x40808080);
     gs_sprite(ui, gfx, 2, 0x7000, 0x7F40, 256, 128, 0x40808080);
@@ -330,6 +336,14 @@ int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned hel
         text(ui, gfx, 3 + ui->kind, 138, 336);
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
     return 1;
+}
+
+void em_battery_ui_deactivate(EmBatteryUI *ui)
+{
+    if (ui && ui->uploaded) {
+        em_hud_decor_invalidate();
+        ui->uploaded = 0;
+    }
 }
 
 void em_battery_ui_close(EmBatteryUI *ui)

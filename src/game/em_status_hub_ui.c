@@ -798,6 +798,34 @@ static void help_view(const Record *record, EmStatusHubUICommand *out)
     out->text = take_string(&text);
 }
 
+int em_status_hub_ui_tile(const EmStatusHubUI *ui, uint64_t tex0, float out[4])
+{
+    const Sprite *sprite = ui && out ? find_sprite(ui, tex0) : NULL;
+    if (!sprite)
+        return 0;
+    out[0] = (float)sprite->u;
+    out[1] = (float)sprite->v;
+    out[2] = (float)sprite->w;
+    out[3] = (float)sprite->h;
+    return 1;
+}
+
+int em_status_hub_ui_bind(EmStatusHubUI *ui, EmGfx *gfx)
+{
+    if (!ui || ui->failed)
+        return 0;
+    if (!gfx)
+        return fail(ui);
+    if (!ui->uploaded) {
+        if (!em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI, ui->pixels, ui->width,
+                                        ui->height))
+            return fail(ui);
+        em_hud_decor_invalidate();
+        ui->uploaded = 1;
+    }
+    return 1;
+}
+
 int em_status_hub_ui_render(EmStatusHubUI *ui, EmGfx *gfx, int help_line)
 {
     if (!ui || ui->failed || !ui->prepared)
@@ -808,13 +836,8 @@ int em_status_hub_ui_render(EmStatusHubUI *ui, EmGfx *gfx, int help_line)
     if (em_hud_text_width("0", EM_HUD_TEXT_NUM12) <= 0 ||
         em_hud_text_width("0", EM_HUD_TEXT_TALL) <= 0)
         return fail(ui);
-    if (!ui->uploaded) {
-        if (!em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI, ui->pixels, ui->width,
-                                        ui->height))
-            return fail(ui);
-        em_hud_decor_invalidate();
-        ui->uploaded = 1;
-    }
+    if (!em_status_hub_ui_bind(ui, gfx))
+        return 0;
     em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
     int ok = 1;
     EmStatusHubUICommand command;

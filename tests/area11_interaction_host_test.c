@@ -25,6 +25,7 @@ EmGameState g;
 EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
+static unsigned background_steps, background_frames;
 static int sfx_selected, sfx_bank_available = 1;
 static unsigned face_updates;
 static int fail_face_update;
@@ -47,14 +48,27 @@ void em_gfx_overlay_canvas(EmGfx *g, float w, float h)
 void em_hud_decor_invalidate(void)
 {
 }
-void em_hud_background_sprite(EmGfx *g, float u, float v, float w, float h)
+/* 0020A7A0 (em_status_background_draw.c): one call is one D_002655A0 step. */
+int em_status_background_render(struct EmGfx *g, float u, float v, float w, float h)
 {
-    (void)g;
-    (void)u;
-    (void)v;
-    (void)w;
-    (void)h;
+    assert(g && w > 0 && h > 0 && u >= 0 && v >= 0);
+    ++background_steps;
+    return 1;
 }
+int em_status_background_load_sdk(const char *path)
+{
+    FILE *file = fopen(path, "rb"); /* the asset is required; its reader is tested elsewhere */
+    assert(file);
+    fclose(file);
+    return 1;
+}
+void em_status_background_frame(struct EmGfx *g)
+{
+    assert(g);
+    ++background_frames;
+}
+/* The hub's 00209DF0 draw (em_status_hub_ui): its arcs and CB4 reserve. */
+int16_t em_weapon_reserve(void) { return 60; }
 void em_hud_text(EmGfx *g, float x, float y, const char *s, EmHudTextStyle style)
 {
     (void)g;
@@ -74,9 +88,8 @@ void em_hud_text_color(EmGfx *g, float x, float y, const char *s, EmHudTextStyle
 }
 float em_hud_text_width(const char *s, EmHudTextStyle style)
 {
-    (void)s;
     (void)style;
-    return 0;
+    return 8.0f * (float)strlen(s); /* the font sheet is a required worker of 00209DF0 */
 }
 void em_gfx_overlay_sprite(EmGfx *g, float x, float y, float w, float h, float u, float v, float u1,
                            float v1, const float color[4])
@@ -105,8 +118,11 @@ int em_gfx_overlay_triangle(EmGfx *g, const float xy[3][2], const float rgba[3][
     (void)xy;
     (void)u;
     (void)v;
-    assert(blend == EM_GFX_UI_ADD && rgba[0][0] <= 32 / 255.0f);
-    assert(rgba[1][0] == 0 && rgba[2][0] == 0);
+    /* The 0020AC70 trail fans (ITEM and hub); the hub's 002082B0 arcs and
+     * 00208750 marker lines are the other triangles. */
+    if (blend != EM_GFX_UI_ADD || rgba[1][0] != 0 || rgba[2][0] != 0 || rgba[0][3] != 0)
+        return 1;
+    assert(rgba[0][0] <= 32 / 255.0f);
     ++triangles;
     return 1;
 }
@@ -161,6 +177,22 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t vertices,
     return (EmGfxMesh *)1;
 }
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh) { (void)gfx; (void)mesh; }
+/* The hub's GS order (0020CDC0 phase 1 step 1): 0020A7A0's background is
+ * flushed (the ordered 2D layer) before 001B0000's model draws, which come
+ * before 00209DF0's 2D layer. */
+static unsigned flushed_frame, model_draws;
+static int hub_rendering;
+void em_gfx_overlay_backdrop_flush(EmGfx *gfx) { assert(gfx); flushed_frame = background_frames; }
+void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
+                         const float *palette, uint32_t bones)
+{
+    assert(gfx && mesh && viewproj && palette && bones);
+    if (!hub_rendering) return; /* the pickups' draws */
+    assert(flushed_frame == background_frames); /* this frame's backdrop went first */
+    ++model_draws;
+}
+void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig) { assert(gfx); (void)rig; }
+void em_gfx_fog_off(EmGfx *gfx) { assert(gfx); }
 int em_gfx_mesh_update_positions(EmGfx *gfx, EmGfxMesh *mesh, const float *positions,
                                   uint32_t count)
 {
@@ -696,8 +728,113 @@ static void cinematic_face(int reject_update)
     puts("AREA11 native host face/deferred foreign request/status pause/frame4/default idle PASS");
 }
 
+/* A START/TRIANGLE screen (B0 == 0) on the host's page route (WP-5): the
+ * scene core's 0020E060 and 0020CDC0 positions run the original hub
+ * (em_status_hub with em_status_hub_ui and 0020A7A0). 0020CDC0 case 0
+ * ignores a stale B1 without a request and enters the hub. Phase 1
+ * sub-state 0 (one frame) calls 001AFEB0/001AFE60/0020E020, the model
+ * workers and the message reset and draws nothing; each sub-state-1 frame
+ * steps 0020A7A0 once and draws 00209DF0 once, whose 00208AD0 advances
+ * the UI+0x20 clock the 0020E060 memset zeroed. X on hover 4 (the left
+ * sector) enters ITEM (phase 3, screen 0) through the page core, whose
+ * Back (0x63) returns to the hub through phase 4; the ITEM atlas and the
+ * hub atlas share the UI texture slot, so each switch uploads again. The
+ * close edge (0x830) enters phase 5 on a frame that still draws the hub;
+ * 0020E0C0 then runs case 0 (D_008106CC = 1, no module reload for this
+ * inventory) and returns nonzero from case 2 on the next frame, where
+ * 0020E080 has cleared B0 and C5: the original's two-frame close latency
+ * (status_04: TRIANGLE f200 -> +B = 5 at f204, START f10 -> +B = 3 at
+ * f12). X on hovers 1..3 selects MAP/SPR4/DATABASE, which are not
+ * translated: the page core faults. */
+static int hub_frame(const EmStatusInput *input)
+{
+    int result = em_area11_interaction_host_status_page(input);
+    hub_rendering = 1;
+    assert(em_area11_interaction_host_status_render((EmGfx *)1) == 1);
+    /* A second draw in the same frame steps nothing. */
+    unsigned steps = background_steps;
+    assert(em_area11_interaction_host_status_render((EmGfx *)1) == 1 && background_steps == steps);
+    hub_rendering = 0;
+    return result;
+}
+
+static void status_hub_route(void)
+{
+    setup(1);
+    EmSceneState *scene = em_scene_state();
+    scene->req[EM_SCENE_REQ_B1] = 0x82;
+    scene->req[EM_SCENE_REQ_C5] = 0;
+    uint8_t *cc = em_scene_req_at(scene, 0x008106CCu);
+    *cc = 0;
+    EmStatusRuntime *status = em_area11_interaction_host_status();
+    const EmStatusPage *page = em_status_runtime_page(status);
+    EmStatusInput input = {.stick_x = 128, .stick_y = 128};
+    assert(em_area11_interaction_host_status_open() == 1 && em_status_runtime_ui_clock(status) == 0);
+    unsigned steps = background_steps, frames = background_frames, loaded = uploads;
+    unsigned draws = model_draws;
+    assert(hub_frame(&input) == 0 && page->phase == 1 && page->step == 0);
+    assert(background_steps == steps && background_frames == frames && uploads == loaded);
+    assert(hub_frame(&input) == 0 && page->phase == 1 && page->step == 1 &&
+           page->item.message_mode == 4 && !page->item.message_phase);
+    assert(background_steps == steps && background_frames == frames && uploads == loaded);
+    for (unsigned i = 1; i <= 3; ++i) {
+        assert(hub_frame(&input) == 0 && page->phase == 1 && page->step == 1);
+        assert(background_steps == steps + i && background_frames == frames + i);
+        assert(em_status_runtime_ui_clock(status) == i && uploads == loaded + 1);
+        /* The menu player and six letters (CA4..CA7 = FF 05 00 07): the
+         * first walk initialises them, every later one draws each once. */
+        assert(model_draws == draws + 7 * (i - 1));
+    }
+    /* Hover 4 (left) and X: 0020CD40, phase 3 on ITEM. */
+    input.stick_x = 0;
+    assert(hub_frame(&input) == 0 && page->phase == 1 && page->item.hover == 4);
+    input.pressed = 0x40;
+    assert(hub_frame(&input) == 0 && page->phase == 3 && page->step == 0 &&
+           page->item.screen == 0);
+    input.pressed = 0;
+    input.stick_x = 128;
+    for (int i = 0; i < 8 && page->phase == 3 && page->step != 2; ++i)
+        assert(hub_frame(&input) == 0);
+    assert(page->phase == 3 && page->step == 2);
+    for (int i = 0; i < 8 && uploads == loaded + 1; ++i)
+        assert(hub_frame(&input) == 0 && page->phase == 3);
+    assert(uploads == loaded + 2); /* the ITEM atlas replaced the hub's */
+    /* ITEM Back returns to the hub (0x63 -> phase 4 -> phase 1). */
+    input.pressed = 0x20;
+    for (int i = 0; i < 8 && page->phase == 3; ++i) {
+        assert(hub_frame(&input) == 0);
+        input.pressed = 0;
+    }
+    for (int i = 0; i < 8 && !(page->phase == 1 && page->step == 1); ++i)
+        assert(hub_frame(&input) == 0);
+    assert(page->phase == 1 && page->step == 1);
+    steps = background_steps;
+    assert(hub_frame(&input) == 0 && page->phase == 1 && background_steps == steps + 1);
+    assert(uploads == loaded + 3); /* and the hub atlas again */
+    input.pressed = 0x800;
+    assert(hub_frame(&input) == 0 && page->phase == 5 && background_steps == steps + 2);
+    input.pressed = 0;
+    assert(hub_frame(&input) == 0 && *cc == 1 && background_steps == steps + 2);
+    assert(hub_frame(&input) == 1 && page->phase == 0 &&
+           !scene->req[EM_SCENE_REQ_B0] && !scene->req[EM_SCENE_REQ_C5]);
+    /* X on hover 3 (up): MAP, not translated. */
+    assert(em_area11_interaction_host_status_open() == 1 && em_status_runtime_ui_clock(status) == 0);
+    assert(hub_frame(&input) == 0 && hub_frame(&input) == 0 && page->step == 1);
+    input.stick_y = 0;
+    input.pressed = 0x40;
+    assert(hub_frame(&input) == 0 && page->phase == 3 && page->item.screen == 1);
+    input.pressed = 0;
+    assert(em_area11_interaction_host_status_page(&input) == 0 && page->step == 1);
+    assert(em_area11_interaction_host_status_page(&input) == -1);
+    teardown();
+    puts("AREA11 native host original START/TRIANGLE hub: sub-state 0 draws nothing, one "
+         "0020A7A0 step, the backdrop flushed before the seven model draws and 00209DF0 per "
+         "hub frame, ITEM and back, 0020E0C0 exit latency, untranslated pages fault PASS");
+}
+
 int main(void)
 {
+    status_hub_route();
     no_battery();
     first_battery();
     cinematic_face(0);

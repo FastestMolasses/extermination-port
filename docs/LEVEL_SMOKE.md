@@ -18,8 +18,8 @@ its runner plays it through the owner's current port binding, the run reports
 `NOT-LIVE driven`, and the capture checker skips it. Today that is the
 battery pickup (legacy em_pickup until WP-6), which the panel phase needs for
 item 0x1B. The later phases compare only their own windows, so nothing the
-legacy take leaves behind is compared (the original's ITEM request leaves
-B1 = 0x1B, the legacy take leaves 0).
+legacy take leaves behind is compared (since WP-5 the legacy take posts the
+original request, so B1 = 0x1B is left behind as in the original).
 
 ## Running it
 
@@ -68,8 +68,8 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 | Phase | Route beat | Original owners | Live | Waits on |
 |---|---|---|---|---|
 | first_control | 01 row f0 (slot 04) | 0x1AE040 state 1 / 001AE5E0, 49 pool nodes | yes (S12a) | — |
-| status | 01 status exit; frame_trace2 `status_04.json` | 001AE7E0 r==2 → state 3 → 5 → 1 | yes (S11b) | — |
-| battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | driven (legacy em_pickup) | WP-6, WP-5 |
+| status | 01 status exit; frame_trace2 `status_04.json` | 001AE7E0 r==2 → state 3 → 5 → 1 | yes (S11b; the original page core, hub, models and 0020E0C0 exit since WP-5) | — |
+| battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | driven (legacy em_pickup take; the status pop-up is original since WP-5) | WP-6 |
 | elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | yes (WP-4) | — |
 | panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
 | elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | yes (WP-4) | — |
@@ -138,23 +138,31 @@ After the close:
   equal route 01's status exit row for row (f484..f495): 001AEDB0 at the
   close, 001AEE40(0x20) in state 5, then the 0x20-per-frame ramp.
 
-**Known divergence (WP-5, H6):** the interim em_hud hub closes on the first
-state-3 frame after the TRIANGLE edge arrives, so the port takes one tick
-from the press to +B = 5, the same as from START to r == 2. In
-`status_04.json` (opened and closed with TRIANGLE) the original took two
-frames longer for the close than for the open: the press at f200 gave
-+B = 5 at f204, the press at f10 gave r == 2 at f12. The inputs differ:
-the capture script (`frame_trace2/exp_status.py`) held TRIANGLE for four
-frames each time (f10..f13 and f200..f203, so f204 is the first frame after
-the release), while the smoke taps START and TRIANGLE for one frame. The
-decomp points to an edge-triggered close whose extra latency comes from the
-exit, not from the hold: 0020CDC0 sets its phase 5 on the 0x830 (sub-state
-0) or 0x810 (phase 2) edge, and phase 5 returns 0020E0C0 each frame until
-that exit sequence reports done (NEARMISS C, `src/func_0020CDC0.c`). WP-5
-must assert the press-to-close delay from 0020E0C0 itself, and should use a
-one-frame tap capture if the hold length is in doubt. The smoke therefore
-aligns the close on the +B = 5 tick, not on the press, until 0020CDC0 is
-translated (WP-5).
+- The close latency: counted from the tick whose D_00810E74 holds the
+  START/TRIANGLE edge (& 0x810), the close must take as many ticks more
+  than the open as in `status_04.json`. There the presses at f10 and f200
+  (`frame_trace2/exp_status.py`) gave r == 2 at f12 and +B = 5 at f204:
+  two ticks more. Since WP-5 the port's close runs the original exit: the
+  hub's edge frame enters phase 5, then 0020E0C0 runs case 0 and returns
+  nonzero from case 2 (NEARMISS C `src/func_0020CDC0.c`, byte-matched
+  `src/func_0020E0C0.c`), so the port also takes two. (The capture held
+  TRIANGLE four frames, the smoke taps it for one; the close is
+  edge-triggered, so the hold does not matter.)
+
+The hub shown in between is the original em_status_hub (WP-5). The phase
+asserts its draw cadence: a frame whose tick began at sub-state 1 steps
+0020A7A0 once (`em_status_background_live_steps`) and draws 00209DF0 once
+(the UI+0x20 clock equals that count); the cold entry, sub-state 0 and the
+0020E0C0 exit frames draw nothing (29 hub draws in the 30-frame hold). It
+also asserts the status models (`em_status_models`): the pool holds the
+status-hub capture's seven records (the menu player 0020E6F0, then the
+letters 0020E460 with the glyphs '/', '@', '0', '1', '2', '8'), and every
+hub frame after the first draws each record once (the first walk only
+initialises them). `EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` (with
+`EM_LEVEL_SMOKE_UNTIL=status`) writes the hub frame whose walk equals the
+capture's (walk 10) for an image compare with
+../Extermination/build/startup-reference/status-hub/hub.png
+(STATUS_SCENE.md section 7).
 
 ### Navigation (the route phases)
 
@@ -174,7 +182,17 @@ so the runner aims at (240.5, 225) (00183EF0's panel radius is 9.5 around
 
 ### battery (driven)
 
-Walk to g0.0, press Cross, wait for item 0x1B, settle. Not verified.
+Walk to g0.0 and press Cross. The legacy take (WP-6) posts the original
+request (001C47A0: B0 = 1, B1 = 0x1B) and the status screen pops up on it,
+as in route 01. In process (not compared with the capture rows, because the
+take and its timing are the legacy owner's): the screen opens (+B = 3) with
+item 0x1B taken and B1 = 0x1B; the page is the ITEM root (screen 0) in its
+BATTERY child (item state 5, after module 0x21) showing 002149F0's
+acquisition notice (sub-state 3) with charge and capacity 12 and B0
+consumed; the notice hands over to the list (sub-state 1) after exactly
+239 frames, asserted (route 01: sub-state 3 from f219, the list at f459);
+TRIANGLE 20 frames
+later (route f459 -> f479) closes the screen; control returns.
 
 ### elevator_refusal, panel, elevator
 
@@ -220,11 +238,15 @@ WP-4 fix round the host synthesized mode 2 and picked the token from the
 active presenter, which measured the phase only.)
 
 **Known divergences, reported, not compared:**
-- *The status page's module load.* The original's ITEM root waits 25 frames
-  on its load of module 0x21, the BATTERY page (item state 3, route 03
-  f390..f414), before the prompt; the port's status modules are resident, so its prompt consumes the
-  request 7 ticks after the post against the original's 30. Everything from
-  the Yes confirmation on is tick-exact. WP-5 owns the status module loader.
+- *The status page's module load.* The original's ITEM root waits 24
+  loader dispatches on its load of module 0x21, the BATTERY page (item
+  state 3, route 03 f390..f414, and route 01 f193..f217), before the
+  prompt; the port's status modules are resident, so its prompt consumes
+  the request 7 ticks after the post against the original's 30. Everything
+  from the Yes confirmation on is tick-exact. The wait is the disc read of
+  001FF080 (D_00275BD8 clears when it completes): the translated loader
+  needs 10 dispatches, the other 14 are I/O time whose split the captures
+  do not record (STATUS_SCENE.md section 3; open, H7).
 - *The ground after the release.* The original re-grounds the player on its
   first ordinary callback: on the elevator actor 0x7AA880 (y 229.99998 up,
   189.99998 down) and at the panel (229.88731). The port has no moving-actor

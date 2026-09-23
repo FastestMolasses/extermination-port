@@ -1,6 +1,8 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_camera_rotation.h"
+#include "game/em_frame.h"
+#include "game/em_weapon.h"
 #include "game/em_interaction_alignment.h"
 #include "game/em_item_device.h"
 #include "game/em_item_sdk_math.h"
@@ -12,6 +14,8 @@
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
+#include "game/em_status_background.h"
+#include "game/em_status_models.h"
 
 /* The owner token addresses remain stable until whole-world teardown. */
 static struct {
@@ -25,6 +29,8 @@ static struct {
     EmPanelMessage *message;
     EmPlayerFaceHost face;
     EmStatusRuntime *status;
+    /* The hub's static actor pool D_0028B020 and its models (WP-5). */
+    EmStatusModels *models;
     EmItemSdkMath item_sdk;
     EmItemMath item_math;
     EmInteractionSceneOwner *panel_record, *elevator_record;
@@ -330,19 +336,26 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
         em_frame_fade_clear(0);
         return 1;
     case EM_STATUS_PAGE_CONFIGURE:
-        /* Native status sprites and untextured triangles already use
-         * the original identity/Y-flip UI coordinate convention. Keep
-         * paused world camera vectors available for the final commit. */
+        /* 0020DFA0: 001AFE60 (the static pool D_0028B020), then
+         * 001029C0(D_00810610) and D_00810624 *= -1 (the models' UI view),
+         * and the UI projection (001D2610(0): zoom 224 / tan(25 deg)).
+         * Native status sprites and untextured triangles already use the
+         * original identity/Y-flip UI coordinate convention. Keep paused
+         * world camera vectors available for the final commit. */
+        if (em_status_models_clear(world.models) != 1 ||
+            em_status_models_configure(world.models) != 1) return 0;
         world.status_ui_context = 1;
         g.cam.zoom = 0x1.e05e9ep+8f;
         return 1;
     case EM_STATUS_PAGE_CLEAR_DRAW:
+        /* 001AFEB0: every static record in use returns its bone slots.
+         * The pool D_0028B020 is the status screens' own; the paused
+         * world actor pool is untouched. E0C0 also calls it AFTER
+         * restoring the world projection. */
+        return em_status_models_release(world.models);
     case EM_STATUS_PAGE_RESET_DRAW:
-        /* The separate UI actor/draw pool is owned by status_runtime;
-         * clearing it does not destroy the paused world actor pool.
-         * E0C0 also clears it AFTER restoring the world projection, so
-         * its lifetime must not be gated by the UI camera context. */
-        return 1;
+        /* 001AFE60: clears all 24 static records. */
+        return em_status_models_clear(world.models);
     case EM_STATUS_PAGE_PLAYER_TEXTURE:
         /* Native textures are per-mesh resources, so UI pages cannot
          * overwrite the player's shared GS VRAM. Require actual residency. */
@@ -422,13 +435,84 @@ static int status_sound(void *context, uint32_t cue)
     return sound(context, cue);
 }
 
+/* The original normal hub (0020CDC0 phase 1: em_status_hub with
+ * em_status_hub_ui and 0020A7A0, in the status runtime). Its 00209DF0
+ * inputs, as the port holds them:
+ *   D_00810858/5C  g.status.health/infection (the port's only copy;
+ *                  em_scene_bindings.c 001B07C0)
+ *   D_008104E4     g.pd_infected: the player record D_008102B0 +0x234,
+ *                  the infection latch 0021C270 sets
+ *   D_00810C7F     em_pickup's count of item 0x1B (the D_00810C64 counts)
+ *   CB2 / CB7      em_pickup's battery charge / capacity (half-units)
+ *   CA4 / CA6      the canonical D2 equipment bytes
+ *   CB4            em_weapon_reserve (the weapon state's reserve)
+ * CA8..CB0 have no port storage: 00209860 reads them only for primary 2
+ * or secondary 1..4, which fault here. */
+static int hub_display(void *context, EmStatusHubDisplay *display)
+{
+    (void)context;
+    const uint8_t *equipment = em_scene_progress_at(em_scene_state(), 0x00810CA4u, 4);
+    if (!equipment) return 0;
+    display->health = g.status.health;
+    display->infection = g.status.infection;
+    display->warning = (uint8_t)g.pd_infected;
+    display->battery_equipped = em_pickup_item_count(0x1B);
+    display->charge = (uint16_t)em_pickup_battery_charge();
+    display->capacity = (uint8_t)em_pickup_battery_capacity();
+    display->ammo.primary = equipment[0];
+    display->ammo.secondary = equipment[2];
+    if (display->ammo.primary == 2 ||
+        (display->ammo.secondary >= 1 && display->ammo.secondary <= 4)) {
+        fprintf(stderr, "AREA11 interaction: 00209860 needs D_00810CA8..CB0 (primary %u, "
+                "secondary %u), which the port does not hold\n",
+                (unsigned)display->ammo.primary, (unsigned)display->ammo.secondary);
+        return 0;
+    }
+    display->ammo.reserve = em_weapon_reserve();
+    return 1;
+}
+
+/* The status-model workers the hub reaches (em_status_models over the
+ * translations of em_status_scene_original): 001AFF10 + the 0020E6F0 draw
+ * callback (the menu player), 0020E250 (the equipment letter models via
+ * 0020E3A0/0020E1E0) and, every hub frame, 001B0000 (the D_0028B020 walk
+ * that runs 0020E6F0/0020EC80 and 0020E460 and queues their 001CB580
+ * draws). Their inputs, as the port holds them:
+ *   D_00810858/5C  g.status.health/infection
+ *   D_008104E4     g.pd_infected (0020E6F0's variant; 0020EC80 reaches
+ *                  001F4BF0, the rand-pulsed glow, when it is 1)
+ *   D_00810C60     g.status (em_pickup_equipment_read)
+ *   CA4..CA7       the canonical D2 equipment bytes
+ * A model the export does not hold, and the untranslated glow sprite
+ * 001CD520, fault (fail-stop). */
+static int hub_models(void *context, EmStatusHubEvent event, unsigned argument)
+{
+    (void)context;
+    const uint8_t *equipment = em_scene_progress_at(em_scene_state(), 0x00810CA4u, 4);
+    if (!equipment) return 0;
+    EmStatusModelsInputs in = {.health = g.status.health, .infection = g.status.infection,
+                               .d8104E4 = (uint8_t)g.pd_infected};
+    em_pickup_equipment_read(&in.d810C60, NULL, NULL);
+    memcpy(in.ca, equipment, sizeof in.ca);
+    return em_status_models_event(world.models, event, argument, &in) == 1 ? 1 : 0;
+}
+
+/* 001CB580 (001CB4F0, lighting mode 1) for every record the last 001B0000
+ * walk queued, on 0020DFA0's UI camera: D_00810610 with the UI zoom. */
+static int hub_models_draw(void *context, EmGfx *gfx)
+{
+    (void)context;
+    return em_status_models_render(world.models, gfx, g.cam.zoom) == 1;
+}
+
 static EmStatusRuntimeHooks native_status_hooks(void)
 {
     return (EmStatusRuntimeHooks){.read_inventory = read_inventory,
         .write_charge = write_charge, .write_battery_capacity = write_capacity,
         .frame_event = status_frame_event, .page_event = status_page_event,
         .sound = status_sound, .owner_available = owner_available,
-        .battery_finished = battery_finished};
+        .battery_finished = battery_finished, .hub_display = hub_display,
+        .hub_models = hub_models, .hub_models_draw = hub_models_draw};
 }
 
 static int align_player(void *context, const float position[3])
@@ -653,6 +737,16 @@ int em_area11_interaction_host_load(const char *directory,
     snprintf(item_path, sizeof item_path, "%s/panel/item_root.emir", directory);
     world.status = em_status_runtime_load(path, item_path, math, status_hooks);
     if (!world.status) goto failed;
+    /* 0020A7A0's sine 0011E2A8 reads the SDK tables of the user's ELF. */
+    if (!em_status_background_load_sdk("assets/sdk_math_tables.emsm")) goto failed;
+    /* The hub's 3D models (tools/export_status_models.py). */
+    world.models = em_status_models_load("assets/status_models");
+    if (!world.models) goto failed;
+    /* The original hub's 00209DF0 records (tools/export_status_hub.py). */
+    snprintf(path, sizeof path, "%s/panel/status_hub.emhs", directory);
+    snprintf(item_path, sizeof item_path, "%s/panel/status_hub_atlas.emha", directory);
+    if (!em_status_runtime_bind_hub(world.status, em_status_hub_ui_load(path, item_path, math)))
+        goto failed;
     world.panel_class = world.panel_record->class_flags;
     world.elevator_class = world.elevator_record->class_flags;
     world.elevator_status = world.elevator_record->initial_status;
@@ -678,6 +772,7 @@ void em_area11_interaction_host_clear(void)
     world.shared.owner = NULL;
     em_player_face_host_free(&world.face);
     em_status_runtime_free(world.status);
+    em_status_models_free(world.models, em_frame_gfx());
     em_panel_runtime_free(&world.panel);
     em_elevator_runtime_free(&world.elevator);
     em_panel_message_free(&world.panel_message);
@@ -690,6 +785,8 @@ EmInteractionRuntime *em_area11_interaction_host_shared(void) { return world.loa
 EmPanelRuntime *em_area11_interaction_host_panel(void) { return world.loaded ? &world.panel : NULL; }
 EmElevatorRuntime *em_area11_interaction_host_elevator(void) { return world.loaded ? &world.elevator : NULL; }
 EmStatusRuntime *em_area11_interaction_host_status(void) { return world.loaded ? world.status : NULL; }
+const EmStatusModels *em_area11_interaction_host_status_models(void)
+{ return world.loaded ? world.models : NULL; }
 const EmInteractionProjection *em_area11_interaction_host_projection(void)
 { return world.loaded ? &world.projection : NULL; }
 int em_area11_interaction_host_failed(void) { return world.failed; }
@@ -873,12 +970,16 @@ void em_area11_interaction_host_publish(void)
     if (world.loaded && !world.failed) em_interaction_scene_publish(&world.scene);
 }
 
-/* ------------------------------------------------ status requests (0020E060/0020CDC0)
+/* ------------------------------------------------ status screens (0020E060/0020CDC0)
  *
- * A status screen that opens on a pending request (D_008106B0 != 0: the
- * panel's 00157F60 BATTERY request) runs the original page layer of the
+ * Every status screen in AREA11 runs the original page layer of the
  * host's status runtime at the scene core's 0020E060 and 0020CDC0
- * positions; D_008106D0 names the owner the page talks to. */
+ * positions: a pending request (D_008106B0 != 0: the panel's 00157F60
+ * BATTERY request, a battery pickup's 001C47A0 ITEM request) and the
+ * START/TRIANGLE hub (B0 == 0, C5 == 0: the original hub above). For the
+ * panel's request D_008106D0 names the owner the page talks to; 0020CDC0
+ * case 0 ignores B1 without a request (a stale B1 stays from the last
+ * request). */
 int em_area11_interaction_host_status_open(void)
 {
     if (!world.loaded || world.failed) return -1;
@@ -887,7 +988,7 @@ int em_area11_interaction_host_status_open(void)
     uint32_t address = (uint32_t)d0[0] | (uint32_t)d0[1] << 8 | (uint32_t)d0[2] << 16 |
                        (uint32_t)d0[3] << 24;
     EmPanel *owner = NULL;
-    if (scene->req[EM_SCENE_REQ_B1] & 0x80) {
+    if (scene->req[EM_SCENE_REQ_B0] != 0 && (scene->req[EM_SCENE_REQ_B1] & 0x80)) {
         /* The BATTERY route talks to the panel D_008106D0 names. */
         if (!world.panel_address || address != world.panel_address)
             return fail("0020E060: D_008106D0 is not the bound panel");

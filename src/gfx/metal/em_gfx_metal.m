@@ -2491,7 +2491,7 @@ static void texquad_flush(EmGfx *g, int slot, float *verts_data,
 
 /* Flush the backdrop layer — the BOTTOM of the overlay sequence (the
  * animated UI background under the panels, em_gfx.h): the optional
- * full-frame solid fill (the UI-camera-scene stand-in; one quad through
+ * full-frame solid fill (the black frame; one quad through
  * the untextured overlay pipeline, NDC-direct so it covers the whole
  * drawable regardless of the selected canvas) and then the queued
  * UI-slot backdrop quads (texquad_flush — same pipeline/state as the
@@ -2532,6 +2532,15 @@ static void backdrop_flush(EmGfx *g)
     }
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,
                   g->backdropVerts, &g->backdropVertCount,NULL);
+}
+
+/* The ordered 2D layer (em_gfx.h): the backdrop drawn now, between 3D
+ * draws; backdrop_flush empties its queues, so end_frame's call finds
+ * nothing left. */
+void em_gfx_overlay_backdrop_flush(EmGfx *g)
+{
+    if (!g || !g->enc) return;
+    backdrop_flush(g);
 }
 
 /* --- Player drop shadow (em_gfx.h, em_shadow_gs.h) ----------------------- */

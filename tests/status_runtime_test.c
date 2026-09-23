@@ -31,13 +31,25 @@ void em_gfx_overlay_canvas(EmGfx *g, float w, float h)
 void em_hud_decor_invalidate(void)
 {
 }
-void em_hud_background_sprite(EmGfx *g, float u, float v, float w, float h)
+int em_status_background_render(struct EmGfx *g, float u, float v, float w, float h)
 {
     (void)g;
     (void)u;
     (void)v;
     (void)w;
     (void)h;
+    return 1;
+}
+/* The hub's ordered 2D layer: this fixture never binds the hub (its hub
+ * pages run the other_page hooks), so nothing may flush it. */
+void em_gfx_overlay_backdrop_flush(EmGfx *g)
+{
+    (void)g;
+    assert(!"em_gfx_overlay_backdrop_flush outside the bound hub");
+}
+void em_status_background_frame(struct EmGfx *g)
+{
+    (void)g;
 }
 void em_hud_text(EmGfx *g, float x, float y, const char *s, EmHudTextStyle style)
 {

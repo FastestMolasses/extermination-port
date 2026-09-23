@@ -10,7 +10,8 @@
  * later beat starts from the state the earlier ones leave. A NOT-LIVE phase a
  * later live phase needs the state of is "driven" (Phase.driven): its runner
  * plays it through the owner's current port binding and it is reported
- * NOT-LIVE driven, never passed (the battery pickup, WP-6).
+ * NOT-LIVE driven, never passed (the battery pickup, WP-6; its status
+ * pop-up is original since WP-5 and asserted in process).
  *
  * Each runner drives pad input only (as the route captures do) and asserts
  * the original values it can observe in process. The tick-by-tick comparison
@@ -27,6 +28,9 @@
 #include "game/em_pickup.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_state.h"
+#include "game/em_status_background.h"
+#include "game/em_status_models.h"
+#include "game/em_status_runtime.h"
 #include "game/em_task.h"
 #include <math.h>
 #include <stdio.h>
@@ -120,6 +124,12 @@ static struct {
     int stop_pending; /* the run passed; quit after one more frame (finish) */
     /* status */
     int step, frames, close_frames, resumed;
+    /* the hub's draws: D_002655A0 steps and UI+0x20 against the hub
+     * frames the page core ran at sub-state 1 */
+    unsigned long hub_background_base;
+    unsigned hub_draws;
+    unsigned long hub_models_base;
+    uint8_t hub_phase, hub_step;
     float frozen_pos[3], frozen_eye[3];
     int32_t frozen_variants;
     /* the pad-input navigation of the route phases (nav_*) */
@@ -273,7 +283,66 @@ static void status_begin(void)
     memcpy(t.frozen_eye, g.cam.eye, sizeof t.frozen_eye);
     t.frozen_variants = em_scene_state()->d810750;
     t.step = 1;
+    t.hub_background_base = em_status_background_live_steps();
+    t.hub_models_base = em_status_models_drawn(em_area11_interaction_host_status_models());
+    t.hub_draws = 0;
+    t.hub_phase = t.hub_step = 0;
     pad_key(EM_KEY_RETURN, 1); /* START */
+}
+
+/* 0020CDC0 phase 1 draws only at sub-state 1: 0020A7A0 (one D_002655A0
+ * step) and 00209DF0 (00208AD0 advances UI+0x20 once). A frame whose tick
+ * started at sub-state 1 drew the hub, the close-edge frame included;
+ * the cold entry, sub-state 0 and the 0020E0C0 exit frames draw nothing. */
+static int hub_draws_checked(void)
+{
+    const EmStatusRuntime *status = em_area11_interaction_host_status();
+    const EmStatusPage *page = status ? em_status_runtime_page(status) : NULL;
+    if (!page) {
+        fail("the AREA11 status runtime is missing");
+        return 0;
+    }
+    if (t.hub_phase == 1 && t.hub_step == 1)
+        ++t.hub_draws;
+    t.hub_phase = page->phase;
+    t.hub_step = page->step;
+    if (em_status_background_live_steps() - t.hub_background_base != t.hub_draws ||
+        (page->phase == 1 && em_status_runtime_ui_clock(status) != t.hub_draws)) {
+        fail("the hub did not step 0020A7A0 and draw 00209DF0 exactly once per sub-state-1 frame");
+        return 0;
+    }
+    /* The models (em_status_models): 0020CDC0 sub-state 0 fills the pool
+     * D_0028B020 as in the status-hub capture (record 0 the menu player
+     * 0020E6F0, records 1..6 the letters 0020E460 with the glyphs 0020E250
+     * derives from CA4..CA7 = FF 05 00 07: '/', '@', '0', '1', '2', '8').
+     * The first sub-state-1 walk only initialises them (0020E6F0 and
+     * 0020E460 state 0 draw nothing); every later hub frame draws each
+     * record once (001CB580). */
+    const EmStatusModels *models = em_area11_interaction_host_status_models();
+    const EmStatusScenePool *pool = em_status_models_pool(models);
+    static const uint8_t glyphs[6] = {0x2F, 0x40, 0x30, 0x31, 0x32, 0x38};
+    unsigned used = 0;
+    for (unsigned i = 0; pool && i < EM_STATUS_SCENE_POOL_RECORDS; ++i)
+        used += pool->record[i].b00 != 0;
+    unsigned long drawn = em_status_models_drawn(models) - t.hub_models_base;
+    if (!pool || (t.hub_draws && page->phase == 1 &&
+                  (used != 7 || pool->record[0].w10 != 0x0020E6F0u ||
+                   drawn != 7ul * (t.hub_draws - 1)))) {
+        fail("the hub models are not the capture's seven records drawn once per hub frame");
+        return 0;
+    }
+    for (unsigned i = 0; t.hub_draws && page->phase == 1 && i < 6; ++i)
+        if (pool->record[1 + i].w10 != 0x0020E460u || pool->record[1 + i].b0D != glyphs[i]) {
+            fail("the hub's letter models are not the status-hub capture's");
+            return 0;
+        }
+    /* Verification aid: EM_LEVEL_SMOKE_HUB_CAPTURE=<path.bmp> writes the
+     * hub frame whose walk equals the status-hub capture (walk 10, the
+     * menu player's captured breathe/yaw; tests/status_models_test.c). */
+    const char *capture = getenv("EM_LEVEL_SMOKE_HUB_CAPTURE");
+    if (capture && *capture && t.hub_draws == 9 && page->phase == 1 && page->step == 1)
+        em_gfx_request_capture(em_frame_gfx(), capture);
+    return 1;
 }
 
 /* Original (ORIGINAL_FRAME_ORDER.md section 2 and Q7; status_04.json): the
@@ -301,6 +370,8 @@ static int status_frame(void)
             return 0;
         }
         t.step = 2;
+        if (!hub_draws_checked())
+            return 0;
         if (++t.frames == STATUS_HOLD_FRAMES) {
             pad_key('i', 1); /* TRIANGLE */
             t.step = 3;
@@ -311,6 +382,8 @@ static int status_frame(void)
         if (t.close_frames++ == 0)
             pad_key('i', 0);
         if (s->d810750 == t.frozen_variants) {
+            if (state == 3 && !hub_draws_checked())
+                return 0;
             if ((state != 3 && state != 5) || !world_unchanged()) {
                 fail("the world advanced before the status screen closed");
                 return 0;
@@ -333,8 +406,14 @@ static int status_frame(void)
     ++t.resumed;
     if (em_frame_transition()->substate != 0)
         return 0;
+    if (em_status_background_live_steps() - t.hub_background_base != t.hub_draws ||
+        t.hub_draws < 2) {
+        fail("0020A7A0 stepped outside the hub's sub-state-1 frames");
+        return 0;
+    }
     fprintf(stderr, "level smoke: status: PASS status_frames=%d close_frames=%d resumed_frames=%d "
-            "variants_frozen_at=%d\n", t.frames, t.close_frames, t.resumed, (int)t.frozen_variants);
+            "variants_frozen_at=%d hub_draws=%u\n", t.frames, t.close_frames, t.resumed,
+            (int)t.frozen_variants, t.hub_draws);
     return 1;
 }
 
@@ -503,10 +582,18 @@ static int scan_accepted(void)
  *
  * NOT-LIVE, driven (route beat 01): the battery pickup g0.0 (00219550,
  * item 0x1B) at (211.6, 229.9, 227.2) still runs the legacy em_pickup take
- * until WP-6 binds its original owner (take script 0x266620, the status
- * ITEM page). The panel phase needs the item, so the runner walks to it and
- * presses Cross as route_capture's beat_battery does and waits for the
- * item count; nothing here is checked against the original. */
+ * until WP-6 binds its original owner (take script 0x266620). Since WP-5
+ * the take posts the original request (001C47A0: B0 = 1, B1 = 0x1B) and
+ * the status screen pops up on it, as in the route (f189 post, f192
+ * open). The runner walks to the item and presses Cross as route_capture's
+ * beat_battery does, then asserts what it can see in process: the screen
+ * opens (+B = 3) with item 0x1B taken, the page is the ITEM root in its
+ * BATTERY child (0020EE50 state 5 after module 0x21) showing 002149F0's
+ * acquisition notice (sub-state 3) with charge and capacity 12, and the
+ * request consumed (B0 = 0); the notice hands over to the list (sub-state
+ * 1); TRIANGLE 20 frames later (route f459 -> f479) closes the screen and
+ * control returns. Nothing here is compared with the capture rows: the take
+ * and its timing are the legacy owner's. */
 static void battery_begin(void)
 {
     nav_reset();
@@ -514,19 +601,78 @@ static void battery_begin(void)
 
 static int battery_frame(void)
 {
+    const EmStatusRuntime *status = em_area11_interaction_host_status();
+    const EmStatusPage *page = status ? em_status_runtime_page(status) : NULL;
+    const EmSceneState *s = em_scene_state();
     switch (t.step) {
     case 0: NAV_STEP(nav_goto(211.6f, 227.2f, 5.0f, 1.0f, 1));
     case 1: NAV_STEP(nav_settle(20));
     case 2: NAV_STEP(nav_press(EM_PAD_CROSS, 2));
     case 3:
-        if (em_pickup_item_count(0x1B) == 1) {
+        if (task_byte(EM_SCENE_TASK_0B) == 3) {
+            if (em_pickup_item_count(0x1B) != 1 || s->req[EM_SCENE_REQ_B1] != 0x1B) {
+                fail("the status screen opened without the item 0x1B take's request");
+                return 0;
+            }
             ++t.step;
+            nav_reset();
             return 0;
         }
         if (++t.nav_frames > 600)
-            fail("the legacy pickup take did not add item 0x1B");
+            fail("the battery take did not open the status screen");
         return 0;
-    case 4: NAV_STEP(nav_settle(30));
+    case 4:
+        if (page && page->phase == 3 && page->item.screen == 0 && page->item.state == 5 &&
+            page->item.step == 3) {
+            if (em_pickup_battery_charge() != 12 || em_pickup_battery_capacity() != 12 ||
+                s->req[EM_SCENE_REQ_B0] != 0) {
+                fail("the BATTERY acquisition notice did not set charge/capacity 12 or keep B0");
+                return 0;
+            }
+            ++t.step;
+            nav_reset();
+            return 0;
+        }
+        if (++t.nav_frames > 120)
+            fail("the status screen did not show the BATTERY acquisition notice");
+        return 0;
+    case 5:
+        if (page && page->item.state == 5 && page->item.step == 1) {
+            fprintf(stderr, "level smoke: battery: pop-up notice %d frames, then the list\n",
+                    t.nav_frames);
+            /* Route 01_battery: the ITEM root is at state 5 step 3 from
+             * f219 (its countdown 0xF0) to step 1 at f459; counted from
+             * the frame after step 3 is seen, as here, that is 239
+             * frames. The notice is the BATTERY page's own timer. */
+            if (t.nav_frames != 239) {
+                fail("the BATTERY acquisition notice did not last route 01's 239 frames");
+                return 0;
+            }
+            ++t.step;
+            nav_reset();
+            return 0;
+        }
+        if (++t.nav_frames > 400)
+            fail("the BATTERY acquisition notice did not hand over to the list");
+        return 0;
+    case 6:
+        if (++t.nav_frames < 20)
+            return 0;
+        ++t.step;
+        nav_reset();
+        return 0;
+    case 7: NAV_STEP(nav_press(EM_PAD_TRIANGLE, 1));
+    case 8:
+        if (task_byte(EM_SCENE_TASK_0B) == 1 && s->req[EM_SCENE_REQ_B0] == 0 &&
+            em_frame_transition()->substate == 0) {
+            ++t.step;
+            nav_reset();
+            return 0;
+        }
+        if (++t.nav_frames > STATUS_CLOSE_TIMEOUT)
+            fail("TRIANGLE did not close the battery pop-up");
+        return 0;
+    case 9: NAV_STEP(nav_settle(30));
     default:
         return 1;
     }

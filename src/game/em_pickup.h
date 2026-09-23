@@ -124,11 +124,8 @@ int em_pickup_battery_set_capacity_charge(uint16_t charge, uint8_t capacity);
 
 /* One-shot event takes (consumed by em_game's pickup hunk):
  *  - ammo: reserve rounds to add (func_001C40B0 case 0x10's 30/pack);
- *    em_game applies them to em_weapon when the weapon state allows
- *  - found: the just-collected item TYPE for the em_hud Found line,
- *    -1 = none pending */
+ *    em_game applies them to em_weapon when the weapon state allows */
 int em_pickup_ammo_take(void);
-int em_pickup_found_take(void);
 
 /* Persistence introspection (self-test): the taken bit for `uid`. */
 int em_pickup_taken(int uid);

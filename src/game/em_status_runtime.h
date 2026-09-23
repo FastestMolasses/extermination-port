@@ -7,6 +7,8 @@
 #include "game/em_item_trail.h"
 #include "game/em_panel.h"
 #include "game/em_status_frame.h"
+#include "game/em_status_hub.h"
+#include "game/em_status_hub_ui.h"
 #include "game/em_status_page.h"
 
 typedef struct EmStatusRuntime EmStatusRuntime;
@@ -52,11 +54,36 @@ typedef struct {
     /* Required for pickup request1/item1B..1D. Original149F0 writes charge
      * then capacity before clearing the request and starting its notice. */
     int (*write_battery_capacity)(void *, uint16_t charge, uint8_t capacity);
+    /* The original normal hub (0020CDC0 phases 1/2: em_status_hub with
+     * em_status_hub_ui and 0020A7A0), live once em_status_runtime_bind_hub
+     * has bound its records. Both are required when the hub is reached;
+     * 1 accepted.
+     *   hub_display  the 00209DF0 inputs (D_00810858/5C, D_008104E4,
+     *                C7F, CB2, CB7, CA4/CA6, CA8..CB0, CB4); the runtime
+     *                sets the hover (UI+0x11 after 0020D930).
+     *   hub_models   the status-model workers EM_STATUS_HUB_INSTALL_DRAW
+     *                (001AFF10 + callback 0020E6F0), _BUILD_MODELS
+     *                (0020E250) and _ACTORS_TICK (001B0000).
+     *   hub_models_draw  the model draws the last 001B0000 walk queued.
+     *                em_status_runtime_render calls it after 0020A7A0's
+     *                background (flushed first, em_gfx_overlay_backdrop_flush)
+     *                and before 00209DF0's 2D layer: the original's GS
+     *                packet order. */
+    int (*hub_display)(void *, EmStatusHubDisplay *);
+    int (*hub_models)(void *, EmStatusHubEvent, unsigned argument);
+    int (*hub_models_draw)(void *, EmGfx *);
 } EmStatusRuntimeHooks;
 
 EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,
                                         const EmItemMath *, const EmStatusRuntimeHooks *);
 void em_status_runtime_free(EmStatusRuntime *); /* owner tears down the game first */
+/* Bind the original hub's 00209DF0 records (the runtime owns ui from now
+ * on, also on failure). Without it EM_STATUS_PAGE_HUB_TICK reaches the
+ * other_page hooks (the fixtures' path). 1 bound, 0 failure. */
+int em_status_runtime_bind_hub(EmStatusRuntime *, EmStatusHubUI *ui);
+/* The shared UI+0x20 clock (00208AD0 advances it; the 0020E060 memset
+ * clears it), for tests. */
+uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *);
 /* Queue the original normal status route (B0=0/C5=0), after the host's
  * actual gameplay input gates. Requires both real hub workers; it does
  * not substitute a panel request or silently accept unsupported artwork. */

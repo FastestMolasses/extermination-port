@@ -7,7 +7,7 @@
  *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040 with
  *     the lead's Q1 entry point (em_sf_001AE040_q1);
  *   - S9: the state-0 tick returns. 0x1AE040 state 0 ends with
- *     `b .L001AE5CC` (0x1AE0DC, the epilogue), never falling into state 1,
+ *     an unconditional branch at 0x1AE0DC to the epilogue 0x1AE5CC, never falling into state 1,
  *     so the tick that rebuilds the area runs no world variant; the first
  *     world frame (001AE5E0/001AE6B0) is the next task tick;
  *   - S10a: the state-1 world frame is the translated variant
@@ -93,6 +93,7 @@
 
 #include "game/em_actor_pool.h"
 #include "game/em_actor_roster.h"
+#include "game/em_bgm.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
@@ -104,9 +105,11 @@
 #include "game/em_game_internal.h"
 #include "game/em_hud.h"
 #include "game/em_load_veil.h"
+#include "game/em_opening_media.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_pickup.h"
 #include "game/em_pickup_original.h"
+#include "game/em_random.h"
 #include "game/em_scene_classify.h"
 #include "game/em_scene_frame.h"
 #include "game/em_scene_task.h"
@@ -191,14 +194,12 @@ enum {
     UM_0015C160,
     UM_001F0360,
     UM_001AAD00,
-    UM_001FABB0,
     UM_00119828,
     UM_001D2830,
     UM_001E0CC0,
     UM_001D2880,
     UM_001FA790,
     UM_001FAB50,
-    UM_00810D38,
     UM_00200830,
     UM_001D19D0,
     UM_0015C1F0,
@@ -225,8 +226,10 @@ static const struct {
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
     [UM_00199C50] = {0x00199C50u, "no port counterpart"},
-    [UM_001FAE70] = {0x001FAE70u, "area music cue (state 0 area entry, state 5 status close); "
-                                  "not mirrored (em_game_legacy_area_load note; H22, WP-5)"},
+    [UM_001FAE70] = {0x001FAE70u, "area music cue at the state-0 area entry (a0 = 1) and the "
+                                  "state-4 room move (a0 = 0); not mirrored there (its rand() "
+                                  "draw and the area-entry music: STARTUP.md). The state-5 "
+                                  "status close is translated (w_001FAE70)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
     [UM_001D1EF0] = {0x001D1EF0u, "no port counterpart"},
@@ -240,16 +243,16 @@ static const struct {
     [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class lists other than the "
                                   "interactive list (the AREA11 interaction host publishes that one, "
                                   "WP-4); no port counterpart"},
-    [UM_001FABB0] = {0x001FABB0u, "stream stop (status open, game over); the port's music keeps "
-                                  "playing (H22, WP-5)"},
-    [UM_00119828] = {0x00119828u, "SPU stream-channel volume (status open); the port's stream "
-                                  "player has no per-channel gain"},
+    [UM_00119828] = {0x00119828u, "SPU stream-channel volume other than full scale (0x3FFF): "
+                                  "001FBC50 (status open) and 001FC280 (status close, spawn "
+                                  "record +0x20 low half, 0x1999 in AREA11) set channels 0/1 to "
+                                  "0x1999; the port's stream player has no per-channel gain, so "
+                                  "its streams stay at full scale"},
     [UM_001D2830] = {0x001D2830u, "display-list context registration; no port counterpart"},
     [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset; no port counterpart"},
     [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
     [UM_001FA790] = {0x001FA790u, "game-over stream cue 0x1B; the cue is not exported"},
     [UM_001FAB50] = {0x001FAB50u, "music channel release (game over); not mirrored (H22, WP-5)"},
-    [UM_00810D38] = {0x00810D38u, "001ADF00's current-BGM word store; the port has no D_00810D38"},
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
@@ -297,23 +300,69 @@ static void report_unmirrored(void)
 static int um_001FC9B0(void *ctx) { (void)ctx; return unmirrored(UM_001FC9B0); }
 static int um_001D19E0(void *ctx) { (void)ctx; return unmirrored(UM_001D19E0); }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
-static int um_001FAE70(void *ctx, int a0) { (void)ctx; (void)a0; return unmirrored(UM_001FAE70); }
 static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
-static int um_001FABB0(void *ctx) { (void)ctx; return unmirrored(UM_001FABB0); }
-static int um_00119828(void *ctx, int a0, int a1, int a2)
+/* 001FABB0 (src/func_001FABB0.c): 001FA570 (the voice queue D_00281CF0
+ * memset to 0xFF, D_00275B30/B34 = 0), 001FAB50 (001FAAC0(0): release
+ * stream channel 0, the music; D_008106F4 = 0), 001FAB80 (001FAAC0(1),
+ * 001FAAC0(2): the other two stream channels; D_008106F5 = 0), then
+ * D_00282157 = 0. The port's streams are em_bgm (channel 0's music and
+ * the resumed area cue) and the opening media's own stream; both stop
+ * at once, as a release does. The port queues no voice line on the
+ * first-level route (em_area11_interaction_host.c message_service_tick),
+ * and D_00282157 is the constant 0 r_00282157 returns. Reached from
+ * 0x1AE040 state 1 (r == 2, the status open) and 001AD360 step 0 (New
+ * Game and Continue). */
+static void stream_release_all(void)
+{
+    em_bgm_stop(0);
+    em_opening_media_stop();
+    *em_scene_req_at(&s_state, 0x008106F4u) = 0;
+    s_state.req[EM_SCENE_REQ_F5] = 0;
+}
+
+static int w_001FABB0(void *ctx)
 {
     (void)ctx;
-    (void)a0;
-    (void)a1;
-    (void)a2;
+    stream_release_all();
+    return 0;
+}
+
+/* 00119828(ch, l, r) is the SPU driver command 0x16 (stream channel
+ * volume). The status open (0x1AE040 r == 2) sets channels 0 and 1 to
+ * 0x3FFF, the SPU's full scale, after 001FABB0 released them: the port's
+ * decoded streams always play at full scale, so that call changes
+ * nothing. Any other volume is reported (UM_00119828; the port has no
+ * per-channel gain): 001FBC50 sets both channels to 0x1999 just before
+ * (w_001FBC50), and the status close's 001FC280 sets them to the spawn
+ * record's +0x20 low half, 0x1999 for every AREA11 record (w_001FAE70),
+ * so after the close the original's music plays at 0x1999 while the
+ * port's plays at full scale. */
+static int w_00119828(void *ctx, int a0, int a1, int a2)
+{
+    (void)ctx;
+    if ((a0 == 0 || a0 == 1) && a1 == 0x3FFF && a2 == 0x3FFF)
+        return 0;
     return unmirrored(UM_00119828);
 }
+
+/* D_00810D38, the current-BGM word: canonical D2 progress since WP-5
+ * (em_scene_state.h). 001ADF00 stores 0 (sw). */
+static int s_00810D38(void *ctx, int32_t value)
+{
+    (void)ctx;
+    uint8_t *word = em_scene_progress_at(&s_state, 0x00810D38u, 4);
+    if (!word)
+        return -1;
+    for (unsigned i = 0; i < 4; ++i)
+        word[i] = (uint8_t)((uint32_t)value >> (8 * i));
+    return 0;
+}
+
 static int um_001D2830(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001D2830); }
 static int um_001E0CC0(void *ctx) { (void)ctx; return unmirrored(UM_001E0CC0); }
 static int um_001D2880(void *ctx) { (void)ctx; return unmirrored(UM_001D2880); }
 static int um_001FA790(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001FA790); }
 static int um_001FAB50(void *ctx) { (void)ctx; return unmirrored(UM_001FAB50); }
-static int um_s_00810D38(void *ctx, int32_t value) { (void)ctx; (void)value; return unmirrored(UM_00810D38); }
 
 /* ------------------------------------------------------------ readers */
 
@@ -1323,33 +1372,39 @@ static int w_001D1EA0(void *ctx, int a0)
  * 5: 001AEDB0(0), 001D1EF0, 0018C0D0(camera, 1), C4 = 0, +B = 1,
  * 001FAE70(1), 001AEE40(0x20). No owner, player or camera stage runs in
  * states 3 and 5 (trace st14).
- *   0020E060  -> em_hud_status_open (interim until WP-5; em_hud.h)
- *   0020CDC0  -> em_hud_status_tick (interim until WP-5); on the close it
- *                clears canonical B0 and C5, the request bytes the status
- *                stack consumes (src/func_0020CDC0.c clears B0; C5 selects
- *                the passcode pages)
+ *   0020E060, 0020CDC0 -> the host's status route in AREA11 (below; WP-5),
+ *                the legacy em_hud screen elsewhere
  *   001FBC50  -> em_sfx_stop_all (its translation, em_sfx.h)
+ *   001FABB0  -> w_001FABB0 (its translation, above; WP-5)
+ *   00119828  -> w_00119828 (the full-scale volume, above; WP-5; the
+ *                0x1999 volumes 001FBC50 and 001FC280 set are reported)
  *   001AEDB0  -> em_frame_fade_full (001AEDB0's translation, em_fade.c)
  *   0018C0D0  -> camera_commit_original(&g.cam, a1) (em_camera.h)
+ *   001FAE70  -> w_001FAE70 (the state-5 translation, above; WP-5)
  *   001AEE40  -> em_frame_fade_flash (em_fade.c), in state 5 and (since
  *                S12a) in the state-0 rebuild
- *   001FABB0, 00119828, 001D2830, 001E0CC0, 001FAE70, 001D1EF0: unmirrored
- *   (reported); the music is H22 (WP-5). */
+ *   001D2830, 001E0CC0, 001D1EF0: unmirrored (reported). */
 
-/* A status screen opened on a pending request (B0 != 0: since WP-4 the
- * panel's 00157F60 BATTERY request, D_008106D0 = the panel) runs the
- * original page layer in the AREA11 interaction host (em_status_page /
- * em_battery_ui over the canonical B0/B1/C5/CC); one opened by START or
- * TRIANGLE (B0 == 0) keeps the interim em_hud hub until WP-5. */
-static int s_status_request_route;
+/* In AREA11 (the interaction host is loaded) every status screen runs the
+ * original page layer of the host's status runtime (em_status_page over
+ * the canonical B0/B1/C5/CC): a pending request (B0 != 0: the panel's
+ * 00157F60 BATTERY request with D_008106D0 = the panel, a battery pickup's
+ * 001C47A0 ITEM request) and a START/TRIANGLE screen (B0 == 0: the page
+ * core's hub phase, the original em_status_hub with em_status_hub_ui and
+ * 0020A7A0; its status-model draws are not translated yet, WP-5). Its
+ * cold entry, pages and
+ * 0020E0C0 exit are the original's, and the exit clears B0 and C5
+ * (0020E080). Scenes without the host keep the legacy em_hud screen at
+ * both positions, which clears B0/C5 on its close. */
+static int s_status_host_route;
 
 static int w_0020E060(void *ctx)
 {
     (void)ctx;
     if (s_entry_state != 1 && s_entry_state != 4)
         return -1; /* only the state-1 classifier arm calls it */
-    s_status_request_route = s_state.req[EM_SCENE_REQ_B0] != 0;
-    if (s_status_request_route)
+    s_status_host_route = em_area11_interaction_host_status() != NULL;
+    if (s_status_host_route)
         return em_area11_interaction_host_status_open() == 1 ? 0 : -1;
     em_area11_interaction_host_status_clear_route();
     em_hud_status_open();
@@ -1361,12 +1416,11 @@ static int w_0020CDC0(void *ctx)
     (void)ctx;
     if (!in_status_frame())
         return -1;
-    if (s_status_request_route) {
+    if (s_status_host_route) {
         const EmPadUnpack *pad = em_frame_pad_block();
         /* D_00282157 through the same reader 0x1AE040 state 3 uses (the
          * disc-read phase, 0 at every tick boundary in the port: see
-         * r_00282157). The page layer does not read it; the ITEM root's
-         * module-0x21 load wait (route 03 f390..f414) is WP-5. */
+         * r_00282157). The page layer does not read it. */
         EmStatusInput input = {s_state.d810E74, s_state.d810E70, pad->lx, pad->ly,
                                r_00282157(NULL)};
         return em_area11_interaction_host_status_page(&input);
@@ -1375,16 +1429,21 @@ static int w_0020CDC0(void *ctx)
     if (closed < 0)
         return -1;
     if (closed) {
+        em_hud_status_hide();
         s_state.req[EM_SCENE_REQ_B0] = 0;
         s_state.req[EM_SCENE_REQ_C5] = 0;
     }
     return closed;
 }
 
+/* 001FBC50 (src/func_001FBC50.c): em_sfx_stop_all is its translation
+ * (em_sfx.c), then it ends with 00119828(0, 0x1999, 0x1999) and
+ * 00119828(1, 0x1999, 0x1999), which reach w_00119828 (reported). */
 static int w_001FBC50(void *ctx)
 {
-    (void)ctx;
     em_sfx_stop_all();
+    w_00119828(ctx, 0, 0x1999, 0x1999);
+    w_00119828(ctx, 1, 0x1999, 0x1999);
     return 0;
 }
 
@@ -1420,6 +1479,95 @@ static int w_001AEE40(void *ctx, int16_t a0)
         return 0;
     }
     return -1;
+}
+
+/* 001FAE70(a0) (byte-matched, src/func_001FAE70.c), the area music cue,
+ * translated at its state-5 call (the status close, a0 = 1; H22). The
+ * state-0 area entry (a0 = 1) and the state-4 room move (a0 = 0) stay
+ * reported (UM_001FAE70). Its steps, in order:
+ *   001FC280 (NEARMISS, body-correct): the area ambient loop. id = the
+ *     high half of spawn record +0x20 (sra: 0xFFFF -> -1), or 0x44E in
+ *     area 0x0B when D_00810788 == 0xFF; when id differs from the cached
+ *     D_00282160 it stops the old loop and starts id. This status open's
+ *     001FBC50 set the cache to -1, so -1 changes nothing; any other id
+ *     needs a loop the port does not have: fault. (Every AREA11 record
+ *     holds 0xFFFF1999, and the captured D_00810788 is 0.) It ends with
+ *     00119828(0, lo, lo) and 00119828(1, lo, lo), lo = the record's low
+ *     half (0x1999 in AREA11): w_00119828 reports them (UM_00119828).
+ *   s0 = D_008106C8 bits 8..15; with D_00810D38 != 0, s0 = (s0 & 0x80) |
+ *     D_00810D38.
+ *   The infected override: area != 0x15, D_00810D38 not 0xB/0xC/0x17 and
+ *     D_008104E4 == 1 (player record D_008102B0 +0x234, the infection
+ *     latch 0021C270 sets; the port's copy is g.pd_infected) returns
+ *     before rand(), starting cue 0x18 (001FAAC0(0, D38), 001FABF0(0,
+ *     0x18, 0x40, 1)) unless D_00282178 already holds it. The port has
+ *     no exported stream for cue 0x18: fault.
+ *   s2 = (rand() >> 16) & 0x7F (00122BB8, em_random_next).
+ *   a0 != 0: 001FAB50 releases channel 0 (em_bgm), then, when s0 & 0x7F
+ *     is nonzero, 001FABF0(0, s0 & 0x7F, s2 + 270, 1) starts that cue with
+ *     a 270 + s2 tick fade. The port has cue 25 only (AREA11's D_008106C8
+ *     0x20081910 selects it; opening_resume.wav, export_opening_media.py):
+ *     any other cue faults. */
+static int w_001FAE70(void *ctx, int a0)
+{
+    if (s_entry_state != 5 || a0 != 1)
+        return unmirrored(UM_001FAE70);
+    const uint8_t *record = NULL;
+    if (s_spawn_table_loaded) {
+        const uint8_t *table = em_spawn_table_read(
+            &s_spawn_table, EM_SPAWN_TABLE_ADDRESS + 4u * s_state.d810700, 4);
+        uint32_t rooms = table ? (uint32_t)table[0] | (uint32_t)table[1] << 8 |
+                                     (uint32_t)table[2] << 16 | (uint32_t)table[3] << 24
+                               : 0;
+        const uint8_t *room =
+            rooms ? em_spawn_table_read(&s_spawn_table, rooms + 4u * s_state.d810701, 4) : NULL;
+        uint32_t entries = room ? (uint32_t)room[0] | (uint32_t)room[1] << 8 |
+                                      (uint32_t)room[2] << 16 | (uint32_t)room[3] << 24
+                                : 0;
+        if (entries)
+            record = em_spawn_table_read(
+                &s_spawn_table, entries + EM_SPAWN_RECORD_SIZE * s_state.d810702 + 0x20u, 4);
+    }
+    const uint8_t *d788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
+    const uint8_t *d38 = em_scene_progress_at(&s_state, 0x00810D38u, 4);
+    if (!record || !d788 || !d38)
+        return -1;
+    int32_t loop = (int32_t)((uint32_t)record[2] | (uint32_t)record[3] << 8) << 16 >> 16;
+    if (s_state.d810700 == 0x0B && *d788 == 0xFF)
+        loop = 0x44E;
+    if (loop != -1) {
+        fprintf(stderr, "em_scene: 001FAE70: 001FC280 would start the area loop 0x%X, which "
+                        "the port does not have\n", (unsigned)loop);
+        return -1;
+    }
+    uint32_t lo = (uint32_t)record[0] | (uint32_t)record[1] << 8;
+    w_00119828(ctx, 0, (int)lo, (int)lo);
+    w_00119828(ctx, 1, (int)lo, (int)lo);
+    uint32_t c8 = (uint32_t)em_scene_req_u32(&s_state, EM_SCENE_REQ_C8);
+    int32_t bgm = (int32_t)((uint32_t)d38[0] | (uint32_t)d38[1] << 8 | (uint32_t)d38[2] << 16 |
+                            (uint32_t)d38[3] << 24);
+    int32_t cue = (int32_t)((c8 & 0xFF00u) >> 8);
+    if (bgm != 0) {
+        cue &= 0x80;
+        cue |= bgm;
+    }
+    if (s_state.d810700 != 0x15 && bgm != 0xB && bgm != 0xC && bgm != 0x17 &&
+        g.pd_infected == 1) {
+        fprintf(stderr, "em_scene: 001FAE70: the infected override starts cue 0x18, which "
+                        "has no exported stream\n");
+        return -1;
+    }
+    int fade = (int)((em_random_next() >> 16) & 0x7Fu) + 0x10E;
+    em_bgm_stop(0);                            /* 001FAB50 */
+    *em_scene_req_at(&s_state, 0x008106F4u) = 0;
+    cue &= 0x7F;
+    if (cue == 0)
+        return 0;
+    if (cue != 25) {
+        fprintf(stderr, "em_scene: 001FAE70: area cue %d has no exported stream\n", (int)cue);
+        return -1;
+    }
+    return em_opening_media_resume_music((unsigned)fade) == 0 ? 0 : -1;
 }
 
 /* ------------------------------------------- the room move (S12b; design 5)
@@ -1617,15 +1765,15 @@ static void bindings_init(void)
     w->w_001C1DC0 = w_001C1DC0;
     w->w_00199C50 = um_00199C50;
     w->w_001AEE40 = w_001AEE40;
-    w->w_001FAE70 = um_001FAE70;
+    w->w_001FAE70 = w_001FAE70;
     w->w_001C5C50 = w_001C5C50;
     w->w_001D1EF0 = um_001D1EF0;
 
     /* Status screen (S11b). */
     w->w_0020E060 = w_0020E060;
     w->w_001FBC50 = w_001FBC50;
-    w->w_001FABB0 = um_001FABB0;
-    w->w_00119828 = um_00119828;
+    w->w_001FABB0 = w_001FABB0;
+    w->w_00119828 = w_00119828;
     w->w_001D2830 = um_001D2830;
     w->w_0020CDC0 = w_0020CDC0;
     w->w_001E0CC0 = um_001E0CC0;
@@ -1644,7 +1792,7 @@ static void bindings_init(void)
     w->w_001ABF90 = w_001ABF90;
     w->w_001AEDE0 = w_001AEDE0;
     w->w_001FAB50 = um_001FAB50;
-    w->s_00810D38 = um_s_00810D38;
+    w->s_00810D38 = s_00810D38;
     w->w_001AEBA0 = w_001AEBA0;
     w->w_001AB790 = w_001AB790;
 

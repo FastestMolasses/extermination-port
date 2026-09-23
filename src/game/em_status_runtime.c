@@ -1,6 +1,7 @@
 #include "game/em_status_runtime.h"
 #include "game/em_battery_ui.h"
 #include "game/em_item_ui.h"
+#include "game/em_status_background.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,10 @@ typedef struct {
     unsigned intensity;
 } TrailTriangle;
 
-enum { DRAW_NONE, DRAW_BATTERY, DRAW_ITEM, DRAW_OTHER };
+enum { DRAW_NONE, DRAW_BATTERY, DRAW_ITEM, DRAW_OTHER, DRAW_HUB };
+
+/* The hub's 0020A7A0 tile (0020CDC0 phase 1/2 step 1). */
+#define HUB_BACKGROUND_TEX0 UINT64_C(0x20045EE59D421E40)
 
 struct EmStatusRuntime {
     EmStatusFrame frame;
@@ -23,8 +27,12 @@ struct EmStatusRuntime {
     EmPanel *owner;
     EmBatteryUI *battery;
     EmItemUI *item;
+    EmStatusHubUI *hub;
+    EmStatusHubDisplay hub_display;
+    EmItemStick hub_stick;
+    uint32_t ui_clock; /* UI+0x20 (D_00810150) */
     TrailTriangle triangles[512];
-    unsigned triangle_count, draw_kind, draw_hover;
+    unsigned triangle_count, draw_kind, draw_hover, slot_kind;
     int draw_help, battery_kind, pending_module;
     int queued, consumed, rendered, failed;
 };
@@ -249,6 +257,69 @@ static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, u
     return 0;
 }
 
+/* em_status_hub's workers, in 0020CDC0 phase 1's order. */
+static int hub_worker(void *context, EmStatusPage *page, EmStatusHubEvent event,
+                      unsigned argument)
+{
+    EmStatusRuntime *runtime = context;
+    switch (event) {
+    case EM_STATUS_HUB_CLEAR_DRAW: /* 001AFEB0, as the page core's phase 3 calls it */
+        return runtime->hooks.page_event(runtime->hooks.context, EM_STATUS_PAGE_CLEAR_DRAW, 0) ==
+               1;
+    case EM_STATUS_HUB_RESET_DRAW: /* 001AFE60 */
+        return runtime->hooks.page_event(runtime->hooks.context, EM_STATUS_PAGE_RESET_DRAW, 0) ==
+               1;
+    case EM_STATUS_HUB_RESET_INPUT: /* 0020E020: the shared D_00821300 trail and D_00275C90 */
+        em_item_trail_reset(&runtime->trail);
+        return 1;
+    case EM_STATUS_HUB_INSTALL_DRAW:
+    case EM_STATUS_HUB_BUILD_MODELS:
+    case EM_STATUS_HUB_ACTORS_TICK:
+        return runtime->hooks.hub_models &&
+               runtime->hooks.hub_models(runtime->hooks.context, event, argument) == 1;
+    case EM_STATUS_HUB_BACKGROUND:
+        /* 0020A7A0(0x20045EE59D421E40): stepped and drawn once, with this
+         * frame's page (em_status_runtime_render). */
+        return 1;
+    case EM_STATUS_HUB_DRAW: /* 00209DF0, after 0020D930 set UI+0x11 */
+        runtime->hub_display.hover = page->item.hover;
+        if (!em_status_hub_ui_prepare(runtime->hub, &runtime->hub_display, &runtime->hub_stick,
+                                      &runtime->ui_clock, &runtime->trail))
+            return 0;
+        runtime->draw_kind = DRAW_HUB;
+        return 1;
+    case EM_STATUS_HUB_SOUND:
+        return sound(runtime, argument);
+    }
+    return 0;
+}
+
+/* 0020CDC0 phase 1 (em_status_hub). Phase 2, the health count-up, is
+ * reached only from page id 8, which the first level never selects: it
+ * faults. */
+static int hub_tick(EmStatusRuntime *runtime)
+{
+    EmStatusPage *page = &runtime->page;
+    if (page->phase != 1 || !runtime->hooks.hub_display)
+        return 0;
+    EmStatusHubDisplay display;
+    memset(&display, 0, sizeof display);
+    if (runtime->hooks.hub_display(runtime->hooks.context, &display) != 1 ||
+        !em_item_stick_sample(&runtime->hub_stick, runtime->input.stick_x, runtime->input.stick_y,
+                              &runtime->math))
+        return 0;
+    runtime->hub_display = display;
+    if (em_status_hub_tick(page, display.infection, runtime->input.pressed, &runtime->hub_stick,
+                           hub_worker, runtime) != 0)
+        return 0;
+    /* 001FCA10 mode 4 presents group 0's line while D_002821B4 == 1. */
+    runtime->draw_help = runtime->draw_kind == DRAW_HUB && page->item.message_mode == 4 &&
+                                 page->item.message_phase == 1 && page->item.message_group == 0
+                             ? (int)page->item.message_line
+                             : -1;
+    return 1;
+}
+
 static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent event,
                        unsigned argument)
 {
@@ -270,6 +341,12 @@ static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent even
         return result == 0;
     }
     case EM_STATUS_PAGE_HUB_TICK:
+        if (runtime->hub)
+            return hub_tick(runtime);
+        /* 0020CDC0 phases 1/2 sub-state 0 call 0020E020: the shared trail
+         * D_00821300/D_00275C90 is reset before the hub's first frame. */
+        if (page->step == 0)
+            em_item_trail_reset(&runtime->trail);
         return other_tick(runtime);
     default:
         return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
@@ -285,6 +362,7 @@ static int frame_worker(void *context, EmStatusFrameEvent event)
         page->saved_module = 0;
         page->item.state = page->item.step = page->item.next_state = 0;
         page->item.screen = page->item.hover = page->item.selected = page->item.module = 0;
+        runtime->ui_clock = 0; /* UI+0x20 is inside 0020E060's 0xA0-byte memset */
     }
     return runtime->hooks.frame_event(runtime->hooks.context, event, &runtime->frame) == 1;
 }
@@ -324,7 +402,50 @@ void em_status_runtime_free(EmStatusRuntime *runtime)
         return;
     em_battery_ui_free(runtime->battery);
     em_item_ui_free(runtime->item);
+    em_status_hub_ui_free(runtime->hub);
     free(runtime);
+}
+
+int em_status_runtime_bind_hub(EmStatusRuntime *runtime, EmStatusHubUI *ui)
+{
+    if (!runtime || !ui || runtime->hub) {
+        em_status_hub_ui_free(ui);
+        return 0;
+    }
+    runtime->hub = ui;
+    return 1;
+}
+
+uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *runtime)
+{
+    return runtime ? runtime->ui_clock : 0;
+}
+
+/* The pages share one UI texture slot (EM_GFX_OVERLAY_TEX_UI): the page
+ * that draws marks the others' uploads stale. */
+static void release_slot(EmStatusRuntime *runtime)
+{
+    switch (runtime->slot_kind) {
+    case DRAW_BATTERY:
+        em_battery_ui_deactivate(runtime->battery);
+        break;
+    case DRAW_ITEM:
+        em_item_ui_deactivate(runtime->item);
+        break;
+    case DRAW_HUB:
+        em_status_hub_ui_deactivate(runtime->hub);
+        break;
+    default:
+        break;
+    }
+    runtime->slot_kind = DRAW_NONE;
+}
+
+static void claim_slot(EmStatusRuntime *runtime, unsigned kind)
+{
+    if (runtime->slot_kind != kind)
+        release_slot(runtime);
+    runtime->slot_kind = kind;
 }
 
 int em_status_runtime_open(EmStatusRuntime *runtime)
@@ -390,8 +511,10 @@ int em_status_runtime_tick(EmStatusRuntime *runtime, const EmStatusInput *input)
     if (result < 0)
         return fail(runtime);
     if (result == 1) {
+        release_slot(runtime);
         em_battery_ui_close(runtime->battery);
         em_item_ui_deactivate(runtime->item);
+        em_status_hub_ui_deactivate(runtime->hub);
         runtime->owner = NULL;
     }
     return 1;
@@ -436,8 +559,10 @@ int em_status_runtime_page_tick(EmStatusRuntime *runtime, const EmStatusInput *i
     if (result < 0 || result > 1)
         return fail(runtime);
     if (result == 1) {
+        release_slot(runtime);
         em_battery_ui_close(runtime->battery);
         em_item_ui_deactivate(runtime->item);
+        em_status_hub_ui_deactivate(runtime->hub);
         runtime->owner = NULL;
     }
     return result;
@@ -472,7 +597,29 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
         return 1;
     runtime->rendered = 1;
     int result = 1;
+    if (runtime->draw_kind != DRAW_NONE)
+        claim_slot(runtime, runtime->draw_kind);
     switch (runtime->draw_kind) {
+    case DRAW_HUB: {
+        /* 0020CDC0 phase 1 step 1 draws 0020A7A0 with the hub tile first,
+         * then 001B0000's model packets, then 00209DF0: the background
+         * layer is flushed before the models so they composite over it,
+         * and the 2D layer follows them in end_frame's overlay pass. */
+        float tile[4];
+        result = em_status_hub_ui_bind(runtime->hub, gfx) &&
+                 em_status_hub_ui_tile(runtime->hub, HUB_BACKGROUND_TEX0, tile);
+        if (result) {
+            em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
+            em_status_background_frame(gfx);
+            result = em_status_background_render(gfx, tile[0], tile[1], tile[2], tile[3]);
+            em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+            em_gfx_overlay_backdrop_flush(gfx);
+        }
+        result = result && runtime->hooks.hub_models_draw &&
+                 runtime->hooks.hub_models_draw(runtime->hooks.context, gfx) == 1;
+        result = result && em_status_hub_ui_render(runtime->hub, gfx, runtime->draw_help);
+        break;
+    }
     case DRAW_BATTERY:
         result = em_battery_ui_render(runtime->battery, gfx, runtime->inventory.capacity,
                                       runtime->input.held);

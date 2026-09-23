@@ -27,7 +27,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
-           src/game/em_status_runtime.c \
+           src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
+           src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
+           src/game/em_owner_services_original.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c src/game/em_player_floor.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
@@ -735,6 +737,39 @@ test-status-hub-ui-reference:
 test-status-draw-reference:
 	python3 tools/test_status_draw_reference.py
 
+.PHONY: test-status-background-reference
+test-status-background-reference:
+	python3 tools/test_status_background_reference.py
+
+# The boot ELF's SDK float math (docs/SDK_MATH_ORIGINAL.md); its sinf is
+# 0020A7A0's live sine (WP-5).
+.PHONY: test-sdk-math-original-reference test-sdk-math-original
+test-sdk-math-original-reference:
+	python3 tools/test_sdk_math_original_reference.py
+
+test-sdk-math-original:
+	@mkdir -p build/sdk_math_original
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/sdk_math_original_test.c src/game/em_sdk_math_original.c -lm -o build/sdk_math_original/sdk_math_original_test
+	build/sdk_math_original/sdk_math_original_test ../Extermination/config/SCUS_971.12
+
+# The status-screen owners (docs/STATUS_SCENE.md): the static pool
+# D_0028B020, the hub's menu player and equipment letter models, and the
+# module loader; and their live binding em_status_models over the
+# status-hub capture (WP-5).
+.PHONY: test-status-scene-reference test-status-scene-original test-status-models
+test-status-scene-reference:
+	python3 tools/test_status_scene_reference.py
+
+test-status-scene-original:
+	@mkdir -p build/status_scene_reference
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_scene_original_test.c src/game/em_status_scene_original.c -lm -o build/status_scene_reference/status_scene_original_test
+	build/status_scene_reference/status_scene_original_test
+
+test-status-models:
+	@mkdir -p build/status_models
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c -lm -o build/status_models/status_models_test
+	build/status_models/status_models_test assets/status_models ../Extermination/build/startup-reference/status-hub/eeMemory.bin
+
 .PHONY: test-battery-pickup-reference test-item-device-reference
 test-battery-pickup-reference:
 	python3 tools/test_battery_pickup_reference.py
@@ -744,7 +779,7 @@ test-item-device-reference:
 
 test-status-runtime:
 	@mkdir -p build/status_page_reference
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c -lm -o build/status_page_reference/status_runtime_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c src/game/em_status_hub_ui.c src/game/em_status_draw.c src/game/em_item_geometry.c src/game/em_item_sdk_math.c -lm -o build/status_page_reference/status_runtime_test
 	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir
 
 .PHONY: test-panel-message-reference
