@@ -5,7 +5,10 @@
 61020 with animation selection and unrelated physics as recorded boundaries.
 The legacy stand-in re-seed executes 182DF0's nonzero-2F3 branch with the
 channel initializer 1C63E0 and model lookup 1C6150 as recorded boundaries.
-No instruction bytes are embedded or loaded by the native game.
+The foot-stop begin during an active pose blend executes 0017C030 mode 3 and
+its 0017B910 solve (skeleton evaluation, clip lookups and the clip request are
+recorded boundaries; the evaluated feet and transition clock are the native
+host's). No instruction bytes are embedded or loaded by the native game.
 """
 import ctypes as C
 import json
@@ -16,6 +19,7 @@ import subprocess
 import tempfile
 
 from test_interaction_scan_reference import ScanOracle, PLAYER, bits, number
+from test_player_foot_stop_reference import Original as FootOriginal, NODE17, NODE18
 from test_point_light_reference import signed
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +103,42 @@ int legacy_cycle(float health, unsigned *out) {
 int bank_has(unsigned clip) {
     EmPosePlayback playback;
     return em_pose_playback_begin(&playback, &source.bank, clip, 0);
+}
+/* Seed from_clip, request to_clip with a blend, advance `ticks` ordinary
+ * rate-1 callbacks, then run the mode-3 foot-stop begin. out: feet 17/18
+ * (actor-local; placement is a no-op here), clock, transition flag, then
+ * step x/z, stop remaining, clip after, transition flag/clock after. */
+int foot_blend(unsigned tier, unsigned from_clip, float from_frame, unsigned to_clip,
+               float to_frame, unsigned blend, unsigned ticks, const float *pos,
+               float yaw, float *out) {
+    player_pose_legacy_release();
+    if (!em_player_pose_init(&source.pose, &source.bank, from_clip, from_frame) ||
+        !em_player_pose_select(&source.pose, to_clip, to_frame, blend, 1))
+        return -1;
+    for (unsigned i = 0; i < ticks; ++i)
+        if (!em_player_pose_advance(&source.pose, 1, 0)) return -1;
+    float local[22 * 16];
+    if (!em_player_pose_palette(&source.pose, local, 22)) return -1;
+    memcpy(out, local + 17 * 16 + 12, 12);
+    memcpy(out + 3, local + 18 * 16 + 12, 12);
+    out[6] = source.pose.transition.active ? source.pose.transition.remaining
+                                           : source.pose.playback.remaining;
+    out[7] = (float)source.pose.transition.active;
+    memcpy(g.pos, pos, 12);
+    g.yaw = yaw;
+    g.loco_tier = tier;
+    g.loco_mode = 3;
+    source.foot_stop.active = 0;
+    int result = player_pose_foot_stop_begin();
+    out[8] = source.foot_stop.step_x;
+    out[9] = source.foot_stop.step_z;
+    out[10] = source.foot_stop.remaining;
+    out[11] = (float)source.pose.playback.clip->id;
+    out[12] = (float)source.pose.transition.active;
+    out[13] = source.pose.transition.remaining;
+    source.foot_stop.active = source.foot_display = 0;
+    g.loco_mode = g.loco_tier = 0;
+    return result;
 }
 unsigned poll_gate(unsigned action, unsigned phase, unsigned fade_wait, int accepted) {
     source.idle_return = 0;
@@ -302,6 +342,63 @@ def main():
                 assert seeded[0] == 0x0A and not native.bank_has(seeded[0])
                 assert native.legacy_cycle(35.0, output) == 0 and output[1] == 0
             report['legacy_reseed_row%d_clip' % row] = seeded[0]
+        native.foot_blend.argtypes = [C.c_uint, C.c_uint, C.c_float, C.c_uint, C.c_float,
+                                      C.c_uint, C.c_uint, C.POINTER(C.c_float), C.c_float,
+                                      C.POINTER(C.c_float)]
+        blend_cases = []
+        # (tier, from clip/frame, to clip/frame, blend ticks, ticks advanced)
+        for tier in (1, 2):
+            for ticks in range(0, 8):
+                blend_cases.append((tier, 0, 20.0, tier, 64.0 if tier == 1 else 10.0, 8, ticks))
+            blend_cases.append((tier, 2 if tier == 1 else 1, 12.0, tier, 30.0, 4, 1))
+            blend_cases.append((tier, 3, 5.0, tier, 7.0, 12, 5))
+        for _ in range(40):
+            tier = random_source.choice((1, 2))
+            blend = random_source.choice((4, 6, 8, 10, 12, 16))
+            blend_cases.append((tier, random_source.choice((0, 1, 2, 3)),
+                                float(random_source.randrange(0, 40)), tier,
+                                float(random_source.randrange(0, 40)), blend,
+                                random_source.randrange(0, blend - 1)))
+        count = 0
+        for tier, from_clip, from_frame, to_clip, to_frame, blend, ticks in blend_cases:
+            position = vector([random_source.uniform(-512, 512) for _ in range(3)])
+            yaw = number(bits(random_source.uniform(-3.14, 3.14)))
+            out = (C.c_float * 14)()
+            result = native.foot_blend(tier, from_clip, from_frame, to_clip, to_frame, blend,
+                                       ticks, position, yaw, out)
+            assert result == 1 and out[7] == 1, (tier, from_clip, to_clip, ticks, result)
+            original = FootOriginal(elf)
+            original.save(PLAYER + 0x1F0, 3, 1)             # 0017C030 mode 3
+            original.save(PLAYER + 0x25C, tier, 1)
+            original.save(PLAYER + 0x2C, 0x8000, 2)          # transition bit set
+            original.save(PLAYER + 0x200, 0xFFFF8000)        # blend flags
+            original.save(PLAYER + 0x3C, bits(out[6]))       # transition clock
+            original.write(PLAYER + 0xB0, bytes(position) + struct.pack('<f', 1))
+            original.write(PLAYER + 0xC0, struct.pack('<4f', 0, yaw, 0, 1))
+            original.save(0x275B40, PLAYER + 0x110)
+            original.save(PLAYER + 0x110 + 17 * 4, NODE17)
+            original.save(PLAYER + 0x110 + 18 * 4, NODE18)
+            original.write(NODE17 + 0xC0, bytes(out)[0:12])
+            original.write(NODE18 + 0xC0, bytes(out)[12:24])
+            original.calls[0x1C6DA0] = lambda o: None
+            original.calls[0x17B490] = lambda o, t=tier: o.r.__setitem__(
+                2, t if o.r[5] == 1 else 4)
+            original.calls[0x1C61D0] = lambda o, t=tier: o.r.__setitem__(
+                2, 120 if t == 1 else 45)
+            requests = []
+            original.calls[0x1749A0] = lambda o: requests.append((o.r[5], o.r[6], o.f[12]))
+            original.run(0x17C030, (PLAYER,))
+            assert original.load(PLAYER + 0x1F0, 1) == 5
+            assert bytes(out)[32:44] == original.read(PLAYER + 0x260, 12), (
+                tier, ticks, list(out))
+            assert requests == ([(4, 0, bits(10))] if tier == 2 else [])
+            if tier == 2:
+                assert out[11] == 4 and out[12] == 1 and out[13] == 10
+            else:
+                assert out[11] == 1
+            count += 1
+        report['foot_stop_during_blend_cases'] = count
+
     report['scope'] = 'original state instructions and bounded VU arithmetic; cache matrix shifts are host adaptation'
     output = ROOT / 'build/player_pose_channels/host_reference.json'
     output.write_text(json.dumps(report, indent=2) + '\n')

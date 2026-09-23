@@ -190,9 +190,12 @@ const char *em_pad_button_name(int bit_index);
  * Fields mirror the original storage: the six halfwords at 0x00810E70 in
  * the original BYTE-SWAPPED layout (START = 0x0800, UP = 0x1000), the
  * analog bytes of the pad struct 0x00810E40 at +0x24..+0x27
- * (0x00810E64..67) and its gait byte at +0x17 (0x00810E57). The whole
- * translation is checked instruction-for-instruction by
- * tools/test_input_block_reference.py. Zero-initialize (original .bss). */
+ * (0x00810E64..67) and its gait byte at +0x17 (0x00810E57). This is a
+ * hand translation. tools/test_input_block_reference.py executes the
+ * original 001B5940 and its callees from the user's ELF (only the libpad
+ * read 00110B38 is a supplied-buffer boundary) and compares every field
+ * with em_pad_unpack over 9047 frames; the comparison covers those inputs,
+ * not every possible state. Zero-initialize (original .bss). */
 typedef struct {
     uint16_t held;          /* 0x810E70 processed held mask */
     uint16_t prev_held;     /* 0x810E72 previous held mask */

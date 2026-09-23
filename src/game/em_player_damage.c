@@ -13,6 +13,8 @@
 #include "game/em_player_damage.h"
 
 #include "game/em_game_internal.h"
+#include "game/em_pose_math.h"
+#include "game/em_random.h"
 
 /* Is the player in a hit reaction / dying / at the game-over screen?
  * (the movement + input + menu lock; also the producer-side immunity
@@ -61,25 +63,68 @@ static void player_apply_health(void)
     }
 }
 
-/* state 2 sub 0 phase 0 — FLINCH entry (func_0021D800): voice + the
- * real reaction clip (family by RNG bit, side by a second draw —
- * func_0021D1A0's side test is a hit-direction check, untranslated;
- * flagged as a second RNG bit). */
+/* func_001B1470 — wrap to (-pi, pi]; -pi itself becomes +pi. The adds
+ * and subtracts use the EE single-precision model (em_pose_math.h). */
+static float flinch_wrap(float angle)
+{
+    while (angle > 3.1415927f)
+        angle = pose_sub(angle, 6.2831855f);
+    while (angle <= -3.1415927f)
+        angle = pose_add(angle, 6.2831855f);
+    return angle;
+}
+
+/* Player +0x70/+0x78, the hit vector 0021D1A0 reads. 001AF5C0 initializes
+ * it to (0, 1); the original damage producers (e.g. 0012FC10 writes the
+ * normalized player-minus-attacker XZ) overwrite it before posting a hit.
+ * The port's producer (em_enemy_player_hit_take) passes only the hit code,
+ * so no producer writes it yet and the side test below sees this spawn
+ * value on every hit. */
+static const float kFlinchHitVector[2] = { 0.0f, 1.0f };
+
+/* func_0021D1A0 — unarmed flinch side test. The hit vector's heading
+ * 001B1470(atan2(-z, x) + pi/2) minus body yaw +0xC4, wrapped again;
+ * returns 1 when its magnitude exceeds pi/2 (c.le.s false), else 0. */
+static unsigned player_flinch_side(const float hit[2], float yaw)
+{
+    float heading = flinch_wrap(pose_add(1.5707964f, atan2f(-hit[1], hit[0])));
+    float diff = flinch_wrap(pose_sub(heading, yaw));
+    return fabsf(diff) <= 1.5707964f ? 0u : 1u;
+}
+
+/* state 2 sub 0 phase 0 — FLINCH entry (func_0021D800 case 0): voice,
+ * then ONE func_00122BB8 draw picks the clip family. Armed (+0x236)
+ * wins over the infected latch (+0x234); only the unarmed, uninfected
+ * arm consults 0021D1A0. Family bit 1 -> 0x56 / 0x1E|0x1F, bit 0 ->
+ * 0x57 / 0x20|0x21 (side 1 takes the lower id). */
 static void player_enter_flinch(void)
 {
     int      armed = em_weapon_state() != EM_WPN_HOLSTERED;  /* +0x236 */
-    unsigned fam   = footstep_rand5() & 1u;   /* func_00122BB8 & 1 */
-    unsigned side  = footstep_rand5() & 1u;   /* func_0021D1A0 stand-in */
     unsigned clip;
-    if (g.pd_infected)
-        clip = PD_CLIP_FLINCH_INF;
-    else if (armed)
-        clip = fam ? PD_CLIP_FLINCH_ARM_B : PD_CLIP_FLINCH_ARM_A;
-    else
-        clip = fam ? (side ? PD_CLIP_FLINCH_B1 : PD_CLIP_FLINCH_B0)
-                   : (side ? PD_CLIP_FLINCH_A1 : PD_CLIP_FLINCH_A0);
     em_sfx_play_at(g.pd_inf_hit ? PD_SFX_HURT_INF : PD_SFX_HURT,
                    g.pos, 300.0f);            /* player-attached, r=300 */
+    unsigned fam   = em_random_next() & 1u;   /* func_00122BB8() & 1 */
+    if (armed) {
+        clip = fam ? PD_CLIP_FLINCH_ARM_A : PD_CLIP_FLINCH_ARM_B;
+    } else if (!g.pd_infected) {
+        static int warned;
+        if (!warned) {
+            warned = 1;
+            fprintf(stderr, "player flinch: hit vector +0x70/+0x78 is not "
+                    "supplied by the port's damage producers; 0021D1A0 "
+                    "uses the 001AF5C0 spawn value (0,1)\n");
+        }
+        unsigned side = player_flinch_side(kFlinchHitVector, g.yaw);
+        clip = fam ? (side ? PD_CLIP_FLINCH_A0 : PD_CLIP_FLINCH_A1)
+                   : (side ? PD_CLIP_FLINCH_B0 : PD_CLIP_FLINCH_B1);
+    } else {
+        clip = PD_CLIP_FLINCH_INF;
+    }
+    /* 0021D600(+0x1F1 in {1,3,4}) suppresses a second voice, else
+     * 0x146 (family 1) / 0x147 (family 0), r=300. The port's +0x1F1
+     * (pd_inf_hit) carries only the 0 (health) / 1 (infection) values. */
+    if (g.pd_inf_hit != 1)
+        em_sfx_play_at(fam ? 0x146u : 0x147u, g.pos, 300.0f);
     if (!em_game_anim_request(clip, 1.0f))
         clip = 0;                  /* clip-less asset: timed fallback */
     g.pd_state = 2;
@@ -88,7 +133,7 @@ static void player_enter_flinch(void)
                                     * timed fallback */
     g.pd_hold  = 0;
     g.pd_clip  = clip;
-    /* rumble func_001B61C0(0, 0xC0, 5, 0) — no force-feedback backend */
+    /* rumble func_001B61C0(0, 0xC0, 5, 1) — no force-feedback backend */
 }
 
 /* state 2 sub 1/3 phase 0 — DEATH entry (func_0021E240 /

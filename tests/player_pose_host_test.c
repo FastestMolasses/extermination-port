@@ -355,15 +355,39 @@ int main(void)
     expected(0, 80, 0);
     assert(player_pose_acquire() == 1 && player_pose_release());
 
-    /* A failed foot-stop begin (blend still active) is a native unsupported
-     * path: reported once, held, then re-seeded to the row default. */
+    /* 0017C030 mode 3 runs the 0017B910 solve even while a pose blend is
+     * active (no blend gate; the old refusal here was not original). The
+     * begin uses the transition's current channels and clock: tier 2
+     * requests clip 4 with blend 10 from the blended pose, tier 1 keeps
+     * the walk clip and halves (clock - 1). Both run to phase 3. */
+    for (unsigned tier = 1; tier <= 2; ++tier) {
+        reset();
+        for (unsigned i = 0; i < 5; ++i) ordinary();
+        player_pose_request(tier, tier == 1 ? 64 : 10, 12, 1); /* blend12 */
+        for (unsigned i = 0; i < 3; ++i) assert(player_pose_stage() == 0);
+        expected(tier, 9, 1);
+        g.loco_tier = tier;
+        g.loco_mode = 3;
+        assert(player_pose_foot_stop_begin());
+        if (tier == 2) expected(4, 10, 1);
+        else expected(1, 9, 1);
+        unsigned ticks = 0;
+        while (player_pose_foot_stop_active()) {
+            assert(player_pose_stage() == 0);
+            g.loco_rate = 1;
+            assert(player_pose_foot_stop_tick() >= 0);
+            player_pose_finish_state();
+            assert(player_pose_foot_stop_palette() == 1);
+            assert(++ticks < 80);
+        }
+        assert(g.loco_stop.phase == 3);
+    }
+
+    /* The native unsupported path itself: reported once, held, then
+     * re-seeded to the row default. */
     reset();
     for (unsigned i = 0; i < 5; ++i) ordinary();
-    player_pose_request(2, 10, 12, 1); /* blend toward the jog clip */
-    g.loco_tier = 2;
-    g.loco_mode = 3;
-    assert(!player_pose_foot_stop_begin());
-    player_pose_unsupported_hold("test foot-stop begin failed");
+    player_pose_unsupported_hold("test unsupported path");
     assert(!player_pose_source(NULL, NULL, NULL, NULL));
     assert(player_pose_legacy_release() == 1);
     expected(0, 80, 0);

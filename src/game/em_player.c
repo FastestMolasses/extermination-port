@@ -131,17 +131,13 @@ void player_move_collide(float mx, float mz)
         from[1] = hit.point[1] - 1e-3f;
     }
 
-    /* MOVING-SURFACE CARRY (the AREA-11 truck top — em_collision.h §11.4,
-     * the PS2 truck convergence block 0x00825014). After the static floor
-     * snap above, consume the per-frame moving-surface registry: if the
-     * player footprint stands on a registered moving surface (the truck
-     * top) within its Y band, ADD that surface's velocity to the player.
-     * For the wedged truck this is vel 0 (no effect); for the FALLING truck
-     * it is the accelerating downward drop — so a player lingering on top
-     * is carried DOWN into the crevice (the fail), below the static floor
-     * the snap resolved. The single moving-surface touch in the player
-     * ground-solve (the truck registers in em_truck_update, run earlier
-     * this frame). Dormant — returns 0 — whenever no actor registered. */
+    /* MOVING-SURFACE CARRY (em_collision.h moving-surface registry).
+     * After the static floor snap above, consume the per-frame registry:
+     * a player footprint on a registered surface within its Y band gets
+     * that surface's velocity added. No actor registers a surface today:
+     * the AREA-11 truck (em_truck_update) no longer registers its top —
+     * its selftest asserts an empty registry — so this call is dormant
+     * and returns 0 every frame. */
     em_collision_moving_carry(g.pos);
 
     /* STATIC BLOCKER PUSH-OUT (the AREA-11 closed GRATE — em_collision.h
@@ -446,9 +442,9 @@ void player_move(void)
      * constants block above; retires the old AIM_TURN_SPEED turn-in-
      * place stand-in). The armed stance holds position (engine: the
      * armed modes 0x1D..0x20 replace the locomotion modes outright —
-     * no aim-walk clips, zero footstep frames); the stick (and the
-     * port's d-pad merge — arrows fold into the same axes, full
-     * deflection) steers the aim BLENDS: pitch INVERTED-Y, yaw panning
+     * no aim-walk clips, zero footstep frames); the stick bytes (with a
+     * held D-pad already folded in by 001B5940/001B5E20) steer the aim
+     * BLENDS: pitch INVERTED-Y, yaw panning
      * the +-60 deg pose ladder first and turning the body only past
      * the blend limit.
      *
@@ -514,13 +510,11 @@ void player_move(void)
         const EmFrameInput *ain = em_frame_input();
         int r1fam = !g.r2_aim || em_weapon_is_aiming(); /* stance 0x31 */
 
-        /* d-pad merge (PORT, user-attested d-pad aim): arrows act as a
-         * full-deflection axis when the stick is centered. */
+        /* 0017ABA0 reads the pad bytes D_00810E64/65 directly. Their
+         * producer 001B5940 already maps a held D-pad onto them (001B5E20)
+         * before any consumer runs (em_frame step C), so no separate
+         * D-pad path exists here. */
         int rawx = ain->lx, rawy = ain->ly;
-        if (rawx == 0x80 && (ain->held & EM_PAD_LEFT))  rawx = 0x00;
-        if (rawx == 0x80 && (ain->held & EM_PAD_RIGHT)) rawx = 0xFF;
-        if (rawx == 0x80 && (ain->held & EM_PAD_UP))    rawy = 0x00;
-        if (rawy == 0x80 && (ain->held & EM_PAD_DOWN))  rawy = 0xFF;
 
         /* func_001B5DC0 deflection bands + the per-stance rate rows.
          * Both rows read literally out of src/func_0017ABA0.c
@@ -618,15 +612,16 @@ void player_move(void)
     }
 
     /* WP-2/H12: every stand-in above has released this frame. Re-seed the
-     * frozen source at its row default (00182DF0 via1C63E0); the hit,
+     * frozen source at its row default (00182DF0 via 001C63E0); the hit,
      * scripted-clip and low-health holds are rechecked by the host. */
     (void)player_pose_legacy_release();
 
     int walking_before_use = g.loco_mode != 0;
     int used = player_use_poll();
     if (used != 0) {
-        /*61020 breaks to the idle physics tail;612D0 returns before
-         * its walking tail. Save the state before1798D0 clears it. */
+        /* 00161020 breaks to the idle physics tail; 001612D0 returns
+         * before its walking tail. Save the state before 001798D0 clears
+         * it. */
         if (used > 0 && !walking_before_use) player_wall_probes();
         return;
     }
@@ -638,22 +633,14 @@ void player_move(void)
         return;
     }
 
-    /* ANALOG GAIT — the engine's stick quantizer func_001B5CC0 on the
-     * RAW 0x80-centered bytes: r = sqrt((x-128)^2 + (y-128)^2) through
-     * rings 48/88/122 -> gait byte (pad +0x17 -> player +0x23F).
-     * CONFIRMED (audit 2026-07-31): src/func_001B5CC0.c is hand-written
-     * asm but fully legible — it forms (a0&0xFF)-0x80 and (a1&0xFF)-0x80,
-     * squares and sums them via mult/mult1, takes func_0011E748 (sqrt),
-     * then runs three `c.le.s` tests against the literals 0x42400000,
-     * 0x42B00000 and 0x42F40000 = 48.0f / 88.0f / 122.0f, returning
-     * 0/1/2/3. `<=` inclusive, exactly as the port writes it. */
+    /* GAIT — 00174AC0/00175390 latch the pad gait byte D_00810E57 into
+     * player +0x23F. 001B5940 computes that byte once per frame: the
+     * 001B5CC0 rings (48/88/122) on the RAW stick bytes, before lx/ly are
+     * quantized, or 3/0 when 001B5E20 maps the D-pad onto the stick. Take
+     * it from the translated block; re-deriving it from the quantized
+     * bytes misclassifies radii just past a ring (raw 0xB1 -> 0xB0). */
     const EmFrameInput *in = em_frame_input();
-    float rdx = (float)in->lx - 128.0f;
-    float rdy = (float)in->ly - 128.0f;
-    float r   = sqrtf(rdx * rdx + rdy * rdy);
-    int gait  = r <= GAIT_RING_1 ? 0
-              : r <= GAIT_RING_2 ? 1
-              : r <= GAIT_RING_3 ? 2 : 3;
+    int gait  = em_frame_pad_block()->gait;
     g.gait       = gait;
     g.move_speed = 0.0f;
     unsigned translation_steps = 1;
@@ -691,10 +678,11 @@ void player_move(void)
 
     if (g.loco_stop.phase) {
         if (g.loco_stop.phase <= 2 && gait > 1) {
-            /* 0017C030 mode4 gives input priority over the stop end flag.
-             * C440 chooses gait-1, moves once with argument1, and requests
-             * a four-tick blend. The walk callback then moves again with
-             * argument0. Original frame4134 confirms both translations. */
+            /* 0017C030 mode 4 gives input priority over the stop end flag.
+             * 0017C440 chooses gait-1, moves once with argument 1, and
+             * requests a four-tick blend. The walk callback then moves
+             * again with argument 0. Original frame 4134 confirms both
+             * translations. */
             int clip = gait == 3 ? g.clip_jog : g.clip_walk;
             EmPlayerMotor resumed = {.substate=g.loco_substate};
             if (clip >= 0 && em_player_reentry_begin(&g.loco_reentry, &resumed,
@@ -762,7 +750,7 @@ void player_move(void)
         if (g.loco_entry_ticks > 1) --g.loco_entry_ticks;
         else g.loco_entry_ticks = still_turning ? -1 : 0;
         if (g.loco_entry_ticks < 0)
-            g.loco_rate = 0; /*00161020 case2 holds the pose while turning. */
+            g.loco_rate = 0; /* 00161020 case2 holds the pose while turning. */
         if (!g.loco_entry_ticks && !gait)
             player_pose_entry_cancel();
         if (g.loco_entry_ticks == 0 && gait) {
@@ -815,8 +803,10 @@ void player_move(void)
     g.loco_rate = motor.rate;
     g.loco_blend = motor.blend;
     if (motor.mode == 3) {
-        /*0017C030 mode3/tier3 requests stop clip5. Tiers1/2 instead
-         * execute B910's foot-placement solve against source nodes17/18. */
+        /* 0017C030 mode 3 / tier 3 requests stop clip 5. Tiers 1/2 instead
+         * execute the 0017B910 foot-placement solve against source nodes
+         * 17/18 (also while a pose blend is active: mode 3 has no blend
+         * gate). */
         int stop_clip = em_model_clip_index(&g.model, 5);
         if (motor.tier == 3 && stop_clip >= 0) {
             g.loco_stop_clip = stop_clip;

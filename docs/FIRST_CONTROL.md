@@ -86,7 +86,8 @@ original callbacks from the stop request through idle blend completion. A full
 native input regression passed with 60 neutral ticks following the 30 held ticks:
 total displacement 18.649982 versus original 18.649738, speed zero, idle restored.
 Evidence: `build/opening_control/final_camera_run.log` and `final_camera.bmp`.
-Clip 4 is exported but its jog/walk foot-placement path remains to be bound.
+Clip 4 is exported. The walk/jog foot-placement stop that uses it is now bound
+(0017B910/0017C030 mode 5; see `PLAYER_POSE.md`).
 
 The old manifest camera seat replaced the original script's final placement on
 each idle tick. The original AREA11 record at runtime 0x829240 (whole-file offset
@@ -200,3 +201,42 @@ callbacks7/8 now report obstruction0x02 and displacements0.266091/0.306747.
 The final native XZ is(238.753937,226.391403), versus original frame4141
 (238.753982,226.391403): X differs by0.000046 and Z is identical. No speed,
 position or camera value was tuned to obtain this contact.
+
+## Pad block and pose source after the input/pose lanes
+
+Input now reaches the player through the original pad unpacker. Each frame,
+em_frame step C converts the host pad into the eight-byte libpad buffer
+(`em_pad_raw`, host adaptation) and runs `em_pad_unpack`, the hand translation
+of 001B5940 (port 0, analog read). `tools/test_input_block_reference.py`
+executes the original 001B5940 and its callees, with only the libpad read
+00110B38 as a supplied buffer. It compares every block field over 9,047
+frames; `make test-frame-input` checks the wiring. On port 0 with the left
+stick inside gait ring 0, 001B5E20 turns a held D-pad into stick bytes with
+gait 3. Outside that ring, stick-derived D-pad bits replace the real ones and
+lx/ly are quantized with `(v + 2) & 0xFC`, saturating at 0xFC.
+
+Player consumers now read that block rather than re-deriving it:
+
+- Gait: 00174AC0 and 00175390 latch the pad gait byte D_00810E57 into player
+  +23F. `player_move` takes `em_frame_pad_block()->gait`. Rings recomputed from
+  the quantized bytes misclassified radii just past a ring. For example, raw
+  0xB1 (gait 1) quantizes to 0xB0 (gait 0).
+- Aim: 0017ABA0 reads D_00810E64/65 directly. The port-only D-pad fallback in
+  the aim branch was removed because 001B5E20 already fills those bytes. Its
+  UP line also tested the X byte instead of Y.
+
+With these changes `EM_STARTUP_TEST=newgame-control` still reports
+displacement 9.599989 over 30 input ticks. The low-gait variants
+(`EM_CONTROL_LOW_GAIT=1`/`2`) report 4.049953/14.350012 over 60 ticks, and both
+foot-stop checks pass. These low-gait values are native only and have not been
+compared with an original capture.
+
+Pose source lifetime: a port stand-in with no original channels (aim, R2,
+melee, door, examine, interact) freezes the player's channel source while it
+owns the player. On release, the host re-seeds the source as 00182DF0's
+nonzero-2F3 branch does: row default clip 0 at frame 0 with no blend, and idle
+state 0 with counter 300. The row is approximated from live health only (see
+`PLAYER_POSE.md`). The hit, `sa_*` and low-health holds keep the source frozen
+until they end. A walk/jog foot-placement stop that begins during an active pose
+transition now runs the 0017B910 solve, as 0017C030 mode 3 does. It no longer
+snaps to the row default.

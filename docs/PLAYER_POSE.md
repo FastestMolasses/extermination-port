@@ -154,16 +154,22 @@ The host keeps holding while `pd_state == 2`, `sa_req/sa_cur` is set, or health
 is at or below 35. Acquisition re-seeds a source held by a player-driven
 stand-in (aim, R2, melee, door, examine, interact) first; this is a host
 adaptation, and 00182B30's refusal set is not modelled. While the hit, `sa_*`
-or low-health hold is active, acquisition is refused explicitly (-1 with the
-owner message). Row 1 (low health) defaults to clip 0x0A, which is not
+or low-health hold is active, acquisition is refused explicitly (-1). The
+message names the live blocker, not the stand-in that first froze the source:
+those three holds do not re-register while an earlier hold (for example aim)
+is active, so the first owner can be stale. Row 1 (low health) defaults to clip 0x0A, which is not
 exported, so at low health the hold stays.
 
-A failed foot-stop begin (transition blend still active, palette or solve
-failure, tier-2 select failure) is a native unsupported path, not an original
-stand-in. `player_pose_unsupported_hold()` reports it once with the reason and
-holds; the next `player_move` then snaps the source to the row default with no
-blend. That snap is a host adaptation: 0017C030 mode 3 runs the 0017B910 solve
-without this failure case. `player_pose_invalidate()` is kept only for genuine native failures:
+A failed foot-stop begin (palette or solve failure, a clock below 1, tier-2
+select failure) is a native unsupported path, not an original stand-in.
+`player_pose_unsupported_hold()` reports it once with the reason and holds; the
+next `player_move` then snaps the source to the row default with no blend. That
+snap is a host adaptation: 0017C030 mode 3 runs the 0017B910 solve without a
+failure case. An active pose transition is not a failure: mode 3 has no blend
+gate, so the begin runs on the transition's current channels and clock (see the
+foot-placement section). The clock-below-1 refusal lives in
+`em_player_foot_stop_begin`; 0017B910 instead clamps the walk duration to 1 and
+uses 10 for jog, so that refusal is also not original. `player_pose_invalidate()` is kept only for genuine native failures:
 a failed advance, an unknown clip, a failed re-seed, or a foot-stop callback
 fault.
 
@@ -213,8 +219,9 @@ rate to one at the stop request would be incorrect.
 
 `make test-player-pose-host` checks idle/fade countdown, fidget timing, shared
 callback ownership, release without an extra idle advance, placement/Euler
-mirrors, the legacy hold/re-seed lifecycle, and explicit invalid-source failure
-under ASan/UBSan. The legacy case holds for 30 callbacks, releases, and then
+mirrors, the legacy hold/re-seed lifecycle, walk and jog foot-placement stops
+begun three callbacks into a twelve-tick blend, and explicit invalid-source
+failure under ASan/UBSan. The legacy case holds for 30 callbacks, releases, and then
 jogs. The tier-2 foot-placement stop still fires and runs to phase 3. The
 clip-5 stop request is accepted, and acquisition succeeds, both after release
 and directly from a held source. Acquisition is refused (-1) while the hit and
@@ -240,7 +247,11 @@ reset cases, and 32 idle/walking Use-poll gates. It also executes
 00182DF0's 2F3 branch for rows 0 and 1, with 1C63E0 and 1C6150 as recorded
 boundaries. Row 0 seeds clip 0, and the native legacy release produces clip 0,
 remaining 80, no transition, and idle state 0 with counter 300. Row 1 seeds clip
-0x0A, which is absent from the bank, and the native host refuses the re-seed. Shifting native cached matrices remains a host adaptation; the
+0x0A, which is absent from the bank, and the native host refuses the re-seed.
+It also executes 0017C030 mode 3 and its 0017B910 solve for 60 foot-stop begins
+made while a pose transition is active (walk and jog, blends 4 to 16), with the
+native host's evaluated feet and transition clock as inputs: mode 3 reaches the
+solve, and the step words, mode 5 and the jog clip-4/blend-10 request match. Shifting native cached matrices remains a host adaptation; the
 original alignment function only shifts the position mirrors. The sanitizer
 host test passes the corresponding lifecycle and invalid-source cases.
 
@@ -256,7 +267,11 @@ accepted walking check returns before that tail, matching 61020 and 612D0.
 `em_player_foot_stop.c` implements 0017B910 entry and 0017C030 mode 5. Entry
 evaluates the existing raw source skeleton, then selects foot node 18 when
 remaining time is below the original healthy-row boundary (58 for walk, 24
-for jog), or node 17 otherwise. These are source node positions rather than
+for jog), or node 17 otherwise. 0017C030 mode 3 calls 0017B910 without a blend
+gate. During an active transition the host evaluates the transition's current
+channels and passes the transition clock, which is what actor +3C holds then
+(`tools/test_player_pose_live_reference.py` compares +3C with it through the
+stop blends). These are source node positions rather than
 the legacy tier-blended display. Their planar distance from working feet is
 rotated by the original SDK Euler routines to produce each callback's step.
 
