@@ -5,10 +5,11 @@
  * tick, the port-native draw-list collector, the render-env skeleton, the
  * status-menu UI scene, the character light rig and the close-out. New in
  * S5: the stage functions em_render_001D1C50, em_render_001C1D00,
- * em_render_001AAD00 (no port code; reports -1), em_render_001D1EA0 and
- * em_camera_0018B9C0, each wrapping the calls the frames made at that
- * position. Behaviour is unchanged by the move — only the file boundary is
- * new.
+ * em_render_001D1EA0 and em_camera_0018B9C0, each wrapping the calls the
+ * frames made at that position. Behaviour is unchanged by the move — only
+ * the file boundary is new. Since S10a the scene cores em_sf_001AE5E0 /
+ * em_sf_001AE6B0 call them through the bindings (em_scene_bindings.c), and
+ * em_camera_0018B9C0_opening is the cutscene variant's camera stage.
  *
  * Every function here reads the shared gameplay state (EmGameState g), so
  * this module takes the subsystem's internal header rather than owning
@@ -557,8 +558,9 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
  * recorded chain with the camera block applied (the native "kick"), then
  * advance clip time. EM_CAPTURE instrumentation lives here so its frame
  * counting matches the rendered gameplay frames.
- * None of 001AAD00's hooks or its list swap is in here (see
- * em_render_001AAD00 below); the stage wrapper is em_render_001D1EA0. */
+ * None of 001AAD00's hooks or its list swap is in here (the bindings
+ * report 001AAD00 as reached without port code); the stage wrapper is
+ * em_render_001D1EA0. */
 void frame_close_out(void)
 {
     EmGfx *gfx = em_frame_gfx();
@@ -670,7 +672,7 @@ void frame_close_out(void)
      * persistent HUD — and toggled by a TRIANGLE/START press (edge);
      * shown, the 3D frame underneath is the UI scene above (or the
      * flagged dim fallback without assets) and the world simulation is
-     * paused by the gameplay_frame gate. EM_HUD_FORCE=1 forces it
+     * paused by the gate in em_game_legacy_variant_head. EM_HUD_FORCE=1 forces it
      * visible for overlay tests. The ammo readout is LIVE: mag/reserve
      * mirror the weapon state (D_00810C62 / D_00810CB4) every frame,
      * exactly like the engine UI re-reading the globals. */
@@ -791,7 +793,7 @@ void frame_close_out(void)
  * its calls is 001D7C30, which the port runs as point_light_tick. That
  * tick is the only port code at this position: the fog is still applied
  * inside frame_close_out, and render_chain_build (a port-native draw-list
- * collector, not a translation) still runs two calls later. */
+ * collector, not a translation) runs in the 001AFD70 legacy block. */
 int em_render_001D1C50(void)
 {
     point_light_tick();
@@ -808,19 +810,6 @@ int em_render_001C1D00(void)
     return 0;
 }
 
-/* func_001AAD00 (NEARMISS src/func_001AAD00.c): nine end-of-frame hooks
- * (001A9D20, 001A8DA0, 001A9F60(player), 001AA140, 001A7870,
- * 001A8BE0(player), 001A9000, 001A97B0, 001A9B10; pairwise sweeps over
- * the per-class object lists), then the double-buffer swap of those
- * lists. frame_close_out, which older comments list under
- * 001CB5A0/001AAD00/001D1EA0(1), contains none of this, so there is no
- * port code to wrap. The stage reports a fault (-1) and the legacy frames
- * do not call it. */
-int em_render_001AAD00(void)
-{
-    return -1;
-}
-
 /* func_001D1EA0(a0) position: 001D1EA0(1) ends both world-frame variants
  * (status state 3 uses 001D1EA0(0)). The original (src/func_001D1EA0.c)
  * runs 001E0D70 and 001DDA00 only when a0 != 0 and 001D2910(4) == 0, then
@@ -835,18 +824,28 @@ int em_render_001D1EA0(int a0)
     return 0;
 }
 
-/* func_001CB590(0x008101E0, 0xD0, 0) + func_0018B9C0 position of the
- * gameplay variant. Wraps the two calls gameplay_frame made there, in the
- * same order. The cutscene variant still calls camera_update itself,
- * behind em_opening_runtime_camera(), which has side effects and so
- * cannot be folded in without a logic change. */
+/* func_0018B9C0 position of the gameplay variant (after the bindings'
+ * 001CB590(0x008101E0, 0xD0, 0) worker). Wraps the two calls
+ * gameplay_frame made there, in the same order. */
 int em_camera_0018B9C0(void)
 {
-    camera_update();         /* func_001CB590(0x008101E0, 0xD0, 0) +
-                              * func_0018B9C0 camera state machine    */
+    camera_update();         /* func_0018B9C0 camera state machine    */
     em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);  /* positional-audio
                               * listeners: player = distance
                               * (D_00810360), camera eye/yaw = pan
                               * (D_008105D0 / cam+0x9C) — em_sfx.h    */
+    return 0;
+}
+
+/* func_0018B9C0 position of the cutscene variant (001AE6B0). Wraps the
+ * calls cutscene_frame made there, in the same order: while the opening
+ * script owns the camera, em_opening_runtime_camera() runs it (design 4.4
+ * #19: the opening controller's camera sits at the 0018B9C0 stage);
+ * otherwise the chase camera; then the positional-audio listeners. */
+int em_camera_0018B9C0_opening(void)
+{
+    if (!em_opening_runtime_camera())
+        camera_update();
+    em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);
     return 0;
 }

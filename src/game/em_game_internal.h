@@ -621,7 +621,7 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *                                 the prompt when done.
  *
  * The PORT runs that skeleton faithfully (game_over_tick + the frozen
- * world gate in gameplay_frame — the engine's task replacement is
+ * world gate in em_game_legacy_variant_head — the engine's task replacement is
  * modeled by halting the world sim like the menu pause): death fade ->
  * GAME-OVER screen fades IN (240-frame hold counted through the
  * fade, CROSS skips) -> fade out -> CONTINUE prompt fades in (cursor
@@ -1995,12 +1995,12 @@ typedef struct {
     int         capture_rise;    /* EM_CAPTURE_RISE=1 — hold 's' (walk at
                                   * the camera) so the capture shows the
                                   * wall-blocked camera looking down at
-                                  * the player (see gameplay_frame) */
+                                  * the player (see em_game_selftest_pre_frame) */
     int         capture_examine; /* EM_CAPTURE_EXAMINE=1 — snow scene:
                                   * walk to the AREA11 switch + CROSS so
                                   * the capture samples the refusal line
                                   * ("Switch / No power...") presenting
-                                  * (see gameplay_frame) */
+                                  * (see em_game_selftest_pre_frame) */
     int         capture_orient;  /* EM_CAPTURE_ORIENT=1 — turn-in-place,
                                   * then idle: the slow auto-orient demo */
     int         capture_walk;    /* EM_CAPTURE_WALK=1 — hold 'w' (run
@@ -2319,29 +2319,29 @@ extern EmGameState g;
 /* Each stage is named by the original function whose frame position it
  * occupies and wraps the port code that already ran at that position,
  * unchanged. Return convention of the scene cores (design section 3.1):
- * >= 0 done, -1 = fault (the stage has no port code yet). A stage that
- * returns -1 is not called by the legacy frames. */
+ * >= 0 done, -1 = fault. Since S10a em_scene_bindings.c binds them as the
+ * stage workers of em_sf_001AE5E0 / em_sf_001AE6B0; positions with no port
+ * code (0015C160, 001F0360, 001AAD00) are reported by the bindings. */
 
 /* em_player_frame.c */
-int em_player_0015BCF0(void);   /* player actor update                */
-int em_player_0015C160(void);   /* player post-step: NOT ported, -1   */
+int em_player_0015BCF0(void);   /* player actor update (gameplay only) */
 
 /* em_render_frame.c */
 int em_render_001D1C50(void);   /* per-frame point-light tick          */
 int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
-int em_render_001AAD00(void);   /* close-out hooks: NOT ported, -1     */
 int em_render_001D1EA0(int a0); /* today's close-out (flush, overlays) */
 int em_camera_0018B9C0(void);   /* camera_update + em_sfx_listener     */
+int em_camera_0018B9C0_opening(void); /* cutscene variant's camera stage */
 
-/* Port-native draw-list collector and the close-out body, still called
- * directly by the status and game-over gates of gameplay_frame
- * (em_render_frame.c). */
+/* Port-native draw-list collector and the close-out body, also called
+ * directly by the status and game-over frozen frame
+ * (em_game_legacy_variant_head; em_render_frame.c). */
 void render_chain_build(void);
 void frame_close_out(void);
 
 /* Env-gated self-tests (em_game_selftest.c). em_game_selftest_pre_frame
  * runs every EM_*_TEST script and EM_CAPTURE_* injection at the head of
- * gameplay_frame. move_test_inject is the synthetic key injection those
+ * the gameplay variant (em_game_legacy_variant_head). move_test_inject is the synthetic key injection those
  * scripts use; em_director.c's cine_test_script uses it too. */
 void em_game_selftest_pre_frame(void);
 void move_test_inject(int key, int down);

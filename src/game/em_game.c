@@ -23,13 +23,20 @@
  *                                        Legacy hooks in this file:
  *                                        em_game_legacy_state0 (state 0,
  *                                        001AFCA0 position),
- *                                        em_game_legacy_continue_restart,
- *                                        em_game_legacy_world_frame.
- *   func_001AE5E0  GAMEPLAY FRAME        gameplay_frame() — see below.
- *   func_001AE6B0  cutscene variant      cutscene_frame(), chosen by the
- *                                        port's g.frame_selector (the
- *                                        spad 0x70003B8D stand-in until
- *                                        S11a).
+ *                                        em_game_legacy_continue_restart.
+ *   func_001AE5E0  GAMEPLAY FRAME        since S10a the cores
+ *   func_001AE6B0  cutscene variant      em_sf_001AE5E0 / em_sf_001AE6B0
+ *                                        call the stage workers in the
+ *                                        original order; the variant is
+ *                                        chosen by canonical 3B8D, which
+ *                                        the bindings publish from the
+ *                                        port's g.frame_selector until
+ *                                        S11a. Legacy hooks here:
+ *                                        em_game_legacy_variant_head and
+ *                                        em_game_legacy_pool_gameplay /
+ *                                        _cutscene (the 001AFD70
+ *                                        position). The stage list below
+ *                                        is the gameplay variant's.
  *
  * GAMEPLAY FRAME stages (func_001AE5E0) -> native. CONFIRMED literally
  * (audit 2026-07-31) against src/func_001AE5E0.c [NEARMISS — logic
@@ -45,11 +52,12 @@
  * func_001AE5E0 as "a per-level INIT routine" — there is no level setup
  * in it; D_00810750 is bumped every call and handed straight to the
  * first func_001CB590 as its 4th argument.)
- *   func_001CB590 actor-context begin    actor_context_begin() — marks the
- *                                        actor table the update writes
- *                                        (the engine sets the D_00275B40
- *                                        node-table base; one player actor
- *                                        natively, so it just selects it).
+ *   func_001CB590 actor-context begin    the bindings' w_001CB590: stores
+ *                                        a0 as the current actor
+ *                                        (D_00275B44/48 = a0, byte-matched
+ *                                        src/func_001CB590.c); its
+ *                                        anim_bone_array_setup tail has no
+ *                                        port counterpart.
  *   func_0015BCF0 PLAYER ACTOR UPDATE    actor_update() — the port's anim
  *                                        advance: evaluate the bone palette
  *                                        at the current clip time and place
@@ -57,7 +65,7 @@
  *                                        (the engine's anim-evaluator +
  *                                        physics spine, asset-side only
  *                                        for now).
- *   func_001CB5A0 actor-context end      actor_context_end().
+ *   func_001CB5A0 (empty leaf)           the bindings' w_001CB5A0.
  *   func_001D1C50 per-frame GS/fog setup (src/func_001D1C50.c):
  *                                        001D2830(4,0); a mode dispatch
  *                                        (D_008106C4 / 001B0070 & 0x80 /
@@ -71,23 +79,28 @@
  *                                        then 001D7C30 (point_light_tick)
  *                                        and 001D30A0. It records no
  *                                        draws. The port's
- *                                        render_chain_build() sits at this
- *                                        slot but is a native draw-list
- *                                        collector, not a translation.
+ *                                        render_chain_build() is a native
+ *                                        draw-list collector, not a
+ *                                        translation; it runs inside the
+ *                                        001AFD70 legacy block.
  *   func_001C1D00 render-env init        render_env_init() — once-per-
  *                  (flag block           area render-env setup (GS regs,
  *                  0x008101D0)           per-area specials). NOT camera
  *                                        math (corrected by FINDINGS.md
  *                                        "CAMERA SYSTEM"); skeleton no-op.
- *   func_001AFD70 / func_0015C160 /      world services — skeleton no-ops.
- *   func_001F0360
+ *   func_001AFD70                        em_game_legacy_pool_gameplay: every
+ *                                        other world update, one block.
+ *   func_0015C160 / func_001F0360        no port code; reported by the
+ *                                        bindings when reached.
  *   func_001CB590(0x008101E0, 0xD0, 0)   camera_update() — THE CAMERA:
  *   + func_0018B9C0 camera machine       camera-context begin + the
  *                                        camera state machine (struct
  *                                        0x008101E0; see the CAMERA
  *                                        section below).
- *   func_001CB5A0 / func_001AAD00 /      frame_close_out() — flushes the
- *   func_001D1EA0(1) close-out           draw chain with the committed
+ *   func_001AAD00                        no port code; reported by the
+ *                                        bindings when reached.
+ *   func_001D1EA0(1) close-out           frame_close_out() — flushes the
+ *                                        draw chain with the committed
  *                                        camera and advances clip time.
  *
  * INTERACTIVE MOVEMENT (first slice of the real actor spine): the frame
@@ -123,7 +136,7 @@
  * idle auto-orients slowly, and a blocking wall PULLS the eye in at
  * constant height (which reads as the camera rising over the player —
  * the CAMERA FIDELITY block below). While the status screen is open the world
- * simulation PAUSES (the gate in gameplay_frame). Esc still quits
+ * simulation PAUSES (the gate in em_game_legacy_variant_head). Esc still quits
  * (em_frame.c step C).
  *
  * SCENE MANIFEST: assets/scene/scene.txt (see scene_manifest_load) gives
@@ -402,8 +415,9 @@ int em_game_scene_switch(const char *dir)
 /* ------------------------------------------------------------------ */
 /* Since S5 the stage bodies live in em_player_frame.c (em_player_*) and
  * em_render_frame.c (em_render_*, em_camera_0018B9C0); the env-gated
- * self-test scripts live in em_game_selftest.c. gameplay_frame and
- * cutscene_frame below still fix the order. */
+ * self-test scripts live in em_game_selftest.c. Since S10a the order is
+ * fixed by the cores em_sf_001AE5E0 / em_sf_001AE6B0 (em_scene_frame.c);
+ * the legacy pieces below fill the 001AFD70 position. */
 
 
 
@@ -573,7 +587,7 @@ const float kLocoTierSpeed[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
  * reads the prompt counter BEFORE decrementing and expires on the
  * pre-decrement 0, i.e. 1201 frames to the port's 1200. Left alone —
  * one frame in a 20 s idle timeout. Runs every
- * frame from GO_SCREEN on (the frozen-world gate in gameplay_frame
+ * frame from GO_SCREEN on (the frozen-world gate in em_game_legacy_variant_head
  * calls it — the engine's game task is REPLACED here, so the world
  * does not simulate). Presentation: em_hud_game_over /
  * em_hud_continue, drawn UNDER the fade in frame_close_out. */
@@ -1004,12 +1018,43 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
 
 
 
-/* func_001AE5E0 — THE GAMEPLAY FRAME (stage order is the engine's). */
-static void gameplay_frame(void)
+/* ------------------------------------------------------------------ */
+/* World-frame legacy pieces (step S10a)                               */
+/* ------------------------------------------------------------------ */
+/* Since S10a both world-frame variants run as the translated cores
+ * em_sf_001AE5E0 and em_sf_001AE6B0 (em_scene_frame.c), which call their
+ * stage workers in the original order (docs/SCENE_COORDINATOR_DESIGN.md
+ * sections 2.4 and 6, S10a). em_scene_bindings.c binds the stage positions
+ * to the stage functions in em_player_frame.c and em_render_frame.c, and
+ * the rest to the three legacy pieces below. They hold the code of the
+ * retired gameplay_frame/cutscene_frame monoliths, moved without change
+ * except for position:
+ *   - em_game_legacy_variant_head: instrumentation at the head of both
+ *     variants, plus the status/game-over frozen frame of the gameplay one
+ *     (retired by S11b);
+ *   - em_game_legacy_pool_gameplay / em_game_legacy_pool_cutscene: the
+ *     001AFD70 position (001AE5E0 walks mode 0; 001AE6B0 walks mode 1).
+ *     Each is ONE block holding every other world update of the old
+ *     monolith in its old relative order (retired by S10b, which ticks the
+ *     pool per node).
+ * Updates that ran BEFORE the player stage in gameplay_frame (collision
+ * registry clears, truck, director, panel) now run at the 001AFD70
+ * position, AFTER 0015BCF0, as their original owners do (00823FF0 truck,
+ * 008253F0 manager and 00159210 panel are pool nodes; 001AE5E0 calls
+ * 0015BCF0 at 0x1AE628 and 001AFD70 at 0x1AE64C). */
+
+/* Head of both world-frame variants. Returns 1 when the gameplay variant
+ * ran the frozen frame instead (the status screen is open or the game-over
+ * machine owns the frame): the bindings then skip the variant's stages. */
+int em_game_legacy_variant_head(int cutscene)
 {
+    em_opening_control_test_before_frame();
+    if (cutscene)
+        return 0;
     em_game_selftest_pre_frame();   /* every EM_*_TEST script and EM_CAPTURE_*
                                      * input injection (em_game_selftest.c)
                                      * — debug instrumentation only */
+
     /* STATUS-SCREEN PAUSE GATE: while the status screen is OPEN (the
      * real Triangle/Start toggle — em_hud_is_open(); the EM_HUD_FORCE
      * capture hook deliberately does NOT pause, see em_hud.h) the
@@ -1024,7 +1069,7 @@ static void gameplay_frame(void)
         render_chain_build();    /* frozen poses, current scene */
         camera_update();         /* freeze path: commit only (above) */
         frame_close_out();       /* flush + hud toggle + fade + capture */
-        return;
+        return 1;
     }
     /* GAME-OVER / CONTINUE GATE: from GO_SCREEN on, the engine's
      * gameplay task is parked (wait state) and then REPLACED WHOLESALE
@@ -1039,45 +1084,58 @@ static void gameplay_frame(void)
         render_chain_build();    /* frozen world under the screens */
         camera_update();         /* commit only */
         frame_close_out();       /* overlays + fade + capture */
-        return;
+        return 1;
     }
-    /* MOVING-SURFACE REGISTRY (em_collision.h §11.4): cleared ONCE at the
-     * top of the sim, before any mover registers a footprint + velocity
-     * for the player ground-solve's carry. No AREA-11 actor registers one
-     * today: the truck is static until WP-12 (em_truck.h). */
+    return 0;
+}
+
+/* 001AE5E0's 001AFD70(0) position: the legacy block. */
+void em_game_legacy_pool_gameplay(void)
+{
+    /* MOVING-SURFACE REGISTRY (em_collision.h §11.4) and STATIC BLOCKER
+     * REGISTRY (em_collision.h §blocker): both cleared once per world
+     * frame here. Neither has a runtime registrant today:
+     * em_collision_moving_register and em_collision_blocker_register are
+     * called only from the em_collision.c self-tests (the truck is static
+     * until WP-12, em_truck.h, and grate_update registers no blocker).
+     * So both registries are always empty, the player stage's carry
+     * (em_collision_moving_carry) and push-out (em_collision_blocker_probe)
+     * are no-ops, and running these clears after 0015BCF0 since S10a
+     * changes nothing. */
     em_collision_moving_clear();
-    /* STATIC BLOCKER REGISTRY (the AREA-11 gated GRATE's closed hull —
-     * em_collision.h §blocker): cleared once at the top of the sim
-     * alongside the moving-surface registry, then grate_update (below,
-     * before actor_update) re-registers the closed hull while the area is
-     * not powered, so player_move's ground-solve push-out
-     * (em_collision_blocker_probe) sees this frame's blocker. */
     em_collision_blocker_clear();
-    /* WEDGED TRUCK (AREA-11 record 16, overlay owner 00823FF0). The call
-     * site stays before actor_update for the translated owner, but
-     * em_truck_update changes nothing today: the original stand-on
+    /* WEDGED TRUCK (AREA-11 record 16, overlay owner 00823FF0, a pool
+     * node, so it runs here since S10a). em_truck_update changes nothing
+     * today: the original stand-on
      * trigger, fall sequence and D_00810792 persistence are not
      * translated (WP-12, em_truck.h), so the truck is static and
      * registers no moving surface. */
     em_truck_update(g.pos);
     /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — record 12,
-     * ov 0x8253F0). Ticked BEFORE actor_update so a beat that arms this
-     * frame has the player-lock (cine_active -> em_game_player_interact_
-     * busy) raised before player_move reads it — the player freezes the
-     * same frame the cinematic engages, no input/motion leak. Dormant
-     * outside a beat (movement-v3 + the chase camera run exactly as
-     * before until a trigger zone is entered). No-op once the director
-     * reaches 0xFF. */
+     * ov 0x8253F0). The manager is a pool node, so since S10a it ticks
+     * here, AFTER the player stage, as in the original (001AE5E0: 0015BCF0
+     * at 0x1AE628, 001AFD70 at 0x1AE64C): a beat that arms on frame N
+     * locks the player (cine_active -> em_game_player_interact_busy) from
+     * frame N+1's player stage. Dormant outside a beat. No-op once the
+     * director reaches 0xFF. */
     director_tick();
-    /* Keep the original static panel transform; this model never slides. */
+    /* Keep the original static panel transform; this model never slides.
+     * grate_update is also the only binder of the panel's collision cell
+     * (uid 18, em_props.c panel_cell) into g.coll; it registers no blocker
+     * AABB. Since S10a it runs after the player stage (0015BCF0 at
+     * 0x1AE628, 001AFD70 at 0x1AE64C; the panel owner 00159210 is a pool
+     * node). em_collision_load clears every bound cell, so the player
+     * stage of the first world frame after a scene load, or after the
+     * em_game_scene_switch below, runs without cell 18 until this call
+     * binds it. Before S10a it was bound before that frame's player
+     * update. */
     grate_update();
-    em_player_0015BCF0();    /* 001CB590(player) / 0015BCF0 / 001CB5A0
-                              * (em_player_frame.c)                   */
-    em_render_001D1C50();    /* 001D1C50 -> 001D7C30, before pooled actors */
     em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
     em_area11_effect_runtime_tick();
-    render_chain_build();    /* native draw list, at the 001D1C50 slot */
-    em_render_001C1D00();    /* func_001C1D00(0x008101D0)             */
+    render_chain_build();    /* port-native draw list (no original
+                              * counterpart); it ran just before 001C1D00,
+                              * which has no port code, and keeps its
+                              * place among the world updates */
     /* func_001AFD70(0) — the actor-pool tick (world services). The
      * port's first pooled actors are the DOORS: per-frame behavior
      * (func_001BC350 state machine), the player use scan
@@ -1093,9 +1151,9 @@ static void gameplay_frame(void)
      * the hook pointer at self+0x4C. src/func_001F0360.c is a plain
      * subsystem-tick barrel (six subsystem calls then func_001F0720
      * for ids 0,1,3,4,5,6) with no gameplay state of its own. The port
-     * runs no code at either position (em_player_0015C160 reports a
-     * fault and is not called; docs/SCENE_COORDINATOR_DESIGN.md
-     * sections 2.4 and 4.5, open question Q2). */
+     * runs no code at either position (em_scene_bindings.c reports both
+     * as reached without port code; docs/SCENE_COORDINATOR_DESIGN.md
+     * sections 2.4, 4.5 and 10.2 Q2). */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
     /* GOTO-DOOR SCENE SWITCH (one-shot, at fade-out completion — screen
      * fully black): the runtime area/sub-state load. Free + reload the
@@ -1279,27 +1337,20 @@ static void gameplay_frame(void)
                           player_damage_locked()) ? &kNeutral
                                                 : em_frame_input());
     }
-    em_camera_0018B9C0();    /* func_001CB590(0x008101E0, 0xD0, 0) +
-                              * func_0018B9C0 camera state machine,
-                              * then the positional-audio listeners
-                              * (em_render_frame.c)                   */
-    em_render_001D1EA0(1);   /* func_001CB5A0/001AAD00/001D1EA0(1) —
-                              * today's close-out; em_render_001AAD00
-                              * is not ported and is not called       */
 }
 
-/* 001AE6B0 keeps actors, camera and presentation running while the
- * script owns input. The player’s opening pose comes from original
- * bank0x98, so ordinary movement/weapon/menu handlers do not run. */
-static void cutscene_frame(void)
+/* 001AE6B0's 001AFD70(1) position: the legacy block. The player's opening
+ * pose comes from original bank 0x98 (em_opening_runtime), so the ordinary
+ * movement/weapon/menu handlers do not run. The snow tick keeps reading the
+ * camera eye from before this frame's camera stage, as it did. */
+void em_game_legacy_pool_cutscene(void)
 {
     float previous_eye[3];
     memcpy(previous_eye, g.cam.eye, sizeof previous_eye);
     /* This path also runs world actors. Their transient collision entries
-     * expire each frame, just as they do in the ordinary gameplay path. */
+     * expire each frame, just as they do in the gameplay block. */
     em_collision_moving_clear();
     em_collision_blocker_clear();
-    em_render_001D1C50();    /* 001AE6B0 calls 001D1C50 before actor pools */
     em_opening_runtime_tick();
     em_area11_effect_runtime_tick();
     grate_update();
@@ -1307,10 +1358,6 @@ static void cutscene_frame(void)
     em_pickup_update(g.pos, g.yaw, em_frame_input(), 0);
     em_props_indicators_tick();
     render_chain_build();
-    em_render_001C1D00();
-    if (!em_opening_runtime_camera()) camera_update();
-    em_sfx_listener(g.pos,g.cam.eye,g.cam.yaw);
-    em_render_001D1EA0(1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1321,7 +1368,7 @@ static void cutscene_frame(void)
  * 001ACEC0 -> 001AD250 -> 001AD4D0 -> 0x1AE040 runs through the coordinator
  * cores (em_scene_task.c, em_scene_frame.c), and the port's former
  * game_task / game_sub_machine / ingame_frame_machine bodies are retired.
- * The three hooks below are today's port code, moved unchanged, that the
+ * The hooks below are today's port code, moved unchanged, that the
  * bindings call at the original positions (docs/SCENE_COORDINATOR_DESIGN.md
  * section 6, S8). */
 
@@ -1648,18 +1695,6 @@ int em_game_legacy_continue_restart(void)
         return 1;                     /* rebuild from state 0 this tick */
     }
     return 0;
-}
-
-/* 0x1AE040 state 1 world frame: the ONE legacy worker the bindings bind to
- * both 001AE5E0 and 001AE6B0. The port's selector is still g.frame_selector
- * (canonical spad 3B8D replaces it in S11a); the frame bodies are unchanged. */
-void em_game_legacy_world_frame(void)
-{
-    em_opening_control_test_before_frame();
-    if (g.frame_selector)
-        cutscene_frame();   /* func_001AE6B0 */
-    else
-        gameplay_frame();   /* func_001AE5E0 */
 }
 
 /* Native gameplay asset loader, used after the frontend/new-game flow

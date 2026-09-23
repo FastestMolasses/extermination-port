@@ -75,7 +75,9 @@ slot0 startup_task: logos → E900 → title → New Game → begin_movie(0,1) �
        4 crates, 2 drums, husk pair, weather/snow, point lights, AREA11 effect, light rig (no fog line)
     → game_task → ingame_frame_machine (:5219): case 0 (init, falls through the same tick) → case 1 selects:
        [since S8: em_scene_task_001ACEC0 → cores 001ACEC0/001AD250/0x1AE040; state 0 → em_game_legacy_state0, and since S9 the tick ends there (no world frame, as the original);
-        state 1 → em_game_legacy_world_frame, which selects as below]
+        since S10a state 1 runs the cores em_sf_001AE5E0/em_sf_001AE6B0 in the original stage order, and the two
+        lists below survive only as the 001AFD70 legacy blocks em_game_legacy_pool_gameplay/_cutscene; truck,
+        director and grate now run after the player stage]
        cutscene_frame (:5192, selector≠0): point_light, em_opening_runtime_tick (script 0x828FC0), effect, grate,
                        snow, pickups render-only, render_chain_build, opening camera, frame_close_out
        gameplay_frame (:4679): [hud-open / game-over early-outs] → truck → director_tick (kCineBeats) → grate
@@ -207,7 +209,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Verification:** 001AE7E0 is byte-matched, so an ELF-instruction oracle over all inputs is cheap. `test_status_frame_reference.py` already executes 0x1AE040..0x1AE5E0 for the status branches; extend it to states 0/1/2/6. The frame order has no oracle today; compare the ordered call trace against the NEARMISS C bodies.
 - **Depends on:** nothing. **Blocks:** WP-4…WP-12.
 - **Removes fabrication:** removes the port-ordered update list (ORCH-14/15/16).
-- **Status: IN PROGRESS.** Phase 1 cores landed (f519488, ac74c14, 61796a0). S8 (legacy-mode wiring) landed: the slot-0 task runs the translated 001ACEC0/001AD250/0x1AE040 cores and the letterbox gate is fed 3B90/C4 (SI-17 wired; C4 is still always 0). S9 landed: the state-0 tick returns without a world frame (the port's same-tick fall-through is removed; no frame-index constant needed re-baselining, since they all count world frames). The world frame is still today's port-ordered monolith (ORCH-14/15/16 open until S10a); see SCENE_COORDINATOR_DESIGN.md section 6 "Phase 2 status".
+- **Status: IN PROGRESS.** Phase 1 cores landed (f519488, ac74c14, 61796a0). S8 (legacy-mode wiring) landed: the slot-0 task runs the translated 001ACEC0/001AD250/0x1AE040 cores and the letterbox gate is fed 3B90/C4 (SI-17 wired; C4 is still always 0). S9 landed: the state-0 tick returns without a world frame (the port's same-tick fall-through is removed; no frame-index constant needed re-baselining, since they all count world frames). S10a landed: both world-frame variants run as the translated 001AE5E0/001AE6B0 cores with their stages in the original order; the port-ordered monoliths gameplay_frame/cutscene_frame are deleted (ORCH-14/15/16 closed for the stage order). The 001AFD70 position is still one legacy block per variant, in the old relative order, until S10b ticks the pool per node. See SCENE_COORDINATOR_DESIGN.md section 6 "Phase 2 status".
 
 ### WP-4 Install the AREA11 interaction host (panel, battery, power, elevator, face)
 - **Scope:**

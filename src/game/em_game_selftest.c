@@ -1366,7 +1366,7 @@ static void enemy_test_script(void)
  * sfx.txt the module is disabled by design and the test reports the
  * FAIL. */
 /* EM_PAUSE_TEST=1 — STATUS-SCREEN PAUSE self-test (the 2026-06-11
- * fidelity note: the open status menu PAUSES the game — gameplay_frame
+ * fidelity note: the open status menu PAUSES the game — em_game_legacy_variant_head
  * gates the whole world update on em_hud_is_open()) PLUS the decoded
  * MENU-LOCK gate (em_door.h "THE TWO LOCKS": the engine's open poll
  * func_001AE7E0 refuses while the fade machine runs — RE-VERIFIED in
@@ -2673,8 +2673,9 @@ finish:
  * gameplay_frame, S5 of docs/SCENE_COORDINATOR_DESIGN.md): each
  * EM_*_TEST script and each EM_CAPTURE_* input injection, in the order
  * they ran there. Port-only instrumentation: no original function
- * corresponds to it. gameplay_frame calls it first, before the status and
- * game-over gates, exactly where the block used to sit. */
+ * corresponds to it. Since S10a em_game_legacy_variant_head (em_game.c)
+ * calls it at the head of the gameplay variant 001AE5E0, before the status
+ * and game-over gates, the position it had in gameplay_frame. */
 void em_game_selftest_pre_frame(void)
 {
     if (g.move_test) move_test_script();    /* debug instrumentation only */

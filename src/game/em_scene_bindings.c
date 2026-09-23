@@ -1,8 +1,8 @@
-/* Scene coordinator bindings, steps S8-S9 (legacy mode). See
+/* Scene coordinator bindings, steps S8-S10a (legacy mode). See
  * em_scene_bindings.h and docs/SCENE_COORDINATOR_DESIGN.md sections 3.1,
- * 6 (S8, S9) and 10.1.
+ * 6 (S8, S9, S10a) and 10.1.
  *
- * What is live after S9:
+ * What is live after S10a:
  *   - the slot-0 task is em_scene_task_001ACEC0, which runs the S3 cores
  *     001ACEC0 -> 001AD250 and, through the w_001AD4D0 binding (the original
  *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040 with
@@ -11,6 +11,21 @@
  *     `b .L001AE5CC` (0x1AE0DC, the epilogue), never falling into state 1,
  *     so the tick that rebuilds the area runs no world variant; the first
  *     world frame (001AE5E0/001AE6B0) is the next task tick;
+ *   - S10a: the state-1 world frame is the translated variant
+ *     em_sf_001AE5E0 (3B8D == 0) or em_sf_001AE6B0 (3B8D != 0). Their stage
+ *     workers are bound below to the stage functions of em_player_frame.c
+ *     and em_render_frame.c, in the original order (design 2.4); the
+ *     001AFD70 position is ONE legacy block per variant
+ *     (em_game_legacy_pool_gameplay for mode 0, em_game_legacy_pool_cutscene
+ *     for mode 1; retired by S10b, the per-node pool walk);
+ *   - S10a interim (retired by S11a): canonical 3B8D is published from the
+ *     port's g.frame_selector at the 0x1AE040 entry, before the frame state
+ *     is traced and before 0x1AE040 reads it. The port's 3B8D writers (the
+ *     opening runtime's counterpart of 001B82D0) still write
+ *     g.frame_selector, and they run inside the world frame's 001AFD70
+ *     block, so a selector written during frame N picks frame N+1's variant,
+ *     as in the original. 001AFCF0 (states 0 and 4) clears canonical 3B8D;
+ *     the port's state-0 re-arm clears g.frame_selector at the same tick;
  *   - spad 3B90 (001ACEC0 writes 2 every tick) and C4 are forwarded to the
  *     step-D letterbox gate at the end of every task tick (design 2.1);
  *   - the S6 trace contract (design 10.1) when EM_FRAME_TRACE is set.
@@ -18,31 +33,42 @@
  * Worker bindings. Every worker the chain reaches in legacy mode is bound;
  * every other worker is NULL and faults when reached (fail-stop):
  *   w_001AD4D0            -> frame machine entry (legacy Continue hook,
- *                            trace frame state, 0x1AE040)
- *   w_001AE5E0/w_001AE6B0 -> ONE legacy world worker (em_game_legacy_world_frame)
+ *                            3B8D publication, trace frame state, 0x1AE040)
+ *   w_001AE5E0/w_001AE6B0 -> the variant cores, after the legacy head
+ *                            (em_game_legacy_variant_head: test hooks and,
+ *                            in gameplay, the status/game-over frozen frame
+ *                            that S11b retires; while it runs, the variant's
+ *                            stages do not)
+ *   variant stage workers -> see "world-frame stage workers" below. They
+ *                            fault outside a variant (state 3's 001D1C50 /
+ *                            001D1EA0(0) are not bound until S11b).
  *   w_001AFCA0            -> spad 31F4 = 0 (001AFCA0 stores it) after the
  *                            port's native state-0 re-arm (em_game_legacy_state0)
  *   w_001AFCF0, w_001AD140, w_001AD010 -> the S3 cores (design 10.1)
  *   r_0028A9A0            -> em_frame_transition()->substate
- *   UNMIRRORED (see s_unmirrored below): the remaining 0x1AE040 state-0 callees
- *   and 001AFCF0's 001FC9B0 have no port code at their original position yet.
- *   Their bindings return without effect and are reported once on stderr, so
- *   a trace that shows the call is never mistaken for the port doing it.
+ *   r_00275B44            -> the current actor stored by w_001CB590
+ *   r_008102B9            -> 0x15, the captured value (see below)
+ *   UNMIRRORED (see s_unmirrored below): original callees the chain reaches
+ *   with no port code at their original position. Their bindings return
+ *   without effect and are reported once on stderr, so a trace that shows
+ *   the call is never mistaken for the port doing it.
  * Not reached in legacy mode, therefore NULL: the load arms (001AD1A0,
  * 001AD230, 001AD360's and 001ADF50's callees), the game-over arms, the
- * status/unported classifier arms (states 2, 3, 5, 6), state 4, the core
- * variants' stage workers and the 001AFD70 walk. The canonical request block
- * has no port writer until S11b/S12b, so B8/B9 stay 0 and 001AD140/001AD010
- * are never entered; if they were, their 001FC9B0/001FBC50/001FABB0 calls
- * would reach NULL 001FBC50/001FABB0 and fault.
+ * status/unported classifier arms (states 2, 3, 5, 6) and state 4. The
+ * canonical request block has no port writer until S11b/S12b, so B8/B9 stay
+ * 0 and 001AD140/001AD010 are never entered; if they were, their
+ * 001FC9B0/001FBC50/001FABB0 calls would reach NULL 001FBC50/001FABB0 and
+ * fault.
  */
 #include "game/em_scene_bindings.h"
 
 #include <stdint.h>
 #include <stdio.h>
 
+#include "game/em_game.h"
 #include "game/em_frame.h"
 #include "game/em_frame_trace.h"
+#include "game/em_game_internal.h"
 #include "game/em_scene_classify.h"
 #include "game/em_scene_frame.h"
 #include "game/em_scene_task.h"
@@ -61,6 +87,22 @@ static const int s_classifier_shadow = 1; /* retired by S11a/S11b */
 static uint8_t *s_user;
 static int s_fault_reported;
 static int s_q1_reported;
+
+/* Original data addresses the variants pass as actor handles. */
+enum {
+    D_PLAYER = EM_SCENE_D_008102B0, /* 001CB590 / 0015BCF0 argument */
+    D_CAMERA = EM_SCENE_D_008101E0, /* 001CB590 / 0018B9C0 argument */
+};
+
+/* The world-frame variant in progress (the stage workers run only inside
+ * one; outside, they fault). */
+enum { VARIANT_NONE = -1, VARIANT_GAMEPLAY = 0, VARIANT_CUTSCENE = 1 };
+static int s_variant = VARIANT_NONE;
+
+/* D_00275B44 / D_00275B48: 001CB590 stores its a0 in both (byte-matched
+ * src/func_001CB590.c); the variants read D_00275B44 back as the argument
+ * of 0015BCF0 and 0018B9C0. The handle is the original address. */
+static uint32_t s_current_actor;
 
 EmSceneState *em_scene_state(void)
 {
@@ -82,6 +124,12 @@ enum {
     UM_001FAE70,
     UM_001C5C50,
     UM_001D1EF0,
+    UM_001CB590,
+    UM_0015BCF0_CUTSCENE,
+    UM_001AFD70_MODE2,
+    UM_0015C160,
+    UM_001F0360,
+    UM_001AAD00,
     UM_COUNT
 };
 
@@ -99,6 +147,15 @@ static const struct {
     [UM_001FAE70] = {0x001FAE70u, "area music cue; not mirrored (game_load_task note)"},
     [UM_001C5C50] = {0x001C5C50u, "area-title actor; legacy em_hud area title"},
     [UM_001D1EF0] = {0x001D1EF0u, "no port counterpart"},
+    [UM_001CB590] = {0x001CB590u, "current actor stored; its anim_bone_array_setup tail has no port "
+                                  "counterpart (the port's bone palettes are per model)"},
+    [UM_0015BCF0_CUTSCENE] = {0x0015BCF0u, "001AE6B0 player stage; the port poses the player through "
+                                           "the opening runtime in the 001AFD70 block (design risk 2)"},
+    [UM_001AFD70_MODE2] = {0x001AFD70u, "001AE6B0 class-1 walk (mode 2); the pool is not live until S10b"},
+    [UM_0015C160] = {0x0015C160u, "player post-step (001DA6A0 or 0015BF90, then the +0x4C draw method); "
+                                  "the port draws the player from its draw list"},
+    [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
+    [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class-list swap; no port counterpart"},
 };
 
 static uint32_t s_unmirrored_seen;     /* reached at least once */
@@ -142,6 +199,24 @@ static int16_t r_0028A9A0(void *ctx)
 {
     (void)ctx;
     return em_frame_transition()->substate;
+}
+
+static uint32_t r_00275B44(void *ctx)
+{
+    (void)ctx;
+    return s_current_actor;
+}
+
+/* D_008102B9, the player's +9 byte, which both variants pass to
+ * 001CB590(player, 0x320, +9) as the anim_bone_array_setup count. The port
+ * has no player record at 0x8102B0; 0x15 is the value in all three
+ * captured RAM images (build/startup-reference opening_ee.bin,
+ * handoff_ee.bin, playable_ee.bin). The port does not act on it: it only
+ * reaches the trace and the unmirrored 001CB590 tail. */
+static uint8_t r_008102B9(void *ctx)
+{
+    (void)ctx;
+    return 0x15;
 }
 
 /* ------------------------------------------------------------ trace */
@@ -205,13 +280,159 @@ static int w_001AFCA0(void *ctx)
     return 0;
 }
 
-/* 0x1AE040 state 1 world frame, both variants. */
-static int w_world_legacy(void *ctx)
+/* ------------------------------------------- world-frame variants (S10a) */
+
+/* 0x1AE040 state 1, 3B8D == 0 (call site 0x1AE2A4). */
+static int w_001AE5E0(void *ctx)
 {
     (void)ctx;
-    em_game_legacy_world_frame();
-    return 0;
+    if (em_game_legacy_variant_head(0))
+        return 0; /* status/game-over frozen frame ran (retired by S11b) */
+    s_variant = VARIANT_GAMEPLAY;
+    int rc = em_sf_001AE5E0(&s_state, &s_workers);
+    s_variant = VARIANT_NONE;
+    return rc;
 }
+
+/* 0x1AE040 state 1, 3B8D != 0 (call site 0x1AE2B4). */
+static int w_001AE6B0(void *ctx)
+{
+    (void)ctx;
+    (void)em_game_legacy_variant_head(1); /* never a frozen frame */
+    s_variant = VARIANT_CUTSCENE;
+    int rc = em_sf_001AE6B0(&s_state, &s_workers);
+    s_variant = VARIANT_NONE;
+    return rc;
+}
+
+/* ------------------------------------------- world-frame stage workers
+ *
+ * The positions of design 2.4 / 4.5. A negative return makes the core latch
+ * EM_SCENE_FAULT_WORKER_FAILED at the callee: every worker refuses a call
+ * outside a variant and any argument other than the one the variants pass,
+ * because the port code behind it represents only that call.
+ *
+ *   001CB590(a0, ...)  both   D_00275B44 = a0; tail unmirrored
+ *   0015BCF0(player)   5E0    em_player_0015BCF0
+ *                      6B0    unmirrored (opening-player path, design risk 2)
+ *   001CB5A0           both   empty leaf (src/func_001CB5A0.c)
+ *   001D1C50           both   em_render_001D1C50
+ *   001C1D00(0x8101D0) both   em_render_001C1D00
+ *   001AFD70(0)        5E0    em_game_legacy_pool_gameplay
+ *   001AFD70(1)        6B0    em_game_legacy_pool_cutscene
+ *   001AFD70(2)        6B0    unmirrored (class-1 nodes; pool not live)
+ *   0015C160           both   unmirrored
+ *   001F0360           both   unmirrored
+ *   0018B9C0(camera)   5E0    em_camera_0018B9C0
+ *                      6B0    em_camera_0018B9C0_opening
+ *   001AAD00           both   unmirrored
+ *   001D1EA0(1)        both   em_render_001D1EA0(1)
+ */
+
+static int in_variant(void)
+{
+    return s_variant != VARIANT_NONE;
+}
+
+static int w_001CB590(void *ctx, uint32_t a0, int a1, int a2, int a3)
+{
+    (void)ctx;
+    (void)a1;
+    (void)a2;
+    (void)a3;
+    if (!in_variant() || (a0 != D_PLAYER && a0 != D_CAMERA))
+        return -1;
+    s_current_actor = a0;
+    return unmirrored(UM_001CB590);
+}
+
+static int w_0015BCF0(void *ctx, uint32_t actor)
+{
+    (void)ctx;
+    if (actor != D_PLAYER)
+        return -1;
+    if (s_variant == VARIANT_GAMEPLAY)
+        return em_player_0015BCF0();
+    if (s_variant == VARIANT_CUTSCENE)
+        return unmirrored(UM_0015BCF0_CUTSCENE);
+    return -1;
+}
+
+static int w_001CB5A0(void *ctx)
+{
+    (void)ctx;
+    return in_variant() ? 0 : -1;
+}
+
+static int w_001D1C50(void *ctx)
+{
+    (void)ctx;
+    return in_variant() ? em_render_001D1C50() : -1;
+}
+
+static int w_001C1D00(void *ctx, uint32_t a0)
+{
+    (void)ctx;
+    if (!in_variant() || a0 != EM_SCENE_D_008101D0)
+        return -1;
+    return em_render_001C1D00();
+}
+
+static int walk_001AFD70(void *ctx, int mode)
+{
+    (void)ctx;
+    if (s_variant == VARIANT_GAMEPLAY && mode == 0) {
+        em_game_legacy_pool_gameplay();
+        return 0;
+    }
+    if (s_variant == VARIANT_CUTSCENE && mode == 1) {
+        em_game_legacy_pool_cutscene();
+        return 0;
+    }
+    if (s_variant == VARIANT_CUTSCENE && mode == 2)
+        return unmirrored(UM_001AFD70_MODE2);
+    return -1;
+}
+
+static int w_0015C160(void *ctx)
+{
+    (void)ctx;
+    return in_variant() ? unmirrored(UM_0015C160) : -1;
+}
+
+static int w_001F0360(void *ctx)
+{
+    (void)ctx;
+    return in_variant() ? unmirrored(UM_001F0360) : -1;
+}
+
+static int w_0018B9C0(void *ctx, uint32_t actor)
+{
+    (void)ctx;
+    if (actor != D_CAMERA)
+        return -1;
+    if (s_variant == VARIANT_GAMEPLAY)
+        return em_camera_0018B9C0();
+    if (s_variant == VARIANT_CUTSCENE)
+        return em_camera_0018B9C0_opening();
+    return -1;
+}
+
+static int w_001AAD00(void *ctx)
+{
+    (void)ctx;
+    return in_variant() ? unmirrored(UM_001AAD00) : -1;
+}
+
+static int w_001D1EA0(void *ctx, int a0)
+{
+    (void)ctx;
+    if (!in_variant() || a0 != 1)
+        return -1;
+    return em_render_001D1EA0(1);
+}
+
+/* ------------------------------------------------------ frame machine */
 
 static int frame_machine(void)
 {
@@ -240,6 +461,9 @@ static int w_001AD4D0(void *ctx)
         if (restart > 0)
             *frame_state = 0;
     }
+    /* S10a interim, retired by S11a: publish the port's selector into
+     * canonical 3B8D (see the file comment). */
+    s_state.spad3B8D = g.frame_selector;
     EmFrameTrace *t = em_frame_trace_env();
     if (t)
         em_frame_trace_frame_state(t, s_user, s_state.spad3B8D,
@@ -272,14 +496,28 @@ static void bindings_init(void)
     w->ctx = NULL;
     w->trace = em_frame_trace_env() ? bindings_trace : NULL;
     w->r_0028A9A0 = r_0028A9A0;
+    w->r_00275B44 = r_00275B44;
+    w->r_008102B9 = r_008102B9;
 
     w->w_001AD4D0 = w_001AD4D0;
     w->w_001AFCA0 = w_001AFCA0;
     w->w_001AFCF0 = w_001AFCF0;
     w->w_001AD140 = w_001AD140;
     w->w_001AD010 = w_001AD010;
-    w->w_001AE5E0 = w_world_legacy;
-    w->w_001AE6B0 = w_world_legacy;
+    w->w_001AE5E0 = w_001AE5E0;
+    w->w_001AE6B0 = w_001AE6B0;
+
+    w->w_001CB590 = w_001CB590;
+    w->w_0015BCF0 = w_0015BCF0;
+    w->w_001CB5A0 = w_001CB5A0;
+    w->w_001D1C50 = w_001D1C50;
+    w->w_001C1D00 = w_001C1D00;
+    w->walk_001AFD70 = walk_001AFD70;
+    w->w_0015C160 = w_0015C160;
+    w->w_001F0360 = w_001F0360;
+    w->w_0018B9C0 = w_0018B9C0;
+    w->w_001AAD00 = w_001AAD00;
+    w->w_001D1EA0 = w_001D1EA0;
 
     w->w_001FC9B0 = um_001FC9B0;
     w->w_001B07C0 = um_001B07C0;

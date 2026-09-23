@@ -1,4 +1,23 @@
 {
   "comment": "Intentional, documented differences between the native frame trace and the original traces in Extermination/build/s87/frame_trace/ (tools/compare_frame_order.py; SCENE_COORDINATOR_DESIGN.md section 3.3). Each entry: id, kind (missing = an original event the native side may lack; extra = a native event the original lacks; field = a per-frame field that may differ, only 'classifier'), traces (original names or '*'), event pattern (any of op/fn/target/callback/record; addresses as hex) or field, reason (with evidence), removed_by (the WP-n or Sn step that deletes the entry). The list must only shrink: add an entry only in the step that introduces the documented difference.",
-  "entries": []
+  "entries": [
+    {
+      "id": "S10a-pool-legacy-block",
+      "kind": "missing",
+      "traces": [
+        "idle04",
+        "walk04",
+        "st03",
+        "cut02",
+        "cut07",
+        "cut15"
+      ],
+      "event": {
+        "op": "jalr",
+        "fn": "001AFD70"
+      },
+      "reason": "Until S10b the native 001AFD70 position (001AE5E0 mode 0, 001AE6B0 modes 1 and 2) is not a pool walk: mode 0 and mode 1 run one legacy block each (em_game_legacy_pool_gameplay / em_game_legacy_pool_cutscene, the retired monoliths' world updates in their old relative order) and mode 2 has no port code, so the native trace records the call to 001AFD70 (with its mode) but no per-node behaviour dispatch. The original walks 49-52 nodes per frame here (func_001AFD70: 001CB590(node) then jalr *(+0x10)). SCENE_COORDINATOR_DESIGN.md section 6, S10a/S10b.",
+      "removed_by": "S10b"
+    }
+  ]
 }

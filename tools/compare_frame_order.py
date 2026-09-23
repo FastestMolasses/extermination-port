@@ -589,8 +589,13 @@ def self_test(allow_path):
         if not cond:
             failures.append(msg)
 
-    allow = load_allow(allow_path)
-    print(f'allow-list {allow_path}: {len(allow)} entr{"y" if len(allow) == 1 else "ies"}, schema ok')
+    real = load_allow(allow_path)
+    print(f'allow-list {allow_path}: {len(real)} entr{"y" if len(real) == 1 else "ies"}, schema ok')
+    # The mechanics below test the comparator itself, so they run with no
+    # allowed differences: an entry of the real list (e.g. S10a's missing
+    # 001AFD70 nodes) would otherwise hide the very divergences these checks
+    # inject. The allow-list mechanics use their own temporary entries.
+    allow = []
     originals = {n: json.loads(original_path(n).read_text()) for n in ORIGINAL_NAMES}
 
     with tempfile.TemporaryDirectory() as tmp:

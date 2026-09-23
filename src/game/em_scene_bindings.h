@@ -5,7 +5,7 @@
  * canonical EmSceneState, fills the EmSceneWorkers table, and exports the
  * slot-0 game task em_scene_task_001ACEC0.
  *
- * STEPS S8-S9 (LEGACY MODE). The slot-0 task runs the original chain
+ * STEPS S8-S10a (LEGACY MODE). The slot-0 task runs the original chain
  * 001ACEC0 -> 001AD250 -> 001AD4D0 -> 0x1AE040 through the cores, once per
  * tick. Since S9 the state-0 tick returns without a world frame, as the
  * original does (0x1AE040 state 0 ends with a branch to its epilogue at
@@ -17,9 +17,13 @@
  *     button press and returns 0; the trace records a SHADOW classifier result
  *     computed over the canonical state with the step-C pad block's original
  *     layout words (em_frame_pad_block). It is recorded, never acted on.
- * The state-1 world frame is ONE legacy worker, bound to both 001AE5E0 and
- * 001AE6B0, that runs today's gameplay_frame/cutscene_frame (chosen by the
- * port's g.frame_selector, which S11a replaces with canonical 3B8D).
+ * Since S10a the state-1 world frame runs the translated variants
+ * em_sf_001AE5E0 / em_sf_001AE6B0, chosen by canonical 3B8D. Until S11a
+ * makes 3B8D the port's only storage, the bindings publish the port's
+ * g.frame_selector into it at the 0x1AE040 entry (the port's 3B8D writers
+ * still write g.frame_selector). The variants' stage workers are the stage
+ * functions of em_player_frame.c / em_render_frame.c; the 001AFD70
+ * position is one legacy block per variant (retired by S10b).
  */
 #ifndef EM_SCENE_BINDINGS_H
 #define EM_SCENE_BINDINGS_H
@@ -48,9 +52,10 @@ void em_scene_task_001ACEC0(void);
  * frame. */
 void em_scene_bindings_legacy_loaded(EmTask *record);
 
-/* ---- Legacy port code the S8 bindings call (implemented in em_game.c) ----
+/* ---- Legacy port code the bindings call (implemented in em_game.c) ----
  * Each one is today's code, moved unchanged out of the retired
- * ingame_frame_machine body. */
+ * ingame_frame_machine (S8) and gameplay_frame/cutscene_frame (S10a)
+ * bodies. */
 
 /* The port's native state-0 re-arm (player/camera/spawn/test fixtures),
  * bound at the 0x1AE040 state-0 position of 001AFCA0. */
@@ -63,9 +68,18 @@ void em_game_legacy_state0(void);
  * frame this tick). Retired by S11b (001AD140 -> 001AD4E0 -> 001ADF00). */
 int em_game_legacy_continue_restart(void);
 
-/* Today's world frame: em_opening_control_test_before_frame, then
- * cutscene_frame when g.frame_selector != 0, else gameplay_frame. */
-void em_game_legacy_world_frame(void);
+/* Head of a world-frame variant (cutscene != 0: 001AE6B0, else 001AE5E0):
+ * test instrumentation, and in the gameplay variant the status/game-over
+ * frozen frame (retired by S11b). Returns 1 when the frozen frame ran and
+ * the variant's stages must not run this tick, else 0. */
+int em_game_legacy_variant_head(int cutscene);
+
+/* The 001AFD70 position of each variant (001AE5E0 walks mode 0, 001AE6B0
+ * mode 1): one block holding the rest of the retired gameplay_frame /
+ * cutscene_frame world updates in their old relative order. Retired by
+ * S10b (the pool walk). */
+void em_game_legacy_pool_gameplay(void);
+void em_game_legacy_pool_cutscene(void);
 
 #ifdef __cplusplus
 }

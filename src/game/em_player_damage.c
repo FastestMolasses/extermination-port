@@ -356,7 +356,7 @@ void player_hurt_tick(void)
          * byte-matched is the WAIT it hands to: src/func_001AD4E0.c
          * (see game_over_tick). Port: enter GO_SCREEN — module-0x27 screen
          * stand-in + FADE-IN + the 240 hold; from the next frame the
-         * world is FROZEN (the gameplay_frame gate) and game_over_tick
+         * world is FROZEN (the em_game_legacy_variant_head gate) and game_over_tick
          * owns the flow, modeling the engine's task replacement. */
         if (em_frame_fade_level() >= 1.0f) {
             g.pd_phase  = 4;

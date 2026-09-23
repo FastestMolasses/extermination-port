@@ -3,9 +3,11 @@
  * Moved unchanged out of em_game.c in step S5 of
  * docs/SCENE_COORDINATOR_DESIGN.md (tools/split_module.py): actor_update,
  * the port's slice of func_0015BCF0, with its helpers. New in S5: the
- * stage functions em_player_0015BCF0 (wraps the calls gameplay_frame made
- * at that position) and em_player_0015C160 (no port code; reports -1).
- * Behaviour is unchanged by the move — only the file boundary is new.
+ * stage function em_player_0015BCF0 (wraps the calls gameplay_frame made
+ * at that position). Behaviour is unchanged by the move — only the file
+ * boundary is new. Since S10a the scene core em_sf_001AE5E0 calls it
+ * through the bindings (em_scene_bindings.c w_0015BCF0), between their
+ * 001CB590(player) and 001CB5A0 workers.
  *
  * Every function here reads the shared gameplay state (EmGameState g), so
  * this module takes the subsystem's internal header rather than owning
@@ -47,15 +49,6 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_opening_control_test.h"
-
-/* func_001CB590(actor table, size, flags) — actor-context begin. The
- * engine points the live node-table base at the actor block about to be
- * updated; the port has exactly one actor (the player), so the context is
- * implicit. Kept as a stage so multi-actor support lands here. */
-static void actor_context_begin(void) {}
-
-/* func_001CB5A0 — actor-context end. */
-static void actor_context_end(void) {}
 
 /* loco_clip_for_tier — the mode-1 id row {0,1,2,3} (idle/walk/jog/run)
  * indexed by the ramped locIdx +0x25C (func_0017B490 row D_00248A10),
@@ -466,31 +459,21 @@ static void actor_update(void)
 /* Stage functions (S5, docs/SCENE_COORDINATOR_DESIGN.md section 4.5)  */
 /* ------------------------------------------------------------------ */
 
-/* func_0015BCF0 position of func_001AE5E0 (design section 2.4, items
- * 2..4: 001CB590(player), 0015BCF0, 001CB5A0). Wraps, in the same order,
- * the four calls gameplay_frame made there before the split.
- * player_pose_finish_palette stays here because that is where it ran;
- * whether the original produces the final palette inside 0015BCF0 or in
- * 0015C160's +0x4C method is open question Q2. The damage/vitals tick and
- * the B9 write that the design also assigns to this stage still run in
- * gameplay_frame's pool block (moving them would change the order). */
+/* func_0015BCF0 position of func_001AE5E0 (design section 2.4, item 3),
+ * reached through the bindings' w_0015BCF0 with a0 = the player 0x8102B0.
+ * The surrounding 001CB590(player) and 001CB5A0 (an empty leaf) are the
+ * bindings' own workers since S10a. player_pose_finish_palette stays here
+ * because that is where it ran (design 10.2 Q2: the original produces the
+ * final palette inside 0015BCF0). The damage/vitals tick that the design
+ * also assigns to this stage still runs in the 001AFD70 legacy block
+ * (em_game_legacy_pool_gameplay) until S11b, together with the port's
+ * death latch (g.go_state), its stand-in for the B9 write: the canonical
+ * B9 has no port writer yet. In the cutscene
+ * variant the bindings do not call this: the port poses the player through
+ * the opening runtime (design risk 2). */
 int em_player_0015BCF0(void)
 {
-    actor_context_begin();   /* func_001CB590(0x008102B0, 0x320, ...) */
     actor_update();          /* func_0015BCF0 — player actor update   */
     player_pose_finish_palette(); /* original hip/Euler scratch publication */
-    actor_context_end();     /* func_001CB5A0                         */
     return 0;
-}
-
-/* func_0015C160 (byte-matched src/func_0015C160.c): returns at once when
- * D_008102B1 == 0; otherwise 001CB590(player, 0x320, player[9]), then,
- * unless D_00810771 == 1, 001DA6A0(D_00275B44) when player+0x214 == 0 or
- * else 0015BF90(player), and finally the method at player+0x4C.
- * The port runs no code at this frame position, so there is nothing to
- * wrap. The stage reports a fault (-1) instead of succeeding silently,
- * and the legacy frames do not call it. */
-int em_player_0015C160(void)
-{
-    return -1;
 }
