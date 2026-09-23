@@ -65,6 +65,66 @@ typedef enum {
     EM_SCENE_REQ_F5 = 0x45  /* D_008106F5 */
 } EmSceneReqByte;
 
+/* ------------------------------------------------------- game progress (D2)
+ *
+ * Lead decision D2 (SCENE_COORDINATOR_DESIGN.md 10.3): the 0x640-byte block
+ * D_00810700..D_00810D3F that 001AF2C0 resets (func_00121A28(D_00810700, 0,
+ * 0x640), src/func_001AF2C0.c) has ONE canonical owner, the EmProgress region
+ * below, addressed by original address. A port mirror of one of these bytes
+ * becomes an accessor over this region in the step that first touches it; no
+ * step adds a second copy.
+ *
+ * The region is only as canonical as its migrated ranges. Every other byte of
+ * it is RESERVED: it is still owned by a named EmSceneState field (the area
+ * bytes D_00810700..702, D_00810730[] and the D_00810750 counter) or by a port
+ * mirror that has not been migrated yet (for example g.opening_event_39 =
+ * D_00810791, g.opening_complete = D_00810811, g.cine_step = D_00810813,
+ * g.terminal_powered = D_0081084C bit 7, the em_pickup item counts from
+ * D_00810C64, the magazine and battery bytes). em_scene_progress_at() refuses
+ * a reserved byte (NULL), so nothing can read or write a second copy through
+ * it.
+ *
+ * Migrated ranges (step that migrated them; original readers and writers):
+ *   D_00810788           S10b  001B65C0 prime-pass mode (tested == 0xFF),
+ *                              001B6660 case 6 via D_00810700[0x88]; no port
+ *                              mirror existed.
+ *   D_00810860..D_00810B3F
+ *                        S10b  per-area taken bits, u32[8] per area
+ *                              (001B11E0 test, 001B1190 set, 001B64F0 clear);
+ *                              migrated from em_pickup's taken[] mirror.
+ *   D_00810B40..D_00810B5F
+ *                        S10b  first-visit bits (001B65C0); no port mirror.
+ *   D_00810CA4..D_00810CA7
+ *                        S10b  equipment bytes read by 0015C310 (player
+ *                              attachment spawn): CA4/CA6 migrated from
+ *                              em_pickup's primary/secondary mirror; CA5/CA7
+ *                              had no port storage.
+ */
+#define EM_SCENE_PROGRESS_BASE 0x00810700u
+#define EM_SCENE_PROGRESS_SIZE 0x640u
+
+typedef struct {
+    uint8_t bytes[EM_SCENE_PROGRESS_SIZE]; /* index = original address - 0x00810700 */
+} EmProgress;
+
+/* 1 when every byte of [address, address + size) is in a migrated range. */
+static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
+{
+    static const struct {
+        uint32_t first, end;
+    } migrated[] = {
+        {0x00810788u, 0x00810789u},
+        {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
+        {0x00810CA4u, 0x00810CA8u},
+    };
+    if (size == 0 || address + size < address)
+        return 0;
+    for (size_t i = 0; i < sizeof migrated / sizeof migrated[0]; ++i)
+        if (address >= migrated[i].first && address + size <= migrated[i].end)
+            return 1;
+    return 0;
+}
+
 /* ------------------------------------------------------------------ faults */
 
 typedef enum {
@@ -127,6 +187,9 @@ typedef struct {
     uint8_t d810E50;  /* 001AE7E0: != 4 returns 1 (same arm as E74 & 0x100) */
 
     EmSceneFault fault;
+
+    /* D_00810700..D_00810D3F (D2); reach it only through the accessors below. */
+    EmProgress progress;
 } EmSceneState;
 
 /* ---------------------------------------------------------------- accessors */
@@ -173,6 +236,46 @@ static inline int em_scene_fault(EmSceneState *s, uint32_t address, EmSceneFault
 static inline int em_scene_faulted(const EmSceneState *s)
 {
     return s->fault.code != EM_SCENE_FAULT_NONE;
+}
+
+/* -------------------------------------------------- progress accessors (D2) */
+
+/* The `size` canonical bytes at ORIGINAL address `address`, or NULL when any
+ * of them is reserved (see EmProgress). Multi-byte values keep the EE
+ * little-endian byte order. */
+static inline uint8_t *em_scene_progress_at(EmSceneState *s, uint32_t address, uint32_t size)
+{
+    if (!s || !em_scene_progress_canonical(address, size))
+        return NULL;
+    return &s->progress.bytes[address - EM_SCENE_PROGRESS_BASE];
+}
+
+/* The byte view D_00810758..D_00810B5F the state-0 spawners read and write
+ * (em_actor_roster.h EmActorRosterProgress has exactly this layout). Of it,
+ * only D_00810788 and D_00810860..D_00810B5F are canonical: a caller must
+ * refuse any roster record whose 001B6660 condition reads another byte (ids
+ * 2..6 read D_00810758[i], D_008107D8[i] or D_00810778). */
+#define EM_SCENE_PROGRESS_SPAWN_VIEW 0x00810758u
+#define EM_SCENE_PROGRESS_SPAWN_VIEW_END 0x00810B60u
+static inline uint8_t *em_scene_progress_spawn_view(EmSceneState *s)
+{
+    return &s->progress.bytes[EM_SCENE_PROGRESS_SPAWN_VIEW - EM_SCENE_PROGRESS_BASE];
+}
+
+/* 001AF2C0's effect on the region: the 0x640-byte memset, then its stores
+ * that land on migrated bytes (CA4 = 0xFF, CA5 = 5, CA6 = 0, CA7 = 7;
+ * src/func_001AF2C0.c). Its other stores go to their mirrors (em_pickup_reset,
+ * game_state_new_game). The named area bytes and D_00810750 are outside this
+ * reset: the port has no w_001AD230 yet (S12a), and the legacy load writes the
+ * 001AD360 area bytes after it. */
+static inline void em_scene_progress_reset_001AF2C0(EmSceneState *s)
+{
+    for (size_t i = 0; i < EM_SCENE_PROGRESS_SIZE; ++i)
+        s->progress.bytes[i] = 0;
+    s->progress.bytes[0x00810CA4u - EM_SCENE_PROGRESS_BASE] = 0xFF;
+    s->progress.bytes[0x00810CA5u - EM_SCENE_PROGRESS_BASE] = 5;
+    s->progress.bytes[0x00810CA6u - EM_SCENE_PROGRESS_BASE] = 0;
+    s->progress.bytes[0x00810CA7u - EM_SCENE_PROGRESS_BASE] = 7;
 }
 
 /* ----------------------------------------------------------- task bytes */

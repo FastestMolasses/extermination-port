@@ -22,8 +22,11 @@
  * makes 3B8D the port's only storage, the bindings publish the port's
  * g.frame_selector into it at the 0x1AE040 entry (the port's 3B8D writers
  * still write g.frame_selector). The variants' stage workers are the stage
- * functions of em_player_frame.c / em_render_frame.c; the 001AFD70
- * position is one legacy block per variant (retired by S10b).
+ * functions of em_player_frame.c / em_render_frame.c. Since S10b the
+ * 001AFD70 positions walk the native actor pool (em_actor_pool.c) built at
+ * state 0 from the AREA11 roster, with per-node behaviours from
+ * em_area11_bindings.c; a scene without an original roster holds one
+ * legacy_world node that runs the S10a legacy block.
  */
 #ifndef EM_SCENE_BINDINGS_H
 #define EM_SCENE_BINDINGS_H
@@ -74,12 +77,28 @@ int em_game_legacy_continue_restart(void);
  * the variant's stages must not run this tick, else 0. */
 int em_game_legacy_variant_head(int cutscene);
 
-/* The 001AFD70 position of each variant (001AE5E0 walks mode 0, 001AE6B0
- * mode 1): one block holding the rest of the retired gameplay_frame /
- * cutscene_frame world updates in their old relative order. Retired by
- * S10b (the pool walk). */
+/* The S10a legacy blocks (001AE5E0 walks mode 0, 001AE6B0 mode 1): the
+ * rest of the retired gameplay_frame / cutscene_frame world updates in their
+ * old relative order. Since S10b they are only the behaviour of the one
+ * `legacy_world` pool node of a scene without an original roster. */
 void em_game_legacy_pool_gameplay(void);
 void em_game_legacy_pool_cutscene(void);
+
+/* The pieces em_game_legacy_pool_gameplay is made of (S10b), which the
+ * AREA11 node adapters (em_area11_bindings.c) call at their owners' nodes.
+ * em_game_legacy_door_tick returns 1 when it consumed a goto scene switch;
+ * em_game_legacy_pickup_update is the item owners' half of em_pickup_update
+ * (the light children are em_pickup_lights_tick), and (0) is the cutscene
+ * block's scan-less call;
+ * em_game_legacy_player_residue is the damage/vitals tick (S11b) and the
+ * weapon update (WP-15), which have no pool owner in the original. */
+void em_game_legacy_collision_clears(void);
+int em_game_legacy_door_tick(void);
+void em_game_legacy_pickup_update(int gameplay);
+void em_game_legacy_pickup_collect(void);
+void em_game_legacy_examine_tick(void);
+void em_game_legacy_enemy_tick(void);
+void em_game_legacy_player_residue(void);
 
 #ifdef __cplusplus
 }

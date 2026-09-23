@@ -33,7 +33,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
-           src/game/em_scene_classify.c src/game/em_frame_trace.c
+           src/game/em_scene_classify.c src/game/em_frame_trace.c \
+           src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)

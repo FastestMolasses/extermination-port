@@ -465,8 +465,9 @@ static void actor_update(void)
  * bindings' own workers since S10a. player_pose_finish_palette stays here
  * because that is where it ran (design 10.2 Q2: the original produces the
  * final palette inside 0015BCF0). The damage/vitals tick that the design
- * also assigns to this stage still runs in the 001AFD70 legacy block
- * (em_game_legacy_pool_gameplay) until S11b, together with the port's
+ * also assigns to this stage still runs at the 001AFD70 position until
+ * S11b (em_game_legacy_player_residue: after the AREA11 pool walk since
+ * S10b, or inside a legacy_world node's block), together with the port's
  * death latch (g.go_state), its stand-in for the B9 write: the canonical
  * B9 has no port writer yet. In the cutscene
  * variant the bindings do not call this: the port poses the player through

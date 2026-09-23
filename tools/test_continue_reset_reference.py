@@ -138,6 +138,7 @@ def build_native():
 PICKUP_DIRTY = {
     0x810C60: (3, 1), 0x810C63: (7, 1), 0x810C64: (9, 1), 0x810C74: (7, 1),
     0x810C7F: (1, 1), 0x810CA4: (2, 1), 0x810CA6: (4, 1),
+    0x810CA5: (0x11, 1), 0x810CA7: (0x22, 1),
 }
 PICKUP_SHIM = r"""
 #include <assert.h>
@@ -161,11 +162,16 @@ void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh) { (void)gfx; (void)mesh; U
 void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
                                   const float *palette, uint32_t count, const float rgba[4])
 { (void)gfx; (void)mesh; (void)viewproj; (void)palette; (void)count; (void)rgba; UNREACHED(); }
+/* The D2 progress region (taken bits, CA4..CA7) is owned by
+ * em_scene_bindings.c in the game; the probe provides its own. */
+EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 void pickup_probe(uint8_t *count, uint8_t *out)
 {
     /* the same dirty state as PICKUP_DIRTY, then the reset */
-    g.status = 3; g.mag_packs = 7; g.count[0x00] = 9; g.count[0x10] = 7;
-    g.count[0x1B] = 1; g.primary = 2; g.secondary = 4;
+    g.mag_packs = 7; g.count[0x00] = 9; g.count[0x10] = 7;
+    g.count[0x1B] = 1; em_pickup_equipment_write(3, 2, 4);
+    *em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1) = 0x11;
+    *em_scene_progress_at(em_scene_state(), 0x00810CA7u, 1) = 0x22;
     g.battery_charge = 8; g.battery_capacity = 12; g.keys[0] = 1;
     em_pickup_reset();
     memcpy(count, em_pickup_items(), 256);
@@ -175,6 +181,8 @@ void pickup_probe(uint8_t *count, uint8_t *out)
     out[3] = secondary; out[4] = (uint8_t)em_pickup_battery_charge();
     out[5] = (uint8_t)(em_pickup_battery_charge() >> 8);
     out[6] = (uint8_t)em_pickup_battery_capacity(); out[7] = em_pickup_keys()[0];
+    out[8] = *em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
+    out[9] = *em_scene_progress_at(em_scene_state(), 0x00810CA7u, 1);
 }
 """
 
@@ -194,7 +202,7 @@ def build_native_pickup():
                     '-shared', '-fPIC', '-Isrc', str(source), *owners,
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
-    count, values = (C.c_uint8 * 256)(), (C.c_uint8 * 8)()
+    count, values = (C.c_uint8 * 256)(), (C.c_uint8 * 10)()
     native.pickup_probe(count, values)
     return bytes(count), bytes(values)
 
@@ -212,6 +220,8 @@ def check_pickup_reset(o):
         ('battery D_00810CB2', o.load(0x810CB2, 2), values[4] | values[5] << 8),
         ('battery max D_00810CB7', o.load(0x810CB7, 1), values[6]),
         ('key item 0 D_00810CC3', o.load(0x810CC3, 1), values[7]),
+        ('equipment D_00810CA5 (D2 progress region)', o.load(0x810CA5, 1), values[8]),
+        ('equipment D_00810CA7 (D2 progress region)', o.load(0x810CA7, 1), values[9]),
     ]
     # The seeds themselves, so a zero-only mirror cannot pass.
     assert [o.load(0x810C64 + i, 1) for i in (0, 5, 7, 0x10, 0x17)] == [1, 1, 1, 2, 1]
@@ -255,11 +265,11 @@ def main():
     assert number(o.load(0x810858)) == 100.0
     failed += check_pickup_reset(o)
 
-    # Original writes neither EmGameState nor em_pickup mirrors (area bytes,
-    # equipment CA5/CA7, D20..D23). Reported, not asserted here.
+    # Original writes neither EmGameState nor em_pickup mirrors nor the D2
+    # progress region (area bytes, D20..D23). Reported, not asserted here.
+    # (CA5/CA7 are D2 progress bytes since S10b, checked in check_pickup_reset.)
     print('not mirrored by this check:')
     print('  area bytes 700..705 =', o.read(0x810700, 6).hex(),
-          '| CA5, CA7 =', o.load(0x810CA5, 1), o.load(0x810CA7, 1),
           '| D20..D23 =', o.read(0x810D20, 4).hex())
     if failed:
         print(f'continue reset reference: {failed} field(s) differ — FAIL')

@@ -16,6 +16,7 @@
 #include "game/em_game.h"  /* em_game_player_interact_anim (em_game.c) */
 #include "game/em_random.h"
 #include "game/em_effect_color.h"
+#include "game/em_scene_bindings.h" /* em_scene_state(): the D2 progress region */
 
 #define PICKUP_PI 3.14159265358979f
 
@@ -94,16 +95,15 @@ static struct {
 static struct {
     uint8_t  count[256];      /* D_00810C64 mirror: u8 per item type */
     uint8_t  maps[256], keys[256]; /* separate original CB8 / CC3 families */
-    uint8_t  status, primary, secondary; /* C60/CA4/CA6 */
+    uint8_t  status;          /* D_00810C60 mirror. CA4/CA6 (primary,
+                               * secondary) live in the canonical D2
+                               * progress region since S10b: equip_byte() */
     uint8_t  mag_packs;       /* D_00810C63 mirror */
     int16_t  battery_charge;  /* D_00810CB2: internal half-units */
     uint8_t  battery_capacity;/* D_00810CB7: internal half-units */
-    uint32_t taken[2048];     /* D_00810860 mirror: bit (area<<8)|puid
-                               * (engine: u32[8] x area — same bits,
-                               * one flat array) */
     int      ammo_pending;    /* case-0x10 reserve rounds for em_game */
     int      found_pending;   /* item type for the Found line, -1 none */
-} g = { .found_pending = -1, .primary = 0xFF };
+} g = { .found_pending = -1 };
 
 /* This frame's use-scan winner (func_00184BA0's single winner for the
  * whole interactive list). Reset at every em_pickup_update entry; read
@@ -123,11 +123,50 @@ static float scan_dist;
  * in a non-zero area (uid 0x0100, 0x0B00, ...) must not persist either.
  * (Was `uid <= 0`, which persisted exactly those and permanently
  * despawned an item the engine re-spawns on every area re-entry.) */
+/* The taken bits are the canonical D_00810860 bytes of the D2 progress
+ * region (em_scene_state.h; migrated from this module's former flat
+ * taken[2048] mirror in S10b, same bit numbering). D_00810860 is u32[8] per
+ * area: the bit of puid in area a is bit (puid & 31) of the word at
+ * D_00810860 + (a << 5) + (puid >> 5) * 4 (001B11E0 / 001B1190), which in the
+ * EE's little-endian bytes is bit (u & 7) of byte D_00810860 + (u >> 3) for
+ * the flat u = (a << 8) | puid. Areas past 0x16 would address D_00810B40..,
+ * which the original never does for a pickup; such a uid is reported and
+ * treated as never taken (no persistence), never silently aliased. */
+static uint8_t *taken_byte(unsigned u)
+{
+    uint32_t address = 0x00810860u + (u >> 3);
+    uint8_t *byte = address < 0x00810B40u
+                  ? em_scene_progress_at(em_scene_state(), address, 1) : NULL;
+    if (!byte) {
+        static int warned;
+        if (!warned) {
+            warned = 1;
+            fprintf(stderr, "pickup: uid %#06x is outside D_00810860 (areas 0..0x16); "
+                    "not persisted\n", u);
+        }
+    }
+    return byte;
+}
+
+static void taken_set(unsigned u)
+{
+    uint8_t *byte = taken_byte(u);
+    if (byte) *byte = (uint8_t)(*byte | (1u << (u & 7)));
+}
+
 static int taken_bit(int uid)
 {
     if (uid <= 0 || (uid & 0xFF) == 0) return 0;
     unsigned u = (unsigned)uid & 0xFFFF;
-    return (g.taken[u >> 5] >> (u & 31)) & 1u;
+    const uint8_t *byte = taken_byte(u);
+    return byte ? (*byte >> (u & 7)) & 1u : 0;
+}
+
+/* D_00810CA4 / D_00810CA6 in the canonical D2 progress region (always
+ * canonical: em_scene_state.h lists CA4..CA7 as migrated). */
+static uint8_t *equip_byte(uint32_t address)
+{
+    return em_scene_progress_at(em_scene_state(), address, 1);
 }
 
 int em_pickup_taken(int uid) { return taken_bit(uid); }
@@ -399,10 +438,16 @@ int em_pickup_owner_init_pose(int slot, uint32_t owner, unsigned flags2)
  * reserve (CB4) and loaded-magazine (C62) writes are overwritten by
  * 001AF2C0's own C62 = 30 / CB4 = 60 stores, which em_game mirrors
  * (game_state_new_game), so no ammo_pending rounds are queued here.
- * Not mirrored by em_pickup: CA5 = 5 / CA7 = 7 (equipment bytes read by
- * 0015C310/0018AB00/001B17A0) and D20..D23 = 1. */
+ * Since S10b the taken bits (D_00810860..) and the equipment bytes
+ * CA4..CA7 are canonical in the D2 progress region, and this reset clears
+ * that region and writes 001AF2C0's CA4 = 0xFF, CA5 = 5, CA6 = 0, CA7 = 7
+ * there (em_scene_progress_reset_001AF2C0). Not mirrored anywhere yet:
+ * D20..D23 = 1. */
 void em_pickup_reset(void)
 {
+    /* The D_00810700 memset for the canonical D2 bytes (taken bits and
+     * CA4..CA7 among them), with 001AF2C0's stores to them. */
+    em_scene_progress_reset_001AF2C0(em_scene_state());
     memset(&g, 0, sizeof g);
     g.found_pending = -1;
     g.status = 0;                        /* C60 */
@@ -410,8 +455,7 @@ void em_pickup_reset(void)
     g.count[0x05] = 1;                   /* C69 */
     g.count[0x07] = 1;                   /* C6B */
     g.count[0x17] = 1;                   /* C7B */
-    g.primary = 0xFF;                    /* CA4 */
-    g.secondary = 0;                     /* CA6 */
+    /* CA4 = 0xFF, CA6 = 0: written by the progress reset above. */
     g.battery_charge = 0;                /* CB2 */
     g.battery_capacity = 0;              /* CB7 */
     g.count[EM_PICKUP_TYPE_MAG] = 2;     /* 001C40B0(0x10, 2): C74 += 2 */
@@ -520,7 +564,7 @@ static void pickup_take(Pickup *p, float player_y)
      * composite (area << 8) | puid. */
     if (p->uid > 0 && (p->uid & 0xFF) != 0) {
         unsigned u = (unsigned)p->uid & 0xFFFF;
-        g.taken[u >> 5] |= 1u << (u & 31);
+        taken_set(u);
     }
     /* The former type-0x11 hook here mirrored D_00810811 as a "battery"
      * flag. That byte is the AREA11 opening controller's completion flag
@@ -531,8 +575,8 @@ static void pickup_take(Pickup *p, float player_y)
            p->type, g.count[p->type & 0xFF], (unsigned)p->uid);
 }
 
-void em_pickup_update(const float player_pos[3], float player_yaw,
-                      const EmFrameInput *in, int scan)
+void em_pickup_update_owners(const float player_pos[3], float player_yaw,
+                             const EmFrameInput *in, int scan)
 {
     scan_slot = -1;                      /* last frame's winner expires */
     if (scan && !s.canonical_pickups)
@@ -548,6 +592,10 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
         if (--p->take_t <= 0)
             pickup_take(p, player_pos[1]);
     }
+}
+
+void em_pickup_lights_tick(void)
+{
     /* 001C5680: initialize without drawing once, then run 001F54E0 every
      * ordinary frame, including while the opening owns player controls.
      * Its even-frame stack copy is unused by the original call, so it
@@ -565,6 +613,13 @@ void em_pickup_update(const float player_pos[3], float player_yaw,
         em_effect_color(em_random_next(),light->color,light->tint);
         light->visible=1;
     }
+}
+
+void em_pickup_update(const float player_pos[3], float player_yaw,
+                      const EmFrameInput *in, int scan)
+{
+    em_pickup_update_owners(player_pos, player_yaw, in, scan);
+    em_pickup_lights_tick();
 }
 
 int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
@@ -638,15 +693,15 @@ const uint8_t *em_pickup_keys(void) { return g.keys; }
 void em_pickup_equipment_read(uint8_t *status, uint8_t *primary, uint8_t *secondary)
 {
     if (status) *status = g.status;
-    if (primary) *primary = g.primary;
-    if (secondary) *secondary = g.secondary;
+    if (primary) *primary = *equip_byte(0x00810CA4u);
+    if (secondary) *secondary = *equip_byte(0x00810CA6u);
 }
 
 void em_pickup_equipment_write(uint8_t status, uint8_t primary, uint8_t secondary)
 {
     g.status = status;
-    g.primary = primary;
-    g.secondary = secondary;
+    *equip_byte(0x00810CA4u) = primary;
+    *equip_byte(0x00810CA6u) = secondary;
 }
 
 static EmScriptCommandResult original_frame(void *context, EmScript *script,
@@ -718,7 +773,7 @@ static int original_event(void *context, EmPickupOwnerEvent event, uint32_t argu
     case EM_PICKUP_OWNER_PERSIST:
         if (argument) {
             unsigned uid = (unsigned)p->uid & 0xFFFF;
-            g.taken[uid >> 5] |= 1u << (uid & 31);
+            taken_set(uid);
         }
         return 1;
     case EM_PICKUP_OWNER_FREE:

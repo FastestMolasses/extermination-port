@@ -33,8 +33,8 @@
  *                                        port's g.frame_selector until
  *                                        S11a. Legacy hooks here:
  *                                        em_game_legacy_variant_head and
- *                                        em_game_legacy_pool_gameplay /
- *                                        _cutscene (the 001AFD70
+ *                                        the legacy world pieces the pool
+ *                                        nodes call (the 001AFD70
  *                                        position). The stage list below
  *                                        is the gameplay variant's.
  *
@@ -88,8 +88,13 @@
  *                  0x008101D0)           per-area specials). NOT camera
  *                                        math (corrected by FINDINGS.md
  *                                        "CAMERA SYSTEM"); skeleton no-op.
- *   func_001AFD70                        em_game_legacy_pool_gameplay: every
- *                                        other world update, one block.
+ *   func_001AFD70                        the native actor pool walk (S10b,
+ *                                        em_scene_bindings.c): AREA11 nodes
+ *                                        call the legacy pieces below from
+ *                                        their owners' nodes
+ *                                        (em_area11_bindings.c); other
+ *                                        scenes' one legacy_world node runs
+ *                                        em_game_legacy_pool_gameplay.
  *   func_0015C160 / func_001F0360        no port code; reported by the
  *                                        bindings when reached.
  *   func_001CB590(0x008101E0, 0xD0, 0)   camera_update() — THE CAMERA:
@@ -1035,8 +1040,10 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
  *   - em_game_legacy_pool_gameplay / em_game_legacy_pool_cutscene: the
  *     001AFD70 position (001AE5E0 walks mode 0; 001AE6B0 walks mode 1).
  *     Each is ONE block holding every other world update of the old
- *     monolith in its old relative order (retired by S10b, which ticks the
- *     pool per node).
+ *     monolith in its old relative order. Since S10b they are only the
+ *     behaviour of the `legacy_world` pool node of a scene without an
+ *     original roster; AREA11 ticks its pool per node (em_area11_bindings.c)
+ *     through the pieces the gameplay block is now made of.
  * Updates that ran BEFORE the player stage in gameplay_frame (collision
  * registry clears, truck, director, panel) now run at the 001AFD70
  * position, AFTER 0015BCF0, as their original owners do (00823FF0 truck,
@@ -1089,8 +1096,18 @@ int em_game_legacy_variant_head(int cutscene)
     return 0;
 }
 
-/* 001AE5E0's 001AFD70(0) position: the legacy block. */
-void em_game_legacy_pool_gameplay(void)
+/* ---- 001AE5E0's 001AFD70(0) position: the legacy world pieces ----
+ * S10b split the S10a legacy block into the pieces below, unchanged except
+ * for the function boundaries. Two callers use them:
+ *   - em_game_legacy_pool_gameplay, below, runs them in the block's exact
+ *     old order. It is the behaviour of the one `legacy_world` pool node of
+ *     a scene without an original roster (office, drawbridge: every
+ *     EM_*_TEST and tests/run_suite.sh), so those scenes are unchanged;
+ *   - in AREA11 the pool holds the original roster, and em_area11_bindings.c
+ *     calls each piece from the node whose original owner it stands in for
+ *     (SCENE_COORDINATOR_DESIGN.md 4.4), in the walk's node order. */
+
+void em_game_legacy_collision_clears(void)
 {
     /* MOVING-SURFACE REGISTRY (em_collision.h §11.4) and STATIC BLOCKER
      * REGISTRY (em_collision.h §blocker): both cleared once per world
@@ -1104,38 +1121,14 @@ void em_game_legacy_pool_gameplay(void)
      * changes nothing. */
     em_collision_moving_clear();
     em_collision_blocker_clear();
-    /* WEDGED TRUCK (AREA-11 record 16, overlay owner 00823FF0, a pool
-     * node, so it runs here since S10a). em_truck_update changes nothing
-     * today: the original stand-on
-     * trigger, fall sequence and D_00810792 persistence are not
-     * translated (WP-12, em_truck.h), so the truck is static and
-     * registers no moving surface. */
-    em_truck_update(g.pos);
-    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — record 12,
-     * ov 0x8253F0). The manager is a pool node, so since S10a it ticks
-     * here, AFTER the player stage, as in the original (001AE5E0: 0015BCF0
-     * at 0x1AE628, 001AFD70 at 0x1AE64C): a beat that arms on frame N
-     * locks the player (cine_active -> em_game_player_interact_busy) from
-     * frame N+1's player stage. Dormant outside a beat. No-op once the
-     * director reaches 0xFF. */
-    director_tick();
-    /* Keep the original static panel transform; this model never slides.
-     * grate_update is also the only binder of the panel's collision cell
-     * (uid 18, em_props.c panel_cell) into g.coll; it registers no blocker
-     * AABB. Since S10a it runs after the player stage (0015BCF0 at
-     * 0x1AE628, 001AFD70 at 0x1AE64C; the panel owner 00159210 is a pool
-     * node). em_collision_load clears every bound cell, so the player
-     * stage of the first world frame after a scene load, or after the
-     * em_game_scene_switch below, runs without cell 18 until this call
-     * binds it. Before S10a it was bound before that frame's player
-     * update. */
-    grate_update();
-    em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
-    em_area11_effect_runtime_tick();
-    render_chain_build();    /* port-native draw list (no original
-                              * counterpart); it ran just before 001C1D00,
-                              * which has no port code, and keeps its
-                              * place among the world updates */
+}
+
+/* The room-move door's position (#9, 001BC350). Returns 1 when a goto
+ * scene switch was consumed this call (the caller decides whether that is
+ * legal for its scene), else 0. */
+int em_game_legacy_door_tick(void)
+{
+    int switched = 0;
     /* func_001AFD70(0) — the actor-pool tick (world services). The
      * port's first pooled actors are the DOORS: per-frame behavior
      * (func_001BC350 state machine), the player use scan
@@ -1167,6 +1160,7 @@ void em_game_legacy_pool_gameplay(void)
         char  gdir[64];
         float gp[3], gyaw;
         if (em_door_goto_pending(gdir, sizeof gdir, gp, &gyaw)) {
+            switched = 1;
             if (em_game_scene_switch(gdir) == 0) {
                 if (g.transit_test && !g.tt_switch_frame)
                     g.tt_switch_frame = g.frame_no;
@@ -1211,18 +1205,39 @@ void em_game_legacy_pool_gameplay(void)
             memcpy(g.cam.tgt, g.cam.tgt_des, sizeof g.cam.tgt);
         }
     }
-    /* PICKUPS (em_pickup.h — the pool's item actors plus the player
-     * use scan's archetype-3 ITEM branch). The scan rides the same
-     * CROSS press edge as the door scan above; the engine's single
-     * nearest-wins walk over one interactive list is approximated
-     * DOORS-FIRST: a press that armed a door has engaged the movement
-     * lock by now, which suppresses the item scan (the engine's
-     * scripted-frame spad-3B8D gate shape). Damage lock likewise. */
-    em_snow_runtime_tick(g.cam.eye, 0);
-    em_pickup_update(g.pos, g.yaw, em_frame_input(),
-                     !em_door_movement_locked() &&
-                     !player_damage_locked());
-    em_props_indicators_tick();
+    return switched;
+}
+
+/* PICKUPS (em_pickup.h — the pool's item actors plus the player
+ * use scan's archetype-3 ITEM branch). The scan rides the same
+ * CROSS press edge as the door scan above; the engine's single
+ * nearest-wins walk over one interactive list is approximated
+ * DOORS-FIRST: a press that armed a door has engaged the movement
+ * lock by now, which suppresses the item scan (the engine's
+ * scripted-frame spad-3B8D gate shape). Damage lock likewise.
+ * Doors-first holds only where the legacy block's order is kept (the
+ * legacy_world node). In AREA11 since S10b the pickup group runs at its
+ * owner's node (#0, deferred g0.0), before the door node (#9), so there a
+ * press that arms the door the same frame no longer suppresses this
+ * frame's item scan; the original resolves one winner inside the player
+ * stage instead (00184BA0 in 0015BCF0), which the port does not have. */
+/* The item owners' half of em_pickup_update (the 001C5680 light children
+ * are em_pickup_lights_tick, which the legacy block ran right after it). */
+void em_game_legacy_pickup_update(int gameplay)
+{
+    if (!gameplay) {
+        em_pickup_update_owners(g.pos, g.yaw, em_frame_input(), 0);
+        return;
+    }
+    em_pickup_update_owners(g.pos, g.yaw, em_frame_input(),
+                            !em_door_movement_locked() &&
+                            !player_damage_locked());
+}
+
+/* The pickups' collection events (the legacy block ran them right after
+ * em_props_indicators_tick). */
+void em_game_legacy_pickup_collect(void)
+{
     {
         /* Collection events (one-shot takes — em_pickup.h):
          *  - FOUND: the engine posts D_008106B0/B1 and auto-opens the
@@ -1248,6 +1263,10 @@ void em_game_legacy_pool_gameplay(void)
             }
         }
     }
+}
+
+void em_game_legacy_examine_tick(void)
+{
     /* EXAMINE objects (em_examine.h — the overlay examine behaviors:
      * archetype scan on the same CROSS press edge, then the scripted
      * sequence: input pause + the mode-2 radio line + the optional
@@ -1265,11 +1284,22 @@ void em_game_legacy_pool_gameplay(void)
      * next frame — the engine's install-then-tick latency) and BEFORE
      * camera_update (the camera target tracks the descended player-Y). */
     elevator_tick();
+}
+
+void em_game_legacy_enemy_tick(void)
+{
     /* ENEMIES: the enemy state machines (func_001551B0 crates +
      * func_00153F10 worms — also part of the actor-pool tick). Runs
      * BEFORE the weapon update so this frame's shot resolves against
      * current positions. */
     em_enemy_update(&g.coll, g.pos);
+}
+
+/* The player-side residue of the legacy block: the damage/vitals tick with
+ * the port's death latch (S11b moves it into w_0015BCF0 with the B9 write)
+ * and the weapon update (WP-15). It has no pool owner in the original. */
+void em_game_legacy_player_residue(void)
+{
     /* PLAYER DAMAGE pipeline (the PD_* block above). The port's enemy
      * producers post one mailbox int (em_enemy.h, +0x36 code layout);
      * the engine's player producers instead write the pending-damage
@@ -1339,7 +1369,55 @@ void em_game_legacy_pool_gameplay(void)
     }
 }
 
-/* 001AE6B0's 001AFD70(1) position: the legacy block. The player's opening
+/* The whole legacy block, in its old order: the `legacy_world` node. */
+void em_game_legacy_pool_gameplay(void)
+{
+    em_game_legacy_collision_clears();
+    /* WEDGED TRUCK (AREA-11 record 16, overlay owner 00823FF0, a pool
+     * node, so it runs here since S10a). em_truck_update changes nothing
+     * today: the original stand-on
+     * trigger, fall sequence and D_00810792 persistence are not
+     * translated (WP-12, em_truck.h), so the truck is static and
+     * registers no moving surface. */
+    em_truck_update(g.pos);
+    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — record 12,
+     * ov 0x8253F0). The manager is a pool node, so since S10a it ticks
+     * here, AFTER the player stage, as in the original (001AE5E0: 0015BCF0
+     * at 0x1AE628, 001AFD70 at 0x1AE64C): a beat that arms on frame N
+     * locks the player (cine_active -> em_game_player_interact_busy) from
+     * frame N+1's player stage. Dormant outside a beat. No-op once the
+     * director reaches 0xFF. */
+    director_tick();
+    /* Keep the original static panel transform; this model never slides.
+     * grate_update is also the only binder of the panel's collision cell
+     * (uid 18, em_props.c panel_cell) into g.coll; it registers no blocker
+     * AABB. Since S10a it runs after the player stage (0015BCF0 at
+     * 0x1AE628, 001AFD70 at 0x1AE64C; the panel owner 00159210 is a pool
+     * node). em_collision_load clears every bound cell, so the player
+     * stage of the first world frame after a scene load, or after the
+     * em_game_scene_switch below, runs without cell 18 until this call
+     * binds it. Before S10a it was bound before that frame's player
+     * update. */
+    grate_update();
+    em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
+    em_area11_effect_runtime_tick();
+    render_chain_build();    /* port-native draw list (no original
+                              * counterpart); it ran just before 001C1D00,
+                              * which has no port code, and keeps its
+                              * place among the world updates */
+    (void)em_game_legacy_door_tick();
+    em_snow_runtime_tick(g.cam.eye, 0);
+    em_game_legacy_pickup_update(1);
+    em_pickup_lights_tick();
+    em_props_indicators_tick();
+    em_game_legacy_pickup_collect();
+    em_game_legacy_examine_tick();
+    em_game_legacy_enemy_tick();
+    em_game_legacy_player_residue();
+}
+
+/* 001AE6B0's 001AFD70(1) position: the S10a cutscene legacy block, kept
+ * as the cutscene behaviour of the `legacy_world` node. The player's opening
  * pose comes from original bank 0x98 (em_opening_runtime), so the ordinary
  * movement/weapon/menu handlers do not run. The snow tick keeps reading the
  * camera eye from before this frame's camera stage, as it did. */

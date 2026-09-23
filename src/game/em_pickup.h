@@ -81,6 +81,14 @@ void em_pickup_reset(void);
  * or the damage lock owns the player). */
 void em_pickup_update(const float player_pos[3], float player_yaw,
                       const EmFrameInput *in, int scan);
+/* em_pickup_update in its two halves (S10b): the item owners (the use scan
+ * and the armed-take pump) and the 001C5680 light children. In AREA11 the
+ * pool ticks them at their original positions, the owners at the item nodes
+ * (deferred g0.0..g0.6) and the children at the indicator nodes after the
+ * weather node; em_pickup_update runs both back to back, as before. */
+void em_pickup_update_owners(const float player_pos[3], float player_yaw,
+                             const EmFrameInput *in, int scan);
+void em_pickup_lights_tick(void);
 
 /* Render-chain accessors (door/enemy draw contract): slot count + one
  * draw per LIVE slot — returns 0 for despawned/model-less slots. */

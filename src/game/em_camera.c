@@ -2480,7 +2480,7 @@ void camera_update(void)
      * approach holds
      * still, then the op 0x0D sub 5 cinematic cue + held angle; the
      * post-warp re-seat still happens while the screen is black,
-     * em_game_legacy_pool_gameplay). */
+     * em_game_legacy_door_tick). */
     if (cam->top_mode == 0 && !em_hud_is_open()) {
         /* AREA-11 OPENING DIRECTOR camera (highest priority): while an
          * establishing-cutscene beat runs it OWNS the camera outright —

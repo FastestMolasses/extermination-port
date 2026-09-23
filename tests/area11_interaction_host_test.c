@@ -13,12 +13,16 @@
 #include "game/em_pickup_original.h"
 #include "game/em_pickup_motion.h"
 #include "game/em_random.h"
+#include "game/em_scene_bindings.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 EmGameState g;
+/* em_pickup keeps its taken bits and CA4..CA7 in the D2 progress region,
+ * which the game owns in em_scene_bindings.c (not linked here). */
+EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
 static int sfx_selected, sfx_bank_available = 1;

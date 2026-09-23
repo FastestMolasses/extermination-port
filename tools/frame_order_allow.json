@@ -2,22 +2,76 @@
   "comment": "Intentional, documented differences between the native frame trace and the original traces in Extermination/build/s87/frame_trace/ (tools/compare_frame_order.py; SCENE_COORDINATOR_DESIGN.md section 3.3). Each entry: id, kind (missing = an original event the native side may lack; extra = a native event the original lacks; field = a per-frame field that may differ, only 'classifier'), traces (original names or '*'), event pattern (any of op/fn/target/callback/record; addresses as hex) or field, reason (with evidence), removed_by (the WP-n or Sn step that deletes the entry). The list must only shrink: add an entry only in the step that introduces the documented difference.",
   "entries": [
     {
-      "id": "S10a-pool-legacy-block",
-      "kind": "missing",
+      "id": "S10b-record13-unbound",
+      "kind": "extra",
       "traces": [
-        "idle04",
-        "walk04",
-        "st03",
-        "cut02",
-        "cut07",
-        "cut15"
+        "*"
       ],
       "event": {
         "op": "jalr",
-        "fn": "001AFD70"
+        "fn": "001AFD70",
+        "callback": "008257A0",
+        "record": "area11[13]"
       },
-      "reason": "Until S10b the native 001AFD70 position (001AE5E0 mode 0, 001AE6B0 modes 1 and 2) is not a pool walk: mode 0 and mode 1 run one legacy block each (em_game_legacy_pool_gameplay / em_game_legacy_pool_cutscene, the retired monoliths' world updates in their old relative order) and mode 2 has no port code, so the native trace records the call to 001AFD70 (with its mode) but no per-node behaviour dispatch. The original walks 49-52 nodes per frame here (func_001AFD70: 001CB590(node) then jalr *(+0x10)). SCENE_COORDINATOR_DESIGN.md section 6, S10a/S10b.",
-      "removed_by": "S10b"
+      "reason": "Placement record 13 (class 9, overlay manager 008257A0) is spawned by 001B6990 in both, but the original node frees itself through 001AFC10 (called at 0x8258E0) on the second world frame after the load (ORIGINAL_FRAME_ORDER.md section 6, Q3), so no traced frame contains it. The port has no translation of 008257A0: its node is an explicit UNBOUND binding (em_area11_bindings.c) that stays in the list and is walked every frame. SCENE_COORDINATOR_DESIGN.md 4.2.",
+      "removed_by": "WP-10"
+    },
+    {
+      "id": "S10b-footstep-effect-node",
+      "kind": "missing",
+      "traces": [
+        "walk04"
+      ],
+      "event": {
+        "op": "jalr",
+        "fn": "001AFD70",
+        "callback": "001EA240"
+      },
+      "reason": "While walking, 0015BCF0 (0x15BDD8) -> 00187350 -> 00187EE0 -> 001EFD90(0x80000028) -> 001EF9D0 appends a footstep effect node (callback 001EA240, +0xD 5) about every 23 frames (ORIGINAL_FRAME_ORDER.md section 6, Q4). The port's player stage has no 00187EE0 effect spawn, so its pool never holds the node.",
+      "removed_by": "WP-15"
+    },
+    {
+      "id": "S10b-opening-script-actors",
+      "kind": "missing",
+      "traces": [
+        "st03",
+        "cut02"
+      ],
+      "event": {
+        "op": "jalr",
+        "fn": "001AFD70",
+        "callback": "001BB0E0"
+      },
+      "reason": "The opening script's op 0x14 (001BAC00) spawns two actors with callback 001BB0E0 (ORIGINAL_FRAME_ORDER.md section 4 and section 6, Q3); st03 still holds them for one frame. The port's opening runtime (em_opening_runtime) draws those actors natively and does not allocate them through the pool (design 4.3: interim allow-listed until the opening is unified with em_script).",
+      "removed_by": "WP-10"
+    },
+    {
+      "id": "S10b-opening-actor-effect-missing",
+      "kind": "missing",
+      "traces": [
+        "cut02"
+      ],
+      "event": {
+        "op": "jalr",
+        "fn": "001AFD70",
+        "callback": "001E2560"
+      },
+      "reason": "In cut02 the list holds three 001E2560 nodes: the player's (0015C420 -> 001F0120(0x3B)), Roger's (001BA8E0 -> 001F0120(0x47)) and a third spawned by the first opening actor (001BB0E0 -> 001BAD40 -> 001BA8E0; ORIGINAL_FRAME_ORDER.md section 6, Q3). The port spawns the first two but not the opening actors (entry S10b-opening-script-actors), so the third is missing. The pattern cannot name one 001E2560 node (all are runtime nodes with no record), so cut02 compares no 001E2560 node on either side; the paired entry S10b-opening-actor-effect-extra removes the native two. idle04, walk04, st03, cut07 and cut15 still compare both 001E2560 nodes.",
+      "removed_by": "WP-10"
+    },
+    {
+      "id": "S10b-opening-actor-effect-extra",
+      "kind": "extra",
+      "traces": [
+        "cut02"
+      ],
+      "event": {
+        "op": "jalr",
+        "fn": "001AFD70",
+        "callback": "001E2560"
+      },
+      "reason": "Pair of S10b-opening-actor-effect-missing (cut02 only): the port's two 001E2560 nodes (player and Roger) are removed from the cut02 comparison because the original side cannot be matched node by node while its third 001E2560 (spawned by an opening actor the port does not pool) is absent natively.",
+      "removed_by": "WP-10"
     }
   ]
 }

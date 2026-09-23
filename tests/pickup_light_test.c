@@ -10,6 +10,9 @@ static uint32_t random_value;
 
 uint32_t em_random_next(void) { ++random_calls; return random_value; }
 void em_game_player_interact_anim(int clip) { (void)clip; }
+/* The D2 progress region (taken bits, CA4..CA7); the game owns it in
+ * em_scene_bindings.c. */
+EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 
 int em_model_load(EmModel *m, const char *path)
 {
