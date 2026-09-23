@@ -33,9 +33,9 @@
  *   reads either word; they are not kept.
  * - The original has no bounds: an area/sub the roster was not exported for,
  *   or a progress byte outside EmActorRosterProgress, FAULTS (BAD_INDEX).
- * - EmActor has no +0x2E field yet (em_actor_pool.h). The value 001B6660 and
- *   001B6990 write there is reported in EmActorRosterSpawned.flags2 until the
- *   pool record carries it.
+ * - The +0x2E halfword 001B6660 and 001B6990 write is stored in
+ *   EmActor.flags2 (em_actor_pool.h); EmActorRosterSpawned.flags2 is a copy
+ *   of it for the report.
  */
 #ifndef EM_ACTOR_ROSTER_H
 #define EM_ACTOR_ROSTER_H
@@ -121,13 +121,13 @@ typedef struct {
     uint8_t source;          /* EmActorRosterSource */
     uint8_t group;           /* deferred group index */
     uint16_t index;          /* record index in its group / placement table */
-    uint16_t flags2;         /* the +0x2E halfword the spawner wrote (see header) */
+    uint16_t flags2;         /* copy of actor->flags2 (+0x2E) after the spawner */
     uint8_t wrote_flags2;    /* 1 when the spawner writes +0x2E (not 001C5C50) */
     uint32_t flags;          /* EM_ROSTER_FLAG_* from the callback registry */
 } EmActorRosterSpawned;
 
 /* Spawn report. Instrumentation for the census and trace; it stores no
- * original state except flags2 (see header). */
+ * original state (every original field lives in the EmActor). */
 typedef struct {
     EmActorRosterSpawned entries[EM_ACTOR_POOL_CAPACITY];
     uint32_t count;

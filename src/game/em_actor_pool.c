@@ -64,6 +64,7 @@ void em_actor_pool_record_image(const EmActorPool *pool, const EmActor *a,
     put32(out, 0x14, em_actor_pool_address(pool, a->self));
     put32(out, 0x18, em_actor_pool_address(pool, a->prev));
     put32(out, 0x1C, em_actor_pool_address(pool, a->next));
+    put16(out, 0x2E, a->flags2);
     put32(out, 0x30, a->w30);
     put16(out, 0x36, a->h36);
     put16(out, 0x52, a->h52);

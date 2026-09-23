@@ -6,8 +6,11 @@ int em_player_foot_stop_begin(EmPlayerFootStop *stop, unsigned tier,
     float clip_remaining, const float foot17[3], const float foot18[3],
     const float position[3], const float euler[3])
 {
+    /* 0017B910 has no lower bound on the +0x3C clock: a clock below 1 takes
+     * the cur < lim arm (residual cur - 1 < 0); walk then clamps the halved
+     * residual to 1 and jog uses 10. Non-finite inputs are a native refusal. */
     if (!stop || !foot17 || !foot18 || !position || !euler ||
-        (tier != 1 && tier != 2) || !isfinite(clip_remaining) || clip_remaining < 1)
+        (tier != 1 && tier != 2) || !isfinite(clip_remaining))
         return 0;
     for (unsigned axis = 0; axis < 3; ++axis)
         if (!isfinite(foot17[axis]) || !isfinite(foot18[axis]) || !isfinite(position[axis]))

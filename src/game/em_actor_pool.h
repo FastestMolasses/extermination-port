@@ -99,6 +99,9 @@ struct EmActor {
     EmActor *self;    /* +0x14: 001AFA90 writes self; 001AFC10 reads it and clears it */
     EmActor *prev;    /* +0x18 */
     EmActor *next;    /* +0x1C: active-list next, or free-list next when free */
+    uint16_t flags2;  /* +0x2E, written by 001B6660/001B6990 spawners; untouched by
+                       * 001AFA90/001AFC10 (and 001AF800), so it survives free/alloc
+                       * like the original halfword; only the 001AF8E0 memset clears it */
     uint32_t w30;     /* +0x30: 001AFA90 writes 0 */
     uint16_t h36;     /* +0x36: 001AFC10 writes 0 */
     uint16_t h52;     /* +0x52: 001AFA90 writes 0 */

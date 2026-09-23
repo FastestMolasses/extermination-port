@@ -159,12 +159,14 @@ static void test_reset(void)
     EmActor *a = spawn(1, 0x100, b_none), *b = spawn(2, 0x200, b_none), *c = spawn(3, 0x300, b_none);
     a->release = on_release;
     c->release = on_release;
+    b->flags2 = 0x0042;
     CHECK(em_actor_pool_free_001AFC10(pool, &scene, b) == 0);
+    CHECK(b->flags2 == 0x0042); /* free keeps +0x2E; the 001AF8E0 memset clears it */
     releases = 0;
     em_actor_pool_reset_001AF8E0(pool);
     CHECK(releases == 2 && released[0] == a && released[1] == c);
     CHECK(pool->free_count == 0x100 && pool->free_head == &pool->records[0]);
-    CHECK(a->callback == 0 && a->status == 0 && a->self == NULL);
+    CHECK(a->callback == 0 && a->status == 0 && a->self == NULL && b->flags2 == 0);
 }
 
 static void test_alloc(void)
@@ -213,16 +215,23 @@ static void test_free(void)
     b->scratch[0xFF] = 2;
     b->uid = 0x1234;
     b->w30 = 5;
+    b->flags2 = 0x00AB; /* +0x2E: a spawner's halfword */
     CHECK(em_actor_pool_free_001AFC10(pool, &scene, b) == 0);
     CHECK(a->next == c && c->prev == a && pool->head == a && pool->tail == c);
     CHECK(pool->free_head == b && b->next == &pool->records[3] && pool->free_count == 0xFE);
     CHECK(b->self == NULL && b->uid == 0 && b->scratch[0] == 0 && b->scratch[0xFF] == 0);
     CHECK(b->callback == 0x200); /* +0x10 is not cleared */
-    CHECK(b->rot[1] == 7.0f && b->w30 == 5); /* not cleared by free */
+    CHECK(b->rot[1] == 7.0f && b->w30 == 5 && b->flags2 == 0x00AB); /* not cleared by free */
     CHECK(b->behavior == NULL && b->allocated == 0);
     /* LIFO reuse; alloc rewrites w30 but not rot. */
     EmActor *again = em_actor_pool_alloc_001AFA90(pool, &scene, 1);
     CHECK(again == b && b->w30 == 0 && b->rot[1] == 7.0f && pool->tail == b);
+    CHECK(b->flags2 == 0x00AB); /* 001AFA90 does not write +0x2E either */
+    {
+        uint8_t image[EM_ACTOR_RECORD_SIZE];
+        em_actor_pool_record_image(pool, b, image);
+        CHECK(image[0x2E] == 0xAB && image[0x2F] == 0x00);
+    }
 
     /* Non-canonical handle: its +0x14 names the record to free. */
     EmActor *handle = &pool->records[10];

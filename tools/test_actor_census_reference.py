@@ -321,11 +321,7 @@ def oracle_order(o):
 
 def compare(o, n, entries, where):
     """Whole arena, pool globals, progress bytes and list order."""
-    expected = n.image()
-    for e in entries:  # +0x2E is not an EmActor field yet: the log carries it
-        if e['wrote_flags2']:
-            at = e['node']-POOL+0x2E
-            expected[at:at+2] = e['flags2'].to_bytes(2, 'little')
+    expected = n.image()  # includes EmActor.flags2 at +0x2E
     actual = bytes(o.arena)
     if actual != bytes(expected):
         i = next(i for i, (x, y) in enumerate(zip(actual, expected)) if x != y)
@@ -336,6 +332,10 @@ def compare(o, n, entries, where):
     assert oracle_order(o) == n.order(), (where, 'order')
     for e in entries:
         assert e['source_id'] == e['record'], (where, 'source_id', e)
+        # The report's flags2 is a copy of the record's +0x2E at spawn time.
+        if e['wrote_flags2']:
+            at = e['node']-POOL+0x2E
+            assert e['flags2'] == int.from_bytes(expected[at:at+2], 'little'), (where, 'flags2 copy', e)
         assert not e['bound'], (where, 'bound without a binder', e)
 
 
@@ -466,6 +466,19 @@ def run_synthetic(elf, lib, rng, case, stats):
         compare(o, n, entries, ('synthetic 001B6990', case))
         o.call(TITLE); assert n.spawn_title(log=False) == 0
         compare(o, n, entries, ('synthetic 001C5C50', case))
+        # Recycle spawned records: 001AFC10 and 001AFA90 never write +0x2E, so
+        # a 001C5C50 node (which writes none) reusing a freed spawner record
+        # keeps the spawner's halfword in both the oracle and the native pool.
+        spawned = [e['node'] for e in entries]
+        freed = rng.sample(spawned, min(len(spawned), rng.choice([0, 1, 3, 8])))
+        for node in freed:
+            o.call(FREE_FN, [node]); n.free(node)
+        for _ in range(len(freed)):
+            o.call(TITLE); assert n.spawn_title(log=False) == 0
+        compare(o, n, [], ('synthetic recycle', case))
+        stats['synthetic_recycled'] += len(freed)
+        stats['synthetic_recycled_flags2'] += sum(1 for node in freed
+                                                  for e in entries if e['node'] == node and e['flags2'])
         cond, alloc_fail, skipped_0b = n.counters()
         stats['synthetic_cases'] += 1; stats['synthetic_spawned'] += len(entries)
         stats['synthetic_condition_skips'] += cond; stats['synthetic_alloc_failures'] += alloc_fail
@@ -598,7 +611,7 @@ def main():
     stats = dict(extension_checks=validate_extensions(elf), area11_spawn_cases=0, synthetic_cases=0,
                  synthetic_spawned=0, synthetic_condition_skips=0, synthetic_alloc_failures=0,
                  synthetic_class_0b_skips=0, synthetic_prime_runs=0, synthetic_prime_zero_key=0, synthetic_progress_changed=0,
-                 synthetic_class2=0, census_captures=0, fail_stop_checks=0)
+                 synthetic_class2=0, synthetic_recycled=0, synthetic_recycled_flags2=0, census_captures=0, fail_stop_checks=0)
     lib = load_native()
     roster_bytes = build_area11_roster(elf, overlay)
     out = ROOT/'build/actor_census_reference'
@@ -644,7 +657,8 @@ def main():
     for case in range(400):
         run_synthetic(elf, lib, rng, case, stats)
     for key in ('synthetic_condition_skips', 'synthetic_alloc_failures', 'synthetic_class_0b_skips',
-                'synthetic_prime_runs', 'synthetic_prime_zero_key', 'synthetic_progress_changed', 'synthetic_class2'):
+                'synthetic_prime_runs', 'synthetic_prime_zero_key', 'synthetic_progress_changed', 'synthetic_class2',
+                'synthetic_recycled_flags2'):
         assert stats[key] > 0, ('synthetic coverage', key)
     fail_stop(elf, overlay, lib, roster_bytes, stats)
 
@@ -653,8 +667,7 @@ def main():
                   executed=['001AF8E0', '001B6990', '001B6910', '001B65C0', '001B64F0', '001B6660', '001B11E0',
                             '001AFA90', '001AFA50', '001AFC10', '001AF800', '001AFBC0', '001C5C50'],
                   boundary='func_00121A28 memset (argument-checked stub)',
-                  not_compared='+0x2E is compared through the spawn log (EmActor lacks the field); '
-                               'D_00275BE4/D_00275BE8 (written only by 001B65C0, read by no main-ELF code)',
+                  not_compared='D_00275BE4/D_00275BE8 (written only by 001B65C0, read by no main-ELF code)',
                   original_elf_sha256=ELF_SHA256)
     (out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report))

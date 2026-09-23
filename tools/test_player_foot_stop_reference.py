@@ -54,7 +54,10 @@ def main():
     rng = random.Random(0x17B910)
     entries = []
     for tier in (1, 2):
-        for clock in (1, 1.5, 2, 3, 23.999, 24, 24.001, 57.999, 58, 58.001, 119):
+        # 0 and (0, 1): 0017B910 has no lower bound on the clock (walk clamps
+        # the halved negative residual to 1, jog uses 10).
+        for clock in (0, 1e-6, .001, .25, .5, .999, .9999999, 1, 1.5, 2, 3, 23.999, 24, 24.001, 57.999, 58,
+                      58.001, 119):
             if tier == 2 and clock > 45: continue
             entries.append((tier, clock, [250.8, 229.9, 209], [249, 230, 209.2],
                             [252.4, 230, 211.3], [0, .6108653, 0]))
@@ -62,7 +65,7 @@ def main():
         tier = rng.choice((1, 2))
         position = [rng.uniform(-1024, 1024) for _ in range(3)]
         feet = [[position[i] + rng.uniform(-8, 8) for i in range(3)] for _ in range(2)]
-        entries.append((tier, rng.uniform(1, 120 if tier == 1 else 45), position,
+        entries.append((tier, rng.uniform(0, 120 if tier == 1 else 45), position,
                         *feet, [rng.uniform(-3.14, 3.14) for _ in range(3)]))
     callbacks = 0
     for tier, clock, position, foot17, foot18, euler in entries:
@@ -107,7 +110,9 @@ def main():
                 break
         else:
             raise AssertionError('foot stop did not finish')
-    report = {'entry_cases': len(entries), 'mode5_callbacks': callbacks,
+    below_one = sum(1 for entry in entries if entry[1] < 1)
+    assert below_one >= 14, below_one
+    report = {'entry_cases': len(entries), 'clock_below_one_cases': below_one, 'mode5_callbacks': callbacks,
               'all_scalar_words_exact': True,
               'boundaries': ['Original evaluated foot nodes are caller inputs.',
                              'Native whole-matrix/channel pose accuracy is a separate measured boundary.',

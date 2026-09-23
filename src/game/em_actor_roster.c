@@ -182,7 +182,7 @@ const EmActorRosterCallback *em_actor_roster_area11_callback(uint32_t callback)
 /* -------------------------------------------------------------- spawning */
 
 static int record_spawn(EmSceneState *scene, EmActor *actor, uint8_t source, uint8_t group, uint16_t index,
-                        uint32_t record_address, int flags2, EmActorRosterBindFn bind, void *bind_ctx,
+                        uint32_t record_address, int wrote_flags2, EmActorRosterBindFn bind, void *bind_ctx,
                         EmActorRosterSpawnLog *log)
 {
     EmActorRosterSpawned spawned;
@@ -192,8 +192,8 @@ static int record_spawn(EmSceneState *scene, EmActor *actor, uint8_t source, uin
     spawned.source = source;
     spawned.group = group;
     spawned.index = index;
-    spawned.wrote_flags2 = flags2 >= 0;
-    spawned.flags2 = flags2 >= 0 ? (uint16_t)flags2 : 0;
+    spawned.wrote_flags2 = (uint8_t)(wrote_flags2 != 0);
+    spawned.flags2 = actor->flags2; /* copy of the record's +0x2E after the spawner */
     /* The registry describes AREA11 (D_00810700 == 0x0B) only. */
     const EmActorRosterCallback *known =
         scene->d810700 == 0x0B ? em_actor_roster_area11_callback(actor->callback) : NULL;
@@ -350,7 +350,7 @@ static int spawn_001B6660(const EmActorRosterGroup *group, uint8_t group_index, 
         }
         e->table_index = p[2];                                /* +0x9A */
         e->model = p[6];                                      /* +0x03 */
-        uint16_t flags2 = (uint16_t)((rs16(p + 6) >> 8) & 0xFF); /* +0x2E */
+        e->flags2 = (uint16_t)((rs16(p + 6) >> 8) & 0xFF);    /* +0x2E (sh) */
         e->param = p[8];                                      /* +0x0D */
         if ((rs16(p + 4) & ~0xE0) == 2) {
             e->b9D = scene->d810701; /* +0x9D = D_00810701 */
@@ -368,7 +368,7 @@ static int spawn_001B6660(const EmActorRosterGroup *group, uint8_t group_index, 
         e->rot[2] = rdf(p + 0x24);
         e->callback = rd32(p + 0x28); /* +0x10 */
         if (record_spawn(scene, e, EM_ROSTER_SOURCE_DEFERRED, group_index, (uint16_t)i,
-                         group->address + i * EM_ROSTER_DEFERRED_RECORD_SIZE, flags2, bind, bind_ctx, log) < 0)
+                         group->address + i * EM_ROSTER_DEFERRED_RECORD_SIZE, 1, bind, bind_ctx, log) < 0)
             return -1;
     }
     return 0;
@@ -413,7 +413,7 @@ int em_actor_roster_spawn_001B6990(const EmActorRoster *roster, EmActorPool *poo
             continue;
         }
         actor->model = rec[2];                                      /* +0x03 */
-        uint16_t flags2 = (uint16_t)((rs16(rec + 2) >> 8) & 0xFF);   /* +0x2E */
+        actor->flags2 = (uint16_t)((rs16(rec + 2) >> 8) & 0xFF);    /* +0x2E (sh) */
         actor->param = rec[4];                                      /* +0x0D */
         actor->table_index = (uint8_t)idx;                          /* +0x9A (sb) */
         if ((rs16(rec) & ~0xE0) == 2) {
@@ -432,7 +432,7 @@ int em_actor_roster_spawn_001B6990(const EmActorRoster *roster, EmActorPool *poo
         actor->rot[2] = rdf(rec + 0x20);
         actor->callback = rd32(rec + 0x24); /* +0x10 */
         if (record_spawn(scene, actor, EM_ROSTER_SOURCE_PLACEMENT, 0, (uint16_t)idx,
-                         roster->placement_address + idx * EM_ROSTER_PLACEMENT_RECORD_SIZE, flags2, bind,
+                         roster->placement_address + idx * EM_ROSTER_PLACEMENT_RECORD_SIZE, 1, bind,
                          bind_ctx, log) < 0)
             return -1;
     }
@@ -456,6 +456,7 @@ int em_actor_roster_spawn_001C5C50(EmActorPool *pool, EmSceneState *scene, EmAct
     actor->model = 3;
     actor->param = 0;
     actor->callback = EM_ROSTER_CALLBACK_001C5930;
-    /* 001C5C50 writes no +0x2E (wrote_flags2 = 0). */
-    return record_spawn(scene, actor, EM_ROSTER_SOURCE_001C5C50, 0, 0, 0, -1, bind, bind_ctx, log);
+    /* 001C5C50 writes no +0x2E: the record keeps whatever the halfword held
+     * (alloc/free never write it; wrote_flags2 = 0). */
+    return record_spawn(scene, actor, EM_ROSTER_SOURCE_001C5C50, 0, 0, 0, 0, bind, bind_ctx, log);
 }

@@ -165,7 +165,7 @@ void shim_fault_clear(EmSceneState *s) { s->fault.code = 0; s->fault.address = 0
 static const struct { unsigned off, size, at; } fields[] = {
     FIELD(0x00, status), FIELD(0x01, drawn), FIELD(0x02, cls), FIELD(0x03, model),
     FIELD(0x04, u04), FIELD(0x0A, u0A), FIELD(0x0D, param), FIELD(0x0E, uid),
-    FIELD(0x30, w30), FIELD(0x36, h36), FIELD(0x52, h52), FIELD(0x54, kind), FIELD(0x56, link),
+    FIELD(0x2E, flags2), FIELD(0x30, w30), FIELD(0x36, h36), FIELD(0x52, h52), FIELD(0x54, kind), FIELD(0x56, link),
     FIELD(0x58, w58), FIELD(0x5C, w5C), FIELD(0x60, f60), FIELD(0x80, f80), FIELD(0x90, w90),
     FIELD(0x94, h94), FIELD(0x96, h96), FIELD(0x98, b98), FIELD(0x99, b99),
     FIELD(0x9A, table_index), FIELD(0x9C, b9C), FIELD(0x9D, b9D), FIELD(0x9E, b9E),
@@ -338,7 +338,7 @@ def random_class(rng): return rng.choice(CLASSES) | rng.choice(FLAGS)
 # +0x09 (bones: nonzero needs the 001AF800 slot arena, covered by the C test)
 # and +0x10..+0x1F (callback and links). Scribbling them after an alloc lets a
 # later free and re-alloc show which bytes the original clears, rewrites or keeps.
-SCRIBBLE = ([0, 1, 3, 4, 5, 6, 7, 8, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF] + list(range(0x30, 0x34)) +
+SCRIBBLE = ([0, 1, 3, 4, 5, 6, 7, 8, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF, 0x2E, 0x2F] + list(range(0x30, 0x34)) +
             [0x36, 0x37] + list(range(0x52, 0x60)) + list(range(0x60, 0x90)) + list(range(0x90, 0x94)) +
             list(range(0x94, 0x9B)) + [0x9C, 0x9D, 0x9E] + list(range(0xB0, 0xD0)) +
             list(range(0x1F0, 0x2F0)))
