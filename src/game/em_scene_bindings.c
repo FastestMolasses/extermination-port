@@ -1,7 +1,7 @@
-/* Scene coordinator bindings, steps S8-S11b. See em_scene_bindings.h and
- * docs/SCENE_COORDINATOR_DESIGN.md sections 3.1, 5, 6 (S8 .. S11b) and 10.
+/* Scene coordinator bindings, steps S8-S12a. See em_scene_bindings.h and
+ * docs/SCENE_COORDINATOR_DESIGN.md sections 3.1, 5, 6 (S8 .. S12a) and 10.
  *
- * What is live after S11b:
+ * What is live after S12a:
  *   - the slot-0 task is em_scene_task_001ACEC0, which runs the S3 cores
  *     001ACEC0 -> 001AD250 and, through the w_001AD4D0 binding (the original
  *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040 with
@@ -44,6 +44,15 @@
  *     state 6: 001FF030/001FEFE0, reachable only through CE, never written;
  *     +9 = 3: 001AD740, reachable only through 3B93, never written in
  *     AREA11) fault at their NULL workers;
+ *   - S12a: New Game (and Continue) register this task with a cleared
+ *     record, so the chain runs the original load arms: 001AD1A0 (module 3),
+ *     001AD230 (the 001AF2C0 reset), 001AD360 (the intro movie at step 1)
+ *     and 001ADF50 (the native area read at 001FF080(1, 0), the load veil);
+ *     the state-0 rebuild places the player with 001B07C0(0) over the
+ *     exported spawn table (AREA11; see "spawn placement") and flashes the
+ *     transition in with 001AEE40(4); 001AD010's area change (+9 = 5) is
+ *     served the same way (em_scene_request_area_change_001B0C60 is the
+ *     translated request). See "the load arms" below;
  *   - spad 3B90 (001ACEC0 writes 2 every tick) and C4 are forwarded to the
  *     step-D letterbox gate at the end of every task tick (design 2.1);
  *   - the S6 trace contract (design 10.1) when EM_FRAME_TRACE is set.
@@ -70,11 +79,11 @@
  *   with no port code at their original position. Their bindings return
  *   without effect and are reported once on stderr, so a trace that shows
  *   the call is never mistaken for the port doing it.
- * Not bound until later steps, therefore NULL: the load arms (001AD1A0,
- * 001AD230, 001AD360's and 001ADF50's remaining callees), the unported
- * classifier arms (r == 1 and state 2, r == 3 and state 6), +9 = 3
- * (001AD740) and state 4 (0018AB00, 0018D7B0; S12b). B8 has no port
- * writer until S12b, so 001AD010 is never entered.
+ * Not bound until later steps, therefore NULL: the unported classifier arms
+ * (r == 1 and state 2, r == 3 and state 6), +9 = 3 (001AD740) and state 4
+ * (0018AB00, 0018D7B0; S12b; w_001B07C0 and w_0018C0D0 also refuse state
+ * 4's calls). Since S12a B8 = 1 has a port writer (the 001B0C60
+ * translation); B8 = 2 (the room move) has none until S12b.
  */
 #include "game/em_scene_bindings.h"
 
@@ -89,13 +98,18 @@
 #include "game/em_game.h"
 #include "game/em_frame.h"
 #include "game/em_frame_trace.h"
+#include "game/em_frontend.h"
 #include "game/em_game_internal.h"
 #include "game/em_hud.h"
+#include "game/em_load_veil.h"
+#include "game/em_pickup.h"
+#include "game/em_pickup_original.h"
 #include "game/em_scene_classify.h"
 #include "game/em_scene_frame.h"
 #include "game/em_scene_task.h"
 #include "game/em_sfx.h"
 #include "game/em_scene_workers.h"
+#include "game/em_spawn_table.h"
 
 /* ------------------------------------------------------------ storage */
 
@@ -125,6 +139,9 @@ static int s_player_init_pending;
  * several states use it to refuse, or to tell apart, a call (status state
  * 3/5 versus the world variants; state 0 versus state 5). */
 static int s_entry_state = -1;
+
+/* The load veil block *D_00275888 (0021B180/0021B550/0021B840, S12a). */
+static EmLoadVeil s_veil;
 
 /* The slot-0 record's user bytes for the tick in progress. */
 static uint8_t *s_user;
@@ -158,12 +175,11 @@ EmSceneState *em_scene_state(void)
  * their original position. Each entry says what the port does instead. */
 enum {
     UM_001FC9B0,
-    UM_001B07C0,
+    UM_001B07C0_LEGACY_WORLD,
     UM_001B6990_LEGACY_WORLD,
     UM_001D19E0,
     UM_001C1DC0,
     UM_00199C50,
-    UM_001AEE40,
     UM_001FAE70,
     UM_001C5C50_LEGACY_WORLD,
     UM_001D1EF0,
@@ -180,6 +196,13 @@ enum {
     UM_001FA790,
     UM_001FAB50,
     UM_00810D38,
+    UM_00200830,
+    UM_001D19D0,
+    UM_0015C1F0,
+    UM_001B0460,
+    UM_0021B1B0,
+    UM_0021B500,
+    UM_001FAD70,
     UM_COUNT
 };
 
@@ -188,18 +211,17 @@ static const struct {
     const char *port; /* where the port does (or does not do) this today */
 } s_unmirrored[UM_COUNT] = {
     [UM_001FC9B0] = {0x001FC9B0u, "001AFCF0 callee; no port counterpart"},
-    [UM_001B07C0] = {0x001B07C0u, "spawn placement; the manifest spawn inside the legacy state-0 re-arm"},
+    [UM_001B07C0_LEGACY_WORLD] = {0x001B07C0u, "scene without an original roster: the manifest spawn "
+                                               "(em_game_legacy_manifest_spawn at 001AFCA0)"},
     [UM_001B6990_LEGACY_WORLD] = {0x001B6990u, "scene without an original roster: one legacy_world "
                                                "pool node runs the S10a legacy block"},
     [UM_001D19E0] = {0x001D19E0u, "no port counterpart"},
     [UM_001C1DC0] = {0x001C1DC0u, "its 001D2830 registrations and 001C1E70..001C1F50 passes have no "
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
-                                  "weather node (interim, em_area11_bindings.c)"},
+                                  "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
     [UM_00199C50] = {0x00199C50u, "no port counterpart"},
-    [UM_001AEE40] = {0x001AEE40u, "state-0 area-entry flash fade(4); not mirrored (the state-5 "
-                                  "call is em_frame_fade_flash)"},
     [UM_001FAE70] = {0x001FAE70u, "area music cue (state 0 area entry, state 5 status close); "
-                                  "not mirrored (game_load_task note; H22, WP-5)"},
+                                  "not mirrored (em_game_legacy_area_load note; H22, WP-5)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
     [UM_001D1EF0] = {0x001D1EF0u, "no port counterpart"},
@@ -221,26 +243,37 @@ static const struct {
     [UM_001FA790] = {0x001FA790u, "game-over stream cue 0x1B; the cue is not exported"},
     [UM_001FAB50] = {0x001FAB50u, "music channel release (game over); not mirrored (H22, WP-5)"},
     [UM_00810D38] = {0x00810D38u, "001ADF00's current-BGM word store; the port has no D_00810D38"},
+    [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
+                                  "renderer has no counterpart"},
+    [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
+    [UM_0015C1F0] = {0x0015C1F0u, "001B07C0: player model kind select and bind (+0x2FF, 001CA6E0); the "
+                                  "port draws its one exported player model"},
+    [UM_001B0460] = {0x001B0460u, "001B07C0: camera re-init from the spawn record; stood in by the legacy "
+                                  "chase re-arm (em_game_legacy_camera_rearm) until translated"},
+    [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
+    [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
+    [UM_001FAD70] = {0x001FAD70u, "001B0C00: stream channel volume fade (x3); the port's stream player "
+                                  "has no per-channel gain"},
 };
 
-static uint32_t s_unmirrored_seen;     /* reached at least once */
-static uint32_t s_unmirrored_reported; /* already on stderr */
+static uint64_t s_unmirrored_seen;     /* reached at least once */
+static uint64_t s_unmirrored_reported; /* already on stderr */
 
 static int unmirrored(int index)
 {
-    s_unmirrored_seen |= 1u << index;
+    s_unmirrored_seen |= UINT64_C(1) << index;
     return 0;
 }
 
 /* One stderr line per newly reached set, after the tick. */
 static void report_unmirrored(void)
 {
-    uint32_t fresh = s_unmirrored_seen & ~s_unmirrored_reported;
+    uint64_t fresh = s_unmirrored_seen & ~s_unmirrored_reported;
     if (!fresh)
         return;
     fprintf(stderr, "em_scene: legacy mode: reached without port code:");
     for (int i = 0; i < UM_COUNT; ++i)
-        if (fresh & (1u << i))
+        if (fresh & (UINT64_C(1) << i))
             fprintf(stderr, " %08X (%s);", (unsigned)s_unmirrored[i].address,
                     s_unmirrored[i].port);
     fputc('\n', stderr);
@@ -248,7 +281,6 @@ static void report_unmirrored(void)
 }
 
 static int um_001FC9B0(void *ctx) { (void)ctx; return unmirrored(UM_001FC9B0); }
-static int um_001B07C0(void *ctx, int a0) { (void)ctx; (void)a0; return unmirrored(UM_001B07C0); }
 static int um_001D19E0(void *ctx) { (void)ctx; return unmirrored(UM_001D19E0); }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
 static int um_001FAE70(void *ctx, int a0) { (void)ctx; (void)a0; return unmirrored(UM_001FAE70); }
@@ -306,6 +338,181 @@ static uint8_t r_008102B9(void *ctx)
     return 0x15;
 }
 
+/* ------------------------------------------- EM_AREA_CHANGE_LOG
+ *
+ * Test instrumentation for tools/test_area_load_reference.py (S12a): with
+ * EM_AREA_CHANGE_LOG=<path>, every slot-0 task tick appends one JSON line
+ * with the state before and after the tick in the layout of the S3 oracle
+ * (tools/test_scene_task_reference.py LAYOUT: task +8..+0x1F, the request
+ * block, the area bytes, D_00810730, ...), the veil block before and after,
+ * the fade substate at the tick start, the worker trace of the tick, the
+ * results of 0021B550 and 001AD230, and the state around a 001AD010 call.
+ * The test replays each chain tick through the executed original. It never
+ * changes behaviour. */
+enum { LOG_SNAP = 168, LOG_VEIL = 0x1C, LOG_TRACE_MAX = 96 };
+static FILE *s_log;
+static int s_log_checked;
+static uint32_t s_log_tick;
+static struct {
+    uint8_t pre[LOG_SNAP], veil_pre[LOG_VEIL];
+    int fade;
+    int ntrace, overflow;
+    uint32_t trace[LOG_TRACE_MAX][6];
+    int r_0021B550, r_001AD230;
+    int d010;
+    uint8_t d010_pre[LOG_SNAP], d010_post[LOG_SNAP];
+} s_tick;
+
+static FILE *log_file(void)
+{
+    if (!s_log_checked) {
+        s_log_checked = 1;
+        const char *path = getenv("EM_AREA_CHANGE_LOG");
+        if (path && path[0]) {
+            s_log = fopen(path, "w");
+            if (!s_log)
+                fprintf(stderr, "em_scene: EM_AREA_CHANGE_LOG=%s cannot be opened\n", path);
+        }
+    }
+    return s_log;
+}
+
+static void put_le(uint8_t **p, uint32_t v, int n)
+{
+    for (int i = 0; i < n; ++i)
+        *(*p)++ = (uint8_t)(v >> (8 * i));
+}
+
+/* The S3 oracle's LAYOUT, in its order (see the shim's io()). */
+static void log_snapshot(uint8_t out[LOG_SNAP])
+{
+    uint8_t *p = out;
+    if (s_user)
+        memcpy(p, s_user, 24);
+    else
+        memset(p, 0, 24);
+    p += 24;
+    memcpy(p, s_state.req, EM_SCENE_REQ_SIZE);
+    p += EM_SCENE_REQ_SIZE;
+    *p++ = s_state.d810700;
+    *p++ = s_state.d810701;
+    *p++ = s_state.d810702;
+    memcpy(p, s_state.d810730, sizeof s_state.d810730);
+    p += sizeof s_state.d810730;
+    put_le(&p, (uint32_t)s_state.d810750, 4);
+    put_le(&p, (uint32_t)s_state.spad3B68, 4);
+    put_le(&p, s_state.spad3B84, 2);
+    put_le(&p, s_state.spad3B8A, 2);
+    *p++ = s_state.spad3B8C;
+    *p++ = s_state.spad3B8D;
+    *p++ = s_state.spad3B8E;
+    *p++ = s_state.spad3B8F;
+    *p++ = s_state.spad3B90;
+    *p++ = s_state.spad3B91;
+    *p++ = s_state.spad3B92;
+    *p++ = s_state.spad3B93;
+    put_le(&p, s_state.spad3258, 4);
+    put_le(&p, s_state.spad31F4, 4);
+    *p++ = s_state.d275BD8;
+    *p++ = s_state.d275BDC;
+    *p++ = s_state.d275BE0;
+    *p++ = s_state.d8101E4;
+    put_le(&p, s_state.d810E74, 2);
+    put_le(&p, s_state.d810E70, 2);
+    *p++ = s_state.d810E50;
+}
+
+/* The block *D_00275888 at its original offsets (+0x14 is not modelled). */
+static void log_veil(uint8_t out[LOG_VEIL])
+{
+    uint8_t *p = out;
+    memset(out, 0, LOG_VEIL);
+    *p++ = s_veil.state;
+    *p++ = s_veil.sub;
+    *p++ = s_veil.sub2;
+    *p++ = s_veil.b03;
+    put_le(&p, s_veil.w04, 4);
+    for (int i = 0; i < 3; ++i) {
+        uint32_t bits;
+        memcpy(&bits, &s_veil.level[i], 4);
+        put_le(&p, bits, 4);
+    }
+    p += 4;
+    put_le(&p, s_veil.w18, 4);
+}
+
+static void log_hex(FILE *f, const uint8_t *b, size_t n)
+{
+    fputc('"', f);
+    for (size_t i = 0; i < n; ++i)
+        fprintf(f, "%02x", b[i]);
+    fputc('"', f);
+}
+
+static void log_tick_begin(void)
+{
+    if (!log_file())
+        return;
+    memset(&s_tick, 0, sizeof s_tick);
+    s_tick.r_0021B550 = s_tick.r_001AD230 = -2;
+    s_tick.fade = em_frame_transition()->substate;
+    log_snapshot(s_tick.pre);
+    log_veil(s_tick.veil_pre);
+}
+
+static void log_tick_end(int rc)
+{
+    FILE *f = log_file();
+    if (!f)
+        return;
+    uint8_t post[LOG_SNAP], veil[LOG_VEIL];
+    log_snapshot(post);
+    log_veil(veil);
+    fprintf(f, "{\"tick\": %u, \"rc\": %d, \"fade\": %d, \"pre\": ", s_log_tick++, rc, s_tick.fade);
+    log_hex(f, s_tick.pre, LOG_SNAP);
+    fputs(", \"post\": ", f);
+    log_hex(f, post, LOG_SNAP);
+    fputs(", \"veil_pre\": ", f);
+    log_hex(f, s_tick.veil_pre, LOG_VEIL);
+    fputs(", \"veil_post\": ", f);
+    log_hex(f, veil, LOG_VEIL);
+    fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
+            s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
+    for (int i = 0; i < s_tick.ntrace; ++i)
+        fprintf(f, "%s[%u, %u, %u, %u, %u, %u]", i ? ", " : "", s_tick.trace[i][0], s_tick.trace[i][1],
+                s_tick.trace[i][2], s_tick.trace[i][3], s_tick.trace[i][4], s_tick.trace[i][5]);
+    fputs("], \"d010\": ", f);
+    if (s_tick.d010) {
+        fputc('[', f);
+        log_hex(f, s_tick.d010_pre, LOG_SNAP);
+        fputs(", ", f);
+        log_hex(f, s_tick.d010_post, LOG_SNAP);
+        fputc(']', f);
+    } else {
+        fputs("null", f);
+    }
+    fputs("}\n", f);
+    fflush(f);
+}
+
+static void log_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a1, uint32_t a2,
+                      uint32_t a3)
+{
+    if (!s_log)
+        return;
+    if (s_tick.ntrace >= LOG_TRACE_MAX) {
+        s_tick.overflow = 1;
+        return;
+    }
+    uint32_t *t = s_tick.trace[s_tick.ntrace++];
+    t[0] = caller;
+    t[1] = callee;
+    t[2] = a0;
+    t[3] = a1;
+    t[4] = a2;
+    t[5] = a3;
+}
+
 /* ------------------------------------------------------------ trace */
 
 /* The classifier result recorded for this tick (design 10.1: once per
@@ -321,6 +528,7 @@ static int32_t traced_classifier(void)
 static void bindings_trace(void *ctx, uint32_t caller, uint32_t callee, uint32_t a0,
                            uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    log_trace(caller, callee, a0, a1, a2, a3);
     em_frame_trace_env_hook(ctx, caller, callee, a0, a1, a2, a3);
     if (caller == 0x001AE040u && callee == 0x001AE7E0u) {
         EmFrameTrace *t = em_frame_trace_env();
@@ -346,22 +554,44 @@ static int w_001AD140(void *ctx)
 static int w_001AD010(void *ctx)
 {
     (void)ctx;
-    return em_sf_001AD010(&s_state, s_user, &s_workers);
+    if (!s_log)
+        return em_sf_001AD010(&s_state, s_user, &s_workers);
+    s_tick.d010 = 1;
+    log_snapshot(s_tick.d010_pre);
+    int rc = em_sf_001AD010(&s_state, s_user, &s_workers);
+    log_snapshot(s_tick.d010_post);
+    return rc;
 }
 
 /* -------------------------------------------------------- legacy workers */
 
+/* The scene the pool is built for: the AREA11 roster when the loaded scene
+ * is AREA11 (the area read of D_00810700/701 = 0x0B/0, em_game_legacy_area_load),
+ * otherwise a scene the original roster does not describe (the office and
+ * drawbridge fixtures of EM_SKIP_STARTUP). */
+static int roster_scene(void)
+{
+    return strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0;
+}
+
 /* 0x1AE040 state 0, first callee. 001AFCA0 is 001AF5C0 (player wipe),
  * 001AF690, 001AF710, 001AF8E0 (pool reset), 001D0660, then spad 31F4 = 0
- * (design 2.3). The port's native re-arm stands in for the player wipe and
- * for the unmirrored state-0 callees (spawn, camera init, self-test
- * fixtures); since S10b the pool half of 001AF8E0 runs here (its class-list
- * half, D_00275B54..BB8, belongs to the unported 001AAD00 owner, design
- * 10.1). The pool reset calls every live node's release hook. */
+ * (design 2.3). The port's native re-arm stands in for the player wipe;
+ * since S10b the pool half of 001AF8E0 runs here (its class-list half,
+ * D_00275B54..BB8, belongs to the unported 001AAD00 owner, design 10.1).
+ * The pool reset calls every live node's release hook. A scene without an
+ * original roster also takes its legacy placement here (the manifest spawn,
+ * the camera re-arm and the fixtures, in their old order); AREA11 is placed
+ * by 001B07C0 (S12a). */
 static int w_001AFCA0(void *ctx)
 {
     (void)ctx;
     em_game_legacy_state0();
+    if (!roster_scene()) {
+        em_game_legacy_manifest_spawn();
+        em_game_legacy_camera_rearm();
+        em_game_legacy_state0_fixtures();
+    }
     s_player_init_pending = 1; /* the 001AF5C0 wipe: player +4 = 0 */
     em_actor_pool_reset_001AF8E0(&s_pool);
     em_area11_bindings_reset();
@@ -370,24 +600,303 @@ static int w_001AFCA0(void *ctx)
     return 0;
 }
 
-/* The scene the pool is built for: the AREA11 roster when the loaded scene
- * is AREA11 (canonical D_00810700 == 0x0B, committed by the legacy load's
- * 001AD360 stand-in), otherwise a scene the original roster does not
- * describe (office, drawbridge). */
-static int roster_scene(void)
-{
-    return strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0;
-}
-
-/* 001AD360 step 4 (design 10.1): 700 = 0x0B, 701 = 702 = 0, D_00810730[0x0B]
- * = 0. The legacy load and the legacy Continue restart stand in for the
- * route that reaches it (both commit AREA11 sub 0 entry 0). */
-static void legacy_commit_area11(void)
+/* 001AD360 step 4's area bytes (design 10.1): 700 = 0x0B, 701 = 702 = 0,
+ * D_00810730[0x0B] = 0, committed by the EM_SKIP_STARTUP fixture entry when
+ * its scene is AREA11 (the fixture skips 001AD360). */
+static void fixture_commit_area11(void)
 {
     s_state.d810700 = 0x0B;
     s_state.d810701 = 0;
     s_state.d810702 = 0;
     s_state.d810730[0x0B] = 0;
+}
+
+/* Trace of a call a bindings-level translation makes (001AD1A0, 001B07C0,
+ * 001B0C60): the same (caller, callee, a0..a3) record the cores emit. */
+static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a1, uint32_t a2,
+                       uint32_t a3)
+{
+    if (s_workers.trace)
+        s_workers.trace(s_workers.ctx, caller, callee, a0, a1, a2, a3);
+}
+
+/* ------------------------------------------- spawn placement (S12a)
+ *
+ * 0x1AE040 state 0 calls 001B07C0(0) (0x1AE094). AREA11: the byte-matched
+ * translation em_spawn_001B07C0 over the exported D_0024D650 window
+ * (assets/spawn/spawn_table.emsp, tools/export_spawn_table.py; verified by
+ * tools/test_spawn_place_reference.py), with the port's player as its
+ * EmSpawnIo view:
+ *   area bytes 700/701/702, D_00275BE0, 3B8D, D_00810788  canonical (s_state)
+ *   D_008106C8        canonical request word C8 (s_state.req; 001AFCF0
+ *                     cleared it just before, as in the original)
+ *   0x70003B40..5C    canonical s_state.spad3B40
+ *   +0xA0/+0xB0 xyz   g.pos (the port keeps one position; 001B07C0 writes
+ *                     the same record position to both)
+ *   +0xC4 heading     g.yaw (+0xC0/+0xC8 are written 0; the port has no
+ *                     pitch or roll)
+ *   +0x220/+0x228     g.status.health/infection, which are also the port's
+ *                     only copy of D_00810858/D_0081085C, so 001B07C0's copy
+ *                     is an identity here
+ *   +0x234/+0x235     g.pd_infected/g.pd_low, likewise the port's only copy
+ *                     of D_00810707/D_00810706 (0015CF90's saves are not
+ *                     canonical yet, D2)
+ *   D_00810C60        em_pickup's equipment status; C7D/C7E its item counts
+ *                     0x19/0x1A
+ *   +0x0E, +0x60..+0x8C, +0x230   written, no port storage and no port reader
+ *   +0x1C, +0x304     no port object at these offsets (0): the stores through
+ *                     them and 001EFE00 (reached only with D_008106C8 & 4 and
+ *                     & 0x60, i.e. AREA11 after event 0x30) have no worker:
+ *                     reaching them faults
+ *   0015C1F0          reported no-port-code (the port's one player model)
+ *   001B0460          the legacy chase re-arm (em_game_legacy_camera_rearm),
+ *                     reported, after the placed pose is committed to g
+ * Refused (fault): arg0 != 0 (state 4's re-place, S12b) and D_00275BE0 == 1
+ * (the load-game pose D_00810710..728 has no canonical storage; its only
+ * writer, 0x1AE040 state 2, is unported). After the translation the port's
+ * placement-dependent fixtures run (em_game_legacy_state0_fixtures).
+ * A scene without an original roster keeps its manifest spawn (001AFCA0). */
+
+static EmSpawnTable s_spawn_table;
+static int s_spawn_table_loaded;
+static EmSpawnIo *s_spawn_io; /* the placement in progress (for 001B0460) */
+
+static void spawn_commit(const EmSpawnIo *io)
+{
+    g.pos[0] = io->player.f0B0[0];
+    g.pos[1] = io->player.f0B0[1];
+    g.pos[2] = io->player.f0B0[2];
+    g.yaw = io->player.f0C0[1];
+    g.status.health = io->player.f220;
+    g.status.infection = io->player.f228;
+    g.pd_infected = io->player.b234;
+    g.pd_low = io->player.b235;
+    uint8_t status, primary, secondary;
+    em_pickup_equipment_read(&status, &primary, &secondary);
+    em_pickup_equipment_write(io->d810C60, primary, secondary);
+    em_scene_req_set_u32(&s_state, EM_SCENE_REQ_C8, (uint32_t)io->d8106C8);
+    memcpy(s_state.spad3B40, io->spad3B40, sizeof s_state.spad3B40);
+}
+
+static int spawn_w_0015C1F0(void *ctx, uint32_t player)
+{
+    (void)ctx;
+    bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_0015C1F0, player, 0, 0, 0);
+    if (player != D_PLAYER)
+        return -1;
+    return unmirrored(UM_0015C1F0);
+}
+
+static int spawn_w_001B0460(void *ctx, int a0)
+{
+    (void)ctx;
+    bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_001B0460, (uint32_t)a0, 0, 0, 0);
+    if (a0 != 0 || !s_spawn_io)
+        return -1;
+    spawn_commit(s_spawn_io);
+    em_game_legacy_camera_rearm();
+    return unmirrored(UM_001B0460);
+}
+
+static int w_001B07C0(void *ctx, int a0)
+{
+    (void)ctx;
+    if (!roster_scene())
+        return unmirrored(UM_001B07C0_LEGACY_WORLD);
+    if (a0 != 0 || s_state.d275BE0 == 1)
+        return -1;
+    if (!s_spawn_table_loaded) {
+        if (em_spawn_table_load(&s_spawn_table, EM_SPAWN_TABLE_PATH) != 0) {
+            fprintf(stderr, "em_scene: 001B07C0: %s missing or malformed (run "
+                    "tools/export_spawn_table.py)\n", EM_SPAWN_TABLE_PATH);
+            return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
+        }
+        s_spawn_table_loaded = 1;
+    }
+    const uint8_t *e788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
+    const uint8_t *items = em_pickup_items();
+    uint8_t status, primary, secondary;
+    em_pickup_equipment_read(&status, &primary, &secondary);
+    EmSpawnIo io;
+    memset(&io, 0, sizeof io);
+    io.d810700 = s_state.d810700;
+    io.d810701 = s_state.d810701;
+    io.d810702 = s_state.d810702;
+    io.d275BE0 = s_state.d275BE0;
+    io.d810706 = (uint8_t)g.pd_low;
+    io.d810707 = (uint8_t)g.pd_infected;
+    io.d810858 = g.status.health;
+    io.d81085C = g.status.infection;
+    io.d810788 = e788 ? *e788 : 0;
+    io.d810C7D = items[0x19];
+    io.d810C7E = items[0x1A];
+    io.spad3B8D = s_state.spad3B8D;
+    io.d810C60 = status;
+    io.d8106C8 = (int32_t)em_scene_req_u32(&s_state, EM_SCENE_REQ_C8);
+    memcpy(io.spad3B40, s_state.spad3B40, sizeof io.spad3B40);
+    io.player.f0A0[0] = io.player.f0B0[0] = g.pos[0];
+    io.player.f0A0[1] = io.player.f0B0[1] = g.pos[1];
+    io.player.f0A0[2] = io.player.f0B0[2] = g.pos[2];
+    io.player.f0C0[1] = g.yaw;
+    io.player.f220 = g.status.health;
+    io.player.f224 = g.pd_pend_hp;
+    io.player.f228 = g.status.infection;
+    io.player.f22C = g.pd_pend_inf;
+    io.player.b234 = (uint8_t)g.pd_infected;
+    io.player.b235 = (uint8_t)g.pd_low;
+    EmSpawnWorkers w = {NULL, NULL, NULL, spawn_w_0015C1F0, spawn_w_001B0460};
+    bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_001B0250,
+               EM_SPAWN_TABLE_ADDRESS + 4u * io.d810700, 4u * io.d810701, 0, 0);
+    s_spawn_io = &io;
+    int rc = em_spawn_001B07C0(&s_spawn_table, &io, &w, a0);
+    s_spawn_io = NULL;
+    if (rc < 0)
+        return em_scene_fault(&s_state, io.fault.address, (EmSceneFaultCode)io.fault.code);
+    spawn_commit(&io);
+    em_game_legacy_state0_fixtures();
+    return 0;
+}
+
+/* ------------------------------------------- the load arms (S12a)
+ *
+ * New Game: the frontend registers this task with a cleared record (001AC070
+ * state 4's 001AB790(001ACEC0)); 001ACEC0 +8 = 0 runs 001AD1A0 (module 3),
+ * +8 = 1 runs 001AD230 (the 001AF2C0 reset), +8 = 3 runs 001AD250: +9 = 0
+ * 001AD360 (the intro movie at step 1: D_00275C78 = 0, D_00821058 = 1),
+ * +9 = 5 001ADF50 (the area read, the load veil), +9 = 1 the frame machine,
+ * whose state 0 rebuilds the area. The same route replays on Continue
+ * (001AC070 option 0). Workers:
+ *   001AD1A0          translated here (byte-matched, see w_001AD1A0)
+ *   001FF080(0, 3)    screen module 3: resident in the port; D_00275BD8 = 0
+ *   001FF080(1, 0)    the area read em_game_legacy_area_load of the scene of
+ *                     D_00810700/701 (only 0x0B/0, AREA11, is exported);
+ *                     D_00275BD8 = 0 when it returns (the original's slot-2
+ *                     task 001FF0D0 clears it at state 0x63; the port's read
+ *                     completes inside the call)
+ *   001AD230          em_game_new_game_reset_001AF2C0, returns 4
+ *   D_00275C78, D_00821058  em_frontend_movie_select / _request
+ *   001AED80(a0)      em_frame_fade_clear (its translation, em_fade.c)
+ *   0021B180/0021B550/0021B840  the veil state machine (em_load_veil.c) over
+ *                     s_veil; its 001D2830 calls and particles 0021B1B0/
+ *                     0021B500 are reported no-port-code
+ *   00200830, 001D19D0 reported no-port-code */
+
+static int in_task_step(int s09, int s0A)
+{
+    const uint8_t *b9 = em_scene_task_byte(s_user, EM_SCENE_TASK_09);
+    const uint8_t *bA = em_scene_task_byte(s_user, EM_SCENE_TASK_0A);
+    return b9 && bA && *b9 == s09 && *bA == s0A;
+}
+
+/* The area read for D_00810700/701. */
+static int area_read(void)
+{
+    if (s_state.d810700 == 0x0B && s_state.d810701 == 0)
+        return em_game_legacy_area_load(AREA11_SCENE_DIR);
+    fprintf(stderr, "em_scene: 001FF080(1, 0): area %02X room %u is not exported\n",
+            (unsigned)s_state.d810700, (unsigned)s_state.d810701);
+    return -1;
+}
+
+/* 001AD1A0 (byte-matched, src/func_001AD1A0.c; mwcc 2.3.3): +9 == 0: +9++,
+ * D_00275BD8 = 1, 001FF080(0, 3, &slot[9]); +9 == 1 and D_00275BD8 == 0:
+ * 00200830(D_0028A564[0]), 001D19D0(), return 4; otherwise 0. */
+static int w_001AD1A0(void *ctx)
+{
+    (void)ctx;
+    uint8_t *sub = em_scene_task_byte(s_user, EM_SCENE_TASK_09);
+    if (!sub)
+        return -1;
+    if (*sub == 0) {
+        *sub = (uint8_t)(*sub + 1);
+        s_state.d275BD8 = 1;
+        /* a2 = &slot[9], the record address + 9 (no port address: 0). */
+        bind_trace(0x001AD1A0u, 0x001FF080u, 0, 3, 0, 0);
+        s_state.d275BD8 = 0; /* module 3 is resident (no port data to read) */
+        return 0;
+    }
+    if (*sub == 1 && s_state.d275BD8 == 0) {
+        bind_trace(0x001AD1A0u, 0x00200830u, 0, 0, 0, 0);
+        unmirrored(UM_00200830);
+        bind_trace(0x001AD1A0u, 0x001D19D0u, 0, 0, 0, 0);
+        unmirrored(UM_001D19D0);
+        return 4;
+    }
+    return 0;
+}
+
+static int w_001AD230(void *ctx)
+{
+    (void)ctx;
+    em_game_new_game_reset_001AF2C0();
+    s_tick.r_001AD230 = 4;
+    return 4;
+}
+
+static int s_00275C78(void *ctx, uint8_t value)
+{
+    (void)ctx;
+    return em_frontend_movie_select(value);
+}
+
+static int s_00821058(void *ctx, uint8_t value)
+{
+    (void)ctx;
+    return em_frontend_movie_request(value);
+}
+
+static int w_001AED80(void *ctx, uint8_t a0)
+{
+    (void)ctx;
+    em_frame_fade_clear(a0);
+    return 0;
+}
+
+static int veil_001D2830(void *ctx, int group, int enable)
+{
+    (void)ctx;
+    (void)group;
+    (void)enable;
+    return unmirrored(UM_001D2830);
+}
+
+static int veil_0021B1B0(void *ctx, EmLoadVeil *veil)
+{
+    (void)ctx;
+    (void)veil;
+    return unmirrored(UM_0021B1B0);
+}
+
+static int veil_0021B500(void *ctx, EmLoadVeil *veil)
+{
+    (void)ctx;
+    (void)veil;
+    return unmirrored(UM_0021B500);
+}
+
+static const EmLoadVeilWorkers k_veil_workers = {NULL, veil_001D2830, veil_0021B1B0, veil_0021B500};
+
+static int w_0021B180(void *ctx)
+{
+    (void)ctx;
+    uint32_t at = 0;
+    return em_load_veil_0021B180(&s_veil, &k_veil_workers, &at) < 0 ? -1 : 0;
+}
+
+static int w_0021B550(void *ctx)
+{
+    (void)ctx;
+    uint32_t at = 0;
+    int r = em_load_veil_0021B550(&s_veil, &k_veil_workers, &at);
+    s_tick.r_0021B550 = r;
+    return r;
+}
+
+static int w_0021B840(void *ctx)
+{
+    (void)ctx;
+    em_load_veil_0021B840(&s_veil);
+    return 0;
 }
 
 /* 001B6990 (with 001B6910 first). AREA11: the exported roster through the
@@ -673,8 +1182,8 @@ static int w_001D1EA0(void *ctx, int a0)
  *   001FBC50  -> em_sfx_stop_all (its translation, em_sfx.h)
  *   001AEDB0  -> em_frame_fade_full (001AEDB0's translation, em_fade.c)
  *   0018C0D0  -> camera_commit_original(&g.cam, a1) (em_camera.h)
- *   001AEE40  -> state 5: em_frame_fade_flash (em_fade.c); the state-0
- *                area-entry call stays unmirrored
+ *   001AEE40  -> em_frame_fade_flash (em_fade.c), in state 5 and (since
+ *                S12a) in the state-0 rebuild
  *   001FABB0, 00119828, 001D2830, 001E0CC0, 001FAE70, 001D1EF0: unmirrored
  *   (reported); the music is H22 (WP-5). */
 
@@ -725,14 +1234,18 @@ static int w_0018C0D0(void *ctx, uint32_t a0, int a1)
     return 0;
 }
 
+/* 001AEE40(a0): the transition flash (em_frame_fade_flash, its translation
+ * in em_fade.c), from state 5 (0x20) and, since S12a, from the state-0
+ * rebuild (4): after 001ADF50's full black it holds three ticks and fades
+ * in (captured New Game load: fade mode 4 on the rebuild tick, then 5, 6). */
 static int w_001AEE40(void *ctx, int16_t a0)
 {
     (void)ctx;
-    if (s_entry_state == 5) {
+    if (s_entry_state == 5 || s_entry_state == 0) {
         em_frame_fade_flash(a0);
         return 0;
     }
-    return unmirrored(UM_001AEE40);
+    return -1;
 }
 
 /* ------------------------------------------- game over (S11b; design 5)
@@ -762,11 +1275,20 @@ static int in_game_over(void)
     return sub && (*sub == 2 || *sub == 4);
 }
 
+/* 001FF080(a0, a1): game over's screen module 0x27 (above), or 001ADF50's
+ * area read (1, 0) at +9 = 5, +A = 1 (S12a, "the load arms"). 001AD1A0's
+ * module 3 is served inside w_001AD1A0. */
 static int w_001FF080(void *ctx, int a0, int a1)
 {
     (void)ctx;
+    if (a0 == 1 && a1 == 0 && in_task_step(5, 1)) {
+        if (area_read() < 0)
+            return -1;
+        s_state.d275BD8 = 0;
+        return 0;
+    }
     if (a0 != 0 || a1 != 0x27 || !in_game_over())
-        return -1; /* the area load (1, 0) is S12a's */
+        return -1;
     g.go_state = GO_SCREEN;
     s_state.d275BD8 = 0;
     return 0;
@@ -856,7 +1378,7 @@ static void bindings_init(void)
 
     EmSceneWorkers *w = &s_workers;
     w->ctx = NULL;
-    w->trace = em_frame_trace_env() ? bindings_trace : NULL;
+    w->trace = em_frame_trace_env() || log_file() ? bindings_trace : NULL;
     w->r_0028A9A0 = r_0028A9A0;
     w->r_00282157 = r_00282157;
     w->r_00275B44 = r_00275B44;
@@ -883,7 +1405,7 @@ static void bindings_init(void)
     w->w_001D1EA0 = w_001D1EA0;
 
     w->w_001FC9B0 = um_001FC9B0;
-    w->w_001B07C0 = um_001B07C0;
+    w->w_001B07C0 = w_001B07C0;
     w->w_001B6990 = w_001B6990;
     w->w_001D19E0 = um_001D19E0;
     w->w_001C1DC0 = w_001C1DC0;
@@ -915,15 +1437,56 @@ static void bindings_init(void)
     w->s_00810D38 = um_s_00810D38;
     w->w_001AEBA0 = w_001AEBA0;
     w->w_001AB790 = w_001AB790;
+
+    /* The load arms (S12a): 001ACEC0 +8 = 0/1, 001AD360, 001ADF50. */
+    w->w_001AD1A0 = w_001AD1A0;
+    w->w_001AD230 = w_001AD230;
+    w->s_00275C78 = s_00275C78;
+    w->s_00821058 = s_00821058;
+    w->w_001AED80 = w_001AED80;
+    w->w_0021B180 = w_0021B180;
+    w->w_0021B550 = w_0021B550;
+    w->w_0021B840 = w_0021B840;
 }
 
-void em_scene_bindings_legacy_loaded(EmTask *record)
+/* ------------------------------------------- area-change request (S12a) */
+
+int em_scene_request_area_change_001B0C60(int a, int b, int c)
+{
+    bindings_init();
+    s_state.spad3B8D = 3;
+    bind_trace(0x001B0C60u, 0x001B0C00u, 4, 0, 0, 0);
+    /* 001B0C00(4): 001AEDE0(4, 0), then 001FAD70(channel, 4, 1) x3. */
+    bind_trace(0x001B0C00u, 0x001AEDE0u, 4, 0, 0, 0);
+    em_frame_fade_start_colour(1, 4, 0);
+    for (uint32_t channel = 0; channel < 3; ++channel) {
+        bind_trace(0x001B0C00u, 0x001FAD70u, channel, 4, 1, 0);
+        unmirrored(UM_001FAD70);
+    }
+    s_state.req[EM_SCENE_REQ_B8] = 1;
+    s_state.req[EM_SCENE_REQ_B5] = (uint8_t)a;
+    s_state.req[EM_SCENE_REQ_B7] = (uint8_t)c;
+    s_state.req[EM_SCENE_REQ_B6] = (uint8_t)b;
+    return 0;
+}
+
+int em_scene_bindings_pool_census(void)
+{
+    if (s_pool_mode != POOL_ROSTER)
+        return -1;
+    int n = 0;
+    for (const EmActor *a = s_pool.head; a && n <= EM_ACTOR_POOL_CAPACITY; a = a->next)
+        ++n;
+    return n;
+}
+
+void em_scene_bindings_fixture_loaded(EmTask *record)
 {
     if (!record)
         return;
     bindings_init();
     if (roster_scene())
-        legacy_commit_area11();
+        fixture_commit_area11();
     uint8_t *user = record->user;
     *em_scene_task_byte(user, EM_SCENE_TASK_08) = 3;
     *em_scene_task_byte(user, EM_SCENE_TASK_09) = 1;
@@ -945,7 +1508,9 @@ void em_scene_task_001ACEC0(void)
     EmFrameTrace *t = em_frame_trace_env();
     if (t)
         em_frame_trace_tick_begin(t, em_frame_counter());
+    log_tick_begin();
     int rc = em_sf_001ACEC0(&s_state, s_user, &s_workers);
+    log_tick_end(rc);
     /* Step D of the next main-loop iteration reads 3B90 and C4 (design 2.1). */
     em_frame_screen_fade_gate(s_state.spad3B90, s_state.req[EM_SCENE_REQ_C4]);
     if (t)

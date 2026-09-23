@@ -23,8 +23,8 @@
  *
  * INTERIM spawns (design 4.3 "interim_spawn"): a spawn whose original call
  * site sits in overlay code the port cannot read (0x825940, 0x8237E0,
- * 0x827B10) or whose selecting input has no port writer yet (001C1EA0 reads
- * D_008106C8, written by 001B0250 from the S12a spawn table). Their timing
+ * 0x827B10). (Since S12a 001C1EA0's input D_008106C8 is written by 001B0250
+ * from the spawn table, so the weather node is no longer interim.) Their timing
  * and argument bytes are the measured ones; they are flagged `interim` in
  * the binding name the trace records.
  *
@@ -71,8 +71,8 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
  * D_00810CA6 == 4 extra), then 001F0120(player, 0x3B). Returns 0 or -1. */
 int em_area11_spawn_player_children_0015C420(void);
 
-/* 001C1DC0 -> 001C1EA0 -> 001EFD20(0x80000017, D_00250F00): the weather
- * node (INTERIM: D_008106C8 has no port writer; see the .c). 0 or -1. */
+/* 001C1DC0 -> 001C1EA0 -> 001EFD20(0x80000017, D_00250F00/10/20): the
+ * weather node chosen by the canonical D_008106C8 (see the .c). 0 or -1. */
 int em_area11_spawn_weather_001C1EA0(void);
 
 /* The `legacy_world` node of a scene without a roster (callback 0,

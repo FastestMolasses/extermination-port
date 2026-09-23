@@ -3,16 +3,17 @@
  * Engine chain (FINDINGS.md "ENGINE FRAME ANATOMY") and what stands in for
  * each stage here:
  *
- *   func_001AB7E0  boot/flow task        game_load_task() — one frame:
- *                                        loads the player model + scene
- *                                        parts, then re-registers slot 0
- *                                        with the game task (exactly how
- *                                        the engine replaces it live).
- *                                        Until S12a it also stands in for
- *                                        the load arms 001AD1A0..001ADF50:
- *                                        the record starts at +8=3, +9=1,
- *                                        +B=0 (em_scene_bindings_legacy_
- *                                        loaded).
+ *   func_001AC070  state 4: 001AB790     em_game_install_new registers
+ *                  (001ACEC0)            em_scene_task_001ACEC0 with a
+ *                                        cleared record (+8 = 0); the
+ *                                        chain runs the load arms 001AD1A0,
+ *                                        001AD230 (the 001AF2C0 reset,
+ *                                        em_game_new_game_reset_001AF2C0),
+ *                                        001AD360 (intro movie at step 1)
+ *                                        and 001ADF50 (S12a). The native
+ *                                        area read is
+ *                                        em_game_legacy_area_load, called
+ *                                        by the bindings' 001FF080(1, 0).
  *   func_001ACEC0  game task machine     em_scene_task_001ACEC0 (S8,
  *   func_001AD250  sub-machine           em_scene_bindings.c) runs the
  *   func_001AE040  in-game frame machine translated cores em_sf_001ACEC0,
@@ -218,7 +219,7 @@ EmGameState g;
  *   bgm <file.wav>            accepted and IGNORED: no original code
  *                             starts music from scene data. Area music
  *                             is 001FAE70's cue choice (D_008106C8 bits
- *                             8..15; AREA11 = 25) — see game_load_task.
+ *                             8..15; AREA11 = 25) — see em_game_legacy_area_load.
  *   door <file> <x> <y> <z> <yaw> <r> [goto <scene-dir> <sx> <sy> <sz> <syaw>]
  *                             one INTERACTIVE DOOR instance (file under
  *                             the scene dir, e.g. doors/door_m03.emdl;
@@ -1360,15 +1361,16 @@ void em_game_legacy_state0(void)
      * 001AEE40(4), 001FAE70(1) (area music), 001C5C50 and
      * 001D1EF0, then RETURNS: no world frame that tick
      * (SCENE_COORDINATOR_DESIGN.md §2.3). Natively this arm
-     * re-arms port state instead: the spawn-table stand-in is the
-     * scene manifest's spawn (the office kPlayerPos default;
-     * origin with no scene loaded), and the camera struct is
-     * zeroed back to its init state (the one-shot setup arms it
-     * behind the player on the next frame, along the spawn
-     * facing). Since S8 the frame core 0x1AE040 runs state 0 and
-     * the bindings (em_scene_bindings.c) call this at the 001AFCA0
-     * position; since S9 the tick ends there, as the original's does
-     * (no world frame until the next tick). */
+     * re-arms the port's player/actor state (the counterpart of the
+     * 001AF5C0 player wipe the port keeps in g). Since S12a the
+     * placement is split out: in AREA11 (a scene with the original
+     * roster) 001B07C0(0) places the player from the exported spawn
+     * table at its own position (em_scene_bindings.c w_001B07C0),
+     * followed by em_game_legacy_camera_rearm (its 001B0460 stand-in)
+     * and em_game_legacy_state0_fixtures; a scene without an original
+     * roster (office, drawbridge) still takes the manifest spawn here,
+     * the bindings calling em_game_legacy_manifest_spawn, the camera
+     * re-arm and the fixtures right after this, in the old order. */
     g.walk_t         = 0.0;
     g.walk_w         = 0.0f;
     g.step_prev      = 0.0;   /* footstep edge state re-armed */
@@ -1425,6 +1427,14 @@ void em_game_legacy_state0(void)
     g.cine_kf_t       = 0;
     g.cine_fade       = 0;
     g.cine_was        = 0;
+}
+
+/* The scene manifest's spawn: the placement of a scene WITHOUT an original
+ * roster (the office and drawbridge fixtures; the office kPlayerPos default,
+ * the origin with no scene loaded), plus the self-test spawns. Not used for
+ * AREA11, which 001B07C0 places from the spawn table (S12a). */
+void em_game_legacy_manifest_spawn(void)
+{
     g.pos[0] = g.n_scene ? g.spawn[0] : 0.0f;
     g.pos[1] = g.n_scene ? g.spawn[1] : 0.0f;
     g.pos[2] = g.n_scene ? g.spawn[2] : 0.0f;
@@ -1482,6 +1492,16 @@ void em_game_legacy_state0(void)
         g.pos[2] = -201.0f;
         g.yaw    = 0.0f;
     }
+}
+
+/* The legacy camera re-arm after a placement: the camera struct is zeroed
+ * back to its init state and the one-shot setup (em_camera.c) arms it behind
+ * the player on the next frame, along the placed facing. It stands in for
+ * 001B0460 (the camera re-init from the spawn record, called last by
+ * 001B07C0) until that function is translated over the original camera
+ * record (WP-13/WP-16); the bindings report the stand-in. */
+void em_game_legacy_camera_rearm(void)
+{
     memset(&g.cam, 0, sizeof g.cam);
     g.cam.yaw = g.yaw;   /* chase camera starts behind the spawn */
     g.cam_region_on = 0;
@@ -1515,6 +1535,13 @@ void em_game_legacy_state0(void)
                g.camregion[0].eye[0], g.camregion[0].eye[1],
                g.camregion[0].eye[2]);
     }
+}
+
+/* Port fixtures that follow the placement: the weapon context and the
+ * self-test enemy spawns (both read the placed pose) and the opening
+ * runtime's asset bind. No original counterpart at this position. */
+void em_game_legacy_state0_fixtures(void)
+{
     /* Weapon context init (the engine's HUD/weapon-context arm):
      * holstered, ammo from the demo status (live test save:
      * mag 4, reserve 120). The HUD mirrors the weapon live from
@@ -1624,15 +1651,16 @@ static int continue_restart(void)
      * its state 1) to skip its script; it does not read
      * D_00810811. That the rebuilt area therefore replays the
      * opening is inferred from those instructions, not measured:
-     * no original Continue has been captured. 001AD360 step 0 calls
-     * 001FABB0 (stream stop): mirrored by em_bgm_stop(0) below.
-     * Only the fields game_state_new_game mirrors (plus pd_* /
-     * go_* and the pickup table) are reset here; New Game's
-     * em_game_install memsets all of g, so other port state
-     * (e.g. director state other than cine_step) survives a
-     * Continue. Not mirrored yet: 001AD360 steps 0-2 also call
-     * 001D1EF0, and step 1 re-requests movie selector 0
-     * (E900.PSS), which the native frontend owns. */
+     * no original Continue has been captured. Since S12a the
+     * reinstalled task runs that whole route itself (001AD1A0,
+     * 001AD230 -> em_game_new_game_reset_001AF2C0, 001AD360 with
+     * the intro movie at step 1, the 001ADF50 area read, state 0),
+     * so only the port's own game-over and damage stand-ins are
+     * cleared here. 001AD360 step 0 calls 001FABB0 (stream stop),
+     * which the bindings do not mirror yet (H22, WP-5): the legacy
+     * em_bgm_stop(0) below keeps the port's music stop on Continue
+     * until then. Other port state (e.g. director state other than
+     * cine_step) survives a Continue, as before. */
     if (g.go_restart) {
         g.go_restart  = 0;
         g.go_state    = GO_OFF;
@@ -1650,23 +1678,9 @@ static int continue_restart(void)
         g.pd_clip     = 0;
         g.pd_infected = 0;
         g.pd_low      = 0;
-        em_bgm_stop(0);            /* 001AD360 step 0: 001FABB0 */
-        em_pickup_reset();         /* 001AF2C0 D_00810700 memset */
-        game_state_new_game(&g);   /* 001AF2C0 mirrored fields   */
+        em_bgm_stop(0);            /* see above (001FABB0, H22) */
         g.et_spawned = 0;     /* self-tests may re-spawn */
-        /* The area build recreates the player actor: return the
-         * pose source to its pre-opening load state, as the New
-         * Game load does (game_load_task). */
-        player_pose_unload();
-        if (g.mesh) (void)player_pose_load(PLAYER_CHANNELS_PATH);
         em_opening_runtime_request();
-        if (em_game_scene_switch(AREA11_SCENE_DIR) != 0) {
-            fprintf(stderr, "continue: original restart area "
-                    "(AREA11, %s) unavailable\n", AREA11_SCENE_DIR);
-            em_frame_request_quit();
-            return -1;
-        }
-        em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
         return 1;                     /* reinstall the game task */
     }
     return 0;
@@ -1678,17 +1692,18 @@ static int continue_restart(void)
  * (001AC480 sub 0: screen module 1, cursor = D_00275BDC ? 1 : 0, fade
  * in); every tick runs the prompt and draws the frame (the frozen world
  * under em_hud_continue's opaque base). Option 0's restart is serviced at
- * the start of the next tick: the New Game-route reset (continue_restart)
- * and 001AC070 state 4's 001AB790(001ACEC0), with the legacy load's task
- * bytes (em_scene_bindings_legacy_loaded: +8 = 3, +9 = 1, +B = 0), so the
- * next scene-task tick rebuilds AREA11 from state 0. */
+ * the start of the next tick: the port's stand-in resets (continue_restart)
+ * and 001AC070 state 4: D_00275BE0 = 0, 001AB790(001ACEC0), which clears
+ * the record (+8 = 0), so the task runs the New Game route from 001AD1A0
+ * (S12a). */
 void em_game_legacy_continue_task_001AC070(void)
 {
     if (g.go_restart) {
         int restart = continue_restart();
-        if (restart > 0)
-            em_scene_bindings_legacy_loaded(
-                em_task_replace_current(em_scene_task_001ACEC0));
+        if (restart > 0) {
+            em_scene_state()->d275BE0 = 0;
+            (void)em_task_replace_current(em_scene_task_001ACEC0);
+        }
         return; /* no frame this tick (quit requested when < 0) */
     }
     if (g.go_state < GO_PROMPT) {
@@ -1702,10 +1717,30 @@ void em_game_legacy_continue_task_001AC070(void)
     frame_close_out();
 }
 
-/* Native gameplay asset loader, used after the frontend/new-game flow
- * or explicitly by EM_SKIP_STARTUP. It is not the PS2 boot task. */
-static void game_load_task(void)
+/* The native area read (S12a; formerly the one-frame game_load_task). The
+ * bindings call it as the original 001FF080(1, 0), the area load 001ADF50
+ * starts at +A = 0 (the slot-2 task 001FF0D0 state 1 reads AREA%02d from
+ * disc and clears D_00275BD8 at state 0x63); the port's read completes
+ * inside this call. `dir` is the scene of D_00810700/701 (the bindings
+ * resolve it). The first call also loads the player model and the SFX
+ * registry (process-lifetime assets); every later call re-reads the scene
+ * (em_game_scene_switch) and returns the player's pose source to its load
+ * state, since the area build recreates the player actor. The EM_SKIP_STARTUP
+ * fixture calls it directly (em_game_install). 0, or -1 when `dir` cannot be
+ * loaded. */
+static int s_area_loaded;
+
+int em_game_legacy_area_load(const char *dir)
 {
+    if (s_area_loaded) {
+        player_pose_unload();
+        if (g.mesh) (void)player_pose_load(PLAYER_CHANNELS_PATH);
+        return em_game_scene_switch(dir);
+    }
+    s_area_loaded = 1;
+    if (dir != g.scene_dir)
+        snprintf(g.scene_dir, sizeof g.scene_dir, "%s", dir);
+
     EmGfx *gfx = em_frame_gfx();
 
     /* Optional character asset (disc-derived, generated locally). */
@@ -1803,16 +1838,26 @@ static void game_load_task(void)
      * override with no original counterpart. */
     if (g.bgm_path)
         em_bgm_play(g.bgm_path, 1);
-
-    /* Legacy load (S8): this loader stands in for 001AD1A0..001ADF50
-     * until S12a, so the record starts where 001ADF50 leaves it. */
-    em_scene_bindings_legacy_loaded(
-        em_task_replace_current(em_scene_task_001ACEC0));
+    return 0;
 }
 
-void em_game_install(void)
+/* 001AD230 -> 001AF2C0 (the New Game reset), bound by the bindings at
+ * 001ACEC0 state 1: the D_00810700 block memset and 001AF2C0's stores as
+ * the port mirrors them (em_pickup_reset: inventory, taken bits and the D2
+ * progress region; game_state_new_game: the EmGameState fields; both checked
+ * against the executed 001AF2C0 by tools/test_continue_reset_reference.py). */
+void em_game_new_game_reset_001AF2C0(void)
+{
+    em_pickup_reset();
+    game_state_new_game(&g);
+}
+
+/* Process-level game-state init shared by both entries: g cleared, the
+ * env-selected captures and self-tests read. No task is registered. */
+static void game_install_state(void)
 {
     player_pose_unload();
+    s_area_loaded = 0;
     memset(&g, 0, sizeof g);
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", SCENE_DIR);
     /* Player status — static demo values matching the live test save
@@ -1912,27 +1957,41 @@ void em_game_install(void)
     g.pickup_test  = ik && ik[0] == '1';
     const char *xt = getenv("EM_EXAMINE_TEST");
     g.examine_test = xt && xt[0] == '1';
+}
+
+/* EM_SKIP_STARTUP gameplay/debug fixture (not an original route): the scene
+ * g.scene_dir is read at once by the native area read, then the game task
+ * enters the chain where a completed 001ADF50 leaves it (state 0 next
+ * tick; em_scene_bindings_fixture_loaded). The fixture keeps the legacy
+ * inventory wipe (em_pickup_reset, the 001AF2C0 memset part) and the demo
+ * status values above, not the New Game reset. */
+void em_game_install(void)
+{
+    game_install_state();
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
     /* The progress bytes in that same memset (D_00810791, D_00810811
      * opening complete, D_00810841[11] terminal unlock) are already 0
      * from the memset of g above; they PERSIST across an intra-area
      * room-move scene reload and are cleared again only by the
-     * 001AF2C0 routes (em_game_install_new, game-over option 0). */
-    em_task_register(0, game_load_task);
+     * 001AF2C0 routes (New Game's 001AD230, game-over option 0). */
+    (void)em_game_legacy_area_load(g.scene_dir);
+    em_scene_bindings_fixture_loaded(em_task_register(0, em_scene_task_001ACEC0));
 }
 
+/* New Game (001AC070 state 4, D_00275BE0 = 0): 001AB790(001ACEC0) replaces
+ * slot 0 with a cleared record (+8 = 0), and the chain does the rest (S12a):
+ * 001AD1A0, 001AD230 (em_game_new_game_reset_001AF2C0), 001AD360 (the intro
+ * movie at step 1, AREA11 0x0B/0/0 at step 4), 001ADF50 (the area read) and
+ * the state-0 rebuild. */
 void em_game_install_new(void)
 {
-    em_game_install();
-    /* func_001AF2C0 clears the inventory/area block and establishes these
-     * health, magazine, reserve and battery values (game_state_new_game;
-     * em_game_install already ran em_pickup_reset). The frontend's replay
-     * of movie selector 0 precedes func_001AD360's area 11.0 commit. */
-    game_state_new_game(&g);
+    game_install_state();
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", AREA11_SCENE_DIR);
     em_opening_runtime_request();
     em_opening_control_test_begin();
+    em_scene_state()->d275BE0 = 0;
+    (void)em_task_register(0, em_scene_task_001ACEC0);
 }
 
 void em_game_shutdown(void)

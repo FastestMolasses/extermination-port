@@ -25,7 +25,8 @@
  * Record 13 (class 9, callback 0x008257A0) IS spawned: the original frees it
  * from its own behaviour (0x8258E0 calls 001AFC10 with a0 = the node, on the
  * second world frame; ORIGINAL_FRAME_ORDER.md section 6, "Q3"). It carries
- * EM_ROSTER_FLAG_SELF_FREEING and stays UNBOUND until 008257A0 is translated.
+ * EM_ROSTER_FLAG_SELF_FREEING; since S12a its behaviour is em_manager_008257A0
+ * (bound by em_area11_bindings.c).
  *
  * Not modelled (fail-stop or documented):
  * - 001B65C0 also stores D_00810B40+area into D_00275BE4 and the current

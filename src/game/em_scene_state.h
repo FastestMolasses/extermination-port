@@ -57,6 +57,9 @@ typedef enum {
     EM_SCENE_REQ_C5 = 0x15, /* D_008106C5: nonzero -> 001AE7E0 returns 2 */
     EM_SCENE_REQ_C6 = 0x16, /* D_008106C6 */
     EM_SCENE_REQ_C7 = 0x17, /* D_008106C7 */
+    EM_SCENE_REQ_C8 = 0x18, /* D_008106C8..CB: the area flag word (lw/sw), written by
+                             * 001B0250 from the spawn record +0x1C (S12a), returned
+                             * by 001B0070; 001C1EA0 selects the weather effect by it */
     EM_SCENE_REQ_CE = 0x1E, /* D_008106CE: nonzero -> 001AE7E0 returns 3; state 6 tests == 2 */
     EM_SCENE_REQ_CF = 0x1F, /* D_008106CF: argument of 001FF030/001FEFE0 in 0x1AE040 state 6 */
     EM_SCENE_REQ_D5 = 0x25, /* D_008106D5 */
@@ -88,6 +91,9 @@ typedef enum {
  *   D_00810788           S10b  001B65C0 prime-pass mode (tested == 0xFF),
  *                              001B6660 case 6 via D_00810700[0x88]; no port
  *                              mirror existed.
+ *   D_00810794           S12a  event 0x3C (D_00810758[0x3C]), read by the
+ *                              record-13 manager 008257A0 through 001BA1C0;
+ *                              no port mirror, no port writer.
  *   D_00810860..D_00810B3F
  *                        S10b  per-area taken bits, u32[8] per area
  *                              (001B11E0 test, 001B1190 set, 001B64F0 clear);
@@ -114,6 +120,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         uint32_t first, end;
     } migrated[] = {
         {0x00810788u, 0x00810789u},
+        {0x00810794u, 0x00810795u},
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
         {0x00810CA4u, 0x00810CA8u},
     };
@@ -190,6 +197,10 @@ typedef struct {
 
     /* D_00810700..D_00810D3F (D2); reach it only through the accessors below. */
     EmProgress progress;
+
+    /* Scratchpad 0x70003B40..0x70003B5C: 001B07C0 copies the placed player's
+     * +0xB0..+0xCC here (S12a). Read later by the door cut 0018CBD0 (3B50). */
+    float spad3B40[8];
 } EmSceneState;
 
 /* ---------------------------------------------------------------- accessors */
@@ -202,6 +213,20 @@ static inline uint8_t em_scene_req_get(const EmSceneState *s, EmSceneReqByte b)
 static inline void em_scene_req_set(EmSceneState *s, EmSceneReqByte b, uint8_t value)
 {
     s->req[b] = value;
+}
+
+/* The request block's little-endian word at index `b` (b..b+3; lw/sw in the
+ * original), e.g. EM_SCENE_REQ_C8. */
+static inline uint32_t em_scene_req_u32(const EmSceneState *s, EmSceneReqByte b)
+{
+    return (uint32_t)s->req[b] | (uint32_t)s->req[b + 1] << 8 | (uint32_t)s->req[b + 2] << 16 |
+           (uint32_t)s->req[b + 3] << 24;
+}
+
+static inline void em_scene_req_set_u32(EmSceneState *s, EmSceneReqByte b, uint32_t value)
+{
+    for (int i = 0; i < 4; ++i)
+        s->req[b + i] = (uint8_t)(value >> (8 * i));
 }
 
 /* Byte of the request block by ORIGINAL address; NULL outside

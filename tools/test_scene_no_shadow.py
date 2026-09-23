@@ -36,6 +36,7 @@ WRITERS = {
     "spad3B8D": {
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 0 (=2) and op 4 (=0)",
+        "game/em_scene_bindings.c": "001B0C60 area-change request (=3; S12a)",
     },
     "spad3B91": {
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",

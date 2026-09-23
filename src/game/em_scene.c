@@ -87,7 +87,7 @@ void scene_manifest_load(void)
         } else if (sscanf(line, "bgm %255s", name) == 1) {
             /* Accepted and ignored: no original path starts music from
              * scene data (area music is 001FAE70's D_008106C8 cue; see
-             * game_load_task). */
+             * em_game_legacy_area_load). */
         } else if (sscanf(line, "camdist %f", &x) == 1) {
             /* The engine's camera-distance param (cam+0x0C, signed —
              * spawn records carry it at +0x18; live: -46.8 default,

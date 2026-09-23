@@ -48,6 +48,7 @@
 
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_director.h"
+#include "game/em_manager_008257A0.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_props.h"
@@ -291,6 +292,51 @@ static int tick_roger(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
+/* 008257A0 (area11[13]): em_manager_008257A0 (S12a). The node's +0 and +4
+ * are EmActor.status and u04[0]; D_00810794 and D_00810788 are canonical D2
+ * progress bytes. States 2 and 3 free the node itself (001AFC10); the pool
+ * walk continues with the next node it saved. State 1 (event 0x30 set) is
+ * the untranslated script arm and faults. */
+typedef struct {
+    EmActor *self;
+    int freed;
+} ManagerFree;
+
+static int manager_free_001AFC10(void *ctx)
+{
+    ManagerFree *f = ctx;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, f->self) < 0)
+        return -1;
+    f->freed = 1;
+    return 0;
+}
+
+static int tick_manager_8257A0(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)node;
+    (void)world;
+    const uint8_t *e794 = em_scene_progress_at(s_scene, 0x00810794u, 1);
+    const uint8_t *e788 = em_scene_progress_at(s_scene, 0x00810788u, 1);
+    if (!e794 || !e788)
+        return fault(EM_MANAGER_008257A0, EM_SCENE_FAULT_BAD_INDEX, "event bytes not canonical");
+    EmManager8257A0 m = {actor->status, actor->u04[0], *e794, *e788};
+    ManagerFree f = {actor, 0};
+    EmManager8257A0Workers w = {&f, manager_free_001AFC10};
+    uint32_t at = 0;
+    if (em_manager_008257A0_tick(&m, &w, &at) < 0) {
+        if (em_scene_faulted(s_scene))
+            return -1;
+        return fault(at, at == EM_MANAGER_008257A0 ? EM_SCENE_FAULT_NULL_WORKER : EM_SCENE_FAULT_WORKER_FAILED,
+                     at == EM_MANAGER_008257A0 ? "008257A0 state 1 (script arm) is not translated (WP-10)"
+                                               : "008257A0: 001AFC10 failed");
+    }
+    if (!f.freed) {
+        actor->status = m.b00;
+        actor->u04[0] = m.b04;
+    }
+    return 1;
+}
+
 static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)actor;
@@ -429,8 +475,7 @@ static const Binding k_bindings[] = {
     {0x00823CE0u, "manager: dormant", NULL, GROUP_NONE, NULL,
      "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
     {0x008253F0u, "manager: legacy director_tick", NULL, GROUP_NONE, tick_director, NULL},
-    {0x008257A0u, "record 13: UNBOUND", NULL, GROUP_NONE, NULL,
-     "008257A0 (area11[13]): UNBOUND; the original frees it on the second world frame (Q3)"},
+    {0x008257A0u, "record 13: em_manager_008257A0", NULL, GROUP_NONE, tick_manager_8257A0, NULL},
     {0x00823FF0u, "truck: legacy em_truck_update (group head)", "group: truck", GROUP_TRUCK, tick_truck,
      NULL},
     {0x008251E0u, "truck: legacy em_truck_update (group head)", "group: truck", GROUP_TRUCK, tick_truck,
@@ -573,28 +618,28 @@ int em_area11_spawn_player_children_0015C420(void)
     return spawn_001F0120(EM_SCENE_D_008102B0, 0x3B, 0);
 }
 
-/* INTERIM: D_008106C8 is written by 001B0250 (from 001B07C0, S12a's spawn
- * table) and has no port writer, so the selection 001C1EA0 makes is taken
- * from the value every AREA11 capture holds, 0x20081910 (ORIGINAL_FRAME_ORDER
- * section 6, P31): 0x20081910 & 0x02000010 != 0 -> 001EFD20(0x80000017,
- * &D_00250F00). The node's +0xB0 is that zero vector with +0xBC = 1.0 and
- * +0xC0..+0xCC = 0 (001EFD20). Called only for the AREA11 roster pool. */
+/* 001C1EA0 (byte-matched): v0 = 001B0070() = D_008106C8, the canonical
+ * request word C8 that 001B07C0 -> 001B0250 wrote earlier in the same
+ * state-0 tick (S12a; before S12a the captured 0x20081910 was used). The
+ * first of & 0x02000010, & 0x04000020, & 0x08000040 that is set spawns one
+ * 001EFD20(0x80000017, &D_00250F00 / &D_00250F10 / &D_00250F20) and
+ * returns; none set spawns nothing. The three vectors are zero in the ELF
+ * data, so the node's +0xB0 is (0, 0, 0) with +0xBC = 1.0 and +0xC0..+0xCC
+ * = 0 (001EFD20). Called only for the AREA11 roster pool. */
 int em_area11_spawn_weather_001C1EA0(void)
 {
     if (em_scene_faulted(s_scene))
         return -1;
-    if (s_scene->d810700 != 0x0B)
-        return fault(0x001C1EA0u, EM_SCENE_FAULT_BAD_INDEX, "weather flags known for AREA11 only");
+    uint32_t flags = em_scene_req_u32(s_scene, EM_SCENE_REQ_C8);
+    if (!(flags & 0x02000010u) && !(flags & 0x04000020u) && !(flags & 0x08000040u))
+        return 0;
     EmActor *p = spawn_001EF9D0(&k_effect_0x17);
     if (!p)
         return 0;
     p->pos[0] = p->pos[1] = p->pos[2] = 0.0f; /* D_00250F00 */
     p->rot[0] = p->rot[1] = p->rot[2] = p->rot[3] = 0.0f;
     p->pos[3] = 1.0f;
-    if (bind_node(p, NULL) < 0)
-        return -1;
-    mark_interim(node_of(p));
-    return 0;
+    return bind_node(p, NULL);
 }
 
 int em_area11_spawn_legacy_world(void)

@@ -2,21 +2,6 @@
   "comment": "Intentional, documented differences between the native frame trace and the original traces in Extermination/build/s87/frame_trace/ (tools/compare_frame_order.py; SCENE_COORDINATOR_DESIGN.md section 3.3). Each entry: id, kind (missing = an original event the native side may lack; extra = a native event the original lacks; field = a per-frame field that may differ, only 'classifier'), traces (original names or '*'), event pattern (any of op/fn/target/callback/record; addresses as hex) or field, reason (with evidence), removed_by (the WP-n or Sn step that deletes the entry). The list must only shrink: add an entry only in the step that introduces the documented difference.",
   "entries": [
     {
-      "id": "S10b-record13-unbound",
-      "kind": "extra",
-      "traces": [
-        "*"
-      ],
-      "event": {
-        "op": "jalr",
-        "fn": "001AFD70",
-        "callback": "008257A0",
-        "record": "area11[13]"
-      },
-      "reason": "Placement record 13 (class 9, overlay manager 008257A0) is spawned by 001B6990 in both, but the original node frees itself through 001AFC10 (called at 0x8258E0) on the second world frame after the load (ORIGINAL_FRAME_ORDER.md section 6, Q3), so no traced frame contains it. The port has no translation of 008257A0: its node is an explicit UNBOUND binding (em_area11_bindings.c) that stays in the list and is walked every frame. SCENE_COORDINATOR_DESIGN.md 4.2.",
-      "removed_by": "WP-10"
-    },
-    {
       "id": "S10b-footstep-effect-node",
       "kind": "missing",
       "traces": [

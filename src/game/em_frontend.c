@@ -10,6 +10,7 @@
 #include "game/em_hud.h"
 #include "game/em_task.h"
 #include "game/em_bgm.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 #include "em_input.h"
 #include "em_movie.h"
@@ -28,6 +29,8 @@ static struct {
     EmMovie *movie;
     uint32_t movie_serial;
     int movie_skip, new_game_movie;
+    int movie_selector; /* D_00275C78 as 001AD360 step 1 stored it; -1 = none */
+    int installed;      /* em_frontend_install ran (the movie pump is registered) */
     uint32_t attract_serial;
     unsigned movie_frames;
     uint64_t movie_picture;
@@ -163,8 +166,11 @@ static int movie_pump(void *unused)
         held |= EM_PAD_START;
     int skip_ready = f.have_movie_frame && f.movie_picture >= 11;
     if (f.new_game_movie) {
-        /* 002036E0 skips on held & (spad 0x70003B90 ? 0x800 : 0x8F0); the
-         * game task 001ACEC0 sets 0x70003B90 = 2, so only START skips. */
+        /* 002036E0 skips on held & (spad 0x70003B90 ? 0x800 : 0x8F0). The
+         * game task 001ACEC0 writes 0x70003B90 = 2 on every tick before
+         * 001AD360 requests this movie, so only START skips; the 0x8F0 arm
+         * is unreachable from the game task and is refused. */
+        if (em_scene_state()->spad3B90 == 0) fail("game-task movie with spad 3B90 == 0");
         if (skip_ready && (held & EM_PAD_START)) f.movie_skip = 1;
     } else {
         em_startup_movie_input(&f.flow, held, skip_ready);
@@ -176,17 +182,15 @@ static int movie_pump(void *unused)
     em_movie_close(f.movie);
     f.movie = NULL;
     f.texture_screen = -1;
-    if (f.new_game_movie && !f.failed) {
-        /* 001AD250 case 0 forces the transition to full black (001AEDB0)
-         * when the movie completes; the AREA11 opening script's own fades
-         * reveal the scene. The 001ADF50 loading veil (0021B180/0021B550,
-         * drawn between those states) is not ported: the screen stays
-         * black instead (WP-17 residue). */
-        em_frame_fade_full(EM_FADE_BLACK);
-        em_game_install_new();
-    } else {
+    if (!f.new_game_movie) {
         em_startup_complete(&f.flow, f.movie_serial, f.failed ? -1 : 1);
     }
+    /* A game-task movie (001AD360 step 1) simply returns: the blocking call
+     * 00203350 ends and the main loop resumes; the task chain goes on to
+     * 001AD360 step 2 (S12a). 001AD250's 001AEDB0 after step 5 and the
+     * 001ADF50 load follow in the chain (em_scene_bindings.c); the loading
+     * veil's particles (0021B1B0/0021B500) are not drawn, so the screen
+     * stays black there (WP-17 residue). */
     return 0;
 }
 
@@ -269,7 +273,15 @@ static void notify(void *unused, const EmStartupEvent *event)
             fail("missing or unavailable startup sound cue");
         return;
     case EM_STARTUP_NEW_GAME:
-        begin_movie(0, 1);
+        /* 001AC070 state 4: 001AB790(001ACEC0) replaces slot 0 with the game
+         * task; id 1 (a loaded game, D_00275BE0 = 1) needs the unported
+         * load-game service. The intro movie is requested later by the
+         * chain itself, at 001AD360 step 1 (em_frontend_movie_request). */
+        if (event->id != 0) {
+            fail("NEW_GAME handoff for a loaded game (load-game service not ported)");
+            return;
+        }
+        em_game_install_new();
         return;
     case EM_STARTUP_ATTRACT:
         /* anim_frame_top_a (the attract demo) is not ported (WP-17
@@ -354,10 +366,37 @@ static void startup_task(void)
     }
 }
 
+int em_frontend_movie_select(uint8_t selector)
+{
+    f.movie_selector = selector;
+    return 0;
+}
+
+int em_frontend_movie_request(uint8_t value)
+{
+    if (!f.installed) {
+        /* EM_SKIP_STARTUP: no frontend, so no movie pump for step M. */
+        fprintf(stderr, "startup: movie request without the native frontend (EM_SKIP_STARTUP)\n");
+        em_frame_request_quit();
+        return -1;
+    }
+    if (value != 1 || f.movie_selector != 0 || f.movie) {
+        char error[128];
+        snprintf(error, sizeof error, "movie request D_00821058=%u with selector %d is not exported",
+                 (unsigned)value, f.movie_selector);
+        fail(error);
+        return -1;
+    }
+    begin_movie(0, 1);
+    return f.failed ? -1 : 0;
+}
+
 void em_frontend_install(void)
 {
     memset(&f, 0, sizeof f);
     f.texture_screen = f.previous_screen = -1;
+    f.movie_selector = -1;
+    f.installed = 1;
     f.capture_dir = getenv("EM_STARTUP_CAPTURE_DIR");
     f.test = getenv("EM_STARTUP_TEST");
     em_startup_init(&f.flow, notify, NULL);

@@ -34,7 +34,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
-           src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c
+           src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
+           src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -289,6 +290,28 @@ test-frame-trace:
 .PHONY: test-actor-census
 test-actor-census:
 	python3 tools/test_actor_census_reference.py
+
+# S12a: spawn placement 001B07C0/001B0250 over the exported D_0024D650 window
+# (tools/export_spawn_table.py), the record-13 manager 008257A0, and the area
+# load: the veil 0021B180/0021B550/0021B840 plus a headless New Game run
+# (first control, then an EM_AREA_CHANGE_TEST reload) whose chain ticks are
+# replayed through the executed original.
+.PHONY: test-spawn-place-reference
+test-spawn-place-reference:
+	python3 tools/test_spawn_place_reference.py
+
+.PHONY: test-manager-8257a0-reference
+test-manager-8257a0-reference:
+	python3 tools/test_manager_8257a0_reference.py
+
+.PHONY: test-area-load-reference
+test-area-load-reference: $(BIN)
+	mkdir -p build/area_load_reference
+	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-control EM_AREA_CHANGE_TEST=1 \
+	    EM_AREA_CHANGE_LOG=build/area_load_reference/ticks.jsonl $(BIN) > build/area_load_reference/run.log 2>&1
+	grep -q "newgame control test: PASS" build/area_load_reference/run.log
+	grep -q "area change test: PASS" build/area_load_reference/run.log
+	python3 tools/test_area_load_reference.py --log build/area_load_reference/ticks.jsonl
 
 .PHONY: test-message-service
 test-message-service:

@@ -4,6 +4,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_scene_bindings.h"
+#include "game/em_spawn_table.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,7 +22,70 @@ static struct {
     int status, status_frames, resumed_frames;
     float frozen_pos[3], frozen_eye[3];
     int32_t frozen_variants;
+    /* The pool census at first control (S12a: the original holds 49 nodes). */
+    int census;
+    /* EM_AREA_CHANGE_TEST: after first control, 001B0C60(0x0B, 0, 0) (S12a). */
+    int area_change, area_frames, area_last_frame;
 } test;
+
+static void fail(const char *reason);
+
+/* S12a: the New Game census at first control (ORIGINAL_FRAME_ORDER.md
+ * section 4: nodes #0..#48 with record 13 freed on the second world frame). */
+enum { FIRST_CONTROL_CENSUS = 49 };
+
+/* EM_AREA_CHANGE_TEST (S12a): at first control, request an area change to
+ * AREA11 room 0 entry 0 through the translated 001B0C60, as the fan exit and
+ * Roger do (with their own area bytes). 3B8D = 3 selects 001AE6B0, the fade
+ * runs out, 001AD010 at substate 2 commits 700..702 and +9 = 5; 001ADF50
+ * reads the area again; state 0 rebuilds it and 001B07C0(0) places the
+ * player. The chain's tick-by-tick bytes are checked against the executed
+ * original by tools/test_area_load_reference.py (EM_AREA_CHANGE_LOG). Here:
+ * the first world frame after the rebuild must find +8/+9/+B = 3/1/1, the
+ * area bytes 0B/00/00, B8 cleared by 001AFCF0, the player at spawn entry 0
+ * (position and heading bits of the exported record, and the 0x70003B40
+ * snapshot) and a roster pool. */
+static void area_change_before_frame(void)
+{
+    if (g.frame_no >= test.area_last_frame) {
+        test.area_last_frame = g.frame_no;
+        if (++test.area_frames > 600) fail("area change did not reload within 600 world frames");
+        return;
+    }
+    /* g.frame_no restarted: the state-0 rebuild ran; this is its first world frame. */
+    EmSceneState *s = em_scene_state();
+    EmSpawnTable table;
+    if (em_spawn_table_load(&table, EM_SPAWN_TABLE_PATH) != 0) {fail("spawn table missing");return;}
+    const uint8_t *t11 = em_spawn_table_read(&table, EM_SPAWN_TABLE_ADDRESS + 4u * 0x0B, 4);
+    uint32_t rooms = t11 ? (uint32_t)(t11[0] | t11[1] << 8 | t11[2] << 16 | (uint32_t)t11[3] << 24) : 0;
+    const uint8_t *r0 = em_spawn_table_read(&table, rooms, 4);
+    uint32_t entries = r0 ? (uint32_t)(r0[0] | r0[1] << 8 | r0[2] << 16 | (uint32_t)r0[3] << 24) : 0;
+    const uint8_t *rec = em_spawn_table_read(&table, entries, 0x10);
+    float want[4] = {0};
+    if (rec) memcpy(want, rec, sizeof want);
+    em_spawn_table_free(&table);
+    EmTask *task = em_task_current(); /* the before-frame hook runs inside the task */
+    const uint8_t *u = task ? task->user : NULL;
+    if (!rec || !u) {fail("area change: no record or task");return;}
+    int ok = u[0] == 3 && u[1] == 1 && u[3] == 1 && s->d810700 == 0x0B && s->d810701 == 0 &&
+             s->d810702 == 0 && s->req[EM_SCENE_REQ_B8] == 0 && !em_scene_faulted(s) &&
+             memcmp(&g.pos[0], &want[0], 4) == 0 && memcmp(&g.pos[2], &want[2], 4) == 0 &&
+             memcmp(&g.yaw, &want[3], 4) == 0 && memcmp(&s->spad3B40[0], &want[0], 12) == 0 &&
+             memcmp(&s->spad3B40[5], &want[3], 4) == 0;
+    int census = em_scene_bindings_pool_census();
+    if (!ok || census <= 0) {
+        fprintf(stderr, "area change test: task=%02x%02x%02x%02x area=%02x/%u/%u B8=%u "
+                "pos=(%.6f,%.6f,%.6f) yaw=%.8f census=%d\n", u[0], u[1], u[2], u[3],
+                s->d810700, s->d810701, s->d810702, s->req[EM_SCENE_REQ_B8],
+                g.pos[0], g.pos[1], g.pos[2], g.yaw, census);
+        fail("area change did not rebuild AREA11 at spawn entry 0");return;
+    }
+    fprintf(stderr, "area change test: PASS world_frames_before_reload=%d placed=(%.6f,%.6f,%.6f) "
+            "yaw=%.8f census_after_rebuild=%d\n", test.area_frames, g.pos[0], g.pos[1], g.pos[2],
+            g.yaw, census);
+    test.phase=4;
+    em_frame_request_quit();
+}
 
 static void fail(const char *reason);
 
@@ -111,6 +175,7 @@ void em_opening_control_test_begin(void)
     const char *value=getenv("EM_STARTUP_TEST");
     test.active=value && strcmp(value,"newgame-control")==0;
     test.status = getenv("EM_CONTROL_STATUS_TEST") != NULL;
+    test.area_change = getenv("EM_AREA_CHANGE_TEST") != NULL;
     const char *gait = getenv("EM_CONTROL_LOW_GAIT");
     if (gait && (strcmp(gait, "1") == 0 || strcmp(gait, "2") == 0))
         test.low_gait = atoi(gait);
@@ -120,6 +185,10 @@ void em_opening_control_test_before_frame(void)
 {
     if (!test.active || test.failed) return;
     if (g.frame_no>3000) {fail("opening/control timeout");return;}
+    if (test.phase==11) {
+        area_change_before_frame();
+        return;
+    }
     if (test.phase==0) {
         if (!em_opening_runtime_busy()) {fail("opening did not start");return;}
         memcpy(test.locked_start,g.pos,sizeof test.locked_start);
@@ -127,6 +196,11 @@ void em_opening_control_test_before_frame(void)
         test.phase=1;
         fprintf(stderr,"newgame control test: holding W through automatic opening\n");
     } else if (test.phase==2 && em_frame_transition()->substate==0) {
+        test.census = em_scene_bindings_pool_census();
+        if (test.census != FIRST_CONTROL_CENSUS) {
+            fprintf(stderr,"newgame control test: census=%d at first control\n",test.census);
+            fail("first-control pool census is not the original 49");return;
+        }
         memcpy(test.move_start,g.pos,sizeof test.move_start);
         if (test.low_gait) {
             EmEvent event = {.type = EM_EVENT_KEY_DOWN,
@@ -225,9 +299,16 @@ void em_opening_control_test_after_frame(void)
             fail("no finite walkable original grid surface beneath player");return;
         }
         fprintf(stderr,"newgame control test: PASS locked_ticks=%d max_locked_motion=%.9g "
-                "move_ticks=%d displacement=%.6f pos=(%.6f,%.6f,%.6f) ground=%.6f\n",
+                "move_ticks=%d displacement=%.6f pos=(%.6f,%.6f,%.6f) ground=%.6f census=%d\n",
                 test.locked_ticks,test.max_locked_distance,test.moving_ticks,distance,
-                g.pos[0],g.pos[1],g.pos[2],ground.point[1]);
+                g.pos[0],g.pos[1],g.pos[2],ground.point[1],test.census);
+        if (test.area_change) {
+            em_scene_request_area_change_001B0C60(0x0B, 0, 0);
+            test.area_last_frame = g.frame_no;
+            test.phase = 11;
+            fprintf(stderr, "area change test: 001B0C60(0x0B, 0, 0) posted at first control\n");
+            return;
+        }
         if (test.low_gait || getenv("EM_CONTROL_STOP_TEST") || getenv("EM_CONTROL_REENTRY_TEST")) {
             test.phase=5;
             fprintf(stderr,"newgame control test: released W; validating original run-stop\n");
