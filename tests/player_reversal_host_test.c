@@ -27,6 +27,8 @@ static EmFrameInput input;
 static EmPadUnpack pad;
 const EmFrameInput *em_frame_input(void) { return &input; }
 const EmPadUnpack *em_frame_pad_block(void) { return &pad; }
+/* The live player states' fail-stop (never reached: they stay gated off). */
+void em_frame_request_quit(void) { assert(!"quit"); }
 
 static void stick(uint8_t x, uint8_t y, uint8_t gait)
 {

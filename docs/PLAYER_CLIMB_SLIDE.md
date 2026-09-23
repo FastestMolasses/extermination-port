@@ -33,7 +33,8 @@ callback 00161020 (cases 1/2) and the walk callback 001612D0 (case 1) call
    +D0 is rebuilt with build_trs_matrix before each call and the yaw restored
    after.
 6. 0015EC50 (state 6, +1F0 0xC: the running jump of route beats 12/14,
-   section 8), then 0015FDF0 (state 0x24).
+   section 8), then 0015FDF0 (an aim solver toward the 001AA4E0 target; when
+   it returns 1, 00160220 itself writes +5 = 0x24, +1F0 = 0x3A, +0 = 3).
 
 0015DF10 probes forward with 0019AD00 at 18 and 4.01 above the feet (6 units
 ahead, times 0.75 x 2/4/6 by tier +25C in mode 0; 5 units in mode 1). The
@@ -303,6 +304,26 @@ must change with it. Clips 0x5E and 0x73 are chained in the original bank
 so they are not exported.
 
 ## 6. Not yet live: what binding needs
+
+**State adapters (lane "player-states-live").** `em_player_slide_live_state`
+(+5 0x1C) and `em_player_climb_live_state` (+5 2 and 3) run the translated
+callbacks over the live actor, and so does `em_player_climb_live_probe`
+(0015DF10 for the Use chain). They are `EmPlayerStateCallback`s for
+`EmPlayerStatesBinding.stage.state[]` (0015B130's table; the translated
+0015B130 wrapper in em_player_floor.c calls them):
+
+- Each adapter keeps the module's worker table.
+- The floor, fall and probe workers (00175900, 001796C0, 001764E0) run over
+  the live actor through `player_states_floor_service`,
+  `player_states_fall_check` and `player_states_wall_probes`.
+- A missing worker faults before the actor is touched.
+- Their mirrors (`em_player_*_actor_from_live` / `_to_live`) are checked by
+  both reference tests against the offset tables their original-instruction
+  comparisons use. The climb's `link_kind` comes from the +308 owner through
+  `em_actor_collision_player_link_kind`.
+
+FIRST_CONTROL.md "Live player states" has the gates. The items below are
+what they still wait for:
 
 1. **Crate collision.** Publish crate cells uid 7..10 (compact type-0x2000
    faces, same format as `panel_cell18.emcb`) from their owners each tick. The

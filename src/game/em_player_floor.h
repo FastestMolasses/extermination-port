@@ -15,6 +15,7 @@
 #define EM_PLAYER_FLOOR_H
 
 #include <stdint.h>
+#include <string.h>
 
 /* ---- 00187350 footstep dispatch --------------------------------------- */
 
@@ -88,6 +89,12 @@ typedef struct EmPlayerProbeHit {
     float delta[3];      /* 0x700031C0 = point - target */
     float normal[3];     /* the hit node's plane normal (+0x24 on the node) */
     float axis[3];       /* the hit node's +0x34 vector (surface 0x35 uses x/z) */
+    /* The 0x700031D4 value this probe left: the hit owner (the pool record,
+     * an EmActor * in the port), or NULL. 0019AB20 keeps the last cell owner
+     * hit even when the grid then wins (kind 4). 00175CF0 stores it in the
+     * player's +214 (D_008104C4) when kind & 2 (docs/ACTOR_COLLISION.md
+     * section 7 item 4). `entity` is owner != NULL. */
+    const void *owner;
 } EmPlayerProbeHit;
 
 /* ---- Original SDK vector math (00102BB0 family), EE truncating floats --- */
@@ -179,9 +186,15 @@ typedef struct EmPlayerFloorActor {
     uint8_t slide;        /* +237 */
     uint8_t major;        /* +4 */
     uint8_t state;        /* +5 */
-    uint8_t link;         /* +214 != 0 */
     uint8_t link_flags;   /* (+214)+2 */
     uint8_t link_type;    /* (+214)+3 */
+    /* +214 (D_008104C4): the owner the player stands on, or NULL. 0015BA50
+     * moves it to +308 and clears it at the start of every player stage;
+     * 00175CF0 stores a probe's 0x700031D4 here (when kind & 2) and reads it
+     * back in the same call (00175640, the contact |= 0x80 test). A binder
+     * that seeds a non-NULL value also seeds link_flags/link_type from that
+     * owner's +2/+3. */
+    const void *link_owner;
 } EmPlayerFloorActor;
 
 typedef struct EmPlayerFloorWorkers {
@@ -195,8 +208,9 @@ typedef struct EmPlayerFloorWorkers {
     /* 0019B8C0(actor, at, probe, mask). */
     int (*object)(void *context, const float at[3], const float probe[3],
                   unsigned mask, EmPlayerProbeHit *hit);
-    /* 00175640(+214): nonzero lets a 0x1000 floor push. */
-    int (*link_test)(void *context, int *result);
+    /* 00175640(*(+214)): nonzero lets a 0x1000 floor push. `owner` is the
+     * value 00175CF0 stored in +214 (link_owner), NULL included. */
+    int (*link_test)(void *context, const void *owner, int *result);
     /* 0017F9E0 (0) and 0017FB90 (1): the surface-0x39 handlers. */
     int (*surface39)(void *context, int handler);
     /* 00187DC0 (0x5A), 00187DE0 (0x5B), 00187EA0 (0x5C) first contact. */
@@ -208,6 +222,21 @@ typedef struct EmPlayerFloorWorkers {
     float (*atan)(void *context, float x);
     float (*sqrt)(void *context, float x);
 } EmPlayerFloorWorkers;
+
+/* 00175640(owner) over the owner bytes it reads: 1 when `present` and the
+ * type byte +3 is 0xC, 0x2A, 0xA, 0x18 or 2, or the behaviour word +0x10 is
+ * 00156F30, 00827880 or 00828700; else 0 (NULL gives 0). Byte-matched in
+ * the decomp (src/func_00175640.c); the floor oracle executes it. */
+static inline int em_player_link_00175640(int present, uint8_t type, uint32_t behaviour)
+{
+    if (!present) return 0;
+    if (type == 0x0C || type == 0x2A || type == 0x0A || type == 0x18) return 1;
+    if (behaviour == 0x00156F30u || behaviour == 0x00827880u || behaviour == 0x00828700u)
+        return 1;
+    return type == 2;
+}
+/* The same, exported for the oracle. */
+int em_player_floor_link_test(int present, uint8_t type, uint32_t behaviour);
 
 /* 0019A310(out): the slope angle of the hit node's normal. */
 void em_player_slope_angle(const EmPlayerProbeHit *hit, const EmPlayerFloorWorkers *workers,
@@ -221,6 +250,154 @@ int em_player_floor_apply(EmPlayerFloorActor *actor, const EmPlayerProbeHit *hit
  * caller's `at` is used. */
 int em_player_floor_service(EmPlayerFloorActor *actor, int search, float at[3],
                             const EmPlayerFloorWorkers *workers);
+
+/* ---- The live player actor (em_player.c "Live player states") ----------
+ * The player actor record in its original layout: every translated state
+ * routine reads and writes its mirror by these offsets, so one byte image
+ * carries them all between routines and stages. The pointer words +214
+ * (D_008104C4) and +308 hold port pointers (the owner's EmActor) and are kept
+ * beside the image, with the owner's +2/+3 bytes cached when +214 is stored
+ * (00175CF0 reads them through the pointer). */
+#define EM_PLAYER_ACTOR_SIZE 0x320
+typedef struct EmPlayerLiveActor {
+    uint8_t bytes[EM_PLAYER_ACTOR_SIZE];
+    const void *link_owner;   /* +214 */
+    const void *link_prev;    /* +308 (0015BA50: the previous stage's +214) */
+    uint8_t link_flags;       /* (+214)+2 */
+    uint8_t link_type;        /* (+214)+3 */
+} EmPlayerLiveActor;
+
+/* A +5 state callback (0015B130's table) over the live actor: 0, or a
+ * negative value on a fault. */
+typedef int (*EmPlayerStateCallback)(void *context, EmPlayerLiveActor *actor);
+
+static inline float em_live_f32(const EmPlayerLiveActor *a, unsigned at)
+{
+    float v; memcpy(&v, a->bytes + at, 4); return v;
+}
+static inline void em_live_set_f32(EmPlayerLiveActor *a, unsigned at, float v)
+{
+    memcpy(a->bytes + at, &v, 4);
+}
+static inline uint32_t em_live_u32(const EmPlayerLiveActor *a, unsigned at)
+{
+    uint32_t v; memcpy(&v, a->bytes + at, 4); return v;
+}
+static inline void em_live_set_u32(EmPlayerLiveActor *a, unsigned at, uint32_t v)
+{
+    memcpy(a->bytes + at, &v, 4);
+}
+static inline uint16_t em_live_u16(const EmPlayerLiveActor *a, unsigned at)
+{
+    uint16_t v; memcpy(&v, a->bytes + at, 2); return v;
+}
+static inline void em_live_set_u16(EmPlayerLiveActor *a, unsigned at, uint16_t v)
+{
+    memcpy(a->bytes + at, &v, 2);
+}
+static inline uint8_t em_live_u8(const EmPlayerLiveActor *a, unsigned at) { return a->bytes[at]; }
+static inline void em_live_set_u8(EmPlayerLiveActor *a, unsigned at, uint8_t v) { a->bytes[at] = v; }
+
+/* The floor-service and fall-check mirrors over the live actor (offsets as
+ * in the field comments; tools/test_player_floor_reference.py checks them
+ * against its original-verified offset tables). */
+void em_player_floor_actor_from_live(const EmPlayerLiveActor *live, EmPlayerFloorActor *out);
+void em_player_floor_actor_to_live(const EmPlayerFloorActor *in, EmPlayerLiveActor *live);
+void em_player_fall_actor_from_live(const EmPlayerLiveActor *live, EmPlayerFallActor *out);
+void em_player_fall_actor_to_live(const EmPlayerFallActor *in, EmPlayerLiveActor *live);
+
+/* ---- The player stage around the state callbacks -----------------------
+ * 0015BCF0 -> 0015BA50 -> the +4 handler (0015B130 for +4 = 1, 0015B770 for
+ * +4 = 2, ...) over the live actor. Translated here so that the floor
+ * oracle executes the original routines against them
+ * (tools/test_player_floor_reference.py "stage" cases). Every callee the
+ * port does not translate is a worker; a missing worker or a negative
+ * return is a fault (-1). */
+
+#define EM_PLAYER_MAJOR_COUNT 7      /* 0015BA50's jump table: +4 = 0..6 */
+#define EM_PLAYER_STATE1_COUNT 0x26  /* 0015B130's table: +5 = 0..0x25 (0x25 empty) */
+#define EM_PLAYER_STATE2_COUNT 0x1A  /* 0015B770's table: +5 = 0..0x19 */
+
+/* What the stage reads or writes outside the actor. */
+typedef struct EmPlayerStageScene {
+    uint8_t spad3B8D; /* 0x70003B8D: scripted takeover (0015B130's prelude and case 0x19) */
+    uint8_t spad3B8F; /* 0x70003B8F: 0015BA50's +94 gate; 0015B130 writes 1 on +5 = 0x19 */
+    uint8_t area;     /* D_00810700 */
+    uint8_t d8106F1;  /* D_008106F1, read by 0015BA50's busy test */
+    uint8_t d810CB6;  /* D_00810CB6, the same */
+    uint8_t busy;     /* D_008106B3: 0015BA50 clears it before the switch and sets it after */
+} EmPlayerStageScene;
+
+typedef struct EmPlayerStageWorkers {
+    void *context;
+    /* D_00248C98[+20C * 3]: the rate float at +8 of the D_00248C90 row. */
+    int (*clip_rate)(void *context, int clip, float *rate);
+    /* anim_advance_time(p, step) (001C64F0); *flags is its result (+200). */
+    int (*advance)(void *context, EmPlayerLiveActor *actor, float step, uint32_t *flags);
+    /* 00183090(p), the +4 = 4 scripted-clip commit test. */
+    int (*commit)(void *context, EmPlayerLiveActor *actor, int *result);
+    /* 0021C440(p): the damage reaction; *result is its return value. */
+    int (*reaction)(void *context, EmPlayerLiveActor *actor, int *result);
+    int (*drain)(void *context, EmPlayerLiveActor *actor);      /* 0015D100 */
+    int (*heartbeat)(void *context, EmPlayerLiveActor *actor);  /* 0015D000 */
+    /* 00182B30(p), 00182D70(p) and 00174A50(p, blend): 0015B130's prelude. */
+    int (*scripted_check)(void *context, EmPlayerLiveActor *actor, int *result);
+    int (*scripted_notify)(void *context, EmPlayerLiveActor *actor);
+    int (*row_request)(void *context, EmPlayerLiveActor *actor, float blend);
+    /* 0011A070(handle): 0015BCF0's loop-sound stop. */
+    int (*stop_sound)(void *context, int handle);
+    /* 0015BA50's +4 handlers: [0] 0015C420, [1] 0015B130, [2] 0015B770,
+     * [4] 0015B530, [5] 0015B610, [6] 0015D460 (+4 = 3 is a no-op). The
+     * translations em_player_stage_0015B130 / _0015B770 / _0015D460 below
+     * fit this signature. */
+    EmPlayerStateCallback major[EM_PLAYER_MAJOR_COUNT];
+    void *major_context[EM_PLAYER_MAJOR_COUNT];
+    /* 0015B130's per-state routines, by +5 (entry 0x19 is 0016DE40, which
+     * 0015B130 calls only outside the scripted takeover). */
+    EmPlayerStateCallback state[EM_PLAYER_STATE1_COUNT];
+    void *state_context[EM_PLAYER_STATE1_COUNT];
+    /* 0015B770's per-state routines, by +5 (entry 0x19 is 002255C0, after
+     * 0015B770's own +1 = 0). +5 = 0xD and 0xE dispatch on +D instead:
+     * phase13[0..4] and phase14[0..3]. */
+    EmPlayerStateCallback state2[EM_PLAYER_STATE2_COUNT];
+    void *state2_context[EM_PLAYER_STATE2_COUNT];
+    EmPlayerStateCallback phase13[5];
+    void *phase13_context[5];
+    EmPlayerStateCallback phase14[4];
+    void *phase14_context[4];
+} EmPlayerStageWorkers;
+
+/* The context of the 0015B130 / 0015B770 callbacks. */
+typedef struct EmPlayerStage {
+    EmPlayerStageScene *scene;
+    const EmPlayerStageWorkers *workers;
+} EmPlayerStage;
+
+/* 0015BA50 before its switch: +34 = D_00248C98[+20C] * +204, +204 = 1.0,
+ * +303 = +25D = 0, +1 = 1, +319 = +A, +A = 0, +308 = +214, +214 = 0,
+ * +318 = 0, +94 = -1 unless 0x70003B8F == 2, D_008106B3 = 0. -1 when
+ * clip_rate is missing or fails (nothing written). */
+int em_player_stage_begin(EmPlayerLiveActor *actor, EmPlayerStageScene *scene,
+                          const EmPlayerStageWorkers *workers);
+/* 0015BA50's switch: anim_advance_time into +200 where the original calls
+ * it, then major[+4]. +4 = 3 and +4 > 6 do nothing. */
+int em_player_stage_dispatch(EmPlayerLiveActor *actor, const EmPlayerStageWorkers *workers);
+/* 0015BA50 after its switch: +B = 0, the +276/+274 clears, D_008106B3. */
+void em_player_stage_end(EmPlayerLiveActor *actor, EmPlayerStageScene *scene);
+/* 0015BCF0's writes after 0015BA50 returns: +BC = 1.0, then (after
+ * 0015CF90 / 0015CBA0 / 00187350, which write none of these bytes) the
+ * +B4 < -200 check (+4 = 6, +5 = 0) and the +31B loop-sound stop. */
+int em_player_stage_tail(EmPlayerLiveActor *actor, const EmPlayerStageWorkers *workers);
+/* 0015B130 and 0015B770; context is an EmPlayerStage. */
+int em_player_stage_0015B130(void *stage, EmPlayerLiveActor *actor);
+int em_player_stage_0015B770(void *stage, EmPlayerLiveActor *actor);
+/* 0015D460 (+4 = 6, entered by 0015BCF0's -200 check); context is an
+ * EmPlayerStageFade. */
+typedef struct EmPlayerStageFade {
+    void *context;
+    int (*fade)(void *context, int a0, int a1);   /* 001AEDE0(4, 0) */
+} EmPlayerStageFade;
+int em_player_stage_0015D460(void *fade, EmPlayerLiveActor *actor);
 
 /* ---- 001764E0 radial wall probes, 001756E0 clearance release ------------ */
 

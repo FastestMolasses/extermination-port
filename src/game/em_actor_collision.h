@@ -221,7 +221,8 @@ int em_actor_collision_owner_probe(void *owner, float position[4], const float f
 typedef struct {
     EmActorCollisionWorld *world;
     EmActorCollisionQuery query;    /* self = the player's +0x14, cls = +0x02 */
-    /* 0x700031D4 after the LAST call. 00175CF0 stores it in the player's
+    /* 0x700031D4 after the LAST call (also returned per probe as
+     * EmPlayerProbeHit.owner). 00175CF0 stores it in the player's
      * +0x214 (D_008104C4) when kind & 2 and it is not NULL, and reads +0x214
      * again in the same function (00175640 for a 0x1000 floor, the
      * contact |= 0x80 test), while 00175900 probes again afterwards (the
@@ -239,6 +240,29 @@ typedef struct {
  * nothing else reads EmPlayerProbeHit.axis, which is left zero). */
 int em_actor_collision_player_ground(void *player, const float position[3], const float probe[3],
                                      unsigned mask, EmPlayerProbeHit *hit);
+/* EmPlayerFloorWorkers.link_test: 00175640(owner) over the EmActor the
+ * ground worker reported (EmPlayerProbeHit.owner, stored in +214): its
+ * +3 (model) and +0x10 (callback, the original behaviour address).
+ * `player` is unused (00175640 reads only the owner). 0, or -1 for a NULL
+ * result pointer. */
+int em_actor_collision_player_link(void *player, const void *owner, int *result);
+/* EmPlayerClimbLive.link_kind: the climb's view of the +308 owner (00161790
+ * and 0015DF10 read its +0x10 behaviour): 2 for the AREA11 overlay routines
+ * 00828700 / 00827880, 1 for any other owner, 0 for none. */
+int em_actor_collision_player_link_kind(void *context, const void *owner);
+/* EmPlayerFallWorkers.column (00179450's 0019BC40): the column table at
+ * `position` over the player's world. `context` is an
+ * EmActorCollisionPlayerColumn: the world and 0019BC40's SDK workers
+ * (section 7 item 4 names the translations; NULL math faults). Past 16 survivors
+ * the original's result arrays alias one another (docs/PLAYER_CLIMB_SLIDE.md
+ * section 3), which the port does not reproduce: that is a fault, as in the
+ * climb. 0, or -1 on a fault. */
+typedef struct {
+    EmActorCollisionWorld *world;
+    const EmCollColumnMath *math;
+} EmActorCollisionPlayerColumn;
+int em_actor_collision_player_column(void *context, const float position[3],
+                                     EmPlayerFloorTable *table);
 
 #ifdef __cplusplus
 }

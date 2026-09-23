@@ -381,6 +381,11 @@ static const float kLaneAngles[8] = {
 
 /* ---- 0019A310 / 00175CF0 / 00175900 ------------------------------------ */
 
+int em_player_floor_link_test(int present, uint8_t type, uint32_t behaviour)
+{
+    return em_player_link_00175640(present, type, behaviour);
+}
+
 void em_player_slope_angle(const EmPlayerProbeHit *hit, const EmPlayerFloorWorkers *w,
                            float *out)
 {
@@ -412,15 +417,20 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
     }
     for (unsigned axis = 0; axis < 3; ++axis)
         a->position[axis] = f32_add(a->position[axis], hit->delta[axis]);
-    if ((hit->kind & 2) && hit->entity) {
-        a->link = 1;
+    /* .s 0x00175DD0..0x00175DE0: kind & 2 with a nonzero 0x700031D4 stores
+     * it in +214 (D_008104C4). A kind-4 result keeps 0x700031D4 but does not
+     * store it. */
+    if ((hit->kind & 2) && hit->owner) {
+        a->link_owner = hit->owner;
         a->link_flags = hit->entity_flags;
         a->link_type = hit->entity_type;
     }
     int push = a->surface_class == 0x2000;
     if (!push && a->surface_class == 0x1000) {
+        /* 00175640(*(+214)): the jal at 0x00175E00 loads +214 in its delay
+         * slot, so the test sees the owner stored above or seeded before. */
         int linked;
-        if (!w->link_test || w->link_test(w->context, &linked) < 0) return -1;
+        if (!w->link_test || w->link_test(w->context, a->link_owner, &linked) < 0) return -1;
         push = linked != 0;
     }
     if (push) {
@@ -443,7 +453,7 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
         return 0;
     }
     a->contact = index == 0 ? 1 : index < 6 ? 3 : 2;
-    if (a->link) a->contact |= 0x80;
+    if (a->link_owner) a->contact |= 0x80;     /* +214 != 0 (0x00175F84) */
     if (a->surface_mode == 0x39) {
         if (index < 6 && a->major == 1 && a->state == 1) {
             if (!w->surface39 || w->surface39(w->context, 0) < 0) return -1;
@@ -542,7 +552,7 @@ int em_player_floor_service(EmPlayerFloorActor *a, int search, float at[3],
             } else {
                 a->surface = 0;
                 /* 0x80 is only set with a +214 link (00175CF0). */
-                if ((a->contact & 0x80) && a->link && (a->link_flags & ~0xE0) == 4) {
+                if ((a->contact & 0x80) && a->link_owner && (a->link_flags & ~0xE0) == 4) {
                     uint8_t t = a->link_type;
                     if (t == 2 || t == 10 || t == 12 || t == 24 || t == 42 || t == 40)
                         a->surface = 4;
@@ -777,4 +787,339 @@ int em_player_clearance_release(EmPlayerProbeActor *a, const EmPlayerProbeScene 
         if (!w->pose || w->pose(w->context, 12.0f) < 0) return -1;
     }
     return 0;
+}
+
+/* ---- The live actor mirrors -------------------------------------------- */
+
+static void live_vector(const EmPlayerLiveActor *live, unsigned at, float *out, unsigned n)
+{
+    for (unsigned i = 0; i < n; ++i) out[i] = em_live_f32(live, at + 4 * i);
+}
+
+static void live_set_vector(EmPlayerLiveActor *live, unsigned at, const float *in, unsigned n)
+{
+    for (unsigned i = 0; i < n; ++i) em_live_set_f32(live, at + 4 * i, in[i]);
+}
+
+void em_player_floor_actor_from_live(const EmPlayerLiveActor *live, EmPlayerFloorActor *a)
+{
+    memset(a, 0, sizeof *a);
+    live_vector(live, 0xB0, a->position, 3);
+    live_vector(live, 0x280, a->probe, 3);
+    a->yaw = em_live_f32(live, 0xC4);
+    a->pitch = em_live_f32(live, 0xC0);
+    a->slope = em_live_f32(live, 0x9C);
+    a->surface_y = em_live_f32(live, 0x250);
+    a->conveyor_yaw = em_live_f32(live, 0x310);
+    a->slide_yaw = em_live_f32(live, 0x218);
+    a->surface_class = em_live_u16(live, 0x238);
+    a->mode = em_live_u8(live, 0x1F0);
+    a->surface_mode = em_live_u8(live, 0x23B);
+    a->surface = em_live_u8(live, 0x23A);
+    a->contact = em_live_u8(live, 0xA);
+    a->floor_hit = em_live_u8(live, 0xB);
+    a->depth = em_live_u8(live, 0x23C);
+    a->puddle = em_live_u8(live, 0x23D);
+    a->marsh = em_live_u8(live, 0x23E);
+    a->lock = em_live_u8(live, 0x25F);
+    a->slide = em_live_u8(live, 0x237);
+    a->major = em_live_u8(live, 4);
+    a->state = em_live_u8(live, 5);
+    a->link_owner = live->link_owner;
+    a->link_flags = live->link_flags;
+    a->link_type = live->link_type;
+}
+
+void em_player_floor_actor_to_live(const EmPlayerFloorActor *a, EmPlayerLiveActor *live)
+{
+    live_set_vector(live, 0xB0, a->position, 3);
+    live_set_vector(live, 0x280, a->probe, 3);
+    em_live_set_f32(live, 0xC4, a->yaw);
+    em_live_set_f32(live, 0xC0, a->pitch);
+    em_live_set_f32(live, 0x9C, a->slope);
+    em_live_set_f32(live, 0x250, a->surface_y);
+    em_live_set_f32(live, 0x310, a->conveyor_yaw);
+    em_live_set_f32(live, 0x218, a->slide_yaw);
+    em_live_set_u16(live, 0x238, a->surface_class);
+    em_live_set_u8(live, 0x1F0, a->mode);
+    em_live_set_u8(live, 0x23B, a->surface_mode);
+    em_live_set_u8(live, 0x23A, a->surface);
+    em_live_set_u8(live, 0xA, a->contact);
+    em_live_set_u8(live, 0xB, a->floor_hit);
+    em_live_set_u8(live, 0x23C, a->depth);
+    em_live_set_u8(live, 0x23D, a->puddle);
+    em_live_set_u8(live, 0x23E, a->marsh);
+    em_live_set_u8(live, 0x25F, a->lock);
+    em_live_set_u8(live, 0x237, a->slide);
+    em_live_set_u8(live, 4, a->major);
+    em_live_set_u8(live, 5, a->state);
+    live->link_owner = a->link_owner;
+    live->link_flags = a->link_flags;
+    live->link_type = a->link_type;
+}
+
+void em_player_fall_actor_from_live(const EmPlayerLiveActor *live, EmPlayerFallActor *a)
+{
+    memset(a, 0, sizeof *a);
+    live_vector(live, 0xB0, a->position, 3);
+    live_vector(live, 0x280, a->probe, 3);
+    a->drop = em_live_f32(live, 0x2EC);
+    a->below = em_live_f32(live, 0x258);
+    a->lock = em_live_u8(live, 0x25F);
+    a->mode = em_live_u8(live, 0x1F0);
+    a->contact = em_live_u8(live, 0xA);
+    a->state = em_live_u8(live, 5);
+    a->walk = em_live_u8(live, 6);
+    a->slide = em_live_u8(live, 0x237);
+    a->row = em_live_u8(live, 0x235);
+    a->special = em_live_u8(live, 0x236);
+}
+
+void em_player_fall_actor_to_live(const EmPlayerFallActor *a, EmPlayerLiveActor *live)
+{
+    live_set_vector(live, 0xB0, a->position, 3);
+    live_set_vector(live, 0x280, a->probe, 3);
+    em_live_set_f32(live, 0x2EC, a->drop);
+    em_live_set_f32(live, 0x258, a->below);
+    em_live_set_u8(live, 0x25F, a->lock);
+    em_live_set_u8(live, 0x1F0, a->mode);
+    em_live_set_u8(live, 0xA, a->contact);
+    em_live_set_u8(live, 5, a->state);
+    em_live_set_u8(live, 6, a->walk);
+    em_live_set_u8(live, 0x237, a->slide);
+    em_live_set_u8(live, 0x235, a->row);
+    em_live_set_u8(live, 0x236, a->special);
+}
+
+/* ---- The player stage: 0015BA50 / 0015BCF0 / 0015B130 / 0015B770 / 0015D460 */
+
+#define STAGE_CALL(expression) do { if ((expression) < 0) return -1; } while (0)
+
+int em_player_stage_begin(EmPlayerLiveActor *a, EmPlayerStageScene *s,
+                          const EmPlayerStageWorkers *w)
+{
+    if (!a || !s || !w || !w->clip_rate) return -1;
+    /* idx = *(short *)(p + 0x20C); +34 = D_00248C98[idx * 3] * +204. */
+    float rate;
+    STAGE_CALL(w->clip_rate(w->context, (int16_t)em_live_u16(a, 0x20C), &rate));
+    em_live_set_f32(a, 0x34, em_effect_float32((double)rate * (double)em_live_f32(a, 0x204)));
+    em_live_set_f32(a, 0x204, 1.0f);
+    em_live_set_u8(a, 0x303, 0);
+    em_live_set_u8(a, 0x25D, 0);
+    em_live_set_u8(a, 1, 1);
+    em_live_set_u8(a, 0x319, em_live_u8(a, 0xA));
+    em_live_set_u8(a, 0xA, 0);
+    a->link_prev = a->link_owner;           /* +308 = +214 */
+    a->link_owner = NULL;                   /* +214 = 0 */
+    em_live_set_u8(a, 0x318, 0);
+    if (s->spad3B8F != 2) em_live_set_u16(a, 0x94, 0xFFFF);
+    s->busy = 0;                            /* D_008106B3 = 0 */
+    return 0;
+}
+
+static int stage_advance(EmPlayerLiveActor *a, const EmPlayerStageWorkers *w, unsigned step_at)
+{
+    uint32_t flags;
+    if (!w->advance || w->advance(w->context, a, em_live_f32(a, step_at), &flags) < 0) return -1;
+    em_live_set_u32(a, 0x200, flags);
+    return 0;
+}
+
+static int stage_major(EmPlayerLiveActor *a, const EmPlayerStageWorkers *w, unsigned major)
+{
+    if (!w->major[major]) return -1;
+    return w->major[major](w->major_context[major], a) < 0 ? -1 : 0;
+}
+
+int em_player_stage_dispatch(EmPlayerLiveActor *a, const EmPlayerStageWorkers *w)
+{
+    if (!a || !w) return -1;
+    uint8_t major = em_live_u8(a, 4);
+    switch (major) {
+    case 0:
+    case 6:
+        return stage_major(a, w, major);
+    case 1:
+    case 2:
+    case 5:
+        STAGE_CALL(stage_advance(a, w, 0x34));
+        return stage_major(a, w, major);
+    case 4: {
+        uint8_t v = em_live_u8(a, 5);
+        if (v == 0 || v == 0x17) {
+            int committed;
+            if (!w->commit) return -1;
+            STAGE_CALL(w->commit(w->context, a, &committed));
+            if (committed != 0) STAGE_CALL(stage_advance(a, w, 0x1F4));
+        } else {
+            STAGE_CALL(stage_advance(a, w, 0x34));
+        }
+        return stage_major(a, w, 4);
+    }
+    default:
+        return 0;   /* +4 = 3 (the table's default entry) and above 6 */
+    }
+}
+
+void em_player_stage_end(EmPlayerLiveActor *a, EmPlayerStageScene *s)
+{
+    em_live_set_u8(a, 0xB, 0);
+    if (em_live_u8(a, 4) != 1) {
+        em_live_set_u16(a, 0x276, 0);
+        em_live_set_u8(a, 0x274, 0);
+    }
+    uint8_t mode = em_live_u8(a, 0x1F0);
+    if (mode != 0x31 && mode != 0x32 && !(mode == 0x34 || mode == 0x35)) {
+        em_live_set_u16(a, 0x276, 0);
+        em_live_set_u8(a, 0x274, 0);
+    }
+    uint8_t major = em_live_u8(a, 4), state = em_live_u8(a, 5);
+    if (s->d8106F1 != 0 || em_live_u16(a, 0x276) != 0 || em_live_u8(a, 0x1F0) == 0x33 ||
+        s->d810CB6 != 0 ||
+        (major == 2 &&
+         (state == 0xD || state == 0xE || state == 0xF || state == 0xB || state == 0xC) &&
+         em_live_u8(a, 0x1F1) == 1))
+        s->busy = 1;
+}
+
+int em_player_stage_tail(EmPlayerLiveActor *a, const EmPlayerStageWorkers *w)
+{
+    if (!a || !w) return -1;
+    em_live_set_u32(a, 0xBC, 0x3F800000u);
+    uint8_t major = em_live_u8(a, 4);
+    if (major != 6 && (major != 2 || em_live_u8(a, 5) != 0x16) && em_live_f32(a, 0xB4) < -200.0f) {
+        em_live_set_u8(a, 4, 6);
+        em_live_set_u8(a, 5, 0);
+    }
+    if (em_live_u8(a, 0x31A) == 0 || (int8_t)em_live_u8(a, 0x31B) == -1) return 0;
+    uint16_t event = em_live_u16(a, 0x31C);
+    major = em_live_u8(a, 4);
+    uint8_t state = em_live_u8(a, 5);
+    int stop = 0;
+    if (event == 0x5DD)
+        stop = em_live_u8(a, 0x275) != 4 || major != 1 ||
+               (state != 0x1D && (unsigned)(state - 0x1E) > 2);
+    else if (event == 0x12E)
+        stop = major != 1 || state != 0x1C;
+    else if (event == 0x135)
+        stop = major != 1 || state != 0x17;
+    if (!stop) return 0;
+    if (!w->stop_sound) return -1;
+    STAGE_CALL(w->stop_sound(w->context, (int8_t)em_live_u8(a, 0x31B)));
+    em_live_set_u8(a, 0x31B, 0xFF);
+    em_live_set_u8(a, 0x31A, 0);
+    return 0;
+}
+
+static int stage_state(EmPlayerStateCallback const *table, void *const *contexts, unsigned index,
+                       EmPlayerLiveActor *a)
+{
+    if (!table[index]) return -1;
+    return table[index](contexts[index], a) < 0 ? -1 : 0;
+}
+
+int em_player_stage_0015B130(void *context, EmPlayerLiveActor *a)
+{
+    EmPlayerStage *stage = context;
+    if (!stage || !stage->scene || !stage->workers || !a) return -1;
+    EmPlayerStageScene *s = stage->scene;
+    const EmPlayerStageWorkers *w = stage->workers;
+    if (s->spad3B8D != 0) {
+        if (em_live_u8(a, 5) == 0x19) {
+            s->spad3B8F = 1;
+        } else if (s->area != 0x15 && em_live_u8(a, 0x1F0) == 0x2A) {
+            em_live_set_u8(a, 4, 4);
+            em_live_set_u8(a, 5, 0x17);
+            em_live_set_u8(a, 6, 0);
+            if (!w->scripted_notify) return -1;
+            return w->scripted_notify(w->context, a) < 0 ? -1 : 0;
+        } else if (em_live_u8(a, 0x1F0) == 0x17) {
+            em_live_set_u8(a, 4, 4);
+            em_live_set_u8(a, 5, 0xC);
+            em_live_set_u8(a, 6, 0);
+            if (!w->scripted_notify) return -1;
+            return w->scripted_notify(w->context, a) < 0 ? -1 : 0;
+        } else {
+            int result;
+            if (!w->scripted_check) return -1;
+            STAGE_CALL(w->scripted_check(w->context, a, &result));
+            if (result == 0) {
+                em_live_set_u8(a, 4, 4);
+                em_live_set_u8(a, 5, 0);
+                em_live_set_u8(a, 6, 0);
+                em_live_set_u8(a, 0x1F0, 0x41);
+                if (!w->row_request || !w->scripted_notify) return -1;
+                STAGE_CALL(w->row_request(w->context, a, 8.0f));
+                return w->scripted_notify(w->context, a) < 0 ? -1 : 0;
+            }
+        }
+    }
+    int reacted;
+    if (!w->reaction) return -1;
+    STAGE_CALL(w->reaction(w->context, a, &reacted));
+    if (reacted != 0) return 0;
+    uint8_t state = em_live_u8(a, 5);
+    if (state == 0x19) {
+        if (s->spad3B8D == 0) STAGE_CALL(stage_state(w->state, w->state_context, 0x19, a));
+        else em_live_set_u8(a, 1, 0);
+    } else if (state < 0x25) {
+        STAGE_CALL(stage_state(w->state, w->state_context, state, a));
+    }   /* 0x25 is an empty case; above it the dispatch is skipped */
+    int16_t countdown = (int16_t)em_live_u16(a, 0x20E);
+    if (countdown != 0) {
+        em_live_set_u16(a, 0x20E, (uint16_t)(countdown - 1));
+        if (em_live_u16(a, 0x20E) == 0) em_live_set_u8(a, 0, 1);
+    } else if (!(em_live_u8(a, 0) & 2)) {
+        if (!w->drain) return -1;
+        STAGE_CALL(w->drain(w->context, a));
+    }
+    if (!w->heartbeat) return -1;
+    return w->heartbeat(w->context, a) < 0 ? -1 : 0;
+}
+
+int em_player_stage_0015B770(void *context, EmPlayerLiveActor *a)
+{
+    EmPlayerStage *stage = context;
+    if (!stage || !stage->workers || !a) return -1;
+    const EmPlayerStageWorkers *w = stage->workers;
+    int ignored;
+    if (!w->reaction) return -1;
+    STAGE_CALL(w->reaction(w->context, a, &ignored));   /* result unused */
+    uint8_t state = em_live_u8(a, 5), phase = em_live_u8(a, 0xD);
+    switch (state) {
+    case 8:
+        return 0;
+    case 0xD:
+        if (phase > 4) return 0;
+        return stage_state(w->phase13, w->phase13_context, phase, a);
+    case 0xE:
+        if (phase > 3) return 0;   /* phase 4 is an empty case */
+        return stage_state(w->phase14, w->phase14_context, phase, a);
+    case 0x19:
+        em_live_set_u8(a, 1, 0);
+        return stage_state(w->state2, w->state2_context, 0x19, a);
+    default:
+        if (state >= EM_PLAYER_STATE2_COUNT) return 0;
+        return stage_state(w->state2, w->state2_context, state, a);
+    }
+}
+
+int em_player_stage_0015D460(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerStageFade *f = context;
+    if (!a) return -1;
+    uint8_t state = em_live_u8(a, 5);
+    switch (state) {
+    case 0:
+        em_live_set_u8(a, 5, (uint8_t)(state + 1));
+        em_live_set_u32(a, 0x220, 0);
+        em_live_set_u8(a, 0, 0);
+        return 0;
+    case 1:
+        em_live_set_u8(a, 5, (uint8_t)(state + 1));
+        if (!f || !f->fade) return -1;
+        return f->fade(f->context, 4, 0) < 0 ? -1 : 0;
+    default:
+        return 0;
+    }
 }

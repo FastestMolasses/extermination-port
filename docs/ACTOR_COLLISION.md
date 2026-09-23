@@ -305,10 +305,18 @@ bounds in the EMCL. The 3,099 EMCL grid planes equal the RAM nodes bit for bit.
     stores at `0x24(D_700030B0)`, which is `0x700030D4 + 4i`, the record's
     `+0x24`.
 
-  The native follows the `.s`. The decomp's C and its `docs/NEARMISS.md`
-  row (81.64%) should be corrected; other agents read that C as ground
-  truth.
-- **Two EE float models disagree on `0011DBB8`.** This oracle (the shared
+  The native follows the `.s`. **Fixed in the decomp (2026-09-23,
+  Extermination 6454325):** `src/func_001A4030.c` now byte-matches (100%,
+  linked from the compiled C), so it is ground truth. It also shows a side
+  effect the native does not model yet: 001A4030 stores the ratio
+  ny^2/(nx^2+nz^2) to scratchpad 0x70003680 (0x001A4358), which
+  em_actor_collision.c keeps in a local. The same address is written or
+  named by 001A2370, 001A50A0, 001A7BA0, 001B41F0, 001B55E0, 001CD2B0 and
+  001CE660; if a reader of 0x70003680 is on the AREA11 path, the native
+  must publish it.
+- **Two EE float models disagree on `0011DBB8`** (settled since: docs/EE_FLOAT_MODEL.md;
+  the decomp's `0011DBB8` C also had atanhi/atanlo swapped in the id>=0 return, fixed
+  in 6454325 — recheck any translation that copied it against 0x11DE10..0x11DE44). This oracle (the shared
   interpreter of `tools/test_player_slide_reference.py`) truncates every
   add, sub, mul and div. `em_pose_math.h`, which
   `em_director_original_0011DBB8` uses, pre-trims add/sub operands to one
@@ -386,33 +394,56 @@ bounds in the EMCL. The 3,099 EMCL grid planes equal the RAM nodes bit for bit.
        frame after the call returns; no value is substituted.
      - Section 5 has the one-ulp open question on 0011DBB8's arithmetic
        model.
-   - **`D_008104C4` is a call change in em_player_floor, not a coordinator
-     step.** `00175CF0` stores `0x700031D4` in `+0x214` and reads `+0x214`
-     again in the same call (section 1), all inside
-     `em_player_floor_apply`. After the service returns,
-     `EmActorCollisionPlayer.entity` belongs to the 0x5B depth probe, so a
-     binder must never copy it into `+0x214`. The change (needs_from_lead):
-     1. `EmPlayerProbeHit` gains `const void *owner`: the `0x700031D4` value
-        of that probe (the hit owner's `EmActor *`, or NULL).
-        `em_actor_collision_player_ground` then sets `hit->owner = h.entity`
-        next to `hit->entity` (a one-line change here once the field
-        exists).
-     2. `EmPlayerFloorActor` gains `const void *link_owner`, the player's
-        `+0x214`. The binder points it at the canonical `D_008104C4` storage,
-        or copies it in before `em_player_floor_service` and back out after.
-     3. In `em_player_floor_apply`, at the `00175CF0` position (after
-        `position += delta`, before the 0x2000/0x1000 push test):
-        `if ((hit->kind & 2) && hit->owner) a->link_owner = hit->owner;`.
-        Keep the existing link flag updates.
-     4. `link_test` receives the stored value, as `00175640(*(+0x214))`
-        does: `link_test(context, a->link_owner, &linked)`.
-     5. The contact test reads the stored value, as the original tests
-        `+0x214 != 0`: `if (a->link_owner) a->contact |= 0x80`. This
-        includes an owner stored earlier in the same call.
+   - **`D_008104C4`: done (lane "player-states-live").** `00175CF0` stores
+     `0x700031D4` in `+0x214` and reads `+0x214` again in the same call
+     (section 1), inside `em_player_floor_apply`:
+     1. `EmPlayerProbeHit.owner` carries each probe's `0x700031D4` value,
+        which `em_actor_collision_player_ground` sets.
+     2. `EmPlayerFloorActor.link_owner` is `+0x214` (it replaced the old
+        `link` flag); `link_flags`/`link_type` cache the owner's +2/+3.
+     3. The store runs `if ((hit->kind & 2) && hit->owner)`, after
+        `position += delta` and before the push test (`.s`
+        0x00175DD0..0x00175DE0). A kind-4 result keeps `0x700031D4` but does
+        not store it.
+     4. `link_test(context, a->link_owner, &linked)` is `00175640(*(+214))`.
+        `em_actor_collision_player_link` translates 00175640 (byte-matched)
+        over the owner's `model` (+3) and `callback` (+0x10);
+        `em_player_link_00175640` is the shared rule.
+     5. `contact |= 0x80` tests the stored `link_owner`.
+
+     Evidence (`tools/test_player_floor_reference.py`):
+     - 00175640 executed for all 256 type bytes with its three behaviour
+       addresses (1,537 cases);
+     - 96 targeted store cases, plus the owner compared by address in all
+       5,000 floor-service cases (the old test compared only
+       `bool(+214)`);
+     - the real worlds: on route beat 05's crate rows and beat 08's f43,
+       the original 00175900 and `em_player_floor_service` over
+       `em_actor_collision_player_ground` store the same owner, and it is
+       the trace's (9 rows quick: 8 crate rows and f43; 294 full).
+
+     Setting `owner` to NULL in the adapter fails the real-world rows.
+     `EmActorCollisionPlayer.entity` remains the last probe's (the 0x5B
+     depth probe's); binders read `+0x214` from the floor actor
+     (`player_states_actor()->link_owner`), never from `entity`.
+   - **Player adapters** (player query side). The first two are named
+     above; the other two are new:
+     - `em_actor_collision_player_ground`, for 0019AB20;
+     - `em_actor_collision_player_link`, for 00175640;
+     - `em_actor_collision_player_column`, for 00179450's 0019BC40. Its
+       context `EmActorCollisionPlayerColumn` = { world, math }. It faults
+       without math, and above 16 survivors, where the original's result
+       arrays alias;
+     - `em_actor_collision_player_link_kind`, the climb's +308 kind (2 for
+       behaviour 00828700/00827880, 1 other, 0 none).
+
+     FIRST_CONTROL.md "Live player states" has the binding, and the gates
+     that keep it off until 0019B6C0/0019B8C0 and the EMCL node class exist.
    - `0015BA50` copies `+0x214` to `+0x308` and clears it, at its original
      position in each player stage.
    - `EmTruckWorld.ground_kind` = `&((EmActor *)D_008104C4)->param` (+0x0D),
-     or NULL when it is 0. The truck arms on 9.
+     or NULL when it is 0, with `D_008104C4` =
+     `player_states_actor()->link_owner`. The truck arms on 9.
 5. **Makefile (not edited; hunk for the lead).**
    - Add `src/game/em_actor_collision.c` to the game sources after
      `src/game/em_collision.c`.

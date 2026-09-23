@@ -164,4 +164,36 @@ int em_player_climb_tick(EmPlayerClimbActor *actor, const EmPlayerClimbScene *sc
 int em_player_climb_vault_tick(EmPlayerClimbActor *actor, const EmPlayerClimbScene *scene,
                                const EmPlayerClimbWorkers *workers);
 
+/* ---- The live climb states (em_player.c "Live player states") -----------
+ * The mirror above over the live actor's original bytes (offsets in the
+ * field comments; tools/test_player_climb_reference.py checks them against
+ * its original-verified offset tables). link_kind is not a byte: it is
+ * derived from the +308 owner by the binder's link_kind worker. */
+void em_player_climb_actor_from_live(const EmPlayerLiveActor *live, EmPlayerClimbActor *out);
+void em_player_climb_actor_to_live(const EmPlayerClimbActor *in, EmPlayerLiveActor *live);
+
+/* EmPlayerStatesBinding.stage.state[2] and [3] = em_player_climb_live_state
+ * with an EmPlayerClimbLive context (+5 2 runs 00161790, 3 runs 00162190).
+ * `workers` binds every callee except floor/probes/fall, which run over the
+ * live actor (player_states_floor_service, player_states_wall_probes,
+ * player_states_fall_check); `scene` fills EmPlayerClimbScene this stage;
+ * `link_kind` maps the +308 owner (em_actor_collision_player_link_kind).
+ * A missing worker faults (-1) before anything runs. */
+typedef struct EmPlayerClimbLive {
+    EmPlayerClimbWorkers workers;
+    int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result);
+    int (*probes)(void *context, EmPlayerLiveActor *actor);
+    int (*fall)(void *context, EmPlayerLiveActor *actor);
+    void *live_context;
+    int (*scene)(void *context, EmPlayerClimbScene *scene);
+    void *scene_context;
+    int (*link_kind)(void *context, const void *owner);
+    void *link_context;
+} EmPlayerClimbLive;
+int em_player_climb_live_state(void *context, EmPlayerLiveActor *actor);
+/* 0015DF10(p, mode, ang) over the live actor, for the Use chain 00160220
+ * (not yet translated: its 0015D4C0/0015EC50/0015FDF0 are missing). 1 when a
+ * climb started, 0, or -1. */
+int em_player_climb_live_probe(void *context, EmPlayerLiveActor *actor, int mode, float ang);
+
 #endif

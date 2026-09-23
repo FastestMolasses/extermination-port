@@ -399,6 +399,10 @@ test-shadow-original:
 test-shadow-original-reference:
 	python3 tools/test_shadow_original_reference.py
 
+.PHONY: test-player-states-host
+test-player-states-host:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+
 .PHONY: test-ee-float-model
 test-ee-float-model:
 	python3 tools/test_ee_float_model.py

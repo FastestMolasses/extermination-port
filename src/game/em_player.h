@@ -10,7 +10,10 @@
 #define EM_PLAYER_H
 
 /* The subsystem's shared types and state live here. */
+#include <stdio.h>
+
 #include "game/em_game_internal.h"
+#include "game/em_player_floor.h"
 
 void player_move(void);
 void player_turn_toward(float desired, float rate);
@@ -75,6 +78,151 @@ uint8_t player_footstep_phase(void);
  * 001764E0 over the port's collision; unbound workers it reaches (00176180,
  * 001762E0 shove, 00174A50 row request) are counted here. */
 unsigned player_probe_faults(void);
+
+/* ---- Live player states (docs/FIRST_CONTROL.md "Live player states") ------
+ * The original player stage 0015BCF0 -> 0015BA50 -> the +4 handler (0015B130
+ * for +4 = 1, whose +5 table holds 00161020 idle, 001612D0 walk, 0016C6A0
+ * slide, 00161790 climb, ...). The idle/walk tails run 001764E0, the +B4
+ * lowering, 00175900(p, 1), 001756E0 and 001796C0. The port runs its own
+ * idle/walk callbacks; this layer replaces the port's floor snap and
+ * PLAYER_FALL_ENTRY stand-in with the translated 00175900/001796C0
+ * (em_player_floor.c) and hands every other (+4, +5) to the translated
+ * stage (em_player_stage_* in em_player_floor.h) and the bound callbacks, but
+ * ONLY once every original worker, datum and state callback each mechanism
+ * can reach is bound (the reversal skid's gate, generalised). Until then the
+ * port's path runs unchanged.
+ *
+ * The live actor is EmPlayerLiveActor (em_player_floor.h): the player record
+ * in its original byte layout, shared by the stage, the floor service, the
+ * fall check and every state callback. Its +B0/+C4 are the port's
+ * g.pos/g.yaw while the port's own idle/walk callbacks own the player. */
+
+#define EM_PLAYER_STATE_COUNT EM_PLAYER_STATE1_COUNT
+
+/* Everything the live layer needs from its binder (the coordinator). Each
+ * worker keeps the EmPlayerFloorWorkers / EmPlayerFallWorkers contract. */
+typedef struct EmPlayerStatesBinding {
+    /* 0019AB20(player, ...): em_actor_collision_player_ground over the
+     * actor-collision world (docs/ACTOR_COLLISION.md section 7 item 4). */
+    int (*ground)(void *context, const float position[3], const float probe[3],
+                  unsigned mask, EmPlayerProbeHit *hit);
+    void *ground_context;
+    /* The grid that worker walks: it must carry EM_COLL_FLAG_NODE_CLASS (the
+     * authored class byte 00175CF0 records; without it the worker faults on
+     * every grid hit). */
+    const EmCollision *grid;
+    /* 0019B6C0 (surface record) and 0019B8C0 (object probe). */
+    int (*head)(void *context, const float top[3], const float bottom[3], EmPlayerProbeHit *hit);
+    int (*object)(void *context, const float at[3], const float probe[3], unsigned mask,
+                  EmPlayerProbeHit *hit);
+    void *probe_context;
+    /* 00175640(*(+214)): em_actor_collision_player_link. */
+    int (*link_test)(void *context, const void *owner, int *result);
+    void *link_context;
+    /* 0019BC40(position) for 00179450: em_actor_collision_player_column. */
+    int (*column)(void *context, const float position[3], EmPlayerFloorTable *table);
+    void *column_context;
+    /* SDK 0011E620 atan2, 0011E398 cos, 0011DBB8 atan, 0011E748 sqrt. */
+    float (*atan2)(void *context, float y, float x);
+    float (*cosine)(void *context, float x);
+    float (*atan)(void *context, float x);
+    float (*sqrt)(void *context, float x);
+    void *sdk_context;
+    /* 0017F9E0 / 0017FB90 (surface 0x39; no AREA11 grid node carries 0x39). */
+    int (*surface39)(void *context, int handler);
+    void *surface39_context;
+    /* The stage's workers and callbacks (em_player_floor.h):
+     * stage.clip_rate (D_00248C98), stage.advance (001C64F0), stage.commit
+     * (00183090), stage.reaction (0021C440), stage.drain (0015D100),
+     * stage.heartbeat (0015D000), stage.scripted_check / scripted_notify /
+     * row_request (00182B30 / 00182D70 / 00174A50), stage.stop_sound
+     * (0011A070); stage.state[] (0015B130's table), stage.state2[] /
+     * phase13[] / phase14[] (0015B770's), stage.major[0/4/5/6] (0015C420,
+     * 0015B530, 0015B610, 0015D460 -- em_player_stage_0015D460 with an
+     * EmPlayerStageFade). major[1] and major[2] are set by player_states_bind
+     * to the translated 0015B130 / 0015B770 over this binding; the
+     * binding's own values there are ignored. */
+    EmPlayerStageWorkers stage;
+} EmPlayerStatesBinding;
+
+/* Prerequisites, one bit each (player_states_missing). */
+enum {
+    EM_PLAYER_NEED_GROUND       = 1u << 0,  /* 0019AB20 worker */
+    EM_PLAYER_NEED_NODE_CLASS   = 1u << 1,  /* grid with EM_COLL_FLAG_NODE_CLASS */
+    EM_PLAYER_NEED_HEAD         = 1u << 2,  /* 0019B6C0 */
+    EM_PLAYER_NEED_OBJECT       = 1u << 3,  /* 0019B8C0 */
+    EM_PLAYER_NEED_LINK         = 1u << 4,  /* 00175640 */
+    EM_PLAYER_NEED_COLUMN       = 1u << 5,  /* 0019BC40 */
+    EM_PLAYER_NEED_SDK          = 1u << 6,  /* 0011E620/0011E398/0011DBB8/0011E748 */
+    EM_PLAYER_NEED_DISPLAY      = 1u << 7,  /* the display stage draws bound states */
+    EM_PLAYER_NEED_FLOOR_STATES = 1u << 8,  /* the FLOOR state closure (kFloorStates) */
+    EM_PLAYER_NEED_USE_CHAIN    = 1u << 9,  /* 00160220 past 00184BA0 (use hook) */
+    EM_PLAYER_NEED_USE_STATES   = 1u << 10, /* +5 = 2, 3, 6, 0xB, 0x24 (kUseStates) */
+    EM_PLAYER_NEED_STOP_SOUND   = 1u << 11, /* 0011A070 (0015BCF0's loop-sound stop) */
+    EM_PLAYER_NEED_STAGE        = 1u << 12, /* 0015BA50 / 0015B130 / 0015B770 workers */
+};
+/* FLOOR: 00175900 and 001796C0 replace the port's floor snap and
+ * PLAYER_FALL_ENTRY. They enter the fall (+5 = 5, 00179680) and the slide
+ * (0x1C, on the hill's authored 0x1000 nodes) on ordinary AREA11 walks, so
+ * every (+4, +5) those two states can reach before handing back to +4 = 1,
+ * +5 = 0/1 is part of the mechanism (kFloorStates, derived from the
+ * originals: docs/FIRST_CONTROL.md "FLOOR state closure"), with 0015BCF0's
+ * -200 check (+4 = 6) and 0015B130's scripted prelude (+4 = 4). */
+#define EM_PLAYER_MECH_FLOOR (EM_PLAYER_NEED_GROUND | EM_PLAYER_NEED_NODE_CLASS | \
+    EM_PLAYER_NEED_HEAD | EM_PLAYER_NEED_OBJECT | EM_PLAYER_NEED_LINK | EM_PLAYER_NEED_COLUMN | \
+    EM_PLAYER_NEED_SDK | EM_PLAYER_NEED_DISPLAY | EM_PLAYER_NEED_FLOOR_STATES | \
+    EM_PLAYER_NEED_STOP_SOUND | EM_PLAYER_NEED_STAGE)
+/* USE: the rest of the Use chain 00160220 as one unit, since one press can
+ * reach any of its entries: 0015D4C0 (AREA11: only case 0x32, the ladder
+ * columns -> 0xB), 0015DF10 (ledge climb 2 / vault 3), 0015EC50 (running
+ * jump 6) and 0015FDF0 (0x24). Everything those reach beyond them is
+ * already in the FLOOR closure. */
+#define EM_PLAYER_MECH_USE (EM_PLAYER_MECH_FLOOR | EM_PLAYER_NEED_USE_CHAIN | \
+    EM_PLAYER_NEED_USE_STATES)
+
+/* Bind (or, with NULL, unbind) the live layer. The binding is copied. */
+void player_states_bind(const EmPlayerStatesBinding *binding);
+/* The display stage declares that it draws the source clip of every bound
+ * state callback, advancing it by the stage's +34 (as
+ * player_reversal_bind_display does for the skid). */
+void player_states_bind_display(int bound);
+/* The coordinator's use hook (00160220) declares that it continues past
+ * 00184BA0 with 001AAC00, 0015D4C0, the trigger boxes, 0015DF10 x3,
+ * 0015EC50 and 0015FDF0 (em_player_climb adapters) when Use found nothing. */
+void player_states_bind_use_chain(int bound);
+/* Missing prerequisites (EM_PLAYER_NEED_* bits) of the whole set, and of a
+ * mechanism mask: 0 means that mechanism is engaged. */
+unsigned player_states_missing(void);
+int player_states_engaged(unsigned mechanism);
+/* One line per mechanism naming what it still needs, to `out`. */
+void player_states_report(FILE *out);
+/* 0015BA50 before its switch (em_player_stage_begin) and, after the
+ * callback, 0015BA50's tail (em_player_stage_end) with 0015BCF0's writes
+ * (em_player_stage_tail). Each runs once per gameplay frame (repeat calls
+ * in the same frame do nothing) and only while FLOOR is engaged;
+ * player_move calls both around the callbacks. */
+void player_states_stage_begin(void);
+void player_states_stage_end(void);
+/* D_008106B3 as this frame's 0015BA50 left it (for the coordinator's B3
+ * byte once engaged); -1 while FLOOR is gated off. */
+int player_states_busy(void);
+/* The live mirror (for the coordinator's D_008104C4 readers, e.g.
+ * EmTruckWorld.ground_kind = the +0x0D of link_owner). */
+const EmPlayerLiveActor *player_states_actor(void);
+/* The same, writable (area load / scripted placement by the coordinator). */
+EmPlayerLiveActor *player_states_actor_mut(void);
+/* Services over a live actor for the state adapters (their floor / fall /
+ * probes workers): 00175900(p, search) (*result = +A), 001796C0 and
+ * 001764E0 with the bound workers. 0, or -1 on a fault or while gated off.
+ * `context` is unused (the adapters' worker signature). */
+int player_states_floor_service(void *context, EmPlayerLiveActor *actor, int search, int *result);
+int player_states_fall_check(void *context, EmPlayerLiveActor *actor);
+int player_states_wall_probes(void *context, EmPlayerLiveActor *actor);
+/* Faults reached on the live path (a worker returned < 0). */
+unsigned player_states_faults(void);
+/* Area load: the mirror at 0015C420's values (+280 = (0, -13.8, 0), +4 = 1,
+ * +5 = 0, link cleared). */
+void player_states_reset(void);
 
 /* Called from the gameplay frame in em_game.c as well as from this module. */
 int  aim_ladder_eval(double t);

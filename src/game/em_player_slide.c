@@ -9,6 +9,7 @@
 #include "game/em_effect_color.h"
 
 #include <stddef.h>
+#include <string.h>
 
 static float f32_add(float a, float b) { return em_effect_float32((double)a + b); }
 static float f32_sub(float a, float b) { return em_effect_float32((double)a - b); }
@@ -450,4 +451,147 @@ int em_player_slide_tick(EmPlayerSlideActor *a, const EmPlayerSlideScene *s,
         FAULT(w->surface5d(w->context));
     }
     return 0;
+}
+
+/* ---- The live state 0x1C ------------------------------------------------ */
+
+void em_player_slide_actor_from_live(const EmPlayerLiveActor *live, EmPlayerSlideActor *a)
+{
+    memset(a, 0, sizeof *a);
+    for (unsigned i = 0; i < 3; ++i) {
+        a->position[i] = em_live_f32(live, 0xB0 + 4 * i);
+        a->rotation[i] = em_live_f32(live, 0xC0 + 4 * i);
+    }
+    a->speed = em_live_f32(live, 0x38);
+    a->clock = em_live_f32(live, 0x3C);
+    a->slope = em_live_f32(live, 0x9C);
+    a->slide_yaw = em_live_f32(live, 0x218);
+    a->root_prev = em_live_f32(live, 0x21C);
+    a->impact = em_live_f32(live, 0x26C);
+    a->fall_rate = em_live_f32(live, 0x2E0);
+    a->ramp = em_live_f32(live, 0x2E4);
+    a->drop = em_live_f32(live, 0x2EC);
+    a->land_y = em_live_f32(live, 0x2F4);
+    a->ramp_timer = em_live_f32(live, 0x2F8);
+    a->entry_y = em_live_f32(live, 0x294);
+    a->pad_x = em_live_f32(live, 0x244);
+    a->pad_y = em_live_f32(live, 0x248);
+    a->steer = (int32_t)em_live_u32(live, 0x24C);
+    a->anim_flags = em_live_u32(live, 0x200);
+    a->ticks = (int16_t)em_live_u16(live, 0x2A);
+    a->sound_id = em_live_u16(live, 0x31C);
+    a->sound = (int8_t)em_live_u8(live, 0x31B);
+    a->sound_live = em_live_u8(live, 0x31A);
+    a->major = em_live_u8(live, 4);
+    a->state = em_live_u8(live, 5);
+    a->walk = em_live_u8(live, 6);
+    a->sub = em_live_u8(live, 7);
+    a->mode = em_live_u8(live, 0x1F0);
+    a->variant = em_live_u8(live, 0x1F1);
+    a->lean = em_live_u8(live, 0x25D);
+    a->lock = em_live_u8(live, 0x25F);
+    a->step = em_live_u8(live, 0x302);
+    a->obstruction = em_live_u8(live, 0x314);
+    a->slide = em_live_u8(live, 0x237);
+    a->surface = em_live_u8(live, 0x23A);
+    a->gait = em_live_u8(live, 0x23F);
+    a->contact = em_live_u8(live, 0xA);
+}
+
+void em_player_slide_actor_to_live(const EmPlayerSlideActor *a, EmPlayerLiveActor *live)
+{
+    for (unsigned i = 0; i < 3; ++i) {
+        em_live_set_f32(live, 0xB0 + 4 * i, a->position[i]);
+        em_live_set_f32(live, 0xC0 + 4 * i, a->rotation[i]);
+    }
+    em_live_set_f32(live, 0x38, a->speed);
+    em_live_set_f32(live, 0x3C, a->clock);
+    em_live_set_f32(live, 0x9C, a->slope);
+    em_live_set_f32(live, 0x218, a->slide_yaw);
+    em_live_set_f32(live, 0x21C, a->root_prev);
+    em_live_set_f32(live, 0x26C, a->impact);
+    em_live_set_f32(live, 0x2E0, a->fall_rate);
+    em_live_set_f32(live, 0x2E4, a->ramp);
+    em_live_set_f32(live, 0x2EC, a->drop);
+    em_live_set_f32(live, 0x2F4, a->land_y);
+    em_live_set_f32(live, 0x2F8, a->ramp_timer);
+    em_live_set_f32(live, 0x294, a->entry_y);
+    em_live_set_f32(live, 0x244, a->pad_x);
+    em_live_set_f32(live, 0x248, a->pad_y);
+    em_live_set_u32(live, 0x24C, (uint32_t)a->steer);
+    em_live_set_u32(live, 0x200, a->anim_flags);
+    em_live_set_u16(live, 0x2A, (uint16_t)a->ticks);
+    em_live_set_u16(live, 0x31C, a->sound_id);
+    em_live_set_u8(live, 0x31B, (uint8_t)a->sound);
+    em_live_set_u8(live, 0x31A, a->sound_live);
+    em_live_set_u8(live, 4, a->major);
+    em_live_set_u8(live, 5, a->state);
+    em_live_set_u8(live, 6, a->walk);
+    em_live_set_u8(live, 7, a->sub);
+    em_live_set_u8(live, 0x1F0, a->mode);
+    em_live_set_u8(live, 0x1F1, a->variant);
+    em_live_set_u8(live, 0x25D, a->lean);
+    em_live_set_u8(live, 0x25F, a->lock);
+    em_live_set_u8(live, 0x302, a->step);
+    em_live_set_u8(live, 0x314, a->obstruction);
+    em_live_set_u8(live, 0x237, a->slide);
+    em_live_set_u8(live, 0x23A, a->surface);
+    em_live_set_u8(live, 0x23F, a->gait);
+    em_live_set_u8(live, 0xA, a->contact);
+}
+
+/* The call in progress (the game runs one player stage at a time): the
+ * floor/fall workers reach the live actor through it. */
+static struct {
+    const EmPlayerSlideLive *binding;
+    EmPlayerLiveActor *live;
+} slide_call;
+
+static int slide_live_floor(void *context, EmPlayerSlideActor *actor, int search, int *result)
+{
+    (void)context;
+    em_player_slide_actor_to_live(actor, slide_call.live);
+    if (slide_call.binding->floor(slide_call.binding->live_context, slide_call.live, search,
+                                  result) < 0)
+        return -1;
+    em_player_slide_actor_from_live(slide_call.live, actor);
+    return 0;
+}
+
+static int slide_live_fall(void *context, EmPlayerSlideActor *actor)
+{
+    (void)context;
+    em_player_slide_actor_to_live(actor, slide_call.live);
+    if (slide_call.binding->fall(slide_call.binding->live_context, slide_call.live) < 0)
+        return -1;
+    em_player_slide_actor_from_live(slide_call.live, actor);
+    return 0;
+}
+
+int em_player_slide_live_state(void *context, EmPlayerLiveActor *live)
+{
+    const EmPlayerSlideLive *b = context;
+    if (!b || !live || !b->floor || !b->fall || !b->scene) return -1;
+    const EmPlayerSlideWorkers *w = &b->workers;
+    if (!w->request || !w->arbiter || !w->clip_frames || !w->sound || !w->stop_sound ||
+        !w->effect || !w->move || !w->sweep || !w->translate || !w->damage || !w->land_check ||
+        !w->land || !w->step_sound || !w->land_sound || !w->surface5d || !w->teleport ||
+        !w->sine || !w->cosine || !w->atan2)
+        return -1;
+    EmPlayerSlideScene scene;
+    memset(&scene, 0, sizeof scene);
+    if (b->scene(b->scene_context, &scene) < 0) return -1;
+    EmPlayerSlideWorkers workers = *w;
+    workers.floor = slide_live_floor;
+    workers.fall = slide_live_fall;
+    EmPlayerSlideActor actor;
+    em_player_slide_actor_from_live(live, &actor);
+    slide_call.binding = b;
+    slide_call.live = live;
+    int result = em_player_slide_tick(&actor, &scene, &workers);
+    slide_call.binding = NULL;
+    slide_call.live = NULL;
+    /* Writes made before a fault stay, as the original order leaves them. */
+    em_player_slide_actor_to_live(&actor, live);
+    return result;
 }

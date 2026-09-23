@@ -682,6 +682,17 @@ def main():
     for state in (2, 3):
         for variant in (0, 1):
             assert ('start', state, variant) in starts, ('climb start not covered', state, variant)
+    # The live climb states' mirror (em_player_climb_actor_*_live) against the
+    # offset tables every case above compares the original through (FIELDS,
+    # VECTORS and the ledge normal +290/+298; link_kind is derived, not a byte).
+    from test_player_floor_reference import LiveActor, live_mapping_check
+    NATIVE.em_player_climb_actor_from_live.argtypes = [C.POINTER(LiveActor), C.POINTER(Actor)]
+    NATIVE.em_player_climb_actor_to_live.argtypes = [C.POINTER(Actor), C.POINTER(LiveActor)]
+    table = ([(name, None, offset, size) for name, offset, size, _ in FIELDS] +
+             [(name, i, offset + 4 * i, 4) for name, offset, count in VECTORS for i in range(count)] +
+             [('ledge_normal', 0, 0x290, 4), ('ledge_normal', 1, 0x298, 4)])
+    counts['live_mirror_fields'] = live_mapping_check(
+        NATIVE.em_player_climb_actor_from_live, NATIVE.em_player_climb_actor_to_live, Actor, table, rng)
     reference_mode.banner('trs %d' % trs, *('%s %d' % kv for kv in counts.items()))
     print('climb starts (state, +1F1): %s' % sorted(starts.items()))
     # em_collision_column_table against the original 0019BC40 over the

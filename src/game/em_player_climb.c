@@ -1018,3 +1018,192 @@ int em_player_climb_vault_tick(EmPlayerClimbActor *a, const EmPlayerClimbScene *
     }
     return 0;
 }
+
+/* ---- The live climb states ------------------------------------------------ */
+
+static void climb_vec(const EmPlayerLiveActor *live, unsigned at, float *out, unsigned n)
+{
+    for (unsigned i = 0; i < n; ++i) out[i] = em_live_f32(live, at + 4 * i);
+}
+
+static void climb_set_vec(EmPlayerLiveActor *live, unsigned at, const float *in, unsigned n)
+{
+    for (unsigned i = 0; i < n; ++i) em_live_set_f32(live, at + 4 * i, in[i]);
+}
+
+void em_player_climb_actor_from_live(const EmPlayerLiveActor *live, EmPlayerClimbActor *a)
+{
+    memset(a, 0, sizeof *a);
+    climb_vec(live, 0xB0, a->position, 4);
+    climb_vec(live, 0xC0, a->rotation, 3);
+    climb_vec(live, 0x60, a->scale, 3);
+    climb_vec(live, 0xD0, a->matrix, 16);
+    a->speed = em_live_f32(live, 0x38);
+    a->clock = em_live_f32(live, 0x3C);
+    a->rate = em_live_f32(live, 0x204);
+    a->ledge = em_live_f32(live, 0x254);
+    a->target_y = em_live_f32(live, 0x258);
+    climb_vec(live, 0x2E0, a->velocity, 3);
+    climb_vec(live, 0x2F4, a->goal, 2);
+    a->drop = em_live_f32(live, 0x2EC);
+    a->aim = em_live_f32(live, 0x218);
+    a->ledge_normal[0] = em_live_f32(live, 0x290);
+    a->ledge_normal[1] = em_live_f32(live, 0x298);
+    a->surface_y = em_live_f32(live, 0x250);
+    a->push = em_live_f32(live, 0x26C);
+    a->push_decay = em_live_f32(live, 0x270);
+    a->anim_flags = em_live_u32(live, 0x200);
+    a->counter = (int16_t)em_live_u16(live, 0x28);
+    a->major = em_live_u8(live, 4);
+    a->state = em_live_u8(live, 5);
+    a->walk = em_live_u8(live, 6);
+    a->hang = em_live_u8(live, 0xD);
+    a->mode = em_live_u8(live, 0x1F0);
+    a->variant = em_live_u8(live, 0x1F1);
+    a->lock = em_live_u8(live, 0x25F);
+    a->running = em_live_u8(live, 0x2F2);
+    a->height_class = em_live_u8(live, 0x2F1);
+    a->tier = em_live_u8(live, 0x25C);
+    a->surface = em_live_u8(live, 0x23A);
+    a->depth = em_live_u8(live, 0x23C);
+    a->puddle = em_live_u8(live, 0x23D);
+    a->row = em_live_u8(live, 0x235);
+    a->special = em_live_u8(live, 0x236);
+    a->gait = em_live_u8(live, 0x23F);
+}
+
+void em_player_climb_actor_to_live(const EmPlayerClimbActor *a, EmPlayerLiveActor *live)
+{
+    climb_set_vec(live, 0xB0, a->position, 4);
+    climb_set_vec(live, 0xC0, a->rotation, 3);
+    climb_set_vec(live, 0x60, a->scale, 3);
+    climb_set_vec(live, 0xD0, a->matrix, 16);
+    em_live_set_f32(live, 0x38, a->speed);
+    em_live_set_f32(live, 0x3C, a->clock);
+    em_live_set_f32(live, 0x204, a->rate);
+    em_live_set_f32(live, 0x254, a->ledge);
+    em_live_set_f32(live, 0x258, a->target_y);
+    climb_set_vec(live, 0x2E0, a->velocity, 3);
+    climb_set_vec(live, 0x2F4, a->goal, 2);
+    em_live_set_f32(live, 0x2EC, a->drop);
+    em_live_set_f32(live, 0x218, a->aim);
+    em_live_set_f32(live, 0x290, a->ledge_normal[0]);
+    em_live_set_f32(live, 0x298, a->ledge_normal[1]);
+    em_live_set_f32(live, 0x250, a->surface_y);
+    em_live_set_f32(live, 0x26C, a->push);
+    em_live_set_f32(live, 0x270, a->push_decay);
+    em_live_set_u32(live, 0x200, a->anim_flags);
+    em_live_set_u16(live, 0x28, (uint16_t)a->counter);
+    em_live_set_u8(live, 4, a->major);
+    em_live_set_u8(live, 5, a->state);
+    em_live_set_u8(live, 6, a->walk);
+    em_live_set_u8(live, 0xD, a->hang);
+    em_live_set_u8(live, 0x1F0, a->mode);
+    em_live_set_u8(live, 0x1F1, a->variant);
+    em_live_set_u8(live, 0x25F, a->lock);
+    em_live_set_u8(live, 0x2F2, a->running);
+    em_live_set_u8(live, 0x2F1, a->height_class);
+    em_live_set_u8(live, 0x25C, a->tier);
+    em_live_set_u8(live, 0x23A, a->surface);
+    em_live_set_u8(live, 0x23C, a->depth);
+    em_live_set_u8(live, 0x23D, a->puddle);
+    em_live_set_u8(live, 0x235, a->row);
+    em_live_set_u8(live, 0x236, a->special);
+    em_live_set_u8(live, 0x23F, a->gait);
+}
+
+/* The call in progress (one player stage at a time). */
+static struct {
+    const EmPlayerClimbLive *binding;
+    EmPlayerLiveActor *live;
+} climb_call;
+
+static int climb_live_floor(void *context, EmPlayerClimbActor *actor, int search, int *result)
+{
+    (void)context;
+    em_player_climb_actor_to_live(actor, climb_call.live);
+    if (climb_call.binding->floor(climb_call.binding->live_context, climb_call.live, search,
+                                  result) < 0)
+        return -1;
+    em_player_climb_actor_from_live(climb_call.live, actor);
+    return 0;
+}
+
+static int climb_live_probes(void *context, EmPlayerClimbActor *actor)
+{
+    (void)context;
+    em_player_climb_actor_to_live(actor, climb_call.live);
+    if (climb_call.binding->probes(climb_call.binding->live_context, climb_call.live) < 0)
+        return -1;
+    em_player_climb_actor_from_live(climb_call.live, actor);
+    return 0;
+}
+
+static int climb_live_fall(void *context, EmPlayerClimbActor *actor)
+{
+    (void)context;
+    em_player_climb_actor_to_live(actor, climb_call.live);
+    if (climb_call.binding->fall(climb_call.binding->live_context, climb_call.live) < 0)
+        return -1;
+    em_player_climb_actor_from_live(climb_call.live, actor);
+    return 0;
+}
+
+/* Every worker bound, and the mirror, scene and link kind prepared. */
+static int climb_live_begin(const EmPlayerClimbLive *b, EmPlayerLiveActor *live,
+                            EmPlayerClimbActor *actor, EmPlayerClimbScene *scene,
+                            EmPlayerClimbWorkers *workers)
+{
+    if (!b || !live || !b->floor || !b->probes || !b->fall || !b->scene || !b->link_kind)
+        return -1;
+    const EmPlayerClimbWorkers *w = &b->workers;
+    if (!w->move || !w->sweep || !w->segment || !w->column || !w->table || !w->atan2 ||
+        !w->sqrt || !w->request || !w->arbiter || !w->clip_frames || !w->sound || !w->effect ||
+        !w->land_sound || !w->skeleton || !w->translate || !w->heading || !w->reentry ||
+        !w->handoff || !w->land)
+        return -1;
+    memset(scene, 0, sizeof *scene);
+    if (b->scene(b->scene_context, scene) < 0) return -1;
+    em_player_climb_actor_from_live(live, actor);
+    int kind = b->link_kind(b->link_context, live->link_prev);   /* +308 */
+    if (kind < 0 || kind > 2) return -1;
+    actor->link_kind = (uint8_t)kind;
+    *workers = *w;
+    workers->floor = climb_live_floor;
+    workers->probes = climb_live_probes;
+    workers->fall = climb_live_fall;
+    climb_call.binding = b;
+    climb_call.live = live;
+    return 0;
+}
+
+int em_player_climb_live_state(void *context, EmPlayerLiveActor *live)
+{
+    const EmPlayerClimbLive *b = context;
+    EmPlayerClimbActor actor;
+    EmPlayerClimbScene scene;
+    EmPlayerClimbWorkers workers;
+    if (climb_live_begin(b, live, &actor, &scene, &workers) < 0) return -1;
+    int result;
+    if (actor.state == 2) result = em_player_climb_tick(&actor, &scene, &workers);
+    else if (actor.state == 3) result = em_player_climb_vault_tick(&actor, &scene, &workers);
+    else result = -1;
+    climb_call.binding = NULL;
+    climb_call.live = NULL;
+    em_player_climb_actor_to_live(&actor, live);
+    return result;
+}
+
+int em_player_climb_live_probe(void *context, EmPlayerLiveActor *live, int mode, float ang)
+{
+    const EmPlayerClimbLive *b = context;
+    EmPlayerClimbActor actor;
+    EmPlayerClimbScene scene;
+    EmPlayerClimbWorkers workers;
+    if (climb_live_begin(b, live, &actor, &scene, &workers) < 0) return -1;
+    int result = em_player_climb_probe(&actor, &scene, mode, ang, &workers);
+    climb_call.binding = NULL;
+    climb_call.live = NULL;
+    em_player_climb_actor_to_live(&actor, live);
+    return result;
+}

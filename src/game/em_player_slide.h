@@ -146,4 +146,28 @@ int em_player_slide_motion(EmPlayerSlideActor *actor, const EmPlayerSlideScene *
 int em_player_slide_tick(EmPlayerSlideActor *actor, const EmPlayerSlideScene *scene,
                          const EmPlayerSlideWorkers *workers);
 
+/* ---- The live state 0x1C (em_player.c "Live player states") -------------
+ * The mirror above over the live actor's original bytes (offsets in the
+ * field comments; tools/test_player_slide_reference.py checks them against
+ * its original-verified offset table). */
+void em_player_slide_actor_from_live(const EmPlayerLiveActor *live, EmPlayerSlideActor *out);
+void em_player_slide_actor_to_live(const EmPlayerSlideActor *in, EmPlayerLiveActor *live);
+
+/* EmPlayerStatesBinding.stage.state[0x1C] = em_player_slide_live_state with an
+ * EmPlayerSlideLive context. `workers` binds every 0016C6A0 callee except
+ * floor/fall, which run over the live actor through `floor`/`fall`
+ * (player_states_floor_service / player_states_fall_check); `scene` fills
+ * the values 0016C6A0 reads outside the actor this stage (the skeleton's
+ * root and hip nodes, spad 0x70003B8D, the pad bytes). Every one is
+ * required: a missing one faults (-1) before the callback runs. */
+typedef struct EmPlayerSlideLive {
+    EmPlayerSlideWorkers workers;
+    int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result);
+    int (*fall)(void *context, EmPlayerLiveActor *actor);
+    void *live_context;
+    int (*scene)(void *context, EmPlayerSlideScene *scene);
+    void *scene_context;
+} EmPlayerSlideLive;
+int em_player_slide_live_state(void *context, EmPlayerLiveActor *actor);
+
 #endif

@@ -205,7 +205,7 @@ The lane directions now come from the SDK routine instead of host
 sinf/cosf. The remaining difference is upstream (yaw/position arithmetic,
 see FIRST_CONTROL.md); both results are within 0.0001 of the original.
 
-## P17 floor service: 00175900 (with 00175CF0, 0019A310) - translated, not bound
+## P17 floor service: 00175900 (with 00175CF0, 0019A310) - translated, bound behind a gate
 
 The walk tail lowers +B4 by 0.4 (0.8 on surface 0x35; idle 0.2). Then
 00175900(p, 1) runs:
@@ -232,6 +232,42 @@ The walk tail lowers +B4 by 0.4 (0.8 on surface 0x35; idle 0.2). Then
 Oracle: 5,000 random states covering every worker path, plus 115 captured
 frames.
 
+**+214 (`D_008104C4`).** 00175CF0 stores the probe's 0x700031D4 in +214 when
+kind & 2, then reads it back in the same call: 00175640(*(+214)) and the
+contact |= 0x80 test. `EmPlayerProbeHit.owner` and
+`EmPlayerFloorActor.link_owner` carry it (ACTOR_COLLISION.md section 7
+item 4). The oracle now compares the stored owner and the 00175640 argument
+by address in every case. It adds three checks:
+
+- 00175640 itself, executed, against `em_player_link_00175640` (1,537
+  cases);
+- 96 targeted store cases;
+- the real captured worlds. On every route-beat-05 row where the player
+  stands on a published crate (0x7A7C70, 0x7A7980), and on beat 08 f43 (the
+  truck 0x7A9FB0), the original 00175900 and `em_player_floor_service` over
+  `em_actor_collision_player_ground` give identical fields and +214, and
+  the original's +214 equals the trace's:
+  - the setup: the world is the beat's own snapshot, the feet come from the
+    row, lowered by 0.4;
+  - 0019B6C0/0019B8C0 run originally and their results are handed to the
+    native side;
+  - the native SDK calls execute the same original routines;
+  - the code of every routine run is checked against the ELF;
+  - quick mode runs 9 rows, `EM_TEST_FULL=1` runs 294.
+
+  The 38 elevator rows at the start of 05 met a world the end-of-beat
+  snapshot no longer holds (the elevator is not published there), and are
+  counted, not compared.
+
+The oracle also checks the live-actor mirrors (`em_player_floor_actor_*` and
+`em_player_fall_actor_*`, FIRST_CONTROL.md "Live player states") against its
+offset tables. The default run takes about 12 s.
+
+**Bound behind a gate** (FIRST_CONTROL.md "Live player states"): once every
+worker and callback is bound, the idle and walk tails run 00175900(p, 1) and
+001796C0 over the live actor instead of the port's snap. Until then the port
+keeps the path described below.
+
 **Not bound in the port:**
 
 - The ungrounded continuation is 001796C0 (below). It needs 0019BC40 (the
@@ -243,7 +279,7 @@ frames.
   (em_game_internal.h, labelled port-side). The +23A for footsteps keeps
   coming from the port floor probe (`footstep_floor_attr`).
 
-## P18 fall check: 001796C0 (with 00179450, 00179680) - translated, not bound
+## P18 fall check: 001796C0 (with 00179450, 00179680) - translated, bound behind a gate
 
 001796C0 runs last in the tail, and does nothing while +25F is set.
 
@@ -265,12 +301,16 @@ frames.
 
 **Blocked:**
 
-- 0019BC40 (a 378-line column scan over the class-4 hull list and the grid
-  buckets) is not translated.
+- 0019BC40 is now translated (`em_actor_collision_column_0019BC40`), and
+  `em_actor_collision_player_column` adapts it to 00179450's table. It
+  faults above 16 survivors, where the original's arrays alias.
 - 00162DB0 (the state-5 fall callback, 211 lines, which also uses 00179450)
   is not translated.
-- Until both exist, the port keeps PLAYER_FALL_ENTRY. Its comment already
-  names it a port-side stand-in for this table-driven hand-off.
+- Until every callback of the FLOOR state closure is bound (the FLOOR gate;
+  FIRST_CONTROL.md "FLOOR state closure": 5 reaches 7, 8 through 0017C580,
+  9, and on from there, plus +4 = 2 states), the port keeps
+  PLAYER_FALL_ENTRY. Its comment already names it a port-side stand-in for
+  this table-driven hand-off.
 
 ## Slide entry and the authored floor class (climb-slide lane)
 
@@ -286,3 +326,35 @@ Use-press climb (0015DF10, states 2/3) are translated and verified in
 helpers they use (`em_player_sdk_trs`, `em_player_sdk_yaw_matrix`,
 `em_player_sdk_apply`, `em_player_sdk_yaw_transform`); the probe oracle is
 unchanged and passes.
+
+## The player stage: 0015BCF0 / 0015BA50 / 0015B130 / 0015B770 / 0015D460 (player-states-live lane)
+
+`em_player_floor.c` translates the stage around the state callbacks over
+the live actor (`em_player_stage_begin` / `_dispatch` / `_end` / `_tail`,
+`em_player_stage_0015B130`, `_0015B770`, `_0015D460`; declarations and
+worker contract in `em_player_floor.h`). How em_player.c uses them, and
+the gate, are in FIRST_CONTROL.md "Live player states".
+
+Oracle (`tools/test_player_floor_reference.py`, "stage" cases): the original
+routines run in the interpreter, with every callee hooked and recorded:
+
+- the +4 handlers, all 37 of 0015B130's routines and 0015B770's;
+- anim_advance_time 001C64F0, which returns a scripted +200;
+- 00183090, 0021C440, 00182B30, 00182D70, 00174A50, 0015D100, 0015D000,
+  0011A070 and 001AEDE0;
+- 0015BCF0's other callees (00102948, the skeleton evaluators, 0015CF90,
+  0015CBA0, 00187350), as no-ops.
+
+The comparison covers the whole 0x320-byte actor image, +214/+308,
+0x70003B8F, D_008106B3 and the callee sequence with arguments.
+
+D_00248C98 comes from the pinned ELF on both sides: the native side reads
+it through its `clip_rate` worker.
+
+Deterministic scenarios reach 28 asserted path classes in the default run.
+There are 150 cases by default and 3,000 under `EM_TEST_FULL=1`.
+
+The two shared-library compiles of this test (the floor library and the
+real-world bridge) are cached by a hash of the command, the .c files and
+every src/ header, so an unchanged tree reuses them. The default run is back
+to about 10.5 to 11.8 s, depending on machine load.

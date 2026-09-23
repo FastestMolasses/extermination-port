@@ -603,7 +603,8 @@ LIBC.atan2f.argtypes = [C.c_float, C.c_float]; LIBC.atan2f.restype = C.c_float
 class ProbeHit(C.Structure):
     _fields_ = [('kind', C.c_int), ('node', C.c_uint16), ('entity_flags', C.c_uint8),
                 ('entity_type', C.c_uint8), ('entity', C.c_int), ('point', C.c_float * 3),
-                ('delta', C.c_float * 3), ('normal', C.c_float * 3), ('axis', C.c_float * 3)]
+                ('delta', C.c_float * 3), ('normal', C.c_float * 3), ('axis', C.c_float * 3),
+                ('owner', C.c_void_p)]   # EmPlayerProbeHit.owner (0x700031D4)
 
 
 class SlideActor(C.Structure):
@@ -1093,6 +1094,15 @@ def main():
     results = reference_mode.parallel_map(run_case, cases)
     for routine, _ in results:
         counts[routine] = counts.get(routine, 0) + 1
+    # The live state 0x1C's mirror (em_player_slide_actor_*_live) against the
+    # offset table every case above compares the original through.
+    from test_player_floor_reference import LiveActor, live_mapping_check
+    NATIVE.em_player_slide_actor_from_live.argtypes = [C.POINTER(LiveActor), C.POINTER(SlideActor)]
+    NATIVE.em_player_slide_actor_to_live.argtypes = [C.POINTER(SlideActor), C.POINTER(LiveActor)]
+    table = [(name, None, offset, size) for name, offset, size, _ in FIELDS] + \
+            [(v, i, base + 4 * i, 4) for v, base in (('position', 0xB0), ('rotation', 0xC0)) for i in range(3)]
+    counts['live_mirror_fields'] = live_mapping_check(
+        NATIVE.em_player_slide_actor_from_live, NATIVE.em_player_slide_actor_to_live, SlideActor, table, rng)
     reference_mode.banner(*('%s %d' % (k, v) for k, v in counts.items()))
     print('player slide reference: PASS (original 0016C6A0/0016C570/0016C520/0016CD70/'
           '0017F5F0/00174FD0/001791D0/001B12B0 instructions)')

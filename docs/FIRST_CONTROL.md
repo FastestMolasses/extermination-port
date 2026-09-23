@@ -310,4 +310,301 @@ state 3); the floor service 00175900 still settles onto floors within its
 hill slide starts from an authored class-0x1000 floor contact (state 0x1C).
 Both are translated and verified against the original instructions and
 against whole-world original runs over the captured AREA11 RAM; see
-`PLAYER_CLIMB_SLIDE.md`. They are not wired into the live player yet.
+`PLAYER_CLIMB_SLIDE.md`. They reach the live player only through the gated
+layer below.
+
+## Live player states (gated; lane "player-states-live")
+
+`em_player.c` now carries the original player-stage plumbing that the floor
+service, the fall check and the non-walk states need. It stays **gated off**:
+until every original worker, datum and state callback a mechanism can reach
+is bound, the port's own path runs unchanged. This is the reversal skid's
+gate, applied to each mechanism. The first player stage of a run prints one
+line per mechanism, naming what it still lacks.
+
+What the layer does once engaged:
+
+- **The live actor.** `EmPlayerLiveActor` (`em_player_floor.h`) holds the
+  player record in its original 0x320-byte layout. The pointer words +214
+  (`D_008104C4`) and +308 are kept beside it as `EmActor` pointers, with the
+  owner's +2/+3 bytes cached. The floor, fall, slide and climb mirrors are
+  filled from it by offset. The floor, slide and climb oracles check every
+  mapping against their own original-verified offset tables: `from_live`
+  copies exactly those bytes, and `to_live` writes exactly those bytes and
+  nothing else.
+- **The stage** (`em_player_stage_*` in `em_player_floor.c`, executed against
+  the original routines by the floor oracle's "stage" cases, PLAYER_FLOOR.md).
+  `player_move` now runs `player_states_stage_begin`, the callbacks, then
+  `player_states_stage_end`. Both run once per frame, and only while FLOOR is
+  engaged.
+  - **0015BA50 before its switch** (`em_player_stage_begin`): +34 =
+    D_00248C98[+20C] × +204, then +204 = 1.0, +303 = 0, +25D = 0, +1 = 1,
+    +319 = +A, +A = 0, +308 = +214, +214 = 0, +318 = 0, and +94 = -1 unless
+    0x70003B8F == 2. D_008106B3 is cleared. +20C is refreshed from the pose
+    source first.
+  - **Its switch** (`em_player_stage_dispatch`): anim_advance_time (+200) at
+    the original's positions (+34, or +1F4 after 00183090 for +4 = 4 with
+    +5 = 0/0x17), then the +4 handler. +4 = 1 is the translated 0015B130 and
+    +4 = 2 the translated 0015B770. 0/4/5/6 are bound handlers, and 6 has the
+    translation `em_player_stage_0015D460`. The port's own idle and walk
+    (+4 = 1, +5 = 0/1) stay the port's.
+  - **0015B130** (`em_player_stage_0015B130`) is translated whole:
+    - the 0x70003B8D prelude: +5 0x19 sets 0x70003B8F = 1; +1F0 0x2A outside
+      area 0x15 forces 4/0x17; +1F0 0x17 forces 4/0xC; 00182B30 == 0 forces
+      4/0, +1F0 0x41 and 00174A50(8.0); each forcing path then calls 00182D70;
+    - 0021C440 gating the dispatch;
+    - case 0x19 (0016DE40, or +1 = 0 under the takeover); 0x25 is empty;
+    - the +20E countdown (+0 = 1 at zero), else 0015D100 unless +0 & 2;
+    - 0015D000.
+
+    **0015B770** is 0021C440 (result unused), then +5; 0xD and 0xE go by +D,
+    8 is empty, and 0x19 is +1 = 0 then 002255C0.
+  - **0015BA50 after its switch** (`em_player_stage_end`): +B = 0; +276/+274
+    are cleared for +4 != 1 or +1F0 outside 0x31/0x32/0x34/0x35; D_008106B3
+    is computed (`player_states_busy()`; -1 while D_00810CB6 is not a
+    canonical progress byte).
+  - **0015BCF0 after 0015BA50** (`em_player_stage_tail`), on every engaged
+    stage, idle and walk included:
+    - +BC = 1.0;
+    - +B4 < -200 outside +4 6 and 2/0x16 sets +4 = 6, +5 = 0;
+    - the +31B loop-sound stop: 0x12E outside 1/0x1C, 0x135 outside 1/0x17,
+      and the 0x5DD rule.
+
+    0015CF90, 0015CBA0 and 00187350 run between these in the original and
+    write none of these bytes.
+- **The idle and walk tails** (00161020 and 001612D0 after 001764E0). The
+  tail lowers +B4 by 0.2 (idle), 0.4 (walk) or 0.8 (walk on +23B 0x35). It
+  then runs 00175900(p, 1), then 001756E0, then 001796C0. Together these
+  replace the port's floor snap and `PLAYER_FALL_ENTRY`. 001756E0's probe
+  actor takes +214, (+214)+3 and +5 from the live actor that 00175900 just
+  wrote.
+- **Hand-back.** When a stage returns to +4 = 1 with +5 = 0, 00161020 case 0
+  takes over through stop phase 3, as after the skid. On +5 = 1, the walk
+  callback resumes with the mirrored +1F0/+1F1/+25C/+38. Any other
+  (+4, +5) keeps the port parked.
+- **Faults.** A worker or callback that is missing or returns < 0 is
+  fail-stop: the fault is counted, reported once, and
+  `em_frame_request_quit` is called.
+- **Footsteps.** 00187350 reads +A, +23A, +23C and +250 from the service.
+- **First contact.** 0x5A plays 00187DC0 (001FBD50(p, 0x86, 0, 300)), and
+  0x5C plays 00187EA0 (001FB9F0(0xA8, ...)). 0x5B (00187DE0) needs the
+  depth probe's 0x700031B0, so it faults. The AREA11 grid has no 0x5B, 0x5C,
+  0x35 or 0x39 node; the census of the user's EMCL is 0x00 112, 0x03 16,
+  0x04 626, 0x05 1559, 0x32 12, 0x3C 2, 0x46 8, 0x50 416, 0x51 229, 0x5A 42,
+  0x5D 70 and 0x78 7.
+
+### FLOOR state closure
+
+The fall and the slide cannot be engaged alone: every state they can reach
+before handing back to the port's idle/walk (+4 = 1, +5 = 0/1) needs its
+routine bound, or the first such transition would fault and quit.
+
+**How the closure was derived.**
+
+- **Roots.** 001796C0 enters +5 = 0x1C itself (at 0017973C) and 5 through
+  00179680.
+- **Expansion.** For each reached (+4, +5), the stores to +4 and +5 in its
+  routine and in every routine it calls (up to 5 levels deep) were listed
+  from the user's split listing, pairing each +5 store with its block's +4
+  store.
+- **Resolved by reading the decomp.** Stores whose value or pairing a
+  listing scan could not settle were read in the decomp C: 0017C540 always
+  ends with +4 = 1; 00221FC0, 00222580, 00222AD0, 002230A0 and 0021D530 pair
+  as in their C; 0017C860 writes +5 = 4.
+- **Stability.** The set is the same at depth 3 and at depth 5.
+- **Left out.** Surface 0x39's handlers 0017F9E0/0017FB90, whose only caller
+  is 00175CF0, are excluded: AREA11 has no 0x39 grid node, and the live
+  floor service faults on one.
+- **Known gap (open, review 2026-09-23).** The expansion followed the state
+  routines and their callees, but not the stage workers that 0015B130 and
+  0015B770 run every frame. 0021C440 (byte-matched) enters +4 = 2 reaction
+  states from a pending hit or damage: +5 = 0/0x17 (0021D800), 1 (0021E240),
+  0xB (0021F330), 0xC (0021F850), 0xF (002202C0), 0x10 (0021DBB0), 0x11
+  (0021E9C0), 0x12/0x13 (0021EAD0), 0x14 (0021EF30) and 2/0x18 (0021E490).
+  0015D100 and 00182DF0/001838B0 (through 0015B530) have not been followed
+  either. The table below is therefore **not yet the whole closure**. The
+  gate cannot engage today (its workers are unbound), but it must not be
+  enabled until these states and whatever they reach are added, or until
+  original evidence shows that no hitter, +224/+22C source or +23B 6/0xA
+  surface can be active during a FLOOR state in AREA11.
+
+The closure (`kFloorStates` in `em_player.c`; the report prints the routine
+and the write for each):
+
+| +4 | +5 | Routine | Entered by |
+|---|---|---|---|
+| 1 | 5 | 00162DB0 fall | 00179680 |
+| 1 | 7 | 001639E0 | 00162DB0 at 001632BC / 00163420 (+1F0 0xD); 0016C6A0 at 0016CCA8 |
+| 1 | 8 | 00163B40 landing | 0017C580 at 0017C590 (+1F0 0xF), called from 00162DB0, 001639E0 and 0016C6A0 |
+| 1 | 9 | 001647D0 hang | 00162DB0 at 00163290 |
+| 1 | 4 | 00162A40 | 0017C860 (from 001639E0) |
+| 1 | 0xC, 0xE, 0x18 | 001662D0, 00168050, 0016D130 | 001647D0 at 0016570C, 0016575C, 001657E8 |
+| 1 | 0x10 | 00169730 | 001662D0 at 00167C38 |
+| 1 | 0x12 | 0016AE40 | 002230A0 |
+| 1 | 0x13, 0x14 | 0016B790, 0016B8A0 | 001696A0 at 001696D4; 0016B790 at 0016B87C |
+| 1 | 0x19, 0x1A | 0016DE40, 0016EBA0 | 0016D130 at 0016D544, 0016D6D0 |
+| 1 | 0x1C | 0016C6A0 slide | 001796C0 at 0017973C |
+| 1 | 0x1D..0x22 | 0016FCF0, 001703E0, 001729A0, 00173000, 001735C0, 00173E60 | 001607D0 (from 0016B790) |
+| 2 | 3 | 0021E830 | 0017C580's reset at 0017C600 (+0xF 0x63, or 001000E0 with +234 1) |
+| 2 | 4, 5 | 00221FC0, 00222580 | 00181110 at 0018115C, 00181180 at 001811CC |
+| 2 | 6 | 00222AD0 | 0017F240 at 0017F2A0 (from 001647D0) |
+| 2 | 7 | 002230A0 | 00181D70 at 00181DFC |
+| 2 | 0x16 | 00225570 | 0021D250 at 0021D270 (00162DB0 on +23A 0x5D; AREA11 has 70 such nodes) |
+| 2 | 0x19 | 002255C0 | 001823E0 at 00182408 |
+| 4 | any | 0015B530 | 0015B130's prelude under 0x70003B8D |
+| 6 | any | 0015D460 | 0015BCF0's +B4 < -200 check |
+
+The previous round listed only 5, 8 and 0x1C. 5 does land through 8, but
+only via 0017C580. 5 also exits to 7 and 9, and the closure goes on from
+there.
+
+**USE** adds only the Use chain's own entries, since everything they reach
+is already in the closure:
+
+- 2 (00161790) and 3 (00162190): 0015DF10 at 0015EA10 / 0015E9C8;
+- 6 (001634A0): 0015EC50 at 0015FD7C;
+- 0xB (00165B60): 0015D4C0 case 0x32 at 0015D808;
+- 0x24 (001747F0): 00160220 at 0016078C, after 0015FDF0 returns 1.
+  0015FDF0 is an aim solver and writes no +5.
+
+00160220's +5 = 0x25 (after 00184BA0; an empty case in 0015B130) and 0x23
+(area 0x15 only) need no callback.
+
+**Gates** (`player_states_missing()`, `EM_PLAYER_NEED_*`). Only the grid
+node class is a data prerequisite; the rest are workers or callbacks.
+
+| Mechanism | Needs |
+|---|---|
+| FLOOR (00175900 + 001796C0) | 0019AB20 ground worker; a grid with `EM_COLL_FLAG_NODE_CLASS`; 0019B6C0; 0019B8C0; 00175640; 0019BC40; SDK 0011E620/0011E398/0011DBB8/0011E748; 0011A070; the display declaration; the stage workers (D_00248C98, 001C64F0, 00183090, 0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50); every callback of the FLOOR closure above. |
+| USE (the rest of 00160220) | FLOOR; the coordinator's use hook continuing past 00184BA0 (`player_states_bind_use_chain`); callbacks for +5 = 2, 3, 6, 0xB and 0x24. |
+
+**Missing today** (the report prints exactly this):
+
+- 0019B6C0 and 0019B8C0 are untranslated. Their walkers are 001A2AE0 and
+  0019DF10, and 001A32C0 and 0019E640.
+- The EMCL lacks the node class: the exporter must write node +0x1B
+  (PLAYER_CLIMB_SLIDE.md section 6 item 2).
+- **Closure callbacks.** Of the closure, only 0x1C has an adapter
+  (`em_player_slide_live_state`, whose workers 00224B80, 00224290, 0017C580,
+  0021D250, 0021D2E0 and 00178B90 are unbound, and whose chained clips 0x5E
+  and 0x73 are not exported). No other callback is translated, 0015D460
+  excepted (`em_player_stage_0015D460`, which needs 001AEDE0).
+- **Stage workers.** None is bound, and all are untranslated:
+  - the D_00248C98 data (the rate at +8 of each D_00248C90 row);
+  - 001C64F0 (the display's source advance);
+  - 00183090, 0021C440, 0015D100 and 0015D000;
+  - 00182B30, 00182D70 and 00174A50.
+
+  The port's `player_damage_tick` models 0021C440 / 0015D100 / 0015D000 for
+  its own idle/walk. When the coordinator binds them, the port's copies must
+  stop running on stages the translated 0015B130 owns. The port's kill plane
+  (em_player_damage.c) must also stop once `em_player_stage_tail` owns the
+  -200 check.
+- **Use chain.** 0015D4C0, 00176F90, 00177030, 00180300, 0015EC50 and
+  0015FDF0 are untranslated, and so are the state routines 001634A0,
+  00165B60 and 001747F0. The climb adapters (`em_player_climb_live_state`,
+  `em_player_climb_live_probe`) exist for states 2 and 3.
+- SDK 0011E398 (cos) has no named native translation. The others:
+  - 0011E620: `em_director_original_0011E620`;
+  - 0011DBB8: `em_director_original_0011DBB8`;
+  - 0011E748: `em_item_sdk_sqrt`.
+
+  ACTOR_COLLISION.md section 5 has the float-model question on 0011DBB8.
+
+**Binding (coordinator; code in em_player.h, em_player_floor.h, em_actor_collision.h).**
+
+- **The floor binding.** Pass `player_states_bind(&b)` with:
+  - `b.ground = em_actor_collision_player_ground`, with context
+    `EmActorCollisionPlayer` { world, { player +0x14, player +2 & 0x1F, NULL },
+    NULL };
+  - `b.grid` = the EMCL that the world's grid points at;
+  - `b.link_test = em_actor_collision_player_link`;
+  - `b.column = em_actor_collision_player_column`, with context
+    `EmActorCollisionPlayerColumn` { world, &math }. The math is sqrt
+    0011E748 and atan 0011DBB8, as in section 7 of ACTOR_COLLISION.md;
+  - the SDK workers;
+  - `b.head`/`b.object` once they are translated;
+  - `b.stage`: `stop_sound` (0011A070), the stage workers above, and the
+    callbacks:
+    - `state[]` indexed by +5 (0015B130's table) and `state2[]` /
+      `phase13[]` / `phase14[]` (0015B770's);
+    - `major[0/4/5/6]`: `major[6] = em_player_stage_0015D460` with an
+      `EmPlayerStageFade` { ctx, 001AEDE0 };
+    - `major[1]`/`major[2]` are installed by `player_states_bind` itself;
+  - `b.stage.state[0x1C] = em_player_slide_live_state`, with
+    `EmPlayerSlideLive` { workers, `player_states_floor_service`,
+    `player_states_fall_check`, NULL, scene worker };
+  - `b.stage.state[2]` and `[3]` = `em_player_climb_live_state`, with
+    `EmPlayerClimbLive` { workers, `player_states_floor_service`,
+    `player_states_wall_probes`, `player_states_fall_check`, NULL, scene,
+    `em_actor_collision_player_link_kind` }.
+- **The display.** Call `player_states_bind_display(1)` once the display
+  stage draws the source clip of each bound state and advances it by the
+  stage's +34 (`stage.advance` returns anim_advance_time's +200 flags).
+- **The truck.** It arms on the player's `D_008104C4`. Bind
+  `EmTruckWorld.ground_kind` to `&((EmActor *)player_states_actor()->link_owner)->param`,
+  or NULL when that owner is NULL. `player_states_actor()->link_owner` is
+  +214 during and after the player stage; the next stage's 0015BA50 moves
+  it to +308.
+- **Area load.** Call `player_states_reset()`. It writes 0015C420's +280 =
+  (0, -13.8, 0, 1), +4 = 1, +5 = 0, +204 = 1.0 and +31B = -1.
+- **The stage calls.** `em_player_0015BCF0` should call
+  `player_states_stage_begin` / `player_states_stage_end` around the
+  callbacks itself. Today `player_move` calls them, and `em_player_frame.c`
+  skips `player_move` while `g.pd_state == 2`. Both calls are idempotent per
+  frame.
+- **D_008106B3.** Once FLOOR is engaged, `em_player_0015BCF0` should take the
+  B3 byte from `player_states_busy()` in place of its stand-in expression.
+  That needs D_00810CB6 migrated into the canonical progress block.
+- **0x70003B8F.** `player_states_stage_end` writes back 0015B130's
+  0x70003B8F = 1 into `em_scene_state()->spad3B8F`.
+
+**Evidence.**
+
+- `tools/test_player_floor_reference.py`, "stage" cases, executes the
+  original 0015BA50, 0015BCF0, 0015B130, 0015B770 and 0015D460 with every
+  callee hooked and recorded:
+  - each hooked state routine writes the same scripted exit bytes on both
+    sides;
+  - every one of the 0x320 actor bytes must match, as must +214/+308, the
+    scene bytes (0x70003B8F, D_008106B3) and the callee sequence with its
+    arguments;
+  - deterministic scenarios reach every branch in the default run (28 path
+    classes, asserted): each +4 of the switch, the commit path, the busy
+    tail, the -200 boundary (-200.0 does not fire, -200.01 does), each
+    loop-sound rule (stop and keep), each prelude path, 0021C440 skipping,
+    the countdown, the drain, case 0x19 both ways, 0015B770's phases and
+    0x19, and 0015D460's fade;
+  - 150 cases in the default run, 3000 in `EM_TEST_FULL=1`;
+  - these mutants fail: dropping +25D = 0, dropping +319, dropping +220 = 0,
+    +94 without its gate, `<=` for the -200 check, the 0x12E rule without
+    +4, the +0 & 2 test, the 0x17 commit case, 00174A50's 8.0, the area
+    0x15 test, dropping 0x70003B8F = 1, both +1 = 0 writes, 0015B770's
+    phase-4 case, and the busy +1F1 test.
+- `tests/player_states_host_test.c` (ASan/UBSan) links the real
+  `em_player.c`, `em_player_floor.c` and actor-collision ground worker over
+  a synthetic published owner. It checks:
+  - the gate, one prerequisite at a time (13 bits);
+  - the idle and walk lowering, and the call order;
+  - standing on the owner: +214 is the owner, +A is 0x81, +B is cleared and
+    +BC is 1.0 after the stage, and the next stage moves +214 to +308;
+  - the step-off: three drops, then 00179450, +5 = 5; then the next stages
+    run anim_advance_time(+34 = 1.25), 0021C440, the state-5 routine, 0015D100
+    and 0015D000. The routine exits to 7 (as at 001632BC), 7 exits to +4 2 /
+    +5 3 (0017C580's reset), and 0015B770 runs state2[3] back to idle;
+  - the slide's second stage: the +25D lean, +303, +318, +1 and +94 the slide
+    left are reset before the callback, and +34 = 1.25 × 2.0 comes from the
+    +204 it left;
+  - the loop-sound stop on the port's own idle stage;
+  - the -200 check, then 0015D460's two stages and 001AEDE0(4, 0);
+  - the prelude (+1F0 0x17 forces 4/0xC, then 0015B530), case 0x19 under the
+    takeover, 0021C440 skipping, and the countdown;
+  - fail-stop, and the adapters refusing unbound workers.
+- `tools/test_player_floor_reference.py` also checks the owner flow on real
+  captured worlds (PLAYER_FLOOR.md). The original 00175900 and the native
+  service over `em_actor_collision_player_ground` store the same +214, and
+  it equals the trace's:
+  - on 05_boxes crate rows, 0x7A7C70 and 0x7A7980 (8 quick, 293 full);
+  - on 08_truck_crossing f43, the truck 0x7A9FB0.
+- `EM_STARTUP_TEST=newgame-control` stays at displacement 9.599989. The
+  layer is gated off there, and the port's path is untouched.

@@ -2,9 +2,9 @@
  *
  * Every routine below names the original function it translates; the
  * comparisons, their directions and the operation order follow the .s
- * (the NEARMISS readable C of 001A2370, 0019F730, 0019AB20, 0019BC40 and
- * 001A4030 was checked against it: 001A4030's C misplaces the edge-normal
- * pool and the staged normal, see docs/ACTOR_COLLISION.md). */
+ * (the NEARMISS readable C of 001A2370, 0019F730, 0019AB20 and 0019BC40
+ * was checked against it; 001A4030's C is byte-matched since 2026-09-23,
+ * see docs/ACTOR_COLLISION.md). */
 #include "game/em_actor_collision.h"
 
 #include <math.h>
@@ -799,6 +799,7 @@ int em_actor_collision_player_ground(void *player, const float position[3], cons
     hit->kind = kind;
     hit->node = kind ? h.node : 0;
     hit->entity = h.entity != NULL;
+    hit->owner = h.entity;                     /* 0x700031D4 of this probe */
     if (h.entity) {
         hit->entity_flags = h.entity->cls;     /* *(0x700031D4) + 2 */
         hit->entity_type = h.entity->model;    /* *(0x700031D4) + 3 */
@@ -807,4 +808,41 @@ int em_actor_collision_player_ground(void *player, const float position[3], cons
     memcpy(hit->delta, h.delta, sizeof hit->delta);
     memcpy(hit->normal, h.normal, sizeof hit->normal);
     return kind;
+}
+
+int em_actor_collision_player_link(void *player, const void *owner, int *result)
+{
+    (void)player;
+    if (!result) return -1;
+    const EmActor *actor = owner;
+    /* 00175640 reads the owner's +3 type byte and +0x10 behaviour word. */
+    *result = em_player_link_00175640(actor != NULL, actor ? actor->model : 0,
+                                      actor ? actor->callback : 0);
+    return 0;
+}
+
+int em_actor_collision_player_column(void *context, const float position[3],
+                                     EmPlayerFloorTable *table)
+{
+    EmActorCollisionPlayerColumn *p = context;
+    if (!p || !p->world || !p->math || !position || !table) return -1;
+    EmCollColumn column;
+    int count = em_actor_collision_column_0019BC40(p->world, position, p->math, &column);
+    if (count < 0 || column.count > 16) return -1;
+    memset(table, 0, sizeof *table);
+    table->count = column.count;                 /* 0x700031E0 */
+    for (int i = 0; i < column.count; ++i) {
+        table->flags[i] = column.flags[i];       /* D_70003170 */
+        table->height[i] = column.height[i];     /* D_700030F0 */
+        table->aux[i] = column.aux[i];           /* D_00282250 */
+    }
+    return 0;
+}
+
+int em_actor_collision_player_link_kind(void *context, const void *owner)
+{
+    (void)context;
+    const EmActor *actor = owner;
+    if (!actor) return 0;
+    return actor->callback == 0x00828700u || actor->callback == 0x00827880u ? 2 : 1;
 }

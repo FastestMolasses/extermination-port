@@ -24,6 +24,13 @@
 
 static uint8_t footstep_floor_attr(void);
 static float player_turn_rate(int gait, float upt, float adelta);
+static int floor_engaged(void);
+static uint8_t live_contact(void);
+static const void *live_link_owner(void);
+static uint8_t live_link_type(void);
+static uint8_t live_state(void);
+static void port_park(void);
+static void footstep_surface_from_live(uint8_t surface);
 
 /* ---- WP-15 P16: 001764E0 radial probes over the port's collision -------
  * em_player_floor.c translates 001764E0 (with 00176390/00176BE0/001762E0/
@@ -186,7 +193,9 @@ static void probe_actor(EmPlayerProbeActor *actor)
                            (g.probe_low_clearance ? 2 : 0));
     actor->special = g.probe_low_clearance;
     actor->obstruction = g.probe_block_mask;
-    actor->contact = 1;
+    /* +A: 001756E0's area-0x12 gate. The floor service writes it once the
+     * live floor is engaged; before that the port's snap always lands. */
+    actor->contact = floor_engaged() ? live_contact() : 1;
 }
 
 void player_wall_probes(void)
@@ -219,6 +228,13 @@ static void player_clearance_release(void)
     if (!g.coll.poly_count) return;
     EmPlayerProbeActor actor;
     probe_actor(&actor);
+    if (floor_engaged()) {
+        /* 001756E0 reads +214 and (+214)+3 == 6 (its area-0x12 branch) and
+         * +5: the values 00175900 has just left in the live actor. */
+        actor.link = live_link_owner() != NULL;
+        actor.link_type = live_link_type();
+        actor.state = live_state();
+    }
     EmPlayerProbeScene scene = { em_scene_state()->d810700, 1, probe.previous };
     if (em_player_clearance_release(&actor, &scene, &kProbeWorkers) < 0) {
         probe_fault("001756E0 worker fault");
@@ -227,11 +243,550 @@ static void player_clearance_release(void)
     g.probe_low_clearance = actor.special;
 }
 
-/* The callback tail without the port's floor snap (idle and stopped ticks):
- * 001764E0, then 001756E0 (00175900/001796C0 are not bound; see docs). */
-static void player_probe_tail(void)
+/* ---- Live player states (em_player.h, docs/FIRST_CONTROL.md) -------------
+ * Gated: nothing below runs until player_states_engaged(EM_PLAYER_MECH_FLOOR)
+ * holds, i.e. every worker, datum and reachable state callback is bound. */
+
+/* A (+4, +5) the live stage can reach, with the routine the original runs
+ * for it and where the transition is written. state WHOLE: the whole +4
+ * handler (it dispatches +5 itself). */
+#define WHOLE 0xFF
+typedef struct { uint8_t major, state; const char *routine; } StateRef;
+
+/* FLOOR's closure (docs/FIRST_CONTROL.md "FLOOR state closure"): from the
+ * roots 001796C0 writes (5 through 00179680, 0x1C), every (+4, +5) written by
+ * a reached state routine or its callees, followed until it hands back to
+ * +4 = 1, +5 = 0/1 (the port's idle/walk). Surface 0x39 (0017F9E0 /
+ * 0017FB90, reached only from 00175CF0) is left out: no AREA11 grid node
+ * carries it, and the floor service faults on it (live_surface39).
+ * INCOMPLETE (open): the +4 = 2 reaction states that the stage worker
+ * 0021C440 enters on a pending hit/damage, and the stores of 0015D100 and
+ * 00182DF0/001838B0, are not followed yet (docs/FIRST_CONTROL.md "Known
+ * gap"). Do not enable FLOOR until they are added or ruled out. */
+static const StateRef kFloorStates[] = {
+    { 1, 0x05, "00162DB0 fall (00179680)" },
+    { 1, 0x07, "001639E0 (00162DB0 at 001632BC/00163420, 0016C6A0 at 0016CCA8)" },
+    { 1, 0x08, "00163B40 landing (0017C580 at 0017C590)" },
+    { 1, 0x09, "001647D0 hang (00162DB0 at 00163290)" },
+    { 1, 0x04, "00162A40 (0017C860, from 001639E0)" },
+    { 1, 0x0C, "001662D0 (001647D0 at 0016570C)" },
+    { 1, 0x0E, "00168050 (001647D0 at 0016575C)" },
+    { 1, 0x10, "00169730 (001662D0 at 00167C38)" },
+    { 1, 0x12, "0016AE40 (002230A0)" },
+    { 1, 0x13, "0016B790 (001696A0 at 001696D4)" },
+    { 1, 0x14, "0016B8A0 (0016B790 at 0016B87C)" },
+    { 1, 0x18, "0016D130 (001647D0 at 001657E8)" },
+    { 1, 0x19, "0016DE40 (0016D130 at 0016D544)" },
+    { 1, 0x1A, "0016EBA0 (0016D130 at 0016D6D0)" },
+    { 1, 0x1C, "0016C6A0 slide (001796C0 at 0017973C)" },
+    { 1, 0x1D, "0016FCF0 (001607D0)" }, { 1, 0x1E, "001703E0 (001607D0)" },
+    { 1, 0x1F, "001729A0 (001607D0)" }, { 1, 0x20, "00173000 (001607D0)" },
+    { 1, 0x21, "001735C0 (001607D0)" }, { 1, 0x22, "00173E60 (001607D0)" },
+    { 2, 0x03, "0021E830 (0017C580 at 0017C600)" },
+    { 2, 0x04, "00221FC0 (00181110 at 0018115C)" },
+    { 2, 0x05, "00222580 (00181180 at 001811CC)" },
+    { 2, 0x06, "00222AD0 (0017F240 at 0017F2A0)" },
+    { 2, 0x07, "002230A0 (00181D70 at 00181DFC)" },
+    { 2, 0x16, "00225570 (0021D250 at 0021D270: +23A 0x5D)" },
+    { 2, 0x19, "002255C0 (001823E0 at 00182408)" },
+    { 4, WHOLE, "0015B530 (0015B130's prelude under 0x70003B8D)" },
+    { 6, WHOLE, "0015D460 (0015BCF0: +B4 < -200)" },
+};
+/* USE's roots beyond that closure (what they reach is already in it). */
+static const StateRef kUseStates[] = {
+    { 1, 0x02, "00161790 ledge climb (0015DF10 at 0015EA10)" },
+    { 1, 0x03, "00162190 vault (0015DF10 at 0015E9C8)" },
+    { 1, 0x06, "001634A0 running jump (0015EC50 at 0015FD7C)" },
+    { 1, 0x0B, "00165B60 ladder entry (0015D4C0 case 0x32 at 0015D808)" },
+    { 1, 0x24, "001747F0 (00160220 at 0016078C, after 0015EC50/0015FDF0)" },
+};
+
+static struct {
+    EmPlayerStatesBinding b;
+    int bound, display, use_chain, initialised;
+    EmPlayerLiveActor a;
+    EmPlayerStageScene scene;
+    EmPlayerStage stage;          /* context of stage.major[1] / major[2] */
+    int stage_frame, stage_valid, end_frame, end_valid, busy_known;
+    unsigned faults;
+    int reported;
+} live;
+
+static EmPlayerStateCallback bound_state(const StateRef *r)
+{
+    const EmPlayerStageWorkers *s = &live.b.stage;
+    if (r->state == WHOLE) return s->major[r->major];
+    if (r->major == 1) return r->state < EM_PLAYER_STATE1_COUNT ? s->state[r->state] : NULL;
+    if (r->major == 2) return r->state < EM_PLAYER_STATE2_COUNT ? s->state2[r->state] : NULL;
+    return NULL;
+}
+
+/* The stage workers FLOOR needs (EM_PLAYER_NEED_STAGE), by name. */
+static unsigned stage_missing_names(const char **names, unsigned capacity)
+{
+    const EmPlayerStageWorkers *s = &live.b.stage;
+    const struct { int present; const char *name; } kWorkers[] = {
+        { s->clip_rate != NULL, "D_00248C98 clip rate (0015BA50)" },
+        { s->advance != NULL, "001C64F0 anim_advance_time (0015BA50)" },
+        { s->commit != NULL, "00183090 (0015BA50, +4 = 4)" },
+        { s->reaction != NULL, "0021C440 (0015B130/0015B770)" },
+        { s->drain != NULL, "0015D100 (0015B130)" },
+        { s->heartbeat != NULL, "0015D000 (0015B130)" },
+        { s->scripted_check != NULL, "00182B30 (0015B130 prelude)" },
+        { s->scripted_notify != NULL, "00182D70 (0015B130 prelude)" },
+        { s->row_request != NULL, "00174A50 (0015B130 prelude)" },
+    };
+    unsigned count = 0;
+    for (unsigned i = 0; i < sizeof kWorkers / sizeof *kWorkers; ++i)
+        if (!live.bound || !kWorkers[i].present) {
+            if (names && count < capacity) names[count] = kWorkers[i].name;
+            ++count;
+        }
+    return count;
+}
+
+unsigned player_states_missing(void)
+{
+    const EmPlayerStatesBinding *b = &live.b;
+    unsigned missing = 0;
+    if (!live.bound || !b->ground) missing |= EM_PLAYER_NEED_GROUND;
+    if (!live.bound || !b->grid || !(b->grid->flags & EM_COLL_FLAG_NODE_CLASS))
+        missing |= EM_PLAYER_NEED_NODE_CLASS;
+    if (!live.bound || !b->head) missing |= EM_PLAYER_NEED_HEAD;
+    if (!live.bound || !b->object) missing |= EM_PLAYER_NEED_OBJECT;
+    if (!live.bound || !b->link_test) missing |= EM_PLAYER_NEED_LINK;
+    if (!live.bound || !b->column) missing |= EM_PLAYER_NEED_COLUMN;
+    if (!live.bound || !b->atan2 || !b->cosine || !b->atan || !b->sqrt)
+        missing |= EM_PLAYER_NEED_SDK;
+    if (!live.display) missing |= EM_PLAYER_NEED_DISPLAY;
+    for (unsigned i = 0; i < sizeof kFloorStates / sizeof *kFloorStates; ++i)
+        if (!live.bound || !bound_state(&kFloorStates[i])) missing |= EM_PLAYER_NEED_FLOOR_STATES;
+    if (!live.use_chain) missing |= EM_PLAYER_NEED_USE_CHAIN;
+    for (unsigned i = 0; i < sizeof kUseStates / sizeof *kUseStates; ++i)
+        if (!live.bound || !bound_state(&kUseStates[i])) missing |= EM_PLAYER_NEED_USE_STATES;
+    if (!live.bound || !b->stage.stop_sound) missing |= EM_PLAYER_NEED_STOP_SOUND;
+    if (stage_missing_names(NULL, 0)) missing |= EM_PLAYER_NEED_STAGE;
+    return missing;
+}
+
+int player_states_engaged(unsigned mechanism)
+{
+    return (player_states_missing() & mechanism) == 0;
+}
+
+static int floor_engaged(void)
+{
+    return player_states_engaged(EM_PLAYER_MECH_FLOOR);
+}
+
+static uint8_t live_contact(void) { return em_live_u8(&live.a, 0xA); }
+static const void *live_link_owner(void) { return live.a.link_owner; }
+static uint8_t live_link_type(void) { return live.a.link_type; }
+static uint8_t live_state(void) { return em_live_u8(&live.a, 5); }
+
+void player_states_report(FILE *out)
+{
+    static const char *const kNeed[] = {
+        "0019AB20 ground probe (em_actor_collision_player_ground)",
+        "grid node class (EMCL header flag EM_COLL_FLAG_NODE_CLASS)",
+        "0019B6C0 surface record", "0019B8C0 object probe",
+        "00175640 link test (em_actor_collision_player_link)",
+        "0019BC40 column table (em_actor_collision_player_column)",
+        "SDK 0011E620/0011E398/0011DBB8/0011E748",
+        "display of the bound states (player_states_bind_display)",
+        "state callbacks", "00160220 past 00184BA0 (player_states_bind_use_chain)",
+        "state callbacks", "0011A070 sound stop (0015BCF0)", "stage workers",
+    };
+    static const struct { const char *name; unsigned mask; } kMech[] = {
+        { "floor service 00175900 + fall check 001796C0", EM_PLAYER_MECH_FLOOR },
+        { "Use chain (ledge climb, vault, ladder, running jump)", EM_PLAYER_MECH_USE },
+    };
+    unsigned missing = player_states_missing();
+    for (unsigned m = 0; m < sizeof kMech / sizeof *kMech; ++m) {
+        unsigned need = missing & kMech[m].mask;
+        fprintf(out, "player states: %s: %s", kMech[m].name, need ? "gated off; needs" : "engaged");
+        for (unsigned bit = 0; bit < sizeof kNeed / sizeof *kNeed; ++bit) {
+            if (!(need & (1u << bit))) continue;
+            if ((1u << bit) == EM_PLAYER_NEED_FLOOR_STATES || (1u << bit) == EM_PLAYER_NEED_USE_STATES) {
+                int use = (1u << bit) == EM_PLAYER_NEED_USE_STATES;
+                const StateRef *list = use ? kUseStates : kFloorStates;
+                unsigned count = use ? sizeof kUseStates / sizeof *kUseStates
+                                     : sizeof kFloorStates / sizeof *kFloorStates;
+                for (unsigned i = 0; i < count; ++i) {
+                    if (live.bound && bound_state(&list[i])) continue;
+                    if (list[i].state == WHOLE)
+                        fprintf(out, " [+4 %u %s]", list[i].major, list[i].routine);
+                    else
+                        fprintf(out, " [+4 %u +5 0x%02X %s]", list[i].major, list[i].state,
+                                list[i].routine);
+                }
+            } else if ((1u << bit) == EM_PLAYER_NEED_STAGE) {
+                const char *names[16];
+                unsigned count = stage_missing_names(names, 16);
+                for (unsigned i = 0; i < count && i < 16; ++i) fprintf(out, " [%s]", names[i]);
+            } else {
+                fprintf(out, " [%s]", kNeed[bit]);
+            }
+        }
+        fputc('\n', out);
+    }
+}
+
+void player_states_reset(void)
+{
+    memset(&live.a, 0, sizeof live.a);
+    /* 0015C420 (byte-matched): +280 = (0, 0xC15CCCCD = -13.8, 0, 1.0); for
+     * the AREA11 spawn kind +4 = 1, +5 = 0, +6 = 0 (and +1F0 = 0, +204 =
+     * 1.0, +31B = -1, +31A = 0). */
+    em_live_set_f32(&live.a, 0x284, -13.8f);
+    em_live_set_f32(&live.a, 0x28C, 1.0f);
+    em_live_set_u8(&live.a, 4, 1);
+    em_live_set_f32(&live.a, 0x204, 1.0f);
+    em_live_set_u8(&live.a, 0x31B, 0xFF);
+    live.stage_valid = live.end_valid = 0;
+    live.busy_known = 0;
+    live.initialised = 1;
+}
+
+void player_states_bind(const EmPlayerStatesBinding *binding)
+{
+    if (!live.initialised) player_states_reset();
+    if (binding) live.b = *binding;
+    else memset(&live.b, 0, sizeof live.b);
+    live.bound = binding != NULL;
+    if (live.bound) {
+        /* 0015BA50's +4 = 1 / 2 entries are the translated 0015B130 /
+         * 0015B770 over this binding's tables. */
+        live.stage.scene = &live.scene;
+        live.stage.workers = &live.b.stage;
+        live.b.stage.major[1] = em_player_stage_0015B130;
+        live.b.stage.major_context[1] = &live.stage;
+        live.b.stage.major[2] = em_player_stage_0015B770;
+        live.b.stage.major_context[2] = &live.stage;
+    }
+    live.reported = 0;
+}
+
+void player_states_bind_display(int bound) { live.display = bound != 0; }
+void player_states_bind_use_chain(int bound) { live.use_chain = bound != 0; }
+const EmPlayerLiveActor *player_states_actor(void) { return &live.a; }
+EmPlayerLiveActor *player_states_actor_mut(void) { return &live.a; }
+unsigned player_states_faults(void) { return live.faults; }
+int player_states_busy(void) { return live.busy_known ? live.scene.busy : -1; }
+
+static void live_fault(const char *what)
+{
+    /* A bound worker failed on the live path: fail-stop, as player_use_poll
+     * does for the Use worker. */
+    ++live.faults;
+    if (!live.reported) {
+        live.reported = 1;
+        fprintf(stderr, "player states: %s at frame %d\n", what, g.frame_no);
+    }
+    em_frame_request_quit();
+}
+
+/* The scene bytes the stage reads, from the canonical scene state. D_00810CB6
+ * lives in the progress block; while that byte is not canonical the busy
+ * result is unknown (player_states_busy() = -1). */
+static int live_scene_load(void)
+{
+    EmSceneState *s = em_scene_state();
+    live.scene.spad3B8D = s->spad3B8D;
+    live.scene.spad3B8F = s->spad3B8F;
+    live.scene.area = s->d810700;
+    const uint8_t *f1 = em_scene_req_at(s, 0x008106F1u);
+    const uint8_t *cb6 = em_scene_progress_at(s, 0x00810CB6u, 1);
+    live.scene.d8106F1 = f1 ? *f1 : 0;
+    live.scene.d810CB6 = cb6 ? *cb6 : 0;
+    return f1 && cb6;
+}
+
+void player_states_stage_begin(void)
+{
+    if (!live.initialised) player_states_reset();
+    if (live.stage_valid && live.stage_frame == g.frame_no) return;
+    static int reported;
+    if (!reported) {
+        /* Once per run: which mechanisms are engaged, and what each lacks. */
+        reported = 1;
+        player_states_report(stderr);
+    }
+    live.stage_valid = 1;
+    live.stage_frame = g.frame_no;
+    if (!floor_engaged()) return;
+    live.busy_known = live_scene_load();
+    /* +20C: the clip the pose source plays (the display binding keeps it the
+     * clip the bound states request). */
+    unsigned clip;
+    if (player_pose_source(&clip, NULL, NULL, NULL)) em_live_set_u16(&live.a, 0x20C, (uint16_t)clip);
+    if (em_player_stage_begin(&live.a, &live.scene, &live.b.stage) < 0)
+        live_fault("0015BA50 D_00248C98 worker fault");
+}
+
+void player_states_stage_end(void)
+{
+    if (live.end_valid && live.end_frame == g.frame_no) return;
+    live.end_valid = 1;
+    live.end_frame = g.frame_no;
+    if (!floor_engaged() || !live.stage_valid || live.stage_frame != g.frame_no) return;
+    /* 0015BA50 after its switch, then 0015BCF0's +BC, -200 check and loop-
+     * sound stop (every stage: idle and walk included). */
+    em_player_stage_end(&live.a, &live.scene);
+    uint8_t spad3B8F = live.scene.spad3B8F;
+    if (em_scene_state()->spad3B8F != spad3B8F) em_scene_state()->spad3B8F = spad3B8F;
+    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
+    if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
+        live_fault("0011A070 worker fault");
+        return;
+    }
+    if (em_live_u8(&live.a, 4) != 1) port_park();
+}
+
+/* Worker trampolines: each binding worker keeps its own context. */
+typedef struct { EmPlayerFloorActor *floor; } LiveFloorContext;
+
+static int live_ground(void *context, const float position[3], const float probe[3],
+                       unsigned mask, EmPlayerProbeHit *hit)
+{
+    (void)context;
+    return live.b.ground(live.b.ground_context, position, probe, mask, hit);
+}
+static int live_head(void *context, const float top[3], const float bottom[3], EmPlayerProbeHit *hit)
+{
+    (void)context;
+    return live.b.head(live.b.probe_context, top, bottom, hit);
+}
+static int live_object(void *context, const float at[3], const float probe[3], unsigned mask,
+                       EmPlayerProbeHit *hit)
+{
+    (void)context;
+    return live.b.object(live.b.probe_context, at, probe, mask, hit);
+}
+static int live_link(void *context, const void *owner, int *result)
+{
+    (void)context;
+    return live.b.link_test(live.b.link_context, owner, result);
+}
+static int live_surface39(void *context, int handler)
+{
+    (void)context;
+    /* 0017F9E0 / 0017FB90: untranslated; no AREA11 grid node carries 0x39. */
+    if (!live.b.surface39) return -1;
+    return live.b.surface39(live.b.surface39_context, handler);
+}
+static int live_first_contact(void *context, uint8_t surface)
+{
+    LiveFloorContext *c = context;
+    switch (surface) {
+    case 0x5A:
+        /* 00187DC0 (byte-matched): 001FBD50(p, 0x86, 0, 300.0). */
+        em_sfx_play_at(0x86, c->floor->position, 300.0f);
+        return 0;
+    case 0x5C:
+        /* 00187EA0 (byte-matched): 001FB9F0(0xA8, 0x1000, 0x1000, 0x1000). */
+        em_sfx_play(0xA8);
+        return 0;
+    default:
+        /* 00187DE0 (0x5B) copies 0x700031B0, the depth probe's point, which
+         * this worker does not receive; no AREA11 grid node carries 0x5B. */
+        return -1;
+    }
+}
+static float live_atan2(void *context, float y, float x)
+{
+    (void)context;
+    return live.b.atan2(live.b.sdk_context, y, x);
+}
+static float live_cosine(void *context, float x)
+{
+    (void)context;
+    return live.b.cosine(live.b.sdk_context, x);
+}
+static float live_atan(void *context, float x)
+{
+    (void)context;
+    return live.b.atan(live.b.sdk_context, x);
+}
+static float live_sqrt(void *context, float x)
+{
+    (void)context;
+    return live.b.sqrt(live.b.sdk_context, x);
+}
+static int live_column(void *context, const float position[3], EmPlayerFloorTable *table)
+{
+    (void)context;
+    return live.b.column(live.b.column_context, position, table);
+}
+
+/* 00175900(p, search) over a live actor, with the bound workers. Returns 0
+ * and its +A in *result, or -1 on a worker fault. Exported for the state
+ * adapters (EmPlayerSlideLive.floor, EmPlayerClimbLive.floor). */
+int player_states_floor_service(void *context, EmPlayerLiveActor *actor, int search, int *result)
+{
+    (void)context;
+    if (!floor_engaged()) return -1;
+    EmPlayerFloorActor f;
+    em_player_floor_actor_from_live(actor, &f);
+    LiveFloorContext floor_context = { &f };
+    const EmPlayerFloorWorkers workers = {
+        &floor_context, live_ground, live_head, live_object, live_link, live_surface39,
+        live_first_contact, live_atan2, live_cosine, live_atan, live_sqrt
+    };
+    /* sp50: the probe point of the floor hit; the service overwrites it on
+     * every hit, and the object probe runs only after a hit this stage. */
+    float at[3] = { f.position[0], f.position[1], f.position[2] };
+    int contact = em_player_floor_service(&f, search, at, &workers);
+    if (contact < 0) return -1;
+    em_player_floor_actor_to_live(&f, actor);
+    if (result) *result = contact;
+    return 0;
+}
+
+/* 001796C0 over a live actor. 0, or -1 on a worker fault. */
+int player_states_fall_check(void *context, EmPlayerLiveActor *actor)
+{
+    (void)context;
+    if (!floor_engaged()) return -1;
+    EmPlayerFallActor fall;
+    em_player_fall_actor_from_live(actor, &fall);
+    const EmPlayerFallWorkers workers = { NULL, live_column, live_ground };
+    if (em_player_fall_check(&fall, &workers) < 0) return -1;
+    em_player_fall_actor_to_live(&fall, actor);
+    return 0;
+}
+
+/* 001764E0 over a live actor, with the port's probe workers (the same
+ * binding player_wall_probes uses). 0, or -1 on a worker fault. */
+int player_states_wall_probes(void *context, EmPlayerLiveActor *actor)
+{
+    (void)context;
+    if (!g.coll.poly_count) return 0;
+    EmPlayerProbeActor p;
+    memset(&p, 0, sizeof p);
+    for (unsigned axis = 0; axis < 3; ++axis) p.position[axis] = em_live_f32(actor, 0xB0 + 4 * axis);
+    p.yaw = em_live_f32(actor, 0xC4);
+    p.speed = em_live_f32(actor, 0x38);
+    p.major = em_live_u8(actor, 4);
+    p.state = em_live_u8(actor, 5);
+    p.mode = em_live_u8(actor, 0x1F0);
+    p.variant = em_live_u8(actor, 0x1F1);
+    p.row = em_live_u8(actor, 0x235);
+    p.special = em_live_u8(actor, 0x236);
+    p.obstruction = em_live_u8(actor, 0x314);
+    p.contact = em_live_u8(actor, 0xA);
+    p.link = actor->link_owner != NULL;
+    p.link_type = actor->link_type;
+    EmPlayerProbeScene scene = { em_scene_state()->d810700, 1, probe.previous };
+    if (em_player_wall_probes(&p, &scene, &kProbeWorkers) < 0) return -1;
+    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(actor, 0xB0 + 4 * axis, p.position[axis]);
+    em_live_set_u8(actor, 0x235, p.row);
+    em_live_set_u8(actor, 0x236, p.special);
+    em_live_set_u8(actor, 0x314, p.obstruction);
+    probe.previous = scene.previous_obstruction;
+    return 0;
+}
+
+/* The mirror's view of the port's idle/walk callbacks (the port keeps these
+ * bytes in g while its own callbacks own the player). */
+static void live_from_port(void)
+{
+    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
+    em_live_set_f32(&live.a, 0xC4, g.yaw);
+    em_live_set_f32(&live.a, 0x38, g.loco_upt);
+    em_live_set_u8(&live.a, 0x1F0, (uint8_t)g.loco_mode);
+    em_live_set_u8(&live.a, 0x1F1, (uint8_t)g.loco_substate);
+    em_live_set_u8(&live.a, 0x25C, (uint8_t)g.loco_tier);
+    em_live_set_u8(&live.a, 0x23F, (uint8_t)g.gait);
+    em_live_set_u8(&live.a, 0x314, g.probe_block_mask);
+    em_live_set_u8(&live.a, 0x235, (uint8_t)((g.status.health <= PD_LOW_HEALTH ? 1 : 0) |
+                                             (g.probe_low_clearance ? 2 : 0)));
+    em_live_set_u8(&live.a, 0x236, g.probe_low_clearance);
+}
+
+static void port_from_live_position(void)
+{
+    for (unsigned axis = 0; axis < 3; ++axis) g.pos[axis] = em_live_f32(&live.a, 0xB0 + 4 * axis);
+    g.yaw = em_live_f32(&live.a, 0xC4);
+    g.probe_low_clearance = em_live_u8(&live.a, 0x236);
+    g.probe_block_mask = em_live_u8(&live.a, 0x314);
+}
+
+/* The idle (00161020) and walk (001612D0) tails after 001764E0: the +B4
+ * lowering, 00175900(p, 1), 001756E0, 001796C0. */
+static void live_tail(int walk)
+{
+    live_from_port();
+    em_live_set_u8(&live.a, 5, walk ? 1 : 0);   /* 00175900 reads +5 for 0x39 / 0x1C */
+    float lower = !walk ? -0.2f : em_live_u8(&live.a, 0x23B) == 0x35 ? -0.8f : -0.4f;
+    em_live_set_f32(&live.a, 0xB4, em_effect_float32((double)em_live_f32(&live.a, 0xB4) + lower));
+    int contact;
+    if (player_states_floor_service(NULL, &live.a, 1, &contact) < 0) {
+        live_fault("00175900 worker fault");
+        return;
+    }
+    port_from_live_position();
+    player_clearance_release();                           /* 001756E0 */
+    live_from_port();
+    if (player_states_fall_check(NULL, &live.a) < 0) {    /* 001796C0 */
+        live_fault("001796C0 worker fault");
+        return;
+    }
+    port_from_live_position();
+    /* +23A for 00187350 comes from this service from now on. */
+    footstep_surface_from_live(em_live_u8(&live.a, 0x23A));
+    uint8_t state = em_live_u8(&live.a, 5);
+    if (state != 0 && state != 1) port_park();
+}
+
+/* 0015BA50's switch for everything but the port's own +4 = 1, +5 = 0/1 (the
+ * idle 00161020 and walk 001612D0 callbacks): the translated stage
+ * (em_player_stage_dispatch -> 0015B130 / 0015B770 / the bound +4 handlers)
+ * owns the stage. Returns 1 when it ran (the port's callbacks do not), 0 for
+ * the idle/walk family. */
+static int live_stage_dispatch(void)
+{
+    uint8_t major = em_live_u8(&live.a, 4), state = em_live_u8(&live.a, 5);
+    if (major == 1 && (state == 0 || state == 1)) return 0;
+    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
+    em_live_set_f32(&live.a, 0xC4, g.yaw);
+    if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
+        live_fault("player stage worker or state callback fault");
+        return 1;
+    }
+    port_from_live_position();
+    footstep_surface_from_live(em_live_u8(&live.a, 0x23A));
+    major = em_live_u8(&live.a, 4);
+    uint8_t after = em_live_u8(&live.a, 5);
+    if (major == 1 && after == 0) {
+        /* +5 = 0 / +6 = 0: 00161020 case 0 runs next, as after the skid
+         * (the stop hand-off phase 3 requests the idle row). */
+        g.loco_mode = g.loco_substate = g.loco_tier = 0;
+        g.loco_upt = g.move_speed = 0;
+        g.loco_stop.phase = 3;
+    } else if (major == 1 && after == 1) {
+        /* Handed on to the walk callback (0017C440 in the climb). */
+        g.loco_mode = em_live_u8(&live.a, 0x1F0);
+        g.loco_substate = em_live_u8(&live.a, 0x1F1);
+        g.loco_tier = em_live_u8(&live.a, 0x25C);
+        g.loco_upt = em_live_f32(&live.a, 0x38);
+    } else {
+        g.loco_mode = em_live_u8(&live.a, 0x1F0);
+    }
+    return 1;
+}
+
+/* The callback tail. `walk` names the callback that ran: the walk callback
+ * 001612D0 (lowers +B4 by 0.4, or 0.8 on +23B 0x35) or the idle callback
+ * 00161020 (0.2). Without the live floor: 001764E0 and 001756E0 only (the
+ * port's snap runs in player_move_collide). */
+static void player_probe_tail(int walk)
 {
     player_wall_probes();
+    if (floor_engaged()) {
+        live_tail(walk);
+        return;
+    }
     player_clearance_release();
 }
 
@@ -245,6 +800,14 @@ void player_move_collide(float mx, float mz)
      * step (0.3 u at run) the probes also own anti-tunneling. */
     g.pos[0] += mx;
     g.pos[2] += mz;
+    if (floor_engaged()) {
+        /* The walk tail with the translated floor service and fall check
+         * in place of the snap below (live player states). */
+        player_probe_tail(1);
+        em_collision_moving_carry(g.pos);
+        em_collision_blocker_probe(g.pos, PLAYER_WALL_RADIUS);
+        return;
+    }
     player_wall_probes();
 
     /* Floor: vertical segment query through the same worlds (the grid
@@ -465,6 +1028,19 @@ static int reversal_ready(void)
     return reversal.display_bound && reversal.effect &&
            em_model_clip_index(&g.model, 6) >= 0 &&
            em_model_clip_index(&g.model, 7) >= 0;
+}
+
+/* A callback left the idle/walk family: the port's locomotion stops owning
+ * the player (its +1F0 is the mirror's); the state callback runs next. */
+static void port_park(void)
+{
+    g.loco_mode = em_live_u8(&live.a, 0x1F0);
+    g.loco_substate = g.loco_tier = 0;
+    g.loco_upt = g.move_speed = 0;
+    g.loco_entry_ticks = 0;
+    g.loco_stop.phase = g.loco_reentry.phase = 0;
+    reversal.walk_state = 0;
+    reversal.display = 0;
 }
 
 unsigned player_reversal_faults(void)
@@ -739,7 +1315,18 @@ int player_reversal_palette(void)
  * collision world loaded, movement goes through the engine's move probe
  * (walls stop/slide, the floor query sets the height); without one, the
  * old room-bbox clamp keeps the repo runnable standalone. */
+static void player_move_callbacks(void);
+
 void player_move(void)
+{
+    /* 0015BA50 before its switch (once per frame; see em_player.h), the
+     * callbacks, then 0015BA50's tail and 0015BCF0's writes after it. */
+    player_states_stage_begin();
+    player_move_callbacks();
+    player_states_stage_end();
+}
+
+static void player_move_callbacks(void)
 {
     /* 0015BA50 advances animation with the previous +204 output, then
      * resets that one-shot multiplier before the locomotion callback. */
@@ -1112,6 +1699,12 @@ void player_move(void)
      * scripted-clip and low-health holds are rechecked by the host. */
     (void)player_pose_legacy_release();
 
+    /* Live player states: a (+4, +5) outside the idle/walk family (entered
+     * by 001796C0, 0015BCF0's -200 check or the Use chain) runs the
+     * translated stage and its bound callbacks instead of the port's
+     * (0015BA50's switch). Only reachable once engaged. */
+    if (floor_engaged() && live_stage_dispatch()) return;
+
     /* WP-15/H11: while 001612D0 case 2 owns the callback (skid ticks and
      * the resume/idle decision), 00160220 is not polled; only case 1 does. */
     const int reversal_live = reversal_state2_live();
@@ -1121,7 +1714,7 @@ void player_move(void)
         /* 00161020 breaks to the idle physics tail; 001612D0 returns
          * before its walking tail. Save the state before 001798D0 clears
          * it. */
-        if (used > 0 && !walking_before_use) player_probe_tail();
+        if (used > 0 && !walking_before_use) player_probe_tail(0);
         return;
     }
 
@@ -1129,7 +1722,7 @@ void player_move(void)
         (player_pose_entry_return_tick() || player_pose_idle_state_wait())) {
         g.gait = 0;
         g.move_speed = 0;
-        player_probe_tail();
+        player_probe_tail(0);
         return;
     }
 
@@ -1149,7 +1742,7 @@ void player_move(void)
         /* 001612D0 case 2: 00174AC0, the surface effect / resume / idle
          * decision, 0017BC40 and 0017C030, then 00178B90(p,0) and the tail. */
         if (!reversal_state2_tick(in, gait)) {
-            player_probe_tail();
+            player_probe_tail(1);
             return;
         }
         goto locomotion_translate;
@@ -1171,7 +1764,7 @@ void player_move(void)
             player_pose_invalidate("foot-placement stop callback failed");
         else if (stop_active == 0)
             player_footstep_post(stop_tier == 1 ? 0x81 : 0x82);
-        player_probe_tail();
+        player_probe_tail(1);
         return;
     }
 
@@ -1246,7 +1839,7 @@ void player_move(void)
                 g.idle_timer = IDLE_FIDGET_FRAMES;
                 g.fid_w = g.walk_w = 0;
             }
-            player_probe_tail();
+            player_probe_tail(before <= 2);
             return;
         }
     }
@@ -1277,7 +1870,7 @@ void player_move(void)
             g.loco_mode = 1;
             g.loco_substate = 1;
         }
-        player_probe_tail();
+        player_probe_tail(0);
         return;
     }
     if (g.loco_mode == 0) {
@@ -1295,7 +1888,7 @@ void player_move(void)
             }
             g.walk_w = 0;
         }
-        player_probe_tail();
+        player_probe_tail(0);
         return;
     }
 
@@ -1344,7 +1937,7 @@ void player_move(void)
         workers.context = &actor;
         if (em_player_reversal_animation(&actor, &workers) < 0) {
             reversal_fault("0017C030 case 7");
-            player_probe_tail();
+            player_probe_tail(1);
             return;
         }
         em_player_reversal_walk_tail(&actor);
@@ -1364,11 +1957,11 @@ void player_move(void)
             g.loco_mode = 4;
             g.loco_upt = g.move_speed = 0;
             g.loco_animation_step = 0;
-            player_probe_tail();
+            player_probe_tail(1);
             return;
         }
         if (player_pose_foot_stop_begin()) {
-            player_probe_tail();
+            player_probe_tail(1);
             return;
         }
         player_pose_unsupported_hold("foot-placement stop begin failed");
@@ -1377,7 +1970,7 @@ void player_move(void)
         g.loco_tier = 0;
         g.loco_upt = 0;
         g.move_speed = 0;
-        player_probe_tail();
+        player_probe_tail(1);
         return;
     }
 
@@ -1398,7 +1991,7 @@ locomotion_translate:
         player_wall_probes();
     }
 
-    if (g.coll.poly_count) {
+    if (g.coll.poly_count || floor_engaged()) {
         player_move_collide(vx * g.move_speed * FRAME_DT,
                             vz * g.move_speed * FRAME_DT);
     } else {
@@ -1610,6 +2203,13 @@ static int step_wade(void *context, const float position[3], float level)
     return footstep.wade(footstep.wade_context, position, level);
 }
 
+/* The live floor service's +23A (live player states). */
+static void footstep_surface_from_live(uint8_t surface)
+{
+    footstep.surface = surface;
+    footstep.surface_valid = 1;
+}
+
 /* +23A for the dispatcher: the floor service's stored byte once it has run,
  * else the current floor probe (see footstep_floor_attr). */
 static uint8_t footstep_surface(void)
@@ -1632,6 +2232,13 @@ int player_footstep_0187350(uint32_t frame, uint8_t area)
     actor.surface = footstep_surface();
     actor.contact = 1;
     actor.obstruction = g.probe_block_mask;
+    if (floor_engaged()) {
+        /* The live floor service's +A, +23C and +250 (live player states). */
+        const EmPlayerLiveActor *live_actor = player_states_actor();
+        actor.contact = em_live_u8(live_actor, 0xA);
+        actor.depth = em_live_u8(live_actor, 0x23C);
+        actor.surface_y = em_live_f32(live_actor, 0x250);
+    }
     if (actor.mode == 0x01 || actor.mode == 0x02 || actor.mode == 0x2F || actor.mode == 0x41) {
         unsigned clip, flags;
         float remaining;
