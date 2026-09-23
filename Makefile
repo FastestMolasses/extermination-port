@@ -443,6 +443,43 @@ test-player-recovery-reference:
 test-player-recovery-route:
 	EM_TEST_ROUTE=1 python3 tools/test_player_recovery_reference.py
 
+.PHONY: test-owner-services
+test-owner-services:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/owner_services_test.c src/game/em_owner_services_original.c -o build/owner_services_test && ./build/owner_services_test
+
+.PHONY: test-owner-services-reference
+test-owner-services-reference:
+	python3 tools/test_owner_services_reference.py
+
+.PHONY: test-effect-original
+test-effect-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/effect_original_test.c src/game/em_effect_original.c -lm -o build/effect_original_test && ./build/effect_original_test
+
+.PHONY: test-effect-original-reference
+test-effect-original-reference:
+	python3 tools/test_effect_original_reference.py
+
+.PHONY: test-head-sprite-original
+test-head-sprite-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/head_sprite_original_test.c src/game/em_head_sprite_original.c -lm -o build/head_sprite_original_test && ./build/head_sprite_original_test
+
+.PHONY: test-head-sprite-reference
+test-head-sprite-reference:
+	python3 tools/test_head_sprite_reference.py
+
+.PHONY: test-message-draw
+test-message-draw:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/message_draw_test.c src/game/em_message_draw_original.c -o build/message_draw_test && ./build/message_draw_test
+
+.PHONY: test-message-draw-reference
+test-message-draw-reference:
+	python3 tools/test_message_draw_reference.py
+
+.PHONY: test-stream-lanes
+test-stream-lanes:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/stream_lanes_test.c src/game/em_stream_lanes_original.c -o build/stream_lanes_test && ./build/stream_lanes_test
+	python3 tools/test_stream_lanes_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
