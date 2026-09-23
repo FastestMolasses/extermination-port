@@ -224,6 +224,34 @@ test-door-original-runtime:
 test-cinematic-playback-reference:
 	python3 tools/test_cinematic_playback_reference.py
 
+.PHONY: test-continue-reset-reference
+test-continue-reset-reference:
+	python3 tools/test_continue_reset_reference.py
+
+.PHONY: test-area11-fog-reference
+test-area11-fog-reference:
+	python3 tools/test_area11_fog_reference.py
+
+.PHONY: test-player-random-reference
+test-player-random-reference:
+	python3 tools/test_player_random_reference.py
+
+.PHONY: test-input-block-reference
+test-input-block-reference:
+	python3 tools/test_input_block_reference.py
+
+.PHONY: test-title-menu-reference
+test-title-menu-reference:
+	python3 tools/test_title_menu_reference.py
+
+.PHONY: test-random-seed-reference
+test-random-seed-reference:
+	python3 tools/test_random_seed_reference.py
+
+.PHONY: test-frame-input
+test-frame-input:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c -lm -o build/frame_input_test && ./build/frame_input_test
+
 .PHONY: test-roger-media-reference
 test-roger-media-reference:
 	python3 tools/test_roger_media_reference.py

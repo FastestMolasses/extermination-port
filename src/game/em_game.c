@@ -55,16 +55,22 @@
  *                                        physics spine, asset-side only
  *                                        for now).
  *   func_001CB5A0 actor-context end      actor_context_end().
- *   func_001D1C50 RENDER CHAIN BUILD     render_chain_build() — records
- *                                        this frame's draws (scene parts +
- *                                        player, or the test triangle) into
- *                                        a chain, the native form of the
- *                                        VIF packet chain. The PS2 kick
- *                                        streams packets whose camera
- *                                        matrix slot is filled afterwards;
- *                                        natively the recorded chain is
- *                                        flushed after camera apply, at
- *                                        close-out.
+ *   func_001D1C50 per-frame GS/fog setup (src/func_001D1C50.c):
+ *                                        001D2830(4,0); a mode dispatch
+ *                                        (D_008106C4 / 001B0070 & 0x80 /
+ *                                        else) that runs the 0021B970/
+ *                                        0021B9A0/0021BA80 fog helpers and
+ *                                        001D2830(6,..); seeds the frame's
+ *                                        display-list slot from
+ *                                        D_00275670, 001D2960 with
+ *                                        D_00810610, copies scratchpad
+ *                                        blocks 0x70003A40/0x70003AC0;
+ *                                        then 001D7C30 (point_light_tick)
+ *                                        and 001D30A0. It records no
+ *                                        draws. The port's
+ *                                        render_chain_build() sits at this
+ *                                        slot but is a native draw-list
+ *                                        collector, not a translation.
  *   func_001C1D00 render-env init        render_env_init() — once-per-
  *                  (flag block           area render-env setup (GS regs,
  *                  0x008101D0)           per-area specials). NOT camera
@@ -177,14 +183,16 @@
 EmGameState g;
 
 /* SCENE MANIFEST — a plain-text scene.txt in the scene directory, written
- * there by the decomp repo's exporters (tools/export_level.py --spawn /
- * --bgm, tools/export_collision.py). Zero-dependency parser; "key value"
+ * there by the decomp repo's exporters (tools/export_level.py --spawn,
+ * tools/export_collision.py). Zero-dependency parser; "key value"
  * lines, '#' starts a comment, unknown keys are ignored:
  *
  *   spawn <x> <y> <z> <yaw>   player spawn, TRUE world coords + facing (rad)
  *   collision <file.emcl>     collision world filename inside the scene dir
- *   bgm <file.wav>            optional looping level-music cue WAV (scene
- *                             dir); the EM_BGM env override still wins
+ *   bgm <file.wav>            accepted and IGNORED: no original code
+ *                             starts music from scene data. Area music
+ *                             is 001FAE70's cue choice (D_008106C8 bits
+ *                             8..15; AREA11 = 25) — see game_load_task.
  *   door <file> <x> <y> <z> <yaw> <r> [goto <scene-dir> <sx> <sy> <sz> <syaw>]
  *                             one INTERACTIVE DOOR instance (file under
  *                             the scene dir, e.g. doors/door_m03.emdl;
@@ -626,10 +634,10 @@ static void game_over_tick(void)
     case GO_PROMPT_CONFIRM:
         if (em_frame_fade_level() < 1.0f) break;
         if (g.go_cursor == 0) {
-            /* CONTINUE — the engine reinstalls the gameplay task
-             * (func_001AB790(func_001ACEC0), D_00275BE0 = 0); the
-             * port's equivalent area re-entry is the scene reload,
-             * serviced by the frame machine (go_restart). */
+            /* Option 0 — src/func_001AC070.c state 4 reinstalls
+             * func_001ACEC0 with D_00275BE0 = 0: the title's New Game
+             * route (001AD230 -> 001AF2C0 reset, 001AD360 AREA11
+             * 0x0B/0/0). Serviced by the frame machine (go_restart). */
             g.go_restart = 1;
         } else {
             /* options 1 (load game) / 2 (sub-screen): the engine's
@@ -682,11 +690,15 @@ static void game_over_tick(void)
 /* INVESTIGATION_area11_elevator.md. Batch-2 contract A/D.              */
 /* ================================================================== */
 
-/* Contract-A flag accessors (em_game.h). The engine stores these as the
- * persistent game-state bytes D_00810811 (battery) and D_00810841[11]
- * bit 7 (terminal powered); the port mirrors each as a 0/1 flag. */
-int  em_game_has_battery(void)        { return g.have_battery; }
-void em_game_set_battery(int on)      { g.have_battery = on ? 1 : 0; }
+/* Contract-A flag accessors (em_game.h). D_00810841[11] bit 7 (terminal
+ * powered) is mirrored as a 0/1 flag.
+ * em_game_set_battery is INERT: it used to write the D_00810811 mirror,
+ * but D_00810811 is the opening-complete byte, stored only by the AREA11
+ * opening controller 00823E80 at 0x00823F74..80 (g.opening_complete).
+ * Its only caller is em_pickup.c's type-0x11 take hook, which is dead in
+ * AREA11 (placement record 10 is that controller, not a pickup) and is to
+ * be removed with em_pickup's original owners (WP-6). */
+void em_game_set_battery(int on)      { (void)on; }
 int  em_game_terminal_powered(void)   { return g.terminal_powered; }
 void em_game_set_terminal_powered(int on) { g.terminal_powered = on ? 1 : 0; }
 
@@ -1286,10 +1298,11 @@ static ChainDraw *chain_push(void)
     return &g.chain[g.chain_len++];
 }
 
-/* func_001D1C50 — render chain build. Records the frame's draws (the
- * native VIF chain): scene parts first, then the player, matching the
- * engine's draw order; with no assets at all, the gradient test triangle
- * keeps the repo runnable standalone. */
+/* Native draw-list collector (port-only). It runs at the func_001D1C50
+ * slot of the frame order, but 001D1C50 is the per-frame GS/fog/display-
+ * list setup and records no draws (see the frame table at the top).
+ * Collects scene parts first, then the player; with no assets at all,
+ * the gradient test triangle keeps the repo runnable standalone. */
 static void render_chain_build(void)
 {
     g.chain_len           = 0;
@@ -3384,7 +3397,7 @@ static void enemy_test_script(void)
  * one-shots 10 frames (1/6 s) apart — weapon draw 0x162, fire 0x164,
  * enemy death 0x7D8, all mapped by the user's assets/sfx/sfx.txt — so
  * their voices OVERLAP in the shared render callback (over the BGM when
- * EM_BGM / the manifest started one); then (frame 40) asserts FIVE
+ * EM_BGM started one); then (frame 40) asserts FIVE
  * synthetic pan/attenuation vectors against the decoded func_001FBF50
  * math (center/full at the player, range cull, hard-left at 90 deg,
  * the behind-the-camera phase inversion, the 18-u proximity ramp —
@@ -4460,8 +4473,10 @@ finish:
  *      press d-pad UP (engine 0x1000).
  *   8  assert the cursor walked to 0 (option move + sound), then
  *      CONFIRM with START (engine mask 0x840 = START|CROSS).
- *   9  dispatch at hold-black -> restart: scene reloaded, boot status
- *      restored (health 75), damage machine cleared, death pose
+ *   9  dispatch at hold-black -> restart: the 001AF2C0 reset
+ *      (health 100, mag 30, reserve 60, battery 0), D_00810700-block
+ *      progress bytes cleared, scene switched to AREA11 (001AD360
+ *      step 4), opening re-armed, damage machine cleared, death pose
  *      released.
  *  10  fade-in running after the restart.
  *
@@ -4643,9 +4658,23 @@ static void death_test_script(void)
                 /* the restart re-armed the frame machine: frame_no
                  * restarted at 0 (scene-init) — sample the fresh
                  * state on its first frames */
-                gt_check(g.status.health == 75.0f &&
-                         g.status.health_max == 100.0f,
-                         "boot status restored on restart");
+                /* Option 0 = the 001AF2C0 new-game reset + the
+                 * 001AD360 area 0x0B/0/0 commit (was: the port's old
+                 * 75/60/4/120/4-6 demo status, an invention). */
+                gt_check(g.status.health == 100.0f &&
+                         g.status.infection == 0.0f &&
+                         g.status.mag == 30 && g.status.reserve == 60 &&
+                         g.status.battery == 0 &&
+                         g.status.battery_max == 0,
+                         "001AF2C0 new-game status on restart");
+                gt_check(g.opening_complete == 0 &&
+                         g.opening_event_39 == 0 &&
+                         g.terminal_powered == 0,
+                         "D_00810700-block progress bytes cleared");
+                gt_check(strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0,
+                         "restart area is AREA11 (001AD360)");
+                gt_check(em_opening_runtime_busy(),
+                         "AREA11 opening controller re-armed");
                 gt_check(g.pd_state == 0 && g.pd_iframes == 0,
                          "damage machine cleared on restart");
                 gt_check(em_game_anim_active() == 0,
@@ -4977,7 +5006,7 @@ static void gameplay_frame(void)
     point_light_tick();      /* 001D1C50 -> 001D7C30, before pooled actors */
     em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
     em_area11_effect_runtime_tick();
-    render_chain_build();    /* func_001D1C50 — render chain build    */
+    render_chain_build();    /* native draw list, at the 001D1C50 slot */
     render_env_init();       /* func_001C1D00(0x008101D0)             */
     /* func_001AFD70(0) — the actor-pool tick (world services). The
      * port's first pooled actors are the DOORS: per-frame behavior
@@ -5258,7 +5287,7 @@ static void ingame_frame_machine(EmTask *self)
              * installed fresh by the powered terminal script at each area
              * build): reset the per-scene actor state so the descent can
              * run once in the loaded scene. The persistent game-state
-             * flags (have_battery / terminal_powered) are NOT touched
+             * flags (opening_complete / terminal_powered) are NOT touched
              * here — they survive a room-move reload (see em_game_install
              * for the new-game wipe). elev_pos is (re)set by the manifest
              * `elevator` line during scene_manifest_load. The scripted
@@ -5462,25 +5491,28 @@ static void ingame_frame_machine(EmTask *self)
             self->user[GAME_BYTE_FRAME] = 1;
             /* Native init currently also presents the first world frame. */
         case 1:
-            /* CONTINUE RESTART (the decoded dispatch: prompt cursor 0
-             * confirmed at hold-black — the engine reinstalls the
-             * gameplay task func_001ACEC0 with the from-death flag
-             * up and D_00275BE0 = 0; PD block doc).
-             * CITATION TIGHTENED (audit 2026-07-31) against
-             * src/func_001ACEC0.c (NEARMISS — logic authoritative):
-             * D_00275BE0 is read exactly once, in the re-installed
-             * task's state-0 arm, and it selects the ENTRY ROUTE —
-             * `+8 = (D_00275BE0 == 0) ? 1 : 2`. Route 1 polls
-             * func_001AD230 and then sets +8 = 3 with +9/+0xA/+0xB all
-             * zeroed (the fresh in-game arm the port reproduces here);
-             * route 2 goes straight to +8 = 3 but with +9 = 5 (the
-             * load-game sub-arm, which the port has no counterpart
-             * for). So the CONTINUE path really is the +9 = 0 arm.
-             * Reload the active
-             * scene — the manifest re-run rebuilds doors/enemies/
-             * collision — restore the boot status, clear the damage
-             * machine, re-arm the scene-init state (player re-place +
-             * camera + weapon), and fade back in. */
+            /* GAME-OVER OPTION 0 RESTART. src/func_001AC070.c (NEARMISS,
+             * logic authoritative) state 2 confirm with cursor 0 goes to
+             * state 4 with D_00275BE0 = 0 and reinstalls func_001ACEC0 —
+             * the title's NEW GAME route. The from-death flag
+             * D_00275BDC (001AC070 state 0 / 001AC480 state 0) skips the
+             * load wait and sets the initial cursor to 1; it does not
+             * change the cursor-0 dispatch:
+             *   001ACEC0 state 1 -> 001AD230 -> 001AF2C0 (new-game reset)
+             *   001AD250 sub 0 -> 001AD360 step 4: area 0x0B/0/0
+             *   001AD250 sub 5 -> 001ADF50 area build, then gameplay.
+             * So the restart is AREA11 sub 0 entry 0 with the new-game
+             * state wherever the player died, and because the memset
+             * clears D_00810791/D_00810811 the AREA11 opening controller
+             * 00823E80 runs its script again. 001AD360 step 0 calls
+             * 001FABB0 (stream stop): mirrored by em_bgm_stop(0) below.
+             * Only the fields game_state_new_game mirrors (plus pd_* /
+             * go_* and the pickup table) are reset here; New Game's
+             * em_game_install memsets all of g, so other port state
+             * (e.g. director state other than cine_step) survives a
+             * Continue. Not mirrored yet: 001AD360 steps 0-2 also call
+             * 001D1EF0, and step 1 re-requests movie selector 0
+             * (E900.PSS), which the native frontend owns. */
             if (g.go_restart) {
                 g.go_restart  = 0;
                 g.go_state    = GO_OFF;
@@ -5497,20 +5529,24 @@ static void ingame_frame_machine(EmTask *self)
                 g.pd_pend_inf = 0.0f;
                 g.pd_drain_t  = 0;
                 g.pd_clip     = 0;
-                /* infected latch persists across a continue? Unknown —
-                 * the port restores the boot status wholesale
-                 * (flagged). */
                 g.pd_infected = 0;
                 g.pd_low      = 0;
-                g.status = (EmPlayerStatus){ .health = 75.0f,
-                                             .health_max = 100.0f,
-                                             .infection = 60.0f,
-                                             .mag = 4, .mag_max = 30,
-                                             .reserve = 120,
-                                             .battery = 4,
-                                             .battery_max = 6 };
+                em_bgm_stop(0);            /* 001AD360 step 0: 001FABB0 */
+                em_pickup_reset();         /* 001AF2C0 D_00810700 memset */
+                game_state_new_game(&g);   /* 001AF2C0 mirrored fields   */
                 g.et_spawned = 0;     /* self-tests may re-spawn */
-                em_game_scene_switch(g.scene_dir);
+                /* The area build recreates the player actor: return the
+                 * pose source to its pre-opening load state, as the New
+                 * Game load does (game_load_task). */
+                player_pose_unload();
+                if (g.mesh) (void)player_pose_load(PLAYER_CHANNELS_PATH);
+                em_opening_runtime_request();
+                if (em_game_scene_switch(AREA11_SCENE_DIR) != 0) {
+                    fprintf(stderr, "continue: original restart area "
+                            "(AREA11, %s) unavailable\n", AREA11_SCENE_DIR);
+                    em_frame_request_quit();
+                    break;
+                }
                 em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
                 self->user[GAME_BYTE_FRAME] = 0;
                 ingame_frame_machine(self);   /* re-init this frame */
@@ -5582,7 +5618,7 @@ static void game_load_task(void)
 
     /* Optional character asset (disc-derived, generated locally). */
     if (em_model_load(&g.model, MODEL_PATH) == 0) {
-        (void)player_pose_load("assets/player_channels.empc");
+        (void)player_pose_load(PLAYER_CHANNELS_PATH);
         g.mesh = em_gfx_mesh_create(gfx, g.model.verts, g.model.vert_count,
                                     g.model.indices, g.model.index_count,
                                     (const EmGfxTexDesc *)g.model.texs,
@@ -5638,7 +5674,7 @@ static void game_load_task(void)
     }
 
     /* Optional scene (level parts, world-space) + its manifest (spawn /
-     * collision filename / bgm / doors — office defaults when absent). */
+     * collision filename / doors — office defaults when absent). */
     em_door_reset();
     em_enemy_reset();
     scene_manifest_load();
@@ -5663,22 +5699,18 @@ static void game_load_task(void)
      * silent no-op (zero behavior change); see em_sfx.h. */
     em_sfx_init();
 
-    /* BGM at the boot->game handoff — the native func_001FB0B0 moment:
-     * on the PS2 the area flow writes the level's cue id to the
-     * current-BGM global D_00810D38 and func_001FAE70 fades the stream
-     * in (the in-level cues carry the loop flag in the D_0025DD30 table).
-     * Natively EM_BGM=<path.wav> names a locally exported cue WAV and
-     * stands in for the cue id until the native cue table lands; without
-     * the env, the scene manifest's optional "bgm <file.wav>" (a cue WAV
-     * in the scene dir) plays instead; neither = silent, exactly as
-     * before (em_bgm never opens a device). */
-    if (g.bgm_path) {
-        em_bgm_play(g.bgm_path, 1);  /* func_001FB0B0(cue) — looping BGM */
-    } else if (g.bgm_file[0]) {
-        char path[560];
-        snprintf(path, sizeof path, "%s/%s", g.scene_dir, g.bgm_file);
-        em_bgm_play(path, 1);
-    }
+    /* No music starts from scene data. In the original, area music is
+     * chosen by 001FAE70 from D_008106C8 bits 8..15 (AREA11 captures:
+     * 0x20081910 -> cue 25); anim_frame_top_b state 0 calls
+     * 001FAE70(1) at area entry (0x001AE0C4), and on New Game the AREA11
+     * opening controller 00823E80 stops streams (001FABB0) when its script
+     * starts and resumes cue 25 via 001FAE70(0) when it ends
+     * (EM_OPENING_RESUME_MUSIC). The area-entry 001FAE70(1) call is not
+     * mirrored yet (it also draws one rand(); whole-game RNG order is
+     * unaudited). EM_BGM=<path.wav> remains a debug-only listening
+     * override with no original counterpart. */
+    if (g.bgm_path)
+        em_bgm_play(g.bgm_path, 1);
 
     em_task_replace_current(game_task);
 }
@@ -5787,16 +5819,11 @@ void em_game_install(void)
     g.examine_test = xt && xt[0] == '1';
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
-    /* AREA-11 progression flags are part of that same D_00810700-block
-     * memset (D_00810811 battery, D_00810841[11] terminal unlock): wiped
-     * at NEW GAME only. They PERSIST across an intra-area room-move scene
-     * reload (the battery taken-bit + the unlock bit are game state, not
-     * per-scene) — so they are NOT re-zeroed on every scene arm; only the
-     * elevator ACTOR (re-installed per area build) resets on scene load. */
-    g.have_battery     = 0;       /* D_00810811 = 0 */
-    g.opening_event_39 = 0;
-    g.opening_key_item_zero = 0;
-    g.terminal_powered = 0;       /* D_00810841[11] bit 7 = 0 */
+    /* The progress bytes in that same memset (D_00810791, D_00810811
+     * opening complete, D_00810841[11] terminal unlock) are already 0
+     * from the memset of g above; they PERSIST across an intra-area
+     * room-move scene reload and are cleared again only by the
+     * 001AF2C0 routes (em_game_install_new, game-over option 0). */
     em_task_register(0, game_load_task);
 }
 
@@ -5804,12 +5831,11 @@ void em_game_install_new(void)
 {
     em_game_install();
     /* func_001AF2C0 clears the inventory/area block and establishes these
-     * health, magazine, reserve and battery values. The frontend's replay
+     * health, magazine, reserve and battery values (game_state_new_game;
+     * em_game_install already ran em_pickup_reset). The frontend's replay
      * of movie selector 0 precedes func_001AD360's area 11.0 commit. */
-    g.status = (EmPlayerStatus){ .health = 100.0f, .health_max = 100.0f,
-        .infection = 0.0f, .mag = 30, .mag_max = 30, .reserve = 60,
-        .battery = 0, .battery_max = 0 };
-    snprintf(g.scene_dir, sizeof g.scene_dir, "%s", "assets/scene_snow");
+    game_state_new_game(&g);
+    snprintf(g.scene_dir, sizeof g.scene_dir, "%s", AREA11_SCENE_DIR);
     em_opening_runtime_request();
     em_opening_control_test_begin();
 }

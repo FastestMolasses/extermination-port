@@ -96,13 +96,11 @@
  *                  elevator control terminal (ov 0x00827B10, on the
  *                  platform): the powered path 0x82A750 (gated on the
  *                  D_00810841 unlock bit) plays anim 0x47 + installs the
- *                  descent actor 0x00828050. The CORRECTED two-terminal
- *                  flow (INVESTIGATION_area11_elevator.md "CORRECTED
- *                  FLOW") adds a SEPARATE OUTSIDE battery terminal (ov
- *                  0x008237E0, 331.7,290,192.5) that inserts the battery
- *                  (anim 0x14) and sets the power bit; the internal
- *                  terminal only CHECKS power and runs the ride.
- *                  (em_examine_set_terminal / em_examine_set_battery_terminal.)
+ *                  descent actor 0x00828050. The internal terminal only
+ *                  CHECKS power and runs the ride
+ *                  (em_examine_set_terminal). The power bit comes from
+ *                  the panel program (00159210 -> 001580C0), not from
+ *                  an examine object.
  *                  AREA06 switch (the same world mesh): message
  *                  script 0x827040 — camera cue + AREA06 bank line 0
  *                  (208 frames, voice cue 40). FLAGGED: in the engine
@@ -248,30 +246,6 @@ int em_examine_text(int slot, int dur, int gap, const char *text);
  * it sees the "terminal" token. Returns 0 / -1 (bad slot). */
 int em_examine_set_terminal(int slot);
 
-/* Mark instance `slot` as the AREA-11 OUTSIDE BATTERY TERMINAL (the
- * manifest's trailing "battery_terminal" token; the engine's
- * interactive ov 0x008237E0 at 331.7,290,192.5, yaw 2.8449 — the
- * director-driven battery-insert object, a SEPARATE object from the
- * internal terminal, ~110 u away on the upper Y290 ledge). This is the
- * object the player inserts the battery into; it makes power available.
- * The CORRECTED two-terminal flow
- * (INVESTIGATION_area11_elevator.md "OUTSIDE BATTERY TERMINAL"). When
- * used:
- *   - has battery && !powered -> the insert path: the player insert
- *     clip + lock via em_game_player_interact_anim(0x14) THEN
- *     em_game_set_terminal_powered(1). No descent here.
- *   - already powered          -> brief no-op (already inserted)
- *   - no battery               -> a short "need battery" refusal (the
- *     refusal/cooldown path), so the player learns the battery is
- *     required.
- * FLAGGED (INVESTIGATION_area11_elevator.md): the insert clip 0x14 and
- * any insert cinematic/letterbox were decoded under a FORCED game state
- * and may be wrong — this ships the faithful-MINIMUM (anim + lock + set
- * power), not an elaborate vault-door cutscene.
- * The ELEVATOR parser (em_game.c) calls this after em_examine_add when
- * it sees the "battery_terminal" token. Returns 0 / -1 (bad slot). */
-int em_examine_set_battery_terminal(int slot);
-
 /* Attach the op04 FACE pre-roll (INVESTIGATION_examine_walk_face.md) to
  * instance `slot`: the SCRIPTED target heading-yaw the player pivots to
  * BEFORE the message (engine script record+0x24), plus the op01 walk-to
@@ -282,9 +256,7 @@ int em_examine_set_battery_terminal(int slot);
  * the existing pre-delay/message/cooldown path UNCHANGED. The manifest
  * `examine` line's trailing `face <yaw>` token routes here (em_game.c
  * parser). Decoded yaws: snow INTERNAL terminal (224,230,250.7) =
- * -1.3037 rad (script 0x82A990 record+0x24). FLAGGED: the OUTSIDE battery
- * terminal's face-yaw was NOT decoded — the manifest ships an APPROXIMATE
- * value (face toward the terminal actor). `walk_frames` > 0 (the
+ * -1.3037 rad (script 0x82A990 record+0x24). `walk_frames` > 0 (the
  * straight-line position LERP) is FLAGGED-unimplemented — no shipped
  * scene sets it; the snow terminals are duration-0 (the use-scan already
  * places the player within dist). Returns 0 / -1 (bad slot). */

@@ -48,6 +48,10 @@
                                          * the ACTIVE scene (runtime
                                          * switch: em_game_scene_switch) */
 #define COLL_DEFAULT   "office.emcl"
+#define PLAYER_CHANNELS_PATH "assets/player_channels.empc"
+/* Area 0x0B / sub 0 / entry 0, committed by func_001AD360 step 4 on every
+ * new-game route (title New Game and game-over option 0). */
+#define AREA11_SCENE_DIR "assets/scene_snow"
 #define SCENE_MAX      16
 
 /* DEFAULT player spawn — the office room (chunk06.n1 level): the live
@@ -626,9 +630,11 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * lines); option labels are port guesses (the module text is not
  * decoded); options 1/2 and the timeout have no native target (no
  * save system, no title screen) — all three return to the prompt,
- * documented at the dispatch; option 0 = the real continue (scene
- * reload + boot status restore, the engine's reinstalled-task area
- * re-entry).
+ * documented at the dispatch; option 0 = the title menu's New Game
+ * route (death reaches the 001AC070 prompt via func_001ADF00 with
+ * D_00275BDC = 1): the 001AF2C0 reset (game_state_new_game +
+ * em_pickup_reset) and a restart at AREA11 0x0B/0/0 (001AD360 step 4)
+ * that re-arms the opening.
  *
  * HEARTBEAT (func_0015D000 [byte-matched] — CONFIRMED by audit, the
  * counter at +0x210 resets on `slti 0x79`/`slti 0x3D`): health <= 35
@@ -1615,6 +1621,13 @@ typedef struct {
     uint8_t    frame_selector;   /* scratchpad 0x70003B8D: 0 = gameplay */
     uint8_t    opening_event_39; /* D_00810791: automatic opening state */
     uint8_t    opening_key_item_zero; /* D_00810CC3[0], 001C4760(0,1) */
+    uint8_t    opening_complete; /* D_00810811 (event flag 0xB9): the
+                                  * AREA11 opening controller 00823E80
+                                  * stores 0xFF here when its script
+                                  * 0x828FC0 ends (0x00823F74..80), next
+                                  * to +0x2E = 0xFFFF and 001C4760(0,1).
+                                  * Captured 0 mid-opening, 0xFF at the
+                                  * handoff before any battery exists. */
 
     /* animation clips + idle<->locomotion crossfade */
     int        clip_idle;        /* clip indices into model.clips */
@@ -1805,8 +1818,9 @@ typedef struct {
                                 * button) */
     int        go_cursor;      /* prompt cursor (engine task+0xF;
                                 * from-death init = 1) */
-    int        go_restart;     /* continue confirmed: scene reload
-                                * latch, serviced by the frame machine.
+    int        go_restart;     /* option 0 confirmed: New Game-route
+                                * restart latch (001AF2C0 reset + AREA11),
+                                * serviced by the frame machine.
                                 * Grounded by audit: func_001AC070
                                 * [NEARMISS] state 2 sends cursor 0 to
                                 * state 4 with D_00275BE0 = 0, and state
@@ -1840,7 +1854,8 @@ typedef struct {
     int        chain_len;
     int        chain_test_triangle;
 
-    /* EM_BGM=<path.wav>: loop this cue WAV as level music (see boot task) */
+    /* EM_BGM=<path.wav>: debug-only listening override (see boot task);
+     * not an original music path */
     const char *bgm_path;
 
     /* SCENE MANIFEST (<scene_dir>/scene.txt) — per-scene boot config,
@@ -1852,7 +1867,6 @@ typedef struct {
     float       spawn[3];        /* "spawn x y z yaw" — TRUE world coords */
     float       spawn_yaw;       /* facing about +Y, radians; 0 = +Z */
     char        coll_path[288];  /* "collision <file.emcl>" in scene_dir */
-    char        bgm_file[256];   /* "bgm <file.wav>" in scene_dir; "" = none */
     float       cam_dist_param;  /* "camdist <f>" — the engine camera
                                   * distance cam+0x0C/+0x64 (signed;
                                   * default -46.8, office records -31.2).
@@ -2086,13 +2100,12 @@ typedef struct {
      * decoded. The scripted elevator actor is OVERLAY code
      * (ov 0x00828050) that the decomp does not contain, and the cited
      * INVESTIGATION_area11_elevator.md is absent from both repos; the
-     * flag ADDRESSES below are live-RAM readings. Two persistent
-     * game-state flags + the scripted elevator descent actor.
+     * flag ADDRESSES below are live-RAM readings. One persistent
+     * game-state flag + the scripted elevator descent actor. (The former
+     * "have_battery" flag was D_00810811, which is the opening-complete
+     * byte, not a battery: see opening_complete.)
      * AUDIT 2026-07-31 - DOWNGRADED stands: nothing in this block cites recovered C.
      * */
-    int         have_battery;    /* engine D_00810811 == 0xFF (battery in
-                                  * inventory). 0/1 mirror; set by
-                                  * em_pickup.c on the battery take */
     int         terminal_powered;/* engine D_00810841[11] bit 7 (terminal
                                   * powered by the battery insert). 0/1;
                                   * set by em_examine.c on the powered use */
@@ -2176,6 +2189,28 @@ typedef struct {
      * gravity tick in player_move_collide; zeroed on landing. */
     float       fall_vel;
 } EmGameState;
+
+/* func_001AF2C0 (src/func_001AF2C0.c; reached by 001ACEC0 route 1 ->
+ * 001AD230 for BOTH the title's New Game and the game-over prompt's
+ * option 0) — the part of the new-game reset that EmGameState mirrors.
+ * The 0x640-byte memset of D_00810700 clears D_00810791, D_00810811,
+ * D_00810813, D_0081084C (D_00810841[11]) and D_00810CC3; then health
+ * D_00810858 = 100.0, D_0081085C = 0, battery D_00810CB2/CB7 = 0, and
+ * (after 001C40B0(0x10,2)) magazine D_00810C62 = 30, reserve
+ * D_00810CB4 = 60. health_max/mag_max are port display constants. The
+ * inventory part is em_pickup_reset(). Instruction-checked by
+ * tools/test_continue_reset_reference.py. */
+static inline void game_state_new_game(EmGameState *s)
+{
+    s->status = (EmPlayerStatus){ .health = 100.0f, .health_max = 100.0f,
+        .infection = 0.0f, .mag = 30, .mag_max = 30, .reserve = 60,
+        .battery = 0, .battery_max = 0 };
+    s->opening_event_39      = 0;
+    s->opening_key_item_zero = 0;
+    s->opening_complete      = 0;
+    s->cine_step             = 0;
+    s->terminal_powered      = 0;
+}
 
 /* Compose a loaded palette with a placement transform: T(pos) * R_y(yaw).
  * Shared with em_props.c, whose set pieces pose through the same path the

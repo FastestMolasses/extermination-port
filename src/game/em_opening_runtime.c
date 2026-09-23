@@ -164,7 +164,8 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             return skipped ? EM_SCRIPT_ABORT : EM_SCRIPT_ADVANCE;
         }
         return EM_SCRIPT_UNSUPPORTED;
-    case 6: /* 001B8BD0 flag operations, opening uses sub0 / event39. */
+    case 6: /* 001BA080 (ftab_0024D880[6]) event flags D_00810758[]:
+             * sub0 stores 1; the opening uses sub0 / event 0x39. */
         if (sub!=0 || em_script_u32(record,0x14)!=0x39)
             return EM_SCRIPT_UNSUPPORTED;
         g.opening_event_39=1;
@@ -201,7 +202,8 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             return EM_SCRIPT_ADVANCE;
         }
         return EM_SCRIPT_UNSUPPORTED;
-    case 20: { /* 001B70B0: two original 0x2C-byte spawn records. */
+    case 20: { /* 001BAC00 (ftab_0024D880[0x14]): spawns each listed
+               * 0x2C-byte record through 001AFA90; here two. */
         unsigned char *actors=em_script_image_read(&s.image,
                                    em_script_u32(record,0x14),0x58);
         if (sub!=0 || !actors || actors[0]!=9 || actors[0x2C]!=8)
@@ -284,7 +286,9 @@ static void notify(void *context, EmOpeningEvent event)
          * The host has already ended the child draw tracks under full black. */
         s.actors_active=0;
         break;
-    case EM_OPENING_EVENT_B9_COMPLETE: g.have_battery=1; break;
+    case EM_OPENING_EVENT_B9_COMPLETE:
+        g.opening_complete=0xFF; /* 00823F74..80: D_00810811 = 0xFF */
+        break;
     case EM_OPENING_ADD_KEY_ITEM_ZERO: ++g.opening_key_item_zero; break;
     case EM_OPENING_RESUME_MUSIC:
         if (em_opening_media_resume_music(270+((em_random_next()>>16)&127)))
@@ -321,7 +325,7 @@ void em_opening_runtime_tick(void)
         fprintf(stderr,"opening: complete frame=%d pos=(%.6f,%.6f,%.6f) "
                 "yaw=%.8f event39=%u eventB9=%u key0=%u\n",g.frame_no,
                 g.pos[0],g.pos[1],g.pos[2],g.yaw,g.opening_event_39,
-                g.have_battery?255:0,g.opening_key_item_zero);
+                g.opening_complete,g.opening_key_item_zero);
     }
 }
 

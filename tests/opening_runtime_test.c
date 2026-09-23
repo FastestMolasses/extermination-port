@@ -129,11 +129,11 @@ static void run(int skip,int shutdown_after) {
         assert(audio_callback);audio_callback(audio_user,pcm,800);
         for(unsigned i=0;i<1600;i++) assert(isfinite(pcm[i]));
         if(g.opening_event_39==0xFF) marked_frame=g.frame_no;
-        else assert(!g.have_battery && !g.opening_key_item_zero);
+        else assert(!g.opening_complete && !g.opening_key_item_zero);
     }
     assert(g.frame_no<2000 && marked_frame>=0 && commits && subtitles && look_up);
     assert(g.frame_selector==0 && g.opening_event_39==0xFF);
-    assert(g.have_battery==1 && g.opening_key_item_zero==1);
+    assert(g.opening_complete==0xFF && g.opening_key_item_zero==1);
     assert(g.pos[0]==250.8000030517578f && g.pos[1]==229.89999389648438f && g.pos[2]==209);
     assert(g.yaw==0.6108652949333191f);
     assert(!g.opencam_on && !g.opencam_idle);
@@ -151,7 +151,7 @@ static void run(int skip,int shutdown_after) {
 int main(void) {
     run(0,0);run(1,1); /* second New Game reuses assets in the same process */
     start("build/no-such-opening-fixture");
-    assert(quit && em_opening_runtime_failed() && !g.have_battery && !g.opening_key_item_zero);
+    assert(quit && em_opening_runtime_failed() && !g.opening_complete && !g.opening_key_item_zero);
     end();assert(em_opening_runtime_failed());
     puts("opening runtime PASS: original assets, dialogue/audio, normal/skip teardown, control handoff, missing-assets failure");
 }

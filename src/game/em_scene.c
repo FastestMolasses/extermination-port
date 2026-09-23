@@ -20,11 +20,10 @@
 
 /* manifest_word_token — does `line` contain `tok` as a WHOLE WORD
  * (delimited by start-of-line/space on the left and end-of-line/space on
- * the right)? Used for the trailing examine-line marker tokens
- * ("terminal" / "battery_terminal") so a substring inside a path or
- * another token can't trip them, and so the longer "battery_terminal"
- * (which ends in "terminal") is not mis-matched by the "terminal" probe
- * (the '_' before "terminal" fails the left delimiter). */
+ * the right)? Used for the trailing examine-line marker token
+ * ("terminal") so a substring inside a path or another token (for
+ * example a stale "battery_terminal", whose '_' fails the left
+ * delimiter) can't trip it. */
 static int manifest_word_token(const char *line, const char *tok)
 {
     size_t tl = strlen(tok);
@@ -50,7 +49,6 @@ void scene_manifest_load(void)
     g.spawn_yaw = 0.0f;
     snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", g.scene_dir,
              COLL_DEFAULT);
-    g.bgm_file[0]  = '\0';
     g.cam_dist_param = -46.8f;  /* cam+0x0C/+0x64 default; `camdist` line */
     g.n_camregion  = 0;     /* camera regions are per-scene data */
     g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
@@ -87,7 +85,9 @@ void scene_manifest_load(void)
             snprintf(g.coll_path, sizeof g.coll_path, "%s/%s", g.scene_dir,
                      name);
         } else if (sscanf(line, "bgm %255s", name) == 1) {
-            snprintf(g.bgm_file, sizeof g.bgm_file, "%s", name);
+            /* Accepted and ignored: no original path starts music from
+             * scene data (area music is 001FAE70's D_008106C8 cue; see
+             * game_load_task). */
         } else if (sscanf(line, "camdist %f", &x) == 1) {
             /* The engine's camera-distance param (cam+0x0C, signed —
              * spawn records carry it at +0x18; live: -46.8 default,
@@ -459,15 +459,14 @@ void scene_manifest_load(void)
              * and/or the `prop` marker. */
             const char *model = NULL;
             int prop = 0;
-            /* Compatibility with older generated fixture manifests.
-             * "battery" is a marker, not a model path. The original
-             * AREA11 entry does not place the key item asserted by those
-             * fixtures; normal exports must use original placement data. */
-            int battery = (gn >= 7 && strcmp(name,  "battery") == 0) ||
-                          (gn >= 8 && strcmp(gname, "battery") == 0);
+            /* The former "battery" marker (a type-0x11 key item whose
+             * take "set D_00810811") was fabricated: AREA11 record 10 is
+             * the opening controller 00823E80, and D_00810811 is its
+             * opening-complete byte. A stale marker now reaches the
+             * model loader and fails loudly. */
             if (gn >= 7) {
-                if (strcmp(name, "prop") == 0)         prop  = 1;
-                else if (strcmp(name, "battery") != 0) model = name;
+                if (strcmp(name, "prop") == 0) prop  = 1;
+                else                           model = name;
             }
             if (gn >= 8 && strcmp(gname, "prop") == 0) prop = 1;
             float p[3] = { x, y, z };
@@ -475,10 +474,6 @@ void scene_manifest_load(void)
                                    yaw, gl, model, prop);
             if (rc == -1)
                 printf("manifest: pickup line failed to load: %s", line);
-            else if (battery)
-                printf("manifest: BATTERY key-item (type %#x) at "
-                       "(%.1f, %.1f, %.1f) — take sets D_00810811\n",
-                       gk, p[0], p[1], p[2]);
             /* rc == -2: taken uid — the engine's silent cond-1 skip */
         } else if (sscanf(line, "weather %i %255s %63s", &gk, name, gname) == 3) {
             if (!em_snow_runtime_load(em_frame_gfx(), g.scene_dir, name, gname,
@@ -543,35 +538,15 @@ void scene_manifest_load(void)
                 printf("manifest: examine slot %d FACE pre-roll yaw %.4f "
                        "rad (walk %d)\n", last_examine, exface, exwalk);
             }
-            /* The trailing examine-line marker tokens (CORRECTED two-
-             * terminal flow, INVESTIGATION_area11_elevator.md). Matched as
-             * WHOLE WORDS (preceded by start/space, followed by end/space)
-             * so a stray substring in a path can't trip them — and so the
-             * "battery_terminal" token (which ends in "terminal") is NOT
-             * mis-read as the plain "terminal" token (its '_' fails the
-             * preceding-char test). Check the more-specific
-             * "battery_terminal" first.
-             *
-             *  - "battery_terminal" -> the AREA-11 OUTSIDE battery terminal
-             *    (ov 0x008237E0 @ 331.7,290,192.5): the battery-insert
-             *    object. em_examine_set_battery_terminal routes the USE
-             *    through the insert path (player clip 0x14 + lock, then
-             *    set power) when the battery is held; CHAIN2 owns that.
-             *  - "terminal" -> the AREA-11 INTERNAL elevator-control
-             *    terminal (ov 0x00827B10 @ 224,230,250.7) on the platform.
-             *    em_examine_set_terminal routes the USE through the
-             *    power-GATED ride: powered -> lever clip 0x47 + lock + the
-             *    descent; unpowered -> the EXISTING gline 0x1A refusal +
-             *    300-frame cooldown (unchanged). It no longer sets power
-             *    or checks the battery — it only CHECKS power. */
+            /* The trailing examine-line marker token "terminal": the
+             * AREA-11 INTERNAL elevator-control terminal (ov 0x00827B10
+             * @ 224,230,250.7). em_examine_set_terminal routes the USE
+             * through the power-gated ride; it only CHECKS power. The
+             * former "battery_terminal" token (an insert/power path
+             * attributed to 008237E0, which is Roger's controller) was
+             * fabricated and is no longer recognized. */
             if (last_examine >= 0 &&
-                manifest_word_token(line, "battery_terminal")) {
-                em_examine_set_battery_terminal(last_examine);
-                printf("manifest: OUTSIDE BATTERY TERMINAL examine — slot "
-                       "%d at (%.1f, %.1f, %.1f) (battery-insert/power)\n",
-                       last_examine, p[0], p[1], p[2]);
-            } else if (last_examine >= 0 &&
-                       manifest_word_token(line, "terminal")) {
+                manifest_word_token(line, "terminal")) {
                 em_examine_set_terminal(last_examine);
                 printf("manifest: INTERNAL TERMINAL examine — slot %d at "
                        "(%.1f, %.1f, %.1f) (power-gated elevator ride)\n",
@@ -671,10 +646,10 @@ void scene_manifest_load(void)
                g.fog_near, g.fog_far,
                g.fog_rgb[0], g.fog_rgb[1], g.fog_rgb[2]);
     printf("manifest: %s — spawn (%.3f, %.3f, %.3f) yaw %.4f, "
-           "collision %s%s%s, %d door(s), %d enem%s, %d pickup(s), "
+           "collision %s, %d door(s), %d enem%s, %d pickup(s), "
            "%d examine(s)\n", mf,
            g.spawn[0], g.spawn[1], g.spawn[2], g.spawn_yaw, g.coll_path,
-           g.bgm_file[0] ? ", bgm " : "", g.bgm_file, em_door_count(),
+           em_door_count(),
            em_enemy_count(), em_enemy_count() == 1 ? "y" : "ies",
            em_pickup_count(), em_examine_count());
     for (int i = 0; i < g.n_camregion; i++)

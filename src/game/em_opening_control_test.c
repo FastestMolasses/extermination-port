@@ -105,12 +105,12 @@ void em_opening_control_test_after_frame(void)
         } else {
             key(0);
             if (test.locked_ticks<300 || g.frame_selector!=0 ||
-                g.opening_event_39!=0xFF || g.have_battery!=1 ||
+                g.opening_event_39!=0xFF || g.opening_complete!=0xFF ||
                 g.opening_key_item_zero!=1) {
                 fprintf(stderr,"newgame control test: locked=%d selector=%u "
-                        "event39=%u battery=%d key0=%u pad=(%u,%u)\n",
+                        "event39=%u eventB9=%u key0=%u pad=(%u,%u)\n",
                         test.locked_ticks,g.frame_selector,g.opening_event_39,
-                        g.have_battery,g.opening_key_item_zero,input->lx,input->ly);
+                        g.opening_complete,g.opening_key_item_zero,input->lx,input->ly);
                 fail("opening completed without validated lock/story handoff");return;
             }
             test.phase=2;

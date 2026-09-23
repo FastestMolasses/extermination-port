@@ -34,7 +34,7 @@
 
 #include "em_input.h"        /* EM_PAD_CROSS — the use-button mask */
 #include "game/em_hud.h"     /* em_hud_radio (GLOBAL lines) + text draw */
-#include "game/em_game.h"    /* contract-A: battery + terminal + elevator */
+#include "game/em_game.h"    /* contract-A: terminal power + elevator */
 #include "game/em_pickup.h"  /* the single-winner use-scan arbitration */
 
 #define EX_PI 3.14159265358979f
@@ -100,11 +100,6 @@ typedef struct {
                                          * ov 0x00827B10, on the platform).
                                          * Only CHECKS power; runs anim
                                          * 0x47 + the descent. */
-    int   is_battery_terminal;          /* AREA-11 OUTSIDE battery
-                                         * terminal: the battery-insert
-                                         * object (ov 0x008237E0, the
-                                         * upper ledge). Sets power; no
-                                         * descent. */
 } Examine;
 
 /* The running sequence (one at a time — the engine's single script
@@ -185,13 +180,6 @@ int em_examine_set_terminal(int slot)
 {
     if (slot < 0 || slot >= s.n) return -1;
     s.e[slot].is_terminal = 1;
-    return 0;
-}
-
-int em_examine_set_battery_terminal(int slot)
-{
-    if (slot < 0 || slot >= s.n) return -1;
-    s.e[slot].is_battery_terminal = 1;
     return 0;
 }
 
@@ -310,8 +298,12 @@ static void seq_start(int slot)
      * 0x00827B10, on the platform): the CORRECTED two-terminal flow
      * (INVESTIGATION_area11_elevator.md "CORRECTED FLOW"). This terminal
      * NO LONGER inserts the battery or sets power — it ONLY checks power
-     * and runs the ride. The power bit is set by the OUTSIDE battery
-     * terminal (is_battery_terminal, below). */
+     * and runs the ride. In the original the power bit D_00810841[11]
+     * bit 7 is set by the panel program's callback 001580C0 (panel
+     * 00159210), bound only in the not-yet-live interaction host (WP-4).
+     * The former "battery_terminal" insert path was removed: it was
+     * attributed to 008237E0, which is Roger's controller (story byte
+     * D_008107D8 dispatch), with no battery or power behavior. */
     if (e->is_terminal) {
         if (em_game_terminal_powered()) {
             /* POWERED path — the engine's script 0x82A750: play the
@@ -335,42 +327,9 @@ static void seq_start(int slot)
                "(no power)\n", slot);
     }
 
-    /* AREA-11 OUTSIDE battery terminal (ov 0x008237E0, the upper ledge):
-     * the battery-insert object. With the battery in hand it plays the
-     * insert clip (anim 0x14) ON THE PLAYER with input/movement locked,
-     * THEN makes power available (em_game_set_terminal_powered(1)). NO
-     * descent here. (INVESTIGATION_area11_elevator.md "OUTSIDE BATTERY
-     * TERMINAL"). FLAGGED: clip 0x14 + any insert cinematic were decoded
-     * under a forced game state and may be wrong — faithful-minimum
-     * (anim + lock + set power), no elaborate cutscene this pass. */
-    if (e->is_battery_terminal) {
-        if (em_game_has_battery() && !em_game_terminal_powered()) {
-            em_game_player_interact_anim(0x14);
-            em_game_set_terminal_powered(1);
-            s.seq.no_message = 1;
-            printf("examine: slot %d — BATTERY TERMINAL insert "
-                   "(anim 0x14 + lock, power available)\n", slot);
-            return;
-        }
-        if (em_game_terminal_powered()) {
-            /* Already inserted — brief no-op (no refusal, no clip). */
-            s.seq.no_message = 1;
-            printf("examine: slot %d — battery terminal already "
-                   "powered (no-op)\n", slot);
-            return;
-        }
-        /* No battery -> a short "need battery" refusal. Reuse the
-         * unpowered refusal/cooldown path (the manifest's gline +
-         * cooldown on this same line). FLAGGED: the exact "need battery"
-         * line is uncertain — reusing gline 0x1A ("...No power...") as
-         * the placeholder refusal, set on this examine's manifest line. */
-        printf("examine: slot %d — BATTERY TERMINAL refusal "
-               "(no battery)\n", slot);
-    }
-
     /* op04 FACE pre-roll (INVESTIGATION_examine_walk_face.md §3): on the
-     * message/refusal path (the early-return powered/battery clip paths
-     * play their OWN facing clip and never reach here), if the examine
+     * message/refusal path (the early-return powered clip path plays its
+     * OWN facing clip and never reaches here), if the examine
      * ships a scripted face-yaw, pivot the player to it BEFORE the message.
      * op01 walk-to is duration-0 for the snow terminals (the use-scan
      * already places the player within dist 5), so the visible pre-roll

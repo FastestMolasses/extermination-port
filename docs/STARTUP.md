@@ -84,6 +84,7 @@ make test-cinematic-camera test-opening-actor test-opening-media test-bgm-ticks
 make test-opening-runtime
 python3 tests/opening_media_export_test.py
 python3 tools/test_random_reference.py
+python3 tools/test_continue_reset_reference.py
 python3 tools/test_collision_reference.py --help
 python3 tools/test_area_title_reference.py --help
 ```
@@ -115,6 +116,39 @@ original ELF instructions for collision, script sequencing, and random state.
 Host actor matrix differences from EE/VU arithmetic are measured up to 0.000092.
 The native prefill handshake is faster than the original disc/IOP wait; align
 camera/actor cursors when comparing screenshots, rather than scene frame alone.
+
+## New Game, Continue and music
+
+- The title's New Game and the game-over prompt's option 0 take the same
+  original route: `func_001AC070` state 4 reinstalls `func_001ACEC0` with
+  `D_00275BE0=0`, so `001AD230` runs `func_001AF2C0`, and `001AD360` commits
+  area 0x0B / sub 0 / entry 0. Both native paths apply the same reset:
+  `game_state_new_game` plus `em_pickup_reset`. The old Continue values
+  (75/60/4/120/4-6) were copied from a debug fixture and have been removed.
+  Continue now restarts in AREA11 wherever the player died. Because the
+  memset clears `D_00810791`/`D_00810811`, the opening controller runs again.
+  `tools/test_continue_reset_reference.py` runs `001AF2C0` on captured AREA11
+  RAM and compares 11 mirrored fields. The inventory seeds (item counts
+  0/5/7/0x17 = 1, 0x10 = 2, mag packs 2) belong to `em_pickup_reset`. They are
+  printed by that test but do not yet match. Continue resets only these
+  mirrored fields (plus the death/prompt state and the pickup table); unlike
+  New Game it does not memset the whole native game state, so other port
+  state (for example director state other than `cine_step`) carries over.
+  The `001AD360` step 0 stream stop (`001FABB0`) is mirrored with
+  `em_bgm_stop(0)`. Not mirrored yet: the `001D1EF0` calls in steps 0-2 and
+  the step 1 E900 movie request (Continue does not replay E900).
+- `D_00810811` is the opening-complete byte (`g.opening_complete`), not a
+  battery flag. The opening controller 00823E80 stores 0xFF there at
+  0x00823F74..80, when script 0x828FC0 ends. The same test executes that
+  slice. The fabricated `battery_terminal` examine path and the `battery`
+  pickup marker have been removed.
+- No music starts from scene data. The manifest `bgm` line is ignored.
+  Original area music is chosen by `001FAE70` from `D_008106C8` bits 8..15;
+  the AREA11 captures give cue 25. `anim_frame_top_b` state 0 calls
+  `001FAE70(1)` at area entry. The opening controller stops streams when its
+  script starts and resumes cue 25 at the end. The area-entry call is not
+  mirrored yet: it also draws one `rand()`, and whole-game RNG order is
+  unaudited. `EM_BGM` remains a debug-only override.
 
 ## Remaining fidelity work
 
