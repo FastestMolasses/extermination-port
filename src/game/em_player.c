@@ -14,9 +14,13 @@
 #include "game/em_player.h"
 #include "game/em_player_heading.h"
 #include "game/em_player_motor.h"
+#include "game/em_player_reversal.h"
 #include "game/em_random.h"
 
 #include "game/em_game_internal.h"
+
+static uint8_t footstep_floor_attr(void);
+static float player_turn_rate(int gait, float upt, float adelta);
 
 /* 001764E0 rereads the corrected actor position before every ray. Its
  * eight main lanes each test4.01 and then18 (13.8 when +236 is set).
@@ -232,6 +236,318 @@ static float player_stick_desired_yaw(const EmFrameInput *in)
         fz=cosf(yaw);
     }
     return em_player_stick_heading(in->lx,in->ly,fx,fz);
+}
+
+/* ---- WP-15/H11 reversal skid (docs/PLAYER_REVERSAL.md) -------------------
+ * 00174AC0 arms +1F0=7 when walking faster than 0.5 with gait >= 2 and a
+ * wrapped heading error beyond 3pi/4. 0017C030 case 7 requests the turn
+ * clip and plays 0x137; case 6 waits for the clip end, then requests the
+ * follow-up clip and turns the body by pi. 001612D0 case 2 emits the
+ * surface effect every eighth tick and resumes or returns to idle. The
+ * pure logic is em_player_reversal.c; this block binds its workers to the
+ * port's player source, audio and turn, and keeps the callback's +6/+28. */
+#define REVERSAL_DISPLAY_BONES 64
+
+static struct {
+    uint8_t walk_state;      /* +6: 2 while 001612D0 case 2 owns the callback */
+    uint16_t ticks;          /* +28 */
+    uint8_t expect_mode;     /* +1F0 left by the last reversal callback */
+    unsigned expect_clip;    /* source clip left by the last reversal callback */
+    int display;             /* the reversal clip owns the displayed pose */
+    unsigned display_blend;  /* 001749A0 blend of the displayed request */
+    unsigned requested_clip;
+    float requested_frame;
+    unsigned faults;
+    int display_bound;       /* em_player_frame calls player_reversal_palette */
+    int (*effect)(void *context, uint32_t id, const float position[3], float yaw);
+    void *effect_context;
+    float from[REVERSAL_DISPLAY_BONES * 16]; /* actor-space pose at the request */
+} reversal;
+
+void player_reversal_set_effect_worker(int (*worker)(void *context, uint32_t id,
+                                                      const float position[3], float yaw),
+                                       void *context)
+{
+    reversal.effect = worker;
+    reversal.effect_context = context;
+}
+
+void player_reversal_bind_display(int bound)
+{
+    reversal.display_bound = bound != 0;
+}
+
+/* The skid engages only once every original worker it reaches is bound:
+ * the display stage (player_reversal_palette), the 001EFD90 surface-effect
+ * worker, and the variant clips 6/7 used by 0017C030 case 7. Until then the
+ * ordinary 00174AC0 turn runs, as before WP-15, instead of a live path that
+ * faults on every reversal. The logic itself stays oracle-tested
+ * (test-player-reversal-reference); binding is the coordinator's job. */
+static int reversal_ready(void)
+{
+    return reversal.display_bound && reversal.effect &&
+           em_model_clip_index(&g.model, 6) >= 0 &&
+           em_model_clip_index(&g.model, 7) >= 0;
+}
+
+unsigned player_reversal_faults(void)
+{
+    return reversal.faults;
+}
+
+static int reversal_request_common(int clip, float frame, float blend, int force)
+{
+    /* The port's source request takes whole blend ticks (0/4 here). */
+    if (clip < 0 || !(blend >= 0.0f) || (float)(unsigned)blend != blend) return -1;
+    if ((unsigned)blend && g.model.bone_count <= REVERSAL_DISPLAY_BONES) {
+        /* Freeze the displayed pose in actor space, as the re-entry blend
+         * does in em_player_frame.c. Position and yaw are still the values
+         * the last display used: the skid request precedes translation. */
+        unsigned count = g.model.bone_count * 16;
+        memcpy(reversal.from, g.player_palette, count * sizeof(float));
+        for (unsigned bone = 0; bone < g.model.bone_count; ++bone)
+            for (unsigned axis = 0; axis < 3; ++axis)
+                reversal.from[bone * 16 + 12 + axis] -= g.pos[axis];
+        const float origin[3] = {0, 0, 0};
+        palette_apply_placement(reversal.from, g.model.bone_count, origin, -g.yaw);
+    }
+    player_pose_request((unsigned)clip, frame, (unsigned)blend, force);
+    unsigned current;
+    if (!player_pose_source(&current, NULL, NULL, NULL) || current != (unsigned)clip)
+        return -1;   /* e.g. the source bank lacks the clip (request invalidated it) */
+    reversal.display = 1;
+    reversal.display_blend = (unsigned)blend;
+    reversal.requested_clip = (unsigned)clip;
+    reversal.requested_frame = frame;
+    return 0;
+}
+
+static int reversal_request(void *context, int clip, int force, float blend)
+{
+    (void)context;
+    return reversal_request_common(clip, 0.0f, blend, force);   /* 001749A0 */
+}
+
+static int reversal_arbiter(void *context, int clip, float blend, float frame)
+{
+    (void)context;
+    return reversal_request_common(clip, frame, blend, 1);      /* 001749F0 */
+}
+
+static int reversal_clip_frames(void *context, int clip, int *frames)
+{
+    (void)context;
+    /* 001C61D0 reads the bank clip header length; the exported model clip
+     * carries the same frame count (walk 120, jog 45, run 40). */
+    int index = clip >= 0 ? em_model_clip_index(&g.model, (uint32_t)clip) : -1;
+    if (index < 0 || !frames) return -1;
+    *frames = (int)g.model.clips[index].frame_count;
+    return 0;
+}
+
+static int reversal_sound(void *context, unsigned id)
+{
+    (void)context;
+    /* 001FB9F0(id, 0x1000, 0x1000, 0x1000). The call is made; whether the
+     * cue is exported is the audio bank's state (WP-14), reported once. */
+    static int reported;
+    if (!reported && em_sfx_cue_state(id) == 0) {
+        reported = 1;
+        fprintf(stderr, "player reversal: sound 0x%X has no exported cue\n", id);
+    }
+    em_sfx_play(id);
+    return 0;
+}
+
+static int reversal_effect(void *context, uint32_t id)
+{
+    (void)context;
+    /* 001EFD90(id, +B0, +C0) spawns the class-0xC effect actor whose
+     * behaviour is 001EA240. No native worker exists yet: fault. */
+    if (!reversal.effect) return -1;
+    return reversal.effect(reversal.effect_context, id, g.pos, g.yaw);
+}
+
+static int reversal_turn(void *context, float desired)
+{
+    /* 00174AC0 arg1==1 turn: the port's banded rate (player_turn_rate) and
+     * 001B12B0 step, keyed on the scalar speed before this callback. */
+    EmPlayerReversalActor *actor = context;
+    float difference = em_player_reversal_wrap(desired - actor->yaw);
+    g.yaw = actor->yaw;
+    player_turn_toward(desired, player_turn_rate(actor->gait, actor->speed,
+                                                 fabsf(difference)));
+    actor->yaw = g.yaw;
+    return 0;
+}
+
+static void reversal_actor(EmPlayerReversalActor *actor, int gait)
+{
+    memset(actor, 0, sizeof *actor);
+    actor->speed = g.loco_upt;
+    actor->yaw = g.yaw;
+    actor->target = kLocoTierSpeed[gait & 3];
+    actor->rate = g.loco_rate;
+    actor->blend = g.loco_blend;
+    actor->player_state = 1;               /* only walk callbacks reach here */
+    actor->walk_state = reversal.walk_state ? reversal.walk_state : 1;
+    actor->ticks = reversal.ticks;
+    actor->mode = g.loco_mode;
+    actor->variant = g.loco_substate;
+    actor->tier = (uint8_t)g.loco_tier;
+    actor->gait = (uint8_t)gait;
+    /* +235 row: bit 0 is the low-health latch (health <= 35); bit 1
+     * (rows 2/3) is not modelled, as in the pose host. +236 and
+     * D_008106C8 bit 2 (the 0017B490 row-4 override) are clear in every
+     * captured AREA11 state. */
+    actor->row = g.status.health <= PD_LOW_HEALTH ? 1 : 0;
+    actor->special = 0;
+    actor->global_mode = 0;
+    /* +23A: the floor attribute 00175900 stores each callback (probed at
+     * the current position). +23C/+23D water depth states are untranslated
+     * (zero); they matter only off surfaces 5/6. */
+    actor->surface = footstep_floor_attr();
+    actor->obstruction = g.probe_block_mask;
+}
+
+static void reversal_commit(const EmPlayerReversalActor *actor)
+{
+    g.yaw = actor->yaw;
+    g.loco_upt = actor->speed;
+    g.loco_rate = actor->rate;
+    g.loco_blend = actor->blend;
+    g.loco_mode = actor->mode;
+    g.loco_substate = actor->variant;
+    g.loco_tier = actor->tier;
+    reversal.walk_state = actor->walk_state;
+    reversal.ticks = actor->ticks;
+    reversal.expect_mode = actor->mode;
+    reversal.expect_clip = reversal.requested_clip;
+}
+
+static const EmPlayerReversalWorkers kReversalWorkers = {
+    NULL, reversal_request, reversal_arbiter, reversal_clip_frames,
+    reversal_sound, reversal_effect, reversal_turn
+};
+
+static void reversal_fault(const char *where)
+{
+    /* A reached missing worker, or a source that cannot carry the skid
+     * clips. Visible and not simulated: the port abandons the skid and
+     * recovers through this file's unsupported-path hold. */
+    ++reversal.faults;
+    fprintf(stderr, "player reversal: worker fault at frame %d in %s\n",
+            g.frame_no, where);
+    reversal.walk_state = 0;
+    reversal.display = 0;
+    g.loco_mode = g.loco_substate = 0;
+    g.loco_tier = 0;
+    g.loco_upt = g.move_speed = 0;
+    player_pose_unsupported_hold("reversal skid worker fault");
+}
+
+/* The saved +6 is valid only while nothing else has rewritten the scalar
+ * mode or the source clip since the last reversal callback (stand-ins,
+ * hits, Use acceptance and releases reset both). */
+static int reversal_state2_live(void)
+{
+    if (reversal.walk_state != 2) return 0;
+    unsigned clip;
+    if (g.loco_mode == reversal.expect_mode &&
+        player_pose_source(&clip, NULL, NULL, NULL) && clip == reversal.expect_clip)
+        return 1;
+    reversal.walk_state = 0;
+    reversal.display = 0;
+    /* Another owner that reset +1F0 ended the skid, as its original state
+     * change does. A skid mode left behind without its clip cannot finish. */
+    if (g.loco_mode == 6 || g.loco_mode == 7)
+        reversal_fault("reversal state lost its source clip");
+    return 0;
+}
+
+int player_reversal_owns_walk(void)
+{
+    return reversal.walk_state == 2;
+}
+
+/* 001612D0 case 2 (after 001607D0; its 00184BA0 door scan is em_door's).
+ * Returns 1 when the caller performs 00178B90(p,0) and the tail, 0 when a
+ * fault already ended the callback. */
+static int reversal_state2_tick(const EmFrameInput *in, int gait)
+{
+    EmPlayerReversalActor actor;
+    reversal_actor(&actor, gait);
+    unsigned flags;
+    if (!player_pose_source(NULL, NULL, &flags, NULL)) {
+        reversal_fault("001612D0 case 2 (source clip flags unavailable)");
+        return 0;
+    }
+    actor.anim_flags = flags;
+    float desired = gait ? player_stick_desired_yaw(in) : 0.0f;
+    EmPlayerReversalWorkers workers = kReversalWorkers;
+    workers.context = &actor;
+    if (em_player_reversal_state2(&actor, desired, &workers) < 0) {
+        reversal_fault("001612D0 case 2");
+        return 0;
+    }
+    reversal_commit(&actor);
+    if (actor.player_state == 0) {
+        /* +5=0/+6=0: 00161020 case 0 requests idle on the next callback.
+         * The run-stop return models exactly that hand-off (phase 3). */
+        int index = em_model_clip_index(&g.model, reversal.requested_clip);
+        reversal.walk_state = 0;
+        reversal.display = 0;
+        if (index >= 0) {
+            g.loco_stop_clip = index;
+            g.loco_stop.frame = 0;
+        }
+        g.loco_stop.phase = 3;
+        g.loco_upt = g.move_speed = 0;
+    } else if (actor.walk_state == 1) {
+        /* Resumed walking at gait-1: the ordinary display continues from
+         * the requested source frame. */
+        int index = em_model_clip_index(&g.model, reversal.requested_clip);
+        reversal.walk_state = 0;
+        reversal.display = 0;
+        if (index >= 0) {
+            g.loco_clip = index;
+            g.walk_t = (double)reversal.requested_frame / g.model.clips[index].fps;
+        }
+        g.walk_w = 1;
+    }
+    g.loco_animation_step = 0;
+    return 1;
+}
+
+int player_reversal_palette(void)
+{
+    if (!reversal.display || reversal.walk_state != 2) return 0;
+    unsigned clip;
+    float remaining;
+    int transition;
+    /* A stand-in that froze the source owns the display instead. */
+    if (!player_pose_source(&clip, &remaining, NULL, &transition)) return 0;
+    int index = em_model_clip_index(&g.model, clip);
+    if (index < 0 || g.model.bone_count > REVERSAL_DISPLAY_BONES) return -1;
+    const EmModelClip *model_clip = &g.model.clips[index];
+    double frame = 0;
+    float weight = 1;
+    if (transition && reversal.display_blend) {
+        weight = 1.0f - remaining / (float)reversal.display_blend;
+    } else {
+        frame = (double)model_clip->frame_count - remaining;
+        if (frame < 0) frame = 0;
+        if (frame > model_clip->frame_count - 1) frame = model_clip->frame_count - 1;
+    }
+    em_model_palette_at(&g.model, (uint32_t)index, frame, g.player_palette);
+    if (weight < 1) {
+        unsigned count = g.model.bone_count * 16;
+        for (unsigned i = 0; i < count; ++i)
+            g.player_palette[i] = reversal.from[i] +
+                (g.player_palette[i] - reversal.from[i]) * weight;
+    }
+    palette_apply_placement(g.player_palette, g.model.bone_count, g.pos, g.yaw);
+    return 1;
 }
 
 /* Player movement (the port's first slice of the actor spine's physics
@@ -616,8 +932,11 @@ void player_move(void)
      * scripted-clip and low-health holds are rechecked by the host. */
     (void)player_pose_legacy_release();
 
+    /* WP-15/H11: while 001612D0 case 2 owns the callback (skid ticks and
+     * the resume/idle decision), 00160220 is not polled; only case 1 does. */
+    const int reversal_live = reversal_state2_live();
     int walking_before_use = g.loco_mode != 0;
-    int used = player_use_poll();
+    int used = reversal_live ? 0 : player_use_poll();
     if (used != 0) {
         /* 00161020 breaks to the idle physics tail; 001612D0 returns
          * before its walking tail. Save the state before 001798D0 clears
@@ -626,7 +945,8 @@ void player_move(void)
         return;
     }
 
-    if (player_pose_entry_return_tick() || player_pose_idle_state_wait()) {
+    if (!reversal_live &&
+        (player_pose_entry_return_tick() || player_pose_idle_state_wait())) {
         g.gait = 0;
         g.move_speed = 0;
         player_wall_probes();
@@ -644,6 +964,16 @@ void player_move(void)
     g.gait       = gait;
     g.move_speed = 0.0f;
     unsigned translation_steps = 1;
+
+    if (reversal_live) {
+        /* 001612D0 case 2: 00174AC0, the surface effect / resume / idle
+         * decision, 0017BC40 and 0017C030, then 00178B90(p,0) and the tail. */
+        if (!reversal_state2_tick(in, gait)) {
+            player_wall_probes();
+            return;
+        }
+        goto locomotion_translate;
+    }
 
     if (player_pose_foot_stop_active()) {
         if (gait) {
@@ -784,11 +1114,22 @@ void player_move(void)
      * heading work, including small analog nudges inside the deadzone. */
     if (gait) {
         float desired = player_stick_desired_yaw(in);
-        float diff = desired - g.yaw;
-        while (diff > EM_PI) diff -= 2.0f * EM_PI;
-        while (diff <= -EM_PI) diff += 2.0f * EM_PI;
-        player_turn_toward(desired,
-                          player_turn_rate(gait, g.loco_upt, fabsf(diff)));
+        /* 00174AC0's reversal gate precedes the turn: speed > 0.5, gait >= 2
+         * and |wrap(desired - yaw)| > 3pi/4 arm +1F0=7 and skip the turn. */
+        EmPlayerReversalActor gate = {
+            .speed = g.loco_upt, .yaw = g.yaw, .player_state = 1,
+            .mode = g.loco_mode, .variant = g.loco_substate, .gait = (uint8_t)gait,
+        };
+        if (!reversal_ready() || em_player_reversal_heading(&gate, desired)) {
+            float diff = desired - g.yaw;
+            while (diff > EM_PI) diff -= 2.0f * EM_PI;
+            while (diff <= -EM_PI) diff += 2.0f * EM_PI;
+            player_turn_toward(desired,
+                              player_turn_rate(gait, g.loco_upt, fabsf(diff)));
+        } else if (gate.mode == 7) {
+            g.loco_mode = 7;
+            g.loco_substate = gate.variant;
+        }
     }
     EmPlayerMotor motor = {
         g.loco_upt, kLocoTierSpeed[gait], g.loco_rate, g.loco_blend,
@@ -802,6 +1143,23 @@ void player_move(void)
     g.loco_upt = motor.speed;
     g.loco_rate = motor.rate;
     g.loco_blend = motor.blend;
+    if (motor.mode == 7) {
+        /* 0017BC40 leaves mode 7 alone; 0017C030 case 7 requests the turn
+         * clip (blend 4) and plays 0x137; 001612D0 case 1 then moves to +6=2
+         * with +28=0 after this callback's ordinary translation. */
+        EmPlayerReversalActor actor;
+        reversal_actor(&actor, gait);
+        actor.walk_state = 1;
+        EmPlayerReversalWorkers workers = kReversalWorkers;
+        workers.context = &actor;
+        if (em_player_reversal_animation(&actor, &workers) < 0) {
+            reversal_fault("0017C030 case 7");
+            player_wall_probes();
+            return;
+        }
+        em_player_reversal_walk_tail(&actor);
+        reversal_commit(&actor);
+    }
     if (motor.mode == 3) {
         /* 0017C030 mode 3 / tier 3 requests stop clip 5. Tiers 1/2 instead
          * execute the 0017B910 foot-placement solve against source nodes
@@ -862,8 +1220,6 @@ locomotion_translate:
         if (g.pos[2] > kRoomMax[1]) g.pos[2] = kRoomMax[1];
         g.pos[1] = 0.0f;  /* flat floor (no collision world loaded) */
     }
-
-    /* The separate skid/pivot paths still need their original workers. */
 }
 
 /* rand5 — func_00179B90 (byte-matched): func_00122BB8() & 7, with 5..7

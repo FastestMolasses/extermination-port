@@ -11,7 +11,7 @@ BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
-           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
+           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_player_reversal.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
@@ -283,6 +283,45 @@ test-frame-trace:
 .PHONY: test-actor-census
 test-actor-census:
 	python3 tools/test_actor_census_reference.py
+
+.PHONY: test-message-service
+test-message-service:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/message_service_test.c src/game/em_message_service.c -o build/message_service_test && ./build/message_service_test
+
+.PHONY: test-message-service-reference
+test-message-service-reference:
+	python3 tools/test_message_service_reference.py
+
+.PHONY: test-fan-original
+test-fan-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/fan_original_test.c src/game/em_fan_original.c -lm -o build/fan_original_test && ./build/fan_original_test
+
+.PHONY: test-fan-original-reference
+test-fan-original-reference:
+	python3 tools/test_fan_original_reference.py
+
+.PHONY: test-truck-original
+test-truck-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/truck_original_test.c src/game/em_truck_original.c -lm -o build/truck_original_test && ./build/truck_original_test
+	python3 tools/test_truck_original_reference.py
+
+.PHONY: test-truck-original-capture
+test-truck-original-capture:
+	python3 tools/test_truck_original_reference.py --compare-capture
+
+.PHONY: test-crate-drum-original
+test-crate-drum-original:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/crate_drum_original_test.c src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_item_sdk_math.c src/game/em_interaction_scan.c src/game/em_item_trail.c -lm -o build/crate_drum_original_test && ./build/crate_drum_original_test
+	python3 tools/test_crate_original_reference.py
+	python3 tools/test_drum_original_reference.py
+
+.PHONY: test-player-reversal-reference
+test-player-reversal-reference:
+	python3 tools/test_player_reversal_reference.py
+
+.PHONY: test-player-reversal-host
+test-player-reversal-host:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_reversal_host_test.c src/game/em_player.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c -lm -o build/player_reversal_host_test && ./build/player_reversal_host_test
 
 .PHONY: test-roger-media-reference
 test-roger-media-reference:

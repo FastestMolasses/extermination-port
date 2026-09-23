@@ -240,3 +240,37 @@ state 0 with counter 300. The row is approximated from live health only (see
 until they end. A walk/jog foot-placement stop that begins during an active pose
 transition now runs the 0017B910 solve, as 0017C030 mode 3 does. It no longer
 snaps to the row default.
+
+## Reversal skid (WP-15/H11)
+
+When the player is walking faster than 0.5 with gait 2 or 3, a stick reversal
+beyond 3π/4 no longer turns the body through the banded rate. The original
+00174AC0 gate arms `+1F0=7` instead: `+1F1=4` for a positive error and 3 for a
+negative one.
+
+The skid then runs as follows:
+
+- **Detection tick.** The port skips the turn. 0017C030 case 7 requests turn
+  clip 7 or 6 with blend 4 and plays 0x137. The callback still translates once
+  at the current speed, then enters walk state 2.
+- **State-2 ticks.** Each tick emits the 001612D0 surface effect every eighth
+  tick and decays speed by 0.05 (0017BC40 mode 6). It also writes animation
+  rate 0.75.
+- **Clip end.** At the end flag, the port requests follow-up clip 9 or 8 with
+  force 1 and blend 0. Speed and tier become zero and the body turns by π.
+- **Next callback.** With the stick held, the port resumes at tier `gait-1`.
+  Otherwise it hands off to idle through the existing stop phase 3.
+- **Use.** Use is not polled during state 2.
+
+Details, evidence and boundaries are in `PLAYER_REVERSAL.md`. The remaining
+items are:
+
+- the unbound 001EFD90 effect worker (a counted fault);
+- the missing 0x137 cue;
+- the pose-host idle gate on the exit tick;
+- the display hook;
+- the asset install.
+
+`EM_STARTUP_TEST=newgame-control` still reports displacement 9.599989. The
+stop, re-entry and low-gait variants report 18.649982, re-entry PASS,
+4.049953 and 14.350012. No native reversal input fixture exists yet.

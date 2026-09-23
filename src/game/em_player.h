@@ -28,6 +28,26 @@ void player_pose_legacy_hold(const char *owner);
 int player_pose_legacy_release(void);
 void player_pose_unsupported_hold(const char *reason);
 
+/* WP-15/H11 reversal skid (docs/PLAYER_REVERSAL.md).
+ * player_reversal_palette: call in the player display stage right after
+ * player_pose_foot_stop_palette(); returns 1 when it produced the palette
+ * from the requested skid clip, 0 when the reversal does not own the
+ * display, -1 when that clip is missing from the display model.
+ * player_reversal_owns_walk: 1 while 001612D0 case 2 owns the callback
+ * (its exit tick has +1F0=0 but is not the idle callback).
+ * player_reversal_set_effect_worker binds 001EFD90 (surface effect ids
+ * 0x80000033/0x80000012 at the player position and yaw); while unbound,
+ * reaching the effect is a worker fault (counted by player_reversal_faults). */
+int player_reversal_palette(void);
+int player_reversal_owns_walk(void);
+void player_reversal_set_effect_worker(int (*worker)(void *context, uint32_t id,
+                                                      const float position[3], float yaw),
+                                       void *context);
+unsigned player_reversal_faults(void);
+/* The display stage declares that it calls player_reversal_palette. The skid
+ * stays disengaged until display, effect worker and clips 6/7 are all bound. */
+void player_reversal_bind_display(int bound);
+
 /* Called from the gameplay frame in em_game.c as well as from this module. */
 int  aim_ladder_eval(double t);
 int  step_crossed(double prev, double cur, double trig);
