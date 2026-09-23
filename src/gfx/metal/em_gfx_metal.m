@@ -14,6 +14,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <AppKit/AppKit.h>
 #include "em_gfx.h"
+#include "em_platform.h"
 #include "game/em_lighting.h"
 #include "gfx/metal/em_fog_gs.h"
 #include <math.h>
@@ -37,6 +38,12 @@ struct EmGfx {
     /* per-frame */
     NSAutoreleasePool           *pool;
     id<CAMetalDrawable>          drawable;
+    /* Render target of the frame: the drawable's texture, or in headless
+     * runs (em_headless) an offscreen texture of the same size, so tests
+     * and captures never need a visible window. */
+    id<MTLTexture>               target;
+    id<MTLTexture>               offscreen;
+    bool                         headless;
     id<MTLCommandBuffer>         cmd;
     id<MTLRenderCommandEncoder>  enc;       /* open from begin_frame to end_frame */
     /* headless capture (see em_gfx_request_capture) */
@@ -591,6 +598,7 @@ EmGfx *em_gfx_create(EmWindow *win)
     layer.pixelFormat     = MTLPixelFormatBGRA8Unorm;
     /* NO so the drawable can be blit-read by the capture path. */
     layer.framebufferOnly = NO;
+    g->headless = em_headless();
     return g;
 }
 
@@ -621,6 +629,7 @@ void em_gfx_destroy(EmGfx *g)
     [g->depthOff release];
     [g->depthGlow release];
     [g->depthTex release];
+    [g->offscreen release];
     [g->queue release];
     [g->device release];
     [g->layer release];
@@ -646,17 +655,30 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     NSSize sz = g->view.bounds.size;
     CGFloat scale = g->view.window.backingScaleFactor;
     if (scale <= 0) scale = 1.0;
-    g->layer.drawableSize = CGSizeMake(sz.width * scale, sz.height * scale);
-
-    g->drawable = [[g->layer nextDrawable] retain];
-    if (!g->drawable) { return; }
+    NSUInteger pw = (NSUInteger)(sz.width * scale), ph = (NSUInteger)(sz.height * scale);
+    if (g->headless) {
+        if (!g->offscreen || g->offscreen.width != pw || g->offscreen.height != ph) {
+            [g->offscreen release];
+            MTLTextureDescriptor *td = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                             width:pw height:ph mipmapped:NO];
+            td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            td.storageMode = MTLStorageModePrivate;
+            g->offscreen = [g->device newTextureWithDescriptor:td];
+        }
+        g->target = g->offscreen;
+    } else {
+        g->layer.drawableSize = CGSizeMake(sz.width * scale, sz.height * scale);
+        g->drawable = [[g->layer nextDrawable] retain];
+        g->target = g->drawable ? g->drawable.texture : nil;
+    }
+    if (!g->target) { return; }
     g->cmd = [[g->queue commandBuffer] retain];
 
-    ensure_depth_texture(g, g->drawable.texture.width,
-                         g->drawable.texture.height);
+    ensure_depth_texture(g, g->target.width, g->target.height);
 
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-    rp.colorAttachments[0].texture     = g->drawable.texture;
+    rp.colorAttachments[0].texture     = g->target;
     rp.colorAttachments[0].loadAction  = MTLLoadActionClear;
     rp.colorAttachments[0].storeAction = MTLStoreActionStore;
     /* The whole drawable clears to BLACK: anything outside the 4:3 game
@@ -678,8 +700,8 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
      * the overlay's virtual canvases all map NDC onto this rect, so a
      * non-4:3 window letterboxes instead of stretching the image. */
     if (g->enc) {
-        double dw = (double)g->drawable.texture.width;
-        double dh = (double)g->drawable.texture.height;
+        double dw = (double)g->target.width;
+        double dh = (double)g->target.height;
         double vw = dw, vh = dh, vx = 0.0, vy = 0.0;
         if (dw * 3.0 >= dh * 4.0) {            /* wide: pillarbox */
             vw = dh * 4.0 / 3.0;  vx = (dw - vw) * 0.5;
@@ -2207,8 +2229,8 @@ void em_gfx_end_frame(EmGfx *g)
 
     id<MTLBuffer> shot = nil;
     NSUInteger shot_w = 0, shot_h = 0, shot_stride = 0;
-    if (g->captureRequested && g->drawable && g->cmd) {
-        id<MTLTexture> tex = g->drawable.texture;
+    if (g->captureRequested && g->target && g->cmd) {
+        id<MTLTexture> tex = g->target;
         shot_w = tex.width; shot_h = tex.height;
         shot_stride = shot_w * 4;
         shot = [g->device newBufferWithLength:shot_stride * shot_h
@@ -2226,8 +2248,8 @@ void em_gfx_end_frame(EmGfx *g)
         [blit endEncoding];
     }
 
-    if (g->drawable && g->cmd) {
-        [g->cmd presentDrawable:g->drawable];
+    if (g->target && g->cmd) {
+        if (g->drawable) [g->cmd presentDrawable:g->drawable];
         [g->cmd commit];
         if (shot) {
             [g->cmd waitUntilCompleted];
@@ -2240,5 +2262,6 @@ void em_gfx_end_frame(EmGfx *g)
     [shot release];
     [g->cmd release];      g->cmd = nil;
     [g->drawable release]; g->drawable = nil;
+    g->target = nil;
     [g->pool release];     g->pool = nil;
 }

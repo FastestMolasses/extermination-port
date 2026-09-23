@@ -83,7 +83,11 @@ EmWindow *em_window_create(const char *title, int width, int height)
 {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        const bool headless = em_headless();
+        /* Headless test/capture runs: no Dock icon, no activation, no window
+         * on screen (the gfx backend renders offscreen). */
+        [NSApp setActivationPolicy:headless ? NSApplicationActivationPolicyProhibited
+                                            : NSApplicationActivationPolicyRegular];
 
         NSRect frame = NSMakeRect(0, 0, width, height);
         NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
@@ -105,9 +109,10 @@ EmWindow *em_window_create(const char *title, int width, int height)
         [window setDelegate:del];
         [window center];
         [window setAcceptsMouseMovedEvents:YES];
-        [window makeKeyAndOrderFront:nil];
-
-        [NSApp activateIgnoringOtherApps:YES];
+        if (!headless) {
+            [window makeKeyAndOrderFront:nil];
+            [NSApp activateIgnoringOtherApps:YES];
+        }
         [NSApp finishLaunching];
 
         EmWindow *w = (EmWindow *)calloc(1, sizeof(EmWindow));

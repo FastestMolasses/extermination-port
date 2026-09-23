@@ -12,6 +12,8 @@
 #define EM_PLATFORM_H
 
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +61,31 @@ typedef struct {
     int         key;            /* for KEY_DOWN / KEY_UP */
     int         width, height;  /* for RESIZE (client size, points) */
 } EmEvent;
+
+/* Headless runs: automated tests and captures must never put a window on
+ * screen or steal focus. True when EM_HEADLESS=1, or when EM_HEADLESS is
+ * unset and any test/capture/trace switch is present (EM_*TEST, EM_CAPTURE*,
+ * EM_FRAME_TRACE, EM_STARTUP_CAPTURE_DIR). EM_HEADLESS=0 forces a visible
+ * window (for watching a test). The window object still exists so events,
+ * the view and the gfx backend keep one code path; the backend renders to
+ * an offscreen target of the same size instead of the window's drawable. */
+extern char **environ;
+static inline bool em_headless(void)
+{
+    const char *forced = getenv("EM_HEADLESS");
+    if (forced && forced[0]) return forced[0] != '0';
+    for (char **e = environ; e && *e; ++e) {
+        const char *v = *e;
+        if (v[0] != 'E' || v[1] != 'M' || v[2] != '_') continue;
+        const char *eq = strchr(v, '=');
+        size_t n = eq ? (size_t)(eq - v) : strlen(v);
+        if ((n >= 7 && !strncmp(v + n - 4, "TEST", 4)) ||
+            !strncmp(v, "EM_CAPTURE", 10) || !strncmp(v, "EM_FRAME_TRACE", 14) ||
+            !strncmp(v, "EM_STARTUP_CAPTURE_DIR", 22))
+            return true;
+    }
+    return false;
+}
 
 /* Create a window. Returns NULL on failure. */
 EmWindow *em_window_create(const char *title, int width, int height);
