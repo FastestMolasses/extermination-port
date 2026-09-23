@@ -480,6 +480,50 @@ test-stream-lanes:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/stream_lanes_test.c src/game/em_stream_lanes_original.c -o build/stream_lanes_test && ./build/stream_lanes_test
 	python3 tools/test_stream_lanes_reference.py
 
+.PHONY: test-player-weapon-states-a-reference
+test-player-weapon-states-a-reference:
+	python3 tools/test_player_weapon_states_a_reference.py
+
+.PHONY: test-player-weapon-states-b-reference
+test-player-weapon-states-b-reference:
+	python3 tools/test_player_weapon_states_b_reference.py
+
+.PHONY: test-player-ladder-entry-reference
+test-player-ladder-entry-reference:
+	python3 tools/test_player_ladder_entry_reference.py
+
+.PHONY: test-player-ladder-climb-reference
+test-player-ladder-climb-reference:
+	python3 tools/test_player_ladder_climb_reference.py
+
+.PHONY: test-player-running-jump-reference
+test-player-running-jump-reference:
+	python3 tools/test_player_running_jump_reference.py
+
+.PHONY: test-pose-host-workers-reference
+test-pose-host-workers-reference:
+	python3 tools/test_pose_host_workers_reference.py
+
+.PHONY: test-player-misc-workers-reference
+test-player-misc-workers-reference:
+	python3 tools/test_player_misc_workers_reference.py
+
+.PHONY: test-load-veil-particles-reference
+test-load-veil-particles-reference:
+	python3 tools/test_load_veil_particles_reference.py
+
+.PHONY: test-load-veil-particles
+test-load-veil-particles:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/load_veil_particles_test.c src/game/em_load_veil_particles.c -o build/load_veil_particles_test && ./build/load_veil_particles_test
+
+.PHONY: test-camera-area11-specials-reference
+test-camera-area11-specials-reference:
+	python3 tools/test_camera_area11_specials_reference.py
+
+.PHONY: test-player-closure-10-12-19-reference
+test-player-closure-10-12-19-reference:
+	python3 tools/test_player_closure_10_12_19_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
