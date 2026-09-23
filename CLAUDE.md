@@ -16,6 +16,23 @@ the game's logic as C; this repo turns it into a real native executable for
 opening → everything in AREA11 → its exit — must behave and look exactly like the
 original. Work outside that scope waits until the user moves the goal.
 
+## Two profiles (user, 2026-09-23)
+
+The finished port ships an **Original** profile and an **Enhanced** profile,
+built from one codebase (full rules: `docs/PORT_PROFILES.md`).
+- **Original** is the default and the only thing fidelity work measures. It
+  uses the exact GS framebuffer (512x448 in the first level), shown at 4:3 with
+  no smoothing and no CRT simulation. Its colours are GS-exact, and its logic
+  and controls are the original's.
+- **Enhanced** is the user's improvements: resolution, filtering, AA,
+  widescreen, frame rate, QoL, better controls (the README's "Future
+  Enhancements") and restored cut content (the decomp's `docs/CURIOSITIES.md`,
+  disc-sourced only). Every item is a switch whose Original value reproduces the
+  Original profile. Gameplay changes are patches applied on top of the verified
+  translation, never rewrites of it.
+- Enhancement work waits until fidelity work is done, unless the user asks
+  for a specific item.
+
 ## Hard rules (non-negotiable)
 
 - **Clean-room, zero third-party dependencies.** Windowing and rendering are
