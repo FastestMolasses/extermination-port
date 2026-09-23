@@ -363,9 +363,12 @@ static int cam_yaw_blocked(const EmCamera *cam, float yaw)
  * timed hold (6), init/fallback settle (8, func_001914A0 — CONFIRMED
  * against src/func_001914A0.c: func_00191580 then a 0.4-rate actual
  * eye/height chase, clearing the action byte when D_0028A9A0 == 0),
- * 9..15, and the scope/sniper camera (top-mode 3, func_0022EEF0 —
- * CONFIRMED: src/func_0022EEF0.c calls func_001D25F0(224.0f /
- * tanf(pi*(v/1.45f)/180.0f)), the 224/tan zoom). */
+ * 9..15, and top-mode 3 = the CUTSCENE TIMELINE camera func_0022EEF0
+ * (NOT a scope/sniper camera — first-level audit label fix: src/
+ * func_0022EEF0.c samples the camera spline D_008234C0 at the playback
+ * cursor +0x74, fires per-scene cues via func_001B1E20 and calls
+ * func_001D25F0(224.0f / tanf(pi*(v/1.45f)/180.0f)) from the sampled fov
+ * v clamped to [0.5, 45]; em_cinematic_playback ports it, audit H4). */
 /* MODE 1 — the over-shoulder AIM camera, DECODED (func_00197D20
  * dispatcher + func_00197740 entry / func_00197870 steady — the "AIM
  * CAMERA MODE 1" constants block above; replaces the old +0x8C
@@ -2451,9 +2454,10 @@ void camera_update(void)
         cam->swing_yaw  = 0.0f;
         cam->horiz_dist = CAM_DIST;    /* D_00810690 pre-first-commit */
         cam->zoom      = ENGINE_CAM_ZOOM_S;  /* ctx+0x2468 default 480
-                                              * (func_001D25F0; scope =
-                                              * 224/tan(vfov/2) when the
-                                              * top_mode-3 camera lands) */
+                                              * (func_001D25F0; the top-
+                                              * mode-3 cutscene camera
+                                              * func_0022EEF0 sets 224/tan
+                                              * from its spline fov) */
         camera_entry_seat(cam);   /* func_001B0080 geometry — the 46.8
                                    * spawn-yaw seat the solver pulls in
                                    * from (NOT the CAM_DIST=33 stand-in) */
@@ -2562,7 +2566,8 @@ void camera_update(void)
         }
     }
     /* top modes 1/2 (frozen) reach the commit only; top mode 3 is the
-     * scope camera func_0022EEF0 — TODO(camera-modes). */
+     * cutscene timeline camera func_0022EEF0 (em_cinematic_playback,
+     * not wired here — audit H4). */
     camera_commit(cam);              /* func_0018C0D0(cam, 1) */
     cam->timer++;
 }

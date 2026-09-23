@@ -1039,10 +1039,17 @@ void em_hud_menu_inhibit(int inhibit)
 /* --- page navigation — PORT MODEL, provenance DOWNGRADED -------------
  *
  * PROVENANCE FIRST: every mapping below was previously written up as
- * "the controller's REMAP at func_0020CDC0 .L0020D294".  func_0020CDC0
- * is still an INCLUDE_ASM stub in the decomp — it has never been
- * decompiled, so nothing here is source-derived.  Treat the whole block
- * as OBSERVED behaviour plus port choices until that function lands.
+ * "the controller's REMAP at func_0020CDC0 .L0020D294".  STALE NOTE
+ * CORRECTED (first-level audit): func_0020CDC0 is no longer a stub — the
+ * decomp has it as readable NEARMISS C (src/func_0020CDC0.c, body-
+ * correct, not byte-identical).  Reading it confirms the hub values used
+ * here: phase 1/2 sub-state 1 enters page 3/2/1/0 for hover 1/2/3/4 on
+ * edge 0x40 (func_0020CD40), calls func_0020CD80 when that edge comes
+ * with no hover, closes on edge mask 0x830 (func_0020CD60), and picks the
+ * group-0 help line 0/9/2/1 per hover or the 100 - (int)D_0081085C
+ * ladder when idle.  This legacy hub is NOT oracle-checked; the
+ * oracle-backed port of 0020CDC0's hub is em_status_hub (make
+ * test-status-hub-reference; audit H6/H9, WP-5).
  *
  * What IS decoded and does support the surrounding design:
  *   - func_001AE7E0 (NEARMISS, body-correct) is the mode classifier.
@@ -1059,8 +1066,8 @@ void em_hud_menu_inhibit(int inhibit)
  *   - func_0020CD80 (byte-matched) is a one-line thunk,
  *     func_001FB9F0(2, 0x1000, 0x1000, 0x1000) — the same cue call the
  *     menu walk uses for its move (cue 5) and confirm (0x5DD..0x5DF)
- *     sounds.  So it fires cue 2.  That it is the *no-hover buzz* is
- *     an assumption inherited from the stub write-up.
+ *     sounds.  So it fires cue 2.  src/func_0020CDC0.c calls it on edge
+ *     0x40 when hover t[0x11] is outside 1..4 — the no-hover buzz.
  *   - func_0020D930 (NEARMISS, body-correct) IS the hover quantizer,
  *     and its mode-0 arm settles the quadrant mapping the port uses.
  *     It reads the stick angle from the scratchpad float 0x700038AC and
@@ -1095,9 +1102,9 @@ void em_hud_menu_inhibit(int inhibit)
  *     hover 3 (up)    -> page 1  MAP SCREEN       (chunk 0x1E)
  *     hover 4 (left)  -> page 0  ITEM SCREEN      (chunk 0x1F)
  *   X with no hover enters nothing; Circle or Triangle backs out of a
- *   page; Triangle/Start/Circle closes at the hub.  The "engine edge
- *   mask 0x830" that used to be quoted for the close is likewise from
- *   the stub — unverified.  Pages 4/5 (passcode keypads, chunks
+ *   page; Triangle/Start/Circle closes at the hub.  The engine edge
+ *   mask for the close is 0x830 (src/func_0020CDC0.c phase 1/2 sub-
+ *   state 1).  Pages 4/5 (passcode keypads, chunks
  *   0x25/0x26) are not diamond-reachable in the port either. */
 static int s_hover = 0;     /* 0 none, 1 down, 2 right, 3 up, 4 left */
 static int s_page  = -1;    /* -1 = hub, 0..3 = entered page */
@@ -1108,12 +1115,14 @@ static const char *kPageNames[4] = {
     "ITEM SCREEN", "MAP SCREEN", "SPR4 SCREEN", "DATABASE SCREEN"
 };
 
-/* Hub help line — PROVENANCE DOWNGRADED.  This selection was recorded
- * as "the engine's selection in func_0020CDC0 .L0020D1AC", but
- * func_0020CDC0 is an undecompiled INCLUDE_ASM stub: neither the
- * hover->line mapping nor the 0x51/0x33/0x1F/0xB thresholds have been
- * read out of recovered C.  Kept as the port's observed model, NOT as
- * source-derived data.  A hover shows the hovered page's name (group-0
+/* Hub help line.  This selection was recorded as "the engine's
+ * selection in func_0020CDC0 .L0020D1AC"; the stale "undecompiled stub"
+ * note is corrected: src/func_0020CDC0.c (NEARMISS readable C) sets
+ * D_002821B8 to 0/9/2/1 for hover 1/2/3/4 and, idle, grades
+ * 100 - float_to_int(D_0081085C) with the same 0x51/0x33/0x1F/0xB/>0
+ * thresholds (4/5/6/7/8, else 3; 100 -> no line).  Read, not
+ * oracle-executed for this legacy code (em_status_hub is the oracle-
+ * backed path).  A hover shows the hovered page's name (group-0
  * lines: 1 down -> 0, 2 right -> 9, 3 up -> 2, 4 left -> 1); idle
  * shows the infection-graded diary line keyed on
  * v = 100 - (int)displayed-infection.  Returns the group-0 line id, or
@@ -1228,10 +1237,10 @@ void em_hud_update(const EmFrameInput *in)
         return;
     }
 
-    /* Hub: Triangle/Start/Circle closes.  (The "engine edge mask 0x830"
-     * this used to cite comes from the func_0020CDC0 stub — unverified;
-     * the two OPEN bits 0x800|0x10 are the only part func_001AE7E0
-     * actually shows.) */
+    /* Hub: Triangle/Start/Circle closes.  (The engine edge mask is 0x830
+     * — src/func_0020CDC0.c phase 1/2 sub-state 1, readable NEARMISS C;
+     * the stale "stub" note is corrected.  The two OPEN bits 0x800|0x10
+     * are func_001AE7E0's.) */
     if (in->pressed & (EM_PAD_TRIANGLE | EM_PAD_START | EM_PAD_CIRCLE)) {
         s_shown = 0;
         s_hover = 0;
@@ -1262,9 +1271,9 @@ void em_hud_update(const EmFrameInput *in)
     }
 
     /* X enters the hovered page; with no hover, nothing.  (The "buzz"
-     * on the empty press is func_0020CD80 = func_001FB9F0(2,...) — the
-     * thunk is byte-matched, but that the empty press is what CALLS it
-     * comes from the func_0020CDC0 stub.  The port plays no cue.) */
+     * on the empty press is func_0020CD80 = func_001FB9F0(2,...); src/
+     * func_0020CDC0.c calls it on edge 0x40 with no hover.  This legacy
+     * hub plays no cue for it; em_status_hub is the original path.) */
     if ((in->pressed & EM_PAD_CROSS) && s_hover > 0) {
         s_page = kHoverToPage[s_hover];
         em_sfx_play(HUD_SFX_CONFIRM);

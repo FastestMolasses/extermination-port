@@ -76,7 +76,8 @@ IMPLEMENTED THIS PASS, with an explicit decoded-vs-port boundary in the code:
     engine's; the airborne ENTRY threshold is PORT-SIDE (func_001796C0, the
     shared fall tick, is an all-.word leaf with no recoverable C).
   * menu cues 0/1/4 (confirm/cancel/cursor) — the status screen was silent.
-  * em_sfx_stop_all — API only, deliberately NOT called (see below).
+  * em_sfx_stop_all — originally API only; it now has callers (see the
+    corrected note below).
   * em_camera_scope_zoom(t) = 224/tan(radians(5+45*(1-t))/2) — curve only; the
     engine drives t from D_00810248, which NO recovered function writes.
 
@@ -98,12 +99,13 @@ BLOCKED ON STATE THE PORT DOES NOT MODEL:
     per-sub-weapon counters. Same shape: the renderer is decoded, the counters
     are engine state the port has no equivalent for yet.
 
-BLOCKED ON CALL-SITE EVIDENCE:
-  * em_sfx_stop_all placement. func_001FBC50 is defined `void f(void)` but its
-    twelve callers invoke it as (), (0), (st), (2,3), (st,q)... — they carry
-    WRONG extern declarations, the defect class that manufactured fictitious
-    compiler walls in the decomp. "The game-over family calls it" is therefore
-    not evidence about WHERE. Fix those externs before wiring.
+STALE, CORRECTED (first-level audit H22/AM-06):
+  * em_sfx_stop_all placement is no longer blocked. func_001FBC50 is stop-all
+    SFX; the mismatched argument lists in some decomp callers' externs do not
+    move the original call sites (anim_frame_top_b state 1 calls it on
+    status/SELECT/end-screen entry). em_sfx_stop_all is now called by
+    em_frontend.c, em_opening_media_audio_start and the interaction host's
+    EM_STATUS_RESET_SOUNDS handler (live with the status frame machine, WP-5).
 
 BLOCKED ON PLAYTEST:
   * the fall entry threshold, and whether the aim-rate / turn-rate / R2-priority
@@ -127,13 +129,15 @@ BLOCKED ON PLAYTEST:
   TRIANGLE/SQUARE/CIRCLE/CROSS, Q/E = L1/R1, 1/3 = L2/R2, 2/4 = L3/R3,
   Backspace/Return = SELECT/START. GAIT HOLD TIERS (2026-06-11; EM_KEY_ALT /
   EM_KEY_CMD — the platform synthesizes their KEY_DOWN/KEY_UP from modifier
-  transitions): keyboard default is EM_INPUT_DEFLECT_FULL (1.0 = the RUN
-  ring); holding COMMAND caps both sticks' vector magnitude at
-  EM_INPUT_DEFLECT_WALK (0.8 = the WALK band, raw ~102 in the 88..122 ring);
-  holding OPTION caps at EM_INPUT_DEFLECT_TURN (0.5 = the gait-1 TURN/creep
-  band, raw 64 — the engine's slowest movement tier: turn-in-place, zero
-  translation; there is NO slower translating band in the quantizer table,
-  so this is the documented "slowest" mapping). Option wins over a held Cmd;
+  transitions): keyboard default is EM_INPUT_DEFLECT_FULL (1.0 = the gait-3
+  RUN ring); holding COMMAND caps both sticks' vector magnitude at
+  EM_INPUT_DEFLECT_JOG (0.8 = the gait-2 JOG band, raw ~102 in the 88..122
+  ring); holding OPTION caps at EM_INPUT_DEFLECT_WALK (0.5 = the gait-1 WALK
+  band, raw 64). CORRECTED (audit P30): gait 1 TRANSLATES — func_00174AC0
+  sets the target speed +0x240 = 0.1 u/tick (0x3DCCCCCD) for gait 1, the
+  engine's slowest sustained tier (6 u/s); turn-in-place with zero
+  translation is only the gait-1 entry transient, not "zero translation".
+  Option wins over a held Cmd;
   diagonals normalize by 1/sqrt(2) so the quantized magnitude stays in the
   held ring — game code must use these em_input.h constants for gait
   thresholds. The mac content view
@@ -169,9 +173,10 @@ BLOCKED ON PLAYTEST:
   former black-quad alpha approximation and its residual gap are retired
   (em_frame.h).
 - PLAYER LOCOMOTION is the engine's (s31 + s38 decodes): the stick magnitude
-  runs the real gait quantizer (rings 48/88/122 -> turn-in-place / walk
-  6 u/s / run 18 u/s; keyboard full push = RUN like PCSX2, Cmd = the walk
-  band, Option = the turn/creep band — see the keyboard-map bullet), the
+  runs the real gait quantizer (rings 48/88/122 -> gait 1 walk 0.1 u/tick
+  (6 u/s) / gait 2 jog 0.3 (18 u/s) / gait 3 run 0.8 (48 u/s), the
+  func_00174AC0 targets; keyboard full push = RUN like PCSX2, Cmd = the jog
+  band, Option = the walk band — see the keyboard-map bullet; audit P30), the
   wall HITBOX is the engine's 4.5-unit five-direction radial
   probe set (ankle + chest passes, push-back response — em_game.c "PLAYER
   WALL RADIUS"), and standing still runs the decoded IDLE CYCLE: breathing
@@ -193,8 +198,12 @@ BLOCKED ON PLAYTEST:
   eye rides a TOW-ROPE behind the target (drag at fabs(camdist), 20/10-u
   dead band, back-out, a cramped 0.3 deg-per-unit swing away from the
   last wall) and the heading is recomputed FROM the eye each frame;
-  heights drop to eye +9 / target +8 while moving (idle 19/17 — the low,
-  nearly level walking ride). Camera-relative stick input therefore
+  heights STAY at eye +19 / target +17 on an ordinary ground walk
+  (CORRECTED, audit CAM-08: func_00191390 keys on player +0x230, and
+  func_0015CBA0 writes codes 2/4 only while flag +0x236 is set; walking
+  otherwise is code 1/3 = the 6.0/2.0 row. The +9/+8 low ride belongs to
+  codes 2/4/0xF, the elevated family, which the port does not model).
+  Camera-relative stick input therefore
   CURVES with the chase (the engine's emergent spiral; EM_MOVE_TEST's
   endpoints encode it — EM_MOVE_EXPECT/EM_MOVE_YAW override per scene).
   Optional scene key `camdist <f>` carries the engine's per-record
@@ -203,7 +212,8 @@ BLOCKED ON PLAYTEST:
 - PROJECTION = THE ENGINE'S, exactly (2026-06-11, closes the old
   TODO(projection)): em_mat4_perspective_gs builds the world P from the
   camera's zoom s (EmCamera.zoom, engine ctx+0x2468, default 480; the
-  scope camera's 224/tan and scripted lerps have their field ready) —
+  cutscene timeline camera func_0022EEF0's 224/tan — formerly mislabeled
+  "scope" — and scripted lerps have their field ready) —
   tan(hfov/2) = 320/s, tan(vfov/2) = 224/s (67.38 x 50.03 deg at 480;
   the 10/7 tan ratio IS the original 512x448->4:3 pixel-aspect
   anisotropy, reproduced not corrected), near 0.1 / far 16711680
@@ -246,25 +256,35 @@ BLOCKED ON PLAYTEST:
   family rates, camera state 0x2A bases the target on the entry-saved
   position); em_game runs its pose + steer + camera, em_weapon's
   dot-only laser for it is pending (noted).
-- DOOR-TRANSIT CINEMATIC CAMERA, DECODED + LIVE-VERIFIED (2026-06-11,
-  op 0x0D sub 5 = func_001B7B30 + func_0018CBD0, re-derived against two
-  PCSX2 transits — the first reading's "+27/+25 along the live camera
-  heading" was wrong on both axes): at the door script start the camera
-  HARD-CUTS to 20 u behind the STAGING POINT along the THROUGH-DOOR
-  axis (the cut Euler = spad 3B50, the kickoff's snapped pose — NEVER
-  the live heading) at +19, looking at the staging point +13 (the .s:
-  eye 11+f4+f5, target 11+f4; the live engine read eye y 19.0 / target
-  y 13.0 exactly), then holds the eye while the target re-blends
-  (<= 1.0 u/frame, 120-frame window cam+0xA0) as the player walks
-  through. When the player crosses the doorway plane (the engine's room
-  move) the chase RE-SEATS behind the through-door pose and the normal
-  solve owns the camera again — the door wall right behind the eye
-  RISES it (engine parked at +29 over the 21-u doorframe, live-read);
-  goto doors re-seat at the warp re-place instead (op 0x18 restore).
-  The LOCKED-TRY camera (func_001BBBF0: target at the door HANDLE =
-  door + 8 u to its left + 10 up; eye 13 u back along the camera yaw at
-  door.y + 12) is implemented behind EM_DOORCAM_LOCKED=1 as a flagged
-  preview — em_door has no locked sequence yet. Per-room FIXED camera
+- DOOR-TRANSIT CINEMATIC CAMERA — PARTLY DECODED; THE LIVE PORT PATH IS A
+  STAND-IN (CORRECTED, audit CAM-06: the old "DECODED + LIVE-VERIFIED" label
+  overstated it). ORIGINAL (src/func_001B7B30.c case 5 +
+  src/func_0018CBD0.c [NEARMISS]): the door script's op 0x0D sub 5 calls
+  func_0018CBD0(cam, player, -20.0) — target = player +0xA0, eye = target
+  + rot(spad 3B50) * (0, 0, -20) — then func_0018D7B0 styles 5 and 1
+  (prepass/bounds, then the solver) and sets cam+0xA0 = 0x78. CBD0's
+  heights depend on cam+0x64: the -46.8 preset (the AREA11 default) gives
+  target +17 / eye +19 before compression falloff; other presets (the
+  -31.2 office records) give target +13 / eye +19. The 2026-06-11 PCSX2
+  read (eye y 19.0 / target y 13.0) matches that second branch (a
+  non -46.8 record), so it does not describe AREA11's default. PORT: the
+  live door is still the legacy em_door, and em_camera.c
+  camera_door_cinematic hard-cuts to eye +19 / target +11
+  (CAM_BASE_H) 20 u back along the snapped through-door yaw with no
+  solver pass, then holds the eye while the target re-blends (cam+0xA0 =
+  120 window) and re-seats behind the through-door pose at the doorway
+  plane (func_001B0460(1) -> func_001B0080 shape; the port re-seat
+  distance is audit CAM-07; observed in the office, the normal solve then
+  parks the eye at +29 over the 21-u doorframe; goto doors re-seat at the
+  warp re-place) — observed sequencing, not a decoded script
+  interpreter. The original seed + solve exists as
+  camera_interaction_retarget_distance_area11(-20) but is reachable only
+  from the unwired interaction host (WP-7). The LOCKED-TRY camera
+  (func_001BBBF0: target at the door HANDLE = door + 8 u to its left +
+  10 up; eye 13 u back at door.y + 12) is driven by em_door's locked
+  sequence through em_door_locked_look (the EM_DOORCAM_LOCKED env
+  preview is retired; its yaw is a flagged stand-in, see em_camera.c).
+  Per-room FIXED camera
   angles are DECODED AND PORTED via TWO mechanisms: (1) the mode-0
   DIRECTOR (decomp FINDINGS "MODE-0 CAMERA DIRECTOR DECODED"): per-area
   cases + the D_0024A5F0 trigger-volume table (scene_snow carries the
@@ -373,7 +393,8 @@ BLOCKED ON PLAYTEST:
   counter-moved mode-1 eye (use EM_CAPTURE_FRAME=120);
   `EM_CAPTURE_DOOR=1` runs the door-test approach + CROSS with no asserts
   so the capture (default frame 110) samples the door-transit CINEMATIC
-  camera (`EM_DOORCAM_LOCKED=1` previews the locked-look placement);
+  camera (the old `EM_DOORCAM_LOCKED=1` preview is retired — no getenv
+  reads it; use `EM_CAPTURE_LOCKED` below);
   `EM_CAPTURE_SUPPLY=1` walks the office double doors so the capture
   (default frame 360) samples the SUPPLY ROOM's spawn-record fixed
   corner camera (eye (116, 33, -300));

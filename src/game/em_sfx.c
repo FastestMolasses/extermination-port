@@ -464,26 +464,29 @@ void em_sfx_play_at(unsigned id, const float pos[3], float radius)
 
 /* Stop every live voice immediately — DECODED from func_001FBC50.
  *
- * The engine's audio reset walks its voice-handle table D_00281D50 and, for
- * each handle whose status (func_00119D38) shows it busy, issues the stop
- * command func_00119AA0(h, 1); it then runs func_0011A198(1) and clears the
- * per-channel record array. Despite the "Subsystem init" label the decomp
- * still carries on that function, it is a RESET/STOP-ALL: the game calls it at
- * a game-over, at scripted cuts, and on the script's op-0x17 sub-3 "stop".
+ * The engine's audio reset first runs func_0011A198(1) (stop each active
+ * slot of the 0x30-entry sound table through func_0011A070), then walks the
+ * handle table D_00281D50 and, for each handle whose status
+ * (func_00119D38) shows it busy, issues the stop command
+ * func_00119AA0(h, 1), and clears the per-channel record array. The decomp
+ * header now names it stop-all SFX (the old "Subsystem init" label is
+ * corrected). The game calls it on status/SELECT/end-screen entry
+ * (anim_frame_top_b state 1), at game-over, at scripted cuts, and on the
+ * script's op-0x17 sub-3 "stop".
  *
  * The port had no runtime stop — em_sfx_shutdown() is a process-exit teardown
  * that frees the PCM and cannot be called mid-session — so effects kept
  * playing straight through a death or a cut.
  *
- * NOT YET CALLED, deliberately. The engine's call sites cannot be trusted
- * yet: func_001FBC50 is defined as `void func_001FBC50(void)` — no arguments —
- * but its twelve callers variously invoke it as (), (0), (st), (a0), (2,3),
- * (st,q) and (D_008106B7, D_008106B5). Those callers carry WRONG extern
- * declarations, the same defect class that manufactured fictitious compiler
- * "walls" in the decomp. Until they are corrected, "the game-over path calls
- * it" is not evidence about WHERE in that path. Wiring it at the death entry
- * specifically would be wrong — that entry has just started the death voice
- * and body cues, and a stop there would cut them off.
+ * CALLERS (the old "NOT YET CALLED" note was stale — first-level audit
+ * H22/AM-06): em_frontend.c (movie start, EM_STARTUP_AUDIO_STOP),
+ * em_opening_media_audio_start, and the interaction host's
+ * EM_STATUS_RESET_SOUNDS handler (em_status_frame's 001FBC50 step on
+ * status open; live once the status frame machine is wired, WP-5). The
+ * mismatched argument lists in some decomp callers' extern declarations
+ * do not move the original jal sites, so they are not a reason to doubt
+ * where the calls happen. Still NOT wired at the death entry: that entry
+ * has just started the death voice and body cues.
  *
  * Implemented with the existing per-voice kill flag rather than a new
  * mechanism: the mixer already retires a killed voice to V_FREE on its next
