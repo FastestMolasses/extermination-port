@@ -218,6 +218,7 @@
 
 #include "em_gfx.h"
 #include "game/em_frame.h"
+#include "game/em_message_glyph_original.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -311,11 +312,21 @@ void em_hud_decor_invalidate(void);
  * centering helper). 0 while the font asset is missing. */
 float em_hud_text_width(const char *str, EmHudTextStyle style);
 
-/* Original 001FD950 centering and 001CC3B0 five-pass outlined tall text.
- * First two lines determine the common x; markup top_skew is in pixels.
- * rgb/outline are original packed 0xBBGGRR colors, not invented styling. */
-void em_hud_subtitle(EmGfx *gfx, const char *str, float y, float line_height,
-                     float top_skew, uint32_t rgb, uint32_t outline);
+/* The tall-font atlas cell of glyph index `index` (001CC8A0's byte offset
+ * / 30, i.e. the byte value - 0x20, '$' = 0x89). 1 when the atlas holds it
+ * (cell may be NULL), 0 when the atlas is missing or has no such cell. */
+typedef struct { float u, v, w, h; } EmHudGlyphCell;
+int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell);
+
+/* Draw one 001CC3B0 strip flush (em_message_glyph_original.h): its five
+ * packed passes (RGBAQ, UV, XYZ2; a sprite, or the triangle strip whose
+ * top edge the style flag shifts) over the strip its uploads composed,
+ * sampled from the tall-font atlas. The atlas is the draw boundary: each
+ * strip column shows the latest glyph uploaded over it, the glyph's 12
+ * atlas columns, and the unwritten upload columns 12..31 are drawn as
+ * empty. The GS coordinates are mapped with the UI canvas offsets
+ * 0x700/0x790 (field lines doubled). No-op without a gfx or the atlas. */
+void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush);
 
 /* Is the font sheet loaded? (placeholder rects are the fallback) */
 int em_hud_font_ready(void);

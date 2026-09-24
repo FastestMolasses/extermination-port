@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Export AREA11 opening dialogue/stream from the user's own original disc.
+"""Export the AREA11 opening stream from the user's own original disc.
 
-Source locations are established by 001FD4C0 (area/message -> music cue),
-001FD790 (area/line -> duration), and 001FD950/001FE070 (text + markup).
-All output is locally generated and must remain in the ignored assets tree.
+The stream is the music cue 001FD4C0 selects for the opening's line 0x66
+(the D_0026EC60 stream table row of area 11). The opening's text lines run
+on the message service (tools/export_message_data.py, WP-8). All output is
+locally generated and must remain in the ignored assets tree.
 """
 from __future__ import annotations
 import argparse
@@ -21,70 +22,6 @@ def load_tool(path: Path, name: str):
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def parse_lines(data: bytes, outer: int) -> list[tuple[bytes, int]]:
-    """Return original byte strings and whole-line skew for this opening.
-
-    Reject unfamiliar markup instead of silently losing it. Opening markup is
-    tag3, value1 at character0 and value0 at the end of the printable run.
-    The original glyph flush skews the TOP edge by value*8 pixels.
-    """
-    def words(at, n):
-        if at < 0 or at + n * 4 > len(data):
-            raise ValueError('message structure outside source')
-        return struct.unpack_from('<' + 'I' * n, data, at)
-    text_off, count, records_size, directory = words(outer, 4)
-    if directory != 16 or not 0 < count <= 4096 or text_off < 16 + count * 16:
-        raise ValueError('unsupported message directory')
-    text = outer + text_off + records_size
-    strbase, count2, byte_count, version = words(text, 4)
-    if (count2 != count or version != 1 or strbase < 16 + count * 16
-            or text + strbase + byte_count > len(data)):
-        raise ValueError('invalid text block')
-    lines = []
-    for i in range(count):
-        at, duplicate, length, nul_length = words(text + 16 + i * 16, 4)
-        start = text + strbase + at
-        if (at != duplicate or nul_length != length + 1
-                or at + nul_length > byte_count or start + length >= len(data)):
-            raise ValueError('invalid text record')
-        string = data[start:start + length]
-        if data[start + length] != 0 or b'\0' in string:
-            raise ValueError('invalid message termination')
-        roff, _, _, rsize = words(outer + 16 + i * 16, 4)
-        skew = 0
-        if rsize:
-            if rsize % 16 or roff + rsize > records_size:
-                raise ValueError('invalid markup record')
-            records = [words(outer + text_off + roff + j, 4)
-                       for j in range(0, rsize, 16)]
-            if (len(records) != 2 or records[0][:3] != (3, 1, 0)
-                    or records[1][:2] != (3, 0)
-                    or records[1][2] != len(string.rstrip(b'\n'))):
-                # Preserve only the opening's confirmed whole-line markup.
-                skew = -1
-            else:
-                skew = 8
-        lines.append((string, skew))
-    return lines
-
-
-def write_dialogue(path: Path, records: list[dict], line_height: int,
-                   fill: int, outline: int) -> None:
-    blob = bytearray()
-    packed = bytearray()
-    for rec in records:
-        string = rec['text']
-        if rec['skew'] < 0:
-            raise ValueError('opening line has unsupported markup')
-        packed += struct.pack('<HHhBBIIB3x', rec['line'], rec['duration'],
-                              rec['voice'], rec['speaker'], rec['terminal'],
-                              len(blob), len(string), rec['skew'])
-        blob += string + b'\0'
-    header = struct.pack('<4s7I', b'EMOD', 1, len(records), line_height,
-                         fill, outline, 388, len(blob))
-    path.write_bytes(header + packed + blob)
 
 
 def export(args) -> dict:
@@ -133,28 +70,6 @@ def export(args) -> dict:
     resume_pcm = audio.interleave_pcm(audio.decode_adpcm(resume_left), audio.decode_adpcm(resume_right))
     audio.write_wav(args.out / 'opening_resume.wav', resume_pcm, 48000, 2)
 
-    source_path = decomp / 'extract/chunk15/f12_id44.bin'
-    source_data = source_path.read_bytes()
-    lines = parse_lines(source_data, 0x3E800)
-    timing = elf.u32(0x264DD0 + (area + 1) * 4)
-    records = []
-    for index in range(message, len(lines)):
-        duration, voice, speaker, terminal, unused = struct.unpack(
-            '<HhBBH', elf.read(timing + index * 8, 8))
-        if voice != -1 or speaker not in (0, 1, 255) or terminal not in (0, 1) or unused:
-            raise ValueError('unexpected opening message timing record')
-        text, skew = lines[index]
-        records.append(dict(line=index, duration=duration, voice=voice,
-                            speaker=speaker, terminal=terminal, text=text, skew=skew))
-        if terminal:
-            break
-    if not records or not records[-1]['terminal']:
-        raise ValueError('unterminated opening message sequence')
-    # Original new-line pen adds (cfg[2]+cfg[4])>>1 in half-height units.
-    cfg = struct.unpack('<6I', elf.read(0x264CD0, 24))
-    line_height = 2 * ((cfg[2] + cfg[4]) >> 1)
-    fill = elf.u32(0x26EC10) & 0xFFFFFF
-    write_dialogue(args.out / 'opening.emod', records, line_height, fill, 0x100505)
     # Scene34 binds this fullscreen-fade track (0022EC30), not subtitles.
     fade_track = []
     for index in range(64):
@@ -168,16 +83,13 @@ def export(args) -> dict:
     report = dict(area=area, message=message, music_cue=cue, source_start=start,
                   source_size=size, rate=48000, channels=2, pcm_frames=len(pcm)//4,
                   pcm_seconds=len(pcm)/4/48000, source_sha256=hashlib.sha256(compressed).hexdigest(),
-                  pcm_sha256=hashlib.sha256(pcm).hexdigest(), timing_address=hex(timing),
-                  text_source=str(source_path.relative_to(decomp)), text_offset=0x3E800,
-                  line_height=line_height, records=[{**r, 'text':r['text'].decode('ascii')}
-                                                    for r in records])
+                  pcm_sha256=hashlib.sha256(pcm).hexdigest())
     report['resume_music'] = dict(cue=resume_cue, loop=resume_loop,
         source_start=resume_start, source_size=resume_size,
         source_sha256=hashlib.sha256(resume_compressed).hexdigest(),
         pcm_sha256=hashlib.sha256(resume_pcm).hexdigest())
     (args.out / 'opening_media.json').write_text(json.dumps(report, indent=2) + '\n')
-    return {k:v for k,v in report.items() if k != 'records'}
+    return report
 
 
 def main():

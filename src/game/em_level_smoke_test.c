@@ -748,10 +748,17 @@ static int refusal_frame(void)
 {
     if (t.step <= 6)
         return use_terminal(), 0;
-    uint32_t message[3];
-    em_area11_interaction_host_message_block(message);
-    if (message[1] && message[2] == 0x8000001Au)
+    const EmMessageBlock *message = em_message_live_block();
+    if (message && message->phase && message->line == 0x8000001Au)
         t.saw[0] = 1;
+    /* Verification aid (tools/test_message_capture.py):
+     * EM_LEVEL_SMOKE_MESSAGE_CAPTURE=<path.bmp> writes the frame whose step
+     * F presents 0x8000001A for the fifth time (+0x68 = 5), the state of the
+     * elevator/refusal capture; this hook runs before that frame's step F. */
+    const char *capture = getenv("EM_LEVEL_SMOKE_MESSAGE_CAPTURE");
+    if (capture && *capture && message && message->phase == 1 &&
+        message->line == 0x8000001Au && message->frames == 4)
+        em_gfx_request_capture(em_frame_gfx(), capture);
     if (em_frame_screen_fade()->state == 3 || em_frame_screen_fade()->state == 1)
         t.saw[1] = 1;
     if (g.cam.top_mode == 1)

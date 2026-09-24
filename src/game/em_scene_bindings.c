@@ -180,7 +180,6 @@ EmSceneState *em_scene_state(void)
 /* Original callees the chain reaches in legacy mode with no port code at
  * their original position. Each entry says what the port does instead. */
 enum {
-    UM_001FC9B0,
     UM_001B07C0_LEGACY_WORLD,
     UM_001B6990_LEGACY_WORLD,
     UM_001D19E0,
@@ -216,7 +215,6 @@ static const struct {
     uint32_t address;
     const char *port; /* where the port does (or does not do) this today */
 } s_unmirrored[UM_COUNT] = {
-    [UM_001FC9B0] = {0x001FC9B0u, "001AFCF0 callee; no port counterpart"},
     [UM_001B07C0_LEGACY_WORLD] = {0x001B07C0u, "scene without an original roster: the manifest spawn "
                                                "(em_game_legacy_manifest_spawn at 001AFCA0)"},
     [UM_001B6990_LEGACY_WORLD] = {0x001B6990u, "scene without an original roster: one legacy_world "
@@ -243,11 +241,11 @@ static const struct {
     [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class lists other than the "
                                   "interactive list (the AREA11 interaction host publishes that one, "
                                   "WP-4); no port counterpart"},
-    [UM_00119828] = {0x00119828u, "SPU stream-channel volume other than full scale (0x3FFF): "
-                                  "001FBC50 (status open) and 001FC280 (status close, spawn "
-                                  "record +0x20 low half, 0x1999 in AREA11) set channels 0/1 to "
-                                  "0x1999; the port's stream player has no per-channel gain, so "
-                                  "its streams stay at full scale"},
+    [UM_00119828] = {0x00119828u, "IOP command 0x16 with values other than (0/1, 0x3FFF, "
+                                  "0x3FFF): 001FBC50 (status open) and 001FC280 (status close, "
+                                  "spawn record +0x20 low half, 0x1999 in AREA11) send channels "
+                                  "0/1 0x1999, the opening's 001B82D0 phase 0 sends (0/1, 0, 0); "
+                                  "the port has no 001157F0 sink, so nothing changes"},
     [UM_001D2830] = {0x001D2830u, "display-list context registration; no port counterpart"},
     [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset; no port counterpart"},
     [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
@@ -297,7 +295,12 @@ static void report_unmirrored(void)
     s_unmirrored_reported |= fresh;
 }
 
-static int um_001FC9B0(void *ctx) { (void)ctx; return unmirrored(UM_001FC9B0); }
+/* 001FC9B0: the message service's reset (em_message_live, WP-8). */
+static int w_001FC9B0(void *ctx)
+{
+    (void)ctx;
+    return em_message_live_reset();
+}
 static int um_001D19E0(void *ctx) { (void)ctx; return unmirrored(UM_001D19E0); }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
 static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
@@ -305,13 +308,18 @@ static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
  * memset to 0xFF, D_00275B30/B34 = 0), 001FAB50 (001FAAC0(0): release
  * stream channel 0, the music; D_008106F4 = 0), 001FAB80 (001FAAC0(1),
  * 001FAAC0(2): the other two stream channels; D_008106F5 = 0), then
- * D_00282157 = 0. The port's streams are em_bgm (channel 0's music and
- * the resumed area cue) and the opening media's own stream; both stop
- * at once, as a release does. The port queues no voice line on the
- * first-level route (em_area11_interaction_host.c message_service_tick),
- * and D_00282157 is the constant 0 r_00282157 returns. Reached from
- * 0x1AE040 state 1 (r == 2, the status open) and 001AD360 step 0 (New
- * Game and Continue). */
+ * D_00282157 = 0. This is NOT that translation: the stream lanes
+ * (em_stream_lanes_original) are not live (WP-8's stream half,
+ * docs/STREAM_LANES.md "Still missing"), and this is the port's
+ * stream-release stand-in. It stops the port's two streams at once, em_bgm
+ * (the resumed area cue) and the opening stream (em_opening_media, the
+ * lane-0 stand-in), and clears D_008106F4 / D_008106F5 as 001FAB50 /
+ * 001FAB80 do. It does not do the rest: no 001FA570 voice-ring reset (the
+ * port has no ring: em_message_live's voice_push is unbound, so no voice
+ * lane is ever started), no per-lane 001FAAC0 release and key-off
+ * command, and no D_00282157 store (r_00282157 returns the constant 0).
+ * Reached from 0x1AE040 state 1 (r == 2, the status open), 001AD360 step 0
+ * (New Game and Continue) and the message service's 001FD470 bit 1. */
 static void stream_release_all(void)
 {
     em_bgm_stop(0);
@@ -544,8 +552,12 @@ static void log_tick_begin(void)
     s_tick.door[1] = em_door_movement_locked();
     s_tick.door[2] = em_door_menu_locked();
     /* The message block after the previous tick's step F (001FCA10 runs
-     * after the task), the route rows' post-frame sample of it. */
-    em_area11_interaction_host_message_block(s_tick.msg);
+     * after the task), the route rows' post-frame sample of it: D_002821B0,
+     * B4 and B8 of the live message service. */
+    const EmMessageBlock *block = em_message_live_block();
+    s_tick.msg[0] = block ? (uint32_t)block->mode : 0;
+    s_tick.msg[1] = block ? (uint32_t)block->phase : 0;
+    s_tick.msg[2] = block ? block->line : 0;
 }
 
 static void log_tick_end(int rc)
@@ -577,8 +589,7 @@ static void log_tick_end(int rc)
      * player position/heading and the camera vectors D_008105D0/E0. At the
      * tick start ("msg_pre": the previous
      * tick's post-frame value, since step F follows the task): the message
-     * block D_002821B0 as the AREA11 interaction host's presenter holds it
-     * (mode, phase, token; zero while idle). */
+     * block D_002821B0 of the live message service (mode, phase, line). */
     {
         const EmScreenFade *bars = em_frame_screen_fade();
         uint8_t screen[8], *q = screen;
@@ -718,7 +729,7 @@ static int w_001AFCA0(void *ctx)
      * (em_area11_interaction_host.h: whole-world teardown). */
     player_use_set_hook(NULL, NULL);
     player_pose_set_stage_hook(NULL, NULL);
-    em_frame_set_message_service(NULL);
+    em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
     em_game_legacy_state0();
     if (!roster_scene()) {
@@ -1110,7 +1121,7 @@ static int w_001B6990(void *ctx)
     }
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
     player_use_set_hook(em_area11_interaction_host_use, NULL);
-    em_frame_set_message_service(em_area11_interaction_host_message_service());
+    em_message_live_set_host(em_area11_interaction_host_message_host());
     return rc;
 }
 
@@ -1375,12 +1386,14 @@ static int w_001D1EA0(void *ctx, int a0)
  *   0020E060, 0020CDC0 -> the host's status route in AREA11 (below; WP-5),
  *                the legacy em_hud screen elsewhere
  *   001FBC50  -> em_sfx_stop_all (its translation, em_sfx.h)
- *   001FABB0  -> w_001FABB0 (its translation, above; WP-5)
+ *   001FABB0  -> w_001FABB0 (the port's stream-release stand-in, above;
+ *                not a translation: the stream lanes are not live)
  *   00119828  -> w_00119828 (the full-scale volume, above; WP-5; the
  *                0x1999 volumes 001FBC50 and 001FC280 set are reported)
  *   001AEDB0  -> em_frame_fade_full (001AEDB0's translation, em_fade.c)
  *   0018C0D0  -> camera_commit_original(&g.cam, a1) (em_camera.h)
- *   001FAE70  -> w_001FAE70 (the state-5 translation, above; WP-5)
+ *   001FAE70  -> w_001FAE70 (001FAE70's cue selection, above; WP-5; the
+ *                lane start itself is the port's em_bgm resume stand-in)
  *   001AEE40  -> em_frame_fade_flash (em_fade.c), in state 5 and (since
  *                S12a) in the state-0 rebuild
  *   001D2830, 001E0CC0, 001D1EF0: unmirrored (reported). */
@@ -1568,6 +1581,43 @@ static int w_001FAE70(void *ctx, int a0)
         return -1;
     }
     return em_opening_media_resume_music((unsigned)fade) == 0 ? 0 : -1;
+}
+
+/* The message service's stream workers (em_message_live.h, WP-8), reached
+ * through 001FD4C0 (the stream-table request of 001B82D0 ops 9..12).
+ *   001FD470(mask) (byte-matched): bit 0 -> w_001FBC50 (em_sfx_stop_all,
+ *     the port's counterpart of 001FBC50's voice stops, then its two
+ *     00119828 calls), bit 1 -> w_001FABB0 (the stream-release stand-in
+ *     above, not a translation of 001FABB0).
+ *   001FA790(lane, cue): the stream lanes are not live (WP-8's stream
+ *     half); the port's only exported stream a stream-table row selects is
+ *     the opening's (tools/export_opening_media.py exports the row of line
+ *     0x66 in AREA11), which em_opening_media plays as the lane-0 stand-in.
+ *     Any other lane or cue faults. */
+int em_scene_bindings_001FD470(void *ctx, int32_t mask)
+{
+    if ((mask & 1) && w_001FBC50(ctx) < 0)
+        return 0;
+    if ((mask & 2) && w_001FABB0(ctx) < 0)
+        return 0;
+    return 1;
+}
+
+int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)
+{
+    return w_00119828(ctx, ch, l, r);
+}
+
+int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue)
+{
+    (void)ctx;
+    int32_t opening = em_message_live_stream_cue(0x0B, 0x66);
+    if (lane != 0 || opening < 0 || cue != opening) {
+        fprintf(stderr, "em_scene: 001FA790(%d, %d): no exported stream for this lane and cue\n",
+                lane, (int)cue);
+        return 0;
+    }
+    return em_opening_media_audio_start() == 0;
 }
 
 /* ------------------------------------------- the room move (S12b; design 5)
@@ -1758,7 +1808,7 @@ static void bindings_init(void)
     w->w_001AAD00 = w_001AAD00;
     w->w_001D1EA0 = w_001D1EA0;
 
-    w->w_001FC9B0 = um_001FC9B0;
+    w->w_001FC9B0 = w_001FC9B0;
     w->w_001B07C0 = w_001B07C0;
     w->w_001B6990 = w_001B6990;
     w->w_001D19E0 = um_001D19E0;

@@ -10,6 +10,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_opening_actor.h"
 #include "game/em_opening_media.h"
+#include "game/em_message_live.h"
 #include "game/em_scene_bindings.h"
 
 #include <math.h>
@@ -25,6 +26,7 @@ static struct {
     EmCinematicCamera camera;
     int requested, ready, finished, failed;
     int actors_active, camera_active, camera_owned;
+    uint8_t talking[2];           /* the actors' talk state (001D06E0 via 001BA580) */
     uint32_t half_tick;
     float camera_time;
     uint8_t player_phase;
@@ -52,6 +54,7 @@ void em_opening_runtime_request(void)
     s.half_tick=0;
     s.camera_time=0;
     s.player_phase=0;
+    s.talking[0]=s.talking[1]=0;
 }
 
 void em_opening_runtime_scene_ready(void)
@@ -70,8 +73,10 @@ void em_opening_runtime_scene_ready(void)
         fail("original player/Roger/equipment meshes and animation"); return;
     }
     if (em_opening_media_prepare(g.scene_dir)!=0) {
-        fail("original opening dialogue/audio"); return;
+        fail("original opening audio"); return;
     }
+    /* The opening stream's lane stand-in follows D_008106F4 at step H. */
+    em_opening_media_set_hold(em_scene_req_at(em_scene_state(),0x008106F4u));
     em_area11_opening_init(&s.controller,s.image.entry);
     s.ready=1;
     fprintf(stderr,"opening: original AREA11 actor 0x00823E80 ready\n");
@@ -136,9 +141,19 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
                 skip_request_set(script,0);
                 g.cam.top_mode=1;
                 em_frame_fade_start(1,4);
-                if (em_opening_media_audio_start()!=0)
+                /* 001FD4C0(ev+0x18) (0x1B8664 area): 001FD470(-1),
+                 * D_008106F4 = 2, 001FA790(0, cue) through the message
+                 * service's stream table. */
+                if (em_message_live_stream_request(
+                        (int32_t)em_script_u32(record,0x18))<0)
                     return EM_SCRIPT_UNSUPPORTED;
                 script->phase=1;
+                /* Then 00119828(0, 0, 0) and 00119828(1, 0, 0), the IOP
+                 * command 0x16 for channels 0 and 1: the port has no
+                 * 001157F0 sink yet, so both are reported no-effect
+                 * bindings (em_scene_bindings_00119828). */
+                em_scene_bindings_00119828(NULL,0,0,0);
+                em_scene_bindings_00119828(NULL,1,0,0);
                 return EM_SCRIPT_WAIT;
             case 1:
                 if (em_frame_transition()->substate==2) {
@@ -156,7 +171,10 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
                 }
                 return EM_SCRIPT_WAIT;
             case 3:
-                if (!em_opening_media_audio_ready()) return EM_SCRIPT_WAIT;
+                /* Phase 3 waits for D_008106F4 == 1 (the stream lane's
+                 * prefill hold). */
+                if (*em_scene_req_at(em_scene_state(),0x008106F4u)!=1)
+                    return EM_SCRIPT_WAIT;
                 em_frame_fade_start(-1,16);
                 em_scene_state()->spad3B92=1; /* phase 3: 0x1B874C */
                 script->skip_phase=1;
@@ -172,6 +190,10 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             camera_restore();
             em_frame_screen_fade_start(-1,4);
             em_opening_media_stop();
+            /* op 4 teardown: D_002821B4 = 2, whatever the message block
+             * holds (001B82D0; the message service tears it down). */
+            if (!em_message_live_block()) return EM_SCRIPT_UNSUPPORTED;
+            em_message_live_block()->phase=2;
             s.actors_active=0;
             s.camera_owned=0;
             /* op 4 teardown: 3B92 = 0 (0x1B891C abort / 0x1B8940). */
@@ -194,12 +216,15 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
             return EM_SCRIPT_UNSUPPORTED;
         g.opening_event_39=1;
         return EM_SCRIPT_ADVANCE;
-    case 12: /* 001B7D60: independent message request, no completion wait. */
-        if (sub!=1 || em_script_u32(record,0x14)!=0x66 ||
-            em_script_u32(record,0x18)!=0 || em_script_u32(record,0x1C)!=0)
-            return EM_SCRIPT_UNSUPPORTED;
-        if (em_opening_media_dialogue_start()!=0) return EM_SCRIPT_UNSUPPORTED;
-        return EM_SCRIPT_ADVANCE;
+    case 12: { /* 001B7D60 on the live message service; its handshake is the
+                * command's state byte (+4). The opening posts line 0x66 with
+                * sub 1 and +0x1C = 0: no completion wait. */
+        uint8_t handshake=(uint8_t)script->phase;
+        int done=em_message_live_op0c(&handshake,record);
+        if (done<0) return EM_SCRIPT_UNSUPPORTED;
+        script->phase=handshake;
+        return done ? EM_SCRIPT_ADVANCE : EM_SCRIPT_WAIT;
+    }
     case 10: /* 001B9A00: player track / restore world placement. */
         if (sub==1) {
             if (em_script_u32(record,0x14)!=1 ||
@@ -285,6 +310,9 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
         if (script->phase==1) {
             if (em_frame_transition()->substate!=2) return EM_SCRIPT_WAIT;
             em_opening_media_stop();
+            /* 001B6BF0 case 1: D_002821B4 = 2 after the stream stops. */
+            if (!em_message_live_block()) return EM_SCRIPT_UNSUPPORTED;
+            em_message_live_block()->phase=2;
             camera_restore();
             g.cam.top_mode=2;
             return EM_SCRIPT_ADVANCE;
@@ -337,10 +365,21 @@ void em_opening_runtime_tick(void)
     if (result==EM_SCRIPT_FAULT) { fail("script command binding"); return; }
     if (s.failed) return;
     em_opening_media_tick();
-    if (s.actors_active &&
-        !em_opening_actor_tick(s.half_tick,em_opening_media_talk_mask())) {
-        fail("original face update");
-        return;
+    if (s.actors_active) {
+        /* 001BA580's activity bytes D_008106D4[0/1] (speaker slots 0/1 of
+         * the message records, written by the message service's 001FD950
+         * at step F): 1 turns the actor's talking on and 2 off
+         * (001D06E0), and either is consumed. */
+        uint8_t *activity=em_scene_req_at(em_scene_state(),0x008106D4u);
+        for (unsigned i=0;i<2;++i) {
+            if (activity[i]==1) { s.talking[i]=1; activity[i]=0; }
+            else if (activity[i]==2) { s.talking[i]=0; activity[i]=0; }
+        }
+        if (!em_opening_actor_tick(s.half_tick,
+                                   (unsigned)s.talking[0]|(unsigned)s.talking[1]<<1)) {
+            fail("original face update");
+            return;
+        }
     }
     if (result==EM_SCRIPT_FINISHED) {
         s.finished=1;
@@ -395,6 +434,7 @@ int em_opening_runtime_failed(void) {return s.failed;}
 
 void em_opening_runtime_shutdown(void)
 {
+    em_opening_media_set_hold(NULL);
     em_opening_media_shutdown();
     em_opening_actor_shutdown(em_frame_gfx());
     em_cinematic_camera_free(&s.camera);

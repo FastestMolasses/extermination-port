@@ -38,6 +38,12 @@ static int w_12610(void *c, uint32_t s, uint32_t n, uint32_t a, const uint8_t m[
 }
 static int w_12D18(void *c, int32_t a, int32_t *r) { Log *l = c; *r = l->r12D18; return rec(l, 7, a, 0, 0, 0); }
 static int w_13478(void *c, int32_t a) { return rec(c, 8, a, 0, 0, 0); }
+static int w_valloc(void *c, int32_t a, int32_t *v)
+{
+    Log *l = c;
+    *v = l->n;   /* the boot's allocator hands out 0, 1, 2, 3 on an empty table */
+    return rec(l, 9, a, 0, 0, 0);
+}
 
 static EmStreamClip music[4], voice[160];
 static EmStreamLanesData data;
@@ -46,7 +52,8 @@ static int32_t status[EM_STREAM_VOICE_STATUS];
 
 static void fresh(EmStreamLanes *L, Log *l)
 {
-    EmStreamLanesWorkers w = { l, w_iop, w_rng, w_fc280, w_fbc50, w_13280, w_12610, w_12D18, w_13478 };
+    EmStreamLanesWorkers w = { l, w_iop, w_rng, w_fc280, w_fbc50, w_13280, w_12610, w_12D18, w_13478,
+                               w_valloc };
     int i;
     memset(L, 0, sizeof *L);
     memset(l, 0, sizeof *l);
@@ -138,6 +145,39 @@ static void test_faults(void)
     CHECK(em_stream_lanes_001FA0D0(&L) == -1 && L.fault.address == 0x00113280u);
 }
 
+/* 001F9820: the worker order (0x3C, four allocations, then per voice
+ * 0x3E / 0x40 / 0x41), the lane fields it writes, and the fail-stop on a
+ * missing allocator. */
+static void test_initial_state(void)
+{
+    EmStreamLanes L;
+    Log l;
+    fresh(&L, &l);
+    globals.d275B20 = 0xCDE00; globals.d275B24 = 0xBDD00; globals.d275B28 = 0xADC00;
+    globals.d27F740 = ~(uint64_t)0;
+    L.state.active[0] = 2; L.state.music_clip = 25; L.state.ring_head = 4;
+    CHECK(em_stream_lanes_001F9820(&L) == 0);
+    CHECK(l.n == 17 && l.ev[0][0] == 1 && l.ev[0][1] == 0x3C);
+    for (int i = 1; i <= 4; i++) CHECK(l.ev[i][0] == 9 && l.ev[i][1] == 0);
+    for (int v = 0; v < 4; v++)
+        CHECK(l.ev[5 + 3 * v][1] == 0x3E && l.ev[6 + 3 * v][1] == 0x40 && l.ev[7 + 3 * v][1] == 0x41 &&
+              l.ev[7 + 3 * v][4] == 0xBB80);
+    CHECK(l.ev[6][4] == 0x3FFF0000 && l.ev[9][4] == 0x3FFF && l.ev[12][4] == 0x3FFF3FFF);
+    CHECK(L.state.lane[0].voice == 1 && L.state.voice_right == 2 && L.state.lane[1].voice == 3 &&
+          L.state.lane[2].voice == 4);
+    CHECK(L.state.lane[0].voice_mask == 6 && L.state.lane[1].voice_mask == 8 &&
+          L.state.lane[2].voice_mask == 16);
+    CHECK(L.state.lane[0].buffer == 0xADC00 && L.state.lane[1].buffer == 0xBDD00 &&
+          L.state.lane[2].buffer == 0xCDE00 && L.state.lane[2].buffer_size == 0x10000);
+    CHECK(L.state.lane[1].volume == 0x467FFC00u && L.state.active[0] == 0 &&
+          L.state.music_clip == 0 && L.state.ring_head == 0 && L.state.ring[0] == -1);
+    CHECK(globals.d27F740 == ~(uint64_t)0x6);   /* 0x20002 clears both lane-0 voices' bits */
+    fresh(&L, &l);
+    L.workers.w_0011A2B0 = NULL;
+    CHECK(em_stream_lanes_001F9820(&L) == -1 && L.fault.address == 0x0011A2B0u &&
+          L.fault.code == EM_STREAM_FAULT_NULL_WORKER);
+}
+
 /* Lane 0 reads D_0025DD30 + 16 * cue unbounded: with the full 68-row music
  * table, cue 68 + k is voice row k (the voice table follows it). */
 static void test_lane0_contiguous_rows(void)
@@ -227,6 +267,7 @@ static void test_voice_ring_and_fades(void)
 int main(void)
 {
     test_faults();
+    test_initial_state();
     test_lane0_contiguous_rows();
     test_music_select();
     test_voice_ring_and_fades();

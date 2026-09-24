@@ -17,6 +17,8 @@
 #include "game/em_frame.h"
 #include "game/em_game.h"
 #include "game/em_frontend.h"
+#include "game/em_message_live.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_startup_audio.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_level_smoke_test.h"
@@ -315,6 +317,12 @@ int main(void)
     /* Engine bring-up: frame loop env + input + task table, then the boot
      * task into slot 0 (the engine init's func_001AB740(0, boot)). */
     em_frame_init(win, gfx);
+    /* Main-loop step F: the message service 001FCA10 (WP-8), with the
+     * stream workers 001FD470 / 001FA790 its stream table reaches. */
+    em_message_live_install("assets/message/message_data.emmd");
+    static const EmMessageLiveStreams streams = {NULL, em_scene_bindings_001FD470,
+                                                 em_scene_bindings_001FA790};
+    em_message_live_set_streams(&streams);
     /* No seed here: the original main never seeds the SDK RNG; its state
      * starts at the ELF's initialized value 1 (em_random.c). */
     const char *skip_startup = getenv("EM_SKIP_STARTUP");
@@ -327,6 +335,8 @@ int main(void)
 
     em_frontend_shutdown();
     em_game_shutdown();
+    int message_failed = em_message_live_fault() != NULL;
+    em_message_live_shutdown();
     em_startup_audio_shutdown();  /* shared device has stopped its callback */
     if (audio) {
         em_audio_destroy(audio); /* blocks: no callback after this */
@@ -346,6 +356,6 @@ int main(void)
     free((void *)audio_wav.pcm);
     em_gfx_destroy(gfx);
     em_window_destroy(win);
-    return em_frontend_failed() || em_opening_runtime_failed() ||
+    return em_frontend_failed() || em_opening_runtime_failed() || message_failed ||
            em_opening_control_test_failed() || em_level_smoke_test_failed() ? 1 : 0;
 }

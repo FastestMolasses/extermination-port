@@ -1,76 +1,22 @@
 #include "game/em_opening_media.h"
 #include "game/em_bgm.h"
 #include "game/em_frame.h"
-#include "game/em_hud.h"
 #include "game/em_sfx.h"
-#include <limits.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-enum { MAX_LINES = 128, MAX_TEXT = 65536, MAX_FADE_VALUES = 64 };
-
-void em_opening_dialogue_start(EmOpeningDialogue *d,
-                              const EmOpeningLine *lines, unsigned count)
-{
-    /* 001FDB80(1): the record index (+0x60), timer (+0x6C) and loaded
-     * state (+0x5C) all start at zero; nothing is loaded before a tick. */
-    memset(d, 0, sizeof *d);
-    d->lines = lines;
-    d->count = count;
-    d->displayed = UINT_MAX;
-    d->active = lines && count;
-}
-
-void em_opening_dialogue_tick(EmOpeningDialogue *d)
-{
-    d->displayed = UINT_MAX;
-    if (!d->active) return;
-    if (!d->loaded) {
-        /* 001FD790: skip zero-duration nonterminal records, then load the
-         * record's duration into the timer on this same tick. */
-        while (d->next < d->count && !d->lines[d->next].duration &&
-               !d->lines[d->next].terminal)
-            d->next++;
-        if (d->next >= d->count) { d->active = 0; return; }
-        d->remaining = d->lines[d->next].duration;
-        d->loaded = 1;
-    }
-    /* 001FD950: draw every tick; a positive timer counts down. */
-    d->displayed = d->next;
-    if (d->remaining) { d->remaining--; return; }
-    /* 001FDB80: a terminal completion ends the sequence (001FCA10 mode 2);
-     * otherwise +0x60 advances and 001FD790 loads it on the next tick. */
-    if (d->lines[d->next].terminal) { d->active = 0; return; }
-    d->next++;
-    d->loaded = 0;
-    if (d->next >= d->count) d->active = 0;
-}
-
-const EmOpeningLine *em_opening_dialogue_line(const EmOpeningDialogue *d)
-{
-    return d->displayed < d->count ? &d->lines[d->displayed] : NULL;
-}
-
-unsigned em_opening_dialogue_talk_mask(const EmOpeningDialogue *d)
-{
-    const EmOpeningLine *line=em_opening_dialogue_line(d);
-    if(!line || line->speaker>=2 || !d->active || d->next!=d->displayed) return 0;
-    return 1u<<line->speaker;
-}
+enum { MAX_FADE_VALUES = 64 };
 
 static struct {
-    EmOpeningLine lines[MAX_LINES];
-    unsigned count, line_height, y, fill, outline;
-    char *text;
     char resume_path[1024];
     EmBgmWav wav; /* immutable between successful prepare and final shutdown */
-    EmOpeningDialogue dialogue;
     float fade_values[MAX_FADE_VALUES];
     unsigned fade_count, fade_next, fade_mode;
-    int prepared, armed, requested_play;
+    int prepared, armed, playing;
+    uint8_t *hold;                /* D_008106F4 */
     float volume, volume_step;
     atomic_uint serial;
     atomic_int play;
@@ -84,47 +30,6 @@ static unsigned u16(const unsigned char *b)
 { return (unsigned)b[0] | (unsigned)b[1] << 8; }
 static unsigned u32(const unsigned char *b)
 { return u16(b) | u16(b + 2) << 16; }
-
-static int read_dialogue(const char *path)
-{
-    FILE *f = fopen(path, "rb");
-    unsigned char h[32], r[20];
-    if (!f) return -1;
-    if (fread(h, 1, sizeof h, f) != sizeof h || memcmp(h, "EMOD", 4) ||
-        u32(h + 4) != 1) { fclose(f); return -1; }
-    unsigned count = u32(h + 8), size = u32(h + 28);
-    if (!count || count > MAX_LINES || !size || size > MAX_TEXT ||
-        !u32(h + 12) || u32(h + 12) > 64 || u32(h + 24) > 448) {
-        fclose(f); return -1;
-    }
-    unsigned offsets[MAX_LINES], lengths[MAX_LINES];
-    for (unsigned i = 0; i < count; i++) {
-        if (fread(r, 1, sizeof r, f) != sizeof r) { fclose(f); return -1; }
-        EmOpeningLine *line = &s.lines[i];
-        line->line = (uint16_t)u16(r);
-        line->duration = (uint16_t)u16(r + 2);
-        line->voice = (int16_t)u16(r + 4);
-        line->speaker = r[6]; line->terminal = r[7]; line->skew = r[16];
-        offsets[i] = u32(r + 8); lengths[i] = u32(r + 12);
-        if (line->voice != -1 || line->terminal > 1 || line->skew > 32 ||
-            offsets[i] >= size || lengths[i] >= size - offsets[i]) {
-            fclose(f); return -1;
-        }
-    }
-    char *text = malloc(size);
-    if (!text) { fclose(f); return -1; }
-    int okay = fread(text, 1, size, f) == size && fgetc(f) == EOF;
-    fclose(f);
-    for (unsigned i = 0; okay && i < count; i++) {
-        okay = text[offsets[i] + lengths[i]] == 0 &&
-               !memchr(text + offsets[i], 0, lengths[i]);
-        s.lines[i].text = text + offsets[i];
-    }
-    if (!okay || !s.lines[count - 1].terminal) { free(text); return -1; }
-    s.text = text; s.count = count; s.line_height = u32(h + 12);
-    s.fill = u32(h + 16); s.outline = u32(h + 20); s.y = u32(h + 24);
-    return 0;
-}
 
 static int read_fades(const char *path)
 {
@@ -149,9 +54,7 @@ int em_opening_media_prepare(const char *directory)
 {
     if (s.prepared) return 0;
     char path[1024];
-    if (!directory || snprintf(path, sizeof path, "%s/opening.emod", directory) >= (int)sizeof path)
-        return -1;
-    if (read_dialogue(path)) goto fail;
+    if (!directory) return -1;
     if (snprintf(path, sizeof path, "%s/opening.emfx", directory) >= (int)sizeof path || read_fades(path))
         goto fail;
     if (snprintf(path, sizeof path, "%s/opening.wav", directory) >= (int)sizeof path ||
@@ -164,9 +67,28 @@ int em_opening_media_prepare(const char *directory)
     return 0;
 fail:
     fprintf(stderr, "opening: missing or malformed media in %s\n", directory);
-    free(s.text); s.text = NULL;
     free(s.wav.pcm); memset(&s.wav, 0, sizeof s.wav);
     return -1;
+}
+
+/* The lane stand-in at step H (em_bgm_set_lane_service): see the header. */
+static void lane_service(void *context)
+{
+    (void)context;
+    if (!s.armed || s.playing || !s.hold) return;
+    if (*s.hold == 2) {
+        *s.hold = 1;
+    } else if (*s.hold == 0) {
+        s.playing = 1;
+        atomic_store_explicit(&s.play, 1, memory_order_relaxed);
+        atomic_fetch_add_explicit(&s.serial, 1, memory_order_release);
+    }
+}
+
+void em_opening_media_set_hold(uint8_t *hold)
+{
+    s.hold = hold;
+    em_bgm_set_lane_service(hold ? lane_service : NULL, NULL);
 }
 
 int em_opening_media_audio_start(void)
@@ -183,20 +105,8 @@ int em_opening_media_audio_start(void)
     return 0;
 }
 
-int em_opening_media_audio_ready(void) { return s.prepared && s.armed; }
-
-int em_opening_media_dialogue_start(void)
-{
-    if (!s.armed) return -1;
-    em_opening_dialogue_start(&s.dialogue, s.lines, s.count);
-    /* Message102 clears D8106F4; audio-service then starts the prefill. */
-    s.requested_play = 1;
-    return 0;
-}
-
 void em_opening_media_tick(void)
 {
-    em_opening_dialogue_tick(&s.dialogue);
     if (s.volume_step != 0.0f) {
         s.volume += s.volume_step;
         if (s.volume <= 0.0f) {
@@ -205,11 +115,6 @@ void em_opening_media_tick(void)
             atomic_fetch_add_explicit(&s.serial, 1, memory_order_release);
         }
         atomic_store_explicit(&s.audio_volume, (int)s.volume, memory_order_relaxed);
-    }
-    if (s.requested_play) {
-        s.requested_play = 0;
-        atomic_store_explicit(&s.play, 1, memory_order_relaxed);
-        atomic_fetch_add_explicit(&s.serial, 1, memory_order_release);
     }
 }
 
@@ -247,29 +152,12 @@ void em_opening_media_camera_tick(float time)
     }
 }
 
-void em_opening_media_render(EmGfx *gfx)
-{
-    const EmOpeningLine *line = em_opening_dialogue_line(&s.dialogue);
-    if (!gfx || !line || !line->text || !line->text[0]) return;
-    em_hud_subtitle(gfx, line->text, (float)s.y, (float)s.line_height,
-                    (float)line->skew, s.fill, s.outline);
-}
-
-const EmOpeningLine *em_opening_media_line(void)
-{ return em_opening_dialogue_line(&s.dialogue); }
-
 void em_opening_media_stop(void)
 {
-    s.armed = s.requested_play = 0;
+    s.armed = s.playing = 0;
     s.volume_step = 0.0f;
-    em_opening_dialogue_start(&s.dialogue, NULL, 0);
     atomic_store_explicit(&s.play, 0, memory_order_relaxed);
     atomic_fetch_add_explicit(&s.serial, 1, memory_order_release);
-}
-
-unsigned em_opening_media_talk_mask(void)
-{
-    return em_opening_dialogue_talk_mask(&s.dialogue);
 }
 
 void em_opening_media_shutdown(void)
@@ -279,7 +167,6 @@ void em_opening_media_shutdown(void)
     em_opening_media_stop();
     s.audio_play = 0;
     s.audio_position = 0;
-    free(s.text); s.text = NULL;
     free(s.wav.pcm); memset(&s.wav, 0, sizeof s.wav);
     s.prepared = 0;
 }

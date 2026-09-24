@@ -1,6 +1,7 @@
 /* End-to-end opening orchestration with user-exported original assets.
  * Graphics and the audio device are inert; loaders, script, camera,
- * animation, dialogue, fades and PCM mixer are the real native modules. */
+ * animation, the message service (step F) with its glyph layout, fades and
+ * the PCM mixer are the real native modules. */
 #include "em_audio.h"
 #include "em_gfx.h"
 #include "em_input.h"
@@ -11,6 +12,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_opening_actor.h"
 #include "game/em_opening_media.h"
+#include "game/em_message_live.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
@@ -30,7 +32,7 @@ EmSceneState *em_scene_state(void) { return &scene; }
 static EmTransitionFade fade;
 static EmScreenFade bars;
 static EmFrameInput input;
-static int quit, meshes, subtitles, look_up, rumble, commits, pose_releases;
+static int quit, meshes, subtitles, look_up, rumble, commits, pose_releases, channel_mutes;
 int player_pose_opening_release(void) {
     assert(scene.spad3B8D==0 && scene.spad3B91==0); /* op 5 -> op 4 cleared them */
     ++pose_releases;
@@ -72,11 +74,40 @@ void em_audio_destroy(EmAudio *audio) {(void)audio;assert(audio_callback);audio_
 void em_sfx_stop_all(void) {}
 void em_sfx_mix(float *out,int frames,int rate) {(void)out;(void)frames;(void)rate;}
 void em_startup_audio_mix(float *out,int frames,int rate) {(void)out;(void)frames;(void)rate;}
-void em_hud_subtitle(EmGfx *gfx,const char *text,float y,float height,float skew,
-                     uint32_t color,uint32_t outline) {
-    (void)color;(void)outline;(void)skew;
-    assert(gfx && text && y>=0 && height>0);subtitles++;
+/* The message glyph boundary: every tall glyph exists; a strip flush is
+ * decoded back to its bytes (upload offset / 30 + 0x20, '$' for 0x89). */
+int em_hud_tall_glyph_cell(uint32_t index,EmHudGlyphCell *cell) {
+    assert(index<409);if(cell) memset(cell,0,sizeof *cell);return 1;
+}
+void em_hud_glyph_strip(EmGfx *gfx,const EmMessageGlyphFlush *flush) {
+    assert(gfx && flush && flush->upload_count<256);
+    char text[256];
+    for(uint32_t i=0;i<flush->upload_count;i++) {
+        uint32_t glyph=flush->uploads[i].offset/30;
+        text[i]=(char)(glyph==0x89 ? '$' : glyph+0x20);
+    }
+    text[flush->upload_count]=0;
+    subtitles++;
     if(strstr(text,"Look up.")) look_up=1;
+}
+static EmFrameMessageService step_f;
+void em_frame_set_message_service(const EmFrameMessageService *service) {
+    if(service) step_f=*service; else memset(&step_f,0,sizeof step_f);
+}
+/* 001FD470 / 001FA790 as the scene bindings give them: the opening
+ * stream's cue arms the lane-0 stand-in. */
+static int stream_stop(void *c,int32_t mask) {(void)c;assert(mask==-1);return 1;}
+/* 001B82D0 ops 9..12 phase 0 ends with 00119828(0, 0, 0), 00119828(1, 0, 0),
+ * after 001FD4C0 (the stream request has already set D_008106F4 = 2). */
+int em_scene_bindings_00119828(void *c,int32_t ch,int32_t l,int32_t r) {
+    (void)c;
+    assert(ch==channel_mutes && l==0 && r==0 && *em_scene_req_at(&scene,0x008106F4u)==2);
+    channel_mutes++;return 0;
+}
+static int stream_play(void *c,int lane,int32_t cue) {
+    (void)c;
+    return lane==0 && cue==em_message_live_stream_cue(0x0B,0x66) &&
+           em_opening_media_audio_start()==0;
 }
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx,const float *vertices,uint32_t vc,
         const uint32_t *indices,uint32_t ic,const EmGfxTexDesc *textures,
@@ -127,21 +158,29 @@ static void world_frame(void) {
 static void start(const char *scene_dir) {
     memset(&g,0,sizeof g);memset(&input,0,sizeof input);
     memset(&scene,0,sizeof scene); /* 001AFCF0 at the area load */
+    scene.d810700=0x0B;
+    assert(em_message_live_install("assets/message/message_data.emmd"));
+    static const EmMessageLiveStreams streams={NULL,stream_stop,stream_play};
+    em_message_live_set_streams(&streams);
+    assert(em_message_live_reset()==0); /* 001AFCF0's 001FC9B0 */
     g.opencam_on=1;g.opencam_idle=100;
-    quit=subtitles=look_up=rumble=commits=pose_releases=0;
+    quit=subtitles=look_up=rumble=commits=pose_releases=channel_mutes=0;
     snprintf(g.scene_dir,sizeof g.scene_dir,"%s",scene_dir);
     em_transition_fade_init(&fade);em_transition_fade_full(&fade,0);
     em_screen_fade_init(&bars);em_random_seed(0x45);
     em_opening_runtime_request();em_opening_runtime_scene_ready();
 }
 static void end(void) {
-    em_bgm_shutdown();em_opening_runtime_shutdown();
+    em_bgm_shutdown();em_opening_runtime_shutdown();em_message_live_shutdown();
     assert(!meshes && !audio_callback);
 }
 static void run(int skip,int shutdown_after) {
     start("assets/scene_snow");assert(!quit && meshes==3);
     unsigned actor_frames=0;
     int marked_frame=-1, skip_sent=0, cutscene_frames=0;
+    /* D_008106F4 across the run: 2 at 001FD4C0, 1 once the lane stand-in
+     * holds the prefill, 0 when line 0x66's stream row releases it. */
+    unsigned hold_seen=0; uint8_t hold_prev=0;
     for(g.frame_no=0;g.frame_no<2000 && em_opening_runtime_busy();g.frame_no++) {
         em_screen_fade_tick(&bars,0,0);
         /* Step C: D_00810E74 in the original layout (START = 0x0800). */
@@ -151,6 +190,7 @@ static void run(int skip,int shutdown_after) {
         uint8_t skip_before=scene.spad3B91;
         cutscene_frames+=scene.spad3B8D!=0;
         world_frame();
+        if(*em_scene_req_at(&scene,0x008106F4u)==2) hold_seen|=4; /* after the task */
         if(press) { /* 001AE6B0's promotion, never the runtime's */
             assert(skip_before==1 && scene.spad3B8D==2 && fade.substate==0);
             assert(scene.spad3B91==2 || !em_opening_runtime_busy());
@@ -164,8 +204,16 @@ static void run(int skip,int shutdown_after) {
             }
             actor_frames++;
         }
-        em_opening_media_render(em_frame_gfx());
+        /* Step F, then the frame's draw and step H. */
+        assert(step_f.tick && step_f.tick(step_f.context)==0);
+        step_f.render(step_f.context,em_frame_gfx());
         em_bgm_service();
+        uint8_t hold=*em_scene_req_at(&scene,0x008106F4u);
+        if(hold!=hold_prev) { /* after step H: 0 -> 1 (the request and the
+                               * port's instant prefill), 1 -> 0 (released) */
+            assert((hold==1 && hold_prev==0 && (hold_seen&4)) || (hold==0 && hold_prev==1));
+            hold_seen|=1u<<hold;hold_prev=hold;
+        }
         em_transition_fade_tick(&fade);
         float pcm[1600]={0};
         assert(audio_callback);audio_callback(audio_user,pcm,800);
@@ -174,6 +222,8 @@ static void run(int skip,int shutdown_after) {
         else assert(!g.opening_complete && !g.opening_key_item_zero);
     }
     assert(g.frame_no<2000 && marked_frame>=0 && commits && subtitles && look_up);
+    assert(channel_mutes==2);
+    assert(hold_seen==7);
     assert(scene.spad3B8D==0 && scene.spad3B91==0 && g.opening_event_39==0xFF);
     assert(cutscene_frames>0 && scene.d810750==g.frame_no); /* one variant per frame */
     assert(g.opening_complete==0xFF && g.opening_key_item_zero==1);
@@ -196,5 +246,5 @@ int main(void) {
     start("build/no-such-opening-fixture");
     assert(quit && em_opening_runtime_failed() && !g.opening_complete && !g.opening_key_item_zero);
     end();assert(em_opening_runtime_failed());
-    puts("opening runtime PASS: original assets, dialogue/audio, normal/skip teardown, control handoff, missing-assets failure");
+    puts("opening runtime PASS: original assets, message service/audio, normal/skip teardown, control handoff, missing-assets failure");
 }

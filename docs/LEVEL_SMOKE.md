@@ -159,7 +159,11 @@ initialises them). `EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` (with
 `EM_LEVEL_SMOKE_UNTIL=status`) writes the hub frame whose walk equals the
 capture's (walk 10) for an image compare with
 ../Extermination/build/startup-reference/status-hub/hub.png
-(STATUS_SCENE.md section 7).
+(STATUS_SCENE.md section 7). `EM_LEVEL_SMOKE_MESSAGE_CAPTURE=<file.bmp>`
+(with `EM_LEVEL_SMOKE_UNTIL=elevator_refusal`) writes the frame whose step F
+presents the refusal line 0x8000001A for the fifth time, the state of the
+elevator/refusal capture; `make test-message-capture` compares its text
+lines with that capture's screenshot (MESSAGE_GLYPH.md).
 
 ### Navigation (the route phases)
 
@@ -246,15 +250,11 @@ controls (one tampered letterbox byte, carried Y, camera eye, power byte,
 message phase, message kind or message token in a copy of the log) each fail
 the check.
 
-*What the message block measures.* The host logs the block as the message
-command 001B7D60 case 0 stored it (kind D_002821B0 = 2, token D_002821B8 =
-the script record's req[5]) and 001FC9B0 cleared it, with the presenter's
-own phase D_002821B4. The token is therefore the one the running script
-passed (0x80000018 panel, 0x8000001A refusal) and the phase carries the
-presenter's timing; the kind is 001B7D60's constant 2, so a match on it only
-shows that a message command started and has not been torn down. (Until the
-WP-4 fix round the host synthesized mode 2 and picked the token from the
-active presenter, which measured the phase only.)
+*What the message block measures.* Since WP-8 the log samples the live
+message service's block itself (D_002821B0 mode, B4 phase, B8 line; the one
+storage, `em_message_live`): the line the running script posted (0x80000018
+panel, 0x8000001A refusal) through 001B7D60 case 0, the phase through the
+service's ticks and its 001FC9B0 teardown.
 
 **Known divergences, reported, not compared:**
 - *The status page's module load.* The original's ITEM root waits 24
@@ -286,8 +286,8 @@ active presenter, which measured the phase only.)
   phase of 001FA0D0's asynchronous disc read (em_scene_bindings.c
   r_00282157; the port's reads complete within their call), passed through
   that reader to 0x1AE040 state 3 and to the status page input (which does
-  not read it). The voice lanes have no port player; no voice cue is pushed
-  on the route before Roger and both messages are text-only.
+  not read it). The voice lanes are not live (STREAM_LANES.md); no voice cue
+  is pushed on the route before Roger and both messages are text-only.
 
 ## Adding a phase (the contract for WP-4 onward)
 

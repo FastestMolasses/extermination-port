@@ -23,13 +23,15 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
-           src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c src/game/em_panel_message.c \
+           src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c \
+           src/game/em_message_service.c src/game/em_message_draw_original.c src/game/em_message_glyph_original.c \
+           src/game/em_message_live.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c src/game/em_player_floor.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
@@ -190,7 +192,9 @@ OPENING_TEST_SRC := tests/opening_runtime_test.c src/game/em_opening_runtime.c \
     src/game/em_area11_opening.c src/game/em_script.c src/game/em_cinematic_camera.c \
     src/game/em_opening_actor.c src/game/em_opening_face.c src/em_model.c src/game/em_opening_media.c \
     src/game/em_bgm.c src/game/em_random.c src/game/em_fade.c \
-    src/game/em_scene_frame.c src/game/em_scene_classify.c src/game/em_status_frame.c
+    src/game/em_scene_frame.c src/game/em_scene_classify.c src/game/em_status_frame.c \
+    src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
+    src/game/em_message_glyph_original.c
 .PHONY: test-opening-runtime
 test-opening-runtime: $(OPENING_TEST_SRC)
 	@mkdir -p build
@@ -480,6 +484,18 @@ test-message-draw:
 .PHONY: test-message-draw-reference
 test-message-draw-reference:
 	python3 tools/test_message_draw_reference.py
+
+.PHONY: test-message-glyph
+test-message-glyph:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/message_glyph_test.c src/game/em_message_glyph_original.c -o build/message_glyph_test && ./build/message_glyph_test
+
+.PHONY: test-message-glyph-reference
+test-message-glyph-reference:
+	python3 tools/test_message_glyph_reference.py
+
+.PHONY: test-message-capture
+test-message-capture: $(BIN)
+	python3 tools/test_message_capture.py
 
 .PHONY: test-stream-lanes
 test-stream-lanes:
@@ -933,7 +949,8 @@ test-panel-runtime:
 	    tests/panel_runtime_test.c src/game/em_panel_runtime.c src/game/em_panel_program.c src/game/em_panel.c \
 	    src/game/em_interaction_runtime.c src/game/em_interaction_animation.c src/game/em_interaction_frame.c \
 	    src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c \
-	    src/game/em_panel_message.c src/game/em_opening_media.c src/game/em_script.c src/em_model.c -lm -o build/panel_runtime_test
+	    src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
+	    src/game/em_message_glyph_original.c src/game/em_script.c src/em_model.c -lm -o build/panel_runtime_test
 	build/panel_runtime_test
 
 .PHONY: test-elevator-reference

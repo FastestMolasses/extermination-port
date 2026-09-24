@@ -25,7 +25,13 @@ python3 tools/export_opening_camera.py \
   --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc
 python3 tools/export_opening_media.py --decomp-root ../Extermination \
   --iso /path/to/owned.iso --out assets/scene_snow
+python3 tools/export_message_data.py   # assets/message/message_data.emmd
 ```
+
+The message service (step F, WP-8; docs/MESSAGE_SERVICE.md) reads
+`assets/message/message_data.emmd`: the ELF's message tables and the global
+and AREA11 message banks from `extract/`. Without it the title runs, but New
+Game faults at its first 001FC9B0 (the state-0 rebuild's message reset).
 
 The startup exporter replays the GS uploads, including their on-disc palettes,
 and composes the actual sprites. The movie exporter preserves MPEG-2 access
@@ -100,7 +106,6 @@ make test-input test-task test-fade test-startup test-movie-export test-startup-
 make test-area11-flow test-collision test-script test-area11-opening
 make test-cinematic-camera test-opening-actor test-opening-media test-bgm-ticks
 make test-opening-runtime
-python3 tests/opening_media_export_test.py
 python3 tools/test_random_reference.py
 python3 tools/test_continue_reset_reference.py
 python3 tools/test_collision_reference.py --help

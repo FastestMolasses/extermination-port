@@ -725,36 +725,97 @@ void em_hud_text_color(EmGfx *gfx, float x, float y, const char *str,
 }
 
 
-void em_hud_subtitle(EmGfx *gfx, const char *str, float y, float line_height,
-                     float skew, uint32_t rgb, uint32_t outline)
+int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
 {
-    if (!gfx || !str || !font_ensure(gfx)) return;
-    unsigned widths[2] = {0, 0}, row = 0;
-    for (const unsigned char *p = (const unsigned char *)str; *p && row < 2; p++) {
-        if (*p == '\n') { row++; continue; }
-        const FontGlyph *g = font_glyph(FONT_TALL, *p);
-        if (*p >= 0x20) widths[row] += g ? g->advance : 9;
-    }
-    unsigned widest = widths[0] > widths[1] ? widths[0] : widths[1];
-    float origin = 256.0f - (float)(widest >> 1);
+    font_parse();
+    if (s_font.state != 1 || index >= s_font.face[FONT_TALL].count) return 0;
+    const FontGlyph *g = &s_font.glyphs[s_font.face[FONT_TALL].first + index];
+    if (cell) *cell = (EmHudGlyphCell){g->u, g->v, g->w, g->h};
+    return 1;
+}
+
+/* One vertex of a packed pass on the 512x448 UI canvas: X/Y are 12.4 GS
+ * primitive coordinates (offsets 0x700/0x790, Y in field lines), U/V the
+ * 10.4 texel coordinates of the UV register. */
+typedef struct { float x, y, u, v; } StripVertex;
+
+static StripVertex strip_vertex(uint64_t uv, uint64_t xyz2)
+{
+    StripVertex out;
+    out.x = (float)(int32_t)((uint32_t)(xyz2 & 0xFFFFu) - 0x7000u) / 16.0f;
+    out.y = (float)(int32_t)((uint32_t)((xyz2 >> 16) & 0xFFFFu) - 0x7900u) / 16.0f * 2.0f;
+    out.u = (float)(uv & 0x3FFFu) / 16.0f;
+    out.v = (float)((uv >> 16) & 0x3FFFu) / 16.0f;
+    return out;
+}
+
+void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *f)
+{
+    if (!gfx || !f || !font_ensure(gfx)) return;
     em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
-    /* Original four outline offsets use half-height GS y units, thus
-     * the vertical offsets are two full-canvas pixels. */
-    const float offsets[5][2] = {{0,-2},{1,0},{0,2},{-1,0},{0,0}};
-    for (unsigned pass = 0; pass < 5; pass++) {
-        uint32_t color = pass == 4 ? rgb : outline;
-        float rgba[4] = {(color & 255) / 128.0f,
-                         ((color >> 8) & 255) / 128.0f,
-                         ((color >> 16) & 255) / 128.0f, 1.0f};
-        float x = origin + offsets[pass][0], py = y + offsets[pass][1];
-        for (const unsigned char *p = (const unsigned char *)str; *p; p++) {
-            if (*p == '\n') { x = origin + offsets[pass][0]; py += line_height; continue; }
-            if (*p < 0x20) continue;
-            const FontGlyph *g = font_glyph(FONT_TALL, *p);
-            float advance = g ? g->advance : 9;
-            if (g) em_gfx_overlay_glyph_skew(gfx, x, py, advance, 20, skew,
-                         g->u, g->v, g->u + advance, g->v + g->h, rgba);
-            x += advance;
+    for (int pass = 0; pass < EM_MESSAGE_GLYPH_PASSES; pass++) {
+        const EmMessageGlyphPass *p = &f->pass[pass];
+        uint32_t c = (uint32_t)p->rgbaq;
+        /* TFX modulate: 0x80 is unity. */
+        const float rgba[4] = {(float)(c & 255u) / 128.0f, (float)((c >> 8) & 255u) / 128.0f,
+                               (float)((c >> 16) & 255u) / 128.0f, (float)(c >> 24) / 128.0f};
+        /* Sprite: vertices 0 (top-left) and 1 (bottom-right). Strip: 0
+         * top-left, 1 bottom-left, 2 top-right, 3 bottom-right. */
+        StripVertex top_left, bottom_right;
+        float skew = 0.0f;
+        if (f->kind == EM_MESSAGE_GLYPH_SKEWED) {
+            StripVertex tl = strip_vertex(p->uv[0], p->xyz2[0]);
+            StripVertex bl = strip_vertex(p->uv[1], p->xyz2[1]);
+            StripVertex br = strip_vertex(p->uv[3], p->xyz2[3]);
+            skew = tl.x - bl.x;
+            top_left = (StripVertex){bl.x, tl.y, tl.u, tl.v};
+            bottom_right = br;
+        } else {
+            top_left = strip_vertex(p->uv[0], p->xyz2[0]);
+            bottom_right = strip_vertex(p->uv[1], p->xyz2[1]);
+        }
+        float du = bottom_right.u - top_left.u;
+        if (du <= 0.0f || bottom_right.v <= top_left.v) continue;
+        float scale = (bottom_right.x - top_left.x) / du;
+        int first = (int)top_left.u, end = (int)bottom_right.u;
+        if ((float)end < bottom_right.u) end++;
+        /* Strip column -> the latest upload whose window holds it. */
+        for (int col = first; col < end;) {
+            int owner = -1;
+            for (uint32_t k = 0; k < f->upload_count; k++)
+                if (f->uploads[k].x <= col && col < f->uploads[k].x + 32) owner = (int)k;
+            int stop = col + 1;
+            while (stop < end) {
+                int next = -1;
+                for (uint32_t k = 0; k < f->upload_count; k++)
+                    if (f->uploads[k].x <= stop && stop < f->uploads[k].x + 32) next = (int)k;
+                if (next != owner) break;
+                stop++;
+            }
+            if (owner >= 0) {
+                const EmMessageGlyphUpload *u = &f->uploads[owner];
+                EmHudGlyphCell cell;
+                int a = col - u->x, b = stop - u->x;
+                if (b > 12) b = 12;       /* upload columns 12..31: not the glyph's */
+                if (a < b && em_hud_tall_glyph_cell(u->offset / 30u, &cell)) {
+                    float ua = fmaxf((float)(u->x + a), top_left.u);
+                    float ub = fminf((float)(u->x + b), bottom_right.u);
+                    float v0 = top_left.v, v1 = fminf(bottom_right.v, cell.h);
+                    float x0 = top_left.x + (ua - top_left.u) * scale;
+                    float x1 = top_left.x + (ub - top_left.u) * scale;
+                    float h = (bottom_right.y - top_left.y) * (v1 - v0) / (bottom_right.v - top_left.v);
+                    float cu = cell.u + (ua - (float)u->x), cv = cell.u + (ub - (float)u->x);
+                    if (ub > ua && v1 > v0) {
+                        if (f->kind == EM_MESSAGE_GLYPH_SKEWED)
+                            em_gfx_overlay_glyph_skew(gfx, x0, top_left.y, x1 - x0, h, skew, cu,
+                                                      cell.v + v0, cv, cell.v + v1, rgba);
+                        else
+                            em_gfx_overlay_glyph(gfx, x0, top_left.y, x1 - x0, h, cu, cell.v + v0, cv,
+                                                 cell.v + v1, rgba);
+                    }
+                }
+            }
+            col = stop;
         }
     }
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);

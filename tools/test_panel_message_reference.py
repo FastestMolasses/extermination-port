@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Original FCA10/FDB80/FD790/FD950 timing for global panel message18.
+"""Original FCA10/FDB80/FD790/FD950 timing for the global panel and terminal
+lines 0x80000018 / 0x8000001A against the LIVE message service
+(em_message_live, WP-8) as the AREA11 host posts them (001B7D60 case 0).
 
-The original timing table is read directly from the user's ELF. Glyph width,
-text drawing and audio teardown are explicit call boundaries. No authored
-message duration or input-dismissal rule is used by the native worker.
+The original timing table is read directly from the user's ELF; the native
+side runs on the exported data (tools/export_message_data.py). Glyph width,
+text drawing and audio teardown are explicit call boundaries on the original
+side; the native side runs its translated draw and records whether a line
+was drawn. No authored message duration or input-dismissal rule is used.
 """
 import ctypes as C
 import hashlib
@@ -87,51 +91,87 @@ class Original(Base):
             else:self.plain(word);pc+=4
         raise AssertionError('Original global message failed to return')
 
-BRIDGE=r'''
-#include "game/em_panel_message.h"
-static EmPanelMessage message;
-int load(const char *path) {return em_panel_message_load(&message,path);}
-void close_message(void) {em_panel_message_free(&message);}
-int start(unsigned token,unsigned delay) {return em_panel_message_start(&message,token,delay);}
-void tick(int a,int b,int *result) {
-    result[2]=em_panel_message_tick(&message,a,b);
-    result[0]=message.phase;
-    const EmOpeningLine *line=em_opening_dialogue_line(&message.dialogue);
-    result[1]=line ? line->line : -1;
+BRIDGE=r"""
+/* The live service is compiled into this bridge (not linked separately) so
+ * its 001FAAC0 worker can be observed: 001FAB80, the mode-2 teardown's
+ * voice-lane release, calls it for lanes 1 then 2. The count of those pairs
+ * is the native twin of the original side's 001FAB80 count. */
+#define load live_load  /* the service's own static loader */
+#include "game/em_message_live.c"
+#undef load
+#include <string.h>
+static EmSceneState scene;
+static int strips, lane1, lane2;
+static int count_stop_lane(void *ctx,int lane) {
+    if(lane==1) lane1++;
+    else if(lane==2) lane2++;
+    return w_stop_lane(ctx,lane);
 }
-'''
+EmSceneState *em_scene_state(void) {return &scene;}
+void em_frame_set_message_service(const EmFrameMessageService *service) {(void)service;}
+int em_hud_tall_glyph_cell(uint32_t index,EmHudGlyphCell *cell) {(void)index;(void)cell;return 1;}
+void em_hud_glyph_strip(EmGfx *gfx,const EmMessageGlyphFlush *flush) {(void)gfx;(void)flush;strips++;}
+int load(const char *path) {
+    memset(&scene,0,sizeof scene);
+    scene.d810700=0x0B;
+    if(!em_message_live_install(path)) return 0;
+    s.service.workers.stop_lane=count_stop_lane;
+    return em_message_live_reset()==0;
+}
+void close_message(void) {em_message_live_shutdown();}
+int start(unsigned token,unsigned delay) {return em_message_live_post(token,(int)delay)==0;}
+void tick(int a,int b,int *result) {
+    (void)a;(void)b; /* D_00282155/156 read 0 in the live service: no voice lane runs */
+    EmMessageBlock *block=em_message_live_block();
+    int frames=block->frames;
+    strips=0;lane1=lane2=0;
+    int rc=em_message_live_tick();
+    em_message_live_render((EmGfx *)&scene);
+    result[0]=block->phase;
+    /* 001FD950 ran (its draw included) when the present counter +0x68
+     * advanced by one; an empty line draws no glyph strip. */
+    result[1]=block->frames==frames+1 ? (int)(block->current&0x7FFFFFFFu) : -1;
+    /* 001FAB80 calls: one per (lane 1, lane 2) release pair; a fault or an
+     * unpaired release cannot equal any original count. */
+    result[2]=rc!=0 ? -100+rc : lane1==lane2 ? lane1 : -50;
+}
+"""
 
 def main():
     assert sys.platform=='darwin','Host harness uses the macOS dead-strip linker'
     elf=(ROOT.parent/'Extermination/config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest()=='ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
+    data=ROOT/'assets/message/message_data.emmd'
+    assert data.exists(),'run tools/export_message_data.py first'
     out=ROOT/'build/panel_message_reference';out.mkdir(parents=True,exist_ok=True)
     (out/'bridge.c').write_text(BRIDGE)
     library=out/'message.dylib'
     subprocess.run(['cc','-dynamiclib','-Wl,-undefined,dynamic_lookup','-Wl,-dead_strip',
         *[f'-Wl,-exported_symbol,_{name}' for name in ('load','close_message','start','tick')],
         '-O1','-g','-Wall','-Wextra','-Werror','-Isrc',str(out/'bridge.c'),
-        'src/game/em_panel_message.c','src/game/em_opening_media.c','-lm','-o',str(library)],cwd=ROOT,check=True)
+        'src/game/em_message_service.c',
+        'src/game/em_message_draw_original.c','src/game/em_message_glyph_original.c',
+        '-lm','-o',str(library)],cwd=ROOT,check=True)
     native=C.CDLL(str(library));native.load.argtypes=[C.c_char_p]
     native.tick.argtypes=[C.c_int,C.c_int,C.POINTER(C.c_int)]
     count=0
-    for first_line,asset in ((0x18,'panel/terminal.emod'),(0x1A,'elevator_refusal.emod')):
+    # The live service's voice lanes are idle (no voice lane runs in the
+    # port), so the busy gates D_00282155/156 are 0 on both sides here; the
+    # service's own oracle (test_message_service_reference.py) covers them.
+    for first_line in (0x18,0x1A):
         for delay in (0,1,30):
-            for busy_kind in (0,1,2):
-                assert native.load(str(ROOT/'assets/scene_snow'/asset).encode())==1
-                assert native.start(0x80000000|(first_line^2),delay)==0
-                assert native.start(0x80000000|first_line,delay)==1
-                original=Original(elf,delay,first_line);values=(C.c_int*3)();visible=0
-                for frame in range(delay+165):
-                    busy=frame<delay+155
-                    a=int(busy and busy_kind==1);b=int(busy and busy_kind==2)
-                    expected=original.tick(a,b);native.tick(a,b,values)
-                    assert tuple(values)==expected,(first_line,delay,busy_kind,frame,tuple(values),expected)
-                    visible+=values[1]==first_line;count+=1
-                assert visible==149
-                native.close_message()
+            assert native.load(str(data).encode())==1
+            assert native.start(0x80000000|first_line,delay)==1
+            original=Original(elf,delay,first_line);values=(C.c_int*3)();visible=0
+            for frame in range(delay+165):
+                expected=original.tick(0,0);native.tick(0,0,values)
+                assert tuple(values)==expected,(first_line,delay,frame,tuple(values),expected)
+                visible+=values[1]==first_line;count+=1
+            assert visible==149
+            native.close_message()
     report={'original_worker_callbacks':count,'global_lines18_and1A_visible_draws_each':149,
-            'delay_and_both_stream_gates':'PASS','glyph_rendering':'explicit boundary'}
+            'delay':'PASS','service':'em_message_live (the live step-F service)',
+            'glyph_rendering':'explicit boundary (test_message_glyph_reference.py)'}
     (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report))
 

@@ -103,15 +103,14 @@ collision tolerance. The panel fixture remains unchanged. Reproduce with
 `make test-camera-rotation-reference test-camera-interaction-fixture`.
 This is not a claim of complete camera-solver or PS2 hardware equivalence.
 
-The refusal's global message8000001A now uses the same original presenter
-as the panel message80000018. `export_elevator.py` exports its original
-148-tick record and zero-duration terminal to ignored `elevator_refusal.emod`.
-`EmPanelMessage` retains its existing API but accepts either verified asset;
-a request for the other token is rejected. The original FCA10/FDB80/FD790/
-FD950 chain agrees across3156 callbacks for both messages, delays0/1/30 and
-each stream-busy flag. Each line has149 visible draws; input does not dismiss
-it. Completion remains visible to the following script-worker callback.
-Live scene use of this presenter remains part of the pending host binding.
+The refusal's global message8000001A uses the same original presenter as
+the panel message80000018: since WP-8 both run on the live message service
+(docs/MESSAGE_SERVICE.md; `EmPanelMessage` and `elevator_refusal.emod` are
+deleted). `test_panel_message_reference.py` runs the live service against
+the original FCA10/FDB80/FD790/FD950 chain for both lines at delays 0/1/30
+(1,052 ticks; the busy flags are covered by the service's own oracle). Each
+line has 149 visible draws; input does not dismiss it. Completion remains
+visible to the following script-worker callback.
 
 `make test-elevator-program` uses the exported scripts under ASan/UBSan with
 explicit frame/player/camera/message boundaries. It checks refusal, both ride

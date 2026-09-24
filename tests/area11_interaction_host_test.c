@@ -128,9 +128,10 @@ int em_gfx_overlay_triangle(EmGfx *g, const float xy[3][2], const float rgba[3][
 }
 
 
-void em_hud_subtitle(EmGfx *gfx, const char *text, float y, float height, float skew,
-                     uint32_t color, uint32_t outline)
-{ (void)gfx; (void)text; (void)y; (void)height; (void)skew; (void)color; (void)outline; }
+/* The message service's glyph boundary (em_message_live, WP-8). */
+int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
+{ (void)index; (void)cell; return 1; }
+void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush) { (void)gfx; (void)flush; }
 int em_sfx_set_area(int area, int sub)
 {
     sfx_selected = 0;
@@ -321,6 +322,9 @@ static void setup(int reset_inventory)
     assert(player_pose_opening_release());
     player_pose_finish_palette();
     assert(em_opening_media_prepare("assets/scene_snow") == 0);
+    /* The live message service (step F) the panel and terminal lines run on. */
+    assert(em_message_live_install("assets/message/message_data.emmd"));
+    assert(em_message_live_reset() == 0);
     /* The placed items (em_scene's manifest pickups) the host binds; a
      * taken item is not placed (-2). */
     static EmInteractionScene placed;
@@ -331,6 +335,7 @@ static void setup(int reset_inventory)
                                  placed.owners[i].position, placed.owners[i].angles[1],
                                  placed.owners[i].uid, NULL, 0) != -1);
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    em_message_live_set_host(em_area11_interaction_host_message_host());
     pickups_state0();
     assert(sfx_selected);
     em_area11_interaction_host_set_panel_address(PANEL_ADDRESS);
@@ -343,7 +348,9 @@ static void teardown(void)
     player_use_set_hook(NULL, NULL);
     player_pose_unload();
     em_pickup_scene_clear(NULL);
+    em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
+    em_message_live_shutdown();
     assert(!sfx_selected);
     assert(!em_area11_interaction_host_shared() && !player_pose_owned());
     em_opening_media_shutdown();
@@ -437,7 +444,7 @@ static int outer(unsigned pressed)
     assert(!em_area11_interaction_host_elevator_tick());
     EmInteractionFrame *frame = em_area11_interaction_host_shared()->frame;
     (void)pickup_ticks(); /* the item owners at their nodes (they store their frame view) */
-    assert(em_area11_interaction_host_message_tick(0, 0) >= 0);
+    assert(em_message_live_tick() == 0);
     assert(g.cam.top_mode == frame->camera_top && g.cam.sub_state == frame->camera_phase &&
            g.cam.mode == frame->camera_mode);
     /* Explicit original camera-stage scheduling (0018B9C0 decays the

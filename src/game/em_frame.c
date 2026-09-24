@@ -31,7 +31,6 @@
 #include "em_input.h"
 #include "game/em_bgm.h"
 #include "game/em_task.h"
-#include "game/em_opening_media.h"
 
 static struct {
     EmWindow    *win;
@@ -316,7 +315,6 @@ int em_frame_step(void)
     em_bgm_service();
     /* Original message presentation overlays the already queued bars,
      * then the full-screen transition composites over the whole image. */
-    em_opening_media_render(s_frame.gfx);
     if (s_frame.message.render)
         s_frame.message.render(s_frame.message.context, s_frame.gfx);
     s_frame.suspended_draw_transition =

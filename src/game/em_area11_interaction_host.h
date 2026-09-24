@@ -10,6 +10,7 @@
 
 #include "game/em_elevator_runtime.h"
 #include "game/em_frame.h"
+#include "game/em_message_live.h"
 #include "game/em_interaction_scene.h"
 #include "game/em_interaction_projection.h"
 #include "game/em_panel_runtime.h"
@@ -86,16 +87,10 @@ int em_area11_interaction_host_status_page(const EmStatusInput *input);
 int em_area11_interaction_host_status_render(EmGfx *gfx);
 void em_area11_interaction_host_status_clear_route(void);
 int em_area11_interaction_host_status_route(void);
-/* Shared message service follows all ordinary script workers. */
-int em_area11_interaction_host_message_tick(int busy155, int busy156);
-void em_area11_interaction_host_message_render(EmGfx *gfx);
-/* The message block D_002821B0 as the host holds it: the kind and token
- * the message command 001B7D60 stored at the start, the presenter's phase
- * D_002821B4; all zero while idle (001FC9B0's teardown clears the block).
- * Instrumentation. */
-void em_area11_interaction_host_message_block(uint32_t block[3]);
-/* The two above as the main loop's step-F service (em_frame.h). */
-const EmFrameMessageService *em_area11_interaction_host_message_service(void);
+/* The live message service's host hooks (em_message_live.h, WP-8): the
+ * step-F gate (held while the status page layer runs) and the slot-0 face
+ * talk 001D06E0. */
+const EmMessageLiveHost *em_area11_interaction_host_message_host(void);
 /* Store the shared frame view to its canonical storage after an owner
  * outside the host (the fixture's pickup adapter) wrote it directly. */
 void em_area11_interaction_host_camera_fields(void);

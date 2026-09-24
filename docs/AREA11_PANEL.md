@@ -274,16 +274,17 @@ boundaries, not a claim of complete native status integration.
 
 The panel's message token80000018 uses the global timing table at272DF0.
 Record18 has148 ticks and record19 is its zero-duration terminal; neither
-has a voice cue or actor-talk slot. `export_panel.py` now writes both records
-and their original strings to ignored `terminal.emod`. `em_panel_message`
-reuses the opening's FD790/FD950 dialogue clock and subtitle renderer.
-It respects the actual request delay and stream flags155/156; it has no
-input dismissal or typewriter effect. The original chain FCA10/FDB80/
-FD790/FD950 agrees across1578 worker callbacks, including delays0/1/30
-and either stream busy flag. The full line appears149 times because the
-zero-timer completion call also draws it. The phase2 completion signal
+has a voice cue or actor-talk slot. Since WP-8 the line runs on the live
+message service (docs/MESSAGE_SERVICE.md; `em_panel_message` and its
+`terminal.emod` are deleted); the notes below describe the timing it keeps.
+It respects the actual request delay and stream flags 155/156; it has no
+input dismissal or typewriter effect. The live service agrees with the
+original chain FCA10/FDB80/FD790/FD950 at delays 0/1/30
+(`test_panel_message_reference.py`). The full line appears 149 times because
+the zero-timer completion call also draws it. The phase-2 completion signal
 remains visible to the next script tick and is cleared by the following
-message-service tick. Glyph drawing is an explicit oracle boundary.
+message-service tick. Its glyphs are the translated chain of
+docs/MESSAGE_GLYPH.md.
 
 ## ITEM root and status lifecycle
 

@@ -531,62 +531,6 @@ def ring_cases(elf, capture, scratch, lib):
     return count
 
 
-class Line(C.Structure):
-    _fields_ = [('line', C.c_uint16), ('duration', C.c_uint16), ('voice', C.c_int16),
-                ('speaker', C.c_uint8), ('terminal', C.c_uint8), ('skew', C.c_uint8),
-                ('text', C.c_char_p)]
-
-
-class Dialogue(C.Structure):
-    _fields_ = [('lines', C.POINTER(Line)), ('count', C.c_uint), ('next', C.c_uint),
-                ('displayed', C.c_uint), ('remaining', C.c_uint), ('active', C.c_int),
-                ('loaded', C.c_int)]
-
-
-def dialogue_cross_check(elf, capture, scratch, native, out):
-    """The verified em_opening_dialogue clock (+0x60/+0x6C/+0x5C mirror)
-    and the service agree tick for tick on text-only global messages, so
-    the panel/Roger/opening callers can be routed into the service."""
-    library = out / 'dialogue.dylib'
-    names = ('em_opening_dialogue_start', 'em_opening_dialogue_tick')
-    subprocess.run(['cc', '-dynamiclib', '-Wl,-undefined,dynamic_lookup', '-Wl,-dead_strip',
-                    *[f'-Wl,-exported_symbol,_{name}' for name in names], '-O1', '-Isrc',
-                    'src/game/em_opening_media.c', '-o', str(library)], cwd=ROOT, check=True)
-    dialogue_lib = C.CDLL(str(library))
-    dialogue_lib.em_opening_dialogue_start.argtypes = [C.POINTER(Dialogue), C.POINTER(Line), C.c_uint]
-    dialogue_lib.em_opening_dialogue_tick.argtypes = [C.POINTER(Dialogue)]
-    ticks = 0
-    for first in (0x18, 0x1A, 0x0A):
-        records, index = [], first
-        while True:
-            r = native.global_table[index]
-            records.append(Line(index, r.duration, r.voice, r.slot, r.wait_stream, 0, None))
-            if r.wait_stream: break
-            index += 1
-        lines = (Line * len(records))(*records)
-        dialogue = Dialogue()
-        dialogue_lib.em_opening_dialogue_start(C.byref(dialogue), lines, len(lines))
-        o = fresh(elf, capture, scratch, native, 2, 0)
-        handshake = [0]
-        op0c_both(o, native, 0, 0x80000000 | first, 0, 0, handshake)
-        while dialogue.active:
-            native.lib.tick()
-            native.events()
-            dialogue_lib.em_opening_dialogue_tick(C.byref(dialogue))
-            block = native.state()[0]
-            record, remaining = struct.unpack_from('<i', block, 0x60)[0], struct.unpack_from('<i', block, 0x6C)[0]
-            loaded = struct.unpack_from('<i', block, 0x5C)[0]
-            phase = struct.unpack_from('<i', block, 4)[0]
-            if dialogue.active:
-                assert (dialogue.next, dialogue.remaining, dialogue.loaded) == (record, remaining, loaded), \
-                    (hex(first), ticks, dialogue.next, record, dialogue.remaining, remaining)
-                assert phase == 1
-            else:
-                assert phase == 2, (hex(first), phase)
-            ticks += 1
-    return ticks
-
-
 def coverage(report):
     """The comparisons above only prove agreement; these prove the voice,
     face and draw paths actually ran in the original."""
@@ -698,7 +642,6 @@ def main():
     # line has no completion inside the service (its caller ends it).
     assert resumed['opening'][1] and resumed['roger-encounter'][1] and not resumed['panel'][1]
     coverage(report)
-    report['dialogue_clock_cross_check_ticks'] = dialogue_cross_check(elf, capture, scratch, native, out)
     report.update(status='PASS', total_message_ticks=ticks,
                   captured_resume_ticks={k: v[0] for k, v in resumed.items()},
                   mode_dispatch_ticks=mode_cases(elf, capture, scratch, native),

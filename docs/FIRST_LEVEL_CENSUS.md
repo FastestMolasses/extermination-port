@@ -476,7 +476,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B6FA0 | — | BM | unverified | em_area_script | script op handlers, module not linked | 10_cage_roof_roger |
 | 0x001B7840 | — | BM | unverified | em_area_script | script op handlers, module not linked | 14_roger_encounter |
 | 0x001B7B30 | — | BM | verified-unbound | em_cinematic_playback — test_cinematic_playback_reference | em_camera.c retarget/chase hooks (cases 3/5; level smoke routes 02-04) | S2_opening |
-| 0x001B7D60 | — | BM | live | em_panel_message.c via the host message start — test_panel_message_reference | em_director.c kCineBeats for the director lines | S2_opening |
+| 0x001B7D60 | — | BM | live | em_message_service em_message_op0c via em_message_live (the opening's op0C; the AREA11 host's panel/terminal lines) — test_message_service_reference, test_panel_message_reference | em_director.c kCineBeats for the director lines (WP-10) | S2_opening |
 | 0x001B7F90 | — | BM | verified-unbound | em_pickup_motion — test_pickup_motion_reference.py |  | 01_battery |
 | 0x001B8020 | — | BM | verified-unbound | em_roger_runtime, em_area_script — test_roger_encounter_reference.py |  | 09_fence_door |
 | 0x001B81D0 | — | BM | unverified | em_opening_runtime.c (skeleton bind) / em_area_script | mentioned by test_face_allocation_reference and test_roger_media_reference | S2_opening |
@@ -600,7 +600,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001CB6B0 | — | BM | verified-unbound | em_head_sprite_original — test_head_sprite_reference.py |  | S2_opening |
 | 0x001CB760 | — | BM | verified-unbound | em_head_sprite_original — test_head_sprite_reference.py |  | S2_opening |
 | 0x001CB900 | — | BM | verified-unbound | em_head_sprite_original — test_head_sprite_reference.py |  | S2_opening |
-| 0x001CBE10 | — | BM | verified-unbound | em_message_draw_original, em_hud — test_message_draw_reference.py |  | S2_opening |
+| 0x001CBE10 | — | BM | live | em_message_glyph_original (the message glyph advance), em_hud's atlas advances — test_message_glyph_reference.py, test_message_draw_reference.py |  | S2_opening |
 
 ### 3.15 Message glyphs, object registry and face (0x1CC170..0x1D19CF)
 
@@ -608,8 +608,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001CC170 | — | AI | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
-| 0x001CC3B0 | — | NM | live | em_status_hub_ui.c render_text — test_status_hub_ui_reference |  | S2_opening |
+| 0x001CC170 | — | AI | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
+| 0x001CC3B0 | — | NM | live | em_message_glyph_original (message lines, drawn through the atlas by em_hud_glyph_strip); em_status_hub_ui.c render_text — test_message_glyph_reference, test_status_hub_ui_reference |  | S2_opening |
 | 0x001CCF70 | — | NM | verified-unbound | em_effect_original, em_head_sprite_original — test_effect_original_reference.py, test_head_sprite_reference.py |  | S2_opening |
 | 0x001CD370 | — | BM | verified-unbound | em_head_sprite_original — test_head_sprite_reference.py |  | S2_opening |
 | 0x001CD390 | — | NM | verified-unbound | em_effect_original, em_shadow_actor_route — test_effect_original_reference.py, test_shadow_actor_route_reference.py |  | 02_elevator_refusal |
@@ -775,7 +775,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FA790 | — | NM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference | live call is a reported no-effect binding | S1_newgame_load |
 | 0x001FAAC0 | — | BM | verified-unbound | em_stream_lanes_original, em_scene_bindings — test_stream_lanes_reference.py |  | S0_title |
 | 0x001FAB50 | — | BM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference | live call is a reported no-effect binding | S0_title |
-| 0x001FAB80 | — | BM | verified-unbound | em_stream_lanes_original, em_message_service — test_message_service_reference.py, test_stream_lanes_reference.py |  | S0_title |
+| 0x001FAB80 | — | BM | live | em_message_service via em_message_live (step F) (its 001FAAC0 calls on the idle voice lanes do nothing) — test_message_service_reference.py; em_stream_lanes_original — test_stream_lanes_reference.py |  | S0_title |
 | 0x001FABB0 | — | BM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference | w_001FABB0 -> em_bgm_stop / em_opening_media_stop (native streams) | S0_title |
 | 0x001FABF0 | — | NM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference.py |  | S1_newgame_load |
 | 0x001FAE70 | — | BM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference | em_scene_bindings.c w_001FAE70 (state 5 translated, unverified; state 0 reported) | S1_newgame_load |
@@ -791,19 +791,19 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FC280 | — | NM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference | em_scene_bindings.c w_001FAE70 (state 5 translated, unverified; state 0 reported) | S1_newgame_load |
 | 0x001FC3C0 | — | BM | verified-unbound | em_sfx, em_sfx_bank — test_area11_sfx_reference.py, test_area11_sfx_runtime.py |  | S2_opening |
 | 0x001FC6E0 | — | BM | missing |  |  | S0_title |
-| 0x001FC770 | — | BM | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
-| 0x001FC7B0 | — | NM | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
-| 0x001FC9B0 | — | CL | verified-unbound | em_message_service — test_message_service_reference | live call reported no-effect (um_001FC9B0) | S1_newgame_load |
-| 0x001FCA10 | — | BM | live | em_panel_message.c (step-F service via the host) — test_panel_message_reference | em_opening_media.c (opening) and em_director.c (director lines); panel/elevator lines only | S0_title |
+| 0x001FC770 | — | BM | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
+| 0x001FC7B0 | — | NM | live | em_message_glyph_original via em_message_live — test_message_glyph_reference.py |  | S2_opening |
+| 0x001FC9B0 | — | CL | live | em_message_service em_message_reset via em_message_live (w_001FC9B0 and the service's own teardown) — test_message_service_reference |  | S1_newgame_load |
+| 0x001FCA10 | — | BM | live | em_message_service via em_message_live (step F, installed at bring-up) — test_message_service_reference, test_panel_message_reference, test_roger_media_reference | em_director.c for the director lines (WP-10); modes 3/4 fault (their presenters are untranslated; the status page presents its own mode 4) | S0_title |
 | 0x001FCB90 | — | CL | stand-in |  | em_hud.c legacy message lookup | 01_battery |
 | 0x001FCF10 | — | BM | missing |  |  | 03_panel_power |
-| 0x001FD470 | — | BM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference.py |  | S2_opening |
-| 0x001FD4C0 | — | BM | verified-unbound | em_message_service — test_area_script_reference.py, test_message_service_reference.py |  | S2_opening |
-| 0x001FD580 | — | BM | verified-unbound | em_message_service — test_message_service_reference.py |  | S2_opening |
-| 0x001FD6A0 | — | BM | verified-unbound | em_message_service — test_message_service_reference.py |  | S2_opening |
-| 0x001FD790 | — | NM | live | em_opening_media.c dialogue clock — test_roger_media_reference; test_panel_message_reference |  | S2_opening |
-| 0x001FD950 | — | NM | live | em_opening_media.c dialogue clock — test_roger_media_reference; test_panel_message_reference |  | S2_opening |
-| 0x001FDB80 | — | NM | live | em_opening_media.c dialogue clock — test_roger_media_reference; test_panel_message_reference |  | S2_opening |
+| 0x001FD470 | — | BM | live | em_scene_bindings_001FD470 (bit 0 w_001FBC50, bit 1 w_001FABB0) as the message service's stream_stop; em_stream_lanes_original — test_stream_lanes_reference.py |  | S2_opening |
+| 0x001FD4C0 | — | BM | live | em_message_service em_message_stream_request via em_message_live (the opening's 001B82D0 op12) — test_message_service_reference.py, test_area_script_reference.py, test-opening-runtime |  | S2_opening |
+| 0x001FD580 | — | BM | live | em_message_service via em_message_live (step F) — test_message_service_reference.py | a voiced record faults at 001FA5A0 (the voice lanes are not live) | S2_opening |
+| 0x001FD6A0 | — | BM | live | em_message_service via em_message_live (step F) — test_message_service_reference.py | as 001FD580 | S2_opening |
+| 0x001FD790 | — | NM | live | em_message_service via em_message_live (step F) — test_message_service_reference, test_roger_media_reference, test_panel_message_reference |  | S2_opening |
+| 0x001FD950 | — | NM | live | em_message_service via em_message_live (step F); its draw half em_message_draw_original — test_message_service_reference, test_message_draw_reference, test_message_capture |  | S2_opening |
+| 0x001FDB80 | — | NM | live | em_message_service via em_message_live (step F) — test_message_service_reference, test_roger_media_reference, test_panel_message_reference |  | S2_opening |
 
 ### 3.20 Message draw (0x1FE000..0x1FEFFF)
 
@@ -811,12 +811,12 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001FE070 | — | NM | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
-| 0x001FE460 | — | BM | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
-| 0x001FE480 | — | AI | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
+| 0x001FE070 | — | NM | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
+| 0x001FE460 | — | BM | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
+| 0x001FE480 | — | AI | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
 | 0x001FE4B0 | — | BM | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
 | 0x001FE4D0 | — | BM | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
-| 0x001FE530 | — | AW | verified-unbound | em_message_draw_original — test_message_draw_reference.py |  | S2_opening |
+| 0x001FE530 | — | AW | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
 | 0x001FEF70 | — | BM | verified-unbound | em_status_scene_original — test_status_scene_reference.py |  | S1_newgame_load |
 
 ### 3.21 Status UI: hub, ITEM/BATTERY pages, pickups (0x207000..0x21AFFF)
@@ -1075,6 +1075,7 @@ Boundary notes:
 
 - **Sound library.** The port plays AREA11 cues through the pitch path verified by `test_area11_sfx_reference` (00115850 bend, 00117918), but its mixer has no SPU2 ADSR, Gaussian interpolation or reverb (WP-14, AM-03/04). Stream gain 0x1999 is only reported (H22).
 - **Module loader.** The native area read replaces 001FF080(1, 0) and the load arms run through the verified cores; the status-page module 0x1F/0x21 load is instant where the original waits 24 dispatches (H7).
+- **Message glyphs (WP-8).** 001CC1E0 (tall-font strip layout) is translated and live in `em_message_glyph_original`, and 001CC8A0/001CCB00 are its upload/reset boundary there; `test_message_glyph_reference.py` compares every upload call and every packed pass with the executed original. The glyph texels are the port's atlas.
 - **GS/VU1.** The renderer is the port's own. Individual packet builders have no per-call comparison; the level material, overlay blend, fog, snow and status draw tests compare their results where they exist. The game-side render heads (001D1C50, 001D1EA0, 001D30A0) and the projection helpers are **not** treated as boundaries: they are stand-ins in section 3.
 - **Movies.** Title-only MPEG code and the unidentified 0x205050..0x205F90 glue (title only, adjacent to the MPEG glue) are replaced by the native movie path; no original comparison exists.
 

@@ -61,6 +61,12 @@ void em_bgm_stop(int fade);
  * when no music was ever started. */
 void em_bgm_service(void);
 
+/* A lane service run first in every em_bgm_service, the position of the
+ * original stream lane service 001F9CF0 in step H (001FB100). The port's
+ * only lane stand-in, the opening stream (em_opening_media), polls its
+ * hold byte D_008106F4 there. NULL clears. */
+void em_bgm_set_lane_service(void (*service)(void *context), void *context);
+
 /* Tear down: destroy the audio device (blocks until the callback can no
  * longer fire — the em_audio.h teardown-ordering guarantee), free all
  * track memory, and print the delivered/played frame counters if music

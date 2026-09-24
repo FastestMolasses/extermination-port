@@ -135,10 +135,10 @@ typedef int (*EmFrameMoviePump)(void *user);
 void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user);
 
 /* Main-loop step F, 001FCA10 (the shared message service), right after the
- * task dispatch (step E): a scene whose owners start messages registers its
- * presenter here (since WP-4 the AREA11 interaction host's panel and
- * terminal messages). tick returns -1 on a fault (the frame quits), render
- * draws with the opening media's line, under the transition. NULL clears. */
+ * task dispatch (step E): since WP-8 the live message service
+ * (em_message_live.h) is installed here at bring-up. tick returns -1 on a
+ * fault (the frame quits); render draws the frame's message glyphs under
+ * the transition. NULL clears. */
 typedef struct {
     int (*tick)(void *context);
     void (*render)(void *context, EmGfx *gfx);

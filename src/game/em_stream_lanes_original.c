@@ -20,10 +20,10 @@
 #define EM_STREAM_MUSIC_ROWS 68u
 
 /* ------------------------------------------------------------------------
- * EE COP1 (docs/EE_FLOAT_MODEL.md section 2): every add.s / sub.s / mul.s /
- * div.s / cvt.s.w / neg.s / c.eq.s / c.lt.s / c.le.s below is the shared
- * integer-only model in game/em_ee_float.h (section 6), on raw binary32
- * words. No host float operation is performed in this module. */
+ * EE COP1 (docs/EE_FLOAT_MODEL.md section 2): every single-precision add,
+ * subtract, multiply, divide, int-to-float conversion, negation and compare
+ * below is the shared integer-only model in game/em_ee_float.h (section 6),
+ * on raw binary32 words. No host float operation is performed in this module. */
 
 /* Exponent field, for the integer soft-float leaves below (not COP1). */
 static uint32_t fexp(uint32_t b) { return (b >> 23) & 0xFFu; }
@@ -743,3 +743,123 @@ static int service(EmStreamLanes *L)
 }
 
 int em_stream_lanes_001F9CF0(EmStreamLanes *L) { return latched(L) ? -1 : service(L); }
+
+/* ------------------------------------------------------------------------
+ * 001F9820: the lanes' initial state (run once from 001AAE40's start-up and
+ * again at the end of 001F9BF0). Translated from the .s; its NEARMISS C has
+ * the same stores and calls. */
+
+/* 1 << voice as a 32-bit shift (the shift amount is taken mod 32), the
+ * width the lane masks are built with before their sign extension. */
+static uint32_t bit32(int32_t voice) { return 1u << ((uint32_t)voice & 31u); }
+
+/* 1 << voice as a 64-bit shift (mod 64): the masks passed to the packers. */
+static uint64_t bit64(int32_t voice) { return (uint64_t)1 << ((uint32_t)voice & 63u); }
+
+static uint64_t sext32(uint32_t v) { return (uint64_t)(int64_t)(int32_t)v; }
+
+/* 0011A4E8(p): p = {voice, flags, a, b, c, d}. Each of the low 16 flag bits
+ * is visited from bit 0 up; bit 0 sets and bit 1 clears the voice's bit
+ * (a 64-bit 1 << voice) in D_0027F740, the others do nothing. Then
+ * 001157F0(0x3E, (voice << 24) | (flags & 0xFF0000) | (d & 0xFF00) |
+ * ((c & 0xFF0000) >> 16), (c << 16) | ((b >> 8) & 0xFFFF),
+ * (b << 24) | (a & 0xFFFFFF)); the shifts are 32-bit and unsigned. */
+static int cmd_0011A4E8(EmStreamLanes *L, const int32_t p[6])
+{
+    EmStreamLanesGlobals *g = globals(L, 0x0011A4E8u);
+    uint32_t v = (uint32_t)p[0], flags = (uint32_t)p[1], a = (uint32_t)p[2];
+    uint32_t b = (uint32_t)p[3], c = (uint32_t)p[4], d = (uint32_t)p[5];
+    if (!g)
+        return -1;
+    if (flags & 1u)
+        g->d27F740 |= bit64(p[0]);
+    if (flags & 2u)
+        g->d27F740 &= ~bit64(p[0]);
+    return iop(L, EM_STREAM_CMD_0011A4E8,
+               (int32_t)((v << 24) | (flags & 0xFF0000u) | (d & 0xFF00u) | ((c & 0xFF0000u) >> 16)),
+               (int32_t)((c << 16) | ((b >> 8) & 0xFFFFu)),
+               (int32_t)((b << 24) | (a & 0xFFFFFFu)));
+}
+
+int em_stream_lanes_0011A4E8(EmStreamLanes *L, const int32_t p[6])
+{
+    return latched(L) ? -1 : cmd_0011A4E8(L, p);
+}
+
+/* 0011A658(mask, a1): 001157F0(0x41, mask & 0xFFFFFF, (mask >> 24) &
+ * 0xFFFFFF (64-bit shift), a1). */
+static int cmd_0011A658(EmStreamLanes *L, uint64_t mask, int32_t a1)
+{
+    return iop(L, EM_STREAM_CMD_0011A658, (int32_t)(mask & 0xFFFFFFu),
+               (int32_t)((mask >> 24) & 0xFFFFFFu), a1);
+}
+
+/* One voice's set-up: 0011A4E8(block), 0011A608(1 << voice, l, r),
+ * 0011A658(1 << voice, 0xBB80). */
+static int voice_setup(EmStreamLanes *L, const int32_t block[6], int32_t l, int32_t r)
+{
+    if (cmd_0011A4E8(L, block) || cmd_0011A608(L, bit64(block[0]), l, r))
+        return -1;
+    return cmd_0011A658(L, bit64(block[0]), 0xBB80);
+}
+
+int em_stream_lanes_001F9820(EmStreamLanes *L)
+{
+    EmStreamLanesState *s = &L->state;
+    EmStreamLanesGlobals *g;
+    int32_t v[4];
+    int i;
+    if (latched(L) || !(g = globals(L, 0x001F9820u)))
+        return -1;
+    if (iop(L, EM_STREAM_CMD_0011A4B8, 0, 0, 0))                   /* 0011A4B8 */
+        return -1;
+    s->active[0] = s->active[1] = s->active[2] = 0;                /* D_00282154..56 */
+    s->music_clip = 0;                                             /* D_00275B2C */
+    for (i = 0; i < 4; i++) {                                      /* four 0011A2B0(0) */
+        if (!L->workers.w_0011A2B0)
+            return fault(L, 0x0011A2B0u, EM_STREAM_FAULT_NULL_WORKER);
+        if (leave(L, 0x0011A2B0u, L->workers.w_0011A2B0(L->workers.ctx, 0, &v[i])))
+            return -1;
+    }
+    {   /* lane 0, first voice: block {v0, 0x20002, D_00275B28 + 0x400, 0x10000,
+         * 0x5010, 0x4000}, volume words (0x3FFF, 0) */
+        const int32_t block[6] = {v[0], 0x20002, (int32_t)(g->d275B28 + 0x400u), 0x10000,
+                                  0x5010, 0x4000};
+        if (voice_setup(L, block, 0x3FFF, 0))
+            return -1;
+    }
+    s->lane[0].voice = v[0];
+    s->lane[0].voice_mask = sext32(bit32(v[0]) | bit32(v[1]));     /* both lane-0 voices */
+    s->lane[0].buffer = g->d275B28;
+    s->lane[0].buffer_size = 0x10000;
+    s->lane[0].volume = F_16383;
+    {   /* lane 0, second voice: {v1, 0x20002, D_00275B28, 0x10000, 0x9010, 0x4000},
+         * volume words (0, 0x3FFF); D_002820F4 = v1 before the set-up */
+        const int32_t block[6] = {v[1], 0x20002, (int32_t)g->d275B28, 0x10000, 0x9010, 0x4000};
+        s->voice_right = v[1];
+        if (voice_setup(L, block, 0, 0x3FFF))
+            return -1;
+    }
+    {   /* lane 1: {v2, 0x10000, D_00275B24, 0x10000, 0xD010, 0x4000} */
+        const int32_t block[6] = {v[2], 0x10000, (int32_t)g->d275B24, 0x10000, 0xD010, 0x4000};
+        if (voice_setup(L, block, 0x3FFF, 0x3FFF))
+            return -1;
+    }
+    s->lane[1].voice = v[2];
+    s->lane[1].voice_mask = sext32(bit32(v[2]));
+    s->lane[1].buffer = g->d275B24;
+    s->lane[1].buffer_size = 0x10000;
+    s->lane[1].volume = F_16383;
+    {   /* lane 2: {v3, 0x10000, D_00275B20, 0x10000, 0x11010, 0x4000} */
+        const int32_t block[6] = {v[3], 0x10000, (int32_t)g->d275B20, 0x10000, 0x11010, 0x4000};
+        if (voice_setup(L, block, 0x3FFF, 0x3FFF))
+            return -1;
+    }
+    s->lane[2].voice = v[3];
+    s->lane[2].voice_mask = sext32(bit32(v[3]));
+    s->lane[2].buffer = g->d275B20;
+    s->lane[2].buffer_size = 0x10000;
+    s->lane[2].volume = F_16383;
+    ring_reset(s);                                                 /* 001FA570(D_00275B20) */
+    return 0;
+}

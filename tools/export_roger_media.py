@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Export Roger's original AREA11 dialogue and stereo stream into ignored assets.
+"""Export Roger's original AREA11 streams and message timing report into ignored assets.
 
-This reuses the opening's resource formats, not its stream mapping or timing.
-Only the user's extracted game data and original cue/message tables are used.
+Roger's text lines run on the message service (tools/export_message_data.py,
+WP-8); this exports the encounter and resume streams and a report of the
+encounter's message records. Only the user's extracted game data and
+original cue/message tables are used.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ import json
 from pathlib import Path
 import struct
 
-from export_opening_media import load_tool, parse_lines, write_dialogue
+from export_opening_media import load_tool
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,18 +23,19 @@ PROGRAM = 0x8283D0
 TEXT_OFFSET = 0x3E800
 
 
-def message_records(elf, data):
-    lines = parse_lines(data, TEXT_OFFSET)
+def message_records(elf):
+    """The encounter's records of the area-11 timing table D_00264DD0[12],
+    from line 0 up to the first terminal record."""
     timing = elf.u32(0x264DD0 + 12 * 4)
     records = []
-    for index, (text, skew) in enumerate(lines):
+    for index in range(162):
         duration, voice, speaker, terminal, reserved = struct.unpack(
             '<HhBBH', elf.read(timing + index * 8, 8))
         if (voice != -1 or speaker not in (0, 1, 255) or terminal not in (0, 1)
-                or reserved or skew < 0):
+                or reserved):
             raise ValueError('unsupported original Roger message record')
         records.append(dict(line=index, duration=duration, voice=voice,
-                            speaker=speaker, terminal=terminal, text=text, skew=skew))
+                            speaker=speaker, terminal=terminal))
         if terminal:
             break
     if not records or not records[-1]['terminal']:
@@ -70,14 +73,8 @@ def export(args):
     if stream is None:
         raise ValueError('Roger stream is absent from the original area table')
 
-    source_path = decomp / 'extract/chunk15/f12_id44.bin'
-    source_data = source_path.read_bytes()
-    timing, records = message_records(elf, source_data)
+    timing, records = message_records(elf)
     args.out.mkdir(parents=True, exist_ok=True)
-    cfg = struct.unpack('<6I', elf.read(0x264CD0, 24))
-    line_height = 2 * ((cfg[2] + cfg[4]) >> 1)
-    fill = elf.u32(0x26EC10) & 0xFFFFFF
-    write_dialogue(args.out / 'encounter.emod', records, line_height, fill, 0x100505)
 
     music = (args.music.read_bytes() if args.music else
              movie.iso_file(args.iso or decomp / 'Extermination-rebuilt.iso',
@@ -107,11 +104,7 @@ def export(args):
     report = dict(program=PROGRAM, frame_command=0x828410, message_command=0x828490,
                   area=11, stream_key=frame[6], first_message=message[5], delay=message[6],
                   area_stream_rows=area_rows, streams=streams, timing_address=timing,
-                  text_source=str(source_path.relative_to(decomp)), text_offset=TEXT_OFFSET,
-                  line_height=line_height, fill=fill, outline=0x100505, y=388,
-                  draw_callbacks=sum(r['duration'] + 1 for r in records),
-                  records=[{**r, 'text': r['text'].decode('ascii')} for r in records],
-                  source_sha256=hashlib.sha256(source_data).hexdigest(),
+                  draw_callbacks=sum(r['duration'] + 1 for r in records), records=records,
                   elf_sha256=hashlib.sha256(elf_path.read_bytes()).hexdigest(),
                   boundaries=['ADPCM source bytes are exact; hardware SPU2 interpolation and mixing are not claimed.',
                               'Resume cue25 is the captured AREA11 no-override route, not a universal BGM rule.',

@@ -36,18 +36,14 @@ def main():
     parser.add_argument('--overlay', type=Path,
         default=ROOT.parent/'Extermination/extract/OVERLAY/AREA11.BIN')
     parser.add_argument('--out', type=Path, default=ROOT/'assets/scene_snow/elevator.emsc')
-    parser.add_argument('--decomp', type=Path, default=ROOT.parent/'Extermination',
-        help='Matching original executable/text resources for the refusal message')
     args = parser.parse_args()
     blob = export(args.overlay.read_bytes())
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(blob)
-    from export_interaction_message import export_message
-    message = export_message(args.decomp, 0x1A, args.out.parent/'elevator_refusal.emod')
     report = {'base': BASE, 'end': END, 'records': 15,
               'powered_entry': BASE, 'refusal_entry': 0x82A990,
               'height_fields': [0x82A7C4, 0x82A844, 0x82A944],
-              'sha256': hashlib.sha256(blob).hexdigest(), 'refusal_message': message}
+              'sha256': hashlib.sha256(blob).hexdigest()}
     path = ROOT/'build/elevator_reference/export.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2)+'\n')

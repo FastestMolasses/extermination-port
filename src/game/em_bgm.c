@@ -369,8 +369,18 @@ static void bgm_reclaim(void)
     s.n_pending = kept;
 }
 
+static void (*s_lane_service)(void *);
+static void *s_lane_context;
+
+void em_bgm_set_lane_service(void (*service)(void *context), void *context)
+{
+    s_lane_service = service;
+    s_lane_context = service ? context : NULL;
+}
+
 void em_bgm_service(void)
 {
+    if (s_lane_service) s_lane_service(s_lane_context);
     BgmTrack *t = s.published;
     if (t && t->tick_fade && t->volume_step != 0.0f) {
         t->volume += t->volume_step;

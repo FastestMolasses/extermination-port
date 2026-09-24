@@ -8,7 +8,7 @@
 #include "game/em_item_device.h"
 #include "game/em_item_sdk_math.h"
 #include "game/em_opening_media.h"
-#include "game/em_panel_message.h"
+#include "game/em_message_live.h"
 #include "game/em_pickup.h"
 #include "game/em_pickup_items_original.h"
 #include "game/em_pickup_motion.h"
@@ -39,8 +39,6 @@ static struct {
     EmInteractionProjection projection;
     EmPanelRuntime panel;
     EmElevatorRuntime elevator;
-    EmPanelMessage panel_message, elevator_message;
-    EmPanelMessage *message;
     EmPlayerFaceHost face;
     EmStatusRuntime *status;
     /* The hub's static actor pool D_0028B020 and its models (WP-5). */
@@ -57,11 +55,6 @@ static struct {
      * scratch 0x70003B98, the 0020E060 route of the open status screen and
      * a failed 001B17A0 publication inside a void owner hook. */
     uint32_t panel_address;
-    /* D_002821B0 (the request kind) and D_002821B8 (the token) as the
-     * message command 001B7D60 case 0 stores them; 001FC9B0 clears them
-     * with the rest of the block. The phase D_002821B4 is the presenter's
-     * own, the delay D_002821BC its countdown. */
-    uint32_t message_kind, message_token;
     float scan_score;
     int status_route, offer_failed;
     /* WP-6: the bound item owners, the one being ticked (its hooks' owner)
@@ -186,25 +179,27 @@ static int align_panel(void *context)
         player_pose_face(yaw) && player_pose_align(position);
 }
 
+/* 001B7D60 case 0 on the live message service (em_message_live.h, WP-8):
+ * D_002821B0 = 2, B4 = 1, B8 = the line, BC = the delay word as the request
+ * holds it (001B7D60 stores it unchecked); the service runs the line at
+ * step F. The caller's frame view is stored first and loaded after, so the
+ * phase the post wrote is the view's. */
 static int message_start(void *context, uint32_t token, uint32_t delay)
 {
     (void)context;
-    EmPanelMessage *message = token == 0x80000018u ? &world.panel_message :
-        token == 0x8000001Au ? &world.elevator_message : NULL;
-    if (!message || (world.message && world.message->phase == 1) ||
-        !em_panel_message_start(message, token, delay)) return 0;
-    /* 001B7D60 case 0: D_002821B0 = 2, B4 = 1, B8 = req[5], BC = req[6]. */
-    world.message_kind = 2;
-    world.message_token = token;
-    world.message = message;
-    world.frame.message_phase = (int32_t)message->phase;
+    EmMessageBlock *block = em_message_live_block();
+    if (!block) return 0;
+    block->phase = world.frame.message_phase;
+    if (em_message_live_post(token, (int32_t)delay) < 0) return 0;
+    world.frame.message_phase = block->phase;
     return 1;
 }
 
+/* The command's later polls: complete once D_002821B4 is 2. */
 static int message_done(void *context)
 {
     (void)context;
-    return world.message ? em_panel_message_done(world.message) : -1;
+    return em_message_live_block() ? world.frame.message_phase == 2 : -1;
 }
 
 /* 00157F60's request tail for the type-24 panel (em_panel_battery_request
@@ -654,7 +649,8 @@ static void view_load(void)
     memcpy(f->activity, em_scene_req_at(scene, 0x008106D4u), sizeof f->activity);
     memcpy(f->up, g.cam.up, 3 * sizeof(float));
     f->up[3] = 1;
-    if (world.message) f->message_phase = (int32_t)world.message->phase;
+    const EmMessageBlock *block = em_message_live_block();
+    f->message_phase = block ? block->phase : 0;
 }
 
 static void view_store(void)
@@ -673,7 +669,8 @@ static void view_store(void)
     scene->req[EM_SCENE_REQ_F3] = f->auxiliary;
     memcpy(em_scene_req_at(scene, 0x008106D4u), f->activity, sizeof f->activity);
     memcpy(g.cam.up, f->up, 3 * sizeof(float));
-    if (world.message) world.message->phase = (uint32_t)f->message_phase;
+    EmMessageBlock *block = em_message_live_block();
+    if (block) block->phase = f->message_phase;
 }
 
 static void script_load(EmScript *script)
@@ -944,10 +941,8 @@ int em_area11_interaction_host_load(const char *directory,
     const uint8_t *floor = elevator_floor();
     if (!floor || !em_elevator_runtime_load(&world.elevator, path, *floor != 0, &world.shared,
                                             &g.pos[1], &g.cam.tgt[1], &elevator)) goto failed;
-    snprintf(path, sizeof path, "%s/panel/terminal.emod", directory);
-    if (!em_panel_message_load(&world.panel_message, path)) goto failed;
-    snprintf(path, sizeof path, "%s/elevator_refusal.emod", directory);
-    if (!em_panel_message_load(&world.elevator_message, path)) goto failed;
+    /* The panel and terminal lines run on the live message service. */
+    if (!em_message_live_block()) goto failed;
     char item_path[1024];
     snprintf(path, sizeof path, "%s/panel/battery.emba", directory);
     snprintf(item_path, sizeof item_path, "%s/panel/item_root.emir", directory);
@@ -993,8 +988,6 @@ void em_area11_interaction_host_clear(void)
     em_status_models_free(world.models, em_frame_gfx());
     em_panel_runtime_free(&world.panel);
     em_elevator_runtime_free(&world.elevator);
-    em_panel_message_free(&world.panel_message);
-    em_panel_message_free(&world.elevator_message);
     memset(&world, 0, sizeof world);
 }
 
@@ -1344,53 +1337,35 @@ void em_area11_interaction_host_set_panel_address(uint32_t panel)
     world.panel_address = panel;
 }
 
-int em_area11_interaction_host_message_tick(int busy155, int busy156)
+/* The message service's host hooks (em_message_live.h).
+ *
+ * message_gate is a PORT STAND-IN, not original behaviour: the original
+ * 001FCA10 runs at step F every frame with no gate. The port holds step F
+ * while the AREA11 status page layer runs because that layer still presents
+ * its mode-4 lines from its own copy of the request block (WP-5): the mode-4
+ * presenters 001FD0E0 and 001FCB90 / 001FCF90 / 001FCF60 are not translated,
+ * so the page's lines cannot go through the one block yet. Consequence while
+ * a page is open: a mode-2 line's delay and timer are frozen instead of
+ * running (or being replaced by the page's line, as in the original). The
+ * gate goes when those presenters are translated; keeping it until then is
+ * an open lead decision (docs/FIRST_LEVEL_AUDIT.md WP-8).
+ *
+ * Slot-0 talk in game mode 2 is 001D06E0 on the player face. */
+static int message_gate(void *context)
 {
+    (void)context;
     if (!world.loaded || world.failed) return -1;
-    if (!em_status_runtime_ordinary_enabled(world.status) || !world.message) return 0;
-    /* 1: phase 2's FDB80(1)/001FC9B0 teardown, which memsets the block
-     * D_002821B0..+0x9C (kind and token included). */
-    if (em_panel_message_tick(world.message, busy155, busy156) == 1)
-        world.message_kind = world.message_token = 0;
-    return 1;
+    return em_status_runtime_ordinary_enabled(world.status) ? 1 : 0;
 }
 
-/* The step-F service (em_frame_set_message_service). D_00282155/156, the
- * voice lanes 1/2 that 001FA5F0/001FA790 mark busy, have no port player:
- * no voice cue is pushed on the first-level route before Roger, and the
- * panel and terminal lines 0x80000018/0x8000001A are text-only, so both
- * read 0 (FINDINGS: idle for text-only lines). */
-static int message_service_tick(void *context)
+static int message_face_talk(void *context, int on)
 {
     (void)context;
-    return em_area11_interaction_host_message_tick(0, 0) < 0 ? -1 : 0;
+    return em_area11_interaction_host_face_talk((uint8_t)(on != 0));
 }
 
-static void message_service_render(void *context, EmGfx *gfx)
+const EmMessageLiveHost *em_area11_interaction_host_message_host(void)
 {
-    (void)context;
-    em_area11_interaction_host_message_render(gfx);
-}
-
-void em_area11_interaction_host_message_block(uint32_t block[3])
-{
-    block[0] = block[1] = block[2] = 0;
-    if (!world.loaded || !world.message || !world.message->phase) return;
-    block[0] = world.message_kind;
-    block[1] = world.message->phase;
-    block[2] = world.message_token;
-}
-
-const EmFrameMessageService *em_area11_interaction_host_message_service(void)
-{
-    static const EmFrameMessageService service = {message_service_tick, message_service_render,
-                                                  NULL};
-    return &service;
-}
-
-void em_area11_interaction_host_message_render(EmGfx *gfx)
-{
-    if (world.loaded && !world.failed && world.message &&
-        em_status_runtime_ordinary_enabled(world.status))
-        em_panel_message_render(world.message, gfx);
+    static const EmMessageLiveHost host = {NULL, message_face_talk, message_gate};
+    return &host;
 }

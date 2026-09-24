@@ -15,9 +15,11 @@ landed"):
 - **Lifecycle.** The scene bindings load it at the state-0 rebuild, after
   001B6990 has placed the roster (w_001B6990), and install the Use hook
   (`em_area11_interaction_host_use`), the player-stage hook
-  (`em_area11_interaction_host_player`) and the step-F message service
-  (`em_area11_interaction_host_message_service`, run by em_frame after the
-  task, 001FCA10's position). w_001AFCA0 and game shutdown detach and clear it.
+  (`em_area11_interaction_host_player`) and, since WP-8, the host hooks of
+  the live step-F message service (`em_area11_interaction_host_message_host`:
+  the 001D06E0 face talk and the gate that holds step F while the status
+  page layer runs; docs/MESSAGE_SERVICE.md). w_001AFCA0 and game shutdown
+  detach and clear it.
 - **Owners.** Pool node #26 (00159210, area11[18]) runs
   `em_area11_interaction_host_panel_tick` from its second call (state 1),
   #27 (00827B10, area11[19]) `em_area11_interaction_host_elevator_tick`; the
@@ -78,11 +80,10 @@ landed"):
 - **Canonical storage.** The shared EmInteractionFrame is a per-call view:
   every entry point loads it from EmSceneState (3B8D, 3B8F, 3B92, 3B84,
   D_008106D4..DF, D_008106EF, D_008106F3), the port camera (D_008101E1/E3/E4/
-  E6, D_008105F0) and the message presenter, and stores it back. The message
-  block the tick log reads (`_message_block`) is the kind and token the
-  message command 001B7D60 case 0 stored when the script started the
-  message (D_002821B0 = 2, D_002821B8 = the record's req[5]), cleared by the
-  presenter's phase-2 teardown (001FC9B0), with the presenter's phase. The panel's
+  E6, D_008105F0) and the live message block's phase D_002821B4, and stores
+  it back. The panel and terminal scripts' message command is 001B7D60 case
+  0 on the live service (`em_message_live_post`: D_002821B0 = 2, B4 = 1,
+  B8 = the line, BC = the delay); the tick log samples that block. The panel's
   power bit is D_0081084C and the elevator's floor D_0081083A, both canonical
   D2 progress bytes.
 

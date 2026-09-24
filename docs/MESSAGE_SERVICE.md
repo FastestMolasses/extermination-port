@@ -1,9 +1,9 @@
 # Message service (WP-8)
 
 `src/game/em_message_service.{h,c}` is one native message machine over the
-original `D_002821B0` request block. It is meant to run once per frame at
-main-loop step F, where the original calls `001FCA10`. It is built and
-tested, but nothing in the live game calls it yet (see "Binding").
+original `D_002821B0` request block. Since WP-8 (2026-09-23) it is live: it
+runs once per frame at main-loop step F, where the original calls
+`001FCA10`, through `src/game/em_message_live.{h,c}` (see "Binding").
 
 ## What it translates
 
@@ -91,10 +91,9 @@ Last run:
   flag. The oracle's new `movz`/`movn` are only reached here, and are
   cross-checked against the byte-matched 001B7D60 C.
 - **12** 001FD4C0 cases and **24** 001FA5A0 ring cases.
-- **420** ticks agree field for field with the already-verified
-  `em_opening_dialogue_*` clock (+0x60/+0x6C/+0x5C) on global messages
-  0x18/0x1A/0x0A. Routing the panel, opening and Roger paths into this
-  service therefore keeps their verified timing.
+- The former cross-check against the opening's own dialogue clock
+  (`em_opening_dialogue_*`, 420 ticks) is retired with that clock (WP-8):
+  the opening, panel and Roger lines now run on this service itself.
 - Mutation check (previous round): 11 of 12 targeted mistranslations fail the
   oracle. This round, removing the `index >= count` bound from `record_at`
   also fails it, in the table-end case.
@@ -114,12 +113,13 @@ works under `-DNDEBUG`.
 
 ## Boundaries (not simulated)
 
-- Glyph layout and drawing. `001FE480/001FE530/001CC170` and `001FE070` are
-  the `draw_line(global, index)` worker. The oracle asserts x = 0x100 −
-  max(w0, w1)/2 and y = 0xC2. The renderer does the centring
-  (`em_hud_subtitle`).
+- Glyph layout and drawing are the `draw_line` worker, bound live to the
+  translated 001FD950 draw prefix, 001FE070, 001FC7B0, 001CC1E0, 001CBE10
+  and 001CC3B0 (docs/MESSAGE_DRAW.md, docs/MESSAGE_GLYPH.md). The service's
+  own oracle hooks `001FE480/001FE530/001CC170` and `001FE070` and asserts
+  x = 0x100 - max(w0, w1)/2 and y = 0xC2.
 - The voice lane `001F9CF0`. It consumes the `D_00281CF0` ring and writes
-  D_008106F5 (2 → 1 when a voice starts). In the oracle the harness makes this
+  D_008106F5 (2 -> 1 when a voice starts). In the oracle the harness makes this
   write after 3 ticks, on both sides. The busy bytes D_00282155/156 are also
   harness inputs.
 - Who sets bit 15 of `+0x74` for op0C sub 1 is not established.
@@ -131,37 +131,89 @@ works under `-DNDEBUG`.
 - `em_message_op0c` returning -1 after a fault is a native contract. The
   original 001B7D60 only returns 0/1.
 
-## Binding (later, by the coordinator chain)
+## Binding (live since WP-8)
 
-- Tick `em_message_tick(&service, &shared)` at step F in `em_frame.c`. Pass an
-  `EmMessageShared` holding:
-  - area D_00810700 and game mode 0x70003B8F
-  - the busy bytes
-  - pointers to the shared D_008106F5, D_008106F4 and D_008106D4[12]
-- Data (`EmMessageData`) must be exported from the user's own ELF by a new
-  exporter:
-  - the `D_00264DD0` table pointers and records, sized as described under
-    "Table sizes" (never a fixed count)
-  - the `D_0026EC60` rows up to the −1 terminator
-  - `D_0026EC10[0]`
-  - the address token for `D_00264D10`
+`em_message_live` owns the one `EmMessageService` (the canonical
+`D_002821B0` block) and the one text style `D_00275C50`
+(`EmMessageTextStyle`, shared with the draw module's records). `main.c`
+installs it at bring-up as the step-F frame service
+(`em_frame_set_message_service`) and gives it the stream workers.
 
-  `tools/export_opening_media.py` already reads these locations.
-- Requests to route into the service:
-  - opening op0C sub 1 line 0x66 (`em_opening_runtime` case 12)
-  - panel program op0C sub 0 (`em_panel_program` case 12)
-  - director beats op0C sub 0 lines 0x97/0x99 (WP-10)
-  - Roger message command
-  - examine and door refusals. Their original writers store the block fields
-    directly (for the door: mode 2, phase 1, line, delay; see `em_door.h`).
-    Check each writer's exact stores before routing it.
-
-  All of these go through `em_message_op0c` or direct block writes.
-- Workers:
-  - `draw_line` → `em_hud_subtitle` with the record's fill, outline and skew
-  - `face_talk` → the player face host
-  - `voice_push` → the voice lane's ring (`em_message_voice_ring_push`)
-  - `stop_lane` / `stream_stop` / `stream_play` → the BGM/stream lanes
-  - `help_draw` / `record_setup` / `record_draw` → the status hub and item UI
-    presenters
-  - `mode3_present` → a future 001FD0E0 port
+- **Data:** `tools/export_message_data.py` writes the ignored
+  `assets/message/message_data.emmd` from the user's ELF (the `D_00264DD0`
+  global and area-11 tables, sized as above; the `D_0026EC60` rows up to the
+  -1 row; `D_0026EC10`; `D_00264CD0` and `D_00264BF0` words 0..4, their
+  style pointers checked; the `&D_00264D10` token) and disc (the global bank
+  `extract/chunk03/f14_id16.bin` and the AREA11 bank at 0x3E800 of
+  `extract/chunk15/f12_id44.bin`, sized by their own offsets; both checked
+  byte-equal to the roger-encounter capture's `*D_0028A4E8`/`*D_0028A594`).
+  Only area 11 is exported: a request in any other area faults at its
+  table. Without the file the service idles, and its first request or
+  001FC9B0 reset (New Game's state-0 rebuild) faults.
+- **Shared state:** area `D_00810700`, game mode spad `0x70003B8F`, and
+  `D_008106F4`, `D_008106F5` and the mailbox `D_008106D4[12]` are the
+  canonical `EmSceneState` bytes. `D_00282155/156` read 0 (no voice lane
+  runs, see below).
+- **Style:** 001FC9B0 is the only writer of the service's own text fields;
+  the adapter copies its three stores into the one style block after every
+  call that reset (a sentinel in those fields shows it).
+- **Workers:**
+  - `draw_line` -> `em_message_draw_line` (the area bank is AREA11's;
+    another area faults) -> `draw_text` 001FC7B0 / `glyph_advance`
+    001CBE10 -> the glyph passes, queued per frame and drawn at the frame's
+    render by `em_hud_glyph_strip` (docs/MESSAGE_GLYPH.md).
+  - `face_talk` (001D06E0 on the player, game mode 2, slot 0) -> the AREA11
+    host's `em_area11_interaction_host_face_talk`; without a host it faults.
+  - `stop_lane` (001FAAC0 on lanes 1/2 from 001FAB80) -> nothing: 001FAAC0
+    does nothing for an idle lane, and no voice lane is ever started (see
+    `voice_push`).
+  - `voice_push` (001FA5A0) -> not bound: a voiced line faults. The stream
+    lanes (`em_stream_lanes_original`, docs/STREAM_LANES.md) are not live.
+  - `stream_stop` (001FD470) -> `em_scene_bindings_001FD470`: bit 0
+    `w_001FBC50` (em_sfx_stop_all, the port's SFX stop-all for 001FBC50's
+    track stops, then its two 00119828 calls); bit 1 `w_001FABB0`, the port's
+    stream-release stand-in, not a translation of 001FABB0: it stops em_bgm
+    and the opening stream and clears `D_008106F4`/`D_008106F5`, but does no
+    001FA570 voice-ring reset, no per-lane 001FAAC0 release and no
+    `D_00282157` store (the stream lanes are not live, docs/STREAM_LANES.md).
+  - `stream_play` (001FA790) -> `em_scene_bindings_001FA790`: lane 0 with
+    the cue of the AREA11 row of line 0x66 arms the opening stream
+    (`em_opening_media`, the lane-0 stand-in, which follows `D_008106F4` at
+    step H: 2 -> 1 at once, 0 starts the sound); any other lane or cue
+    faults.
+  - `mode3_present`, `help_draw`, `record_setup`, `record_draw` -> not bound
+    (fault). While the AREA11 status page layer runs, its own page core
+    presents the mode-4 lines from its own copy of the block, and the host's
+    gate holds step F (`em_status_runtime_ordinary_enabled`), as before WP-8.
+    The gate is a port stand-in: the original 001FCA10 runs every frame with
+    no gate, so while a page is open a mode-2 line's delay and timer freeze
+    here instead of running (or being replaced by the page's line). It goes
+    when 001FD0E0 and 001FCB90/001FCF90/001FCF60 are translated; keeping it
+    until then is an open lead decision (FIRST_LEVEL_AUDIT WP-8).
+- **Requests routed into it:**
+  - the opening (em_opening_runtime): op0C (001B7D60) on the live block; the
+    001B82D0 op12 phase-0 stream request 001FD4C0(0x66) and its phase-3 wait
+    for `D_008106F4 == 1`; the op-4 and 001B6BF0 stores `D_002821B4 = 2`;
+    the actors' talk from the activity bytes `D_008106D4[0/1]` as 001BA580
+    consumes them (1 on, 2 off, then 0). The actors' callbacks run in the
+    task, before step F, so a speaker's mouth starts and stops one frame
+    after the present tick that wrote the byte, as in the original's order
+    (the former opening clock set it on the same tick).
+  - the AREA11 host's panel and terminal scripts (001B7D60 case 0 through
+    `em_message_live_post`; completion when `D_002821B4 == 2`); the host's
+    frame view loads and stores `D_002821B4` from the live block.
+  - 001FC9B0 at the scene coordinator's 001AFCF0/001AD140 (`w_001FC9B0`).
+  - Not yet: the director beats (WP-10), Roger (WP-9) and the legacy door
+    (WP-7). Roger's encounter lines are checked on the live service by
+    `test_roger_media_reference.py` (4,143 ticks).
+- **Replaced:** `em_panel_message` (deleted), the opening's own dialogue
+  clock and subtitle (`em_opening_dialogue_*`, the `.emod` assets and their
+  exporters), `em_hud_subtitle`.
+- **Verified live:** `test_panel_message_reference.py` runs the live
+  service on the exported data against the original for 0x80000018 and
+  0x8000001A (delays 0/1/30, 1,052 ticks); `test_roger_media_reference.py`
+  the encounter line (4,143 ticks, the face-talk calls 1,0,1,0);
+  `test-opening-runtime` the opening end to end (the line's glyphs, the
+  `D_008106F4` protocol 2 -> 1 -> 0); the level smoke compares the block with
+  routes 02/03/04 row for row; `test_message_capture.py` compares a refusal
+  frame with the original screenshot.

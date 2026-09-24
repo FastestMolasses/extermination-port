@@ -60,6 +60,18 @@ void em_scene_bindings_fixture_loaded(EmTask *record);
  * entry c; b = 0xFF takes the room from D_00810730[a]). 0. */
 int em_scene_request_area_change_001B0C60(int a, int b, int c);
 
+/* The message service's stream workers (em_message_live.h, WP-8):
+ * 001FD470(mask) and 001FA790(lane, cue). 1 ok, 0 fault. */
+int em_scene_bindings_001FD470(void *ctx, int32_t mask);
+int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue);
+
+/* 00119828(ch, l, r), the IOP command 0x16 packer, for callers outside the
+ * frame machine (the opening's 001B82D0 ops 9..12 phase 0). The port has no
+ * 001157F0 sink yet (docs/STREAM_LANES.md "Still missing"): (0/1, 0x3FFF,
+ * 0x3FFF) changes nothing, any other value is a reported no-effect binding
+ * (UM_00119828). 0 always. */
+int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r);
+
 /* The number of live nodes in the actor pool (D_00275BC0 list length) when
  * the pool holds the AREA11 roster, else -1 (test instrumentation). */
 int em_scene_bindings_pool_census(void);

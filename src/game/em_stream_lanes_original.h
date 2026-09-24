@@ -2,6 +2,7 @@
  * the audio streams). Docs: docs/STREAM_LANES.md.
  *
  * Hand translation of the original functions
+ *   001F9820 lane initial state at boot (NEARMISS C; read from the .s)
  *   001FA790 lane start (NEARMISS C; read from the .s)
  *   001FABF0 lane fade-in / (re)start (NEARMISS C; read from the .s)
  *   001FAD70 lane fade-out            001FAAC0 lane release
@@ -14,7 +15,8 @@
  *   001FA0D0 disc read sequencer (NEARMISS), 001FA5F0 voice ring consumer,
  *   001FA330 volume ramps (NEARMISS)
  * and the SDK leaves they reach: 00119828 / 0011A608 / 0011A6A0 / 0011A6E8
- * (IOP sound command packers over 001157F0), 0011A730 (IOP voice status
+ * and, from 001F9820, 0011A4B8 / 0011A4E8 / 0011A658 (IOP sound command
+ * packers over 001157F0), 0011A730 (IOP voice status
  * read), 001281C0 (float -> int) and 00128250 (float -> unsigned).
  * Verified by tools/test_stream_lanes_reference.py, which executes the
  * ORIGINAL instructions of every function above over captured original RAM
@@ -49,6 +51,9 @@ extern "C" {
 #define EM_STREAM_CMD_0011A608 0x40   /* 0011A608(mask, a1, a2): (0x40, lo24, hi24, a1<<16|a2) */
 #define EM_STREAM_CMD_0011A6A0 0x42   /* 0011A6A0(mask): (0x42, lo24, hi24, 0) */
 #define EM_STREAM_CMD_0011A6E8 0x43   /* 0011A6E8(mask): (0x43, lo24, hi24, 0) */
+#define EM_STREAM_CMD_0011A4B8 0x3C   /* 0011A4B8(): (0x3C, 0, 0, 0)            */
+#define EM_STREAM_CMD_0011A4E8 0x3E   /* 0011A4E8(p[6]): three packed words      */
+#define EM_STREAM_CMD_0011A658 0x41   /* 0011A658(mask, a1): (0x41, lo24, hi24, a1) */
 /* What the IOP driver does with a command is outside this module and was not
  * read; the doc records only where the EE side sends each one. */
 
@@ -121,6 +126,11 @@ typedef struct {
     /* D_00281880 = D_002817C0 + 0xC0: 0x30 words the IOP status reply
      * fills; 0011A730(voice) returns word[voice] (0 when voice >= 0x30). */
     const int32_t *d281880;
+    /* Read or written only by 001F9820 and the 0011A4E8 it calls: */
+    uint64_t d27F740;       /* SDK sound voice mask (ld/sd; 0011A4E8 flag bits 0/1) */
+    uint32_t d275B20;       /* lane 2 buffer (gp; 001FA6A0 result at the IRX bring-up) */
+    uint32_t d275B24;       /* lane 1 buffer (gp) */
+    uint32_t d275B28;       /* lane 0 buffer (gp) */
 } EmStreamLanesGlobals;
 
 /* One 16-byte clip row (D_0025DD30 music, D_0025E170 voice). */
@@ -162,6 +172,10 @@ typedef struct {
                       const uint8_t mode[3], int32_t *result);
     int (*w_00112D18)(void *ctx, int32_t a0, int32_t *result);
     int (*w_00113478)(void *ctx, int32_t a0);
+    /* 0011A2B0(a0): the SDK's voice allocator over the sound voice table
+     * D_0027CCC0 (owned outside this module); *voice = its return (a voice
+     * index, or -1 when none is free). 001F9820 calls it with a0 = 0. */
+    int (*w_0011A2B0)(void *ctx, int32_t a0, int32_t *voice);
 } EmStreamLanesWorkers;
 
 typedef struct {
@@ -179,6 +193,7 @@ void em_stream_lanes_bind(EmStreamLanes *L, const EmStreamLanesData *data,
 
 /* Entry points: the original function of the same address. 0 on success,
  * -1 on a fault (latched in L->fault). Arguments are the original's. */
+int em_stream_lanes_001F9820(EmStreamLanes *L);                 /* 001AAE40 start-up; 001F9BF0 */
 int em_stream_lanes_001F9CF0(EmStreamLanes *L);                 /* per frame (001FB100) */
 int em_stream_lanes_001FA0D0(EmStreamLanes *L);
 int em_stream_lanes_001FA330(EmStreamLanes *L);
@@ -195,6 +210,10 @@ int em_stream_lanes_001FD470(EmStreamLanes *L, int32_t mask);
 int em_stream_lanes_001FAE70(EmStreamLanes *L, int32_t a0);
 int em_stream_lanes_001FB0B0(EmStreamLanes *L, int32_t cue);
 int em_stream_lanes_00119828(EmStreamLanes *L, int32_t a0, int32_t a1, int32_t a2);
+
+/* 0011A4E8(p) (p = the six-word block), exposed for the reference test:
+ * its D_0027F740 update and its 001157F0(0x3E, ...) command. */
+int em_stream_lanes_0011A4E8(EmStreamLanes *L, const int32_t p[6]);
 
 /* Pure leaves, exposed for the reference test. */
 int32_t em_stream_lanes_001281C0(uint32_t f32_bits);  /* float_to_int */

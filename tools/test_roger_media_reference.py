@@ -2,8 +2,12 @@
 """Validate Roger media resources and original stream/message callbacks.
 
 The original game's instructions execute in the project's small test oracle.
-Device I/O, glyph layout/drawing, RNG output and player-face calls are explicit
-boundaries. No original instructions, dialogue text or audio are embedded here.
+The native side of the message check is the LIVE message service
+(em_message_live, WP-8) on the exported data (tools/export_message_data.py),
+which Roger's route will post into. Device I/O, glyph layout/drawing, RNG
+output and player-face calls are explicit boundaries on the original side;
+the native face-talk calls are recorded through the service's host hook.
+No original instructions, dialogue text or audio are embedded here.
 """
 import ctypes as C
 import hashlib
@@ -32,16 +36,41 @@ class MediaOracle(DoorOracle):
         super().plain(word)
 
 
-class Line(C.Structure):
-    _fields_ = [('line', C.c_uint16), ('duration', C.c_uint16), ('voice', C.c_int16),
-                ('speaker', C.c_uint8), ('terminal', C.c_uint8), ('skew', C.c_uint8),
-                ('text', C.c_char_p)]
-
-
-class Dialogue(C.Structure):
-    _fields_ = [('lines', C.POINTER(Line)), ('count', C.c_uint), ('next', C.c_uint),
-                ('displayed', C.c_uint), ('remaining', C.c_uint), ('active', C.c_int),
-                ('loaded', C.c_int)]
+BRIDGE = r"""
+#include "game/em_hud.h"
+#include "game/em_message_live.h"
+#include "game/em_scene_bindings.h"
+#include <string.h>
+static EmSceneState scene;
+static int talks[16], talk_count;
+EmSceneState *em_scene_state(void) {return &scene;}
+void em_frame_set_message_service(const EmFrameMessageService *service) {(void)service;}
+int em_hud_tall_glyph_cell(uint32_t index,EmHudGlyphCell *cell) {(void)index;(void)cell;return 1;}
+void em_hud_glyph_strip(EmGfx *gfx,const EmMessageGlyphFlush *flush) {(void)gfx;(void)flush;}
+static int face_talk(void *c,int on) {(void)c;if(talk_count<16) talks[talk_count++]=on;return 1;}
+int start(const char *path,int delay) {
+    memset(&scene,0,sizeof scene);
+    scene.d810700=0x0B; scene.spad3B8F=2;
+    *em_scene_req_at(&scene,0x008106F4u)=1;
+    if(!em_message_live_install(path)) return 0;
+    static const EmMessageLiveHost host={NULL,face_talk,NULL};
+    em_message_live_set_host(&host);
+    talk_count=0;
+    return em_message_live_post(0,delay)==0;
+}
+void stop(void) {em_message_live_shutdown();}
+/* out: drawn index or -1, +0x60, +0x6C, +0x5C, +0x64, D_008106F4, +0x00, +0x04 */
+int tick(int *out) {
+    EmMessageBlock *b=em_message_live_block();
+    int frames=b->frames;
+    int rc=em_message_live_tick();
+    out[0]=b->frames==frames+1 ? (int)(b->current&0x7FFFFFFFu) : -1;
+    out[1]=b->record; out[2]=b->remaining; out[3]=b->loaded; out[4]=(int)b->talk_mask;
+    out[5]=*em_scene_req_at(&scene,0x008106F4u); out[6]=b->mode; out[7]=b->phase;
+    return rc;
+}
+int talk(int *out) {memcpy(out,talks,sizeof talks);return talk_count;}
+"""
 
 
 def message_oracle(elf):
@@ -77,21 +106,7 @@ def message_oracle(elf):
 
 
 def resource_check(elf, records, report):
-    path = ROOT / 'assets/scene_snow/roger/encounter.emod'
-    blob = path.read_bytes()
-    header = struct.unpack_from('<4s7I', blob)
-    assert header[:3] == (b'EMOD', 1, len(records))
-    # 001FD950 draws at GS y 0xC2 (checked in dialogue_check); the EMOD y is
-    # the port's full-height canvas row, two rows per half-height GS unit.
-    assert header[6] == 2 * 0xC2 == report['y']
-    assert header[3:6] == (report['line_height'], report['fill'], report['outline'])
-    strings = 32 + len(records) * 20
-    for index, record in enumerate(records):
-        packed = struct.unpack_from('<HHhBBIIB3x', blob, 32 + index * 20)
-        line, duration, voice, speaker, terminal, offset, length, skew = packed
-        assert (line, duration, voice, speaker, terminal, skew) == tuple(
-            record[key] for key in ('line', 'duration', 'voice', 'speaker', 'terminal', 'skew'))
-        assert blob[strings + offset:strings + offset + length + 1] == record['text'] + b'\0'
+    path = ROOT / 'assets/scene_snow/roger/media.json'
     for stream in report['streams']:
         with wave.open(str(path.with_name(stream['name'] + '.wav')), 'rb') as wav:
             assert (wav.getnchannels(), wav.getframerate(), wav.getsampwidth(), wav.getnframes()) == (
@@ -114,22 +129,26 @@ def resource_check(elf, records, report):
 
 
 def dialogue_check(elf, records, capture, build):
-    output = build / 'dialogue.dylib'
-    names = ('em_opening_dialogue_start', 'em_opening_dialogue_tick', 'em_opening_dialogue_talk_mask')
+    data = ROOT / 'assets/message/message_data.emmd'
+    assert data.exists(), 'run tools/export_message_data.py first'
+    (build / 'bridge.c').write_text(BRIDGE)
+    output = build / 'message.dylib'
+    names = ('start', 'stop', 'tick', 'talk')
     subprocess.run(['cc', '-dynamiclib', '-Wl,-undefined,dynamic_lookup', '-Wl,-dead_strip',
-                    *[f'-Wl,-exported_symbol,_{name}' for name in names], '-O2', '-Isrc',
-                    'src/game/em_opening_media.c', '-o', str(output)], cwd=ROOT, check=True)
+                    *[f'-Wl,-exported_symbol,_{name}' for name in names], '-O1', '-Wall', '-Wextra',
+                    '-Werror', '-Isrc', str(build / 'bridge.c'), 'src/game/em_message_live.c',
+                    'src/game/em_message_service.c', 'src/game/em_message_draw_original.c',
+                    'src/game/em_message_glyph_original.c', '-o', str(output)], cwd=ROOT, check=True)
     native = C.CDLL(str(output))
-    native.em_opening_dialogue_start.argtypes = [C.POINTER(Dialogue), C.POINTER(Line), C.c_uint]
-    native.em_opening_dialogue_tick.argtypes = [C.POINTER(Dialogue)]
-    native.em_opening_dialogue_talk_mask.argtypes = [C.POINTER(Dialogue)]
-    lines = (Line * len(records))(*[Line(**record) for record in records])
+    native.start.argtypes = [C.c_char_p, C.c_int]
+    native.tick.argtypes = [C.POINTER(C.c_int)]
+    native.talk.argtypes = [C.POINTER(C.c_int)]
     callbacks = sum(record['duration'] + 1 for record in records)
     comparisons = 0
     capture_fields = (0x34, 0x50, 0x51, 0x5C, 0x60, 0x64, 0x68, 0x6C, 0x70)
+    values = (C.c_int * 8)()
     for delay in (0, 1, 30):
-        dialogue = Dialogue()
-        native.em_opening_dialogue_start(C.byref(dialogue), lines, len(lines))
+        assert native.start(str(data).encode(), delay) == 1
         original = message_oracle(elf)
         original.save(0x2821BC, delay)
         player_events = []
@@ -137,17 +156,17 @@ def dialogue_check(elf, records, capture, build):
             original.draw = -1
             original.events.clear()
             original.run(0x1FCA10)
+            assert native.tick(values) == 0
             if tick < delay:
-                assert original.draw == -1
+                assert original.draw == -1 and values[0] == -1
                 continue
-            native.em_opening_dialogue_tick(C.byref(dialogue))
-            assert original.draw == dialogue.displayed
-            # D_002821B0 +0x60 record, +0x6C timer, +0x5C loaded state.
-            assert original.load(0x282210) == dialogue.next
-            assert original.load(0x28221C) == dialogue.remaining
-            assert original.load(0x28220C) == dialogue.loaded
-            assert original.load(0x282214) == native.em_opening_dialogue_talk_mask(C.byref(dialogue))
-            assert original.load(0x8106F4, 1) == 0
+            assert original.draw == values[0], (delay, tick, original.draw, values[0])
+            # D_002821B0 +0x60 record, +0x6C timer, +0x5C loaded, +0x64 talk.
+            assert original.load(0x282210) == values[1]
+            assert original.load(0x28221C) == values[2]
+            assert original.load(0x28220C) == values[3]
+            assert original.load(0x282214) == values[4]
+            assert original.load(0x8106F4, 1) == values[5] == 0
             player_events.extend(original.events)
             if delay == 0 and tick == 51:
                 for offset in capture_fields:
@@ -155,12 +174,17 @@ def dialogue_check(elf, records, capture, build):
                     assert original.load(0x2821B0 + offset, width) == int.from_bytes(
                         capture[0x2821B0 + offset:0x2821B0 + offset + width], 'little'), hex(offset)
             comparisons += 1
-        assert original.load(0x2821B4) == 2 and not dialogue.active
+        assert original.load(0x2821B4) == 2 and values[7] == 2
         assert [event[2] for event in player_events] == [1, 0, 1, 0]
+        talks = (C.c_int * 16)()
+        count = native.talk(talks)
+        assert list(talks)[:count] == [1, 0, 1, 0]
         original.events.clear()
         original.run(0x1FCA10)
-        assert original.load(0x2821B0) == original.load(0x2821B4) == 0
+        assert native.tick(values) == 0
+        assert original.load(0x2821B0) == original.load(0x2821B4) == 0 == values[6] == values[7]
         assert original.events == [('stop_lane', 1), ('stop_lane', 2)]
+        native.stop()
     return comparisons
 
 
@@ -239,7 +263,7 @@ def main():
     assert hashlib.sha256(elf_bytes).hexdigest() == ELF_SHA
     audio = load_tool(DECOMP / 'tools/audio_export.py', '_roger_test_audio')
     elf = audio.ElfImage(DECOMP / 'config/SCUS_971.12')
-    _, records = message_records(elf, (DECOMP / 'extract/chunk15/f12_id44.bin').read_bytes())
+    _, records = message_records(elf)
     report = json.loads((ROOT / 'assets/scene_snow/roger/media.json').read_text())
     capture, size = resource_check(elf, records, report)
     build = ROOT / 'build/roger_media'
@@ -251,7 +275,7 @@ def main():
                   capture_exact_text_bytes=size, capture_exact_message_fields=9,
                   capture_message_tick=52, source_music_cue=29,
                   boundaries=['Glyph/device I/O and RNG values are explicit call boundaries.',
-                              'Native comparison uses the existing pure dialogue clock, not a new live media owner.'])
+                              'The native side is the live message service (em_message_live) on the exported data.'])
     (build / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=2))
 

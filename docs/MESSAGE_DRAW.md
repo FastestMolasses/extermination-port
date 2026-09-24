@@ -1,7 +1,8 @@
 # Message line layout and draw (message-glyph-draw lane)
 
-Status: 2026-09-23. The translation and its oracle are done. Nothing in the
-live game calls this module yet (see "Binding").
+Status: 2026-09-23. Live since WP-8: the message service's `draw_line`
+worker (em_message_live) runs it on every present tick, with its two workers
+translated (docs/MESSAGE_GLYPH.md). See "Binding".
 
 Files:
 - `src/game/em_message_draw_original.{h,c}`: the native translation.
@@ -10,8 +11,8 @@ Files:
   The oracle compiles and runs it.
 
 This module is the message service's `draw_line` worker
-(`em_message_service.h`, `EmMessageWorkers.draw_line`). It replaces
-`em_hud_subtitle` for script messages. Its callers are:
+(`em_message_service.h`, `EmMessageWorkers.draw_line`). It replaced
+`em_hud_subtitle` (deleted in WP-8) for script messages. Its callers are:
 - panel `0x80000018` (route beats 00/03)
 - refusal `0x8000001A` (02)
 - director `0x97` / `0x99` (11/13)
@@ -143,40 +144,31 @@ full modes differ only in the strlen grid (60 of 208 cases).
 ## Boundaries (workers, fail-stop)
 
 - **001CBE10, the glyph advance.** It is a byte-matched switch over byte values: tall-font metrics, which are
-  original data. The oracle backs the native worker with the original executed for all 256 values.
+  original data. The oracle backs the native worker with the original executed for all 256 values. Since WP-8 it
+  is translated (`em_message_glyph_advance`, docs/MESSAGE_GLYPH.md).
 - **001FC7B0, the glyph-run draw** (NEARMISS, recursive; it calls 001CC1E0). It receives the NUL-terminated run,
-  and the config whose +0x14 style is read at call time.
+  and the config whose +0x14 style is read at call time. Since WP-8 it is translated down to the packed GS passes
+  (`em_message_glyph_fc7b0`, docs/MESSAGE_GLYPH.md); this module's oracle still stops at its call.
 - Reads the original would make outside a supplied bank, table or buffer fault. They never read neighbouring
   memory. The buffers are `D_00820ED0` (0xC0 bytes, up to `D_00820F90`) and `D_00820F90` (0x80 bytes). The
   original would write into whatever follows them. The area-11 banks stay far inside these limits: the
   longest string is 80 bytes.
 
-## Binding (for the coordinator chain)
+## Binding (live since WP-8)
 
-1. **Worker slot.** `EmMessageWorkers.draw_line` has the same signature as `em_message_draw_line`. The service
-   passes one shared `context`, so the adapter must call `em_message_draw_line(&draw, global, index)`. The call
-   comes from 001FD950, i.e. `present` in `em_message_service.c`, every present tick. The module returns 0 on a
-   fault; the service then latches `draw_line worker failed`.
-2. **Style block.** `D_00275C50` is one block:
-   - +0 colour
-   - +4 glyph byte (`D_00275C54`)
-   - +5 flag byte (`D_00275C55`)
-
-   001FC9B0 (`em_message_reset`) writes it, and 001FE070's records write it too. Bind `data->text` and
-   `line_config->style` to a single `EmMessageTextStyle`. `D_00264CE4` is statically `&D_00275C50` and has no
-   other reference. The service currently keeps `text_color` / `text_glyph` / `text_flag` as separate fields.
-   The adapter must make both views one storage (or copy them both ways around each call). Otherwise a record
-   line's flag (8, then 0) and the reset defaults drift apart.
-3. **Data, from a new exporter reading the user's own files:**
-   - both bank images: the loaded message files at `*D_0028A4E8` and `*D_0028A594`, sized by the extent rule
-     above
-   - `D_0026EC10` (16 words)
-   - `D_00264CD0` words 0–4
-   - `D_00264BF0` words 0–4 (style pointer NULL)
-
-   No values are embedded in the module.
-4. **Workers:**
-   - `glyph_advance` → a future 001CBE10 translation, or the tall-font metric table
-   - `draw_text` → a 001FC7B0 port, or `em_hud`'s tall-font renderer, given (x, y, run, cfg, style)
-
-   Until both are bound, keep the module unwired. A missing worker faults on the first message.
+`em_message_live` binds it:
+1. **Worker slot.** The service's `draw_line` adapter calls
+   `em_message_draw_line(&draw, global, index)` (an area-bank line faults
+   outside area 11, the only exported bank).
+2. **Style block.** `D_00275C50` is one `EmMessageTextStyle` shared by
+   `data->text` and `line_config->style`; the service's 001FC9B0 stores are
+   copied into it after every call that reset (the service keeps its own
+   copy only for 001FC9B0).
+3. **Data** (`tools/export_message_data.py`, `assets/message/message_data.emmd`):
+   both bank images sized by the extent rule, `D_0026EC10` (16 words),
+   `D_00264CD0` and `D_00264BF0` words 0..4 (their style pointers checked to
+   be `&D_00275C50` and 0).
+4. **Workers:** `glyph_advance` -> `em_message_glyph_advance` (001CBE10);
+   `draw_text` -> `em_message_glyph_fc7b0` (001FC7B0 -> 001CC1E0 ->
+   001CC3B0), whose passes the port draws through its glyph atlas
+   (docs/MESSAGE_GLYPH.md).

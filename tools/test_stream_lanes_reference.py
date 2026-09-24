@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Original EE stream lanes against the native em_stream_lanes_original.
 
-The ORIGINAL instructions of 001F9CF0, 001FA0D0, 001FA330, 001FA5F0,
+The ORIGINAL instructions of 001F9820, 001F9CF0, 001FA0D0, 001FA330, 001FA5F0,
 001FA570, 001FA790, 001FABF0, 001FAD70, 001FAAC0, 001FAB50, 001FAB80,
 001FABB0, 001FD470, 001FAE70, 001FB0B0, 00119828 and the leaves they reach
-(0011A608, 0011A6A0, 0011A6E8, 0011A730, 001281C0, 00128250, 001278C0) run in
+(0011A4B8, 0011A4E8, 0011A608, 0011A658, 0011A6A0, 0011A6E8, 0011A730,
+001281C0, 00128250, 001278C0) run in
 a bounded EE interpreter defined here, over captured original RAM (the
 user's ../Extermination/build/startup-reference/ and build/s87/route/ images,
 never copied into the repository). Code bytes come from the user's pinned
@@ -14,20 +15,24 @@ identical. COP1 arithmetic is tools/ee_float_model.py (docs/EE_FLOAT_MODEL.md).
 Callees outside the module are recorded as worker calls with scripted
 results, identically on both sides: 001157F0 (IOP command queue), 00122BB8
 (LCG), 001FC280, 001FBC50, 00113280 / 00112610 / 00112D18 / 00113478 (disc
-stream) and 00121A28 (memset, performed and argument-checked).
+stream), 0011A2B0 (the SDK voice allocator 001F9820 calls) and 00121A28
+(memset, performed and argument-checked).
 
 Every call compares: the 0x1C0 bytes 0x281FD0..0x282190 (four lane records
 and the lane block; the native side writes only its modelled fields into a
 copy of the input, so an original write to any unmodelled byte fails), the
-ring D_00281CF0[16], D_00275B2C/30/34, the globals the functions touch, the
+ring D_00281CF0[16], D_00275B2C/30/34, the globals the functions touch
+(with D_0027F740, which 0011A4E8 updates), the
 ordered worker calls with every argument, and the return code. Every load
 and store the original makes outside the stack is checked against the
 modelled read/write sets.
 
 Capture evidence (no oracle): the lane-0 fade steps and volumes captured in
 the route images are reproduced by the native 001FABF0 / 001FA330 arithmetic,
-and every captured lane's duration / end / count fields by native 001FA790
-over the ELF clip row its base sector selects.
+every captured lane's duration / end / count fields by native 001FA790
+over the ELF clip row its base sector selects, and every captured lane's
+voice, voice mask, buffer and buffer size (and D_002820F4) by native 001F9820
+over the captured D_00275B20/24/28 with the boot's voices 0, 1, 2, 3.
 
 No original instruction bytes, disassembly or data are written by this file;
 the report in build/ holds only counts.
@@ -56,10 +61,12 @@ DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 M64 = (1 << 64) - 1
 STACK, RETURN = 0x01F00000, 0x0BADF00C
+BLOCK = STACK - 0x800   # 0011A4E8's six-word argument block (untracked stack)
 REGION, REGION_SIZE = 0x281FD0, 0x1C0
 RING, GP0 = 0x281CF0, 0x275B2C
 STATUS = 0x281880
 MUSIC, VOICE, MUSIC_ROWS, VOICE_ROWS = 0x25DD30, 0x25E170, 68, 179
+SDK_MASK, BUFFERS = 0x27F740, 0x275B20  # D_0027F740 (8 bytes); D_00275B20/24/28
 GLOBALS = ((0x810E90, 4), (0x8106C8, 4), (0x810D38, 4), (0x810700, 1),
            (0x8104E4, 1), (0x8106F4, 1), (0x8106F5, 1))
 # Executed original functions (start, size); the capture must hold the ELF's bytes.
@@ -68,8 +75,9 @@ EXECUTED = ((0x1F9CF0, 0x3DC), (0x1FA0D0, 0x260), (0x1FA330, 0x234), (0x1FA570, 
             (0x1FAB80, 0x2C), (0x1FABB0, 0x34), (0x1FABF0, 0x180), (0x1FAD70, 0xF4),
             (0x1FAE70, 0x158), (0x1FB0B0, 0x10), (0x1FD470, 0x44), (0x119828, 0x18),
             (0x11A608, 0x4C), (0x11A6A0, 0x48), (0x11A6E8, 0x48), (0x11A730, 0x28),
-            (0x1278C0, 0x90), (0x1281C0, 0x90), (0x128250, 0x98))
-(IOP, RNG, FC280, FBC50, CD13280, CD12610, CD12D18, CD13478) = range(1, 9)
+            (0x1278C0, 0x90), (0x1281C0, 0x90), (0x128250, 0x98), (0x1F9820, 0x300),
+            (0x11A4B8, 0x14), (0x11A4E8, 0xE0), (0x11A658, 0x48))
+(IOP, RNG, FC280, FBC50, CD13280, CD12610, CD12D18, CD13478, VALLOC) = range(1, 10)
 
 # Lane record fields: offset -> size (the bytes EmStreamLane models).
 LANE_FIELDS = {0x00: 1, 0x01: 1, 0x02: 1, 0x03: 1, 0x04: 4, 0x08: 8, 0x14: 4, 0x18: 4,
@@ -101,11 +109,12 @@ def modelled():
     out.update(range(GP0, GP0 + 4)); out.update((0x275B30, 0x275B34))
     for address, size in GLOBALS:
         out.update(range(address, address + size))
+    out.update(range(SDK_MASK, SDK_MASK + 8))
     return out
 
 
 MODELLED = modelled()
-READABLE = MODELLED | set(range(STATUS, STATUS + 0xC0)) | {
+READABLE = MODELLED | set(range(STATUS, STATUS + 0xC0)) | set(range(BUFFERS, BUFFERS + 12)) | {
     base + 16 * row + off for base, rows in ((MUSIC, MUSIC_ROWS), (VOICE, VOICE_ROWS))
     for row in range(rows) for off in (0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15)}
 WRITABLE = MODELLED
@@ -299,7 +308,8 @@ static int32_t status[48];
 static EmStreamClip music[128], voice[256];
 static int32_t ev[4096][5];
 static int nev;
-static int32_t rng_value, r13280, r12610, r12D18;
+static int32_t rng_value, r13280, r12610, r12D18, voices[4];
+static int nvoice;
 static int push(int k, int a, int b, int c, int d) {
     if (nev >= 4096) return -1;
     ev[nev][0] = k; ev[nev][1] = a; ev[nev][2] = b; ev[nev][3] = c; ev[nev][4] = d; nev++;
@@ -314,6 +324,7 @@ static int w_12610(void *x, uint32_t s, uint32_t n, uint32_t a, const uint8_t m[
     (void)x; *r = r12610; return push(6, (int)s, (int)n, (int)a, m[0] | m[1] << 8 | m[2] << 16);}
 static int w_12D18(void *x, int32_t a, int32_t *r) {(void)x; *r = r12D18; return push(7, a, 0, 0, 0);}
 static int w_13478(void *x, int32_t a) {(void)x; return push(8, a, 0, 0, 0);}
+static int w_valloc(void *x, int32_t a, int32_t *v) {(void)x; *v = voices[nvoice++ & 3]; return push(9, a, 0, 0, 0);}
 static const unsigned lane_off[] = {0x00,0x01,0x02,0x03,0x04,0x08,0x14,0x18,0x20,0x24,0x28,0x2C,
                                     0x30,0x34,0x38,0x48,0x4C,0x50,0x54,0x58,0x5C};
 static void *lane_ptr(EmStreamLane *r, int k, unsigned *size) {
@@ -345,11 +356,16 @@ static void xfer(uint8_t *region, int out) {
 void setup(const EmStreamClip *m, uint32_t mc, const EmStreamClip *v, uint32_t vc) {
     memcpy(music, m, sizeof music[0] * mc); memcpy(voice, v, sizeof voice[0] * vc);
     D.music = music; D.music_count = mc; D.voice = voice; D.voice_count = vc;
-    EmStreamLanesWorkers w = {0, w_iop, w_rng, w_fc280, w_fbc50, w_13280, w_12610, w_12D18, w_13478};
+    EmStreamLanesWorkers w = {0, w_iop, w_rng, w_fc280, w_fbc50, w_13280, w_12610, w_12D18, w_13478,
+                              w_valloc};
     em_stream_lanes_bind(&L, &D, &G, &w);
 }
 void set_results(int32_t rng, int32_t a, int32_t b, int32_t c) {
     rng_value = rng; r13280 = a; r12610 = b; r12D18 = c;}
+void set_sdk(const int32_t *v, uint64_t mask, uint32_t b20, uint32_t b24, uint32_t b28) {
+    memcpy(voices, v, sizeof voices); nvoice = 0;
+    G.d27F740 = mask; G.d275B20 = b20; G.d275B24 = b24; G.d275B28 = b28;}
+uint64_t sdk_mask(void) {return G.d27F740;}
 void load(uint8_t *region, const uint8_t *ring, const uint8_t *gp, const int32_t *glob, const int32_t *st) {
     memset(&L.state, 0, sizeof L.state);
     xfer(region, 0);
@@ -372,6 +388,7 @@ void save(uint8_t *region, uint8_t *ring, uint8_t *gp, int32_t *glob) {
 }
 int call(int fn, int a, int b, int c, int d) {
     switch (fn) {
+    case 0x1F9820: return em_stream_lanes_001F9820(&L);
     case 0x1F9CF0: return em_stream_lanes_001F9CF0(&L);
     case 0x1FA0D0: return em_stream_lanes_001FA0D0(&L);
     case 0x1FA330: return em_stream_lanes_001FA330(&L);
@@ -389,6 +406,10 @@ int call(int fn, int a, int b, int c, int d) {
     case 0x1FB0B0: return em_stream_lanes_001FB0B0(&L, a);
     case 0x119828: return em_stream_lanes_00119828(&L, a, b, c);
     }
+    return -99;
+}
+int call6(int fn, const int32_t *p) {
+    if (fn == 0x11A4E8) return em_stream_lanes_0011A4E8(&L, p);
     return -99;
 }
 int take(int32_t *out) {int n = nev; memcpy(out, ev, sizeof ev[0] * (size_t)n); nev = 0; return n;}
@@ -410,6 +431,8 @@ class Native:
         self.lib.em_stream_lanes_00128250.restype = C.c_uint32
         self.lib.em_stream_lanes_00128250.argtypes = [C.c_uint32]
         self.lib.fault_address.restype = C.c_uint32
+        self.lib.sdk_mask.restype = C.c_uint64
+        self.lib.set_sdk.argtypes = [C.POINTER(C.c_int32), C.c_uint64, C.c_uint32, C.c_uint32, C.c_uint32]
         self.setup(music, voice)
         self.events = (C.c_int32 * (4096 * 5))()
 
@@ -427,20 +450,22 @@ def rows(elf, base, count):
 class Case:
     """One original RAM state (capture + pokes) and its native twin."""
 
-    def __init__(self, elf, capture, native, pokes=(), status=None, results=(0, 2, 1, 0)):
+    def __init__(self, elf, capture, native, pokes=(), status=None, results=(0, 2, 1, 0), voices=(0, 1, 2, 3)):
         self.o = EE(elf, capture)
         self.n = native
         for address, value, size in pokes:
             self.o.save(address, value & ((1 << (8 * size)) - 1), size, track=False)
         self.status = list(status) if status is not None else [0] * 48
         self.results = results
+        self.voices = list(voices)
         self.events = []
         o = self.o
         record = lambda kind, n: (lambda e: self.events.append((kind, *[sx(e.r[4 + i]) for i in range(n)])))
         o.calls.update({
             0x1157F0: self.iop, 0x122BB8: self.rng, 0x1FC280: record(FC280, 0),
             0x1FBC50: record(FBC50, 0), 0x113280: self.cd(CD13280, 1), 0x112D18: self.cd(CD12D18, 3),
-            0x113478: record(CD13478, 1), 0x112610: self.cd12610, 0x121A28: self.memset})
+            0x113478: record(CD13478, 1), 0x112610: self.cd12610, 0x121A28: self.memset,
+            0x11A2B0: self.valloc})
         self.push()
 
     # -- worker hooks (original side)
@@ -454,6 +479,10 @@ class Case:
         def call(e):
             self.events.append((kind, sx(e.r[4]), 0, 0, 0)); e.r[2] = s32(self.results[index])
         return call
+
+    def valloc(self, e):
+        self.events.append((VALLOC, sx(e.r[4]), 0, 0, 0))
+        e.r[2] = s32(self.voices[sum(1 for ev in self.events if ev[0] == VALLOC) - 1 & 3])
 
     def cd12610(self, e):
         mode = e.read(e.r[7] & 0xFFFFFFFF, 3)
@@ -476,6 +505,8 @@ class Case:
         gp = (C.c_uint8 * 12)(*o.read(GP0, 12))
         n.lib.load(region, ring, gp, (C.c_int32 * 7)(*self.glob()), (C.c_int32 * 48)(*self.status))
         n.lib.set_results(*[C.c_int32(sx(v)) for v in self.results])
+        n.lib.set_sdk((C.c_int32 * 4)(*[sx(v) for v in self.voices]), o.load(SDK_MASK, 8, False),
+                      *[o.load(BUFFERS + 4 * k, 4, False) for k in range(3)])
 
     def set_status(self, status):
         self.status = list(status)
@@ -518,6 +549,7 @@ class Case:
         assert bytes(ring) == o.read(RING, 0x40), (label, 'ring')
         assert bytes(gp) == o.read(GP0, 12), (label, 'gp', bytes(gp).hex(), o.read(GP0, 12).hex())
         assert list(glob) == self.glob(), (label, 'globals', list(glob), self.glob())
+        assert n.lib.sdk_mask() == o.load(SDK_MASK, 8, False), (label, 'D_0027F740')
 
     def call(self, fn, args=(), label=None):
         o, n = self.o, self.n
@@ -525,9 +557,15 @@ class Case:
         self.input_region = o.read(REGION, REGION_SIZE)
         self.input_gp = o.read(GP0, 12)
         o.reads.clear(); o.writes.clear(); self.events = []
-        o.run(fn, args)
-        padded = list(args) + [0] * (4 - len(args))
-        result = n.lib.call(fn, *[C.c_int(sx(v)) for v in padded])
+        if fn == 0x11A4E8:
+            # The six-word block on the (untracked) stack; a0 points at it.
+            for k, value in enumerate(args): o.save(BLOCK + 4 * k, value & 0xFFFFFFFF, 4, track=False)
+            o.run(fn, (BLOCK,))
+            result = n.lib.call6(fn, (C.c_int32 * 6)(*[sx(v) for v in args]))
+        else:
+            o.run(fn, args)
+            padded = list(args) + [0] * (4 - len(args))
+            result = n.lib.call(fn, *[C.c_int(sx(v)) for v in padded])
         count = n.lib.take(n.events)
         native = [tuple(n.events[5 * i:5 * i + 5]) for i in range(count)]
         expected = [tuple(list(e) + [0] * (5 - len(e))) for e in self.events]
@@ -690,6 +728,45 @@ def stop_cases(elf, capture, native, rng):
             Case(elf, capture, native, pokes).call(fn, args)
             count += 1
     return count
+
+
+def init_cases(elf, capture, native, rng):
+    """001F9820 (and the 0011A4B8 / 0011A4E8 / 0011A608 / 0011A658 / 001FA570
+    it runs) over the boot's voices and others: -1 (no free voice), voices at
+    and past 32 (the lane masks are 32-bit shifts, the packer masks 64-bit),
+    set and cleared D_0027F740 bits, buffer addresses near the wrap, and a
+    dirty prior lane state it must overwrite. Then 0011A4E8 directly with
+    arbitrary flag words, so both of its D_0027F740 arms run."""
+    voice_sets = [(0, 1, 2, 3), (-1, -1, -1, -1), (0, 1, -1, 5), (40, 33, 31, 47), (31, 32, 63, 64),
+                  (0x2F, 0x2E, 0x2D, 0x2C), (7, 7, 7, 7)]
+    voice_sets += [tuple(rng.randrange(-2, 70) for _ in range(4)) for _ in range(pick(60, 6))]
+    masks = (0, M64, 0x0000F0F0F0F0F0F0, rng.getrandbits(64))
+    buffers = (None, (0xFFFFFC00, 0x7FFFFFFF, 0x80000000), (0, 0x10, 0x3FF))
+    grid = [(v, m, b, dirty) for v in voice_sets for m in masks for b in buffers for dirty in (0, 1)]
+    keep = lambda i, c: c[0] == (0, 1, 2, 3) and c[2] is None
+    chosen = select(grid, pick(len(grid), 40), 0x1F9820, axes=(
+        lambda c: c[0], lambda c: c[1], lambda c: c[2], lambda c: c[3]), keep=keep)
+    for voices, mask, bufs, dirty in chosen:
+        pokes = [(SDK_MASK, mask, 8)]
+        if bufs:
+            pokes += [(BUFFERS + 4 * k, bufs[2 - k], 4) for k in range(3)]   # B20, B24, B28
+        if dirty:
+            pokes += [(0x282154 + k, 2 - k, 1) for k in range(3)] + [(GP0, 0x19, 4), (0x275B30, 5, 1),
+                      (0x275B34, 3, 1), (RING, 150, 4), (REGION + 0x124, 9, 4)]
+            for k in range(3):
+                pokes += [(REGION + k * 0x60 + 4, 11 + k, 4), (REGION + k * 0x60 + 8, 0x123456789, 8),
+                          (REGION + k * 0x60 + 0x14, 0xABC00, 4), (REGION + k * 0x60 + 0x18, 0x8000, 4),
+                          (REGION + k * 0x60 + 0x58, f32(5.0), 4)]
+        Case(elf, capture, native, pokes, voices=voices).call(0x1F9820)
+    flags = (0, 1, 2, 3, 0x20002, 0x10000, 0xFFFF, 0x10001, 0xFFFFFFFF, 0x8000, 0x7FFE)
+    blocks = [(v, f, a, b, c, d) for v in (0, 5, 31, 32, 47, 63, -1) for f in flags
+              for a, b, c, d in ((0xADC00, 0x10000, 0x5010, 0x4000), (0xFFFFFFFF, 0x12345678, 0x9ABCDEF0, 0xFFFF),
+                                 (0, 0, 0, 0))]
+    direct = select(blocks, pick(len(blocks), 30), 0x11A4E8, axes=(lambda c: c[0], lambda c: c[1]))
+    for block in direct:
+        for mask in (0, M64):
+            Case(elf, capture, native, [(SDK_MASK, mask, 8)]).call(0x11A4E8, block)
+    return len(chosen) + 2 * len(direct)
 
 
 def read_cases(elf, capture, native, rng):
@@ -901,6 +978,21 @@ def capture_evidence(elf, captures, native, music, voice):
             assert (got(0x4C), got(0x28), got(0x24), got(0x2C)) == (duration, end, loop_sector, sector), \
                 (name, lane, hits[0])
             checks += 1
+        # 001F9820 with the boot's voices 0..3 over the captured buffers gives
+        # every captured lane's voice, mask, buffer and size and D_002820F4.
+        case = Case(elf, memory, native, voices=(0, 1, 2, 3))
+        assert case.n.lib.call(0x1F9820, 0, 0, 0, 0) == 0, (name, '001F9820')
+        case.n.lib.take(case.n.events)
+        region = (C.c_uint8 * REGION_SIZE)(); ring = (C.c_uint8 * 0x40)(); gp = (C.c_uint8 * 12)()
+        case.n.lib.save(region, ring, gp, (C.c_int32 * 7)())
+        for lane in range(3):
+            for off, size in ((4, 4), (8, 8), (0x14, 4), (0x18, 4)):
+                at = lane * 0x60 + off
+                assert bytes(region)[at:at + size] == memory[REGION + at:REGION + at + size], \
+                    (name, lane, hex(off), '001F9820 field')
+                checks += 1
+        assert bytes(region)[0x124:0x128] == memory[REGION + 0x124:REGION + 0x128], (name, 'D_002820F4')
+        checks += 1
         # Lane-0 fade-in step and volume (001FAE70 fade 270 + seven RNG bits, 001FA330 adds).
         step, vol = struct.unpack_from('<2I', memory, REGION + 0x54)
         if step not in (0, f32(16383.0)) and memory[0x282154]:
@@ -943,7 +1035,8 @@ def run(elf, captures, out, work, music, voice, start):
     counts, timing = {}, {}
     for key, family in (('leaves', leaves), ('fade', fade_cases), ('volume', volume_cases),
                         ('start', start_cases), ('select', select_cases), ('stop', stop_cases),
-                        ('read', read_cases), ('ring', ring_cases), ('service', service_cases)):
+                        ('read', read_cases), ('ring', ring_cases), ('service', service_cases),
+                        ('init', init_cases)):
         t0 = time.time()
         counts[key] = family(elf, base, native, rng)
         timing[key] = round(time.time() - t0, 2)

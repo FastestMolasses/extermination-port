@@ -1,5 +1,7 @@
 #include "game/em_panel_runtime.h"
-#include "game/em_panel_message.h"
+#include "game/em_hud.h"
+#include "game/em_message_live.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_player_pose.h"
 #include <assert.h>
 #include <math.h>
@@ -10,7 +12,6 @@ typedef struct {
     EmInteractionFrame frame;
     EmInteractionRuntime interaction;
     EmPanelRuntime panel;
-    EmPanelMessage message;
     EmPlayerPose pose;
     EmPanelBatteryMenu menu;
     float palette[22 * 16];
@@ -50,6 +51,19 @@ static int release(void *context)
     return em_player_pose_release(&f->pose);
 }
 
+/* The live message service (WP-8) over its exported data: the host posts
+ * 0x80000018 through 001B7D60 case 0 and step F runs it. Its glyph draw
+ * and the frame service registration are this fixture's boundaries. */
+static EmSceneState scene;
+EmSceneState *em_scene_state(void) { return &scene; }
+void em_frame_set_message_service(const EmFrameMessageService *service) { (void)service; }
+int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
+{
+    (void)index; (void)cell;
+    return 1;
+}
+void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush) { (void)gfx; (void)flush; }
+
 static int pose_worker(void *context, const EmInteractionAnimation *animation,
                         int result, float *palette)
 {
@@ -88,15 +102,17 @@ static int message_start(void *context, uint32_t token, uint32_t delay)
     Fixture *f = context;
     if (f->failure == 3) return 0;
     ++f->message_started;
-    int result = em_panel_message_start(&f->message, token, delay);
-    f->frame.message_phase = (int)f->message.phase;
+    EmMessageBlock *block = em_message_live_block();
+    block->phase = f->frame.message_phase;
+    int result = em_message_live_post(token, (int32_t)delay) == 0;
+    f->frame.message_phase = block->phase;
     return result;
 }
 
 static int message_done(void *context)
 {
     Fixture *f = context;
-    return f->failure == 4 ? -1 : em_panel_message_done(&f->message);
+    return f->failure == 4 ? -1 : f->frame.message_phase == 2;
 }
 
 static int battery_open(void *context, EmPanel *owner, uint8_t request)
@@ -142,7 +158,10 @@ static void setup(Fixture *f, EmModel *model, const EmPoseBank *bank, unsigned c
     f->charge = 12;
     f->sound_tick = f->power_tick = f->animation_tick = f->complete_tick = -1;
     assert(em_player_pose_init(&f->pose, bank, clip, clip ? 64 : 0));
-    assert(em_panel_message_load(&f->message, "assets/scene_snow/panel/terminal.emod"));
+    memset(&scene, 0, sizeof scene);
+    scene.d810700 = 0x0B;
+    assert(em_message_live_install("assets/message/message_data.emmd"));
+    assert(em_message_live_reset() == 0);
     EmInteractionRuntimeHooks shared = {f, acquire, idle, release, publish, event, camera};
     assert(em_interaction_runtime_init(&f->interaction, &f->frame, model, f->palette, &shared));
     assert(em_interaction_runtime_set_pose_worker(&f->interaction, pose_worker));
@@ -168,12 +187,15 @@ static int step(Fixture *f, int battery)
     /*0015BA50 advances the old source before the first0015B130 takeover. */
     if (!f->pose.acquired) assert(em_player_pose_advance(&f->pose, 1, 0));
     if (em_interaction_runtime_player_tick(&f->interaction, 1) < 0) return -1;
-    f->frame.message_phase = (int)f->message.phase;
+    EmMessageBlock *block = em_message_live_block();
+    f->frame.message_phase = block->phase;
     if (em_panel_runtime_tick(&f->panel, battery, 1) < 0) return -1;
-    f->message.phase = (unsigned)f->frame.message_phase;
-    em_panel_message_tick(&f->message, 0, 0);
-    const EmOpeningLine *line = em_opening_dialogue_line(&f->message.dialogue);
-    if (line && !line->terminal) ++f->message_visible;
+    block->phase = f->frame.message_phase;
+    /* Step F; a present tick of the timed line 0x80000018 (not its
+     * zero-duration terminal 0x80000019) is a visible frame. */
+    int32_t frames = block->frames;
+    assert(em_message_live_tick() == 0);
+    if (block->frames == frames + 1 && block->current == 0x80000018u) ++f->message_visible;
     if (f->entered && !f->frame.selector && f->complete_tick < 0)
         f->complete_tick = f->tick;
     ++f->tick;
@@ -250,7 +272,7 @@ static void run(EmModel *model, const EmPoseBank *bank, int battery, int dischar
         battery, discharge, source, menu_tick, f.animation_tick, f.sound_tick,
         f.power_tick, f.complete_tick, f.tick - 1);
     assert(em_panel_runtime_free(&f.panel));
-    em_panel_message_free(&f.message);
+    em_message_live_shutdown();
 }
 
 static void failure(EmModel *model, const EmPoseBank *bank, int which)
@@ -271,7 +293,7 @@ static void failure(EmModel *model, const EmPoseBank *bank, int which)
     /* Explicit whole-world destruction after a fault is not player release. */
     memset(&f.interaction, 0, sizeof f.interaction);
     assert(em_panel_runtime_free(&f.panel));
-    em_panel_message_free(&f.message);
+    em_message_live_shutdown();
 }
 
 int main(void)

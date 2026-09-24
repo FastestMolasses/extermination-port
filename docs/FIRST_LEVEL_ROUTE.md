@@ -131,9 +131,9 @@ main-loop counter. Each beat ends idle with control back: 3B8D=0 and action
 
 | # | Beat (folder) | Source | Frames | Counters | Original owners and scripts | Port owner |
 |---|---|---|---|---|---|---|
-| 00 | `00_panel_no_battery` (side) | slot 04 | 260 | 4094..4354 | panel 00159210 (r18): script 0x246F20, message 0x80000018 | em_panel*, em_panel_message, em_area11_interaction_host |
+| 00 | `00_panel_no_battery` (side) | slot 04 | 260 | 4094..4354 | panel 00159210 (r18): script 0x246F20, message 0x80000018 | em_panel*, em_message_live, em_area11_interaction_host |
 | 01 | `01_battery` | slot 04 | 516 | 4085..4601 | pickup 00219550 (g0.0, item 0x1B): take script 0x266620, request B0=1/B1=0x1B, status ITEM page | em_pickup_original / _owner / _program, em_status_* |
-| 02 | `02_elevator_refusal` | 01 | 387 | 4602..4989 | elevator 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox | em_elevator*, em_panel_message, em_fade |
+| 02 | `02_elevator_refusal` | 01 | 387 | 4602..4989 | elevator 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox | em_elevator*, em_message_live, em_fade |
 | 03 | `03_panel_power` | 02 | 685 | 4990..5675 | panel: script 0x2477A0, then 00157F60 posts B0=1/B1=0x82 (BATTERY page); Yes discharges 12 to 8 (half units); script 0x247BE0, pointer first seen at 0x247C20 (clip 0x15C); power bit 0x80 | em_panel_runtime, em_battery_ui, em_status_* |
 | 04 | `04_elevator_ride` | 03 | 576 | 5676..6252 | elevator: powered script 0x82A750, clip 0x47, carry 0x828050, down to y 190 | em_elevator_program / _runtime |
 | 05 | `05_boxes` | 04 | 676 | 6253..6929 | Use against crate r4 (001551B0) and then r3: ledge climb (state 2, +1F0 8); step onto the 220 ledge | em_player_climb, em_crate_original |
