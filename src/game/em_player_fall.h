@@ -122,10 +122,13 @@ typedef struct EmPlayerLandWorkers {
     int (*react_0021C120)(void *context, EmPlayerLiveActor *actor);
     int (*react_0021C350)(void *context, EmPlayerLiveActor *actor);
     int (*react_0021C270)(void *context, EmPlayerLiveActor *actor);
-    /* 00128350(+220): *result is its int return. 001000E0(a, b): *result is
-     * its return. */
-    int (*convert_00128350)(void *context, uint32_t value, int *result);
-    int (*test_001000E0)(void *context, int a, int b, int *result);
+    /* 00128350(+220): the float as a double, returned in the whole 64-bit
+     * $v0 (raw bits in *result). 0017C580 hands that register on unchanged
+     * as 001000E0's $a0, with $a1 = 0: 001000E0(a, b) compares the two
+     * doubles (*result is its return). em_sdk_soft_float_00128350 and
+     * em_rvr_001000E0 have these shapes. */
+    int (*convert_00128350)(void *context, uint32_t value, uint64_t *result);
+    int (*test_001000E0)(void *context, uint64_t a, uint64_t b, int *result);
     /* D_008106F1, read by 0017C580 after 00174AC0. */
     int (*progress_8106F1)(void *context, uint8_t *value);
 } EmPlayerLandWorkers;

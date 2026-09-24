@@ -282,7 +282,8 @@ static int land(const EmPlayerLandWorkers *w, EmPlayerLiveActor *a)
     put8(a, 0x25C, 0);
     put32(a, 0x38, 0);
     if (b8(a, 0xF) == 0x63) return reset_to_reaction(a);               /* 0017C5BC */
-    int value = 0, flag = 0;
+    uint64_t value = 0;                                                /* the double in $v0 */
+    int flag = 0;
     FAULT(w->convert_00128350(w->context, w32(a, 0x220), &value));
     FAULT(w->test_001000E0(w->context, value, 0, &flag));
     if (flag != 0 && b8(a, 0x234) == 1) return reset_to_reaction(a);   /* 0017C5E8 */

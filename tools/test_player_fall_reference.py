@@ -46,6 +46,7 @@ import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, sx32  # noqa: E402
 
 MASK = 0xFFFFFFFF
+MASK64 = 0xFFFFFFFFFFFFFFFF
 LANE = os.environ.get('EM_LANE', 'player_fall_reference')
 OUT = ROOT / 'build' / LANE
 
@@ -183,12 +184,13 @@ class CoverEE(FallEE):
         return b
 
 
-def nested_bits(ee, entry, args=(), fregs=()):
-    """EE.nested with the float argument registers set from raw bits."""
+def nested_bits(ee, entry, args=(), fregs=(), wide=False):
+    """EE.nested with the float argument registers set from raw bits (and,
+    with wide, the integer argument registers set to whole 64-bit values)."""
     saved = (list(ee.r), list(ee.rh), ee.hi, ee.lo, list(ee.f), ee.acc,
              ee.cond, [list(v) for v in ee.vf], list(ee.vacc), ee.q)
     ee.r[29] = (ee.r[29] - 0x400) & ~15
-    for i, value in enumerate(args): ee.r[4 + i] = sx32(value)
+    for i, value in enumerate(args): ee.r[4 + i] = value & MASK64 if wide else sx32(value)
     for i, value in enumerate(fregs): ee.f[12 + i] = value & MASK
     ee.r[31] = shared.RETURN
     ee.run(entry)
@@ -281,8 +283,8 @@ FN = {
     'actor_int': C.CFUNCTYPE(I, VP, LA, I),
     'floor': C.CFUNCTYPE(I, VP, LA, I, P(I)),
     'ledge': C.CFUNCTYPE(I, VP, LA, U32, P(I)),
-    'convert': C.CFUNCTYPE(I, VP, U32, P(I)),
-    't2': C.CFUNCTYPE(I, VP, I, I, P(I)),
+    'convert': C.CFUNCTYPE(I, VP, U32, P(C.c_uint64)),
+    't2': C.CFUNCTYPE(I, VP, C.c_uint64, C.c_uint64, P(I)),
     'progress': C.CFUNCTYPE(I, VP, P(C.c_uint8)),
 }
 # EmPlayerLandWorkers, in header order: (field, FN kind).
@@ -336,6 +338,10 @@ def F(value):
     return struct.unpack('<I', struct.pack('<f', value))[0]
 
 
+def D(value):
+    return struct.unpack('<Q', struct.pack('<d', value))[0]
+
+
 FLAGS = (0, 0x1000, 0x8000, 0x9000, 0x200, 0x1200, 0x8200)
 
 
@@ -376,7 +382,11 @@ def effect_for(rng, name):
         e['ret'] = rng.choice((0, 1))
         if e['ret'] and chance() < 0.7: w.append((5, 1, 4))
     elif name == 'convert':
-        e['ret'] = rng.choice((0, 1, 60, -5, 0x7FFFFFFF))
+        # 00128350 returns the double in the whole 64-bit $v0. The worker is
+        # scripted, so any double will do: +220-like values (60.0's low word
+        # is 0, so a copy of only the low word cannot tell 60.0 from 0.0) and
+        # 1e-300, whose low word is not 0.
+        e['ret'] = D(rng.choice((60.0, 0.0, -0.0, 100.0, -5.0, 1.5, 1e-300)))
     elif name == 'pose_clip':
         e['ret'] = rng.choice((0x6E, 0x72, 0x1C3, -1 & MASK, 0x8000))
     elif name == 'frames':
@@ -511,7 +521,10 @@ class UnitOracle:
                 for i, value in enumerate(e['out']): ee.save(ee.arg(0) + 4 * i, value)
             if e['fret'] is not None:
                 ee.f[0] = e['fret']
-            ee.ret_int(e['ret'])
+            if name == 'convert':
+                ee.r[2] = e['ret'] & MASK64       # the double, the whole 64-bit $v0
+            else:
+                ee.ret_int(e['ret'])
         return run
 
     def log_entry(self, name, ee):
@@ -550,7 +563,7 @@ class UnitOracle:
         if name == 'query': return (name, vec(a(1), 3))
         if name == 'ledge': return (name, ee.f[12] & MASK)
         if name == 'convert': return (name, ee.f[12] & MASK)
-        if name == 't00E0': return (name, s32(a(0)), s32(a(1)))
+        if name == 't00E0': return (name, ee.r[4] & MASK64, ee.r[5] & MASK64)
         return (name,)
 
     def run(self, case, script):
@@ -699,7 +712,12 @@ class NativeRun:
         if field == 'ledge':
             return with_result('ledge', lambda args: (args[1],))
         if field == 'convert_00128350':
-            return with_result('convert', lambda args: (args[0],))
+            def convert(_, value, out):
+                e = self.call('convert', ('convert', value))
+                if e is None: return -1
+                out[0] = e['ret'] & MASK64
+                return 0
+            return convert
         if field == 'test_001000E0':
             return with_result('t00E0', lambda args: (args[0], args[1]))
         if field == 'progress_8106F1':
@@ -1093,8 +1111,17 @@ class WorldLand:
     def w_react_0021C120(self, a): self.call(0x21C120, (self.base,)); return 0
     def w_react_0021C350(self, a): self.call(0x21C350, (self.base,)); return 0
     def w_react_0021C270(self, a): self.call(0x21C270, (self.base,)); return 0
-    def w_convert_00128350(self, value, out): out[0] = self.call(0x128350, (), (value,))[0]; return 0
-    def w_test_001000E0(self, x, y, out): out[0] = self.call(0x1000E0, (x, y))[0]; return 0
+    def call_wide(self, entry, args=(), fregs=()):
+        """The same call with whole 64-bit integer arguments and $v0 (the
+        double 00128350 returns and 001000E0 takes)."""
+        ee = self.ee
+        self.sync_in()
+        v0, _ = nested_bits(ee, entry, args, fregs, wide=True)
+        self.sync_out()
+        return v0 & MASK64
+
+    def w_convert_00128350(self, value, out): out[0] = self.call_wide(0x128350, (), (value,)); return 0
+    def w_test_001000E0(self, x, y, out): out[0] = s32(self.call_wide(0x1000E0, (x, y))); return 0
     def w_progress_8106F1(self, out): out[0] = self.ee.load(0x8106F1, 1); return 0
 
 

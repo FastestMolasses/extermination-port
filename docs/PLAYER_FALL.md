@@ -423,7 +423,9 @@ original behaviour.
 
 ### Workers of `EmPlayerLandWorkers`
 
-Each worker's original, and what can fill it today:
+Each worker's original, and what can fill it today (re-checked against the
+port tree in the second L02 attempt, 2026-09-24; "needs" names what is
+still missing before the slot can be bound faithfully):
 
 | worker | original | binds to |
 |---|---|---|
@@ -431,32 +433,41 @@ Each worker's original, and what can fill it today:
 | `fall_check` | 001796C0 | `player_states_fall_check` |
 | `probes` | 001764E0 | the wall probes over the record (`player_states_wall_probes`, through an adapter that sets the $s1 source below) |
 | `floor_query` | 00179450 | `em_player_floor_query` after the column worker 0019BC40 at `point`; it writes +258 |
-| `apply` | 001026A0 | the SDK matrix apply |
-| `trs` | build_trs_matrix | |
+| `apply` | 001026A0 | the SDK matrix apply (`em_effect_original_001026A0`, over bits) |
+| `trs` | build_trs_matrix | `em_pose_host_build_trs_matrix` |
 | `wrap` | 001B1470 | `em_player_001B1470` (em_player_stage_workers.h, bit patterns) |
-| `approach` | 001B12B0 | `em_player_slide_approach` exists, but on the older float model (EE_FLOAT_MODEL.md 5c) |
+| `approach` | 001B12B0 | `em_script_host_approach` (bit patterns) |
 | `heading` | 00174AC0 | `em_player_heading_record_worker_result` (em_player_heading_record.h), context an `EmPlayerHeadingRecord` whose `world.spad3A20` is `&scratch->s3A20` (the scratch below). Checked by the oracle's bound-heading part (section 3) |
-| `reentry` | 0017C440 | the port's run-stop re-entry (em_player_motor / em_player.c, checked by test_player_reentry_reference.py) |
-| `handoff` | 0017C540 | `em_player_reaction_0017C540` |
-| `react_0021C350`, `react_0021C120`, `test_0021C190`, `react_0021C270` | 0021C350, 0021C120, 0021C190, 0021C270 | the player-reaction lane's translations |
-| `land_sound` | 00182870 | `em_player_reaction_00182870` |
-| `convert_00128350` | 00128350 | the SDK float-to-int |
-| `test_001000E0` | 001000E0 | |
-| `test_001755B0` | 001755B0 | |
-| `test_0017D080` | 0017D080 | em_player_recovery lane |
-| `test_0017F320` | 0017F320 | |
-| `pose_clip` | 00188550 | |
-| `ledge` | 0017C860 | |
-| `request` | 001749A0 | |
-| `arbiter` | anim_clip_arbiter | |
-| `clip_frames` | 001C61D0 | on the `+40` bank word |
-| `sound` | 001FBD50 | (p, id, 0, 300) |
-| `rumble` | 001B61C0 | |
-| `effect` | 001EFD90 | |
-| `fade` | 001AEDE0 | |
-| `skeleton` | anim_eval_skeleton | |
-| `hip` | | node *(D_00275B40 + 4) +C0/+C8 after the skeleton |
+| `reentry` | 0017C440 | `em_player_reentry_worker` (em_player_use_dispatch.h, the record-level 0017C440) |
+| `handoff` | 0017C540 | `em_pose_host_handoff` (`em_player_reaction_0017C540`) |
+| `react_0021C350`, `react_0021C270` | 0021C350, 0021C270 | `em_player_0021C350` / `em_player_0021C270` (context the stage workers' host) |
+| `react_0021C120`, `test_0021C190` | 0021C120, 0021C190 | `em_player_reaction_w0021C120` / `_w0021C190` (context an `EmPlayerReaction`) |
+| `land_sound` | 00182870 | `em_player_reaction_00182870` (over the reaction workers) |
+| `convert_00128350` | 00128350 | `em_sdk_soft_float_00128350`: the double in the whole 64-bit $v0 |
+| `test_001000E0` | 001000E0 | `em_rvr_001000E0` (em_render_verify_rest.h, test_render_verify_rest_reference) on the two doubles |
+| `test_001755B0` | 001755B0 | needs a translation (byte-matched C, 33 instructions); reachable in ordinary play (the tier-3 edge path, gait-3 landings with a drop of 14.5 or more) |
+| `test_0017D080` | 0017D080 | `em_player_recovery_ledge_catch_worker`; needs the move walker 0019AD00 over the world (census L05: 0019CB60 and 001A6440 are untranslated) |
+| `test_0017F320` | 0017F320 | needs a record-level form of `em_player_climb_hang_clear` (it works on the climb mirror) |
+| `pose_clip` | 00188550 | needs a record-level form (inline in em_player_climb.c: D_002754C0[+235 & 1]) |
+| `ledge` | 0017C860 | `em_player_recovery_ledge_grab_worker` (its sweeps need L05 as well) |
+| `request`, `arbiter` | 001749A0, anim_clip_arbiter | `em_pose_host_request` / `_arbiter`, context `player_pose_record_host()` |
+| `clip_frames` | 001C61D0 | `em_pose_host_clip_frames`, on the `+40` bank word |
+| `skeleton`, `hip` | anim_eval_skeleton; node *(D_00275B40 + 4) +C0/+C8 | `em_pose_host_eval_skeleton`; `em_pose_view_hip_xz` |
+| `sound` | 001FBD50 | `em_player_misc_w_sound_300_i` (p, id, 0, 300) |
+| `rumble` | 001B61C0 | `em_player_rumble_worker` (em_player_ladder_entry.h) |
+| `effect` | 001EFD90 | `em_effect_original_001EFD90`; needs a live effect owner (census L26) |
+| `fade` | 001AEDE0 | the live 001AEDE0 (`em_frame_fade_start_colour`, as em_player_stage_live.c binds it) |
 | `progress_8106F1` | | the canonical D_008106F1 byte (the reaction lane's `EmPlayerReactionScene.d8106F1`: 0021C270 sets it, 0021C190 clears it) |
+
+**The 0017C580 double (fixed 2026-09-24).** 00128350 returns the double of
++220 in the whole 64-bit $v0, and 0017C580 hands that register unchanged to
+001000E0 as $a0, with $a1 = 0. The worker slots carried it as an `int`,
+which keeps only the low word (60.0 is 0x404E000000000000, low word 0, the
+same as 0.0), so no binding could have fed 001000E0 its real operand. The
+slots are `uint64_t` now. The unit oracle scripts 00128350's $v0 as whole
+doubles and compares 001000E0's whole $a0 / $a1; a native that copies only
+the low word fails it (checked). The world mode calls both originals with
+whole registers.
 
 ### The $s1 source of `probes`
 
