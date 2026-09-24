@@ -18,30 +18,34 @@ shared file is not edited). Every other instruction is the shared one.
 
 What is compared, bit for bit, on every case:
   - the return value;
-  - every scratchpad field the walkers own (0x70003190..0x700031D8, 0x700030CA,
-    0x700030D4..DC, 0x7000324E, 0x70003254, 0x70003B88, 0x70003680..8C), and
-    the WHOLE 16 KB scratchpad: the original's final scratchpad must equal the
-    initial one plus the native worker executions' stores plus the native
-    fields;
+  - every scratchpad field the walkers own (0x70003190..0x700031D8,
+    0x700030CA..0x700030DC, the ranks 0x70003240..0x7000324A, 0x7000324E,
+    0x70003254, 0x70003B86/88, 0x70003680..8C), and the WHOLE 16 KB
+    scratchpad: the original's final scratchpad must equal the initial one
+    with the native fields written into it;
   - the query actor's +0xB0/+0xB8 (mask bit 31), and that nothing else in RAM
     is written.
 
-The untranslated callees the walkers reach are workers on the native side
-(0019CB60 the grid pass, 001A6440 / 001A7280 the hull locks, 0011E748 sqrt).
-Each native worker call runs that ORIGINAL routine as instructions over the
-same RAM, with the native scratch loaded into the scratchpad, and hands its
-scratch back: so the native walker is compared against the original
-end to end, and the call sequence (routine, arguments, scratch at entry) must
-equal the one the original makes.
+The native walkers run completely native: the grid pass 0019CB60 and the
+hull locks 001A6440 / 001A7280 are em_coll_grid_hull.c's translations
+(the EMCL rank section from the decomp exporter, run with --verify-ram),
+0011E748 is em_sdk_math_original's, and the hull chains are read from the
+same RAM through the grid-hull test's resolver (CHAIN_C). The original's
+calls of 0019CB60 / 001A6440 / 001A7280 / 0011E748 are only counted (they
+run in place, unhooked). A grid node's +0x34 axis is not in the EMCL, so
+`record_axis` is not compared for a grid-node record; the adapters fault
+where a consumer would read it (surface 0x35: the fail-stop checks).
 
 Worlds: the RAM + scratchpad snapshots of route beats 04 (the 05_boxes
 start: crates, elevator), 05 (the 06_hill_slide start) and 08 (the truck
 crossing: the truck's n-gon hull). Route mode (EM_TEST_FULL=1 or
 EM_TEST_ROUTE=1): every 0019AD00 / 0019AFE0 call the ORIGINAL player stage
-makes while it climbs the two 05_boxes crates (seeded at each Cross press) and
-while it replays 06_hill_slide from its source snapshot is re-run natively at
-the call and compared as above; the quick run takes the first frames of one
-climb and of the slide replay.
+makes while it climbs the two 05_boxes crates (seeded at each Cross press),
+while it replays 06_hill_slide from its source snapshot, and while it replays
+beats 10..14 from theirs (the cage roof, the crevice, the east tower and
+Roger's encounter, whose published class-2 list holds Roger and his chain)
+is re-run natively at the call and compared as above; the quick run takes the
+first frames of one climb, of the slide replay and of each later beat.
 
 No original bytes are embedded: the ELF, RAM images and captures are the
 user's own local files.
@@ -54,6 +58,7 @@ import struct
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +66,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
 import test_player_slide_reference as SR  # noqa: E402
+import test_coll_grid_hull_reference as GH  # noqa: E402
 from test_player_slide_reference import EE, DECOMP, read_elf, sx32  # noqa: E402
 
 OUT = ROOT / 'build/coll_move_reference'
@@ -78,8 +84,8 @@ QUERY = 0x01FE0000      # a synthetic query actor record (zero RAM in every beat
 PRIM_AT = 0x01FE1000    # synthetic prims for the prim-level cases
 
 # The scratchpad fields the walkers own (EmCollMoveScratch).
-MODELED = (set(range(0x3190, 0x31DC)) | {0x30CA, 0x30CB} | set(range(0x30D4, 0x30E0)) |
-           {0x324E, 0x324F} | set(range(0x3254, 0x3258)) | {0x3B88, 0x3B89} | set(range(0x3680, 0x3690)))
+MODELED = (set(range(0x3190, 0x31DC)) | set(range(0x30CA, 0x30E0)) | set(range(0x3240, 0x3250)) |
+           set(range(0x3254, 0x3258)) | set(range(0x3B86, 0x3B8A)) | set(range(0x3680, 0x3690)))
 
 
 # ---- The EE with the measured float model -----------------------------------
@@ -273,27 +279,39 @@ BRIDGE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include "game/em_coll_move_original.h"
-#include "game/em_item_sdk_math.h"
-
-/* The named worker section 4 of docs/COLL_MOVE.md binds to .sqrt. */
-uint32_t bridge_named_sqrt(uint32_t x)
-{
-    float f, r;
-    memcpy(&f, &x, 4);
-    r = em_item_sdk_sqrt(f);
-    memcpy(&x, &r, 4);
-    return x;
-}
-
+""" + GH.CHAIN_C + r"""
 typedef struct {
     uint32_t start[4], end[4], point[4], delta[4], record, record_node, record_normal[3],
-             record_axis[3], entity, mode, cell_class, cell_normal[3], query_class, self, kind, work[4];
+             record_axis[3], entity, mode, cell_class, cell_normal[3], query_class, self, kind, work[4],
+             cell_word_1c, cell_word_20, span_lo;
+    int32_t rank[6];
 } BridgeScratch;
 
 typedef struct { uint32_t status, cls, h52, self, position[3]; } BridgeActor;
 
-typedef int (*WorkerCb)(int which, int arg, BridgeScratch *io, uint32_t *result);
-typedef int (*SqrtCb)(uint32_t x, uint32_t *out);
+/* The world's static parts, loaded once: the EMCL grid with its rank
+ * section and the SDK math tables. */
+static EmCollision g_emcl;
+static EmCollProbeGrid g_grid;
+static EmSdkMathTables g_tables;
+static int g_loaded;
+
+int bridge_global(const char *emcl, const uint8_t *elf, uint32_t elf_size)
+{
+    if (g_loaded) return 0;
+    if (em_collision_load(&g_emcl, emcl) || em_coll_probe_grid_load(&g_grid, &g_emcl, emcl) ||
+        em_sdk_math_original_load_tables(elf, elf_size, &g_tables)) return -1;
+    g_loaded = 1;
+    return 0;
+}
+
+uint8_t bridge_set_attr(int node, uint8_t attr)
+{
+    EmCollPoly *p = &g_emcl.polys[g_grid.first + (uint32_t)node];
+    uint8_t old = p->attr;
+    p->attr = attr;
+    return old;
+}
 
 typedef struct {
     EmActorCellTable table;
@@ -305,8 +323,11 @@ typedef struct {
     uint32_t addr[512];
     int count;
     uint8_t kinds[256];
-    WorkerCb worker;
-    SqrtCb sqrt;
+    int32_t mode;
+    EmSdkMathContext math;
+    HullRam ram;
+    EmCollHullWorld hulls;
+    uint32_t node_base;
     int fault;
 } Bridge;
 
@@ -327,13 +348,22 @@ static const EmActor *actor_of(Bridge *b, uint32_t addr)
     return &b->rec[i];
 }
 
+static uint32_t hull_address(void *owner, const EmActor *e)
+{
+    Bridge *b = owner;
+    if (e >= b->rec && e < b->rec + b->count) return b->addr[e - b->rec];
+    return 0;
+}
+
 static uint32_t addr_of(Bridge *b, const void *p)
 {
     if (!p) return 0;
     if (p == EM_COLL_MOVE_CELL_RECORD) return 0x700030B0u;
+    int node = em_coll_grid_hull_node_index(&g_grid, p);
+    if (node >= 0) return b->node_base + 0x40u * (uint32_t)node;
     const EmActor *a = p;
     if (a >= b->rec && a < b->rec + b->count) return b->addr[a - b->rec];
-    return (uint32_t)(uintptr_t)p;
+    return (uint32_t)(uintptr_t)p;      /* self_of's stand-in for an address no record has */
 }
 
 static const void *self_of(Bridge *b, uint32_t addr)
@@ -352,7 +382,10 @@ static void load(Bridge *b, const BridgeScratch *io)
     }
     if (!io->record) s->record = NULL;
     else if (io->record == 0x700030B0u) s->record = EM_COLL_MOVE_CELL_RECORD;
-    else s->record = (const void *)(uintptr_t)io->record;
+    else if (io->record >= b->node_base && (io->record - b->node_base) % 0x40u == 0 &&
+             (io->record - b->node_base) / 0x40u < g_grid.count)
+        s->record = em_coll_grid_hull_node_record(&g_grid, (int)((io->record - b->node_base) / 0x40u));
+    else { s->record = NULL; b->fault = 1; }
     s->record_node = (uint16_t)io->record_node;
     for (int k = 0; k < 3; ++k) {
         s->record_normal[k] = fb(io->record_normal[k]); s->record_axis[k] = fb(io->record_axis[k]);
@@ -361,8 +394,12 @@ static void load(Bridge *b, const BridgeScratch *io)
     s->entity = actor_of(b, io->entity);
     s->mode = (int32_t)io->mode;
     s->cell_class = (uint16_t)io->cell_class;
+    s->cell_word_1c = io->cell_word_1c;
+    s->cell_word_20 = io->cell_word_20;
+    for (int k = 0; k < 6; ++k) s->rank[k] = (int16_t)io->rank[k];
     s->query_class = (int16_t)io->query_class;
     s->self = self_of(b, io->self);
+    s->span_lo = (int16_t)io->span_lo;
     s->kind = (int16_t)io->kind;
 }
 
@@ -382,51 +419,39 @@ static void save(Bridge *b, BridgeScratch *io)
     io->entity = addr_of(b, s->entity);
     io->mode = (uint32_t)s->mode;
     io->cell_class = s->cell_class;
+    io->cell_word_1c = s->cell_word_1c;
+    io->cell_word_20 = s->cell_word_20;
+    for (int k = 0; k < 6; ++k) io->rank[k] = s->rank[k];
     io->query_class = (uint16_t)s->query_class;
     io->self = addr_of(b, s->self);
+    io->span_lo = (uint16_t)s->span_lo;
     io->kind = (uint16_t)s->kind;
 }
 
-static int call_worker(Bridge *b, int which, int arg, EmCollMoveScratch *s, int *result)
-{
-    BridgeScratch io;
-    uint32_t r = 0;
-    (void)s;
-    save(b, &io);
-    if (b->worker(which, arg, &io, &r) < 0) return -1;
-    load(b, &io);
-    if (b->fault) return -1;
-    *result = (int)r;
-    return 0;
-}
-
-static int w6440(void *c, EmCollMoveScratch *s, int arg, int *result) { return call_worker(c, 0x6440, arg, s, result); }
-static int w7280(void *c, EmCollMoveScratch *s, int *result) { return call_worker(c, 0x7280, 0, s, result); }
-static int wgrid(void *c, EmCollMoveScratch *s, int *result) { return call_worker(c, 0xCB60, 0, s, result); }
-static int wsqrt(void *c, float x, float *out)
-{
-    Bridge *b = c;
-    uint32_t r;
-    if (b->sqrt(bf(x), &r) < 0) return -1;
-    *out = fb(r);
-    return 0;
-}
-
-void *bridge_new(const uint8_t *image, uint32_t size, WorkerCb worker, SqrtCb sq)
+/* ram: the RAM the chains are read from (the EE's own buffer); node_base:
+ * *0x70003208 of the world; mode: D_0026C5D0. */
+void *bridge_new(const uint8_t *image, uint32_t size, const uint8_t *ram, uint32_t ram_size, uint32_t node_base,
+                 int32_t mode)
 {
     Bridge *b = calloc(1, sizeof *b);
-    if (!b) return NULL;
+    if (!b || !g_loaded) { free(b); return NULL; }
     if (em_actor_cells_init(&b->table, image, size) != 0) { free(b); return NULL; }
     b->cells.table = &b->table;
     b->cells.lists = &b->lists;
+    b->mode = mode;
+    b->math.tables = &g_tables;
+    b->math.world.d26C5D0 = &b->mode;
+    b->ram.ram = ram;
+    b->ram.size = ram_size;
+    b->ram.address_of = hull_address;
+    b->ram.owner = b;
+    b->hulls.context = &b->ram;
+    b->hulls.chain = hull_ram_chain;
+    b->node_base = node_base;
     b->world.cells = &b->cells;
-    b->world.workers.context = b;
-    b->worker = worker;
-    b->sqrt = sq;
-    b->world.workers.lock_6440 = w6440;
-    b->world.workers.lock_7280 = w7280;
-    b->world.workers.grid = wgrid;
-    b->world.workers.sqrt = wsqrt;
+    b->world.grid = &g_grid;
+    b->world.hulls = &b->hulls;
+    b->world.math = &b->math;
     return b;
 }
 
@@ -437,13 +462,15 @@ void bridge_free(void *p)
     free(b);
 }
 
-void bridge_present(void *p, int mask)
+/* Which world parts are present: 1 the chain resolver, 2 the player view,
+ * 4 the grid, 8 the SDK math context. */
+void bridge_present(void *p, int mask, uint32_t player)
 {
     Bridge *b = p;
-    b->world.workers.lock_6440 = mask & 1 ? w6440 : NULL;
-    b->world.workers.lock_7280 = mask & 2 ? w7280 : NULL;
-    b->world.workers.grid = mask & 4 ? wgrid : NULL;
-    b->world.workers.sqrt = mask & 8 ? wsqrt : NULL;
+    b->hulls.chain = mask & 1 ? hull_ram_chain : NULL;
+    b->hulls.player = mask & 2 && player ? actor_of(b, player) : NULL;
+    b->world.grid = mask & 4 ? &g_grid : NULL;
+    b->world.math = mask & 8 ? &b->math : NULL;
 }
 
 void bridge_static_kinds(void *p, const uint8_t *kinds, unsigned n)
@@ -455,7 +482,7 @@ void bridge_static_kinds(void *p, const uint8_t *kinds, unsigned n)
 }
 
 int bridge_actor(void *p, uint32_t addr, uint8_t status, uint8_t cls, uint8_t model, uint16_t uid,
-                 uint16_t h52, uint16_t kind, uint32_t callback)
+                 uint16_t h52, uint16_t kind, uint32_t callback, uint8_t bones, uint32_t w58, uint32_t w5C)
 {
     Bridge *b = p;
     int i = find(b, addr);
@@ -467,15 +494,17 @@ int bridge_actor(void *p, uint32_t addr, uint8_t status, uint8_t cls, uint8_t mo
     EmActor *a = &b->rec[i];
     memset(a, 0, sizeof *a);
     a->status = status; a->cls = cls; a->model = model; a->uid = uid; a->h52 = h52; a->kind = kind;
-    a->callback = callback;
+    a->callback = callback; a->bones = bones; a->w58 = w58; a->w5C = w5C;
     a->self = a;
     return 0;
 }
 
-int bridge_list(void *p, const uint32_t *entries, int count)
+/* which: EM_ACTOR_LIST_CLASS4 (3) or EM_ACTOR_LIST_CLASS2 (2); entry j is
+ * what the published array holds at j. */
+int bridge_list(void *p, int which, const uint32_t *entries, int count)
 {
     Bridge *b = p;
-    EmActorClassList *l = &b->lists.list[EM_ACTOR_LIST_CLASS4];
+    EmActorClassList *l = &b->lists.list[which];
     memset(l, 0, sizeof *l);
     if (count < 0 || count > EM_ACTOR_LIST_MAX) return -1;
     for (int j = 0; j < count; ++j) {
@@ -612,7 +641,8 @@ class Scratch(C.Structure):
                 ('record_normal', C.c_uint32 * 3), ('record_axis', C.c_uint32 * 3), ('entity', C.c_uint32),
                 ('mode', C.c_uint32), ('cell_class', C.c_uint32), ('cell_normal', C.c_uint32 * 3),
                 ('query_class', C.c_uint32), ('self', C.c_uint32), ('kind', C.c_uint32),
-                ('work', C.c_uint32 * 4)]
+                ('work', C.c_uint32 * 4), ('cell_word_1c', C.c_uint32), ('cell_word_20', C.c_uint32),
+                ('span_lo', C.c_uint32), ('rank', C.c_int32 * 6)]
 
 
 class Actor(C.Structure):
@@ -627,8 +657,6 @@ class Probe(C.Structure):
                 ('normal', C.c_uint32 * 3), ('axis', C.c_uint32 * 3)]
 
 
-WORKER_CB = C.CFUNCTYPE(C.c_int, C.c_int, C.c_int, C.POINTER(Scratch), C.POINTER(C.c_uint32))
-SQRT_CB = C.CFUNCTYPE(C.c_int, C.c_uint32, C.POINTER(C.c_uint32))
 U32P = C.POINTER(C.c_uint32)
 
 
@@ -639,21 +667,23 @@ def build_native():
     lib = OUT / ('bridge.dylib' if sys.platform == 'darwin' else 'bridge.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
                     '-fPIC', '-Isrc', str(source), 'src/game/em_coll_move_original.c',
-                    'src/game/em_actor_collision.c', 'src/game/em_collision.c', 'src/game/em_actor_pool.c',
-                    'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c', '-lm', '-o', str(lib)],
+                    'src/game/em_coll_grid_hull.c', 'src/game/em_coll_probe_original.c',
+                    'src/game/em_sdk_math_original.c', 'src/game/em_actor_collision.c', 'src/game/em_collision.c',
+                    'src/game/em_actor_pool.c', '-lm', '-o', str(lib)],
                    cwd=ROOT, check=True)
     n = C.CDLL(str(lib))
     V = C.c_void_p
+    n.bridge_global.argtypes = [C.c_char_p, C.c_char_p, C.c_uint32]
+    n.bridge_set_attr.restype = C.c_uint8
+    n.bridge_set_attr.argtypes = [C.c_int, C.c_uint8]
     n.bridge_new.restype = V
-    n.bridge_new.argtypes = [C.c_char_p, C.c_uint32, WORKER_CB, SQRT_CB]
+    n.bridge_new.argtypes = [C.c_char_p, C.c_uint32, C.c_void_p, C.c_uint32, C.c_uint32, C.c_int32]
     n.bridge_free.argtypes = [V]
-    n.bridge_named_sqrt.restype = C.c_uint32
-    n.bridge_named_sqrt.argtypes = [C.c_uint32]
-    n.bridge_present.argtypes = [V, C.c_int]
+    n.bridge_present.argtypes = [V, C.c_int, C.c_uint32]
     n.bridge_static_kinds.argtypes = [V, C.c_char_p, C.c_uint]
     n.bridge_actor.argtypes = [V, C.c_uint32, C.c_uint8, C.c_uint8, C.c_uint8, C.c_uint16, C.c_uint16,
-                               C.c_uint16, C.c_uint32]
-    n.bridge_list.argtypes = [V, U32P, C.c_int]
+                               C.c_uint16, C.c_uint32, C.c_uint8, C.c_uint32, C.c_uint32]
+    n.bridge_list.argtypes = [V, C.c_int, U32P, C.c_int]
     n.bridge_move.argtypes = [V, C.POINTER(Scratch), C.POINTER(Actor), U32P, C.c_uint32]
     n.bridge_sweep.argtypes = [V, C.POINTER(Scratch), C.POINTER(Actor), U32P, U32P, C.c_uint32]
     n.bridge_walk.argtypes = [V, C.POINTER(Scratch)]
@@ -718,7 +748,9 @@ def directory(buf, base):
 SPAD_FIELDS = [('start', 0x3190, 4), ('end', 0x31A0, 4), ('point', 0x31B0, 4), ('delta', 0x31C0, 4),
                ('cell_normal', 0x30D4, 3), ('work', 0x3680, 4)]
 SPAD_WORDS = [('record', 0x31D0, 4), ('entity', 0x31D4, 4), ('mode', 0x31D8, 4), ('cell_class', 0x30CA, 2),
-              ('query_class', 0x324E, 2), ('self', 0x3254, 4), ('kind', 0x3B88, 2)]
+              ('cell_word_1c', 0x30CC, 4), ('cell_word_20', 0x30D0, 4), ('query_class', 0x324E, 2),
+              ('self', 0x3254, 4), ('span_lo', 0x3B86, 2), ('kind', 0x3B88, 2)]
+SPAD_HALVES = [('rank', 0x3240, 6)]     # signed halfwords
 
 
 class World:
@@ -727,32 +759,44 @@ class World:
 
     def __init__(self, beat):
         self.beat = beat
-        self.ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
         self.spad = (ROUTE / beat / 'scratchpad.bin').read_bytes()
-        check_code(ELF, self.ram, beat)
-        assert not any(self.ram[QUERY:QUERY + 0x2000]), (beat, 'the synthetic region is in use')
+        check_code(ELF, ram, beat)
+        assert not any(ram[QUERY:QUERY + 0x2000]), (beat, 'the synthetic region is in use')
+        assert not any(ram[GH.SYN:GH.SYN + GH.SYN_SIZE]), (beat, 'the synthetic chain region is in use')
         self.table = u32(self.spad, 0x3250)
-        assert s16(self.spad, 0x324C) == u32(self.ram, self.table), (beat, 'directory count word')
-        self.image, self.hulls = directory(self.ram, self.table)
-        pub, count = u32(self.ram, 0x275B7C), s16(self.ram, 0x275B84)
-        self.owners = [u32(self.ram, pub + 4 * j) for j in range(count)]
-        self.ee = FloatEE(ELF, self.ram, self.spad)
+        assert s16(self.spad, 0x324C) == u32(ram, self.table), (beat, 'directory count word')
+        self.image, self.hulls = directory(ram, self.table)
+        pub, count = u32(ram, 0x275B7C), s16(ram, 0x275B84)
+        self.owners = [u32(ram, pub + 4 * j) for j in range(count)]
+        self.ee = FloatEE(ELF, ram, self.spad)
         self.native = self.bridge(self.image)
 
     def bridge(self, image, owners=None, patch=None):
-        b = NATIVE.bridge_new(image, len(image), WORKER, SQRT_HOOK)
-        assert b, (self.beat, 'bridge_new')
+        """A native world over the EE's current RAM: the pool records and the
+        player (their +0x58 / +0x5C / +0x09 for the hull locks), the class-4
+        owners, the published class-2 list, and the RAM view the chain
+        resolver reads (the EE's own buffer)."""
         ram = self.ee.mem
+        self._ram_view = (C.c_char * len(ram)).from_buffer(ram)
+        b = NATIVE.bridge_new(image, len(image), C.addressof(self._ram_view), len(ram), u32(self.spad, 0x3208),
+                              struct.unpack_from('<i', ram, 0x26C5D0)[0])
+        assert b, (self.beat, 'bridge_new')
+        class2 = GH.class2_entries(ram)
         records = [POOL + i * POOL_STRIDE for i in range(POOL_COUNT)] + [PLAYER]
+        records += [a for a in class2 if a not in records]
         for a in records:
             r = bytes(ram[a:a + 0x60])
             for at, v in (patch or {}).items():
                 if a <= at < a + 0x60: r = r[:at - a] + bytes([v]) + r[at - a + 1:]
             assert NATIVE.bridge_actor(b, a, r[0], r[2], r[3], struct.unpack_from('<H', r, 0xE)[0],
                                        struct.unpack_from('<H', r, 0x52)[0],
-                                       struct.unpack_from('<H', r, 0x54)[0], u32(r, 0x10)) == 0
+                                       struct.unpack_from('<H', r, 0x54)[0], u32(r, 0x10), r[9],
+                                       u32(r, 0x58), u32(r, 0x5C)) == 0
         owners = self.owners if owners is None else owners
-        assert NATIVE.bridge_list(b, u32s(owners or [0]), len(owners)) == 0
+        assert NATIVE.bridge_list(b, 3, u32s(owners or [0]), len(owners)) == 0
+        assert NATIVE.bridge_list(b, 2, u32s(class2 or [0]), len(class2)) == 0
+        NATIVE.bridge_present(b, 0xF, PLAYER)
         return b
 
 
@@ -763,14 +807,17 @@ class Mismatch(AssertionError):
 
 
 def spad_scratch(spad, ram):
-    """The EmCollMoveScratch view of a scratchpad image (a worker record's
-    +0x1A / +0x24 / +0x34 read from RAM)."""
+    """The EmCollMoveScratch view of a scratchpad image (a grid node
+    record's +0x1A / +0x24 / +0x34 read from RAM)."""
     s = Scratch()
     for name, at, n in SPAD_FIELDS:
         arr = getattr(s, name)
         for k in range(n): arr[k] = u32(spad, at + 4 * k)
     for name, at, n in SPAD_WORDS:
         setattr(s, name, int.from_bytes(spad[at:at + n], 'little'))
+    for name, at, n in SPAD_HALVES:
+        arr = getattr(s, name)
+        for k in range(n): arr[k] = struct.unpack_from('<h', spad, at + 2 * k)[0]
     rec = s.record
     if rec and rec != CELL_RECORD and rec < 0x2000000:
         s.record_node = struct.unpack_from('<H', ram, rec + 0x1A)[0]
@@ -786,6 +833,9 @@ def scratch_into(spad, s):
         for k in range(n): struct.pack_into('<I', spad, at + 4 * k, arr[k])
     for name, at, n in SPAD_WORDS:
         spad[at:at + n] = (getattr(s, name) & ((1 << (8 * n)) - 1)).to_bytes(n, 'little')
+    for name, at, n in SPAD_HALVES:
+        arr = getattr(s, name)
+        for k in range(n): struct.pack_into('<h', spad, at + 2 * k, arr[k])
 
 
 def fields(s):
@@ -794,92 +844,41 @@ def fields(s):
         out[name] = tuple(getattr(s, name)[k] for k in range(n))
     for name, _, _ in SPAD_WORDS:
         out[name] = getattr(s, name)
+    for name, _, n in SPAD_HALVES:
+        out[name] = tuple(getattr(s, name)[k] for k in range(n))
+    if s.record not in (0, CELL_RECORD):
+        # a grid node record: its +0x1A halfword and +0x24 normal (and +0x34,
+        # which compare() skips: the EMCL does not carry it)
+        out['record_node'] = s.record_node
+        out['record_normal'] = tuple(s.record_normal)
+        out['record_axis'] = tuple(s.record_axis)
     return out
+
+
+def observe(ee, entry, calls):
+    """Count the original's calls of `entry` (and their v0) without changing
+    what runs: the routine executes in place; only its return address is
+    borrowed for the count."""
+    def hook(e):
+        ra = e.r[31]
+        del e.hooks[entry]
+        e.r[31] = SR.RETURN
+        try:
+            e.run(entry)
+        finally:
+            e.hooks[entry] = hook
+        calls.append((entry, e.r[2] & 0xFFFFFFFF))
+        e.r[31] = ra
+    ee.hooks[entry] = hook
 
 
 class Runner:
     """Runs one original call and its native twin over a world and compares
     everything (see the module docstring)."""
 
-    def __init__(self, world, script=None):
+    def __init__(self, world):
         self.w = world
-        self.calls = None
-        self.wspad = None
         self.last_calls = []
-        self.sqrt_pairs = []
-        # {entry: (v0, point words, entity)}: a SCRIPTED stand-in for a lock
-        # routine, applied identically on both sides (the original's callee is
-        # replaced by the same effect), so 0019AD00's lock handling is compared
-        # where AREA11's own lists never make 001A6440 / 001A7280 succeed.
-        self.script = script or {}
-
-    # native worker callbacks (the bridge calls these during a native call)
-    def worker(self, which, arg, io, result):
-        ee, s = self.w.ee, io.contents
-        entry = {0x6440: LOCK6440, 0x7280: LOCK7280, 0xCB60: GRID}[which]
-        self.calls.append((entry, arg if entry == LOCK6440 else 0, tuple(sorted(fields(s).items()))))
-        if entry in self.script:
-            v0, point, entity = self.script[entry]
-            for k in range(3): s.point[k] = point[k]
-            s.entity = entity
-            scratch_into(self.wspad, s)
-            result[0] = v0
-            return 0
-        scratch_into(self.wspad, s)
-        ee.spad = self.wspad
-        log = watch_writes(ee)
-        try:
-            v0, _ = ee.invoke(entry, (arg,) if entry == LOCK6440 else ())
-        finally:
-            unwatch(ee)
-        ram_writes = [hex(a) for a, _ in log if a < 0x40000000]
-        if ram_writes:
-            self.error = ('worker wrote RAM', hex(entry), ram_writes[:8]); return -1
-        back = spad_scratch(self.wspad, ee.mem)
-        C.memmove(io, C.byref(back), C.sizeof(Scratch))
-        result[0] = v0
-        return 0
-
-    def sqrt(self, x, out):
-        ee = self.w.ee
-        self.calls.append((SQRT, x))
-        log = watch_writes(ee)
-        try:
-            _, f0 = ee.invoke(SQRT, (), (x,))
-        finally:
-            unwatch(ee)
-        if [a for a, _ in log if a < 0x40000000]:
-            self.error = ('sqrt wrote RAM',); return -1
-        out[0] = f0
-        self.sqrt_pairs.append((x, f0))
-        return 0
-
-    def original_hooks(self, ee, calls):
-        """Observe (not replace) the original's worker and sqrt calls."""
-        def observer(entry):
-            def hook(e):
-                if entry == SQRT:
-                    calls.append((SQRT, e.f[12]))
-                    args, fl = (), (e.f[12],)
-                else:
-                    arg = e.arg(0) if entry == LOCK6440 else 0
-                    calls.append((entry, arg, tuple(sorted(fields(spad_scratch(e.spad, e.mem)).items()))))
-                    args, fl = ((arg,) if entry == LOCK6440 else ()), ()
-                    if entry in self.script:
-                        v0, point, entity = self.script[entry]
-                        for k in range(3): e.save(0x700031B0 + 4 * k, point[k])
-                        e.save(0x700031D4, entity)
-                        e.r[2] = sx32(v0)
-                        return
-                del e.hooks[entry]
-                try:
-                    v0, f0 = e.invoke(entry, args, fl)
-                finally:
-                    e.hooks[entry] = hook
-                e.r[2], e.f[0] = sx32(v0), f0
-            return hook
-        for entry in WORKERS + (SQRT,):
-            ee.hooks[entry] = observer(entry)
 
     def compare(self, label, native_call, original_entry, args, setup_spad=None, setup_ram=(),
                 actor_at=None, bridge=None, native_actor=None):
@@ -894,26 +893,24 @@ class Runner:
         for a, d in setup_ram: ee.mem[a:a + len(d)] = d
         spad0 = bytearray(w.spad if setup_spad is None else setup_spad)
         try:
-            # native, its workers running the originals over the same RAM
-            self.calls, self.error, self.wspad = [], None, bytearray(spad0)
+            # native, completely: its grid pass, hull locks and sqrt are translations
             io = spad_scratch(spad0, ee.mem)
             got = native_call(bridge or w.native, io)
-            native_calls = self.calls
-            if self.error: raise Mismatch((label, 'native worker', self.error))
-            predicted = bytearray(self.wspad)
+            predicted = bytearray(spad0)
             scratch_into(predicted, io)
             native_fields = fields(io)
-            # the original
+            # the original, with its callees counted in place
             ee.spad = bytearray(spad0)
             calls = []
-            self.original_hooks(ee, calls)
+            for entry in COUNTED:
+                observe(ee, entry, calls)
             outer = {e: ee.hooks.pop(e) for e in (MOVE, SWEEP) if e in ee.hooks}   # route-mode hooks
             log = watch_writes(ee)
             try:
                 v0, _ = ee.invoke(original_entry, args)
             finally:
                 unwatch(ee)
-                for entry in WORKERS + (SQRT,): ee.hooks.pop(entry, None)
+                for entry in COUNTED: ee.hooks.pop(entry, None)
                 ee.hooks.update(outer)
             want = s32(v0)
             allowed = set()
@@ -924,16 +921,18 @@ class Runner:
             orig_fields = fields(spad_scratch(ee.spad, ee.mem))
             if got != want:
                 raise Mismatch((label, 'return', got, want))
+            if set(orig_fields) != set(native_fields):
+                raise Mismatch((label, 'record kind', hex(native_fields['record']), hex(orig_fields['record'])))
             for key in orig_fields:
+                if key == 'record_axis':
+                    continue      # node +0x34: not in the EMCL (the adapters fault where it is read)
                 if orig_fields[key] != native_fields[key]:
-                    raise Mismatch((label, 'field', key, [hex(v) for v in _seq(native_fields[key])],
-                                    [hex(v) for v in _seq(orig_fields[key])]))
+                    raise Mismatch((label, 'field', key, [hex(v & 0xFFFFFFFF) for v in _seq(native_fields[key])],
+                                    [hex(v & 0xFFFFFFFF) for v in _seq(orig_fields[key])]))
             if bytes(predicted) != bytes(ee.spad):
                 diff = [hex(0x70000000 + i) for i in range(0x4000) if predicted[i] != ee.spad[i]]
                 raise Mismatch((label, 'scratchpad differs outside the compared fields', diff[:12]))
-            if calls != native_calls:
-                raise Mismatch((label, 'worker calls', _calls(native_calls), _calls(calls)))
-            self.last_calls = [(c[0],) for c in calls]
+            self.last_calls = calls
             if native_actor is not None:
                 ram_pos = [u32(ee.mem, actor_at + 0xB0 + 4 * k) for k in range(3)]
                 if ram_pos != list(native_actor.position):
@@ -954,40 +953,20 @@ def _seq(v):
     return v if isinstance(v, tuple) else (v,)
 
 
-def _calls(calls):
-    return [(hex(c[0]),) + tuple(hex(x) if isinstance(x, int) else '..' for x in c[1:2]) for c in calls]
-
-
-# ---- Globals the callbacks reach -------------------------------------------------
+# ---- Globals ------------------------------------------------------------------------
 
 ELF = NATIVE = CODE_GRAPH = None
 CURRENT = None
-
-
-def _worker(which, arg, io, result):
-    try:
-        return CURRENT.worker(which, arg, io, result)
-    except Exception as exc:          # noqa: BLE001 - reported by the case
-        CURRENT.error = ('worker raised', repr(exc)[:300])
-        return -1
-
-
-def _sqrt(x, out):
-    try:
-        return CURRENT.sqrt(x, out)
-    except Exception as exc:          # noqa: BLE001
-        CURRENT.error = ('sqrt raised', repr(exc)[:300])
-        return -1
-
-
-WORKER = WORKER_CB(_worker)
-SQRT_HOOK = SQRT_CB(_sqrt)
+COUNTED = (LOCK6440, LOCK7280, GRID, SQRT)
 
 
 def setup():
     global ELF, NATIVE, CODE_GRAPH
     ELF = read_elf()
     NATIVE = build_native()
+    GH.cp.OUT = OUT
+    emcl, _, _ = GH.cp.export_emcl()
+    assert NATIVE.bridge_global(str(emcl).encode(), ELF, len(ELF)) == 0, 'EMCL grid / SDK tables'
     CODE_GRAPH = call_graph(ELF, (MOVE, SWEEP, WALK, ROUND, FACE, NGON, LOCK6440, LOCK7280, GRID, SQRT,
                                   0x1028D0, 0x102760, 0x103230, 0x1028B8, 0x1028E8, 0x102738))
 
@@ -1004,7 +983,7 @@ def actor_bytes(status, cls, self_addr, h52, x, z, y=0.0):
 
 
 def run_move(runner, label, actor_at, target, flags, sweep_from=None, patch_actor=None, bridge=None,
-             extra_ram=()):
+             extra_ram=(), setup_spad=None):
     """0019AD00 (or 0019AFE0 when sweep_from is given) with the actor record
     at actor_at (its bytes from RAM, or patch_actor written there)."""
     w, ee = runner.w, runner.w.ee
@@ -1030,7 +1009,7 @@ def run_move(runner, label, actor_at, target, flags, sweep_from=None, patch_acto
     else:
         args, entry = (actor_at, vec_at + 0x10, vec_at, flags), SWEEP
     got, calls = runner.compare(label, native, entry, args, setup_ram=setup_ram, actor_at=actor_at,
-                                bridge=bridge, native_actor=act)
+                                bridge=bridge, native_actor=act, setup_spad=setup_spad)
     # the actor's +B0/+B8 after the original (still in RAM until compare undid it) is checked here
     return got, calls, act
 
@@ -1447,46 +1426,104 @@ def move_cases(rng):
     return cases
 
 
-def lock_cases(rng):
-    """0019AD00 / 0019AFE0 lock handling (mask bit 0) with a scripted lock
-    result: the player (class 0: 001A6440(0x40), the locked entity's +0x52
-    bit 1 vetoes) and synthetic class-4 actors (001A7280, the actor's own
-    +0x52 bit 1 is required, bit 0 vetoes the copy)."""
+HULL_BEATS = ('14_roger_encounter',)
+
+
+def hull_cases(rng):
+    """0019AD00 / 0019AFE0 with mask bit 0 through the native hull locks:
+    - beat 14: the player (class 0, 001A6440(0x40)) moving through Roger's
+      real chain (the published class-2 list), with Roger's +0x52 veto
+      bits patched on both sides;
+    - synthetic worlds in every world beat: class-2 entities across the
+      segment (001A6440, the locked entity's +0x52 bit 1 vetoes) for the
+      player or a synthetic class-0 actor, and a synthetic player chain
+      (001A7280) for a synthetic actor of nonzero class (its own +0x52 bit 1
+      is required, bit 0 vetoes the copy)."""
     cases = []
+    for beat in HULL_BEATS:
+        ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        polys = [q for a in GH.class2_entries(ram) for q in GH.chain_polys(ram, a)]
+        for k, (s, e) in enumerate(GH.aimed_segments(polys, rng, 60, True)):
+            flags = rng.choice((1, 3, 5, 7, 0x80000007, 0x80000001, 0x80000003))
+            cases.append(('hull', beat, ('player', None, s, e, flags, rng.random() < 0.3, None,
+                                         rng.choice((0, 0, 1, 2, 3)), 'roger #%d' % k)))
     for beat in WORLD_BEATS:
-        w = WORLDS[beat]
-        boxes = owner_boxes(w)
         for k in range(40):
-            a, uid, box = rng.choice(boxes)
-            s, e = segment_near(box, rng)
-            flags = rng.choice((1, 3, 5, 7, 0x80000001, 0x80000007, 0x80000003))
-            who = rng.choice(('player', 'synthetic'))
-            actor = (rng.choice((1, 1, 3, 0)), rng.choice((4, 0x84, 7)), rng.choice((0, 1, 2, 3)))
-            entity = rng.choice([o for o, _, _ in boxes])
-            ret = rng.choice((0, 1, 1, 2))
-            point = [e[0] + rng.uniform(-3, 3), e[1], e[2] + rng.uniform(-3, 3)]
-            h52 = rng.choice((0, 1, 2, 3))
-            cases.append(('lock', beat, (who, actor, s, e, flags, rng.random() < 0.3, ret, point, entity, h52,
-                                         'lock uid %d #%d' % (uid, k))))
+            entry = rng.choice((GH.LOCK6440, GH.LOCK6440, GH.LOCK7280))
+            import math
+            t = rng.uniform(0, 2 * math.pi)
+            c = [rng.uniform(150, 280), rng.uniform(180, 220), rng.uniform(150, 300)]
+            length = rng.uniform(2.0, 10.0)
+            s = [c[0] - math.cos(t) * length / 2, c[1], c[2] - math.sin(t) * length / 2]
+            e = [c[0] + math.cos(t) * length / 2, c[1], c[2] + math.sin(t) * length / 2]
+            ents = GH.synthetic_entities(rng, entry, s, e, veto=True, z_bias=True)
+            flags = rng.choice((1, 3, 5, 7, 0x80000007, 0x80000001, 0x80000003))
+            if entry == GH.LOCK7280:
+                who, actor = 'synthetic', (rng.choice((1, 1, 3, 0)), rng.choice((4, 0x84, 7, 0x0A)),
+                                           rng.choice((0, 1, 2, 3)))
+            else:
+                who = rng.choice(('player', 'synthetic'))
+                actor = (rng.choice((1, 1, 3, 0)), rng.choice((0, 0x20, 0x40)), rng.choice((0, 1, 2, 3)))
+            cases.append(('hull', beat, (who, actor, [vbits_f(s)[0], vbits_f(s)[1], vbits_f(s)[2]],
+                                         vbits_f(e), flags, rng.random() < 0.3, (entry, ents), None,
+                                         'synthetic %x #%d' % (entry, k))))
     return cases
 
 
-def lock_case(w, who, actor, s, e, flags, sweep, ret, point, entity, h52, label):
+def hull_mask_cases():
+    """The locks' argument: one x-plane record whose mask bytes carry x and y
+    but no z, beside the same record with all three. 0019AD00 / 0019AFE0
+    pass 0x40 (z only) to both locks, so the first record is never tested
+    (another argument, e.g. 0x70, would test and accept it); the second is
+    accepted. 001A7280: the player's chain for a class-4 actor (+0x52 bit 1
+    set, bit 0 clear, so the hit is copied); 001A6440: a class-2 entity for
+    a class-0 actor."""
+    square = [[203.0, 197.0, 197.0], [203.0, 203.0, 197.0], [203.0, 203.0, 203.0], [203.0, 197.0, 203.0]]
+    edges = [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
+    cases = []
+    for entry, actor in ((GH.LOCK7280, (1, 4, 2)), (GH.LOCK6440, (1, 0, 0))):
+        for rec_masks in ([1, 1, 0], [1, 1, 1]):
+            rec = GH.record_bytes(rec_masks, 0, [-1.0, 0.0, 0.0], square, edges)
+            ents = [(1, 0x0A, [1, 1, 1], GH.chain_bytes([rec]), [GH.IDENTITY])]
+            for flags in (1, 0x80000001):
+                for sweep in (False, True):
+                    cases.append(('hull', '05_boxes', ('synthetic', actor, [200.0, 200.0, 200.0], [206.0, 200.0, 200.0],
+                                                       flags, sweep, (entry, ents), None,
+                                                       'mask bytes %s %x %x%s' % (rec_masks, entry, flags,
+                                                                                  ' sweep' if sweep else ''))))
+    return cases
+
+
+def hull_case(w, who, actor, s, e, flags, sweep, world, roger_h52, label):
+    """world: None (the beat's own class-2 list) or (entry, entities) for a
+    synthetic one, written into RAM before the native world is built and
+    undone after."""
     global CURRENT
-    script = {LOCK6440: (ret, vbits(point), entity), LOCK7280: (ret, vbits(point), entity)}
-    r = CURRENT = Runner(w, script)
-    sb, eb = vbits(s), vbits(e)
-    at = PLAYER if who == 'player' else QUERY
-    rec = bytearray(w.ee.mem[at:at + 0xC0]) if who == 'player' else \
-        bytearray(actor_bytes(actor[0], actor[1], QUERY, actor[2], sb[0], sb[2], s[1]))
-    struct.pack_into('<3I', rec, 0xB0, *sb)
-    patch = {entity + 0x52: h52 & 0xFF, entity + 0x53: h52 >> 8}
-    bridge = w.bridge(w.image, patch=patch)
+    r = CURRENT = Runner(w)
+    ee = w.ee
+    patch = []
+    if world is not None:
+        patch = GH.build_world(w, world[0], world[1])
+    if roger_h52 is not None:
+        patch += [(a + 0x52, struct.pack('<H', roger_h52)) for a in GH.class2_entries(ee.mem)]
+    saved = [(a, bytes(ee.mem[a:a + len(d)])) for a, d in patch]
+    for a, d in patch: ee.mem[a:a + len(d)] = d
+    bridge = w.bridge(w.image)
     try:
+        sb, eb = vbits(s), vbits(e)
+        at = PLAYER if who == 'player' else QUERY
+        rec = bytearray(ee.mem[at:at + 0xC0]) if who == 'player' else \
+            bytearray(actor_bytes(actor[0], actor[1], QUERY, actor[2], sb[0], sb[2], s[1]))
+        struct.pack_into('<3I', rec, 0xB0, *sb)
+        # stale words the locks clear or keep (0x700030CA..D0)
+        spad = bytearray(w.spad)
+        seed = zlib.crc32(label.encode())
+        struct.pack_into('<HII', spad, 0x30CA, seed & 0xFFFF, seed ^ 0x5A5A5A5A, seed * 7 & 0xFFFFFFFF)
         return run_move(r, label, at, eb, flags, sweep_from=sb if sweep else None, patch_actor=bytes(rec),
-                        bridge=bridge, extra_ram=[(entity + 0x52, struct.pack('<H', h52))])[0]
+                        bridge=bridge, setup_spad=spad)[0]
     finally:
         NATIVE.bridge_free(bridge)
+        for a, d in saved: ee.mem[a:a + len(d)] = d
 
 
 def adapter_cases(rng):
@@ -1652,34 +1689,37 @@ def adapter_case(w, which, owner, s, e, mask, label):
 
 
 def failstop_checks(w):
-    """Native only: a call that can reach a missing worker returns -1 before
-    it writes anything; other faults (bit-31 owner word, bit 31 on the
-    player's const-position adapters)."""
+    """Native only: a call whose flags need a world part the world lacks
+    returns -1 before it writes anything (the grid for bit 2, the SDK math
+    for bit 1, the player view for a nonzero class's bit 0); so does a fault
+    met later (a class-2 entity whose chain cannot be supplied): the call
+    works on copies. Also: bit 31 on the player's const-position adapters, a
+    bit-31 owner word, and a grid-node hit on surface 0x35 through an
+    adapter (its +0x34 axis is not carried)."""
     global CURRENT
     CURRENT = Runner(w)
-    CURRENT.calls, CURRENT.wspad, CURRENT.error = [], bytearray(w.spad), None
     s, e = [228.8, 195.0, 284.0], [228.8, 195.0, 296.0]
     b = w.bridge(w.image)
     checked = 0
     try:
         player = w.ee.mem[PLAYER:PLAYER + 0xC0]
-        for mask, flags in ((0b1110, 7), (0b1011, 4), (0b0111, 2), (0b0011, 6)):
-            NATIVE.bridge_present(b, mask)
+        for mask, flags in ((0b1011, 4), (0b0111, 2), (0b0011, 6), (0b0011, 7)):
+            NATIVE.bridge_present(b, mask, PLAYER)
             io = spad_scratch(w.spad, w.ee.mem)
             before = bytes(io)
             act = Actor(player[0], player[2], struct.unpack_from('<H', player, 0x52)[0], PLAYER,
                         u32s(vbits([s[0], s[1], s[2]])))
             got = NATIVE.bridge_move(b, C.byref(io), C.byref(act), u32s(vbits(e)), flags)
-            assert got == -1 and bytes(io) == before, ('missing worker must fault before any write', mask, flags, got)
+            assert got == -1 and bytes(io) == before, ('a missing world part must fault before any write', mask,
+                                                       flags, got)
             checked += 1
-        NATIVE.bridge_present(b, 0xF)
-        # 7280 missing, reached only by a nonzero class
-        NATIVE.bridge_present(b, 0b1101)
+        # 001A7280 without the player view (a nonzero class's bit 0)
+        NATIVE.bridge_present(b, 0b1101, PLAYER)
         io = spad_scratch(w.spad, w.ee.mem); before = bytes(io)
         act = Actor(1, 4, 0, QUERY, u32s(vbits(s)))
         assert NATIVE.bridge_move(b, C.byref(io), C.byref(act), u32s(vbits(e)), 1) == -1 and bytes(io) == before
         checked += 1
-        NATIVE.bridge_present(b, 0xF)
+        NATIVE.bridge_present(b, 0xF, PLAYER)
         probe = Probe()
         live = bytes(w.ee.mem[PLAYER:PLAYER + 0x320])
         for which in (0, 1, 2, 3):
@@ -1690,6 +1730,25 @@ def failstop_checks(w):
             checked += 1
     finally:
         NATIVE.bridge_free(b)
+    # a class-2 entity whose chain the world cannot supply: -1, nothing written
+    ents = [(1, 0x0A, [1, 1, 1], GH.chain_bytes([GH.record_bytes([1, 1, 1], 0, [1.0, 0, 0],
+                                                  [[0, -3, -3], [0, 3, -3], [0, 3, 3], [0, -3, 3]],
+                                                  [[0, 0, -1], [0, 1, 0], [0, 0, 1], [0, -1, 0]])]), [GH.IDENTITY])]
+    patch = GH.build_world(w, GH.LOCK6440, ents)
+    saved = [(a, bytes(w.ee.mem[a:a + len(d)])) for a, d in patch]
+    for a, d in patch: w.ee.mem[a:a + len(d)] = d
+    b = w.bridge(w.image)
+    try:
+        NATIVE.bridge_present(b, 0b1110, PLAYER)
+        io = spad_scratch(w.spad, w.ee.mem); before = bytes(io)
+        act = Actor(player[0], player[2], struct.unpack_from('<H', player, 0x52)[0], PLAYER,
+                    u32s(vbits([1.0, 0.5, -1.0])))
+        got = NATIVE.bridge_move(b, C.byref(io), C.byref(act), u32s(vbits([-1.0, 0.5, -1.0])), 7)
+        assert got == -1 and bytes(io) == before, ('an unresolvable chain must fault with nothing written', got)
+        checked += 1
+    finally:
+        NATIVE.bridge_free(b)
+        for a, d in saved: w.ee.mem[a:a + len(d)] = d
     # a published owner whose offset word carries bit 31
     image = bytearray(w.image)
     uid = next(struct.unpack_from('<H', w.ee.mem, a + 0xE)[0] >> 8 for a in w.owners
@@ -1705,6 +1764,40 @@ def failstop_checks(w):
         checked += 1
     finally:
         NATIVE.bridge_free(b)
+    # a grid-node hit whose surface byte is 0x35, through the player adapter:
+    # the node's +0x34 axis (00175CF0 reads it) is not in the EMCL
+    b = w.bridge(w.image)
+    try:
+        rng = random.Random(0x35)
+        live = bytearray(w.ee.mem[PLAYER:PLAYER + 0x320])
+        found = None
+        for _ in range(400):
+            import math
+            t = rng.uniform(0, 2 * math.pi)
+            x, z = u32(live, 0xB0), u32(live, 0xB8)
+            p0 = [struct.unpack('<f', struct.pack('<I', x))[0], rng.uniform(190.0, 205.0),
+                  struct.unpack('<f', struct.pack('<I', z))[0]]
+            p1 = [p0[0] + math.cos(t) * 40.0, p0[1], p0[2] + math.sin(t) * 40.0]
+            io = spad_scratch(w.spad, w.ee.mem)
+            probe = Probe()
+            got = NATIVE.bridge_adapter(b, 1, C.byref(io), bytes(live), PLAYER, u32s(vbits(p0)), u32s(vbits(p0)),
+                                        u32s(vbits(p1)), 4, C.byref(probe))
+            if got == 4:
+                found = (p0, p1, (io.record - u32(w.spad, 0x3208)) // 0x40)
+                break
+        assert found, 'no grid hit found for the 0x35 check'
+        p0, p1, node = found
+        old = NATIVE.bridge_set_attr(node, 0x35)
+        try:
+            io = spad_scratch(w.spad, w.ee.mem)
+            got = NATIVE.bridge_adapter(b, 1, C.byref(io), bytes(live), PLAYER, u32s(vbits(p0)), u32s(vbits(p0)),
+                                        u32s(vbits(p1)), 4, C.byref(Probe()))
+            assert got == -1, ('a 0x35 grid record must fault in the adapter', got)
+            checked += 1
+        finally:
+            NATIVE.bridge_set_attr(node, old)
+    finally:
+        NATIVE.bridge_free(b)
     return checked
 
 
@@ -1718,37 +1811,38 @@ def run_one(case):
             at, prim, entry, s, e, label = args
             if prim is None: prim = bytes(w.ee.mem[at:at + prim_size(w.ee.mem, at)])
             got = prim_case(w, at, prim, entry, vbits_f(s), vbits_f(e), (beat,) + (label,))
-            return ('ok', 'prim %x' % entry, got, (), tuple(CURRENT.sqrt_pairs))
+            return ('ok', 'prim %x' % entry, got, tuple(CURRENT.last_calls))
         if kind == 'walk':
             got = walk_case(w, *args)
-            return ('ok', 'walk ' + args[0], got, tuple(CURRENT.last_calls), tuple(CURRENT.sqrt_pairs))
+            return ('ok', 'walk ' + args[0], got, tuple(CURRENT.last_calls))
         if kind == 'move':
             got = move_case(w, *args)
-            return ('ok', 'sweep' if args[6] else 'move', got, tuple(CURRENT.last_calls),
-                    tuple(CURRENT.sqrt_pairs))
-        if kind == 'lock':
-            got = lock_case(w, *args)
-            return ('ok', 'lock ' + ('sweep' if args[5] else 'move'), got, tuple(CURRENT.last_calls),
-                    tuple(CURRENT.sqrt_pairs))
+            return ('ok', 'sweep' if args[6] else 'move', got, tuple(CURRENT.last_calls))
+        if kind == 'hull':
+            got = hull_case(w, *args)
+            return ('ok', 'hull ' + ('sweep' if args[5] else 'move'), got, tuple(CURRENT.last_calls))
         got = adapter_case(w, *args)
-        return ('ok', 'adapter %d' % args[0], got, tuple(CURRENT.last_calls), tuple(CURRENT.sqrt_pairs))
+        return ('ok', 'adapter %d' % args[0], got, tuple(CURRENT.last_calls))
     except Mismatch as m:
         return (beat, kind) + tuple(m.args)
 
 
 def coverage(results):
-    """What the cases exercised: return values per routine and the worker
-    calls with their original results."""
-    table, workers = {}, {}
+    """What the cases exercised: return values per routine, and the
+    original's own calls of the grid pass, the locks and sqrt (routine:
+    {v0: count})."""
+    table, callees = {}, {}
     for r in results:
         if not r or r[0] != 'ok': continue
         _, name, got, calls = r[:4]
         table.setdefault(name, {}).setdefault(got, 0)
         table[name][got] += 1
-        for c in calls:
-            key = '%x' % c[0]
-            workers[key] = workers.get(key, 0) + 1
-    return table, workers
+        for entry, v0 in calls:
+            key = '%x' % entry
+            v = 'f' if entry == SQRT else v0
+            callees.setdefault(key, {}).setdefault(v, 0)
+            callees[key][v] += 1
+    return table, callees
 
 
 def vbits_f(v):
@@ -1777,6 +1871,7 @@ class RouteCalls:
 
     def __init__(self, label):
         self.label, self.count, self.modes, self.frame = label, 0, {}, 0
+        self.callees = {}
 
     def install(self, ee):
         for entry in (MOVE, SWEEP):
@@ -1805,9 +1900,14 @@ class RouteCalls:
                     return NATIVE.bridge_sweep(b, C.byref(io), C.byref(act), u32s(start), u32s(target), flags)
             where = (self.label, 'frame', self.frame, 'call', self.count, '%x' % entry, hex(flags))
             try:
-                got, _ = r.compare(where, native, entry, args, actor_at=actor_at, native_actor=act)
+                got, callees = r.compare(where, native, entry, args, actor_at=actor_at, native_actor=act)
             finally:
                 NATIVE.bridge_free(live.native)
+            for callee, v0 in callees:
+                key = '%x' % callee
+                v = 'f' if callee == SQRT else v0
+                self.callees.setdefault(key, {}).setdefault(v, 0)
+                self.callees[key][v] += 1
             self.count += 1
             self.modes[got] = self.modes.get(got, 0) + 1
             del ee.hooks[entry]
@@ -1846,40 +1946,57 @@ def route_climb(press_index, frames_cap):
         if (state == 0 and stage.frame > 1) or (frames_cap and stage.frame >= frames_cap) or stage.frame >= 200:
             break
     return ('ok', '05_boxes press %d: %d frames' % (press, stage.frame), calls.count, dict(calls.modes),
-            sorted(states))
+            sorted(states), calls.callees)
 
 
-def route_slide(frames_cap):
-    """06_hill_slide replayed from its source snapshot by the original stage
+def route_replay(name, frames_cap):
+    """A route beat replayed from its source snapshot by the original stage
     (test_player_slide_reference.RouteReplay: the recorded pad, camera
-    heading and counters): walk off the ledge, slide, skid out, idle."""
-    beat = SR.route_beat('06_hill_slide')
+    heading and counters). 06_hill_slide: walk off the ledge, slide, skid
+    out, idle. Beats 10..14: the cage roof, the crevice prompt and jump, the
+    east tower and Roger's encounter, whose source snapshot (13_east_tower)
+    publishes Roger in the class-2 list, so the player's mask-7 moves walk
+    his chain. Only the player stage runs (no owners, scripts or camera
+    stage), so a long replay drifts from the capture; every walker call is
+    still compared on the live state it is made in."""
+    beat = SR.route_beat(name)
     if isinstance(beat, str): return ('skip', beat)
     trace, ram, spad = beat
     replay = SR.RouteReplay(ELF, trace, ram, spad)
     assert isinstance(replay.ee, FloatEE)
-    calls = RouteCalls('06_hill_slide')
+    calls = RouteCalls(name)
     calls.install(replay.ee)
     states, last = set(), trace['rows'][-1]['counter']
     while replay.counter < last and not (frames_cap and replay.frame >= frames_cap):
         calls.frame = replay.frame
         replay.step()
         states.add(replay.ee.load(PLAYER + 5, 1))
-    return ('ok', '06_hill_slide: %d frames' % replay.frame, calls.count, dict(calls.modes), sorted(states))
+    return ('ok', '%s: %d frames' % (name, replay.frame), calls.count, dict(calls.modes), sorted(states),
+            calls.callees)
+
+
+LATER_BEATS = ('10_cage_roof_roger', '11_crevice_prompt', '12_crevice_jump', '13_east_tower', '14_roger_encounter')
+ROUTE_FRAMES_QUICK = 2        # each later beat in the default run
+ROUTE_FRAMES_WHOLE = 400      # each later beat under EM_TEST_ROUTE / EM_TEST_FULL
 
 
 def route_jobs(whole):
-    """Whole route: both climbs to idle and the full slide beat. Quick: the
-    first climb's press and probe frames and the slide replay's first frames."""
+    """Whole route: both climbs to idle, the full slide beat and the first
+    ROUTE_FRAMES_WHOLE frames of each later beat. Quick: the first climb's
+    press and probe frames, the slide replay's first frames and the first
+    frames of each later beat."""
     if whole:
-        return [('route', 'climb', (0, None)), ('route', 'climb', (1, None)), ('route', 'slide', (None,))]
-    return [('route', 'climb', (0, 2)), ('route', 'slide', (3,))]
+        return ([('route', 'climb', (0, None)), ('route', 'climb', (1, None)),
+                 ('route', 'replay', ('06_hill_slide', None))] +
+                [('route', 'replay', (b, ROUTE_FRAMES_WHOLE)) for b in LATER_BEATS])
+    return ([('route', 'climb', (0, 2)), ('route', 'replay', ('06_hill_slide', 3))] +
+            [('route', 'replay', (b, ROUTE_FRAMES_QUICK)) for b in LATER_BEATS])
 
 
 def run_route(case):
     _, which, args = case
     try:
-        return route_climb(*args) if which == 'climb' else route_slide(*args)
+        return route_climb(*args) if which == 'climb' else route_replay(*args)
     except Mismatch as m:
         return ('route', which) + tuple(m.args)
 
@@ -1888,16 +2005,16 @@ def run_route(case):
 
 def main():
     setup()
-    missing = [b for b in WORLD_BEATS if not (ROUTE / b / 'eeMemory.bin').exists()]
+    missing = [b for b in WORLD_BEATS + HULL_BEATS if not (ROUTE / b / 'eeMemory.bin').exists()]
     if missing:
         print('SKIP: missing route captures', missing)
         return 0
     t0 = time.time()
-    for beat in WORLD_BEATS:
+    for beat in WORLD_BEATS + HULL_BEATS:
         WORLDS[beat] = World(beat)
     rng = random.Random(0x19AD00)
     prims, walks, moves, adapters = prim_cases(rng), walk_cases(rng), move_cases(rng), adapter_cases(rng)
-    locks = lock_cases(rng)
+    hulls = hull_cases(rng)
     sel_prims = reference_mode.select(prims, 2400, 1, axes=(lambda c: (c[1], c[2][5].split('#')[0]),),
                                       keep=lambda i, c: c[2][5].startswith('exact ngon') or
                                       (c[2][2] == ROUND and not c[2][5].startswith('exact')))
@@ -1905,8 +2022,10 @@ def main():
     sel_moves = reference_mode.select(moves, 220, 3, axes=(lambda c: (c[2][5], c[2][6]), lambda c: c[2][0]),
                                       keep=lambda i, c: c[2][7].startswith('origin'))
     sel_adapters = reference_mode.select(adapters, 21, 4, axes=(lambda c: c[2][0],))
-    sel_locks = reference_mode.select(locks, 60, 5, axes=(lambda c: (c[2][0], c[2][4], c[2][6]),))
-    cases = sel_prims + sel_walks + sel_moves + sel_adapters + sel_locks
+    sel_hulls = reference_mode.select(hulls, 80, 5, axes=(lambda c: (c[1], c[2][0], c[2][4]),
+                                                         lambda c: c[2][6][0] if c[2][6] else 0))
+    hull_masks = hull_mask_cases()        # every mode: the lock argument's z-only record test
+    cases = sel_prims + sel_walks + sel_moves + sel_adapters + sel_hulls + hull_masks
     whole_route = reference_mode.FULL or os.environ.get('EM_TEST_ROUTE', '') not in ('', '0')
     SR.EE = FloatEE     # the route stages build their EE through this name
     routes = route_jobs(whole_route)
@@ -1914,36 +2033,42 @@ def main():
     route_results, results = results[:len(routes)], results[len(routes):]
     failures = [r for r in results if r and r[0] != 'ok']
     failures += [r for r in route_results if r[0] not in ('ok', 'skip')]
-    table, workers = coverage(results)
+    table, callees = coverage(results)
     for name in sorted(table):
         print('  %-12s returns %s' % (name, dict(sorted(table[name].items()))))
-    print('  worker calls (original):', dict(sorted(workers.items())))
-    # The named .sqrt worker (em_item_sdk_sqrt) against the original 0011E748
-    # on every argument the cases produced: reported, not asserted (the
-    # comparison above ran the original sqrt itself).
-    pairs = {x: f0 for r in results if r and r[0] == 'ok' for x, f0 in r[4]}
-    same = sum(1 for x, f0 in pairs.items() if NATIVE.bridge_named_sqrt(x) == f0)
-    print('  named sqrt worker em_item_sdk_sqrt equals 0011E748 on %d of %d arguments' % (same, len(pairs)))
+    print('  the original\'s own callee calls (v0 counts; f = float return):',
+          {k: dict(sorted(v.items(), key=str)) for k, v in sorted(callees.items())})
     checked = sum(failstop_checks(WORLDS[b]) for b in WORLD_BEATS)
     reference_mode.banner(reference_mode.part(len(sel_prims), len(prims), 'prim'),
                           reference_mode.part(len(sel_walks), len(walks), 'walk'),
                           reference_mode.part(len(sel_moves), len(moves), 'move/sweep'),
                           reference_mode.part(len(sel_adapters), len(adapters), 'adapter'),
-                          reference_mode.part(len(sel_locks), len(locks), 'scripted-lock'),
+                          reference_mode.part(len(sel_hulls), len(hulls), 'hull-lock move/sweep'),
+                          '%d lock-argument move/sweep' % len(hull_masks),
                           '%d fail-stop checks' % checked)
     for f in failures[:20]:
         print('MISMATCH', f)
     if not whole_route:
-        print('  (EM_TEST_ROUTE=1 or EM_TEST_FULL=1 replays the whole 05_boxes climbs and 06_hill_slide)')
+        print('  (EM_TEST_ROUTE=1 or EM_TEST_FULL=1 replays the whole 05_boxes climbs and 06_hill_slide, and beats'
+              ' 10..14 up to %d frames each)' % ROUTE_FRAMES_WHOLE)
     if failures:
         print('FAIL: %d of %d cases differ' % (len(failures), len(cases)))
         return 1
+    # The lock-argument cases must pin 0x40: the original tests (and accepts)
+    # only the record with the z byte.
+    for c, r in zip(hull_masks, results[len(results) - len(hull_masks):]):
+        entry = c[2][6][0]
+        locked = [v0 for e, v0 in r[3] if e == entry]
+        expect = 1 if c[2][8].startswith('mask bytes [1, 1, 1]') else 0
+        if locked != [expect]:
+            print('FAIL: %s: the original\'s lock calls %s, expected [%d]' % (c[2][8], locked, expect))
+            return 1
     route_calls = 0
     for r in route_results:
         if r[0] == 'skip':
             print('  SKIP route:', r[1])
         elif r[0] == 'ok':
-            print('  route %s, %d walker calls identical, modes %s, player states %s' % r[1:])
+            print('  route %s, %d walker calls identical, modes %s, player states %s, callees %s' % r[1:])
             assert r[2] > 0, ('a route job made no walker call', r)
             route_calls += r[2]
     print('PASS: %d cases and %d route calls identical to the original (%.1f s)'

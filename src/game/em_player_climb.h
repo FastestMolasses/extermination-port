@@ -3,16 +3,21 @@
  *
  * Translations of the original routines, not models of them:
  *   0015DF10  ledge probe (00160220 calls it at the body yaw, then +-45 deg)
- *   0015DEC0  ledge face gate           00177510  ledge frame capture
- *   001775E0  ledge lip sweep           00177F40  ledge depth test
- *   00177460  vault distance test       001776E0  high-ledge side sweeps
- *   00177CF0  high-ledge hand sweeps    0019A180  column entry attribute
+ *   0015DEC0  ledge face gate           00177F40  ledge depth test
+ *   00177460  vault distance test
  *   00161790  climb state 2 callback    00161690  AREA11 ledge target override
  *   0017D800  climb rise set-up         0017D8D0  climb rise step
- *   0017DEB0  climb dust/sound          0017F320  hang clearance test
- *   00188550  hang clip row
+ *   0017DEB0  climb dust/sound
  *   00162190  vault state 3 callback    00162080  AREA11 vault target override
  *   0017D940 / 0017DAF0 / 0017DC80  vault set-ups   0017DE20  vault step
+ * The helpers 00177510, 001775E0, 001776E0, 00177CF0, 0019A180, 0017F320
+ * and 00188550 have one translation, em_player_record_helpers.c; these
+ * routines call its bodies (em_player_helper_*), and other modules bind its
+ * record entries (em_player_record_*). The SDK leaves are their owners':
+ * 001B1470 em_player_001B1470, 001281C0 em_player_float_to_int
+ * (em_player_stage_workers.c), 0011DF78 em_sdk_math_original_0011DF78,
+ * build_trs_matrix / 001029C0 / 00102BB0 / 00102918 em_owner_services_original,
+ * 001026A0 em_effect_original_001026A0.
  *
  * AREA11 evidence (whole-world original run, docs/PLAYER_CLIMB_SLIDE.md): Use
  * in front of the single crate 0x7A7C70 (top 203.78 over ground 189.84)
@@ -22,16 +27,21 @@
  * As in em_player_floor.h, each routine works on a mirror of the actor bytes
  * it reads and writes, and every callee the port does not translate here is a
  * worker. A missing worker or a negative worker result is a fault (-1).
- * Arithmetic follows the EE (em_effect_float32 truncation).
+ * Arithmetic: every COP1 operation and compare goes through em_ee_float.h
+ * (the measured EE model, docs/EE_FLOAT_MODEL.md); the VU0 leaves are their
+ * owners' measured translations.
  *
  * Oracle: tools/test_player_climb_reference.py executes the original
- * instructions and compares every field below and every worker call. */
+ * instructions on the measured float model and compares every field below
+ * and every worker call; its world mode replays the route beats with the
+ * live adapters (em_player_climb_live_*) on the record. */
 #ifndef EM_PLAYER_CLIMB_H
 #define EM_PLAYER_CLIMB_H
 
 #include <stdint.h>
 
 #include "game/em_player_floor.h"
+#include "game/em_player_fall.h"
 
 typedef struct EmPlayerClimbActor {
     float position[4];    /* +B0 (the feet during the state callback); +BC w */
@@ -146,11 +156,15 @@ typedef struct EmPlayerClimbWorkers {
     int (*fall)(void *context, EmPlayerClimbActor *actor);
     /* 0017C580(p): the landing reaction. */
     int (*land)(void *context, EmPlayerClimbActor *actor);
+    /* Optional: the scratch words the helpers write (0x700038A0..AC by
+     * 001775E0, 001776E0, 00177CF0 and 0017F320), the SAME instance every
+     * other writer and reader is bound to. NULL keeps the writes in a local
+     * (the unit oracles); the live adapter requires it. */
+    EmPlayerLandScratch *scratch;
 } EmPlayerClimbWorkers;
 
-/* 001B12B0-style helpers exported for the tests. */
-/* build_trs_matrix(+D0, +B0, +C0, +60). */
-void em_player_climb_trs(EmPlayerClimbActor *actor);
+/* build_trs_matrix(+D0, +B0, +C0, +60). 0, or -1 when a form is refused. */
+int em_player_climb_trs(EmPlayerClimbActor *actor);
 /* 0015DF10(p, mode, ang). Returns 1 when a climb started, 0, or -1. */
 int em_player_climb_probe(EmPlayerClimbActor *actor, const EmPlayerClimbScene *scene,
                           int mode, float ang, const EmPlayerClimbWorkers *workers);
@@ -174,11 +188,27 @@ void em_player_climb_actor_to_live(const EmPlayerClimbActor *in, EmPlayerLiveAct
 
 /* EmPlayerStatesBinding.stage.state[2] and [3] = em_player_climb_live_state
  * with an EmPlayerClimbLive context (+5 2 runs 00161790, 3 runs 00162190).
- * `workers` binds every callee except floor/probes/fall, which run over the
- * live actor (player_states_floor_service, player_states_wall_probes,
- * player_states_fall_check); `scene` fills EmPlayerClimbScene this stage;
+ *
+ * Every callee that takes the record runs on the record itself:
+ *   - `workers` binds the callees whose original takes no record: move
+ *     (0019AD00), sweep (0019AFE0), segment (0019A570), column (001760C0),
+ *     table (0019BC40), effect (001EFD90 on +B0 / +C0) and the SDK atan2 /
+ *     sqrt; its other slots and its scratch are not read;
+ *   - the record-level slots below bind the rest (context = live_context):
+ *     00175900 floor (player_states_floor_service), 001764E0 probes
+ *     (player_states_wall_probes), 001796C0 fall (player_states_fall_check),
+ *     001749A0 request, anim_clip_arbiter, 001C61D0 clip_frames (the +40
+ *     bank word), 001FBD50 sound, 00182870 land_sound, 00178B90 translate,
+ *     00174AC0 heading, 0017C440 reentry, 0017C540 handoff, 0017C580 land,
+ *     and anim_eval_skeleton with node 1's +C4 / +8 (the shapes of
+ *     em_pose_host_*, em_player_fall_* and em_player_heading_record_*);
+ *   - `scratch` is the shared 0x700038A0 / 0x70003A20 instance.
+ * Around every worker call the adapter stores the mirror into the record
+ * and reads it back after, so a worker that reads or writes the record (the
+ * pose host's 001749A0 rewrites +20C, +2C and the +3C clock the mirror also
+ * carries) sees and leaves exactly what the original would. `scene` fills EmPlayerClimbScene this stage;
  * `link_kind` maps the +308 owner (em_actor_collision_player_link_kind).
- * A missing worker faults (-1) before anything runs. */
+ * A missing worker or pointer faults (-1) before anything runs. */
 typedef struct EmPlayerClimbLive {
     EmPlayerClimbWorkers workers;
     int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result);
@@ -189,11 +219,27 @@ typedef struct EmPlayerClimbLive {
     void *scene_context;
     int (*link_kind)(void *context, const void *owner);
     void *link_context;
+    int (*request)(void *context, EmPlayerLiveActor *actor, int clip, int force, float blend);
+    int (*arbiter)(void *context, EmPlayerLiveActor *actor, int clip, float blend, float frame);
+    int (*clip_frames)(void *context, uint32_t bank, int clip, int32_t *frames);
+    int (*sound)(void *context, EmPlayerLiveActor *actor, int id);
+    int (*land_sound)(void *context, EmPlayerLiveActor *actor, int tier);
+    int (*translate)(void *context, EmPlayerLiveActor *actor, int arg);
+    int (*heading)(void *context, EmPlayerLiveActor *actor, int arg);
+    int (*reentry)(void *context, EmPlayerLiveActor *actor, int arg);
+    int (*handoff)(void *context, EmPlayerLiveActor *actor);
+    int (*land)(void *context, EmPlayerLiveActor *actor);
+    int (*skeleton)(void *context, EmPlayerLiveActor *actor, float *hip_y, float *hip_8);
+    EmPlayerLandScratch *scratch;
 } EmPlayerClimbLive;
 int em_player_climb_live_state(void *context, EmPlayerLiveActor *actor);
 /* 0015DF10(p, mode, ang) over the live actor, for the Use chain 00160220
- * (not yet translated: its 0015D4C0/0015EC50/0015FDF0 are missing). 1 when a
+ * (em_player_use_dispatch): the same binding and record rules. 1 when a
  * climb started, 0, or -1. */
 int em_player_climb_live_probe(void *context, EmPlayerLiveActor *actor, int mode, float ang);
+/* The same in the shape of EmPlayerUseWorkers.ledge (the angle as raw
+ * bits; *result = 1 when a climb started, else 0). 0, or -1 on a fault. */
+int em_player_climb_live_ledge(void *context, EmPlayerLiveActor *actor, int mode, uint32_t angle,
+                               int *result);
 
 #endif

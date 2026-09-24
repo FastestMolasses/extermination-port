@@ -42,7 +42,7 @@ static int vmul4(float out[4], const float a[4], const float b[4])
     return em_vu_vec(EM_VU_MUL, 0xF, EM_VU_NO_BC, a, b, 0.0f, NULL, out) ? -1 : 0;
 }
 
-/* 00102738(a, b): vmul.xyz vf5 = a * b, vaddy.x, vaddz.x; returns vf5.x. */
+/* 00102738(a, b): the x/y/z lane products, then x + y, then + z (the dot). */
 static int vdot(const float a[4], const float b[4], float *out)
 {
     float v[4];
@@ -104,10 +104,14 @@ static int strictly_between(float s, float e, float h)
     return lt(e, h);
 }
 
+/* 0011E748 (sqrtf), the em_sdk_math_original translation over the
+ * world's SDK context. */
 static int sdk_sqrt(const EmCollMoveWorld *w, float x, float *out)
 {
-    if (!w || !w->workers.sqrt) return -1;
-    return w->workers.sqrt(w->workers.context, x, out) < 0 ? -1 : 0;
+    uint32_t fault = 0;
+    if (!w || !w->math) return -1;
+    const EmSdkMathContext *m = w->math;
+    return em_sdk_math_original_0011E748(m->tables, &m->world, &m->workers, x, out, &fault) < 0 ? -1 : 0;
 }
 
 static void round_hit(EmCollMoveScratch *s, const uint8_t *q, float hx, float hz)
@@ -124,7 +128,7 @@ static void round_hit(EmCollMoveScratch *s, const uint8_t *q, float hx, float hz
 
 int em_coll_move_prim_001A4830(const EmCollMoveWorld *w, EmCollMoveScratch *s, const uint8_t *p)
 {
-    if (!s || !p || !w || !w->workers.sqrt) return -1;
+    if (!s || !p || !w || !w->math) return -1;
     const uint8_t *q = p + 4;
     /* 0x001A4858: the half height is the radius for a 0x8000 prim. */
     float half = (rd_u16(p, 0) & 0x8000) ? rd_f(q, 0xC) : rd_f(q, 0x10);
@@ -363,7 +367,7 @@ static int kind_skips(int16_t kind, int16_t query_class)
 static int cells_ready(const EmCollMoveWorld *w)
 {
     return w && w->cells && w->cells->table && w->cells->table->bytes && w->cells->lists &&
-           w->workers.sqrt;
+           w->math;
 }
 
 int em_coll_move_walk_0019FE50(const EmCollMoveWorld *w, EmCollMoveScratch *s)
@@ -446,11 +450,78 @@ static int needs_ok(const EmCollMoveWorld *w, const EmCollMoveActor *a, uint32_t
 {
     if (!w) return 0;
     if ((flags & 1) && (a->status & 1)) {
-        if (!(a->cls & 0x1F) ? !w->workers.lock_6440 : !w->workers.lock_7280) return 0;
+        if (!(a->cls & 0x1F) ? !(w->cells && w->cells->lists) : !(w->hulls && w->hulls->player)) return 0;
     }
     if ((flags & 2) && !cells_ready(w)) return 0;
-    if ((flags & 4) && !w->workers.grid) return 0;
+    if ((flags & 4) && !(w->grid && w->grid->tables && w->grid->words && w->grid->emcl)) return 0;
     return 1;
+}
+
+/* The scratchpad words the hull locks read and write, in and out. */
+static EmCollHullScratch hull_in(const EmCollMoveScratch *s)
+{
+    EmCollHullScratch h;
+    memset(&h, 0, sizeof h);
+    for (int i = 0; i < 3; ++i) {
+        h.start[i] = s->start[i];
+        h.end[i] = s->end[i];
+        h.point[i] = s->point[i];
+        h.cell_normal[i] = s->cell_normal[i];
+    }
+    h.cell_class = s->cell_class;
+    h.word_1c = s->cell_word_1c;
+    h.word_20 = s->cell_word_20;
+    h.entity = s->entity;
+    return h;
+}
+
+static void hull_out(EmCollMoveScratch *s, const EmCollHullScratch *h)
+{
+    for (int i = 0; i < 3; ++i) {
+        s->point[i] = h->point[i];
+        s->cell_normal[i] = h->cell_normal[i];
+    }
+    s->cell_class = h->cell_class;
+    s->cell_word_1c = h->word_1c;
+    s->cell_word_20 = h->word_20;
+    s->entity = h->entity;
+    if (h->record_cell) s->record = EM_COLL_MOVE_CELL_RECORD;   /* 0x700031D0 = D_700030B0 */
+}
+
+/* 0019CB60 over this module's scratch: the probe state view carries the
+ * words it reads and writes (segment, point, ranks, span words, query
+ * class); a hit names the grid node with its +0x1A halfword and +0x24
+ * normal. */
+static int grid_pass(const EmCollMoveWorld *w, EmCollMoveScratch *s, int *result)
+{
+    EmCollProbeState p;
+    memset(&p, 0, sizeof p);
+    memcpy(p.start, s->start, sizeof p.start);
+    memcpy(p.end, s->end, sizeof p.end);
+    memcpy(p.point, s->point, sizeof p.point);
+    p.record = EM_COLL_PROBE_RECORD_NONE;
+    p.node = -1;
+    p.query_class = s->query_class;
+    memcpy(p.rank, s->rank, sizeof p.rank);
+    p.span_lo = s->span_lo;
+    p.span_hi = s->kind;
+    const int r = em_coll_grid_hull_0019CB60(w->grid, &p);
+    if (r < 0) return -1;
+    memcpy(s->end, p.end, sizeof p.end);
+    memcpy(s->point, p.point, sizeof p.point);
+    memcpy(s->rank, p.rank, sizeof s->rank);
+    s->span_lo = p.span_lo;
+    s->kind = p.span_hi;
+    if (r == 0) {
+        const EmCollPoly *node = &w->grid->emcl->polys[w->grid->first + (uint32_t)p.node];
+        s->record = em_coll_grid_hull_node_record(w->grid, p.node);
+        if (!s->record) return -1;
+        s->record_node = em_coll_probe_record_node(w->grid, &p);   /* node +0x1A, +0x1B */
+        memcpy(s->record_normal, node->plane, sizeof s->record_normal);   /* node +0x24 */
+        memset(s->record_axis, 0, sizeof s->record_axis);          /* node +0x34: not in the EMCL */
+    }
+    *result = r;
+    return 0;
 }
 
 /* The shared body of 0019AD00 (sweep = 0) and 0019AFE0 (sweep = 1) after the
@@ -474,17 +545,22 @@ static int walk(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor 
     if (vadd4(s->end, s->end, dir)) return -1;
     int mode = 0;
     if ((flags & 1) && (actor->status & 1)) {                /* 0x0019ADF0..0x0019AE04 */
-        int ok = 0;
+        int ok;
+        EmCollHullScratch h = hull_in(s);
         if (!(actor->cls & 0x1F)) {
             /* 0x0019AE20: 001A6440(0x40); the locked entity's +0x52 bit 1 vetoes. */
-            if (w->workers.lock_6440(w->workers.context, s, 0x40, &ok) < 0) return -1;
+            ok = em_coll_grid_hull_001A6440(w->cells->lists, w->hulls, &h, 0x40);
+            if (ok < 0) return -1;
+            hull_out(s, &h);
             if (ok) {
                 if (!s->entity) return -1;                   /* the original reads *(0 + 0x52) */
                 if (s->entity->h52 & 2) ok = 0;
             }
         } else {
-            /* 0x0019AE60: 001A7280(); the query actor's +0x52 bit 1 is required. */
-            if (w->workers.lock_7280(w->workers.context, s, &ok) < 0) return -1;
+            /* 0x0019AE60: 001A7280(0x40); the query actor's +0x52 bit 1 is required. */
+            ok = em_coll_grid_hull_001A7280(w->hulls, &h, 0x40);
+            if (ok < 0) return -1;
+            hull_out(s, &h);
             if (ok && !(actor->h52 & 2)) ok = 0;
         }
         if (ok && !(actor->h52 & 1)) {                       /* 0x0019AE88..0x0019AEC4 */
@@ -499,9 +575,9 @@ static int walk(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor 
         if (r < 0) return -1;
         if (r == 0) mode = 2;
     }
-    if (flags & 4) {                                         /* 0x0019AF08 */
+    if (flags & 4) {                                         /* 0x0019AF08: 0019CB60 */
         int r = 1;
-        if (w->workers.grid(w->workers.context, s, &r) < 0) return -1;
+        if (grid_pass(w, s, &r) < 0) return -1;
         if (r == 0) mode = 4;
     }
     if (!sweep) {
@@ -525,22 +601,34 @@ static int walk(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor 
     return mode;
 }
 
+/* Run on copies; commit the scratch and the actor only on success. */
+static int run(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor *actor, const float from[3],
+               const float to[3], uint32_t flags, int sweep)
+{
+    EmCollMoveScratch t = *s;
+    EmCollMoveActor a = *actor;
+    t.start[0] = from[0];                                    /* 0x0019AD30 / 0019AFE0: +0xB0 or from.x */
+    t.start[2] = from[2];                                    /* 0x0019AD5C: +0xB8 or from.z */
+    const int mode = walk(w, &t, &a, to, flags, sweep);
+    if (mode < 0) return -1;
+    *s = t;
+    *actor = a;
+    return mode;
+}
+
 int em_coll_move_0019AD00(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor *actor,
                           const float target[3], uint32_t flags)
 {
     if (!s || !actor || !target || !needs_ok(w, actor, flags)) return -1;
-    s->start[0] = actor->position[0];                        /* 0x0019AD30: +0xB0 */
-    s->start[2] = actor->position[2];                        /* 0x0019AD5C: +0xB8 */
-    return walk(w, s, actor, target, flags, 0);
+    const float from[3] = { actor->position[0], 0.0f, actor->position[2] };
+    return run(w, s, actor, from, target, flags, 0);
 }
 
 int em_coll_move_sweep_0019AFE0(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor *actor,
                                 const float from[3], const float to[3], uint32_t flags)
 {
     if (!s || !actor || !from || !to || !needs_ok(w, actor, flags)) return -1;
-    s->start[0] = from[0];
-    s->start[2] = from[2];
-    return walk(w, s, actor, to, flags, 1);
+    return run(w, s, actor, from, to, flags, 1);
 }
 
 /* ---- Adapters -------------------------------------------------------------- */
@@ -555,13 +643,15 @@ static int fill_probe_hit(const EmCollMoveScratch *s, int kind, EmPlayerProbeHit
     if (s->record == EM_COLL_MOVE_CELL_RECORD) {
         hit->node = s->cell_class;
         memcpy(hit->normal, s->cell_normal, sizeof hit->normal);
-        /* D_700030B0 +0x34 is scratch no walker writes: not carried. */
-        if (kind && (hit->node & 0xFF) == 0x35) return -1;
     } else if (s->record) {
         hit->node = s->record_node;
         memcpy(hit->normal, s->record_normal, sizeof hit->normal);
         memcpy(hit->axis, s->record_axis, sizeof hit->axis);
     }
+    /* D_700030B0 +0x34 is scratch no walker writes, and a grid node's +0x34
+     * is not in the EMCL: neither is carried, so the surface byte whose
+     * consumer reads it (00175CF0, surface 0x35) faults. */
+    if (kind && s->record && (hit->node & 0xFF) == 0x35) return -1;
     if (s->entity) {
         hit->entity = 1;
         hit->entity_flags = s->entity->cls;

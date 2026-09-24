@@ -5,14 +5,12 @@
  * is a NEARMISS file in the decomp, so its readable C is not trusted; the
  * doc lists where the C is wrong):
  *
- *   0019A570(from, to, mask, id)   the segment query: 001A6440 (mask bit 0,
- *                                  a worker), 001A0B10 (bit 1), 0019D330
- *                                  (bit 2). The climb, drum, recovery,
+ *   0019A570(from, to, mask, id)   the segment query: 001A6440 (mask bit 0),
+ *                                  001A0B10 (bit 1), 0019D330 (bit 2). The climb, drum, recovery,
  *                                  shadow (0015BF90) and pickup LOS callers
  *                                  use it with masks 4 and 6.
- *   0019A910(from, to, mask)       the camera query: 001A6AD0 (bit 0, a
- *                                  worker), 001A1390 (bit 1), 0019D770
- *                                  (bit 2). The camera (0018D330, 0018DD20,
+ *   0019A910(from, to, mask)       the camera query: 001A6AD0 (bit 0),
+ *                                  001A1390 (bit 1), 0019D770 (bit 2). The camera (0018D330, 0018DD20,
  *                                  00197490, 00198240) uses masks 6 and 7.
  *   001A0B10 / 001A1390            the two cell walkers: pass 1 the static
  *                                  cells of *0x70003250, pass 2 the published
@@ -35,7 +33,8 @@
  *
  * Reused translations (not re-translated here): 001A4030, 0019F1A0 and
  * 0019ED80 from em_coll_probe_original.c; 0011DF78 (fabsf) and 0011E748
- * (sqrtf) from em_sdk_math_original.c.
+ * (sqrtf) from em_sdk_math_original.c; the hull locks 001A6440 and
+ * 001A6AD0 from em_coll_grid_hull.c (docs/COLL_GRID_HULL.md).
  *
  * State. The routines keep their state in the scratchpad. It is the same
  * EmCollProbeState the floor probes use (one per caller world, zeroed at
@@ -43,8 +42,8 @@
  * writes. Pass the SAME state to every probe and query, as the original has
  * one scratchpad.
  *
- * Fail-stop. A missing worker (001A6440 / 001A6AD0 when mask bit 0 is set),
- * a static cell without its D_0024D7C0 kind view, a pass-2 directory word
+ * Fail-stop. A hull lock that meets a class-2 entity whose chain the hull
+ * world cannot supply, a static cell without its D_0024D7C0 kind view, a pass-2 directory word
  * with bit 31, a prim or hull outside the directory image, an index outside
  * a grid table, the grid walkers' uninitialized span registers, and a
  * failing 0011E748 are faults: -1. The two queries then leave the caller's
@@ -61,6 +60,7 @@
 
 #include <stdint.h>
 
+#include "game/em_coll_grid_hull.h"
 #include "game/em_coll_probe_original.h"
 #include "game/em_sdk_math_original.h"
 
@@ -68,35 +68,30 @@
 extern "C" {
 #endif
 
-/* The scratchpad words 001A50A0 writes besides EmCollProbeState (which
- * holds 0x70003680, its t). Written lane by lane, x/y/z only. */
+/* The scratchpad words the queries write besides EmCollProbeState: those
+ * of 001A50A0 (EmCollProbeState holds 0x70003680, its t; written lane by
+ * lane, x/y/z only) and the two words the hull locks 001A6440 / 001A6AD0
+ * store in the cell record D_700030B0. */
 typedef struct {
     float box_min[3];   /* 0x70003600..0x70003608 */
     float box_max[3];   /* 0x70003610..0x70003618 */
     float delta[3];     /* 0x70003620..0x70003628: end - start */
     float rel[3];       /* 0x70003630..0x70003638: box origin - start */
     float cross[2];     /* 0x70003684, 0x70003688: the two in-plane coordinates */
+    uint32_t hull_word_1c;   /* 0x700030CC: D_700030B0 +0x1C (the locks) */
+    uint32_t hull_word_20;   /* 0x700030D0: D_700030B0 +0x20 (the locks) */
 } EmCollSegmentFaceScratch;
 
-/* The hull locks of mask bit 0. Each returns >= 0 with the original's v0 in
- * *result (nonzero = the query copies 0x700031B0 to 0x700031A0), or < 0 for
- * a fault. It may read and write the state as its original does. */
-typedef struct {
-    void *context;
-    /* 001A6440(id & 0xFFFF), called by 0019A570 before it writes 0x7000324E. */
-    int (*lock_6440)(void *context, EmCollProbeState *state, int id, int *result);
-    /* 001A6AD0(0x40), called by 0019A910. */
-    int (*lock_6AD0)(void *context, EmCollProbeState *state, int arg, int *result);
-} EmCollSegmentWorkers;
-
 /* One caller world. `math` supplies 0011E748 (its tables, its world word
- * D_0026C5D0 and its error-path workers) for 001A5C30. */
+ * D_0026C5D0 and its error-path workers) for 001A5C30. The hull locks of
+ * mask bit 0 walk the world's published class-2 list (world->cells->lists)
+ * and read each entity's chain through `hulls`. */
 typedef struct {
-    const EmCollProbeWorld *world;        /* cells (directory, class-4 list, static kinds) and grid */
+    const EmCollProbeWorld *world;        /* cells (directory, class lists, static kinds) and grid */
     const EmSdkMathContext *math;
-    const EmCollSegmentWorkers *workers;  /* may be NULL: mask bit 0 faults */
+    const EmCollHullWorld *hulls;         /* may be NULL: a lock that needs a chain faults */
     EmCollProbeState *state;              /* the one scratchpad state */
-    EmCollSegmentFaceScratch *face;       /* 0x70003600.. */
+    EmCollSegmentFaceScratch *face;       /* 0x70003600.. and the locks' words */
 } EmCollSegment;
 
 /* ---- The queries ---------------------------------------------------------

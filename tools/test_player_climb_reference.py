@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Execute the original ledge probe and climb state and compare em_player_climb.c.
 
-docs/PLAYER_CLIMB_SLIDE.md. The user's pinned ELF supplies every instruction
-and table; none are embedded here. The EE interpreter from
-tools/test_player_slide_reference.py runs, unmodified:
+docs/PLAYER_CLIMB_SLIDE.md, docs/PLAYER_RECORD_HELPERS.md. The user's pinned
+ELF supplies every instruction and table; none are embedded here. The EE
+interpreter with the measured float model (FallEE: every COP1 and VU0 macro
+op through tools/ee_float_model.py) runs, unmodified:
 
   0015DF10  ledge probe        0015DEC0  face gate      00177510  ledge frame
   001775E0  lip sweep          00177F40  depth test     00177460  vault test
@@ -17,7 +18,16 @@ Hooked boundaries, scripted per case and recorded (never simulated):
 result into the original scratchpad block), 001760C0 column, the SDK atan2 /
 sqrt (host models on both sides), 001749A0, 001FBD50, 001EFD90, 00182870,
 anim_eval_skeleton (the case's node 1 values), 00178B90, 00175900, 001764E0,
-00174AC0 (the case's gait byte), 0017C440, 0017C540, 001796C0.
+00174AC0 (the case's gait byte), 0017C440, 0017C540, 001796C0. 0011DF78
+(fabsf), 001B1470, 001281C0 and the SDK matrix routines run as original
+code. Each case also compares the scratch words 0x700038A0..AC the helpers
+leave (the bound EmPlayerLandScratch).
+
+EM_TEST_WORLD=1: the original player stage over captured AREA11 worlds and
+the PCSX2 route beats (05_boxes, 11, 13), with the native climb bound on the
+record through its live adapters (em_player_climb_live_state /
+em_player_climb_live_probe): every worker runs the original routine on the
+same world with the record and the scratch synced around each call.
 """
 import ctypes as C
 import random
@@ -32,6 +42,8 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_slide_reference import (EE, read_elf, bits, number, fp, s32, DECOMP,  # noqa: E402
                                          ProbeHit, LIBC, record_writes, assert_covered)
 import reference_mode  # noqa: E402
+from test_player_fall_reference import FallEE  # noqa: E402
+from test_player_slide_reference import Scratch  # noqa: E402
 
 ACTOR, NODES, NODE, ENTITY, LINK, OBJECTS = 0x680000, 0x6D0000, 0x6A0000, 0x6B0000, 0x6C0000, 0x6E0000
 PROBE, STATE2, STATE3, HANG = 0x15DF10, 0x161790, 0x162190, 0x17F320
@@ -101,7 +113,8 @@ class Workers(C.Structure):
                 ('arbiter', ARBITER_FN), ('clip_frames', FRAMES_FN), ('sound', SOUND_FN), ('effect', EFFECT_FN), ('land_sound', TIER_FN),
                 ('skeleton', SKELETON_FN), ('translate', ARG_FN), ('floor', FLOOR_FN),
                 ('probes', ACTOR_FN), ('heading', ARG_FN), ('reentry', ARG_FN),
-                ('handoff', ACTOR_FN), ('fall', ACTOR_FN), ('land', ACTOR_FN)]
+                ('handoff', ACTOR_FN), ('fall', ACTOR_FN), ('land', ACTOR_FN),
+                ('scratch', C.POINTER(Scratch))]
 
 
 # (name, offset, size, kind)
@@ -152,9 +165,11 @@ def empty_hit():
 
 
 class Oracle:
-    def __init__(self, elf, script, scene):
-        self.ee = ee = EE(elf)
+    def __init__(self, elf, script, scene, spad=(0, 0, 0, 0, 0)):
+        self.ee = ee = FallEE(elf)
         self.script, self.log = script, []
+        for i in range(4): ee.save(0x700038A0 + 4 * i, spad[i])
+        ee.save(0x70003A20, spad[4])
         ee.save(0x8106BE, scene.flags, 1)
         ee.save(0x810700, scene.area, 1)
         ee.save(0x275B40, NODES); ee.save(NODES + 4, NODES + 0x200)
@@ -168,7 +183,6 @@ class Oracle:
         h[TABLE] = self.table
         h[ATAN2] = lambda e: e.ret_float(LIBC.atan2f(e.farg(0), e.farg(1)))
         h[SQRT] = lambda e: e.ret_float(LIBC.sqrtf(e.farg(0)))
-        h[FABS] = lambda e: e.ret_float(abs(e.farg(0)))
         h[REQUEST] = lambda e: self.rec('request', e.arg(1) & 0xFFFF, e.arg(2), e.f[12])
         h[ARBITER] = lambda e: self.rec('arbiter', e.arg(1) & 0xFFFF, e.f[12], e.f[13])
         h[FRAMES] = self.frames
@@ -276,12 +290,16 @@ class Oracle:
         for name, offset, count in VECTORS:
             for i in range(count): out['%s%d' % (name, i)] = e.load(ACTOR + offset + 4 * i)
         out['ledge_normal0'] = e.load(ACTOR + 0x290); out['ledge_normal1'] = e.load(ACTOR + 0x298)
+        out['scratch'] = tuple(e.load(0x700038A0 + 4 * i) for i in range(4)) + (e.load(0x70003A20),)
         return out
 
 
 class Native:
-    def __init__(self, script):
+    def __init__(self, script, spad=(0, 0, 0, 0, 0)):
         self.script, self.log = script, []
+        self.scratch = Scratch()
+        for i in range(4): self.scratch.s38A0[i] = spad[i]
+        self.scratch.s3A20 = spad[4]
         self.workers = Workers(
             None, MOVE_FN(lambda _, pos, t, m, out: self.probe('move', out, fvec(t, 4), m)),
             SWEEP_FN(lambda _, a, b, m, out: self.probe('sweep', out, fvec(a, 4), fvec(b, 4), m)),
@@ -299,7 +317,8 @@ class Native:
             ARG_FN(self.heading), ARG_FN(lambda _, a, arg: self.rec('reentry', arg)),
             ACTOR_FN(lambda _, a: self.rec('handoff', a.contents.tier)),
             ACTOR_FN(lambda _, a: self.rec('fall', fvec(a.contents.position, 3))),
-            ACTOR_FN(lambda _, a: self.rec('land', fvec(a.contents.position, 3))))
+            ACTOR_FN(lambda _, a: self.rec('land', fvec(a.contents.position, 3))),
+            C.pointer(self.scratch))
 
     def frames(self, _, clip, out):
         self.log.append(('frames', clip)); out[0] = clip_length(BANK, clip); return 0
@@ -347,8 +366,9 @@ class Native:
         return 0
 
 
-def native_fields(a):
+def native_fields(a, native):
     out = {name: raw_of(getattr(a, name), size, kind) for name, _, size, kind in FIELDS}
+    out['scratch'] = tuple(native.scratch.s38A0) + (native.scratch.s3A20,)
     for name, _, count in VECTORS:
         for i in range(count): out['%s%d' % (name, i)] = bits(getattr(a, name)[i])
     out['ledge_normal0'] = bits(a.ledge_normal[0]); out['ledge_normal1'] = bits(a.ledge_normal[1])
@@ -601,9 +621,10 @@ def run_case(case):
             actor.position[1] = exact_above(0.0, 0.0) + (top - actor.ledge)
             if fp(actor.position[1] + actor.ledge) != top:
                 actor.position[1] = fp(top - actor.ledge)
-    oracle = Oracle(ELF, script.copy(), scene)
+    spad = tuple(rng.getrandbits(32) for _ in range(5))
+    oracle = Oracle(ELF, script.copy(), scene, spad)
     oracle.load(actor, link_kind)
-    native = Native(script.copy())
+    native = Native(script.copy(), spad)
     written = record_writes(oracle.ee, ACTOR)
     if kind == 'probe':
         oracle.ee.call(PROBE, (ACTOR, mode), (ang,))
@@ -624,9 +645,9 @@ def run_case(case):
     assert_covered(written, COMPARED, (kind, seed))
     expected = normal_log(oracle.log)
     assert expected == native.log, (kind, seed, expected, native.log)
-    want, have = oracle.fields(), native_fields(actor)
+    want, have = oracle.fields(), native_fields(actor, native)
     for key in want:
-        assert want[key] == have[key], (kind, seed, key, hex(want[key]), hex(have[key]))
+        assert want[key] == have[key], (kind, seed, key, want[key], have[key])
     if kind == 'probe':
         outcome = ('start', actor.state, actor.variant) if result == 1 else ('none',)
     else:
@@ -634,13 +655,20 @@ def run_case(case):
     return kind, outcome
 
 
+# What em_player_climb.c links against: the helper bodies and the owners of
+# the SDK leaves (em_player_record_helpers.h).
+CLIMB_SOURCES = ['src/game/em_player_record_helpers.c', 'src/game/em_effect_original.c',
+                 'src/game/em_owner_services_original.c', 'src/game/em_player_stage_workers.c',
+                 'src/game/em_sdk_math_original.c']
+
+
 def build_native():
     out = ROOT / 'build/player_climb_reference'
     out.mkdir(parents=True, exist_ok=True)
     lib = out / ('climb.dylib' if sys.platform == 'darwin' else 'climb.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-Isrc', 'src/game/em_player_climb.c',
-                    'src/game/em_player_floor.c', '-lm', '-o', str(lib)], cwd=ROOT, check=True)
+                    '-shared', '-fPIC', '-Isrc', 'src/game/em_player_climb.c'] + CLIMB_SOURCES +
+                   ['-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
     A, S, W = C.POINTER(Actor), C.POINTER(Scene), C.POINTER(Workers)
     native.em_player_climb_trs.argtypes = [A]
@@ -661,7 +689,7 @@ def main():
     trs = reference_mode.pick(3000, 300)
     for _ in range(trs):
         a = random_actor(rng, NATIVE.em_player_climb_trs)
-        ee = EE(ELF)
+        ee = FallEE(ELF)
         for name, offset, count in VECTORS[:3]:
             for i in range(count): ee.putf(ACTOR + offset + 4 * i, getattr(a, name)[i])
         ee.call(0x1C94B0, (ACTOR + 0xD0, ACTOR + 0xB0, ACTOR + 0xC0, ACTOR + 0x60))
@@ -693,6 +721,7 @@ def main():
              [('ledge_normal', 0, 0x290, 4), ('ledge_normal', 1, 0x298, 4)])
     counts['live_mirror_fields'] = live_mapping_check(
         NATIVE.em_player_climb_actor_from_live, NATIVE.em_player_climb_actor_to_live, Actor, table, rng)
+    counts['live_record'], counts['live_record_calls'] = live_cases()
     reference_mode.banner('trs %d' % trs, *('%s %d' % kv for kv in counts.items()))
     print('climb starts (state, +1F1): %s' % sorted(starts.items()))
     # em_collision_column_table against the original 0019BC40 over the
@@ -720,124 +749,25 @@ import os  # noqa: E402
 from test_player_slide_reference import Stage, PLAYER, WORLD_RAM, WORLD_SPAD, world_inputs  # noqa: E402
 
 
-def climb_from_ee(ee, a):
-    for name, offset, size, kind in FIELDS:
-        raw = ee.load(PLAYER + offset, size)
-        if kind == 'f': setattr(a, name, number(raw))
-        elif kind == 's': setattr(a, name, raw - (1 << (8 * size)) if raw >> (8 * size - 1) else raw)
-        else: setattr(a, name, raw)
-    for name, offset, count in VECTORS:
-        for i in range(count): getattr(a, name)[i] = number(ee.load(PLAYER + offset + 4 * i))
-    a.ledge_normal[0] = number(ee.load(PLAYER + 0x290)); a.ledge_normal[1] = number(ee.load(PLAYER + 0x298))
-    a.velocity[1] = number(ee.load(PLAYER + 0x2E4))
-    link = ee.load(PLAYER + 0x308)
-    a.link_kind = 0 if link == 0 else 2 if ee.load(link + 0x10) in (0x828700, 0x827880) else 1
+from test_player_slide_reference import (RecordWorld, LiveActor as RecordActor,  # noqa: E402
+                                         L_FLOOR, L_ACTOR, L_REQUEST, L_ARBITER, L_FRAMES, L_ARG,
+                                         measured_ee)
+
+PR = C.POINTER(RecordActor)
+L_SCENE = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(Scene))
+L_LINK = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)
+L_SKELETON = C.CFUNCTYPE(C.c_int, C.c_void_p, PR, C.POINTER(C.c_float), C.POINTER(C.c_float))
 
 
-def climb_to_ee(ee, a):
-    for name, offset, size, kind in FIELDS:
-        ee.save(PLAYER + offset, raw_of(getattr(a, name), size, kind), size)
-    for name, offset, count in VECTORS:
-        for i in range(count): ee.save(PLAYER + offset + 4 * i, bits(getattr(a, name)[i]))
-    ee.save(PLAYER + 0x290, bits(a.ledge_normal[0])); ee.save(PLAYER + 0x298, bits(a.ledge_normal[1]))
-
-
-class WorldClimbWorkers:
-    """em_player_climb.c workers bound to the ORIGINAL routines on the world."""
-
-    def __init__(self, ee, actor_ref):
-        e = self.ee = ee
-        scratch = 0x7F0E0000
-        sync = lambda: climb_to_ee(e, actor_ref.contents)
-        back = lambda: climb_from_ee(e, actor_ref.contents)
-
-        def around(entry, *args, floats=()):
-            sync(); result = e.nested(entry, args, floats); back(); return result
-
-        def vector(slot, values, count=4):
-            address = scratch + 0x10 * slot
-            for i in range(count): e.save(address + 4 * i, bits(values[i]))
-            return address
-
-        def fill(kind, out):
-            h = out[0]; p = h.probe
-            p.kind = kind
-            if kind:
-                record = e.load(0x700031D0)
-                p.node = e.load(record + 0x1A, 2)
-                for i in range(3):
-                    p.normal[i] = number(e.load(record + 0x24 + 4 * i))
-                    p.point[i] = number(e.load(0x700031B0 + 4 * i))
-                    p.delta[i] = number(e.load(0x700031C0 + 4 * i))
-                entity = e.load(0x700031D4)
-                p.entity = 1 if entity else 0
-                if entity:
-                    p.entity_flags = e.load(entity + 2, 1)
-                    h.pickup_box = 1 if e.load(entity + 0x10) == 0x219550 else 0
-            return kind
-
-        def move(_, position, target, mask, out):
-            return fill(s32(around(0x19AD00, PLAYER, vector(0, target), mask)[0]), out)
-
-        def sweep(_, a, b, mask, out):
-            return fill(s32(around(0x19AFE0, PLAYER, vector(0, a), vector(1, b), mask)[0]), out)
-
-        def segment(_, a, b, mask, ident):
-            return s32(around(0x19A570, vector(0, a), vector(1, b), mask, ident)[0])
-
-        def column(_, at, height):
-            return s32(around(0x1760C0, PLAYER, vector(0, at), 1, floats=(height,))[0])
-
-        def table(_, at, out):
-            around(0x19BC40, vector(0, at))
-            t = out[0]
-            t.count = e.load(0x700031E0)
-            assert t.count <= 16, t.count
-            for i in range(t.count):
-                t.flags[i] = e.load(0x70003170 + 2 * i, 2)
-                t.height[i] = number(e.load(0x700030F0 + 4 * i))
-                t.aux[i] = number(e.load(0x282250 + 4 * i))
-                obj = e.load(0x70003130 + 4 * i)
-                t.object_kind[i] = e.load(obj + 0x54, 1)
-                raw = e.load(obj + 0x1A, 2)
-                t.object_node[i] = raw - 0x10000 if raw & 0x8000 else raw
-            return 0
-
-        def skeleton(_, actor, y, eight):
-            around(0x1C6DA0, PLAYER)
-            node1 = e.load(e.load(0x275B40) + 4)
-            y[0] = number(e.load(node1 + 0xC4)); eight[0] = number(e.load(node1 + 8))
-            return 0
-
-        def frames(_, clip, out):
-            out[0] = s32(around(0x1C61D0, e.load(PLAYER + 0x40), clip)[0]); return 0
-
-        def floor(_, actor, search, out):
-            out[0] = s32(around(0x175900, PLAYER, search)[0]); return 0
-
-        plain = lambda entry: ACTOR_FN(lambda _, actor: (around(entry, PLAYER), 0)[1])
-        with_arg = lambda entry: ARG_FN(lambda _, actor, arg: (around(entry, PLAYER, arg), 0)[1])
-        self.workers = Workers(
-            None, MOVE_FN(move), SWEEP_FN(sweep), SEGMENT_FN(segment), COLUMN_FN(column),
-            TABLE_FN(table),
-            MATH2_FN(lambda _, y, x: number(around(0x11E620, floats=(y, x))[1])),
-            MATH1_FN(lambda _, x: number(around(0x11E748, floats=(x,))[1])),
-            REQUEST_FN(lambda _, clip, force, blend: (around(0x1749A0, PLAYER, clip, force, floats=(blend,)), 0)[1]),
-            ARBITER_FN(lambda _, clip, blend, frame: (around(0x1749F0, PLAYER, clip, floats=(blend, frame)), 0)[1]),
-            FRAMES_FN(frames),
-            SOUND_FN(lambda _, id: (around(0x1FBD50, PLAYER, id, 0, floats=(300.0,)), 0)[1]),
-            EFFECT_FN(lambda _, id, p, r: self.effect(around, vector, id, p)),
-            TIER_FN(lambda _, tier: (around(0x182870, PLAYER, tier), 0)[1]),
-            SKELETON_FN(skeleton), with_arg(0x178B90), FLOOR_FN(floor), plain(0x1764E0),
-            with_arg(0x174AC0), with_arg(0x17C440), plain(0x17C540), plain(0x1796C0), plain(0x17C580))
-
-    def effect(self, around, vector, id, position):
-        # 0017DEB0 passes p+B0, or a stack copy of it with y = +250.
-        address = PLAYER + 0xB0
-        if bits(position[1]) != self.ee.load(PLAYER + 0xB4):
-            address = vector(2, (position[0], position[1], position[2], 1.0))
-        around(0x1EFD90, id, address, PLAYER + 0xC0)
-        return 0
+class ClimbLive(C.Structure):
+    """EmPlayerClimbLive."""
+    _fields_ = [('workers', Workers), ('floor', L_FLOOR), ('probes', L_ACTOR), ('fall', L_ACTOR),
+                ('live_context', C.c_void_p), ('scene', L_SCENE), ('scene_context', C.c_void_p),
+                ('link_kind', L_LINK), ('link_context', C.c_void_p), ('request', L_REQUEST),
+                ('arbiter', L_ARBITER), ('clip_frames', L_FRAMES), ('sound', L_ARG),
+                ('land_sound', L_ARG), ('translate', L_ARG), ('heading', L_ARG), ('reentry', L_ARG),
+                ('handoff', L_ACTOR), ('land', L_ACTOR), ('skeleton', L_SKELETON),
+                ('scratch', C.POINTER(Scratch))]
 
 
 def climb_scene(ee):
@@ -849,24 +779,169 @@ def climb_scene(ee):
     return scene
 
 
+def climb_live_binding(world):
+    """EmPlayerClimbLive over a RecordWorld: every worker is the original
+    routine on the world, the record and the scratch synced around it."""
+    w, ee, base = world, world.ee, world.base
+
+    def fill(kind, out):
+        h = out[0]; p = h.probe
+        p.kind = kind
+        if kind:
+            record = ee.load(0x700031D0)
+            p.node = ee.load(record + 0x1A, 2)
+            for i in range(3):
+                p.normal[i] = number(ee.load(record + 0x24 + 4 * i))
+                p.point[i] = number(ee.load(0x700031B0 + 4 * i))
+                p.delta[i] = number(ee.load(0x700031C0 + 4 * i))
+            entity = ee.load(0x700031D4)
+            p.entity = 1 if entity else 0
+            if entity:
+                p.entity_flags = ee.load(entity + 2, 1)
+                h.pickup_box = 1 if ee.load(entity + 0x10) == 0x219550 else 0
+        return kind
+
+    def table(_, at, out):
+        w.call(0x19BC40, (w.vector(0, at),))
+        t = out[0]
+        t.count = ee.load(0x700031E0)
+        assert t.count <= 16, t.count
+        for i in range(t.count):
+            t.flags[i] = ee.load(0x70003170 + 2 * i, 2)
+            t.height[i] = number(ee.load(0x700030F0 + 4 * i))
+            t.aux[i] = number(ee.load(0x282250 + 4 * i))
+            obj = ee.load(0x70003130 + 4 * i)
+            t.object_kind[i] = ee.load(obj + 0x54, 1)
+            raw = ee.load(obj + 0x1A, 2)
+            t.object_node[i] = raw - 0x10000 if raw & 0x8000 else raw
+        return 0
+
+    def effect(_, id, position, rotation):
+        # 0017DEB0 passes p+B0, or a stack copy of it with y = +250.
+        address = base + 0xB0
+        if bits(position[1]) != int.from_bytes(bytes(w.live.bytes[0xB4:0xB8]), 'little'):
+            address = w.vector(2, (position[0], position[1], position[2], 1.0))
+        w.call(0x1EFD90, (id, address, base + 0xC0))
+        return 0
+
+    def skeleton(_, a, hip_y, hip_8):
+        w.check_live(a)
+        w.call(0x1C6DA0, (base,))
+        node1 = ee.load(ee.load(0x275B40) + 4)
+        hip_y[0] = number(ee.load(node1 + 0xC4)); hip_8[0] = number(ee.load(node1 + 8))
+        return 0
+
+    def link_kind(_, owner):
+        # The harness has no EmActor objects: the +308 owner kind is read
+        # from the world, as em_actor_collision_player_link_kind reads it
+        # from the owner.
+        link = ee.load(base + 0x308)
+        return 0 if link == 0 else 2 if ee.load(link + 0x10) in (0x828700, 0x827880) else 1
+
+    def floor(_, a, search, out):
+        w.check_live(a); out[0] = w.call(0x175900, (base, search))[0]; return 0
+
+    def plain(entry):
+        def fn(_, a):
+            w.check_live(a); w.call(entry, (base,)); return 0
+        return fn
+
+    def with_arg(entry):
+        def fn(_, a, arg):
+            w.check_live(a); w.call(entry, (base, arg)); return 0
+        return fn
+
+    def frames(_, bank, clip, out):
+        out[0] = w.call(0x1C61D0, (bank, clip))[0]; return 0
+
+    def scene(_, out):
+        out[0] = climb_scene(ee); return 0
+
+    workers = Workers()
+    workers.move = w.fn(MOVE_FN, lambda _, position, target, mask, out:
+                        fill(w.call(0x19AD00, (base, w.vector(0, target), mask))[0], out))
+    workers.sweep = w.fn(SWEEP_FN, lambda _, a, b, mask, out:
+                         fill(w.call(0x19AFE0, (base, w.vector(0, a), w.vector(1, b), mask))[0], out))
+    workers.segment = w.fn(SEGMENT_FN, lambda _, a, b, mask, ident:
+                           w.call(0x19A570, (w.vector(0, a), w.vector(1, b), mask, ident))[0])
+    workers.column = w.fn(COLUMN_FN, lambda _, at, height:
+                          w.call(0x1760C0, (base, w.vector(0, at), 1), (height,))[0])
+    workers.table = w.fn(TABLE_FN, table)
+    workers.atan2 = w.math(MATH2_FN, lambda _, y, x: number(w.call(0x11E620, (), (y, x))[1]))
+    workers.sqrt = w.math(MATH1_FN, lambda _, x: number(w.call(0x11E748, (), (x,))[1]))
+    workers.effect = w.fn(EFFECT_FN, effect)
+    live = ClimbLive()
+    live.workers = workers
+    live.floor = w.fn(L_FLOOR, floor)
+    live.probes = w.fn(L_ACTOR, plain(0x1764E0))
+    live.fall = w.fn(L_ACTOR, plain(0x1796C0))
+    live.scene = w.fn(L_SCENE, scene)
+    live.link_kind = w.fn(L_LINK, link_kind)
+    live.request = w.fn(L_REQUEST, lambda _, a, clip, force, blend:
+                        (w.check_live(a), w.call(0x1749A0, (base, clip, force), (blend,)), 0)[2])
+    live.arbiter = w.fn(L_ARBITER, lambda _, a, clip, blend, frame:
+                        (w.check_live(a), w.call(0x1749F0, (base, clip), (blend, frame)), 0)[2])
+    live.clip_frames = w.fn(L_FRAMES, frames)
+    live.sound = w.fn(L_ARG, lambda _, a, id: (w.check_live(a), w.call(0x1FBD50, (base, id, 0), (300.0,)), 0)[2])
+    live.land_sound = w.fn(L_ARG, with_arg(0x182870))
+    live.translate = w.fn(L_ARG, with_arg(0x178B90))
+    live.heading = w.fn(L_ARG, with_arg(0x174AC0))
+    live.reentry = w.fn(L_ARG, with_arg(0x17C440))
+    live.handoff = w.fn(L_ACTOR, plain(0x17C540))
+    live.land = w.fn(L_ACTOR, plain(0x17C580))
+    live.skeleton = w.fn(L_SKELETON, skeleton)
+    live.scratch = C.pointer(w.scratch)
+    return live
+
+
 def native_climb_hooks(ee, counts):
+    """0015DF10 (through em_player_climb_live_ledge, the Use chain's slot),
+    00161790 and 00162190 (em_player_climb_live_state) replaced by the live
+    adapters on the record."""
     def run(name, body):
         def hook(e):
-            actor = Actor(); climb_from_ee(e, actor)
-            scene = climb_scene(e)
-            workers = WorldClimbWorkers(e, C.pointer(actor))
-            result = body(e, actor, scene, workers.workers)
-            assert result >= 0, (name, result)
-            climb_to_ee(e, actor)
-            e.ret_int(result)
+            base = e.arg(0)
+            world = RecordWorld(e, base)
+            live = climb_live_binding(world)
+            status, value = body(e, world, live)
+            if world.error is not None:
+                raise world.error
+            assert status == 0, (name, 'native fault', status)
+            world.sync_in()
+            e.ret_int(value)
             counts[name] = counts.get(name, 0) + 1
         return hook
-    ee.hooks[PROBE] = run('probe', lambda e, a, s, w: NATIVE.em_player_climb_probe(
-        C.byref(a), C.byref(s), s32(e.arg(1)), number(e.f[12]), C.byref(w)))
-    ee.hooks[STATE2] = run('state2', lambda e, a, s, w: NATIVE.em_player_climb_tick(
-        C.byref(a), C.byref(s), C.byref(w)))
-    ee.hooks[STATE3] = run('state3', lambda e, a, s, w: NATIVE.em_player_climb_vault_tick(
-        C.byref(a), C.byref(s), C.byref(w)))
+
+    def probe(e, world, live):
+        out = C.c_int(-99)
+        status = NATIVE.em_player_climb_live_ledge(C.byref(live), C.byref(world.live), s32(e.arg(1)),
+                                                   e.f[12] & 0xFFFFFFFF, C.byref(out))
+        return status, out.value
+
+    def state(e, world, live):
+        status = NATIVE.em_player_climb_live_state(C.byref(live), C.byref(world.live))
+        return status, 0
+
+    NATIVE.em_player_climb_live_ledge.argtypes = [C.POINTER(ClimbLive), PR, C.c_int, C.c_uint32,
+                                                  C.POINTER(C.c_int)]
+    NATIVE.em_player_climb_live_state.argtypes = [C.POINTER(ClimbLive), PR]
+    ee.hooks[PROBE] = run('probe', probe)
+    ee.hooks[STATE2] = run('state2', state)
+    ee.hooks[STATE3] = run('state3', state)
+
+
+def modeled_scratch(ee):
+    return tuple(ee.load(0x700038A0 + 4 * i) for i in range(4)) + (ee.load(0x70003A20),)
+
+
+def same_frame(where, original, stage):
+    a, b = original.actor(), stage.actor()
+    if a != b:
+        diff = [hex(k) for k in range(0x320) if a[k] != b[k]]
+        raise AssertionError(where + ('actor bytes differ at', diff[:24]))
+    assert original.events == stage.events, where + ('sound/effect calls',)
+    assert original.ee.mem == stage.ee.mem, where + ('RAM outside the record differs',)
+    assert modeled_scratch(original.ee) == modeled_scratch(stage.ee), where + ('scratch',)
 
 
 class BoxFace(C.Structure):
@@ -1096,8 +1171,9 @@ def world_capture(beat, trace, ram_path, spad_path):
     results = []
     for press in presses:
         before = rows[press - 1]
-        original = Stage(ELF, ram, spad, tuple(before['pos']), before['yaw'])
-        stage = Stage(ELF, ram, spad, tuple(before['pos']), before['yaw'])
+        core = measured_ee()
+        original = Stage(ELF, ram, spad, tuple(before['pos']), before['yaw'], core=core)
+        stage = Stage(ELF, ram, spad, tuple(before['pos']), before['yaw'], core=core)
         for seeded in (original, stage):
             # the idle body position +B0 moves with the idle clip; seed the
             # captured one (Stage seeds +B0 = the feet)
@@ -1109,11 +1185,7 @@ def world_capture(beat, trace, ram_path, spad_path):
         while True:
             original.step(**press_input); stage.step(**press_input)
             press_input = {}
-            a, b = original.actor(), stage.actor()
-            if a != b:
-                diff = [hex(k) for k in range(0x320) if a[k] != b[k]]
-                raise AssertionError((beat, press, 'frame', frame, 'actor bytes differ at', diff[:24]))
-            assert original.events == stage.events, (beat, press, 'frame', frame, 'sound/effect calls')
+            same_frame((beat, press, 'frame', frame), original, stage)
             r = rows[frame]
             ee = stage.ee
             state = (ee.load(PLAYER + 5, 1), ee.load(PLAYER + 0x1F0, 1), ee.load(PLAYER + 0x20C, 2))
@@ -1162,24 +1234,263 @@ def world_main():
         routes = [r for r in routes if r != 'column']
     for name in routes:
         start, yaw, script = WORLD_ROUTES[name]
-        original = Stage(ELF, ram, spad, start, yaw)
-        translated = Stage(ELF, ram, spad, start, yaw)
+        core = measured_ee()
+        original = Stage(ELF, ram, spad, start, yaw, core=core)
+        translated = Stage(ELF, ram, spad, start, yaw, core=core)
         counts = {}
         native_climb_hooks(translated.ee, counts)
         frame, states = 0, set()
         for count, inputs in script:
             for _ in range(count):
                 original.step(**inputs); translated.step(**inputs)
-                a, b = original.actor(), translated.actor()
-                if a != b:
-                    diff = [hex(k) for k in range(0x320) if a[k] != b[k]]
-                    raise AssertionError((name, 'frame', frame, 'actor bytes differ at', diff[:24]))
-                assert original.events == translated.events, (name, 'frame', frame, 'sound/effect calls')
+                same_frame((name, 'frame', frame), original, translated)
                 states.add(original.ee.load(PLAYER + 5, 1))
                 frame += 1
         position = [round(number(original.ee.load(PLAYER + 0xA0 + 4 * i)), 3) for i in range(3)]
         print('player climb world %s: PASS %d frames, native calls %s, player states %s, end %s'
               % (name, frame, counts, sorted(states), position))
+
+
+# ---- The live adapters over a record: unit cases --------------------------
+# em_player_climb_live_state / em_player_climb_live_ledge against the
+# original 00161790 / 00162190 / 0015DF10 on a whole record: at each worker
+# call both sides record the 0x320 record bytes and the scratch words the
+# callee is handed, then apply the same scripted effect plus scripted writes
+# anywhere in the record. A store the adapter failed to hand a worker, or a
+# worker's write it clobbered, fails.
+
+LIVE_WRITES = [(0x200, 4, 'flags'), (0x3C, 4, 'f'), (0x38, 4, 'f'), (0xB4, 4, 'y'), (0x23F, 1, 'gait'),
+               (0x23A, 1, 'u'), (0x25C, 1, 'tier'), (0xA, 1, 'u'), (0x20C, 2, 'u'), (0x214, 4, 'u'),
+               (0x2FC, 4, 'u'), (0x24, 4, 'u'), (0x204, 4, 'f'), (0x236, 1, 'u')]
+LIVE_HOOKS = {MOVE: 'move', SWEEP: 'sweep', SEGMENT: 'segment', COLUMN: 'column', TABLE: 'table',
+              REQUEST: 'request', ARBITER: 'arbiter', FRAMES: 'frames', LAND: 'land', SOUND: 'sound',
+              EFFECT: 'effect', LAND_SOUND: 'land_sound', SKELETON: 'skeleton', TRANSLATE: 'translate',
+              FLOOR: 'floor', PROBES: 'probes', HEADING: 'heading', REENTRY: 'reentry',
+              HANDOFF: 'handoff', FALL: 'fall'}
+
+
+def live_writes(seed, index, name):
+    rng = random.Random('%d:%d:%s:record' % (seed, index, name))
+    out = []
+    for _ in range(rng.choice((0, 0, 1, 2, 3))):
+        offset, size, kind = rng.choice(LIVE_WRITES)
+        if kind == 'f': value = bits(rng.choice((0.0, 0.5, 1.0, 14.0, rng.uniform(-2, 30))))
+        elif kind == 'y': value = bits(rng.uniform(150, 250))
+        elif kind == 'flags': value = rng.choice((0, 0x1000, 0x8000, 0x9000))
+        elif kind in ('gait', 'tier'): value = rng.randrange(4)
+        else: value = rng.getrandbits(8 * size)
+        out.append((offset, size, value))
+    return out
+
+
+class LiveOracle(Oracle):
+    def __init__(self, elf, script, scene, spad, record, seed):
+        super().__init__(elf, script, scene, spad)
+        self.ee.write(ACTOR, record)
+        self.seed, self.count, self.snapshots = seed, 0, []
+        for address, name in LIVE_HOOKS.items():
+            self.ee.hooks[address] = self.wrap(self.ee.hooks[address], name)
+
+    def wrap(self, base, name):
+        def run(e):
+            self.snapshots.append((name, e.read(ACTOR, 0x320), modeled_scratch(e)))
+            base(e)
+            for offset, size, value in live_writes(self.seed, self.count, name):
+                e.save(ACTOR + offset, value, size)
+            self.count += 1
+        return run
+
+
+class LiveNative:
+    """EmPlayerClimbLive with scripted record-level workers."""
+
+    def __init__(self, script, scene, spad, record, seed):
+        self.script, self.seed = script, seed
+        self.log, self.snapshots, self.count, self.keep, self.error = [], [], 0, [], None
+        self.record = RecordActor()
+        C.memmove(self.record.bytes, record, 0x320)
+        self.scratch = Scratch()
+        for i in range(4): self.scratch.s38A0[i] = spad[i]
+        self.scratch.s3A20 = spad[4]
+        self.scene = scene
+        live = ClimbLive()
+        w = live.workers
+        w.move = self.fn(MOVE_FN, lambda _, pos, t, m, out: self.probe('move', out, fvec(t, 4), m))
+        w.sweep = self.fn(SWEEP_FN, lambda _, a, b, m, out: self.probe('sweep', out, fvec(a, 4), fvec(b, 4), m))
+        w.segment = self.fn(SEGMENT_FN, lambda _, a, b, mask, ident: self.worker(
+            'segment', ('segment', fvec(a, 4), fvec(b, 4), mask, ident), lambda: Script.pop(self.script.segments, 0)))
+        w.column = self.fn(COLUMN_FN, lambda _, at, height: self.worker(
+            'column', ('column', fvec(at, 3), 1, bits(height)), lambda: Script.pop(self.script.columns, 0)))
+        w.table = self.fn(TABLE_FN, self.table)
+        w.atan2 = self.fn(MATH2_FN, lambda _, y, x: LIBC.atan2f(y, x))
+        w.sqrt = self.fn(MATH1_FN, lambda _, x: LIBC.sqrtf(x))
+        w.effect = self.fn(EFFECT_FN, lambda _, i, p, r: self.worker('effect', ('effect', i, fvec(p, 3), fvec(r, 3))))
+        live.floor = self.fn(L_FLOOR, self.floor)
+        live.probes = self.fn(L_ACTOR, lambda _, a: self.worker('probes', ('probes', self.words(0xB0, 3))))
+        live.fall = self.fn(L_ACTOR, lambda _, a: self.worker('fall', ('fall', self.words(0xB0, 3))))
+        live.scene = self.fn(L_SCENE, self.fill_scene)
+        live.link_kind = self.fn(L_LINK, self.link_kind)
+        live.request = self.fn(L_REQUEST, lambda _, a, c, f, b: self.worker('request', ('request', c & 0xFFFF, f, bits(b))))
+        live.arbiter = self.fn(L_ARBITER, lambda _, a, c, b, f: self.worker('arbiter', ('arbiter', c & 0xFFFF, bits(b), bits(f))))
+        live.clip_frames = self.fn(L_FRAMES, self.frames)
+        live.sound = self.fn(L_ARG, lambda _, a, id: self.worker('sound', ('sound', id)))
+        live.land_sound = self.fn(L_ARG, lambda _, a, tier: self.worker('land_sound', ('land_sound', tier)))
+        live.translate = self.fn(L_ARG, lambda _, a, arg: self.worker(
+            'translate', ('translate', arg, self.word(0x38), self.words(0xB0, 3))))
+        live.heading = self.fn(L_ARG, self.heading)
+        live.reentry = self.fn(L_ARG, lambda _, a, arg: self.worker('reentry', ('reentry', arg)))
+        live.handoff = self.fn(L_ACTOR, lambda _, a: self.worker('handoff', ('handoff', self.record.bytes[0x25C])))
+        live.land = self.fn(L_ACTOR, lambda _, a: self.worker('land', ('land', self.words(0xB0, 3))))
+        live.skeleton = self.fn(L_SKELETON, self.skeleton)
+        live.scratch = C.pointer(self.scratch)
+        self.live = live
+
+    def fn(self, kind, body):
+        def run(*args):
+            try:
+                return body(*args)
+            except BaseException as error:      # surfaced after the native call
+                self.error = self.error or error
+                return -1
+        f = kind(run)
+        self.keep.append(f)
+        return f
+
+    def word(self, offset):
+        return int.from_bytes(bytes(self.record.bytes[offset:offset + 4]), 'little')
+
+    def words(self, offset, count):
+        return tuple(self.word(offset + 4 * i) for i in range(count))
+
+    def worker(self, name, entry, effect=None):
+        self.snapshots.append((name, bytes(self.record.bytes), tuple(self.scratch.s38A0) + (self.scratch.s3A20,)))
+        self.log.append(entry)
+        value = effect() if effect else 0
+        for offset, size, v in live_writes(self.seed, self.count, name):
+            for i in range(size): self.record.bytes[offset + i] = (v >> (8 * i)) & 0xFF
+        self.count += 1
+        return value
+
+    def probe(self, name, out, *entry):
+        def effect():
+            hit = Script.pop(self.script.moves if name == 'move' else self.script.sweeps, empty_hit())
+            C.memmove(out, C.byref(hit), C.sizeof(Hit))
+            return hit.probe.kind
+        return self.worker(name, (name,) + entry, effect)
+
+    def table(self, _, at, out):
+        def effect():
+            t = Script.pop(self.script.tables, Table())
+            C.memmove(out, C.byref(t), C.sizeof(Table))
+            return 0
+        return self.worker('table', ('table', fvec(at, 4)), effect)
+
+    def frames(self, _, bank, clip, out):
+        assert bank == 0x500000, hex(bank)
+        def effect():
+            out[0] = clip_length(BANK, clip); return 0
+        return self.worker('frames', ('frames', clip), effect)
+
+    def floor(self, _, a, search, out):
+        def effect():
+            result, dy = Script.pop(self.script.floors, (0, 0.0))
+            y = fp(number(self.word(0xB4)) + dy)
+            self.record.bytes[0xB4:0xB8] = (bits(y)).to_bytes(4, 'little')
+            out[0] = result
+            return 0
+        return self.worker('floor', ('floor', search, self.words(0xB0, 3)), effect)
+
+    def heading(self, _, a, arg):
+        def effect():
+            self.record.bytes[0x23F] = Script.pop(self.script.gaits, 0); return 0
+        return self.worker('heading', ('heading', arg), effect)
+
+    def skeleton(self, _, a, hip_y, hip_8):
+        def effect():
+            hip_y[0], hip_8[0] = Script.pop(self.script.skeletons, (0.0, 0.0)); return 0
+        return self.worker('skeleton', ('skeleton',), effect)
+
+    def fill_scene(self, _, out):
+        C.memmove(out, C.byref(self.scene), C.sizeof(Scene)); return 0
+
+    def link_kind(self, _, owner):
+        link = self.word(0x308)
+        return 0 if link == 0 else 2 if link == LINK and self.link_behaviour in (0x828700, 0x827880) else 1
+
+
+def live_case(case):
+    kind, seed = case
+    rng = random.Random(seed)
+    actor = random_actor(rng, NATIVE.em_player_climb_trs)
+    scene = Scene((C.c_float * 4)(rng.uniform(150, 350), rng.uniform(180, 240), rng.uniform(150, 400),
+                                  rng.choice([1.0, 1.0, 0.5])),
+                  rng.choice([0, 0, 0, 1, 0x81]), rng.choice([0xB, 0xB, 2, 4]))
+    link_kind, mode, ang = 0, 0, 0.0
+    if kind == 'probe':
+        link_kind = rng.choice([0, 0, 0, 1, 2])
+        mode = rng.choice([0, 0, 1])
+        ang = actor.rotation[1] + rng.choice([0.0, rng.uniform(-0.6, 0.6)])
+        scene.flags = rng.choice([0, 0x81])
+        script = friendly_probe_script(rng, actor, ang) if seed % 3 else probe_script(rng, actor)
+    else:
+        script = state_script(rng)
+        actor.state = 2 if kind == 'state' else 3
+        if kind == 'vault':
+            actor.walk = rng.choice([0, 0, 10, 11, 12, 20, 21, 22, 23, 24, 30, 31, 32, 33, 34])
+            actor.push = rng.uniform(0, 1); actor.push_decay = rng.uniform(0, 0.2)
+    actor.link_kind = 2 if link_kind >= 2 else link_kind
+    spad = tuple(rng.getrandbits(32) for _ in range(5))
+    noise = bytes(rng.getrandbits(8) for _ in range(0x320))
+    base = Oracle(ELF, script.copy(), scene, spad)
+    base.ee.write(ACTOR, noise)
+    base.ee.save(ACTOR + 0x40, 0x500000)          # the clip bank word the workers are handed
+    base.load(actor, link_kind)
+    record = base.ee.read(ACTOR, 0x320)
+    oracle = LiveOracle(ELF, script.copy(), scene, spad, record, seed)
+    if link_kind:
+        oracle.ee.save(LINK + 0x10, base.ee.load(LINK + 0x10))
+    native = LiveNative(script.copy(), scene, spad, record, seed)
+    native.link_behaviour = base.ee.load(LINK + 0x10) if link_kind else 0
+    if kind == 'probe':
+        oracle.ee.call(PROBE, (ACTOR, mode), (ang,))
+        out = C.c_int(-99)
+        status = NATIVE.em_player_climb_live_ledge(C.byref(native.live), C.byref(native.record), mode,
+                                                   bits(ang), C.byref(out))
+        if native.error: raise native.error
+        assert status == 0 and out.value == s32(oracle.ee.r[2]), (kind, seed, status, out.value, oracle.ee.r[2])
+        started = out.value == 1
+    else:
+        oracle.ee.call(STATE2 if kind == 'state' else STATE3, (ACTOR,))
+        status = NATIVE.em_player_climb_live_state(C.byref(native.live), C.byref(native.record))
+        if native.error: raise native.error
+        assert status == 0, (kind, seed, 'live adapter fault', status)
+        started = False
+    expected = normal_log(oracle.log)
+    assert expected == native.log, (kind, seed, 'worker calls', expected, native.log)
+    assert len(oracle.snapshots) == len(native.snapshots), (kind, seed)
+    for k, (want, got) in enumerate(zip(oracle.snapshots, native.snapshots)):
+        if want[1] != got[1]:
+            diff = [hex(i) for i in range(0x320) if want[1][i] != got[1][i]]
+            raise AssertionError((kind, seed, 'record handed to', want[0], k, 'differs at', diff[:16]))
+        assert want == got, (kind, seed, 'scratch handed to', want[0], k, want[2], got[2])
+    final = oracle.ee.read(ACTOR, 0x320)
+    if final != bytes(native.record.bytes):
+        diff = [hex(i) for i in range(0x320) if final[i] != native.record.bytes[i]]
+        raise AssertionError((kind, seed, 'final record differs at', diff[:16]))
+    assert modeled_scratch(oracle.ee) == tuple(native.scratch.s38A0) + (native.scratch.s3A20,), (kind, seed)
+    return kind, len(native.snapshots), started
+
+
+def live_cases():
+    """The live adapters on the record (quick 450, full 6000)."""
+    NATIVE.em_player_climb_live_ledge.argtypes = [C.POINTER(ClimbLive), PR, C.c_int, C.c_uint32,
+                                                  C.POINTER(C.c_int)]
+    NATIVE.em_player_climb_live_state.argtypes = [C.POINTER(ClimbLive), PR]
+    cases = [(kind, zlib.crc32(('live' + kind).encode()) + 131 * i)
+             for kind in ('probe', 'state', 'vault') for i in range(reference_mode.pick(2000, 150))]
+    results = reference_mode.parallel_map(live_case, cases)
+    assert any(started for _, _, started in results), 'no live ledge probe started a climb'
+    return len(results), sum(n for _, n, _ in results)
 
 
 if __name__ == '__main__':

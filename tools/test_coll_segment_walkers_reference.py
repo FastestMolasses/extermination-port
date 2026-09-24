@@ -16,12 +16,15 @@ Original code executed (from the captured RAM, checked against the ELF):
   00103230 SDK vectors  0011E748 / 0011CB90 / 0011E080 sqrtf  0011DF78 fabsf
   00128350 / 001278C0 / 00127728 / 00126AB8 float -> double
   001000C0 / 00100110 / 001274B0 / 00126BE8 / 00127398 double compares
-  and, for the binding check, 0019B6C0 with 001A2AE0 / 0019DF10.
-Hooked boundaries (scripted, recorded, compared call by call): 001A6440 and
-001A6AD0, the mask-bit-0 hull locks (workers on the native side).
+  and, for the binding check, 0019B6C0 with 001A2AE0 / 0019DF10;
+  001A6440 / 001A6AD0 (the mask-bit-0 hull locks) with 001026A0 and
+  copy_qw4, run in place (only counted). The native queries call
+  em_coll_grid_hull.c's translations; the chains of the published class-2
+  entities (Roger in beats 13 and 14, synthetic ones elsewhere) are read from
+  the same RAM through the grid-hull test's resolver.
 
 Every case compares the whole scratchpad state the routines use
-(0x70003190..0x700031D8, the cell record D_700030B0 +0x1A/+0x24, 0x70003680,
+(0x70003190..0x700031D8, the cell record D_700030B0 +0x1A..+0x2C, 0x70003680,
 0x7000324E, 0x70003254, the ranks 0x70003240..0x7000324A, 0x70003B86/88 and
 001A50A0's 0x70003600..0x70003638 / 0x70003684..0x70003688) and the return
 value, and asserts that the original wrote no other scratchpad or RAM byte.
@@ -48,6 +51,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_slide_reference import read_elf, bits, number  # noqa: E402
 import test_coll_probe_reference as cp  # noqa: E402
+import test_coll_grid_hull_reference as GH  # noqa: E402
+import test_coll_move_reference as MV  # noqa: E402
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
 
@@ -69,9 +74,9 @@ ARGS, PRIMS, PLAYER, CELL_RECORD = cp.ARGS, cp.PRIMS, cp.PLAYER, cp.CELL_RECORD
 
 FACE_WORDS = ([0x70003600 + 4 * k for k in range(3)] + [0x70003610 + 4 * k for k in range(3)]
               + [0x70003620 + 4 * k for k in range(3)] + [0x70003630 + 4 * k for k in range(3)]
-              + [0x70003684, 0x70003688])
+              + [0x70003684, 0x70003688] + [0x700030CC, 0x700030D0])     # the last two: the locks' words
 STATE_SPAN = cp.STATE_SPAN + [(0x70003600, 0x7000360C), (0x70003610, 0x7000361C), (0x70003620, 0x7000362C),
-                              (0x70003630, 0x7000363C), (0x70003684, 0x7000368C)]
+                              (0x70003630, 0x7000363C), (0x70003684, 0x7000368C), (0x700030CC, 0x700030D4)]
 WHICH = {SEG: 0, CAM: 1, CELLS_SEG: 2, CELLS_CAM: 3, GRID_SEG: 4, GRID_CAM: 5, FACE: 6, ROUND: 7}
 
 u32, s16, u16, f32 = cp.u32, cp.s16, cp.u16, cp.f32
@@ -84,6 +89,7 @@ BRIDGE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include "game/em_coll_segment_walkers.h"
+""" + GH.CHAIN_C + r"""
 
 typedef struct {
     uint32_t start[4], end[4], point[3], delta[3];
@@ -96,7 +102,7 @@ typedef struct {
     uint32_t self;
     int16_t rank[6];
     int16_t span_lo, span_hi;
-    uint32_t face[14];   /* box_min, box_max, delta, rel (3 each), cross (2) */
+    uint32_t face[16];   /* box_min, box_max, delta, rel (3 each), cross (2), the locks' 0x700030CC / D0 */
 } BState;
 
 typedef struct { int32_t which; int32_t arg; } BCall;
@@ -117,13 +123,10 @@ typedef struct {
     EmSdkMathTables tables;
     int32_t mode;
     EmSdkMathContext math;
-    EmCollSegmentWorkers workers;
+    HullRam ram;
+    EmCollHullWorld hulls;
     EmCollProbeWorkers probe_workers;
     EmCollSegment seg;
-    int script_hit;
-    uint32_t script_point[3];
-    BCall calls[64];
-    int ncalls;
     int face_calls, round_calls;
 } Bridge;
 
@@ -150,15 +153,12 @@ static const void *ptr_of(Bridge *b, uint32_t addr)
     return &b->stranger;
 }
 
-static int lock(Bridge *b, int which, EmCollProbeState *s, int arg, int *result)
+static uint32_t hull_address(void *owner, const EmActor *e)
 {
-    if (b->ncalls < 64) { b->calls[b->ncalls].which = which; b->calls[b->ncalls].arg = arg; }
-    b->ncalls++;
-    *result = b->script_hit;
-    if (b->script_hit) memcpy(s->point, b->script_point, 12);
+    Bridge *b = owner;
+    for (int i = 0; i < b->count; ++i) if (&b->rec[i] == e) return b->addr[i];
     return 0;
 }
-static int lock_seg(void *c, EmCollProbeState *s, int arg, int *r) { return lock(c, 0, s, arg, r); }
 /* The probe module's pass-2 worker slots, counted, then this module's adapters. */
 static int face_counted(void *c, const uint8_t *p, EmCollProbeState *s, int *hit)
 {
@@ -172,10 +172,9 @@ static int round_counted(void *c, const uint8_t *p, EmCollProbeState *s, int *hi
     b->round_calls++;
     return em_coll_segment_round_worker(&b->seg, p, s, hit);
 }
-static int lock_cam(void *c, EmCollProbeState *s, int arg, int *r) { return lock(c, 1, s, arg, r); }
 
 Bridge *bridge_new(const uint8_t *table, uint32_t size, const char *emcl, const uint8_t *elf, uint32_t elf_size,
-                   int32_t mode)
+                   int32_t mode, const uint8_t *ram, uint32_t ram_size)
 {
     Bridge *b = calloc(1, sizeof *b);
     if (!b) return NULL;
@@ -195,12 +194,15 @@ Bridge *bridge_new(const uint8_t *table, uint32_t size, const char *emcl, const 
     b->cells.lists = &b->lists;
     b->world.cells = &b->cells;
     b->world.grid = &b->grid;
-    b->workers.context = b;
-    b->workers.lock_6440 = lock_seg;
-    b->workers.lock_6AD0 = lock_cam;
+    b->ram.ram = ram;
+    b->ram.size = ram_size;
+    b->ram.address_of = hull_address;
+    b->ram.owner = b;
+    b->hulls.context = &b->ram;
+    b->hulls.chain = hull_ram_chain;
     b->seg.world = &b->world;
     b->seg.math = &b->math;
-    b->seg.workers = &b->workers;
+    b->seg.hulls = &b->hulls;
     b->probe_workers.context = b;
     b->probe_workers.face_segment = face_counted;
     b->probe_workers.round_segment = round_counted;
@@ -225,7 +227,7 @@ void bridge_static_kinds(Bridge *b, const uint8_t *kinds, unsigned count)
 }
 
 int bridge_actor(Bridge *b, uint32_t addr, uint8_t status, uint8_t cls, uint8_t model, uint16_t uid,
-                 uint16_t kind)
+                 uint16_t kind, uint8_t bones, uint32_t w58, uint32_t w5C)
 {
     int i = find(b, addr);
     if (i < 0) {
@@ -235,8 +237,24 @@ int bridge_actor(Bridge *b, uint32_t addr, uint8_t status, uint8_t cls, uint8_t 
     }
     EmActor *a = &b->rec[i];
     a->status = status; a->cls = cls; a->model = model; a->uid = uid; a->kind = kind;
+    a->bones = bones; a->w58 = w58; a->w5C = w5C;
     a->self = a;
     return i;
+}
+
+/* The published class-2 list (D_00275B8C / D_00275B94): entry j. */
+int bridge_class2(Bridge *b, const uint32_t *entries, int count)
+{
+    EmActorClassList *l = &b->lists.list[EM_ACTOR_LIST_CLASS2];
+    memset(l, 0, sizeof *l);
+    if (count < 0 || count > EM_ACTOR_LIST_MAX) return -1;
+    for (int j = 0; j < count; ++j) {
+        int k = find(b, entries[j]);
+        if (k < 0) return -1;
+        l->slot[count - 1 - j] = &b->rec[k];
+    }
+    l->published = (int16_t)count;
+    return 0;
 }
 
 int bridge_list(Bridge *b, const uint32_t *slots, int nslots, int published)
@@ -253,14 +271,9 @@ int bridge_list(Bridge *b, const uint32_t *slots, int nslots, int published)
     return 0;
 }
 
-void bridge_script(Bridge *b, int hit, const uint32_t *point)
-{
-    b->script_hit = hit; memcpy(b->script_point, point, 12); b->ncalls = 0;
-}
-int bridge_calls(Bridge *b, BCall *out) { memcpy(out, b->calls, sizeof b->calls); return b->ncalls; }
 int bridge_worker_calls(Bridge *b, int round) { return round ? b->round_calls : b->face_calls; }
 void bridge_set_attr(Bridge *b, int node, uint8_t attr) { b->emcl.polys[b->grid.first + node].attr = attr; }
-void bridge_no_workers(Bridge *b, int none) { b->seg.workers = none ? NULL : &b->workers; }
+void bridge_no_chains(Bridge *b, int none) { b->hulls.chain = none ? NULL : hull_ram_chain; }
 void bridge_no_math(Bridge *b, int none) { b->seg.math = none ? NULL : &b->math; }
 
 static void to_native(Bridge *b, const BState *in, EmCollProbeState *s, EmCollSegmentFaceScratch *x)
@@ -278,6 +291,7 @@ static void to_native(Bridge *b, const BState *in, EmCollProbeState *s, EmCollSe
     s->span_lo = in->span_lo; s->span_hi = in->span_hi;
     memcpy(x->box_min, in->face + 0, 12); memcpy(x->box_max, in->face + 3, 12);
     memcpy(x->delta, in->face + 6, 12); memcpy(x->rel, in->face + 9, 12); memcpy(x->cross, in->face + 12, 8);
+    x->hull_word_1c = in->face[14]; x->hull_word_20 = in->face[15];
 }
 
 static void from_native(Bridge *b, const EmCollProbeState *s, const EmCollSegmentFaceScratch *x, BState *out)
@@ -294,6 +308,7 @@ static void from_native(Bridge *b, const EmCollProbeState *s, const EmCollSegmen
     out->span_lo = s->span_lo; out->span_hi = s->span_hi;
     memcpy(out->face + 0, x->box_min, 12); memcpy(out->face + 3, x->box_max, 12);
     memcpy(out->face + 6, x->delta, 12); memcpy(out->face + 9, x->rel, 12); memcpy(out->face + 12, x->cross, 8);
+    out->face[14] = x->hull_word_1c; out->face[15] = x->hull_word_20;
 }
 
 /* which: 0 0019A570, 1 0019A910, 2 001A0B10, 3 001A1390, 4 0019D330,
@@ -308,7 +323,6 @@ int bridge_run(Bridge *b, int which, BState *st, const float *a, const float *c,
     EmCollProbeState before = s;
     EmCollSegmentFaceScratch xbefore = x;
     int r;
-    b->ncalls = 0;
     b->seg.state = &s;
     b->seg.face = &x;
     switch (which) {
@@ -358,7 +372,7 @@ class BState(C.Structure):
                 ('entity', C.c_uint32), ('kind', C.c_int32), ('cell_class', C.c_uint16),
                 ('cell_normal', C.c_uint32 * 3), ('ratio', C.c_uint32), ('query_class', C.c_int16),
                 ('self', C.c_uint32), ('rank', C.c_int16 * 6), ('span_lo', C.c_int16),
-                ('span_hi', C.c_int16), ('face', C.c_uint32 * 14)]
+                ('span_hi', C.c_int16), ('face', C.c_uint32 * 16)]
 
 
 class BCall(C.Structure):
@@ -370,7 +384,7 @@ class BHit(C.Structure):
                 ('entity', C.c_uint32), ('flags', C.c_uint8), ('type', C.c_uint8)]
 
 
-SOURCES = ['src/game/em_coll_segment_walkers.c', 'src/game/em_coll_probe_original.c',
+SOURCES = ['src/game/em_coll_segment_walkers.c', 'src/game/em_coll_grid_hull.c', 'src/game/em_coll_probe_original.c',
            'src/game/em_sdk_math_original.c', 'src/game/em_actor_collision.c', 'src/game/em_collision.c',
            'src/game/em_actor_pool.c']
 
@@ -398,16 +412,15 @@ def build_native():
     n = C.CDLL(str(lib))
     V, P, U8, U16, U32, I = C.c_void_p, C.c_char_p, C.c_uint8, C.c_uint16, C.c_uint32, C.c_int
     PF = C.POINTER(C.c_float)
-    n.bridge_new.restype = V; n.bridge_new.argtypes = [P, U32, P, P, U32, C.c_int32]
+    n.bridge_new.restype = V; n.bridge_new.argtypes = [P, U32, P, P, U32, C.c_int32, V, U32]
     n.bridge_static_kinds.argtypes = [V, P, C.c_uint]
     n.bridge_free.argtypes = [V]
-    n.bridge_actor.argtypes = [V, U32, U8, U8, U8, U16, U16]
+    n.bridge_actor.argtypes = [V, U32, U8, U8, U8, U16, U16, U8, U32, U32]
     n.bridge_list.argtypes = [V, C.POINTER(U32), I, I]
-    n.bridge_script.argtypes = [V, I, C.POINTER(U32)]
-    n.bridge_calls.argtypes = [V, C.POINTER(BCall)]
+    n.bridge_class2.argtypes = [V, C.POINTER(U32), I]
     n.bridge_set_attr.argtypes = [V, I, U8]
     n.bridge_worker_calls.argtypes = [V, I]
-    n.bridge_no_workers.argtypes = [V, I]
+    n.bridge_no_chains.argtypes = [V, I]
     n.bridge_no_math.argtypes = [V, I]
     n.bridge_run.argtypes = [V, I, C.POINTER(BState), PF, PF, U32, C.c_int32, P]
     n.bridge_hit.argtypes = [V, C.POINTER(BState), C.POINTER(BHit)]
@@ -433,18 +446,31 @@ class World(cp.World):
         check_code(elf, self.ram, beat)
 
 
+RAM_VIEWS = {}
+
+
 def native_world(native, world, emcl, ram=None):
+    """The native world over `ram` (a bytearray: the chain resolver reads the
+    same buffer): the class-4 owners, the published class-2 entities with
+    their +0x09 / +0x58 / +0x5C, and the static kinds."""
     ram = world.ram if ram is None else ram
     image = world.image(ram)
     elf = G['elf']
-    b = native.bridge_new(image, len(image), str(emcl).encode(), elf, len(elf), struct.unpack_from('<i', ram, MODE_WORD)[0])
+    view = (C.c_char * len(ram)).from_buffer(ram)
+    b = native.bridge_new(image, len(image), str(emcl).encode(), elf, len(elf), struct.unpack_from('<i', ram, MODE_WORD)[0],
+                          C.addressof(view), len(ram))
     assert b, 'bridge_new'
+    RAM_VIEWS[b] = view
     owners = world.owners(ram)
-    for a in set(o for o in owners if o):
-        native.bridge_actor(b, a, ram[a], ram[a + 2], ram[a + 3], u16(ram, a + 0xE), u16(ram, a + 0x54))
+    class2 = GH.class2_entries(ram)
+    for a in set(o for o in owners + class2 if o):
+        native.bridge_actor(b, a, ram[a], ram[a + 2], ram[a + 3], u16(ram, a + 0xE), u16(ram, a + 0x54), ram[a + 9],
+                            u32(ram, a + 0x58), u32(ram, a + 0x5C))
     slots = list(reversed(owners))
     arr = (C.c_uint32 * max(1, len(slots)))(*slots)
     assert native.bridge_list(b, arr, len(slots), len(slots)) == 0
+    arr = (C.c_uint32 * max(1, len(class2)))(*class2)
+    assert native.bridge_class2(b, arr, len(class2)) == 0
     kinds = world.kinds(ram)
     native.bridge_static_kinds(b, kinds, len(kinds))
     return b
@@ -488,32 +514,31 @@ def fvec(values):
 # ---------------------------------------------------------------------------
 # One world on both sides
 
+class LockEE(cp.ProbeEE):
+    """The probe lane's EE plus the VU0 macro forms the hull locks' SDK
+    leaf 001026A0 uses (its accumulate-and-broadcast matrix product): the
+    move lane's FloatEE macro, over the same measured model
+    (ee_float_model)."""
+
+    def __init__(self, elf, ram=None, spad=None):
+        super().__init__(elf, ram, spad)
+        self.q, self.vacc = 0, [0, 0, 0, 0]
+
+    macro = MV.FloatEE.macro
+
+
 class Pair:
     def __init__(self, elf, native, emcl, world):
         self.world, self.native, self.emcl = world, native, emcl
-        self.ee = cp.ProbeEE(elf, world.ram, world.spad)
+        self.ee = LockEE(elf, world.ram, world.spad)
         self.ram = self.ee.mem
         self.spad0 = bytes(self.ee.spad)
         self.b = native_world(native, world, emcl, self.ram)
-        self.calls, self.script = [], (0, (0, 0, 0))
-        self.ee.hooks[LOCK_SEG] = lambda e: self._lock(e, 0)
-        self.ee.hooks[LOCK_CAM] = lambda e: self._lock(e, 1)
+        self.calls = []       # the original's lock calls: (entry, v0), counted in place
 
     def rebind(self):
         self.native.bridge_free(self.b)
         self.b = native_world(self.native, self.world, self.emcl, self.ram)
-
-    def _lock(self, e, which):
-        self.calls.append((which, cp.sx32(e.arg(0))))
-        hit, point = self.script
-        if hit:
-            for k in range(3):
-                e.save(0x700031B0 + 4 * k, point[k])
-        e.ret_int(hit)
-
-    def set_script(self, hit, point):
-        self.script = (hit, tuple(point))
-        self.native.bridge_script(self.b, hit, (C.c_uint32 * 3)(*point))
 
     def original(self, case, entry, args, stage=()):
         ee = self.ee
@@ -522,6 +547,8 @@ class Pair:
             ee.write(address, data)
         case.load(ee)
         self.calls = []
+        for lock in (LOCK_SEG, LOCK_CAM):
+            MV.observe(ee, lock, self.calls)
         written = []
         save = ee.save
 
@@ -535,6 +562,8 @@ class Pair:
             ee.call(entry, args)
         finally:
             del ee.save
+            for lock in (LOCK_SEG, LOCK_CAM):
+                ee.hooks.pop(lock, None)
         for a, size in written:
             assert any(lo <= a and a + size <= hi for lo, hi in STATE_SPAN), \
                 (hex(entry), 'the original wrote outside the modelled state', hex(a), size)
@@ -550,10 +579,6 @@ class Pair:
         assert want_r == got_r, (self.world.beat, where, 'return', want_r, got_r, want, got)
         for key, value in want.items():
             assert got[key] == value, (self.world.beat, where, key, value, got[key])
-        calls = (BCall * 64)()
-        n = self.native.bridge_calls(self.b, calls)
-        assert [(calls[i].which, calls[i].arg) for i in range(min(n, 64))] == self.calls, \
-            (self.world.beat, where, 'worker calls', self.calls)
         return want_r, want
 
     def args(self, *vectors):
@@ -651,12 +676,16 @@ def seg_words(a, e):
 def run_rows(item):
     """Route rows: the shadow's segment form (0015BF90: 100 straight down),
     the camera's line of sight and ceiling/floor forms (00197490, 0018DD20:
-    200 up and down), and mask 7 of both queries with the scripted lock."""
+    200 up and down), and mask 7 of both queries (the native hull locks over
+    the beat's own published class-2 list). Beats whose class-2 list holds
+    an entity (Roger, 13 and 14) also run both mask-7 queries through his
+    real chain (segments aimed at its records)."""
     beat, rows = item
     elf, native, emcl = G['elf'], G['native'], G['emcl']
     world = World(beat, elf)
     pair = Pair(elf, native, emcl, world)
-    out = {'seg': [0, 0, 0, 0], 'cam': [0, 0, 0, 0], 'entities': set(), 'locks': 0, 'views': 0}
+    out = {'seg': [0, 0, 0, 0], 'cam': [0, 0, 0, 0], 'entities': set(), 'locks': 0, 'lock_hits': 0, 'views': 0,
+           'stale_hits': 0}
     base = Case(world)
     slot = {0: 0, 1: 1, 2: 2, 4: 3}
     for n, (counter, p5, v) in enumerate(rows):
@@ -672,17 +701,46 @@ def run_rows(item):
         for d in (200.0, -200.0):
             r, _ = pair.camera(base, f'{w} ceiling {d}', v['eye'], dy(v['eye'], d), 6)
             out['cam'][slot[r]] += 1
-        pair.set_script(n & 1, (bits(v['pos'][0]), bits(v['pos'][1]), bits(v['pos'][2])))
         r, _ = pair.segment(base, w + ' mask 7', v['tgt'], v['pos'], 7, id=0x1234 + n)
         out['seg'][slot[r]] += 1
+        out['locks'] += len(pair.calls)
         r, _ = pair.camera(base, w + ' mask 7', v['eye'], v['tgt'], 7)
         out['cam'][slot[r]] += 1
         out['locks'] += len(pair.calls)
-        pair.set_script(0, (0, 0, 0))
         r, s = pair.segment(base, w + ' low', dy(v['pos'], 3.0), dy(v['pos'], -3.0), 6)
         out['seg'][slot[r]] += 1
         if s['entity']:
             out['entities'].add(s['entity'])
+    polys = [q for a in GH.class2_entries(pair.ram) for q in GH.chain_polys(pair.ram, a)]
+    if polys:
+        rng = random.Random(len(rows) * 7 + len(polys))
+        for k, (a, c) in enumerate(GH.aimed_segments(polys, rng, reference_mode.pick(60, 8), False)):
+            ident = rng.choice((0x40, 0x40, 0x70, 0x1234, 0x0040 | rng.randrange(0x10000)))
+            r, _ = pair.segment(base, f'class-2 chain #{k}', a, c, 7, id=ident)
+            out['seg'][slot[r]] += 1
+            out['locks'] += len(pair.calls)
+            out['lock_hits'] += sum(1 for _, v0 in pair.calls if v0)
+            r, _ = pair.camera(base, f'class-2 chain #{k}', a, c, 7)
+            out['cam'][slot[r]] += 1
+            out['locks'] += len(pair.calls)
+            out['lock_hits'] += sum(1 for _, v0 in pair.calls if v0)
+            # Stale words the lock replaces: a nonzero 0x700030CC / 0x700030D0
+            # and a grid-node record in 0x700031D0. Mask 1 runs the lock
+            # alone and mask 3 adds the cells pass, so an accepted record
+            # leaves the lock's own words (the node record becomes the cell
+            # record D_700030B0, 0x700030CC the masked y byte or 0).
+            node = world.nodes + 0x40 * ((97 * k + 5) % world.node_count)
+            stale = Case(world, None, {0x700030CC: 0xA5000001 ^ (k << 8), 0x700030D0: 0x5A0000FE ^ k,
+                                       0x700031D0: node})
+            for m in (1, 3):
+                r, _ = pair.segment(stale, f'class-2 chain #{k} stale mask {m}', a, c, m, id=ident)
+                out['seg'][slot[r]] += 1
+                out['locks'] += len(pair.calls)
+                out['stale_hits'] += sum(1 for _, v0 in pair.calls if v0)
+                r, _ = pair.camera(stale, f'class-2 chain #{k} stale mask {m}', a, c, m)
+                out['cam'][slot[r]] += 1
+                out['locks'] += len(pair.calls)
+                out['stale_hits'] += sum(1 for _, v0 in pair.calls if v0)
     return out
 
 
@@ -1003,7 +1061,8 @@ def run_boundaries(item):
     """Deterministic cases on every gate: static kinds 0x4F..0x5A x the query
     class -1/0/1/2 x flags 0x80/0xA0/0xC0 on both cell walkers' pass 1, owner
     kinds 0x4F..0x52 on both pass 2s, grid attributes 0x4F..0x5A on both grid
-    walkers, the repeated hit store after a hit (0x8000 prims), and the
+    walkers, the repeated hit store after a hit (0x8000 prims), the hull
+    locks' arguments (records with and without the z mask byte), and the
     fail-stops."""
     beat = item
     elf, native = G['elf'], G['native']
@@ -1012,7 +1071,7 @@ def run_boundaries(item):
     mem = pair.ram
     table = world.table
     out = {'static': 0, 'owner': 0, 'attr': 0, 'hits': 0, 'repeat': 0, 'faults': 0, 'threshold': [], 'stop': 0,
-           'reclamp': 0, 'plane': 0}
+           'reclamp': 0, 'plane': 0, 'mask': 0}
     owners = world.owners()
     crate = next(a for a in owners if (u16(mem, a + 0xE) >> 8) in (7, 8, 9, 10))
     uid = u16(mem, crate + 0xE) >> 8
@@ -1175,16 +1234,55 @@ def run_boundaries(item):
                 r, st = pair.both(f'001A5C30 threshold lane {lane} {step | sign:#x}', Case(world, None, words),
                                   ROUND, (PRIMS,), prim=prim, stage=[(PRIMS, prim)])
                 out['threshold'].append((lane, step | sign, r, st['point'] if r else None))
-    # Fail-stops: mask bit 0 without the lock workers; a static cell without
-    # its kind view; a round prim without the SDK math. The queries leave the
-    # state untouched (the bridge returns -8 otherwise).
+    # The locks' argument: 0019A910 passes 0x40 to 001A6AD0 and 0019A570
+    # passes id & 0xFFFF to 001A6440. An x-plane record (facing -x, crossed
+    # +x) whose mask bytes carry x and y but no z, beside the same record
+    # with all three: argument 0x40 tests the z byte alone, so the first
+    # record is never tested (0x70 would test and accept it) and the second
+    # is accepted. Mask 1 runs the lock alone.
+    msquare = [[203.0, 197.0, 197.0], [203.0, 203.0, 197.0], [203.0, 203.0, 203.0], [203.0, 197.0, 203.0]]
+    medges = [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
+    ma, me = (200.0, 200.0, 200.0), (206.0, 200.0, 200.0)
+    for rec_masks in ([1, 1, 0], [1, 1, 1]):
+        full = rec_masks[2]
+        rec = GH.record_bytes(rec_masks, 0, [-1.0, 0.0, 0.0], msquare, medges)
+        ents = [(1, 0x0A, [1, 1, 1], GH.chain_bytes([rec]), [GH.IDENTITY])]
+        patch = GH.build_world(pair, GH.LOCK6AD0, ents)
+        saved_patch = [(a, bytes(mem[a:a + len(d)])) for a, d in patch]
+        for a, d in patch: mem[a:a + len(d)] = d
+        pair.rebind()
+        r, _ = pair.camera(Case(world, None, seg_words(ma, me)), f'lock argument {rec_masks} 0019A910', ma, me, 1)
+        assert pair.calls == [(LOCK_CAM, full)] and r == full, ('0019A910: 001A6AD0 argument 0x40', rec_masks,
+                                                                pair.calls, r)
+        out['mask'] += 1
+        for ident, want in ((0x40, full), (0x70, 1), (0x30, 1), (0xFF80, 0)):
+            r, _ = pair.segment(Case(world, None, seg_words(ma, me)), f'lock argument {rec_masks} 0019A570 id {ident:#x}',
+                                ma, me, 1, id=ident)
+            assert pair.calls == [(LOCK_SEG, want)] and r == want, ('0019A570: 001A6440 argument id & 0xFFFF',
+                                                                    rec_masks, ident, pair.calls, r)
+            out['mask'] += 1
+        for a, d in saved_patch: mem[a:a + len(d)] = d
+    pair.rebind()
+    # Fail-stops: mask bit 0 meeting a class-2 entity whose chain the world
+    # cannot supply; a static cell without its kind view; a round prim
+    # without the SDK math. The queries leave the state untouched (the
+    # bridge returns -8 otherwise).
     st = Case(world).native(world)
-    native.bridge_no_workers(pair.b, 1)
+    square = [[0.0, -3.0, -3.0], [0.0, 3.0, -3.0], [0.0, 3.0, 3.0], [0.0, -3.0, 3.0]]
+    edges = [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
+    ents = [(1, 0x0A, [1, 1, 1], GH.chain_bytes([GH.record_bytes([1, 1, 1], 0, [1.0, 0.0, 0.0], square, edges)]),
+             [GH.IDENTITY])]
+    patch = GH.build_world(pair, GH.LOCK6440, ents)
+    saved_patch = [(a, bytes(mem[a:a + len(d)])) for a, d in patch]
+    for a, d in patch: mem[a:a + len(d)] = d
+    pair.rebind()
+    native.bridge_no_chains(pair.b, 1)
     for which, m in ((0, 7), (1, 1)):
         r = native.bridge_run(pair.b, which, C.byref(st), fvec(top), fvec(bottom), m, 0, None)
-        assert r == -1, ('a missing lock worker must fault', which, r)
+        assert r == -1, ('a lock meeting an unresolvable chain must fault', which, r)
         out['faults'] += 1
-    native.bridge_no_workers(pair.b, 0)
+    for a, d in saved_patch: mem[a:a + len(d)] = d
+    pair.rebind()
     struct.pack_into('<I', mem, table + 4, 0x80000000 | word)
     pair.rebind()
     native.bridge_static_kinds(pair.b, None, 0)
@@ -1246,6 +1344,7 @@ def main():
     results = reference_mode.parallel_map(run_item, items,
                                           cost=lambda it: {'units': 4, 'synth': 4, 'bounds': 5}.get(it[0], 1))
     seg, cam, entities, locks, views = [0] * 4, [0] * 4, set(), 0, 0
+    lock_hits = stale_hits = 0
     captures = {}
     units = {'face': {}, 'round': {}, 'walkers': {}}
     synth = {'static': 0, 'static_hit': 0, 'prims': 0, 'seg': [0] * 4, 'cam': [0] * 4, 'walkers': {},
@@ -1257,6 +1356,8 @@ def main():
             cam = [a + b for a, b in zip(cam, res['cam'])]
             entities |= res['entities']
             locks += res['locks']
+            lock_hits += res['lock_hits']
+            stale_hits += res['stale_hits']
             views += res['views']
         elif kind == 'capture':
             captures[arg] = res
@@ -1275,6 +1376,8 @@ def main():
             bounds = res
     # Coverage the default run must reach.
     assert seg[0] and seg[3] and cam[0] and cam[3] and locks, (seg, cam, locks)
+    assert lock_hits, 'no hull lock accepted a record of a real class-2 chain'
+    assert stale_hits, 'no hull lock accepted a record over stale 0x700030CC / D0 / 31D0 words'
     assert views, 'no hit view compared'
     faces_hit = {k[0] for k, v in units['face'].items() if k[1] == 1}
     assert faces_hit == {1, 2, 3, 4, 5, 6}, units['face']
@@ -1285,7 +1388,7 @@ def main():
     assert synth['prims'] and synth['self_skip'] and synth['head'][1] and synth['static_hit'], synth
     assert synth['face_calls'] and synth['round_calls'], ('the probe module never reached the bound workers', synth)
     assert bounds['faults'] == 5 and bounds['repeat'] == 4 and bounds['hits'], bounds
-    assert bounds['stop'] == 2 and bounds['reclamp'] == 4 and bounds['plane'] == 6, bounds
+    assert bounds['stop'] == 2 and bounds['reclamp'] == 4 and bounds['plane'] == 6 and bounds['mask'] == 10, bounds
     # Each threshold must change the outcome between its two sides (else the
     # cases would not pin it).
     outcome = {(lane, step): (r, p) for lane, step, r, p in bounds['threshold']}
@@ -1302,7 +1405,8 @@ def main():
         f'{2 * synth_count} synthetic-world cases (4 walkers + 2 queries + 0019B6C0 each)')
     print(f'exporter: {verified} RAM images verified byte for byte ({installed})')
     print(f'route: 0019A570 none/lock/cells/grid {seg}, 0019A910 {cam}, owners hit '
-          f'{sorted(hex(x) for x in entities)}, {locks} scripted lock calls, {views} hit views')
+          f'{sorted(hex(x) for x in entities)}, {locks} hull lock calls ({lock_hits} accepted, '
+          f'{stale_hits} more over stale words), {views} hit views')
     lids = sum(1 for c in captures.values() if c['lid'])
     print(f'captures: the ceiling test reproduces the captured scratchpad on all {len(captures)} beats '
           f'({sum(1 for c in captures.values() if c["hit"])} hits, 0x70003A3C checked on {lids})')

@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Execute the original slide state and compare em_player_slide.c.
 
-docs/PLAYER_CLIMB_SLIDE.md. The user's pinned ELF (and, for the whole-world
-evidence mode, a captured EE RAM image) supplies every instruction and table;
-none are embedded here.
+docs/PLAYER_CLIMB_SLIDE.md, docs/PLAYER_RECORD_HELPERS.md. The user's pinned
+ELF (and, for the whole-world evidence mode, a captured EE RAM image)
+supplies every instruction and table; none are embedded here.
+
+The slide oracle runs the originals on the measured float model (FallEE,
+tools/test_player_fall_reference.py: every COP1 and VU0 macro op through
+tools/ee_float_model.py); 00174FD0, 00179880, 001B12B0, 001B1470, 0011DF78
+and the SDK matrix routines run as original code, and each case also
+compares the scratch words 0x700038A0..AC and 0x70003A20. EM_TEST_WORLD=1
+replays route beat 06_hill_slide with the native slide bound on the record
+through em_player_slide_live_state.
 
 This file also holds `EE`, a general bounded EE interpreter shared with
 tools/test_player_climb_reference.py. Unlike the older per-routine oracles it
@@ -95,7 +103,11 @@ def flt(word):
 
 
 class EE:
-    """Bounded EE core: GPR (128-bit via hi halves), FPU, VU0 macro, MMI subset."""
+    """Bounded EE core: GPR (128-bit via hi halves), FPU, VU0 macro, MMI subset.
+
+    Its COP1/VU0 arithmetic is the older truncation model that other oracles
+    share (docs/EE_FLOAT_MODEL.md 5a); the slide and climb oracles use
+    FallEE (the measured model) instead, through measured_ee()."""
 
     def __init__(self, elf, ram=None, spad=None):
         self.mem = bytearray(ram) if ram is not None else bytearray(0x2000000)
@@ -646,6 +658,18 @@ MATH1_FN = C.CFUNCTYPE(C.c_float, C.c_void_p, C.c_float)
 MATH2_FN = C.CFUNCTYPE(C.c_float, C.c_void_p, C.c_float, C.c_float)
 
 
+def measured_ee():
+    """FallEE: this EE with the measured float model (imported late: the fall
+    oracle imports this module)."""
+    from test_player_fall_reference import FallEE
+    return FallEE
+
+
+class Scratch(C.Structure):
+    """EmPlayerLandScratch: 0x700038A0..AC and 0x70003A20 (raw words)."""
+    _fields_ = [('s38A0', C.c_uint32 * 4), ('s3A20', C.c_uint32)]
+
+
 class SlideWorkers(C.Structure):
     _fields_ = [('context', C.c_void_p), ('request', REQUEST_FN), ('arbiter', ARBITER_FN),
                 ('clip_frames', FRAMES_FN), ('sound', SOUND_FN), ('stop_sound', STOP_FN),
@@ -653,7 +677,8 @@ class SlideWorkers(C.Structure):
                 ('fall', ACTOR_FN), ('translate', TRANSLATE_FN), ('damage', RESULT_FN),
                 ('land_check', RESULT_FN), ('land', ACTOR_FN), ('step_sound', TIER_FN),
                 ('land_sound', TIER_FN), ('surface5d', PLAIN_FN), ('teleport', PLAIN_FN),
-                ('sine', MATH1_FN), ('cosine', MATH1_FN), ('atan2', MATH2_FN)]
+                ('sine', MATH1_FN), ('cosine', MATH1_FN), ('atan2', MATH2_FN),
+                ('scratch', C.POINTER(Scratch))]
 
 
 # (name, actor offset, size, kind): f float, u unsigned, s signed
@@ -724,9 +749,11 @@ def fvec(values, count=3):
 class SlideOracle:
     """The original routines in EE, every boundary scripted and logged."""
 
-    def __init__(self, elf, bank, script, scene):
-        self.ee = ee = EE(elf)
+    def __init__(self, elf, bank, script, scene, spad=(0, 0, 0, 0, 0)):
+        self.ee = ee = measured_ee()(elf)
         self.bank, self.script, self.log = bank, script, []
+        for i in range(4): ee.save(0x700038A0 + 4 * i, spad[i])
+        ee.save(0x70003A20, spad[4])
         ee.save(0x275B40, NODES)
         ee.save(NODES, NODES + 0x100); ee.save(NODES + 4, NODES + 0x200)
         ee.putf(NODES + 0x100 + 8, scene.root_forward)
@@ -757,7 +784,6 @@ class SlideOracle:
         h[SINE] = lambda e: e.ret_float(LIBC.sinf(e.farg(0)))
         h[COSINE] = lambda e: e.ret_float(LIBC.cosf(e.farg(0)))
         h[ATAN2] = lambda e: e.ret_float(LIBC.atan2f(e.farg(0), e.farg(1)))
-        h[FABS] = lambda e: e.ret_float(abs(e.farg(0)))
 
     def rec(self, *entry):
         assert self.ee.arg(0) == ACTOR or entry[0] in ('stop', 'effect'), entry
@@ -824,6 +850,7 @@ class SlideOracle:
         for i in range(3):
             out['position%d' % i] = self.ee.load(ACTOR + 0xB0 + 4 * i)
             out['rotation%d' % i] = self.ee.load(ACTOR + 0xC0 + 4 * i)
+        out['scratch'] = tuple(self.ee.load(0x700038A0 + 4 * i) for i in range(4)) + (self.ee.load(0x70003A20),)
         return out
 
 
@@ -833,8 +860,11 @@ COMPARED = ({offset + i for _, offset, size, _ in FIELDS for i in range(size)} |
 
 
 class SlideNative:
-    def __init__(self, bank, script):
+    def __init__(self, bank, script, spad=(0, 0, 0, 0, 0)):
         self.bank, self.script, self.log = bank, script, []
+        self.scratch = Scratch()
+        for i in range(4): self.scratch.s38A0[i] = spad[i]
+        self.scratch.s3A20 = spad[4]
         self.workers = SlideWorkers(
             None, REQUEST_FN(self.request), ARBITER_FN(self.arbiter), FRAMES_FN(self.frames),
             SOUND_FN(self.sound), STOP_FN(self.stop), EFFECT_FN(self.effect), MOVE_FN(self.move),
@@ -846,7 +876,7 @@ class SlideNative:
             PLAIN_FN(lambda _: self.plain('surface5d', 0)),
             PLAIN_FN(lambda _: self.plain('teleport', 0x78, 0)),
             MATH1_FN(lambda _, x: LIBC.sinf(x)), MATH1_FN(lambda _, x: LIBC.cosf(x)),
-            MATH2_FN(lambda _, y, x: LIBC.atan2f(y, x)))
+            MATH2_FN(lambda _, y, x: LIBC.atan2f(y, x)), C.pointer(self.scratch))
 
     def plain(self, *entry):
         self.log.append(entry); return 0
@@ -903,11 +933,12 @@ class SlideNative:
         self.log.append(('land_check',)); out[0] = Script.pop(self.script.land_checks, 0); return 0
 
 
-def native_fields(actor):
+def native_fields(actor, native):
     out = {name: raw_of(getattr(actor, name), size, kind) for name, _, size, kind in FIELDS}
     for i in range(3):
         out['position%d' % i] = bits(actor.position[i])
         out['rotation%d' % i] = bits(actor.rotation[i])
+    out['scratch'] = tuple(native.scratch.s38A0) + (native.scratch.s3A20,)
     return out
 
 
@@ -992,13 +1023,21 @@ ROUTINES = {  # name -> (original entry, native function, extra args)
 }
 
 
+# What em_player_slide.c links against: the one translations of the
+# callees it reaches (em_player_slide.h) and their own dependencies.
+SLIDE_SOURCES = ['src/game/em_player_record_helpers.c', 'src/game/em_player_fall.c',
+                 'src/game/em_script_host_workers.c', 'src/game/em_script.c',
+                 'src/game/em_effect_original.c', 'src/game/em_owner_services_original.c',
+                 'src/game/em_player_stage_workers.c', 'src/game/em_sdk_math_original.c']
+
+
 def build_native():
     out = ROOT / 'build/player_slide_reference'
     out.mkdir(parents=True, exist_ok=True)
     lib = out / ('slide.dylib' if sys.platform == 'darwin' else 'slide.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-Isrc', 'src/game/em_player_slide.c',
-                    'src/game/em_player_floor.c', '-lm', '-o', str(lib)], cwd=ROOT, check=True)
+                    '-shared', '-fPIC', '-Isrc', 'src/game/em_player_slide.c'] + SLIDE_SOURCES +
+                   ['-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
     A, S, W = C.POINTER(SlideActor), C.POINTER(SlideScene), C.POINTER(SlideWorkers)
     native.em_player_slide_tick.argtypes = [A, S, W]
@@ -1026,13 +1065,14 @@ def run_case(case):
     hold = rng.choice([0, 0, 1])
     script = Script(rng)
     entry, name, extra = ROUTINES[routine]
-    oracle = SlideOracle(ELF, BANK, script.copy(), scene)
+    spad = tuple(rng.getrandbits(32) for _ in range(5))
+    oracle = SlideOracle(ELF, BANK, script.copy(), scene, spad)
     oracle.load(actor)
     args = (ACTOR, hold) if extra else (ACTOR,)
     written = record_writes(oracle.ee, ACTOR)
     oracle.ee.call(entry, args)
     assert_covered(written, COMPARED, (routine, seed))
-    native = SlideNative(BANK, script.copy())
+    native = SlideNative(BANK, script.copy(), spad)
     fn = getattr(NATIVE, name)
     if routine in ('side', 'release'):
         result = fn(C.byref(actor), C.byref(native.workers))
@@ -1046,9 +1086,9 @@ def run_case(case):
         assert result == 0, (routine, seed, result)
     expected, got = normal_log(oracle.log), native.log
     assert expected == got, (routine, seed, expected, got)
-    want, have = oracle.fields(), native_fields(actor)
+    want, have = oracle.fields(), native_fields(actor, native)
     for key in want:
-        assert want[key] == have[key], (routine, seed, key, hex(want[key]), hex(have[key]))
+        assert want[key] == have[key], (routine, seed, key, want[key], have[key])
     return routine, len(got)
 
 
@@ -1078,8 +1118,9 @@ def main():
     counts = {}
 
     approaches = approach_cases(rng, reference_mode.pick(20000, 1500))
+    ee = measured_ee()(ELF)          # 001B12B0 and 001B1470 are pure: one interpreter serves all
     for target, current, rate in approaches:
-        ee = EE(ELF)
+        ee.f, ee.cond = [0] * 32, False
         ee.call(APPROACH, floats=(target, current, rate))
         got = bits(NATIVE.em_player_slide_approach(target, current, rate))
         assert got == ee.f[0], (target, current, rate, hex(got), hex(ee.f[0]))
@@ -1103,6 +1144,7 @@ def main():
             [(v, i, base + 4 * i, 4) for v, base in (('position', 0xB0), ('rotation', 0xC0)) for i in range(3)]
     counts['live_mirror_fields'] = live_mapping_check(
         NATIVE.em_player_slide_actor_from_live, NATIVE.em_player_slide_actor_to_live, SlideActor, table, rng)
+    counts['live_record'], counts['live_record_calls'] = live_cases()
     reference_mode.banner(*('%s %d' % (k, v) for k, v in counts.items()))
     print('player slide reference: PASS (original 0016C6A0/0016C570/0016C520/0016CD70/'
           '0017F5F0/00174FD0/001791D0/001B12B0 instructions)')
@@ -1146,8 +1188,8 @@ class Stage:
     player's placement and the pad bytes are seeded; sound/effect submission
     calls are recorded and return 0 (they reach the IOP/renderer)."""
 
-    def __init__(self, elf, ram, spad, position, yaw):
-        self.ee = ee = EE(elf, ram, spad)
+    def __init__(self, elf, ram, spad, position, yaw, core=None):
+        self.ee = ee = (core or EE)(elf, ram, spad)
         self.frame, self.events = 0, []
         for address, name in SOUND_HOOKS.items():
             ee.hooks[address] = self.recorder(name)
@@ -1209,8 +1251,8 @@ class RouteReplay(Stage):
     Nothing else runs (no camera stage, owners or scripts), so a replay is
     only valid while the beat's player is not driven by them."""
 
-    def __init__(self, elf, trace, ram, spad):
-        self.ee = ee = EE(elf, ram, spad)
+    def __init__(self, elf, trace, ram, spad, core=None):
+        self.ee = ee = (core or EE)(elf, ram, spad)
         self.frame, self.events = 0, []
         for address, name in SOUND_HOOKS.items():
             ee.hooks[address] = self.recorder(name)
@@ -1285,116 +1327,233 @@ def route_beat(beat):
     return trace, files[0].read_bytes(), files[1].read_bytes()
 
 
-def slide_from_ee(ee, actor):
-    for name, offset, size, kind in FIELDS:
-        raw = ee.load(PLAYER + offset, size)
-        if kind == 'f':
-            setattr(actor, name, number(raw))
-        elif kind == 's':
-            setattr(actor, name, raw - (1 << (8 * size)) if raw >> (8 * size - 1) else raw)
-        else:
-            setattr(actor, name, raw)
-    for i in range(3):
-        actor.position[i] = number(ee.load(PLAYER + 0xB0 + 4 * i))
-        actor.rotation[i] = number(ee.load(PLAYER + 0xC0 + 4 * i))
+# ---- The live adapter on the record ---------------------------------------
+
+class LiveActor(C.Structure):
+    """EmPlayerLiveActor (em_player_floor.h)."""
+    _fields_ = [('bytes', C.c_uint8 * 0x320), ('link_owner', C.c_void_p), ('link_prev', C.c_void_p),
+                ('link_flags', C.c_uint8), ('link_type', C.c_uint8)]
 
 
-def slide_to_ee(ee, actor):
-    for name, offset, size, kind in FIELDS:
-        ee.save(PLAYER + offset, raw_of(getattr(actor, name), size, kind), size)
-    for i in range(3):
-        ee.save(PLAYER + 0xB0 + 4 * i, bits(actor.position[i]))
-        ee.save(PLAYER + 0xC0 + 4 * i, bits(actor.rotation[i]))
+PL = C.POINTER(LiveActor)
+L_FLOOR = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.c_int, C.POINTER(C.c_int))
+L_ACTOR = C.CFUNCTYPE(C.c_int, C.c_void_p, PL)
+L_SCENE = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(SlideScene))
+L_REQUEST = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.c_int, C.c_int, C.c_float)
+L_ARBITER = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.c_int, C.c_float, C.c_float)
+L_FRAMES = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_int, C.POINTER(C.c_int32))
+L_SOUND = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.c_int, C.POINTER(C.c_int))
+L_ARG = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.c_int)
+L_RESULT = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.POINTER(C.c_int))
+L_ARG2 = C.CFUNCTYPE(C.c_int, C.c_void_p, PL, C.c_int, C.c_int)
 
 
-class WorldWorkers:
-    """em_player_slide.c workers bound to the ORIGINAL routines, executed in
-    the same EE on the same world: 00175900, 001796C0, 00178B90, 00224B80,
-    00224290, 0017C580, 0019AD00, 0019AFE0, the animation calls, the sound
-    and effect entries (recorded), 00182430, 00182870 and the SDK math."""
+class SlideLive(C.Structure):
+    """EmPlayerSlideLive."""
+    _fields_ = [('workers', SlideWorkers), ('floor', L_FLOOR), ('fall', L_ACTOR),
+                ('live_context', C.c_void_p), ('scene', L_SCENE), ('scene_context', C.c_void_p),
+                ('request', L_REQUEST), ('arbiter', L_ARBITER), ('clip_frames', L_FRAMES),
+                ('sound', L_SOUND), ('translate', L_ARG), ('damage', L_RESULT),
+                ('land_check', L_RESULT), ('land', L_ACTOR), ('step_sound', L_ARG),
+                ('land_sound', L_ARG), ('surface5d', L_ARG), ('teleport', L_ARG2),
+                ('scratch', C.POINTER(Scratch))]
 
-    def __init__(self, ee, actor_ref):
-        self.ee, self.actor = ee, actor_ref
-        scratch = 0x7F0E0000
-        self.vectors = (scratch, scratch + 0x10)
-        e = ee
-        sync = lambda: slide_to_ee(e, self.actor.contents)
-        back = lambda: slide_from_ee(e, self.actor.contents)
 
-        def around(entry, *args, floats=()):
-            sync(); result = e.nested(entry, args, floats); back(); return result
+VEC = 0x7F0E0000                # private vectors for worker arguments (stack region)
 
-        def vector(address, values):
-            for i in range(4): e.save(address + 4 * i, bits(values[i]))
-            return address
 
-        def sweep(_, start, end, mask, out):
-            r, _f = around(0x19AFE0, PLAYER, vector(self.vectors[0], start), vector(self.vectors[1], end), mask)
-            kind = s32(r)
-            out[0].kind = kind
-            if kind:
-                record = e.load(0x700031D0)
-                out[0].node = e.load(record + 0x1A, 2)
-                for i in range(3): out[0].delta[i] = number(e.load(0x700031C0 + 4 * i))
-            return kind
+class RecordWorld:
+    """A live record and the shared scratch, bound to the ORIGINAL callees
+    executed in the same EE on the same world: before every call the record
+    bytes and the scratch words are written into the EE player (and the
+    scratchpad), after it they are read back, as the port's workers would
+    act on the one record."""
 
-        def move(_, position, target, mask):
-            r, _f = around(0x19AD00, PLAYER, vector(self.vectors[0], target), mask)
-            return 0 if s32(r) < 0 else s32(r)
+    def __init__(self, ee, base):
+        self.ee, self.base = ee, base
+        self.live = LiveActor()
+        C.memmove(self.live.bytes, ee.read(base, 0x320), 0x320)
+        self.scratch = Scratch()
+        for i in range(4): self.scratch.s38A0[i] = ee.load(0x700038A0 + 4 * i)
+        self.scratch.s3A20 = ee.load(0x70003A20)
+        self.error = None
+        self.keep = []
 
-        def floor(_, actor, search, out):
-            r, _f = around(0x175900, PLAYER, search); out[0] = s32(r); return 0
+    def sync_in(self):
+        ee = self.ee
+        ee.write(self.base, bytes(self.live.bytes))
+        for i in range(4): ee.save(0x700038A0 + 4 * i, self.scratch.s38A0[i])
+        ee.save(0x70003A20, self.scratch.s3A20)
 
-        def call_actor(entry):
-            return lambda _, actor: (around(entry, PLAYER), 0)[1]
+    def sync_out(self):
+        ee = self.ee
+        C.memmove(self.live.bytes, ee.read(self.base, 0x320), 0x320)
+        for i in range(4): self.scratch.s38A0[i] = ee.load(0x700038A0 + 4 * i)
+        self.scratch.s3A20 = ee.load(0x70003A20)
 
-        def result(entry):
-            def fn(_, actor, out):
-                r, _f = around(entry, PLAYER); out[0] = s32(r); return 0
-            return fn
+    def call(self, entry, args=(), floats=()):
+        """The original routine with the integer args and float args (Python
+        floats of float32 values), the record synced around it: (v0, f0 bits)."""
+        ee = self.ee
+        self.sync_in()
+        saved = (list(ee.r), list(ee.rh), ee.hi, ee.lo, list(ee.f), ee.acc, ee.cond,
+                 [list(v) for v in ee.vf], list(ee.vacc), ee.q)
+        ee.r[29] = (ee.r[29] - 0x400) & ~15
+        for i, value in enumerate(args): ee.r[4 + i] = sx32(value)
+        for i, value in enumerate(floats): ee.f[12 + i] = bits(value)
+        ee.r[31] = RETURN
+        ee.run(entry)
+        result = (s32(ee.r[2]), ee.f[0] & 0xFFFFFFFF)
+        (ee.r, ee.rh, ee.hi, ee.lo, ee.f, ee.acc, ee.cond, ee.vf, ee.vacc, ee.q) = saved
+        self.sync_out()
+        return result
 
-        def math1(entry):
-            return lambda _, x: number(around(entry, floats=(x,))[1])
+    def vector(self, slot, values, count=4):
+        address = VEC + 0x10 * slot
+        for i in range(count): self.ee.save(address + 4 * i, bits(values[i]))
+        return address
 
-        def frames(_, clip, out):
-            r, _f = around(0x1C61D0, e.load(PLAYER + 0x40), clip); out[0] = s32(r); return 0
+    def guard(self, fn):
+        """A worker body: exceptions are kept and surfaced after the native
+        call returns (a ctypes callback cannot raise through C)."""
+        def run(*args):
+            if self.error is not None:
+                return -1
+            try:
+                return fn(*args)
+            except BaseException as error:
+                self.error = error
+                return -1
+        return run
 
-        def sound(_, id, out):
-            r, _f = around(0x1FBD50, PLAYER, id, 0, floats=(300.0,)); out[0] = s32(r); return 0
+    def fn(self, kind, body):
+        f = kind(self.guard(body))
+        self.keep.append(f)
+        return f
 
-        self.workers = SlideWorkers(
-            None,
-            REQUEST_FN(lambda _, clip, force, blend: (around(0x1749A0, PLAYER, clip, force, floats=(blend,)), 0)[1]),
-            ARBITER_FN(lambda _, clip, blend, frame: (around(0x1749F0, PLAYER, clip, floats=(blend, frame)), 0)[1]),
-            FRAMES_FN(frames), SOUND_FN(sound),
-            STOP_FN(lambda _, handle: (around(0x11A070, handle), 0)[1]),
-            EFFECT_FN(lambda _, id, p, r: (around(0x1EFD90, id, PLAYER + 0xB0, PLAYER + 0xC0), 0)[1]),
-            MOVE_FN(move), SWEEP_FN(sweep), FLOOR_FN(floor), ACTOR_FN(call_actor(0x1796C0)),
-            TRANSLATE_FN(lambda _, actor, arg: (around(0x178B90, PLAYER, arg), 0)[1]),
-            RESULT_FN(result(0x224B80)), RESULT_FN(result(0x224290)), ACTOR_FN(call_actor(0x17C580)),
-            TIER_FN(lambda _, tier: (around(0x182430, PLAYER, tier), 0)[1]),
-            TIER_FN(lambda _, tier: (around(0x182870, PLAYER, tier), 0)[1]),
-            PLAIN_FN(lambda _: (around(0x21D250, PLAYER, 0), 0)[1]),
-            PLAIN_FN(lambda _: (around(0x21D2E0, PLAYER, 0x78, 0), 0)[1]),
-            MATH1_FN(math1(0x11E2A8)), MATH1_FN(math1(0x11DE90)),
-            MATH2_FN(lambda _, y, x: number(around(0x11E620, floats=(y, x))[1])))
+    def math(self, kind, body):
+        """A float-returning worker (no fault path)."""
+        def run(*args):
+            try:
+                return body(*args)
+            except BaseException as error:
+                self.error = error
+                return 0.0
+        f = kind(run)
+        self.keep.append(f)
+        return f
+
+    def check_live(self, actor):
+        assert C.addressof(actor.contents) == C.addressof(self.live), 'worker got another record'
+
+
+def slide_scene(ee):
+    scene = SlideScene()
+    node0 = ee.load(ee.load(0x275B40))
+    node1 = ee.load(ee.load(0x275B40) + 4)
+    scene.root_forward = number(ee.load(node0 + 8))
+    scene.hip[0] = number(ee.load(node1 + 0xC0)); scene.hip[1] = number(ee.load(node1 + 0xC8))
+    scene.scripted = ee.load(0x70003B8D, 1)
+    scene.pad_gait = ee.load(0x810E57, 1)
+    scene.pad_x = ee.load(0x810E64, 1); scene.pad_y = ee.load(0x810E65, 1)
+    return scene
+
+
+def slide_live_binding(world):
+    """EmPlayerSlideLive over a RecordWorld: every worker is the original
+    routine on the world."""
+    w, ee, base = world, world.ee, world.base
+
+    def sweep(_, start, end, mask, out):
+        kind = w.call(0x19AFE0, (base, w.vector(0, start), w.vector(1, end), mask))[0]
+        out[0].kind = kind
+        if kind:
+            record = ee.load(0x700031D0)
+            out[0].node = ee.load(record + 0x1A, 2)
+            for i in range(3): out[0].delta[i] = number(ee.load(0x700031C0 + 4 * i))
+        return kind
+
+    def move(_, position, target, mask):
+        for i in range(3):
+            assert bits(position[i]) == int.from_bytes(bytes(w.live.bytes[0xB0 + 4 * i:0xB4 + 4 * i]), 'little'), \
+                'move position is not the record +B0'
+        kind = w.call(0x19AD00, (base, w.vector(0, target), mask))[0]
+        for i in range(3): position[i] = number(ee.load(base + 0xB0 + 4 * i))
+        return 0 if kind < 0 else kind
+
+    def effect(_, id, p, r):
+        for i in range(3):
+            assert bits(p[i]) == int.from_bytes(bytes(w.live.bytes[0xB0 + 4 * i:0xB4 + 4 * i]), 'little')
+        w.call(0x1EFD90, (id, base + 0xB0, base + 0xC0))
+        return 0
+
+    def floor(_, a, search, out):
+        w.check_live(a); out[0] = w.call(0x175900, (base, search))[0]; return 0
+
+    def sound(_, a, id, out):
+        w.check_live(a); out[0] = w.call(0x1FBD50, (base, id, 0), (300.0,))[0]; return 0
+
+    def frames(_, bank, clip, out):
+        out[0] = w.call(0x1C61D0, (bank, clip))[0]; return 0
+
+    def result(entry):
+        def fn(_, a, out):
+            w.check_live(a); out[0] = w.call(entry, (base,))[0]; return 0
+        return fn
+
+    def plain(entry):
+        def fn(_, a):
+            w.check_live(a); w.call(entry, (base,)); return 0
+        return fn
+
+    def with_arg(entry):
+        def fn(_, a, arg):
+            w.check_live(a); w.call(entry, (base, arg)); return 0
+        return fn
+
+    def scene(_, out):
+        out[0] = slide_scene(ee); return 0
+
+    workers = SlideWorkers()
+    workers.stop_sound = w.fn(STOP_FN, lambda _, handle: (w.call(0x11A070, (handle,)), 0)[1])
+    workers.effect = w.fn(EFFECT_FN, effect)
+    workers.move = w.fn(MOVE_FN, move)
+    workers.sweep = w.fn(SWEEP_FN, sweep)
+    workers.sine = w.math(MATH1_FN, lambda _, x: number(w.call(0x11E2A8, (), (x,))[1]))
+    workers.cosine = w.math(MATH1_FN, lambda _, x: number(w.call(0x11DE90, (), (x,))[1]))
+    workers.atan2 = w.math(MATH2_FN, lambda _, y, x: number(w.call(0x11E620, (), (y, x))[1]))
+    live = SlideLive()
+    live.workers = workers
+    live.floor = w.fn(L_FLOOR, floor)
+    live.fall = w.fn(L_ACTOR, plain(0x1796C0))
+    live.scene = w.fn(L_SCENE, scene)
+    live.request = w.fn(L_REQUEST, lambda _, a, clip, force, blend: (w.check_live(a), w.call(0x1749A0, (base, clip, force), (blend,)), 0)[2])
+    live.arbiter = w.fn(L_ARBITER, lambda _, a, clip, blend, frame: (w.check_live(a), w.call(0x1749F0, (base, clip), (blend, frame)), 0)[2])
+    live.clip_frames = w.fn(L_FRAMES, frames)
+    live.sound = w.fn(L_SOUND, sound)
+    live.translate = w.fn(L_ARG, with_arg(0x178B90))
+    live.damage = w.fn(L_RESULT, result(0x224B80))
+    live.land_check = w.fn(L_RESULT, result(0x224290))
+    live.land = w.fn(L_ACTOR, plain(0x17C580))
+    live.step_sound = w.fn(L_ARG, with_arg(0x182430))
+    live.land_sound = w.fn(L_ARG, with_arg(0x182870))
+    live.surface5d = w.fn(L_ARG, with_arg(0x21D250))
+    live.teleport = w.fn(L_ARG2, lambda _, a, frames, hold: (w.check_live(a), w.call(0x21D2E0, (base, frames, hold)), 0)[2])
+    live.scratch = C.pointer(w.scratch)
+    return live
 
 
 def native_slide_hook(native_lib, counter):
+    """0016C6A0 replaced by em_player_slide_live_state on the record."""
     def hook(ee):
-        actor = SlideActor()
-        slide_from_ee(ee, actor)
-        scene = SlideScene()
-        node0 = ee.load(ee.load(0x275B40))
-        node1 = ee.load(ee.load(0x275B40) + 4)
-        scene.root_forward = number(ee.load(node0 + 8))
-        scene.hip[0] = number(ee.load(node1 + 0xC0)); scene.hip[1] = number(ee.load(node1 + 0xC8))
-        scene.scripted = ee.load(0x70003B8D, 1)
-        scene.pad_gait = ee.load(0x810E57, 1)
-        scene.pad_x = ee.load(0x810E64, 1); scene.pad_y = ee.load(0x810E65, 1)
-        workers = WorldWorkers(ee, C.pointer(actor))
-        assert native_lib.em_player_slide_tick(C.byref(actor), C.byref(scene), C.byref(workers.workers)) == 0
-        slide_to_ee(ee, actor)
+        base = ee.arg(0)
+        world = RecordWorld(ee, base)
+        live = slide_live_binding(world)
+        result = native_lib.em_player_slide_live_state(C.byref(live), C.byref(world.live))
+        if world.error is not None:
+            raise world.error
+        assert result == 0, ('native slide fault', result)
+        world.sync_in()
         counter[0] += 1
     return hook
 
@@ -1405,34 +1564,54 @@ SLIDE_BEAT = '06_hill_slide'
 CAPTURE = {}   # elf, native, trace, ram, spad: set before the forked replays
 
 
+def modeled_scratch(ee):
+    return tuple(ee.load(0x700038A0 + 4 * i) for i in range(4)) + (ee.load(0x70003A20),)
+
+
 def slide_replay(native):
-    """One RouteReplay of the capture beat, with the native 0016C6A0 hooked
-    in when `native`; every trace row is checked (route_row_check), so the
-    original replay proves the harness and the native one the translation."""
+    """One RouteReplay of the capture beat on the measured float model, with
+    the native 0016C6A0 (its live adapter on the record) hooked in when
+    `native`; every trace row is checked (route_row_check), so the original
+    replay proves the harness and the native one the translation."""
     c = CAPTURE
-    replay = RouteReplay(c['elf'], c['trace'], c['ram'], c['spad'])
+    replay = RouteReplay(c['elf'], c['trace'], c['ram'], c['spad'], core=measured_ee())
     calls = [0]
     if native:
         replay.ee.hooks[SLIDE] = native_slide_hook(c['native'], calls)
     frames, rows, slid = [], 0, 0
     while replay.counter < c['trace']['last_counter']:
         r = replay.step()
-        frames.append((replay.counter, replay.actor(), len(replay.events)))
-        if replay.ee.load(PLAYER + 5, 1) == 0x1C: slid += 1
+        ee = replay.ee
+        frames.append((replay.counter, replay.actor(), len(replay.events),
+                       hashlib.sha1(ee.mem).hexdigest(), modeled_scratch(ee)))
+        if ee.load(PLAYER + 5, 1) == 0x1C: slid += 1
         if r is not None:
-            route_row_check(replay.ee, r, (SLIDE_BEAT, 'native' if native else 'original', replay.counter))
+            route_row_check(ee, r, (SLIDE_BEAT, 'native' if native else 'original', replay.counter))
             rows += 1
     position = [round(number(replay.ee.load(PLAYER + 0xA0 + 4 * i)), 3) for i in range(3)]
     return frames, replay.events, rows, slid, calls[0], position
 
 
+def compare_frames(where, a_frames, b_frames):
+    for (counter, a, a_count, a_hash, a_spad), (_, b, b_count, b_hash, b_spad) in zip(a_frames, b_frames):
+        if a != b:
+            diff = [hex(k) for k in range(0x320) if a[k] != b[k]]
+            raise AssertionError((where, counter, 'actor bytes differ at', diff[:24]))
+        assert a_count == b_count, (where, counter, 'sound/effect call counts differ')
+        assert a_hash == b_hash, (where, counter, 'RAM outside the record differs')
+        assert a_spad == b_spad, (where, counter, 'scratch 0x700038A0..AC / 0x70003A20 differ', a_spad, b_spad)
+    assert len(a_frames) == len(b_frames), (where, len(a_frames), len(b_frames))
+
+
 def world_capture(elf, native):
     """The hill slide against the real PCSX2 route capture 06_hill_slide: the
-    original stage and the stage with the native 0016C6A0 replay the whole
-    beat (walk off the ledge, slide, skid out, idle) from the 05_boxes
-    snapshot with the recorded pad input (RouteReplay), in two forked
-    workers. Both must match every trace row (route_row_check), and every
-    frame their actors (0x320 bytes) and sound/effect calls must be
+    original stage and the stage with the native 0016C6A0 bound on the
+    record (em_player_slide_live_state, every worker the original routine
+    on the same world) replay the whole beat (walk off the ledge, slide, skid
+    out, idle) from the 05_boxes snapshot with the recorded pad input
+    (RouteReplay, measured float model), in two forked workers. Both must
+    match every trace row (route_row_check), and every frame their records
+    (0x320 bytes), RAM, scratch words and sound/effect calls must be
     identical."""
     beat = route_beat(SLIDE_BEAT)
     if isinstance(beat, str):
@@ -1440,13 +1619,9 @@ def world_capture(elf, native):
     CAPTURE.update(elf=elf, native=native, trace=beat[0], ram=beat[1], spad=beat[2])
     (a_frames, a_events, rows, slid, _, position), (b_frames, b_events, _, b_slid, calls, _) = \
         reference_mode.parallel_map(slide_replay, (False, True))
-    for (counter, a, a_count), (_, b, b_count) in zip(a_frames, b_frames):
-        if a != b:
-            diff = [hex(k) for k in range(0x320) if a[k] != b[k]]
-            raise AssertionError((SLIDE_BEAT, counter, 'actor bytes differ at', diff[:24]))
-        assert a_count == b_count, (SLIDE_BEAT, counter, 'sound/effect call counts differ')
+    compare_frames(SLIDE_BEAT, a_frames, b_frames)
     assert a_events == b_events, (SLIDE_BEAT, 'sound/effect calls differ')
-    assert len(a_frames) == len(b_frames) and rows == len(beat[0]['rows']), (len(a_frames), len(b_frames), rows)
+    assert rows == len(beat[0]['rows']), (rows, len(beat[0]['rows']))
     assert slid > 0 and b_slid == slid and calls == slid, (slid, b_slid, calls)
     return rows, calls, len(a_events), position
 
@@ -1457,18 +1632,21 @@ def world_main():
     if missing:
         raise SystemExit('world mode: %s (docs/PLAYER_CLIMB_SLIDE.md)' % missing)
     native = build_native()
+    native.em_player_slide_live_state.argtypes = [C.POINTER(SlideLive), C.POINTER(LiveActor)]
     routes = os.environ.get('EM_WORLD_ROUTES', 'slide,capture').split(',')
     if 'capture' in routes:
         rows, calls, events, position = world_capture(elf, native)
-        print('player slide vs PCSX2 capture %s: PASS %d rows (native = original bytes; state, +1F0, clip exact; '
-              'feet, body, yaw and clock within the trace precision), %d native state-0x1C callbacks, '
-              '%d identical sound/effect calls; end %s' % (SLIDE_BEAT, rows, calls, events, position))
+        print('player slide vs PCSX2 capture %s on the record: PASS %d rows (native = original record, '
+              'RAM and scratch; state, +1F0, clip exact; feet, body, yaw and clock within the trace '
+              'precision), %d native state-0x1C callbacks, %d identical sound/effect calls; end %s'
+              % (SLIDE_BEAT, rows, calls, events, position))
     if 'slide' not in routes:
         return
     ram, spad = WORLD_RAM.read_bytes(), WORLD_SPAD.read_bytes()
     start, yaw = (238.0, 220.5, 308.0), 0.0
-    original = Stage(elf, ram, spad, start, yaw)
-    translated = Stage(elf, ram, spad, start, yaw)
+    core = measured_ee()
+    original = Stage(elf, ram, spad, start, yaw, core=core)
+    translated = Stage(elf, ram, spad, start, yaw, core=core)
     calls = [0]
     translated.ee.hooks[SLIDE] = native_slide_hook(native, calls)
     frames = int(os.environ.get('EM_WORLD_FRAMES', '175'))
@@ -1482,11 +1660,238 @@ def world_main():
             diff = [hex(k) for k in range(0x320) if a[k] != b[k]]
             raise AssertionError(('frame', i, 'actor bytes differ at', diff[:24]))
         assert original.events == translated.events, ('frame', i, 'sound/effect calls differ')
+        assert original.ee.mem == translated.ee.mem, ('frame', i, 'RAM outside the record differs')
+        assert modeled_scratch(original.ee) == modeled_scratch(translated.ee), ('frame', i, 'scratch')
         if original.ee.load(PLAYER + 5, 1) == 0x1C: slid += 1
     assert slid > 0 and calls[0] == slid, (slid, calls[0])
     position = [round(number(original.ee.load(PLAYER + 0xA0 + 4 * i)), 3) for i in range(3)]
-    print('player slide world: PASS %d frames, %d native state-0x1C callbacks, identical actor '
-          'bytes and %d sound/effect calls; end %s' % (frames, calls[0], len(original.events), position))
+    print('player slide world on the record: PASS %d frames, %d native state-0x1C callbacks, identical '
+          'record, RAM, scratch and %d sound/effect calls; end %s'
+          % (frames, calls[0], len(original.events), position))
+
+
+# ---- The live adapter over a record: unit cases ---------------------------
+# em_player_slide_live_state against the original 0016C6A0 on a whole record:
+# every worker the original reaches is hooked; at each call both sides
+# record the 0x320 record bytes and the scratch words the callee is handed,
+# then apply the same scripted effect plus scripted writes anywhere in the
+# record (fields the mirror carries and fields it does not). A store the
+# adapter failed to hand a worker, or a worker's write it clobbered, fails.
+
+LIVE_WRITES = [(0x200, 4, 'flags'), (0x3C, 4, 'f'), (0x38, 4, 'f'), (0xB4, 4, 'y'), (0x314, 1, 'u'),
+               (0x23A, 1, 'u'), (0x237, 1, 'u'), (0xA, 1, 'u'), (0x20C, 2, 'u'), (0x214, 4, 'u'),
+               (0x2FC, 4, 'u'), (0x24, 4, 'u'), (0x2EC, 4, 'f'), (0x31B, 1, 'u')]
+RECORD_HOOKS = {REQUEST: 'request', ARBITER: 'arbiter', FRAMES: 'frames', SOUND: 'sound', STOP: 'stop',
+                EFFECT: 'effect', MOVE: 'move', SWEEP: 'sweep', FLOOR: 'floor', FALL: 'fall',
+                TRANSLATE: 'translate', DAMAGE: 'damage', LAND_CHECK: 'land_check', LAND: 'land',
+                STEP_SOUND: 'step_sound', LAND_SOUND: 'land_sound', SURFACE5D: 'surface5d',
+                TELEPORT: 'teleport'}
+
+
+def live_writes(seed, index, name):
+    rng = random.Random('%d:%d:%s:record' % (seed, index, name))
+    out = []
+    for _ in range(rng.choice((0, 0, 1, 2, 3))):
+        offset, size, kind = rng.choice(LIVE_WRITES)
+        if kind == 'f': value = bits(rng.choice((0.0, 0.1, 1.0, -0.2, rng.uniform(-2, 2))))
+        elif kind == 'y': value = bits(rng.uniform(150, 250))
+        elif kind == 'flags': value = rng.choice((0, 0x1000, 0x8000, 0x9000))
+        else: value = rng.getrandbits(8 * size)
+        out.append((offset, size, value))
+    return out
+
+
+def live_record(rng, actor):
+    record = bytearray(rng.getrandbits(8) for _ in range(0x320))
+    for name, offset, size, kind in FIELDS:
+        record[offset:offset + size] = raw_of(getattr(actor, name), size, kind).to_bytes(size, 'little')
+    for i in range(3):
+        record[0xB0 + 4 * i:0xB4 + 4 * i] = bits(actor.position[i]).to_bytes(4, 'little')
+        record[0xC0 + 4 * i:0xC4 + 4 * i] = bits(actor.rotation[i]).to_bytes(4, 'little')
+    record[0x40:0x44] = (0x500000).to_bytes(4, 'little')
+    return bytes(record)
+
+
+class LiveSlideOracle(SlideOracle):
+    def __init__(self, elf, bank, script, scene, spad, record, seed):
+        super().__init__(elf, bank, script, scene, spad)
+        self.ee.write(ACTOR, record)
+        self.seed, self.count, self.snapshots = seed, 0, []
+        for address, name in RECORD_HOOKS.items():
+            self.ee.hooks[address] = self.wrap(self.ee.hooks[address], name)
+
+    def wrap(self, base, name):
+        def run(e):
+            self.snapshots.append((name, e.read(ACTOR, 0x320), modeled_scratch(e)))
+            base(e)
+            for offset, size, value in live_writes(self.seed, self.count, name):
+                e.save(ACTOR + offset, value, size)
+            self.count += 1
+        return run
+
+
+class LiveSlideNative:
+    """EmPlayerSlideLive with scripted record-level workers."""
+
+    def __init__(self, bank, script, spad, record, seed):
+        self.bank, self.script, self.seed = bank, script, seed
+        self.log, self.snapshots, self.count, self.keep, self.error = [], [], 0, [], None
+        self.record = LiveActor()
+        C.memmove(self.record.bytes, record, 0x320)
+        self.scratch = Scratch()
+        for i in range(4): self.scratch.s38A0[i] = spad[i]
+        self.scratch.s3A20 = spad[4]
+        live = SlideLive()
+        w = live.workers
+        w.stop_sound = self.fn(STOP_FN, lambda _, handle: self.worker('stop', ('stop', handle)))
+        w.effect = self.fn(EFFECT_FN, lambda _, id, p, r: self.worker('effect', ('effect', id, fvec(p), fvec(r))))
+        w.move = self.fn(MOVE_FN, self.move)
+        w.sweep = self.fn(SWEEP_FN, self.sweep)
+        w.sine = self.fn(MATH1_FN, lambda _, x: LIBC.sinf(x))
+        w.cosine = self.fn(MATH1_FN, lambda _, x: LIBC.cosf(x))
+        w.atan2 = self.fn(MATH2_FN, lambda _, y, x: LIBC.atan2f(y, x))
+        live.floor = self.fn(L_FLOOR, self.floor)
+        live.fall = self.fn(L_ACTOR, lambda _, a: self.worker('fall', ('fall',)))
+        live.scene = self.fn(L_SCENE, lambda _, out: 0)
+        live.request = self.fn(L_REQUEST, lambda _, a, clip, force, blend:
+                               self.worker('request', ('request', clip & 0xFFFF, force, bits(blend))))
+        live.arbiter = self.fn(L_ARBITER, lambda _, a, clip, blend, frame:
+                               self.worker('arbiter', ('arbiter', clip & 0xFFFF, bits(blend), bits(frame))))
+        live.clip_frames = self.fn(L_FRAMES, self.frames)
+        live.sound = self.fn(L_SOUND, self.sound)
+        live.translate = self.fn(L_ARG, self.translate)
+        live.damage = self.fn(L_RESULT, lambda _, a, out: self.result('damage', self.script.damages, out))
+        live.land_check = self.fn(L_RESULT, lambda _, a, out: self.result('land_check', self.script.land_checks, out))
+        live.land = self.fn(L_ACTOR, lambda _, a: self.worker('land', ('land',)))
+        live.step_sound = self.fn(L_ARG, lambda _, a, tier: self.worker('step_sound', ('step_sound', tier)))
+        live.land_sound = self.fn(L_ARG, lambda _, a, tier: self.worker('land_sound', ('land_sound', tier)))
+        live.surface5d = self.fn(L_ARG, lambda _, a, arg: self.worker('surface5d', ('surface5d', arg)))
+        live.teleport = self.fn(L_ARG2, lambda _, a, frames, hold: self.worker('teleport', ('teleport', frames, hold)))
+        live.scratch = C.pointer(self.scratch)
+        self.live = live
+
+    def fn(self, kind, body):
+        def run(*args):
+            try:
+                return body(*args)
+            except BaseException as error:      # surfaced after the native call
+                self.error = self.error or error
+                return -1
+        f = kind(run)
+        self.keep.append(f)
+        return f
+
+    def word(self, offset):
+        return int.from_bytes(bytes(self.record.bytes[offset:offset + 4]), 'little')
+
+    def enter(self, name):
+        self.snapshots.append((name, bytes(self.record.bytes),
+                               tuple(self.scratch.s38A0) + (self.scratch.s3A20,)))
+
+    def leave(self, name):
+        for offset, size, value in live_writes(self.seed, self.count, name):
+            for i in range(size): self.record.bytes[offset + i] = (value >> (8 * i)) & 0xFF
+        self.count += 1
+
+    def worker(self, name, entry, effect=None):
+        self.enter(name)
+        self.log.append(entry)
+        value = effect() if effect else 0
+        self.leave(name)
+        return value
+
+    def frames(self, _, bank, clip, out):
+        assert bank == 0x500000, hex(bank)
+        def effect():
+            out[0] = clip_length(self.bank, clip); return 0
+        return self.worker('frames', ('frames', clip), effect)
+
+    def sound(self, _, a, id, out):
+        def effect():
+            out[0] = Script.pop(self.script.handles, 0); return 0
+        return self.worker('sound', ('sound', id, 0, bits(300.0)), effect)
+
+    def move(self, _, position, target, mask):
+        def effect():
+            kind, dx, dz = Script.pop(self.script.moves, (0, 0.0, 0.0))
+            if kind:
+                position[0] = fp(position[0] + dx); position[2] = fp(position[2] + dz)
+            return kind
+        self.enter('move')
+        self.log.append(('move', fvec(target, 4), mask))
+        value = effect()
+        self.leave('move')
+        return value
+
+    def sweep(self, _, start, end, mask, out):
+        def effect():
+            hit = Script.pop(self.script.sweeps, ProbeHit())
+            C.memmove(out, C.byref(hit), C.sizeof(ProbeHit))
+            return hit.kind
+        return self.worker('sweep', ('sweep', fvec(start, 4), fvec(end, 4), mask), effect)
+
+    def floor(self, _, a, search, out):
+        def effect():
+            result, contact, slide, dy = Script.pop(self.script.floors, (0, 0, 0, 0.0))
+            r = self.record.bytes
+            r[0xA], r[0x237] = contact, slide
+            y = fp(number(self.word(0xB4)) + dy)
+            r[0xB4:0xB8] = bits(y).to_bytes(4, 'little')
+            out[0] = result
+            return 0
+        position = tuple(self.word(0xB0 + 4 * i) for i in range(3))
+        return self.worker('floor', ('floor', search, position), effect)
+
+    def translate(self, _, a, arg):
+        def effect():
+            self.record.bytes[0x314] = Script.pop(self.script.translates, 0) & 0xFF
+            return 0
+        return self.worker('translate', ('translate', arg, self.word(0x38)), effect)
+
+    def result(self, name, queue, out):
+        def effect():
+            out[0] = Script.pop(queue, 0); return 0
+        return self.worker(name, (name,), effect)
+
+
+def live_case(seed):
+    rng = random.Random(seed)
+    actor, scene = random_actor(rng), random_scene(rng)
+    script = Script(rng)
+    spad = tuple(rng.getrandbits(32) for _ in range(5))
+    record = live_record(rng, actor)
+    oracle = LiveSlideOracle(ELF, BANK, script.copy(), scene, spad, record, seed)
+    oracle.ee.call(SLIDE, (ACTOR,))
+    native = LiveSlideNative(BANK, script.copy(), spad, record, seed)
+    native.live.scene = native.fn(L_SCENE, lambda _, out: (C.memmove(out, C.byref(scene), C.sizeof(SlideScene)), 0)[1])
+    result = NATIVE.em_player_slide_live_state(C.byref(native.live), C.byref(native.record))
+    if native.error: raise native.error
+    assert result == 0, (seed, 'live adapter fault', result)
+    expected = normal_log(oracle.log)
+    assert expected == native.log, (seed, 'worker calls', expected, native.log)
+    assert len(oracle.snapshots) == len(native.snapshots), (seed, len(oracle.snapshots), len(native.snapshots))
+    for k, (want, got) in enumerate(zip(oracle.snapshots, native.snapshots)):
+        if want[1] != got[1]:
+            diff = [hex(i) for i in range(0x320) if want[1][i] != got[1][i]]
+            raise AssertionError((seed, 'record handed to', want[0], k, 'differs at', diff[:16]))
+        assert want == got, (seed, 'scratch handed to', want[0], k, want[2], got[2])
+    final = oracle.ee.read(ACTOR, 0x320)
+    if final != bytes(native.record.bytes):
+        diff = [hex(i) for i in range(0x320) if final[i] != native.record.bytes[i]]
+        raise AssertionError((seed, 'final record differs at', diff[:16]))
+    assert modeled_scratch(oracle.ee) == tuple(native.scratch.s38A0) + (native.scratch.s3A20,), (seed, 'scratch')
+    return actor.walk, len(native.snapshots)
+
+
+def live_cases():
+    """The live adapter on the record, every sub-state (quick 300, full 4000)."""
+    NATIVE.em_player_slide_live_state.argtypes = [C.POINTER(SlideLive), C.POINTER(LiveActor)]
+    seeds = [0x1C0000 + 7 * i for i in range(reference_mode.pick(4000, 300))]
+    results = reference_mode.parallel_map(live_case, seeds)
+    walks = {w for w, _ in results}
+    for walk in (0, 1, 2, 3, 0xA, 0xB, 0xC, 0x14, 0x15, 0x1E):
+        assert walk in walks, ('live adapter case never ran sub-state', walk)
+    return len(results), sum(n for _, n in results)
 
 
 if __name__ == '__main__':

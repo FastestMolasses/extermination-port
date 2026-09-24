@@ -368,7 +368,11 @@ def build_native(name='recovery'):
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', 'src/game/em_player_recovery.c',
                     'src/game/em_player_slide.c', 'src/game/em_player_climb.c',
-                    'src/game/em_player_floor.c', '-lm', '-o', str(lib)], cwd=ROOT, check=True)
+                    'src/game/em_player_floor.c', 'src/game/em_player_record_helpers.c',
+                    'src/game/em_player_fall.c', 'src/game/em_script_host_workers.c',
+                    'src/game/em_script.c', 'src/game/em_effect_original.c',
+                    'src/game/em_owner_services_original.c', 'src/game/em_player_stage_workers.c',
+                    'src/game/em_sdk_math_original.c', '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     n = C.CDLL(str(lib))
     W, S, X, I = C.POINTER(Workers), C.POINTER(Scene), C.POINTER(Scratch), C.POINTER(C.c_int)
     n.em_player_recovery_translate.argtypes = [A, C.c_int, W]

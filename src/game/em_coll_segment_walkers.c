@@ -569,13 +569,30 @@ static int query(const EmCollSegment *seg, const float from[3], const float to[3
     s.entity = NULL;                                                  /* 0x19A5EC / 0x19A994 */
     int r = 0;                                                        /* s0 */
     if (m & 1) {
-        const EmCollSegmentWorkers *w = seg->workers;
-        int locked = 0;
-        if (walk == WALK_SEGMENT) {                                   /* 0x19A5F0: 001A6440(id & 0xFFFF) */
-            if (!w || !w->lock_6440 || w->lock_6440(w->context, &s, id & 0xFFFF, &locked) < 0) return -1;
-        } else {                                                      /* 0x19A998: 001A6AD0(0x40) */
-            if (!w || !w->lock_6AD0 || w->lock_6AD0(w->context, &s, 0x40, &locked) < 0) return -1;
+        if (!seg->world->cells || !seg->world->cells->lists) return -1;
+        EmCollHullScratch h;
+        memset(&h, 0, sizeof h);
+        for (int k = 0; k < 3; ++k) {
+            h.start[k] = s.start[k];
+            h.end[k] = s.end[k];
+            h.point[k] = s.point[k];
+            h.cell_normal[k] = s.cell_normal[k];
         }
+        h.cell_class = s.cell_class;
+        h.word_1c = x.hull_word_1c;
+        h.word_20 = x.hull_word_20;
+        h.entity = s.entity;
+        const int locked = walk == WALK_SEGMENT
+            ? em_coll_grid_hull_001A6440(seg->world->cells->lists, seg->hulls, &h, (uint32_t)id & 0xFFFFu)  /* 0x19A5F8 */
+            : em_coll_grid_hull_001A6AD0(seg->world->cells->lists, seg->hulls, &h, 0x40);                 /* 0x19A998 */
+        if (locked < 0) return -1;
+        memcpy(s.point, h.point, sizeof s.point);
+        memcpy(s.cell_normal, h.cell_normal, sizeof s.cell_normal);
+        s.cell_class = h.cell_class;
+        x.hull_word_1c = h.word_1c;
+        x.hull_word_20 = h.word_20;
+        s.entity = h.entity;
+        if (h.record_cell) { s.record = EM_COLL_PROBE_RECORD_CELL; s.node = -1; }   /* 0x700031D0 = D_700030B0 */
         if (locked) {
             memcpy(s.end, s.point, sizeof s.point);                   /* 0x19A614 / 0x19A9B4 loop */
             r = 1;

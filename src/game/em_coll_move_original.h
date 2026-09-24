@@ -7,9 +7,9 @@
  *
  *   0019AD00  move probe: segment (actor +0xB0.x, target.y, actor +0xB8.z) ->
  *             target, the end pushed 1% of a unit past the target; mask bit 0
- *             the hull lock (001A6440 / 001A7280, workers), bit 1 the cell
- *             walker 0019FE50, bit 2 the grid pass 0019CB60 (worker), bit 31
- *             adds the hit delta to the actor's +0xB0/+0xB8
+ *             the hull lock (001A6440 / 001A7280), bit 1 the cell walker
+ *             0019FE50, bit 2 the grid pass 0019CB60, bit 31 adds the hit
+ *             delta to the actor's +0xB0/+0xB8
  *   0019AFE0  sweep: the same, from (from.x, to.y, from.z) to `to`; after the
  *             passes it adds the 1% step to the START (0019AD00 subtracts it
  *             from the end)
@@ -18,10 +18,15 @@
  *             cells (D_00275B7C / D_00275B84), each hull AABB-gated and each
  *             prim tested by
  *   001A4830  0x8000 / 0x4000 prims: circle crossing in x/z inside the
- *             prim's vertical band (two SDK sqrt 0011E748 calls, a worker)
+ *             prim's vertical band (two SDK sqrt 0011E748 calls, the
+ *             em_sdk_math_original translation)
  *   001A4D10  0x2000 prims: one axis face (x faces 0..2, z faces >= 5; the
  *             y faces 3/4 never hit a horizontal walk)
  *   001A4030  0x1000 prims: the convex n-gon segment test
+ *
+ * 0019CB60, 001A6440 and 001A7280 are em_coll_grid_hull.c's translations
+ * (docs/COLL_GRID_HULL.md), called directly: no original callee of these
+ * walkers is a worker any more.
  *
  * The scratchpad the originals share is EmCollMoveScratch, field for field
  * (addresses on each member). It is caller-owned and persistent, like the
@@ -32,10 +37,13 @@
  * src/game/em_ee_float.h (docs/EE_FLOAT_MODEL.md); nothing here does host
  * float arithmetic. A VU form the header refuses is a fault.
  *
- * Fail-stop: every original callee that is not translated here is a named
- * worker. A call whose flags can reach a missing worker returns -1 before it
- * writes anything; a malformed directory, a static cell without its kind
- * view and a published owner whose offset word carries bit 31 also fault.
+ * Fail-stop: a call whose flags need world data the world lacks (the
+ * directory and SDK math for bit 1, the grid for bit 2, the class lists or
+ * the player view for bit 0) returns -1 before it writes anything; so does
+ * every fault met later (a malformed directory, a static cell without its
+ * kind view, a published owner whose offset word carries bit 31, a chain
+ * the hull world cannot supply): 0019AD00 and 0019AFE0 work on a copy of
+ * the scratch and the actor and commit only on success.
  *
  * Verified by tools/test_coll_move_reference.py (the original instructions
  * over captured AREA11 RAM and the 05_boxes / 06_hill_slide route beats).
@@ -46,8 +54,11 @@
 #include <stdint.h>
 
 #include "game/em_actor_collision.h"
+#include "game/em_coll_grid_hull.h"
+#include "game/em_coll_probe_original.h"
 #include "game/em_player_climb.h"
 #include "game/em_player_floor.h"
+#include "game/em_sdk_math_original.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,9 +74,11 @@ typedef struct EmCollMoveScratch {
     float end[4];            /* 0x700031A0..0x700031AC */
     float point[4];          /* 0x700031B0..0x700031BC (lane 3 is never written here) */
     float delta[4];          /* 0x700031C0..0x700031CC (lanes 0..2 written) */
-    /* 0x700031D0: NULL, EM_COLL_MOVE_CELL_RECORD, or a record a worker
-     * stored (a grid node); for a worker record the worker also fills
-     * record_node (+0x1A), record_normal (+0x24) and record_axis (+0x34). */
+    /* 0x700031D0: NULL, EM_COLL_MOVE_CELL_RECORD, or a grid node (the
+     * identity em_coll_grid_hull_node_record gives); for a grid node the
+     * grid pass also fills record_node (+0x1A), record_normal (+0x24) and
+     * record_axis (+0x34: zero, the EMCL does not carry it; the adapters
+     * fault where a consumer would read it). */
     const void *record;
     uint16_t record_node;
     float record_normal[3];
@@ -73,9 +86,13 @@ typedef struct EmCollMoveScratch {
     const EmActor *entity;   /* 0x700031D4 */
     int32_t mode;            /* 0x700031D8 */
     uint16_t cell_class;     /* 0x700030CA: D_700030B0 +0x1A */
+    uint32_t cell_word_1c;   /* 0x700030CC: D_700030B0 +0x1C (001A6440) */
+    uint32_t cell_word_20;   /* 0x700030D0: D_700030B0 +0x20 (001A6440) */
     float cell_normal[3];    /* 0x700030D4..0x700030DC: D_700030B0 +0x24 */
+    int16_t rank[6];         /* 0x70003240..0x7000324A (0019F1A0 under 0019CB60) */
     int16_t query_class;     /* 0x7000324E */
     const void *self;        /* 0x70003254 */
+    int16_t span_lo;         /* 0x70003B86 (0019CB60's span pick) */
     int16_t kind;            /* 0x70003B88 */
     float work[4];           /* 0x70003680..0x7000368C (001A4D10; 001A4030 writes +0) */
 } EmCollMoveScratch;
@@ -90,35 +107,22 @@ typedef struct EmCollMoveActor {
                               * adds 0x700031C0 / 0x700031C8 to x and z */
 } EmCollMoveActor;
 
-/* Workers: >= 0 on success (the original's return value in *result), < 0
- * faults the query. */
-typedef struct EmCollMoveWorkers {
-    void *context;
-    /* 001A6440(arg): the hull lock of a class-0 query actor (arg 0x40). It
-     * may write the scratch (0x700031B0 the locked point, 0x700031D4 the
-     * entity whose +0x52 bit 1 vetoes the lock). */
-    int (*lock_6440)(void *context, EmCollMoveScratch *s, int arg, int *result);
-    /* 001A7280(): the lock of a query actor of nonzero class. */
-    int (*lock_7280)(void *context, EmCollMoveScratch *s, int *result);
-    /* 0019CB60(): the grid pass of mask bit 2 over the scratch segment; its
-     * return is 0 on a hit. It sets record / record_node / record_normal /
-     * record_axis for the node it names. */
-    int (*grid)(void *context, EmCollMoveScratch *s, int *result);
-    /* 0011E748: the SDK sqrt 001A4830 calls (arguments are >= 0). */
-    int (*sqrt)(void *context, float x, float *result);
-} EmCollMoveWorkers;
-
+/* One caller world. */
 typedef struct EmCollMoveWorld {
-    const EmActorCollisionWorld *cells;  /* directory, class lists, static kinds */
-    EmCollMoveWorkers workers;
+    /* The directory, the class lists (class 4 for 0019FE50's pass 2, class 2
+     * for 001A6440) and the static kinds. */
+    const EmActorCollisionWorld *cells;
+    const EmCollProbeGrid *grid;         /* 0019CB60's rank view (mask bit 2) */
+    const EmCollHullWorld *hulls;        /* the chains 001A6440 / 001A7280 read, 001A7280's player */
+    const EmSdkMathContext *math;        /* 0011E748 for 001A4830 */
 } EmCollMoveWorld;
 
 /* 0019FE50. Returns 1 when nothing was hit, 0 on a hit, -1 on a fault. */
 int em_coll_move_walk_0019FE50(const EmCollMoveWorld *world, EmCollMoveScratch *s);
 
 /* 0019AD00(actor, target, flags). Returns the mode (0, 1, 2 or 4; also
- * s->mode), or -1 on a fault (nothing written when a needed worker is
- * missing). */
+ * s->mode), or -1 on a fault (the scratch and the actor are then left
+ * exactly as they were). */
 int em_coll_move_0019AD00(const EmCollMoveWorld *world, EmCollMoveScratch *s,
                           EmCollMoveActor *actor, const float target[3], uint32_t flags);
 /* 0019AFE0(actor, from, to, flags). */
@@ -127,13 +131,14 @@ int em_coll_move_sweep_0019AFE0(const EmCollMoveWorld *world, EmCollMoveScratch 
                                 uint32_t flags);
 
 /* The prim tests over the scratch segment, for the reference test: 1 hit,
- * 0 miss, -1 fault (a missing sqrt worker, a refused VU form). `p` is the
+ * 0 miss, -1 fault (no SDK math context, a failing 0011E748, a refused VU
+ * form). `p` is the
  * prim header in the original byte layout. */
 int em_coll_move_prim_001A4830(const EmCollMoveWorld *world, EmCollMoveScratch *s, const uint8_t *p);
 int em_coll_move_prim_001A4D10(EmCollMoveScratch *s, const uint8_t *p);
 int em_coll_move_prim_001A4030(EmCollMoveScratch *s, const uint8_t *p);
 
-/* ---- Worker adapters (docs/COLL_MOVE.md "Binding") --------------------- */
+/* ---- Caller adapters (docs/COLL_MOVE.md "Binding") --------------------- */
 
 /* The player's view: its live record supplies +0x00, +0x02 and +0x52; `self`
  * is what 0x70003254 receives (the player is no class-4 owner, so any
@@ -147,9 +152,9 @@ typedef struct EmCollMovePlayer {
 
 /* EmPlayerProbeWorkers.move / .sweep (00176C80, 001764E0, 001756E0 and the
  * floor module's other callers): flags without bit 31. The hit record is
- * filled from the scratch the call left (EmPlayerProbeHit fields). A record
- * whose surface byte is 0x35 faults (its +0x34 axis is not carried for a
- * cell record). */
+ * filled from the scratch the call left (EmPlayerProbeHit fields). A hit
+ * whose record surface byte is 0x35 faults: 00175CF0 reads that record's
+ * +0x34 axis, which neither a cell record nor a grid node carries here. */
 int em_coll_move_player_move(void *player, const float position[3], const float target[3],
                              unsigned mask, EmPlayerProbeHit *hit);
 int em_coll_move_player_sweep(void *player, const float from[3], const float to[3], unsigned mask,

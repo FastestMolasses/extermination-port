@@ -29,7 +29,7 @@ def main():
         'tests/camera_interaction_fixture.c','src/game/em_camera.c',
         'src/game/em_camera_probe.c','src/game/em_camera_retarget.c','src/game/em_camera_rotation.c',
         'src/game/em_collision.c','src/game/em_collision_world.c','src/game/em_actor_collision.c',
-        'src/game/em_actor_pool.c','src/game/em_coll_probe_original.c','src/game/em_coll_segment_walkers.c',
+        'src/game/em_actor_pool.c','src/game/em_coll_probe_original.c','src/game/em_coll_grid_hull.c','src/game/em_coll_segment_walkers.c',
         'src/game/em_coll_list_passes.c','src/game/em_coll_list_passes_walkers.c',
         'src/game/em_sdk_math_original.c','src/game/em_sdk_soft_float.c','src/game/em_effect_original.c',
         '-lm','-o',str(library)],cwd=ROOT,check=True)

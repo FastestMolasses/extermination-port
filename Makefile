@@ -17,7 +17,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
-           src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c \
+           src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c src/game/em_roger_assets.c \
@@ -423,7 +423,7 @@ test-shadow-original-reference:
 
 .PHONY: test-player-states-host
 test-player-states-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
 
 .PHONY: test-ee-float-model
 test-ee-float-model:
@@ -741,6 +741,18 @@ test-census-unverified-reference:
 test-census-standins-reference:
 	python3 tools/test_census_standins_reference.py
 
+.PHONY: test-coll-grid-hull-reference
+test-coll-grid-hull-reference:
+	python3 tools/test_coll_grid_hull_reference.py
+
+.PHONY: test-vu1-face-morph-reference
+test-vu1-face-morph-reference:
+	python3 tools/test_vu1_face_morph_reference.py
+
+.PHONY: test-vu1-face-morph-defects
+test-vu1-face-morph-defects:
+	python3 tools/test_vu1_face_morph_reference.py --defects
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
@@ -764,6 +776,10 @@ test-player-climb-reference:
 .PHONY: test-player-slide-reference
 test-player-slide-reference:
 	python3 tools/test_player_slide_reference.py
+
+.PHONY: test-player-record-helpers-reference
+test-player-record-helpers-reference:
+	python3 tools/test_player_record_helpers_reference.py
 
 .PHONY: test-background-reference
 test-background-reference:
