@@ -387,7 +387,7 @@ def check_blocks(failures):
     if not path.exists():
         raise SystemExit(f'FAIL: missing {path} (record it with ../Extermination/tools/ee_float/blockcheck.py)')
     runs = json.loads(path.read_text())
-    for rec in runs['vu_apply_matrix']:     # 001026A0: VMULAx, VMADDAy, VMADDAz, VMADDw
+    for rec in runs['vu_apply_matrix']:     # 001026A0: M[0]*v.x + M[1]*v.y + M[2]*v.z in ACC, then + M[3]*v.w
         m, v = rec['M'], rec['v']
         acc, statuses = [0x5A5A5A5A] * 4, []
         for op, bc in (('vmulabc', 0), ('vmaddabc', 1), ('vmaddabc', 2)):
@@ -397,22 +397,19 @@ def check_blocks(failures):
         if any(statuses) or status or out != rec['out']:
             failures.append(('block 001026A0', rec, out, rec['out']))
     for rec in runs['ee_prefix']:           # 00102EA8..00102F20
+        # The recording keys the block's inputs and results by FPU register
+        # number (the recorder's format). Below is the block's value flow over
+        # named inputs, every EE rounding step and operand order kept.
         f = {int(k): v for k, v in rec['f'].items()}
         op = lambda name, *w: c_scalar(name, *[[x] for x in w])[0]  # noqa: E731
-        f[0] = op('neg.s', f[17])
-        f[20] = op('neg.s', f[18])
-        f[1] = rec['mem']
-        f[0] = op('add.s', f[0], f[18])
-        f[21] = op('mul.s', f[1], f[19])
-        f[20] = op('mul.s', f[20], f[19])
-        f[17] = op('mul.s', f[17], f[1])
-        f[19] = op('neg.s', f[19])
-        f[21] = op('mul.s', f[21], f[0])
-        f[20] = op('add.s', f[20], f[17])
-        f[19] = op('add.s', f[19], f[1])
-        f[21] = op('div.s', f[21], f[19])
-        f[20] = op('div.s', f[20], f[19])
-        got = {str(k): f[k] for k in (0, 1, 17, 19, 20, 21)}
+        x, y, z, m = f[17], f[18], f[19], rec['mem']
+        span = op('add.s', op('neg.s', x), y)                     # y - x
+        denom = op('add.s', op('neg.s', z), m)                    # m - z
+        xm = op('mul.s', x, m)                                    # x * m
+        num_a = op('mul.s', op('mul.s', m, z), span)              # m * z * (y - x)
+        num_b = op('add.s', op('mul.s', op('neg.s', y), z), xm)   # x * m - y * z
+        got = {'0': span, '1': m, '17': xm, '19': denom,
+               '20': op('div.s', num_b, denom), '21': op('div.s', num_a, denom)}
         if got != rec['out']:
             failures.append(('block 00102EA8', rec, got, rec['out']))
     return len(runs['vu_apply_matrix']) + len(runs['ee_prefix'])
