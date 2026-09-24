@@ -729,6 +729,18 @@ test-vu1-object-kernel-reference:
 test-vu1-object-kernel-defects:
 	python3 tools/test_vu1_object_kernel_reference.py --defects
 
+.PHONY: test-packet-chain-reference
+test-packet-chain-reference:
+	python3 tools/test_packet_chain_reference.py
+
+.PHONY: test-census-unverified-reference
+test-census-unverified-reference:
+	python3 tools/test_census_unverified_reference.py
+
+.PHONY: test-census-standins-reference
+test-census-standins-reference:
+	python3 tools/test_census_standins_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
