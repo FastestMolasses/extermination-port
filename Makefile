@@ -666,6 +666,14 @@ test-render-verify-rest-reference:
 test-main-loop-and-gap-reference:
 	python3 tools/test_main_loop_and_gap_reference.py
 
+.PHONY: test-player-use-dispatch-reference
+test-player-use-dispatch-reference:
+	python3 tools/test_player_use_dispatch_reference.py
+
+.PHONY: test-coll-list-passes-reference
+test-coll-list-passes-reference:
+	python3 tools/test_coll_list_passes_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
