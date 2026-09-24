@@ -1,5 +1,6 @@
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
+#include "game/em_player_stage_workers.h"
 
 #include <assert.h>
 #include <math.h>
@@ -32,9 +33,17 @@ void palette_apply_placement(float *palette, uint32_t count, const float positio
     }
 }
 
+/* The player record the pose lives in, and the canonical bytes the attach
+ * names (D_008106F3, D_008106F1, D_00810707). */
+static EmPlayerLiveActor actor;
+static uint8_t d8106F3, d8106F1, d810707;
+static EmPlayerStageScene stage_scene = { .d8106F1 = &d8106F1 };
+static EmPlayerStageGlobals stage_globals = { .d810707 = &d810707 };
+
 static void reset(void)
 {
     player_pose_unload();
+    memset(&actor, 0, sizeof actor);
     memset(&g, 0, sizeof g);
     g.model.bone_count = 22;
     g.status.health = 100;
@@ -45,7 +54,8 @@ static void reset(void)
     g.loco_rate = 1;
     em_transition_fade_init(&fade);
     quit = 0;
-    assert(player_pose_load("assets/player_channels.empc"));
+    assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
+    assert(player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals));
     assert(player_pose_opening_release());
 }
 

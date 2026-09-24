@@ -49,15 +49,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 238 | 25,924 | 216 (24,154) | 22 (1,770) |
-| verified-unbound | 290 | 43,688 | 274 (42,489) | 16 (1,199) |
+| live | 250 | 26,768 | 228 (24,998) | 22 (1,770) |
+| verified-unbound | 278 | 42,844 | 262 (41,645) | 16 (1,199) |
 | unverified | 45 | 4,125 | 40 (3,389) | 5 (736) |
 | stand-in | 33 | 4,678 | 29 (4,560) | 4 (118) |
 | missing | 100 | 8,286 | 70 (6,581) | 30 (1,705) |
 | boundary | 478 | 25,063 | 199 (11,606) | 279 (13,457) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 706 non-boundary functions, 238 (33.7%) are live and verified; by instructions 25,924 of 86,701 (29.9%). One of them, 0015BCF0, is live only in part (its tail; the row says so). A further 290 functions (43,688 instructions) are verified translations waiting to be bound, which is where most of the remaining work is. The totals, the per-label table below and the section 3 subsection counts are recounted from the section 3 rows (last recount 2026-09-24, after the blocked census L02 + L25 step, which changed no status; the rows still give 238 / 290 / 45 / 33 / 100).
+Of the 706 non-boundary functions, 250 (35.4%) are live and verified; by instructions 26,768 of 86,701 (30.9%). One of them, 0015BCF0, is live only in part (its tail and its animate step; the row says so). A further 278 functions (42,844 instructions) are verified translations waiting to be bound, which is where most of the remaining work is. The totals, the per-label table below, the section 3 subsection counts and the section 5 lane mixes are recounted from the section 3 rows with each function's instruction count and labels from `classified.json` (last recount 2026-09-24, after the display step: 12 animation-runtime rows moved from verified-unbound to live, giving 250 / 278 / 45 / 33 / 100).
 
 ### 2.2 Per route label
 
@@ -65,25 +65,25 @@ Of the 706 non-boundary functions, 238 (33.7%) are live and verified; by instruc
 
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
-| S0_title | 25 / 22 / 6 / 7 / 13 / 399 | 25 / 22 / 6 / 7 / 13 / 399 |
-| S1_newgame_load | 64 / 52 / 9 / 11 / 39 / 104 | 48 / 34 / 5 / 4 / 29 / 20 |
-| S2_opening | 161 / 161 / 31 / 21 / 53 / 153 | 113 / 121 / 27 / 14 / 44 / 44 |
-| S3_first_control_idle | 120 / 120 / 21 / 20 / 46 / 144 | 1 / 10 / 0 / 0 / 1 / 0 |
-| 00_panel_no_battery | 156 / 140 / 23 / 21 / 51 / 127 | 12 / 10 / 1 / 2 / 5 / 2 |
-| 01_battery | 178 / 157 / 25 / 24 / 55 / 184 | 23 / 3 / 0 / 3 / 3 / 5 |
-| 02_elevator_refusal | 159 / 148 / 24 / 21 / 51 / 132 | 3 / 8 / 1 / 0 / 0 / 5 |
-| 03_panel_power | 192 / 174 / 25 / 24 / 57 / 158 | 7 / 11 / 0 / 2 / 1 / 1 |
-| 04_elevator_ride | 152 / 148 / 25 / 21 / 51 / 163 | 1 / 1 / 0 / 0 / 0 / 2 |
-| 05_boxes | 137 / 167 / 21 / 20 / 51 / 126 | 1 / 21 / 0 / 0 / 1 / 0 |
-| 06_hill_slide | 132 / 140 / 20 / 20 / 51 / 126 | 0 / 11 / 0 / 0 / 1 / 0 |
-| 07_truck_preview | 142 / 139 / 24 / 21 / 51 / 144 | 0 / 1 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 130 / 140 / 21 / 20 / 51 / 161 | 0 / 1 / 0 / 0 / 1 / 0 |
-| 09_fence_door | 156 / 154 / 30 / 22 / 58 / 135 | 3 / 3 / 2 / 1 / 0 / 0 |
-| 10_cage_roof_roger | 162 / 191 / 29 / 21 / 54 / 170 | 1 / 24 / 2 / 0 / 1 / 0 |
-| 11_crevice_prompt | 161 / 190 / 27 / 21 / 53 / 167 | 0 / 2 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 134 / 157 / 20 / 20 / 51 / 122 | 0 / 6 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 159 / 174 / 27 / 21 / 47 / 165 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 163 / 185 / 30 / 21 / 53 / 135 | 0 / 1 / 1 / 0 / 0 / 0 |
+| S0_title | 26 / 21 / 6 / 7 / 13 / 399 | 26 / 21 / 6 / 7 / 13 / 399 |
+| S1_newgame_load | 65 / 51 / 9 / 11 / 39 / 104 | 48 / 34 / 5 / 4 / 29 / 20 |
+| S2_opening | 171 / 151 / 31 / 21 / 53 / 153 | 122 / 112 / 27 / 14 / 44 / 44 |
+| S3_first_control_idle | 129 / 111 / 21 / 20 / 46 / 144 | 1 / 10 / 0 / 0 / 1 / 0 |
+| 00_panel_no_battery | 167 / 129 / 23 / 21 / 51 / 127 | 14 / 8 / 1 / 2 / 5 / 2 |
+| 01_battery | 189 / 146 / 25 / 24 / 55 / 184 | 23 / 3 / 0 / 3 / 3 / 5 |
+| 02_elevator_refusal | 170 / 137 / 24 / 21 / 51 / 132 | 3 / 8 / 1 / 0 / 0 / 5 |
+| 03_panel_power | 203 / 163 / 25 / 24 / 57 / 158 | 7 / 11 / 0 / 2 / 1 / 1 |
+| 04_elevator_ride | 163 / 137 / 25 / 21 / 51 / 163 | 1 / 1 / 0 / 0 / 0 / 2 |
+| 05_boxes | 148 / 156 / 21 / 20 / 51 / 126 | 1 / 21 / 0 / 0 / 1 / 0 |
+| 06_hill_slide | 143 / 129 / 20 / 20 / 51 / 126 | 0 / 11 / 0 / 0 / 1 / 0 |
+| 07_truck_preview | 153 / 128 / 24 / 21 / 51 / 144 | 0 / 1 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 141 / 129 / 21 / 20 / 51 / 161 | 0 / 1 / 0 / 0 / 1 / 0 |
+| 09_fence_door | 167 / 143 / 30 / 22 / 58 / 135 | 3 / 3 / 2 / 1 / 0 / 0 |
+| 10_cage_roof_roger | 173 / 180 / 29 / 21 / 54 / 170 | 1 / 24 / 2 / 0 / 1 / 0 |
+| 11_crevice_prompt | 172 / 179 / 27 / 21 / 53 / 167 | 0 / 2 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 145 / 146 / 20 / 20 / 51 / 122 | 0 / 6 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 170 / 163 / 27 / 21 / 47 / 165 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 175 / 173 / 30 / 21 / 53 / 135 | 0 / 1 / 1 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
@@ -201,7 +201,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0015B130 | — | BM | live | em_player_floor.c em_player_stage_0015B130 (every +4 = 1 stage since L01, em_player.c live_major1) — test_player_floor_reference (stage cases); test_level_smoke.py | state[0]/[1] are the port's idle/walk callbacks (L12); the interaction runtime still stands in for the takeover while it owns the player (acquire / +4 = 4 ticks / release); under 0x70003B8D without that owner the port's idle/walk keep the stage (the prelude's 00174A50 needs 0017B490, L12) | S2_opening |
 | 0x0015B530 | — | AI | verified-unbound | em_player_stage_workers em_player_stage_0015B530 (bound as stage major[4] by L01, but unreached) — test_player_stage_workers_reference | the original runs it on every scripted takeover (12 of 19 labels); the port runs the interaction runtime instead (em_player_pose_host.c player_pose_acquire / the takeover tick through player_pose_stage_hook / player_pose_release), which consumes the stage at 0015B130's prelude position, so the +4 = 4 stage is never entered; reached once the takeover moves onto the stage. Of its routines 001837A0 is bound; 00182DF0's record side, 001837B0, 001838B0, 00183910 are untranslated and 00162DB0/00163B40 are FLOOR (fail-stop workers) | S2_opening |
 | 0x0015BA50 | — | BM | live | em_player_floor.c em_player_stage_begin/_dispatch/_end over the record every stage (em_player.c player_states_stage, L01) — test_player_floor_reference (stage cases); test_level_smoke.py | the advance worker is the live display's 001C64F0 (em_player_pose_advance through player_pose_stage_advance); D_00248C98 from the local export; the B3 byte is still em_player_0015BCF0's stand-in expression | S2_opening |
-| 0x0015BCF0 | — | BM | live (partial: tail only) | em_player_floor.c em_player_stage_tail (+BC, the -200 check, the +31B loop-sound stop; L01) inside em_player_frame.c em_player_0015BCF0 — test_player_floor_reference (stage cases) | the skeleton evaluation, 0015CBA0, 00187350 and the +A0/+B0 copies are the port's own display and camera paths | S2_opening |
+| 0x0015BCF0 | — | BM | live (partial: tail and animate) | em_player_floor.c em_player_stage_tail (+BC, the -200 check, the +31B loop-sound stop; L01) and em_player_record_pose_animate (the animate step: 001C6DA0 / 001C68C0 / 001C6960 by +2F3, +303 and the D_00248C90 +0 row; display step) inside em_player.c player_states_stage — test_player_floor_reference (stage cases); test_player_record_pose_reference | 0015CBA0, 00187350 and the +A0/+B0 copies are the port's own display and camera paths; the port's idle/walk stages keep their legacy baked display (L12) | S2_opening |
 | 0x0015BF90 | — | NM | verified-unbound | em_shadow_actor_route — test_shadow_actor_route_reference | no live player shadow | 02_elevator_refusal |
 | 0x0015C160 | — | BM | verified-unbound | em_shadow_original — test_shadow_original_reference | live w_0015C160 is a reported no-effect binding (UM_0015C160) | S2_opening |
 | 0x0015C1F0 | — | NM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | live spawn_w_0015C1F0 is a reported no-effect binding (UM_0015C1F0) | S1_newgame_load |
@@ -235,13 +235,13 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.5 Player workers, pose and animation glue (0x174000..0x18AFFF)
 
-84 functions, 9,097 instructions: live 23, verified-unbound 45, unverified 2, stand-in 4, missing 10.
+84 functions, 9,097 instructions: live 24, verified-unbound 44, unverified 2, stand-in 4, missing 10.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001749A0 | — | BM | live | em_player_pose.c em_player_pose_select — test_player_pose_reference |  | S2_opening |
-| 0x001749F0 | anim_clip_arbiter | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference | em_player_pose.c em_player_pose_select (no oracle of this entry) | 00_panel_no_battery |
-| 0x00174A50 | — | BM | live | em_player_pose.c em_player_pose_acquire — test_player_pose_reference | the stage's translation em_player_stage_row_request is bound too (L01) but reached only by 0015B130's prelude outside the port's idle/walk; its 0017B490 / 001749A0 on the record are fail-stop (L12) | S2_opening |
+| 0x001749A0 | — | BM | live | em_pose_host_workers em_pose_host_001749A0 on the player record (em_player_record_pose; em_player_pose_host.c frame-0 requests: idle, acquire, Use, fidget, tier-2 stop) — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_pose_live_reference (first-control trace) | em_player_pose.c em_player_pose_select still poses Roger and the status models | S2_opening |
+| 0x001749F0 | anim_clip_arbiter | BM | live | em_pose_host_workers em_pose_host_001749F0 on the player record (em_player_record_pose; em_player_pose_host.c source-frame requests: walk entry, run stop, gait tier change) — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_pose_live_reference |  | 00_panel_no_battery |
+| 0x00174A50 | — | BM | live | em_player_pose_host.c player_pose_acquire (001749A0(p, 0, 0, 8.0) on the record) — test_player_pose_host_reference; test_player_record_pose_reference | the stage's translation em_player_stage_row_request is bound too (L01) but reached only by 0015B130's prelude outside the port's idle/walk; its 0017B490 on the record is fail-stop (L12) | S2_opening |
 | 0x00174AB0 | — | BM | verified-unbound | em_player_ladder_climb (one owner since 2026-09-24; the closure states run it through a bridge) — test_player_ladder_climb_reference, test_player_closure_0e_18_reference |  | 01_battery |
 | 0x00174AC0 | — | BM | live | em_player_heading.c + em_player.c turn — test_player_heading_reference | turn path only; the reversal arm (+1F0 = 7) is gated; its SDK trig is host-modelled. The record-level translation em_player_heading_record (test_player_heading_record_reference) is the `heading` worker every closure module names, proven bound against the original 00174AC0 in test_locomotion_display_reference (001612D0 over captured images with the stick held, 0x70003A20 compared) and test_player_fall_reference (0017C580 / 00162DB0 / 00163B40); it replaces the live mirrors once 001612D0 runs over the record | S3_first_control_idle |
 | 0x00174FD0 | — | BM | verified-unbound | em_player_slide — test_player_slide_reference | em_player.c collide-and-slide movement on the slope (no slide state) | 06_hill_slide |
@@ -269,7 +269,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00179680 | — | BM | verified-unbound | em_player_floor.c fall check (gated) — test_player_floor_reference | em_player.c player_move_collide floor snap / PLAYER_FALL_ENTRY (port-side) | 10_cage_roof_roger |
 | 0x001796C0 | — | NM | verified-unbound | em_player_floor.c fall check (gated) — test_player_floor_reference | em_player.c player_move_collide floor snap / PLAYER_FALL_ENTRY (port-side); FLOOR blocked on the display lane and the closure callbacks (lane L02) | S2_opening |
 | 0x00179880 | — | BM | verified-unbound | em_player_fall `em_player_fall_00179880` (the one translation; the reaction, running-jump and 10_12_19 lanes call it) — test_player_fall_reference, test_player_reaction_reference, test_player_running_jump_reference |  | 10_cage_roof_roger |
-| 0x001798D0 | — | BM | live | em_player_pose_host.c player_pose_use_accepted — test_player_pose_host_reference |  | 00_panel_no_battery |
+| 0x001798D0 | — | BM | live | em_player_pose_host.c player_pose_use_accepted (001749A0 on the record) — test_player_pose_host_reference |  | 00_panel_no_battery |
 | 0x00179B90 | — | BM | live | em_player.c footstep_rand5 / em_weapon wpn_rand over em_random — test_player_random_reference |  | 00_panel_no_battery |
 | 0x00179D20 | — | BM | missing |  | hooked (not compared) by test_player_pose_reference | 00_panel_no_battery |
 | 0x00179FF0 | — | BM | missing |  | hooked (not compared) by test_player_pose_reference | 00_panel_no_battery |
@@ -277,7 +277,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0017B490 | — | BM | verified-unbound | em_player_reversal — test_player_reversal_reference | em_player_frame.c loco_clip_for_tier (unverified duplicate) | S2_opening |
 | 0x0017B5C0 | — | BM | unverified | em_player.c eight-tick entry blend | first-control capture endpoint close, not identical | 00_panel_no_battery |
 | 0x0017B660 | anim_matrix_player | NM | stand-in |  | em_player_frame.c actor_update gait blend (matrix lerps; WP-15 P12/P13); source-state side effects translated in em_player_pose.c em_player_pose_gait_base (test_player_pose_reference) | 00_panel_no_battery |
-| 0x0017B910 | — | NM | live | em_player_pose_host.c / em_player_foot_stop.c — test_player_foot_stop_reference; test_player_pose_host_reference |  | 02_elevator_refusal |
+| 0x0017B910 | — | NM | live | em_player_pose_host.c player_pose_foot_stop_begin (anim_eval_skeleton on the record, nodes 17 / 18 at +C0) / em_player_foot_stop.c — test_player_foot_stop_reference; test_player_pose_host_reference |  | 02_elevator_refusal |
 | 0x0017BC40 | — | BM | live | em_player_motor.c em_player_motor_tick — test_player_motor_reference |  | 00_panel_no_battery |
 | 0x0017C030 | — | BM | verified-unbound | em_player_reversal — test_player_reversal_reference | em_player.c legacy clip requests (gait tiers, stop clip 5) | 00_panel_no_battery |
 | 0x0017C440 | — | BM | live | em_player_motor.c em_player_reentry_tick — test_player_reentry_reference.py | stop-interruption metadata; the translation/clip callees are boundaries in that oracle | 10_cage_roof_roger |
@@ -301,7 +301,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00182BF0 | — | NM | verified-unbound | em_script_host_workers — test_script_host_workers_reference |  | 10_cage_roof_roger |
 | 0x00182D40 | — | BM | unverified | em_player_pose_host.c release tail | hooked in the pose oracles | S2_opening |
 | 0x00182D70 | — | BM | verified-unbound | em_player_stage_workers em_player_stage_scripted_notify (bound in 0015B130's prelude by L01, but unreached) — test_player_stage_workers_reference | as 00182B30: the interaction runtime's player_pose_acquire / takeover tick / player_pose_release stand in (00182D70's record-side writes +0 = 1, +24C = -1, +1F4 and the pending clears are not made); link1C is a fail-stop worker (+1C is 0 in every route capture). Reached once the takeover moves onto the stage | S2_opening |
-| 0x00182DF0 | — | BM | live | em_player_pose_host.c player_pose_release / legacy_reseed — test_player_pose_host_reference; test_player_cinematic_reference |  | S2_opening |
+| 0x00182DF0 | — | BM | live | em_player_pose_host.c record_release / record_default (001C63E0 on the record; the D_00248C90 +0 row from assets/player_clip_row0.emch) — test_player_pose_host_reference; test_player_cinematic_reference | 0017B490's row default is the healthy row (clip 0; +235 latch not ported, L12) | S2_opening |
 | 0x00182F90 | — | BM | live | em_player_pose_host.c player_pose_align — test_player_pose_host_reference; test_interaction_alignment_reference |  | S2_opening |
 | 0x00183090 | — | BM | live | em_player_pose.c / em_interaction_animation.c commit — test_player_cinematic_reference |  | S2_opening |
 | 0x001837A0 | — | BM | verified-unbound | em_player_stage_live.c w_001837A0 (0015B530's +5 = 0 routine, bound by L01 but unreached) — the byte-matched src/func_001837A0.c is an empty function; test_player_stage_workers_reference hooks it as 0015B530's target | as 0015B530: the interaction runtime (player_pose_acquire / the takeover tick / player_pose_release) stands in for the takeover, so 0015B530 and its routines are not entered. Reached once the takeover moves onto the stage | S2_opening |
@@ -545,41 +545,41 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.14 Animation runtime (0x1C6000..0x1CC16F)
 
-53 functions, 4,258 instructions: live 16, verified-unbound 30, unverified 1, missing 6.
+53 functions, 4,258 instructions: live 27, verified-unbound 19, unverified 1, missing 6.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001C6120 | — | BM | verified-unbound | em_pose_host_workers, em_owner_services_original — test_owner_services_reference.py, test_pose_host_workers_reference.py, test_shadow_original_reference.py |  | S0_title |
+| 0x001C6120 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose), em_owner_services_original — test_player_record_pose_reference, test_owner_services_reference.py, test_pose_host_workers_reference.py, test_shadow_original_reference.py |  | S0_title |
 | 0x001C6150 | — | BM | verified-unbound | em_status_models, em_roger_actor_original — test_owner_services_reference.py, test_player_misc_workers_reference.py, test_roger_actor_original_reference.py |  | S1_newgame_load |
-| 0x001C61D0 | — | BM | verified-unbound | em_pose_host_workers, em_weapon — test_player_fall_reference.py, test_player_reaction_reference.py, test_player_recovery_reference.py |  | 00_panel_no_battery |
+| 0x001C61D0 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose: the host's clip frames), em_weapon — test_player_record_pose_reference; test_pose_host_workers_reference, test_player_fall_reference.py, test_player_reaction_reference.py, test_player_recovery_reference.py |  | 00_panel_no_battery |
 | 0x001C62C0 | bone_init_default_1 | AW | live | em_status_models, em_owner_services_original — test_owner_services_reference.py |  | S2_opening |
 | 0x001C6380 | — | BM | live | em_owner_services_original, em_status_models — test_owner_services_reference.py |  | S2_opening |
-| 0x001C63E0 | bone_init_default_2 | BM | verified-unbound | em_pose_host_workers, em_status_models — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C64F0 | anim_advance_time | NM | live | em_player_pose.c em_player_pose_advance / em_interaction_animation.c — test_player_pose_reference |  | S2_opening |
-| 0x001C67E0 | anim_clip_init | BM | live | em_player_pose.c (clip init) — test_player_pose_reference |  | 00_panel_no_battery |
-| 0x001C68C0 | — | BM | verified-unbound | em_pose_host_workers, em_door — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C6960 | — | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C6DA0 | anim_eval_skeleton | AU | live | em_pose_bank.c / em_player_pose.c evaluation — test_player_pose_host_reference; test_player_foot_stop_reference | player and pose-bank actors; other actors use exported matrices | S2_opening |
+| 0x001C63E0 | bone_init_default_2 | BM | live | em_pose_host_workers on the player record (em_player_record_pose_default: the opening release, 0015C420's pose half at the attach, the legacy re-seed, the cinematic release), em_status_models — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_cinematic_reference |  | S2_opening |
+| 0x001C64F0 | anim_advance_time | NM | live | em_player_stage_workers em_player_stage_anim_advance on the player record (em_player_record_pose: 0015BA50's advance, the idle and script ticks; the chain step) — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_pose_live_reference | em_player_pose.c em_player_pose_advance poses Roger and the status models; the interaction runtime's baked clock (em_interaction_animation.c) is checked against the record every tick | S2_opening |
+| 0x001C67E0 | anim_clip_init | BM | live | em_pose_host_workers (clip init) on the player record (em_player_record_pose) — test_player_record_pose_reference; test_pose_host_workers_reference |  | 00_panel_no_battery |
+| 0x001C68C0 | — | BM | live | em_pose_host_workers on the player record (0015BCF0's animate step for a zero D_00248C90 row: the takeover clips; 0015C420's pose half), em_door — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
+| 0x001C6960 | — | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py | bound in em_player_record_pose_animate for a +2F3 other than 0 / 3 / 4, which the port's record never holds (the cinematic special bank is off the record) | S2_opening |
+| 0x001C6DA0 | anim_eval_skeleton | AU | live | em_pose_host_workers em_pose_host_001C6DA0 on the player record (0015BCF0's animate step for a nonzero D_00248C90 row; 0017B910's foot-stop begin) — test_player_record_pose_reference (the captured skeletons re-evaluated byte for byte); test_pose_host_workers_reference | em_pose_bank / em_player_pose evaluation remains for Roger and the status models; other actors use exported matrices | S2_opening |
 | 0x001C7420 | — | NM | verified-unbound | em_owner_services_original — test_owner_services_reference | em_face_model.c / em_opening_actor.c basis collapse | S2_opening |
 | 0x001C7900 | — | NM | missing |  |  | S2_opening |
 | 0x001C7C00 | — | NM | verified-unbound | em_cinematic_camera — test_roger_cinematic_reference.py |  | S2_opening |
-| 0x001C8480 | anim_clip_resolve | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C84D0 | — | BM | live | em_pose_bank.c / em_pose_transition.c — test_pose_bank_reference; test_pose_transition_reference |  | S2_opening |
-| 0x001C85D0 | anim_decode_translation | BM | live | em_pose_bank.c / em_pose_transition.c — test_pose_bank_reference; test_pose_transition_reference |  | S2_opening |
-| 0x001C86A0 | — | BM | live | em_pose_transition.c — test_pose_transition_reference |  | S2_opening |
-| 0x001C8710 | — | AW | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C87C0 | — | NM | live | em_pose_transition.c — test_pose_transition_reference |  | S2_opening |
-| 0x001C8D50 | anim_sample_bones | BM | live | em_pose_transition.c — test_pose_transition_reference |  | 00_panel_no_battery |
-| 0x001C8F10 | anim_sample_rotation | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C90D0 | — | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C92C0 | — | NM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
-| 0x001C94B0 | build_trs_matrix | AI | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference.py |  | S2_opening |
+| 0x001C8480 | anim_clip_resolve | BM | live | em_pose_host_workers on the player record — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
+| 0x001C84D0 | — | BM | live | em_pose_host_workers on the player record; em_pose_bank.c / em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_bank_reference; test_pose_transition_reference |  | S2_opening |
+| 0x001C85D0 | anim_decode_translation | BM | live | em_pose_host_workers on the player record; em_pose_bank.c / em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_bank_reference; test_pose_transition_reference |  | S2_opening |
+| 0x001C86A0 | — | BM | live | em_pose_host_workers on the player record; em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_transition_reference |  | S2_opening |
+| 0x001C8710 | — | AW | live | em_pose_host_workers on the player record — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
+| 0x001C87C0 | — | NM | live | em_pose_host_workers on the player record; em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_transition_reference |  | S2_opening |
+| 0x001C8D50 | anim_sample_bones | BM | live | em_pose_host_workers on the player record; em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_transition_reference |  | 00_panel_no_battery |
+| 0x001C8F10 | anim_sample_rotation | BM | live | em_pose_host_workers on the player record — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
+| 0x001C90D0 | — | BM | live | em_pose_host_workers on the player record — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
+| 0x001C92C0 | — | NM | live | em_pose_host_workers on the player record — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
+| 0x001C94B0 | build_trs_matrix | AI | live | em_pose_host_workers (em_owner_services_build_trs_matrix) on the player record's +D0 — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
 | 0x001C9610 | — | NM | live | em_owner_services_original, em_status_models — test_owner_services_reference.py |  | S2_opening |
-| 0x001C9940 | — | NM | verified-unbound | em_pose_host_workers, em_door — test_pose_host_workers_reference.py |  | S2_opening |
+| 0x001C9940 | — | NM | live | em_pose_host_workers on the player record (through 001C68C0), em_door — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
 | 0x001C9D50 | — | BM | missing |  |  | 00_panel_no_battery |
 | 0x001C9E40 | — | AW | missing |  |  | 00_panel_no_battery |
-| 0x001CA0A0 | quat_nlerp | NM | live | em_pose_transition.c — test_pose_transition_reference |  | S2_opening |
-| 0x001CA1C0 | quat_to_mat3 | BM | live | em_pose_transition.c — test_pose_transition_reference |  | S2_opening |
+| 0x001CA0A0 | quat_nlerp | NM | live | em_pose_host_workers on the player record; em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_transition_reference |  | S2_opening |
+| 0x001CA1C0 | quat_to_mat3 | BM | live | em_pose_host_workers on the player record; em_pose_transition.c (Roger, status models) — test_player_record_pose_reference; test_pose_host_workers_reference; test_pose_transition_reference |  | S2_opening |
 | 0x001CA5E0 | — | BM | verified-unbound | em_roger_actor_original — test_roger_actor_original_reference.py |  | S1_newgame_load |
 | 0x001CA5F0 | — | BM | verified-unbound | em_status_models, em_roger_actor_original — test_roger_actor_original_reference.py |  | S1_newgame_load |
 | 0x001CA6E0 | — | BM | verified-unbound | em_roger_actor_original, em_status_models — test_player_misc_workers_reference.py, test_roger_actor_original_reference.py |  | S1_newgame_load |
@@ -1089,7 +1089,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 1 | **L01-player-stage-live**: Engage the translated player stage (FLOOR gate): 0015BA50/0015B130/0015BCF0 and the stage workers, retire player_damage_tick. **Bound 2026-09-23 (partial):** 10 live (0015BCF0 tail only), 4 bound but unreached (0015B530, 001837A0, 00182B30, 00182D70: the interaction runtime still stands in for the scripted takeover and consumes the stage before 0015B130's prelude), 0015CF90 unverified (no oracle); the prelude on the port's idle/walk waits on 0017B490 (L12) | bind | 1,922 | 15 (live 10, verified-unbound 4, unverified 1) | every frame from first control; prerequisite of the floor, slide, climb, ladder and jump lanes | nothing (translations exist); retire em_player_damage.c copies in the same change (done) |
 | 2 | **L05-coll-move-walkers**: Replace em_collision movement queries with the translated move/sweep walkers. **BLOCKED (2026-09-24):** its grid pass 0019CB60 and hull lock 001A6440 were never translated (the oracle hooks the originals; rows corrected to missing), and the player's masks reach both; 001A4030 is live through 001A1390 (L06b) | translate+bind | 2,163 | 8 (live 1, verified-unbound 5, missing 2) | every frame (player and camera movement queries) | a translation of 0019CB60 and 001A6440 with their oracles (COLL_MOVE.md section 4 item 2) |
 | 3 | **L07-actor-collision-live**: Link em_actor_collision: grid/column scan, actor hulls, list classes and the 001AAD00 swap. **Bound 2026-09-24 (partial):** the world, the lists, 001AAD00 and the publication of the panel, terminal and items (001A2370 re-transforms equal the route captures) are live; 0019AB20 / 0019F730 / 0019C830 / 0019BC40 / 001A5760 are bound only into the gated FLOOR (their prim tests must first be reduced to em_coll_probe_original's and harmonized, EE_FLOAT_MODEL.md 5c); the class 2/0xA and 0xD pushes wait on owners that publish them; the crates, drums, truck and prop cells wait on L25/L23/L35 | bind | 2,224 | 13 (live 6, verified-unbound 7) | 05 (standing on crates), 08 (standing on the truck), 10 | L05 (queries), L25/L23 (owner cells) |
-| 4 | **L02-floor-fall-live**: Bind the floor service and fall check (00175900/001796C0) and the fall state, retiring the floor snap and PLAYER_FALL_ENTRY. **Blocked 2026-09-24 (chain step L02 + L25):** FLOOR cannot engage until the display lane (L12/L33) shows the closure's clips: the live pose bank holds 14 clips and none of the FLOOR ones, em_pose_bank refuses chained clips (0x73, 0x5E), and 001749A0 / 001749F0 / 001C61D0 / anim_eval_skeleton on the record have no chosen owner (FIRST_CONTROL.md "Missing today"); the SDK atan2f/sqrtf are met (bound over the collision world's SDK context with the soft-float workers since the soft-float step, 2026-09-24); the closure's state callbacks and their ~450 worker slots are unbound (their duplicate translations are reduced to one owner each since the one-owner step, 2026-09-24: 0021D250 / 0021D2E0 / 00179880 in em_player_fall, 00180420 / 00174AB0 / 0017FC80 in em_player_ladder_climb, 00180300 in em_player_ladder_entry; the record-level 00174AC0, em_player_heading_record, is every module's `heading` worker, proven bound in test_locomotion_display_reference and test_player_fall_reference). Bound into the gated FLOOR: 00175CF0's tanf 0011E398 and atanf 0011DBB8 (the slot was mislabelled `cosine`) with the SDK fault latch (L02 step), and its atan2f 0011E620 and sqrtf 0011E748 (soft-float step) | bind | 1,755 | 14 (verified-unbound 14) | 05, 06, 08, 10 (step-offs, the cage-roof fall) | L01; L07 (column scan 0019BC40 and actor collision) |
+| 4 | **L02-floor-fall-live**: Bind the floor service and fall check (00175900/001796C0) and the fall state, retiring the floor snap and PLAYER_FALL_ENTRY. **Blocked 2026-09-24 (chain step L02 + L25), now only on the closure callbacks:** the display is met since the display step (2026-09-24): the player's pose has one owner, the record worked by em_pose_host_workers over the whole bank (0x73 / 0x5E chain, every FLOOR clip loaded), and the display draws it for every stage a translated routine owns (`player_states_bind_display(1)`; FIRST_CONTROL.md "Missing today"); the SDK atan2f/sqrtf are met (bound over the collision world's SDK context with the soft-float workers since the soft-float step, 2026-09-24); the closure's state callbacks and their ~450 worker slots are unbound (their duplicate translations are reduced to one owner each since the one-owner step, 2026-09-24: 0021D250 / 0021D2E0 / 00179880 in em_player_fall, 00180420 / 00174AB0 / 0017FC80 in em_player_ladder_climb, 00180300 in em_player_ladder_entry; the record-level 00174AC0, em_player_heading_record, is every module's `heading` worker, proven bound in test_locomotion_display_reference and test_player_fall_reference). Bound into the gated FLOOR: 00175CF0's tanf 0011E398 and atanf 0011DBB8 (the slot was mislabelled `cosine`) with the SDK fault latch (L02 step), and its atan2f 0011E620 and sqrtf 0011E748 (soft-float step) | bind | 1,755 | 14 (verified-unbound 14) | 05, 06, 08, 10 (step-offs, the cage-roof fall) | L01; L07 (column scan 0019BC40 and actor collision) |
 | 5 | **L04-box-climb**: Bind ledge climb / vault (0015DF10, 00161790) for the boxes | bind | 1,960 | 12 (verified-unbound 12) | 05 (climbing the boxes) | L01, L02, L05, L06 |
 | 6 | **L03-hill-slide**: Bind the slide state (0016C6A0 family) for the hill | bind | 1,560 | 8 (verified-unbound 8) | 06 (sliding down the hill) | L02 |
 | 7 | **L06-coll-probe-walkers**: Bind the translated probe walkers (em_coll_probe_original). **Bound 2026-09-24 into the gated FLOOR** (em_collision_world_bind_player); 0019F1A0 / 0019ED80 are live under the camera's grid walkers | bind | 1,992 | 9 (live 2, verified-unbound 7) | every frame (probes); 05 | L02 (engages FLOOR) |
@@ -1107,7 +1107,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 19 | **L14-camera-solver-dd20**: Bind 0018DD20 (desired-eye solver) and retire the unverified duplicate; oracle 0018CE60 | bind | 2,051 | 2 (verified-unbound 1, unverified 1) | every frame from first control | L13 |
 | 20 | **L15-camera-actions**: Bind the camera action dispatch 0018BC20 and em_camera_area11_specials (001921D0, 00193EB0) | bind | 1,951 | 5 (verified-unbound 4, stand-in 1) | every frame from first control | L13 |
 | 21 | **L16-camera-area11-walk**: Bind 00195130 (AREA11 walking specials) and 001916C0; translate the 0015CBA0 state map | bind+translate | 1,843 | 3 (verified-unbound 2, stand-in 1) | every frame from first control (AREA11 walking specials) | L15 |
-| 22 | **L12-locomotion-display**: Replace the legacy idle/walk callbacks and gait display with 00161020/001612D0/0017B660 and their verified workers | translate+bind | 1,742 | 15 (verified-unbound 7, unverified 2, stand-in 4, missing 2) | every frame from first control (idle/walk look and footsteps) | L01 |
+| 22 | **L12-locomotion-display**: Replace the legacy idle/walk callbacks and gait display with 00161020/001612D0/0017B660 and their verified workers. Since the display step (2026-09-24) their source pose is the player record (001749F0 live on it) and a translated state's stage displays the record; the port's idle/walk stages keep the legacy baked display | translate+bind | 1,742 | 15 (live 1, verified-unbound 6, unverified 2, stand-in 4, missing 2) | every frame from first control (idle/walk look and footsteps) | L01 |
 | 23 | **L24-fan-husk**: WP-11: bind the fan pair; translate the husk pair (overlay, no C) | bind+translate | 1,924 | 4 (verified-unbound 1, stand-in 2, missing 1) | every frame (husk pair), level exit (fan) | L07 |
 | 24 | **L25-crates-drums**: WP-18: bind crates and drums in place of em_enemy. **Blocked 2026-09-24:** model allocation (001B0EA0's 001C6120 / 001CA6E0 / 001AF780 over an AREA11 world model bank the port does not hold), the 001CAA00 draw (001CA7B0 / 001CA940 / 001D1F80, renderer boundary undecided), the unharmonized 0019AB20 probe (ACTOR_COLLISION.md 7 item 4), the legacy group split with L24, and no export of D_002468B0 / D_00246A00 / D_00246A10 (CRATES_DRUMS_ORIGINAL.md "Status") | bind | 1,885 | 2 (verified-unbound 2) | every frame; 05 | L07 |
 | 25 | **L18-door-original**: WP-7: bind the original door runtime/program/transit | bind | 881 | 11 (verified-unbound 7, unverified 3, stand-in 1) | 09 (fence door, side beat) | L17 (Use arbitration) |
@@ -1120,7 +1120,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 32 | **L32-frame-render-heads**: Replace the port collectors at 001D1C50/001D1EA0/001D30A0 and the projection with translations | translate | 1,545 | 18 (unverified 4, stand-in 7, missing 7) | every frame (frame setup, projection) | renderer |
 | 33 | **L30-render-context**: Translate the render-context / HUD bar / area-specials path | translate | 1,612 | 16 (unverified 1, missing 15) | every frame (render context, HUD bar) | renderer |
 | 34 | **L31-background-weather-load**: Bind em_background_gs and the area-load render passes (001C1DC0 family) | bind+verify | 932 | 17 (verified-unbound 7, unverified 5, missing 5) | S1 (area load), 09 (room move), every frame (background) | renderer |
-| 35 | **L33-anim-runtime-rest**: Translate the remaining animation-runtime originals and bind em_pose_host_workers | translate+bind | 1,819 | 22 (verified-unbound 15, unverified 1, missing 6) | every frame (animation) | nothing |
+| 35 | **L33-anim-runtime-rest**: Translate the remaining animation-runtime originals and bind em_pose_host_workers. **Bound 2026-09-24 (display step, partial):** em_pose_host_workers is the player's one pose owner (em_player_record_pose over the live record): 11 rows live (001C6120, 001C61D0, 001C63E0, 001C68C0, 001C8480, 001C8710, 001C8F10, 001C90D0, 001C92C0, 001C94B0, 001C9940); 001C6960 is bound in 0015BCF0's animate step but unreached (+2F3 never set on the record); 001C6150, 001CB5B0 and the rest stay for other actors or are untranslated | translate+bind | 1,819 | 22 (live 11, verified-unbound 4, unverified 1, missing 6) | every frame (animation) | nothing |
 | 36 | **L36-stream-lanes-sound**: Bind the stream lanes (music/voice) and the gain/positional sound originals | bind | 1,530 | 17 (live 1, verified-unbound 16) | every frame (music and voice streams) | IOP/disc boundary decisions |
 | 37 | **L38-load-veil-particles**: Bind the load-veil particles (0021B1B0/0021B500) so the load is not black | bind | 1,074 | 16 (verified-unbound 16) | S1, 09 (loads) | nothing |
 | 38 | **L39-head-sprite-effects**: Bind the head-bone sprite effect (001E2560 node) and its registry helpers | bind | 868 | 12 (verified-unbound 12) | every frame (head-bone sprite) | renderer |

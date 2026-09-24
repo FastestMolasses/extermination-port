@@ -37,6 +37,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c src/game/em_player_floor.c \
            src/game/em_player_stage_workers.c src/game/em_player_stage_live.c \
+           src/game/em_player_record_pose.c src/game/em_pose_host_workers.c \
+           src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_stream_lanes_original.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
@@ -705,6 +707,12 @@ test-player-heading-record-reference:
 test-pose-chain-reference:
 	python3 tools/test_pose_chain_reference.py
 
+# The player's one pose owner (docs/PLAYER_CLIPS.md section 6): the live
+# module against the original over the captured player records.
+.PHONY: test-player-record-pose-reference
+test-player-record-pose-reference:
+	python3 tools/test_player_record_pose_reference.py
+
 .PHONY: test-actor-light-001d89d0-reference
 test-actor-light-001d89d0-reference:
 	python3 tools/test_actor_light_001d89d0_reference.py
@@ -857,13 +865,19 @@ test-pose-reference:
 	python3 tools/test_pose_bank_reference.py
 	python3 tools/test_player_pose_reference.py
 
+# The player's one pose owner (em_player_record_pose over em_pose_host_workers)
+# and the translations it reaches (docs/PLAYER_CLIPS.md section 6).
+PLAYER_RECORD_POSE_SRC := src/game/em_player_record_pose.c src/game/em_pose_host_workers.c \
+    src/game/em_player_stage_workers.c src/game/em_player_floor.c src/game/em_player_reaction.c \
+    src/game/em_player_fall.c src/game/em_owner_services_original.c src/game/em_stream_lanes_original.c
+
 .PHONY: test-player-pose-host
 test-player-pose-host:
 	@mkdir -p build/player_pose_channels
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc \
 	    tests/player_pose_host_test.c src/game/em_player_pose_host.c src/game/em_player_pose.c \
 	    src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_fade.c \
-	    src/game/em_player_foot_stop.c src/game/em_camera_rotation.c -lm \
+	    src/game/em_player_foot_stop.c src/game/em_camera_rotation.c $(PLAYER_RECORD_POSE_SRC) -lm \
 	    -o build/player_pose_channels/player_pose_host_test
 	./build/player_pose_channels/player_pose_host_test
 

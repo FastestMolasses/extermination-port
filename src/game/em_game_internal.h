@@ -48,7 +48,9 @@
                                          * the ACTIVE scene (runtime
                                          * switch: em_game_scene_switch) */
 #define COLL_DEFAULT   "office.emcl"
-#define PLAYER_CHANNELS_PATH "assets/player_channels.empc"
+/* The player's clip bank and D_00248C90's +0 column (player_pose_load). */
+#define PLAYER_CLIP_BANK_PATH "assets/player_clips_full.bank"
+#define PLAYER_CLIP_ROW0_PATH "assets/player_clip_row0.emch"
 /* Area 0x0B / sub 0 / entry 0, committed by func_001AD360 step 4 on every
  * new-game route (title New Game and game-over option 0). */
 #define AREA11_SCENE_DIR "assets/scene_snow"
@@ -2164,7 +2166,10 @@ void palette_apply_placement(float *pal, uint32_t bone_count,
 void player_pose_set_stage_hook(int (*hook)(void *), void *context);
 void player_use_set_hook(int (*hook)(void *), void *context);
 int player_use_poll(void);
-int player_pose_load(const char *path);
+/* The player's clip bank (assets/player_clips_full.bank) and D_00248C90's +0
+ * column (assets/player_clip_row0.emch); the pose itself lives in the player
+ * record once player_pose_attach (em_player.h) binds it. */
+int player_pose_load(const char *bank_path, const char *row0_path);
 void player_pose_unload(void);
 int player_pose_opening_release(void);
 int player_pose_stage(void);
@@ -2200,7 +2205,10 @@ int player_pose_cinematic_active(void);
 int player_pose_release(void);
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette);
-int player_pose_publish(const float *local_palette);
+/* The source's palettes (idle_tick, script_tick, cinematic_tick, publish)
+ * are world-space: the record's node world matrices (0015BCF0's evaluation
+ * at the record's +B0 / +C4) or the special bank's channels. */
+int player_pose_publish(const float *palette);
 int player_pose_hip(float out[3]);
 void player_pose_finish_palette(void);
 int player_pose_align(const float position[3]);

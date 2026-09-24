@@ -17,7 +17,10 @@ MODULES = (
     'em_owner_services_original em_item_geometry em_pickup em_pickup_items_original em_pickup_owner em_pickup_program em_pickup_motion em_opening_media '
     'em_script em_frame em_fade em_random em_task em_player_face_host em_face_model em_opening_face '
     'em_collision_world em_actor_collision em_actor_pool em_coll_probe_original em_coll_segment_walkers '
-    'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original'
+    'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original '
+    # The player's one pose owner (docs/PLAYER_CLIPS.md section 6).
+    'em_player_record_pose em_pose_host_workers em_player_stage_workers em_player_floor '
+    'em_player_reaction em_player_fall em_stream_lanes_original'
 ).split()
 
 

@@ -1,5 +1,16 @@
 # Original player pose channels
 
+> **Since the display step (2026-09-24) the player's pose is not this
+> module's.** The player's clip clock, node channels and skeleton live in
+> the player record and are worked by `em_pose_host_workers` through
+> `em_player_record_pose` (PLAYER_CLIPS.md section 6); `em_player_pose_host.c`
+> keeps its API over the record. `em_player_pose` / `em_pose_bank` /
+> `em_pose_transition` still pose Roger (`em_roger_runtime.c`), the status
+> models and the cinematic special bank, and their tests keep running; the
+> player-specific entries below (acquire, idle tick, release, script tick,
+> gait base) are no longer on the player's live path. What follows is the
+> module's history and its remaining users' reference.
+
 The new pose core retains original quaternion, translation and scale channels.
 It supplies the source pose for interaction acquisition and release without
 decomposing the port's displayed matrices. `em_player_pose_host.c` tracks the

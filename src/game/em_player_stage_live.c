@@ -10,6 +10,8 @@
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_pose_host_workers.h"
+#include "game/em_scene_state.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 
@@ -43,16 +45,6 @@ static int stub_001D0C70(void *c)
 {
     (void)c;
     return unbound("001D0C70 (00183090 under 0x70003B8F == 2)");
-}
-static int stub_bone_init(void *c, EmPlayerLiveActor *a, int clip)
-{
-    (void)c; (void)a; (void)clip;
-    return unbound("bone_init_default_2 001C63E0 on the record (00183090)");
-}
-static int stub_clip_init(void *c, EmPlayerLiveActor *a, int clip, float blend, float frame)
-{
-    (void)c; (void)a; (void)clip; (void)blend; (void)frame;
-    return unbound("anim_clip_init 001C67E0 on the record (00183090)");
 }
 static int stub_cue(void *c, int a0, int a1, int a2, int a3)
 {
@@ -96,11 +88,6 @@ static int stub_clip_lookup(void *c, EmPlayerLiveActor *a, int a1, int a2, int a
     (void)c; (void)a; (void)a1; (void)a2; (void)a3;
     if (clip) *clip = 0;
     return unbound("0017B490 on the record (00174A50 / 0017C370; census L12)");
-}
-static int stub_request(void *c, EmPlayerLiveActor *a, int clip, int flags, float blend)
-{
-    (void)c; (void)a; (void)clip; (void)flags; (void)blend;
-    return unbound("001749A0 on the record (00174A50 / 0017C370)");
 }
 static int stub_0015C9D0(void *c, EmPlayerLiveActor *a)
 {
@@ -218,6 +205,7 @@ static int w_load(void *c)
 
 int em_player_stage_live_bind(void)
 {
+    player_states_bind_display(0);
     if (!live.rates_loaded) {
         if (em_player_clip_rates_load(&live.rates, EM_PLAYER_CLIP_RATE_PATH) < 0) {
             fprintf(stderr, "player stage: %s is missing or invalid "
@@ -227,18 +215,46 @@ int em_player_stage_live_bind(void)
         }
         live.rates_loaded = 1;
     }
+    /* The one pose owner: the player's clip clock, node channels and
+     * skeleton live in this record, worked by em_pose_host_workers
+     * (em_player_pose_host.c over em_player_record_pose). The bank and the
+     * row column were loaded with the area (player_pose_load, 001ADF50's
+     * read precedes this 001AFCA0 rebuild). */
+    uint8_t *d8106F3 = em_scene_req_at(em_scene_state(), 0x008106F3u);
+    if (!d8106F3 ||
+        !player_pose_attach(player_states_actor_mut(), d8106F3, player_states_scene(), &live.globals)) {
+        fprintf(stderr, "player stage: the player's clip bank is not loaded "
+                        "(python3 tools/export_player_clips.py; python3 tools/export_player_tables.py)\n");
+        player_states_bind(NULL);
+        return -1;
+    }
+    struct EmPoseHost *pose = player_pose_record_host();
+    /* 0x70003A20: one word, the stage workers' (POSE_HOST_WORKERS.md
+     * section 3; 0021C440 / 0021D6C0 store their atan2 there, 00178910 its
+     * |dy| and atan2). */
+    pose->globals->spad3A20 = &live.globals.spad3A20;
+
     memset(&live.host, 0, sizeof live.host);
     live.host.stage = player_states_scene();
     live.host.globals = &live.globals;
     live.host.rates = &live.rates;
     EmPlayerStageCallees *c = &live.host.callees;
-    c->context = &live;
+    /* Every callee below ignores its context except the pose workers, whose
+     * context is the record's EmPoseHost. */
+    c->context = pose;
     c->w001D0C70 = stub_001D0C70;
-    c->bone_init = stub_bone_init;
-    c->clip_init = stub_clip_init;
-    /* clip_resolve / skeleton_frame / w001C8710 / w001C87C0 / sample_bones
-     * serve only em_player_stage_anim_advance, which is not the bound
-     * advance (see w_advance). */
+    /* 00183090's bone_init_default_2 / anim_clip_init and 00174A50 /
+     * 0017C370's 001749A0 on the record: the pose owner's routines. */
+    c->bone_init = em_pose_host_stage_bone_init;
+    c->clip_init = em_pose_host_stage_clip_init;
+    c->request = em_pose_host_stage_request;
+    /* 001C64F0's own callees. The bound advance is w_advance (the pose
+     * host's player_pose_stage_advance over the same record and workers). */
+    c->clip_resolve = em_pose_host_stage_clip_resolve;
+    c->skeleton_frame = em_pose_host_stage_skeleton_frame;
+    c->w001C8710 = em_pose_host_stage_8710;
+    c->w001C87C0 = em_pose_host_stage_87C0;
+    c->sample_bones = em_pose_host_stage_sample_bones;
     c->sound = w_sound;
     c->cue = stub_cue;
     c->w001EFE00 = stub_001EFE00;
@@ -247,7 +263,6 @@ int em_player_stage_live_bind(void)
     c->atan2 = stub_atan2;
     c->link20 = stub_link20;
     c->clip_lookup = stub_clip_lookup;
-    c->request = stub_request;
     c->w0015C9D0 = stub_0015C9D0;
     c->link1C = stub_link1C;
     c->sound_stop = w_sound_stop;
@@ -281,6 +296,10 @@ int em_player_stage_live_bind(void)
         em_collision_world_bind_player(&b, player_states_actor(), player_states_actor()->bytes[2]) < 0)
         return -1;
     player_states_bind(&b);
+    /* The display stage draws the record's evaluated pose for every stage a
+     * translated routine owns (em_player_frame.c actor_update): every clip
+     * of the bank, chains and hold frames as 001C64F0 leaves them. */
+    player_states_bind_display(1);
     return 0;
 }
 

@@ -186,9 +186,11 @@ it translates.
 - **Shared scratch between sweep and ledge_top.** 00178910 reads the hit
   that 0019AFE0 just left, at spad 0x700031B0 and 0x700031D0. Bind both
   workers over one context that carries that hit.
-- **Clips.** The hang's clips must be exported and drawn by the display
-  before the state can be live (`player_states_bind_display`): 0x7C, 0x80,
-  0x8C, 0x96, 0xE5, the helper clips above and the row clips 0x7B/0x8E.
+- **Clips.** Met since the display step: the record pose loads the whole
+  bank (0x7C, 0x80, 0x8C, 0x96, 0xE5, the helper clips above and the row
+  clips 0x7B/0x8E included) and the display draws a bound state's record
+  pose (`player_states_bind_display(1)`, PLAYER_CLIPS.md section 6). Bind
+  the pose workers with `player_pose_record_host()` as their context.
 - **Makefile.** When bound, add `src/game/em_player_hang.c` to COMMON. The
   test target is `test-player-hang-reference`.
 

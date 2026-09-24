@@ -13,6 +13,11 @@ from test_point_light_reference import bits, number
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAYER, RECORD, BANK, DEFAULT, NODE = 0x8102B0, 0x1200000, 0x1400000, 0x1500000, 0x1600000
+# The player's one pose owner and the translations it reaches (Makefile
+# PLAYER_RECORD_POSE_SRC).
+RECORD_POSE = ('em_player_record_pose', 'em_pose_host_workers', 'em_player_stage_workers',
+               'em_player_floor', 'em_player_reaction', 'em_player_fall',
+               'em_owner_services_original', 'em_stream_lanes_original')
 
 BRIDGE = r'''
 #include "game/em_player_pose_host.c"
@@ -20,22 +25,28 @@ EmGameState g;
 static EmTransitionFade fade;
 static EmPoseBank cinematic;
 static unsigned placements;
+static EmPlayerLiveActor actor;
+static uint8_t d8106F3, d8106F1, d810707;
+static EmPlayerStageScene stage_scene = { .d8106F1 = &d8106F1 };
+static EmPlayerStageGlobals stage_globals = { .d810707 = &d810707 };
 const EmTransitionFade *em_frame_transition(void) { return &fade; }
 void em_frame_request_quit(void) { abort(); }
 PLACEMENT_FUNCTION
 int setup(void) {
     g.model.bone_count=22; g.status.health=100;
     g.pos[0]=321;g.pos[1]=290;g.pos[2]=201;g.yaw=.7f;
-    return player_pose_load("assets/player_channels.empc") && player_pose_opening_release() &&
+    return player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH) &&
+        player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals) && player_pose_opening_release() &&
         em_pose_bank_load(&cinematic,"assets/scene_snow/roger/encounter_player.empc") &&
         player_pose_acquire()==1;
 }
 void snapshot(unsigned *out) {
     out[0]=source.cinematic_mode;out[1]=source.cinematic_clip;
-    memcpy(out+2,&source.cinematic_rate,4);out[3]=source.pose.flags;
-    out[4]=source.pose.playback.clip->id;
-    memcpy(out+5,&source.pose.playback.remaining,4);
-    out[6]=source.pose.acquired;
+    memcpy(out+2,&source.cinematic_rate,4);out[3]=source.flags;
+    out[4]=current_clip();
+    float remaining=playback_remaining();
+    memcpy(out+5,&remaining,4);
+    out[6]=source.acquired;
 }
 int request(float rate) { return player_pose_cinematic_request(&cinematic,1,rate); }
 int advance(unsigned *out) {
@@ -50,8 +61,14 @@ int advance(unsigned *out) {
     snapshot(out);return 1;
 }
 int leave(unsigned *out) {
+    /* The ordinary release publishes the record's evaluated skeleton: world
+     * matrices from its own +B0 / +C4 (0015BCF0's evaluation), never the
+     * host placement. */
     unsigned old=placements;
-    if(!player_pose_release() || placements!=old+1 || player_pose_cinematic_active())return 0;
+    float record[22*16];
+    if(!player_pose_release() || placements!=old || player_pose_cinematic_active())return 0;
+    if(em_player_record_pose_palette(&source.record,record)<0 ||
+       memcmp(record,g.player_palette,sizeof record))return 0;
     snapshot(out);return 1;
 }
 int ordinary(unsigned *out) {
@@ -88,7 +105,7 @@ int main(void) {
     for(unsigned i=0;i<120;++i)assert(em_interaction_runtime_player_tick(&runtime,0)==0);
     snapshot(after);assert(!memcmp(before,after,sizeof before)&&face_ticks==0);
     for(unsigned i=0;i<1388;++i)assert(em_interaction_runtime_player_tick(&runtime,1)==1);
-    assert(face_ticks==1388 && source.pose.flags&0x1000);
+    assert(face_ticks==1388 && source.flags&0x1000);
     EmScript script={0};unsigned record[16]={7,0,4};
     assert(em_interaction_runtime_frame(&runtime,&owner,&script,(unsigned char*)record)==EM_SCRIPT_ADVANCE);
     assert(frame.player_ready==1 && !frame.selector && runtime.owner==&owner);
@@ -97,9 +114,9 @@ int main(void) {
     snapshot(after);assert(!memcmp(before,after,sizeof before));
     assert(em_interaction_runtime_player_tick(&runtime,1)==1);
     assert(!runtime.owner && !frame.player_ready && !player_pose_owned());
-    assert(!player_pose_cinematic_active() && source.pose.bank==&source.bank);
-    assert(source.pose.playback.clip->id==0 && source.pose.playback.remaining==80);
-    assert(player_pose_stage()==0 && source.pose.playback.remaining==79);
+    assert(!player_pose_cinematic_active() && source.cinematic_mode==0);
+    assert(current_clip()==0 && playback_remaining()==80);
+    assert(player_pose_stage()==0 && playback_remaining()==79);
     cleanup();
     puts("Actual bank96 player/shared ownership, status freeze, world pose and release ASan/UBSan PASS");
 }
@@ -122,7 +139,7 @@ def main():
     subprocess.run(['cc', '-std=c11', '-O2', '-ffp-contract=off', '-Wall', '-Wextra',
                     '-Werror', '-shared', '-fPIC', '-Isrc', str(bridge),
                     *['src/game/'+name+'.c' for name in ('em_player_pose', 'em_pose_bank',
-                       'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation')],
+                       'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation') + RECORD_POSE],
                     '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     native.request.argtypes = [C.c_float]
@@ -204,7 +221,7 @@ def main():
                     *['src/game/'+name+'.c' for name in ('em_player_pose', 'em_pose_bank',
                        'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation',
                        'em_interaction_runtime', 'em_interaction_frame', 'em_interaction_animation',
-                       'em_script')], 'src/em_model.c', '-o', str(executable)], cwd=ROOT, check=True)
+                       'em_script') + RECORD_POSE], 'src/em_model.c', '-o', str(executable)], cwd=ROOT, check=True)
     subprocess.run([str(executable)], cwd=ROOT, check=True)
     report = {'original_request_checks': 1, 'original_player_clock_callbacks': comparisons,
               'original_release_checks': 1, 'world_palette_hip_publications': comparisons,

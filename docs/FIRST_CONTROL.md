@@ -529,27 +529,21 @@ node class is a data prerequisite; the rest are workers or callbacks.
   ground and column translations still use em_actor_collision.c's
   truncating float helpers (EE_FLOAT_MODEL.md 5c) and 0019C830's KNOWN
   INEXACT node order.
-- **The display (the blocker; census L02 step, 2026-09-24).** Every FLOOR
-  state requests clips on its first frames (00162DB0 at +6 = 0xA asks
-  anim_clip_arbiter for 0x73; 001639E0 0x72; 00163C10 0x6E; the ledge catch
-  0x83; the heavy landing 0x2B), and the live display cannot show them:
-  - the live pose bank (`assets/player_channels.empc`,
-    `tools/export_player_pose_channels.py`) holds 14 clips: 0..5, 0x40..0x43,
-    0x45, 0x47, 0x15C and 0x15D. None of the fall, drop, landing, hang,
-    slide or climb clips is installed;
-  - `em_pose_bank.c` refuses a chained clip (a next clip other than -1 or
-    -2), and the fall's 0x73 and the slide's 0x5E are chained;
-  - the states' record-level workers 001749A0 (request), 001749F0
-    (anim_clip_arbiter), 001C61D0 (frame count), anim_eval_skeleton and the
-    hip node have two candidate owners: the live `em_player_pose`
-    (`em_player_pose_select` for 001749A0 / 001749F0, over the native
-    bank) and the verified-unbound `em_pose_host_workers` (EmPoseHost over
-    original-layout memory; LOCOMOTION_DISPLAY.md section 4). Choosing one,
-    chaining clips and installing the FLOOR clips is the display lane
-    (census L12 / L33).
-
-  Until that lands, `player_states_bind_display(1)` would be a false
-  declaration, and binding the closure's callbacks cannot engage FLOOR.
+- **The display: met since the display step (2026-09-24).** The player's
+  pose has one owner, the player record itself (`em_player_record_pose`
+  over `em_pose_host_workers`; PLAYER_CLIPS.md section 6): the whole clip
+  bank (`assets/player_clips_full.bank`, all 459 clips, chained ones
+  included) is mapped at the record's +40 (0xD689C0), the 21 node records
+  at the +110 words (0x7D5840..), and 001749A0 / 001749F0 / 001C61D0 /
+  001C64F0 (with its chain step) / 001C6DA0 run on those bytes. 0015BCF0's
+  animate step evaluates the record after every player stage, and a stage
+  a translated routine owns (or the takeover consumes) displays the
+  record's node matrices (`player_states_record_display`,
+  em_player_frame.c). A stage whose (+4, +5) is not the port's idle/walk
+  advances the record by +34 whatever a port stand-in holds. So
+  em_player_stage_live.c declares `player_states_bind_display(1)`; the
+  report no longer lists the display. The port's own idle/walk callbacks
+  keep their legacy display until L12.
 - **Closure callbacks.** Every state of the closure is translated and
   oracle-verified, and none is bound: em_player_fall (5, 7, 8),
   em_player_hang (9), em_player_recovery (4, 00162A40, and the helpers
@@ -644,9 +638,16 @@ node class is a data prerequisite; the rest are workers or callbacks.
   - Since L01 the live layer runs 0015B130 (so 0021C440 / 0015D100 /
     0015D000) on every +4 = 1 stage, the port's own idle/walk included, and
     `player_damage_tick` is retired.
-- **The display.** Call `player_states_bind_display(1)` once the display
-  stage draws the source clip of each bound state and advances it by the
-  stage's +34 (`stage.advance` returns anim_advance_time's +200 flags).
+- **The display.** Done (em_player_stage_live.c declares
+  `player_states_bind_display(1)` after attaching the record pose). Every
+  closure state's pose worker slots bind the record's host:
+  `player_pose_record_host()` is the EmPoseHost context of
+  `em_pose_host_request` / `_arbiter` / `_clip_frames` / `_eval_skeleton` /
+  `_skeleton` / `_handoff` / `_ledge_top` and of the `em_pose_view_*`
+  adapters (with the view's actor = `player_states_actor_mut()`). Its
+  0x70003A20 word (`EmPoseGlobals.spad3A20`) is the record pose's own; the
+  binder points it at the one binder-owned scratch word when it binds the
+  closures (as the notes above ask for the heading records).
 - **The truck.** It arms on the player's `D_008104C4`. Bind
   `EmTruckWorld.ground_kind` to `&((EmActor *)player_states_actor()->link_owner)->param`,
   or NULL when that owner is NULL. `player_states_actor()->link_owner` is
@@ -654,7 +655,12 @@ node class is a data prerequisite; the rest are workers or callbacks.
   it to +308.
 - **Area load.** `player_states_reset()` runs in the scene bindings'
   w_001AFCA0 at 001AF5C0's position (L01). It writes 0015C420's +280 =
-  (0, -13.8, 0, 1), +4 = 1, +5 = 0, +204 = 1.0 and +31B = -1.
+  (0, -13.8, 0, 1), +4 = 1, +5 = 0, +204 = 1.0 and +31B = -1. Then
+  em_player_stage_live_bind attaches the record pose (`player_pose_attach`):
+  0015C420's pose half (+C = 21, +40 = the default bank, +60 = 1.0, the
+  +110 node words, +20C = D_00248A00[+235] = 0, bone_init_default_2 and
+  001C68C0). Before the first opening release the source stays unstarted,
+  as before; a room rebuild keeps a started source going from that pose.
 - **The stage calls.** em_player_frame.c actor_update calls
   `player_states_stage` while STAGE is engaged (L01); `player_move` is the
   port's callbacks alone (the unbound path). While the legacy bug-latch

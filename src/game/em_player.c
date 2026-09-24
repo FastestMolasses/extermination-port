@@ -524,6 +524,10 @@ void player_states_bind(const EmPlayerStatesBinding *binding)
 }
 
 void player_states_bind_display(int bound) { live.display = bound != 0; }
+int player_states_record_display(void)
+{
+    return live.display && (live.consumed || !live.port_ran);
+}
 void player_states_bind_use_chain(int bound) { live.use_chain = bound != 0; }
 const EmPlayerLiveActor *player_states_actor(void) { return &live.a; }
 EmPlayerLiveActor *player_states_actor_mut(void) { return &live.a; }
@@ -872,10 +876,9 @@ int player_states_stage(void)
         live_fault("the stage workers' scene view is not available");
         return 0;
     }
-    /* +20C: the clip the pose source plays (the display binding keeps it the
-     * clip the bound states request). */
-    unsigned clip;
-    if (player_pose_source(&clip, NULL, NULL, NULL)) em_live_set_u16(&live.a, 0x20C, (uint16_t)clip);
+    /* +20C, +2C, +3C and the node records are the pose's own storage (the
+     * record is the one pose owner since the display step, em_player_pose_host.c):
+     * 001749A0 / 001749F0 leave +20C, which 0015BA50 reads for the rate. */
     /* 0015BA50 before its switch, the switch, then its tail. */
     if (em_player_stage_begin(&live.a, &live.scene, &live.b.stage) < 0) {
         live_fault("0015BA50 D_00248C98 worker fault");
@@ -917,6 +920,14 @@ int player_states_stage(void)
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
     if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
         live_fault("0011A070 worker fault");
+        return 0;
+    }
+    /* 0015BCF0's animate step (after +BC = 1.0, which the tail writes; the
+     * -200 check and the loop-sound stop touch none of its inputs): the
+     * record's skeleton at its +B0 / +C4. */
+    em_live_set_f32(&live.a, 0xC4, g.yaw);
+    if (player_pose_animate() < 0) {
+        live_fault("0015BCF0 skeleton evaluation fault");
         return 0;
     }
     if (em_live_u8(&live.a, 4) != 1) port_park();

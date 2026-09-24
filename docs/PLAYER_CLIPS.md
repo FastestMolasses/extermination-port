@@ -15,9 +15,11 @@ Files of this lane:
 
 ## 1. Which clips the first level plays
 
-The live `assets/player_channels.empc` holds 14 clips (0..5, 0x40..0x43,
-0x45, 0x47, 0x15C, 0x15D), and `em_pose_bank.c` refuses chained clips. The
-first level plays at least the 41 clips below.
+Before the display step the live `assets/player_channels.empc` held 14
+clips (0..5, 0x40..0x43, 0x45, 0x47, 0x15C, 0x15D) and `em_pose_bank.c`
+refused chained clips. Since the display step (section 6) the live player
+pose runs on the whole raw bank. The first level plays at least the 41
+clips below.
 
 **How the list was made.**
 
@@ -330,7 +332,8 @@ blocks FLOOR.
 ### 5.2 Which module should own 001749A0 / 001749F0 / 001C61D0 / anim_eval_skeleton
 
 **Recommendation: `em_pose_host_workers`, over the player's live record
-(EmPlayerLiveActor), with the raw bank region.** `em_player_pose` should stop
+(EmPlayerLiveActor), with the raw bank region.** (Done in the display step:
+section 6.) `em_player_pose` should stop
 owning these routines for the player. It can remain a publisher of channels
 for the interaction runtime until that runtime reads the record, and then
 retire.
@@ -371,7 +374,7 @@ live for the player first. It is exact against the same original
 instructions, so either path is original. The record-owned path leaves only
 one clock and one bank.
 
-### 5.3 Makefile hunks (for the binding owner; not applied)
+### 5.3 Makefile hunks (not applied: the record owns the player's pose, section 6)
 
 ```make
 # COMMON: em_pose_chain.c and its one dependency. A private lane build with
@@ -384,7 +387,125 @@ one clock and one bank.
 +	python3 tools/test_pose_chain_reference.py
 ```
 
-## 6. Limits
+## 6. The binding (display step, 2026-09-24)
+
+**One owner: the record.** 001749A0, 001749F0, 001C61D0, 001C64F0 and
+anim_eval_skeleton for the player are `em_pose_host_workers` (and
+`em_player_stage_anim_advance`) over the player's own record, as section
+5.2 recommends. `em_player_pose` and `em_pose_chain` are no longer on the
+player's live path: `em_player_pose` still poses Roger, the status models
+and the cinematic special bank (not on the record yet, not reached live),
+and `em_pose_chain` stays a verified, unbound translation of the same
+routines over decoded channels.
+
+**The module.** `src/game/em_player_record_pose.c/.h` holds the storage
+and binds it; it re-implements none of the routines:
+
+- the record: em_player.c's live `EmPlayerLiveActor` (the stage's record);
+- the bank: `assets/player_clips_full.bank` (section 3), read-only at EE
+  0xD689C0, the record's +40;
+- the node records: 21 x 0xD0 bytes at EE 0x7D5840.., the record's +110
+  words;
+- D_00248C90's +0 halfword per clip: `assets/player_clip_row0.emch`, a new
+  column of `tools/export_player_tables.py` (EMCH v1: count 459, signed
+  halfwords). 0015BCF0 reads it to choose the evaluator, 00182DF0 for the
+  release;
+- the globals: D_00275BF8..BEC, D_008111F0, the scratchpad words, and
+  D_008106F3 by pointer at the canonical byte (001C87C0's velocity reset);
+- 0015BCF0's animate step, the one block it translates: with +2F3 = 0 and
+  +303 = 0, anim_eval_skeleton (001C6DA0) for a nonzero row, else
+  001C68C0; 001C68C0 for +2F3 = 3 / 4; 001C6960 otherwise (decomp
+  `src/func_0015BCF0.c`, byte-matched).
+
+The attach writes the record's structural words (+C = 21, +40, +60..+6C =
+1.0, the +110 array, +164 = 0; every captured image holds exactly these,
+which the oracle checks) and runs 0015C420's pose half:
++20C = D_00248A00[+235] (clip 0), bone_init_default_2 and 001C68C0.
+
+**The pose host on the record.** `em_player_pose_host.c` keeps its API and
+its port bookkeeping; every pose operation is now a record operation:
+
+| host operation | original on the record |
+|---|---|
+| a request at frame 0 (`player_pose_request`, idle, acquire, Use, tier-2 stop) | 001749A0(p, clip, force, blend) |
+| a request at a source frame (walk entry, run stop, gait tier change) | 001749F0(p, clip, blend, frame) |
+| the stage advance, idle and script ticks | 001C64F0 (`em_player_stage_anim_advance`) |
+| the opening release, a legacy re-seed, the cinematic release | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 |
+| the takeover release | 00182DF0: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16) |
+| the foot-stop begin | 0017B910's anim_eval_skeleton, nodes 17 / 18 at +C0 |
+| every published palette | 0015BCF0's animate step: the node world matrices +90, and the owner matrix +D0 in the model's trailing slot (the identity in actor space) |
+
+The palettes are world-space now (the record's +B0 / +C4 are the port's
+g.pos / g.yaw at the evaluation), so `player_pose_publish` no longer applies
+`palette_apply_placement`. The em_player.c `+20C` mirror is gone: +20C is
+the record's own field.
+
+**The display.** em_player.c runs the animate step after every stage
+(`player_pose_animate`, after 0015BCF0's tail writes). em_player_frame.c
+displays the record's matrices for a stage the takeover consumed or a
+translated routine owned (`player_states_record_display`); the port's own
+idle/walk callbacks keep their legacy baked display until census L12. A
+stage whose (+4, +5) is not the port's idle/walk advances the record by
++34 whatever a port stand-in holds. em_player_stage_live.c binds the
+stage's clip workers (bone_init, clip_init, clip_resolve, skeleton_frame,
+001C8710, 001C87C0, anim_sample_bones, request) to the record's
+`em_pose_host_stage_*` and declares `player_states_bind_display(1)`.
+
+**What changed live, and the evidence.**
+
+- The source clock, clip, transition and flags are unchanged:
+  `tools/test_player_pose_live_reference.py` over the newgame-control
+  reentry trace matches the original first-control capture on all 56
+  callbacks (clip, clock bits, transition, flags); newgame-control travels
+  9.599989 as before.
+- The level smoke passes its six live phases against the captures. Its
+  tick log differs from the pre-step build in float ulps of pos / yaw /
+  camera between ticks 1572 and 2187 only (the walk to the battery, until
+  the elevator refusal re-places the player). The cause is one foot-stop
+  begin (frame 1551, tier 1): its feet 17 / 18 are now anim_eval_skeleton
+  on the record, EE-exact (for example foot 17 z 225.288284, where the
+  host composition gave 225.28833), so the stop's step differs in the last
+  bit. The new feet are the original's computation (the pose-host oracle
+  compares 001C6DA0 with the original over the captures).
+- The takeover and foot-stop palettes (panel, battery pickup, elevator,
+  fence door, the walk/jog stops) are the record's evaluated skeleton
+  instead of the host composition plus placement. Over the 14 clips of
+  the old export, 40 frames each from frame 0 at one placement, the two
+  palettes differ by at most 9.2e-5 in any matrix word (a one-time
+  comparison of em_player_pose_palette + palette_apply_placement against
+  em_player_record_pose_palette, 2026-09-24); the record's are the
+  original's words (the oracle below).
+
+**The oracle, `tools/test_player_record_pose_reference.py`** (make
+`test-player-record-pose-reference`). It builds the live module and runs
+the original 001749A0 / 001749F0 / 001C64F0 (with every callee) /
+001C6DA0 / 001C68C0 over the captured images, after every operation
+comparing the whole record, all node records, D_00275BF8..BEC, D_008111F0
+and the scratchpad words:
+
+- the attach's structural words equal every captured image's;
+- re-evaluating each captured record (+B0 = +A0) through the module gives
+  the captured node world matrices byte for byte (the original's skeleton
+  of that frame);
+- every first-level clip of section 1, requested with 001749A0 (flags 1,
+  blend 8 or 0) or 001749F0 (a source frame), then advanced by its
+  D_00248C98 rate with the animate step after each callback; 0x5E and 0x73
+  run into 0x5F and 0x72.
+
+| run | images | clip cases | callbacks | time |
+|---|---|---|---|---|
+| default | playable, 05, 06, 10 | 46 of 492 (all 41 clips) | 374 | ~5 s |
+| `EM_TEST_FULL=1` | playable + beats 00..14 (16) | 1,968 (41 clips x 3 requests x 16 images, each through its whole length) | 126,720 | ~16 min (8 workers) |
+
+Every case in both runs compared exact; the capture re-evaluation is exact
+on all 16 images.
+
+**Not done here.** The port's idle/walk display (L12), the cinematic
+special bank on the record (00183090's 2F3 path; Roger lane), the
+low-health row (+235's latch and 0017B490, L12), and the closure binder
+that engages FLOOR (L02) remain.
+
+## 7. Limits
 
 - The first-level list is exact for the recorded route. Whether the
   translated states' other clip requests are reachable in AREA11 is not

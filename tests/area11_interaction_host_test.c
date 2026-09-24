@@ -11,6 +11,8 @@
 #include "game/em_hud.h"
 #include "game/em_opening_media.h"
 #include "game/em_pickup.h"
+#include "game/em_player.h"
+#include "game/em_player_stage_workers.h"
 #include "game/em_pickup_original.h"
 #include "game/em_pickup_motion.h"
 #include "game/em_random.h"
@@ -351,7 +353,17 @@ static void setup(int reset_inventory)
     scene->d810700 = 0x0B;
     em_frame_fade_clear(0);
     em_random_seed(0x45);
-    assert(player_pose_load("assets/player_channels.empc"));
+    /* The pose lives in the player record (the game's is em_player.c's live
+     * record, with the player stage's scene and globals views; this fixture
+     * keeps its own), and D_008106F3 is the canonical byte. */
+    static EmPlayerLiveActor player_record;
+    static uint8_t stage_bytes[2];
+    static EmPlayerStageScene stage_scene = { .d8106F1 = &stage_bytes[0] };
+    static EmPlayerStageGlobals stage_globals = { .d810707 = &stage_bytes[1] };
+    memset(&player_record, 0, sizeof player_record);
+    assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
+    assert(player_pose_attach(&player_record, em_scene_req_at(scene, 0x008106F3u), &stage_scene,
+                              &stage_globals));
     assert(player_pose_opening_release());
     player_pose_finish_palette();
     assert(em_opening_media_prepare("assets/scene_snow") == 0);

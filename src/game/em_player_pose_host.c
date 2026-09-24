@@ -2,12 +2,28 @@
 #include "game/em_effect_color.h"
 #include "game/em_player.h"
 #include "game/em_player_foot_stop.h"
+#include "game/em_player_record_pose.h"
+#include "game/em_pose_math.h"
 
 #include <math.h>
 
+/* The player's source pose lives in the player's own record and is worked by
+ * the original routines (em_player_record_pose over em_pose_host_workers):
+ * one clip clock, one set of node channels, one skeleton. This host keeps
+ * only the port's own bookkeeping around it (the idle/walk callbacks'
+ * state, the legacy holds, the takeover's acquired/script flags) and the
+ * cinematic special bank, which is not on the record yet. */
 static struct {
-    EmPoseBank bank;
-    EmPlayerPose pose;
+    EmPlayerRecordPose record;
+    int valid;              /* the record holds an original pose */
+    int acquired;           /* 00174A50 + 00182D70: the takeover owns the player */
+    int script_active;
+    unsigned script_clip;
+    unsigned flags;         /* the last advance result (the value 0015BA50 stores to +200) */
+    /* 00183090's special-bank path (+2F3) over a decoded foreign bank. The
+     * record keeps the default bank; this pose owns the channels while
+     * cinematic_mode == 2 (docs/PLAYER_CLIPS.md section 6). */
+    EmPlayerPose cinematic;
     const EmPoseBank *cinematic_bank;
     unsigned cinematic_clip;
     uint8_t cinematic_mode; /* original player+2F3: pending1, active2 */
@@ -42,10 +58,139 @@ static struct {
     const char *foot_fail; /* why the last foot-stop begin returned 0 */
 } source;
 
+static int cinematic_owned(void)
+{
+    return source.cinematic_mode == 2;
+}
+
 static int ordinary_source(void)
 {
-    return source.started && source.pose.valid && !source.legacy;
+    return source.started && source.valid && !source.legacy;
 }
+
+/* ---- the record ---------------------------------------------------------- */
+
+/* The playing clip: +2C & 0x7FFF (the transition's target while +2C has
+ * 0x8000). */
+static unsigned current_clip(void)
+{
+    return cinematic_owned() ? source.cinematic.playback.clip->id
+                             : em_player_record_pose_clip(&source.record);
+}
+
+static int in_transition(void)
+{
+    return cinematic_owned() ? source.cinematic.transition.active
+                             : em_player_record_pose_transition(&source.record);
+}
+
+/* +3C: the transition clock while +2C has 0x8000, else the clip clock. */
+static float current_remaining(void)
+{
+    if (cinematic_owned())
+        return source.cinematic.transition.active ? source.cinematic.transition.remaining
+                                                  : source.cinematic.playback.remaining;
+    return em_player_record_pose_clock(&source.record);
+}
+
+static int clip_frames(unsigned clip, float *frames)
+{
+    int32_t count;
+    if (em_player_record_pose_frames(&source.record, (int)clip, &count) < 0) return 0;
+    *frames = (float)count;
+    return 1;
+}
+
+/* The playing clip's own remaining time: +3C, or, during a transition, the
+ * target clip's frames less the hold frame node 0 +8E it will restart at
+ * (001C64F0's transition end). */
+static float playback_remaining(void)
+{
+    if (cinematic_owned()) return source.cinematic.playback.remaining;
+    if (!in_transition()) return current_remaining();
+    float frames;
+    if (!clip_frames(current_clip(), &frames)) return 0;
+    const uint8_t *node0 = source.record.nodes;
+    uint16_t hold = (uint16_t)(node0[0x8E] | node0[0x8F] << 8);
+    return pose_sub(frames, (float)(int16_t)hold);
+}
+
+static float playback_duration(void)
+{
+    if (cinematic_owned()) return source.cinematic.playback.clip->duration;
+    float frames;
+    return clip_frames(current_clip(), &frames) ? frames : 0;
+}
+
+/* A clip id the bank's directory holds (001C6120 reads any index; an index
+ * past the directory is not a clip). */
+static int bank_clip(unsigned clip)
+{
+    return (clip & 0x7FFFu) < source.record.bank_clips;
+}
+
+/* The port's requests onto the original routines: a frame-0 request is
+ * 001749A0(p, clip, force, blend) (force 0 keeps an equal +20C); a request
+ * with a source frame is 001749F0 anim_clip_arbiter(p, clip, blend, frame).
+ * Both leave the same record (+20C = clip, anim_clip_init at the frame). */
+static int record_select(unsigned clip, float frame, unsigned blend_ticks, int force)
+{
+    int result;
+    if (!source.valid || blend_ticks > 65535 || !bank_clip(clip) || !isfinite(frame) || frame < 0)
+        return 0;
+    if (frame == 0)
+        return em_player_record_pose_request(&source.record, (int)clip, force ? 1 : 0,
+                                             (float)blend_ticks, &result) == 0;
+    if (!force) return 0;
+    return em_player_record_pose_arbiter(&source.record, (int)clip, (float)blend_ticks, frame,
+                                         &result) == 0;
+}
+
+/* 001C64F0 by `rate` (split into steps of at most 1 inside). */
+static int record_advance(float rate)
+{
+    if (!source.valid || !isfinite(rate) || rate < 0 || rate > 64) return 0;
+    uint32_t flags;
+    if (em_player_record_pose_advance(&source.record, rate, &flags) < 0) return 0;
+    source.flags = flags;
+    return 1;
+}
+
+/* The position and heading the evaluation places the skeleton at: the port
+ * keeps them in g while its own owners move the player (+B0..+B8, +C4; +BC
+ * is 1.0 as 0015BCF0 leaves it before its evaluation). */
+static void record_place(void)
+{
+    EmPlayerLiveActor *a = source.record.actor;
+    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(a, 0xB0 + 4 * axis, g.pos[axis]);
+    em_live_set_f32(a, 0xC4, g.yaw);
+    em_live_set_u32(a, 0xBC, 0x3F800000u);
+}
+
+/* The displayed palette: 0015BCF0's animate step over the placed record,
+ * then the node world matrices. */
+static int record_palette(float *palette)
+{
+    if (!source.valid || !palette || g.model.bone_count != EM_PLAYER_POSE_PALETTE_BONES) return 0;
+    record_place();
+    return em_player_record_pose_animate(&source.record) == 0 &&
+           em_player_record_pose_palette(&source.record, palette) == 0;
+}
+
+/* 001C63E0 on the record, as 00182DF0's nonzero-2F3 branch releases the
+ * player: +20C = D_00248A00[+235] (row 0: clip 0) and bone_init_default_2
+ * of it. */
+static int record_default(void)
+{
+    if (!em_player_record_pose_ready(&source.record)) return 0;
+    em_live_set_u16(source.record.actor, 0x20C, 0);
+    if (em_player_record_pose_default(&source.record, 0) < 0) return 0;
+    source.valid = 1;
+    source.flags = 0;
+    return 1;
+}
+
+/* ---- hooks ---------------------------------------------------------------- */
 
 void player_pose_set_stage_hook(int (*hook)(void *), void *context)
 {
@@ -81,22 +226,68 @@ int player_use_poll(void)
     return result;
 }
 
-int player_pose_load(const char *path)
+/* ---- lifetime -------------------------------------------------------------- */
+
+int player_pose_load(const char *bank_path, const char *row0_path)
 {
-    source.started = source.hip_valid = source.saved_euler_valid = 0;
+    em_player_record_pose_free(&source.record);
+    source.started = source.valid = source.acquired = source.script_active = 0;
+    source.hip_valid = source.saved_euler_valid = 0;
     source.cinematic_bank = NULL;
     source.cinematic_mode = 0;
     source.legacy = 0;
     source.legacy_owner = NULL;
-    memset(&source.pose, 0, sizeof source.pose);
-    if (em_pose_bank_load(&source.bank, path)) return 1;
-    fprintf(stderr, "player pose: original channel bank unavailable: %s\n", path);
+    if (em_player_record_pose_load(&source.record, bank_path, row0_path) == 0) return 1;
+    fprintf(stderr, "player pose: original clip bank unavailable: %s / %s "
+            "(python3 tools/export_player_clips.py; python3 tools/export_player_tables.py)\n",
+            bank_path, row0_path);
     return 0;
+}
+
+/* The rebuild (001AF5C0's wipe, then 0015C420 on the first stage) gives the
+ * player record its pose storage and a fresh pose: +40 = the default bank,
+ * +20C = D_00248A00[+235] (the wiped +235 is row 0: clip 0), the node
+ * records (001AF780) with anim_bone_array_setup, bone_init_default_2(+20C)
+ * and 001C68C0. A source the port had started (a room rebuild) continues
+ * from that pose; before the first opening release it stays unstarted (the
+ * opening runtime owns the player until 00182DF0 releases it). A stand-in's
+ * hold (the door sequence) is kept: its release re-seeds as before. */
+int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStageScene *scene,
+                       struct EmPlayerStageGlobals *globals)
+{
+    int was_started = source.started && source.valid;
+    source.started = source.valid = source.acquired = source.script_active = 0;
+    source.cinematic_bank = NULL;
+    source.cinematic_mode = 0;
+    if (em_player_record_pose_attach(&source.record, actor, d8106F3, scene, globals) < 0 ||
+        !record_default() || em_player_record_pose_skeleton(&source.record) < 0) {
+        source.valid = 0;
+        source.legacy = 0;
+        source.legacy_owner = NULL;
+        return 0;
+    }
+    source.started = was_started;
+    if (!was_started) {
+        source.legacy = 0;
+        source.legacy_owner = NULL;
+        source.hip_valid = source.saved_euler_valid = 0;
+    }
+    return 1;
+}
+
+int player_pose_record_ready(void)
+{
+    return em_player_record_pose_ready(&source.record);
+}
+
+EmPoseHost *player_pose_record_host(void)
+{
+    return em_player_record_pose_host(&source.record);
 }
 
 void player_pose_unload(void)
 {
-    em_pose_bank_free(&source.bank);
+    em_player_record_pose_free(&source.record);
     memset(&source, 0, sizeof source);
 }
 
@@ -104,16 +295,23 @@ void player_pose_unload(void)
  * corrupt callback state). Port stand-ins use player_pose_legacy_hold. */
 void player_pose_invalidate(const char *reason)
 {
-    if (!source.started || !source.pose.valid) return;
-    source.pose.valid = 0;
+    if (!source.started || !source.valid) return;
+    source.valid = 0;
     source.hip_valid = 0;
     fprintf(stderr, "player pose: source unavailable at frame %d: %s\n", g.frame_no, reason);
 }
 
+static int source_palette(float *palette)
+{
+    if (cinematic_owned())
+        return em_player_pose_palette(&source.cinematic, palette, g.model.bone_count);
+    return record_palette(palette);
+}
+
 static int publish_current(void)
 {
-    float local[22 * 16];
-    return em_player_pose_palette(&source.pose, local, 22) && player_pose_publish(local);
+    float palette[22 * 16];
+    return source_palette(palette) && player_pose_publish(palette);
 }
 
 /* Host mirror of 00182DF0's tail (+4=1, +5=0, +6=0, +1F0=0): the next
@@ -128,7 +326,7 @@ static void reset_default_state(void)
     g.walk_w = g.fid_w = 0;
     g.idle_phase = 0;
     g.idle_timer = 300;
-    g.idle_t = (source.pose.playback.clip->duration - source.pose.playback.remaining) / 60.0;
+    g.idle_t = (playback_duration() - playback_remaining()) / 60.0;
     source.idle_phase = source.idle_fidget = 0;
     source.idle_return = 0;
     source.foot_stop.active = source.foot_display = 0;
@@ -137,7 +335,7 @@ static void reset_default_state(void)
 
 void player_pose_legacy_hold(const char *owner)
 {
-    if (!source.started || !source.pose.valid || source.pose.acquired) return;
+    if (!source.started || !source.valid || source.acquired) return;
     /* The stand-in owns display; nothing advances or requests the source
      * until its release re-seeds it. No original state is invented here. */
     source.legacy = 1;
@@ -155,7 +353,7 @@ void player_pose_legacy_hold(const char *owner)
  * active pose blend is no longer one. */
 void player_pose_unsupported_hold(const char *reason)
 {
-    if (ordinary_source() && !source.pose.acquired)
+    if (ordinary_source() && !source.acquired)
         fprintf(stderr, "player pose: unsupported path at frame %d: %s%s%s "
                 "(source re-seeds to the row default)\n", g.frame_no, reason,
                 source.foot_fail ? ": " : "", source.foot_fail ? source.foot_fail : "");
@@ -171,12 +369,12 @@ static int legacy_reseed(void)
      * stand-ins have no original channels to blend from, so they use it.
      * APPROXIMATION: the original row is the whole +235 byte; here it comes
      * from live health only (row0 clip0 healthy; row1 clip0x0A at low
-     * health, not exported). Bit1 of +235 (set by 001756E0/00161790/
-     * 00162190/00162A40 -> rows2/3, clips0x4B/0x55) is not modelled, and
-     * bit0 is a latch (set when 0021C350 damage or 0015D100 decay takes
-     * +220 to <=35, cleared by 0015C700 above35), not a live comparison. */
+     * health). Bit1 of +235 (set by 001756E0/00161790/00162190/00162A40 ->
+     * rows2/3, clips0x4B/0x55) is not modelled, and bit0 is a latch (set
+     * when 0021C350 damage or 0015D100 decay takes +220 to <=35, cleared by
+     * 0015C700 above35), not a live comparison. */
     if (g.status.health <= PD_LOW_HEALTH) return 0;
-    if (!em_player_pose_init(&source.pose, &source.bank, 0, 0)) {
+    if (!record_default()) {
         player_pose_invalidate("default channel re-seed failed");
         return 0;
     }
@@ -197,13 +395,13 @@ static const char *legacy_blocker(void)
     if (g.pd_state == 2) return "damage animation worker is not bound";
     if (g.sa_req || g.sa_cur)
         return "legacy scripted animation has no raw channel worker";
-    if (g.status.health <= PD_LOW_HEALTH) return "low-health pose row is not exported";
+    if (g.status.health <= PD_LOW_HEALTH) return "low-health pose row is not ported";
     return NULL;
 }
 
 int player_pose_legacy_release(void)
 {
-    if (!source.started || !source.pose.valid) return 0;
+    if (!source.started || !source.valid) return 0;
     if (!source.legacy) return 1;
     /* Stand-ins checked by the host itself: the hit machine, the legacy
      * scripted-clip mailbox and the low-health row keep holding. */
@@ -215,9 +413,10 @@ int player_pose_opening_release(void)
 {
     /* Original external-bank release 182DF0 ->1C63E0; immutable state03
      * has idle0 remaining80 before the next ordinary player callback. */
-    if (!em_player_pose_init(&source.pose, &source.bank, 0, 0)) return 0;
+    if (!record_default()) return 0;
     source.cinematic_bank = NULL;
     source.cinematic_mode = 0;
+    source.acquired = source.script_active = 0;
     source.legacy = 0;
     source.legacy_owner = NULL;
     source.started = 1;
@@ -232,18 +431,16 @@ int player_pose_opening_release(void)
 
 int player_pose_owned(void)
 {
-    return source.started && source.pose.acquired;
+    return source.started && source.acquired;
 }
 
 int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *transition)
 {
     if (!ordinary_source()) return 0;
-    if (clip) *clip = source.pose.playback.clip->id;
-    if (remaining)
-        *remaining = source.pose.transition.active ? source.pose.transition.remaining
-                                                   : source.pose.playback.remaining;
-    if (flags) *flags = source.pose.flags;
-    if (transition) *transition = source.pose.transition.active;
+    if (clip) *clip = current_clip();
+    if (remaining) *remaining = current_remaining();
+    if (flags) *flags = source.flags;
+    if (transition) *transition = in_transition();
     return 1;
 }
 
@@ -255,16 +452,30 @@ int player_pose_stage_advance(float step, uint32_t *flags)
     source.previous_stop = g.loco_stop.phase;
     source.previous_reentry = g.loco_reentry.phase;
     source.previous_foot = source.foot_stop.active;
-    if (source.started && !source.pose.acquired && source.pose.valid) {
+    if (source.started && !source.acquired && source.valid) {
+        /* 0015BA50 advances the record before every +4 = 1 / 2 / 5 state
+         * callback. A stage whose (+4, +5) is not the port's idle/walk
+         * belongs to a translated state callback: its clip advances
+         * whatever the port's own stand-ins hold (they own only the port's
+         * callbacks). */
+        const uint8_t *r = source.record.actor->bytes;
+        int translated = r[4] != 1 || (r[5] != 0 && r[5] != 1);
+        if (translated) {
+            if (!record_advance(step))
+                player_pose_invalidate("original animation advance failed");
+            else if (flags)
+                *flags = source.flags;
+            return 0;
+        }
         if (g.pd_state == 2)
             player_pose_legacy_hold("damage animation worker is not bound");
         if (!source.legacy) {
             /* 0015BA50 consumes the prior multiplier before its state
              * callback resets it. Idle also advances while speed is zero. */
-            if (!em_player_pose_advance(&source.pose, step, 0))
+            if (!record_advance(step))
                 player_pose_invalidate("original animation advance failed");
             else if (flags)
-                *flags = source.pose.flags;
+                *flags = source.flags;
         }
     }
     return 0;
@@ -287,10 +498,29 @@ int player_pose_stage_hook(void)
     return consumed;
 }
 
+int player_pose_animate(void)
+{
+    /* 0015BCF0 evaluates the record after every player stage. Before the
+     * first pose (the opening release) there is nothing to evaluate, and the
+     * special bank does not live on the record yet. */
+    if (!source.started || !source.valid || cinematic_owned()) return 0;
+    return em_player_record_pose_animate(&source.record) < 0 ? -1 : 0;
+}
+
+int player_pose_display(void)
+{
+    if (!source.started || !source.valid || cinematic_owned() ||
+        g.model.bone_count != EM_PLAYER_POSE_PALETTE_BONES)
+        return 0;
+    float palette[22 * 16];
+    if (em_player_record_pose_palette(&source.record, palette) < 0) return -1;
+    return player_pose_publish(palette) ? 1 : -1;
+}
+
 void player_pose_request(unsigned clip, float frame, unsigned blend, int force)
 {
     if (!ordinary_source()) return;
-    if (!em_player_pose_select(&source.pose, clip, frame, blend, force))
+    if (!record_select(clip, frame, blend, force))
         player_pose_invalidate("unsupported ordinary clip request");
     if (clip != 0 && clip != 0x15D) {
         source.idle_phase = source.idle_fidget = 0;
@@ -326,7 +556,7 @@ int player_pose_entry_return_tick(void)
     if (source.idle_return == 0x63) {
         player_pose_request(0, 0, 8, 0);
         source.idle_return = 0x64;
-    } else if (!(source.pose.flags & 0x8000)) {
+    } else if (!(source.flags & 0x8000)) {
         source.idle_return = 0;
         source.idle_phase = 1;
         source.idle_fidget = 0;
@@ -342,30 +572,32 @@ int player_pose_entry_return_tick(void)
 int player_pose_foot_stop_begin(void)
 {
     source.foot_fail = "source not ordinary";
-    if (!ordinary_source() || source.pose.acquired) return 0;
+    if (!ordinary_source() || source.acquired) return 0;
     source.foot_fail = "tier is not 1 or 2";
     if (g.loco_tier != 1 && g.loco_tier != 2) return 0;
-    float local[22 * 16];
     float euler[3] = {0, g.yaw, 0};
-    source.foot_fail = "source palette failed";
-    if (!em_player_pose_palette(&source.pose, local, 22)) return 0;
-    /* 0017B910 first evaluates the source skeleton. Its two endpoint nodes
-     * are 17/18 in the actor+110 pointer array. Display-tier blending must
-     * not be used to reconstruct this source pose. 0017C030 mode 3 calls
-     * 0017B910 with no blend gate: during an active pose transition the
-     * evaluated channels are the transition's current channels (what
-     * em_player_pose_palette uses) and actor +3C is the transition clock,
-     * as the live source trace (tools/test_player_pose_live_reference.py)
-     * records through the stop blends. */
-    palette_apply_placement(local, 22, g.pos, g.yaw);
-    float clock = source.pose.transition.active ? source.pose.transition.remaining
-                                                : source.pose.playback.remaining;
+    /* 0017B910 first evaluates the source skeleton (anim_eval_skeleton on
+     * the record at its +B0 / +C0), then reads its two endpoint nodes 17/18
+     * (*(D_00275B40) + 0x44 / + 0x48: the record's +110 array) at +C0. The
+     * clock is the record's +3C, the transition clock during a blend, as the
+     * live source trace (tools/test_player_pose_live_reference.py) records
+     * through the stop blends. */
+    source.foot_fail = "source skeleton evaluation failed";
+    record_place();
+    if (em_player_record_pose_eval_skeleton(&source.record) < 0) return 0;
+    float feet[2][3];
+    for (unsigned k = 0; k < 2; ++k) {
+        memcpy(feet[k], source.record.nodes + EM_POSE_NODE_BYTES * (17 + k) + 0xC0, sizeof feet[k]);
+        for (unsigned axis = 0; axis < 3; ++axis)
+            if (!isfinite(feet[k][axis])) return 0;
+    }
+    float clock = current_remaining();
     source.foot_fail = "foot-placement solve rejected the source";
     if (!em_player_foot_stop_begin(&source.foot_stop, g.loco_tier, clock,
-            local + 17 * 16 + 12, local + 18 * 16 + 12, g.pos, euler))
+            feet[0], feet[1], g.pos, euler))
         return 0;
     source.foot_fail = "tier-2 stop clip select failed";
-    if (g.loco_tier == 2 && !em_player_pose_select(&source.pose, 4, 0, 10, 0)) {
+    if (g.loco_tier == 2 && !record_select(4, 0, 10, 0)) {
         source.foot_stop.active = 0;
         return 0;
     }
@@ -385,7 +617,7 @@ int player_pose_foot_stop_active(void)
 int player_pose_foot_stop_tick(void)
 {
     if (!player_pose_foot_stop_active()) return -1;
-    int active = em_player_foot_stop_tick(&source.foot_stop, source.pose.flags,
+    int active = em_player_foot_stop_tick(&source.foot_stop, source.flags,
                                          g.pos, &g.loco_rate);
     if (active < 0) return -1;
     if (!active) {
@@ -419,13 +651,37 @@ int player_pose_idle_state_wait(void)
            !g.loco_stop.phase && (!source.idle_phase || em_frame_transition()->substate != 0);
 }
 
+/* 0017B660's source-state side effects after the ordinary locomotion
+ * callback: at a tier boundary the source clip becomes the tier's clip at
+ * the same normalized frame (anim_clip_arbiter with no blend); while a blend
+ * toward the adjacent tier is below one, the base clip is restored at its
+ * source frame. The display-tier blend itself is separate. */
+static int gait_base(unsigned tier, unsigned substate, float blend)
+{
+    if (!source.valid || in_transition() || source.acquired || tier > 3 || substate > 2 ||
+        !isfinite(blend) || blend < 0 || blend > 1)
+        return 0;
+    unsigned original_clip = current_clip();
+    float old_length = playback_duration();
+    float from = pose_sub(old_length, current_remaining());
+    if (substate == 0 && original_clip == tier) return 1;
+    int adjacent = substate == 1 ? (int)tier + 1 : (int)tier - 1;
+    unsigned target = substate == 0 ? tier : (unsigned)adjacent;
+    float next_length;
+    if (target > 3 || !clip_frames(target, &next_length)) return 0;
+    float target_frame = pose_mul(next_length, pose_div(from, old_length));
+    if (!record_select(target, target_frame, 0, 1)) return 0;
+    if (substate != 0 && blend < 1) return record_select(original_clip, from, 0, 1);
+    return 1;
+}
+
 void player_pose_finish_state(void)
 {
-    if (!ordinary_source() || source.pose.acquired || source.idle_return ||
+    if (!ordinary_source() || source.acquired || source.idle_return ||
         source.foot_stop.active || source.previous_foot)
         return;
     if (g.status.health <= PD_LOW_HEALTH) {
-        player_pose_legacy_hold("low-health pose row is not exported");
+        player_pose_legacy_hold("low-health pose row is not ported");
         return;
     }
     if (g.sa_req || g.sa_cur) {
@@ -438,7 +694,7 @@ void player_pose_finish_state(void)
         return;
 
     if (g.loco_mode == 1 && g.loco_tier) {
-        if (!em_player_pose_gait_base(&source.pose, g.loco_tier, g.loco_substate, g.loco_blend))
+        if (!gait_base(g.loco_tier, g.loco_substate, g.loco_blend))
             player_pose_invalidate("ordinary gait source restoration failed");
     } else if (!g.loco_mode && !g.gait && !source.idle_handled) {
         if (!source.idle_phase) {
@@ -448,7 +704,7 @@ void player_pose_finish_state(void)
              *0015BA50 still advances the existing animation beforehand. */
             return;
         } else if (source.idle_fidget) {
-            if (source.pose.flags & 0x1000) {
+            if (source.flags & 0x1000) {
                 player_pose_request(0, 0, 8, 0);
                 source.idle_fidget = 0;
                 source.idle_count = 300;
@@ -463,17 +719,15 @@ void player_pose_finish_state(void)
     }
 }
 
-int player_pose_publish(const float *local_palette)
+/* A palette the source evaluated in world space (the record's node world
+ * matrices, or the special bank's channels, which already hold the world
+ * placement): the display takes it as it is. */
+int player_pose_publish(const float *palette)
 {
-    if (!local_palette || g.model.bone_count != 22 || !source.pose.valid) return 0;
+    if (!palette || g.model.bone_count != 22 || !source.valid) return 0;
     for (unsigned i = 0; i < 22 * 16; ++i)
-        if (!isfinite(local_palette[i])) return 0;
-    memcpy(g.player_palette, local_palette, 22 * 16 * sizeof *local_palette);
-    /* 0015BCF0 mode2 chooses 1C6960: identity owner matrix. Cinematic
-     * channels already contain world placement; applying g.pos duplicates it.
-     * Pending mode1 preserves the old cached display until the player stage. */
-    if (source.cinematic_mode != 2)
-        palette_apply_placement(g.player_palette, 22, g.pos, g.yaw);
+        if (!isfinite(palette[i])) return 0;
+    memcpy(g.player_palette, palette, 22 * 16 * sizeof *palette);
     memcpy(source.hip, g.player_palette + 16 + 12, sizeof source.hip);
     source.hip_valid = 1;
     return 1;
@@ -481,14 +735,14 @@ int player_pose_publish(const float *local_palette)
 
 int player_pose_hip(float out[3])
 {
-    if (!out || !source.pose.valid || !source.hip_valid) return 0;
+    if (!out || !source.valid || !source.hip_valid) return 0;
     memcpy(out, source.hip, sizeof source.hip);
     return 1;
 }
 
 void player_pose_finish_palette(void)
 {
-    if (!source.started || !source.pose.valid || g.model.bone_count != 22) return;
+    if (!source.started || !source.valid || g.model.bone_count != 22) return;
     /* 0015BCF0 tail publishes bone1 position and actor Euler to the shared
      * scratch vectors after the player callback, including script-owned ticks. */
     memcpy(source.hip, g.player_palette + 16 + 12, sizeof source.hip);
@@ -500,14 +754,14 @@ void player_pose_finish_palette(void)
 
 int player_pose_script_euler(float out[3])
 {
-    if (!out || !source.pose.valid || !source.saved_euler_valid) return 0;
+    if (!out || !source.valid || !source.saved_euler_valid) return 0;
     memcpy(out, source.saved_euler, sizeof source.saved_euler);
     return 1;
 }
 
 int player_pose_align(const float position[3])
 {
-    if (!position || !source.started || !source.pose.valid || !source.hip_valid ||
+    if (!position || !source.started || !source.valid || !source.hip_valid ||
         g.model.bone_count != 22) return 0;
     for (unsigned axis = 0; axis < 3; ++axis)
         if (!isfinite(position[axis])) return 0;
@@ -533,11 +787,11 @@ int player_pose_align(const float position[3])
 
 int player_pose_face(float yaw)
 {
-    if (!source.started || !source.pose.valid || !isfinite(yaw) || g.model.bone_count != 22)
+    if (!source.started || !source.valid || !isfinite(yaw) || g.model.bone_count != 22)
         return 0;
     float old_yaw = g.yaw;
     g.yaw = yaw;
-    if (source.pose.acquired) {
+    if (source.acquired) {
         float hip[3];
         int hip_valid = source.hip_valid;
         memcpy(hip, source.hip, sizeof hip);
@@ -587,21 +841,24 @@ int player_pose_acquire(void)
      * refused here exactly as player_pose_legacy_release refuses them, so
      * acquisition fails explicitly below (0015B610 acquires a hit only for
      * subs3/1 after 00182B30 admits it; that path is not modelled). */
-    if (source.legacy && source.started && source.pose.valid && !source.pose.acquired)
+    if (source.legacy && source.started && source.valid && !source.acquired)
         (void)player_pose_legacy_release();
-    if (!ordinary_source() || !em_player_pose_acquire(&source.pose)) {
+    /* 00174A50 passes flags 0: an already-idle +20C keeps its cursor. */
+    if (!ordinary_source() || source.acquired || !record_select(0, 0, 8, 0)) {
         /* Name what actually refused: a still-held source reports the live
          * blocker, not the (possibly stale) owner that first froze it. */
         const char *why = !source.started ? "source not started"
-                        : !source.pose.valid ? "source invalidated"
-                        : source.pose.acquired ? "source already acquired"
+                        : !source.valid ? "source invalidated"
+                        : source.acquired ? "source already acquired"
                         : !source.legacy ? "original acquire request failed"
                         : legacy_blocker() ? legacy_blocker()
                         : "held source did not re-seed";
         fprintf(stderr, "player pose: cannot acquire the original source: %s%s\n",
-                source.started && source.pose.valid && source.legacy ? "held: " : "", why);
+                source.started && source.valid && source.legacy ? "held: " : "", why);
         return -1;
     }
+    source.acquired = 1;
+    source.script_active = 0;
     /* 182D70 publishes readiness immediately. It does not advance the newly
      * initialized default clip or continue the ordinary movement callback. */
     g.gait = 0;
@@ -611,8 +868,7 @@ int player_pose_acquire(void)
 
 int player_pose_use_accepted(void)
 {
-    if (!ordinary_source() || source.pose.acquired ||
-        !em_player_pose_select(&source.pose, 0, 0, 0, 0))
+    if (!ordinary_source() || source.acquired || !record_select(0, 0, 0, 0))
         return 0;
     /* 001798D0 precedes the successful 160220 action25 assignment. It
      * clears movement and requests default blend0; same-idle preserves
@@ -623,7 +879,7 @@ int player_pose_use_accepted(void)
     g.loco_stop.phase = g.loco_reentry.phase = 0;
     g.gait = 0;
     g.walk_w = g.fid_w = 0;
-    g.idle_t = (source.pose.playback.clip->duration - source.pose.playback.remaining) / 60.0;
+    g.idle_t = (playback_duration() - playback_remaining()) / 60.0;
     source.idle_phase = source.idle_fidget = 0;
     source.idle_return = 0;
     source.foot_stop.active = source.foot_display = 0;
@@ -635,17 +891,21 @@ int player_pose_idle_tick(float *local_palette)
 {
     if (source.cinematic_mode)
         return player_pose_cinematic_tick(local_palette, 0);
-    return em_player_pose_idle_tick(&source.pose, local_palette, g.model.bone_count);
+    if (!source.acquired || source.script_active || current_clip() != 0 || !record_advance(1))
+        return -1;
+    return record_palette(local_palette) ? 1 : -1;
 }
 
 int player_pose_cinematic_request(const EmPoseBank *bank, unsigned clip, float rate)
 {
-    if (!source.started || !source.pose.valid || !source.pose.acquired || !bank ||
+    if (!source.started || !source.valid || !source.acquired || !bank ||
         bank->bone_count != 21 || !bank->clips || !isfinite(rate) || rate < 0 || rate > 4 ||
-        clip > 32767 || source.pose.script_active)
+        clip > 32767 || source.script_active)
         return 0;
+    int32_t parents[EM_PLAYER_POSE_NODES];
+    if (em_player_record_pose_parents(&source.record, 0, parents) < 0) return 0;
     for (unsigned i = 0; i < 21; ++i)
-        if (bank->parents[i] != source.bank.parents[i]) return 0;
+        if (bank->parents[i] != parents[i]) return 0;
     unsigned index;
     for (index = 0; index < bank->clip_count && bank->clips[index].id != clip; ++index) {}
     if (index == bank->clip_count) return 0;
@@ -655,13 +915,13 @@ int player_pose_cinematic_request(const EmPoseBank *bank, unsigned clip, float r
     source.cinematic_clip = clip;
     source.cinematic_rate = rate;
     source.cinematic_mode = 1;
-    source.pose.flags = 0;
+    source.flags = 0;
     return 1;
 }
 
 int player_pose_cinematic_tick(float *local_palette, int freeze_motion)
 {
-    if (!source.started || !source.pose.valid || !source.pose.acquired ||
+    if (!source.started || !source.valid || !source.acquired ||
         !source.cinematic_bank || !source.cinematic_mode || !local_palette)
         return -1;
     if (source.cinematic_mode == 1) {
@@ -669,29 +929,76 @@ int player_pose_cinematic_tick(float *local_palette, int freeze_motion)
         if (!em_player_pose_init(&next, source.cinematic_bank, source.cinematic_clip, 0))
             return -1;
         next.acquired = 1;
-        source.pose = next;
+        source.cinematic = next;
         source.cinematic_mode = 2;
-        source.pose.flags = 0;
+        source.flags = 0;
     }
     /* 83090 returns1 after the special-bank initializer, so 5BA50 advances
      * by the requested rate on this SAME callback. Ordinary changed requests
      * return0 and do not advance; that separate path remains unchanged. */
-    if (!em_player_pose_advance(&source.pose, source.cinematic_rate, freeze_motion))
+    if (!em_player_pose_advance(&source.cinematic, source.cinematic_rate, freeze_motion))
         return -1;
-    return em_player_pose_palette(&source.pose, local_palette, g.model.bone_count) ? 1 : -1;
+    source.flags = source.cinematic.flags;
+    return em_player_pose_palette(&source.cinematic, local_palette, g.model.bone_count) ? 1 : -1;
 }
 
 int player_pose_cinematic_active(void)
 {
-    return source.started && source.pose.valid && source.cinematic_mode != 0;
+    return source.started && source.valid && source.cinematic_mode != 0;
 }
 
+/* The interaction runtime's per-tick check over the record: its temporal
+ * state must be the original source's, and its baked palette is replaced
+ * with the source's evaluated one. Call after EVERY scripted animation
+ * tick, including the blend1 callback that preserves the palette. */
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette)
 {
     if (source.cinematic_mode) return 0;
-    return em_player_pose_script_tick(&source.pose, animation, result, local_palette,
-                                      g.model.bone_count);
+    if (!source.acquired || !animation || !animation->active || (result != 0 && result != 1) ||
+        (animation->current_clip != 0x45 && animation->current_clip != 0x47 &&
+         animation->current_clip != 0x15C &&
+         (animation->current_clip < 0x40 || animation->current_clip > 0x43)))
+        return 0;
+
+    if (!source.script_active || source.script_clip != animation->current_clip) {
+        if (animation->frame != 0 ||
+            !record_select(animation->current_clip, 0, animation->transition ? 1 : 0, 1))
+            return 0;
+        source.script_active = 1;
+        source.script_clip = animation->current_clip;
+        /*00183090 clears the published advance result after initialization;
+         * ordinary749A0/749F0 selection does not own that actor field. */
+        source.flags = 0;
+    } else if (!record_advance(1)) {
+        return 0;
+    }
+
+    /* Do not conceal a missed callback by seeking to a baked frame index. */
+    if (current_remaining() != animation->remaining || source.flags != animation->flags ||
+        !!in_transition() != !!animation->transition)
+        return 0;
+    if (!result) return 1;
+    return record_palette(local_palette);
+}
+
+/* 00182DF0 on the record: +20C against the row default (0017B490 with the
+ * healthy row gives clip 0: the approximation legacy_reseed names); a
+ * negative +20C or a zero D_00248C90 +0 halfword requests 00174AB0 (clip 0,
+ * flags 1, no blend) first, then 00174A50(16.0) (clip 0, flags 0). */
+static int record_release(void)
+{
+    if (!source.valid || !source.acquired) return 0;
+    int16_t current = em_player_record_pose_requested(&source.record);
+    if (current != 0) {
+        int16_t row = 0;
+        if (current >= 0 && em_player_record_pose_row0(&source.record, current, &row) < 0) return 0;
+        if ((current < 0 || row == 0) && !record_select(0, 0, 0, 1)) return 0;
+        if (!record_select(0, 0, 16, 0)) return 0;
+    }
+    source.acquired = 0;
+    source.script_active = 0;
+    return 1;
 }
 
 int player_pose_release(void)
@@ -700,11 +1007,11 @@ int player_pose_release(void)
         /* 182DF0's nonzero2F3 branch restores the default bank and initializes
          * healthy row0 before releasing. It does not blend foreign channels
          * into an ordinary clip with the same numeric ID. */
-        if (!source.pose.acquired || !em_player_pose_init(&source.pose, &source.bank, 0, 0))
-            return 0;
+        if (!source.acquired || !record_default()) return 0;
         source.cinematic_bank = NULL;
         source.cinematic_mode = 0;
-    } else if (!em_player_pose_release(&source.pose)) return 0;
+        source.acquired = source.script_active = 0;
+    } else if (!record_release()) return 0;
     reset_default_state();
     /* Release follows the consumed script/idle callback. Publish its default
      * reset now, then let the next ordinary callback advance it exactly once. */

@@ -11,8 +11,14 @@ matrices. The stage workers (PLAYER_STAGE_WORKERS.md) call them through
 climb and slide lanes call them through their own worker slots.
 
 Code: `src/game/em_pose_host_workers.c/.h`. Oracle:
-`tools/test_pose_host_workers_reference.py`. **The module is built and
-tested but not wired.** Section 3 lists what the coordinator binds.
+`tools/test_pose_host_workers_reference.py`. **Live since the display
+step (2026-09-24) as the player's one pose owner:** `em_player_record_pose`
+(PLAYER_CLIPS.md section 6) builds the player's `EmPoseHost` (the bank at
+0xD689C0, the node records at 0x7D5840.., the record at 0x8102B0 mapped to
+the live record's own bytes), and the pose host, the stage's clip workers
+and 0015BCF0's animate step run on it. The state-lane slots of section 3
+are still unbound (the closure binder, census L02); their context is
+`player_pose_record_host()`.
 
 ## 0. What already existed (checked first)
 
@@ -146,7 +152,13 @@ parent +64; the Euler angles +70; the local translation +7C; the 4.12 scales
 ## 3. Binding (for the coordinator)
 
 One `EmPoseHost` for the player (one `EmPoseGlobals`, shared by every pose
-host if more are made).
+host if more are made). Since the display step it exists:
+`player_pose_record_host()` (em_player_pose_host.c over
+em_player_record_pose.c). Its regions, `d8106F3` (the canonical byte),
+`spad3A20` (em_player_stage_live.c points it at the stage host's
+`EmPlayerStageGlobals.spad3A20`), the `advance` callee and the stage
+workers below are bound as this section says; `column` is the record
+pose's own table until the coordinator keeps one.
 
 **Regions.** The RAM ranges holding the player's clip bank (+40), its node
 records (0xD0 each) and its node-pointer array. **Storage constraint:** the

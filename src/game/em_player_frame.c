@@ -98,8 +98,18 @@ static void actor_update(void)
          * +34, the takeover stand-in may consume the stage at 0015B130's
          * prelude position, 0015B130 runs 0021C440 / the port's idle/walk
          * callbacks / the +20E countdown / 0015D100 / 0015D000, then
-         * 0015BA50's tail and 0015BCF0's -200 check and loop-sound stop. */
-        if (player_states_stage() != 0) return;
+         * 0015BA50's tail and 0015BCF0's -200 check, loop-sound stop and
+         * skeleton evaluation. A stage the takeover consumed or a
+         * translated routine owned displays the record's evaluated pose
+         * (player_states_record_display); the port's idle/walk callbacks
+         * keep the display below until L12. */
+        int consumed = player_states_stage();
+        if (player_states_record_display()) {
+            if (player_pose_display() < 0)
+                player_pose_invalidate("record skeleton is not finite");
+            return;
+        }
+        if (consumed != 0) return;
     } else {
         /* Since L01 the app reaches this branch only while the legacy
          * bug-latch struggle holds the player (g.pd_state == 2) or in a test

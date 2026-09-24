@@ -24,6 +24,11 @@ from test_point_light_reference import signed
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = 0x940000
+# The player's one pose owner and the translations it reaches (Makefile
+# PLAYER_RECORD_POSE_SRC).
+RECORD_POSE = ('em_player_record_pose', 'em_pose_host_workers', 'em_player_stage_workers',
+               'em_player_floor', 'em_player_reaction', 'em_player_fall',
+               'em_owner_services_original', 'em_stream_lanes_original')
 
 BRIDGE = r'''
 #include "game/em_player_pose_host.c"
@@ -34,10 +39,22 @@ void em_frame_request_quit(void) { abort(); }
 void palette_apply_placement(float *palette, uint32_t count, const float p[3], float yaw) {
     (void)palette; (void)count; (void)p; (void)yaw;
 }
-int load(const char *path) {
+static EmPlayerLiveActor actor;
+static uint8_t d8106F3, d8106F1, d810707;
+static EmPlayerStageScene stage_scene = { .d8106F1 = &d8106F1 };
+static EmPlayerStageGlobals stage_globals = { .d810707 = &d810707 };
+int load(const char *bank, const char *row0) {
     g.model.bone_count = 22;
     g.status.health = 100;
-    return player_pose_load(path) && player_pose_opening_release();
+    return player_pose_load(bank, row0) && player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals) &&
+           player_pose_opening_release();
+}
+/* The record at `clip` / `frame` with no transition: anim_clip_arbiter with
+ * no blend (+20C = clip, +3C = frames - frame). */
+static int seed(unsigned clip, float frame) {
+    int result;
+    source.flags = 0;
+    return em_player_record_pose_arbiter(&source.record, (int)clip, 0, frame, &result) == 0;
 }
 void align_input(const float *feet, const float *hip, const float *euler) {
     memcpy(g.pos, feet, 12);
@@ -51,18 +68,18 @@ int align_to(const float *target, float *out) {
     if (!player_pose_hip(out + 3) || !player_pose_script_euler(out + 6)) return 0;
     return 1;
 }
-void face_owned(int owned) { source.pose.acquired = owned; }
+void face_owned(int owned) { source.acquired = owned; }
 int face_to(float yaw, float *out) {
     if (!player_pose_face(yaw)) return 0;
     memcpy(out, g.pos, 12);
     return player_pose_hip(out + 3) && player_pose_script_euler(out + 6);
 }
 void cancel_entry(void) {
-    em_player_pose_init(&source.pose, &source.bank, 1, 64);
+    seed(1, 64);
     player_pose_entry_cancel();
 }
 int return_tick(unsigned flags) {
-    source.pose.flags = flags;
+    source.flags = flags;
     return player_pose_entry_return_tick();
 }
 void return_state(unsigned *out) {
@@ -71,7 +88,7 @@ void return_state(unsigned *out) {
     player_pose_source(out + 2, (float *)(out + 3), NULL, (int *)(out + 4));
 }
 void use_start(unsigned clip, float frame) {
-    em_player_pose_init(&source.pose, &source.bank, clip, frame);
+    seed(clip, frame);
     g.loco_upt = .3f; g.loco_mode = g.loco_tier = 2;
 }
 int use_reset(unsigned *out) {
@@ -87,7 +104,7 @@ static int accepted_use(void *context) {
     return *(int *)context;
 }
 int legacy_cycle(float health, unsigned *out) {
-    em_player_pose_init(&source.pose, &source.bank, 2, 10); /* a jog source */
+    seed(2, 10); /* a jog source */
     g.status.health = health;
     g.loco_mode = 1; g.loco_tier = 2;
     player_pose_legacy_hold("oracle stand-in");
@@ -101,41 +118,41 @@ int legacy_cycle(float health, unsigned *out) {
     return released;
 }
 int bank_has(unsigned clip) {
-    EmPosePlayback playback;
-    return em_pose_playback_begin(&playback, &source.bank, clip, 0);
+    int32_t frames;
+    return bank_clip(clip) && em_player_record_pose_frames(&source.record, (int)clip, &frames) == 0 &&
+           frames > 0;
 }
 /* Seed from_clip, request to_clip with a blend, advance `ticks` ordinary
- * rate-1 callbacks, then run the mode-3 foot-stop begin. out: feet 17/18
- * (actor-local; placement is a no-op here), clock, transition flag, then
- * step x/z, stop remaining, clip after, transition flag/clock after. */
+ * rate-1 callbacks, then run the mode-3 foot-stop begin at `pos` / `yaw`.
+ * out: the feet 17/18 its skeleton evaluation left (node +C0), the clock and
+ * transition flag it read, then step x/z, stop remaining, clip after,
+ * transition flag/clock after. */
 int foot_blend(unsigned tier, unsigned from_clip, float from_frame, unsigned to_clip,
                float to_frame, unsigned blend, unsigned ticks, const float *pos,
                float yaw, float *out) {
+    int result;
     player_pose_legacy_release();
-    if (!em_player_pose_init(&source.pose, &source.bank, from_clip, from_frame) ||
-        !em_player_pose_select(&source.pose, to_clip, to_frame, blend, 1))
+    if (!seed(from_clip, from_frame) ||
+        em_player_record_pose_arbiter(&source.record, (int)to_clip, (float)blend, to_frame, &result) < 0)
         return -1;
     for (unsigned i = 0; i < ticks; ++i)
-        if (!em_player_pose_advance(&source.pose, 1, 0)) return -1;
-    float local[22 * 16];
-    if (!em_player_pose_palette(&source.pose, local, 22)) return -1;
-    memcpy(out, local + 17 * 16 + 12, 12);
-    memcpy(out + 3, local + 18 * 16 + 12, 12);
-    out[6] = source.pose.transition.active ? source.pose.transition.remaining
-                                           : source.pose.playback.remaining;
-    out[7] = (float)source.pose.transition.active;
+        if (!record_advance(1)) return -1;
+    out[6] = current_remaining();
+    out[7] = (float)in_transition();
     memcpy(g.pos, pos, 12);
     g.yaw = yaw;
     g.loco_tier = tier;
     g.loco_mode = 3;
     source.foot_stop.active = 0;
-    int result = player_pose_foot_stop_begin();
+    result = player_pose_foot_stop_begin();
+    memcpy(out, source.record.nodes + EM_POSE_NODE_BYTES * 17 + 0xC0, 12);
+    memcpy(out + 3, source.record.nodes + EM_POSE_NODE_BYTES * 18 + 0xC0, 12);
     out[8] = source.foot_stop.step_x;
     out[9] = source.foot_stop.step_z;
     out[10] = source.foot_stop.remaining;
-    out[11] = (float)source.pose.playback.clip->id;
-    out[12] = (float)source.pose.transition.active;
-    out[13] = source.pose.transition.remaining;
+    out[11] = (float)current_clip();
+    out[12] = (float)in_transition();
+    out[13] = current_remaining();
     source.foot_stop.active = source.foot_display = 0;
     g.loco_mode = g.loco_tier = 0;
     return result;
@@ -175,16 +192,19 @@ def main():
                         str(ROOT / 'src/game/em_pose_bank.c'),
                         str(ROOT / 'src/game/em_pose_transition.c'),
                         str(ROOT / 'src/game/em_player_foot_stop.c'),
-                        str(ROOT / 'src/game/em_camera_rotation.c'), '-lm', '-o', str(library)], check=True)
+                        str(ROOT / 'src/game/em_camera_rotation.c'),
+                        *[str(ROOT / 'src/game' / (name + '.c')) for name in RECORD_POSE],
+                        '-lm', '-o', str(library)], check=True)
         native = C.CDLL(str(library))
-        native.load.argtypes = [C.c_char_p]
+        native.load.argtypes = [C.c_char_p, C.c_char_p]
         native.align_input.argtypes = [C.POINTER(C.c_float)] * 3
         native.align_to.argtypes = [C.POINTER(C.c_float)] * 2
         native.face_to.argtypes = [C.c_float, C.POINTER(C.c_float)]
         native.return_state.argtypes = [C.POINTER(C.c_uint)]
         native.use_start.argtypes = [C.c_uint, C.c_float]
         native.use_reset.argtypes = [C.POINTER(C.c_uint)]
-        assert native.load(str(ROOT / 'assets/player_channels.empc').encode())
+        assert native.load(str(ROOT / 'assets/player_clips_full.bank').encode(),
+                           str(ROOT / 'assets/player_clip_row0.emch').encode())
         cases = []
         for _ in range(1200):
             feet = vector([random_source.uniform(-1024, 1024) for _ in range(3)])
@@ -338,8 +358,9 @@ def main():
                 assert native.legacy_cycle(100.0, output) == 1
                 assert list(output) == [1, seeded[0], bits(80), 0, 0, 0, 300], list(output)
             else:
-                # Row1's default is not in the exported bank, so the host holds.
-                assert seeded[0] == 0x0A and not native.bank_has(seeded[0])
+                # Row1's default is in the bank, but the host holds: the +235
+                # low-health latch that selects row 1 is not ported.
+                assert seeded[0] == 0x0A and native.bank_has(seeded[0])
                 assert native.legacy_cycle(35.0, output) == 0 and output[1] == 0
             report['legacy_reseed_row%d_clip' % row] = seeded[0]
         native.foot_blend.argtypes = [C.c_uint, C.c_uint, C.c_float, C.c_uint, C.c_float,

@@ -113,6 +113,7 @@ void player_pose_entry_cancel(void) {}
 int player_pose_foot_stop_active(void) { return 0; }
 int player_pose_foot_stop_begin(void) { return 0; }
 int player_pose_foot_stop_tick(void) { return 0; }
+int player_pose_animate(void) { return 0; } /* 0015BCF0's animate step: no record here */
 void player_pose_invalidate(const char *reason) { (void)reason; source.valid = 0; }
 
 /* ---- fake model / world / audio ---------------------------------------- */

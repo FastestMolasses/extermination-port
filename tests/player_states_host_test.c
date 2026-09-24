@@ -77,6 +77,9 @@ void player_pose_entry_cancel(void) {}
 int player_pose_foot_stop_active(void) { return 0; }
 int player_pose_foot_stop_begin(void) { return 0; }
 int player_pose_foot_stop_tick(void) { return 0; }
+/* 0015BCF0's animate step on the record (em_player_pose_host.c): counted. */
+static unsigned animate_calls;
+int player_pose_animate(void) { ++animate_calls; return 0; }
 void player_pose_invalidate(const char *reason) { (void)reason; }
 
 /* ---- fake model / audio / other owners --------------------------------- */
@@ -473,6 +476,9 @@ static void reset(void)
     column_count_value = 0;
     state_exit = 0;
     player_states_reset();
+    /* +20C is the record pose's own field (001749A0 / 001749F0 write it; no
+     * mirror since the display step): the fake source plays clip 1. */
+    em_live_set_u16(player_states_actor_mut(), 0x20C, 1);
     EmPlayerStatesBinding b = full_binding();
     player_states_bind(&b);
     player_states_bind_display(1);
@@ -572,7 +578,11 @@ int main(void)
      *    the owner goes to +214, contact 1 | 0x80, the surface record gives
      *    +23A; the fall check sees contact and calls nothing. */
     reset();
+    animate_calls = 0;
     tick();
+    /* The port's idle callback owned the stage: its legacy display stays
+     * (player_states_record_display 0); 0015BCF0 evaluated the record once. */
+    assert(animate_calls == 1 && !player_states_record_display());
     assert(call_count == 2 && calls[0].name == 'g' && calls[1].name == 'h');
     assert(calls[0].y == em_effect_float32((double)10.0f + -0.2f));
     assert(g.pos[1] == 10.0f && calls[1].y == 10.0f);
@@ -665,8 +675,10 @@ int main(void)
     state_exit = 7;
     call_count = 0;
     memset(stage_calls, 0, sizeof stage_calls);        /* count from the fall stage */
+    animate_calls = 0;
     tick();
     assert(state_runs[5] == 1 && call_count == 0);     /* the callback owned the stage */
+    assert(animate_calls == 1 && player_states_record_display()); /* the record is displayed */
     assert(stage_calls[SC_ADVANCE] == 1 && advanced_step == 1.25f);
     assert(stage_calls[SC_REACTION] == 1 && stage_calls[SC_DRAIN] == 1 &&
            stage_calls[SC_HEARTBEAT] == 1);
@@ -867,10 +879,15 @@ int main(void)
     assert(takeover_calls == 1 && stage_calls[SC_ADVANCE] == 1 && stage_calls[SC_REACTION] == 0 &&
            stage_calls[SC_DRAIN] == 0 && stage_calls[SC_HEARTBEAT] == 0 && call_count == 0);
     assert(em_live_f32(a, 0xBC) == 1.0f && scene_state.spad3B8F == 2 && quit_requests == 0);
+    assert(player_states_record_display());           /* the takeover's record pose */
+    player_states_bind_display(0);
+    assert(player_states_stage() == 1 && !player_states_record_display());
+    player_states_bind_display(1);
     /*  b) Not consumed: 0015B130 runs after the stand-in. */
     takeover_consumes = 0;
     assert(player_states_stage() == 0);
-    assert(takeover_calls == 2 && stage_calls[SC_REACTION] == 1 && call_count >= 2);
+    assert(takeover_calls == 3 && stage_calls[SC_REACTION] == 1 && call_count >= 2);
+    assert(!player_states_record_display());           /* the port's idle callback ran */
     /*  c) 0x70003B8D without the owner on the port's idle (the area-change
      *     fade): the prelude's 00174A50 needs 0017B490 (L12), so the port's
      *     callback keeps the stage; 0015B130 and its prelude do not run. */

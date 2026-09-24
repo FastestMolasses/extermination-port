@@ -31,6 +31,31 @@ void player_pose_legacy_hold(const char *owner);
 int player_pose_legacy_release(void);
 void player_pose_unsupported_hold(const char *reason);
 
+/* The one pose owner (docs/PLAYER_CLIPS.md section 6): the player's clip
+ * clock, node channels and skeleton live in the live record, worked by the
+ * original routines (em_player_record_pose over em_pose_host_workers).
+ * player_pose_attach binds the loaded bank to `actor` (after
+ * player_pose_load): it writes the record's structural words and leaves the
+ * source unstarted until the opening release. d8106F3 is the canonical
+ * byte; scene / globals are the player stage's views
+ * (em_player_record_pose_attach). 1, or 0. */
+struct EmPlayerStageGlobals;
+struct EmPoseHost;
+int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStageScene *scene,
+                       struct EmPlayerStageGlobals *globals);
+int player_pose_record_ready(void);
+/* The EmPoseHost of the record: the context every player-state pose worker
+ * slot binds (em_pose_host_request / _arbiter / _clip_frames / ...). */
+struct EmPoseHost *player_pose_record_host(void);
+/* 0015BCF0's animate step on the record after the player stage: 0, or -1 on
+ * a pose-routine fault. Nothing to do before the first pose. */
+int player_pose_animate(void);
+/* The display of a stage the record owns (a takeover, or a translated state
+ * callback): the record's node world matrices as the last evaluation left
+ * them become the displayed palette. 1 published, 0 no record pose, -1 a
+ * matrix word is not finite. */
+int player_pose_display(void);
+
 /* WP-15/H11 reversal skid (docs/PLAYER_REVERSAL.md).
  * player_reversal_palette: call in the player display stage right after
  * player_pose_foot_stop_palette(); returns 1 when it produced the palette
@@ -219,6 +244,11 @@ void player_states_bind(const EmPlayerStatesBinding *binding);
  * state callback, advancing it by the stage's +34 (as
  * player_reversal_bind_display does for the skid). */
 void player_states_bind_display(int bound);
+/* After player_states_stage: 1 when the record's pose is what this stage
+ * displays (the display is bound, and the takeover consumed the stage or a
+ * translated routine owned it), 0 when the port's idle/walk callbacks ran
+ * (their legacy display, until L12). */
+int player_states_record_display(void);
 /* The coordinator's use hook (00160220) declares that it continues past
  * 00184BA0 with 001AAC00, 0015D4C0, the trigger boxes, 0015DF10 x3,
  * 0015EC50 and 0015FDF0 (em_player_climb adapters) when Use found nothing. */

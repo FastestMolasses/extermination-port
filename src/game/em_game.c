@@ -1568,7 +1568,7 @@ int em_game_legacy_area_load(const char *dir)
 {
     if (s_area_loaded) {
         player_pose_unload();
-        if (g.mesh) (void)player_pose_load(PLAYER_CHANNELS_PATH);
+        if (g.mesh) (void)player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH);
         return em_game_scene_switch(dir);
     }
     s_area_loaded = 1;
@@ -1579,7 +1579,7 @@ int em_game_legacy_area_load(const char *dir)
 
     /* Optional character asset (disc-derived, generated locally). */
     if (em_model_load(&g.model, MODEL_PATH) == 0) {
-        (void)player_pose_load(PLAYER_CHANNELS_PATH);
+        (void)player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH);
         g.mesh = em_gfx_mesh_create(gfx, g.model.verts, g.model.vert_count,
                                     g.model.indices, g.model.index_count,
                                     (const EmGfxTexDesc *)g.model.texs,
