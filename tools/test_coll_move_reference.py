@@ -669,7 +669,7 @@ def build_native():
                     '-fPIC', '-Isrc', str(source), 'src/game/em_coll_move_original.c',
                     'src/game/em_coll_grid_hull.c', 'src/game/em_coll_probe_original.c',
                     'src/game/em_sdk_math_original.c', 'src/game/em_actor_collision.c', 'src/game/em_collision.c',
-                    'src/game/em_actor_pool.c', '-lm', '-o', str(lib)],
+                    'src/game/em_actor_pool.c', 'src/game/em_effect_original.c', '-lm', '-o', str(lib)],
                    cwd=ROOT, check=True)
     n = C.CDLL(str(lib))
     V = C.c_void_p

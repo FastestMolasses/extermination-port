@@ -33,7 +33,9 @@
 #include <string.h>
 
 #include "game/em_actor_collision.h"
+#include "game/em_coll_probe_original.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 #include "game/em_player.h"
 #include "game/em_player_climb.h"
 #include "game/em_player_reaction.h"
@@ -70,6 +72,7 @@ void player_pose_unsupported_hold(const char *reason) { (void)reason; }
 void player_pose_legacy_hold(const char *owner) { (void)owner; }
 int player_pose_legacy_release(void) { return 1; }
 int player_use_poll(void) { return 0; }
+int player_pose_use_accepted_port(void) { return 1; } /* never reached: player_use_poll returns 0 */
 int player_pose_entry_return_tick(void) { return 0; }
 int player_pose_idle_state_wait(void) { return 0; }
 void player_pose_idle_enter(void) { ++source.idle_enters; }
@@ -111,6 +114,7 @@ uint32_t em_random_next(void) { return 0; }
 int em_door_transit_active(float t[3], float *yaw) { (void)t; (void)yaw; return 0; }
 int em_door_walkout_active(float *yaw, float *speed) { (void)yaw; (void)speed; return 0; }
 int em_door_movement_locked(void) { return 0; }
+int em_door_movement_stage_release(void) { return 0; }
 int em_examine_input_locked(void) { return 0; }
 int em_game_player_interact_busy(void) { return 0; }
 int em_weapon_is_aiming(void) { return 0; }
@@ -156,6 +160,12 @@ static EmActorCellTable table;
 static EmActorClassLists lists;
 static EmCollision grid;             /* empty grid that carries the node class */
 static uint8_t grid_blob[4];
+/* Its rank section (0019C830 walks it): one node whose rank tables pick an
+ * empty span, so the grid pass reports no hit, as the empty grid did. */
+static const float rank_verts[3];
+static const int16_t rank_words[12];
+static const int16_t rank_tables[12];
+static EmCollProbeGrid ranks;
 static EmActorCollisionWorld world;
 static EmActor box_owner, player_record;
 static EmActorCollisionPlayer player_query;
@@ -176,6 +186,27 @@ static int fake_head(void *context, const float top[3], const float bottom[3], E
     *hit = head_hit;
     return head_result < 0 ? head_result : head_hit.kind;
 }
+/* 001764E0 / 001756E0's original probe workers (EmPlayerStatesBinding.probes):
+ * nothing in this synthetic world blocks a lane. */
+static int probe_none(void *context, const float a[3], const float b[3], unsigned mask,
+                      EmPlayerProbeHit *hit)
+{
+    (void)context; (void)a; (void)b; (void)mask;
+    memset(hit, 0, sizeof *hit);
+    return 0;
+}
+static int probe_column_none(void *context, const float at[3], float height, EmPlayerProbeHit *hit)
+{
+    (void)context; (void)at; (void)height;
+    memset(hit, 0, sizeof *hit);
+    return 0;
+}
+static int probe_shove(void *context, const float target[3]) { (void)context; (void)target; return -1; }
+static int probe_target(void *context) { (void)context; return -1; }
+static int probe_pose(void *context, float blend) { (void)context; (void)blend; return 0; }
+static float probe_sqrt(void *context, float x) { (void)context; return sqrtf(x); }
+static float probe_atan(void *context, float x) { (void)context; return atanf(x); }
+
 static int fake_object(void *context, const float at[3], const float probe[3], unsigned mask,
                        EmPlayerProbeHit *hit)
 {
@@ -403,6 +434,8 @@ static EmPlayerStatesBinding full_binding(void)
     b.ground = counted_ground; b.ground_context = &player_query;
     b.grid = &grid;
     b.head = fake_head; b.object = fake_object;
+    b.probes = (EmPlayerProbeWorkers){ NULL, probe_none, probe_none, probe_column_none, probe_shove,
+                                       probe_target, probe_pose, probe_sqrt, probe_atan };
     b.link_test = counted_link;
     b.column = fake_column;
     b.atan2 = sdk_atan2; b.tangent = sdk_tan; b.atan = sdk_atan; b.sqrt = sdk_sqrt;
@@ -440,7 +473,8 @@ static void world_init(void)
     memset(&grid, 0, sizeof grid);
     grid.flags = EM_COLL_FLAG_GRID | EM_COLL_FLAG_NODE_CLASS;
     grid.blob = grid_blob;
-    world = (EmActorCollisionWorld){ &table, &lists, &grid, NULL, 0 };
+    ranks = (EmCollProbeGrid){ &grid, 1, 0, 1, rank_verts, rank_words, rank_tables, NULL };
+    world = (EmActorCollisionWorld){ &table, &lists, &grid, NULL, 0, &ranks };
     memset(&player_record, 0, sizeof player_record);
     player_record.cls = 1; player_record.self = &player_record;
     player_query = (EmActorCollisionPlayer){ &world, { &player_record, 1, NULL }, NULL };
@@ -515,12 +549,12 @@ int main(void)
     player_states_bind(NULL);
     player_states_bind_display(0);
     player_states_bind_use_chain(0);
-    assert(player_states_missing() == 0x1FFFu);
+    assert(player_states_missing() == 0x3FFFu);
     assert(!player_states_engaged(EM_PLAYER_MECH_FLOOR));
     tick();
     assert(call_count == 0 && g.pos[1] == 10.0f);  /* the port's idle tail only */
     /* Each FLOOR prerequisite alone keeps it gated off. */
-    static const unsigned kFloorBits[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12 };
+    static const unsigned kFloorBits[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13 };
     for (unsigned k = 0; k < sizeof kFloorBits / sizeof *kFloorBits; ++k) {
         unsigned bit = kFloorBits[k];
         reset();
@@ -537,6 +571,7 @@ int main(void)
         case EM_PLAYER_NEED_FLOOR_STATES: b.stage.state2[0x16] = NULL; break;
         case EM_PLAYER_NEED_STOP_SOUND: b.stage.stop_sound = NULL; break;
         case EM_PLAYER_NEED_STAGE: b.stage.clip_rate = NULL; break;
+        case EM_PLAYER_NEED_PROBES: b.probes.move = NULL; break;
         }
         player_states_bind(&b);
         assert(player_states_missing() == (1u << bit));
@@ -584,7 +619,7 @@ int main(void)
      * (player_states_record_display 0); 0015BCF0 evaluated the record once. */
     assert(animate_calls == 1 && !player_states_record_display());
     assert(call_count == 2 && calls[0].name == 'g' && calls[1].name == 'h');
-    assert(calls[0].y == em_effect_float32((double)10.0f + -0.2f));
+    assert(calls[0].y == em_ee_add(10.0f, -0.2f));
     assert(g.pos[1] == 10.0f && calls[1].y == 10.0f);
     const EmPlayerLiveActor *a = player_states_actor();
     assert(a->link_owner == &box_owner && a->link_prev == NULL);
@@ -645,7 +680,7 @@ int main(void)
     pad.gait = 1; input.ly = pad.ly = 0;               /* hold forward, walk gait */
     tick();
     assert(call_count >= 2 && calls[0].name == 'g');
-    assert(calls[0].y == em_effect_float32((double)10.0f + -0.4f));
+    assert(calls[0].y == em_ee_add(10.0f, -0.4f));
 
     /* 4. Step off the box: no floor under the feet. 001796C0 drops -0.04 per
      *    stage for three stages, then 00179450 over an empty column table
@@ -665,8 +700,7 @@ int main(void)
         assert(em_live_u8(a, 0xA) == 0);
         if (calls[call_count - 1].name == 'c') break;  /* 00179450's column table */
         assert(em_live_u8(a, 5) == 0 && ++drops <= 4);
-        y = em_effect_float32((double)em_effect_float32((double)y + -0.2f) +
-                              em_live_f32(a, 0x2EC));  /* lowered, then dropped */
+        y = em_ee_add(em_ee_add(y, -0.2f), em_live_f32(a, 0x2EC));  /* lowered, then dropped */
         assert(g.pos[1] == y);
     }
     assert(drops == 3 || drops == 4);                  /* until drop <= -0.04 x 3 */

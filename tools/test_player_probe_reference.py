@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_floor_reference import (Floor, ProbeHit, LIBC, ACTOR, NODE, ENTITY, LINK,  # noqa: E402
                                          DECOMP, REFERENCE)
 from test_player_reversal_reference import ELF_SHA256  # noqa: E402
+import ee_float_model as M  # noqa: E402
 from test_point_light_reference import bits, number, fp  # noqa: E402
 
 PROBES, RESPONSE, CRAWL, RELEASE = 0x1764E0, 0x176390, 0x176C80, 0x1756E0
@@ -157,7 +158,8 @@ class NativeProbes:
         return self.take(out)
 
     def column(self, _, at, height, out):
-        start = (bits(at[0]), bits(fp(at[1] + height)), bits(at[2]))
+        # 001760C0's add.s (at.y + height), in the measured EE model.
+        start = (bits(at[0]), M.ee_add(bits(at[1]), bits(height)), bits(at[2]))
         self.log.append(('column', start, bits(height), 6))
         return self.take(out)
 
@@ -275,8 +277,10 @@ def main():
         yaw, offset = number(bits(yaw)), number(bits(offset))
         position = [number(bits(v)) for v in position]; local = [number(bits(v)) for v in local]
         oracle = Probe(elf)
-        wrapped_sum = fp(yaw + offset)
-        oracle.f[12] = bits(wrapped_sum); oracle.call(0x1B1470); angle = oracle.f[0]
+        # The caller's add.s of yaw and offset, in the measured EE model (as
+        # em_player_sdk_lane_point computes it through em_ee_float.h).
+        wrapped_sum = M.ee_add(bits(yaw), bits(offset))
+        oracle.f[12] = wrapped_sum; oracle.call(0x1B1470); angle = oracle.f[0]
         oracle.call(0x1029C0, 0x700036A0)
         oracle.f[12] = angle; oracle.call(0x102BB0, 0x700036A0, 0x700036A0)
         for i in range(3): oracle.save(0x6D0000 + 4 * i, bits(position[i]))

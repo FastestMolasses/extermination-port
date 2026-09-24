@@ -15,6 +15,7 @@
 #include "game/em_pickup_motion.h"
 #include "game/em_pickup_original.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_player_closure_live.h"
 #include "game/em_props.h"
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
@@ -662,6 +663,12 @@ static int publish_view(EmActor *actor, EmOwnerServicesOwner *view)
     return drawn != 0;
 }
 
+int em_area11_interaction_host_offer_001B17A0(EmActor *actor, EmOwnerServicesOwner *view)
+{
+    if (!world.loaded || !view) return -1;
+    return publish_view(actor, view);
+}
+
 /* The panel's and the terminal's view: the record's own bytes, with the
  * host's class byte and the given +0xB0..+0xB8. */
 static int publish_owner(EmActor *actor, uint8_t cls, const float position[3])
@@ -1155,23 +1162,25 @@ int em_area11_interaction_host_player(void *unused)
 
 /* ---------------------------------------------------------- the Use scan
  *
- * 00160220's head (NEARMISS; logic recovered): (D_00810E74 & *(u16
- * *)0x70003B76) != 0 -> 00184BA0; a winner -> 001798D0(player), +5 = 0x25,
- * +6 = 0, return 1. 0x70003B76 is the USE entry of the pad config block,
- * whose default is 0x0040, CROSS in the original layout (em_input.h); the
- * port has no configurable block. 00184BA0 (byte-matched): gated on 3B8D,
- * D_0028A9A0 and D_008106EF, clears the score 0x70003B98, walks the
- * previous frame's published list and arms the winner (+0xB = 4) with
- * 3B8D = 3 (em_interaction_scene_scan_checked over em_interaction_scan).
- * The per-object test is 00183EF0 (byte-matched): the panel's class-4
- * selector-0 type-24 branch (em_panel_candidate) and the elevator's
- * selector-1 branch (em_interaction_elevator_candidate). Its top-level
- * player +0x1F0 == 0x2D path rejects every class but 7; the port polls Use
- * only from the 00161020/001612D0 callbacks (player_use_poll), whose
- * states never hold 0x2D (only 0016D130 writes it), so the action passed is
- * 0. Only the owners bound here are published: the panel, the elevator and
- * (WP-6) the seven item owners; the door and Roger keep their legacy scans
- * until WP-7/9 bind them (W22). */
+ * 00160220 (em_player_use_dispatch, bound over the live record by
+ * em_player_closure_live): (D_00810E74 & *(u16 *)0x70003B76) != 0 ->
+ * 00184BA0; a winner -> 001798D0(player), +5 = 0x25, +6 = 0, return 1;
+ * otherwise the surface actions 0015D4C0, the ledge probes 0015DF10, the
+ * running jump 0015EC50 and the aim solver 0015FDF0. 0x70003B76 is the USE
+ * entry of the pad config block (001AF470's default 0x0040, CROSS in the
+ * original layout, em_input.h). 00184BA0 (byte-matched; this host's scan
+ * worker): gated on 3B8D, D_0028A9A0 and D_008106EF, clears the score
+ * 0x70003B98, walks the previous frame's published list and arms the winner
+ * (+0xB = 4) with 3B8D = 3 (em_interaction_scene_scan_checked over
+ * em_interaction_scan). The per-object test is 00183EF0 (byte-matched): the
+ * panel's class-4 selector-0 type-24 branch (em_panel_candidate) and the
+ * elevator's selector-1 branch (em_interaction_elevator_candidate). Its
+ * top-level player +0x1F0 == 0x2D path rejects every class but 7; the port
+ * polls Use only from the 00161020/001612D0 callbacks (player_use_poll),
+ * whose states never hold 0x2D (only 0016D130 writes it), so the action
+ * passed is 0. Only the owners bound here are published: the panel, the
+ * elevator and (WP-6) the seven item owners; the door and Roger keep their
+ * legacy scans until WP-7/9 bind them (W22). */
 enum { USE_MASK_3B76 = 0x0040 };
 
 static int use_predicate(void *context, const EmInteractionCandidate *candidate, float *score)
@@ -1205,23 +1214,25 @@ static int use_predicate(void *context, const EmInteractionCandidate *candidate,
     return -1; /* the door and Roger are not published yet (WP-7/WP-9) */
 }
 
-int em_area11_interaction_host_use(void *unused)
+int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *actor, int *result)
 {
-    (void)unused;
+    (void)context;
+    (void)actor;
+    if (!result) return -1;
+    *result = 0;
     if (!world.loaded || world.failed) return -1;
     EmSceneState *scene = em_scene_state();
-    if (!(scene->d810E74 & USE_MASK_3B76)) return 0;
     EmInteractionScanState state = {scene->spad3B8D, (int16_t)em_frame_transition()->substate,
                                     scene->req[EM_SCENE_REQ_EF], world.scan_score};
     /* A gated 00184BA0 returns before it reads the list. */
     if (!state.selector && !state.fade_wait && !state.inhibited && published_view() < 0)
         return fail("00184BA0 published list (an owner the host does not run)");
     size_t winner;
-    int result = em_interaction_scene_scan_checked(&world.scene, &state, use_predicate, NULL,
-                                                   &winner);
+    int found = em_interaction_scene_scan_checked(&world.scene, &state, use_predicate, NULL,
+                                                  &winner);
     world.scan_score = state.score;
-    if (result < 0) return fail("00184BA0 use scan");
-    if (!result) return 0;
+    if (found < 0) return fail("00184BA0 use scan");
+    if (!found) return 0;
     /* The winner's controller takes the shared owner token; the claim is
      * 00184BA0's 3B8D = 3 through the frame view (scan_checked armed +0xB). */
     view_load();
@@ -1229,8 +1240,18 @@ int em_area11_interaction_host_use(void *unused)
     int claimed = em_interaction_runtime_claim(&world.shared, record->native_owner);
     view_store();
     if (!claimed || scene->spad3B8D != 3) return fail("00184BA0 winner claim");
-    if (!player_pose_use_accepted()) return fail("001798D0 use acceptance");
-    return 1;
+    *result = 1;
+    return 0;
+}
+
+int em_area11_interaction_host_use(void *unused)
+{
+    (void)unused;
+    if (!world.loaded || world.failed) return -1;
+    int result;
+    if (em_player_closure_live_use_press(player_states_actor_mut(), &result) < 0)
+        return fail("00160220 (the Use dispatcher)");
+    return result;
 }
 
 int em_area11_interaction_host_panel_tick(void)

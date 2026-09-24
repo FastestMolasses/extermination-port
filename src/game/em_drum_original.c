@@ -1,4 +1,5 @@
 #include "game/em_drum_original.h"
+#include "game/em_ee_float.h"
 #include "game/em_item_sdk_math.h"
 
 #include <math.h>
@@ -8,9 +9,15 @@
 
 #define TRY(expr) do { if ((expr) < 0) return EM_DRUM_FAULT; } while (0)
 
-static float add(float a, float b) { return em_crate_sdk_add(a, b); }
-static float sub(float a, float b) { return em_crate_sdk_sub(a, b); }
-static float mul(float a, float b) { return em_crate_sdk_mul(a, b); }
+/* The owner's own FPU arithmetic (sums, differences, products, quotients
+ * and the integer-to-float conversion) is the measured EE model (em_ee_float.h, docs/EE_FLOAT_MODEL.md);
+ * the SDK routines it calls keep the semantics their translations were
+ * verified with. */
+static float add(float a, float b) { return em_ee_add(a, b); }
+static float sub(float a, float b) { return em_ee_sub(a, b); }
+static float mul(float a, float b) { return em_ee_mul(a, b); }
+static float divide(float a, float b) { return em_ee_div(a, b); }
+static float cvt(int32_t v) { return em_ee_cvt_s_w(v); }
 
 static int complete(const EmDrumOriginalHooks *h)
 {
@@ -139,11 +146,11 @@ static int broken(EmDrumOriginal *d, const EmDrumInput *in, const EmDrumOriginal
         uint32_t r;
         if (d->model == 0xA) {
             TRY(h->random(h->context, &r));
-            float v = mul(0x1.921fb6p+2f, em_crate_sdk_int_to_float((int32_t)(r & 0xF0))) / 256.0f;
+            float v = divide(mul(0x1.921fb6p+2f, cvt((int32_t)(r & 0xF0))), 256.0f);
             d->heading = em_crate_sdk_wrap(v);
         } else if (d->model == 0xC) {
             TRY(h->random(h->context, &r));
-            float v = mul(0x1.921fb6p+1f, em_crate_sdk_int_to_float((int32_t)(r & 0x1F))) / 180.0f;
+            float v = divide(mul(0x1.921fb6p+1f, cvt((int32_t)(r & 0x1F))), 180.0f);
             d->heading = em_crate_sdk_wrap(add(d->rotation[1], v));
         }
         TRY(h->random(h->context, &r));

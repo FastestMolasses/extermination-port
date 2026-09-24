@@ -62,8 +62,9 @@ panel
     bytes D_008106B0/B1 from the 00157F60 row on; the task's +B is 3 from the
     open. From the Yes confirmation (B0 0 -> 1, the discharge start) through
     the release and 25 rows after it as above, plus B0/B1, with the player
-    Y compared as retained (the script keeps the ground Y of the approach,
-    which is navigation input). Between them the port's page must consume
+    Y compared as retained while the script owns the player (the script
+    keeps the ground Y of the approach, which is navigation input) and as
+    the original's after the release (the floor service re-grounds it). Between them the port's page must consume
     the request (B0 1 -> 0) for the prompt; its delay is printed, not
     compared: the port's status modules 0x1F/0x21 are resident, the
     original's ITEM root waits 25 frames on its load of module 0x21 (item
@@ -268,9 +269,15 @@ def compare_window(ticks, i0, rows, f0, count, what, y_mode='scripted', req=Fals
         if k >= placed:
             assert (p['pos'][0], p['pos'][2]) == (o['pos'][0], o['pos'][2]), (where, 'player X/Z', p['pos'],
                                                                               o['pos'])
-            if y_mode == 'retained':
+            if selector(o['spad']) == '00':
+                # After the release the floor service 00175900 re-grounds
+                # the player on its first ordinary callback (the elevator
+                # actor, the panel's floor): the original's Y exactly.
+                assert p['pos'][1] == o['pos'][1], (where, 'player Y after the release', p['pos'][1],
+                                                    o['pos'][1])
+            elif y_mode == 'retained':
                 assert p['pos'][1] == port_y0, (where, 'player Y not retained', p['pos'][1], port_y0)
-            elif selector(o['spad']) != '00':
+            else:
                 assert p['pos'][1] == o['pos'][1], (where, 'player Y', p['pos'][1], o['pos'][1])
         if k >= faced:
             assert p['yaw'] == o['yaw'], (where, 'heading', p['yaw'], o['yaw'])
@@ -406,6 +413,68 @@ def check_elevator(ticks, run, state):
           f'eye/target)')
 
 
+# ----------------------------------------------------- boxes (census L25)
+
+# Route 05's two climbs: the first row with +5 = 2 (f175 onto crate r4
+# 0x7A7C70, f393 onto crate r3 0x7A7980), through the landing (+5 back to 0)
+# and the idle return after it (clip 0 counting down from 12), 91 rows each.
+BOX_CLIMBS = ((175, 0x7A7C70, 203.776), (393, 0x7A7980, 217.78619))
+BOX_ROWS = 91
+# The stance the runner walks to is within its navigation tolerance of the
+# route's (em_level_smoke_test.c boxes_frame), and the climb's end placement
+# follows the wall distance: X/Z are compared as displacement from the entry
+# row within this bound; everything else row for row.
+BOX_XZ_TOLERANCE = 0.01
+
+
+def check_boxes(ticks, run, state):
+    rows = route_rows('05_boxes')
+    live = [i for i in range(1, len(ticks)) if 'player' in ticks[i]]
+    entries = [i for i in live if ticks[i]['player'][0] == 2 and ticks[i - 1]['player'][0] != 2]
+    assert len(entries) == 2, ('the run entered the ledge climb other than twice', len(entries))
+    notes = []
+    for (e, (r0, crate, top)) in zip(entries, BOX_CLIMBS):
+        assert rows[r0]['p5'] == 2 and rows[r0 - 1]['p5'] != 2, ('route 05 climb entry moved', r0)
+        pe = [f32(v) for v in ticks[e]['pos_post']]
+        oe = rows[r0]['pos']
+        hang = None
+        worst = 0.0
+        for k in range(BOX_ROWS):
+            t, r = ticks[e + k], rows[r0 + k]
+            p = t['player']
+            pos = [f32(v) for v in t['pos_post']]
+            got = {'p5': p[0], 'm1F0': p[1], 'm1F1': p[2], 'clip': p[3], 'ground': hex(p[5]),
+                   'yaw': round(f32(t['yaw_post']), 5)}
+            want = {'p5': r['p5'], 'm1F0': r['m1F0'], 'm1F1': r['m1F1'], 'clip': r['clip'],
+                    'ground': r['ground'], 'yaw': r['yaw']}
+            # The entry row's clock is the idle clip's before the climb's
+            # request (its phase is the press timing, navigation input).
+            if k:
+                got['clock'], want['clock'] = round(f32(p[4]), 3), r['clock']
+            assert got == want, ('boxes climb row', r['f'], k, got, want)
+            # Y: from the entry the lift is relative to the stance's floor;
+            # once the original holds its hang height (and on the crate top)
+            # it is absolute, equal row for row.
+            if hang is None and k and r['clip'] == 0x78 and r['pos'][1] == rows[r0 + k - 1]['pos'][1] \
+                    and r['pos'][1] != oe[1]:
+                hang = k
+            if hang is not None:
+                assert round(pos[1], 5) == r['pos'][1], ('boxes climb Y', r['f'], k, pos[1], r['pos'][1])
+            else:
+                assert abs((pos[1] - pe[1]) - (r['pos'][1] - oe[1])) < 1e-4, \
+                    ('boxes climb lift', r['f'], k, pos[1] - pe[1], r['pos'][1] - oe[1])
+            for a in (0, 2):
+                worst = max(worst, abs((pos[a] - pe[a]) - (r['pos'][a] - oe[a])))
+        assert hang is not None, ('no hang rows in the climb window', r0)
+        assert worst <= BOX_XZ_TOLERANCE, ('boxes climb X/Z displacement', r0, worst)
+        land = next(k for k in range(BOX_ROWS) if rows[r0 + k]['p5'] == 0)
+        assert rows[r0 + land]['ground'] == hex(crate) and rows[r0 + land]['pos'][1] == round(top, 5)
+        notes.append(f'f{rows[r0]["f"]}..f{rows[r0 + BOX_ROWS - 1]["f"]} (hang from f{rows[r0 + hang]["f"]}, '
+                     f'on {crate:#x} at y {top} from f{rows[r0 + land]["f"]}, X/Z within {worst:.4f})')
+    print(f'boxes: PASS (both ledge climbs equal route 05 row for row in +5, +1F0, +1F1, clip, clock, ground, '
+          f'heading and Y (the lift relative to the stance): {"; ".join(notes)})')
+
+
 # Route order (docs/FIRST_LEVEL_ROUTE.md section 3; em_level_smoke_test.c
 # k_phases). A later step that makes a phase live adds its capture check here
 # in the same commit as its runner.
@@ -416,7 +485,7 @@ PHASES = [
     ('elevator_refusal', check_elevator_refusal),
     ('panel', check_panel),
     ('elevator', check_elevator),
-    ('boxes', None),
+    ('boxes', check_boxes),
     ('slide', None),
     ('truck_preview', None),
     ('truck_crossing', None),

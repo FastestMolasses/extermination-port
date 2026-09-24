@@ -1,6 +1,6 @@
 # 00174AC0 over the player record (heading-record lane)
 
-Status (2026-09-24): translated, original-verified, **not wired live**; it is
+Status (2026-09-24): translated, original-verified, **bound live in AREA11** (em_player_closure_live.c); it is
 the one record-level 00174AC0, named as the `heading` worker of every
 closure module (section 4), and bound as the heading worker in the
 locomotion display's and the fall lane's oracles (section 4, "Status of the
@@ -88,6 +88,8 @@ bound. The oracle checks that the writes made before the fault (+23F, +240,
 +244, +248, +24C) equal the original's own writes for camera yaw 4096.0.
 
 ## 4. Binding (for the binding chain)
+
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
 
 Every worker slot that names 00174AC0 and takes the record:
 

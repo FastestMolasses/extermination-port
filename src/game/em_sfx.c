@@ -533,6 +533,26 @@ void em_sfx_play_at(unsigned id, const float pos[3], float radius)
     sfx_submit(&snd, em_sfx_request_word(gl), em_sfx_request_word(gr));
 }
 
+/* em_sfx_play_at with 001FBD50's return: the track 001FB9F0 allocated, or
+ * -1 when the source is out of range (or the id plays nothing / through a
+ * cue sequence, which allocates no track here). */
+int em_sfx_play_at_track(unsigned id, const float pos[3], float radius)
+{
+    if (!pos) return -1;
+    SfxSound snd;
+    if (!sfx_accept(id, &snd, 1)) return -1;
+    float gl, gr;
+    if (!em_sfx_compute_gains(pos, radius, &gl, &gr)) {
+        s.culls++;
+        return -1;
+    }
+    if (snd.cue) {
+        sfx_cue_submit(snd.cue, em_sfx_request_word(gl), em_sfx_request_word(gr));
+        return -1;
+    }
+    return sfx_start(snd.entry, em_sfx_request_word(gl), em_sfx_request_word(gr));
+}
+
 /* ---- 001FC3C0 / 001FC520 service ---------------------------------------- */
 
 typedef struct {

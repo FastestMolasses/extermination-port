@@ -70,7 +70,7 @@ extern "C" {
 
 /* ---- The grid rank view --------------------------------------------------- */
 
-typedef struct {
+typedef struct EmCollProbeGrid {
     const EmCollision *emcl;   /* the loaded EMCL (polys, ring, planes, classes) */
     uint32_t count;            /* N: 0x7000320C */
     uint32_t first;            /* grid node i is EMCL poly first + i */
@@ -174,6 +174,25 @@ int em_coll_probe_0019ED80(const EmCollProbeGrid *grid, EmCollProbeState *state,
 int em_coll_probe_001A4030(const uint8_t *prim, EmCollProbeState *state);
 int em_coll_probe_001A4650(const uint8_t *prim, EmCollProbeState *state);
 int em_coll_probe_001A44B0(const uint8_t *prim, EmCollProbeState *state);
+/* 0019C830(): 0019AB20's vertical grid pass over the segment the state
+ * holds (0x70003190 -> 0x700031A0): the ranks of the lower end (0019F1A0
+ * mask 0x33), the span pick over directions 0, 1, 4, 5, then every node of
+ * the span inside the rank bounds whose kind byte passes the query-class
+ * filter (kind < 0x5A; 0x51 only for class 0, 0x52 only for class 2, 0x53
+ * not for class -1) through 0019ED80, each hit lowering 0x700031A4. 0 on a
+ * hit (0x700031D0 = the last node hit, 0x700031B0 its point), 1 when
+ * nothing was hit, -1 on a fault. */
+int em_coll_probe_0019C830(const EmCollProbeGrid *grid, EmCollProbeState *state);
+
+/* The SDK VU0 routines the walkers use, for other translations of callers of
+ * the same routines (em_actor_collision.c): 001028D0 out = a - b (vsub.xyzw),
+ * 001028B8 out = a + b (vadd.xyzw), 00102738 the xyz dot (vmul.xyz, then
+ * vaddy.x, vaddz.x) and 00103230 out = v * t (vmulx.xyz, w kept). 0, or -1
+ * when em_ee_float.h refuses a form. */
+int em_coll_probe_sdk_sub(float out[4], const float a[4], const float b[4]);
+int em_coll_probe_sdk_add(float out[4], const float a[4], const float b[4]);
+int em_coll_probe_sdk_dot(float *out, const float a[4], const float b[4]);
+int em_coll_probe_sdk_scale(float out[4], const float v[4], float t);
 
 /* ---- The player floor service's workers (EmPlayerFloorWorkers) -----------
  * docs/COLL_PROBES.md "Binding". `context` is an EmCollProbePlayer. */

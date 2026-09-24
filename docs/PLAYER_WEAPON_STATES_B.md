@@ -13,7 +13,7 @@ Lane "player-weapon-states-b". This document covers three entries of
 
 It records what they do, the translation
 (`src/game/em_player_weapon_states_b.c/.h`), how to bind it and the
-evidence. The module is **built and tested but not wired**. All three states
+evidence. The module is **live in AREA11** (bound by em_player_closure_live.c). All three states
 are in the FLOOR state closure (FIRST_CONTROL.md, "FLOOR state closure":
 +4 1, +5 0x1D..0x22). The first three stances, 0x1D..0x1F, and the action
 machine 001607D0 that enters all six are lane A's
@@ -312,6 +312,8 @@ them (section 5).
 
 ## 4. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 Nothing is wired. When the FLOOR closure is bound (FIRST_CONTROL.md):
 
 ### Stage slots
@@ -365,8 +367,6 @@ Each pointer must be the one canonical storage the other owners use:
 
 ## 5. Limits and open items
 
-- **Not wired.** The FLOOR gate stays closed until the whole closure is
-  bound.
 - **00173000's stance callees are untranslated:** 0017B300, 0016F530,
   0016F600, 0017ABA0, 00199220, and the six fire sub-machines 00170A60,
   00171320, 00171670, 00171B00, 00171E90 and 001723D0. Until they are

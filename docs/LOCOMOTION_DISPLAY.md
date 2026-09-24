@@ -148,7 +148,7 @@ binding.stage.state[1] = em_loco_001612D0;  binding.stage.state_context[1] = &lo
 | Field | Original | Verified translation to bind |
 |---|---|---|
 | `actions` | 001607D0 | `em_player_weapon_001607D0` (em_player_weapon_states_a, test_player_weapon_states_a_reference). The signature already matches. |
-| `ladder` | 00160220 | Lane L09 (ladder use chain). The census row names em_player_ladder_entry, but no exported 00160220 entry exists yet. This worker stays unbound until L09 provides one. |
+| `ladder` | 00160220 | `em_player_use_00160220` (em_player_use_dispatch; live over the record since the Boxes step, em_player_closure_live_use_press). This worker binds it when L12 binds 00161020 / 001612D0 |
 | `heading` | 00174AC0 | `em_player_heading_record_worker_result` (em_player_heading_record.h; context an `EmPlayerHeadingRecord`, `world.spad3A20` the shared 0x70003A20 word). The live turn in em_player.c (em_player_heading / em_player_reversal, on mirrors) stays until 001612D0 runs over the record. |
 | `row_request` | 00174A50 | `em_player_stage_row_request` (em_player_stage_workers; the EmPlayerStageHost context). |
 | `request`, `arbiter`, `clip_frames` | 001749A0, 001749F0, 001C61D0 | `em_pose_host_request`, `em_pose_host_arbiter`, `em_pose_host_clip_frames` (EmPoseHost context). |

@@ -53,9 +53,11 @@ Every float operation goes through `em_ee_float.h`:
 `em_player_stage_live_bind()` (em_player_stage_live.c) runs at every area
 build, at 001AF5C0's position in the scene bindings' w_001AFCA0, right after
 `player_states_reset()` (001AF5C0's wipe and 0015C420's record values). It
-fills the host below and calls `player_states_bind` with the stage part of
-`EmPlayerStatesBinding` only, so em_player.c engages the STAGE mechanism
-(`EM_PLAYER_MECH_STAGE`) and leaves FLOOR and USE gated. A missing
+fills the host below. Where the original collision world is loaded
+(AREA11) it also binds the floor workers (`em_collision_world_bind_player`)
+and the closure and Use chain (`em_player_closure_live_bind`). It then calls
+`player_states_bind`, which engages STAGE, FLOOR and USE there and STAGE
+alone elsewhere. A missing
 `assets/player_clip_rates.emcr` latches a scene fault at 0x0015BA50.
 
 | Slot | Bound to |
@@ -105,19 +107,19 @@ the stage at the prelude position (its acquire stands in for 00174A50 +
 release for 00182DF0); 0015BA50's begin / end and 0015BCF0's writes still
 run. On the port's idle/walk under 0x70003B8D without that owner (the
 area-change fade after 001B0C60) 0015B130 does not run: the prelude would
-request 00174A50, whose 0017B490 row lookup is not bound (L12), so the
-port's callbacks keep those stages. The bound prelude workers (00182B30,
+request 00174A50. Its 0017B490 row lookup is bound since the Boxes step
+(`em_player_closure_live_0017B490`). The port's callbacks still keep those
+stages until the takeover moves onto the stage. The bound prelude workers (00182B30,
 00182D70) and the +4 = 4 handler (0015B530, 001837A0) are therefore not
 reached in the live app, although the original runs them on every scripted
 takeover (12 of the 19 census labels); the census keeps them
 verified-unbound until the takeover moves onto the stage.
 
-**Known regression for L02.** Outside AREA11 a port enemy hit (em_enemy.c
-`s.player_hit`, mapped onto +224 / +22C) now reaches 0021C440's +4 = 2
-reaction states, which are not bound, so the stage fails and the app quits
-where the legacy flinch used to play. No AREA11 owner posts a hit, so the
-first-level route is unaffected; binding the +4 = 2 reaction states (L02)
-restores hit behaviour.
+**Hits outside AREA11.** In AREA11 the +4 = 2 reaction states are bound
+(em_player_closure_live.c). Outside it (no original collision world) a port
+enemy hit (em_enemy.c `s.player_hit`, mapped onto +224 / +22C) still reaches
+0021C440's +4 = 2 states unbound, so the stage fails and the app quits. No
+AREA11 owner posts a hit.
 
 ### 2.2 The contract
 
@@ -337,12 +339,12 @@ part of the gap.
   - the two object links (+20, +1C);
   - 0015C9D0, 00182DF0's record side, 001837B0, 001838B0 and 00183910,
     which are untranslated;
-  - 0017B490 / 001749A0 on the record (L12).
+  - 001749A0 on the record for the idle / walk (L12).
 - **Bound but unreached (L01).** 00182B30, 00182D70, 0015B530 and 001837A0
   wait for the scripted takeover to move from the interaction runtime onto
   the stage (00182DF0's record side, the display's commit/advance).
-- **Hits outside AREA11 (L02).** Port enemy hits fault in the unbound
-  +4 = 2 reaction states (section 2.1).
+- **Hits outside AREA11.** Port enemy hits fault in the +4 = 2 reaction
+  states, which are bound only in AREA11 (section 2.1).
 - **Scripted hooks.** atan2 is the host model on both sides, as in the floor
   oracle. SDK 0011E620 fidelity belongs to the SDK-math lane.
 - **Captured coverage.** The captured records exercise the paths the route

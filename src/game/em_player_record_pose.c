@@ -80,7 +80,34 @@ void em_player_record_pose_free(EmPlayerRecordPose *pose)
 {
     if (!pose) return;
     free(pose->bank);
+    uint8_t *tables = pose->tables;
+    uint32_t base = pose->tables_base, size = pose->tables_size;
     memset(pose, 0, sizeof *pose);
+    pose->tables = tables;
+    pose->tables_base = base;
+    pose->tables_size = size;
+}
+
+int em_player_record_pose_load_tables(EmPlayerRecordPose *pose, const char *path)
+{
+    if (!pose) return -1;
+    uint32_t size = 0;
+    uint8_t *bytes = read_file(path, &size);
+    if (!bytes) return -1;
+    const uint32_t base = UINT32_C(0x00248740), span = UINT32_C(0x00248ACC) - base;
+    if (size != 16 + span || memcmp(bytes, "EMRG", 4) != 0 || rd32(bytes + 4) != 1 ||
+        rd32(bytes + 8) != base || rd32(bytes + 12) != span) {
+        free(bytes);
+        return -1;
+    }
+    free(pose->tables);
+    pose->tables = malloc(span);
+    if (!pose->tables) { free(bytes); pose->tables_size = 0; return -1; }
+    memcpy(pose->tables, bytes + 16, span);
+    pose->tables_base = base;
+    pose->tables_size = span;
+    free(bytes);
+    return 0;
 }
 
 /* ---- binding ------------------------------------------------------------ */
@@ -126,6 +153,9 @@ int em_player_record_pose_attach(EmPlayerRecordPose *pose, EmPlayerLiveActor *ac
     h->region[1] = (EmPoseRegion){ EM_PLAYER_POSE_NODE_ADDRESS, sizeof pose->nodes, pose->nodes, 1 };
     h->region[2] = (EmPoseRegion){ EM_PLAYER_POSE_RECORD_ADDRESS, EM_PLAYER_ACTOR_SIZE, actor->bytes, 1 };
     h->region_count = 3;
+    if (pose->tables)
+        h->region[h->region_count++] = (EmPoseRegion){ pose->tables_base, pose->tables_size,
+                                                        pose->tables, 0 };
     h->globals = g;
     h->callees.advance_context = &pose->advance;
     h->callees.advance = em_pose_host_player_advance;

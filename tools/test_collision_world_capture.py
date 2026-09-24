@@ -4,8 +4,9 @@
 
 The port's AREA11 owners publish their collision cells through the translated
 001A2370 (re-transform by the owner's 001C6380 matrix) and 001B1B70. This test
-runs the headless level smoke (New Game -> first control -> battery ->
-refusal -> panel -> elevator ride) with EM_COLL_WORLD_DUMP, which writes the
+runs the headless level smoke through the elevator phase (New Game -> first
+control -> battery -> refusal -> panel -> elevator ride;
+EM_LEVEL_SMOKE_UNTIL=elevator) with EM_COLL_WORLD_DUMP, which writes the
 cell directory (*0x70003250) and the published class-4 list after the first
 001AAD00 of the area and after the last one, and compares them with the
 directories the original holds in the route captures
@@ -19,7 +20,11 @@ scratchpad word 0x70003250):
     at the lower floor (0x827E54's 001A2370), the items unchanged (the
     battery's cell keeps its last transform after the take), and the last
     frame's published class-4 list equal to the original's entries of the
-    owners the port runs (panel, terminal, items), in the original order.
+    owners the port runs (panel, terminal, items, and the crates and drums
+    on their original owners since census L25: the crates publish their
+    cells, uids 7..10, on every rest tick; the drums, uids 5 and 6, when
+    001B17A0 finds them visible or the player is within 50 units), in the
+    original order.
 
 Every other uid must equal the disc directory in the port. The original moves
 two of them that the port's owners do not publish yet: the truck (uid 14,
@@ -42,6 +47,7 @@ ROUTE = ROOT.parent / 'Extermination/build/s87/route'
 DISC = ROOT / 'assets/scene_snow/area11_cells.bin'
 OUT = ROOT / 'build/collision_world'
 PORT_MOVED = {4, 19, 21, 22, 23, 24, 25}     # the terminal and the item owners
+PORT_OWNERS = {4, 18, 5, 6, 7, 8, 9, 10}    # terminal, panel, drums, crates (+ items 19..26)
 NOT_PUBLISHED = {14: 'truck 00823FF0 (census L23)', 15: "0x825940's plate (census L24)"}
 
 
@@ -98,6 +104,50 @@ def compare(label, port, disc, original):
     return failures, moved
 
 
+# The box records' bytes the port models (census L25): status, class, model,
+# the state bytes +0x04..+0x08, +0x09 (bone slots held), +0x0A..+0x10, the
+# owner words +0x28..+0x3B, +0x2E, +0x52..+0x57, the +0x60 scale, the
+# position/rotation +0xB0..+0xCF, the world matrix +0xD0..+0x10F and the
+# +0x1F0 block. (+0x01 is the walk's per-call byte; +0x14..+0x1C and +0x44/
+# +0x110 are pointers.)
+BOX_SPANS = ((0x00, 0x01), (0x02, 0x14), (0x28, 0x3C), (0x52, 0x58), (0x60, 0x70),
+             (0xB0, 0x110), (0x1F0, 0x2F0))
+
+
+def compare_boxes(path):
+    """Every live crate and drum record vs route 04's record at the same
+    address (the boxes are static after their state 0 on this route)."""
+    if not path.exists():
+        return ['no box dump (EM_BOX_DUMP)']
+    data = path.read_bytes()
+    assert data[:8] == b'EMBX\x01\x00\x00\x00', path
+    count = struct.unpack_from('<I', data, 8)[0]
+    ram = (ROUTE / '04_elevator_ride' / 'eeMemory.bin').read_bytes()
+    failures, seen = [], []
+    at = 12
+    for _ in range(count):
+        callback, address = struct.unpack_from('<II', data, at)
+        image = data[at + 8:at + 8 + 0x2F0]
+        at += 8 + 0x2F0
+        original = ram[address:address + 0x2F0]
+        if struct.unpack_from('<I', original, 0x10)[0] != callback:
+            failures.append(f'box {address:#x}: the original record there is not {callback:#x}')
+            continue
+        diff = [f'+{o:#x}' for lo, hi in BOX_SPANS for o in range(lo, hi) if image[o] != original[o]]
+        if diff:
+            failures.append(f'box {callback:#x} at {address:#x}: bytes differ from route 04 at '
+                            f'{", ".join(diff[:12])}{" ..." if len(diff) > 12 else ""}')
+        seen.append((callback, address))
+    crates = sorted(a for c, a in seen if c == 0x1551B0)
+    drums = sorted(a for c, a in seen if c == 0x156620)
+    if crates != [0x7A7980, 0x7A7C70, 0x7A7F60, 0x7A8250] or drums != [0x7A99D0, 0x7A9CC0]:
+        failures.append(f'live boxes {[hex(a) for a in crates]} / {[hex(a) for a in drums]}, '
+                        'expected the four crates and two drums of the captures')
+    print(f'boxes: {len(seen)} live records (crates {[hex(a) for a in crates]}, drums '
+          f'{[hex(a) for a in drums]}) compared with route 04 in {len(BOX_SPANS)} spans')
+    return failures
+
+
 def main():
     # --binary PATH: a private build (lane builds and negative controls).
     binary = Path(sys.argv[sys.argv.index('--binary') + 1]) if '--binary' in sys.argv \
@@ -109,9 +159,15 @@ def main():
     for stale in (dump, Path(str(dump) + '.first')):
         if stale.exists():
             stale.unlink()
+    boxes = OUT / 'boxes.bin'
+    if boxes.exists():
+        boxes.unlink()
     env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level',
-               EM_COLL_WORLD_DUMP=str(dump), EM_AREA_CHANGE_LOG=str(OUT / 'ticks.jsonl'))
-    env.pop('EM_LEVEL_SMOKE_UNTIL', None)
+               EM_COLL_WORLD_DUMP=str(dump), EM_AREA_CHANGE_LOG=str(OUT / 'ticks.jsonl'),
+               EM_BOX_DUMP=str(boxes))
+    # Through the elevator phase: the last dump is then the frame after the
+    # ride's release window, which beat 04 was captured at.
+    env['EM_LEVEL_SMOKE_UNTIL'] = 'elevator'
     run = subprocess.run([str(binary)], cwd=ROOT, env=env, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True)
     (OUT / 'run.log').write_text(run.stdout)
@@ -134,9 +190,10 @@ def main():
     if moved_first != sorted(PORT_MOVED) or moved_last != sorted(PORT_MOVED):
         failures.append(f'the port re-transformed {moved_first} / {moved_last}, expected {sorted(PORT_MOVED)}')
     # The last frame's published class-4 list: the original's entries whose
-    # owners the port runs (the panel, the terminal, the items), in the
+    # owners the port runs (the panel, the terminal, the items, and since
+    # census L25 the drums, uids 5 and 6, and the crates, uids 7..10), in the
     # original order (newest push first = reverse pool-walk order).
-    ported = [u for u in list04 if u == 4 or u == 18 or 19 <= u <= 26]
+    ported = [u for u in list04 if u in PORT_OWNERS or 19 <= u <= 26]
     if last_list != ported:
         failures.append(f'published class-4 list {last_list}, expected the original\'s ported '
                         f'owners {ported} (beat 04)')
@@ -144,6 +201,7 @@ def main():
           f'published class-4 uids port {first_list}, original 00 {list00}')
     print(f'last dump: uid 4 at the lower floor, equal to 04_elevator_ride; '
           f'published class-4 uids port {last_list}, original 04 {list04}')
+    failures += compare_boxes(boxes)
     print('not published by the port yet: ' +
           ', '.join(f'uid {u} ({why})' for u, why in NOT_PUBLISHED.items()))
     if failures:

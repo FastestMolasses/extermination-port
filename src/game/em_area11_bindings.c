@@ -55,6 +55,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_area11_boxes.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_director.h"
@@ -286,13 +287,29 @@ static int tick_pickup(EmActor *actor, Node *node, const EmArea11World *world)
     return result ? 1 : free_self_001AFC10(actor);
 }
 
-/* Enemy group: em_enemy is the port's aggregate of the husk, crates and
- * drums. The legacy cutscene block never ran it, so it stays gameplay-only. */
+/* Enemy group: em_enemy is the port's aggregate of the husk pair (0x825940,
+ * 0x827490). The legacy cutscene block never ran it, so it stays
+ * gameplay-only. (The crates and drums left the group in census L25: they
+ * run their original owners, tick_box.) */
 static int tick_enemies(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)actor;
     if (node->head && !world->cutscene)
         em_game_legacy_enemy_tick();
+    return 1;
+}
+
+/* Crates 001551B0 (area11[3..6]) and drums 00156620 (area11[14]/[15]):
+ * their original owners over the node's own record (em_area11_boxes, census
+ * L25), in both walk variants (class 4 is not skipped by 001AFD70 mode 1). */
+static int tick_box(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)node;
+    (void)world;
+    if (em_area11_boxes_tick(actor, s_pool, s_scene) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "box owner: a worker failed (em_area11_boxes)");
     return 1;
 }
 
@@ -574,15 +591,13 @@ static const Binding k_bindings[] = {
     /* deferred g0.0-g0.6: item owners */
     {0x00219550u, "pickup: em_area11_interaction_host_pickup_tick", NULL, GROUP_NONE, tick_pickup, NULL},
     {0x0015AFA0u, "pickup: em_area11_interaction_host_pickup_tick", NULL, GROUP_NONE, tick_pickup, NULL},
-    /* deferred g0.7/g0.8, crates area11[3..6], drums area11[14..15] */
+    /* deferred g0.7/g0.8 (the husk pair); crates area11[3..6], drums area11[14..15] */
     {0x00825940u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
      tick_enemy_00825940, NULL},
     {0x00827490u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
      tick_enemies, NULL},
-    {0x001551B0u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
-     tick_enemies, NULL},
-    {0x00156620u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
-     tick_enemies, NULL},
+    {0x001551B0u, "crate: em_crate_original (em_area11_boxes)", NULL, GROUP_NONE, tick_box, NULL},
+    {0x00156620u, "drum: em_drum_original (em_area11_boxes)", NULL, GROUP_NONE, tick_box, NULL},
     {0x001BC350u, "door: legacy em_door_update", NULL, GROUP_NONE, tick_door, NULL},
     {0x00827630u, "fan: static", NULL, GROUP_NONE, NULL,
      "fan (area11[1]/[2]): no port behaviour; em_pickup draws it static (WP-11)"},
@@ -692,12 +707,18 @@ void em_area11_bindings_attach(EmActorPool *pool, EmSceneState *scene)
 {
     s_pool = pool;
     s_scene = scene;
+    /* 001AF800: the only records that hold bone slots (+0x09) are the boxes'. */
+    if (pool) {
+        pool->w_001AF800 = em_area11_boxes_001AF800;
+        pool->worker_ctx = NULL;
+    }
 }
 
 void em_area11_bindings_reset(void)
 {
     memset(s_nodes, 0, sizeof s_nodes);
     memset(s_heads, 0, sizeof s_heads);
+    em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
 }
 
 int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned *spawned)

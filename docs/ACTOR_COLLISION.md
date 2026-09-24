@@ -157,14 +157,15 @@ Corrections to the readable C (the `.s` is the authority):
 
 | File | Original routines |
 |---|---|
-| `em_actor_collision.c` | 001A2370 (+001026A0, 00102738), 001B1B70, 001B1D20 (and the other pushes), 001AAD00 list block, 001AF8E0 list half, 0019AB20, 0019F730 (both passes), 001A44B0, 001A4650, 001A4030, 0019BC40 pass 1, 001A56A0, 001A58B0 |
-| `em_collision.c` | `em_collision_grid_vertical` (0019C830 gate + 0019ED80), `em_collision_grid_vertical_nodes` (same over a given node order), `em_collision_column_finish` (0019BC40 pass 2 + sort + cull, split out of `em_collision_column_table`, which is unchanged in behaviour), `em_collision_column_box_face` (001A5760) |
+| `em_actor_collision.c` | 001A2370 (001026A0 via em_effect_original, 00102738 via em_coll_probe_original), 001B1B70, 001B1D20 (and the other pushes), 001AAD00 list block, 001AF8E0 list half, 0019AB20 (its prim tests and segment state are em_coll_probe_original's; its grid pass is `em_coll_probe_0019C830`), 0019F730 (both passes), 0019BC40 pass 1, 001A56A0, 001A58B0, the player's 001760C0 |
+| `em_collision.c` | `em_collision_column_finish` (0019BC40 pass 2 + sort + cull, split out of `em_collision_column_table`, which is unchanged in behaviour), `em_collision_column_box_face` (001A5760), the column node test 0019F330 |
 
 - The directory is kept in its original byte layout. The owners are the pool's
   `EmActor` records, and the lists hold `EmActor.self`.
-- Arithmetic follows the EE model the oracles share: each operation truncates,
-  overflow clamps, denormals flush, and mula/madd are separate truncated
-  operations.
+- Arithmetic is the measured EE model (em_ee_float.h; EE_FLOAT_MODEL.md
+  5c "Done"): COP1 add/sub pre-trim and truncate, division rounds to
+  nearest, mula/madd use the accumulator. The VU forms go through the SDK
+  leaves. The oracle's interpreter is test_coll_move_reference.FloatEE.
 - Faults (−1), where the original would read memory it does not own:
   - a malformed directory;
   - a static cell reached without its `D_0024D7C0` kind view;
@@ -267,24 +268,10 @@ executed from RAM is checked against the ELF.
   - the column entries;
   - every worker adapter.
 
-KNOWN INEXACT (grid only, shared with every EMCL grid walk): `0019C830` visits
-only the nodes one rank-table span admits, in that span's order, and every hit
-clamps the segment end. The EMCL carries neither the spans nor the rank bounds,
-so the native visits every node in EMCL order. This can move the final height
-by an ulp, or pick another node at an equal height. A differing `0019AB20`
-case is classed KNOWN INEXACT only when all of these hold; anything else fails
-the run:
-
-- the native grid pass started from the original's exact entry state
-  (segment and `0x700031D4`, above);
-- the original's grid arithmetic over its own node order is reproduced
-  exactly (the ordered replay);
-- both sides ended on a grid record, with the same node or at an equal
-  height.
-
-The full run found 3 such cases in 10,051, each with the same node and a
-one-ulp y. They are printed, not hidden. Exactness needs the spans and rank
-bounds in the EMCL. The 3,099 EMCL grid planes equal the RAM nodes bit for bit.
+The grid pass is the translated 0019C830 (`em_coll_probe_0019C830`, over the
+EMCL rank section: the spans and rank bounds of EMCL flags 7). The former
+KNOWN INEXACT allowance (a native walk of every node in EMCL order) is
+retired, and the oracle compares the ground exactly.
 
 ## 5. Findings for other lanes
 
@@ -380,24 +367,39 @@ only; a scene without an original roster keeps em_collision.c).
      compares the live directory with route captures 00 and 04 byte for byte
      (uids 4, 19, 21..25) and the last frame's published class-4 list with
      beat 04's (the ported owners, in the original order).
-   - **Truck #24, crates #12..15, drums #22..23, `0x825940`, the prop 001C4820
-     (not bound; their owners are legacy or unbound: L23, L25, L24, L35).**
-     Their bindings, when those owners bind: the truck `EmTruckHooks.hull` /
-     `.hull_bounds` / `.publish` = `em_actor_collision_owner_hull` /
-     `_hull_bounds` / `_publish`; the crates `.publish` / `.probe`; the drums
-     `.contact` / `.hull` / `.probe` and `.visibility` = 001B17A0; `0x825940`
-     re-transforms with its bone-3 matrix. The original publishes these every
-     frame (route captures 00..05 hold uids 17, 14, 7..10, 5/6); the port's
+   - **Crates #12..15 and drums #22..23 (live since census L25).**
+     em_area11_boxes.c binds these:
+     - the crates' `.publish` to `em_collision_world_publish_001B1B70`, and
+       `.probe` to `em_actor_collision_owner_probe` (over the world's cells
+       and rank grid);
+     - the drums' `.contact` to `em_collision_world_push4_001B1D20`, `.hull`
+       to `em_collision_world_retransform_001A2370`, `.probe` as the crates',
+       and `.visibility` to the interaction host's 001B17A0.
+
+     The crates' cells (uids 7..10) are on the class-4 list every frame. The
+     drums' (5, 6) are there when visible or within 50 units. The capture
+     test compares all six records with route 04, and the last frame's list
+     with beat 04's.
+   - **Truck #24, `0x825940`, the prop 001C4820 (not bound: L23, L24,
+     L35).** When those owners bind:
+     - the truck's `EmTruckHooks.hull` / `.hull_bounds` / `.publish` =
+       `em_actor_collision_owner_hull` / `_hull_bounds` / `_publish`;
+     - `0x825940` re-transforms with its bone-3 matrix.
+
+     The original publishes these every frame (uids 17, 14, 3). The port's
      class-4 list lacks them until then.
-4. **Player stage `w_0015BCF0` (bound into the gated FLOOR mechanism since
-   census L06/L07: `em_collision_world_bind_player`, called by
-   em_player_stage_live.c; FLOOR stays off until the SDK set, the display and
-   the closure callbacks exist).** Before any of this query half goes live
-   (FLOOR, or 001764E0's 001760C0 column, whose original is 0019AB20 with
-   mask 6 over at + (0, height, 0)), its prim tests 001A4030 / 001A4650 /
-   001A44B0 must be reduced to em_coll_probe_original's (001A4030 is live
-   under the camera's 0019A910) and its float helpers and oracle harmonized
-   (EE_FLOAT_MODEL.md 5c): two live copies of one original are not allowed. `EmPlayerFloorWorkers.ground` and
+4. **Player stage `w_0015BCF0` (live since the census L02 step,
+   2026-09-24: FLOOR engaged in AREA11).** `em_collision_world_bind_player`
+   (called by em_player_stage_live.c) binds the query half:
+   - 0019AB20 with its grid pass 0019C830;
+   - 001764E0's 001760C0 column (`em_actor_collision_player_001760C0`: mask
+     6, or 0x80000006 without its arg, over at + (0, height, 0));
+   - 0019BC40;
+   - the move walkers.
+
+   Their prim tests are em_coll_probe_original's (001A44B0 / 001A4650 /
+   001A4030; one owner), and their float arithmetic is the measured EE
+   model (EE_FLOAT_MODEL.md 5c, "Done"). `EmPlayerFloorWorkers.ground` and
    `EmPlayerFallWorkers.ground` are `em_actor_collision_player_ground`, with
    context `EmActorCollisionPlayer` = { world, { player +0x14, player +0x02,
    NULL }, NULL }.
@@ -407,9 +409,8 @@ only; a scene without an original roster keeps em_collision.c).
      0011DBB8 of `em_sdk_math_original` (the tables from the user's export);
      they record a fault in their context, which the binding's column wrapper
      checks after the call (a faulted sqrt/atan fails the column; no value is
-     substituted). Section 5 has the float-model question on this module's
-     own arithmetic (EE_FLOAT_MODEL.md 5c: its add/sub/div are not the
-     measured EE model yet, and its oracle shares that interpreter).
+     substituted). Its own arithmetic is on the EE model (EE_FLOAT_MODEL.md
+     5c, "Done").
    - **`D_008104C4`: done (lane "player-states-live").** `00175CF0` stores
      `0x700031D4` in `+0x214` and reads `+0x214` again in the same call
      (section 1), inside `em_player_floor_apply`:

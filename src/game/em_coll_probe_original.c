@@ -64,7 +64,8 @@ static int sdk_add(float out[4], const float a[4], const float b[4])
     return 0;
 }
 
-/* 00102738(a, b): vmul.xyz vf5 = a * b; vaddy.x; vaddz.x; the x lane. */
+/* 00102738(a, b): the three-lane product a * b, then its y and z lanes
+ * summed into x; the x lane. */
 static int sdk_dot(float *out, const float a[4], const float b[4])
 {
     float v[4];
@@ -76,7 +77,7 @@ static int sdk_dot(float *out, const float a[4], const float b[4])
     return 0;
 }
 
-/* 00103230(out, v, t): vmulx.xyz vf4 = v * t (w keeps v.w). */
+/* 00103230(out, v, t): the three lanes of v scaled by t (w keeps v.w). */
 static int sdk_scale(float out[4], const float v[4], float t)
 {
     float r[4], q[4] = { t, t, t, t };   /* only lane x (the broadcast) is read */
@@ -87,6 +88,11 @@ static int sdk_scale(float out[4], const float v[4], float t)
 }
 
 /* ---- The grid rank view --------------------------------------------------- */
+
+int em_coll_probe_sdk_sub(float out[4], const float a[4], const float b[4]) { return sdk_sub(out, a, b); }
+int em_coll_probe_sdk_add(float out[4], const float a[4], const float b[4]) { return sdk_add(out, a, b); }
+int em_coll_probe_sdk_dot(float *out, const float a[4], const float b[4]) { return sdk_dot(out, a, b); }
+int em_coll_probe_sdk_scale(float out[4], const float v[4], float t) { return sdk_scale(out, v, t); }
 
 void em_coll_probe_grid_free(EmCollProbeGrid *grid)
 {
@@ -779,6 +785,46 @@ int em_coll_probe_0019E640(const EmCollProbeWorld *world, EmCollProbeState *s)
     s->record = EM_COLL_PROBE_RECORD_GRID;                            /* 0x19E8E0 */
     s->node = found;
     memcpy(s->point, saved, sizeof saved);                            /* 0x19E8E8 loop */
+    return 0;
+}
+
+/* 0019C830: 0019AB20's vertical grid walk (kind byte below 0x5A, with the
+ * query-class filter). 0 on a hit, 1. */
+int em_coll_probe_0019C830(const EmCollProbeGrid *g, EmCollProbeState *s)
+{
+    if (!g || !g->tables || !g->emcl || !s) return -1;
+    const float *at = em_ee_c_le(s->start[1], s->end[1]) ? s->end : s->start;  /* 0x19C858 */
+    if (em_coll_probe_0019F1A0(g, s, at, 0x33)) return -1;            /* 0x19C870 / 0x19C888 */
+    int32_t same[6];
+    for (int i = 0; i < 6; ++i) same[i] = s->rank[i];                 /* 0x19C8C8 / 0x19C8F8 re-read */
+    int32_t lo = 0, hi = 0;
+    int cand = 0, picked;
+    if (span_pick(g, s, same, &lo, &hi, &cand, &picked)) return -1;   /* 0x19C8AC .. 0x19C970 */
+    if (!picked || !span_valid(g, lo, hi)) return -1;
+    const int16_t *table = g->tables + (size_t)cand * g->count;       /* 0x19C97C: *(0x70003210 + 4 cand) */
+    int found = -1;                                                   /* s1 = 0 */
+    float saved[3] = { 0.0f, 0.0f, 0.0f };
+    for (int32_t k = lo; k < hi; ++k) {                               /* 0x19C998, 0x19CAF0 */
+        const int node = table[k];                                    /* 0x19C998 */
+        if (!rank_gate(g, s, node)) continue;                         /* 0x19C9B8..0x19CA04 */
+        const uint8_t attr = grid_node(g, node)->attr;                /* 0x19CA0C: +0x1A */
+        s->span_hi = attr;                                            /* 0x19CA14: 0x70003B88 */
+        const int16_t kind = s->span_hi;                              /* 0x19CA1C */
+        if (kind >= 0x5A) continue;                                   /* 0x19CA20 */
+        if (kind == 0x51 && s->query_class != 0) continue;            /* 0x19CA30..0x19CA40 */
+        if (kind == 0x52 && s->query_class != 2) continue;            /* 0x19CA4C..0x19CA60 */
+        if (kind == 0x53 && s->query_class == -1) continue;           /* 0x19CA6C..0x19CA80 */
+        int r = em_coll_probe_0019ED80(g, s, node);                   /* 0x19CA8C */
+        if (r < 0) return -1;
+        if (!r) continue;
+        s->end[1] = s->point[1];                                      /* 0x19CAB8: 0x700031A4 = 0x700031B4 */
+        memcpy(saved, s->point, sizeof saved);                        /* 0x19CAC0 loop: sp50 */
+        found = node;                                                 /* 0x19CAE0: s1 = 0x700031D0 */
+    }
+    if (found < 0) return 1;                                          /* 0x19CAF8 */
+    s->record = EM_COLL_PROBE_RECORD_GRID;                            /* 0x19CB10 */
+    s->node = found;
+    memcpy(s->point, saved, sizeof saved);                            /* 0x19CB18 loop */
     return 0;
 }
 

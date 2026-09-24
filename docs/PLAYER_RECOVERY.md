@@ -84,6 +84,8 @@ one:
 
 ## 3. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 **Precondition.** The translation reads the column table and the ledge
 frame once (EmPlayerClimbTable, EmPlayerRecoveryLedge), where the original
 re-reads the scratchpad (0x70003050/60/70/31E4) after each sweep call

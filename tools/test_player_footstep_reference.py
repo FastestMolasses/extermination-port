@@ -34,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_reversal_reference import Reversal, ELF_SHA256  # noqa: E402
+from test_player_floor_reference import ee_cop1_plain  # noqa: E402
 from test_point_light_reference import bits, number, signed  # noqa: E402
 
 DECOMP = ROOT.parent / 'Extermination'
@@ -116,6 +117,11 @@ class Footstep(Reversal):
     def rng(self, values):
         self.rng_values = iter(values)
         self.rng_calls = 0
+
+    def plain(self, word):
+        # COP1 through the measured EE model, as em_player_floor.c computes
+        # it (test_player_floor_reference.ee_cop1_plain).
+        return ee_cop1_plain(self, word, super().plain)
 
 
 def build_native():

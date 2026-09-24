@@ -1,9 +1,14 @@
 /* em_player_floor.c - player floor contact (see em_player_floor.h).
  *
- * Arithmetic follows the EE: single-precision results truncate toward zero
- * (em_effect_float32), as the oracle interpreters model. */
+ * Arithmetic follows the EE (docs/EE_FLOAT_MODEL.md): every FPU sum,
+ * difference, product, quotient and accumulator product of the translated
+ * routines goes through em_ee_float.h (ee_* below); the SDK VU0 leaves the routines call
+ * (001029E8's sine/cosine, 00102918, 001026A0, the rotation products) keep
+ * their per-operation truncation (vu_* below), which the measured VU0 model
+ * gives for these finite operands. */
 #include "game/em_player_floor.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 #include <stddef.h>
 
@@ -79,7 +84,7 @@ static int step_effect_at(const EmPlayerStepWorkers *w, uint32_t id,
 static int step_effect(const EmPlayerStepActor *actor, const float foot[3],
                        const EmPlayerStepWorkers *w)
 {
-    float at[3] = { foot[0], em_effect_float32((double)foot[1] - 1.5f), foot[2] };
+    float at[3] = { foot[0], em_ee_sub(foot[1], 1.5f), foot[2] };
     /* 0x5A..0x5C place the effect at the recorded surface height. */
     float water[3] = { actor->position[0], actor->surface_y, actor->position[2] };
     switch (actor->surface) {
@@ -155,7 +160,7 @@ int em_player_footstep_tick(EmPlayerStepActor *a, const EmPlayerStepScene *scene
             if (a->obstruction & 1) speed = (scene->frame & 3) == 0 ? a->speed : 0.0f;
             else speed = a->speed;
         } else {
-            speed = em_effect_float32(0.3f * (double)a->speed);
+            speed = em_ee_mul(0.3f, a->speed);
         }
         if (speed != 0.0f) {
             if (a->contact != 0 && (scene->frame & 3) == 0) {
@@ -167,7 +172,7 @@ int em_player_footstep_tick(EmPlayerStepActor *a, const EmPlayerStepScene *scene
                 }
             }
             if (!w->wade ||
-                w->wade(w->context, a->position, em_effect_float32(0.3f * (double)speed)) < 0)
+                w->wade(w->context, a->position, em_ee_mul(0.3f, speed)) < 0)
                 return -1;
         }
     }
@@ -185,7 +190,7 @@ int em_player_floor_query(EmPlayerFallActor *a, const EmPlayerFloorTable *t)
         if (!(t->flags[i] & 1)) continue;
         float y = a->position[1];
         if (!(t->height[i] < y)) continue;
-        a->below = em_effect_float32((double)t->height[i] - y);
+        a->below = em_ee_sub(t->height[i], y);
         return t->aux[i] < 0.62831855f ? 1 : 2;
     }
     return 0;
@@ -218,10 +223,10 @@ int em_player_fall_check(EmPlayerFallActor *a, const EmPlayerFallWorkers *w)
         a->mode = 0x30;
         return 0;
     }
-    float limit = em_effect_float32(-0.04f * (double)rate);
+    float limit = em_ee_mul(-0.04f, rate);
     if (!(a->drop <= limit)) {
-        a->drop = em_effect_float32((double)a->drop + -0.04f);
-        a->position[1] = em_effect_float32((double)a->position[1] + a->drop);
+        a->drop = em_ee_add(a->drop, -0.04f);
+        a->position[1] = em_ee_add(a->position[1], a->drop);
         return 0;
     }
     EmPlayerFloorTable table;
@@ -235,9 +240,9 @@ int em_player_fall_check(EmPlayerFallActor *a, const EmPlayerFallWorkers *w)
         em_player_fall_enter(a);
         return 0;
     }
-    a->drop = em_effect_float32((double)a->drop + -0.04f);
+    a->drop = em_ee_add(a->drop, -0.04f);
     if (a->drop < -4.0f) a->drop = -4.0f;
-    a->position[1] = em_effect_float32((double)a->position[1] + a->drop);
+    a->position[1] = em_ee_add(a->position[1], a->drop);
     EmPlayerProbeHit hit = {0};
     if (!w->ground) return -1;
     int kind = w->ground(w->context, a->position, a->probe, 6, &hit);
@@ -249,18 +254,22 @@ int em_player_fall_check(EmPlayerFallActor *a, const EmPlayerFallWorkers *w)
 
 /* ---- SDK vector math: 001B1470, 001029E8/00102BB0, 00102918, 001026A0 --- */
 
-static float f32_mul(float a, float b) { return em_effect_float32((double)a * b); }
-static float f32_add(float a, float b) { return em_effect_float32((double)a + b); }
-static float f32_sub(float a, float b) { return em_effect_float32((double)a - b); }
+/* VU0 (the SDK leaves): per-operation truncation. */
+static float vu_mul(float a, float b) { return em_effect_float32((double)a * b); }
+static float vu_add(float a, float b) { return em_effect_float32((double)a + b); }
+static float vu_sub(float a, float b) { return em_effect_float32((double)a - b); }
+/* COP1 (the translated routines and 00102BB0's own add.s / sub.s). */
+static float ee_add(float a, float b) { return em_ee_add(a, b); }
+static float ee_sub(float a, float b) { return em_ee_sub(a, b); }
 
 float em_player_sdk_wrap(float x)
 {
     const float pi = 3.14159274101257324f, two_pi = 6.28318548202514648f;
     if (!(x <= pi)) {
-        do x = f32_sub(x, two_pi); while (!(x <= pi));
+        do x = ee_sub(x, two_pi); while (!(x <= pi));
     }
     if (x <= -pi) {
-        do x = f32_add(x, two_pi); while (x <= -pi);
+        do x = ee_add(x, two_pi); while (x <= -pi);
     }
     return x;
 }
@@ -273,27 +282,27 @@ static void sdk_sine_cosine(float angle, float *sine, float *cosine)
     };
     const float half_pi = 1.57079637050628662f;
     int negative = angle < 0.0f;
-    float argument = negative ? f32_add(half_pi, angle) : f32_sub(half_pi, angle);
-    float square = f32_mul(argument, argument);
+    float argument = negative ? ee_add(half_pi, angle) : ee_sub(half_pi, angle);  /* 00102BB0 add.s / sub.s */
+    float square = vu_mul(argument, argument);
     float term[4];
-    for (unsigned i = 0; i < 4; ++i) term[i] = f32_mul(coefficient[i], argument);
+    for (unsigned i = 0; i < 4; ++i) term[i] = vu_mul(coefficient[i], argument);
     for (unsigned lanes = 4; lanes > 0; --lanes)
-        for (unsigned i = 0; i < lanes; ++i) term[i] = f32_mul(term[i], square);
+        for (unsigned i = 0; i < lanes; ++i) term[i] = vu_mul(term[i], square);
     float value = argument;
-    for (unsigned i = 4; i > 0; --i) value = f32_add(value, term[i - 1]);
-    *cosine = f32_add(0.0f, value);
-    float root = em_effect_float32(sqrt(fabs((double)f32_sub(1.0f, f32_mul(value, value)))));
-    *sine = negative ? f32_sub(0.0f, root) : f32_add(0.0f, root);
+    for (unsigned i = 4; i > 0; --i) value = vu_add(value, term[i - 1]);
+    *cosine = vu_add(0.0f, value);
+    float root = em_effect_float32(sqrt(fabs((double)vu_sub(1.0f, vu_mul(value, value)))));
+    *sine = negative ? vu_sub(0.0f, root) : vu_add(0.0f, root);
 }
 
 /* out = c0*v.x + c1*v.y + c2*v.z + c3*v.w through the VU accumulator. */
 static void sdk_combine(const float c[4][4], const float v[4], float out[4])
 {
     for (unsigned lane = 0; lane < 4; ++lane) {
-        float acc = f32_mul(c[0][lane], v[0]);
-        acc = f32_add(acc, f32_mul(c[1][lane], v[1]));
-        acc = f32_add(acc, f32_mul(c[2][lane], v[2]));
-        out[lane] = f32_add(acc, f32_mul(c[3][lane], v[3]));
+        float acc = vu_mul(c[0][lane], v[0]);
+        acc = vu_add(acc, vu_mul(c[1][lane], v[1]));
+        acc = vu_add(acc, vu_mul(c[2][lane], v[2]));
+        out[lane] = vu_add(acc, vu_mul(c[3][lane], v[3]));
     }
 }
 
@@ -302,7 +311,7 @@ static void sdk_rotate(float m[4][4], float angle, int axis)
 {
     float s, c;
     sdk_sine_cosine(angle, &s, &c);
-    float ns = f32_sub(0.0f, s);
+    float ns = vu_sub(0.0f, s);
     float r[4][4] = {{0}};
     if (axis == 0) {
         r[0][0] = 1.0f; r[1][1] = c; r[1][2] = s; r[2][1] = ns; r[2][2] = c;
@@ -329,9 +338,9 @@ void em_player_sdk_trs(float out[16], const float position[3], const float rotat
     sdk_rotate(m, rotation[2], 2);
     for (unsigned row = 0; row < 3; ++row)                            /* vmul[xyz].xyz */
         for (unsigned axis = 0; axis < 3; ++axis)
-            m[row][axis] = f32_mul(m[row][axis], scale[row]);
+            m[row][axis] = vu_mul(m[row][axis], scale[row]);
     for (unsigned axis = 0; axis < 3; ++axis)                         /* 00102918 */
-        m[3][axis] = f32_add(m[3][axis], position[axis]);
+        m[3][axis] = vu_add(m[3][axis], position[axis]);
     for (unsigned i = 0; i < 16; ++i) out[i] = m[i / 4][i % 4];
 }
 
@@ -355,9 +364,9 @@ void em_player_sdk_lane_point(float yaw, float offset, const float position[3],
                               const float local[4], float out[4])
 {
     float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};      /* 001029C0 */
-    sdk_rotate_y(m, em_player_sdk_wrap(f32_add(yaw, offset)));
+    sdk_rotate_y(m, em_player_sdk_wrap(ee_add(yaw, offset)));
     for (unsigned axis = 0; axis < 3; ++axis)                         /* 00102918 */
-        m[3][axis] = f32_add(m[3][axis], position[axis]);
+        m[3][axis] = vu_add(m[3][axis], position[axis]);
     sdk_combine((const float (*)[4])m, local, out);                   /* 001026A0 */
 }
 
@@ -368,7 +377,7 @@ void em_player_sdk_yaw_transform(float angle, const float position[3],
     sdk_rotate_y(m, angle);
     if (position)
         for (unsigned axis = 0; axis < 3; ++axis)                     /* 00102918 */
-            m[3][axis] = f32_add(m[3][axis], position[axis]);
+            m[3][axis] = vu_add(m[3][axis], position[axis]);
     sdk_combine((const float (*)[4])m, local, out);                   /* 001026A0 */
 }
 
@@ -389,18 +398,18 @@ int em_player_floor_link_test(int present, uint8_t type, uint32_t behaviour)
 void em_player_slope_angle(const EmPlayerProbeHit *hit, const EmPlayerFloorWorkers *w,
                            float *out)
 {
-    /* mula/madd: nx*nx + nz*nz, then the SDK square root. */
-    float sum = f32_add(f32_mul(hit->normal[0], hit->normal[0]),
-                        f32_mul(hit->normal[2], hit->normal[2]));
+    /* mula.s nx, nx; madd.s nz, nz; then the SDK square root. */
+    float sum = em_ee_madd(em_ee_mula(hit->normal[0], hit->normal[0]),
+                           hit->normal[2], hit->normal[2]);
     float h = w->sqrt(w->context, sum);
     float ratio;
     if (h < 1.0e-4f) {
         const uint32_t huge = 0x7F7FC99Eu;
         memcpy(&ratio, &huge, sizeof ratio);
     } else {
-        ratio = em_effect_float32((double)fabsf(hit->normal[1]) / h);
+        ratio = em_ee_div(fabsf(hit->normal[1]), h);                   /* 0011DF78, div.s */
     }
-    float angle = f32_sub(1.57079637050628662f, w->atan(w->context, ratio));
+    float angle = ee_sub(1.57079637050628662f, w->atan(w->context, ratio));
     *out = ratio < 0.0f ? -angle : angle;
 }
 
@@ -413,10 +422,10 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
     if (a->surface_mode == 0x35) {
         /* A 0x35 surface records its drive direction at +310. */
         float angle = w->atan2(w->context, -hit->axis[2], hit->axis[0]);
-        a->conveyor_yaw = em_player_sdk_wrap(f32_sub(angle, 1.57079637050628662f));
+        a->conveyor_yaw = em_player_sdk_wrap(ee_sub(angle, 1.57079637050628662f));
     }
     for (unsigned axis = 0; axis < 3; ++axis)
-        a->position[axis] = f32_add(a->position[axis], hit->delta[axis]);
+        a->position[axis] = ee_add(a->position[axis], hit->delta[axis]);
     /* .s 0x00175DD0..0x00175DE0: kind & 2 with a nonzero 0x700031D4 stores
      * it in +214 (D_008104C4). A kind-4 result keeps 0x700031D4 but does not
      * store it. */
@@ -438,17 +447,17 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
          * slide down the slope by delta.y / cos(slope) along its fall line. */
         if (!(a->slope < 0.017453292f) && a->slope <= 3.1241393f) {
             float angle = w->atan2(w->context, -hit->normal[2], hit->normal[0]);
-            float yaw = em_player_sdk_wrap(f32_add(1.57079637050628662f, angle));
-            a->position[1] = f32_sub(a->position[1], hit->delta[1]);
+            float yaw = em_player_sdk_wrap(ee_add(1.57079637050628662f, angle));
+            a->position[1] = ee_sub(a->position[1], hit->delta[1]);
             float t = w->tangent(w->context, a->slope);
             const float local[4] = { 0.0f, 0.0f,
-                                     em_effect_float32((double)hit->delta[1] / t), 0.0f };
+                                     em_ee_div(hit->delta[1], t), 0.0f };
             float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
             sdk_rotate_y(m, yaw);
             float out[4];
             sdk_combine((const float (*)[4])m, local, out);
-            a->position[0] = f32_add(a->position[0], out[0]);
-            a->position[2] = f32_add(a->position[2], out[2]);
+            a->position[0] = ee_add(a->position[0], out[0]);
+            a->position[2] = ee_add(a->position[2], out[2]);
         }
         return 0;
     }
@@ -467,7 +476,7 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
     if (a->surface_class == 0x1000) {
         a->slide = 1;
         float angle = w->atan2(w->context, -hit->normal[2], hit->normal[0]);
-        a->slide_yaw = em_player_sdk_wrap(f32_add(1.57079637050628662f, angle));
+        a->slide_yaw = em_player_sdk_wrap(ee_add(1.57079637050628662f, angle));
         return 0;
     }
     a->slide = 0;
@@ -507,7 +516,7 @@ int em_player_floor_service(EmPlayerFloorActor *a, int search, float at[3],
     }
 
     /* The surface record: the first face within 18 units above the feet. */
-    float top[3] = { a->position[0], f32_add(a->position[1], 18.0f), a->position[2] };
+    float top[3] = { a->position[0], ee_add(a->position[1], 18.0f), a->position[2] };
     memset(&hit, 0, sizeof hit);
     kind = w->head(w->context, top, a->position, &hit);
     if (kind < 0) return -1;
@@ -523,7 +532,7 @@ int em_player_floor_service(EmPlayerFloorActor *a, int search, float at[3],
         } else if (a->surface == 0x5B) {
             if (a->depth == 0) {
                 /* Deep when nothing lies between the surface and 4.01 below it. */
-                float probe_at[3] = { a->position[0], f32_sub(a->surface_y, 4.01f), a->position[2] };
+                float probe_at[3] = { a->position[0], ee_sub(a->surface_y, 4.01f), a->position[2] };
                 memset(&hit, 0, sizeof hit);
                 kind = w->ground(w->context, probe_at, a->probe, 6, &hit);
                 if (kind < 0) return -1;
@@ -575,7 +584,7 @@ static void probe_slide(EmPlayerProbeActor *a, const EmPlayerProbeHit *hit)
     if (cls == 0x4000 || cls == 0x8000) return;
     if (a->major == 1 && a->state == 0x1E && a->variant == 1) return;
     for (unsigned axis = 0; axis < 3; ++axis)
-        a->position[axis] = f32_add(a->position[axis], hit->delta[axis]);
+        a->position[axis] = ee_add(a->position[axis], hit->delta[axis]);
 }
 
 /* 00176390(actor, kind, target, lane). */
@@ -622,7 +631,7 @@ int em_player_crawl_ahead(const EmPlayerProbeActor *a, const EmPlayerProbeWorker
     if (!w->move || !w->column) return -1;
     for (int i = 0; i < 3; ++i) {
         float point[4];
-        em_player_sdk_lane_point(a->yaw, em_effect_float32((double)kLaneAngles[i] / 2.0f),
+        em_player_sdk_lane_point(a->yaw, em_ee_div(kLaneAngles[i], 2.0f),
                                  a->position, local, point);
         EmPlayerProbeHit hit;
         memset(&hit, 0, sizeof hit);
@@ -684,7 +693,7 @@ int em_player_wall_probes(EmPlayerProbeActor *a, EmPlayerProbeScene *scene,
             }
             if (apply)
                 for (unsigned axis = 0; axis < 3; ++axis)
-                    a->position[axis] = f32_add(a->position[axis], hit.delta[axis]);
+                    a->position[axis] = ee_add(a->position[axis], hit.delta[axis]);
         }
     }
 
@@ -707,12 +716,12 @@ int em_player_wall_probes(EmPlayerProbeActor *a, EmPlayerProbeScene *scene,
             /* Something overhead at the lane end: the 4.01 point up to 18
              * (13.8 while low). */
             int low = a->special != 0;
-            float height = f32_sub(low ? 13.8000001907348633f : 18.0f, 4.01000022888183594f);
+            float height = ee_sub(low ? 13.8000001907348633f : 18.0f, 4.01000022888183594f);
             memset(&hit, 0, sizeof hit);
             kind = w->column(w->context, target, height, &hit);
             if (kind < 0) return -1;
             if (kind != 0) {
-                float under[3] = { hit.point[0], f32_add(hit.point[1], 0.100000001490116119f),
+                float under[3] = { hit.point[0], ee_add(hit.point[1], 0.100000001490116119f),
                                    hit.point[2] };
                 int probe = 1;
                 if (!low) {
@@ -722,7 +731,7 @@ int em_player_wall_probes(EmPlayerProbeActor *a, EmPlayerProbeScene *scene,
                      * the height clause; the branch at 0x176990 is bc1f. */
                     probe = j >= 3 || (unsigned)(a->mode - 0x36) < 2 || a->mode == 0x3E ||
                             a->speed < 0.0f ||
-                            f32_sub(hit.point[1], a->position[1]) < 13.8000001907348633f ||
+                            ee_sub(hit.point[1], a->position[1]) < 13.8000001907348633f ||
                             crawl == 0;
                     if (!probe) a->special = 1;
                 }
@@ -739,7 +748,7 @@ int em_player_wall_probes(EmPlayerProbeActor *a, EmPlayerProbeScene *scene,
         }
         float upper[4];
         float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
-        sdk_rotate_y(m, em_player_sdk_wrap(f32_add(a->yaw, kLaneAngles[j])));
+        sdk_rotate_y(m, em_player_sdk_wrap(ee_add(a->yaw, kLaneAngles[j])));
         for (unsigned axis = 0; axis < 3; ++axis) m[3][axis] = a->position[axis];
         sdk_combine((const float (*)[4])m, a->special ? kLow : kHigh, upper);
         memset(&hit, 0, sizeof hit);
@@ -902,7 +911,7 @@ int em_player_stage_begin(EmPlayerLiveActor *a, EmPlayerStageScene *s,
     /* idx = *(short *)(p + 0x20C); +34 = D_00248C98[idx * 3] * +204. */
     float rate;
     STAGE_CALL(w->clip_rate(w->context, (int16_t)em_live_u16(a, 0x20C), &rate));
-    em_live_set_f32(a, 0x34, em_effect_float32((double)rate * (double)em_live_f32(a, 0x204)));
+    em_live_set_f32(a, 0x34, em_ee_mul(rate, em_live_f32(a, 0x204)));
     em_live_set_f32(a, 0x204, 1.0f);
     em_live_set_u8(a, 0x303, 0);
     em_live_set_u8(a, 0x25D, 0);

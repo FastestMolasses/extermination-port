@@ -17,6 +17,8 @@
 #include "game/em_interaction_scene.h"
 #include "game/em_interaction_projection.h"
 #include "game/em_panel_runtime.h"
+#include "game/em_owner_services_original.h"
+#include "game/em_player.h"
 #include "game/em_status_runtime.h"
 #include "game/em_player_face_host.h"
 
@@ -57,10 +59,16 @@ const EmOpeningFace *em_area11_interaction_host_face_state(void);
  * source advancement already happened when unowned; acquired callbacks
  * advance only inside the shared interaction worker. */
 int em_area11_interaction_host_player(void *unused);
-/* player_use_set_hook worker: 00160220's head over the published list
- * (00184BA0/00183EF0). 1 an owner won (3B8D = 3, 001798D0 done), 0 no
- * Use or no winner (the rest of 00160220 stays the player's), -1 fault. */
+/* player_use_set_hook worker: the Use dispatcher 00160220 over the live
+ * record (em_player_closure_live_use_press, with this host's 00184BA0 as its
+ * scan). 1 an action took the press (the record's +5 names it: 0x25 an
+ * owner won, 3B8D = 3; 2 / 3 the ledge climb / vault; 0xB the ladder; 6 the
+ * running jump; 0x24 the aim), 0 not, -1 fault. */
 int em_area11_interaction_host_use(void *unused);
+/* 00184BA0(p) over the published list (00183EF0), the dispatcher's scan
+ * worker (em_player_closure_live_set_scan): *result 1 when an owner won and
+ * was claimed (3B8D = 3). 0, or -1 fault. */
+int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *actor, int *result);
 /* Called at the respective original pooled-owner positions (state 1 of
  * 00159210 / 00827B10, including their 001B17A0 publication tail). */
 int em_area11_interaction_host_panel_tick(void);
@@ -85,6 +93,13 @@ void em_area11_interaction_host_set_panel_address(uint32_t panel);
  * 0, or -1 fault (unknown owner, twice, or a placement that is not the
  * owner's). */
 int em_area11_interaction_host_bind_actor(uint32_t source_id, EmActor *actor);
+/* 001B17A0(owner) of another AREA11 owner (the drums' visibility worker)
+ * through the same services as the panel, the terminal and the items
+ * (001B1630 over the camera, 001B1B70 over the collision world's lists).
+ * `view` carries the record's +0x02, +0x03, +0x0D, +0x2E and +0xB0..+0xB8;
+ * its +0x01 and actor->drawn get the 001B1630 byte. 0 culled, 1 drawn, -1
+ * fault (the host is not loaded, or a latched services fault). */
+int em_area11_interaction_host_offer_001B17A0(EmActor *actor, EmOwnerServicesOwner *view);
 /* Every AREA11 status screen (a pending request D_008106B0 != 0, or the
  * START/TRIANGLE hub): 0020E060 (open, 1 or -1), 0020CDC0 (page, 0 waiting
  * / 1 exit done / -1) and the status frames' draw. clear_route marks a

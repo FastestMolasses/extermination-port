@@ -310,8 +310,9 @@ state 3); the floor service 00175900 still settles onto floors within its
 hill slide starts from an authored class-0x1000 floor contact (state 0x1C).
 Both are translated and verified against the original instructions and
 against whole-world original runs over the captured AREA11 RAM; see
-`PLAYER_CLIMB_SLIDE.md`. They reach the live player only through the gated
-layer below.
+`PLAYER_CLIMB_SLIDE.md`. They are live in AREA11 since census L02 / L04
+(below). The level smoke's `boxes` phase reproduces route 05's two
+climbs row for row (LEVEL_SMOKE.md).
 
 ## Live player states (lane "player-states-live"; the stage is live since census L01)
 
@@ -330,7 +331,11 @@ prints one line per mechanism, naming what it still lacks.
   are 0015B130's state[0] / state[1] until L12. em_player_damage.c's copies
   of 0021C440 / 0015D100, its +20E countdown and its kill plane are
   retired; only the legacy bug-latch struggle remains there.
-- **FLOOR and USE** stay gated (below).
+- **FLOOR and USE (census L02 / L04 / L09, engaged since 2026-09-24).** In
+  AREA11 (the original collision world loaded) the floor service, the fall
+  check, every state of the closure below and the Use chain run on the
+  live record. The report prints "engaged" for all three mechanisms.
+  `em_player_closure_live.c` binds them (section "Binding" below).
 
 What the layer does once engaged:
 
@@ -391,7 +396,10 @@ What the layer does once engaged:
   then runs 00175900(p, 1), then 001756E0, then 001796C0. Together these
   replace the port's floor snap and `PLAYER_FALL_ENTRY`. 001756E0's probe
   actor takes +214, (+214)+3 and +5 from the live actor that 00175900 just
-  wrote.
+  wrote. When 00160220 takes a Use press, both callbacks return without the
+  tail, as the instructions do (LOCOMOTION_DISPLAY.md). The record then
+  owns the player, and the port takes its placement and parks
+  (PLAYER_USE_DISPATCH.md section 4).
 - **Hand-back.** When a stage returns to +4 = 1 with +5 = 0, 00161020 case 0
   takes over through stop phase 3, as after the skid. On +5 = 1, the walk
   callback resumes with the mirrored +1F0/+1F1/+25C/+38. Any other
@@ -519,136 +527,80 @@ node class is a data prerequisite; the rest are workers or callbacks.
 | FLOOR (00175900 + 001796C0) | 0019AB20 ground worker; a grid with `EM_COLL_FLAG_NODE_CLASS`; 0019B6C0; 0019B8C0; 00175640; 0019BC40; SDK 0011E620 atan2f / 0011E398 tanf / 0011DBB8 atanf / 0011E748 sqrtf; 0011A070; the display declaration; the stage workers (D_00248C98, 001C64F0, 00183090, 0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50); every callback of the FLOOR closure above. |
 | USE (the rest of 00160220) | FLOOR; the coordinator's use hook continuing past 00184BA0 (`player_states_bind_use_chain`); callbacks for +5 = 2, 3, 6, 0xB and 0x24. |
 
-**Missing today** (the report prints exactly this):
+**Engaged: what binds each prerequisite** (the report prints what a
+mechanism still lacks; in AREA11 it lacks nothing):
 
-- **Collision: met since census L06/L07 (2026-09-24).** In AREA11,
-  em_player_stage_live.c binds the ground (0019AB20), grid (the installed
-  flags-7 EMCL), head (0019B6C0), object (0019B8C0), link (00175640) and
-  column (0019BC40) workers over the collision world
-  (`em_collision_world_bind_player`). They run only when FLOOR engages; the
-  ground and column translations still use em_actor_collision.c's
-  truncating float helpers (EE_FLOAT_MODEL.md 5c) and 0019C830's KNOWN
-  INEXACT node order.
-- **The display: met since the display step (2026-09-24).** The player's
-  pose has one owner, the player record itself (`em_player_record_pose`
-  over `em_pose_host_workers`; PLAYER_CLIPS.md section 6): the whole clip
-  bank (`assets/player_clips_full.bank`, all 459 clips, chained ones
-  included) is mapped at the record's +40 (0xD689C0), the 21 node records
-  at the +110 words (0x7D5840..), and 001749A0 / 001749F0 / 001C61D0 /
-  001C64F0 (with its chain step) / 001C6DA0 run on those bytes. 0015BCF0's
-  animate step evaluates the record after every player stage, and a stage
-  a translated routine owns (or the takeover consumes) displays the
-  record's node matrices (`player_states_record_display`,
-  em_player_frame.c). A stage whose (+4, +5) is not the port's idle/walk
-  advances the record by +34 whatever a port stand-in holds. So
-  em_player_stage_live.c declares `player_states_bind_display(1)`; the
-  report no longer lists the display. The port's own idle/walk callbacks
-  keep their legacy display until L12.
-- **Closure callbacks.** Every state of the closure is translated and
-  oracle-verified, each original has one owner (the one-owner step,
-  2026-09-24), and none is bound: em_player_fall (5, 7, 8), em_player_hang
-  (9), em_player_recovery (4), em_player_ladder_climb (0xC),
-  em_player_closure_0e_18 (0xE, 0x13, 0x14, 0x18),
-  em_player_closure_10_12_19 (0x10, 0x12, 0x19, 0x1A), the slide adapter
-  `em_player_slide_live_state` (0x1C), em_player_weapon_states_a / _b
-  (0x1D..0x22), em_player_major2 (+4 = 2: 3..7, 0x16, 0x19) and
-  `em_player_reaction_live_*` (+4 = 2: 0/0x17, 1, 2/0x18, 0xA, 0xB, 0xC,
-  0xF, 0x10, 0x11, 0x12/0x13, 0x14). Only em_player_fall and
-  em_player_reaction are in COMMON (since the display step: the pose host's
-  0017C540 hand-off is the reaction lane's), and no state of theirs is
-  bound. The second L02 attempt (2026-09-24) inventoried their worker tables
-  (about 450 slots) against the port tree and the census and stopped before
-  binding, for these reasons:
-  - **The move walkers (census L05) block the engagement.** The closure
-    calls 0019AD00 / 0019AFE0 directly with masks that reach the grid pass
-    0019CB60 (bit 2) and the class-0 hull lock 001A6440 (bit 0), and
-    neither has a translation (COLL_MOVE.md section 4 item 2). Two paths
-    reach them in ordinary AREA11 play:
-    - the fall's edge test: 00162DB0 +6 = 0 with no floor ahead and a tier
-      other than 3 calls 0017D080 (00162FD0 / 001630B0), whose two probes
-      are 0019AD00(p, target, 7) (0017D144, 0017D28C). A walk-off below
-      running speed can take it, but 0017D080 returns 0 before any probe
-      when +220 <= 0, or when +228 >= 100 and D_008106F1 != 0; no captured
-      beat runs it (0017D080 and 001755B0 are not in the census, and the
-      route's falls in beats 10..12 do not reach it);
-    - the hill slide (route 06): 0016C570's 0019AD00(p, target,
-      0x80000006) and 001791D0's 0019AFE0(p, from, to, 7).
+- **Collision (census L05..L07).** These are bound over the collision world
+  (`em_collision_world_bind_player`), with their float arithmetic on the
+  measured EE model (EE_FLOAT_MODEL.md 5c):
+  - ground 0019AB20, with its grid pass 0019C830 (`em_coll_probe_0019C830`
+    over the EMCL rank section);
+  - head 0019B6C0, object 0019B8C0, link 00175640, column 0019BC40;
+  - the probe workers of 001764E0 / 001756E0: 0019AD00 / 0019AFE0
+    (em_coll_move_original), the 001760C0 column and the SDK sqrt / atan.
 
-    Binding those slots to the port's em_collision_move_probe (what the
-    live 001764E0 binding uses) would be a new stand-in, and fail-stop
-    workers would quit where the legacy fall and collide-and-slide play on
-    today. So FLOOR stays gated until L05 translates 0019CB60 and 001A6440.
-  - **The effect runtime (census L26).** 001EFD90 has a translation
-    (em_effect_original) but no live effect owner. The slide calls it on
-    route 06 (sub-state effects), 0021D2E0 off the route.
-  - **Untranslated workers the closure reaches.** 001755B0 (byte-matched,
-    33 instructions) is reachable in ordinary play: 00162DB0's tier-3 edge
-    path and 0017C580's gait-3 landings with a drop of 14.5 or more. The
-    others are reached only by states no route beat enters: 0017E6E0,
-    00178080, 001782A0, 00178390, 00178440, 001784E0, 0017F130, 0017F1C0,
-    00188570, 00188590, 001885B0, 00188610 (hang, ledge and crawl
-    helpers); 0016F530, 0016F5D0, 0016F600, 00170A60, 00171320, 00171670,
-    00171B00, 00171E90, 001723D0, 00172860, 0017A130, 0017A8B0, 0017A970,
-    0017AAD0, 0017ABA0, 0017B300, 00185A10, 00185E30, 00199220 (the weapon
-    stances); 001FAFD0 (0021C190's stream test). Following the L01
-    precedent they can be fail-stop workers once the gate is otherwise met,
-    because each needs an off-route state first.
-  - **Translations that need a record-level form.** 00177510, 001775E0,
-    001776E0, 00177CF0 and 0019A180 are statics of em_player_climb.c (the
-    recovery's `ledge` / `lip` / `sides` / `hands` / `attribute` slots);
-    0017F320 (`em_player_climb_hang_clear`) and 00174FD0
-    (`em_player_slide_steer_input`) exist only over their mirrors.
-  - **Fixed in this attempt: the 0017C580 double.** 00128350 returns the
-    double of +220 in the whole 64-bit $v0, and 0017C580 passes that
-    register unchanged as 001000E0's $a0. EmPlayerLandWorkers carried it as
-    an int, which drops the high word (60.0 is 0x404E000000000000, whose low
-    word is 0), so no binding could have fed em_rvr_001000E0 the original
-    operand. The slots are now `uint64_t` (the shapes of
-    em_sdk_soft_float_00128350 and em_rvr_001000E0), and
-    test_player_fall_reference compares the whole 64-bit $a0 (a low-word
-    copy fails it).
-- **Stage workers.** Bound since L01 (em_player_stage_live.c): D_00248C98
-  (the local export), 001C64F0 (the live display's advance), 00183090,
-  0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50, 0011A070 and
-  the +4 = 4 / 6 handlers. The callees that are not live are fail-stop
-  workers (PLAYER_STAGE_WORKERS.md section 2.1). `player_damage_tick` and
-  the port's kill plane are retired. 00182B30, 00182D70 and the +4 = 4
-  handler (0015B530, 001837A0) are bound but not reached: the interaction
-  runtime's takeover consumes the stage before 0015B130's prelude (census
-  rows verified-unbound).
-- **Known regression for L02 (hits outside AREA11).** Since L01 a port
-  enemy hit (em_enemy.c's `s.player_hit`: the worm lunge, the breather pad)
-  goes through 0021C440 into the unbound +4 = 2 reaction states, so the
-  stage fails and the app quits; before L01 the legacy flinch played. No
-  AREA11 owner posts a hit (the flame runtime at 008235F0 posts no damage),
-  so the first-level route is unaffected. Binding the +4 = 2 reaction
-  states (L02, `em_player_reaction_live_*`) restores hit behaviour.
-- **Use chain.** Translated, and none bound: 0015D4C0, 00176F90, 00177030,
-  00180300 and 00165B60 (em_player_ladder_entry), 0015EC50, 0015FDF0,
-  001634A0 and 001747F0 (em_player_running_jump), 00160220
-  (em_player_use_dispatch), and the climb adapters
-  (`em_player_climb_live_state`, `em_player_climb_live_probe`) for states 2
-  and 3. USE needs FLOOR first.
-- **SDK (census L02 step, 2026-09-24).** `em_collision_world_bind_player`
-  binds 00175CF0's 0011E398 and 0011DBB8 to `em_sdk_math_original_float_0011E398`
-  (tanf) and `_float_0011DBB8` (atanf) over the collision world's SDK
-  context (the user's table export). The slot was named `cosine`: 0011E398
-  is the tangent (SDK_MATH_ORIGINAL.md 6.3), so it is `tangent` now in
-  em_player_floor.h / em_player.h, and the floor oracle's hook of 0011E398
-  is host tanf on both sides instead of host cosf. The context's fault word
-  is `EmPlayerStatesBinding.sdk_fault`: the floor service and the fall check
-  clear it before they run and fail when a worker recorded a fault
-  (tests/player_states_host_test.c case 0b). 0011E620 atan2f and 0011E748
-  sqrtf are bound too, since the soft-float step (2026-09-24), to
-  `_float_0011E620` / `_float_0011E748` over the same context. That context
-  now has the soft-float workers (`em_sdk_soft_float`, over D_0024295C and
-  the errno word from `assets/sdk_soft_float.emsf`), so their domain-error
-  tails are complete. The route reaches those tails (errno 0x21 from beat 03
-  on; SDK_SOFT_FLOAT.md section 5), and SDK_MATH_ORIGINAL.md section 7's gate
-  is lifted. FLOOR's SDK prerequisite is met; its other prerequisites are
-  below.
+  The hull world has no chain reader, because AREA11 publishes no class-2
+  owner. A lock that needs a chain faults.
+- **The display.** One owner, the player record (`em_player_record_pose`;
+  PLAYER_CLIPS.md section 6). `player_states_bind_display(1)`.
+- **The closure callbacks and the Use chain.** `em_player_closure_live.c`
+  binds every state of the closure and of USE with the translations their
+  docs name. It binds the Use dispatcher 00160220, its 001798D0 and
+  0017C440, and 0017B490 (`em_loco_0017B490` over the exported
+  `assets/player_loco_tables.emrg`). Module by module:
+  - em_player_fall (5, 7, 8), em_player_hang (9), em_player_recovery (4);
+  - em_player_ladder_climb (0xC), em_player_ladder_entry (0xB);
+  - em_player_closure_0e_18 (0xE, 0x13, 0x14, 0x18);
+  - em_player_closure_10_12_19 (0x10, 0x12, 0x19, 0x1A);
+  - em_player_slide (0x1C), em_player_climb (2, 3);
+  - em_player_weapon_states_a / _b (0x1D..0x22), em_player_running_jump
+    (6, 0x24);
+  - em_player_major2 (+4 = 2: 3..7, 0x16, 0x19) and em_player_reaction
+    (+4 = 2: 0/0x17, 1, 2/0x18, 0xA, 0xB, 0xC, 0xF, 0x10..0x14);
+  - 00162DB0 / 00163B40 for 0015B530.
 
-**Binding (coordinator; code in em_player.h, em_player_floor.h, em_actor_collision.h).**
+  The shared scratchpad words are one storage each: 0x70003A20 is the
+  binder's `EmPlayerLandScratch.s3A20`, and each by-value copy is loaded
+  and stored around every worker. 0x700031B0..D8 is the collision world's
+  last query state.
+- **Fail-stop workers.** Each names its original and is reached only by
+  states or data no route beat enters:
+  - 001782A0, 00178390, 00178080, 00178440, 001784E0, 0017E6E0, 0017F130,
+    0017F1C0 (hang, ledge and crawl helpers);
+  - 00188570 / 590 / 5B0 / 610;
+  - 0021C200, 00182AF0, 0015C1F0 (with 001CA6E0 / 001C6150 / 00200890 on
+    the player), 001FAFD0, 001B0460, 001AFA90, 00182430, 00187EE0, 001FB9F0,
+    001CA6E0, 001C6150, 00200890, 001B1380, 001AAC00 (area 0x15);
+  - the weapon stance handlers and the D_00275B8C target list (no AREA11
+    owner publishes class 2);
+  - the rumble 001B61C0 (no pad actuator block);
+  - a ladder / ledge action record (attribute 0x20..0x3D). The EMCL export
+    lacks the grid node's +0x34..+0x3F axis that 0015D4C0's cases read.
+
+  Effects the closure spawns (001EFD90) go through the counted effect gap
+  (`player_effect_gap`, no live effect owner, census L26).
+- **Stand-ins that remain.**
+  - D_008106A0 (the camera heading the misc lane reads) is the SDK atan2 of
+    the port camera's forward (L13, the camera lane).
+  - The port's own idle / walk callbacks keep +5 = 0 / 1 until L12 binds
+    00161020 / 001612D0.
+  - The interaction runtime stands in for the scripted takeover (0015B130's
+    prelude writes on admission, PLAYER_USE_DISPATCH.md section 4).
+
+- **Outside AREA11** (the office / drawbridge fixtures, no original
+  collision world) the closure is not bound, so FLOOR and USE stay gated
+  there. A port enemy hit still goes through 0021C440 into the unbound
+  +4 = 2 states and quits, as it has since L01. No AREA11 owner posts a hit.
+
+**Evidence of the engagement** (level smoke, all live phases PASS against
+the captures):
+- the battery settle takes 64 rows, the original's value;
+- after the release the player is re-grounded exactly on the capture's Y
+  (229.88731 at the panel, 189.99998 after the ride);
+- `newgame-control` gives displacement 9.599989;
+- phase `boxes` gives route 05's climbs row for row.
+
+**Binding (done: em_player_stage_live.c, em_collision_world.c and em_player_closure_live.c; the shapes are in em_player.h, em_player_floor.h and em_actor_collision.h).**
 
 - **The floor binding.** Pass `player_states_bind(&b)` with:
   - `b.ground = em_actor_collision_player_ground`, with context

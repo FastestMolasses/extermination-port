@@ -95,6 +95,13 @@ void player_footstep_set_workers(
     int (*wade)(void *context, const float position[3], float level),
     void *wade_context);
 unsigned player_footstep_faults(void);
+/* 001EFD90 / 001EFE00 / 001EF9D0 from the player's own routines (the
+ * footstep's surface effect, the climb's grab dust, the slide's spray, the
+ * reactions' blood): the effect entity spawn has a translation
+ * (em_effect_original) but no live effect owner or handlers (census L26 /
+ * L27), so nothing is spawned; the call is counted and reported once, the
+ * same gap the footstep's unbound effect worker records. Returns 0. */
+int player_effect_gap(uint32_t id, const float position[3], const float rotation[3]);
 void player_footstep_reset(void);
 void player_footstep_post(uint8_t code);
 uint8_t player_footstep_phase(void);
@@ -169,6 +176,13 @@ typedef struct EmPlayerStatesBinding {
     float (*sqrt)(void *context, float x);
     void *sdk_context;
     uint32_t *sdk_fault;
+    /* 001764E0 / 001756E0 / 00176C80's workers over the original collision
+     * world (em_collision_world_bind_player): 0019AD00, 0019AFE0, 001760C0,
+     * 00174A50 and the SDK sqrt / atan of 0019A310. Used once FLOOR engages,
+     * by the port's idle/walk tail and by the states' `probes` worker; the
+     * port's legacy probe workers serve the unbound path. A float worker that
+     * fails records it in *sdk_fault (checked like the floor service's). */
+    EmPlayerProbeWorkers probes;
     /* 0017F9E0 / 0017FB90 (surface 0x39; no AREA11 grid node carries 0x39). */
     int (*surface39)(void *context, int handler);
     void *surface39_context;
@@ -214,6 +228,7 @@ enum {
     EM_PLAYER_NEED_USE_STATES   = 1u << 10, /* +5 = 2, 3, 6, 0xB, 0x24 (kUseStates) */
     EM_PLAYER_NEED_STOP_SOUND   = 1u << 11, /* 0011A070 (0015BCF0's loop-sound stop) */
     EM_PLAYER_NEED_STAGE        = 1u << 12, /* 0015BA50 / 0015B130 / 0015B770 workers */
+    EM_PLAYER_NEED_PROBES       = 1u << 13, /* 001764E0 / 001756E0's original workers */
 };
 /* FLOOR: 00175900 and 001796C0 replace the port's floor snap and
  * PLAYER_FALL_ENTRY. They enter the fall (+5 = 5, 00179680) and the slide
@@ -225,7 +240,7 @@ enum {
 #define EM_PLAYER_MECH_FLOOR (EM_PLAYER_NEED_GROUND | EM_PLAYER_NEED_NODE_CLASS | \
     EM_PLAYER_NEED_HEAD | EM_PLAYER_NEED_OBJECT | EM_PLAYER_NEED_LINK | EM_PLAYER_NEED_COLUMN | \
     EM_PLAYER_NEED_SDK | EM_PLAYER_NEED_DISPLAY | EM_PLAYER_NEED_FLOOR_STATES | \
-    EM_PLAYER_NEED_STOP_SOUND | EM_PLAYER_NEED_STAGE)
+    EM_PLAYER_NEED_STOP_SOUND | EM_PLAYER_NEED_STAGE | EM_PLAYER_NEED_PROBES)
 /* USE: the rest of the Use chain 00160220 as one unit, since one press can
  * reach any of its entries: 0015D4C0 (AREA11: only case 0x32, the ladder
  * columns -> 0xB), 0015DF10 (ledge climb 2 / vault 3), 0015EC50 (running
@@ -288,6 +303,9 @@ EmPlayerLiveActor *player_states_actor_mut(void);
 int player_states_floor_service(void *context, EmPlayerLiveActor *actor, int search, int *result);
 int player_states_fall_check(void *context, EmPlayerLiveActor *actor);
 int player_states_wall_probes(void *context, EmPlayerLiveActor *actor);
+/* The same with the caller's $s1 (the fall lane's EM_PLAYER_LAND_S1_*
+ * sources, and the weapon / running-jump states' record address). */
+int player_states_wall_probes_s1(void *context, EmPlayerLiveActor *actor, uint32_t s1);
 /* Faults reached on the live path (a worker returned < 0). */
 unsigned player_states_faults(void);
 /* Area load: the mirror at 0015C420's values (+280 = (0, -13.8, 0), +4 = 1,

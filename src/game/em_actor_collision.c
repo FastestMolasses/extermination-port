@@ -6,54 +6,39 @@
  * was checked against it; 001A4030's C is byte-matched since 2026-09-23,
  * see docs/ACTOR_COLLISION.md). */
 #include "game/em_actor_collision.h"
+#include "game/em_coll_probe_original.h"
+#include "game/em_effect_original.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* ---- EE single precision ------------------------------------------------- */
+/* ---- Arithmetic ------------------------------------------------------------
+ * The EE FPU's sums, differences, products, quotients and accumulator
+ * products go through the measured model (em_ee_float.h, docs/EE_FLOAT_MODEL.md); the SDK VU0 leaves
+ * are their owners' translations: 001026A0 em_effect_original_001026A0 and
+ * 00102738 / 001028D0 / 001028B8 / 00103230 em_coll_probe_sdk_*. */
 
-#define EE_MAX 3.40282347e38f   /* 0x7F7FFFFF */
+static float ee_add(float a, float b) { return em_ee_add(a, b); }
+static float ee_sub(float a, float b) { return em_ee_sub(a, b); }
+static float ee_mul(float a, float b) { return em_ee_mul(a, b); }
+static float ee_div(float a, float b) { return em_ee_div(a, b); }
+/* mula.s a, a then madd.s b, b: ACC = a * a; out = ACC + b * b. */
+static float ee_square_sum(float a, float b) { return em_ee_madd(em_ee_mula(a, a), b, b); }
 
-static float ee(double value)
+/* 00102738(a, b) over three lanes (w = 0). -1 when a form is refused. */
+static int vu_dot(float *out, const float a[3], const float b[3])
 {
-    if (value != value) return 0.0f;
-    double magnitude = fabs(value);
-    if (magnitude >= 3.4028234663852886e38) return value < 0 ? -EE_MAX : EE_MAX;
-    if (magnitude == 0.0) return (float)value;
-    if (magnitude < 1.1754943508222875e-38) return 0.0f;
-    float result = (float)value;
-    if (fabs((double)result) > magnitude) result = nextafterf(result, 0.0f);
-    return result;
+    const float a4[4] = { a[0], a[1], a[2], 0.0f }, b4[4] = { b[0], b[1], b[2], 0.0f };
+    return em_coll_probe_sdk_dot(out, a4, b4) ? -1 : 0;
 }
 
-static float ee_add(float a, float b) { return ee((double)a + b); }
-static float ee_sub(float a, float b) { return ee((double)a - b); }
-static float ee_mul(float a, float b) { return ee((double)a * b); }
-static float ee_div(float a, float b)
-{
-    if (b == 0.0f) return signbit(a) != signbit(b) ? -EE_MAX : EE_MAX;
-    return ee((double)a / b);
-}
-
-/* 00102738: vmul.xyz, then x + y, then + z. */
-static float vu_dot(const float a[3], const float b[3])
-{
-    return ee_add(ee_add(ee_mul(a[0], b[0]), ee_mul(a[1], b[1])), ee_mul(a[2], b[2]));
-}
-
-/* 001026A0(out, m, v): ACC = m0 * v.x, += m1 * v.y, += m2 * v.z, out = ACC + m3 * v.w. */
+/* 001026A0(out, m, v). */
 static void vu_apply(const float m[16], const float v[4], float out[4])
 {
-    float r[4];
-    for (int lane = 0; lane < 4; ++lane) {
-        float acc = ee_mul(m[lane], v[0]);
-        acc = ee_add(acc, ee_mul(m[4 + lane], v[1]));
-        acc = ee_add(acc, ee_mul(m[8 + lane], v[2]));
-        r[lane] = ee_add(acc, ee_mul(m[12 + lane], v[3]));
-    }
-    memcpy(out, r, sizeof r);
+    em_effect_original_001026A0(out, m, v);
 }
 
 /* ---- Original-layout byte access (little-endian image) ------------------- */
@@ -237,7 +222,9 @@ int em_actor_cells_retransform_001A2370(EmActorCellTable *table, uint16_t uid_ha
             /* d = axis . first point (00102738 with the w lanes zeroed). */
             float a[3] = { rd_f(p, 4), rd_f(p, 8), rd_f(p, 0xC) };
             float q[3] = { rd_f(p, 0x14), rd_f(p, 0x18), rd_f(p, 0x1C) };
-            wr_f(p, 0x10, vu_dot(a, q));
+            float d;
+            if (vu_dot(&d, a, q) < 0) return -1;
+            wr_f(p, 0x10, d);
             p += 0x24 + 0x30 * n;
         }
         /* Any other type: the index advances, the pointer stays. */
@@ -304,164 +291,47 @@ const EmActor *em_actor_class_list_entry(const EmActorClassLists *lists, int whi
     return list->slot[list->published - 1 - j];
 }
 
-/* ---- The segment state of the walkers (0x70003190..0x700031D8) ----------- */
+/* ---- The segment state of the walkers (0x70003190..0x700031D8) -----------
+ * EmCollProbeState (em_coll_probe_original.h), the one model of these
+ * scratchpad words: the prim tests 001A44B0 / 001A4650 / 001A4030 and the
+ * grid pass 0019C830 are that module's translations. */
 
-typedef struct {
-    float start[3];          /* 0x70003190 */
-    float end[3];            /* 0x700031A0 */
-    float point[3];          /* 0x700031B0 */
-    uint16_t record_class;   /* 0x700030CA: D_700030B0 +0x1A */
-    float record_normal[3];  /* 0x700030D4: D_700030B0 +0x24 */
-    const EmActor *entity;   /* 0x700031D4 */
-    int16_t query_class;     /* 0x7000324E */
-    const void *self;        /* 0x70003254 */
-} Segment;
-
-/* 001A44B0: the vertical test of a 0x8000 (sphere, half height = radius)
- * or 0x4000 (cylinder, half height +0x14) prim. */
-static int prim_round_vertical(const uint8_t *p, Segment *s)
-{
-    const uint8_t *q = p + 4;
-    float half = (rd_u16(p, 0) & 0x8000) ? rd_f(q, 0xC) : rd_f(q, 0x10);
-    float lo, hi;
-    int upward;
-    if (s->start[1] <= s->end[1]) { upward = 1; lo = s->start[1]; hi = s->end[1]; }
-    else { upward = 0; lo = s->end[1]; hi = s->start[1]; }
-    float face = upward ? ee_sub(rd_f(q, 4), half) : ee_add(rd_f(q, 4), half);
-    if (face <= lo) return 0;
-    if (!(face < hi)) return 0;
-    float dx = ee_sub(s->start[0], rd_f(q, 0));
-    float dz = ee_sub(s->start[2], rd_f(q, 8));
-    float r2 = ee_mul(rd_f(q, 0xC), rd_f(q, 0xC));
-    float d2 = ee_add(ee_mul(dx, dx), ee_mul(dz, dz));          /* mula, madd */
-    if (r2 < d2) return 0;
-    s->point[0] = s->start[0];
-    s->point[2] = s->start[2];
-    s->record_normal[0] = 0.0f;
-    s->record_normal[2] = 0.0f;
-    if (upward) {
-        s->record_class = 0x8000;
-        s->record_normal[1] = -1.0f;
-        s->point[1] = ee_sub(rd_f(q, 4), half);
-    } else {
-        s->record_class = 0x4000;
-        s->record_normal[1] = 1.0f;
-        s->point[1] = ee_add(rd_f(q, 4), half);
-    }
-    return 1;
-}
-
-/* 001A4650: the vertical test of a 0x2000 face (faces 3 and 4 only). */
-static int prim_face_vertical(const uint8_t *p, Segment *s)
-{
-    const uint8_t *q = p + 4;
-    unsigned face = p[2];
-    if ((unsigned)(face - 3) >= 2) return 0;
-    float lo, hi;
-    if (s->start[1] < s->end[1]) {                /* upward: only the bottom face */
-        if (face == 3) return 0;
-        lo = s->start[1]; hi = s->end[1];
-    } else {                                      /* downward: only the top face */
-        if (face == 4) return 0;
-        lo = s->end[1]; hi = s->start[1];
-    }
-    float ex = rd_f(q, 0xC), xlo, xhi;
-    if (ex < 0.0f) { xhi = rd_f(q, 0); xlo = ee_add(xhi, ex); }
-    else { xlo = rd_f(q, 0); xhi = ee_add(xlo, ex); }
-    float ez = rd_f(q, 0x14), zlo, zhi;
-    if (ez < 0.0f) { zhi = rd_f(q, 8); zlo = ee_add(zhi, ez); }
-    else { zlo = rd_f(q, 8); zhi = ee_add(zlo, ez); }
-    float x = s->start[0], z = s->start[2];
-    if (x < xlo || !(x <= xhi)) return 0;
-    if (z < zlo || !(z <= zhi)) return 0;
-    float y = rd_f(q, 4);
-    if (!(lo < y)) return 0;
-    if (hi <= y) return 0;
-    s->point[0] = x;
-    s->point[1] = y;
-    s->record_normal[0] = 0.0f;
-    s->record_normal[2] = 0.0f;
-    s->point[2] = z;
-    if (face == 3) { s->record_class = 0x4000; s->record_normal[1] = 1.0f; }
-    else { s->record_class = 0x8000; s->record_normal[1] = -1.0f; }
-    return 1;
-}
-
-/* 001A4030: the convex n-gon segment test (both prim layouts: world
- * normal +4, d +0x10, points from +0x14, edge normals 12n further). */
-static int prim_ngon(const uint8_t *p, Segment *s)
-{
-    const float qa[3] = { s->start[0], s->start[1], s->start[2] };
-    const float qb[3] = { s->end[0], s->end[1], s->end[2] };
-    const float n[3] = { rd_f(p, 4), rd_f(p, 8), rd_f(p, 0xC) };
-    float dir[3];
-    for (int k = 0; k < 3; ++k) dir[k] = ee_sub(qb[k], qa[k]);  /* 001028D0 */
-    float d = rd_f(p, 0x10);
-    float along = vu_dot(dir, n);
-    if (!(along <= -1e-5f)) return 0;
-    float t = ee_div(ee_sub(d, vu_dot(n, qa)), along);
-    float hit[3];
-    for (int k = 0; k < 3; ++k) hit[k] = ee_add(qa[k], ee_mul(dir[k], t)); /* 00103230, 001028B8 */
-    for (int k = 0; k < 3; ++k) {
-        if (!(qa[k] <= hit[k] || qb[k] <= hit[k])) return 0;
-        if (qa[k] < hit[k] && qb[k] < hit[k]) return 0;
-    }
-    const uint8_t *vert = p + 0x14;
-    const uint8_t *edge = p + 0x14 + 12u * p[2];
-    for (unsigned k = 0; k < p[2]; ++k) {
-        float rel[3], e[3];
-        for (int j = 0; j < 3; ++j) {
-            rel[j] = ee_sub(hit[j], rd_f(vert, 4 * j));
-            e[j] = rd_f(edge, 4 * j);
-        }
-        if (!(vu_dot(rel, e) <= 1e-5f)) return 0;
-        vert += 12;
-        edge += 12;
-    }
-    memcpy(s->point, hit, sizeof hit);
-    float sum = ee_add(ee_mul(n[0], n[0]), ee_mul(n[2], n[2]));   /* mula, madd */
-    float ratio = ee_div(ee_mul(n[1], n[1]), sum);
-    uint16_t cls;
-    if (n[1] < 0.0f) cls = ratio < 0.49029058f ? 0x2000 : ratio <= 3.0f ? 0x0800 : 0x8000;
-    else cls = ratio < 0.49029058f ? 0x2000 : ratio <= 3.0f ? 0x1000 : 0x4000;
-    s->record_class = cls;
-    memcpy(s->record_normal, n, sizeof n);
-    return 1;
-}
-
-/* One prim of a vertical walk: the test result and the next prim. */
-static int prim_vertical(const uint8_t **cursor, Segment *s, int pass2, int *hit)
+/* One prim of a vertical walk (0019F730): the test result and the next
+ * prim. Pass 1 (static cells) does not test 0x8000 prims. */
+static int prim_vertical(const uint8_t **cursor, EmCollProbeState *s, int pass2, int *hit)
 {
     const uint8_t *p = *cursor;
     uint16_t header = rd_u16(p, 0);
+    int r = 0;
     switch (header & 0xF000) {
     case 0x8000:
-        if (pass2) *hit = prim_round_vertical(p, s);
-        else *hit = 0;
+        if (pass2) r = em_coll_probe_001A44B0(p, s);
         break;
-    case 0x4000: *hit = prim_round_vertical(p, s); break;
-    case 0x2000: *hit = prim_face_vertical(p, s); break;
-    case 0x1000: *hit = prim_ngon(p, s); break;
+    case 0x4000: r = em_coll_probe_001A44B0(p, s); break;
+    case 0x2000: r = em_coll_probe_001A4650(p, s); break;
+    case 0x1000: r = em_coll_probe_001A4030(p, s); break;
     default: return 0;          /* no advance; the hit variable keeps its value */
     }
+    if (r < 0) return -1;
+    *hit = r;
     *cursor = p + prim_size(p);
     return 0;
 }
 
-static int in_hull_box(const uint8_t *hull, const Segment *s, float lo, float hi)
+static int in_hull_box(const uint8_t *hull, const EmCollProbeState *s, float lo, float hi)
 {
-    if (s->start[0] < rd_f(hull, 0) || !(s->start[0] <= rd_f(hull, 0xC))) return 0;
-    if (s->start[2] < rd_f(hull, 8) || !(s->start[2] <= rd_f(hull, 0x14))) return 0;
-    if (hi < rd_f(hull, 4) || !(lo <= rd_f(hull, 0x10))) return 0;
+    if (em_ee_c_lt(s->start[0], rd_f(hull, 0)) || !em_ee_c_le(s->start[0], rd_f(hull, 0xC))) return 0;
+    if (em_ee_c_lt(s->start[2], rd_f(hull, 8)) || !em_ee_c_le(s->start[2], rd_f(hull, 0x14))) return 0;
+    if (em_ee_c_lt(hi, rd_f(hull, 4)) || !em_ee_c_le(lo, rd_f(hull, 0x10))) return 0;
     return 1;
 }
 
 /* 0019F730. Returns 1 when nothing was hit, 0 on a hit, -1 on a fault. */
-static int vertical_0019F730(const EmActorCollisionWorld *w, Segment *s)
+static int vertical_0019F730(const EmActorCollisionWorld *w, EmCollProbeState *s)
 {
     const EmActorCellTable *t = w->table;
     float lo, hi;
-    if (s->start[1] <= s->end[1]) { lo = s->start[1]; hi = s->end[1]; }
+    if (em_ee_c_le(s->start[1], s->end[1])) { lo = s->start[1]; hi = s->end[1]; }
     else { lo = s->end[1]; hi = s->start[1]; }
     int result = 1;
     for (int i = 0; i < t->count; ++i) {                    /* pass 1: static cells */
@@ -479,15 +349,15 @@ static int vertical_0019F730(const EmActorCollisionWorld *w, Segment *s)
         const uint8_t *p = hull + 0x1C;
         int hit = 0;
         for (int16_t j = 0; j < rd_s16(hull, 0x18); ++j) {
-            prim_vertical(&p, s, 0, &hit);
+            if (prim_vertical(&p, s, 0, &hit) < 0) return -1;
             if (hit) break;
         }
         if (!hit) continue;
         result = 0;
         s->end[1] = s->point[1];
         s->entity = NULL;
-        s->record_class = (uint16_t)((s->record_class & 0xFF00) | (uint8_t)kind);
-        if (!(s->start[1] <= s->end[1])) lo = s->end[1]; else hi = s->end[1];
+        s->cell_class = (uint16_t)((s->cell_class & 0xFF00) | (uint8_t)kind);
+        if (!em_ee_c_le(s->start[1], s->end[1])) lo = s->end[1]; else hi = s->end[1];
     }
     const EmActorClassList *list = &w->lists->list[EM_ACTOR_LIST_CLASS4];
     for (int j = 0; j < list->published; ++j) {             /* pass 2: owner cells */
@@ -509,16 +379,16 @@ static int vertical_0019F730(const EmActorCollisionWorld *w, Segment *s)
         const uint8_t *p = hull + 0x1C;
         int hit = 0, found = 0;
         for (int16_t k = 0; k < rd_s16(hull, 0x18); ++k) {
-            prim_vertical(&p, s, 1, &hit);
+            if (prim_vertical(&p, s, 1, &hit) < 0) return -1;
             if (!hit) continue;
             found = 1;
             result = 0;
             s->end[1] = s->point[1];
             s->entity = a;
-            s->record_class = (uint16_t)((s->record_class & 0xFF00) | (uint8_t)a->kind);
+            s->cell_class = (uint16_t)((s->cell_class & 0xFF00) | (uint8_t)a->kind);
         }
         if (found) {
-            if (s->start[1] <= s->end[1]) hi = s->end[1];
+            if (em_ee_c_le(s->start[1], s->end[1])) hi = s->end[1];
             else lo = s->end[1];
         }
     }
@@ -534,14 +404,19 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
 {
     if (!world || !query || !position || !probe || !hit) return -1;
     if ((mask & 2) && (!world->table || !world->table->bytes || !world->lists)) return -1;
-    if ((mask & 4) && (!world->grid || !world->grid->blob)) return -1;
+    /* The grid pass 0019C830 walks the rank section (the EMCL flag-7 grid). */
+    if ((mask & 4) && (!world->grid || !world->grid->blob || !world->ranks ||
+                       world->ranks->emcl != world->grid))
+        return -1;
     if ((mask & 0x80000000u) && !query->feet_y) return -1;
-    Segment s;
+    EmCollProbeState s;
     memset(&s, 0, sizeof s);
-    memcpy(s.start, position, sizeof s.start);
-    memcpy(s.end, position, sizeof s.end);
+    s.node = -1;
+    memcpy(s.start, position, 3 * sizeof(float));
+    memcpy(s.end, position, 3 * sizeof(float));
     s.start[1] = ee_sub(s.start[1], probe[1]);
-    float nudge = probe[1] < 0.0f ? 0.001f : -0.001f;         /* 0x3A83126F */
+    const float nudge = em_ee_c_lt(probe[1], 0.0f) ? em_ee_float(0x3A83126Fu)   /* +0.001 */
+                                                   : em_ee_float(0xBA83126Fu);  /* -0.001 */
     s.start[1] = ee_add(s.start[1], nudge);
     s.query_class = query->cls & 0x1F;
     int kind = 0, record = EM_ACTOR_RECORD_NONE, poly = -1;
@@ -554,14 +429,13 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
     }
     float grid_start[3] = { 0.0f, 0.0f, 0.0f }, grid_end[3] = { 0.0f, 0.0f, 0.0f };
     if (mask & 4) {
-        float point[3];
-        int node;
         memcpy(grid_start, s.start, sizeof grid_start);
         memcpy(grid_end, s.end, sizeof grid_end);
-        if (em_collision_grid_vertical(world->grid, s.start, s.end, s.query_class, point, &node)) {
-            memcpy(s.point, point, sizeof point);
+        int r = em_coll_probe_0019C830(world->ranks, &s);
+        if (r < 0) return -1;
+        if (r == 0) {
             record = EM_ACTOR_RECORD_GRID;
-            poly = node;
+            poly = (int)(world->ranks->first + (uint32_t)s.node);
             kind = 4;
         }
     }
@@ -572,10 +446,11 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
     memcpy(hit->grid_start, grid_start, sizeof grid_start);
     memcpy(hit->grid_end, grid_end, sizeof grid_end);
     if (kind) {
-        memcpy(s.end, position, sizeof s.end);
+        float end[3];
+        memcpy(end, position, sizeof end);
         for (int k = 0; k < 3; ++k) {
             hit->point[k] = s.point[k];
-            hit->delta[k] = ee_sub(s.point[k], s.end[k]);
+            hit->delta[k] = ee_sub(s.point[k], end[k]);
         }
         if (mask & 0x80000000u) *query->feet_y = ee_add(*query->feet_y, hit->delta[1]);
         hit->record = record;
@@ -587,8 +462,8 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
             memcpy(hit->normal, p->plane, sizeof hit->normal);
         } else {
             hit->node_class_known = 1;
-            hit->node = s.record_class;
-            memcpy(hit->normal, s.record_normal, sizeof hit->normal);
+            hit->node = s.cell_class;
+            memcpy(hit->normal, s.cell_normal, sizeof hit->normal);
         }
     } else {
         hit->record = EM_ACTOR_RECORD_NONE;
@@ -607,53 +482,53 @@ static int column_round(const uint8_t *p, float x, float z, float out[4], float 
     float dz = ee_sub(z, rd_f(c, 8));
     float dx = ee_sub(x, rd_f(c, 0));
     float r2 = ee_mul(rd_f(c, 0xC), rd_f(c, 0xC));
-    float d2 = ee_add(ee_mul(dx, dx), ee_mul(dz, dz));          /* mula, madd */
-    if (r2 < d2) return 0;
+    float d2 = ee_square_sum(dx, dz);                           /* mula.s dx, dx; madd.s dz, dz */
+    if (em_ee_c_lt(r2, d2)) return 0;
     out[0] = ee_add(rd_f(c, 4), half);
     out[1] = ee_sub(rd_f(c, 4), half);
     out[2] = 1.0f;
     out[3] = -1.0f;
-    union { uint32_t u; float f; } small = { 0x322BCC77u }, negsmall = { 0xB22BCC77u };
-    extra[0] = small.f;
-    extra[1] = negsmall.f;
+    extra[0] = em_ee_float(0x322BCC77u);
+    extra[1] = em_ee_float(0xB22BCC77u);
     return 1;
 }
 
-/* 001A58B0(q, out, p): an n-gon's crossing of the vertical line (x, z). */
+/* 001A58B0(q, out, p): an n-gon's crossing of the vertical line (x, z).
+ * Returns 1 / 0, or -1 on a fault (a refused VU form, a faulted SDK call is
+ * the caller's to check through the math context). */
 static int column_ngon(const uint8_t *p, float x, float z, const EmCollColumnMath *m,
                        float out[4], float extra[2])
 {
-    const float n[3] = { rd_f(p, 4), rd_f(p, 8), rd_f(p, 0xC) };
-    const float pos[3] = { x, 0.0f, z };
-    const float dir[3] = { 0.0f, 1.0f, 0.0f };
-    float along = vu_dot(dir, n);
-    float t = ee_div(ee_sub(rd_f(p, 0x10), vu_dot(n, pos)), along);
-    float hit[3];
-    for (int k = 0; k < 3; ++k) hit[k] = ee_add(pos[k], ee_mul(dir[k], t));
+    const float n[4] = { rd_f(p, 4), rd_f(p, 8), rd_f(p, 0xC), 0.0f };
+    const float pos[4] = { x, 0.0f, z, 0.0f };
+    const float dir[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
+    float along, nq, hit[4];
+    if (em_coll_probe_sdk_dot(&along, dir, n) || em_coll_probe_sdk_dot(&nq, n, pos)) return -1;
+    float t = ee_div(ee_sub(rd_f(p, 0x10), nq), along);            /* sub.s, div.s */
+    if (em_coll_probe_sdk_scale(hit, dir, t) || em_coll_probe_sdk_add(hit, pos, hit)) return -1;
     const uint8_t *vert = p + 0x14;
     const uint8_t *edge = p + 0x14 + 12u * p[2];
     for (unsigned k = 0; k < p[2]; ++k) {
-        float rel[3], e[3];
-        for (int j = 0; j < 3; ++j) {
-            rel[j] = ee_sub(hit[j], rd_f(vert, 4 * j));
-            e[j] = rd_f(edge, 4 * j);
-        }
-        if (!(vu_dot(rel, e) <= 1e-5f)) return 0;
+        const float v[4] = { rd_f(vert, 0), rd_f(vert, 4), rd_f(vert, 8), 0.0f };
+        const float e[4] = { rd_f(edge, 0), rd_f(edge, 4), rd_f(edge, 8), 0.0f };
+        float rel[4], dot;
+        if (em_coll_probe_sdk_sub(rel, hit, v) || em_coll_probe_sdk_dot(&dot, rel, e)) return -1;
+        if (!em_ee_c_le(dot, em_ee_float(0x3727C5ACu))) return 0;     /* +1e-5 */
         vert += 12;
         edge += 12;
     }
-    float square = ee_add(ee_mul(n[0], n[0]), ee_mul(n[2], n[2]));   /* mula, madd */
+    float square = ee_square_sum(n[0], n[2]);                           /* mula.s, madd.s */
     float h = m->sqrt(m->context, square);                              /* 0011E748 */
-    union { uint32_t u; float f; } big = { 0x7F7FC99Eu }, negbig = { 0xFF7FC99Eu };
-    float ratio = h < 1e-4f ? big.f : ee_div(fabsf(n[1]), h);            /* 0011DF78 */
-    float angle = ee_sub(1.57079637050628662f,
-                         m->atan(m->context, ratio));                      /* 0011DBB8 */
-    if (n[1] <= 0.0f) {
-        out[0] = negbig.f; out[1] = hit[1]; out[2] = 0.0f; out[3] = -1.0f;
-        extra[1] = n[1] < 0.0f ? -angle : angle;
+    const float big = em_ee_float(0x7F7FC99Eu), negbig = em_ee_float(0xFF7FC99Eu);
+    float ratio = em_ee_c_lt(h, em_ee_float(0x38D1B717u)) ? big         /* 1e-4 */
+                : ee_div(em_ee_float(em_ee_bits(n[1]) & 0x7FFFFFFFu), h);  /* 0011DF78, div.s */
+    float angle = ee_sub(em_ee_float(0x3FC90FDBu), m->atan(m->context, ratio));  /* pi/2, 0011DBB8 */
+    if (em_ee_c_le(n[1], 0.0f)) {
+        out[0] = negbig; out[1] = hit[1]; out[2] = 0.0f; out[3] = -1.0f;
+        extra[1] = em_ee_c_lt(n[1], 0.0f) ? em_ee_neg(angle) : angle;
     } else {
-        out[0] = hit[1]; out[1] = big.f; out[2] = 1.0f; out[3] = 0.0f;
-        extra[0] = n[1] < 0.0f ? -angle : angle;
+        out[0] = hit[1]; out[1] = big; out[2] = 1.0f; out[3] = 0.0f;
+        extra[0] = em_ee_c_lt(n[1], 0.0f) ? em_ee_neg(angle) : angle;
     }
     return 1;
 }
@@ -707,7 +582,10 @@ int em_actor_collision_column_0019BC40(const EmActorCollisionWorld *world,
                 hit = em_collision_column_box_face(&face, position[0], position[2], cross, extra);
                 break;
             }
-            case 0x1000: hit = column_ngon(p, position[0], position[2], math, cross, extra); break;
+            case 0x1000:
+                hit = column_ngon(p, position[0], position[2], math, cross, extra);
+                if (hit < 0) return -1;
+                break;
             default:
                 /* The pointer stays and the hit variable keeps its value;
                  * with no earlier value to keep the original reads a stale
@@ -807,6 +685,22 @@ int em_actor_collision_player_ground(void *player, const float position[3], cons
     memcpy(hit->point, h.point, sizeof hit->point);
     memcpy(hit->delta, h.delta, sizeof hit->delta);
     memcpy(hit->normal, h.normal, sizeof hit->normal);
+    return kind;
+}
+
+int em_actor_collision_player_001760C0(void *player, float *feet_y, const float at[3], int arg,
+                                       float height, EmPlayerProbeHit *hit)
+{
+    EmActorCollisionPlayer *p = player;
+    if (!p || !at || !hit) return -1;
+    const unsigned mask = arg != 0 ? 6u : 0x80000006u;
+    if ((mask & 0x80000000u) && !feet_y) return -1;
+    const float point[3] = { at[0], ee_add(at[1], height), at[2] };   /* 0x70003604 += height */
+    const float probe[3] = { 0.0f, height, 0.0f };                     /* 0x70003610..1C */
+    float *saved = p->query.feet_y;
+    p->query.feet_y = feet_y;
+    int kind = em_actor_collision_player_ground(p, point, probe, mask, hit);
+    p->query.feet_y = saved;
     return kind;
 }
 

@@ -95,6 +95,7 @@
 
 #include "game/em_actor_pool.h"
 #include "game/em_actor_roster.h"
+#include "game/em_player_closure_live.h"
 #include "game/em_bgm.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_interaction_host.h"
@@ -618,7 +619,15 @@ static void log_tick_end(int rc)
         fprintf(f, ", \"power\": %d, \"floor\": %d, \"pos_post\": [%u, %u, %u], \"yaw_post\": %u",
                 power ? *power : -1, floor ? *floor : -1, pos[0], pos[1], pos[2], yaw);
         fprintf(f, ", \"eye_post\": [%u, %u, %u], \"tgt_post\": [%u, %u, %u]", eye[0], eye[1], eye[2],
-                tgt[0], tgt[1], tgt[2]);
+                tgt[0], tgt[1], tgt[2]);        /* The live player record at the tick end, as the route rows sample
+         * it (route_capture.py): +5, +1F0, +1F1, the clip +20C, the clock
+         * +3C (float bits) and the ground owner +214 (its original record
+         * address; 0 none). */
+        const EmPlayerLiveActor *a = player_states_actor();
+        uint32_t clock = em_live_u32(a, 0x3C);
+        uint32_t ground = a->link_owner ? em_actor_pool_address(&s_pool, (const EmActor *)a->link_owner) : 0;
+        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
+                em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground);
     }
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
@@ -734,6 +743,7 @@ static int w_001AFCA0(void *ctx)
      * detach the player's Use and stage hooks, then free the owner tokens
      * (em_area11_interaction_host.h: whole-world teardown). */
     player_use_set_hook(NULL, NULL);
+    em_player_closure_live_set_scan(NULL, NULL);
     player_pose_set_stage_hook(NULL, NULL);
     em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
@@ -1151,6 +1161,7 @@ static int w_001B6990(void *ctx)
     }
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
     player_use_set_hook(em_area11_interaction_host_use, NULL);
+    em_player_closure_live_set_scan(em_area11_interaction_host_scan_00184BA0, NULL);
     em_message_live_set_host(em_area11_interaction_host_message_host());
     return rc;
 }

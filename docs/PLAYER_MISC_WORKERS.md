@@ -7,7 +7,7 @@ Lane "player-misc-workers". The hang, recovery, major2, reaction, fall,
 ladder and closure translations name these original routines as workers
 without translating them. This module translates them from the original
 instructions, so that the coordinator can bind them. It is **built and tested
-but not wired**. Section 4 lists what the coordinator binds.
+and bound live in AREA11** (em_player_closure_live.c). Section 4 lists what the coordinator binds.
 
 | Routine | What it is | Decomp source read |
 |---|---|---|
@@ -390,6 +390,8 @@ default world list to keep the run in minutes. Add it with
 
 ## 4. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 The context of every adapter is one `EmPlayerMiscHost`. The binder:
 
 - keeps `scene` current (it is read at call time);
@@ -489,5 +491,3 @@ shares one scratch image must pass the same storage.
   00188570, 00188590, 0017F1C0, 001760C0, 0017E6E0, 001782A0, 00178440,
   001784E0, 0017F130, 001C6150 and 00200890. Until they are
   bound, the routines that reach them refuse (-1).
-- **Unwired.** The module is not wired into the live game. The Makefile
-  hunks are in the lane report.

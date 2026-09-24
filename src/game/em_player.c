@@ -12,6 +12,7 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_player.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 #include "game/em_player_floor.h"
 #include "game/em_player_heading.h"
@@ -32,6 +33,7 @@ static uint8_t live_link_type(void);
 static uint8_t live_state(void);
 static void port_park(void);
 static void footstep_surface_from_live(uint8_t surface);
+static void live_fault(const char *what);
 
 /* ---- WP-15 P16: 001764E0 radial probes over the port's collision -------
  * em_player_floor.c translates 001764E0 (with 00176390/00176BE0/001762E0/
@@ -177,6 +179,12 @@ static const EmPlayerProbeWorkers kProbeWorkers = {
     probe_pose, probe_sqrt, probe_atan
 };
 
+/* The probe workers of the current path: once FLOOR engages, the original
+ * walkers over the collision world (EmPlayerStatesBinding.probes); else the
+ * port's legacy workers above. */
+static const EmPlayerProbeWorkers *probe_workers(void);
+static int probe_sdk_failed(void);
+
 static void probe_actor(EmPlayerProbeActor *actor)
 {
     memset(actor, 0, sizeof *actor);
@@ -201,13 +209,14 @@ static void probe_actor(EmPlayerProbeActor *actor)
 
 void player_wall_probes(void)
 {
-    if (!g.coll.poly_count) return;
+    if (!g.coll.poly_count && !floor_engaged()) return;
     EmPlayerProbeActor actor;
     probe_actor(&actor);
     EmPlayerProbeScene scene = { em_scene_state()->d810700,
                                  probe.inherited_s1 ? probe.inherited_s1 : 1, probe.previous };
     probe.inherited_s1 = 1;
-    if (em_player_wall_probes(&actor, &scene, &kProbeWorkers) < 0) {
+    if (em_player_wall_probes(&actor, &scene, probe_workers()) < 0 || probe_sdk_failed()) {
+        if (floor_engaged()) { live_fault("001764E0 worker fault"); return; }
         probe_fault("001764E0 worker fault");
         return;
     }
@@ -226,7 +235,7 @@ void player_wall_probes(void)
 /* 001756E0 after the floor service: release (or keep) the low clearance. */
 static void player_clearance_release(void)
 {
-    if (!g.coll.poly_count) return;
+    if (!g.coll.poly_count && !floor_engaged()) return;
     EmPlayerProbeActor actor;
     probe_actor(&actor);
     if (floor_engaged()) {
@@ -237,7 +246,8 @@ static void player_clearance_release(void)
         actor.state = live_state();
     }
     EmPlayerProbeScene scene = { em_scene_state()->d810700, 1, probe.previous };
-    if (em_player_clearance_release(&actor, &scene, &kProbeWorkers) < 0) {
+    if (em_player_clearance_release(&actor, &scene, probe_workers()) < 0 || probe_sdk_failed()) {
+        if (floor_engaged()) { live_fault("001756E0 worker fault"); return; }
         probe_fault("001756E0 worker fault");
         return;
     }
@@ -395,6 +405,10 @@ unsigned player_states_missing(void)
         if (!live.bound || !bound_state(&kUseStates[i])) missing |= EM_PLAYER_NEED_USE_STATES;
     if (!live.bound || !b->stage.stop_sound) missing |= EM_PLAYER_NEED_STOP_SOUND;
     if (stage_missing_names(NULL, 0)) missing |= EM_PLAYER_NEED_STAGE;
+    const EmPlayerProbeWorkers *p = &b->probes;
+    if (!live.bound || !p->move || !p->sweep || !p->column || !p->hull_shove || !p->target_shove ||
+        !p->pose || !p->sqrt || !p->atan)
+        missing |= EM_PLAYER_NEED_PROBES;
     return missing;
 }
 
@@ -435,6 +449,7 @@ void player_states_report(FILE *out)
         "display of the bound states (player_states_bind_display)",
         "state callbacks", "00160220 past 00184BA0 (player_states_bind_use_chain)",
         "state callbacks", "0011A070 sound stop (0015BCF0)", "stage workers",
+        "001764E0 / 001756E0 original probe workers (em_collision_world_bind_player)",
     };
     static const struct { const char *name; unsigned mask; } kMech[] = {
         { "stage 0015BA50 / 0015B130 / 0015BCF0 tail (L01)", EM_PLAYER_MECH_STAGE },
@@ -683,12 +698,26 @@ int player_states_fall_check(void *context, EmPlayerLiveActor *actor)
     return 0;
 }
 
-/* 001764E0 over a live actor, with the port's probe workers (the same
- * binding player_wall_probes uses). 0, or -1 on a worker fault. */
-int player_states_wall_probes(void *context, EmPlayerLiveActor *actor)
+static const EmPlayerProbeWorkers *probe_workers(void)
+{
+    return floor_engaged() ? &live.b.probes : &kProbeWorkers;
+}
+
+/* The bound SDK workers record a fault instead of returning one. */
+static int probe_sdk_failed(void)
+{
+    return floor_engaged() && live.b.sdk_fault && *live.b.sdk_fault;
+}
+
+/* 001764E0 over a live actor with the caller's $s1 (the 0x4 bit gates the
+ * ankle pass's slope rule, PLAYER_FLOOR.md P16), with the bound probe
+ * workers (the same set player_wall_probes uses). 0, or -1 on a worker
+ * fault. */
+int player_states_wall_probes_s1(void *context, EmPlayerLiveActor *actor, uint32_t s1)
 {
     (void)context;
-    if (!g.coll.poly_count) return 0;
+    if (!floor_engaged()) return -1;
+    if (live.b.sdk_fault) *live.b.sdk_fault = 0;
     EmPlayerProbeActor p;
     memset(&p, 0, sizeof p);
     for (unsigned axis = 0; axis < 3; ++axis) p.position[axis] = em_live_f32(actor, 0xB0 + 4 * axis);
@@ -704,14 +733,21 @@ int player_states_wall_probes(void *context, EmPlayerLiveActor *actor)
     p.contact = em_live_u8(actor, 0xA);
     p.link = actor->link_owner != NULL;
     p.link_type = actor->link_type;
-    EmPlayerProbeScene scene = { em_scene_state()->d810700, 1, probe.previous };
-    if (em_player_wall_probes(&p, &scene, &kProbeWorkers) < 0) return -1;
+    EmPlayerProbeScene scene = { em_scene_state()->d810700, s1, probe.previous };
+    if (em_player_wall_probes(&p, &scene, probe_workers()) < 0 || probe_sdk_failed()) return -1;
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(actor, 0xB0 + 4 * axis, p.position[axis]);
     em_live_set_u8(actor, 0x235, p.row);
     em_live_set_u8(actor, 0x236, p.special);
     em_live_set_u8(actor, 0x314, p.obstruction);
     probe.previous = scene.previous_obstruction;
     return 0;
+}
+
+/* The same with $s1 = 1, the value 0015B130 leaves for its state routines'
+ * probes (the idle/walk callbacks' inherited $s1). */
+int player_states_wall_probes(void *context, EmPlayerLiveActor *actor)
+{
+    return player_states_wall_probes_s1(context, actor, 1);
 }
 
 /* The mirror's view of the port's idle/walk callbacks (the port keeps these
@@ -747,9 +783,12 @@ static void port_from_live_position(void)
 static void live_tail(int walk)
 {
     live_from_port();
-    em_live_set_u8(&live.a, 5, walk ? 1 : 0);   /* 00175900 reads +5 for 0x39 / 0x1C */
+    /* 00175900 reads +5 for 0x39 / 0x1C: the port's idle / walk callback
+     * that ran (the port keeps +5 in g.loco_mode while it owns the record). */
+    em_live_set_u8(&live.a, 5, walk ? 1 : 0);
     float lower = !walk ? -0.2f : em_live_u8(&live.a, 0x23B) == 0x35 ? -0.8f : -0.4f;
-    em_live_set_f32(&live.a, 0xB4, em_effect_float32((double)em_live_f32(&live.a, 0xB4) + lower));
+    /* The callbacks' add.s (00161020 / 001612D0), the measured EE sum. */
+    em_live_set_f32(&live.a, 0xB4, em_ee_add(em_live_f32(&live.a, 0xB4), lower));
     int contact;
     if (player_states_floor_service(NULL, &live.a, 1, &contact) < 0) {
         live_fault("00175900 worker fault");
@@ -841,6 +880,16 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
         live.busy_known = live_scene_load();
         live.loaded3B8F = live.scene.spad3B8F;
         if (consumed) {
+            /* A scan winner's hand-off (00160220 left +5 = 0x25): the
+             * prelude that admits the owner's script writes +4 = 4, +5 = 0,
+             * +6 = 0 and +1F0 = 0x41 (0015B130 at the 00182B30 admission;
+             * route 04 shows +5 = 0 / +1F0 = 0x41 on the frame after the
+             * scan). The stand-in consumes the stage in place of +4 = 4. */
+            if (em_live_u8(a, 4) == 1 && em_live_u8(a, 5) == 0x25) {
+                em_live_set_u8(a, 5, 0);
+                em_live_set_u8(a, 6, 0);
+                em_live_set_u8(a, 0x1F0, 0x41);
+            }
             live.consumed = 1;
             return 0;
         }
@@ -1566,6 +1615,10 @@ static void player_move_callbacks(void)
      * is separate (em_door_menu_locked, consumed by em_hud) and ends
      * earlier, at fade-in completion. */
     if (em_door_movement_locked()) {
+        /* A re-place's release happens here, in the stage (see
+         * em_door_movement_stage_release): this callback still returns
+         * without its tail, as the original's release stage does. */
+        (void)em_door_movement_stage_release();
         player_pose_legacy_hold("legacy door interaction source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
@@ -1853,13 +1906,25 @@ static void player_move_callbacks(void)
     /* WP-15/H11: while 001612D0 case 2 owns the callback (skid ticks and
      * the resume/idle decision), 00160220 is not polled; only case 1 does. */
     const int reversal_live = reversal_state2_live();
-    int walking_before_use = g.loco_mode != 0;
     int used = reversal_live ? 0 : player_use_poll();
     if (used != 0) {
-        /* 00161020 breaks to the idle physics tail; 001612D0 returns
-         * before its walking tail. Save the state before 001798D0 clears
-         * it. */
-        if (used > 0 && !walking_before_use) player_probe_tail(0);
+        /* 00161020 / 001612D0 return at once when 00160220 takes the press:
+         * no floor tail (the instructions, LOCOMOTION_DISPLAY.md "Where the
+         * instructions differ from the NEARMISS C"). The dispatcher ran
+         * over the live record (001798D0 and +5 = 0x25 for a scan winner,
+         * or the action it chose: the ledge climb / vault +5 = 2 / 3, the
+         * ladder 0xB, the running jump 6, the aim 0x24), which owns the
+         * player from now on: the port takes its placement (the ledge
+         * probes may have turned it, +C4) before the source shows the
+         * record's pose, and parks its own locomotion. */
+        if (used > 0 && stage_engaged() && !port_family()) {
+            port_from_live_position();
+            if (!player_pose_use_accepted_port()) {
+                live_fault("00160220 took the press while the source is not ordinary");
+                return;
+            }
+            port_park();
+        }
         return;
     }
 
@@ -2330,8 +2395,15 @@ static int step_effect(void *context, uint32_t id, const float position[3],
                        const float rotation[3])
 {
     (void)context;
-    if (!footstep.effect) { footstep_fault("001EFD90 effect"); return 0; }
+    if (!footstep.effect) return player_effect_gap(id, position, rotation);
     return footstep.effect(footstep.effect_context, id, position, rotation);
+}
+
+int player_effect_gap(uint32_t id, const float position[3], const float rotation[3])
+{
+    (void)id; (void)position; (void)rotation;
+    footstep_fault("001EFD90 effect (no live effect owner, census L26)");
+    return 0;
 }
 
 static int step_decal(void *context, const float position[3], float yaw, float pitch)

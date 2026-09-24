@@ -264,31 +264,8 @@ int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *see
 int em_collision_column_box_face(const EmCollBoxFace *face, float x, float z,
                                  float out[4], float extra[2]);
 
-/* --- 0019C830 / 0019ED80: the grid pass of the vertical probe 0019AB20 ---
- *
- * Walks the grid polys (set EM_COLL_SET_GRID, in EMCL node order) against
- * the segment start -> end, gated as 0019C830 gates node +0x1A (the query
- * class is 0x7000324E: >= 0x5A never, 0x51 only class 0, 0x52 only class 2,
- * 0x53 not for class -1; 0x50 and the rest always), each through 0019ED80
- * with EE arithmetic. Every hit clamps end[1] (0x700031A4) to the hit
- * height, so later nodes must be nearer; the last hit wins. Returns 1 on a
- * hit with point (0x700031B0, the last hit's point, restored by 0019C830)
- * and the poly index (0x700031D0 names that node), else 0 and end[] is
- * untouched. KNOWN INEXACT like every EMCL grid walk: 0019C830 visits only
- * the nodes one rank-table span admits and whose rank bounds (node
- * +0x0C..+0x16) admit the point; the EMCL carries neither, so this visits
- * every node (docs/ACTOR_COLLISION.md). */
-int em_collision_grid_vertical(const EmCollision *c, const float start[3], float end[3],
-                               int query_class, float point[3], int *poly);
-/* The same walk over the given grid polys in the given order: the nodes and
- * the order 0019C830's rank-table span visits (the only part of the grid
- * pass the EMCL cannot reproduce: every hit clamps end[1], so a different
- * visit order can move the final height by an ulp or pick another node at
- * equal heights). Returns 1 / 0 as above, or -1 for an index that is not a
- * grid poly. */
-int em_collision_grid_vertical_nodes(const EmCollision *c, const float start[3], float end[3],
-                                     int query_class, const int *polys, unsigned count,
-                                     float point[3], int *poly);
+/* 0019AB20's grid pass 0019C830 (and its 0019ED80) is translated once, over
+ * the EMCL rank section: em_coll_probe_0019C830 (em_coll_probe_original.h). */
 
 /* --- LEGACY, NOT ORIGINAL: the moving-surface and blocker registries ----
  *

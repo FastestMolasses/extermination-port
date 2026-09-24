@@ -34,6 +34,8 @@
 #include <stdint.h>
 
 #include "game/em_actor_collision.h"
+#include "game/em_coll_grid_hull.h"
+#include "game/em_coll_move_original.h"
 #include "game/em_coll_probe_original.h"
 #include "game/em_coll_segment_walkers.h"
 #include "game/em_collision.h"
@@ -74,6 +76,9 @@ const EmActorClassLists *em_collision_world_lists(void);
  * selects (EmActor.cls, +0x02) and, for class bit 0x80, the interactive list.
  * 1, or -1. */
 int em_collision_world_publish_001B1B70(const EmActor *actor);
+/* 001B1D20(actor): the class-4 push alone (the drums' contact worker inside
+ * 50 units of the player). 1, or -1. */
+int em_collision_world_push4_001B1D20(const EmActor *actor);
 /* 001A2370(actor, matrix): re-transform the actor's extended cell (uid
  * +0x0E >> 8) by `matrix` and rebuild its AABB. 1, or -1 (not loaded). */
 int em_collision_world_retransform_001A2370(const EmActor *actor, const float matrix[16]);
@@ -107,6 +112,42 @@ int em_collision_world_0019B7D0(const float from[3], const float to[3], EmCollSe
  * mechanism these serve stays gated until its other prerequisites exist
  * (player_states_missing). */
 int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, uint8_t cls);
+
+/* The world's other original walkers, for the binders of the player states
+ * and owners (NULL while the world is not loaded):
+ *   em_collision_world_move       0019AD00 / 0019AFE0's world (the cells, the
+ *                                 rank grid, the hull locks' world and the SDK
+ *                                 context); the hull world has no chain
+ *                                 reader (AREA11 publishes no class-2 owner:
+ *                                 a lock that needs a chain faults) and no
+ *                                 001A7280 player
+ *   em_collision_world_move_scratch  their one scratchpad state (0x70003190..
+ *                                 0x700031D8 as the move walkers leave it)
+ *   em_collision_world_segment    0019A570 / 0019A910's segment (the probe
+ *                                 state, the face scratch, the same hulls)
+ *   em_collision_world_cells      the actor-collision world (0019AB20,
+ *                                 0019BC40 and the owners' probes)
+ *   em_collision_world_sdk        the one SDK context (tables, soft float)
+ *   em_collision_world_column_math  0019BC40's SDK workers over it
+ *   em_collision_world_player     the player's 0019AB20 query view */
+/* The 00174A50 worker 001756E0's probe set calls (pose(context, actor,
+ * 12.0) over the live record); unbound, reaching it faults. */
+void em_collision_world_bind_player_pose(int (*pose)(void *context, EmPlayerLiveActor *actor,
+                                                     float blend),
+                                         void *context, EmPlayerLiveActor *actor);
+const EmCollMoveWorld *em_collision_world_move(void);
+EmCollMoveScratch *em_collision_world_move_scratch(void);
+const EmCollSegment *em_collision_world_segment(void);
+EmActorCollisionWorld *em_collision_world_cells(void);
+EmSdkMathContext *em_collision_world_sdk(void);
+const EmCollColumnMath *em_collision_world_column_math(void);
+EmActorCollisionPlayer *em_collision_world_player(void);
+/* 0019BC40's player column view (the fall check's `column`). */
+EmActorCollisionPlayerColumn *em_collision_world_column_player(void);
+/* The player's EmCollMovePlayer (0019AD00 / 0019AFE0 with the live record
+ * as the query actor): the context of em_coll_move_player_* and
+ * em_coll_move_climb_* / _slide_*. */
+EmCollMovePlayer *em_collision_world_move_player(void);
 
 /* EM_COLL_WORLD_DUMP=<path>: after every 001AAD00 the directory image and
  * the published class-4 uids are written to <path> (the last frame wins;

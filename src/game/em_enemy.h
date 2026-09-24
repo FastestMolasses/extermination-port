@@ -605,43 +605,9 @@
  * `enemy bug <x> <y> <z> <yaw>` lines (port convenience standing in
  * for the registry's ordinary room-spawn records).
  *
- * EGG KIND (FINDINGS s78 §5 + INVESTIGATION_area11_egg_vs_barrel.md —
- * brain func_00156620; the AREA-11 opening's 2 destructible fixtures):
- * RE-IDENTIFIED 2026-06-17 as an industrial metal DRUM/canister
- * destructible (115 placements, 10 areas), model byte 0x18 / kind 0x46,
- * HP 1 — NOT an organic egg, NOT a hatcher and NOT a crate variant.
- * Passive set-dressing that EXPLODES when shot (the kind keeps the name
- * EM_ENEMY_KIND_EGG until a later rename pass; only its DEATH behaviour
- * is the drum's). No children, no husk rebind, no attack, no movement,
- * no alarm. Decoded off the recovered func_00156620 and CONFIRMED
- * 2026-07-31: HP 1 (state 0 writes `+0x34 = 1`; state 1 leaves for
- * state 2 on ANY nonzero +0x36) and the damage-only EXPLOSION (state 2
- * phase 0 fires func_001EFD20(0x80000013) at pos with Y+7, then — for
- * model byte 0x18/0x2A — FX 0x8000001C and sound 0x1A1 through
- * func_001FC580 — arms +0x28 = 2, and phase 1 counts that down and
- * hands to state 3 = free two ticks later). func_001FC580 (BYTE-MATCHED)
- * does route 0x1A1, via its 0x19F/0x1A0/0x1A1 arm — CONFIRMED. Phases
- * 2/3 of that state are a flung-debris FLIGHT arm, but model 0x18/0x2A
- * exits at phase 1 and never reaches it, so "no movement" holds for the
- * drum specifically. PURELY VISUAL: nothing in the function writes
- * damage to another actor — no radius damage, no chain.
- * CORRECTED 2026-07-31, twice:
- *   - the "idle wobble MECHANISM" was never in the engine. CONFIRMED:
- *     state 1 does not touch a transform; sub+0x74 (aim), +0x38 (speed,
- *     from D_00246A00) and sub+0x78 (pitch, from D_00246A10) are all
- *     written in STATE 2 phase 0 as flung-debris parameters. The port's
- *     wobble is removed.
- *   - the drum is NOT shootable from any range. CONFIRMED: state 1's
- *     tail takes func_001028D0(scratch, D_00810350, pos), squares it
- *     with func_00102738, compares against 50.0f * 50.0f, and only
- *     inside that publishes via `actor[1] = 1; func_001B1D20(self)`;
- *     outside it takes func_001B17A0 and is no candidate. The port gates
- *     em_enemy_acquire / ray_test / targetable on that radius
- *     (EGG_TARGET_R in em_enemy.c). MESH: assets/enemy_egg.emdl (the area-11 model-table
- * entry 0x0E carve — decomp tools/export_props.py --egg; capped-cylinder
- * drum mesh), placeholder upright box when absent. Instances: manifest
- * `enemy egg <x> <y> <z> <yaw>` lines, dispatched here (em_enemy_add_kind
- * with EM_ENEMY_KIND_EGG). Full ledger in em_enemy.c "THE EGG / DRUM".
+ * DRUM (00156620, the former EGG kind): retired in census L25. AREA11's
+ * two drums run on their original owner (em_area11_boxes.c over
+ * em_drum_original), and no other scene places one.
  *
  * GENERATOR (FINDINGS "GENERATOR — func_0015A2C0 RESOLVED", session
  * 28): the engine's most-placed creature behavior (class 0x0D, model 3,
@@ -916,27 +882,13 @@ enum {
  * approach -> in-place bite -> recover shape is a PORT INVENTION that
  * the recovered brains contradict — the engine wanders on random
  * bearings and never bites. See "BUG KIND" above for the decoded radii,
- * turn rates and speeds, and for the two flagged port bugs), EGG = the
- * AREA-11 metal DRUM fixture func_00156620 (a stationary destructible
- * decor PROP that explodes when shot — no children, no attack, no
- * movement, no idle wobble; shootable only inside 50 u — "EGG KIND"
- * above). */
+ * turn rates and speeds, and for the two flagged port bugs). */
 enum {
     EM_ENEMY_KIND_CRAWLER = 0,   /* the worm/leech creature            */
     EM_ENEMY_KIND_CRATE   = 1,   /* the placed crawler (disguise)      */
     EM_ENEMY_KIND_BUG     = 2,   /* the nest hatchling (s68)           */
-    EM_ENEMY_KIND_EGG     = 3,   /* the AREA-11 metal DRUM fixture
-                                  * (func_00156620 — FINDINGS s78 §5 +
-                                  * INVESTIGATION: a STATIONARY industrial
-                                  * destructible DRUM, model 0x18 / kind
-                                  * 0x46, HP 1. Set-dressing that EXPLODES
-                                  * when shot (fireball + debris + sound
-                                  * 0x1A1, purely visual); NO children, NO
-                                  * husk rebind, NO attack, NO movement, NO
-                                  * proximity aggro, NO blast damage. NOT a
-                                  * crate variant — its own kind. Name kept
-                                  * ..._EGG pending a later rename pass —
-                                  * see "EGG KIND" above / em_enemy.c)   */
+    /* 3 was the AREA-11 drum (00156620), retired in census L25 (its
+     * original owner runs in em_area11_boxes.c). */
     EM_ENEMY_KIND_HUSK_CREATURE = 4, /* AREA-11 door-husk scripted creature
                                   * (deferred record 7, ov 0x00825940 /
                                   * func_00825900, model 0x1A — FINDINGS

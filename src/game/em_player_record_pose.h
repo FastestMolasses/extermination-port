@@ -54,6 +54,11 @@ typedef struct EmPlayerRecordPose {
     uint8_t *bank;
     uint32_t bank_size;
     uint32_t bank_clips;                   /* the bank's count word */
+    /* The ELF span D_00248740..D_00248ACC (tools/export_player_tables.py
+     * assets/player_loco_tables.emrg): 0017B460 / 0017B490's row tables,
+     * 0017C440's tier speeds; mapped read-only at its base when loaded. */
+    uint8_t *tables;
+    uint32_t tables_base, tables_size;
     int16_t row0[EM_PLAYER_POSE_ROWS];     /* D_00248C90[clip * 6] */
     int loaded;
     /* Attached (em_player_record_pose_attach). */
@@ -81,6 +86,10 @@ int em_player_record_pose_load(EmPlayerRecordPose *pose, const char *bank_path,
 int em_player_record_pose_load_bytes(EmPlayerRecordPose *pose, const uint8_t *bank, uint32_t bank_size,
                                      const uint8_t *row0, uint32_t row0_size);
 void em_player_record_pose_free(EmPlayerRecordPose *pose);
+/* The locomotion table span ("EMRG" v1: base, size, bytes), mapped by the
+ * next attach. 0, or -1 (nothing kept) when the file is missing or is not
+ * the span 0x248740..0x248ACC. Kept across em_player_record_pose_load. */
+int em_player_record_pose_load_tables(EmPlayerRecordPose *pose, const char *path);
 
 /* Bind the storage to `actor` and write the record's structural words the
  * original's actor setup leaves there (every captured AREA11 image): +C = 21,

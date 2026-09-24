@@ -136,6 +136,10 @@ typedef struct {
      * pass 1 stops at once); reaching one without this view faults. */
     const uint8_t *static_kind;
     unsigned static_kind_count;
+    /* The grid's rank section (em_coll_probe_original.h, EMCL flags 7) over
+     * `grid`: 0019AB20's grid pass 0019C830 walks it. Required when a query
+     * sets mask bit 2 (it faults without it). */
+    const struct EmCollProbeGrid *ranks;
 } EmActorCollisionWorld;
 
 /* The query actor as 0019AB20 reads it. */
@@ -240,6 +244,15 @@ typedef struct {
  * nothing else reads EmPlayerProbeHit.axis, which is left zero). */
 int em_actor_collision_player_ground(void *player, const float position[3], const float probe[3],
                                      unsigned mask, EmPlayerProbeHit *hit);
+/* 001760C0(p, at, arg, height) over the player (byte-matched in the decomp,
+ * src/func_001760C0.c): the point 0x70003600 = at with y + height (add.s),
+ * the probe 0x70003610 = (0, height, 0, 0), then 0019AB20(p, 0x70003600,
+ * 0x70003610, arg != 0 ? 6 : 0x80000006). With mask bit 31 the probe moves
+ * *feet_y, the record's +B4 (required only then). Returns 0019AB20's
+ * result, which 001760C0 leaves in $v0 for its callers, or -1 on a fault;
+ * *hit is filled as em_actor_collision_player_ground fills it. */
+int em_actor_collision_player_001760C0(void *player, float *feet_y, const float at[3], int arg,
+                                       float height, EmPlayerProbeHit *hit);
 /* EmPlayerFloorWorkers.link_test: 00175640(owner) over the EmActor the
  * ground worker reported (EmPlayerProbeHit.owner, stored in +214): its
  * +3 (model) and +0x10 (callback, the original behaviour address).

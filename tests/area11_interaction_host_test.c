@@ -518,7 +518,7 @@ static void first_battery(void)
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
     EmPickupOwner *owner = em_pickup_original_owner(record->uid);
     assert(owner && record->native_owner == owner);
-    assert(owner && player_pose_use_accepted());
+    assert(owner && player_pose_use_accepted_port());
     assert(em_interaction_runtime_claim(shared, owner));
     em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     owner->armed = 4;
@@ -578,7 +578,7 @@ static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
     assert(record && record->item_type == type && record->native_owner);
     EmPickupOwner *owner = record->native_owner;
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
-    assert(player_pose_use_accepted() && em_interaction_runtime_claim(shared, owner));
+    assert(player_pose_use_accepted_port() && em_interaction_runtime_claim(shared, owner));
     em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     owner->armed = 4;
     EmSceneState *state = em_scene_state();
@@ -632,7 +632,7 @@ static void panel_menu(int discharge)
     uint32_t fault = 0;
     assert(em_collision_world_close_out_001AAD00(em_scene_state(), 0, &fault) == 0 && !fault);
     EmPanelRuntime *panel = em_area11_interaction_host_panel();
-    assert(player_pose_use_accepted());
+    assert(player_pose_use_accepted_port());
     assert(em_panel_runtime_arm(panel));
     em_area11_interaction_host_camera_fields(); /* the arm's 3B8D = 3 */
     unsigned ticks = 0, old_resumes = resumes, old_indicators = indicators;
@@ -756,7 +756,7 @@ static void cinematic_face(int reject_update)
     assert(em_pose_bank_load(&foreign, "assets/scene_snow/roger/encounter_player.empc"));
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
     static const unsigned owner_token = 0x8283D0;
-    assert(player_pose_use_accepted());
+    assert(player_pose_use_accepted_port());
     assert(em_interaction_runtime_claim(shared, &owner_token));
     em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     assert(!outer(0) && player_pose_owned() && shared->frame->player_ready == 1);

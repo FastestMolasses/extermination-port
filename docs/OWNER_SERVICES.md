@@ -280,10 +280,20 @@ or map it explicitly. It is unreachable unless the em_ee_float form table change
 | Pickups 00219550 | its 001B1020 call | `_001B1020(owner, a1, a2, a3)` with the caller's registers. |
 | Main loop step I (0x1AAF6C, every frame, not gated) | em_frame (ORCH-22/SI-28) | `_001B5B70`, with the D_00810E40 pad block's +0x16/+0x28 views. |
 
-**Not ready to go live.** Several workers have no verified native translation yet:
+**Live for the AREA11 crates and drums (census L25, 2026-09-24).**
+em_area11_boxes.c binds these for 001551B0 / 00156620:
+- 001B0EA0, 001C62C0 and 001C6380;
+- 001C6120 = `em_world_models_001C6120` over the exported bank;
+- 001CA6E0 = `em_roger_actor_001CA6E0`;
+- 001AF780 = `em_roger_actor_001AF780` over 001AF710's stack (`em_slg_001AF710`);
+- the drums' 001B17A0, through the interaction host's services.
+
+Their +0x4C draws through the port's actor draw chain, not 001CAA00's
+kernel (OWNER_DRAW.md section 6; CRATES_DRUMS_ORIGINAL.md "Binding").
+
+**Not ready for the other owners and the draw.** Several workers have no verified native translation yet:
 - 001D89D0 (bit-exact), 001CA7B0, 001CA940 (+ 001D38F0/001D3C30), 001D1F80, 001CB3C0, 001B1CE0;
-- the model binders 001C6120/001CA6E0/001CA5E0;
-- 001AF780, bone_init_default_2;
+- bone_init_default_2 (the clip-variant owners);
 - 001B61C0/001B6250.
 
 Until they are bound, keep this module unwired, or bind only the pieces whose workers exist:

@@ -23,7 +23,7 @@ Both climbs are on the attribute-0x32 column at x ≈ 360
 (PLAYER_CLIMB_SLIDE.md section 7, FIRST_LEVEL_ROUTE.md section 6).
 
 The translation is `src/game/em_player_ladder_entry.c/.h`. The module is
-**built and tested but not wired**. Section 4 lists what the coordinator
+**live in AREA11** (bound by em_player_closure_live.c). Section 4 lists what the coordinator
 binds.
 
 ## 1. What the original does
@@ -402,6 +402,8 @@ length.
   Every case other than 0x32 is covered only by the unit oracle.
 
 ## 4. Binding (coordinator)
+
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
 
 ### Stage slot
 

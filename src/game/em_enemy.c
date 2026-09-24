@@ -391,89 +391,11 @@
  *             installs func_00153F10 — generator pads only).
  *   3 FREE    slot inactive.
  *
- * THE EGG / DRUM FIXTURE (FINDINGS s78 §5 + INVESTIGATION_area11_egg_vs
- * _barrel.md, brain func_00156620 — the port's EM_ENEMY_KIND_EGG; the
- * AREA-11 opening carries 2, at (300.0, 249.7, 327.9) and
- * (292.2, 249.7, 326.1)). RE-IDENTIFIED (2026-06-17): this is an
- * industrial metal DRUM/canister destructible — a "barrel"-class prop
- * (115 placements, 10 areas, models 0x18/0xA/0xC), NOT an organic egg.
- * model byte 0x18 / kind 0x46, HP 1 — NOT a hatcher and NOT a crate
- * variant. Passive set-dressing that EXPLODES when shot (the kind stays
- * named ..._EGG until a later rename pass; only the DEATH behaviour is
- * the drum's here): no children, no husk rebind, no attack, no movement,
- * no proximity aggro, no alarm broadcast, no player reference anywhere in
- * its tick. Decoded machine (engine +0x04 values 0 init / 1 armed-idle /
- * 2 active-burst / 3 free; the port collapses the pulse-on-damage detail
- * into the shared IDLE -> DEATH path since the engine's only observable
- * transition out of idle is the burst):
- *
- *   0 INIT    HP(+0x34) = 1 -> IDLE. No probe vectors, no nest.
- *   4 IDLE    poll the +0x36 mailbox: HP 1 makes any nonzero hit lethal
- *             -> DEATH. NO alarm broadcast (the drum is not in the
- *             placed-crawler whitelist {6,0x1C,0x1E,0x1F,0x50}) and NO
- *             alarm wake. TWO CORRECTIONS (2026-07-31, off the recovered
- *             func_00156620 state 1):
- *             (a) there IS a player-distance test in the state-1 tail:
- *                 inside 50 u (dist^2 <= 50*50 off the D_00810350
- *                 mirror) it sets actor[1] = 1 and calls func_001B1D20;
- *                 outside it calls func_001B17A0. RE-READ 2026-07-31:
- *                 that is a VISIBILITY OVERRIDE for the contact pass,
- *                 not a shootability gate — func_001B17A0 republishes
- *                 the drum through func_001B1B70 whenever it is visible,
- *                 and the auto-aim reads a different list entirely
- *                 (func_00199220). The session that turned this into a
- *                 50-u targeting cut-off made distant drums impossible
- *                 to shoot; that cut-off is REMOVED and the test is
- *                 recorded UNTRANSLATED. See EGG_TARGET_R.
- *             (b) there is NO idle wobble. State 1 touches no transform
- *                 at all. The +0x74 field and the D_00246A00/D_00246A10
- *                 tables the old note cited as wobble amplitudes are read
- *                 in STATE 2 as the flung-debris aim angle / speed /
- *                 pitch. The port's sine wobble was an invention and is
- *                 REMOVED — an engine drum stands perfectly still.
- *   2 DEATH   the drum EXPLODES (INVESTIGATION "DEATH = EXPLOSION",
- *             LIVE-confirmed, and the FX ids + sound + free are now also
- *             CONFIRMED 2026-07-31 in the recovered func_00156620 state 2
- *             phase 0/1): the engine spawns a blast/FIREBALL (FX
- *             0x80000013 -> expanding child 0x8000006E) + a flash layer
- *             (0x8000001C) at the drum pos with Y+7, plays
- *             explosion sound 0x1A1, and self-FREES — the drum vanishes
- *             BEHIND the blast (no corpse fade). PURELY VISUAL: no husk
- *             rebind, no children, no knockback, NO player/actor damage,
- *             NO chain (LIVE: player stayed at 100.0 HP). CORRECTED
- *             2026-07-31 — "flings debris" is not the drum's own path:
- *             func_00156620 state 2 phase 0 fires those two FX + 0x1A1
- *             and arms +0x28 = 2, and phase 1 sends model byte 0x18 /
- *             0x2A straight to state 3 (free) two ticks later. The
- *             ballistic phases 2/3 (aim +0x74, speed +0x38, pitch +0x78,
- *             0.06/tick pitch decay clamped at -4, landing FX
- *             0x80000013 + 0x8000002E with sound 0x1A0) belong to model
- *             bytes 0xA / 0xC, which ARE the flung pieces. Phase 0's
- *             non-0x18/0x2A branch also swaps the spray FX 0x8000002E in
- *             and plays 0x19F instead of 0x1A1.
- *             Port: free the slot immediately with NO fade and fire
- *             egg_explode() — ONE expanding fireball-flash billboard +
- *             5-8 radial debris chunks reusing the gib system (egg_explode
- *             / gib_update). The break sound 0x1A1 rides the lethal poll
- *             (enemy_mailbox_poll, model-0x18 path). FLAGGED port stand-
- *             ins: (a) the fireball is an alpha-blended tinted quad
- *             through the enemy draw chain, not the engine's ADDITIVE
- *             0x8000006E sprite — the true additive .emtx billboard path
- *             lives in em_weapon.c / the gfx beam queue, out of this
- *             module's reach; (b) debris reuse the crate's grey-cyan
- *             husk-B family (no drum-specific shard set is exported);
- *             (c) sound 0x1A1 IS now in the loaded sfx registry, so
- *             em_sfx_play_at resolves and plays it (the SFX_SOUND_MAX bump
- *             brought the AREA-11 ids into the bank).
- *   3 FREE    slot inactive.
- *
- * MESH: assets/enemy_egg.emdl (the area-11 per-area model-table entry
- * 0x0E carve, model byte 0x18 — decomp tools/export_props.py --egg; a
- * capped-cylinder DRUM mesh, body + lid node) when present; else a
- * PLACEHOLDER upright box (runtime, original vertices, NOT disc data).
- * Instances come from the SCENE MANIFEST `enemy egg <x> <y> <z> <yaw>`
- * lines (parsed by em_game.c next to the other enemy lines, dispatched
- * here via em_enemy_add_kind with EM_ENEMY_KIND_EGG).
+ * THE AREA-11 DRUMS (00156620, model byte 0x18): retired from this module
+ * in census L25. They run on their original owner (em_drum_original over
+ * the roster nodes, em_area11_boxes.c), and the scene manifest's
+ * `enemy egg` lines no longer place a copy; no other scene places one.
+ * egg_explode (below) stays: the door-husk partner's burst uses it.
  *
  * GENERATOR KIND (em_enemy.h "GENERATOR"; FINDINGS "GENERATOR —
  * func_0015A2C0 RESOLVED", session 28): the engine's organic floor pad
@@ -636,11 +558,6 @@
  * 0x30 story swap) ships as assets/enemy_bug_infected.emdl but the
  * flag machinery is unmodeled, flagged in em_enemy.h "BUG KIND". */
 #define BUG_ASSET        "assets/enemy_bug.emdl"
-/* The AREA-11 egg/growth fixture (s78 §5/§8): the area-11 per-area
- * model-table entry 0x0E (placement model byte 0x18) baked to a static
- * 1-node mesh (decomp tools/export_props.py --egg). No global default —
- * the egg is AREA-11 content, so a scene without it never loads this. */
-#define EGG_ASSET        "assets/enemy_egg.emdl"
 /* The AREA-11 DOOR-HUSK PAIR (deferred records 7/8 @(387,231.8,290.3) —
  * FINDINGS "Door-position creature/husk set-piece"; INVESTIGATION_first_
  * level_area11 §5.2; INVESTIGATION_area11_director §5). Both meshes are
@@ -1010,80 +927,8 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * stand-in for the nest records'
                                    * per-child pos offsets (unexported)   */
 
-/* --- Egg/growth fixture kind (see "EGG KIND" in the file header) --------
- * Engine values, all read off the recovered func_00156620: HP 1 (state 0
- * writes `+0x34 = 1`) — any +0x36 write is lethal — and the damage-only
- * burst (NO children, NO husk rebind, NO player damage, NO alarm
- * broadcast). RETRACTED 2026-07-31: the "procedural wobble MECHANISM"
- * this block used to claim as decoded does not exist. State 1 (armed
- * idle) never touches a transform; +0x74 and the D_00246A00/D_00246A10
- * tables are the STATE-2 flung-debris aim angle / speed / pitch. The
- * drum is a 1-node static mesh (assets/enemy_egg.emdl, the area-11
- * model-table entry 0x0E carve, model byte 0x18 — decomp
- * tools/export_props.py --egg) and it stands still. */
-#define ENEMY_HP_EGG     1        /* fixture init HP (+0x34 = 1 — s78 §5) */
-#define EGG_BONE_MAX     4        /* 1-node mesh (header bone_count 1) +
-                                   * the exporter's spare palette slot     */
-#define EGG_AIM_Y        4.0f     /* reticle / auto-aim point: mid-height
-                                   * of the ~8-u egg (PORT — the engine
-                                   * hit volume's exact extents are not
-                                   * exported; the mesh is +12 Y-shifted
-                                   * area-table geom, see FINDINGS s78 §8) */
-#define EGG_HIT_R        4.0f     /* PORT: bullet hit-sphere radius —
-                                   * roughly the egg's body half-height
-                                   * (the engine's func_001B1D20 target
-                                   * volume is unexported)                 */
-/* THE 50-UNIT TEST — RE-READ AND RE-CONFIRMED 2026-07-31 (audit); the
- * previous reading of it
- * was wrong in a way that broke shooting drums.
- *
- * What func_00156620 state 1 really does at its tail:
- *     d2 = |D_00810350(player) - pos|^2;            // func_00102738
- *     if (d2 <= 50.0f * 50.0f) { actor[1] = 1; func_001B1D20(actor); }
- *     else                     { func_001B17A0(actor); }
- * (the recovered C materialises the 2500 as an int-store/float-reload of
- * 50.0 times 50.0f). The distance and the two calls are all CONFIRMED
- * (audit 2026-07-31).
- * What they MEAN is the part that was mis-attributed:
- *   - func_001B1D20 (BYTE-MATCHED) pushes actor+0x14 onto the per-frame
- *     list D_00275B80/D_00275B88 (cap 0x80). That list is the CONTACT
- *     pass's inner list: func_001A9000 walks it and, for type bytes
- *     {0x2A, 0x18, 0x0C, 0x0A} — 0x18 IS the drum — calls func_001A8F40,
- *     which writes the damage word 0x2014 into the object's own +0x36
- *     when a class-5 outer entity is within `3.0 + cfg radius`. It is a
- *     PROXIMITY-CONTACT publish, not a shooting/auto-aim publish.
- *   - the AUTO-AIM acquisition func_00199220 does not read that list at
- *     all: it walks the global entity list D_00275B8C/D_00275B94 gated by
- *     func_00183B80 + `+0x34 != 0` + a 260-unit range + the screen cone.
- *   - and func_001B17A0 (BYTE-MATCHED, the `else` branch) is the ordinary
- *     visible-actor tick: it stores func_001B1630(pos) into actor[1] and,
- *     when that is nonzero, calls func_001B1B70 — whose class-4 arm is
- *     func_001B1D20 again. So a drum outside 50 u still lands on the very
- *     same list whenever it is visible.
- * So the 50-unit branch is a VISIBILITY OVERRIDE: inside 50 u the drum
- * forces actor[1] = 1 and publishes unconditionally, bypassing the
- * func_001B1630 cone/range cull. It never gates shootability, and it is
- * UNTRANSLATED here (this module has no visibility cull to override).
- * The port's hard 50-u targetability gate is REMOVED — it made every
- * drum further away un-shootable and un-aimable, which the engine does
- * not do. */
-#define EGG_TARGET_R     50.0f    /* the decoded forced-publish radius;
-                                   * recorded, UNTRANSLATED (see above).
-                                   * CONFIRMED 2026-07-31                 */
-#define EGG_SFX_BREAK    0x1A1u   /* drum EXPLOSION sound (func_00156620
-                                   * model-0x18 single-shot death path —
-                                   * INVESTIGATION "DEATH = EXPLOSION",
-                                   * live-captured 2026-06-17 @ ra
-                                   * 0x0015691C: func_001FC580 a1=0x1A1.
-                                   * The richer second-hit/settle variant
-                                   * is 0x1A0. Both 0x1A1 and 0x1A0 are now
-                                   * in the loaded sfx registry
-                                   * (assets/sfx/sfx.txt), so em_sfx_play_at
-                                   * resolves and plays them — the
-                                   * SFX_SOUND_MAX bump brought the AREA-11
-                                   * ids into the bank.) */
-
-/* --- Egg/drum EXPLOSION (INVESTIGATION "DEATH = EXPLOSION") -------------
+/* --- The burst billboard + debris (egg_explode, which the door-husk
+ * partner's burst reuses; it was the retired drum kind's explosion) -------
  * The model-0x18 drum does NOT alpha-fade on death — it EXPLODES: an
  * expanding fireball/flash billboard (engine FX 0x80000013 -> child
  * 0x8000006E + flash layer 0x8000001C) at the drum pos with Y+7, plus
@@ -1749,16 +1594,6 @@ static struct {
     uint32_t   crate_bones;
     float      crate_base[CRATE_BONE_MAX * 16];
 
-    /* egg/growth fixture mesh (loaded only when an egg is placed, so
-     * scenes without one — every level but AREA-11 so far — keep
-     * byte-identical output). 1-node static mesh, no clips. */
-    int        egg_tried;
-    EmGfxMesh *egg_mesh;
-    EmModel    egg_model;
-    int        egg_has_model;
-    uint32_t   egg_bones;
-    float      egg_base[EGG_BONE_MAX * 16];
-
     /* AREA-11 door-husk pair meshes (scene-local — loaded only when a
      * husk_creature / husk_partner line is placed, so every other scene
      * keeps byte-identical output). Static posed meshes, no clips. */
@@ -1847,10 +1682,8 @@ static struct {
     int        tt_retract[2];/* RETRACT entries seen since stage 2       */
     uint8_t    tt_psub[2];   /* previous-tick sub (edge detection)       */
 
-    /* Last player position this module saw (em_enemy_update). The
-     * DRUM's target gate needs it outside the update tick: func_00156620
-     * state 1 runs the player-distance test itself and only publishes
-     * the drum to the target list inside 50 u (EGG_TARGET_R). */
+    /* Last player position this module saw (em_enemy_update), for the
+     * target-range test outside the update tick. */
     float      pp_last[3];
     int        pp_seen;
 } s;
@@ -2078,64 +1911,6 @@ static int crate_mesh_get(EmGfx *gfx)
     mat4_identity(s.crate_base);
     printf("crate model: no %s — PLACEHOLDER box (export with the decomp "
            "repo's tools/export_props.py --crate)\n", CRATE_ASSET);
-    return 0;
-}
-
-/* Load the egg/growth fixture mesh once (first EGG spawn only): the
- * area-11 model-table entry 0x0E carve (assets/enemy_egg.emdl, model byte
- * 0x18 — decomp tools/export_props.py --egg), else a PLACEHOLDER upright
- * ovoid box (runtime-generated, original vertices, NOT disc data). The
- * egg is a 1-node static mesh — the procedural pulse lives in the world
- * matrix (enemy_build_palette), like the crate jitter. Returns 0 ok. */
-static int egg_mesh_get(EmGfx *gfx)
-{
-    if (s.egg_mesh) return 0;
-    if (s.egg_tried) return -1;
-    s.egg_tried = 1;
-
-    if (em_model_load(&s.egg_model, EGG_ASSET) == 0) {
-        if (s.egg_model.bone_count > EGG_BONE_MAX) {
-            fprintf(stderr, "enemy: %s: %u bones > %d\n", EGG_ASSET,
-                    s.egg_model.bone_count, EGG_BONE_MAX);
-            em_model_free(&s.egg_model);
-            return -1;
-        }
-        s.egg_mesh = em_gfx_mesh_create(gfx, s.egg_model.verts,
-                                        s.egg_model.vert_count,
-                                        s.egg_model.indices,
-                                        s.egg_model.index_count,
-                                        (const EmGfxTexDesc *)
-                                        s.egg_model.texs,
-                                        s.egg_model.tex_count,
-                                        s.egg_model.texels,
-                                        s.egg_model.flags);
-        if (!s.egg_mesh) {
-            em_model_free(&s.egg_model);
-            return -1;
-        }
-        s.egg_has_model = 1;
-        s.egg_bones     = s.egg_model.bone_count;
-        em_model_palette_at(&s.egg_model, 0, 0.0, s.egg_base);
-        printf("egg model: %s — %u verts, %u tris, %u texture(s)\n",
-               EGG_ASSET, s.egg_model.vert_count,
-               s.egg_model.index_count / 3, s.egg_model.tex_count);
-        return 0;
-    }
-
-    /* PLACEHOLDER egg: an upright ovoid-ish box (~4 wide, ~8 tall). */
-    float    verts[24 * 10];
-    uint32_t indices[36];
-    uint32_t nv = 0, ni = 0;
-    const float lo[3] = { -2.0f, 0.0f, -2.0f };
-    const float hi[3] = {  2.0f, 8.0f,  2.0f };
-    box_emit(verts, &nv, indices, &ni, lo, hi);
-    s.egg_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
-                                    NULL, 0, NULL, 0);
-    if (!s.egg_mesh) return -1;
-    s.egg_bones = 1;
-    mat4_identity(s.egg_base);
-    printf("egg model: no %s — PLACEHOLDER ovoid box (export with the "
-           "decomp repo's tools/export_props.py --egg)\n", EGG_ASSET);
     return 0;
 }
 
@@ -2419,7 +2194,6 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
     printf("enemy %d: %s at (%.1f, %.1f, %.1f) yaw %.3f\n", s.n,
            kind == EM_ENEMY_KIND_CRATE ? "crate"
            : kind == EM_ENEMY_KIND_BUG ? "bug"
-           : kind == EM_ENEMY_KIND_EGG ? "egg"
            : kind == EM_ENEMY_KIND_HUSK_CREATURE ? "husk_creature (staged-inert)"
            : kind == EM_ENEMY_KIND_HUSK_PARTNER ? "husk_partner (staged-inert, shootable)"
            : "crawler",
@@ -2443,20 +2217,6 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
         if (s.n >= ENEMY_SLOT_MAX) return -1;
         if (bug_mesh_get(gfx) != 0) return -1;
         return enemy_spawn(EM_ENEMY_KIND_BUG, pos, yaw);
-    }
-    if (kind == EM_ENEMY_KIND_EGG) {
-        /* the AREA-11 metal DRUM (func_00156620 / model 0x18): a
-         * stationary destructible prop — load its mesh and spawn it idle.
-         * Its death EXPLODES (INVESTIGATION "DEATH = EXPLOSION"): preload
-         * the debris gib set (the grey-cyan/metal husk-B family stands in
-         * for drum shrapnel — flagged) AND build the fireball billboard
-         * mesh now, while we still hold the gfx handle (egg_explode runs
-         * in em_enemy_update, which has none). */
-        if (s.n >= ENEMY_SLOT_MAX) return -1;
-        if (egg_mesh_get(gfx) != 0) return -1;
-        gib_models_load(gfx);     /* debris chunks (idempotent)          */
-        flash_mesh_get(gfx);      /* fireball quad (logged if it fails)  */
-        return enemy_spawn(EM_ENEMY_KIND_EGG, pos, yaw);
     }
     if (kind == EM_ENEMY_KIND_HUSK_CREATURE) {
         /* AREA-11 door-husk scripted creature (ov 0x825940, model 0x1A):
@@ -2574,7 +2334,6 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
      * (bits 0x0100..0xFF00 are flags: 0x4000 = hurt voice, 0x2000 =
      * force the knockdown branch). */
     const int prop = e->kind == EM_ENEMY_KIND_CRATE ||
-                     e->kind == EM_ENEMY_KIND_EGG   ||
                      e->kind == EM_ENEMY_KIND_HUSK_PARTNER;
     int amount = e->mailbox & 0xFF;    /* func_00129FC0: byte load @0x36 */
     e->mailbox = 0;
@@ -2588,15 +2347,7 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
     if (e->kind == EM_ENEMY_KIND_BUG)
         em_sfx_play_at(BUG_SFX_HURT, e->pos, 300.0f);
     if (e->hp > 0) return 0;
-    if (e->kind == EM_ENEMY_KIND_EGG) {
-        /* the metal DRUM explodes (func_00156620 model-0x18 path):
-         * play the real explosion sound 0x1A1 (LIVE-captured, ra
-         * 0x0015691C), NOT the generic 0x7D8 hurt-helper death. 0x1A1 is
-         * now in the loaded sfx registry (assets/sfx/sfx.txt), so
-         * em_sfx_play_at resolves and plays it — the SFX_SOUND_MAX bump
-         * brought the AREA-11 ids into the bank. */
-        em_sfx_play_at(EGG_SFX_BREAK, e->pos, 300.0f);
-    } else if (e->kind == EM_ENEMY_KIND_CRATE) {
+    if (e->kind == EM_ENEMY_KIND_CRATE) {
         /* the placed crawler plays NOTHING here: func_001551B0 state 4
          * hands straight to state 2 without touching the shared hurt
          * helper, and state 2 sub 0 is what plays the variant's burst
@@ -2850,7 +2601,6 @@ static void enemy_build_palette(Enemy *e)
     float z   = e->pos[2];
     uint32_t bones = e->kind == EM_ENEMY_KIND_CRATE ? s.crate_bones
                    : e->kind == EM_ENEMY_KIND_BUG   ? s.bug_bones
-                   : e->kind == EM_ENEMY_KIND_EGG   ? s.egg_bones
                    : e->kind == EM_ENEMY_KIND_HUSK_CREATURE ? s.husk_c_bones
                    : e->kind == EM_ENEMY_KIND_HUSK_PARTNER  ? s.husk_p_bones
                                                     : s.bone_count;
@@ -2901,8 +2651,6 @@ static void enemy_build_palette(Enemy *e)
 
     if (e->kind == EM_ENEMY_KIND_CRATE) {
         memcpy(e->palette, s.crate_base, bones * 16 * sizeof(float));
-    } else if (e->kind == EM_ENEMY_KIND_EGG) {
-        memcpy(e->palette, s.egg_base, bones * 16 * sizeof(float));
     } else if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
         /* door-husk scripted creature: static rest pose (no anim layer —
          * the scripted clips are undecoded). No idle jitter: the engine
@@ -4526,12 +4274,6 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             e->jit_t   = -1;
             e->jit_row = 0;
             e->state   = EM_ENEMY_IDLE;
-        } else if (e->kind == EM_ENEMY_KIND_EGG) {
-            /* egg/growth fixture (func_00156620): HP = 1, armed-idle.
-             * Purely passive decor — no probe vectors, no nest, no
-             * player reference (s78 §5). */
-            e->hp    = ENEMY_HP_EGG;
-            e->state = EM_ENEMY_IDLE;
         } else if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
             /* door-husk scripted creature (ov 0x825940): STAGED-INERT at
              * the opening. The engine actor runs its own timer/proximity
@@ -4588,22 +4330,6 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
              * shot. (Same passive-destructible shape as the egg, minus the
              * idle wobble — the husk is a scripted-set actor, not a
              * wiggling prop.) */
-            if (enemy_mailbox_poll(e, pp))
-                e->state = EM_ENEMY_DEATH;
-            break;
-        }
-        if (e->kind == EM_ENEMY_KIND_EGG) {
-            /* DRUM IDLE (func_00156620 state 1 armed-idle): poll the
-             * +0x36 mailbox — HP 1 makes any nonzero hit lethal ->
-             * burst. NO alarm broadcast and NO alarm wake (the drum is
-             * not in the placed-crawler whitelist and never reads
-             * +0x0A). It DOES reference the player, but only for the
-             * contact-pass forced publish (dist^2 <= 50*50 -> actor[1]
-             * = 1 + func_001B1D20) — a visibility override, NOT a
-             * shootability gate, and UNTRANSLATED here (see
-             * EGG_TARGET_R). And it does NOT
-             * wobble: the old idle perturbation was a port invention and
-             * is removed (see enemy_build_palette / EGG_TARGET_R). */
             if (enemy_mailbox_poll(e, pp))
                 e->state = EM_ENEMY_DEATH;
             break;
@@ -4679,37 +4405,6 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
     case EM_ENEMY_DEATH:
         if (e->kind == EM_ENEMY_KIND_CRATE) {
             crate_burst(e, pp);   /* husk gibs + the bugs (file header) */
-            break;
-        }
-        if (e->kind == EM_ENEMY_KIND_EGG) {
-            /* drum EXPLODE (func_00156620 model-0x18 death — INVESTIGATION
-             * "DEATH = EXPLOSION", live-confirmed 2026-06-17): the engine
-             * spawns the blast/fireball (FX 0x80000013 -> child 0x8000006E)
-             * + flash (0x8000001C) at the drum pos Y+7 and frees
-             * IMMEDIATELY — the drum vanishes BEHIND the blast, no
-             * corpse fade. CORRECTED 2026-07-31: "flings debris" is NOT in
-             * the drum's own path. func_00156620 state 2 phase 0 fires the
-             * two FX + sound 0x1A1 and sets +0x28 = 2; phase 1 counts those
-             * 2 ticks down and, for model byte 0x18 / 0x2A, goes straight to
-             * state 3 (free). The debris-integration phases 2/3 — the
-             * +0x74 aim / +0x38 speed / +0x78 pitch ballistic walk that ends
-             * in FX 0x8000002E + sound 0x1A0 — are reached only by the OTHER
-             * model bytes (0xA / 0xC), which are themselves flung pieces.
-             * Any debris a player sees around a drum comes from the FX chain,
-             * not from this actor. The port's chunks below are therefore a
-             * flagged PORT visual, not an engine behaviour.
-             * PURELY VISUAL: NO husk rebind, NO children, NO
-             * knockback, NO player/actor damage, NO chain, NO alarm (LIVE:
-             * player stayed at 100.0 HP). Port: free the slot with NO fade
-             * (e->fade = 0) and fire egg_explode() — the fireball flash gib
-             * + 5-8 radial debris chunks through the reused gib system. The
-             * explosion SOUND 0x1A1 already played on the lethal poll
-             * (enemy_mailbox_poll, the model-0x18 path). */
-            e->state   = EM_ENEMY_FREE;
-            e->active  = 0;
-            e->mailbox = 0;
-            e->fade    = 0;          /* no corpse fade — the blast hides it */
-            egg_explode(e);
             break;
         }
         if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
@@ -4992,9 +4687,6 @@ static int enemy_victim(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ||
            e->kind == EM_ENEMY_KIND_BUG   ||
-           e->kind == EM_ENEMY_KIND_EGG   ||  /* model 0x18 is shootable —
-                                               * func_00156620 registers as
-                                               * a damage target (s78 §5) */
            e->kind == EM_ENEMY_KIND_HUSK_PARTNER; /* model 0x29: the HP-1
                                                * shootable husk (ov 0x827490
                                                * polls +0x36). The husk
@@ -5004,9 +4696,9 @@ static int enemy_victim(const Enemy *e)
 }
 
 /* CORRECTED 2026-07-31 — there is NO per-kind targeting-range gate.
- * This used to exclude the drum beyond EGG_TARGET_R on the reading that
- * func_00156620's 50-unit test published it to "the target list". It
- * does not: see the long note at EGG_TARGET_R. func_001B1D20 feeds the
+ * This used to exclude the drum (the retired drum kind) beyond 50 units on
+ * the reading that func_00156620's 50-unit test published it to "the
+ * target list". It does not (docs/CRATES_DRUMS_ORIGINAL.md). func_001B1D20 feeds the
  * CONTACT pass (func_001A9000 -> func_001A8F40), the auto-aim walks a
  * different list entirely (func_00199220 over D_00275B8C), and outside
  * 50 u func_001B17A0 publishes the drum anyway whenever it is visible.
@@ -5029,7 +4721,6 @@ static float kind_aim_y(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y
          : e->kind == EM_ENEMY_KIND_BUG   ? BUG_AIM_Y
-         : e->kind == EM_ENEMY_KIND_EGG   ? EGG_AIM_Y
          : e->kind == EM_ENEMY_KIND_HUSK_PARTNER ? HUSK_PARTNER_AIM_Y
                                           : ENEMY_AIM_Y;
 }
@@ -5038,7 +4729,6 @@ static float kind_hit_r(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R
          : e->kind == EM_ENEMY_KIND_BUG   ? BUG_HIT_R
-         : e->kind == EM_ENEMY_KIND_EGG   ? EGG_HIT_R
          : e->kind == EM_ENEMY_KIND_HUSK_PARTNER ? HUSK_PARTNER_HIT_R
                                           : ENEMY_HIT_R;
 }
@@ -5077,7 +4767,7 @@ int em_enemy_acquire(const float from[3], float yaw, float max_dist,
  * model switch (worms excluded — J2 s66: the auto-aim lock never
  * fills on a worm). CORRECTED 2026-07-31: the drum's extra 50-u gate is
  * gone — func_00156620's 50-u branch is a contact-pass visibility
- * override, not a targeting gate (EGG_TARGET_R), and func_00199220's
+ * override, not a targeting gate, and func_00199220's
  * own range limit is 260 u on the weapon side. */
 int em_enemy_targetable(int i)
 {
@@ -5256,13 +4946,6 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
         *bone_count = s.bug_bones;
         return 1;
     }
-    if (s.e[i].kind == EM_ENEMY_KIND_EGG) {
-        if (!s.egg_mesh) return 0;
-        *mesh       = s.egg_mesh;
-        *palette    = s.e[i].palette;
-        *bone_count = s.egg_bones;
-        return 1;
-    }
     if (s.e[i].kind == EM_ENEMY_KIND_HUSK_CREATURE) {
         if (!s.husk_c_mesh) return 0;
         *mesh       = s.husk_c_mesh;
@@ -5377,11 +5060,6 @@ void em_enemy_shutdown(EmGfx *gfx)
         em_gfx_mesh_destroy(gfx, s.bug_mesh);
         if (s.bug_has_model)
             em_model_free(&s.bug_model);
-    }
-    if (s.egg_mesh) {
-        em_gfx_mesh_destroy(gfx, s.egg_mesh);
-        if (s.egg_has_model)
-            em_model_free(&s.egg_model);
     }
     if (s.husk_c_mesh) {
         em_gfx_mesh_destroy(gfx, s.husk_c_mesh);

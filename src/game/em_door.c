@@ -602,6 +602,13 @@ static struct {
     int       lock_move;
     int       lock_menu;
     int       unlock_armed;  /* re-place posted: menu unlock at fade-in end */
+    /* The re-place released the movement lock: it takes effect at the
+     * player stage of the same tick (em_door_movement_stage_release), where
+     * the original's stage runs the script takeover's release 00182DF0
+     * instead of the idle / walk callback (route 09: +1F0 0x41 until the
+     * re-place row, then 0 with a fresh idle row and no re-grounding
+     * before the next frame). */
+    int       lock_release_stage;
     int       warp_pending;  /* one-shot re-place request for em_game */
     float     warp_pos[3];
     float     warp_yaw;
@@ -1931,7 +1938,15 @@ void em_door_room_move_arrival(int walkout, float exit_yaw)
      * player anim resets (the op 0x18 family's +0x1F2 = 0). */
     em_game_anim_cancel();
     if (!walkout)
-        s.lock_move = 0;
+        s.lock_release_stage = 1;
+}
+
+int em_door_movement_stage_release(void)
+{
+    if (!s.lock_release_stage) return 0;
+    s.lock_release_stage = 0;
+    s.lock_move = 0;
+    return 1;
 }
 
 int em_door_warp_pending(float out_pos[3], float *out_yaw)
@@ -1966,13 +1981,14 @@ void em_door_scene_clear(EmGfx *gfx)
      * machine survive the area load; the new scene's doors arrive
      * CLOSED and idle). */
     int   lock_move = s.lock_move, lock_menu = s.lock_menu;
-    int   unlock_armed = s.unlock_armed;
+    int   unlock_armed = s.unlock_armed, lock_release_stage = s.lock_release_stage;
     int   wo_phase = s.wo_phase, wo_t = s.wo_t;
     float wo_yaw = s.wo_yaw, wo_ramp = s.wo_ramp, wo_cmd = s.wo_cmd;
     em_door_shutdown(gfx);     /* frees + memsets s */
     s.lock_move    = lock_move;
     s.lock_menu    = lock_menu;
     s.unlock_armed = unlock_armed;
+    s.lock_release_stage = lock_release_stage;
     s.wo_phase     = wo_phase;
     s.wo_t         = wo_t;
     s.wo_yaw       = wo_yaw;

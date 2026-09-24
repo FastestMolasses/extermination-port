@@ -157,7 +157,7 @@ static void test_ground(void)
     make_actor(&player, 0x20, 0xFF, 0);
     em_actor_class_push4_001B1D20(&lists, &box);
     em_actor_class_lists_swap_001AAD00(&lists);
-    EmActorCollisionWorld w = { &t, &lists, NULL, NULL, 0 };
+    EmActorCollisionWorld w = { &t, &lists, NULL, NULL, 0, NULL };
     float feet = 11.0f;
     EmActorCollisionQuery q = { player.self, player.cls, &feet };
     const float pos[3] = { 2, 11, 2 }, down[3] = { 0, -13.8f, 0 }, below[3] = { 2, 9, 2 };
@@ -230,7 +230,7 @@ static void test_column_and_adapters(void)
     em_actor_class_lists_reset(&lists);
     EmActor box;
     make_actor(&box, 4, 0, 0x0D);
-    EmActorCollisionWorld w = { &t, &lists, NULL, NULL, 0 };
+    EmActorCollisionWorld w = { &t, &lists, NULL, NULL, 0, NULL };
     EmActorCollisionOwner owner = { &w, &lists, &box, NULL };
     CHECK(em_actor_collision_owner_publish(&owner) == 1);
     em_actor_class_lists_swap_001AAD00(&lists);
@@ -286,7 +286,7 @@ static void test_probe_adapters(void)
     em_actor_class_push4_001B1D20(&lists, below);
     em_actor_class_push4_001B1D20(&lists, above);
     em_actor_class_lists_swap_001AAD00(&lists);
-    EmActorCollisionWorld w = { &t, &lists, NULL, NULL, 0 };
+    EmActorCollisionWorld w = { &t, &lists, NULL, NULL, 0, NULL };
     /* The crate's support probe (mode 2 here: no grid in this fixture). */
     EmActorCollisionOwner crate = { &w, &lists, above, &pool };
     float position[4] = { 2, 11, 2, 1 };

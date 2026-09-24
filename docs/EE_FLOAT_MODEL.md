@@ -30,8 +30,9 @@ every oracle and native helper that reproduces EE FPU (COP1) or VU0 macro
   and only its address was used. At a frame boundary the DebugServer did
   `write_register` on the operand FPRs/VFs/ACC/Q, `set_pc` to the instance, `step`,
   then `read_registers`. Every step was checked to land on pc+4. The EE ACC
-  has no debugger register. It was therefore set with `MULA.S acc, 1.0` (0x154650)
-  and read back with `MSUB.S +0, +0` (0x169524). The EE instances were:
+  has no debugger register. It was therefore set by an accumulator product
+  with 1.0 at 0x154650 and read back by an accumulator subtraction of +0 times
+  +0 at 0x169524. The EE instances were:
   ADD.S 0x102A7C, SUB.S 0x102A88, MUL.S 0x102EC4, DIV.S 0x102F14, MADD.S 0x154658,
   MSUB.S 0x169524, ADDA.S 0x1286D0, SUBA.S 0x169520, MULA.S 0x154650,
   CVT.W.S 0x11C94C, CVT.S.W 0x11C958, NEG.S 0x102EAC, MOV.S 0x102DA8,
@@ -207,7 +208,6 @@ Line numbers in this section refer to the files at commit 5c6a6d7-era HEAD
 | test_player_face_host.py:25 | **round-to-nearest** add/sub/mul | ee_add/ee_sub/ee_mul |
 | test_item_trail_reference.py:72–74 | MSUB = **product − ACC**; MADD no pre-trim | ee_msub / ee_madd |
 | test_shadow_original_reference.py:213–216 | ADDA/MADD/MSUB no pre-trim (orientation ok) | ee_adda/ee_madd/ee_msub |
-| test_player_floor_reference.py:161–167 | MADD no pre-trim | ee_madd |
 | test_elevator_reference.py:103 | cvt.s.w `float(int)` is **nearest** (EE truncates; differs above 2²⁴) | ee_cvt_s_w |
 | test_area_script_reference.py:118–121 | cvt.w.s ok; fp() adds at lines 370/482 have no pre-trim if they stand for add.s | ee_add |
 | test_pose_transition_reference.py `add`/`rounded` | matches the model for finite normal values (0/20,000 differences); lacks DAZ/FTZ/saturation; `bits(a/b)` div ok | optional: route to ee_float_model |
@@ -224,17 +224,41 @@ pre-trim wherever its `add`/`sub` translates those instructions.
 | `em_pose_math.h` pose_div (shared) | `(float)(a/b)` | RN ok; b = 0 gives ±Inf where the original gives ±MAX; overflow gives Inf instead of MAX | zero divisor → ±MAX by sign XOR; saturate |
 | `em_effect_color.h` em_effect_float32 (shared) | truncated double | correct for mul; for the EE add.s in 001F54E0/001D8C30 (−127+254r, 127+c·x, x−127, 128+d) it has no pre-trim | use a pose_add-style pre-trim add for those four sums |
 | `em_item_sdk_math.c`:21–34 (shared) add/subtract | truncated double | its cited SDK bodies are EE (add.s 18, sub.s 37): no pre-trim | pre-trim add/sub |
-| `em_player_slide.c`:13–16, `em_player_climb.c`:14–17 | f32_add/sub truncated; **f32_div truncated** | EE sites (add.s 42/61, div.s 10/21) | pre-trim add/sub; **RN div** |
-| `em_actor_collision.c`:19–38 | ee_add/sub truncated, **ee_div truncated**, tiny → +0 (unsigned) | EE add.s 32 / sub.s 29 / div.s 8 in the cited bodies. Its `vu_dot` (00102738) is VU, so the no-trim formula is right there. | split: EE pre-trim add/sub, RN div, signed FTZ; keep the VU dot on plain truncation |
-| `em_collision.c`:42, 931–952 face_float/grid_f/grid_div | truncated; grid_div truncated | EE add.s 7 / sub.s 6 / div.s 3 | pre-trim add/sub; RN div |
-| `em_player_floor.c`:252–254 | truncated add/sub | EE add.s 40 / sub.s 19 (and VU ops) | pre-trim for the add.s/sub.s sites only |
 | `em_interaction_scan.c`:82–85 | truncated add/sub; divide RN ok | EE add/sub sites (atan reduction) | pre-trim add/sub |
-| `em_crate_original.c`:11–13 (+ `em_drum_original.c`:11–13) | truncated | EE add.s/sub.s 3+3 besides the VU work | pre-trim at the add.s/sub.s sites |
 | `em_load_veil.c`:36–37 | `pose_scalar(a+b)` (no pre-trim) | EE add.s 8, sub.s 5 | pose_add |
 | `em_snow_projection.c`:8–16, `em_point_light.c`:39–47, `em_snow.c`:7–24 | truncated add | mostly VU (correct); the few EE add.s sites (2 / 7 / 1) need the pre-trim | per-site split |
 | `em_roger.c`:117, `em_door_candidate.c`:5–7, `em_door_transit.c`:7–20, `em_pickup_motion.c`:5–7, `em_cinematic_playback.c`:8–12, `em_item_device.c`, `em_item_geometry.c`, `em_item_trail.c`, `em_lighting.c`, `em_status_draw.c`, `em_player_motor.c`:7 | truncated add/sub (pickup_motion/cinematic divide RN ok) | EE vs VU not established (no cited function found) | check each site's original instruction; EE add/sub → pre-trim |
 | `em_truck_original.c`:22–28, `em_director_original.c`, `em_fan_original.c`, `em_area_script.c` (pose_*) | pose_* for EE, truncation for VU | consistent with the model for finite values | none beyond the em_pose_math.h items |
 | `em_snow_particles.c`:24–40 (VU1 microcode) | truncation | VU1 was **not** measured (the DebugServer drives only the EE). VU1 has the same INI settings as VU0 (Roundmode 3, DAZ, overflow clamp). | none until VU1 can be measured |
+
+**Done.** em_player_slide.c and em_player_climb.c were moved onto
+em_ee_float.h earlier (their COP1 helpers are em_ee_*). The census L02 /
+L25 step (2026-09-24) did the following. Each change moved the
+native side onto em_ee_float.h and its oracle twin onto
+tools/ee_float_model.py in the same change:
+
+- `em_actor_collision.c`: COP1 add/sub/div, and 0019AB20's mula/madd square
+  sums through em_ee_*. Its VU dot is 00102738 via
+  `em_coll_probe_sdk_dot`, and its 001A2370 d = dot is 001026A0
+  (`em_effect_original_001026A0`). The segment state and the prim tests
+  are em_coll_probe_original's (001A44B0 / 001A4650 / 001A4030), and the
+  grid pass is `em_coll_probe_0019C830` over the EMCL rank section.
+  test_actor_collision_reference uses test_coll_move_reference.FloatEE.
+  Its KNOWN INEXACT ground allowance is gone: the ground is compared
+  exactly.
+- `em_collision.c`: column_face 001A5760, column_node 0019F330 and the
+  cull. The duplicate grid helpers (grid_f, grid_dot, grid_div, the vertical
+  node walk) are deleted, leaving one owner, em_coll_probe_original.
+- `em_player_floor.c`: every COP1 site through em_ee_*. The SDK VU parts keep
+  per-operation truncation (`vu_*`). test_player_floor_reference,
+  test_player_footstep_reference and test_player_probe_reference route COP1
+  add/sub/mul/div/mula/madd through `ee_cop1_plain`.
+- `em_crate_original.c` / `em_drum_original.c`: the owners' own COP1
+  (add.s, sub.s, mul.s, div.s, cvt.s.w) through em_ee_*. Their oracles apply
+  the model to the owner ranges 001551B0..00156614 and 00156620..00156F30
+  only. The SDK helpers the owners call keep the semantics they were
+  verified with. Evidence: route 04's crate corner points (+0x2D0..+0x2EC)
+  equal the EE sum and not the truncated one (CRATES_DRUMS_ORIGINAL.md).
 
 **Binding note for the lead.** Each harmonization changes an oracle and
 its native twin together. A test that passes today may be passing because

@@ -185,6 +185,9 @@ int em_player_ladder_climb_0017FE80(const EmPlayerLadderClimb *ladder, EmPlayerL
 int em_player_ladder_climb_0017FF00(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor,
                                     int side, float blend);
 /* 00174AB0(p): 001749A0(p, 0, 1, 0.0) (request only). */
+/* D_002754D0[row & 1] (the .sdata halfword pair this module holds; the
+ * ladder entry's EmPlayerLadderWorld.d2754D0 is entry 0). */
+int16_t em_player_ladder_climb_d2754D0(unsigned row);
 int em_player_ladder_climb_00174AB0(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor);
 /* 00180420(p) (transform and the scene's spad A0 only). */
 int em_player_ladder_climb_00180420(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor);

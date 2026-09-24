@@ -106,6 +106,7 @@ void player_pose_unsupported_hold(const char *reason) { (void)reason; ++source.h
 void player_pose_legacy_hold(const char *owner) { (void)owner; }
 int player_pose_legacy_release(void) { return 1; }
 int player_use_poll(void) { ++source.use_polls; return 0; }
+int player_pose_use_accepted_port(void) { return 1; } /* never reached: player_use_poll returns 0 */
 int player_pose_entry_return_tick(void) { return 0; }
 int player_pose_idle_state_wait(void) { return 0; }
 void player_pose_idle_enter(void) { ++source.idle_enters; }
@@ -143,6 +144,7 @@ uint32_t em_random_next(void) { return 0; }
 int em_door_transit_active(float t[3], float *yaw) { (void)t; (void)yaw; return 0; }
 int em_door_walkout_active(float *yaw, float *speed) { (void)yaw; (void)speed; return 0; }
 int em_door_movement_locked(void) { return 0; }
+int em_door_movement_stage_release(void) { return 0; }
 int em_examine_input_locked(void) { return 0; }
 int em_game_player_interact_busy(void) { return 0; }
 int em_weapon_is_aiming(void) { return 0; }

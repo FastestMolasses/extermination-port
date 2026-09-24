@@ -27,6 +27,7 @@
  * PS2 dispatcher orders them.
  */
 #include "game/em_collision.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -738,26 +739,69 @@ static float column_atan(const EmCollColumnMath *m, float x)
     return m && m->atan ? m->atan(m->context, x) : atanf(x);
 }
 
-/* 00102738: vmul.xyz, then x + y, then + z, each VU operation truncated. */
-static float column_dot(const float a[3], const float b[3])
+/* The SDK VU0 leaves 0019F330 calls, over em_ee_float.h's VU0 macro model
+ * (the forms em_coll_probe_original's walkers use): 001028D0 (four-lane
+ * difference), 001028B8 (four-lane sum), 00102738 (the three-lane dot:
+ * a product, then the y and z lanes summed into x) and 00103230 (three
+ * lanes scaled by one scalar). Each returns 0, or -1 when a form is
+ * refused. */
+static int col_vu(em_vu_op op, unsigned dest, int bc, const float fs[4], const float ft[4],
+                  float dst[4])
 {
-    float x=face_float((double)a[0]*b[0]), y=face_float((double)a[1]*b[1]);
-    float z=face_float((double)a[2]*b[2]);
-    return face_float((double)face_float((double)x+y)+z);
+    uint32_t a[4], b[4], d[4];
+    memcpy(a, fs, sizeof a);
+    memcpy(b, ft, sizeof b);
+    memcpy(d, dst, sizeof d);
+    if (em_vu_vec_bits(op, dest, bc, a, b, 0, NULL, d) != EM_EE_FLOAT_OK) return -1;
+    memcpy(dst, d, sizeof d);
+    return 0;
+}
+static int col_sub(float out[4], const float a[4], const float b[4])
+{
+    float r[4] = { 0 };
+    if (col_vu(EM_VU_SUB, 0xF, EM_VU_NO_BC, a, b, r)) return -1;
+    memcpy(out, r, sizeof r);
+    return 0;
+}
+static int col_add(float out[4], const float a[4], const float b[4])
+{
+    float r[4] = { 0 };
+    if (col_vu(EM_VU_ADD, 0xF, EM_VU_NO_BC, a, b, r)) return -1;
+    memcpy(out, r, sizeof r);
+    return 0;
+}
+static int col_dot(float *out, const float a[4], const float b[4])
+{
+    float v[4];
+    memcpy(v, b, sizeof v);
+    if (col_vu(EM_VU_MUL, 0xE, EM_VU_NO_BC, a, v, v)) return -1;
+    if (col_vu(EM_VU_ADDBC, 0x8, 1, v, v, v)) return -1;
+    if (col_vu(EM_VU_ADDBC, 0x8, 2, v, v, v)) return -1;
+    *out = v[0];
+    return 0;
+}
+static int col_scale(float out[4], const float v[4], float t)
+{
+    float r[4], q[4] = { t, t, t, t };
+    memcpy(r, v, sizeof r);
+    if (col_vu(EM_VU_MULBC, 0xE, 0, r, q, r)) return -1;
+    memcpy(out, r, sizeof r);
+    return 0;
 }
 
 /* 001A5760 for a type-0x2000 face: out[0]/out[2] top crossing, out[1]/out[3]
- * bottom crossing, extra[0]/extra[1] the 0x7000319C / 0x700031AC values. */
+ * bottom crossing, extra[0]/extra[1] the 0x7000319C / 0x700031AC values.
+ * The bounds are EE add.s (em_ee_float.h). */
 static int column_face(const EmCollBoxFace *f, float x, float z, float out[4], float extra[2])
 {
     if (f->face != 3 && f->face != 4) return 0;
     float xlo, xhi, zlo, zhi;
-    if (f->extent[0] < 0) { xhi = f->origin[0]; xlo = face_float((double)xhi + f->extent[0]); }
-    else { xlo = f->origin[0]; xhi = face_float((double)xlo + f->extent[0]); }
-    if (f->extent[2] < 0) { zhi = f->origin[2]; zlo = face_float((double)zhi + f->extent[2]); }
-    else { zlo = f->origin[2]; zhi = face_float((double)zlo + f->extent[2]); }
-    if (x <= xlo || !(x < xhi)) return 0;
-    if (z <= zlo || !(z < zhi)) return 0;
+    if (em_ee_c_lt(f->extent[0], 0.0f)) { xhi = f->origin[0]; xlo = em_ee_add(xhi, f->extent[0]); }
+    else { xlo = f->origin[0]; xhi = em_ee_add(xlo, f->extent[0]); }
+    if (em_ee_c_lt(f->extent[2], 0.0f)) { zhi = f->origin[2]; zlo = em_ee_add(zhi, f->extent[2]); }
+    else { zlo = f->origin[2]; zhi = em_ee_add(zlo, f->extent[2]); }
+    if (em_ee_c_le(x, xlo) || !em_ee_c_lt(x, xhi)) return 0;
+    if (em_ee_c_le(z, zlo) || !em_ee_c_lt(z, zhi)) return 0;
     union { uint32_t u; float f; } big = { 0x7F7FC99Eu }, small = { 0x322BCC77u },
                                     negbig = { 0xFF7FC99Eu }, negsmall = { 0xB22BCC77u };
     if (f->face == 3) {
@@ -771,36 +815,35 @@ static int column_face(const EmCollBoxFace *f, float x, float z, float out[4], f
 }
 
 /* 0019F330(pos, pos + (0,1,0), q, node): q[1] the crossing height, q[3] the
- * signed slope complement. */
+ * signed slope complement. 1 / 0, or -1 when a VU form is refused. COP1
+ * operations are em_ee_float.h's; the VU0 leaves col_*. */
 static int column_node(const EmCollision *c, const EmCollPoly *p, const float a[3],
                        const EmCollColumnMath *m, float q[4])
 {
-    /* 0019BC40 passes v1 = pos and v2 = pos with y + 1.0; 001028D0 takes the
-     * difference, so d.y is (y + 1) - y in EE arithmetic, not exactly 1. */
-    const float d[3] = { face_float((double)a[0] - a[0]),
-                         face_float((double)face_float((double)a[1] + 1.0f) - a[1]),
-                         face_float((double)a[2] - a[2]) };
-    const float n[3] = { p->plane[0], p->plane[1], p->plane[2] };
-    float along = column_dot(d, n);
-    float t = face_float((double)face_float((double)p->plane[3] - column_dot(n, a)) / along);
-    float hit[3];
-    for (int k = 0; k < 3; ++k)                         /* 00103230, 001028B8 */
-        hit[k] = face_float((double)face_float((double)d[k] * t) + a[k]);
+    /* 0019BC40 passes v1 = pos and v2 = pos with y + 1.0 (add.s); 001028D0
+     * takes the difference, so d.y is (y + 1) - y in EE arithmetic. */
+    const float v1[4] = { a[0], a[1], a[2], 0.0f };
+    const float v2[4] = { a[0], em_ee_add(a[1], 1.0f), a[2], 0.0f };
+    const float n[4] = { p->plane[0], p->plane[1], p->plane[2], 0.0f };
+    float d[4], along, nq, hit[4];
+    if (col_sub(d, v2, v1) || col_dot(&along, d, n) || col_dot(&nq, n, v1)) return -1;
+    float t = em_ee_div(em_ee_sub(p->plane[3], nq), along);         /* sub.s, div.s */
+    if (col_scale(hit, d, t) || col_add(hit, v1, hit)) return -1;   /* 00103230, 001028B8 */
     for (unsigned k = 0; k < p->vcount; ++k) {
         const float *v = c->verts + 3u * c->indices[p->first + k];
         const float *e = c->edge_n + 3u * (p->first + k);
-        float rel[3];
-        for (int j = 0; j < 3; ++j) rel[j] = face_float((double)hit[j] - v[j]);
-        if (!(column_dot(rel, e) <= 1e-5f)) return 0;
+        const float vv[4] = { v[0], v[1], v[2], 0.0f }, ee[4] = { e[0], e[1], e[2], 0.0f };
+        float rel[4], dot;
+        if (col_sub(rel, hit, vv) || col_dot(&dot, rel, ee)) return -1;
+        if (!em_ee_c_le(dot, em_ee_float(0x3727C5ACu))) return 0;    /* +1e-5 */
     }
     for (int k = 0; k < 3; ++k) q[k] = hit[k];
-    float h = column_sqrt(m, face_float((double)face_float((double)n[0] * n[0]) +
-                                        face_float((double)n[2] * n[2])));
+    float h = column_sqrt(m, em_ee_madd(em_ee_mula(n[0], n[0]), n[2], n[2]));  /* mula.s, madd.s */
     union { uint32_t u; float f; } big = { 0x7F7FC99Eu };
-    float ratio = h < 1e-4f ? big.f : face_float((double)fabsf(n[1]) / h);
-    const float half_pi = 1.57079637050628662f;
-    float angle = face_float((double)half_pi - column_atan(m, ratio));
-    q[3] = n[1] < 0.0f ? -angle : angle;
+    float ratio = em_ee_c_lt(h, em_ee_float(0x38D1B717u)) ? big.f           /* 1e-4 */
+                : em_ee_div(em_ee_float(em_ee_bits(n[1]) & 0x7FFFFFFFu), h); /* 0011DF78, div.s */
+    float angle = em_ee_sub(em_ee_float(0x3FC90FDBu), column_atan(m, ratio));  /* pi/2 - atan */
+    q[3] = em_ee_c_lt(n[1], 0.0f) ? em_ee_neg(angle) : angle;
     return 1;
 }
 
@@ -875,7 +918,9 @@ int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *see
             if (fabsf(p->plane[1]) < 0.001f) continue;              /* 0011DF78 */
             if (p->attr >= 0x50) continue;
             float q[4];
-            if (!column_node(c, p, pos, math, q)) continue;
+            int crossed = column_node(c, p, pos, math, q);
+            if (crossed < 0) return -1;
+            if (!crossed) continue;
             if (!(n < EM_COLL_COLUMN_MAX)) break;
             dist[n] = q[1]; owner[n] = -1; poly[n] = (int)i; order[n] = (short)n; kind[n] = 0;
             flags[n] = 0x4000;
@@ -892,7 +937,9 @@ int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *see
     }
     if (n <= 0) return 0;
     for (int i = 0; i < n - 1; ++i) {
-        if (fabsf(face_float((double)dist[order[i]] - dist[order[i + 1]])) < 3.0f) {
+        /* sub.s then 0011DF78 (the sign bit cleared). */
+        float gap = em_ee_sub(dist[order[i]], dist[order[i + 1]]);
+        if (em_ee_c_lt(em_ee_float(em_ee_bits(gap) & 0x7FFFFFFFu), 3.0f)) {
             for (int side = 1; side >= 0; --side) {
                 int b = order[i + side];
                 if (flags[b] & 0x8000) flags[b] |= 0x80;
@@ -923,103 +970,3 @@ int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *see
     return count;
 }
 
-/* ---- 0019C830 / 0019ED80: the vertical grid pass ------------------------- */
-
-/* The EE single-precision model the original-instruction oracles share:
- * truncate toward zero, overflow to the largest finite value, denormal
- * results to zero. */
-static float grid_f(double value)
-{
-    if (value != value) return 0.0f;
-    double magnitude = fabs(value);
-    if (magnitude >= 3.4028234663852886e38) return value < 0 ? -FLT_MAX_EE : FLT_MAX_EE;
-    if (magnitude == 0.0) return (float)value;                    /* keeps -0 */
-    if (magnitude < 1.1754943508222875e-38) return 0.0f;
-    return face_float(value);
-}
-
-static float grid_dot(const float a[3], const float b[3])     /* 00102738 */
-{
-    float x = grid_f((double)a[0] * b[0]), y = grid_f((double)a[1] * b[1]);
-    float z = grid_f((double)a[2] * b[2]);
-    return grid_f((double)grid_f((double)x + y) + z);
-}
-
-static float grid_div(float x, float y)                           /* div.s */
-{
-    if (y == 0.0f) return (signbit(x) != signbit(y)) ? -FLT_MAX_EE : FLT_MAX_EE;
-    return grid_f((double)x / y);
-}
-
-/* 0019ED80(segment, node) over EMCL poly `p`: 1 with hit[] on accept. */
-static int grid_node_test(const EmCollision *c, const EmCollPoly *p, const float qa[3],
-                          const float qb[3], float hit[3])
-{
-    float dir[3], n[3] = { p->plane[0], p->plane[1], p->plane[2] };
-    for (int k = 0; k < 3; ++k) dir[k] = grid_f((double)qb[k] - qa[k]);   /* 001028D0 */
-    float along = grid_dot(dir, n);
-    if (!(along <= -1e-5f)) return 0;
-    float t = grid_div(grid_f((double)p->plane[3] - grid_dot(n, qa)), along);
-    for (int k = 0; k < 3; ++k)                                   /* 00103230, 001028B8 */
-        hit[k] = grid_f((double)qa[k] + grid_f((double)dir[k] * t));
-    for (int k = 0; k < 3; ++k) {
-        if (qa[k] <= qb[k]) {
-            if (!(qa[k] <= hit[k]) || qb[k] < hit[k]) return 0;
-        } else {
-            if (qa[k] < hit[k] || !(qb[k] <= hit[k])) return 0;
-        }
-    }
-    for (unsigned k = 0; k < p->vcount; ++k) {
-        const float *v = c->verts + 3u * c->indices[p->first + k];
-        const float *e = c->edge_n + 3u * (p->first + k);
-        float rel[3];
-        for (int j = 0; j < 3; ++j) rel[j] = grid_f((double)hit[j] - v[j]);
-        if (!(grid_dot(rel, e) <= 1e-5f)) return 0;
-    }
-    return 1;
-}
-
-static int grid_vertical(const EmCollision *c, const float start[3], float end[3],
-                         int query_class, const int *order, unsigned count,
-                         float point[3], int *poly)
-{
-    if (!c || !c->blob || !start || !end) return 0;
-    int found = -1;
-    float last[3] = { 0.0f, 0.0f, 0.0f };
-    unsigned total = order ? count : c->poly_count;
-    for (unsigned k = 0; k < total; ++k) {
-        uint32_t i = order ? (uint32_t)order[k] : k;
-        if (order && (order[k] < 0 || i >= c->poly_count)) return -1;
-        const EmCollPoly *p = &c->polys[i];
-        if (p->set != EM_COLL_SET_GRID) { if (order) return -1; continue; }
-        int16_t kind = p->attr;                                   /* 0x70003B88 */
-        if (kind >= 0x5A) continue;
-        if (kind == 0x51 && query_class != 0) continue;
-        if (kind == 0x52 && query_class != 2) continue;
-        if (kind == 0x53 && query_class == -1) continue;
-        float hit[3];
-        if (!grid_node_test(c, p, start, end, hit)) continue;
-        end[1] = hit[1];                                          /* 0x700031A4 */
-        memcpy(last, hit, sizeof last);
-        found = (int)i;
-    }
-    if (found < 0) return 0;
-    if (point) memcpy(point, last, sizeof last);
-    if (poly) *poly = found;
-    return 1;
-}
-
-int em_collision_grid_vertical(const EmCollision *c, const float start[3], float end[3],
-                               int query_class, float point[3], int *poly)
-{
-    return grid_vertical(c, start, end, query_class, NULL, 0, point, poly);
-}
-
-int em_collision_grid_vertical_nodes(const EmCollision *c, const float start[3], float end[3],
-                                     int query_class, const int *polys, unsigned count,
-                                     float point[3], int *poly)
-{
-    static const int none[1] = { 0 };
-    if (!polys && count) return -1;
-    return grid_vertical(c, start, end, query_class, polys ? polys : none, count, point, poly);
-}

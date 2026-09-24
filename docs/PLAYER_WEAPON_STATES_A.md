@@ -190,6 +190,8 @@ The differences between the three routines:
 
 ## 4. Binding (for the coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 **Stage slots.** Set `EmPlayerStageWorkers.state[0x1D]` to
 `em_player_weapon_state1D`, `[0x1E]` to `em_player_weapon_state1E` and
 `[0x1F]` to `em_player_weapon_state1F`. Each `state_context` is one

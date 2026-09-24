@@ -96,6 +96,43 @@ VIEW_LOADS = [
      "reason": "live_scene_load: the player stage's per-stage view of canonical 3B8D (0015BA50 / "
                "0015B130 read it; the stage never writes 3B8D, only 3B8F is stored back)",
      "removed_by": "permanent (a per-stage view)"},
+    {"file": "game/em_player_closure_live.c", "field": "spad3B8D",
+     "pattern": r"P\.spad3B8D\s*=\s*scene\(\)->spad3B8D;",
+     "reason": "refresh_pad: the closure binder's per-call view of canonical 3B8D, loaded before "
+               "every bound state and worker (the states only read it)",
+     "removed_by": "permanent (a per-call view)"},
+    {"file": "game/em_player_closure_live.c", "field": "spad3B8D",
+     "pattern": r"s->spad3B8D\s*=\s*(?:P\.spad3B8D|scene\(\)->spad3B8D);",
+     "reason": "recovery_scene / running_jump_scene: 001751A0's and 001AA4E0's per-call inputs of "
+               "3B8D, filled from the view above or from em_scene_state() at each routine entry",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_player_closure_live.c", "field": "spad3B8D",
+     "pattern": r"h->spad3B8D\s*=\s*&P\.spad3B8D;",
+     "reason": "bind_helpers: the record helpers read 3B8D through the binder's per-call view",
+     "removed_by": "permanent (a per-call view)"},
+    {"file": "game/em_player_closure_live.c", "field": "d810E70",
+     "pattern": r"s->d810E70\s*=\s*scene\(\)->d810E70;",
+     "reason": "the weapon lane's per-call scene view of the pad block's held word (the states "
+               "only read it)",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_player_closure_live.c", "field": "d810E74",
+     "pattern": r"s->d810E74\s*=\s*scene\(\)->d810E74;",
+     "reason": "the weapon lane's per-call scene view of the pad block's pressed word",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_player_closure_live.c", "field": "d810E74",
+     "pattern": r"L\.use_scene\.d810E74\s*=\s*scene\(\)->d810E74;",
+     "reason": "EmPlayerUseScene: 00160220's per-press input of the pressed word, refreshed before "
+               "every Use press (em_player_closure_live_use_press)",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_player_slide.c", "field": "spad3B8D",
+     "pattern": r"const uint8_t spad3B8D\s*=\s*s->scripted",
+     "reason": "em_player_slide_steer_input: a local copy of its per-call input `scripted` (3B8D), "
+               "handed to the record helpers by pointer; never stored back",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_player_slide.c", "field": "spad3B8D",
+     "pattern": r"h\.spad3B8D\s*=\s*&spad3B8D;",
+     "reason": "the same local handed to the record helpers",
+     "removed_by": "permanent (a per-call input)"},
 ]
 
 # The migrated progress/request bytes (HK): the files whose code names the
@@ -106,10 +143,14 @@ REACHERS = {
         "game/em_scene_bindings.c": "001B07C0 (w_001B07C0): reads it into +0x234",
         "game/em_player_stage_live.c": "0021C270's store (=1): the stage workers' globals pointer, loaded "
                                        "before every player stage (w_load, L01)",
+        "game/em_player_closure_live.c": "the +4 = 2 major2 states' pointer (EmPlayerMajor2Scene.d810707), bound by the "
+                                          "closure binder (Boxes step)",
     },
     0x0081083C: {
         "game/em_player_stage_live.c": "0021C440's read (the +5 = 0xB reaction): the stage workers' "
                                        "per-stage view, loaded before every player stage (w_load, L01)",
+        "game/em_player_closure_live.c": "0021F330's read (EmPlayerReactionScene.d81083C), refreshed from the canonical "
+                                          "progress byte before every reaction state (Boxes step)",
     },
     0x00810813: {
         "game/em_director.c": "008253F0's beat step, legacy stand-in until WP-10: its state-1 dispatch "
@@ -134,6 +175,9 @@ REACHERS = {
     0x008106F1: {
         "game/em_player.c": "0015BA50's busy test and 0021C270's store (the stage workers, bound "
                             "since L01): the stage scene's pointer (live_scene_load)",
+        "game/em_player_closure_live.c": "the closure states that read D_008106F1 (recovery 001751A0, the reaction "
+                                          "and major2 states, 00182B30's view): pointers at the "
+                                          "canonical request byte (Boxes step)",
     },
     0x00810792: {},   # no port reacher yet: em_truck_original's pointer is bound by WP-12
     0x00810793: {},   # no port reacher yet: em_director_original / em_roger are bound by WP-10 / WP-9
@@ -187,18 +231,16 @@ ALLOWED = [
      "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_hang.h", "name": "scripted",
      "reason": "EmPlayerHangScene: 001647D0's per-call input, read once at entry through its scene "
-               "worker; no worker it calls writes 3B8D (001647D0 is not on the census route)",
+               "worker; no worker it calls writes 3B8D (bound by em_player_closure_live since the Boxes step)",
      "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_reaction.h", "name": "scripted",
      "reason": "EmPlayerReactionScene: the reaction lane's per-call input of 3B8D, refreshed by its "
-               "`refresh` worker; the translation is unbound",
-     "removed_by": "permanent (a per-call input); the FLOOR closure's binder (L02) fills it from "
-                   "em_scene_state() when it binds the +4 = 2 reaction states"},
+               "`refresh` worker from em_scene_state() (bound by em_player_closure_live, Boxes step)",
+     "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_reaction.h", "name": "d81083C",
      "reason": "EmPlayerReactionScene: 0021F330's per-call input of D_0081083C, refreshed by its "
-               "`refresh` worker; the translation is unbound",
-     "removed_by": "permanent (a per-call input); the FLOOR closure's binder (L02) fills it from the "
-                   "canonical progress byte when it binds the +4 = 2 reaction states"},
+               "`refresh` worker from the canonical progress byte (Boxes step)",
+     "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_stage_workers.h", "name": "d81083C",
      "reason": "EmPlayerStageGlobals: 0021C440's per-stage view of D_0081083C, loaded from the "
                "canonical progress byte before every player stage (em_player_stage_live.c w_load); "
@@ -206,16 +248,16 @@ ALLOWED = [
      "removed_by": "permanent (a per-stage view)"},
     {"file": "game/em_player_recovery.h", "name": "spad3B8D",
      "reason": "EmPlayerRecoveryScene: 001751A0's per-call input, filled by the `scene` worker at "
-               "each routine entry; the translation is unbound",
-     "removed_by": "permanent (a per-call input); L11 fills it from em_scene_state() when it binds 001751A0"},
+               "each routine entry (em_player_closure_live recovery_scene, Boxes step)",
+     "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_running_jump.h", "name": "spad3B8D",
      "reason": "EmPlayerRunningJumpScene: 001AA4E0's per-call input (0015EC50 reads the list only "
-               "while 3B8D is clear); the translation is unbound",
-     "removed_by": "permanent (a per-call input); L11 fills it from em_scene_state() when it binds 0015EC50"},
+               "while 3B8D is clear), filled by em_player_closure_live running_jump_scene (Boxes step)",
+     "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_slide.h", "name": "scripted",
-     "reason": "EmPlayerSlideScene: the slide routines' per-call input of 3B8D; the translation is "
-               "unbound",
-     "removed_by": "permanent (a per-call input); L03 fills it from em_scene_state() when it binds 0016C6A0"},
+     "reason": "EmPlayerSlideScene: the slide routines' per-call input of 3B8D, filled by the "
+               "closure binder's slide scene worker (Boxes step)",
+     "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_roger.h", "name": "alternate",
      "reason": "EmRogerStory: the unbound Roger translation's value view of D_00810793 (event 0x3B, "
                "read by 008237E0's initial branch)",
@@ -224,6 +266,10 @@ ALLOWED = [
      "reason": "EmRogerStory: the unbound Roger translation's value view of D_00810813, which "
                "008237E0 also writes (0x11 at 0x823A04)",
      "removed_by": "WP-9 (L22): Roger's binding points the story at the canonical progress bytes"},
+    {"file": "game/em_player_closure_live.c", "name": "spad3B8D",
+     "reason": "the binder's per-call view P.spad3B8D, reloaded from em_scene_state() by refresh_pad "
+               "before every bound state and worker; never stored back",
+     "removed_by": "permanent (a per-call view)"},
     {"file": "game/em_director_original.c", "name": "completion",
      "reason": "a beat-table constant: the value 008253F0's completion stores into D_00810813, not "
                "storage of the byte",

@@ -10,6 +10,7 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_area11_boxes.h"
 #include "game/em_scene.h"
 
 #include "game/em_game_internal.h"
@@ -604,13 +605,17 @@ void scene_manifest_load(void)
             int kind = strcmp(name, "crawler") == 0 ? EM_ENEMY_KIND_CRAWLER
                      : strcmp(name, "crate") == 0   ? EM_ENEMY_KIND_CRATE
                      : strcmp(name, "bug") == 0     ? EM_ENEMY_KIND_BUG
-                     : strcmp(name, "egg") == 0     ? EM_ENEMY_KIND_EGG
                      : strcmp(name, "husk_creature") == 0
                                               ? EM_ENEMY_KIND_HUSK_CREATURE
                      : strcmp(name, "husk_partner") == 0
                                               ? EM_ENEMY_KIND_HUSK_PARTNER
                                                     : -1;
-            if (kind < 0) {
+            if (strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0 &&
+                (strcmp(name, "crate") == 0 || strcmp(name, "egg") == 0)) {
+                /* AREA11's crates and drums are the roster's 001551B0 /
+                 * 00156620 nodes on their original owners (census L25,
+                 * em_area11_boxes): no legacy em_enemy copy is placed. */
+            } else if (kind < 0) {
                 printf("manifest: unknown enemy kind, skipped: %s", line);
             } else {
                 float p[3] = { x, y, z };
@@ -747,6 +752,7 @@ void scene_unload(EmGfx *gfx)
     em_door_scene_clear(gfx);   /* keeps the in-flight transit lock */
     em_enemy_shutdown(gfx);
     em_enemy_reset();
+    em_area11_boxes_shutdown(gfx); /* the crate / drum meshes (census L25) */
     em_pickup_scene_clear(gfx); /* instances only — the inventory and
                                  * the taken-bit set survive (engine
                                  * globals; that survival IS the pickup

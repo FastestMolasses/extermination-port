@@ -357,7 +357,7 @@ def state_into(spad, g):
 
 
 SOURCES = ['src/game/em_coll_grid_hull.c', 'src/game/em_coll_probe_original.c', 'src/game/em_actor_collision.c',
-           'src/game/em_collision.c', 'src/game/em_actor_pool.c']
+           'src/game/em_collision.c', 'src/game/em_actor_pool.c', 'src/game/em_effect_original.c']
 
 
 def build_native():

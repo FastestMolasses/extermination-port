@@ -50,6 +50,9 @@
 #define COLL_DEFAULT   "office.emcl"
 /* The player's clip bank and D_00248C90's +0 column (player_pose_load). */
 #define PLAYER_CLIP_BANK_PATH "assets/player_clips_full.bank"
+/* D_00248740..D_00248ACC: 0017B490 / 0017C440's tables (player_pose_load;
+ * tools/export_player_tables.py). */
+#define PLAYER_LOCO_TABLES_PATH "assets/player_loco_tables.emrg"
 #define PLAYER_CLIP_ROW0_PATH "assets/player_clip_row0.emch"
 /* Area 0x0B / sub 0 / entry 0, committed by func_001AD360 step 4 on every
  * new-game route (title New Game and game-over option 0). */
@@ -994,7 +997,7 @@ enum {
  *    are MAIN-ELF data — hardcoded per-area cases (areas 0/4/6/8/
  *    0xB/0xD/0xE/0xF/0x11/0x13) + the XZ-quad trigger-volume table
  *    D_0024A5F0 (func_00194D10: point-in-quad + |player.y - rec.y|
- *    < 4 gate). NOT a general overlay hook: the lone `jal 0x823FE0`
+ *    < 4 gate). NOT a general overlay hook: the lone call to 0x823FE0
  *    is the area-13/entry>=8 gate and lands mid-function in the
  *    shipped AREA13.BIN (dead/drifted). EXPORTED-AREA VERDICT:
  *    the DIRECTOR defines none for AREA02/AREA01 sub 0; AREA06
@@ -2194,7 +2197,11 @@ int player_pose_foot_stop_palette(void);
 int player_pose_idle_state_wait(void);
 void player_pose_invalidate(const char *reason);
 int player_pose_acquire(void);
-int player_pose_use_accepted(void);
+/* The port's side of a Use press 00160220 took (em_player.c): the idle /
+ * walk locomotion state and the source's idle bookkeeping; the record's
+ * clip and state are the dispatcher's. 1, or 0 when the source is not the
+ * ordinary one. */
+int player_pose_use_accepted_port(void);
 int player_pose_idle_tick(float *local_palette);
 /* Original0A/sub1 request and next-player-stage83090 special-bank commit.
  * Bank is borrowed until release/unload. Caller must tick its attached face

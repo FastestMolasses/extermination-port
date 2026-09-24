@@ -8,7 +8,8 @@ over captured AREA11 RAM (the PCSX2 route beats, docs/FIRST_LEVEL_ROUTE.md):
   001A2370  hull re-transform       001B1B70 / 001B1D20 ... class-list pushes
   001AAD00  list publish (its nine hooks recorded, not simulated)
   0019AB20  vertical probe, with 0019F730 (001A44B0, 001A4650, 001A4030),
-            0019C830, 0019F1A0 and 0019ED80
+            0019C830, 0019F1A0 and 0019ED80 (the natives: em_actor_collision
+            over em_coll_probe_original's prim tests and grid walk)
   0019BC40  column table, with 001A56A0, 001A5760, 001A58B0 and 0019F330,
             and the SDK 0011E748 (sqrt) / 0011DBB8 (atan) they call: nothing
             is hooked; the native column's math workers call back into the
@@ -36,13 +37,14 @@ Checks (every value compared bit for bit):
 (default assets/scene_snow/area11_cells.bin; the user's disc bytes, ignored).
 
 No original bytes are embedded: the ELF, RAM images and disc data are the
-user's own local files. KNOWN INEXACT (docs/ACTOR_COLLISION.md): the EMCL
-grid carries no rank tables, so the native grid walks every node. A 0019AB20
-result counts as KNOWN INEXACT (printed, never silently accepted) only when
-the native grid pass started from the original's exact 0019C830 entry state
-(segment and 0x700031D4), the grid arithmetic over the original's node order
-is exact, and both sides end on a grid node, the same one or at an equal
-height; anything else fails.
+user's own local files. The interpreter is test_coll_move_reference's
+FloatEE: every COP1 and VU0 macro instruction through tools/ee_float_model.py,
+the model em_ee_float.h implements. 0019AB20's grid pass (0019C830) is the
+translation over the EMCL rank section and is compared exactly. KNOWN
+INEXACT (docs/ACTOR_COLLISION.md) remains only for 0019BC40's pass 2, whose
+native walk visits every grid node instead of the rank span: a column that
+differs counts as KNOWN INEXACT (printed) only when dropping the native
+entries outside the original's rank bounds gives the original's table.
 """
 import ctypes as C
 import random
@@ -54,7 +56,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from test_player_slide_reference import EE, read_elf, bits, number, fp, DECOMP  # noqa: E402
+from test_player_slide_reference import read_elf, bits, number, fp, DECOMP  # noqa: E402
+# COP1 and VU0 macro arithmetic through tools/ee_float_model.py (the measured
+# EE model, docs/EE_FLOAT_MODEL.md), as the native side uses em_ee_float.h.
+from test_coll_move_reference import FloatEE as EE  # noqa: E402
 import reference_mode  # noqa: E402
 
 
@@ -91,6 +96,7 @@ BRIDGE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include "game/em_actor_collision.h"
+#include "game/em_coll_probe_original.h"
 #include "game/em_director_original.h"
 #include "game/em_item_sdk_math.h"
 
@@ -105,6 +111,7 @@ typedef struct {
 typedef struct {
     EmActorCellTable table;
     EmCollision grid;
+    EmCollProbeGrid ranks;          /* the EMCL rank section (0019C830) */
     EmActorClassLists lists;
     EmActor rec[256];
     uint32_t addr[256];
@@ -132,10 +139,13 @@ Bridge *bridge_new(const uint8_t *table, uint32_t size, const char *emcl)
     Bridge *b = calloc(1, sizeof *b);
     if (!b) return NULL;
     if (em_actor_cells_init(&b->table, table, size)) { free(b); return NULL; }
-    if (emcl && em_collision_load(&b->grid, emcl)) { em_actor_cells_free(&b->table); free(b); return NULL; }
+    if (emcl && (em_collision_load(&b->grid, emcl) || em_coll_probe_grid_load(&b->ranks, &b->grid, emcl))) {
+        em_actor_cells_free(&b->table); free(b); return NULL;
+    }
     b->world.table = &b->table;
     b->world.lists = &b->lists;
     b->world.grid = emcl ? &b->grid : NULL;
+    b->world.ranks = emcl ? &b->ranks : NULL;
     b->stranger.self = &b->stranger;
     return b;
 }
@@ -211,12 +221,6 @@ int bridge_ground(Bridge *b, uint32_t self_addr, uint8_t cls, const float *pos, 
     return r;
 }
 
-int bridge_grid_nodes(Bridge *b, const float *start, float *end, int cls, const int *polys,
-                      unsigned count, float *point, int *poly)
-{
-    return em_collision_grid_vertical_nodes(&b->grid, start, end, cls, polys, count, point, poly);
-}
-
 int bridge_math(Bridge *b, const uint8_t *elf, uint32_t size)
 {
     return em_director_original_load_atan_tables(elf, size, &b->atan);
@@ -279,6 +283,7 @@ def build_native():
     lib = OUT / ('bridge.dylib' if sys.platform == 'darwin' else 'bridge.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
                     '-fPIC', '-Isrc', str(source), 'src/game/em_actor_collision.c', 'src/game/em_collision.c', 'src/game/em_actor_pool.c',
+                    'src/game/em_coll_probe_original.c', 'src/game/em_effect_original.c',
                     'src/game/em_director_original.c', 'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c',
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     n = C.CDLL(str(lib))
@@ -299,7 +304,6 @@ def build_native():
     n.bridge_named_sqrt.restype = C.c_float; n.bridge_named_sqrt.argtypes = [C.c_float]
     n.bridge_named_atan.restype = C.c_float; n.bridge_named_atan.argtypes = [V, C.c_float]
     n.bridge_sdk_hook.argtypes = [SDK_HOOK]
-    n.bridge_grid_nodes.argtypes = [V, PF, PF, I, C.POINTER(I), C.c_uint, PF, C.POINTER(I)]
     return n
 
 
@@ -665,22 +669,6 @@ def observe_grid(ee, world, first_grid, log):
     passthrough(ee, 0x19ED80, node)
 
 
-def ordered_grid_exact(native, b, world, first_grid, entry):
-    """The native grid walk over the original's own node order reproduces
-    the original grid pass bit for bit."""
-    polys = (C.c_int * max(1, len(entry['nodes'])))(*entry['nodes'])
-    start = fvec([number(v) for v in entry['start']])
-    end = fvec([number(v) for v in entry['end']])
-    point, poly = (C.c_float * 3)(), C.c_int(-1)
-    hit = native.bridge_grid_nodes(b, start, end, entry['cls'], polys, len(entry['nodes']), point, C.byref(poly))
-    if hit < 0 or bool(hit) != entry['hit']:
-        return False
-    if not hit:
-        return True
-    return (tuple(bits(v) for v in point) == entry['point'] and
-            first_grid + (entry['node'] - world.node_base) // 64 == poly.value)
-
-
 def ee_ground(ee, world, actor, pos, probe, mask, first_grid):
     for i, v in enumerate(pos): ee.putf(SCRATCH + 4 * i, v)
     for i, v in enumerate(probe): ee.putf(SCRATCH + 0x10 + 4 * i, v)
@@ -956,7 +944,6 @@ def ground_case(item):
     results = {'cases': 0, 'hits': {0: 0, 2: 0, 4: 0}, 'entities': set(), 'mismatch': [], 'grid': 0}
     grid_log = []
     observe_grid(ee, world, first_grid, grid_log)
-    results['order'] = []
     for pos, probe, mask, querier in cases:
         ee.mem[:] = ram0; ee.spad[:] = spad0
         feet = ee.load(querier + 0xB4)
@@ -974,10 +961,6 @@ def ground_case(item):
             # is compared on every case that reached 0019C830.
             assert len(grid_log) == 1
             results['grid'] += 1
-            if not ordered_grid_exact(native, b, world, first_grid, grid_log[0]):
-                results['mismatch'].append((beat, variant, pos, probe, hex(mask), 'ordered grid walk',
-                                            grid_log[0]))
-                continue
             # The native grid pass starts from the original's entry state.
             if (native_ground.entry != (grid_log[0]['start'], grid_log[0]['end'])
                     or got['entity'] != grid_log[0]['entity']):
@@ -985,23 +968,9 @@ def ground_case(item):
                                             grid_log[0], native_ground.entry, got['entity']))
                 continue
         if not compare_ground(want, got, emcl_class):
-            polys_involved = [p for p in (got.get('poly', -1), want.get('poly', -1)) if p is not None and p >= 0]
-            entry = grid_log[0] if grid_log else None
-            # KNOWN INEXACT only when the native reached 0019C830 in the
-            # original's exact entry state (segment after 0019F730 and
-            # 0x700031D4), both sides ended on a grid node, and they share
-            # the node or tie at an equal height: then only the rank-table
-            # visit order the EMCL lacks can separate them (the grid
-            # arithmetic over the original's order is exact, checked above).
-            # Anything else, a cell-pass difference included, is a mismatch.
-            if (entry is not None and native_ground.entry == (entry['start'], entry['end'])
-                    and got['entity'] == entry['entity'] and want['entity'] == entry['entity']
-                    and want.get('record') == 2 and got.get('record') == 2
-                    and (want['poly'] == got['poly'] or want['point'][1] == got['point'][1])):
-                results['order'].append((beat, pos, probe, hex(mask), polys_involved,
-                                         'nodes visited', len(entry['nodes'])))
-            else:
-                results['mismatch'].append((beat, variant, pos, probe, hex(mask), hex(querier), want, got))
+            # 0019C830 is translated over the EMCL rank section (em_coll_probe
+            # _0019C830): the grid pass is compared exactly, like the rest.
+            results['mismatch'].append((beat, variant, pos, probe, hex(mask), hex(querier), want, got))
     return results
 
 
@@ -1265,7 +1234,6 @@ def main():
     ground = reference_mode.parallel_map(ground_case, jobs, cost=lambda j: len(j[1]))
     g_cases = sum(r['cases'] for r in ground)
     g_mismatch = [m for r in ground for m in r['mismatch']]
-    g_rank = [m for r in ground for m in r['order']]
     g_grid = sum(r['grid'] for r in ground)
     hits = {k: sum(r['hits'][k] for r in ground) for k in (0, 2, 4)}
     entities = set().union(*(r['entities'] for r in ground))
@@ -1302,8 +1270,8 @@ def main():
     reference_mode.banner(f'{moved} captured hulls reproduced from disc x owner +0xD0',
                           f'{retrans} 001A2370 cases', f'{list_ops} list operations',
                           f'{g_cases} 0019AB20 cases ({boundary_run} of {boundary_total} prim-edge cases; '
-                          f'none {hits[0]}, cell {hits[2]}, grid {hits[4]}; {g_grid} grid passes exact '
-                          f'over the original node order; '
+                          f'none {hits[0]}, cell {hits[2]}, grid {hits[4]}; {g_grid} grid passes from the '
+                          f'original entry state; '
                           f'{len(entities)} owners hit)',
                           f'{c_cases} 0019BC40 columns ({col_edge_run} of {col_edge_total} prim-edge columns; '
                           f'{c_entries} entries, {c_owner} owner entries)',
@@ -1317,7 +1285,7 @@ def main():
         print(f'  named SDK worker {name}: {total - len(differ)} of {total} distinct arguments '
               f'equal the original under this oracle' + (f'; differ (arg, original, native): {differ[:4]}'
                                                         if differ else ''))
-    for m in g_rank + c_rank:
+    for m in c_rank:
         print('  grid visit order / rank span (KNOWN INEXACT, docs/ACTOR_COLLISION.md):', m)
     for m in g_mismatch[:6]:
         print('  0019AB20 MISMATCH', m)

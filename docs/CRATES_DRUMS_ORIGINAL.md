@@ -204,58 +204,106 @@ Makefile flags.
   rattle index outside the supplied view. The drum faults on a heading with
   |heading| > 4π, the domain of the verified sin/cos translation.
 
-## Binding (coordinator)
+## Binding (live, census L25)
 
-- The coordinator should call these owners from the owner walk:
-  - Crates: order #12-15, `em_crate_original_tick(&state, &input, &hooks)`.
-  - Drums: order #22-23, `em_drum_original_tick`.
-- Only the AREA11 bindings or the coordinator should own the worker tables.
-- The collision workers have to reproduce the 0019AB20 result codes: 2 means
-  an actor hull and D_700031D4 is the hit actor, 4 means world ground.
-  The corner support test depends on those codes.
-- Whether a broken husk still supports a box above it is decided by the
-  collision worker, not by these owners. The husk stops publishing, because
-  state 2 never calls 001B1B70.
+`src/game/em_area11_boxes.{h,c}` runs both owners over the roster's pool
+nodes. `em_area11_bindings.c` binds callbacks 001551B0 and 00156620 to
+`tick_box`, which calls `em_area11_boxes_tick` once per pool-walk visit,
+in both walk variants (001AFD70 mode 1 skips only class 1, and these are
+class 4). Crates are walked at #12-15 and drums at #22-23 (compare_frame_order
+over idle04 at a gameplay window: PASS).
 
-### Status (census L25, 2026-09-24): blocked, not bound
+- **Record storage.** The EmActor record is the canonical copy of every byte
+  it models: +0x00..+0x0E, +0x36, +0x52, +0x56, +0x9A, +0xB0, +0xC0 and the
+  +0x1F0 block (rest matrix, step matrix, spin, velocity, corner points; the
+  drum's origin, heading and lift). The owner state is loaded from the record
+  before each call and stored back after it. Fields EmActor has no storage
+  for live in the node's slot: +0x28, +0x2A, +0x34, +0x38, the +0xD0 world
+  matrix and the +0x110 bone slots. 001B0EA0 also writes +0x09 (slots held)
+  and +0x0C (001C6150's bone count) on the record.
+- **Model allocation.** 001B0EA0, 001C62C0 and 001C6380 are
+  `em_owner_services`. They run over the exported AREA11 world model bank
+  `*D_0028A59C` (`assets/scene_snow/world_models.emwm`,
+  `tools/export_world_models.py`: crates model 0xD with 1 bone, drums model
+  0xE with 2). 001C6120 is `em_world_models_001C6120`. 001CA6E0 stores
+  +0x44 and the +0x4C method 001CAA00 (001CA5F0 kind 0). The bone slots come
+  from 001AF710's stack (0x480 slots at every area build; see Limitations).
+- **Collision.** 001B1B70 and 001B1D20 go to the collision world's class
+  lists (`em_collision_world_publish_001B1B70` / `_push4_001B1D20`). The
+  crates publish their cells, uids 7..10, on every rest tick. The drums
+  (uids 5 and 6) publish when 001B17A0 finds them visible, or when the
+  player is within 50 units. 001B17A0 is the interaction host's
+  (`em_area11_interaction_host_offer_001B17A0`), the same 001B1630 /
+  001B1B70 services the panel, the terminal and the items use.
+  0019AB20 is `em_actor_collision_owner_probe` (harmonized, ACTOR_COLLISION.md
+  section 7). 001A2370 is `em_collision_world_retransform_001A2370`.
+- **Sound and random.** 00122BB8 is `em_random_next`. 001FBD50 is
+  `em_sfx_play_at`, as the items' take cue plays it.
+- **Draw (+0x4C = 001CAA00).** The node is drawn through the port's actor
+  draw chain (`render_chain_build`). It uses the legacy crate / drum EMDL
+  meshes (the scene's `props/enemy_crate.emdl` or `assets/enemy_crate.emdl`,
+  and `assets/enemy_egg.emdl`) placed by the owner's root bone matrix (bone
+  slot 0's +0x90, which 001C9610 or the crate's bone_matrix worker wrote).
+  This is the same draw the legacy crates had, now at the original's
+  matrix. The P1/P2 object kernel (001CA7B0 cull, 001C7420 upload,
+  001CA940 kernel) stays with RENDER (OWNER_DRAW.md).
+- **Tables.** D_002468B0, D_00246A00 and D_00246A10 come from
+  `assets/scene_snow/box_tables.emrg` (`tools/export_box_tables.py`, span
+  0x2468B0..0x246A20 of the user's ELF).
+- **Fail-stop workers.** These are reached only after a damage write to
+  +0x36, or on the nest-group paths (+0x0E bit 0 set, +0x56 >= 0; no AREA11
+  box has either). Each names its original:
+  - 001FC580 (the owner's sound)
+  - 001EFD90 / 001EFD20 / 001F0460 (effects; no live effect manager, census
+    L26)
+  - 001B11E0 / 001B1190 (taken bits)
+  - 001AFA90's nest child
+  - the husk rebind 001C6120(D_0028A56C)
+  - 0019A570 (the drum's break test)
+  - 0019AD00 (the flight sweep of models 0xA / 0xC)
 
-The chain step "Census L02 + L25" found that these owners cannot go live
-faithfully yet. Each item below is a missing worker or datum; none may be
-replaced by a stand-in (fail-stop rule). The crate's first ticks reach
-items 1 to 4, the drum's items 1, 2 and 4 (its probe runs only in flight):
+  No live port code writes +0x36, so the boxes stay intact. The legacy
+  shot-break was retired with them (item 7 of the former status).
+- **Legacy retired.** The AREA11 manifest's `enemy crate` and `enemy egg`
+  lines no longer place em_enemy copies (em_scene.c). The em_enemy drum
+  kind (EGG) is deleted: AREA11 was its only scene. The crate kind stays
+  for the office / drawbridge fixtures, which place crates of their own and
+  have no original roster.
 
-1. **Model allocation (001B0FD0 state 0: `allocate_model` / `bone_init`).**
-   `em_owner_services_001B0EA0` needs 001C6120 / 001CA6E0 over the model
-   bank `*D_0028A59C`, 001AF780 bone slots and 001CB5B0. The port holds no
-   AREA11 world model bank (the status models bind their own letter bank
-   from a local export, WP-5 decision (b)); OWNER_SERVICES.md "Not ready to
-   go live" still applies.
-2. **The draw method (+0x4C = 001CAA00).** Its 001CA990 needs 001CA7B0,
-   001CA940 and 001D1F80 (untranslated) and ends in VU1 packets. The native
-   draw of an owner's model at its +0xD0 matrix is a renderer-boundary
-   decision that has not been made for world owners.
-3. **The floor probe 0019AB20 (crate INIT, the corner probes; drum
-   landing).** `em_actor_collision_owner_probe` is the query half that
-   ACTOR_COLLISION.md section 7 item 4 keeps off the live path until its
-   prim tests are reduced to em_coll_probe_original's and its float helpers
-   and oracle are harmonized (EE_FLOAT_MODEL.md 5c).
-4. **The owner walk.** Both owners are members of the legacy
-   `em_enemy_update` group whose head is 00825940 (census L24); em_enemy.c
-   ticks, draws and breaks all of its records in one pass, so the group
-   must be split with L24.
-5. **Tables.** D_002468B0 (rattle), D_00246A00 and D_00246A10 (drum speed
-   and lift) have no local exporter; the reference tests read them from the
-   ELF.
-6. **Drum workers.** `sweep` is 0019AD00, whose grid pass 0019CB60 and hull
-   lock 001A6440 are untranslated (census L05, blocked); `segment` 0019A570
-   (em_coll_segment_walkers, translated), `effect_matrix` 001F0460 and
-   `effect` 001EFD20 are reached only after damage.
-7. **Damage.** No live port code writes either owner's damage word; the
-   legacy break runs on em_enemy.c's own records. Once the owners are
-   bound, what writes +0x36 on the live path must be the original's hit
-   path, or the boxes stay intact (inert), never a port break.
+### Verification
 
-## Legacy em_enemy.c on these records (read-only comparison)
+- `make test-crate-drum-original`: both oracles and the fault contract. The
+  owners' own COP1 arithmetic (add.s, sub.s, mul.s, div.s, cvt.s.w inside
+  001551B0 / 00156620) now follows the measured EE model on both sides:
+  - the native side through em_ee_float.h;
+  - the oracle through `tools/ee_float_model.py`, for the owner ranges only.
+
+  The SDK leaves the owners call keep the semantics their translations were
+  verified with. Evidence: route 04's corner points +0x2D0..+0x2EC. The
+  truncating sum left four of the eight one ULP low (0x43521A92 against the
+  captured 0x43521A93, from 214.7 - 4.5961943). The EE sum gives the
+  captured words.
+- `tools/test_collision_world_capture.py` (EM_BOX_DUMP): all four crate and
+  both drum records equal route 04 in every modelled span (+0x00, +0x02..
+  +0x13, +0x28..+0x3B, +0x52..+0x57, +0x60..+0x6F, +0xB0..+0x10F,
+  +0x1F0..+0x2EF). The last frame's published class-4 list equals the
+  original's in order: [4, 18, 10, 9, 8, 7, 23].
+- `make test-level-smoke`, phase `boxes`: both ledge climbs onto crates r4
+  and r3 equal route 05 row for row (LEVEL_SMOKE.md).
+
+### Limitations
+
+- **The bone-slot count D_00275BCC.** The stack is reset to 0x480 at every
+  area build, as 001AF710 does. Only the boxes pop from it: the player, Roger
+  and the other owners that take slots in the original do not run through
+  it yet. The count gates only the refusals (001AF780 below 31 free,
+  001B0EA0 over the cap). The captures hold 1011-1035 free, so no refusal is
+  reachable on the route.
+- **The draw.** The legacy EMDL meshes are drawn at the original matrix.
+  They are not the bank's model bytes drawn through the object kernel
+  (RENDER).
+
+## Legacy em_enemy.c on these records (retired in AREA11; kept for the record)
 
 - **Break.** For model 6, legacy `crate_burst` frees the slot at once and
   launches 3-5 port gib instances. The original keeps the actor, turns it a
@@ -283,8 +331,8 @@ items 1 to 4, the drum's items 1, 2 and 4 (its probe runs only in flight):
     when the segment test hits. It fires FX 0x80000013/0x8000001C and sound 0x1A1 on the next
     tick, and keeps drawing until 001AFC10 frees it on the fourth tick after
     the hit.
-- **Auto-aim.** Legacy `enemy_victim` makes crates and drums (kinds CRATE and
-  EGG) auto-aim candidates through `em_enemy_targetable` and
+- **Auto-aim.** Legacy `enemy_victim` made crates and drums (kinds CRATE and
+  the retired EGG) auto-aim candidates through `em_enemy_targetable` and
   `em_enemy_acquire`. The original never offers class-4 actors to 00199220.
 - **Constants.** FINDINGS s62 quotes the fall gravity as 0.0519999. The
   constant is 0x3D54FDF4 = 0.052000001. The module uses hex-float literals

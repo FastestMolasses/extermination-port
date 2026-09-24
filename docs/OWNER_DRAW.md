@@ -377,8 +377,10 @@ the owner ids and bone counts in it.
    These are the coordinator's (OWNER_SERVICES.md "Binding"). The bank
    supplies every model byte they read.
 
-**The render side.** Today em_enemy draws the crates with an EMDL mesh through
-`em_gfx_draw_skinned`. The EMDL comes from export_props over the same blocks,
+**The render side.** Since census L25 the crates and drums run their
+original owners (em_area11_boxes.c). Their +0x4C draws the same EMDL meshes
+the legacy em_enemy crates used, through `em_gfx_draw_skinned` at the
+owner's bone-slot-0 matrix (CRATES_DRUMS_ORIGINAL.md "Binding"). The EMDL comes from export_props over the same blocks,
 with texels from the GS freeze. The other owners have their own legacy
 draws. Measured against the unit above, `em_gfx_draw_skinned` is exact in
 some parts and not in others:

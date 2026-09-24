@@ -16,6 +16,7 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_area11_boxes.h"
 #include "game/em_game.h"
 #include <dirent.h>
 #include <stdio.h>
@@ -174,6 +175,17 @@ void render_chain_build(void)
         ChainDraw *cd = &g.chain[g.chain_len];
         if (em_enemy_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
             cd->tint = em_enemy_draw_tint(i);
+            g.chain_len++;
+        }
+    }
+    /* AREA11 crates and drums (census L25): the original owners whose +0x4C
+     * (001CAA00) ran in their last owner call, at their bone matrices
+     * (em_area11_boxes; the object kernel itself stays with RENDER). */
+    for (int i = 0, n = em_area11_boxes_draw_count(); i < n; i++) {
+        if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
+        ChainDraw *cd = &g.chain[g.chain_len];
+        if (em_area11_boxes_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
+            cd->tint = NULL;
             g.chain_len++;
         }
     }

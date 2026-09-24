@@ -237,7 +237,16 @@ int player_pose_load(const char *bank_path, const char *row0_path)
     source.cinematic_mode = 0;
     source.legacy = 0;
     source.legacy_owner = NULL;
-    if (em_player_record_pose_load(&source.record, bank_path, row0_path) == 0) return 1;
+    if (em_player_record_pose_load(&source.record, bank_path, row0_path) == 0) {
+        /* 0017B490 / 0017C440's tables (the closure binder's clip lookup and
+         * tier speeds read them through the record pose's regions; without
+         * them those reads fault). */
+        if (!source.record.tables &&
+            em_player_record_pose_load_tables(&source.record, PLAYER_LOCO_TABLES_PATH) < 0)
+            fprintf(stderr, "player pose: %s is missing (python3 tools/export_player_tables.py)\n",
+                    PLAYER_LOCO_TABLES_PATH);
+        return 1;
+    }
     fprintf(stderr, "player pose: original clip bank unavailable: %s / %s "
             "(python3 tools/export_player_clips.py; python3 tools/export_player_tables.py)\n",
             bank_path, row0_path);
@@ -866,13 +875,14 @@ int player_pose_acquire(void)
     return publish_current() ? 1 : -1;
 }
 
-int player_pose_use_accepted(void)
+int player_pose_use_accepted_port(void)
 {
-    if (!ordinary_source() || source.acquired || !record_select(0, 0, 0, 0))
-        return 0;
-    /* 001798D0 precedes the successful 160220 action25 assignment. It
-     * clears movement and requests default blend0; same-idle preserves
-     * its cursor.182D70 acquisition occurs in the next player callback. */
+    if (!ordinary_source() || source.acquired) return 0;
+    /* 00160220 took the press over the live record: 001798D0 (on a scan
+     * winner) or the chosen action already requested the record's clip
+     * (00174A50) and wrote its state. This is the port's side: the idle /
+     * walk callbacks' own locomotion state and the source's idle bookkeeping
+     * leave the ordinary walk, and the record's current pose is shown. */
     g.loco_upt = g.move_speed = 0;
     g.loco_tier = g.loco_mode = g.loco_substate = 0;
     g.loco_entry_ticks = 0;

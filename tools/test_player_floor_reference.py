@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_reversal_reference import Reversal, ELF_SHA256  # noqa: E402
 import reference_mode  # noqa: E402
+import ee_float_model as M  # noqa: E402
 from test_point_light_reference import bits, number, signed, fp  # noqa: E402
 
 DECOMP = ROOT.parent / 'Extermination'
@@ -127,6 +128,28 @@ FALL_FIELDS = (('drop', 0x2EC, 4, True), ('below', 0x258, 4, True), ('lock', 0x2
                ('special', 0x236, 1, False))
 
 
+def ee_cop1_plain(oracle, word, fallback):
+    """COP1 add.s / sub.s / mul.s / div.s / mula.s / madd.s through the
+    measured EE model (tools/ee_float_model.py, docs/EE_FLOAT_MODEL.md: the
+    pre-trimmed truncating sum and product, the round-to-nearest quotient),
+    as the native em_player_floor.c computes them through em_ee_float.h.
+    The VU0 macro ops (the SDK leaves) keep the base interpreter's
+    per-operation truncation, like the native's vu_* helpers."""
+    op, fmt, fn = word >> 26, word >> 21 & 31, word & 63
+    if op == 17 and fmt == 16 and fn in (0, 1, 2, 3, 0x1A, 0x1C):
+        fs, ft, fd = word >> 11 & 31, word >> 16 & 31, word >> 6 & 31
+        a, b = oracle.f[fs] & 0xFFFFFFFF, oracle.f[ft] & 0xFFFFFFFF
+        if fn == 0: oracle.f[fd] = M.ee_add(a, b)
+        elif fn == 1: oracle.f[fd] = M.ee_sub(a, b)
+        elif fn == 2: oracle.f[fd] = M.ee_mul(a, b)
+        elif fn == 3: oracle.f[fd] = M.ee_div(a, b)
+        elif fn == 0x1A: oracle.fpu_acc_bits = M.ee_mula(a, b)
+        else: oracle.f[fd] = M.ee_madd(oracle.fpu_acc_bits, a, b)
+        oracle.r[0] = 0
+        return
+    fallback(word)
+
+
 class Floor(Reversal):
     def __init__(self, elf, ram=None):
         super().__init__(elf, b'')
@@ -161,16 +184,7 @@ class Floor(Reversal):
         self.r[2] = self.links.pop(0)
 
     def plain(self, word):
-        op, fmt, fn = word >> 26, word >> 21 & 31, word & 63
-        if op == 17 and fmt == 16 and fn in (0x1A, 0x1C):   # mula.s / madd.s
-            fs, ft, fd = word >> 11 & 31, word >> 16 & 31, word >> 6 & 31
-            product = fp(number(self.f[fs]) * number(self.f[ft]))
-            if fn == 0x1A:
-                self.fpu_acc = product
-            else:
-                self.f[fd] = bits(fp(self.fpu_acc + product))
-            return
-        super().plain(word)
+        return ee_cop1_plain(self, word, super().plain)
 
     def load(self, address, size=4):
         if self.ram is not None and address not in self.mem and address < len(self.ram):
@@ -1012,6 +1026,7 @@ def real_world_section(elf, result):
     cached_build(lib, ['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                        '-shared', '-fPIC', '-Isrc', str(source), 'src/game/em_player_floor.c',
                        'src/game/em_actor_collision.c', 'src/game/em_collision.c',
+                       'src/game/em_coll_probe_original.c', 'src/game/em_effect_original.c',
                        'src/game/em_actor_pool.c', 'src/game/em_director_original.c',
                        'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c', '-lm',
                        '-o', str(lib)])

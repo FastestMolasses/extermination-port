@@ -104,7 +104,7 @@ Otherwise:
 001823E0(p) writes 2/0x19 with +6 = 0 and returns 1 when +224 != 0.
 Otherwise it returns 0.
 
-All compares are EE `c.eq.s`/`c.le.s`/`c.lt.s`. A denormal or −0 therefore
+All compares are the EE FPU's equal / less-or-equal / less-than compares. A denormal or −0 therefore
 counts as 0, and a NaN or Inf operand is saturated by sign before the
 compare (EE_FLOAT_MODEL.md section 2).
 
@@ -161,6 +161,8 @@ addresses.
   point the original loads it, since `00178B90` sits between the loads.
 
 ## 4. Binding (for the coordinator)
+
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
 
 **State table.** In `EmPlayerStageWorkers` (em_player_floor.h), with
 `state2_context[n]` pointing at one `EmPlayerMajor2 { &workers, &scene }`:

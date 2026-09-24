@@ -17,7 +17,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
-           src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c \
+           src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c src/game/em_roger_assets.c \
@@ -31,7 +31,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
-           src/game/em_owner_services_original.c \
+           src/game/em_owner_services_original.c src/game/em_owner_draw_original.c \
+           src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c \
+           src/game/em_roger_actor_original.c \
            src/game/em_message_service.c src/game/em_message_draw_original.c src/game/em_message_glyph_original.c \
            src/game/em_message_live.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
@@ -39,6 +41,16 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_player_stage_workers.c src/game/em_player_stage_live.c \
            src/game/em_player_record_pose.c src/game/em_pose_host_workers.c \
            src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_stream_lanes_original.c \
+           src/game/em_player_closure_live.c src/game/em_player_hang.c src/game/em_player_recovery.c \
+           src/game/em_player_ladder_climb.c src/game/em_player_ladder_entry.c \
+           src/game/em_player_closure_0e_18.c src/game/em_player_closure_10_12_19.c \
+           src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_player_weapon_states_a.c \
+           src/game/em_player_weapon_states_b.c src/game/em_player_major2.c \
+           src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
+           src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
+           src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
+           src/game/em_render_verify_rest.c src/game/em_locomotion_display.c \
+           src/game/em_anim_runtime_rest.c src/game/em_startup_load_gaps.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
@@ -423,7 +435,7 @@ test-shadow-original-reference:
 
 .PHONY: test-player-states-host
 test-player-states-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_coll_probe_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
 
 .PHONY: test-ee-float-model
 test-ee-float-model:
@@ -792,7 +804,7 @@ test-director-original:
 
 .PHONY: test-actor-collision
 test-actor-collision:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/actor_collision_test.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c -lm -o build/actor_collision_test && ./build/actor_collision_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/actor_collision_test.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_coll_probe_original.c src/game/em_effect_original.c -lm -o build/actor_collision_test && ./build/actor_collision_test
 
 .PHONY: test-actor-collision-reference
 test-actor-collision-reference:

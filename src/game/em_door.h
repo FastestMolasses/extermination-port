@@ -616,6 +616,11 @@ int em_door_goto_pending(char *dir, unsigned dir_size, float out_pos[3],
  * unlock armed for the fade-in end, and the movement lock released unless
  * the walk-out holds it. */
 void em_door_room_move_arrival(int walkout, float exit_yaw);
+/* The movement lock's release after a re-place without walk-out takes effect
+ * at that tick's player stage: the stage the original spends on its door
+ * script takeover's release (00182DF0) runs no idle / walk callback. Called
+ * by the port's callbacks under the lock; 1 when it released the lock. */
+int em_door_movement_stage_release(void);
 
 /* Test instrumentation (EM_ROOM_MOVE_TEST, S12b): put the first closed door
  * bound to an original room move into the state its open script ends in

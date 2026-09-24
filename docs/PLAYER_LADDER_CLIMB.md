@@ -233,6 +233,8 @@ instruction it translates.
 
 ## 4. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 - **Stage slot.** `EmPlayerStatesBinding.stage.state[0xC] =
   em_player_ladder_climb_state` and `stage.state_context[0xC] = &ladder`
   (an `EmPlayerLadderClimb`). 0015B130 dispatches +4 = 1, +5 = 0xC there.

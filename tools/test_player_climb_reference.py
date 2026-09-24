@@ -1038,7 +1038,11 @@ def world_column(points, seed=0x19BC40, explicit=None):
     owners, count, keep, unsupported = column_owners(ram, spad)
     math_workers = ColumnMath(MATH1_FN(lambda _, x: LIBC.sqrtf(x)), MATH1_FN(lambda _, x: LIBC.atanf(x)), None)
     rng = random.Random(seed)
-    ee = EE(ELF, ram, spad)
+    # COP1 and the VU0 macro ops through the measured EE model, as the native
+    # column (em_collision.c / em_actor_collision.c on em_ee_float.h) computes
+    # them (EE_FLOAT_MODEL.md 5c).
+    from test_coll_move_reference import FloatEE
+    ee = FloatEE(ELF, ram, spad)
     ee.hooks[SQRT] = lambda e: e.ret_float(LIBC.sqrtf(e.farg(0)))
     ee.hooks[0x11DBB8] = lambda e: e.ret_float(LIBC.atanf(e.farg(0)))
     ee.hooks[FABS] = lambda e: e.ret_float(abs(e.farg(0)))

@@ -16,7 +16,7 @@ FLOOR closure (FIRST_CONTROL.md "FLOOR state closure", `kFloorStates` in
 
 It records what each routine does, the translation
 `src/game/em_player_closure_0e_18.c/.h`, the evidence and the binding. The
-module is **built and tested but not wired**: section 5 lists what the
+module is **live in AREA11** (bound by em_player_closure_live.c): section 5 lists what the
 coordinator binds. None of the 15 route beats reaches these states (section
 4.3), so the unit oracle is the only evidence.
 
@@ -270,6 +270,8 @@ therefore observed, not proven (as for the rest of the closure).
 
 ## 5. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 Nothing is wired.
 
 ### 5.1 Stage slots
@@ -356,8 +358,6 @@ it and hand its words by value to `transform`, `vadd`, `sweep`, `ground` and
 
 ## 6. Limits
 
-- **Not wired**, and the FLOOR gate stays closed until every closure state
-  and worker is bound.
 - **No route evidence** (section 4.3).
 - **Untranslated workers:** 00174FD0, 0017FF80, 0017DFB0, 0017E0D0,
   0017E150, 0017E1D0, 00182A70, 00178390, 001782A0, 00179B90, float_to_int,

@@ -391,6 +391,8 @@ binds the original 0017C580/00224290 there.
 
 ## 4. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 Nothing is wired. When the FLOOR layer's closure is bound
 (FIRST_CONTROL.md "FLOOR state closure"):
 
@@ -516,8 +518,6 @@ word after 00174AC0. The reaction lane's workers take the same instance
 
 ## 5. Limits and open items
 
-- **Not wired.** The FLOOR gate stays closed until the whole closure and
-  the stage workers are bound. FIRST_CONTROL.md "Known gap" still applies.
 - **Exits to states outside this lane:**
   - 9 (001647D0, hang);
   - 4 (00162A40 via 0017C860);

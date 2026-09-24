@@ -9,6 +9,7 @@
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
+#include "game/em_player_closure_live.h"
 #include "game/em_player_stage_workers.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_scene_state.h"
@@ -82,12 +83,6 @@ static int stub_link20(void *c, uint32_t word, uint32_t *c0, uint32_t *c8)
     if (c0) *c0 = 0;
     if (c8) *c8 = 0;
     return unbound("the +20 object's +C0/+C8 (the port keeps no +20 handle)");
-}
-static int stub_clip_lookup(void *c, EmPlayerLiveActor *a, int a1, int a2, int a3, int16_t *clip)
-{
-    (void)c; (void)a; (void)a1; (void)a2; (void)a3;
-    if (clip) *clip = 0;
-    return unbound("0017B490 on the record (00174A50 / 0017C370; census L12)");
 }
 static int stub_0015C9D0(void *c, EmPlayerLiveActor *a)
 {
@@ -262,7 +257,9 @@ int em_player_stage_live_bind(void)
     c->w001F0060 = stub_001F0060;
     c->atan2 = stub_atan2;
     c->link20 = stub_link20;
-    c->clip_lookup = stub_clip_lookup;
+    /* 0017B490 on the record (em_locomotion_display's translation over the
+     * record pose's regions, which map the exported D_00248AB0 rows). */
+    c->clip_lookup = em_player_closure_live_0017B490;
     c->w0015C9D0 = stub_0015C9D0;
     c->link1C = stub_link1C;
     c->sound_stop = w_sound_stop;
@@ -292,10 +289,27 @@ int em_player_stage_live_bind(void)
      * gated (player_states_missing: the display, the closure callbacks and
      * the SDK set are not bound yet). The live record's +0x02 is the query
      * class (& 0x1F; 0 for the player). */
-    if (em_collision_world_loaded() &&
-        em_collision_world_bind_player(&b, player_states_actor(), player_states_actor()->bytes[2]) < 0)
-        return -1;
+    if (em_collision_world_loaded()) {
+        if (em_collision_world_bind_player(&b, player_states_actor(), player_states_actor()->bytes[2]) < 0)
+            return -1;
+        /* 001756E0's 00174A50(p, 12.0) in the probe set. */
+        em_collision_world_bind_player_pose(em_player_stage_row_request, &live.host,
+                                            player_states_actor_mut());
+        /* The FLOOR state closure and the Use roots (census L02 / L04 / L09;
+         * em_player_closure_live.c binds every state callback with the
+         * translations the module docs name). */
+        if (em_player_closure_live_bind(&b, &live.host, pose, &live.major4) < 0) {
+            fprintf(stderr, "player stage: the FLOOR closure could not be bound\n");
+            player_states_bind(NULL);
+            return -1;
+        }
+    }
     player_states_bind(&b);
+    /* The Use chain: 00160220 over the record with its scan (the interaction
+     * host's 00184BA0, em_area11_interaction_host_use) and every action
+     * state bound by the closure. Without the original world there is no
+     * dispatcher. */
+    player_states_bind_use_chain(em_collision_world_loaded() && em_player_closure_live_use() != NULL);
     /* The display stage draws the record's evaluated pose for every stage a
      * translated routine owns (em_player_frame.c actor_update): every clip
      * of the bank, chains and hold frames as 001C64F0 leaves them. */

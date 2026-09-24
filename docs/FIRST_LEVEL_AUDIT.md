@@ -76,6 +76,31 @@ Summary: the *pieces* are largely verified; the *wiring* and the *live scene coo
 
 **Status update (2026-09-24, census L02 second attempt, BLOCKED):** FLOOR stays gated and nothing changed on the live path. The closure binder was not written: the closure calls the move walkers 0019AD00 / 0019AFE0 directly, and on ordinary AREA11 play (0017D080 from the fall's edge test on every walk-off below running speed, 0016C570 / 001791D0 on the hill slide of route 06) with masks that reach their untranslated grid pass 0019CB60 and hull lock 001A6440 (census L05); the slide also calls 001EFD90, which has no live effect owner (L26). A stand-in there is not allowed and fail-stop workers would quit where the legacy fall and collide-and-slide play on. FIRST_CONTROL.md "Missing today" holds the worker-slot inventory (001755B0 is the only other untranslated worker ordinary play reaches; the rest need off-route states first). Fixed: EmPlayerLandWorkers carried 00128350's double as an int, dropping its high word before 001000E0; the slots are 64-bit now and test_player_fall_reference compares the whole register.
 
+**Status update (2026-09-24, Boxes: FLOOR, crates / drums, Use chain; live):**
+- **FLOOR** (00175900, 001796C0 and the whole state closure) and the **Use
+  chain** (00160220, 001798D0, 0017C440, 0015DF10, the climb / vault /
+  ladder / running-jump states) run on the live player record in AREA11
+  (em_player_closure_live.c; FIRST_CONTROL.md "Engaged").
+- The **crates and drums** run their original owners (em_area11_boxes.c;
+  CRATES_DRUMS_ORIGINAL.md "Binding"). Their legacy em_enemy copies are
+  not placed in AREA11, and the drum kind is deleted.
+- The collision query half, the floor module and the box owners are on the
+  measured EE float model with their oracles.
+- The level smoke passes seven live phases:
+  - `boxes` reproduces route 05's two ledge climbs row for row (+5, +1F0,
+    clip, clock, ground, heading, Y);
+  - the players' post-release Y equals the captures (the port re-grounds as
+    the original does).
+- The six box records equal route 04 byte for byte in their modelled
+  spans.
+- **Open:**
+  - the boxes' damage paths and effects are fail-stop, because no live code
+    writes +0x36 (L26 for the effects);
+  - the port's own idle / walk callbacks remain until L12;
+  - the scripted takeover is still the interaction runtime's stand-in;
+  - the box draw is the legacy EMDL at the original matrix (the object
+    kernel is RENDER's).
+
 ---
 
 ## 2. Live call graph (normal run)
@@ -118,14 +143,14 @@ Original AREA11 inventory, for reference. Placement table 0x82A3C0 (21 records) 
 |---|---|---|
 | r0 | room-move door 001BC350 | legacy door; since S12b its commit is the original 001BC150 room move (B8 = 2) and state 4 re-places |
 | r1/r2 | fan pair 00827630 (hazard, AREA11 exit) | fabricated spin |
-| r3–6 | crates 001551B0 | decoded, no oracle |
+| r3–6 | crates 001551B0 | since census L25: the original owner (em_area11_boxes.c over em_crate_original; records equal route 04) |
 | r7 | flame 008235F0 | visuals verified |
 | r8/r9 | Roger 008237E0 + equipment 001C5C90 | unwired |
 | r10 | opening controller 00823E80 | live |
 | r11 | manager 00823CE0 | dormant in the first visit |
 | r12 | manager 008253F0 (3 beats) | kCineBeats |
 | r13 | manager 008257A0 | dormant in the first visit |
-| r14/15 | drums 00156620 | decoded, no oracle |
+| r14/15 | drums 00156620 | since census L25: the original owner (em_area11_boxes.c over em_drum_original; records equal route 04) |
 | r16/17 | truck 00823FF0 + trigger 008251E0 | fabricated |
 | r18 | battery panel 00159210 | since WP-4: the original owner in the AREA11 interaction host (Use, scripts, BATTERY page, power) |
 | r19 | elevator/terminal 00827B10 | since WP-4: the original owner in the AREA11 interaction host (refusal, powered ride, carry) |
@@ -380,7 +405,11 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Verification:** extend the `test_player_*_reference` oracles. New oracles for 0017ABA0, 00187350, 001764E0, 00175900.
 - **Depends on:** WP-2.
 - **Removes fabrication:** yes (P14 timing, P26 attribution).
-- **Status (2026-09-24, census L02, the soft-float and display steps; second L02 attempt):** P17/P18 blocked on L05 (the move walkers 0019AD00 / 0019AFE0 the closure calls need 0019CB60 and 001A6440) and L26 (001EFD90 on the slide), then on the unbound closure callbacks; the display (the FLOOR clips, chains and one record-level pose owner) is met (display step, §1). All four of the floor's SDK calls (atan2f, tanf, atanf, sqrtf) are bound into the gated mechanism, with the soft-float workers in their context. P12/P13 (the ordinary idle/walk display) stay the legacy baked display until L12; its source is the record.
+- **Status (2026-09-24, Boxes step):** P16/P17/P18 are live in AREA11. The
+  floor service, the fall check and 001764E0's original workers run over
+  the collision world (FIRST_CONTROL.md "Engaged"). The Use chain's ledge
+  climb reproduces route 05. P12/P13 (the ordinary idle/walk display) stay
+  the legacy baked display until L12.
 
 ### WP-16 Camera completeness
 - **Scope:**
@@ -413,7 +442,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   - Flame contact damage 00823580 through the +0x224/+0x0F/+0x00 contract, not the 0x4000 mailbox (INV-17/INV-28). Since census L01 the stage's 0021C440 consumes that contract; its hit paths still reach fail-stop workers and unbound +4 = 2 states (PLAYER_STAGE_WORKERS.md section 2.1).
 - **Depends on:** WP-3.
 - **Removes fabrication:** yes (gibs, the 0x7D8 stand-in).
-- **Status (2026-09-24, census L25):** the crate and drum oracles exist (CRATES_DRUMS_ORIGINAL.md); binding them is blocked on the model allocation and draw services, the harmonized 0019AB20, the L24 group split and the table exports (that doc's "Status").
+- **Status (2026-09-24, census L25):** the crates and drums are live on their original owners (CRATES_DRUMS_ORIGINAL.md "Binding"). The legacy gibs and the 0x7D8 stand-in for them are retired in AREA11. Their break is inert: no live code writes +0x36, and its effects need L26. The husk pair (L24) and the flame's contact damage remain.
 
 ---
 

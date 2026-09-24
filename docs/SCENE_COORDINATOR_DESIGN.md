@@ -386,10 +386,10 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | Node | Original | WP-3 binding (interim) | Final (package) |
 |---|---|---|---|
 | #0–5, #6 | pickups 00219550 ×6, 0015AFA0 | since WP-6, each node its own owner: state 0 (00219550's 001C5570 child; 0015AFA0's 0015AC00 matrix and 001F1110) then `em_area11_interaction_host_pickup_tick` (`em_pickup_original_tick_one`, publication through 001B17A0); the take posts its original B0/B1; the owner's free frees the node (001AFC10) | — |
-| #7, #8 | 00825940, 00827490 | group adapter on #7: legacy `em_enemy_update` (husk, crates and drums; interleave approximate) | WP-18: per node |
+| #7, #8 | 00825940, 00827490 | group adapter on #7: legacy `em_enemy_update` (the husk pair; interleave approximate) | L24: per node |
 | #9 | door 001BC350 (r0) | legacy `em_door_update`; since S12b its commit is 001BC150 (`em_door_transit_commit`: fade, B8=2, B7) and its sub 5 is 001BC290 | WP-7: `em_door_original_runtime_tick` |
 | #10–11 | fans 00827630 (r1/r2) | static (WP-1 stops the spin) | WP-11 |
-| #12–15 | crates 001551B0 | covered by #7's group | WP-18 |
+| #12–15 | crates 001551B0 | since census L25: each node its own original owner, `tick_box` → `em_area11_boxes_tick` (em_crate_original over the record) in both variants | — |
 | #16 | flame 008235F0 (r7) | `em_area11_effect_runtime_tick` | — |
 | #17 | Roger 008237E0 (r8) | UNBOUND (drawn statically as today) | WP-9: `em_roger_runtime_tick(rt, player, 1)` |
 | #18 | equipment 001C5C90 (r9) | UNBOUND | WP-9 |
@@ -397,7 +397,7 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | #20 | manager 00823CE0 (r11) | dormant no-op, traced (it waits on D_00810788) | — |
 | #21 | manager 008253F0 (r12) | legacy `director_tick` | WP-10 |
 | — | manager 008257A0 (r13) | since S12a: `em_manager_008257A0` (states 0/2/3 translated from the overlay, oracle `test_manager_8257a0_reference`; frees itself on the second world frame, Q3); state 1 (event 0x30 set) faults | WP-10 (its script arm) |
-| #22–23 | drums 00156620 | covered by #7's group | WP-18 |
+| #22–23 | drums 00156620 | since census L25: `tick_box` → `em_area11_boxes_tick` (em_drum_original) in both variants | — |
 | #24, #25 | truck 00823FF0, trigger 008251E0 | legacy `em_truck_update` on #24 (static after WP-1) | WP-12 |
 | #26 | panel 00159210 (r18) | since WP-4: state 0 = its 001C5570 child and the host's D_008106D0 address; state 1 = `em_area11_interaction_host_panel_tick` (00159210/00157860 and the 001B17A0 publication) in both variants; `grate_update` keeps the static pose and cell 18 | — |
 | #27 | terminal 00827B10 (r19) | since WP-4: state 0 = the floor placement (D_0081083A → +0xB4 190/230, 001C6380: `em_area11_interaction_host_elevator_state0`, WP-4 fix round) and its 001C5760 child (interim spawn); state 1 = `em_area11_interaction_host_elevator_tick` (refusal 0x82A990 / powered 0x82A750 with the carry 00828050, publication at 0x827E78) in both variants | — |
@@ -523,6 +523,57 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - **One owner per original (2026-09-24; nothing live changed):** the closure modules' duplicate translations are reduced to one bound owner each. **em_player_fall** owns 0021D250, 0021D2E0 (its copy builds the 001EFD90 point in the scratchpad word 0x700038A0, as the original does) and 00179880 (`em_player_fall_00179880(p, at)`); the reaction lane runs them through a bridge over its workers (`em_player_reaction_0021D250` / `_0021D2E0`, so major2's `w0021D250` / `w0021D2E0` reach the same code), and its drop tails and the running jump's p+2E4 drop call the owner. `EmPlayerReactionWorkers` gained `scratch`, the fall lane's one `EmPlayerLandScratch`, and the reaction routines now store 0x70003A20 as the original does (002202C0, 001754E0, 0021D1A0). **em_player_ladder_climb** owns 0017FC80 (with 001885D0 / 001885F0), 00180420 and 00174AB0 (new export `em_player_ladder_climb_00174AB0`); **em_player_ladder_entry** owns 00180300 (new narrow entry `em_player_ladder_probe_00180300`). The closure states run 00180420 / 00180300 / 00174AB0 and the ladder entry runs 0017FC80 through one-routine owner contexts over their own workers, copying the scratchpad view back before every worker call; the ladder entry's `clip_001885D0` / `clip_001885F0` workers are gone. **00174AC0:** every closure module doc names `em_player_heading_record_worker(_result)` as its `heading` worker; test_locomotion_display_reference binds it as `EmLocoWorkers.heading` in its captured-image cases (001612D0 with the stick held; RAM and scratchpad, 0x70003A20 included, compared) and test_player_fall_reference into `EmPlayerLandWorkers.heading` (0017C580 / 00162DB0 / 00163B40), each against the original with 00174AC0 executing as original code. The live turn (em_player.c, em_player_heading.c, em_player_reversal.c) stays on mirrors until 001612D0 runs over the record. **Verified:** the owners' and callers' oracles execute the originals over the bridges (fall, reaction with the scratchpad now compared, running jump, closure 0E/18, ladder climb, ladder entry with D_002754D0 at its ELF value), each also in its EM_TEST_FULL=1 sweep; the game binary is byte-identical to the pre-step build (no changed module is in COMMON); make all with zero warnings; all 220 make test-* targets pass; newgame-control PASS (1300, 9.599989); the level smoke PASS through elevator (6 live phases; boxes onward NOT-LIVE as before; frame order unaffected, so compare_frame_order was not re-run). See FIRST_LEVEL_CENSUS.md rows 00174AB0 / 00174AC0 / 00179880 / 0017FC80 / 00180300 / 00180420. **Still more than one copy (other steps):** 001B1470 (reaction, recovery, fan, effect, stage workers, and the live host models), the SDK VU0 leaves, em_player_slide.c's inline 00179880 on its mirror actor, and the camera's legacy solvers (census L14).
 - **Player display: one pose owner (2026-09-24; live):** **Owner:** the player's clip clock, node channels and skeleton live in the player record, worked by `em_pose_host_workers` (001749A0, 001749F0, 001C61D0, 001C63E0, 001C67E0 and the channel routines) and `em_player_stage_anim_advance` (001C64F0 with its chain step): new `em_player_record_pose.{h,c}` holds the storage (the raw bank `assets/player_clips_full.bank`, all 459 clips, at 0xD689C0; 21 node records at 0x7D5840..; the record mapped at 0x8102B0; D_00248C90's +0 column, new `assets/player_clip_row0.emch` from `tools/export_player_tables.py`; the globals with D_008106F3 at the canonical byte and 0x70003A20 at the stage host's word) and translates 0015BCF0's animate step (001C6DA0 / 001C68C0 / 001C6960 by +2F3, +303 and the row). **Host:** `em_player_pose_host.c` keeps its API over the record (frame-0 requests are 001749A0, source-frame requests 001749F0, releases 00182DF0's with the row column, the foot-stop begin 0017B910's anim_eval_skeleton) and publishes world palettes (the node matrices, +D0 in the model's trailing slot) without `palette_apply_placement`; `player_pose_load(bank, row0)` and `player_pose_attach` (0015C420's pose half at w_001AFCA0) replace the EMPC load. **Stage:** em_player.c drops the +20C mirror and runs the animate step after every stage; em_player_frame.c displays the record for takeover and translated-state stages (`player_states_record_display`); a non-idle/walk stage advances the record whatever a stand-in holds; em_player_stage_live.c binds the stage's clip workers to the record's host and declares `player_states_bind_display(1)`. `em_player_pose` stays for Roger, the status models and the unreached cinematic bank; `em_pose_chain` stays unbound. **Verified:** all 225 make test-* targets pass (the new `test-player-record-pose-reference`: the live module against the original over the captured records, every first-level clip's first frames and both chains into 0x5F / 0x72, the captured skeletons re-evaluated byte for byte; quick 4 images / 374 callbacks, EM_TEST_FULL=1 16 images / 1,968 cases / 126,720 callbacks, all exact); the first-control pose trace matches the original on all 56 callbacks; newgame-control PASS (1300, 9.599989) with its EM_FRAME_TRACE byte-identical to the pre-step build (compare_frame_order results unchanged); the level smoke PASS through elevator (6 live phases), its tick log differing from the pre-step build only by float ulps (at most 1.4e-4 in position) in ticks 1572..2187, from one foot-stop begin whose feet are now anim_eval_skeleton on the record; the takeover/foot-stop palettes differ from the old host composition by at most 9.2e-5 (14 clips x 40 frames); make all with zero warnings, also in an isolated HEAD + step tree. Retirements: none; `tests/player_states_host_test.c` now seeds +20C in its setup (the record owns it) and asserts `player_states_record_display`; `test_player_pose_host_reference.py` asserts that row 1's clip 0x0A is in the bank (the host still holds at low health: the +235 latch is not ported); `test_player_cinematic_reference.py` asserts that the release publishes the record's palette with no host placement.
 - **Census L02, second attempt (2026-09-24; BLOCKED, nothing live changed):** the closure binder was not written because FLOOR cannot engage faithfully before L05: the fall's edge test (0017D080, two 0019AD00(p, ·, 7) probes, on every walk-off below running speed) and the hill slide (0016C570's 0019AD00(p, ·, 0x80000006), 001791D0's 0019AFE0(·, 7)) reach the untranslated grid pass 0019CB60 and hull lock 001A6440, and the slide's 001EFD90 has no live effect owner (L26). The worker-slot inventory is in FIRST_CONTROL.md "Missing today". **Fixed:** `EmPlayerLandWorkers.convert_00128350` / `test_001000E0` are `uint64_t` (00128350's double is the whole $v0 that 0017C580 passes as 001000E0's $a0; the int slots dropped its high word); test_player_fall_reference scripts whole doubles and compares the whole $a0 / $a1 (a low-word copy fails), and its world mode calls both originals with whole registers.
+- **Boxes: FLOOR, the crates and drums, and the Use chain (census L02 / L04 / L05 / L07 / L09 / L25, 2026-09-24; live).**
+  - **FLOOR.** In AREA11 the floor service 00175900, the fall check 001796C0,
+    every closure state and 0015B530's 00162DB0 / 00163B40 run on the live
+    record. `em_player_closure_live.c` binds each translation its module doc
+    names (FIRST_CONTROL.md "Engaged").
+    - The collision workers are the world's. em_actor_collision.c's query
+      half was reduced to em_coll_probe_original's prims and grid pass
+      (0019C830), and the move walkers 0019AD00 / 0019AFE0 were bound.
+    - em_actor_collision.c, em_collision.c and em_player_floor.c were
+      harmonized with their oracles onto the EE model (EE_FLOAT_MODEL.md 5c
+      "Done").
+    - 0017B490 reads the exported `assets/player_loco_tables.emrg`
+      (tools/export_player_tables.py).
+  - **Crates and drums.** Nodes #12..15 and #22..23 run 001551B0 / 00156620
+    (em_area11_boxes.c; CRATES_DRUMS_ORIGINAL.md "Binding") over:
+    - the exported world model bank;
+    - 001AF710's bone-slot stack;
+    - the collision world's lists, the interaction host's 001B17A0 and the
+      exported D_002468B0 / D_00246A00 / D_00246A10.
+
+    They are drawn through the actor draw chain at the owner's bone matrix.
+    The owners' COP1 arithmetic is on the EE model: the route captures' corner
+    points agree only with it. The legacy em_enemy crates and drums are no
+    longer placed in AREA11, and the em_enemy drum kind is deleted.
+  - **Use.** `player_use_poll`'s hook runs 00160220 over the record
+    (`em_player_closure_live_use_press`, with the host's
+    `em_area11_interaction_host_scan_00184BA0`), and
+    `player_states_bind_use_chain(1)`.
+    - The callbacks return without the floor tail when it takes a press, as
+      the instructions do.
+    - `player_pose_use_accepted` is retired. Its port half is
+      `player_pose_use_accepted_port`.
+    - A scan winner's +5 = 0x25 gets 0015B130's prelude writes at the
+      stand-in's admission.
+  - **Room move.** With the floor service engaged, the re-place tick would
+    re-ground the player a frame early. So the legacy door's movement lock
+    now releases at that tick's player stage (`em_door_movement_stage_release`),
+    where the original's stage is the door script's release 00182DF0 and
+    runs no callback tail. Route 09 shows +1F0 0x41 through the re-place
+    row, then y 184.8 on it and 184.84021 from the next row, and
+    test_room_move_reference now shows the same.
+  - **Verified.**
+    - The level smoke passes seven live phases. Phase `boxes`: both climbs
+      equal route 05 row for row.
+    - The post-release player Y equals the captures.
+    - `tools/test_collision_world_capture.py`: all six box records equal route
+      04, and the class-4 list is beat 04's.
+    - newgame-control PASS (9.599989).
+    - compare_frame_order: the verdicts equal the pre-step build's; idle04
+      PASSes at a gameplay window.
+
 
 **After S13, WP-4…WP-12 each replace one binding row and delete the matching legacy code:**
 - WP-4: grate, elevator_tick and the examine terminal (landed 2026-09-23)

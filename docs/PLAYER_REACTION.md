@@ -306,6 +306,8 @@ store. The test checks:
 
 ## 5. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 - **The states.** Set `EmPlayerStatesBinding.stage.state2[i] =
   em_player_reaction_live_XXXXXXXX` with `state2_context[i] =` an
   `EmPlayerReaction`:

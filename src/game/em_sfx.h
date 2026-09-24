@@ -322,6 +322,10 @@ void em_sfx_listener(const float player_pos[3], const float cam_eye[3],
  * func_001FBD50 turns that into its -1 return. Counted in
  * em_sfx_culls. Game thread only. */
 void em_sfx_play_at(unsigned id, const float pos[3], float radius);
+/* The same, returning 001FBD50's value: the allocated track (the handle a
+ * caller keeps to stop a loop with 0011A070 / em_sfx_stop_track), or -1
+ * when nothing was allocated (out of range, silent id, cue sequence). */
+int em_sfx_play_at_track(unsigned id, const float pos[3], float radius);
 
 /* The pure gain solver behind em_sfx_play_at, exposed for tests/tools:
  * writes the LEFT/RIGHT gains (1.0 = engine 0x1000; the far channel may

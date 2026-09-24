@@ -1,4 +1,5 @@
 #include "game/em_crate_original.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 
 #include <math.h>
@@ -146,7 +147,17 @@ void em_crate_original_set_rattle(EmCrateOriginal *crate, int32_t wait, int32_t 
     memcpy(&crate->step[3], &row, sizeof row);
 }
 
-/* ---- owner ---- */
+/* ---- owner ----
+ * The owner's own FPU arithmetic (sums, differences, products, quotients
+ * and the integer-to-float conversion) is the measured EE model (em_ee_float.h, docs/EE_FLOAT_MODEL.md;
+ * the route captures' corner points +0x2D0..+0x2EC agree only with it). The
+ * SDK routines above keep the semantics their translations were verified
+ * with. */
+static float ee_add(float a, float b) { return em_ee_add(a, b); }
+static float ee_sub(float a, float b) { return em_ee_sub(a, b); }
+static float ee_mul(float a, float b) { return em_ee_mul(a, b); }
+static float ee_div(float a, float b) { return em_ee_div(a, b); }
+static float ee_cvt(int32_t v) { return em_ee_cvt_s_w(v); }
 
 #define TRY(expr) do { if ((expr) < 0) return EM_CRATE_FAULT; } while (0)
 
@@ -212,10 +223,10 @@ static int initialise(EmCrateOriginal *c, const EmCrateInput *in, const EmCrateO
     float v[4] = {radius, 0.0f, radius, 0.0f};
     em_crate_sdk_apply(v, c->world, v);
     float x = c->position[0], z = c->position[2];
-    c->probe[7] = em_crate_sdk_add(x, v[0]); c->probe[3] = em_crate_sdk_add(z, v[2]);
-    c->probe[6] = em_crate_sdk_sub(x, v[2]); c->probe[2] = em_crate_sdk_add(z, v[0]);
-    c->probe[5] = em_crate_sdk_sub(x, v[0]); c->probe[1] = em_crate_sdk_sub(z, v[2]);
-    c->probe[4] = em_crate_sdk_add(x, v[2]); c->probe[0] = em_crate_sdk_sub(z, v[0]);
+    c->probe[7] = ee_add(x, v[0]); c->probe[3] = ee_add(z, v[2]);
+    c->probe[6] = ee_sub(x, v[2]); c->probe[2] = ee_add(z, v[0]);
+    c->probe[5] = ee_sub(x, v[0]); c->probe[1] = ee_sub(z, v[2]);
+    c->probe[4] = ee_add(x, v[2]); c->probe[0] = ee_sub(z, v[0]);
     if (c->placement & 1) {
         int owed;
         if (c->link >= 0) {
@@ -233,7 +244,7 @@ static int initialise(EmCrateOriginal *c, const EmCrateInput *in, const EmCrateO
         if (owed) em_crate_original_set_rattle(c, -1, 0);
         else c->placement &= 0xFFFE;
     }
-    float from[4] = {c->position[0], em_crate_sdk_sub(c->position[1], 2.0f), c->position[2], 0};
+    float from[4] = {c->position[0], ee_sub(c->position[1], 2.0f), c->position[2], 0};
     EmCrateProbe p;
     TRY(probe(c, h, from, -3.0f, 7, &p));
     c->raised = p.result == 4 ? 0 : 1;
@@ -272,8 +283,8 @@ static int rest(EmCrateOriginal *c, const EmCrateInput *in, const EmCrateOrigina
                     return EM_CRATE_FAULT;
                 const float *cell = in->rattle[row][column];
                 em_crate_sdk_rotate(c->world, c->rest, cell[0], 1);
-                c->world[12] = em_crate_sdk_add(c->rest[12], cell[1]);
-                c->world[14] = em_crate_sdk_add(c->rest[14], cell[2]);
+                c->world[12] = ee_add(c->rest[12], cell[1]);
+                c->world[14] = ee_add(c->rest[14], cell[2]);
             }
             if (em_crate_original_rattle_wait(c) == 0) memcpy(c->world, c->rest, sizeof c->world);
             em_crate_original_set_rattle(c, em_crate_original_rattle_wait(c) - 1,
@@ -310,8 +321,8 @@ static int hold(EmCrateOriginal *c, const EmCrateOriginalHooks *h)
 static float centred(uint32_t r, float scale)
 {
     /* (float)r / 2^31 - 0.5, then / scale (00155C04). */
-    float v = em_crate_sdk_int_to_float((int32_t)r) / 2147483648.0f;
-    return em_crate_sdk_sub(v, 0.5f) / scale;
+    float v = ee_div(ee_cvt((int32_t)r), 2147483648.0f);
+    return ee_div(ee_sub(v, 0.5f), scale);
 }
 
 static int fall(EmCrateOriginal *c, const EmCrateOriginalHooks *h)
@@ -320,10 +331,10 @@ static int fall(EmCrateOriginal *c, const EmCrateOriginalHooks *h)
     if (c->fall_phase == 0) {
         int hit[4];
         c->timer = (int16_t)(c->timer - 1);
-        int count = corners(c, h, em_crate_sdk_sub(c->position[1], 1.0f), -2.0f, 7, 1, hit);
+        int count = corners(c, h, ee_sub(c->position[1], 1.0f), -2.0f, 7, 1, hit);
         TRY(count);
         if (count >= 3 || (hit[0] && hit[2]) || (hit[1] && hit[3])) return hold(c, h);
-        float from[4] = {c->position[0], em_crate_sdk_sub(c->position[1], 2.0f),
+        float from[4] = {c->position[0], ee_sub(c->position[1], 2.0f),
                          c->position[2], c->position[3]};
         EmCrateProbe p;
         TRY(probe(c, h, from, -3.0f, 7, &p));
@@ -346,11 +357,11 @@ static int fall(EmCrateOriginal *c, const EmCrateOriginalHooks *h)
             uint32_t r;
             c->tilt = 0;
             TRY(h->random(h->context, &r));
-            c->spin[2] = em_crate_sdk_add(c->spin[2], centred(r, 60.0f));
+            c->spin[2] = ee_add(c->spin[2], centred(r, 60.0f));
             TRY(h->random(h->context, &r));
-            c->spin[1] = em_crate_sdk_add(c->spin[1], centred(r, 50.0f));
+            c->spin[1] = ee_add(c->spin[1], centred(r, 50.0f));
             TRY(h->random(h->context, &r));
-            c->spin[0] = em_crate_sdk_add(c->spin[0], centred(r, 60.0f));
+            c->spin[0] = ee_add(c->spin[0], centred(r, 60.0f));
             const float e[3] = {c->spin[2], c->spin[1], c->spin[0]};
             em_crate_sdk_euler(c->step, e);
         }
@@ -360,7 +371,7 @@ static int fall(EmCrateOriginal *c, const EmCrateOriginalHooks *h)
             c->spin[axis == 0 ? 2 : 0] = angle;
         }
         if (c->model == 6) {
-            float t = em_crate_sdk_mul(60.0f, c->position[1]) / 12.0f;
+            float t = ee_div(ee_mul(60.0f, c->position[1]), 12.0f);
             c->timer = (int16_t)(uint16_t)em_crate_sdk_float_to_int(t);
         } else {
             c->timer = 0xB4;
@@ -373,26 +384,26 @@ static int fall(EmCrateOriginal *c, const EmCrateOriginalHooks *h)
     c->timer = (int16_t)(c->timer - 1);
     if (c->tilt >= 2) {
         c->tilt = (int16_t)(c->tilt - 1);
-        c->position[1] = em_crate_sdk_add(c->position[1], c->velocity[1]);
+        c->position[1] = ee_add(c->position[1], c->velocity[1]);
         if (c->tilt < 2) {
             em_crate_sdk_identity(c->step);
-            c->velocity[2] = em_crate_sdk_mul(11.0f, -c->spin[0]);   /* neg.s */
-            c->velocity[0] = em_crate_sdk_mul(11.0f, c->spin[2]);
-            c->spin[2] = c->spin[2] / 0x1.666666p+0f;
-            c->spin[0] = c->spin[0] / 0x1.666666p+0f;
+            c->velocity[2] = ee_mul(11.0f, -c->spin[0]);   /* neg.s */
+            c->velocity[0] = ee_mul(11.0f, c->spin[2]);
+            c->spin[2] = ee_div(c->spin[2], 0x1.666666p+0f);
+            c->spin[0] = ee_div(c->spin[0], 0x1.666666p+0f);
             const float e[3] = {c->spin[2], c->spin[1], c->spin[0]};
             em_crate_sdk_euler(c->step, e);
         }
     } else {
-        c->position[0] = em_crate_sdk_add(c->position[0], c->velocity[2]);
-        c->position[1] = em_crate_sdk_add(c->position[1], c->velocity[1]);
-        c->position[2] = em_crate_sdk_add(c->position[2], c->velocity[0]);
+        c->position[0] = ee_add(c->position[0], c->velocity[2]);
+        c->position[1] = ee_add(c->position[1], c->velocity[1]);
+        c->position[2] = ee_add(c->position[2], c->velocity[0]);
         float dy = c->velocity[1];
-        c->velocity[1] = em_crate_sdk_sub(c->velocity[1], 0x1.a9fbe8p-5f);
+        c->velocity[1] = ee_sub(c->velocity[1], 0x1.a9fbe8p-5f);
         float from[4];
         memcpy(from, c->position, sizeof from);
         if (c->tilt)
-            from[1] = em_crate_sdk_sub(from[1], c->model == 6 ? 9.0f : 4.5f);
+            from[1] = ee_sub(from[1], c->model == 6 ? 9.0f : 4.5f);
         EmCrateProbe p;
         TRY(probe(c, h, from, dy, 7, &p));
         if (p.result == 4 || c->timer < 0) {
@@ -424,7 +435,7 @@ static int spawn_group(EmCrateOriginal *c, const EmCrateInput *in, const EmCrate
         child.kind = s16le(record + 0xC);
         child.link = s16le(record + 0xE);
         for (int i = 0; i < 3; ++i) {
-            child.position[i] = em_crate_sdk_add(c->position[i], f32le(record + 0x10 + 4*i));
+            child.position[i] = ee_add(c->position[i], f32le(record + 0x10 + 4*i));
             child.rotation[i] = f32le(record + 0x1C + 4*i);
         }
         child.behavior = (uint32_t)u16le(record + 0x28) | (uint32_t)u16le(record + 0x2A) << 16;
@@ -440,7 +451,7 @@ static int burst(EmCrateOriginal *c, const EmCrateInput *in, const EmCrateOrigin
         if (!(timer == 0 && c->alarm == 0) && c->raised) {
             int hit[4];
             if (timer) c->timer = (int16_t)(c->timer - 1);
-            int count = corners(c, h, em_crate_sdk_sub(c->position[1], 1.0f), -2.0f, 6, 0, hit);
+            int count = corners(c, h, ee_sub(c->position[1], 1.0f), -2.0f, 6, 0, hit);
             TRY(count);
             if (count < 3) c->state = 3;
             else if (!c->timer && c->alarm) c->timer = 6;

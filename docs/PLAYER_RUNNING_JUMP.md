@@ -28,7 +28,7 @@ are translated and verified in `src/game/em_player_climb.c`
 2, compared there frame by frame against the capture. This lane only notes
 how to bind them (section 5).
 
-The module is **built and tested but not wired**. Section 5 lists what the
+The module is **live in AREA11** (bound by em_player_closure_live.c). Section 5 lists what the
 coordinator binds.
 
 ## 1. What the original does
@@ -400,6 +400,8 @@ AREA11 route snapshot holds one.
 
 ## 5. Binding (coordinator)
 
+**Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
+
 Nothing is wired.
 
 ### Stage slots (0015B130's table; only 0015B130 dispatches these)
@@ -489,8 +491,6 @@ target is in the lane report.
 
 **Limits:**
 
-- **Not wired.** The USE gate stays closed until 00160220 itself and its
-  other workers are bound.
 - **Untranslated workers:** 001AA410 and 001AA2A0 (targets), 001760C0 with
   its arg, and the exports of 00177510 and 0017DEB0.
 - **The aim path** is verified only by the unit oracle: no AREA11 capture

@@ -90,7 +90,7 @@ static int interaction(void *context)
 static int use(void *context)
 {
     ++*(unsigned *)context;
-    return player_pose_use_accepted() ? 1 : -1;
+    return player_pose_use_accepted_port() ? 1 : -1;
 }
 
 int main(void)
@@ -147,16 +147,17 @@ int main(void)
 
     reset();
     ordinary();
-    assert(player_pose_use_accepted());
+    /* A Use press 00160220 took: the record's clip request is 001798D0's
+     * 00174A50(p, 0.0) (em_player_use_dispatch, test_player_use_dispatch_reference);
+     * the pose host's half only leaves the port's own locomotion. */
+    assert(player_pose_use_accepted_port());
     player_pose_finish_state();
-    expected(0, 79, 0); /* Same-idle Use never restarts. */
+    expected(0, 79, 0); /* no request of its own: the idle keeps its cursor */
     player_pose_request(2, 12, 0, 1);
     g.loco_mode = 1;
     g.loco_tier = 2;
     g.loco_upt = .3f;
-    assert(player_pose_use_accepted());
-    player_pose_finish_state();
-    expected(0, 80, 0);
+    assert(player_pose_use_accepted_port());
     assert(!g.loco_mode && !g.loco_tier && g.loco_upt == 0);
 
     for (unsigned tier = 1; tier <= 2; ++tier) {
@@ -189,7 +190,7 @@ int main(void)
             assert(player_pose_foot_stop_palette() == 1);
         }
         expected(0, 80, 0);
-        assert(player_pose_use_accepted());
+        assert(player_pose_use_accepted_port());
         assert(!player_pose_foot_stop_active() && !g.loco_stop.phase);
     }
     /* Immutable03 has fade level251; after120 ordinary callbacks the

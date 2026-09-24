@@ -63,6 +63,8 @@ static void panel_begin(void);
 static int panel_frame(void);
 static void elevator_begin(void);
 static int elevator_frame(void);
+static void boxes_begin(void);
+static int boxes_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -86,7 +88,7 @@ static const Phase k_phases[] = {
      "terminal 0x827B10: powered script 0x82A750, clip 0x47, carry 0x828050 down to y 190", "WP-4",
      elevator_begin, elevator_frame, 0},
     {"boxes", "05_boxes", 0x001551B0u, "ledge climb (state 2, +1F0 8) onto crates r4 and r3 (001551B0)",
-     "the ledge climb wired to the player (em_player_climb; WP-15) with WP-18 (crates)", NULL, NULL, 0},
+     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0},
     {"slide", "06_hill_slide", 0, "slope slide 0016C6A0 (state 0x1C, +1F0 0x30)",
      "the slope slide wired to the player (em_player_slide; WP-15)", NULL, NULL, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
@@ -950,6 +952,97 @@ static int elevator_frame(void)
     fprintf(stderr, "level smoke: elevator: PASS scan_d810750=%d player=(%.3f,%.5f,%.3f) yaw=%.5f\n",
             (int)t.scan_variants, g.pos[0], g.pos[1], g.pos[2], g.yaw);
     return 1;
+}
+
+/* --------------------------------------------------------------- boxes
+ *
+ * Route beat 05: from the elevator's release the player walks to crate r4
+ * (001551B0, 0x7A7C70, top y 203.8) and stands before it at the route's
+ * stance (228.787, 281.266, facing 0.0265; route f160..f172). Cross: the Use
+ * dispatcher 00160220 runs its ledge probes (0015DF10) and enters the ledge
+ * climb (+5 = 2, +1F0 = 8; route f175), clips 0x70, 0x78 and 0x8C, and the
+ * player stands on r4 (y 203.776, ground 0x7A7C70; f253/f254). Then west on
+ * the crate top to (226.237, 288.309), facing -x (-1.5708; f380..f390), Cross
+ * again: the climb onto the raised crate r3 (0x7A7980, y 217.786; f393 ..
+ * f472), and north onto the upper ledge (f640: y 219.26 on the grid). In
+ * process: both climbs are entered and end on their crates; the tick-by-tick
+ * comparison of the climbs with the capture is tools/test_level_smoke.py's
+ * check_boxes. */
+static void boxes_begin(void)
+{
+    nav_reset();
+}
+
+/* The climb after a Cross: 1 once the stage has entered +5 = 2 and handed
+ * back to control with the idle clip, 0 continue, -1 failed. */
+static int boxes_climb(int index)
+{
+    uint8_t state = em_live_u8(player_states_actor(), 5);
+    if (state == 2)
+        t.saw[index] = 1;
+    /* After the hand-back the pad stays neutral through the idle return
+     * (route f254..f265: the clip 0 countdown from 12), as in the route. */
+    if (t.saw[index] && state != 2 && in_control() && idle_clip() && ++t.saw[index + 2] > 12) {
+        nav_reset();
+        return 1;
+    }
+    if (++t.nav_frames > 200) {
+        fail(t.saw[index] ? "the ledge climb did not hand back to control"
+                          : "Cross at the crate did not enter the ledge climb (+5 = 2)");
+        return -1;
+    }
+    return 0;
+}
+
+static int boxes_frame(void)
+{
+    switch (t.step) {
+    case 0: NAV_STEP(nav_goto(228.787f, 275.0f, 1.0f, 1.0f, 1));
+    case 1: NAV_STEP(nav_goto(228.787f, 281.266f, 0.1f, 0.4f, 1));
+    case 2: NAV_STEP(nav_settle(20));
+    case 3: NAV_STEP(nav_face(0.0265f));
+    case 4: NAV_STEP(nav_settle(30));
+    case 5: NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 6: NAV_STEP(boxes_climb(0));
+    case 7:
+        if (fabsf(g.pos[1] - 203.776f) > 0.001f) {
+            fprintf(stderr, "level smoke: boxes: after the first climb y %.5f\n", g.pos[1]);
+            fail("the first climb did not end on crate r4 (y 203.776, route f253)");
+            return 0;
+        }
+        ++t.step;
+        return 0;
+    case 8: NAV_STEP(nav_goto(226.237f, 288.309f, 0.1f, 0.4f, 1));
+    case 9: NAV_STEP(nav_settle(20));
+    case 10: NAV_STEP(nav_face(-1.5708f));
+    case 11: NAV_STEP(nav_settle(30));
+    case 12: NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 13: NAV_STEP(boxes_climb(1));
+    case 14:
+        if (fabsf(g.pos[1] - 217.78619f) > 0.001f) {
+            fprintf(stderr, "level smoke: boxes: after the second climb y %.5f\n", g.pos[1]);
+            fail("the second climb did not end on crate r3 (y 217.786, route f471)");
+            return 0;
+        }
+        ++t.step;
+        return 0;
+    case 15: NAV_STEP(nav_goto(219.6f, 305.2f, 0.3f, 1.0f, 1));
+    case 16: {
+        int r = nav_settle(30);
+        if (r <= 0)
+            return 0;
+        if (g.pos[1] < 219.0f) {
+            fprintf(stderr, "level smoke: boxes: on the ledge y %.5f\n", g.pos[1]);
+            fail("the player did not step onto the upper ledge (route f640: y 219.26)");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: boxes: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0], g.pos[1],
+                g.pos[2], g.yaw);
+        return 1;
+    }
+    default:
+        return 0;
+    }
 }
 
 /* ------------------------------------------------------------- driver */

@@ -70,6 +70,8 @@
 static const int16_t kD002754D0[2] = { 0xE6, 0x100 };
 static const int16_t kD002754D4[2] = { 0xE7, 0x101 };
 
+int16_t em_player_ladder_climb_d2754D0(unsigned row) { return kD002754D0[row & 1]; }
+
 /* The scratchpad vectors, as word indexes into EmPlayerLadderClimbScene.spad38A0. */
 enum { SP_A0 = 0, SP_B0 = 4, SP_C0 = 8, SP_D0 = 12 };
 

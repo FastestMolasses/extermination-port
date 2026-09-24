@@ -42,6 +42,11 @@ static struct {
     EmActorCollisionPlayer ground_player;
     EmCollColumnMath column_math;
     EmActorCollisionPlayerColumn column_player;
+    /* 0019AD00 / 0019AFE0 (em_coll_move_original) and the hull locks. */
+    EmCollHullWorld hulls;
+    EmCollMoveWorld move;
+    EmCollMoveScratch move_scratch;
+    EmCollMovePlayer move_player;
     int loaded;
     int dumped_first;
 } w;
@@ -169,11 +174,15 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
     em_sdk_soft_float_bind(&w.math.workers, &s_soft.context);
     /* AREA11's directory has no static cell (word 0 has no bit 31), so no
      * D_0024D7C0 kind view is needed; reaching one faults. */
-    w.acw = (EmActorCollisionWorld){ &w.cells, &w.lists, emcl, NULL, 0 };
+    w.acw = (EmActorCollisionWorld){ &w.cells, &w.lists, emcl, NULL, 0, &w.grid };
     w.probe = (EmCollProbeWorld){ &w.acw, &w.grid };
-    /* The hull locks 001A6440 / 001A6AD0 (mask bit 0) are not translated:
-     * no workers, so a query with bit 0 faults. */
-    w.seg = (EmCollSegment){ &w.probe, &w.math, NULL, &w.state, &w.face };
+    /* The hull locks 001A6440 / 001A6AD0 / 001A7280 (mask bit 0,
+     * em_coll_grid_hull) walk the published class-2 list, which no AREA11
+     * owner the port runs publishes: no chain reader and no 001A7280 player
+     * are bound, so a lock that would need one faults. */
+    w.hulls = (EmCollHullWorld){ NULL, NULL, NULL };
+    w.seg = (EmCollSegment){ &w.probe, &w.math, &w.hulls, &w.state, &w.face };
+    w.move = (EmCollMoveWorld){ &w.acw, &w.grid, &w.hulls, &w.math };
     bind_passes();
     w.loaded = 1;
     return 0;
@@ -197,6 +206,12 @@ const EmActorClassLists *em_collision_world_lists(void)
 int em_collision_world_publish_001B1B70(const EmActor *actor)
 {
     return em_actor_class_publish_001B1B70(&w.lists, actor);
+}
+
+int em_collision_world_push4_001B1D20(const EmActor *actor)
+{
+    if (!w.loaded) return -1;
+    return em_actor_class_push4_001B1D20(&w.lists, actor);
 }
 
 int em_collision_world_retransform_001A2370(const EmActor *actor, const float matrix[16])
@@ -295,9 +310,75 @@ static int player_column(void *context, const float position[3], EmPlayerFloorTa
     return mine ? -1 : result;
 }
 
+/* The player's wall-probe workers (EmPlayerStatesBinding.probes). One
+ * context serves every slot of EmPlayerProbeWorkers, so these trampolines
+ * reach the world's own storage. */
+static struct {
+    int (*pose)(void *context, EmPlayerLiveActor *actor, float blend);
+    void *pose_context;
+    EmPlayerLiveActor *actor;
+} s_probe;
+
+static int pw_move(void *c, const float position[3], const float target[3], unsigned mask,
+                   EmPlayerProbeHit *hit)
+{
+    (void)c;
+    return em_coll_move_player_move(&w.move_player, position, target, mask, hit);
+}
+static int pw_sweep(void *c, const float from[3], const float to[3], unsigned mask,
+                    EmPlayerProbeHit *hit)
+{
+    (void)c;
+    return em_coll_move_player_sweep(&w.move_player, from, to, mask, hit);
+}
+/* 001760C0(p, at, 1, height): 001764E0 and 00176C80 pass 1. */
+static int pw_column(void *c, const float at[3], float height, EmPlayerProbeHit *hit)
+{
+    (void)c;
+    return em_actor_collision_player_001760C0(&w.ground_player, NULL, at, 1, height, hit);
+}
+/* 00176180 (the class-2 hull shove after a mask-bit-0 hit) and 001762E0's
+ * area-2 target shove: untranslated; AREA11 publishes no class-2 owner and
+ * is not area 2, so neither is reached. Reaching one faults. */
+static int pw_hull_shove(void *c, const float target[3])
+{
+    (void)c; (void)target;
+    fprintf(stderr, "collision world: 00176180 (class-2 hull shove) is not translated\n");
+    return -1;
+}
+static int pw_target_shove(void *c)
+{
+    (void)c;
+    fprintf(stderr, "collision world: 001762E0's area-2 target shove is not translated\n");
+    return -1;
+}
+/* 00174A50(p, 12.0) from 001756E0: the bound row request over the record. */
+static int pw_pose(void *c, float blend)
+{
+    (void)c;
+    if (!s_probe.pose || !s_probe.actor) return -1;
+    return s_probe.pose(s_probe.pose_context, s_probe.actor, blend);
+}
+static float pw_sqrt(void *c, float x) { (void)c; return em_sdk_math_original_float_0011E748(&w.math, x); }
+static float pw_atan(void *c, float x) { (void)c; return em_sdk_math_original_float_0011DBB8(&w.math, x); }
+
+void em_collision_world_bind_player_pose(int (*pose)(void *context, EmPlayerLiveActor *actor,
+                                                     float blend),
+                                         void *context, EmPlayerLiveActor *actor)
+{
+    s_probe.pose = pose;
+    s_probe.pose_context = context;
+    s_probe.actor = actor;
+}
+
 int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, uint8_t cls)
 {
     if (!w.loaded || !b) return -1;
+    /* 0019AD00 / 0019AFE0 with the live record as the query actor. */
+    w.move_player = (EmCollMovePlayer){ &w.move, &w.move_scratch, (const EmPlayerLiveActor *)self,
+                                        self };
+    b->probes = (EmPlayerProbeWorkers){ NULL, pw_move, pw_sweep, pw_column, pw_hull_shove,
+                                        pw_target_shove, pw_pose, pw_sqrt, pw_atan };
     w.probe_workers = (EmCollProbeWorkers){ &w.seg, em_coll_segment_face_worker,
                                             em_coll_segment_round_worker };
     w.probe_player = (EmCollProbePlayer){ &w.probe, &w.probe_workers, &w.state,
@@ -332,6 +413,28 @@ int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, u
     b->sdk_context = &w.math;
     b->sdk_fault = &w.math.fault;
     return 0;
+}
+
+const EmCollMoveWorld *em_collision_world_move(void) { return w.loaded ? &w.move : NULL; }
+EmCollMoveScratch *em_collision_world_move_scratch(void) { return w.loaded ? &w.move_scratch : NULL; }
+const EmCollSegment *em_collision_world_segment(void) { return w.loaded ? &w.seg : NULL; }
+EmActorCollisionWorld *em_collision_world_cells(void) { return w.loaded ? &w.acw : NULL; }
+EmSdkMathContext *em_collision_world_sdk(void) { return w.loaded ? &w.math : NULL; }
+const EmCollColumnMath *em_collision_world_column_math(void)
+{
+    return w.loaded && w.column_math.sqrt ? &w.column_math : NULL;
+}
+EmActorCollisionPlayer *em_collision_world_player(void)
+{
+    return w.loaded && w.ground_player.world ? &w.ground_player : NULL;
+}
+EmActorCollisionPlayerColumn *em_collision_world_column_player(void)
+{
+    return w.loaded && w.column_player.world ? &w.column_player : NULL;
+}
+EmCollMovePlayer *em_collision_world_move_player(void)
+{
+    return w.loaded && w.move_player.world ? &w.move_player : NULL;
 }
 
 /* ---- instrumentation ------------------------------------------------------ */

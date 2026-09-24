@@ -1,7 +1,8 @@
 # Level smoke: the first level, live, phase by phase
 
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
-elevator refusal, the panel and the elevator ride). The smoke plays the
+elevator refusal, the panel and the elevator ride) and census L25 (the
+boxes: the Use chain's ledge climbs onto the crates' original owners). The smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
 
@@ -78,7 +79,7 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 | elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | yes (WP-4) | — |
 | panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
 | elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | yes (WP-4) | — |
-| boxes | 05 | ledge climb onto crates r4/r3 (001551B0) | no | climb wiring (WP-15), WP-18 |
+| boxes | 05 | Use dispatcher 00160220, ledge climb 0015DF10 / state 2 onto crates r4/r3 (001551B0) | yes (census L25) | — |
 | slide | 06 | slope slide 0016C6A0 | no | slide wiring (WP-15) |
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | no | WP-12, WP-10 |
 | truck_crossing | 08 | truck 0x823FF0 | no | WP-12 |
@@ -250,10 +251,12 @@ release (at the panel with the retained-Y offset). The
 panel is compared in two windows: from the scan through the status open (plus
 B0/B1 from the request row), and from the Yes confirmation (B0 0 -> 1)
 through the discharge, the exit, script 0x247BE0, the power bit and the
-release (plus B0/B1); its player Y is checked as retained (001B6F00 keeps
-the ground Y of the approach, which is navigation input). The tick log gained
+release (plus B0/B1); its player Y is checked as retained while the
+script owns the player (001B6F00 keeps the ground Y of the approach, which is
+navigation input), and equal to the capture after the release. The tick log gained
 the fields these need (em_scene_bindings.c): `screen8`, `msg_pre`, `cam4`,
-`power`, `floor`, `pos_post`, `yaw_post`, `eye_post`, `tgt_post`. Negative
+`power`, `floor`, `pos_post`, `yaw_post`, `eye_post`, `tgt_post`, and for
+the boxes `player`. Negative
 controls (one tampered letterbox byte, carried Y, camera eye, power byte,
 message phase, message kind or message token in a copy of the log) each fail
 the check.
@@ -274,11 +277,6 @@ service's ticks and its 001FC9B0 teardown.
   001FF080 (D_00275BD8 clears when it completes): the translated loader
   needs 10 dispatches, the other 14 are I/O time whose split the captures
   do not record (STATUS_SCENE.md section 3; open, H7).
-- *The ground after the release.* The original re-grounds the player on its
-  first ordinary callback: on the elevator actor 0x7AA880 (y 229.99998 up,
-  189.99998 down) and at the panel (229.88731). The port has no moving-actor
-  floor and keeps the scripted Y (230, 190.00061, the approach Y). The floor
-  and actor collision belong to the player-floor and collision lanes.
 - *The camera after a release.* The original's follow keeps the script's
   eye X/Z and eases only its height; the port's follow camera (em_camera
   mode 0) moves the eye behind the player, and the camera block's +7 (the
@@ -286,9 +284,10 @@ service's ticks and its 001FC9B0 teardown.
   compared after the release; the follow camera is WP-16's.
 - *The messages of the status page* (mode 4) run inside the port's page, not
   in the logged block; mode-4 rows are skipped.
-- *The panel's player and camera Y.* The panel windows check the player Y as
-  retained (equal to the port's own approach Y, not the capture's) and the
-  scripted camera Y with that same offset; the prompt window between the
+- *The panel's player and camera Y.* While the script owns the player the
+  panel windows check the player Y as retained (equal to the port's own
+  approach Y, not the capture's) and the scripted camera Y with that same
+  offset; the prompt window between the
   request and the Yes press is not compared (the module load above).
 - *D_00282157 and the voice lanes D_00282155/156* read 0. D_00282157 is the
   phase of 001FA0D0's asynchronous disc read (em_scene_bindings.c
@@ -296,6 +295,47 @@ service's ticks and its 001FC9B0 teardown.
   that reader to 0x1AE040 state 3 and to the status page input (which does
   not read it). The voice lanes are not live (STREAM_LANES.md); no voice cue
   is pushed on the route before Roger and both messages are text-only.
+
+*The ground after the release* is no longer a divergence: with FLOOR
+engaged (00175900 over the original collision world) the port re-grounds on
+its first ordinary callback as the original does, and the post-release rows
+compare the player Y exactly (229.88731 at the panel, 189.99998 after the
+ride).
+
+### boxes
+
+Route beat 05, live since census L25: the crates run their original owner
+001551B0 (em_area11_boxes.c, CRATES_DRUMS_ORIGINAL.md "Binding"), and a
+Use press runs the dispatcher 00160220 over the live player record
+(em_player_closure_live; PLAYER_USE_DISPATCH.md section 4).
+
+**Runner.** From the elevator's release the player walks to the route's
+stance before crate r4 (228.787, 281.266, within 0.1), faces 0.0265 and
+settles 30 frames, then presses Cross for 2 frames. The same happens on the
+crate top before r3: (226.237, 288.309), facing -1.5708. After each climb
+hands back to control, the pad stays neutral through the idle return (12
+frames, route f254..f265). Last, the player walks north onto the upper
+ledge. **In process:**
+- each Cross enters the ledge climb (+5 = 2);
+- the first climb ends on r4 at y 203.776 and the second on r3 at y
+  217.786 (within 0.001);
+- the player then stands on the ledge above y 219.
+
+**Against the capture** (`check_boxes`, route 05). The tick log's `player`
+field holds the record's +5, +1F0, +1F1, clip +20C, clock +3C and ground
+owner +214 (as its original record address). Each climb is aligned on its
+first row with +5 = 2 (f175, f393). The 91 rows through the landing and the
+idle return are compared row for row:
+- +5, +1F0, +1F1, the clip, the clock (from the row after the entry; the
+  entry row's clock is the idle loop's at the press), the ground owner and
+  the heading, exactly;
+- Y exactly from the hang on (f190 / f408) and on the crate tops, and as the
+  lift relative to the stance before it;
+- X/Z as the displacement from the entry row, within 0.01. The stance is
+  navigation input within 0.1 of the route's, and the climb's end placement
+  follows the wall distance. The measured bound is 0.0062 and 0.0051.
+
+Both climbs land on the original's ground records (0x7A7C70, then 0x7A7980).
 
 ## Adding a phase (the contract for WP-4 onward)
 

@@ -22,8 +22,7 @@ legacy locomotion fields); 0017C440 was "live" through
 request's metadata (tier, blend, clip time), with the translation and clip
 callees as boundaries. This lane translates all three routines whole.
 
-The module is **built and tested but not wired**. Section 4 lists what the
-coordinator binds.
+The module is **live** (section 4).
 
 ## 1. What the original does
 
@@ -213,54 +212,58 @@ on the next frame. No native poll reached 0015FDF0 (each press was taken
 earlier, and without a press the dispatcher returns at once), and no route
 beat enters +5 = 0x23 or 0x24; the unit cases cover those paths.
 
-## 4. Binding (coordinator)
+## 4. Binding (live, census L04 / L09)
 
-The module is not in the game build (like its siblings em_player_climb.c,
-em_player_ladder_entry.c and em_player_running_jump.c). To bind it:
+The module is in the game build. `em_player_closure_live.c` binds all three
+routines over the live player record (`player_states_actor_mut()`), and
+`player_states_bind_use_chain(1)` holds wherever the original collision
+world is loaded (AREA11; em_player_stage_live.c). The player-states report
+reads "Use chain (ledge climb, vault, ladder, running jump): engaged".
 
-- **The Use hook.** 00160220 is `EmLocoWorkers.ladder` for the translated
-  idle/walk (em_locomotion_display.c, 00161020 +6 = 1/2 and 001612D0
-  +6 = 0/1). Until those are bound, it is the whole of what
-  `player_use_poll` stands for on the idle/walk callbacks. Once it is
-  bound with every worker below, `player_states_bind_use_chain(1)` is
-  true.
+- **The Use hook.** `player_use_poll` (the port's idle / walk callbacks, which
+  poll where 00161020 / 001612D0 do) calls `em_area11_interaction_host_use`.
+  That calls `em_player_closure_live_use_press`, which is 00160220 over the
+  record with every worker bound. When it takes the press (result 1), the
+  callback returns at once with no floor tail. The instructions do the same
+  (LOCOMOTION_DISPLAY.md "Where the instructions differ from the NEARMISS
+  C"; with the tail, route 05's entry row would keep the crate as its +214).
+  The record owns the player from then on. The port takes its placement
+  first, because the ledge probes may have turned +C4 (the climb snaps it
+  to the ledge normal: -0.0 and -1.5708 on route 05). It then runs
+  `player_pose_use_accepted_port` (the port's locomotion and pose-source
+  bookkeeping; no record write) and parks its own locomotion
+  (em_player.c).
 - **EmPlayerUseScene**: `d810E74` = `em_scene_state()->d810E74` (the pad
-  block's pressed word); `spad3B76` = the Use config word (the port has
-  no configurable pad block; the area11 host uses its default 0x0040);
-  `area` = D_00810700.
-- **scan (00184BA0)**: `em_interaction_scene_scan_checked` with the
-  claim, as `em_area11_interaction_host_use` does after its mask test.
-  That host function also runs the mask test and `player_pose_use_accepted`
-  (the census 7.2 stand-in). Bound through this module, the mask test and
-  the acceptance are this module's (001798D0 over the live actor). The
-  host must supply only the scan and claim.
-- **row_request (00174A50)**: `em_player_stage_row_request`
-  (em_player_stage_workers.h).
-- **classify (001AAC00)**: leave NULL. AREA11 is area 0xB, so it is never
-  reached; area 0x15 would fault.
-- **surface (0015D4C0)**: `em_player_ladder_0015D4C0` with its
-  `EmPlayerLadderWorkers` (a wrapper: that function takes the workers as
-  its first argument).
-- **trs**: `em_pose_host_build_trs_matrix` (host context), or the
-  ladder/climb binders' trs worker.
-- **ledge (0015DF10)**: `em_player_climb_live_probe(climb_live, actor,
-  mode, em_ee_float(angle))`; a negative return is a fault, else
-  `*result` = its return.
-- **wrap (001B1470)**: `em_player_recovery_wrap(x, out)`.
-- **jump / aim**: `em_player_running_jump_use_probe` / `_use_aim` with an
-  `EmPlayerRunningJumpLive` context.
-- **0017C440**: `speed` reads D_00248870 + 4 * tier through the pose
-  host's regions (as em_locomotion_display does for 001612D0);
-  `translate` = `em_player_recovery_translate_worker`; `select` =
-  `em_loco_0017B490`; `clip_frames` / `arbiter` = the binder's existing
-  001C61D0 / anim_clip_arbiter workers; `spad3A20` = the shared 0x70003A20
-  word (e.g. `EmPlayerLandScratch.s3A20`). Bind `em_player_reentry_worker`
-  wherever a module takes a 0017C440 worker (EmLocoWorkers.reentry,
-  EmPlayerLandWorkers.reentry, the hang, ladder climb and weapon-state
-  modules). em_player_motor.c's `em_player_reentry_*` metadata model then
-  retires with the port's own walk.
-- `em_area11_interaction_host.c` describes the 00160220 head as NEARMISS.
-  It is byte-matched now; the head it runs is steps 1-2 above.
+  block's pressed word). `spad3B76` is the pad config's Use word (001AF470
+  config 0, 0x0040), and `area` = D_00810700.
+- **scan (00184BA0)**: `em_area11_interaction_host_scan_00184BA0`
+  (`em_interaction_scene_scan_checked` with the claim; no mask test and no
+  acceptance, which are this module's), set with
+  `em_player_closure_live_set_scan` when the roster spawns (em_scene_bindings.c)
+  and cleared at the area build.
+- **row_request (00174A50)**: `em_player_stage_row_request`.
+- **classify (001AAC00)**: a fail-stop worker (area 0x15 only).
+- **surface (0015D4C0)**: `em_player_ladder_0015D4C0` with the closure's
+  ladder-entry workers. A ladder / ledge action record (attribute 0x20..0x3D)
+  faults, because the EMCL export lacks its +0x34..+0x3F axis.
+- **ledge (0015DF10)**: `em_player_climb_live_ledge`, with the shared
+  0x70003A20 word synchronized around it.
+- **jump / aim**: `em_player_running_jump_use_probe` / `_use_aim`.
+- **0017C440**: bound as described in the closure (`reentry_speed` reads
+  D_00248870 through the record pose's regions, which map the exported
+  `assets/player_loco_tables.emrg`; `select` is `em_loco_0017B490`).
+- **The scan winner's hand-off.** The dispatcher leaves +5 = 0x25, which is
+  an empty case in 0015B130. The interaction runtime (the stand-in for the
+  scripted takeover) consumes the next stage. At that admission the record
+  gets the writes of 0015B130's prelude: +5 = 0, +6 = 0, +1F0 = 0x41 (route
+  04 shows them on the frame after the scan). The stand-in consumes the
+  stage in place of +4 = 4 (em_player.c live_major1).
+
+**Evidence.** `make test-level-smoke`: the battery, refusal, panel and
+elevator presses win the scan through the native dispatcher, and every row
+check of those phases is unchanged. Phase `boxes` shows both Cross presses
+at the crates entering the ledge climb. The climbs equal route 05 row for row
+(LEVEL_SMOKE.md "boxes").
 
 ## 5. Makefile
 
@@ -275,8 +278,9 @@ test-player-use-dispatch-reference:
 
 ## 6. Limits
 
-- Not wired. The live Use path is still `player_use_poll` with the area11
-  host's head, and the live 001798D0 is still `player_pose_use_accepted`.
+- The port's own idle / walk callbacks still poll (00161020 / 001612D0 are
+  translated but unbound, census L12). They poll at the positions the
+  instructions do.
 - The world replays run the original callees for every worker. They prove
   the dispatcher, the reset and the re-entry request in place. They do not
   prove the native translations of those callees; each has its own
