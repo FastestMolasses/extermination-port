@@ -50,7 +50,15 @@ Files:
 - `src/game/em_level_smoke_test.{h,c}`: the in-process driver. Its phase
   table is `k_phases`. It is hooked beside em_opening_control_test: begin in
   `em_game_install_new`, and after-frame at the end of `frame_close_out`,
-  which is the 001D1EA0 position of every world and status frame.
+  which is the 001D1EA0 position of every world and status frame. A latched
+  scene fault stops the game task before `frame_close_out`, so the task's
+  fail-stop return in `em_scene_task_001ACEC0` calls
+  `em_level_smoke_test_scene_stopped` (and
+  `em_opening_control_test_scene_stopped` for newgame-control) instead. The
+  run then ends with `FAIL ... the scene coordinator faulted at <address>` and
+  a nonzero exit rather than waiting for its next phase (for example when
+  `assets/scene_snow/interaction.emis` or `assets/spawn/spawn_table.emsp` is
+  missing). Nothing is called while no fault is latched.
 - `tools/test_level_smoke.py`: the capture checks. Its phase list is
   `PHASES`.
 - `em_scene_bindings_pool_binding()`: the current binding of an owner, for

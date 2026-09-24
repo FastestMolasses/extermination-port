@@ -1010,5 +1010,16 @@ void em_level_smoke_test_after_frame(void)
         next_phase();
 }
 
+void em_level_smoke_test_scene_stopped(void)
+{
+    if (!t.active || t.failed)
+        return;
+    const EmSceneFault *fault = &em_scene_state()->fault;
+    char reason[96];
+    snprintf(reason, sizeof reason, "the scene coordinator faulted at %08X (code %d); the game task is stopped",
+             (unsigned)fault->address, (int)fault->code);
+    fail(reason);
+}
+
 int em_level_smoke_test_active(void) {return t.active;}
 int em_level_smoke_test_failed(void) {return t.failed;}

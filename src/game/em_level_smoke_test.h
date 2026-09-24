@@ -19,6 +19,11 @@ void em_level_smoke_test_begin(void);
 /* At the end of every world frame and status frame (frame_close_out, the
  * 001D1EA0 position), beside em_opening_control_test_after_frame. */
 void em_level_smoke_test_after_frame(void);
+/* From the slot-0 game task while a scene fault is latched (the fail-stop
+ * return of em_scene_task_001ACEC0). The stopped task never reaches the
+ * after-frame hook again, so this ends the run with a FAIL line (and a
+ * nonzero exit) instead of waiting for the next phase. */
+void em_level_smoke_test_scene_stopped(void);
 int em_level_smoke_test_active(void);
 int em_level_smoke_test_failed(void);
 

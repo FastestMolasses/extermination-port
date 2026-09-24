@@ -414,5 +414,15 @@ void em_opening_control_test_after_frame(void)
     }
 }
 
+void em_opening_control_test_scene_stopped(void)
+{
+    if (!test.active || test.failed) return;
+    const EmSceneFault *fault=&em_scene_state()->fault;
+    char reason[96];
+    snprintf(reason,sizeof reason,"the scene coordinator faulted at %08X (code %d); the game task is stopped",
+             (unsigned)fault->address,(int)fault->code);
+    fail(reason);
+}
+
 int em_opening_control_test_active(void) {return test.active;}
 int em_opening_control_test_failed(void) {return test.failed;}

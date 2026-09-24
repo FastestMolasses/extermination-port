@@ -107,7 +107,9 @@
 #include "game/em_frontend.h"
 #include "game/em_game_internal.h"
 #include "game/em_hud.h"
+#include "game/em_level_smoke_test.h"
 #include "game/em_load_veil.h"
+#include "game/em_opening_control_test.h"
 #include "game/em_opening_media.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_pickup.h"
@@ -1967,8 +1969,14 @@ void em_scene_bindings_fixture_loaded(EmTask *record)
 void em_scene_task_001ACEC0(void)
 {
     bindings_init();
-    if (em_scene_faulted(&s_state))
-        return; /* fail-stop: the task does nothing after a fault */
+    if (em_scene_faulted(&s_state)) {
+        /* fail-stop: the task does nothing after a fault. The headless
+         * drivers' after-frame hooks run inside the tick, so they are told
+         * here instead (test instrumentation; inert when inactive). */
+        em_opening_control_test_scene_stopped();
+        em_level_smoke_test_scene_stopped();
+        return;
+    }
     EmTask *self = em_task_current();
     s_user = self ? self->user : NULL;
     /* D_00810E74/E70/E50 as step C left them this frame (design 3.2). */
