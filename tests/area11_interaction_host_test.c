@@ -238,6 +238,15 @@ static void bridge_status_request(void)
 {
     EmSceneState *scene = em_scene_state();
     if (!scene->req[EM_SCENE_REQ_B0]) return;
+    if (scene->req[EM_SCENE_REQ_B1] == 0x1B) {
+        /* The battery pickup's 001C47A0 request (after 001C40B0 added it). */
+        ++status_requests;
+        assert(scene->req[EM_SCENE_REQ_B0] == 1 && em_pickup_item_count(0x1B) == 1);
+        assert(em_status_runtime_pickup_request(em_area11_interaction_host_status(), 1, 0x1B));
+        scene->req[EM_SCENE_REQ_B0] = 0;
+        return;
+    }
+    if (!(scene->req[EM_SCENE_REQ_B1] & 0x80)) return; /* other takes: left for the scenario */
     const uint8_t *d0 = em_scene_req_at(scene, 0x008106D0u);
     uint32_t owner = (uint32_t)d0[0] | (uint32_t)d0[1] << 8 | (uint32_t)d0[2] << 16 |
                      (uint32_t)d0[3] << 24;
@@ -250,6 +259,17 @@ static void bridge_status_request(void)
 
 static float word(const unsigned char *ram, unsigned address)
 { float value; memcpy(&value, ram + address, 4); return value; }
+
+/* Each bound item node's first call (state 0), after a host load. */
+static void pickups_state0(void)
+{
+    EmInteractionScene *scene_owners = em_area11_interaction_host_scene();
+    for (size_t i = 0; i < scene_owners->count; ++i) {
+        const EmInteractionSceneOwner *record = &scene_owners->owners[i];
+        if (record->role == EM_INTERACTION_PICKUP && record->native_owner)
+            assert(em_area11_interaction_host_pickup_state0(record->source_id, record->subtype, 0) == 0);
+    }
+}
 
 static void setup(int reset_inventory)
 {
@@ -301,7 +321,17 @@ static void setup(int reset_inventory)
     assert(player_pose_opening_release());
     player_pose_finish_palette();
     assert(em_opening_media_prepare("assets/scene_snow") == 0);
+    /* The placed items (em_scene's manifest pickups) the host binds; a
+     * taken item is not placed (-2). */
+    static EmInteractionScene placed;
+    assert(em_interaction_scene_load(&placed, "assets/scene_snow/interaction.emis"));
+    for (size_t i = 0; i < placed.count; ++i)
+        if (placed.owners[i].role == EM_INTERACTION_PICKUP)
+            assert(em_pickup_add(NULL, "assets/scene_snow", (int)placed.owners[i].item_type,
+                                 placed.owners[i].position, placed.owners[i].angles[1],
+                                 placed.owners[i].uid, NULL, 0) != -1);
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    pickups_state0();
     assert(sfx_selected);
     em_area11_interaction_host_set_panel_address(PANEL_ADDRESS);
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
@@ -319,6 +349,24 @@ static void teardown(void)
     em_opening_media_shutdown();
     em_collision_free(&g.coll);
     em_model_free(&g.model);
+}
+
+/* Every bound item owner's node call (em_area11_interaction_host_pickup_tick);
+ * returns how many freed their owner this call. */
+static int pickup_ticks(void)
+{
+    EmInteractionScene *scene = em_area11_interaction_host_scene();
+    int freed = 0;
+    for (size_t i = 0; i < scene->count; ++i) {
+        const EmInteractionSceneOwner *record = &scene->owners[i];
+        if (record->role != EM_INTERACTION_PICKUP || !record->native_owner) continue;
+        const EmPickupOwner *owner = record->native_owner;
+        if (owner->freed) continue; /* its node freed itself */
+        int result = em_area11_interaction_host_pickup_tick(record->source_id);
+        assert(result >= 0);
+        freed += !result;
+    }
+    return freed;
 }
 
 static int outer(unsigned pressed)
@@ -352,7 +400,7 @@ static int outer(unsigned pressed)
         assert(!em_status_runtime_ordinary_enabled(status));
         assert(!em_area11_interaction_host_panel_tick());
         assert(!em_area11_interaction_host_elevator_tick());
-        assert(em_pickup_original_tick(g.pos[1], 0x25, 0, 1, 0) == 1);
+        assert(pickup_ticks() == 0);
         assert(!memcmp(&panel_script, &em_area11_interaction_host_panel()->program.script,
                        sizeof panel_script));
         assert(!memcmp(&elevator_script, &em_area11_interaction_host_elevator()->program.script,
@@ -388,10 +436,7 @@ static int outer(unsigned pressed)
     }
     assert(!em_area11_interaction_host_elevator_tick());
     EmInteractionFrame *frame = em_area11_interaction_host_shared()->frame;
-    assert(em_pickup_original_tick(g.pos[1], 0x25, 0, frame->selector, 1) == 1);
-    /* The external pickup adapter uses the shared frame directly. Publish
-     * its writes before another owner can import the actual camera fields. */
-    em_area11_interaction_host_camera_fields();
+    (void)pickup_ticks(); /* the item owners at their nodes (they store their frame view) */
     assert(em_area11_interaction_host_message_tick(0, 0) >= 0);
     assert(g.cam.top_mode == frame->camera_top && g.cam.sub_state == frame->camera_phase &&
            g.cam.mode == frame->camera_mode);
@@ -402,48 +447,6 @@ static int outer(unsigned pressed)
     if (*cooldown) --*cooldown;
     camera_commit(&g.cam);
     return 0;
-}
-
-static int pickup_turn(void *context, uint32_t source_id, const float position[3], float step)
-{
-    (void)context;
-    assert(source_id && position && step > 0);
-    float yaw = g.yaw;
-    int result = em_pickup_turn(&em_area11_interaction_host_scene()->math,
-        g.pos, &yaw, position, step);
-    assert(result >= 0 && player_pose_face(yaw));
-    return result;
-}
-
-static int pickup_camera(void *context, uint32_t source_id, const float position[3], EmScript *script)
-{
-    (void)context;
-    assert(source_id && position && script);
-    float desired[6];
-    memcpy(desired, g.cam.eye_des, 3 * sizeof(float));
-    memcpy(desired + 3, g.cam.tgt_des, 3 * sizeof(float));
-    int result = em_pickup_camera_settle(script, position, g.cam.tgt);
-    assert(result >= 0 && em_area11_interaction_host_camera_publish() == 1);
-    /* B8FC0/sub8 settles only the actual target, unlike elevator sub0. */
-    assert(!memcmp(desired, g.cam.eye_des, 3 * sizeof(float)));
-    assert(!memcmp(desired + 3, g.cam.tgt_des, 3 * sizeof(float)));
-    return result;
-}
-
-static int pickup_status(void *context, uint8_t kind, uint8_t index)
-{
-    (void)context;
-    ++status_requests;
-    assert(kind == 1 && index == 0x1B && em_pickup_item_count(index) == 1);
-    return em_status_runtime_pickup_request(em_area11_interaction_host_status(), kind, index);
-}
-
-static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent event,
-                        uint32_t argument)
-{
-    (void)context; (void)event; (void)argument;
-    assert(source_id);
-    return 1; /* Actor visibility/aura/sound are explicit outer boundaries. */
 }
 
 static void first_battery(void)
@@ -457,25 +460,35 @@ static void first_battery(void)
             record = &scene->owners[i];
         }
     assert(record);
-    assert(em_pickup_add(NULL, "assets/scene_snow", record->item_type, record->position,
-        record->angles[1], record->uid, NULL, 0) >= 0);
-    EmPickupOriginalHooks hooks = {NULL, pickup_turn, pickup_camera, pickup_status, pickup_event};
-    const char *script = record->callback == 0x219550 ?
-        "assets/scene_snow/pickup_00219550.emsc" : "assets/scene_snow/pickup_0015afa0.emsc";
+    /* The host bound the item at load (em_pickup_original_bind). */
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
-    assert(em_pickup_original_bind(record, shared, script, &hooks) == 1);
     EmPickupOwner *owner = em_pickup_original_owner(record->uid);
+    assert(owner && record->native_owner == owner);
     assert(owner && player_pose_use_accepted());
     assert(em_interaction_runtime_claim(shared, owner));
     em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     owner->armed = 4;
     unsigned previous_requests = status_requests, ticks = 0;
     while (status_requests == previous_requests) {
-        assert(!outer(0)); assert(++ticks < 512);
+        /* B8FC0/sub8 settles only the actual target, unlike elevator sub0:
+         * the desired eye and target stay as they are. */
+        float desired[6];
+        memcpy(desired, g.cam.eye_des, 3 * sizeof(float));
+        memcpy(desired + 3, g.cam.tgt_des, 3 * sizeof(float));
+        /* The request posted by the previous call is handed to the status
+         * frame machine at the start of this one (bridge_status_request),
+         * whose first status frame it then is. */
+        int status_frame = outer(0);
+        if (status_requests != previous_requests) {
+            assert(status_frame == 1);
+            break;
+        }
+        assert(!status_frame); assert(++ticks < 512);
+        assert(!memcmp(desired, g.cam.eye_des, 3 * sizeof(float)));
+        assert(!memcmp(desired + 3, g.cam.tgt_des, 3 * sizeof(float)));
     }
     assert(owner->lifecycle == 1 && owner->phase == 1 && shared->owner == owner);
-    assert(em_status_runtime_ordinary_enabled(em_area11_interaction_host_status()));
-    for (unsigned i = 0; i < 7; ++i) assert(outer(0) == 1);
+    for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
     EmStatusRuntime *status = em_area11_interaction_host_status();
     assert(em_status_runtime_page(status)->item.step == 3);
     assert(em_pickup_battery_charge() == 12 && em_pickup_battery_capacity() == 12);
@@ -492,6 +505,43 @@ static void first_battery(void)
     do { assert(!outer(0)); assert(++ticks < 520); } while (shared->owner);
     assert(!player_pose_owned() && owner->lifecycle == 3 && !powered());
     printf("AREA11 native host first battery: %u callbacks, status release70 PASS\n", ticks);
+    teardown();
+}
+
+/* The other AREA11 takes (001B6EA0 families): each posts its original
+ * request (001C47A0 B0 = 1 / 001C4720 B0 = 2 / 001C4760 B0 = 3, B1 = the
+ * type) after its inventory write, and the page 0020CDC0 would open for it
+ * is not translated: the host's page faults with a report, never a silent
+ * nothing. */
+static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
+{
+    setup(1);
+    uint8_t mag = 0;
+    int16_t reserve = 60;
+    em_pickup_set_weapon_ammo(&mag, &reserve);
+    EmInteractionScene *scene = em_area11_interaction_host_scene();
+    EmInteractionSceneOwner *record = em_interaction_scene_pickup(scene, uid);
+    assert(record && record->item_type == type && record->native_owner);
+    EmPickupOwner *owner = record->native_owner;
+    EmInteractionRuntime *shared = em_area11_interaction_host_shared();
+    assert(player_pose_use_accepted() && em_interaction_runtime_claim(shared, owner));
+    em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
+    owner->armed = 4;
+    EmSceneState *state = em_scene_state();
+    unsigned ticks = 0;
+    /* The camera target settles from the fixture stance toward the item. */
+    while (!state->req[EM_SCENE_REQ_B0]) { assert(!outer(0)); assert(++ticks < 4000); }
+    assert(state->req[EM_SCENE_REQ_B0] == kind && state->req[EM_SCENE_REQ_B1] == type);
+    if (kind == 2) assert(em_pickup_maps()[type] == 1);
+    else if (kind == 3) assert(em_pickup_keys()[type] == 1);
+    else assert(em_pickup_item_count(type) == (type == 0x10 ? 3 : 1));
+    if (type == 0x10) assert(mag == 30 && reserve == 90 && em_pickup_mag_packs() == 3);
+    assert(em_area11_interaction_host_status_open() == 1);
+    EmStatusInput input = {.stick_x = 128, .stick_y = 128};
+    assert(em_area11_interaction_host_status_page(&input) == -1 && em_area11_interaction_host_failed());
+    printf("AREA11 native host take %04X: B0 = %u, B1 = %#04x after %u callbacks; its page faults PASS\n",
+           (unsigned)uid, (unsigned)kind, (unsigned)type, ticks);
+    em_pickup_set_weapon_ammo(NULL, NULL);
     teardown();
 }
 
@@ -627,6 +677,7 @@ static void missing_sound_bank(void)
     assert(!em_area11_interaction_host_scene() && !sfx_selected);
     sfx_bank_available = 1;
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    pickups_state0(); /* the failed load released its item bindings */
     assert(sfx_selected && em_sfx_cue_state(0x3EE) == 2);
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
     assert(!outer(0) && !em_area11_interaction_host_failed());
@@ -844,6 +895,11 @@ int main(void)
     owned_teardown();
     elevator_state0_floor();
     missing_sound_bank();
+    /* Last: each resets the inventory the scenarios above share. */
+    other_take(0x0B04, 1, 0x1E);
+    other_take(0x0B07, 3, 0x32);
+    other_take(0x0B08, 1, 0x10);
+    other_take(0x0B09, 2, 0x08);
     puts("AREA11 native interaction host PASS");
     return 0;
 }

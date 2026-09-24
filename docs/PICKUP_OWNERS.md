@@ -1,15 +1,13 @@
 # Original AREA11 pickup owners
 
-The canonical adapter in `em_pickup_original.h` replaces the independent
-nearest-item scan and two-frame take for bound AREA11 pickups (the legacy
-`Found` line is deleted since WP-5; the legacy take posts the battery's
-original 001C47A0 request instead, and every other take reports on stderr
-the 001B6EA0 request it withholds and the page 0020CDC0 would open).
-It consumes the previous-frame winner selected by `em_interaction_scene`,
-runs the original exported programs, and queues the real status request.
-The game host owns Use acceptance, shared player takeover, status pages,
-and camera publication. The adapter does not silently complete a missing
-worker. Other unbound scenes retain the explicitly legacy path.
+Live since WP-6 (2026-09-23). The AREA11 interaction host
+(`em_area11_interaction_host.c`) binds the seven item owners (00219550 x6,
+0015AFA0 for the map) to `em_pickup_original` at load, publishes them
+through the translated 001B17A0, resolves Use for them in its single
+00184BA0 scan and ticks each owner at its own pool node
+(`em_area11_bindings.c`). The former legacy use scan, two-frame take, flat
+inventory add, Found line and the interact-clip lock are deleted; placed
+items of scenes without a bound owner are drawn and never taken.
 
 ## Original evidence
 
@@ -65,18 +63,46 @@ now implements both paths separately.
 `001B6EA0` dispatches on the owner subtype:
 
 - 0: call `001C40B0(type,1)`, then write request B0=1 and B1=type.
-- 1: increment the separate map byte at CB8[type] with byte wrap, then
-  write B0=2 and B1=type.
-- Other values: increment the separate key byte at CC3[type] with byte
-  wrap; only types>=20 write B0=3/B1=type. Lower types preserve an existing
-  request.
+- 1: increment the map byte D_00810CB8[type] with byte wrap, then write
+  B0=2 and B1=type.
+- Other values: increment the key byte D_00810CC3[type] with byte wrap; only
+  types >= 0x20 write B0=3/B1=type. Lower types preserve an existing request.
 
-`em_pickup_equipment_read/write` exposes persistent C60/CA4/CA6 state. Its
-new-game values are0/FF/0 from `001AF2C0`. These are independent state bytes,
-not values inferred from inventory counts. Maps and keys also remain
-separate arrays. The existing item mutation worker still owns special
-weapon/magazine/meter behavior; this batch proves family dispatch and the
-status ordering, not every `001C40B0` case or every new-game inventory seed.
+**The item block is canonical D2 progress** (em_scene_state.h, WP-6):
+D_00810C60, the pack count C63, the counts D_00810C64[t], the meters
+CA8..CB0, the battery charge CB2 (s16) and capacity CB7, and the map/key
+bytes, which overlap the counts exactly as in the original (CB8[t] is
+C64[0x54 + t], CC3[t] is C64[0x5F + t]). em_weapon keeps D_00810C61 (fire
+mode), D_00810C62 (loaded magazine) and D_00810CB4 (reserve); the game binds
+the last two with `em_pickup_set_weapon_ammo`.
+
+**001C40B0** is `em_pickup_items_001C40B0` (em_pickup_items_original.c,
+from its .s): every case, with each clamp comparing the value reloaded after
+its store (a count byte wraps before the 99 clamp is tested), and case 0x10
+writing the pack count, the reserve (+30 a pack), the loaded magazine (30
+when empty) and the 98-pack cap directly (W13; the former pending-rounds
+queue is deleted). It addresses bytes by original address through a
+resolver; a byte the port does not hold (outside the item block, or the
+weapon bytes unbound) faults.
+
+**Requests and pages.** The host's status hook writes B0 then B1. The
+battery types 0x1B..0x1D open the ITEM root's BATTERY page (WP-5). The
+other AREA11 takes post their original requests too: 0x1E/0x1F (B0 = 1, the
+ITEM child 002160B0), 0x10 (B0 = 1, SPR4 00211970), key 0x32 (B0 = 3,
+DATABASE 00214020) and the map 0x08 (B0 = 2, MAP 0020F950). Those pages are
+not translated: the host's 0020CDC0 faults with a report naming the page
+(fixture `other_take`).
+
+**The class-7 aura** (the map owner 0015AFA0): 0015AC00's state 0 calls
+001F1110 (one rand() for the first countdown) and 0015AE20's tail calls
+001F1180 while D_70003B92 == 0 (read after the script step). Both are
+translated (`em_pickup_aura_001F1110/001F1180`, from the .s: the readable C
+of 001F1180 has its variant test inverted; variants 4, 2 and 1 run the
+camera-facing test on the owner's +0xD0 rows). The countdown, the rand()
+draws, the facing test and the angle/phase ramps are live, so the shared
+LCG advances as in the original. The draw block (0011E2A8, the sprite
+record, 001026A0, 001F0A60) is not translated: the sprite is not drawn,
+reported once.
 
 ## Facing and camera
 
@@ -101,25 +127,39 @@ hook is outside this numerical helper; no replacement `atan2f` is used.
 
 ## Host contract
 
-Load canonical metadata and render instances, then bind every remaining
-pickup with `em_pickup_original_bind`. A persisted absent owner returns-2;
-missing assets, workers, duplicate binding, or mismatched owner metadata
-fail. Use `em_pickup_original_owner(uid)` as the stable token passed to
-shared runtime claim and as the live status/class/armed storage. The game
-performs original Use-success pose reset before the later takeover worker.
+`em_area11_interaction_host_load` binds every placed pickup with
+`em_pickup_original_bind` after the other owners (a taken owner, not
+spawned by 001B6660, returns -2), and binds each owner's status, class and
+armed bytes into the interaction scene. Whole-world teardown releases the
+bindings (`em_pickup_original_unbind_all`); instances, inventory and taken
+bits stay. At the pool node:
 
-At the original pooled-actor stage, call `em_pickup_original_tick` once.
-It visits the seven pickup owners by original publication rank. Its
-publication hook must evaluate the current original culling point and
-publish the canonical owner where eligible. The adapter marks its deferred
-draw record visible only when that worker reports visibility. The host
-retains ordinary update/render order for child indicators and other actors.
+- state 0 (the first call): 00219550 spawns its 001C5570 light child (the
+  node keeps it as the owner's +0x2EC); 0015AFA0 runs 0015AC00's 001C6380
+  matrix and 001F1110 (`em_area11_interaction_host_pickup_state0`);
+- later calls: `em_area11_interaction_host_pickup_tick` runs one owner
+  update (`em_pickup_original_tick_one`) over the shared frame view and
+  the program's canonical skip byte. D_00810354 is the player's Y;
+  D_008104A0 and D_008104E6 are 0 on every port path (0x2D is written only by
+  0016D130, which the port does not run; +0x236 has no port writer). The
+  completion writes the child's +4 = 3 (the child node frees itself, 001C5680
+  state 3); the call that frees the owner frees the node (001AFC10). Status
+  frames tick no owner.
 
-After binding, `em_pickup_update` cannot independently arm an item. Bound
-owners cannot reach its countdown, synchronous grab, fake battery-key
-shortcut, or request post. Real status presentation and cue playback stay
-explicit required callbacks. The class7 aura rendering worker is a visible
-remaining boundary; this change does not fabricate an aura.
+Hooks: op0E sub1 is `em_pickup_turn` on the player heading; op00 sub8 is
+`em_pickup_camera_settle` on the actual target, then the 001DD980
+publication; PUBLISH is `em_owner_services_001B17A0` with 001B1630 on
+g.cam.eye/fwd and 001B1B70's interactive-list push (its class-4 cell push
+has no port counterpart: the port's collision world holds only the panel's
+cell); TAKE_SOUND is 001FBD50(owner, 0x194, 0, 300), whose cue has no
+exported AREA11 sample (WP-14): reported once and dropped, like the status
+page's system cues.
+
+Use: the host's 00184BA0 predicate runs `em_interaction_pickup_candidate`
+for the items, with 0019A910 mode 6 as the port's camera segment query
+(mask 6: static cells, published actor cells, grid). An item is never its
+own hit owner there, because the port publishes no item cells; a static
+wall between the player's +16 and the item rejects as in the original.
 
 ## Validation
 
@@ -135,9 +175,17 @@ remaining boundary; this change does not fabricate an aura.
   independent-scan suppression,660 truncated files and12 malformed records.
 - Existing pickup-light and panel interaction tests pass.
 
-Run `make test-pickup-owner-reference test-pickup-original
-test-interaction-frame-reference test-interaction-scan-reference
-test-pickup-lights test-panel-interaction`.
+- Original 001C40B0, 001F1110 and 001F1180 with its SDK vector leaves
+  (`make test-pickup-items-reference`, tools/test_pickup_items_reference.py):
+  675 inventory cases over random item blocks (every byte of
+  D_00810C00..DFF compared) and 85,571 aura cases in full mode (the
+  countdown, the facing test in both outcomes and the draw record/argument
+  scripts).
+- The live battery take against route 01 (the level smoke's battery phase).
+
+Run `make test-pickup-owner-reference test-pickup-items-reference
+test-pickup-original test-interaction-frame-reference
+test-interaction-scan-reference test-pickup-lights test-area11-interaction-host`.
 
 The raw oracles compare original instruction flow under the project's
 finite EE arithmetic model (truncated sums/products, rounded scalar

@@ -95,24 +95,6 @@ static void actor_update(void)
     if (player_pose_stage() != 0) return;
     const float previous_position[3]={g.pos[0],g.pos[1],g.pos[2]};
     const float previous_yaw=g.yaw;
-    /* SCRIPTED INTERACT anim end-detection (em_game_player_interact_anim).
-     * The interact clip is a one-shot through the sa_* mailbox: the
-     * request lands the frame em_game_player_interact_anim is called
-     * (from the legacy pickup take, AFTER this update ran), the commit fires
-     * here next frame (sa_cur -> interact_clip), and the clip clears
-     * itself back to sa_cur == 0 when it plays through. Track the commit
-     * (interact_seen) so the pre-commit frame (sa_cur still 0) does not
-     * release the lock early; once seen, sa_cur leaving the interact clip
-     * means the clip ended -> control returns (interact_active = 0). This
-     * runs BEFORE player_move so the movement lock is dropped the same
-     * frame the clip finishes (no extra locked frame). */
-    if (g.interact_active) {
-        if (g.sa_cur == g.interact_clip && g.interact_clip != 0)
-            g.interact_seen = 1;        /* committed + running */
-        else if (g.interact_seen)
-            g.interact_active = 0;      /* clip ended -> control returns */
-    }
-
     /* PLAYER STATE 2 (hit reaction / dying) replaces the free-move
      * spine entirely — the engine's state dispatch (func_0015BA50)
      * routes to the hurt machine instead of the action machine; the

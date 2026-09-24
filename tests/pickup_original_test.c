@@ -71,9 +71,7 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     assert(!em_pickup_original_bind(&metadata,&interaction,path,&hooks));
     EmPickupOwner *owner=em_pickup_original_owner(metadata.uid);
     assert(owner && em_pickup_original_active());
-    EmFrameInput input={0}; input.pressed=EM_PAD_CROSS;
-    em_pickup_update(metadata.position,0,&input,1);
-    assert(owner->armed==0 && s.p[0].armed==0 && scan_slot==-1);
+    assert(owner->armed==0);
     assert(em_interaction_runtime_claim(&interaction,owner));
     owner->armed=4;
     uint8_t action=short_program?0x2D:0;
@@ -88,10 +86,12 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     assert(host.status_calls==1 && host.index==type);
     assert(host.kind==(subtype==0?1:subtype==1?2:3));
     assert(!em_pickup_taken(metadata.uid) && s.p[0].used && owner->lifecycle==1);
-    assert(!em_scene_state()->req[EM_SCENE_REQ_B0]); /* no legacy take request */
+    assert(!em_scene_state()->req[EM_SCENE_REQ_B0]); /* the request goes through the hook */
     if (!subtype) assert(em_pickup_item_count(type)==1);
-    else if (subtype==1) assert(em_pickup_maps()[type]==1 && !em_pickup_item_count(type));
-    else assert(em_pickup_keys()[type]==1 && !em_pickup_item_count(type));
+    else if (subtype==1) assert(em_pickup_maps()[type]==1 && !em_pickup_item_count(type) &&
+                                em_pickup_item_count(0x54+type)==1); /* CB8[t] is C64[0x54+t] */
+    else assert(em_pickup_keys()[type]==1 && !em_pickup_item_count(type) &&
+                em_pickup_item_count(0x5F+type)==1); /* CC3[t] is C64[0x5F+t] */
     if (!short_program) assert(host.turn_calls==2 && host.camera_calls==3 && frames>=45);
     EmScript saved=s.p[0].program.script;
     for (unsigned i=0;i<5;++i) {

@@ -35,7 +35,6 @@
 #include "em_input.h"        /* EM_PAD_CROSS — the use-button mask */
 #include "game/em_hud.h"     /* em_hud_radio (GLOBAL lines) + text draw */
 #include "game/em_game.h"    /* interact-busy gate and the FACE step */
-#include "game/em_pickup.h"  /* the single-winner use-scan arbitration */
 
 #define EX_PI 3.14159265358979f
 
@@ -323,29 +322,11 @@ void em_examine_update(const float player_pos[3], float player_yaw,
             !em_game_player_interact_busy()) {
             float hit_d = 0.0f;
             int   hit   = examine_scan(player_pos, player_yaw, &hit_d);
-            if (hit >= 0) {
-                /* ONE WINNER PER PRESS (CORRECTED, audit 2026-07-31).
-                 * func_00184BA0 (recovered C) walks ONE interactive list
-                 * that holds items AND examine objects, keeps the single
-                 * smallest planar distance (`if (v < best) { best = v;
-                 * winner = obj; }`) and arms only that object
-                 * (`winner[0xB] = 4; return 1`). The port scans the two
-                 * kinds in separate modules, so a press near both used to
-                 * take the item AND start the examine script in the same
-                 * frame. em_pickup_update has already run this frame:
-                 * yield to its winner when it is nearer, otherwise take
-                 * the press back off it. (Ties go to the item — the
-                 * engine's strict `<` resolves them by list order, which
-                 * the port has no counterpart for.) */
-                float item_d = 0.0f;
-                if (em_pickup_scan_dist(&item_d) && item_d <= hit_d) {
-                    printf("examine: slot %d lost the press to a nearer "
-                           "item (%.2f <= %.2f)\n", hit, item_d, hit_d);
-                } else {
-                    em_pickup_scan_release();
-                    seq_start(hit);
-                }
-            }
+            /* The legacy item scan this used to arbitrate against was
+             * deleted in WP-6 (roster scenes resolve one winner in
+             * 00184BA0, em_area11_interaction_host_use). */
+            if (hit >= 0)
+                seq_start(hit);
         }
         return;
     }

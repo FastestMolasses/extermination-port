@@ -226,17 +226,12 @@ void  em_game_aim_dir(float out[3]);
  *   00828050 inside the host's elevator program. */
 int  em_game_terminal_powered(void);
 
-/* em_game_player_interact_anim — play `clip_id` once on the player at
- *   rate 1.0 and lock player input/movement (a port stand-in for the
- *   engine's player+0x2F3 = 3 scripted-anim state; see em_game.c). Its
- *   only caller since WP-4 is the legacy pickup take (the grab clip),
- *   which WP-6 replaces. IDEMPOTENT while an interact is busy.
- *
- * em_game_player_interact_busy — 1 while the legacy interact clip, the
- *   legacy opening director beat (cine_active), the opening runtime or an
- *   acquired original player source (the interaction host's 0015B130
- *   takeover) owns the player, so the legacy use scans (examine, pickups,
- *   doors) do not start a second interaction while one is in flight.
+/* em_game_player_interact_busy — 1 while the legacy opening director
+ *   beat (cine_active), the opening runtime or an acquired original player
+ *   source (the interaction host's 0015B130 takeover) owns the player, so
+ *   the legacy use scans (examine, doors) do not start a second
+ *   interaction while one is in flight. (The legacy interact-clip lock of
+ *   the legacy pickup take was deleted in WP-6.)
  *
  * em_game_player_face_step — the examine op04 FACE pre-roll. Turn the
  *   player body heading toward `target_yaw` by one standing turn-in-place
@@ -253,7 +248,6 @@ int  em_game_terminal_powered(void);
  *   the FACE pivot plays out before the message. Does NOT touch
  *   player_move's desired-heading / movement-v3 path — the examine lock
  *   already suppresses free locomotion for the script window. */
-void em_game_player_interact_anim(int clip_id);
 int  em_game_player_interact_busy(void);
 int  em_game_player_face_step(float target_yaw);
 

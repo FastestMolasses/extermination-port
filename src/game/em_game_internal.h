@@ -2106,18 +2106,6 @@ typedef struct {
      * elev_pending, elev_frame, elev_rate) was retired in WP-4: the
      * original owners 00159210 / 00827B10 and the carry 00828050 run in
      * the AREA11 interaction host (em_area11_interaction_host.c). */
-    /* SCRIPTED PLAYER INTERACT clip + lock (em_game.h
-     * em_game_player_interact_anim / _busy): a port stand-in for the
-     * engine's player+0x2F3 = 3 state, used only by the legacy pickup
-     * take since WP-4 (WP-6 replaces it). */
-    int         interact_active; /* a scripted interact clip owns the
-                                  * player (movement locked) */
-    unsigned    interact_clip;   /* the requested interact clip id */
-    int         interact_seen;   /* the request has been COMMITTED at least
-                                  * once (sa_cur reached interact_clip) —
-                                  * gates the end detection so the pre-
-                                  * commit frame (sa_cur still 0) does not
-                                  * clear the lock prematurely */
     /* ELEVATOR PLATFORM mesh (optional — manifest `elevator <model> x y
      * z`). When present it descends with the ride; when absent the ride
      * still works (player + camera descend) and the missing mesh is

@@ -119,16 +119,11 @@ void em_game_legacy_pool_cutscene(void);
 /* The pieces em_game_legacy_pool_gameplay is made of (S10b), which the
  * AREA11 node adapters (em_area11_bindings.c) call at their owners' nodes.
  * em_game_legacy_door_tick returns 1 when it consumed a goto scene switch;
- * em_game_legacy_pickup_update is the item owners' half of em_pickup_update
- * (the light children are em_pickup_lights_tick), and (0) is the cutscene
- * block's scan-less call;
  * em_game_legacy_player_residue is the weapon update (WP-15), which has no
  * pool owner in the original (the damage/vitals tick moved to the player
  * stage in S11b). */
 void em_game_legacy_collision_clears(void);
 int em_game_legacy_door_tick(void);
-void em_game_legacy_pickup_update(int gameplay);
-void em_game_legacy_pickup_collect(void);
 void em_game_legacy_examine_tick(void);
 void em_game_legacy_enemy_tick(void);
 void em_game_legacy_player_residue(void);

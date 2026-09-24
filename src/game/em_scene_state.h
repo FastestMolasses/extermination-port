@@ -82,8 +82,7 @@ typedef enum {
  * bytes D_00810700..702, D_00810730[] and the D_00810750 counter) or by a port
  * mirror that has not been migrated yet (for example g.opening_event_39 =
  * D_00810791, g.opening_complete = D_00810811, g.cine_step = D_00810813,
- * the em_pickup item counts from D_00810C64, the magazine and battery
- * bytes). em_scene_progress_at() refuses
+ * em_weapon's D_00810C61/C62/CB4). em_scene_progress_at() refuses
  * a reserved byte (NULL), so nothing can read or write a second copy through
  * it.
  *
@@ -116,6 +115,20 @@ typedef enum {
  *                              attachment spawn): CA4/CA6 migrated from
  *                              em_pickup's primary/secondary mirror; CA5/CA7
  *                              had no port storage.
+ *   D_00810C60, D_00810C63..D_00810CA3, D_00810CA8..D_00810CB3,
+ *   D_00810CB6..D_00810D1F
+ *                        WP-6  the item block 001C40B0 and 001C4720/4760 write
+ *                              (the equipment status C60, the pack count C63,
+ *                              the item counts D_00810C64[t], the meters
+ *                              CA8..CB0, the battery charge CB2 (s16) and
+ *                              capacity CB7, the map bytes D_00810CB8[t] and
+ *                              key bytes D_00810CC3[t], which overlap the
+ *                              counts exactly as in the original); migrated
+ *                              from em_pickup's separate count/map/key/meter
+ *                              mirrors. D_00810C61 (the fire mode), D_00810C62
+ *                              (the loaded magazine) and D_00810CB4 (the
+ *                              reserve) stay em_weapon's (w.fire_mode, w.mag,
+ *                              w.reserve) and are reserved here.
  *   D_00810D38..D_00810D3B
  *                        WP-5  the current-BGM word (sw/lw): 001ADF00 and
  *                              001AD740 store 0, 001FB0B0 stores its cue
@@ -141,7 +154,9 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
-        {0x00810CA4u, 0x00810CA8u},
+        {0x00810C60u, 0x00810C61u}, /* equipment status C60 (WP-6) */
+        {0x00810C63u, 0x00810CB4u}, /* item block and CA4..CA7 (S10b) */
+        {0x00810CB6u, 0x00810D20u}, /* item block, em_pickup (WP-6) */
         {0x00810D38u, 0x00810D3Cu}, /* current-BGM word (WP-5) */
     };
     if (size == 0 || address + size < address)

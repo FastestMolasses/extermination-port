@@ -2609,6 +2609,8 @@ void em_weapon_render(EmGfx *gfx)
 
 uint8_t em_weapon_mag(void)      { return w.mag; }
 int16_t em_weapon_reserve(void)  { return w.reserve; }
+uint8_t *em_weapon_mag_byte(void)       { return &w.mag; }
+int16_t *em_weapon_reserve_word(void)   { return &w.reserve; }
 uint8_t em_weapon_fire_mode(void){ return w.fire_mode; }
 int     em_weapon_state(void)    { return w.state; }
 int     em_weapon_shots(void)    { return w.shots; }

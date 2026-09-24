@@ -300,6 +300,54 @@ def check_scripted_terminal(ticks, run, state, phase, beat):
     return i0, rows, f0, r, count, placed, faced
 
 
+def check_battery(ticks, run, state):
+    """Route 01: 00184BA0 arms the battery owner 00219550 (3B8D = 3), its
+    take program 0x266620 runs on the shared owner (3B8D 1, camera byte 2),
+    then 001C47A0 posts B0 = 1 / B1 = 0x1B and the status screen opens.
+
+    Window 1 (the scan to the post): spad, camera byte, letterbox, message
+    block and D_008106B0/B1 row for row. The post's own row depends on how
+    long op00 sub8 settles the camera target from where it starts: the
+    runner reaches the route's stance by pad navigation (not exactly) and the
+    port's follow camera holds the target at its own height (WP-16), so the
+    port settles in a different number of rows. The check therefore requires
+    that in both the post comes two rows after the settle's last target
+    change (the settled record, then the animation-end wait, then op09), and
+    that the settle ends on the item's X/Z. Window 2 (the post to the page's
+    module load, WP-5): the same fields row for row, aligned on the post."""
+    i0, rows, f0 = scan_alignment(ticks, run, 'battery', '01_battery', state.get('cursor', 0))
+    posted_o = next(k for k in range(len(rows) - f0) if orig_view(rows[f0 + k])['req'] == '011b')
+    posted_p = next(k for k in range(len(ticks) - i0 - 1) if port_view(ticks, i0 + k)['req'] == '011b')
+
+    def same(k_port, k_orig, where):
+        p, o = port_view(ticks, i0 + k_port), orig_view(rows[f0 + k_orig])
+        for key in ('spad', 'cam', 'screen', 'power', 'req'):
+            assert p[key] == o[key], (where, rows[f0 + k_orig]['f'], key, p[key], o[key])
+        if o['msg'][0] != 4:
+            assert p['msg'] == o['msg'], (where, rows[f0 + k_orig]['f'], 'message block', p['msg'], o['msg'])
+
+    for k in range(min(posted_o, posted_p)):
+        same(k, k, 'battery take')
+
+    def settle_end(target, posted):
+        return max(k for k in range(1, posted) if target(k) != target(k - 1))
+    end_o = settle_end(lambda k: orig_view(rows[f0 + k])['tgt'], posted_o)
+    end_p = settle_end(lambda k: port_view(ticks, i0 + k)['tgt'], posted_p)
+    assert posted_o - end_o == posted_p - end_p == 2, ('op09 after the settle', posted_o, end_o, posted_p, end_p)
+    for k, tgt in ((end_o, orig_view(rows[f0 + end_o])['tgt']), (end_p, port_view(ticks, i0 + end_p)['tgt'])):
+        assert abs(tgt[0] - 211.6) < 1e-3 and abs(tgt[2] - 227.2) < 1e-3, ('the settle ends off the item', k, tgt)
+    load = next(k for k in range(posted_o, len(rows) - f0) if rows[f0 + k]['ui'][8:10] == '03')
+    for k in range(load - posted_o):
+        same(posted_p + k, posted_o + k, 'battery request')
+    state['cursor'] = i0 + posted_p + load - posted_o
+    print(f'battery: PASS (scan at port tick {ticks[i0]["tick"]} = route 01 f{rows[f0]["f"]}; the take '
+          f'program 0x266620 row for row to the post in spad, camera byte, letterbox, message, power and '
+          f'B0/B1; B0 = 1 / B1 = 0x1B {posted_p} rows after the scan (original {posted_o}: the camera '
+          f'target settle starts from the port follow camera, WP-16, and the pad-navigated stance), two rows '
+          f'after the settle in both; from the post to the page load, route f{rows[f0 + posted_o]["f"]}..'
+          f'f{rows[f0 + load - 1]["f"]}, row for row)')
+
+
 def check_elevator_refusal(ticks, run, state):
     i0, rows, f0, r, count, placed, faced = check_scripted_terminal(ticks, run, state, 'elevator_refusal',
                                                                     '02_elevator_refusal')
@@ -364,7 +412,7 @@ def check_elevator(ticks, run, state):
 PHASES = [
     ('first_control', check_first_control),
     ('status', check_status),
-    ('battery', None),
+    ('battery', check_battery),
     ('elevator_refusal', check_elevator_refusal),
     ('panel', check_panel),
     ('elevator', check_elevator),

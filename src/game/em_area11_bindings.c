@@ -63,6 +63,7 @@
 #include "game/em_manager_008257A0.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
+#include "game/em_pickup_original.h"
 #include "game/em_props.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_workers.h" /* EM_SCENE_D_008102B0 */
@@ -74,7 +75,7 @@ static EmSceneState *s_scene;
 
 /* ------------------------------------------------------------ node state */
 
-enum { GROUP_NONE, GROUP_PICKUPS, GROUP_ENEMIES, GROUP_TRUCK, GROUP_INDICATORS, GROUP_COUNT };
+enum { GROUP_NONE, GROUP_ENEMIES, GROUP_TRUCK, GROUP_INDICATORS, GROUP_COUNT };
 
 typedef struct Node Node;
 typedef int (*NodeTick)(EmActor *actor, Node *node, const EmArea11World *world);
@@ -95,6 +96,8 @@ struct Node {
     uint8_t ticked;   /* first behaviour call done */
     uint8_t head;     /* runs its group's port code */
     uint32_t link;    /* original +0x24 (the owner of an effect child) */
+    EmActor *child;   /* an item owner's 001C5570 child (its +0x2EC) until the
+                       * owner's take stops it */
     /* 001E55F0 nodes: the actor's own weather state (its +4 byte and +0x1F0
      * block, em_weather.h); zeroed by bind_node, so a new actor seeds. */
     EmWeather weather;
@@ -136,9 +139,12 @@ static void mark_interim(Node *node)
 }
 
 /* 001C5570(owner, vector, a2, a3). Returns 0 (also when the class-0xC reserve
- * refuses the alloc: the original stores the 0 it returns) or -1. */
-static int spawn_001C5570(EmActor *owner, uint8_t a2, int a3, int interim)
+ * refuses the alloc: the original stores the 0 it returns) or -1; *out is
+ * the child (NULL when refused). */
+static int spawn_001C5570_child(EmActor *owner, uint8_t a2, int a3, int interim, EmActor **out)
 {
+    if (out)
+        *out = NULL;
     EmActor *p = em_actor_pool_alloc_001AFA90(s_pool, s_scene, 0x0C);
     if (!p)
         return 0;
@@ -171,7 +177,14 @@ static int spawn_001C5570(EmActor *owner, uint8_t a2, int a3, int interim)
         return -1;
     if (interim)
         mark_interim(node_of(p));
+    if (out)
+        *out = p;
     return 0;
+}
+
+static int spawn_001C5570(EmActor *owner, uint8_t a2, int a3, int interim)
+{
+    return spawn_001C5570_child(owner, a2, a3, interim, NULL);
 }
 
 /* The 001EF9D0 entities the port spawns (bytes from the captured table,
@@ -229,29 +242,45 @@ static int spawn_0018A880(uint8_t a0, uint8_t a1)
 
 /* ------------------------------------------------------- node adapters */
 
-/* Pickup group: em_pickup is the port's aggregate of every item owner (its
- * light children tick at the indicator node, tick_indicators). */
-static int tick_pickups(EmActor *actor, Node *node, const EmArea11World *world)
-{
-    (void)actor;
-    if (!node->head)
-        return 1;
-    if (world->cutscene) {
-        em_game_legacy_pickup_update(0);
-    } else {
-        em_game_legacy_pickup_update(1);
-        em_game_legacy_pickup_collect();
-    }
-    return 1;
-}
+static int free_self_001AFC10(EmActor *actor);
 
-/* 00219550: state 0 spawns the indicator child (both state-0 arms reach the
- * 001C5570 call when the bone slots are available). */
-static int tick_pickup_00219550(EmActor *actor, Node *node, const EmArea11World *world)
+/* Item owners 00219550 x6 and 0015AFA0 (deferred g0.0..g0.6), one owner per
+ * node in the AREA11 interaction host (WP-6). The first call is state 0:
+ * 00219550 spawns its 001C5570 light child (both state-0 arms reach the
+ * call when the bone slots are available; the child is kept as the
+ * owner's +0x2EC), 0015AFA0 runs 0015AC00 (the aura's 001F1110). Later
+ * calls are the owner update with its 001B17A0 publication; the take's
+ * completion writes the child's +4 = 3 (the child then frees itself), and
+ * the call after it frees the owner (00219550 state 3 / 0015AFA0 state 2:
+ * 001AFC10). */
+static int tick_pickup(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    if (!node->ticked && spawn_001C5570(actor, 0x73, 1, 0) < 0)
-        return -1;
-    return tick_pickups(actor, node, world);
+    (void)world;
+    if (!node->ticked) {
+        if (actor->callback == 0x00219550u &&
+            spawn_001C5570_child(actor, 0x73, 1, 0, &node->child) < 0)
+            return -1;
+        if (em_area11_interaction_host_pickup_state0(actor->source_id, actor->model, actor->param) < 0)
+            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                         "item owner state 0: the interaction host failed");
+        return 1;
+    }
+    int result = em_area11_interaction_host_pickup_tick(actor->source_id);
+    if (result < 0)
+        return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                     "item owner: the interaction host failed");
+    if (node->child) {
+        EmInteractionSceneOwner *record =
+            em_interaction_scene_find(em_area11_interaction_host_scene(), actor->source_id);
+        const EmPickupOwner *owner = record ? record->native_owner : NULL;
+        if (!owner)
+            return fault(actor->callback, EM_SCENE_FAULT_NULL_WORKER, "item owner without its binding");
+        if (owner->child_status == 3) {
+            node->child->u04[0] = 3; /* the child's +4 */
+            node->child = NULL;
+        }
+    }
+    return result ? 1 : free_self_001AFC10(actor);
 }
 
 /* Enemy group: em_enemy is the port's aggregate of the husk, crates and
@@ -497,8 +526,17 @@ static int tick_area_title(EmActor *actor, Node *node, const EmArea11World *worl
  * order of those draws. */
 static int tick_indicators(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    (void)actor;
     (void)world;
+    /* 001C5680 with +4 == 3 or 2 frees itself (001AFC10): an item owner's
+     * take completion writes 3 (tick_pickup). */
+    if (actor->callback == 0x001C5680u && (actor->u04[0] == 3 || actor->u04[0] == 2))
+        return free_self_001AFC10(actor);
+    /* A freed head hands the group's aggregate to the next member the walk
+     * reaches (the aggregates skip the lights of freed owners). */
+    if (!s_heads[GROUP_INDICATORS]) {
+        s_heads[GROUP_INDICATORS] = actor;
+        node->head = 1;
+    }
     if (node->head) {
         em_pickup_lights_tick();
         em_props_indicators_tick();
@@ -523,10 +561,8 @@ static int tick_legacy_world(EmActor *actor, Node *node, const EmArea11World *wo
 
 static const Binding k_bindings[] = {
     /* deferred g0.0-g0.6: item owners */
-    {0x00219550u, "pickups: legacy em_pickup_update + collection (group head)", "group: pickups",
-     GROUP_PICKUPS, tick_pickup_00219550, NULL},
-    {0x0015AFA0u, "pickups: legacy em_pickup_update + collection (group head)", "group: pickups",
-     GROUP_PICKUPS, tick_pickups, NULL},
+    {0x00219550u, "pickup: em_area11_interaction_host_pickup_tick", NULL, GROUP_NONE, tick_pickup, NULL},
+    {0x0015AFA0u, "pickup: em_area11_interaction_host_pickup_tick", NULL, GROUP_NONE, tick_pickup, NULL},
     /* deferred g0.7/g0.8, crates area11[3..6], drums area11[14..15] */
     {0x00825940u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
      tick_enemy_00825940, NULL},
@@ -608,8 +644,11 @@ static int node_behavior(EmActor *actor, void *world_arg)
 static void node_release(EmActor *actor)
 {
     Node *node = node_of(actor);
-    if (node)
-        memset(node, 0, sizeof *node);
+    if (!node)
+        return;
+    if (node->head && node->binding && s_heads[node->binding->group] == actor)
+        s_heads[node->binding->group] = NULL;
+    memset(node, 0, sizeof *node);
 }
 
 static int bind_node(EmActor *actor, const char *record)

@@ -744,8 +744,10 @@ int main(void)
     tick();
     assert(em_live_u16(a, 0x20E) == 0 && em_live_u8(a, 0) == 1 && stage_calls[SC_DRAIN] == 0);
     assert(stage_calls[SC_HEARTBEAT] == 1);
-    /* D_008106B3 is unknown while D_00810CB6 is not canonical. */
-    assert(player_states_busy() == -1);
+    /* D_00810CB6 is canonical D2 progress since WP-6 (0 here), so the
+     * stage's D_008106B3 is known: neither CB6 nor the +4 2 / +5 0xB..0xF
+     * reaction arm holds. */
+    assert(player_states_busy() == 0);
 
     /* 12. A reaction: 0021C440 (the stand-in above) enters +4 2 +5 0x11 on a
      *     stage the translated 0015B130 owns (the fall, +5 5: the port's own

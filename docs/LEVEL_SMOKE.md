@@ -15,11 +15,8 @@ been verified.
 
 A NOT-LIVE phase that a later live phase needs the state of is **driven**:
 its runner plays it through the owner's current port binding, the run reports
-`NOT-LIVE driven`, and the capture checker skips it. Today that is the
-battery pickup (legacy em_pickup until WP-6), which the panel phase needs for
-item 0x1B. The later phases compare only their own windows, so nothing the
-legacy take leaves behind is compared (since WP-5 the legacy take posts the
-original request, so B1 = 0x1B is left behind as in the original).
+`NOT-LIVE driven`, and the capture checker skips it. No phase is driven since
+WP-6 (the battery pickup is live).
 
 ## Running it
 
@@ -69,7 +66,7 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 |---|---|---|---|---|
 | first_control | 01 row f0 (slot 04) | 0x1AE040 state 1 / 001AE5E0, 49 pool nodes | yes (S12a) | — |
 | status | 01 status exit; frame_trace2 `status_04.json` | 001AE7E0 r==2 → state 3 → 5 → 1 | yes (S11b; the original page core, hub, models and 0020E0C0 exit since WP-5) | — |
-| battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | driven (legacy em_pickup take; the status pop-up is original since WP-5) | WP-6 |
+| battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | yes (WP-6; the status pop-up since WP-5) | — |
 | elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | yes (WP-4) | — |
 | panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
 | elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | yes (WP-4) | — |
@@ -174,25 +171,47 @@ relative to the camera forward D_00810600 (stick up = forward, right =
 goto, face, settle and press. A pad attached to the machine replaces the
 overlay (em_gamepad) and would disturb a run. The targets are route_capture's
 (the terminal: (229, 250.4), then (223.5, 250.4) at half stick, face
--1.3037; the battery: (211.6, 227.2), tolerance 5), except the panel's: the
+-1.3037), except the battery's and the panel's. The battery's aims at route
+01's stance before its press (218.212, 222.373; f118..f124, facing -0.9588)
+at full stick to 1.0, then 0.4 stick to 0.1 (it may stop short), and faces
+-0.9588. The panel's: the
 original's walk carried the player past route_capture's (239.7, 222) to
 (241.4, 225.3) before the press (beat 03 f228), the port's stops shorter,
 so the runner aims at (240.5, 225) (00183EF0's panel radius is 9.5 around
 (240, 232.8)).
 
-### battery (driven)
+### battery
 
-Walk to g0.0 and press Cross. The legacy take (WP-6) posts the original
-request (001C47A0: B0 = 1, B1 = 0x1B) and the status screen pops up on it,
-as in route 01. In process (not compared with the capture rows, because the
-take and its timing are the legacy owner's): the screen opens (+B = 3) with
-item 0x1B taken and B1 = 0x1B; the page is the ITEM root (screen 0) in its
-BATTERY child (item state 5, after module 0x21) showing 002149F0's
-acquisition notice (sub-state 3) with charge and capacity 12 and B0
-consumed; the notice hands over to the list (sub-state 1) after exactly
-239 frames, asserted (route 01: sub-state 3 from f219, the list at f459);
-TRIANGLE 20 frames
-later (route f459 -> f479) closes the screen; control returns.
+Walk to route 01's stance, face -0.9588 and press Cross. 00184BA0 arms the
+original owner 00219550 g0.0 from the published list (3B8D = 3); its take
+program 0x266620 turns the player (op0E), plays the grab clip 0x42, settles
+the camera target on the item (op00 sub8), consumes the item (001B6EA0 ->
+001C47A0: 001C40B0(0x1B, 1), then B0 = 1, B1 = 0x1B) and the status screen
+pops up on it. **In process:** the scan wins (the tick is printed as
+`scan_d810750`); the screen opens (+B = 3) with item 0x1B taken and
+B1 = 0x1B; the page is the ITEM root (screen 0) in its BATTERY child (item
+state 5, after module 0x21) showing 002149F0's acquisition notice
+(sub-state 3) with charge and capacity 12 and B0 consumed; the notice hands
+over to the list (sub-state 1) after exactly 239 frames (route 01:
+sub-state 3 from f219, the list at f459); TRIANGLE 20 frames later closes
+the screen; control returns, the taken bit of uid 0x0B01 is set and the
+count of 0x1B is 1.
+
+**Against the capture** (`check_battery`): aligned on the scan tick and
+route 01's first row with 3B8D != 0 (f125). From the scan to the post, row
+for row: the spad bytes, the camera byte, the letterbox block, the message
+block, the power byte and D_008106B0/B1 (0000). The post itself comes 61
+rows after the scan in the port and 64 in the original: the op00 sub8 settle
+is as long as the distance from where the camera target starts, and the
+port's target starts from its own follow camera (WP-16: about one unit lower
+than the original's D_008105E0) at the pad-navigated stance, so the check
+requires instead that in both runs the post is two rows after the settle's
+last target change (the settled record, the animation-end wait, then op09)
+and that the settle ends on the item's X/Z (to 1e-3). Aligned on the post,
+row for row again to the page's module load (f189..f192; the load wait is
+WP-5's). The turn (op0E) is not compared either: its step count depends on
+the stance. Negative controls: a changed spad or request byte in the
+window fails.
 
 ### elevator_refusal, panel, elevator
 

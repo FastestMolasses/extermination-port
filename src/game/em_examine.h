@@ -137,13 +137,11 @@
  *         MODULES. func_00184BA0's recovered C walks a SINGLE
  *         interactive list that contains items and examine objects
  *         alike, keeps one `winner` by the smallest parked distance,
- *         and arms only it (`winner[0xB] = 4; return 1`). The port
- *         scans items (em_pickup) and examines here separately, so a
- *         CROSS press near both used to take the item AND start the
- *         examine script in the same frame. em_examine_update now runs
- *         second and arbitrates through em_pickup_scan_dist /
- *         em_pickup_scan_release (em_pickup.h "ONE WINNER PER PRESS").
- *         STILL FLAGGED: doors are a third scanner and are gated only
+ *         and arms only it (`winner[0xB] = 4; return 1`). The legacy
+ *         item scan this module used to arbitrate against was deleted
+ *         in WP-6 (roster scenes arm items through 00184BA0 in the
+ *         AREA11 interaction host). STILL FLAGGED: doors are a second
+ *         scanner and are gated only
  *         doors-first by em_game's movement lock.
  *     Anchored at the manifest position. The AREA11 archetype-1 desc
  *     point ships AS the manifest position (engine values) — note
@@ -240,8 +238,8 @@ int em_examine_set_face(int slot, float face_yaw, int walk_frames);
 /* Free all instances (scene clear / shutdown). */
 void em_examine_reset(void);
 
-/* Per-frame: the use scan (CROSS edge -> arm, `scan` gates it like
- * em_pickup_update) + the sequence pump. */
+/* Per-frame: the use scan (CROSS edge -> arm, `scan` gates it) + the
+ * sequence pump. */
 void em_examine_update(const float player_pos[3], float player_yaw,
                        const EmFrameInput *in, int scan);
 

@@ -61,6 +61,12 @@ int em_area11_interaction_host_use(void *unused);
  * 00159210 / 00827B10, including their 001B17A0 publication tail). */
 int em_area11_interaction_host_panel_tick(void);
 int em_area11_interaction_host_elevator_tick(void);
+/* The AREA11 item owners (WP-6), at their pool nodes by EMIS source id
+ * (the roster record address): state 0 (the node's first call; `model` and
+ * `param` are the actor's +0x03 and +0x0D), then one owner update per call
+ * (1 allocated, 0 freed: the node frees itself, -1 fault). */
+int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, uint8_t param);
+int em_area11_interaction_host_pickup_tick(uint32_t source_id);
 /* 00827B10 state 0's placement (0x827B54..0x827BF0): the floor byte
  * D_0081083A selects 190/230 for the actor's +0xB4 and the script-height
  * words, then 001C6380 builds the actor's matrix. 0, or -1 fault. */

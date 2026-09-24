@@ -1,6 +1,8 @@
 /* Pickup render instances and persistent inventory.
- * Canonical AREA11 owners/programs enter through em_pickup_original.h.
- * Unbound scenes retain an explicitly legacy scan/countdown path below.
+ * The AREA11 owners 00219550/0015AFA0 run through em_pickup_original.h
+ * (bound and ticked by the AREA11 interaction host since WP-6); the former
+ * legacy use scan, two-frame take and flat inventory add are deleted, so
+ * instances of scenes without a bound owner are drawn and never taken.
  */
 #include "game/em_pickup.h"
 #include "game/em_pickup_original.h"
@@ -11,9 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "em_input.h"   /* EM_PAD_CROSS — the use-button mask */
 #include "em_model.h"
-#include "game/em_game.h"  /* em_game_player_interact_anim (em_game.c) */
+#include "game/em_pickup_items_original.h"
 #include "game/em_random.h"
 #include "game/em_effect_color.h"
 #include "game/em_scene_bindings.h" /* em_scene_state(): the D2 progress region */
@@ -54,8 +55,6 @@ typedef struct {
     float   yaw;          /* placement ry (actor +0xC4) */
     float   roll;         /* rot.z (actor +0xC8), 0 unless an owner init
                            * sets it (em_pickup_owner_init_pose) */
-    uint8_t armed;        /* actor +0x0B (the scan writes 4) */
-    int     take_t;       /* armed countdown, EM_PICKUP_TAKE_FRAMES.. */
     float   scale;        /* actor +0x60..+0x68 — func_0015AC00's INIT
                            * scale switch, the S leg of func_001C6380's
                            * world TRS (1.0 / 1.5 / 2.0) */
@@ -90,29 +89,68 @@ static struct {
     int canonical_pickups;
 } s;
 
-/* --- persistent game state (survives scene clears — the engine's
- * D_00810700-block globals; wiped only by em_pickup_reset) ----------- */
+/* --- persistent game state ---------------------------------------------
+ * The item block D_00810C60.. is canonical D2 progress (em_scene_state.h,
+ * migrated in WP-6): the equipment status C60, the pack count C63, the item
+ * counts D_00810C64[t], the meters CA8..CB0, the battery charge CB2 (s16)
+ * and capacity CB7, and the map/key bytes D_00810CB8[t]/D_00810CC3[t],
+ * which overlap the counts as in the original. D_00810C62 (the loaded
+ * magazine) and D_00810CB4 (the reserve) are em_weapon's; the game binds
+ * them with em_pickup_set_weapon_ammo. Everything survives scene clears
+ * and is wiped only by the 001AF2C0 reset (em_pickup_reset). */
 static struct {
-    uint8_t  count[256];      /* D_00810C64 mirror: u8 per item type */
-    uint8_t  maps[256], keys[256]; /* separate original CB8 / CC3 families */
-    uint8_t  status;          /* D_00810C60 mirror. CA4/CA6 (primary,
-                               * secondary) live in the canonical D2
-                               * progress region since S10b: equip_byte() */
-    uint8_t  mag_packs;       /* D_00810C63 mirror */
-    int16_t  battery_charge;  /* D_00810CB2: internal half-units */
-    uint8_t  battery_capacity;/* D_00810CB7: internal half-units */
-    int      ammo_pending;    /* case-0x10 reserve rounds for em_game */
-} g;
+    uint8_t *c62;   /* em_weapon's D_00810C62 */
+    int16_t *cb4;   /* em_weapon's D_00810CB4 */
+} ammo;
 
-/* This frame's use-scan winner (func_00184BA0's single winner for the
- * whole interactive list). Reset at every em_pickup_update entry; read
- * by em_examine, which scans second — em_pickup.h "ONE WINNER PER
- * PRESS". scan_dist is the PLANAR distance the engine parks at spad
- * 0x70003B98 and compares with `<`. */
-static int   scan_slot = -1;
-static float scan_dist;
+static uint8_t *item_at(uint32_t address, uint32_t size)
+{
+    return em_scene_progress_at(em_scene_state(), address, size);
+}
 
-/* ------------------------------------------------------------------ */
+/* The 001C40B0 resolver: the canonical item block, and em_weapon's two
+ * ammunition fields. NULL (the routine faults) for anything else. */
+static uint8_t *items_resolve(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address == 0x00810C62u && size == 1) return ammo.c62;
+    if (address == 0x00810CB4u && size == 2) return (uint8_t *)ammo.cb4;
+    if (address <= 0x00810CB5u && address + size > 0x00810CB4u) return NULL;
+    return item_at(address, size);
+}
+
+void em_pickup_set_weapon_ammo(uint8_t *c62, int16_t *cb4)
+{
+    ammo.c62 = c62;
+    ammo.cb4 = cb4;
+}
+
+static uint8_t item_byte(uint32_t address)
+{
+    const uint8_t *p = item_at(address, 1);
+    return p ? *p : 0;
+}
+
+static void item_store(uint32_t address, uint8_t value)
+{
+    uint8_t *p = item_at(address, 1);
+    if (p) *p = value;
+}
+
+static int16_t item_half(uint32_t address)
+{
+    const uint8_t *p = item_at(address, 2);
+    return p ? (int16_t)(uint16_t)(p[0] | p[1] << 8) : 0;
+}
+
+static void item_store_half(uint32_t address, int16_t value)
+{
+    uint8_t *p = item_at(address, 2);
+    if (p) {
+        p[0] = (uint8_t)value;
+        p[1] = (uint8_t)((uint16_t)value >> 8);
+    }
+}
 
 /* func_001B11E0 — the taken-bit test. The engine's argument is the
  * one-byte PUID and BOTH the test (func_001B11E0) and the set
@@ -170,71 +208,6 @@ static uint8_t *equip_byte(uint32_t address)
 
 int em_pickup_taken(int uid) { return taken_bit(uid); }
 
-/* func_001C40B0 — the inventory-add switch, mirroring the recovered C
- * (src/func_001C40B0.c, NEARMISS — logic authoritative):
- *
- *   default:  count[type] += n;  if (count[type] >= 100) count[type] = 99;
- *   case 0x10 (SPR4 MAGAZINE): count += n; packs += n; reserve += 30*n;
- *             if (loaded_mag == 0) loaded_mag = 30;
- *             if (packs >= 99) { reserve -= (packs - 98) * 30;
- *                                packs = count = 98; }
- *
- * Two corrections over the previous port version: case 0x10 is NOT
- * subject to the default cap-99 clamp (it has its own 98 cap), and the
- * over-cap step SUBTRACTS the surplus packs' rounds from the reserve —
- * the old comment called it a fold-in no-op. The loaded-magazine
- * auto-fill is em_weapon's state and stays unported (FLAGGED in
- * em_pickup.h).
- *
- * FLAGGED (audit 2026-07-31): the engine's switch has 14 more arms, and
- * `default` is NOT the only one that writes the count array — cases
- * 0x01/0x02/0x03/0x04/0x0C/0x0D/0x0E also do
- * `D_00810C64[arg0] += arg1`, UNCLAMPED, alongside a linked meter, while
- * 0x11..0x16 move only a meter and 0x0F is a raw `= n`. Full ledger in
- * em_pickup.h. The port keeps the uniform default clamp on purpose: it
- * already folds take families 1/2 into this one array, so `type` here is
- * not reliably the engine's stat index. Battery types 0x1B..0x1D are
- * proven by AREA11's original deferred-item records and preserve their
- * own count and half-unit meter semantics below. */
-static void inventory_add(int type, int n)
-{
-    unsigned t = (unsigned)type & 0xFF;
-
-    if (t >= 0x1B && t <= 0x1D) {
-        static const int capacity[3] = {12, 36, 48};
-        int units = capacity[t - 0x1B];
-        /* The original count store wraps at 8 bits; only charge is
-         * capped. Finding a smaller pack never shrinks the capacity. */
-        g.count[t] = (uint8_t)(g.count[t] + n);
-        g.battery_charge = (int16_t)(g.battery_charge + n * units);
-        if (g.battery_capacity < units)
-            g.battery_capacity = (uint8_t)units;
-        if (g.battery_charge > g.battery_capacity)
-            g.battery_charge = g.battery_capacity;
-        return;
-    }
-
-    if (t == EM_PICKUP_TYPE_MAG) {
-        int packs  = g.mag_packs + n;
-        int count  = g.count[t] + n;
-        int rounds = 30 * n;
-        if (packs >= 99) {
-            rounds -= (packs - 98) * 30;   /* the engine's reserve -= */
-            if (rounds < 0) rounds = 0;    /* port: the pending queue
-                                            * is one-shot, never negative */
-            packs = 98;
-            count = 98;
-        }
-        g.mag_packs    = (uint8_t)packs;
-        g.count[t]     = (uint8_t)count;
-        g.ammo_pending += rounds;
-        return;
-    }
-    {
-        int c = g.count[t] + n;
-        g.count[t] = (uint8_t)(c >= 100 ? 99 : c);
-    }
-}
 
 /* ------------------------------------------------------------------ */
 
@@ -406,7 +379,6 @@ void em_pickup_scene_clear(EmGfx *gfx)
         em_model_free(&s.models[i].model);
     }
     memset(&s, 0, sizeof s);
-    scan_slot = -1;                      /* slot indices are now stale */
     /* g (inventory + taken bits + pending events) deliberately
      * survives — see em_pickup.h. */
 }
@@ -444,177 +416,24 @@ int em_pickup_owner_init_pose(int slot, uint32_t owner, unsigned flags2)
  * D20..D23 = 1. */
 void em_pickup_reset(void)
 {
-    /* The D_00810700 memset for the canonical D2 bytes (taken bits and
-     * CA4..CA7 among them), with 001AF2C0's stores to them. */
-    em_scene_progress_reset_001AF2C0(em_scene_state());
-    memset(&g, 0, sizeof g);
-    g.status = 0;                        /* C60 */
-    g.count[0x00] = 1;                   /* C64 */
-    g.count[0x05] = 1;                   /* C69 */
-    g.count[0x07] = 1;                   /* C6B */
-    g.count[0x17] = 1;                   /* C7B */
-    /* CA4 = 0xFF, CA6 = 0: written by the progress reset above. */
-    g.battery_charge = 0;                /* CB2 */
-    g.battery_capacity = 0;              /* CB7 */
-    g.count[EM_PICKUP_TYPE_MAG] = 2;     /* 001C40B0(0x10, 2): C74 += 2 */
-    g.mag_packs = 2;                     /*                    C63 += 2 */
-}
-
-/* Wrap an angle to (-pi, pi] — the engine's func_001B1470. */
-static float pickup_norm_ang(float a)
-{
-    while (a >  PICKUP_PI) a -= 2.0f * PICKUP_PI;
-    while (a < -PICKUP_PI) a += 2.0f * PICKUP_PI;
-    return a;
-}
-
-/* func_00184BA0 + func_00183EF0 archetype 3 — the item use scan (the
- * condition ledger, with its 2026-07-31 re-verification notes, is in
- * em_pickup.h). One nearest winner per CROSS press edge, matching
- * func_00184BA0's "keep the smallest parked distance" walk. */
-static void pickup_trigger_scan(const float pp[3], float pyaw,
-                                const EmFrameInput *in)
-{
-    if (!(in->pressed & EM_PAD_CROSS))
-        return;
-
-    int   best = -1;
-    float best_d2 = 1e30f;
-    for (int i = 0; i < s.n; i++) {
-        Pickup *p = &s.p[i];
-        if (!p->used || p->prop || p->armed) continue;
-        float dx = p->pos[0] - pp[0];
-        float dz = p->pos[2] - pp[2];
-        float d2 = dx * dx + dz * dz;
-        if (d2 > EM_PICKUP_RADIUS * EM_PICKUP_RADIUS) continue;
-        float dy = pp[1] - p->pos[1];          /* player above: + */
-        if (dy >= 0.0f ? dy > EM_PICKUP_DY_UP
-                       : -dy > EM_PICKUP_DY_DOWN) continue;
-        if (d2 > EM_PICKUP_AUTO_RING * EM_PICKUP_AUTO_RING) {
-            /* facing: within EM_PICKUP_FACING (pi/2 — func_00183EF0's
-             * case-3/4 gate, see em_pickup.h) of the bearing to the
-             * item (engine atan2 convention: bearing = atan2(dx, dz);
-             * the engine forms player_yaw - bearing, identical under
-             * fabs) */
-            float fd = pickup_norm_ang(atan2f(dx, dz) - pyaw);
-            if (fabsf(fd) > EM_PICKUP_FACING) continue;
-        }
-        if (d2 < best_d2) {
-            best_d2 = d2;
-            best = i;
-        }
-    }
-    if (best >= 0) {
-        s.p[best].armed  = 4;            /* the scan's +0x0B value */
-        s.p[best].take_t = EM_PICKUP_TAKE_FRAMES;
-        /* publish the winner for the cross-module single-winner rule
-         * (func_00184BA0 arms exactly one object per press; the engine
-         * compares the PLANAR distance it parks at spad 0x70003B98) */
-        scan_slot = best;
-        scan_dist = sqrtf(best_d2);
-    }
-}
-
-int em_pickup_scan_dist(float *out_dist)
-{
-    if (scan_slot < 0) return 0;
-    if (out_dist) *out_dist = scan_dist;
-    return 1;
-}
-
-void em_pickup_scan_release(void)
-{
-    if (scan_slot < 0) return;
-    s.p[scan_slot].armed  = 0;           /* +0x0B back to 0 */
-    s.p[scan_slot].take_t = 0;
-    scan_slot = -1;
-}
-
-/* func_0015AE20's GRAB-ANIM patch (D_00248354 = rec[+0x14] of the op-A
- * record): the player pick-up clip is chosen by ITEM HEIGHT vs player.y
- * (D_00810354) — item.y < py+6 -> 0x42 (low), < py+13 -> 0x41 (mid),
- * else 0x40 (high). FINDINGS "ITEM PICKUP SYSTEM" §4. py is the player's
- * world Y at the take; `item_y` is the placement Y (actor +0xB4). */
-static int pickup_grab_clip(float item_y, float player_y)
-{
-    if (item_y < player_y + 6.0f)  return EM_PICKUP_GRAB_LOW;   /* 0x42 */
-    if (item_y < player_y + 13.0f) return EM_PICKUP_GRAB_MID;   /* 0x41 */
-    return EM_PICKUP_GRAB_HIGH;                                 /* 0x40 */
-}
-
-/* func_001B6EA0 + the despawn tail of func_0015AFA0 states 1->2. The
- * GRAB-ANIM take branch (func_0015AE20, the non-instant path) plays the
- * height-selected player grab clip ON THE PLAYER and locks input/movement
- * for its duration, THEN the op-9 take fires (count++/taken-bit/despawn).
- * The port keeps the take effect synchronous and adds the visible grab
- * clip + lock at the same instant: em_game_player_interact_anim raises
- * the scripted-anim lock (it owns the player until the clip ends — the
- * same lock the terminals use), and the inventory/persistence below is
- * unchanged. `player_y` selects the clip. */
-static void pickup_take(Pickup *p, float player_y)
-{
-    em_game_player_interact_anim(pickup_grab_clip(p->pos[1], player_y));
-    inventory_add(p->type, 1);
-    /* 001B6EA0 take family 0 -> 001C47A0 (byte-matched): 001C40B0, then
-     * D_008106B0 = 1 and D_008106B1 = type. The classifier 001AE7E0 then
-     * returns 2 and 0x1AE040 opens the status screen, whose 0020CDC0 case 0
-     * maps a battery (B1 0x1B..0x1D) to the ITEM page, message 3 (the
-     * host's request route: em_status_page, the ITEM root, the BATTERY
-     * page's acquisition notice). The battery types are family 0 in
-     * AREA11's deferred-item records (scene.txt). The pages every other
-     * take selects have no translation (0020CDC0: MAP 0020F950 for B0 = 2,
-     * SPR4 00211970 for B1 < 0x17, DATABASE 00214020 for B0 = 3, the ITEM
-     * child 002160B0 for B1 0x1E..0x22), so those takes post no request
-     * and show nothing until they are translated (WP-6). */
-    if (p->type >= 0x1B && p->type <= 0x1D) {
-        EmSceneState *scene = em_scene_state();
-        scene->req[EM_SCENE_REQ_B0] = 1;
-        scene->req[EM_SCENE_REQ_B1] = (uint8_t)p->type;
-    } else {
-        /* The withheld request is reported, never silent. The legacy take
-         * does not carry the record's family byte (+3), which selects
-         * 001C47A0/4720/4760 (B0 = 1/2/3), so the page is named by the
-         * type as 0020CDC0 case 0 would map it under family 0. */
-        const char *page = p->type < 0x17 ? "SPR4 00211970" : "the ITEM child 002160B0";
-        fprintf(stderr, "pickup: take of type %#04x withholds its 001B6EA0 status request "
-                "(B0 = 1/2/3, B1 = type): 0020CDC0 would open %s (or MAP 0020F950 / "
-                "DATABASE 00214020 for families 1/2), which is not translated (WP-5/WP-6)\n",
-                p->type, page);
-    }
-    /* func_001B1190 (byte-matched): the engine is handed the one-byte
-     * puid from actor +0x9A and returns without touching the array when
-     * that byte is 0 — the guard is on the PUID BYTE, not on the port's
-     * composite (area << 8) | puid. */
-    if (p->uid > 0 && (p->uid & 0xFF) != 0) {
-        unsigned u = (unsigned)p->uid & 0xFFFF;
-        taken_set(u);
-    }
-    /* The former type-0x11 hook here mirrored D_00810811 as a "battery"
-     * flag. That byte is the AREA11 opening controller's completion flag
-     * (overlay 0x00823F74..80), and AREA11 record 10 is that controller,
-     * not a type-0x11 pickup, so the hook was removed. */
-    p->used = 0;                         /* func_001AFC10 — despawn */
-    printf("pickup: took type %#04x (count %u, uid %#06x)\n",
-           p->type, g.count[p->type & 0xFF], (unsigned)p->uid);
-}
-
-void em_pickup_update_owners(const float player_pos[3], float player_yaw,
-                             const EmFrameInput *in, int scan)
-{
-    scan_slot = -1;                      /* last frame's winner expires */
-    if (scan && !s.canonical_pickups)
-        pickup_trigger_scan(player_pos, player_yaw, in);
-    for (int i = 0; i < s.n; i++) {
-        Pickup *p = &s.p[i];
-        if (!p->used || p->original_bound || !p->armed) continue;
-        /* the armed handler func_0015AE20: the take script runs for a
-         * couple of scripted frames, then the op-9 take fires and the
-         * actor frees. The take plays the height-selected player grab
-         * clip + lock (player_pos[1] selects 0x40..0x42 — em_pickup.h
-         * flags) before the synchronous take effect. */
-        if (--p->take_t <= 0)
-            pickup_take(p, player_pos[1]);
-    }
+    /* The D_00810700 memset for the canonical D2 bytes (the item block, the
+     * taken bits and CA4..CA7 among them), with 001AF2C0's stores to them. */
+    EmSceneState *scene = em_scene_state();
+    em_scene_progress_reset_001AF2C0(scene);
+    item_store(0x00810C60u, 0);          /* C60 */
+    item_store(0x00810C7Bu, 1);          /* C7B = count[0x17] */
+    item_store(0x00810CB7u, 0);          /* CB7 */
+    item_store_half(0x00810CB2u, 0);     /* CB2 */
+    item_store(0x00810C69u, 1);          /* C69 = count[5] */
+    item_store(0x00810C64u, 1);          /* C64 = count[0] */
+    item_store(0x00810C6Bu, 1);          /* C6B = count[7] */
+    /* CA4 = 0xFF, CA5 = 5, CA6 = 0, CA7 = 7: the progress reset above. */
+    /* C61 = 0 is em_weapon's fire mode (game_state_new_game). */
+    /* 001C40B0(0x10, 2): count[0x10] += 2 and C63 += 2 over the zeroed
+     * block. Its C62/CB4 stores are overwritten by 001AF2C0's own C62 = 30 /
+     * CB4 = 60, which em_game mirrors (game_state_new_game). */
+    item_store(0x00810C74u, 2);
+    item_store(0x00810C63u, 2);
 }
 
 void em_pickup_lights_tick(void)
@@ -636,13 +455,6 @@ void em_pickup_lights_tick(void)
         em_effect_color(em_random_next(),light->color,light->tint);
         light->visible=1;
     }
-}
-
-void em_pickup_update(const float player_pos[3], float player_yaw,
-                      const EmFrameInput *in, int scan)
-{
-    em_pickup_update_owners(player_pos, player_yaw, in, scan);
-    em_pickup_lights_tick();
 }
 
 int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
@@ -704,28 +516,35 @@ int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
     return 1;
 }
 
-const uint8_t *em_pickup_items(void)        { return g.count; }
-uint8_t em_pickup_item_count(int type)      { return g.count[type & 0xFF]; }
-uint8_t em_pickup_mag_packs(void)           { return g.mag_packs; }
-int em_pickup_battery_charge(void)          { return g.battery_charge; }
-int em_pickup_battery_capacity(void)        { return g.battery_capacity; }
-
-const uint8_t *em_pickup_maps(void) { return g.maps; }
-const uint8_t *em_pickup_keys(void) { return g.keys; }
+/* D_00810C64[t] is canonical for t < 0xBC (D_00810C64..D_00810D1F), except
+ * t 0x50/0x51, which are em_weapon's reserve D_00810CB4. */
+const uint8_t *em_pickup_items(void)        { return item_at(0x00810C64u, 0x50); }
+uint8_t em_pickup_item_count(int type)
+{
+    const uint8_t *p = items_resolve(NULL, 0x00810C64u + ((unsigned)type & 0xFF), 1);
+    return p ? *p : 0;
+}
+uint8_t em_pickup_mag_packs(void)           { return item_byte(0x00810C63u); }
+const uint8_t *em_pickup_maps(void)         { return item_at(0x00810CB8u, 1); }
+const uint8_t *em_pickup_keys(void)         { return item_at(0x00810CC3u, 1); }
+int em_pickup_battery_charge(void)          { return item_half(0x00810CB2u); }
+int em_pickup_battery_capacity(void)        { return item_byte(0x00810CB7u); }
 
 void em_pickup_equipment_read(uint8_t *status, uint8_t *primary, uint8_t *secondary)
 {
-    if (status) *status = g.status;
+    if (status) *status = item_byte(0x00810C60u);
     if (primary) *primary = *equip_byte(0x00810CA4u);
     if (secondary) *secondary = *equip_byte(0x00810CA6u);
 }
 
 void em_pickup_equipment_write(uint8_t status, uint8_t primary, uint8_t secondary)
 {
-    g.status = status;
+    item_store(0x00810C60u, status);
     *equip_byte(0x00810CA4u) = primary;
     *equip_byte(0x00810CA6u) = secondary;
 }
+
+static Pickup *bound(uint16_t uid);
 
 static EmScriptCommandResult original_frame(void *context, EmScript *script,
                                             const unsigned char *record)
@@ -758,18 +577,33 @@ static int original_animation_done(void *context)
     return em_interaction_runtime_animation_done(p->interaction, &p->original);
 }
 
+/* 001C47A0's first call: 001C40B0(type, 1) over the item block. */
 static int original_add_item(void *context, uint16_t type, int amount)
 {
     (void)context;
-    inventory_add(type, amount);
-    return 1;
+    if (em_pickup_items_001C40B0(items_resolve, NULL, type, amount) == 0) return 1;
+    fprintf(stderr, "pickup: 001C40B0(%#x, %d) reached a byte the port does not hold "
+            "(em_pickup_set_weapon_ammo unbound, or outside the item block)\n", type, amount);
+    return -1;
 }
 
+/* 001B6EA0: 001C47A0 / 001C4720 (D_00810CB8[t] += 1) / 001C4760
+ * (D_00810CC3[t] += 1); the map and key bytes are the canonical item
+ * block, so a type whose byte lies past D_00810D1F faults. */
 static int original_take(void *context)
 {
     Pickup *p = context;
+    uint8_t *maps = item_at(0x00810CB8u, 1), *keys = item_at(0x00810CC3u, 1);
+    const unsigned type = p->original.item_type;
+    if (!maps || !keys ||
+        (p->original.subtype == 1 && !item_at(0x00810CB8u + type, 1)) ||
+        (p->original.subtype > 1 && !item_at(0x00810CC3u + type, 1))) {
+        fprintf(stderr, "pickup: 001B6EA0 type %#x subtype %u: its byte is outside the item block\n",
+                type, p->original.subtype);
+        return 0;
+    }
     EmPickupStatusRequest request = {0};
-    if (em_pickup_owner_take(&p->original, g.maps, g.keys, &request,
+    if (em_pickup_owner_take(&p->original, maps, keys, &request,
                               original_add_item, p) != 1) return 0;
     return !request.kind || p->original_hooks.status_request(
         p->original_hooks.context, request.kind, request.index) == 1;
@@ -827,12 +661,14 @@ int em_pickup_original_bind(const EmInteractionSceneOwner *record,
         if (p) return 0;
         p = &s.p[i];
     }
-    if (!p) {
+    if (!p || !p->used) {
+        /* Taken: 001B6660's condition 1 does not spawn it (an instance
+         * freed by an earlier binding stays freed). */
         if (!taken_bit(record->uid)) return 0;
         s.canonical_pickups = 1;
         return -2;
     }
-    if (p->original_bound || !p->used || p->type != (int)record->item_type) return 0;
+    if (p->original_bound || p->type != (int)record->item_type) return 0;
     EmPickupProgramHooks program_hooks = {p, original_frame, original_turn, original_camera,
         original_animation, original_animation_done, original_take};
     if (!em_pickup_program_load(&p->program, script_path, record->callback, &program_hooks)) return 0;
@@ -850,18 +686,66 @@ int em_pickup_original_bind(const EmInteractionSceneOwner *record,
     p->yaw = record->angles[1];
     pickup_build_palette(p);
     s.canonical_pickups = 1;
-    scan_slot = -1;
     return 1;
+}
+
+void em_pickup_original_unbind_all(void)
+{
+    for (int i=0; i<s.n; ++i) {
+        Pickup *p = &s.p[i];
+        if (!p->original_bound) continue;
+        em_pickup_program_free(&p->program);
+        memset(&p->original, 0, sizeof p->original);
+        p->original_bound = p->original_visible = p->original_failed = 0;
+        p->interaction = NULL;
+    }
 }
 
 EmPickupOwner *em_pickup_original_owner(uint16_t uid)
 {
-    for (int i=0; i<s.n; ++i)
-        if (s.p[i].original_bound && s.p[i].uid == uid) return &s.p[i].original;
-    return NULL;
+    Pickup *p = bound(uid);
+    return p ? &p->original : NULL;
 }
 
 int em_pickup_original_active(void) { return s.canonical_pickups; }
+
+static int tick_owner(Pickup *p, float player_y, uint8_t action, uint8_t no_grab,
+                      uint8_t scripted_frame)
+{
+    p->original_visible = 0;
+    if (p->original_failed) return -1;
+    EmPickupOwnerHooks hooks = {p, original_start, original_tick, original_event};
+    int result = em_pickup_owner_tick(&p->original, p->pos[1], player_y, action,
+                                      no_grab, scripted_frame, &hooks);
+    if (result < 0) p->original_failed = 1;
+    return result;
+}
+
+static Pickup *bound(uint16_t uid)
+{
+    for (int i=0; i<s.n; ++i)
+        if (s.p[i].original_bound && s.p[i].uid == uid) return &s.p[i];
+    return NULL;
+}
+
+int em_pickup_original_tick_one(uint16_t uid, float player_y, uint8_t action, uint8_t no_grab,
+                                uint8_t scripted_frame)
+{
+    Pickup *p = bound(uid);
+    return p ? tick_owner(p, player_y, action, no_grab, scripted_frame) : -1;
+}
+
+EmScript *em_pickup_original_script(uint16_t uid)
+{
+    Pickup *p = bound(uid);
+    return p ? &p->program.script : NULL;
+}
+
+const float *em_pickup_original_position(uint16_t uid)
+{
+    Pickup *p = bound(uid);
+    return p ? p->pos : NULL;
+}
 
 int em_pickup_original_tick(float player_y, uint8_t action, uint8_t no_grab,
                              uint8_t scripted_frame, int ordinary_tasks_enabled)
@@ -879,36 +763,22 @@ int em_pickup_original_tick(float player_y, uint8_t action, uint8_t no_grab,
         if (!next) return 1;
         previous = next->publication_rank;
         first = 0;
-        next->original_visible = 0;
-        if (next->original_failed) return -1;
-        EmPickupOwnerHooks hooks = {next, original_start, original_tick, original_event};
-        if (em_pickup_owner_tick(&next->original, next->pos[1], player_y, action,
-                                  no_grab, scripted_frame, &hooks) < 0) {
-            next->original_failed = 1;
-            return -1;
-        }
+        if (tick_owner(next, player_y, action, no_grab, scripted_frame) < 0) return -1;
     }
 }
 
 void em_pickup_battery_set_charge(int half_units)
 {
+    int capacity = em_pickup_battery_capacity();
     if (half_units < 0) half_units = 0;
-    if (half_units > g.battery_capacity) half_units = g.battery_capacity;
-    g.battery_charge = (int16_t)half_units;
+    if (half_units > capacity) half_units = capacity;
+    item_store_half(0x00810CB2u, (int16_t)half_units);
 }
 
 int em_pickup_battery_set_capacity_charge(uint16_t charge, uint8_t capacity)
 {
     if (charge > capacity) return 0;
-    g.battery_charge = (int16_t)charge;
-    g.battery_capacity = capacity;
+    item_store_half(0x00810CB2u, (int16_t)charge);
+    item_store(0x00810CB7u, capacity);
     return 1;
 }
-
-int em_pickup_ammo_take(void)
-{
-    int n = g.ammo_pending;
-    g.ammo_pending = 0;
-    return n;
-}
-

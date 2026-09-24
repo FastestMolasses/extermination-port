@@ -962,6 +962,10 @@ int em_weapon_lock_steer(const float player_pos[3], float player_yaw,
 /* Live ammo state — the HUD's EmPlayerStatus mirrors these. */
 uint8_t em_weapon_mag(void);
 int16_t em_weapon_reserve(void);
+/* The storage of D_00810C62 (w.mag) and D_00810CB4 (w.reserve), which
+ * 001C40B0 case 0x10 writes directly (em_pickup_set_weapon_ammo). */
+uint8_t *em_weapon_mag_byte(void);
+int16_t *em_weapon_reserve_word(void);
 
 /* Fire-mode select (D_00810C61). Out-of-range values are ignored. */
 void    em_weapon_set_fire_mode(uint8_t mode);

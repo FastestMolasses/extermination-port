@@ -1,6 +1,7 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_camera_rotation.h"
+#include "game/em_ee_float.h"
 #include "game/em_frame.h"
 #include "game/em_weapon.h"
 #include "game/em_interaction_alignment.h"
@@ -9,13 +10,26 @@
 #include "game/em_opening_media.h"
 #include "game/em_panel_message.h"
 #include "game/em_pickup.h"
+#include "game/em_pickup_items_original.h"
+#include "game/em_pickup_motion.h"
 #include "game/em_pickup_original.h"
+#include "game/em_owner_services_original.h"
 #include "game/em_props.h"
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 #include "game/em_status_background.h"
 #include "game/em_status_models.h"
+
+/* One AREA11 item owner (00219550 x6, 0015AFA0) the host binds (WP-6). */
+enum { HOST_PICKUPS = 7 };
+typedef struct {
+    EmInteractionSceneOwner *record;
+    EmPickupAura aura;   /* owner +0x2D0 (0015AFA0 only) */
+    float world[16];     /* owner +0xD0, from 0015AC00's 001C6380 */
+    uint8_t model, param; /* owner +0x03 / +0x0D, read by state 0 */
+    uint8_t state0;      /* the node's state 0 ran */
+} HostPickup;
 
 /* The owner token addresses remain stable until whole-world teardown. */
 static struct {
@@ -50,6 +64,12 @@ static struct {
     uint32_t message_kind, message_token;
     float scan_score;
     int status_route, offer_failed;
+    /* WP-6: the bound item owners, the one being ticked (its hooks' owner)
+     * and the 001B17A0 services their publication runs through. */
+    HostPickup pickups[HOST_PICKUPS];
+    size_t pickup_count;
+    HostPickup *pickup_current;
+    EmOwnerServices services;
 } world;
 
 static int camera_publish(void *context);
@@ -678,6 +698,202 @@ static uint8_t *elevator_floor(void)
     return em_scene_progress_at(em_scene_state(), 0x0081083Au, 1);
 }
 
+
+/* ------------------------------------------------------------ the pickups
+ *
+ * WP-6: the seven AREA11 item owners (00219550 x6, 0015AFA0 for the map)
+ * are bound to em_pickup_original at load and ticked at their own pool
+ * nodes (em_area11_bindings.c). These are their hooks. */
+
+static HostPickup *pickup_slot(uint32_t source_id)
+{
+    for (size_t i = 0; i < world.pickup_count; ++i)
+        if (world.pickups[i].record->source_id == source_id) return &world.pickups[i];
+    return NULL;
+}
+
+/* 001B7F90 (op0E sub1): the bounded turn toward the owner, written to the
+ * player's heading through the shared player pose. */
+static int pickup_turn(void *context, uint32_t source_id, const float position[3], float step)
+{
+    (void)context;
+    (void)source_id;
+    float yaw = g.yaw;
+    int result = em_pickup_turn(&world.scene.math, g.pos, &yaw, position, step);
+    if (result < 0 || !player_pose_face(yaw)) return -1;
+    return result;
+}
+
+/* 001B8FC0 (op00 sub8): settles the actual target D_008105E0 only, then
+ * 001DD980 publishes the render context (also on the seeding call). */
+static int pickup_camera(void *context, uint32_t source_id, const float position[3], EmScript *script)
+{
+    (void)context;
+    (void)source_id;
+    int result = em_pickup_camera_settle(script, position, g.cam.tgt);
+    if (result < 0 || !camera_publish(NULL)) return -1;
+    return result;
+}
+
+/* 001C47A0 / 001C4720 / 001C4760's request: D_008106B0 = kind, then
+ * D_008106B1 = type. The classifier 001AE7E0 opens the status screen on
+ * the next tick. */
+static int pickup_status(void *context, uint8_t kind, uint8_t index)
+{
+    (void)context;
+    EmSceneState *scene = em_scene_state();
+    scene->req[EM_SCENE_REQ_B0] = kind;
+    scene->req[EM_SCENE_REQ_B1] = index;
+    return 1;
+}
+
+/* 00122BB8, the SDK rand() the aura draws from. */
+static int32_t aura_rand(void *context)
+{
+    (void)context;
+    return (int32_t)em_random_next();
+}
+
+/* The aura's draw block (0011E2A8, the sprite record, 001026A0, 001F0A60)
+ * is not translated: the sprite is not drawn. Its countdown, rand() draws
+ * and facing test (the state em_pickup_aura_001F1180 keeps) are. */
+static int aura_draw(void *context, uint32_t record, uint32_t angle, uint32_t timer)
+{
+    (void)context;
+    (void)angle;
+    (void)timer;
+    static int reported;
+    if (!reported) {
+        reported = 1;
+        fprintf(stderr, "AREA11 interaction: the map pickup's aura sprite (001F1180's draw block, "
+                "001F0A60, record %06X) is not translated; not drawn\n", (unsigned)record);
+    }
+    return 0;
+}
+
+/* 001B1630 on g.cam.eye / g.cam.fwd (D_008105D0 / D_00810600). */
+static int services_visible(void *context, uint32_t x, uint32_t y, uint32_t z, uint8_t *visible)
+{
+    (void)context;
+    const float position[3] = {em_ee_float(x), em_ee_float(y), em_ee_float(z)};
+    *visible = (uint8_t)em_interaction_visible(position, g.cam.eye, g.cam.fwd);
+    return 0;
+}
+
+/* 001B1B70 for a pickup: class bit 0x80 pushes the owner onto the pending
+ * interactive list (001B1DE0), which 001AAD00 swaps in. Its class-4 push
+ * of the owner's collision cell (001B1D20, D_00275B80) has no port
+ * counterpart: the port's collision world holds only the panel's cell. */
+static int services_publish(void *context, EmOwnerServicesOwner *owner)
+{
+    (void)context;
+    HostPickup *slot = world.pickup_current;
+    if (!slot || !slot->record->live_armed) return -1;
+    if (owner->cls & 0x80) {
+        const EmInteractionCandidate entry = {slot->record, *slot->record->live_status, owner->cls,
+                                              slot->record->live_armed};
+        em_interaction_list_push(&world.scene.list, &entry);
+    }
+    return 0;
+}
+
+static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent event,
+                        uint32_t argument)
+{
+    (void)context;
+    HostPickup *slot = pickup_slot(source_id);
+    if (!slot || slot != world.pickup_current) return -1;
+    const EmPickupOwner *owner = slot->record->native_owner;
+    switch (event) {
+    case EM_PICKUP_OWNER_AURA: {
+        /* 0015AE20's tail: 001F1180(self) while D_70003B92 == 0, read after
+         * this tick's script step (the view is current). */
+        if (world.frame.ready) return 1;
+        const float eye[4] = {g.cam.eye[0], g.cam.eye[1], g.cam.eye[2], 1.0f};
+        const EmPickupAuraWorkers workers = {NULL, aura_rand, aura_draw};
+        return em_pickup_aura_001F1180(&slot->aura, slot->world, eye, em_scene_state()->d810700,
+                                       &workers) == 0 ? 1 : -1;
+    }
+    case EM_PICKUP_OWNER_PUBLISH: {
+        /* 001B17A0: +1 = 001B1630(+0xB0), then 001B1B70 when visible. */
+        EmOwnerServicesOwner o;
+        memset(&o, 0, sizeof o);
+        o.cls = owner->class_flags;
+        o.kind = owner->subtype;
+        o.model_id = slot->param;
+        o.flags2 = owner->item_type;
+        memcpy(o.pos, slot->record->position, sizeof slot->record->position);
+        o.pos[3] = 1.0f;
+        world.services.world.d00810CA5 = em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
+        int drawn = em_owner_services_001B17A0(&world.services, &o);
+        return drawn < 0 ? -1 : drawn != 0;
+    }
+    case EM_PICKUP_OWNER_TAKE_SOUND:
+        /* 001FBD50(self, 0x194, 0, 300.0). Cue 0x194 is not in the exported
+         * AREA11 sound scope (the sound export, WP-14): like the status
+         * page's system cues it reaches em_sfx_play_at, which drops it, and
+         * is reported once. */
+        if (argument != 0x194) return 0;
+        if (!em_sfx_cue_state(argument)) {
+            static int reported;
+            if (!reported) {
+                reported = 1;
+                fprintf(stderr, "AREA11 interaction: pickup take cue 0x194 has no exported sample "
+                        "(WP-14); silent\n");
+            }
+        }
+        em_sfx_play_at(argument, slot->record->position, 300.0f);
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* 00183EF0's selector 3/4 item branch needs 0019A910(mode 6) from the
+ * player's +16 to the item: the port's camera segment query with mask 6
+ * over the static cells, the published actor cells and the grid. Its hit
+ * class is the record's +0x1A halfword; an item is never its own hit
+ * owner here, because the port's collision world holds no item cells. */
+static int pickup_ray(void *context, const float from[4], const float to[4], unsigned mode,
+                      EmInteractionRayHit *hit)
+{
+    (void)context;
+    if (mode != 6 || !g.coll.blob) return 0;
+    EmCollHit h;
+    memset(&h, 0, sizeof h);
+    int kind = em_collision_camera_query(&g.coll, from, to, 6, &h);
+    hit->hit = kind != 0;
+    hit->flags = kind ? h.surf_class : 0;
+    hit->kind = (uint32_t)kind;
+    hit->owner = 0;
+    return 1;
+}
+
+static int bind_pickups(const char *directory)
+{
+    const EmPickupOriginalHooks hooks = {NULL, pickup_turn, pickup_camera, pickup_status, pickup_event};
+    world.services.workers.w_001B1630 = services_visible;
+    world.services.workers.w_001B1B70 = services_publish;
+    for (size_t i = 0; i < world.scene.count; ++i) {
+        EmInteractionSceneOwner *record = &world.scene.owners[i];
+        if (record->role != EM_INTERACTION_PICKUP) continue;
+        char path[1024];
+        snprintf(path, sizeof path, "%s/pickup_%08x.emsc", directory, (unsigned)record->callback);
+        int bound = em_pickup_original_bind(record, &world.shared, path, &hooks);
+        if (bound == -2) continue; /* taken: 001B6660 did not spawn it */
+        EmPickupOwner *owner = em_pickup_original_owner(record->uid);
+        if (bound != 1 || !owner || world.pickup_count >= HOST_PICKUPS ||
+            !em_interaction_scene_bind(&world.scene, record->source_id, owner, &owner->status,
+                                       &owner->class_flags, &owner->armed)) {
+            fprintf(stderr, "AREA11 interaction: pickup %04X (%06X) did not bind\n",
+                    (unsigned)record->uid, (unsigned)record->callback);
+            return 0;
+        }
+        world.pickups[world.pickup_count++] = (HostPickup){.record = record};
+    }
+    return 1;
+}
+
 int em_area11_interaction_host_load(const char *directory,
     const EmItemMath *math, const EmStatusRuntimeHooks *status_hooks)
 {
@@ -756,6 +972,7 @@ int em_area11_interaction_host_load(const char *directory,
         !em_interaction_scene_bind(&world.scene, world.elevator_record->source_id,
         &world.elevator, &world.elevator_status, &world.elevator_class, &world.elevator.owner.armed))
         goto failed;
+    if (!bind_pickups(directory)) goto failed;
     if (!em_sfx_set_area(11, 0)) goto failed;
     world.loaded = 1;
     return 1;
@@ -770,6 +987,7 @@ void em_area11_interaction_host_clear(void)
      * its owner tokens. Ordinary script completion uses player_tick. */
     em_sfx_set_area(-1, -1);
     world.shared.owner = NULL;
+    em_pickup_original_unbind_all();
     em_player_face_host_free(&world.face);
     em_status_runtime_free(world.status);
     em_status_models_free(world.models, em_frame_gfx());
@@ -865,8 +1083,9 @@ int em_area11_interaction_host_player(void *unused)
  * player +0x1F0 == 0x2D path rejects every class but 7; the port polls Use
  * only from the 00161020/001612D0 callbacks (player_use_poll), whose
  * states never hold 0x2D (only 0016D130 writes it), so the action passed is
- * 0. Only the owners bound here are published: the pickups, the door and
- * Roger keep their legacy scans until WP-6/7/9 bind them (W22). */
+ * 0. Only the owners bound here are published: the panel, the elevator and
+ * (WP-6) the seven item owners; the door and Roger keep their legacy scans
+ * until WP-7/9 bind them (W22). */
 enum { USE_MASK_3B76 = 0x0040 };
 
 static int use_predicate(void *context, const EmInteractionCandidate *candidate, float *score)
@@ -878,7 +1097,22 @@ static int use_predicate(void *context, const EmInteractionCandidate *candidate,
                                   g.yaw, score);
     if (record == world.elevator_record)
         return em_interaction_elevator_candidate(record->descriptor, g.pos, g.yaw, 0, score);
-    return -1; /* only the two bound owners are ever offered */
+    if (record->role == EM_INTERACTION_PICKUP && record->native_owner) {
+        /* 00183EF0's selector 3/4 item branch; +0x30 is the {10, 3.5}
+         * descriptor, D_008105E0 the view target of the action-0x2D path. */
+        EmInteractionPickup item = {.identity = (uintptr_t)record->native_owner,
+            .class_flags = *record->live_class_flags, .subtype = record->subtype,
+            .selector = record->selector, .callback = record->callback,
+            .descriptor = {record->descriptor[0], record->descriptor[1]}};
+        memcpy(item.position, record->position, sizeof item.position);
+        memcpy(item.angles, record->angles, sizeof item.angles);
+        EmInteractionPlayer player = {.yaw = g.yaw, .action = 0};
+        memcpy(player.position, g.pos, sizeof player.position);
+        memcpy(player.view_target, g.cam.tgt, sizeof player.view_target);
+        return em_interaction_pickup_candidate(&item, &player, &world.scene.math, pickup_ray, NULL,
+                                               score);
+    }
+    return -1; /* the door and Roger are not published yet (WP-7/WP-9) */
 }
 
 int em_area11_interaction_host_use(void *unused)
@@ -962,6 +1196,72 @@ int em_area11_interaction_host_elevator_tick(void)
     return world.offer_failed ? fail("elevator publication") : result;
 }
 
+/* The pickup node's first call (state 0). 0015AFA0 runs 0015AC00: the
+ * +0x60 scale by the model id +0x0D, 001C6380's +0xD0 matrix (the aura's
+ * facing test reads it) and 001F1110(self, variant by +0x03 & 0xF), whose
+ * rand() is the first draw of the aura. The instance's model, bones and
+ * palette are em_pickup's (em_pickup_add); 00219550's state 0 (its
+ * 001C5570 child) is spawned by the node itself. */
+int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, uint8_t param)
+{
+    if (!world.loaded || world.failed) return -1;
+    HostPickup *slot = pickup_slot(source_id);
+    if (!slot || slot->state0) return fail("pickup state 0 (unbound or repeated)");
+    slot->state0 = 1;
+    slot->model = model;
+    slot->param = param;
+    if (slot->record->callback != 0x0015AFA0u) return 0;
+    float scale = 1.0f;
+    switch (param) {
+    case 0x5B: scale = 1.5f; break;
+    case 0x6D: case 0x6C: case 0x59: case 0x57: case 0x56: case 0x55: case 0x4F: case 0x4E:
+    case 0x4D: case 0x45: case 0x42: case 0x41: case 0x40: scale = 2.0f; break;
+    default: break;
+    }
+    const float scales[3] = {scale, scale, scale};
+    if (em_owner_services_build_trs_matrix(slot->world, slot->record->position, slot->record->angles,
+                                           scales) != 0)
+        return fail("0015AC00 placement");
+    int16_t variant;
+    switch (model & 0xF) {
+    case 1: variant = 1; break;
+    case 2: variant = 4; break;
+    case 0: variant = param == 0x34 ? 5 : 0; break;
+    default: variant = 0; break;
+    }
+    const EmPickupAuraWorkers workers = {NULL, aura_rand, aura_draw};
+    return em_pickup_aura_001F1110(&slot->aura, variant, &workers) == 0 ? 0 : fail("001F1110");
+}
+
+/* Every later call: 00219550 states 1..3 / 0015AFA0 states 1..3 over the
+ * shared frame view, the owner's program skip byte (3B91) and its
+ * publication. D_00810354 is g.pos[1]; D_008104A0 (player +0x1F0) is 0 on
+ * every port path (0x2D is written only by 0016D130, which the port does
+ * not run) and D_008104E6 (player +0x236) has no port writer: both are
+ * passed as 0. 1 while allocated, 0 on the call that freed the owner (the
+ * node then frees itself, 001AFC10), -1 fault. Status frames do not tick
+ * the owners. */
+int em_area11_interaction_host_pickup_tick(uint32_t source_id)
+{
+    if (!world.loaded || world.failed) return -1;
+    HostPickup *slot = pickup_slot(source_id);
+    if (!slot || !slot->state0) return fail("pickup tick before state 0");
+    if (!em_status_runtime_ordinary_enabled(world.status)) return 1;
+    const uint16_t uid = slot->record->uid;
+    EmScript *script = em_pickup_original_script(uid);
+    if (!script) return fail("pickup program");
+    view_load();
+    script_load(script);
+    world.pickup_current = slot;
+    /* The aura's D_70003B92 gate is read at its event (after the script
+     * step), so the owner core is handed 0 here. */
+    int result = em_pickup_original_tick_one(uid, g.pos[1], 0, 0, 0);
+    world.pickup_current = NULL;
+    script_store(script);
+    view_store();
+    return result < 0 ? fail("pickup owner") : result;
+}
+
 /* 001AAD00's interactive-list swap (D_00275B5C/B64 = the pending list, then
  * the pending list is emptied); its other hooks and class lists have no
  * port counterpart yet. */
@@ -1006,7 +1306,18 @@ int em_area11_interaction_host_status_page(const EmStatusInput *input)
     int result = em_status_runtime_page_tick(world.status, input, &scene->req[EM_SCENE_REQ_B0],
         &scene->req[EM_SCENE_REQ_B1], &scene->req[EM_SCENE_REQ_C5],
         em_scene_req_at(scene, 0x008106CCu));
-    if (result < 0) return fail("0020CDC0");
+    if (result < 0) {
+        /* A request whose page is not translated: name it (0020CDC0 case
+         * 0's mapping of B0/B1). */
+        const uint8_t b0 = scene->req[EM_SCENE_REQ_B0], b1 = scene->req[EM_SCENE_REQ_B1];
+        const char *page = b0 == 2 ? "MAP 0020F950" : b0 == 3 ? "DATABASE 00214020" :
+                           b0 != 1 || (b1 & 0x80) || (b1 >= 0x1B && b1 <= 0x1D) ? NULL :
+                           b1 < 0x17 ? "SPR4 00211970" : "the ITEM child 002160B0";
+        if (page && !world.failed)
+            fprintf(stderr, "AREA11 interaction: status request B0 = %u, B1 = %#04x opens %s, "
+                    "which is not translated\n", (unsigned)b0, (unsigned)b1, page);
+        return fail("0020CDC0");
+    }
     return result;
 }
 

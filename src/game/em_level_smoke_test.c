@@ -10,8 +10,7 @@
  * later beat starts from the state the earlier ones leave. A NOT-LIVE phase a
  * later live phase needs the state of is "driven" (Phase.driven): its runner
  * plays it through the owner's current port binding and it is reported
- * NOT-LIVE driven, never passed (the battery pickup, WP-6; its status
- * pop-up is original since WP-5 and asserted in process).
+ * NOT-LIVE driven, never passed (none since WP-6 made the battery live).
  *
  * Each runner drives pad input only (as the route captures do) and asserts
  * the original values it can observe in process. The tick-by-tick comparison
@@ -75,7 +74,7 @@ static const Phase k_phases[] = {
     {"battery", "01_battery", 0x00219550u,
      "pickup 00219550 g0.0 (item 0x1B): take script 0x266620, B0=1/B1=0x1B, status ITEM page",
      "WP-6 (pickup owner and Use arbiter) with WP-5 (status ITEM page)", battery_begin, battery_frame,
-     1},
+     0},
     {"elevator_refusal", "02_elevator_refusal", 0x00827B10u,
      "terminal 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox",
      "WP-4", refusal_begin, refusal_frame, 0},
@@ -580,20 +579,22 @@ static int scan_accepted(void)
 
 /* ------------------------------------------------------------- battery
  *
- * NOT-LIVE, driven (route beat 01): the battery pickup g0.0 (00219550,
- * item 0x1B) at (211.6, 229.9, 227.2) still runs the legacy em_pickup take
- * until WP-6 binds its original owner (take script 0x266620). Since WP-5
- * the take posts the original request (001C47A0: B0 = 1, B1 = 0x1B) and
- * the status screen pops up on it, as in the route (f189 post, f192
- * open). The runner walks to the item and presses Cross as route_capture's
- * beat_battery does, then asserts what it can see in process: the screen
- * opens (+B = 3) with item 0x1B taken, the page is the ITEM root in its
- * BATTERY child (0020EE50 state 5 after module 0x21) showing 002149F0's
- * acquisition notice (sub-state 3) with charge and capacity 12, and the
- * request consumed (B0 = 0); the notice hands over to the list (sub-state
- * 1); TRIANGLE 20 frames later (route f459 -> f479) closes the screen and
- * control returns. Nothing here is compared with the capture rows: the take
- * and its timing are the legacy owner's. */
+ * Route beat 01 (live since WP-6): the battery pickup g0.0 (00219550, item
+ * 0x1B) at (211.6, 229.9, 227.2). The runner walks to the route's stance
+ * before its press (218.212, 222.373, facing -0.9588; f118..f124) and
+ * presses Cross as route_capture's beat_battery does. 00184BA0 arms the
+ * original owner (3B8D = 3, the scan tick is printed); its take program
+ * 0x266620 turns the player, plays the grab clip, settles the camera target
+ * and consumes the item (001C47A0: 001C40B0, B0 = 1, B1 = 0x1B), and the
+ * status screen pops up on it (route f189 post, f192 open). In process:
+ * the screen opens (+B = 3) with item 0x1B taken, the page is the ITEM root
+ * in its BATTERY child (0020EE50 state 5 after module 0x21) showing
+ * 002149F0's acquisition notice (sub-state 3) with charge and capacity 12,
+ * the request consumed (B0 = 0); the notice hands over to the list
+ * (sub-state 1) after route 01's 239 frames; TRIANGLE 20 frames later
+ * (route f459 -> f479) closes the screen, control returns and the owner has
+ * set its taken bit. tools/test_level_smoke.py check_battery compares the
+ * take with route 01 row for row (LEVEL_SMOKE.md). */
 static void battery_begin(void)
 {
     nav_reset();
@@ -605,10 +606,16 @@ static int battery_frame(void)
     const EmStatusPage *page = status ? em_status_runtime_page(status) : NULL;
     const EmSceneState *s = em_scene_state();
     switch (t.step) {
-    case 0: NAV_STEP(nav_goto(211.6f, 227.2f, 5.0f, 1.0f, 1));
-    case 1: NAV_STEP(nav_settle(20));
-    case 2: NAV_STEP(nav_press(EM_PAD_CROSS, 2));
-    case 3:
+    case 0: NAV_STEP(nav_goto(218.212f, 222.373f, 1.0f, 1.0f, 1));
+    case 1: NAV_STEP(nav_goto(218.212f, 222.373f, 0.1f, 0.4f, 1));
+    case 2: NAV_STEP(nav_settle(20));
+    case 3: NAV_STEP(nav_face(-0.9588f));
+    case 4: NAV_STEP(nav_settle(10));
+    case 5:
+        (void)scan_accepted();
+        NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 6:
+        (void)scan_accepted();
         if (task_byte(EM_SCENE_TASK_0B) == 3) {
             if (em_pickup_item_count(0x1B) != 1 || s->req[EM_SCENE_REQ_B1] != 0x1B) {
                 fail("the status screen opened without the item 0x1B take's request");
@@ -621,7 +628,7 @@ static int battery_frame(void)
         if (++t.nav_frames > 600)
             fail("the battery take did not open the status screen");
         return 0;
-    case 4:
+    case 7:
         if (page && page->phase == 3 && page->item.screen == 0 && page->item.state == 5 &&
             page->item.step == 3) {
             if (em_pickup_battery_charge() != 12 || em_pickup_battery_capacity() != 12 ||
@@ -636,7 +643,7 @@ static int battery_frame(void)
         if (++t.nav_frames > 120)
             fail("the status screen did not show the BATTERY acquisition notice");
         return 0;
-    case 5:
+    case 8:
         if (page && page->item.state == 5 && page->item.step == 1) {
             fprintf(stderr, "level smoke: battery: pop-up notice %d frames, then the list\n",
                     t.nav_frames);
@@ -655,14 +662,14 @@ static int battery_frame(void)
         if (++t.nav_frames > 400)
             fail("the BATTERY acquisition notice did not hand over to the list");
         return 0;
-    case 6:
+    case 9:
         if (++t.nav_frames < 20)
             return 0;
         ++t.step;
         nav_reset();
         return 0;
-    case 7: NAV_STEP(nav_press(EM_PAD_TRIANGLE, 1));
-    case 8:
+    case 10: NAV_STEP(nav_press(EM_PAD_TRIANGLE, 1));
+    case 11:
         if (task_byte(EM_SCENE_TASK_0B) == 1 && s->req[EM_SCENE_REQ_B0] == 0 &&
             em_frame_transition()->substate == 0) {
             ++t.step;
@@ -672,7 +679,21 @@ static int battery_frame(void)
         if (++t.nav_frames > STATUS_CLOSE_TIMEOUT)
             fail("TRIANGLE did not close the battery pop-up");
         return 0;
-    case 9: NAV_STEP(nav_settle(30));
+    case 12: {
+        int r = nav_settle(30);
+        if (r <= 0)
+            return 0;
+        /* 00219550's completion: the taken bit (001B1190) and the owner
+         * freed with its light child. */
+        if (!t.saw[7] || !em_pickup_taken(0x0B01) || em_pickup_item_count(0x1B) != 1) {
+            fail("the battery owner did not complete its take (taken bit, count 1)");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: battery: PASS scan_d810750=%d player=(%.3f,%.3f,%.3f) yaw=%.5f "
+                "charge=%d\n", (int)t.scan_variants, g.pos[0], g.pos[1], g.pos[2], g.yaw,
+                em_pickup_battery_charge());
+        return 1;
+    }
     default:
         return 1;
     }

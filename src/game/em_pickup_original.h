@@ -1,5 +1,7 @@
-/* Canonical AREA11 pickup binding. Independent legacy scans are disabled
- * once this adapter is enabled. The game owns Use arbitration/pose reset. */
+/* Canonical AREA11 pickup binding (docs/PICKUP_OWNERS.md). The AREA11
+ * interaction host binds every placed pickup at load and ticks each owner
+ * at its pool node; the host owns Use arbitration (00184BA0) and the
+ * 001798D0 pose reset. */
 #ifndef EM_PICKUP_ORIGINAL_H
 #define EM_PICKUP_ORIGINAL_H
 #include "game/em_pickup_owner.h"
@@ -27,6 +29,9 @@ typedef struct {
  * script_path is pickup_0015afa0.emsc or pickup_00219550.emsc as appropriate. */
 int em_pickup_original_bind(const EmInteractionSceneOwner *, EmInteractionRuntime *,
                              const char *script_path, const EmPickupOriginalHooks *);
+/* Whole-world teardown (001AF8E0 frees the owners): every binding is
+ * released; the instances, the inventory and the taken bits stay. */
+void em_pickup_original_unbind_all(void);
 /* Stable token for em_interaction_runtime_claim and live canonical bytes. */
 EmPickupOwner *em_pickup_original_owner(uint16_t uid);
 /* Advance bound owners in original publication rank order. Status frames
@@ -34,8 +39,20 @@ EmPickupOwner *em_pickup_original_owner(uint16_t uid);
  * Player worker and general Use scan run earlier in the same frame. */
 int em_pickup_original_tick(float player_y, uint8_t action, uint8_t no_grab,
                              uint8_t scripted_frame, int ordinary_tasks_enabled);
+/* One owner update (00219550 / 0015AFA0 state 1 and later) of the bound
+ * owner `uid`, at its pool node: 1 while allocated, 0 on the call that
+ * freed it (the node then frees itself, 001AFC10), -1 fault (also for an
+ * unbound uid). The caller gates status frames. */
+int em_pickup_original_tick_one(uint16_t uid, float player_y, uint8_t action, uint8_t no_grab,
+                                uint8_t scripted_frame);
+/* The bound owner's running take program (its skip byte is the canonical
+ * 3B91 view) and its +0xB0 position; NULL when `uid` is not bound. */
+EmScript *em_pickup_original_script(uint16_t uid);
+const float *em_pickup_original_position(uint16_t uid);
 int em_pickup_original_active(void);
 
+/* The canonical map bytes D_00810CB8[t] and key bytes D_00810CC3[t]
+ * (they overlap the item counts; bytes past D_00810D1F are not held). */
 const uint8_t *em_pickup_maps(void);
 const uint8_t *em_pickup_keys(void);
 /* Original810C60/CA4/CA6 live bytes, initialized0/FF/0 by001AF2C0.

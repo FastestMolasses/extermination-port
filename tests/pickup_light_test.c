@@ -9,7 +9,13 @@ static float drawn_palette[32], drawn_tint[4];
 static uint32_t random_value;
 
 uint32_t em_random_next(void) { ++random_calls; return random_value; }
-void em_game_player_interact_anim(int clip) { (void)clip; }
+
+/* 001C40B0 over em_pickup's canonical item block (the resolver the
+ * owner adapter uses). */
+static void inventory_add(int type, int n)
+{
+    assert(em_pickup_items_001C40B0(items_resolve, NULL, type, n) == 0);
+}
 /* The D2 progress region (taken bits, CA4..CA7); the game owns it in
  * em_scene_bindings.c. */
 EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
@@ -87,7 +93,6 @@ int main(void)
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
     const float pos[3]={211.6f,229.9f,227.2f};
     const float viewproj[16]={0};
-    EmFrameInput input={0};
     em_pickup_reset();
     assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-1);
     assert(em_pickup_add(gfx,"scene",0x1b,pos,-PICKUP_PI/2,
@@ -96,28 +101,27 @@ int main(void)
     assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-1);
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==0);
-    em_pickup_update(pos,0,&input,0);
+    em_pickup_lights_tick();
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==0 && random_calls==0); /* original initialization frame */
     random_value=0x40000000;
-    em_pickup_update(pos,0,&input,0);
+    em_pickup_lights_tick();
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1 && random_calls==1 && drawn_tint[1]==1.0f);
     assert(drawn_palette[12]==pos[0] && drawn_palette[13]==pos[1]);
     assert(drawn_palette[14]==pos[2] && fabsf(drawn_palette[2]-1)<1e-6f);
     assert(memcmp(drawn_palette,drawn_palette+16,16*sizeof(float))==0);
-    s.p[0].armed=4;
-    s.p[0].take_t=1;
-    em_pickup_update(pos,0,&input,0);
+    /* The owner's FREE (00219550 state 3's 001AFC10) and its taken bit. */
+    s.p[0].used=0;
+    taken_set(0xb01);
+    em_pickup_lights_tick();
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1 && random_calls==1); /* owner took: no stale effect */
     /* AREA11 UID0B01 is original item1B. 001C40B0 adds 12 internal
      * half-units, not merely an item count or ammunition. */
+    inventory_add(0x1b,1);
     assert(em_pickup_item_count(0x1b)==1);
     assert(em_pickup_battery_charge()==12 && em_pickup_battery_capacity()==12);
-    /* 001B6EA0 family 0 -> 001C47A0: the status request B0 = 1, B1 = 0x1B. */
-    assert(em_scene_state()->req[EM_SCENE_REQ_B0]==1 &&
-           em_scene_state()->req[EM_SCENE_REQ_B1]==0x1b);
     em_pickup_scene_clear(gfx);
     assert(em_pickup_battery_charge()==12); /* global inventory persists */
     assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-2);
@@ -131,10 +135,10 @@ int main(void)
     assert(em_pickup_battery_charge()==17 && em_pickup_battery_capacity()==36);
     inventory_add(0x1d,1);
     assert(em_pickup_battery_charge()==48 && em_pickup_battery_capacity()==48);
-    g.count[0x1b]=255;
+    item_store(0x00810C7Fu,255);
     inventory_add(0x1b,1);
     assert(em_pickup_item_count(0x1b)==0); /* original byte store wraps */
-    assert(em_pickup_battery_charge()==48 && em_pickup_ammo_take()==0);
+    assert(em_pickup_battery_charge()==48);
     em_pickup_battery_set_charge(-1);
     assert(em_pickup_battery_charge()==0);
     em_pickup_battery_set_charge(100);
@@ -146,7 +150,16 @@ int main(void)
     assert(em_pickup_item_count(0)==1 && em_pickup_item_count(5)==1 &&
            em_pickup_item_count(7)==1 && em_pickup_item_count(0x17)==1 &&
            em_pickup_item_count(0x10)==2 && em_pickup_mag_packs()==2);
-    assert(em_pickup_ammo_take()==0);
+    /* 001C40B0 case 0x10 writes em_weapon's D_00810C62/D_00810CB4 directly
+     * (unbound: the take faults instead of queueing rounds). */
+    assert(em_pickup_items_001C40B0(items_resolve, NULL, 0x10, 1) == -1);
+    uint8_t mag=0; int16_t reserve=60;
+    em_pickup_set_weapon_ammo(&mag,&reserve);
+    inventory_add(0x10,1);
+    assert(mag==30 && reserve==90 && em_pickup_mag_packs()==4 && em_pickup_item_count(0x10)==4);
+    /* The map/key bytes overlap the counts, as in the original. */
+    inventory_add(0x5C,1);
+    assert(em_pickup_maps()[8]==1);
 
     /* 00827630 state-0 init pose (AREA11 fan pair). Record 1 (+0x2E 0,
      * yaw -pi) gets rot.z +pi/4, record 2 (+0x2E 1, yaw 0) -pi/4, and

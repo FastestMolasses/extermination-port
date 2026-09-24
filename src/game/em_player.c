@@ -508,8 +508,8 @@ static void live_fault(const char *what)
 }
 
 /* The scene bytes the stage reads, from the canonical scene state. D_00810CB6
- * lives in the progress block; while that byte is not canonical the busy
- * result is unknown (player_states_busy() = -1). */
+ * lives in the progress block (canonical since WP-6); if it were not, the
+ * busy result would be unknown (player_states_busy() = -1). */
 static int live_scene_load(void)
 {
     EmSceneState *s = em_scene_state();
@@ -1465,10 +1465,6 @@ static void player_move_callbacks(void)
      * stand-still lock — the engine's "scripted-anim-owns-player" state
      * (player+0x2F3 = 3) and the powered descent both suppress free
      * movement so the script owns the player:
-     *   - interact_active: a one-shot scripted clip is playing on the
-     *     player (the OUTSIDE battery-insert clip 0x14, the INTERNAL
-     *     lever-throw clip 0x47). Input/movement is suppressed for the
-     *     clip's duration; control returns when it ends.
      *   - elev_state == 1: the platform is descending — the player
      *     stands on it and is carried DOWN by the descent's direct Y
      *     drive (elevator_tick, after actor_update), not by free

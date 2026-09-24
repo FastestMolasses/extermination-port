@@ -31,10 +31,21 @@ landed"):
   would otherwise draw the elevator at 230 under an owner at 190. Each state-1 tick ends
   with the owner's 001B17A0 publication (the 001B1630 cone/range gate, then
   001B1B70), and 001AAD00 swaps the list in (`_publish`).
+- **Items (WP-6).** The load binds the seven item owners (00219550 x6,
+  0015AFA0) to `em_pickup_original` (taken ones are skipped); their pool
+  nodes #0..#6 call `_pickup_state0` on the first call and
+  `_pickup_tick` after it, each owner at its own position, publishing
+  through the translated 001B17A0 (docs/PICKUP_OWNERS.md). The host
+  supplies their turn, camera-settle, status-request, aura (001F1180) and
+  take-sound hooks; the take posts its original B0/B1 request.
 - **Use.** On D_00810E74 & 0x40 the hook runs 00184BA0 over the published
-  list (the panel's type-24 predicate, the elevator's selector-1 predicate),
-  arms the winner, claims the shared owner (3B8D = 3) and runs 001798D0. It
-  returns 0 without a winner, so the player's own Use actions follow.
+  list (the panel's type-24 predicate, the elevator's selector-1 predicate,
+  the items' selector-3 predicate `em_interaction_pickup_candidate` with
+  0019A910 mode 6 as the port's camera segment query), arms the winner,
+  claims the shared owner (3B8D = 3) and runs 001798D0: one pass, lowest
+  score wins, a result of 2 commits at once. It returns 0 without a winner,
+  so the player's own Use actions follow. The door and Roger are not in the
+  list yet (WP-7/WP-9).
 - **Status screens (WP-4 requests, WP-5 all).** The scene core's
   0020E060/0020CDC0 run `_status_open`/`_status_page`, the original page
   layer over the canonical request bytes, for every status screen, drawn by
@@ -42,7 +53,9 @@ landed"):
   B1 = 0x82 / D_008106D0 = the panel's record address; 002149F0's exit
   writes 3B8D = 3), a battery pickup's 001C47A0 request (B0 = 1 / B1 =
   0x1B..0x1D: the ITEM page's BATTERY acquisition notice) and START/TRIANGLE
-  (B0 == 0: the hub phase). The panel owner is bound only for B0 != 0 with
+  (B0 == 0: the hub phase). A request whose page is not translated (the
+  other item takes: MAP, DATABASE, SPR4, the ITEM child) faults in 0020CDC0
+  with a report naming the page. The panel owner is bound only for B0 != 0 with
   B1 & 0x80 (a stale B1 stays after a request). The hub phase is the
   original `em_status_hub` inside the runtime (WP-5;
   `em_status_runtime_bind_hub` with `panel/status_hub.emhs` and
@@ -91,7 +104,14 @@ The actual-asset sanitizer fixture links the native player pose host, raw
 channels, model, collision, camera, scripts, inventory and status modules.
 It checks panel refusal (156 ordinary callbacks), the first battery with
 actual turn/camera settling (118), default-No/reselection/cancellation (170),
-and successful discharge followed by panel power and release (285). The
+and successful discharge followed by panel power and release (285). Since
+WP-6 the items are the host's own bindings: the fixture places the seven
+instances before the load, runs each node's state 0 and the host's item
+ticks every ordinary callback, and checks that the desired camera vectors
+stay put during the battery's op00 sub8 settle; `other_take` runs the takes
+of 0x0B04 (0x1E), 0x0B07 (key 0x32), 0x0B08 (0x10: the magazine bytes
+C62/CB4 written directly) and 0x0B09 (the map, class 7 with its aura) to
+their original requests and checks that the page each opens faults. The
 discharge occupies61 status callbacks. These are fixture callback counts,
 not claimed unassisted original playthrough timings. Direct owner claims,
 the previous published list, ordinary camera evolution, GPU submission and

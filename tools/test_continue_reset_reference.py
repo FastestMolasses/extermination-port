@@ -146,7 +146,6 @@ PICKUP_SHIM = r"""
 /* Model/GPU/player boundaries em_pickup_reset never reaches: fail-stop. */
 #define UNREACHED() (fprintf(stderr, "pickup probe: %s reached\n", __func__), abort())
 uint32_t em_random_next(void) { UNREACHED(); }
-void em_game_player_interact_anim(int clip) { (void)clip; UNREACHED(); }
 int em_model_load(EmModel *m, const char *path) { (void)m; (void)path; UNREACHED(); }
 void em_model_free(EmModel *m) { (void)m; UNREACHED(); }
 int em_model_clip_index(const EmModel *m, uint32_t clip) { (void)m; (void)clip; UNREACHED(); }
@@ -168,13 +167,14 @@ EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 void pickup_probe(uint8_t *count, uint8_t *out)
 {
     /* the same dirty state as PICKUP_DIRTY, then the reset */
-    g.mag_packs = 7; g.count[0x00] = 9; g.count[0x10] = 7;
-    g.count[0x1B] = 1; em_pickup_equipment_write(3, 2, 4);
+    item_store(0x00810C63u, 7); item_store(0x00810C64u, 9); item_store(0x00810C74u, 7);
+    item_store(0x00810C7Fu, 1); em_pickup_equipment_write(3, 2, 4);
     *em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1) = 0x11;
     *em_scene_progress_at(em_scene_state(), 0x00810CA7u, 1) = 0x22;
-    g.battery_charge = 8; g.battery_capacity = 12; g.keys[0] = 1;
+    em_pickup_battery_set_capacity_charge(8, 12); item_store(0x00810CC3u, 1);
     em_pickup_reset();
-    memcpy(count, em_pickup_items(), 256);
+    memset(count, 0, 256);
+    memcpy(count, em_pickup_items(), 0x40);
     uint8_t status, primary, secondary;
     em_pickup_equipment_read(&status, &primary, &secondary);
     out[0] = em_pickup_mag_packs(); out[1] = status; out[2] = primary;
@@ -195,7 +195,7 @@ def build_native_pickup():
     source = out / 'pickup_probe.c'
     source.write_text(PICKUP_SHIM)
     lib = out / ('pickup_probe.dylib' if sys.platform == 'darwin' else 'pickup_probe.so')
-    owners = ['src/game/em_pickup_owner.c', 'src/game/em_pickup_program.c',
+    owners = ['src/game/em_pickup_items_original.c', 'src/game/em_pickup_owner.c', 'src/game/em_pickup_program.c',
               'src/game/em_script.c', 'src/game/em_interaction_runtime.c',
               'src/game/em_interaction_frame.c', 'src/game/em_interaction_animation.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',

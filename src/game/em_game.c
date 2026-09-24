@@ -719,46 +719,9 @@ int em_game_terminal_powered(void)
     return (*power & 0x80) != 0;
 }
 
-/* em_game_player_interact_anim (em_game.h). Play a one-shot scripted
- * clip ON THE PLAYER and lock player input/movement for its duration: the
- * port stand-in for the engine's "scripted-anim-owns-player" state
- * (player+0x2F3 = 3). Since WP-4 its only caller is the legacy pickup take
- * (em_pickup.c pickup_take, the grab clip; WP-6 replaces it with the
- * original take script); the AREA11 panel and terminal run their original
- * owners in the interaction host instead.
- *
- * Natively this rides the same sa_* mailbox as em_game_anim_request (a
- * one-shot: plays once at `rate`, holds its last frame, then locomotion
- * resumes) and additionally raises interact_active, which player_move
- * reads as a stand-still movement lock and em_game_player_interact_busy
- * reports. actor_update detects the clip's end and drops the lock.
- *
- * IDEMPOTENT: a call while an interact is busy is a no-op. If the loaded
- * player EMDL lacks `clip_id` the anim request degrades to a no-op
- * (em_game_anim_request returns 0) and the lock releases on the next
- * actor_update. */
-void em_game_player_interact_anim(int clip_id)
-{
-    if (clip_id <= 0) return;
-    if (g.interact_active) return;
-
-    g.interact_clip   = (unsigned)clip_id;
-    g.interact_active = 1;
-    g.interact_seen   = 0;        /* not yet committed (commit is next
-                                   * actor_update); end-detection waits */
-    if (!em_game_anim_request(g.interact_clip, 1.0f)) {
-        g.interact_seen = 1;      /* no clip to wait on — release next frame */
-        printf("interact: player clip %#x absent — lock-only (FLAGGED)\n",
-               clip_id);
-    } else {
-        printf("interact: player scripted clip %#x — input locked\n",
-               clip_id);
-    }
-}
-
 /* em_game_player_interact_busy — 1 while a port stand-in or an original
- * interaction owns the player: the legacy interact clip (the pickup grab),
- * the legacy AREA-11 opening director (cine_active; the player is frozen
+ * interaction owns the player: the legacy AREA-11 opening director
+ * (cine_active; the player is frozen
  * for a beat), the opening runtime, or an acquired original player source
  * (player_pose_owned: the AREA11 interaction host's 0015B130 takeover).
  * The legacy elevator ride that used to fold in here was retired in WP-4
@@ -766,7 +729,7 @@ void em_game_player_interact_anim(int clip_id)
  * in the interaction host). */
 int em_game_player_interact_busy(void)
 {
-    return g.interact_active || g.cine_active || em_opening_runtime_busy() ||
+    return g.cine_active || em_opening_runtime_busy() ||
            player_pose_owned();
 }
 
@@ -1112,65 +1075,13 @@ int em_game_legacy_door_tick(void)
     return switched;
 }
 
-/* PICKUPS (em_pickup.h — the pool's item actors plus the player
- * use scan's archetype-3 ITEM branch). The scan rides the same
- * CROSS press edge as the door scan above; the engine's single
- * nearest-wins walk over one interactive list is approximated
- * DOORS-FIRST: a press that armed a door has engaged the movement
- * lock by now, which suppresses the item scan (the engine's
- * scripted-frame spad-3B8D gate shape). Damage lock likewise.
- * Doors-first holds only where the legacy block's order is kept (the
- * legacy_world node). In AREA11 since S10b the pickup group runs at its
- * owner's node (#0, deferred g0.0), before the door node (#9), so there a
- * press that arms the door the same frame no longer suppresses this
- * frame's item scan; the original resolves one winner inside the player
- * stage instead (00184BA0 in 0015BCF0), which the port does not have. */
-/* The item owners' half of em_pickup_update (the 001C5680 light children
- * are em_pickup_lights_tick, which the legacy block ran right after it). */
-void em_game_legacy_pickup_update(int gameplay)
-{
-    if (!gameplay) {
-        em_pickup_update_owners(g.pos, g.yaw, em_frame_input(), 0);
-        return;
-    }
-    em_pickup_update_owners(g.pos, g.yaw, em_frame_input(),
-                            !em_door_movement_locked() &&
-                            !player_damage_locked());
-}
-
-/* The pickups' collection events (the legacy block ran them right after
- * em_props_indicators_tick). */
-void em_game_legacy_pickup_collect(void)
-{
-    {
-        /* Collection events (one-shot takes — em_pickup.h; the take
-         * itself posts the D_008106B0/B1 status request, pickup_take):
-         *  - AMMO (func_001C40B0 case 0x10, +30 reserve per pack):
-         *    applied through em_weapon_reset — the module's only ammo
-         *    writer — so only while the machine is quiescent
-         *    (HOLSTERED, no melee); otherwise the rounds stay pending
-         *    inside em_pickup until the stance settles. */
-        if (em_weapon_state() == EM_WPN_HOLSTERED &&
-            !em_weapon_is_melee()) {
-            int rounds = em_pickup_ammo_take();
-            if (rounds > 0) {
-                em_weapon_reset(em_weapon_mag(),
-                                (int16_t)(em_weapon_reserve() + rounds));
-                printf("pickup: +%d reserve rounds (mag %u, reserve "
-                       "%d)\n", rounds, em_weapon_mag(),
-                       em_weapon_reserve());
-            }
-        }
-    }
-}
-
 void em_game_legacy_examine_tick(void)
 {
     /* EXAMINE objects (em_examine.h — the overlay examine behaviors:
      * archetype scan on the same CROSS press edge, then the scripted
      * sequence: input pause + the mode-2 radio line + the optional
-     * op00 camera cue). Doors-first like the pickup scan above; the
-     * running sequence suppresses its own scan internally. */
+     * op00 camera cue). The running sequence suppresses its own scan
+     * internally. */
     em_examine_update(g.pos, g.yaw, em_frame_input(),
                       !em_door_movement_locked() &&
                       !player_damage_locked());
@@ -1251,10 +1162,8 @@ void em_game_legacy_pool_gameplay(void)
                               * place among the world updates */
     (void)em_game_legacy_door_tick();
     em_snow_runtime_tick(g.cam.eye, 0);
-    em_game_legacy_pickup_update(1);
     em_pickup_lights_tick();
     em_props_indicators_tick();
-    em_game_legacy_pickup_collect();
     em_game_legacy_examine_tick();
     em_game_legacy_enemy_tick();
     em_game_legacy_player_residue();
@@ -1277,7 +1186,7 @@ void em_game_legacy_pool_cutscene(void)
     em_area11_effect_runtime_tick();
     grate_update();
     em_snow_runtime_tick(previous_eye, 1);
-    em_pickup_update(g.pos, g.yaw, em_frame_input(), 0);
+    em_pickup_lights_tick();
     em_props_indicators_tick();
     render_chain_build();
 }
@@ -1340,11 +1249,6 @@ void em_game_legacy_state0(void)
     g.sa_clip        = -1;
     g.sa_req_hold    = 0;
     g.sa_hold        = 0;
-    /* The legacy interact-clip lock is per-actor: clear it so a scene
-     * change can't leave the player locked. */
-    g.interact_active = 0;
-    g.interact_clip   = 0;
-    g.interact_seen   = 0;
     /* AREA-11 OPENING DIRECTOR re-arm (the D_00810813 step
      * machine — ov 0x8253F0, installed fresh at each area
      * build). The step byte resets to 0 (the opening plays once
@@ -1789,6 +1693,9 @@ static void game_install_state(void)
     player_pose_unload();
     s_area_loaded = 0;
     memset(&g, 0, sizeof g);
+    /* 001C40B0 case 0x10 writes D_00810C62 and D_00810CB4 directly; they
+     * are em_weapon's bytes (WP-6, W13). */
+    em_pickup_set_weapon_ammo(em_weapon_mag_byte(), em_weapon_reserve_word());
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", SCENE_DIR);
     /* Player status — static demo values matching the live test save
      * (FINDINGS.md "INVENTORY LOCATED": health 75/100, infection 60%,
