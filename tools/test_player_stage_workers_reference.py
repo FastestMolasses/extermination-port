@@ -304,13 +304,44 @@ class LiveActor(C.Structure):
 
 class StageScene(C.Structure):
     _fields_ = [('spad3B8D', C.c_uint8), ('spad3B8F', C.c_uint8), ('area', C.c_uint8),
-                ('d8106F1', C.c_uint8), ('d810CB6', C.c_uint8), ('busy', C.c_uint8)]
+                ('busy', C.c_uint8), ('d8106F1', C.POINTER(C.c_uint8)), ('d810CB6', C.POINTER(C.c_uint8))]
 
 
 class Globals(C.Structure):
     _fields_ = [('d8106C8', C.c_int32), ('d810701', C.c_uint8), ('d810770', C.c_uint8),
-                ('d81083C', C.c_uint8), ('d810707', C.c_uint8), ('d810C7E', C.c_uint8),
-                ('spad3A20', C.c_uint32)]
+                ('d81083C', C.c_uint8), ('d810C7E', C.c_uint8), ('spad3A20', C.c_uint32),
+                ('d810707', C.POINTER(C.c_uint8))]
+
+
+# D_008106F1, D_00810CB6 and D_00810707 are pointers at one canonical byte
+# each (em_player_floor.h / em_player_stage_workers.h): the native side keeps
+# one cell per byte and the structs point at it.
+CANONICAL = ('d8106F1', 'd810CB6', 'd810707')
+
+
+def canonical_struct(cls, values, cells, drop=()):
+    out = cls()
+    for key, value in values.items():
+        if key in CANONICAL:
+            cells[key] = C.c_uint8(value)
+            if key not in drop: setattr(out, key, C.pointer(cells[key]))
+        else:
+            setattr(out, key, value)
+    return out
+
+
+def canonical_values(obj, keys, cells):
+    return {k: cells[k].value if k in cells else getattr(obj, k) for k in keys}
+
+
+def canonical_host(rates, callees):
+    """A host whose stage scene and globals point at zeroed canonical bytes."""
+    cells = {}
+    scene = canonical_struct(StageScene, dict(d8106F1=0, d810CB6=0), cells)
+    glob = canonical_struct(Globals, dict(d810707=0), cells)
+    host = Host(C.pointer(scene), C.pointer(glob), rates, callees)
+    host.keep_alive = (cells, scene, glob)
+    return host
 
 
 class ClipHeader(C.Structure):
@@ -512,8 +543,9 @@ class Case:
         sc = self.script
         actor = LiveActor()
         C.memmove(actor.bytes, bytes(self.raw), 0x320)
-        scene = StageScene(**{k: v for k, v in self.scene.items()})
-        glob = Globals(**self.globals)
+        cells = {}
+        scene = canonical_struct(StageScene, self.scene, cells, drop=(missing,))
+        glob = canonical_struct(Globals, self.globals, cells, drop=(missing,))
         record = (C.c_uint8 * 0x110).from_buffer_copy(sc['record_bytes'])
         ram = self.ram
         reader = EE(self.oracle_elf, ram) if ram is not None else None
@@ -608,8 +640,8 @@ class Case:
         host = Host(None if missing == '__stage__' else C.pointer(scene),
                     None if missing == '__globals__' else C.pointer(glob), C.pointer(RATES), callees)
         result = call(lib, host, actor, log)
-        scene_out = {k: getattr(scene, k) for k in self.scene}
-        glob_out = {k: getattr(glob, k) for k in self.globals}
+        scene_out = canonical_values(scene, self.scene, cells)
+        glob_out = canonical_values(glob, self.globals, cells)
         extra = (bytes(record), link1C['byte'])
         return result, bytes(actor.bytes), scene_out, glob_out, extra, log
 
@@ -704,7 +736,7 @@ def call_stage(which):
         if which == '0015BA50':
             status = lib.em_player_stage_begin(C.byref(actor), host.stage, C.byref(w))
             if status == 0: status = lib.em_player_stage_dispatch(C.byref(actor), C.byref(w))
-            if status == 0: lib.em_player_stage_end(C.byref(actor), host.stage)
+            if status == 0: status = lib.em_player_stage_end(C.byref(actor), host.stage)
             return (status,)
         stage = Stage(host.stage, C.pointer(w))
         fn = lib.em_player_stage_0015B130 if which == '0015B130' else lib.em_player_stage_0015B770
@@ -1202,13 +1234,19 @@ def check_stop_sound(elf, lib):
                 log = []
                 stop = FN['sound_stop'](lambda _, t, h: (log.append((t, h)), 0)[1])
                 callees = Callees(); callees.sound_stop = stop
-                scene, glob = StageScene(), Globals()
-                host = Host(C.pointer(scene), C.pointer(glob), None, callees)
+                host = canonical_host(None, callees)
                 assert lib.em_player_stage_stop_sound(C.byref(host), arg) == 0
                 assert log == [(freed[0], int(bool(keyed)))], (arg, log)
                 cases += 1
-    host = Host(C.pointer(StageScene()), C.pointer(Globals()), None, Callees())
+    host = canonical_host(None, Callees())
     assert lib.em_player_stage_stop_sound(C.byref(host), 3) == -1
+    # Without the canonical D_008106F1 / D_00810707 byte the host is not ready.
+    for field in ('d8106F1', 'd810707'):
+        host = canonical_host(None, Callees()); host.callees.sound_stop = stop
+        target = host.stage.contents if field == 'd8106F1' else host.globals.contents
+        setattr(target, field, C.POINTER(C.c_uint8)())
+        log.clear()
+        assert lib.em_player_stage_stop_sound(C.byref(host), 3) == -1 and not log, field
     return cases
 
 
@@ -1223,7 +1261,7 @@ def check_clip_rates(elf, lib, images):
     global RATES
     rates = RATES = ClipRates()
     assert lib.em_player_clip_rates_load(C.byref(rates), str(out).encode()) == 0
-    host = Host(C.pointer(StageScene()), C.pointer(Globals()), C.pointer(rates), Callees())
+    host = canonical_host(C.pointer(rates), Callees())
     for clip in range(459):
         expected = int.from_bytes(elf[0x248C98 - 0x100000 + 0x300 + 12 * clip:][:4], 'little')
         value = C.c_float()
@@ -1255,7 +1293,7 @@ def check_fail_stop(lib, rng):
     for name, (_, builder, _, workers) in ROUTINES.items():
         if workers is None: continue
         case = GENERATORS[name](rng, ('fail-stop', name))
-        for missing in workers + ('__stage__', '__globals__'):
+        for missing in workers + ('__stage__', '__globals__', 'd8106F1', 'd810707'):
             result, record, scene, glob, extra, log = case.native(lib, builder(case), missing=missing)
             assert result[0] == -1, (name, missing, result)
             assert record == bytes(case.raw) and not log, (name, missing)

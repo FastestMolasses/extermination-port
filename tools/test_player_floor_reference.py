@@ -553,8 +553,32 @@ FADE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int, C.c_int)
 
 
 class StageScene(C.Structure):
+    # em_player_floor.h: D_008106F1 and D_00810CB6 are pointers at their one
+    # canonical byte; this side keeps a cell per scene, and `d8106F1` /
+    # `d810CB6` read and write the cells.
     _fields_ = [('spad3B8D', C.c_uint8), ('spad3B8F', C.c_uint8), ('area', C.c_uint8),
-                ('d8106F1', C.c_uint8), ('d810CB6', C.c_uint8), ('busy', C.c_uint8)]
+                ('busy', C.c_uint8), ('p8106F1', C.POINTER(C.c_uint8)), ('p810CB6', C.POINTER(C.c_uint8))]
+
+    def __init__(self, spad3B8D=0, spad3B8F=0, area=0, d8106F1=0, d810CB6=0, busy=0):
+        super().__init__(spad3B8D, spad3B8F, area, busy)
+        self.cells = (C.c_uint8(d8106F1), C.c_uint8(d810CB6))
+        self.p8106F1, self.p810CB6 = C.pointer(self.cells[0]), C.pointer(self.cells[1])
+
+    @property
+    def d8106F1(self):
+        return self.cells[0].value
+
+    @d8106F1.setter
+    def d8106F1(self, value):
+        self.cells[0].value = value
+
+    @property
+    def d810CB6(self):
+        return self.cells[1].value
+
+    @d810CB6.setter
+    def d810CB6(self, value):
+        self.cells[1].value = value
 
 
 class StageWorkers(C.Structure):
@@ -825,7 +849,7 @@ def stage_section(elf, native, rng, result):
             oracle.call(STAGE_BEGIN_ADDR, ACTOR)
             assert native.em_player_stage_begin(C.byref(live), C.byref(scene), C.byref(side.workers)) == 0
             assert native.em_player_stage_dispatch(C.byref(live), C.byref(side.workers)) == 0
-            native.em_player_stage_end(C.byref(live), C.byref(scene))
+            assert native.em_player_stage_end(C.byref(live), C.byref(scene)) == 0
             assert scene.busy == oracle.load(0x8106B3, 1), (case, 'D_008106B3')
         elif routine == '0015BCF0':
             oracle.calls[STAGE_BEGIN_ADDR] = lambda o: o.r.__setitem__(2, 0)
@@ -884,6 +908,13 @@ def stage_section(elf, native, rng, result):
     empty = StageWorkers(); scene = StageScene()
     assert native.em_player_stage_begin(C.byref(live), C.byref(scene), C.byref(empty)) == -1
     assert native.em_player_stage_dispatch(C.byref(live), C.byref(empty)) == -1
+    # 0015BA50's tail without the canonical D_008106F1 / D_00810CB6 byte:
+    # refused before any write.
+    for drop in ('p8106F1', 'p810CB6'):
+        scene = StageScene(); setattr(scene, drop, C.POINTER(C.c_uint8)())
+        live = LiveActor(); live.bytes[0xB] = 1
+        assert native.em_player_stage_end(C.byref(live), C.byref(scene)) == -1
+        assert live.bytes[0xB] == 1 and scene.busy == 0, drop
     result['stage_cases'] = counts
     result['stage_paths'] = len(paths)
 

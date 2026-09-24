@@ -39,7 +39,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
-           src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c
+           src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
+           src/game/em_director_original.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -194,7 +195,7 @@ OPENING_TEST_SRC := tests/opening_runtime_test.c src/game/em_opening_runtime.c \
     src/game/em_bgm.c src/game/em_random.c src/game/em_fade.c \
     src/game/em_scene_frame.c src/game/em_scene_classify.c src/game/em_status_frame.c \
     src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
-    src/game/em_message_glyph_original.c
+    src/game/em_message_glyph_original.c src/game/em_director_original.c
 .PHONY: test-opening-runtime
 test-opening-runtime: $(OPENING_TEST_SRC)
 	@mkdir -p build

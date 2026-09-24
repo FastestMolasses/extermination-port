@@ -961,8 +961,9 @@ int em_player_stage_dispatch(EmPlayerLiveActor *a, const EmPlayerStageWorkers *w
     }
 }
 
-void em_player_stage_end(EmPlayerLiveActor *a, EmPlayerStageScene *s)
+int em_player_stage_end(EmPlayerLiveActor *a, EmPlayerStageScene *s)
 {
+    if (!a || !s || !s->d8106F1 || !s->d810CB6) return -1;
     em_live_set_u8(a, 0xB, 0);
     if (em_live_u8(a, 4) != 1) {
         em_live_set_u16(a, 0x276, 0);
@@ -974,12 +975,13 @@ void em_player_stage_end(EmPlayerLiveActor *a, EmPlayerStageScene *s)
         em_live_set_u8(a, 0x274, 0);
     }
     uint8_t major = em_live_u8(a, 4), state = em_live_u8(a, 5);
-    if (s->d8106F1 != 0 || em_live_u16(a, 0x276) != 0 || em_live_u8(a, 0x1F0) == 0x33 ||
-        s->d810CB6 != 0 ||
+    if (*s->d8106F1 != 0 || em_live_u16(a, 0x276) != 0 || em_live_u8(a, 0x1F0) == 0x33 ||
+        *s->d810CB6 != 0 ||
         (major == 2 &&
          (state == 0xD || state == 0xE || state == 0xF || state == 0xB || state == 0xC) &&
          em_live_u8(a, 0x1F1) == 1))
         s->busy = 1;
+    return 0;
 }
 
 int em_player_stage_tail(EmPlayerLiveActor *a, const EmPlayerStageWorkers *w)

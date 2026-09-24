@@ -13,11 +13,14 @@
 
 #include "game/em_director.h"
 #include "game/em_area11_flow.h"
+#include "game/em_director_original.h" /* 001C4760, bound over the canonical storage */
 
 #include "game/em_game_internal.h"
 /* the director gates on the damage lock and seeds the camera */
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
+#include "game/em_frame.h"
+#include "game/em_scene_bindings.h" /* em_scene_state(): D_00810813, D_00810CC3 */
 
 /* Camera-program approximation retained pending the original script VM.
  * Trigger selection is recovered independently in em_area11_flow.c from
@@ -81,6 +84,14 @@ int cine_step_to_beat(uint8_t step)
     return em_area11_beat_for_step(step);
 }
 
+/* The persistent beat step D_00810813 (D_008107D8[0x3B]): the canonical
+ * progress byte (em_scene_state.h; migrated from g.cine_step). This
+ * stand-in writes it only where 008253F0 does, at a beat completion. */
+static uint8_t *step_byte(void)
+{
+    return em_scene_progress_at(em_scene_state(), 0x00810813u, 1);
+}
+
 static EmArea11Triggers s_triggers;
 static char s_trigger_path[sizeof g.scene_dir + 32];
 static int s_trigger_loaded;
@@ -119,19 +130,25 @@ int cine_in_zone(const CineBeat *beat)
 void cine_beat_finish(void)
 {
     const CineBeat *b = &kCineBeats[g.cine_beat];
-    g.cine_step   = em_area11_step_after_beat(g.cine_beat);
-    if (b->reg_keyitem) {
-        /* func_1C4760(1) — register the opening key-item (beat 0). The
-         * port has no separate key-item registry hook yet; the battery
-         * pickup is the AREA-11 key item and is handled by em_pickup.
-         * FLAGGED: faithful-minimum — the milestone advances; the
-         * key-item register is a decode-noted no-op here. */
-        printf("director: beat 0 complete — key-item register "
-               "(func_1C4760) [FLAGGED no-op]\n");
+    uint8_t *step = step_byte();
+    if (!step) {
+        fprintf(stderr, "director: D_00810813 is not canonical storage\n");
+        em_frame_request_quit();
+        return;
+    }
+    *step = em_area11_step_after_beat(g.cine_beat);
+    if (b->reg_keyitem && em_director_original_001C4760_scene(em_scene_state(), 1, 1) < 0) {
+        /* Beat 0's completion stores the step (0x8255D0) and then calls
+         * 001C4760(1, 1) (0x8255CC..0x8255D4; em_director_original.h):
+         * D_00810CC3[1] += 1 on the canonical key byte (the translation
+         * this module's successor em_director_original runs). */
+        fprintf(stderr, "director: 001C4760(1, 1) reached a byte the port does not hold\n");
+        em_frame_request_quit();
+        return;
     }
     g.cine_active = 0;
     g.cine_beat   = -1;
-    printf("director: beat done — D_00810813 = %#x\n", g.cine_step);
+    printf("director: beat done — D_00810813 = %#x\n", *step);
 }
 
 /* DIRECTOR TICK — run each gameplay frame BEFORE actor_update (so the
@@ -156,7 +173,13 @@ void director_tick(void)
         if (em_door_movement_locked() || em_examine_input_locked() ||
             em_game_player_interact_busy() || player_damage_locked())
             return;
-        int beat = cine_step_to_beat(g.cine_step);
+        const uint8_t *step = step_byte();
+        if (!step) {                           /* fail-stop: no canonical byte */
+            fprintf(stderr, "director: D_00810813 is not canonical storage\n");
+            em_frame_request_quit();
+            return;
+        }
+        int beat = cine_step_to_beat(*step);
         if (beat < 0) return;                  /* director done (0xFF) */
         const CineBeat *b = &kCineBeats[beat];
         if (!cine_in_zone(b)) return;          /* not in the trigger zone */

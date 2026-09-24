@@ -61,6 +61,18 @@ int em_director_original_001C4760(const EmDirectorOriginalWorld *world, int32_t 
     return 0;
 }
 
+int em_director_original_001C4760_scene(EmSceneState *scene, int32_t a0, int32_t a1)
+{
+    if (!scene || a0 < 0)
+        return -1;
+    EmDirectorOriginalWorld world;
+    memset(&world, 0, sizeof world);
+    world.d810CC3 = em_scene_progress_at(scene, 0x00810CC3u, (uint32_t)a0 + 1u);
+    world.d8106B0 = em_scene_req_at(scene, 0x008106B0u);
+    world.d8106B1 = em_scene_req_at(scene, 0x008106B1u);
+    return em_director_original_001C4760(&world, a0, a1);
+}
+
 static uint32_t word(float f)
 {
     uint32_t u;

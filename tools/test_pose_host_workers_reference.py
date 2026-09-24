@@ -203,12 +203,13 @@ class Host(C.Structure):
 
 
 class StageScene(C.Structure):
-    _fields_ = [(name, U8) for name in ('spad3B8D', 'spad3B8F', 'area', 'd8106F1', 'd810CB6', 'busy')]
+    _fields_ = [(name, U8) for name in ('spad3B8D', 'spad3B8F', 'area', 'busy')] + \
+               [('d8106F1', C.POINTER(U8)), ('d810CB6', C.POINTER(U8))]
 
 
 class StageGlobals(C.Structure):
     _fields_ = [('d8106C8', C.c_int32), ('d810701', U8), ('d810770', U8), ('d81083C', U8),
-                ('d810707', U8), ('d810C7E', U8), ('spad3A20', U32)]
+                ('d810C7E', U8), ('spad3A20', U32), ('d810707', C.POINTER(U8))]
 
 
 class ClipRates(C.Structure):
@@ -373,6 +374,11 @@ class Native:
         # anim_clip_init's zero-blend step: the stage lane's anim_advance_time
         # bound to this module's clip workers.
         self.scene, self.rates = StageScene(), ClipRates()
+        # D_008106F1 / D_00810CB6 / D_00810707: one byte each, where the
+        # original keeps it (the stage lane's canonical-pointer binding).
+        self.scene.d8106F1 = C.cast(self.base + 0x8106F1, C.POINTER(U8))
+        self.scene.d810CB6 = C.cast(self.base + 0x810CB6, C.POINTER(U8))
+        self.sglobals.d810707 = C.cast(self.base + 0x810707, C.POINTER(U8))
         st = self.stage = StageHost(C.pointer(self.scene), C.pointer(self.sglobals), C.pointer(self.rates))
         st.callees.context = C.addressof(h)
         for field, fn in (('clip_resolve', 'stage_clip_resolve'), ('skeleton_frame', 'stage_skeleton_frame'),

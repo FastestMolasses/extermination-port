@@ -6,6 +6,7 @@
 #include "game/em_bgm.h"
 #include "game/em_camera.h"
 #include "game/em_cinematic_camera.h"
+#include "game/em_director_original.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_actor.h"
@@ -341,7 +342,12 @@ static void notify(void *context, EmOpeningEvent event)
     case EM_OPENING_EVENT_B9_COMPLETE:
         g.opening_complete=0xFF; /* 00823F74..80: D_00810811 = 0xFF */
         break;
-    case EM_OPENING_ADD_KEY_ITEM_ZERO: ++g.opening_key_item_zero; break;
+    case EM_OPENING_ADD_KEY_ITEM_ZERO:
+        /* 00823E80's 001C4760(0, 1) (jal at 0x823F84) on the canonical
+         * key byte D_00810CC3[0]. */
+        if (em_director_original_001C4760_scene(em_scene_state(),0,1)<0)
+            fail("001C4760 key byte D_00810CC3[0]");
+        break;
     case EM_OPENING_RESUME_MUSIC:
         if (em_opening_media_resume_music(270+((em_random_next()>>16)&127)))
             fail("original AREA11 ambient music");
@@ -382,11 +388,12 @@ void em_opening_runtime_tick(void)
         }
     }
     if (result==EM_SCRIPT_FINISHED) {
+        const uint8_t *key0=em_scene_progress_at(em_scene_state(),0x00810CC3u,1);
         s.finished=1;
         fprintf(stderr,"opening: complete frame=%d pos=(%.6f,%.6f,%.6f) "
                 "yaw=%.8f event39=%u eventB9=%u key0=%u\n",g.frame_no,
                 g.pos[0],g.pos[1],g.pos[2],g.yaw,g.opening_event_39,
-                g.opening_complete,g.opening_key_item_zero);
+                g.opening_complete,key0?*key0:0u);
     }
 }
 

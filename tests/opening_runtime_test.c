@@ -29,6 +29,13 @@ EmGameState g;
  * below run over it exactly as the bindings do. */
 static EmSceneState scene;
 EmSceneState *em_scene_state(void) { return &scene; }
+/* D_00810CC3[0], the canonical key byte the opening's 001C4760(0, 1) adds to. */
+static const uint8_t *key0(void)
+{
+    const uint8_t *p = em_scene_progress_at(&scene, 0x00810CC3u, 1);
+    assert(p);
+    return p;
+}
 static EmTransitionFade fade;
 static EmScreenFade bars;
 static EmFrameInput input;
@@ -219,14 +226,14 @@ static void run(int skip,int shutdown_after) {
         assert(audio_callback);audio_callback(audio_user,pcm,800);
         for(unsigned i=0;i<1600;i++) assert(isfinite(pcm[i]));
         if(g.opening_event_39==0xFF) marked_frame=g.frame_no;
-        else assert(!g.opening_complete && !g.opening_key_item_zero);
+        else assert(!g.opening_complete && !*key0());
     }
     assert(g.frame_no<2000 && marked_frame>=0 && commits && subtitles && look_up);
     assert(channel_mutes==2);
     assert(hold_seen==7);
     assert(scene.spad3B8D==0 && scene.spad3B91==0 && g.opening_event_39==0xFF);
     assert(cutscene_frames>0 && scene.d810750==g.frame_no); /* one variant per frame */
-    assert(g.opening_complete==0xFF && g.opening_key_item_zero==1);
+    assert(g.opening_complete==0xFF && *key0()==1);
     assert(g.pos[0]==250.8000030517578f && g.pos[1]==229.89999389648438f && g.pos[2]==209);
     assert(g.yaw==0.6108652949333191f);
     assert(!g.opencam_on && !g.opencam_idle);
@@ -237,14 +244,14 @@ static void run(int skip,int shutdown_after) {
     if(skip) assert(skip_sent && actor_frames<1292);
     else assert(actor_frames==1293 && rumble==1);
     for(int i=0;i<10;i++) world_frame();
-    assert(g.opening_key_item_zero==1);
+    assert(*key0()==1);
     printf("opening runtime: %s completed, %u actor frames, exact final script placement\n",skip?"skip":"normal",actor_frames);
     if(shutdown_after) end();
 }
 int main(void) {
     run(0,0);run(1,1); /* second New Game reuses assets in the same process */
     start("build/no-such-opening-fixture");
-    assert(quit && em_opening_runtime_failed() && !g.opening_complete && !g.opening_key_item_zero);
+    assert(quit && em_opening_runtime_failed() && !g.opening_complete && !*key0());
     end();assert(em_opening_runtime_failed());
     puts("opening runtime PASS: original assets, message service/audio, normal/skip teardown, control handoff, missing-assets failure");
 }

@@ -318,14 +318,21 @@ void em_player_fall_actor_to_live(const EmPlayerFallActor *in, EmPlayerLiveActor
 #define EM_PLAYER_STATE1_COUNT 0x26  /* 0015B130's table: +5 = 0..0x25 (0x25 empty) */
 #define EM_PLAYER_STATE2_COUNT 0x1A  /* 0015B770's table: +5 = 0..0x19 */
 
-/* What the stage reads or writes outside the actor. */
+/* What the stage reads or writes outside the actor. The first three bytes
+ * and `busy` are a per-stage view (the binder loads them before
+ * em_player_stage_begin and stores what the stage writes after
+ * em_player_stage_end). D_008106F1 and D_00810CB6 are pointers at their one
+ * canonical byte (EmSceneState request block / D2 progress region), which
+ * every translation that reads or writes them shares: 0021C270 sets
+ * D_008106F1 in the middle of a stage and later code of the same stage
+ * reads it (SCENE_COORDINATOR_DESIGN.md, D2; PLAYER_STAGE_WORKERS.md 2). */
 typedef struct EmPlayerStageScene {
     uint8_t spad3B8D; /* 0x70003B8D: scripted takeover (0015B130's prelude and case 0x19) */
     uint8_t spad3B8F; /* 0x70003B8F: 0015BA50's +94 gate; 0015B130 writes 1 on +5 = 0x19 */
     uint8_t area;     /* D_00810700 */
-    uint8_t d8106F1;  /* D_008106F1, read by 0015BA50's busy test */
-    uint8_t d810CB6;  /* D_00810CB6, the same */
     uint8_t busy;     /* D_008106B3: 0015BA50 clears it before the switch and sets it after */
+    uint8_t *d8106F1;        /* D_008106F1: 0015BA50's busy test reads it; 0021C270 sets it */
+    const uint8_t *d810CB6;  /* D_00810CB6: read by 0015BA50's busy test */
 } EmPlayerStageScene;
 
 typedef struct EmPlayerStageWorkers {
@@ -382,8 +389,10 @@ int em_player_stage_begin(EmPlayerLiveActor *actor, EmPlayerStageScene *scene,
 /* 0015BA50's switch: anim_advance_time into +200 where the original calls
  * it, then major[+4]. +4 = 3 and +4 > 6 do nothing. */
 int em_player_stage_dispatch(EmPlayerLiveActor *actor, const EmPlayerStageWorkers *workers);
-/* 0015BA50 after its switch: +B = 0, the +276/+274 clears, D_008106B3. */
-void em_player_stage_end(EmPlayerLiveActor *actor, EmPlayerStageScene *scene);
+/* 0015BA50 after its switch: +B = 0, the +276/+274 clears, D_008106B3.
+ * -1 (nothing written) when the scene's D_008106F1 or D_00810CB6 pointer
+ * is missing. */
+int em_player_stage_end(EmPlayerLiveActor *actor, EmPlayerStageScene *scene);
 /* 0015BCF0's writes after 0015BA50 returns: +BC = 1.0, then (after
  * 0015CF90 / 0015CBA0 / 00187350, which write none of these bytes) the
  * +B4 < -200 check (+4 = 6, +5 = 0) and the +31B loop-sound stop. */

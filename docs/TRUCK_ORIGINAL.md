@@ -127,7 +127,8 @@ script host.
 - Bind node #24 to `em_truck_original_tick(owner, world, hooks)` and node #25 to
   `em_truck_trigger_tick(owner, world, hooks)`. Order within a frame: #24, then #25.
 - `EmTruckWorld` holds pointers into canonical storage:
-  - `D_00810792`
+  - `D_00810792`: the canonical progress byte, `em_scene_progress_at(s, 0x00810792u, 1)` (migrated in HK;
+    no other port code reads or writes it)
   - player `+5` and `+0x0A`
   - `&ground[+0x0D]`, or NULL when player `+0x214` is 0
   - player `+0xA0` (the z lane is written)

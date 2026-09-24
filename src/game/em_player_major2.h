@@ -32,11 +32,15 @@
 
 #include "game/em_player_floor.h"
 
-/* Globals these routines read or write outside the record. */
+/* Globals these routines read or write outside the record. D_008106F1 and
+ * D_00810707 are pointers at their one canonical byte (the same bytes the
+ * stage scene and the stage globals point at; the w0021C270 worker can set
+ * both in the middle of a routine): a routine refuses (-1, nothing
+ * written) when either is missing. */
 typedef struct EmPlayerMajor2Scene {
-    uint8_t d8106F1;  /* D_008106F1[0]: read by the state-0 alternate-exit test
-                         (00221FC0/00222580/00222AD0/002230A0) */
-    uint8_t d810707;  /* D_00810707: 0021E830 sub-state 1 writes 2 */
+    const uint8_t *d8106F1; /* D_008106F1[0]: read by the state-0 alternate-exit test
+                               (00221FC0/00222580/00222AD0/002230A0) */
+    uint8_t *d810707;       /* D_00810707: 0021E830 sub-state 1 writes 2 */
     int32_t d275B14;  /* D_00275B14: 00181D70 writes 0x34/0x36/0x1E, 002230A0 reads.
                          Shared with 001696A0, 0016ADE0 and 0016B8A0. */
 } EmPlayerMajor2Scene;

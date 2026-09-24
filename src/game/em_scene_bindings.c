@@ -783,9 +783,11 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *   +0x220/+0x228     g.status.health/infection, which are also the port's
  *                     only copy of D_00810858/D_0081085C, so 001B07C0's copy
  *                     is an identity here
- *   +0x234/+0x235     g.pd_infected/g.pd_low, likewise the port's only copy
- *                     of D_00810707/D_00810706 (0015CF90's saves are not
- *                     canonical yet, D2)
+ *   +0x234/+0x235     g.pd_infected/g.pd_low. D_00810707 (the +0x234 source)
+ *                     is canonical progress (HK), stored by 0015CF90 at every
+ *                     player stage (em_player_0015BCF0) and cleared by
+ *                     001AF2C0; D_00810706 is not canonical yet (D2), so g.pd_low
+ *                     stays the port's only copy of it
  *   D_00810C60        em_pickup's equipment status; C7D/C7E its item counts
  *                     0x19/0x1A
  *   +0x0E, +0x60..+0x8C, +0x230   written, no port storage and no port reader
@@ -873,6 +875,7 @@ static int w_001B07C0(void *ctx, int a0)
         s_spawn_table_loaded = 1;
     }
     const uint8_t *e788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
+    const uint8_t *e707 = em_scene_progress_at(&s_state, 0x00810707u, 1);
     const uint8_t *items = em_pickup_items();
     uint8_t status, primary, secondary;
     em_pickup_equipment_read(&status, &primary, &secondary);
@@ -883,7 +886,7 @@ static int w_001B07C0(void *ctx, int a0)
     io.d810702 = s_state.d810702;
     io.d275BE0 = s_state.d275BE0;
     io.d810706 = (uint8_t)g.pd_low;
-    io.d810707 = (uint8_t)g.pd_infected;
+    io.d810707 = e707 ? *e707 : 0;
     io.d810858 = g.status.health;
     io.d81085C = g.status.infection;
     io.d810788 = e788 ? *e788 : 0;

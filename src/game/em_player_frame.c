@@ -512,12 +512,14 @@ static void player_damage_tick(void)
  *     legacy screen's former open gate (damage/death lock, examine
  *     sequence, opening runtime, door menu lock) into the canonical byte,
  *     an interim stand-in until the player spine is translated (WP-15);
- *   - the B9 write of 0015CF90 (byte-matched, src/func_0015CF90.c):
+ *   - 0015CF90 (byte-matched, src/func_0015CF90.c): D_00810707 =
+ *     +0x234 into the canonical progress byte (HK; +0x234 is the
+ *     port's g.pd_infected), then the B9 write
  *     `if (+0x220 <= 0.0f && D_008106B9 == 0) D_008106B9 = 1`, +0x220
  *     being the player's health (g.status.health). 0015CF90's other
- *     stores (D_00810706/707 = +0x235/+0x234, D_00810858/85C = +0x220/
- *     +0x228) target progress/display bytes that are not canonical yet
- *     (D2); the port's status screen keeps its own display copies.
+ *     stores (D_00810706 = +0x235, D_00810858/85C = +0x220/+0x228)
+ *     target progress bytes that are not canonical yet (D2); 001B07C0
+ *     reads the port's g.pd_low/g.status for them.
  * In the cutscene variant the bindings do not call this: the port poses
  * the player through the opening runtime (design risk 2). */
 int em_player_0015BCF0(void)
@@ -530,6 +532,10 @@ int em_player_0015BCF0(void)
                                             em_examine_input_locked() ||
                                             em_opening_runtime_busy() ||
                                             em_door_menu_locked());
+    uint8_t *d810707 = em_scene_progress_at(scene, 0x00810707u, 1);
+    if (!d810707)
+        return -1;
+    *d810707 = (uint8_t)g.pd_infected;                 /* 0015CF90: D_00810707 = +0x234 */
     if (g.status.health <= 0.0f && scene->req[EM_SCENE_REQ_B9] == 0)
         scene->req[EM_SCENE_REQ_B9] = 1;
     return 0;

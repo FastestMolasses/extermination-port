@@ -291,8 +291,23 @@ class Ledge(C.Structure):
 
 
 class Scene(C.Structure):
-    _fields_ = [('camera_yaw', C.c_float), ('d8106F1', C.c_uint8), ('spad3B8D', C.c_uint8),
+    # em_player_recovery.h: D_008106F1 is a pointer at its one canonical
+    # byte; `d8106F1` below reads and writes that byte (a cell per scene).
+    _fields_ = [('camera_yaw', C.c_float), ('p8106F1', C.POINTER(C.c_uint8)), ('spad3B8D', C.c_uint8),
                 ('pad_gait', C.c_uint8), ('pad_x', C.c_uint8), ('pad_y', C.c_uint8), ('area', C.c_uint8)]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cell_8106F1 = C.c_uint8(0)
+        self.p8106F1 = C.pointer(self.cell_8106F1)
+
+    @property
+    def d8106F1(self):
+        return self.cell_8106F1.value
+
+    @d8106F1.setter
+    def d8106F1(self, value):
+        self.cell_8106F1.value = value
 
 
 class Scratch(C.Structure):

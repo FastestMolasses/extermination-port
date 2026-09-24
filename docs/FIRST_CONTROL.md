@@ -582,7 +582,8 @@ node class is a data prerequisite; the rest are workers or callbacks.
     (PLAYER_REACTION.md section 5).
     Its `w0021C270` / `w0021C350` are lane player-stage-workers'
     `em_player_0021C270` / `em_player_0021C350`.
-    `EmPlayerReactionScene.d8106F1` points at `EmPlayerStageScene.d8106F1`.
+    `EmPlayerReactionScene.d8106F1` is `EmPlayerStageScene.d8106F1`, the
+    pointer at the canonical D_008106F1.
   - The live layer runs 0015B130 (so 0021C440 / 0015D100 / 0015D000) only
     on stages it owns, not on the port's own idle/walk. Reactions from
     idle/walk need that ordering added around the port's callbacks, and

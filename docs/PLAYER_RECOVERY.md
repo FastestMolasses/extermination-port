@@ -157,7 +157,7 @@ code that exists today in other lanes. This lane has not verified it.
 | Field | Original |
 |---|---|
 | camera_yaw | D_008106A0 |
-| d8106F1 | D_008106F1 |
+| d8106F1 | D_008106F1: a pointer at the canonical byte (HK; 00224B80 reads it after its 0021C270 worker); 0017C860, 0017D080 and 00224B80 refuse without it |
 | spad3B8D | spad 0x70003B8D |
 | pad_gait, pad_x, pad_y | D_00810E57, D_00810E64, D_00810E65 |
 | area | D_00810700 |

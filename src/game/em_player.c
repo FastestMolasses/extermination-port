@@ -507,20 +507,21 @@ static void live_fault(const char *what)
     em_frame_request_quit();
 }
 
-/* The scene bytes the stage reads, from the canonical scene state. D_00810CB6
- * lives in the progress block (canonical since WP-6); if it were not, the
- * busy result would be unknown (player_states_busy() = -1). */
+/* The stage's view of the canonical scene state: 3B8D, 3B8F and D_00810700
+ * are loaded per stage (3B8F is stored back at the stage end);
+ * D_008106F1 (request block) and D_00810CB6 (progress block, canonical
+ * since WP-6) are pointers at their one canonical byte. If either were
+ * missing, the busy result would be unknown (player_states_busy() = -1)
+ * and em_player_stage_end refuses. */
 static int live_scene_load(void)
 {
     EmSceneState *s = em_scene_state();
     live.scene.spad3B8D = s->spad3B8D;
     live.scene.spad3B8F = s->spad3B8F;
     live.scene.area = s->d810700;
-    const uint8_t *f1 = em_scene_req_at(s, 0x008106F1u);
-    const uint8_t *cb6 = em_scene_progress_at(s, 0x00810CB6u, 1);
-    live.scene.d8106F1 = f1 ? *f1 : 0;
-    live.scene.d810CB6 = cb6 ? *cb6 : 0;
-    return f1 && cb6;
+    live.scene.d8106F1 = em_scene_req_at(s, 0x008106F1u);
+    live.scene.d810CB6 = em_scene_progress_at(s, 0x00810CB6u, 1);
+    return live.scene.d8106F1 && live.scene.d810CB6;
 }
 
 void player_states_stage_begin(void)
@@ -553,7 +554,10 @@ void player_states_stage_end(void)
     if (!floor_engaged() || !live.stage_valid || live.stage_frame != g.frame_no) return;
     /* 0015BA50 after its switch, then 0015BCF0's +BC, -200 check and loop-
      * sound stop (every stage: idle and walk included). */
-    em_player_stage_end(&live.a, &live.scene);
+    if (em_player_stage_end(&live.a, &live.scene) < 0) {
+        live_fault("0015BA50 D_008106F1/D_00810CB6 not bound");
+        return;
+    }
     uint8_t spad3B8F = live.scene.spad3B8F;
     if (em_scene_state()->spad3B8F != spad3B8F) em_scene_state()->spad3B8F = spad3B8F;
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);

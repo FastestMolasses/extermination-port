@@ -69,14 +69,19 @@ their own contexts. The other five (00182DF0,
 
 - `host.stage` must point at the **same** `EmPlayerStageScene` that
   `player_states_*` passes to `em_player_stage_begin` / `EmPlayerStage`, so
-  0x70003B8D, 0x70003B8F, D_00810700 and D_008106F1 have one storage.
-  0021C270 writes D_008106F1, 00182D70 writes 0x70003B8F, and
-  `player_states_stage_end` already writes 0x70003B8F back.
+  0x70003B8D, 0x70003B8F and D_00810700 have one per-stage view (00182D70
+  writes 0x70003B8F, and `player_states_stage_end` writes it back). Its
+  `d8106F1` and `d810CB6` are pointers at the canonical bytes (em_player.c
+  `live_scene_load` sets them from `em_scene_req_at(s, 0x008106F1u)` and
+  `em_scene_progress_at(s, 0x00810CB6u, 1)`); 0021C270 writes D_008106F1
+  through that pointer.
 - `host.globals` (`EmPlayerStageGlobals`): D_008106C8 (the word 001B0070
-  returns), D_00810701, D_00810770, D_0081083C, D_00810707 (written) and
-  D_00810C7E, plus the 0x70003A20 scratch word. The coordinator's canonical
-  progress block must mirror these both ways around the stage, as it does
-  for the other spad/progress bytes.
+  returns), D_00810701, D_00810770, D_0081083C and D_00810C7E, plus the
+  0x70003A20 scratch word, as a per-stage view the binder loads before the
+  stage; `d810707` is a pointer at the canonical progress byte D_00810707
+  (`em_scene_progress_at(s, 0x00810707u, 1)`), which 0021C270 sets to 1.
+  A host without the D_008106F1 or D_00810707 pointer is not ready: every
+  worker refuses (−1) before its first write.
 - `host.rates`: load with `em_player_clip_rates_load(&rates,
   EM_PLAYER_CLIP_RATE_PATH)`. The file is `assets/player_clip_rates.emcr`,
   written by `python3 tools/export_player_tables.py` from the user's ELF,
@@ -113,10 +118,12 @@ w0021C270 / w0021C350` (em_player_major2.h). The reaction-state lane
 (em_player_reaction.h) calls the same originals. They cast their context
 to the stage host, and EmPlayerMajor2Workers has a single `context` for
 all its workers, so the coordinator needs a one-line adapter from the
-Major2 context to the stage host; they cannot be bound directly. After
-binding, D_008106F1 / D_00810707 appear in the stage scene, the stage
-globals and EmPlayerMajor2Scene: the coordinator must unify them (one
-canonical storage) or mirror them at the original read points.
+Major2 context to the stage host; they cannot be bound directly.
+D_008106F1 / D_00810707 have one storage (HK, lead decision D2): the stage
+scene, the stage globals, EmPlayerMajor2Scene (`d8106F1`, `d810707`) and
+EmPlayerRecoveryScene (`d8106F1`) hold pointers, and the binder points all
+of them at the canonical bytes, so a value 0021C270 stores in the middle of
+a routine is what the rest of that routine and the next reader see.
 
 **Retire the stand-ins when bound.** `player_damage_tick` (em_player_damage.c)
 models 0021C440 / 0015D100 for the port's own idle/walk. FIRST_CONTROL.md

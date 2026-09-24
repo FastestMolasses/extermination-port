@@ -38,10 +38,13 @@
 #include "game/em_player_climb.h"
 #include "game/em_player_slide.h"
 
-/* The values the routines read outside the record. */
+/* The values the routines read outside the record. D_008106F1 is a pointer
+ * at its one canonical byte (00224B80 reads it after its 0021C270 worker,
+ * which can set it); the routines that read it refuse (-1, nothing written)
+ * without it. */
 typedef struct EmPlayerRecoveryScene {
     float camera_yaw;     /* D_008106A0 (001751A0) */
-    uint8_t d8106F1;      /* D_008106F1 (0017C860, 0017D080, 00224B80) */
+    const uint8_t *d8106F1; /* D_008106F1 (0017C860, 0017D080, 00224B80) */
     uint8_t spad3B8D;     /* 0x70003B8D (001751A0) */
     uint8_t pad_gait;     /* D_00810E57 (001751A0) */
     uint8_t pad_x;        /* D_00810E64 (001751A0) */

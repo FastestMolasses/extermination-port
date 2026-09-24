@@ -168,7 +168,8 @@ int32_t em_player_float_to_int(uint32_t v)
 
 static const EmPlayerStageCallees *ready(const EmPlayerStageHost *hs)
 {
-    return hs && hs->stage && hs->globals ? &hs->callees : NULL;
+    return hs && hs->stage && hs->globals && hs->stage->d8106F1 && hs->globals->d810707
+               ? &hs->callees : NULL;
 }
 
 static int reaction_callees(const EmPlayerStageCallees *c)
@@ -231,8 +232,8 @@ static int infect_22C(EmPlayerStageHost *hs, EmPlayerLiveActor *a)
         if (!le(w(a, 0x220), F60)) setw(a, 0x220, F60);      /* 0021C2D8 */
         if (b(a, 0x234) == 0) {                              /* 0021C2F0 */
             setb(a, 0x234, 1);
-            hs->globals->d810707 = 1;
-            hs->stage->d8106F1 = 1;
+            *hs->globals->d810707 = 1;
+            *hs->stage->d8106F1 = 1;
         }
     }
     CALL(effect_0021D4E0(c, a));                             /* 0021C314 */
@@ -251,7 +252,7 @@ static int death_cue(EmPlayerStageHost *hs, EmPlayerLiveActor *a)
 {
     const EmPlayerStageCallees *c = &hs->callees;
     if (!le(w(a, 0x220), ZERO)) return 0;
-    if (hs->stage->d8106F1 == 0) return 0;
+    if (*hs->stage->d8106F1 == 0) return 0;
     CALL(c->sound(c->context, a, 0x14D, 0, F300));
     return c->w001EFE00(c->context, UINT32_C(0x80000048), a) < 0 ? -1 : 0;
 }
@@ -567,10 +568,10 @@ static int reaction_body(EmPlayerStageHost *hs, EmPlayerLiveActor *a, int *s)
             CALL(face_link(hs, a));
             copy_2E0(a);
             /* 0021D07C: +228 >= 100 with D_008106F1 set picks 0x18. */
-            int infected = !em_ee_c_lt_bits(w(a, 0x228), F100) && hs->stage->d8106F1 != 0;
+            int infected = !em_ee_c_lt_bits(w(a, 0x228), F100) && *hs->stage->d8106F1 != 0;
             setb(a, 5, infected ? 0x18 : 0x17);
         } else {
-            int infected = !em_ee_c_lt_bits(w(a, 0x228), F100) && hs->stage->d8106F1 != 0;
+            int infected = !em_ee_c_lt_bits(w(a, 0x228), F100) && *hs->stage->d8106F1 != 0;
             setb(a, 5, infected ? 2 : 0);                    /* 0021D0C4 */
         }
         setb(a, 4, 2);
@@ -706,7 +707,7 @@ int em_player_stage_scripted_check(void *host, EmPlayerLiveActor *a, int *result
     if (b(a, 4) == 5 && b(a, 5) == 1) { *result = 0; return 0; }   /* 00182B44 / 00182B54 */
     unsigned mode = b(a, 0x1F0);
     *result = le(w(a, 0x220), ZERO) || b(a, 0x25F) != 0 || em_player_0021BB00(a) ||
-              hs->stage->d8106F1 != 0 || mode == 0x3C || mode == 0x3D;   /* 00182B70..00182BC0 */
+              *hs->stage->d8106F1 != 0 || mode == 0x3C || mode == 0x3D;   /* 00182B70..00182BC0 */
     return 0;
 }
 

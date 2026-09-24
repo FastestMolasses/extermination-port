@@ -191,7 +191,21 @@ class Oracle:
 # --------------------------------------------------------------- native side
 
 class Scene(C.Structure):
-    _fields_ = [('d8106F1', C.c_uint8), ('d810707', C.c_uint8), ('d275B14', C.c_int32)]
+    _fields_ = [('d8106F1', C.POINTER(C.c_uint8)), ('d810707', C.POINTER(C.c_uint8)),
+                ('d275B14', C.c_int32)]
+
+
+def make_scene(d8106F1=0, d810707=0, d275B14=0):
+    """EmPlayerMajor2Scene over one byte cell each for the canonical
+    D_008106F1 / D_00810707 (the struct holds pointers at them)."""
+    cells = (C.c_uint8(d8106F1), C.c_uint8(d810707))
+    sc = Scene(C.pointer(cells[0]), C.pointer(cells[1]), d275B14)
+    sc._cells = cells
+    return sc
+
+
+def scene_values(sc):
+    return sc.d8106F1[0], sc.d810707[0], sc.d275B14
 
 
 P = C.POINTER(LiveActor)
@@ -306,7 +320,7 @@ class Native:
         self.node = dict(node)
         live = self.live = LiveActor()
         C.memmove(live.bytes, bytes(raw), 0x320)
-        sc = Scene(scene['d8106F1'], scene['d810707'], scene['d275B14'])
+        sc = make_scene(scene['d8106F1'], scene['d810707'], scene['d275B14'])
         context = Major2(C.pointer(self.workers), C.pointer(sc))
         if name in STATES:
             ret = getattr(self.lib, 'em_player_major2_' + name)(C.byref(context), C.byref(live))
@@ -316,8 +330,9 @@ class Native:
             ret = self.lib.em_player_major2_001823E0(C.byref(live))
         else:
             ret = getattr(self.lib, 'em_player_major2_' + name)(C.byref(live), *args)
-        return {'bytes': bytes(live.bytes), 'log': self.log, 'ret': ret, 'd8106F1': sc.d8106F1,
-                'd810707': sc.d810707, 'd275B14': sc.d275B14, 'node': dict(self.node)}
+        f1, e707, b14 = scene_values(sc)
+        return {'bytes': bytes(live.bytes), 'log': self.log, 'ret': ret, 'd8106F1': f1,
+                'd810707': e707, 'd275B14': b14, 'node': dict(self.node)}
 
 
 def build_native():
@@ -643,7 +658,7 @@ def dispatch_section(oracle, native, rng, seeds, count):
     for slot, address in OTHER_STATE2.items(): stage_workers.state2[slot] = stub((('state', address), 'p'))
     for i, address in enumerate(PHASE13): stage_workers.phase13[i] = stub((('state', address), 'p'))
     for i, address in enumerate(PHASE14): stage_workers.phase14[i] = stub((('state', address), 'p'))
-    scene = Scene()
+    scene = make_scene()
     context = Major2(C.pointer(native.workers), C.pointer(scene))
     for name, slot in SLOT.items():
         stage_workers.state2[slot] = C.cast(getattr(lib, 'em_player_major2_' + name), STATE_FN)
@@ -668,10 +683,11 @@ def dispatch_section(oracle, native, rng, seeds, count):
         native.log, native.script, native.node = [], script, dict(node)
         live = native.live = LiveActor()
         C.memmove(live.bytes, bytes(raw), 0x320)
-        scene.d8106F1, scene.d810707, scene.d275B14 = sc['d8106F1'], sc['d810707'], sc['d275B14']
+        scene.d8106F1[0], scene.d810707[0], scene.d275B14 = sc['d8106F1'], sc['d810707'], sc['d275B14']
         assert lib.em_player_stage_0015B770(C.addressof(stage), C.byref(live)) == 0
-        got = {'bytes': bytes(live.bytes), 'log': native.log, 'ret': want['ret'], 'd8106F1': scene.d8106F1,
-               'd810707': scene.d810707, 'd275B14': scene.d275B14, 'node': dict(native.node)}
+        f1, e707, b14 = scene_values(scene)
+        got = {'bytes': bytes(live.bytes), 'log': native.log, 'ret': want['ret'], 'd8106F1': f1,
+               'd810707': e707, 'd275B14': b14, 'node': dict(native.node)}
         compare(('0015B770', i, raw[5]), want, got)
         seen.add(raw[5])
     for s in set(SLOT.values()) | {0x19}:
@@ -700,7 +716,7 @@ def fault_section(native, rng, seeds, reached):
             partial = Workers.from_buffer_copy(native.workers)
             setattr(partial, field, fn_type())
             live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
-            sc = Scene()
+            sc = make_scene()
             context = Major2(C.pointer(partial), C.pointer(sc))
             native.script, native.live, native.log = Script({}, {}, {}), live, []
             r = getattr(native.lib, 'em_player_major2_' + name)(C.byref(context), C.byref(live))
@@ -713,6 +729,15 @@ def fault_section(native, rng, seeds, reached):
         assert faulted == expected, (name, sorted(faulted ^ expected))
         live = LiveActor()
         assert getattr(native.lib, 'em_player_major2_' + name)(None, C.byref(live)) == -1
+        # Without the canonical D_008106F1 / D_00810707 byte: refused before any write.
+        for drop in ('d8106F1', 'd810707'):
+            sc = make_scene()
+            setattr(sc, drop, C.POINTER(C.c_uint8)())
+            live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+            native.script, native.live, native.log = Script({}, {}, {}), live, []
+            context = Major2(C.pointer(native.workers), C.pointer(sc))
+            assert getattr(native.lib, 'em_player_major2_' + name)(C.byref(context), C.byref(live)) == -1
+            assert bytes(live.bytes) == bytes(raw) and native.log == [], (name, drop, 'acted without the byte')
     raw = random_record(rng, seeds); raw[6] = 0; put(raw, 0x220, fbits(1.0))
     native.fail = 'cue'
     got = native.run(raw, random_scene(rng), {4: 0, 8: 0}, Script({}, {}, {}), '00221FC0')

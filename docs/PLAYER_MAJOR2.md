@@ -177,11 +177,15 @@ addresses.
 
 Slots 23 and 24 belong to the reaction lane (0021D800 / 0021E490).
 
-**Scene** (`EmPlayerMajor2Scene`). The coordinator keeps one instance and
-syncs it with the canonical globals:
-- `d8106F1` (D_008106F1[0]): the same byte as `EmPlayerStageScene.d8106F1`;
-- `d810707` (D_00810707): written 2 by 0021E830. 0015CF90, 0015C750,
-  001A8840, 001AF2C0, 001B07C0, 00200890, 002160B0 and 0021C270 also touch it;
+**Scene** (`EmPlayerMajor2Scene`). The coordinator keeps one instance. Its
+two progress/request bytes are pointers at the canonical storage (HK, lead
+decision D2); a routine refuses (−1, nothing written) without either:
+- `d8106F1` (D_008106F1[0]): the same canonical byte the stage scene points
+  at (`em_scene_req_at(s, 0x008106F1u)`);
+- `d810707` (D_00810707): written 2 by 0021E830; the canonical progress byte
+  (`em_scene_progress_at(s, 0x00810707u, 1)`). 0015CF90 (live, the player
+  stage), 0015C750, 001A8840, 001AF2C0, 001B07C0 (live), 00200890, 002160B0
+  and 0021C270 also touch it;
 - `d275B14` (D_00275B14): written by 00181D70 and read by 002230A0. It is
   shared with 001696A0, 0016ADE0 and 0016B8A0, so it must be a single
   storage.

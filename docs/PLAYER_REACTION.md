@@ -196,8 +196,9 @@ D_008106F1 is one byte shared by several owners:
 - 0021C440 and the states read it (0021F330 reads it right after
   `w0021C270`).
 
-So `EmPlayerReactionScene.d8106F1` is a pointer to that byte (the stage's
-`EmPlayerStageScene.d8106F1`), not a copy.
+So `EmPlayerReactionScene.d8106F1` is a pointer to that byte (the
+canonical D_008106F1 the stage's `EmPlayerStageScene.d8106F1` also points
+at), not a copy.
 
 `em_player_reaction_w0021D2E0` / `_w0021D250` / `_w0021D490` /
 `_w0021C120` / `_w0021C190` fit the worker signatures that lane
@@ -317,7 +318,7 @@ store. The test checks:
   - `refresh` fills the read fields before every call: root node +4 / +8,
     nodes 2 / 3 / 7 +C0, D_00810E70 / D_00810E74, 0x70003B76 / 7C / 7E /
     8D and D_0081083C.
-  - `d8106F1` points at the stage's `EmPlayerStageScene.d8106F1`.
+  - `d8106F1` is the stage scene's `d8106F1` pointer (the canonical byte).
   - Copy D_008106F0, D_008106BC and D_00275B08 back to their owners after
     each call.
 - **Lane player-major2-states.** Its `w0021D2E0` / `w0021D250` /

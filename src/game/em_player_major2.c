@@ -42,7 +42,8 @@ static int context_of(void *context, EmPlayerLiveActor *a, const Workers **w,
                       EmPlayerMajor2Scene **scene)
 {
     const EmPlayerMajor2 *m = context;
-    if (!m || !m->workers || !m->scene || !a) return -1;
+    if (!m || !m->workers || !m->scene || !m->scene->d8106F1 || !m->scene->d810707 || !a)
+        return -1;
     *w = m->workers;
     *scene = m->scene;
     return 0;
@@ -148,7 +149,7 @@ int em_player_major2_0021E830(void *context, EmPlayerLiveActor *a)
         if (f_le(a, 0x3C, 160.0f)) {
             set8(a, 6, st + 1);
             set8(a, 0x234, 2);
-            scene->d810707 = 2;
+            *scene->d810707 = 2;
             CALL(w->w0015C1F0(c, a));
         }
         CALL(w->w0021E650(c, a));
@@ -202,7 +203,7 @@ int em_player_major2_00221FC0(void *context, EmPlayerLiveActor *a)
             set8(a, 6, 0xA);
             return 0;
         }
-        if (!f_lt(a, 0x228, 100.0f) && scene->d8106F1 != 0) {   /* 00222148 */
+        if (!f_lt(a, 0x228, 100.0f) && *scene->d8106F1 != 0) {   /* 00222148 */
             set8(a, 6, 0x14);
             alt = 0;
         }
@@ -311,7 +312,7 @@ int em_player_major2_00222580(void *context, EmPlayerLiveActor *a)
             set8(a, 6, 0xA);
             return 0;
         }
-        if (!f_lt(a, 0x228, 100.0f) && scene->d8106F1 != 0) {
+        if (!f_lt(a, 0x228, 100.0f) && *scene->d8106F1 != 0) {
             set8(a, 6, 0x14);
             alt = 0;
         }
@@ -443,7 +444,7 @@ int em_player_major2_00222AD0(void *context, EmPlayerLiveActor *a)
             set8(a, 6, 0xA);
             return 0;
         }
-        if (!f_lt(a, 0x228, 100.0f) && scene->d8106F1 != 0) {
+        if (!f_lt(a, 0x228, 100.0f) && *scene->d8106F1 != 0) {
             set8(a, 6, 0x14);
             alt = 0;
         }
@@ -537,7 +538,7 @@ int em_player_major2_002230A0(void *context, EmPlayerLiveActor *a)
             set8(a, 6, 0xA);
             return 0;
         }
-        if (!f_lt(a, 0x228, 100.0f) && scene->d8106F1 != 0) {
+        if (!f_lt(a, 0x228, 100.0f) && *scene->d8106F1 != 0) {
             set8(a, 6, 0x14);
             pose = 0;
         }

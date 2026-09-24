@@ -60,6 +60,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "game/em_scene_state.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -134,6 +136,15 @@ int em_director_original_tick(const EmDirectorOriginalNode *node, const EmDirect
  * D_008106B0 = 3, then D_008106B1 = a0. Returns 0 (the original v0), or -1
  * when a pointer it needs is NULL or a0 < 0. */
 int em_director_original_001C4760(const EmDirectorOriginalWorld *world, int32_t a0, int32_t a1);
+
+/* The one live binding of 001C4760 (DIRECTOR_ORIGINAL.md section 6): the
+ * translation above over the canonical storage, D_00810CC3[0..a0] in the
+ * D2 progress region and D_008106B0/B1 in the request block of `scene`.
+ * -1 (nothing written) when a0 < 0 or D_00810CC3[a0] is not canonical.
+ * Live callers: the opening controller 00823E80's 001C4760(0, 1)
+ * (em_opening_runtime.c) and, until WP-10 binds this module's tick, the
+ * legacy director stand-in's beat-0 001C4760(1, 1) (em_director.c). */
+int em_director_original_001C4760_scene(EmSceneState *scene, int32_t a0, int32_t a1);
 
 /* 001B1EA0(mode, point, polygon, count) for mode 0 (the X/Z winding sum),
  * read from the instructions (all-.word in the decomp):

@@ -11,22 +11,102 @@ current ports both contain approximations and incorrect translations.
 
 ## Local assets
 
-Generate assets from the user's own extracted disc. Outputs remain ignored.
-From the port directory:
+Every asset is generated locally from the user's own disc, boot ELF and
+PCSX2 captures, and stays in the ignored `assets/` tree; nothing here is
+committed. The list below is the one ordered list of every export step the
+first level uses (housekeeping step HK, 2026-09-23). Commands run from the
+port directory unless they start with `cd ../Extermination`.
 
-```sh
-python3 ../Extermination/tools/export_startup.py --help
-python3 tools/export_movie.py --iso /path/to/owned.iso --out assets/startup/intro.mov
-python3 tools/export_startup_audio.py --decomp-root ../Extermination
-python3 tools/export_area11_flow.py
-python3 tools/export_area11_opening.py
-python3 tools/export_opening_camera.py \
-  --source ../Extermination/extract/chunk15/f12_id44.bin \
-  --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc
-python3 tools/export_opening_media.py --decomp-root ../Extermination \
-  --iso /path/to/owned.iso --out assets/scene_snow
-python3 tools/export_message_data.py   # assets/message/message_data.emmd
-```
+**Inputs** (all local, all the user's own): the extracted disc in
+`../Extermination/extract/` (the decomp's extraction tools), the pinned boot
+ELF `../Extermination/config/SCUS_971.12`, the disc image for the movie and
+streams, and the PCSX2 captures in `../Extermination/build/startup-reference/`
+(`opening_ee.bin`, `opening_gs.bin`, `playable_ee.bin`, `panel/`,
+`status-hub/`, ...), which are oracle inputs and are never deleted.
+
+**Classes.** Measured on 2026-09-23 by removing each file the live route
+reads, one at a time, and running `EM_STARTUP_TEST=newgame-level` (New Game
+through the elevator ride) headless from a copy of the tree:
+- **R** required: without it the startup or New Game stops, a scene fault
+  latches (fail-stop), or the level smoke fails.
+- **L** live: read by the route; without it the route still passes with an
+  identical tick log, but something is missing or a placeholder is drawn.
+- **B** live, behaviour: without it the route passes but the tick log changes.
+- **T** not read by the live game yet: read by reference tests and by
+  translations that are still unbound; it becomes required when the named
+  lane binds them.
+- **X** not read by the first level (legacy fixtures, other scenes, reports).
+
+Order matters where a later step patches an earlier output (the scene
+manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
+
+| # | Step | Writes | Class | Read by |
+|---:|---|---|---|---|
+| 1 | `cd ../Extermination && python3 tools/export_startup.py --extract extract --out ../extermination-port/assets/startup` (see `--help`) | `startup/logo_*.emui`, `title_*.emui` | R | em_frontend (boot resources) |
+| 2 | `python3 tools/export_movie.py --iso /path/to/owned.iso --out assets/startup/intro.mov` | `startup/intro.mov` | R | em_frontend (E900) |
+| 3 | `python3 tools/export_startup_audio.py --decomp-root ../Extermination` | `startup_audio/` | R | em_startup_audio |
+| 4 | `cd ../Extermination && python3 tools/export_font.py --ee <an EE RAM dump> --out ../extermination-port/assets/font.emfn` (FINDINGS "UI FONT") | `font.emfn` | R | the message glyph draw (tall glyphs), em_hud |
+| 5 | `python3 tools/export_message_data.py` | `message/message_data.emmd` | R | em_message_live (step F, 001FCA10) |
+| 6 | `cd ../Extermination && python3 tools/export_native.py --attach --no-glow --mesh extract/chunk28/f00_id3b.bin --anim extract/chunk28/f01_id3c.bin --clips ... --gsdump ... --out ../extermination-port/assets/player.emdl` | `player.emdl` | R | the player model and pose bank |
+| 7 | `python3 tools/export_player_pose_channels.py` | `player_channels.empc` | R | the original pose source (em_player_pose) |
+| 8 | `python3 tools/export_player_stop_clips.py`, `export_elevator_clip.py`, `export_interaction_idle.py`, `export_panel_clip.py`, `export_door_player_clips.py`, `export_pickup_player_clips.py`, `export_player_reversal_clips.py --install`, `export_player_climb_slide_clips.py --install` | clips appended to `player.emdl` / `player_channels.empc` | R (with 6, 7) | the interaction, pickup, door, stop, reversal clips; climb/slide clips are read by the unbound climb/slide lanes (L03, L04) |
+| 9 | `python3 tools/export_player_tables.py` | `player_clip_rates.emcr` | T (L01) | 0015BA50's clip-rate worker (em_player_stage_workers, unbound) |
+| 10 | `cd ../Extermination && python3 tools/export_level.py ... --area 11 --sub 0 --overlay extract/OVERLAY/AREA11.BIN` with its manifest passes (`--spawn`, `--camregions`, `--lightrig`, `--pickups`, `--examine`; FINDINGS s78) | `scene_snow/*.emdl` level parts, `scene.txt` | R (`scene.txt`), L (level parts) | em_scene manifest, the level draw |
+| 11 | `cd ../Extermination && .venv/bin/python tools/export_level.py --gs-materials ../extermination-port/assets/scene_snow` (LEVEL_MATERIALS.md) | material words in the level EMDLs, `*.gsmat.json` reports | L | the level draw |
+| 12 | `cd ../Extermination && python3 tools/export_props.py ...` (library, `--gibs`, `--fx`, `--crate`, `--egg`, `--area-items`, `--doors`; MODDING.md) | `scene_snow/props/`, `doors/`, `fx/`, `gibs/`, `enemy_*.emdl`, `tendril.emdl` | L; B for `doors/door_m03.emdl` and `props/item_73.emdl`; R for `props/area_elevator.emdl` and `props/area_item_04.emdl` | manifest props, pickups, legacy enemies and weapon effects |
+| 13 | `cd ../Extermination && python3 tools/export_collision.py <chunk15 f07..f12> -o ../extermination-port/assets/scene_snow/snow.emcl --at 218.592,201.789` (COLL_PROBES.md 3) | `scene_snow/snow.emcl` | R | em_collision |
+| 13b | the same with `--node-class --verify-ram build/s87/route/06_hill_slide/eeMemory.bin` (COLL_PROBES.md 3) | `snow.emcl` with the node class and rank section | T: installed when collision binds (L02/L05/L07) | the translated grid walkers |
+| 14 | `python3 tools/export_opening_scenery.py` | `scene.txt` (canopy line) | R (via scene.txt) | em_scene |
+| 15 | `python3 tools/export_area11_props.py` | switch/elevator/indicator models, `scene.txt` | R/L (see 12) | manifest props |
+| 16 | `python3 tools/export_pickup_lights.py` | pickup bodies and lights, `scene.txt` | L/B | pickup-light children |
+| 17 | `python3 tools/export_area11_panel_collision.py` | `props/panel_cell18.emcb` | R | the panel's collision cell 18 |
+| 18 | `python3 tools/export_door_original.py`, then `python3 tools/export_door_program.py` | `door_original/` | L (`source.emdo`); T (model, channels, program; WP-7) | the door binding; the original door runtime |
+| 19 | `../Extermination/.venv/bin/python tools/export_area11_effect.py --ee ../Extermination/build/startup-reference/opening_ee.bin --gs ../Extermination/build/startup-reference/opening_gs.bin --vu ../Extermination/build/weather_reference/original_vu1.bin` | `area11_effect.emef/.emtx`, `scene.txt` | R | the 008235F0 effect owner |
+| 20 | `python3 tools/export_point_lights.py` | `point_lights.emlp` | R | em_point_light |
+| 21 | `python3 tools/export_snow.py --gs ../Extermination/build/startup-reference/opening_gs.bin --reference-ee ../Extermination/build/startup-reference/opening_ee.bin` | `snow.emsn`, `snow.emtx` | L | the weather node 001C1EA0 (em_snow_runtime) |
+| 22 | `python3 tools/export_area11_flow.py` | `area11_flow.emaf` | L | the legacy director stand-in's triggers (until WP-10) |
+| 23 | `python3 tools/export_area11_opening.py` | `opening.emsc` | R | em_opening_runtime |
+| 24 | `python3 tools/export_opening_camera.py --source ../Extermination/extract/chunk15/f12_id44.bin --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc` | `opening_camera.emcc` | R | the opening camera |
+| 25 | `python3 tools/export_opening_media.py --decomp-root ../Extermination --iso /path/to/owned.iso --out assets/scene_snow` | `opening.wav`, `opening.emfx`, `opening_resume.wav` | R | em_opening_media, the resumed cue 25 |
+| 26 | `cd ../Extermination && python3 tools/export_opening_actors.py --gs build/startup-reference/opening_gs.bin --reference-ee build/startup-reference/opening_ee.bin --out ../extermination-port/assets/scene_snow/opening --report build/area11_original/opening_export.json` (decomp OPENING_ACTORS.md) | `opening/player.emdl`, `roger.emdl`, `equipment_6b.emdl` | R | the opening actors |
+| 27 | `cd ../Extermination && python3 tools/export_opening_faces.py` with the same inputs (decomp OPENING_ACTORS.md) | `opening/*_face.emdl/.emfm` | R | the opening faces |
+| 28 | `python3 tools/export_area11_roster.py` | `roster.emro` | R | 001B6990 (the state-0 roster spawn) |
+| 29 | `python3 tools/export_spawn_table.py` | `spawn/spawn_table.emsp` | R | 001B07C0 |
+| 30 | `python3 tools/export_interaction_scan.py` | `interaction.emis` | R | the AREA11 interaction host |
+| 31 | `python3 tools/export_elevator.py` | `elevator.emsc` | R | the host (terminal 00827B10) |
+| 32 | `python3 tools/export_panel.py`, `python3 tools/export_item_root.py`, `python3 tools/export_status_hub.py` (captures under `build/startup-reference/panel`, `panel/root`, `status-hub`) | `panel/` | R | the host's panel, BATTERY/ITEM pages and hub |
+| 33 | `python3 tools/export_sdk_math_tables.py` | `sdk_math_tables.emsm` | R | the status background's SDK sine (0011E2A8) |
+| 34 | `python3 tools/export_status_models.py` | `status_models/` | R | the status hub models |
+| 35 | `python3 tools/export_pickup_programs.py` | `scene_snow/pickup_*.emsc` | R | the pickup owners 0015AFA0 / 00219550 |
+| 36 | `python3 tools/export_area11_sfx.py` | `sfx/area11/panel_sfx.*` | R | the panel cues (the host loads them) |
+| 37 | `python3 tools/export_sfx_registry.py` | `sfx/sfx_registry.emsr` | L | em_sfx |
+| 38 | `python3 tools/export_area11_scripts.py` | `area11_scripts/` | T (L19, L21, L23) | the script host workers (truck and director scripts, director quads) |
+| 39 | `python3 tools/export_roger_resources.py`, `export_roger_encounter_actor.py`, `export_roger_cinematic.py`, `export_roger_media.py --iso /path/to/owned.iso` | `scene_snow/roger/` | T (WP-9, L22) | the Roger runtime and encounter |
+| 40 | `cd ../Extermination && python3 tools/export_level.py --background ../extermination-port/assets/scene_snow --area 11 --sub 0 --iso <owned.iso> --capture-ee ... --capture-gs ...` (BACKGROUND.md) | `background.embg`, manifest line | T (L31) | em_background_gs (the manifest line is not parsed yet) |
+| 41 | `cd ../Extermination && python3 tools/export_shadow_receivers.py --out ../extermination-port/assets/scene_snow/shadow_receivers.emsr` (SHADOW_ORIGINAL.md) | `shadow_receivers.emsr` | T (L29b) | em_shadow_original receiver passes |
+| 42 | `cd ../Extermination && python3 tools/export_shadow_proxy.py` (SHADOW_ORIGINAL.md) | `player_shadow.emdl` | T (L29) | the shadow silhouette |
+| 43 | `python3 tools/test_actor_collision_reference.py --export` (ACTOR_COLLISION.md 3; a stand-in until a dedicated exporter exists) | `scene_snow/area11_cells.bin` | T (L07) | em_actor_cells_load |
+
+Not read by the first level (X): `ui.emui`, `ui_page*.emui`, `messages.emsg`,
+`title.emui`, `gameover.emui` (decomp `export_ui.py` / `export_screen_modules.py`,
+the legacy HUD and fixtures), `assets/scene`, `scene_office0`,
+`scene_drawbridge` (the EM_SKIP_STARTUP fixtures), `scene_snow/snow_bgm.wav`
+(the manifest `bgm` line is ignored), `assets/opening/` (an older default
+`--out` of step 25) and the exporters' JSON reports.
+
+Honest limits of this list:
+- It is the order of dependencies, not a proven one-pass rebuild: no test
+  re-runs all steps from an empty tree. Steps 18 (program), 21, 35, 36 and 39
+  (resources, encounter actor, cinematic) were re-run on 2026-09-23 and wrote
+  byte-identical files.
+- Steps 1, 4, 6, 10 and 12 give the tool and its recorded mode; their full
+  argument lists are in the decomp docs cited. For 6, SHADOW_ORIGINAL.md
+  notes that eight clips of the installed `player.emdl` (0, 64..67, 69, 71,
+  348) differ from a fresh `export_native.py` bake and what produced them is
+  not established.
+- A latched scene fault stops the game task but, in the `newgame-level`
+  smoke, does not end the process: a missing R asset of the interaction host
+  or the roster makes that run hang instead of exit.
 
 The message service (step F, WP-8; docs/MESSAGE_SERVICE.md) reads
 `assets/message/message_data.emmd`: the ELF's message tables and the global
@@ -44,14 +124,6 @@ entries contain the camera, Dennis animation, and Roger animation. Runtime
 resource slot 0x98 points at this bank. The camera has 646 source frames and 647
 samples including lookahead, and advances 0.5 per ordinary tick.
 
-The AREA11 interaction host (the status screens) also needs two assets and
-refuses to load without them:
-
-```sh
-python3 tools/export_sdk_math_tables.py   # assets/sdk_math_tables.emsm
-python3 tools/export_status_models.py     # assets/status_models/
-```
-
 - `assets/sdk_math_tables.emsm` is the boot ELF's SDK float-math window
   D_0026C170..D_0026C658. The status background 0020A7A0 draws its sine
   through the translated SDK sinf 0011E2A8 over it (docs/SDK_MATH_ORIGINAL.md;
@@ -60,11 +132,7 @@ python3 tools/export_status_models.py     # assets/status_models/
   its two clips and the equipment letter models of D_0028A56C. Their
   textures come from the status-hub capture's GS memory
   (../Extermination/build/startup-reference/status-hub), like the opening
-  actors below (docs/STATUS_SCENE.md section 7; `make test-status-models`).
-
-Opening body/equipment export currently also requires a captured original GS
-state for its textures. See the sibling decomp docs/OPENING_ACTORS.md for the
-exact command and byte comparisons. A disc-only texture pipeline remains work.
+  actors (docs/STATUS_SCENE.md section 7; `make test-status-models`).
 
 ## Behavior and verification
 
@@ -163,7 +231,10 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
   yet. Continue resets only these
   mirrored fields (plus the death/prompt state and the pickup table); unlike
   New Game it does not memset the whole native game state, so other port
-  state (for example director state other than `cine_step`) carries over.
+  state (for example the legacy director's per-beat transient) carries over.
+  The D2 progress region (the director step `D_00810813`, the key bytes
+  `D_00810CC3`, `D_00810707` and the other migrated bytes) is cleared by
+  `em_scene_progress_reset_001AF2C0` on both paths.
   The `001AD360` step 0 stream stop (`001FABB0`) is mirrored with
   `em_bgm_stop(0)`. Not mirrored yet: the `001D1EF0` calls in steps 0-2 and
   the step 1 E900 movie request (Continue does not replay E900).

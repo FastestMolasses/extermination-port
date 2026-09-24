@@ -163,7 +163,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B0080 | — | BM | verified-unbound | em_script_host_workers — test_script_host_workers_reference | legacy door camera re-seat (CAM-07) | S1_newgame_load |
 | 0x001B0250 | — | BM | live | em_spawn_table, em_script_host_workers — test_spawn_place_reference.py |  | S1_newgame_load |
 | 0x001B0460 | — | BM | verified-unbound | em_script_host_workers — test_script_host_workers_reference | em_game.c em_game_legacy_camera_rearm (reported UM_001B0460) | S1_newgame_load |
-| 0x001B07C0 | — | BM | live | em_spawn_table, em_scene_bindings — test_spawn_place_reference.py |  | S1_newgame_load |
+| 0x001B07C0 | — | BM | live | em_spawn_table, em_scene_bindings — test_spawn_place_reference.py | reads D_00810707 from the canonical progress byte (HK) | S1_newgame_load |
 | 0x001B0B50 | — | BM | verified-unbound | em_player_closure_10_12_19, em_script_host_workers — test_player_closure_10_12_19_reference.py, test_script_host_workers_reference.py |  | S1_newgame_load |
 | 0x001B0DC0 | — | BM | verified-unbound | em_owner_services_original — test_owner_services_reference.py |  | S2_opening* |
 | 0x001B0EA0 | — | NM | verified-unbound | em_owner_services_original, em_fan_original — test_fan_original_reference.py, test_owner_services_reference.py |  | S2_opening* |
@@ -207,7 +207,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0015C310 | — | BM | live | em_area11_bindings.c em_area11_spawn_player_children_0015C420 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn set and order only (node bytes not compared) | S2_opening |
 | 0x0015C420 | — | BM | live | em_area11_bindings.c em_area11_spawn_player_children_0015C420 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn set and order only | S2_opening* |
 | 0x0015CBA0 | — | BM | stand-in |  | em_camera.c constant height row (no +0x236 state map) | S2_opening |
-| 0x0015CF90 | — | BM | unverified | em_player_frame.c (B9 write only) | partial: D_00810706/707/858/85C stores not mirrored | S2_opening |
+| 0x0015CF90 | — | BM | unverified | em_player_frame.c em_player_0015BCF0: the D_00810707 = +0x234 store into the canonical progress byte (HK) and the B9 write | partial: D_00810706/858/85C stores not mirrored; no oracle executes 0015CF90 (the byte-matched C was read) | S2_opening |
 | 0x0015D000 | — | AI | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_damage.c player_damage_tick | S2_opening |
 | 0x0015D100 | — | BM | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_damage.c player_damage_tick | S2_opening |
 | 0x0015D2F0 | — | BM | stand-in |  | em_weapon.c assumes variant 0 (ordinary camera mode) | S0_title |
@@ -530,7 +530,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001C22A0 | — | BM | missing |  |  | S2_opening* |
 | 0x001C2360 | — | BM | missing |  |  | S2_opening* |
 | 0x001C40B0 | — | NM | verified-unbound | em_pickup_owner — test_pickup_owner_reference; test_continue_reset_reference | em_pickup.c inventory_add | S0_title |
-| 0x001C4760 | — | BM | verified-unbound | em_director_original — test_director_original_reference.py |  | S2_opening |
+| 0x001C4760 | — | BM | live | em_director_original_001C4760 through em_director_original_001C4760_scene (the canonical key bytes; the opening 00823E80's 001C4760(0, 1), and the legacy director stand-in's beat-0 001C4760(1, 1)) — test_continue_reset_reference.py (executes 001C4760, 90 cases, and the opening slice 0x823F6C..0x823F8C through its call), test_director_original_reference.py |  | S2_opening |
 | 0x001C47A0 | — | BM | live | em_pickup.c pickup_take (B0 = 1, B1 = type) — test_level_smoke.py (battery phase; route 01 f220..f459) | called from the legacy take | 01_battery |
 | 0x001C4820 | — | BM | missing |  | pool node render-only; drawn from the scene props | S2_opening |
 | 0x001C5570 | — | BM | live | em_area11_bindings.c spawn_001C5570 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn only | S2_opening* |
@@ -893,7 +893,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00823E80 | — | AU | live | em_area11_opening.c / em_opening_runtime.c — test_continue_reset_reference (0x823F74..80 slice); opening capture frame | partial oracle coverage | S2_opening |
 | 0x00823FF0 | — | AU | verified-unbound | em_truck_original — test_truck_original_reference | em_truck.c legacy (static truck; invented trigger and fall removed) | S2_opening |
 | 0x008251E0 | — | AU | verified-unbound | em_truck_original — test_truck_original_reference | em_truck.c legacy (static truck; invented trigger and fall removed) | S2_opening |
-| 0x008253F0 | — | AU | verified-unbound | em_director_original — test_director_original_reference | em_director.c kCineBeats keyframe player (H10) | S2_opening |
+| 0x008253F0 | — | AU | verified-unbound | em_director_original — test_director_original_reference | em_director.c kCineBeats keyframe player (H10); its beat step is the canonical D_00810813 and its beat-0 completion runs 001C4760(1, 1) (HK) | S2_opening |
 | 0x00825500 | — | AU | verified-unbound | em_director_original — test_director_original_reference | em_area11_flow.c trigger boxes / em_director.c | S2_opening |
 | 0x00825540 | — | AU | verified-unbound | em_director_original — test_director_original_reference | em_area11_flow.c trigger boxes / em_director.c | S2_opening |
 | 0x00825600 | — | AU | verified-unbound | em_director_original — test_director_original_reference | em_area11_flow.c trigger boxes / em_director.c | 10_cage_roof_roger |
@@ -1099,7 +1099,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 12 | **L17-pickups-use-arbiter**: WP-6: bind the pickup owners and publish them to the Use arbiter; retire the legacy take | bind | 1,069 | 10 (verified-unbound 6, unverified 3, stand-in 1) | 01 (battery pickup) and every other pickup | host (done) |
 | 13 | **L09-ladder-use-chain**: Bind the Use chain and ladder entry (0015D4C0, 00160220 whole, 00165B60) | bind | 2,069 | 10 (verified-unbound 10) | 05, 10, 13 (ladders and the Use chain) | L01, L02, L06 |
 | 14 | **L10-ladder-climb**: Bind the ladder climb states (001662D0 family) | bind | 1,856 | 8 (verified-unbound 8) | 10, 13 | L09 |
-| 15 | **L21-director-beats**: WP-10: manager 008253F0 and its beat scripts through the script host | bind | 425 | 10 (verified-unbound 10) | 10, 11 | L19, L20 |
+| 15 | **L21-director-beats**: WP-10: manager 008253F0 and its beat scripts through the script host | bind | 410 | 9 (verified-unbound 9) | 10, 11 | L19, L20 |
 | 16 | **L22-roger-encounter**: WP-9: bind the Roger owner, equipment child and cutscene timeline | bind | 2,121 | 24 (verified-unbound 24) | 10, 14 (Roger) | L19, L20 |
 | 17 | **L11-running-jump-recovery**: Bind the running jump and recovery (0015EC50, 001634A0, 0017C860) | bind | 2,297 | 6 (verified-unbound 6) | 12 (crevice jump) | L02, L09 |
 | 18 | **L13-camera-follow**: Bind em_camera_follow_original (follow core) in place of em_camera.c camera_update | bind | 1,587 | 15 (verified-unbound 10, unverified 1, stand-in 2, missing 2) | every frame from first control | L06b (camera queries) |
@@ -1150,7 +1150,7 @@ Functions per lane:
 - **L17-pickups-use-arbiter**: 0015AFA0, 0015AE20, 0015AC00, 00219550, 001B6EA0, 001C40B0, 001B7F90, 001B1190, 001C5680, 001C5760.
 - **L09-ladder-use-chain**: 0015D4C0, 00160220, 00165B60, 00176F90, 00177030, 00199DB0, 0019BA80, 001B61C0, 00182A70, 001885D0.
 - **L10-ladder-climb**: 001662D0, 0017FC80, 0017FD00, 00180300, 00180420, 00180460, 00181110, 00174AB0.
-- **L21-director-beats**: 008253F0, 00825500, 00825540, 00825600, 00825640, 008256D0, 00825710, 001B1EA0, 001C4760, 0011E080.
+- **L21-director-beats**: 008253F0, 00825500, 00825540, 00825600, 00825640, 008256D0, 00825710, 001B1EA0, 0011E080 (001C4760 is live since HK: the world's d810CC3/d8106B0/d8106B1 are bound through em_director_original_001C4760_scene).
 - **L22-roger-encounter**: 008237E0, 00823910, 00823950, 00823B70, 001C5C90, 001BA540, 001BA580, 001BA8E0, 0022EEF0, 0022EC30,
   001CA5E0, 001CA5F0, 001CA6E0, 001CA6F0, 001CA700, 001CA770, 001D0690, 001D06D0, 001D0C70, 001B10B0,
   001B1020, 001AF780, 001AF890, 001D8BF0.
@@ -1206,7 +1206,7 @@ Functions per lane:
 - **Census coverage.** Boot before the title (crt0, IOP bring-up, logos, card checks) is not instrumented; only listed entries are armed (jumps into a function body and the unlisted 0x1050E4..0x105148 gap are unseen); one hit per function per label (no counts, no order); only the played route is exercised (no damage/death, pause/options/save, Circle/Square/R1/weapon/camera inputs, truck-pit fall, the west-yard and plateau ladders); nothing after Roger's encounter, so **the level exit (fan 00827630's area change, Roger's departure script) is not in the census**. Several beat replays follow slightly different closed-loop paths from the recordings (census method.md).
 - **Classification.** The evidence search is textual and was then read by hand; it can miss a translation that cites no address, or credit a test that names an address it only hooks. The rows marked "evidence rule" in `classified.json` (193) were not individually re-read. Reachability is a static call graph with the known runtime gates cut; code behind other `getenv`/state gates may be counted as live.
 - **Oracle strength varies.** `test_fade_reference.py` compares with locally compiled decomp C (the fade functions are byte-matched), not executed instructions. The spawn helpers (0015C310/0015C420, 0018A880, 001C1EA0, 001C5570) are checked only for spawn set and order (`compare_frame_order.py`, census 49), not node bytes. The heading helper's SDK trig and the live wall probes' sqrt/atan are host models.
-- **Snapshot.** Statuses reflect the port tree on 2026-09-23 while other lanes were still committing (for example `tools/test_pickup_items_reference.py` appeared during the run). Re-running the classification after each lane lands keeps this document honest; the decomp census itself only needs re-running when the route changes.
+- **Snapshot.** Statuses reflect the port tree on 2026-09-23 while other lanes were still committing (for example `tools/test_pickup_items_reference.py` appeared during the run). Re-running the classification after each lane lands keeps this document honest; the decomp census itself only needs re-running when the route changes. The section 2 totals (and `classified.json`) are those of the classification run; landing steps since then (WP-8, HK) re-classified their rows in sections 3 and 5 only, so the totals lag those rows until the next classification pass.
 
 
 ## 7. Critic notes (completeness review, 2026-09-23)

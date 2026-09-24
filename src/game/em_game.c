@@ -1250,15 +1250,14 @@ void em_game_legacy_state0(void)
     g.sa_clip        = -1;
     g.sa_req_hold    = 0;
     g.sa_hold        = 0;
-    /* AREA-11 OPENING DIRECTOR re-arm (the D_00810813 step
-     * machine — ov 0x8253F0, installed fresh at each area
-     * build). The step byte resets to 0 (the opening plays once
-     * per AREA-11 build; live-confirmed pristine 0 at new game).
-     * The per-beat transient is fully cleared so a scene change
-     * can NEVER leave the player locked in a cinematic — the
-     * soft-lock guard. Outside AREA-11 the director simply never
-     * arms (no zone is ever entered), so this is inert. */
-    g.cine_step       = 0;
+    /* AREA-11 OPENING DIRECTOR re-arm (legacy stand-in for the
+     * manager 0x8253F0, installed fresh at each area build). Only
+     * the stand-in's per-beat transient is cleared here, so a scene
+     * change cannot leave the player locked in a cinematic. The
+     * beat step D_00810813 is canonical progress (HK): no area
+     * build writes it in the original (001AF2C0's memset is its
+     * only clear), so it is not reset here. Outside AREA-11 the
+     * director never arms (no zone is ever entered). */
     g.cine_active     = 0;
     g.cine_beat       = -1;
     g.cine_kf         = 0;
@@ -1495,8 +1494,9 @@ static int continue_restart(void)
      * the intro movie at step 1, the 001ADF50 area read, state 0),
      * so only the port's own game-over and damage stand-ins are
      * cleared here; the music stops at 001AD360 step 0's 001FABB0
-     * (w_001FABB0, since WP-5). Other port state (e.g. director state other than
-     * cine_step) survives a Continue, as before. */
+     * (w_001FABB0, since WP-5). Other port state (e.g. the legacy
+     * director's transient) survives a Continue, as before; its beat
+     * step D_00810813 is canonical progress, cleared by 001AF2C0. */
     if (g.go_restart) {
         g.go_restart  = 0;
         g.go_state    = GO_OFF;

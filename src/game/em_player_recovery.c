@@ -403,7 +403,7 @@ int em_player_recovery_react_002243F0(EmPlayerLiveActor *a, EmPlayerRecoveryScra
 int em_player_recovery_react_00224B80(EmPlayerLiveActor *a, const EmPlayerRecoveryScene *s,
                                       const EmPlayerRecoveryWorkers *w, int *result)
 {
-    if (!a || !s || !w || !result || !w->shake || !w->sound || !w->react_0021C350 ||
+    if (!a || !s || !s->d8106F1 || !w || !result || !w->shake || !w->sound || !w->react_0021C350 ||
         !w->react_0021C270 || !w->react_0021C120 || !w->react_0021C190 || !w->react_0021D490 ||
         !w->random || !w->request)
         return -1;
@@ -430,7 +430,7 @@ int em_player_recovery_react_00224B80(EmPlayerLiveActor *a, const EmPlayerRecove
             FAULT(w->shake(w->context, 0, 0xC0, 5, 1));                /* 00224CEC */
             FAULT(w->sound(w->context, a, 0x153));                     /* 00224D04 */
             FAULT(w->react_0021C270(w->context, a));                   /* 00224D0C */
-            if (!lt(ld(a, 0x228), K_100) && s->d8106F1 != 0)           /* 00224D24/00224D3C */
+            if (!lt(ld(a, 0x228), K_100) && *s->d8106F1 != 0)           /* 00224D24/00224D3C */
                 st8(a, 7, 0x14);                                       /* 00224D4C */
             else
                 st8(a, 7, u8(a, 7) + 1);                               /* 00224D58 */
@@ -670,11 +670,12 @@ int em_player_recovery_ledge_grab(EmPlayerLiveActor *a, float reach_value,
                                   const EmPlayerRecoveryScene *s, EmPlayerRecoveryScratch *x,
                                   const EmPlayerRecoveryWorkers *w, int *result)
 {
-    if (!a || !s || !x || !result || !need_ledge_common(w) || !w->lip || !w->sweep) return -1;
+    if (!a || !s || !s->d8106F1 || !x || !result || !need_ledge_common(w) || !w->lip || !w->sweep)
+        return -1;
     F reach = bits_of(reach_value);                                    /* 0017C88C $f20 */
     *result = 0;
     if (le(ld(a, 0x220), K_ZERO)) return 0;                            /* 0017C890 */
-    if (!lt(ld(a, 0x228), K_100) && s->d8106F1 != 0) return 0;         /* 0017C8B0/0017C8C8 */
+    if (!lt(ld(a, 0x228), K_100) && *s->d8106F1 != 0) return 0;         /* 0017C8B0/0017C8C8 */
     const F probe[4] = { 0, K_18, K_5_5, K_ONE };                      /* 0017C8D8..0017C900 */
     F m[16], target[4];
     record_matrix(a, m);
@@ -692,11 +693,13 @@ int em_player_recovery_ledge_catch(EmPlayerLiveActor *a, const EmPlayerRecoveryS
                                    EmPlayerRecoveryScratch *x, const EmPlayerRecoveryWorkers *w,
                                    int *result)
 {
-    if (!a || !s || !x || !result || !need_ledge_common(w) || !w->depth || !w->segment) return -1;
+    if (!a || !s || !s->d8106F1 || !x || !result || !need_ledge_common(w) || !w->depth ||
+        !w->segment)
+        return -1;
     int owner_ok = 0;                                                  /* 0017D0BC $s1 */
     *result = 0;
     if (le(ld(a, 0x220), K_ZERO)) return 0;                            /* 0017D0B0 */
-    if (!lt(ld(a, 0x228), K_100) && s->d8106F1 != 0) return 0;         /* 0017D0D0/0017D0E8 */
+    if (!lt(ld(a, 0x228), K_100) && *s->d8106F1 != 0) return 0;         /* 0017D0D0/0017D0E8 */
     const F behind[4] = { 0, 0, K_M8, K_ONE };                         /* 0017D0F8..0017D11C */
     F m[16], target[4];
     record_matrix(a, m);

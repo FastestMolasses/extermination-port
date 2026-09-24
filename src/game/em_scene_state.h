@@ -81,18 +81,51 @@ typedef enum {
  * it is RESERVED: it is still owned by a named EmSceneState field (the area
  * bytes D_00810700..702, D_00810730[] and the D_00810750 counter) or by a port
  * mirror that has not been migrated yet (for example g.opening_event_39 =
- * D_00810791, g.opening_complete = D_00810811, g.cine_step = D_00810813,
- * em_weapon's D_00810C61/C62/CB4). em_scene_progress_at() refuses
+ * D_00810791, g.opening_complete = D_00810811, em_weapon's
+ * D_00810C61/C62/CB4). em_scene_progress_at() refuses
  * a reserved byte (NULL), so nothing can read or write a second copy through
  * it.
  *
  * Migrated ranges (step that migrated them; original readers and writers):
+ *   D_00810707           HK    0015CF90's copy of the player's infected
+ *                              latch +0x234 (every player stage;
+ *                              em_player_0015BCF0), 0021C270 (=1) and
+ *                              0021E830 (=2) through the stage globals'
+ *                              and EmPlayerMajor2Scene's pointer; read
+ *                              by 001B07C0 into +0x234. Before HK the
+ *                              port kept no copy (001B07C0 read the live
+ *                              +0x234, g.pd_infected).
  *   D_00810788           S10b  001B65C0 prime-pass mode (tested == 0xFF),
  *                              001B6660 case 6 via D_00810700[0x88]; no port
  *                              mirror existed.
+ *   D_00810792           HK    event 0x3A (D_00810758[0x3A]): the truck
+ *                              trigger 008251E0 stores 1 when its camera
+ *                              script ends, the truck 00823FF0 stores 0xFF
+ *                              after the fall; both read it (00823FF0 and
+ *                              008251E0 are em_truck_original, not bound:
+ *                              WP-12 hands it this byte). No port mirror.
+ *   D_00810793           HK    event 0x3B (D_00810758[0x3B]): read by the
+ *                              director 008253F0 (001BA1C0 in its state 0)
+ *                              and Roger 008237E0; written by the area
+ *                              script's op 6 (001BA080 sub 0/1 = 1 /
+ *                              0xFF). Not bound (WP-9/WP-10); no port
+ *                              mirror (EmRogerStory.alternate is the
+ *                              unbound Roger translation's value view).
  *   D_00810794           S12a  event 0x3C (D_00810758[0x3C]), read by the
  *                              record-13 manager 008257A0 through 001BA1C0;
  *                              no port mirror, no port writer.
+ *   D_00810813           HK    counter 0x3B (D_008107D8[0x3B]), the
+ *                              director's beat step: 008253F0's beat
+ *                              completions store 0x10/0x20/0xFF (live
+ *                              today through the legacy director stand-in
+ *                              em_director.c until WP-10 binds
+ *                              em_director_original), Roger 008237E0
+ *                              stores 0x11 (0x823A04) and the area
+ *                              script writes it (op 6, 001BA080 sub
+ *                              3/5/6; 001B82D0 sub 6); migrated from g.cine_step
+ *                              (whose per-area-build reset had no
+ *                              original writer: only 001AF2C0's memset
+ *                              clears it).
  *   D_0081083A           WP-4  the AREA11 elevator's floor byte: 00827B10
  *                              state 0 reads it (190/230 heights), its
  *                              completion toggles it when powered; no
@@ -125,7 +158,14 @@ typedef enum {
  *                              key bytes D_00810CC3[t], which overlap the
  *                              counts exactly as in the original); migrated
  *                              from em_pickup's separate count/map/key/meter
- *                              mirrors. D_00810C61 (the fire mode), D_00810C62
+ *                              mirrors. HK moved the last key-byte mirror
+ *                              (g.opening_key_item_zero, the opening's
+ *                              001C4760(0, 1)) here: 001C4760 has one
+ *                              translation, em_director_original_001C4760,
+ *                              bound over this region by
+ *                              em_director_original_001C4760_scene. D_00810CB6 is
+ *                              read by 0015BA50's busy test through the
+ *                              stage scene's pointer. D_00810C61 (the fire mode), D_00810C62
  *                              (the loaded magazine) and D_00810CB4 (the
  *                              reserve) stay em_weapon's (w.fire_mode, w.mag,
  *                              w.reserve) and are reserved here.
@@ -149,8 +189,10 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
     static const struct {
         uint32_t first, end;
     } migrated[] = {
+        {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x00810788u, 0x00810789u},
-        {0x00810794u, 0x00810795u},
+        {0x00810792u, 0x00810795u}, /* events 0x3A, 0x3B (HK) and 0x3C (S12a) */
+        {0x00810813u, 0x00810814u}, /* counter 0x3B, the director step (HK) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */

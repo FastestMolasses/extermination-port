@@ -221,7 +221,10 @@ class Scratch(C.Structure):
 
 
 class Major2Scene(C.Structure):
-    _fields_ = [('d8106F1', C.c_uint8), ('d810707', C.c_uint8), ('d275B14', C.c_int32)]
+    # em_player_major2.h: pointers at the canonical D_008106F1 / D_00810707
+    # (00181D70, the only major2 routine this closure calls, reads neither).
+    _fields_ = [('d8106F1', C.POINTER(C.c_uint8)), ('d810707', C.POINTER(C.c_uint8)),
+                ('d275B14', C.c_int32)]
 
 
 class ProbeHit(C.Structure):

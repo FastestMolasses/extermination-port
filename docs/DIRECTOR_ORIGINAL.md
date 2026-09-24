@@ -288,9 +288,9 @@ int rc = em_director_original_tick(&n, &s_director_world, &s_director_workers, &
 
 | Pointer | Storage |
 |---|---|
-| `d810813` | `em_scene_progress_at(s, 0x00810813, 1)`. `D_00810813` is reserved today (the port mirror is `g.cine_step`). It must be migrated to EmProgress, and `g.cine_step` deleted. Roger's future translation writes the same byte. |
-| `d810793` | `em_scene_progress_at(s, 0x00810793, 1)`, which must be migrated. Written by the director scripts' op06 on flag 0x3B (`em_area_script`'s `d810758 + 0x3B`: the same storage) and read by Roger. |
-| `d810CC3` | `em_scene_progress_at(s, 0x00810CC3, 2)`, which must be migrated; the legacy mirror of [0] is `opening_key_item_zero`. The opening's `001C4760(0, 1)` should call `em_director_original_001C4760` on the same storage. |
+| `d810813` | `em_scene_progress_at(s, 0x00810813, 1)`, canonical since HK (`g.cine_step` is deleted). Until this module is bound, the legacy stand-in em_director.c reads and writes it there. Roger's translation writes the same byte (0x11, 0x823A04). |
+| `d810793` | `em_scene_progress_at(s, 0x00810793, 1)`, canonical since HK. Written by the director scripts' op06 on flag 0x3B (`em_area_script`'s `d810758 + 0x3B`: the same storage once the script host's flag array is canonical, L19) and read by Roger. |
+| `d810CC3` | `em_scene_progress_at(s, 0x00810CC3, 2)`, canonical since WP-6 (`opening_key_item_zero` deleted in HK). The opening's `001C4760(0, 1)` and the legacy director's beat-0 `001C4760(1, 1)` already run `em_director_original_001C4760` on it through `em_director_original_001C4760_scene` (em_director_original.c is in COMMON for that). |
 | `d8106B0` / `d8106B1` | The request block (`EmSceneState.req[0]/[1]`). It is never reached from the director, because a0 = 1. |
 | `d810350` | The player's canonical `+0xA0` vector (x, y, z), the same pointer `EmTruckWorld.player_a0` uses. |
 | `quad[0..2]` | `em_director_original_load_quads` over the user's AREA11 overlay image (MWo3, 0x7800 bytes). The live path needs that image anyway for the director scripts (`EmScriptImage {overlay, 0x823500, …}`, as in `tests/area_script_test.c`). `area11_flow.emaf` holds only X/Z and is the legacy input; it is not used. |
@@ -318,8 +318,8 @@ op16's predicate `00182BF0` and op18's skip landing
 fully live. **Do not wire it with stand-ins.**
 
 **Retire when bound.**
-- `em_director.c` `director_tick`, `kCineBeats`, `cine_*`, the `g.cine_*`
-  fields and `g.cine_step`.
+- `em_director.c` `director_tick`, `kCineBeats`, `cine_*` and the `g.cine_*`
+  fields (the step byte is already canonical: HK deleted `g.cine_step`).
 - `em_area11_flow.c` `em_area11_trigger_contains`, which uses host
   `atan2f`, and `em_area11_step_after_beat`.
 - The `area11_flow.emaf` export, if nothing else reads it.

@@ -19,7 +19,10 @@ executed original.
 It also executes the AREA11 opening controller's completion slice
 (overlay 0x00823F6C..0x00823F84, resident in the capture) to show that
 D_00810811 is the opening-complete byte the port now names
-opening_complete.
+opening_complete, then the slice through its 001C4760 call (to
+0x00823F8C) and 001C4760 itself over seeded key/request bytes, against the
+port's one live translation em_director_original_001C4760_scene (em_scene_state.h; the
+opening's key add and the legacy director's beat-0 key add).
 
 No original bytes are embedded or printed; only addresses and values.
 """
@@ -44,7 +47,7 @@ class Probe(C.Structure):
     _fields_ = [(name, C.c_uint32) for name in (
         'health_bits', 'infection_bits', 'mag', 'reserve', 'battery',
         'battery_max', 'opening_complete', 'event_39', 'key_item_zero',
-        'cine_step', 'terminal_powered')]
+        'director_step', 'terminal_powered')]
 
 
 class CaptureOriginal(Original):
@@ -103,6 +106,40 @@ def check_opening_complete(elf, ram):
     return 'overlay 0x823F6C..84: D_00810811=0xFF, controller+0x2E=0xFFFF'
 
 
+def check_key_add(elf, ram, native):
+    """001C4760 executed vs em_director_original_001C4760_scene, and the opening's call."""
+    native.key_add_probe.argtypes = [C.c_int32, C.c_int32, C.c_uint8, C.c_uint8, C.c_uint8,
+                                     C.POINTER(C.c_uint8)]
+    checked = 0
+    for a0 in (0, 1, 0x1F, 0x20, 0x21, 0x3C):
+        for a1 in (1, 2, 0xFF, -1, 0x101):
+            for key in (0, 1, 0xFF):
+                o = CaptureOriginal(elf, ram)
+                o.save(0x810CC3 + a0, key, 1)
+                o.save(0x8106B0, 0x55, 1)
+                o.save(0x8106B1, 0x66, 1)
+                o.run(0x1C4760, (a0 & MASK64, a1 & MASK64))
+                want = (1, o.load(0x810CC3 + a0, 1), o.load(0x8106B0, 1), o.load(0x8106B1, 1))
+                out = (C.c_uint8 * 4)()
+                native.key_add_probe(a0, a1, key, 0x55, 0x66, out)
+                assert tuple(out) == want, ('001C4760', a0, a1, key, tuple(out), want)
+                checked += 1
+    # The opening controller's completion slice through its call: the key
+    # byte D_00810CC3[0] gains exactly 1 (the port's 001C4760(0, 1)).
+    o = CaptureOriginal(elf, ram)
+    assert jal_target(o, 0x823F84) == 0x1C4760
+    o.save(0x810CC3, 0, 1)
+    o.save(0x810811, 0, 1)
+    o.r[17] = ACTOR
+    o.run(0x823F6C, stop=0x823F8C)
+    assert o.load(0x810CC3, 1) == 1
+    out = (C.c_uint8 * 4)()
+    native.key_add_probe(0, 1, 0, 0, 0, out)
+    assert tuple(out)[:2] == (1, o.load(0x810CC3, 1))
+    return (f'001C4760: {checked} executed cases equal em_director_original_001C4760_scene; the opening slice '
+            '0x823F6C..0x823F8C adds 1 to D_00810CC3[0], as the port does')
+
+
 def run_original(elf, ram):
     o = CaptureOriginal(elf, ram)
     dirty = {  # the death-in-AREA11 state the native probe also starts from
@@ -125,12 +162,13 @@ def build_native():
     lib = out / ('probe.dylib' if sys.platform == 'darwin' else 'probe.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-shared', '-fPIC', '-Isrc', 'tests/continue_reset_probe.c',
+                    'src/game/em_director_original.c', '-lm',
                     '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
     native.continue_reset_probe.argtypes = [C.POINTER(Probe)]
     probe = Probe()
     native.continue_reset_probe(C.byref(probe))
-    return probe
+    return probe, native
 
 
 # Inventory bytes dirtied on both sides before the reset (original address:
@@ -243,7 +281,8 @@ def main():
     print(check_opening_complete(elf, ram))
 
     o = run_original(elf, ram)
-    probe = build_native()
+    probe, native = build_native()
+    print(check_key_add(elf, ram, native))
     fields = [
         ('health D_00810858', o.load(0x810858), probe.health_bits),
         ('D_0081085C', o.load(0x81085C), probe.infection_bits),
@@ -254,7 +293,7 @@ def main():
         ('opening complete D_00810811', o.load(0x810811, 1), probe.opening_complete),
         ('event 0x39 D_00810791', o.load(0x810791, 1), probe.event_39),
         ('key item 0 D_00810CC3', o.load(0x810CC3, 1), probe.key_item_zero),
-        ('director step D_00810813', o.load(0x810813, 1), probe.cine_step),
+        ('director step D_00810813', o.load(0x810813, 1), probe.director_step),
         ('terminal power D_0081084C&0x80', o.load(0x81084C, 1) >> 7, probe.terminal_powered),
     ]
     failed = 0

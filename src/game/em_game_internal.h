@@ -1626,7 +1626,6 @@ typedef struct {
     /* gameplay-frame state */
     int        frame_no;         /* gameplay frames run */
     uint8_t    opening_event_39; /* D_00810791: automatic opening state */
-    uint8_t    opening_key_item_zero; /* D_00810CC3[0], 001C4760(0,1) */
     uint8_t    opening_complete; /* D_00810811 (event flag 0xB9): the
                                   * AREA11 opening controller 00823E80
                                   * stores 0xFF here when its script
@@ -2128,16 +2127,12 @@ typedef struct {
     float       grate_pos[3];
     float       grate_yaw;
 
-    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — OBSERVED,
-     * see the DOWNGRADED note on the director block above: the driving
-     * body is overlay code the decomp does not have and the cited
-     * INVESTIGATION_area11_director.md is not in either repo). The
-     * 3-beat establishing
-     * cinematic. cine_step is the persistent milestone byte (reset to 0
-     * at scene arm, like the elevator actor — the opening plays once in
-     * AREA-11). The rest is the per-beat transient (cleared when a beat
-     * ends or is interrupted — the guarantee against soft-lock). */
-    uint8_t     cine_step;       /* D_00810813: 0/0x10/0x20/0xFF */
+    /* AREA-11 OPENING DIRECTOR (legacy stand-in for the manager
+     * 008253F0, whose translation is em_director_original.c, unbound
+     * until WP-10). Its persistent beat step is the canonical progress
+     * byte D_00810813 (em_scene_progress_at; migrated from the former
+     * g.cine_step, HK). These are the stand-in's per-beat transient
+     * (cleared when a beat ends or is interrupted). */
     int         cine_active;     /* a beat is running (cinematic + lock) */
     int         cine_beat;       /* index of the running beat (0/1/2) */
     int         cine_kf;         /* current keyframe index */
@@ -2162,8 +2157,9 @@ typedef struct {
 /* func_001AF2C0 (src/func_001AF2C0.c; reached by 001ACEC0 route 1 ->
  * 001AD230 for BOTH the title's New Game and the game-over prompt's
  * option 0) — the part of the new-game reset that EmGameState mirrors.
- * The 0x640-byte memset of D_00810700 clears D_00810791, D_00810811,
- * D_00810813, D_0081084C (D_00810841[11]) and D_00810CC3; then health
+ * The 0x640-byte memset of D_00810700 clears D_00810791 and D_00810811
+ * here (the canonical D_00810813, D_0081084C (D_00810841[11]) and
+ * D_00810CC3 are cleared by em_scene_progress_reset_001AF2C0); then health
  * D_00810858 = 100.0, D_0081085C = 0, battery D_00810CB2/CB7 = 0, and
  * (after 001C40B0(0x10,2)) magazine D_00810C62 = 30, reserve
  * D_00810CB4 = 60. health_max/mag_max are port display constants. The
@@ -2175,9 +2171,7 @@ static inline void game_state_new_game(EmGameState *s)
         .infection = 0.0f, .mag = 30, .mag_max = 30, .reserve = 60,
         .battery = 0, .battery_max = 0 };
     s->opening_event_39      = 0;
-    s->opening_key_item_zero = 0;
     s->opening_complete      = 0;
-    s->cine_step             = 0;
 }
 
 /* Compose a loaded palette with a placement transform: T(pos) * R_y(yaw).
