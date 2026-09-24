@@ -674,6 +674,11 @@ test-player-use-dispatch-reference:
 test-coll-list-passes-reference:
 	python3 tools/test_coll_list_passes_reference.py
 
+.PHONY: test-iop-stream
+test-iop-stream:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/iop_stream_test.c src/game/em_iop_stream.c src/game/em_stream_lanes_original.c src/game/em_sfx_bank.c -o build/iop_stream_test && ./build/iop_stream_test
+	python3 tools/test_iop_stream_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
