@@ -440,7 +440,7 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
             float angle = w->atan2(w->context, -hit->normal[2], hit->normal[0]);
             float yaw = em_player_sdk_wrap(f32_add(1.57079637050628662f, angle));
             a->position[1] = f32_sub(a->position[1], hit->delta[1]);
-            float t = w->cosine(w->context, a->slope);
+            float t = w->tangent(w->context, a->slope);
             const float local[4] = { 0.0f, 0.0f,
                                      em_effect_float32((double)hit->delta[1] / t), 0.0f };
             float m[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};

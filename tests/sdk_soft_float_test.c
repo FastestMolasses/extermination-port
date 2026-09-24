@@ -48,6 +48,15 @@ static uint8_t *read_file(const char *path, size_t *size)
     return data;
 }
 
+static int write_file(const char *path, const uint8_t *bytes, size_t size)
+{
+    FILE *file = fopen(path, "wb");
+    if (!file)
+        return -1;
+    const int ok = fwrite(bytes, 1, size, file) == size;
+    return fclose(file) == 0 && ok ? 0 : -1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -87,6 +96,46 @@ int main(int argc, char **argv)
     uint32_t pointer = 0;
     EXPECT(em_sdk_soft_float_load_d24295C(elf, size, &pointer) == 0 && pointer == 0x00242670u);
     EXPECT(em_sdk_soft_float_load_d24295C(elf, size - 1, &pointer) == -1);
+
+    /* The export loader (assets/sdk_soft_float.emsf's layout), over files
+     * built here from the ELF's D_0024295C: the well-formed one and one
+     * defect each. */
+    {
+        uint8_t good[24];
+        const uint32_t words[5] = { 1u, 0x0024295Cu, pointer, pointer, 0u };
+        memcpy(good, "EMSF", 4);
+        for (int i = 0; i < 5; ++i)
+            for (int b = 0; b < 4; ++b)
+                good[4 + 4 * i + b] = (uint8_t)(words[i] >> (8 * b));
+        const char *path = "build/sdk_soft_float/export_case.emsf";
+        uint32_t got_pointer = 0;
+        int32_t got_word = -1;
+        EXPECT(write_file(path, good, sizeof good) == 0);
+        EXPECT(em_sdk_soft_float_load_export(path, &got_pointer, &got_word) == 0 &&
+               got_pointer == 0x00242670u && got_word == 0);
+        EXPECT(em_sdk_soft_float_load_export(NULL, &got_pointer, &got_word) == -1);
+        EXPECT(em_sdk_soft_float_load_export(path, NULL, &got_word) == -1);
+        EXPECT(em_sdk_soft_float_load_export(path, &got_pointer, NULL) == -1);
+        EXPECT(em_sdk_soft_float_load_export("build/sdk_soft_float/no_such.emsf", &got_pointer, &got_word) == -1);
+        /* a wrong magic, version, first address or second address */
+        const int bytes[4] = { 0, 4, 8, 16 };
+        for (int i = 0; i < 4; ++i) {
+            uint8_t bad[24];
+            memcpy(bad, good, sizeof bad);
+            bad[bytes[i]] ^= 0x04;
+            got_pointer = 0x1234u;
+            EXPECT(write_file(path, bad, sizeof bad) == 0);
+            EXPECT(em_sdk_soft_float_load_export(path, &got_pointer, &got_word) == -1 && got_pointer == 0x1234u);
+        }
+        EXPECT(write_file(path, good, sizeof good - 1) == 0);                  /* short */
+        EXPECT(em_sdk_soft_float_load_export(path, &got_pointer, &got_word) == -1);
+        uint8_t longer[25];
+        memcpy(longer, good, sizeof good);
+        longer[24] = 0;
+        EXPECT(write_file(path, longer, sizeof longer) == 0);                  /* trailing byte */
+        EXPECT(em_sdk_soft_float_load_export(path, &got_pointer, &got_word) == -1);
+        remove(path);
+    }
 
     /* The wrappers with this module bound (D_0026C5D0 = 1 as in the ELF). */
     static EmSdkMathTables tables;

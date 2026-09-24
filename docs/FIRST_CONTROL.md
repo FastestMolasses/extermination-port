@@ -516,7 +516,7 @@ node class is a data prerequisite; the rest are workers or callbacks.
 
 | Mechanism | Needs |
 |---|---|
-| FLOOR (00175900 + 001796C0) | 0019AB20 ground worker; a grid with `EM_COLL_FLAG_NODE_CLASS`; 0019B6C0; 0019B8C0; 00175640; 0019BC40; SDK 0011E620/0011E398/0011DBB8/0011E748; 0011A070; the display declaration; the stage workers (D_00248C98, 001C64F0, 00183090, 0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50); every callback of the FLOOR closure above. |
+| FLOOR (00175900 + 001796C0) | 0019AB20 ground worker; a grid with `EM_COLL_FLAG_NODE_CLASS`; 0019B6C0; 0019B8C0; 00175640; 0019BC40; SDK 0011E620 atan2f / 0011E398 tanf / 0011DBB8 atanf / 0011E748 sqrtf; 0011A070; the display declaration; the stage workers (D_00248C98, 001C64F0, 00183090, 0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50); every callback of the FLOOR closure above. |
 | USE (the rest of 00160220) | FLOOR; the coordinator's use hook continuing past 00184BA0 (`player_states_bind_use_chain`); callbacks for +5 = 2, 3, 6, 0xB and 0x24. |
 
 **Missing today** (the report prints exactly this):
@@ -529,17 +529,42 @@ node class is a data prerequisite; the rest are workers or callbacks.
   ground and column translations still use em_actor_collision.c's
   truncating float helpers (EE_FLOAT_MODEL.md 5c) and 0019C830's KNOWN
   INEXACT node order.
-- **Closure callbacks.** The adapters that exist:
-  - 0x1C: `em_player_slide_live_state`. Its workers 00224B80, 00224290,
-    0017C580, 0021D250, 0021D2E0 and 00178B90 are unbound, and its chained
-    clips 0x5E and 0x73 are not exported.
-  - The +4 = 2 reaction states 0/0x17, 1, 2/0x18, 0xA, 0xB, 0xC, 0xF, 0x10,
-    0x11, 0x12/0x13 and 0x14: `em_player_reaction_live_*`
-    (PLAYER_REACTION.md). Their workers are unbound.
-  - 0015D460: `em_player_stage_0015D460`, which needs 001AEDE0.
+- **The display (the blocker; census L02 step, 2026-09-24).** Every FLOOR
+  state requests clips on its first frames (00162DB0 at +6 = 0xA asks
+  anim_clip_arbiter for 0x73; 001639E0 0x72; 00163C10 0x6E; the ledge catch
+  0x83; the heavy landing 0x2B), and the live display cannot show them:
+  - the live pose bank (`assets/player_channels.empc`,
+    `tools/export_player_pose_channels.py`) holds 14 clips: 0..5, 0x40..0x43,
+    0x45, 0x47, 0x15C and 0x15D. None of the fall, drop, landing, hang,
+    slide or climb clips is installed;
+  - `em_pose_bank.c` refuses a chained clip (a next clip other than -1 or
+    -2), and the fall's 0x73 and the slide's 0x5E are chained;
+  - the states' record-level workers 001749A0 (request), 001749F0
+    (anim_clip_arbiter), 001C61D0 (frame count), anim_eval_skeleton and the
+    hip node have two candidate owners: the live `em_player_pose`
+    (`em_player_pose_select` for 001749A0 / 001749F0, over the native
+    bank) and the verified-unbound `em_pose_host_workers` (EmPoseHost over
+    original-layout memory; LOCOMOTION_DISPLAY.md section 4). Choosing one,
+    chaining clips and installing the FLOOR clips is the display lane
+    (census L12 / L33).
 
-  No other closure callback is translated. +4 = 2 +5 3, 4, 5, 6, 7, 0x16
-  and 0x19 belong to lane player-major2-states.
+  Until that lands, `player_states_bind_display(1)` would be a false
+  declaration, and binding the closure's callbacks cannot engage FLOOR.
+- **Closure callbacks.** Every state of the closure is translated and
+  oracle-verified, and none is bound: em_player_fall (5, 7, 8),
+  em_player_hang (9), em_player_recovery (4, 00162A40, and the helpers
+  00178B90 / 00224B80 / 0017C860), em_player_ladder_climb (0xC),
+  em_player_closure_0e_18 (0xE, 0x13, 0x14, 0x18),
+  em_player_closure_10_12_19 (0x10, 0x12, 0x19, 0x1A),
+  the slide adapter `em_player_slide_live_state` (0x1C),
+  em_player_weapon_states_a / _b (0x1D..0x22), em_player_major2 (+4 = 2:
+  3..7, 0x16, 0x19) and `em_player_reaction_live_*` (+4 = 2: 0/0x17, 1,
+  2/0x18, 0xA, 0xB, 0xC, 0xF, 0x10, 0x11, 0x12/0x13, 0x14). None of these
+  modules is in COMMON. Their worker tables hold about 450 slots; besides
+  the display workers above, the fall and reaction lanes both translate
+  0021D250, 0021D2E0 and 00179880 (reduce to one before binding), and
+  00174AC0 exists only over mirrors (em_player_heading), without the
+  0x70003A20 publication 0017C580 re-reads (PLAYER_FALL.md section 4).
 - **Stage workers.** Bound since L01 (em_player_stage_live.c): D_00248C98
   (the local export), 001C64F0 (the live display's advance), 00183090,
   0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50, 0011A070 and
@@ -560,12 +585,24 @@ node class is a data prerequisite; the rest are workers or callbacks.
   0015FDF0 are untranslated, and so are the state routines 001634A0,
   00165B60 and 001747F0. The climb adapters (`em_player_climb_live_state`,
   `em_player_climb_live_probe`) exist for states 2 and 3.
-- SDK 0011E398 (cos) has no named native translation. The others:
-  - 0011E620: `em_director_original_0011E620`;
-  - 0011DBB8: `em_director_original_0011DBB8`;
-  - 0011E748: `em_item_sdk_sqrt`.
-
-  ACTOR_COLLISION.md section 5 has the float-model question on 0011DBB8.
+- **SDK (census L02 step, 2026-09-24).** `em_collision_world_bind_player`
+  binds 00175CF0's 0011E398 and 0011DBB8 to `em_sdk_math_original_float_0011E398`
+  (tanf) and `_float_0011DBB8` (atanf) over the collision world's SDK
+  context (the user's table export). The slot was named `cosine`: 0011E398
+  is the tangent (SDK_MATH_ORIGINAL.md 6.3), so it is `tangent` now in
+  em_player_floor.h / em_player.h, and the floor oracle's hook of 0011E398
+  is host tanf on both sides instead of host cosf. The context's fault word
+  is `EmPlayerStatesBinding.sdk_fault`: the floor service and the fall check
+  clear it before they run and fail when a worker recorded a fault
+  (tests/player_states_host_test.c case 0b). 0011E620 atan2f and 0011E748
+  sqrtf are bound too, since the soft-float step (2026-09-24), to
+  `_float_0011E620` / `_float_0011E748` over the same context. That context
+  now has the soft-float workers (`em_sdk_soft_float`, over D_0024295C and
+  the errno word from `assets/sdk_soft_float.emsf`), so their domain-error
+  tails are complete. The route reaches those tails (errno 0x21 from beat 03
+  on; SDK_SOFT_FLOAT.md section 5), and SDK_MATH_ORIGINAL.md section 7's gate
+  is lifted. FLOOR's SDK prerequisite is met; its other prerequisites are
+  below.
 
 **Binding (coordinator; code in em_player.h, em_player_floor.h, em_actor_collision.h).**
 

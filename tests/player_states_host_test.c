@@ -188,6 +188,15 @@ static int counted_ground(void *context, const float position[3], const float pr
     assert(probe[0] == 0.0f && probe[1] == -13.8f && probe[2] == 0.0f && mask == 6);
     return em_actor_collision_player_ground(context, position, probe, mask, hit);
 }
+/* The SDK workers' fault latch (EmPlayerStatesBinding.sdk_fault): the
+ * original translations record a fault instead of returning one. */
+static uint32_t sdk_fault_word;
+static int faulting_ground(void *context, const float position[3], const float probe[3],
+                           unsigned mask, EmPlayerProbeHit *hit)
+{
+    sdk_fault_word = 0x0011E398u;   /* as a faulted SDK call records it */
+    return counted_ground(context, position, probe, mask, hit);
+}
 static EmPlayerProbeHit slope_hit;   /* a scripted 0019AB20 answer (slide case) */
 static int scripted_ground(void *context, const float position[3], const float probe[3],
                            unsigned mask, EmPlayerProbeHit *hit)
@@ -214,7 +223,7 @@ static int fake_column(void *context, const float position[3], EmPlayerFloorTabl
     return 0;
 }
 static float sdk_atan2(void *c, float y, float x) { (void)c; return atan2f(y, x); }
-static float sdk_cos(void *c, float x) { (void)c; return cosf(x); }
+static float sdk_tan(void *c, float x) { (void)c; return tanf(x); }
 static float sdk_atan(void *c, float x) { (void)c; return atanf(x); }
 static float sdk_sqrt(void *c, float x) { (void)c; return sqrtf(x); }
 
@@ -392,7 +401,7 @@ static EmPlayerStatesBinding full_binding(void)
     b.head = fake_head; b.object = fake_object;
     b.link_test = counted_link;
     b.column = fake_column;
-    b.atan2 = sdk_atan2; b.cosine = sdk_cos; b.atan = sdk_atan; b.sqrt = sdk_sqrt;
+    b.atan2 = sdk_atan2; b.tangent = sdk_tan; b.atan = sdk_atan; b.sqrt = sdk_sqrt;
     EmPlayerStageWorkers *w = &b.stage;
     w->clip_rate = w_rate; w->advance = w_advance; w->commit = w_commit;
     w->reaction = w_reaction; w->drain = w_drain; w->heartbeat = w_heartbeat;
@@ -516,7 +525,7 @@ int main(void)
         case EM_PLAYER_NEED_OBJECT: b.object = NULL; break;
         case EM_PLAYER_NEED_LINK: b.link_test = NULL; break;
         case EM_PLAYER_NEED_COLUMN: b.column = NULL; break;
-        case EM_PLAYER_NEED_SDK: b.cosine = NULL; break;
+        case EM_PLAYER_NEED_SDK: b.tangent = NULL; break;
         case EM_PLAYER_NEED_DISPLAY: player_states_bind_display(0); break;
         case EM_PLAYER_NEED_FLOOR_STATES: b.stage.state2[0x16] = NULL; break;
         case EM_PLAYER_NEED_STOP_SOUND: b.stage.stop_sound = NULL; break;
@@ -535,6 +544,27 @@ int main(void)
     assert(player_states_engaged(EM_PLAYER_MECH_FLOOR) && !player_states_engaged(EM_PLAYER_MECH_USE));
     reset();
     assert(player_states_missing() == 0 && player_states_engaged(EM_PLAYER_MECH_USE));
+
+    /* 0b. The SDK fault latch: the floor service and the fall check clear it
+     *     before they run (a stale fault does not fail a clean call) and fail
+     *     when a worker recorded one during the call (no value is used). */
+    {
+        reset();
+        EmPlayerStatesBinding b = full_binding();
+        b.sdk_fault = &sdk_fault_word;
+        player_states_bind(&b);
+        EmPlayerLiveActor *live_actor = player_states_actor_mut();
+        em_live_set_f32(live_actor, 0xB4, 10.0f);
+        int contact = -1;
+        sdk_fault_word = 0x1234u;
+        assert(player_states_floor_service(NULL, live_actor, 1, &contact) == 0 && sdk_fault_word == 0);
+        sdk_fault_word = 0x1234u;
+        assert(player_states_fall_check(NULL, live_actor) == 0 && sdk_fault_word == 0);
+        b.ground = faulting_ground;
+        player_states_bind(&b);
+        assert(player_states_floor_service(NULL, live_actor, 1, &contact) == -1);
+        sdk_fault_word = 0;
+    }
 
     /* 1. Engaged, idle on the published box top (y 10): the idle tail lowers
      *    +B4 by 0.2, 0019AB20 finds the face 13.8 above -> +B4 back to 10,
@@ -558,6 +588,7 @@ int main(void)
            stage_calls[SC_HEARTBEAT] == 1 && stage_calls[SC_CHECK] == 0);
     assert(em_live_u16(a, 0x238) == 0x4000 && em_live_u8(a, 0x23B) == 0x05);
     assert(em_live_u8(a, 5) == 0 && link_count == 0 && quit_requests == 0);
+
     assert(em_live_u8(a, 0x319) == 0);                 /* +319 = the previous +A */
     /* Next stage: 0015BA50 moved +214 to +308 before the service stored it
      * again. */

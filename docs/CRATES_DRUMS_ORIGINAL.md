@@ -217,6 +217,44 @@ Makefile flags.
   collision worker, not by these owners. The husk stops publishing, because
   state 2 never calls 001B1B70.
 
+### Status (census L25, 2026-09-24): blocked, not bound
+
+The chain step "Census L02 + L25" found that these owners cannot go live
+faithfully yet. Each item below is a missing worker or datum; none may be
+replaced by a stand-in (fail-stop rule). The crate's first ticks reach
+items 1 to 4, the drum's items 1, 2 and 4 (its probe runs only in flight):
+
+1. **Model allocation (001B0FD0 state 0: `allocate_model` / `bone_init`).**
+   `em_owner_services_001B0EA0` needs 001C6120 / 001CA6E0 over the model
+   bank `*D_0028A59C`, 001AF780 bone slots and 001CB5B0. The port holds no
+   AREA11 world model bank (the status models bind their own letter bank
+   from a local export, WP-5 decision (b)); OWNER_SERVICES.md "Not ready to
+   go live" still applies.
+2. **The draw method (+0x4C = 001CAA00).** Its 001CA990 needs 001CA7B0,
+   001CA940 and 001D1F80 (untranslated) and ends in VU1 packets. The native
+   draw of an owner's model at its +0xD0 matrix is a renderer-boundary
+   decision that has not been made for world owners.
+3. **The floor probe 0019AB20 (crate INIT, the corner probes; drum
+   landing).** `em_actor_collision_owner_probe` is the query half that
+   ACTOR_COLLISION.md section 7 item 4 keeps off the live path until its
+   prim tests are reduced to em_coll_probe_original's and its float helpers
+   and oracle are harmonized (EE_FLOAT_MODEL.md 5c).
+4. **The owner walk.** Both owners are members of the legacy
+   `em_enemy_update` group whose head is 00825940 (census L24); em_enemy.c
+   ticks, draws and breaks all of its records in one pass, so the group
+   must be split with L24.
+5. **Tables.** D_002468B0 (rattle), D_00246A00 and D_00246A10 (drum speed
+   and lift) have no local exporter; the reference tests read them from the
+   ELF.
+6. **Drum workers.** `sweep` is 0019AD00, whose grid pass 0019CB60 and hull
+   lock 001A6440 are untranslated (census L05, blocked); `segment` 0019A570
+   (em_coll_segment_walkers, translated), `effect_matrix` 001F0460 and
+   `effect` 001EFD20 are reached only after damage.
+7. **Damage.** No live port code writes either owner's damage word; the
+   legacy break runs on em_enemy.c's own records. Once the owners are
+   bound, what writes +0x36 on the live path must be the original's hit
+   path, or the boxes stay intact (inert), never a port break.
+
 ## Legacy em_enemy.c on these records (read-only comparison)
 
 - **Break.** For model 6, legacy `crate_burst` frees the slot at once and

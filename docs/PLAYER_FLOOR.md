@@ -14,7 +14,7 @@ tables are embedded in the tests.
 | Oracle | Original code executed | Boundaries (scripted, recorded) |
 |---|---|---|
 | `tools/test_player_footstep_reference.py` | 00187350, 00187EE0, 00182430, 00179B90, 001031E0 | 001FBD50 sound, 001EFD90 effect, 001F0460 decal and its SDK matrix calls, 001E8B90 wade, 00122BB8 rand values |
-| `tools/test_player_floor_reference.py` | 001796C0, 00179450, 00179680, 00175900, 00175CF0, 0019A310, SDK vector routines | 0019BC40 column table, 0019AB20/0019B6C0/0019B8C0 probe results, 00175640, 0017F9E0/0017FB90, 00187DC0/00187DE0/00187EA0, SDK atan2/cos/atan/sqrt (host models on both sides) |
+| `tools/test_player_floor_reference.py` | 001796C0, 00179450, 00179680, 00175900, 00175CF0, 0019A310, SDK vector routines | 0019BC40 column table, 0019AB20/0019B6C0/0019B8C0 probe results, 00175640, 0017F9E0/0017FB90, 00187DC0/00187DE0/00187EA0, SDK atan2 / tanf (0011E398) / atan / sqrt (host models on both sides) |
 | `tools/test_player_probe_reference.py` | 001764E0, 00176390, 00176BE0, 001762E0, 00176C80, 001760C0, 001756E0, 0019A310, 001029C0/00102BB0/001029E8/00102918/001026A0, 001B1470 | 0019AD00/0019AFE0/0019AB20 probe results, 00176180, 00174A50, SDK sqrt/atan/fabs (host models) |
 
 ## P14/P15 footsteps: 00187350

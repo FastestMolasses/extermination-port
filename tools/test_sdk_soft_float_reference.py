@@ -39,6 +39,13 @@ Parts (quick mode samples the random sweeps; EM_TEST_FULL=1 runs them whole):
     RAM (every beat in full mode).
  8. Fail-stop: every adapter's NULL output, the 0011FD78 storage checks, the
     loader rejections, and a bound wrapper whose errno cell is missing.
+ 9. The runtime's export (assets/sdk_soft_float.emsf, written by
+    tools/export_sdk_math_tables.py from the user's ELF): it must hold
+    D_0024295C and the errno cell exactly as the ELF and the captured
+    first-control RAM do (the route snapshots' D_0024295C was checked in
+    part 7), and em_sdk_soft_float_load_export must read it back. The
+    zero-vector / negative-root wrapper cases then run over a context built
+    from the loaded export and must equal the original (as in part 6).
 
 EM_SDK_SOFT_FLOAT_SOURCE replaces the translation source (the negative
 controls of the doc were run with it). Only addresses and values are printed;
@@ -205,6 +212,11 @@ int s_wrap(int which, uint32_t a, uint32_t b, int32_t mode, uint32_t d24295C, ui
     return rc;
 }
 
+int s_load_export(const char *path, uint32_t *pointer, int32_t *word)
+{
+    return em_sdk_soft_float_load_export(path, pointer, word);
+}
+
 static EmSdkMathTables T;
 const EmSdkMathTables *s_tables(const uint8_t *elf, size_t size)
 {
@@ -317,6 +329,7 @@ def build_native():
                     C.POINTER(C.c_uint32)], C.c_int),
         's_tables': ([C.c_char_p, C.c_size_t], C.c_void_p),
         's_fail_stop': ([C.c_char_p, C.c_size_t], C.c_int),
+        's_load_export': ([C.c_char_p, C.POINTER(C.c_uint32), C.POINTER(C.c_int32)], C.c_int),
     }
     for name, (args, res) in sig.items():
         fn = getattr(n, name)
@@ -727,10 +740,64 @@ def main():
     assert not misses, ('route RAM wrappers', len(misses), misses[:4])
     counts['route RAM wrapper cases'] = len(replay) * len(route_beats)
 
+    # The runtime's export.
+    asset = ROOT / 'assets/sdk_soft_float.emsf'
+    assert asset.is_file(), f'{asset} missing (run tools/export_sdk_math_tables.py)'
+    elf_word = lambda a: struct.unpack_from('<I', ELF, a - 0x100000 + 0x300)[0]
+    pointer = elf_word(D_ERRNO_PTR)
+    cell = elf_word(pointer)
+    assert (pointer, cell) == (struct.unpack_from('<I', RAM, D_ERRNO_PTR)[0],
+                               struct.unpack_from('<I', RAM, pointer)[0]), 'ELF and first-control RAM differ'
+    assert asset.read_bytes() == struct.pack('<4s5I', b'EMSF', 1, D_ERRNO_PTR, pointer, pointer, cell), \
+        f'{asset} is not the ELF data (run tools/export_sdk_math_tables.py)'
+    loaded_pointer, loaded_word = C.c_uint32(), C.c_int32()
+    assert NATIVE.s_load_export(str(asset).encode(), C.byref(loaded_pointer), C.byref(loaded_word)) == 0
+    assert (loaded_pointer.value, loaded_word.value) == (pointer, cell), 'export loader'
+    assert all(errno == 0 for name, errno in errnos if name < '03_'), 'errno before beat 03'
+    tables = NATIVE.s_tables(ELF, len(ELF))
+    o = shared()
+    export_cases = export_edom = 0
+    for which, a, b, mode in replay:
+        o.store(D_MODE, mode, 4)
+        o.store(pointer, cell, 4)
+        o.go(W_ATAN2 if which == 0 else W_SQRT, floats=(a, b) if which == 0 else (a,),
+             allowed=[(pointer, pointer + 4)])
+        want = (o.f[0] & MASK32, o.load(pointer, 4, True))
+        word = C.c_int32(loaded_word.value)
+        out, fault, cfault = C.c_uint32(), C.c_uint32(), C.c_uint32()
+        rc = NATIVE.s_wrap(which, a, b, mode, loaded_pointer.value, loaded_pointer.value, C.byref(word),
+                           tables, C.byref(out), C.byref(fault), C.byref(cfault))
+        assert rc == 0 and not fault.value and not cfault.value and (out.value, word.value) == want, \
+            ('export-bound wrapper', which, hex(a), hex(b), mode, want, rc, out.value, word.value)
+        export_cases += 1
+        export_edom += want[1] == 0x21
+    assert export_edom, 'no export-bound case reached the domain-error tail'
+    o.store(D_MODE, 1, 4)
+    o.store(pointer, cell, 4)
+    counts['export (data + loader + bound wrappers)'] = 2 + export_cases
+
     print('route errno word (0x242670) at the end of each beat: ' +
           ', '.join(f'{name[:2]} {value:#x}' for name, value in errnos))
-    print(f'first EDOM at the end of beat {first}: a domain-error tail (0011E420/0011E520/0011E620/0011E748) '
-          f'ran during that beat')
+    # Which wrapper: the route census (decomp tools/route_census.py, one-shot
+    # breakpoints on every boot function per label) never hit 0011E420 or
+    # 0011E520, so the tail was 0011E620's or 0011E748's; its workers first
+    # ran in beat 03 (and again in 05).
+    census = DECOMP / 'build/s87/census/per_beat.json'
+    tails = '0011E420/0011E520/0011E620/0011E748'
+    if census.is_file():
+        import json
+        ran = {b['label']: {int(f, 16) for f in b['functions']}
+               for b in json.loads(census.read_text())['beats']}
+        assert not any(0x11E420 in f or 0x11E520 in f for f in ran.values()), 'census: 0011E420/0011E520 ran'
+        workers = (MATHERR, ERRNO, TO_FLOAT)
+        with_workers = [label for label, f in ran.items() if all(w in f for w in workers)]
+        assert with_workers and with_workers[0].startswith('03_'), ('census: worker beats', with_workers)
+        assert all(W_ATAN2 in f and W_SQRT in f for label, f in ran.items() if label in with_workers)
+        tails = '0011E620 atan2f or 0011E748 sqrtf; the census never hit 0011E420/0011E520'
+        print('census: 0011DB90 + 0011FD78 + 00127758 ran in ' + ', '.join(with_workers))
+    else:
+        print(f'census {census} missing: the wrapper attribution is not checked')
+    print(f'first EDOM at the end of beat {first}: a domain-error tail ({tails}) ran during that beat')
     banner(', '.join(f'{k} {v:,}' for k, v in counts.items()),
            f'{sum(counts.values()):,} cases equal to the original instructions')
 

@@ -74,7 +74,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 30 | `python3 tools/export_interaction_scan.py` | `interaction.emis` | R | the AREA11 interaction host |
 | 31 | `python3 tools/export_elevator.py` | `elevator.emsc` | R | the host (terminal 00827B10) |
 | 32 | `python3 tools/export_panel.py`, `python3 tools/export_item_root.py`, `python3 tools/export_status_hub.py` (captures under `build/startup-reference/panel`, `panel/root`, `status-hub`) | `panel/` | R | the host's panel, BATTERY/ITEM pages and hub |
-| 33 | `python3 tools/export_sdk_math_tables.py` | `sdk_math_tables.emsm` | R | the status background's SDK sine (0011E2A8); the collision world's SDK context (0011E748, D_0026C5D0) |
+| 33 | `python3 tools/export_sdk_math_tables.py` | `sdk_math_tables.emsm`, `sdk_soft_float.emsf` | R | the status background's SDK sine (0011E2A8); the collision world's SDK context (0011E748, D_0026C5D0; the soft-float workers' D_0024295C and errno word from `sdk_soft_float.emsf`, whose absence faults the AREA11 build at 0x001AFCA0) |
 | 34 | `python3 tools/export_status_models.py` | `status_models/` | R | the status hub models |
 | 35 | `python3 tools/export_pickup_programs.py` | `scene_snow/pickup_*.emsc` | R | the pickup owners 0015AFA0 / 00219550 |
 | 36 | `python3 tools/export_area11_sfx.py` | `sfx/area11/panel_sfx.*` | R | the panel cues (the host loads them) |
@@ -127,6 +127,10 @@ samples including lookahead, and advances 0.5 per ordinary tick.
   D_0026C170..D_0026C658. The status background 0020A7A0 draws its sine
   through the translated SDK sinf 0011E2A8 over it (docs/SDK_MATH_ORIGINAL.md;
   `make test-sdk-math-original test-sdk-math-original-reference`).
+- `assets/sdk_soft_float.emsf` holds D_0024295C and the errno word it names
+  (0x00242670, initial 0), from the same ELF. The collision world binds the
+  soft-float workers of 0011E620 / 0011E748 over them (docs/SDK_SOFT_FLOAT.md
+  section 4; `make test-sdk-soft-float test-sdk-soft-float-reference`).
 - `assets/status_models/` holds the status hub's 3D models: the menu player,
   its two clips and the equipment letter models of D_0028A56C. Their
   textures come from the status-hub capture's GS memory

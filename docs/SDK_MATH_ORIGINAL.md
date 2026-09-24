@@ -5,8 +5,12 @@ original-instruction oracle. One site is live: the status background
 0020A7A0 draws its sine through `em_sdk_math_original_float_0011E2A8`
 (`em_status_background_draw.c`), over the tables of the user's ELF
 exported by `tools/export_sdk_math_tables.py` to `assets/sdk_math_tables.emsm`
-(docs/STARTUP.md). The other sites are not wired; section 7 is the binding
-recipe for them, including the gate on the atan2f/sqrtf sites.
+(docs/STARTUP.md). The collision world (`em_collision_world.c`) holds the one
+shared SDK context, with the soft-float workers of SDK_SOFT_FLOAT.md bound
+since 2026-09-24, so 0011E620 atan2f and 0011E748 sqrtf are complete; its
+column and the gated FLOOR use it. The other sites are not wired; section 7
+is the binding recipe for them. The section 7 gate on the atan2f/sqrtf sites
+is lifted (option 1, section 7).
 
 Files:
 - `src/game/em_sdk_math_original.{h,c}`: the translation.
@@ -224,13 +228,10 @@ The error path of the two wrappers calls four functions:
 About 440 integer instructions sit below them. They are worker slots, and the
 oracle verifies them only as original executions.
 
-**Follow-up.** A small soft-float lane should translate them. The test targets are in section 2:
-- 00127758(0) = +0;
-- 00127758(0x7FF8000000000000) = 0x7FB00000;
-- 0011DB90 returns 0.
-
-Until that lane exists, a bound wrapper **faults** at 0x00128350 on an EE-zero atan2 vector or a negative
-normal sqrt argument. It does not guess.
+**Done.** `em_sdk_soft_float` translates all four and everything below them (SDK_SOFT_FLOAT.md,
+oracle `test_sdk_soft_float_reference`), with the section 2 values. It is bound into the collision
+world's SDK context (section 7). A context whose `.workers` are left empty still **faults** at
+0x00128350 on an EE-zero atan2 vector or a negative normal sqrt argument. It does not guess.
 
 ## 6. Findings for other lanes
 
@@ -247,11 +248,13 @@ normal sqrt argument. It does not guess.
    - They differ on 67,390 and 66,955 of 119,490 arguments (|x| ≤ 4pi, full), all of them normal.
    - The cause is plain-truncation add, the model section 5c of EE_FLOAT_MODEL.md names.
    - `em_item_sdk_sqrt` equals the kernel on every nonnegative finite argument: 50,032 of 50,032.
-3. **`EmPlayerFloorWorkers.cosine` (em_player_floor.h) and the `cosine` slot in em_player.h are 0011E398,
-   which is tanf.** It is the `__kernel_tan` path with iy = ±1, as in 00175CF0: `t = func_0011E398(+0x9C)`,
-   then `delta / t`.
-   - The floor oracle executes 0x11E398, so the test is right.
-   - The labels are wrong, and so is any host cosine bound there.
+3. **The floor's 0011E398 slot is tanf.** It is the `__kernel_tan` path with iy = ±1, as in 00175CF0:
+   `t = func_0011E398(+0x9C)`, then `delta / t`.
+   - Fixed 2026-09-24 (census L02 step): the slot is `EmPlayerFloorWorkers.tangent` /
+     `EmPlayerStatesBinding.tangent` (it was `cosine`).
+   - The floor oracle does not execute 0x11E398: it hooks it as a boundary with the same host model on
+     both sides. That model was host cosf (after the label); it is host tanf now. The live binding is
+     `_float_0011E398`.
 4. **`em_interaction_sdk_atan2`** (Roger trigger/candidate, door candidate/transit, item device, pickup motion,
    interaction scan) differs from the original on 37,246 of 89,981 pairs (full). Of the 37,246 full differences, 36,193
    have normal operands and a normal host result (531 of 586 in quick mode).
@@ -260,48 +263,72 @@ normal sqrt argument. It does not guess.
 
 ## 7. Binding (for the coordinator chain)
 
-**One shared context.**
+**One shared context.** It is `w.math` in `em_collision_world.c`:
 
-```c
-static EmSdkMathTables sdk_tables;            /* em_sdk_math_original_load_tables(user ELF) at startup */
-EmSdkMathContext sdk = {
-    .tables = &sdk_tables,
-    .world  = { .d26C5D0 = &<canonical int32 storage for D_0026C5D0, initialised from the ELF: 1> },
-    .workers = { 0 },                         /* 00128350/0011DB90/0011FD78/00127758: section 5 */
-};
-```
+- `.tables` and `.world.d26C5D0` come from `assets/sdk_math_tables.emsm`
+  (`em_sdk_math_original_load_export`, at every area build; D_0026C5D0 = 1).
+- `.workers` are `em_sdk_soft_float_bind(&w.math.workers, &soft)`. `soft` holds
+  D_0024295C and the errno word at the address it names (0x00242670, initial 0). Both
+  come from `assets/sdk_soft_float.emsf` (`tools/export_sdk_math_tables.py`,
+  `em_sdk_soft_float_load_export`; SDK_SOFT_FLOAT.md section 4). They are loaded
+  once, by the first world load, and an area build does not reset them.
+- A missing or malformed export fails the world load, so the AREA11 build faults
+  at 0x001AFCA0.
 
 The float-returning adapters have the player and collision worker shape. On a fault they return +0 and set
 `sdk.fault`. The caller must test `sdk.fault` after the owner's tick and fail the frame at that address; no value
 is substituted.
 
-**Gate on the atan2f and sqrtf sites (binding rule).** With `.workers = { 0 }`,
-`_float_0011E620` / `em_sdk_math_original_0011E620` fault at 0x00128350 on every
-EE-zero vector while D_0026C5D0 != -1 (the ELF value is 1): y and x both ±0 **or denormal** (c.eq.s at 0x11E67C/0x11E68C reads
-denormals as 0), for example atan2(0, 0) from a stationary actor or a zero delta.
-`_float_0011E748` faults at 0x00128350 on a negative normal argument. Whether the
-AREA11 route reaches either path has **not** been measured. Therefore:
+**The atan2f and sqrtf gate is lifted (2026-09-24, option 1).** The rule was that no
+0011E620 or 0011E748 site may be bound until either (1) the four soft-float
+workers were translated and bound, or (2) a route measurement showed that their
+domain-error paths are never reached. Without the workers, `_float_0011E620` faults
+at 0x00128350 on every EE-zero vector while D_0026C5D0 != -1: y and x both ±0
+**or denormal**, because c.eq.s at 0x11E67C/0x11E68C reads denormals as 0.
+`_float_0011E748` faults there on a negative normal argument.
 
-> No 0011E620 or 0011E748 site may be bound (the atan2/sqrt rows of the table below:
-> slide `.atan2`; climb `.atan2`, `.sqrt`; floor `.atan2`, `.sqrt`; column `.sqrt`;
-> every `em_interaction_sdk_atan2` site; director 001B1EA0) until **either**
-> 1. the four soft-float workers 00128350 / 0011DB90 / 0011FD78 / 00127758 are
->    translated and bound (section 5; the expected values are in section 2), **or**
-> 2. a route measurement over AREA11 (the original's argument words at each of those
->    call sites, from `build/s87/route/` replays or the owners' oracles) shows that
->    no EE-zero atan2 vector and no negative normal sqrt argument is ever reached.
+The evidence for lifting it:
+- **Option 2 is refuted.** The errno word at 0x242670 first reads 0x21 at the end of beat 03 and
+  stays 0x21. The route census hit 0011DB90, 0011FD78 and 00127758 in beats 03 and 05. It never
+  hit 0011E420 or 0011E520, so each of those tails was 0011E620's or 0011E748's.
+  `test_sdk_soft_float_reference` asserts all of this (SDK_SOFT_FLOAT.md section 5).
+- **Option 1 holds.**
+  - The four workers are translated. Their oracle (27,324 quick cases) includes the whole wrappers
+    executed as original instructions against this module with the workers bound, for modes −1, 0,
+    1, 2 and 5.
+  - They are bound into the one context above, over the data export.
+  - The export equals the ELF and the captured first-control RAM (D_0024295C = 0x00242670, errno
+    0). Every route snapshot holds the same pointer.
+  - The zero-vector and negative-root cases run over a context built from the loaded export and
+    equal the original, errno included (test part 9).
+
+So every atan2/sqrt row of the table below may now be bound. Each rebinding still
+follows the harmonization rule at the end of this section.
 
 The sin/cos/tan/atan entry points (`_float_0011E2A8`, `_float_0011DE90`,
 `_float_0011E398`, `_float_0011DBB8`, `em_sdk_math_original_w_0011E2A8`,
 `em_sdk_math_original_0011E2A8` / `_0011DE90`) call no worker and cannot fault once
-the tables are loaded. Their rows may be bound now: slide `.sine` / `.cosine`, floor
-`.cosine` (= tanf) and `.atan`, column `.atan`, the script host, crate/drum.
+the tables are loaded.
+
+**Bound today** (`em_collision_world_bind_player`, over the collision world's context, with that
+context's fault word as `EmPlayerStatesBinding.sdk_fault`):
+- the floor's `.tangent` (= tanf; the slot was named `.cosine` until 2026-09-24) and `.atan`,
+  since the census L02 step;
+- the floor's `.atan2` and `.sqrt`, since the soft-float step (2026-09-24);
+- the column's `.sqrt` / `.atan` (`w.column_math`).
+
+The floor rows run only once FLOOR engages. The column's sqrt argument is nx²+nz² ≥ 0, so it never
+reaches the domain-error tail. The other rows below are not bound yet. The floor's oracle needed no switch for
+`.atan2` / `.sqrt`: its unit section hooks all four SDK slots as a boundary with the same host model
+on both sides, and its real-world section (`test_player_floor_reference.real_world_section`) already
+hands the native slots the results of the original 0011E620 / 0011E398 / 0011DBB8 / 0011E748
+executed over the route RAM.
 
 | Original caller (worker slot) | Bind to | Replaces |
 |---|---|---|
 | 00174FD0 / 0017F5F0 slide: `EmPlayerSlideWorkers.sine`, `.cosine`, `.atan2` | `em_sdk_math_original_float_0011E2A8`, `_float_0011DE90`, `_float_0011E620` (context `&sdk`) | host models |
 | climb: `EmPlayerClimbWorkers.atan2`, `.sqrt` (em_player_climb.h) | `_float_0011E620`, `_float_0011E748` | host models |
-| 00175CF0 floor: `EmPlayerFloorWorkers.atan2`, **`.cosine` (= 0011E398)**, `.atan`, `.sqrt`; em_player.h's live binding of the same four plus `sdk_context` | `_float_0011E620`, **`_float_0011E398`**, `_float_0011DBB8`, `_float_0011E748` | host models |
+| 00175CF0 floor: `EmPlayerFloorWorkers.atan2`, **`.tangent` (= 0011E398)**, `.atan`, `.sqrt`; em_player.h's live binding of the same four plus `sdk_context` / `sdk_fault` | `_float_0011E620`, **`_float_0011E398`**, `_float_0011DBB8`, `_float_0011E748` (all four bound in em_collision_world.c; FLOOR itself is gated) | host models |
 | 0019BC40 / 0019F330 column: `EmCollColumnMath.sqrt`, `.atan` (em_collision.h) | `_float_0011E748`, `_float_0011DBB8` | em_item_sdk_sqrt / director atan wrappers (equal on that domain; the argument is nx²+nz² ≥ 0) |
 | script host `w_0011E2A8` (em_area_script.h) | `em_sdk_math_original_w_0011E2A8` | em_area_script_w_0011E2A8 (equal; adds \|x\| > 0x4016CBE3) |
 | crate/drum 0011E2A8 / 0011DE90 (em_crate_original.c, em_drum_original.c) | `em_sdk_math_original_0011E2A8` / `_0011DE90` | em_item_sdk_sine/cosine (**differ**, 6.2) |
@@ -311,8 +338,8 @@ the tables are loaded. Their rows may be bound now: slide `.sine` / `.cosine`, f
 **Data.**
 - D_0026C5D0 is .data. Give it canonical storage (value 1) rather than a constant, because 0011E748 reads it
   twice.
-- The errno cell is the int at *D_0024295C (0x242670). Once the workers exist, `w_0011FD78` must return the
-  canonical storage for that address.
+- The errno cell is the int at *D_0024295C (0x242670). `w_0011FD78` returns the collision world's canonical
+  storage for it (`s_soft.errno_word`), and faults if D_0024295C names any other address.
 
 **Harmonize each pair in one commit.** Rebinding a module changes its oracle's expectations. Each owner's
 reference test must switch its SDK stand-in to the original execution, or to this module, in the same commit

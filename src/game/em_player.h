@@ -133,12 +133,17 @@ typedef struct EmPlayerStatesBinding {
     /* 0019BC40(position) for 00179450: em_actor_collision_player_column. */
     int (*column)(void *context, const float position[3], EmPlayerFloorTable *table);
     void *column_context;
-    /* SDK 0011E620 atan2, 0011E398 cos, 0011DBB8 atan, 0011E748 sqrt. */
+    /* SDK 0011E620 atan2f, 0011E398 tanf, 0011DBB8 atanf, 0011E748 sqrtf
+     * (EmPlayerFloorWorkers). They return a value, not a status: a worker
+     * that fails records it in *sdk_fault (nonzero), which the floor service
+     * and the fall check clear before they run and check after (fail-stop:
+     * the call fails, no value is used). NULL: the workers cannot fail. */
     float (*atan2)(void *context, float y, float x);
-    float (*cosine)(void *context, float x);
+    float (*tangent)(void *context, float x);
     float (*atan)(void *context, float x);
     float (*sqrt)(void *context, float x);
     void *sdk_context;
+    uint32_t *sdk_fault;
     /* 0017F9E0 / 0017FB90 (surface 0x39; no AREA11 grid node carries 0x39). */
     int (*surface39)(void *context, int handler);
     void *surface39_context;
@@ -177,7 +182,7 @@ enum {
     EM_PLAYER_NEED_OBJECT       = 1u << 3,  /* 0019B8C0 */
     EM_PLAYER_NEED_LINK         = 1u << 4,  /* 00175640 */
     EM_PLAYER_NEED_COLUMN       = 1u << 5,  /* 0019BC40 */
-    EM_PLAYER_NEED_SDK          = 1u << 6,  /* 0011E620/0011E398/0011DBB8/0011E748 */
+    EM_PLAYER_NEED_SDK          = 1u << 6,  /* 0011E620 / 0011E398 (tanf) / 0011DBB8 / 0011E748 */
     EM_PLAYER_NEED_DISPLAY      = 1u << 7,  /* the display stage draws bound states */
     EM_PLAYER_NEED_FLOOR_STATES = 1u << 8,  /* the FLOOR state closure (kFloorStates) */
     EM_PLAYER_NEED_USE_CHAIN    = 1u << 9,  /* 00160220 past 00184BA0 (use hook) */

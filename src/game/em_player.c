@@ -385,7 +385,7 @@ unsigned player_states_missing(void)
     if (!live.bound || !b->object) missing |= EM_PLAYER_NEED_OBJECT;
     if (!live.bound || !b->link_test) missing |= EM_PLAYER_NEED_LINK;
     if (!live.bound || !b->column) missing |= EM_PLAYER_NEED_COLUMN;
-    if (!live.bound || !b->atan2 || !b->cosine || !b->atan || !b->sqrt)
+    if (!live.bound || !b->atan2 || !b->tangent || !b->atan || !b->sqrt)
         missing |= EM_PLAYER_NEED_SDK;
     if (!live.display) missing |= EM_PLAYER_NEED_DISPLAY;
     for (unsigned i = 0; i < sizeof kFloorStates / sizeof *kFloorStates; ++i)
@@ -431,7 +431,7 @@ void player_states_report(FILE *out)
         "0019B6C0 surface record", "0019B8C0 object probe",
         "00175640 link test (em_actor_collision_player_link)",
         "0019BC40 column table (em_actor_collision_player_column)",
-        "SDK 0011E620/0011E398/0011DBB8/0011E748",
+        "SDK 0011E620 atan2f / 0011E398 tanf / 0011DBB8 atanf / 0011E748 sqrtf",
         "display of the bound states (player_states_bind_display)",
         "state callbacks", "00160220 past 00184BA0 (player_states_bind_use_chain)",
         "state callbacks", "0011A070 sound stop (0015BCF0)", "stage workers",
@@ -460,6 +460,15 @@ void player_states_report(FILE *out)
                         fprintf(out, " [+4 %u +5 0x%02X %s]", list[i].major, list[i].state,
                                 list[i].routine);
                 }
+            } else if ((1u << bit) == EM_PLAYER_NEED_SDK) {
+                const struct { int present; const char *name; } kSdk[] = {
+                    { live.bound && live.b.atan2 != NULL, "SDK 0011E620 atan2f" },
+                    { live.bound && live.b.tangent != NULL, "SDK 0011E398 tanf" },
+                    { live.bound && live.b.atan != NULL, "SDK 0011DBB8 atanf" },
+                    { live.bound && live.b.sqrt != NULL, "SDK 0011E748 sqrtf" },
+                };
+                for (unsigned i = 0; i < sizeof kSdk / sizeof *kSdk; ++i)
+                    if (!kSdk[i].present) fprintf(out, " [%s]", kSdk[i].name);
             } else if ((1u << bit) == EM_PLAYER_NEED_STAGE) {
                 const char *names[16];
                 unsigned count = stage_missing_names(names, 16);
@@ -609,10 +618,10 @@ static float live_atan2(void *context, float y, float x)
     (void)context;
     return live.b.atan2(live.b.sdk_context, y, x);
 }
-static float live_cosine(void *context, float x)
+static float live_tangent(void *context, float x)
 {
     (void)context;
-    return live.b.cosine(live.b.sdk_context, x);
+    return live.b.tangent(live.b.sdk_context, x);
 }
 static float live_atan(void *context, float x)
 {
@@ -642,13 +651,14 @@ int player_states_floor_service(void *context, EmPlayerLiveActor *actor, int sea
     LiveFloorContext floor_context = { &f };
     const EmPlayerFloorWorkers workers = {
         &floor_context, live_ground, live_head, live_object, live_link, live_surface39,
-        live_first_contact, live_atan2, live_cosine, live_atan, live_sqrt
+        live_first_contact, live_atan2, live_tangent, live_atan, live_sqrt
     };
     /* sp50: the probe point of the floor hit; the service overwrites it on
      * every hit, and the object probe runs only after a hit this stage. */
     float at[3] = { f.position[0], f.position[1], f.position[2] };
+    if (live.b.sdk_fault) *live.b.sdk_fault = 0;
     int contact = em_player_floor_service(&f, search, at, &workers);
-    if (contact < 0) return -1;
+    if (contact < 0 || (live.b.sdk_fault && *live.b.sdk_fault)) return -1;
     em_player_floor_actor_to_live(&f, actor);
     if (result) *result = contact;
     return 0;
@@ -662,7 +672,9 @@ int player_states_fall_check(void *context, EmPlayerLiveActor *actor)
     EmPlayerFallActor fall;
     em_player_fall_actor_from_live(actor, &fall);
     const EmPlayerFallWorkers workers = { NULL, live_column, live_ground };
-    if (em_player_fall_check(&fall, &workers) < 0) return -1;
+    if (live.b.sdk_fault) *live.b.sdk_fault = 0;
+    if (em_player_fall_check(&fall, &workers) < 0 || (live.b.sdk_fault && *live.b.sdk_fault))
+        return -1;
     em_player_fall_actor_to_live(&fall, actor);
     return 0;
 }

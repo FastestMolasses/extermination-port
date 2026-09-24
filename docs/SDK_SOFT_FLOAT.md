@@ -1,17 +1,29 @@
 # SDK soft float: the four workers of the atan2f/sqrtf error path
 
-Status: 2026-09-23, lane "sdk-soft-float". A standalone translation with an
-original-instruction oracle. **Not wired**; section 4 is the binding recipe
-for the coordinator chain. It completes the worker set that
-SDK_MATH_ORIGINAL.md section 5 left open, so the gate in that doc's section 7
-can be lifted by binding (option 1). Section 5 below shows that option 2 (a
-route measurement proving the path is never reached) is **refuted**: the
-AREA11 route reaches a domain-error tail in beat 03.
+Status: translated 2026-09-23 (lane "sdk-soft-float"), with an
+original-instruction oracle. **Bound 2026-09-24** into the collision world's
+SDK context (section 4). Its data comes from the user's export
+`assets/sdk_soft_float.emsf`. It completes the worker set that
+SDK_MATH_ORIGINAL.md section 5 left open, and the gate in that doc's
+section 7 is lifted by this binding (option 1). Section 5 below shows that
+option 2 (a route measurement proving the path is never reached) is
+**refuted**: the AREA11 route reaches a domain-error tail of 0011E620 or
+0011E748 in beat 03 (and again in beat 05).
+
+The bound context serves the column's sqrt and the gated FLOOR's
+0011E620 / 0011E748. No live caller reaches the error tails yet:
+- the column's argument is never negative;
+- FLOOR is not engaged.
+
+So the route's EDOM is not reproduced live yet. The call site that raises it is
+not identified (section 5).
 
 Files:
 - `src/game/em_sdk_soft_float.{h,c}`: the translation.
 - `tools/test_sdk_soft_float_reference.py`: the oracle test (`make test-sdk-soft-float-reference`, section 6).
 - `tests/sdk_soft_float_test.c`: the contract test under ASan/UBSan (`make test-sdk-soft-float`).
+- `tools/export_sdk_math_tables.py`: also writes the data export `assets/sdk_soft_float.emsf` (section 4).
+- `src/game/em_collision_world.c`: the binding.
 
 ## 1. What was translated
 
@@ -153,35 +165,47 @@ The functions themselves are total. `em_sdk_soft_float_load_d24295C` returns −
 - a size other than 1,532,624;
 - a bad ELF magic.
 
-## 4. Binding (for the coordinator chain)
+## 4. Binding (live since 2026-09-24)
 
-Bind this module as the `.workers` of the one shared `EmSdkMathContext` of SDK_MATH_ORIGINAL.md section 7:
+The module is the `.workers` of the one shared `EmSdkMathContext` (SDK_MATH_ORIGINAL.md section 7): `w.math` in
+`em_collision_world.c`.
 
 ```c
-static uint32_t d24295C;                 /* em_sdk_soft_float_load_d24295C(user ELF) -> 0x00242670 */
-static int32_t  errno_242670;            /* canonical storage for the word at 0x00242670; the ELF's .data holds 0 */
-static EmSdkSoftFloatContext soft = { &d24295C, 0x00242670u /* = d24295C as loaded */, &errno_242670, 0 };
-em_sdk_soft_float_bind(&sdk.workers, &soft);   /* sdk: the EmSdkMathContext of SDK_MATH_ORIGINAL.md 7 */
+static struct { uint32_t d24295C; int32_t errno_word; EmSdkSoftFloatContext context; int loaded; } s_soft;
+/* first world load: em_sdk_soft_float_load_export(EM_COLLISION_WORLD_SOFT_FLOAT_PATH, &d24295C, &errno_word)
+ * context = { &d24295C, d24295C, &errno_word, 0 }; every world load: */
+em_sdk_soft_float_bind(&w.math.workers, &s_soft.context);
 ```
 
-- **Slots.** The four `EmSdkMathWorkers` slots are the only binding. They are used by `em_sdk_math_original_0011E620` /
-  `_0011E748` and by their float adapters `_float_0011E620` / `_float_0011E748`.
-- **The gate.** Once they are bound, the gate of SDK_MATH_ORIGINAL.md section 7 is lifted under its option 1.
-  - The atan2/sqrt rows of that table may then be bound: slide `.atan2`; climb `.atan2`, `.sqrt`; floor `.atan2`,
-    `.sqrt`; column `.sqrt`; every `em_interaction_sdk_atan2` site; director 001B1EA0 through
-    `em_sdk_math_original_0011E620`.
-  - Each owner's reference test must switch its SDK stand-in in the same commit (EE_FLOAT_MODEL.md, "Binding note
-    for the lead").
-- **Data.**
-  - D_0024295C and the errno word are .data, so give each one canonical storage initialised from the ELF (0x00242670
-    and 0).
+- **Data export.** The runtime reads exports, not the ELF.
+  - `tools/export_sdk_math_tables.py` (STARTUP.md step 33) writes `assets/sdk_soft_float.emsf` next to the
+    tables. Its layout is 'EMSF', u32 version 1, then two (address, word) pairs: (0x0024295C, D_0024295C's
+    initial word) and (that word, the initial word of the cell it names).
+  - The tool reads both from the user's ELF and requires them inside the LOAD segment's file image.
+  - `em_sdk_soft_float_load_export` accepts only that layout: magic, version, first address 0x0024295C,
+    the second address equal to the first word, and exactly 24 bytes.
+  - The ELF gives 0x00242670 and 0. `test_sdk_soft_float_reference` part 9 asserts the file against the
+    ELF and against `playable_ee.bin`. Part 7 asserts D_0024295C = 0x00242670 in every route snapshot.
+  - `em_sdk_soft_float_load_d24295C` (the ELF reader) is kept for the oracle and contract tests.
+- **Canonical storage.** D_0024295C and the errno word are .data.
+  - The original initialises them only in the ELF image, so the storage is loaded once, by the first world
+    load. An area build does not reset it (`em_collision_world_unload` leaves it alone).
   - 0011FD78 reads D_0024295C on every call.
-  - The errno word has no reader on the first-level path that this lane knows of. Keep it anyway: it is the state
-    the route snapshots show (section 5).
-  - `errno_address` must equal the loaded D_0024295C. Any other value faults at 0x0011FD78 instead of writing
+  - `errno_address` equals the loaded D_0024295C. Any other value faults at 0x0011FD78 instead of writing
     somewhere else.
-- **Nothing else changes.** No existing file needs an export for this binding. `em_sdk_math_original.c` is already
-  in the game sources. This module's `.c` must be added (section 7).
+  - The errno word has no reader on the first-level path that this lane knows of. It is kept because it is
+    the state the route snapshots show (section 5).
+- **Fail-stop.** A missing or malformed export fails `em_collision_world_load`: its stderr line names the
+  file, and the AREA11 build faults at 0x001AFCA0.
+- **Slots.**
+  - The four `EmSdkMathWorkers` slots are the only binding. They are used by
+    `em_sdk_math_original_0011E620` / `_0011E748` and by their float adapters `_float_0011E620` /
+    `_float_0011E748`.
+  - The floor's `.atan2` / `.sqrt` (`em_collision_world_bind_player`) and the column's `.sqrt` run over this
+    context.
+  - The other atan2/sqrt rows of SDK_MATH_ORIGINAL.md section 7 are not bound yet: slide, climb, the
+    `em_interaction_sdk_atan2` sites and the director. When each one is bound, its reference test must
+    switch its SDK stand-in in the same commit (EE_FLOAT_MODEL.md, "Binding note for the lead").
 
 ## 5. Route measurement: the domain-error path is reached in beat 03
 
@@ -203,8 +227,16 @@ In every one of them, D_0024295C = 0x00242670 and D_0026C5D0 = 1. The errno word
 - **Conclusion.** During beat 03 (Cross at the power panel with the battery, the BATTERY prompt, Yes, power on), the
   original ran one of those four error tails at least once. The tail runs the four workers of this module.
   **Option 2 of the SDK_MATH_ORIGINAL gate is refuted.** These workers are required, not optional.
-- **Not identified.** Which wrapper it was, and which call site, is not known. A PCSX2 replay of beat 03 with
-  breakpoints on the four store addresses above would name the frame and the caller. This lane does not run PCSX2.
+- **Narrowed by the route census** (decomp `tools/route_census.py`; `../Extermination/build/s87/census/per_beat.json`).
+  It armed a one-shot breakpoint on every boot function, per label.
+  - 0011E420 and 0011E520 were armed and **never hit** on the route. So the tail was 0011E620's or 0011E748's,
+    the two wrappers this module completes.
+  - In the boot ELF, only the four wrappers call 0011DB90 and 00127758, and only on their error paths.
+    Both ran, with 0011FD78, in beats **03 and 05**. Beat 05's tail left errno at 0x21.
+  - The test asserts these facts when the census file is present.
+- **Not identified.** Which of the two wrappers it was, and which call site, is not known. A PCSX2 replay of
+  beats 03 and 05 with breakpoints on 0x11E6F4 and 0x11E808 would name the frame and the caller. This step
+  does not run PCSX2.
   The route snapshots do not record errno per frame, and neither does `trace.json`.
 - **Not covered.** Overlay code was not searched. It can reach the cell only through 0011FD78 or D_0024295C.
 - **Asserted.** The test asserts the snapshot data, that the errno word is 0 or 0x21 in every beat, and that it
@@ -233,9 +265,10 @@ The test subclasses it to record every store outside the running frames.
 | 0011DB90 records (returns 0, record unchanged, no foreign store) | 183 | 20,033 |
 | 0011FD78 (D_0024295C as captured and 4 other values) | 5 | 5 |
 | wrappers 0011E620/0011E748 executed whole vs `em_sdk_math_original` bound to this module (D_0026C5D0 −1, 0, 1, 2, 5) | 1,085 | 3,025 |
-| the same cases over route RAM (zero vectors / negative roots, mode 1) | 71 (beat 03) | 6,885 (15 beats) |
+| the same cases over route RAM (zero vectors / negative roots, mode 1) | 71 (beat 03) | 7,344 (16 beats, 00..15) |
 | fail-stop / loader / bind (in the shim) | 26 | 26 |
-| **total equal to the original** | **27,251** | **3,512,384** |
+| the data export against the ELF and `playable_ee.bin`, its loader, and the route-RAM zero-vector / negative-root cases over a context built from the loaded export (part 9) | 73 | 461 |
+| **total equal to the original** | **27,324** | **3,513,304** (2026-09-24, 27 s wall under load) |
 
 The quick run takes about 1 s wall on the M1 (1.2 s and 0.95 s measured) and the full run 43 to 49 s (8 workers, under load). These are
 timings, not assertions; only the counts are fixed.
@@ -269,6 +302,8 @@ The other four are equivalent, and the reasoning shows why:
 - the loader;
 - the wrapper protocol with this module bound: zero vector, denormal pair, negative normal and denormal square
   roots, mode −1, and a missing errno cell faulting at 0x0011FD78;
+- the export loader: the well-formed layout, each defective header word, a short file, a trailing byte and
+  NULL arguments;
 - a 200,000-iteration sweep of every entry point on random records.
 
 It is built with `-fsanitize=address,undefined -fno-sanitize-recover=undefined` and runs in under a second.
@@ -292,8 +327,7 @@ test-sdk-soft-float:
 	build/sdk_soft_float/sdk_soft_float_test ../Extermination/config/SCUS_971.12
 ```
 
-When it is bound, add `src/game/em_sdk_soft_float.c` to the game sources next to
-`src/game/em_sdk_math_original.c`. A private lane build with it added compiles with zero warnings.
+`src/game/em_sdk_soft_float.c` is in the game sources, and both targets are in the Makefile.
 
 ## 8. Findings for other lanes
 

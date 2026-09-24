@@ -17,6 +17,10 @@
  *                             every area build and shared by every query
  *   D_0026C170..D_0026C658    the SDK math tables and D_0026C5D0 (the
  *                             user's export, assets/sdk_math_tables.emsm)
+ *   D_0024295C, *0x00242670   the soft-float workers' errno pointer and
+ *                             errno word (assets/sdk_soft_float.emsf; loaded
+ *                             once, kept across area builds), bound with
+ *                             em_sdk_soft_float into the one SDK context
  *
  * Only AREA11 has an original world (the roster scene). Other scenes leave it
  * unloaded and their callers keep the port's own collision (em_collision.c).
@@ -44,12 +48,15 @@ extern "C" {
  * --export; docs/STARTUP.md). */
 #define EM_COLLISION_WORLD_CELLS_PATH "assets/scene_snow/area11_cells.bin"
 #define EM_COLLISION_WORLD_SDK_PATH "assets/sdk_math_tables.emsm"
+/* The soft-float data export (tools/export_sdk_math_tables.py; STARTUP.md). */
+#define EM_COLLISION_WORLD_SOFT_FLOAT_PATH "assets/sdk_soft_float.emsf"
 
 /* Build the world for an area: the directory at `cells_path`, the rank
  * section of the EMCL at `emcl_path` (which `emcl` is the loaded copy of; it
  * must carry EM_COLL_FLAG_NODE_CLASS | EM_COLL_PROBE_FLAG_RANKS) and the SDK
- * tables at `sdk_path`. The scratchpad state is zeroed and the class lists
- * reset. Returns 0, or -1 (the world is left unloaded; a line names the
+ * tables at `sdk_path`, with the soft-float workers bound over the data at
+ * EM_COLLISION_WORLD_SOFT_FLOAT_PATH (read by the first load only). The
+ * scratchpad state is zeroed and the class lists reset. Returns 0, or -1 (the world is left unloaded; a line names the
  * missing export on stderr). */
 int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, const char *cells_path,
                             const char *sdk_path);
@@ -92,7 +99,9 @@ int em_collision_world_0019B7D0(const float from[3], const float to[3], EmCollSe
  * with the node class, b->head / b->object = 0019B6C0 / 0019B8C0
  * (em_coll_probe_player_*, with 001A50A0 / 001A5C30 as pass-2 workers),
  * b->link_test = 00175640 and b->column = 0019BC40 (with the SDK 0011E748 /
- * 0011DBB8 of em_sdk_math_original; a fault they record fails the column).
+ * 0011DBB8 of em_sdk_math_original; a fault they record fails the column),
+ * and 00175CF0's SDK calls b->atan2 / tangent / atan / sqrt = 0011E620 /
+ * 0011E398 / 0011DBB8 / 0011E748 over the same context (soft-float bound).
  * `self` is the player's identity (+0x14) and `cls` its +0x02 byte. Returns
  * 0, or -1 when the world is not loaded (nothing is bound). The FLOOR
  * mechanism these serve stays gated until its other prerequisites exist

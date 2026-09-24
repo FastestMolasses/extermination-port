@@ -13,7 +13,7 @@ Hooked boundaries, scripted per case and recorded (never simulated):
 0019BC40 column-table rebuild (writes the case's table into the original
 scratchpad tables), 0019AB20 / 0019B6C0 / 0019B8C0 probes (write the case's
 hit record into the original scratchpad result block), 0019A310 slope,
-0011E620 atan2, 0011E398 cosine, 00175640 link test, 0017F9E0 / 0017FB90
+0011E620 atan2, 0011E398 tanf (not a cosine), 00175640 link test, 0017F9E0 / 0017FB90
 surface-0x39 handlers and 00187DC0 / 00187DE0 / 00187EA0 one-shots.
 
 Cases: random synthetic actors, and the captured first-control actor bytes
@@ -48,11 +48,11 @@ FLOOR_SERVICE, FLOOR_APPLY = 0x175900, 0x175CF0
 HEAD, OBJECT, LINK_TEST = 0x19B6C0, 0x19B8C0, 0x175640
 SURFACE39 = (0x17F9E0, 0x17FB90)
 FIRST_CONTACT = {0x187DC0: 0x5A, 0x187DE0: 0x5B, 0x187EA0: 0x5C}
-ATAN2, COSINE, ATAN, SQRT = 0x11E620, 0x11E398, 0x11DBB8, 0x11E748
+ATAN2, TANGENT, ATAN, SQRT = 0x11E620, 0x11E398, 0x11DBB8, 0x11E748
 LIBC = C.CDLL(None)
 for _name in ('atan2f',): getattr(LIBC, _name).argtypes = [C.c_float, C.c_float]
-for _name in ('cosf', 'atanf', 'sqrtf'): getattr(LIBC, _name).argtypes = [C.c_float]
-for _name in ('atan2f', 'cosf', 'atanf', 'sqrtf'): getattr(LIBC, _name).restype = C.c_float
+for _name in ('tanf', 'atanf', 'sqrtf'): getattr(LIBC, _name).argtypes = [C.c_float]
+for _name in ('atan2f', 'tanf', 'atanf', 'sqrtf'): getattr(LIBC, _name).restype = C.c_float
 
 
 class ProbeHit(C.Structure):
@@ -107,7 +107,7 @@ MATH1_FN = C.CFUNCTYPE(C.c_float, C.c_void_p, C.c_float)
 class FloorWorkers(C.Structure):
     _fields_ = [('context', C.c_void_p), ('ground', GROUND_FN), ('head', PROBE2_FN),
                 ('object', GROUND_FN), ('link_test', LINK_FN), ('surface39', HANDLER_FN),
-                ('first_contact', CONTACT_FN), ('atan2', MATH2_FN), ('cosine', MATH1_FN),
+                ('first_contact', CONTACT_FN), ('atan2', MATH2_FN), ('tangent', MATH1_FN),
                 ('atan', MATH1_FN), ('sqrt', MATH1_FN)]
 
 
@@ -145,7 +145,7 @@ class Floor(Reversal):
             SURFACE39[0]: lambda o: o.record_call('surface39', 0),
             SURFACE39[1]: lambda o: o.record_call('surface39', 1),
             ATAN2: lambda o: o.ret_float(LIBC.atan2f(number(o.f[12]), number(o.f[13]))),
-            COSINE: lambda o: o.ret_float(LIBC.cosf(number(o.f[12]))),
+            TANGENT: lambda o: o.ret_float(LIBC.tanf(number(o.f[12]))),
             ATAN: lambda o: o.ret_float(LIBC.atanf(number(o.f[12]))),
             SQRT: lambda o: o.ret_float(LIBC.sqrtf(number(o.f[12]))),
         }
@@ -385,7 +385,7 @@ def floor_case(elf, native, actor, search, probes, links, at_seed, ram=None, bas
     workers = FloorWorkers(None, GROUND_FN(ground), PROBE2_FN(head), GROUND_FN(obj),
                            LINK_FN(link_test), HANDLER_FN(surface39), CONTACT_FN(first_contact),
                            MATH2_FN(lambda _, y, x: LIBC.atan2f(y, x)),
-                           MATH1_FN(lambda _, x: LIBC.cosf(x)), MATH1_FN(lambda _, x: LIBC.atanf(x)),
+                           MATH1_FN(lambda _, x: LIBC.tanf(x)), MATH1_FN(lambda _, x: LIBC.atanf(x)),
                            MATH1_FN(lambda _, x: LIBC.sqrtf(x)))
     at = (C.c_float * 3)(*at_seed)
     result = native.em_player_floor_service(C.byref(actor), search, at, C.byref(workers))

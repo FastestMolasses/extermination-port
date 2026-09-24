@@ -107,6 +107,18 @@ int32_t em_sdk_soft_float_0011DB90(const EmSdkMathException *record);
  * 0, or -1. */
 int em_sdk_soft_float_load_d24295C(const uint8_t *elf, size_t size, uint32_t *out);
 
+/* The runtime's form of that data: the local export
+ * assets/sdk_soft_float.emsf (tools/export_sdk_math_tables.py, from the
+ * user's ELF; never committed): 'EMSF', u32 version 1, then two
+ * (u32 address, u32 word) pairs, D_0024295C with its initial word and then
+ * the errno cell that word names with the cell's initial word. The loader
+ * checks the magic, the version, the first address (0x0024295C), that the
+ * second address equals the first word, and the exact size. It fills
+ * *d24295C (D_0024295C's value, which is also the errno cell's address) and
+ * *errno_word (the cell's initial .data word; the ELF holds 0). Returns 0,
+ * or -1 (missing or malformed; nothing is written). */
+int em_sdk_soft_float_load_export(const char *path, uint32_t *d24295C, int32_t *errno_word);
+
 /* ---- Worker adapters (EmSdkMathWorkers slots) ---- */
 
 typedef struct {

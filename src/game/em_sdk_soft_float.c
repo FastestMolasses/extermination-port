@@ -6,6 +6,7 @@
  * original operation works in. */
 #include "game/em_sdk_soft_float.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "game/em_ee_float.h"
@@ -298,6 +299,31 @@ int em_sdk_soft_float_load_d24295C(const uint8_t *elf, size_t size, uint32_t *ou
         return -1;
     *out = (uint32_t)elf[offset] | (uint32_t)elf[offset + 1] << 8 |
            (uint32_t)elf[offset + 2] << 16 | (uint32_t)elf[offset + 3] << 24;
+    return 0;
+}
+
+static uint32_t le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+int em_sdk_soft_float_load_export(const char *path, uint32_t *d24295C, int32_t *errno_word)
+{
+    uint8_t bytes[24];
+    if (!path || !d24295C || !errno_word)
+        return -1;
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return -1;
+    int ok = fread(bytes, 1, sizeof bytes, file) == sizeof bytes && fgetc(file) == EOF;
+    fclose(file);
+    /* 'EMSF', version 1, (D_0024295C, pointer), (pointer, cell word). */
+    ok = ok && !memcmp(bytes, "EMSF", 4) && le32(bytes + 4) == 1u &&
+         le32(bytes + 8) == 0x0024295Cu && le32(bytes + 16) == le32(bytes + 12);
+    if (!ok)
+        return -1;
+    *d24295C = le32(bytes + 12);
+    *errno_word = (int32_t)le32(bytes + 20);
     return 0;
 }
 

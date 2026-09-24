@@ -10,6 +10,7 @@
 #include "game/em_coll_list_passes.h"
 #include "game/em_coll_list_passes_walkers.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_sdk_soft_float.h"
 
 /* The list bases (the original pushes slot i at base - 4(i + 1)):
  * docs/ACTOR_COLLISION.md section 1, em_actor_collision.h. */
@@ -44,6 +45,33 @@ static struct {
     int loaded;
     int dumped_first;
 } w;
+
+/* The soft-float workers of the SDK context (docs/SDK_SOFT_FLOAT.md section
+ * 4): 00128350, 0011DB90, 0011FD78 and 00127758, which the domain-error
+ * tails of atan2f 0011E620 and sqrtf 0011E748 call. Their data is boot-ELF
+ * .data: D_0024295C (0011FD78 reads it on every call) and the errno word at
+ * the address it holds (0x00242670 in the ELF and every capture), which the
+ * tails store 0x21 into. The original initialises both only in the ELF
+ * image, so this storage is loaded once from the user's export and is not
+ * reset by an area build (em_collision_world_unload leaves it). */
+static struct {
+    uint32_t d24295C;
+    int32_t errno_word;
+    EmSdkSoftFloatContext context;
+    int loaded;
+} s_soft;
+
+static int load_soft_float(void)
+{
+    if (s_soft.loaded)
+        return 0;
+    if (em_sdk_soft_float_load_export(EM_COLLISION_WORLD_SOFT_FLOAT_PATH, &s_soft.d24295C,
+                                      &s_soft.errno_word) != 0)
+        return -1;
+    s_soft.context = (EmSdkSoftFloatContext){ &s_soft.d24295C, s_soft.d24295C, &s_soft.errno_word, 0 };
+    s_soft.loaded = 1;
+    return 0;
+}
 
 /* D_0024A740 is not exported: the view holds no byte, so 001A8660's
  * knock-back table read faults (0x1A87C0). It is reached only after the
@@ -130,8 +158,15 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
         em_collision_world_unload();
         return -1;
     }
+    if (load_soft_float() != 0) {
+        fprintf(stderr, "collision world: the SDK soft-float data %s is missing or invalid "
+                        "(tools/export_sdk_math_tables.py)\n", EM_COLLISION_WORLD_SOFT_FLOAT_PATH);
+        em_collision_world_unload();
+        return -1;
+    }
     w.math.tables = &w.tables;
     w.math.world.d26C5D0 = &w.d26C5D0;
+    em_sdk_soft_float_bind(&w.math.workers, &s_soft.context);
     /* AREA11's directory has no static cell (word 0 has no bit 31), so no
      * D_0024D7C0 kind view is needed; reaching one faults. */
     w.acw = (EmActorCollisionWorld){ &w.cells, &w.lists, emcl, NULL, 0 };
@@ -247,12 +282,17 @@ int em_collision_world_0019B7D0(const float from[3], const float to[3], EmCollSe
 
 /* 00179450's 0019BC40 over the world. The SDK workers record a fault in
  * their context instead of returning one: checked after the call, so a
- * faulted sqrt/atan fails the column (no value is used). */
+ * faulted sqrt/atan fails the column (no value is used). A fault an earlier
+ * SDK call of the same floor service recorded is kept for the service's own
+ * check (EmPlayerStatesBinding.sdk_fault). */
 static int player_column(void *context, const float position[3], EmPlayerFloorTable *table)
 {
+    uint32_t earlier = w.math.fault;
     w.math.fault = 0;
     int result = em_actor_collision_player_column(context, position, table);
-    return w.math.fault ? -1 : result;
+    uint32_t mine = w.math.fault;
+    w.math.fault = earlier ? earlier : mine;
+    return mine ? -1 : result;
 }
 
 int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, uint8_t cls)
@@ -276,6 +316,21 @@ int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, u
     b->link_context = &w.ground_player;
     b->column = player_column;
     b->column_context = &w.column_player;
+    /* 00175CF0's SDK calls: the original translations over the world's SDK
+     * context (the user's table and soft-float exports), the same one the
+     * column's sqrt/atan use (docs/SDK_MATH_ORIGINAL.md; oracles
+     * test_sdk_math_original_reference, test_sdk_soft_float_reference).
+     * Their faults land in w.math.fault, which the floor service and the
+     * fall check test after every call. atan2f 0011E620 and sqrtf 0011E748
+     * are complete: their domain-error tails (which the route reaches, errno
+     * 0x21 from beat 03 on, SDK_SOFT_FLOAT.md section 5) run the bound
+     * soft-float workers. They run only once FLOOR engages. */
+    b->atan2 = em_sdk_math_original_float_0011E620;
+    b->tangent = em_sdk_math_original_float_0011E398;
+    b->atan = em_sdk_math_original_float_0011DBB8;
+    b->sqrt = em_sdk_math_original_float_0011E748;
+    b->sdk_context = &w.math;
+    b->sdk_fault = &w.math.fault;
     return 0;
 }
 

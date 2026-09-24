@@ -215,10 +215,11 @@ typedef struct EmPlayerFloorWorkers {
     int (*surface39)(void *context, int handler);
     /* 00187DC0 (0x5A), 00187DE0 (0x5B), 00187EA0 (0x5C) first contact. */
     int (*first_contact)(void *context, uint8_t surface);
-    /* SDK transcendental calls (0011E620 atan2, 0011E398 cos, 0011DBB8 atan,
-     * 0011E748 sqrt). The port and the oracle bind the same host models. */
+    /* SDK transcendental calls: 0011E620 atan2f, 0011E398 tanf (00175CF0's
+     * t = tanf(+9C) on the slope; 0011E398 is the tangent, not a cosine:
+     * docs/SDK_MATH_ORIGINAL.md 6.3), 0011DBB8 atanf, 0011E748 sqrtf. */
     float (*atan2)(void *context, float y, float x);
-    float (*cosine)(void *context, float x);
+    float (*tangent)(void *context, float x);
     float (*atan)(void *context, float x);
     float (*sqrt)(void *context, float x);
 } EmPlayerFloorWorkers;
