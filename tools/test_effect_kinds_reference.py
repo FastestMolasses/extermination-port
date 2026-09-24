@@ -61,7 +61,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ee_float_model as FM  # noqa: E402
-from reference_mode import banner, part, pick, select  # noqa: E402
+from reference_mode import banner, part, pick, select, in_scope_beat  # noqa: E402
 import test_effect_original_reference as base  # noqa: E402
 from test_effect_original_reference import Decals, Work  # noqa: E402
 
@@ -723,7 +723,7 @@ def pool_nodes(ram, callback):
 
 
 def route_cases(lib, elf, counts, header):
-    beats = sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists())
+    beats = sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and in_scope_beat(p.name))
     assert len(beats) == 15, beats
     rng = random.Random(0xB00)
     markers = puffs = colors = 0

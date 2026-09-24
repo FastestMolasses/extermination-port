@@ -6,6 +6,7 @@ class, every boundary and every captured-state comparison, plus a fixed-seed
 sample of the bulk sweep. EM_TEST_FULL=1 runs the exhaustive sweep exactly as
 before. Both modes compare the same fields; quick mode only runs fewer inputs.
 """
+import re
 import os
 import random
 
@@ -81,3 +82,12 @@ def banner(*parts):
         line += ' (EM_TEST_FULL=1 runs the exhaustive sweep)'
     print(line, flush=True)
     return line
+
+
+def in_scope_beat(name):
+    """True for the first level's route beats 00..14 (New Game to Roger;
+    docs/FIRST_LEVEL_ROUTE.md). Beat 15 (15_level_exit) is an opt-in capture
+    that leaves AREA11 (docs/FIRST_LEVEL_EXIT.md) and is not part of the
+    first-level route the reference tests compare against."""
+    m = re.match(r'(\d{2})_', name)
+    return bool(m) and int(m.group(1)) <= 14

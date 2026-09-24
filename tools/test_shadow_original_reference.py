@@ -94,7 +94,7 @@ import subprocess
 import sys
 
 import test_actor_lighting_reference as al
-from reference_mode import FULL, banner, part, pick, select, parallel_map
+from reference_mode import FULL, banner, part, pick, select, parallel_map, in_scope_beat
 import test_level_material_reference as lm
 import test_snow_particles_reference as vu
 from test_point_light_reference import signed, bits, number, fp, RETURN
@@ -3036,7 +3036,7 @@ def section_g_items(elf, lib):
     (route_clip_beat) and the synthetic batches (quick: two per style and
     kernel; EM_TEST_FULL=1: twelve). Run in the same worker pool as the
     captures; section_g_finish takes their results."""
-    beats = sorted(p.name for p in ROUTE.iterdir() if p.is_dir() and p.name[:2].isdigit())
+    beats = sorted(p.name for p in ROUTE.iterdir() if p.is_dir() and in_scope_beat(p.name))
     assert len(beats) == 15, ('route beats', beats)
     ram = (REF/'playable_ee.bin').read_bytes()
     scene = scene_view(ram, None)

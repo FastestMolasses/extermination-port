@@ -411,7 +411,7 @@ def route_replay():
     are sampled at the main-loop top 0x1AAF28); the director (#21) runs in the
     pool walk after the player stage and after Roger (#17)."""
     totals = dict(frames=0, starts=[], completions=[], polls=0, gate_tests=0, cc4=0)
-    for trace_path in sorted(ROUTE.glob('*/trace.json')):
+    for trace_path in sorted(q for q in ROUTE.glob('*/trace.json') if rm.in_scope_beat(q.parent.name)):
         beat = trace_path.parent.name
         rows = json.loads(trace_path.read_text())['rows']
         for f in range(len(rows) - 1):

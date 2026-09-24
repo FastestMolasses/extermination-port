@@ -549,6 +549,8 @@ def captured_states():
     the startup-reference captures that carry a scratchpad."""
     out = []
     for d in sorted(ROUTE.iterdir()):
+        if not reference_mode.in_scope_beat(d.name):
+            continue
         if (d / 'eeMemory.bin').exists() and (d / 'scratchpad.bin').exists():
             out.append((d.name, d / 'eeMemory.bin', d / 'scratchpad.bin'))
     for d in sorted(STARTUP.rglob('scratchpad.bin')):
@@ -673,7 +675,7 @@ def route_checks():
     rows = beats = 0
     offsets, phases, flags = set(), set(), set()
     for d in sorted(ROUTE.iterdir()):
-        if not (d / 'trace.json').exists():
+        if not (d / 'trace.json').exists() or not reference_mode.in_scope_beat(d.name):
             continue
         doc = json.loads((d / 'trace.json').read_text())
         counters = [r['counter'] for r in doc['rows']]

@@ -950,7 +950,7 @@ OWNERS = {'roger': 0x7A8830, 'director': 0x7A93F0, 'trigger': 0x7AA2A0, 'elevato
 
 def captures():
     out = [(name, REF / f'{name}.bin') for name in ('opening_ee', 'handoff_ee', 'playable_ee')]
-    out += [(p.parent.name, p) for p in sorted(ROUTE.glob('*/eeMemory.bin'))]
+    out += [(p.parent.name, p) for p in sorted(ROUTE.glob('*/eeMemory.bin')) if rm.in_scope_beat(p.parent.name)]
     return [(name, path) for name, path in out if path.is_file()]
 
 

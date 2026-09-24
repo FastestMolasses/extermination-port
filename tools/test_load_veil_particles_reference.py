@@ -572,7 +572,7 @@ def capture_evidence():
     block = bytes(BASE[veil:veil + 0x1C])
     sources = [p for p in BLOCK_CAPTURES if p.exists()]
     if ROUTE.exists():
-        sources += sorted(ROUTE.glob('*/eeMemory.bin'))
+        sources += sorted(q for q in ROUTE.glob('*/eeMemory.bin') if reference_mode.in_scope_beat(q.parent.name))
     for path in sources:
         with open(path, 'rb') as f:
             data = f.read()

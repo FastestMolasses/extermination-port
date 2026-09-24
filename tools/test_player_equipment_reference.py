@@ -1541,7 +1541,7 @@ def run_faults(native, elf, sdk, ram, spad):
 # ======================================================================
 
 def route_beats():
-    return sorted(p for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists()) if ROUTE.exists() else []
+    return sorted(p for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and RM.in_scope_beat(p.name)) if ROUTE.exists() else []
 
 
 def run_route_beat(beat):
