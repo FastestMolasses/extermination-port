@@ -3,6 +3,7 @@
  * reproduces; tools/test_shadow_original_reference.py checks the results
  * byte for byte against the executed original instructions. */
 #include "game/em_shadow_original.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -132,14 +133,16 @@ static uint32_t f2u_00128250(float x)
 static void projection(float m[16], float zoom, float w, float h, float near, float far)
 {
     identity(m);
-    m[0] = divide(zoom, mul(0.5f, w));
-    m[5] = divide(zoom, mul(0.5f, h));
-    float fn = mul(far, near);
-    float sum = add(far, near);
-    float twice = mul(-2.0f, fn);
-    float diff = sub(far, near);
-    m[10] = divide(sum, diff);
-    m[14] = divide(twice, diff);
+    /* EE COP1 code: the measured EE model (docs/EE_FLOAT_MODEL.md), incl.
+     * the add.s/sub.s pre-trim (far - near = far on the EE). */
+    m[0] = em_ee_div(zoom, em_ee_mul(0.5f, w));
+    m[5] = em_ee_div(zoom, em_ee_mul(0.5f, h));
+    float fn = em_ee_mul(far, near);
+    float sum = em_ee_add(far, near);
+    float twice = em_ee_mul(-2.0f, fn);
+    float diff = em_ee_sub(far, near);
+    m[10] = em_ee_div(sum, diff);
+    m[14] = em_ee_div(twice, diff);
     m[11] = 1.0f;
     m[15] = 0.0f;
 }
@@ -378,12 +381,13 @@ static int receivers(EmShadowOriginalPlan *plan, const EmShadowOriginalScene *sc
     const float *pos = plan->near_817FB0;
     float ox = scene->origin_x_158, oz = scene->origin_z_15C;
     float cx_ = scene->cell_x_150, cz_ = scene->cell_z_154;
-    int32_t cx = f2i(add(1.0f, divide(sub(pos[0], ox), cx_)));
-    int32_t cz = f2i(add(1.0f, divide(sub(pos[2], oz), cz_)));
-    int32_t x0 = f2i(sub(divide(sub(sub(pos[0], ox), 15.0f), cx_), 0.5f));
-    int32_t x1 = f2i(add(0.5f, divide(add(15.0f, sub(pos[0], ox)), cx_)));
-    int32_t z0 = f2i(sub(divide(sub(sub(pos[2], oz), 15.0f), cz_), 0.5f));
-    int32_t z1 = f2i(add(0.5f, divide(add(15.0f, sub(pos[2], oz)), cz_)));
+    /* 001D5C80's cell math is EE COP1: the measured EE model applies. */
+    int32_t cx = f2i(em_ee_add(1.0f, em_ee_div(em_ee_sub(pos[0], ox), cx_)));
+    int32_t cz = f2i(em_ee_add(1.0f, em_ee_div(em_ee_sub(pos[2], oz), cz_)));
+    int32_t x0 = f2i(em_ee_sub(em_ee_div(em_ee_sub(em_ee_sub(pos[0], ox), 15.0f), cx_), 0.5f));
+    int32_t x1 = f2i(em_ee_add(0.5f, em_ee_div(em_ee_add(15.0f, em_ee_sub(pos[0], ox)), cx_)));
+    int32_t z0 = f2i(em_ee_sub(em_ee_div(em_ee_sub(em_ee_sub(pos[2], oz), 15.0f), cz_), 0.5f));
+    int32_t z1 = f2i(em_ee_add(0.5f, em_ee_div(em_ee_add(15.0f, em_ee_sub(pos[2], oz)), cz_)));
     if (!(x0 < cx - 1)) x0 = cx - 1;
     if (!(cx + 1 < x1)) x1 = cx + 1;
     if (!(z0 < cz - 1)) z0 = cz - 1;

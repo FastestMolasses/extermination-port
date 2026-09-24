@@ -578,6 +578,78 @@ test-camera-follow-original-reference:
 test-camera-follow-original:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/camera_follow_original_test.c src/game/em_camera_follow_original.c src/game/em_sdk_math_original.c -lm -o build/camera_follow_original_test && ./build/camera_follow_original_test
 
+.PHONY: test-effect-manager
+test-effect-manager:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/effect_manager_test.c src/game/em_effect_manager.c src/game/em_effect_original.c src/game/em_owner_services_original.c -lm -o build/effect_manager_test && ./build/effect_manager_test
+
+.PHONY: test-effect-manager-reference
+test-effect-manager-reference:
+	python3 tools/test_effect_manager_reference.py
+
+.PHONY: test-effect-kinds
+test-effect-kinds:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/effect_kinds_test.c src/game/em_effect_kinds.c -lm -o build/effect_kinds_test && ./build/effect_kinds_test
+
+.PHONY: test-effect-kinds-reference
+test-effect-kinds-reference:
+	python3 tools/test_effect_kinds_reference.py
+
+.PHONY: test-player-equipment-reference
+test-player-equipment-reference:
+	python3 tools/test_player_equipment_reference.py
+
+.PHONY: test-frame-render-heads-reference
+test-frame-render-heads-reference:
+	python3 tools/test_frame_render_heads_reference.py
+
+.PHONY: test-render-context-reference
+test-render-context-reference:
+	python3 tools/test_render_context_reference.py
+
+.PHONY: test-render-context
+test-render-context:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/render_context_test.c src/game/em_render_context.c -o build/render_context_test && ./build/render_context_test
+
+.PHONY: test-anim-runtime-rest-reference
+test-anim-runtime-rest-reference:
+	python3 tools/test_anim_runtime_rest_reference.py
+
+.PHONY: test-status-ui-leftovers-reference
+test-status-ui-leftovers-reference:
+	python3 tools/test_status_ui_leftovers_reference.py
+
+.PHONY: test-startup-load-gaps-reference
+test-startup-load-gaps-reference:
+	python3 tools/test_startup_load_gaps_reference.py
+
+.PHONY: test-locomotion-display-reference
+test-locomotion-display-reference:
+	python3 tools/test_locomotion_display_reference.py
+
+.PHONY: test-camera-leftovers-reference
+test-camera-leftovers-reference:
+	python3 tools/test_camera_leftovers_reference.py
+
+.PHONY: test-camera-leftovers
+test-camera-leftovers:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/camera_leftovers_test.c src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_camera_follow_original.c src/game/em_sdk_math_original.c -lm -o build/camera_leftovers_test && ./build/camera_leftovers_test
+
+.PHONY: test-script-door-fan
+test-script-door-fan:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/script_door_fan_test.c src/game/em_script_door_fan.c src/game/em_script_door_fan_husk.c -lm -o build/script_door_fan_test && ./build/script_door_fan_test
+
+.PHONY: test-script-door-fan-reference
+test-script-door-fan-reference:
+	python3 tools/test_script_door_fan_reference.py
+
+.PHONY: test-render-verify-rest-reference
+test-render-verify-rest-reference:
+	python3 tools/test_render_verify_rest_reference.py
+
+.PHONY: test-main-loop-and-gap-reference
+test-main-loop-and-gap-reference:
+	python3 tools/test_main_loop_and_gap_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
