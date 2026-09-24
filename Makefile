@@ -689,6 +689,22 @@ test-iop-stream:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/iop_stream_test.c src/game/em_iop_stream.c src/game/em_stream_lanes_original.c src/game/em_sfx_bank.c -o build/iop_stream_test && ./build/iop_stream_test
 	python3 tools/test_iop_stream_reference.py
 
+.PHONY: test-owner-draw
+test-owner-draw:
+	mkdir -p build/owner_draw && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/owner_draw_test.c src/game/em_owner_draw_original.c -o build/owner_draw/owner_draw_test && ./build/owner_draw/owner_draw_test
+
+.PHONY: test-owner-draw-reference
+test-owner-draw-reference:
+	python3 tools/test_owner_draw_reference.py
+
+.PHONY: test-player-heading-record-reference
+test-player-heading-record-reference:
+	python3 tools/test_player_heading_record_reference.py
+
+.PHONY: test-pose-chain-reference
+test-pose-chain-reference:
+	python3 tools/test_pose_chain_reference.py
+
 .PHONY: test-ee-float-header
 test-ee-float-header:
 	python3 tools/test_ee_float_header.py
