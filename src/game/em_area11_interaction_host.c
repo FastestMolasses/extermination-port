@@ -1,6 +1,7 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_camera_rotation.h"
+#include "game/em_collision_world.h"
 #include "game/em_ee_float.h"
 #include "game/em_frame.h"
 #include "game/em_weapon.h"
@@ -29,6 +30,7 @@ typedef struct {
     float world[16];     /* owner +0xD0, from 0015AC00's 001C6380 */
     uint8_t model, param; /* owner +0x03 / +0x0D, read by state 0 */
     uint8_t state0;      /* the node's state 0 ran */
+    EmActor *actor;      /* the owner's pool record (bound by its node; NULL once freed) */
 } HostPickup;
 
 /* The owner token addresses remain stable until whole-world teardown. */
@@ -63,6 +65,9 @@ static struct {
     size_t pickup_count;
     HostPickup *pickup_current;
     EmOwnerServices services;
+    /* Census L07: the panel's and the terminal's pool records (bound by
+     * their nodes), and the record 001B17A0's 001B1B70 is publishing. */
+    EmActor *panel_actor, *elevator_actor, *publishing;
 } world;
 
 static int camera_publish(void *context);
@@ -387,10 +392,50 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
     }
 }
 
+/* The host owner bound to a pool record, or NULL. */
+static EmInteractionSceneOwner *owner_of_record(const EmActor *actor)
+{
+    if (!actor) return NULL;
+    if (actor == world.panel_actor) return world.panel_record;
+    if (actor == world.elevator_actor) return world.elevator_record;
+    for (size_t i = 0; i < world.pickup_count; ++i)
+        if (world.pickups[i].actor == actor) return world.pickups[i].record;
+    return NULL;
+}
+
+/* The view of the published interactive list D_00275B5C/B64 that 00184BA0
+ * and the device lookup read: the collision world's EM_ACTOR_LIST_FLAG80
+ * (one store, census L07; newest push first), each record mapped to the
+ * host owner bound to it. A record the host does not run is dropped only
+ * where both readers skip it (its +0x00 bit 0 or +0x02 bit 7 clear, e.g. a
+ * record freed since it published); any other is a fault. 0, or -1. */
+static int published_view(void)
+{
+    const EmActorClassLists *lists = em_collision_world_lists();
+    EmInteractionList *list = &world.scene.list;
+    list->pending_count = 0;
+    list->active_count = 0;
+    const int count = lists->list[EM_ACTOR_LIST_FLAG80].published;
+    for (int j = 0; j < count; ++j) {
+        const EmActor *actor = em_actor_class_list_entry(lists, EM_ACTOR_LIST_FLAG80, j);
+        EmInteractionSceneOwner *record = owner_of_record(actor);
+        if (!record) {
+            if (!actor || ((actor->status & 1) && (actor->cls & 0x80))) return -1;
+            continue;
+        }
+        if (!record->live_status || !record->live_class_flags || !record->live_armed ||
+            list->active_count >= EM_INTERACTION_CAPACITY) return -1;
+        list->active[list->active_count++] = (EmInteractionCandidate){
+            record, *record->live_status, *record->live_class_flags, record->live_armed};
+    }
+    return 0;
+}
+
 static int owner_available(void *context, EmPanel *panel, unsigned item_id)
 {
     (void)context;
     EmItemDevice devices[EM_INTERACTION_CAPACITY];
+    if (published_view() < 0) return -1;
     const EmInteractionList *list = &world.scene.list;
     if (list->active_count > EM_INTERACTION_CAPACITY) return -1;
     for (size_t i = 0; i < list->active_count; ++i) {
@@ -595,26 +640,76 @@ static void elevator_copy_child(void *context)
      * matrix directly. There is no stale separate native transform. */
 }
 
-/* 001B17A0 (byte-matched), the owners' state-1 tail: +1 = 001B1630(+0xB0,
- * +0xB4, +0xB8), the camera cone/range gate against D_008105D0 and
- * D_00810600 (g.cam.eye/fwd), and when visible 001B1B70, which pushes an
- * owner with class bit 0x80 onto the pending interactive list (001B1DE0).
- * 001AAD00 swaps that list in at the end of the frame
- * (em_area11_interaction_host_publish). The port draws the props from its
- * own draw list, so the +1 drawn byte has no reader here. */
-static int offer(const EmInteractionSceneOwner *record, const float position[3])
+/* 001B17A0 (byte-matched; em_owner_services_001B17A0), the owners' state-1
+ * tail: +1 = 001B1630(+0xB0, +0xB4, +0xB8), the camera cone/range gate
+ * against D_008105D0 and D_00810600 (g.cam.eye/fwd), and when visible
+ * 001B1B70 (services_publish): the owner's record goes onto the class lists
+ * its class byte selects (class 4: its collision cell, D_00275B80) and, with
+ * class bit 0x80, onto the interactive list (001B1DE0) the Use scan reads.
+ * 001AAD00 publishes them at the end of the frame (the collision world's
+ * close-out, census L07). `view` carries the record's +0x02 (the owner's
+ * live class byte), +0x03, +0x0D, +0x2E and +0xB0..+0xB8. 1 drawn, 0 culled,
+ * -1 fault. */
+static int publish_view(EmActor *actor, EmOwnerServicesOwner *view)
 {
-    return em_interaction_scene_offer(&world.scene, record->source_id, position,
-                                      g.cam.eye, g.cam.fwd) >= 0;
+    if (!actor) return -1;
+    world.services.world.d00810CA5 = em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
+    world.publishing = actor;
+    int drawn = em_owner_services_001B17A0(&world.services, view);
+    world.publishing = NULL;
+    if (drawn < 0) return -1;
+    actor->drawn = view->drawn; /* +0x01 */
+    return drawn != 0;
+}
+
+/* The panel's and the terminal's view: the record's own bytes, with the
+ * host's class byte and the given +0xB0..+0xB8. */
+static int publish_owner(EmActor *actor, uint8_t cls, const float position[3])
+{
+    if (!actor) return -1;
+    EmOwnerServicesOwner o;
+    memset(&o, 0, sizeof o);
+    o.cls = cls;
+    o.kind = actor->model;
+    o.model_id = actor->param;
+    o.flags2 = actor->flags2;
+    memcpy(o.pos, position, 3 * sizeof(float));
+    o.pos[3] = 1.0f;
+    return publish_view(actor, &o);
 }
 
 /* 00827B10's tail at 0x827E78: 001B17A0 (publication), then its virtual
- * +0x4C update, which has no port counterpart. */
+ * +0x4C update, which has no port counterpart. Its +0xB4 is the owner's
+ * floor height. */
 static void elevator_update_actor(void *context)
 {
     (void)context;
-    const float position[3] = {g.elev_pos[0], world.elevator.owner.height, g.elev_pos[2]};
-    if (!offer(world.elevator_record, position)) world.offer_failed = 1;
+    const EmActor *a = world.elevator_actor;
+    if (!a) { world.offer_failed = 1; return; }
+    const float position[3] = {a->pos[0], world.elevator.owner.height, a->pos[2]};
+    if (publish_owner(world.elevator_actor, world.elevator_class, position) < 0)
+        world.offer_failed = 1;
+}
+
+/* 001C6380's matrix (build_trs_matrix(+0xD0, +0xB0, +0xC0, +0x60)) of a pool
+ * record, with its +0xB4 given, then 001A2370(self, +0xD0): the record's
+ * extended collision cell follows it (census L07). 0, or -1. */
+static int retransform_record(const EmActor *actor, float y, float matrix[16])
+{
+    if (!actor) return -1;
+    const float position[3] = {actor->pos[0], y, actor->pos[2]};
+    if (em_owner_services_build_trs_matrix(matrix, position, actor->rot, actor->f60) != 0) return -1;
+    return em_collision_world_retransform_001A2370(actor, matrix) < 0 ? -1 : 0;
+}
+
+/* 0x827E54: 001A2370(self, +0xD0) after the ride's completion rebuilt the
+ * matrix at the new floor. */
+static void elevator_retransform(void *context)
+{
+    (void)context;
+    float matrix[16];
+    if (retransform_record(world.elevator_actor, world.elevator.owner.height, matrix) < 0)
+        world.offer_failed = 1;
 }
 
 /* ------------------------------------------------ the shared frame view
@@ -777,21 +872,20 @@ static int services_visible(void *context, uint32_t x, uint32_t y, uint32_t z, u
     return 0;
 }
 
-/* 001B1B70 for a pickup: class bit 0x80 pushes the owner onto the pending
- * interactive list (001B1DE0), which 001AAD00 swaps in. Its class-4 push
- * of the owner's collision cell (001B1D20, D_00275B80) has no port
- * counterpart: the port's collision world holds only the panel's cell. */
+/* 001B1B70 (em_actor_class_publish_001B1B70 over the collision world's
+ * lists): the record being published goes onto the class list of its +0x02
+ * (class 4: its collision cell, 001B1D20, D_00275B80) and, with class bit
+ * 0x80, onto the interactive list (001B1DE0). The record's +0x02 is stored
+ * from the owner's live class byte first (00219550 writes 0x87 when armed and
+ * 4 at its completion, before this tail), so the walkers and the Use scan
+ * read the owner's current class there. */
 static int services_publish(void *context, EmOwnerServicesOwner *owner)
 {
     (void)context;
-    HostPickup *slot = world.pickup_current;
-    if (!slot || !slot->record->live_armed) return -1;
-    if (owner->cls & 0x80) {
-        const EmInteractionCandidate entry = {slot->record, *slot->record->live_status, owner->cls,
-                                              slot->record->live_armed};
-        em_interaction_list_push(&world.scene.list, &entry);
-    }
-    return 0;
+    EmActor *actor = world.publishing;
+    if (!actor || !owner) return -1;
+    actor->cls = owner->cls;
+    return em_collision_world_publish_001B1B70(actor) < 0 ? -1 : 0;
 }
 
 static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent event,
@@ -821,9 +915,7 @@ static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent ev
         o.flags2 = owner->item_type;
         memcpy(o.pos, slot->record->position, sizeof slot->record->position);
         o.pos[3] = 1.0f;
-        world.services.world.d00810CA5 = em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
-        int drawn = em_owner_services_001B17A0(&world.services, &o);
-        return drawn < 0 ? -1 : drawn != 0;
+        return publish_view(slot->actor, &o);
     }
     case EM_PICKUP_OWNER_TAKE_SOUND:
         /* 001FBD50(self, 0x194, 0, 300.0). Cue 0x194 is not in the exported
@@ -846,23 +938,24 @@ static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent ev
     }
 }
 
-/* 00183EF0's selector 3/4 item branch needs 0019A910(mode 6) from the
- * player's +16 to the item: the port's camera segment query with mask 6
- * over the static cells, the published actor cells and the grid. Its hit
- * class is the record's +0x1A halfword; an item is never its own hit
- * owner here, because the port's collision world holds no item cells. */
+/* 00183EF0's selector 3/4 item branch: 0019A910(from the player's +16 to
+ * the item, mode 6) over the collision world (census L06b: the camera cell
+ * walker 001A1390 over the published class-4 cells, then the grid walker
+ * 0019D770). It reads the result 0x700031D8, the record's +0x1A halfword and
+ * the hit owner 0x700031D4, which is the item's own record when the ray ends
+ * in its published cell. 1, or 0 (the world cannot answer: the scan faults). */
 static int pickup_ray(void *context, const float from[4], const float to[4], unsigned mode,
                       EmInteractionRayHit *hit)
 {
     (void)context;
-    if (mode != 6 || !g.coll.blob) return 0;
-    EmCollHit h;
-    memset(&h, 0, sizeof h);
-    int kind = em_collision_camera_query(&g.coll, from, to, 6, &h);
+    if (mode != 6) return 0;
+    EmCollSegmentHit h;
+    int kind = em_collision_world_0019A910(from, to, mode, &h);
+    if (kind < 0) return 0;
     hit->hit = kind != 0;
-    hit->flags = kind ? h.surf_class : 0;
+    hit->flags = kind ? h.record_node : 0;
     hit->kind = (uint32_t)kind;
-    hit->owner = 0;
+    hit->owner = (uintptr_t)h.entity;
     return 1;
 }
 
@@ -935,7 +1028,7 @@ int em_area11_interaction_host_load(const char *directory,
         goto failed;
     EmElevatorRuntimeHooks elevator = {NULL, align_player, face_player, camera_set,
         camera_publish, camera_chase, message_start, message_done, elevator_sound,
-        elevator_rebuild, elevator_copy_child, elevator_update_actor};
+        elevator_rebuild, elevator_copy_child, elevator_update_actor, elevator_retransform};
     snprintf(path, sizeof path, "%s/elevator.emsc", directory);
     /* 00827B10 state 0 reads D_0081083A for its 190/230 floor. */
     const uint8_t *floor = elevator_floor();
@@ -1092,8 +1185,12 @@ static int use_predicate(void *context, const EmInteractionCandidate *candidate,
         return em_interaction_elevator_candidate(record->descriptor, g.pos, g.yaw, 0, score);
     if (record->role == EM_INTERACTION_PICKUP && record->native_owner) {
         /* 00183EF0's selector 3/4 item branch; +0x30 is the {10, 3.5}
-         * descriptor, D_008105E0 the view target of the action-0x2D path. */
-        EmInteractionPickup item = {.identity = (uintptr_t)record->native_owner,
+         * descriptor, D_008105E0 the view target of the action-0x2D path.
+         * Its identity is the owner's record (+0x14), which the ray's hit
+         * owner 0x700031D4 names when the ray ends in the item's cell. */
+        const HostPickup *slot = pickup_slot(record->source_id);
+        if (!slot || !slot->actor) return -1;
+        EmInteractionPickup item = {.identity = (uintptr_t)slot->actor->self,
             .class_flags = *record->live_class_flags, .subtype = record->subtype,
             .selector = record->selector, .callback = record->callback,
             .descriptor = {record->descriptor[0], record->descriptor[1]}};
@@ -1116,6 +1213,9 @@ int em_area11_interaction_host_use(void *unused)
     if (!(scene->d810E74 & USE_MASK_3B76)) return 0;
     EmInteractionScanState state = {scene->spad3B8D, (int16_t)em_frame_transition()->substate,
                                     scene->req[EM_SCENE_REQ_EF], world.scan_score};
+    /* A gated 00184BA0 returns before it reads the list. */
+    if (!state.selector && !state.fade_wait && !state.inhibited && published_view() < 0)
+        return fail("00184BA0 published list (an owner the host does not run)");
     size_t winner;
     int result = em_interaction_scene_scan_checked(&world.scene, &state, use_predicate, NULL,
                                                    &winner);
@@ -1144,7 +1244,39 @@ int em_area11_interaction_host_panel_tick(void)
     view_store();
     if (result < 0) return fail("panel worker");
     /* 00159210 state 1 always ends with 001B17A0(p), then its virtual. */
-    return offer(world.panel_record, world.panel_record->position) ? 0 : fail("panel publication");
+    if (!world.panel_actor) return fail("panel publication (no pool record bound)");
+    return publish_owner(world.panel_actor, world.panel_class, world.panel_actor->pos) >= 0
+               ? 0 : fail("panel publication");
+}
+
+/* The pool record of a host owner (census L07): the panel 00159210, the
+ * terminal 00827B10 and the item owners, bound by their nodes' first call.
+ * The record is what the class lists hold and what the walkers read (+0x00,
+ * +0x02, +0x0E, +0x54, +0xB0..). Its placement must be the owner's EMIS
+ * placement (the terminal's +0xB4 is set by its state 0 instead). */
+int em_area11_interaction_host_bind_actor(uint32_t source_id, EmActor *actor)
+{
+    if (!world.loaded || world.failed) return -1;
+    EmInteractionSceneOwner *record = em_interaction_scene_find(&world.scene, source_id);
+    if (!record || !actor || actor->self != actor) return fail("pool record binding");
+    const int elevator = record == world.elevator_record;
+    if (actor->pos[0] != record->position[0] || actor->pos[2] != record->position[2] ||
+        (!elevator && actor->pos[1] != record->position[1]))
+        return fail("pool record placement differs from the owner's");
+    if (record == world.panel_record) {
+        if (world.panel_actor) return fail("panel pool record bound twice");
+        world.panel_actor = actor;
+        return 0;
+    }
+    if (elevator) {
+        if (world.elevator_actor) return fail("terminal pool record bound twice");
+        world.elevator_actor = actor;
+        return 0;
+    }
+    HostPickup *slot = pickup_slot(source_id);
+    if (!slot || slot->actor || slot->state0) return fail("item pool record binding");
+    slot->actor = actor;
+    return 0;
 }
 
 /* 00827B10 state 0 (overlay AREA11, 0x827B54..0x827BF0): it loads
@@ -1156,7 +1288,9 @@ int em_area11_interaction_host_panel_tick(void)
  * the upper floor, so without this an AREA11 rebuild after the ride would
  * draw the elevator at 230 while the owner and its Use descriptor say 190.
  * State 0 runs on a fresh actor, before its first 001B17A0 offer: an owner
- * that already ran is a fault, not something to re-initialize. */
+ * that already ran is a fault, not something to re-initialize. After
+ * 001C6380 (0x827BF0) it re-transforms its collision cell (uid 4) with
+ * 001A2370(self, +0xD0) (0x827C04), before the child spawn (census L07). */
 int em_area11_interaction_host_elevator_state0(void)
 {
     if (!world.loaded || world.failed) return -1;
@@ -1167,6 +1301,9 @@ int em_area11_interaction_host_elevator_state0(void)
     em_elevator_init(&world.elevator.owner, *floor != 0);
     world.elevator_record->descriptor[1] = world.elevator.owner.lower ? 190 : 230;
     elevator_rebuild(NULL, world.elevator.owner.height);
+    float matrix[16];
+    if (retransform_record(world.elevator_actor, world.elevator.owner.height, matrix) < 0)
+        return fail("00827B10 state 0: 001A2370 (no pool record or collision world)");
     return 0;
 }
 
@@ -1192,9 +1329,13 @@ int em_area11_interaction_host_elevator_tick(void)
 /* The pickup node's first call (state 0). 0015AFA0 runs 0015AC00: the
  * +0x60 scale by the model id +0x0D, 001C6380's +0xD0 matrix (the aura's
  * facing test reads it) and 001F1110(self, variant by +0x03 & 0xF), whose
- * rand() is the first draw of the aura. The instance's model, bones and
- * palette are em_pickup's (em_pickup_add); 00219550's state 0 (its
- * 001C5570 child) is spawned by the node itself. */
+ * rand() is the first draw of the aura. 00219550 (NEARMISS
+ * src/func_00219550.c state 0) runs 001C6380 over its record (+0xB0, +0xC0,
+ * the +0x60 scale 001AFA90 left at 1.0) and then 001A2370(self, +0xD0): its
+ * collision cell moves to the item (census L07). The instance's model, bones
+ * and palette are em_pickup's (em_pickup_add); 00219550's 001C5570 child is
+ * spawned by the node itself after this call, as the original spawns it
+ * after 001A2370. */
 int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, uint8_t param)
 {
     if (!world.loaded || world.failed) return -1;
@@ -1203,6 +1344,11 @@ int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, 
     slot->state0 = 1;
     slot->model = model;
     slot->param = param;
+    if (slot->record->callback == 0x00219550u) {
+        if (!slot->actor || retransform_record(slot->actor, slot->actor->pos[1], slot->world) < 0)
+            return fail("00219550 state 0: 001C6380 / 001A2370 (no pool record or collision world)");
+        return 0;
+    }
     if (slot->record->callback != 0x0015AFA0u) return 0;
     float scale = 1.0f;
     switch (param) {
@@ -1252,16 +1398,17 @@ int em_area11_interaction_host_pickup_tick(uint32_t source_id)
     world.pickup_current = NULL;
     script_store(script);
     view_store();
-    return result < 0 ? fail("pickup owner") : result;
+    if (result < 0) return fail("pickup owner");
+    const EmPickupOwner *owner = slot->record->native_owner;
+    if (!slot->actor || !owner) return fail("pickup owner without its pool record");
+    /* The record's +0x02 is the owner's class byte (00219550 writes 0x87
+     * when armed and 4 at its completion): stored after every owner call,
+     * so a walker or the Use scan reads the current value. */
+    slot->actor->cls = owner->class_flags;
+    if (!result) slot->actor = NULL; /* the node frees the record (001AFC10) */
+    return result;
 }
 
-/* 001AAD00's interactive-list swap (D_00275B5C/B64 = the pending list, then
- * the pending list is emptied); its other hooks and class lists have no
- * port counterpart yet. */
-void em_area11_interaction_host_publish(void)
-{
-    if (world.loaded && !world.failed) em_interaction_scene_publish(&world.scene);
-}
 
 /* ------------------------------------------------ status screens (0020E060/0020CDC0)
  *

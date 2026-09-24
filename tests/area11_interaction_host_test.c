@@ -6,6 +6,7 @@
  * the outer game's Use-input/culling arbitration. */
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
+#include "game/em_collision_world.h"
 #include "game/em_effect_color.h"
 #include "game/em_hud.h"
 #include "game/em_opening_media.h"
@@ -261,6 +262,35 @@ static void bridge_status_request(void)
 static float word(const unsigned char *ram, unsigned address)
 { float value; memcpy(&value, ram + address, 4); return value; }
 
+/* The owners' pool records (census L07): the game binds each owner's node
+ * record at its first call; the fixture binds one record per owner, placed
+ * at the owner's EMIS placement. Their +0x0E names no collision cell (0xFF),
+ * so 001A2370 leaves the directory alone here (the live cells are compared
+ * with the route captures by tools/test_collision_world_capture.py). */
+static EmActor records[EM_INTERACTION_CAPACITY];
+
+static void bind_records(void)
+{
+    EmInteractionScene *scene_owners = em_area11_interaction_host_scene();
+    memset(records, 0, sizeof records);
+    for (size_t i = 0; i < scene_owners->count; ++i) {
+        const EmInteractionSceneOwner *owner = &scene_owners->owners[i];
+        if (owner->role != EM_INTERACTION_PICKUP && owner->role != EM_INTERACTION_PANEL &&
+            owner->role != EM_INTERACTION_ELEVATOR) continue;
+        if (owner->role == EM_INTERACTION_PICKUP && !owner->native_owner) continue;
+        EmActor *record = &records[i];
+        record->status = 1;
+        record->cls = owner->class_flags;
+        record->uid = 0xFF00;
+        record->self = record;
+        record->source_id = owner->source_id;
+        memcpy(record->pos, owner->position, sizeof owner->position);
+        memcpy(record->rot, owner->angles, sizeof owner->angles);
+        for (unsigned k = 0; k < 4; ++k) record->f60[k] = 1.0f;
+        assert(em_area11_interaction_host_bind_actor(owner->source_id, record) == 0);
+    }
+}
+
 /* Each bound item node's first call (state 0), after a host load. */
 static void pickups_state0(void)
 {
@@ -278,6 +308,9 @@ static void setup(int reset_inventory)
     em_frame_init(NULL, (EmGfx *)1);
     assert(!em_model_load(&g.model, "assets/player.emdl"));
     assert(!em_collision_load(&g.coll, "assets/scene_snow/snow.emcl"));
+    /* The area's original collision world (w_001AFCA0 in the game). */
+    assert(!em_collision_world_load(&g.coll, "assets/scene_snow/snow.emcl",
+                                    EM_COLLISION_WORLD_CELLS_PATH, EM_COLLISION_WORLD_SDK_PATH));
     g.mesh = (EmGfxMesh *)1;
     g.grate_present = g.elev_has_mesh = 1;
     g.elev_pos[1] = 230;
@@ -336,6 +369,7 @@ static void setup(int reset_inventory)
                                  placed.owners[i].uid, NULL, 0) != -1);
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
     em_message_live_set_host(em_area11_interaction_host_message_host());
+    bind_records();
     pickups_state0();
     assert(sfx_selected);
     em_area11_interaction_host_set_panel_address(PANEL_ADDRESS);
@@ -354,6 +388,7 @@ static void teardown(void)
     assert(!sfx_selected);
     assert(!em_area11_interaction_host_shared() && !player_pose_owned());
     em_opening_media_shutdown();
+    em_collision_world_unload();
     em_collision_free(&g.coll);
     em_model_free(&g.model);
 }
@@ -575,11 +610,15 @@ static void panel_menu(int discharge)
     EmInteractionSceneOwner *record = em_interaction_scene_role(scene, EM_INTERACTION_PANEL);
     assert(record);
     /* Supply the previously published canonical list, independently of
-     * world culling. The native185420 device predicate itself is real. */
-    EmInteractionCandidate candidate = {record, *record->live_status,
-        *record->live_class_flags, record->live_armed};
-    em_interaction_list_push(&scene->list, &candidate);
-    em_interaction_scene_publish(scene);
+     * world culling: the panel's record through 001B1B70 and 001AAD00's list
+     * block (the collision world's interactive list, census L07). The
+     * native185420 device predicate itself is real. */
+    EmActor *panel_record = &records[record - scene->owners];
+    assert(panel_record->self == panel_record);
+    em_collision_world_lists_reset_001AF8E0();
+    assert(em_collision_world_publish_001B1B70(panel_record) == 1);
+    uint32_t fault = 0;
+    assert(em_collision_world_close_out_001AAD00(em_scene_state(), 0, &fault) == 0 && !fault);
     EmPanelRuntime *panel = em_area11_interaction_host_panel();
     assert(player_pose_use_accepted());
     assert(em_panel_runtime_arm(panel));
@@ -684,6 +723,7 @@ static void missing_sound_bank(void)
     assert(!em_area11_interaction_host_scene() && !sfx_selected);
     sfx_bank_available = 1;
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    bind_records();
     pickups_state0(); /* the failed load released its item bindings */
     assert(sfx_selected && em_sfx_cue_state(0x3EE) == 2);
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);

@@ -120,26 +120,6 @@ static int candidate(EmInteractionSceneOwner *owner,EmInteractionCandidate *out)
     return 1;
 }
 
-int em_interaction_scene_offer(EmInteractionScene *scene,uint32_t source_id,
-                               const float position[3],const float camera_anchor[3],
-                               const float camera_forward[3])
-{
-    EmInteractionSceneOwner *owner=em_interaction_scene_find(scene,source_id);
-    if (!owner) return -1;
-    if (!em_interaction_visible(position,camera_anchor,camera_forward)) return 0;
-    EmInteractionCandidate entry;
-    if (!candidate(owner,&entry)) {
-        snprintf(scene->error,sizeof scene->error,"Visible owner %08X has no live controller binding",source_id);
-        return -1;
-    }
-    if (!(entry.class_flags&0x80)) return 0;
-    em_interaction_list_push(&scene->list,&entry);
-    return 1;
-}
-
-void em_interaction_scene_publish(EmInteractionScene *scene)
-{ em_interaction_list_publish(&scene->list); }
-
 int em_interaction_scene_scan(EmInteractionScene *scene,EmInteractionScanState *state,
                               EmInteractionPredicate predicate,void *context,size_t *winner_index)
 {

@@ -54,8 +54,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 10 | `cd ../Extermination && python3 tools/export_level.py ... --area 11 --sub 0 --overlay extract/OVERLAY/AREA11.BIN` with its manifest passes (`--spawn`, `--camregions`, `--lightrig`, `--pickups`, `--examine`; FINDINGS s78) | `scene_snow/*.emdl` level parts, `scene.txt` | R (`scene.txt`), L (level parts) | em_scene manifest, the level draw |
 | 11 | `cd ../Extermination && .venv/bin/python tools/export_level.py --gs-materials ../extermination-port/assets/scene_snow` (LEVEL_MATERIALS.md) | material words in the level EMDLs, `*.gsmat.json` reports | L | the level draw |
 | 12 | `cd ../Extermination && python3 tools/export_props.py ...` (library, `--gibs`, `--fx`, `--crate`, `--egg`, `--area-items`, `--doors`; MODDING.md) | `scene_snow/props/`, `doors/`, `fx/`, `gibs/`, `enemy_*.emdl`, `tendril.emdl` | L; B for `doors/door_m03.emdl` and `props/item_73.emdl`; R for `props/area_elevator.emdl` and `props/area_item_04.emdl` | manifest props, pickups, legacy enemies and weapon effects |
-| 13 | `cd ../Extermination && python3 tools/export_collision.py <chunk15 f07..f12> -o ../extermination-port/assets/scene_snow/snow.emcl --at 218.592,201.789` (COLL_PROBES.md 3) | `scene_snow/snow.emcl` | R | em_collision |
-| 13b | the same with `--node-class --verify-ram build/s87/route/06_hill_slide/eeMemory.bin` (COLL_PROBES.md 3) | `snow.emcl` with the node class and rank section | T: installed when collision binds (L02/L05/L07) | the translated grid walkers |
+| 13 | `cd ../Extermination && python3 tools/export_collision.py <chunk15 f07..f12> -o ../extermination-port/assets/scene_snow/snow.emcl --at 218.592,201.789 --node-class --verify-ram build/s87/route/06_hill_slide/eeMemory.bin` (COLL_PROBES.md 3; step 13b folded in: since census L07 the file must carry the node class and the rank section, flags 7) | `scene_snow/snow.emcl` | R | em_collision; the collision world's grid walkers (a flags-1 file faults at 0x001AFCA0) |
 | 14 | `python3 tools/export_opening_scenery.py` | `scene.txt` (canopy line) | R (via scene.txt) | em_scene |
 | 15 | `python3 tools/export_area11_props.py` | switch/elevator/indicator models, `scene.txt` | R/L (see 12) | manifest props |
 | 16 | `python3 tools/export_pickup_lights.py` | pickup bodies and lights, `scene.txt` | L/B | pickup-light children |
@@ -75,7 +74,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 30 | `python3 tools/export_interaction_scan.py` | `interaction.emis` | R | the AREA11 interaction host |
 | 31 | `python3 tools/export_elevator.py` | `elevator.emsc` | R | the host (terminal 00827B10) |
 | 32 | `python3 tools/export_panel.py`, `python3 tools/export_item_root.py`, `python3 tools/export_status_hub.py` (captures under `build/startup-reference/panel`, `panel/root`, `status-hub`) | `panel/` | R | the host's panel, BATTERY/ITEM pages and hub |
-| 33 | `python3 tools/export_sdk_math_tables.py` | `sdk_math_tables.emsm` | R | the status background's SDK sine (0011E2A8) |
+| 33 | `python3 tools/export_sdk_math_tables.py` | `sdk_math_tables.emsm` | R | the status background's SDK sine (0011E2A8); the collision world's SDK context (0011E748, D_0026C5D0) |
 | 34 | `python3 tools/export_status_models.py` | `status_models/` | R | the status hub models |
 | 35 | `python3 tools/export_pickup_programs.py` | `scene_snow/pickup_*.emsc` | R | the pickup owners 0015AFA0 / 00219550 |
 | 36 | `python3 tools/export_area11_sfx.py` | `sfx/area11/panel_sfx.*` | R | the panel cues (the host loads them) |
@@ -85,7 +84,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 40 | `cd ../Extermination && python3 tools/export_level.py --background ../extermination-port/assets/scene_snow --area 11 --sub 0 --iso <owned.iso> --capture-ee ... --capture-gs ...` (BACKGROUND.md) | `background.embg`, manifest line | T (L31) | em_background_gs (the manifest line is not parsed yet) |
 | 41 | `cd ../Extermination && python3 tools/export_shadow_receivers.py --out ../extermination-port/assets/scene_snow/shadow_receivers.emsr` (SHADOW_ORIGINAL.md) | `shadow_receivers.emsr` | T (L29b) | em_shadow_original receiver passes |
 | 42 | `cd ../Extermination && python3 tools/export_shadow_proxy.py` (SHADOW_ORIGINAL.md) | `player_shadow.emdl` | T (L29) | the shadow silhouette |
-| 43 | `python3 tools/test_actor_collision_reference.py --export` (ACTOR_COLLISION.md 3; a stand-in until a dedicated exporter exists) | `scene_snow/area11_cells.bin` | T (L07) | em_actor_cells_load |
+| 43 | `python3 tools/test_actor_collision_reference.py --export` (ACTOR_COLLISION.md 3; a stand-in until a dedicated exporter exists) | `scene_snow/area11_cells.bin` | R (since census L07; a missing file faults at 0x001AFCA0) | the collision world's cell directory (em_actor_cells_load) |
 
 Not read by the first level (X): `ui.emui`, `ui_page*.emui`, `messages.emsg`,
 `title.emui`, `gameover.emui` (decomp `export_ui.py` / `export_screen_modules.py`,

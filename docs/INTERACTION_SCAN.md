@@ -113,11 +113,14 @@ origin plus10Y. Roger's initial `00823910` can force render byte `+1=1`
 replacement for the gate. This distinction explains the playable capture's
 visible Roger being absent from the use list.
 
-`em_interaction_scene_offer` must run only where the actual controller
-calls its publication helper. It reports a visible owner lacking a live
-binding as an error. `em_interaction_scene_scan` refreshes status and class
-flags from live canonical pointers after publication; state changes must
-not be hidden by copied metadata. Keep those pointers valid until scene
+Publication runs where the actual controller calls its 001B17A0 (since
+census L07 the one translation, `em_owner_services_001B17A0`, whose 001B1B70
+pushes the owner's pool record onto the collision world's lists; the scene's
+former `em_interaction_scene_offer` / `_publish` are deleted). The AREA11
+host fills `list.active` from that published interactive list before each
+scan and device lookup (`published_view`). `em_interaction_scene_scan`
+refreshes status and class flags from live canonical pointers; state changes
+must not be hidden by copied metadata. Keep those pointers valid until scene
 teardown or the owner has left the published list.
 
 ## Candidate behavior

@@ -19,6 +19,7 @@ typedef struct {
     void (*rebuild_pose)(void *, float height);
     void (*copy_indicator_pose)(void *);
     void (*update_actor)(void *);
+    void (*retransform)(void *); /* 001A2370(self, +0xD0) at the ride's completion */
 } EmElevatorRuntimeHooks;
 
 typedef struct {

@@ -1,0 +1,318 @@
+/* em_collision_world.c - the scene's one original collision world (see the
+ * header). Storage and binding only: every original routine it runs is the
+ * verified translation named at the call. */
+#include "game/em_collision_world.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "game/em_coll_list_passes.h"
+#include "game/em_coll_list_passes_walkers.h"
+#include "game/em_sdk_math_original.h"
+
+/* The list bases (the original pushes slot i at base - 4(i + 1)):
+ * docs/ACTOR_COLLISION.md section 1, em_actor_collision.h. */
+enum {
+    BASE_CLASS1 = 0x0028B020u,
+    BASE_CLASS_D = 0x0028AFF0u,
+    BASE_CLASS2 = 0x0028AF30u,
+    BASE_CLASS4 = 0x0028AE30u
+};
+
+static struct {
+    EmActorCellTable cells;          /* *0x70003250, 0x7000324C */
+    EmActorClassLists lists;         /* D_00275B54..D_00275BB8 */
+    EmActorCollisionWorld acw;
+    EmCollProbeGrid grid;
+    EmCollProbeWorld probe;
+    EmCollProbeState state;          /* the one scratchpad */
+    EmCollSegmentFaceScratch face;   /* 0x70003600.. */
+    EmSdkMathTables tables;
+    int32_t d26C5D0;
+    EmSdkMathContext math;
+    EmCollSegment seg;
+    EmCollListGlobals globals;
+    EmCollListData data;
+    EmCollListPasses passes;
+    /* The floor service's workers (em_collision_world_bind_player). */
+    EmCollProbeWorkers probe_workers;
+    EmCollProbePlayer probe_player;
+    EmActorCollisionPlayer ground_player;
+    EmCollColumnMath column_math;
+    EmActorCollisionPlayerColumn column_player;
+    int loaded;
+    int dumped_first;
+} w;
+
+/* D_0024A740 is not exported: the view holds no byte, so 001A8660's
+ * knock-back table read faults (0x1A87C0). It is reached only after the
+ * entry's +0x34 behaviour, which is itself a fail-stop binding below. */
+static const uint8_t k_no_d24A740[1];
+
+/* EmCollListMemory.bytes. The live pool keeps native EmActor records, not
+ * original-layout images of the pool, the player and the records their
+ * +0x30 / +0x58 / +0x110 words name (docs/COLL_LIST_PASSES.md section 4 item
+ * 4), so no range is available: a pass that reads a record faults. With the
+ * AREA11 owners the port runs, the class-1, class-2 and class-0xD live lists
+ * stay empty and the nine passes read only the globals. */
+static uint8_t *no_bytes(void *context, uint32_t address, uint32_t size)
+{
+    (void)context;
+    (void)address;
+    (void)size;
+    return NULL;
+}
+
+static void bind_passes(void)
+{
+    memset(&w.passes, 0, sizeof w.passes);
+    w.data.d24A740 = k_no_d24A740;
+    w.data.d24A740_size = 0;
+    w.passes.memory.bytes = no_bytes;
+    w.passes.globals = &w.globals;
+    w.passes.data = &w.data;
+    w.passes.math = &w.math;
+    EmCollListWorkers *k = &w.passes.workers;
+    /* None of these callees has a translation; none ran on the census route
+     * (docs/COLL_LIST_PASSES.md section 2). Reaching one faults with its
+     * call site's address. */
+    k->w_001A8840 = em_coll_list_passes_unported;
+    k->w_001A8970 = em_coll_list_passes_unported;
+    k->w_001A8CE0 = em_coll_list_passes_unported;
+    k->w_001A8E80 = em_coll_list_passes_unported;
+    k->w_001A8F40 = em_coll_list_passes_unported;
+    k->w_001A9360 = em_coll_list_passes_unported;
+    k->w_001A96F0 = em_coll_list_passes_unported;
+    k->w_001A9480 = em_coll_list_passes_unported;
+    k->w_001A99E0 = em_coll_list_passes_unported;
+    k->w_001A9C40 = em_coll_list_passes_unported;
+    k->w_001A9E00 = em_coll_list_passes_unported;
+    k->w_001AA000 = em_coll_list_passes_unported_001AA000;
+    k->w_0021BD10 = em_coll_list_passes_unported_0021BD10;
+    /* The +0x34 behaviour of a class-0xD type-1 entry: AREA11's is the
+     * overlay routine 0x00823580, which has no binding here. */
+    k->behaviour = em_coll_list_passes_unported_behaviour;
+    k->normalize = em_coll_list_passes_normalize;
+}
+
+void em_collision_world_unload(void)
+{
+    em_actor_cells_free(&w.cells);
+    em_coll_probe_grid_free(&w.grid);
+    memset(&w, 0, sizeof w);
+}
+
+int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, const char *cells_path,
+                            const char *sdk_path)
+{
+    em_collision_world_unload();
+    if (!emcl || !emcl->blob || !emcl_path || !cells_path || !sdk_path) {
+        fprintf(stderr, "collision world: no loaded EMCL\n");
+        return -1;
+    }
+    if (em_actor_cells_load(&w.cells, cells_path) != 0) {
+        fprintf(stderr, "collision world: the cell directory %s is missing or malformed "
+                        "(python3 tools/test_actor_collision_reference.py --export; STARTUP.md)\n",
+                cells_path);
+        em_collision_world_unload();
+        return -1;
+    }
+    if (em_coll_probe_grid_load(&w.grid, emcl, emcl_path) != 0) {
+        fprintf(stderr, "collision world: %s has no node class / rank section (EMCL flags 7: "
+                        "export_collision.py --node-class; STARTUP.md)\n", emcl_path);
+        em_collision_world_unload();
+        return -1;
+    }
+    if (em_sdk_math_original_load_export(sdk_path, &w.tables, &w.d26C5D0) != 0) {
+        fprintf(stderr, "collision world: the SDK math tables %s are missing or invalid "
+                        "(tools/export_sdk_math_tables.py)\n", sdk_path);
+        em_collision_world_unload();
+        return -1;
+    }
+    w.math.tables = &w.tables;
+    w.math.world.d26C5D0 = &w.d26C5D0;
+    /* AREA11's directory has no static cell (word 0 has no bit 31), so no
+     * D_0024D7C0 kind view is needed; reaching one faults. */
+    w.acw = (EmActorCollisionWorld){ &w.cells, &w.lists, emcl, NULL, 0 };
+    w.probe = (EmCollProbeWorld){ &w.acw, &w.grid };
+    /* The hull locks 001A6440 / 001A6AD0 (mask bit 0) are not translated:
+     * no workers, so a query with bit 0 faults. */
+    w.seg = (EmCollSegment){ &w.probe, &w.math, NULL, &w.state, &w.face };
+    bind_passes();
+    w.loaded = 1;
+    return 0;
+}
+
+int em_collision_world_loaded(void)
+{
+    return w.loaded;
+}
+
+void em_collision_world_lists_reset_001AF8E0(void)
+{
+    em_actor_class_lists_reset(&w.lists);
+}
+
+const EmActorClassLists *em_collision_world_lists(void)
+{
+    return &w.lists;
+}
+
+int em_collision_world_publish_001B1B70(const EmActor *actor)
+{
+    return em_actor_class_publish_001B1B70(&w.lists, actor);
+}
+
+int em_collision_world_retransform_001A2370(const EmActor *actor, const float matrix[16])
+{
+    if (!w.loaded || !actor || !matrix) return -1;
+    return em_actor_cells_retransform_001A2370(&w.cells, actor->uid, matrix);
+}
+
+/* The live list's original cursor: slot i sits at base - 4(i + 1), and the
+ * cursor names the newest slot. */
+static uint32_t cursor(uint32_t base, const EmActorClassList *list)
+{
+    return base - 4u * (uint32_t)list->live;
+}
+
+int em_collision_world_close_out_001AAD00(const EmSceneState *scene, int16_t d28A9A0, uint32_t *fault)
+{
+    if (fault) *fault = 0;
+    if (!w.loaded || !scene) {
+        if (fault) *fault = 0x001AAD00u;
+        return -1;
+    }
+    EmCollListGlobals *g = &w.globals;
+    const EmActorClassList *l = w.lists.list;
+    g->d275BB0 = cursor(BASE_CLASS1, &l[EM_ACTOR_LIST_CLASS1]);
+    g->d275BB8 = l[EM_ACTOR_LIST_CLASS1].live;
+    g->d275BA0 = cursor(BASE_CLASS_D, &l[EM_ACTOR_LIST_CLASS_D]);
+    g->d275BA8 = l[EM_ACTOR_LIST_CLASS_D].live;
+    g->d275B90 = cursor(BASE_CLASS2, &l[EM_ACTOR_LIST_CLASS2]);
+    g->d275B98 = l[EM_ACTOR_LIST_CLASS2].live;
+    g->d275B80 = cursor(BASE_CLASS4, &l[EM_ACTOR_LIST_CLASS4]);
+    g->d275B88 = l[EM_ACTOR_LIST_CLASS4].live;
+    /* 0x70003B86 / 0x70003B88 are the walkers' span words too: one storage
+     * (docs/COLL_LIST_PASSES.md section 4 item 5). */
+    g->s3B86 = w.state.span_lo;
+    g->s3B88 = w.state.span_hi;
+    g->s3B8D = scene->spad3B8D;
+    g->d28A9A0 = d28A9A0;
+    g->d810700 = scene->d810700;
+    g->d810702 = scene->d810702;
+    /* D_0081070A is not canonical yet; 001A8660 reads it only after the
+     * +0x34 behaviour, which faults (above), so the value is never read. */
+    g->d81070A = 0;
+    /* 0x700038A0..AC: written by 001A8660's knock-back only (never reached
+     * here, as above). */
+    memset(g->s38A0, 0, sizeof g->s38A0);
+    w.passes.fault = 0;
+    int result = em_coll_list_passes_001AAD00_hooks(&w.passes, EM_COLL_LIST_PLAYER);
+    w.state.span_lo = g->s3B86;
+    w.state.span_hi = g->s3B88;
+    if (result < 0) {
+        if (fault) *fault = w.passes.fault ? w.passes.fault : 0x001AAD00u;
+        return -1;
+    }
+    /* The list counts the passes may have shortened live in the globals;
+     * the passes only read the cursors and counts, so the lists are
+     * unchanged. Then the list block. */
+    em_actor_class_lists_swap_001AAD00(&w.lists);
+    em_collision_world_dump_if_requested();
+    return 0;
+}
+
+int em_collision_world_0019A910(const float from[3], const float to[3], unsigned mask,
+                                EmCollSegmentHit *hit)
+{
+    if (!w.loaded || !from || !to || !hit) return -1;
+    int result = em_coll_segment_0019A910(&w.seg, from, to, mask);
+    if (result < 0) return -1;
+    memset(hit, 0, sizeof *hit);
+    if (result && em_coll_segment_hit(&w.seg, hit) < 0) return -1;
+    return result;
+}
+
+int em_collision_world_0019B7D0(const float from[3], const float to[3], EmCollSegmentHit *hit)
+{
+    if (!w.loaded || !from || !to || !hit) return -1;
+    int result = em_coll_list_passes_0019B7D0(&w.grid, &w.state, from, to);
+    if (result < 0) return -1;
+    memset(hit, 0, sizeof *hit);
+    if (result && em_coll_segment_hit(&w.seg, hit) < 0) return -1;
+    return result;
+}
+
+/* 00179450's 0019BC40 over the world. The SDK workers record a fault in
+ * their context instead of returning one: checked after the call, so a
+ * faulted sqrt/atan fails the column (no value is used). */
+static int player_column(void *context, const float position[3], EmPlayerFloorTable *table)
+{
+    w.math.fault = 0;
+    int result = em_actor_collision_player_column(context, position, table);
+    return w.math.fault ? -1 : result;
+}
+
+int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, uint8_t cls)
+{
+    if (!w.loaded || !b) return -1;
+    w.probe_workers = (EmCollProbeWorkers){ &w.seg, em_coll_segment_face_worker,
+                                            em_coll_segment_round_worker };
+    w.probe_player = (EmCollProbePlayer){ &w.probe, &w.probe_workers, &w.state,
+                                          { self, cls, NULL } };
+    w.ground_player = (EmActorCollisionPlayer){ &w.acw, { self, cls, NULL }, NULL };
+    w.column_math = (EmCollColumnMath){ em_sdk_math_original_float_0011E748,
+                                        em_sdk_math_original_float_0011DBB8, &w.math };
+    w.column_player = (EmActorCollisionPlayerColumn){ &w.acw, &w.column_math };
+    b->ground = em_actor_collision_player_ground;
+    b->ground_context = &w.ground_player;
+    b->grid = w.acw.grid;
+    b->head = em_coll_probe_player_head;
+    b->object = em_coll_probe_player_object;
+    b->probe_context = &w.probe_player;
+    b->link_test = em_actor_collision_player_link;
+    b->link_context = &w.ground_player;
+    b->column = player_column;
+    b->column_context = &w.column_player;
+    return 0;
+}
+
+/* ---- instrumentation ------------------------------------------------------ */
+
+static void put_u32(FILE *f, uint32_t v)
+{
+    const uint8_t b[4] = { (uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24) };
+    fwrite(b, 1, 4, f);
+}
+
+static void dump(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fwrite("EMCW", 1, 4, f);
+    put_u32(f, 1);
+    put_u32(f, w.cells.size);
+    fwrite(w.cells.bytes, 1, w.cells.size, f);
+    const EmActorClassList *list = &w.lists.list[EM_ACTOR_LIST_CLASS4];
+    put_u32(f, (uint32_t)list->published);
+    for (int j = 0; j < list->published; ++j) {
+        const EmActor *a = em_actor_class_list_entry(&w.lists, EM_ACTOR_LIST_CLASS4, j);
+        put_u32(f, a ? (uint32_t)a->uid | (uint32_t)a->cls << 16 : 0xFFFFFFFFu);
+    }
+    fclose(f);
+}
+
+void em_collision_world_dump_if_requested(void)
+{
+    const char *path = getenv("EM_COLL_WORLD_DUMP");
+    if (!path || !*path || !w.loaded) return;
+    if (!w.dumped_first) {
+        char first[1024];
+        snprintf(first, sizeof first, "%s.first", path);
+        dump(first);
+        w.dumped_first = 1;
+    }
+    dump(path);
+}

@@ -5,8 +5,10 @@ Original executable SHA-256:
 
 Module: `src/game/em_actor_collision.{h,c}`, with query support added to
 `src/game/em_collision.{h,c}`. Oracle: `tools/test_actor_collision_reference.py`.
-Unit fixture: `tests/actor_collision_test.c`. Nothing here is wired into the live
-game yet. Section 7 says how the coordinator binds it.
+Unit fixture: `tests/actor_collision_test.c`. Since census L07 (2026-09-24) the
+publication half is live through `src/game/em_collision_world.{h,c}` (section 7
+has what is bound and what waits); the query half (0019AB20, 0019BC40) is bound
+only into the gated FLOOR mechanism.
 
 ## 1. What the original does
 
@@ -175,8 +177,10 @@ Corrections to the readable C (the `.s` is the authority):
 
 `python3 tools/test_actor_collision_reference.py --export [PATH]` writes the
 user's own directory bytes, by default to `assets/scene_snow/area11_cells.bin`
-(ignored). `em_actor_cells_load` reads that file. This is a stand-in until a
-dedicated exporter exists (section 7).
+(ignored). `em_actor_cells_load` reads that file at every AREA11 area build
+(`em_collision_world_load` in w_001AFCA0); since census L07 the asset is
+required (a missing file faults at 0x001AFCA0). The test is the exporter until a
+dedicated one exists.
 
 ## 4. Verification
 
@@ -288,11 +292,14 @@ bounds in the EMCL. The 3,099 EMCL grid planes equal the RAM nodes bit for bit.
   n-gon owner cells at their disc positions: door 5, elevator 13, truck 12,
   uid 15 6, pickups 48. `em_collision_segment_query`/`move_probe` walk them as
   static walls, but in the original they exist only while their owner
-  publishes, and at its current transform. They must leave the static walk
-  when `0019FE50`/`001A0B10` pass 2 is bound (section 7).
-- **The EMCL has no node class.** The EMCL lacks `EM_COLL_FLAG_NODE_CLASS`
-  (flags = 1), so a grid hit's class byte is unknown. The player adapter
-  faults on it instead of guessing (PLAYER_CLIMB_SLIDE.md §6 item 2).
+  publishes, and at its current transform. The live original queries (the
+  camera's 0019A910 / 0019B7D0, the item ray) walk the published cells
+  instead (section 7); the static walk remains only in em_collision.c, which
+  the port's own player movement and follow camera still use until
+  `0019FE50` / `001A0B10` pass 2 are bound for them.
+- **The EMCL node class (installed since census L07).** The installed EMCL
+  carries `EM_COLL_FLAG_NODE_CLASS` and the rank section (flags 7,
+  STARTUP.md step 13), so grid hits report the authored class byte.
 - **Stale doc.** TRUCK_ORIGINAL.md lists `001A2370` as not translated. It is
   translated now: `em_actor_collision_owner_hull`.
 - **Decomp defect: the NEARMISS C of `001A4030` (Extermination
@@ -332,68 +339,77 @@ bounds in the EMCL. The 3,099 EMCL grid planes equal the RAM nodes bit for bit.
 
 ## 6. Not translated (fail-stop or unbound)
 
-- **The horizontal and segment walkers' pass 2.** Each is listed with the prim
-  tests it calls:
-
-  | Walker | Round prims | Face prims | N-gons |
-  |---|---|---|---|
-  | `0019FE50` (`0019AD00` move probes) | `001A4830` | `001A4D10` | `001A4030` |
-  | `001A0B10` (`0019A570` segments) | `001A5C30` | `001A50A0` | `001A4030` |
-  | `001A1390` (camera) | | | |
-
-  Until those are bound, wall probes see only the EmCollCell faces that
-  `em_collision_cell_bind` binds, plus the stale set-2 polys above.
-- `001B17A0` / `001B1630` (render visibility), which gates the elevator,
-  pickup and drum publication.
-- The `D_00275B54/B58` list: nothing pushes to it in the translated code.
+- **The horizontal walkers' pass 2.** `0019FE50` (the `0019AD00` move probes) is
+  translated (docs/COLL_MOVE.md) but not bound: its grid pass `0019CB60` and the
+  hull lock `001A6440` have no translation. The segment (`001A0B10`) and camera
+  (`001A1390`) walkers are translated (docs/COLL_SEGMENT_WALKERS.md); the camera
+  one is live (section 7).
+- The `D_00275B54/B58` list: nothing pushes to it in the translated code
+  (`001B1CE0` has no translation; `001B17A0` reaches it only in D_00810CA5 mode 6
+  for classes 2/7/8/0xA).
 - The player's `+0x34` axis (surface 0x35): the adapter faults on it.
 
-## 7. Binding (for the coordinator)
+## 7. Binding (live since census L07, 2026-09-24, except where noted)
 
-1. **Storage.** One `EmActorCellTable`, loaded by `em_actor_cells_load` at area
-   load (w_001AFCA0 / the area load that installs `0x70003250`). One
-   `EmActorClassLists`, reset where w_001AFCA0 runs `001AF8E0`.
-   `EmActorCollisionWorld` = { table, lists, &the EMCL, NULL, 0 }. AREA11 needs
-   no static kinds.
-2. **Stage `w_001AAD00`.** Call `em_actor_class_lists_swap_001AAD00` after the
-   nine close-out hooks.
-   - Its FLAG80 list duplicates the interaction list that
-     `em_interaction_scene_publish` keeps. Use this module for class 4 and pick
-     one store for the rest.
-3. **Owner pool nodes.** Give each owner an `EmActorCollisionOwner` = { world,
-   lists, its EmActor, pool }.
-   - **Truck #24:** `EmTruckHooks.hull` = `em_actor_collision_owner_hull`,
-     `.hull_bounds` = `em_actor_collision_owner_hull_bounds`, `.publish` =
-     `em_actor_collision_owner_publish`.
-   - **Crates #12..15:** `.publish` = `em_actor_collision_owner_publish`,
-     `.probe` = `em_actor_collision_owner_probe`.
-   - **Drums #22..23:** `.contact` = `em_actor_collision_owner_contact`,
-     `.hull` = `em_actor_collision_owner_hull`, `.probe` =
-     `em_actor_collision_owner_probe`. `.visibility` still needs `001B17A0`.
-   - **Elevator (`0x827B10`), pickups (`00219550`), `0x825940`:** their modules
-     must call `em_actor_cells_retransform_001A2370`:
-     - the elevator and pickups with `+0xD0`, after `001C6380`;
-     - `0x825940` with its bone-3 matrix.
+`src/game/em_collision_world.{h,c}` owns the one world of the scene (AREA11
+only; a scene without an original roster keeps em_collision.c).
 
-     They then publish through `001B17A0` → `em_actor_class_publish_001B1B70`.
-     No such worker exists in em_elevator_* / em_pickup_* yet.
-4. **Player stage `w_0015BCF0`.** Bind `EmPlayerFloorWorkers.ground` and
-   `EmPlayerFallWorkers.ground` to `em_actor_collision_player_ground`, with
+1. **Storage (live).** One `EmActorCellTable` (`em_actor_cells_load` of
+   `assets/scene_snow/area11_cells.bin`) and one `EmActorClassLists`, loaded and
+   reset at w_001AFCA0 (001AF8E0's class-list half,
+   `em_collision_world_lists_reset_001AF8E0`); `EmActorCollisionWorld` = { table,
+   lists, &g.coll, NULL, 0 }. AREA11 needs no static kinds.
+2. **Stage `w_001AAD00` (live).** `em_collision_world_close_out_001AAD00`: the
+   nine hooks (docs/COLL_LIST_PASSES.md section 4), then
+   `em_actor_class_lists_swap_001AAD00`. Its FLAG80 list is the one store of the
+   interactive list: the host's Use scan and device lookup read it
+   (`published_view` in em_area11_interaction_host.c); the host's own list
+   swap and `em_interaction_scene_offer` / `_publish` are retired.
+3. **Owners.**
+   - **Panel 00159210, terminal 00827B10, the item owners 00219550 / 0015AFA0
+     (live).** Their 001B17A0 is `em_owner_services_001B17A0` (001B1630 =
+     `em_interaction_visible` on g.cam.eye / fwd); its `w_001B1B70` pushes the
+     owner's pool record (bound by its node, `em_area11_interaction_host_bind_actor`)
+     through `em_actor_class_publish_001B1B70`, after storing the owner's live
+     class byte into the record's +0x02. The terminal re-transforms cell 4 with
+     001A2370 over its 001C6380 matrix at state 0 (0x827C04) and at the ride's
+     completion (0x827E54, `EmElevatorHooks.retransform`; the carry 00828050
+     rebuilds only the matrix, so the cell keeps the upper floor's transform
+     during the ride). 00219550 re-transforms its cell at state 0 (after its
+     001C6380, before the 001C5570 child). `tools/test_collision_world_capture.py`
+     compares the live directory with route captures 00 and 04 byte for byte
+     (uids 4, 19, 21..25) and the last frame's published class-4 list with
+     beat 04's (the ported owners, in the original order).
+   - **Truck #24, crates #12..15, drums #22..23, `0x825940`, the prop 001C4820
+     (not bound; their owners are legacy or unbound: L23, L25, L24, L35).**
+     Their bindings, when those owners bind: the truck `EmTruckHooks.hull` /
+     `.hull_bounds` / `.publish` = `em_actor_collision_owner_hull` /
+     `_hull_bounds` / `_publish`; the crates `.publish` / `.probe`; the drums
+     `.contact` / `.hull` / `.probe` and `.visibility` = 001B17A0; `0x825940`
+     re-transforms with its bone-3 matrix. The original publishes these every
+     frame (route captures 00..05 hold uids 17, 14, 7..10, 5/6); the port's
+     class-4 list lacks them until then.
+4. **Player stage `w_0015BCF0` (bound into the gated FLOOR mechanism since
+   census L06/L07: `em_collision_world_bind_player`, called by
+   em_player_stage_live.c; FLOOR stays off until the SDK set, the display and
+   the closure callbacks exist).** Before any of this query half goes live
+   (FLOOR, or 001764E0's 001760C0 column, whose original is 0019AB20 with
+   mask 6 over at + (0, height, 0)), its prim tests 001A4030 / 001A4650 /
+   001A44B0 must be reduced to em_coll_probe_original's (001A4030 is live
+   under the camera's 0019A910) and its float helpers and oracle harmonized
+   (EE_FLOAT_MODEL.md 5c): two live copies of one original are not allowed. `EmPlayerFloorWorkers.ground` and
+   `EmPlayerFallWorkers.ground` are `em_actor_collision_player_ground`, with
    context `EmActorCollisionPlayer` = { world, { player +0x14, player +0x02,
    NULL }, NULL }.
    - **Column worker.** `em_actor_collision_column_0019BC40` serves 00179450
      and the climb's 0015DF10. Its `EmCollColumnMath` is required (NULL or a
-     missing worker faults) and is bound to:
-     - `.sqrt` (0011E748): a wrapper returning `em_item_sdk_sqrt(x)`, the
-       nonnegative 0011CB90 path (the argument is nx·nx + nz·nz);
-     - `.atan` (0011DBB8): a wrapper around `em_director_original_0011DBB8`
-       with the tables from `em_director_original_load_atan_tables` over the
-       user's ELF. The argument is always finite here (at most
-       `0x7F7FC99E`). The worker returns a float, so on a negative return the
-       wrapper records the fault in its context, and the caller fails the
-       frame after the call returns; no value is substituted.
-     - Section 5 has the one-ulp open question on 0011DBB8's arithmetic
-       model.
+     missing worker faults). The FLOOR binding gives it the SDK 0011E748 and
+     0011DBB8 of `em_sdk_math_original` (the tables from the user's export);
+     they record a fault in their context, which the binding's column wrapper
+     checks after the call (a faulted sqrt/atan fails the column; no value is
+     substituted). Section 5 has the float-model question on this module's
+     own arithmetic (EE_FLOAT_MODEL.md 5c: its add/sub/div are not the
+     measured EE model yet, and its oracle shares that interpreter).
    - **`D_008104C4`: done (lane "player-states-live").** `00175CF0` stores
      `0x700031D4` in `+0x214` and reads `+0x214` again in the same call
      (section 1), inside `em_player_floor_apply`:
@@ -437,21 +453,19 @@ bounds in the EMCL. The 3,099 EMCL grid planes equal the RAM nodes bit for bit.
      - `em_actor_collision_player_link_kind`, the climb's +308 kind (2 for
        behaviour 00828700/00827880, 1 other, 0 none).
 
-     FIRST_CONTROL.md "Live player states" has the binding, and the gates
-     that keep it off until 0019B6C0/0019B8C0 and the EMCL node class exist.
+     FIRST_CONTROL.md "Live player states" has the binding and the gates that
+     keep FLOOR off (the collision prerequisites, 0019B6C0/0019B8C0 and the
+     EMCL node class included, are met since census L06/L07).
    - `0015BA50` copies `+0x214` to `+0x308` and clears it, at its original
      position in each player stage.
    - `EmTruckWorld.ground_kind` = `&((EmActor *)D_008104C4)->param` (+0x0D),
      or NULL when it is 0, with `D_008104C4` =
      `player_states_actor()->link_owner`. The truck arms on 9.
-5. **Makefile (not edited; hunk for the lead).**
-   - Add `src/game/em_actor_collision.c` to the game sources after
-     `src/game/em_collision.c`.
-   - Add `test-actor-collision-reference: python3
-     tools/test_actor_collision_reference.py`.
-   - Add a `test-actor-collision` target building `tests/actor_collision_test.c`
-     with `src/game/em_actor_collision.c src/game/em_collision.c
-     src/game/em_actor_pool.c -lm` and the sanitizer flags.
+5. **Makefile.** `src/game/em_actor_collision.c` (with the collision walkers
+   and em_collision_world.c) is in COMMON since census L07; the
+   `test-actor-collision` and `test-actor-collision-reference` targets exist.
 6. **Retire after binding.** The legacy `em_collision_moving_*` /
    `em_collision_blocker_*` registries and the EMCL set-2 static walk
-   (em_collision.h marks them).
+   (em_collision.h marks them) still serve the port's own player movement
+   (em_player.c's probes: census L05 waits on 0019CB60 / 001A6440) and the
+   port's follow camera (L13); they go when those bind.

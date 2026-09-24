@@ -521,10 +521,14 @@ node class is a data prerequisite; the rest are workers or callbacks.
 
 **Missing today** (the report prints exactly this):
 
-- 0019B6C0 and 0019B8C0 are untranslated. Their walkers are 001A2AE0 and
-  0019DF10, and 001A32C0 and 0019E640.
-- The EMCL lacks the node class: the exporter must write node +0x1B
-  (PLAYER_CLIMB_SLIDE.md section 6 item 2).
+- **Collision: met since census L06/L07 (2026-09-24).** In AREA11,
+  em_player_stage_live.c binds the ground (0019AB20), grid (the installed
+  flags-7 EMCL), head (0019B6C0), object (0019B8C0), link (00175640) and
+  column (0019BC40) workers over the collision world
+  (`em_collision_world_bind_player`). They run only when FLOOR engages; the
+  ground and column translations still use em_actor_collision.c's
+  truncating float helpers (EE_FLOAT_MODEL.md 5c) and 0019C830's KNOWN
+  INEXACT node order.
 - **Closure callbacks.** The adapters that exist:
   - 0x1C: `em_player_slide_live_state`. Its workers 00224B80, 00224290,
     0017C580, 0021D250, 0021D2E0 and 00178B90 are unbound, and its chained

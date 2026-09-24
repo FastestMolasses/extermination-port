@@ -17,7 +17,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
-           src/game/em_collision.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
+           src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c \
+           src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
+           src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c src/game/em_roger_assets.c \
            src/game/em_roger_runtime.c src/game/em_face_model.c src/game/em_player_face_host.c \
            src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
@@ -344,6 +346,12 @@ test-room-move-reference: $(BIN)
 # the whole route); live phases must pass in process and against the
 # original captures (tools/test_level_smoke.py), later phases report
 # NOT-LIVE with the step they wait on (docs/LEVEL_SMOKE.md).
+# Census L07: the live collision world's cells and class-4 list against the
+# route captures 00 / 04 (runs the level smoke once with EM_COLL_WORLD_DUMP).
+.PHONY: test-collision-world-capture
+test-collision-world-capture: $(BIN)
+	python3 tools/test_collision_world_capture.py
+
 .PHONY: test-level-smoke
 test-level-smoke: $(BIN)
 	mkdir -p build/level_smoke

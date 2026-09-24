@@ -135,6 +135,7 @@ def oracle(overlay, case, motion=None):
             elif pc == 0x1ba1f0: events.append(('tick',)); registers[2] = done
             elif pc == 0x1fbd50: events.append(('sound', registers[5], floats[12]))
             elif pc == 0x1c6380: events.append(('pose', load(ACTOR+0xb4)))
+            elif pc == 0x1a2370: events.append(('hull',))
             elif pc == 0x102958: events.append(('copy',))
             elif pc == VIRTUAL: events.append(('actor',))
             pc = registers[31] & 0xffffffff
@@ -177,7 +178,8 @@ POSE = C.CFUNCTYPE(None, C.c_void_p, C.c_float)
 EVENT = C.CFUNCTYPE(None, C.c_void_p)
 class Hooks(C.Structure):
     _fields_ = [('context', C.c_void_p), ('start', START), ('tick', TICK),
-                ('sound', SOUND), ('pose', POSE), ('copy', EVENT), ('actor', EVENT)]
+                ('sound', SOUND), ('pose', POSE), ('copy', EVENT), ('actor', EVENT),
+                ('hull', EVENT)]
 
 
 def main():
@@ -205,7 +207,8 @@ def main():
         hooks = Hooks(None, START(lambda _, address: events.append(('start', address))),
             TICK(tick), SOUND(lambda _, cue, radius: events.append(('sound', cue, bits(radius)))),
             POSE(lambda _, height: events.append(('pose', bits(height)))),
-            EVENT(lambda _: events.append(('copy',))), EVENT(lambda _: events.append(('actor',))))
+            EVENT(lambda _: events.append(('copy',))), EVENT(lambda _: events.append(('actor',))),
+            EVENT(lambda _: events.append(('hull',))))
         assert native.em_elevator_tick(C.byref(owner), powered, C.byref(hooks)) == 0
         actual = ((owner.phase,owner.armed,owner.lower,owner.timer,owner.level,
                    bits(owner.height), *(bits(v) for v in owner.heights)), events)
@@ -222,7 +225,7 @@ def main():
         events = []
         hooks = Hooks(None, START(), TICK(),
             SOUND(lambda _, cue, radius: events.append(('sound', cue, bits(radius)))),
-            POSE(lambda _, height: events.append(('pose', bits(height)))), EVENT(), EVENT())
+            POSE(lambda _, height: events.append(('pose', bits(height)))), EVENT(), EVENT(), EVENT())
         result = native.em_elevator_motion_tick(C.byref(state), lower,
             *(C.byref(value) for value in y), C.byref(hooks))
         actual = ((state.phase, state.ticks, bits(state.rate), *(bits(v.value) for v in y)), events, result)
@@ -243,7 +246,8 @@ def main():
     captured = [row['pos'][1] for row in rows[first:first+150]]
     state = Motion(0, 0, 0.0)
     y = [C.c_float(230.0), C.c_float(230.0), C.c_float(245.0)]
-    hooks = Hooks(None, START(), TICK(), SOUND(lambda *_: None), POSE(lambda *_: None), EVENT(), EVENT())
+    hooks = Hooks(None, START(), TICK(), SOUND(lambda *_: None), POSE(lambda *_: None), EVENT(), EVENT(),
+                  EVENT())
     carried, oracle_y = [], (0, 0.0, 230.0, 230.0, 245.0)
     oracle_phase = 0
     for call in range(151):

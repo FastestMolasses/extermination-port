@@ -138,6 +138,26 @@ and store. All EE COP1 and VU0 macro arithmetic goes through `em_ee_float.h`.
 
 ## 3. Binding (coordinator)
 
+**Live since census L06b (2026-09-24):** the collision world
+(`src/game/em_collision_world.{h,c}`) holds the one `EmCollProbeState`, the
+`EmCollSegmentFaceScratch`, the SDK context (the user's export; D_0026C5D0 from
+its window) and the `EmCollSegment` below, with no lock workers. Bound
+consumers of 0019A910 (mask 6): the 0018D330 prepass and 0018D910's AREA11
+bounds (em_camera.c `interaction_camera_query`, the `EmCameraProbeQuery`
+slot; its ground branch is 0019B7D0, docs/COLL_LIST_PASSES.md) and 00183EF0's
+item ray (the interaction host's `pickup_ray`, the `EmInteractionRaycast`
+slot: `hit` = result != 0, `flags` = the record's +0x1A halfword, `kind` =
+the result, `owner` = the hit owner's record, which the item's identity
+matches when the ray ends in its own published cell). The installed EMCL
+carries the rank section (flags 7). Not bound yet: 0019A570 and its walkers
+(the climb, the ledge catch, the drum and the shadow are not bound), the
+port's follow camera (L13; it still queries em_collision.c) and the lock
+workers 001A6440 / 001A6AD0 (untranslated). Evidence for the live binding:
+`tools/test_camera_interaction_fixture.py` runs the retarget over the
+captured scene's own cell directory and published class-4 list and matches
+the panel and refusal captures (the refusal's overhead point is now exact),
+and the level smoke's tick log is unchanged.
+
 **State.** One `EmCollProbeState` per scene (zeroed at area load) is the
 scratchpad: pass the SAME instance to the floor probes (docs/COLL_PROBES.md)
 and to every query here. Add one `EmCollSegmentFaceScratch` (0x70003600..,
@@ -152,9 +172,7 @@ EmCollSegment seg = { &probe_world, &math, &locks, &state, &face };
 
 `probe_world` is the `EmCollProbeWorld` of docs/COLL_PROBES.md section 4
 (cells: the directory, class lists and static kind view; grid: the rank
-view of an EMCL with flags 7). The installed `assets/scene_snow/snow.emcl`
-still has flags 1, so the grid walkers need the lead's re-export described
-there first.
+view of an EMCL with flags 7, installed since census L07).
 
 **Slots.**
 - `EmCollProbeWorkers` (the floor probes' surface walker, pass 2):
@@ -301,5 +319,5 @@ elevator 0x7AA880; 12,497 hit views matched. The synthetic sweep made 449
 - **The pass-2 repeat** after a hit (the hit register left at 3) stores the
   same values again; it cannot change a result, and it is kept as the
   original does it.
-- **Grid data** needs the EMCL rank section (flags 7), which the installed
-  asset does not yet carry (docs/COLL_PROBES.md section 3).
+- **Grid data** is the EMCL rank section (flags 7), installed since census L07
+  (docs/COLL_PROBES.md section 3).

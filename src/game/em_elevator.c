@@ -22,7 +22,7 @@ int em_elevator_tick(EmElevator *owner, int powered,
 {
     if (!owner || !hooks || !hooks->start_script || !hooks->tick_script ||
         !hooks->sound || !hooks->rebuild_pose || !hooks->copy_indicator_pose ||
-        !hooks->update_actor) return -1;
+        !hooks->update_actor || !hooks->retransform) return -1;
     if (owner->phase == 0) {
         if (owner->armed & 4) {
             hooks->start_script(hooks->context, powered ?
@@ -42,7 +42,8 @@ int em_elevator_tick(EmElevator *owner, int powered,
             if (powered) {
                 owner->lower = !owner->lower;
                 set_height(owner);
-                hooks->rebuild_pose(hooks->context, owner->height);
+                hooks->rebuild_pose(hooks->context, owner->height);   /* 0x827E48: 001C6380 */
+                hooks->retransform(hooks->context);                   /* 0x827E54: 001A2370 */
             }
         }
         hooks->copy_indicator_pose(hooks->context);

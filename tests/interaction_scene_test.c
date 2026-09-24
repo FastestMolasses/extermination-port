@@ -44,16 +44,17 @@ int main(int argc,char **argv)
     assert(!em_interaction_scene_role(&scene,EM_INTERACTION_PICKUP));
     uint8_t status[32],flags[32],armed[32]={0};
     int context;
-    const float position[3]={0,0,10},anchor[3]={0,0,0},forward[3]={0,0,1};
-    assert(em_interaction_scene_offer(&scene,pickup->source_id,position,anchor,forward)==-1);
-    assert(strstr(scene.error,"no live controller binding"));
+    /* The published list in publication order (the host fills list.active
+     * from the collision world's interactive list; census L07): 001B1DE0's
+     * pushes, then 001AAD00's publication, newest push first. */
     for (size_t i=0;i<scene.count;++i) {
         EmInteractionSceneOwner *owner=&scene.owners[i];
         status[i]=owner->initial_status;flags[i]=owner->class_flags;
         assert(em_interaction_scene_bind(&scene,owner->source_id,&context,&status[i],&flags[i],&armed[i]));
-        assert(em_interaction_scene_offer(&scene,owner->source_id,position,anchor,forward)==1);
+        const EmInteractionCandidate entry={owner,status[i],flags[i],&armed[i]};
+        em_interaction_list_push(&scene.list,&entry);
     }
-    em_interaction_scene_publish(&scene);
+    em_interaction_list_publish(&scene.list);
     assert(scene.list.active_count==11 && !scene.list.pending_count);
     /* Mutation AFTER publication proves canonical metadata is refreshed. */
     status[10]=2;

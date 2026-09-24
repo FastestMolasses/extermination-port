@@ -5,7 +5,8 @@ Date: 2026-09-23. Lane "coll-list-passes". Scope: census lane
 functions, 2,081 instructions: 7 stand-in, 7 missing), plus the two small
 queries that are the only callers of three of them (0019B7D0 and 0019BA80).
 
-Files (new, not yet in the build):
+Files (in the build since census L08, 2026-09-24; section 4 says what is
+bound):
 
 | File | Contents |
 |---|---|
@@ -19,9 +20,9 @@ come from the user's ELF and captured RAM at run time.
 
 ## 1. Status per function
 
-"Before" is the census row; "after" is what this lane delivers. Nothing here
-is bound into the live game (see section 4), so every row becomes
-**verified-unbound**, not live.
+"Before" is the census row; "after" is what this lane delivered. Since census
+L08 (2026-09-24) the nine hooks, 0019B7D0 and 0019E280 are live (section 4 and
+the census rows); the others stay verified-unbound.
 
 | Address | Decomp | Before | After | What it does |
 |---|---|---|---|---|
@@ -439,12 +440,15 @@ Results (2026-09-23, third fix round):
 
 ## 4. Binding notes (for the coordinator)
 
-Nothing is bound yet. What each translation replaces and what it needs:
+**Bound since census L08 (2026-09-24):** items 1 (the retarget's ground query)
+and 4 (the nine hooks), through `src/game/em_collision_world.{h,c}`; items 2
+and 3 are not bound. What each translation replaces and what it needs:
 
-1. **0019B7D0 / 0019E280** replace the `ground_only` branch of
-   `interaction_camera_query` in `em_camera.c`: it tests every attr-0x78 grid
-   poly without the rank gates and returns the first hit, while the original
-   takes the last accepted node of one rank span. Bind
+1. **0019B7D0 / 0019E280 (bound for the retarget).** `interaction_camera_query`'s
+   `ground_only` branch in `em_camera.c` is `em_collision_world_0019B7D0` when
+   the scene has the original world (the port's own attr-0x78 scan, which took
+   the first hit without the rank gates, stays only for scenes without one).
+   The follow camera core (L13) binds
    `em_coll_list_passes_camera_ground` (context `EmCollListPassesGround`: the
    world's `EmCollProbeGrid` and its one `EmCollProbeState`) as
    `EmCameraFollowWorkers.ground` (em_camera_follow_original, same
@@ -472,12 +476,26 @@ Nothing is bound yet. What each translation replaces and what it needs:
    `EmCollSegmentFaceScratch.cross[0]`). The pass-2 node walk around it
    (0019BC40's rank span and gates) is still the inexact walk of
    em_collision.c; that belongs to the 0019BC40 row, not this lane.
-4. **The nine hooks of 001AAD00**: `em_scene_bindings.c` reports 001AAD00 as
-   `UM_001AAD00` (unmirrored) and `em_render_frame.c` runs nothing. Bind
-   `em_coll_list_passes_001AAD00_hooks(passes, 0x008102B0)` at the start of
-   the close-out (`w_001AAD00` in em_scene_bindings.c), followed by the list
-   swap `em_actor_class_lists_swap_001AAD00`. This replaces the em_enemy.c
-   legacy pair/contact passes the census names for 001A8BE0 and 001A9000.
+4. **The nine hooks of 001AAD00 (bound).** `w_001AAD00` runs
+   `em_collision_world_close_out_001AAD00`: the nine hooks over the live
+   lists (cursor = base - 4 * live, count = live), then the list swap. The
+   bindings, as listed below: `bytes` gives no range (the live pool keeps
+   native records; a pass that reads a record faults), `d24A740` is an empty
+   view (0x440 bytes are not exported: 001A8660's table read faults, and it is
+   reached only after the fail-stop behaviour), every untranslated callee is
+   `em_coll_list_passes_unported*`, `normalize` is
+   `em_coll_list_passes_normalize`, the math is the world's SDK context,
+   0x70003B86 / 0x70003B88 are copied in from and back to the world's one
+   `EmCollProbeState` (item 5), 3B8D and the area bytes come from
+   em_scene_state(), D_0028A9A0 is the fade substate, and D_0081070A (not
+   canonical yet, read only after the fail-stop behaviour) is 0. The owners
+   the port runs publish class 4 and 7 only (the panel, the terminal, the
+   items), so the class-1, class-2 and class-0xD lists stay empty and the
+   passes walk nothing; the first owner that publishes one of those classes
+   (Roger, L22; the flame 008235F0) will reach the fail-stop memory until the
+   original-layout records exist. The em_enemy.c legacy pair/contact passes
+   still run for the port's own enemy owners (L25 retires them for the crates
+   and drums). The original list for reference:
    It needs:
    - `EmCollListMemory.bytes` over the original-layout bytes of the pool
      records, the player record and the records their +0x30 / +0x58 /
@@ -520,9 +538,9 @@ Nothing is bound yet. What each translation replaces and what it needs:
 
 ## 5. Limits
 
-- Nothing in this lane is live. Items 2 and 4 above need data the live port
-  does not keep yet (grid record bytes; original-layout actor records), and
-  item 4 needs the behaviour 0x00823580.
+- The hooks are live over empty class-1/2/0xD lists: records (item 4's
+  original-layout images), D_0024A740 and the behaviour 0x00823580 are
+  fail-stop. Item 2 needs the grid record bytes and its caller (L09).
 - Thirteen callees of the passes and the +0x34 behaviour are not translated.
   They are hooked in the oracle and bound as fail-stop workers; the census
   shows none of them on the route.

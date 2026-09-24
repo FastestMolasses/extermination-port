@@ -31,32 +31,7 @@ static int s_sdk_ready;
 
 int em_status_background_load_sdk(const char *path)
 {
-    enum { BASE = 0x0026C170, SIZE = 0x4E8 };
-    uint8_t header[16], *image = NULL;
-    FILE *file = path ? fopen(path, "rb") : NULL;
-    int ok = file && fread(header, 1, sizeof header, file) == sizeof header &&
-             !memcmp(header, "EMSM", 4) && header[4] == 1 && !header[5] && !header[6] &&
-             !header[7];
-    uint32_t base = ok ? (uint32_t)header[8] | (uint32_t)header[9] << 8 |
-                             (uint32_t)header[10] << 16 | (uint32_t)header[11] << 24
-                       : 0;
-    uint32_t size = ok ? (uint32_t)header[12] | (uint32_t)header[13] << 8 |
-                             (uint32_t)header[14] << 16 | (uint32_t)header[15] << 24
-                       : 0;
-    ok = ok && base == BASE && size == SIZE;
-    /* The ELF image the loader reads, holding only the exported window
-     * (file 0x300 = vram 0x00100000). */
-    if (ok)
-        image = calloc(1, EM_SDK_MATH_ELF_SIZE);
-    ok = ok && image && fread(image + (BASE - 0x00100000u + 0x300u), 1, SIZE, file) == SIZE &&
-         fgetc(file) == EOF;
-    if (ok) {
-        memcpy(image, "\x7F" "ELF", 4);
-        ok = em_sdk_math_original_load_tables(image, EM_SDK_MATH_ELF_SIZE, &s_tables) == 0;
-    }
-    free(image);
-    if (file)
-        fclose(file);
+    int ok = em_sdk_math_original_load_export(path, &s_tables, NULL) == 0;
     s_sdk_ready = ok;
     if (!ok)
         fprintf(stderr, "status background: the SDK sine tables %s are missing or invalid "

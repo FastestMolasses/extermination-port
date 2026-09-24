@@ -2,12 +2,15 @@
  * Live since WP-4 (docs/AREA11_INTERACTION_HOST.md): the scene bindings
  * load it at the AREA11 state-0 rebuild (after 001B6990), bind the panel
  * 00159210 (area11[18]) and terminal 00827B10 (area11[19]) pool nodes to
- * the panel/elevator ticks, install the Use and player-stage hooks, publish
- * at 001AAD00, route request-opened status screens through the status
- * functions below and tick the message at main-loop step F. */
+ * the panel/elevator ticks, install the Use and player-stage hooks, route
+ * request-opened status screens through the status functions below and tick
+ * the message at main-loop step F. Since census L07 the owners publish into
+ * the collision world's class lists (em_collision_world.h), which 001AAD00
+ * publishes; the Use scan reads its interactive list. */
 #ifndef EM_AREA11_INTERACTION_HOST_H
 #define EM_AREA11_INTERACTION_HOST_H
 
+#include "game/em_actor_pool.h"
 #include "game/em_elevator_runtime.h"
 #include "game/em_frame.h"
 #include "game/em_message_live.h"
@@ -75,8 +78,13 @@ int em_area11_interaction_host_elevator_state0(void);
 /* The panel pool record's original address (its +0x14), which 00157F60
  * stores in D_008106D0. */
 void em_area11_interaction_host_set_panel_address(uint32_t panel);
-/* 001AAD00's interactive-list swap. */
-void em_area11_interaction_host_publish(void);
+/* The pool record of the owner with EMIS id `source_id` (the panel, the
+ * terminal or an item owner), bound by its node's first call before any
+ * state-0 work (census L07): its 001B17A0 publication pushes this record onto
+ * the collision world's class lists, and 001A2370 re-transforms its cell.
+ * 0, or -1 fault (unknown owner, twice, or a placement that is not the
+ * owner's). */
+int em_area11_interaction_host_bind_actor(uint32_t source_id, EmActor *actor);
 /* Every AREA11 status screen (a pending request D_008106B0 != 0, or the
  * START/TRIANGLE hub): 0020E060 (open, 1 or -1), 0020CDC0 (page, 0 waiting
  * / 1 exit done / -1) and the status frames' draw. clear_route marks a

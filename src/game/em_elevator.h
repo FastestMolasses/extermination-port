@@ -26,6 +26,11 @@ typedef struct {
     void (*rebuild_pose)(void *context, float height);
     void (*copy_indicator_pose)(void *context);
     void (*update_actor)(void *context);
+    /* 001A2370(self, +0xD0) after the completion's 001C6380 (0x827E54):
+     * re-transform the owner's collision cell by its new matrix. The carry
+     * 00828050 rebuilds only the matrix (0x82812C), so the cell keeps the
+     * old floor's transform during the ride. */
+    void (*retransform)(void *context);
 } EmElevatorHooks;
 
 void em_elevator_init(EmElevator *owner, int lower);

@@ -181,10 +181,10 @@ ALLOWED = [
                "translation is unbound",
      "removed_by": "permanent (a per-call input); L15 fills it from em_scene_state() when it binds 00193EB0"},
     {"file": "game/em_coll_list_passes.h", "name": "s3B8D",
-     "reason": "EmCollListGlobals: the list passes' view of 3B8D, read only by the 001A8BE0 / "
-               "001A9F60 gates; the translation is unbound",
-     "removed_by": "permanent (a per-call input); L08 fills it from em_scene_state() when it binds the "
-                   "list passes"},
+     "reason": "EmCollListGlobals: the list passes' per-call view of 3B8D, read only by the 001A8BE0 / "
+               "001A9F60 gates; em_collision_world_close_out_001AAD00 fills it from em_scene_state() "
+               "before every 001AAD00 (census L08) and never stores it back",
+     "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_hang.h", "name": "scripted",
      "reason": "EmPlayerHangScene: 001647D0's per-call input, read once at entry through its scene "
                "worker; no worker it calls writes 3B8D (001647D0 is not on the census route)",

@@ -68,8 +68,10 @@
  *                            001D1EA0(0) in status state 3.
  *   status / game-over    -> see those sections below.
  *   w_001AFCA0            -> the port's native state-0 re-arm
- *                            (em_game_legacy_state0), the pool reset 001AF8E0,
- *                            then spad 31F4 = 0 (001AFCA0 stores it)
+ *                            (em_game_legacy_state0), the area's collision
+ *                            world (AREA11), the pool reset 001AF8E0 with its
+ *                            class-list half, then spad 31F4 = 0 (001AFCA0
+ *                            stores it)
  *   w_001B6990, w_001C1DC0, w_001C5C50 -> the pool spawns (S10b, above)
  *   w_001AFCF0, w_001AD140, w_001AD010 -> the S3 cores (design 10.1)
  *   r_0028A9A0            -> em_frame_transition()->substate
@@ -97,6 +99,7 @@
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
+#include "game/em_collision_world.h"
 #include "game/em_door.h"
 #include "game/em_game.h"
 #include "game/em_frame.h"
@@ -240,9 +243,8 @@ static const struct {
     [UM_0015C160] = {0x0015C160u, "player post-step (001DA6A0 or 0015BF90, then the +0x4C draw method); "
                                   "the port draws the player from its draw list"},
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
-    [UM_001AAD00] = {0x001AAD00u, "nine end-of-frame hooks and the class lists other than the "
-                                  "interactive list (the AREA11 interaction host publishes that one, "
-                                  "WP-4); no port counterpart"},
+    [UM_001AAD00] = {0x001AAD00u, "scene without an original roster: no collision world, so its "
+                                  "nine list-pass hooks and class lists have no port counterpart"},
     [UM_00119828] = {0x00119828u, "IOP command 0x16 with values other than (0/1, 0x3FFF, "
                                   "0x3FFF): 001FBC50 (status open) and 001FC280 (status close, "
                                   "spawn record +0x20 low half, 0x1999 in AREA11) send channels "
@@ -717,9 +719,9 @@ static int roster_scene(void)
 /* 0x1AE040 state 0, first callee. 001AFCA0 is 001AF5C0 (player wipe),
  * 001AF690, 001AF710, 001AF8E0 (pool reset), 001D0660, then spad 31F4 = 0
  * (design 2.3). The port's native re-arm stands in for the player wipe;
- * since S10b the pool half of 001AF8E0 runs here (its class-list half,
- * D_00275B54..BB8, belongs to the unported 001AAD00 owner, design 10.1).
- * The pool reset calls every live node's release hook. A scene without an
+ * since S10b the pool half of 001AF8E0 runs here, and since census L07 its
+ * class-list half (D_00275B54..BB8, the collision world's lists) with the
+ * area's collision world. The pool reset calls every live node's release hook. A scene without an
  * original roster also takes its legacy placement here (the manifest spawn,
  * the camera re-arm and the fixtures, in their old order); AREA11 is placed
  * by 001B07C0 (S12a). */
@@ -734,6 +736,18 @@ static int w_001AFCA0(void *ctx)
     em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
     em_game_legacy_state0();
+    /* Census L07: the collision world of the area. AREA11 installs its cell
+     * directory (*0x70003250), the EMCL rank section and the SDK tables and
+     * zeroes the walkers' scratchpad; a scene without an original roster has
+     * no original world (its callers keep em_collision.c). Before the player
+     * stage binds: its floor workers are this world's (FLOOR stays gated). */
+    if (roster_scene()) {
+        if (em_collision_world_load(&g.coll, g.coll_path, EM_COLLISION_WORLD_CELLS_PATH,
+                                    EM_COLLISION_WORLD_SDK_PATH) != 0)
+            return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
+    } else {
+        em_collision_world_unload();
+    }
     /* 001AF5C0 wipes the player record; the first stage's 0015C420 then
      * sets its spawn values (+4 = 1, +280, +204, +31B; player_states_reset
      * writes both), and the stage runs with its workers from the first
@@ -749,6 +763,7 @@ static int w_001AFCA0(void *ctx)
     }
     s_player_init_pending = 1; /* the 001AF5C0 wipe: player +4 = 0 */
     em_actor_pool_reset_001AF8E0(&s_pool);
+    em_collision_world_lists_reset_001AF8E0(); /* 001AF8E0's class-list half */
     em_area11_bindings_reset();
     s_pool_mode = POOL_NONE;
     s_state.spad31F4 = 0;
@@ -1209,7 +1224,9 @@ static int w_001AE6B0(void *ctx)
  *   001F0360           both   unmirrored
  *   0018B9C0(camera)   5E0    em_camera_0018B9C0
  *                      6B0    em_camera_0018B9C0_opening
- *   001AAD00           both   unmirrored
+ *   001AAD00           both   em_collision_world_close_out_001AAD00 (the
+ *                             nine list passes, then the list block; census
+ *                             L07/L08); unmirrored without a roster
  *   001D1EA0(1)        both   em_render_001D1EA0(1)
  */
 
@@ -1362,17 +1379,26 @@ static int w_0018B9C0(void *ctx, uint32_t actor)
     return -1;
 }
 
-/* 001AAD00: its interactive-list swap (D_00275B5C/B64 <- the list the
- * owners' 001B1B70 filled this frame) is the AREA11 interaction host's
- * publication (WP-4); the rest stays unmirrored. */
+/* 001AAD00 (census L07/L08): the nine list-pass hooks over this frame's
+ * live lists, then the list block (every class list, the interactive list
+ * D_00275B5C/B64 included, is published and its cursor reset), over the
+ * collision world the owners' 001B1B70 pushed into. A scene without an
+ * original roster has no collision world: unmirrored there. */
 static int w_001AAD00(void *ctx)
 {
     (void)ctx;
     if (!in_variant())
         return -1;
-    if (s_pool_mode == POOL_ROSTER)
-        em_area11_interaction_host_publish();
-    return unmirrored(UM_001AAD00);
+    if (s_pool_mode != POOL_ROSTER)
+        return unmirrored(UM_001AAD00);
+    uint32_t fault = 0;
+    if (em_collision_world_close_out_001AAD00(&s_state, (int16_t)em_frame_transition()->substate,
+                                              &fault) < 0) {
+        fprintf(stderr, "em_scene: 001AAD00: the collision close-out faulted at %08X\n",
+                (unsigned)fault);
+        return em_scene_fault(&s_state, fault ? fault : 0x001AAD00u, EM_SCENE_FAULT_WORKER_FAILED);
+    }
+    return 0;
 }
 
 /* 001D1EA0(1) ends both variants; status state 3 ends with 001D1EA0(0)

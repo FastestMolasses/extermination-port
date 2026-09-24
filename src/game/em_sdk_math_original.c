@@ -7,6 +7,10 @@
 
 #include "game/em_ee_float.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 typedef uint32_t F; /* binary32 bits */
 
 #define SIGN EM_EE_SIGN
@@ -1216,4 +1220,42 @@ int em_sdk_math_original_load_tables(const uint8_t *elf, size_t size, EmSdkMathT
     t.d26C650 = (uint64_t)word_at(elf, 0x0026C650u) | (uint64_t)word_at(elf, 0x0026C654u) << 32;
     *out = t;
     return 0;
+}
+
+/* ---- The local export (tools/export_sdk_math_tables.py) ---- */
+
+int em_sdk_math_original_load_export(const char *path, EmSdkMathTables *out, int32_t *d26C5D0)
+{
+    enum { BASE = 0x0026C170, SIZE = 0x4E8 };
+    if (!path || !out)
+        return -1;
+    uint8_t header[16], *image = NULL;
+    FILE *file = fopen(path, "rb");
+    int ok = file && fread(header, 1, sizeof header, file) == sizeof header &&
+             !memcmp(header, "EMSM", 4) && header[4] == 1 && !header[5] && !header[6] && !header[7];
+    uint32_t base = ok ? (uint32_t)header[8] | (uint32_t)header[9] << 8 |
+                             (uint32_t)header[10] << 16 | (uint32_t)header[11] << 24
+                       : 0;
+    uint32_t size = ok ? (uint32_t)header[12] | (uint32_t)header[13] << 8 |
+                             (uint32_t)header[14] << 16 | (uint32_t)header[15] << 24
+                       : 0;
+    ok = ok && base == BASE && size == SIZE;
+    /* The ELF image the table loader reads, holding only the exported
+     * window (file 0x300 = vram 0x00100000). */
+    if (ok)
+        image = calloc(1, EM_SDK_MATH_ELF_SIZE);
+    ok = ok && image && fread(image + (BASE - 0x00100000u + 0x300u), 1, SIZE, file) == SIZE &&
+         fgetc(file) == EOF;
+    if (ok) {
+        memcpy(image, "\x7F" "ELF", 4);
+        ok = em_sdk_math_original_load_tables(image, EM_SDK_MATH_ELF_SIZE, out) == 0;
+        /* D_0026C5D0, the library's error mode (the wrappers' one mutable
+         * global): its initial .data value, inside the exported window. */
+        if (ok && d26C5D0)
+            *d26C5D0 = (int32_t)word_at(image, 0x0026C5D0u);
+    }
+    free(image);
+    if (file)
+        fclose(file);
+    return ok ? 0 : -1;
 }

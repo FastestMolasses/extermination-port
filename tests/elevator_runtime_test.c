@@ -10,7 +10,7 @@ typedef struct {
     EmInteractionRuntime interaction;
     EmElevatorRuntime elevator;
     float palette[22*16], player[3], eye[3], target[3];
-    int tick, acquired, released, palettes, idles, actors, poses;
+    int tick, acquired, released, palettes, idles, actors, poses, hulls, hull_tick;
     int entered, left, camera_sets, camera_publishes, chases;
     int message_started, message_complete, message_polls;
     int sound_tick, motion_tick, last_pose_tick, fail_camera;
@@ -93,6 +93,13 @@ static void indicator(void *context)
 { (void)context; }
 static void actor(void *context)
 { Fixture *f=context; ++f->actors; }
+/* 001A2370 follows only the completion's 001C6380 (0x827E48/0x827E54),
+ * never a carry rebuild. */
+static void hull(void *context)
+{
+    Fixture *f=context; ++f->hulls; f->hull_tick=f->tick;
+    assert(f->last_pose_tick==f->tick);
+}
 
 static void setup(Fixture *f, EmModel *model, const char *path, int lower)
 {
@@ -102,7 +109,7 @@ static void setup(Fixture *f, EmModel *model, const char *path, int lower)
     EmInteractionRuntimeHooks shared={f,acquire,idle,release,publish,event,NULL};
     assert(em_interaction_runtime_init(&f->interaction,&f->frame,model,f->palette,&shared));
     EmElevatorRuntimeHooks hooks={f,align_player,face_player,camera_set,
-        camera_publish,camera_chase,message_start,message_done,sound,pose,indicator,actor};
+        camera_publish,camera_chase,message_start,message_done,sound,pose,indicator,actor,hull};
     assert(em_elevator_runtime_load(&f->elevator,path,lower,&f->interaction,
         f->player+1,f->target+1,&hooks));
 }
@@ -168,6 +175,7 @@ static void run(EmModel *model, const char *path, int powered, int lower)
         assert(f.motion_tick==f.clip_end_tick+1);
         assert(f.completed_tick-f.motion_tick==153);
         assert(f.elevator.motion.ticks==150 && f.poses==151);
+        assert(f.hulls==1 && f.hull_tick==f.completed_tick);
         assert(f.elevator.owner.lower!=lower);
         assert(f.elevator.owner.height==(lower?230:190));
         /* Original00828050's 150 add.s steps with the EE guard-bit add:
@@ -183,7 +191,7 @@ static void run(EmModel *model, const char *path, int powered, int lower)
         assert(f.sound_tick<0 && f.motion_tick<0 && f.clip_commit_tick<0);
         assert(f.message_started==1 && f.message_polls==401 && f.chases==1);
         assert(f.elevator.owner.lower==lower && f.elevator.owner.sound_timer==300);
-        assert(!f.poses && !f.camera_sets && !f.camera_publishes);
+        assert(!f.poses && !f.hulls && !f.camera_sets && !f.camera_publishes);
     }
     printf("Elevator %s lower%d: commit%d end%d carry%d complete%d release%d PASS\n",
         powered?"powered":"refusal",lower,f.clip_commit_tick,f.clip_end_tick,

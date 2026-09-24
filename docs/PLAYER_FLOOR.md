@@ -176,13 +176,20 @@ em_player.c):
 
 - 0019AD00/0019AFE0 map to `em_collision_move_probe` (the movement
   walkers) plus the port's door hulls (`em_door_probe`, class 5) for mask
-  bit 0. The nearest hit wins.
+  bit 0. The nearest hit wins. (Census L05 is blocked: the translated walkers
+  need 0019CB60 and 001A6440, which have no translation; COLL_MOVE.md.)
 - 001760C0 maps to `em_collision_segment_query` over the column. The
-  original's 0019AB20 walkers 0019F730/0019C830 are not translated. The
-  segment walkers stand in for them; both are front-facing and nearest-first.
-- Published actor cell 18 (the battery panel) carries its owner bytes
-  +2/+3 = 0x84/0x24 from the captured playable RAM (owner 0x7AA590). Other
-  owners fault.
+  original's 0019AB20 (with 0019F730 / 0019C830) is translated in
+  em_actor_collision.c and runs over the collision world since census L07,
+  but it is not bound here: its prim tests are a second copy of
+  em_coll_probe_original's 001A4030 (live under the camera's 0019A910),
+  001A4650 and 001A44B0 (bound into the gated FLOOR probes) on the truncating float helpers
+  (EE_FLOAT_MODEL.md 5c), so em_actor_collision.c's query half and its oracle
+  must be harmonized, and its prim tests reduced to the one translation,
+  before it goes live. (A one-off differential run of the level smoke's
+  route gave the same result as the segment query on all 8,461 column
+  probes.) Published-cell hits carry the panel's captured owner bytes
+  (+2/+3 = 0x84/0x24, owner 0x7AA590); other owners fault.
 - Unbound workers are counted faults (`player_probe_faults`):
   - 00176180 hull shove;
   - 001762E0 area-2 shove;
@@ -318,9 +325,9 @@ The 001796C0 slide entry above (+237 from a class-0x1000 contact) is the
 AREA11 hill slide. For grid hits the class 00175CF0 records is the node's
 authored byte +0x1B (the result record is the node), not a normal-ratio
 class: in the captured AREA11 grid 18 nodes carry 0x1000, all on the hill.
-`EmCollPoly.pad` now carries that byte when the EMCL header sets
-`EM_COLL_FLAG_NODE_CLASS`; the exporter change is pending, so current assets
-keep the old normal-derived class. The slide state itself (0016C6A0) and the
+`EmCollPoly.pad` carries that byte when the EMCL header sets
+`EM_COLL_FLAG_NODE_CLASS`; the installed EMCL has it since census L07
+(`--node-class`, STARTUP.md step 13). The slide state itself (0016C6A0) and the
 Use-press climb (0015DF10, states 2/3) are translated and verified in
 `docs/PLAYER_CLIMB_SLIDE.md`. `em_player_floor.c` also exports the shared SDK
 helpers they use (`em_player_sdk_trs`, `em_player_sdk_yaw_matrix`,

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_collision_world.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
@@ -271,6 +272,14 @@ int em_player_stage_live_bind(void)
     b.stage.major_context[6] = &live.fade;
     b.load = w_load;
     b.takeover = w_takeover;
+    /* Census L06/L07: the floor service's collision workers over the area's
+     * original collision world, when it has one (AREA11). FLOOR itself stays
+     * gated (player_states_missing: the display, the closure callbacks and
+     * the SDK set are not bound yet). The live record's +0x02 is the query
+     * class (& 0x1F; 0 for the player). */
+    if (em_collision_world_loaded() &&
+        em_collision_world_bind_player(&b, player_states_actor(), player_states_actor()->bytes[2]) < 0)
+        return -1;
     player_states_bind(&b);
     return 0;
 }

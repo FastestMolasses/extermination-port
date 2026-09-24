@@ -57,6 +57,12 @@ typedef struct {
 /* Loads every table from the user's boot ELF (size and magic checked).
  * Returns 0, or -1. */
 int em_sdk_math_original_load_tables(const uint8_t *elf, size_t size, EmSdkMathTables *out);
+/* Reads the local export of that .data window (tools/export_sdk_math_tables.py:
+ * 'EMSM', version 1, base 0x0026C170, size 0x4E8, then the window) into the
+ * same tables. `d26C5D0` (may be NULL) receives the window's word at
+ * D_0026C5D0, the library's error-mode global in its initial .data value.
+ * Returns 0, or -1 (missing, malformed or wrong window). */
+int em_sdk_math_original_load_export(const char *path, EmSdkMathTables *out, int32_t *d26C5D0);
 
 /* The exception record 0011E620 / 0011E748 build on their stack and pass to
  * 0011DB90 (the original stack layout: +0 type, +4 name, +8 arg1, +0x10

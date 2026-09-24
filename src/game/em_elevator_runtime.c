@@ -86,6 +86,12 @@ static void update_actor(void *context)
     r->hooks.update_actor(r->hooks.context);
 }
 
+static void retransform(void *context)
+{
+    EmElevatorRuntime *r = context;
+    r->hooks.retransform(r->hooks.context);
+}
+
 static void start_script(void *context, uint32_t entry)
 {
     EmElevatorRuntime *r = context;
@@ -103,7 +109,7 @@ static int tick_script(void *context)
 static EmElevatorHooks owner_hooks(EmElevatorRuntime *runtime)
 {
     return (EmElevatorHooks){runtime, start_script, tick_script, sound,
-                             rebuild_pose, copy_indicator_pose, update_actor};
+                             rebuild_pose, copy_indicator_pose, update_actor, retransform};
 }
 
 static EmScriptCommandResult move(void *context, EmScript *script)
@@ -127,7 +133,7 @@ int em_elevator_runtime_load(EmElevatorRuntime *runtime, const char *path,
         !hooks->align_player || !hooks->face_player || !hooks->camera_set ||
         !hooks->camera_publish || !hooks->camera_chase || !hooks->message_start ||
         !hooks->message_done || !hooks->sound || !hooks->rebuild_pose ||
-        !hooks->copy_indicator_pose || !hooks->update_actor) return 0;
+        !hooks->copy_indicator_pose || !hooks->update_actor || !hooks->retransform) return 0;
     memset(runtime, 0, sizeof *runtime);
     runtime->interaction = interaction;
     runtime->player_ground_y = player_ground_y;

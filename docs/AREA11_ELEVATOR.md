@@ -39,8 +39,15 @@ bound. The real script must own when that final snap/toggle occurs.
 user's AREA11 overlay, including start/active/unknown phases, arm-bit values,
 both positions, power/completion combinations, signed counter boundaries and
 indicator levels. It compares owner fields, three patched script heights and
-sound/script/pose/indicator/actor callback order. Model allocation, script
-handlers, collision and final rendering are explicit external boundaries.
+sound/script/pose/indicator/actor callback order, and (census L07) the
+collision re-transform 001A2370 at the completion, right after its 001C6380
+(0x827E48/0x827E54): the owner's `EmElevatorHooks.retransform`, which the host
+binds to 001A2370 over the owner's 001C6380 matrix (its state 0 does the same
+at 0x827BF0/0x827C04). The carry 00828050 rebuilds only the matrix, so the
+cell stays at the old floor during the ride; the level smoke's run matches
+route captures 00 (upper) and 04 (lower) byte for byte in cell uid 4
+(`tools/test_collision_world_capture.py`). Model allocation, script handlers
+and final rendering are explicit external boundaries.
 The same target checks240 original00828050 carry cases and20 boot-handler
 command cases. Motion initialization chooses sound452/453 and waits one call;
 then each of150 calls independently truncates the platform+B4, player origin+A4
@@ -97,9 +104,10 @@ slot06, clears only the area power bit and arms the actual elevator owner.
 It does not write player pose or camera fields. The source archive hash is
 unchanged and the isolated emulator exits0. At yaw−1.3037610054016113, native
 eye/target coordinates, camera bounds and hit/probe/ground flags match the
-capture exactly. The native overhead collision result differs by one float
-ULP,0.000030517578125; that limitation is recorded under the existing camera
-collision tolerance. The panel fixture remains unchanged. Reproduce with
+capture exactly. The overhead collision result is exact too since census
+L06b: the probe's 0019A910 runs the translated walkers over the captured
+scene's own cell directory and published class-4 list (the port's own
+walker was one float ULP off). The panel fixture keeps its bound tolerance. Reproduce with
 `make test-camera-rotation-reference test-camera-interaction-fixture`.
 This is not a claim of complete camera-solver or PS2 hardware equivalence.
 

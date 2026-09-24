@@ -252,17 +252,20 @@ static int free_self_001AFC10(EmActor *actor);
  * calls are the owner update with its 001B17A0 publication; the take's
  * completion writes the child's +4 = 3 (the child then frees itself), and
  * the call after it frees the owner (00219550 state 3 / 0015AFA0 state 2:
- * 001AFC10). */
+ * 001AFC10). The record is bound to its host owner first (census L07: the
+ * owner publishes it and 001A2370 moves its collision cell); 00219550's
+ * state 0 runs 001C6380 and 001A2370 before the 001C5570 child spawn. */
 static int tick_pickup(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
     if (!node->ticked) {
+        if (em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0 ||
+            em_area11_interaction_host_pickup_state0(actor->source_id, actor->model, actor->param) < 0)
+            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                         "item owner state 0: the interaction host failed");
         if (actor->callback == 0x00219550u &&
             spawn_001C5570_child(actor, 0x73, 1, 0, &node->child) < 0)
             return -1;
-        if (em_area11_interaction_host_pickup_state0(actor->source_id, actor->model, actor->param) < 0)
-            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
-                         "item owner state 0: the interaction host failed");
         return 1;
     }
     int result = em_area11_interaction_host_pickup_tick(actor->source_id);
@@ -414,9 +417,11 @@ static int tick_truck(EmActor *actor, Node *node, const EmArea11World *world)
  * canonical D_0081084C bit 7 (em_game_terminal_powered), so any other bit
  * faults. Later calls are state 1, the original owner in the AREA11
  * interaction host (WP-4): em_area11_interaction_host_panel_tick runs
- * 00159210/00157860 and its 001B17A0 publication tail, in both variants.
- * grate_update keeps the port's static panel pose and binds the original
- * cell-18 collision (em_props.c) on every call, as it did before. */
+ * 00159210/00157860 and its 001B17A0 publication tail (census L07: the
+ * record bound at state 0 goes onto the collision world's lists, its cell
+ * uid 18), in both variants. grate_update keeps the port's static panel pose
+ * and binds cell 18 into the port's own collision world (em_props.c) for
+ * the port's own queries (player movement, follow camera) that still use it. */
 static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
@@ -433,6 +438,10 @@ static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
                 return -1;
         }
         em_area11_interaction_host_set_panel_address(address_of(actor));
+        /* Census L07: the record its 001B17A0 publishes (cell uid 18). */
+        if (em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0)
+            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                         "00159210 state 0: the interaction host failed");
         return 1;
     }
     if (em_area11_interaction_host_panel_tick() < 0)
@@ -456,9 +465,11 @@ static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
         if (s_scene->d810700 != 0x0B || actor->flags2 != 7)
             return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX,
                          "00827B10 reads a D_00810841 bit the port does not store");
-        /* 0x827B54..0x827BF0: +0xB4 from D_0081083A, then 001C6380,
+        /* 0x827B54..0x827BF0: +0xB4 from D_0081083A, then 001C6380 and
+         * 001A2370 (0x827C04, over the record bound here: census L07),
          * before the child spawn at 0x827C18. */
-        if (em_area11_interaction_host_elevator_state0() < 0)
+        if (em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0 ||
+            em_area11_interaction_host_elevator_state0() < 0)
             return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
                          "00827B10 state 0: the interaction host failed");
         if (spawn_001C5570(actor, 0x10, 0, 1) < 0)

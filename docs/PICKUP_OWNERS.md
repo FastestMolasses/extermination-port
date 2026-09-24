@@ -149,17 +149,27 @@ bits stay. At the pool node:
 Hooks: op0E sub1 is `em_pickup_turn` on the player heading; op00 sub8 is
 `em_pickup_camera_settle` on the actual target, then the 001DD980
 publication; PUBLISH is `em_owner_services_001B17A0` with 001B1630 on
-g.cam.eye/fwd and 001B1B70's interactive-list push (its class-4 cell push
-has no port counterpart: the port's collision world holds only the panel's
-cell); TAKE_SOUND is 001FBD50(owner, 0x194, 0, 300), whose cue has no
-exported AREA11 sample (WP-14): reported once and dropped, like the status
-page's system cues.
+g.cam.eye/fwd and 001B1B70 over the item's pool record (census L07: the
+collision world's class lists, the item's collision cell on the class-4
+list while its class is 4, the interactive list with class bit 0x80; the
+record's +0x02 is stored from the owner's class byte after every tick). State
+0 of 00219550 re-transforms the item's cell (001C6380 over the record's
++0xB0/+0xC0/+0x60, then 001A2370; src/func_00219550.c), before its 001C5570
+child. `tools/test_collision_world_capture.py` compares the live cells of
+uids 19 and 21..25 with route captures 00 and 04 byte for byte; TAKE_SOUND
+is 001FBD50(owner, 0x194, 0, 300), whose cue has no exported AREA11 sample
+(WP-14): reported once and dropped, like the status page's system cues.
 
 Use: the host's 00184BA0 predicate runs `em_interaction_pickup_candidate`
-for the items, with 0019A910 mode 6 as the port's camera segment query
-(mask 6: static cells, published actor cells, grid). An item is never its
-own hit owner there, because the port publishes no item cells; a static
-wall between the player's +16 and the item rejects as in the original.
+for the items, with 0019A910 mode 6 over the collision world (the translated
+walkers 001A1390 / 0019D770: the published class-4 cells and the grid). The
+item's identity is its pool record, so a ray that ends in the item's own
+published cell (kind 2, owner the item) accepts, as in the original; a
+published wall of another owner or a grid wall between the player's +16 and
+the item rejects. The crates, drums and truck do not publish their cells yet
+(L25, L23), so a ray through them is not rejected where the original would
+reject it (for example the item inside the crate at (311.6, 249.8, 328.7));
+the port's own walker did not see them either.
 
 ## Validation
 

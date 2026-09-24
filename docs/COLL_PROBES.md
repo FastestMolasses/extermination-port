@@ -162,8 +162,10 @@ The regenerated file differs from the current asset in three places:
 
 Every other byte is identical.
 
-**Not installed.** assets/scene_snow/snow.emcl still has flags 1. The authored
-class differs from the normal-derived class on 317 of the 3,099 grid nodes:
+**Installed since census L07 (2026-09-24).** assets/scene_snow/snow.emcl has
+flags 7 (STARTUP.md step 13; the collision world refuses an EMCL without the
+section). The authored class differs from the normal-derived class on 317 of
+the 3,099 grid nodes:
 
 | Derived class | Authored class | Nodes |
 |---|---|---|
@@ -175,9 +177,11 @@ class differs from the normal-derived class on 317 of the 3,099 grid nodes:
 | wall | ceiling | 2 |
 | down-slope | ceiling | 21 |
 
-The legacy port paths that read `EmCollHit.surf_class` from grid hits (the
-camera, em_game.c, em_player.c's FLOOR/SLOPE tests) will change behaviour.
-Installing is therefore the lead's step:
+The legacy port paths read `EmCollHit.surf_class` from grid hits (the camera,
+em_game.c, em_player.c's FLOOR/SLOPE tests). Installing changed none of them on
+the checked runs: newgame-control (9.599989) and its frame trace, and the level
+smoke's tick log, are byte-identical with the flags-1 and flags-7 files. The
+install command (it also rewrites the manifest's `collision` line, same value):
 
 ```
 cd ../Extermination && python3 tools/export_collision.py \
@@ -187,17 +191,19 @@ cd ../Extermination && python3 tools/export_collision.py \
   --node-class --verify-ram build/s87/route/06_hill_slide/eeMemory.bin
 ```
 
-After installing, re-run:
-- `EM_STARTUP_TEST=newgame-control` (displacement 9.599989);
-- the level smoke;
-- the camera tests;
-- test_actor_collision_reference.py, which compares classes when the flag is
-  set.
-
-The reference test then requires the installed file to be byte-identical to
-its own fresh export.
+The reference tests (test_coll_probe_reference.py and the other collision
+oracles) then require the installed file to be byte-identical to their own
+fresh export, and test_actor_collision_reference.py compares classes.
 
 ## 4. Binding (coordinator)
+
+**Bound since census L06 (2026-09-24), gated:** `em_collision_world_bind_player`
+(em_collision_world.c, called by em_player_stage_live.c at w_001AFCA0) sets
+`b.head` / `b.object` / `b.probe_context` as below, with 001A50A0 / 001A5C30 as
+the pass-2 workers, over the collision world's one state. FLOOR (00175900) stays
+gated off until the SDK set, the display and the closure callbacks exist, so
+these probes do not run live yet. Their grid walkers' helpers 0019F1A0 and
+0019ED80 do run live, under the camera's 0019A910 / 0019B7D0.
 
 The world and the persistent state:
 
@@ -248,14 +254,8 @@ The floor service's two workers (`EmPlayerStatesBinding`, em_player.h):
   001A5C30 (`round_segment`). With NULL workers, a probe that reaches one of
   them faults with −1 and leaves the state untouched. No AREA11 owner has a
   +0x54 kind of 0x5A or above, so the live AREA11 world never reaches them.
-- This clears `EM_PLAYER_NEED_HEAD` and `EM_PLAYER_NEED_OBJECT`.
-  `EM_PLAYER_NEED_NODE_CLASS` clears once the installed EMCL carries flag 2.
-- The binding still needs these corrections, which are not this lane's
-  files:
-  - FIRST_CONTROL.md "Missing today" still lists 0019B6C0/0019B8C0 and the
-    EMCL node class as missing;
-  - PLAYER_FLOOR.md and ACTOR_COLLISION.md (section 5, "The EMCL has no node
-    class") say the same.
+- This clears `EM_PLAYER_NEED_HEAD` and `EM_PLAYER_NEED_OBJECT`, and the
+  installed flags-7 EMCL clears `EM_PLAYER_NEED_NODE_CLASS` (census L06/L07).
 
 **Faults.** Each of these makes a probe fault with −1 and leave the caller's
 state as it was:

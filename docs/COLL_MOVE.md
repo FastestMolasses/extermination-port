@@ -5,8 +5,11 @@ Original executable SHA-256:
 
 Module: `src/game/em_coll_move_original.{h,c}`. Oracle:
 `tools/test_coll_move_reference.py`. Nothing here is wired into the live game
-yet. Section 4 says how the coordinator binds it, and section 4 item 2 lists the
-workers that must exist first.
+yet: census L05 (2026-09-24) found it **blocked** on two untranslated workers,
+0019CB60 and 001A6440 (section 4 item 2). The census rows of both were
+corrected from verified-unbound to missing: the oracle runs them as original
+instructions on both sides (a worker hook), which verifies the walkers around
+them but is not a translation. Section 4 says how the coordinator binds it.
 
 ## 1. What the original does
 
@@ -280,7 +283,17 @@ on 8 workers. The 06 route slice is the longest item.
      every time.
 
    Until these three exist, every player mask (6, 7, 0x80000006) faults, so
-   nothing may be bound live.
+   nothing may be bound live. Census L05 stopped here (2026-09-24): the world
+   the adapters need is live (`src/game/em_collision_world.c`: the cell
+   directory, the class lists the live owners publish into, the flags-7 grid),
+   so the remaining work is the translation of 0019CB60 (a rank-span grid
+   walk over 0019F1A0 / 0019ED80, like 0019D330, into this module's scratch)
+   and of 001A6440 (the class-2 list's +0x58 geometry chains; the port's
+   class-2 list is empty in AREA11 until Roger, L22, publishes), each with its
+   oracle extended from this test's worker harness, then the bindings of item
+   3. The port's player keeps `em_collision_move_probe` (em_player.c
+   `probe_move` / `probe_sweep`) until then; the fence door's hull (mask bit 0)
+   is the port's `em_door_probe` there.
 3. **Player stage (w_0015BCF0), context `EmCollMovePlayer`** = { world,
    scratch, `player_states_actor()` (the live record: +0x00, +0x02, +0x52),
    self = that same live pointer }.

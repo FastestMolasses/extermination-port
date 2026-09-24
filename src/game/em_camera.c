@@ -15,6 +15,7 @@
 #include "game/em_camera_rotation.h"
 #include "game/em_camera_probe.h"
 #include "game/em_camera_retarget.h"
+#include "game/em_collision_world.h"
 
 #include "game/em_game_internal.h"
 
@@ -1828,10 +1829,31 @@ static void cam_solver_0018D910(EmCamera *cam)
     cam->y_hi = hi;
 }
 
+/* The two queries of 0018D330's prepass and 0018D910's AREA11 bounds. With
+ * the scene's original collision world (AREA11, census L06b/L08) they are
+ * the translated 0019A910(from, to, 6) and 0019B7D0(from, to) over it; the
+ * probe reads the result, the hit point 0x700031B0 and the record's +0x1A
+ * halfword. A scene without an original world keeps the port's own query. */
 static int interaction_camera_query(void *context,const float from[3],
     const float to[3],int ground_only,EmCollHit *hit)
 {
     const EmCollision *world=context;
+    if (em_collision_world_loaded()) {
+        EmCollSegmentHit h;
+        int result=ground_only ? em_collision_world_0019B7D0(from,to,&h)
+                               : em_collision_world_0019A910(from,to,6,&h);
+        if (result<0) return -1;
+        memset(hit,0,sizeof *hit);
+        if (result) {
+            memcpy(hit->point,h.point,sizeof hit->point);
+            memcpy(hit->normal,h.record_normal,sizeof hit->normal);
+            hit->kind=result;
+            hit->poly=-1;
+            hit->surf_class=h.record_node;
+            hit->attr=(uint8_t)h.record_node;
+        }
+        return result;
+    }
     if (!world->blob) return -1;
     if (!ground_only)
         return em_collision_camera_query(world,from,to,6,hit);

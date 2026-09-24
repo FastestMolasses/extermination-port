@@ -114,7 +114,7 @@ static void run(const char *path, int powered, int lower)
     f.cue_frame = f.move_sound_frame = f.move_done_frame = -1;
     em_elevator_init(&f.owner, lower);
     f.owner.armed = 4;
-    f.owner_hooks = (EmElevatorHooks){&f,start,tick,sound,pose,noop,noop};
+    f.owner_hooks = (EmElevatorHooks){&f,start,tick,sound,pose,noop,noop,noop};
     EmElevatorProgramHooks hooks = {&f,frame,align,face,camera_set,camera_publish,
         chase,animation,animation_done,message,message_done,move};
     assert(em_elevator_program_load(&f.program, path, &f.owner, &hooks) == 0);

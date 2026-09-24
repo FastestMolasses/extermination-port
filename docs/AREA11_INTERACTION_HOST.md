@@ -31,19 +31,34 @@ landed"):
   pose at that height, before the child spawn (0x827C18). The manifest
   placement is always the upper floor, so an AREA11 rebuild after the ride
   would otherwise draw the elevator at 230 under an owner at 190. Each state-1 tick ends
-  with the owner's 001B17A0 publication (the 001B1630 cone/range gate, then
-  001B1B70), and 001AAD00 swaps the list in (`_publish`).
+  with the owner's 001B17A0 publication (census L07: the one translation,
+  `em_owner_services_001B17A0`, with the 001B1630 cone/range gate
+  `em_interaction_visible`, then 001B1B70 into the collision world's class
+  lists over the owner's pool record, which its node binds with
+  `em_area11_interaction_host_bind_actor` on its first call). 001AAD00
+  publishes the lists at the end of the frame (em_collision_world). The
+  terminal also re-transforms its collision cell (001A2370) at state 0
+  (0x827C04) and at the ride's completion (0x827E54).
 - **Items (WP-6).** The load binds the seven item owners (00219550 x6,
   0015AFA0) to `em_pickup_original` (taken ones are skipped); their pool
   nodes #0..#6 call `_pickup_state0` on the first call and
   `_pickup_tick` after it, each owner at its own position, publishing
-  through the translated 001B17A0 (docs/PICKUP_OWNERS.md). The host
+  through the translated 001B17A0 (docs/PICKUP_OWNERS.md); 00219550's state
+  0 re-transforms the item's collision cell (001C6380, 001A2370) before its
+  child spawn, and each tick stores the owner's class byte into the pool
+  record's +0x02 (0x87 armed, 4 at the completion). The host
   supplies their turn, camera-settle, status-request, aura (001F1180) and
   take-sound hooks; the take posts its original B0/B1 request.
 - **Use.** On D_00810E74 & 0x40 the hook runs 00184BA0 over the published
-  list (the panel's type-24 predicate, the elevator's selector-1 predicate,
-  the items' selector-3 predicate `em_interaction_pickup_candidate` with
-  0019A910 mode 6 as the port's camera segment query), arms the winner,
+  interactive list (census L07: the collision world's EM_ACTOR_LIST_FLAG80,
+  the one store, mapped record by record to the host's owners; a record the
+  host does not run is skipped only when its +0x00 bit 0 or +0x02 bit 7 is
+  clear, else it faults) with the panel's type-24 predicate, the elevator's
+  selector-1 predicate and the items' selector-3 predicate
+  `em_interaction_pickup_candidate`, whose 0019A910 mode-6 ray is the
+  translated walker over the collision world (the item's identity is its pool
+  record, which the ray's hit owner names when it ends in the item's own
+  cell). It arms the winner,
   claims the shared owner (3B8D = 3) and runs 001798D0: one pass, lowest
   score wins, a result of 2 commits at once. It returns 0 without a winner,
   so the player's own Use actions follow. The door and Roger are not in the

@@ -49,15 +49,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 212 | 22,111 | 190 (20,341) | 22 (1,770) |
-| verified-unbound | 300 | 46,036 | 284 (44,837) | 16 (1,199) |
-| unverified | 49 | 4,181 | 44 (3,445) | 5 (736) |
-| stand-in | 40 | 6,192 | 36 (6,074) | 4 (118) |
-| missing | 105 | 8,181 | 75 (6,476) | 30 (1,705) |
+| live | 238 | 25,924 | 216 (24,154) | 22 (1,770) |
+| verified-unbound | 290 | 43,688 | 274 (42,489) | 16 (1,199) |
+| unverified | 45 | 4,125 | 40 (3,389) | 5 (736) |
+| stand-in | 33 | 4,678 | 29 (4,560) | 4 (118) |
+| missing | 100 | 8,286 | 70 (6,581) | 30 (1,705) |
 | boundary | 478 | 25,063 | 199 (11,606) | 279 (13,457) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 706 non-boundary functions, 212 (30.0%) are live and verified; by instructions 22,111 of 86,701 (25.5%). One of them, 0015BCF0, is live only in part (its tail; the row says so). A further 300 functions (46,036 instructions) are verified translations waiting to be bound, which is where most of the remaining work is. The totals and the per-label table below are recounted from the section 3 rows (last recount 2026-09-24, after L01).
+Of the 706 non-boundary functions, 238 (33.7%) are live and verified; by instructions 25,924 of 86,701 (29.9%). One of them, 0015BCF0, is live only in part (its tail; the row says so). A further 290 functions (43,688 instructions) are verified translations waiting to be bound, which is where most of the remaining work is. The totals, the per-label table below and the section 3 subsection counts are recounted from the section 3 rows (last recount 2026-09-24, after census L05..L08; the subsection counts were also brought up to the rows the earlier steps had changed).
 
 ### 2.2 Per route label
 
@@ -67,28 +67,29 @@ Of the 706 non-boundary functions, 212 (30.0%) are live and verified; by instruc
 |---|---|---|
 | S0_title | 25 / 22 / 6 / 7 / 13 / 399 | 25 / 22 / 6 / 7 / 13 / 399 |
 | S1_newgame_load | 64 / 52 / 9 / 11 / 39 / 104 | 48 / 34 / 5 / 4 / 29 / 20 |
-| S2_opening | 137 / 174 / 34 / 25 / 57 / 153 | 89 / 134 / 30 / 18 / 48 / 44 |
-| S3_first_control_idle | 97 / 133 / 23 / 24 / 50 / 144 | 1 / 10 / 0 / 0 / 1 / 0 |
-| 00_panel_no_battery | 133 / 153 / 25 / 25 / 55 / 127 | 12 / 10 / 1 / 2 / 5 / 2 |
-| 01_battery | 154 / 171 / 27 / 28 / 59 / 184 | 22 / 4 / 0 / 3 / 3 / 5 |
-| 02_elevator_refusal | 134 / 163 / 26 / 25 / 55 / 132 | 2 / 9 / 1 / 0 / 0 / 5 |
-| 03_panel_power | 167 / 188 / 28 / 28 / 61 / 158 | 7 / 10 / 1 / 2 / 1 / 1 |
-| 04_elevator_ride | 126 / 164 / 27 / 25 / 55 / 163 | 1 / 1 / 0 / 0 / 0 / 2 |
-| 05_boxes | 112 / 179 / 23 / 27 / 55 / 126 | 1 / 18 / 0 / 3 / 1 / 0 |
-| 06_hill_slide | 107 / 154 / 22 / 25 / 55 / 126 | 0 / 11 / 0 / 0 / 1 / 0 |
-| 07_truck_preview | 119 / 150 / 27 / 25 / 56 / 144 | 0 / 0 / 0 / 0 / 1 / 0 |
-| 08_truck_crossing | 106 / 153 / 23 / 24 / 56 / 161 | 0 / 1 / 0 / 0 / 1 / 0 |
-| 09_fence_door | 133 / 166 / 32 / 26 / 63 / 135 | 3 / 3 / 2 / 1 / 0 / 0 |
-| 10_cage_roof_roger | 139 / 199 / 32 / 28 / 59 / 170 | 1 / 24 / 2 / 0 / 1 / 0 |
-| 11_crevice_prompt | 139 / 198 / 29 / 28 / 58 / 167 | 0 / 2 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 112 / 165 / 22 / 27 / 56 / 122 | 0 / 6 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 137 / 183 / 29 / 28 / 51 / 165 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 140 / 193 / 34 / 28 / 57 / 135 | 0 / 1 / 1 / 0 / 0 / 0 |
+| S2_opening | 161 / 161 / 31 / 21 / 53 / 153 | 113 / 121 / 27 / 14 / 44 / 44 |
+| S3_first_control_idle | 120 / 120 / 21 / 20 / 46 / 144 | 1 / 10 / 0 / 0 / 1 / 0 |
+| 00_panel_no_battery | 156 / 140 / 23 / 21 / 51 / 127 | 12 / 10 / 1 / 2 / 5 / 2 |
+| 01_battery | 178 / 157 / 25 / 24 / 55 / 184 | 23 / 3 / 0 / 3 / 3 / 5 |
+| 02_elevator_refusal | 159 / 148 / 24 / 21 / 51 / 132 | 3 / 8 / 1 / 0 / 0 / 5 |
+| 03_panel_power | 192 / 174 / 25 / 24 / 57 / 158 | 7 / 11 / 0 / 2 / 1 / 1 |
+| 04_elevator_ride | 152 / 148 / 25 / 21 / 51 / 163 | 1 / 1 / 0 / 0 / 0 / 2 |
+| 05_boxes | 137 / 167 / 21 / 20 / 51 / 126 | 1 / 21 / 0 / 0 / 1 / 0 |
+| 06_hill_slide | 132 / 140 / 20 / 20 / 51 / 126 | 0 / 11 / 0 / 0 / 1 / 0 |
+| 07_truck_preview | 142 / 139 / 24 / 21 / 51 / 144 | 0 / 1 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 130 / 140 / 21 / 20 / 51 / 161 | 0 / 1 / 0 / 0 / 1 / 0 |
+| 09_fence_door | 156 / 154 / 30 / 22 / 58 / 135 | 3 / 3 / 2 / 1 / 0 / 0 |
+| 10_cage_roof_roger | 162 / 191 / 29 / 21 / 54 / 170 | 1 / 24 / 2 / 0 / 1 / 0 |
+| 11_crevice_prompt | 161 / 190 / 27 / 21 / 53 / 167 | 0 / 2 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 134 / 157 / 20 / 20 / 51 / 122 | 0 / 6 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 159 / 174 / 27 / 21 / 47 / 165 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 163 / 185 / 30 / 21 / 53 / 135 | 0 / 1 / 1 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
 - The **backbone is live and verified**: the task chain and frame machine (001ACEC0, 001AD250, 0x1AE040, 001AE5E0/001AE6B0, 001AE7E0), the fades, the actor pool and roster, spawn placement, the load veil state machine, the input block, the panel/battery/elevator interaction host, the status page core and BATTERY page, the pose host, the motor, the wall probes and the point lights.
-- The **player, camera and collision run legacy code**, except the player stage itself: since L01 (2026-09-23) 0015BA50, 0015B130 and 0015BCF0's tail run every stage with the translated 0021C440, 0015D100 and 0015D000 around the port's idle/walk callbacks. The scripted takeover is still the interaction runtime's: it consumes the stage before 0015B130's prelude, so the bound prelude and +4 = 4 workers (00182B30, 00182D70, 0015B530, 001837A0) are not reached and stay verified-unbound. The other translations exist and are verified (FLOOR, fall, slide, climb, ladders, running jump, follow camera, AREA11 camera specials, move/probe/segment walkers, actor collision) but none is bound. Every route beat from 05 on depends on them.
+- **Collision (census L05..L08, 2026-09-24, partial):** the collision world is live in AREA11 (em_collision_world.c): the cell directory, the flags-7 EMCL grid ranks, the class lists the panel, terminal and items publish into (001B17A0, 001B1B70, 001A2370 re-transforms, compared byte for byte with route captures 00 and 04), 001AAD00's nine list passes and list block, and the translated 0019A910 / 0019B7D0 walkers under the scripted camera retarget and the item ray. The move walkers (L05) are blocked on two untranslated workers, 0019CB60 and 001A6440; the FLOOR probes (L06) and 0019AB20 / 0019BC40 are bound only into the gated FLOOR mechanism.
+- The **player, camera and collision run legacy code** for the player's movement and the follow camera, except the player stage itself: since L01 (2026-09-23) 0015BA50, 0015B130 and 0015BCF0's tail run every stage with the translated 0021C440, 0015D100 and 0015D000 around the port's idle/walk callbacks. The scripted takeover is still the interaction runtime's: it consumes the stage before 0015B130's prelude, so the bound prelude and +4 = 4 workers (00182B30, 00182D70, 0015B530, 001837A0) are not reached and stay verified-unbound. The other translations exist and are verified (FLOOR, fall, slide, climb, ladders, running jump, follow camera, AREA11 camera specials, move/probe/segment walkers, actor collision) but none is bound. Every route beat from 05 on depends on them.
 - The **set pieces after the elevator are verified but unbound**: truck, director beats, Roger, fan, door, crates and drums, pickups. Their live counterparts are the legacy stand-ins named in the tables.
 - The **true gaps** (missing) are concentrated in the effect manager and effect kinds, the render context / HUD bar path, the player equipment actors, a few animation-runtime leaves, the actor list passes and several startup/load helpers.
 
@@ -98,11 +99,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.1 Main-loop tasks, frame machine and fades (0x1AA200..0x1AEFFF)
 
-32 functions, 2,205 instructions: live 24, verified-unbound 2, unverified 4, missing 2.
+32 functions, 2,205 instructions: live 25, verified-unbound 1, unverified 4, missing 2.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001AAD00 | — | NM | verified-unbound | em_actor_collision — test_actor_collision_reference | em_area11_interaction_host_publish (Use list swap only; rest UM_001AAD00) | S2_opening |
+| 0x001AAD00 | — | NM | live | em_collision_world (em_coll_list_passes_001AAD00_hooks, em_actor_class_lists_swap_001AAD00) — test_actor_collision_reference.py, test_coll_list_passes_reference.py | w_001AAD00 in both variants (roster scenes): the nine hooks, then the list block; its interactive list is the Use scan's one store | S2_opening |
 | 0x001AB4E0 | — | BM | missing |  |  | S0_title |
 | 0x001AB590 | — | BM | missing |  |  | S0_title |
 | 0x001AB6A0 | — | BM | unverified | em_task.c | tests/task_test.c fixture only | S0_title |
@@ -137,7 +138,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.2 Actor pool, spawn placement and entity services (0x1AF000..0x1B0FFF)
 
-28 functions, 1,504 instructions: live 13, verified-unbound 9, stand-in 4, missing 2.
+28 functions, 1,504 instructions: live 14, verified-unbound 8, stand-in 4, missing 2.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -149,7 +150,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001AF780 | — | AW | verified-unbound | em_roger_actor_original, em_owner_services_original — test_owner_services_reference.py, test_roger_actor_original_reference.py |  | S2_opening |
 | 0x001AF800 | — | NM | live | em_actor_pool, em_status_scene_original — test_actor_census_reference.py, test_actor_pool_reference.py, test_status_scene_reference.py |  | S2_opening |
 | 0x001AF890 | — | CL | verified-unbound | em_roger_actor_original — test_roger_actor_original_reference.py |  | S2_opening |
-| 0x001AF8E0 | — | NM | live | em_actor_pool.c em_actor_pool_reset_001AF8E0 — test_actor_pool_reference; test_actor_census_reference |  | S1_newgame_load* |
+| 0x001AF8E0 | — | NM | live | em_actor_pool.c em_actor_pool_reset_001AF8E0, em_collision_world (class-list half) — test_actor_pool_reference; test_actor_census_reference; test_actor_collision_reference |  | S1_newgame_load* |
 | 0x001AFA50 | — | BM | live | em_actor_pool — test_actor_census_reference.py, test_actor_pool_reference.py |  | S1_newgame_load |
 | 0x001AFA90 | — | BM | live | em_actor_pool, em_player_closure_0e_18 — test_actor_census_reference.py, test_actor_pool_reference.py |  | S1_newgame_load |
 | 0x001AFBC0 | — | BM | live | em_actor_pool — test_actor_census_reference.py, test_actor_pool_reference.py |  | S2_opening |
@@ -193,7 +194,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.4 Player states (0x15B000..0x173FFF)
 
-34 functions, 10,019 instructions: live 2, verified-unbound 27, unverified 1, stand-in 4.
+34 functions, 10,019 instructions: live 7, verified-unbound 22, unverified 1, stand-in 4.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -249,7 +250,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001756E0 | — | NM | live | em_player_floor.c em_player_clearance_release (via em_player.c) — test_player_probe_reference |  | S2_opening |
 | 0x00175900 | — | NM | verified-unbound | em_player_floor.c floor service (gated) — test_player_floor_reference | em_player.c player_move_collide floor snap / PLAYER_FALL_ENTRY (port-side) | S2_opening |
 | 0x00175CF0 | — | NM | verified-unbound | em_player_floor.c floor service (gated) — test_player_floor_reference | em_player.c player_move_collide floor snap / PLAYER_FALL_ENTRY (port-side) | S2_opening |
-| 0x001760C0 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | em_player.c probe_column over em_collision_segment_query (not the 0019F730/0019C830 walkers) | S2_opening |
+| 0x001760C0 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | em_player.c probe_column over em_collision_segment_query; its original 0019AB20 over the collision world waits on em_actor_collision.c's harmonization (ACTOR_COLLISION.md section 7 item 4) | S2_opening |
 | 0x001762E0 | — | BM | live | em_player_floor.c wall probes — test_player_probe_reference | its area-2 target-shove worker faults if reached | 01_battery |
 | 0x00176390 | — | NM | live | em_player_floor.c em_player_wall_probes — test_player_probe_reference |  | 01_battery |
 | 0x001764E0 | — | NM | live | em_player_floor.c em_player_wall_probes — test_player_probe_reference |  | S2_opening |
@@ -304,8 +305,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00182F90 | — | BM | live | em_player_pose_host.c player_pose_align — test_player_pose_host_reference; test_interaction_alignment_reference |  | S2_opening |
 | 0x00183090 | — | BM | live | em_player_pose.c / em_interaction_animation.c commit — test_player_cinematic_reference |  | S2_opening |
 | 0x001837A0 | — | BM | verified-unbound | em_player_stage_live.c w_001837A0 (0015B530's +5 = 0 routine, bound by L01 but unreached) — the byte-matched src/func_001837A0.c is an empty function; test_player_stage_workers_reference hooks it as 0015B530's target | as 0015B530: the interaction runtime (player_pose_acquire / the takeover tick / player_pose_release) stands in for the takeover, so 0015B530 and its routines are not entered. Reached once the takeover moves onto the stage | S2_opening |
-| 0x00183EF0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_pickup.c / em_door.c legacy scans for the unpublished owners; published list holds only the panel and elevator (W22) | 00_panel_no_battery |
-| 0x00184BA0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_pickup.c / em_door.c legacy scans for the unpublished owners; published list holds only the panel and elevator (W22) | 00_panel_no_battery |
+| 0x00183EF0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_door.c / Roger legacy scans for the unpublished owners; the published interactive list (the collision world's, census L07) holds the panel, the terminal and the items (W22) | 00_panel_no_battery |
+| 0x00184BA0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_door.c / Roger legacy scans for the unpublished owners; the published interactive list (the collision world's, census L07) holds the panel, the terminal and the items (W22) | 00_panel_no_battery |
 | 0x00187350 | — | BM | verified-unbound | em_player_floor.c footstep (gated) — test_player_footstep_reference | em_player.c footstep_play (legacy clock) | S2_opening |
 | 0x00187DC0 | — | BM | verified-unbound | em_player_floor.c first contact (gated) — test_player_floor_reference |  | 08_truck_crossing |
 | 0x00187EE0 | — | BM | verified-unbound | em_player_floor — test_player_footstep_reference | em_player.c footstep_play | 00_panel_no_battery |
@@ -359,64 +360,64 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.7 Collision walkers (0x19A000..0x1A7FFF)
 
-38 functions, 9,919 instructions: verified-unbound 33, stand-in 5.
+38 functions, 9,919 instructions: live 11, verified-unbound 25, missing 2.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
 | 0x0019A180 | — | NM | verified-unbound | em_player_climb — test_player_climb_reference.py, test_player_recovery_reference.py | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x0019A310 | — | AW | verified-unbound | em_player_floor — test_player_floor_reference.py, test_player_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019A570 | — | NM | verified-unbound | em_coll_segment_walkers, em_weapon — test_coll_segment_walkers_reference.py, test_drum_original_reference.py, test_player_climb_reference.py | em_collision.c (the port's own segment/move/camera queries) | 02_elevator_refusal |
-| 0x0019A910 | — | NM | verified-unbound | em_coll_segment_walkers, em_camera_area11_specials — test_camera_area11_specials_reference.py, test_camera_follow_original_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019AB20 | — | NM | verified-unbound | em_actor_collision, em_player_misc_workers — test_actor_collision_reference.py, test_coll_probe_reference.py, test_crate_original_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019AD00 | — | NM | verified-unbound | em_coll_move_original, em_player_slide — test_coll_move_reference.py, test_player_climb_reference.py, test_player_closure_0e_18_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019AFE0 | — | NM | verified-unbound | em_coll_move_original, em_player_misc_workers — test_coll_move_reference.py, test_player_climb_reference.py, test_player_closure_0e_18_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019B6C0 | — | NM | verified-unbound | em_coll_probe_original, em_player_floor — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_player_floor_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019B7D0 | — | BM | verified-unbound | em_camera_follow_original, em_camera — test_camera_follow_original_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019B8C0 | — | NM | verified-unbound | em_coll_probe_original, em_player_floor — test_coll_probe_reference.py, test_player_floor_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
+| 0x0019A310 | — | AW | verified-unbound | em_player_floor — test_player_floor_reference.py, test_player_probe_reference.py | the floor service's slope angle; FLOOR gated | S2_opening |
+| 0x0019A570 | — | NM | verified-unbound | em_coll_segment_walkers, em_weapon — test_coll_segment_walkers_reference.py, test_drum_original_reference.py, test_player_climb_reference.py | in the build; its callers (the climb 00177F40, the ledge catch 0017D080, the drum, the shadow 0015BF90) are not bound; the port's player and weapon still use em_collision.c | 02_elevator_refusal |
+| 0x0019A910 | — | NM | live | em_coll_segment_walkers — test_coll_segment_walkers_reference.py, test_camera_interaction_fixture.py | 0018D330's prepass / 0018D910's AREA11 bounds (em_camera.c interaction_camera_query) and 00183EF0's item ray (the interaction host) over em_collision_world; the port's follow camera (L13) still uses em_collision.c | S2_opening |
+| 0x0019AB20 | — | NM | verified-unbound | em_actor_collision, em_player_misc_workers — test_actor_collision_reference.py, test_coll_probe_reference.py, test_crate_original_reference.py | bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist; not live: its prim tests duplicate em_coll_probe_original's (001A4030 live under 0019A910) on the truncating float helpers; harmonize with its oracle (EE_FLOAT_MODEL.md 5c) and reduce them to one before binding; 001764E0's 001760C0 column (em_player.c) and the crates (L25) keep em_collision.c / wait | S2_opening |
+| 0x0019AD00 | — | NM | verified-unbound | em_coll_move_original, em_player_slide — test_coll_move_reference.py, test_player_climb_reference.py, test_player_closure_0e_18_reference.py | not bound: its grid pass 0019CB60 and hull lock 001A6440 have no translation (the player's masks reach both); the port's player keeps em_collision.c's move probe | S2_opening |
+| 0x0019AFE0 | — | NM | verified-unbound | em_coll_move_original, em_player_misc_workers — test_coll_move_reference.py, test_player_climb_reference.py, test_player_closure_0e_18_reference.py | not bound (as 0019AD00) | S2_opening |
+| 0x0019B6C0 | — | NM | verified-unbound | em_coll_probe_original, em_player_floor — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_player_floor_reference.py | bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist | S2_opening |
+| 0x0019B7D0 | — | BM | live | em_coll_list_passes_walkers (em_coll_list_passes_0019B7D0) — test_coll_list_passes_reference.py, test_camera_interaction_fixture.py | 0018D330's attr-0x78 ground query in the scripted retarget; the follow camera core (L13) binds it as EmCameraFollowWorkers.ground later | S2_opening |
+| 0x0019B8C0 | — | NM | verified-unbound | em_coll_probe_original, em_player_floor — test_coll_probe_reference.py, test_player_floor_reference.py | bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist | S2_opening |
 | 0x0019BA80 | — | NM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference.py | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x0019BC40 | — | NM | verified-unbound | em_actor_collision, em_player_running_jump — test_actor_collision_reference.py, test_player_climb_reference.py, test_player_floor_reference.py | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x0019C830 | — | NM | verified-unbound | em_player, em_enemy — test_actor_collision_reference.py, test_coll_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019CB60 | — | NM | verified-unbound | em_coll_move_original — test_coll_move_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019D330 | — | NM | verified-unbound | em_coll_segment_walkers, em_enemy — test_coll_segment_walkers_reference.py, test_collision_reference.py | em_collision.c (the port's own segment/move/camera queries) | 02_elevator_refusal |
-| 0x0019D770 | — | NM | verified-unbound | em_coll_segment_walkers — test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019DF10 | — | NM | verified-unbound | em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019E280 | — | BM | stand-in |  | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019E640 | — | NM | verified-unbound | em_coll_probe_original — test_coll_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019E930 | — | NM | stand-in |  | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x0019ED80 | — | AW | verified-unbound | em_coll_probe_original, em_coll_segment_walkers — test_actor_collision_reference.py, test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019F1A0 | — | NM | verified-unbound | em_coll_probe_original, em_coll_segment_walkers — test_actor_collision_reference.py, test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019F330 | — | AW | stand-in |  | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x0019F730 | — | NM | verified-unbound | em_actor_collision, em_player — test_actor_collision_reference.py, test_coll_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x0019FE50 | — | NM | verified-unbound | em_coll_move_original — test_coll_move_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x001A0B10 | — | NM | verified-unbound | em_coll_segment_walkers, em_enemy — test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | 02_elevator_refusal |
-| 0x001A1390 | — | NM | verified-unbound | em_coll_segment_walkers — test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x001A2370 | — | NM | verified-unbound | em_actor_collision, em_truck_original — test_actor_collision_reference.py, test_truck_original_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x001A2AE0 | — | NM | verified-unbound | em_coll_probe_original, em_coll_segment_walkers — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x001A32C0 | — | NM | verified-unbound | em_coll_probe_original — test_coll_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x001A3980 | — | NM | stand-in |  | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x001A4030 | — | BM | verified-unbound | em_coll_probe_original, em_coll_move_original — test_actor_collision_reference.py, test_coll_move_reference.py, test_coll_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | 01_battery |
-| 0x001A4650 | — | AW | verified-unbound | em_coll_probe_original, em_actor_collision — test_actor_collision_reference.py, test_coll_probe_reference.py | em_collision.c (the port's own segment/move/camera queries) | 00_panel_no_battery |
-| 0x001A4D10 | — | AW | verified-unbound | em_coll_move_original — test_coll_move_reference.py, test_collision_faces_reference.py | em_collision.c (the port's own segment/move/camera queries) | 04_elevator_ride |
-| 0x001A50A0 | — | NM | verified-unbound | em_coll_segment_walkers, em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | 02_elevator_refusal |
-| 0x001A5760 | — | AW | verified-unbound | em_actor_collision — test_actor_collision_reference.py | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
-| 0x001A6440 | — | NM | verified-unbound | em_coll_move_original, em_enemy — test_coll_move_reference.py, test_coll_segment_walkers_reference.py | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
-| 0x001A7870 | — | NM | stand-in |  | em_collision.c (the port's own segment/move/camera queries) | S2_opening |
+| 0x0019BC40 | — | NM | verified-unbound | em_actor_collision, em_player_running_jump — test_actor_collision_reference.py, test_player_climb_reference.py, test_player_floor_reference.py | bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist; pass 2 is em_collision.c's KNOWN INEXACT walk | 05_boxes |
+| 0x0019C830 | — | NM | verified-unbound | em_collision.c em_collision_grid_vertical (via em_actor_collision) — test_actor_collision_reference.py, test_coll_probe_reference.py | 0019AB20's grid pass (KNOWN INEXACT node order); reached only through the gated FLOOR ground worker | S2_opening |
+| 0x0019CB60 | — | NM | missing |  | no native translation: test_coll_move_reference runs the original instructions as the move walkers' worker (a hook, not a translation); blocks L05 | S2_opening |
+| 0x0019D330 | — | NM | verified-unbound | em_coll_segment_walkers, em_enemy — test_coll_segment_walkers_reference.py, test_collision_reference.py | 0019A570's grid walker (not reached) | 02_elevator_refusal |
+| 0x0019D770 | — | NM | live | em_coll_segment_walkers — test_coll_segment_walkers_reference.py | 0019A910's grid walker | S2_opening |
+| 0x0019DF10 | — | NM | verified-unbound | em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | 0019B6C0's grid walker; bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist | S2_opening |
+| 0x0019E280 | — | BM | live | em_coll_list_passes_walkers — test_coll_list_passes_reference.py, test_camera_interaction_fixture.py | 0019B7D0's walker for 0018D330's ground probe (em_camera.c interaction_camera_query) | S2_opening |
+| 0x0019E640 | — | NM | verified-unbound | em_coll_probe_original — test_coll_probe_reference.py | 0019B8C0's grid walker; bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist | S2_opening |
+| 0x0019E930 | — | NM | verified-unbound | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | 0019BA80's grid walker; its caller 00176F90 (L09) is not bound | 05_boxes |
+| 0x0019ED80 | — | AW | live | em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_coll_list_passes_reference.py | the node test of the live grid walkers 0019D770 and 0019E280 | S2_opening |
+| 0x0019F1A0 | — | NM | live | em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_coll_list_passes_reference.py | the ranks of the live grid walkers 0019D770 and 0019E280 (the installed flags-7 EMCL) | S2_opening |
+| 0x0019F330 | — | AW | verified-unbound | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | 0019BC40 pass 2's crossing; em_collision.c column_node still stands in | 05_boxes |
+| 0x0019F730 | — | NM | verified-unbound | em_actor_collision — test_actor_collision_reference.py, test_coll_probe_reference.py | 0019AB20's cell pass; reached only through the gated FLOOR ground worker | S2_opening |
+| 0x0019FE50 | — | NM | verified-unbound | em_coll_move_original — test_coll_move_reference.py | not bound (as 0019AD00) | S2_opening |
+| 0x001A0B10 | — | NM | verified-unbound | em_coll_segment_walkers, em_enemy — test_coll_segment_walkers_reference.py | 0019A570's cell walker (not reached) | 02_elevator_refusal |
+| 0x001A1390 | — | NM | live | em_coll_segment_walkers — test_coll_segment_walkers_reference.py | 0019A910's cell walker over the published class-4 cells | S2_opening |
+| 0x001A2370 | — | NM | live | em_actor_collision (em_actor_cells_retransform_001A2370) — test_actor_collision_reference.py, test_collision_world_capture.py | the terminal 00827B10 (state 0, the ride's completion) and the items 00219550 (state 0) through em_collision_world; the truck (L23), the drums (L25) and 0x825940 (L24) wait on their owners | S2_opening |
+| 0x001A2AE0 | — | NM | verified-unbound | em_coll_probe_original, em_coll_segment_walkers — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | 0019B6C0's cell walker; bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist | S2_opening |
+| 0x001A32C0 | — | NM | verified-unbound | em_coll_probe_original — test_coll_probe_reference.py | 0019B8C0's cell walker; bound into the gated FLOOR mechanism (em_collision_world_bind_player, L06/L07); FLOOR stays off until the SDK set, the display and the closure callbacks exist | S2_opening |
+| 0x001A3980 | — | NM | verified-unbound | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | 0019BA80's cell walker; its caller 00176F90 (L09) is not bound | 05_boxes |
+| 0x001A4030 | — | BM | live | em_coll_probe_original — test_coll_probe_reference.py, test_coll_move_reference.py, test_actor_collision_reference.py | 001A1390's n-gon test (the terminal's and the items' cells); the copies in em_actor_collision.c (gated FLOOR, the truncating float model) and em_coll_move_original.c (unbound) are not live | 01_battery |
+| 0x001A4650 | — | AW | verified-unbound | em_coll_probe_original, em_actor_collision — test_actor_collision_reference.py, test_coll_probe_reference.py | the face test of 001A2AE0 / 001A32C0 (gated FLOOR) and 001A3980 (not bound) | 00_panel_no_battery |
+| 0x001A4D10 | — | AW | verified-unbound | em_coll_move_original — test_coll_move_reference.py, test_collision_faces_reference.py | 0019FE50's face test; not bound (as 0019AD00) | 04_elevator_ride |
+| 0x001A50A0 | — | NM | live | em_coll_segment_walkers, em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | 001A1390's face prim test (the panel's cell 18); also 001A2AE0's pass-2 worker (gated FLOOR) | 02_elevator_refusal |
+| 0x001A5760 | — | AW | verified-unbound | em_collision.c em_collision_column_box_face (via em_actor_collision) — test_actor_collision_reference.py | 0019BC40's face test; reached only through the gated FLOOR column worker | 05_boxes |
+| 0x001A6440 | — | NM | missing |  | no native translation: the move and segment oracles run the original as a worker, em_enemy.c only names it; blocks L05 | S2_opening |
+| 0x001A7870 | — | NM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
 
 ### 3.8 Actor list passes (0x1A8000..0x1AA1FF)
 
-9 functions, 738 instructions: stand-in 2, missing 7.
+9 functions, 738 instructions: live 8, verified-unbound 1.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001A8660 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | 07_truck_preview |
-| 0x001A8BE0 | — | BM | stand-in |  | em_enemy.c legacy pair/contact pass; actor list pass hooked by test_actor_collision_reference | S2_opening |
-| 0x001A8DA0 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | S2_opening |
-| 0x001A9000 | — | BM | stand-in |  | em_enemy.c legacy pair/contact pass; actor list pass hooked by test_actor_collision_reference | S2_opening |
-| 0x001A97B0 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | S2_opening |
-| 0x001A9B10 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | S2_opening |
-| 0x001A9D20 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | S2_opening |
-| 0x001A9F60 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | S2_opening |
-| 0x001AA140 | — | BM | missing |  | actor list swaps/passes of 001AAD00 (hooked in the actor-collision oracle) | S2_opening |
+| 0x001A8660 | — | BM | verified-unbound | em_coll_list_passes — test_coll_list_passes_reference.py | reached from the live 001A8BE0 only for a class-0xD type-1 entry; no owner the port runs publishes one (the flame 008235F0; its +0x34 behaviour 0x00823580 and D_0024A740 are fail-stop) | 07_truck_preview |
+| 0x001A8BE0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop); em_enemy.c's legacy contact pass still runs for the port's own enemy owners (L25) | S2_opening |
+| 0x001A8DA0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
+| 0x001A9000 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop); em_enemy.c's legacy contact pass still runs for the port's own enemy owners (L25) | S2_opening |
+| 0x001A97B0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
+| 0x001A9B10 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
+| 0x001A9D20 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
+| 0x001A9F60 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
+| 0x001AA140 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
 
 ### 3.9 Entity owners: crates, drums, panel, pickups (0x130000..0x15AFFF)
 
@@ -437,7 +438,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.10 Vector math and owner services (0x1B1000..0x1B4FFF)
 
-20 functions, 793 instructions: live 3, verified-unbound 11, unverified 5, stand-in 1.
+20 functions, 793 instructions: live 9, verified-unbound 9, unverified 1, stand-in 1.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -450,15 +451,15 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B1380 | — | AI | verified-unbound | em_script_host_workers, em_player_misc_workers — test_player_misc_workers_reference.py, test_script_host_workers_reference.py |  | S2_opening |
 | 0x001B1470 | — | BM | live | em_player_heading.c / em_camera.c cam_wrap_pi — test_player_heading_reference |  | S1_newgame_load |
 | 0x001B15D0 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference.py |  | S2_opening |
-| 0x001B1630 | — | NM | verified-unbound | em_owner_services_original — test_owner_services_reference | em_area11_interaction_host.c publication tail (panel and elevator only) | S2_opening |
-| 0x001B17A0 | — | BM | verified-unbound | em_owner_services_original — test_owner_services_reference | em_area11_interaction_host.c publication tail (panel and elevator only) | S2_opening |
+| 0x001B1630 | — | NM | live | em_interaction_scan (em_interaction_visible) — test_interaction_pickup_reference.py, test_owner_services_reference.py | 001B17A0's gate for the panel, the terminal and the items (g.cam.eye / fwd) | S2_opening |
+| 0x001B17A0 | — | BM | live | em_owner_services_original — test_owner_services_reference | the one 001B17A0 of the panel, the terminal and the items (the host's duplicate em_interaction_scene_offer is retired); the drums, the fan tail and Roger wait on their owners | S2_opening |
 | 0x001B1B30 | — | BM | unverified | em_door.c (legacy door) |  | S2_opening |
-| 0x001B1B70 | — | BM | verified-unbound | em_owner_services_original, em_actor_collision — test_actor_collision_reference.py, test_crate_original_reference.py, test_owner_services_reference.py |  | S2_opening |
-| 0x001B1CA0 | — | BM | unverified | em_actor_collision (list classes) | module not linked | 03_panel_power |
-| 0x001B1D20 | — | BM | verified-unbound | em_enemy, em_actor_collision — test_actor_collision_reference.py, test_drum_original_reference.py |  | S2_opening |
-| 0x001B1D60 | — | BM | unverified | em_actor_collision (list classes) | module not linked | S2_opening |
-| 0x001B1DA0 | — | BM | unverified | em_actor_collision (list classes) | module not linked | S2_opening |
-| 0x001B1DE0 | — | BM | unverified | em_actor_collision (list classes) | module not linked | S2_opening |
+| 0x001B1B70 | — | BM | live | em_actor_collision (em_actor_class_publish_001B1B70) — test_actor_collision_reference.py, test_owner_services_reference.py, test_collision_world_capture.py | 001B17A0's worker for the panel, the terminal and the items (their pool records); the crates, drums, truck and prop publish when L25/L23/L35 bind them | S2_opening |
+| 0x001B1CA0 | — | BM | verified-unbound | em_actor_collision (001B1B70's class 2/0xA push) — test_actor_collision_reference.py | bound in the live 001B1B70; no owner the port runs publishes class 2/0xA yet (Roger 008237E0, L22) | 03_panel_power |
+| 0x001B1D20 | — | BM | live | em_actor_collision (001B1B70's class-4 push; em_actor_class_push4_001B1D20) — test_actor_collision_reference.py, test_collision_world_capture.py | the cells of the panel, the terminal and the items; the crates, drums and truck wait on L25/L23 | S2_opening |
+| 0x001B1D60 | — | BM | live | em_actor_collision (001B1B70's class-7 push) — test_actor_collision_reference.py | the map item 0015AFA0 (class 0x87) and an armed 00219550 (0x87) | S2_opening |
+| 0x001B1DA0 | — | BM | verified-unbound | em_actor_collision (001B1B70's class-0xD push) — test_actor_collision_reference.py | bound in the live 001B1B70; no owner the port runs publishes class 0xD (the flame 008235F0's 001B17A0 is not bound) | S2_opening |
+| 0x001B1DE0 | — | BM | live | em_actor_collision (001B1B70's interactive push) — test_actor_collision_reference.py | the panel, the terminal and the items (class bit 0x80); the Use scan reads the published list | S2_opening |
 | 0x001B1E20 | — | BM | verified-unbound | em_owner_services_original, em_gamepad — test_owner_services_reference.py |  | S2_opening |
 | 0x001B1EA0 | — | AW | verified-unbound | em_director_original, em_manager_008257A0 — test_director_original_reference.py |  | S2_opening |
 
@@ -516,7 +517,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.13 Area services, child spawns, area title (0x1BC400..0x1C5FFF)
 
-21 functions, 1,659 instructions: live 5, verified-unbound 3, unverified 4, stand-in 3, missing 6.
+21 functions, 1,659 instructions: live 6, verified-unbound 2, unverified 4, stand-in 3, missing 6.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -544,7 +545,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.14 Animation runtime (0x1C6000..0x1CC16F)
 
-53 functions, 4,258 instructions: live 15, verified-unbound 31, unverified 1, missing 6.
+53 functions, 4,258 instructions: live 16, verified-unbound 30, unverified 1, missing 6.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -604,7 +605,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.15 Message glyphs, object registry and face (0x1CC170..0x1D19CF)
 
-15 functions, 1,896 instructions: live 3, verified-unbound 10, unverified 2.
+15 functions, 1,896 instructions: live 4, verified-unbound 9, unverified 2.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -761,7 +762,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.19 Streams, sound and message service (0x1F9000..0x1FDFFF)
 
-39 functions, 3,096 instructions: live 6, verified-unbound 26, stand-in 2, missing 5.
+39 functions, 3,096 instructions: live 14, verified-unbound 18, stand-in 2, missing 5.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -807,7 +808,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.20 Message draw (0x1FE000..0x1FEFFF)
 
-7 functions, 400 instructions: verified-unbound 7.
+7 functions, 400 instructions: live 4, verified-unbound 3.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -847,7 +848,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.22 Load veil, fog, stage workers, cinematic timeline (0x21B000..0x22FFFF)
 
-25 functions, 3,097 instructions: live 4, verified-unbound 15, missing 6.
+25 functions, 3,097 instructions: live 8, verified-unbound 11, missing 6.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -1086,15 +1087,15 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | # | Lane | Kind | Instr. | Functions (status mix) | Gates beats | Depends on |
 |---:|---|---|---:|---|---|---|
 | 1 | **L01-player-stage-live**: Engage the translated player stage (FLOOR gate): 0015BA50/0015B130/0015BCF0 and the stage workers, retire player_damage_tick. **Bound 2026-09-23 (partial):** 10 live (0015BCF0 tail only), 4 bound but unreached (0015B530, 001837A0, 00182B30, 00182D70: the interaction runtime still stands in for the scripted takeover and consumes the stage before 0015B130's prelude), 0015CF90 unverified (no oracle); the prelude on the port's idle/walk waits on 0017B490 (L12) | bind | 1,922 | 15 (live 10, verified-unbound 4, unverified 1) | every frame from first control; prerequisite of the floor, slide, climb, ladder and jump lanes | nothing (translations exist); retire em_player_damage.c copies in the same change (done) |
-| 2 | **L05-coll-move-walkers**: Replace em_collision movement queries with the translated move/sweep walkers | bind | 2,163 | 8 (verified-unbound 8) | every frame (player and camera movement queries) | nothing (em_coll_move_original verified) |
-| 3 | **L07-actor-collision-live**: Link em_actor_collision: grid/column scan, actor hulls, list classes and the 001AAD00 swap | bind | 2,224 | 13 (verified-unbound 9, unverified 4) | 05 (standing on crates), 08 (standing on the truck), 10 | L05 |
+| 2 | **L05-coll-move-walkers**: Replace em_collision movement queries with the translated move/sweep walkers. **BLOCKED (2026-09-24):** its grid pass 0019CB60 and hull lock 001A6440 were never translated (the oracle hooks the originals; rows corrected to missing), and the player's masks reach both; 001A4030 is live through 001A1390 (L06b) | translate+bind | 2,163 | 8 (live 1, verified-unbound 5, missing 2) | every frame (player and camera movement queries) | a translation of 0019CB60 and 001A6440 with their oracles (COLL_MOVE.md section 4 item 2) |
+| 3 | **L07-actor-collision-live**: Link em_actor_collision: grid/column scan, actor hulls, list classes and the 001AAD00 swap. **Bound 2026-09-24 (partial):** the world, the lists, 001AAD00 and the publication of the panel, terminal and items (001A2370 re-transforms equal the route captures) are live; 0019AB20 / 0019F730 / 0019C830 / 0019BC40 / 001A5760 are bound only into the gated FLOOR (their prim tests must first be reduced to em_coll_probe_original's and harmonized, EE_FLOAT_MODEL.md 5c); the class 2/0xA and 0xD pushes wait on owners that publish them; the crates, drums, truck and prop cells wait on L25/L23/L35 | bind | 2,224 | 13 (live 6, verified-unbound 7) | 05 (standing on crates), 08 (standing on the truck), 10 | L05 (queries), L25/L23 (owner cells) |
 | 4 | **L02-floor-fall-live**: Bind the floor service and fall check (00175900/001796C0) and the fall state, retiring the floor snap and PLAYER_FALL_ENTRY | bind | 1,755 | 14 (verified-unbound 14) | 05, 06, 08, 10 (step-offs, the cage-roof fall) | L01; L07 (column scan 0019BC40 and actor collision) |
 | 5 | **L04-box-climb**: Bind ledge climb / vault (0015DF10, 00161790) for the boxes | bind | 1,960 | 12 (verified-unbound 12) | 05 (climbing the boxes) | L01, L02, L05, L06 |
 | 6 | **L03-hill-slide**: Bind the slide state (0016C6A0 family) for the hill | bind | 1,560 | 8 (verified-unbound 8) | 06 (sliding down the hill) | L02 |
-| 7 | **L06-coll-probe-walkers**: Bind the translated probe walkers (em_coll_probe_original) | bind | 1,992 | 9 (verified-unbound 9) | every frame (probes); 05 | L05 |
-| 8 | **L06b-coll-segment-walkers**: Bind the translated segment walkers (em_coll_segment_walkers) | bind | 2,137 | 7 (verified-unbound 7) | every frame (camera and segment queries) | L05 |
+| 7 | **L06-coll-probe-walkers**: Bind the translated probe walkers (em_coll_probe_original). **Bound 2026-09-24 into the gated FLOOR** (em_collision_world_bind_player); 0019F1A0 / 0019ED80 are live under the camera's grid walkers | bind | 1,992 | 9 (live 2, verified-unbound 7) | every frame (probes); 05 | L02 (engages FLOOR) |
+| 8 | **L06b-coll-segment-walkers**: Bind the translated segment walkers (em_coll_segment_walkers). **Bound 2026-09-24 (partial):** 0019A910 and its walkers under the scripted retarget and the item ray; 0019A570 waits on its callers (climb, ledge catch, drum, shadow), the follow camera on L13 | bind | 2,137 | 7 (live 4, verified-unbound 3) | every frame (camera and segment queries) | L04/L25/L29 (0019A570's callers), L13 |
 | 9 | **L19-script-host**: Bind the area-script op handlers and write oracles for the unverified ones | bind+verify | 1,968 | 21 (verified-unbound 11, unverified 8, missing 2) | 07 (truck camera preview), 10, 11, 13, 14 | nothing |
-| 10 | **L20-message-service**: WP-8: extend the live panel message service (001FCA10) to every caller, with voice pushes and the stream table | bind | 997 | 18 (verified-unbound 16, stand-in 1, missing 1) | 10, 11 (director lines), 14 (Roger) | L19 |
+| 10 | **L20-message-service**: WP-8: extend the live panel message service (001FCA10) to every caller, with voice pushes and the stream table | bind | 997 | 18 (live 13, verified-unbound 3, stand-in 1, missing 1) | 10, 11 (director lines), 14 (Roger) | L19 |
 | 11 | **L23-truck**: WP-12: bind the truck and its camera trigger | bind | 1,461 | 3 (verified-unbound 2, missing 1) | 07, 08 (truck preview and crossing) | L02, L07, L19 |
 | 12 | **L17-pickups-use-arbiter**: WP-6: bind the pickup owners and publish them to the Use arbiter; retire the legacy take | bind | 1,069 | 10 (verified-unbound 6, unverified 3, stand-in 1) | 01 (battery pickup) and every other pickup | host (done) |
 | 13 | **L09-ladder-use-chain**: Bind the Use chain and ladder entry (0015D4C0, 00160220 whole, 00165B60) | bind | 2,069 | 10 (verified-unbound 10) | 05, 10, 13 (ladders and the Use chain) | L01, L02, L06 |
@@ -1102,7 +1103,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 15 | **L21-director-beats**: WP-10: manager 008253F0 and its beat scripts through the script host | bind | 410 | 9 (verified-unbound 9) | 10, 11 | L19, L20 |
 | 16 | **L22-roger-encounter**: WP-9: bind the Roger owner, equipment child and cutscene timeline | bind | 2,121 | 24 (verified-unbound 24) | 10, 14 (Roger) | L19, L20 |
 | 17 | **L11-running-jump-recovery**: Bind the running jump and recovery (0015EC50, 001634A0, 0017C860) | bind | 2,297 | 6 (verified-unbound 6) | 12 (crevice jump) | L02, L09 |
-| 18 | **L13-camera-follow**: Bind em_camera_follow_original (follow core) in place of em_camera.c camera_update | bind | 1,587 | 15 (verified-unbound 10, unverified 1, stand-in 2, missing 2) | every frame from first control | L06b (camera queries) |
+| 18 | **L13-camera-follow**: Bind em_camera_follow_original (follow core) in place of em_camera.c camera_update | bind | 1,587 | 15 (live 1, verified-unbound 9, unverified 1, stand-in 2, missing 2) | every frame from first control | L06b (camera queries) |
 | 19 | **L14-camera-solver-dd20**: Bind 0018DD20 (desired-eye solver) and retire the unverified duplicate; oracle 0018CE60 | bind | 2,051 | 2 (verified-unbound 1, unverified 1) | every frame from first control | L13 |
 | 20 | **L15-camera-actions**: Bind the camera action dispatch 0018BC20 and em_camera_area11_specials (001921D0, 00193EB0) | bind | 1,951 | 5 (verified-unbound 4, stand-in 1) | every frame from first control | L13 |
 | 21 | **L16-camera-area11-walk**: Bind 00195130 (AREA11 walking specials) and 001916C0; translate the 0015CBA0 state map | bind+translate | 1,843 | 3 (verified-unbound 2, stand-in 1) | every frame from first control (AREA11 walking specials) | L15 |
@@ -1113,17 +1114,17 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 26 | **L28-player-equipment**: Translate the player equipment/weapon actors (0018A6B0 nodes) and the gun tick | translate | 2,101 | 13 (verified-unbound 1, unverified 1, stand-in 3, missing 8) | every frame (rifle/knife children, gun tick, aim) | L01 |
 | 27 | **L26-effect-manager**: Translate the effect manager barrel and bind em_effect_original | translate+bind | 2,342 | 15 (verified-unbound 5, missing 10) | every frame (effects) | nothing |
 | 28 | **L27-effect-kinds**: Translate the effect kinds/tables and the effect colour | translate | 1,251 | 18 (unverified 1, missing 17) | every frame (effects); 00, 05, 06 (footstep and slide effects) | L26 |
-| 29 | **L08-coll-missing-and-list-passes**: Translate the untranslated collision originals and the actor list passes | translate | 2,081 | 14 (stand-in 7, missing 7) | every frame; 05, 07..14 | L07 |
+| 29 | **L08-coll-missing-and-list-passes**: Translate the untranslated collision originals and the actor list passes. **Translated 2026-09-23; bound 2026-09-24:** the nine hooks, 0019B7D0 / 0019E280 live; 001A8660 waits on a class-0xD owner (the flame), 0019E930 / 001A3980 on L09, 0019F330 on the column's pass 2 | bind | 2,081 | 14 (live 10, verified-unbound 4) | every frame; 05, 07..14 | L09, the flame owner, original-layout records for class 1/2/0xD |
 | 30 | **L29-shadow-route**: Bind the shadow actor route (0015BF90) and its packet producers | bind+verify | 974 | 7 (verified-unbound 6, unverified 1) | every frame from 02 (player shadow) | renderer |
 | 31 | **L29b-shadow-gs**: Bind em_shadow_original / em_shadow_gs (receiver passes, clip kernels) | bind+verify | 1,779 | 11 (verified-unbound 6, unverified 5) | every frame (shadow receivers) | L29-shadow-route |
 | 32 | **L32-frame-render-heads**: Replace the port collectors at 001D1C50/001D1EA0/001D30A0 and the projection with translations | translate | 1,545 | 18 (unverified 4, stand-in 7, missing 7) | every frame (frame setup, projection) | renderer |
 | 33 | **L30-render-context**: Translate the render-context / HUD bar / area-specials path | translate | 1,612 | 16 (unverified 1, missing 15) | every frame (render context, HUD bar) | renderer |
 | 34 | **L31-background-weather-load**: Bind em_background_gs and the area-load render passes (001C1DC0 family) | bind+verify | 932 | 17 (verified-unbound 7, unverified 5, missing 5) | S1 (area load), 09 (room move), every frame (background) | renderer |
 | 35 | **L33-anim-runtime-rest**: Translate the remaining animation-runtime originals and bind em_pose_host_workers | translate+bind | 1,819 | 22 (verified-unbound 15, unverified 1, missing 6) | every frame (animation) | nothing |
-| 36 | **L36-stream-lanes-sound**: Bind the stream lanes (music/voice) and the gain/positional sound originals | bind | 1,530 | 17 (verified-unbound 17) | every frame (music and voice streams) | IOP/disc boundary decisions |
+| 36 | **L36-stream-lanes-sound**: Bind the stream lanes (music/voice) and the gain/positional sound originals | bind | 1,530 | 17 (live 1, verified-unbound 16) | every frame (music and voice streams) | IOP/disc boundary decisions |
 | 37 | **L38-load-veil-particles**: Bind the load-veil particles (0021B1B0/0021B500) so the load is not black | bind | 1,074 | 16 (verified-unbound 16) | S1, 09 (loads) | nothing |
 | 38 | **L39-head-sprite-effects**: Bind the head-bone sprite effect (001E2560 node) and its registry helpers | bind | 868 | 12 (verified-unbound 12) | every frame (head-bone sprite) | renderer |
-| 39 | **L35-status-ui-leftovers**: Area-title card, UI cues, message lookup and the remaining owner-service leaves | translate | 943 | 25 (verified-unbound 12, stand-in 5, missing 8) | S2 (area title), 01, 03 (UI cues), owner services | L20 (message lookup) |
+| 39 | **L35-status-ui-leftovers**: Area-title card, UI cues, message lookup and the remaining owner-service leaves | translate | 943 | 25 (live 2, verified-unbound 10, stand-in 5, missing 8) | S2 (area title), 01, 03 (UI cues), owner services | L20 (message lookup) |
 | 40 | **L34-startup-and-load-gaps**: Close the title/New Game/load gaps (task table oracle, continue task, state-0 re-arm, sound-bank load) | translate+verify | 1,626 | 25 (verified-unbound 3, unverified 7, stand-in 5, missing 10) | S0..S2 (title, New Game, load, opening) | nothing |
 | 41 | **L37-sdk-math-leaves**: Bind the remaining SDK math / soft-float translations at their call sites | bind | 997 | 20 (verified-unbound 17, missing 3) | wherever the bound callers run | nothing |
 

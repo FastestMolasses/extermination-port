@@ -3,6 +3,9 @@
 
 Requires the ignored original animation snapshot and AREA11 collision export.
 This is a captured-scene regression, not exhaustive DD20/geometry equivalence.
+The probe's queries run over the collision world of the captured scene: the
+original's own cell directory and published class-4 list, read from the
+capture (census L06b/L08; tests/camera_interaction_fixture.c).
 """
 import ctypes as C
 import json
@@ -25,11 +28,17 @@ def main():
         '-Wl,-exported_symbol,_test_retarget','-Wl,-exported_symbol,_test_refusal','-O1','-g','-Isrc',
         'tests/camera_interaction_fixture.c','src/game/em_camera.c',
         'src/game/em_camera_probe.c','src/game/em_camera_retarget.c','src/game/em_camera_rotation.c',
-        'src/game/em_collision.c','-lm','-o',str(library)],cwd=ROOT,check=True)
+        'src/game/em_collision.c','src/game/em_collision_world.c','src/game/em_actor_collision.c',
+        'src/game/em_actor_pool.c','src/game/em_coll_probe_original.c','src/game/em_coll_segment_walkers.c',
+        'src/game/em_coll_list_passes.c','src/game/em_coll_list_passes_walkers.c',
+        'src/game/em_sdk_math_original.c','src/game/em_sdk_soft_float.c','src/game/em_effect_original.c',
+        '-lm','-o',str(library)],cwd=ROOT,check=True)
     native=C.CDLL(str(library))
-    native.test_retarget.argtypes=[C.c_char_p,C.c_char_p,C.POINTER(C.c_float)]
+    native.test_retarget.argtypes=[C.c_char_p,C.c_char_p,C.c_char_p,C.POINTER(C.c_float)]
     result=(C.c_float*12)()
-    assert native.test_retarget(str(capture).encode(),str(world).encode(),result)==1
+    # The captured scene's own cell directory is copied here (build/, ignored).
+    cells=output/'panel_cells.bin'
+    assert native.test_retarget(str(capture).encode(),str(world).encode(),str(cells).encode(),result)==1
     ram=capture.read_bytes();camera=0x8101E0
     expected=[struct.unpack_from('<f',ram,camera+offset+i*4)[0]
               for offset in (0x10,0x20) for i in range(3)]
@@ -47,8 +56,9 @@ def main():
     print('captured original panel camera fixture PASS',json.dumps(report))
     refusal=ROOT.parent/'Extermination/build/startup-reference/elevator/refusal/eeMemory.bin'
     assert refusal.is_file(),'Capture original refusal in fresh slot13 first'
-    native.test_refusal.argtypes=[C.c_char_p,C.c_char_p,C.POINTER(C.c_float)]
-    assert native.test_refusal(str(refusal).encode(),str(world).encode(),result)==1
+    native.test_refusal.argtypes=[C.c_char_p,C.c_char_p,C.c_char_p,C.POINTER(C.c_float)]
+    cells=output/'refusal_cells.bin'
+    assert native.test_refusal(str(refusal).encode(),str(world).encode(),str(cells).encode(),result)==1
     ram=refusal.read_bytes()
     expected=[struct.unpack_from('<f',ram,camera+offset+i*4)[0]
               for offset in (0x10,0x20) for i in range(3)]
@@ -59,11 +69,12 @@ def main():
     assert list(result[8:11])==expected[8:11],('refusal probe flags',list(result),expected)
     bound_error=max(abs(result[i]-expected[i]) for i in (6,7))
     assert bound_error<=0.00006103515625,('refusal bounds',list(result),expected)
-    # The existing native collision walker also supplies the overhead point.
-    # In this second fixture it differs by one float ULP; expose that error
-    # under the same collision-position tolerance used for the bounds.
+    # The overhead point is 0019A910's hit (0018D330's ceiling probe) over
+    # the captured collision world: since census L06b the translated walkers
+    # (em_coll_segment_walkers) supply it, and it is exact (the port's own
+    # walker, before, was one float ULP off here).
     overhead_error=abs(result[11]-expected[11])
-    assert overhead_error<=0.00006103515625,('refusal overhead',list(result),expected)
+    assert overhead_error==0,('refusal overhead',list(result),expected)
     report={'eye_and_target_exact':True,'hit_probe_and_ground_flags_exact':True,
             'max_bound_error':bound_error,'overhead_error':overhead_error,'distance':-20,
             'current_and_preset_distance':struct.unpack_from('<f',ram,camera+0xC)[0],
