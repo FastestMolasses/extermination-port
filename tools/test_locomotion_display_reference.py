@@ -27,7 +27,12 @@ The captured-image cases instead run the animation workers (001749F0,
 001749A0, 001C61D0, 001B0070) as ORIGINAL instructions on both sides (a
 nested original call with every hook lifted; on the native side over the
 native memory), so the real clip bank and node channels of the captured
-player drive the display. The test asserts that the hooked set is exactly the
+player drive the display. In those cases the heading worker (00174AC0) is
+bound as the binder will bind it: the original side runs 00174AC0 as
+original code with its whole call tree, the native side runs
+em_player_heading_record_worker_result over the native memory (the
+captured pad bytes D_00810E57/64/65, camera yaw D_008106A0, 0x70003B8D and
+the shared 0x70003A20 word). The test asserts that the hooked set is exactly the
 set of jal targets of the routines, so no callee runs unhooked by accident.
 
 Every case compares all 32 MB of RAM, the 16 KB scratchpad, the return value,
@@ -85,8 +90,10 @@ CALLEES = {0x1607D0: 'actions', 0x160220: 'ladder', 0x174AC0: 'heading', 0x174A5
            0x17C540: 'handoff', 0x17C440: 'reentry', 0x17B910: 'foot_stop', 0x1FB9F0: 'sound',
            0x1EFD90: 'effect', 0x1B1470: 'wrap', 0x1B0070: 'mode'}
 ADDRESS = {name: address for address, name in CALLEES.items()}
-# Run as original instructions (both sides) in the captured-image cases.
-ORIGINAL_IN_WORLD = ('arbiter', 'request', 'clip_frames', 'mode')
+# Run as original instructions (both sides) in the captured-image cases;
+# 'heading' runs as original code on the original side and as the
+# record-level em_player_heading_record on the native side.
+ORIGINAL_IN_WORLD = ('arbiter', 'request', 'clip_frames', 'mode', 'heading')
 
 D_B40, D_28A9A0, D_810E74, D_MODE = 0x275B40, 0x28A9A0, 0x810E74, 0x26C5D0
 D_AB0, D_740, D_870, D_7F40, D_8D40 = 0x248AB0, 0x248740, 0x248870, 0x287F40, 0x288D40
@@ -283,9 +290,11 @@ class Host(C.Structure):
 
 SOURCES = ('src/game/em_locomotion_display.c', 'src/game/em_pose_host_workers.c',
            'src/game/em_player_stage_workers.c', 'src/game/em_player_floor.c',
-           'src/game/em_player_reaction.c', 'src/game/em_owner_services_original.c',
+           'src/game/em_player_reaction.c', 'src/game/em_player_fall.c',
+           'src/game/em_owner_services_original.c',
            'src/game/em_stream_lanes_original.c', 'src/game/em_anim_runtime_rest.c',
-           'src/game/em_sdk_math_original.c')
+           'src/game/em_sdk_math_original.c', 'src/game/em_player_heading_record.c',
+           'src/game/em_script_host_workers.c', 'src/game/em_script.c')
 
 
 def build_native():
@@ -313,7 +322,24 @@ def build_native():
     n.em_loco_00103230.argtypes = [PU32, PU32, U32]
     n.em_anim_rest_sqrt_0011E748.argtypes = [VP, U32, PU32]
     n.em_sdk_math_original_load_tables.argtypes = [C.c_char_p, C.c_size_t, VP]
+    n.em_player_heading_record_worker_result.argtypes = [VP, VP, C.c_int, C.POINTER(C.c_int)]
     return n
+
+
+class HeadingWorld(C.Structure):
+    """EmPlayerHeadingRecordWorld, then EmPlayerHeadingRecord (the layout
+    test_player_heading_record_reference.py checks against the C)."""
+    _fields_ = [('spad3B8D', VP), ('d810E57', VP), ('d810E64', VP), ('d810E65', VP),
+                ('d8106A0', VP), ('spad3A20', VP), ('sdk_tables', VP), ('sdk_world', VP),
+                ('sdk_workers', VP)]
+
+
+class HeadingRecord(C.Structure):
+    _fields_ = [('world', HeadingWorld), ('fault_address', U32)]
+
+
+class HeadingSdkWorld(C.Structure):
+    _fields_ = [('d26C5D0', VP)]
 
 
 def addr(fn):
@@ -602,9 +628,26 @@ class Native:
     def w_heading(self, name):
         def run(_, actor, arg, result):
             self.log.append((name, self.ee_addr(actor), arg & MASK))
+            if name == 'heading' and name in self.original:
+                return self.bound_heading(actor, arg, result)
             result[0] = sx32(self.scripted(name)['ret'])
             return 0
         return run
+
+    def bound_heading(self, actor, arg, result):
+        """00174AC0 as the binder binds it: em_player_heading_record over
+        this image's globals and its 0x70003A20 word."""
+        if getattr(self, 'heading', None) is None:
+            w = HeadingWorld(self.sbase + 0x3B8D, self.base + 0x810E57, self.base + 0x810E64,
+                             self.base + 0x810E65, self.base + 0x8106A0, self.sbase + 0x3A20,
+                             C.addressof(SDK_TABLES), None, None)
+            self.heading_sdk = HeadingSdkWorld(self.base + D_MODE)
+            w.sdk_world = C.addressof(self.heading_sdk)
+            self.heading = HeadingRecord(w, 0)
+        # A fault returns -1 through the worker, so the routine stops and the
+        # case fails on its status (an exception here would be swallowed).
+        return LIB.em_player_heading_record_worker_result(C.addressof(self.heading), actor, arg,
+                                                          result)
 
     def w_floor(self, name):
         return self.w_heading(name)
@@ -762,7 +805,8 @@ def run_case(case):
         raise AssertionError((label, 'scratchpad', first_diff(ee.spad, native.spad)))
     if ee.mem != native.ram:
         raise AssertionError((label, 'RAM', first_diff(ee.mem, native.ram)))
-    return ee.outcomes, None, len(oracle.log)
+    headings = sum(1 for e in native.log if e[0] == 'heading') if 'heading' in original else 0
+    return ee.outcomes, None, len(oracle.log), headings
 
 
 def first_log_diff(a, b):
@@ -775,8 +819,8 @@ def first_log_diff(a, b):
 
 def run_case_safe(case):
     try:
-        outcomes, pcs, calls = run_case(case)
-        return ('ok', outcomes, pcs, calls)
+        outcomes, pcs, calls, headings = run_case(case)
+        return ('ok', outcomes, pcs, calls, headings)
     except AssertionError as error:
         return ('fail', case['label'], repr(error)[:1500])
 
@@ -864,11 +908,20 @@ def world_cases(label, rng):
          tag='walk2_resume', s1=1)
     case(WALK, [(0x6, 1, 1), (0x1F0, 1, 1), (0x1F1, 1, 1), (0x25C, 1, 1), (0x208, 4, F(0.25))],
          tag='walk1_display')
+    # The bound 00174AC0 with the stick held (the pad block's gait byte and
+    # stick bytes set, the record walking with +5 = 1): the moving and the
+    # standing turn, and the reversal gate that stores 0x70003A20.
+    gait, stick_x, stick_y = 0x810E57 - PLAYER, 0x810E64 - PLAYER, 0x810E65 - PLAYER
+    for tag, sub, g, x, y, speed in (('heading_walk1_g3', 1, 3, 0x80, 0x00, 0.8),
+                                     ('heading_walk1_g1', 1, 1, 0xFF, 0x80, 0.0),
+                                     ('heading_walk2_g2', 2, 2, 0x00, 0xFF, 0.3)):
+        case(WALK, [(0x5, 1, 1), (0x6, 1, sub), (0x1F0, 1, 1), (0x1F1, 1, 1), (0x38, 4, F(speed)),
+                    (gait, 1, g), (stick_x, 1, x), (stick_y, 1, y)], tag=tag)
     return cases
 
 
 QUICK_BEAT_TAGS = ('seed', 'world', 'entry', 'matrix_1_1_0', 'matrix_2_3_0', 'display1', 'walk2_resume',
-                   'walk1_display')
+                   'walk1_display', 'heading_walk1_g3', 'heading_walk1_g1', 'heading_walk2_g2')
 
 
 def image_list():
@@ -1073,13 +1126,17 @@ def main():
     assert not missing, ('branch outcomes never reached', missing[:20], len(missing))
     calls = sum(r[3] for r in unit_results)
     world_calls = sum(r[3] for r in world_results)
+    bound_headings = sum(r[4] for r in world_results)
+    assert bound_headings > 0, 'no captured-image case reached the bound 00174AC0'
     reference_mode.banner(
         reference_mode.part(len(selected), len(all_unit), 'unit cases'),
         '%d captured-image cases over %d images' % (len(world), len(IMAGES)),
         '%d leaf cases' % leaves, '%d fail-stop checks' % fail_stop)
     print('locomotion display reference: %d routines executed, %d callees checked, %d worker calls '
-          'compared (%d in captured images), every conditional branch both ways; %.1f s'
-          % (len(SIZES), targets, calls + world_calls, world_calls, time.time() - started))
+          'compared (%d in captured images, %d of them the record-level 00174AC0 bound as the '
+          'heading worker against the original 00174AC0), every conditional branch both ways; '
+          '%.1f s' % (len(SIZES), targets, calls + world_calls, world_calls, bound_headings,
+                      time.time() - started))
     return 0
 
 

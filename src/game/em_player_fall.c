@@ -79,14 +79,22 @@ int em_player_fall_workers_bound(const EmPlayerLandWorkers *w)
 
 /* ---- 00179880 ----------------------------------------------------------- */
 
+/* The one translation of 00179880(p, v): v is the record address p + at the
+ * caller passes (p + 0x2EC here and in the reaction / 10_12_19 lanes,
+ * p + 0x2E4 in the running jump's 001634A0). */
+void em_player_fall_00179880(EmPlayerLiveActor *a, unsigned at)
+{
+    uint32_t drop = em_ee_add_bits(w32(a, at), F_M0_04);               /* 00179894 */
+    put32(a, at, drop);                                                /* 001798AC */
+    if (em_ee_c_lt_bits(drop, F_M4))                                   /* 001798A0 */
+        put32(a, at, F_M4);                                            /* 001798B0 */
+    put32(a, 0xB4, em_ee_add_bits(w32(a, 0xB4), w32(a, at)));          /* 001798C0 */
+    put8(a, 0x25F, 2);                                                 /* 001798CC */
+}
+
 void em_player_fall_drop(EmPlayerLiveActor *a)
 {
-    uint32_t drop = em_ee_add_bits(w32(a, 0x2EC), F_M0_04);           /* 00179894 */
-    put32(a, 0x2EC, drop);                                             /* 001798AC */
-    if (em_ee_c_lt_bits(drop, F_M4))                                   /* 001798A0 */
-        put32(a, 0x2EC, F_M4);                                         /* 001798B0 */
-    put32(a, 0xB4, em_ee_add_bits(w32(a, 0xB4), w32(a, 0x2EC)));       /* 001798C0 */
-    put8(a, 0x25F, 2);                                                 /* 001798CC */
+    em_player_fall_00179880(a, 0x2EC);
 }
 
 /* ---- shared worker calls ------------------------------------------------ */
@@ -780,6 +788,25 @@ int em_player_fall_teleport(const EmPlayerLandWorkers *w, EmPlayerLiveActor *a, 
                             int hold)
 {
     ENTRY(w, a);
+    return teleport(w, a, frames, hold);
+}
+
+/* The same two routines for callers outside the fall states (the reaction
+ * lane's em_player_reaction_0021D250 / _0021D2E0, and through them the
+ * major2 lane's w0021D250 / w0021D2E0 slots): each checks only the workers
+ * and the scratch its own instructions reach, before its first write. */
+int em_player_fall_0021D250(const EmPlayerLandWorkers *w, EmPlayerLiveActor *a, int arg)
+{
+    if (!w || !a || !w->request || !w->rumble || !w->sound) return -1;
+    return surface5d(w, a, arg);
+}
+
+int em_player_fall_0021D2E0(const EmPlayerLandWorkers *w, EmPlayerLiveActor *a, int frames,
+                            int hold)
+{
+    if (!w || !a || !w->scratch || !w->request || !w->skeleton || !w->hip || !w->effect ||
+        !w->fade || !w->floor)
+        return -1;
     return teleport(w, a, frames, hold);
 }
 

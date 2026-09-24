@@ -19,6 +19,7 @@
  * instructions and compares every actor byte, scratch word, return value and
  * worker call. */
 #include "game/em_player_ladder_entry.h"
+#include "game/em_player_ladder_climb.h"
 #include "game/em_ee_float.h"
 
 #include <stddef.h>
@@ -99,8 +100,7 @@ int em_player_ladder_workers_bound(const EmPlayerLadderWorkers *w)
            w->apply && w->vadd && w->identity && w->euler && w->translate && w->rotate_y &&
            w->dot && w->normalize && w->atan2_0011E620 && w->wrap_001B1470 &&
            w->fabs_0011DF78 && w->cos_0011DE90 && w->sqrt_0011E748 && w->request && w->sound &&
-           w->sound_base_00179B90 && w->clip_001885D0 && w->clip_001885F0 &&
-           w->wall_001762E0 && w->node;
+           w->sound_base_00179B90 && w->wall_001762E0 && w->node;
 }
 
 /* ---- the probe record ---------------------------------------------------- */
@@ -735,14 +735,23 @@ static int step_sound(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a)
     return w->sound(w->context, a, (int)((uint32_t)base + 0x109u));    /* 00182A94 */
 }
 
+/* 0017FC80(p, blend): the one translation is em_player_ladder_climb.c's
+ * (docs/PLAYER_LADDER_CLIMB.md "One owner"); it runs here over this lane's
+ * 001749A0 worker, its only callee outside the routine. */
+static int clip_request(void *context, EmPlayerLiveActor *a, int clip, int force, float blend)
+{
+    const EmPlayerLadderWorkers *w = context;
+    return w->request(w->context, a, clip, force, blend);
+}
+
 static int clip_by_2f1(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, float blend)
 {
-    int clip = 0;
-    if (b8(a, 0x2F1) == 0)                                             /* 0017FC98 */
-        FAULT(w->clip_001885D0(w->context, a, &clip));
-    else
-        FAULT(w->clip_001885F0(w->context, a, &clip));
-    return w->request(w->context, a, clip, 0, blend);                  /* 0017FCB4 / 0017FCD8 */
+    EmPlayerLadderClimbWorkers climb;
+    memset(&climb, 0, sizeof climb);
+    climb.context = (void *)w;
+    climb.request = clip_request;
+    EmPlayerLadderClimb ladder = { &climb, NULL };
+    return em_player_ladder_climb_0017FC80(&ladder, a, blend);
 }
 
 /* One of 00176DC0's probes: 0x700038A4 = height, the point through the
@@ -1003,6 +1012,14 @@ int em_player_ladder_00180300(const EmPlayerLadderWorkers *w, EmPlayerLiveActor 
                               const uint32_t v[4], int check, int *result)
 {
     if (!em_player_ladder_workers_bound(w) || !a || !v || !result) return -1;
+    return classify(w, a, v, check, result);
+}
+
+int em_player_ladder_probe_00180300(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a,
+                                    const uint32_t v[4], int check, int *result)
+{
+    if (!w || !w->scratch || !w->apply || !w->vadd || !w->sweep_0019AFE0 || !a || !v || !result)
+        return -1;
     return classify(w, a, v, check, result);
 }
 

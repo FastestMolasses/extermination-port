@@ -133,8 +133,11 @@ typedef struct EmPlayerLandWorkers {
 /* 1 when every worker and the scratch are bound. */
 int em_player_fall_workers_bound(const EmPlayerLandWorkers *workers);
 
-/* 00179880(p, p+2EC): +2EC += -0.04, clamped at -4.0; +B4 += +2EC;
- * +25F = 2. */
+/* 00179880(p, p + at): the float at +at += -0.04, clamped at -4.0;
+ * +B4 += it; +25F = 2. The one translation of 00179880: the reaction,
+ * 10_12_19 and running-jump lanes call it (docs/PLAYER_FALL.md "One owner"). */
+void em_player_fall_00179880(EmPlayerLiveActor *actor, unsigned at);
+/* 00179880(p, p+2EC), the form every fall-state caller uses. */
 void em_player_fall_drop(EmPlayerLiveActor *actor);
 
 /* 0017C580(p). Returns 0, or -1 on a fault. */
@@ -147,6 +150,15 @@ int em_player_fall_surface5d(const EmPlayerLandWorkers *workers, EmPlayerLiveAct
                              int arg);
 /* 0021D2E0(p, frames, hold): frames is the halfword stored at +28. */
 int em_player_fall_teleport(const EmPlayerLandWorkers *workers, EmPlayerLiveActor *actor,
+                            int frames, int hold);
+/* The same 0021D250 / 0021D2E0 for callers outside the fall states (the
+ * reaction lane adapts its workers to these; they are the only translation
+ * of either routine). Each refuses (-1, nothing written) when a worker its
+ * own instructions reach is missing: 0021D250 request / rumble / sound;
+ * 0021D2E0 scratch / request / skeleton / hip / effect / fade / floor. */
+int em_player_fall_0021D250(const EmPlayerLandWorkers *workers, EmPlayerLiveActor *actor,
+                            int arg);
+int em_player_fall_0021D2E0(const EmPlayerLandWorkers *workers, EmPlayerLiveActor *actor,
                             int frames, int hold);
 /* The landing sub-state routines (00163B40 dispatches them by +6). */
 int em_player_fall_00163C10(const EmPlayerLandWorkers *workers, EmPlayerLiveActor *actor);

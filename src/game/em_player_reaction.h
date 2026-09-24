@@ -25,12 +25,15 @@
  * (em_player_stage_workers.c), as are 0021C270 and 0021C350, which 0021F330
  * calls: they are workers here (w0021C270 / w0021C350).
  *
- * The helpers the states reach (translated here, executed by the oracle; the
- * major2 states bind several as their workers, see the adapters below):
+ * The helpers the states reach (executed by the oracle; the major2 states
+ * bind several as their workers, see the adapters below). Translated here:
  *   0017C540 +4 1 with +5 0 or 1 (by +25C)
  *   0021D530 +4 1 with +5 0x1C / 0x1E / 0x1D, or 0017C540
+ *   00182870 a sound id by +23A
+ * and run from their one translation in em_player_fall.c (the fall lane owns
+ * them; em_player_reaction_0021D250 / _0021D2E0 adapt this lane's workers):
  *   0021D250 +4 2 +5 0x16                 0021D2E0 the +7 countdown to 001AEDE0(4, 0)
- *   00179880 the +2EC drop into +B4       00182870 a sound id by +23A
+ *   00179880 the +2EC drop into +B4
  *   0021D490 sound 0x14E / 0x14F by +234  0021C120 +31F = 0x3C, D_008106F0 = 1
  *   0021C190 the +31F countdown           0021D1A0 the +70/+78 bearing vs +C4
  *   0021D600 +1F1 in {1, 3, 4}            001754E0 the +28 input count
@@ -52,6 +55,7 @@
 
 #include <stdint.h>
 
+#include "game/em_player_fall.h"
 #include "game/em_player_floor.h"
 
 /* What the routines read or write outside the actor. */
@@ -125,6 +129,10 @@ typedef struct EmPlayerReactionWorkers {
      * this context. 0021C270 may set D_008106F1 (*scene.d8106F1). */
     int (*w0021C270)(void *context, EmPlayerLiveActor *actor);
     int (*w0021C350)(void *context, EmPlayerLiveActor *actor);
+    /* The scratchpad words 0x700038A0.. / 0x70003A20: 0021D2E0 builds its
+     * 001EFD90 point at 0x700038A0. The binder's one instance, shared with
+     * the fall lane (EmPlayerLandWorkers.scratch). */
+    EmPlayerLandScratch *scratch;
 } EmPlayerReactionWorkers;
 
 /* ---- The state routines (0015B770's table): 0, or -1 on a fault. ------- */
@@ -160,10 +168,10 @@ void em_player_reaction_0017C540(EmPlayerLiveActor *a);
 void em_player_reaction_0021D530(EmPlayerLiveActor *a, const EmPlayerReactionScene *s);
 /* 0021D600: 1 when +1F1 is 1, 3 or 4. */
 int em_player_reaction_0021D600(const EmPlayerLiveActor *a);
-/* 00179880(p, p + 0x2EC). */
-void em_player_reaction_00179880(EmPlayerLiveActor *a);
 /* The rest return 0 or -1 (worker fault); *result where a routine returns
- * a value. */
+ * a value. 0021D250 and 0021D2E0 run the fall lane's translation
+ * (em_player_fall_0021D250 / _0021D2E0) over this lane's workers; 00179880
+ * is em_player_fall_drop (em_player_fall.h). */
 int em_player_reaction_0021D250(EmPlayerLiveActor *a, int a1, const EmPlayerReactionWorkers *w);
 int em_player_reaction_0021D2E0(EmPlayerLiveActor *a, int16_t a1, int a2,
                                 const EmPlayerReactionWorkers *w);
@@ -175,8 +183,9 @@ int em_player_reaction_0021C190(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
                                 const EmPlayerReactionWorkers *w, int *result);
 int em_player_reaction_0021D1A0(EmPlayerLiveActor *a, const EmPlayerReactionWorkers *w,
                                 int *result);
-int em_player_reaction_001754E0(EmPlayerLiveActor *a, const EmPlayerReactionScene *s, int a1,
-                                int *result);
+/* scratch: 0x70003A20, which 001754E0 writes (the binder's shared word). */
+int em_player_reaction_001754E0(EmPlayerLiveActor *a, const EmPlayerReactionScene *s,
+                                EmPlayerLandScratch *scratch, int a1, int *result);
 /* ---- The live binding (em_player.c "Live player states") ----------------
  * EmPlayerStatesBinding.stage.state2[+5] = em_player_reaction_live_XXXXXXXX
  * with state2_context[+5] = an EmPlayerReaction:

@@ -182,8 +182,10 @@ instructions on every point checked. The instructions settle:
   other lanes that call it (section 5.4).
 - **Reused translations** (called, not re-translated): 00181180
   `em_player_major2_00181180`, 0017F240 `em_player_hang_0017F240`, 0011DF78
-  `em_sdk_math_original_0011DF78`. The copies 00102948 / 001031E0 are written
-  out as moves.
+  `em_sdk_math_original_0011DF78`, and since 2026-09-24 (section 5.4, "One
+  owner") 00180420 and 00174AB0 (`em_player_ladder_climb_00180420` /
+  `_00174AB0`) and 00180300 (`em_player_ladder_probe_00180300`). The copies
+  00102948 / 001031E0 are written out as moves.
 - **Workers.** Every other callee is one of 41 workers in
   `EmPlayerClosureWorkers`; five more are reads and stores outside the record
   (`scene`, `node`, `hit_surface`, `set_275B08`, `set_810702`), made at the
@@ -216,7 +218,11 @@ against the pinned ELF first. The player record sits at its captured
 address 0x8102B0, with the captured node pointers at +40 / +44.
 
 - **Executed unmodified:** the four states and the 19 private callees, plus
-  00181180, 0017F240, 0011DF78, 00102948 and 001031E0 inside them.
+  00181180, 0017F240, 0011DF78, 00102948 and 001031E0 inside them. The
+  native side of 00180420, 00180300 and 00174AB0 is the ladder lanes'
+  translation reached through this lane's bridges, so every case that runs
+  them checks the bridge and the owner together (the build links
+  em_player_ladder_climb.c and em_player_ladder_entry.c).
 - **Hooked:** the 41 worker callees, scripted per case (return values;
   record, node and hit-surface writes; vector outputs), the same script
   replayed by the native workers. The hooked set is asserted equal to the
@@ -324,10 +330,29 @@ it and hand its words by value to `transform`, `vadd`, `sweep`, `ground` and
 - `em_player_closure_00179150` fills the 10_12_19 lane's `w00179150` worker
   (0016DE40).
 - `em_player_closure_0016BAE0` serves 0016BC40 and 001834E0.
-- **Duplicates.** Lanes working at the same time also translated 00180420
-  and 00174AB0 (em_player_ladder_climb) and 00180300 (em_player_ladder_entry),
-  each with its own oracle. All are original-verified; the lead should keep
-  one of each and bind it on every side.
+- **One owner (2026-09-24).** 00180420, 00174AB0 and 00180300 are no longer
+  translated here. 00180420 and 00174AB0 run from em_player_ladder_climb.c
+  (the census owner of 00180420 and 0017FC80; 00174AB0 moved with them, so
+  one module holds the three leaves the climb, the closure and the ladder
+  entry share), 00180300 from em_player_ladder_entry.c (its translation reads
+  the hit record's surface byte from the probe state and faults on a missing
+  record; its world mode ran it 196 times over route beat 10). The exports
+  `em_player_closure_00180420` / `_00180300` / `_00174AB0` remain as this
+  lane's entry points and run the owners through bridges in
+  em_player_closure_0e_18.c:
+  - 00180420: an `EmPlayerLadderClimb` whose `transform` is this lane's
+    001026A0 worker and whose scene view of 0x700038A0..DF is a copy of
+    `scratch->s38A0`;
+  - 00180300: an `EmPlayerLadderWorkers` with `apply` / `vadd` /
+    `sweep_0019AFE0` over this lane's `transform` / `vadd` / `sweep`, a
+    probe-state view of 0x70003600..1F, and, when the sweep hits, the hit
+    record's surface byte from `hit_surface` (the owner reads it next, with
+    nothing between);
+  - 00174AB0: an `EmPlayerLadderClimb` whose `request` is this lane's.
+
+  Each bridge copies the scratchpad view back into `scratch` before every
+  worker call and after the routine, so the workers and the per-call
+  snapshots see the words as the original leaves them.
 
 ## 6. Limits
 

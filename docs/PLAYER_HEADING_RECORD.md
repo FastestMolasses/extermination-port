@@ -1,9 +1,12 @@
 # 00174AC0 over the player record (heading-record lane)
 
-Status (2026-09-24): translated, original-verified, **not wired**. Module
-`src/game/em_player_heading_record.c/.h`; oracle
-`tools/test_player_heading_record_reference.py` (proposed make target
-`test-player-heading-record-reference`, see section 6).
+Status (2026-09-24): translated, original-verified, **not wired live**; it is
+the one record-level 00174AC0, named as the `heading` worker of every
+closure module (section 4), and bound as the heading worker in the
+locomotion display's and the fall lane's oracles (section 4, "Status of the
+slots"). Module `src/game/em_player_heading_record.c/.h`;
+oracle `tools/test_player_heading_record_reference.py` (make target
+`test-player-heading-record-reference`).
 
 ## 1. Why this exists
 
@@ -127,11 +130,32 @@ around each call, as em_player_recovery.h's `shared3A20` does.
 001B5940 / 001B5CC0 (em_frame.h), D_008106A0 is the committed camera yaw, and
 0x70003B8D is the scene selector the coordinator already keeps.
 
+**Status of the slots (2026-09-24, the one-owner step).** Every module doc's
+binding table now names these adapters for its `heading` slot
+(PLAYER_FALL, PLAYER_REACTION, PLAYER_HANG, PLAYER_LADDER_CLIMB,
+PLAYER_RECOVERY, PLAYER_RUNNING_JUMP, PLAYER_WEAPON_STATES_A / _B,
+LOCOMOTION_DISPLAY); no other record-level candidate remains. The closure
+modules are not linked into the live build yet, so the binding is proven by
+composition in two callers' oracles, each against the original with
+00174AC0 running as original code:
+- `test_locomotion_display_reference.py` binds it as `EmLocoWorkers.heading`
+  in the captured-image cases, over the captured pad bytes, camera yaw and
+  scratchpad, with the stick held in three cases per image (the moving turn, the standing turn and the
+  reversal gate's 0x70003A20 store in 001612D0); 32 MB of RAM and the
+  scratchpad are compared (LOCOMOTION_DISPLAY.md section 3);
+- `test_player_fall_reference.py` binds it into `EmPlayerLandWorkers.heading`
+  with `world.spad3A20` on the lane's scratch word and compares 0017C580,
+  00162DB0 and 00163B40 (PLAYER_FALL.md section 3, "The bound heading").
+
 **What this does not replace yet.** The live turn in `em_player.c`
 (`player_turn_rate` / `player_turn_toward` / the reversal gate through
-`em_player_reversal.c`) and `em_player_heading.c` stay as they are. Retiring
-them is the binding chain's step once 001612D0 / 00161020 run over the record.
-Census row 0x00174AC0 should then point here.
+`em_player_reversal.c`) and `em_player_heading.c` stay as they are: the live
+001612D0 is the legacy walk callback over mirrors (census row 0x001612D0,
+stand-in), so there is no record-level caller to bind this to on the live
+path. Retiring them is the binding chain's step once 001612D0 / 00161020 run
+over the record. `EmPlayerClimbWorkers.heading` (em_player_climb.h) still
+takes the mirror `EmPlayerClimbActor` and cannot take this routine until the
+climb module moves onto the record.
 
 ## 5. Verification
 
@@ -171,15 +195,10 @@ gate each fail the quick run. Swapping the /256 and the *pi is the only
 mutation that survives, and it is value-equivalent: division by 256 is an
 exact scaling.
 
-## 6. Makefile (to add; this lane does not edit the Makefile)
+## 6. Makefile
 
-```
-.PHONY: test-player-heading-record-reference
-test-player-heading-record-reference:
-	python3 tools/test_player_heading_record_reference.py
-```
-
-When the binding chain wires it, COMMON needs
+The make target `test-player-heading-record-reference` exists. When the
+binding chain wires the routine live, COMMON needs
 `src/game/em_player_heading_record.c` and, unless it is already there,
 `src/game/em_script_host_workers.c`. A private lane link of the live build
 with both added had zero warnings and no duplicate symbols (2026-09-24).

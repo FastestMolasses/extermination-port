@@ -168,7 +168,7 @@ it translates.
   | floor | 00175900 | `player_states_floor_service` |
   | column | 001760C0(p, +B0, 1, 18.0) | the floor module's column probe over the actor-collision world |
   | land_sound | 00182870 | untranslated here |
-  | heading | 00174AC0 | em_player_heading.h (not a live-actor signature; needs an adapter) |
+  | heading | 00174AC0 | `em_player_heading_record_worker` (em_player_heading_record.h; context an `EmPlayerHeadingRecord`, `world.spad3A20` the shared 0x70003A20 word) |
   | reentry / handoff | 0017C440 / 0017C540 | the motor module; `em_player_reaction_0017C540` (in progress) |
   | fall | 001796C0 | `player_states_fall_check` |
   | clip_DF70 / DFB0 / E0D0 / E150 / E1D0 | 0017DF70 / 0017DFB0 / 0017E0D0 / 0017E150 / 0017E1D0 | untranslated. Per their decomp C, each is a 001749A0 request picked by side and +315: clips 0x7E/0x7F, 0x86/0x87 (0xCE/0xCF), 0x88/0x89 (0xD2/0xD3), 0x81/0x82 (0xD0/0xD1), and 0017DFB0's table (all-word). |

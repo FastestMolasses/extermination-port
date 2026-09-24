@@ -242,8 +242,17 @@ AREA11's ladders take the 0x15 path: 0 → 1 → 2, then the hand-off
     0019BC40;
   - the VU0 routines, including build_trs_matrix;
   - the SDK scalars;
-  - 001749A0, 001FBD50, 00179B90, 001885D0/001885F0 and 001762E0;
+  - 001749A0, 001FBD50, 00179B90 and 001762E0;
   - the hip node read.
+- **One owner (2026-09-24).** 0017FC80 (with 001885D0 / 001885F0, the
+  D_002754D0 / D_002754D4 rows) is translated once, in
+  em_player_ladder_climb.c; `em_player_ladder_0017FC80` and 00165B60's
+  hand-off run it over this lane's `request` through a one-routine
+  `EmPlayerLadderClimb`, so the former `clip_001885D0` / `clip_001885F0`
+  workers are gone. 00180300 is translated only here: the closure states
+  (em_player_closure_0e_18.c) run it through `em_player_ladder_probe_00180300`,
+  which refuses only when the scratch, `apply`, `vadd` or `sweep_0019AFE0`
+  is missing (the workers its instructions reach).
 - **Faults.** A missing worker faults before the first write. A negative
   worker return stops the routine at once.
 - **The copies.** The SDK copies 00102948 (quadword) and 001031E0 (three
@@ -284,8 +293,16 @@ read detection.
 
 **What the setup guarantees.**
 
-- Every one of the 36 jal targets is hooked (26) or translated here (10).
-  The test asserts this, and asserts that no hooked address goes uncalled.
+- Every one of the 36 jal targets is hooked (24) or executed as original
+  code (12, including 001885D0 / 001885F0 inside 0017FC80). The test asserts
+  this, and asserts that no hooked address goes uncalled.
+- 0017FC80's native side is em_player_ladder_climb.c's translation reached
+  through this lane's bridge, and odd-seeded 00180300 cases run through the
+  narrow `em_player_ladder_probe_00180300` (its refusals are checked on the
+  three workers it reaches). D_002754D0[0] is the ELF's halfword in every
+  case: the table is read-only (no original code writes it), and the owner
+  embeds the rows its own oracle checks against the ELF. (Before
+  2026-09-24 the case drew non-original values for it.)
 - Every hooked callee is scripted per case. The same script feeds the
   native workers:
   - probe results;
@@ -311,8 +328,9 @@ read detection.
   - a low-memory load for a null record;
   - the untouched poisoned stack word for 0015DE68.
   The calls up to the fault must also be identical.
-- Missing-worker refusals: each of the 26 workers, the scratch and the
-  world, times 8 entry points, plus the rumble's pad and actuator. Every
+- Missing-worker refusals: each of the 24 workers, the scratch and the
+  world, times 8 entry points, the narrow 00180300 entry on its three
+  workers, plus the rumble's pad and actuator. Every
   entry point must return −1 with no call and no write.
 - Data-fault checks: a vertex index past the pool, and a directory offset
   past the image.
@@ -418,7 +436,6 @@ length.
 | wrap_001B1470 | 001B1470 | `em_player_001B1470` |
 | request / sound | 001749A0 / 001FBD50 | the adapters bound to `EmPlayerLandWorkers.request` / `.sound` |
 | sound_base_00179B90 | 00179B90 | none (a rand() fold, em_player_floor.h note) |
-| clip_001885D0 / clip_001885F0 | 001885D0 / 001885F0 | none |
 | wall_001762E0 | 001762E0 | none (unported area-2 shove; AREA11 is not area 2) |
 | node | *(D_00275B40 + 4) +C0..+CC | the pose host's hip node (as `EmPlayerLandWorkers.hip`, four words) |
 
@@ -461,7 +478,8 @@ worker is where it plugs in.
 - **World run.** The default world run covers ladder A only. Ladder B is
   covered only by `EM_TEST_FULL=1`, which takes about 7 minutes.
 - **Workers without an original translation.** 0019BA80, 0019A570,
-  00179B90, 001885D0, 001885F0 and 001762E0 have none. Until they exist,
+  00179B90 and 001762E0 have none (001885D0 / 001885F0 run inside
+  em_player_ladder_climb.c's 0017FC80). Until they exist,
   the binder must leave those slots unbound, so the module refuses (−1).
   The ladder therefore cannot go live yet: 00176F90 needs 0019BA80, and the
   0x32 path needs 0019AFE0 through 00180300.

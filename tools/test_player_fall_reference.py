@@ -320,6 +320,8 @@ def build_native():
     native.em_player_fall_land_check.argtypes = [W, LA, P(I)]
     native.em_player_fall_surface5d.argtypes = [W, LA, I]
     native.em_player_fall_teleport.argtypes = [W, LA, I, I]
+    native.em_player_fall_0021D250.argtypes = [W, LA, I]
+    native.em_player_fall_0021D2E0.argtypes = [W, LA, I, I]
     native.em_player_fall_drop.argtypes = [LA]
     native.em_player_fall_drop.restype = None
     native.em_player_fall_workers_bound.argtypes = [W]
@@ -576,8 +578,12 @@ class UnitOracle:
 class NativeRun:
     """em_player_fall.c with Python workers that replay the same script."""
 
-    def __init__(self, native, case, script, missing=None):
+    def __init__(self, native, case, script, missing=None, narrow=False):
         self.native, self.case, self.script, self.log = native, case, script, []
+        # narrow: 0021D250 / 0021D2E0 through em_player_fall_0021D250 /
+        # _0021D2E0, the entries the reaction lane's bridge calls (the same
+        # translation, checking only the workers each routine reaches).
+        self.narrow = narrow
         self.live = LiveActor()
         C.memmove(self.live.bytes, case['actor'], 0x320)
         self.scratch = Scratch()
@@ -711,7 +717,11 @@ class NativeRun:
         elif entry == 'state7': result = n.em_player_fall_state7(W, A)
         elif entry == 'state8': result = n.em_player_fall_state8(W, A)
         elif entry == 'land': result = n.em_player_fall_land(W, A)
+        elif entry == 'surface5d' and self.narrow:
+            result = n.em_player_fall_0021D250(W, A, self.case['arg'])
         elif entry == 'surface5d': result = n.em_player_fall_surface5d(W, A, self.case['arg'])
+        elif entry == 'teleport' and self.narrow:
+            result = n.em_player_fall_0021D2E0(W, A, self.case['frames'], self.case['hold'])
         elif entry == 'teleport':
             result = n.em_player_fall_teleport(W, A, self.case['frames'], self.case['hold'])
         elif entry == 'land_check':
@@ -742,6 +752,9 @@ def run_case(seed):
         raise AssertionError((where, 'actor bytes differ at', diff[:24]))
     assert want['scratch'] == got['scratch'], (where, 'scratch', want['scratch'], got['scratch'])
     assert want['v0'] == got['v0'], (where, 'return', want['v0'], got['v0'])
+    if case['entry'] in ('surface5d', 'teleport'):
+        result, other = NativeRun(NATIVE, case, Script(seed), narrow=True).run()
+        assert result == 0 and other == got, (where, 'the narrow entry differs')
     # fail-stop: the first worker call faulting stops the routine there
     faults = 0
     if want['log'] and seed % 5 == 0:
@@ -765,7 +778,122 @@ def missing_worker_checks(native):
             result, got = NativeRun(native, case, Script(1000), missing=field).run()
             assert result == -1 and got['log'] == [] and got['actor'] == case['actor'], (field, entry)
             count += 1
+    # The narrow entries refuse only on what their own instructions reach.
+    reached = {'surface5d': ('request', 'rumble', 'sound'),
+               'teleport': ('scratch', 'request', 'skeleton', 'hip', 'effect', 'fade', 'floor')}
+    for entry, needed in reached.items():
+        for field in needed:
+            case = dict(base, entry=entry)
+            result, got = NativeRun(native, case, Script(1000), missing=field, narrow=True).run()
+            assert result == -1 and got['log'] == [] and got['actor'] == case['actor'], (field, entry)
+            count += 1
     return count
+
+
+# ======================================================================
+# The record-level 00174AC0 bound as the heading worker
+# ======================================================================
+
+HEADING, HEADING_SIZE = 0x174AC0, 0x508
+WRAP, APPROACH = 0x1B1470, 0x1B12B0
+
+
+class BoundHeadingOracle(UnitOracle):
+    """UnitOracle with 00174AC0 executed as original code (its whole call
+    tree: cosf, atan2f, fabsf, 001B1470, 001B12B0) instead of scripted. The
+    001B1470 / 001B12B0 hooks stay scripted for the fall routines' own calls
+    and run the original when 00174AC0's tree calls them."""
+
+    def __init__(self, elf):
+        super().__init__(elf)
+        self.inside = 0
+        self.headings = 0
+        self.ee.hooks[HEADING] = self.through(HEADING, None)
+        for address in (WRAP, APPROACH):
+            self.ee.hooks[address] = self.through(address, self.ee.hooks[address])
+
+    def through(self, address, scripted):
+        def run(ee):
+            if address != HEADING and not self.inside:
+                return scripted(ee)
+            if address == HEADING:
+                self.headings += 1
+            back, hook = ee.r[31], ee.hooks.pop(address)
+            self.inside += 1
+            ee.r[31] = shared.RETURN
+            try:
+                ee.run(address)
+            finally:
+                ee.hooks[address] = hook
+                self.inside -= 1
+            ee.r[31] = back
+        return run
+
+
+def bound_heading_checks(elf):
+    """0017C580, 00162DB0 and 00163B40 with the heading slot bound to
+    em_player_heading_record_worker_result (docs/PLAYER_HEADING_RECORD.md
+    section 4), its 0x70003A20 pointed at this lane's scratch word (the one
+    0017C580 reloads after the call), against the original with 00174AC0
+    running as original code. Returns (cases, heading calls)."""
+    import test_player_heading_record_reference as HR
+    hlib = HR.build_native()
+    hr = HR.Native(hlib, elf)
+    oracle = BoundHeadingOracle(elf)
+    wanted = reference_mode.pick(6000, 600)
+    cases = headings = land_headings = 0
+    seed = 0xB0D0
+    while cases < wanted:
+        seed += 1
+        case = make_case(seed)
+        if case['entry'] not in ('land', 'state5', 'state8'):
+            continue
+        rng = random.Random('heading/%d' % seed)
+        world = {'s3B8D': rng.choice((0,) * 9 + (1,)), 'gait': rng.randrange(4),
+                 'x': rng.randrange(256), 'y': rng.randrange(256),
+                 'camera': F(rng.uniform(-3.14159, 3.14159))}
+        ee = oracle.ee
+        ee.save(0x70003B8D, world['s3B8D'], 1)
+        ee.save(0x810E57, world['gait'], 1)
+        ee.save(0x810E64, world['x'], 1)
+        ee.save(0x810E65, world['y'], 1)
+        ee.save(0x8106A0, world['camera'])
+        before = oracle.headings
+        want = oracle.run(case, Script(seed))
+        run = NativeRun(NATIVE, case, Script(seed))
+        hr.bind()
+        for key in ('s3B8D', 'gait', 'x', 'y'):
+            hr.cells[key].value = world[key]
+        hr.camera.value = world['camera']
+        word = C.c_uint32.from_buffer(run.scratch, Scratch.s3A20.offset)
+        hr.h.world.spad3A20 = C.pointer(word)
+        calls = [0]
+
+        def heading(_, a, arg, out):
+            calls[0] += 1
+            return hlib.em_player_heading_record_worker_result(
+                C.byref(hr.h), C.cast(a, C.POINTER(HR.LiveActor)), arg, out)
+        bound = FN['heading'](heading)
+        run.keep.append(bound)
+        run.workers.heading = bound
+        result, got = run.run()
+        where = ('bound heading', seed, case['entry'], case['actor'][6])
+        assert result == 0, (where, 'native fault', result, hex(hr.h.fault_address))
+        assert calls[0] == oracle.headings - before, (where, 'heading calls', calls[0])
+        assert want['log'] == got['log'], (where, 'worker calls', want['log'], got['log'])
+        if want['actor'] != got['actor']:
+            diff = [hex(k) for k in range(0x320) if want['actor'][k] != got['actor'][k]]
+            raise AssertionError((where, 'actor bytes differ at', diff[:24]))
+        assert want['scratch'] == got['scratch'], (where, 'scratch', want['scratch'], got['scratch'])
+        cases += 1
+        headings += calls[0]
+        if case['entry'] == 'land' and calls[0]:
+            land_headings += 1
+    # 0017C580 always reaches 00174AC0 past its early exits; the reload of
+    # 0x70003A20 follows it on the drop paths.
+    assert land_headings > 0 and headings >= cases // 10, ('bound heading rarely reached',
+                                                          headings, land_headings, cases)
+    return cases, headings
 
 
 def branch_sites(elf):
@@ -807,13 +935,16 @@ def main():
     absent = [e for e in ENTRY_POINT if e not in entries]
     assert not absent, ('entry points never run', absent)
     stops = missing_worker_checks(NATIVE)
+    bound_cases, bound_calls = bound_heading_checks(ELF)
     reference_mode.banner(reference_mode.part(len(seeds), total, 'cases'),
                           '%d jal targets (all hooked or translated)' % callees)
     print('player fall/landing vs original instructions: PASS %d cases (%s), %d worker calls '
           'identical, every one of %d conditional branches both ways, %d fault-stop cuts, '
-          '%d missing-worker refusals (%.1fs)' % (
+          '%d missing-worker refusals; %d land/fall/landing cases with the record-level '
+          '00174AC0 bound as the heading worker (%d calls, 00174AC0 run as original code, '
+          '0x70003A20 shared) identical (%.1fs)' % (
               len(seeds), ', '.join('%s %d' % kv for kv in sorted(entries.items())), calls,
-              len(sites), faults, stops, time.time() - started))
+              len(sites), faults, stops, bound_cases, bound_calls, time.time() - started))
 
 
 # ======================================================================

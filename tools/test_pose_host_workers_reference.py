@@ -236,7 +236,7 @@ class LiveActor(C.Structure):
 
 
 SOURCES = ('src/game/em_pose_host_workers.c', 'src/game/em_player_stage_workers.c',
-           'src/game/em_player_floor.c', 'src/game/em_player_reaction.c',
+           'src/game/em_player_floor.c', 'src/game/em_player_reaction.c', 'src/game/em_player_fall.c',
            'src/game/em_owner_services_original.c', 'src/game/em_stream_lanes_original.c')
 
 

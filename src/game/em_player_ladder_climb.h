@@ -165,7 +165,11 @@ int em_player_ladder_climb_state(void *context, EmPlayerLiveActor *actor);
 
 /* The helpers, for their other callers and the oracle. Each needs only the
  * workers it reaches (request for the clip helpers) and returns 0 or -1;
- * the probes store the original's return value in *result. */
+ * the probes store the original's return value in *result.
+ * 0017FC80, 00174AB0 and 00180420 are translated only here: the closure
+ * (em_player_closure_0e_18.c) and ladder-entry (em_player_ladder_entry.c)
+ * lanes call these through a one-routine EmPlayerLadderClimb over their own
+ * workers (docs/PLAYER_LADDER_CLIMB.md "One owner"). */
 int em_player_ladder_climb_0017FC80(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor,
                                     float blend);
 int em_player_ladder_climb_0017FD00(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor,
@@ -180,6 +184,9 @@ int em_player_ladder_climb_0017FE80(const EmPlayerLadderClimb *ladder, EmPlayerL
                                     int side, float blend);
 int em_player_ladder_climb_0017FF00(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor,
                                     int side, float blend);
+/* 00174AB0(p): 001749A0(p, 0, 1, 0.0) (request only). */
+int em_player_ladder_climb_00174AB0(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor);
+/* 00180420(p) (transform and the scene's spad A0 only). */
 int em_player_ladder_climb_00180420(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor);
 int em_player_ladder_climb_00180460(const EmPlayerLadderClimb *ladder, EmPlayerLiveActor *actor,
                                     int *result);

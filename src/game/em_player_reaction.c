@@ -20,7 +20,7 @@
 /* Binary32 constants as the original loads them (lui/ori or .rodata). */
 enum {
     K_0 = 0x00000000u, K_ONE = 0x3F800000u, K_300 = 0x43960000u,
-    K_M0_2 = 0xBE4CCCCDu, K_M0_04 = 0xBD23D70Au, K_M4 = 0xC0800000u,
+    K_M0_2 = 0xBE4CCCCDu, K_M4 = 0xC0800000u,
     K_PI = 0x40490FDBu, K_MPI = 0xC0490FDBu, K_2PI = 0x40C90FDBu, K_HALF_PI = 0x3FC90FDBu,
     K_0_1 = 0x3DCCCCCDu, K_0_25 = 0x3E800000u, K_0_4 = 0x3ECCCCCDu, K_0_45 = 0x3EE66666u,
     K_0_5 = 0x3F000000u, K_0_75 = 0x3F400000u, K_1_2 = 0x3F99999Au, K_2_2 = 0x400CCCCDu,
@@ -141,73 +141,108 @@ int em_player_reaction_0021D600(const EmPlayerLiveActor *a)
     return v == 1 || (unsigned)(v - 3) < 2;
 }
 
-/* 00179880(p, p + 0x2EC). */
-void em_player_reaction_00179880(EmPlayerLiveActor *a)
+/* ---- 0021D250 / 0021D2E0 / 00179880: one translation, em_player_fall.c ----
+ * The fall lane owns these three routines (docs/PLAYER_FALL.md "One owner").
+ * The bridge below hands the fall translation this lane's workers: the same
+ * original callees (001749A0, 001B61C0, 001FBD50, 001C6DA0 with node 1's
+ * +C0 / +C8 read after it, 001EFD90, 001AEDE0, 00175900) in the same order,
+ * and `scratch` as the scratchpad words 0021D2E0 writes (its 001EFD90 point
+ * is the vector at 0x700038A0). A missing worker refuses before any write. */
+typedef struct FallBridge {
+    const EmPlayerReactionWorkers *w;
+    uint32_t node1[3];      /* node 1 +C0 / +C4 / +C8 as anim_eval_skeleton left them */
+} FallBridge;
+
+static int fb_request(void *c, EmPlayerLiveActor *a, int clip, int force, float blend)
 {
-    uint32_t drop = em_ee_add_bits(fw(a, 0x2EC), K_M0_04);    /* 00179894 */
-    set_fw(a, 0x2EC, drop);
-    if (em_ee_c_lt_bits(drop, K_M4)) set_fw(a, 0x2EC, K_M4);
-    set_fw(a, 0xB4, em_ee_add_bits(fw(a, 0xB4), fw(a, 0x2EC)));
-    set_b8(a, 0x25F, 2);
+    const EmPlayerReactionWorkers *w = ((FallBridge *)c)->w;
+    return w->request(w->context, a, clip, force, blend);
+}
+static int fb_sound(void *c, EmPlayerLiveActor *a, int id)
+{
+    const EmPlayerReactionWorkers *w = ((FallBridge *)c)->w;
+    return w->sound(w->context, a, (unsigned)id);
+}
+static int fb_rumble(void *c, int x, int y, int z, int u)
+{
+    const EmPlayerReactionWorkers *w = ((FallBridge *)c)->w;
+    return w->rumble(w->context, x, y, z, u);
+}
+static int fb_effect(void *c, uint32_t id, const uint32_t point[4], const uint32_t at[4])
+{
+    const EmPlayerReactionWorkers *w = ((FallBridge *)c)->w;
+    float position[4], rotation[4];
+    memcpy(position, point, sizeof position);        /* the words, bit for bit */
+    memcpy(rotation, at, sizeof rotation);
+    return w->effect(w->context, id, position, rotation);
+}
+static int fb_fade(void *c, int x, int y)
+{
+    const EmPlayerReactionWorkers *w = ((FallBridge *)c)->w;
+    return w->fade(w->context, x, y);
+}
+static int fb_skeleton(void *c, EmPlayerLiveActor *a)
+{
+    FallBridge *b = c;
+    float node1[3];
+    FAULT(b->w->skeleton(b->w->context, a, node1));
+    memcpy(b->node1, node1, sizeof b->node1);
+    return 0;
+}
+static int fb_hip(void *c, uint32_t *x, uint32_t *z)
+{
+    const FallBridge *b = c;
+    *x = b->node1[0];
+    *z = b->node1[2];
+    return 0;
+}
+static int fb_floor(void *c, EmPlayerLiveActor *a, int search, int *result)
+{
+    const EmPlayerReactionWorkers *w = ((FallBridge *)c)->w;
+    return w->floor(w->context, a, search, result);
+}
+
+/* The fall lane's worker set over this lane's workers: only the slots the
+ * three routines reach, each left NULL when this lane's worker is missing
+ * (em_player_fall_0021D250 / _0021D2E0 then refuse before any write). */
+static void fall_bridge(FallBridge *b, const EmPlayerReactionWorkers *w, EmPlayerLandWorkers *out)
+{
+    memset(out, 0, sizeof *out);
+    memset(b, 0, sizeof *b);
+    b->w = w;
+    out->context = b;
+    out->scratch = w->scratch;
+    if (w->request) out->request = fb_request;
+    if (w->sound) out->sound = fb_sound;
+    if (w->rumble) out->rumble = fb_rumble;
+    if (w->effect) out->effect = fb_effect;
+    if (w->fade) out->fade = fb_fade;
+    if (w->skeleton) {
+        out->skeleton = fb_skeleton;
+        out->hip = fb_hip;
+    }
+    if (w->floor) out->floor = fb_floor;
 }
 
 /* 0021D250(p, a1). */
 int em_player_reaction_0021D250(EmPlayerLiveActor *a, int a1, const EmPlayerReactionWorkers *w)
 {
-    set_b8(a, 0, 2);
-    set_fw(a, 0x220, 0);
-    set_b8(a, 4, 2);
-    set_b8(a, 5, 0x16);                                        /* 0021D270 */
-    set_b8(a, 6, 0);
-    set_b8(a, 7, 0);
-    set_b8(a, 0x1F0, 0xE);
-    if (a1 == 0) FAULT(request(w, a, 0x72, 0, 0x41000000u));  /* 8.0 */
-    FAULT(rumble(w, 1, 0xEE, 0x3C, 1));
-    return sound(w, a, 0x159);
+    if (!w) return -1;
+    FallBridge b;
+    EmPlayerLandWorkers fall;
+    fall_bridge(&b, w, &fall);
+    return em_player_fall_0021D250(&fall, a, a1);
 }
 
 /* 0021D2E0(p, a1, a2): the +7 countdown to 001AEDE0(4, 0). */
 int em_player_reaction_0021D2E0(EmPlayerLiveActor *a, int16_t a1, int a2,
                                 const EmPlayerReactionWorkers *w)
 {
-    uint8_t st = b8(a, 7);
-    if (st == 0) {
-        set_b8(a, 7, st + 1);
-        set_b8(a, 0, 2);
-        set_h16(a, 0x28, a1);
-        set_fw(a, 0x220, 0);
-        if (b8(a, 0x25F) == 0 && !(em_live_u16(a, 0x300) & 0x8000)) {
-            float node1[3];
-            if (!w->skeleton || !w->effect) return -1;
-            FAULT(w->skeleton(w->context, a, node1));
-            /* 0x700038A0: (node1 +C0, 0.1 + +250, node1 +C8, 1.0). */
-            float position[4] = { node1[0],
-                                  sfloat(em_ee_add_bits(K_0_1, fw(a, 0x250))),
-                                  node1[2], sfloat(K_ONE) };
-            float rotation[4];
-            memcpy(rotation, a->bytes + 0xB0, sizeof rotation);  /* p + B0 */
-            FAULT(w->effect(w->context, 0x80000043u, position, rotation));
-        }
-    } else if (st == 1) {
-        if (b8(a, 0x1F0) == 0xE && b8(a, 0x319) != 0) FAULT(request(w, a, 0x2B, 0, K_ONE));
-        int16_t t = h16(a, 0x28);
-        set_h16(a, 0x28, t - 1);
-        if (t == 0) {
-            set_b8(a, 7, b8(a, 7) + 1);
-            if (b8(a, 0xF) != 0xB) {
-                if (!w->fade) return -1;
-                FAULT(w->fade(w->context, 4, 0));
-            }
-        }
-    }
-    if (a2 == 0) {
-        set_fw(a, 0xB4, em_ee_add_bits(fw(a, 0xB4), K_M0_2));
-        em_player_reaction_00179880(a);
-        int landed;
-        FAULT(floor_service(w, a, &landed));
-        if (landed != 0) set_fw(a, 0x2EC, 0);
-    }
-    return 0;
+    if (!w) return -1;
+    FallBridge b;
+    EmPlayerLandWorkers fall;
+    fall_bridge(&b, w, &fall);
+    return em_player_fall_0021D2E0(&fall, a, a1, a2);
 }
 
 /* 00182870(p, a1): the voice id by the floor attribute +23A. */
@@ -293,14 +328,20 @@ static int w0021C350(const EmPlayerReactionWorkers *w, EmPlayerLiveActor *a)
 }
 
 /* 0021D1A0 (instruction words): *result 1 when the hit direction (+70,
- * +78) is more than pi/2 from the body yaw +C4. */
+ * +78) is more than pi/2 from the body yaw +C4. The angle goes through
+ * 0x70003A20: the atan2 result is stored there (0021D1C4), then
+ * wrap(pi/2 + it) (0021D1E8); the final difference goes to 0x70003A24
+ * (0021D204), a word the shared scratch does not hold (no first-level
+ * reader). */
 int em_player_reaction_0021D1A0(EmPlayerLiveActor *a, const EmPlayerReactionWorkers *w,
                                 int *result)
 {
-    if (!w->atan2) return -1;
+    if (!w->atan2 || !w->scratch) return -1;
     uint32_t angle = sbits(w->atan2(w->context, sfloat(em_ee_neg_bits(fw(a, 0x78))),
                                     sfloat(fw(a, 0x70))));
-    angle = wrap_bits(em_ee_add_bits(K_HALF_PI, angle));              /* 0021D1E0 */
+    w->scratch->s3A20 = angle;                                         /* 0021D1C4 */
+    angle = wrap_bits(em_ee_add_bits(K_HALF_PI, w->scratch->s3A20));  /* 0021D1E0 */
+    w->scratch->s3A20 = angle;                                         /* 0021D1E8 */
     angle = wrap_bits(em_ee_sub_bits(angle, fw(a, 0xC4)));            /* 0021D1F8 */
     uint32_t magnitude = angle & 0x7FFFFFFFu;                          /* 0011DF78 */
     *result = em_ee_c_le_bits(magnitude, K_HALF_PI) ? 0 : 1;
@@ -308,13 +349,16 @@ int em_player_reaction_0021D1A0(EmPlayerLiveActor *a, const EmPlayerReactionWork
 }
 
 /* 001754E0(p, a1): count the input in +28; *result is
- * (short)+28 >= a1. */
-int em_player_reaction_001754E0(EmPlayerLiveActor *a, const EmPlayerReactionScene *s, int a1,
-                                int *result)
+ * (short)+28 >= a1. The angle's magnitude is stored at 0x70003A20 before
+ * the test (decomp src/func_001754E0.c, byte-matched). */
+int em_player_reaction_001754E0(EmPlayerLiveActor *a, const EmPlayerReactionScene *s,
+                                EmPlayerLandScratch *scratch, int a1, int *result)
 {
+    if (!scratch) return -1;
     if (b8(a, 0x23F) != 0) {
         uint32_t angle = wrap_bits(em_ee_sub_bits(fw(a, 0x26C), fw(a, 0x24C)));
         uint32_t magnitude = angle & 0x7FFFFFFFu;                      /* 0011DF78 */
+        scratch->s3A20 = magnitude;
         if (!em_ee_c_le_bits(magnitude, K_HALF_PI)) {
             set_h16(a, 0x28, h16(a, 0x28) + 1);
             set_b8(a, 0x2FE, 0x3C);
@@ -357,7 +401,7 @@ static void rise(EmPlayerLiveActor *a)
 /* 00179880 then 00175900(p, 1), the tail most routines end with. */
 static int drop_and_floor(const EmPlayerReactionWorkers *w, EmPlayerLiveActor *a, int *landed)
 {
-    em_player_reaction_00179880(a);
+    em_player_fall_drop(a);
     int ignored;
     return floor_service(w, a, landed ? landed : &ignored);
 }
@@ -638,7 +682,7 @@ int em_player_reaction_00223C70(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
         break;
     }
     case 33: {
-        em_player_reaction_00179880(a);
+        em_player_fall_drop(a);
         int landed;
         FAULT(floor_service(w, a, &landed));
         if (landed != 0) {
@@ -684,7 +728,7 @@ int em_player_reaction_0021F330(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
         if (!w->heading) return -1;
         FAULT(w->heading(w->context, a, 0));
         int count;
-        FAULT(em_player_reaction_001754E0(a, s, 6, &count));
+        FAULT(em_player_reaction_001754E0(a, s, w->scratch, 6, &count));
         if (count != 0 || s->scripted != 0) {
             set_b8(a, 6, b8(a, 6) + 1);
             set_b8(a, 0, b8(a, 0) | 4);
@@ -893,10 +937,12 @@ int em_player_reaction_002202C0(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
         if (flag(a, 0x1000)) {
             set_b8(a, 6, st + 1);
             int frames;
-            if (!w->clip_frames || !w->arbiter) return -1;
+            if (!w->clip_frames || !w->arbiter || !w->scratch) return -1;
             FAULT(w->clip_frames(w->context, a, 0x26, &frames));
-            /* 0x70003A20 = (float)frames (cvt.s.w). */
+            /* 0x70003A20 = (float)frames (cvt.s.w), stored before the
+             * arbiter call (decomp src/func_002202C0.c, the 0x26 hand-over). */
             uint32_t length = em_ee_cvt_s_w_bits((uint32_t)frames);
+            w->scratch->s3A20 = length;
             FAULT(w->arbiter(w->context, a, 0x26, sfloat(K_0),
                              sfloat(em_ee_sub_bits(length, K_30))));
             set_fw(a, 0x38, 0);
@@ -1328,7 +1374,7 @@ int em_player_reaction_0021EF30(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
 
 int em_player_reaction_workers_bound(const EmPlayerReactionWorkers *w)
 {
-    return w && w->request && w->arbiter && w->clip_frames && w->sound && w->rumble &&
+    return w && w->scratch && w->request && w->arbiter && w->clip_frames && w->sound && w->rumble &&
            w->random && w->effect && w->attach && w->floor && w->translate &&
            w->probes && w->heading && w->skeleton && w->fade && w->model_refresh &&
            w->stream_check && w->atan2 && w->w0021C270 && w->w0021C350;

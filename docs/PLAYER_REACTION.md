@@ -159,14 +159,24 @@ no pair outside the table.
 
 `em_player_reaction.c` translates:
 - the eleven states;
-- the helpers 0017C540, 0021D530, 0021D250, 0021D2E0, 00179880, 00182870,
-  0021D490, 0021C120, 0021C190, 0021D1A0, 0021D600, 001754E0 and 001B1470.
+- the helpers 0017C540, 0021D530, 00182870, 0021D490, 0021C120, 0021C190,
+  0021D1A0, 0021D600, 001754E0 and 001B1470.
+
+0021D250, 0021D2E0 and 00179880 run from their one translation in
+em_player_fall.c (PLAYER_FALL.md "One owner", 2026-09-24). The fall copy of
+0021D2E0 is the faithful one: it builds its effect point in the scratchpad
+word 0x700038A0, as the original does. `em_player_reaction_0021D250` /
+`_0021D2E0` are a bridge: they hand `em_player_fall_0021D250` / `_0021D2E0`
+an `EmPlayerLandWorkers` over this lane's workers (the same callees in the
+same order; `hip` returns node 1's +C0 / +C8 from the `skeleton` worker's
+result), and the routines' drop tails call `em_player_fall_drop`.
 
 How they are written:
 - **The actor.** Every routine works on the live record by its original
   offsets.
-- **Floats.** Every EE float op (add.s / sub.s / mul.s / cvt.s.w / neg.s
-  and the compares) goes through `em_ee_float.h`.
+- **Floats.** Every EE float operation (add, subtract, multiply, the
+  int-to-float conversion, negate and the compares) goes through
+  `em_ee_float.h`.
 - **001B1470.** The module has its own translation of 001B1470 over
   `em_ee_float.h`. `em_player_sdk_wrap` in em_player_floor.c has no add/sub
   pre-trim (EE_FLOAT_MODEL.md section 5c).
@@ -186,6 +196,17 @@ How they are written:
   - SDK 0011E620;
   - 0021C270 and 0021C350 (`w0021C270` / `w0021C350`, translated by lane
     player-stage-workers).
+- **The scratch.** `EmPlayerReactionWorkers.scratch` is the binder's one
+  `EmPlayerLandScratch` (em_player_fall.h), shared with the fall lane. It
+  holds 0x700038A0..AC (0021D2E0's effect point) and 0x70003A20, which
+  these routines store as the original does: 002202C0 (the 0x26 clip length
+  as a float, before the arbiter call; decomp src/func_002202C0.c), 001754E0
+  (the angle's magnitude; byte-matched src/func_001754E0.c, which now takes
+  the scratch) and 0021D1A0 (the atan2 result, then wrap(pi/2 + it); read
+  from its instructions). 0021D1A0's final difference goes to 0x70003A24 and
+  0021EAD0 / 0021EF30 build a rotation at 0x700038B0..BC; the shared scratch
+  does not hold those words (no first-level reader), so they stay
+  unmirrored.
 - **Faults.** A missing worker, or a negative return, faults (-1). The live
   adapters refuse before any write when any worker, the scene, its
   D_008106F1 pointer or the refresh is missing.
@@ -215,6 +236,8 @@ overridden here to use `tools/ee_float_model.py`, and VU0 macro ops fail.
 What each case compares:
 - all 0x320 actor bytes;
 - D_008106F1, D_008106F0, D_008106BC and D_00275B08;
+- the scratchpad words 0x700038A0..AC and 0x70003A20 (drawn per case,
+  identical on both sides; since 2026-09-24);
 - the return value;
 - every worker call, in order, with its arguments (float arguments as bit
   patterns);
@@ -306,14 +329,19 @@ store. The test checks:
     player_states_wall_probes` (same signatures);
   - `w0021C270` / `w0021C350` call `em_player_0021C270` /
     `em_player_0021C350` with the stage-workers host;
-  - `translate` (00178B90), `heading` (00174AC0), `request` / `arbiter` /
-    `clip_frames` and `skeleton` come from the display / pose owner;
+  - `heading` (00174AC0) is `em_player_heading_record_worker`
+    (em_player_heading_record.h) over an `EmPlayerHeadingRecord` whose
+    `world.spad3A20` is `&scratch->s3A20`;
+  - `translate` (00178B90), `request` / `arbiter` / `clip_frames` and
+    `skeleton` come from the display / pose owner;
   - `sound`, `rumble`, `effect` and `attach` come from the audio / effect
     owners (001EFD90 is being written by another lane);
   - `fade = em_transition_fade_out` (001AEDE0, AREA_SCRIPT.md);
   - `model_refresh` (0015C1F0) and `stream_check` (001FAFD0) have no
     translation yet;
   - `atan2` is the SDK host model, as for the floor.
+- **The scratch.** `workers.scratch` is the same `EmPlayerLandScratch`
+  the fall lane's `EmPlayerLandWorkers.scratch` names.
 - **The scene.** `EmPlayerReaction.scene` is the binder's.
   - `refresh` fills the read fields before every call: root node +4 / +8,
     nodes 2 / 3 / 7 +C0, D_00810E70 / D_00810E74, 0x70003B76 / 7C / 7E /
@@ -357,8 +385,8 @@ store. The test checks:
   - the stage workers and 0021C270 / 0021C350.
 - **Untranslated workers:** 0015C1F0, 001FAFD0 and the display / effect
   workers listed above.
-- **Scratchpad temporaries are not mirrored.** These are 0x70003A20 / 3A24
-  (0021D1A0, 002202C0, 001754E0) and 0x700038A0 / 38B0 (the effect
-  vectors, compared through the effect calls).
+- **Scratchpad words outside the shared scratch.** 0x70003A24 (0021D1A0)
+  and 0x700038B0..BC (0021EAD0 / 0021EF30's rotation, compared through the
+  effect calls) are not mirrored.
 - **Host models.** atan2 (0011E620) is a host model on both sides, as in
   the floor and slide oracles.

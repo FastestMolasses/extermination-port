@@ -508,6 +508,7 @@ def build_native():
     cached_build(lib, ['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                        '-shared', '-fPIC', '-Isrc', 'src/game/em_player_closure_0e_18.c',
                        'src/game/em_player_hang.c', 'src/game/em_player_major2.c',
+                       'src/game/em_player_ladder_climb.c', 'src/game/em_player_ladder_entry.c',
                        'src/game/em_sdk_math_original.c', '-o', str(lib)])
     native = C.CDLL(str(lib))
     WP = C.POINTER(Workers)

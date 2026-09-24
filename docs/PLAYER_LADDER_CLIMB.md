@@ -210,11 +210,21 @@ instruction it translates.
     prefix so the header can be included next to em_player_ladder_entry.h
     (state 0xB), whose `EmPlayerLadderWorkers` is a different struct.
   - `em_player_ladder_climb_0017FC80` / `_0017FD00` / `_0017FD40` /
-    `_0017FD80` / `_0017FE00` / `_0017FE80` / `_0017FF00` / `_00180420` /
-    `_00180460` / `_00180530` / `_00180600` / `_001809B0`: the helpers,
-    for their other callers (0017FC80 is also called by 001647D0,
-    0016D130, 00169730, 00165B60 and 00221FC0; 001809B0 by 00168050;
-    00180420 by 00180790, 001806E0 and 00180850).
+    `_0017FD80` / `_0017FE00` / `_0017FE80` / `_0017FF00` / `_00174AB0` /
+    `_00180420` / `_00180460` / `_00180530` / `_00180600` / `_001809B0`:
+    the helpers, for their other callers (0017FC80 is also called by
+    001647D0, 0016D130, 00169730, 00165B60 and 00221FC0; 001809B0 by
+    00168050; 00180420 by 00180790, 001806E0 and 00180850; 00174AB0 by
+    00168050 and 0016D130).
+- **One owner (2026-09-24).** 0017FC80 (with 001885D0 / 001885F0), 00180420
+  and 00174AB0 are translated only here. The ladder entry
+  (em_player_ladder_entry.c) runs `_0017FC80` over its own `request`, and
+  the closure states (em_player_closure_0e_18.c) run `_00180420` and
+  `_00174AB0` over their own `transform` / `request` and scratch, through
+  a one-routine `EmPlayerLadderClimb` (PLAYER_CLOSURE_0E_18.md 5.4). Their
+  oracles execute the originals, so they check these helpers once more
+  from those callers. 00180300 is the ladder entry's
+  (`em_player_ladder_probe_00180300`).
 - **Fail-stop:**
   - If any worker or the scene is NULL, the state returns -1 and writes
     nothing. Each helper checks only the workers it can reach.
@@ -261,7 +271,7 @@ instruction it translates.
   | cue | 001B61C0(0, 0xC0, 5, 1) | `em_player_rumble_worker` (em_player_ladder_entry.h, *lane*; direct, context = an `EmPlayerRumble`) over `em_player_rumble_001B61C0` |
   | sound_109 | 00182A70 | `em_player_ladder_00182A70` (em_player_ladder_entry.h, *lane*; adapter over that lane's `EmPlayerLadderWorkers`) |
   | steer_input | 00174FD0 | `em_player_slide_steer_input` (slide mirror; needs a live adapter) |
-  | heading | 00174AC0 | em_player_heading.h (needs an adapter) |
+  | heading | 00174AC0 | `em_player_heading_record_worker` (em_player_heading_record.h; direct, context an `EmPlayerHeadingRecord`); its `world.spad3A20` must be the one shared 0x70003A20 word this scene's `spad3A20[0]` stands for |
   | skeleton | 001C68C0 | `em_pose_host_skeleton` (em_pose_host_workers.h, *lane*; direct) over `em_pose_host_001C68C0` |
   | floor | 00175900 | `player_states_floor_service` |
   | footstep | 00182430(p, 2) | untranslated (FINDINGS "FOOTSTEP SURFACE TABLE") |
@@ -273,7 +283,7 @@ instruction it translates.
   | camera | 00176DC0 | `em_player_ladder_00176DC0` (em_player_ladder_entry.h, *lane*; adapter) |
   | clip_row | 00188550 | D_002754C0[+235 & 1] = 0x7B / 0x8E (the climb module has it internally) |
   | clip_frames | 001C61D0 | `em_pose_host_clip_frames` (em_pose_host_workers.h, *lane*; direct) over `em_pose_host_001C61D0` |
-  | probe | 00180300(p, A0, kind) | `em_player_ladder_00180300` (em_player_ladder_entry.h) or `em_player_closure_00180300` (em_player_closure_0e_18.h), both *lane*; adapter. Two translations of one function: keep one. |
+  | probe | 00180300(p, A0, kind) | `em_player_ladder_probe_00180300` (em_player_ladder_entry.h), the one translation; an adapter hands it the A0 words as bits and the ladder entry's workers over this context's sweep |
   | column | 001760C0(p, A0, 1, 18.0) | the floor module's column probe |
   | wall | 0019AB20(p, B0, p+280, 6) | `em_actor_collision_ground_0019AB20` (adapter) |
   | sweep | 0019AFE0(p, C0, D0, 7) | `em_coll_move_sweep_0019AFE0` (em_coll_move_original.h; adapter over its world / scratch / actor) |
@@ -291,16 +301,6 @@ instruction it translates.
 
   The hit_kind / hit_y data reads have no candidate yet; they belong to
   whichever context owns the sweep workers' scratch.
-- **Duplicate translations (for the lead).** Two functions this module
-  exports are also translated by concurrent lanes:
-  - 0017FC80: `em_player_ladder_climb_0017FC80` here and
-    `em_player_ladder_0017FC80` in em_player_ladder_entry.c;
-  - 00180420: `em_player_ladder_climb_00180420` here and
-    `em_player_closure_00180420` in em_player_closure_0e_18.c.
-
-  Keep one translation of each at integration and turn the other into a
-  one-line adapter. Both are byte-matched leaves whose only differences are
-  the worker struct they take.
 - **Clips.** Before the state can be live, the display must export and draw
   these clips:
   - 0xE6/0xE7/0x100/0x101 and 0xE8..0xEF;

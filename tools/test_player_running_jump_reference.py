@@ -267,7 +267,8 @@ def build_native(name='running_jump'):
                     '-ffp-contract=off', '-shared', '-fPIC', '-Isrc',
                     'src/game/em_player_running_jump.c', 'src/game/em_owner_services_original.c',
                     'src/game/em_player_recovery.c', 'src/game/em_player_slide.c',
-                    'src/game/em_player_climb.c', 'src/game/em_player_floor.c', '-lm',
+                    'src/game/em_player_climb.c', 'src/game/em_player_floor.c',
+                    'src/game/em_player_fall.c', '-lm',
                     '-o', str(lib)], cwd=ROOT, check=True)
     n = C.CDLL(str(lib))
     W, S = P(Workers), P(Scene)

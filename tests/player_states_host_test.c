@@ -368,10 +368,11 @@ static int r_refresh(void *c, EmPlayerReactionScene *s)
 {
     (void)c; ++refreshes; s->root8 = 1.5f; return 0;
 }
+static EmPlayerLandScratch reaction_scratch;   /* the shared 0x700038A0 / 0x70003A20 words */
 static EmPlayerReaction reaction_binding = {
     { NULL, r_request, r_arbiter, r_frames, r_sound, r_rumble, r_random, r_effect, r_attach,
       r_floor, r_translate, r_actor, r_heading, r_skeleton, r_fade, r_actor, r_plain,
-      r_atan2, r_w0021C270, r_w0021C350 },
+      r_atan2, r_w0021C270, r_w0021C350, &reaction_scratch },
     &reaction_scene, r_refresh, NULL
 };
 /* A 0021C440 stand-in for this binding test only: once, it makes the store

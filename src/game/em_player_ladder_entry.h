@@ -176,9 +176,6 @@ typedef struct EmPlayerLadderWorkers {
     int (*sound)(void *context, EmPlayerLiveActor *actor, int id);
     /* 00179B90(p): the actor's sound base. */
     int (*sound_base_00179B90)(void *context, EmPlayerLiveActor *actor, int *result);
-    /* 001885D0(p) and 001885F0(p): the clips 0017FC80 picks from. */
-    int (*clip_001885D0)(void *context, EmPlayerLiveActor *actor, int *clip);
-    int (*clip_001885F0)(void *context, EmPlayerLiveActor *actor, int *clip);
     /* 001762E0(p): 00176DC0's test after a cell hit (nonzero stops it). */
     int (*wall_001762E0)(void *context, EmPlayerLiveActor *actor, int *result);
     /* The node *(D_00275B40 + 4): its words +C0..+CC, as they are when
@@ -202,6 +199,13 @@ int em_player_ladder_00177030(const EmPlayerLadderWorkers *workers, EmPlayerLive
  * pass 0x700038A0, the scratch's s38A0). *result is 0, 1 or 2. */
 int em_player_ladder_00180300(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor,
                               const uint32_t v[4], int check, int *result);
+/* The same 00180300 for callers outside this lane (the closure states,
+ * em_player_closure_0e_18.c): it refuses (-1, nothing written) only when
+ * what its own instructions reach is missing: the scratch, apply, vadd and
+ * sweep_0019AFE0. This is the only translation of 00180300. */
+int em_player_ladder_probe_00180300(const EmPlayerLadderWorkers *workers,
+                                    EmPlayerLiveActor *actor, const uint32_t v[4], int check,
+                                    int *result);
 /* 00199DB0(out) and 00199FA0(a, b) over the probe state. They write all
  * their output words or none (the original writes them one by one, with
  * nothing between that can fail). *result is 1 or 0. */
@@ -213,7 +217,9 @@ int em_player_ladder_00199FA0(const EmPlayerLadderWorld *world, EmPlayerLadderSc
 int em_player_ladder_00165B60(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor);
 /* 00176DC0(p). */
 int em_player_ladder_00176DC0(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor);
-/* 0017FC80(p, blend). */
+/* 0017FC80(p, blend): translated once, in em_player_ladder_climb.c (with
+ * 001885D0 / 001885F0, the D_002754D0 / D_002754D4 rows); this runs that
+ * translation over this lane's `request` worker. */
 int em_player_ladder_0017FC80(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor,
                               float blend);
 /* 00182A70(p). */

@@ -13,6 +13,9 @@ Executed unmodified (the native translates them in em_player_reaction.c):
   0021E9C0 0021EAD0 0021EF30 (the state routines) and the helpers they call:
   0017C540 0021D530 0021D250 0021D2E0 00179880 00182870 0021D490 0021C120
   0021C190 0021D1A0 0021D600 001754E0 001B1470 0011DF78.
+0021D250, 0021D2E0 and 00179880 are translated once, in em_player_fall.c;
+the native reaction routines reach them through em_player_reaction.c's
+bridge, so this oracle checks that bridge and the owner together.
 Hooked boundaries (the native's workers), scripted per case and recorded,
 never simulated as a claim about the callee: 001749A0, 001749F0, 001C61D0,
 001FBD50, 001B61C0, 00122BB8, 001EFD90, 001EFE00, 00175900, 00178B90,
@@ -23,7 +26,9 @@ sides, so every read after a call is tested; the 0021C270 hook also writes a
 scripted D_008106F1.
 
 Compared per case: all 0x320 actor bytes, the scene bytes the routines
-write (D_008106F1, D_008106F0, D_008106BC, D_00275B08), the return code, and
+write (D_008106F1, D_008106F0, D_008106BC, D_00275B08), the scratchpad words
+0x700038A0..AC and 0x70003A20 (0021D2E0 builds its effect point at
+0x700038A0), the return code, and
 every worker call in order with its arguments; and, at entry to EVERY hooked
 call (before the hook runs), the same 0x320 actor bytes and four scene bytes
 as the callee is handed them, so a store moved across a call (for example
@@ -56,6 +61,7 @@ D_00275B40, D_00275B08 = 0x275B40, 0x275B08
 D_8106F1, D_8106F0, D_81083C, D_8106BC = 0x8106F1, 0x8106F0, 0x81083C, 0x8106BC
 D_810E70, D_810E74 = 0x810E70, 0x810E74
 SPAD_3B8D, SPAD_3B7E, SPAD_3B7C, SPAD_3B76 = 0x70003B8D, 0x70003B7E, 0x70003B7C, 0x70003B76
+SPAD_38A0, SPAD_3A20 = 0x700038A0, 0x70003A20
 
 # The translated routines (entry, size in bytes).
 STATES = {
@@ -295,6 +301,11 @@ ATAN2_FN = C.CFUNCTYPE(C.c_float, C.c_void_p, C.c_float, C.c_float)
 REFRESH_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(Scene))
 
 
+class Scratch(C.Structure):
+    # EmPlayerLandScratch (em_player_fall.h).
+    _fields_ = [('s38A0', C.c_uint32 * 4), ('s3A20', C.c_uint32)]
+
+
 class Workers(C.Structure):
     _fields_ = [('context', C.c_void_p), ('request', REQUEST_FN), ('arbiter', ARBITER_FN),
                 ('clip_frames', FRAMES_FN), ('sound', SOUND_FN), ('rumble', RUMBLE_FN),
@@ -302,7 +313,7 @@ class Workers(C.Structure):
                 ('floor', FLOOR_FN), ('translate', ARG_FN), ('probes', ACTOR_FN),
                 ('heading', ARG_FN), ('skeleton', SKELETON_FN), ('fade', FADE_FN),
                 ('model_refresh', ACTOR_FN), ('stream_check', PLAIN_FN), ('atan2', ATAN2_FN),
-                ('w0021C270', ACTOR_FN), ('w0021C350', ACTOR_FN)]
+                ('w0021C270', ACTOR_FN), ('w0021C350', ACTOR_FN), ('scratch', C.POINTER(Scratch))]
 
 
 class Reaction(C.Structure):
@@ -315,9 +326,11 @@ def build_native():
     out.mkdir(parents=True, exist_ok=True)
     lib = out / ('reaction.dylib' if sys.platform == 'darwin' else 'reaction.so')
     command = ['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
-               '-fPIC', '-Isrc', 'src/game/em_player_reaction.c', '-o', str(lib)]
+               '-fPIC', '-Isrc', 'src/game/em_player_reaction.c', 'src/game/em_player_fall.c',
+               '-o', str(lib)]
     digest = hashlib.sha256(' '.join(command).encode())
     for path in ('src/game/em_player_reaction.c', 'src/game/em_player_reaction.h',
+                 'src/game/em_player_fall.c', 'src/game/em_player_fall.h',
                  'src/game/em_ee_float.h', 'src/game/em_player_floor.h'):
         digest.update((ROOT / path).read_bytes())
     stamp = Path(str(lib) + '.sha256')
@@ -329,13 +342,16 @@ def build_native():
     for name in STATES:
         getattr(native, 'em_player_reaction_' + name).argtypes = [A, S, W]
         getattr(native, 'em_player_reaction_live_' + name).argtypes = [C.c_void_p, A]
-    for name, types in (('0017C540', [A]), ('0021D530', [A, S]), ('00179880', [A])):
+    for name, types in (('0017C540', [A]), ('0021D530', [A, S])):
         getattr(native, 'em_player_reaction_' + name).argtypes = types
         getattr(native, 'em_player_reaction_' + name).restype = None
+    native.em_player_fall_drop.argtypes = [A]          # 00179880's one translation
+    native.em_player_fall_drop.restype = None
     native.em_player_reaction_0021D250.argtypes = [A, C.c_int, W]
     native.em_player_reaction_0021D2E0.argtypes = [A, C.c_int16, C.c_int, W]
     native.em_player_reaction_00182870.argtypes = [A, C.c_int, W]
-    native.em_player_reaction_001754E0.argtypes = [A, S, C.c_int, C.POINTER(C.c_int)]
+    native.em_player_reaction_001754E0.argtypes = [A, S, C.POINTER(Scratch), C.c_int,
+                                                    C.POINTER(C.c_int)]
     native.em_player_reaction_w0021D2E0.argtypes = [C.c_void_p, A, C.c_int, C.c_int]
     native.em_player_reaction_w0021C190.argtypes = [C.c_void_p, A, C.POINTER(C.c_int)]
     native.em_player_reaction_wrap.argtypes = [C.c_float]
@@ -497,6 +513,8 @@ class Native:
         self.s, self.log, self.keep, self.flag = script, [], [], flag
         self.snaps, self.bound = [], None
         w = self.workers = Workers()
+        self.scratch = Scratch()
+        w.scratch = C.pointer(self.scratch)
 
         def keep(kind, fn, pc):
             def run(*args):
@@ -663,6 +681,21 @@ def random_scene(rng):
     return scene, flag
 
 
+def case_spad(tag):
+    """The scratchpad words 0x700038A0..AC and 0x70003A20 a case starts
+    from (their own generator, so the case's other draws are unchanged)."""
+    rng = random.Random('spad/%s' % (tag,))
+    return [rng.getrandbits(32) for _ in range(5)]
+
+
+def load_spad(ee, native, words):
+    for i in range(4):
+        ee.save(SPAD_38A0 + 4 * i, words[i])
+        native.scratch.s38A0[i] = words[i]
+    ee.save(SPAD_3A20, words[4])
+    native.scratch.s3A20 = words[4]
+
+
 def load_case(ee, raw, scene, flag):
     ee.reset()
     ee.write(ACTOR, bytes(raw))
@@ -710,6 +743,10 @@ def compare(ee, actor, scene, flag, where, original, native):
                                       ('D_008106BC', scene.d8106BC, D_8106BC, 1),
                                       ('D_00275B08', scene.d275B08 & 0xFFFFFFFF, D_00275B08, 4)):
         assert have == ee.load(address, size), (where, name, have, ee.load(address, size))
+    spad = [ee.load(SPAD_38A0 + 4 * i) for i in range(4)] + [ee.load(SPAD_3A20)]
+    mine = list(native.scratch.s38A0) + [native.scratch.s3A20]
+    assert mine == spad, (where, 'scratchpad 0x700038A0..AC / 0x70003A20', [hex(v) for v in spad],
+                          [hex(v) for v in mine])
 
 
 # Deterministic scenarios, run first for each routine (the rest are random):
@@ -780,8 +817,9 @@ def run_state(case):
         apply_scenario(SCENARIOS[routine][index], raw, scene, flag, script)
     load_case(EE_, raw, scene, flag)
     original = Original(EE_, script.copy())
-    EE_.call(STATES[routine][0], (ACTOR,))
     native = Native(script.copy(), flag)
+    load_spad(EE_, native, case_spad((routine, seed)))
+    EE_.call(STATES[routine][0], (ACTOR,))
     actor = LiveActor(); C.memmove(actor.bytes, bytes(raw), 0x320)
     native.bind(actor, scene)
     result = getattr(NATIVE, 'em_player_reaction_' + routine)(C.byref(actor), C.byref(scene),
@@ -805,6 +843,7 @@ def run_helper(case):
     load_case(EE_, raw, scene, flag)
     original = Original(EE_, script.copy())
     native = Native(script.copy(), flag)
+    load_spad(EE_, native, case_spad((name, seed)))
     actor = LiveActor(); C.memmove(actor.bytes, bytes(raw), 0x320)
     native.bind(actor, scene)
     ref, w, sc = C.byref(actor), C.byref(native.workers), C.byref(scene)
@@ -822,12 +861,13 @@ def run_helper(case):
     elif name == '0021D530':
         EE_.call(entry, (ACTOR,)); NATIVE.em_player_reaction_0021D530(ref, sc)
     elif name == '00179880':
-        EE_.call(entry, (ACTOR, ACTOR + 0x2EC)); NATIVE.em_player_reaction_00179880(ref)
+        EE_.call(entry, (ACTOR, ACTOR + 0x2EC)); NATIVE.em_player_fall_drop(ref)
     elif name == '001754E0':
         count = rng.choice([0, 1, 6, 7])
         out = C.c_int(-7)
         EE_.call(entry, (ACTOR, count))
-        assert NATIVE.em_player_reaction_001754E0(ref, sc, count, C.byref(out)) == 0
+        assert NATIVE.em_player_reaction_001754E0(ref, sc, C.byref(native.scratch), count,
+                                                  C.byref(out)) == 0
         assert out.value == s(EE_.r[2]), (name, seed, out.value, EE_.r[2])
     compare(EE_, actor, scene, flag, (name, seed), original, native)
 
@@ -842,6 +882,7 @@ def run_voice(surface, arg, depth):
     load_case(EE_, raw, scene, flag)
     original = Original(EE_, script.copy())
     native = Native(script.copy(), flag)
+    load_spad(EE_, native, case_spad(('voice', surface, arg, depth)))
     actor = LiveActor(); C.memmove(actor.bytes, bytes(raw), 0x320)
     native.bind(actor, scene)
     EE_.call(HELPERS['00182870'][0], (ACTOR, arg))
@@ -880,7 +921,7 @@ def live_section():
     actor.bytes[6] = 1          # 0021E9C0 sub-state 1 without 0x1000: +38 = root8 - +21C
     assert NATIVE.em_player_reaction_live_0021E9C0(C.addressof(binding), C.byref(actor)) == 0
     assert refreshed == [1] and struct.unpack_from('<f', bytes(actor.bytes), 0x38)[0] == 2.5
-    for field in ('sound', 'atan2', 'stream_check', 'w0021C270', 'w0021C350'):
+    for field in ('sound', 'atan2', 'stream_check', 'w0021C270', 'w0021C350', 'scratch'):
         broken = Reaction(native.workers, C.pointer(scene), keep, None)
         setattr(broken.workers, field, type(getattr(broken.workers, field))())
         before = bytes(actor.bytes)

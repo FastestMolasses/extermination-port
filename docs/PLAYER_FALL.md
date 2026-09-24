@@ -210,9 +210,11 @@ attribute 0x5D (FIRST_CONTROL.md census).
 - **Tail**, when hold == 0: +B4 −= 0.2, 00179880, then 00175900(p, 1). A
   nonzero result clears +2EC.
 
-### 00179880(p, p+2EC): the drop accumulator
+### 00179880(p, v): the drop accumulator
 
-It does +2EC += −0.04 (clamped at −4.0 by C.LT.S), then +B4 += +2EC and
+v is a record address the caller passes: p+2EC from every routine here, the
+reaction and the 10_12_19 states, p+2E4 from the running jump's 001634A0
+case 3. It does *v += −0.04 (clamped at −4.0 by C.LT.S), then +B4 += *v and
 +25F = 2.
 
 ### Where the readable C differs from the instructions
@@ -242,8 +244,13 @@ The routines were translated from the instructions, not from the C:
   - `em_player_fall_state5/7/8` are `EmPlayerStateCallback`s (the context
     is the `EmPlayerLandWorkers *`).
   - `em_player_fall_land` (0017C580), `_land_check` (00224290),
-    `_surface5d` (0021D250), `_teleport` (0021D2E0), `_drop` (00179880)
-    and `_00163C10/_00163D50/_00163E90/_00164220/_001643B0`.
+    `_surface5d` (0021D250), `_teleport` (0021D2E0), `_drop` (00179880 on
+    p+2EC) and `_00163C10/_00163D50/_00163E90/_00164220/_001643B0`.
+  - For the other lanes (see "One owner" below): `em_player_fall_00179880`
+    (p, at), and `em_player_fall_0021D250` / `_0021D2E0`, which run the
+    same bodies but refuse only when a worker their own instructions reach
+    is missing (0021D250: request, rumble, sound; 0021D2E0: the scratch,
+    request, skeleton, hip, effect, fade, floor).
 - **The small tables** are D_00248560, D_00248570, D_00248580, D_002488B0
   and D_0024889C: 18 words as constants. The oracle checks them, because
   every case compares what the original read from the ELF with what the
@@ -293,7 +300,26 @@ effect, and the native workers replay the same script. The effects are:
   native must return −1 with exactly the calls up to it.
 - The refusal: each of the 35 bindings (34 workers, plus the scratch) is
   removed in turn, on each of 7 entry points (245 checks). Every run must
-  return −1 with no call and no write.
+  return −1 with no call and no write. The narrow `em_player_fall_0021D250`
+  / `_0021D2E0` refuse the same way on each worker they reach (10 checks),
+  and every 0021D250 / 0021D2E0 case also runs through them and must give
+  the identical result.
+- **The bound heading** (2026-09-24). 600 cases (6,000 with
+  `EM_TEST_FULL=1`) of 0017C580, 00162DB0 and 00163B40 run with the
+  `heading` slot bound to `em_player_heading_record_worker_result`, its
+  `world.spad3A20` pointing at this lane's scratch word, against the
+  original with 00174AC0 executing as original code with its whole call tree
+  (cosf, atan2f, fabsf, 001B1470, 001B12B0; the fall routines' own
+  001B1470 / 001B12B0 calls stay scripted). The pad gait byte, the stick
+  bytes, the camera yaw and 0x70003B8D are drawn per case on both sides.
+  Everything above must match (the record, the five scratch words, every
+  other worker call). The quick run reaches 00174AC0 114 times, the full
+  run 1,041 times (2026-09-24). The fall
+  routines call it with arg 0 while +5 is 5 or 8, so it never stores
+  0x70003A20 here (only its reversal gate at +5 == 1 and the arg-1 turn do);
+  0017C580's reload reads its own store, which the scratch comparison
+  confirms. A negative control (the stick bytes swapped on the native side)
+  fails at +244..+24F.
 
 **Scale.** Quick runs 4,000 of 24,000 cases. `EM_TEST_FULL=1` runs all
 24,000 (13 s). The last runs (2026-09-23) passed:
@@ -409,7 +435,7 @@ Each worker's original, and what can fill it today:
 | `trs` | build_trs_matrix | |
 | `wrap` | 001B1470 | `em_player_001B1470` (em_player_stage_workers.h, bit patterns) |
 | `approach` | 001B12B0 | `em_player_slide_approach` exists, but on the older float model (EE_FLOAT_MODEL.md 5c) |
-| `heading` | 00174AC0 | the port's heading translation (em_player_heading) must also publish its 0x70003A20 stores into `scratch->s3A20`; see the scratch below |
+| `heading` | 00174AC0 | `em_player_heading_record_worker_result` (em_player_heading_record.h), context an `EmPlayerHeadingRecord` whose `world.spad3A20` is `&scratch->s3A20` (the scratch below). Checked by the oracle's bound-heading part (section 3) |
 | `reentry` | 0017C440 | the port's run-stop re-entry (em_player_motor / em_player.c, checked by test_player_reentry_reference.py) |
 | `handoff` | 0017C540 | `em_player_reaction_0017C540` |
 | `react_0021C350`, `react_0021C120`, `test_0021C190`, `react_0021C270` | 0021C350, 0021C120, 0021C190, 0021C270 | the player-reaction lane's translations |
@@ -450,13 +476,32 @@ passes where $s1 comes from, and the binder sets
 `scratch` is one binder-owned `EmPlayerLandScratch`. Every worker whose
 original writes 0x70003A20 must store into `scratch->s3A20`: 00174AC0 at
 00174CF8/00174E24/00174E4C, 001755B0 and 0017D080. 0017C580 re-reads that
-word after 00174AC0.
+word after 00174AC0. The reaction lane's workers take the same instance
+(`EmPlayerReactionWorkers.scratch`): 0021D2E0 builds its effect point at
+0x700038A0, and 002202C0, 001754E0 and 0021D1A0 store 0x70003A20.
 
-### Duplicate translations
+### One owner (2026-09-24)
 
-The player-reaction lane (em_player_reaction.c) also translates 0021D250,
-0021D2E0 and 00179880, with its own oracle. Both are original-verified. The
-lead should keep one and bind it on both sides.
+0021D250, 0021D2E0 and 00179880 are translated once, here.
+
+- **Why here.** The fall translation of 0021D2E0 writes its effect point
+  into the scratchpad word 0x700038A0 and passes that address to 001EFD90,
+  as the original does; this oracle checks both. The reaction lane's former
+  copy built the point in a local and left the scratchpad alone. 00179880 is
+  a leaf; the census already named this module as its owner.
+- **The reaction lane** (em_player_reaction.c) runs these routines through
+  a bridge: `em_player_reaction_0021D250` / `_0021D2E0` hand
+  `em_player_fall_0021D250` / `_0021D2E0` an `EmPlayerLandWorkers` built
+  from its own workers (the same callees in the same order; node 1's +C0 /
+  +C8 are taken from its `skeleton` worker's result as `hip`), and its
+  routines call `em_player_fall_drop`. The major2 lane's `w0021D250` /
+  `w0021D2E0` slots bind the reaction adapters, so they reach the same
+  translation. test_player_reaction_reference.py executes the originals and
+  compares the bridge and the owner together, now including the scratchpad
+  words 0x700038A0..AC and 0x70003A20.
+- **The running jump** (em_player_running_jump.c) calls
+  `em_player_fall_00179880(p, 0x2E4)`; the 10_12_19 states call
+  `em_player_fall_drop`.
 
 ## 5. Limits and open items
 

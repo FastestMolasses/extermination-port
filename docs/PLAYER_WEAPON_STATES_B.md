@@ -346,7 +346,7 @@ Each pointer must be the one canonical storage the other owners use:
 | `request` | 001749A0 | the clip request (blend as raw bits; convert with `em_ee_float` in the adapter) |
 | `sound` | 001FBD50 | (p, id, 0, 300.0), returning the handle |
 | `stop_sound` | 0011A070 | `em_player_stage_stop_sound` (em_player_stage_workers.h) |
-| `heading` | 00174AC0 | the heading translation (em_player_heading) |
+| `heading` | 00174AC0 | `em_player_heading_record_worker_result` (em_player_heading_record.h; context an `EmPlayerHeadingRecord`, `world.spad3A20` the shared 0x70003A20 word) |
 | `approach` | 001B12B0 | the approach translation on the measured model |
 | `wrap` | 001B1470 | `em_player_001B1470` |
 | `atan2` | 0011E620 | `em_sdk_math_original_0011E620` |

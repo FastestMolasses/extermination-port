@@ -435,6 +435,15 @@ static int bound_probe(const EmPlayerLadderClimb *l, const EmPlayerLiveActor *a)
     return l && a && l->workers && l->scene && l->workers->transform;
 }
 
+static int clip_zero(const Call *c);
+
+int em_player_ladder_climb_00174AB0(const EmPlayerLadderClimb *l, EmPlayerLiveActor *a)
+{
+    if (!bound_request(l, a)) return -1;
+    Call c = helper_call(l, a);
+    return clip_zero(&c) < 0 ? -1 : 0;
+}
+
 int em_player_ladder_climb_00180420(const EmPlayerLadderClimb *l, EmPlayerLiveActor *a)
 {
     if (!bound_probe(l, a)) return -1;

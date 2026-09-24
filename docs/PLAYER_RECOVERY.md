@@ -150,7 +150,7 @@ code that exists today in other lanes. This lane has not verified it.
 | hang_clear, hang_row | 0017F320, 00188550 | `em_player_climb_hang_clear`; 00188550 static in em_player_climb.c |
 | skeleton | anim_eval_skeleton + node 1 (+C0..CC of *(D_00275B40 + 4)) | the pose host |
 | column | 001760C0(p, at, 1, h) | none standalone (also a worker in em_player_floor.h EmPlayerProbeWorkers) |
-| heading, reentry, handoff | 00174AC0, 0017C440, 0017C540 | em_player_heading.h (00174AC0), em_player_motor.h (0017C440); no standalone 0017C540 |
+| heading, reentry, handoff | 00174AC0, 0017C440, 0017C540 | `em_player_heading_record_worker` (em_player_heading_record.h; context an `EmPlayerHeadingRecord`, `world.spad3A20` the shared 0x70003A20 word) (00174AC0), em_player_motor.h (0017C440); no standalone 0017C540 |
 
 **Scene** (`EmPlayerRecoveryScene`, filled each call by `scene`):
 

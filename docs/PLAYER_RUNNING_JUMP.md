@@ -205,9 +205,11 @@ its listing. These readings disagree with the C:
   and 0017C860 then returned **nonzero** (00163698 / 00163864). The C
   returns when 0017C860 returned 0, the opposite polarity. (The NEARMISS
   note calls this a "guard-combination polarity flip".)
-- **001634A0 case 3** passes **p + 0x2E4** to 00179880 (001638B8).
-  em_player_fall's `em_player_fall_drop` is the +2EC instance, so this
-  module translates the +2E4 one.
+- **001634A0 case 3** passes **p + 0x2E4** to 00179880 (001638B8). The one
+  translation of 00179880 is em_player_fall.c's `em_player_fall_00179880(p,
+  at)` (2026-09-24, PLAYER_FALL.md "One owner"); this module calls it with
+  0x2E4 (`em_player_fall_drop` is its +2EC form). The oracle executes the
+  original 00179880 there, so it checks that call.
 - **001634A0 case 0** calls 001C61D0 with (+40, 0x69); the C shows a
   third argument.
 - **The distances** in 0015EC50 and 0015FDF0 use the EE accumulator:
@@ -444,7 +446,7 @@ have callbacks.
 | `link_type` | (+308)+3 | the owner's EmActor type byte (`EmPlayerLiveActor.link_prev`) |
 | `target`, `target_xz` | D_00275B8C[i] +2/+3/+34, +B0/+B8 | the published auto-aim list. No port module keeps it yet; it is the copy 001AAD00 makes of D_00275B90, fed by 001B1CA0 (CRATES_DRUMS_ORIGINAL.md). Until it exists, bind an empty list only if the coordinator can show D_00275B94 == 0 (true in every AREA11 route snapshot but beat 14's, whose one entry is class 0xA). |
 | `target_radius`, `target_sight` | 001AA410, 001AA2A0 | untranslated. 001AA2A0 must store its distance into `scratch->s3A20`. |
-| `heading` | 00174AC0 | the port's 00174AC0 translation (em_player_heading); it must publish its 0x70003A20 stores into `scratch->s3A20` |
+| `heading` | 00174AC0 | `em_player_heading_record_worker_result` (em_player_heading_record.h), context an `EmPlayerHeadingRecord` whose `world.spad3A20` is the shared 0x70003A20 word (`scratch->s3A20`) |
 | `request`, `arbiter`, `clip_frames`, `sound` | 001749A0, anim_clip_arbiter, 001C61D0(+40, clip), 001FBD50(p, id, 0, 300) | the pose host and `em_sfx`, as for the fall lane |
 | `translate`, `strafe`, `quadrant`, `react`, `grab` | 00178B90, 00178EC0, 001751A0, 002243F0, 0017C860 | `em_player_recovery_translate_worker`, `_strafe_worker`, `_stick_quadrant_worker`, `_react_002243F0_worker`, `_ledge_grab_worker` (same signatures, an `EmPlayerRecoveryLive` context) |
 | `dust` | 0017DEB0 | static in em_player_climb.c (operates on `EmPlayerClimbActor`); needs a live-record adapter |

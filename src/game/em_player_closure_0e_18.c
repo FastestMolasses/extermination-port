@@ -12,6 +12,8 @@
 #include "game/em_player_closure_0e_18.h"
 #include "game/em_ee_float.h"
 #include "game/em_player_hang.h"
+#include "game/em_player_ladder_climb.h"
+#include "game/em_player_ladder_entry.h"
 #include "game/em_player_major2.h"
 #include "game/em_sdk_math_original.h"
 
@@ -279,50 +281,134 @@ static int x00180280(const Call *c, int s, uint32_t b) { return sel_clip(c, s, 0
 
 /* ---- 00180420, 00180300, 001806E0, 00180790, 00180850 ------------------- */
 
+/* 00180420 and 00180300 are translated once each, by the ladder lanes
+ * (docs/PLAYER_CLOSURE_0E_18.md "One owner"): 00180420 in
+ * em_player_ladder_climb.c, 00180300 in em_player_ladder_entry.c. The
+ * bridges below run those translations over this lane's workers and
+ * scratch: the same original callees (001026A0, 001028B8, 0019AFE0 and the
+ * hit record's surface byte) in the same order, over the same scratchpad
+ * words (0x700038A0..0x700038DF, 0x70003600..0x7000361F). The owner works on
+ * its own view of those words; the bridge copies them into the view before
+ * the call and back into this lane's scratch before every worker call and
+ * after the routine, so each worker sees the scratchpad as the original
+ * leaves it at that call. */
+
+typedef struct ReachBridge {
+    const Call *c;
+    EmPlayerLadderClimbScene *scene;     /* 00180420's view of 0x700038A0.. */
+} ReachBridge;
+
+static void reach_sync(const ReachBridge *b)
+{
+    memcpy(b->c->w->scratch->s38A0, b->scene->spad38A0, sizeof b->scene->spad38A0);
+}
+
+static int reach_transform(void *context, float out[4], const float matrix[16], const float in[4])
+{
+    const ReachBridge *b = context;
+    uint32_t m[16], v[4], res[4] = { 0, 0, 0, 0 };
+    reach_sync(b);
+    memcpy(m, matrix, sizeof m);                       /* the words, bit for bit */
+    memcpy(v, in, sizeof v);
+    FAULT(b->c->w->transform(b->c->w->context, m, v, res));
+    memcpy(out, res, sizeof res);
+    return 0;
+}
+
 /* 00180420: spad 0x700038A0 = (0, 0, -3.0, 1.0), then (tail jump)
  * 001026A0(p + 290, p + D0, 0x700038A0). */
 static int x00180420(const Call *c)
 {
-    uint32_t *s = c->w->scratch->s38A0;
-    uint32_t out[4];
-    s[0] = K_0;                                        /* 00180424 */
-    s[1] = K_0;                                        /* 0018042C */
-    s[2] = K_M3;                                       /* 00180438 */
-    s[3] = K_1;                                        /* 00180448 */
-    FAULT(transform(c, s, out));                       /* 00180458 */
-    put_words(c->a, 0x290, out, 4);
+    EmPlayerLadderClimbWorkers workers;
+    EmPlayerLadderClimbScene scene;
+    memset(&workers, 0, sizeof workers);
+    memset(&scene, 0, sizeof scene);
+    memcpy(scene.spad38A0, c->w->scratch->s38A0, sizeof scene.spad38A0);
+    ReachBridge bridge = { c, &scene };
+    workers.context = &bridge;
+    workers.transform = reach_transform;
+    EmPlayerLadderClimb ladder = { &workers, &scene };
+    int r = em_player_ladder_climb_00180420(&ladder, c->a);
+    reach_sync(&bridge);
+    return r;
+}
+
+typedef struct ProbeBridge {
+    const Call *c;
+    EmPlayerLadderScratch *scratch;      /* 00180300's view of 0x70003600.. */
+} ProbeBridge;
+
+static void probe_sync(const ProbeBridge *b)
+{
+    memcpy(&b->c->w->scratch->s3600[0], b->scratch->s3600, sizeof b->scratch->s3600);
+    memcpy(&b->c->w->scratch->s3600[4], b->scratch->s3610, sizeof b->scratch->s3610);
+}
+
+static int probe_apply(void *context, uint32_t out[4], const uint32_t matrix[16],
+                       const uint32_t v[4])
+{
+    const ProbeBridge *b = context;
+    uint32_t m[16], in[4], res[4] = { 0, 0, 0, 0 };
+    probe_sync(b);
+    memcpy(m, matrix, sizeof m);
+    memcpy(in, v, sizeof in);
+    FAULT(b->c->w->transform(b->c->w->context, m, in, res));
+    memcpy(out, res, sizeof res);
     return 0;
 }
 
-/* 00180300(p, v, kind): spad 0x70003600 = (0, 0, 10.0, 0); 0x70003610 =
- * (0x70003600 x M) + v; 0019AFE0(p, v, 0x70003610, 6). 0 returns 2. Else
- * +23B = the hit's surface byte, and kind 0 / 1 / 2 returns 0 on surface
- * 0x32 / 0x3B / 0x33 and 1 otherwise; any other kind returns 1. */
+static int probe_vadd(void *context, uint32_t out[4], const uint32_t a[4], const uint32_t b4[4])
+{
+    const ProbeBridge *b = context;
+    uint32_t x[4], y[4], res[4] = { 0, 0, 0, 0 };
+    probe_sync(b);
+    memcpy(x, a, sizeof x);                            /* out may be a */
+    memcpy(y, b4, sizeof y);
+    FAULT(b->c->w->vadd(b->c->w->context, x, y, res));
+    memcpy(out, res, sizeof res);
+    return 0;
+}
+
+/* 0019AFE0 over this lane's sweep. On a hit, the record 0x700031D0 names is
+ * the one hit_surface reads: the owner reads its surface byte (+1A) next,
+ * with nothing in between, so it is taken here into the owner's record. */
+static int probe_sweep(void *context, EmPlayerLiveActor *a, const uint32_t from[4],
+                       const uint32_t to[4], int mask, int *result)
+{
+    const ProbeBridge *b = context;
+    const Call *c = b->c;
+    probe_sync(b);
+    FAULT(c->w->sweep(c->w->context, a, from, to, (unsigned)mask, result));
+    b->scratch->record = EM_PLAYER_LADDER_RECORD_NONE;
+    if (*result != 0) {
+        uint8_t surface = 0;
+        FAULT(c->w->hit_surface(c->w->context, &surface));
+        b->scratch->record = EM_PLAYER_LADDER_RECORD_OTHER;
+        b->scratch->record_bytes[0x1A] = surface;
+    }
+    return 0;
+}
+
+/* 00180300(p, v, kind): the owner's em_player_ladder_probe_00180300. */
 static int x00180300(const Call *c, const uint32_t v_in[4], int kind, int *result)
 {
-    uint32_t *s = c->w->scratch->s3600;
-    uint32_t v[4], out[4], sum[4];
-    int hit = 0;
-    memcpy(v, v_in, sizeof v);
-    s[0] = K_0;                                        /* 00180318 */
-    s[1] = K_0;                                        /* 00180320 */
-    s[2] = K_10;                                       /* 0018032C */
-    s[3] = K_0;                                        /* 00180358 (delay slot) */
-    FAULT(transform(c, s, out));                       /* 00180354: into 0x70003610 */
-    memcpy(&s[4], out, sizeof out);
-    FAULT(c->w->vadd(c->w->context, &s[4], v, sum));   /* 0018036C */
-    memcpy(&s[4], sum, sizeof sum);
-    FAULT(c->w->sweep(c->w->context, c->a, v, &s[4], 6, &hit)); /* 00180384 */
-    if (hit == 0) { *result = 2; return 0; }           /* 0018038C */
-    uint8_t surface = 0;
-    FAULT(c->w->hit_surface(c->w->context, &surface)); /* 00180398 / 0018039C */
-    set8(c->a, 0x23B, surface);                        /* 001803A4 (delay slot) */
-    uint8_t b = u8(c->a, 0x23B);
-    if (kind == 0) *result = b == 0x32 ? 0 : 1;        /* 001803A8.. */
-    else if (kind == 1) *result = b == 0x3B ? 0 : 1;   /* 001803D0.. */
-    else if (kind == 2) *result = b == 0x33 ? 0 : 1;   /* 001803F4.. */
-    else *result = 1;                                  /* 001803C4 / 001803EC */
-    return 0;
+    EmPlayerLadderScratch scratch;
+    EmPlayerLadderWorkers workers;
+    memset(&scratch, 0, sizeof scratch);
+    memset(&workers, 0, sizeof workers);
+    uint32_t v[4];
+    memcpy(v, v_in, sizeof v);                         /* v may point into the scratch */
+    memcpy(scratch.s3600, &c->w->scratch->s3600[0], sizeof scratch.s3600);
+    memcpy(scratch.s3610, &c->w->scratch->s3600[4], sizeof scratch.s3610);
+    ProbeBridge bridge = { c, &scratch };
+    workers.context = &bridge;
+    workers.scratch = &scratch;
+    workers.apply = probe_apply;
+    workers.vadd = probe_vadd;
+    workers.sweep_0019AFE0 = probe_sweep;
+    int r = em_player_ladder_probe_00180300(&workers, c->a, v, kind, result);
+    probe_sync(&bridge);
+    return r;
 }
 
 /* 001806E0: 00180420; spad x = +290, z = +298, y = 18.0 + +B4; 00180300
@@ -409,10 +495,22 @@ static int x00182AB0(const Call *c)
     return sound(c, r + 0x11B);                        /* 00182AC4 / 00182AD4 */
 }
 
-/* 00174AB0: (tail jump) 001749A0(p, 0, 1, 0.0). */
+static int reach_request(void *context, EmPlayerLiveActor *a, int clip, int force, float blend)
+{
+    const Call *c = context;
+    return c->w->request(c->w->context, a, clip, force, blend);
+}
+
+/* 00174AB0: (tail jump) 001749A0(p, 0, 1, 0.0); translated once, in
+ * em_player_ladder_climb.c (the owner), run here over this lane's request. */
 static int x00174AB0(const Call *c)
 {
-    return request(c, 0, 1, K_0);                      /* 00174AB0 .. 00174ABC */
+    EmPlayerLadderClimbWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.context = (void *)c;
+    workers.request = reach_request;
+    EmPlayerLadderClimb ladder = { &workers, NULL };
+    return em_player_ladder_climb_00174AB0(&ladder, c->a);
 }
 
 /* ---- 00178620, 001790B0, 00179150 --------------------------------------- */

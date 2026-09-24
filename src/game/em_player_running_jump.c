@@ -58,8 +58,6 @@ typedef uint32_t F;
 #define K_4_1        UINT32_C(0x40833333)
 #define K_6_3        UINT32_C(0x40C9999A)
 #define K_M0_03      UINT32_C(0xBCF5C28F)
-#define K_M0_04      UINT32_C(0xBD23D70A)
-#define K_M4         UINT32_C(0xC0800000)
 #define K_M0_2       UINT32_C(0xBE4CCCCD)
 
 /* D_002489E0: the forward probe point (x, y, z, w) in actor space. */
@@ -586,16 +584,6 @@ int em_player_running_jump_aim(EmPlayerLiveActor *actor, const EmPlayerRunningJu
 
 /* ---- 001634A0 ----------------------------------------------------------- */
 
-/* 00179880(p, p + 0x2E4). */
-static void drop_2E4(EmPlayerLiveActor *a)
-{
-    F v = add(ld(a, 0x2E4), K_M0_04);                                  /* 00179894 */
-    st(a, 0x2E4, v);                                                   /* 001798AC */
-    if (lt(v, K_M4)) st(a, 0x2E4, K_M4);                               /* 001798A0 */
-    st(a, 0xB4, add(ld(a, 0xB4), ld(a, 0x2E4)));                       /* 001798C0 */
-    put8(a, 0x25F, 2);                                                 /* 001798CC */
-}
-
 /* The airborne head of cases 2 and 3: 002243F0; with no reaction, 0017C860
  * on +2E4 may take the actor (then the callback returns). *go = 0 then. */
 static int airborne_head(EmPlayerLiveActor *a, const EmPlayerRunningJumpWorkers *w, int *reacted,
@@ -723,7 +711,7 @@ static int jump_case3(EmPlayerLiveActor *a, const EmPlayerRunningJumpWorkers *w)
         st(a, 0x38, K_ZERO);                                           /* 001638A8 */
     }
     FAULT(w->translate(w->context, a, 1));                             /* 001638B0 */
-    drop_2E4(a);                                                       /* 001638BC */
+    em_player_fall_00179880(a, 0x2E4);   /* 001638BC: 00179880(p, p + 0x2E4), em_player_fall.c */
     FAULT(ceiling(a, w));
     int contact = 0;
     FAULT(w->floor(w->context, a, 1, &contact));                       /* 00163914 */

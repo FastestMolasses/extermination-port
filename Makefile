@@ -421,7 +421,7 @@ test-shadow-original-reference:
 
 .PHONY: test-player-states-host
 test-player-states-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c -lm -o build/player_states_host_test && ./build/player_states_host_test
 
 .PHONY: test-ee-float-model
 test-ee-float-model:
@@ -704,6 +704,22 @@ test-player-heading-record-reference:
 .PHONY: test-pose-chain-reference
 test-pose-chain-reference:
 	python3 tools/test_pose_chain_reference.py
+
+.PHONY: test-actor-light-001d89d0-reference
+test-actor-light-001d89d0-reference:
+	python3 tools/test_actor_light_001d89d0_reference.py
+
+.PHONY: test-vu1-object-clip-reference
+test-vu1-object-clip-reference:
+	python3 tools/test_vu1_object_clip_reference.py
+
+.PHONY: test-vu1-object-kernel-reference
+test-vu1-object-kernel-reference:
+	python3 tools/test_vu1_object_kernel_reference.py
+
+.PHONY: test-vu1-object-kernel-defects
+test-vu1-object-kernel-defects:
+	python3 tools/test_vu1_object_kernel_reference.py --defects
 
 .PHONY: test-ee-float-header
 test-ee-float-header:

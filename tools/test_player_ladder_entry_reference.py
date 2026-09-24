@@ -12,6 +12,12 @@ embedded here. Routines executed unmodified:
   00165B60  state 0xB, the ladder entry     00176DC0  the radial wall probes
   0017FC80  clip by +2F1                    00182A70  climb step sound
   001B61C0  pad vibration request           00102948 / 001031E0 (copies)
+  001885D0 / 001885F0  the D_002754D0 / D_002754D4 rows 0017FC80 reads
+
+0017FC80 (with 001885D0 / 001885F0) is translated once, in
+em_player_ladder_climb.c; em_player_ladder_entry.c runs that translation
+over its own request worker, so this oracle checks the bridge and the owner
+together.
 
 Every other callee is hooked, scripted per case and recorded (never
 simulated as a claim about the callee); the native module gets the same
@@ -91,7 +97,7 @@ CENTER, CORNERS, STATE_B, WALLS = 0x199DB0, 0x199FA0, 0x165B60, 0x176DC0
 CLIPS, STEP, RUMBLE, QCOPY, COPY3 = 0x17FC80, 0x182A70, 0x1B61C0, 0x102948, 0x1031E0
 SIZES = {USE: 0x9F8, REFRESH: 0x9C, FACING: 0x430, CLASSIFY: 0x120, CENTER: 0x1EC,
          CORNERS: 0x1DC, STATE_B: 0x770, WALLS: 0x1CC, CLIPS: 0x74, STEP: 0x3C, RUMBLE: 0x84,
-         QCOPY: 0xC, COPY3: 0x1C}
+         QCOPY: 0xC, COPY3: 0x1C, 0x1885D0: 0x1C, 0x1885F0: 0x1C}
 TRANSLATED = set(SIZES)
 
 
@@ -105,7 +111,7 @@ CALLEES = {
     0x1029C0: 'identity', 0x102C58: 'euler', 0x102918: 'translate', 0x102BB0: 'rotate_y',
     0x102738: 'dot', 0x102760: 'normalize', 0x11E620: 'atan2', 0x1B1470: 'wrap',
     0x11DF78: 'fabs', 0x11DE90: 'cos', 0x11E748: 'sqrt', 0x1749A0: 'request',
-    0x1FBD50: 'sound', 0x179B90: 'sound_base', 0x1885D0: 'clip_5D0', 0x1885F0: 'clip_5F0',
+    0x1FBD50: 'sound', 0x179B90: 'sound_base',
     0x1762E0: 'wall', 0x111018: 'actuator',
 }
 
@@ -213,7 +219,6 @@ WORKER_FIELDS = (
     ('fabs_0011DF78', 'scalar', 'fabs'), ('cos_0011DE90', 'scalar', 'cos'),
     ('sqrt_0011E748', 'scalar', 'sqrt'), ('request', 'request', 'request'),
     ('sound', 'sound', 'sound'), ('sound_base_00179B90', 'actor_result', 'sound_base'),
-    ('clip_001885D0', 'actor_result', 'clip_5D0'), ('clip_001885F0', 'actor_result', 'clip_5F0'),
     ('wall_001762E0', 'actor_result', 'wall'), ('node', 'node', 'node'),
 )
 
@@ -241,13 +246,15 @@ def build_native():
     lib = OUT / ('ladder.dylib' if sys.platform == 'darwin' else 'ladder.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-Wpedantic',
                     '-ffp-contract=off', '-shared', '-fPIC', '-Isrc',
-                    'src/game/em_player_ladder_entry.c', '-o', str(lib)], cwd=ROOT, check=True)
+                    'src/game/em_player_ladder_entry.c', 'src/game/em_player_ladder_climb.c',
+                    'src/game/em_player_major2.c', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
     W = P(Workers)
     native.em_player_ladder_0015D4C0.argtypes = [W, LA, P(I)]
     native.em_player_ladder_00176F90.argtypes = [W, LA, P(I)]
     native.em_player_ladder_00177030.argtypes = [W, LA, I, P(I)]
     native.em_player_ladder_00180300.argtypes = [W, LA, PU, I, P(I)]
+    native.em_player_ladder_probe_00180300.argtypes = [W, LA, PU, I, P(I)]
     native.em_player_ladder_00199DB0.argtypes = [P(World), P(Scratch), PU, P(I)]
     native.em_player_ladder_00199FA0.argtypes = [P(World), P(Scratch), PU, PU, P(I)]
     for name in ('em_player_ladder_00165B60', 'em_player_ladder_00176DC0',
@@ -339,7 +346,7 @@ def effect_for(rng, name, case):
         e['fret'] = F(rng.choice(ANGLES + (rng.uniform(-3.2, 3.2),)))
     elif name == 'fabs':
         e['fret'] = F(rng.choice(DROPS + (1.5707963, 1.5707964, 1.5707965, 0.5, 3.0)))
-    elif name in ('sound_base', 'clip_5D0', 'clip_5F0'):
+    elif name == 'sound_base':
         e['ret'] = rng.choice((0, 0xE6, 0x100, 0x1C3, 7))
     elif name == 'wall':
         e['ret'] = rng.choice((0, 1, 0, 5))
@@ -359,6 +366,13 @@ class Script:
 
 ENTRIES = ('use',) * 14 + ('refresh', 'facing', 'facing', 'facing', 'classify', 'center', 'corners') + \
     ('state_b',) * 10 + ('walls', 'clips', 'step', 'rumble')
+
+
+def elf_d2754D0():
+    """D_002754D0[0] as the user's ELF holds it (a signed halfword)."""
+    elf = ELF if ELF is not None else read_elf()
+    at = 0x2754D0 - 0x100000 + 0x300
+    return struct.unpack_from('<h', elf, at)[0]
 
 
 def make_case(seed):
@@ -407,7 +421,11 @@ def make_case(seed):
         'verts': [F(rng.uniform(-400, 400)) for _ in range(NV * 3)],
         'node': [F(rng.uniform(-400, 400)) for _ in range(3)] + [F(1.0)],
         'area': rng.choice((0xD, 2, 0xB, 0xB)), 'c7c': rng.choice((0, 1)), 'c7d': rng.choice((0, 1)),
-        'clip': rng.choice((0xE6, -3, 0x1C3)),
+        # D_002754D0 is read-only .sdata (no original code writes it): the
+        # case keeps the ELF's word. 0017FC80's one translation
+        # (em_player_ladder_climb.c) embeds the same rows, checked against
+        # the ELF by its own oracle. The draw stays so later draws do not move.
+        'clip': (rng.choice((0, 1, 2)), elf_d2754D0())[1],
         'mode': rng.choice((0, 1, 2, 3, 4, 4, 5)), 'check': rng.choice((0, 1, 2, 3)),
         'blend': rng.choice((16.0, 0.0, 8.0)),
         'rumble': (rng.choice((0, 1, 1)), rng.choice((0, 1, 1)), rng.choice((0, 1, 2, 2)),
@@ -487,8 +505,7 @@ class UnitOracle:
         a = ee.arg
         vec = lambda address, n: tuple(ee.load(address + 4 * i) for i in range(n))
         ptr = lambda address, n: (location(address), vec(address, n))
-        if name in ('probe', 'move', 'sweep', 'request', 'sound', 'sound_base', 'clip_5D0',
-                    'clip_5F0', 'wall'):
+        if name in ('probe', 'move', 'sweep', 'request', 'sound', 'sound_base', 'wall'):
             assert a(0) == ACTOR, (name, hex(a(0)))
         if name == 'probe':
             assert a(2) == ACTOR + 0x280, ('0019BA80 box', hex(a(2)))
@@ -609,6 +626,7 @@ class NativeRun:
 
     def __init__(self, native, case, script, missing=None):
         self.native, self.case, self.script, self.log = native, case, script, []
+        self.narrow = False
         self.live = LiveActor()
         C.memmove(self.live.bytes, case['actor'], 0x320)
         self.scratch = s = Scratch()
@@ -715,7 +733,7 @@ class NativeRun:
             return lambda _, a, clip, force, blend: done(self.call(name, (name, clip, force, F(blend))))
         if name == 'sound':
             return lambda _, a, id_: done(self.call(name, (name, id_)))
-        if name in ('sound_base', 'clip_5D0', 'clip_5F0', 'wall'):
+        if name in ('sound_base', 'wall'):
             return lambda _, a, out: done(self.call(name, (name,)), result=out)
         if name == 'node':
             def node(_, out):
@@ -743,7 +761,11 @@ class NativeRun:
         elif entry == 'facing':
             result = n.em_player_ladder_00177030(W, A, case['mode'], C.byref(out)); v0 = out.value
         elif entry == 'classify':
-            result = n.em_player_ladder_00180300(W, A, self.scratch.s38A0, case['check'], C.byref(out))
+            # Odd seeds: the narrow entry the closure lane's bridge calls
+            # (the same translation, checking only what 00180300 reaches).
+            classify = (n.em_player_ladder_probe_00180300 if case['seed'] & 1 or self.narrow
+                        else n.em_player_ladder_00180300)
+            result = classify(W, A, self.scratch.s38A0, case['check'], C.byref(out))
             v0 = out.value
         elif entry == 'center':
             result = n.em_player_ladder_00199DB0(C.byref(self.world), C.byref(self.scratch),
@@ -864,6 +886,13 @@ def missing_worker_checks(native):
             result, got = run.run()
             assert result == -1 and got['log'] == [] and got['actor'] == case['actor'], (field, entry)
             count += 1
+    for field in ('apply', 'vadd', 'sweep_0019AFE0'):   # what the narrow 00180300 reaches
+        case = dict(base, entry='classify')
+        run = NativeRun(native, case, Script(1000, case), missing=field)
+        run.narrow = True
+        result, got = run.run()
+        assert result == -1 and got['log'] == [] and got['actor'] == case['actor'], ('narrow', field)
+        count += 1
     for field in ('pad', 'actuator'):
         case = dict(base, entry='rumble')
         result, got = native_rumble(native, case, missing=field)
@@ -1107,8 +1136,6 @@ class WorldCall:
     def w_request(self, a, clip, force, blend): self.call(0x1749A0, (self.base, clip, force), (F(blend),)); return 0
     def w_sound(self, a, id_): self.call(0x1FBD50, (self.base, id_, 0), (F(300.0),)); return 0
     def w_sound_base(self, a, out): out[0] = self.call(0x179B90, (self.base,))[0]; return 0
-    def w_clip_5D0(self, a, out): out[0] = self.call(0x1885D0, (self.base,))[0]; return 0
-    def w_clip_5F0(self, a, out): out[0] = self.call(0x1885F0, (self.base,))[0]; return 0
     def w_wall(self, a, out): out[0] = self.call(0x1762E0, (self.base,))[0]; return 0
 
     def w_node(self, out):

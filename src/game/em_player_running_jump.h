@@ -13,7 +13,8 @@
  *   001747F0  the +5 = 0x24 state callback (0015B130's state[0x24]),
  *             entered by 00160220 when 0015FDF0 returns 1 (byte-matched C).
  *   00179880  the drop accumulator, here on +2E4 (001634A0 case 3 passes
- *             p + 0x2E4; em_player_fall_drop is its +2EC instance).
+ *             p + 0x2E4): not translated here; it runs from its one
+ *             translation, em_player_fall_00179880 (em_player_fall.h).
  * The SDK leaves they reach come from the modules that translate them:
  * 001029C0 / 00102BB0 / 00102918 from em_owner_services_original.h,
  * 001B1470 from em_player_recovery.h (em_player_recovery_wrap); 001026A0
