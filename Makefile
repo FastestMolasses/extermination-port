@@ -34,6 +34,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_message_live.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c src/game/em_player_floor.c \
+           src/game/em_player_stage_workers.c src/game/em_player_stage_live.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \

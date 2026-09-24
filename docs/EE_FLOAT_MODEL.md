@@ -170,8 +170,9 @@ Line numbers in this section refer to the files at commit 5c6a6d7-era HEAD
    Inf/NaN handling must follow `vu_lane`/`VU_FORMS`. Every subclass inherits
    this, including ScanOracle, OwnerOracle, DoorOracle, SdkOriginal, TaskOracle
    and actor_pool. The exceptions are the classes that override add/sub:
-   `TruckOracle`, `FanOracle`, `DirectorOracle` and `test_player_random.SdkOriginal`,
-   which already use the pre-trim.
+   `TruckOracle`, `FanOracle` and `DirectorOracle`, which already use the
+   pre-trim (`test_player_random.SdkOriginal` was retired with the flinch-copy
+   cases in census L01).
 2. **`tools/test_interaction_scan_reference.py` `ScanOracle.plain`**, lines 37–43.
    - ADDA.S (fn 24) = `fp(x+y)` has no pre-trim: use `ee_adda`.
    - MADD.S (fn 28) = `fp(acc + fp(x*y))` has no pre-trim, and an overflowed product

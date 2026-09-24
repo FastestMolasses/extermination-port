@@ -353,6 +353,12 @@ int32_t em_sfx_loop_service(int32_t *handle, unsigned id, const float pos[3],
                             float radius, int32_t frame, int16_t ordinal);
 /* func_001FC520: stop a live service handle (0011A070) and clear it. */
 void em_sfx_loop_release(int32_t *handle);
+/* 0011A070(track | (hard ? 0x8000 : 0)) for a caller that holds a track
+ * handle (the player stage's +31B loop-sound stop, 0015BCF0): a soft stop
+ * hands T_STOP to the audio thread as em_sfx_loop_release does, a hard
+ * stop T_HALT as em_sfx_stop_all does; a track that is not allocated is
+ * left alone. Game thread. Returns 0, or -1 for a track outside 0..47. */
+int em_sfx_stop_track(int track, int hard);
 /* func_001FB100's per-frame D_00281C30 <- D_00281B70 copy (frame step H);
  * the service reads the snapshot. Call once per frame where 001FB100 runs. */
 void em_sfx_frame_snapshot(void);

@@ -639,17 +639,11 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * em_pickup_reset) and a restart at AREA11 0x0B/0/0 (001AD360 step 4)
  * that re-arms the opening.
  *
- * HEARTBEAT (func_0015D000 [byte-matched] — CONFIRMED by audit, the
- * counter at +0x210 resets on `slti 0x79`/`slti 0x3D`): health <= 35
- * -> pad-rumble pulse (func_001B61C0(0, 0xD0, 4, 0)) every 121
- * frames, <= 10 -> stronger (0xE0) every 61; health exactly 0 exits
- * before either. PURE RUMBLE — the port has no force-feedback
- * backend; documented not-applicable (no sound is involved).
- *
- * HAZARD-ROOM passive drain (func_0015D100 first arm: room attr bit
- * 4 + area flags & 0x60 + suit byte 0x810C7E == 0 -> health -= 1.0
- * every 360 frames) is untranslated — the port has no room-attribute
- * flags yet (flagged).
+ * Since census L01 the damage processor 0021C440, the drains 0015D100
+ * (both arms), the heartbeat 0015D000, the +20E countdown and the -200
+ * check run as translations on the original player stage (em_player.c
+ * player_states_stage, docs/PLAYER_STAGE_WORKERS.md); the port's copies
+ * are retired. What remains here is the legacy bug-latch struggle.
  *
  * The port's enemy producers post one mailbox int (em_enemy.h):
  * 0x4000 | 15 from the worm's lunge connect -> 15.0 pending HEALTH
@@ -672,13 +666,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * 0x14D. The GAME OVER chain's three source-derived links (func_001AD4E0, func_001AC480, func_001AC070)
  * all check out, and the two downgraded links are correctly downgraded.
  * */
-#define PD_CLIP_FLINCH_A0    0x1Eu /* unarmed flinch, family A side 0 */
-#define PD_CLIP_FLINCH_A1    0x1Fu /* unarmed flinch, family A side 1 */
-#define PD_CLIP_FLINCH_B0    0x20u /* unarmed flinch, family B side 0 */
-#define PD_CLIP_FLINCH_B1    0x21u /* unarmed flinch, family B side 1 */
-#define PD_CLIP_FLINCH_ARM_A 0x56u /* armed flinch, family A */
-#define PD_CLIP_FLINCH_ARM_B 0x57u /* armed flinch, family B */
-#define PD_CLIP_FLINCH_INF  0x1C7u /* infected flinch (90 f) */
 #define PD_CLIP_DEATH        0x2Au /* normal death (130 f fall) */
 #define PD_CLIP_DEATH_ARM    0x5Cu /* armed death variant (130 f) */
 #define PD_CLIP_DEATH_INF   0x1C4u /* infected death (300 f succumb) */
@@ -707,8 +694,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_STRUGGLE_WIN     16      /* FLAGGED: CROSS presses to throw the
                                      * bug off (live counter advanced ~1 per
                                      * press; real mashing is fast)        */
-#define PD_SFX_HURT         0x152u /* flinch grunt (health hit) */
-#define PD_SFX_HURT_INF     0x153u /* flinch grunt (infection hit) */
 #define PD_SFX_DEATH_VOICE  0x146u /* death voice (phase 0) */
 #define PD_SFX_DEATH_BODY   0x151u /* death body foley (phase 0) */
 #define PD_SFX_DEATH_FALL   0x156u /* mid-fall cue (T-80) */
@@ -720,9 +705,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_IFRAMES          60     /* +0x20E re-arm (0x3C; latch hits use
                                     * 0x5A = 90 — no latch producer yet) */
 #define PD_CORPSE_HOLD      120    /* func_0021D2E0 wait (0x78) */
-#define PD_DRAIN_PERIOD     240    /* infected drain period (0xF0) */
-#define PD_DRAIN_AMOUNT     2.0f   /* infected drain per period */
-#define PD_KILL_PLANE     -200.0f  /* spine death check (Y < -200 -> st 6) */
 #define PD_DEATH_CUE_FALL   80     /* frames-remaining sound cue (0x156) */
 #define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
 
@@ -1789,25 +1771,22 @@ typedef struct {
      * values until the weapon/health systems are translated) */
     EmPlayerStatus status;
 
-    /* PLAYER DAMAGE & DEATH (see the PD_* constants block) — the
-     * port of the engine's player damage state (player actor fields
-     * in comments). pd_state mirrors the actor MAJOR state byte +0x04
-     * restricted to the translated values: 0 = state 1 (gameplay),
-     * 2 = state 2 (hit reaction / dying). */
-    int        pd_state;       /* 0 gameplay, 2 = hit reaction/death */
-    int        pd_sub;         /* +0x05: 0 flinch, 1 death, 3 infected
-                                * death (the kill plane reuses 1 with
-                                * no clip — engine state 6 has none) */
-    int        pd_phase;       /* +0x06 sequence phase */
+    /* PLAYER DAMAGE (see the PD_* constants block). The vitals below
+     * (with status.health / status.infection) are the port's storage of
+     * the player record fields in the comments; the original stage reads
+     * and writes them through em_player.c's per-stage view (census L01).
+     * pd_state / pd_sub / pd_phase / pd_hold belong to the legacy
+     * bug-latch struggle: 2 while it holds the player (sub 5 struggle,
+     * 6 throw-off, 1 / 3 its death). */
+    int        pd_state;       /* 0, or 2 while the struggle holds */
+    int        pd_sub;         /* 5 struggle, 6 throw-off, 1 / 3 death */
+    int        pd_phase;       /* the struggle's sequence phase */
     int        pd_hold;        /* +0x28 corpse-hold countdown */
-    int        pd_iframes;     /* +0x20E post-flinch invuln countdown */
+    int        pd_iframes;     /* +0x20E post-hit countdown (0015B130) */
     float      pd_pend_hp;     /* +0x224 pending health damage */
     float      pd_pend_inf;    /* +0x22C pending infection damage */
-    int        pd_inf_hit;     /* +0x1F1 == 1: last applied hit was
-                                * infection (flinch voice select) */
     int        pd_infected;    /* +0x234 INFECTED latch (infection 100) */
     int        pd_low;         /* +0x235 bit 0 low-health latch */
-    int        pd_drain_t;     /* +0x2FC infected drain counter */
     unsigned   pd_clip;        /* committed reaction clip (test/report) */
     int        struggle_n;     /* bug-latch shake-off mash counter (CROSS) */
     int        pd_cue_fall;    /* death-clip T-80 sound fired */
@@ -2189,6 +2168,15 @@ int player_pose_load(const char *path);
 void player_pose_unload(void);
 int player_pose_opening_release(void);
 int player_pose_stage(void);
+/* player_pose_stage's two halves, for the live player stage (census L01,
+ * em_player.c): the display's anim_advance_time(step) at 0015BA50's switch
+ * (*flags = its +200 result, 0 when the source is not advanced this stage:
+ * held by a stand-in or owned by the interaction runtime), then the shared
+ * takeover worker at 0015B130's prelude position (-1 fault, 0 ordinary,
+ * 1 consumed). player_pose_stage() = the advance by g.loco_rate, then the
+ * hook. */
+int player_pose_stage_advance(float step, uint32_t *flags);
+int player_pose_stage_hook(void);
 void player_pose_finish_state(void);
 void player_pose_request(unsigned clip, float frame, unsigned blend, int force);
 void player_pose_idle_enter(void);

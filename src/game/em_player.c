@@ -25,6 +25,7 @@
 static uint8_t footstep_floor_attr(void);
 static float player_turn_rate(int gait, float upt, float adelta);
 static int floor_engaged(void);
+static int stage_engaged(void);
 static uint8_t live_contact(void);
 static const void *live_link_owner(void);
 static uint8_t live_link_type(void);
@@ -244,8 +245,10 @@ static void player_clearance_release(void)
 }
 
 /* ---- Live player states (em_player.h, docs/FIRST_CONTROL.md) -------------
- * Gated: nothing below runs until player_states_engaged(EM_PLAYER_MECH_FLOOR)
- * holds, i.e. every worker, datum and reachable state callback is bound. */
+ * Gated per mechanism: the stage (census L01) runs once
+ * player_states_engaged(EM_PLAYER_MECH_STAGE) holds, the floor service and
+ * everything it reaches once EM_PLAYER_MECH_FLOOR holds, i.e. once every
+ * worker, datum and reachable state callback is bound. */
 
 /* A (+4, +5) the live stage can reach, with the routine the original runs
  * for it and where the transition is written. state WHOLE: the whole +4
@@ -328,7 +331,10 @@ static struct {
     EmPlayerLiveActor a;
     EmPlayerStageScene scene;
     EmPlayerStage stage;          /* context of stage.major[1] / major[2] */
-    int stage_frame, stage_valid, end_frame, end_valid, busy_known;
+    int busy_known;
+    uint8_t loaded3B8F;           /* 3B8F as the scene view last loaded it */
+    int consumed;                 /* this stage: the takeover stand-in owned it */
+    int port_ran;                 /* this stage: the port's idle/walk callback ran */
     unsigned faults;
     int reported;
 } live;
@@ -356,6 +362,8 @@ static unsigned stage_missing_names(const char **names, unsigned capacity)
         { s->scripted_check != NULL, "00182B30 (0015B130 prelude)" },
         { s->scripted_notify != NULL, "00182D70 (0015B130 prelude)" },
         { s->row_request != NULL, "00174A50 (0015B130 prelude)" },
+        { s->major[4] != NULL, "0015B530 (+4 = 4, entered by 0015B130's prelude)" },
+        { s->major[6] != NULL, "0015D460 (+4 = 6, entered by 0015BCF0's -200 check)" },
     };
     unsigned count = 0;
     for (unsigned i = 0; i < sizeof kWorkers / sizeof *kWorkers; ++i)
@@ -400,6 +408,16 @@ static int floor_engaged(void)
     return player_states_engaged(EM_PLAYER_MECH_FLOOR);
 }
 
+static int stage_engaged(void)
+{
+    return player_states_engaged(EM_PLAYER_MECH_STAGE);
+}
+
+int player_states_stage_live(void)
+{
+    return stage_engaged();
+}
+
 static uint8_t live_contact(void) { return em_live_u8(&live.a, 0xA); }
 static const void *live_link_owner(void) { return live.a.link_owner; }
 static uint8_t live_link_type(void) { return live.a.link_type; }
@@ -419,6 +437,7 @@ void player_states_report(FILE *out)
         "state callbacks", "0011A070 sound stop (0015BCF0)", "stage workers",
     };
     static const struct { const char *name; unsigned mask; } kMech[] = {
+        { "stage 0015BA50 / 0015B130 / 0015BCF0 tail (L01)", EM_PLAYER_MECH_STAGE },
         { "floor service 00175900 + fall check 001796C0", EM_PLAYER_MECH_FLOOR },
         { "Use chain (ledge climb, vault, ladder, running jump)", EM_PLAYER_MECH_USE },
     };
@@ -464,10 +483,12 @@ void player_states_reset(void)
     em_live_set_u8(&live.a, 4, 1);
     em_live_set_f32(&live.a, 0x204, 1.0f);
     em_live_set_u8(&live.a, 0x31B, 0xFF);
-    live.stage_valid = live.end_valid = 0;
     live.busy_known = 0;
     live.initialised = 1;
 }
+
+static int live_major1(void *context, EmPlayerLiveActor *a);
+static int live_port_state(void *context, EmPlayerLiveActor *a);
 
 void player_states_bind(const EmPlayerStatesBinding *binding)
 {
@@ -477,13 +498,18 @@ void player_states_bind(const EmPlayerStatesBinding *binding)
     live.bound = binding != NULL;
     if (live.bound) {
         /* 0015BA50's +4 = 1 / 2 entries are the translated 0015B130 /
-         * 0015B770 over this binding's tables. */
+         * 0015B770 over this binding's tables (+4 = 1 behind the takeover
+         * stand-in, live_major1), and 0015B130's +5 = 0 / 1 entries are the
+         * port's own idle/walk callbacks until L12 binds 00161020 /
+         * 001612D0. */
         live.stage.scene = &live.scene;
         live.stage.workers = &live.b.stage;
-        live.b.stage.major[1] = em_player_stage_0015B130;
+        live.b.stage.major[1] = live_major1;
         live.b.stage.major_context[1] = &live.stage;
         live.b.stage.major[2] = em_player_stage_0015B770;
         live.b.stage.major_context[2] = &live.stage;
+        live.b.stage.state[0] = live.b.stage.state[1] = live_port_state;
+        live.b.stage.state_context[0] = live.b.stage.state_context[1] = NULL;
     }
     live.reported = 0;
 }
@@ -493,7 +519,8 @@ void player_states_bind_use_chain(int bound) { live.use_chain = bound != 0; }
 const EmPlayerLiveActor *player_states_actor(void) { return &live.a; }
 EmPlayerLiveActor *player_states_actor_mut(void) { return &live.a; }
 unsigned player_states_faults(void) { return live.faults; }
-int player_states_busy(void) { return live.busy_known ? live.scene.busy : -1; }
+int player_states_busy(void) { return stage_engaged() && live.busy_known ? live.scene.busy : -1; }
+EmPlayerStageScene *player_states_scene(void) { return &live.scene; }
 
 static void live_fault(const char *what)
 {
@@ -524,49 +551,8 @@ static int live_scene_load(void)
     return live.scene.d8106F1 && live.scene.d810CB6;
 }
 
-void player_states_stage_begin(void)
-{
-    if (!live.initialised) player_states_reset();
-    if (live.stage_valid && live.stage_frame == g.frame_no) return;
-    static int reported;
-    if (!reported) {
-        /* Once per run: which mechanisms are engaged, and what each lacks. */
-        reported = 1;
-        player_states_report(stderr);
-    }
-    live.stage_valid = 1;
-    live.stage_frame = g.frame_no;
-    if (!floor_engaged()) return;
-    live.busy_known = live_scene_load();
-    /* +20C: the clip the pose source plays (the display binding keeps it the
-     * clip the bound states request). */
-    unsigned clip;
-    if (player_pose_source(&clip, NULL, NULL, NULL)) em_live_set_u16(&live.a, 0x20C, (uint16_t)clip);
-    if (em_player_stage_begin(&live.a, &live.scene, &live.b.stage) < 0)
-        live_fault("0015BA50 D_00248C98 worker fault");
-}
-
-void player_states_stage_end(void)
-{
-    if (live.end_valid && live.end_frame == g.frame_no) return;
-    live.end_valid = 1;
-    live.end_frame = g.frame_no;
-    if (!floor_engaged() || !live.stage_valid || live.stage_frame != g.frame_no) return;
-    /* 0015BA50 after its switch, then 0015BCF0's +BC, -200 check and loop-
-     * sound stop (every stage: idle and walk included). */
-    if (em_player_stage_end(&live.a, &live.scene) < 0) {
-        live_fault("0015BA50 D_008106F1/D_00810CB6 not bound");
-        return;
-    }
-    uint8_t spad3B8F = live.scene.spad3B8F;
-    if (em_scene_state()->spad3B8F != spad3B8F) em_scene_state()->spad3B8F = spad3B8F;
-    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
-    if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
-        live_fault("0011A070 worker fault");
-        return;
-    }
-    if (em_live_u8(&live.a, 4) != 1) port_park();
-}
+/* 0015BA50 / 0015B130 / 0015BCF0's tail over the live record: see
+ * player_states_stage below (after the port-view helpers it uses). */
 
 /* Worker trampolines: each binding worker keeps its own context. */
 typedef struct { EmPlayerFloorActor *floor; } LiveFloorContext;
@@ -718,6 +704,9 @@ static void live_from_port(void)
 {
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
     em_live_set_f32(&live.a, 0xC4, g.yaw);
+    /* +204: the display-rate multiplier the port's callbacks leave for the
+     * next 0015BA50 (g.loco_rate; the callbacks reset it after use). */
+    em_live_set_f32(&live.a, 0x204, g.loco_rate);
     em_live_set_f32(&live.a, 0x38, g.loco_upt);
     em_live_set_u8(&live.a, 0x1F0, (uint8_t)g.loco_mode);
     em_live_set_u8(&live.a, 0x1F1, (uint8_t)g.loco_substate);
@@ -764,41 +753,163 @@ static void live_tail(int walk)
     if (state != 0 && state != 1) port_park();
 }
 
-/* 0015BA50's switch for everything but the port's own +4 = 1, +5 = 0/1 (the
- * idle 00161020 and walk 001612D0 callbacks): the translated stage
- * (em_player_stage_dispatch -> 0015B130 / 0015B770 / the bound +4 handlers)
- * owns the stage. Returns 1 when it ran (the port's callbacks do not), 0 for
- * the idle/walk family. */
-static int live_stage_dispatch(void)
+static void player_move_callbacks(void);
+
+/* The port's view of the player's vitals: g.status / g.pd_* are the port's
+ * only storage of +220 (health, also D_00810858's mirror), +224 (pending
+ * damage), +228 (infection, D_0081085C's), +22C (pending infection), +234
+ * (the infected latch) and +20E (the post-hit countdown 0015B130 runs down).
+ * The stage reads and writes the record; these load it before 0015BA50 and
+ * store it after 0015BCF0's tail, so the port's other readers (the status
+ * pages, 0015CF90, 001B07C0) see what the original stage left. */
+static void vitals_load(void)
 {
-    uint8_t major = em_live_u8(&live.a, 4), state = em_live_u8(&live.a, 5);
-    if (major == 1 && (state == 0 || state == 1)) return 0;
-    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
-    em_live_set_f32(&live.a, 0xC4, g.yaw);
+    em_live_set_f32(&live.a, 0x220, g.status.health);
+    em_live_set_f32(&live.a, 0x224, g.pd_pend_hp);
+    em_live_set_f32(&live.a, 0x228, g.status.infection);
+    em_live_set_f32(&live.a, 0x22C, g.pd_pend_inf);
+    em_live_set_u8(&live.a, 0x234, (uint8_t)g.pd_infected);
+    em_live_set_u16(&live.a, 0x20E, (uint16_t)g.pd_iframes);
+}
+
+static void vitals_store(void)
+{
+    g.status.health = em_live_f32(&live.a, 0x220);
+    g.pd_pend_hp = em_live_f32(&live.a, 0x224);
+    g.status.infection = em_live_f32(&live.a, 0x228);
+    g.pd_pend_inf = em_live_f32(&live.a, 0x22C);
+    g.pd_infected = em_live_u8(&live.a, 0x234);
+    g.pd_low = em_live_u8(&live.a, 0x235) & 1;
+    g.pd_iframes = (int16_t)em_live_u16(&live.a, 0x20E);
+    /* The status pages show "/60" while the infected latch holds (em_hud.h
+     * C14: the display maximum follows +234, which 0021C270 sets). */
+    if (g.pd_infected) g.status.health_max = PD_INFECTED_MAX;
+}
+
+static int port_family(void)
+{
+    return em_live_u8(&live.a, 4) == 1 &&
+           (em_live_u8(&live.a, 5) == 0 || em_live_u8(&live.a, 5) == 1);
+}
+
+/* 0015B130's state[0] / state[1] (00161020 idle, 001612D0 walk): the port's
+ * own callbacks until L12 binds the translations. The rest of 0015B130 and
+ * 0015BA50's tail then read the record as the callbacks left the port. */
+static int live_port_state(void *context, EmPlayerLiveActor *a)
+{
+    (void)context;
+    live.port_ran = 1;
+    player_move_callbacks();
+    if (a == &live.a && port_family()) live_from_port();
+    return 0;
+}
+
+/* 0015BA50's +4 = 1 entry. The AREA11 interaction runtime (through the pose
+ * host, player_pose_stage_hook) stands in for the scripted takeover: while
+ * it owns the player it consumes the stage at the position of 0015B130's
+ * prelude (its acquire is 00174A50 + 00182D70 on the display, its per-stage
+ * tick the +4 = 4 commit and advance, its release 00182DF0; census row
+ * 0015B130's stand-in), and 0015B130 does not run.
+ * Otherwise 0015B130 runs, except on the port's idle/walk under 0x70003B8D
+ * without that owner (the area-change fade after 001B0C60): there the
+ * prelude would admit the player (00182B30), force +4 = 4 and request
+ * 00174A50(8.0), whose 0017B490(p, 0, +235, 0) row lookup over D_00248AB0 is
+ * not bound yet (em_loco_0017B490, census L12), so the port's callbacks keep
+ * those stages as before L01. */
+static int live_major1(void *context, EmPlayerLiveActor *a)
+{
+    if (live.b.takeover) {
+        int consumed = live.b.takeover(live.b.takeover_context);
+        if (consumed < 0 || consumed > 1) return -1;
+        /* The takeover stores 3B8D / 3B8F (its frame view): reload. */
+        live.busy_known = live_scene_load();
+        live.loaded3B8F = live.scene.spad3B8F;
+        if (consumed) {
+            live.consumed = 1;
+            return 0;
+        }
+    }
+    if (live.scene.spad3B8D != 0 && port_family()) return live_port_state(NULL, a);
+    return em_player_stage_0015B130(context, a);
+}
+
+int player_states_stage(void)
+{
+    if (!live.initialised) player_states_reset();
+    static int reported;
+    if (!reported) {
+        /* Once per run: which mechanisms are engaged, and what each lacks. */
+        reported = 1;
+        player_states_report(stderr);
+    }
+    if (!stage_engaged()) return 0;
+    live.consumed = live.port_ran = 0;
+    const int port_owned = port_family();
+    vitals_load();
+    if (port_owned) {
+        live_from_port();
+    } else {
+        /* A translated state owns the player: only the placement the port's
+         * owners may have moved (a carry) comes from the port. */
+        for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
+        em_live_set_f32(&live.a, 0xC4, g.yaw);
+    }
+    live.busy_known = live_scene_load();
+    live.loaded3B8F = live.scene.spad3B8F;
+    if (live.b.load && live.b.load(live.b.load_context) < 0) {
+        live_fault("the stage workers' scene view is not available");
+        return 0;
+    }
+    /* +20C: the clip the pose source plays (the display binding keeps it the
+     * clip the bound states request). */
+    unsigned clip;
+    if (player_pose_source(&clip, NULL, NULL, NULL)) em_live_set_u16(&live.a, 0x20C, (uint16_t)clip);
+    /* 0015BA50 before its switch, the switch, then its tail. */
+    if (em_player_stage_begin(&live.a, &live.scene, &live.b.stage) < 0) {
+        live_fault("0015BA50 D_00248C98 worker fault");
+        return 0;
+    }
     if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
         live_fault("player stage worker or state callback fault");
-        return 1;
+        return 0;
     }
-    port_from_live_position();
-    footstep_surface_from_live(em_live_u8(&live.a, 0x23A));
-    major = em_live_u8(&live.a, 4);
-    uint8_t after = em_live_u8(&live.a, 5);
-    if (major == 1 && after == 0) {
-        /* +5 = 0 / +6 = 0: 00161020 case 0 runs next, as after the skid
-         * (the stop hand-off phase 3 requests the idle row). */
-        g.loco_mode = g.loco_substate = g.loco_tier = 0;
-        g.loco_upt = g.move_speed = 0;
-        g.loco_stop.phase = 3;
-    } else if (major == 1 && after == 1) {
-        /* Handed on to the walk callback (0017C440 in the climb). */
-        g.loco_mode = em_live_u8(&live.a, 0x1F0);
-        g.loco_substate = em_live_u8(&live.a, 0x1F1);
-        g.loco_tier = em_live_u8(&live.a, 0x25C);
-        g.loco_upt = em_live_f32(&live.a, 0x38);
-    } else {
-        g.loco_mode = em_live_u8(&live.a, 0x1F0);
+    if (!live.consumed && !live.port_ran) {
+        /* A translated routine owned the stage (a state callback, 0021C440's
+         * reaction, the +4 = 4 / 6 handlers): the port takes its placement. */
+        port_from_live_position();
+        footstep_surface_from_live(em_live_u8(&live.a, 0x23A));
+        uint8_t major = em_live_u8(&live.a, 4), after = em_live_u8(&live.a, 5);
+        if (!port_owned && major == 1 && after == 0) {
+            /* +5 = 0 / +6 = 0: 00161020 case 0 runs next, as after the skid
+             * (the stop hand-off phase 3 requests the idle row). */
+            g.loco_mode = g.loco_substate = g.loco_tier = 0;
+            g.loco_upt = g.move_speed = 0;
+            g.loco_stop.phase = 3;
+        } else if (!port_owned && major == 1 && after == 1) {
+            /* Handed on to the walk callback (0017C440 in the climb). */
+            g.loco_mode = em_live_u8(&live.a, 0x1F0);
+            g.loco_substate = em_live_u8(&live.a, 0x1F1);
+            g.loco_tier = em_live_u8(&live.a, 0x25C);
+            g.loco_upt = em_live_f32(&live.a, 0x38);
+        } else {
+            g.loco_mode = em_live_u8(&live.a, 0x1F0);
+        }
     }
-    return 1;
+    if (em_player_stage_end(&live.a, &live.scene) < 0) {
+        live_fault("0015BA50 D_008106F1/D_00810CB6 not bound");
+        return 0;
+    }
+    /* 0015B130 / 00182D70 write 0x70003B8F through the stage's view. */
+    if (live.scene.spad3B8F != live.loaded3B8F) em_scene_state()->spad3B8F = live.scene.spad3B8F;
+    /* 0015BCF0 after 0015BA50: +BC, the -200 check and the loop-sound stop. */
+    for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
+    if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
+        live_fault("0011A070 worker fault");
+        return 0;
+    }
+    if (em_live_u8(&live.a, 4) != 1) port_park();
+    vitals_store();
+    return live.consumed;
 }
 
 /* The callback tail. `walk` names the callback that ran: the walk callback
@@ -1340,15 +1451,11 @@ int player_reversal_palette(void)
  * collision world loaded, movement goes through the engine's move probe
  * (walls stop/slide, the floor query sets the height); without one, the
  * old room-bbox clamp keeps the repo runnable standalone. */
-static void player_move_callbacks(void);
-
 void player_move(void)
 {
-    /* 0015BA50 before its switch (once per frame; see em_player.h), the
-     * callbacks, then 0015BA50's tail and 0015BCF0's writes after it. */
-    player_states_stage_begin();
+    /* The port's callbacks without the original stage (STAGE gated off;
+     * player_states_stage runs them as 0015B130's state[0] / state[1]). */
     player_move_callbacks();
-    player_states_stage_end();
 }
 
 static void player_move_callbacks(void)
@@ -1719,12 +1826,6 @@ static void player_move_callbacks(void)
      * frozen source at its row default (00182DF0 via 001C63E0); the hit,
      * scripted-clip and low-health holds are rechecked by the host. */
     (void)player_pose_legacy_release();
-
-    /* Live player states: a (+4, +5) outside the idle/walk family (entered
-     * by 001796C0, 0015BCF0's -200 check or the Use chain) runs the
-     * translated stage and its bound callbacks instead of the port's
-     * (0015BA50's switch). Only reachable once engaged. */
-    if (floor_engaged() && live_stage_dispatch()) return;
 
     /* WP-15/H11: while 001612D0 case 2 owns the callback (skid ticks and
      * the resume/idle decision), 00160220 is not polled; only case 1 does. */

@@ -247,8 +247,9 @@ int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *t
     return 1;
 }
 
-int player_pose_stage(void)
+int player_pose_stage_advance(float step, uint32_t *flags)
 {
+    if (flags) *flags = 0;
     source.idle_handled = 0;
     source.previous_entry = g.loco_entry_ticks;
     source.previous_stop = g.loco_stop.phase;
@@ -260,11 +261,23 @@ int player_pose_stage(void)
         if (!source.legacy) {
             /* 0015BA50 consumes the prior multiplier before its state
              * callback resets it. Idle also advances while speed is zero. */
-            float rate = g.loco_rate;
-            if (!em_player_pose_advance(&source.pose, rate, 0))
+            if (!em_player_pose_advance(&source.pose, step, 0))
                 player_pose_invalidate("original animation advance failed");
+            else if (flags)
+                *flags = source.pose.flags;
         }
     }
+    return 0;
+}
+
+int player_pose_stage(void)
+{
+    (void)player_pose_stage_advance(g.loco_rate, NULL);
+    return player_pose_stage_hook();
+}
+
+int player_pose_stage_hook(void)
+{
     int consumed = source.stage_hook ? source.stage_hook(source.stage_context) : 0;
     if (consumed < 0 || consumed > 1 || (player_pose_owned() && !consumed)) {
         fprintf(stderr, "player pose: shared player-stage worker failed at frame %d\n", g.frame_no);

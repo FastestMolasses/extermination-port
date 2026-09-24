@@ -83,19 +83,30 @@ unsigned player_probe_faults(void);
  * The original player stage 0015BCF0 -> 0015BA50 -> the +4 handler (0015B130
  * for +4 = 1, whose +5 table holds 00161020 idle, 001612D0 walk, 0016C6A0
  * slide, 00161790 climb, ...). The idle/walk tails run 001764E0, the +B4
- * lowering, 00175900(p, 1), 001756E0 and 001796C0. The port runs its own
- * idle/walk callbacks; this layer replaces the port's floor snap and
- * PLAYER_FALL_ENTRY stand-in with the translated 00175900/001796C0
- * (em_player_floor.c) and hands every other (+4, +5) to the translated
- * stage (em_player_stage_* in em_player_floor.h) and the bound callbacks, but
- * ONLY once every original worker, datum and state callback each mechanism
- * can reach is bound (the reversal skid's gate, generalised). Until then the
- * port's path runs unchanged.
+ * lowering, 00175900(p, 1), 001756E0 and 001796C0.
+ *
+ * Two mechanisms, each engaged only once every original worker, datum and
+ * callback it can reach is bound (the reversal skid's gate, generalised):
+ *   - STAGE (census L01): 0015BA50 (em_player_stage_begin / _dispatch /
+ *     _end), 0015B130 and 0015BCF0's writes after it (em_player_stage_tail)
+ *     run on every player stage, with the stage workers (0021C440, 0015D100,
+ *     0015D000, the prelude, 0011A070, D_00248C98, the display's 001C64F0)
+ *     and the +4 = 4 / 6 handlers. The port's own idle/walk callbacks are
+ *     0015B130's state[0] / state[1] (until L12 binds 00161020 / 001612D0).
+ *   - FLOOR (and USE on top of it): the translated 00175900/001796C0
+ *     (em_player_floor.c) replace the port's floor snap and
+ *     PLAYER_FALL_ENTRY stand-in, and every other (+4, +5) the floor can
+ *     reach runs its bound callback.
+ * Until a mechanism is engaged the port's path for it runs unchanged.
  *
  * The live actor is EmPlayerLiveActor (em_player_floor.h): the player record
  * in its original byte layout, shared by the stage, the floor service, the
  * fall check and every state callback. Its +B0/+C4 are the port's
- * g.pos/g.yaw while the port's own idle/walk callbacks own the player. */
+ * g.pos/g.yaw while the port's own idle/walk callbacks own the player, and
+ * its vitals (+220 health, +224 pending damage, +228 infection, +22C pending
+ * infection, +234 infected latch, +20E post-hit countdown) are a per-stage
+ * view of the port's storage for them (g.status / g.pd_*): loaded before
+ * 0015BA50 and stored back after 0015BCF0's tail. */
 
 #define EM_PLAYER_STATE_COUNT EM_PLAYER_STATE1_COUNT
 
@@ -140,9 +151,22 @@ typedef struct EmPlayerStatesBinding {
      * phase13[] / phase14[] (0015B770's), stage.major[0/4/5/6] (0015C420,
      * 0015B530, 0015B610, 0015D460 -- em_player_stage_0015D460 with an
      * EmPlayerStageFade). major[1] and major[2] are set by player_states_bind
-     * to the translated 0015B130 / 0015B770 over this binding; the
+     * to the translated 0015B130 / 0015B770 over this binding, and
+     * state[0] / state[1] to the port's own idle/walk callbacks; the
      * binding's own values there are ignored. */
     EmPlayerStageWorkers stage;
+    /* Before every stage: refresh the stage workers' views of the scene
+     * bytes they read (the EmPlayerStageGlobals of their host). 0, or -1 (a
+     * fault: the stage does not run). NULL when the workers read none. */
+    int (*load)(void *context);
+    void *load_context;
+    /* The scripted takeover stand-in at 0015B130's prelude position (the
+     * AREA11 interaction runtime through the pose host,
+     * player_pose_stage_hook): -1 fault, 0 ordinary, 1 consumed (the
+     * runtime owns the player this stage: 0015B130 does not run). NULL: no
+     * takeover owner. */
+    int (*takeover)(void *context);
+    void *takeover_context;
 } EmPlayerStatesBinding;
 
 /* Prerequisites, one bit each (player_states_missing). */
@@ -179,6 +203,10 @@ enum {
  * already in the FLOOR closure. */
 #define EM_PLAYER_MECH_USE (EM_PLAYER_MECH_FLOOR | EM_PLAYER_NEED_USE_CHAIN | \
     EM_PLAYER_NEED_USE_STATES)
+/* STAGE (census L01): 0015BA50 / 0015B130 / 0015BCF0's tail on every player
+ * stage. Its workers include the +4 = 4 (0015B530) and +4 = 6 (0015D460)
+ * handlers, which 0015B130's prelude and 0015BCF0's -200 check enter. */
+#define EM_PLAYER_MECH_STAGE (EM_PLAYER_NEED_STOP_SOUND | EM_PLAYER_NEED_STAGE)
 
 /* Bind (or, with NULL, unbind) the live layer. The binding is copied. */
 void player_states_bind(const EmPlayerStatesBinding *binding);
@@ -196,16 +224,23 @@ unsigned player_states_missing(void);
 int player_states_engaged(unsigned mechanism);
 /* One line per mechanism naming what it still needs, to `out`. */
 void player_states_report(FILE *out);
-/* 0015BA50 before its switch (em_player_stage_begin) and, after the
- * callback, 0015BA50's tail (em_player_stage_end) with 0015BCF0's writes
- * (em_player_stage_tail). Each runs once per gameplay frame (repeat calls
- * in the same frame do nothing) and only while FLOOR is engaged;
- * player_move calls both around the callbacks. */
-void player_states_stage_begin(void);
-void player_states_stage_end(void);
-/* D_008106B3 as this frame's 0015BA50 left it (for the coordinator's B3
- * byte once engaged); -1 while FLOOR is gated off. */
+/* 1 while STAGE is engaged (player_states_stage runs the original stage). */
+int player_states_stage_live(void);
+/* One player stage while STAGE is engaged (the caller, em_player_frame.c's
+ * actor_update, uses the port's legacy path otherwise): the vitals view
+ * load, 0015BA50 (begin, the switch with the display's advance and the +4
+ * handler, end), 0015BCF0's writes after it, the vitals store. Returns 1
+ * when the takeover stand-in consumed the stage (the interaction runtime
+ * published the player's palette), 0 otherwise (also after a fault, which
+ * is fail-stop: reported once, counted, em_frame_request_quit). */
+int player_states_stage(void);
+/* D_008106B3 as this stage's 0015BA50 left it; -1 while STAGE is gated
+ * off. (The canonical B3 byte is still written by em_player_0015BCF0's
+ * stand-in expression.) */
 int player_states_busy(void);
+/* The stage's scene view (the EmPlayerStageScene the stage workers' host
+ * must point at, PLAYER_STAGE_WORKERS.md section 2). */
+EmPlayerStageScene *player_states_scene(void);
 /* The live mirror (for the coordinator's D_008104C4 readers, e.g.
  * EmTruckWorld.ground_kind = the +0x0D of link_owner). */
 const EmPlayerLiveActor *player_states_actor(void);

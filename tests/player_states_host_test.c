@@ -7,6 +7,11 @@
  * tested by tools/test_actor_collision_reference.py) over a synthetic cell
  * directory, and fakes for everything else. It checks only the binding:
  *   - the gate: with any prerequisite missing nothing of the live layer runs;
+ *   - the stage (census L01): 0015BA50 / 0015B130 / 0015BCF0's tail run on
+ *     every stage, the port's idle and walk callbacks included (they are
+ *     0015B130's state[0] / state[1]); the takeover stand-in consumes a stage
+ *     at 0015B130's prelude position; the vitals are a per-stage view of the
+ *     port's storage;
  *   - once engaged, the idle and walk tails lower +B4 by 0.2 / 0.4 and run
  *     00175900(p, 1) then 001796C0 through the bound workers in that order;
  *   - 0015BA50's per-stage +A / +214 / +B moves and the +214 store from the
@@ -467,7 +472,21 @@ static void reset(void)
 static void tick(void)
 {
     ++g.frame_no;
-    player_move();
+    /* em_player_frame.c actor_update: the original stage once engaged. */
+    if (player_states_stage_live()) (void)player_states_stage();
+    else player_move();
+}
+
+/* The takeover stand-in (EmPlayerStatesBinding.takeover): consumes the
+ * stage while set, and stores 3B8F as the interaction runtime's frame view
+ * does. */
+static int takeover_consumes, takeover_calls;
+static int w_takeover(void *c)
+{
+    (void)c;
+    ++takeover_calls;
+    if (takeover_consumes) scene_state.spad3B8F = 2;
+    return takeover_consumes;
 }
 
 int main(void)
@@ -529,10 +548,14 @@ int main(void)
     const EmPlayerLiveActor *a = player_states_actor();
     assert(a->link_owner == &box_owner && a->link_prev == NULL);
     /* +B: the service's floor hit sets it; 0015BA50 clears it after the
-     * switch. +BC: 0015BCF0 writes 1.0 every stage. The idle stage does not
-     * run 0015B130's wrapper (the port's own callback). */
+     * switch. +BC: 0015BCF0 writes 1.0 every stage. The idle stage runs
+     * 0015B130 around the port's own callback (its state[0]), as the
+     * original runs it on every +4 = 1 stage: the display's advance, then
+     * 0021C440, the callback, 0015D100 (+20E = 0) and 0015D000. */
     assert(em_live_u8(a, 0xA) == 0x81 && em_live_u8(a, 0xB) == 0 && em_live_u8(a, 0x23A) == 5);
-    assert(em_live_f32(a, 0xBC) == 1.0f && stage_calls[SC_REACTION] == 0);
+    assert(em_live_f32(a, 0xBC) == 1.0f && stage_calls[SC_REACTION] == 1);
+    assert(stage_calls[SC_ADVANCE] == 1 && stage_calls[SC_DRAIN] == 1 &&
+           stage_calls[SC_HEARTBEAT] == 1 && stage_calls[SC_CHECK] == 0);
     assert(em_live_u16(a, 0x238) == 0x4000 && em_live_u8(a, 0x23B) == 0x05);
     assert(em_live_u8(a, 5) == 0 && link_count == 0 && quit_requests == 0);
     assert(em_live_u8(a, 0x319) == 0);                 /* +319 = the previous +A */
@@ -609,6 +632,7 @@ int main(void)
     assert(g.loco_mode == 11 && g.loco_upt == 0);
     state_exit = 7;
     call_count = 0;
+    memset(stage_calls, 0, sizeof stage_calls);        /* count from the fall stage */
     tick();
     assert(state_runs[5] == 1 && call_count == 0);     /* the callback owned the stage */
     assert(stage_calls[SC_ADVANCE] == 1 && advanced_step == 1.25f);
@@ -700,9 +724,13 @@ int main(void)
     em_live_set_u8(player_states_actor_mut(), 0, 1);
     tick();
     assert(em_live_u8(a, 4) == 6 && em_live_u8(a, 5) == 0);
+    memset(stage_calls, 0, sizeof stage_calls);        /* the +4 = 6 stages */
     tick();
     assert(em_live_u8(a, 4) == 6 && em_live_u8(a, 5) == 1 && em_live_u32(a, 0x220) == 0 &&
            em_live_u8(a, 0) == 0 && stage_calls[SC_FADE] == 0);
+    /* The vitals view: +220 = 0 is the port's health after the stage (the
+     * B9 test of 0015CF90 and the status pages read it there). */
+    assert(g.status.health == 0.0f);
     tick();
     assert(em_live_u8(a, 5) == 2 && stage_calls[SC_FADE] == 1 && fade_args[0] == 4 &&
            fade_args[1] == 0 && stage_calls[SC_ADVANCE] == 0 && quit_requests == 0);
@@ -733,13 +761,13 @@ int main(void)
     reset();
     reaction_result = 1;
     em_live_set_u8(player_states_actor_mut(), 5, 5);
-    em_live_set_u16(player_states_actor_mut(), 0x20E, 2);
+    g.pd_iframes = 2;                  /* +20E: the port's storage (vitals view) */
     tick();
     assert(state_runs[5] == 0 && em_live_u16(a, 0x20E) == 2 && stage_calls[SC_HEARTBEAT] == 0);
     /* The +20E countdown: 1 -> 0 sets +0 = 1, and 0015D100 is skipped. */
     reset();
     em_live_set_u8(player_states_actor_mut(), 5, 5);
-    em_live_set_u16(player_states_actor_mut(), 0x20E, 1);
+    g.pd_iframes = 1;
     state_exit = 5;
     tick();
     assert(em_live_u16(a, 0x20E) == 0 && em_live_u8(a, 0) == 1 && stage_calls[SC_DRAIN] == 0);
@@ -750,8 +778,7 @@ int main(void)
     assert(player_states_busy() == 0);
 
     /* 12. A reaction: 0021C440 (the stand-in above) enters +4 2 +5 0x11 on a
-     *     stage the translated 0015B130 owns (the fall, +5 5: the port's own
-     *     idle/walk stages do not run 0015B130), so the state dispatch and
+     *     0015B130 stage (here the fall, +5 5), so the state dispatch and
      *     the countdown are skipped; 0015B770 then
      *     runs em_player_reaction_live_0021E9C0 from state2[0x11]: sub-state
      *     0 (sound 0x154, rumble, clip 0x20, 00179880, 00175900), sub-state 1
@@ -790,6 +817,49 @@ int main(void)
     assert(em_player_reaction_live_0021E9C0(&reaction_binding, m12) == -1);
     assert(memcmp(&kept, m12, sizeof kept) == 0);
     reaction_binding.scene = &reaction_scene;
+
+    /* 13. Census L01 binding specifics.
+     *  a) The takeover stand-in consumes the stage at 0015B130's prelude
+     *     position: 0015B130 (0021C440, the callback, 0015D100, 0015D000)
+     *     does not run, 0015BA50's begin / end and 0015BCF0's writes do, and
+     *     the 3B8F the stand-in stored is not overwritten by the stage's
+     *     earlier view. */
+    reset();
+    b = full_binding();
+    b.takeover = w_takeover;
+    player_states_bind(&b);
+    takeover_consumes = 1; takeover_calls = 0;
+    em_live_set_f32(player_states_actor_mut(), 0xBC, 0.0f);
+    call_count = 0;
+    assert(player_states_stage() == 1);
+    assert(takeover_calls == 1 && stage_calls[SC_ADVANCE] == 1 && stage_calls[SC_REACTION] == 0 &&
+           stage_calls[SC_DRAIN] == 0 && stage_calls[SC_HEARTBEAT] == 0 && call_count == 0);
+    assert(em_live_f32(a, 0xBC) == 1.0f && scene_state.spad3B8F == 2 && quit_requests == 0);
+    /*  b) Not consumed: 0015B130 runs after the stand-in. */
+    takeover_consumes = 0;
+    assert(player_states_stage() == 0);
+    assert(takeover_calls == 2 && stage_calls[SC_REACTION] == 1 && call_count >= 2);
+    /*  c) 0x70003B8D without the owner on the port's idle (the area-change
+     *     fade): the prelude's 00174A50 needs 0017B490 (L12), so the port's
+     *     callback keeps the stage; 0015B130 and its prelude do not run. */
+    scene_state.spad3B8D = 3;
+    memset(stage_calls, 0, sizeof stage_calls);
+    call_count = 0;
+    assert(player_states_stage() == 0);
+    assert(stage_calls[SC_CHECK] == 0 && stage_calls[SC_NOTIFY] == 0 &&
+           stage_calls[SC_REACTION] == 0 && call_count >= 2 && em_live_u8(a, 4) == 1);
+    scene_state.spad3B8D = 0;
+    /*  d) The vitals are a per-stage view of the port's storage: pending
+     *     damage the port's producers left reaches the stage's 0021C440 as
+     *     +224, and what the stage leaves is the port's value after it. */
+    g.pd_pend_hp = 7.0f;
+    g.status.health = 90.0f;
+    g.pd_iframes = 2;
+    player_states_stage();
+    assert(g.status.health == 90.0f && g.pd_pend_hp == 7.0f);   /* the fake 0021C440 keeps them */
+    assert(em_live_f32(a, 0x224) == 7.0f && em_live_f32(a, 0x220) == 90.0f);
+    assert(g.pd_iframes == 1 && em_live_u16(a, 0x20E) == 1);    /* 0015B130's countdown */
+    assert(quit_requests == 0);
 
     /* 8. The state adapters refuse to run with any worker unbound, before
      *    touching the live actor (their mirrors are checked against the

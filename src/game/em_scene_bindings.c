@@ -116,6 +116,8 @@
 #include "game/em_sfx.h"
 #include "game/em_scene_workers.h"
 #include "game/em_spawn_table.h"
+#include "game/em_player.h"
+#include "game/em_player_stage_live.h"
 
 /* ------------------------------------------------------------ storage */
 
@@ -732,6 +734,14 @@ static int w_001AFCA0(void *ctx)
     em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
     em_game_legacy_state0();
+    /* 001AF5C0 wipes the player record; the first stage's 0015C420 then
+     * sets its spawn values (+4 = 1, +280, +204, +31B; player_states_reset
+     * writes both), and the stage runs with its workers from the first
+     * gameplay stage on (census L01, em_player_stage_live.h). Without the
+     * D_00248C98 export the stage cannot run: fault. */
+    player_states_reset();
+    if (em_player_stage_live_bind() < 0)
+        return em_scene_fault(&s_state, 0x0015BA50u, EM_SCENE_FAULT_NULL_WORKER);
     if (!roster_scene()) {
         em_game_legacy_manifest_spawn();
         em_game_legacy_camera_rearm();

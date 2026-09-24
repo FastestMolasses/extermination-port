@@ -25,7 +25,7 @@ Every executed function was matched against the port tree (`src/`, `docs/`, `too
 
 - **Translation**: a port function named after the address, a translation header comment, file-header inventories, or citations of the function's own internal addresses.
 - **Verification**: a `tools/test_*_reference.py` oracle (or a capture comparison: `test_level_smoke.py`, `test_roger_encounter_capture.py`, `test_door_original_runtime.py`, `test_area11_sfx_runtime.py`, `test_player_face_host.py`, `compare_frame_order.py`) that names the function and builds the translating module. `tests/*.c` fixtures do not count.
-- **Live**: the translating module is in COMMON and the translating function is reachable from `main` in a call graph of the live build, with the test-only modules (`em_level_smoke_test.c`, `em_opening_control_test.c`, `em_game_selftest.c`) and the runtime-gated paths cut. The gated paths are the player FLOOR layer (`player_states_bind` is never called, so `em_player_stage_*`, the floor service and the fall check never run), the reversal skid (`reversal_ready()` is false), and every binding that returns `unmirrored(UM_…)` (a reported no-effect binding).
+- **Live**: the translating module is in COMMON and the translating function is reachable from `main` in a call graph of the live build, with the test-only modules (`em_level_smoke_test.c`, `em_opening_control_test.c`, `em_game_selftest.c`) and the runtime-gated paths cut. The gated paths are the player FLOOR layer (`player_states_bind` engages only the STAGE mechanism since L01, so the floor service, the fall check and the FLOOR states never run; the stage's prelude and +4 = 4 handler are bound but unreached while the interaction runtime owns the takeover), the reversal skid (`reversal_ready()` is false), and every binding that returns `unmirrored(UM_…)` (a reported no-effect binding).
 - 513 rows were decided by hand after reading the port code and the per-module docs; 193 follow the evidence rules; 478 SDK/driver rows follow the boundary ranges of section 4. Where a translation exists but the live app runs something else, the row is `verified-unbound` or `unverified` and the **stand-in** column names what runs instead.
 
 **A label is not evidence.** A comment that says DECODED or VERIFIED was never counted. A test that names a function only as a hook or stub does not verify it; where that was seen (for example 00179D20, 00182D40, 001AA140) the row says so.
@@ -49,15 +49,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 187 | 19,387 | 165 (17,617) | 22 (1,770) |
-| verified-unbound | 325 | 48,760 | 309 (47,561) | 16 (1,199) |
+| live | 212 | 22,111 | 190 (20,341) | 22 (1,770) |
+| verified-unbound | 300 | 46,036 | 284 (44,837) | 16 (1,199) |
 | unverified | 49 | 4,181 | 44 (3,445) | 5 (736) |
 | stand-in | 40 | 6,192 | 36 (6,074) | 4 (118) |
 | missing | 105 | 8,181 | 75 (6,476) | 30 (1,705) |
 | boundary | 478 | 25,063 | 199 (11,606) | 279 (13,457) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 706 non-boundary functions, 187 (26.5%) are live and verified; by instructions 19,387 of 86,701 (22.4%). A further 325 functions (48,760 instructions) are verified translations waiting to be bound, which is where most of the remaining work is.
+Of the 706 non-boundary functions, 212 (30.0%) are live and verified; by instructions 22,111 of 86,701 (25.5%). One of them, 0015BCF0, is live only in part (its tail; the row says so). A further 300 functions (46,036 instructions) are verified translations waiting to be bound, which is where most of the remaining work is. The totals and the per-label table below are recounted from the section 3 rows (last recount 2026-09-24, after L01).
 
 ### 2.2 Per route label
 
@@ -65,30 +65,30 @@ Of the 706 non-boundary functions, 187 (26.5%) are live and verified; by instruc
 
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
-| S0_title | 23 / 24 / 6 / 7 / 13 / 399 | 23 / 24 / 6 / 7 / 13 / 399 |
-| S1_newgame_load | 62 / 54 / 9 / 11 / 39 / 104 | 47 / 35 / 5 / 4 / 29 / 20 |
-| S2_opening | 112 / 199 / 34 / 25 / 57 / 153 | 67 / 156 / 30 / 18 / 48 / 44 |
-| S3_first_control_idle | 87 / 143 / 23 / 24 / 50 / 144 | 1 / 10 / 0 / 0 / 1 / 0 |
-| 00_panel_no_battery | 113 / 173 / 25 / 25 / 55 / 127 | 12 / 10 / 1 / 2 / 5 / 2 |
-| 01_battery | 135 / 190 / 27 / 28 / 59 / 184 | 22 / 4 / 0 / 3 / 3 / 5 |
-| 02_elevator_refusal | 114 / 183 / 26 / 25 / 55 / 132 | 2 / 9 / 1 / 0 / 0 / 5 |
-| 03_panel_power | 147 / 208 / 28 / 28 / 61 / 158 | 7 / 10 / 1 / 2 / 1 / 1 |
-| 04_elevator_ride | 114 / 176 / 27 / 25 / 55 / 163 | 1 / 1 / 0 / 0 / 0 / 2 |
-| 05_boxes | 102 / 189 / 23 / 27 / 55 / 126 | 1 / 18 / 0 / 3 / 1 / 0 |
-| 06_hill_slide | 97 / 164 / 22 / 25 / 55 / 126 | 0 / 11 / 0 / 0 / 1 / 0 |
-| 07_truck_preview | 107 / 162 / 27 / 25 / 56 / 144 | 0 / 0 / 0 / 0 / 1 / 0 |
-| 08_truck_crossing | 96 / 163 / 23 / 24 / 56 / 161 | 0 / 1 / 0 / 0 / 1 / 0 |
-| 09_fence_door | 120 / 179 / 32 / 26 / 63 / 135 | 3 / 3 / 2 / 1 / 0 / 0 |
-| 10_cage_roof_roger | 116 / 222 / 32 / 28 / 59 / 170 | 1 / 24 / 2 / 0 / 1 / 0 |
-| 11_crevice_prompt | 117 / 220 / 29 / 28 / 58 / 167 | 0 / 2 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 102 / 175 / 22 / 27 / 56 / 122 | 0 / 6 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 115 / 205 / 29 / 28 / 51 / 165 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 116 / 217 / 34 / 28 / 57 / 135 | 0 / 1 / 1 / 0 / 0 / 0 |
+| S0_title | 25 / 22 / 6 / 7 / 13 / 399 | 25 / 22 / 6 / 7 / 13 / 399 |
+| S1_newgame_load | 64 / 52 / 9 / 11 / 39 / 104 | 48 / 34 / 5 / 4 / 29 / 20 |
+| S2_opening | 137 / 174 / 34 / 25 / 57 / 153 | 89 / 134 / 30 / 18 / 48 / 44 |
+| S3_first_control_idle | 97 / 133 / 23 / 24 / 50 / 144 | 1 / 10 / 0 / 0 / 1 / 0 |
+| 00_panel_no_battery | 133 / 153 / 25 / 25 / 55 / 127 | 12 / 10 / 1 / 2 / 5 / 2 |
+| 01_battery | 154 / 171 / 27 / 28 / 59 / 184 | 22 / 4 / 0 / 3 / 3 / 5 |
+| 02_elevator_refusal | 134 / 163 / 26 / 25 / 55 / 132 | 2 / 9 / 1 / 0 / 0 / 5 |
+| 03_panel_power | 167 / 188 / 28 / 28 / 61 / 158 | 7 / 10 / 1 / 2 / 1 / 1 |
+| 04_elevator_ride | 126 / 164 / 27 / 25 / 55 / 163 | 1 / 1 / 0 / 0 / 0 / 2 |
+| 05_boxes | 112 / 179 / 23 / 27 / 55 / 126 | 1 / 18 / 0 / 3 / 1 / 0 |
+| 06_hill_slide | 107 / 154 / 22 / 25 / 55 / 126 | 0 / 11 / 0 / 0 / 1 / 0 |
+| 07_truck_preview | 119 / 150 / 27 / 25 / 56 / 144 | 0 / 0 / 0 / 0 / 1 / 0 |
+| 08_truck_crossing | 106 / 153 / 23 / 24 / 56 / 161 | 0 / 1 / 0 / 0 / 1 / 0 |
+| 09_fence_door | 133 / 166 / 32 / 26 / 63 / 135 | 3 / 3 / 2 / 1 / 0 / 0 |
+| 10_cage_roof_roger | 139 / 199 / 32 / 28 / 59 / 170 | 1 / 24 / 2 / 0 / 1 / 0 |
+| 11_crevice_prompt | 139 / 198 / 29 / 28 / 58 / 167 | 0 / 2 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 112 / 165 / 22 / 27 / 56 / 122 | 0 / 6 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 137 / 183 / 29 / 28 / 51 / 165 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 140 / 193 / 34 / 28 / 57 / 135 | 0 / 1 / 1 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
 - The **backbone is live and verified**: the task chain and frame machine (001ACEC0, 001AD250, 0x1AE040, 001AE5E0/001AE6B0, 001AE7E0), the fades, the actor pool and roster, spawn placement, the load veil state machine, the input block, the panel/battery/elevator interaction host, the status page core and BATTERY page, the pose host, the motor, the wall probes and the point lights.
-- The **player, camera and collision run legacy code**. Their translations exist and are verified (FLOOR stage, fall, slide, climb, ladders, running jump, follow camera, AREA11 camera specials, move/probe/segment walkers, actor collision) but none is bound. Every route beat from 05 on depends on them.
+- The **player, camera and collision run legacy code**, except the player stage itself: since L01 (2026-09-23) 0015BA50, 0015B130 and 0015BCF0's tail run every stage with the translated 0021C440, 0015D100 and 0015D000 around the port's idle/walk callbacks. The scripted takeover is still the interaction runtime's: it consumes the stage before 0015B130's prelude, so the bound prelude and +4 = 4 workers (00182B30, 00182D70, 0015B530, 001837A0) are not reached and stay verified-unbound. The other translations exist and are verified (FLOOR, fall, slide, climb, ladders, running jump, follow camera, AREA11 camera specials, move/probe/segment walkers, actor collision) but none is bound. Every route beat from 05 on depends on them.
 - The **set pieces after the elevator are verified but unbound**: truck, director beats, Roger, fan, door, crates and drums, pickups. Their live counterparts are the legacy stand-ins named in the tables.
 - The **true gaps** (missing) are concentrated in the effect manager and effect kinds, the render context / HUD bar path, the player equipment actors, a few animation-runtime leaves, the actor list passes and several startup/load helpers.
 
@@ -159,7 +159,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001AFD70 | — | BM | live | em_actor_pool.c em_actor_pool_walk_001AFD70 — test_actor_pool_reference; test_actor_census_reference | nodes run legacy code or no code per em_area11_bindings.c | S2_opening |
 | 0x001AFE60 | — | BM | live | em_status_scene_original.c via em_status_models / host — test_status_scene_reference |  | 01_battery |
 | 0x001AFEB0 | — | BM | live | em_status_scene_original.c via em_status_models / host — test_status_scene_reference |  | 01_battery |
-| 0x001B0070 | — | BM | verified-unbound | em_player_stage_workers, em_head_sprite_original — test_head_sprite_reference.py, test_player_stage_workers_reference.py |  | S0_title |
+| 0x001B0070 | — | BM | live | em_player_stage_workers (0015D100's read of the canonical D_008106C8 word, bound by em_player_stage_live, L01), em_head_sprite_original — test_player_stage_workers_reference.py, test_head_sprite_reference.py |  | S0_title |
 | 0x001B0080 | — | BM | verified-unbound | em_script_host_workers — test_script_host_workers_reference | legacy door camera re-seat (CAM-07) | S1_newgame_load |
 | 0x001B0250 | — | BM | live | em_spawn_table, em_script_host_workers — test_spawn_place_reference.py |  | S1_newgame_load |
 | 0x001B0460 | — | BM | verified-unbound | em_script_host_workers — test_script_host_workers_reference | em_game.c em_game_legacy_camera_rearm (reported UM_001B0460) | S1_newgame_load |
@@ -197,19 +197,19 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x0015B130 | — | BM | verified-unbound | em_player_floor.c em_player_stage_0015B130 (FLOOR gate closed) — test_player_floor_reference (stage cases) | em_player.c/em_player_frame.c legacy idle/walk; em_interaction_runtime scripted takeover | S2_opening |
-| 0x0015B530 | — | AI | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference |  | S2_opening |
-| 0x0015BA50 | — | BM | verified-unbound | em_player_floor.c stage begin/dispatch/end (gated) — test_player_floor_reference | em_player_frame.c actor_update + em_player_pose_host advance | S2_opening |
-| 0x0015BCF0 | — | BM | verified-unbound | em_player_floor.c em_player_stage_tail (gated) — test_player_floor_reference | em_player_frame.c em_player_0015BCF0 (legacy actor_update wrapper at w_0015BCF0) | S2_opening |
+| 0x0015B130 | — | BM | live | em_player_floor.c em_player_stage_0015B130 (every +4 = 1 stage since L01, em_player.c live_major1) — test_player_floor_reference (stage cases); test_level_smoke.py | state[0]/[1] are the port's idle/walk callbacks (L12); the interaction runtime still stands in for the takeover while it owns the player (acquire / +4 = 4 ticks / release); under 0x70003B8D without that owner the port's idle/walk keep the stage (the prelude's 00174A50 needs 0017B490, L12) | S2_opening |
+| 0x0015B530 | — | AI | verified-unbound | em_player_stage_workers em_player_stage_0015B530 (bound as stage major[4] by L01, but unreached) — test_player_stage_workers_reference | the original runs it on every scripted takeover (12 of 19 labels); the port runs the interaction runtime instead (em_player_pose_host.c player_pose_acquire / the takeover tick through player_pose_stage_hook / player_pose_release), which consumes the stage at 0015B130's prelude position, so the +4 = 4 stage is never entered; reached once the takeover moves onto the stage. Of its routines 001837A0 is bound; 00182DF0's record side, 001837B0, 001838B0, 00183910 are untranslated and 00162DB0/00163B40 are FLOOR (fail-stop workers) | S2_opening |
+| 0x0015BA50 | — | BM | live | em_player_floor.c em_player_stage_begin/_dispatch/_end over the record every stage (em_player.c player_states_stage, L01) — test_player_floor_reference (stage cases); test_level_smoke.py | the advance worker is the live display's 001C64F0 (em_player_pose_advance through player_pose_stage_advance); D_00248C98 from the local export; the B3 byte is still em_player_0015BCF0's stand-in expression | S2_opening |
+| 0x0015BCF0 | — | BM | live (partial: tail only) | em_player_floor.c em_player_stage_tail (+BC, the -200 check, the +31B loop-sound stop; L01) inside em_player_frame.c em_player_0015BCF0 — test_player_floor_reference (stage cases) | the skeleton evaluation, 0015CBA0, 00187350 and the +A0/+B0 copies are the port's own display and camera paths | S2_opening |
 | 0x0015BF90 | — | NM | verified-unbound | em_shadow_actor_route — test_shadow_actor_route_reference | no live player shadow | 02_elevator_refusal |
 | 0x0015C160 | — | BM | verified-unbound | em_shadow_original — test_shadow_original_reference | live w_0015C160 is a reported no-effect binding (UM_0015C160) | S2_opening |
 | 0x0015C1F0 | — | NM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | live spawn_w_0015C1F0 is a reported no-effect binding (UM_0015C1F0) | S1_newgame_load |
 | 0x0015C310 | — | BM | live | em_area11_bindings.c em_area11_spawn_player_children_0015C420 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn set and order only (node bytes not compared) | S2_opening |
 | 0x0015C420 | — | BM | live | em_area11_bindings.c em_area11_spawn_player_children_0015C420 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn set and order only | S2_opening* |
 | 0x0015CBA0 | — | BM | stand-in |  | em_camera.c constant height row (no +0x236 state map) | S2_opening |
-| 0x0015CF90 | — | BM | unverified | em_player_frame.c em_player_0015BCF0: the D_00810707 = +0x234 store into the canonical progress byte (HK) and the B9 write | partial: D_00810706/858/85C stores not mirrored; no oracle executes 0015CF90 (the byte-matched C was read) | S2_opening |
-| 0x0015D000 | — | AI | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_damage.c player_damage_tick | S2_opening |
-| 0x0015D100 | — | BM | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_damage.c player_damage_tick | S2_opening |
+| 0x0015CF90 | — | BM | unverified | em_player_frame.c em_player_0015BCF0: D_00810707 = +0x234 into the canonical progress byte (HK) and the B9 write, over the stage's vitals (em_player.c stores +220/+234 back to g.status / g.pd_infected after every stage, L01) | D_00810706/858/85C have no canonical storage (their port copies g.pd_low / g.status are the stage's store); no oracle executes 0015CF90 (the byte-matched C was read) | S2_opening |
+| 0x0015D000 | — | AI | live | em_player_stage_workers em_player_stage_heartbeat (0015B130, L01) — test_player_stage_workers_reference | its rumble 001B61C0 (health <= 35) is a fail-stop worker (untranslated) | S2_opening |
+| 0x0015D100 | — | BM | live | em_player_stage_workers em_player_stage_drain (0015B130, L01; em_player_damage.c's copy retired) — test_player_stage_workers_reference | 0015C9D0 and 001F0060 (the latch / infected paths) are fail-stop workers | S2_opening |
 | 0x0015D2F0 | — | BM | stand-in |  | em_weapon.c assumes variant 0 (ordinary camera mode) | S0_title |
 | 0x0015D4C0 | — | NM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference | none: the live player has no climb/vault/ladder/jump states (level smoke phase NOT-LIVE); Use chain | 05_boxes |
 | 0x0015DEC0 | — | AW | verified-unbound | em_player_climb — test_player_climb_reference | none: the live player has no climb/vault/ladder/jump states (level smoke phase NOT-LIVE) | 05_boxes |
@@ -240,7 +240,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 |---|---|---|---|---|---|---|
 | 0x001749A0 | — | BM | live | em_player_pose.c em_player_pose_select — test_player_pose_reference |  | S2_opening |
 | 0x001749F0 | anim_clip_arbiter | BM | verified-unbound | em_pose_host_workers — test_pose_host_workers_reference | em_player_pose.c em_player_pose_select (no oracle of this entry) | 00_panel_no_battery |
-| 0x00174A50 | — | BM | live | em_player_pose.c em_player_pose_acquire — test_player_pose_reference |  | S2_opening |
+| 0x00174A50 | — | BM | live | em_player_pose.c em_player_pose_acquire — test_player_pose_reference | the stage's translation em_player_stage_row_request is bound too (L01) but reached only by 0015B130's prelude outside the port's idle/walk; its 0017B490 / 001749A0 on the record are fail-stop (L12) | S2_opening |
 | 0x00174AB0 | — | BM | verified-unbound | em_player_closure_0e_18 — test_player_closure_0e_18_reference |  | 01_battery |
 | 0x00174AC0 | — | BM | live | em_player_heading.c + em_player.c turn — test_player_heading_reference | turn path only; the reversal arm (+1F0 = 7) is gated; its SDK trig is host-modelled | S3_first_control_idle |
 | 0x00174FD0 | — | BM | verified-unbound | em_player_slide — test_player_slide_reference | em_player.c collide-and-slide movement on the slope (no slide state) | 06_hill_slide |
@@ -296,14 +296,14 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00182430 | — | AW | live | em_player.c footstep sound id (00182430 mapping over em_random) — test_player_random_reference | the footstep clock itself is legacy (00187350) | 00_panel_no_battery |
 | 0x00182870 | — | BM | verified-unbound | em_player_reaction — test_player_reaction_reference |  | 05_boxes |
 | 0x00182A70 | — | BM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference |  | 10_cage_roof_roger |
-| 0x00182B30 | — | BM | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_pose_host.c player_pose_acquire (partial refusal set) | S2_opening |
+| 0x00182B30 | — | BM | verified-unbound | em_player_stage_workers em_player_stage_scripted_check (bound in 0015B130's prelude by L01, but unreached) — test_player_stage_workers_reference | em_player_pose_host.c player_pose_acquire / the takeover tick / player_pose_release through the interaction runtime (partial refusal set), which consumes the stage before the prelude; the prelude runs only under 0x70003B8D outside the port's idle/walk, which the live app cannot reach before FLOOR (L02) and L12. Reached once the takeover moves onto the stage | S2_opening |
 | 0x00182BF0 | — | NM | verified-unbound | em_script_host_workers — test_script_host_workers_reference |  | 10_cage_roof_roger |
 | 0x00182D40 | — | BM | unverified | em_player_pose_host.c release tail | hooked in the pose oracles | S2_opening |
-| 0x00182D70 | — | BM | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_pose_host.c player_pose_acquire (partial refusal set) | S2_opening |
+| 0x00182D70 | — | BM | verified-unbound | em_player_stage_workers em_player_stage_scripted_notify (bound in 0015B130's prelude by L01, but unreached) — test_player_stage_workers_reference | as 00182B30: the interaction runtime's player_pose_acquire / takeover tick / player_pose_release stand in (00182D70's record-side writes +0 = 1, +24C = -1, +1F4 and the pending clears are not made); link1C is a fail-stop worker (+1C is 0 in every route capture). Reached once the takeover moves onto the stage | S2_opening |
 | 0x00182DF0 | — | BM | live | em_player_pose_host.c player_pose_release / legacy_reseed — test_player_pose_host_reference; test_player_cinematic_reference |  | S2_opening |
 | 0x00182F90 | — | BM | live | em_player_pose_host.c player_pose_align — test_player_pose_host_reference; test_interaction_alignment_reference |  | S2_opening |
 | 0x00183090 | — | BM | live | em_player_pose.c / em_interaction_animation.c commit — test_player_cinematic_reference |  | S2_opening |
-| 0x001837A0 | — | BM | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference |  | S2_opening |
+| 0x001837A0 | — | BM | verified-unbound | em_player_stage_live.c w_001837A0 (0015B530's +5 = 0 routine, bound by L01 but unreached) — the byte-matched src/func_001837A0.c is an empty function; test_player_stage_workers_reference hooks it as 0015B530's target | as 0015B530: the interaction runtime (player_pose_acquire / the takeover tick / player_pose_release) stands in for the takeover, so 0015B530 and its routines are not entered. Reached once the takeover moves onto the stage | S2_opening |
 | 0x00183EF0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_pickup.c / em_door.c legacy scans for the unpublished owners; published list holds only the panel and elevator (W22) | 00_panel_no_battery |
 | 0x00184BA0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_pickup.c / em_door.c legacy scans for the unpublished owners; published list holds only the panel and elevator (W22) | 00_panel_no_battery |
 | 0x00187350 | — | BM | verified-unbound | em_player_floor.c footstep (gated) — test_player_footstep_reference | em_player.c footstep_play (legacy clock) | S2_opening |
@@ -866,10 +866,10 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0021BAB0 | — | BM | missing |  |  | S2_opening |
 | 0x0021BAC0 | — | BM | missing |  |  | 01_battery |
 | 0x0021BAE0 | — | BM | live | em_status_page.c / host status_page_event — test_status_page_reference |  | 01_battery |
-| 0x0021BB00 | — | AW | verified-unbound | em_player_stage_workers, em_script_host_workers — test_player_stage_workers_reference.py, test_script_host_workers_reference.py |  | S2_opening |
-| 0x0021C3F0 | — | CL | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference.py |  | S2_opening |
-| 0x0021C440 | — | BM | verified-unbound | em_player_stage_workers — test_player_stage_workers_reference | em_player_damage.c player_damage_tick | S2_opening |
-| 0x0021D640 | — | BM | verified-unbound | em_player_stage_workers, em_player_reaction — test_player_stage_workers_reference.py |  | S2_opening |
+| 0x0021BB00 | — | AW | live | em_player_stage_workers em_player_0021BB00 (0021C440 / 0015D100 / 00182B30, L01), em_script_host_workers — test_player_stage_workers_reference.py, test_script_host_workers_reference.py |  | S2_opening |
+| 0x0021C3F0 | — | CL | live | em_player_stage_workers em_player_0021C3F0 (0021C440's hit_b gate, L01) — test_player_stage_workers_reference.py | D_00810770 is not canonical (L19): the stage's view load refuses area 8 room 2, where it is read | S2_opening |
+| 0x0021C440 | — | BM | live | em_player_stage_workers em_player_stage_reaction (0015B130 / 0015B770, L01; em_player_damage.c's processor copy retired) — test_player_stage_workers_reference; test_level_smoke.py (no-hit path every stage) | its hit, pending-damage and infection paths reach fail-stop workers (rumble, effects, atan2 / the +20 object, 0017B490 / 001749A0) and unbound +4 = 2 states; no route capture has a hit | S2_opening |
+| 0x0021D640 | — | BM | live | em_player_stage_workers em_player_0021D640 (0021C440, L01), em_player_reaction — test_player_stage_workers_reference.py |  | S2_opening |
 | 0x00224290 | — | AW | verified-unbound | em_player_fall, em_player_slide — test_player_fall_reference.py, test_player_slide_reference.py |  | 10_cage_roof_roger |
 | 0x002243F0 | — | AW | verified-unbound | em_player_recovery, em_player_running_jump — test_player_recovery_reference.py, test_player_running_jump_reference.py |  | 12_crevice_jump |
 | 0x00224B80 | — | BM | verified-unbound | em_player_recovery, em_player_slide — test_player_recovery_reference.py, test_player_slide_reference.py |  | 06_hill_slide |
@@ -1085,7 +1085,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 
 | # | Lane | Kind | Instr. | Functions (status mix) | Gates beats | Depends on |
 |---:|---|---|---:|---|---|---|
-| 1 | **L01-player-stage-live**: Engage the translated player stage (FLOOR gate): 0015BA50/0015B130/0015BCF0 and the stage workers, retire player_damage_tick | bind | 1,922 | 15 (verified-unbound 14, unverified 1) | every frame from first control; prerequisite of the floor, slide, climb, ladder and jump lanes | nothing (translations exist); retire em_player_damage.c copies in the same change |
+| 1 | **L01-player-stage-live**: Engage the translated player stage (FLOOR gate): 0015BA50/0015B130/0015BCF0 and the stage workers, retire player_damage_tick. **Bound 2026-09-23 (partial):** 10 live (0015BCF0 tail only), 4 bound but unreached (0015B530, 001837A0, 00182B30, 00182D70: the interaction runtime still stands in for the scripted takeover and consumes the stage before 0015B130's prelude), 0015CF90 unverified (no oracle); the prelude on the port's idle/walk waits on 0017B490 (L12) | bind | 1,922 | 15 (live 10, verified-unbound 4, unverified 1) | every frame from first control; prerequisite of the floor, slide, climb, ladder and jump lanes | nothing (translations exist); retire em_player_damage.c copies in the same change (done) |
 | 2 | **L05-coll-move-walkers**: Replace em_collision movement queries with the translated move/sweep walkers | bind | 2,163 | 8 (verified-unbound 8) | every frame (player and camera movement queries) | nothing (em_coll_move_original verified) |
 | 3 | **L07-actor-collision-live**: Link em_actor_collision: grid/column scan, actor hulls, list classes and the 001AAD00 swap | bind | 2,224 | 13 (verified-unbound 9, unverified 4) | 05 (standing on crates), 08 (standing on the truck), 10 | L05 |
 | 4 | **L02-floor-fall-live**: Bind the floor service and fall check (00175900/001796C0) and the fall state, retiring the floor snap and PLAYER_FALL_ENTRY | bind | 1,755 | 14 (verified-unbound 14) | 05, 06, 08, 10 (step-offs, the cage-roof fall) | L01; L07 (column scan 0019BC40 and actor collision) |

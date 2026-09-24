@@ -7,9 +7,10 @@ Design 3.2: each byte the coordinator owns exists once, in EmSceneState
 copy, and the port writes a byte only in the ported counterparts of its original
 writers. This test greps src/ and checks, for the bytes S11a made canonical
 (scratchpad 0x70003B8D and 0x70003B91, and the input words D_00810E74/E70/E50),
-S11b (scratchpad 0x70003B92, lead decision D5) and the housekeeping step HK
+S11b (scratchpad 0x70003B92, lead decision D5), the housekeeping step HK
 (lead decision D2: D_00810707, D_00810792, D_00810793, D_00810813, D_00810CC3,
-D_00810CB6 in the EmProgress region and D_008106F1 in the request block):
+D_00810CB6 in the EmProgress region and D_008106F1 in the request block) and
+census L01 (D_0081083C, the player's grab-slot bits, in the EmProgress region):
 
   1. the retired port copies are gone from src/ and tests/: `frame_selector`
      (g.frame_selector, S11a), `cine_step` (g.cine_step = D_00810813, HK) and
@@ -103,6 +104,12 @@ REACHERS = {
     0x00810707: {
         "game/em_player_frame.c": "0015CF90 (em_player_0015BCF0): D_00810707 = +0x234 every player stage",
         "game/em_scene_bindings.c": "001B07C0 (w_001B07C0): reads it into +0x234",
+        "game/em_player_stage_live.c": "0021C270's store (=1): the stage workers' globals pointer, loaded "
+                                       "before every player stage (w_load, L01)",
+    },
+    0x0081083C: {
+        "game/em_player_stage_live.c": "0021C440's read (the +5 = 0xB reaction): the stage workers' "
+                                       "per-stage view, loaded before every player stage (w_load, L01)",
     },
     0x00810813: {
         "game/em_director.c": "008253F0's beat step, legacy stand-in until WP-10: its state-1 dispatch "
@@ -125,8 +132,8 @@ REACHERS = {
         "game/em_player.c": "0015BA50's busy test: the stage scene's pointer (live_scene_load)",
     },
     0x008106F1: {
-        "game/em_player.c": "0015BA50's busy test and 0021C270's store (once the stage workers are "
-                            "bound, L01): the stage scene's pointer (live_scene_load)",
+        "game/em_player.c": "0015BA50's busy test and 0021C270's store (the stage workers, bound "
+                            "since L01): the stage scene's pointer (live_scene_load)",
     },
     0x00810792: {},   # no port reacher yet: em_truck_original's pointer is bound by WP-12
     0x00810793: {},   # no port reacher yet: em_director_original / em_roger are bound by WP-10 / WP-9
@@ -185,7 +192,18 @@ ALLOWED = [
     {"file": "game/em_player_reaction.h", "name": "scripted",
      "reason": "EmPlayerReactionScene: the reaction lane's per-call input of 3B8D, refreshed by its "
                "`refresh` worker; the translation is unbound",
-     "removed_by": "permanent (a per-call input); L01 fills it from em_scene_state() when it binds 0021C440"},
+     "removed_by": "permanent (a per-call input); the FLOOR closure's binder (L02) fills it from "
+                   "em_scene_state() when it binds the +4 = 2 reaction states"},
+    {"file": "game/em_player_reaction.h", "name": "d81083C",
+     "reason": "EmPlayerReactionScene: 0021F330's per-call input of D_0081083C, refreshed by its "
+               "`refresh` worker; the translation is unbound",
+     "removed_by": "permanent (a per-call input); the FLOOR closure's binder (L02) fills it from the "
+                   "canonical progress byte when it binds the +4 = 2 reaction states"},
+    {"file": "game/em_player_stage_workers.h", "name": "d81083C",
+     "reason": "EmPlayerStageGlobals: 0021C440's per-stage view of D_0081083C, loaded from the "
+               "canonical progress byte before every player stage (em_player_stage_live.c w_load); "
+               "the stage never writes it",
+     "removed_by": "permanent (a per-stage view)"},
     {"file": "game/em_player_recovery.h", "name": "spad3B8D",
      "reason": "EmPlayerRecoveryScene: 001751A0's per-call input, filled by the `scene` worker at "
                "each routine entry; the translation is unbound",
@@ -220,7 +238,7 @@ ALLOWED = [
      "removed_by": "WP-10 (L21): deleted with em_director.c's kCineBeats when 008253F0 is bound"},
 ]
 
-BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1",
+BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C",
                         re.IGNORECASE)
 RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
 DECL = re.compile(

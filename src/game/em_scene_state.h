@@ -132,6 +132,18 @@ typedef enum {
  *                              port mirror existed (EmElevator.lower is
  *                              the owner's view, loaded and stored around
  *                              each owner callback).
+ *   D_0081083C           L01   the player's grab-slot bits: 0012E0B0 claims a
+ *                              free bit (0..3 behind the player, 4..7 in
+ *                              front), 0012E070 releases one; read by
+ *                              0021C440 on every player stage (nonzero
+ *                              enters the +4 = 2 +5 = 0xB reaction), by
+ *                              0021F330 and by 00182BF0. No port mirror and
+ *                              no port writer (the latching enemies'
+ *                              0012E0B0 / 0012E070 are not ported, and no
+ *                              AREA11 owner calls them: 0 in every route
+ *                              capture); the player stage's worker view
+ *                              loads it before every stage
+ *                              (em_player_stage_live.c).
  *   D_0081084C           WP-4  D_00810841[0x0B], AREA11's power byte:
  *                              001580C0 sets bit (1 << panel +0x2E) = 0x80,
  *                              00159210 state 0 and 00827B10 test it;
@@ -194,6 +206,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810792u, 0x00810795u}, /* events 0x3A, 0x3B (HK) and 0x3C (S12a) */
         {0x00810813u, 0x00810814u}, /* counter 0x3B, the director step (HK) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
+        {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
         {0x00810C60u, 0x00810C61u}, /* equipment status C60 (WP-6) */

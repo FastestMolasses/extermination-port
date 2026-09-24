@@ -608,6 +608,22 @@ void em_sfx_loop_release(int32_t *handle)
     em_sfx_service_release(&ops, s.requested, handle);
 }
 
+int em_sfx_stop_track(int track, int hard)
+{
+    if (track < 0 || track >= EM_SFX_TRACKS) return -1;
+    if (!hard) {
+        loop_stop(NULL, track);
+        return 0;
+    }
+    for (int from = T_READY; from <= T_STOP; ++from) {
+        int st = from;
+        if (atomic_compare_exchange_strong_explicit(
+                &s.track[track], &st, T_HALT,
+                memory_order_acq_rel, memory_order_relaxed)) break;
+    }
+    return 0;
+}
+
 void em_sfx_frame_snapshot(void)
 {
     memcpy(s.snapshot, s.requested, sizeof s.snapshot);

@@ -313,14 +313,24 @@ against whole-world original runs over the captured AREA11 RAM; see
 `PLAYER_CLIMB_SLIDE.md`. They reach the live player only through the gated
 layer below.
 
-## Live player states (gated; lane "player-states-live")
+## Live player states (lane "player-states-live"; the stage is live since census L01)
 
-`em_player.c` now carries the original player-stage plumbing that the floor
-service, the fall check and the non-walk states need. It stays **gated off**:
+`em_player.c` carries the original player-stage plumbing that the floor
+service, the fall check and the non-walk states need, gated per mechanism:
 until every original worker, datum and state callback a mechanism can reach
-is bound, the port's own path runs unchanged. This is the reversal skid's
-gate, applied to each mechanism. The first player stage of a run prints one
-line per mechanism, naming what it still lacks.
+is bound, the port's own path for it runs unchanged. This is the reversal
+skid's gate, applied to each mechanism. The first player stage of a run
+prints one line per mechanism, naming what it still lacks.
+
+- **STAGE (census L01, engaged since 2026-09-23).** 0015BA50, 0015B130 and
+  0015BCF0's tail run on every player stage from first control
+  (em_player.c `player_states_stage`, called by em_player_frame.c
+  actor_update) with the stage workers bound by `em_player_stage_live.c`
+  (PLAYER_STAGE_WORKERS.md section 2.1). The port's idle and walk callbacks
+  are 0015B130's state[0] / state[1] until L12. em_player_damage.c's copies
+  of 0021C440 / 0015D100, its +20E countdown and its kill plane are
+  retired; only the legacy bug-latch struggle remains there.
+- **FLOOR and USE** stay gated (below).
 
 What the layer does once engaged:
 
@@ -334,9 +344,9 @@ What the layer does once engaged:
   nothing else.
 - **The stage** (`em_player_stage_*` in `em_player_floor.c`, executed against
   the original routines by the floor oracle's "stage" cases, PLAYER_FLOOR.md).
-  `player_move` now runs `player_states_stage_begin`, the callbacks, then
-  `player_states_stage_end`. Both run once per frame, and only while FLOOR is
-  engaged.
+  `player_states_stage` loads the vitals view (+220/+224/+228/+22C/+234/+20E
+  from g.status / g.pd_*), runs the stage below and stores the view back. It
+  runs once per player stage while STAGE is engaged.
   - **0015BA50 before its switch** (`em_player_stage_begin`): +34 =
     D_00248C98[+20C] × +204, then +204 = 1.0, +303 = 0, +25D = 0, +1 = 1,
     +319 = +A, +A = 0, +308 = +214, +214 = 0, +318 = 0, and +94 = -1 unless
@@ -344,10 +354,14 @@ What the layer does once engaged:
     source first.
   - **Its switch** (`em_player_stage_dispatch`): anim_advance_time (+200) at
     the original's positions (+34, or +1F4 after 00183090 for +4 = 4 with
-    +5 = 0/0x17), then the +4 handler. +4 = 1 is the translated 0015B130 and
-    +4 = 2 the translated 0015B770. 0/4/5/6 are bound handlers, and 6 has the
-    translation `em_player_stage_0015D460`. The port's own idle and walk
-    (+4 = 1, +5 = 0/1) stay the port's.
+    +5 = 0/0x17), then the +4 handler. The advance is the live display's
+    001C64F0 (`player_pose_stage_advance`). +4 = 1 is the translated
+    0015B130 behind the takeover stand-in (the interaction runtime consumes
+    the stage there while it owns the player), +4 = 2 the translated
+    0015B770, 4 is 0015B530 and 6 is `em_player_stage_0015D460`. The port's
+    own idle and walk (+4 = 1, +5 = 0/1) are 0015B130's state[0] / state[1];
+    under 0x70003B8D without the takeover owner they keep the stage without
+    0015B130 (its prelude's 00174A50 needs 0017B490, L12).
   - **0015B130** (`em_player_stage_0015B130`) is translated whole:
     - the 0x70003B8D prelude: +5 0x19 sets 0x70003B8F = 1; +1F0 0x2A outside
       area 0x15 forces 4/0x17; +1F0 0x17 forces 4/0xC; 00182B30 == 0 forces
@@ -522,20 +536,22 @@ node class is a data prerequisite; the rest are workers or callbacks.
 
   No other closure callback is translated. +4 = 2 +5 3, 4, 5, 6, 7, 0x16
   and 0x19 belong to lane player-major2-states.
-- **Stage workers.** None is bound:
-  - the D_00248C98 data (the rate at +8 of each D_00248C90 row);
-  - 001C64F0 (the display's source advance);
-  - 00183090, 0021C440, 0015D100 and 0015D000;
-  - 00182B30, 00182D70 and 00174A50.
-
-  Lane player-stage-workers is translating them (em_player_stage_workers.c,
-  PLAYER_STAGE_WORKERS.md).
-
-  The port's `player_damage_tick` models 0021C440 / 0015D100 / 0015D000 for
-  its own idle/walk. When the coordinator binds them, the port's copies must
-  stop running on stages the translated 0015B130 owns. The port's kill plane
-  (em_player_damage.c) must also stop once `em_player_stage_tail` owns the
-  -200 check.
+- **Stage workers.** Bound since L01 (em_player_stage_live.c): D_00248C98
+  (the local export), 001C64F0 (the live display's advance), 00183090,
+  0021C440, 0015D100, 0015D000, 00182B30, 00182D70, 00174A50, 0011A070 and
+  the +4 = 4 / 6 handlers. The callees that are not live are fail-stop
+  workers (PLAYER_STAGE_WORKERS.md section 2.1). `player_damage_tick` and
+  the port's kill plane are retired. 00182B30, 00182D70 and the +4 = 4
+  handler (0015B530, 001837A0) are bound but not reached: the interaction
+  runtime's takeover consumes the stage before 0015B130's prelude (census
+  rows verified-unbound).
+- **Known regression for L02 (hits outside AREA11).** Since L01 a port
+  enemy hit (em_enemy.c's `s.player_hit`: the worm lunge, the breather pad)
+  goes through 0021C440 into the unbound +4 = 2 reaction states, so the
+  stage fails and the app quits; before L01 the legacy flinch played. No
+  AREA11 owner posts a hit (the flame runtime at 008235F0 posts no damage),
+  so the first-level route is unaffected. Binding the +4 = 2 reaction
+  states (L02, `em_player_reaction_live_*`) restores hit behaviour.
 - **Use chain.** 0015D4C0, 00176F90, 00177030, 00180300, 0015EC50 and
   0015FDF0 are untranslated, and so are the state routines 001634A0,
   00165B60 and 001747F0. The climb adapters (`em_player_climb_live_state`,
@@ -584,10 +600,9 @@ node class is a data prerequisite; the rest are workers or callbacks.
     `em_player_0021C270` / `em_player_0021C350`.
     `EmPlayerReactionScene.d8106F1` is `EmPlayerStageScene.d8106F1`, the
     pointer at the canonical D_008106F1.
-  - The live layer runs 0015B130 (so 0021C440 / 0015D100 / 0015D000) only
-    on stages it owns, not on the port's own idle/walk. Reactions from
-    idle/walk need that ordering added around the port's callbacks, and
-    `player_damage_tick` retired.
+  - Since L01 the live layer runs 0015B130 (so 0021C440 / 0015D100 /
+    0015D000) on every +4 = 1 stage, the port's own idle/walk included, and
+    `player_damage_tick` is retired.
 - **The display.** Call `player_states_bind_display(1)` once the display
   stage draws the source clip of each bound state and advances it by the
   stage's +34 (`stage.advance` returns anim_advance_time's +200 flags).
@@ -596,13 +611,16 @@ node class is a data prerequisite; the rest are workers or callbacks.
   or NULL when that owner is NULL. `player_states_actor()->link_owner` is
   +214 during and after the player stage; the next stage's 0015BA50 moves
   it to +308.
-- **Area load.** Call `player_states_reset()`. It writes 0015C420's +280 =
+- **Area load.** `player_states_reset()` runs in the scene bindings'
+  w_001AFCA0 at 001AF5C0's position (L01). It writes 0015C420's +280 =
   (0, -13.8, 0, 1), +4 = 1, +5 = 0, +204 = 1.0 and +31B = -1.
-- **The stage calls.** `em_player_0015BCF0` should call
-  `player_states_stage_begin` / `player_states_stage_end` around the
-  callbacks itself. Today `player_move` calls them, and `em_player_frame.c`
-  skips `player_move` while `g.pd_state == 2`. Both calls are idempotent per
-  frame.
+- **The stage calls.** em_player_frame.c actor_update calls
+  `player_states_stage` while STAGE is engaged (L01); `player_move` is the
+  port's callbacks alone (the unbound path). While the legacy bug-latch
+  struggle holds the player (`g.pd_state == 2`) the stage does not run.
+  In the app that struggle (and a test harness that leaves STAGE unbound)
+  is the only way into actor_update's non-stage branch: a failed bind
+  latches a scene fault at 0x0015BA50.
 - **D_008106B3.** Once FLOOR is engaged, `em_player_0015BCF0` should take the
   B3 byte from `player_states_busy()` in place of its stand-in expression.
   That needs D_00810CB6 migrated into the canonical progress block.
@@ -664,12 +682,18 @@ node class is a data prerequisite; the rest are workers or callbacks.
     (+4 2 +5 0x11) on a stage 0015B130 owns. 0015B770 runs
     `em_player_reaction_live_0021E9C0` over the real floor service, and its
     clip end hands back to the port's idle;
-  - fail-stop, and the adapters refusing unbound workers.
+  - fail-stop, and the adapters refusing unbound workers;
+  - (L01) 0015B130 around the port's idle callback on every +4 = 1 stage;
+    the takeover stand-in consuming a stage at the prelude position (begin,
+    end and 0015BCF0's writes still run; its 3B8F store survives); the
+    idle under 0x70003B8D without that owner keeping the port's callback;
+    the vitals view (pending damage in, the +20E countdown and +220 out).
 - `tools/test_player_floor_reference.py` also checks the owner flow on real
   captured worlds (PLAYER_FLOOR.md). The original 00175900 and the native
   service over `em_actor_collision_player_ground` store the same +214, and
   it equals the trace's:
   - on 05_boxes crate rows, 0x7A7C70 and 0x7A7980 (8 quick, 293 full);
   - on 08_truck_crossing f43, the truck 0x7A9FB0.
-- `EM_STARTUP_TEST=newgame-control` stays at displacement 9.599989. The
-  layer is gated off there, and the port's path is untouched.
+- `EM_STARTUP_TEST=newgame-control` stays at displacement 9.599989 with the
+  stage live (L01); its EM_FRAME_TRACE and the level smoke's tick log are
+  byte-identical to the pre-L01 build. FLOOR is gated off there.

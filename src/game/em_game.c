@@ -1510,7 +1510,6 @@ static int continue_restart(void)
         g.pd_iframes  = 0;
         g.pd_pend_hp  = 0.0f;
         g.pd_pend_inf = 0.0f;
-        g.pd_drain_t  = 0;
         g.pd_clip     = 0;
         g.pd_infected = 0;
         g.pd_low      = 0;

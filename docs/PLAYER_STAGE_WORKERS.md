@@ -9,9 +9,11 @@ document records the workers that the player stage calls every frame, the
 does, how the coordinator binds them, the evidence, and what is still open.
 Code: `src/game/em_player_stage_workers.c/.h`. Exporter:
 `tools/export_player_tables.py`. Oracle:
-`tools/test_player_stage_workers_reference.py`. **Nothing here is wired into
-the live player yet.** The FLOOR gate (FIRST_CONTROL.md) lists these workers
-as missing. They are now translated but not yet bound.
+`tools/test_player_stage_workers_reference.py`. **Bound on the live player
+stage since census L01 (2026-09-23)**: every player stage from first control
+runs 0015BA50 / 0015B130 / 0015BCF0's tail with these workers
+(`src/game/em_player_stage_live.c`, section 2.1). The workers that are not
+translated or not live yet are fail-stop there.
 
 ## 1. What the originals do
 
@@ -45,6 +47,79 @@ Every float operation goes through `em_ee_float.h`:
 - every c.eq/c.lt/c.le, so a denormal compares equal to 0.
 
 ## 2. Binding (for the coordinator)
+
+### 2.1 The live binding (census L01)
+
+`em_player_stage_live_bind()` (em_player_stage_live.c) runs at every area
+build, at 001AF5C0's position in the scene bindings' w_001AFCA0, right after
+`player_states_reset()` (001AF5C0's wipe and 0015C420's record values). It
+fills the host below and calls `player_states_bind` with the stage part of
+`EmPlayerStatesBinding` only, so em_player.c engages the STAGE mechanism
+(`EM_PLAYER_MECH_STAGE`) and leaves FLOOR and USE gated. A missing
+`assets/player_clip_rates.emcr` latches a scene fault at 0x0015BA50.
+
+| Slot | Bound to |
+|---|---|
+| `clip_rate` | D_00248C98 from the local export (`em_player_clip_rates_load`) |
+| `advance` | the live display's 001C64F0: `player_pose_stage_advance(step)`, i.e. `em_player_pose_advance` on the pose host's source (the one live translation of anim_advance_time; census row 001C64F0). It returns the +200 flags, or 0 when a stand-in holds the source or the interaction runtime owns it. `em_player_stage_anim_advance` (the record-level translation) waits for the display lane. |
+| `commit`, `reaction`, `drain`, `heartbeat`, `scripted_check`, `scripted_notify`, `row_request`, `stop_sound` | the translations (`em_player_stage_workers_bind`) |
+| `major[4]` | `em_player_stage_0015B530` (bound but not reached while the interaction runtime owns the takeover; census verified-unbound): 001837A0 bound (the byte-matched C is empty); 00182DF0 (record side), 001837B0, 001838B0, 00183910 fail-stop (untranslated); 00162DB0 / 00163B40 fail-stop (FLOOR, L02) |
+| `major[6]` | `em_player_stage_0015D460` with the live 001AEDE0 (`em_frame_fade_start_colour(1, a0, a1)`) |
+| `major[1]` / `state[0]` / `state[1]` | set by em_player.c: 0015B130 behind the takeover stand-in (`live_major1`), and the port's idle/walk callbacks (`live_port_state`) until L12 |
+| `takeover` | `player_pose_stage_hook()`: the AREA11 interaction runtime at 0015B130's prelude position (consumes the stage while it owns the player) |
+| `load` | before every stage: D_008106C8 (request word C8), D_00810701, D_0081083C and D_00810C7E (canonical progress bytes; D_0081083C migrated by L01) and the D_00810707 pointer. D_00810770 is not canonical (L19): the load refuses area 8 room 2, the only place 0021C3F0 reads it |
+
+Callees (`host.callees`):
+
+| Worker | Bound to |
+|---|---|
+| `sound` | the live 001FBD50: `em_sfx_play_at(id, record +B0, radius)` |
+| `sound_stop` | `em_sfx_stop_track(track, hard)` (em_sfx.c: T_STOP, or T_HALT for 0x8000) |
+| `w001D0C70`, `bone_init`, `clip_init` | fail-stop (the +4 = 4 commit; reached only after the prelude) |
+| `cue` (001B61C0) | fail-stop (untranslated; 0015D000 at health <= 35, 0021C440's 0x3C path) |
+| `w001EFE00`, `w001F00A0`, `w001F0060` | fail-stop (the effect manager is not live, L26) |
+| `atan2`, `link20` | fail-stop (hit facing; the port keeps no +20 handle, census 7.2) |
+| `clip_lookup`, `request` | fail-stop (0017B490 / 001749A0 on the record: 00174A50 and 0017C370; L12) |
+| `w0015C9D0` | fail-stop (untranslated; 0015D100's low-health latch) |
+| `link1C` | fail-stop (+1C is 0 in every route capture; the port keeps no +1C object) |
+| `clip_resolve`, `skeleton_frame`, `w001C8710`, `w001C87C0`, `sample_bones` | not bound (they serve only `em_player_stage_anim_advance`) |
+
+A fail-stop worker reports the callee once, is counted
+(`em_player_stage_live_faults`) and fails the stage, which em_player.c turns
+into `em_frame_request_quit`. Each is reached only by a hit, pending damage or
+infection, a low-health latch, the +4 = 4 takeover or the area-8 room-2 hit
+gate; every route capture (the playable image and beats 00..15) has health
+100, +F 0, +224 = +22C = 0, +234 0, D_0081083C 0, D_008106C8 & 4 clear and
++1C 0, and the port has no AREA11 damage producer.
+
+**The vitals.** The record's +220, +224, +228, +22C, +234 and +20E are a
+per-stage view of the port's storage (g.status.health / infection,
+g.pd_pend_hp / pd_pend_inf, g.pd_infected, g.pd_iframes): em_player.c loads
+them before 0015BA50 and stores them (and +235 bit 0 into g.pd_low) after
+0015BCF0's tail. The port's hit mailbox (em_enemy) is mapped onto the
+pending floats before the stage (em_player_frame.c player_hit_mailbox).
+
+**The takeover.** While the interaction runtime owns the player it consumes
+the stage at the prelude position (its acquire stands in for 00174A50 +
+00182D70 on the display, its tick for the +4 = 4 commit and advance, its
+release for 00182DF0); 0015BA50's begin / end and 0015BCF0's writes still
+run. On the port's idle/walk under 0x70003B8D without that owner (the
+area-change fade after 001B0C60) 0015B130 does not run: the prelude would
+request 00174A50, whose 0017B490 row lookup is not bound (L12), so the
+port's callbacks keep those stages. The bound prelude workers (00182B30,
+00182D70) and the +4 = 4 handler (0015B530, 001837A0) are therefore not
+reached in the live app, although the original runs them on every scripted
+takeover (12 of the 19 census labels); the census keeps them
+verified-unbound until the takeover moves onto the stage.
+
+**Known regression for L02.** Outside AREA11 a port enemy hit (em_enemy.c
+`s.player_hit`, mapped onto +224 / +22C) now reaches 0021C440's +4 = 2
+reaction states, which are not bound, so the stage fails and the app quits
+where the legacy flinch used to play. No AREA11 owner posts a hit, so the
+first-level route is unaffected; binding the +4 = 2 reaction states (L02)
+restores hit behaviour.
+
+### 2.2 The contract
 
 **The workers.** Fill an `EmPlayerStageHost` and call
 `em_player_stage_workers_bind(&binding.stage, &host)`. That call sets
@@ -214,8 +289,13 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
   - reads: the +8E sign and the D_00810C7E test;
   - routing: 0015B530's 0x17 route and the 0011A070 decode.
 
-Build: the app builds with this module added (private lane build, zero
-warnings). The Makefile is unchanged (the hunks are in the lane report).
+Build: the module and its live binder (em_player_stage_live.c) are in the
+Makefile's COMMON list since L01. The live binding is proven by the level
+smoke (its tick log is byte-identical to the pre-L01 build over the six live
+phases), by `EM_STARTUP_TEST=newgame-control` (30 ticks, 9.599989, the
+EM_FRAME_TRACE byte-identical to the pre-L01 build) and by
+`tests/player_states_host_test.c` section 13 (the takeover stand-in, the
+prelude gate and the vitals view).
 
 ## 4. What 0021C440 enters (FLOOR closure input)
 
@@ -248,17 +328,21 @@ part of the gap.
 
 ## 5. Limits
 
-- **Unbound.** The module is built and tested but not bound (no Makefile
-  source entry yet, and no coordinator code). Binding needs, from other
-  owners:
-  - the em_sfx stop wrapper;
-  - a clip-header/resolve binder over the player bank, stateful as
-    described in section 2;
-  - the display sampler workers;
+- **Bound with fail-stop workers (L01, section 2.1).** Still missing on the
+  live path:
+  - the record-level advance (a clip-header/resolve binder over the player
+    bank, stateful as described in section 2.2, and the display sampler
+    workers; display lane);
   - the effect and rumble binders;
   - the two object links (+20, +1C);
-  - 0015C9D0, 00182DF0, 001837A0, 001837B0, 001838B0 and 00183910, which
-    are untranslated.
+  - 0015C9D0, 00182DF0's record side, 001837B0, 001838B0 and 00183910,
+    which are untranslated;
+  - 0017B490 / 001749A0 on the record (L12).
+- **Bound but unreached (L01).** 00182B30, 00182D70, 0015B530 and 001837A0
+  wait for the scripted takeover to move from the interaction runtime onto
+  the stage (00182DF0's record side, the display's commit/advance).
+- **Hits outside AREA11 (L02).** Port enemy hits fault in the unbound
+  +4 = 2 reaction states (section 2.1).
 - **Scripted hooks.** atan2 is the host model on both sides, as in the floor
   oracle. SDK 0011E620 fidelity belongs to the SDK-math lane.
 - **Captured coverage.** The captured records exercise the paths the route
