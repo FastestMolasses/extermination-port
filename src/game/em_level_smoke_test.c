@@ -19,6 +19,7 @@
  * join key it needs (D_00810750 at first control). */
 #include "game/em_level_smoke_test.h"
 #include "em_input.h"
+#include "game/em_area11_bindings.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_interaction_host.h"
@@ -52,10 +53,17 @@ typedef struct {
      * current port binding and reports it NOT-LIVE ("driven"), never PASS;
      * the later phases' capture checks compare only their own windows. */
     int driven;
+    /* 1: a side beat (FIRST_LEVEL_ROUTE.md section 3: beats 00 and 09 have
+     * their own snapshots and are not on the main line). The main line
+     * skips it and names it NOT-LIVE / side; EM_LEVEL_SMOKE_UNTIL=<it>
+     * runs the main line up to it and then only it. */
+    int side;
 } Phase;
 
 static void first_control_begin(void);
 static int first_control_frame(void);
+static void panel_no_battery_begin(void);
+static int panel_no_battery_frame(void);
 static void status_begin(void);
 static int status_frame(void);
 static void battery_begin(void);
@@ -92,61 +100,70 @@ static int roger_frame(void);
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
      "0x1AE040 state 1 with 001AE5E0; the AREA11 pool of 49 nodes (ORIGINAL_FRAME_ORDER.md 2, 4)",
-     "S12a", first_control_begin, first_control_frame, 0},
+     "S12a", first_control_begin, first_control_frame, 0, 0},
+    {"panel_no_battery", "00_panel_no_battery (side, slot 04)", 0x00159210u,
+     "panel 00159210 (r18) without item 0x1B: script 0x246F20, message 0x80000018, letterbox",
+     "WP-4 (the panel's original owner and its scripts)", panel_no_battery_begin, panel_no_battery_frame, 0,
+     1},
     {"status", "01_battery (status exit); frame_trace2/status_04.json", 0,
      "001AE7E0 r==2 -> state 3 (0020E060, 0020CDC0) -> state 5 -> state 1 (ORIGINAL_FRAME_ORDER.md Q7)",
-     "S11b", status_begin, status_frame, 0},
+     "S11b", status_begin, status_frame, 0, 0},
     {"battery", "01_battery", 0x00219550u,
      "pickup 00219550 g0.0 (item 0x1B): take script 0x266620, B0=1/B1=0x1B, status ITEM page",
      "WP-6 (pickup owner and Use arbiter) with WP-5 (status ITEM page)", battery_begin, battery_frame,
-     0},
+     0, 0},
     {"elevator_refusal", "02_elevator_refusal", 0x00827B10u,
      "terminal 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox",
-     "WP-4", refusal_begin, refusal_frame, 0},
+     "WP-4", refusal_begin, refusal_frame, 0, 0},
     {"panel", "03_panel_power", 0x00159210u,
      "panel 00159210 (r18): script 0x2477A0, 00157F60 B0=1/B1=0x82 (BATTERY page), discharge, "
      "script 0x247BE0, power bit 0x80",
-     "WP-4", panel_begin, panel_frame, 0},
+     "WP-4", panel_begin, panel_frame, 0, 0},
     {"elevator", "04_elevator_ride", 0x00827B10u,
      "terminal 0x827B10: powered script 0x82A750, clip 0x47, carry 0x828050 down to y 190", "WP-4",
-     elevator_begin, elevator_frame, 0},
+     elevator_begin, elevator_frame, 0, 0},
     {"boxes", "05_boxes", 0x001551B0u, "ledge climb (state 2, +1F0 8) onto crates r4 and r3 (001551B0)",
-     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0},
+     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0, 0},
     {"slide", "06_hill_slide", 0, "slope slide 0016C6A0 (state 0x1C, +1F0 0x30)",
-     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0},
+     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
-     truck_preview_frame, 0},
+     truck_preview_frame, 0, 0},
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
      "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
-     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0},
+     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0},
+    {"fence_door", "09_fence_door (side, from 08)", 0x001BC350u,
+     "door 001BC350 (r0): scripts 0x24DE40 / 0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2",
+     "census L18 (the door's original owner; the room move has its own capture test, "
+     "make test-room-move-reference)", NULL, NULL, 0, 1},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
-     cage_ladders_frame, 0},
+     cage_ladders_frame, 0, 0},
     {"cage_roof", "10_cage_roof_roger", 0x008253F0u,
      "director 0x8253F0 beat 0 script 0x8294C0 (260 <= Y <= 280, quad 0x82ABE0); Roger 0x8237E0 script "
      "0x828990 (line 0x7F); D_00810813 0 -> 1 -> 0x10 -> 0x11",
-     "WP-10 (director, census L21) after WP-9 (Roger, census L22)", director_begin, cage_roof_frame, 1},
+     "census L21 (the director; its binding is prepared, make test-level-smoke-director), blocked on WP-8b: "
+     "Roger's 0x828990 line 0x7F is voiced (001FA5A0 / the voice lanes 001F9CF0)", director_begin, cage_roof_frame, 1, 0},
     {"crevice_climbs", "11_crevice_prompt", 0,
      "tank ledge climb (state 2, +1F0 8), the pipes (fall 5 / 0xB), pipe-end ledge climb",
      "the ledge climb and fall on the live record (census L04, L02)", crevice_climbs_begin,
-     crevice_climbs_frame, 0},
+     crevice_climbs_frame, 0, 0},
     {"crevice_prompt", "11_crevice_prompt", 0x008253F0u,
      "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97); D_00810813 -> 0x20",
-     "WP-10 (director, census L21) with WP-8 (line 0x97)", director_begin, crevice_prompt_frame, 1},
+     "census L21 after WP-8b (the voiced line 0x97, VOICE.DAT cue 150)", director_begin, crevice_prompt_frame, 1, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
-     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0},
+     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0},
     {"east_tower_climb", "13_east_tower", 0, "high ledge climb (state 2, +1F0 8) onto the east tower top",
-     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0},
+     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0, 0},
     {"east_tower", "13_east_tower", 0x008253F0u,
      "director beat 2 script 0x829CC0 (Y >= 285, quad 0x82AC60; line 0x99); D_00810813 -> 0xFF",
-     "WP-10 (director, census L21) with WP-8 (line 0x99)", director_begin, east_tower_frame, 1},
+     "census L21 after WP-8b (the voiced line 0x99, VOICE.DAT cue 149)", director_begin, east_tower_frame, 1, 0},
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
-     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0},
+     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -177,6 +194,7 @@ static struct {
     float nav_hist[64][2];
     int32_t scan_variants; /* D_00810750 at the Use scan's tick (scan_accepted) */
     uint8_t saw[8];        /* per-phase observations (see each runner) */
+    int director_original; /* EM_LEVEL_SMOKE_DIRECTOR=original (the cage_roof prefix run) */
 } t;
 
 static void fail(const char *reason)
@@ -206,6 +224,8 @@ static void report_not_live(int from)
 {
     for (int i = from; i <= t.until; ++i) {
         const Phase *p = &k_phases[i];
+        if (p->side && i != t.until)
+            continue;
         const char *binding = p->owner ? em_scene_bindings_pool_binding(p->owner) : NULL;
         char owner[160] = "";
         if (p->owner)
@@ -253,7 +273,7 @@ static void next_phase(void)
     if (colon && colon[1] && (size_t)(colon - pc) == strlen(done->name) &&
         strncmp(pc, done->name, (size_t)(colon - pc)) == 0)
         em_gfx_request_capture(em_frame_gfx(), colon + 1);
-    if (done->driven) {
+    if (done->driven && !(t.director_original && done->owner == 0x008253F0u)) {
         const char *binding = done->owner ? em_scene_bindings_pool_binding(done->owner) : NULL;
         fprintf(stderr, "level smoke: %s: NOT-LIVE driven (route beat %s; original: %s; port binding of "
                 "%08X: %s; lands with %s): driven through that binding only so the later phases start "
@@ -264,6 +284,21 @@ static void next_phase(void)
         t.last_live = t.current;
     }
     ++t.current;
+    /* The main line passes a side beat by: named, not run (it starts from
+     * its own snapshot in the route). */
+    while (t.current < t.until && k_phases[t.current].side) {
+        const Phase *p = &k_phases[t.current];
+        if (p->begin) {
+            fprintf(stderr, "level smoke: %s: side beat, not on the main line (route beat %s; live, run on its "
+                    "own with EM_LEVEL_SMOKE_UNTIL=%s)\n", p->name, p->beat, p->name);
+        } else {
+            const char *binding = em_scene_bindings_pool_binding(p->owner);
+            fprintf(stderr, "level smoke: %s: side beat, not on the main line (route beat %s; NOT-LIVE: "
+                    "original: %s; port binding of %08X: %s; lands with %s)\n", p->name, p->beat, p->original,
+                    (unsigned)p->owner, binding ? binding : "no live node", p->lands);
+        }
+        ++t.current;
+    }
     memset(t.saw, 0, sizeof t.saw);
     t.step = 0;
     if (t.current > t.until) {
@@ -622,6 +657,86 @@ static int scan_accepted(void)
         t.scan_variants = em_scene_state()->d810750;
     }
     return t.saw[7];
+}
+
+/* ---------------------------------------------------- panel_no_battery
+ *
+ * Route beat 00 (a side beat from slot 04, the first-control state):
+ * without item 0x1B, Cross at the panel 00159210 starts 0x246F20 (the scan
+ * and the script's op07/2 in the same frame, 3B8D 0 -> 2, f75; the player
+ * placed at (239.7, y, 223.8) facing 0), message 0x80000018 in mode 2
+ * (f79..f229), the bars, then the release at f230. The runner walks from
+ * first control to the route's press stance (242.605, 226.742; f71) and
+ * faces its heading 0.69894 (navigation input, as the battery's), then
+ * presses Cross as route_capture's beat_panel_no_battery does. In process:
+ * the scan, the message, the letterbox and camera byte 1 were seen, no
+ * item and no power, and control returns. tools/test_level_smoke.py
+ * check_panel_no_battery compares the capture row for row. Run on its
+ * own: EM_LEVEL_SMOKE_UNTIL=panel_no_battery (make test-level-smoke-full). */
+static void panel_no_battery_begin(void)
+{
+    nav_reset();
+    if (em_pickup_item_count(0x1B) != 0 || power_bit())
+        fail("route beat 00 starts without item 0x1B and without power");
+}
+
+static int panel_no_battery_frame(void)
+{
+    const EmMessageBlock *message = em_message_live_block();
+    if (message && message->phase && message->line == 0x80000018u)
+        t.saw[0] = 1;
+    if (em_frame_screen_fade()->state == 3 || em_frame_screen_fade()->state == 1)
+        t.saw[1] = 1;
+    if (g.cam.top_mode == 1)
+        t.saw[2] = 1;
+    switch (t.step) {
+    case 0: NAV_STEP(nav_goto(242.605f, 226.742f, 1.0f, 1.0f, 1));
+    case 1: NAV_STEP(nav_goto(242.605f, 226.742f, 0.1f, 0.4f, 1));
+    case 2: NAV_STEP(nav_settle(20));
+    case 3: NAV_STEP(nav_face(0.69894f));
+    case 4: NAV_STEP(nav_settle(10));
+    case 5:
+        (void)scan_accepted();
+        NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 6:
+        if (scan_accepted()) {
+            ++t.step;
+            nav_reset();
+        } else if (++t.nav_frames > 60) {
+            fail("Cross at the panel did not win the use scan (3B8D stayed 0)");
+        }
+        return 0;
+    case 7:
+        if (!in_control()) {
+            if (++t.nav_frames > 1000)
+                fail("the panel's 0x246F20 did not release the player");
+            return 0;
+        }
+        if (!t.saw[0] || !t.saw[1] || !t.saw[2]) {
+            fprintf(stderr, "level smoke: panel_no_battery: message 0x80000018 %s, letterbox %s, camera byte 1 "
+                    "%s\n", t.saw[0] ? "seen" : "missing", t.saw[1] ? "seen" : "missing",
+                    t.saw[2] ? "seen" : "missing");
+            fail("the panel without the battery did not run 0x246F20's message, letterbox and camera");
+            return 0;
+        }
+        if (em_pickup_item_count(0x1B) != 0 || power_bit()) {
+            fail("the panel without the battery changed the item or the power");
+            return 0;
+        }
+        ++t.step;
+        nav_reset();
+        return 0;
+    case 8: {
+        int r = nav_settle(30);
+        if (r <= 0)
+            return 0;
+        fprintf(stderr, "level smoke: panel_no_battery: PASS scan_d810750=%d player=(%.3f,%.5f,%.3f) "
+                "yaw=%.5f\n", (int)t.scan_variants, g.pos[0], g.pos[1], g.pos[2], g.yaw);
+        return 1;
+    }
+    default:
+        return 0;
+    }
 }
 
 /* ------------------------------------------------------------- battery
@@ -1539,10 +1654,16 @@ static int cage_ladders_frame(void)
  * cage_roof, crevice_prompt and east_tower are the director 008253F0's
  * beats 0, 1 and 2 (FIRST_LEVEL_ROUTE.md section 5): scripts 0x8294C0,
  * 0x829A40 and 0x829CC0, and in beat 10 Roger's alternate script 0x828990.
- * The director is not bound (census L21: beat 0's 06/2 waits for the
- * D_00810813 = 1 that only Roger's unbound 0x828990 writes,
- * DIRECTOR_ORIGINAL.md section 6), so node #21 runs the legacy
- * em_director.c. These phases are driven through it (Phase.driven): the
+ * The director is not bound (census L21, DIRECTOR_ORIGINAL.md section 6):
+ * beat 0's 06/2 waits for the D_00810813 = 1 that Roger's 0x828990 writes
+ * after its voiced line 0x7F, and beats 1 / 2 present the voiced lines
+ * 0x97 / 0x99; a voiced line needs the message service's 001FA5A0 and the
+ * voice lanes (WP-8b), which are not live. So node #21 runs the legacy
+ * em_director.c. With EM_LEVEL_SMOKE_DIRECTOR=original (the verification
+ * run, make test-level-smoke-director) node #21 runs the original instead
+ * and cage_roof waits for its real completion; today that run stops at
+ * route 10 f1163 and tools/test_level_smoke.py --director-prefix compares
+ * the rows before it. These phases are driven through it (Phase.driven): the
  * pad stays neutral until the stand-in's beat has ended, stored its step
  * byte D_00810813 (0x10, 0x20, 0xFF) and control is back, so the later
  * live phases start from the place the original's beat leaves the player
@@ -1559,6 +1680,26 @@ static uint8_t director_step(void)
 static int director_driven(uint8_t want)
 {
     pad_apply(0, 0, 0);
+    if (t.director_original) {
+        /* The verification run (EM_LEVEL_SMOKE_DIRECTOR=original): the
+         * original 008253F0 on node #21. Beat 0 ends with the director's
+         * 0x10 and Roger's ordinary branch's 0x11 on the next frame (route
+         * 10 f3508 / f3509); beats 1 and 2 with 0x20 and 0xFF. Until WP-8b
+         * binds the voice lanes the run stops at the first voiced line
+         * (the message service faults at 001FA5A0; LEVEL_SMOKE.md
+         * "cage_roof prefix"). */
+        if (want == 0x10)
+            want = 0x11;
+        if (director_step() != want || !in_control()) {
+            if (++t.nav_frames > DIRECTOR_LIMIT)
+                fail("the original director's beat did not end");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: %s: PASS (the original director 008253F0) D_00810813 = 0x%02X "
+                "player=(%.3f,%.5f,%.3f)\n", k_phases[t.current].name, director_step(), g.pos[0], g.pos[1],
+                g.pos[2]);
+        return 1;
+    }
     if (!t.saw[0]) {
         if (director_step() != want || g.cine_active) {
             if (++t.nav_frames > DIRECTOR_LIMIT)
@@ -1927,6 +2068,15 @@ void em_level_smoke_test_begin(void)
             fail("unknown phase");
             return;
         }
+    }
+    const char *director = getenv("EM_LEVEL_SMOKE_DIRECTOR");
+    if (director && strcmp(director, "original") == 0) {
+        /* Verification only: node #21 runs the original director (not the
+         * live binding, census L21; em_area11_bindings.h). */
+        t.director_original = 1;
+        em_area11_bindings_select_director_original(1);
+        fprintf(stderr, "level smoke: director: the original 008253F0 is selected on node #21 "
+                "(verification run; the live binding is the legacy stand-in until WP-8b)\n");
     }
     fprintf(stderr, "level smoke: New Game through %s\n", k_phases[t.until].name);
     t.last_live = -1;

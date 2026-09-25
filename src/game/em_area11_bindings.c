@@ -61,7 +61,10 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
+#include "game/em_collision_world.h"
 #include "game/em_director.h"
+#include "game/em_director_original.h"
+#include "game/em_sdk_math_original.h"
 #include "game/em_effect_kinds.h"
 #include "game/em_indicator_child.h"
 #include "game/em_pickup.h"
@@ -445,11 +448,119 @@ static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* The legacy cutscene block never ran the director. */
+/* 008253F0 (area11[12], #21): the director manager.
+ *
+ * NOT BOUND (census L21 blocked on WP-8b, DIRECTOR_ORIGINAL.md section 6):
+ * beat 0's script waits on the D_00810813 = 1 that Roger's alternate
+ * 0x828990 writes after its voiced conversation (line 0x7F, VOICE.DAT cues
+ * 143..), and beats 1 / 2 present the voiced lines 0x97 / 0x99 (cues 150 /
+ * 149). A voiced line waits in 001FD790 while D_008106F5 is 2 until the
+ * voice lane service 001F9CF0 starts the voice, and its end waits on the
+ * lane's busy bytes D_00282155 / 156; the message service's 001FA5A0
+ * (voice_push) and the stream lanes are not live (STREAM_LANES.md "Still
+ * missing"), so the original director would stop the level at route 10
+ * f1163 (the message service faults at 001FA5A0) where the legacy stand-in
+ * completes the beat. Node #21 therefore keeps em_director.c's
+ * director_tick (the legacy cutscene block never ran it). The level smoke's
+ * director verification run (LEVEL_SMOKE.md "cage_roof prefix") selects
+ * the original through em_area11_bindings_select_director_original and
+ * compares route 10 up to that line; when WP-8b binds the voice lanes the
+ * row below switches to tick_director_original and em_director.c goes.
+ *
+ * The original adapter: em_director_original (census L21). Its +0 / +4 / +5 are
+ * EmActor.status and u04[0..1]; D_00810813, D_00810793 and D_00810CC3[] are
+ * canonical D2 bytes, D_008106B0 / B1 the request block, D_00810350 the
+ * player's +0xA0 (g.pos, as for Roger's trigger); the quads come from the
+ * visit's director_quads.emsc and 001B1EA0's 0011E620 is the one bound SDK
+ * atan2f (em_sdk_math_original over the collision world's SDK context).
+ * Its scripts 0x8294C0 / 0x829A40 / 0x829CC0 run on em_area11_script_host
+ * (001BA1A0 / 001BA1F0 on the node's +0x1F0 block); 001AFC10 frees the
+ * node (states 2 / 3; the pool walk continues with the node it saved). It
+ * ticks in both walk variants, as class 9 does in 001AFD70(0) and (1). */
+typedef struct {
+    EmActor *self;
+    uint32_t address;
+    int freed;
+} Director;
+
+static int director_atan2(void *ctx, float y, float x, float *result)
+{
+    EmSdkMathContext *sdk = ctx;
+    *result = em_sdk_math_original_float_0011E620(sdk, y, x);
+    return sdk->fault ? -1 : 0;
+}
+
+static int director_001BA1A0(void *ctx, uint32_t block, uint32_t entry)
+{
+    Director *d = ctx;
+    if (block != d->address + EM_DIRECTOR_ORIGINAL_SCRIPT_BLOCK) return -1;
+    return em_area11_script_host_start(d->self, entry) < 0 ? -1 : 0;
+}
+
+static int director_001BA1F0(void *ctx, uint32_t self, int32_t *result)
+{
+    Director *d = ctx;
+    if (self != d->address) return -1;
+    return em_area11_script_host_tick(d->self, result) < 0 ? -1 : 0;
+}
+
+static int director_001AFC10(void *ctx, uint32_t self)
+{
+    Director *d = ctx;
+    if (self != d->address || em_actor_pool_free_001AFC10(s_pool, s_scene, d->self) < 0) return -1;
+    d->freed = 1;
+    return 0;
+}
+
+static int s_director_original;
+
+void em_area11_bindings_select_director_original(int on)
+{
+    s_director_original = on != 0;
+}
+
+static int tick_director_original(EmActor *actor)
+{
+    EmSdkMathContext *sdk = em_collision_world_sdk();
+    if (!sdk)
+        return fault(EM_DIRECTOR_ORIGINAL_OWNER, EM_SCENE_FAULT_NULL_WORKER,
+                     "008253F0: 001B1EA0's 0011E620 needs the collision world's SDK context");
+    EmDirectorOriginalWorld w;
+    memset(&w, 0, sizeof w);
+    w.d810813 = em_scene_progress_at(s_scene, 0x00810813u, 1);
+    w.d810793 = em_scene_progress_at(s_scene, 0x00810793u, 1);
+    w.d810350 = g.pos;
+    w.d810CC3 = em_scene_progress_at(s_scene, 0x00810CC3u, 2);
+    w.d8106B0 = em_scene_req_at(s_scene, 0x008106B0u);
+    w.d8106B1 = em_scene_req_at(s_scene, 0x008106B1u);
+    if (!w.d810813 || !w.d810793 || !w.d810CC3 || !w.d8106B0 || !w.d8106B1)
+        return fault(EM_DIRECTOR_ORIGINAL_OWNER, EM_SCENE_FAULT_BAD_INDEX,
+                     "008253F0: D_00810813 / D_00810793 / D_00810CC3 / D_008106B0 not canonical");
+    /* The quads are read only by a beat's gate (+5 = 0 past the height
+     * test); a missing export faults there, at the quad's address. */
+    const float (*quad[3])[4] = {NULL, NULL, NULL};
+    if (em_area11_script_host_director_quads(quad) == 0)
+        for (int i = 0; i < 3; ++i) w.quad[i] = quad[i];
+    w.atan2 = director_atan2;
+    w.atan2_ctx = sdk;
+    Director d = {actor, em_actor_pool_address(s_pool, actor), 0};
+    EmDirectorOriginalWorkers k = {&d, director_001BA1A0, director_001BA1F0, director_001AFC10};
+    EmDirectorOriginalNode n = {&actor->status, &actor->u04[0], &actor->u04[1], d.address};
+    uint32_t at = 0;
+    if (em_director_original_tick(&n, &w, &k, &at) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(at, at == 0x001BA1A0u || at == 0x001BA1F0u || at == 0x001AFC10u
+                                                         ? EM_SCENE_FAULT_WORKER_FAILED
+                                                         : EM_SCENE_FAULT_NULL_WORKER,
+                                                 "008253F0 (em_director_original) faulted");
+    return 1;
+}
+
 static int tick_director(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    (void)actor;
     (void)node;
+    if (s_director_original)
+        return tick_director_original(actor);
     if (!world->cutscene)
         director_tick();
     return 1;

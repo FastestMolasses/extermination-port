@@ -369,7 +369,8 @@ test-collision-world-capture: $(BIN)
 
 # The default run stops after truck_crossing (about 11 s, docs/LEVEL_SMOKE.md
 # "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
-# the whole live route (about 19 s).
+# the whole live route (about 26 s), then the side beat 00 run and the
+# director verification run (about 20 s more).
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,truck_crossing)
 
 .PHONY: test-level-smoke
@@ -380,10 +381,38 @@ test-level-smoke: $(BIN)
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log
+	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side test-level-smoke-director)
 
 .PHONY: test-level-smoke-full
 test-level-smoke-full: $(BIN)
 	$(MAKE) test-level-smoke EM_TEST_FULL=1
+
+# Route beat 00 (a side beat from slot 04): first control, then the panel
+# without the battery (LEVEL_SMOKE.md "panel_no_battery"; about 4 s).
+.PHONY: test-level-smoke-side
+test-level-smoke-side: $(BIN)
+	mkdir -p build/level_smoke_side
+	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=panel_no_battery \
+	    EM_AREA_CHANGE_LOG=build/level_smoke_side/ticks.jsonl \
+	    $(BIN) > build/level_smoke_side/run.log 2>&1 || (grep "level smoke" build/level_smoke_side/run.log; false)
+	grep "level smoke:" build/level_smoke_side/run.log
+	python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl --run-log build/level_smoke_side/run.log
+
+# The director verification run (census L21, LEVEL_SMOKE.md "cage_roof
+# prefix"; about 15 s): the original 008253F0 on node #21 through
+# cage_roof. Until the voice lanes are live (WP-8b) the run stops at the
+# first voiced line (route 10 f1163) with the message service's 001FA5A0
+# fault, so the binary's exit status is not the verdict: the checker
+# compares every row before that line and requires exactly that stop.
+.PHONY: test-level-smoke-director
+test-level-smoke-director: $(BIN)
+	mkdir -p build/level_smoke_director
+	-EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=cage_roof EM_LEVEL_SMOKE_DIRECTOR=original \
+	    EM_AREA_CHANGE_LOG=build/level_smoke_director/ticks.jsonl \
+	    $(BIN) > build/level_smoke_director/run.log 2>&1
+	grep "level smoke:\|message service: fault" build/level_smoke_director/run.log
+	python3 tools/test_level_smoke.py --director-prefix --log build/level_smoke_director/ticks.jsonl \
+	    --run-log build/level_smoke_director/run.log
 
 .PHONY: test-message-service
 test-message-service:

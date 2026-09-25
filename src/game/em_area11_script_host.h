@@ -4,7 +4,9 @@
  * script images of tools/export_area11_scripts.py (docs/AREA_SCRIPT.md
  * section 6, docs/SCRIPT_HOST_WORKERS.md section 3).
  *
- * Bound owners: the truck trigger 008251E0 (0x8292C0, census L23).
+ * Bound owners: the truck trigger 008251E0 (0x8292C0, census L23), Roger
+ * 008237E0 (census L22) and the director 008253F0 (0x8294C0 / 0x829A40 /
+ * 0x829CC0, census L21).
  *
  * Storage. Every byte a handler reaches is one pointer of EmAreaScriptWorld
  * into its canonical storage: the scratchpad bytes and the request block in
@@ -55,6 +57,11 @@ int em_area11_script_host_start(EmActor *actor, uint32_t entry);
 /* 001BA1F0(actor): *result = 0 running, 1 finished (or not active), 3
  * aborted by the skip path. 0, or -1 on a fault (reported). */
 int em_area11_script_host_tick(EmActor *actor, int32_t *result);
+
+/* The director 008253F0's three quads 0x82ABE0 / 0x82AC20 / 0x82AC60 from
+ * the visit's director_quads.emsc (loaded with the scripts). 0, or -1
+ * (reported). */
+int em_area11_script_host_director_quads(const float (*quad[3])[4]);
 
 /* 0022EEF0(cam, 1), the camera stage's scripted timeline (0018B9C0 state 1
  * with the camera's +0x04 == 3), for the timeline a script's 001B8FC0 kind

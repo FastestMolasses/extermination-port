@@ -4,10 +4,14 @@ Module: `src/game/em_director_original.{h,c}`. Oracle and route replay:
 `tools/test_director_original_reference.py`. Sanitizer test:
 `tests/director_original_test.c`.
 
-**Status: built and verified, not wired.** When the coordinator binds this
-module to pool node #21, it replaces the legacy `em_director` (`kCineBeats`,
-FIRST_LEVEL_AUDIT H10). Until then nothing on the live path changes. Section 6
-describes the binding.
+**Status: built and verified; binding prepared, not wired (2026-09-25).** The
+adapter `tick_director_original` (em_area11_bindings.c) binds this module to
+pool node #21 over em_area11_script_host; it runs only in the level smoke's
+director verification run (`make test-level-smoke-director`), which
+reproduces route 10 f1090..f1162 row for row and then stops at the first
+voiced line (WP-8b). The live node keeps the legacy `em_director`
+(`kCineBeats`, FIRST_LEVEL_AUDIT H10) until the voice lanes are live. Section
+6 describes the binding.
 
 ## 1. The owner
 
@@ -264,7 +268,38 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
 
 ## 6. Binding (for the coordinator)
 
-**Status (census L21, 2026-09-24): not bound. Unblocked by census L22
+**Status (census L21, 2026-09-25): binding prepared, blocked on WP-8b.**
+- **The adapter** (em_area11_bindings.c `tick_director_original`, selected by
+  `em_area11_bindings_select_director_original`, which only the level
+  smoke's director run calls): the node's +0 / +4 / +5 are EmActor.status /
+  u04[0] / u04[1]; D_00810813, D_00810793, D_00810CC3[] canonical D2 bytes;
+  D_008106B0 / B1 the request block; D_00810350 = g.pos; the quads from
+  `director_quads.emsc` through `em_area11_script_host_director_quads`;
+  001B1EA0's 0011E620 is the one bound SDK atan2f (`EmDirectorOriginalWorld.atan2`,
+  new: em_sdk_math_original over the collision world's SDK context, as
+  Roger's trigger); 001BA1A0 / 001BA1F0 on em_area11_script_host; 001AFC10
+  the pool free. It ticks in both walk variants.
+- **Script host additions:** op0D sub 2's `w_0018CBD0` (the port's one seed,
+  `camera_script_seed_0018CBD0`, split out of the panel's retarget) and
+  `w_0018D7B0` (`em_camera_live_solve`), and the camera's +0x0C
+  (`em_camera_live_bytes(0x008101EC)`). A second script owner running inside a
+  frame another owner's script opened (Roger's 0x828990 inside the
+  director's 0x8294C0) runs under the takeover that owner holds (0015B130's
+  admission reads 0x70003B8D, not the owner).
+- **Verified:** the director verification run equals route 10 f1090..f1162
+  (spad, camera byte, bars, message, power, the camera shots, the player,
+  D_008107D8 / D_00810793 / D_00810813, Roger's record and script block;
+  LEVEL_SMOKE.md "cage_roof prefix").
+- **Blocker (WP-8b):** at f1163 Roger's 0x828990 presents the voiced line
+  0x7F (VOICE.DAT cues 143..). A voiced line waits in 001FD790 while
+  D_008106F5 is 2 until the voice lane service 001F9CF0 starts the voice,
+  and its end waits on the lanes' busy bytes D_00282155 / 156; 001FA5A0
+  (`voice_push`) and the stream lanes are not live (STREAM_LANES.md "Still
+  missing"), so the message service faults. Bound now, the director would
+  stop the level there, where the stand-in completes its beat. Beats 1 and 2
+  (lines 0x97 / 0x99, cues 150 / 149) have the same dependency.
+
+History (2026-09-24): not bound. Unblocked by census L22
 (2026-09-24): Roger is bound (`em_area11_roger`; ROGER_ACTOR_ORIGINAL.md
 section 4) and runs his scripts on the script host; his alternate branch
 starts 0x828990 as soon as D_00810793 = 1 with D_00810813 = 0. The

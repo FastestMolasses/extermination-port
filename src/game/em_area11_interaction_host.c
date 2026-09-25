@@ -694,6 +694,11 @@ int em_area11_interaction_host_owns(const void *owner)
     return world.loaded && !world.failed && em_interaction_runtime_owns(&world.shared, owner);
 }
 
+int em_area11_interaction_host_script_held(void)
+{
+    return world.loaded && !world.failed && world.script_owner && world.shared.owner == world.script_owner;
+}
+
 static int camera_chase(void *context)
 {
     (void)context;

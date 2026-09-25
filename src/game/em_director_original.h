@@ -110,8 +110,15 @@ typedef struct {
     /* The three 4-vertex quads, original XYZW records (16 bytes per vertex):
      * quad[0] = 0x82ABE0, quad[1] = 0x82AC20, quad[2] = 0x82AC60. */
     const float (*quad[3])[4];
-    /* The SDK atanf tables 001B1EA0 reaches through 0011E620. */
+    /* The SDK atanf tables 001B1EA0 reaches through 0011E620 (used when
+     * `atan2` is NULL: the oracle and the sanitizer fixture). */
     const struct EmDirectorAtanTables *d26C5D8;
+    /* 001B1EA0's 0011E620 as a worker (y, x, result; 0, or negative on a
+     * fault): the live binding passes the one bound SDK atan2f
+     * (em_sdk_math_original over the collision world's SDK context), as
+     * Roger's trigger and the camera do. NULL: the tables above. */
+    int (*atan2)(void *ctx, float y, float x, float *result);
+    void *atan2_ctx;
 } EmDirectorOriginalWorld;
 
 typedef struct {

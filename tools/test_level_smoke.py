@@ -271,7 +271,9 @@ def check_follow_after_release(ticks, i0, rows, f0, what, mode='exact'):
             assert d == 0, (where, 'eye / target', p['eye'], row['eye'], p['tgt'], row['tgt'])
             assert blk[4:8].hex() == row['cam_mode'], (where, 'camera +4..+7', blk[4:8].hex(), row['cam_mode'])
         else:
-            assert prev is None or d <= prev + 1e-5, (where, 'the difference grows', d, prev)
+            # One unit of the capture's five-decimal rounding (1e-5, plus the
+            # binary representation of the rounded decimals).
+            assert prev is None or d <= prev + 1e-5 + 1e-9, (where, 'the difference grows', d, prev)
             if d == 0 and blk[4:8].hex() == row['cam_mode']:
                 exact_from = exact_from if exact_from is not None else row['f']
             else:
@@ -571,6 +573,46 @@ def check_panel(ticks, run, state):
           f'+ {AFTER_RELEASE}: port ticks {ticks[i0 + yes_port]["tick"]}..'
           f'{ticks[i0 + yes_port + count - 1]["tick"]} equal in spad, camera byte, letterbox, message, power, '
           f'B0/B1, placement, heading and the script\'s camera eye/target; {follow})')
+
+
+def check_panel_no_battery(ticks, run, state):
+    """Route 00 (side beat, slot 04): without item 0x1B the panel 00159210
+    starts 0x246F20 in the scan's frame (3B8D 0 -> 2, f75: the placement
+    (239.7, y, 223.8) facing 0), message 0x80000018 f79..f229, the bars,
+    the release at f230. Aligned on the scan, every row through the release
+    and 25 rows after it is compared as for the terminal scripts
+    (compare_window; the camera's Y with the retained ground Y of the
+    approach, as the powered panel's), plus the player record from the row
+    after the scan: the panel program's admission and 00182DF0's release
+    tail; then the follow camera to the capture's end."""
+    i0, rows, f0 = scan_alignment(ticks, run, 'panel_no_battery', '00_panel_no_battery', state.get('cursor', 0))
+    assert rows[f0]['f'] == 75, ('route 00 script frame moved', rows[f0]['f'])
+    r = release_row(rows, f0)
+    count = r - f0 + AFTER_RELEASE
+    placed, faced = compare_window(ticks, i0, rows, f0, count, 'panel_no_battery', y_mode='retained')
+    # The placement 00182F90 and the heading run in the scan's frame here
+    # (the capture's f75 row is already placed), so compare_window's
+    # "changed from the scan row" start does not cover them: X/Z and the
+    # heading row for row from the scan (Y is the approach's retained
+    # ground until the release, compare_window's re-grounded Y after it).
+    for k in range(count):
+        p, o = port_view(ticks, i0 + k), orig_view(rows[f0 + k])
+        assert (p['pos'][0], p['pos'][2], p['yaw']) == (o['pos'][0], o['pos'][2], o['yaw']), \
+            ('panel_no_battery placement / heading', rows[f0 + k]['f'], p['pos'], p['yaw'], o['pos'], o['yaw'])
+    for k in range(1, count):
+        p, o = ticks[i0 + k]['player'], rows[f0 + k]
+        got = (p[0], p[1], p[2], p[3], hex(p[5]))
+        want = (o['p5'], o['m1F0'], o['m1F1'], o['clip'], o['ground'])
+        assert got == want, ('panel_no_battery player +5/+1F0/+1F1/clip/ground', o['f'], got, want)
+    assert all(orig_view(rows[f0 + k])['power'] == 0 for k in range(count)), 'the capture powered up'
+    follow = check_follow_after_release(ticks, i0, rows, f0, 'panel_no_battery', 'converge')
+    state['cursor'] = i0 + count
+    print(f'panel_no_battery: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 00 '
+          f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: 0x246F20 from the scan to the release at '
+          f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message 0x80000018, '
+          f'power, the player record (+5, +1F0, +1F1, clip, ground), the placement (X/Z) and heading from the scan '
+          f'row, the re-grounded Y from f{rows[f0 + placed]["f"]}, the script\'s camera eye/target '
+          f'(Y with the approach\'s retained ground offset) until the release; {follow})')
 
 
 def check_elevator(ticks, run, state):
@@ -1310,8 +1352,76 @@ def check_roger(ticks, run, state):
           f'and {count - (release - f0)} rows after it; {follow})')
 
 
+# ------------------------------- cage_roof prefix (census L21, verification)
+
+VOICE_PUSH_FAULT = 'message service: fault: 001FCA10; service: voice_push worker missing'
+
+
+def check_cage_roof_prefix(ticks, run):
+    """The director verification run (EM_LEVEL_SMOKE_DIRECTOR=original,
+    LEVEL_SMOKE.md "cage_roof prefix"): node #21 runs the original 008253F0
+    over em_area11_script_host. Aligned on the director's frame (the last
+    tick whose 3B8D leaves 0; route 10 f1090, one row after 001BA1A0 at
+    f1089), every row until the run stops is compared: spad, camera byte,
+    letterbox, message, power and the scripts' camera eye / target
+    (compare_window), the player's position and heading, the player record
+    (+5, +1F0, +1F1, clip, ground), D_008107D8 / D_00810793 / D_00810813
+    (the script's op06 flag 0x3B at f1093) and Roger's record and script
+    block (his alternate 0x828990 from f1094). The run must stop exactly on
+    the row where the capture's message block opens Roger's voiced line 0x7F
+    (f1163), with the message service's 001FA5A0 fault: the voice lanes are
+    not live (WP-8b), which is what keeps the director unbound (census L21).
+    Returns the summary line."""
+    assert 'level smoke: director: the original 008253F0 is selected' in run, 'not a director verification run'
+    assert re.search(r'^level smoke: cage_ladders: PASS', run, re.M), 'the run did not reach cage_roof'
+    rows = route_rows('10_cage_roof_roger')
+    f0 = next(k for k in range(1000, len(rows)) if selector(rows[k]['spad']) != '00'
+              and selector(rows[k - 1]['spad']) == '00')
+    assert rows[f0]['f'] == 1090, ('route 10 director frame moved', rows[f0]['f'])
+    i0 = max(i for i in range(1, len(ticks)) if selector(port_view(ticks, i)['spad']) != '00'
+             and selector(port_view(ticks, i - 1)['spad']) == '00')
+    count = len(ticks) - 1 - i0
+    assert count > 0, 'no director frame in the tick log'
+    compare_window(ticks, i0, rows, f0, count, 'cage_roof prefix')
+    flag = None
+    for k in range(count):
+        t, row = ticks[i0 + k], rows[f0 + k]
+        where = f'cage_roof prefix f{row["f"]} (port tick {t["tick"]})'
+        p, o = port_view(ticks, i0 + k), orig_view(row)
+        assert (p['pos'], p['yaw']) == (o['pos'], o['yaw']), (where, 'player position / heading', p['pos'],
+                                                              p['yaw'], o['pos'], o['yaw'])
+        if k:
+            q = t['player']
+            got = (q[0], q[1], q[2], q[3], hex(q[5]))
+            want = (row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['ground'])
+            assert got == want, (where, 'player +5/+1F0/+1F1/clip/ground', got, want)
+        d2, s790 = bytes.fromhex(row['d2']), bytes.fromhex(row['story790'])
+        got = (t['story'][0], t['story'][2], t['story'][3])
+        want = (d2[0], s790[3], d2[0x3B])
+        assert got == want, (where, 'D_008107D8 / D_00810793 / D_00810813', got, want)
+        if flag is None and want[1] == 1:
+            flag = row['f']
+        got, want = roger_view_port(t), roger_view_orig(row)
+        assert (got['h'], got['pos'], got['block']) == (want['h'], want['pos'], want['block']), \
+            (where, "Roger's record / block", got, want)
+    stop = rows[f0 + count]
+    assert struct.unpack('<3I', bytes.fromhex(stop['msg'])[:12])[0] != 0 and \
+        all(struct.unpack('<3I', bytes.fromhex(rows[f0 + k]['msg'])[:12])[0] == 0 for k in range(count)), \
+        ('the run did not stop on the capture row that opens the voiced line', stop['f'])
+    assert VOICE_PUSH_FAULT in run, 'the run stopped without the 001FA5A0 fault'
+    line = struct.unpack('<3I', bytes.fromhex(stop['msg'])[:12])[2]
+    return (f'cage_roof prefix: PASS (the original director 008253F0, verification run: port ticks '
+            f'{ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 10 f{rows[f0]["f"]}..'
+            f'f{rows[f0 + count - 1]["f"]}: 0x8294C0 from its frame, in spad, camera byte, letterbox, message, '
+            f'power, the camera shots, the player, D_008107D8 / D_00810793 (flag 0x3B at f{flag}) / D_00810813, '
+            f'Roger\'s record and block (0x828990 from f1094)); BLOCKED at f{stop["f"]}: the line {line:#x} is '
+            f'voiced and the message service\'s 001FA5A0 (voice_push) is not bound (the voice lanes, WP-8b), so '
+            f'the director stays unbound (census L21))')
+
+
 PHASES = [
     ('first_control', check_first_control),
+    ('panel_no_battery', check_panel_no_battery),
     ('status', check_status),
     ('battery', check_battery),
     ('elevator_refusal', check_elevator_refusal),
@@ -1321,6 +1431,7 @@ PHASES = [
     ('slide', check_slide),
     ('truck_preview', check_truck_preview),
     ('truck_crossing', check_truck_crossing),
+    ('fence_door', None),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', None),
     ('crevice_climbs', check_crevice_climbs),
@@ -1332,17 +1443,32 @@ PHASES = [
 ]
 
 
+SIDE = ('panel_no_battery', 'fence_door')
+# FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
+BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
+         ('02', ('elevator_refusal',)), ('03', ('panel',)), ('04', ('elevator',)), ('05', ('boxes',)),
+         ('06', ('slide',)), ('07', ('truck_preview',)), ('08', ('truck_crossing',)), ('09', ('fence_door',)),
+         ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
+         ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=Path, required=True, help='EM_AREA_CHANGE_LOG of a newgame-level run')
     parser.add_argument('--run-log', type=Path, required=True, help='stderr of the same run')
+    parser.add_argument('--director-prefix', action='store_true',
+                        help='the director verification run (EM_LEVEL_SMOKE_DIRECTOR=original): check the '
+                             'cage_roof prefix only')
     args = parser.parse_args()
     run = args.run_log.read_text()
     assert 'level smoke: FAIL' not in run, 'the run reported a failure'
-    assert re.search(r'^level smoke: PASS ', run, re.M), 'the run has no final PASS line'
     ticks = [json.loads(line) for line in args.log.open()]
+    if args.director_prefix:
+        print(check_cage_roof_prefix(ticks, run))
+        return 0
+    assert re.search(r'^level smoke: PASS ', run, re.M), 'the run has no final PASS line'
     state = {}
-    checked, not_live, driven = [], [], []
+    checked, not_live, driven, side_named = [], [], [], []
     for name, check in PHASES:
         if re.search(rf'^level smoke: {name}: PASS', run, re.M):
             assert check, f'{name} passed in process but has no capture check here'
@@ -1353,9 +1479,23 @@ def main():
             not_live.append(name)
         elif re.search(rf'^level smoke: {name}: NOT-LIVE', run, re.M):
             not_live.append(name)
-    reached = [p[0] for p in PHASES if p[0] in checked or p[0] in driven]
-    assert checked and reached == [p[0] for p in PHASES[:len(reached)]], ('phases checked out of order',
-                                                                          checked, driven)
+        elif re.search(rf'^level smoke: {name}: side beat, not on the main line', run, re.M):
+            side_named.append(name)
+            if re.search(rf'^level smoke: {name}: side beat, not on the main line \(.*; NOT-LIVE:', run, re.M):
+                not_live.append(name)
+    main_line = [p[0] for p in PHASES if p[0] not in SIDE]
+    reached = [p for p in main_line if p in checked or p in driven]
+    assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)
+    status = {}
+    for name in checked:
+        status[name] = 'live'
+    for name in not_live:
+        status[name] = 'NOT-LIVE driven' if name in driven else 'NOT-LIVE'
+    for name in side_named:
+        status.setdefault(name, 'live (its own run: make test-level-smoke-side)')
+    beats = '; '.join(f'{beat} ' + ', '.join(f'{p} {status.get(p, "not reached")}' for p in phases)
+                      for beat, phases in BEATS)
+    print(f'level smoke: route beats: {beats}')
     print(f'level smoke: PASS ({len(checked)} live phase(s) checked against the captures: '
           f'{", ".join(checked)}; NOT-LIVE: {", ".join(not_live) if not_live else "none"})')
     return 0

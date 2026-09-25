@@ -105,6 +105,13 @@ const char *em_area11_node_binding(const EmActor *actor);
  * slot); never fails. */
 int em_area11_bindings_panel_child_stop(void);
 
+/* Verification only (the level smoke's director run, LEVEL_SMOKE.md
+ * "cage_roof prefix"): node #21 runs the original director 008253F0
+ * (em_director_original over em_area11_script_host) instead of the legacy
+ * stand-in. The original is not bound on the live path until WP-8b binds
+ * the voice lanes its beats' lines wait on (census L21). */
+void em_area11_bindings_select_director_original(int on);
+
 #ifdef __cplusplus
 }
 #endif

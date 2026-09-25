@@ -12,6 +12,8 @@
 #include "game/em_pad_actuator.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_area_script.h"
+#include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
@@ -561,6 +563,35 @@ static int w_00182F90(void *ctx, uint32_t actor, const float target[4])
     return rc ? 0 : report("00182F90: the pose host refused the placement");
 }
 
+/* 0018CBD0(D_008101E0, D_008102B0, distance) (001B7B30 subs 2..5; census
+ * L21: the director's beats 1 and 2 run sub 2 with the camera's +0x0C): the
+ * port's one seed (em_camera.c camera_script_seed_0018CBD0, the step the
+ * panel and terminal scripts' retarget runs) from the seed Euler 0x70003B50
+ * (the pose host's) and the player's +0xA0. */
+static int w_0018CBD0(void *ctx, uint32_t camera, uint32_t actor, float a2)
+{
+    (void)ctx;
+    if (camera != EM_AREA_SCRIPT_D_008101E0 || actor != EM_AREA_SCRIPT_D_008102B0)
+        return report("0018CBD0 on a camera or actor other than D_008101E0 / D_008102B0");
+    float euler[3];
+    if (view_store() < 0) return -1;
+    int rc = player_pose_script_euler(euler) && camera_script_seed_0018CBD0(&g.cam, euler, a2);
+    view_load();
+    return rc ? 0 : report("0018CBD0: the seed was refused (em_camera_rotation / the live camera)");
+}
+
+/* 0018D7B0(D_008101E0, style): the live camera's translated solve dispatch
+ * (em_camera_live_solve; a fault latches the scene fault there). */
+static int w_0018D7B0(void *ctx, uint32_t camera, int a1)
+{
+    (void)ctx;
+    if (camera != EM_AREA_SCRIPT_D_008101E0) return report("0018D7B0 on a camera other than D_008101E0");
+    if (view_store() < 0) return -1;
+    int rc = em_camera_live_solve(a1);
+    view_load();
+    return rc < 0 ? report("0018D7B0 faulted") : 0;
+}
+
 /* ------------------------------------------------------------ owners */
 
 static void workers_bind(void)
@@ -604,6 +635,9 @@ static void workers_bind(void)
     H.workers.w_001B1470 = w_001B1470;
     H.workers.w_001B0C00 = w_001B0C00;
     H.workers.w_001B6250 = w_001B6250;
+    /* Census L21: the director's beats 1 and 2 (op0D sub 2). */
+    H.workers.w_0018CBD0 = w_0018CBD0;
+    H.workers.w_0018D7B0 = w_0018D7B0;
 }
 
 static void world_bind(Owner *o)
@@ -628,6 +662,9 @@ static void world_bind(Owner *o)
     w->d810758 = em_scene_progress_spawn_view(s);
     w->d8107D8 = em_scene_progress_spawn_view(s) + (0x008107D8u - 0x00810758u);
     w->d81078F = em_scene_progress_at(s, 0x0081078Fu, 1);
+    /* The camera's +0x0C (op0D subs 2 / 3: the retarget distance) has no
+     * g.cam field: the live camera block's own word. */
+    w->cam_0C = (float *)(void *)em_camera_live_bytes(0x008101ECu, 4);
     w->cam_50 = &g.cam.y_lo;
     w->cam_54 = &g.cam.y_hi;
     w->cam_6E = &g.cam.cine_scene;
@@ -799,12 +836,23 @@ int em_area11_script_host_tick(EmActor *actor, int32_t *result)
     block_store(o);
     /* The scripted frame is open: the shared player takeover serves this
      * owner (0015B130 admits the player at its next stage). The owner's
-     * pool record is the token (the Use scan claims Roger with it too). */
+     * pool record is the token (the Use scan claims Roger with it too).
+     * 0015B130's admission reads 0x70003B8D, not the owner: a second
+     * script running inside a frame another owner's script opened (route
+     * 10: Roger's 0x828990 inside the director's 0x8294C0) runs under the
+     * takeover that owner already holds. */
     if (r == 0 && H.scene->spad3B8D != 0 && !em_area11_interaction_host_owns(actor) &&
-        em_area11_interaction_host_claim_script(actor) != 1)
+        !em_area11_interaction_host_script_held() && em_area11_interaction_host_claim_script(actor) != 1)
         return -1;
     *result = r;
     return 0;
+}
+
+int em_area11_script_host_director_quads(const float (*quad[3])[4])
+{
+    if (images_ready() < 0) return -1;
+    return em_area11_scripts_director_quads(&H.images, quad) < 0 ? report("the director's quads are not loaded")
+                                                                 : 0;
 }
 
 /* ------------------------------------------------ the camera timeline */

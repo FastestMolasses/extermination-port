@@ -338,7 +338,9 @@ static int beat(int index, const EmDirectorOriginalNode *node, const EmDirectorO
         return fail(fault_address, b->quad);
     int32_t inside = 0;
     /* 001B1EA0(0, &D_00810350, quad, 4). */
-    if (em_director_original_001B1EA0(0, world->d810350, quad, 4, world->d26C5D8, &inside) < 0)
+    if ((world->atan2 ? em_director_original_001B1EA0_bound(0, world->d810350, quad, 4, world->atan2,
+                                                            world->atan2_ctx, &inside)
+                      : em_director_original_001B1EA0(0, world->d810350, quad, 4, world->d26C5D8, &inside)) < 0)
         return fail(fault_address, 0x001B1EA0u);
     if (!inside)
         return 1;

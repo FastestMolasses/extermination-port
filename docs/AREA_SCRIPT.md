@@ -336,9 +336,23 @@ added to the camera object), the live player record's +0x40, +0x1F2,
   (em_player_001B1470 over its domain), 001B0C00 (001AEDE0 and the reported
   001FAD70), 001B6250 (`em_pad_actuator_001B6250`), r_player_bone_C0 (the
   record's node 1 +0xC0).
-Still NULL (fail-stop): op01 kinds 3 / 5's D_0024D8F0, op0D subs 1 to 5 (the
-director's 0018CBD0 / 0018D7B0 / 001B0460 and the camera's +0x0C), op0F's
-stream handshake bytes (Roger's departure 0x828A10, not in the first visit).
+**Census L21 (the director, prepared 2026-09-25; DIRECTOR_ORIGINAL.md
+section 6).** op0D subs 2..5's `w_0018CBD0` is the port's one 0018CBD0 seed
+(em_camera.c `camera_script_seed_0018CBD0`, the step the panel and terminal
+retarget runs) from the seed Euler 0x70003B50 (the pose host's) and the
+player's +0xA0, and `w_0018D7B0` is the live camera's solve dispatch
+(`em_camera_live_solve`); the camera's +0x0C is the live camera block's
+word (`em_camera_live_bytes(0x008101EC)`). A script that runs while another
+owner's script holds the shared player takeover (Roger's 0x828990 inside
+the director's 0x8294C0, route 10 f1094) does not claim it again
+(`em_area11_interaction_host_script_held`): 0015B130's admission reads
+0x70003B8D, not the owner. `em_area11_script_host_director_quads` hands the
+director its three quads. Only the director verification run reaches these
+today (the director is not bound until WP-8b).
+
+Still NULL (fail-stop): op01 kinds 3 / 5's D_0024D8F0, op0D sub 1 (001B0460),
+op0F's stream handshake bytes (Roger's departure 0x828A10, not in the first
+visit).
 
 The player takeover: after a tick whose op07 opened the scripted frame
 (3B8D != 0), the owner claims the interaction host's shared player runtime

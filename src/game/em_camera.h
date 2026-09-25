@@ -37,6 +37,13 @@ void camera_entry_seat(EmCamera *cam);
 int camera_interaction_retarget_area11(EmCamera *cam, const float seed_euler[3]);
 /* The same with a constant distance (op0D subs 4 / 5: -14, -20). */
 int camera_interaction_retarget_distance_area11(EmCamera *cam, const float seed_euler[3], float distance);
+/* 0018CBD0(D_008101E0, D_008102B0, distance) alone: the port's seed of
+ * cam+30 / cam+20 / cam+10 (em_camera_rotation.c, em_camera_retarget.c)
+ * from the seed Euler (0x70003B50) and the player's +0xA0, the step the two
+ * functions above run before the live camera's solve. The AREA11 script
+ * host's w_0018CBD0 (001B7B30 subs 2..5: the director's beats 1 and 2) runs
+ * it and then its own w_0018D7B0 calls. 1, or 0 on a fault. */
+int camera_script_seed_0018CBD0(EmCamera *cam, const float seed_euler[3], float distance);
 float cam_dot3(const float a[3], const float b[3]);
 float cam_wrap_pi(float a)               /* func_001B1470 */;
 void cam_norm3(float v[3])               /* func_00102760 */;

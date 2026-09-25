@@ -132,6 +132,9 @@ int em_area11_interaction_host_frame_event(EmInteractionFrameEvent event);
  * it when the selector clears. 1 claimed (or already its), -1 refused. */
 int em_area11_interaction_host_claim_script(const void *owner);
 int em_area11_interaction_host_owns(const void *owner);
+/* 1 while a script owner (em_area11_interaction_host_claim_script) holds
+ * the shared player takeover, else 0. */
+int em_area11_interaction_host_script_held(void);
 int em_area11_interaction_host_failed(void);
 
 #endif

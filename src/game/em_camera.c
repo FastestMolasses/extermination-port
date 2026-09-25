@@ -1839,7 +1839,7 @@ static void cam_solver_0018D910(EmCamera *cam)
  * (em_camera_live_scripted_retarget, the translated solve dispatch). Sub 3
  * passes the camera's +0x0C as the distance, subs 4 / 5 a constant; 0018CBD0
  * reads the preset +0x64 itself. */
-static int camera_interaction_retarget(EmCamera *cam, const float seed_euler[3], float distance)
+int camera_script_seed_0018CBD0(EmCamera *cam, const float seed_euler[3], float distance)
 {
     const uint8_t *preset_word = em_camera_live_bytes(0x00810244u, 4);  /* cam+0x64 */
     if (!cam || cam != &g.cam || !seed_euler || !preset_word || !em_camera_live_bound()) return 0;
@@ -1848,7 +1848,12 @@ static int camera_interaction_retarget(EmCamera *cam, const float seed_euler[3],
     if (!em_camera_rotation_offset(seed_euler, distance, matrix, offset)) return 0;
     memcpy(cam->seed_euler, seed_euler, sizeof cam->seed_euler);
     em_camera_retarget_seed(g.pos, offset, distance, preset, cam->eye_des, cam->tgt_des);
-    return em_camera_live_scripted_retarget();
+    return 1;
+}
+
+static int camera_interaction_retarget(EmCamera *cam, const float seed_euler[3], float distance)
+{
+    return camera_script_seed_0018CBD0(cam, seed_euler, distance) && em_camera_live_scripted_retarget();
 }
 
 int camera_interaction_retarget_area11(EmCamera *cam, const float seed_euler[3])
