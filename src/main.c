@@ -23,6 +23,7 @@
 #include "game/em_opening_runtime.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
+#include "game/em_pad_actuator.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -323,6 +324,10 @@ int main(void)
     static const EmMessageLiveStreams streams = {NULL, em_scene_bindings_001FD470,
                                                  em_scene_bindings_001FA790};
     em_message_live_set_streams(&streams);
+    /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
+     * D_00810E40 (em_pad_actuator). */
+    em_pad_actuator_reset();
+    em_frame_set_step_i(em_pad_actuator_step_i, NULL);
     /* No seed here: the original main never seeds the SDK RNG; its state
      * starts at the ELF's initialized value 1 (em_random.c). */
     const char *skip_startup = getenv("EM_SKIP_STARTUP");

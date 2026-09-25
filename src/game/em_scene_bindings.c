@@ -98,6 +98,7 @@
 #include "game/em_player_closure_live.h"
 #include "game/em_bgm.h"
 #include "game/em_area11_bindings.h"
+#include "game/em_area11_boxes.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_collision_world.h"
@@ -628,6 +629,24 @@ static void log_tick_end(int rc)
         uint32_t ground = a->link_owner ? em_actor_pool_address(&s_pool, (const EmActor *)a->link_owner) : 0;
         fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
                 em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground);
+        /* Census L23, as the route rows sample them: D_00810792 and the
+         * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
+         * +0x2EF), or null while no truck node is live. */
+        const uint8_t *story = em_scene_progress_at(&s_state, 0x00810792u, 1);
+        uint32_t truck_record, truck_pos[3];
+        uint8_t truck_head[16], truck_t2dc[20];
+        float truck_xyz[3];
+        fprintf(f, ", \"story792\": %d, \"truck\": ", story ? *story : -1);
+        if (em_area11_boxes_truck_state(&truck_record, truck_head, truck_xyz, truck_t2dc)) {
+            memcpy(truck_pos, truck_xyz, sizeof truck_pos);
+            fprintf(f, "[%u, ", truck_record);
+            log_hex(f, truck_head, sizeof truck_head);
+            fprintf(f, ", [%u, %u, %u], ", truck_pos[0], truck_pos[1], truck_pos[2]);
+            log_hex(f, truck_t2dc, sizeof truck_t2dc);
+            fputc(']', f);
+        } else {
+            fputs("null", f);
+        }
     }
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
@@ -1948,6 +1967,11 @@ int em_scene_bindings_pool_count(uint32_t callback)
     for (const EmActor *a = s_pool.head; a && walked <= EM_ACTOR_POOL_CAPACITY; a = a->next, ++walked)
         n += a->callback == callback;
     return n;
+}
+
+uint32_t em_scene_bindings_pool_address(const void *actor)
+{
+    return em_actor_pool_address(&s_pool, (const EmActor *)actor);
 }
 
 const char *em_scene_bindings_pool_binding(uint32_t callback)

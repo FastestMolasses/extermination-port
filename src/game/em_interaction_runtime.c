@@ -32,6 +32,15 @@ int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owne
     return 1;
 }
 
+int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner)
+{
+    if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||
+        !runtime->frame->selector || runtime->frame->player_ready)
+        return 0;
+    runtime->owner = owner;
+    return 1;
+}
+
 int em_interaction_runtime_set_pose_worker(EmInteractionRuntime *runtime,
                                            EmInteractionPoseWorker worker)
 {

@@ -39,7 +39,6 @@
 #include "game/em_point_light.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
-#include "game/em_truck.h"
 #include "game/em_weapon.h"
 
 

@@ -33,7 +33,6 @@
 #include "game/em_pickup.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
-#include "game/em_truck.h"
 #include "game/em_weapon.h"
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"

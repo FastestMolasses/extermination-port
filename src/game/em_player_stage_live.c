@@ -15,6 +15,7 @@
 #include "game/em_scene_state.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
+#include "game/em_pad_actuator.h"
 
 static struct {
     int rates_loaded;
@@ -47,10 +48,12 @@ static int stub_001D0C70(void *c)
     (void)c;
     return unbound("001D0C70 (00183090 under 0x70003B8F == 2)");
 }
+/* 001B61C0 (0015D000's low-health heartbeat): the pad block D_00810E40
+ * (em_pad_actuator, since census L23). */
 static int stub_cue(void *c, int a0, int a1, int a2, int a3)
 {
-    (void)c; (void)a0; (void)a1; (void)a2; (void)a3;
-    return unbound("001B61C0 (pad rumble)");
+    (void)c;
+    return em_pad_actuator_001B61C0((uint8_t)a0, (uint8_t)a1, a2, a3);
 }
 static int stub_001EFE00(void *c, uint32_t id, EmPlayerLiveActor *a)
 {

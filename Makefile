@@ -22,7 +22,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c src/game/em_roger_assets.c \
            src/game/em_roger_runtime.c src/game/em_face_model.c src/game/em_player_face_host.c \
-           src/game/em_examine.c src/game/em_truck.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
+           src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
@@ -58,7 +58,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
-           src/game/em_director_original.c
+           src/game/em_director_original.c \
+           src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
+           src/game/em_truck_original.c src/game/em_pad_actuator.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -776,7 +778,7 @@ test-level-material-reference:
 
 .PHONY: test-area-script
 test-area-script:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/area_script_test.c src/game/em_area_script.c src/game/em_script.c src/game/em_message_service.c src/game/em_interaction_frame.c src/game/em_interaction_cinematic.c src/game/em_cinematic_playback.c src/game/em_cinematic_camera.c src/game/em_camera_rotation.c src/game/em_item_sdk_math.c src/game/em_interaction_scan.c src/game/em_item_trail.c src/game/em_fan_original.c -lm -o build/area_script_test && ./build/area_script_test assets/scene_snow/roger/programs.emsc assets/scene_snow/elevator.emsc assets/scene_snow/panel/scripts.emsc ../Extermination/extract/OVERLAY/AREA11.BIN
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/area_script_test.c src/game/em_area_script.c src/game/em_script.c src/game/em_message_service.c src/game/em_interaction_frame.c src/game/em_interaction_cinematic.c src/game/em_cinematic_playback.c src/game/em_cinematic_camera.c src/game/em_camera_rotation.c src/game/em_item_sdk_math.c src/game/em_interaction_scan.c src/game/em_item_trail.c src/game/em_fan_original.c src/game/em_sdk_math_original.c -lm -o build/area_script_test && ./build/area_script_test assets/scene_snow/roger/programs.emsc assets/scene_snow/elevator.emsc assets/scene_snow/panel/scripts.emsc ../Extermination/extract/OVERLAY/AREA11.BIN
 
 .PHONY: test-area-script-reference
 test-area-script-reference:

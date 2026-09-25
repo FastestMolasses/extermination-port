@@ -19,7 +19,9 @@
  * join key it needs (D_00810750 at first control). */
 #include "game/em_level_smoke_test.h"
 #include "em_input.h"
+#include "game/em_area11_boxes.h"
 #include "game/em_area11_interaction_host.h"
+#include "game/em_pad_actuator.h"
 #include "game/em_frame.h"
 #include "game/em_game.h"
 #include "game/em_game_internal.h"
@@ -67,6 +69,10 @@ static void boxes_begin(void);
 static int boxes_frame(void);
 static void slide_begin(void);
 static int slide_frame(void);
+static void truck_preview_begin(void);
+static int truck_preview_frame(void);
+static void truck_crossing_begin(void);
+static int truck_crossing_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -95,9 +101,11 @@ static const Phase k_phases[] = {
      "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
-     "WP-12 (trigger) with the WP-10 script host", NULL, NULL, 0},
+     "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
+     truck_preview_frame, 0},
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
-     "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF", "WP-12", NULL, NULL, 0},
+     "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
+     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0},
     {"cage_roof", "10_cage_roof_roger", 0x008253F0u,
      "ladder column x 360; director 0x8253F0 beat 0 script 0x8294C0; Roger 0x8237E0 script 0x828990",
      "the ladder (WP-15), WP-10 (director) and WP-9 (Roger)", NULL, NULL, 0},
@@ -1132,6 +1140,220 @@ static int slide_frame(void)
     default:
         return 0;
     }
+}
+
+/* ------------------------------------------------------- truck_preview
+ *
+ * Route beat 07: route_capture.py's beat_truck_preview. From the slide's
+ * end the stick walks the waypoints (280, 392), (300, 400), (328, 412) at
+ * full deflection (walk_path: each until within 2.0, or blocked) and is
+ * released once the trigger 008251E0 (state 4) has started 0x8292C0: the
+ * first frame with 3B8D != 0 (the trigger's +0x04 = 1 is one frame
+ * earlier). The script runs 364 frames: 3B8D = 2 with camera byte 1 and the
+ * letterbox, the player placed at (327.4, y, 396.7) and turned to 1.97222,
+ * the camera shots, then 07/4; the trigger stores D_00810792 = 1 and frees
+ * itself. In process: the script's frame, bars and camera byte were seen,
+ * the placement and heading are the record's, D_00810792 = 1 and the
+ * trigger node is gone. tools/test_level_smoke.py check_truck_preview
+ * compares the script window with the capture row for row. */
+enum { TRUCK_PREVIEW_LIMIT = 900 };
+static const float k_truck_path[3][2] = {{280.0f, 392.0f}, {300.0f, 400.0f}, {328.0f, 412.0f}};
+
+static uint8_t story_792(void)
+{
+    const uint8_t *b = em_scene_progress_at(em_scene_state(), 0x00810792u, 1);
+    return b ? *b : 0xEE;
+}
+
+static void truck_preview_begin(void)
+{
+    nav_reset();
+    if (story_792() != 0 || em_scene_bindings_pool_count(0x008251E0u) != 1)
+        fail("the truck preview needs D_00810792 = 0 and the trigger node (route beat 07 starts so)");
+}
+
+/* walk_path: one waypoint at a time until within 2.0, or blocked (45 frames
+ * moving less than 0.3). 1 when the path ends, 0 continue. */
+static int truck_walk(void)
+{
+    if (t.step >= 3)
+        return 1;
+    const float *wp = k_truck_path[t.step];
+    int slot = t.nav_hist_n % 64;
+    t.nav_hist[slot][0] = g.pos[0];
+    t.nav_hist[slot][1] = g.pos[2];
+    ++t.nav_hist_n;
+    int blocked = 0;
+    if (t.nav_hist_n > 45) {
+        int old = (t.nav_hist_n - 1 - 45) % 64;
+        blocked = hypotf(g.pos[0] - t.nav_hist[old][0], g.pos[2] - t.nav_hist[old][1]) < 0.3f;
+    }
+    if (nav_stick_toward(wp[0], wp[1], 1.0f) <= 2.0f || blocked) {
+        nav_reset();
+        ++t.step;
+    }
+    return 0;
+}
+
+static int truck_preview_frame(void)
+{
+    const EmSceneState *s = em_scene_state();
+    if (s->spad3B8D == 2)
+        t.saw[0] = 1;
+    if (em_frame_screen_fade()->state == 3 || em_frame_screen_fade()->state == 1)
+        t.saw[1] = 1;
+    if (g.cam.top_mode == 1)
+        t.saw[2] = 1;
+    if (t.step < 4) {
+        if (s->spad3B8D != 0) {
+            pad_apply(0, 0, 0);
+            nav_reset();
+            t.step = 4;
+            return 0;
+        }
+        if (++t.nav_frames > TRUCK_PREVIEW_LIMIT) {
+            fail("the walk did not reach the truck trigger's band (3B8D stayed 0)");
+            return 0;
+        }
+        int n = t.nav_frames;
+        (void)truck_walk();
+        t.nav_frames = n;
+        if (t.step >= 3)
+            fail("the walk ended without the trigger starting its script");
+        return 0;
+    }
+    if (t.step == 4) {
+        pad_apply(0, 0, 0);
+        if (story_792() != 1 || !in_control()) {
+            if (++t.nav_frames > TRUCK_PREVIEW_LIMIT)
+                fail("the truck preview script did not end with D_00810792 = 1 and control");
+            return 0;
+        }
+        if (!t.saw[0] || !t.saw[1] || !t.saw[2]) {
+            fail("the truck preview did not open the scripted frame (3B8D 2) with the letterbox and camera "
+                 "byte 1");
+            return 0;
+        }
+        ++t.step;
+        nav_reset();
+        return 0;
+    }
+    int r = nav_settle(30);
+    if (r <= 0)
+        return 0;
+    /* 0x8292C0's 01/1 placement and 04/8 heading (FIRST_LEVEL_ROUTE.md 07). */
+    if (fabsf(g.pos[0] - 327.4f) > 1e-3f || fabsf(g.pos[2] - 396.7f) > 1e-3f || fabsf(g.yaw - 1.97222f) > 1e-4f ||
+        em_scene_bindings_pool_count(0x008251E0u) != 0) {
+        fprintf(stderr, "level smoke: truck_preview: player (%.4f, %.4f) yaw %.5f trigger nodes %d\n", g.pos[0],
+                g.pos[2], g.yaw, em_scene_bindings_pool_count(0x008251E0u));
+        fail("the preview did not leave the player at the script's placement, or the trigger did not free itself");
+        return 0;
+    }
+    fprintf(stderr, "level smoke: truck_preview: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f story792=%u\n", g.pos[0],
+            g.pos[1], g.pos[2], g.yaw, story_792());
+    return 1;
+}
+
+/* ------------------------------------------------------ truck_crossing
+ *
+ * Route beat 08: route_capture.py's beat_truck_crossing. The stick walks
+ * (345, 390) then (365, 368) (walk_path, tolerance 2.0, a blocked waypoint
+ * is skipped after 45 frames), is released, and the run waits for
+ * D_00810792 = 0xFF and settles. Standing on the truck (the player's
+ * +0x214 = the truck record, its +0x0D = 9, player +0x0A != 0) arms it
+ * (00823FF0 state 4): 001B1E20(0, 0), the 47-tick shake, then the 119-beat
+ * fall (state 1) and state 2 with D_00810792 = 0xFF. In process: the player
+ * stood on the truck record, the truck armed, fell and stored 0xFF, the pad
+ * block's rumble ran, and the player is back on the low ground north of the
+ * pit (route f172: y 184.84). tools/test_level_smoke.py check_truck_crossing
+ * compares the truck record with the capture row for row from the arm. */
+enum { TRUCK_CROSSING_LIMIT = 900 };
+static const float k_crossing_path[2][2] = {{345.0f, 390.0f}, {365.0f, 368.0f}};
+
+static void truck_crossing_begin(void)
+{
+    nav_reset();
+    if (story_792() != 1 || em_scene_bindings_pool_count(0x00823FF0u) != 1)
+        fail("the truck crossing needs D_00810792 = 1 and the truck node (route beat 08 starts so)");
+}
+
+static int truck_crossing_frame(void)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint32_t record;
+    uint8_t head[16], t2dc[20];
+    float truck_pos[3];
+    int truck = em_area11_boxes_truck_state(&record, head, truck_pos, t2dc);
+    if (truck && a->link_owner && em_scene_bindings_pool_address(a->link_owner) == record)
+        t.saw[0] = 1;                                    /* stood on the truck */
+    if (truck && t2dc[16] != 0)
+        t.saw[1] = 1;                                    /* +0x2EC: armed */
+    if (truck && head[4] == 1)
+        t.saw[2] = 1;                                    /* state 1: falling */
+    if (em_pad_actuator_block()[0x16])
+        t.saw[3] = 1;                                    /* 001B61C0 ran */
+    if (t.step < 2) {
+        const float *wp = k_crossing_path[t.step];
+        int slot = t.nav_hist_n % 64;
+        t.nav_hist[slot][0] = g.pos[0];
+        t.nav_hist[slot][1] = g.pos[2];
+        ++t.nav_hist_n;
+        int blocked = 0;
+        if (t.nav_hist_n > 45) {
+            int old = (t.nav_hist_n - 1 - 45) % 64;
+            blocked = hypotf(g.pos[0] - t.nav_hist[old][0], g.pos[2] - t.nav_hist[old][1]) < 0.3f;
+        }
+        if (nav_stick_toward(wp[0], wp[1], 1.0f) <= 2.0f || blocked) {
+            t.nav_hist_n = 0;
+            ++t.step;
+        }
+        if (++t.nav_frames > TRUCK_CROSSING_LIMIT)
+            fail("the walk across the truck did not end");
+        return 0;
+    }
+    if (t.step == 2) {
+        pad_apply(0, 0, 0);
+        if (story_792() != 0xFF) {
+            if (++t.nav_frames > TRUCK_CROSSING_LIMIT)
+                fail("the truck did not fall (D_00810792 never 0xFF)");
+            return 0;
+        }
+        ++t.step;
+        nav_reset();
+        return 0;
+    }
+    int r = nav_settle(30);
+    if (r <= 0)
+        return 0;
+    /* TRUCK_ORIGINAL.md: a whole set piece spawns 32 effects (12 in the
+     * shake, 20 in the fall), counted at the gap (census L26). */
+    if (em_area11_boxes_effect_gap() != 32) {
+        fprintf(stderr, "level smoke: truck_crossing: %u effect spawns\n", em_area11_boxes_effect_gap());
+        fail("the truck did not spawn the set piece's 32 effects");
+        return 0;
+    }
+    if (!t.saw[0] || !t.saw[1] || !t.saw[2] || !t.saw[3] || !truck || head[4] != 2) {
+        fprintf(stderr, "level smoke: truck_crossing: stood %u armed %u fell %u rumble %u state %d\n", t.saw[0],
+                t.saw[1], t.saw[2], t.saw[3], truck ? head[4] : -1);
+        fail("the player did not arm the truck from its top, or the truck did not shake, fall and rest in state 2");
+        return 0;
+    }
+    /* Step I's countdown 001B5B70 stopped the rumbles through 001B6250: the
+     * pad block's active byte +0x16 and duration +0x28 are 0 again, as in
+     * route 08's end snapshot (eeMemory at f239). */
+    const uint8_t *pad = em_pad_actuator_block();
+    if (pad[0x16] != 0 || pad[0x28] != 0 || pad[0x29] != 0) {
+        fail("the truck's rumble was not stopped by the step-I countdown (pad block +0x16 / +0x28)");
+        return 0;
+    }
+    if (g.pos[1] > 186.0f || g.pos[1] < 184.0f || g.pos[2] > 385.0f) {
+        fprintf(stderr, "level smoke: truck_crossing: player (%.3f, %.5f, %.3f)\n", g.pos[0], g.pos[1], g.pos[2]);
+        fail("the player is not on the low ground north of the pit (route f172: y 184.84)");
+        return 0;
+    }
+    fprintf(stderr, "level smoke: truck_crossing: PASS player=(%.3f,%.5f,%.3f) truck_y=%.5f story792=%u\n",
+            g.pos[0], g.pos[1], g.pos[2], truck_pos[1], story_792());
+    return 1;
 }
 
 /* ------------------------------------------------------------- driver */

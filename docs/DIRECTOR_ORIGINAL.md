@@ -263,6 +263,32 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
 
 ## 6. Binding (for the coordinator)
 
+**Status (census L21, 2026-09-24): not bound; it waits on Roger (L22).**
+The AREA11 script host is live since L19 / L23 (`em_area11_script_host`,
+AREA_SCRIPT.md section 6.1), but beat 0 cannot run faithfully without
+Roger's owner:
+- 0x8294C0 opens the scripted frame (07/8), raises flag 0x3B (06/0: D_00810793
+  = 1), runs its camera shots, and then its 06/2 on counter 0x3B **waits
+  until D_00810813 != 0** (001BA080 sub 2).
+- On the route only Roger's alternate script writes that byte: Roger r8 sees
+  D_00810793 = 1 with D_00810813 = 0, runs 0x828990 (its op15 conversation,
+  line 0x7F) and D_00810813 becomes 1 at f3460; the director completes at
+  f3508 (FIRST_LEVEL_ROUTE.md beat 10, steps 4..6).
+- Roger 008237E0 / 00823910 is unbound (WP-9, census L22). Bound alone, the
+  director would hold the player in the scripted frame at 06/2 for ever
+  where the legacy stand-in completes its beat: a live path that degrades
+  play. So node #21 keeps `em_director.c` (kCineBeats) until L22 binds Roger
+  and its line 0x7F; the voiced director lines 0x97 / 0x99 (beats 1 and 2)
+  need WP-8b's stream lanes as well.
+- What the director's scripts need from the host beyond the truck preview's
+  workers: 00182BF0 (op16, `em_script_host_w_00182BF0` over the live record
+  and the canonical D_0081083C / D_008106BC / D_008106F1), 001B0C00 /
+  001B6250 (op18 skip landing), 001B81D0's face attach (001CA700 / 001D06D0
+  through the interaction host's face, with D_0081078F and the player's
+  +0x2FF), op0D sub 2's 0018CBD0 / 0018D7B0 with cam +0x0C / +0xA0, the
+  flag and counter arrays D_00810758 / D_008107D8 (only slots 0x3A..0x3C and
+  0x3B are canonical), and op0C's lines through `em_message_live_op0c`.
+
 **Node and stage.**
 - Pool node **#21** (record 12, callback `0x8253F0`) gets one behaviour
   adapter, `tick_director_original(actor, node, world)`, at its existing

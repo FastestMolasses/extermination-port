@@ -2,8 +2,10 @@
 
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
 elevator refusal, the panel and the elevator ride), census L25 (the
-boxes: the Use chain's ledge climbs onto the crates' original owners) and
-census L03 (the hill slide). The smoke plays the
+boxes: the Use chain's ledge climbs onto the crates' original owners),
+census L03 (the hill slide) and census L23 / L19 (the truck preview and
+crossing on the truck's original owners and the AREA11 script host). The
+smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
 
@@ -23,7 +25,7 @@ WP-6 (the battery pickup is live).
 ## Running it
 
 ```sh
-make test-level-smoke                  # the whole route (about 11 s today)
+make test-level-smoke                  # the whole route (about 11 s today, through truck_crossing)
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
@@ -82,8 +84,8 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 | elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | yes (WP-4) | — |
 | boxes | 05 | Use dispatcher 00160220, ledge climb 0015DF10 / state 2 onto crates r4/r3 (001551B0) | yes (census L25) | — |
 | slide | 06 | floor class 0x1000 -> 001796C0, slope slide 0016C6A0 (state 0x1C, +1F0 0x30) | yes (census L03) | — |
-| truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | no | WP-12, WP-10 |
-| truck_crossing | 08 | truck 0x823FF0 | no | WP-12 |
+| truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | yes (census L23, L19) | — |
+| truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
 | cage_roof | 10 | ladder, director 0x8253F0 beat 0, Roger 0x8237E0 script 0x828990 | no | WP-15, WP-10, WP-9 |
 | crevice_prompt | 11 | director beat 1, script 0x829A40 | no | WP-10, WP-8, WP-15 |
 | crevice_jump | 12 | running jump (+1F0 0x0C) | no | WP-15 (no module) |
@@ -390,6 +392,67 @@ What the smoke does not compare: the slide's sounds and effects (the loop
 0x12E and the skid/landing ids are not in the exported sfx registry, WP-14,
 and the 001EFD90 spawns go to the counted effect gap, L26); the camera
 (the legacy follow camera, WP-16).
+
+### truck_preview
+
+Route beat 07, live since census L23 / L19: the trigger 008251E0 runs
+em_truck_trigger_tick on its record and its camera script 0x8292C0 runs on
+the AREA11 script host (em_area11_script_host; TRUCK_ORIGINAL.md and
+AREA_SCRIPT.md section 6.1 "Binding").
+
+**Runner.** route_capture.py's beat_truck_preview: the stick walks the
+waypoints (280, 392), (300, 400), (328, 412) at full deflection (each until
+within 2.0, a blocked waypoint skipped after 45 frames) and is released on
+the first frame with 3B8D != 0 (the trigger has started the script); then
+neutral until D_00810792 = 1 and control, and 30 frames of settle.
+**In process:** the script's frame (3B8D = 2), the bars and camera byte 1
+were seen; the player ends at the script's placement (327.4, 396.7) with
+the heading 1.97222; D_00810792 = 1; the trigger node freed itself.
+
+**Against the capture** (`check_truck_preview`, route 07). Aligned on the
+first tick with 3B8D != 0 after the slide and route 07's first such row
+(f164), every row through the release (f527) and 25 rows after it, as for
+the terminal scripts (`compare_window`): the spad bytes, the camera byte,
+the letterbox, the message block, the power byte, the placement (01/1, from
+f167), the heading (04/8, from f168), the camera eye/target of every shot
+(from f169) until the release, and the re-grounded Y after it; plus
+D_00810792 (1 from the release row) and, from the row after the first, the
+player record's +5, +1F0, +1F1, clip and ground (the admission's +5 = 0 /
++1F0 = 0x41 at f165, 00182DF0's tail at f527). Measured: every compared
+field equal. A mutation (the placement Y + 0.001 in the script host's
+00182F90 worker) fails at f167.
+
+### truck_crossing
+
+Route beat 08, live since census L23: the truck 00823FF0 runs
+em_truck_original_tick on its record (em_area11_boxes), publishing its hull
+cell (uid 14) into the collision world, so the player's floor service
+stands on the truck record.
+
+**Runner.** route_capture.py's beat_truck_crossing: the stick walks (345,
+390), then (365, 368) (walk_path as above), is released, and the run waits
+for D_00810792 = 0xFF and settles. **In process:** the player stood on the
+truck record (its +0x214), the truck armed (+0x2EC), fell (state 1) and
+rests in state 2 with D_00810792 = 0xFF; the set piece spawned its 32
+effects (TRUCK_ORIGINAL.md; counted at the effect gap, census L26); the
+pad block's actuator ran (001B61C0) and step I's countdown stopped it
+again (+0x16 and +0x28 are 0, as in route 08's end snapshot); the player
+is on the low ground north of the pit.
+
+**Against the capture** (`check_truck_crossing`, route 08). Aligned on the
+arm row (the first with +0x2EC = 1: f43, the player's ground the truck
+record 0x7A9FB0 in both), every row through the fall's end (f209) and 10
+rows at rest: the truck record's +0x00..+0x0F, +0xB0 (to the capture's 5
+decimals) and +0x2DC..+0x2EF, and D_00810792. Measured: equal. The tick
+log gained `story792` and `truck` (the record address, +0x00..+0x0F, +0xB0
+and +0x2DC..+0x2EF). A tampered truck Y in a copy of the log fails at f89.
+
+What the smoke does not compare in beat 08: the player's own walk across
+and off the truck (the port's legacy locomotion, L12, steered against the
+legacy follow camera, WP-16; the original's walk got blocked on the truck
+for 40 frames), the rumbles' timing (not in the capture rows), the truck's
+sounds 0x454 / 0x455 (not in the exported sfx registry, WP-14) and its
+effects (L26).
 
 ## Adding a phase (the contract for WP-4 onward)
 

@@ -82,6 +82,9 @@ int em_scene_bindings_pool_count(uint32_t callback);
  * node with this original callback, or NULL (no roster pool, or no such
  * node). Test instrumentation (the S13 level smoke's NOT-LIVE lines). */
 const char *em_scene_bindings_pool_binding(uint32_t callback);
+/* The original record address of a pool record (0 outside the pool; test
+ * instrumentation: the level smoke's player-ground check). */
+uint32_t em_scene_bindings_pool_address(const void *actor);
 
 /* ---- Legacy port code the bindings call (implemented in em_game.c) ----
  * Each one is today's code, moved unchanged out of the retired

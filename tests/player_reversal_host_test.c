@@ -104,6 +104,8 @@ static void source_advance(void)
 
 void player_pose_unsupported_hold(const char *reason) { (void)reason; ++source.holds; }
 void player_pose_legacy_hold(const char *owner) { (void)owner; }
+/* No scripted takeover in this fixture (em_player.c reads it at every stage). */
+int player_pose_owned(void) { return 0; }
 int player_pose_legacy_release(void) { return 1; }
 int player_use_poll(void) { ++source.use_polls; return 0; }
 int player_pose_use_accepted_port(void) { return 1; } /* never reached: player_use_poll returns 0 */

@@ -72,6 +72,8 @@ static struct {
 } world;
 
 static int camera_publish(void *context);
+static void view_load(void);
+static void view_store(void);
 
 static int fail(const char *operation)
 {
@@ -610,6 +612,37 @@ int em_area11_interaction_host_camera_publish(void)
 {
     if (!world.loaded || world.failed) return -1;
     return camera_publish(NULL) ? 1 : fail("camera publication");
+}
+
+/* The frame events of 001B82D0 for a script run outside the host (the
+ * AREA11 script host, em_area11_script_host.c): the same bindings the
+ * panel and elevator scripts use. The caller has stored its frame view
+ * to the canonical storage first. */
+int em_area11_interaction_host_frame_event(EmInteractionFrameEvent event)
+{
+    if (!world.loaded || world.failed) return -1;
+    view_load();
+    int accepted = frame_event(NULL, event);
+    view_store();
+    return accepted ? 1 : -1;
+}
+
+/* A script owner outside the host whose op07 opened the scripted frame:
+ * the shared runtime's player takeover serves it (the stand-in for
+ * 0015B130's 00182B30 admission, as for the panel and the elevator). */
+int em_area11_interaction_host_claim_script(const void *owner)
+{
+    if (!world.loaded || world.failed || !owner) return -1;
+    if (em_interaction_runtime_owns(&world.shared, owner)) return 1;
+    view_load();
+    int claimed = em_interaction_runtime_claim_scripted(&world.shared, owner);
+    view_store();
+    return claimed ? 1 : fail("scripted owner claim (the shared player is busy)");
+}
+
+int em_area11_interaction_host_owns(const void *owner)
+{
+    return world.loaded && !world.failed && em_interaction_runtime_owns(&world.shared, owner);
 }
 
 static int camera_chase(void *context)

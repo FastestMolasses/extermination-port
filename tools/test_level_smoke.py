@@ -559,12 +559,124 @@ def check_slide(ticks, run, state):
     after = max(abs((pos[k][a] - pos[k - 1][a]) - (orig[k]['pos'][a] - orig[k - 1]['pos'][a]))
                 for k in range(land + 1, SLIDE_ROWS) for a in range(3))
     entry_xz = max(abs(pos[0][a] - orig[0]['pos'][a]) for a in (0, 2))
+    state['cursor'] = e + SLIDE_ROWS
     print(f'slide: PASS (route 06 f{orig[0]["f"]}..f{orig[-1]["f"]} row for row in +5, +1F0, +1F1, clip, clock and '
           f'ground: the entry at f72, clips 0x5E/0x61, the landing at f{orig[land]["f"]}, the skid-out 0x60/0x65, '
           f'the hand-back at f{orig[back]["f"]} and the idle return; the heading takes the original values '
           f'{[v for _, v in theirs]} with crossings within {shift} row(s); per-row motion within {worst:.5f} off the '
           f'crossing rows (entry X/Z {entry_xz:.3f} from the original\'s), after the landing within {after:.5f}; '
           f'landed Y {pos[land][1]:.5f} against {orig[land]["pos"][1]})')
+
+
+# ------------------------------------------ truck preview (census L23, L19)
+
+def first_frame_row(rows):
+    return next(k for k in range(1, len(rows)) if selector(rows[k]['spad']) != '00'
+                and selector(rows[k - 1]['spad']) == '00')
+
+
+def check_truck_preview(ticks, run, state):
+    """Route 07: the trigger 008251E0 starts 0x8292C0 on the frame the
+    player's +0xA0 is in its band; the next frame's op07/2 opens the
+    scripted frame (3B8D = 2, camera byte 1, the bars). Aligned on the first
+    tick with 3B8D != 0 after the slide and route 07's first such row (f164),
+    every row through the release (07/4, f527) and 25 rows after it is
+    compared as for the terminal scripts (compare_window: spad, camera byte,
+    letterbox, message, power, the placement 01/1 from f167, the heading
+    04/8 from f168, the camera shots from f169, the re-grounded Y after the
+    release), plus D_00810792 row for row (1 from the release row: the
+    trigger's store after 001BA1F0 returned 1) and, from the row after the
+    first, the player record's +5, +1F0, +1F1, clip and ground: 0015B130's
+    admission (+5 = 0, +1F0 = 0x41, f165) and 00182DF0's release tail
+    (+1F0 = 0, f527). The trigger freeing itself (route f528) is asserted in
+    process."""
+    rows = route_rows('07_truck_preview')
+    f0 = first_frame_row(rows)
+    assert rows[f0]['f'] == 164, ('route 07 script frame moved', rows[f0]['f'])
+    start = max(state.get('cursor', 0), 1)
+    i0 = next(i for i in range(start, len(ticks)) if selector(port_view(ticks, i)['spad']) != '00'
+              and selector(port_view(ticks, i - 1)['spad']) == '00')
+    r = release_row(rows, f0)
+    count = r - f0 + AFTER_RELEASE
+    placed, faced = compare_window(ticks, i0, rows, f0, count, 'truck_preview')
+    for k in range(count):
+        assert ticks[i0 + k]['story792'] == rows[f0 + k]['story792'], \
+            ('truck_preview D_00810792', rows[f0 + k]['f'], ticks[i0 + k]['story792'], rows[f0 + k]['story792'])
+        # The player record from the admission row on (the row before is
+        # the approach's walk, navigation input): 0015B130's admission +5 = 0
+        # / +1F0 = 0x41 (f165), 00182DF0's release tail (f527) and the idle
+        # after it.
+        if k:
+            p, o = ticks[i0 + k]['player'], rows[f0 + k]
+            got = (p[0], p[1], p[2], p[3], hex(p[5]))
+            want = (o['p5'], o['m1F0'], o['m1F1'], o['clip'], o['ground'])
+            assert got == want, ('truck_preview player +5/+1F0/+1F1/clip/ground', o['f'], got, want)
+    state['cursor'] = i0 + count
+    print(f'truck_preview: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 07 '
+          f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: 0x8292C0 from its frame to the release at '
+          f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message, power, '
+          f'D_00810792 and the player record (+5, +1F0, +1F1, clip, ground: the admission and the release); placement from f{rows[f0 + placed]["f"]}, heading from f{rows[f0 + faced]["f"]}, the '
+          f'script\'s camera eye/target until the release, the re-grounded Y after it)')
+
+
+
+# ------------------------------------------------ truck crossing (census L23)
+
+TRUCK_RECORD = 0x7A9FB0         # route_capture.py truck_r16 (placement record 16)
+TRUCK_AFTER_REST = 10           # rows compared after the fall's last beat
+
+
+def truck_view_port(tick):
+    t = tick['truck']
+    assert t is not None, ('no live truck node in the tick', tick['tick'])
+    record, head, pos, t2dc = t
+    return {'record': record, 'h': head, 'pos': [round(f32(v), 5) for v in pos], 't2DC': t2dc,
+            'story': tick['story792']}
+
+
+def truck_view_orig(row):
+    t = row['truck_r16']
+    return {'record': TRUCK_RECORD, 'h': t['h'], 'pos': t['pos'], 't2DC': t['t2DC'], 'story': row['story792']}
+
+
+def check_truck_crossing(ticks, run, state):
+    """Route 08: standing on the truck (the player's +0x214 = the truck
+    record, whose +0x0D is 9, and +0x0A != 0) arms 00823FF0 (state 4:
+    001B1E20(0, 0), +0x2EC = 1, f43); +0x2EC counts through the shake to
+    0x2F (state 1 from f89), the 119 fall beats move +0xB0 and the matrix,
+    and the last beat stores D_00810792 = 0xFF with state 2 (f209). The
+    arm row is aligned (the first row with +0x2EC = 1; the approach is
+    navigation input) and from it every row through the rest and
+    TRUCK_AFTER_REST rows after is compared: the truck record's
+    +0x00..+0x0F, +0xB0 (to the capture's 5 decimals), +0x2DC..+0x2EF and
+    D_00810792, and the player's ground on the arm row (the truck record).
+    The player's own walk off the truck is navigation (the legacy
+    locomotion, WP-15/L12); its end on the low ground is asserted in
+    process."""
+    rows = route_rows('08_truck_crossing')
+    shake = lambda t2dc: int.from_bytes(bytes.fromhex(t2dc)[16:20], 'little')
+    r0 = next(k for k in range(len(rows)) if shake(rows[k]['truck_r16']['t2DC']) == 1)
+    assert rows[r0]['f'] == 43, ('route 08 arm moved', rows[r0]['f'])
+    rest = next(k for k in range(r0, len(rows)) if rows[k]['story792'] == 0xFF)
+    start = max(state.get('cursor', 0), 1)
+    i0 = next(i for i in range(start, len(ticks)) if ticks[i].get('truck') is not None
+              and shake(ticks[i]['truck'][3]) == 1)
+    assert ticks[i0]['player'][5] == TRUCK_RECORD and rows[r0]['ground'] == hex(TRUCK_RECORD), \
+        ('the arm row does not stand on the truck', hex(ticks[i0]['player'][5]), rows[r0]['ground'])
+    count = rest - r0 + 1 + TRUCK_AFTER_REST
+    assert i0 + count < len(ticks), ('the tick log ends inside the truck window', len(ticks) - i0)
+    fell = None
+    for k in range(count):
+        p, o = truck_view_port(ticks[i0 + k]), truck_view_orig(rows[r0 + k])
+        assert p == o, ('truck record', rows[r0 + k]['f'], k, p, o)
+        if fell is None and o['h'][8:10] == '01':
+            fell = k
+    state['cursor'] = i0 + count
+    print(f'truck_crossing: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 08 '
+          f'f{rows[r0]["f"]}..f{rows[r0 + count - 1]["f"]} in the truck record (+0x00..+0x0F, +0xB0, +0x2DC..+0x2EF) '
+          f'and D_00810792: armed from the truck top at f{rows[r0]["f"]}, falling from f{rows[r0 + fell]["f"]}, '
+          f'0xFF and state 2 at f{rows[rest]["f"]} (y {rows[rest]["truck_r16"]["pos"][1]}), {TRUCK_AFTER_REST} '
+          f'rows at rest)')
 
 
 # Route order (docs/FIRST_LEVEL_ROUTE.md section 3; em_level_smoke_test.c
@@ -579,8 +691,8 @@ PHASES = [
     ('elevator', check_elevator),
     ('boxes', check_boxes),
     ('slide', check_slide),
-    ('truck_preview', None),
-    ('truck_crossing', None),
+    ('truck_preview', check_truck_preview),
+    ('truck_crossing', check_truck_crossing),
     ('cage_roof', None),
     ('crevice_prompt', None),
     ('crevice_jump', None),

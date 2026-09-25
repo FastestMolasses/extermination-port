@@ -48,9 +48,11 @@ SRC = ROOT / "src"
 # Field -> files (relative to src/) that may assign it, with the original writer.
 WRITERS = {
     "spad3B8D": {
-        "game/em_area_script.c": "001B82D0 (unbound, L19): the frame view store after each sub-handler "
-                                 "(frame_store), its sub 6 teardown (=0), and 001B6E40 (op 0x16, =3 once "
-                                 "00182BF0 reports the player free); a pointer view onto the canonical byte",
+        "game/em_area_script.c": "001B82D0 (live for the truck trigger since L19): the frame view store after each "
+                                 "sub-handler (frame_store), its sub 6 teardown (=0), and 001B6E40 (op 0x16, "
+                                 "=3 once 00182BF0 reports the player free); a pointer view onto the canonical byte",
+        "game/em_area11_script_host.c": "L19: binds em_area_script's world pointer at the canonical byte "
+                                        "(world_bind); the writes are em_area_script's",
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 0 (=2) and op 4 (=0)",
         "game/em_scene_bindings.c": "001B0C60 area-change request (=3; S12a)",
@@ -59,7 +61,9 @@ WRITERS = {
                                              "002149F0's successful exit (=3)",
     },
     "spad3B91": {
-        "game/em_area_script.c": "001B82D0 (unbound, L19): the skip byte its sub 6 teardown clears "
+        "game/em_area11_script_host.c": "L19: binds em_area_script's world pointer at the canonical byte "
+                                        "(world_bind); the writes are em_area_script's",
+        "game/em_area_script.c": "001B82D0 (L19): the skip byte its sub 6 teardown clears "
                                  "(skip_set) and the frame view store after each 001B82D0 sub-handler "
                                  "(frame_store writes the running script's skip byte back)",
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
@@ -69,7 +73,9 @@ WRITERS = {
                                              "its owner tick (001B82D0 sub0/sub4 clear it)",
     },
     "spad3B92": {
-        "game/em_area_script.c": "001B82D0 (unbound, L19): the frame view store (frame_store) and its "
+        "game/em_area11_script_host.c": "L19: binds em_area_script's world pointer at the canonical byte "
+                                        "(world_bind); the writes are em_area_script's",
+        "game/em_area_script.c": "001B82D0 (L19): the frame view store (frame_store) and its "
                                  "sub 6 teardown (=0); a pointer view onto the canonical byte",
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 3 (=1, 0x1B874C) and op 4 (=0, 0x1B8940)",
@@ -179,7 +185,13 @@ REACHERS = {
                                           "and major2 states, 00182B30's view): pointers at the "
                                           "canonical request byte (Boxes step)",
     },
-    0x00810792: {},   # no port reacher yet: em_truck_original's pointer is bound by WP-12
+    0x00810792: {
+        "game/em_area11_boxes.c": "00823FF0 / 008251E0 (census L23): EmTruckWorld.story, the pointer "
+                                  "em_truck_original reads and writes (truck_world)",
+        "game/em_scene_bindings.c": "the tick log's story792 sample (test instrumentation, never written)",
+        "game/em_level_smoke_test.c": "the truck phases' checks of D_00810792 (test instrumentation, "
+                                      "never written)",
+    },
     0x00810793: {},   # no port reacher yet: em_director_original / em_roger are bound by WP-10 / WP-9
 }
 REACH_CALL = {0x00810CC3: re.compile(r"\bem_director_original_001C4760_scene\s*\(")}

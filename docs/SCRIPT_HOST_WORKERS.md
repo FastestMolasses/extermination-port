@@ -15,8 +15,16 @@ and what remains open.
 - Oracle: `tools/test_script_host_workers_reference.py`.
 - Sanitizer test: `tests/script_host_workers_test.c`.
 
-**Status: built and oracle-verified, not wired.** No live file includes the
-module yet. Section 3 gives the binding.
+**Status (2026-09-24):** the loader is live: the AREA11 script host
+(`em_area11_script_host`, AREA_SCRIPT.md section 6.1) loads `scripts.emsc`
+and `director_quads.emsc` fresh for each visit and runs the truck preview
+0x8292C0 from it (census L19 / L23). `em_script_host_001B6250` is live as the
+pad actuator's stop (`em_pad_actuator`: 001B1E20 / 001B5B70 over D_00810E40,
+the truck's rumbles); `em_script_host_approach` is bound in the player
+modules. The other routines (00182BF0, 001B1240, 001B1380, 001B12B0 as a
+script worker, 001B0C00, 001B0460) are reached only by the director's and
+Roger's scripts, which are not bound (L21 waits on L22). Section 3 gives
+their binding.
 
 ## 1. What the originals do
 

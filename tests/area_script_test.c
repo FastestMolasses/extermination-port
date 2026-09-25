@@ -12,6 +12,8 @@
  * a fade request settles on the next tick, a message completes on the
  * next tick, the camera track cursor passes its head at once. */
 #include "game/em_area_script.h"
+#include "game/em_pose_math.h"
+#include "game/em_sdk_math_original.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -311,6 +313,29 @@ int main(int argc, char **argv)
             assert(em_area_script_w_0011E2A8(NULL, xs[i], &b) == 0 && memcmp(&a, &b, 4) == 0);
         }
         checked += 2;
+    }
+    /* The live binding (em_area11_script_host) answers w_0011E2A8 with the
+     * one bound SDK sine, em_sdk_math_original_w_0011E2A8 over the SDK
+     * tables (assets/sdk_math_tables.emsm): equal to the host's translation
+     * on every ease argument the scripts can form (op00 kind 1 / op01 kinds
+     * 6-7: pi * k/d - pi/2 for d = 1..400), 80,600 arguments. */
+    {
+        static EmSdkMathTables tables;
+        int32_t mode = 0;
+        assert(em_sdk_math_original_load_export("assets/sdk_math_tables.emsm", &tables, &mode) == 0);
+        EmSdkMathContext sdk;
+        memset(&sdk, 0, sizeof sdk);
+        sdk.tables = &tables;
+        sdk.world.d26C5D0 = &mode;
+        for (int d = 1; d <= 400; ++d)
+            for (int k = 0; k <= d; ++k) {
+                float t = pose_div((float)k, (float)d), a, b;
+                float x = pose_sub(pose_mul(3.14159274101257324f, t), 1.57079637050628662f);
+                assert(em_area_script_sin_0011E2A8(x, &a) == 0);
+                assert(em_sdk_math_original_w_0011E2A8(&sdk, x, &b) == 0 && memcmp(&a, &b, 4) == 0);
+            }
+        assert(sdk.fault == 0);
+        checked += 1;
     }
 
     em_script_image_free(&roger);

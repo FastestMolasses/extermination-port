@@ -359,26 +359,12 @@ void scene_manifest_load(void)
                            x, y, z, g.elev_yaw, g.elev_model.vert_count);
                 }
             }
-        } else if (sscanf(line, "truck %255s %f %f %f %f %f",
-                          name, &x, &y, &z, &yaw, &r) == 6) {
-            /* AREA-11 WEDGED TRUCK (placement record 16, overlay owner
-             * 00823FF0). Form: `truck <model.emdl> <x> <y> <z> <rx> <ry>`
-             * (the placed pos + Euler tilt rx and yaw ry). em_truck.c
-             * loads the mesh and draws it STATIC at that pose: the
-             * original stand-on trigger, fall sequence and D_00810792
-             * persistence (and record 17, 008251E0, which only starts a
-             * camera script) are not translated until WP-12 (em_truck.h).
-             * No trigger, motion or moving-surface registration. One
-             * truck per scene; a missing mesh makes it absent
-             * (em_truck_install returns nonzero and reports). */
-            char tpath[1024];
-            snprintf(tpath, sizeof tpath, "%s/%s", g.scene_dir, name);
-            float tp[3] = { x, y, z };
-            if (em_truck_install(em_frame_gfx(), tpath, tp, yaw, r) == 0)
-                printf("manifest: WEDGED TRUCK %s at (%.1f, %.1f, %.1f) "
-                       "rx %.3f ry %.3f\n", name, x, y, z, yaw, r);
-            else
-                printf("manifest: truck line failed to load: %s", line);
+        } else if (strncmp(line, "truck ", 6) == 0) {
+            /* AREA-11 truck (placement record 16): its original owner
+             * 00823FF0 places and draws it from its own record
+             * (em_area11_boxes, census L23; props/area_truck.emdl at the
+             * owner's bone matrix). The manifest line's placement is not
+             * read. */
         } else if ((gn = sscanf(line, "grate %255s %f %f %f %f",
                                  name, &x, &y, &z, &yaw)) >= 4) {
             /* Legacy manifest name for AREA11's static power panel,
@@ -765,9 +751,6 @@ void scene_unload(EmGfx *gfx)
     grate_unload(gfx);          /* the AREA-11 static power-panel mesh
                                  * (re-installed from the new scene's
                                  * `grate` line) */
-    em_truck_clear(gfx);        /* the AREA-11 wedged-truck actor + mesh
-                                 * (re-installed from the new scene's
-                                 * `truck` line) */
     /* AREA-11 OPENING DIRECTOR — drop any in-flight beat at a scene
      * change (belt-and-suspenders soft-lock guard: a beat can't actually
      * be running across a switch, since the beat lock suppresses every

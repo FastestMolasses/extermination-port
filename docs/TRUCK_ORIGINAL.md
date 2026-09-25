@@ -3,6 +3,11 @@
 Module: `src/game/em_truck_original.{h,c}`. Oracle and PCSX2 replay:
 `tools/test_truck_original_reference.py`. Unit test: `tests/truck_original_test.c`.
 
+**Status: live since census L23 (2026-09-24).** Both owners run on their pool
+nodes (`em_area11_boxes.c`, section "Binding" below); the legacy static truck
+`em_truck.c` is deleted. The level smoke's `truck_preview` and
+`truck_crossing` phases reproduce route beats 07 and 08 (LEVEL_SMOKE.md).
+
 Two AREA11 overlay owners:
 
 | Node | Record | Runtime callback | Role |
@@ -109,7 +114,7 @@ The trigger does **not** arm the truck.
 | `model_bind` | `001B0FD0` |
 | `placement_matrix` | `001C6380` TRS and the bone slots |
 | `pose` | `102958` into bone-0 `+0x90` |
-| `hull` | `001A2370`, re-transform the hull and rebuild its AABB (not translated) |
+| `hull` | `001A2370`, re-transform the hull and rebuild its AABB (em_actor_collision) |
 | `hull_bounds` | the AABB header in table `*0x70003250[(+0xE>>8)&0xFF]` |
 | `publish` | `001B1B70` |
 | `draw` | `+0x4C` |
@@ -117,24 +122,64 @@ The trigger does **not** arm the truck.
 | `effect` | `001EFD20` |
 | `sound` | `001FBD50` |
 | `free_owner` | `001AFC10` |
-| trigger `script_start` / `script_tick` | `001BA1A0` / `001BA1F0` running `0x8292C0` (script host, WP-10) |
+| trigger `script_start` / `script_tick` | `001BA1A0` / `001BA1F0` running `0x8292C0` (the AREA11 script host, census L19) |
 
 In the trigger capture, the camera script also moves the player to (327.4, 184.8, 396.7). That belongs to the
 script host.
 
-## Binding (for the coordinator)
+## Binding (live since census L23)
 
-- Bind node #24 to `em_truck_original_tick(owner, world, hooks)` and node #25 to
-  `em_truck_trigger_tick(owner, world, hooks)`. Order within a frame: #24, then #25.
-- `EmTruckWorld` holds pointers into canonical storage:
-  - `D_00810792`: the canonical progress byte, `em_scene_progress_at(s, 0x00810792u, 1)` (migrated in HK;
-    no other port code reads or writes it)
-  - player `+5` and `+0x0A`
-  - `&ground[+0x0D]`, or NULL when player `+0x214` is 0
-  - player `+0xA0` (the z lane is written)
-  - player `+0xB0`
-  - spad `0x700031F0`
+Both nodes are bound in `em_area11_bindings.c` (`tick_truck`) to
+`em_area11_boxes_truck_tick` (#24) and `em_area11_boxes_trigger_tick` (#25),
+in both walk variants, in the pool walk's node order (#24, then #25). The
+truck shares the crates' and drums' world-model services
+(`em_area11_boxes.c`): the one owner-services context, the exported model
+bank (`assets/scene_snow/world_models.emwm`, model 9), the 001AF710 bone-slot
+stack (the truck holds one slot, +0x09 = 1, as route 08's header) and the draw
+list.
 
-  The module keeps no shadow copies.
-- The riding surface comes from the collision hull that `001A2370` re-transforms. It does not come from the carry,
-  whose z velocity is always 0. The legacy moving-surface AABB carry in `em_collision` does not match this code.
+Record and state. The truck's pool record keeps +0x04, +0xB0, +0xC0 and the
++0x1F0 block (the rest matrix at +0x1F0, +0x2DC / +0x2E0 / +0x2E4 / +0x2E8 /
++0x2EC); the fall counter +0x28, +0xD0 and the velocity scratch 0x700038A0
+live in its slot. The trigger keeps +0x04 and +0x0B in its record.
+
+`EmTruckWorld` over canonical storage:
+
+| Pointer | Storage |
+|---|---|
+| `story` | `em_scene_progress_at(s, 0x00810792, 1)` |
+| `player_phase`, `player_0a` | the live player record's +0x05 and +0x0A (`player_states_actor_mut`) |
+| `ground_kind` | +0x0D of the pool record the player's +0x214 names (`EmPlayerLiveActor.link_owner`), NULL when none |
+| `player_a0` | `g.pos` (D_00810350; the carry adds to its z lane) |
+| `player_b0` | the pose's hip (`player_pose_hip`), read only while the truck falls (the carry test 00825014) |
+| `carry` | 0x700031F0 in the boxes module (no live reader: its reader 0018B9C0 is unbound, census L13) |
+
+Workers:
+
+| Worker | Binding |
+|---|---|
+| `model_bind` | `em_owner_services_001B0FD0` over the record's view |
+| `placement_matrix` | `em_owner_services_001C6380`, then the view's +0xD0 |
+| `pose` | copy_qw4 into bone slot 0's +0x90 |
+| `hull` | `em_collision_world_retransform_001A2370` (cell uid 14) |
+| `hull_bounds` | `em_actor_collision_owner_hull_bounds` over the collision world |
+| `publish` | `em_collision_world_publish_001B1B70` (class 4: the player's floor service finds the truck's cell and stands on the record) |
+| `draw` | +0x4C 001CAA00: `assets/scene_snow/props/area_truck.emdl` at bone slot 0's matrix through the actor draw chain (the object kernel stays with RENDER, as for the boxes) |
+| `rumble` | `em_pad_actuator_001B1E20(effect, 0)`: 001B1E20 over the D_0024D6F0 records (`assets/pad_rumble.emrg`, `tools/export_pad_tables.py`), 001B61C0 on the pad block D_00810E40, the libpad write 00111018 at the platform boundary (`em_gamepad_rumble`); main-loop step I (001B5B70) counts the duration down and 001B6250 stops it |
+| `effect` | 001EFD20: no live effect owner yet (census L26, EFFECT_MANAGER.md 5.0); each spawn is counted (`em_area11_boxes_effect_gap`) |
+| `sound` | `em_sfx_play_at(id, +0xB0, radius)` (its result is not read); 0x454 / 0x455 are not in the exported AREA11 registry (WP-14), so they are silent |
+| `free_owner` | `em_actor_pool_free_001AFC10` |
+| trigger `script_start` / `script_tick` | `em_area11_script_host_start` / `_tick`: 0x8292C0 on the AREA11 script host (AREA_SCRIPT.md section 6) |
+
+**Live evidence** (the level smoke, LEVEL_SMOKE.md):
+- `truck_preview` (route 07): from the trigger's script frame (f164) through
+  the release (f527) and 25 rows after, row for row: the spad bytes, the
+  camera byte, the letterbox, the message block, D_00810792, the player
+  record (+5, +1F0, +1F1, clip, ground), the placement (f167), the heading
+  (f168), the camera eye/target of every shot, and the re-grounded Y after
+  the release; the trigger frees itself.
+- `truck_crossing` (route 08): from the arm (f43, the player standing on the
+  record 0x7A9FB0) through the rest (f209) and 10 rows, the truck record's
+  +0x00..+0x0F, +0xB0 and +0x2DC..+0x2EF and D_00810792 row for row; 32
+  effect spawns; the step-I countdown stops the rumble (the pad block's
+  +0x16 / +0x28 are 0 again, as in route 08's end snapshot).

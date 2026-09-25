@@ -145,6 +145,32 @@ Summary: the *pieces* are largely verified; the *wiring* and the *live scene coo
   (WP-14), so +31B stays -1 and 0016CD70 re-requests 0x12E each tick; the
   entry follows the port's legacy walk and camera (L12, WP-16).
 
+**Status update (2026-09-24, census L23 / L19: the truck set piece live; L21
+blocked):**
+- The **truck 00823FF0** and its **camera trigger 008251E0** run on their
+  pool nodes (em_area11_boxes; TRUCK_ORIGINAL.md "Binding"): the model bank,
+  bone slot, placement, hull cell (uid 14, published class 4, so the floor
+  service stands the player on the truck record), the draw, the rumble
+  (001B1E20 on the new pad block D_00810E40, em_pad_actuator) and the
+  counted effect gap. The legacy static `em_truck.c` is deleted (H16).
+- The **AREA11 script host** is live (em_area11_script_host; AREA_SCRIPT.md
+  6.1): em_area_script runs 0x8292C0 over the canonical storage, with the
+  interaction host's frame-event bindings, the pose host's 00182F90 and the
+  one bound SDK sine. The scripted takeover writes 0015B130's admission
+  (+5 = 0, +1F0 = 0x41) and 00182DF0's release tail on the record.
+- **Main-loop step I** (001B5B70) runs every frame (ORCH-22).
+- The level smoke passes ten live phases: `truck_preview` equals route 07
+  row for row from the script's frame through the release and 25 rows
+  (camera shots, placement, heading, bars, D_00810792, the player record);
+  `truck_crossing` equals route 08's truck record from the arm through the
+  rest (LEVEL_SMOKE.md).
+- **Blocked:** the director 008253F0 (L21, WP-10) stays on `em_director.c`:
+  its beat 0 waits at 06/2 until Roger's alternate script writes D_00810813
+  = 1, and Roger is unbound (L22, WP-9); binding the director alone would
+  hold the player in the scripted frame (DIRECTOR_ORIGINAL.md section 6).
+- **Open:** the truck's effects (L26) and sounds 0x454 / 0x455 (WP-14); the
+  player's walk across the truck is the legacy locomotion (L12).
+
 ---
 
 ## 2. Live call graph (normal run)
@@ -224,7 +250,7 @@ All rows below were adversarially CONFIRMED. Where the verifier corrected a find
 | H13 (P20) | FABRICATED (corrected: the walk target is the near-side staging point) | `src/game/em_player.c:265`; `em_game_internal.h:119` WALK_SPEED 15 | 001BBE40 (byte-matched) snaps yaw and translates the player instantly with 00182F90 to door ±5 − 5·(sin,cos)(yaw), then starts the script (player clips 0x45/0x43, waits 90/70). | Replace with `em_door_transit` + `em_door_program` (WP-7). Interim fix: snap via 00182F90 semantics. |
 | H14 (W07) | NOT_WIRED | `src/game/em_door.c:1` (legacy live); `em_door_transit_active` is defined in legacy `em_door.c:1850` | 001BC350 lifecycle → 001BBE40 kickoff → 001BC0E0 pump → 001BC240/001BC150 commit → 001BC290 close. | Bind `em_door_original_runtime` + transit + program, and use `door_original/model.emdl` (WP-7). |
 | H15 (W10, INV-12, ORCH-08) | FIXED (WP-6, 2026-09-23): the host binds the seven owners at load, each pool node #0..#6 runs its owner (state 0, then `em_area11_interaction_host_pickup_tick`), 00184BA0 arms them from the published list, and `pickup_trigger_scan`, the countdown and the flat inventory add are deleted | Now: `em_area11_interaction_host.c` (bind_pickups, pickup hooks, `_pickup_state0/_tick`), `em_area11_bindings.c` tick_pickup. Found at (deleted in WP-6): `em_pickup.c` pickup_trigger_scan, pickup_take | 0015AFA0/0015AE20 and 00219550: wait for the armed bit 4, start take script 0x2482C0 / 0x248480 (0x266620 / 0x2667E0 for 00219550), wait for 001BA1F0; op-9 take; 00219550 completion plays cue 0x194 and sets taken-bit persistence. | Bind the pickups into the host's interaction scene, tick them from the coordinator, and remove `pickup_trigger_scan` and the countdown (WP-6). |
-| H16 (W16, INV-10) | FABRICATED | `src/game/em_truck.c:263` (AABB trigger, 65-frame fall, -0.9 tumble) | The trigger 008251E0 **only starts camera script 0x8292C0** (gate D_00810792==0, a two-band X/Z union, D_008102B5<2) and then sets D_00810792=1. The truck 00823FF0 arms when the player **stands on it** (the D_008104C4 actor kind 9), shakes for 47 frames, then falls with beats up to 119 frames and X+Y velocity; sound 0x454 plays at frame 8 and 0x455 at frame 110; 24 FX spawns; 3 rumbles; the end state is D_00810792=0xFF. | Freeze the truck static (drop the invented trigger and fall) until 00823FF0/008251E0 are translated with an overlay oracle (WP-1 now, WP-12 later). |
+| H16 (W16, INV-10) | FIXED (census L23, 2026-09-24: em_truck.c deleted; the original owners are live, TRUCK_ORIGINAL.md) — was FABRICATED | `src/game/em_truck.c:263` (AABB trigger, 65-frame fall, -0.9 tumble) | The trigger 008251E0 **only starts camera script 0x8292C0** (gate D_00810792==0, a two-band X/Z union, D_008102B5<2) and then sets D_00810792=1. The truck 00823FF0 arms when the player **stands on it** (the D_008104C4 actor kind 9), shakes for 47 frames, then falls with beats up to 119 frames and X+Y velocity; sound 0x454 plays at frame 8 and 0x455 at frame 110; 24 FX spawns; 3 rumbles; the end state is D_00810792=0xFF. | Freeze the truck static (drop the invented trigger and fall) until 00823FF0/008251E0 are translated with an overlay oracle (WP-1 now, WP-12 later). |
 | H17 (R01) | NOT_WIRED | `src/game/em_scene.c:167`; `em_game.c:1889-1892`; the live `scene_snow/scene.txt` has no fog line | 001D8FD0 (byte-matched) loads the rig record key 0x0B00 (near -209, far 304, RGB 48,48,48). 001D1C50 restores fog every frame. The face PRIM has FGE=1. The snow test's fog constants agree. | Export fog from the record (not the -208 from the old backup manifest). Check fog_apply against GS F=255·(far−z)/(far−near) (WP-1 quick fix, WP-13 verification). |
 | H18 (R02) | APPROXIMATION of invented lighting (corrected; medium-high) | `../Extermination/tools/export_props.py:404` `attr_color`, `export_level.py` `attr_to_color` | Actors use the default mode 0 of 001D89D0: per-vertex rig from 001D8130/001D8340 plus the point-light fold. No original path computes 0.30+0.70·max(N·L,0). | Re-export parachute, truck, door_m03, husk pair, crate, egg, item_13, item_0b and gibs with real normals and flags=0, and remove the stand-in branch (WP-13). |
 | H19 (AM-01) | INACCURATE pitch model (corrected from FABRICATED) | `src/game/em_sfx.c:195`; WAV rates from `audio_export.py:462` `tone_rate` | For A0 events, 00115850 stores bend 0x40 before 00117918. The table anchor is D_00241D70[0xD0]=4096. The legacy rates are ×1.531 (+118 steps), about 7.4 semitones sharp and 35% shorter. Cue 0x3EF (oracle): 10101.56 Hz, not 15480. | Re-export every registry id through the verified pitch path used by `export_startup_audio.py`/`export_area11_sfx.py`, storing an integer SPU pitch. Retire `tone_rate` (WP-14). |
@@ -383,6 +409,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Removes fabrication:** no. Adds a missing encounter.
 
 ### WP-10 Director beats as scripts
+- **Status (2026-09-24): BLOCKED on WP-9.** The script host is live (L19), but beat 0's 06/2 waits for D_00810813 = 1, which only Roger's alternate script 0x828990 writes (route 10 f3460); the director stays on `em_director.c` until Roger is bound (DIRECTOR_ORIGINAL.md section 6).
 - **Scope:**
   - Run manager 008253F0's three scripts through `em_script`, using the same op bindings as WP-9: op00 kinds 0/1/5, op07 sub8/sub4/sub5, op06, 0x16, 0x18, 0D sub2, op0C via WP-8.
   - Implement 001C4760(1,1).
@@ -405,6 +432,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Removes fabrication:** YES (H20). Adds the exit (H21).
 
 ### WP-12 Truck set piece
+- **Status: DONE (census L23, 2026-09-24).** Both owners are live on their nodes with the AREA11 script host (L19); the level smoke's `truck_preview` / `truck_crossing` equal routes 07 / 08. Open: the effects (L26) and the sounds 0x454 / 0x455 (WP-14).
 - **Scope:** translate 008251E0 (camera script 0x8292C0) and 00823FF0 (stand-on arm, shake, fall beats, Z-only carry, sounds 0x454/0x455, FX, rumble, persisted 0xFF), and publish its hull instead of the port's AABB carry (P19).
 - **Verification:** new overlay oracle.
 - **Depends on:** WP-3, WP-10 (script host).
@@ -525,7 +553,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 | W18 | AREA11 crawler model param → mesh | Per-area model table (chunk15/f05_id97 +0x5000) against the crate record param; capture model pointer. |
 | INV-27 | Record 20 (001C4820) mesh binding | Same capture method as the canopy (OPENING_SCENERY.md). |
 | SI-22 | Does op 0x14 spawn (001BAC00) frame coincide with op10 sub1 visibility? | CONTINUE flags in the 0x828FC0 records; opening capture frame index. |
-| ORCH-22/SI-28 | Main-loop phase order has no oracle; step I (001B5B70 rumble countdown) is not called | Instruction trace of 0x001AAE40 over a captured frame. |
+| ORCH-22/SI-28 | Main-loop phase order has no oracle; step I (001B5B70 rumble countdown) runs since census L23 (after step G; step H 001FB100 is still missing) | Instruction trace of 0x001AAE40 over a captured frame. |
 | INV-02 | AREA01 sub 1 scene is not exported | Exporter run for area 1 sub 1 from the user's disc. |
 
 ### Label and documentation corrections found (status as of 2026-09-22)

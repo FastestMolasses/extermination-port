@@ -874,18 +874,39 @@ static int live_port_state(void *context, EmPlayerLiveActor *a)
 static int live_major1(void *context, EmPlayerLiveActor *a)
 {
     if (live.b.takeover) {
+        const uint8_t before3B8F = live.scene.spad3B8F;
+        const int held_before = player_pose_owned();
         int consumed = live.b.takeover(live.b.takeover_context);
         if (consumed < 0 || consumed > 1) return -1;
         /* The takeover stores 3B8D / 3B8F (its frame view): reload. */
         live.busy_known = live_scene_load();
         live.loaded3B8F = live.scene.spad3B8F;
         if (consumed) {
-            /* A scan winner's hand-off (00160220 left +5 = 0x25): the
-             * prelude that admits the owner's script writes +4 = 4, +5 = 0,
-             * +6 = 0 and +1F0 = 0x41 (0015B130 at the 00182B30 admission;
+            /* The prelude that admits the owner's script writes +4 = 4,
+             * +5 = 0, +6 = 0 and +1F0 = 0x41 (0015B130's general branch at
+             * the 00182B30 admission, the stage whose 00182D70 sets 3B8F =
+             * 1): after a scan winner's hand-off (00160220 left +5 = 0x25;
              * route 04 shows +5 = 0 / +1F0 = 0x41 on the frame after the
-             * scan). The stand-in consumes the stage in place of +4 = 4. */
-            if (em_live_u8(a, 4) == 1 && em_live_u8(a, 5) == 0x25) {
+             * scan) and when a script owner's own op07 opened the frame
+             * over a walking or idle player (the truck trigger; route 07
+             * f165). 0015B130's ladder (+5 0x19) and +1F0 0x2A / 0x17
+             * branches write other values and are not reached by an
+             * admission here. The stand-in consumes the stage in place of
+             * +4 = 4. */
+            const int admitted = before3B8F == 0 && live.scene.spad3B8F != 0 &&
+                                 em_live_u8(a, 5) != 0x19 && em_live_u8(a, 0x1F0) != 0x2A &&
+                                 em_live_u8(a, 0x1F0) != 0x17;
+            /* The stage whose takeover released the player (the selector
+             * had cleared): 00182DF0's tail on the record, +4 = 1, +5 = 0,
+             * +6 = 0, +1F0 = 0 (the pose host mirrors the same tail into
+             * the port's callbacks, reset_default_state; route 07 f527). */
+            if (held_before && !player_pose_owned()) {
+                em_live_set_u8(a, 4, 1);
+                em_live_set_u8(a, 5, 0);
+                em_live_set_u8(a, 6, 0);
+                em_live_set_u8(a, 0x1F0, 0);
+            }
+            if (em_live_u8(a, 4) == 1 && (em_live_u8(a, 5) == 0x25 || admitted)) {
                 em_live_set_u8(a, 5, 0);
                 em_live_set_u8(a, 6, 0);
                 em_live_set_u8(a, 0x1F0, 0x41);
@@ -909,7 +930,11 @@ int player_states_stage(void)
     }
     if (!stage_engaged()) return 0;
     live.consumed = live.port_ran = 0;
-    const int port_owned = port_family();
+    /* While the takeover holds the player (00174A50 + 00182D70 acquired it)
+     * the record is the scripted owner's: the port's idle/walk mirrors are
+     * not loaded over +1F0 and its neighbours (the admission's +1F0 = 0x41
+     * stays, route 07 f165..f526). */
+    const int port_owned = port_family() && !player_pose_owned();
     vitals_load();
     if (port_owned) {
         live_from_port();
@@ -1090,10 +1115,10 @@ void player_move_collide(float mx, float mz)
     /* MOVING-SURFACE CARRY (em_collision.h moving-surface registry).
      * After the static floor snap above, consume the per-frame registry:
      * a player footprint on a registered surface within its Y band gets
-     * that surface's velocity added. No actor registers a surface today:
-     * the AREA-11 truck (em_truck_update) no longer registers its top —
-     * its selftest asserts an empty registry — so this call is dormant
-     * and returns 0 every frame. */
+     * that surface's velocity added. No actor registers a surface today
+     * (the AREA-11 truck carries the player through its original hull and
+     * the 00825014 carry, em_area11_boxes), so this call is dormant and
+     * returns 0 every frame. */
     em_collision_moving_carry(g.pos);
 
     /* STATIC BLOCKER PUSH-OUT (the AREA-11 closed GRATE — em_collision.h

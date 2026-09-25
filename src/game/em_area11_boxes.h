@@ -32,7 +32,27 @@
  * 001F0460, 001B11E0 / 001B1190, 001AFA90's child copy, the 001C6120 husk
  * rebind over D_0028A56C, 0019A570 and 0019AD00. The D_002468B0 /
  * D_00246A00 / D_00246A10 tables come from assets/scene_snow/box_tables.emrg
- * (tools/export_box_tables.py). */
+ * (tools/export_box_tables.py).
+ *
+ * The truck 00823FF0 (area11[16], census L23) is the same kind of world
+ * model owner and shares these services, the bone-slot stack and the draw
+ * list: em_truck_original_tick over its record (docs/TRUCK_ORIGINAL.md
+ * "Binding"). Its record keeps +0x04, +0xB0, +0xC0 and the +0x1F0 rest
+ * matrix, +0x2DC..+0x2EC; the fall counter +0x28, +0xD0 and the velocity
+ * scratch 0x700038A0 live in the slot. Workers: 001B0FD0 / 001C6380 as
+ * above, the bone-0 pose 00102958, the hull 001A2370 and its AABB header,
+ * 001B1B70, +0x4C 001CAA00 (props/area_truck.emdl at the bone matrix),
+ * 001B1E20 (em_pad_actuator), 001FBD50 (em_sfx_play_at at the truck's
+ * +0xB0) and 001AFC10. Its effect spawns 001EFD20 (0x80000049) reach no
+ * live effect owner (census L26): each is counted
+ * (em_area11_boxes_effect_gap), as the slide's player-side spawns are.
+ * The camera trigger 008251E0 (area11[17]) runs em_truck_trigger_tick over
+ * its record (+0x04, +0x0B) with the camera script 0x8292C0 on the AREA11
+ * script host (em_area11_script_host). Both read and write D_00810792
+ * (canonical since HK), the live player record (+0x05, +0x0A, +0x214 and
+ * its owner's +0x0D), the player position g.pos (D_00810350) and the pose's
+ * hip (+0xB0); 0x700031F0 (the carry flag) lives here: no live port code
+ * reads it (its reader 0018B9C0 is unbound, census L13). */
 #ifndef EM_AREA11_BOXES_H
 #define EM_AREA11_BOXES_H
 
@@ -49,6 +69,22 @@
  * pool walk. 1, or -1 (a fault; a line on stderr names it). The owner may
  * free its own record (001AFC10) through `pool`. */
 int em_area11_boxes_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
+
+/* The truck 00823FF0 and its trigger 008251E0 (census L23): one owner call
+ * each in the pool walk. 1 allocated, 0 the node freed itself, -1 a fault
+ * (a line on stderr names it). */
+#define EM_AREA11_TRUCK_MESH_PATH "assets/scene_snow/props/area_truck.emdl"
+int em_area11_boxes_truck_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
+int em_area11_boxes_trigger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
+/* The truck record's owner fields for the tick log (the route rows'
+ * truck_r16: +0x28 and the scratch 0x700038A0 are not in them): 1 and the
+ * values when a truck node is live, 0 otherwise. */
+int em_area11_boxes_truck_state(uint32_t *record, uint8_t header[16], float position[3],
+                                uint8_t t2dc[20]);
+/* The truck's 001EFD20 effect spawns that reached the counted gap (no live
+ * effect owner, census L26); a whole set piece spawns 32
+ * (TRUCK_ORIGINAL.md). */
+unsigned em_area11_boxes_effect_gap(void);
 
 /* 001AF710 (the bone-slot stack at every area build) and every node's
  * state dropped: called with the pool reset (001AFCA0). */

@@ -395,10 +395,10 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | #18 | equipment 001C5C90 (r9) | UNBOUND | WP-9 |
 | #19 | opening controller 00823E80 (r10) | `em_opening_runtime_tick`; its camera is `em_opening_runtime_camera()` at the 0018B9C0 stage | WP-10 unifies it with em_script |
 | #20 | manager 00823CE0 (r11) | dormant no-op, traced (it waits on D_00810788) | — |
-| #21 | manager 008253F0 (r12) | legacy `director_tick` | WP-10 |
+| #21 | manager 008253F0 (r12) | legacy `director_tick` (em_director_original waits on Roger, L22: DIRECTOR_ORIGINAL.md section 6) | WP-10 after WP-9 |
 | — | manager 008257A0 (r13) | since S12a: `em_manager_008257A0` (states 0/2/3 translated from the overlay, oracle `test_manager_8257a0_reference`; frees itself on the second world frame, Q3); state 1 (event 0x30 set) faults | WP-10 (its script arm) |
 | #22–23 | drums 00156620 | since census L25: `tick_box` → `em_area11_boxes_tick` (em_drum_original) in both variants | — |
-| #24, #25 | truck 00823FF0, trigger 008251E0 | legacy `em_truck_update` on #24 (static after WP-1) | WP-12 |
+| #24, #25 | truck 00823FF0, trigger 008251E0 | since census L23: `tick_truck` → `em_area11_boxes_truck_tick` (em_truck_original over the shared world-model services) and `em_area11_boxes_trigger_tick` (its 0x8292C0 on em_area11_script_host) in both variants | — |
 | #26 | panel 00159210 (r18) | since WP-4: state 0 = its 001C5570 child and the host's D_008106D0 address; state 1 = `em_area11_interaction_host_panel_tick` (00159210/00157860 and the 001B17A0 publication) in both variants; `grate_update` keeps the static pose and cell 18 | — |
 | #27 | terminal 00827B10 (r19) | since WP-4: state 0 = the floor placement (D_0081083A → +0xB4 190/230, 001C6380: `em_area11_interaction_host_elevator_state0`, WP-4 fix round) and its 001C5760 child (interim spawn); state 1 = `em_area11_interaction_host_elevator_tick` (refusal 0x82A990 / powered 0x82A750 with the carry 00828050, publication at 0x827E78) in both variants | — |
 | #28 | prop 001C4820 (r20) | render-only | — |
@@ -586,6 +586,25 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
     equals route 06 from the entry through the idle return (LEVEL_SMOKE.md
     "slide"); newgame-control PASS (9.599989); the newgame-control frame
     trace is byte-identical to the pre-step build's.
+- **Census L23 / L19: the truck set piece and the AREA11 script host
+  (2026-09-24; live).**
+  - Nodes #24 / #25 run the truck 00823FF0 and its trigger 008251E0 on their
+    records (em_area11_boxes, TRUCK_ORIGINAL.md "Binding"); em_truck.c is
+    deleted and the manifest's `truck` line is no longer read.
+  - em_area11_script_host binds em_area_script (AREA_SCRIPT.md 6.1). A script
+    owner whose op07 opens the frame claims the interaction host's shared
+    player takeover (`em_interaction_runtime_claim_scripted`); the player
+    stage writes the admission's +5 / +6 / +1F0 and 00182DF0's release tail
+    on the record and keeps the port's mirrors off it while the takeover
+    holds the player.
+  - Main-loop step I: `em_frame_set_step_i` runs 001B5B70 over the new pad
+    block D_00810E40 (em_pad_actuator) after step G.
+  - **Verified.** The level smoke passes ten live phases (`truck_preview`,
+    `truck_crossing`: LEVEL_SMOKE.md); newgame-control PASS (9.599989); the
+    newgame-control frame trace equals the pre-step build's except the
+    binding names of #24 / #25 and the truck's 001CB590 a2 (its +0x09 bone
+    count 1, as route 08's truck header), and compare_frame_order gives the
+    pre-step verdicts.
 
 
 **After S13, WP-4…WP-12 each replace one binding row and delete the matching legacy code:**
@@ -597,7 +616,7 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - WP-9: Roger
 - WP-10: kCineBeats
 - WP-11: fan and the exit
-- WP-12: truck
+- WP-12: truck (landed 2026-09-24, census L23)
 
 A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses it. That is a user decision, because run_suite.sh is theirs. **WP-2 (H12) must land before WP-4.**
 

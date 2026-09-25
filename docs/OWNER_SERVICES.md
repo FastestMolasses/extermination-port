@@ -1,7 +1,9 @@
 # Owner model services (shared layer)
 
-Status: 2026-09-23 (fix round: arithmetic moved onto em_ee_float.h, raw-bit float ABI). Standalone translation and oracle, lane `owner-model-services`. **Not bound into the
-frame.** The coordinator binds it; see "Binding" below.
+Status: 2026-09-23 (fix round: arithmetic moved onto em_ee_float.h, raw-bit float ABI). Standalone translation and oracle, lane `owner-model-services`. Bound
+live since census L25 for the crates and drums (em_area11_boxes) and since census L23 (2026-09-24) for the truck
+00823FF0 (the same module) and the pad actuator (em_pad_actuator: 001B1E20 for the truck's rumbles, 001B5B70 at
+main-loop step I); see "Binding" below.
 
 These are the generic original routines that the AREA11 owners call for model binding, bones, placement,
 publication, drawing and rumble. The truck, crates, drums, fan, Roger, elevator and pickups all reach them
@@ -267,8 +269,8 @@ or map it explicitly. It is unreachable unless the em_ee_float form table change
 | Truck 00823FF0, state 0 | `EmTruckHooks.model_bind` | `_001B0FD0`: `*pending` = result. The caller overwrites +0x04. |
 | Truck | `.placement_matrix` | `_001C6380`, then copy the view's +0xD0 into `matrix`. The view needs the full +0xC0 and +0x60 from the record, not only `rotation_x`. |
 | Truck | `.pose` | `em_owner_services_copy_qw4_00102958(D_00275B40[0]->world, matrix)`. |
-| Truck | `.rumble` | `_001B1E20(effect, 0)`. |
-| Truck | `.draw` | `_001CAA00`. |
+| Truck | `.rumble` | `_001B1E20(effect, 0)` (live: `em_pad_actuator_001B1E20`, its 001B61C0 / 001B6250 over the pad block D_00810E40). |
+| Truck | `.draw` | `_001CAA00`. Live: the port's actor draw of `props/area_truck.emdl` at bone slot 0's matrix, as for the crates and drums (the object kernel stays with RENDER). |
 | Crates 001551B0, drums 00156620 (both call 001B0FD0 in state 0; their modules split it) | `.allocate_model` | `_001B0EA0`, result 1/0. |
 | Crates, drums | `.bone_init` | `_001C62C0`. |
 | Crates, drums | `.place` | `_001C6380`, then copy +0xD0 out. |
@@ -278,7 +280,7 @@ or map it explicitly. It is unreachable unless the em_ee_float form table change
 | Roger 008237E0 | publish (em_roger.c) | `_001B17A0`. |
 | Elevator 00827B10 tail (0x827E78), panel 00159210, pickups 00219550, drums 00156620 | ACTOR_COLLISION 7.3 publication | `_001B17A0`, with `w_001B1630` = `em_interaction_visible` (anchor D_008105D0, forward D_00810600, read before the camera update) and `w_001B1B70` = `em_actor_class_publish_001B1B70`. |
 | Pickups 00219550 | its 001B1020 call | `_001B1020(owner, a1, a2, a3)` with the caller's registers. |
-| Main loop step I (0x1AAF6C, every frame, not gated) | em_frame (ORCH-22/SI-28) | `_001B5B70`, with the D_00810E40 pad block's +0x16/+0x28 views. |
+| Main loop step I (0x1AAF6C, every frame, not gated) | em_frame (ORCH-22/SI-28) | `_001B5B70`, with the D_00810E40 pad block's +0x16/+0x28 views. Live since census L23: `em_frame_set_step_i(em_pad_actuator_step_i)` at bring-up. |
 
 **Live for the AREA11 crates and drums (census L25, 2026-09-24).**
 em_area11_boxes.c binds these for 001551B0 / 00156620:

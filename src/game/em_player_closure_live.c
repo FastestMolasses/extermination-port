@@ -43,6 +43,7 @@
 #include "game/em_sdk_soft_float.h"
 #include "game/em_sfx.h"
 #include "game/em_startup_load_gaps.h"
+#include "game/em_pad_actuator.h"
 
 #define FAULT(expr) do { if ((expr) < 0) return -1; } while (0)
 
@@ -558,14 +559,13 @@ static int w_random5(void *c, int *value)
     return 0;
 }
 
-/* 001B61C0: the pad vibration request. Its translation needs the pad block
- * D_00810E40 and the libpad actuator (the IOP boundary), which the port's
- * input layer does not hold; reaching it faults (off the route: heavy
- * landings, hits, ladder rungs). */
+/* 001B61C0(big, small, duration, force): the pad vibration request over the
+ * pad block D_00810E40 (em_pad_actuator, since census L23; heavy landings,
+ * hits, ladder rungs). */
 static int w_rumble(void *c, int a, int b, int d, int e)
 {
-    (void)c; (void)a; (void)b; (void)d; (void)e;
-    return unbound("001B61C0 (pad vibration: no pad block / actuator on the live path)");
+    (void)c;
+    return em_pad_actuator_001B61C0((uint8_t)a, (uint8_t)b, d, e);
 }
 
 /* SDK leaves (em_sdk_math_original over the world's context; a fault is

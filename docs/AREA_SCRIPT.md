@@ -2,9 +2,12 @@
 
 `src/game/em_area_script.{h,c}` runs the original event scripts of the AREA11
 owners: 001BA1A0 (start) / 001BA1F0 (poll) with the ftab_0024D880 command
-handlers those scripts use. Status: **built and oracle-verified, not wired**.
-The coordinator binds it (section 6); until then nothing on the live path
-changes.
+handlers those scripts use. Status: **live for the truck trigger 008251E0
+(0x8292C0) since census L19 / L23 (2026-09-24)** through the binder
+`em_area11_script_host` (section 6); the level smoke's `truck_preview` phase
+reproduces route 07 row for row. The director's scripts (L21) and Roger's
+(L22) are not bound: the director waits on Roger (DIRECTOR_ORIGINAL.md
+section 6).
 
 ## 1. What it is
 
@@ -245,16 +248,70 @@ sides; it makes no timing claim about the original services.
   them.
 - Not captured on the route (still lockstep-only): director beat 3 0x829E80,
   Roger 0x828810 / 0x828A10, and the skip paths (the route presses no skip).
-- Untranslated callees the host reaches: 00182BF0 (op16 frame predicate; decomp
-  C exists), 001B0C00 and 001B6250 (op18 skip landing), 001B0460 (op0D sub1),
-  001B1240 / 001B12B0 / 001B1380 as exported functions (`em_pickup_turn` has
-  the bearing/step internally), 001DFE10 / 001DFE40 (manager callbacks), the
-  008253F0 manager and 00823910/00823B70/00823C40 Roger sub-owners themselves.
+- 00182BF0, 001B0C00, 001B6250, 001B0460 and 001B1240 / 001B12B0 / 001B1380
+  are translated in `em_script_host_workers` (SCRIPT_HOST_WORKERS.md) but
+  not bound to this host yet: only the director's and Roger's scripts reach
+  them. 001DFE10 / 001DFE40 (the manager callbacks) and Roger's sub-owners
+  00823910 / 00823B70 / 00823C40 remain.
 - Script images: `roger/programs.emsc` (0x8283D0..0x828BD0), `elevator.emsc`
-  (0x82A750..0x82AB10) and `panel/scripts.emsc` exist; the truck and manager
-  scripts (0x8292C0..0x82A3C0) have no export yet.
+  (0x82A750..0x82AB10), `panel/scripts.emsc`, and since the script host
+  workers lane `area11_scripts/scripts.emsc` (0x8292C0..0x82A3C0: the truck
+  preview and the director beats) with `director_quads.emsc`
+  (`tools/export_area11_scripts.py`).
+- The panel, elevator and pickup programs (`em_panel_program`,
+  `em_elevator_program`, `em_pickup_program`) still run their own subsets of
+  the same handlers (op00 sub0, op01 sub1, op04 sub8, op0A, op0C, op0D
+  sub5, op09); moving them onto this host is open (one bound owner per
+  handler).
 
-## 6. Binding (for the coordinator)
+## 6. Binding
+
+### 6.1 As built (census L19 / L23, 2026-09-24)
+
+`src/game/em_area11_script_host.{h,c}` binds the host for the AREA11 overlay
+owners. Bound owner: the truck trigger 008251E0 (its 0x8292C0). At every
+area build (`em_area11_bindings_reset`) the images are dropped; the first
+start of a visit loads fresh `scripts.emsc` / `director_quads.emsc`
+(`em_area11_scripts_load`; the scripts are mutated in place). Each owner
+has one `EmAreaScript`; its block (+0x1F0..+0x21F) lives in the owner's
+pool record and is loaded and stored around every start and tick.
+
+World: the scratchpad bytes (3B84 / 3B8D / 3B8F / 3B91 / 3B92) and the
+request bytes (D_008106D4..DF, EF, F3, F4) point into `EmSceneState`; the
+camera bytes E1 / E3 / E4 / E6 into `g.cam` (sub_state, swing, top_mode,
+mode), the message words into the live message block, D_0028A9A0 into the
+transition, the owner's +0xB0 / +0xC0 into its pool record. The four-lane
+vectors whose canonical storage has three lanes (the camera's +0x10 / +0x20,
+D_008105D0 / E0 / F0, the player's +0xA0 / +0xB0 / +0xC0) are one view in
+the binder, loaded before each tick and each worker call and stored after
+(only their w lanes live there; a changed heading goes through the pose
+host's `player_pose_face`). D_008101E2 (no port reader) lives in the binder.
+Every other pointer is NULL: a script that reaches it faults.
+
+Workers: the 001B82D0 frame events through the interaction host's bindings
+(`em_area11_interaction_host_frame_event`: 001AEB60(4), 001D2610(0),
+001AEBA0(4), 001CA770, 001D25F0(480), 001FAE70(0), 001AEE10(4, 0)); 00182F90
+→ `player_pose_align`; 001DD980 → the host's projection publish of the
+working vectors; 0011E2A8 → `em_sdk_math_original_w_0011E2A8` over the
+collision world's SDK context (the one bound SDK sine; `tests/area_script_test.c`
+shows it equal to `em_area_script_sin_0011E2A8` on every ease argument
+pi * k/d - pi/2, d = 1..400). Every other worker is NULL (fail-stop).
+
+The player takeover: after a tick whose op07 opened the scripted frame
+(3B8D != 0), the owner claims the interaction host's shared player runtime
+(`em_area11_interaction_host_claim_script`, the stand-in for 0015B130's
+00182B30 admission the panel and elevator scripts use); the runtime acquires
+the player at its next stage (in the cutscene variant, after the pool walk:
+3B8F = 1 one row after 3B8D = 2, route 07 f164 / f165) and releases it when
+the selector clears. On the acquiring stage the record gets the admission's
++5 = 0, +6 = 0 and +1F0 = 0x41 (its +4 = 4 is not written: the stand-in
+consumes the stage in place of the +4 = 4 handler), the port's idle/walk
+mirrors are not loaded over the record while the takeover holds the player,
+and the releasing stage writes 00182DF0's tail (+4 = 1, +5 = 0, +6 = 0,
++1F0 = 0) (em_player.c `live_major1`, `player_states_stage`); route 07 shows
+exactly these values row for row.
+
+### 6.2 The design binding (for the remaining owners)
 
 One `EmAreaScript` per owner actor (the original block is that actor's
 +0x1F0): `world.self` = the owner node address, `s040/s0B0/s0C0` = its +0x40,

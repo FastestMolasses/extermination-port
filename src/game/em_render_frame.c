@@ -36,7 +36,6 @@
 #include "game/em_pickup.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
-#include "game/em_truck.h"
 #include "game/em_weapon.h"
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
@@ -140,20 +139,6 @@ void render_chain_build(void)
             *cd = (ChainDraw){ g.grate_mesh, g.grate_palette,
                                g.grate_model.bone_count, NULL };
     }
-    /* WEDGED TRUCK (AREA-11 record 16, owner 00823FF0). Drawn as a rigid
-     * prop at its manifest placement: it stays static until the original
-     * behaviour is translated (WP-12, em_truck.h). Absent when no `truck`
-     * line placed one. */
-    {
-        EmGfxMesh   *tmesh;
-        const float *tpal;
-        uint32_t     tbones;
-        if (em_truck_draw(&tmesh, &tpal, &tbones)) {
-            ChainDraw *cd = chain_push();
-            if (cd)
-                *cd = (ChainDraw){ tmesh, tpal, tbones, NULL };
-        }
-    }
     /* Interactive doors (actor draws — func_001BC300's publish). The
      * chain records palette POINTERS; em_door_update (the world-services
      * slot, after this build) writes this frame's pose into them before
@@ -178,9 +163,10 @@ void render_chain_build(void)
             g.chain_len++;
         }
     }
-    /* AREA11 crates and drums (census L25): the original owners whose +0x4C
-     * (001CAA00) ran in their last owner call, at their bone matrices
-     * (em_area11_boxes; the object kernel itself stays with RENDER). */
+    /* AREA11 crates, drums (census L25) and the truck (L23): the original
+     * owners whose +0x4C (001CAA00) ran in their last owner call, at their
+     * bone matrices (em_area11_boxes; the object kernel itself stays with
+     * RENDER). */
     for (int i = 0, n = em_area11_boxes_draw_count(); i < n; i++) {
         if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
         ChainDraw *cd = &g.chain[g.chain_len];

@@ -145,6 +145,13 @@ typedef struct {
     void *context;
 } EmFrameMessageService;
 void em_frame_set_message_service(const EmFrameMessageService *service);
+/* Main-loop step I (0x1AAF6C), 001B5B70, the rumble countdown: it runs every
+ * frame, after the full-screen transition (step G) and not gated
+ * (ORIGINAL_FRAME_ORDER.md section 1). The game installs the pad actuator's
+ * service (em_pad_actuator_step_i); -1 is a fault (the frame quits). NULL
+ * uninstalls it. */
+void em_frame_set_step_i(int (*service)(void *context), void *context);
+
 void em_frame_set_movie_active(int active);
 
 #ifdef __cplusplus

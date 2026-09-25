@@ -36,7 +36,9 @@ int  em_gamepad_present(void);
 /* Force feedback. `big`/`small` are the two motor levels in 0..1 (the engine's
  * table stores them as bytes); `frames` is the duration in FRAMES, matching
  * func_001B1E20's units — it passes either the caller's short or the effect
- * table's default duration byte. frames = 0 stops immediately.
+ * table's default duration byte. frames = 0 stops immediately. frames < 0
+ * holds the levels until the next call: the libpad actuator write 00111018
+ * (em_pad_actuator), whose duration is the game's own countdown 001B5B70.
  *
  * Safe to call with no pad attached; the request is recorded either way so
  * callers never have to branch on presence. */

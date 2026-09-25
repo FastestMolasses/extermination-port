@@ -65,6 +65,12 @@ int em_interaction_runtime_set_cinematic_player_worker(EmInteractionRuntime *run
 /* After original single-winner use arbitration/alignment, claim the owner
  * and publish selector3. A competing token cannot replace a live owner. */
 int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owner);
+/* An owner whose own script opened the scripted frame (op07 already wrote
+ * the selector, e.g. the truck trigger 008251E0's 0x8292C0): the player
+ * takeover the next player stage performs (0015B130's 00182B30 admission)
+ * serves that owner. Requires a nonzero selector and a free, unacquired
+ * player; writes nothing to the frame. 1 claimed, 0 refused. */
+int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner);
 int em_interaction_runtime_owns(const EmInteractionRuntime *runtime, const void *owner);
 const void *em_interaction_runtime_owner(const EmInteractionRuntime *runtime);
 int em_interaction_runtime_camera_owned(const EmInteractionRuntime *runtime);

@@ -11,17 +11,21 @@
 #include "em_model.h"
 #include "game/em_actor_collision.h"
 #include "game/em_area11_interaction_host.h"
+#include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
 #include "game/em_crate_original.h"
 #include "game/em_drum_original.h"
 #include "game/em_frame.h"
+#include "game/em_game_internal.h"
 #include "game/em_owner_draw_original.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_pad_actuator.h"
 #include "game/em_player.h"
 #include "game/em_random.h"
 #include "game/em_roger_actor_original.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_sfx.h"
+#include "game/em_truck_original.h"
 
 enum {
     BOX_MAX = 8,                  /* AREA11 places four crates and two drums */
@@ -31,6 +35,8 @@ enum {
 };
 #define CRATE_CALLBACK 0x001551B0u
 #define DRUM_CALLBACK 0x00156620u
+#define TRUCK_CALLBACK 0x00823FF0u
+#define TRIGGER_CALLBACK 0x008251E0u
 #define METHOD_001CAA00 0x001CAA00u
 #define TABLES_BASE 0x002468B0u
 #define TABLES_SIZE 0x170u
@@ -42,8 +48,10 @@ typedef struct {
     EmActor *actor;
     uint32_t generation;  /* the record's generation when the slot was taken */
     int drum;
+    int truck;            /* 00823FF0 (census L23) */
     EmCrateOriginal crate;
     EmDrumOriginal drum_state;
+    EmTruckOriginal truck_state;
     EmOwnerServicesOwner view;  /* +0x09, +0x0C, +0x44, +0x60, +0xD0, +0x110 */
     uint32_t method;      /* +0x4C: 001CA5F0 kind 0 = 001CAA00 */
     int drawn;            /* +0x4C ran in the last owner call */
@@ -87,7 +95,11 @@ static struct {
     int tables_tried, tables_loaded;
     float rattle[RATTLE_ROWS][4][3];
     float speed[4], lift[4];
-    BoxMesh crate_mesh, drum_mesh;
+    BoxMesh crate_mesh, drum_mesh, truck_mesh;
+    /* 0x700031F0: set to 1 by the truck's carry (00825014); no live reader. */
+    int32_t carry31F0;
+    /* The truck's 001EFD20 spawns that reached the counted effect gap. */
+    unsigned effect_gap;
     int draw_order[BOX_MAX];
     int draw_count;
     unsigned reported;
@@ -173,18 +185,27 @@ static int load_tables(void)
 
 /* The legacy actor-draw mesh of a box kind: the scene's own
  * props/enemy_crate.emdl or assets/enemy_crate.emdl for the crates,
- * assets/enemy_egg.emdl for the drums (the paths em_enemy.c loads). */
-static BoxMesh *mesh_for(int drum)
+ * assets/enemy_egg.emdl for the drums (the paths em_enemy.c loads), and the
+ * truck's props/area_truck.emdl (per-area model 9, the legacy static truck's
+ * mesh). */
+static BoxMesh *mesh_of(const Box *b)
 {
-    BoxMesh *m = drum ? &S.drum_mesh : &S.crate_mesh;
+    return b->truck ? &S.truck_mesh : b->drum ? &S.drum_mesh : &S.crate_mesh;
+}
+
+static BoxMesh *mesh_for(const Box *b)
+{
+    BoxMesh *m = mesh_of(b);
     if (m->mesh) return m;
     if (m->tried) return NULL;
     m->tried = 1;
     static const char *const crate_paths[] = {"assets/scene_snow/props/enemy_crate.emdl",
                                               "assets/enemy_crate.emdl"};
     static const char *const drum_paths[] = {"assets/enemy_egg.emdl"};
-    const char *const *paths = drum ? drum_paths : crate_paths;
-    size_t count = drum ? 1 : 2;
+    static const char *const truck_paths[] = {EM_AREA11_TRUCK_MESH_PATH};
+    const int drum = b->drum;
+    const char *const *paths = b->truck ? truck_paths : drum ? drum_paths : crate_paths;
+    size_t count = b->truck || drum ? 1 : 2;
     for (size_t i = 0; i < count; ++i) {
         FILE *probe = fopen(paths[i], "rb");
         if (!probe) continue;
@@ -206,8 +227,9 @@ static BoxMesh *mesh_for(int drum)
         em_model_palette_at(&m->model, 0, 0.0, m->base);
         return m;
     }
-    fprintf(stderr, "em_area11 boxes: no %s mesh; the %s are not drawn\n",
-            drum ? "assets/enemy_egg.emdl" : "enemy_crate.emdl", drum ? "drums" : "crates");
+    fprintf(stderr, "em_area11 boxes: no %s mesh; the %s not drawn\n",
+            b->truck ? EM_AREA11_TRUCK_MESH_PATH : drum ? "assets/enemy_egg.emdl" : "enemy_crate.emdl",
+            b->truck ? "truck is" : drum ? "drums are" : "crates are");
     return NULL;
 }
 
@@ -401,11 +423,22 @@ static void view_sync(Box *b)
     const EmActor *a = b->actor;
     EmOwnerServicesOwner *v = &b->view;
     v->cls = a->cls;
-    v->kind = b->drum ? b->drum_state.model : b->crate.model;
-    v->lifecycle = b->drum ? b->drum_state.state : b->crate.state;
     v->model_id = a->param;
     v->flags2 = a->flags2;
     memcpy(v->scale, a->f60, sizeof v->scale);
+    if (b->truck) {
+        /* The truck's record: +0x03, +0x04, +0xB0 and the whole +0xC0 (the
+         * truck module reads only +0xC0's X, 001C6380 all three). */
+        v->kind = a->model;
+        v->lifecycle = b->truck_state.state;
+        memcpy(v->pos, b->truck_state.position, sizeof b->truck_state.position);
+        v->pos[3] = a->pos[3];
+        memcpy(v->rot, a->rot, sizeof v->rot);
+        v->rot[0] = b->truck_state.rotation_x;
+        return;
+    }
+    v->kind = b->drum ? b->drum_state.model : b->crate.model;
+    v->lifecycle = b->drum ? b->drum_state.state : b->crate.state;
     memcpy(v->pos, b->drum ? b->drum_state.position : b->crate.position, sizeof v->pos);
     memcpy(v->rot, b->drum ? b->drum_state.rotation : b->crate.rotation, sizeof v->rot);
 }
@@ -496,7 +529,7 @@ static int h_draw(void *ctx)
 {
     Box *b = ctx;
     if (b->method != METHOD_001CAA00) return report("+0x4C is not 001CAA00");
-    BoxMesh *m = mesh_for(b->drum);
+    BoxMesh *m = mesh_for(b);
     if (!m) return 0;
     const EmOwnerBone *root = b->view.bone_count ? b->view.bone[0] : NULL;
     if (!root) return report("+0x4C without a bone slot");
@@ -618,6 +651,7 @@ static Box *box_for(EmActor *actor)
     free_slot->actor = actor;
     free_slot->generation = actor->generation;
     free_slot->drum = actor->callback == DRUM_CALLBACK;
+    free_slot->truck = actor->callback == TRUCK_CALLBACK;
     return free_slot;
 }
 
@@ -687,6 +721,251 @@ int em_area11_boxes_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
     return 1;
 }
 
+/* ------------------------------------------------ the truck (census L23) */
+
+/* Record <-> EmTruckOriginal: +0x04, +0xB0, +0xC0's X and the +0x1F0 block
+ * (+0x1F0 rest matrix, +0x2DC / +0x2E0 jitter, +0x2E4 rest Y, +0x2E8 rest
+ * X angle, +0x2EC shake counter); +0x28, +0xD0 and the velocity scratch
+ * stay in the slot. */
+static void truck_load(Box *b)
+{
+    const EmActor *a = b->actor;
+    EmTruckOriginal *t = &b->truck_state;
+    t->state = a->u04[0];
+    memcpy(t->position, a->pos, sizeof t->position);
+    t->rotation_x = a->rot[0];
+    get_floats(a->scratch, 0x1F0, t->rest_matrix, 16);
+    get_floats(a->scratch, 0x2DC, &t->jitter_z, 1);
+    get_floats(a->scratch, 0x2E0, &t->jitter_x, 1);
+    get_floats(a->scratch, 0x2E4, &t->rest_y, 1);
+    get_floats(a->scratch, 0x2E8, &t->rest_rotation_x, 1);
+    memcpy(&t->shake, a->scratch + (0x2EC - 0x1F0), 4);
+}
+
+static void truck_store(Box *b)
+{
+    EmActor *a = b->actor;
+    const EmTruckOriginal *t = &b->truck_state;
+    a->u04[0] = t->state;
+    memcpy(a->pos, t->position, sizeof t->position);
+    put_floats(a->scratch, 0x1F0, t->rest_matrix, 16);
+    put_floats(a->scratch, 0x2DC, &t->jitter_z, 1);
+    put_floats(a->scratch, 0x2E0, &t->jitter_x, 1);
+    put_floats(a->scratch, 0x2E4, &t->rest_y, 1);
+    put_floats(a->scratch, 0x2E8, &t->rest_rotation_x, 1);
+    memcpy(a->scratch + (0x2EC - 0x1F0), &t->shake, 4);
+}
+
+/* 001B0FD0(self): 001B0EA0, bone_init_default_1, +0x04 += 1 (the truck
+ * overwrites +0x04 itself). *pending = its result. */
+static int t_model_bind(void *ctx, int *pending)
+{
+    Box *b = ctx;
+    if (load_bank() < 0) return -1;
+    view_sync(b);
+    int r = em_owner_services_001B0FD0(&S.services, &b->view);
+    if (r < 0 || services_fault("001B0FD0") < 0) return -1;
+    b->actor->bones = b->view.bones_held;    /* +0x09 */
+    b->actor->u0A[2] = b->view.bone_count;   /* +0x0C */
+    *pending = r;
+    return 1;
+}
+
+static int t_placement(void *ctx, float matrix[16])
+{
+    Box *b = ctx;
+    view_sync(b);
+    if (em_owner_services_001C6380(&S.services, &b->view) < 0 || services_fault("001C6380") < 0) return -1;
+    memcpy(matrix, b->view.world, sizeof b->view.world);
+    return 1;
+}
+
+static int t_pose(void *ctx, const float matrix[16])
+{
+    return h_bone_matrix(ctx, matrix) < 0 ? -1 : 1;
+}
+
+static int t_hull(void *ctx, const float matrix[16])
+{
+    return h_hull(ctx, matrix) < 0 ? -1 : 1;
+}
+
+static int t_hull_bounds(void *ctx, float bounds[6])
+{
+    Box *b = ctx;
+    EmActorCollisionOwner o = {em_collision_world_cells(), NULL, b->actor, b->pool};
+    if (!o.world) return -1;
+    return em_actor_collision_owner_hull_bounds(&o, bounds) == 1 ? 1 : -1;
+}
+
+static int t_publish(void *ctx)
+{
+    return h_publish(ctx) < 0 ? -1 : 1;
+}
+
+static int t_draw(void *ctx)
+{
+    return h_draw(ctx) < 0 ? -1 : 1;
+}
+
+/* 001B1E20(effect, 0) on the pad actuator block. */
+static int t_rumble(void *ctx, int effect)
+{
+    (void)ctx;
+    return em_pad_actuator_001B1E20(effect, 0) < 0 ? -1 : 1;
+}
+
+/* 001EFD20(0x80000049, position): the effect entity spawn has a
+ * translation (em_effect_original) but no live effect owner (census L26,
+ * blocked on the render-context storage, EFFECT_MANAGER.md 5.0): nothing is
+ * spawned; the call is reported once and counted. */
+static int t_effect(void *ctx, uint32_t id, const float position[4])
+{
+    (void)ctx;
+    (void)position;
+    if (id != EM_TRUCK_EFFECT_ID) return report("001EFD20 with an effect id other than 0x80000049");
+    if (S.effect_gap++ == 0)
+        fprintf(stderr, "em_area11 boxes: the truck's 001EFD20 (0x80000049) spawns reach no live effect owner "
+                        "(census L26); counted by em_area11_boxes_effect_gap\n");
+    return 1;
+}
+
+/* 001FBD50(self, id, 0, radius): its result is not read. */
+static int t_sound(void *ctx, uint16_t id, float radius)
+{
+    Box *b = ctx;
+    em_sfx_play_at(id, b->truck_state.position, radius);
+    return 1;
+}
+
+static int t_free(void *ctx)
+{
+    return h_free(ctx) < 0 ? -1 : 1;
+}
+
+/* D_008104C4's owner: the player's +0x214 pointer is the ground owner's
+ * pool record (em_player_floor.h), whose +0x0D the truck reads. The
+ * player's +0xB0 is read only by the falling truck's carry test (00825014);
+ * `need_hip` loads it then (the pose has no hip before the opening's
+ * release, when the owners already run). */
+static int truck_world(EmTruckWorld *w, EmSceneState *scene, float hip[3], int need_hip)
+{
+    EmPlayerLiveActor *p = player_states_actor_mut();
+    memset(w, 0, sizeof *w);
+    w->story = em_scene_progress_at(scene, 0x00810792u, 1);
+    if (!w->story) return report("D_00810792 is not canonical");
+    w->player_phase = &p->bytes[0x05];
+    w->player_0a = &p->bytes[0x0A];
+    w->ground_kind = p->link_owner ? &((const EmActor *)p->link_owner)->param : NULL;
+    w->player_a0 = g.pos;
+    hip[0] = hip[1] = hip[2] = 0.0f;
+    if (need_hip && !player_pose_hip(hip))
+        return report("00825014 reads the player's +0xB0 before the pose has one");
+    w->player_b0 = hip;
+    w->carry = &S.carry31F0;
+    return 0;
+}
+
+int em_area11_boxes_truck_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
+{
+    if (!actor || !pool || !scene || actor->callback != TRUCK_CALLBACK) return -1;
+    if (!S.stack.world.d00275BCC) em_area11_boxes_reset();
+    Box *b = box_for(actor);
+    if (!b) return report("more AREA11 world-model owners than slots");
+    b->pool = pool;
+    b->scene = scene;
+    b->drawn = 0;
+    EmTruckWorld w;
+    float hip[3];
+    truck_load(b);
+    if (truck_world(&w, scene, hip, b->truck_state.state == 1) < 0) return -1;
+    const EmTruckHooks hooks = {b, t_model_bind, t_placement, t_pose, t_hull, t_hull_bounds, t_publish,
+                                t_draw, t_rumble, t_effect, t_sound, t_free};
+    int r = em_truck_original_tick(&b->truck_state, &w, &hooks);
+    if (r < 0) {
+        fprintf(stderr, "em_area11 boxes: the truck 00823FF0 faulted in state %u\n",
+                (unsigned)b->truck_state.state);
+        return -1;
+    }
+    if (!b->freed) truck_store(b);
+    return b->freed ? 0 : 1;
+}
+
+/* ------------------------------------- the truck's camera trigger 008251E0 */
+
+typedef struct {
+    EmActor *actor;
+    EmActorPool *pool;
+    EmSceneState *scene;
+    int freed;
+} Trigger;
+
+static int g_script_start(void *ctx, uint32_t entry)
+{
+    Trigger *t = ctx;
+    return em_area11_script_host_start(t->actor, entry) < 0 ? -1 : 1;
+}
+
+/* 001BA1F0(actor): any nonzero result (1 finished, 3 aborted) ends the
+ * trigger's state 1. */
+static int g_script_tick(void *ctx, int *done)
+{
+    Trigger *t = ctx;
+    int32_t r;
+    if (em_area11_script_host_tick(t->actor, &r) < 0) return -1;
+    *done = r != 0;
+    return 1;
+}
+
+static int g_free(void *ctx)
+{
+    Trigger *t = ctx;
+    if (em_actor_pool_free_001AFC10(t->pool, t->scene, t->actor) < 0) return -1;
+    t->freed = 1;
+    return 1;
+}
+
+int em_area11_boxes_trigger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
+{
+    if (!actor || !pool || !scene || actor->callback != TRIGGER_CALLBACK) return -1;
+    EmTruckWorld w;
+    float hip[3];
+    if (truck_world(&w, scene, hip, 0) < 0) return -1;
+    Trigger ctx = {actor, pool, scene, 0};
+    const EmTruckTriggerHooks hooks = {&ctx, g_script_start, g_script_tick, g_free};
+    EmTruckTrigger t = {actor->u04[0], actor->u0A[1], 0};
+    int r = em_truck_trigger_tick(&t, &w, &hooks);
+    if (r < 0) {
+        fprintf(stderr, "em_area11 boxes: the truck trigger 008251E0 faulted in state %u\n", (unsigned)t.state);
+        return -1;
+    }
+    if (ctx.freed) return 0;
+    actor->u04[0] = t.state;   /* +0x04 */
+    actor->u0A[1] = t.armed;   /* +0x0B */
+    return 1;
+}
+
+unsigned em_area11_boxes_effect_gap(void)
+{
+    return S.effect_gap;
+}
+
+int em_area11_boxes_truck_state(uint32_t *record, uint8_t header[16], float position[3], uint8_t t2dc[20])
+{
+    for (unsigned i = 0; i < BOX_MAX; ++i) {
+        const Box *b = &S.box[i];
+        if (!b->truck || !b->actor || b->freed || b->actor->generation != b->generation || !b->pool) continue;
+        uint8_t image[EM_ACTOR_RECORD_SIZE];
+        em_actor_pool_record_image(b->pool, b->actor, image);
+        *record = em_actor_pool_address(b->pool, b->actor);
+        memcpy(header, image, 16);
+        memcpy(position, b->actor->pos, 3 * sizeof(float));
+        memcpy(t2dc, image + 0x2DC, 20);
+        return 1;
+    }
+    return 0;
+}
+
 /* EM_BOX_DUMP=<path> (instrumentation only): after every walk, each live
  * box as "EMBX" v1, u32 count, then per box u32 callback, u32 record
  * address and the 0x2F0-byte record image with the owner's +0x28/+0x2A,
@@ -707,14 +986,14 @@ static void dump_if_requested(void)
     uint32_t count = 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         const Box *b = &S.box[i];
-        count += b->actor && !b->freed && b->actor->generation == b->generation && b->pool;
+        count += b->actor && !b->freed && !b->truck && b->actor->generation == b->generation && b->pool;
     }
     const uint32_t head[2] = {0x58424D45u /* "EMBX" */, 1};
     fwrite(head, sizeof head, 1, f);
     fwrite(&count, sizeof count, 1, f);
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         const Box *b = &S.box[i];
-        if (!b->actor || b->freed || b->actor->generation != b->generation || !b->pool) continue;
+        if (!b->actor || b->freed || b->truck || b->actor->generation != b->generation || !b->pool) continue;
         uint8_t image[EM_ACTOR_RECORD_SIZE];
         em_actor_pool_record_image(b->pool, b->actor, image);
         if (b->drum) {
@@ -751,7 +1030,7 @@ int em_area11_boxes_draw(int i, EmGfxMesh **mesh, const float **palette, uint32_
 {
     if (i < 0 || i >= S.draw_count) return 0;
     const Box *b = &S.box[S.draw_order[i]];
-    const BoxMesh *m = b->drum ? &S.drum_mesh : &S.crate_mesh;
+    const BoxMesh *m = mesh_of(b);
     if (!m->mesh) return 0;
     *mesh = m->mesh;
     *palette = b->palette;
@@ -761,8 +1040,8 @@ int em_area11_boxes_draw(int i, EmGfxMesh **mesh, const float **palette, uint32_
 
 void em_area11_boxes_shutdown(EmGfx *gfx)
 {
-    BoxMesh *meshes[2] = {&S.crate_mesh, &S.drum_mesh};
-    for (unsigned i = 0; i < 2; ++i) {
+    BoxMesh *meshes[3] = {&S.crate_mesh, &S.drum_mesh, &S.truck_mesh};
+    for (unsigned i = 0; i < 3; ++i) {
         if (meshes[i]->mesh) {
             em_gfx_mesh_destroy(gfx, meshes[i]->mesh);
             em_model_free(&meshes[i]->model);

@@ -189,7 +189,6 @@
 #include "game/em_pickup.h"
 #include "game/em_sfx.h"
 #include "game/em_task.h"
-#include "game/em_truck.h"
 #include "game/em_weapon.h"
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
@@ -981,8 +980,9 @@ void em_game_legacy_collision_clears(void)
      * REGISTRY (em_collision.h §blocker): both cleared once per world
      * frame here. Neither has a runtime registrant today:
      * em_collision_moving_register and em_collision_blocker_register are
-     * called only from the em_collision.c self-tests (the truck is static
-     * until WP-12, em_truck.h, and grate_update registers no blocker).
+     * called only from the em_collision.c self-tests (the AREA11 truck
+     * rides on its original hull, em_area11_boxes, and grate_update
+     * registers no blocker).
      * So both registries are always empty, the player stage's carry
      * (em_collision_moving_carry) and push-out (em_collision_blocker_probe)
      * are no-ops, and running these clears after 0015BCF0 since S10a
@@ -1129,13 +1129,6 @@ void em_game_legacy_player_residue(void)
 void em_game_legacy_pool_gameplay(void)
 {
     em_game_legacy_collision_clears();
-    /* WEDGED TRUCK (AREA-11 record 16, overlay owner 00823FF0, a pool
-     * node, so it runs here since S10a). em_truck_update changes nothing
-     * today: the original stand-on
-     * trigger, fall sequence and D_00810792 persistence are not
-     * translated (WP-12, em_truck.h), so the truck is static and
-     * registers no moving surface. */
-    em_truck_update(g.pos);
     /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — record 12,
      * ov 0x8253F0). The manager is a pool node, so since S10a it ticks
      * here, AFTER the player stage, as in the original (001AE5E0: 0015BCF0
@@ -1855,7 +1848,6 @@ void em_game_shutdown(void)
     g.n_scene = 0;
     elevator_unload(gfx);       /* AREA-11 platform mesh */
     grate_unload(gfx);          /* AREA-11 power-panel mesh */
-    em_truck_clear(gfx);        /* AREA-11 wedged-truck actor + mesh */
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);

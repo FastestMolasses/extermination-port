@@ -50,6 +50,8 @@ static struct {
     EmFrameMoviePump movie_pump;
     void        *movie_user;
     EmFrameMessageService message;    /* step F 001FCA10 presenter */
+    int (*step_i)(void *);            /* step I 001B5B70 (em_pad_actuator) */
+    void        *step_i_context;
     bool         pace_initialized;
     bool         uncapped;
     struct timespec next_deadline;
@@ -126,6 +128,12 @@ void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
 {
     s_frame.movie_pump = pump;
     s_frame.movie_user = user;
+}
+
+void em_frame_set_step_i(int (*service)(void *context), void *context)
+{
+    s_frame.step_i = service;
+    s_frame.step_i_context = context;
 }
 
 void em_frame_set_message_service(const EmFrameMessageService *service)
@@ -319,6 +327,9 @@ int em_frame_step(void)
         s_frame.message.render(s_frame.message.context, s_frame.gfx);
     s_frame.suspended_draw_transition =
         em_transition_fade_tick(&s_frame.transition) != 0;
+    /* I: 001B5B70, the rumble countdown (step H 001FB100 is not ported). */
+    if (s_frame.step_i && s_frame.step_i(s_frame.step_i_context) < 0)
+        s_frame.quit = true;
 
     /* 00203350 blocks the original main iteration at M while playing.
      * Native presentation is incremental, so preserve that suspension

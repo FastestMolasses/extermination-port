@@ -14,22 +14,22 @@ directories the original holds in the route captures
 scratchpad word 0x70003250):
 
   * first dump (after every owner's state 0) vs beat 00_panel_no_battery:
-    the terminal's cell (uid 4) at the upper floor and the item cells
-    (uids 19, 21..25) must equal the original's bytes;
+    the terminal's cell (uid 4) at the upper floor, the item cells (uids 19,
+    21..25) and, since census L23, the truck's (uid 14, re-transformed by
+    00823FF0's state 0 at its placement) must equal the original's bytes;
   * last dump (after the ride's completion) vs beat 04_elevator_ride: uid 4
     at the lower floor (0x827E54's 001A2370), the items unchanged (the
     battery's cell keeps its last transform after the take), and the last
     frame's published class-4 list equal to the original's entries of the
-    owners the port runs (panel, terminal, items, and the crates and drums
-    on their original owners since census L25: the crates publish their
-    cells, uids 7..10, on every rest tick; the drums, uids 5 and 6, when
-    001B17A0 finds them visible or the player is within 50 units), in the
-    original order.
+    owners the port runs (panel, terminal, items, the crates and drums on
+    their original owners since census L25: the crates publish their cells,
+    uids 7..10, on every rest tick; the drums, uids 5 and 6, when 001B17A0
+    finds them visible or the player is within 50 units; and since census
+    L23 the truck, uid 14, on every wedged tick), in the original order.
 
 Every other uid must equal the disc directory in the port. The original moves
-two of them that the port's owners do not publish yet: the truck (uid 14,
-00823FF0, census L23) and 0x825940's plate (uid 15, L24); both are listed, not
-hidden. Both published class-4 lists are printed. List membership depends on
+one of them that the port's owners do not publish yet: 0x825940's plate
+(uid 15, L24); it is listed, not hidden. Both published class-4 lists are printed. List membership depends on
 each side's camera (001B1630's cone), so the check is made at the smoke's
 last frame, 25 frames after the ride's scripted camera released.
 
@@ -46,9 +46,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTE = ROOT.parent / 'Extermination/build/s87/route'
 DISC = ROOT / 'assets/scene_snow/area11_cells.bin'
 OUT = ROOT / 'build/collision_world'
-PORT_MOVED = {4, 19, 21, 22, 23, 24, 25}     # the terminal and the item owners
-PORT_OWNERS = {4, 18, 5, 6, 7, 8, 9, 10}    # terminal, panel, drums, crates (+ items 19..26)
-NOT_PUBLISHED = {14: 'truck 00823FF0 (census L23)', 15: "0x825940's plate (census L24)"}
+PORT_MOVED = {4, 14, 19, 21, 22, 23, 24, 25}   # the terminal, the truck and the item owners
+PORT_OWNERS = {4, 18, 14, 5, 6, 7, 8, 9, 10}  # terminal, panel, truck, drums, crates (+ items 19..26)
+NOT_PUBLISHED = {15: "0x825940's plate (census L24)"}
 
 
 def hulls(image):
@@ -191,7 +191,8 @@ def main():
         failures.append(f'the port re-transformed {moved_first} / {moved_last}, expected {sorted(PORT_MOVED)}')
     # The last frame's published class-4 list: the original's entries whose
     # owners the port runs (the panel, the terminal, the items, and since
-    # census L25 the drums, uids 5 and 6, and the crates, uids 7..10), in the
+    # census L25 the drums, uids 5 and 6, and the crates, uids 7..10, and
+    # since census L23 the truck, uid 14), in the
     # original order (newest push first = reverse pool-walk order).
     ported = [u for u in list04 if u in PORT_OWNERS or 19 <= u <= 26]
     if last_list != ported:

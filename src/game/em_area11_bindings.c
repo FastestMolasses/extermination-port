@@ -58,6 +58,7 @@
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
+#include "game/em_area11_script_host.h"
 #include "game/em_director.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
@@ -69,14 +70,13 @@
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_workers.h" /* EM_SCENE_D_008102B0 */
 #include "game/em_snow_runtime.h"
-#include "game/em_truck.h"
 
 static EmActorPool *s_pool;
 static EmSceneState *s_scene;
 
 /* ------------------------------------------------------------ node state */
 
-enum { GROUP_NONE, GROUP_ENEMIES, GROUP_TRUCK, GROUP_INDICATORS, GROUP_COUNT };
+enum { GROUP_NONE, GROUP_ENEMIES, GROUP_INDICATORS, GROUP_COUNT };
 
 typedef struct Node Node;
 typedef int (*NodeTick)(EmActor *actor, Node *node, const EmArea11World *world);
@@ -420,12 +420,20 @@ static int tick_director(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* Truck (#24) with its trigger (#25). The legacy cutscene block never ran it. */
+/* The truck 00823FF0 (#24) and its camera trigger 008251E0 (#25) on their
+ * original owners (em_area11_boxes, census L23; TRUCK_ORIGINAL.md
+ * "Binding"), in both walk variants (the original walks their class in
+ * both). A node that frees itself (state 3) returns through 001AFC10. */
 static int tick_truck(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    (void)actor;
-    if (node->head && !world->cutscene)
-        em_truck_update(g.pos);
+    (void)node;
+    (void)world;
+    int r = actor->callback == 0x00823FF0u ? em_area11_boxes_truck_tick(actor, s_pool, s_scene)
+                                           : em_area11_boxes_trigger_tick(actor, s_pool, s_scene);
+    if (r < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "truck owner: a worker failed (em_area11_boxes)");
     return 1;
 }
 
@@ -612,10 +620,9 @@ static const Binding k_bindings[] = {
      "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
     {0x008253F0u, "manager: legacy director_tick", NULL, GROUP_NONE, tick_director, NULL},
     {0x008257A0u, "record 13: em_manager_008257A0", NULL, GROUP_NONE, tick_manager_8257A0, NULL},
-    {0x00823FF0u, "truck: legacy em_truck_update (group head)", "group: truck", GROUP_TRUCK, tick_truck,
-     NULL},
-    {0x008251E0u, "truck: legacy em_truck_update (group head)", "group: truck", GROUP_TRUCK, tick_truck,
-     NULL},
+    {0x00823FF0u, "truck: em_truck_original (em_area11_boxes)", NULL, GROUP_NONE, tick_truck, NULL},
+    {0x008251E0u, "truck trigger: em_truck_trigger_tick, script 0x8292C0 (em_area11_script_host)", NULL,
+     GROUP_NONE, tick_truck, NULL},
     {0x00159210u, "panel: em_area11_interaction_host_panel_tick", NULL, GROUP_NONE, tick_panel, NULL},
     {0x00827B10u, "terminal: em_area11_interaction_host_elevator_tick", NULL, GROUP_NONE, tick_terminal,
      NULL},
@@ -719,6 +726,8 @@ void em_area11_bindings_reset(void)
     memset(s_nodes, 0, sizeof s_nodes);
     memset(s_heads, 0, sizeof s_heads);
     em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
+    /* The overlay scripts are mutated in place: fresh images per visit. */
+    em_area11_script_host_reset(s_pool, s_scene);
 }
 
 int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned *spawned)

@@ -119,6 +119,16 @@ const EmMessageLiveHost *em_area11_interaction_host_message_host(void);
 void em_area11_interaction_host_camera_fields(void);
 /* OriginalDD980 publication after direct actual-camera vector commands. */
 int em_area11_interaction_host_camera_publish(void);
+/* 001B82D0's frame events (001AEB60(4), 001D2610(0), 001AEBA0(4),
+ * 001CA770, 001D25F0(480), 001FAE70(0), 001AEE10(4, 0)) for a script the
+ * AREA11 script host runs, over the same bindings as the host's own
+ * scripts. 1 accepted, -1 refused or a fault (latched). */
+int em_area11_interaction_host_frame_event(EmInteractionFrameEvent event);
+/* A script owner outside the host (the truck trigger) claims the shared
+ * player takeover after its op07 wrote the selector; the runtime releases
+ * it when the selector clears. 1 claimed (or already its), -1 refused. */
+int em_area11_interaction_host_claim_script(const void *owner);
+int em_area11_interaction_host_owns(const void *owner);
 int em_area11_interaction_host_failed(void);
 
 #endif
