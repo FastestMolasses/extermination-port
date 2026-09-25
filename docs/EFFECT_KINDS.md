@@ -22,6 +22,8 @@ delivers. No row is live yet: every row is **verified-unbound** until the coordi
 | 001EC3F0 subtype 0x05 handler (0x80000028) | NM | the .s | missing | verified-unbound | 00 |
 | 001EC470 subtype 0x24 handler (0x80000065) | NM | the .s | missing | verified-unbound | 06 |
 | 001EBF10 subtype 0x20 handler (0x80000049, L23) | NM | the .s (the NEARMISS C has two wrong constants) | missing | verified-unbound | 08 |
+| 001CFB50 the handlers' transform block (added by the Effects step, 2026-09-24) | BM | C | boundary | verified-unbound | 00 |
+| 001D0540 its depth scale (added by the Effects step) | NM | the .s | boundary | verified-unbound | 00 |
 | 001F54E0 effect colour | AW | the .s | unverified (em_effect_color.h) | verified-unbound; the live header is **not** bit-exact (section 3.3) | S2 |
 | 001F5640 glow-marker list selector | BM | C | missing | verified-unbound | S2 |
 | 001F5940 one glow marker | BM | C, float order from the .s | missing | verified-unbound | S2 |
@@ -82,6 +84,35 @@ matrix, so it is the truck puff's height. The (x, z) pairs are (370, 380), (345,
 
 The decomp's NEARMISS C for 001EBF10 says the scalar offset is 1e-6 and f15 is 9.99e-7. The listing has 1e-4
 (0x38D1B717) and 1e-6 (0x358637BD). The translation follows the listing.
+
+### 2.1a 001CFB50 and 001D0540: the transform block (Effects step, 2026-09-24)
+
+**001CFB50(dst, a1, src, f12, f13, f14, f15, f16)** fills the 0x58-byte block
+(D_0081F8F0 for every handler), in this order:
+1. +0x44 = f12, +0x4C = f13, +0x48 = f14, +0x50 = f15;
+2. +0x54 = 001D0540(src + 0x30, &0x70003AC0, f16): the source matrix's row 3
+   (the node's position) and the camera matrix;
+3. +0x40 = 001CD370(a1) = D_00275670 + (a1 << 6) + 0x2240 (the handlers pass
+   a1 = 0: the clip matrix at context +0x2240);
+4. +0x00..+0x3F = the 64 source bytes.
+
+**001D0540(pos, m, d)** (NEARMISS; followed from the .s):
+1. Scratchpad 0x70003660 = (pos.x, pos.y, pos.z, 1.0) and 0x70003670 =
+   (pos.x, pos.y, pos.z − d, 1.0), the z by SUB.S.
+2. The four rows of m are loaded once. Each point is transformed: ACC =
+   row0·x (VMULAx), ACC += row1·y, ACC += row2·z (VMADDAy/z), result = ACC +
+   row3·vf0.w (VMADDw, vf0.w = 1.0). Each result is stored back over its
+   point.
+3. For each point, z = z · (1.0 / w) (DIV.S, then MUL.S), stored.
+4. The tail call 0011DF78 (fabsf) gets the first point's stored z minus the
+   second's (SUB.S). Its result is +0x54: the projected depth span of an
+   offset of d along z at the effect's position.
+
+The translation is `em_effect_kinds_001CFB50` / `em_effect_kinds_001D0540`.
+They take an `EmEffectKindsXfState`: D_00275670 and the 16 words at
+0x70003AC0 (read), and the eight scratch words at 0x70003660 (written). The
+tail call goes through the module's `w_0011DF78` worker, which is checked
+before the first store.
 
 ### 2.2 001F54E0(obj, color): the effect colour
 
@@ -212,6 +243,42 @@ and the two words of 001F68B0's unreachable default release (proved over all key
 - **The opening capture.** 001F68B0, then 001F6E40, over its lists: one release (001D80B0) and one registration
   of preset 2.
 
+**001CFB50 / 001D0540 (Effects step).** The original 001CFB50 runs with
+001D0540, 001CD370 and 0011DF78 executed (not hooked); the native 0011DF78
+worker is the leaf's effect, the sign bit cleared. The run uses each in-scope
+beat's RAM (quick mode: beats 05, 08 and 12). Its source matrices are the
+beat's live effect, head-sprite and flame node matrices, plus random and
+special matrices. It sweeps a1 (0..3, −1, INT_MAX, random), f12..f15 (random
+bits) and f16 (0, 5, 15, specials, random). One case in eight replaces the
+camera with special or random words (w = 0, ±Inf, NaN, denormals). After
+every call the 0x58-byte block, the scratchpad 0x70003660..0x7000367F and the
+written-byte set must be equal. Both functions execute in full.
+
+**Capture evidence.** In beats 05, 08 and 12 the captured D_0081F8F0 is the
+frame's last handler draw. The native 001CFB50 reproduces it byte for byte
+from the node's captured matrix and work block and the captured
+0x70003AC0, including the 001D0540 depth scale +0x54. That is 4642.01 for
+beat 05's snow puff, and the truck's third draw at (395, y, 390) in beat 08,
+whose f13 comes from the LCG word stepped back once. +0x44 is the
+accumulator before the draw's step. The test checks that it is an EE-add
+pre-image of the captured accumulator.
+
+**Mutation check (scratch, not committed).** Eleven one-token mutants of the
+two functions were each run against the default test. Nine were killed:
+- d added instead of subtracted, and the SUB.S operands swapped;
+- the w divisor changed;
+- DIV.S in place of the MUL.S;
+- the f13/f14 stores swapped;
+- the 001CD370 shift;
+- the matrix row passed as the position;
+- a short source copy;
+- the wrong broadcast lane.
+
+The other two are equivalent: the final SUB.S operands swapped (fabsf
+removes the sign), and VMADDw reading the point's w instead of vf0.w (both
+are 1.0; the mutant does not compile with the unused constant under
+-Werror).
+
 **Results (2026-09-23).**
 
 | Mode | Wall time | Cases |
@@ -281,16 +348,11 @@ Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
   001EB980, ...) faults with code 6. None is live on the route snapshots, but 001EBD20 (crate) and 001EC5F0 /
   001EC820 / 001EB980 (footstep variants) belong to other lanes.
 - **Workers:**
-  - **w_001CFB50.** Its census status is boundary (resource / display-object registry). The byte-matched C of
-    001CFB50 is not translated anywhere. It fills the transform block D_0081F8F0:
-    - +0x44/+0x4C/+0x48/+0x50 = f12/f13/f14/f15;
-    - +0x54 = 001D0540(src + 0x30, 0x70003AC0, f16) (NEARMISS, boundary);
-    - +0x40 = 001CD370(a1);
-    - the 64 source bytes are copied.
-
-    It has the same shape as the block `em_head_sprite_original_001CFA60` fills (`EmHeadSpriteOriginalXf`), but
-    it is a different function. It needs its own translation (001D0540 included) before these handlers can
-    draw. Until then the worker must fault, not substitute.
+  - **w_001CFB50.** Bind it to `em_effect_kinds_001CFB50` (section 2.1a), with an `EmEffectKindsXfState` over
+    the live D_00275670 and scratchpad 0x70003AC0, and a block that stands for D_0081F8F0. It has the same
+    shape as the block `em_head_sprite_original_001CFA60` fills (`EmHeadSpriteOriginalXf`), but it is a
+    different function. **Blocked (Effects step, 2026-09-24):** no live code produces 0x70003AC0 or the
+    render-context block (EFFECT_MANAGER.md 5.0).
   - **w_001CFBE0.** Bind it to `em_head_sprite_original_001CFBE0` (verified-unbound). Pass the adapter's
     D_0081F8F0 block as `xf`, the source by address (D_00256700 / D_002568B0 / D_00256940 / D_002569D0 /
     D_002565E0 / D_00256670, 0x90 bytes each from the ELF), `kind` = 1 and `copy`, with the frame's packet
@@ -383,15 +445,17 @@ so em_effect_original.c must be linked when the handlers are bound through it.
 
 ## 6. Limits
 
-- **Workers not translated here.**
-  - 001CFB50 and its 001D0540 are a boundary, and neither is translated.
-  - 001F4D40 is L26.
-  - 001D80B0 is L32.
+- **Workers translated elsewhere.**
+  - 001F4D40 is L26 (em_effect_manager).
+  - 001D80B0 is L32 (em_frame_render_heads).
+  - 001CFBE0 is L39 (em_head_sprite_original).
 
-  The handlers, the markers and the light release cannot draw or release faithfully until those exist.
-  They must fault meanwhile.
-- **Scripted worker results.** The oracle scripts the results of 0011DF78, float_to_int and 001D7FA0. Their
-  own fidelity is their modules' claim.
+  None of them is bound live. The handlers and the markers also read the render-context views
+  (EFFECT_MANAGER.md 5.0), so they stay unwired until those exist.
+- **The 001CFB50 capture check** covers the last draw of each captured frame only (one per beat with a live
+  puff); the sweeps cover the rest.
+- **Scripted worker results.** The oracle scripts the results of 0011DF78 (except under 001CFB50, where the
+  original leaf runs), float_to_int and 001D7FA0. Their own fidelity is their modules' claim.
 - **Beat coverage.** The route beats reach only AREA11's key (0x0B00):
   - the glow markers use kinds 4 and 5 (mode 0);
   - 001F5CA0 and 001F6760 return 0;

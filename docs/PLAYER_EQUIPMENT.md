@@ -227,6 +227,15 @@ Read from the split listing; the NEARMISS C is not followed (section 5).
 
 ## 4. Binding (for the coordinator)
 
+**Not bound in the Effects step (2026-09-24).** The equipment nodes need
+more than the packet chain:
+- the owner draw 001CAA00 (L35), whose 001C7420 reads 0x70003AC0;
+- 001CD520's 0x70003AC0 and the render-context block (EFFECT_MANAGER.md
+  5.0);
+- canonical storage for D_008106C6 / C7 / CC (section 4.3).
+
+The packet-chain workers of 4.5 are translated (em_packet_chain_original).
+
 ### 4.1 The node callback
 
 `em_area11_bindings.c` currently registers 0x0018A6B0 as "player equipment:

@@ -386,7 +386,7 @@ add it, as one owner, before binding.
 
 | Entry | Replaces | Notes |
 |---|---|---|
-| em_frh_001D1C50 | `w_001D1C50` in `em_scene_bindings.c` → `em_render_001D1C50`, which runs only `point_light_tick()`, in both variants and the status frame | Workers: w_001D7C30 = the point-light tick (`em_point_light_tick`, `em_point_light.c`). The fog workers (0021B970, 0021B9A0, 0021BA80) are the L31 translations (`em_fog_gs`, `em_game`). w_001B0070 = the request word D_008106C8 (L01). w_0015D2F0 is lane L28; its live `em_weapon.c` is a stand-in. |
+| em_frh_001D1C50 | `w_001D1C50` in `em_scene_bindings.c` → `em_render_001D1C50`, which runs only `point_light_tick()`, in both variants and the status frame | Workers: w_001D7C30 = the point-light tick (`em_point_light_tick`, `em_point_light.c`). The fog workers: 0021B9A0 is `em_packet_chain_0021B9A0` (adapter `em_packet_chain_w_0021B9A0_heads`, docs/PACKET_CHAIN.md); 0021B970 and 0021BA80 are the L31 translations (`em_fog_gs`, `em_game`). w_001B0070 = the request word D_008106C8 (L01). w_0015D2F0 is lane L28; its live `em_weapon.c` is a stand-in. |
 | em_frh_001C1D00 | `w_001C1D00` → `em_render_001C1D00` (`render_env_init`, an empty skeleton) | 001E2260 and 001E0CF0 are lane L31 (`em_background_gs`). 001D5370 is lane L30. |
 | em_frh_001D1EA0 | `w_001D1EA0` → `em_render_001D1EA0` / `frame_close_out` | The native renderer stays the GS/VU1 boundary. 001CB800 is the kick, where the renderer consumes the list. 001E0D70 and 001DDA00 are lane L30. |
 | em_frh_001D1EF0, em_frh_001D19E0 | `um_001D1EF0`, `um_001D19E0` | Unmirrored bindings today. |

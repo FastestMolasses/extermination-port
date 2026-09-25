@@ -130,13 +130,14 @@ checks them against the recorded PCSX2 vectors directly.
      - else, when +0x38 ≠ 0: identity, euler(rot), translate(pos).
   4. It falls into state 1.
 - **1 (run):**
-  1. Rumble: {0x28,0x1D,0x1C} call 0021B9A0(2,1,100) and (3,1,100);
+  1. Fog range (0021B9A0 is the fog / depth-range programmer, docs/PACKET_CHAIN.md): {0x28,0x1D,0x1C} call
+     0021B9A0(2,1,100) and (3,1,100);
      {6,0x29,0x1A,0x19,0x17,0x16,4,0x15,0x14,3} call (2,1,20) and (3,1,20).
   2. depth = 001CCF70(node + 0x100).
   3. w+4 = w+0. Then an indirect call handler(node+0xD0, depth, D_00275C34).
   4. The work block is **re-read through D_00275C34**. w+0x54 += step.
   5. If limit == 0: when acc > 2.0, acc −= 1.0. Otherwise: when acc > limit, +4 = 3.
-  6. The same rumble set plus {0x28,0x1D,0x1C} calls 0021B9A0(1, 0, 0).
+  6. The same fog-range set plus {0x28,0x1D,0x1C} calls 0021B9A0(1, 0, 0).
 
 **00102A60/00102BB0/00102B08** are the Z/Y/X rotations.
 - If f12 < 0: sincos(π/2 + f12, neg); otherwise sincos(π/2 − f12). This is 001029E8, a 4-term odd polynomial
@@ -209,7 +210,7 @@ After every call, three checks run:
 | kind-4 throttle edges (12/13, wraps, INT_MIN) | 9 | 9 |
 | 001F0460 all presets, ring starts 0..0x40 (wraps, limit 20/32), preset 0's nested spawn | 51 | 51 |
 | 001EA240 synthetic: every 001EA240 subtype spawned by 001EFD90 and driven to its free | 16 nodes / 576 ticks | 43 / 5,463 |
-| 001EA240 crafted state-1 ticks: limit edges, endless decay clamp, free states, rumble subtypes | 60 | 124 |
+| 001EA240 crafted state-1 ticks: limit edges, endless decay clamp, free states, fog-range subtypes | 60 | 124 |
 | 001EA240 non-finite translations (ACC clamp keeps VCLIP finite) | 18 | 18 |
 | 001EA240 lockstep from every **captured** live node until it frees | 13 nodes / 389 ticks | same |
 | em_point_light_register vs the original 001D7FA0 with the kind 1/2/4 argument sets | 12 | 12 |
@@ -226,7 +227,7 @@ default run was repeated after each one. The bugs covered:
 - div rounding, ring life and limit, the limit comparison and the fog min lane;
 - the seed values, the sound gate and argument order, the kind-4 edge, the look-at bias and the normalize w;
 - VU-vs-EE add, sqrt rounding, the ftoi fraction, D_00275C04, seed_copy and the euler order;
-- the 9/0xE/0x24 scale, preset 0's spawn id, the decay step, the rumble set and the state-2 free.
+- the 9/0xE/0x24 scale, preset 0's spawn id, the decay step, the fog-range set and the state-2 free.
 
 26 of them fail the test. Three needed the boundary, throttle and fog-quad cases this doc lists: the limit
 comparison, the kind-4 edge and the fog lane.
@@ -248,7 +249,7 @@ for any input: the EE argument is saturated.
 | `w_00122BB8` | game rand | v0 |
 | `w_001D7FA0` | point-light register | pos, rec+0x10 colour, type, fa, fb. Wrap `em_point_light_register` (verified against 001D7FA0 here and in test_point_light_reference) and **discard its result**; see "Full point-light pool" below. |
 | `w_001FBF50` / `w_001FB9F0` | positional sound gains / submit | pos copy, rec+0x28/+0x2C; then (id, 0x1000, a, b) |
-| `w_0021B9A0` | pad rumble | channel, f12, f13 |
+| `w_0021B9A0` | fog / depth-range programmer (em_packet_chain_0021B9A0) | mode, scale, bias |
 | `w_handler` | `D_00255434[subtype]` draw handler | handler address, node (a0 = node+0xD0), depth, work block (= D_00275C34) |
 | `w_001AFC10` | pool free | node |
 
@@ -282,6 +283,14 @@ Faults:
 values: x > |w| / x < −|w|.
 
 ## Binding (for the coordinator chain; nothing is wired)
+
+**Blocked on the render-context views (Effects step, 2026-09-24).** The
+`view` below has no live producer: the port has no canonical render-context
+block, and no live code writes 0x70003AC0 or context +0x2240. The driver
+calls 001CCF70 and the handler on every state-1 tick, so binding the spawns
+without the view would fault at the first footstep puff. What has to exist
+first is in EFFECT_MANAGER.md 5.0. em_effect_original.c is in COMMON only
+for the SDK leaves that the live player closure uses (001026A0, 00102760).
 
 The coordinator owns one `EmEffectOriginal`:
 - `tables` from `em_effect_original_load_tables(elf)`. It is the same ELF buffer em_director_original reads.
@@ -317,10 +326,11 @@ The coordinator owns one `EmEffectOriginal`:
   record: +3, +4, +9, +0xC, +0xD, +0x10, +0x38, +0xB0..+0x10F, and the work block at +0x1F0/+0x244/+0x24C.
   The node's per-tick callback is then `em_effect_original_001EA240(e, node)` from the 001AFD70 walk: callback
   0x1EA240, roster row in em_actor_roster.c.
-- **Handlers.** `w_handler` receives the subtype's original handler address. Every route handler (table
-  above) is an **unbound next lane**. They reach 001CFB50/001CFBE0 (the GIF packet builders) with depth `n`
-  and the work block's +0x54/+0x5C/+4. Until they are translated, binding the driver live would draw
-  nothing. The rule "unfinished modules stay unwired" applies.
+- **Handlers.** `w_handler` receives the subtype's original handler address. The route handlers 001EC3F0,
+  001EC470, 001EBF10 and 001EC1F0 are translated in em_effect_kinds (`em_effect_kinds_handler`), with their
+  001CFB50 / 001D0540 since the Effects step (docs/EFFECT_KINDS.md 2.1a); the other subtypes' handlers are not
+  (they fault UNTRANSLATED). The handlers reach 001CFB50 and 001CFBE0 (em_head_sprite_original) with depth `n`
+  and the work block's +0x54/+0x5C/+4. Both read the render-context views (EFFECT_MANAGER.md 5.0).
 - **Frame order.** ORIGINAL_FRAME_ORDER Q4 (measured):
   0015BCF0 (0x15BDD8) → 00187350 → 00187EE0 → 001EFD90(0x80000028) → 001EF9D0 → 001AFA90. That is one node
   about every 23 frames while walking, at the player's feet. The node then ticks in the 001AFD70 walk.

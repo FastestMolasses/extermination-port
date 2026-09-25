@@ -1350,7 +1350,9 @@ def gs_library(out):
     src, lib_path = out/'shadow_gs.c', out/'shadow_gs.dylib'
     src.write_text(GS_SHIM)
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-I'+str(ROOT/'src'), str(src), '-o', str(lib_path)], check=True)
+                    '-shared', '-fPIC', '-I'+str(ROOT/'src'), str(src),
+                    str(ROOT/'src/game/em_packet_chain_original.c'),
+                    str(ROOT/'src/game/em_status_ui_leftovers.c'), '-o', str(lib_path)], check=True)
     lib = C.CDLL(str(lib_path))
     lib.unsupported.restype = C.c_char_p
     lib.bilinear.argtypes = [C.c_float, C.c_float, C.c_char_p]
@@ -2377,6 +2379,8 @@ class Metal:
         subprocess.run(['clang', '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(ROOT/'src'), '-shared',
                         '-fPIC', str(ROOT/'src/gfx/metal/em_gfx_metal.m'), str(ROOT/'src/game/em_lighting.c'),
                         str(ROOT/'src/platform/mac/em_platform_mac.m'), str(ROOT/'src/em_model.c'),
+                        str(ROOT/'src/game/em_packet_chain_original.c'),
+                        str(ROOT/'src/game/em_status_ui_leftovers.c'),
                         '-framework', 'Cocoa', '-framework', 'Metal', '-framework', 'QuartzCore',
                         '-o', str(lib_path)], check=True)
         lib = self.lib = C.CDLL(str(lib_path))

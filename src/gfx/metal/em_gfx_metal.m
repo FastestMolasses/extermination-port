@@ -1893,7 +1893,8 @@ void em_gfx_spot_light(EmGfx *g, const float pos[3], const float dir[3],
  * `rgb` is the record's fog colour as written to GS FOGCOL by 0021BA80,
  * i.e. 0..255 framebuffer units (NOT the 0..128 modulate scale), so it is
  * stored as channel / 255. near_z/far_z are the record's near/far; the
- * stored coefficients are exactly 0021B920's (em_fog_gs.h), and the
+ * stored coefficients are 0021B920's translation (em_fog_gs.h calls
+ * em_packet_chain_0021B920), and the
  * vertex shader evaluates F = A + B * clip_w like the 0023C780 kernel.
  * Applies to the LEVEL and CHARACTER paths; additive glow draws are
  * unaffected. */
@@ -1901,7 +1902,11 @@ void em_gfx_fog(EmGfx *g, float near_z, float far_z, const float rgb[3])
 {
     if (!g || !rgb) return;
     float coef[2];
-    em_fog_gs_coefficients(near_z, far_z, coef);
+    if (em_fog_gs_coefficients(near_z, far_z, coef) != 0) {
+        /* 0021B920's translation faulted: nothing to draw the fog with. */
+        fprintf(stderr, "gfx: fog coefficients (0021B920) faulted\n");
+        abort();
+    }
     g->fog[0] = em_fog_gs_color_unit(rgb[0]);
     g->fog[1] = em_fog_gs_color_unit(rgb[1]);
     g->fog[2] = em_fog_gs_color_unit(rgb[2]);

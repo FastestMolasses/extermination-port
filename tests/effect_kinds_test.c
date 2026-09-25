@@ -56,6 +56,19 @@ static int w_unlight(void *ctx, int32_t handle)
     return 0;
 }
 
+static int w_abs(void *ctx, uint32_t f12, uint32_t *f0)
+{
+    (void)ctx;
+    *f0 = f12 & 0x7FFFFFFFu;
+    return 0;
+}
+
+static int w_abs_fail(void *ctx, uint32_t f12, uint32_t *f0)
+{
+    (void)ctx; (void)f12; (void)f0;
+    return -1;
+}
+
 static int w_emit_fail(void *ctx, const float pos[4], const int32_t col[4], uint32_t f12, uint32_t f13)
 {
     (void)pos; (void)col; (void)f12; (void)f13;
@@ -167,6 +180,44 @@ int main(void)
     float out[4], color[4] = {1, 1, 1, 1};
     CHECK(em_effect_kinds_001F54E0(&k, NULL, out, 0x1234u, color) == -1 &&
           k.fault.code == EM_EFFECT_KINDS_FAULT_NULL_WORKER && k.fault.address == 0x00122BB8u);
+
+    k.fault.code = 0;
+
+    /* 001CFB50 / 001D0540: the reached 0011DF78 worker is required (fault
+     * before any block word is written), a failing one faults, and a
+     * latched fault returns at once; with an identity camera the depth
+     * scale is |z - (z - d)| = d for w = 1, and +0x40 = D_00275670 +
+     * (a1 << 6) + 0x2240. */
+    {
+        EmEffectKindsXfState xs;
+        EmEffectKindsXf xf;
+        memset(&xs, 0, sizeof xs);
+        memset(&xf, 0xA5, sizeof xf);
+        for (int i = 0; i < 16; ++i) xs.spad3AC0[i] = (i % 5 == 0) ? 0x3F800000u : 0;
+        xs.d275670 = 0x00811CC0u;
+        uint32_t src[16];
+        for (int i = 0; i < 16; ++i) src[i] = (i % 5 == 0) ? 0x3F800000u : 0;
+        src[12] = 0x41200000u; src[13] = 0x40000000u; src[14] = 0x42C80000u; /* (10, 2, 100) */
+        workers.w_0011DF78 = NULL;
+        CHECK(em_effect_kinds_001CFB50(&k, &xs, &xf, 2, src, 1, 2, 3, 4, 0x40A00000u) == -1 &&
+              k.fault.code == EM_EFFECT_KINDS_FAULT_NULL_WORKER && k.fault.address == 0x0011DF78u);
+        CHECK(xf.word[0] == 0xA5A5A5A5u && xf.word[0x40 / 4] == 0xA5A5A5A5u &&
+              xf.word[0x44 / 4] == 0xA5A5A5A5u && xf.word[0x54 / 4] == 0xA5A5A5A5u);
+        CHECK(em_effect_kinds_001CFB50(&k, &xs, &xf, 2, src, 1, 2, 3, 4, 0x40A00000u) == -1);
+        k.fault.code = 0;
+        workers.w_0011DF78 = w_abs;
+        CHECK(em_effect_kinds_001CFB50(&k, &xs, &xf, 2, src, 1, 2, 3, 4, 0x40A00000u) == 0);
+        CHECK(xf.word[0x40 / 4] == 0x00811CC0u + 0x80u + 0x2240u);
+        CHECK(xf.word[0x44 / 4] == 1 && xf.word[0x4C / 4] == 2 && xf.word[0x48 / 4] == 3 &&
+              xf.word[0x50 / 4] == 4 && xf.word[0x54 / 4] == 0x40A00000u);
+        CHECK(memcmp(xf.word, src, 64) == 0);
+        workers.w_0011DF78 = w_abs_fail;
+        CHECK(em_effect_kinds_001CFB50(&k, &xs, &xf, 0, src, 1, 2, 3, 4, 0) == -1 &&
+              k.fault.code == EM_EFFECT_KINDS_FAULT_WORKER_FAILED && k.fault.address == 0x0011DF78u);
+        k.fault.code = 0;
+        CHECK(em_effect_kinds_001CFB50(&k, NULL, &xf, 0, src, 1, 2, 3, 4, 0) == -1 &&
+              k.fault.code == EM_EFFECT_KINDS_FAULT_NULL_WORKER);
+    }
 
     puts("effect_kinds_test: PASS");
     return 0;

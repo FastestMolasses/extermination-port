@@ -7,6 +7,7 @@ It executes the ORIGINAL instructions of the pinned boot ELF (the user's
 config/SCUS_971.12) for
 
   001EC1F0 001EC3F0 001EC470 001EBF10   the per-subtype draw handlers
+  001CFB50 001D0540                     their transform block and depth scale
   001F54E0                              the effect colour
   001F5640 001F5CA0 001F6760 001F6D60   the room list selectors
   001F5940 001F5C20                     the glow markers
@@ -38,7 +39,13 @@ Capture evidence:
 - every beat: 001F54E0 over the captured pickup indicators (001C5680 and
   001C5760 nodes) with their captured colour;
 - the opening capture: 001F68B0 then 001F6E40 (001D7BB0's two calls) over
-  its point-light lists.
+  its point-light lists;
+- every beat: 001CFB50 (with 001D0540, 001CD370 and 0011DF78 executed)
+  over the captured camera matrix 0x70003AC0 and D_00275670; beats 05, 08
+  and 12: the captured transform block D_0081F8F0 equals the native
+  001CFB50 of the frame's last puff draw (the source words, +0x40, +0x48,
+  +0x4C, +0x50 and the 001D0540 depth scale +0x54; +0x44 is the
+  accumulator before the draw's step, checked to be the EE pre-image).
 
 It also measures the live header src/game/em_effect_color.h (em_effect_delta,
 the port's existing 001F54E0 stand-in) against the original and reports the
@@ -87,7 +94,9 @@ FUNCS = {  # address: size in bytes (FUNCTIONS.csv / the split listing)
     0x1EC1F0: 0x7C, 0x1EC3F0: 0x7C, 0x1EC470: 0x180, 0x1EBF10: 0x2D4, 0x1F54E0: 0x15C,
     0x1F5640: 0x2F8, 0x1F5940: 0x2DC, 0x1F5C20: 0x80, 0x1F5CA0: 0x2BC, 0x1F0310: 0x4C,
     0x1F03D0: 0x90, 0x1F3FA0: 0x64, 0x1F6640: 0xA4, 0x1F66F0: 0x64, 0x1F6760: 0xE8,
-    0x1F6850: 0x60, 0x1F68B0: 0x208, 0x1F6D60: 0xD4, 0x1F6E40: 0x3C, 0x1029C0: 0x28}
+    0x1F6850: 0x60, 0x1F68B0: 0x208, 0x1F6D60: 0xD4, 0x1F6E40: 0x3C, 0x1029C0: 0x28,
+    0x1CFB50: 0x8C, 0x1D0540: 0x11C}
+SPAD3660, SPAD3AC0 = 0x70003660, 0x70003AC0
 
 W_LIGHT, W_UNLIGHT, W_EMIT, W_SIN, W_FTOI, W_RANGE, W_RAND, W_XF, W_DRAW = (
     0x1D7FA0, 0x1D80B0, 0x1F4D40, 0x11DF78, 0x1281C0, 0x21B9A0, 0x122BB8, 0x1CFB50, 0x1CFBE0)
@@ -176,6 +185,13 @@ class Fault(C.Structure):
     _fields_ = [('address', u32), ('code', i32)]
 
 
+class XfState(C.Structure):
+    _fields_ = [('d275670', u32), ('spad3AC0', u32 * 16), ('spad3660', u32 * 4), ('spad3670', u32 * 4)]
+
+
+Xf = u32 * (0x58 // 4)
+
+
 class Kinds(C.Structure):
     _fields_ = [('tables', C.POINTER(Tables)), ('globals', C.POINTER(Globals)),
                 ('decals', C.POINTER(Decals)), ('particles', C.POINTER(Particles)),
@@ -218,6 +234,8 @@ def build_lib():
     for name in ('001F5C20', '001F0310', '001F3FA0', '001F6850', '001F68B0', '001F6E40'):
         getattr(lib, 'em_effect_kinds_' + name).argtypes = [K]
     lib.shim_effect_delta.argtypes = [u32, FP, FP]
+    lib.em_effect_kinds_001CFB50.argtypes = [K, P(XfState), P(Xf), i32, FP, u32, u32, u32, u32, u32]
+    lib.em_effect_kinds_001D0540.argtypes = [K, P(XfState), FP, FP, u32, FP]
     return lib
 
 
@@ -704,6 +722,161 @@ def color_case(lib, elf, ee, obj, color, rand, alias, label, header):
     ee.restore()
 
 
+# ------------------------------------------- 001CFB50 / 001D0540 (the xf block) ---
+
+class XfWorld(World):
+    """001CFB50 runs with its callees 001D0540, 001CD370 and 0011DF78
+    executed on the original side; the native 0011DF78 worker is the leaf's
+    whole effect (clear the sign bit), and its argument reaches +0x54."""
+
+    def __init__(self, lib, elf, ee):
+        super().__init__(lib, elf, ee)
+        del ee.stubs[W_SIN]
+        del ee.stubs[W_XF]
+
+    def n_sin(self, _ctx, f12, out):
+        out[0] = f12 & 0x7FFFFFFF
+        return 0
+
+
+def xf_state(ee):
+    st = XfState()
+    st.d275670 = ee.load(0x275670)
+    for i in range(16):
+        st.spad3AC0[i] = ee.load(SPAD3AC0 + 4 * i)
+    for i in range(4):
+        st.spad3660[i] = ee.load(SPAD3660 + 4 * i)
+        st.spad3670[i] = ee.load(SPAD3660 + 0x10 + 4 * i)
+    return st
+
+
+def xf_native(lib, w, st, a1, src_words, floats, dst_words=None):
+    dst = Xf(*(dst_words or [0] * (0x58 // 4)))
+    src = (C.c_uint32 * 16)(*src_words)
+    rc = lib.em_effect_kinds_001CFB50(C.byref(w.kinds), C.byref(st), C.byref(dst), a1,
+                                      C.cast(src, FP), *floats)
+    return rc, list(dst)
+
+
+def xf_case(lib, elf, ee, dst_vram, a1, src_words, floats, label):
+    """001CFB50(dst, a1, src, f12..f16) on both sides over the image's
+    D_00275670 and 0x70003AC0; dst, 0x70003660..0x7000367F and the
+    returned state must be equal, and nothing else may change."""
+    w = XfWorld(lib, elf, ee)
+    w.pull()
+    SRC = SCRATCH + 0x800
+    ee.write(SRC, struct.pack('<16I', *src_words))
+    before = [ee.load(dst_vram + 4 * i) for i in range(0x58 // 4)]
+    st = xf_state(ee)
+    mark = len(ee.journal)
+    ee.call(0x1CFB50, (dst_vram, a1 & M32, SRC), floats)
+    rc, got = xf_native(lib, w, st, a1, src_words, floats, before)
+    assert rc == 0 and w.kinds.fault.code == 0, (label, rc, hex(w.kinds.fault.address), w.kinds.fault.code)
+    want = [ee.load(dst_vram + 4 * i) for i in range(0x58 // 4)]
+    assert got == want, (label, 'xf block', [hex(x) for x in got], [hex(x) for x in want])
+    assert list(st.spad3660) + list(st.spad3670) == [ee.load(SPAD3660 + 4 * i) for i in range(8)], \
+        (label, 'spad 3660..367F')
+    w.compare(label, [(dst_vram, dst_vram + 0x58), (SPAD3660, SPAD3660 + 0x20)], mark)
+    ee.restore()
+
+
+def xf_cases(lib, elf, counts):
+    """Every in-scope beat (quick: three) supplies the camera matrix and
+    context address; sources are the beat's live effect-node matrices and
+    random or special matrices; a1, f12..f15 and the depth offset f16 are
+    swept (f16 over the handlers' 0, 5 and 15 and specials). Then the
+    capture check of the transform block."""
+    beats = sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and in_scope_beat(p.name))
+    rng = random.Random(0x1CFB50)
+    special = [0, FM.SIGN, ONE, 0xBF800000, 0x00000001, 0x80000001, 0x7F7FFFFF, 0xFF7FFFFF,
+               0x7F800000, 0xFF800000, 0x7FC00000, fbits(1e-6), fbits(5.0), fbits(15.0)]
+    n = synthetic_views = captured = 0
+    seen = set()
+    wanted = ('05_boxes', '08_truck_crossing', '12_crevice_jump')
+    for beat in select(beats, 3, 0x1CFB50, keep=lambda _i, name: name in wanted):
+        ram, spad = load_ram(ROUTE / beat / 'eeMemory.bin', ROUTE / beat / 'scratchpad.bin')
+        ee = KEE(elf, ram, spad)
+        camera = bytes(spad[0x3AC0:0x3B00])      # the captured 0x70003AC0
+        sources = [[ee.load(node + 0xD0 + 4 * i) for i in range(16)]
+                   for cb in (0x1EA240, 0x1E2560, 0x8235F0) for node in pool_nodes(ram, cb)]
+        for i in range(pick(160, 24)):
+            if i < len(sources):
+                src = sources[i]
+            elif i % 4 == 0:
+                src = [rng.choice(special) for _ in range(16)]
+            else:
+                src = [fbits(rng.uniform(-700, 700)) for _ in range(16)]
+            f16 = rng.choice([0, fbits(5.0), fbits(15.0), rng.choice(special), fbits(rng.uniform(-50, 50))])
+            floats = [rng.getrandbits(32) for _ in range(4)] + [f16]
+            a1 = rng.choice([0, 1, 2, 3, -1, 0x7FFFFFFF, sx(rng.getrandbits(32))])
+            dst = rng.choice([XF, SCRATCH + 0xA00])
+            if i % 8 == 7:          # a synthetic camera: w = 0, specials, huge rows
+                synthetic_views += 1
+                cam = [rng.choice(special + [fbits(rng.uniform(-2, 2))]) for _ in range(16)]
+                ee.write(SPAD3AC0, struct.pack('<16I', *cam))
+                ee.journal.clear()
+            xf_case(lib, elf, ee, dst, a1, src, floats, (beat, 'xf', i))
+            if i % 8 == 7:
+                ee.write(SPAD3AC0, camera)
+                ee.journal.clear()
+            n += 1
+        captured += xf_capture(lib, elf, ee, ram, beat)
+        seen.update(ee.seen)
+        del ee, ram, spad
+    counts['xf_cases'] = n
+    counts['xf_synthetic_cameras'] = synthetic_views
+    counts['xf_captured_blocks'] = captured
+    return seen
+
+
+def ee_add_preimages(total, step):
+    """Every a with EE a + step == total, searched around total - step."""
+    guess = FM.ee_sub(total, step)
+    out = []
+    for d in range(-64, 65):
+        a = (guess + d) & M32
+        if FM.ee_add(a, step) == total:
+            out.append(a)
+    return out
+
+
+def xf_capture(lib, elf, ee, ram, beat):
+    """The captured D_0081F8F0 is the frame's last 001CFB50 call. On the
+    route that is the last live puff node's last draw (no other writer runs
+    after the effect walk). Reproduce it natively from the node's captured
+    matrix, work block and the captured camera; the accumulator word +0x44
+    is the value before the draw's step, so it must be an EE pre-image of
+    the captured accumulator."""
+    nodes = pool_nodes(ram, 0x1EA240)
+    if not nodes:
+        return 0
+    node = nodes[-1]
+    sub = ram[node + 0xD]
+    work = node + 0x1F0
+    acc, frac, step = ee.load(work + 0x54), ee.load(work + 0x5C), ee.load(work + 8)
+    seed = ee.load(work + 4)
+    matrix = [ee.load(node + 0xD0 + 4 * i) for i in range(16)]
+    if sub == 5:                                          # 001EC3F0: one draw
+        src, f13, f16 = matrix, frac, fbits(5.0)
+    elif sub == 0x20:                                     # 001EBF10: the third draw
+        inv = pow(0x25, -1, 1 << 32)
+        before = ((seed - 0xB) * inv) & M32               # work +4 before that draw
+        f13 = FM.ee_add(FM.ee_div(FM.ee_cvt_s_w((before >> 16) & 0xFFFF), 0x477FFF00), 0x38D1B717)
+        src = [ONE, 0, 0, 0, 0, ONE, 0, 0, 0, 0, ONE, 0, fbits(395.0), matrix[13], fbits(390.0), ONE]
+        f16 = 0
+    else:
+        raise AssertionError((beat, 'captured last puff of an unexpected subtype', hex(sub)))
+    w = XfWorld(lib, elf, ee)
+    st = xf_state(ee)
+    captured = [ee.load(XF + 4 * i) for i in range(0x58 // 4)]
+    rc, got = xf_native(lib, w, st, 0, src, [captured[0x44 // 4], f13, ONE, fbits(1e-6), f16])
+    assert rc == 0, (beat, 'native xf fault', hex(w.kinds.fault.address))
+    assert got == captured, (beat, hex(node), 'captured xf block',
+                             [(hex(4 * i), hex(a), hex(b)) for i, (a, b) in enumerate(zip(got, captured)) if a != b])
+    assert captured[0x44 // 4] in ee_add_preimages(acc, step), (beat, 'accumulator before the step')
+    return 1
+
+
 # ------------------------------------------------------------ capture checks ---
 
 def load_ram(path_ram, path_spad=None):
@@ -874,6 +1047,7 @@ def main():
     color_cases(lib, elf, ee, counts, header)
     seen = set(ee.seen)
     route_cases(lib, elf, counts, header)
+    seen.update(xf_cases(lib, elf, counts))
     opening_light_case(lib, elf, counts)
     fault_cases(lib, elf, counts)
     # every instruction of every translated function executed at least once,

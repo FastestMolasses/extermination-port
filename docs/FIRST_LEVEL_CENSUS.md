@@ -80,6 +80,33 @@ equal route 04).
   row-for-row evidence of the boxes phase. A future recount should confirm
   them with the edge recorder.
 
+### 1.6 Update (2026-09-24, Effects step: packet chain, fog, the handlers' transform block)
+
+Rows moved by the Effects step (evidence on each row):
+
+- **To live:** 0021B920. em_fog_gs_coefficients (the Metal world fog) is now a
+  call of em_packet_chain_0021B920; em_packet_chain_original.c and
+  em_status_ui_leftovers.c are in COMMON. test_area11_fog_reference compares
+  the helper with the EE model on 2,006 pairs (the old host formula fails
+  at (-110, 330)) and with each in-scope route beat's context +0xA8/+0xAC.
+- **missing → verified-unbound:** 001CB5F0, 001CB6B0, 001CB760, 001CB900 and
+  0021B9A0 (translated in afa091b; test_packet_chain_reference).
+- **boundary → verified-unbound:** 001CB9B0 (em_packet_chain_original), 001CFB50
+  and 001D0540 (em_effect_kinds, translated in this step;
+  test_effect_kinds_reference reproduces the captured transform block
+  D_0081F8F0 of beats 05, 08 and 12).
+- **Not moved (blocked):** the effect manager, the effect spawn chain and
+  driver, the handlers, the head sprite and the equipment sprite stay
+  verified-unbound. Every one of their draws reads the render-context views
+  (the +0x2240 / +0x22C0 clip matrices through 001CD370, the 0x70003AC0 /
+  0x70003A40 matrices and the +0xA0 fog). No live code produces those bytes
+  (FRAME_RENDER_HEADS.md section 4: "The port has no canonical
+  render-context storage today"). EFFECT_MANAGER.md 5.0 has the detail.
+
+The totals of section 2 and the per-label table are not recomputed here (as
+in 1.5); the subsection counts of 3.14, 3.15 and 3.22 and section 4's
+boundary counts are.
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -142,7 +169,7 @@ Of the 716 non-boundary functions, 246 (34.4%) are live and verified; by instruc
 - The **player, camera and collision run legacy code** for the player's movement and the follow camera, except the player stage itself: since L01 (2026-09-23) 0015BA50, 0015B130 and 0015BCF0's tail run every stage with the translated 0021C440, 0015D100 and 0015D000 around the port's idle/walk callbacks. The scripted takeover is still the interaction runtime's: it consumes the stage before 0015B130's prelude, so the bound prelude and +4 = 4 workers (00182B30, 00182D70, 0015B530, 001837A0) are not reached and stay verified-unbound. Since the Boxes step (section 1.5) FLOOR, its state closure and the Use chain are bound in AREA11 (em_player_closure_live.c), and route 05's climbs are reproduced row for row. The follow camera and the AREA11 camera specials remain unbound.
 - The **set pieces after the elevator are verified but unbound**: truck, director beats, Roger, fan, door and husks. The crates and drums are live on their original owners since the Boxes step. Their live counterparts are the legacy stand-ins named in the tables. The AREA11 pickups are live on their original owners since WP-6 (81414be).
 - **Translated but unbound (recount 2026-09-24):** the effect manager and effect kinds, the render context / HUD bar path, the frame render heads and projection, the player equipment actors, the animation-runtime leaves, the idle/walk display, the camera frame and its leftovers, the script-host handlers, the door and husk rows, the status-UI leftovers (including the BATTERY page draw, whose live em_battery_ui.c is a stand-in) and the startup/load helpers all have verified translations now; none of those modules is in COMMON.
-- The **true gaps** are 16 functions (the grid pass 0019CB60 and hull lock 001A6440 are translated since, em_coll_grid_hull): the four GS packet-chain builders 001CB5F0 / 001CB6B0 / 001CB760 / 001CB900 (worker slots only), the fog programmer 0021B9A0, four stand-ins with no translation (001FCB90, 0020CCB0, 0021BAE0, 00102CD0) and seven unverified rows. Many live SDK-leaf and status-page rows were only ever checked against a test's hook or model; the recount moved 19 of them out of live (section 1.4).
+- The **true gaps** are 11 functions: four stand-ins with no translation in COMMON (001FCB90, 0020CCB0, 0021BAE0, 00102CD0; em_census_standins translates them, unbound) and seven unverified rows. The grid pass 0019CB60 and hull lock 001A6440 are translated since (em_coll_grid_hull), and the packet-chain builders 001CB5F0 / 001CB6B0 / 001CB760 / 001CB900 and the fog programmer 0021B9A0 since afa091b (em_packet_chain_original; section 1.6). Many live SDK-leaf and status-page rows were only ever checked against a test's hook or model; the recount moved 19 of them out of live (section 1.4).
 
 ## 3. Per-subsystem tables
 
@@ -596,7 +623,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.14 Animation runtime (0x1C6000..0x1CC16F)
 
-53 functions, 4,258 instructions: live 28, verified-unbound 21, missing 4.
+54 functions, 4,292 instructions: live 28, verified-unbound 26.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -648,15 +675,16 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001CB590 | — | BM | live | em_scene_bindings, em_status_models — test_actor_pool_reference.py |  | S2_opening |
 | 0x001CB5A0 | — | BM | live | em_scene_bindings.c w_001CB5A0 (empty leaf) — test_scene_frame_reference |  | S2_opening |
 | 0x001CB5B0 | anim_bone_array_setup | BM | verified-unbound | em_anim_runtime_rest em_anim_rest_001CB5B0 — test_anim_runtime_rest_reference | em_status_models.c w_001CB5B0 (unverified; does not write the word) | S2_opening |
-| 0x001CB5F0 | — | BM | missing |  | no translation: em_head_sprite_original, em_effect_manager, em_player_equipment_sprite and em_anim_runtime_rest only name it as a worker slot (EFFECT_MANAGER.md finding 4); a GS packet-chain builder | S2_opening |
-| 0x001CB6B0 | — | BM | missing |  | no translation: em_head_sprite_original, em_effect_manager, em_player_equipment_sprite and em_anim_runtime_rest only name it as a worker slot (EFFECT_MANAGER.md finding 4); a GS packet-chain builder | S2_opening |
-| 0x001CB760 | — | BM | missing |  | no translation: em_head_sprite_original, em_effect_manager, em_player_equipment_sprite and em_anim_runtime_rest only name it as a worker slot (EFFECT_MANAGER.md finding 4); a GS packet-chain builder | S2_opening |
-| 0x001CB900 | — | BM | missing |  | no translation: em_head_sprite_original, em_effect_manager, em_player_equipment_sprite and em_anim_runtime_rest only name it as a worker slot (EFFECT_MANAGER.md finding 4); a GS packet-chain builder | S2_opening |
+| 0x001CB5F0 | — | BM | verified-unbound | em_packet_chain_original em_packet_chain_001CB5F0 — test_packet_chain_reference.py (oracle; 1,053 captured chain blocks replayed) | no live consumer: the effects, the head sprite, the equipment sprite, the animation runtime and the render context need the render-context views first (L32/L30; EFFECT_MANAGER.md section 5.0) | S2_opening |
+| 0x001CB6B0 | — | BM | verified-unbound | em_packet_chain_original em_packet_chain_001CB6B0 — test_packet_chain_reference.py (oracle; 1,053 captured chain blocks replayed) | no live consumer: the effects, the head sprite, the equipment sprite, the animation runtime and the render context need the render-context views first (L32/L30; EFFECT_MANAGER.md section 5.0) | S2_opening |
+| 0x001CB760 | — | BM | verified-unbound | em_packet_chain_original em_packet_chain_001CB760 — test_packet_chain_reference.py (oracle; 1,053 captured chain blocks replayed) | no live consumer: the effects, the head sprite, the equipment sprite, the animation runtime and the render context need the render-context views first (L32/L30; EFFECT_MANAGER.md section 5.0) | S2_opening |
+| 0x001CB900 | — | BM | verified-unbound | em_packet_chain_original em_packet_chain_001CB900 — test_packet_chain_reference.py (oracle; 1,053 captured chain blocks replayed) | no live consumer: the effects, the head sprite, the equipment sprite, the animation runtime and the render context need the render-context views first (L32/L30; EFFECT_MANAGER.md section 5.0) | S2_opening |
+| 0x001CB9B0 | — | CL | verified-unbound | em_packet_chain_original em_packet_chain_001CB9B0 — test_packet_chain_reference.py (every mode; 177 captured blend blocks) | moved out of the boundary group (PACKET_CHAIN.md 6.2): it picks 001CB900's blend-state block; the C leaves the default unset, the .s returns 0 | S2_opening |
 | 0x001CBE10 | — | BM | live | em_message_glyph_original (the message glyph advance), em_hud's atlas advances — test_message_glyph_reference.py, test_message_draw_reference.py |  | S2_opening |
 
 ### 3.15 Message glyphs, object registry and face (0x1CC170..0x1D19CF)
 
-16 functions, 2,011 instructions: live 5, verified-unbound 10, unverified 1.
+18 functions, 2,117 instructions: live 5, verified-unbound 12, unverified 1.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -670,7 +698,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001CE300 | — | NM | verified-unbound | em_shadow_actor_route — test_shadow_actor_route_reference.py |  | 02_elevator_refusal |
 | 0x001CF470 | — | AW | unverified | em_shadow_actor_route | module not linked | 02_elevator_refusal |
 | 0x001CFA60 | — | BM | verified-unbound | em_head_sprite_original — test_head_sprite_reference.py |  | S2_opening |
+| 0x001CFB50 | — | BM | verified-unbound | em_effect_kinds em_effect_kinds_001CFB50 — test_effect_kinds_reference.py (executed with 001D0540 / 001CD370 / 0011DF78; the captured D_0081F8F0 of beats 05, 08 and 12 reproduced) | moved out of the boundary group: the puff handlers' transform block; not bound (needs the render-context views, L32/L30) | 00_panel_no_battery |
 | 0x001CFBE0 | — | BM | verified-unbound | em_head_sprite_original — test_head_sprite_reference.py |  | S2_opening |
+| 0x001D0540 | — | NM | verified-unbound | em_effect_kinds em_effect_kinds_001D0540 (from the .s) — test_effect_kinds_reference.py | moved out of the boundary group: 001CFB50's depth scale over 0x70003AC0; not bound (L32/L30) | 00_panel_no_battery |
 | 0x001D0690 | — | BM | verified-unbound | em_roger_actor_original, em_opening_face — test_roger_actor_original_reference.py |  | S2_opening |
 | 0x001D06D0 | — | BM | verified-unbound | em_roger_actor_original — test_roger_actor_original_reference.py |  | S2_opening |
 | 0x001D06E0 | — | BM | live | em_player_face_host.c — test_player_face_host.py |  | S2_opening |
@@ -909,7 +939,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.22 Load veil, fog, stage workers, cinematic timeline (0x21B000..0x22FFFF)
 
-25 functions, 3,097 instructions: live 7, verified-unbound 16, stand-in 1, missing 1.
+25 functions, 3,097 instructions: live 8, verified-unbound 16, stand-in 1.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -920,9 +950,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0021B840 | — | BM | live | em_scene_bindings, em_load_veil — test_area_load_reference.py |  | S1_newgame_load* |
 | 0x0021B8E0 | — | BM | verified-unbound | em_status_ui_leftovers em_sul_0021B8E0 — test_status_ui_leftovers_reference | not bound | S1_newgame_load |
 | 0x0021B900 | — | BM | verified-unbound | em_status_ui_leftovers em_sul_0021B900 — test_status_ui_leftovers_reference | not bound | S0_title |
-| 0x0021B920 | — | BM | verified-unbound | em_fog_gs — test_area11_fog_reference.py |  | S0_title |
+| 0x0021B920 | — | BM | live | em_packet_chain_original em_packet_chain_0021B920, called by em_fog_gs_coefficients for the Metal world fog (em_gfx_fog) — test_packet_chain_reference.py, test_area11_fog_reference.py (the helper equals the EE model on 2,006 pairs and each in-scope route beat's context +0xA8/+0xAC) | the (near, far) it is given is the scene manifest's record pair, not a live render-context block: 0021B970 / 0021B9A0 and the frame head 001D1C50 are not bound (L32) | S0_title |
 | 0x0021B970 | — | BM | verified-unbound | em_fog_gs, em_game — test_area11_fog_reference.py |  | S1_newgame_load |
-| 0x0021B9A0 | — | NM | missing |  | no native translation: test_effect_original_reference stubs it and test_effect_manager_reference binds the worker to the original on both sides (EFFECT_MANAGER.md finding 2) | S0_title |
+| 0x0021B9A0 | — | NM | verified-unbound | em_packet_chain_original em_packet_chain_0021B9A0 (from the .s and its jump table) — test_packet_chain_reference.py | no live caller binds it: the frame head 001D1C50 (L32), the effects (001EA240, 001F0A60, 001F5940), the area script and 001E67C0 (em_snow_runtime keeps its own fog constants) | S0_title |
 | 0x0021BA70 | — | BM | verified-unbound | em_status_ui_leftovers em_sul_0021BA70 — test_status_ui_leftovers_reference | not bound | S1_newgame_load |
 | 0x0021BA80 | — | BM | verified-unbound | em_fog_gs, em_game — test_area11_fog_reference.py |  | S1_newgame_load |
 | 0x0021BAB0 | — | BM | verified-unbound | em_status_ui_leftovers em_sul_0021BAB0 — test_status_ui_leftovers_reference | not bound | S2_opening |
@@ -1041,7 +1071,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ## 4. Platform boundaries
 
-468 functions (24,752 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
+465 functions (24,612 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
 
 Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DMA/VU1 library, libmpeg, kernel syscalls, libpad, libcdvd, libmc/SIF RPC, the EE sound library, the C runtime), the GS/VIF packet builders, texture uploads and display-object registry in 0x1CB5C0..0x1DAFFF, the module loader and disc reads 0x1FF080..0x2009E0, the IOP service, heap and MPEG glue in 0x203350..0x206D80, and the 2D draw layer. A function in the render ranges that carries a translation (the load-veil particles, shadow kernels, head sprite, message glyphs) is classified normally instead. The VU0 math leaves (0x1026A0..0x103237), libm (0x11C4C8..0x11FD77), soft float, the float conversions and rand are **game-visible arithmetic, not boundaries**: they are classified in section 3.
 
@@ -1061,8 +1091,8 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | module loader and disc read | 12 | 1,039 | native area/module reads (em_game_legacy_area_load; status pages load instantly) | area-load tick sequence (test_area_load_reference); the module-0x21 wait is instant (H7) |
 | SDK libcdvd disc read | 9 | 346 | host file reads of locally exported assets | n/a |
 | 2D GS draw layer | 9 | 284 | em_gfx 2D layer (em_status_background_draw.c, em_status_draw.c) | 6: no; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference, test_battery_reference; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference; 1: draw commands compared: test_status_draw_reference, test_status_hub_ui_reference |
-| GS/VIF packet build (sprites, flush) | 8 | 325 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
-| resource / display-object registry | 8 | 557 | locally exported assets (EMDL, roster, props) | no |
+| GS/VIF packet build (sprites, flush) | 7 | 291 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
+| resource / display-object registry | 6 | 451 | locally exported assets (EMDL, roster, props) | no |
 | GS texture upload | 6 | 426 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) texture upload | not compared per call |
 | C runtime string/format | 3 | 222 | host snprintf/strlen in em_status_hub_ui.c / em_message_draw_original.c | through the callers' oracles (test_status_hub_ui_reference, test_message_draw_reference) |
 | stream / voice IOP service tick | 3 | 304 | em_bgm.c + em_opening_media.c native streams | no |
@@ -1122,8 +1152,8 @@ Addresses per kind:
   00200970, 002009E0.
 - **SDK libcdvd disc read** (9): 00110AB8, 00110B38, 00110B80, 00111018, 001115D0, 00111818, 001118B8, 00111F18, 00112088.
 - **2D GS draw layer** (9): 00207070, 002070A0, 002070D0, 00207100, 00207150, 00207290, 00207D00, 00207E40, 00207F80.
-- **GS/VIF packet build (sprites, flush)** (8): 001CABA0, 001CB5C0, 001CB800, 001CB8A0, 001CB950, 001CB9B0, 001CBA40, 001CBC20.
-- **resource / display-object registry** (8): 001CF870, 001CF970, 001CFAE0, 001CFB50, 001CFFE0, 001D04B0, 001D0540, 001D0660.
+- **GS/VIF packet build (sprites, flush)** (7): 001CABA0, 001CB5C0, 001CB800, 001CB8A0, 001CB950, 001CBA40, 001CBC20.
+- **resource / display-object registry** (6): 001CF870, 001CF970, 001CFAE0, 001CFFE0, 001D04B0, 001D0660.
 - **GS texture upload** (6): 001CC8A0, 001CCB00, 001CCB10, 001CCBD0, 001CCCC0, 001CCE80.
 - **C runtime string/format** (3): 00122EF0, 00123168, 001232E0.
 - **stream / voice IOP service tick** (3): 001F9820, 001F9B20, 001F9BF0.
@@ -1173,18 +1203,18 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 24 | **L25-crates-drums**: WP-18: bind crates and drums in place of em_enemy. **Live 2026-09-24 (Boxes step):** em_area11_boxes.c runs both owners over their roster nodes (CRATES_DRUMS_ORIGINAL.md "Binding"); the legacy AREA11 copies are retired; the damage paths are fail-stop (no live +0x36 writer, effects L26) | bind | 1,885 | 2 (verified-unbound 2) | every frame; 05 | L07 |
 | 25 | **L18-door-original**: WP-7: bind the original door runtime/program/transit. **Recount 2026-09-24:** 001B1B30, 001BC240, 001BC290, 001BBD60 and 001B0080 are em_script_door_fan translations; every row is verified-unbound | bind | 881 | 11 (verified-unbound 11) | 09 (fence door, side beat) | L17 (Use arbitration) |
 | 26 | **L28-player-equipment**: Bind the player equipment/weapon actors (0018A6B0 nodes) and the gun tick. **Recount 2026-09-24:** em_player_equipment translates all 13 rows (3824c6f); the em_weapon.c gun tick, lamp gate and camera-code stand-ins go when bound | bind | 2,101 | 13 (verified-unbound 13) | every frame (rifle/knife children, gun tick, aim) | L01 |
-| 27 | **L26-effect-manager**: Bind the effect manager barrel (em_effect_manager) and em_effect_original. **Recount 2026-09-24:** the barrel 001F0360 and its lanes are translated (3824c6f); 001F1110 / 001F1180 moved to live (the pickup aura, 81414be) and left this lane's count; 001F1180's draw block (001F0A60 here) is the no-op stand-in aura_draw | bind | 2,342 | 15 (live 2, verified-unbound 13) | every frame (effects) | nothing |
-| 28 | **L27-effect-kinds**: Bind the effect kinds/tables and the effect colour (em_effect_kinds). **Recount 2026-09-24:** every row is translated (3824c6f); the point-light list rows replace the offline tools/export_point_lights.py resolution; em_effect_color.h is not bit-exact | bind | 1,251 | 18 (verified-unbound 18) | every frame (effects); 00, 05, 06 (footstep and slide effects) | L26 |
+| 27 | **L26-effect-manager**: Bind the effect manager barrel (em_effect_manager) and em_effect_original. **Recount 2026-09-24:** the barrel 001F0360 and its lanes are translated (3824c6f); 001F1110 / 001F1180 moved to live (the pickup aura, 81414be) and left this lane's count; 001F1180's draw block (001F0A60 here) is the no-op stand-in aura_draw. **Effects step 2026-09-24 (blocked):** every effect draw reads the render-context views (the +0x2240 / +0x22C0 clip matrices through 001CD370, the 0x70003AC0 / 0x70003A40 matrices, the +0xA0 fog), and no live code produces them; binding the spawns and the 001EA240 walk without them would fault on the first footstep (EFFECT_MANAGER.md 5.0) | bind | 2,342 | 15 (live 2, verified-unbound 13) | every frame (effects) | L32 + L30: one canonical render-context block with 001D2960's P / K / clip matrices over the live view and the 001D1C50 copies (found by the Effects step; the census had "nothing") |
+| 28 | **L27-effect-kinds**: Bind the effect kinds/tables and the effect colour (em_effect_kinds). **Recount 2026-09-24:** every row is translated (3824c6f); the point-light list rows replace the offline tools/export_point_lights.py resolution; em_effect_color.h is not bit-exact. **Effects step 2026-09-24:** the handlers' 001CFB50 and its 001D0540 are translated in em_effect_kinds (boundary rows moved to section 3.15) | bind | 1,251 | 18 (verified-unbound 18) | every frame (effects); 00, 05, 06 (footstep and slide effects) | L26 (and through it L32 / L30) |
 | 29 | **L08-coll-missing-and-list-passes**: Translate the untranslated collision originals and the actor list passes. **Translated 2026-09-23; bound 2026-09-24:** the nine hooks, 0019B7D0 / 0019E280 live; 001A8660 waits on a class-0xD owner (the flame), 0019E930 / 001A3980 on L09, 0019F330 on the column's pass 2 | bind | 2,081 | 14 (live 10, verified-unbound 4) | every frame; 05, 07..14 | L09, the flame owner, original-layout records for class 1/2/0xD |
 | 30 | **L29-shadow-route**: Bind the shadow actor route (0015BF90) and its packet producers | bind+verify | 974 | 7 (verified-unbound 6, unverified 1) | every frame from 02 (player shadow) | renderer |
 | 31 | **L29b-shadow-gs**: Bind em_shadow_original / em_shadow_gs (receiver passes, clip kernels). **Recount 2026-09-24:** the five former unverified rows pass test_render_verify_rest_reference (part D; 001D5C80 with the em_ee_float.h fix) | bind | 1,779 | 11 (verified-unbound 11) | every frame (shadow receivers) | L29-shadow-route |
 | 32 | **L32-frame-render-heads**: Replace the port collectors at 001D1C50/001D1EA0/001D30A0 and the projection with translations. **Recount 2026-09-24:** em_frame_render_heads translates all 18 rows; the port collectors and em_math.h projection are the stand-ins to retire | bind | 1,545 | 18 (verified-unbound 18) | every frame (frame setup, projection) | renderer |
 | 33 | **L30-render-context**: Bind the render-context / HUD bar / area-specials path (em_render_context). **Recount 2026-09-24:** all 16 rows translated, plus the seven render-range helpers that were boundary rows (001D21B0, 001D2710, 001D2910, 001D2DE0, 001D2E00, 001D6B10, 001D6C90) | bind | 1,754 | 23 (verified-unbound 23) | every frame (render context, HUD bar) | renderer |
-| 34 | **L31-background-weather-load**: Bind em_background_gs and the area-load render passes (001C1DC0 family). **Recount 2026-09-24:** the 001C1DC0 family, 001C1F50, 001E0CF0, 001E2260 / 001E2270 and 001C22A0 / 001C2360 are em_render_verify_rest translations; 0021B9A0 (the fog programmer) has no translation (EFFECT_MANAGER.md finding 2) | translate+bind | 932 | 17 (verified-unbound 16, missing 1) | S1 (area load), 09 (room move), every frame (background) | renderer |
+| 34 | **L31-background-weather-load**: Bind em_background_gs and the area-load render passes (001C1DC0 family). **Recount 2026-09-24:** the 001C1DC0 family, 001C1F50, 001E0CF0, 001E2260 / 001E2270 and 001C22A0 / 001C2360 are em_render_verify_rest translations; 0021B9A0 (the fog programmer) is translated since afa091b (em_packet_chain_original, verified-unbound); **Effects step 2026-09-24:** 0021B920 is live as the one translation behind the Metal fog (em_fog_gs_coefficients is a call of em_packet_chain_0021B920) | translate+bind | 932 | 17 (live 1, verified-unbound 16) | S1 (area load), 09 (room move), every frame (background) | renderer |
 | 35 | **L33-anim-runtime-rest**: Bind the remaining animation-runtime originals. **Bound 2026-09-24 (display step, partial):** em_pose_host_workers is the player's one pose owner (em_player_record_pose over the live record): 11 rows live. **Recount 2026-09-24:** em_anim_runtime_rest translates 001C7900, 001C9D50, 001C9E40, 001CAAC0, 001CACB0, 001CB2C0 and 001CB5B0; 001C7C00 is live for S2 (critic 7.2) and stays in the lane for beat 14 | bind | 1,819 | 22 (live 12, verified-unbound 10) | every frame (animation) | nothing |
 | 36 | **L36-stream-lanes-sound**: Bind the stream lanes (music/voice) and the gain/positional sound originals | bind | 1,530 | 17 (live 1, verified-unbound 16) | every frame (music and voice streams) | IOP/disc boundary decisions |
 | 37 | **L38-load-veil-particles**: Bind the load-veil particles (0021B1B0/0021B500) so the load is not black | bind | 1,074 | 16 (verified-unbound 16) | S1, 09 (loads) | nothing |
-| 38 | **L39-head-sprite-effects**: Bind the head-bone sprite effect (001E2560 node) and its registry helpers. **Recount 2026-09-24:** the packet-chain builders 001CB5F0, 001CB6B0, 001CB760 and 001CB900 were never translated (worker slots only; EFFECT_MANAGER.md finding 4): translate them, or rule them renderer boundaries, first | translate+bind | 868 | 12 (verified-unbound 8, missing 4) | every frame (head-bone sprite) | renderer |
+| 38 | **L39-head-sprite-effects**: Bind the head-bone sprite effect (001E2560 node) and its registry helpers. **Recount 2026-09-24:** the packet-chain builders 001CB5F0, 001CB6B0, 001CB760 and 001CB900 are translated since afa091b (em_packet_chain_original, docs/PACKET_CHAIN.md). **Effects step 2026-09-24:** the node's 001CCF70 and its 001CFBE0 packet read the render-context views, which no live code produces (EFFECT_MANAGER.md 5.0) | bind | 868 | 12 (verified-unbound 12) | every frame (head-bone sprite) | L32 + L30 (views), renderer |
 | 39 | **L35-status-ui-leftovers**: Area-title card, UI cues, the BATTERY page draw, the owner draw and the remaining owner-service leaves. **Recount 2026-09-24:** em_status_ui_leftovers translates the area title, UI cues, context saves, 0022EBE0 and the BATTERY page draw 0020AE40 / 0020B0D0 / 0020B210 (moved here from live: em_battery_ui.c is a hand-placed stand-in, critic 7.2); em_owner_draw_original adds 001CA7B0 / 001CA940 and the former boundary rows 001D38A0 / 001D3BA0; left untranslated: 0020CCB0 and 0021BAE0 (stand-ins), 0020DFA0 (unverified) | translate+bind | 1,937 | 33 (live 2, verified-unbound 28, unverified 1, stand-in 2) | S2 (area title), 01, 03 (UI cues), owner services | L20 (message lookup) |
 | 40 | **L34-startup-and-load-gaps**: Close the title/New Game/load gaps. **Recount 2026-09-24:** em_startup_load_gaps translates every row (3824c6f); 001AB6A0 / 001AB740 are live (em_task.c, verified by test_startup_load_gaps_reference); 001AB790 is verified but the live New Game registers the task instead | bind | 1,626 | 25 (live 2, verified-unbound 23) | S0..S2 (title, New Game, load, opening) | nothing |
 | 41 | **L37-sdk-math-leaves**: Bind the remaining SDK math / soft-float translations at their call sites. The soft-float workers (0011DB90, 0011FD78, 00127758 and their callees) are bound into the collision world's SDK context since 2026-09-24 (SDK_SOFT_FLOAT.md 4). **Recount 2026-09-24:** 001000E0 / 001027E0 / 00102850 are em_render_verify_rest translations; the live copies that no oracle checks moved here from live: 00128350 (em_item_root.c host compare), 0011E620 / 00102798 / 00102CD0 / 001B1240 (hooked by test_camera_commit_reference), 00102900 / 00102948 / 00102958 / 001026D0 (tests model or hook the leaf), 001B1470 (host wraps); 00102CD0 has no translation | bind | 1,234 | 30 (live 1, verified-unbound 28, stand-in 1) | wherever the bound callers run | nothing |

@@ -8,6 +8,8 @@
  *   001EC3F0  subtype 0x05 handler (0x80000028 snow puff)     NEARMISS: the .s
  *   001EC470  subtype 0x24 handler (0x80000065 slide puff)    NEARMISS: the .s
  *   001EBF10  subtype 0x20 handler (0x80000049 truck puffs)   NEARMISS: the .s
+ *   001CFB50  the handlers' transform block (their 001CFB50)  byte-matched C
+ *   001D0540  its depth scale (projected z difference)       NEARMISS: the .s
  *   001F54E0  effect colour (pickup indicators)              asm-word: the .s
  *   001F5640  room glow-marker list selector                 byte-matched C
  *   001F5940  one glow marker (colour, size, emit mode)      byte-matched C
@@ -85,7 +87,8 @@ enum {
     EM_EFFECT_KINDS_FAULT_WORKER_FAILED = 2, /* worker returned a negative value */
     EM_EFFECT_KINDS_FAULT_BAD_RESULT = 3,    /* (reserved) */
     EM_EFFECT_KINDS_FAULT_BAD_INDEX = 4,     /* list/template/lane outside the loaded data */
-    EM_EFFECT_KINDS_FAULT_UNTRANSLATED = 6   /* handler address this module does not translate */
+    EM_EFFECT_KINDS_FAULT_UNTRANSLATED = 6,  /* handler address this module does not translate */
+    EM_EFFECT_KINDS_FAULT_UNMEASURED = 7     /* a VU0 form em_ee_float.h does not define */
 };
 
 typedef struct {
@@ -176,6 +179,38 @@ int em_effect_kinds_001EBF10(EmEffectKinds *k, const float matrix[16], int32_t d
 /* Dispatch by handler address; any other address faults (UNTRANSLATED). */
 int em_effect_kinds_handler(EmEffectKinds *k, uint32_t handler, const float matrix[16],
                             int32_t depth, EmEffectOriginalWork *work);
+
+/* ---- the handlers' transform block: 001CFB50 and 001D0540 ----
+ * D_0081F8F0 (0x58 bytes), as 001CFB50 fills it:
+ *   +0x00..+0x3F  the 64-byte source matrix (copied last)
+ *   +0x40         001CD370(a1) = D_00275670 + (a1 << 6) + 0x2240
+ *   +0x44 f12, +0x48 f14, +0x4C f13, +0x50 f15
+ *   +0x54         001D0540(src + 0x30, &D_70003AC0, f16) */
+#define EM_EFFECT_KINDS_XF_BYTES 0x58u
+typedef struct {
+    uint32_t word[EM_EFFECT_KINDS_XF_BYTES / 4];
+} EmEffectKindsXf;
+
+/* What 001CFB50 / 001D0540 read and write beyond their arguments. */
+typedef struct {
+    uint32_t d275670;      /* D_00275670, the render context address (read) */
+    uint32_t spad3AC0[16]; /* 0x70003AC0, the camera matrix 001CFB50 passes (read) */
+    uint32_t spad3660[4];  /* 0x70003660..0x7000366F, 001D0540 scratch (written) */
+    uint32_t spad3670[4];  /* 0x70003670..0x7000367F, 001D0540 scratch (written) */
+} EmEffectKindsXfState;
+
+/* 001D0540(pos, m, d): with p = (pos.xyz, 1) and q = (pos.x, pos.y, pos.z - d, 1)
+ * (SUB.S), both are transformed by m (VU0: VMULAx, VMADDAy, VMADDAz, then
+ * VMADDw with vf0.w) into 0x70003660 / 0x70003670; each z becomes
+ * z * (1.0 / w) (DIV.S then MUL.S, stored back); *f0 = 0011DF78(z_p - z_q)
+ * (the tail call, through k's w_0011DF78). m is 16 float words (row-major
+ * as the original holds them), pos three. */
+int em_effect_kinds_001D0540(EmEffectKinds *k, EmEffectKindsXfState *s, const uint32_t pos[3],
+                             const uint32_t m[16], uint32_t d, uint32_t *f0);
+/* 001CFB50(dst, a1, src, f12, f13, f14, f15, f16), dst = the block above. */
+int em_effect_kinds_001CFB50(EmEffectKinds *k, EmEffectKindsXfState *s, EmEffectKindsXf *dst,
+                             int32_t a1, const uint32_t src[16], uint32_t f12, uint32_t f13,
+                             uint32_t f14, uint32_t f15, uint32_t f16);
 
 /* ---- effect colour ---- */
 /* 001F54E0(obj, color): out = obj +0x80..+0x8C, callback = obj +0x4C, obj is

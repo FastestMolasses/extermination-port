@@ -5,7 +5,13 @@
  *   - 001D8FD0 (byte-matched) reads the per-area light/fog record: rec+4/+8
  *     near/far floats, rec+0xC/10/14 fog colour INTS.
  *   - 0021B970 -> 0021B920 stores the VU fog constants at render-ctx +0xA0:
- *     (255.0, 2048.0, far * s, -s) with s = 255 / (far - near).
+ *     (255.0, 2048.0, far * s, -s) with s = 255 / (far - near). The one
+ *     translation of 0021B920 is em_packet_chain_0021B920
+ *     (em_packet_chain_original.c, docs/PACKET_CHAIN.md): SUB.S and MUL.S
+ *     chop, DIV.S rounds to nearest. em_fog_gs_coefficients below is a thin
+ *     call of it; it used to recompute the pair in host binary32, which
+ *     differs from the EE result by up to 3 ulp for most (near, far) pairs
+ *     (PACKET_CHAIN.md 6.4).
  *   - 0021BA80 packs the ints into GS FOGCOL (r | g << 8 | b << 16) at
  *     render-ctx +0xB0; 001D1C50 puts it in the frame's register list.
  *   - The VU1 skinning kernel at 0023C780 evaluates, per vertex,
@@ -22,16 +28,34 @@
 #define EM_FOG_GS_H
 
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 
-/* 0021B920: the two VU fog coefficients in binary32, same operation order
- * (one division, one product, one negation). out[0] = A, out[1] = B. */
-static inline void em_fog_gs_coefficients(float near_z, float far_z,
-                                          float out[2])
+#include "game/em_packet_chain_original.h"
+
+/* The render context address the route captures hold in D_00275670. The
+ * block below is private to one call; the address only names it for the
+ * translation's region check. */
+#define EM_FOG_GS_CONTEXT 0x00811CC0u
+
+/* 0021B920(near, far) through its translation, on a private context block;
+ * out[0] = A (+0xA8), out[1] = B (+0xAC), bit for bit. Returns 0, or -1 if
+ * the translation faulted (it cannot: the block it addresses is mapped),
+ * leaving out[] unwritten. */
+static inline int em_fog_gs_coefficients(float near_z, float far_z, float out[2])
 {
-    const float scale = 255.0f / (far_z - near_z);
-    out[0] = far_z * scale;
-    out[1] = -scale;
+    uint8_t block[EM_PACKET_CHAIN_CONTEXT_SPAN];
+    memset(block, 0, sizeof block);
+    const EmPacketChainRegion region = { EM_FOG_GS_CONTEXT, (uint32_t)sizeof block, block };
+    EmPacketChain chain;
+    uint32_t near_bits, far_bits;
+    memcpy(&near_bits, &near_z, sizeof near_bits);
+    memcpy(&far_bits, &far_z, sizeof far_bits);
+    em_packet_chain_init(&chain, &region, 1u, EM_FOG_GS_CONTEXT, 0u);
+    if (em_packet_chain_0021B920(&chain, near_bits, far_bits) != 0) return -1;
+    memcpy(&out[0], block + EM_PACKET_CHAIN_FOG + 8u, sizeof out[0]);
+    memcpy(&out[1], block + EM_PACKET_CHAIN_FOG + 12u, sizeof out[1]);
+    return 0;
 }
 
 /* GS FOGCOL channel (0..255, framebuffer units) as the native [0,1] colour

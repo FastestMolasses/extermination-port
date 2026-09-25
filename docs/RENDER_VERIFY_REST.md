@@ -248,10 +248,12 @@ build with both files added links with zero warnings.
   - 001E1E60 and 001D2300: `em_background_gs.h` + the Metal backend
     (`test_background_reference.py`); not in COMMON. 001E1E60 is
     em_rvr_001E0CF0's w_001E1E60.
-  - 001D8FD0, 0021B920, 0021B970, 0021BA80: `em_fog_gs.h`
+  - 001D8FD0, 0021B970, 0021BA80: `em_fog_gs.h`
     (`test_area11_fog_reference.py`). The live stand-in is the exported
     fog record.
-  - 0021B9A0: em_game / em_effect_original (`test_effect_original_reference.py`).
+  - 0021B920 and 0021B9A0: `em_packet_chain_original`
+    (`test_packet_chain_reference.py`, docs/PACKET_CHAIN.md). 0021B920 is
+    live: `em_fog_gs_coefficients` calls it for the Metal fog.
 - **L29b**:
   - 001D98A0, 001D9EE0, 001DA290, 001DA6A0, 001D4CD0, 001D4FB0:
     `em_shadow_original.c` (not in COMMON) and its GS side (`em_gfx.h`

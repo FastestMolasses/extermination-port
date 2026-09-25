@@ -7,8 +7,11 @@ Evidence chain, all from the owner's files (nothing original is embedded):
      calls) executed in the point-light test's MIPS oracle: the render-ctx
      fog block it writes must equal the block in captured AREA11 EE RAM.
   3. GS FOGCOL in the captured opening GS state (PCSX2 GS freeze v9).
-  4. Native: src/gfx/metal/em_fog_gs.h (used by the Metal backend) must
-     reproduce the executed coefficients bit for bit, and its per-vertex F
+  4. Native: src/gfx/metal/em_fog_gs.h (used by the Metal backend; its
+     coefficients are a call of em_packet_chain_0021B920, the one 0021B920
+     translation) must reproduce the executed coefficients bit for bit,
+     the EE model's 0021B920 on 2006 (near, far) pairs, and the +0xA8/+0xAC
+     pair of each in-scope route beat's render context; its per-vertex F
      must equal the F field produced by executing the fog instructions of
      the original VU1 skinning kernel at 0023C780 (VU slice from the snow
      particle test's VU interpreter).
@@ -22,22 +25,28 @@ import ctypes as C
 import json
 import struct
 import subprocess
+import random
+import sys
 import tempfile
 from pathlib import Path
 
-import test_point_light_reference as plr
-import test_snow_particles_reference as snow
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ee_float_model as FM  # noqa: E402
+from reference_mode import in_scope_beat  # noqa: E402
+import test_point_light_reference as plr  # noqa: E402
+import test_snow_particles_reference as snow  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = plr.CONTEXT
 M64 = (1 << 64) - 1
 RIG_TABLE, RIG_COUNT, RIG_SIZE = 0x251C50, 45, 0x78
 KERNEL = 0x23C780
-# the kernel's fog slice, every upper op on the F lane in program order:
-# mulAz.w ACC; maddbcw.w vf08; minibcx.w vf08; maxbcx.w vf06;
-# addbcy.w vf06 += vf27.y (0x23C908, the 2048.0 bias from the ctx block);
-# ftoi4 vf07 (XYZF2 packing of F). The ibeq at 0x23C8F8 skips 0x23C908 and
-# 0x23C928 together, so both are on the same path.
+# the kernel's fog slice: every upper-pipe operation on the F lane, in
+# program order. They are the ACC product with the clip w, the multiply-add
+# of the fog coefficients, the clamps against 255 and 0, the add of the
+# 2048.0 bias from the context block at 0x23C908, and the 12.4 fixed-point
+# packing of F into XYZF2 at 0x23C928. A conditional branch at 0x23C8F8
+# skips 0x23C908 and 0x23C928 together, so both are on the same path.
 FOG_SLICE = (0x23C8A0, 0x23C8A8, 0x23C8C8, 0x23C8E8, 0x23C908, 0x23C928)
 bits, number = plr.bits, plr.number
 
@@ -135,7 +144,9 @@ def main():
         source, lib = Path(tmp)/'fog.c', Path(tmp)/'fog.dylib'
         source.write_text(shim)
         subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                        '-shared', '-fPIC', '-I'+str(ROOT/'src'), str(source), '-o', str(lib)], check=True)
+                        '-shared', '-fPIC', '-I'+str(ROOT/'src'), str(source),
+                        str(ROOT/'src/game/em_packet_chain_original.c'),
+                        str(ROOT/'src/game/em_status_ui_leftovers.c'), '-o', str(lib)], check=True)
         native = C.CDLL(str(lib))
         native.coefficients.argtypes = [C.c_float, C.c_float, C.POINTER(C.c_float)]
         native.color_unit.argtypes = [C.c_float]; native.color_unit.restype = C.c_float
@@ -143,12 +154,44 @@ def main():
         out = (C.c_float*2)()
         native.coefficients(near, far, out)
         assert bytes(out) == executed[8:16], (list(out), coefficients)
+        # The helper is a call of the one 0021B920 translation
+        # (em_packet_chain_0021B920): every pair must give the measured EE
+        # result (SUB.S and MUL.S chop, DIV.S rounds to nearest), which the
+        # old host-binary32 formula missed by up to 3 ulp (PACKET_CHAIN.md
+        # 6.4). Random pairs plus the route's fog programmer presets.
+        rng = random.Random(0x21B920)
+        pairs = [(near, far), (0.0, 300.0), (-110.0, 330.0), (0.0, 50.0), (50.0, 150.0), (0.0, 210.0)]
+        pairs += [(rng.uniform(-1000.0, 1000.0), 0.0) for _ in range(2000)]
+        pairs = [(C.c_float(n).value, C.c_float(f if f else n + rng.uniform(0.5, 2000.0)).value)
+                 for n, f in pairs]
+        model_pairs = 0
+        for n, f in pairs:
+            k = FM.ee_div(bits(255.0), FM.ee_sub(bits(f), bits(n)))
+            want = (FM.ee_mul(bits(f), k), FM.ee_neg(k))
+            native.coefficients(n, f, out)
+            got = struct.unpack('<2I', bytes(out))
+            assert got == want, ((n, f), [hex(x) for x in got], [hex(x) for x in want])
+            model_pairs += 1
+        # Capture evidence: each in-scope route beat's live render context
+        # (+0xB8/+0xBC the current pair, +0xA8/+0xAC what 0021B920 wrote).
+        route_beats = 0
+        route = decomp/'build/s87/route'
+        for beat in sorted(route.iterdir()) if route.is_dir() else ():
+            if not in_scope_beat(beat.name) or not (beat/'eeMemory.bin').exists(): continue
+            ram = (beat/'eeMemory.bin').read_bytes()
+            base = struct.unpack_from('<I', ram, 0x275670)[0] & 0x1ffffff
+            n, f = struct.unpack_from('<2f', ram, base+0xB8)
+            native.coefficients(n, f, out)
+            assert bytes(out) == ram[base+0xA8:base+0xB0], (beat.name, n, f)
+            route_beats += 1
+        assert route_beats, 'no route beat capture found'
         for channel in (red, green, blue):
             assert native.color_unit(channel) == C.c_float(channel/255.0).value
 
         snow.ELF = elf
-        # 0x23C908's upper word must be addbcy.w vf06, vf06, vf27 (fields
-        # only; no original bytes embedded), and vf27.y is the 2048.0 bias.
+        # 0x23C908's upper word must be the y-broadcast add of the bias
+        # register (27) into the F register (6), checked by its fields only
+        # (no original bytes embedded); register 27's y lane is 2048.0.
         upper = struct.unpack_from('<I', elf, 0x23C908+4-0x100000+0x300)[0]
         assert (upper >> 21 & 15, upper >> 16 & 31, upper >> 11 & 31,
                 upper >> 6 & 31, upper & 63) == (1, 27, 6, 6, 1), hex(upper)
@@ -179,7 +222,8 @@ def main():
     print(json.dumps({'status': 'PASS', 'record': [near, far, red, green, blue],
                       'coefficients': coefficients, 'fogcol': hex(fogcol),
                       'ram_captures': captures, 'gs_fogcol': hex(gs_fogcol),
-                      'vu_fog_cases': checked}))
+                      'vu_fog_cases': checked, 'model_pairs': model_pairs,
+                      'route_beats': route_beats}))
 
 
 if __name__ == '__main__':

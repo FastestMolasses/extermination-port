@@ -1031,11 +1031,11 @@ static int in_set(uint8_t v, const uint8_t *set, size_t n)
 }
 #define IN(v, ...) in_set((v), (const uint8_t[]){__VA_ARGS__}, sizeof((const uint8_t[]){__VA_ARGS__}))
 
-static int rumble(EmEffectOriginal *e, int32_t channel, uint32_t f12, uint32_t f13)
+static int fog_range(EmEffectOriginal *e, int32_t mode, uint32_t f12, uint32_t f13)
 {
     const EmEffectOriginalWorkers *w = e->workers;
     NEED(w->w_0021B9A0, 0x0021B9A0u);
-    CALL(0x0021B9A0u, w->w_0021B9A0(w->ctx, channel, bfloat(f12), bfloat(f13)));
+    CALL(0x0021B9A0u, w->w_0021B9A0(w->ctx, mode, bfloat(f12), bfloat(f13)));
     return 0;
 }
 
@@ -1161,9 +1161,9 @@ static int driver_run(EmEffectOriginal *e, EmEffectOriginalNode *n)
     const EmEffectOriginalWorkers *w = e->workers;
     uint8_t sub = n->subtype;
     if (IN(sub, 0x28, 0x1D, 0x1C)) {
-        if (rumble(e, 2, FP_ONE, 0x42C80000u) < 0 || rumble(e, 3, FP_ONE, 0x42C80000u) < 0) return -1;
+        if (fog_range(e, 2, FP_ONE, 0x42C80000u) < 0 || fog_range(e, 3, FP_ONE, 0x42C80000u) < 0) return -1;
     } else if (IN(sub, 0x06, 0x29, 0x1A, 0x19, 0x17, 0x16, 0x04, 0x15, 0x14, 0x03)) {
-        if (rumble(e, 2, FP_ONE, 0x41A00000u) < 0 || rumble(e, 3, FP_ONE, 0x41A00000u) < 0) return -1;
+        if (fog_range(e, 2, FP_ONE, 0x41A00000u) < 0 || fog_range(e, 3, FP_ONE, 0x41A00000u) < 0) return -1;
     }
     Quad t;
     memcpy(t, &n->matrix[12], sizeof t);
@@ -1191,7 +1191,7 @@ static int driver_run(EmEffectOriginal *e, EmEffectOriginalNode *n)
     }
     sub = n->subtype;
     if (IN(sub, 0x06, 0x29, 0x1A, 0x19, 0x28, 0x1D, 0x1C, 0x17, 0x16, 0x04, 0x15, 0x14, 0x03))
-        if (rumble(e, 1, 0, 0) < 0) return -1;
+        if (fog_range(e, 1, 0, 0) < 0) return -1;
     return 0;
 }
 

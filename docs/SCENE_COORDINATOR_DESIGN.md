@@ -375,7 +375,7 @@ advances".
 | #38, #46 001E2560 (cls 12) | table near 0x24CCC8; unresolved | interim allocation, UNBOUND |
 | #39–45, #47 001C5680; #48 001C5760 (cls 12) | 001C5570, from the owning pickup (00219550, 00219870) or panel (00159210) behaviour | the pickup/panel adapter allocates its child through the pool |
 | opening 001BB0E0 ×2 | 001BAC00 (script op 0x14) | em_opening_runtime allocates them through the pool (S10b); interim: allow-listed |
-| walking 001EA240 | table near 0x24CCC8 (0021B9A0 rumble channel) | UNBOUND; allow-listed |
+| walking 001EA240 | table near 0x24CCC8 (0021B9A0, the fog / depth-range programmer) | UNBOUND; allow-listed |
 
 Interim allocations are flagged `interim_spawn=1` and named in the census and trace output.
 
@@ -612,7 +612,7 @@ A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses 
 ## 8. Adjacent, not in WP-3 (measured)
 
 - Main loop: the port lacks step H 001FB100 and step I 001B5B70 (the rumble countdown, which runs every frame). Assign these to WP-14/WP-17.
-- 001D1C50 calls 0021B9A0 (the rumble channel) only when the selector is 0.
+- 001D1C50 calls 0021B9A0 (the fog / depth-range programmer, docs/PACKET_CHAIN.md) only when the selector is 0.
 - Camera latency: 001D1C50 seeds the display list before 0018B9C0. Whether the world draw uses the previous frame's camera belongs to WP-13/WP-16.
 
 ## 9. Open questions (with the evidence that settles each)

@@ -32,6 +32,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c \
+           src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
            src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c \
            src/game/em_roger_actor_original.c \
            src/game/em_message_service.c src/game/em_message_draw_original.c src/game/em_message_glyph_original.c \

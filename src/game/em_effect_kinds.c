@@ -225,6 +225,85 @@ int em_effect_kinds_001EBF10(EmEffectKinds *k, const float matrix[16], int32_t d
     return 0;
 }
 
+/* ---- 001D0540 / 001CFB50 ------------------------------------------------ */
+
+/* One point through the four rows the original loads into vf20..vf23:
+ * ACC = row0 * v.x (VMULAx), ACC += row1 * v.y (VMADDAy), ACC += row2 * v.z
+ * (VMADDAz), out = ACC + row3 * vf0.w (VMADDw; vf0.w is 1.0). */
+static int vu_point(EmEffectKinds *k, const uint32_t m[16], const uint32_t v[4], uint32_t out[4])
+{
+    static const uint32_t vf0[4] = {ZERO, ZERO, ZERO, ONE};
+    uint32_t acc[4] = {0, 0, 0, 0}, r[4];
+    if (em_vu_vec_bits(EM_VU_MULABC, 15, 0, m + 0, v, 0, NULL, acc) != EM_EE_FLOAT_OK ||
+        em_vu_vec_bits(EM_VU_MADDABC, 15, 1, m + 4, v, 0, acc, acc) != EM_EE_FLOAT_OK ||
+        em_vu_vec_bits(EM_VU_MADDABC, 15, 2, m + 8, v, 0, acc, acc) != EM_EE_FLOAT_OK ||
+        em_vu_vec_bits(EM_VU_MADDBC, 15, 3, m + 12, vf0, 0, acc, r) != EM_EE_FLOAT_OK)
+        return fail(k, 0x001D0540u, EM_EFFECT_KINDS_FAULT_UNMEASURED);
+    memcpy(out, r, sizeof r);
+    return 0;
+}
+
+int em_effect_kinds_001D0540(EmEffectKinds *k, EmEffectKindsXfState *s, const uint32_t pos[3],
+                             const uint32_t m[16], uint32_t d, uint32_t *f0)
+{
+    if (!ready(k)) return -1;
+    const EmEffectKindsWorkers *w = k->workers;
+    NEED(k, s, 0x70003660u);
+    NEED(k, pos, 0x001D0540u);
+    NEED(k, m, 0x001D0540u);
+    NEED(k, f0, 0x001D0540u);
+    NEED(k, w, 0x001D0540u);
+    NEED(k, w->w_0011DF78, 0x0011DF78u);
+    /* The two scratch points: (x, y, z, 1) and (x, y, z - d, 1). */
+    s->spad3660[0] = pos[0];
+    s->spad3660[1] = pos[1];
+    s->spad3660[2] = pos[2];
+    s->spad3660[3] = ONE;
+    s->spad3670[0] = pos[0];
+    s->spad3670[1] = pos[1];
+    s->spad3670[2] = em_ee_sub_bits(pos[2], d);
+    s->spad3670[3] = ONE;
+    /* The rows are loaded once, before either point. */
+    uint32_t rows[16];
+    memcpy(rows, m, sizeof rows);
+    CALL(vu_point(k, rows, s->spad3660, s->spad3660));
+    CALL(vu_point(k, rows, s->spad3670, s->spad3670));
+    /* z * (1 / w) for each, stored back; the difference re-reads the first
+     * point's stored z. */
+    const uint32_t q1 = em_ee_div_bits(ONE, s->spad3660[3]);
+    s->spad3660[2] = em_ee_mul_bits(s->spad3660[2], q1);
+    const uint32_t q2 = em_ee_div_bits(ONE, s->spad3670[3]);
+    s->spad3670[2] = em_ee_mul_bits(s->spad3670[2], q2);
+    const uint32_t diff = em_ee_sub_bits(s->spad3660[2], s->spad3670[2]);
+    return worker(k, 0x0011DF78u, w->w_0011DF78(w->ctx, diff, f0));
+}
+
+int em_effect_kinds_001CFB50(EmEffectKinds *k, EmEffectKindsXfState *s, EmEffectKindsXf *dst,
+                             int32_t a1, const uint32_t src[16], uint32_t f12, uint32_t f13,
+                             uint32_t f14, uint32_t f15, uint32_t f16)
+{
+    if (!ready(k)) return -1;
+    NEED(k, dst, 0x0081F8F0u);
+    NEED(k, src, 0x001CFB50u);
+    NEED(k, s, 0x70003AC0u);
+    /* The reached tail worker is checked before the first store. */
+    NEED(k, k->workers, 0x001CFB50u);
+    NEED(k, k->workers->w_0011DF78, 0x0011DF78u);
+    /* The byte-matched C's order: the four scalars, the depth scale, the
+     * context address, then the 64-byte copy of the source. */
+    dst->word[0x44 / 4] = f12;
+    dst->word[0x4C / 4] = f13;
+    dst->word[0x48 / 4] = f14;
+    dst->word[0x50 / 4] = f15;
+    uint32_t scale;
+    CALL(em_effect_kinds_001D0540(k, s, src + 12, s->spad3AC0, f16, &scale));
+    dst->word[0x54 / 4] = scale;
+    /* 001CD370(a1): D_00275670 + (a1 << 6) + 0x2240, 32-bit wrap. */
+    dst->word[0x40 / 4] = s->d275670 + ((uint32_t)a1 << 6) + 0x2240u;
+    memmove(dst->word, src, 64);
+    return 0;
+}
+
 int em_effect_kinds_handler(EmEffectKinds *k, uint32_t handler, const float matrix[16],
                             int32_t depth, EmEffectOriginalWork *work)
 {

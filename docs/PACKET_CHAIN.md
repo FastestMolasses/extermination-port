@@ -5,9 +5,15 @@ Original executable SHA-256:
 
 Lane "packet-chain", 2026-09-24 (fix round the same day: per-call compares,
 every worker adapter exercised, aliasing and slot-bit cases; section 4). The
-translation and its oracle are done. The module is **built and tested but
-not wired**. Section 5 lists what each consumer binds, including one
-**required** step: retiring em_fog_gs_coefficients (section 5, "Required").
+translation and its oracle are done.
+
+**Status (Effects step, 2026-09-24).** The module is in COMMON (with
+em_status_ui_leftovers.c for 0021B900). **0021B920 is live**: the Metal world
+fog's em_fog_gs_coefficients is a call of em_packet_chain_0021B920, so the
+port has one translation of 0021B920 (section 5, "Required", done). The
+builders and 0021B9A0 are not called live. Every consumer also reads the
+render-context views, which no live code produces yet (EFFECT_MANAGER.md
+5.0). Section 5 lists what each consumer binds.
 
 Files:
 - `src/game/em_packet_chain_original.{h,c}`: the native translation.
@@ -25,7 +31,7 @@ Files:
 | 001CB900 blend-state block | BM | missing | verified-unbound | em_packet_chain_001CB900; oracle + capture replay |
 | 001CB9B0 blend-state address | (C leaves the default unset) | boundary ("GS/VIF packet build (sprites, flush)") | verified-unbound | em_packet_chain_001CB9B0; oracle over every mode; 177 captured blend blocks replay through it |
 | 0021B9A0 fog programmer | NM | missing | verified-unbound | em_packet_chain_0021B9A0; oracle, from the .s and its jump table |
-| 0021B920 fog coefficients | BM | verified-unbound (em_fog_gs) | verified-unbound, **re-pointed** here: em_fog_gs is not bit-exact (6.4) | em_packet_chain_0021B920; oracle + the fog block of every beat. The lead retires em_fog_gs_coefficients when binding (section 5, "Required") |
+| 0021B920 fog coefficients | BM | verified-unbound (em_fog_gs) | **live** since the Effects step: em_fog_gs_coefficients calls it (the old host formula was not bit-exact, 6.4) | em_packet_chain_0021B920; oracle + the fog block of every beat; test_area11_fog_reference checks the Metal helper against the EE model and every in-scope beat |
 | 0021B900 fog latch | BM | verified-unbound (em_sul_0021B900) | unchanged | reused, not translated again |
 
 No row of this lane is left "missing".
@@ -278,15 +284,25 @@ function. The adapters show the exact argument mapping.
 | em_frame_render_heads (001D1DC0) | `w_0021B9A0(ctx, f12, f13, a0)` | `em_packet_chain_w_0021B9A0_heads` | **argument order differs**: floats first, mode last; the call is mode 0 |
 | em_snow_runtime | (none: hard-coded fog) | when 001E67C0 is bound: 0021B9A0(2, 0, 0), (3, 0, 300) … (1, 0, 0) | its constants (255, 2048, 300·k, −k) with k = 255/300 equal this module's EE result bit for bit |
 
-**Required: one translation of 0021B920.** `em_fog_gs_coefficients`
-(`src/gfx/metal/em_fog_gs.h`) is a second translation of 0021B920, and it
-is not bit-exact (6.4: capture-proven on beat 15). When binding, the lead
-must retire it in favour of `em_packet_chain_0021B920`, or reduce it to a
-thin call of it (or have the Metal backend read context +0xA0 after the
-programmer runs), and point the census 0021B920 row at
-em_packet_chain_original + test_packet_chain_reference. This is not
-optional: two translations of one original that disagree break the
-one-translation-per-original rule.
+**Required: one translation of 0021B920 (done in the Effects step,
+2026-09-24).** `em_fog_gs_coefficients` (`src/gfx/metal/em_fog_gs.h`) was a
+second translation of 0021B920, and it was not bit-exact (6.4). It is now a
+thin call of `em_packet_chain_0021B920` on a private context block, and it
+returns the +0xA8/+0xAC pair. `em_gfx_fog` aborts if that call ever
+faults; it cannot, because the block is mapped.
+`tools/test_area11_fog_reference.py` checks the helper against:
+- the executed original (AREA11's pair);
+- the EE model's 0021B920 on 2,006 pairs;
+- each in-scope route beat's context +0xA8/+0xAC.
+
+The old host formula fails the model check at (−110, 330) (0x433F4000
+against 0x433F3FFF). The census 0021B920 row is live.
+
+What remains is the fog block itself. The Metal fog is still handed the
+scene manifest's (near, far) record pair. The original writes the context
+block through 0021B970 at the area load and 0021B9A0(0, 0, 0) at the frame
+head. Once the render-context block is canonical (L32 / L30), the renderer
+should read +0xA8/+0xAC from it.
 
 **Scene order.** The fog programmer mutates shared state: +0xB8/+0xBC, +0xA0
 and the +0xC0 latch. Every consumer that reads the fog quadword must read it
@@ -300,8 +316,8 @@ before the call.
 2. **001CB9B0** is listed as a renderer boundary. It is game-visible (it
    picks the blend-state block). It now has a verified translation.
 3. **Wrong labels for 0021B9A0**, which is the fog programmer:
-   - port: `em_effect_original.h` ("pad rumble", already flagged by
-     EFFECT_MANAGER.md finding 1);
+   - port: `em_effect_original.h` ("pad rumble", flagged by
+     EFFECT_MANAGER.md finding 1; corrected in the Effects step);
    - decomp comments: `func_001EB600.c` ("chan, vol, pan") and
      `func_001F4CC0.c` ("audio/effect parameter ranges"). Other decomp
      prototypes call its first argument "chan" or "id".
@@ -333,9 +349,10 @@ test-packet-chain-reference:
 	python3 tools/test_packet_chain_reference.py
 ```
 
-The module is not added to `SRC` (unwired, like em_effect_manager). When it
-is bound, add `src/game/em_packet_chain_original.c` and
-`src/game/em_status_ui_leftovers.c` (for em_sul_0021B900) to `COMMON`.
+Since the Effects step `src/game/em_packet_chain_original.c` and
+`src/game/em_status_ui_leftovers.c` (for em_sul_0021B900) are in `COMMON`.
+The two tests that compile `em_fog_gs.h` shims, test_area11_fog_reference
+and test_shadow_original_reference, link both files.
 
 ## 8. Limits
 

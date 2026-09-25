@@ -187,7 +187,7 @@ On the route it is reached through 001F5C20 → 001F5940 (lane L27).
    - modes 0/other: preset pair +0xF8/+0xFC;
    - then 0021B920 writes context +0xA0 = (255, 2048, far·k, −k) with k = 255/(far − near).
 
-   `em_effect_original.h` ("pad rumble"), docs/EFFECT_ORIGINAL.md (steps 1 and 6 of 001EA240 and the Boundaries table) and SCENE_COORDINATOR_DESIGN.md ("0021B9A0 rumble channel") carry the wrong label. 001EA240's calls (2, 1, 100), (3, 1, 100) … (1, 0, 0) push the fog range out while a puff draws. Its worker must be bound to the same fog programmer as here.
+   `em_effect_original.h` ("pad rumble"), docs/EFFECT_ORIGINAL.md (steps 1 and 6 of 001EA240 and the Boundaries table) and SCENE_COORDINATOR_DESIGN.md ("0021B9A0 rumble channel") carried the wrong label (all three corrected in the Effects step, 2026-09-24). 001EA240's calls (2, 1, 100), (3, 1, 100) … (1, 0, 0) push the fog range out while a puff draws. Its worker must be bound to the same fog programmer as here.
 2. **Census row 0021B9A0** says "verified-unbound (em_game, em_effect_original)". test_effect_original_reference only stubs it, and no native translation exists. It is missing (lane L31).
 3. **Census rows 001F1110 and 001F1180** say "missing". Both are translated and live (above). The census missed em_pickup_items_original.
 4. **001CB5F0 / 001CB760 / 001CB900** (census: verified-unbound via em_head_sprite_original) have no native translation. They are workers there and here, so the packet sink still has to be written.
@@ -196,6 +196,55 @@ On the route it is reached through 001F5C20 → 001F5940 (lane L27).
    - 001F6210's header says "translate … scale"; the calls are rotate (00102C58) and translate (00102918).
 
 ## 5. Binding (for the coordinator chain; nothing is wired)
+
+### 5.0 Prerequisite: the render-context views (found by the Effects step, 2026-09-24)
+
+The Effects step tried to bind this module, em_effect_original, em_effect_kinds,
+em_head_sprite_original and em_player_equipment_sprite live, and stopped here.
+Every draw of theirs reads original render-context bytes that no live code
+produces:
+
+| Reader | What it reads |
+|---|---|
+| 001CCF70 (the driver 001EA240's depth key; the head sprite's ramp tick) | context +0x2240 (001CD370(0)), scratchpad 0x70003AC0, context +0xA0 |
+| 001CFB50 / 001D0540 (every puff handler) | scratchpad 0x70003AC0, D_00275670 |
+| 001CFBE0 (every puff handler, the head sprite) | scratchpad 0x70003A40, context +0x2240, 0x70003AC0, +0xA0; the packet cursor +0x18, D_00810E80, the chain table D_007635C0 and the packet buffers |
+| 001F0720 (the barrel's six lanes) | context +0x22C0 (001CD370(2)), 0x70003AC0, +0xA0; the chain |
+| 001F0A60 (the pickup glint), 001F4D40 → 001CD520 (the glow markers) | context +0x2240, 0x70003AC0, 0x70003A40, +0xA0 (001F0A60 also calls the fog programmer 0021B9A0 on that block) |
+
+The node lifecycle itself does not depend on them, but 001EA240 calls
+001CCF70 and the handler on every state-1 tick. A spawn bound without the
+views would fault at the first footstep puff (fail-stop) and end the level,
+which is worse than today's counted gap (em_player.c `player_effect_gap`).
+So nothing here is wired yet.
+
+In the original the views come from the frame head 001D1C50:
+- 001D2960(D_00810610) writes P (+0x2340), V (+0x2380), K (+0x23C0) and the
+  four 001D2D20 projections (+0x2240, +0x2280, +0x22C0, +0x2300);
+- 001D1C50 copies P to 0x70003A40 and K to 0x70003AC0;
+- the fog block +0xA0 comes from 0021B970 at the area load and from
+  0021B9A0(0, 0, 0) per frame (while bit 0x80 is clear).
+
+The binding therefore needs, first (lanes L32 and L30):
+1. **One canonical render-context block** (FRAME_RENDER_HEADS.md section 4:
+   "The port has no canonical render-context storage today"), with a packet
+   window and the chain table for em_packet_chain_original.
+2. **em_frh_001D2960 bound over the live view.** D_00810610 is the live
+   camera's view in the original convention. em_snow_runtime already derives
+   that form from the native view (rows 1 and 2 negated). Its
+   em_snow_projection_matrices is a private copy of 001D2960's P / K and of
+   the +0x2240 projection. It must become a reader of the one owner, so that
+   one original keeps one translation.
+3. **The fog block written by the fog programmer**
+   (em_packet_chain_0021B9A0 / 0021B920, which the Metal fog already uses
+   since this step; docs/PACKET_CHAIN.md).
+
+Then the effect binding below applies as written. The puffs' pixels still
+need the renderer to consume their 001CFBE0 packets. Their VU1 program is
+table 0x231770 (kind 1), the program the live AREA11 flame already draws
+through em_effect_sprite_project over em_snow_particles_generate
+(docs/AREA11_EFFECT.md), fed by the source block (D_002568B0 and the
+others) and the transform block that em_effect_kinds_001CFB50 now fills.
 
 ### 5.1 The barrel
 
@@ -313,5 +362,6 @@ When bound, add `src/game/em_effect_manager.c src/game/em_effect_original.c` to 
   - 001F5C20, 001F5CA0, 001F3620, 001F3E30, 001F6640/66F0/6760/6850, 001F6E40/6E80 (lane L27 or other areas);
   - 001C6120, 001D3D90, 001CAAC0, 001D8C20 (anim/render lanes);
   - 001CD520 (L28);
-  - 0021B9A0 (L31);
-  - the packet sink 001CB5F0/001CB760/001CB900.
+  - 0021B9A0 and the packet sink 001CB5F0/001CB760/001CB900 are translated
+    since afa091b (em_packet_chain_original, docs/PACKET_CHAIN.md), and
+    001CFB50/001D0540 since the Effects step (em_effect_kinds).

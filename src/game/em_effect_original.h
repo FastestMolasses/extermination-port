@@ -167,8 +167,9 @@ typedef struct {
                       int32_t *b, int32_t *result);
     /* 001FB9F0(id, 0x1000, a, b): sound submit. */
     int (*w_001FB9F0)(void *ctx, int32_t id, int32_t a1, int32_t a2, int32_t a3);
-    /* 0021B9A0(channel, f12, f13): pad rumble. */
-    int (*w_0021B9A0)(void *ctx, int32_t channel, float f12, float f13);
+    /* 0021B9A0(mode, scale, bias): the fog / depth-range programmer
+     * (em_packet_chain_0021B9A0; docs/PACKET_CHAIN.md). */
+    int (*w_0021B9A0)(void *ctx, int32_t mode, float f12, float f13);
     /* Indirect call through D_00255434[subtype] with (node + 0xD0, depth,
      * D_00275C34): the per-subtype draw handler at `handler`. */
     int (*w_handler)(void *ctx, uint32_t handler, EmEffectOriginalNode *node, int32_t depth,

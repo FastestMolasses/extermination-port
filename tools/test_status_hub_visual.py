@@ -50,6 +50,7 @@ def main():
              'src/game/em_interaction_scan.c','src/game/em_random.c',
              'src/game/em_status_background.c','src/game/em_status_background_draw.c',
              'src/game/em_sdk_math_original.c',
+             'src/game/em_packet_chain_original.c','src/game/em_status_ui_leftovers.c',
              'src/platform/mac/em_platform_mac.m','src/platform/mac/em_gamepad_mac.m',
              'src/gfx/metal/em_gfx_metal.m','-framework','Cocoa','-framework','Metal',
              '-framework','QuartzCore','-framework','GameController','-Wl,-dead_strip',

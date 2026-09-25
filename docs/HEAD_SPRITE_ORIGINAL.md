@@ -209,6 +209,13 @@ The reference test checks this for all five.
 
 ## Binding (for the coordinator chain)
 
+**Blocked on the render-context views (Effects step, 2026-09-24).** The ramp
+tick's 001CCF70 and 001CFBE0 read context +0x2240, +0xA0, the scratchpad
+0x70003A40 / 0x70003AC0 and the packet cursor, and no live code produces
+them (EFFECT_MANAGER.md 5.0). The packet-chain workers are translated
+(em_packet_chain_original, docs/PACKET_CHAIN.md section 5), so the views are
+the only missing input. The notes below apply once they exist.
+
 - **Spawn: the player.** 0015C420 (player init) calls 001F0120(player, 0x3B) after it sets player +0x00 = 1. Call
   `em_head_sprite_original_spawn_001F0120(owner14, 0x3B, &workers, &rec, &fault)` there, where `owner14` is the
   **word stored at player +0x14** (001F0120 copies that word, not the player's address, into record +0x24). The

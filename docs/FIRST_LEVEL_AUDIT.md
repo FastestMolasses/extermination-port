@@ -101,6 +101,28 @@ Summary: the *pieces* are largely verified; the *wiring* and the *live scene coo
   - the box draw is the legacy EMDL at the original matrix (the object
     kernel is RENDER's).
 
+**Status update (2026-09-24, Effects step: packet chain, fog; effects BLOCKED):**
+- **Live:** the Metal world fog's coefficients come from the one
+  translation of 0021B920 (`em_fog_gs_coefficients` calls
+  `em_packet_chain_0021B920`; the host-binary32 copy is gone). The module
+  and em_status_ui_leftovers are in COMMON. test_area11_fog_reference
+  checks the helper against the EE model (2,006 pairs) and every in-scope
+  route beat. The frame order and the newgame-control run are unchanged.
+- **Translated:** the puff handlers' 001CFB50 and 001D0540
+  (em_effect_kinds). The captured transform block of beats 05, 08 and 12
+  is reproduced byte for byte (EFFECT_KINDS.md 2.1a).
+- **Blocked:** the effect manager, spawn chain, driver, handlers, head
+  sprite and equipment sprite stay unwired. Every one of their draws reads
+  the render-context views: the +0x2240 / +0x22C0 clip matrices, the
+  0x70003AC0 / 0x70003A40 matrices, the +0xA0 fog block and the packet
+  cursor. The port has no canonical render-context block, and no live code
+  writes them (EFFECT_MANAGER.md 5.0).
+  - The footstep, climb and slide puffs therefore stay the counted gap
+    `player_effect_gap`.
+  - L32 / L30 must come first: one render-context owner and 001D2960 over
+    the live view. That owner also replaces em_snow_projection's private
+    001D2960 copy.
+
 ---
 
 ## 2. Live call graph (normal run)
