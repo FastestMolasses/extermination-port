@@ -161,6 +161,8 @@ REACHERS = {
     0x00810813: {
         "game/em_director.c": "008253F0's beat step, legacy stand-in until WP-10: its state-1 dispatch "
                               "reads it, the beat completions store 0x10/0x20/0xFF",
+        "game/em_level_smoke_test.c": "the driven director phases wait for the stand-in's step byte "
+                                      "(census L09..L11; test instrumentation, never written)",
     },
     0x00810CC3: {
         "game/em_pickup.c": "001B6EA0's key take (em_pickup_owner_take adds to D_00810CC3[t]) and the "

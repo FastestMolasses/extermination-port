@@ -186,6 +186,66 @@ record (+0x00..+0x0F, +0xB0, +0x2DC..+0x2EF) and D_00810792 from the arm
 The totals of section 2 and the per-label table are not recomputed here (as
 in 1.5..1.7).
 
+### 1.9 Update (2026-09-24, census L09 / L10 / L11: ladders, crevice jump, tower climb)
+
+Rows moved by the ladder / jump step. The evidence is the oracles named on
+each row plus the level smoke's four new live phases (LEVEL_SMOKE.md;
+`make test-level-smoke-full`): `cage_ladders` equals route 10's two ladder
+climbs row for row (f268..f581, f780..f1090: +5, +1F0, +1F1, clip, clock,
+ground, heading and X/Z exactly, Y as the lift on the ladder and exactly
+after it), `crevice_climbs` route 11's tank and pipe-end climbs and
+`east_tower_climb` route 13's high ledge climb (the same fields; X/Z
+within the stance offset), `crevice_jump` route 12's running jump
+f230..f304, and `check_fall` the walks' step-offs of routes 10, 11 and 12.
+
+- **The blocker was data.** 0015D4C0 case 0x32 and 00177030 read the grid
+  node's +0x34..+0x3F (the ladder's facing axis), which the EMCL did not
+  carry. `../Extermination/tools/export_collision.py --node-class` now
+  appends an axis section (flags bit 3, "EMAX": node +0x34..+0x3F, byte for
+  byte the level's own; `--verify-ram` compares node bytes +0x00..+0x3F with
+  the route captures' RAM, equal on beats 06 and 10), em_coll_probe_original
+  reads it, and em_player_closure_live fills the ladder probe state's record
+  bytes from it. An EMCL without the section still faults on an action
+  node; a cell record with an action byte still faults (none on the route).
+- **Workers bound in this step** (em_player_closure_live.c): the climb's
+  001FB9F0(id, 0x1000, 0x1000, 0x1000) sounds as em_sfx_play (the live
+  binding of 001FB9F0; other request words fault); the climb's standalone
+  00187EE0(p, p + B0, p + D0) as em_player_floor.c's one translation (made
+  public: em_player_ground_effect_00187EE0; its 001F0460 decal faults); the
+  running jump's 0017DEB0 as em_player_climb.c's one translation over the
+  record (em_player_climb_live_0017DEB0). No new translation of an original
+  was written; no duplicate was added.
+- **To live:** L09 00165B60, 00177030, 00199DB0, 00182A70, 001885D0 and
+  0019BA80 (00176F90's probe); L10 001662D0, 0017FC80, 0017FD00, 00180300,
+  00180420, 00180460, 00181110 and 00174AB0; L11 0015EC50, 001634A0,
+  001751A0, 00178EC0, 0017C860 and 002243F0; the fall family 00162DB0,
+  00163B40, 00163C10, 00179680, 00179880, 0017C580 and 00224290; 00187EE0.
+- **Measured, not inferred.** A private `-O1 -fno-inline
+  -finstrument-functions` build of the live link line with an entry
+  counter (scratch only, deleted) ran the smoke twice: through
+  `truck_crossing` and through the whole live route. Every row moved above
+  executed in the full run (for example 001662D0 508 callbacks, 00165B60
+  118, 00180300 196, 001634A0 47, 0015EC50 1, 00181110 310, the recovery
+  lane 38 each, 00162DB0 41, 00163B40 135, 00187EE0 2, 0017DEB0 1). The
+  ladder and jump translations ran in none of the quick run; the fall
+  family ran there once (the port's walk off the truck strip in beat 08,
+  which the smoke does not compare).
+- **Not moved:** the director 008253F0 and its beat bodies (L21) and Roger
+  (L22). The smoke drives the director's three beats through the legacy
+  em_director.c (`cage_roof`, `crevice_prompt`, `east_tower` report
+  NOT-LIVE driven): beat 0's script waits on Roger's 0x828990, so the
+  director cannot be bound before Roger (DIRECTOR_ORIGINAL.md section 6),
+  and the lines 0x97 / 0x99 reach em_message_live only through the bound
+  director's op0C. 00199FA0 (the climb's hit_probe) did not run on the
+  route. The hang (state 9, 001647D0) is bound but not on the route (no
+  row of routes 10..14 has +5 = 9).
+- **Sounds:** the ladder's 0x107, 0x10E and 0x10F are not in the exported
+  AREA11 sfx registry (WP-14): silent, reported once.
+
+The totals of section 2 and the per-label table are not recomputed here (as
+in 1.5..1.8); the subsection counts of 3.4..3.7 and 3.22 and the lane mixes
+of L02, L09, L10 and L11 are.
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -245,7 +305,7 @@ Of the 716 non-boundary functions, 246 (34.4%) are live and verified; by instruc
 
 - The **backbone is live and verified**: the task chain and frame machine (001ACEC0, 001AD250, 0x1AE040, 001AE5E0/001AE6B0, 001AE7E0), the fades, the actor pool and roster, spawn placement, the load veil state machine, the input block, the panel/battery/elevator interaction host, the status page core and the BATTERY page logic (002149F0; its draw is the em_battery_ui.c stand-in), the pickup owners, the pose host, the motor, the wall probes and the point lights.
 - **Collision (census L05..L08, 2026-09-24, partial):** the collision world is live in AREA11 (em_collision_world.c): the cell directory, the flags-7 EMCL grid ranks, the class lists the panel, terminal and items publish into (001B17A0, 001B1B70, 001A2370 re-transforms, compared byte for byte with route captures 00 and 04), 001AAD00's nine list passes and list block, and the translated 0019A910 / 0019B7D0 walkers under the scripted camera retarget and the item ray. Since the Boxes step (section 1.5) the move walkers (with em_coll_grid_hull's 0019CB60 / 001A6440), the FLOOR probes and 0019AB20 / 0019BC40 run live in the engaged FLOOR, on the measured EE float model; the crates and drums publish their cells.
-- The **player, camera and collision run legacy code** for the player's movement and the follow camera, except the player stage itself: since L01 (2026-09-23) 0015BA50, 0015B130 and 0015BCF0's tail run every stage with the translated 0021C440, 0015D100 and 0015D000 around the port's idle/walk callbacks. The scripted takeover is still the interaction runtime's: it consumes the stage before 0015B130's prelude, so the bound prelude and +4 = 4 workers (00182B30, 00182D70, 0015B530, 001837A0) are not reached and stay verified-unbound. Since the Boxes step (section 1.5) FLOOR, its state closure and the Use chain are bound in AREA11 (em_player_closure_live.c), and route 05's climbs are reproduced row for row; since L03 (section 1.7) the hill slide of route 06 is too. The follow camera and the AREA11 camera specials remain unbound.
+- The **player, camera and collision run legacy code** for the player's movement and the follow camera, except the player stage itself: since L01 (2026-09-23) 0015BA50, 0015B130 and 0015BCF0's tail run every stage with the translated 0021C440, 0015D100 and 0015D000 around the port's idle/walk callbacks. The scripted takeover is still the interaction runtime's: it consumes the stage before 0015B130's prelude, so the bound prelude and +4 = 4 workers (00182B30, 00182D70, 0015B530, 001837A0) are not reached and stay verified-unbound. Since the Boxes step (section 1.5) FLOOR, its state closure and the Use chain are bound in AREA11 (em_player_closure_live.c), and route 05's climbs are reproduced row for row; since L03 (section 1.7) the hill slide of route 06 is too, and since L09..L11 (section 1.9) the cage ladders, the tank / pipe-end / east tower climbs, the crevice jump and the walks' falls of routes 10..13. The follow camera and the AREA11 camera specials remain unbound.
 - The **set pieces after the elevator are verified but unbound**: director beats, Roger, fan, door and husks. The crates and drums are live on their original owners since the Boxes step, and the truck with its camera trigger since census L23 (section 1.8). Their live counterparts are the legacy stand-ins named in the tables. The AREA11 pickups are live on their original owners since WP-6 (81414be).
 - **Translated but unbound (recount 2026-09-24):** the effect manager and effect kinds, the render context / HUD bar path, the frame render heads and projection, the player equipment actors, the animation-runtime leaves, the idle/walk display, the camera frame and its leftovers, the script-host handlers, the door and husk rows, the status-UI leftovers (including the BATTERY page draw, whose live em_battery_ui.c is a stand-in) and the startup/load helpers all have verified translations now; none of those modules is in COMMON.
 - The **true gaps** are 11 functions: four stand-ins with no translation in COMMON (001FCB90, 0020CCB0, 0021BAE0, 00102CD0; em_census_standins translates them, unbound) and seven unverified rows. The grid pass 0019CB60 and hull lock 001A6440 are translated since (em_coll_grid_hull), and the packet-chain builders 001CB5F0 / 001CB6B0 / 001CB760 / 001CB900 and the fog programmer 0021B9A0 since afa091b (em_packet_chain_original; section 1.6). Many live SDK-leaf and status-page rows were only ever checked against a test's hook or model; the recount moved 19 of them out of live (section 1.4).
@@ -351,7 +411,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.4 Player states (0x15B000..0x173FFF)
 
-34 functions, 10,019 instructions: live 17, verified-unbound 16, unverified 1.
+34 functions, 10,019 instructions: live 24, verified-unbound 9, unverified 1.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -372,19 +432,19 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0015D4C0 | — | NM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes); Use chain | 05_boxes |
 | 0x0015DEC0 | — | AW | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x0015DF10 | — | NM | live | em_player_climb em_player_climb_live_ledge (00160220's ledge probes, em_player_closure_live) — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) |  | 05_boxes |
-| 0x0015EC50 | — | NM | verified-unbound | em_player_running_jump — test_player_running_jump_reference | bound since the Boxes step (em_player_closure_live); first reached at 12_crevice_jump, beyond the live smoke | 12_crevice_jump |
+| 0x0015EC50 | — | NM | live | em_player_running_jump — test_player_running_jump_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (em_player_closure_live: 00160220's running-jump probe); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x00160220 | — | BM | live | em_player_use_dispatch em_player_use_00160220 over the live record (em_player_closure_live, scan = the host's 00184BA0) — test_player_use_dispatch_reference; test_level_smoke.py (01..05) |  | S3_first_control_idle |
 | 0x001607D0 | — | BM | verified-unbound | em_player_weapon_states_a — test_player_weapon_states_a_reference |  | S3_first_control_idle |
 | 0x00161020 | — | NM | verified-unbound | em_locomotion_display em_loco_00161020 — test_locomotion_display_reference | em_player.c / em_player_frame.c legacy idle callback (L12) | S2_opening |
 | 0x001612D0 | — | NM | verified-unbound | em_locomotion_display em_loco_001612D0 — test_locomotion_display_reference | em_player.c legacy walk callback; motor 0017BC40 and heading 00174AC0 are live (L12) | 00_panel_no_battery |
 | 0x00161690 | — | BM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x00161790 | — | BM | live | em_player_climb (state 2, em_player_closure_live) — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) |  | 05_boxes |
-| 0x00162DB0 | — | NM | verified-unbound | em_player_fall — test_player_fall_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x001634A0 | — | NM | verified-unbound | em_player_running_jump — test_player_running_jump_reference | bound since the Boxes step (em_player_closure_live); first reached at 12_crevice_jump, beyond the live smoke | 12_crevice_jump |
-| 0x00163B40 | — | AW | verified-unbound | em_player_fall — test_player_fall_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x00163C10 | — | BM | verified-unbound | em_player_fall — test_player_fall_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x00165B60 | — | BM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x001662D0 | — | NM | verified-unbound | em_player_ladder_climb — test_player_ladder_climb_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
+| 0x00162DB0 | — | NM | live | em_player_fall — test_player_fall_reference; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row) | live since census L09..L11 (state 5, the walks' step-offs); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x001634A0 | — | NM | live | em_player_running_jump — test_player_running_jump_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (state 6 on the live record); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
+| 0x00163B40 | — | AW | live | em_player_fall — test_player_fall_reference; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row) | live since census L09..L11 (state 8, the landings); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00163C10 | — | BM | live | em_player_fall — test_player_fall_reference; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row) | live since census L09..L11 (the landing body, clip 0x6E); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00165B60 | — | BM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L09 (state 0xB on the live record); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x001662D0 | — | NM | live | em_player_ladder_climb — test_player_ladder_climb_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (state 0xC on the live record); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x0016C520 | — | BM | live | em_player_slide — test_player_slide_reference (every field and worker call; world mode replays route 06); test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase | 06_hill_slide |
 | 0x0016C570 | — | BM | live | em_player_slide — test_player_slide_reference (every field and worker call; world mode replays route 06); test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase | 06_hill_slide |
 | 0x0016C6A0 | — | NM | live | em_player_slide — test_player_slide_reference (every field and worker call; world mode replays route 06); test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase | 06_hill_slide |
@@ -392,17 +452,17 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.5 Player workers, pose and animation glue (0x174000..0x18AFFF)
 
-84 functions, 9,097 instructions: live 42, verified-unbound 42.
+84 functions, 9,097 instructions: live 59, verified-unbound 25.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
 | 0x001749A0 | — | BM | live | em_pose_host_workers em_pose_host_001749A0 on the player record (em_player_record_pose; em_player_pose_host.c frame-0 requests: idle, acquire, Use, fidget, tier-2 stop) — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_pose_live_reference (first-control trace) | em_player_pose.c em_player_pose_select still poses Roger and the status models | S2_opening |
 | 0x001749F0 | anim_clip_arbiter | BM | live | em_pose_host_workers em_pose_host_001749F0 on the player record (em_player_record_pose; em_player_pose_host.c source-frame requests: walk entry, run stop, gait tier change) — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_pose_live_reference |  | 00_panel_no_battery |
 | 0x00174A50 | — | BM | live | em_player_pose_host.c player_pose_acquire (001749A0(p, 0, 0, 8.0) on the record) — test_player_pose_host_reference; test_player_record_pose_reference | the stage's translation em_player_stage_row_request is bound too (L01) but reached only by 0015B130's prelude outside the port's idle/walk; its 0017B490 on the record is fail-stop (L12) | S2_opening |
-| 0x00174AB0 | — | BM | verified-unbound | em_player_ladder_climb (one owner since 2026-09-24; the closure states run it through a bridge) — test_player_ladder_climb_reference, test_player_closure_0e_18_reference |  | 01_battery |
+| 0x00174AB0 | — | BM | live | em_player_ladder_climb (one owner since 2026-09-24; the closure states run it through a bridge) — test_player_ladder_climb_reference, test_player_closure_0e_18_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (the climb's clip request 001749A0(p, 0, 1, 0.0)); measured executing in the full smoke (census 1.9) | 01_battery |
 | 0x00174AC0 | — | BM | live | em_player_heading.c + em_player.c turn — test_player_heading_reference | turn path only; the reversal arm (+1F0 = 7) is gated; its SDK trig is host-modelled. The record-level translation em_player_heading_record (test_player_heading_record_reference) is the `heading` worker every closure module names, proven bound against the original 00174AC0 in test_locomotion_display_reference (001612D0 over captured images with the stick held, 0x70003A20 compared) and test_player_fall_reference (0017C580 / 00162DB0 / 00163B40); it replaces the live mirrors once 001612D0 runs over the record | S3_first_control_idle |
 | 0x00174FD0 | — | BM | live | em_player_record_helpers em_player_record_00174FD0 through em_player_slide — test_player_slide_reference, test_player_record_helpers_reference; test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase (0017F5F0 steering) | 06_hill_slide |
-| 0x001751A0 | — | NM | verified-unbound | em_player_recovery — test_player_recovery_reference |  | 12_crevice_jump |
+| 0x001751A0 | — | NM | live | em_player_recovery — test_player_recovery_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's per-frame stick quadrant, em_player_recovery over the record); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x00175640 | — | BM | live | em_actor_collision (em_player_link_00175640) — test_player_floor_reference | reached live since census L03 (the slide's floor service on the hill); test_level_smoke.py (06_hill_slide row for row, census L03) | 06_hill_slide |
 | 0x001756E0 | — | NM | live | em_player_floor.c em_player_clearance_release (via em_player.c) — test_player_probe_reference |  | S2_opening |
 | 0x00175900 | — | NM | live | em_player_floor.c floor service over the collision world (FLOOR engaged) — test_player_floor_reference; test_level_smoke.py (post-release Y equals the captures) |  | S2_opening |
@@ -414,18 +474,18 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00176BE0 | — | AW | live | em_player_floor.c em_player_wall_probes — test_player_probe_reference |  | 01_battery |
 | 0x00176C80 | — | BM | live | em_player_floor.c em_player_wall_probes — test_player_probe_reference |  | S2_opening |
 | 0x00176F90 | — | BM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
-| 0x00177030 | — | NM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
+| 0x00177030 | — | NM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L09 (mode 4 over the node axis the EMCL axis section carries); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00177460 | — | AW | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x00177510 | — | BM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x001775E0 | — | BM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x00177F40 | — | NM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x00178B90 | — | AI | verified-unbound | em_player_recovery — test_player_recovery_reference | em_player.c walk translation (displacement 9.599989 vs original 9.599849) | 00_panel_no_battery |
-| 0x00178EC0 | — | BM | verified-unbound | em_player_recovery — test_player_recovery_reference |  | 12_crevice_jump |
+| 0x00178EC0 | — | BM | live | em_player_recovery — test_player_recovery_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's sideways impulse); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x001791D0 | — | BM | live | em_player_slide — test_player_slide_reference (every field and worker call; world mode replays route 06); test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase | 06_hill_slide |
 | 0x00179450 | — | BM | live | em_player_floor.c fall check (gated) — test_player_floor_reference | reached live since census L03 (the fall check under the slide); test_level_smoke.py (06_hill_slide row for row, census L03) | 06_hill_slide |
-| 0x00179680 | — | BM | verified-unbound | em_player_floor.c fall check (gated) — test_player_floor_reference | bound since the Boxes step (FLOOR engaged); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
+| 0x00179680 | — | BM | live | em_player_floor.c fall check (gated) — test_player_floor_reference; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row) | live since census L09..L11 (the fall entry em_player_fall_enter); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x001796C0 | — | NM | live | em_player_floor.c fall check (FLOOR engaged) — test_player_floor_reference; test_level_smoke.py |  | S2_opening |
-| 0x00179880 | — | BM | verified-unbound | em_player_fall `em_player_fall_00179880` (the one translation; the reaction, running-jump and 10_12_19 lanes call it) — test_player_fall_reference, test_player_reaction_reference, test_player_running_jump_reference |  | 10_cage_roof_roger |
+| 0x00179880 | — | BM | live | em_player_fall `em_player_fall_00179880` (the one translation; the reaction, running-jump and 10_12_19 lanes call it) — test_player_fall_reference, test_player_reaction_reference, test_player_running_jump_reference; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row); test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L09..L11 (the fall and the jump's drop accumulator); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x001798D0 | — | BM | live | em_player_use_dispatch em_player_use_001798D0 (em_player_closure_live) — test_player_use_dispatch_reference; test_level_smoke.py (01..04) | the port's own locomotion bookkeeping is player_pose_use_accepted_port (no record write); the stand-in player_pose_use_accepted is retired | 00_panel_no_battery |
 | 0x00179B90 | — | BM | live | em_player.c footstep_rand5 / em_weapon wpn_rand over em_random — test_player_random_reference |  | 00_panel_no_battery |
 | 0x00179D20 | — | BM | verified-unbound | em_locomotion_display em_loco_00179D20 — test_locomotion_display_reference | not bound; the live display poses the record through em_player_record_pose | 00_panel_no_battery |
@@ -439,21 +499,21 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0017C030 | — | BM | verified-unbound | em_locomotion_display em_loco_0017C030 (all eight cases), em_player_reversal — test_locomotion_display_reference, test_player_reversal_reference | em_player.c legacy clip requests (gait tiers, stop clip 5) | 00_panel_no_battery |
 | 0x0017C440 | — | BM | live | em_player_motor.c em_player_reentry_tick — test_player_reentry_reference.py | stop-interruption metadata; the translation/clip callees are boundaries in that oracle | 10_cage_roof_roger |
 | 0x0017C540 | — | BM | live | em_player_motor.c em_player_reentry_tick — test_player_reentry_reference.py | stop-interruption metadata; the translation/clip callees are boundaries in that oracle | 05_boxes |
-| 0x0017C580 | — | NM | verified-unbound | em_player_fall — test_player_fall_reference |  | 10_cage_roof_roger |
-| 0x0017C860 | — | NM | verified-unbound | em_player_recovery — test_player_recovery_reference |  | 12_crevice_jump |
+| 0x0017C580 | — | NM | live | em_player_fall — test_player_fall_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's landing, w_land); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x0017C860 | — | NM | live | em_player_recovery — test_player_recovery_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's ledge-grab probe); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x0017D800 | — | BM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x0017D8D0 | — | BM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
-| 0x0017DEB0 | — | AW | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
+| 0x0017DEB0 | — | AW | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row), check_crevice_jump | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes); since census L11 the running jump's landing calls the same translation standalone over the record (em_player_climb_live_0017DEB0) | 05_boxes |
 | 0x0017F5F0 | — | NM | live | em_player_slide — test_player_slide_reference (every field and worker call; world mode replays route 06); test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase | 06_hill_slide |
-| 0x0017FC80 | — | BM | verified-unbound | em_player_ladder_climb (one owner; the ladder entry runs it through a bridge) — test_player_ladder_climb_reference, test_player_ladder_entry_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x0017FD00 | — | BM | verified-unbound | em_player_ladder_climb — test_player_ladder_climb_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x00180300 | — | BM | verified-unbound | em_player_ladder_entry (one owner since 2026-09-24; the closure states run it through `em_player_ladder_probe_00180300`) — test_player_ladder_entry_reference, test_player_closure_0e_18_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x00180420 | — | BM | verified-unbound | em_player_ladder_climb (one owner; the closure states run it through a bridge) — test_player_ladder_climb_reference, test_player_closure_0e_18_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x00180460 | — | BM | verified-unbound | em_player_ladder_climb — test_player_ladder_climb_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
-| 0x00181110 | — | AW | verified-unbound | em_player_major2 — test_player_major2_reference |  | 10_cage_roof_roger |
+| 0x0017FC80 | — | BM | live | em_player_ladder_climb (one owner; the ladder entry runs it through a bridge) — test_player_ladder_climb_reference, test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x0017FD00 | — | BM | live | em_player_ladder_climb — test_player_ladder_climb_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (the climb's clip pair); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00180300 | — | BM | live | em_player_ladder_entry (one owner since 2026-09-24; the closure states run it through `em_player_ladder_probe_00180300`) — test_player_ladder_entry_reference, test_player_closure_0e_18_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (the climb's attribute probe); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00180420 | — | BM | live | em_player_ladder_climb (one owner; the closure states run it through a bridge) — test_player_ladder_climb_reference, test_player_closure_0e_18_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00180460 | — | BM | live | em_player_ladder_climb — test_player_ladder_climb_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00181110 | — | AW | live | em_player_major2 — test_player_major2_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (major2's 00181110 inside the climb); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00182430 | — | AW | live | em_player_floor em_player_step_sounds, the one translation: the footstep dispatch 00187350 (em_player_footstep_tick), the legacy step clock em_player.c footstep_play and the record's standalone callers (the slide's skid steps; the ladder and closure states) through em_player_closure_live.c x_surface_sound — test_player_footstep_reference, test_player_random_reference; test_level_smoke.py (06_hill_slide row for row, census L03) | the walking step clock is still legacy (00187350 verified-unbound); em_player.c's own copy of the mapper (footstep_block) is retired | 00_panel_no_battery |
 | 0x00182870 | — | BM | live | em_player_reaction — test_player_reaction_reference | reached live since the Boxes step (the climb's 0017DEB0) and on the slide landing (0016C6A0 sub-state 0xA); test_level_smoke.py (06_hill_slide row for row, census L03) | 05_boxes |
-| 0x00182A70 | — | BM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference |  | 10_cage_roof_roger |
+| 0x00182A70 | — | BM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L09; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00182B30 | — | BM | verified-unbound | em_player_stage_workers em_player_stage_scripted_check (bound in 0015B130's prelude by L01, but unreached) — test_player_stage_workers_reference | em_player_pose_host.c player_pose_acquire / the takeover tick / player_pose_release through the interaction runtime (partial refusal set), which consumes the stage before the prelude (since census L23 the stage writes the admission's +5 = 0, +6 = 0, +1F0 = 0x41 on the acquiring stage and keeps the port's mirrors off the record while the takeover holds it; route 07 row for row); the prelude runs only under 0x70003B8D outside the port's idle/walk, which the live app cannot reach before FLOOR (L02) and L12. Reached once the takeover moves onto the stage | S2_opening |
 | 0x00182BF0 | — | NM | verified-unbound | em_script_host_workers — test_script_host_workers_reference |  | 10_cage_roof_roger |
 | 0x00182D40 | — | BM | verified-unbound | em_locomotion_display em_loco_00182D40 — test_locomotion_display_reference | em_player_pose_host.c release tail (hooked in the pose oracles) | S2_opening |
@@ -466,8 +526,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00184BA0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_door.c / Roger legacy scans for the unpublished owners; the published interactive list (the collision world's, census L07) holds the panel, the terminal and the items (W22) | 00_panel_no_battery |
 | 0x00187350 | — | BM | verified-unbound | em_player_floor.c footstep (gated) — test_player_footstep_reference | em_player.c footstep_play (legacy clock) | S2_opening |
 | 0x00187DC0 | — | BM | verified-unbound | em_player_floor.c first contact (gated) — test_player_floor_reference | bound since the Boxes step (FLOOR engaged); first reached at 08_truck_crossing, beyond the live smoke | 08_truck_crossing |
-| 0x00187EE0 | — | BM | verified-unbound | em_player_floor — test_player_footstep_reference | em_player.c footstep_play | 00_panel_no_battery |
-| 0x001885D0 | — | BM | verified-unbound | em_player_ladder_climb — test_player_ladder_climb_reference |  | 10_cage_roof_roger |
+| 0x00187EE0 | — | BM | live | em_player_floor — test_player_footstep_reference; test_level_smoke.py check_cage_ladders | live since census L10: em_player_ground_effect_00187EE0 (the one translation, public since this step) runs as the ladder dismount's 00187EE0(p, p + B0, p + D0) (x_place); its 001EFD90 spawns go to the counted effect gap (L26); the walk's footsteps still run em_player.c footstep_play (L12); measured executing in the full smoke (census 1.9) | 00_panel_no_battery |
+| 0x001885D0 | — | BM | live | em_player_ladder_climb — test_player_ladder_climb_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (inside 0017FC80); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00188630 | — | BM | verified-unbound | em_player_equipment em_player_equipment_00188630 — test_player_equipment_reference | em_weapon.c em_weapon_update (legacy gun tick) | S2_opening |
 | 0x00188A50 | — | BM | verified-unbound | em_player_equipment em_player_equipment_00188A50 — test_player_equipment_reference | not bound (no port code runs for the equipment nodes) | S2_opening |
 | 0x00188AC0 | — | BM | verified-unbound | em_player_equipment em_player_equipment_00188AC0 — test_player_equipment_reference | not bound (no port code runs for the equipment nodes) | S2_opening |
@@ -483,7 +543,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.6 Camera (0x18B000..0x199FFF)
 
-27 functions, 7,740 instructions: live 2, verified-unbound 25.
+27 functions, 7,740 instructions: live 3, verified-unbound 24.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -513,11 +573,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00193EB0 | — | NM | verified-unbound | em_camera_area11_specials — test_camera_area11_specials_reference | em_camera.c camera_mode_dispatch (port's own action dispatch) | S3_first_control_idle |
 | 0x00195130 | — | NM | verified-unbound | em_camera_area11_specials — test_camera_area11_specials_reference | em_camera.c camera_mode_dispatch (port's own action dispatch) | S3_first_control_idle |
 | 0x00199C50 | — | NM | verified-unbound | em_startup_load_gaps em_slg_00199C50 — test_startup_load_gaps_reference | the live um_00199C50 is a reported no-effect binding (state 0) | S1_newgame_load* |
-| 0x00199DB0 | — | NM | verified-unbound | em_player_ladder_entry — test_player_ladder_entry_reference | bound since the Boxes step (em_player_closure_live); first reached at 10_cage_roof_roger, beyond the live smoke | 10_cage_roof_roger |
+| 0x00199DB0 | — | NM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L09 (the column node's centre); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 
 ### 3.7 Collision walkers (0x19A000..0x1A7FFF)
 
-38 functions, 9,919 instructions: live 28, verified-unbound 10.
+38 functions, 9,919 instructions: live 29, verified-unbound 9.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -531,7 +591,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0019B6C0 | — | NM | live | em_coll_probe_original, em_player_floor — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_player_floor_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | S2_opening |
 | 0x0019B7D0 | — | BM | live | em_coll_list_passes_walkers (em_coll_list_passes_0019B7D0) — test_coll_list_passes_reference.py, test_camera_interaction_fixture.py | 0018D330's attr-0x78 ground query in the scripted retarget; the follow camera core (L13) binds it as EmCameraFollowWorkers.ground later | S2_opening |
 | 0x0019B8C0 | — | NM | live | em_coll_probe_original, em_player_floor — test_coll_probe_reference.py, test_player_floor_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | S2_opening |
-| 0x0019BA80 | — | NM | verified-unbound | em_coll_list_passes_walkers em_coll_list_passes_0019BA80 — test_coll_list_passes_reference.py (the ladder-entry test only hooked it) | em_collision.c (the port's own segment/move/camera queries) | 05_boxes |
+| 0x0019BA80 | — | NM | live | em_coll_list_passes_walkers em_coll_list_passes_0019BA80 — test_coll_list_passes_reference.py (the ladder-entry test only hooked it); test_level_smoke.py check_cage_ladders (route 10 row for row); test_level_smoke.py check_boxes | live since census L09: 00176F90's probe in the Use chain (le_probe_0019BA80; the boxes and both ladders); the port's other queries keep em_collision.c; measured executing in the full smoke (census 1.9) | 05_boxes |
 | 0x0019BC40 | — | NM | live | em_actor_collision, em_player_running_jump — test_actor_collision_reference.py, test_player_climb_reference.py, test_player_floor_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | 05_boxes |
 | 0x0019C830 | — | NM | live | em_coll_probe_original em_coll_probe_0019C830 (0019AB20's grid pass over the EMCL rank section) — test_actor_collision_reference.py (ground exact), test_coll_probe_reference.py | the former em_collision.c grid walk is deleted | S2_opening |
 | 0x0019CB60 | — | NM | live | em_coll_grid_hull (the move walkers' grid pass) — test_coll_grid_hull_reference.py, test_coll_move_reference.py |  | S2_opening |
@@ -954,7 +1014,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FB370 | — | BM | verified-unbound | em_startup_load_gaps_sound em_slg_001FB370 — test_startup_load_gaps_reference | not bound (the sound-bank loader chain) | S1_newgame_load* |
 | 0x001FB3E0 | — | NM | verified-unbound | em_startup_load_gaps_sound em_slg_001FB3E0 — test_startup_load_gaps_reference | not bound (the sound-bank loader chain) | S1_newgame_load* |
 | 0x001FB910 | — | BM | verified-unbound | em_startup_load_gaps_sound em_slg_001FB910 — test_startup_load_gaps_reference | not bound (the sound-bank loader chain) | S1_newgame_load* |
-| 0x001FB9F0 | — | NM | live | em_sfx.c sfx_start / em_sfx_bank.c — test_area11_sfx_reference; test_area11_sfx_runtime.py | AREA11 cues re-exported; legacy ids still sharp (H19) | S0_title |
+| 0x001FB9F0 | — | NM | live | em_sfx.c sfx_start / em_sfx_bank.c — test_area11_sfx_reference; test_area11_sfx_runtime.py | AREA11 cues re-exported; legacy ids still sharp (H19); since census L10 the player closure's 001FB9F0(id, 0x1000, 0x1000, 0x1000) calls (the ladder's 0x107 / 0x10E / 0x10F, not in the exported registry: silent, WP-14) are em_sfx_play, other request words fault | S0_title |
 | 0x001FBC50 | — | BM | verified-unbound | em_stream_lanes_original — test_stream_lanes_reference | w_001FBC50 -> em_sfx_stop_all (live translation, no oracle); stream gain 0x1999 reported (H22) | S0_title |
 | 0x001FBD50 | — | BM | live | em_sfx.c / em_sfx_bank.c play path — test_area11_sfx_reference | as 001FB9F0 | S2_opening |
 | 0x001FBDB0 | — | AW | verified-unbound | em_sfx_bank — test_area11_sfx_reference.py |  | 09_fence_door |
@@ -1018,7 +1078,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.22 Load veil, fog, stage workers, cinematic timeline (0x21B000..0x22FFFF)
 
-25 functions, 3,097 instructions: live 9, verified-unbound 15, stand-in 1.
+25 functions, 3,097 instructions: live 11, verified-unbound 13, stand-in 1.
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -1041,8 +1101,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0021C3F0 | — | CL | live | em_player_stage_workers em_player_0021C3F0 (0021C440's hit_b gate, L01) — test_player_stage_workers_reference.py | D_00810770 is not canonical (L19): the stage's view load refuses area 8 room 2, where it is read | S2_opening |
 | 0x0021C440 | — | BM | live | em_player_stage_workers em_player_stage_reaction (0015B130 / 0015B770, L01; em_player_damage.c's processor copy retired) — test_player_stage_workers_reference; test_level_smoke.py (no-hit path every stage) | its hit, pending-damage and infection paths reach fail-stop workers (rumble, effects, atan2 / the +20 object, 0017B490 / 001749A0) and unbound +4 = 2 states; no route capture has a hit | S2_opening |
 | 0x0021D640 | — | BM | live | em_player_stage_workers em_player_0021D640 (0021C440, L01), em_player_reaction — test_player_stage_workers_reference.py |  | S2_opening |
-| 0x00224290 | — | AW | verified-unbound | em_player_fall, em_player_slide — test_player_fall_reference.py, test_player_slide_reference.py |  | 10_cage_roof_roger |
-| 0x002243F0 | — | AW | verified-unbound | em_player_recovery, em_player_running_jump — test_player_recovery_reference.py, test_player_running_jump_reference.py |  | 12_crevice_jump |
+| 0x00224290 | — | AW | live | em_player_fall, em_player_slide — test_player_fall_reference.py, test_player_slide_reference.py; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row); test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L09..L11 (the landing check of the falls and the jump); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x002243F0 | — | AW | live | em_player_recovery, em_player_running_jump — test_player_recovery_reference.py, test_player_running_jump_reference.py; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's hit sub-state machine); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x00224B80 | — | BM | live | em_player_recovery em_player_recovery_react_00224B80_worker, bound as the slide's damage worker — test_player_recovery_reference.py, test_player_slide_reference.py; test_level_smoke.py (06_hill_slide row for row, census L03) | live through the slide (0016C6A0 sub-state 3, every tick; returned 0 on the route) | 06_hill_slide |
 | 0x0022EBE0 | — | CL | verified-unbound | em_status_ui_leftovers em_sul_0022EBE0 — test_status_ui_leftovers_reference | not bound | S2_opening |
 | 0x0022EC30 | — | BM | verified-unbound | em_cinematic_playback — test_cinematic_playback_reference | H4: not in COMMON | S2_opening |
@@ -1259,7 +1319,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 1 | **L01-player-stage-live**: Engage the translated player stage (FLOOR gate): 0015BA50/0015B130/0015BCF0 and the stage workers, retire player_damage_tick. **Bound 2026-09-23 (partial):** 10 live (0015BCF0 tail only), 4 bound but unreached (0015B530, 001837A0, 00182B30, 00182D70: the interaction runtime still stands in for the scripted takeover and consumes the stage before 0015B130's prelude), 0015CF90 unverified (no oracle); the prelude on the port's idle/walk waits on 0017B490 (L12) | bind | 1,922 | 15 (live 10, verified-unbound 4, unverified 1) | every frame from first control; prerequisite of the floor, slide, climb, ladder and jump lanes | nothing (translations exist); retire em_player_damage.c copies in the same change (done) |
 | 2 | **L05-coll-move-walkers**: Replace em_collision movement queries with the translated move/sweep walkers. **Live 2026-09-24 (Boxes step):** 0019AD00 / 0019AFE0 with em_coll_grid_hull's 0019CB60 / 001A6440 serve 001764E0's probes and the closure in AREA11; the hull world has no chain reader (AREA11 publishes no class-2 owner); the follow camera keeps em_collision.c (L13) | translate+bind | 2,163 | 8 (live 1, verified-unbound 5, missing 2) | every frame (player and camera movement queries) | a translation of 0019CB60 and 001A6440 with their oracles (COLL_MOVE.md section 4 item 2) |
 | 3 | **L07-actor-collision-live**: Link em_actor_collision: grid/column scan, actor hulls, list classes and the 001AAD00 swap. **Live 2026-09-24:** the world, the lists, 001AAD00, the publication of the panel, terminal, items, crates and drums, and (Boxes step) the query half 0019AB20 / 0019F730 / 0019C830 / 0019BC40 / 001A5760 on em_coll_probe_original's prims and the EE model; the class 2/0xA and 0xD pushes wait on owners that publish them; the truck and prop cells wait on L23/L35 | bind | 2,224 | 13 (live 6, verified-unbound 7) | 05 (standing on crates), 08 (standing on the truck), 10 | L05 (queries), L25/L23 (owner cells) |
-| 4 | **L02-floor-fall-live**: Bind the floor service and fall check (00175900/001796C0) and the fall state, retiring the floor snap and PLAYER_FALL_ENTRY. **Live 2026-09-24 (Boxes step):** FLOOR is engaged in AREA11 with every closure state bound (em_player_closure_live.c; FIRST_CONTROL.md "Engaged"); off-route helpers are fail-stop workers naming their originals | bind | 1,755 | 14 (verified-unbound 14) | 05, 06, 08, 10 (step-offs, the cage-roof fall) | L01; L05 (0019CB60, 001A6440); L07 (column scan 0019BC40 and actor collision); L26 (001EFD90 on the slide) |
+| 4 | **L02-floor-fall-live**: Bind the floor service and fall check (00175900/001796C0) and the fall state, retiring the floor snap and PLAYER_FALL_ENTRY. **Live 2026-09-24 (Boxes step):** FLOOR is engaged in AREA11 with every closure state bound (em_player_closure_live.c; FIRST_CONTROL.md "Engaged"); off-route helpers are fail-stop workers naming their originals **Census L09..L11 (2026-09-24, section 1.9):** the fall 00162DB0, the landing 00163B40 / 00163C10, 00179680, 00179880, 0017C580 and 00224290 ran in the walks' step-offs of routes 10, 11 and 12 and the jump's landing, compared row for row (check_fall, check_crevice_jump); left: 001760C0 | bind | 1,755 | 14 (live 13, verified-unbound 1) | 05, 06, 08, 10 (step-offs, the cage-roof fall) | L01; L05 (0019CB60, 001A6440); L07 (column scan 0019BC40 and actor collision); L26 (001EFD90 on the slide) |
 | 5 | **L04-box-climb**: Bind ledge climb / vault (0015DF10, 00161790) for the boxes. **Live 2026-09-24 (Boxes step):** the level smoke's `boxes` phase equals route 05 row for row | bind | 1,960 | 12 (verified-unbound 12) | 05 (climbing the boxes) | L01, L02, L05, L06 |
 | 6 | **L03-hill-slide**: Bind the slide state (0016C6A0 family) for the hill. **Live 2026-09-24 (L03 step):** the level smoke's slide phase equals route 06 row for row (section 1.7); the slide's 001EFD90 spawns still go to the counted effect gap (L26) and its sounds 0x12E and the skid/landing ids are not in the exported registry (WP-14) | bind | 1,560 | 8 (live 8) | 06 (sliding down the hill) | L02, L05 (0016C570 / 001791D0 probes), L26 (001EFD90) |
 | 7 | **L06-coll-probe-walkers**: Bind the translated probe walkers (em_coll_probe_original). **Live 2026-09-24 (Boxes step: FLOOR engaged)** (em_collision_world_bind_player); 0019F1A0 / 0019ED80 are live under the camera's grid walkers | bind | 1,992 | 9 (live 2, verified-unbound 7) | every frame (probes); 05 | L02 (engages FLOOR) |
@@ -1268,11 +1328,11 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 10 | **L20-message-service**: WP-8: extend the live panel message service (001FCA10) to every caller, with voice pushes and the stream table. **Recount 2026-09-24:** 001FE4B0 / 001FE4D0 are live (em_message_bank_records / _record); left: the voice lanes 001FA5A0 (L36), 001FCF10 (translated, em_render_verify_rest) and the untranslated mode-4 presenter 001FCB90 | bind | 997 | 18 (live 15, verified-unbound 2, stand-in 1) | 10, 11 (director lines), 14 (Roger) | L19 |
 | 11 | **L23-truck**: WP-12: bind the truck and its camera trigger. **Live 2026-09-24 (section 1.8):** 00823FF0 and 008251E0 on their nodes (em_area11_boxes), routes 07 and 08 row for row; 001EBF10 (the truck effects' kind) waits on the effect owner (L26) | bind | 1,461 | 3 (live 2, verified-unbound 1) | 07, 08 (truck preview and crossing) | L26 (for 001EBF10) |
 | 12 | **L17-pickups-use-arbiter**: WP-6: bind the pickup owners and publish them to the Use arbiter; retire the legacy take. **Recount 2026-09-24:** done except the leaves: the owners 0015AFA0 / 0015AE20 / 00219550, the take 001B6EA0, the inventory 001C40B0 and the facing 001B7F90 are live (81414be); left: 0015AC00 (em_pickup.c INIT scale switch, no oracle), 001B1190 (em_pickup.c taken_set, hooked by its test), 001C5680 / 001C5760 (the indicator child ticks, no oracle) | verify | 1,069 | 10 (live 6, unverified 4) | 01 (battery pickup) and every other pickup | host (done) |
-| 13 | **L09-ladder-use-chain**: Bind the Use chain and ladder entry (0015D4C0, 00160220 whole, 00165B60). **Live 2026-09-24 (Boxes step):** 00160220 / 001798D0 / 0017C440 over the live record, `player_states_bind_use_chain(1)`; the stand-in player_pose_use_accepted is retired; a ladder action record faults (the EMCL export lacks the +0x34..+0x3F axis) | bind | 2,085 | 11 (verified-unbound 11) | 05, 10, 13 (ladders and the Use chain) | L01, L02, L06 |
-| 14 | **L10-ladder-climb**: Bind the ladder climb states (001662D0 family) | bind | 1,856 | 8 (verified-unbound 8) | 10, 13 | L09 |
+| 13 | **L09-ladder-use-chain**: Bind the Use chain and ladder entry (0015D4C0, 00160220 whole, 00165B60). **Live 2026-09-24 (Boxes step):** 00160220 / 001798D0 / 0017C440 over the live record, `player_states_bind_use_chain(1)`; the stand-in player_pose_use_accepted is retired; **Live 2026-09-24 (census L09, section 1.9):** the EMCL carries the grid nodes' +0x34..+0x3F axis (flags bit 3, verified against captured RAM), so 0015D4C0 case 0x32, 00177030 mode 4, 00199DB0, 00165B60 and 00182A70 run on the cage column; route 10's two climbs row for row (check_cage_ladders) | bind | 2,085 | 11 (live 11) | 05, 10, 13 (ladders and the Use chain) | L01, L02, L06 |
+| 14 | **L10-ladder-climb**: Bind the ladder climb states (001662D0 family). **Live 2026-09-24 (census L10, section 1.9):** 001662D0 with 0017FC80, 0017FD00, 00180300, 00180420, 00180460, 00181110, 00174AB0 and 001885D0 climb both cage ladders and dismount, route 10 row for row (check_cage_ladders); its 001FB9F0 sounds are em_sfx_play (silent ids, WP-14) and its 00187EE0 is em_player_floor's translation | bind | 1,856 | 8 (live 8) | 10, 13 | L09 |
 | 15 | **L21-director-beats**: WP-10: manager 008253F0 and its beat scripts through the script host. **Blocked 2026-09-24 (section 1.8):** beat 0's 06/2 waits for D_00810813 = 1, which only Roger's alternate script writes; the director stays on em_director.c until Roger is bound (DIRECTOR_ORIGINAL.md section 6) | bind | 410 | 9 (verified-unbound 9) | 10, 11 | L19 (live), L20, L22 (Roger's 0x828990), WP-8b (the voiced lines 0x97 / 0x99) |
 | 16 | **L22-roger-encounter**: WP-9: bind the Roger owner, equipment child and cutscene timeline | bind | 2,121 | 24 (verified-unbound 24) | 10, 14 (Roger) | L19, L20 |
-| 17 | **L11-running-jump-recovery**: Bind the running jump and recovery (0015EC50, 001634A0, 0017C860) | bind | 2,297 | 6 (verified-unbound 6) | 12 (crevice jump) | L02, L09 |
+| 17 | **L11-running-jump-recovery**: Bind the running jump and recovery (0015EC50, 001634A0, 0017C860). **Live 2026-09-24 (census L11, section 1.9):** the crevice jump of route 12 row for row (check_crevice_jump: states, clips, clocks and the arc's Y exact; the step length within 1e-4 on the free-flight rows); the landing's 0017DEB0 is em_player_climb's translation over the record; beat 14's tower jump waits on the roger phase | bind | 2,297 | 6 (live 6) | 12 (crevice jump), 14 | L02, L09 |
 | 18 | **L13-camera-follow**: Bind em_camera_follow_original (follow core) in place of em_camera.c camera_update. **Recount 2026-09-24:** em_camera_leftovers translates 0018B9C0 (the camera frame), 0018C0C0, 0018C5A0, 00190F20, 001914A0, 00191580; every row except 0019B7D0 (live) is verified-unbound | bind | 1,587 | 15 (live 1, verified-unbound 14) | every frame from first control | L06b (camera queries) |
 | 19 | **L14-camera-solver-dd20**: Bind 0018DD20 (desired-eye solver) and retire the unverified duplicate. **Recount 2026-09-24:** both are translated (em_camera_leftovers_solver em_camleft_0018DD20 / _0018CE60); em_camera.c cam_solver_0018DD20 and em_game.c cam_bounds_settle_0018CE60 are the live duplicates to retire | bind | 2,051 | 2 (verified-unbound 2) | every frame from first control | L13 |
 | 20 | **L15-camera-actions**: Bind the camera action dispatch 0018BC20 and em_camera_area11_specials (001921D0, 00193EB0). **Recount 2026-09-24:** 0018BC20 and 00191000 are em_camera_leftovers translations | bind | 1,951 | 5 (verified-unbound 5) | every frame from first control | L13 |

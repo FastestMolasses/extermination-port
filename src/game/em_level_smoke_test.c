@@ -73,6 +73,18 @@ static void truck_preview_begin(void);
 static int truck_preview_frame(void);
 static void truck_crossing_begin(void);
 static int truck_crossing_frame(void);
+static void cage_ladders_begin(void);
+static int cage_ladders_frame(void);
+static void director_begin(void);
+static int cage_roof_frame(void);
+static void crevice_climbs_begin(void);
+static int crevice_climbs_frame(void);
+static int crevice_prompt_frame(void);
+static void crevice_jump_begin(void);
+static int crevice_jump_frame(void);
+static void east_tower_climb_begin(void);
+static int east_tower_climb_frame(void);
+static int east_tower_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -106,17 +118,29 @@ static const Phase k_phases[] = {
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
      "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
      "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0},
+    {"cage_ladders", "10_cage_roof_roger", 0,
+     "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
+     "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
+     cage_ladders_frame, 0},
     {"cage_roof", "10_cage_roof_roger", 0x008253F0u,
-     "ladder column x 360; director 0x8253F0 beat 0 script 0x8294C0; Roger 0x8237E0 script 0x828990",
-     "the ladder (WP-15), WP-10 (director) and WP-9 (Roger)", NULL, NULL, 0},
+     "director 0x8253F0 beat 0 script 0x8294C0 (260 <= Y <= 280, quad 0x82ABE0); Roger 0x8237E0 script "
+     "0x828990 (line 0x7F); D_00810813 0 -> 1 -> 0x10 -> 0x11",
+     "WP-10 (director, census L21) after WP-9 (Roger, census L22)", director_begin, cage_roof_frame, 1},
+    {"crevice_climbs", "11_crevice_prompt", 0,
+     "tank ledge climb (state 2, +1F0 8), the pipes (fall 5 / 0xB), pipe-end ledge climb",
+     "the ledge climb and fall on the live record (census L04, L02)", crevice_climbs_begin,
+     crevice_climbs_frame, 0},
     {"crevice_prompt", "11_crevice_prompt", 0x008253F0u,
-     "tank ledge climb, pipes; director beat 1 script 0x829A40 (line 0x97)",
-     "WP-10 with WP-8 and the ledge climb (WP-15)", NULL, NULL, 0},
-    {"crevice_jump", "12_crevice_jump", 0, "running jump (+1F0 0x0C, state 6) onto the north block",
-     "the running jump (no port module; WP-15)", NULL, NULL, 0},
+     "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97); D_00810813 -> 0x20",
+     "WP-10 (director, census L21) with WP-8 (line 0x97)", director_begin, crevice_prompt_frame, 1},
+    {"crevice_jump", "12_crevice_jump", 0,
+     "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
+     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0},
+    {"east_tower_climb", "13_east_tower", 0, "high ledge climb (state 2, +1F0 8) onto the east tower top",
+     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0},
     {"east_tower", "13_east_tower", 0x008253F0u,
-     "high ledge climb; director beat 2 script 0x829CC0 (line 0x99)", "WP-10 and the ledge climb (WP-15)",
-     NULL, NULL, 0},
+     "director beat 2 script 0x829CC0 (Y >= 285, quad 0x82AC60; line 0x99); D_00810813 -> 0xFF",
+     "WP-10 (director, census L21) with WP-8 (line 0x99)", director_begin, east_tower_frame, 1},
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
      "WP-9 and the running jump (WP-15)", NULL, NULL, 0},
@@ -998,7 +1022,7 @@ static int boxes_climb(int index)
     }
     if (++t.nav_frames > 200) {
         fail(t.saw[index] ? "the ledge climb did not hand back to control"
-                          : "Cross at the crate did not enter the ledge climb (+5 = 2)");
+                          : "Cross did not enter the ledge climb (+5 = 2)");
         return -1;
     }
     return 0;
@@ -1353,6 +1377,397 @@ static int truck_crossing_frame(void)
     }
     fprintf(stderr, "level smoke: truck_crossing: PASS player=(%.3f,%.5f,%.3f) truck_y=%.5f story792=%u\n",
             g.pos[0], g.pos[1], g.pos[2], truck_pos[1], story_792());
+    return 1;
+}
+
+/* -------------------------------------------------------- cage_ladders
+ *
+ * Route beat 10's two climbs (route_capture.py beat_cage_roof_roger up to
+ * the roof): from the truck crossing's end the stick walks (360, 320) then
+ * (360, 296) (walk_path, tolerance 1.0), settles, goes to (360, 293.5) at
+ * 0.4 stick, settles, faces pi (face() settles 10 frames after the turn)
+ * and presses Cross: 00160220 -> 0015D4C0 case 0x32 on the column's
+ * authored node enters the ladder (+5 = 0xB, +1F0 = 0x15, clip 0xE3; route
+ * f268); once 001662D0 has taken over (+1F0 = 0x17) the stick is held up
+ * (the climb, clips 0xE8 / 0xEA, +3 y per cycle; the dismount +1F0 = 0x18
+ * with clip 0xF0) until +1F0 leaves the ladder's actions; the player stands
+ * on the cage floor (route f577: y 225.374). Then (359.8, 262) at 0.5
+ * stick, face pi, Cross and the same climb to the roof (route f780..f1089:
+ * y 264.912). In process: both presses entered state 0xB, the climbs
+ * reached 0x17 and 0x18 and ended at the route's heights.
+ * tools/test_level_smoke.py check_cage_ladders compares both climbs with
+ * the capture row for row. */
+enum { LADDER_LIMIT = 900 };
+static const float k_cage_path[2][2] = {{360.0f, 320.0f}, {360.0f, 296.0f}};
+
+/* walk_path over `path` (count waypoints): each until within `tol`, or
+ * blocked (45 frames moving less than 0.3). 1 when the path ends, 0
+ * continue, -1 failed. The waypoint index is t.saw[6]. */
+static int walk_path(const float (*path)[2], int count, float tol)
+{
+    if (t.saw[6] >= count) {
+        pad_apply(0, 0, 0);
+        t.saw[6] = 0;
+        nav_reset();
+        return 1;
+    }
+    const float *wp = path[t.saw[6]];
+    int slot = t.nav_hist_n % 64;
+    t.nav_hist[slot][0] = g.pos[0];
+    t.nav_hist[slot][1] = g.pos[2];
+    ++t.nav_hist_n;
+    int blocked = 0;
+    if (t.nav_hist_n > 45) {
+        int old = (t.nav_hist_n - 1 - 45) % 64;
+        blocked = hypotf(g.pos[0] - t.nav_hist[old][0], g.pos[2] - t.nav_hist[old][1]) < 0.3f;
+    }
+    if (nav_stick_toward(wp[0], wp[1], 1.0f) <= tol || blocked) {
+        t.nav_hist_n = 0;
+        ++t.saw[6];
+    }
+    if (++t.nav_frames > NAV_LIMIT) {
+        fail("the walk did not end");
+        return -1;
+    }
+    return 0;
+}
+
+/* route_capture ladder(): after the press, wait for 001662D0 (+1F0 0x17),
+ * then hold the stick up until +1F0 leaves 0x15 / 0x17 / 0x18. t.saw[slot]
+ * records 0xB seen (bit 0), 0x17 (bit 1) and 0x18 (bit 2). */
+static int ladder_climb(int slot)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint8_t state = em_live_u8(a, 5), mode = em_live_u8(a, 0x1F0);
+    if (state == 0xB && mode == 0x15)
+        t.saw[slot] |= 1;
+    if (mode == 0x17)
+        t.saw[slot] |= 2;
+    if (mode == 0x18)
+        t.saw[slot] |= 4;
+    if (++t.nav_frames > LADDER_LIMIT) {
+        fail(t.saw[slot] & 1 ? "the ladder climb did not end" : "Cross at the ladder did not enter state 0xB");
+        return -1;
+    }
+    if (!(t.saw[slot] & 2)) {
+        pad_apply(0, 0, 0);
+        if (t.nav_frames > 90 && !(t.saw[slot] & 1)) {
+            fail("Cross at the ladder did not enter state 0xB (+1F0 0x15)");
+            return -1;
+        }
+        return 0;
+    }
+    /* The capture's stick reached the game two frames after the row that
+     * showed 0x17 (the pad latency, FIRST_LEVEL_ROUTE.md section 6: route
+     * 10 clip 0xE6 through f330, the climb clip from f331); the overlay's
+     * reaches it on the next frame, so the stick waits two frames more. */
+    if (t.saw[slot + 2] < 2) {
+        ++t.saw[slot + 2];
+        pad_apply(0, 0, 0);
+        return 0;
+    }
+    if (mode == 0x15 || mode == 0x17 || mode == 0x18) {
+        pad_apply(0, 0, -1.0f);
+        return 0;
+    }
+    pad_apply(0, 0, 0);
+    nav_reset();
+    if (t.saw[slot] != 7) {
+        fail("the ladder did not run entry 0xB, climb 0x17 and dismount 0x18");
+        return -1;
+    }
+    return 1;
+}
+
+static void cage_ladders_begin(void)
+{
+    nav_reset();
+}
+
+static int cage_ladders_frame(void)
+{
+    switch (t.step) {
+    case 0: NAV_STEP(walk_path(k_cage_path, 2, 1.0f));
+    case 1: NAV_STEP(nav_settle(5));
+    case 2: NAV_STEP(nav_goto(360.0f, 293.5f, 0.5f, 0.4f, 1));
+    case 3: NAV_STEP(nav_settle(5));
+    case 4: NAV_STEP(nav_face(3.14159265f));
+    case 5: NAV_STEP(nav_settle(10));
+    case 6: NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 7: NAV_STEP(ladder_climb(0));
+    case 8:
+        if (fabsf(g.pos[1] - 225.374f) > 0.001f) {
+            fprintf(stderr, "level smoke: cage_ladders: after ladder A y %.5f\n", g.pos[1]);
+            fail("ladder A did not end on the cage floor (route f577: y 225.374)");
+            return 0;
+        }
+        ++t.step;
+        return 0;
+    case 9: NAV_STEP(nav_goto(359.8f, 262.0f, 0.6f, 0.5f, 1));
+    case 10: NAV_STEP(nav_settle(5));
+    case 11: NAV_STEP(nav_face(3.14159265f));
+    case 12: NAV_STEP(nav_settle(10));
+    case 13: NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 14: NAV_STEP(ladder_climb(1));
+    case 15:
+        if (fabsf(g.pos[1] - 264.912f) > 0.001f) {
+            fprintf(stderr, "level smoke: cage_ladders: after ladder B y %.5f\n", g.pos[1]);
+            fail("ladder B did not end on the cage roof (route f1089: y 264.912)");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: cage_ladders: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0],
+                g.pos[1], g.pos[2], g.yaw);
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* ------------------------------------------- the legacy director beats
+ *
+ * cage_roof, crevice_prompt and east_tower are the director 008253F0's
+ * beats 0, 1 and 2 (FIRST_LEVEL_ROUTE.md section 5): scripts 0x8294C0,
+ * 0x829A40 and 0x829CC0, and in beat 10 Roger's alternate script 0x828990.
+ * The director is not bound (census L21: beat 0's 06/2 waits for the
+ * D_00810813 = 1 that only Roger's unbound 0x828990 writes,
+ * DIRECTOR_ORIGINAL.md section 6), so node #21 runs the legacy
+ * em_director.c. These phases are driven through it (Phase.driven): the
+ * pad stays neutral until the stand-in's beat has ended, stored its step
+ * byte D_00810813 (0x10, 0x20, 0xFF) and control is back, so the later
+ * live phases start from the place the original's beat leaves the player
+ * (none of the three scripts moves the player: routes 10 f1089..f3508,
+ * 11 f706..f1200 and 13 f531..f749 keep +B0..+B8). Nothing is verified. */
+enum { DIRECTOR_LIMIT = 6000 };
+
+static uint8_t director_step(void)
+{
+    const uint8_t *b = em_scene_progress_at(em_scene_state(), 0x00810813u, 1);
+    return b ? *b : 0xEE;
+}
+
+static int director_driven(uint8_t want)
+{
+    pad_apply(0, 0, 0);
+    if (!t.saw[0]) {
+        if (director_step() != want || g.cine_active) {
+            if (++t.nav_frames > DIRECTOR_LIMIT)
+                fail("the director's stand-in beat did not end");
+            return 0;
+        }
+        t.saw[0] = 1;
+        nav_reset();
+    }
+    int r = nav_settle(30);
+    if (r <= 0)
+        return 0;
+    fprintf(stderr, "level smoke: %s: driven to D_00810813 = 0x%02X player=(%.3f,%.5f,%.3f)\n",
+            k_phases[t.current].name, director_step(), g.pos[0], g.pos[1], g.pos[2]);
+    return 1;
+}
+
+static void director_begin(void) { nav_reset(); }
+static int cage_roof_frame(void) { return director_driven(0x10); }
+static int crevice_prompt_frame(void) { return director_driven(0x20); }
+static int east_tower_frame(void) { return director_driven(0xFF); }
+
+/* The ledge climbs of beats 11 and 13: with `fine` the stick first walks
+ * to the route's stance before the press at 0.4 stick (navigation input,
+ * within 0.1, as the boxes do); without it the preceding walk's stop is
+ * the stance, as in route_capture.py (the pipe end: a walk into the pipe's
+ * end face stops beside it, and a second approach there slides along the
+ * face). Then the player faces the route's heading at the press and
+ * settles 30 frames. `land`: the climb ends where the director's beat
+ * takes over (routes 11 f706 and 13 f531: 3B8D = 3 on the landing row),
+ * so the step passes when +5 leaves 2 instead of waiting for control. */
+static int climb_landed(int index)
+{
+    uint8_t state = em_live_u8(player_states_actor(), 5);
+    if (state == 2)
+        t.saw[index] = 1;
+    if (t.saw[index] && state != 2) {
+        nav_reset();
+        return 1;
+    }
+    if (++t.nav_frames > 200) {
+        fail(t.saw[index] ? "the ledge climb did not land" : "Cross did not enter the ledge climb (+5 = 2)");
+        return -1;
+    }
+    return 0;
+}
+
+static int stance_climb(int step, const float stance[3], int fine, int slot, int land, float top,
+                        const char *what)
+{
+    switch (step) {
+    case 0: return fine ? nav_goto(stance[0], stance[1], 0.1f, 0.4f, 1) : 1;
+    case 1: return nav_settle(20);
+    case 2: return nav_face(stance[2]);
+    case 3: return nav_settle(30);
+    case 4: return nav_press(EM_PAD_CROSS, 2);
+    case 5: return land ? climb_landed(slot) : boxes_climb(slot);
+    case 6:
+        if (fabsf(g.pos[1] - top) > 0.001f) {
+            fprintf(stderr, "level smoke: %s: after the climb y %.5f\n", k_phases[t.current].name, g.pos[1]);
+            fail(what);
+            return -1;
+        }
+        return 1;
+    default:
+        return 1;
+    }
+}
+
+/* ------------------------------------------------------ crevice_climbs
+ *
+ * Route beat 11 up to director beat 1 (route_capture.py beat_crevice_prompt):
+ * the stick walks (385, 238), (407, 240) east over the bridge (tolerance
+ * 1.0); the tank climb from the route's stance (405.283, 240.018), facing
+ * 1.5637 (f169): the ledge climb (state 2, +1F0 8, clips 0x70 / 0x79 /
+ * 0x8C) onto the tank top at y 286.09 (f264). Then the pipes: the
+ * waypoints (420, 262) .. (470, 292) (tolerance 1.5; the short drop at f498
+ * is the fall 5 / 0xB and its landing 8 / 0xF; the extra waypoint
+ * (470, 300) makes the port's last leg straight down -z, as the
+ * original's was), and the pipe-end climb from where that walk stops
+ * (route (470.039, 289.876)), facing -3.0327 (f639; clips
+ * 0x70 / 0x77 / 0x8C) onto y 279.9 (f705). In process: both presses entered
+ * the ledge climb and ended at the route's heights. tools/test_level_smoke.py
+ * check_crevice_climbs compares both climbs with the capture. */
+static const float k_bridge_path[2][2] = {{385.0f, 238.0f}, {407.0f, 240.0f}};
+static const float k_pipe_path[12][2] = {{420.0f, 262.0f}, {416.0f, 270.0f}, {412.0f, 276.0f}, {405.0f, 285.0f},
+                                         {401.0f, 300.0f}, {410.0f, 312.0f}, {430.0f, 330.0f}, {450.0f, 347.0f},
+                                         {462.0f, 355.0f}, {470.0f, 340.0f}, {470.0f, 300.0f}, {470.0f, 292.0f}};
+static const float k_tank_stance[3] = {405.283f, 240.018f, 1.5637f};
+static const float k_pipe_stance[3] = {470.039f, 289.876f, -3.0327f};
+
+static void crevice_climbs_begin(void) { nav_reset(); }
+
+static int crevice_climbs_frame(void)
+{
+    if (t.step == 0) NAV_STEP(walk_path(k_bridge_path, 2, 1.0f));
+    if (t.step == 1) NAV_STEP(nav_settle(5));
+    if (t.step >= 2 && t.step <= 8)
+        NAV_STEP(stance_climb(t.step - 2, k_tank_stance, 1, 0, 0, 286.09f,
+                              "the tank climb did not end on the tank top (route f264: y 286.09)"));
+    if (t.step == 9) NAV_STEP(nav_settle(10));
+    if (t.step == 10) NAV_STEP(walk_path(k_pipe_path, 12, 1.5f));
+    if (t.step == 11) NAV_STEP(nav_settle(5));
+    if (t.step >= 12 && t.step <= 18)
+        NAV_STEP(stance_climb(t.step - 12, k_pipe_stance, 0, 1, 1, 279.9f,
+                              "the pipe-end climb did not end on the pipe (route f705: y 279.9)"));
+    fprintf(stderr, "level smoke: crevice_climbs: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0], g.pos[1],
+            g.pos[2], g.yaw);
+    return 1;
+}
+
+/* -------------------------------------------------------- crevice_jump
+ *
+ * Route beat 12 (route_capture.py beat_crevice_jump): the stick walks
+ * (485, 275), (477, 262) (tolerance 1.0; the drop off the pipe at f42 is
+ * the fall 5 / 0xB), settles 5, faces pi, then runs toward (477, 150) until
+ * z <= 249.5, where Cross is held for two frames with the stick kept
+ * (f227). 00160220's running-jump probe 0015EC50 enters state 6 (+1F0
+ * 0x0C, clips 0x69 / 0x6B; f230) and 001634A0 carries the player across
+ * the crevice onto the north block (8 / 0xF, clip 0x6E; landing f277 at
+ * (476.4, 269.84, 188.1)). The stick stays on until +1F0 leaves 0x0C and
+ * 0x0F, then the pad is released and the player settles. In process: the
+ * jump was entered and landed on the north block (z below 210, y
+ * 269.84). tools/test_level_smoke.py check_crevice_jump compares the jump
+ * with the capture. */
+static const float k_jump_path[2][2] = {{485.0f, 275.0f}, {477.0f, 262.0f}};
+enum { JUMP_LIMIT = 200 };
+
+static void crevice_jump_begin(void) { nav_reset(); }
+
+static int crevice_jump_frame(void)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint8_t mode = em_live_u8(a, 0x1F0);
+    switch (t.step) {
+    case 0: NAV_STEP(walk_path(k_jump_path, 2, 1.0f));
+    case 1: NAV_STEP(nav_settle(5));
+    case 2: NAV_STEP(nav_face(3.14159265f));
+    case 3: NAV_STEP(nav_settle(10));
+    case 4:
+        if (g.pos[2] > 249.5f) {
+            nav_stick_toward(477.0f, 150.0f, 1.0f);
+            if (++t.nav_frames > JUMP_LIMIT)
+                fail("the run-up did not reach the plateau's edge");
+            return 0;
+        }
+        nav_reset();
+        ++t.step;
+        /* fall through: Cross with the stick kept */
+    case 5:
+        pad_apply(EM_PAD_CROSS, t.pad.lx, t.pad.ly);
+        if (++t.nav_frames >= 2) {
+            nav_reset();
+            ++t.step;
+        }
+        return 0;
+    case 6:
+        pad_apply(0, t.pad.lx, t.pad.ly);
+        if (mode == 0x0C) {
+            t.saw[0] = 1;
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > 10)
+            fail("Cross at the edge did not enter the running jump (+1F0 0x0C)");
+        return 0;
+    case 7:
+        pad_apply(0, t.pad.lx, t.pad.ly);
+        if (mode == 0x0F)
+            t.saw[1] = 1;
+        if (mode == 0x0C || mode == 0x0F) {
+            if (++t.nav_frames > JUMP_LIMIT)
+                fail("the running jump did not end");
+            return 0;
+        }
+        pad_apply(0, 0, 0);
+        nav_reset();
+        ++t.step;
+        return 0;
+    case 8: {
+        int r = nav_settle(30);
+        if (r <= 0)
+            return 0;
+        if (!t.saw[1] || g.pos[2] > 210.0f || fabsf(g.pos[1] - 269.84f) > 0.01f) {
+            fprintf(stderr, "level smoke: crevice_jump: landed %u at (%.3f, %.5f, %.3f)\n", t.saw[1], g.pos[0],
+                    g.pos[1], g.pos[2]);
+            fail("the running jump did not land on the north block (route f277: y 269.84, z 188.1)");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: crevice_jump: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0],
+                g.pos[1], g.pos[2], g.yaw);
+        return 1;
+    }
+    default:
+        return 0;
+    }
+}
+
+/* --------------------------------------------------- east_tower_climb
+ *
+ * Route beat 13 up to director beat 2 (route_capture.py beat_east_tower):
+ * the high ledge climb from the route's stance (444.246, 179.776) at the
+ * north end of the east tower's east face, facing -1.6104 (f435; clips
+ * 0x70 / 0x79 / 0x8C) onto the tower top at y 289.75 (f530). The approach
+ * is route_capture's goto(445, 178) at 0.6 stick. tools/test_level_smoke.py
+ * check_east_tower_climb compares the climb with the capture. */
+static const float k_tower_stance[3] = {444.246f, 179.776f, -1.6104f};
+
+static void east_tower_climb_begin(void) { nav_reset(); }
+
+static int east_tower_climb_frame(void)
+{
+    if (t.step == 0) NAV_STEP(nav_goto(445.0f, 178.0f, 0.7f, 0.6f, 1));
+    if (t.step == 1) NAV_STEP(nav_settle(5));
+    if (t.step >= 2 && t.step <= 8)
+        NAV_STEP(stance_climb(t.step - 2, k_tower_stance, 1, 0, 1, 289.75f,
+                              "the high ledge climb did not end on the east tower top (route f530: y 289.75)"));
+    fprintf(stderr, "level smoke: east_tower_climb: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0],
+            g.pos[1], g.pos[2], g.yaw);
     return 1;
 }
 

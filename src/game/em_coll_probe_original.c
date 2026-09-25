@@ -125,9 +125,19 @@ int em_coll_probe_grid_init(EmCollProbeGrid *out, const EmCollision *grid, const
     if (at + 20 + body > size) return -1;
     for (uint32_t i = 0; i < count; ++i)
         if (grid->polys[first + i].set != EM_COLL_SET_GRID) return -1;
-    uint8_t *copy = malloc((size_t)body);
+    /* The axis section (flags bit 3) follows the rank section, which the
+     * exporter pads to a 4-byte boundary. */
+    uint64_t axis_at = (at + 20 + body + 3) & ~(uint64_t)3, axis_bytes = 0;
+    if (flags & EM_COLL_PROBE_FLAG_AXIS) {
+        axis_bytes = (uint64_t)count * 12;
+        if (axis_at + 12 + axis_bytes > size || memcmp(b + axis_at, "EMAX", 4) ||
+            rd_u32(b, axis_at + 4) != 1 || rd_u32(b, axis_at + 8) != count)
+            return -1;
+    }
+    uint8_t *copy = malloc((size_t)(body + axis_bytes));
     if (!copy) return -1;
     memcpy(copy, b + at + 20, (size_t)body);
+    if (axis_bytes) memcpy(copy + body, b + axis_at + 12, (size_t)axis_bytes);
     const float *vp = (const float *)copy;
     const int16_t *words = (const int16_t *)(copy + (size_t)vcount * 12);
     const int16_t *tables = words + (size_t)count * 12;
@@ -147,6 +157,7 @@ int em_coll_probe_grid_init(EmCollProbeGrid *out, const EmCollision *grid, const
     out->verts = vp;
     out->words = words;
     out->tables = tables;
+    out->axis = axis_bytes ? (const uint32_t *)(copy + body) : NULL;
     out->blob = copy;
     return 0;
 }

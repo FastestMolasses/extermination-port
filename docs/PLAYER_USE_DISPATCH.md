@@ -244,8 +244,10 @@ reads "Use chain (ledge climb, vault, ladder, running jump): engaged".
 - **row_request (00174A50)**: `em_player_stage_row_request`.
 - **classify (001AAC00)**: a fail-stop worker (area 0x15 only).
 - **surface (0015D4C0)**: `em_player_ladder_0015D4C0` with the closure's
-  ladder-entry workers. A ladder / ledge action record (attribute 0x20..0x3D)
-  faults, because the EMCL export lacks its +0x34..+0x3F axis.
+  ladder-entry workers. The record bytes +0x34..+0x3F of a grid node come
+  from the EMCL axis section (census L09: route 10's ladders run live); an
+  EMCL without it, or a cell record with an action byte (0x20..0x3D),
+  faults.
 - **ledge (0015DF10)**: `em_player_climb_live_ledge`, with the shared
   0x70003A20 word synchronized around it.
 - **jump / aim**: `em_player_running_jump_use_probe` / `_use_aim`.

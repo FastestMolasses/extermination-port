@@ -247,9 +247,11 @@ The floor service's two workers (`EmPlayerStatesBinding`, em_player.h):
   - `delta` (object probe only): 0x700031C0.
 
   0019B6C0 does not write 0x700031C0, so the head adapter leaves `delta`
-  zero. 00175900 does not read it after that probe. `axis` stays zero,
-  because grid node +0x34 is not in the EMCL. Only 00175CF0 reads the axis,
-  and only for ground hits on surface 0x35.
+  zero. 00175900 does not read it after that probe. `axis` stays zero:
+  the probes do not copy grid node +0x34 (the EMCL carries it since census
+  L09 in its axis section, which the ladder actions read through the
+  closure's probe state). Only 00175CF0 reads the axis here, and only for
+  ground hits on surface 0x35, which AREA11 does not author.
 - **Workers.** `EmCollProbeWorkers` takes 001A50A0 (`face_segment`) and
   001A5C30 (`round_segment`). With NULL workers, a probe that reaches one of
   them faults with −1 and leaves the state untouched. No AREA11 owner has a
@@ -399,8 +401,8 @@ quick run.
 - **0x7000324E across actors.** The native state cannot track the class
   another actor's 0019AB20/0019B8C0 left there. It matters only for static
   0x20000000 cells, which AREA11 lacks.
-- **Grid node +0x34..+0x3F.** These bytes are not exported. No routine here
-  reads them.
+- **Grid node +0x34..+0x3F.** Exported since census L09 (the EMCL axis
+  section, `EmCollProbeGrid.axis`); no routine here reads them.
 - **Other grid queries** in em_collision.c and em_actor_collision.c
   (0019C830, 0019BC40 pass 2) still brute-force the node list. They can use
   `em_coll_probe_0019F1A0` and the rank view to become exact. That is their

@@ -482,6 +482,15 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   the collision world (FIRST_CONTROL.md "Engaged"). The Use chain's ledge
   climb reproduces route 05. P12/P13 (the ordinary idle/walk display) stay
   the legacy baked display until L12.
+- **Status (2026-09-24, census L09..L11):** the cage ladders (0015D4C0
+  case 0x32, 00165B60, 001662D0), the tank, pipe-end and east tower ledge
+  climbs, the crevice running jump (0015EC50, 001634A0 with the recovery
+  lane) and the walks' falls run live on the record and equal routes 10..13
+  row for row (LEVEL_SMOKE.md: cage_ladders, crevice_climbs, crevice_jump,
+  east_tower_climb; `make test-level-smoke-full`). The data they needed,
+  the grid nodes' +0x34..+0x3F axis, is in the EMCL since this step
+  (STARTUP.md step 13). Beat 14's tower jump waits on the roger phase
+  (WP-9).
 
 ### WP-16 Camera completeness
 - **Scope:**

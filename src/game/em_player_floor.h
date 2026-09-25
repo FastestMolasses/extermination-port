@@ -78,6 +78,16 @@ unsigned em_player_step_sound_base(uint8_t surface, uint8_t depth, uint8_t tier)
  * slide, the ladder climb, the closure states) bind it through
  * em_player_closure_live.c. */
 int em_player_step_sounds(const EmPlayerStepActor *actor, uint8_t tier, const EmPlayerStepWorkers *workers);
+/* 00187EE0(actor, foot): the surface effect at `foot` (1.5 below it; the
+ * recorded +250 height for 0x5A..0x5C), through `effect` (001EFD90) or,
+ * on surface 0 with a nonzero +212, `decal` (001F0460). It reads
+ * actor->surface, wet, rotation (+C0), slope, position and surface_y. The
+ * one translation: the footstep dispatch below calls it with the foot
+ * nodes, and the live record's standalone callers (the ladder climb's
+ * 00187EE0(p, p + B0, p + D0)) bind it through em_player_closure_live.c.
+ * Returns 0, or -1 on a worker fault. */
+int em_player_ground_effect_00187EE0(const EmPlayerStepActor *actor, const float foot[3],
+                                    const EmPlayerStepWorkers *workers);
 
 /* 00187350. Returns 0, or -1 on a worker fault (fields written before the
  * fault keep their values, as the original's order leaves them). */

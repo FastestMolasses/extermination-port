@@ -402,7 +402,15 @@ AREA11 route snapshot holds one.
 
 **Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
 
-Nothing is wired.
+**Live and compared since census L11 (2026-09-24):** the level smoke's
+`crevice_jump` phase plays route 12's jump through this module and equals
+the capture row for row (LEVEL_SMOKE.md "crevice_jump": +5, +1F0, +1F1,
+clip, clock, ground and the arc's Y from the entry f230 through the landing
+f277 and the hand-back f304; the step length within 1e-4 on the free-flight
+rows). `dust` (0017DEB0) is em_player_climb.c's one translation over the
+record (`em_player_climb_live_0017DEB0`). The targets (001AA4E0 over
+D_00275B8C, 001AA410, 001AA2A0) stay fail-stop: AREA11 publishes no class-2
+owner. Beat 14's tower jump waits on the level smoke's roger phase (WP-9).
 
 ### Stage slots (0015B130's table; only 0015B130 dispatches these)
 
@@ -492,7 +500,8 @@ target is in the lane report.
 **Limits:**
 
 - **Untranslated workers:** 001AA410 and 001AA2A0 (targets), 001760C0 with
-  its arg, and the exports of 00177510 and 0017DEB0.
+  its arg, and the export of 00177510. 0017DEB0 is bound live through
+  em_player_climb's translation (census L11).
 - **The aim path** is verified only by the unit oracle: no AREA11 capture
   holds a qualifying target.
 - **Other areas' boxes** are verified only by the unit oracle, which reads

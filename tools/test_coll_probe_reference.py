@@ -466,7 +466,7 @@ def export_emcl():
     verified = [line for line in run.stdout.splitlines() if line.startswith('verified against')]
     assert len(verified) == len(VERIFY_BEATS) + 1, run.stdout
     data = out.read_bytes()
-    assert struct.unpack_from('<I', data, 20)[0] == 7, 'flags: grid, node class, ranks'
+    assert struct.unpack_from('<I', data, 20)[0] == 0xF, 'flags: grid, node class, ranks, axis'
     installed = 'not installed'
     if ASSET.exists() and struct.unpack_from('<I', ASSET.read_bytes(), 20)[0] & 4:
         assert ASSET.read_bytes() == data, 'assets/scene_snow/snow.emcl is stale (re-run the exporter)'

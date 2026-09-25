@@ -9,8 +9,10 @@ pickers 0017FC80, 0017FD00, 0017FD40, 0017FD80, 0017FE00, 0017FE80 and
 0017FF00, and the probes 00180420, 00180460, 00180530, 00180600 and 001809B0.
 It records what they do, how they were read, the native translation
 (`src/game/em_player_ladder_climb.c/.h`), how to bind it and the evidence.
-Nothing here is wired into the live player. The translation is a callback
-for the player stage and waits for the coordinator to bind it.
+The translation is bound live (section 4) and, since census L10, the level
+smoke's `cage_ladders` phase runs both cage climbs of route 10 through it
+(entry 0xB, climb 0x17 with clips 0xE8 / 0xEA, dismount 0x18 with clip
+0xF0) and equals the capture row for row (LEVEL_SMOKE.md).
 
 ## 1. What the original does
 
@@ -269,7 +271,7 @@ instruction it translates.
   | node | data read | `em_pose_view_node_bits` (em_pose_host_workers.h, *lane*; direct, context = an `EmPoseActorView`) |
   | request | 001749A0 | `em_pose_host_request` (em_pose_host_workers.h, *lane*; direct) |
   | sound | 001FBD50(p, id, 0, 300.0) | `em_player_misc_w_sound` (em_player_misc_workers.h, *lane*; direct) over `em_player_misc_001FBD50` |
-  | sfx | 001FB9F0(id, 0x1000, 0x1000, 0x1000) | the SFX bank (no standalone translation found) |
+  | sfx | 001FB9F0(id, 0x1000, 0x1000, 0x1000) | `em_sfx_play(id)`, the live binding of 001FB9F0 (em_player_closure_live.c x_sound_1FB9F0; other request words fault; 0x107 / 0x10E / 0x10F are not in the exported registry, WP-14) |
   | cue | 001B61C0(0, 0xC0, 5, 1) | `em_player_rumble_worker` (em_player_ladder_entry.h, *lane*; direct, context = an `EmPlayerRumble`) over `em_player_rumble_001B61C0` |
   | sound_109 | 00182A70 | `em_player_ladder_00182A70` (em_player_ladder_entry.h, *lane*; adapter over that lane's `EmPlayerLadderWorkers`) |
   | steer_input | 00174FD0 | `em_player_slide_steer_input` (slide mirror; needs a live adapter) |
@@ -277,7 +279,7 @@ instruction it translates.
   | skeleton | 001C68C0 | `em_pose_host_skeleton` (em_pose_host_workers.h, *lane*; direct) over `em_pose_host_001C68C0` |
   | floor | 00175900 | `player_states_floor_service` |
   | footstep | 00182430(p, 2) | `em_player_step_sounds` (em_player_floor.h), bound live by em_player_closure_live.c x_surface_sound since census L03 |
-  | ground_effect | 00187EE0(p, p+B0, p+D0) | untranslated |
+  | ground_effect | 00187EE0(p, p+B0, p+D0) | `em_player_ground_effect_00187EE0` (em_player_floor.h, the footstep's one translation) over the record, foot = +B0 (x_place); its 001EFD90 spawns reach the counted effect gap (L26) |
   | translate | 00178B90 | em_player_recovery.h |
   | reentry | 0017C440 | untranslated (the motor module) |
   | handoff | 0017C540 | `em_pose_host_handoff` (em_pose_host_workers.h, *lane*; direct), or `em_player_reaction_0017C540` through an adapter |

@@ -605,6 +605,31 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
     binding names of #24 / #25 and the truck's 001CB590 a2 (its +0x09 bone
     count 1, as route 08's truck header), and compare_frame_order gives the
     pre-step verdicts.
+- **Census L09 / L10 / L11: the ladders, the crevice jump and the tower
+  climb (2026-09-24; live, the director's beats driven).**
+  - The ladder actions needed data, not code: the EMCL now carries the grid
+    nodes' +0x34..+0x3F axis (`../Extermination/tools/export_collision.py
+    --node-class`, flags bit 3, verified against captured RAM; STARTUP.md
+    step 13), em_coll_probe_original reads it and em_player_closure_live.c
+    fills the ladder probe state's record bytes from it.
+  - Three closure workers were bound to existing translations: 001FB9F0
+    (0x1000 x3) as em_sfx_play, the ladder's standalone 00187EE0 as
+    em_player_floor.c's (now public) translation, the running jump's
+    0017DEB0 as em_player_climb.c's over the record.
+  - The level smoke gained four live phases (`cage_ladders`,
+    `crevice_climbs`, `crevice_jump`, `east_tower_climb`) and three driven
+    ones (`cage_roof`, `crevice_prompt`, `east_tower`: the director's beats
+    through the legacy em_director.c, which waits on Roger, L21 / L22).
+    `make test-level-smoke` stops after `truck_crossing` (about 11 s);
+    `make test-level-smoke-full` plays the whole live route.
+  - **Verified.** The four phases equal routes 10..13 (LEVEL_SMOKE.md); the
+    quick smoke's tick log and the newgame-control frame trace are
+    byte-identical to the pre-step build's (an isolated HEAD build), so
+    compare_frame_order gives the pre-step verdicts; newgame-control PASS
+    (9.599989); all 233 make test-* targets pass (tests/player_states_host_test.c
+    gained the new `EmCollProbeGrid.axis` initializer, test_scene_no_shadow
+    lists the smoke's read of D_00810813 as test instrumentation); make all
+    of HEAD plus this step's files builds in isolation with zero warnings.
 
 
 **After S13, WP-4…WP-12 each replace one binding row and delete the matching legacy code:**
@@ -614,7 +639,7 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - WP-7: em_door walk/goto
 - WP-8: em_panel_message, the opening's dialogue clock and em_hud_subtitle (landed 2026-09-23; the stream lanes remain unbound)
 - WP-9: Roger
-- WP-10: kCineBeats
+- WP-10: kCineBeats (the level smoke drives its beats since census L09..L11; WP-10 waits on WP-9)
 - WP-11: fan and the exit
 - WP-12: truck (landed 2026-09-24, census L23)
 

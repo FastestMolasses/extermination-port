@@ -385,9 +385,13 @@ Equivalent (no reachable input tells them apart; not test gaps):
 
 ## 5. Limits
 
-- **Node +0x34 (the axis)** is not in the EMCL rank section, so a grid-node
-  record carries no axis. The oracle does not compare `record_axis` for a
-  grid node (every other field it does). Two consumers read the axis:
+- **Node +0x34 (the axis)** is carried by the EMCL axis section since
+  census L09 (flags bit 3; `EmCollProbeGrid.axis`), but these walkers'
+  hit records do not copy it: a grid-node hit's `record_axis` stays zero
+  and the oracle does not compare it for a grid node (every other field it
+  does). The ladder actions (0015D4C0, 00177030) read it through the
+  closure's probe state instead (em_player_closure_live.c le_from_state).
+  Two consumers read it from these hits:
   - on the move walkers' path, only surface 0x35 (00175CF0;
     em_player_floor_apply reads `hit->axis` only for mode 0x35), so the
     move adapters fault on a 0x35 hit;
@@ -397,8 +401,7 @@ Equivalent (no reachable input tells them apart; not test gaps):
   AREA11's grid has no node of attribute 0x35 or 0x36 (its 3,099 nodes
   carry 0x00, 0x03..0x05, 0x32, 0x3C, 0x46, 0x50, 0x51, 0x5A, 0x5D and
   0x78; checked on beats 05 and 14), so neither consumer can meet a
-  grid-node axis in the first level. A future EMCL revision could carry
-  +0x34..+0x3F (decomp exporter lane).
+  grid-node axis in the first level.
 - **The chain view is test-backed only.** No live module supplies a chain
   yet: the port's class-2 list is empty in AREA11 and the player is not an
   `EmActor`. The first class-2 publisher (Roger, L22) must come with its

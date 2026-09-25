@@ -955,15 +955,59 @@ static int x_surface_sound(void *c, EmPlayerLiveActor *a, int gait)
     w.sound = x_step_sound;
     return em_player_step_sounds(&step, (uint8_t)gait, &w);
 }
+/* 00187EE0(p, p + B0, p + D0): em_player_floor.c's translation over the
+ * record's fields, the foot being +B0. Its 001EFD90 spawns go to the one
+ * counted effect gap (w_effect); the 001F0460 decal (surface 0 with the
+ * wet-feet timer +212 set) has no live binding. */
+static int x_decal(void *c, const float position[3], float yaw, float pitch)
+{
+    (void)c; (void)position; (void)yaw; (void)pitch;
+    return unbound("001F0460 (the wet-feet decal of 00187EE0)");
+}
+static int x_step_effect(void *c, uint32_t id, const float position[3], const float rotation[3])
+{
+    return w_effect(c, id, position, rotation);
+}
 static int x_place(void *c, EmPlayerLiveActor *a)
 {
-    (void)c; (void)a;
-    return unbound("00187EE0 as a standalone worker (translated inside the footstep only)");
+    (void)c;
+    if (!a) return -1;
+    EmPlayerStepActor step;
+    memset(&step, 0, sizeof step);
+    for (unsigned k = 0; k < 3; ++k) {
+        step.position[k] = em_live_f32(a, 0xB0 + 4 * k);
+        step.rotation[k] = em_live_f32(a, 0xC0 + 4 * k);
+    }
+    step.slope = em_live_f32(a, 0x9C);
+    step.surface_y = em_live_f32(a, 0x250);
+    step.wet = (int16_t)em_live_u16(a, 0x212);
+    step.surface = em_live_u8(a, 0x23A);
+    step.depth = em_live_u8(a, 0x23C);
+    EmPlayerStepWorkers w;
+    memset(&w, 0, sizeof w);
+    w.context = a;
+    w.effect = x_step_effect;
+    w.decal = x_decal;
+    return em_player_ground_effect_00187EE0(&step, step.position, &w);
 }
+/* 001FB9F0(id, 0x1000, 0x1000, 0x1000): the non-positional submit, whose
+ * live binding is em_sfx_play (em_sfx.c, census row 001FB9F0; the same
+ * binding the status page's and the reversal's cues use). Other request
+ * words have no live binding. An id the exported AREA11 registry lacks is
+ * silent (WP-14) and reported once. */
 static int x_sound_1FB9F0(void *c, int a0, int a1, int a2, int a3)
 {
-    (void)c; (void)a0; (void)a1; (void)a2; (void)a3;
-    return unbound("001FB9F0 (the SFX submit)");
+    (void)c;
+    if (a0 < 0 || a1 != 0x1000 || a2 != 0x1000 || a3 != 0x1000)
+        return unbound("001FB9F0 with request words other than 0x1000 (no live binding)");
+    static uint64_t reported[8];
+    if (a0 < 512 && em_sfx_cue_state((unsigned)a0) == 0 && !(reported[a0 >> 6] & (1ull << (a0 & 63)))) {
+        reported[a0 >> 6] |= 1ull << (a0 & 63);
+        fprintf(stderr, "player closure: sound 0x%X (001FB9F0) is not in the exported sfx registry "
+                "(WP-14); silent\n", (unsigned)a0);
+    }
+    em_sfx_play((unsigned)a0);
+    return 0;
 }
 static int x_area_point(void *c, int area, int sub, unsigned offset, uint32_t out[3])
 {
@@ -1524,9 +1568,11 @@ static float lc_approach(void *c, float t, float cur, float rate) { return w_app
 /* ---- Ladder entry (0015D4C0, 00165B60, ...): the probe state ---------------
  * 0x700031B0..D8 as the ladder translations read it (EmPlayerLadderScratch):
  * filled from the collision world's state after each query. A grid node's
- * +0x34..+0x3F (the ladder / ledge axis the actions read) is not carried by
- * the EMCL export, and a cell record's by the probe state: a record whose
- * surface byte is one of 0015D4C0's action cases therefore faults. */
+ * +0x34..+0x3F (the ladder / ledge axis the actions read) comes from the
+ * EMCL axis section (EM_COLL_PROBE_FLAG_AXIS, verified against captured RAM
+ * by the exporter); an EMCL without it, and a cell record (the probe state
+ * does not carry the cell record's +0x34..), fault when the surface byte is
+ * one of 0015D4C0's action cases. */
 static const uint8_t kLadderActions[] = { 0x20, 0x32, 0x33, 0x37, 0x38, 0x3A, 0x3B, 0x3D };
 
 static int le_from_state(const EmCollProbeState *st, int kind)
@@ -1549,6 +1595,10 @@ static int le_from_state(const EmCollProbeState *st, int kind)
         s->record = EM_PLAYER_LADDER_RECORD_OTHER;
         s->record_word = 0x40000000u | (uint32_t)st->node;
         attr = p->attr;
+        if (grid->axis) {
+            memcpy(s->record_bytes + 0x34, grid->axis + 3 * (size_t)st->node, 12);
+            return 0;
+        }
     } else if (st->record == EM_COLL_PROBE_RECORD_CELL) {
         memcpy(s->record_bytes + 0x1A, &st->cell_class, 2);
         memcpy(s->record_bytes + 0x24, st->cell_normal, 12);
@@ -1562,8 +1612,11 @@ static int le_from_state(const EmCollProbeState *st, int kind)
     }
     for (unsigned i = 0; i < sizeof kLadderActions; ++i)
         if (attr == kLadderActions[i])
-            return unbound("a ladder / ledge action record: its +0x34..+0x3F axis is not in the "
-                           "EMCL export (0015D4C0 cases 0x20..0x3D)");
+            return unbound(st->record == EM_COLL_PROBE_RECORD_GRID
+                               ? "a ladder / ledge action node: the EMCL has no axis section "
+                                 "(node +0x34..+0x3F; re-run export_collision.py --node-class)"
+                               : "a ladder / ledge action cell record: its +0x34..+0x3F is not in "
+                                 "the probe state (0015D4C0 cases 0x20..0x3D)");
     return 0;
 }
 static int le_from_move(int kind)
@@ -2443,8 +2496,9 @@ static int rj_target_sight(void *c, EmPlayerLiveActor *a, const void *object, fl
 { (void)c; (void)a; (void)object; (void)radius; if (r) *r = 0; return unbound("001AA2A0"); }
 static int rj_column(void *c, EmPlayerLiveActor *a, const float at[4], int arg, float height, int *r)
 { (void)c; return w_column_hit(a, at, arg, height, r, NULL); }
+/* 0017DEB0(p): the climb module's one translation over the record. */
 static int rj_dust(void *c, EmPlayerLiveActor *a)
-{ (void)c; (void)a; return unbound("0017DEB0 as a record-level worker (the climb's copy runs on its mirror)"); }
+{ (void)c; return em_player_climb_live_0017DEB0(&L.climb, a); }
 static int rj_root_clock(void *c, uint32_t *value) { (void)c; return em_pose_view_root_clock(&L.view, value); }
 
 static void bind_running_jump(void)

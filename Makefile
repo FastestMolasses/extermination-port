@@ -369,13 +369,23 @@ test-room-move-reference: $(BIN)
 test-collision-world-capture: $(BIN)
 	python3 tools/test_collision_world_capture.py
 
+# The default run stops after truck_crossing (about 11 s, docs/LEVEL_SMOKE.md
+# "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
+# the whole live route (about 19 s).
+LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,truck_crossing)
+
 .PHONY: test-level-smoke
 test-level-smoke: $(BIN)
 	mkdir -p build/level_smoke
-	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl \
+	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$${EM_LEVEL_SMOKE_UNTIL:-$(LEVEL_SMOKE_UNTIL)} \
+	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl \
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log
+
+.PHONY: test-level-smoke-full
+test-level-smoke-full: $(BIN)
+	$(MAKE) test-level-smoke EM_TEST_FULL=1
 
 .PHONY: test-message-service
 test-message-service:

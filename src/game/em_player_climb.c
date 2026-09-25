@@ -1320,6 +1320,18 @@ int em_player_climb_live_probe(void *context, EmPlayerLiveActor *live, int mode,
     return result;
 }
 
+int em_player_climb_live_0017DEB0(void *context, EmPlayerLiveActor *live)
+{
+    const EmPlayerClimbLive *b = context;
+    EmPlayerClimbActor actor;
+    EmPlayerClimbScene scene;
+    EmPlayerClimbWorkers workers;
+    if (climb_live_begin(b, live, &actor, &scene, &workers) < 0) return -1;
+    int result = grab_effect(&actor, &workers);
+    climb_live_end(&actor, live);
+    return result;
+}
+
 int em_player_climb_live_ledge(void *context, EmPlayerLiveActor *live, int mode, uint32_t angle,
                                int *result)
 {

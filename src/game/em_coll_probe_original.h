@@ -32,9 +32,10 @@
  * The grid needs data the EMCL poly records do not carry: each node's class
  * byte (+0x1B, EMCL flag EM_COLL_FLAG_NODE_CLASS) and the rank section (EMCL
  * flag EM_COLL_PROBE_FLAG_RANKS: the grid vertex pool, node +0x00..+0x17 and
- * the 12 tables at 0x70003210 / 0x70003228). The decomp's
- * tools/export_collision.py writes both and verifies them byte for byte
- * against captured RAM (--verify-ram).
+ * the 12 tables at 0x70003210 / 0x70003228), and the axis section (EMCL
+ * flag EM_COLL_PROBE_FLAG_AXIS: node +0x34..+0x3F, which the Use surface
+ * actions read). The decomp's tools/export_collision.py writes them and
+ * verifies them byte for byte against captured RAM (--verify-ram).
  *
  * Callees this module does not translate are workers: 001A50A0 (0x2000) and
  * 001A5C30 (0x4000), which 001A2AE0's pass 2 calls for an owner whose +0x54
@@ -67,6 +68,9 @@ extern "C" {
 /* EMCL header flag: the grid rank section follows the edge normals
  * (tools/export_collision.py, "Grid rank section"). */
 #define EM_COLL_PROBE_FLAG_RANKS 0x4u
+/* EMCL header flag: the grid axis section (node +0x34..+0x3F) follows the
+ * rank section (tools/export_collision.py, "Grid axis section"). */
+#define EM_COLL_PROBE_FLAG_AXIS 0x8u
 
 /* ---- The grid rank view --------------------------------------------------- */
 
@@ -79,6 +83,9 @@ typedef struct EmCollProbeGrid {
     const int16_t *words;      /* node i +0x00..+0x17: words[12 * i + k] */
     const int16_t *tables;     /* table k (0..11) at tables + k * N: 0..5 are
                                 * *(0x70003210 + 4k), 6..11 *(0x70003228 + 4(k-6)) */
+    const uint32_t *axis;      /* node i +0x34..+0x3F: axis[3 * i + k] (float
+                                * bits), or NULL when the EMCL has no axis
+                                * section (flags EM_COLL_PROBE_FLAG_AXIS) */
     void *blob;                /* owned copy of the section */
 } EmCollProbeGrid;
 

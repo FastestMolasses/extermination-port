@@ -104,6 +104,13 @@ static int step_effect(const EmPlayerStepActor *actor, const float foot[3],
     }
 }
 
+int em_player_ground_effect_00187EE0(const EmPlayerStepActor *actor, const float foot[3],
+                                    const EmPlayerStepWorkers *w)
+{
+    if (!actor || !foot || !w) return -1;
+    return step_effect(actor, foot, w);
+}
+
 int em_player_footstep_tick(EmPlayerStepActor *a, const EmPlayerStepScene *scene,
                             const EmPlayerStepWorkers *w)
 {

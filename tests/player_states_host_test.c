@@ -475,7 +475,7 @@ static void world_init(void)
     memset(&grid, 0, sizeof grid);
     grid.flags = EM_COLL_FLAG_GRID | EM_COLL_FLAG_NODE_CLASS;
     grid.blob = grid_blob;
-    ranks = (EmCollProbeGrid){ &grid, 1, 0, 1, rank_verts, rank_words, rank_tables, NULL };
+    ranks = (EmCollProbeGrid){ &grid, 1, 0, 1, rank_verts, rank_words, rank_tables, NULL, NULL };
     world = (EmActorCollisionWorld){ &table, &lists, &grid, NULL, 0, &ranks };
     memset(&player_record, 0, sizeof player_record);
     player_record.cls = 1; player_record.self = &player_record;

@@ -280,6 +280,14 @@ Roger's owner:
   play. So node #21 keeps `em_director.c` (kCineBeats) until L22 binds Roger
   and its line 0x7F; the voiced director lines 0x97 / 0x99 (beats 1 and 2)
   need WP-8b's stream lanes as well.
+- Since census L09..L11 (2026-09-24) the level smoke plays routes 10..13's
+  climbs and jump live around the director: its `cage_roof`,
+  `crevice_prompt` and `east_tower` phases are driven through the stand-in
+  (reported NOT-LIVE driven, not compared; LEVEL_SMOKE.md). Binding this
+  module (with Roger) makes those three phases live; their capture checks
+  then compare the scripts' frames, bars, camera shots, the lines 0x7F /
+  0x97 / 0x99 through em_message_live's op0C, and D_00810813's 1 / 0x10 /
+  0x11 / 0x20 / 0xFF.
 - What the director's scripts need from the host beyond the truck preview's
   workers: 00182BF0 (op16, `em_script_host_w_00182BF0` over the live record
   and the canonical D_0081083C / D_008106BC / D_008106F1), 001B0C00 /

@@ -3,8 +3,11 @@
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
 elevator refusal, the panel and the elevator ride), census L25 (the
 boxes: the Use chain's ledge climbs onto the crates' original owners),
-census L03 (the hill slide) and census L23 / L19 (the truck preview and
-crossing on the truck's original owners and the AREA11 script host). The
+census L03 (the hill slide), census L23 / L19 (the truck preview and
+crossing on the truck's original owners and the AREA11 script host) and
+census L09 / L10 / L11 (the cage ladders, the tank and pipe-end climbs, the
+crevice jump and the east tower climb, with the director's beats driven
+through its legacy stand-in). The
 smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
@@ -19,13 +22,20 @@ been verified.
 
 A NOT-LIVE phase that a later live phase needs the state of is **driven**:
 its runner plays it through the owner's current port binding, the run reports
-`NOT-LIVE driven`, and the capture checker skips it. No phase is driven since
-WP-6 (the battery pickup is live).
+`NOT-LIVE driven`, and the capture checker skips it. Since census L09..L11
+three phases are driven: `cage_roof`, `crevice_prompt` and `east_tower`, the
+director 008253F0's beats 0, 1 and 2. The director waits on Roger (census
+L21 / L22, DIRECTOR_ORIGINAL.md section 6), so node #21 still runs the
+legacy em_director.c, and the later climbs and the jump start from where its
+beats leave the player (none of the three original scripts moves the
+player).
 
 ## Running it
 
 ```sh
-make test-level-smoke                  # the whole route (about 11 s today, through truck_crossing)
+make test-level-smoke                  # through truck_crossing (about 11 s)
+make test-level-smoke-full             # the whole live route, through east_tower (about 19 s)
+EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
@@ -40,8 +50,10 @@ The make target does the following:
 2. It prints the run's `level smoke:` lines.
 3. It runs `tools/test_level_smoke.py` over the run log and the tick log.
 
-`EM_LEVEL_SMOKE_UNTIL` takes a phase name from the table below. The default
-is the last phase. An unknown name fails and lists the phases. The run stops
+`EM_LEVEL_SMOKE_UNTIL` takes a phase name from the table below. The binary's
+default is the last phase; the make target's default is `truck_crossing`
+(rule 4 of "Adding a phase"), and `EM_TEST_FULL=1` or
+`test-level-smoke-full` lifts it. An unknown name fails and lists the phases. The run stops
 at the first NOT-LIVE phase, because every later beat starts from the state
 the earlier beats leave. After the last phase it runs one more frame, with no
 input, before it quits: the route captures sample after the original frame,
@@ -86,11 +98,14 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 | slide | 06 | floor class 0x1000 -> 001796C0, slope slide 0016C6A0 (state 0x1C, +1F0 0x30) | yes (census L03) | — |
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | yes (census L23, L19) | — |
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
-| cage_roof | 10 | ladder, director 0x8253F0 beat 0, Roger 0x8237E0 script 0x828990 | no | WP-15, WP-10, WP-9 |
-| crevice_prompt | 11 | director beat 1, script 0x829A40 | no | WP-10, WP-8, WP-15 |
-| crevice_jump | 12 | running jump (+1F0 0x0C) | no | WP-15 (no module) |
-| east_tower | 13 | director beat 2, script 0x829CC0 | no | WP-10, WP-15 |
-| roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 | no | WP-9, WP-15 |
+| cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
+| cage_roof | 10 (f1091..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 | no: driven through em_director.c | WP-10 (L21) after WP-9 (L22) |
+| crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
+| crevice_prompt | 11 (f707..) | director beat 1, script 0x829A40 (line 0x97) | no: driven through em_director.c | WP-10 (L21), WP-8 |
+| crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
+| east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
+| east_tower | 13 (f532..) | director beat 2, script 0x829CC0 (line 0x99) | no: driven through em_director.c | WP-10 (L21), WP-8 |
+| roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 | no | WP-9 (L22) |
 
 ## What the live phases check
 
@@ -453,6 +468,154 @@ legacy follow camera, WP-16; the original's walk got blocked on the truck
 for 40 frames), the rumbles' timing (not in the capture rows), the truck's
 sounds 0x454 / 0x455 (not in the exported sfx registry, WP-14) and its
 effects (L26).
+
+### cage_ladders
+
+Route beat 10 up to the roof, live since census L09 / L10: the Use chain's
+0015D4C0 finds the column's authored attribute-0x32 grid node and runs case
+0x32 (00177030 mode 4 over the node's axis +0x34..+0x3F, which the EMCL
+axis section carries since this step; STARTUP.md step 13), 00165B60 runs
+the entry (state 0xB) and 001662D0 the climb and the dismount (state 0xC),
+all over the live record (em_player_closure_live.c;
+PLAYER_LADDER_ENTRY.md and PLAYER_LADDER_CLIMB.md "Binding").
+
+**Runner.** route_capture.py's beat_cage_roof_roger up to the roof: the
+stick walks (360, 320), (360, 296) (walk_path, tolerance 1.0), settles 5,
+goes to (360, 293.5) at 0.4 stick, settles 5, faces pi (and settles 10, as
+face() does) and presses Cross for 2 frames. Once the record shows +1F0 =
+0x17 the stick is held up until +1F0 leaves 0x15 / 0x17 / 0x18, as the
+route's ladder() does, two frames later than the row that showed 0x17: the
+capture's pad reached the game two frames after it was set (route 10 keeps
+clip 0xE6 through f330), the overlay's reaches it on the next frame. Then
+(359.8, 262) at 0.5 stick, the same face, press and climb to the roof.
+**In process:** both presses enter state 0xB with +1F0 0x15, both climbs
+run 0x17 and 0x18, ladder A ends on the cage floor (y 225.374) and ladder
+B on the roof (y 264.912), each within 0.001.
+
+**Against the capture** (`check_cage_ladders`, route 10):
+- the walk's one step-off (route f88; `check_fall`, below);
+- ladder A from its entry (f268) through the hand-back into the walk state
+  (f581), ladder B from f780 through f1090 (at f1091 director beat 0 takes
+  the player): +5, +1F0, +1F1, clip, clock (from the row after the entry),
+  ground and heading exactly, X/Z exactly (the entry places +B0/+B8 on the
+  node's centre, so the stance does not carry), Y as the lift from the
+  entry row while on the ladder (the entry keeps the stance's floor Y, 1e-5
+  apart here) and exactly after the dismount.
+
+Measured: every compared field equal; the lift within 7.2e-6. A mutation
+(the climb's 3.0 step in em_player_ladder_climb.c to 3.0156) passes in
+process and fails the capture check at f356.
+
+### cage_roof, crevice_prompt, east_tower (driven)
+
+The director's beats (FIRST_LEVEL_ROUTE.md section 5). The runner holds
+the pad neutral until the legacy em_director.c has run its beat, stored its
+step byte D_00810813 (0x10, 0x20, 0xFF) and control is back, then settles
+30 frames. Reported `NOT-LIVE driven`; nothing is compared. The original's
+beat 0 also runs Roger's conversation 0x828990 and leaves D_00810813 = 0x11
+(Roger's ordinary branch); the stand-in leaves 0x10, which its own beat-1
+test accepts. Beats 1 and 2 show the lines 0x97 and 0x99 in the original;
+the stand-in shows none (DIRECTOR_ORIGINAL.md section 6).
+
+### crevice_climbs
+
+Route beat 11 up to director beat 1: the tank climb and the pipe-end climb
+(the ledge climb 0015DF10 / state 2, live since the Boxes step) and, between
+them, the pipes walk's step-off onto the 270 plateau (the fall 00162DB0
+and landing 00163B40, bound since the Boxes step).
+
+**Runner.** route_capture.py's beat_crevice_prompt: the stick walks
+(385, 238), (407, 240) (tolerance 1.0) and settles; then the route's stance
+before the tank press, (405.283, 240.018), at 0.4 stick (within 0.1),
+settle 20, face 1.5637 (the route's heading at the press), settle 30,
+Cross; the climb hands back to control. Then the pipe waypoints (420, 262)
+.. (470, 292) (tolerance 1.5), with one extra waypoint (470, 300) before
+the last so the port's final leg runs straight down -z as the original's
+did; the walk's stop is the pipe-end stance (as in route_capture.py; a
+second approach there slides along the pipe's end face), face -3.0327,
+settle 30, Cross; that climb ends when +5 leaves 2 (route f706: director
+beat 1 claims the player on the landing row). **In process:** both presses
+enter the ledge climb and end on y 286.09 and 279.9 (within 0.001).
+
+**Against the capture** (`check_crevice_climbs`, route 11):
+- the tank climb f172..f276 and the pipe-end climb f642..f706: +5, +1F0,
+  +1F1, clip, clock, ground, heading and Y row for row; X/Z as the
+  displacement from the entry within the distance between the two stances
+  plus 0.001 (0015DF10 carries the stance along the wall and places it at
+  the wall's distance, so the stance offset bounds the residual);
+- the step-off between them (route f498; `check_fall`).
+
+Measured: the stances are 0.138 and 0.407 from the original's, the X/Z
+residuals 0.1385 and 0.1097; every other field equal.
+
+### crevice_jump
+
+Route beat 12, live since census L11: 00160220's running-jump probe
+0015EC50 enters state 6 and 001634A0 (with the recovery lane's 001751A0,
+00178EC0, 0017C860, 002243F0) carries the player across the crevice; the
+landing is the fall family's state 8 (em_player_closure_live.c;
+PLAYER_RUNNING_JUMP.md "Binding").
+
+**Runner.** route_capture.py's beat_crevice_jump: the stick walks
+(485, 275), (477, 262) (tolerance 1.0; the drop off the pipe on the way),
+settles 5, faces pi, settles 10, then points at (477, 150) at full
+deflection until z <= 249.5; Cross is held 2 frames with the stick kept,
+and the stick stays on until +1F0 leaves 0x0C / 0x0F; then neutral and a
+settle. **In process:** the jump was entered, landed (+1F0 0x0F) and the
+player settled on the north block (z below 210, y 269.84).
+
+**Against the capture** (`check_crevice_jump`, route 12):
+- f230..f304: +5, +1F0, +1F1, clip, clock, ground and Y row for row (the
+  jump 6 / 0x0C with clips 0x69 / 0x6B, the landing 8 / 0xF at f277 with
+  clip 0x6E, the recovery 8 / 1 and the hand-back into state 1);
+- the heading is 0015EC50's take-off heading, the stick's direction at the
+  press (navigation): constant through the window in both runs;
+- the per-row horizontal step length equals the original's within 1e-4 on
+  every row where both runs step along their take-off headings (free
+  flight: 37 rows); the rows where the arc slides along the north block's
+  edge depend on the lateral offset the heading makes;
+- the approach's step-off off the pipe (route f42; `check_fall`).
+
+Measured: take-off heading -2.99699 against the original's -2.97704; every
+compared field equal, the step lengths within 2e-5. A mutation (tier 3's
+launch speed in em_player_running_jump.c, 1.8 to 1.8005) fails at f240.
+
+### east_tower_climb
+
+Route beat 13 up to director beat 2: the high ledge climb (0015DF10 /
+state 2) onto the east tower top.
+
+**Runner.** route_capture.py's goto(445, 178) at 0.6 stick, settle 5, then
+the route's stance (444.246, 179.776) at 0.4 stick, settle 20, face
+-1.6104, settle 30, Cross; the climb ends when +5 leaves 2 (route f531:
+director beat 2 claims the player on the landing row). **In process:** the
+climb ends on y 289.75.
+
+**Against the capture** (`check_east_tower_climb`, route 13): f438..f531
+as for the crevice climbs. Measured: stance 0.004 from the original's, X/Z
+residual 0.0031, every other field equal.
+
+### The step-offs (`check_fall`)
+
+The walks of beats 10, 11 and 12 each step off one edge. From the port's
+fall entry (+5 = 5, +1F0 0xB) and the route's: +5, +1F0, +1F1, clip and
+clock (once the fall's clip 0x73 has replaced the walk's) and the Y as the
+drop from the entry, row for row through the landing; then, aligned on the
+first row with +5 = 8 in each run, the landing 8 / 0xF (clip 0x6E), the
+recovery 8 / 1 and the hand-back into state 1 plus 2 rows. The landing must
+fall on the original's row when both falls start at the same height (to
+0.001); the edge point is the port's own walk (navigation), and a different
+start height may move it by one row (beat 10: 191.44 against 191.624, one
+row earlier). Measured: beats 11 and 12 land on the original's rows; beat 10
+one row earlier; every compared field equal.
+
+What these phases do not compare: the walks between the climbs (the
+port's legacy idle / walk callbacks, L12, steered against the legacy
+follow camera, WP-16), the sounds (the ladder's 0x107 / 0x10E / 0x10F and
+the landing ids are not in the exported sfx registry, WP-14; they reach
+em_sfx_play silently and are reported once), the effects (0017DEB0's and
+00187EE0's 001EFD90 spawns reach the counted effect gap, L26) and the
+director's beats (driven, above).
 
 ## Adding a phase (the contract for WP-4 onward)
 

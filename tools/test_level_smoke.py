@@ -438,8 +438,12 @@ BOX_XZ_TOLERANCE = 0.01
 def check_boxes(ticks, run, state):
     rows = route_rows('05_boxes')
     live = [i for i in range(1, len(ticks)) if 'player' in ticks[i]]
-    entries = [i for i in live if ticks[i]['player'][0] == 2 and ticks[i - 1]['player'][0] != 2]
-    assert len(entries) == 2, ('the run entered the ledge climb other than twice', len(entries))
+    # The boxes' climbs are the ledge climbs before the slide (route 06);
+    # the later phases' climbs (crevice_climbs, east_tower_climb) have their
+    # own checks.
+    slide = next((i for i in live if ticks[i]['player'][0] == 0x1C), len(ticks))
+    entries = [i for i in live if i < slide and ticks[i]['player'][0] == 2 and ticks[i - 1]['player'][0] != 2]
+    assert len(entries) == 2, ('the run entered the ledge climb other than twice before the slide', len(entries))
     notes = []
     for (e, (r0, crate, top)) in zip(entries, BOX_CLIMBS):
         assert rows[r0]['p5'] == 2 and rows[r0 - 1]['p5'] != 2, ('route 05 climb entry moved', r0)
@@ -679,6 +683,268 @@ def check_truck_crossing(ticks, run, state):
           f'rows at rest)')
 
 
+# ------------------------------------ ladders, climbs, jump (census L09..L11)
+
+def state_entries(ticks, value, start=1, end=None):
+    """The ticks where the player record's +5 becomes `value`."""
+    end = len(ticks) if end is None else end
+    return [i for i in range(max(start, 1), end) if 'player' in ticks[i] and 'player' in ticks[i - 1]
+            and ticks[i]['player'][0] == value and ticks[i - 1]['player'][0] != value]
+
+
+def route_entries(rows, value):
+    return [k for k in range(1, len(rows)) if rows[k]['p5'] == value and rows[k - 1]['p5'] != value]
+
+
+def record_row(tick, row, k):
+    """+5, +1F0, +1F1, clip, ground and heading of a port tick and a route
+    row; the clock from the row after the entry (the entry row's clock is
+    the previous clip's, whose phase at the press is navigation input)."""
+    p = tick['player']
+    got = {'p5': p[0], 'm1F0': p[1], 'm1F1': p[2], 'clip': p[3], 'ground': hex(p[5]),
+           'yaw': round(f32(tick['yaw_post']), 5)}
+    want = {'p5': row['p5'], 'm1F0': row['m1F0'], 'm1F1': row['m1F1'], 'clip': row['clip'],
+            'ground': row['ground'], 'yaw': row['yaw']}
+    if k:
+        got['clock'], want['clock'] = round(f32(p[4]), 3), row['clock']
+    return got, want
+
+
+# The walks of beats 10, 11 and 12 step off an edge once each (route 10
+# f88, 11 f498, 12 f42): the fall 5 / 0xB (00162DB0), the landing 8 / 0xF
+# (clip 0x6E) and its recovery 8 / 1 into the walk state 1. The edge and
+# the speed are navigation input, the rest is the fall's.
+FALL_AFTER_HANDBACK = 2
+
+
+def check_fall(ticks, e, rows, r0, what):
+    """From the port's fall entry e and the route's r0: +5, +1F0, +1F1,
+    clip and clock (once the fall's clip has replaced the walk's) row for
+    row and the Y as
+    the drop from the entry row, through the landing; from the landing
+    (aligned on the first row with +5 = 8 in each run) through the
+    hand-back to state 1 and FALL_AFTER_HANDBACK rows: +5, +1F0, +1F1, clip
+    and clock row for row. The landing must come on the same row as the
+    original's when both falls start at the same height (to 0.001); a
+    different start height (the walk's own edge point, navigation input)
+    may move it by one row. Returns a note."""
+    land_p = next(k for k in range(1, 200) if ticks[e + k]['player'][0] == 8)
+    land_o = next(k for k in range(1, 200) if rows[r0 + k]['p5'] == 8)
+    ye_p, ye_o = f32(ticks[e]['pos_post'][1]), rows[r0]['pos'][1]
+    same_height = abs(ye_p - ye_o) < 1e-3
+    assert land_p == land_o or (not same_height and abs(land_p - land_o) == 1), \
+        (what, 'fall landing row', land_p, land_o, ye_p, ye_o)
+    walk_clip = rows[r0]['clip']
+    for k in range(1, min(land_p, land_o)):
+        # The walk clip's clock (its phase at the edge) until the fall's
+        # request replaces the clip.
+        got, want = record_row(ticks[e + k], rows[r0 + k], k if rows[r0 + k]['clip'] != walk_clip else 0)
+        got.pop('yaw'), want.pop('yaw')
+        assert got == want, (what, 'fall row', rows[r0 + k]['f'], k, got, want)
+        drop = (f32(ticks[e + k]['pos_post'][1]) - ye_p) - (rows[r0 + k]['pos'][1] - ye_o)
+        assert abs(drop) < 1e-4, (what, 'fall drop', rows[r0 + k]['f'], k, drop)
+    back = next(k for k in range(land_o, 200) if rows[r0 + k]['p5'] == 1)
+    for j in range(back - land_o + 1 + FALL_AFTER_HANDBACK):
+        # The landing row still shows the fall clip's clock, which counts
+        # from the entry: compared only when both land on the same row.
+        got, want = record_row(ticks[e + land_p + j], rows[r0 + land_o + j], 1 if j or land_p == land_o else 0)
+        got.pop('yaw'), want.pop('yaw')
+        assert got == want, (what, 'landing row', rows[r0 + land_o + j]['f'], j, got, want)
+    return (f'the fall f{rows[r0]["f"]} (landing f{rows[r0 + land_o]["f"]}'
+            f'{"" if land_p == land_o else f", the port one row {"earlier" if land_p < land_o else "later"} from its own edge height"}'
+            f', hand-back f{rows[r0 + back]["f"]})')
+
+
+def fall_between(ticks, start, end, rows, what):
+    falls = state_entries(ticks, 5, start, end)
+    r_falls = route_entries(rows, 5)
+    assert len(falls) == 1 and len(r_falls) == 1, (what, 'the walk did not step off one edge', falls, r_falls)
+    return check_fall(ticks, falls[0], rows, r_falls[0], what)
+
+
+# Route 10's two ladder climbs on the x 360 column (FIRST_LEVEL_ROUTE.md
+# beat 10): from the first row with +5 = 0xB (0015D4C0 case 0x32, f268 and
+# f780) through the hand-back (ladder A: the dismount's 0017C440 re-entry
+# into state 1, f581; ladder B: f1090, the last row before director beat 0
+# takes the player, f1091).
+LADDER_WINDOWS = ((268, 581), (780, 1090))
+
+
+def check_cage_ladders(ticks, run, state):
+    """Both climbs row for row: +5, +1F0, +1F1, clip, clock, ground and the
+    heading exactly; X/Z exactly (00177030 mode 4 places +B0/+B8 on the
+    column node's centre, 00199DB0, so the stance, navigation input, does
+    not carry into them); Y as the lift from the entry row while the
+    player is on the ladder (+1F0 0x15 / 0x17 / 0x18: the entry keeps the
+    stance's ground Y, which is the floor under the port's own approach) and
+    exactly from the hand-back on (the dismount sets the cage floor and the
+    roof). The press itself and the stick's up push are navigation; the
+    runner pushes the stick at the capture's pad latency
+    (em_level_smoke_test.c ladder_climb)."""
+    rows = route_rows('10_cage_roof_roger')
+    assert [rows[k]['f'] for k in route_entries(rows, 0xB)] == [w[0] for w in LADDER_WINDOWS], \
+        ('route 10 ladder entries moved', route_entries(rows, 0xB))
+    start = max(state.get('cursor', 0), 1)
+    entries = state_entries(ticks, 0xB, start)
+    assert len(entries) == 2, ('the run entered the ladder other than twice', len(entries))
+    notes = [fall_between(ticks, start, entries[0], rows, 'cage_ladders')]
+    for e, (f0, f1) in zip(entries, LADDER_WINDOWS):
+        r0 = next(k for k in range(len(rows)) if rows[k]['f'] == f0)
+        count = f1 - f0 + 1
+        assert e + count < len(ticks), ('the tick log ends inside a ladder window', f0)
+        pe, oe = f32(ticks[e]['pos_post'][1]), rows[r0]['pos'][1]
+        lift_worst = 0.0
+        for k in range(count):
+            t, r = ticks[e + k], rows[r0 + k]
+            got, want = record_row(t, r, k)
+            assert got == want, ('ladder row', r['f'], k, got, want)
+            pos = [f32(v) for v in t['pos_post']]
+            for a in (0, 2):
+                assert round(pos[a], 5) == r['pos'][a], ('ladder X/Z', r['f'], k, pos, r['pos'])
+            if r['m1F0'] in (0x15, 0x17, 0x18):
+                lift = abs((pos[1] - pe) - (r['pos'][1] - oe))
+                lift_worst = max(lift_worst, lift)
+                assert lift < 1e-4, ('ladder lift', r['f'], k, pos[1] - pe, r['pos'][1] - oe)
+            else:
+                assert round(pos[1], 5) == r['pos'][1], ('ladder Y after the hand-back', r['f'], k, pos[1],
+                                                         r['pos'][1])
+        climb = [k for k in range(count) if rows[r0 + k]['m1F0'] == 0x17]
+        top = next(k for k in range(count) if rows[r0 + k]['m1F0'] == 0x18)
+        notes.append(f'f{f0}..f{f1} (entry 0xB, climb 0x17 f{rows[r0 + climb[0]]["f"]}, dismount 0x18 '
+                     f'f{rows[r0 + top]["f"]}, on y {rows[r0 + count - 1]["pos"][1]}; lift within {lift_worst:.1e})')
+        state['cursor'] = e + count
+    print(f'cage_ladders: PASS (the walk\'s step-off and both climbs equal route 10: {notes[0]}; the climbs row '
+          f'for row in +5, +1F0, +1F1, clip, clock, ground, heading and X/Z, Y as the lift on the ladder and '
+          f'exactly after it: {"; ".join(notes[1:])})')
+
+
+def check_climbs(ticks, state, beat, phase, windows):
+    """Ledge climbs (0015DF10, state 2) of a route beat, aligned on the
+    first row with +5 = 2: +5, +1F0, +1F1, clip, clock, ground, heading and
+    Y row for row (the stances stand on the same floor); X/Z as the
+    displacement from the entry row within the distance between the two
+    stances (navigation input: 0015DF10 carries the stance along the wall
+    and places it at the wall's distance, so the stance offset bounds the
+    residual) plus 0.001."""
+    rows = route_rows(beat)
+    r_entries = route_entries(rows, 2)
+    assert [rows[k]['f'] for k in r_entries] == [w[0] for w in windows], (beat, 'climb entries moved', r_entries)
+    start = max(state.get('cursor', 0), 1)
+    entries = state_entries(ticks, 2, start)[:len(windows)]
+    assert len(entries) == len(windows), (phase, 'the run entered the ledge climb fewer times', len(entries))
+    notes = []
+    for e, r0, (f0, f1) in zip(entries, r_entries, windows):
+        count = f1 - f0 + 1
+        assert e + count < len(ticks), (phase, 'the tick log ends inside a climb window', f0)
+        pe = [f32(v) for v in ticks[e]['pos_post']]
+        oe = rows[r0]['pos']
+        stance = ((pe[0] - oe[0]) ** 2 + (pe[2] - oe[2]) ** 2) ** 0.5
+        worst = 0.0
+        for k in range(count):
+            t, r = ticks[e + k], rows[r0 + k]
+            got, want = record_row(t, r, k)
+            assert got == want, (phase, 'climb row', r['f'], k, got, want)
+            pos = [f32(v) for v in t['pos_post']]
+            assert round(pos[1], 5) == r['pos'][1], (phase, 'climb Y', r['f'], k, pos[1], r['pos'][1])
+            d = (((pos[0] - pe[0]) - (r['pos'][0] - oe[0])) ** 2 + ((pos[2] - pe[2]) - (r['pos'][2] - oe[2])) ** 2) ** 0.5
+            worst = max(worst, d)
+        assert worst <= stance + 1e-3, (phase, 'climb X/Z displacement', f0, worst, stance)
+        land = next(k for k in range(count) if rows[r0 + k]['p5'] != 2)
+        notes.append(f'f{f0}..f{f1} (onto y {rows[r0 + land]["pos"][1]} at f{rows[r0 + land]["f"]}; stance '
+                     f'{stance:.3f} from the original\'s, X/Z residual {worst:.4f})')
+        state['cursor'] = e + count
+    return notes
+
+
+# Route 11: the tank climb f172 through the idle return (f276; at f277 the
+# original's walk to the pipes starts) and the pipe-end climb f642 through
+# its landing (f706, the row director beat 1 claims: 3B8D = 3).
+CREVICE_CLIMBS = ((172, 276), (642, 706))
+# Route 13: the east tower climb f438 through its landing (f531, director
+# beat 2's claim row).
+TOWER_CLIMBS = ((438, 531),)
+
+
+def check_crevice_climbs(ticks, run, state):
+    start = max(state.get('cursor', 0), 1)
+    climbs = state_entries(ticks, 2, start)
+    assert len(climbs) >= 2, ('crevice_climbs: fewer than two ledge climbs', len(climbs))
+    fall = fall_between(ticks, climbs[0], climbs[1], route_rows('11_crevice_prompt'), 'crevice_climbs')
+    notes = check_climbs(ticks, state, '11_crevice_prompt', 'crevice_climbs', CREVICE_CLIMBS)
+    print(f'crevice_climbs: PASS (the tank and pipe-end ledge climbs equal route 11 row for row in +5, +1F0, '
+          f'+1F1, clip, clock, ground, heading and Y, X/Z within the stance offset: {"; ".join(notes)}; the pipes '
+          f'walk\'s step-off: {fall})')
+
+
+def check_east_tower_climb(ticks, run, state):
+    notes = check_climbs(ticks, state, '13_east_tower', 'east_tower_climb', TOWER_CLIMBS)
+    print(f'east_tower_climb: PASS (the high ledge climb equals route 13 row for row in +5, +1F0, +1F1, clip, '
+          f'clock, ground, heading and Y, X/Z within the stance offset: {"; ".join(notes)})')
+
+
+# Route 12: the running jump from its entry (+5 = 6, f230) through the
+# landing (8 / 0xF, f277), the recovery 8 / 1 and the hand-back into the
+# walk state 1 (f304).
+JUMP_WINDOW = (230, 304)
+JUMP_STEP_TOLERANCE = 1e-4
+JUMP_MIN_FREE_ROWS = 30
+
+
+def check_crevice_jump(ticks, run, state):
+    """Row for row: +5, +1F0, +1F1, clip, clock, ground and Y (the arc; both
+    take off from the plateau's floor 269.647). The heading is 0015EC50's
+    take-off heading, the stick's direction at the press (navigation):
+    constant through the window in both runs, compared with the port's own
+    entry row. Horizontally 001634A0 carries the player along that heading;
+    the per-row step length must equal the original's within
+    JUMP_STEP_TOLERANCE on every row where both runs step along their
+    headings (free flight; the rows where the arc slides along the north
+    block's edge depend on the lateral offset the heading makes), at least
+    JUMP_MIN_FREE_ROWS of them."""
+    import math
+    rows = route_rows('12_crevice_jump')
+    r_entries = route_entries(rows, 6)
+    assert [rows[k]['f'] for k in r_entries] == [JUMP_WINDOW[0]], ('route 12 jump entry moved', r_entries)
+    r0 = r_entries[0]
+    start = max(state.get('cursor', 0), 1)
+    entries = state_entries(ticks, 6, start)
+    assert len(entries) == 1, ('the run entered the running jump other than once', len(entries))
+    e = entries[0]
+    fall = fall_between(ticks, start, e, rows, 'crevice_jump')
+    count = JUMP_WINDOW[1] - JUMP_WINDOW[0] + 1
+    assert e + count < len(ticks), ('the tick log ends inside the jump window', len(ticks) - e)
+    heading_p = round(f32(ticks[e]['yaw_post']), 5)
+    heading_o = rows[r0]['yaw']
+    free, landing = 0, None
+    for k in range(count):
+        t, r = ticks[e + k], rows[r0 + k]
+        got, want = record_row(t, r, k)
+        assert got['yaw'] == heading_p and want['yaw'] == heading_o, ('jump heading changed', r['f'], k)
+        got['yaw'] = want['yaw'] = None
+        assert got == want, ('jump row', r['f'], k, got, want)
+        pos = [f32(v) for v in t['pos_post']]
+        assert round(pos[1], 5) == r['pos'][1], ('jump Y', r['f'], k, pos[1], r['pos'][1])
+        if landing is None and r['p5'] == 8:
+            landing = k
+        if k:
+            prev = [f32(v) for v in ticks[e + k - 1]['pos_post']]
+            po, pr = r['pos'], rows[r0 + k - 1]['pos']
+            dp = (pos[0] - prev[0], pos[2] - prev[2])
+            do = (po[0] - pr[0], po[2] - pr[2])
+            sp, so = math.hypot(*dp), math.hypot(*do)
+            if sp > 0 and so > 0 and abs(math.atan2(*dp) - heading_p) < 1e-3 and \
+                    abs(math.atan2(*do) - heading_o) < 1e-3:
+                assert abs(sp - so) <= JUMP_STEP_TOLERANCE, ('jump step length', r['f'], k, sp, so)
+                free += 1
+    assert free >= JUMP_MIN_FREE_ROWS, ('too few free-flight rows compared', free)
+    state['cursor'] = e + count
+    print(f'crevice_jump: PASS (route 12 f{JUMP_WINDOW[0]}..f{JUMP_WINDOW[1]} row for row in +5, +1F0, +1F1, clip, '
+          f'clock, ground and Y: the jump 6 / 0x0C (clips 0x69 / 0x6B), the landing 8 / 0xF at '
+          f'f{rows[r0 + landing]["f"]} (clip 0x6E) and the hand-back; the step length equals the original\'s '
+          f'within {JUMP_STEP_TOLERANCE} on {free} free-flight rows; take-off heading {heading_p} against '
+          f'{heading_o} (navigation); the approach\'s step-off off the pipe: {fall})')
+
+
 # Route order (docs/FIRST_LEVEL_ROUTE.md section 3; em_level_smoke_test.c
 # k_phases). A later step that makes a phase live adds its capture check here
 # in the same commit as its runner.
@@ -693,9 +959,12 @@ PHASES = [
     ('slide', check_slide),
     ('truck_preview', check_truck_preview),
     ('truck_crossing', check_truck_crossing),
+    ('cage_ladders', check_cage_ladders),
     ('cage_roof', None),
+    ('crevice_climbs', check_crevice_climbs),
     ('crevice_prompt', None),
-    ('crevice_jump', None),
+    ('crevice_jump', check_crevice_jump),
+    ('east_tower_climb', check_east_tower_climb),
     ('east_tower', None),
     ('roger', None),
 ]

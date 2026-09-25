@@ -141,9 +141,9 @@ main-loop counter. Each beat ends idle with control back: 3B8D=0 and action
 | 07 | `07_truck_preview` | 06 | 557 | 7142..7699 | trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1 | em_truck_original (trigger), script host |
 | 08 | `08_truck_crossing` | 07 | 239 | 7705..7944 | truck 0x823FF0 (r16): arm, shake, fall, D_00810792=0xFF | em_truck_original |
 | 09 | `09_fence_door` (side) | 08 | 532 | 7945..8477 | door 001BC350 (r0): script 0x24DE40/0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2 | em_door_original / _transit / _program |
-| 10 | `10_cage_roof_roger` | 08 | 3568 | 7956..11524 | two climbs on the x≈360 attribute-0x32 column; director 0x8253F0 (r12) beat 0 script 0x8294C0; Roger 0x8237E0 (r8) alternate script 0x828990 | none (ladder); em_director (legacy); em_roger |
-| 11 | `11_crevice_prompt` | 10 | 1260 | 11525..12785 | climb onto the tank; pipes; climb onto the pipe end; director beat 1, script 0x829A40 ("I have to jump that crevice.") | em_player_climb; em_director (legacy) |
-| 12 | `12_crevice_jump` | 11 | 336 | 12794..13130 | running jump (+1F0 0x0C, state 6) across the crevice onto the 270 north block | none |
+| 10 | `10_cage_roof_roger` | 08 | 3568 | 7956..11524 | two climbs on the x≈360 attribute-0x32 column; director 0x8253F0 (r12) beat 0 script 0x8294C0; Roger 0x8237E0 (r8) alternate script 0x828990 | em_player_ladder_entry / _climb (live since census L09 / L10); em_director (legacy); em_roger |
+| 11 | `11_crevice_prompt` | 10 | 1260 | 11525..12785 | climb onto the tank; pipes; climb onto the pipe end; director beat 1, script 0x829A40 ("I have to jump that crevice.") | em_player_climb, em_player_fall; em_director (legacy) |
+| 12 | `12_crevice_jump` | 11 | 336 | 12794..13130 | running jump (+1F0 0x0C, state 6) across the crevice onto the 270 north block | em_player_running_jump (live since census L11) |
 | 13 | `13_east_tower` | 12 | 809 | 13131..13940 | high ledge climb onto the east tower top; director beat 2, script 0x829CC0 (line 0x99) | em_player_climb; em_director (legacy) |
 | 14 | `14_roger_encounter` | 13 | 1818 | 13941..15759 | running jump west to the west tower top; in mid-air Roger's quad 0x82AB80 starts script 0x8283D0 (bank 96); end 0x8107D8=1 | em_roger*, cinematic playback; no jump module |
 
@@ -464,8 +464,10 @@ From script start to release the encounter takes 1475 frames.
     (not on the captured route).
   The traces show the sequence +5/+1F0 = 0xB/0x15, then 0xC/0x17 (clips
   0xE8/0xEA, +3 y per cycle), then 0xC/0x18 (clip 0xF0) at the top, which
-  agrees with that section. No port module implements the ladder states or
-  the running jump, and both are on the main route (10, 12, 14).
+  agrees with that section. Both the ladder states and the running jump are
+  on the main route (10, 12, 14); since census L09..L11 the port runs them
+  live and the level smoke compares beats 10, 12 and 13's climbs and jump
+  with these traces (LEVEL_SMOKE.md).
 - **Older fixtures.** The slot-13 elevator refusal and the slot-11 clip 0x47
   fixtures were made from slot 06 by memory writes. Beats 02 and 04 are their
   played equivalents. Beat 14 is the played equivalent of the teleported

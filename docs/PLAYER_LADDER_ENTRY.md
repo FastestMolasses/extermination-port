@@ -23,8 +23,10 @@ Both climbs are on the attribute-0x32 column at x ≈ 360
 (PLAYER_CLIMB_SLIDE.md section 7, FIRST_LEVEL_ROUTE.md section 6).
 
 The translation is `src/game/em_player_ladder_entry.c/.h`. The module is
-**live in AREA11** (bound by em_player_closure_live.c). Section 4 lists what the coordinator
-binds.
+**live in AREA11** (bound by em_player_closure_live.c) and, since census L09,
+the level smoke's `cage_ladders` phase runs both cage climbs of route 10
+through it and equals the capture row for row (LEVEL_SMOKE.md). Section 4
+lists what the coordinator binds.
 
 ## 1. What the original does
 
@@ -457,6 +459,13 @@ length.
 
 - The binder owns **one** `EmPlayerLadderScratch` and gives the same
   instance to every worker.
+- The record bytes of a grid node (+0x00..+0x17 words, +0x1A attribute,
+  +0x1B class, +0x24..+0x33 plane, +0x34..+0x3F axis) come from the EMCL:
+  the axis from its axis section (flags bit 3, "EMAX", written by
+  `../Extermination/tools/export_collision.py --node-class` and verified
+  against captured RAM; STARTUP.md step 13). An EMCL without the section
+  faults on an action node, and a cell record with an action byte faults
+  (the probe state does not carry the cell record's +0x34..).
 - `EmPlayerLadderWorld`:
   - `directory` / `directory_size` = the `EmActorCellTable` bytes;
   - `verts` / `vert_count` = `EmCollProbeGrid` verts;
@@ -479,12 +488,11 @@ worker is where it plugs in.
 
 - **World run.** The default world run covers ladder A only. Ladder B is
   covered only by `EM_TEST_FULL=1`, which takes about 7 minutes.
-- **Workers without an original translation.** 0019BA80, 0019A570,
-  00179B90 and 001762E0 have none (001885D0 / 001885F0 run inside
-  em_player_ladder_climb.c's 0017FC80). Until they exist,
-  the binder must leave those slots unbound, so the module refuses (−1).
-  The ladder therefore cannot go live yet: 00176F90 needs 0019BA80, and the
-  0x32 path needs 0019AFE0 through 00180300.
+- **Workers.** 0019BA80 (em_coll_list_passes_0019BA80), 0019AFE0 and
+  0019A570 are bound over the collision world since the Boxes step; 00179B90
+  is the closure's random fold; 001762E0 faults only in area 2. 001885D0 /
+  001885F0 run inside em_player_ladder_climb.c's 0017FC80. The ladder is
+  live since census L09.
 - **Record identity.** The +30C record identity (case 0x3A) has no port
   representation. No AREA11 node on the route carries 0x3A.
 - **Data faults.** They are faithful refusals of reads the original makes

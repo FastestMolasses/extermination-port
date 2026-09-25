@@ -577,8 +577,11 @@ mechanism still lacks; in AREA11 it lacks nothing):
   (00182430 is bound since census L03: em_player_floor.c
   em_player_step_sounds over the record's +23A / +23C, PLAYER_CLIMB_SLIDE.md
   section 6.)
-  - a ladder / ledge action record (attribute 0x20..0x3D). The EMCL export
-    lacks the grid node's +0x34..+0x3F axis that 0015D4C0's cases read.
+  - a ladder / ledge action cell record (attribute 0x20..0x3D), or an
+    action grid node when the EMCL has no axis section: 0015D4C0's cases
+    read the record's +0x34..+0x3F (the EMCL carries the grid nodes' since
+    census L09, STARTUP.md step 13; the probe state carries no cell
+    record's).
 
   Effects the closure spawns (001EFD90) go through the counted effect gap
   (`player_effect_gap`, no live effect owner, census L26).

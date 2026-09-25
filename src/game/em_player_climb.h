@@ -237,6 +237,11 @@ int em_player_climb_live_state(void *context, EmPlayerLiveActor *actor);
  * (em_player_use_dispatch): the same binding and record rules. 1 when a
  * climb started, 0, or -1. */
 int em_player_climb_live_probe(void *context, EmPlayerLiveActor *actor, int mode, float ang);
+/* 0017DEB0(p) over the live actor (the running jump's landing calls it
+ * standalone): the climb's own translation (00182870(p, 0), then the
+ * 001EFD90 surface effect by +23A / +23C / +23D), with the same binding
+ * and record rules. 0, or -1. */
+int em_player_climb_live_0017DEB0(void *context, EmPlayerLiveActor *actor);
 /* The same in the shape of EmPlayerUseWorkers.ledge (the angle as raw
  * bits; *result = 1 when a climb started, else 0). 0, or -1 on a fault. */
 int em_player_climb_live_ledge(void *context, EmPlayerLiveActor *actor, int mode, uint32_t angle,
