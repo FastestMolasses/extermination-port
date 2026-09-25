@@ -34,6 +34,35 @@ other area's table, as the first level needs none.
   140 global records, area records (8 bytes each), stream rows (16 bytes
       each), the global bank, the area bank.
 
+The mode-3 / mode-4 presenters' data (001FCB90, 001FCF60, 001FCF90,
+001FD0E0, 001FDDB0; docs/MESSAGE_PRESENTER_REST.md) goes to a second file,
+assets/message/message_presenters.emmp, so message_data.emmd stays exactly
+as before:
+
+  disc files (loaded at the pointer cell's address by the original; each is
+  the leading bytes of one extracted file, the rest sector padding):
+    extract/chunk00/f02_id02.bin  the help container *D_0028A498
+    extract/chunk00/f03_id03.bin  the record container *D_0028A49C
+                                  (a container: header word 0 + word 2
+                                  bytes; every 16-byte entry at +0x10 is a
+                                  message bank checked like the two above)
+    extract/chunk03/f15_id17.bin  the cue bank *D_0028A4EC
+  ELF:
+    D_00264CF0 / D_00264C90       the configs of 001FCF90 / 001FD0E0 (words
+                                  0..4; +0x14 is checked to be &D_00275830
+                                  and &D_00275820)
+    D_00275830 / D_00275820       those two style blocks (8 bytes each)
+    D_00264DB0                    001FD0E0's six counter words
+    &D_00264C90                   the address token 001FD0E0 stores at +0x20
+
+.emmp v1 (little-endian):
+  0   "EMMP"   4 u32 version 1
+  8   u32 help_size   12 u32 records_size   16 u32 cue_size
+  20  u32 &D_00264C90
+  24  i32 D_00264CF0[5]   44 i32 D_00264C90[5]
+  64  u8 D_00275830[8]    72 u8 D_00275820[8]   80 u32 D_00264DB0[6]
+  104 the help container, the record container, the cue bank.
+
 Usage (macOS arm64, port repo root):
   python3 tools/export_message_data.py
 """
@@ -50,6 +79,10 @@ TABLES, TABLE_WORDS = 0x264DD0, 24          # D_00264DD0 .. D_00264E30
 STREAM_NAMES, STREAM_LISTS = 0x275848, 0x264E40
 STREAMS, COLORS, LINE_CFG, TEMPLATE, STYLE, CURSOR = 0x26EC60, 0x26EC10, 0x264CD0, 0x264BF0, 0x275C50, 0x264D10
 BANKS = {'global': ('extract/chunk03/f14_id16.bin', 0), 'area': ('extract/chunk15/f12_id44.bin', 0x3E800)}
+# The mode-3 / mode-4 presenters (.emmp).
+CONTAINERS = {'help': 'extract/chunk00/f02_id02.bin', 'records': 'extract/chunk00/f03_id03.bin'}
+CUE_BANK = 'extract/chunk03/f15_id17.bin'
+CFG_CF0, CFG_C90, STYLE_830, STYLE_820, COUNTERS = 0x264CF0, 0x264C90, 0x275830, 0x275820, 0x264DB0
 
 
 class Elf:
@@ -85,6 +118,40 @@ def bank_extent(data, base):
         if records and w(0) + w(0x10 + 16 * i) + 16 * records > size:
             raise ValueError(f'bank line {i} records run past the bank')
     return data[base:base + size]
+
+
+def container_extent(data):
+    """A container: header word 0 is the data offset, word 1 the entry
+    count, word 2 the data size; 16-byte entries {offset, offset / 16, size,
+    padded size} at +0x10, each an ordinary message bank at data offset +
+    offset (docs/CENSUS_STANDINS.md 2.3)."""
+    w = lambda at: struct.unpack_from('<I', data, at)[0]
+    size = w(0) + w(8)
+    if size > len(data) or 0x10 + 16 * w(4) > w(0):
+        raise ValueError('container runs past its source file')
+    for i in range(w(4)):
+        offset, sixteenth, entry_size, padded = struct.unpack_from('<4I', data, 0x10 + 16 * i)
+        if sixteenth != offset >> 4 or entry_size > padded or w(0) + offset + padded > size:
+            raise ValueError(f'container entry {i} is not a well-formed entry')
+        if len(bank_extent(data[:w(0) + offset + entry_size], w(0) + offset)) > entry_size:
+            raise ValueError(f'container entry {i} runs past its size')
+    return data[:size]
+
+
+def export_presenters(decomp, out, elf=None):
+    elf = elf or Elf(decomp / 'config/SCUS_971.12')
+    if elf.u32(CFG_CF0 + 0x14) != STYLE_830 or elf.u32(CFG_C90 + 0x14) != STYLE_820:
+        raise ValueError('unexpected style pointers in D_00264CF0 / D_00264C90')
+    parts = {name: container_extent((decomp / path).read_bytes()) for name, path in CONTAINERS.items()}
+    parts['cue'] = bank_extent((decomp / CUE_BANK).read_bytes(), 0)
+    header = struct.pack('<4s5I', b'EMMP', 1, len(parts['help']), len(parts['records']), len(parts['cue']),
+                         CFG_C90)
+    body = (elf.read(CFG_CF0, 20) + elf.read(CFG_C90, 20) + elf.read(STYLE_830, 8) + elf.read(STYLE_820, 8) +
+            elf.read(COUNTERS, 24) + parts['help'] + parts['records'] + parts['cue'])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(header + body)
+    return {'help_bytes': len(parts['help']), 'records_bytes': len(parts['records']),
+            'cue_bytes': len(parts['cue']), 'sha256': hashlib.sha256(header + body).hexdigest()}
 
 
 def export(decomp, out):
@@ -130,9 +197,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--decomp', type=Path, default=ROOT.parent / 'Extermination')
     parser.add_argument('--out', type=Path, default=ROOT / 'assets/message/message_data.emmd')
+    parser.add_argument('--presenters-out', type=Path, default=ROOT / 'assets/message/message_presenters.emmp')
     args = parser.parse_args()
     try:
         report = export(args.decomp, args.out)
+        report['presenters'] = export_presenters(args.decomp, args.presenters_out)
     except (OSError, ValueError, struct.error) as error:
         parser.exit(1, f'error: {error}\n')
     print(json.dumps(report))
