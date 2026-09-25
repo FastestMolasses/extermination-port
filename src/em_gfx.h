@@ -713,11 +713,11 @@ int  em_gfx_background_ready(EmGfx *gfx);
  * Call it once per world frame BEFORE any other 3D draw — the original
  * draws it first and later draws cover it; it tests and writes no depth
  * (TEST ZTST ALWAYS, ZBUF ZMSK 1). `view` is the frame's native view
- * matrix (em_mat4_lookat_gs, the one the level draws use) and zoom_s the
- * engine zoom (ctx+0x2468 — em_mat4_perspective_gs's argument). The draw
- * turns the view back into the original ctx+0x2380 by negating rows 1
- * and 2; that the native view IS the original with those rows negated is
- * checked by tools/test_camera_reference.py, not by the background test.
+ * matrix (em_cs_view_to_native of the original 00102CD0 view, the one the
+ * level draws use) and zoom_s the engine zoom (ctx+0x2468 —
+ * em_mat4_perspective_gs's argument). The draw turns the view back into
+ * the original ctx+0x2380 by negating rows 1 and 2; em_cs_view_to_native is
+ * exactly that sign flip (tools/test_census_standins_reference.py).
  * The rest is checked by tools/test_background_reference.py. */
 void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
 

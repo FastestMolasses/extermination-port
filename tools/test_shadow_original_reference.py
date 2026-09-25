@@ -2625,8 +2625,8 @@ class EmModel(C.Structure):
 
 def native_viewproj(ram):
     """The frame's native P*V (column-major) from the original view copy
-    ctx+0x2380 (rows 1 and 2 negated: em_mat4_lookat_gs's convention,
-    tools/test_camera_reference.py) and em_mat4_perspective_gs(ctx+0x2468)."""
+    ctx+0x2380 (rows 1 and 2 negated: em_cs_view_to_native's convention,
+    tools/test_census_standins_reference.py) and em_mat4_perspective_gs(ctx+0x2468)."""
     ctx = u32(ram, CONTEXT_PTR)
     orig = struct.unpack_from('<16f', ram, ctx+0x2380)
     view = [(-v if (i % 4) in (1, 2) else v) for i, v in enumerate(orig)]

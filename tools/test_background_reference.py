@@ -26,8 +26,9 @@ original bytes are embedded here):
    0x200..0x203 (= D_00253570) bit for bit. The draw receives the port's
    native view and negates rows 1 and 2 to get ctx+0x2380; that the native
    view equals the original with those rows negated is the
-   em_mat4_lookat_gs convention checked by tools/test_camera_reference.py,
-   which this path depends on (it is not re-proved here).
+   em_cs_view_to_native convention checked by
+   tools/test_census_standins_reference.py, which this path depends on (it is
+   not re-proved here).
 5. The ORIGINAL VU1 kernel, decoded from the ELF's MPG packet and executed
    over the captured upload, kicks 31 strips of 64 vertices; every ST and
    XYZ2 field must equal the native grid. ERLENG is evaluated by the same

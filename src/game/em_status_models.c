@@ -786,7 +786,7 @@ int em_status_models_render(EmStatusModels *m, EmGfx *gfx, float zoom)
     if (!m->draw_count)
         return 1;
     /* The view: D_00810610 as the column-vector matrix (its row layout read
-     * column-major), then the native Y/Z sign flip em_mat4_lookat_gs uses. */
+     * column-major), then the native Y/Z sign flip em_cs_view_to_native uses. */
     float view[16], proj[16], vp[16];
     for (int c = 0; c < 4; ++c)
         for (int r = 0; r < 4; ++r)

@@ -143,8 +143,9 @@ and store. All EE COP1 and VU0 macro arithmetic goes through `em_ee_float.h`.
 `EmCollSegmentFaceScratch`, the SDK context (the user's export; D_0026C5D0 from
 its window) and the `EmCollSegment` below, with no lock workers. Bound
 consumers of 0019A910 (mask 6): the 0018D330 prepass and 0018D910's AREA11
-bounds (em_camera.c `interaction_camera_query`, the `EmCameraProbeQuery`
-slot; its ground branch is 0019B7D0, docs/COLL_LIST_PASSES.md) and 00183EF0's
+bounds (the live camera's segment workers in em_camera_live.c since census
+L13..L16, docs/CAMERA_LIVE.md; the ground branch is 0019B7D0,
+docs/COLL_LIST_PASSES.md) and 00183EF0's
 item ray (the interaction host's `pickup_ray`, the `EmInteractionRaycast`
 slot: `hit` = result != 0, `flags` = the record's +0x1A halfword, `kind` =
 the result, `owner` = the hit owner's record, which the item's identity
@@ -190,7 +191,8 @@ view of an EMCL with flags 7, installed since census L07).
   `em_coll_segment_hit`: `hit` = result != 0, `flags` = `record_node` (the
   record +0x1A halfword the scan tests with 0x2000 / 0x2800), `kind` = the
   result (0x700031D8), `owner` = `entity`.
-- `EmCameraProbeQuery` (em_camera_probe.h, 0019A910 mask 6): the result and
+- The live camera (em_camera_live.c `fw_segment` / `lw_segment`, 0019A910
+  mask 6; em_camera_probe.h is retired): the result and
   `em_coll_segment_hit` give the point, the record +0x1A halfword and +0x24
   normal the camera reads.
 - The shadow's 0015BF90 route (mode 6, then the point and record +0x24) is

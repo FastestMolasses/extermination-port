@@ -111,7 +111,8 @@ static inline void em_mat4_perspective(float *m, float fovy_rad, float aspect,
 
 /* The engine projection for zoom s, in the port's native conventions
  * (right-handed -z forward, y-up NDC, depth [0,1] — pairs with
- * em_mat4_lookat_gs below, which already remaps the engine's y-down /
+ * the view em_cs_view_to_native builds from the original 00102CD0 matrix,
+ * which already remaps the engine's y-down /
  * +z-forward view space). Aspect is BAKED: this matrix is only correct
  * rendered into a 4:3 viewport (the gfx backends letterbox the window
  * to 4:3, like the original display). */
@@ -123,44 +124,6 @@ static inline void em_mat4_perspective_gs(float *m, float zoom_s)
     m[10] = EM_GS_FAR / (EM_GS_NEAR - EM_GS_FAR);
     m[11] = -1.0f;
     m[14] = (EM_GS_NEAR * EM_GS_FAR) / (EM_GS_NEAR - EM_GS_FAR);
-}
-
-/* Native view builder for original camera inputs (0018C0D0/00102CD0).
- * The caller supplies the final view position: ordinary gameplay can push
- * it along forward, while opening cinematic mode3 uses the authored eye.
- *
- * The original GS view has Y down and positive Z into the screen. Native
- * projection needs Y up and negative Z forward. A captured opening view
- * confirms that Y/Z rows change sign and X remains unchanged, including
- * their translation terms. tools/test_camera_reference.py checks this
- * mapping against original RAM; host arithmetic has small rounding error.
- */
-static inline void em_mat4_lookat_gs(float *m, const float *pos,
-                                     const float *fwd, const float *up_gs)
-{
-    /* This temporary s is the NEGATIVE original X row. Its cross with
-     * forward gives the original Y row; forward is the original Z row. */
-    float sx = fwd[1] * up_gs[2] - fwd[2] * up_gs[1];
-    float sy = fwd[2] * up_gs[0] - fwd[0] * up_gs[2];
-    float sz = fwd[0] * up_gs[1] - fwd[1] * up_gs[0];
-    float sl = sqrtf(sx * sx + sy * sy + sz * sz);
-    sx /= sl; sy /= sl; sz /= sl;
-
-    float ux = sy * fwd[2] - sz * fwd[1];
-    float uy = sz * fwd[0] - sx * fwd[2];
-    float uz = sx * fwd[1] - sy * fwd[0];
-
-    /* Native rows: original X, negative original Y, negative original Z.
-     * Since s was constructed with the opposite sign, all three local
-     * vectors are negated here. Translation uses the same row signs. */
-    m[0] = -sx;     m[4] = -sy;     m[8]  = -sz;
-    m[1] = -ux;     m[5] = -uy;     m[9]  = -uz;
-    m[2] = -fwd[0]; m[6] = -fwd[1]; m[10] = -fwd[2];
-    m[3] = 0.0f;    m[7] = 0.0f;    m[11] = 0.0f;
-    m[12] = sx * pos[0] + sy * pos[1] + sz * pos[2];
-    m[13] = ux * pos[0] + uy * pos[1] + uz * pos[2];
-    m[14] = fwd[0] * pos[0] + fwd[1] * pos[1] + fwd[2] * pos[2];
-    m[15] = 1.0f;
 }
 
 /* Right-handed look-at view matrix. */

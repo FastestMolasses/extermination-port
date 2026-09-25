@@ -7,6 +7,7 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
 #include "game/em_effect_color.h"
 #include "game/em_hud.h"
@@ -27,6 +28,19 @@ EmGameState g;
 /* em_pickup keeps its taken bits and CA4..CA7 in the D2 progress region,
  * which the game owns in em_scene_bindings.c (not linked here). */
 EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
+/* The live camera's inputs (em_camera_live.h): this fixture's own player
+ * record (setup()), the pose host's hip and Euler, no pad assignment block, a local 0x700031F0 word, no
+ * legacy stand-in and no scripted timeline (the host's scripts here never
+ * set the camera's +4 to 3). */
+static EmPlayerLiveActor player_record;
+static int32_t carry31F0;
+static const EmPlayerLiveActor *camera_player(void *ctx) { (void)ctx; return &player_record; }
+static int camera_no_standin(void *ctx) { (void)ctx; return CAMERA_STANDIN_NONE; }
+static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
+static int camera_hip(void *ctx, float out[3]) { (void)ctx; return player_pose_hip(out); }
+static int camera_euler(void *ctx, float out[3]) { (void)ctx; return player_pose_script_euler(out); }
+static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
+                                             camera_no_standin, camera_no_timeline};
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
 static unsigned background_steps, background_frames;
@@ -347,6 +361,12 @@ static void setup(int reset_inventory)
     g.cam.y_lo = word(ram, 0x810230); g.cam.y_hi = word(ram, 0x810234);
     g.cam.var_5c = word(ram, 0x81023C); g.cam.overhead_y = word(ram, 0x810240);
     g.cam.horiz_dist = word(ram, 0x810690); g.cam.zoom = 480;
+    /* The live camera over the area's collision world, its bytes the
+     * capture's camera block and vector pool (the g.cam view follows). */
+    assert(em_camera_live_bind(&camera_host) == 0);
+    memcpy(em_camera_live_bytes(0x008101E0u, 0xD0), ram + 0x8101E0, 0xD0);
+    memcpy(em_camera_live_bytes(0x008105D0u, 0xD4), ram + 0x8105D0, 0xD4);
+    em_camera_live_view_publish();
     free(ram);
     file = fopen("../Extermination/build/startup-reference/panel/animation_ee.bin", "rb");
     assert(file && !fseek(file, 0x810350, SEEK_SET));
@@ -367,7 +387,6 @@ static void setup(int reset_inventory)
     /* The pose lives in the player record (the game's is em_player.c's live
      * record, with the player stage's scene and globals views; this fixture
      * keeps its own), and D_008106F3 is the canonical byte. */
-    static EmPlayerLiveActor player_record;
     static uint8_t stage_bytes[2];
     static EmPlayerStageScene stage_scene = { .d8106F1 = &stage_bytes[0] };
     static EmPlayerStageGlobals stage_globals = { .d810707 = &stage_bytes[1] };

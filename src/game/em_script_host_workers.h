@@ -103,6 +103,11 @@ typedef struct EmScriptHostWorkersWorld {
     float *d8105D0, *d8105E0;                       /* working eye / target (vec4) */
     float *spad3400;                                /* 0x70003400 matrix (16 floats) */
     float *spad3600;                                /* 0x70003600 vec4 */
+    /* 001B0460's table reads when `elf` is NULL: a reader of the same words
+     * from a window of the ELF data (the live binding reads the spawn table
+     * window, em_spawn_table.h). 0, or -1 outside the window (a fault). */
+    int (*read_word)(void *ctx, uint32_t address, uint32_t *out);
+    void *read_ctx;
 } EmScriptHostWorkersWorld;
 
 /* Original callees that are not translated here. Each returns 0, or a

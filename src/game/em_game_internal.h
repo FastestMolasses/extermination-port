@@ -410,7 +410,7 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *              at +-0.01/frame. CORRECTED (audit): that is 30 frames
  *              up + 30 frames down = a ~1 s pulse, not the "2 s" the
  *              old comment claimed.
- * Port mapping: the native y-up view (em_mat4_lookat_gs remaps the
+ * Port mapping: the native y-up view (em_cs_view_to_native remaps the
  * engine's y-down GS view) puts the engine's view-down offset at
  * negative y, and the engine's +x maps screen-LEFT (the remap's X
  * negation) — the model lands ON the ring gauge, the real screen's

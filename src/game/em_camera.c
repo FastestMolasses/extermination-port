@@ -15,7 +15,8 @@
 #include "game/em_area11_script_host.h"
 #include "game/em_camera.h"
 #include "game/em_camera_rotation.h"
-#include "game/em_camera_probe.h"
+#include "game/em_camera_live.h"
+#include "game/em_census_standins.h"
 #include "game/em_camera_retarget.h"
 #include "game/em_collision_world.h"
 
@@ -1831,88 +1832,37 @@ static void cam_solver_0018D910(EmCamera *cam)
     cam->y_hi = hi;
 }
 
-/* The two queries of 0018D330's prepass and 0018D910's AREA11 bounds. With
- * the scene's original collision world (AREA11, census L06b/L08) they are
- * the translated 0019A910(from, to, 6) and 0019B7D0(from, to) over it; the
- * probe reads the result, the hit point 0x700031B0 and the record's +0x1A
- * halfword. A scene without an original world keeps the port's own query. */
-static int interaction_camera_query(void *context,const float from[3],
-    const float to[3],int ground_only,EmCollHit *hit)
+/* 001B7B30 op0D sub 3 / 4 / 5 (the panel, terminal and refusal scripts'
+ * camera): 0018CBD0(cam, D_008102B0, distance) seeds cam+30 / cam+20 / cam+10
+ * (em_camera_rotation.c and em_camera_retarget.c, the port's 0018CBD0), then
+ * the live camera runs 0018D7B0(cam, 5), 0018D7B0(cam, 1) and cam+A0 = 0x78
+ * (em_camera_live_scripted_retarget, the translated solve dispatch). Sub 3
+ * passes the camera's +0x0C as the distance, subs 4 / 5 a constant; 0018CBD0
+ * reads the preset +0x64 itself. */
+static int camera_interaction_retarget(EmCamera *cam, const float seed_euler[3], float distance)
 {
-    const EmCollision *world=context;
-    if (em_collision_world_loaded()) {
-        EmCollSegmentHit h;
-        int result=ground_only ? em_collision_world_0019B7D0(from,to,&h)
-                               : em_collision_world_0019A910(from,to,6,&h);
-        if (result<0) return -1;
-        memset(hit,0,sizeof *hit);
-        if (result) {
-            memcpy(hit->point,h.point,sizeof hit->point);
-            memcpy(hit->normal,h.record_normal,sizeof hit->normal);
-            hit->kind=result;
-            hit->poly=-1;
-            hit->surf_class=h.record_node;
-            hit->attr=(uint8_t)h.record_node;
-        }
-        return result;
-    }
-    if (!world->blob) return -1;
-    if (!ground_only)
-        return em_collision_camera_query(world,from,to,6,hit);
-    /* 0019B7D0 ->0019E280 admits only grid attribute0x78. The original
-     * rank table accelerates this set; one-poly views retain its filter
-     * without modifying the shared collision world or query state. */
-    for (uint32_t i=0;i<world->poly_count;++i) {
-        if (world->polys[i].set!=EM_COLL_SET_GRID || world->polys[i].attr!=0x78)
-            continue;
-        EmCollision one=*world;
-        one.polys=world->polys+i;one.poly_count=1;
-        if (em_collision_camera_query(&one,from,to,EM_COLL_SET_GRID,hit)) return 4;
-    }
-    return 0;
-}
-
-static int interaction_camera_prepass(EmCamera *cam,const float hip[3])
-{
-    EmCameraProbe probe={cam->probe_flags,cam->ground_attr78,cam->overhead_y};
-    if (!em_camera_interaction_probe(&probe,cam->eye_des,g.pos,hip,
-                                      interaction_camera_query,&g.coll)) return 0;
-    cam->probe_flags=probe.flags;
-    cam->ground_attr78=probe.ground78;
-    cam->overhead_y=probe.overhead_y;
-    return 1;
-}
-
-int camera_interaction_retarget_area11(EmCamera *cam,const float hip[3],
-                                     const float seed_euler[3],float preset_distance)
-{
-    return camera_interaction_retarget_distance_area11(cam, hip, seed_euler,
-        g.cam_dist_param, preset_distance);
-}
-
-int camera_interaction_retarget_distance_area11(EmCamera *cam, const float hip[3],
-    const float seed_euler[3], float distance, float preset_distance)
-{
-    if (!cam || !hip || !seed_euler || !g.coll.blob) return 0;
-    float matrix[16], offset[4];
+    const uint8_t *preset_word = em_camera_live_bytes(0x00810244u, 4);  /* cam+0x64 */
+    if (!cam || cam != &g.cam || !seed_euler || !preset_word || !em_camera_live_bound()) return 0;
+    float preset, matrix[16], offset[4];
+    memcpy(&preset, preset_word, sizeof preset);
     if (!em_camera_rotation_offset(seed_euler, distance, matrix, offset)) return 0;
-    memcpy(cam->seed_euler,seed_euler,sizeof cam->seed_euler);
-    em_camera_retarget_seed(g.pos,offset,distance,preset_distance,
-                            cam->eye_des,cam->tgt_des);
-    /* 0018D7B0 style5: prepass, bounds update, hit=0, no actual-vector copy. */
-    if (!interaction_camera_prepass(cam,hip)) return 0;
-    float bounds[2]={cam->y_lo,cam->y_hi};
-    if (!em_camera_interaction_bounds11(bounds,cam->eye_des,g.pos,cam->var_5c,
-                                        interaction_camera_query,&g.coll)) return 0;
-    cam->y_lo=bounds[0];cam->y_hi=bounds[1];cam->hit=0;
-    /* Style1 shares DD20's style0 branches (only style3 differs inside
-     * that body), then publishes desired vectors without follow chasing. */
-    if (!interaction_camera_prepass(cam,hip)) return 0;
-    cam->hit=(uint8_t)cam_solver_0018DD20(cam);
-    memcpy(cam->tgt,cam->tgt_des,sizeof cam->tgt);
-    memcpy(cam->eye,cam->eye_des,sizeof cam->eye);
-    cam->tgt_soft=120;
-    return 1;
+    memcpy(cam->seed_euler, seed_euler, sizeof cam->seed_euler);
+    em_camera_retarget_seed(g.pos, offset, distance, preset, cam->eye_des, cam->tgt_des);
+    return em_camera_live_scripted_retarget();
+}
+
+int camera_interaction_retarget_area11(EmCamera *cam, const float seed_euler[3])
+{
+    const uint8_t *distance_word = em_camera_live_bytes(0x008101ECu, 4);   /* cam+0x0C */
+    if (!distance_word) return 0;
+    float distance;
+    memcpy(&distance, distance_word, sizeof distance);
+    return camera_interaction_retarget(cam, seed_euler, distance);
+}
+
+int camera_interaction_retarget_distance_area11(EmCamera *cam, const float seed_euler[3], float distance)
+{
+    return camera_interaction_retarget(cam, seed_euler, distance);
 }
 
 /* func_0018D7B0 (style 0) — the desired-eye solver dispatcher.
@@ -2078,17 +2028,26 @@ void camera_solve(EmCamera *cam)
                cam->eye[1], eye_des[1], cam->y_lo, cam->y_hi);
 }
 
-/* func_0018C0D0(cam, 1) — the per-frame COMMIT. Engine steps:
- *   1. fwd = normalize(target - eye), degenerate-guarded;
- *   2. view position = eye + 4.0*fwd (near push; mode 0xA uses -1.0);
- *   3. func_00102CD0 look-at with up = D_008105F0 = (0,-1,0) — see
- *      em_mat4_lookat_gs for the Y-down/handedness reconciliation;
- *   4. P from zoom s, K = P*V -> every draw's matrix slot 0 (M = K*W).
- * Step 4 is the ENGINE projection (em_mat4_perspective_gs from the
- * camera's zoom field — see the "Engine projection" block above): the
- * old port 50-deg-at-window-aspect perspective with invented 0.5/500-800
- * clip planes is retired. The matrix bakes the 4:3 frame; the gfx
- * letterbox keeps that the displayed aspect at any window size. */
+/* 00102CD0 (em_cs_00102CD0, the verified look-at) on host floats, in the
+ * renderer's convention (em_cs_view_to_native). */
+void camera_view_00102CD0(float view[16], const float pos[3], const float fwd[3],
+                          const float up[3])
+{
+    uint32_t p[4] = {0, 0, 0, 0}, f[4] = {0, 0, 0, 0}, u[4] = {0, 0, 0, 0}, v[16];
+    memcpy(p, pos, 12);
+    memcpy(f, fwd, 12);
+    memcpy(u, up, 12);
+    if (em_cs_00102CD0(v, p, f, u) < 0) {
+        em_scene_fault(em_scene_state(), 0x00102CD0u, EM_SCENE_FAULT_WORKER_FAILED);
+        return;
+    }
+    em_cs_view_to_native(view, v);
+}
+
+/* The legacy commit of a scene WITHOUT the live camera (outside the first
+ * level; AREA11 commits through em_camera_live_commit, the translated
+ * 0018C0D0): the forward and the near push on host floats, then the
+ * translated look-at 00102CD0. */
 static void camera_commit_view(EmCamera *cam, float near_push)
 {
     float dx  = cam->tgt[0] - cam->eye[0];
@@ -2104,101 +2063,82 @@ static void camera_commit_view(EmCamera *cam, float near_push)
     float pos[3] = { cam->eye[0] + near_push * cam->fwd[0],
                      cam->eye[1] + near_push * cam->fwd[1],
                      cam->eye[2] + near_push * cam->fwd[2] };
-    em_mat4_lookat_gs(cam->view, pos, cam->fwd, cam->up);
-
-    /* Commit bookkeeping (engine step 4): D_00810690 = the DESIRED
-     * pair's horizontal eye<->target distance — next frame's solver
-     * reads it for the head-clear waiver gate (one frame stale,
-     * engine-true). */
+    camera_view_00102CD0(cam->view, pos, cam->fwd, cam->up);
     {
         float hx = cam->tgt_des[0] - cam->eye_des[0];
         float hz = cam->tgt_des[2] - cam->eye_des[2];
         cam->horiz_dist = sqrtf(hx * hx + hz * hz);
     }
-
     float proj[16];
     em_mat4_perspective_gs(proj,
                            cam->zoom > 0.0f ? cam->zoom
                                             : ENGINE_CAM_ZOOM_S);
     em_mat4_mul(g.viewproj, proj, cam->view);
+}
 
-    /* EM_PROJ_TEST=1 — ENGINE-PROJECTION TRUTH TEST (one-shot, quits).
-     * Ground truth = the state01 PCSX2 savestate (decomp repo
-     * scratch/state01): its EE RAM carries the engine's own composed
-     * camera matrix K = P*V (render-ctx +0x23C0) AND the camera inputs
-     * (eye D_008105D0, target D_008105E0, zoom 480), and its screenshot
-     * is the rendered frame for exactly that state. The expected pixels
-     * below were produced by projecting world points through THAT K and
-     * mapping GS->frame (x: [1792,2304]->640, y: [1936,2160] field
-     * ->480); the player-root expectation (320.0, 441.1) was checked BY
-     * EYE against the screenshot (it lands between the player's boots) —
-     * an OBSERVATION, not a source-derived result: no recovered function
-     * backs it. The numeric self-check below is what actually has teeth.
-     * The check: run the savestate's eye/target/zoom through the PORT
-     * chain — engine commit semantics (fwd, eye + 4*fwd near push,
-     * em_mat4_lookat_gs) + em_mat4_perspective_gs + the 4:3 viewport
-     * mapping — and require the same pixels to 0.05 px. This pins the
-     * whole native remap (axis flips included, via the off-center
-     * points) to the engine's arithmetic, not to a formula re-derivation. */
-    {
-        static int pt = -1;
-        if (pt < 0) pt = getenv("EM_PROJ_TEST") != NULL;
-        if (pt == 1) {
-            pt = 2;
-            static const float t_eye[3] =
-                { 251.2506561f, 248.8504944f, 170.2859192f };
-            static const float t_tgt[3] =
-                { 218.5923157f, 246.4232635f, 201.7888184f };
-            static const float t_root[3] =
-                { 218.5923004f, 229.8504486f, 201.7888641f };
-            /* world point -> expected 640x480 frame pixel (engine K) */
-            static const float t_pt[5][5] = {
-                {   0.0f, 0.0f, 0.0f, 319.9994f, 441.0799f },  /* root  */
-                {   5.0f, 0.0f, 0.0f, 276.9809f, 462.2875f },  /* +5x   */
-                {   0.0f, 0.0f, 5.0f, 282.2786f, 423.7764f },  /* +5z   */
-                {   0.0f, 8.0f, 0.0f, 319.9994f, 345.0756f },  /* +8y   */
-                { -18.5923004f, 5.1495514f, 28.2111359f,
-                    272.6450f, 306.1691f },                    /* off   */
-            };
-            float fw[3] = { t_tgt[0] - t_eye[0], t_tgt[1] - t_eye[1],
-                            t_tgt[2] - t_eye[2] };
-            float fl = sqrtf(fw[0]*fw[0] + fw[1]*fw[1] + fw[2]*fw[2]);
-            fw[0] /= fl; fw[1] /= fl; fw[2] /= fl;
-            float tp[3] = { t_eye[0] + CAM_NEAR_PUSH * fw[0],
-                            t_eye[1] + CAM_NEAR_PUSH * fw[1],
-                            t_eye[2] + CAM_NEAR_PUSH * fw[2] };
-            float tup[3] = { 0.0f, -1.0f, 0.0f };
-            float tv[16], tpr[16], tk[16];
-            em_mat4_lookat_gs(tv, tp, fw, tup);
-            em_mat4_perspective_gs(tpr, ENGINE_CAM_ZOOM_S);
-            em_mat4_mul(tk, tpr, tv);
-            int fails = 0;
-            for (int i = 0; i < 5; i++) {
-                float p[4] = { t_root[0] + t_pt[i][0],
-                               t_root[1] + t_pt[i][1],
-                               t_root[2] + t_pt[i][2], 1.0f };
-                float c[4];
-                for (int r = 0; r < 4; r++)
-                    c[r] = tk[0+r]*p[0] + tk[4+r]*p[1] +
-                           tk[8+r]*p[2] + tk[12+r];
-                float px = (1.0f + c[0]/c[3]) * 0.5f * 640.0f;
-                float py = (1.0f - c[1]/c[3]) * 0.5f * 480.0f;
-                float d  = c[2] / c[3];
-                int ok = fabsf(px - t_pt[i][3]) <= 0.05f &&
-                         fabsf(py - t_pt[i][4]) <= 0.05f &&
-                         d > 0.0f && d < 1.0f;
-                if (!ok) fails++;
-                printf("proj test: pt%d port (%8.4f, %8.4f) d %.6f — "
-                       "engine (%8.4f, %8.4f): %s\n", i, px, py, d,
-                       t_pt[i][3], t_pt[i][4], ok ? "ok" : "FAILED");
-            }
-            printf("proj test: engine s=480 projection vs state01 "
-                   "K=P*V (5 pts, 0.05 px): %s\n",
-                   fails ? "FAIL" : "PASS");
-            fflush(stdout);
-            em_frame_request_quit();
-        }
+/* EM_PROJ_TEST=1: the engine-projection self-check (one-shot, quits). The
+ * state01 savestate's eye / target / zoom 480 through the look-at 00102CD0,
+ * em_mat4_perspective_gs and the 4:3 viewport mapping must land the five
+ * world points on the pixels the engine's own K = P*V (render context
+ * +0x23C0) gives, to 0.05 px. Test code, not a camera path. */
+static void camera_projection_selftest(void)
+{
+    static int pt = -1;
+    if (pt < 0) pt = getenv("EM_PROJ_TEST") != NULL;
+    if (pt != 1) return;
+    pt = 2;
+    static const float t_eye[3] =
+        { 251.2506561f, 248.8504944f, 170.2859192f };
+    static const float t_tgt[3] =
+        { 218.5923157f, 246.4232635f, 201.7888184f };
+    static const float t_root[3] =
+        { 218.5923004f, 229.8504486f, 201.7888641f };
+    /* world point -> expected 640x480 frame pixel (engine K) */
+    static const float t_pt[5][5] = {
+        {   0.0f, 0.0f, 0.0f, 319.9994f, 441.0799f },  /* root  */
+        {   5.0f, 0.0f, 0.0f, 276.9809f, 462.2875f },  /* +5x   */
+        {   0.0f, 0.0f, 5.0f, 282.2786f, 423.7764f },  /* +5z   */
+        {   0.0f, 8.0f, 0.0f, 319.9994f, 345.0756f },  /* +8y   */
+        { -18.5923004f, 5.1495514f, 28.2111359f,
+            272.6450f, 306.1691f },                    /* off   */
+    };
+    float fw[3] = { t_tgt[0] - t_eye[0], t_tgt[1] - t_eye[1],
+                    t_tgt[2] - t_eye[2] };
+    float fl = sqrtf(fw[0]*fw[0] + fw[1]*fw[1] + fw[2]*fw[2]);
+    fw[0] /= fl; fw[1] /= fl; fw[2] /= fl;
+    float tp[3] = { t_eye[0] + CAM_NEAR_PUSH * fw[0],
+                    t_eye[1] + CAM_NEAR_PUSH * fw[1],
+                    t_eye[2] + CAM_NEAR_PUSH * fw[2] };
+    float tup[3] = { 0.0f, -1.0f, 0.0f };
+    float tv[16], tpr[16], tk[16];
+    camera_view_00102CD0(tv, tp, fw, tup);
+    em_mat4_perspective_gs(tpr, ENGINE_CAM_ZOOM_S);
+    em_mat4_mul(tk, tpr, tv);
+    int fails = 0;
+    for (int i = 0; i < 5; i++) {
+        float p[4] = { t_root[0] + t_pt[i][0],
+                       t_root[1] + t_pt[i][1],
+                       t_root[2] + t_pt[i][2], 1.0f };
+        float c[4];
+        for (int r = 0; r < 4; r++)
+            c[r] = tk[0+r]*p[0] + tk[4+r]*p[1] +
+                   tk[8+r]*p[2] + tk[12+r];
+        float px = (1.0f + c[0]/c[3]) * 0.5f * 640.0f;
+        float py = (1.0f - c[1]/c[3]) * 0.5f * 480.0f;
+        float d  = c[2] / c[3];
+        int ok = fabsf(px - t_pt[i][3]) <= 0.05f &&
+                 fabsf(py - t_pt[i][4]) <= 0.05f &&
+                 d > 0.0f && d < 1.0f;
+        if (!ok) fails++;
+        printf("proj test: pt%d port (%8.4f, %8.4f) d %.6f — "
+               "engine (%8.4f, %8.4f): %s\n", i, px, py, d,
+               t_pt[i][3], t_pt[i][4], ok ? "ok" : "FAILED");
     }
+    printf("proj test: engine s=480 projection vs state01 "
+           "K=P*V (5 pts, 0.05 px): %s\n",
+           fails ? "FAIL" : "PASS");
+    fflush(stdout);
+    em_frame_request_quit();
 }
 
 void camera_commit(EmCamera *cam)
@@ -2206,8 +2146,16 @@ void camera_commit(EmCamera *cam)
     camera_commit_original(cam, 1);
 }
 
+/* 0018C0D0(cam, argument). With the live camera bound (AREA11) this is the
+ * translation over the canonical camera bytes (em_camera_live_commit;
+ * g.cam is its view); a fault latches the scene fault there. */
 void camera_commit_original(EmCamera *cam, int argument)
 {
+    if (em_camera_live_bound() && cam == &g.cam) {
+        (void)em_camera_live_commit(argument);
+        camera_projection_selftest();
+        return;
+    }
     float near_push;
     if (argument) {
         near_push = cam->mode == 0xA ? -1.0f : CAM_NEAR_PUSH;
@@ -2217,6 +2165,7 @@ void camera_commit_original(EmCamera *cam, int argument)
         near_push = cam->mode == 1 || cam->mode == 2 ? CAM_NEAR_PUSH : 0.0f;
     }
     camera_commit_view(cam, near_push);
+    camera_projection_selftest();
 }
 
 void camera_commit_cinematic(EmCamera *cam)
@@ -2444,6 +2393,56 @@ float em_camera_scope_zoom(float t)
     const float deg = 5.0f + 45.0f * (1.0f - t);
     const float rad = 0.017453292f * deg;
     return ENGINE_CAM_ZOOM_SCOPE / tanf(rad * 0.5f);
+}
+
+/* AREA11's legacy stand-ins in camera action 0's place (em_camera.h). The
+ * same blocks camera_update runs for the scenes without the live camera,
+ * in the same order: the director's beats, the examine cue, the door
+ * cinematic, then the port's aim placement. */
+int camera_area11_standins(EmCamera *cam)
+{
+    if (director_camera(cam)) return CAMERA_STANDIN_OWNS;
+    {
+        float exe[3], ext[3];
+        if (em_examine_camera(exe, ext)) {
+            memcpy(cam->eye_des, exe, sizeof exe);
+            memcpy(cam->tgt_des, ext, sizeof ext);
+            memcpy(cam->eye, exe, sizeof exe);
+            memcpy(cam->tgt, ext, sizeof ext);
+            cam->tgt_soft = 0;
+            g.examcam = 1;
+            return CAMERA_STANDIN_OWNS;
+        }
+        if (g.examcam) {
+            g.examcam = 0;
+            cam->tgt_soft = 0;
+            cam->tgt_des[0] = g.pos[0];
+            cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+            cam->tgt_des[2] = g.pos[2];
+            camera_desired_eye(cam);
+            memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+            memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+        }
+    }
+    if (em_door_movement_locked() && g.doorcam != 3) {
+        camera_door_cinematic(cam);
+        return CAMERA_STANDIN_OWNS;
+    }
+    if (g.doorcam == 4 && !em_door_movement_locked()) {
+        cam->tgt_soft = 0;
+        cam->tgt_des[0] = g.pos[0];
+        cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
+        cam->tgt_des[2] = g.pos[2];
+        camera_desired_eye(cam);
+        memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
+        memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
+    }
+    if (!em_door_movement_locked()) g.doorcam = 0;
+    if (em_weapon_is_aiming() || g.r2_aim) {
+        camera_mode1_aim(cam);
+        return CAMERA_STANDIN_AIM;
+    }
+    return CAMERA_STANDIN_NONE;
 }
 
 void camera_update(void)

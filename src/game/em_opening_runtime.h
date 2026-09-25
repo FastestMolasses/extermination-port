@@ -11,8 +11,12 @@ void em_opening_runtime_request(void);
 void em_opening_runtime_scene_ready(void);
 /* Original actor-pool phase; exactly once per ordinary game frame. */
 void em_opening_runtime_tick(void);
-/* Original camera phase, after actors. Returns 1 if it committed camera. */
-int em_opening_runtime_camera(void);
+/* The opening's camera track at the camera stage: while the opening owns
+ * the camera it samples its bank-0x98 track into the g.cam view (the eye,
+ * target, up and zoom; the stand-in for the opening's 0022EEF0 timeline,
+ * census L33) and returns 1; 0 when it does not own the camera, -1 when the
+ * opening failed. The camera frame commits (em_camera_live.c). */
+int em_opening_runtime_camera_sample(void);
 int em_opening_runtime_busy(void);
 int em_opening_runtime_actors_active(void);
 uint32_t em_opening_runtime_half_tick(void);

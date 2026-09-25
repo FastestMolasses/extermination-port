@@ -205,6 +205,7 @@ static int elf_word(const EmScriptHostWorkersWorld *w, uint32_t address, uint32_
 {
     if (address < 0x00100000u || address > 0x00100000u + 0x175B00u - 4u || (address & 3u))
         return -1;
+    if (!w->elf) return w->read_word ? w->read_word(w->read_ctx, address, out) : -1;
     const size_t at = (size_t)(address - 0x00100000u) + 0x300u;
     if (at + 4u > w->elf_size) return -1;
     memcpy(out, w->elf + at, 4);
@@ -220,7 +221,7 @@ int em_script_host_001B0460(EmScriptHostWorkers *h, int32_t a0)
     if (!h) return -1;
     const EmScriptHostWorkersWorld *w = &h->world;
     const EmScriptHostWorkersCallees *k = &h->callees;
-    NEED(w->elf, 0x0024D650u);
+    if (!w->elf && !w->read_word) return fail(h, 0x0024D650u);
     NEED(w->d810700, 0x00810700u); NEED(w->d810701, 0x00810701u); NEED(w->d810702, 0x00810702u);
     NEED(w->d8101E1, 0x008101E1u); NEED(w->d8101E2, 0x008101E2u); NEED(w->d8101E3, 0x008101E3u);
     NEED(w->d8101E5, 0x008101E5u); NEED(w->d8101E6, 0x008101E6u); NEED(w->d8101E7, 0x008101E7u);

@@ -221,8 +221,9 @@ build with both files added links with zero warnings.
   - The table words D_0028A59C[0] / D_0028A56C[0] and D_00275BCC come from
     the loaded model library state.
 - **001027E0**: the inverse step of 00102CD0 (the look-at in the camera
-  commit). Today `em_camera.c camera_commit_view` builds the view with host
-  float math (em_mat4_lookat_gs). A faithful 00102CD0 calls em_rvr_001027E0.
+  commit). Bound since census L13..L16: em_cs_00102CD0
+  (em_census_standins) calls em_rvr_001027E0; em_mat4_lookat_gs is deleted
+  (docs/CAMERA_LIVE.md).
 - **00102850**: 00209280 (the BATTERY block, live stand-in `em_hud.c`)
   calls it in place with 12.0 at 0x700038C0.
 - **001000E0**: `EmPlayerLandWorkers.test_001000E0` of em_player_fall

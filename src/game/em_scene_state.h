@@ -102,6 +102,10 @@ typedef enum {
  *   D_00810788           S10b  001B65C0 prime-pass mode (tested == 0xFF),
  *                              001B6660 case 6 via D_00810700[0x88]; no port
  *                              mirror existed.
+ *   D_0081078B           L13   event 0x33 (D_00810758[0x33]): the walking
+ *                              camera's 00191210 (area 0x10 room 0) keeps
+ *                              its eye clamp while it is not 0xFF; no port
+ *                              mirror, no AREA11 writer.
  *   D_0081078F           L22   event 0x37: 001B81D0 (the scripted player
  *                              face attach) takes resource row 0x18 when it
  *                              is 1; no port writer (0 on the route).
@@ -143,6 +147,9 @@ typedef enum {
  *                              (whose per-area-build reset had no
  *                              original writer: only 001AF2C0's memset
  *                              clears it).
+ *   D_00810803           L13   counter 0x2B (D_008107D8[0x2B]): the walking
+ *                              camera's 00195130 area-0 arm gate; no port
+ *                              mirror, no AREA11 writer.
  *   D_0081083A           WP-4  the AREA11 elevator's floor byte: 00827B10
  *                              state 0 reads it (190/230 heights), its
  *                              completion toggles it when powered; no
@@ -221,9 +228,11 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
         {0x00810788u, 0x00810789u},
+        {0x0081078Bu, 0x0081078Cu}, /* event 0x33: 00191210's gate (L13) */
         {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */
         {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
         {0x008107D8u, 0x008107D9u}, /* counter 0: Roger's story progress (L22) */
+        {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
         {0x00810813u, 0x00810814u}, /* counter 0x3B, the director step (HK) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */

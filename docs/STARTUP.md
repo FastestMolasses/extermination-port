@@ -89,6 +89,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 45 | `python3 tools/export_box_tables.py` (CRATES_DRUMS_ORIGINAL.md "Binding") | `scene_snow/box_tables.emrg` | R (since census L25) | D_002468B0 / D_00246A00 / D_00246A10 (em_area11_boxes) |
 | 46 | `python3 tools/export_pad_tables.py` (TRUCK_ORIGINAL.md "Binding") | `pad_rumble.emrg` | R (since census L23: the truck's arm rumble faults without it) | D_0024D6F0, 001B1E20's rumble records (em_pad_actuator) |
 | 47 | `python3 tools/export_roger_banks.py` (ROGER_ACTOR_ORIGINAL.md section 4; after step 39's decomp extract) | `scene_snow/roger/resources.emrs` | R (since census L22: Roger's lifecycle 0 faults without it) | D_0028A490's table, the clip banks 0x96 / 0x4A, model 0x47 and the equipment model 0x6B at their EE addresses (em_area11_roger; bank 0x96 also mapped into the player record's pose host) |
+| 48 | `python3 tools/export_camera_tables.py` (CAMERA_LIVE.md section 3) | `camera_tables.emrg` | R (since census L13..L16: without it the live camera does not bind and the area build faults at 0x0018B9C0) | D_0024A4B0 / D_0024A5F0: 001B1EA0's quads for 00190F20 and 00194D10 (em_camera_live) |
 
 Not read by the first level (X): `ui.emui`, `ui_page*.emui`, `messages.emsg`,
 `title.emui`, `gameover.emui` (decomp `export_ui.py` / `export_screen_modules.py`,

@@ -5,6 +5,7 @@
 #include "game/em_random.h"
 #include "game/em_bgm.h"
 #include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_cinematic_camera.h"
 #include "game/em_director_original.h"
 #include "game/em_frame.h"
@@ -292,8 +293,19 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
                 record_vector(g.cam.tgt,record,0x30);
                 memcpy(g.cam.eye_des,g.cam.eye,sizeof g.cam.eye);
                 memcpy(g.cam.tgt_des,g.cam.tgt,sizeof g.cam.tgt);
-                g.cam.yaw=atan2f(g.cam.tgt[0]-g.cam.eye[0],
-                                g.cam.tgt[2]-g.cam.eye[2]);
+                /* 001B8FC0 kind 0 copies the two quads (00102948: all four
+                 * words, the w lanes included) into D_008105D0 / D_008105E0
+                 * and cam+10 / cam+20; the g.cam view above carries x/y/z
+                 * only, so the w words go to the live camera's bytes. The
+                 * camera frame derives +0x44 itself. */
+                {
+                    static const uint32_t quads[4][2]={{0x008105D0u,0x20},{0x008105E0u,0x30},
+                                                       {0x008101F0u,0x20},{0x00810200u,0x30}};
+                    for (unsigned i=0;i<4;++i) {
+                        uint8_t *q=em_camera_live_bytes(quads[i][0],16);
+                        if (q) memcpy(q+12,record+quads[i][1]+12,4);
+                    }
+                }
                 script->phase=1;
                 return EM_SCRIPT_WAIT;
             }
@@ -405,7 +417,7 @@ void em_opening_runtime_tick(void)
     }
 }
 
-int em_opening_runtime_camera(void)
+int em_opening_runtime_camera_sample(void)
 {
     if (!s.camera_owned || s.failed) return 0;
     if (s.camera_active) {
@@ -413,7 +425,7 @@ int em_opening_runtime_camera(void)
         em_opening_media_camera_tick(s.camera_time);
         if (s.camera_time==1.0f) em_gamepad_rumble_effect(6,0);
         int result=em_cinematic_camera_sample(&s.camera,s.camera_time,&frame);
-        if (result<0) {fail("camera sample"); return 1;}
+        if (result<0) {fail("camera sample"); return -1;}
         if (g.capture_path && g.frame_no==g.capture_frame)
             fprintf(stderr,"opening capture: frame=%d half_tick=%u "
                     "camera_sample=%.1f pc=%#010x eye=(%.9g,%.9g,%.9g) "
@@ -436,8 +448,6 @@ int em_opening_runtime_camera(void)
             s.camera_time+=0.5f;
         } else camera_restore();
     }
-    if (g.cam.top_mode==3) camera_commit_cinematic(&g.cam);
-    else camera_commit(&g.cam);
     return 1;
 }
 

@@ -96,6 +96,9 @@ unsigned em_area11_boxes_effect_gap(void);
 /* 001AF710 (the bone-slot stack at every area build) and every node's
  * state dropped: called with the pool reset (001AFCA0). */
 void em_area11_boxes_reset(void);
+/* The scratchpad word 0x700031F0 (its one storage): the truck's carry sets
+ * it, 0015BCF0 clears it, 0018B9C0 reads its low byte. */
+int32_t *em_area11_boxes_carry31F0(void);
 
 /* 001AF800(actor): the pool's bone-slot return for a record with +0x09 != 0
  * (EmActorPool.w_001AF800). Every slot goes back through 001AF890. 0, or -1

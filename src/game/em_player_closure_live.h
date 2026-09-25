@@ -54,6 +54,10 @@ int em_player_closure_live_use_press(EmPlayerLiveActor *actor, int *result);
 int em_player_closure_live_0017B490(void *context, EmPlayerLiveActor *actor, int cmd, int idx,
                                      int tbl, int16_t *clip);
 
+/* The pad button-assignment block 0x70003B74..0x70003B82 (001AF470 with
+ * config 0, eight halfwords; word 6 is 0x70003B80). Zero until bound. */
+const uint16_t *em_player_closure_live_pad_config(void);
+
 /* Fail-stop workers reached (each is reported once on stderr). */
 unsigned em_player_closure_live_faults(void);
 

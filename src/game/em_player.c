@@ -11,6 +11,8 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_area11_boxes.h"
+#include "game/em_camera_leftovers.h"
 #include "game/em_player.h"
 #include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
@@ -937,6 +939,10 @@ int player_states_stage(void)
         player_states_report(stderr);
     }
     if (!stage_engaged()) return 0;
+    /* 0015BCF0's first store: the scratchpad word 0x700031F0 = 0 (its one
+     * storage is the AREA11 boxes' carry word, which the truck sets later in
+     * the frame and the camera frame reads). */
+    *em_area11_boxes_carry31F0() = 0;
     live.consumed = live.port_ran = 0;
     /* While the takeover holds the player (00174A50 + 00182D70 acquired it)
      * the record is the scripted owner's: the port's idle/walk mirrors are
@@ -1006,6 +1012,13 @@ int player_states_stage(void)
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
     if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
         live_fault("0011A070 worker fault");
+        return 0;
+    }
+    /* 0015BCF0's 0015CBA0: the state byte +1F0 -> the action code +230 the
+     * camera dispatches on (em_camera_leftovers' translation; it reads +1F0,
+     * +1F1, +236 and +0D, none of which the tail writes). */
+    if (em_camleft_0015CBA0(&live.a) < 0) {
+        live_fault("0015CBA0 fault");
         return 0;
     }
     /* 0015BCF0's animate step (after +BC = 1.0, which the tail writes; the

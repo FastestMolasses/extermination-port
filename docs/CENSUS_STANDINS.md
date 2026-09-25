@@ -10,14 +10,15 @@ MESSAGE_SERVICE.md and FIRST_LEVEL_AUDIT WP-8 decision (b): 001FD0E0,
 - Module: `src/game/em_census_standins.c/.h` (prefix `em_cs_`).
 - Oracle: `tools/test_census_standins_reference.py`. Quick mode takes about
   4 s and `EM_TEST_FULL=1` about 15 s. Both PASS.
-- **Nothing is bound.** Every stand-in named below is still live. The
-  binding notes in section 3 say exactly what replaces what.
+- **00102CD0 is bound** (census L13..L16). The other translations are not:
+  their stand-ins named below are still live, and the binding notes in
+  section 3 say exactly what replaces what.
 
 ## 1. Results
 
 | Original | Decomp | Translation | Evidence (oracle) | Live stand-in it replaces |
 |---|---|---|---|---|
-| 00102CD0 look-at | BM (ee-gcc) | `em_cs_00102CD0` (bit patterns), reusing the verified leaves 001029C0 / 00102918 (em_owner_services_original), 00102718 / 00102760 (em_effect_original) and 001027E0 (em_render_verify_rest) | The original executed with its leaves: every output word on 4,021 random and special vectors (full mode; 171 in quick mode), and on the camera inputs of all 15 route beats. In **every beat** the result equals the matrix the original left in `D_00810610`. | `em_math.h em_mat4_lookat_gs` in `em_camera.c camera_commit_view` (host float) |
+| 00102CD0 look-at | BM (ee-gcc) | `em_cs_00102CD0` (bit patterns), reusing the verified leaves 001029C0 / 00102918 (em_owner_services_original), 00102718 / 00102760 (em_effect_original) and 001027E0 (em_render_verify_rest) | The original executed with its leaves: every output word on 4,021 random and special vectors (full mode; 171 in quick mode), and on the camera inputs of all 15 route beats. In **every beat** the result equals the matrix the original left in `D_00810610`. `em_cs_view_to_native` of every result is the exact sign flip of the y and z lanes. | none: bound live (the commit 0018C0D0, census L13..L16) |
 | 001FCB90 help presenter | BM | `em_cs_001FCB90` | Executed over the captured help container `*D_0028A498`: all 9 groups, every line plus -1 / count, at (0x8A,0xA8) and (0x10E,0xCC). 578 calls in full mode. Every glyph advance, glyph-run draw (x, y, bytes, config words, style bytes) and result is compared, along with the style, measure and line buffers. | The status page layer presents its mode-4 lines from its own copy of the request block (`em_area11_interaction_host.c`, WP-5). The step-F gate `message_gate` holds the service while a page runs. `em_hud.c` has a legacy message lookup. The BATTERY page draws its help text itself (`em_battery_ui.c text(..., 138, 336)`). |
 | 001FCF60 record title | BM | `em_cs_001FCF60` | Sub-bank 1 of `*D_0028A49C`: every line plus -1 / count, at (0xA8,0xBE) and (0x64,0x47). 224 calls in full mode. | The same gate, with modes 3/4 faulting in `em_message_live` |
 | 001FCF90 record list | NM (.s followed) | `em_cs_001FCF90` | Sub-bank 2 of `*D_0028A49C`: every line at pages 0, 1, n/10, n/10+1 and -1. 446 calls in full mode. | The same |
@@ -67,41 +68,26 @@ oracle fail:
    0020DFA0, just before 0020DFA0 reprograms that record through
    0021B9A0(5, 0.0, 1000000.0). The port's event name
    `EM_STATUS_PAGE_END_PROJECTION` does not describe this.
-5. **The look-at stand-in is the original up to rounding.** The original
-   view matrix (row vectors, Y down, +Z into the screen) and
-   `em_mat4_lookat_gs` differ exactly by negating lanes y and z of every row.
-   That remap is `em_cs_view_to_native`, a sign-bit flip. After the remap,
-   the stand-in's largest difference is 5.1e-7 relative to the position
-   scale on the non-degenerate cases of the full sweep (forward not within
-   |y| 0.99 of up, no zero, denormal or huge lanes); the test asserts it
-   stays below 1e-4. The stand-in is therefore a host-float
-   approximation of the same matrix, not a convention mismatch.
+5. **The look-at stand-in was the original up to rounding.** The original
+   view matrix (row vectors, Y down, +Z into the screen) and the retired
+   `em_mat4_lookat_gs` differed exactly by negating lanes y and z of every
+   row, with a largest difference of 5.1e-7 relative to the position scale
+   (measured before its removal). That remap is `em_cs_view_to_native`, a
+   sign-bit flip, which the oracle now checks on every result.
 
 ## 3. Binding notes (exact replacements)
 
-**00102CD0 → `em_camera.c camera_commit_view`.**
-- Replace `em_mat4_lookat_gs(cam->view, pos, cam->fwd, cam->up)`, and only
-  that call, with the following:
-  - `uint32_t v[16]; em_cs_00102CD0(v, pos_bits, fwd_bits, up_bits);`
-  - then `em_cs_view_to_native(cam->view, v);`
-  - `pos_bits`, `fwd_bits` and `up_bits` are the four-lane bit patterns of
-    D_700038C0, D_700038A0 and D_008105F0.
-  - A -1 result is a fault, not a fallback.
-- Keep `v` as the port's copy of D_00810610. It is what the original stores
-  and what later readers of D_00810610 see.
-- The EM_PROJ_TEST self-check at em_camera.c ~2170 is test code. It can call
-  the same pair.
-- Bit-exactness needs original inputs. `pos` and `fwd` come from the
-  surrounding 0018C0D0 steps, which the live commit still computes with host
-  `sqrtf` (census rows 0018C0D0, 0011E620, 001B1240). Binding 00102CD0 alone
-  removes this row's stand-in, not those.
-- Link `em_census_standins.c` and `em_render_verify_rest.c` into COMMON
-  (for 0021BAE0's worker type, also `em_status_ui_leftovers.c`).
-  `em_owner_services_original.c`, `em_effect_original.c`,
-  `em_sdk_soft_float.c` and `em_message_draw_original.c` are already in
-  COMMON (checked 2026-09-24).
-- Then retire the hook `test_camera_commit_reference` places on 0x102CD0:
-  compare the executed original instead.
+**00102CD0: bound (census L13..L16, docs/CAMERA_LIVE.md).**
+- The translated commit 0018C0D0 (em_camera_commit_original.c) calls
+  `em_cs_00102CD0` for D_00810610 on the canonical camera words; the
+  renderer's view is `em_cs_view_to_native` of it. `em_mat4_lookat_gs` is
+  deleted: a scene without the live camera, the status UI scene and the
+  EM_PROJ_TEST self-check also take the look-at through this pair
+  (`camera_view_00102CD0`, em_camera.c).
+- `em_census_standins.c` and `em_render_verify_rest.c` are in COMMON.
+- test_camera_commit_reference.py (which hooked 0x102CD0) is retired:
+  tools/test_camera_live_reference.py executes the whole commit, the
+  look-at and its leaves included.
 
 **001FCB90 / 001FCF60 / 001FCF90 / 001FD0E0 → `em_message_live.c`.**
 - Build one `EmCsPresenters` bound to the service's own `EmMessageDraw`

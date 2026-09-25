@@ -12,8 +12,8 @@
  *             001029C0 / 00102918 em_owner_services_original,
  *             00102718 / 00102760 em_effect_original,
  *             001027E0 em_render_verify_rest.
- *             Live stand-in: em_math.h em_mat4_lookat_gs in em_camera.c
- *             camera_commit_view.
+ *             Live since census L13..L16: the commit 0018C0D0
+ *             (em_camera_commit_original) calls it (em_camera_live.c).
  *
  *   001FCB90  mode-4 help presenter (byte-matched C):
  *             001FE070(sub-bank `group` of *D_0028A498, line, x, y)
@@ -89,7 +89,7 @@ extern "C" {
 int em_cs_00102CD0(uint32_t out[16], const uint32_t pos[4], const uint32_t fwd[4],
                    const uint32_t up[4]);
 
-/* The port renderer's convention (em_math.h em_mat4_lookat_gs: Y up,
+/* The port renderer's convention (Y up,
  * negative Z forward, column-major) is the original matrix with the y and
  * z lane of every row negated. This is that exact sign-bit flip; it is a
  * renderer adapter, not game logic (docs/CENSUS_STANDINS.md 2). */

@@ -1,6 +1,7 @@
 /* em_player_closure_live.c - the live binding of the FLOOR state closure and
  * the Use chain (see em_player_closure_live.h). Storage and binding only:
  * every routine reached is the verified translation named at its slot. */
+#include "game/em_camera_live.h"
 #include "game/em_player_closure_live.h"
 
 #include <stdio.h>
@@ -155,6 +156,8 @@ static int unbound(const char *callee)
     }
     return -1;
 }
+
+const uint16_t *em_player_closure_live_pad_config(void) { return L.pad_config; }
 
 unsigned em_player_closure_live_faults(void) { return L.faults; }
 
@@ -1089,10 +1092,9 @@ static int w_hip(void *c, uint32_t *x, uint32_t *z) { (void)c; return em_pose_vi
 
 /* The pad block after 001B5940 (D_00810E57 gait, E64 / E65 stick, E70 held,
  * E74 pressed) and D_008106A0, copied at each refresh so the modules that
- * hold pointers read this frame's value. D_008106A0 is 0018C440's camera
- * heading atan2(-fwd.z, fwd.x) (em_player_heading.c) through the SDK
- * 0011E620 over the port's camera forward D_00810600 (the follow camera is
- * census L13's). */
+ * hold pointers read this frame's value. D_008106A0 is the camera commit
+ * 0018C0D0's heading atan2(-fwd.z, fwd.x), read from the live camera's
+ * canonical word (em_camera_live.c, census L13). */
 static struct {
     uint8_t gait, lx, ly;
     uint32_t d8106A0;
@@ -1109,9 +1111,8 @@ static void refresh_pad(void)
     P.held = scene()->d810E70;
     P.pressed = scene()->d810E74;
     P.spad3B8D = scene()->spad3B8D;
-    uint32_t saved = L.sdk->fault;
-    P.d8106A0 = fbits(w_atan2(NULL, em_ee_neg(g.cam.fwd[2]), g.cam.fwd[0]));
-    L.sdk->fault = saved;
+    const uint8_t *heading = em_camera_live_bytes(0x008106A0u, 4);
+    if (heading) memcpy(&P.d8106A0, heading, 4);
 }
 
 static int recovery_scene(void *c, EmPlayerRecoveryScene *s)
@@ -1892,7 +1893,12 @@ static int misc_scene_refresh(void)
     }
     s->d810360[3] = 1.0f;
     s->d8105D0[3] = 1.0f;
-    s->d81027C = bfloat(P.d8106A0);
+    {
+        const uint8_t *heading = em_camera_live_bytes(0x0081027Cu, 4);   /* cam+0x9C */
+        uint32_t bits = 0;
+        if (heading) memcpy(&bits, heading, 4);
+        s->d81027C = bfloat(bits);
+    }
     s->d28A490 = NULL;
     s->d28A490_count = 0;
     return 0;

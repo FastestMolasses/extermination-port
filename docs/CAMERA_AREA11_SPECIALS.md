@@ -16,9 +16,9 @@ of the gameplay camera and the leaf they share:
 
 It covers what each routine does, the translation
 `src/game/em_camera_area11_specials.c/.h`, the evidence, and how the
-coordinator binds it. The module is **built and tested but not wired**.
-Section 4 lists what to bind. Section 5 lists the workers that have no
-translation yet.
+coordinator binds it. The module is **bound live** since census
+L13..L16 (em_camera_live.c, docs/CAMERA_LIVE.md; section 4). Section 5
+lists the workers that still have no translation.
 
 ### What the route shows
 
@@ -527,98 +527,42 @@ EM_TEST_WORLD=1 python3 tools/test_camera_area11_specials_reference.py # ~150 s
 
 ## 4. Binding (coordinator)
 
-Nothing is wired. `em_camera.c` (0018BC20, `camera_mode_dispatch`) and its
-stand-ins belong to the coordinator.
+Bound since census L13..L16 by `src/game/em_camera_live.c`
+(docs/CAMERA_LIVE.md).
 
-### Call sites
-
-- **0018BC20, mode +5 = 0, action +6 = 0 (and out of range):**
-  `em_cam_specials_action_00195130(&specials, cam, player)`. This is the
-  generic gameplay camera on every AREA11 frame.
-- **0018BC20, action +6 = 3, in both mode tables:**
-  `em_cam_specials_action_001936E0(&specials, cam, player)`.
-- **0018BC20, mode 1, the action-0 path's final call
-  `00193EB0(p, e, 0)`:** `em_cam_specials_call_00193EB0(&specials, cam,
-  player, 0)`. 00195130 calls the router itself.
-- **00198650 (action 2)** calls `00197490(cam, player, 0)` at two sites.
-  **00197D20 (action 1)** calls it with a2 = 1. Its a0/a1 are the
-  camera/player it holds; confirm this when 00197D20 is translated. Both
-  map to `em_cam_specials_call_00197490`.
-
-`cam` must be the canonical camera block, the storage
-`EmCameraFollowWorld.cam` also points at. `player` is the live record
-`player_states_actor()`.
-
-### World (`EmCamSpecialsWorld`)
-
-Point every field at the canonical storage the follow camera
-(`EmCameraFollowGlobals`) and the commit 0018C0D0 already use:
-
-- d8105D0/d8105E0 = the eye/target vec4s;
-- d81069C = `EmCameraFollowGlobals.d69C`;
-- d810700/01/02 = the area bytes.
-
-**The scratch.** `EmCameraFollowScratch` has a different layout that
-overlaps s3400, s3600, s38A0, s3A20/s3A24 and s3B50. The binder must keep
-the words it shares with `EmCamSpecialsScratch` identical across calls,
-either through one storage or by copying at each worker boundary. Two
-words need a specific source:
-
-- **0x700031B0** is where 0019A910 leaves its point. The 0019A910 adapter
-  must copy the segment walker's point into `spad->s31B0` after the call.
-- **s3B80 / s3B8D** are the frame's pad-held and frame-control scratchpad
-  bytes.
-
-### Workers of `EmCamSpecialsWorkers`
-
-| worker | original | binds to |
-|---|---|---|
-| `w_001921D0` | 001921D0 | `em_camera_follow_001921D0(&follow_world, player, mode)`. `follow_world.cam` is the same block. |
-| `w_0018D7B0` | 0018D7B0 | `em_camera_follow_0018D7B0(&follow_world, style, &r)` |
-| `w_0018C4B0` | 0018C4B0 | `em_camera_follow_0018C4B0(vec, y, rate, result)`. vec is the eye, the target or cam+20. |
-| `w_0018C6A0` | 0018C6A0 | `em_camera_follow_0018C6A0(from, to, rate, result)` |
-| `w_00191D40` | 00191D40 | `em_camera_follow_00191D40(cam, &globals, want, rate)` |
-| `w_00192010` | 00192010 | `em_camera_follow_00192010(cam, y, f13, f14)` |
-| `w_00102C58` | 00102C58 | `em_owner_services_euler_00102C58` or `em_effect_original_00102C58` (float-typed; adapt the bits) |
-| `w_001026A0` | 001026A0 | `em_effect_original_001026A0` (float-typed) |
-| `w_0011E748`, `w_0011E620`, `w_0011E2A8`, `w_0011DE90` | SDK math | `em_sdk_math_original_*` (float-typed, with the tables) |
-| `w_001B1470` | 001B1470 | `em_player_001B1470` (bits) |
-| `w_001B1240` | 001B1240 | `em_script_host_001B1240` |
-| `w_0019A910` | 0019A910 | `em_coll_segment_0019A910(seg, from, to, 6)`, plus the 0x700031B0 copy above |
-| `w_001B0C60` | 001B0C60 | `em_scene_request_area_change_001B0C60` (not reached in AREA11) |
-| `w_001AEDE0` | 001AEDE0 | `em_transition_fade_out(fade, 4, 0)` (area 0xD only) |
-| `w_001916C0` | 001916C0 | **no translation** (NEARMISS C; needed on every AREA11 frame) |
-| `w_00191000` | 00191000 | **no translation** (byte-matched C; the L1 orient-behind, needed on every code-1 frame) |
-| `w_0022FCA0` | 0022FCA0 | **no translation** (the AREA11 box arm) |
-| `w_00193D90` | 00193D90 | **no translation** (state 2) |
-| `w_00193660` | 00193660 | **no translation** (lock-on grab test) |
-| `w_00197870`, `w_00198440`, `w_001912B0` | | **no translation** (aim) |
-| `w_001B0300` | 001B0300 | **no translation** (the release with +5 set) |
-| `w_001944B0`, `w_00194D10`, `w_00194DB0`, `w_00230230`, `w_00823FE0` | | other areas. Not reachable in AREA11, but the readiness check requires them only in their own areas. |
-
-**Minimum for AREA11.** The as-captured route path needs:
-
-- the world;
-- `w_001916C0`, `w_001921D0` and `w_00191000`;
-- for the box arm, `w_0022FCA0`, `w_00192010`, `w_0018D7B0`, `w_0018C4B0`
-  and `w_0018C6A0`. The readiness check requires these for area 0xB even
-  though the route never fires the arms.
-
-So the walking camera cannot be bound until 001916C0, 00191000 and 0022FCA0
-are translated.
-
-### Makefile (report only; the lead edits it)
-
-The module is standalone. The test builds its own shared library. Add
-`src/game/em_camera_area11_specials.c` to the game sources when it is bound.
+- **Call sites.** 0018BC20's action 0 (mode 0) is
+  `em_cam_specials_action_00195130`, pre-empted while a legacy stand-in owns
+  the camera (CAMERA_LIVE.md section 6); action 3 is
+  `em_cam_specials_action_001936E0`; mode 1's router call is
+  `em_cam_specials_call_00193EB0`. 00197490's callers (actions 1 / 2) have
+  no translation: reaching them faults.
+- **World.** `d8101E0` is the canonical camera block, `d8105D0` /
+  `d8105E0` / `d81069C` the canonical pool, the area and gate bytes the
+  scene state's (D_0081078B and D_00810803 are canonical D2 bytes since this
+  binding), `spad` a view of the canonical scratchpad words loaded before
+  and stored after every call (0x700031B0 is the segment query's point).
+- **Workers.** `w_001916C0`, `w_00191000`, `w_0022FCA0`, `w_00193D90`,
+  `w_00194D10` are em_camera_leftovers' routines; `w_001921D0`,
+  `w_0018D7B0`, `w_0018C4B0`, `w_0018C6A0`, `w_00191D40`, `w_00192010` the
+  follow module's; `w_00193660` is em_camera_commit_original's 00193660;
+  `w_00102C58` / `w_001026A0` em_owner_services_original's euler and
+  em_effect_original's 001026A0; the SDK math, `w_001B1470` and
+  `w_001B1240` as the other modules; `w_0019A910` the collision world's
+  0019A910 with the 0x700031B0 copy. The other areas' arms (001944B0,
+  00194DB0, 00230230, 0x823FE0, 001AEDE0, 001B0C60) and the aim family
+  (00197870, 00198440, 001912B0, 001B0300) stay NULL: the readiness check
+  requires them only where they are reachable.
 
 ## 5. Limits and open items
 
-- **Not wired.** The port's `camera_mode_dispatch` still runs its own
-  stand-ins.
-- **Untranslated workers** (section 4): 001916C0, 00191000, 0022FCA0,
-  00193D90, 00193660, 00197870, 00198440, 001912B0 and 001B0300. They are
-  faults when missing. Nothing substitutes for them.
+- **Bound** (section 4). While a legacy stand-in owns the camera
+  (the director's beats, the fence door, an examine cue, the port's aim) it
+  runs in 00195130's place (CAMERA_LIVE.md section 6).
+- **Untranslated workers** (section 4): 00197870, 00198440, 001912B0 and
+  001B0300 (the aim family), and the other areas' arms. They are faults
+  when reached. Nothing substitutes for them. (001916C0, 00191000,
+  0022FCA0, 00193D90 are em_camera_leftovers'; 00193660 is
+  em_camera_commit_original's.)
 - **CAM-09.** The route never enters the box arm (y < 185, z < 220,
   359 < x < 394.8). The ground along the snow is about 184.8, so y < 185
   holds wherever the player stands on it. But no route row is inside the

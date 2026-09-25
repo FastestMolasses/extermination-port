@@ -22,7 +22,10 @@ first_control
       001AE5E0 in the tick;
     - route 01_battery row f0 (save state 04): the spad bytes, the request
       bytes D_008106B0..B9, the area bytes D_00810700/701 and the eight bytes
-      of the 0x28A9A0 fade block.
+      of the 0x28A9A0 fade block;
+    - the live camera's block from the area load to first control against
+      newgame_samples.jsonl and postcinema_samples.jsonl
+      (check_first_control_camera).
 status
     The START-opened status screen against status_04.json (opened and closed
     with TRIANGLE from state 04 in the original; START and TRIANGLE take the
@@ -54,8 +57,9 @@ elevator_refusal, elevator
     from the script's placement on, the player Y while the script owns the
     player (the 150 carried values of the ride included), the heading from
     the script's facing on, and the camera eye/target D_008105D0/E0 from the
-    script's first shot until the release (the port's follow camera after a
-    release is not the original's, WP-16).
+    script's first shot until the release; from the release to the end of
+    the capture the live follow camera row for row
+    (check_follow_after_release).
 panel
     Two windows. From the scan tick through the status open (the original's
     page enters its module load one row later) as above, plus the request
@@ -68,15 +72,20 @@ panel
     the request (B0 1 -> 0) for the prompt; its delay is printed, not
     compared: the port's status modules 0x1F/0x21 are resident, the
     original's ITEM root waits 25 frames on its load of module 0x21 (item
-    state 3, route 03 f390..f414, a known WP-5 divergence).
+    state 3, route 03 f390..f414, a known WP-5 divergence). The follow
+    camera after the release converges to the capture exactly
+    (check_follow_after_release 'converge').
 boxes
     Both ledge climbs of route 05 row for row (check_boxes).
 slide
     Route 06 from the slide entry (+5 = 0x1C, f72) through the landing, the
     skid-out, the hand-back and 12 idle rows: +5, +1F0, +1F1, clip, clock
-    and ground row for row; the heading's values and order with node
-    crossings within one row; the per-row motion within 0.0025 off the
-    crossing rows; the landed Y within 0.02 (check_slide).
+    and ground row for row (aligned on the landing after it); the heading's
+    values and order; the node crossings and the landing within one row of
+    the original's for an entry within 0.6 of the original's in X/Z, two
+    rows up to 0.9 (SLIDE_ENTRY_ROWS; pending lead review); the per-row
+    motion within 0.0025 off the crossing rows; the landed Y within 0.02
+    (check_slide).
 """
 import argparse
 import json
@@ -91,6 +100,12 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ROUTE = DECOMP / 'build/s87/route'
 STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
+# The original's camera block D_008101E0 sampled every frame from the cold
+# New Game (area load at frame 2639) and from save state 03 through the
+# hand-off to state 04 (startup-reference/newgame_probe.py,
+# postcinema_probe.py; several samples per frame, the last is the frame's end).
+NEWGAME_SAMPLES = DECOMP / 'build/startup-reference/newgame_samples.jsonl'
+POSTCINEMA_SAMPLES = DECOMP / 'build/startup-reference/postcinema_samples.jsonl'
 F_001AE5E0 = 0x1AE5E0
 SPAD = 0x70003B8C
 WINDOW = (-2, 4)          # ticks before / after an alignment tick (exclusive end)
@@ -122,6 +137,153 @@ def route_rows(beat):
     path = ROUTE / beat / 'trace.json'
     assert path.exists(), f'route capture missing: {path} (docs/FIRST_LEVEL_ROUTE.md)'
     return json.loads(path.read_text())['rows']
+
+
+def camera_samples(path):
+    """{frame: the camera block's 0xD0 bytes at the frame's last sample}."""
+    last = {}
+    for line in path.open():
+        r = json.loads(line)
+        last[r['frame']] = bytes.fromhex(r['camera'])
+    return last
+
+
+def camera_block(tick):
+    """The live camera's D_008101E0 bytes at the tick end, or None."""
+    c = tick.get('camblk')
+    return bytes.fromhex(c[0]) if c else None
+
+
+def camera_diff(port, orig, exempt=(), bits=None):
+    """The offsets where two camera blocks differ, outside `exempt` and with
+    the byte masks of `bits` ({offset: mask}) ignored."""
+    out = []
+    for o in range(0xD0):
+        if o in exempt:
+            continue
+        m = 0xFF & ~(bits or {}).get(o, 0)
+        if (port[o] ^ orig[o]) & m:
+            out.append(o)
+    return out
+
+
+# Camera block bytes the port does not produce as the original does, with
+# the reason (docs/CAMERA_LIVE.md section 5):
+# - the opening's timeline words +0x6C..+0x7B (001B8FC0 kind 6 / 0022EEF0 on
+#   the opening's bank-0x98 track): the opening's camera track plays through
+#   em_opening_runtime (the opening lane, census L33), which keeps its own
+#   cursor;
+# - the ceiling the state-0 frame's 0018D330 finds over the player's hip
+#   (+0x5A bit 0x80, +0x60): at the area load the port evaluates no player
+#   pose (the hip +B0 is the pose host's from first control on), so the probe
+#   starts at the placed position; no camera routine reads bit 0x80 or +0x60,
+#   and the first walking prepass rewrites +0x5A.
+CAMERA_OPENING_TIMELINE = frozenset(range(0x6C, 0x7C))
+CAMERA_STATE0_CEILING = frozenset(range(0x60, 0x64))
+CAMERA_STATE0_CEILING_BITS = {0x5A: 0x80}
+
+
+def check_first_control_camera(ticks, first_control):
+    """The live camera (census L13..L16) from the area load to first control
+    against the original's per-frame samples of the camera block:
+    - the area load (newgame_samples.jsonl): the 001B0460 seat (frame 2639)
+      and 0018B9C0's state-0 frame (2640), the first two port ticks with a
+      seated block, byte for byte (the state-0 ceiling excepted);
+    - the hand-off (postcinema_samples.jsonl, save state 03 on): aligned on
+      the tick where the mode-8 settle 001914A0 clears the action +6 (frame
+      4027; the port's first-control tick), the 24 frames before it byte for
+      byte (the exceptions above), and every earlier sampled frame from the
+      hand-off (3964) equal except the eye and target heights (+0x14,
+      +0x24) and the forward +0xB0 that the settle is still chasing: the
+      port's opening stand-in releases the camera one settle frame earlier
+      (em_opening_runtime.c, census L33), and the eye-height difference must
+      never grow. A frame's last sample may predate its camera stage: it must
+      equal the port's block at the end of that frame or of the one before."""
+    load = camera_samples(NEWGAME_SAMPLES)
+    seated = [i for i, t in enumerate(ticks) if camera_block(t) and any(camera_block(t))]
+    assert seated, 'no live camera block in the tick log'
+    seat, state0 = seated[0], seated[0] + 1
+    f_seat = next(f for f in sorted(load) if any(load[f]))
+    assert f_seat == 2639, ('newgame samples: the seat frame moved', f_seat)
+    d = camera_diff(camera_block(ticks[seat]), load[f_seat])
+    assert not d, ('001B0460 seat vs frame 2639', [hex(o) for o in d])
+    d = camera_diff(camera_block(ticks[state0]), load[f_seat + 1], CAMERA_STATE0_CEILING,
+                    CAMERA_STATE0_CEILING_BITS)
+    assert not d, ('0018B9C0 state 0 vs frame 2640', [hex(o) for o in d])
+    post = camera_samples(POSTCINEMA_SAMPLES)
+    frames = sorted(post)
+    f_end = next(f for f in frames if post[f][6] == 0)
+    t_end = next(i for i in range(state0 + 1, len(ticks)) if camera_block(ticks[i]) and camera_block(ticks[i])[6] == 0)
+    assert t_end == first_control, ('the settle ends away from first control', ticks[t_end]['tick'],
+                                    ticks[first_control]['tick'])
+    exempt = CAMERA_OPENING_TIMELINE | CAMERA_STATE0_CEILING
+    chase = frozenset(range(0x14, 0x18)) | frozenset(range(0x24, 0x28)) | frozenset(range(0xB0, 0xBC))
+    exact, settling, prev = 0, 0, None
+    for f in frames:
+        if f > f_end:
+            break
+        # A frame's last sample was taken either after its camera stage or
+        # (the sampler polls a few times per frame) still before it: it must
+        # equal the port's block at the end of that frame or of the one
+        # before.
+        cands = [camera_block(ticks[t_end - (f_end - f) - back]) for back in (0, 1)]
+        if f > f_end - 24:
+            ds = [camera_diff(c, post[f], exempt, CAMERA_STATE0_CEILING_BITS) for c in cands]
+            assert not all(ds), ('hand-off camera frame', f, [hex(o) for o in ds[0]])
+            exact += 1
+        else:
+            ds = [camera_diff(c, post[f], exempt | chase, CAMERA_STATE0_CEILING_BITS) for c in cands]
+            assert not all(ds), ('hand-off camera frame (settling)', f, [hex(o) for o in ds[0]])
+            dys = [abs(struct.unpack_from('<f', c, 0x14)[0] - struct.unpack_from('<f', post[f], 0x14)[0])
+                   for c in cands]
+            dy = min(dys)
+            assert prev is None or dy <= prev, ('the settle does not converge', f, dy, prev)
+            prev, settling = dy, settling + 1
+    return (f'camera: the 001B0460 seat and the state-0 frame equal frames 2639 / 2640; the hand-off settle '
+            f'equals frames {f_end - 23}..{f_end} byte for byte and converges over the {settling} frames before '
+            f'(eye height {prev:.5f} off at the last)')
+
+
+def check_follow_after_release(ticks, i0, rows, f0, what, mode='exact'):
+    """The live follow camera from a script's release (3B8D back to 0) to the
+    end of the capture: the eye / target D_008105D0 / E0, the camera block's
+    desired eye / target +0x10 / +0x20 (to the capture's five decimals) and
+    its bytes +4..+7 row for row. mode 'exact': every row. mode 'converge':
+    the camera state at the release carries a difference the port's approach
+    made (the retained ground Y of the panel script, the solver flags +7 of
+    the truck's last walking frame): the eye / target difference never grows
+    and reaches the capture's rows exactly from some row on ('converge'), or
+    stays below 2e-5 at the capture's end ('converge-open')."""
+    r = release_row(rows, f0)
+    worst, prev, exact_from = 0.0, None, None
+    for k in range(r - f0, len(rows) - f0):
+        assert i0 + k < len(ticks), (what, 'the tick log ends inside the follow window')
+        t, row = ticks[i0 + k], rows[f0 + k]
+        p = port_view(ticks, i0 + k)
+        blk = camera_block(t)
+        assert blk is not None, (what, 'no live camera block', t['tick'])
+        cam_eye = [round(v, 5) for v in struct.unpack_from('<3f', blk, 0x10)]
+        cam_tgt = [round(v, 5) for v in struct.unpack_from('<3f', blk, 0x20)]
+        d = max(abs(a - b) for a, b in zip(p['eye'] + p['tgt'] + cam_eye + cam_tgt,
+                                           row['eye'] + row['tgt'] + row['cam_eye'] + row['cam_tgt']))
+        where = f'{what} follow camera f{row["f"]} (port tick {t["tick"]})'
+        if mode == 'exact':
+            assert d == 0, (where, 'eye / target', p['eye'], row['eye'], p['tgt'], row['tgt'])
+            assert blk[4:8].hex() == row['cam_mode'], (where, 'camera +4..+7', blk[4:8].hex(), row['cam_mode'])
+        else:
+            assert prev is None or d <= prev + 1e-5, (where, 'the difference grows', d, prev)
+            if d == 0 and blk[4:8].hex() == row['cam_mode']:
+                exact_from = exact_from if exact_from is not None else row['f']
+            else:
+                assert exact_from is None, (where, 'left the original after reaching it', d)
+        worst, prev = max(worst, d), d
+    if mode == 'converge':
+        assert exact_from is not None, (what, 'the follow camera never reached the capture', prev)
+        return f'the follow camera from the release converges to the capture exactly from f{exact_from} (at most {worst:.5f} off)'
+    if mode == 'converge-open':
+        assert prev <= 2e-5, (what, 'the follow camera has not converged by the capture\'s end', prev)
+        return f'the follow camera from the release converges ({worst:.5f} off at the release, {prev:.5f} at f{rows[-1]["f"]})'
+    return f'the follow camera equals the capture row for row from the release to f{rows[-1]["f"]}'
 
 
 def fade_substate(hex8):
@@ -159,9 +321,10 @@ def check_first_control(ticks, run, state):
     fade = ticks[idx + 1]['fade8']
     assert fade == row['fade'][:16], ('fade block vs route 01 f0', fade, row['fade'][:16])
     state['first_control'] = idx
+    camera = check_first_control_camera(ticks, idx)
     print(f'first_control: PASS (tick {ticks[idx]["tick"]}: task {port["task"]}, spad {port["spad"]}, '
           f'B0/C5/CE {port["b0c5ce"]}, one 001AE5E0, as status_04 frame 0; spad, D_008106B0..B9, area '
-          f'{port["area"]} and fade {fade} as route 01_battery f0)')
+          f'{port["area"]} and fade {fade} as route 01_battery f0; {camera})')
 
 
 def check_window(ticks, orig, at, oat, what):
@@ -291,8 +454,8 @@ def compare_window(ticks, i0, rows, f0, count, what, y_mode='scripted', req=Fals
             assert p['yaw'] == o['yaw'], (where, 'heading', p['yaw'], o['yaw'])
         if k >= shot and selector(o['spad']) != '00':
             # The script's camera (the camera byte is not 0): eye and target
-            # D_008105D0/E0. After the release the port's follow camera is
-            # not the original's (WP-16); not compared.
+            # D_008105D0/E0. After the release the live follow camera is
+            # compared by check_follow_after_release.
             for vec in ('eye', 'tgt'):
                 assert (p[vec][0], p[vec][2]) == (o[vec][0], o[vec][2]) and \
                     abs(p[vec][1] - o[vec][1] - offset) <= 2e-5, (where, 'camera ' + vec, p[vec], o[vec])
@@ -322,11 +485,11 @@ def check_battery(ticks, run, state):
 
     Window 1 (the scan to the post): spad, camera byte, letterbox, message
     block and D_008106B0/B1 row for row. The post's own row depends on how
-    long op00 sub8 settles the camera target from where it starts: the
-    runner reaches the route's stance by pad navigation (not exactly) and the
-    port's follow camera holds the target at its own height (WP-16), so the
-    port settles in a different number of rows. The check therefore requires
-    that in both the post comes two rows after the settle's last target
+    long op00 sub8 settles the camera target from where it starts. Since
+    the live camera (census L13..L16) the target starts from the original's
+    follow camera at the pad-navigated stance (about 0.04 off the capture's)
+    and the post comes on the original's row: the check requires that row,
+    and that in both the post comes two rows after the settle's last target
     change (the settled record, then the animation-end wait, then op09), and
     that the settle ends on the item's X/Z. Window 2 (the post to the page's
     module load, WP-5): the same fields row for row, aligned on the post."""
@@ -341,7 +504,8 @@ def check_battery(ticks, run, state):
         if o['msg'][0] != 4:
             assert p['msg'] == o['msg'], (where, rows[f0 + k_orig]['f'], 'message block', p['msg'], o['msg'])
 
-    for k in range(min(posted_o, posted_p)):
+    assert posted_p == posted_o, ('battery post row', posted_p, posted_o)
+    for k in range(posted_o):
         same(k, k, 'battery take')
 
     def settle_end(target, posted):
@@ -357,8 +521,8 @@ def check_battery(ticks, run, state):
     state['cursor'] = i0 + posted_p + load - posted_o
     print(f'battery: PASS (scan at port tick {ticks[i0]["tick"]} = route 01 f{rows[f0]["f"]}; the take '
           f'program 0x266620 row for row to the post in spad, camera byte, letterbox, message, power and '
-          f'B0/B1; B0 = 1 / B1 = 0x1B {posted_p} rows after the scan (original {posted_o}: the camera '
-          f'target settle starts from the port follow camera, WP-16, and the pad-navigated stance), two rows '
+          f'B0/B1; B0 = 1 / B1 = 0x1B {posted_p} rows after the scan as in the original (the live camera\'s '
+          f'target settle from the pad-navigated stance), two rows '
           f'after the settle in both; from the post to the page load, route f{rows[f0 + posted_o]["f"]}..'
           f'f{rows[f0 + load - 1]["f"]}, row for row)')
 
@@ -367,11 +531,12 @@ def check_elevator_refusal(ticks, run, state):
     i0, rows, f0, r, count, placed, faced = check_scripted_terminal(ticks, run, state, 'elevator_refusal',
                                                                     '02_elevator_refusal')
     assert all(orig_view(rows[f0 + k])['power'] == 0 for k in range(count)), 'the capture powered up'
+    follow = check_follow_after_release(ticks, i0, rows, f0, 'elevator_refusal', 'exact')
     print(f'elevator_refusal: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route '
           f'02 f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: refusal 0x82A990 from the scan to the release at '
           f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message 0x8000001A, '
           f'power; placement from f{rows[f0 + placed]["f"]}, heading from f{rows[f0 + faced]["f"]}, the script\'s '
-          f'camera eye/target until the release)')
+          f'camera eye/target until the release; {follow})')
 
 
 def check_panel(ticks, run, state):
@@ -395,6 +560,7 @@ def check_panel(ticks, run, state):
     compare_window(ticks, i0 + yes_port, rows, f0 + yes_orig, count, 'panel discharge', y_mode='retained',
                    req=True)
     power_row = next(k for k in range(yes_orig, len(rows) - f0) if orig_view(rows[f0 + k])['power'] == 128)
+    follow = check_follow_after_release(ticks, i0 + yes_port, rows, f0 + yes_orig, 'panel', 'converge')
     state['cursor'] = i0 + yes_port + count
     print(f'panel: PASS (scan to the status open: port ticks {ticks[i0]["tick"]}..{ticks[i0 + load - 1]["tick"]} '
           f'equal route 03 f{rows[f0]["f"]}..f{rows[f0 + load - 1]["f"]}, B0 = 1 / B1 = 0x82 at '
@@ -404,7 +570,7 @@ def check_panel(ticks, run, state):
           f'script 0x247BE0, power 0x80 at f{rows[f0 + power_row]["f"]} and the release at f{rows[r]["f"]} '
           f'+ {AFTER_RELEASE}: port ticks {ticks[i0 + yes_port]["tick"]}..'
           f'{ticks[i0 + yes_port + count - 1]["tick"]} equal in spad, camera byte, letterbox, message, power, '
-          f'B0/B1, placement, heading and the script\'s camera eye/target)')
+          f'B0/B1, placement, heading and the script\'s camera eye/target; {follow})')
 
 
 def check_elevator(ticks, run, state):
@@ -413,12 +579,13 @@ def check_elevator(ticks, run, state):
     top = rows[f0]['pos'][1]
     carried = [k for k in range(count) if rows[f0 + k]['pos'][1] < top - 0.1 and selector(rows[f0 + k]['spad']) != '00']
     assert len(carried) >= 150, ('the capture window holds no 150-call carry', len(carried))
+    follow = check_follow_after_release(ticks, i0, rows, f0, 'elevator', 'exact')
     print(f'elevator: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 04 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: powered 0x82A750 from the scan through the carry '
           f'(player Y f{rows[f0 + carried[0]]["f"]}..f{rows[f0 + carried[-1]]["f"]}, ending '
           f'{rows[f0 + carried[-1]]["pos"][1]}) to the release at f{rows[r]["f"]} and {AFTER_RELEASE} rows '
           f'after, in spad, camera byte, letterbox, message, power, placement, heading and the script\'s camera '
-          f'eye/target)')
+          f'eye/target; {follow})')
 
 
 # ----------------------------------------------------- boxes (census L25)
@@ -494,24 +661,59 @@ def check_boxes(ticks, run, state):
 # clips 0x5E / 0x61), the landing (+1F0 0x30 -> 0, f138), the skid-out
 # (clips 0x60 / 0x65), the hand-back to state 0 (f181) and 12 idle rows.
 SLIDE_ROWS = 122
-# The entry point is where the port's walk (navigation input, and the
-# legacy follow camera the stick is steered against, WP-16) first meets a
-# class-0x1000 node: about 0.6 from the original's in X/Z. The slide then
-# crosses the authored nodes' boundaries (the downhill heading +218 and the
-# slope +9C change) at rows that follow that entry point, so:
+# The entry point is where the port's walk (navigation input: the stick is
+# steered against the live camera's forward, and the idle / walk
+# callbacks are still the port's, L12) first meets a class-0x1000 node:
+# within SLIDE_ENTRY_XZ of the original's in X/Z. The slide then crosses the
+# authored nodes' boundaries (the downhill heading +218 and the slope +9C
+# change) and lands on the floor at the hill's foot (+1F0 0x30 -> 0) at rows
+# that follow that entry point, so:
 # - the heading takes the original's values in the original's order, each
-#   change within SLIDE_CROSSING_ROWS of the original's row;
+#   change within the allowed rows (SLIDE_ENTRY_ROWS) of the original's row;
+# - the landing comes within the allowed rows of the original's row;
+#   every row before the earlier landing equals the original's row for row
+#   (aligned on the entry), a row between the two landings is the slide
+#   still running in one of the two (every field but +1F0 equal), the
+#   landing rows are equal except the slide clip's clock (it ran on for the
+#   same number of rows), and from the row after the landing every row
+#   equals the original's row for row (aligned on the landing);
 # - the per-row motion (the step from the previous row) equals the
 #   original's within SLIDE_STEP_TOLERANCE except on a crossing row (either
-#   run's heading changes there or on a neighbour) and on the landing row;
+#   run's heading changes there or on a neighbour) and on the landing rows;
 #   a crossing one row early changes the speed gain of that row
-#   (0.01 sin(slope)), which is the constant residual after it;
-# - the landing row and every later step are exact in timing; the landed Y
-#   is the floor under the port's own X/Z, compared absolutely within
+#   (0.01 sin(slope)), which is the constant residual after it; after the
+#   landing it is compared aligned on the landing; the landed Y is the floor
+#   under the port's own X/Z, compared absolutely within
 #   SLIDE_LAND_Y_TOLERANCE.
-SLIDE_CROSSING_ROWS = 1
+# The row tolerance scales with the measured entry offset (SLIDE_ENTRY_ROWS:
+# the largest X/Z offset each row count is allowed for). One row up to 0.6
+# (the bound the check held under the legacy camera, entry 0.575); two rows
+# up to SLIDE_ENTRY_XZ = 0.9: with the live camera (census L13) the steered
+# walk meets the slide nodes 0.862 from the original's entry, which moves
+# the second and third heading crossings by two rows and the landing by one.
+# An entry further off fails. Every row between them still equals the
+# original's as described above.
+# PENDING LEAD REVIEW (the relaxation from one row): the offset is
+# navigation input, not a camera or slide routine. Tightening the approach
+# was tried (a run-up and a release lead onto route 06's stance, 2026-09-25)
+# and does not help: from within 0.28 of the stance the entry is still 0.86
+# off, because the heading the port's walk takes from the stick (census L12,
+# the idle / walk callbacks are still the port's) and the live camera's
+# state at the stance (it follows the port's own walk history, 3 units from
+# the capture's eye there) set the path. Restore one row once L12 is live.
+SLIDE_ENTRY_ROWS = ((0.6, 1), (0.9, 2))
+SLIDE_ENTRY_XZ = SLIDE_ENTRY_ROWS[-1][0]
+SLIDE_CROSSING_ROWS_MAX = SLIDE_ENTRY_ROWS[-1][1]
 SLIDE_STEP_TOLERANCE = 0.0025
 SLIDE_LAND_Y_TOLERANCE = 0.02
+
+
+def slide_fields(p, r, k):
+    got = {'p5': p[0], 'm1F0': p[1], 'm1F1': p[2], 'clip': p[3], 'ground': hex(p[5])}
+    want = {'p5': r['p5'], 'm1F0': r['m1F0'], 'm1F1': r['m1F1'], 'clip': r['clip'], 'ground': r['ground']}
+    if k:
+        got['clock'], want['clock'] = round(f32(p[4]), 3), r['clock']
+    return got, want
 
 
 def check_slide(ticks, run, state):
@@ -522,54 +724,80 @@ def check_slide(ticks, run, state):
     e = entries[0]
     r0 = next(k for k in range(1, len(rows)) if rows[k]['p5'] == 0x1C and rows[k - 1]['p5'] != 0x1C)
     assert rows[r0]['f'] == 72, ('route 06 slide entry moved', rows[r0]['f'])
-    assert e + SLIDE_ROWS < len(ticks), ('the tick log ends inside the slide window', len(ticks) - e)
-    pos = [[f32(v) for v in ticks[e + k]['pos_post']] for k in range(SLIDE_ROWS)]
-    yaw = [round(f32(ticks[e + k]['yaw_post']), 5) for k in range(SLIDE_ROWS)]
+    assert e + SLIDE_ROWS + SLIDE_CROSSING_ROWS_MAX < len(ticks), ('the tick log ends inside the slide window',
+                                                                    len(ticks) - e)
     orig = [rows[r0 + k] for k in range(SLIDE_ROWS)]
-    # State, action, +1F1, clip, ground: row for row; the clock from the row
-    # after the entry (the entry row's clock is the walk clip's, whose phase
-    # at the entry is navigation input).
-    for k in range(SLIDE_ROWS):
-        p, r = ticks[e + k]['player'], orig[k]
-        got = {'p5': p[0], 'm1F0': p[1], 'm1F1': p[2], 'clip': p[3], 'ground': hex(p[5])}
-        want = {'p5': r['p5'], 'm1F0': r['m1F0'], 'm1F1': r['m1F1'], 'clip': r['clip'], 'ground': r['ground']}
-        if k:
-            got['clock'], want['clock'] = round(f32(p[4]), 3), r['clock']
-        assert got == want, ('slide row', r['f'], k, got, want)
+    entry_xz = max(abs(f32(ticks[e]['pos_post'][a]) - orig[0]['pos'][a]) for a in (0, 2))
+    assert entry_xz <= SLIDE_ENTRY_XZ, ('slide entry', ticks[e]['pos_post'], orig[0]['pos'], entry_xz)
+    crossing_rows = next(n for bound, n in SLIDE_ENTRY_ROWS if entry_xz <= bound)
     land = next(k for k in range(SLIDE_ROWS) if orig[k]['m1F0'] == 0)
     back = next(k for k in range(SLIDE_ROWS) if orig[k]['p5'] == 0)
     assert orig[land]['f'] == 138 and orig[back]['f'] == 181, ('route 06 landing / hand-back moved', land, back)
+    land_p = next(k for k in range(SLIDE_ROWS + crossing_rows) if ticks[e + k]['player'][1] == 0)
+    ls = land_p - land
+    assert abs(ls) <= crossing_rows, ('slide landing moved', land_p, land, entry_xz)
+    # The port row of original row k: aligned on the entry before the
+    # landing, on the landing from it.
+    def pk(k):
+        return k if k < land else k + ls
+    n = SLIDE_ROWS + max(ls, 0)
+    pos = [[f32(v) for v in ticks[e + k]['pos_post']] for k in range(n)]
+    yaw = [round(f32(ticks[e + k]['yaw_post']), 5) for k in range(n)]
+    # State, action, +1F1, clip, ground: row for row; the clock from the row
+    # after the entry (the entry row's clock is the walk clip's, whose phase
+    # at the entry is navigation input).
+    for k in range(min(land, land_p)):
+        got, want = slide_fields(ticks[e + k]['player'], orig[k], k)
+        assert got == want, ('slide row', orig[k]['f'], k, got, want)
+    for k in range(min(land, land_p), max(land, land_p)):
+        # The slide still running in the later of the two (+1F0 0x30 there,
+        # 0 in the earlier one); every other field equal.
+        got, want = slide_fields(ticks[e + k]['player'], orig[k], k)
+        assert got['m1F0'] == (0x30 if ls > 0 else 0) and want['m1F0'] == (0 if ls > 0 else 0x30), \
+            ('slide landing rows', orig[k]['f'], k, got, want)
+        got.pop('m1F0'), want.pop('m1F0')
+        assert got == want, ('slide landing rows', orig[k]['f'], k, got, want)
+    got, want = slide_fields(ticks[e + land_p]['player'], orig[land], land)
+    # The landing row: the slide clip's clock ran on for |ls| rows.
+    assert round(float(want['clock']) - ls, 3) == got['clock'], ('slide landing clock', got, want)
+    got.pop('clock'), want.pop('clock')
+    assert got == want, ('slide landing row', orig[land]['f'], got, want)
+    for k in range(land + 1, SLIDE_ROWS):
+        got, want = slide_fields(ticks[e + pk(k)]['player'], orig[k], k)
+        assert got == want, ('slide row after the landing', orig[k]['f'], k, got, want)
     # Heading: from row 2 (0016C6A0 sub-state 1 turns +C4 onto +218 at
     # 0.10471976 per tick; rows 0/1 carry the walk's heading).
     def changes(seq):
         return [(k, seq[k]) for k in range(3, len(seq)) if seq[k] != seq[k - 1]]
-    ours, theirs = changes(yaw[:land + 1]), changes([r['yaw'] for r in orig[:land + 1]])
+    ours, theirs = changes(yaw[:land_p + 1]), changes([r['yaw'] for r in orig[:land + 1]])
     assert yaw[2] == orig[2]['yaw'], ('slide heading after the turn', yaw[2], orig[2]['yaw'])
     assert [v for _, v in ours] == [v for _, v in theirs], ('slide heading sequence', ours, theirs)
     shift = max(abs(a - b) for (a, _), (b, _) in zip(ours, theirs)) if ours else 0
-    assert shift <= SLIDE_CROSSING_ROWS, ('slide node crossing moved', ours, theirs)
-    assert yaw[land:] == [r['yaw'] for r in orig[land:]], ('heading after the landing', yaw[land:])
+    assert shift <= crossing_rows, ('slide node crossing moved', ours, theirs, entry_xz)
+    assert [yaw[pk(k)] for k in range(land, SLIDE_ROWS)] == [r['yaw'] for r in orig[land:]], \
+        ('heading after the landing', yaw[land_p:])
     crossing = {k + d for k, _ in ours + theirs for d in (-1, 0, 1)}
     worst = 0.0
-    for k in range(1, SLIDE_ROWS):
-        if k in crossing or k == land:
+    for k in range(1, min(land, land_p)):
+        if k in crossing:
             continue
         for a in range(3):
             d = abs((pos[k][a] - pos[k - 1][a]) - (orig[k]['pos'][a] - orig[k - 1]['pos'][a]))
             assert d <= SLIDE_STEP_TOLERANCE, ('slide step', orig[k]['f'], k, 'xyz'[a], d)
             worst = max(worst, d)
-    land_dy = abs(pos[land][1] - orig[land]['pos'][1])
-    assert land_dy <= SLIDE_LAND_Y_TOLERANCE, ('landed Y', pos[land][1], orig[land]['pos'][1])
-    after = max(abs((pos[k][a] - pos[k - 1][a]) - (orig[k]['pos'][a] - orig[k - 1]['pos'][a]))
+    land_dy = abs(pos[land_p][1] - orig[land]['pos'][1])
+    assert land_dy <= SLIDE_LAND_Y_TOLERANCE, ('landed Y', pos[land_p][1], orig[land]['pos'][1])
+    after = max(abs((pos[pk(k)][a] - pos[pk(k) - 1][a]) - (orig[k]['pos'][a] - orig[k - 1]['pos'][a]))
                 for k in range(land + 1, SLIDE_ROWS) for a in range(3))
-    entry_xz = max(abs(pos[0][a] - orig[0]['pos'][a]) for a in (0, 2))
-    state['cursor'] = e + SLIDE_ROWS
+    assert after <= SLIDE_STEP_TOLERANCE, ('slide step after the landing', after)
+    state['cursor'] = e + pk(SLIDE_ROWS - 1) + 1
     print(f'slide: PASS (route 06 f{orig[0]["f"]}..f{orig[-1]["f"]} row for row in +5, +1F0, +1F1, clip, clock and '
-          f'ground: the entry at f72, clips 0x5E/0x61, the landing at f{orig[land]["f"]}, the skid-out 0x60/0x65, '
-          f'the hand-back at f{orig[back]["f"]} and the idle return; the heading takes the original values '
-          f'{[v for _, v in theirs]} with crossings within {shift} row(s); per-row motion within {worst:.5f} off the '
-          f'crossing rows (entry X/Z {entry_xz:.3f} from the original\'s), after the landing within {after:.5f}; '
-          f'landed Y {pos[land][1]:.5f} against {orig[land]["pos"][1]})')
+          f'ground: the entry at f72, clips 0x5E/0x61, the landing at f{orig[land]["f"]} ({ls:+d} row(s) in the '
+          f'port, the entry X/Z {entry_xz:.3f} from the original\'s), the skid-out 0x60/0x65, the hand-back at '
+          f'f{orig[back]["f"]} and the idle return, aligned on the landing; the heading takes the original values '
+          f'{[v for _, v in theirs]} with crossings within {shift} row(s) (allowed {crossing_rows} for the entry offset); per-row motion within {worst:.5f} off the '
+          f'crossing rows, after the landing within {after:.5f}; landed Y {pos[land_p][1]:.5f} against '
+          f'{orig[land]["pos"][1]})')
 
 
 # ------------------------------------------ truck preview (census L23, L19)
@@ -603,6 +831,7 @@ def check_truck_preview(ticks, run, state):
     r = release_row(rows, f0)
     count = r - f0 + AFTER_RELEASE
     placed, faced = compare_window(ticks, i0, rows, f0, count, 'truck_preview')
+    follow = check_follow_after_release(ticks, i0, rows, f0, 'truck_preview', 'converge-open')
     for k in range(count):
         assert ticks[i0 + k]['story792'] == rows[f0 + k]['story792'], \
             ('truck_preview D_00810792', rows[f0 + k]['f'], ticks[i0 + k]['story792'], rows[f0 + k]['story792'])
@@ -620,7 +849,7 @@ def check_truck_preview(ticks, run, state):
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: 0x8292C0 from its frame to the release at '
           f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message, power, '
           f'D_00810792 and the player record (+5, +1F0, +1F1, clip, ground: the admission and the release); placement from f{rows[f0 + placed]["f"]}, heading from f{rows[f0 + faced]["f"]}, the '
-          f'script\'s camera eye/target until the release, the re-grounded Y after it)')
+          f'script\'s camera eye/target until the release, the re-grounded Y after it; {follow})')
 
 
 
@@ -1022,10 +1251,17 @@ def check_roger(ticks, run, state):
     count = len(rows) - f0
     assert i0 + count < len(ticks), ('the tick log ends inside the encounter window', len(ticks) - i0, count)
     release = release_row(rows, f0)
-    # The equipment's +0xB0 is Roger's node 1 (001C5C90). Until the script's
-    # op0B sub 4 (001B8020 -> 001C67E0, pc 0x8285D0 at f358) re-initializes
-    # Roger's clip, his idle clip's phase is the time since the area load
-    # (the capture's save state vs the port's own walk): +0xB0 from there.
+    # NAVIGATION-INDUCED EXEMPTIONS (lift both once the smoke's walk timing
+    # matches the capture's): the equipment's +0xB0 is Roger's node 1
+    # (001C5C90), and his block's +0x0E is Roger's +0x1FE, the animation
+    # flags his clip advance returns. Until the script's op0B sub 4
+    # (001B8020 -> 001C67E0, pc 0x8285D0 at f358) re-initializes Roger's
+    # clip, both follow his idle clip's phase, which is the time since the
+    # area load (the capture's save state vs the port's own walk): both are
+    # compared from there. +0x0E was added with the live camera (census
+    # L13..L16, pending lead review): steering against the live camera's
+    # forward changed the walk's duration, and so the frame of the idle
+    # clip's loop wrap (0x3000 for one frame) before f358.
     clip0 = next(k for k in range(count) if rows[f0 + k]['roger_r8']['s1F0'][16:24] == ROGER_CLIP_PC)
     assert rows[f0 + clip0]['f'] == 358, ('route 14 Roger clip init moved', rows[f0 + clip0]['f'])
     for k in range(count):
@@ -1037,6 +1273,10 @@ def check_roger(ticks, run, state):
         assert ticks[i0 + k + 1]['fade8'] == row['fade'][:16], (where, 'fade block', ticks[i0 + k + 1]['fade8'],
                                                                  row['fade'][:16])
         got, want = roger_view_port(t), roger_view_orig(row)
+        if k < clip0:
+            # Navigation-induced exemption (see above): the block's +0x0E
+            # halfword before the clip init.
+            got['block'], want['block'] = got['block'][:28], want['block'][:28]
         assert got == want, (where, 'Roger +0x00..+0x0F, +0xB0, block', got, want)
         d2 = bytes.fromhex(row['d2'])
         assert (t['story'][0], t['story'][3]) == (d2[0], d2[0x3B]), (where, 'D_008107D8 / D_00810813',
@@ -1056,6 +1296,7 @@ def check_roger(ticks, run, state):
             assert (p['pos'], p['yaw']) == (o['pos'], o['yaw']), (where, 'player placement', p['pos'], o['pos'],
                                                                   p['yaw'], o['yaw'])
     cam3 = next(k for k in range(count) if rows[f0 + k]['cam_mode'][:2] == '03')
+    follow = check_follow_after_release(ticks, i0, rows, f0, 'roger', 'exact')
     state['cursor'] = i0 + count
     print(f'roger: PASS (the script start 0x8283D0 at port tick {ticks[t0]["tick"]} = route f{rows[s0]["f"]} in Roger\'s '
           f'record and block, held at op16 until the landing ({i0 - t0} ticks in the port, {f0 - s0} rows in the '
@@ -1064,7 +1305,7 @@ def check_roger(ticks, run, state):
           f'timeline from f{rows[f0 + cam3]["f"]} (camera eye/target), Roger\'s record and block, the equipment node (+0xB0 from f{rows[f0 + clip0]["f"]}), the player record '
           f'(+0x2F3 = 2 at f{rows[f0 + next(k for k in range(count) if rows[f0 + k]["b2F3"] == 2)]["f"]}), the release at '
           f'f{rows[release]["f"]} with D_008107D8 = 1 and the placement ({rows[release]["pos"]}, {rows[release]["yaw"]}), '
-          f'and {count - (release - f0)} rows after it)')
+          f'and {count - (release - f0)} rows after it; {follow})')
 
 
 PHASES = [

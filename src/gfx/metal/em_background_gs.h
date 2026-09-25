@@ -172,12 +172,12 @@ static inline const char *em_background_gs_unsupported(
     return NULL;
 }
 
-/* The port's native view (em_mat4_lookat_gs: column-major, rows = original
- * X, -Y, -Z) as the original view copy ctx+0x2380 (memory row j = operator
- * column j). Sign flips only, exact. The mapping itself (native = the
- * original view with rows 1 and 2 negated) is the em_mat4_lookat_gs
- * convention checked against original RAM by tools/test_camera_reference.py;
- * the background test does not re-prove it. */
+/* The port's native view (em_cs_view_to_native: column-major, rows =
+ * original X, -Y, -Z) as the original view copy ctx+0x2380 (memory row j =
+ * operator column j). Sign flips only, exact. The mapping itself (native =
+ * the original view with rows 1 and 2 negated) is em_cs_view_to_native's,
+ * checked by tools/test_census_standins_reference.py; the background test
+ * does not re-prove it. */
 static inline void em_background_gs_original_view(const float native[16],
                                                   float original[16])
 {

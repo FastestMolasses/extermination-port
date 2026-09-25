@@ -1213,7 +1213,7 @@ void em_game_legacy_state0(void)
      * placement is split out: in AREA11 (a scene with the original
      * roster) 001B07C0(0) places the player from the exported spawn
      * table at its own position (em_scene_bindings.c w_001B07C0),
-     * followed by em_game_legacy_camera_rearm (its 001B0460 stand-in)
+     * whose 001B0460 is the live camera's translation (census L13),
      * and em_game_legacy_state0_fixtures; a scene without an original
      * roster (office, drawbridge) still takes the manifest spawn here,
      * the bindings calling em_game_legacy_manifest_spawn, the camera
@@ -1324,12 +1324,11 @@ void em_game_legacy_manifest_spawn(void)
     }
 }
 
-/* The legacy camera re-arm after a placement: the camera struct is zeroed
- * back to its init state and the one-shot setup (em_camera.c) arms it behind
- * the player on the next frame, along the placed facing. It stands in for
- * 001B0460 (the camera re-init from the spawn record, called last by
- * 001B07C0) until that function is translated over the original camera
- * record (WP-13/WP-16); the bindings report the stand-in. */
+/* The legacy camera re-arm after a placement in a scene WITHOUT an
+ * original roster (outside the first level): the camera struct is zeroed
+ * back to its init state and the legacy one-shot setup (em_camera.c) arms it
+ * behind the player on the next frame. AREA11 runs the translated 001B0460
+ * instead (em_camera_live.c, census L13). */
 void em_game_legacy_camera_rearm(void)
 {
     memset(&g.cam, 0, sizeof g.cam);

@@ -199,7 +199,7 @@ Line numbers in this section refer to the files at commit 5c6a6d7-era HEAD
 
 | file:line | deviation | harmonization |
 |---|---|---|
-| test_camera_probe_reference.py:83–91, test_camera_retarget_reference.py:66–74 | add/sub no pre-trim; **div truncated**; MADD `truncate(acc+x*y)` skips the product truncation and the pre-trim | ee_add/ee_sub/ee_div/ee_madd/ee_adda |
+| test_camera_retarget_reference.py:66–74 (test_camera_probe_reference.py retired with em_camera_probe.c, docs/CAMERA_LIVE.md section 7) | add/sub no pre-trim; **div truncated**; MADD `truncate(acc+x*y)` skips the product truncation and the pre-trim | ee_add/ee_sub/ee_div/ee_madd/ee_adda |
 | test_weather_reference.py:148–155 | add/sub no pre-trim; **div truncated**; cvt.w.s `int(x)` unsaturated | ee_* ; ee_cvt_w_s |
 | test_snow_tiles_reference.py:119–126 | add/sub no pre-trim; cvt.w.s unsaturated (div RN ok) | ee_add/ee_sub; ee_cvt_w_s |
 | test_player_motor_reference.py:76–79, test_player_heading_reference.py:74–76 | add/sub no pre-trim; **div truncated** | ee_add/ee_sub/ee_div |

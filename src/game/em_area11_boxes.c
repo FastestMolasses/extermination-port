@@ -97,7 +97,9 @@ static struct {
     float rattle[RATTLE_ROWS][4][3];
     float speed[4], lift[4];
     BoxMesh crate_mesh, drum_mesh, truck_mesh;
-    /* 0x700031F0: set to 1 by the truck's carry (00825014); no live reader. */
+    /* 0x700031F0: set to 1 by the truck's carry (00825014), cleared by the
+     * player stage 0015BCF0 at its start, ORed into the camera block's +0x8B
+     * by the camera frame 0018B9C0 (em_camera_live.c). */
     int32_t carry31F0;
     /* The truck's 001EFD20 spawns that reached the counted effect gap. */
     unsigned effect_gap;
@@ -616,6 +618,8 @@ static void services_bind(void)
     S.services.workers.w_001AF780 = w_001AF780;
     S.services.workers.w_anim_bone_array_setup = w_anim_bone_array_setup;
 }
+
+int32_t *em_area11_boxes_carry31F0(void) { return &S.carry31F0; }
 
 void em_area11_boxes_reset(void)
 {

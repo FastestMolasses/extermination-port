@@ -217,9 +217,10 @@ translation.
     under upscaling that offset leaves a half-pixel strip uncovered: 192 of
     6,912 sky-box samples and 417 whole-frame samples were black.
 - **View input.** The draw takes the port's native view and negates rows 1
-  and 2 to get ctx+0x2380. That the native view (em_mat4_lookat_gs) is the
-  original with those rows negated is checked against original RAM by
-  `tools/test_camera_reference.py`, which reports small host rounding error.
+  and 2 to get ctx+0x2380. The native view is em_cs_view_to_native of the
+  original look-at 00102CD0 (the commit 0018C0D0 builds it), which is
+  exactly the original with those rows negated
+  (`tools/test_census_standins_reference.py`).
   The background test does not re-prove it.
 
 **Pending coordinator wiring.** `em_scene.c` and `em_render_frame.c` are

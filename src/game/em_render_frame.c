@@ -45,6 +45,7 @@
 #include "game/em_player.h"
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_scene.h"
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
@@ -356,7 +357,7 @@ static void ui_scene_render(EmGfx *gfx)
             -UI_SCENE_Y,
             dir[2] * UI_SCENE_Z - s_[2] * UI_SCENE_X
         };
-        em_mat4_lookat_gs(view, eye, fwd, up);
+        camera_view_00102CD0(view, eye, fwd, up);
         memcpy(rig_eye, eye, sizeof rig_eye);
         memcpy(rig_fwd, fwd, sizeof rig_fwd);
     }
@@ -380,7 +381,7 @@ static void ui_scene_render(EmGfx *gfx)
         const float eye[3] = { 0.0f, 0.0f, 0.0f };
         const float fwd[3] = { 0.0f, 0.0f, 1.0f };
         const float up[3]  = { 0.0f, -1.0f, 0.0f };
-        em_mat4_lookat_gs(view, eye, fwd, up);
+        camera_view_00102CD0(view, eye, fwd, up);
         em_mat4_mul(vp_plate, proj, view);
     }
 
@@ -476,8 +477,8 @@ static void ui_scene_render(EmGfx *gfx)
  * is the rig's CAMERA-SPACE vector rotated into world through the
  * TRANSPOSED view rotation (func_001D8340 i==0: copy the lookat
  * D_00810610, func_00102798 transpose, apply w=0) — the port rebuilds
- * the ENGINE view basis from cam fwd/up (em_mat4_lookat_gs negates
- * its rows for Metal NDC, so the basis is re-derived, not read back).
+ * the ENGINE view basis from cam fwd/up (the native view negates rows 1
+ * and 2 for Metal NDC, so the basis is re-derived, not read back).
  *
  * AREA11's original pool uses em_point_light_fold: the 001D8340 scan,
  * inverse-square weighting, per-slot flicker matrix and normalization.
@@ -518,7 +519,7 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
     float d0[3] = { 0.0f, 0.0f, 0.0f };
     float c0[3] = { 0.0f, 0.0f, 0.0f };
     if (cam_fill) {
-        /* engine view basis (em_math.h em_mat4_lookat_gs, un-negated):
+        /* engine view basis (00102CD0's rows, un-negated):
          * sv = fwd x up_gs (view +x), uv = sv x fwd (view +y, world-
          * down), fwd (view +z); world fill = basis * camera-space dir. */
         const float *fw = g.cam.fwd, *up = g.cam.up;
@@ -878,27 +879,54 @@ static void camera_cooldown_0018B9C0(void)
         --*ef;
 }
 
+/* The positional-audio listeners (em_sfx.h): player = distance
+ * (D_00810360), camera eye / heading = pan (D_008105D0 / cam+0x9C, the
+ * commit's 001B1240 heading). The port's audio feed, not part of 0018B9C0. */
+static void camera_listener(void)
+{
+    float pan = g.cam.yaw;
+    const uint8_t *heading = em_camera_live_bound() ? em_camera_live_bytes(0x0081027Cu, 4) : NULL;
+    if (heading) memcpy(&pan, heading, sizeof pan);
+    em_sfx_listener(g.pos, g.cam.eye, pan);
+}
+
+/* With the live camera bound (AREA11, census L13..L16) the camera frame is
+ * the translated 0018B9C0 (em_camera_live.c; it runs the D_008106EF
+ * countdown itself); a scene without it keeps the legacy camera. */
 int em_camera_0018B9C0(void)
 {
+    if (em_camera_live_bound()) {
+        int rc = em_camera_live_frame();
+        camera_listener();
+        return rc < 0 ? -1 : 0;
+    }
     camera_cooldown_0018B9C0();
-    camera_update();         /* func_0018B9C0 camera state machine    */
-    em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);  /* positional-audio
-                              * listeners: player = distance
-                              * (D_00810360), camera eye/yaw = pan
-                              * (D_008105D0 / cam+0x9C) — em_sfx.h    */
+    camera_update();         /* the legacy camera (outside the first level) */
+    camera_listener();
     return 0;
 }
 
 /* func_0018B9C0 position of the cutscene variant (001AE6B0). Wraps the
  * calls cutscene_frame made there, in the same order: while the opening
- * script owns the camera, em_opening_runtime_camera() runs it (design 4.4
+ * script owns the camera, em_opening_runtime_camera_sample() runs it (design 4.4
  * #19: the opening controller's camera sits at the 0018B9C0 stage);
  * otherwise the chase camera; then the positional-audio listeners. */
 int em_camera_0018B9C0_opening(void)
 {
+    if (em_camera_live_bound()) {
+        /* The same translated frame: the opening's track is its +4 == 3
+         * timeline (em_camera_live.c lw_0022EEF0). */
+        int rc = em_camera_live_frame();
+        camera_listener();
+        return rc < 0 ? -1 : 0;
+    }
     camera_cooldown_0018B9C0();
-    if (!em_opening_runtime_camera())
+    if (em_opening_runtime_camera_sample() == 0)
         camera_update();
-    em_sfx_listener(g.pos, g.cam.eye, g.cam.yaw);
+    else if (g.cam.top_mode == 3)
+        camera_commit_cinematic(&g.cam);
+    else
+        camera_commit(&g.cam);
+    camera_listener();
     return 0;
 }

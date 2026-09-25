@@ -24,19 +24,19 @@ void camera_commit_original(EmCamera *cam, int argument);
 /* Original0018C0D0(cam,0), used by the opening's top_mode3 camera. */
 void camera_commit_cinematic(EmCamera *cam);
 void camera_desired_eye(EmCamera *cam);
+/* The translated look-at 00102CD0 (em_cs_00102CD0) of host-float inputs, in
+ * the renderer's convention (em_cs_view_to_native). A refused operand
+ * latches the scene fault at 0x00102CD0. */
+void camera_view_00102CD0(float view[16], const float pos[3], const float fwd[3], const float up[3]);
 void camera_entry_seat(EmCamera *cam);
-/* Original panel opcodeD/sub3 sequence: seed, probe style5, solve style1,
- * publish vectors, camera+A0=120. AREA11 only. Returns0 if the collision
- * world is absent or the requested scratchpad rotation is unsupported.
- * Normalized Euler rotations use the original SDK polynomial; the panel
- * fixture is zero and the elevator refusal fixture has nonzero yaw. */
-int camera_interaction_retarget_area11(EmCamera *cam,const float player_hip[3],
-                                     const float seed_euler[3],float preset_distance);
-/* D/sub5 uses distance-20, independent of both current camera+C and preset+64.
- * The original Z/Y/X rotation and homogeneous offset are applied before the
- * same prepass/bounds/solver sequence. No camera+C field is overwritten. */
-int camera_interaction_retarget_distance_area11(EmCamera *cam, const float player_hip[3],
-    const float seed_euler[3], float distance, float preset_distance);
+/* 001B7B30 op0D sub 3 (the panel and terminal scripts' camera): the port's
+ * 0018CBD0 seed at the camera's own +0x0C distance, then the live camera's
+ * 0018D7B0(5), 0018D7B0(1) and cam+A0 = 0x78 (em_camera_live.c). AREA11 only
+ * (the live camera must be bound). 1, or 0 on a fault or an unsupported
+ * rotation (em_camera_rotation.c). */
+int camera_interaction_retarget_area11(EmCamera *cam, const float seed_euler[3]);
+/* The same with a constant distance (op0D subs 4 / 5: -14, -20). */
+int camera_interaction_retarget_distance_area11(EmCamera *cam, const float seed_euler[3], float distance);
 float cam_dot3(const float a[3], const float b[3]);
 float cam_wrap_pi(float a)               /* func_001B1470 */;
 void cam_norm3(float v[3])               /* func_00102760 */;
@@ -45,5 +45,15 @@ void cam_norm3(float v[3])               /* func_00102760 */;
  * vertical FOV at t = 0 narrowing to 5 at t = 1 (func_001D2610 /
  * func_001D2590). zoom(0) == 480, the resting default. */
 float em_camera_scope_zoom(float t);
+
+/* AREA11's legacy camera stand-ins that still pre-empt camera action 0
+ * (00195130) of the live camera (em_camera_live.c): the opening director's
+ * beats (em_director.c, census L21), the examine cue (em_examine.c), the
+ * fence door cinematic (em_door.c, census L18) and the port's aim camera
+ * (census L28; its placement, then the translated 0018D7B0 style 0). They
+ * write the g.cam view. Returns CAMERA_STANDIN_NONE when none owns the
+ * camera this frame. */
+enum { CAMERA_STANDIN_NONE = 0, CAMERA_STANDIN_OWNS = 1, CAMERA_STANDIN_AIM = 2 };
+int camera_area11_standins(EmCamera *cam);
 
 #endif /* EM_CAMERA_H */

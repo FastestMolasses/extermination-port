@@ -1,5 +1,6 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_camera_rotation.h"
 #include "game/em_collision_world.h"
 #include "game/em_ee_float.h"
@@ -41,7 +42,6 @@ static struct {
     EmInteractionScene scene;
     EmInteractionFrame frame;
     EmInteractionRuntime shared;
-    EmInteractionProjection projection;
     EmPanelRuntime panel;
     EmElevatorRuntime elevator;
     EmPlayerFaceHost face;
@@ -216,9 +216,8 @@ static int frame_event(void *context, EmInteractionFrameEvent event)
 static int retarget(void *context)
 {
     (void)context;
-    float hip[3], euler[3];
-    return player_pose_hip(hip) && player_pose_script_euler(euler) &&
-        camera_interaction_retarget_area11(&g.cam, hip, euler, g.cam_dist_param);
+    float euler[3];
+    return player_pose_script_euler(euler) && camera_interaction_retarget_area11(&g.cam, euler);
 }
 
 static int align_panel(void *context)
@@ -650,7 +649,7 @@ static int camera_publish(void *context)
     (void)context;
     /* Original001DD980 publishes the render-context center/depth values,
      * including the first camera command's yielding callback. */
-    return em_interaction_projection_publish(&world.projection, g.cam.eye, g.cam.tgt);
+    return em_interaction_projection_publish(em_camera_live_projection(), g.cam.eye, g.cam.tgt);
 }
 
 int em_area11_interaction_host_camera_publish(void)
@@ -694,10 +693,9 @@ int em_area11_interaction_host_owns(const void *owner)
 static int camera_chase(void *context)
 {
     (void)context;
-    float hip[3], euler[3];
-    return player_pose_hip(hip) && player_pose_script_euler(euler) &&
-        camera_interaction_retarget_distance_area11(&g.cam, hip, euler, -20,
-                                                     g.cam_dist_param);
+    float euler[3];
+    return player_pose_script_euler(euler) &&
+        camera_interaction_retarget_distance_area11(&g.cam, euler, -20.0f);
 }
 
 static void elevator_sound(void *context, unsigned cue, float radius)
@@ -1178,7 +1176,7 @@ EmStatusRuntime *em_area11_interaction_host_status(void) { return world.loaded ?
 const EmStatusModels *em_area11_interaction_host_status_models(void)
 { return world.loaded ? world.models : NULL; }
 const EmInteractionProjection *em_area11_interaction_host_projection(void)
-{ return world.loaded ? &world.projection : NULL; }
+{ return world.loaded ? em_camera_live_projection() : NULL; }
 int em_area11_interaction_host_failed(void) { return world.failed; }
 
 int em_area11_interaction_host_face_attach(void)

@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_area11_boxes.h"
+#include "game/em_camera_leftovers.h"
 #include "game/em_player.h"
 #include "game/em_player_reversal.h"
 #include "game/em_scene_bindings.h"
@@ -104,6 +106,12 @@ static void source_advance(void)
 
 void player_pose_unsupported_hold(const char *reason) { (void)reason; ++source.holds; }
 void player_pose_legacy_hold(const char *owner) { (void)owner; }
+/* The stage's two camera-side stores (census L13..L16): 0015BCF0's
+ * 0x700031F0 = 0 (em_area11_boxes' carry word) and 0015CBA0 (the camera's
+ * action map, em_camera_leftovers with its own oracle). Neither is this
+ * fixture's subject. */
+int32_t *em_area11_boxes_carry31F0(void) { static int32_t carry; return &carry; }
+int em_camleft_0015CBA0(EmPlayerLiveActor *p) { (void)p; return 0; }
 /* No scripted takeover in this fixture (em_player.c reads it at every stage). */
 int player_pose_owned(void) { return 0; }
 int player_pose_legacy_release(void) { return 1; }

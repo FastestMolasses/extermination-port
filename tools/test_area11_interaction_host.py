@@ -8,7 +8,12 @@ MODULES = (
     'em_area11_interaction_host em_interaction_alignment em_interaction_projection '
     'em_interaction_scene em_interaction_scan em_interaction_runtime em_interaction_frame '
     'em_interaction_animation em_player_pose_host em_player_pose em_pose_bank em_pose_transition '
-    'em_player_foot_stop em_camera em_camera_rotation em_camera_probe em_camera_retarget '
+    'em_player_foot_stop em_camera em_camera_rotation em_camera_retarget '
+    # The live camera (census L13..L16): the panel script's retarget and the
+    # commit run on it (docs/CAMERA_LIVE.md).
+    'em_camera_live em_camera_commit_original em_camera_follow_original em_camera_area11_specials '
+    'em_camera_leftovers em_camera_leftovers_solver em_census_standins em_render_verify_rest '
+    'em_script_host_workers em_script_door_fan em_director_original em_player_closure_10_12_19 '
     'em_collision em_panel_runtime em_panel_program em_panel em_message_live em_message_service '
     'em_message_draw_original em_message_glyph_original '
     'em_elevator_runtime em_elevator_program em_elevator em_status_runtime em_status_frame '

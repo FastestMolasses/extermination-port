@@ -285,7 +285,10 @@ class World(C.Structure):
                 ('d81083C', P(U8)), ('d8106F1', P(U8)), ('pad_address', U32), ('d810E40', P(U8)),
                 ('sdk_tables', VP), ('sdk_world', P(SdkWorld)), ('sdk_workers', P(SdkWorkers)),
                 ('elf', P(C.c_ubyte)), ('elf_size', C.c_size_t)] + [
-                    (name, P(ctype)) for name, _, ctype in CAMERA_FIELDS]
+                    (name, P(ctype)) for name, _, ctype in CAMERA_FIELDS] + [
+                    # 001B0460's word reader when `elf` is NULL (the live
+                    # binding); this oracle always passes the ELF, so NULL.
+                    ('read_word', VP), ('read_ctx', VP)]
 
 
 class Callees(C.Structure):

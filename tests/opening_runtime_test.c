@@ -70,6 +70,8 @@ void camera_commit_cinematic(EmCamera *camera) {
     camera_commit(camera);
 }
 float em_camera_scope_zoom(float value) {assert(value==0);return 480;}
+/* No live camera in this fixture: 001B8FC0 kind 0's w lanes have no bytes. */
+uint8_t *em_camera_live_bytes(uint32_t address,uint32_t size) {(void)address;(void)size;return NULL;}
 void em_gamepad_rumble(float big,float small,int frames) {
     assert(big>=0 && small>=0 && frames>=0);rumble++;
 }
@@ -152,7 +154,16 @@ static int w_walk(void *c,int mode) {
     if(mode<2) em_opening_runtime_tick();
     return 0;
 }
-static int w_camera(void *c,uint32_t actor) {(void)c;(void)actor;(void)em_opening_runtime_camera();return 0;}
+/* em_render_frame.c em_camera_0018B9C0_opening without the live camera:
+ * the opening track's sample, then the commit (census L13..L16 split the
+ * sample from the commit; the fixture has no chase camera). */
+static int w_camera(void *c,uint32_t actor) {
+    (void)c;(void)actor;
+    if(em_opening_runtime_camera_sample()==0) return 0;
+    if(g.cam.top_mode==3) camera_commit_cinematic(&g.cam);
+    else camera_commit(&g.cam);
+    return 0;
+}
 static const EmSceneWorkers workers={
     .r_0028A9A0=r_fade,.r_00275B44=r_actor,.r_008102B9=r_b9,
     .w_001CB590=w_cb590,.w_0015BCF0=w_actor,.w_001CB5A0=w_none,.w_001D1C50=w_none,

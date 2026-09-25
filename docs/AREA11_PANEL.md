@@ -213,12 +213,12 @@ that failure path as well as missing camera bindings and callback timing.
 
 ## Shared camera and frame worker boundaries
 
-`em_camera_probe` now implements the original0018D330 prepass and the
-AREA11 branch of0018D910. The original-instruction comparison covers216
-prepass and432 bounds cases, including query endpoints, class filters,
-ground78, overhead flags and the crossed-bound correction. Query results
-and vector normalization are explicit boundaries; no general VU or
-collision-engine equivalence is claimed.
+The panel's scripted retarget runs on the live camera since census
+L13..L16 (docs/CAMERA_LIVE.md): the translated 0018D330 prepass and the
+whole 0018D910 (em_camera_follow_original / em_camera_leftovers_solver)
+replace the retired `em_camera_probe` partial copy.
+`tools/test_camera_interaction_fixture.py` checks the retarget's camera
+words byte for byte against this capture.
 
 `camera_interaction_retarget_area11` connects that prepass/bounds work,
 CBD0 and the existing DD20 solver with mask6. Its captured panel fixture

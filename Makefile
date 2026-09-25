@@ -23,7 +23,10 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_model.c src/game/em_player_face_host.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
-           src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
+           src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
+           src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c \
+           src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
+           src/game/em_script_door_fan.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
@@ -860,17 +863,16 @@ test-battery-ui-reference:
 test-camera-retarget-reference:
 	python3 tools/test_camera_retarget_reference.py
 
-.PHONY: test-camera-probe-reference test-camera-interaction-fixture test-interaction-frame-reference test-interaction-animation-reference test-collision-faces-reference
-test-camera-probe-reference:
-	python3 tools/test_camera_probe_reference.py
-
+.PHONY: test-camera-interaction-fixture test-interaction-frame-reference test-interaction-animation-reference test-collision-faces-reference
 test-camera-interaction-fixture:
 	python3 tools/test_camera_interaction_fixture.py
 
 .PHONY: test-camera-rotation-reference
-.PHONY: test-camera-commit-reference test-interaction-recovery-reference
-test-camera-commit-reference:
-	python3 tools/test_camera_commit_reference.py
+.PHONY: test-camera-live-reference test-interaction-recovery-reference
+# Census L13..L16: the camera commit 0018C0D0, 00102798 and 00193660 against
+# the executed original with every callee (docs/CAMERA_LIVE.md section 4).
+test-camera-live-reference:
+	python3 tools/test_camera_live_reference.py
 
 test-interaction-recovery-reference:
 	python3 tools/test_interaction_recovery_reference.py

@@ -19,8 +19,8 @@ block's +4 == 0, runs:
    001921D0(cam, player, 1) for +1 = 3;
 3. the commit 0018C0D0.
 
-The module is **built and tested but not wired** (section 4). It
-translates:
+The module is **bound live** since census L13..L16 (em_camera_live.c,
+docs/CAMERA_LIVE.md; section 4 below). It translates:
 
 | original | what it is | source form read |
 |---|---|---|
@@ -336,73 +336,37 @@ every state.
 
 ## 4. Binding (coordinator)
 
-Nothing is wired. The module can be bound only when its missing workers
-exist (below); until then the live camera stays em_camera.c's (the
-"follow camera after a release is the port's", FIRST_LEVEL_AUDIT H5 and
-WP-16).
+Bound since census L13..L16 by `src/game/em_camera_live.c` (the live
+walking camera, docs/CAMERA_LIVE.md); the legacy `em_camera.c` follow
+camera no longer runs in AREA11.
 
-### Where it plugs in
+- **Call sites.** 00191390 runs from the camera frame 0018B9C0
+  (em_camera_leftovers) in its +4 == 0 arm; 001921D0 is the specials
+  module's `w_001921D0`; 0018D7B0 is the leftovers' `solve_dispatch`, the
+  specials' `w_0018D7B0`, the scripted retarget (001B7B30 op0D subs 3 / 5:
+  styles 5 then 1) and the frame machine's state 4 (style 1); the chases
+  are called directly by both other modules.
+- **Data.** `world.cam` is the live camera's canonical block (0x008101E0);
+  `world.player` its view of D_008102B0 (CAMERA_LIVE.md section 3);
+  `globals` point into the canonical pool (eye, target, D_00810690 / 98 /
+  9C) and em_scene_state's area bytes. The scratch struct is a view of the
+  canonical scratchpad words, loaded before and stored after every call
+  into or out of this module; `s3B50` is the player's published Euler
+  (0x70003B50).
+- **Workers.**
 
-- **The camera frame 0018B9C0** (scene worker `w_0018B9C0` →
-  `em_camera_0018B9C0`, em_scene_bindings.c): in its cam+4 == 0 arm the
-  first call is 00191390 → `em_camera_follow_00191390(cam, player)`,
-  replacing em_camera.c's `camera_prestep_00191390`.
-- **The area specials** (`EmCamSpecialsWorkers`,
-  em_camera_area11_specials.h), one adapter each, context = the
-  `EmCameraFollowWorld *`:
-  - `w_001921D0(ctx, cam, player, mode)` → `em_camera_follow_001921D0(world,
-    player, mode)` (assert `cam == world->cam->bytes`);
-  - `w_0018D7B0(ctx, cam, style)` → `em_camera_follow_0018D7B0(world,
-    style, NULL)`;
-  - `w_0018C6A0(ctx, from, to, rate, result)` →
-    `em_camera_follow_0018C6A0(from, to, rate, result)`; `w_0018C4B0`
-    likewise;
-  - `w_00191D40(ctx, cam, want, rate)` →
-    `em_camera_follow_00191D40(world->cam, world->globals, want, rate)`;
-  - `w_00192010(ctx, cam, f12, f13, f14)` →
-    `em_camera_follow_00192010(world->cam, f12, f13, f14)`.
-- **Other callers of 0018D7B0** (the scripts' camera hooks, 001B7B30,
-  em_area_script) can use the same adapter once bound.
-
-### Data
-
-- `world.cam` = the camera block storage behind EM_SCENE_D_008101E0 (the
-  same bytes em_camera_area11_specials gets as `cam`);
-  `world.player` = the live player record.
-- `globals.eye` / `globals.target` = the specials world's `d8105D0` /
-  `d8105E0` storage; `d690` / `d698` / `d69C` = the words the commit
-  0018C0D0 writes; `area` / `d701` / `d702` = em_scene_state's
-  `d810700..702`.
-- `scratch.s3B50` must hold 0x70003B50..5C when 001921D0 runs (read only:
-  state 0x2F copies it to cam+30, the push-out reads 0x70003B54). Its
-  canonical storage is em_scene_state's `spad3B40[4..7]`; copy it in
-  before the call (the routines never write it). The other scratch words
-  are written before they are read within a call, except those the
-  solvers share (above).
-
-### Workers
-
-| slot | original | today |
-|---|---|---|
-| approach | 001B12B0 | `em_script_host_001B12B0(NULL, ...)` (no data) |
-| wrap | 001B1470 | `em_player_001B1470` (em_player_stage_workers.c) |
-| heading | 001B1240 | `em_script_host_001B1240(h, obj, x, z, &out)` |
-| sine / cosine | 0011E2A8 / 0011DE90 | `em_sdk_math_original_0011E2A8` / `_0011DE90` (raw bits via memcpy; a fault is a fault) |
-| segment | 0019A910 | `em_coll_segment_0019A910(seg, from, to, mask)`; `record_1A` = `em_coll_probe_record_node(grid, state)`, `point_y` = the bits of `state->point[1]` (0x700031B4) |
-| identity | 001029C0 | `em_owner_services_identity_001029C0` |
-| euler | 00102C58 | `em_pose_host_00102C58(h, out, in, angles)` |
-| tether | 00230000 | **missing** (no translation) |
-| solve | 0018DD20 | **missing** |
-| solve_aim | 0018F870 | **missing** |
-| bounds | 0018D910 | **missing** (em_camera_probe's `bounds11` is a float model of one branch, not a translation) |
-| ground | 0019B7D0 | **missing** |
-
-The five missing originals are the next lanes; until they exist, binding
-this module would fault on the first frame (by design). On the route
-every follow frame reaches 0018DD20 (solve 0 at the close) and both
-prepass queries 0019B7D0 / 0019A910, so those come first; 0018F870,
-0018D910 and 00230000 are needed for the bound check (and for the aim,
-fixed-camera and locomotion states), not by the replayed beats.
+  | slot | original | bound to |
+  |---|---|---|
+  | approach | 001B12B0 | `em_script_host_001B12B0` |
+  | wrap | 001B1470 | `em_player_001B1470` |
+  | heading | 001B1240 | `em_script_host_001B1240` (the collision world's SDK context) |
+  | sine / cosine | 0011E2A8 / 0011DE90 | `em_sdk_math_original_*` |
+  | tether | 00230000 | `em_camleft_00230000` |
+  | solve / solve_aim | 0018DD20 / 0018F870 | `em_camleft_0018DD20` / `_0018F870` |
+  | bounds | 0018D910 | `em_camleft_0018D910` |
+  | segment | 0019A910 | `em_coll_segment_0019A910` on the collision world's probe state; the point, record halfword and normal copied into the canonical 0x700031B0 words |
+  | ground | 0019B7D0 | `em_coll_list_passes_camera_ground` on the same state |
+  | identity / euler | 001029C0 / 00102C58 | `em_owner_services_identity_001029C0` / `_euler_00102C58` |
 
 ## 5. Limits
 
@@ -416,4 +380,6 @@ fixed-camera and locomotion states), not by the replayed beats.
   0xF, 7, 9, 0xA, 0x14, 0x15, 0x18, 0x19, 0x2C, 0x2D, 0x2F, 0x26, 0x27)
   and freelook 1 are proven by the unit oracle only; the beats cover 1, 3,
   5, 6, 8 and 0x13.
-- Nothing here translates the five missing workers.
+- The five workers this module lacked are translated in
+  em_camera_leftovers (docs/CAMERA_LEFTOVERS.md) and bound
+  (CAMERA_LIVE.md).

@@ -1,3 +1,4 @@
+#include <math.h>
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_random.h"
 #include "game/em_effect_color.h"
@@ -44,6 +45,30 @@ void em_gfx_particles_draw_slot(EmGfx *gfx, unsigned slot,
     ++draws;
 }
 
+/* The fixture's input view (plumbing only, not a game camera): the
+ * renderer's convention (Y up, negative Z forward, column-major) of a
+ * look-at from `pos` along `fwd` with the GS up vector `up_gs`, the same
+ * layout em_cs_view_to_native gives the original 00102CD0 matrix. */
+static void fixture_view(float *m, const float *pos, const float *fwd, const float *up_gs)
+{
+    float sx = fwd[1] * up_gs[2] - fwd[2] * up_gs[1];
+    float sy = fwd[2] * up_gs[0] - fwd[0] * up_gs[2];
+    float sz = fwd[0] * up_gs[1] - fwd[1] * up_gs[0];
+    float sl = sqrtf(sx * sx + sy * sy + sz * sz);
+    sx /= sl; sy /= sl; sz /= sl;
+    float ux = sy * fwd[2] - sz * fwd[1];
+    float uy = sz * fwd[0] - sx * fwd[2];
+    float uz = sx * fwd[1] - sy * fwd[0];
+    m[0] = -sx;     m[4] = -sy;     m[8]  = -sz;
+    m[1] = -ux;     m[5] = -uy;     m[9]  = -uz;
+    m[2] = -fwd[0]; m[6] = -fwd[1]; m[10] = -fwd[2];
+    m[3] = 0.0f;    m[7] = 0.0f;    m[11] = 0.0f;
+    m[12] = sx * pos[0] + sy * pos[1] + sz * pos[2];
+    m[13] = ux * pos[0] + uy * pos[1] + uz * pos[2];
+    m[14] = fwd[0] * pos[0] + fwd[1] * pos[1] + fwd[2] * pos[2];
+    m[15] = 1.0f;
+}
+
 int main(void)
 {
     EmGfx *gfx = (EmGfx *)(uintptr_t)1;
@@ -58,7 +83,7 @@ int main(void)
      * location. This is plumbing coverage, not an invented gameplay camera. */
     float eye[3] = {452.3f, 280.0f, 240.0f};
     float forward[3] = {0,0,1}, up[3] = {0,1,0}, view[16];
-    em_mat4_lookat_gs(view, eye, forward, up);
+    fixture_view(view, eye, forward, up);
     float expected_phase = 0.0f;
     for (unsigned tick = 0; tick < 400; ++tick) {
         em_area11_effect_runtime_tick();

@@ -7,12 +7,12 @@ startup-reference and the s87 route beats 00..14) supply every instruction,
 table, bank and record; none are embedded here. The report in build/ holds
 addresses, counts and differences only.
 
-A. 00102CD0 (the look-at 0018C0D0 commits; stand-in em_mat4_lookat_gs).
+A. 00102CD0 (the look-at 0018C0D0 commits; live since census L13..L16).
    Executed with its SDK leaves 001029C0 / 00102718 / 00102760 / 00102918 /
    001027E0 (COP1 / VU0 through tools/ee_float_model.py). Inputs: every
    capture's own D_700038C0 / D_700038A0 / D_008105F0, random and special
-   vectors. Every output word. Measured, not asserted exact: the stand-in
-   em_mat4_lookat_gs against em_cs_view_to_native of the original.
+   vectors. Every output word, and em_cs_view_to_native of every result as
+   the exact sign flip of the y and z lanes (the renderer's view).
 B. 0020CCB0 (the BATTERY page marker; stand-in em_battery_ui.c). float_to_int
    001281C0 executes original instructions on both sides; 00207F80 is
    hooked and compared. The native call replayed through the ORIGINAL
@@ -146,11 +146,6 @@ class Presenters(C.Structure):
                 ('list', C.c_uint8 * 0x280), ('frame', C.c_uint8 * 0x798), ('fault', C.c_char_p)]
 
 
-SHIM = ('#include "em_math.h"\n'
-        'void cs_lookat_gs(float *m, const float *p, const float *f, const float *u)\n'
-        '{ em_mat4_lookat_gs(m, p, f, u); }\n')
-
-
 def build_native():
     OUT.mkdir(parents=True, exist_ok=True)
     ext = 'dylib' if sys.platform == 'darwin' else 'so'
@@ -161,9 +156,6 @@ def build_native():
                'src/game/em_sdk_soft_float.c', 'src/game/em_message_draw_original.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-Wpedantic', '-fPIC', shared,
                     '-Isrc'] + sources + ['-o', str(lib)], cwd=ROOT, check=True)
-    shim = OUT / f'lookat_gs_shim.{ext}'
-    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC', shared, '-Isrc',
-                    '-x', 'c', '-', '-o', str(shim)], cwd=ROOT, check=True, input=SHIM.encode())
     n = C.CDLL(str(lib))
     W16, W4 = U32 * 16, U32 * 4
     n.em_cs_00102CD0.argtypes = [W16, W4, W4, W4]
@@ -181,10 +173,7 @@ def build_native():
     n.em_cs_001FD0E0.argtypes = [P, VP]
     n.em_cs_worker_help_draw.argtypes = [P, C.c_int, C.c_int, I32, U32]
     n.em_message_draw_init.argtypes = [C.POINTER(md.Draw), C.POINTER(md.Data), C.POINTER(md.Workers)]
-    s = C.CDLL(str(shim))
-    s.cs_lookat_gs.argtypes = [C.c_float * 16] + [C.c_float * 4] * 3
-    s.cs_lookat_gs.restype = None
-    return n, s
+    return n, None
 
 
 # ======================================================================
@@ -245,7 +234,6 @@ def lookat_cases(rng, count):
 def section_a(elf, n, s, rng):
     e = rvr.RvrEE(elf)
     stats = {'cases': 0, 'refused_both': 0, 'captures': 0, 'captured_view_equal': 0}
-    worst = 0.0
     items = lookat_cases(rng, RM.pick(4000, 150))
     for label, ee_path, sp_path in captures():
         if sp_path is None or not sp_path.exists():
@@ -275,19 +263,14 @@ def section_a(elf, n, s, rng):
         assert got == want, ('00102CD0', [hex(w) for w in pos + fwd + up],
                              [(i, hex(a), hex(b)) for i, (a, b) in enumerate(zip(got or [], want)) if a != b])
         stats['cases'] += 1
-        # The stand-in against the remapped original (measurement only).
-        if all((w >> 23 & 0xFF) not in (0, 0xFF) for w in fwd[:3] + pos[:3]) and abs(
-                b2f(fwd[1])) < 0.99:
-            native = (C.c_float * 16)()
-            n.em_cs_view_to_native(native, (U32 * 16)(*want))
-            stand = (C.c_float * 16)()
-            s.cs_lookat_gs(stand, (C.c_float * 4)(*map(b2f, pos)), (C.c_float * 4)(*map(b2f, fwd)),
-                           (C.c_float * 4)(*map(b2f, up)))
-            scale = max(1.0, max(abs(b2f(w)) for w in pos[:3]))
-            worst = max(worst, max(abs(a - b) for a, b in zip(stand, native)) / scale)
-    stats['standin_max_rel_difference'] = worst
-    # A convention error would show up as O(1); rounding stays far below.
-    assert worst < 1e-4, ('em_mat4_lookat_gs is not the remapped original', worst)
+        # The renderer's view (em_cs_view_to_native): the original with the
+        # y and z lane of every row negated, a sign-bit flip and nothing else.
+        native = (C.c_float * 16)()
+        n.em_cs_view_to_native(native, (U32 * 16)(*want))
+        flipped = [w ^ 0x80000000 if i % 4 in (1, 2) else w for i, w in enumerate(want)]
+        assert [struct.unpack('<I', struct.pack('<f', v))[0] for v in native] == flipped, \
+            ('em_cs_view_to_native is not the sign flip', [hex(w) for w in pos + fwd + up])
+        stats['native_view_flip'] = stats.get('native_view_flip', 0) + 1
     return stats
 
 

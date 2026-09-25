@@ -11,8 +11,10 @@ em_camera_area11_specials (docs/CAMERA_AREA11_SPECIALS.md) listed their
 missing workers, and the census listed the missing, unverified and stand-in
 rows of the four lanes.
 
-The module is **built and tested but not wired** (section 4 says exactly
-what to bind and what each binding replaces).
+The module is **bound live** since census L13..L16 (em_camera_live.c,
+docs/CAMERA_LIVE.md; section 4 below): the table's "after" column is the
+status this lane left, and every row of it is now `live` in
+docs/FIRST_LEVEL_CENSUS.md.
 
 | original | what it is | source form read | census before | after |
 |---|---|---|---|---|
@@ -434,117 +436,57 @@ EM_TEST_WORLD=1 python3 tools/test_camera_leftovers_reference.py  # route replay
 
 ## 4. Binding (coordinator)
 
-Nothing is wired. The coordinator binds in this order; each step names the
-live code it replaces.
+Bound since census L13..L16 by `src/game/em_camera_live.c`
+(docs/CAMERA_LIVE.md, which also lists the new translations of the commit
+0018C0D0, 00102798 and 00193660 in em_camera_commit_original.c).
 
-### Storage (one canonical copy each)
+- **The camera frame.** `w_0018B9C0` (em_scene_bindings.c) calls
+  `em_camera_0018B9C0` (gameplay) or `_opening` (cutscene): both run
+  `em_camera_live_frame`, i.e. `em_camleft_0018B9C0` over the canonical
+  camera block, in AREA11. The `em_sfx_listener` feed follows the frame
+  (with cam+9C as the pan heading). The D_008106EF countdown helper of
+  em_render_frame.c runs only for a scene without the live camera.
+- **Storage.** `world.cam` is the live camera's block; `world.player` its
+  view of D_008102B0; `globals.follow` the follow module's globals over the
+  canonical pool; `d5F0` the pool's up vector; `d6EF` / `d6B8` / `dE74` /
+  `s3B8D` / `d28A9A0` the scene state's canonical bytes and the transition
+  substate; `s3B80` word 6 of the player closure's pad assignment block;
+  `s31F0` the low byte of the AREA11 boxes' 0x700031F0 word; `d24A5F0` the
+  region quads of `assets/camera_tables.emrg` (tools/export_camera_tables.py).
+  `world.scratch` and `world.hit` are the canonical scratchpad words
+  (CAMERA_LIVE.md section 3).
+- **Workers.**
 
-- `world.cam` = the camera block storage behind EM_SCENE_D_008101E0 (the same
-  bytes `EmCameraFollowWorld.cam` and the specials module's `cam` get);
-  `world.player` = the live player record (`player_states_actor()`).
-- `globals.follow` = the follow world's `EmCameraFollowGlobals`: eye / target
-  = the specials world's `d8105D0` / `d8105E0` storage; `area` / `d701` /
-  `d702` = `em_scene_state()->d810700..702`.
-- `globals.d6EF` = `&em_scene_state()->req[EM_SCENE_REQ_EF]` (the byte
-  `camera_cooldown_0018B9C0` in em_render_frame.c decrements today: the
-  translation does that decrement itself, so the cooldown helper goes);
-  `d6B8` = `&req[EM_SCENE_REQ_B8]`; `dE74` = `&em_scene_state()->d810E74`;
-  `s3B8D` = `&em_scene_state()->spad3B8D`; `d28A9A0` = the transition
-  substate (`em_frame_transition()->substate`, the storage the
-  `r_0028A9A0` readers use).
-- **No canonical storage yet** (the binder must add it, each a one-word
-  mirror of an original address): `d5F0` (D_008105F0, the up vector the
-  area-script camera ops also read: em_area_script.c keeps `d8105F0` in its
-  own world; point both at one array), `s3B80` (0x70003B80, the pad-held
-  bits; the specials scratch has a copy), `s31F0` (0x700031F0, the frame's
-  input bits).
-- `globals.d24A5F0` = the 0x24A5F0 region table exported from the user's ELF
-  (at least 18 words; 00194D10 reads word 17 for region 1). Never embed it.
-- `world.scratch`: one `EmCamLeftScratch`. The follow world's
-  `EmCameraFollowScratch` overlaps it: either give both modules the same
-  words by syncing with `em_camleft_scratch_from_follow` before and
-  `_to_follow` after every cross-module call, or (better) make the follow
-  scratch fields views into this window.
-- `world.hit`: one `EmCamLeftHit`, written only by the segment adapter.
+  | slot | original | bound to |
+  |---|---|---|
+  | wrap, approach, heading | 001B1470, 001B12B0, 001B1240 | `em_player_001B1470`, `em_script_host_001B12B0`, `em_script_host_001B1240` |
+  | sine, cosine, atan2, sqrt | 0011E2A8, 0011DE90, 0011E620, 0011E748 | `em_sdk_math_original_*` over the collision world's SDK context |
+  | segment | 0019A910 | `em_coll_segment_0019A910` on the world's one probe state |
+  | inside | 001B1EA0 | `em_director_original_001B1EA0_bound` over the exported quads |
+  | solve_dispatch | 0018D7B0 | `em_camera_follow_0018D7B0` |
+  | commit | 0018C0D0 | `em_camera_commit_0018C0D0` |
+  | w_0022EEF0 | 0022EEF0 | the binder's timeline: the opening's track (em_opening_runtime) while the opening owns the camera, else `em_area11_script_host_camera_0022EEF0` |
+  | w_00195130 | 00195130 | `em_cam_specials_action_00195130`, pre-empted by the legacy stand-ins of CAMERA_LIVE.md section 6 |
+  | w_001936E0, w_00193EB0 | | `em_cam_specials_action_001936E0`, `em_cam_specials_call_00193EB0` |
+  | w_001DD980 | 001DD980 | `em_interaction_projection_publish` on the canonical projection record |
+  | w_001B0C60, w_00197D20, w_00198650, w_00198AF0, w_0018CA90, w_00198CE0, w_00198D90, w_00198F10, w_001963A0, w_00196CE0, w_00197390, w_001D2830, w_001B0300 | | NULL: no translation; reaching them faults (never on the route) |
 
-### Workers
-
-| slot | original | binds to |
-|---|---|---|
-| wrap | 001B1470 | `em_player_001B1470` (em_player_stage_workers.c) |
-| approach | 001B12B0 | `em_script_host_001B12B0(NULL, ...)` |
-| heading | 001B1240 | `em_script_host_001B1240` |
-| sine / cosine / atan2 / sqrt | 0011E2A8 / 0011DE90 / 0011E620 / 0011E748 | `em_sdk_math_original_*` (raw bits via memcpy) |
-| segment | 0019A910 | `em_coll_segment_0019A910(seg, from, to, mask)` on the ONE `EmCollProbeState`; after every call copy `state->point` into `hit->point[0..2]`, and when `em_coll_segment_hit` names a record its `record_node` / `record_normal` into `hit->record_1A` / `hit->normal`. `hit->point[3]` (0x700031BC) is never written by the translated walkers and is 0 in every captured scratchpad: keep it 0 |
-| inside | 001B1EA0 | `em_director_original_001B1EA0` (mode 0; the polygon is the original address: 0x24A4B0 for 00190F20, 0x24A5F0 + 0x40 * i for 00194D10, from the same ELF export) |
-| solve_dispatch | 0018D7B0 | `em_camera_follow_0018D7B0(&follow_world, style, result)` (assert `cam == follow_world.cam`) |
-| commit | 0018C0D0 | `camera_commit_original` (em_camera.c, live) |
-| w_0022EEF0 | 0022EEF0 | em_cinematic_playback's translation (verified-unbound, not in COMMON) |
-| w_001B0C60 | 001B0C60 | `em_scene_request_area_change_001B0C60` (areas 0x12 / 0xE only) |
-| w_00195130, w_001936E0, w_00193EB0 | | `em_cam_specials_action_00195130`, `em_cam_specials_001936E0`, `em_cam_specials_00193EB0` |
-| w_001DD980 | 001DD980 | em_interaction_projection.c's translation (live) |
-| w_00197D20, w_00198650, w_00198AF0, w_0018CA90, w_00198CE0, w_00198D90, w_00198F10, w_001963A0, w_00196CE0, w_00197390, w_001D2830, w_001B0300 | | **no translation** (actions 1, 2, 5, 9..15 and mode 1; never reached on the route: cam+5 and cam+6 stay 0 in every route capture except the opening's action 8). They fault when reached. |
-
-### Call sites
-
-- **The camera frame.** `w_0018B9C0` (em_scene_bindings.c) in
-  VARIANT_GAMEPLAY calls `em_camera_0018B9C0()` (em_render_frame.c), which
-  runs `camera_cooldown_0018B9C0` and the legacy `camera_update()`
-  (em_camera.c). Replace both with `em_camleft_0018B9C0(&world)`. The
-  `em_sfx_listener` call there is the port's positional-audio feed, not part
-  of 0018B9C0: keep it after the frame. VARIANT_CUTSCENE
-  (`em_camera_0018B9C0_opening`) runs the opening controller's camera while
-  the opening script owns it; binding the frame there waits for the
-  cinematic lane (0022EEF0).
-- **The dispatch** 0018BC20 replaces em_camera.c `camera_mode_dispatch` (the
-  port's own action dispatch) and the mode-8 settle (CAM-18/19): the
-  translation runs them from 0018B9C0; nothing else calls 0018BC20.
-- **The follow module's workers** (`EmCameraFollowWorkers`): `tether` ->
-  `em_camleft_00230000(&world, player)` (assert `cam == world.cam`), `solve`
-  -> `em_camleft_0018DD20(&world, player, style, mask, result)`, `solve_aim`
-  -> `em_camleft_0018F870(...)`, `bounds` -> `em_camleft_0018D910(&world,
-  player, mask)`, `ground` -> `em_coll_list_passes_camera_ground` (context
-  `EmCollListPassesGround{grid, state}` on the same probe state). This retires
-  em_camera.c `cam_solver_0018DD20` (the unverified duplicate), em_game.c
-  `cam_bounds_settle_0018CE60` and em_camera_probe.c's `bounds11` model.
-- **The specials module's workers** (`EmCamSpecialsWorkers`): `w_001916C0`
-  -> `em_camleft_001916C0(&world, player, mode)`, `w_00191000` ->
-  `em_camleft_00191000(&world, player, NULL)`, `w_0022FCA0` ->
-  `em_camleft_0022FCA0(&world)`, `w_00193D90` -> `em_camleft_00193D90(&world,
-  player)`, `w_00194D10` -> `em_camleft_00194D10(&world, player, index,
-  result)` (each asserting `cam == world.cam`).
-- **0015CBA0** is called by the player stage 0015BCF0 (em_player_floor's
-  stage, `STAGE_NOOPS` in test_player_floor_reference.py treats it as a
-  no-op): bind `em_camleft_0015CBA0(actor)` there when the player stage is
-  bound, replacing em_camera.c's constant height row (which reads no +236
-  state map).
-- **The 0018D7B0 callers** (0018B9C0 state 0 and 00230000) reach it through
-  `solve_dispatch`, i.e. the follow module; 0018D7B0 in turn calls these
-  solvers through the follow workers above.
-
-After this binding the walking camera's original call graph is closed in
-AREA11 except for the action handlers listed as "no translation" (off the
-route) and the aim family of the specials module (00197870, 00198440,
-001912B0, 00193660: the aim and lock-on actions, off the route).
-
-### Makefile (report only; the lead edits it)
-
-```
-.PHONY: test-camera-leftovers-reference test-camera-leftovers
-test-camera-leftovers-reference:
-	python3 tools/test_camera_leftovers_reference.py
-
-test-camera-leftovers:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/camera_leftovers_test.c src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_camera_follow_original.c src/game/em_sdk_math_original.c -lm -o build/camera_leftovers_test && ./build/camera_leftovers_test
-```
-
-When bound, add `src/game/em_camera_leftovers.c` and
-`src/game/em_camera_leftovers_solver.c` to COMMON (with
-em_camera_follow_original.c and em_camera_area11_specials.c).
+  The follow module's `tether` / `solve` / `solve_aim` / `bounds` are
+  `em_camleft_00230000` / `_0018DD20` / `_0018F870` / `_0018D910`; the
+  specials module's `w_001916C0` / `w_00191000` / `w_0022FCA0` /
+  `w_00193D90` / `w_00194D10` are this module's routines.
+- **0015CBA0** runs in the player stage after 0015BCF0's tail
+  (em_player.c `player_states_stage`), writing the live record's +230.
+- **Retired:** em_camera.c's `cam_solver_0018DD20` / `_0018F870` /
+  `_0018D910`, `camera_prestep_00191390`, `camera_mode_dispatch` and
+  `camera_solve` no longer run in AREA11 (they stay for a scene without an
+  original collision world); em_camera_probe.c is deleted;
+  `cam_bounds_settle_0018CE60` (em_game.c) is only the legacy camera's.
 
 ## 5. Limits and open items
 
-- **Not wired** (section 4).
+- **Bound** (section 4; CAMERA_LIVE.md section 5 lists the camera's
+  known differences).
 - **Route coverage.** The captures and the replayed beats reach 0018B9C0
   (state 1: +4 = 0, 1, 3), 0018BC20 (action 0 and the opening's action 8),
   00190F20, 001916C0, 0018C0C0, 00191000, 0018DD20, 001914A0 / 00191580 /

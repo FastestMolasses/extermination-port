@@ -1,8 +1,20 @@
 #include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
+#include "game/em_frame.h"
+#include "game/em_scene_bindings.h"
 #include <stdio.h>
 EmGameState g;
 const float kLocoTierSpeed[4]={0};
+/* The canonical scene bytes the live camera reads (the game keeps them in
+ * em_scene_bindings.c; AREA11 here) and the transition fade substate. */
+EmSceneState *em_scene_state(void)
+{
+    static EmSceneState state;
+    state.d810700 = 0x0B;
+    return &state;
+}
+const EmTransitionFade *em_frame_transition(void) { static EmTransitionFade fade; return &fade; }
 /* Test-only host state. Unrelated gameplay entrypoints are discarded by the
  * linker; the actual public camera hook and collision walkers execute. */
 static float word(const unsigned char *ram,unsigned address)
@@ -48,7 +60,35 @@ static int load_world(const unsigned char *ram,const char *world,const char *scr
     return em_collision_world_close_out_001AAD00(&scene,0,&fault)==0 && !fault;
 }
 
-static int retarget(const char *ramfile,const char *world,const char *scratch,float *out,int refusal)
+/* The live camera's inputs (em_camera_live.h) from the capture: the player
+ * record D_008102B0 with its +B0 (the bone-1 position the retarget's
+ * prepass reads) and +C0 Euler. No stand-in, no timeline. */
+static EmPlayerLiveActor player;
+static int32_t carry31F0;
+static const EmPlayerLiveActor *camera_player(void *ctx) { (void)ctx; return &player; }
+static int camera_hip(void *ctx, float out[3])
+{
+    (void)ctx;
+    for (int i = 0; i < 3; i++) out[i] = em_live_f32(&player, 0xB0 + 4u * (unsigned)i);
+    return 1;
+}
+static int camera_euler(void *ctx, float out[3])
+{
+    (void)ctx;
+    for (int i = 0; i < 3; i++) out[i] = em_live_f32(&player, 0xC0 + 4u * (unsigned)i);
+    return 1;
+}
+static int camera_no_standin(void *ctx) { (void)ctx; return CAMERA_STANDIN_NONE; }
+static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
+static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
+                                             camera_no_standin, camera_no_timeline};
+
+/* The captured camera block and vector pool into the live camera, the
+ * capture's own seed Euler cam+30 through 0018CBD0 (distance: sub 3 the
+ * camera's +0x0C, the refusal's sub 5 -20), then 0018D7B0(5), 0018D7B0(1)
+ * and cam+A0 = 0x78. `out` receives the resulting camera block (0xD0 bytes)
+ * and the pool D_008105D0..D_008106A3 (0xD4 bytes). */
+static int retarget(const char *ramfile,const char *world,const char *scratch,uint8_t *out,int refusal)
 {
     unsigned char *ram=malloc(0x2000000);FILE *f=fopen(ramfile,"rb");
     if (!ram) return 0;
@@ -60,24 +100,24 @@ static int retarget(const char *ramfile,const char *world,const char *scratch,fl
         em_collision_world_unload();em_collision_free(&g.coll);free(ram);return 0;
     }
     const unsigned c=0x8101E0,p=0x8102B0;
-    float hip[3],rot[3];
-    for (int i=0;i<3;i++) {
-        g.pos[i]=word(ram,p+0xA0+i*4);hip[i]=word(ram,p+0xB0+i*4);
-        rot[i]=word(ram,c+0x30+i*4);
+    memcpy(player.bytes,ram+p,sizeof player.bytes);
+    float rot[3];
+    for (int i=0;i<3;i++) { g.pos[i]=word(ram,p+0xA0+i*4); rot[i]=word(ram,c+0x30+i*4); }
+    g.yaw=word(ram,p+0xC4);
+    g.cam.zoom=480;
+    int ok=em_camera_live_bind(&camera_host)==0;
+    if (ok) {
+        memcpy(em_camera_live_bytes(0x008101E0u,0xD0),ram+c,0xD0);
+        memcpy(em_camera_live_bytes(0x008105D0u,0xD4),ram+0x8105D0,0xD4);
+        em_camera_live_view_publish();
+        ok=refusal ? camera_interaction_retarget_distance_area11(&g.cam,rot,-20.0f) :
+                     camera_interaction_retarget_area11(&g.cam,rot);
+        memcpy(out,em_camera_live_bytes(0x008101E0u,0xD0),0xD0);
+        memcpy(out+0xD0,em_camera_live_bytes(0x008105D0u,0xD4),0xD4);
     }
-    g.cam_dist_param=word(ram,c+0xC);
-    g.cam.y_lo=word(ram,c+0x50);g.cam.y_hi=word(ram,c+0x54);
-    g.cam.var_5c=word(ram,c+0x5C);g.cam.overhead_y=word(ram,c+0x60);
-    g.cam.horiz_dist=word(ram,0x810690);
-    int ok=refusal ? camera_interaction_retarget_distance_area11(
-        &g.cam,hip,rot,-20.0f,word(ram,c+0x64)) :
-        camera_interaction_retarget_area11(&g.cam,hip,rot,word(ram,c+0x64));
-    for (int i=0;i<3;i++) {out[i]=g.cam.eye[i];out[3+i]=g.cam.tgt[i];}
-    out[6]=g.cam.y_lo;out[7]=g.cam.y_hi;out[8]=g.cam.hit;
-    out[9]=g.cam.probe_flags;out[10]=g.cam.ground_attr78;out[11]=g.cam.overhead_y;
     em_collision_world_unload();em_collision_free(&g.coll);free(ram);return ok;
 }
-int test_retarget(const char *ramfile,const char *world,const char *scratch,float *out)
+int test_retarget(const char *ramfile,const char *world,const char *scratch,uint8_t *out)
 {return retarget(ramfile,world,scratch,out,0);}
-int test_refusal(const char *ramfile,const char *world,const char *scratch,float *out)
+int test_refusal(const char *ramfile,const char *world,const char *scratch,uint8_t *out)
 {return retarget(ramfile,world,scratch,out,1);}

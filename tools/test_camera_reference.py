@@ -34,21 +34,30 @@ def main():
     build = root / 'build/camera_reference'
     build.mkdir(parents=True, exist_ok=True)
     library = build / ('camera.dylib' if sys.platform == 'darwin' else 'camera.so')
-    # Exercise the same native matrix helper used by camera_commit_view.
+    # The renderer's view of the translated look-at 00102CD0 (the matrix the
+    # commit 0018C0D0 builds), on a host-float forward and push.
     wrapper = build / 'view_reference.c'
-    wrapper.write_text('''#include "em_math.h"
+    wrapper.write_text('''#include <math.h>
+#include <string.h>
+#include "game/em_census_standins.h"
 void reference_view(float *out, const float *eye, const float *target,
                     const float *up, float push) {
     float f[3], p[3];
     for (int i=0;i<3;i++) f[i]=target[i]-eye[i];
     float length=sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
     for (int i=0;i<3;i++) { f[i]/=length; p[i]=eye[i]+push*f[i]; }
-    em_mat4_lookat_gs(out,p,f,up);
+    uint32_t pb[4]={0,0,0,0}, fb[4]={0,0,0,0}, ub[4]={0,0,0,0}, v[16];
+    memcpy(pb,p,12); memcpy(fb,f,12); memcpy(ub,up,12);
+    if (em_cs_00102CD0(v,pb,fb,ub)<0) { memset(out,0,64); return; }
+    em_cs_view_to_native(out,v);
 }
 ''')
     subprocess.run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
                     '-dynamiclib' if sys.platform == 'darwin' else '-shared',
-                    '-Isrc', 'src/game/em_cinematic_camera.c', str(wrapper), '-lm',
+                    '-Isrc', 'src/game/em_cinematic_camera.c', str(wrapper),
+                    'src/game/em_census_standins.c', 'src/game/em_effect_original.c',
+                    'src/game/em_owner_services_original.c', 'src/game/em_render_verify_rest.c',
+                    'src/game/em_sdk_soft_float.c', 'src/game/em_message_draw_original.c', '-lm',
                     '-o', str(library)], cwd=root, check=True)
     raw = args.ee.read_bytes()
     if len(raw) != 32 * 1024 * 1024 or raw[0x8101E4] != 3:

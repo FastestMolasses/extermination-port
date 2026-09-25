@@ -100,8 +100,10 @@
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
+#include "game/em_area11_script_host.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
+#include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
 #include "game/em_door.h"
 #include "game/em_game.h"
@@ -212,12 +214,9 @@ enum {
     UM_00200830,
     UM_001D19D0,
     UM_0015C1F0,
-    UM_001B0460,
     UM_0021B1B0,
     UM_0021B500,
     UM_001FAD70,
-    UM_0018D7B0,
-    UM_0018C0D0_STATE4,
     UM_001DA6A0,
     UM_0021B9A0,
     UM_COUNT
@@ -267,19 +266,10 @@ static const struct {
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
     [UM_0015C1F0] = {0x0015C1F0u, "001B07C0: player model bind after the +0x2FF kind store (001CA6E0, "
                                   "+0x0C, +0x96, 00200890); the port draws its one exported player model"},
-    [UM_001B0460] = {0x001B0460u, "001B07C0: camera re-init from the spawn record; stood in by the legacy "
-                                  "chase re-arm (em_game_legacy_camera_rearm) until translated"},
     [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
     [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
     [UM_001FAD70] = {0x001FAD70u, "001B0C00: stream channel volume fade (x3); the port's stream player "
                                   "has no per-channel gain"},
-    [UM_0018D7B0] = {0x0018D7B0u, "state 4 camera solve (mode 1: 0018D330, 0018DD20, then the camera "
-                                  "block's eye/target copied to D_008105D0/E0); the camera block has no "
-                                  "canonical storage: the legacy chase camera re-armed by the 001B0460 "
-                                  "stand-in seats, solves and commits at this tick's 0018B9C0 stage"},
-    [UM_0018C0D0_STATE4] = {0x0018C0D0u, "state 4 camera commit (a1 = 1); the re-armed legacy camera "
-                                         "has no seated view until this tick's 0018B9C0 stage, which "
-                                         "commits it (camera_commit)"},
     [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
                                   "no actor shadow (the player's own post-step is UM_0015C160, "
                                   "docs/SHADOW_ORIGINAL.md)"},
@@ -637,7 +627,28 @@ static void log_tick_end(int rc)
         fprintf(f, ", \"power\": %d, \"floor\": %d, \"pos_post\": [%u, %u, %u], \"yaw_post\": %u",
                 power ? *power : -1, floor ? *floor : -1, pos[0], pos[1], pos[2], yaw);
         fprintf(f, ", \"eye_post\": [%u, %u, %u], \"tgt_post\": [%u, %u, %u]", eye[0], eye[1], eye[2],
-                tgt[0], tgt[1], tgt[2]);        /* The live player record at the tick end, as the route rows sample
+                tgt[0], tgt[1], tgt[2]);
+        /* Census L13: the live camera's canonical bytes at the tick end: the
+         * camera block D_008101E0 (0xD0 bytes), the forward D_00810600 and
+         * D_00810690..D_008106A3 (null without the live camera). */
+        {
+            const uint8_t *blk = em_camera_live_bound() ? em_camera_live_bytes(0x008101E0u, 0xD0) : NULL;
+            const uint8_t *fwd = em_camera_live_bound() ? em_camera_live_bytes(0x00810600u, 16) : NULL;
+            const uint8_t *d690 = em_camera_live_bound() ? em_camera_live_bytes(0x00810690u, 20) : NULL;
+            fputs(", \"camblk\": ", f);
+            if (blk && fwd && d690) {
+                fputc('[', f);
+                log_hex(f, blk, 0xD0);
+                fputs(", ", f);
+                log_hex(f, fwd, 16);
+                fputs(", ", f);
+                log_hex(f, d690, 20);
+                fputc(']', f);
+            } else {
+                fputs("null", f);
+            }
+        }
+        /* The live player record at the tick end, as the route rows sample
          * it (route_capture.py): +5, +1F0, +1F1, the clip +20C, the clock
          * +3C (float bits) and the ground owner +214 (its original record
          * address; 0 none). */
@@ -792,6 +803,27 @@ static int w_001AD010(void *ctx)
  * is AREA11 (the area read of D_00810700/701 = 0x0B/0, em_game_legacy_area_load),
  * otherwise a scene the original roster does not describe (the office and
  * drawbridge fixtures of EM_SKIP_STARTUP). */
+/* The live camera's inputs from the rest of the port (em_camera_live.h,
+ * census L13..L16): the live player record, the closure's pad assignment
+ * block, the AREA11 boxes' 0x700031F0 word, camera action 0's legacy
+ * stand-ins over the g.cam view and the +4 == 3 timeline (the opening's
+ * track while the opening owns the camera, else the AREA11 script host). */
+static const EmPlayerLiveActor *camera_player(void *ctx) { (void)ctx; return player_states_actor(); }
+static const uint16_t *camera_pad_config(void *ctx) { (void)ctx; return em_player_closure_live_pad_config(); }
+static int camera_hip(void *ctx, float out[3]) { (void)ctx; return player_pose_hip(out); }
+static int camera_euler(void *ctx, float out[3]) { (void)ctx; return player_pose_script_euler(out); }
+static int camera_standins(void *ctx) { (void)ctx; return camera_area11_standins(&g.cam); }
+static int camera_timeline(void *ctx)
+{
+    (void)ctx;
+    int owned = em_opening_runtime_camera_sample();
+    if (owned < 0) return -1;
+    if (owned) return 0;
+    return em_area11_script_host_camera_0022EEF0() < 0 ? -1 : 0;
+}
+static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera_euler, camera_pad_config,
+                                         NULL, camera_standins, camera_timeline};
+
 static int roster_scene(void)
 {
     return strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0;
@@ -838,6 +870,12 @@ static int w_001AFCA0(void *ctx)
     player_states_reset();
     if (em_player_stage_live_bind() < 0)
         return em_scene_fault(&s_state, 0x0015BA50u, EM_SCENE_FAULT_NULL_WORKER);
+    /* Census L13..L16: the live camera over the area's collision world
+     * (its 0019A910 / 0019B7D0 and SDK context) and the ELF camera tables;
+     * the legacy camera stays for a scene without an original world. */
+    k_camera_host.carry31F0 = em_area11_boxes_carry31F0();
+    if (roster_scene() && em_camera_live_bind(&k_camera_host) < 0)
+        return em_scene_fault(&s_state, 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
     if (!roster_scene()) {
         em_game_legacy_manifest_spawn();
         em_game_legacy_camera_rearm();
@@ -903,8 +941,8 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     & 0x60, i.e. AREA11 after event 0x30) have no worker:
  *                     reaching them faults
  *   0015C1F0          reported no-port-code (the port's one player model)
- *   001B0460          the legacy chase re-arm (em_game_legacy_camera_rearm),
- *                     reported, after the placed pose is committed to g
+ *   001B0460          the live camera's translation (em_camera_live_001B0460,
+ *                     census L13), after the placed pose is committed to g
  *   +0x224/+0x22C     g.pd_pend_hp/g.pd_pend_inf (arg0 1 drops them)
  *   +0x00             arg0 1 with pending damage writes 1: no port storage
  *                     (1 in every capture)
@@ -972,15 +1010,42 @@ static int spawn_w_0015C1F0(void *ctx, uint32_t player)
  * D_008104E0 is 0x10 or 0x12"; D_008104E0 is player +0x230, which 001B07C0
  * stored 0 just before the call, so a0 = 1 (state 4) takes the same arm as
  * a0 = 0 and the one stand-in serves both. */
+/* The room camera record reader and 001B0250 for the live 001B0460
+ * (em_camera_live.c): the words of the spawn table window, and the spawn
+ * translation's 001B0250 committed to the canonical D_008106C8. */
+static int room_read_word(void *ctx, uint32_t address, uint32_t *out)
+{
+    (void)ctx;
+    const uint8_t *p = em_spawn_table_read(&s_spawn_table, address, 4);
+    if (!p) return -1;
+    memcpy(out, p, 4);
+    return 0;
+}
+
+static int room_001B0250(void *ctx)
+{
+    (void)ctx;
+    if (!s_spawn_io || em_spawn_001B0250(&s_spawn_table, s_spawn_io) < 0) return -1;
+    em_scene_req_set_u32(&s_state, EM_SCENE_REQ_C8, (uint32_t)s_spawn_io->d8106C8);
+    return 0;
+}
+
+/* 001B0460(a0) at the end of 001B07C0, after the placement is committed:
+ * the translated camera re-seat over the live camera's canonical bytes
+ * (em_camera_live_001B0460: em_script_host_001B0460 with em_script_door_fan's
+ * 001B0080, the translated commit 0018C0D0 and 001DD980). */
 static int spawn_w_001B0460(void *ctx, int a0)
 {
     (void)ctx;
     bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_001B0460, (uint32_t)a0, 0, 0, 0);
-    if ((a0 != 0 && a0 != 1) || !s_spawn_io || s_spawn_io->player.w230 != 0)
+    if ((a0 != 0 && a0 != 1) || !s_spawn_io)
         return -1;
     spawn_commit(s_spawn_io);
-    em_game_legacy_camera_rearm();
-    return unmirrored(UM_001B0460);
+    int32_t w230 = (int32_t)s_spawn_io->player.w230;
+    float c0[4] = {s_spawn_io->player.f0C0[0], s_spawn_io->player.f0C0[1], s_spawn_io->player.f0C0[2],
+                   s_spawn_io->player.f0C0[3]};
+    const EmCameraLiveRoom room = {NULL, room_read_word, room_001B0250, s_spawn_io->player.f0A0, c0, &w230};
+    return em_camera_live_001B0460(a0, &room) < 0 ? -1 : 0;
 }
 
 static int w_001B07C0(void *ctx, int a0)
@@ -1613,7 +1678,7 @@ static int w_0018C0D0(void *ctx, uint32_t a0, int a1)
     if (a0 != D_CAMERA)
         return -1;
     if (s_entry_state == 4 && a1 == 1)
-        return unmirrored(UM_0018C0D0_STATE4);
+        return em_camera_live_bound() && em_camera_live_commit(1) == 0 ? 0 : -1;
     if (s_entry_state != 5)
         return -1;
     camera_commit_original(&g.cam, a1);
@@ -1915,8 +1980,8 @@ int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue)
  *   001B07C0(1)       w_001B07C0 above (the spawn translation; the arrival)
  *   001C1DC0          the weather node for the new D_008106C8 (the old one
  *                     frees itself: em_area11_bindings.c tick_weather)
- *   0018D7B0(cam, 1), 0018C0D0(cam, 1)  reported (UM_0018D7B0 and
- *                     UM_0018C0D0_STATE4)
+ *   0018D7B0(cam, 1), 0018C0D0(cam, 1)  the live camera's translations
+ *                     (em_camera_live_solve / _commit, census L13)
  *   001AEE10(4, 0)    the fade-in (em_fade.c)
  *   001FAE70(0)       reported (UM_001FAE70)
  *   001C5C50          the new area-title node (the old one left on B8) */
@@ -1930,9 +1995,9 @@ static int w_0018AB00(void *ctx)
 static int w_0018D7B0(void *ctx, uint32_t a0, int a1)
 {
     (void)ctx;
-    if (a0 != D_CAMERA || a1 != 1 || s_entry_state != 4)
+    if (a0 != D_CAMERA || a1 != 1 || s_entry_state != 4 || !em_camera_live_bound())
         return -1;
-    return unmirrored(UM_0018D7B0);
+    return em_camera_live_solve(1);
 }
 
 /* ------------------------------------------- game over (S11b; design 5)
