@@ -12,11 +12,14 @@ added for 001CF470. The inputs are synthetic records plus the captured RAM of
 route beats 00..14. The results are compared with the port code as it stands;
 no port file was edited:
 
-- em_pickup.c, em_props.c and em_status_models.c are compiled whole inside
-  host harnesses. The harness `#include`s the module, so its static functions
-  are reachable. The harness supplies only the storage getters
-  (`em_scene_state`, `em_random_next`, `em_game_terminal_powered`, `g`). Any
-  other callee is linked as a trap that aborts if it is reached.
+- em_pickup.c and em_status_models.c are compiled whole inside host
+  harnesses. The harness `#include`s the module, so its static functions are
+  reachable. The harness supplies only the storage getters (`em_scene_state`,
+  `em_random_next`, `g`). Any other callee is linked as a trap that aborts
+  if it is reached.
+- The indicator children run em_indicator_child.c and em_effect_kinds.c
+  (the one 001F54E0 translation) as the game links them; the spawn colours
+  are read from em_area11_bindings.c's source.
 - Two live pieces sit inside functions that cannot run alone:
   - the 0015CF90 lines of `em_player_0015BCF0`;
   - the two 0015AC00 switches of `em_area11_interaction_host_pickup_state0`.
@@ -39,11 +42,10 @@ scratch copies of `src/` (the live tree was not touched):
 |---|---|
 | em_player_frame.c `<= 0.0f` → `< 0.0f` | fails: `0015CF90/synthetic` |
 | the B9 latch check deleted | fails: `0015CF90/synthetic` |
-| em_props skips slot 1 while slot 0 is enabled | fails: `001C5680/capture-frame` |
 | em_pickup scales model 0x72 by 2.0 | fails: `0015AC00/capture-scale`, `0015AC00/scale-219550-unscaled-model` |
-| a second aggregate call added in `tick_indicators` | fails: `001C5680/7A-binding-changed` |
+| em_indicator_child: +4 = 4 does not free | fails: `001C5680/child`, `001C5760/child` |
+| the husk child's spawn colour w 0.25 → 0.5 | fails: the spawn-colour capture check |
 | fix 3 (`em_ee_c_le`) applied | fails: only `0015CF90/c.le-daz` reported gone |
-| fix 4 (tick_indicators free) applied | fails: only `001C5760/free` reported gone |
 | only the 0020E020 part of fix 2 applied | fails: only `0020DFA0/missing-0020E020` reported gone |
 
 ## Summary
@@ -53,8 +55,8 @@ scratch copies of `src/` (the live tree was not touched):
 | 0015AC00 | **verified** (scale switch, 001F1110 variant); two boundaries | none today | optional: 00219550 items keep scale 1.0 |
 | 0015CF90 | **verified** except the compare model | none reachable (denormal / negative-NaN health) | use `em_ee_c_le` |
 | 001B1190 | **verified** (areas 0..0x16, capture 00→01) | none | none needed for AREA11 |
-| 001C5680 | state machine and colour argument **verified**; **one live divergence** | **yes**: one RNG draw a frame is missing | draw the 0x825940 child |
-| 001C5760 | state machine and colour argument **verified** (elevator, unpowered) | none today (latent free / +0xA paths) | free on any +4 above 1 |
+| 001C5680 | **verified**, live per node (em_indicator_child) | none: every child draws its 001F54E0 in walk order | the 0x7A child's own model draw (OWNER_DRAW.md P1) |
+| 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live | none (the arrow turns green once powered, as in route 04) | none |
 | 001CF470 | **missing**: no port translation exists | the actor-route decal is not drawn | translate 001CE300 + 001CF470 |
 | 0020DFA0 | D_00810610 writes and zoom **verified**; four callees not run (one key each) | trail reset on the request path; fog save/program | see the 0020DFA0 section |
 
@@ -176,108 +178,114 @@ needed for it.
 
 ## 001C5680 and 001C5760 (the indicator children)
 
-**Live path.** In em_area11_bindings.c, `tick_indicators` frees a 001C5680
-node whose +4 is 2 or 3. The first child node then runs two aggregates:
-`em_pickup_lights_tick` for the six 00219550 lights, and
-`em_props_indicators_tick` for the panel 0x75 child (a 001C5680) and the
-elevator 0x10 child (a 001C5760).
+**Live path (render + UI step, 2026-09-25).** Every 001C5680 / 001C5760
+node runs its own behaviour, `em_indicator_child_step`
+(src/game/em_indicator_child.c), from em_area11_bindings.c
+`tick_indicator`, in walk order:
+
+- +4 = 0: 001C2360 / 001C22A0 (the model and bone-slot bind; the +0x4C
+  method is 001CACB0, 001CA5F0 mode 2), 001C6380, +4 = 1; nothing drawn.
+  The live workers for the bind and the placement are stand-ins (see
+  "Stand-ins" below).
+- +4 = 1: +0x80 = +0xA0, 001C5760 with +0xA != 0 runs 001C6380, then
+  001F54E0 through `em_effect_kinds_001F54E0` (one 00122BB8 value, the
+  flickered +0x80), whose +0x4C call queues the draw of the owner's child
+  mesh: `em_pickup_light_submit` (00219550's 0x73), `em_props_indicator_submit`
+  slot 0 (00159210's 0x75) or slot 1 (00827B10's 0x10). The draw converts
+  +0x80 with 001D8C30 mode 1 (`em_effect_color_gs`).
+- any other +4: 001AFC10.
+
+The +0xA0 vector is the spawn's: 00219550 (0, 1, 0, 0.25), 00159210 (1, 0,
+0, 1) (model 0x2C: (0, 1, 0, 1)), 0x825940's inline spawn at 0x825A74
+(0, 0, 0, 0.25), 00827B10's inline spawn at 0x827BD8 (1, 0, 0, 0.25). The
+terminal rewrites its child's +0xA0 every state-1 frame after its level step
+(em_elevator_tick): `em_indicator_00827B10_colour` (0x827EAC..0x827FE8),
+(0, level / 128, 0, 0.25) or (1, 0, 0, 0.25) at level 0, with 0x70003A20 =
+level / 128 written into the player closure's copy of that word
+(EmPlayerLandScratch.s3A20; the port keeps other copies in em_camera_live,
+em_camera_leftovers and em_area11_roger, which this store does not reach;
+whether an original reader takes the tail's value before writing the word
+itself is not measured). The panel's completion
+(00159210 state 1 / sub 2) writes +4 = 3 on its child and clears its +0x20
+slot (`em_area11_bindings_panel_child_stop`) only when the slot is nonzero,
+as the original does: decomp src/func_00159210.c case 2 reads r = +0x20 and
+skips both stores when r == 0 (a refused 001C5570 alloc stores 0 there). An
+item owner's take writes +4 = 3 on its light child.
+
+The old path is gone: the two aggregates (`em_pickup_lights_tick`,
+`em_props_indicators_tick`) ran at the first child's node and stopped for
+good once that child (the battery's light) was freed: the free did not hand
+the aggregate on, so from the battery pickup on no indicator ticked again
+and the terminal arrow kept its last red colour after the panel powered it
+(the original turns it green, route 04's screenshot). Its second copy of
+001F54E0 (`em_effect_delta`, not bit-exact, EFFECT_KINDS.md 3.3) is deleted.
 
 **Checked** (the original child ticked frame by frame, 001F54E0 recorded
-with the colour quadword at its a1):
-- Pickup light: the port's aggregate matches over 6 frames in 24 of 24 frame
-  comparisons. Four cases were run: steady, stopped before the first tick,
-  stopped after one draw, and stopped after three draws (+4 = 3). The checks
-  are:
-  - the initializing frame draws nothing;
-  - there is one draw per later frame;
-  - the colour argument, compared through `em_effect_color` with the same RNG
-    value, is equal;
-  - there are no draws after the stop.
-- Panel indicator (em_props slot 0, completion = `em_props_panel_complete`):
-  18 of 18. Elevator indicator (em_props slot 1, unpowered): 6 of 6.
-- The manifest `pickup_light` colour (0, 1, 0, 0.25) equals the captured
-  +0xA0 of the 0x73 children. The panel colour (1, 0, 0, 1) and the elevator
-  colour (1, 0, 0, 0.25) equal their captured +0xA0.
-- The parity of 0x70003B68 (the even-frame stack copy) changes no byte
-  outside the stack and no 001F54E0 argument.
-- 001F54E0, run whole, draws exactly one 00122BB8 value and calls the
-  child's +0x4C method once. This holds for the 0x73, 0x7A and 0x75 colours.
-- In every beat 00..14 (15 of 15), the port's real draws match the
-  original's children in walk order (D_00275BC0), except for the one below.
-  - The port's list is read from the harness after the tick: each light's
-    and each em_props slot's visible bit and tint, in draw order.
-  - Each tint is compared with `em_effect_color` applied to the original's
-    001F54E0 colour for the draw at that position, using the RNG value the
-    port's draw consumed.
-  - The elevator slot starts at the level held in the captured 00827B10
-    parent's +0x28 byte (0 in beats 00..02, 128 from beat 03 on) and is
-    powered when that is 128. The level ramp belongs to 00827B10, not this
-    row. From beat 03 on the captured child +0xA0 is (0, 1, 0, 0.25), and
-    the port's slot colour matches it.
+with the colour quadword at its a1), against em_indicator_child_step with the
+same inputs:
+- 33 + 11 single-child runs of 6 frames for each kind (0x73, 0x75, 0x7A,
+  0x10): steady; +4 = 3 before the first tick, after one draw and after
+  three; +4 = 2, 4, 0x80 (free), 0 (re-initialize) and 1 (keep drawing); an
+  init refused twice by the bone slots; +0xA = 1. Every event (init, place,
+  draw with its colour words, free) equal, frame by frame.
+- 001F54E0, run whole, draws exactly one 00122BB8 value and calls the child's
+  +0x4C method once (0x73, 0x7A and 0x75 colours).
+- The parity of 0x70003B68 changes no byte outside the stack and no 001F54E0
+  argument.
+- The bindings' spawn colours equal the captured +0xA0 of each kind in beat
+  00.
+- **Every beat 00..14 (15 of 15):** one whole frame of every child in the
+  captured pool, in walk order: the original behaviours' 001F54E0 draws
+  equal the per-node steps' draws in count, kind, order and colour words,
+  the 0x7A child included, with the port's colours (the spawn vectors, and
+  the terminal tail over the captured +0x28 level for the 0x10 child).
+- A structural guard: both binding rows run `tick_indicator`, which calls
+  `em_indicator_child_step`; otherwise `001C5680/binding-changed` (unpinned)
+  fails the run.
+- The harness runs em_indicator_child_step with its own workers (including
+  a refusing init), so it does not check the live binding's workers. A
+  second structural check reads them from em_area11_bindings.c and pins the
+  stand-ins below.
 
-**Divergence** `001C5680/missing-7A-draw`. **This one is live and
-first-level visible through the RNG.** The walk holds nine indicator
-children: #39..#44 (0x73), #45 (0x7A, spawned by the 0x825940 owner), #47
-(0x75) and #48 (0x10). Each draws one 001F54E0 per frame, so the original
-draws 9 times. The port draws 8 times in beat 00, and one fewer than the
-original in every beat. `tick_enemy_00825940` spawns the 0x7A child as a
-node. That node's `tick_indicators` only frees or elects the head, and
-neither aggregate draws it. The 0x7A child's colour is (0, 0, 0, 0.25), so
-its own draw adds nothing visible. Its 00122BB8 draw is still missing, so
-the panel and elevator indicators, and every later consumer of
-`em_random_next` in the frame, take the original's previous value.
-The key is pinned only when the original has exactly one 0x7A draw, the
-port has exactly one draw fewer, and every other draw matches in kind, order
-and colour. A different count goes to `001C5680/capture-count`, and a
-different draw list to `001C5680/capture-frame`; both are unpinned. The
-harness runs only the two aggregates, so it cannot see a fix by itself. It
-therefore also checks that `tick_indicators` still calls exactly the two
-aggregates and that `tick_enemy_00825940` draws nothing. When either
-changes, the unpinned `001C5680/7A-binding-changed` fails the run: extend
-the harness to run the new draw, then retire the pin.
+**Stand-ins (pinned).** The live binding's workers for two callees are not
+translations:
+- **001C2360 / 001C22A0, the bind:** `indicator_init` always returns 0. The
+  original returns nonzero when the bone slots are exhausted, and the child
+  then stays in state 0 and retries on its next call. The translations exist
+  (em_render_verify_rest `em_rvr_001C2360` / `em_rvr_001C22A0`,
+  verified-unbound), but binding them needs model bank D_0028A56C (for
+  001C2360; not exported, and em_area11_boxes faults on its 001C6120 rebind)
+  and a bone-slot model for the children. Pinned as
+  `001C5680/live-init-stub` and `001C5760/live-init-stub`.
+- **001C6380, the placement:** `indicator_place` does nothing. The draw
+  places the child mesh with the owner's current palette (em_pickup /
+  em_props). 001C5760 with +0x0A != 0 re-runs 001C6380 before every draw;
+  no AREA11 spawn sets +0x0A, so that path is latent. The translation is
+  live elsewhere (em_owner_services_001C6380, used by the boxes and the
+  status models), but it needs the bone slots above. Pinned as
+  `001C5680/live-place-stub` and `001C5760/live-place-stub`.
+- **The draw's cull:** 001CACB0 tail-calls 001CABA0, which calls 001CA7B0
+  (decomp src/func_001CABA0.c). The port's submit does not model that cull.
 
-**Fix:** draw the #45 child in walk order, between the six pickup lights and
-the panel.
-- The best fix binds every 001C5680/001C5760 node to its own per-node step.
-  That step would use the verified `em_effect_kinds_001F54E0` and the node's
-  +0xA0 vector.
-- `spawn_001C5570_child` does not keep that vector today ("EmActor has no
-  field for it"). The fix needs a place for it.
-- The minimal fix is a third entry in the aggregate for the 0x825940 child.
-  It carries the measured INTERIM vector (0, 0, 0, 0.25), like its INTERIM
-  spawn.
+These pins fail the run when the workers change, so a binding that retires
+them must also update this section and EXPECTED.
 
-**Related risk (reading, not measured).** The aggregate draws the panel and
-elevator at the first child's position (#39). In the original they draw at
-#47 and #48, after #46, a 001E2560 node. 001E2560 draws 00122BB8 values when
-its timer seeds or expires. On such frames the port's order of RNG draws
-differs from the original's. Per-node binding (above) removes this too.
+**Live proof.** The level smoke passes with the per-node children (all its
+capture checks row for row); the elevator phase's end frame
+(`EM_LEVEL_SMOKE_PHASE_CAPTURE=elevator:<file.bmp>`, LEVEL_SMOKE.md) shows the
+green arrow that route 04's original.png shows (it was red before).
 
-**Latent divergences.**
-- `001C5680/status2`: +4 == 2 frees the original child. The pickup-light
-  aggregate keys only on its owner's status 3 and keeps drawing. Nothing in
-  the port writes 2.
-- `001C5680/init-refused`: 001C2360 returns 1 when the bone slots are
-  exhausted, and the original child then stays in state 0 (draws start later).
-  The aggregate always initializes. This is the same boundary as 0015AC00's.
-- `001C5760/free`: the original 001C5760 frees itself on any +4 above 1,
-  and so does the original 001C5680. Both were measured for +4 = 2, 3, 4
-  and 0x80. On +4 = 1 both keep drawing; on +4 = 0 both re-run the
-  initializing frame. `tick_indicators` frees only 001C5680 nodes, and only
-  on 2 and 3.
-  **Fix** (em_area11_bindings.c `tick_indicators`; the measurement covers
-  both kinds):
-  `if ((actor->callback == 0x001C5680u || actor->callback == 0x001C5760u) && actor->u04[0] > 1)`.
-- `001C5760/alt-matrix`: with +0xA != 0 the original runs 001C6380 before
-  every draw. em_props has no such path. AREA11 spawns +0xA = 0.
+**Left:** the 0x7A child's own model draw. Model 0x7A (bank D_0028A56C) has
+no port mesh; its colour (0, 0, 0, 0.25) gives 1 / 128 of the texel through
+001D8C30 mode 1. Its 00122BB8 draw is made; the draw itself waits on the
+object-unit draw (OWNER_DRAW.md P1) and is reported once per session. The
+husk owner 0x825940 (census L24) rewrites the child's colour in its later
+states; the port's husk is still the legacy aggregate, so on the route the
+child keeps its spawn colour, as every captured beat shows.
 
-**Not covered here.** The powered elevator colour (the 00827B10 parent
-writes the child's +0xA0) and `em_effect_color` itself. The live header is
-not bit-exact to 001F54E0 (EFFECT_KINDS.md 3.3). This test compares only the
-colour argument the port hands it.
-
-**Suggested census status:** 001C5680 live with a stand-in note (the 0x7A
-draw); 001C5760 live (verified for AREA11's elevator child).
+**Census status:** 001C5680 live, 001C5760 live, both with the stand-in
+note above (the bind always succeeds, the placement is the owner's palette,
+001CABA0's 001CA7B0 cull is not modelled).
 
 ## 001CF470 (the frustum clipper)
 
@@ -370,7 +378,9 @@ should name the host's CONFIGURE case.
 - 0015CF90: unverified → live, once the `em_ee_c_le` fix lands. It is
   verified for every reachable input already.
 - 001B1190: unverified → live.
-- 001C5680: unverified → live with a stand-in note (the missing 0x7A draw).
-- 001C5760: unverified → live.
+- 001C5680: unverified → live with a stand-in note (the missing 0x7A draw;
+  the bind and placement workers; the cull).
+- 001C5760: unverified → live with a stand-in note (the bind and placement
+  workers; the cull).
 - 0020DFA0: unverified → live with a stand-in note (0020E020, 0021BAC0,
   0021B9A0 and 0021B970 not run).

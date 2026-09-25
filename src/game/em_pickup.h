@@ -51,23 +51,23 @@ void em_pickup_scene_clear(EmGfx *gfx);
  * and magazine packs 2 (001C40B0(0x10, 2)), primary 0xFF. */
 void em_pickup_reset(void);
 
-/* The 001C5680 light children: initialize without drawing once, then one
- * 001F54E0 colour per frame. In AREA11 the pool ticks them at the indicator
- * node (em_area11_bindings.c). */
-void em_pickup_lights_tick(void);
-
 /* Render-chain accessors (door/enemy draw contract): slot count + one
  * draw per LIVE slot — returns 0 for despawned/model-less slots. */
 int em_pickup_count(void);
 int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
                    uint32_t *bone_count);
 
-/* 00219550's separate model73 child, allocated through 001C5570. The
- * manifest binds it explicitly to a pickup UID. Transform and lifetime
- * follow that owner; color.xyz is the original base RGB and color.w the
- * random brightness amplitude (001F54E0). Returns -2 for a taken owner. */
+/* 00219550's model73 child (001C5570, a 001C5680 node of its own in
+ * AREA11: em_area11_bindings.c tick_indicator). The manifest names the
+ * owner's UID and the mesh; the child's colour is its +0xA0, which 00219550
+ * passes at the spawn. Returns -2 for a taken owner. */
 int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
-                        const char *model_file, const float color[4]);
+                        const char *model_file);
+/* The child's +0x4C draw (001CACB0), reached from its 001F54E0: `source_id`
+ * is the owner's EMIS record, c80 the child's +0x80 after 001F54E0. Queues
+ * this frame's draw; -1 when no light belongs to that owner. */
+int em_pickup_light_submit(uint32_t source_id, const float c80[4]);
+/* Draws the lights submitted since the last call, then clears them. */
 void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16]);
 
 /* The item block D_00810C60.. is canonical D2 progress (em_scene_state.h).

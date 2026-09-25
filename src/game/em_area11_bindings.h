@@ -98,6 +98,13 @@ void em_area11_walk_end(int mode);
 const char *em_area11_node_record(const EmActor *actor);
 const char *em_area11_node_binding(const EmActor *actor);
 
+/* 00159210 state 1 / sub 2 (the panel's completion, through the host's
+ * panel program): when its child slot (+0x20, the 0x75 indicator node) is
+ * non-zero, the child gets +4 = 3 and the slot is cleared; the original
+ * checks the slot, so an empty slot does nothing. 1 (stopped) or 0 (empty
+ * slot); never fails. */
+int em_area11_bindings_panel_child_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

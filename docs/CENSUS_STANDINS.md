@@ -104,9 +104,14 @@ oracle fail:
 - Data, from the user's own files (`tools/export_message_data.py`, a
   version bump of `.emmd`):
   - the two containers `*D_0028A498` and `*D_0028A49C`, and the cue bank
-    `*D_0028A4EC`. Their disc source files are not identified yet: the
-    captures hold them at 0xB05000, 0xB0B800 and 0x11739C0. The exporter
-    must find their chunk/file the way it found the global and AREA11 banks.
+    `*D_0028A4EC`. The captures hold them at 0xB05000, 0xB0B800 and
+    0x11739C0. **Their disc files (found 2026-09-25, render + UI step):** each
+    is the leading bytes of one extracted file, byte for byte (route beat 03's
+    RAM against every file under `../Extermination/extract/`):
+    `chunk00/f02_id02.bin` (0x62A0 of its 0x6800 bytes: header word 0 + word
+    2), `chunk00/f03_id03.bin` (0xF500 of 0xF800) and `chunk03/f15_id17.bin`
+    (0xD10 of 0x1000); the rest of each file is sector padding. The exporter
+    reads them there and checks the header words.
   - the ELF's D_00264CF0 and D_00264C90 configs (words 0..4) and D_00264DB0.
   - the style blocks the configs' +0x14 point at (D_00275830 and D_00275820
     in the captures): an `EmMessageTextStyle` each, owned next to D_00275C50.

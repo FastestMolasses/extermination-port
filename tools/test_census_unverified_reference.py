@@ -11,11 +11,14 @@ compares the result with the port's existing code. Findings and the fixes
 they call for: docs/CENSUS_UNVERIFIED.md.
 
 The port code is used as it is, never edited:
-  * em_pickup.c, em_props.c and em_status_models.c are compiled whole inside
-    small host harnesses (`#include` of the module, so its static functions
-    and state are reachable); only the storage getters the modules call
-    (em_scene_state, em_random_next, em_game_terminal_powered, g) are
-    supplied by the harness, the logic under test is the module's own.
+  * em_pickup.c and em_status_models.c are compiled whole inside small host
+    harnesses (`#include` of the module, so its static functions and state
+    are reachable); only the storage getters the modules call
+    (em_scene_state, em_random_next, g) are supplied by the harness, the
+    logic under test is the module's own. The indicator children
+    (001C5680 / 001C5760) run em_indicator_child.c and the one 001F54E0
+    translation (em_effect_kinds.c) as they are linked into the game, with
+    the spawn colours read from em_area11_bindings.c.
   * Two pieces of live code sit inside large functions that cannot run in
     isolation: the 0015CF90 lines of em_player_0015BCF0 (em_player_frame.c)
     and the 0015AC00 switches of em_area11_interaction_host_pickup_state0.
@@ -68,16 +71,16 @@ EXPECTED = {
                          'and a negative NaN pattern as a large negative number',
     '001B1190/area>0x16': 'taken_byte refuses areas past 0x16; the original writes D_00810860 + area*32 '
                           'for any D_00810700 (latent: not reachable in the first level)',
-    '001C5680/init-refused': '001C2360 returning 1 (bone slots exhausted) keeps the original child in '
-                             'state 0; the port aggregate always initializes',
-    '001C5680/status2': 'a child +4 == 2 frees the original child; the pickup-light aggregate keeps drawing '
-                        'unless its owner status is 3 (latent: nothing writes 2)',
-    '001C5680/missing-7A-draw': 'the 0x825940 child (+0xD 0x7A) is spawned but never drawn: the port draws '
-                                'one 001F54E0 fewer per frame and every later RNG consumer shifts',
-    '001C5760/free': 'tick_indicators frees only 001C5680 nodes on +4 2/3; the original 001C5680 and '
-                     '001C5760 both free on any +4 > 1 (measured 2, 3, 4, 0x80; latent in AREA11)',
-    '001C5760/alt-matrix': '+0xA != 0 re-runs 001C6380 before each draw; em_props has no such path '
-                           '(latent: AREA11 spawns +0xA 0)',
+    # The live binding's indicator workers (em_area11_bindings.c): the bind
+    # never refuses (the original stays in state 0 while 001C2360 /
+    # 001C22A0 return nonzero: bone slots exhausted), and the placement does
+    # nothing (the draw uses the owner's current palette; 001C5760 with
+    # +0x0A != 0 re-runs 001C6380 before each draw, latent: AREA11 spawns
+    # +0x0A 0).
+    '001C5680/live-init-stub': 'the live 001C2360 bind always succeeds (no bone-slot model)',
+    '001C5760/live-init-stub': 'the live 001C22A0 bind always succeeds (no bone-slot model)',
+    '001C5680/live-place-stub': 'the live 001C6380 placement is a no-op (the owner\'s palette places the draw)',
+    '001C5760/live-place-stub': 'the live 001C6380 placement is a no-op (incl. the +0x0A re-run)',
     '001CF470/missing': 'no port translation of 001CF470 (nor of its caller 001CE300)',
     # One key per CONFIGURE callee the port does not run, so a partial fix
     # retires exactly its own key.
@@ -215,44 +218,39 @@ int h_persist(int uid, uint32_t argument)
     memset(&s, 0, sizeof s); s.n = 1; s.p[0].used = 1; s.p[0].uid = uid; s.p[0].model = -1;
     return original_event(&s.p[0], EM_PICKUP_OWNER_PERSIST, argument);
 }
-void h_lights_reset(void) { memset(&s, 0, sizeof s); }
-int h_light_add(int uid, int used, int bound, int child_status, const float color[4])
-{
-    int i = s.n++; Pickup *p = &s.p[i]; memset(p, 0, sizeof *p);
-    p->used = used; p->uid = uid; p->model = -1; p->original_bound = bound;
-    p->original.child_status = (uint8_t)child_status;
-    PickupLight *l = &s.lights[s.n_lights]; memset(l, 0, sizeof *l);
-    l->owner = i; memcpy(l->color, color, sizeof l->color); return s.n_lights++;
-}
-void h_owner_set(int light, int used, int child_status)
-{ Pickup *p = &s.p[s.lights[light].owner]; p->used = used; p->original.child_status = (uint8_t)child_status; }
-void h_light_set_initialized(int light, int v) { s.lights[light].initialized = v; }
-void h_lights_tick(void) { em_pickup_lights_tick(); }
-int h_light_get(int i, float tint[4])
-{ memcpy(tint, s.lights[i].tint, 16); return s.lights[i].visible | s.lights[i].initialized << 1; }
-void h_effect_color(uint32_t r, const float c[4], float t[4]) { em_effect_color(r, c, t); }
 '''
 
-PROPS_HARNESS = r'''
-#include "game/em_props.c"
-EmGameState g;
-static int h_powered_v;
-int em_game_terminal_powered(void) { return h_powered_v; }
-static uint32_t h_rand[256]; static int h_rand_n, h_rand_i;
-uint32_t em_random_next(void)
-{ uint32_t v = h_rand_i < h_rand_n ? h_rand[h_rand_i] : 0x5A5A5Au; h_rand_i++; return v; }
-void h_rand_script(const uint32_t *v, int n) { memcpy(h_rand, v, (size_t)n * 4); h_rand_n = n; h_rand_i = 0; }
-int h_rand_calls(void) { return h_rand_i; }
-void h_ind_reset(void) { memset(indicators, 0, sizeof indicators); h_powered_v = 0; }
-void h_ind_setup(int slot, int enabled, int initialized)
-{ indicators[slot].mesh = (EmGfxMesh *)(uintptr_t)0x10; indicators[slot].enabled = enabled;
-  indicators[slot].initialized = initialized; }
-void h_set_powered(int v) { h_powered_v = v; }
-void h_ind_set_level(int slot, int level) { indicators[slot].level = level; }
-void h_panel_complete(void) { em_props_panel_complete(); }
-void h_ind_tick(void) { em_props_indicators_tick(); }
-int h_ind_get(int slot, float tint[4])
-{ memcpy(tint, indicators[slot].tint, 16); return indicators[slot].visible | indicators[slot].initialized << 1; }
+CHILD_HARNESS = r'''
+#include <string.h>
+#include "game/em_indicator_child.h"
+#include "game/em_effect_kinds.h"
+#include "game/em_effect_color.h"
+static char *h_ev; static float *h_seen; static int h_refuse;
+static void h_log(char c) { size_t n = strlen(h_ev); h_ev[n] = c; h_ev[n + 1] = 0; }
+static int w_init(void *c, uint32_t fn, int32_t *r) { (void)c; (void)fn; h_log('i'); *r = h_refuse; return 0; }
+static int w_place(void *c) { (void)c; h_log('m'); return 0; }
+static int w_color(void *c, float c80[4]) { (void)c; h_log('d'); memcpy(h_seen, c80, 16); return 0; }
+static int w_free(void *c) { (void)c; h_log('f'); return 0; }
+int h_step(uint32_t cb, uint8_t *status, uint8_t alt, const float a0[4], float c80[4], int refuse, char *ev,
+           float seen[4])
+{
+    static const EmIndicatorChildWorkers w = {0, w_init, w_place, w_color, w_free};
+    EmIndicatorChildRecord r = {status, alt, a0, c80};
+    ev[0] = 0; h_ev = ev; h_seen = seen; h_refuse = refuse;
+    return em_indicator_child_step(cb, &r, &w);
+}
+static int w_rand(void *ctx, int32_t *v0) { *v0 = (int32_t)*(uint32_t *)ctx; return 0; }
+static int w_draw(void *ctx, uint32_t fn, void *obj) { (void)ctx; (void)obj; return fn == 0x001CACB0u ? 0 : -1; }
+void h_effect_color(uint32_t r, const float c[4], float t[4])
+{
+    const EmEffectKindsWorkers w = {.ctx = &r, .w_00122BB8 = w_rand, .w_indirect = w_draw};
+    EmEffectKinds k = {.workers = &w};
+    float c80[4]; memcpy(c80, c, 16);
+    if (em_effect_kinds_001F54E0(&k, c80, c80, 0x001CACB0u, c80) < 0) { memset(t, 0xFF, 16); return; }
+    em_effect_color_gs(c80, t);
+}
+int h_tail(int16_t level, float a0[4], uint32_t *spad)
+{ return em_indicator_00827B10_colour(level, a0, spad); }
 '''
 
 MODELS_HARNESS = r'''
@@ -304,7 +302,7 @@ def compile_all():
              '-I', str(SRC), '-undefined', 'dynamic_lookup']
     units = {
         'pickup': (PICKUP_HARNESS, []),
-        'props': (PROPS_HARNESS, []),
+        'child': (CHILD_HARNESS, [str(SRC / 'game/em_indicator_child.c'), str(SRC / 'game/em_effect_kinds.c')]),
         'models': (MODELS_HARNESS, [str(SRC / 'game/em_owner_services_original.c')]),
         'frame': (frame_harness(), []),
         'host': (host_harness(), []),
@@ -341,12 +339,10 @@ def compile_all():
     L['pickup'].h_persist.argtypes = [C.c_int, C.c_uint32]
     L['pickup'].h_progress_get.argtypes = [C.c_uint32]
     L['pickup'].h_progress_set.argtypes = [C.c_uint32, C.c_uint8]
-    L['pickup'].h_light_add.argtypes = [C.c_int, C.c_int, C.c_int, C.c_int, F4A]
-    L['pickup'].h_light_get.argtypes = [C.c_int, F4A]
-    L['pickup'].h_effect_color.argtypes = [C.c_uint32, F4A, F4A]
-    for lib in (L['pickup'], L['props']):
-        lib.h_rand_script.argtypes = [C.POINTER(C.c_uint32), C.c_int]
-    L['props'].h_ind_get.argtypes = [C.c_int, F4A]
+    L['pickup'].h_rand_script.argtypes = [C.POINTER(C.c_uint32), C.c_int]
+    L['child'].h_step.argtypes = [C.c_uint32, C.POINTER(C.c_uint8), C.c_uint8, F4A, F4A, C.c_int, C.c_char_p, F4A]
+    L['child'].h_effect_color.argtypes = [C.c_uint32, F4A, F4A]
+    L['child'].h_tail.argtypes = [C.c_int16, F4A, C.POINTER(C.c_uint32)]
     L['models'].h_configure.argtypes = [C.POINTER(C.c_uint32), C.POINTER(C.c_uint32), C.POINTER(C.c_int)]
     L['frame'].h_cf90.argtypes = [C.c_int, C.c_uint32, C.c_uint8, C.c_uint8,
                                   C.POINTER(C.c_uint8), C.POINTER(C.c_uint8)]
@@ -682,83 +678,82 @@ def child_frames(elf, callback, color_words, frames, alt=0, stop_at=None, status
     return out
 
 
-def native_light_frames(L, color, frames, stop_at=None, status_write=3, rand=None):
-    P = L['pickup']
-    P.h_lights_reset()
-    light = P.h_light_add(0x0B01, 1, 1, 1, f4(color))
-    out = []
+def native_child_frames(L, callback, colour_words, frames, alt=0, stop_at=None, status_write=3, init_rv=None):
+    """The port's em_indicator_child_step over a child with the same inputs
+    as child_frames; returns the same event records."""
+    status = C.c_uint8(0)
+    a0 = f4([number(w) for w in colour_words])
+    c80 = f4([1.0, 1.0, 1.0, 1.0])
+    out, freed = [], False
+    names = {'i': 'init', 'm': 'matrix', 'f': 'free'}
     for f in range(frames):
         if stop_at is not None and f == stop_at:
-            P.h_owner_set(light, 1, status_write)
-        r = rand[f]
-        P.h_rand_script((C.c_uint32 * 1)(r), 1)
-        P.h_lights_tick()
-        tint = (C.c_float * 4)()
-        flags = P.h_light_get(light, tint)
-        out.append((P.h_rand_calls(), flags & 1, tint_bits(tint)))
+            status.value = status_write
+        if freed:
+            out.append(('gone',))
+            continue
+        ev, seen = C.create_string_buffer(64), f4([0.0] * 4)
+        rc = L['child'].h_step(callback, C.byref(status), alt, a0, c80, init_rv[f] if init_rv else 0, ev, seen)
+        assert rc >= 0, (hex(callback), f, rc)
+        rec = []
+        for c in ev.value.decode():
+            rec.append(('draw', 0, 0x80, tint_bits(seen)) if c == 'd' else names[c])
+        freed = 'free' in rec
+        out.append(tuple(rec))
     return out
 
 
-def native_indicator_frames(L, slot, frames, stop_at=None, rand=None):
-    Q = L['props']
-    Q.h_ind_reset()
-    Q.h_ind_setup(slot, 1, 0)
-    out = []
-    for f in range(frames):
-        if stop_at is not None and f == stop_at:
-            assert slot == 0
-            Q.h_panel_complete()
-        Q.h_rand_script((C.c_uint32 * 1)(rand[f]), 1)
-        Q.h_ind_tick()
-        tint = (C.c_float * 4)()
-        flags = Q.h_ind_get(slot, tint)
-        out.append((Q.h_rand_calls(), flags & 1, tint_bits(tint)))
+def binding_colours():
+    """The spawn colours the live bindings pass (em_area11_bindings.c)."""
+    text = source('game/em_area11_bindings.c')
+    out = {}
+    for name in ('k_light', 'k_red', 'k_green', 'k_husk_child', 'k_unpowered'):
+        m = re.search(r'static const float ' + name + r'\[4\] = \{([^}]*)\};', text)
+        assert m, (name, 'the live spawn colour moved; update the extraction')
+        out[name] = tuple(fbits(float(v.strip().rstrip('f'))) for v in m.group(1).split(','))
     return out
-
-
-def compare_child(res, L, label, original, native, rand):
-    for f, (ev, nat) in enumerate(zip(original, native)):
-        draws = [e for e in ev if isinstance(e, tuple) and e and e[0] == 'draw']
-        n_calls, visible, tint = nat
-        if not draws:
-            same = n_calls == 0 and not visible
-        else:
-            (_, a0, a1, colour), = draws
-            assert (a0, a1) == (0, 0x80)
-            expect = (C.c_float * 4)()
-            L['pickup'].h_effect_color(rand[f], f4([number(w) for w in colour]), expect)
-            same = n_calls == 1 and visible and tint == tint_bits(expect)
-        if same:
-            res.ok(label)
-        else:
-            return (f, ev, nat)
-    return None
 
 
 def part_children(elf, L):
     r80, r60 = Result('001C5680'), Result('001C5760')
-    rng = random.Random(0x1C56)
     frames = 6
-    rand = [rng.getrandbits(31) for _ in range(frames)]
-    # Colours: the captured +0xA0 of each AREA11 child kind (beat 00).
+    # Colours: the captured +0xA0 of each AREA11 child kind (beat 00), and
+    # the spawn colours the live bindings pass for them.
     ram0, _ = beat_image(beats()[0])
     kinds = {}
     for base in pool_actors(ram0, {0x1C5680, 0x1C5760}):
         kinds.setdefault(ram0[base + 0x0D], (w32(ram0, base + 0x10), struct.unpack_from('<4I', ram0, base + 0xA0),
                                              ram0[base + 0x0A]))
-    manifest = MANIFEST.read_text()
-    light = re.search(r'^pickup_light 0x0b01 \S+ (\S+) (\S+) (\S+) (\S+)', manifest, re.M)
-    light_colour = [float(light.group(i)) for i in range(1, 5)]
-    assert tuple(fbits(x) for x in light_colour) == kinds[0x73][1], 'manifest light colour != captured +0xA0'
-    r80.ok('capture: manifest pickup_light colour == captured 001C5680 child +0xA0 (model 0x73)')
-    # Pickup light children (001C5680, model 0x73): steady, stop before the
-    # first tick, stop after one draw.
-    for stop in (None, 0, 1, 3):
-        orig = child_frames(elf, 0x1C5680, kinds[0x73][1], frames, stop_at=stop)
-        nat = native_light_frames(L, light_colour, frames, stop_at=stop, rand=rand)
-        bad = compare_child(r80, L, 'pickup light: init frame, draws, colour, stop (+4 = 3)', orig, nat, rand)
-        if bad:
-            r80.diverge('001C5680/light', (stop, bad))
+    live = binding_colours()
+    spawn = {0x73: live['k_light'], 0x75: live['k_red'], 0x7A: live['k_husk_child'], 0x10: live['k_unpowered']}
+    for kind, colour in spawn.items():
+        assert kinds[kind][1] == colour, (hex(kind), 'live spawn colour != captured +0xA0 (beat 00)')
+    r80.ok('capture: the bindings\' spawn colours == captured child +0xA0 (0x73, 0x75, 0x7A; beat 00)')
+    r60.ok('capture: the terminal child\'s spawn colour == captured +0xA0 (0x10, unpowered; beat 00)')
+    assert live['k_green'] == tuple(fbits(x) for x in (0, 1, 0, 1))
+    # One child, frame by frame, against the original behaviour: steady,
+    # stopped (+4 written) before the first tick and after draws, every
+    # status that frees, an init refused by the bone slots, and +0xA.
+    cases = []
+    for kind in (0x73, 0x75, 0x7A, 0x10):
+        cb, colour, _ = kinds[kind]
+        for stop in (None, 0, 1, 3):
+            cases.append((cb, colour, 0, stop, 3, None))
+        for status in (2, 4, 0x80, 0, 1):
+            cases.append((cb, colour, 0, 2, status, None))
+        cases.append((cb, colour, 0, None, 3, [1, 1, 0, 0, 0, 0]))
+        cases.append((cb, colour, 1, None, 3, None))
+    for cb, colour, alt, stop, status, init_rv in cases:
+        orig = child_frames(elf, cb, colour, frames, alt=alt, stop_at=stop, status_write=status, init_rv=init_rv)
+        nat = native_child_frames(L, cb, colour, frames, alt=alt, stop_at=stop, status_write=status,
+                                  init_rv=init_rv)
+        res = r80 if cb == 0x1C5680 else r60
+        if orig == nat:
+            res.ok('one child, frame by frame: init / refused init / +4 stop and free / +0xA / draw colour')
+        else:
+            res.diverge(f'{cb:08X}/child', dict(alt=alt, stop=stop, status=status, init_rv=init_rv,
+                                                  first=next(i for i, (a, b) in enumerate(zip(orig, nat))
+                                                             if a != b), original=orig, native=nat))
     # 001F54E0 itself (run whole on a drawn child; not this row, but the RNG
     # accounting below rests on it) draws exactly one 00122BB8 value and
     # calls the child's +0x4C method once.
@@ -778,68 +773,16 @@ def part_children(elf, L):
     odd = child_frames(elf, 0x1C5680, kinds[0x73][1], frames, parity=[1] * frames)
     assert even == odd
     r80.ok('0x70003B68 parity: identical non-stack writes and 001F54E0 arguments')
-    # Status 2 (nothing in the port writes it): the original frees.
-    orig = child_frames(elf, 0x1C5680, kinds[0x73][1], frames, stop_at=2, status_write=2)
-    nat = native_light_frames(L, light_colour, frames, stop_at=2, status_write=2, rand=rand)
-    if compare_child(Result('x'), L, 'x', orig, nat, rand):
-        r80.diverge('001C5680/status2', 'original frees at +4 == 2; the aggregate keeps drawing')
-    # Init refused (bone slots): the original retries, the port never fails.
-    orig = child_frames(elf, 0x1C5680, kinds[0x73][1], frames, init_rv=[1, 1, 0, 0, 0, 0])
-    nat = native_light_frames(L, light_colour, frames, rand=rand)
-    if compare_child(Result('x'), L, 'x', orig, nat, rand):
-        r80.diverge('001C5680/init-refused', 'draws start two frames later in the original')
-    # The panel indicator (001C5680, model 0x75) through em_props slot 0.
-    panel = kinds[0x75]
-    assert panel[0] == 0x1C5680 and panel[1] == tuple(fbits(x) for x in (1, 0, 0, 1))
-    for stop in (None, 0, 2):
-        orig = child_frames(elf, 0x1C5680, panel[1], frames, stop_at=stop)
-        nat = native_indicator_frames(L, 0, frames, stop_at=stop, rand=rand)
-        bad = compare_child(r80, L, 'panel indicator (em_props slot 0): init, draws, colour, completion', orig, nat,
-                            rand)
-        if bad:
-            r80.diverge('001C5680/panel', (stop, bad))
-    # The elevator indicator (001C5760, model 0x10, +0xA 0) through em_props
-    # slot 1, unpowered (its +0xA0 is the 00827B10 parent's; level 0 here).
-    elev = kinds[0x10]
-    assert elev[0] == 0x1C5760 and elev[2] == 0 and elev[1] == tuple(fbits(x) for x in (1, 0, 0, 0.25))
-    orig = child_frames(elf, 0x1C5760, elev[1], frames)
-    nat = native_indicator_frames(L, 1, frames, rand=rand)
-    bad = compare_child(r60, L, 'elevator indicator (em_props slot 1, unpowered): init, draws, colour', orig, nat,
-                        rand)
-    if bad:
-        r60.diverge('001C5760/elevator', bad)
-    for status in (2, 3, 4):
-        orig = child_frames(elf, 0x1C5760, elev[1], 4, stop_at=2, status_write=status)
-        assert orig[2] == ('free',) and orig[3] == ('gone',)
-    r60.ok('original 001C5760 frees on +4 = 2, 3, 4 (read)')
-    # The proposed tick_indicators fix (+4 > 1 frees both kinds) also covers
-    # 001C5680: measure that it frees on +4 = 2, 3, 4 and 0x80 as well, and
-    # keeps drawing on 0 and 1.
-    for callback in (0x1C5680, 0x1C5760):
-        for status in (2, 3, 4, 0x80):
-            orig = child_frames(elf, callback, elev[1], 4, stop_at=2, status_write=status)
-            assert orig[2] == ('free',) and orig[3] == ('gone',), (hex(callback), status, orig)
-        for status in (0, 1):
-            orig = child_frames(elf, callback, elev[1], 4, stop_at=2, status_write=status)
-            draw = orig[1]
-            assert draw[0][0] == 'draw' and orig[3] == draw, (hex(callback), status, orig)
-            # +4 = 1 keeps drawing; +4 = 0 re-runs the initializing frame.
-            assert orig[2] == (draw if status == 1 else ('init', 'matrix')), (hex(callback), status, orig)
-    r60.ok('original 001C5680 and 001C5760 free on +4 = 2, 3, 4, 0x80; +4 = 1 keeps drawing, 0 re-initializes')
-    bindings = source('game/em_area11_bindings.c')
-    if 'if (actor->callback == 0x001C5680u && (actor->u04[0] == 3 || actor->u04[0] == 2))' in bindings:
-        r60.diverge('001C5760/free', 'tick_indicators: only 001C5680 nodes on +4 3/2 free themselves')
-    orig = child_frames(elf, 0x1C5760, elev[1], frames, alt=1)
-    assert all(ev == ('matrix', ev[1]) for ev in orig[1:]) and orig[1][1][0] == 'draw'
-    r60.diverge('001C5760/alt-matrix', 'alt 1: 001C6380 before every draw')
-    # One whole frame of every child in a captured pool, in walk order,
-    # against the port's two aggregates set up from the manifest.
-    taken_uids_by_beat = {}
+    # One whole frame of every child in a captured pool, in walk order: the
+    # original behaviours against the port's per-node steps with the
+    # port's colours (the spawn vectors, and 00827B10's colour tail over the
+    # captured +0x28 level for the 0x10 child; em_elevator_tick's step of
+    # that level is tools/test_elevator_reference.py's).
     for beat in beats():
         ram, _ = beat_image(beat)
         children = pool_actors(ram, {0x1C5680, 0x1C5760})
         draws = []
-        for i, base in enumerate(children):
+        for base in children:
             o = Oracle(elf, ram)
             ev = []
             init = 0x1C2360 if w32(ram, base + 0x10) == 0x1C5680 else 0x1C22A0
@@ -849,94 +792,56 @@ def part_children(elf, L):
             o.hooks[0x1AFC10] = lambda e: ev.append('free')
             o.call(w32(ram, base + 0x10), (base,))
             draws += [(ram[base + 0x0D], e[1]) for e in ev if isinstance(e, tuple)]
-        # The port: lights for the manifest owners not taken in this beat,
-        # the panel indicator while its child exists, the elevator always.
-        area = ram[0x810700]
-        taken = {u for u in range(256) if ram[0x810860 + area * 32 + (u >> 3)] >> (u & 7) & 1}
-        taken_uids_by_beat[beat.name] = taken
-        P, Q = L['pickup'], L['props']
-        P.h_lights_reset()
-        order = []
-        for m in re.finditer(r'^pickup_light (0x[0-9a-f]+) \S+ (\S+) (\S+) (\S+) (\S+)', manifest, re.M):
-            uid = int(m.group(1), 16)
-            if uid & 0xFF in taken:
-                continue      # em_pickup_add refuses a taken uid; its light is never added
-            colour = [float(m.group(i)) for i in range(2, 6)]
-            idx = P.h_light_add(uid, 1, 1, 1, f4(colour))
-            P.h_light_set_initialized(idx, 1)
-            order.append(('light', idx))
-        Q.h_ind_reset()
-        panel_live = any(ram[b + 0x0D] == 0x75 for b in children)
-        Q.h_ind_setup(0, int(panel_live), 1)
-        Q.h_ind_setup(1, 1, 1)
-        # The elevator slot's colour follows the 00827B10 parent's +0x28 level
-        # (not this row): start the port's level where the capture has it,
-        # powered when it holds 128, so the child draw itself is compared.
         parents = pool_actors(ram, {0x827B10})
-        assert len(parents) == 1 and ram[parents[0] + 0x28] in (0, 128), beat.name
-        level = ram[parents[0] + 0x28]
-        Q.h_ind_set_level(1, level)
-        Q.h_set_powered(int(level == 128))
-        rand = [rng.getrandbits(31) for _ in range(16)]
-        P.h_rand_script((C.c_uint32 * 16)(*rand), 16)
-        P.h_lights_tick()
-        n_lights = P.h_rand_calls()
-        Q.h_rand_script((C.c_uint32 * 16)(*rand[n_lights:]), 16 - n_lights)
-        Q.h_ind_tick()
-        n_native = n_lights + Q.h_rand_calls()
-        # What the port actually drew, in its draw order: every light whose
-        # visible bit the tick set, then slot 0, then slot 1 (em_props), each
-        # with the tint it computed and the RNG value it consumed.
-        native_draws = []
-        for i in range(len(order)):
-            tint = (C.c_float * 4)()
-            if P.h_light_get(i, tint) & 1:
-                native_draws.append((0x73, tint_bits(tint)))
-        for slot, kind in ((0, 0x75), (1, 0x10)):
-            tint = (C.c_float * 4)()
-            if Q.h_ind_get(slot, tint) & 1:
-                native_draws.append((kind, tint_bits(tint)))
-        assert len(native_draws) == n_native, (beat.name, len(native_draws), n_native)
-        # The original's draws the port models (every kind but 0x7A), with the
-        # colour each one handed 001F54E0, run through em_effect_color with
-        # the RNG value the port's draw at that position consumed.
-        modelled = [(k, c) for k, c in draws if k != 0x7A]
-        expect = []
-        for j, (kind, colour) in enumerate(modelled[:len(native_draws)]):
-            t = (C.c_float * 4)()
-            L['pickup'].h_effect_color(rand[j], f4([number(w) for w in colour]), t)
-            expect.append((kind, tint_bits(t)))
-        if len(modelled) == len(native_draws) and expect == native_draws:
-            r80.ok('capture frame: the port draws the original\'s kinds in order with the same colours, 0x7A aside')
+        assert len(parents) == 1, beat.name
+        native = []
+        for base in children:
+            kind = ram[base + 0x0D]
+            if kind == 0x10:
+                level = struct.unpack_from('<h', ram, parents[0] + 0x28)[0]
+                a0, spad = f4([0.0] * 4), C.c_uint32(0)
+                assert L['child'].h_tail(level, a0, C.byref(spad)) == 0
+                colour = tint_bits(a0)
+            else:
+                colour = spawn[kind]
+            status = C.c_uint8(ram[base + 4])
+            ev, seen = C.create_string_buffer(64), f4([0.0] * 4)
+            assert L['child'].h_step(w32(ram, base + 0x10), C.byref(status), ram[base + 0x0A],
+                                     f4([number(w) for w in colour]), f4([1.0] * 4), 0, ev, seen) >= 0
+            native += [(kind, tint_bits(seen)) for c in ev.value.decode() if c == 'd']
+        if native == draws:
+            r80.ok('capture frame: one 001F54E0 per child in walk order, the original\'s kinds and colours '
+                   '(0x7A included)')
         else:
-            r80.diverge('001C5680/capture-frame', dict(beat=beat.name,
-                                                       original=[hex(k) for k, _ in modelled],
-                                                       native=[hex(k) for k, _ in native_draws],
+            r80.diverge('001C5680/capture-frame', dict(beat=beat.name, original=[hex(k) for k, _ in draws],
+                                                       native=[hex(k) for k, _ in native],
                                                        first_bad=next((j for j, (a, b) in
-                                                                       enumerate(zip(expect, native_draws))
+                                                                       enumerate(zip(draws, native))
                                                                        if a != b), None)))
-            continue
-        n7a = sum(1 for k, _ in draws if k == 0x7A)
-        if n_native == len(draws):
-            r80.ok('capture frame: one 001F54E0 per live child')
-        elif n7a == 1 and len(draws) - n_native == 1:
-            r80.diverge('001C5680/missing-7A-draw', dict(beat=beat.name, original=len(draws), native=n_native,
-                                                         undrawn=[(hex(k), [hex(w) for w in c])
-                                                                  for k, c in draws if k == 0x7A]))
-        else:
-            r80.diverge('001C5680/capture-count', dict(beat=beat.name, original=len(draws), native=n_native,
-                                                       n7a=n7a))
-    # The harness above runs only the two aggregates. The pin holds while
-    # the live code draws nothing else for these nodes; once a 0x7A draw is
-    # bound (per-node step or a third aggregate entry), this fails so the
-    # harness is extended to run it and the pin is retired.
+    # The live binding runs this step for every child node (a structural
+    # guard: the harness above runs em_indicator_child_step, so it must be
+    # what the nodes run).
     bindings = source('game/em_area11_bindings.c')
-    head = re.search(r'if \(node->head\) \{\s*em_pickup_lights_tick\(\);\s*em_props_indicators_tick\(\);\s*\}',
-                     bindings)
-    enemy = re.search(r'static int tick_enemy_00825940\(.*?\n\}\n', bindings, re.S)
-    if not head or not enemy or re.search(r'001F54E0|em_effect', enemy.group(0)):
-        r80.diverge('001C5680/7A-binding-changed', 'tick_indicators / tick_enemy_00825940 no longer match '
-                                                   'the two-aggregate shape this harness runs')
+    rows = [re.search(r'\{0x' + cb + r'u, "[^"]*", NULL, GROUP_NONE, tick_indicator, NULL\}', bindings)
+            for cb in ('001C5680', '001C5760')]
+    tick = re.search(r'static int tick_indicator\(.*?\n\}\n', bindings, re.S)
+    if not all(rows) or not tick or 'em_indicator_child_step' not in tick.group(0):
+        r80.diverge('001C5680/binding-changed', 'the 001C5680 / 001C5760 nodes no longer run '
+                                                'em_indicator_child_step (tick_indicator)')
+    # The live binding's own workers (the harness above runs its own
+    # refusing init, so it cannot see these): the bind 001C2360 / 001C22A0
+    # and the placement 001C6380 are stand-ins while no translation is bound.
+    def body(name):
+        m = re.search(r'static int ' + name + r'\(.*?\n\}\n', bindings, re.S)
+        assert m, (name, 'the live indicator worker moved; update the extraction')
+        return m.group(0)
+    init, place = body('indicator_init'), body('indicator_place')
+    if not re.search(r'em_rvr_001C2360|em_rvr_001C22A0', init) and '*result = 0;' in init:
+        r80.diverge('001C5680/live-init-stub', 'indicator_init: the live 001C2360 bind always returns 0')
+        r60.diverge('001C5760/live-init-stub', 'indicator_init: the live 001C22A0 bind always returns 0')
+    if 'em_owner_services_001C6380' not in place and re.search(r'\{\s*\(void\)ctx;\s*return 0;\s*\}', place):
+        r80.diverge('001C5680/live-place-stub', 'indicator_place: the live 001C6380 is a no-op')
+        r60.diverge('001C5760/live-place-stub', 'indicator_place: the live 001C6380 is a no-op')
     return [r80, r60]
 
 

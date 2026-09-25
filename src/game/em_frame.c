@@ -123,6 +123,7 @@ int em_frame_fade_active(void)
 }
 
 void em_frame_set_movie_active(int active) { s_frame.movie_active = active != 0; }
+int em_frame_movie_active(void) { return s_frame.movie_active; }
 
 void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
 {

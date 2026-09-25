@@ -35,6 +35,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c \
+           src/game/em_indicator_child.c src/game/em_effect_kinds.c \
            src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
            src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c src/game/em_area11_roger.c \
            src/game/em_roger_actor_original.c \
@@ -226,9 +227,9 @@ test-opening-runtime: $(OPENING_TEST_SRC)
 	build/opening_runtime_test
 
 .PHONY: test-pickup-lights
-test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h
+test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h src/game/em_effect_kinds.c src/game/em_effect_color.h
 	@mkdir -p build
-	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_light_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/pickup_light_test.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
 	build/pickup_light_test
 
 PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_items_original.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c
@@ -850,9 +851,9 @@ test-roger-encounter-capture:
 test-face-allocation-reference:
 	python3 tools/test_face_allocation_reference.py
 
-test-pickup-original: tests/pickup_original_test.c src/game/em_pickup.c $(PICKUP_ORIGINAL_TEST_SRC)
+test-pickup-original: tests/pickup_original_test.c tests/pickup_light_test.c src/game/em_pickup.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC)
 	@mkdir -p build/pickup_owner_reference
-	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/pickup_original_test.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
+	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/pickup_original_test.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
 	build/pickup_original_test
 
 .PHONY: test-panel-reference test-panel-interaction
@@ -1151,10 +1152,16 @@ test-snow-runtime: $(SNOW_RUNTIME_TEST_SRC)
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc $(SNOW_RUNTIME_TEST_SRC) -lm -o build/snow_runtime_test
 	build/snow_runtime_test
 
-.PHONY: test-props-indicators
-test-props-indicators: tests/props_indicator_test.c src/game/em_props.c src/game/em_props.h
+.PHONY: test-indicator-child
+test-indicator-child: tests/indicator_child_test.c src/game/em_indicator_child.c src/game/em_indicator_child.h
 	@mkdir -p build
-	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/props_indicator_test.c -o build/props_indicator_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/indicator_child_test.c src/game/em_indicator_child.c -o build/indicator_child_test
+	build/indicator_child_test
+
+.PHONY: test-props-indicators
+test-props-indicators: tests/props_indicator_test.c src/game/em_props.c src/game/em_props.h src/game/em_effect_kinds.c src/game/em_effect_color.h
+	@mkdir -p build
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/props_indicator_test.c src/game/em_effect_kinds.c -o build/props_indicator_test
 	build/props_indicator_test
 
 .PHONY: test-player-heading-reference

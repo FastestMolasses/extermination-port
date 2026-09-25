@@ -125,8 +125,10 @@ Those behaviors have been removed. Its model stays at the original placement.
 the area's completed bit was already set at initialization. After this
 actor's own successful interaction script finishes, it sets child state3
 and clears the child pointer. A global power-bit change by itself does
-not run that state transition. `em_props_panel_complete()` exposes the
-actual completion boundary; it must not be called by an unrelated flag setter.
+not run that state transition. `em_area11_bindings_panel_child_stop()` is
+the actual completion boundary (the host's panel program calls it); it must
+not be called by an unrelated flag setter. The child runs its own 001C5680
+node (em_indicator_child, docs/CENSUS_UNVERIFIED.md).
 
 The original successful script at `00247BA0`/`00247BE0` runs a 120-tick
 entry wait, camera command3, player clip `15C`, wait10, callback `001575B0`

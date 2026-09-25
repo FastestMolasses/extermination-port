@@ -1,8 +1,14 @@
+/* The panel / terminal indicator draws (the children's +0x4C 001CACB0 at
+ * the owner's matrix, with 001F54E0's colour), the fixed panel and its cell.
+ * The children's behaviour and the terminal's level tail are
+ * em_indicator_child (tests/indicator_child_test.c,
+ * tools/test_census_unverified_reference.py). */
 #include <assert.h>
 #include "../src/game/em_props.c"
+#include "game/em_effect_kinds.h"
 
 EmGameState g;
-static int draws, random_calls, powered;
+static int draws, random_calls;
 static float last_palette[32], last_tint[4];
 static int collision_published;
 
@@ -16,9 +22,16 @@ int em_collision_cell_bind(EmCollision *world, const EmCollCell *cell)
 void em_collision_cell_unbind(EmCollision *world, unsigned uid)
 { (void)world;(void)uid;collision_published=0; }
 
-uint32_t em_random_next(void) { ++random_calls; return 0x40000000; }
-/* D_0081084C bit 7 (the canonical progress byte in the game). */
-int em_game_terminal_powered(void) { return powered; }
+/* 001F54E0 with the RNG value `r` over `colour`: the child's new +0x80. */
+static int w_rand(void *ctx, int32_t *v0) { ++random_calls; *v0 = (int32_t)*(uint32_t *)ctx; return 0; }
+static int w_draw(void *ctx, uint32_t fn, void *obj) { (void)ctx; (void)obj; return fn == 0x001CACB0u ? 0 : -1; }
+static void c80_001F54E0(uint32_t r, const float colour[4], float c80[4])
+{
+    const EmEffectKindsWorkers w = {.ctx = &r, .w_00122BB8 = w_rand, .w_indirect = w_draw};
+    EmEffectKinds k = {.workers = &w};
+    memcpy(c80, colour, 4 * sizeof(float));
+    assert(em_effect_kinds_001F54E0(&k, c80, c80, 0x001CACB0u, c80) == 0);
+}
 int em_model_load(EmModel *m, const char *path)
 { (void)path; memset(m,0,sizeof *m); m->bone_count=2; return 0; }
 void em_model_free(EmModel *m) { memset(m,0,sizeof *m); }
@@ -60,13 +73,14 @@ void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh,
 
 int main(void)
 {
-    float delta[3];
+    float delta[4];
     const float red_panel[4]={1,0,0,1}, red_elevator[4]={1,0,0,.25f};
     /* Original frame4083: recovered SDK RNG inputs at ages12 and11. */
-    em_effect_delta(0x484cd471,red_panel,delta);
+    c80_001F54E0(0x484cd471,red_panel,delta);
     assert(delta[0]==16.47052001953125f && delta[1]==-127);
-    em_effect_delta(0x31d71256,red_elevator,delta);
+    c80_001F54E0(0x31d71256,red_elevator,delta);
     assert(delta[0]==-7.024627685546875f && delta[2]==-127);
+    random_calls=0;
 
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
     const float panel[3]={240,245,232.8f}, vp[16]={0};
@@ -80,27 +94,27 @@ int main(void)
     g.elev_pos[0]=224; g.elev_pos[1]=230; g.elev_pos[2]=250.7f;
     elevator_pose();
     assert(em_props_indicator_install(gfx,"scene","elevator","red")==0);
-    em_props_indicators_tick();
     em_props_indicators_draw(gfx,vp);
-    assert(draws==0 && random_calls==0);
-    em_props_indicators_tick();
+    assert(draws==0);                          /* nothing submitted */
+    float c80[4];
+    c80_001F54E0(0x40000000,red_elevator,c80);
+    assert(em_props_indicator_submit(1,c80)==0);
+    assert(em_props_indicator_submit(2,c80)==-1);
     em_props_indicators_draw(gfx,vp);
-    assert(draws==2 && random_calls==2 && last_tint[0]==1);
+    assert(draws==1 && last_tint[0]==1 && last_tint[1]==1.0f/128);
     assert(last_palette[12]==224 && last_palette[13]==230);
-    powered=1;
-    for (int i=0;i<16;++i) {
-        grate_update();
-        em_props_indicators_tick();
-    }
-    assert(indicators[1].level==128 && indicators[1].tint[1]==1);
-    assert(indicators[0].visible); /* only its own script completion stops it */
+    em_props_indicators_draw(gfx,vp);
+    assert(draws==1);                          /* one draw per 001F54E0 */
+    const float green_elevator[4]={0,1,0,.25f};
+    c80_001F54E0(0x40000000,green_elevator,c80);
+    assert(em_props_indicator_submit(1,c80)==0);
+    c80_001F54E0(0x40000000,red_panel,c80);
+    assert(em_props_indicator_submit(0,c80)==0);
+    grate_update();
+    em_props_indicators_draw(gfx,vp);
+    assert(draws==3 && last_tint[0]==1.0f/128 && last_tint[1]==1);   /* slot 1 last */
     assert(g.grate_palette[12]==240 && g.grate_palette[13]==245);
-    em_props_panel_complete();
-    assert(!indicators[0].visible);
     assert(collision_published);
-    powered=0;
-    for (int i=0;i<16;++i) em_props_indicators_tick();
-    assert(indicators[1].level==0 && indicators[1].tint[0]==1);
 
     /* The ride (00828050's carry) moved to the AREA11 interaction host in
      * WP-4 (tools/test_elevator_reference.py checks it against route 04);
@@ -110,7 +124,7 @@ int main(void)
     assert(!collision_published);
     assert(!indicators[0].mesh && !indicators[1].mesh);
     int previous=draws;
-    em_props_indicators_tick();
+    assert(em_props_indicator_submit(0,c80)==-1);   /* no mesh after the unload */
     em_props_indicators_draw(gfx,vp);
     assert(draws==previous);
     puts("original prop indicators and fixed panel: PASS");

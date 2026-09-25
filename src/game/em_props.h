@@ -22,10 +22,11 @@ void grate_unload(EmGfx *gfx);
  * after the owner. Child resources are released when its owner unloads. */
 int em_props_indicator_install(EmGfx *gfx, const char *scene_dir,
                                 const char *kind, const char *file);
-void em_props_indicators_tick(void);
+/* The child's +0x4C draw (001CACB0), reached from 001F54E0 inside the
+ * child's own pool node: slot 0 the panel's 0x75, slot 1 the terminal's
+ * 0x10; c80 is the child's +0x80 after 001F54E0. Queues this frame's draw
+ * (drawn and cleared by em_props_indicators_draw); -1 without a mesh. */
+int em_props_indicator_submit(int slot, const float c80[4]);
 void em_props_indicators_draw(EmGfx *gfx, const float viewproj[16]);
-/* Original panel's own successful interaction completion, not merely an
- * external change to the area's shared power bit. */
-void em_props_panel_complete(void);
 
 #endif /* EM_PROPS_H */

@@ -245,6 +245,14 @@ static void finish(void)
 static void next_phase(void)
 {
     const Phase *done = &k_phases[t.current];
+    /* Verification aid (LEVEL_SMOKE.md "Frame captures"):
+     * EM_LEVEL_SMOKE_PHASE_CAPTURE=<phase>:<path.bmp> saves the frame that
+     * ends <phase>, for a look beside the route beat's original.png. */
+    const char *pc = getenv("EM_LEVEL_SMOKE_PHASE_CAPTURE");
+    const char *colon = pc ? strchr(pc, ':') : NULL;
+    if (colon && colon[1] && (size_t)(colon - pc) == strlen(done->name) &&
+        strncmp(pc, done->name, (size_t)(colon - pc)) == 0)
+        em_gfx_request_capture(em_frame_gfx(), colon + 1);
     if (done->driven) {
         const char *binding = done->owner ? em_scene_bindings_pool_binding(done->owner) : NULL;
         fprintf(stderr, "level smoke: %s: NOT-LIVE driven (route beat %s; original: %s; port binding of "

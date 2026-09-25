@@ -1156,8 +1156,6 @@ void em_game_legacy_pool_gameplay(void)
                               * place among the world updates */
     (void)em_game_legacy_door_tick();
     em_snow_runtime_tick(g.cam.eye, 0);
-    em_pickup_lights_tick();
-    em_props_indicators_tick();
     em_game_legacy_examine_tick();
     em_game_legacy_enemy_tick();
     em_game_legacy_player_residue();
@@ -1180,8 +1178,6 @@ void em_game_legacy_pool_cutscene(void)
     em_area11_effect_runtime_tick();
     grate_update();
     em_snow_runtime_tick(previous_eye, 1);
-    em_pickup_lights_tick();
-    em_props_indicators_tick();
     render_chain_build();
 }
 

@@ -210,8 +210,8 @@ build with both files added links with zero warnings.
     capture (`001D2910` results 1, 2, 0), so AREA11 never calls it. It must
     still be bound, or fault.
 - **001C22A0 / 001C2360**: the model binds that 001C5760 / 001C5680 call
-  (census L17; the live stand-in is `em_pickup.c em_pickup_lights_tick` /
-  em_props indicators). Workers:
+  (census L17; the live per-node children, em_indicator_child, take the bind
+  as always successful: the port keeps no bone slots for them). Workers:
   - 001C6120: em_pose_host_workers / em_owner_services_original.
   - 001CA5E0: em_roger_actor_original.
   - 001C6150: em_status_models / em_roger_actor_original.

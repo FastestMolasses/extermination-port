@@ -602,6 +602,16 @@ void frame_close_out(void)
     } else if (g.chain_test_triangle) {
         em_gfx_draw_test_triangle(gfx);
     } else {
+        /* 001D2300: after the Z-only clear, the world frame CALLs render
+         * channel 3 (001E1E60's grid, kernel 0x0023C990) before the level,
+         * when D_008106C4 == 0, render flag 4 is clear (001D1C10 sets it
+         * only in a frame where 00203350 played: D_00821058 == 1) and flag
+         * 0x20 is set (the manifest's `background` line, AREA11). The draw
+         * writes colour only, over the whole field (docs/BACKGROUND.md). */
+        if (em_gfx_background_ready(gfx) &&
+            em_scene_state()->req[EM_SCENE_REQ_C4] == 0 && !em_frame_movie_active())
+            em_gfx_background_draw(gfx, g.cam.view,
+                g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
         /* LIGHTING — DISTANCE FOG for the world flush. Per-frame, per-
          * scene constant (the engine's per-area GS fog record), so set
          * once for the whole chain: it tints BOTH the LEVEL meshes and

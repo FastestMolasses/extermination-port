@@ -62,6 +62,11 @@
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_director.h"
+#include "game/em_effect_kinds.h"
+#include "game/em_indicator_child.h"
+#include "game/em_pickup.h"
+#include "game/em_player_closure_live.h"
+#include "game/em_random.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
 #include "game/em_manager_008257A0.h"
@@ -78,7 +83,7 @@ static EmSceneState *s_scene;
 
 /* ------------------------------------------------------------ node state */
 
-enum { GROUP_NONE, GROUP_ENEMIES, GROUP_INDICATORS, GROUP_COUNT };
+enum { GROUP_NONE, GROUP_ENEMIES, GROUP_COUNT };
 
 typedef struct Node Node;
 typedef int (*NodeTick)(EmActor *actor, Node *node, const EmArea11World *world);
@@ -99,8 +104,13 @@ struct Node {
     uint8_t ticked;   /* first behaviour call done */
     uint8_t head;     /* runs its group's port code */
     uint32_t link;    /* original +0x24 (the owner of an effect child) */
-    EmActor *child;   /* an item owner's 001C5570 child (its +0x2EC) until the
-                       * owner's take stops it */
+    EmActor *child;   /* an owner's indicator child (00219550 +0x2EC,
+                       * 00827B10 +0x2E4) until the owner stops it */
+    /* Indicator children (001C5680 / 001C5760): their owner, and their
+     * +0xA0 colour vector (EmActor has no field for +0xA0), written by the
+     * spawn and, for the terminal's child, by the owner's tail every frame. */
+    EmActor *parent;
+    float a0[4];
     /* 001E55F0 nodes: the actor's own weather state (its +4 byte and +0x1F0
      * block, em_weather.h); zeroed by bind_node, so a new actor seeds. */
     EmWeather weather;
@@ -108,6 +118,7 @@ struct Node {
 
 static Node s_nodes[EM_ACTOR_POOL_CAPACITY];
 static EmActor *s_heads[GROUP_COUNT];
+static EmActor *s_panel_child; /* 00159210's +0x20 */
 static uint64_t s_reported; /* one bit per binding row */
 static float s_walk_eye[3]; /* camera eye at the start of the walk */
 
@@ -141,10 +152,15 @@ static void mark_interim(Node *node)
     snprintf(node->name + len, sizeof node->name - len, " (interim spawn)");
 }
 
-/* 001C5570(owner, vector, a2, a3). Returns 0 (also when the class-0xC reserve
- * refuses the alloc: the original stores the 0 it returns) or -1; *out is
- * the child (NULL when refused). */
-static int spawn_001C5570_child(EmActor *owner, uint8_t a2, int a3, int interim, EmActor **out)
+/* The fields every indicator-child spawn writes. 001C5570 (byte-matched):
+ * alloc(0xC); +0x9A = +3 = +0x2E = 0; +0xD = a2; +0xE = 0xFFFF; +0x54 =
+ * +0x56 = 0; +0xA0 = the a1 vector; +0xB0 / +0xC0 copied from the owner;
+ * +0xA = 0 (a3 2: 1); +0x10 by a3. The AREA11 owners 00827B10
+ * (0x827BD8..0x827C4C) and 0x825940 (0x825A74..0x825AE0) allocate their
+ * child inline with the same stores except +0xA, which they leave as
+ * 001AFC10 cleared it (0). */
+static int spawn_child_record(EmActor *owner, const float a0[4], uint8_t param, uint32_t callback,
+                              uint8_t alt, EmActor **out)
 {
     if (out)
         *out = NULL;
@@ -154,40 +170,39 @@ static int spawn_001C5570_child(EmActor *owner, uint8_t a2, int a3, int interim,
     p->table_index = 0;
     p->model = 0;
     p->flags2 = 0;
-    p->param = a2;
+    p->param = param;
     p->uid = 0xFFFF;
     p->link = 0;
     p->kind = 0;
-    /* +0xA0 = the caller's vector: EmActor has no field for it (not stored). */
     memcpy(p->pos, owner->pos, sizeof p->pos);
     memcpy(p->rot, owner->rot, sizeof p->rot);
-    p->u0A[0] = 0; /* +0x0A */
-    switch (a3) {
-    case 0:
-        p->callback = 0x001C5760u;
-        break;
-    case 1:
-        p->callback = 0x001C5680u;
-        break;
-    case 2:
-        p->u0A[0] = 1;
-        p->callback = 0x001C5760u;
-        break;
-    default:
-        return fault(0x001C5570u, EM_SCENE_FAULT_BAD_INDEX, "001C5570 a3 outside 0..2");
-    }
+    p->u0A[0] = alt; /* +0x0A */
+    p->callback = callback;
     if (bind_node(p, NULL) < 0)
         return -1;
-    if (interim)
-        mark_interim(node_of(p));
+    Node *node = node_of(p);
+    node->parent = owner;
+    memcpy(node->a0, a0, sizeof node->a0);
     if (out)
         *out = p;
     return 0;
 }
 
-static int spawn_001C5570(EmActor *owner, uint8_t a2, int a3, int interim)
+/* 001C5570(owner, a1 vector, a2, a3). Returns 0 (also when the class-0xC
+ * reserve refuses the alloc: the original stores the 0 it returns) or -1;
+ * *out is the child (NULL when refused). */
+static int spawn_001C5570_child(EmActor *owner, const float a1[4], uint8_t a2, int a3, EmActor **out)
 {
-    return spawn_001C5570_child(owner, a2, a3, interim, NULL);
+    switch (a3) {
+    case 0:
+        return spawn_child_record(owner, a1, a2, 0x001C5760u, 0, out);
+    case 1:
+        return spawn_child_record(owner, a1, a2, 0x001C5680u, 0, out);
+    case 2:
+        return spawn_child_record(owner, a1, a2, 0x001C5760u, 1, out);
+    default:
+        return fault(0x001C5570u, EM_SCENE_FAULT_BAD_INDEX, "001C5570 a3 outside 0..2");
+    }
 }
 
 /* The 001EF9D0 entities the port spawns (bytes from the captured table,
@@ -266,8 +281,11 @@ static int tick_pickup(EmActor *actor, Node *node, const EmArea11World *world)
             em_area11_interaction_host_pickup_state0(actor->source_id, actor->model, actor->param) < 0)
             return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
                          "item owner state 0: the interaction host failed");
+        /* 00219550 state 0: 0x700038A0 = (0, 1.0, 0, 0.25), then
+         * +0x2EC = 001C5570(self, 0x700038A0, 0x73, 1). */
+        static const float k_light[4] = {0.0f, 1.0f, 0.0f, 0.25f};
         if (actor->callback == 0x00219550u &&
-            spawn_001C5570_child(actor, 0x73, 1, 0, &node->child) < 0)
+            spawn_001C5570_child(actor, k_light, 0x73, 1, &node->child) < 0)
             return -1;
         return 1;
     }
@@ -315,11 +333,17 @@ static int tick_box(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 0x825940 (deferred g0.7): its first tick spawns the 001C5680 child that
- * the capture shows at its position (+0xD 0x7A). INTERIM. */
+/* 0x825940 (deferred g0.7): its state 0 allocates its 001C5680 child inline
+ * (overlay 0x825A74..0x825AE0: +0xD 0x7A, +0xA0 = (0, 0, 0, 0.25), stored at
+ * its +0x220). Its later states rewrite that colour (0x825D18.., 0x825D6C..,
+ * 0x825DE4.., 0x826334.., 0x826388.., 0x826420..); the husk owner itself is
+ * still the legacy em_enemy aggregate (census L24), so on the route the
+ * child keeps the spawn colour, as every captured beat shows. */
 static int tick_enemy_00825940(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    if (!node->ticked && spawn_001C5570(actor, 0x7A, 1, 1) < 0)
+    static const float k_husk_child[4] = {0.0f, 0.0f, 0.0f, 0.25f};
+    if (!node->ticked &&
+        spawn_child_record(actor, k_husk_child, 0x7A, 0x001C5680u, 0, &node->child) < 0)
         return -1;
     return tick_enemies(actor, node, world);
 }
@@ -463,14 +487,21 @@ static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
     (void)world;
     grate_update();
     if (!node->ticked) {
+        /* 00159210 state 0: model 0x2C takes 0x700038A0 = (0, 1.0, 0, 1.0)
+         * and 001C5570(p, .., 0x74, 1); otherwise, unless the power bit is
+         * set, (1.0, 0, 0, 1.0) and 001C5570(p, .., 0x75, 1); +0x20 = the
+         * child. */
+        static const float k_green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+        static const float k_red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
         if (actor->model == 0x2C) {
-            if (spawn_001C5570(actor, 0x74, 1, 0) < 0)
+            if (spawn_001C5570_child(actor, k_green, 0x74, 1, &s_panel_child) < 0)
                 return -1;
         } else {
             if (s_scene->d810700 != 0x0B || actor->flags2 != 7)
                 return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX,
                              "00159210 state 0 reads a D_00810841 bit the port does not store");
-            if (!em_game_terminal_powered() && spawn_001C5570(actor, 0x75, 1, 0) < 0)
+            if (!em_game_terminal_powered() &&
+                spawn_001C5570_child(actor, k_red, 0x75, 1, &s_panel_child) < 0)
                 return -1;
         }
         em_area11_interaction_host_set_panel_address(address_of(actor));
@@ -487,13 +518,17 @@ static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
 
 /* 0x827B10 terminal and elevator (area11[19]). State 0 (the first call):
  * the floor placement (D_0081083A -> +0xB4 190/230, 001C6380; the host's
- * em_area11_interaction_host_elevator_state0), then the 001C5760 child (+0xD 0x10, +0xA 0) measured at 0x827C20 (INTERIM
- * spawn); the owner reads D_00810841[0x0B] bit (+0x2E), which only bit 7
- * of the canonical D_0081084C stores. Later calls are state 1, the
- * original owner in the AREA11 interaction host (WP-4): refusal 0x82A990
- * or powered 0x82A750 with the carry 00828050, and its 001B17A0
- * publication, in both variants. The legacy em_examine terminal and the
- * legacy ride it ran were retired in WP-4. */
+ * em_area11_interaction_host_elevator_state0), then its 001C5760 child,
+ * allocated inline (0x827BD8..0x827C4C: +0xD 0x10, +0xA0 = (1.0, 0, 0,
+ * 0.25), stored at its +0x2E4); the owner reads D_00810841[0x0B] bit
+ * (+0x2E), which only bit 7 of the canonical D_0081084C stores. Later
+ * calls are state 1, the original owner in the AREA11 interaction host
+ * (WP-4): refusal 0x82A990 or powered 0x82A750 with the carry 00828050, and
+ * its 001B17A0 publication and the +0x28 level step (em_elevator_tick), in
+ * both variants; then the tail 0x827EAC writes the child's colour
+ * (em_indicator_00827B10_colour).
+ * The legacy em_examine terminal and the legacy ride it ran were retired in
+ * WP-4. */
 static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
@@ -508,12 +543,26 @@ static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
             em_area11_interaction_host_elevator_state0() < 0)
             return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
                          "00827B10 state 0: the interaction host failed");
-        if (spawn_001C5570(actor, 0x10, 0, 1) < 0)
+        static const float k_unpowered[4] = {1.0f, 0.0f, 0.0f, 0.25f};
+        if (spawn_child_record(actor, k_unpowered, 0x10, 0x001C5760u, 0, &node->child) < 0)
             return -1;
         return 1;
     }
     if (em_area11_interaction_host_elevator_tick() < 0)
         return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED, "00827B10: the interaction host failed");
+    /* 0x827EAC: the child's colour from the +0x28 level, which the host's
+     * em_elevator_tick stepped after the publication. A refused child
+     * alloc leaves +0x2E4 = 0, through which the original would store. */
+    const EmElevatorRuntime *elevator = em_area11_interaction_host_elevator();
+    Node *child = node->child ? node_of(node->child) : NULL;
+    uint32_t spad3A20 = 0;
+    if (!elevator || !child ||
+        em_indicator_00827B10_colour(elevator->owner.indicator_level, child->a0, &spad3A20) < 0)
+        return fault(actor->callback, EM_SCENE_FAULT_NULL_WORKER, "00827B10 tail: no child at +0x2E4");
+    /* 0x70003A20 = level / 128 goes into the player closure's copy of the
+     * word only (em_player_closure_live.h). */
+    if (elevator->owner.indicator_level != 0)
+        em_player_closure_live_store_3A20(spad3A20);
     return 1;
 }
 
@@ -565,29 +614,115 @@ static int tick_area_title(EmActor *actor, Node *node, const EmArea11World *worl
     }
 }
 
-/* Indicator children (001C5680 x7, 001C5760; ORIGINAL_FRAME_ORDER #39-#48).
- * The port ticks them as two aggregates at the first child's node: the
- * pickup light children (em_pickup's 001C5680 loop, #39-#44) and then the
- * em_props indicators (the panel/terminal children). Both draw a per-frame
- * LCG colour, so their place after the weather node keeps the original
- * order of those draws. */
-static int tick_indicators(EmActor *actor, Node *node, const EmArea11World *world)
+/* Indicator children (001C5680 x8, 001C5760; ORIGINAL_FRAME_ORDER #39-#48):
+ * each node runs its own behaviour (em_indicator_child_step) in walk order,
+ * so each draws its one 001F54E0 (one 00122BB8 value) where the original
+ * does. The workers: */
+typedef struct {
+    EmActor *actor;
+    Node *node;
+} IndicatorCall;
+
+/* 001C2360 / 001C22A0: the model and bone-slot bind. The port keeps no bone
+ * slots for these children (their draw takes the owner's palette, below),
+ * so the bind always succeeds; +0x4C becomes 001CACB0 (001CA5F0 mode 2). */
+static int indicator_init(void *ctx, uint32_t fn, int32_t *result)
+{
+    (void)ctx;
+    (void)fn;
+    *result = 0;
+    return 0;
+}
+
+/* 001C6380: the child's matrix from its +0xB0 / +0xC0, which the spawn
+ * copied from the owner. The port's +0x4C draw places the child with the
+ * owner's current palette (em_pickup / em_props), which is that matrix for
+ * the standing owners; the moving terminal copies its node matrix to the
+ * child in the original too. */
+static int indicator_place(void *ctx)
+{
+    (void)ctx;
+    return 0;
+}
+
+static int indicator_rand(void *ctx, int32_t *v0)
+{
+    (void)ctx;
+    *v0 = (int32_t)em_random_next();
+    return 0;
+}
+
+/* The +0x4C method 001CACB0, called by 001F54E0 with the child's new +0x80. */
+static int indicator_draw(void *ctx, uint32_t fn, void *obj)
+{
+    IndicatorCall *c = ctx;
+    const EmActor *parent = c->node->parent;
+    if (fn != EM_INDICATOR_CHILD_DRAW_001CACB0 || obj != c->actor || !parent)
+        return -1;
+    const float *c80 = c->actor->f80;
+    switch (parent->callback) {
+    case 0x00219550u:
+        return em_pickup_light_submit(parent->source_id, c80);
+    case 0x00159210u:
+        return em_props_indicator_submit(0, c80);
+    case 0x00827B10u:
+        return em_props_indicator_submit(1, c80);
+    case 0x00825940u: {
+        /* Model 0x7A (bank D_0028A56C) has no port mesh yet: its draw is the
+         * object-unit draw of docs/OWNER_DRAW.md (P1). Its colour is
+         * (0, 0, 0, 0.25) on the route, which 001D8C30 mode 1 turns into
+         * 1 / 128 of the texel: the RNG draw above is the part that shows. */
+        static int reported;
+        if (!reported++)
+            fprintf(stderr, "em_area11: 001C5680 child 0x7A of 0x825940: 001CACB0 not drawn (no model 0x7A "
+                            "mesh; OWNER_DRAW.md P1)\n");
+        return 0;
+    }
+    default:
+        return -1;
+    }
+}
+
+static int indicator_color(void *ctx, float c80[4])
+{
+    IndicatorCall *c = ctx;
+    const EmEffectKindsWorkers workers = {.ctx = ctx, .w_00122BB8 = indicator_rand,
+                                          .w_indirect = indicator_draw};
+    EmEffectKinds kinds = {.workers = &workers};
+    return em_effect_kinds_001F54E0(&kinds, c->actor, c80, EM_INDICATOR_CHILD_DRAW_001CACB0, c80);
+}
+
+static int indicator_free(void *ctx)
+{
+    IndicatorCall *c = ctx;
+    if (s_panel_child == c->actor)
+        s_panel_child = NULL;
+    return em_actor_pool_free_001AFC10(s_pool, s_scene, c->actor);
+}
+
+static int tick_indicator(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
-    /* 001C5680 with +4 == 3 or 2 frees itself (001AFC10): an item owner's
-     * take completion writes 3 (tick_pickup). */
-    if (actor->callback == 0x001C5680u && (actor->u04[0] == 3 || actor->u04[0] == 2))
-        return free_self_001AFC10(actor);
-    /* A freed head hands the group's aggregate to the next member the walk
-     * reaches (the aggregates skip the lights of freed owners). */
-    if (!s_heads[GROUP_INDICATORS]) {
-        s_heads[GROUP_INDICATORS] = actor;
-        node->head = 1;
-    }
-    if (node->head) {
-        em_pickup_lights_tick();
-        em_props_indicators_tick();
-    }
+    IndicatorCall call = {actor, node};
+    const EmIndicatorChildWorkers workers = {&call, indicator_init, indicator_place, indicator_color,
+                                             indicator_free};
+    EmIndicatorChildRecord record = {&actor->u04[0], actor->u0A[0], node->a0, actor->f80};
+    if (em_indicator_child_step(actor->callback, &record, &workers) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "indicator child: a worker failed (no draw target)");
+    return 1;
+}
+
+/* 00159210 state 1 / sub 2: r = +0x20; only when r != 0 does it write
+ * r[4] = 3 and clear the slot (the slot holds 0 when 001C5570's class-0xC
+ * alloc was refused, or when the powered terminal spawned no child). */
+int em_area11_bindings_panel_child_stop(void)
+{
+    if (!s_panel_child)
+        return 0;
+    s_panel_child->u04[0] = 3;
+    s_panel_child = NULL;
     return 1;
 }
 
@@ -646,10 +781,8 @@ static const Binding k_bindings[] = {
      "0018A6B0 x7 player attached equipment (D3, Q5): the port has no equipment-model draw"},
     {0x001E2560u, "head-bone sprite effect: UNBOUND", NULL, GROUP_NONE, NULL,
      "001E2560 head-bone sprite effect (Q5): UNBOUND"},
-    {0x001C5680u, "indicators: pickup lights + em_props indicators (group head)", "group: indicators",
-     GROUP_INDICATORS, tick_indicators, NULL},
-    {0x001C5760u, "indicators: pickup lights + em_props indicators (group head)", "group: indicators",
-     GROUP_INDICATORS, tick_indicators, NULL},
+    {0x001C5680u, "indicator child: 001C5680 (em_indicator_child)", NULL, GROUP_NONE, tick_indicator, NULL},
+    {0x001C5760u, "indicator child: 001C5760 (em_indicator_child)", NULL, GROUP_NONE, tick_indicator, NULL},
     {LEGACY_WORLD_CALLBACK, "legacy_world: S10a legacy block", NULL, GROUP_NONE, tick_legacy_world, NULL},
 };
 #define BINDING_COUNT (sizeof k_bindings / sizeof k_bindings[0])
@@ -737,6 +870,7 @@ void em_area11_bindings_reset(void)
 {
     memset(s_nodes, 0, sizeof s_nodes);
     memset(s_heads, 0, sizeof s_heads);
+    s_panel_child = NULL;
     em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
     em_area11_roger_reset();
     /* The overlay scripts are mutated in place: fresh images per visit. */

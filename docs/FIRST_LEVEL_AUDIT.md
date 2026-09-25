@@ -319,7 +319,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   - **AM-22/INV-23:** do not auto-start manifest BGM on the New Game path. **DONE** (9d4a631).
   - **SI-02/AM-17:** route `wpn_rand` and `footstep_rand5` through `em_random_next()` with the original bit extraction (00179B90: rand()&7 folded). **DONE** (7095fd6, `test-player-random-reference`).
   - **R03/R04: REFUTED — do not gate the cone off.** The original draws the flashlight cone: 0017A970 sets the draw enable D_008106C7 with D_00810D3C, 00188ED0 calls 00187780 while it is set, and 00187780 calls 001D9530, the cone-shell draw (unless area flag 001B0070() & 0x20000000). Recorded in 7095fd6. The port's per-pixel spot term is still a stand-in (`em_gfx.h`).
-  - **R09/ORCH-27:** clear to black until the original clear is found. OPEN (no commit addresses it).
+  - **R09/ORCH-27:** the original frame clear. **DONE (render + UI step, 2026-09-25):** the original clears Z only and draws the channel-3 background grid (001E1E60, kernel 0x0023C990) first in every world frame (docs/BACKGROUND.md); the port draws it from the disc-replayed asset, gated as 001D2300 gates its CALL. First control's sky region is (48, 48, 48) with no black pixel, as the original.
   - **ORCH-03, W24, INV-14, INV-15:** delete the dead `battery_terminal` path and the type-0x11 hook, and rename `have_battery` to the opening-complete byte D_00810811. **DONE:** `battery_terminal` and the rename in 9d4a631; the type-0x11 take hook and `em_game_set_battery` / `em_game_has_battery` removed by the cleanup-game lane.
 - **Originals:** 001AF2C0, 001B7D60, 001D8FD0, 00122BB8, 00179B90.
 - **Verification:**
@@ -478,6 +478,17 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Verification:** `audit_opening_lighting.py`, `test_point_light_reference`, plus GS-dump comparisons from opening_gs.bin.
 - **Depends on:** WP-3.
 - **Removes fabrication:** YES (the stand-in light and menu orbit).
+- **Render + UI step (2026-09-25):** the level background is live (R09 above);
+  the indicator children run per node (docs/CENSUS_UNVERIFIED.md): the
+  terminal arrow turns green once powered, as in route 04, and every child
+  draws its 001F54E0 in walk order. Still open in this area: the object-unit
+  draw P1/P2 (docs/OWNER_DRAW.md), the player drop shadow (docs/SHADOW_ORIGINAL.md
+  binding; blocked on the 0015BF90 route's 001CE300 / 001CF470), the
+  canonical render context (L32 / L30), the BATTERY page draw (needs a
+  record-level 002149F0), the mode-3/4 presenters (their data containers'
+  disc files are identified, docs/CENSUS_STANDINS.md: chunk00/f02_id02.bin,
+  chunk00/f03_id03.bin, chunk03/f15_id17.bin; the exporter extension and the
+  binding remain), 0021BAE0, and WP-8b.
 
 ### WP-14 Audio
 - **Scope:**
@@ -608,7 +619,6 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 | status-hub-ui boundary | Unsupported ammo selectors (primary≠2, secondary>4) use an inherited register as TEX0 | Capture with those selectors, or proof they are unreachable in AREA11. |
 | R01 | Is the status-menu actor draw fogged? | GS dump of the status-hub capture (FGE bit on the menu actor PRIM). |
 | R11 | Level vertex colour 1.0 → GS 128 or 255? | Compare RGBAQ in opening_gs.bin against record colours. |
-| R09/ORCH-27 | Original frame clear colour | Locate the clear in 001D1C50/001D2830 display-list setup; check the GS dump background. |
 | CAM-09 | Is arm 1 of the 00195130 case 0xB (y<185, z<220, 359<x<394.8) floor reachable? | Collision query at that XZ against AREA11 EMCL. |
 | P31 | Does AREA11 enable the passive hazard drain (D_008106C8 & 0x60)? | Read D_008106C8 in playable_ee.bin. |
 | SI-27/AM-21/INV-24 | Which 001FAE70 branch AREA11 takes (D_008104E4, weapon id, D_008106C8 track) | Read those globals in the handoff and playable captures; oracle 001FAE70. |

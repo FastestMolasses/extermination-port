@@ -400,13 +400,13 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | #22–23 | drums 00156620 | since census L25: `tick_box` → `em_area11_boxes_tick` (em_drum_original) in both variants | — |
 | #24, #25 | truck 00823FF0, trigger 008251E0 | since census L23: `tick_truck` → `em_area11_boxes_truck_tick` (em_truck_original over the shared world-model services) and `em_area11_boxes_trigger_tick` (its 0x8292C0 on em_area11_script_host) in both variants | — |
 | #26 | panel 00159210 (r18) | since WP-4: state 0 = its 001C5570 child and the host's D_008106D0 address; state 1 = `em_area11_interaction_host_panel_tick` (00159210/00157860 and the 001B17A0 publication) in both variants; `grate_update` keeps the static pose and cell 18 | — |
-| #27 | terminal 00827B10 (r19) | since WP-4: state 0 = the floor placement (D_0081083A → +0xB4 190/230, 001C6380: `em_area11_interaction_host_elevator_state0`, WP-4 fix round) and its 001C5760 child (interim spawn); state 1 = `em_area11_interaction_host_elevator_tick` (refusal 0x82A990 / powered 0x82A750 with the carry 00828050, publication at 0x827E78) in both variants | — |
+| #27 | terminal 00827B10 (r19) | since WP-4: state 0 = the floor placement (D_0081083A → +0xB4 190/230, 001C6380: `em_area11_interaction_host_elevator_state0`, WP-4 fix round) and its 001C5760 child (the inline spawn 0x827BD8, (1, 0, 0, 0.25) at +0xA0, kept at +0x2E4); state 1 = `em_area11_interaction_host_elevator_tick` (refusal 0x82A990 / powered 0x82A750 with the carry 00828050, publication at 0x827E38, the +0x28 level step) then the child colour 0x827EAC (`em_indicator_00827B10_colour`) in both variants | — |
 | #28 | prop 001C4820 (r20) | render-only | — |
 | #29 | 001E55F0 | `em_weather` over the node's own state (`em_snow_runtime_tick_actor`, S12b); spawned by the 001C1EA0 translation over the canonical D_008106C8 since S12a; B8=2 with fade 2 → state 3 → frees itself | — |
 | #30 | 001C5930 | lifecycle translated (S12b: state 0→1, B8≠0 → 3, 2/3 free); the card is the legacy em_hud title (manifest arm at load, 001C5C50 arm in state 4) | area-title card translation (0x12C ticks, 3B8D suppression, the 001C5860 line) |
 | #31–37 | 0018A6B0 | UNBOUND | identify first (0018A880/0015C420) |
 | #38, #46 | 001E2560 | UNBOUND | identify first |
-| #39–45, #47, #48 | 001C5680, 001C5760 | group adapter on the first live member: `em_props_indicators_tick` and the pickup lights; since WP-6 a 001C5680 child whose +4 its item owner set to 3 frees itself (001AFC10), and a freed head hands the aggregate to the next member | the per-child colour and draw (001F54E0 is already per light) |
+| #39–45, #47, #48 | 001C5680, 001C5760 | per node since the render + UI step (2026-09-25): `em_indicator_child_step` with `em_effect_kinds_001F54E0`, drawing through the owner's child mesh (em_pickup / em_props); +4 > 1 frees (001AFC10); the terminal's colour tail 0x827EAC after its level step | the 0x7A child's model draw (OWNER_DRAW.md P1) |
 
 **Non-roster scenes** (office and drawbridge, used by every `EM_*_TEST` and by `tests/run_suite.sh`) keep one `legacy_world`
 node. It holds today's exact legacy call order, so their outputs are unchanged.

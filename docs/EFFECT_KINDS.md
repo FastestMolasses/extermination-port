@@ -24,7 +24,7 @@ delivers. No row is live yet: every row is **verified-unbound** until the coordi
 | 001EBF10 subtype 0x20 handler (0x80000049, L23) | NM | the .s (the NEARMISS C has two wrong constants) | missing | verified-unbound | 08 |
 | 001CFB50 the handlers' transform block (added by the Effects step, 2026-09-24) | BM | C | boundary | verified-unbound | 00 |
 | 001D0540 its depth scale (added by the Effects step) | NM | the .s | boundary | verified-unbound | 00 |
-| 001F54E0 effect colour | AW | the .s | unverified (em_effect_color.h) | verified-unbound; the live header is **not** bit-exact (section 3.3) | S2 |
+| 001F54E0 effect colour | AW | the .s | unverified (em_effect_color.h) | **live** since the render + UI step (2026-09-25): the indicator children's one colour (section 4.5); the old header copy is deleted | S2 |
 | 001F5640 glow-marker list selector | BM | C | missing | verified-unbound | S2 |
 | 001F5940 one glow marker | BM | C, float order from the .s | missing | verified-unbound | S2 |
 | 001F5C20 glow-marker walker | BM | C | missing | verified-unbound | S2 |
@@ -320,24 +320,19 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contr
    tests/effect_kinds_test.c src/game/em_effect_kinds.c -lm -o build/effect_kinds_test && ./build/effect_kinds_test
 ```
 
-### 3.3 The live `em_effect_color.h` (001F54E0 stand-in) is not bit-exact
+### 3.3 The former `em_effect_color.h` copy of 001F54E0
 
-The test runs the header's `em_effect_delta` on the same inputs as the original. It is informational: the
-header is not this lane's file.
-
-| Inputs | Header equal to the original |
-|---|---|
-| Default sweep | 311 of 359 |
-| Full sweep | 3,291 of 4,109 |
-| Captured pickup colours | **107 of 109** |
-
-The mismatches are one-ulp differences. The header computes each sum exactly in double and then truncates, but
-the EE ADD/SUB pre-trims the smaller operand (docs/EE_FLOAT_MODEL.md). For example, the header gives
-−126.99999 (0xC2FDFFFF) where the original clamps to −127. `em_effect_kinds_001F54E0` matches in every case.
+The header's own 001F54E0 arithmetic (`em_effect_delta`) was measured here
+against the original: one-ulp differences in 818 of 4,109 swept cases and 2
+of 109 captured pickup colours (it summed exactly in double and truncated,
+where the EE ADD/SUB pre-trims the smaller operand; docs/EE_FLOAT_MODEL.md).
+It was deleted when the indicator children were bound to this translation
+(section 4.5); em_effect_color.h keeps only em_effect_float32 and the
+001D8C30 mode-1 conversion.
 
 ## 4. Binding (coordinator)
 
-Nothing here is linked. Section 5 gives the sources hunk. Each subsection names the call site, the stand-in
+em_effect_kinds.c is in COMMON since the render + UI step (2026-09-25), for 001F54E0 only (4.5); nothing else here is bound. Section 5 gives the sources hunk. Each subsection names the call site, the stand-in
 the translation replaces, and the workers it needs.
 
 ### 4.1 Handlers → `em_effect_original`'s `w_handler`
@@ -414,17 +409,19 @@ registration is the stand-in.
 Load it once from the ELF (`em_effect_kinds_load_tables`). The latch bytes D_0081075D..D_0081079E come from the
 scene state.
 
-### 4.5 Effect colour → pickup and prop indicators
+### 4.5 Effect colour → pickup and prop indicators (live)
 
-Two live call sites use the header: `em_pickup_lights_tick` (`em_pickup.c`) and the prop indicator
-(`em_props.c`). Both call `em_effect_color(em_random_next(), color, tint)`.
-- **What to replace.** Replace its `em_effect_delta` part with `em_effect_kinds_001F54E0`:
-  - `out` = the node's +0x80 block;
-  - `color` = the base colour (+0xA0, which 001C5680 copies to +0x80 first);
-  - `w_00122BB8` = the shared game RNG;
-  - `w_indirect` = the node's +0x4C draw.
-- **What stays.** The 001D8C30 mode-1 conversion that `em_effect_color` appends after the delta stays in the draw
-  (census row 001D8C30, unverified).
+Every 001C5680 / 001C5760 node calls `em_effect_kinds_001F54E0` from its own
+behaviour (em_area11_bindings.c `tick_indicator`, em_indicator_child.c;
+docs/CENSUS_UNVERIFIED.md "001C5680 and 001C5760"):
+- `out` = `color` = the child's +0x80 (001C5680 copies +0xA0 there first);
+- `w_00122BB8` = `em_random_next`, the game RNG;
+- `w_indirect` = the +0x4C method 001CACB0: it queues the child mesh's draw
+  (`em_pickup_light_submit` / `em_props_indicator_submit`), which converts
+  +0x80 with 001D8C30 mode 1 (`em_effect_color_gs`).
+
+The instance is a stack `EmEffectKinds` with only these two workers: 001F54E0
+reads no tables or globals.
 
 ## 5. Makefile hunks (for the lead; this lane does not edit the Makefile)
 

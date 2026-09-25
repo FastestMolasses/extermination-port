@@ -42,6 +42,7 @@ static int manifest_word_token(const char *line, const char *tok)
 
 void scene_manifest_load(void)
 {
+    em_gfx_background_unload(em_frame_gfx());
     em_snow_runtime_clear(em_frame_gfx());
     em_area11_effect_runtime_clear(em_frame_gfx());
     em_enemy_set_scene_directory(g.scene_dir);
@@ -482,17 +483,33 @@ void scene_manifest_load(void)
             if (!em_snow_runtime_load(em_frame_gfx(), g.scene_dir, name, gname,
                                        (unsigned)gk))
                 fprintf(stderr, "manifest: original weather assets failed: %s", line);
+        } else if (sscanf(line, "background %255s", name) == 1) {
+            /* The level background (docs/BACKGROUND.md): 001C1F50 arms
+             * render flags 0x20 / 0x21 for AREA11 (key 0x0B00) and
+             * 001E2260 / 001E2270 store its TEX0 and colour; the asset
+             * carries both, checked against the captures by
+             * tools/test_background_reference.py. The line stands in for
+             * flag 0x20: only AREA11's manifest has it. Required: the
+             * world frame draws it first (em_render_frame.c). */
+            char bpath[560];
+            snprintf(bpath, sizeof bpath, "%s/%s", g.scene_dir, name);
+            if (em_gfx_background_load(em_frame_gfx(), bpath) != 0) {
+                fprintf(stderr, "manifest: required original background failed: %s "
+                        "(STARTUP.md step 40)\n", bpath);
+                em_frame_request_quit();
+            }
         } else if (sscanf(line, "prop_indicator %63s %255s", gname, name) == 2) {
             if (em_props_indicator_install(em_frame_gfx(), g.scene_dir,
                                             gname, name) < 0)
                 fprintf(stderr, "manifest: prop indicator failed: %s", line);
-        } else if (sscanf(line, "pickup_light %i %255s %f %f %f %f",
-                          &gk, name, &x, &y, &z, &yaw) == 6) {
+        } else if (sscanf(line, "pickup_light %i %255s", &gk, name) == 2) {
             /* Child model 73 follows the already loaded owner's matrix.
-             * The four values are original RGB factors and amplitude. */
-            const float color[4] = {x, y, z, yaw};
+             * The line's four numbers are the captured child +0xA0 (kept
+             * for tools/test_census_unverified_reference.py); the live
+             * colour is the child's own +0xA0, which 00219550 passes at
+             * its 001C5570 spawn (em_area11_bindings.c). */
             if (em_pickup_light_add(em_frame_gfx(), g.scene_dir, gk,
-                                    name, color) == -1)
+                                    name) == -1)
                 fprintf(stderr, "manifest: pickup light failed: %s", line);
         } else if (sscanf(line, "examine %f %f %f %f %f %f",
                           &x, &y, &z, &yaw, &gx, &gy) == 6) {
@@ -727,6 +744,7 @@ int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
  * they persist across the switch (em_game.h em_game_scene_switch). */
 void scene_unload(EmGfx *gfx)
 {
+    em_gfx_background_unload(gfx);
     em_snow_runtime_clear(gfx);
     em_area11_effect_runtime_clear(gfx);
     for (int i = 0; i < g.n_scene; i++) {

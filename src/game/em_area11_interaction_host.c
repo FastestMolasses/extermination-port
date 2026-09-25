@@ -1,4 +1,5 @@
 #include "game/em_area11_interaction_host.h"
+#include "game/em_area11_bindings.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_camera_rotation.h"
@@ -304,10 +305,13 @@ static int powered(void)
     return byte && (*byte & 0x80) != 0;
 }
 
+/* 00159210 state 1 / sub 2: if +0x20 != 0, its child's +4 = 3 (the 0x75
+ * indicator node frees itself on its next behaviour call) and +0x20 = 0;
+ * an empty slot is skipped, as the original's null check skips it. */
 static int stop_indicator(void *context)
 {
     (void)context;
-    em_props_panel_complete();
+    (void)em_area11_bindings_panel_child_stop();
     return 1;
 }
 

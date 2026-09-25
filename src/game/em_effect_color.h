@@ -1,11 +1,13 @@
-/* Original 001F54E0 effect color and 001D8C30 mode-1 GS conversion.
- * Shared by pickup and placed-prop indicators. No global RNG state is
- * hidden here: callers supply one original 31-bit SDK RNG value. */
+/* em_effect_float32 (the EE-truncating float step several interim modules
+ * share) and the 001D8C30 mode-1 GS conversion of the indicator children's
+ * draw colour. 001F54E0 itself is em_effect_kinds_001F54E0. */
 #ifndef EM_EFFECT_COLOR_H
 #define EM_EFFECT_COLOR_H
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+
+#include "game/em_ee_float.h"
 
 static inline float em_effect_float32(double value)
 {
@@ -23,33 +25,18 @@ static inline float em_effect_float32(double value)
     return result;
 }
 
-static inline void em_effect_delta(uint32_t random_value, const float color[4],
-                                float delta[3])
+/* The GS colour of an indicator child's draw (its +0x4C method 001CACB0):
+ * the child's +0x80 vector after 001F54E0 (em_effect_kinds_001F54E0, the one
+ * translation of that routine) goes through 001D8C30 mode 1, which stores
+ * bias + (128 + c.xyz) with bias = 8388608.0 (both adds on the EE, so the
+ * low mantissa bits are the GS integer colour, 0..255). The port's additive
+ * draw takes that integer as a modulate factor of value / 128. */
+static inline void em_effect_color_gs(const float c80[4], float tint[4])
 {
-#pragma STDC FP_CONTRACT OFF
-    /* 001F54E0: preserve each EE operation and its float truncation. */
-    float random=em_effect_float32((double)em_effect_float32(random_value)*0x1p-31);
-    float centered=em_effect_float32(-127.0+em_effect_float32(254.0*random));
-    float brightness=em_effect_float32(127.0+
-                                  em_effect_float32((double)color[3]*centered));
     for (int channel=0;channel<3;++channel) {
-        float value=em_effect_float32(em_effect_float32((double)color[channel]*brightness)-127.0);
-        if (value < -127.0f) value=-127.0f;
-        if (value > 127.0f) value=127.0f;
-        delta[channel]=value;
-    }
-}
-
-static inline void em_effect_color(uint32_t random_value, const float color[4],
-                                float tint[4])
-{
-    float delta[3];
-    em_effect_delta(random_value,color,delta);
-    for (int channel=0;channel<3;++channel) {
-        /* 001D8C30 mode1 adds 128, then uses the float mantissa as
-         * GS integer color. The positive bias truncates on EE. */
-        float value=em_effect_float32(128.0+(double)delta[channel]);
-        tint[channel]=(float)(int)value/128.0f;
+        uint32_t value=em_ee_add_bits(0x43000000u,em_ee_bits(c80[channel]));
+        uint32_t biased=em_ee_add_bits(0x4B000000u,value);
+        tint[channel]=(float)(biased&0x7FFFFFu)/128.0f;
     }
     tint[3]=1.0f;
 }

@@ -153,6 +153,9 @@ void em_frame_set_message_service(const EmFrameMessageService *service);
 void em_frame_set_step_i(int (*service)(void *context), void *context);
 
 void em_frame_set_movie_active(int active);
+/* The D_00821058 == 1 mirror: the frame in which 00203350 plays (the
+ * original then runs 001D1C10, which sets render flag 4). */
+int em_frame_movie_active(void);
 
 #ifdef __cplusplus
 }

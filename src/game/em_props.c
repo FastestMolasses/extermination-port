@@ -7,13 +7,12 @@
 
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
-#include "game/em_random.h"
 
 typedef struct {
     EmModel model;
     EmGfxMesh *mesh;
     float *palette;
-    int enabled, initialized, visible, level;
+    int visible;      /* submitted this frame (em_props_indicator_submit) */
     float tint[4];
 } PropIndicator;
 
@@ -140,50 +139,18 @@ int em_props_indicator_install(EmGfx *gfx, const char *scene_dir,
         indicator_unload(gfx,indicator);
         return -1;
     }
-    /* 00159210 omits its red child when its completed bit is already set
-     * at initialization. 00827B10 always allocates the elevator child. */
-    indicator->enabled=slot==1 || !em_game_terminal_powered();
     return 0;
 }
 
-void em_props_panel_complete(void)
+int em_props_indicator_submit(int slot, const float c80[4])
 {
-    /* 00159210 state1/sub2, after its own script finishes: child[4]=3.
-     * Called only by that interaction's completion, not by a global power
-     * toggle. The panel geometry remains at its original placement. */
-    indicators[0].enabled=0;
-    indicators[0].visible=0;
-}
-
-void em_props_indicators_tick(void)
-{
-    for (int slot=0;slot<2;++slot) {
-        PropIndicator *indicator=&indicators[slot];
-        indicator->visible=0;
-        if (!indicator->mesh || !indicator->enabled) continue;
-        if (!indicator->initialized) {
-            indicator->initialized=1;
-            continue;
-        }
-        float color[4]={1,0,0,slot==0 ? 1.0f : .25f};
-        if (slot==1) {
-            /* 00827B10 actor+28 approaches 128/0 by exactly 8 each
-             * active tick. Positive levels use green; zero uses red. */
-            if (em_game_terminal_powered()) {
-                if (indicator->level<128) indicator->level+=8;
-                if (indicator->level>128) indicator->level=128;
-            } else {
-                if (indicator->level>0) indicator->level-=8;
-                if (indicator->level<0) indicator->level=0;
-            }
-            if (indicator->level) {
-                color[0]=0;
-                color[1]=(float)indicator->level/128.0f;
-            }
-        }
-        em_effect_color(em_random_next(),color,indicator->tint);
-        indicator->visible=1;
-    }
+    /* The +0x4C draw (001CACB0) of the panel's 0x75 child (slot 0) or the
+     * terminal's 0x10 child (slot 1), reached from 001F54E0 inside the
+     * child's own node (em_area11_bindings.c tick_indicator). */
+    if (slot<0 || slot>1 || !c80 || !indicators[slot].mesh) return -1;
+    em_effect_color_gs(c80,indicators[slot].tint);
+    indicators[slot].visible=1;
+    return 0;
 }
 
 void em_props_indicators_draw(EmGfx *gfx, const float viewproj[16])
@@ -198,5 +165,6 @@ void em_props_indicators_draw(EmGfx *gfx, const float viewproj[16])
             memcpy(indicator->palette+b*16,parent,16*sizeof(float));
         em_gfx_draw_skinned_additive(gfx,indicator->mesh,viewproj,
             indicator->palette,indicator->model.bone_count,indicator->tint);
+        indicator->visible=0; /* one draw per submitted 001F54E0 */
     }
 }

@@ -66,4 +66,12 @@ int em_player_closure_live_footstep(EmPlayerLiveActor *actor);
 /* Fail-stop workers reached (each is reported once on stderr). */
 unsigned em_player_closure_live_faults(void);
 
+/* A store to 0x70003A20 (raw bits) by an owner outside the player stage
+ * (00827B10's tail, em_area11_bindings.c) into the player closure's copy
+ * above (EmPlayerLandScratch.s3A20). The port keeps other copies of the
+ * word (em_camera_live, em_camera_leftovers, em_area11_roger); this store
+ * reaches only this one. Whether any original reader takes the tail's
+ * value before writing the word itself is not measured. */
+void em_player_closure_live_store_3A20(uint32_t bits);
+
 #endif

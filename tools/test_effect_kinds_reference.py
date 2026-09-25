@@ -47,9 +47,9 @@ Capture evidence:
   +0x4C, +0x50 and the 001D0540 depth scale +0x54; +0x44 is the
   accumulator before the draw's step, checked to be the EE pre-image).
 
-It also measures the live header src/game/em_effect_color.h (em_effect_delta,
-the port's existing 001F54E0 stand-in) against the original and reports the
-agreement count (informational; the header is not this lane's file).
+The live indicator children draw their colour through this translation
+(em_area11_bindings.c tick_indicator), so em_effect_color.h no longer
+carries a second 001F54E0.
 
 Default run ~10 s; EM_TEST_FULL=1 runs the exhaustive sweeps (all 65536
 selector keys, larger random sweeps). No original instruction bytes,
@@ -198,22 +198,11 @@ class Kinds(C.Structure):
                 ('workers', C.POINTER(Workers)), ('fault', Fault)]
 
 
-SHIM = r'''
-#include "game/em_effect_color.h"
-void shim_effect_delta(uint32_t random_value, const float color[4], float delta[3])
-{
-    em_effect_delta(random_value, color, delta);
-}
-'''
-
-
 def build_lib():
     OUT.mkdir(parents=True, exist_ok=True)
-    shim = OUT / 'color_header_shim.c'
-    shim.write_text(SHIM)
     lib_path = OUT / 'effect_kinds.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-Isrc', 'src/game/em_effect_kinds.c', str(shim),
+                    '-shared', '-fPIC', '-Isrc', 'src/game/em_effect_kinds.c',
                     '-o', str(lib_path)], cwd=ROOT, check=True)
     lib = C.CDLL(str(lib_path))
     P = C.POINTER
@@ -233,7 +222,6 @@ def build_lib():
     lib.em_effect_kinds_001F66F0.argtypes = [K, u32]
     for name in ('001F5C20', '001F0310', '001F3FA0', '001F6850', '001F68B0', '001F6E40'):
         getattr(lib, 'em_effect_kinds_' + name).argtypes = [K]
-    lib.shim_effect_delta.argtypes = [u32, FP, FP]
     lib.em_effect_kinds_001CFB50.argtypes = [K, P(XfState), P(Xf), i32, FP, u32, u32, u32, u32, u32]
     lib.em_effect_kinds_001D0540.argtypes = [K, P(XfState), FP, FP, u32, FP]
     return lib
@@ -706,19 +694,6 @@ def color_case(lib, elf, ee, obj, color, rand, alias, label, header):
                                                    C.cast(col, FP)), [(obj + 0x80, obj + 0x90)])
     got = [ee.load(obj + 0x80 + 4 * i) for i in range(4)]
     assert list(out) == got, (label, 'obj +0x80', [hex(x) for x in out], [hex(x) for x in got])
-    # the live header's delta (informational)
-    hc = (C.c_uint32 * 4)(*color)
-    hd = (C.c_uint32 * 3)()
-    lib.shim_effect_delta(rand, C.cast(hc, FP), C.cast(hd, FP))
-    header['cases'] += 1
-    kind = 'captured' if isinstance(label[0], str) and label[0][:2].isdigit() else 'swept'
-    header[kind + '_cases'] = header.get(kind + '_cases', 0) + 1
-    if list(hd) == got[:3]:
-        header['equal'] += 1
-        header[kind + '_equal'] = header.get(kind + '_equal', 0) + 1
-    elif len(header['examples']) < 5:
-        header['examples'].append({'rand': rand, 'color': [hex(c) for c in color],
-                                   'original': [hex(x) for x in got[:3]], 'header': [hex(x) for x in hd]})
     ee.restore()
 
 
@@ -1072,16 +1047,12 @@ def main():
     assert not missing, ('instructions never executed', missing)
     counts['functions_fully_executed'] = len(FUNCS)
     counts['statically_unreachable_words'] = dead
-    counts['header_em_effect_delta_equal'] = f"{header['equal']}/{header['cases']}"
-    counts['header_equal_on_captured_pickups'] = f"{header.get('captured_equal', 0)}/{header.get('captured_cases', 0)}"
-    report = dict(status='PASS', elf_sha256=ELF_SHA, cases=counts,
-                  header_mismatch_examples=header['examples'], seconds=round(time.time() - t0, 1))
+    report = dict(status='PASS', elf_sha256=ELF_SHA, cases=counts, seconds=round(time.time() - t0, 1))
     (OUT / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     banner(part(nkeys, 0x10000, 'selector keys'),
            part(counts['marker_cases'], 17 * 150, '001F5940 cases'),
            part(counts['handler_cases'], 4 * 600, 'handler cases'),
            part(counts['color_cases'], 4000, '001F54E0 cases'))
-    print('header em_effect_color.h em_effect_delta vs original: %s equal' % counts['header_em_effect_delta_equal'])
     print('Original effect kinds: PASS', json.dumps(counts))
 
 

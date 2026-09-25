@@ -223,26 +223,21 @@ translation.
   (`tools/test_census_standins_reference.py`).
   The background test does not re-prove it.
 
-**Pending coordinator wiring.** `em_scene.c` and `em_render_frame.c` are
-not this lane's files, so the lead applies this:
-- Scene load (`scene_manifest_load`) calls `em_gfx_background_unload`.
-- A `background <file>` line calls
-  `em_gfx_background_load(gfx, "<scene_dir>/<file>")`. The manifest line
-  stands in for render flag 0x20, which 001C1F50 arms for key 0x0B00.
-- The world branch of `frame_close_out` calls
-  `em_gfx_background_draw(gfx, g.cam.view, zoom)` before the fog and chain
-  draws.
-- 001D2300 draws only when `D_008106C4 == 0`, flag 4 is clear and flag 0x20
-  is set. The draw must be gated on the port's mirrors:
-  - `D_008106C4`: em_frame.c `screen_suppress`. It is static today and
-    needs a getter.
-  - Flag 4: set by 001D1C10, which gs_readback_queue_run reaches when
-    D_00821058 == 1. em_frame.c mirrors that condition as `movie_active`;
-    no mirror of flag 4 itself exists.
-  - Until the gate is in place, those frames are an open fail-stop item
-    (see Open).
-- The status-screen UI scene does not call it; the original hub frame has
-  no background CALL either.
+**Wiring (live since the render + UI step, 2026-09-25).**
+- `scene_manifest_load` and `scene_unload` (em_scene.c) call
+  `em_gfx_background_unload`. A `background <file>` line calls
+  `em_gfx_background_load(gfx, "<scene_dir>/<file>")`; a failure is a
+  required-asset fault (the game quits, naming STARTUP.md step 40). The line
+  stands in for render flag 0x20, which 001C1F50 arms for key 0x0B00: only
+  AREA11's manifest has it.
+- The world branch of `frame_close_out` (em_render_frame.c) calls
+  `em_gfx_background_draw(gfx, g.cam.view, zoom)` before the fog and every
+  other draw, when `D_008106C4 == 0` (the canonical request byte
+  `req[EM_SCENE_REQ_C4]`) and no movie played in the frame
+  (`em_frame_movie_active()`, the D_00821058 == 1 mirror: 001D1C10 sets
+  flag 4 only in such a frame, and 001D1C50 clears it at the next head).
+- The status-screen scenes (the hub, the request pages, the UI scene) do not
+  draw it: the original hub frame has no background CALL.
 
 ## Verification
 
@@ -299,9 +294,7 @@ not this lane's files, so the lead applies this:
 - ERLENG is modelled as 1/sqrt in double, truncated to binary32. The test
   applies the same model on both sides. The hardware EFU result is not
   verified bit for bit, because no capture holds the kernel's output.
-- **Fail-stop until gated.** 001D2300 skips the draw when D_008106C4 != 0
-  or render flag 4 is still set. Flag 4 is set by 001D1C10, which
-  gs_readback_queue_run reaches when D_00821058 == 1. No such AREA11 world
-  frame has been captured. The proposed wiring draws on every world frame
-  until the coordinator gates it on em_frame's `screen_suppress` and on
-  the flag-4 condition (see Pending coordinator wiring).
+- **The movie frame.** 001D2300 skips the draw in the frame where 00203350
+  played (flag 4). The port's movie frames do not reach frame_close_out's
+  world branch, and the gate reads the movie mirror for the frame that
+  starts one; no AREA11 world frame with a movie has been captured.

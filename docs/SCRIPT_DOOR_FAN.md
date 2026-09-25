@@ -471,8 +471,10 @@ codes are listed in each header.
 - **Fan 0x827630.** Follow FAN_ORIGINAL.md "Binding". It replaces the NULL
   row "fan: static" of `em_area11_bindings.c` (em_pickup's static draw).
 - **Creature 0x825940.** It replaces `tick_enemy_00825940`, which is the
-  legacy `em_enemy_update` group through `em_game_legacy_enemy_tick` plus the
-  INTERIM `spawn_001C5570(actor, 0x7A, 1, 1)`.
+  legacy `em_enemy_update` group through `em_game_legacy_enemy_tick` plus its
+  state-0 inline child spawn (0x825A74: 0x7A, (0, 0, 0, 0.25), a 001C5680
+  node of its own; the translation must write that child's +0xA0 through the
+  node the spawn keeps at its +0x220, em_area11_bindings.c).
   - Call `em_husk_creature_tick(view, world, w, fault)` per pool tick.
   - The view maps +0, +4, +0x28, +0xB0..+0xCC, +0x11C and +0x1F4..+0x224 of
     the record.
@@ -547,7 +549,7 @@ codes are listed in each header.
   `COMMON`.
 - **Rebinding.** `em_opening_runtime.c` case 20 (op14) and
   `em_area11_bindings.c` (the rows 0x825940, 0x827490 and 0x823CE0, and
-  `tick_enemy_00825940`'s interim spawn) are rebound as section 5 describes.
+  `tick_enemy_00825940`'s child spawn) are rebound as section 5 describes.
   `EmScriptHostWorkers.w_001B0080` binds to the new adapter.
 - **Census.** Apply the corrections of 1.4 and the after-statuses of section 1
   in the next classification pass.

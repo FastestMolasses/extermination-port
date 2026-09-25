@@ -178,6 +178,8 @@ const uint16_t *em_player_closure_live_pad_config(void) { return L.pad_config; }
 
 unsigned em_player_closure_live_faults(void) { return L.faults; }
 
+void em_player_closure_live_store_3A20(uint32_t bits) { L.land.s3A20 = bits; }
+
 static EmSceneState *scene(void) { return em_scene_state(); }
 
 static int req_byte(uint32_t address, uint8_t *out)

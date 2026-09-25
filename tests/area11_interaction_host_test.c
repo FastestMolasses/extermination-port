@@ -185,7 +185,10 @@ int em_bgm_wav_read(const char *path, EmBgmWav *wav, const char *tag)
     *wav = (EmBgmWav){calloc(2, sizeof(int16_t)), 1, 2, 48000};
     return wav->pcm ? 0 : -1;
 }
-void em_props_panel_complete(void) { ++indicators; }
+/* 1: the +0x20 child existed and was stopped; 0: the slot was empty
+ * (00159210 case 2 skips both stores when +0x20 == 0). */
+static int panel_child_slot = 1;
+int em_area11_bindings_panel_child_stop(void) { ++indicators; return panel_child_slot; }
 void elevator_pose(void) {}
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t vertices,
     const uint32_t *indices, uint32_t count, const EmGfxTexDesc *textures,
@@ -644,8 +647,9 @@ static void no_battery(void)
     teardown();
 }
 
-static void panel_menu(int discharge)
+static void panel_menu(int discharge, int child_slot)
 {
+    panel_child_slot = child_slot;
     setup(0); /* Keep the actual inventory acquired by the first pickup. */
     assert(em_pickup_item_count(0x1B) == 1 && em_pickup_battery_charge() == 12);
     EmInteractionScene *scene = em_area11_interaction_host_scene();
@@ -702,7 +706,8 @@ static void panel_menu(int discharge)
     assert(em_pickup_battery_charge() == (discharge ? 8 : 12));
     assert(powered() == discharge && indicators == old_indicators + (unsigned)discharge);
     assert(panel->owner.phase == (discharge ? 3 : 0));
-    printf("AREA11 native host panel discharge%d: %u ordinary callbacks PASS\n", discharge, ticks);
+    printf("AREA11 native host panel discharge%d child%d: %u ordinary callbacks PASS\n", discharge, child_slot, ticks);
+    panel_child_slot = 1;
     teardown();
 }
 
@@ -976,8 +981,10 @@ int main(void)
     first_battery();
     cinematic_face(0);
     cinematic_face(1);
-    panel_menu(0);
-    panel_menu(1);
+    panel_menu(0, 1);
+    panel_menu(1, 1);
+    first_battery(); /* a fresh charged battery for the next discharge */
+    panel_menu(1, 0); /* empty +0x20: the completion still succeeds */
     owned_teardown();
     elevator_state0_floor();
     missing_sound_bank();

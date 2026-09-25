@@ -1,14 +1,33 @@
-/* Original pickup-effect lifecycle, color range, and parent transform.
- * Include the module to exercise its private color kernel with controlled
- * RNG input; model/GPU boundaries are small deterministic test doubles. */
+/* The pickup light's colour (001F54E0 = em_effect_kinds_001F54E0, then the
+ * 001D8C30 mode-1 GS conversion), its draw at the owner's transform, and the
+ * battery inventory. The child's behaviour (init frame, stop) is
+ * em_indicator_child (tests/indicator_child_test.c and
+ * tools/test_census_unverified_reference.py). Model/GPU boundaries are
+ * small deterministic test doubles. */
 #include <assert.h>
 #include "../src/game/em_pickup.c"
+#include "game/em_effect_kinds.h"
 
 static int draws, random_calls;
 static float drawn_palette[32], drawn_tint[4];
 static uint32_t random_value;
 
 uint32_t em_random_next(void) { ++random_calls; return random_value; }
+
+/* 001F54E0 over a child whose +0x80 is `colour`, with the RNG value `r`;
+ * delta = the +0x80..+0x88 it leaves, tint = the GS colour / 128. */
+static int w_rand(void *ctx, int32_t *v0) { *v0 = (int32_t)*(uint32_t *)ctx; return 0; }
+static int w_draw(void *ctx, uint32_t fn, void *obj) { (void)ctx; (void)obj; return fn == 0x001CACB0u ? 0 : -1; }
+static void colour_001F54E0(uint32_t r, const float colour[4], float delta[3], float tint[4])
+{
+    const EmEffectKindsWorkers w = {.ctx = &r, .w_00122BB8 = w_rand, .w_indirect = w_draw};
+    EmEffectKinds k = {.workers = &w};
+    float c80[4];
+    memcpy(c80, colour, sizeof c80);
+    assert(em_effect_kinds_001F54E0(&k, c80, c80, 0x001CACB0u, c80) == 0);
+    if (delta) memcpy(delta, c80, 3 * sizeof(float));
+    if (tint) em_effect_color_gs(c80, tint);
+}
 
 /* 001C40B0 over em_pickup's canonical item block (the resolver the
  * owner adapter uses). */
@@ -77,46 +96,50 @@ int main(void)
         4.2854766845703125f};
     for (unsigned i=0;i<6;++i) {
         float delta[3];
-        em_effect_delta(random_fixture[i],green,delta);
+        colour_001F54E0(random_fixture[i],green,delta,NULL);
         assert(delta[0]==-127.0f && delta[1]==delta_fixture[i] && delta[2]==-127.0f);
     }
-    em_effect_color(0,green,tint);
+    colour_001F54E0(0,green,NULL,tint);
     assert(tint[0]==1.0f/128 && tint[1]==96.0f/128 && tint[2]==1.0f/128);
-    em_effect_color(0x40000000,green,tint);
+    colour_001F54E0(0x40000000,green,NULL,tint);
     assert(tint[1]==1.0f);
-    em_effect_color(0x7fffffff,green,tint);
+    colour_001F54E0(0x7fffffff,green,NULL,tint);
     assert(tint[1]==159.0f/128 && tint[3]==1.0f);
     const float full[4]={1,1,1,1};
-    em_effect_color(0x7fffffff,full,tint);
+    colour_001F54E0(0x7fffffff,full,NULL,tint);
     assert(tint[0]==254.0f/128); /* largest 31-bit RNG input truncates below 1 */
 
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
     const float pos[3]={211.6f,229.9f,227.2f};
     const float viewproj[16]={0};
     em_pickup_reset();
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-1);
+    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==-1);
     assert(em_pickup_add(gfx,"scene",0x1b,pos,-PICKUP_PI/2,
                          0xb01,"props/item_72.emdl",0)==0);
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==0);
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-1);
+    s.p[0].source_id=0x2A;   /* the owner's EMIS record (the host binds it) */
+    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==0);
+    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==-1);
     em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==0);
-    em_pickup_lights_tick();
+    assert(draws==0);          /* nothing submitted: no draw */
+    float c80[4];
+    colour_001F54E0(0x40000000,green,c80,NULL);
+    c80[3]=1.0f;
+    assert(em_pickup_light_submit(0x2B,c80)==-1);   /* no light of that owner */
+    assert(em_pickup_light_submit(0x2A,c80)==0);
     em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==0 && random_calls==0); /* original initialization frame */
-    random_value=0x40000000;
-    em_pickup_lights_tick();
-    em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==1 && random_calls==1 && drawn_tint[1]==1.0f);
+    assert(draws==1 && drawn_tint[1]==1.0f);
     assert(drawn_palette[12]==pos[0] && drawn_palette[13]==pos[1]);
     assert(drawn_palette[14]==pos[2] && fabsf(drawn_palette[2]-1)<1e-6f);
     assert(memcmp(drawn_palette,drawn_palette+16,16*sizeof(float))==0);
+    em_pickup_lights_draw(gfx,viewproj);
+    assert(draws==1);          /* one draw per submitted 001F54E0 */
     /* The owner's FREE (00219550 state 3's 001AFC10) and its taken bit. */
     s.p[0].used=0;
     taken_set(0xb01);
-    em_pickup_lights_tick();
+    assert(em_pickup_light_submit(0x2A,c80)==-1);   /* owner gone: no stale draw */
     em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==1 && random_calls==1); /* owner took: no stale effect */
+    assert(draws==1);
+    assert(random_calls==0);   /* the RNG is the child's 001F54E0 worker's, not em_pickup's */
     /* AREA11 UID0B01 is original item1B. 001C40B0 adds 12 internal
      * half-units, not merely an item count or ammunition. */
     inventory_add(0x1b,1);
@@ -124,7 +147,7 @@ int main(void)
     assert(em_pickup_battery_charge()==12 && em_pickup_battery_capacity()==12);
     em_pickup_scene_clear(gfx);
     assert(em_pickup_battery_charge()==12); /* global inventory persists */
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light",green)==-2);
+    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==-2);
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1);
     em_pickup_battery_set_charge(2);

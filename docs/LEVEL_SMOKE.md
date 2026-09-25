@@ -82,6 +82,16 @@ Files:
 - `em_scene_bindings_pool_binding()`: the current binding of an owner, for
   the NOT-LIVE lines.
 
+### Frame captures
+
+`EM_LEVEL_SMOKE_PHASE_CAPTURE=<phase>:<file.bmp>` saves the frame that ends
+`<phase>` (a verification aid in `next_phase`; the headless renderer draws
+it as usual). Compare it by eye with the route beat's `original.png`; it is
+not a pixel test. For example, the elevator phase's end frame against
+`04_elevator_ride/original.png` shows the powered terminal's green arrow
+(docs/CENSUS_UNVERIFIED.md, the indicator children). Keep such files under
+an ignored `build/<task>/` folder.
+
 ## Phases
 
 The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats

@@ -70,9 +70,7 @@ typedef struct {
 typedef struct {
     int owner;
     int model;
-    int initialized;
-    int visible;
-    float color[4];
+    int visible;          /* submitted this frame (em_pickup_light_submit) */
     float tint[4];
     float palette[PICKUP_BONE_MAX * 16];
 } PickupLight;
@@ -436,35 +434,28 @@ void em_pickup_reset(void)
     item_store(0x00810C63u, 2);
 }
 
-void em_pickup_lights_tick(void)
+int em_pickup_light_submit(uint32_t source_id, const float c80[4])
 {
-    /* 001C5680: initialize without drawing once, then run 001F54E0 every
-     * ordinary frame, including while the opening owns player controls.
-     * Its even-frame stack copy is unused by the original call, so it
-     * does not change the supplied brightness amplitude. */
+    /* The +0x4C draw (001CACB0) of an item owner's 001C5680 child, called
+     * from 001F54E0 inside the child's own behaviour (em_area11_bindings.c
+     * tick_indicator): this frame's colour, drawn at the close-out. */
+    if (!c80) return -1;
     for (int i=0;i<s.n_lights;++i) {
         PickupLight *light=&s.lights[i];
         Pickup *owner=&s.p[light->owner];
-        light->visible=0;
-        if (!owner->used) continue;
-        if (owner->original_bound && owner->original.child_status == 3) continue;
-        if (!light->initialized) {
-            light->initialized=1;
-            continue;
-        }
-        em_effect_color(em_random_next(),light->color,light->tint);
+        if (!owner->used || owner->source_id!=source_id) continue;
+        em_effect_color_gs(c80,light->tint);
         light->visible=1;
+        return 0;
     }
+    return -1;
 }
 
 int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
-                        const char *model_file, const float color[4])
+                        const char *model_file)
 {
-    if (!gfx || !scene_dir || !model_file || !color || owner_uid<=0 ||
+    if (!gfx || !scene_dir || !model_file || owner_uid<=0 ||
         s.n_lights>=EM_PICKUP_MAX) return -1;
-    for (int channel=0;channel<4;++channel)
-        if (!isfinite(color[channel]) || color[channel]<0.0f ||
-            color[channel]>1.0f) return -1;
     int owner=-1;
     for (int i=0;i<s.n;++i)
         if (s.p[i].uid==owner_uid) {
@@ -480,7 +471,6 @@ int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
     memset(light,0,sizeof *light);
     light->owner=owner;
     light->model=model;
-    memcpy(light->color,color,sizeof light->color);
     return s.n_lights++;
 }
 
@@ -498,6 +488,7 @@ void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16])
             memcpy(light->palette+bone*16,owner->palette,16*sizeof(float));
         em_gfx_draw_skinned_additive(gfx,model->mesh,viewproj,light->palette,
                                      model->model.bone_count,light->tint);
+        light->visible=0; /* one draw per submitted 001F54E0 */
     }
 }
 
