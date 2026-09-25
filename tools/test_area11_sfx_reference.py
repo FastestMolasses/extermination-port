@@ -14,7 +14,7 @@ from export_area11_sfx import ROOT,DECOMP,ELF_SHA,Elf,source,pitch,stereo_gain,u
 from test_roger_reference import RogerOracle
 from test_point_light_reference import signed
 import ctypes as C
-from reference_mode import FULL, MODE, banner, parallel_map, part, pick
+from reference_mode import FULL, MODE, banner, parallel_map, part, pick, select
 
 class SfxOracle(RogerOracle):
  def plain(self,w):
@@ -409,6 +409,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
     stats=dict(ticks=0,commands=0,key_on=0,key_off=0,pitch=0,volume=0,starts=0,refused=0)
     last=max(scenario) if scenario else 0
     buffer=(C.c_int*16)()
+    started=[]                          # tracks of the starts, for ('stop', ('start', n), hard)
     for tick in range(20000):
         got.clear();lib.shim_clear(s)
         for action in scenario.get(tick,()):
@@ -417,6 +418,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
                 o.run(0x1FB9F0,(sid,0x1000,left&0xFFFFFFFFFFFFFFFF,right&0xFFFFFFFFFFFFFFFF))
                 track=signed(o.r[2]);native=lib.shim_start(s,sid,11,0,left,right)
                 assert track==native,('start',hex(sid),tick,track,native)
+                started.append(track)
                 stats['starts']+=track>=0;stats['refused']+=track<0
             elif action[0]=='request':
                 _,track,left,right=action
@@ -424,6 +426,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
                 lib.shim_request(s,track,left,right)
             else:
                 _,track,hard=action
+                if isinstance(track,tuple):track=started[track[1]]
                 o.run(0x11A070,(track|hard<<15,));lib.shim_stop(s,track,hard)
         for v in range(48):
             o.save(0x2817C0+4*v,0 if feedback=='zero' else lib.shim_envx(s,v)&0xFFFFFFFF)
@@ -451,7 +454,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
         assert lib.shim_cursor(s)==o.load(0x27F740+0x30) and lib.shim_serial(s)==o.load(0x27F740+0x34)
         lib.shim_render(s,None,tick_frames(tick),48000)
         if tick>last and (settle(tick,lib,s) if settle else not lib.shim_busy(s)):break
-    else:raise AssertionError('scenario did not settle')
+    else:raise AssertionError(('scenario did not settle',dict(list(scenario.items())[:3])))
     stats['ticks']=tick+1;stats['no_voice']=lib.shim_no_voice(s)
     lib.shim_free(s)
     return stats
@@ -506,19 +509,34 @@ def _registry_case(job):
         assert sorted(started)==sorted(expected),(hex(entry['id']),tick,started,expected)
         started_total[0]+=len(started)
     last=max(e['tick'] for e in ops)
-    lockstep(lib,registry,{0:[('start',entry['id'],left,right)]},'zero',observe,
-             settle=lambda tick,lib,s,last=last:tick>last+3 and not lib.shim_allocated(s))
+    scenario={0:[('start',entry['id'],left,right)]}
+    if endless(entry):                  # its requester stops it (soft stop at tick 60)
+        scenario[last+60]=[('stop',('start',0),0)]
+    lockstep(lib,registry,scenario,'zero',observe,
+             settle=lambda tick,lib,s,last=max(scenario):tick>last+3 and not lib.shim_allocated(s))
     assert started_total[0]==len(key_ons),(hex(entry['id']),started_total[0],len(key_ons))
-    # Key-offs only where the script keys off a sustained tone.
-    sustained_offs=any(e['op']==X.OP_KEY_OFF and any(k['note']==e['note'] and k['sustained']
+    # Key-offs only where the script keys off a sustained tone (or the
+    # stop of an endless loop does).
+    sustained_offs=endless(entry) or any(e['op']==X.OP_KEY_OFF and any(k['note']==e['note'] and k['sustained']
                        for k in key_ons) for e in ops)
     assert bool(offs[0])==sustained_offs,hex(entry['id'])
     return started_total[0]
 
 
+def endless(entry):
+    """A sustained looping tone the script never keys off (0x135): it plays
+    until its requester stops the track (0011A070), as 0016BF80 does."""
+    ops=[e for e in entry.get('events',()) if 'op' in e]
+    return any(e.get('loops') and e.get('sustained') for e in ops) and \
+        not any(e['op']==_SFX['X'].OP_KEY_OFF for e in ops)
+
+
 def _model_case(entry):
-    """Pass B: one audible entry with the SPU2 model's ENVX feedback."""
-    return lockstep(_SFX['lib'],_SFX['registry'],{0:[('start',entry['id'],0x800,-0x400)]})
+    """Pass B: one audible entry with the SPU2 model's ENVX feedback (an
+    endless loop is soft-stopped at tick 120, then must settle)."""
+    scenario={0:[('start',entry['id'],0x800,-0x400)]}
+    if endless(entry):scenario[120]=[('stop',('start',0),0)]
+    return lockstep(_SFX['lib'],_SFX['registry'],scenario)
 
 
 def _scenario_case(scenario):
@@ -589,6 +607,13 @@ def registry_oracle(elf,ram):
                 if group in bindings and index<len(bindings[group]):continue
                 handle=u32(data,0x281D50+4*(group*0x14+index))
                 assert handle in (0,3),(group,index,handle)   # 0 = unregistered, 3 = group-3 music
+        # The exporter's refused slots (ABSENT): the slot names a handle
+        # whose D_0027C6C0 record fails 00119EA0's use/SShd/state checks.
+        for (group,index) in X.area_bindings(xelf)[(11,0)]['refused']:
+            handle=u32(data,0x281D50+4*(group*0x14+index))
+            use,header,_=struct.unpack_from('<3I',data,0x27C6C0+12*handle)
+            assert handle==3 and (use!=1 or u32(data,header+0xC)!=0x64685353
+                                  or u32(data,header+0x20)==0xFFFFFFFF),(capture,group,index,handle)
     spu=(DECOMP/'build/area11_sfx_reference/original_spu2.bin').read_bytes()
     spu_checked=loops_checked=0
     sample_address={}
@@ -618,6 +643,79 @@ def registry_oracle(elf,ram):
     registry=Registry(elf,ram,report,out/'sfx_registry.emsr')
     assert registry.address==sample_address
     area11=[e for e in report['entries'] if e['scope'] in ([-1,-1],[11,0])]
+    # First-level census (docs/SFX_REGISTRY_FIRST_LEVEL.md): every census id
+    # has an entry the AREA11 build resolves, in its own scope or global.
+    census=report['census']
+    assert census['scope']==[11,0] and len(census['rows'])==census['ids']
+    resolved={e['id']:e for e in area11}
+    for row in census['rows']:
+        assert row['id'] in resolved and resolved[row['id']]['state']==row['state'],hex(row['id'])
+    # The original's own requests on the route (decomp tools/sfx_request_probe.py,
+    # an ignored local capture): every id it requested in 11.0 is exported.
+    probe=DECOMP/'build/sfx_probe/report_A.json'
+    route_ids=0
+    if probe.exists():
+        for row in json.loads(probe.read_text())['ids']:
+            if '11.0' in row['areas']:
+                entry=resolved.get(int(row['id'],16))
+                assert entry,('route id not exported',row['id'])
+                # 001FB9F0's own result on the route in 11.0 (the per-area
+                # counts): a track -> AUDIBLE, -1 -> ABSENT (the exported
+                # state never contradicts it).
+                counts=row['by_area']['11.0']
+                if counts.get('played'):assert entry['state']==X.STATE_AUDIBLE,row['id']
+                if counts['refused']:assert entry['state']==X.STATE_ABSENT,row['id']
+                route_ids+=1
+    # Census completeness (decomp tools/sfx_request_probe.py scan, run here
+    # over the ignored local capture and route census): every id reachable
+    # from the route's functions, their callees, the behaviors and tables
+    # they install (every player state of 0015B130 among them) and the
+    # forwarding thunks, constant or derived from original data (the room
+    # ambient, holster and effect tables), must be exported for 11.0 or
+    # globally. Every loaded/computed id site must have a DATA rule.
+    scan_inputs=[DECOMP/'build/s87/census'/n for n in ('candidates.json','route_functions.json')]
+    reachable_ids=None
+    if all(p.exists() for p in scan_inputs):
+        scan=X.load_decomp_module('sfx_request_probe').scan([],census_ids=set(resolved),write=False)
+        assert not scan['unexplained_sites'],('sound sites without a DATA rule',scan['unexplained_sites'])
+        assert not scan['rule_groups_missing'],('DATA rules naming no census group',scan['rule_groups_missing'])
+        assert not scan['missing'],('reachable ids not exported for 11.0',scan['missing'])
+        # The excluded forced ambient 0x44E needs event flag 0x30 == 0xFF.
+        for capture in ('playable_ee.bin','opening_ee.bin'):
+            assert (DECOMP/'build/startup-reference'/capture).read_bytes()[0x810788]!=0xFF,capture
+        reachable_ids=(scan['functions'],len(set(scan['constant_ids'])|set(scan['derived_ids'])))
+    # Every non-AUDIBLE entry against the original 001FB9F0 over both AREA11
+    # captures, whatever its reason: -1 must be ABSENT, a track must be
+    # UNSUPPORTED (a sound the original plays that the native driver cannot
+    # reproduce). UNSUPPORTED entries are refused natively.
+    unsupported=[e for e in area11 if e['state']==X.STATE_UNSUPPORTED]
+    silent_checked=0
+    oracles=[registry]+[Registry(elf,(DECOMP/'build/startup-reference'/c).read_bytes(),report,registry.path)
+                        for c in ('opening_ee.bin',)]
+    area11_silent=[e for e in area11 if e['state']!=X.STATE_AUDIBLE]
+    for entry in area11_silent:
+        for source in oracles:
+            o=source.oracle()
+            o.run(0x1FB9F0,(entry['id'],0x1000,0x1000,0x1000))
+            track=signed(o.r[2])
+            assert (track<0)==(entry['state']==X.STATE_ABSENT),(hex(entry['id']),entry['state'],track)
+            silent_checked+=1
+        if entry['state']==X.STATE_UNSUPPORTED:
+            shim=lib.shim_new(str(registry.path).encode(),STREAM_VOICES,0,0,0,1)
+            assert lib.shim_start(shim,entry['id'],11,0,0x1000,0x1000)==-1,hex(entry['id'])
+            lib.shim_free(shim)
+    area11=[e for e in area11 if e['state']!=X.STATE_UNSUPPORTED]
+    # Quick: every preset entry (the pre-census registry) and a covering
+    # sample of 12 census additions (every bank, looping and key-off and
+    # portamento form); full: every entry.
+    added=set(census['added'])
+    def form(entry):
+        ops=[e for e in entry.get('events',()) if 'op' in e]
+        return (entry['state'],entry.get('bank'),any(e.get('loops') for e in ops),
+                any(e['op']==X.OP_KEY_OFF for e in ops),any(e['op']==X.OP_PORTAMENTO for e in ops))
+    census_run=select([e for e in area11 if e['id'] in added],12,0x14,axes=(form,))
+    area11_all=len(area11)
+    area11=[e for e in area11 if e['id'] not in added or e in census_run]
     # Pass A: the old register-word check, now in lockstep. Feedback 0 (the
     # driver reaps a voice two ticks after it may be reaped) and five
     # request pairs: absent ids return -1; every exported key-on starts
@@ -648,7 +746,8 @@ def registry_oracle(elf,ram):
     scenarios['exhaustion']={tick:[('start',0x14D,0x1000,0x1000)]*7 for tick in range(7)}
     scenarios['exhaustion'][8]=[('start',0x413,0x1000,0x1000)]
     rng=random.Random(0x5FD0)
-    audible=[e['id'] for e in area11 if e['state']==X.STATE_AUDIBLE]
+    # (Endless loops are left out: nothing in the plan would stop them.)
+    audible=[e['id'] for e in area11 if e['state']==X.STATE_AUDIBLE and not endless(e)]
     plan={}
     for tick in range(400):
         actions=[]
@@ -791,6 +890,10 @@ def registry_oracle(elf,ram):
         assert signed(o.r[2])==lib.em_sfx_request_word(C.c_float(value/4096.0)),value
         assert signed(o.r[2])==int(value),value
     return dict(entries=len(report['entries']),area11_entries=len(area11),cases=cases,
+        area11_all=area11_all,full_cases=area11_all*len(REQUESTS),unsupported=len(unsupported),
+        census_ids=census['ids'],census_added=len(added),census_run=len(census_run),route_ids=route_ids,
+        reachable=reachable_ids,
+        silent_checked=silent_checked,absent=sum(e['state']==X.STATE_ABSENT for e in area11_silent),
         voices_checked=voices_checked,spu_samples_checked=spu_checked,loop_samples=loops_checked,
         requests=REQUESTS,model_feedback=model,concurrent=concurrent,allocations=allocations,
         loop_service_cases=loop_cases,envx=envx_checked,registry_sha256=report['registry_sha256'],
@@ -871,7 +974,8 @@ def main():
         'No SPU2 interpolation, reverb or final output waveform comparison'])
     banner(part(dispatch_cases,len(dispatch_all),'dispatch cases (every slot, every request pair)'),
            part(pitch_cases,216,'pitch cases'),part(iop['voices'],48,'IOP voices'),
-           part(registry['cases'],335,'registry entry x request cases (every entry, every request)'),
+           part(registry['cases'],registry['full_cases'],'registry entry x request cases (every entry, every request)'),
+           part(registry['census_run'],registry['census_added'],'census-added entries in lockstep'),
            part(registry['allocations'],1500,'00117428 tables'),part(registry['loop_service_cases'],3000,'loop-service cases'),
            f"random scenario {registry['concurrent']['random']['ticks']} ticks; SPU/bank captures, "
            f"{len(registry['envx'])} ENVX capture words, model-feedback entries, services and exhaustion scenarios in full")
@@ -879,6 +983,19 @@ def main():
     (out/'original_report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(f"PASS {dispatch_cases} original panel dispatch/voice/end-track cases; {pitch_cases} pitch cases; {len(adpcm)} live SPU sample bytes; {iop['register_writes']} original IOP/libsd register writes")
     model=registry['model_feedback'];concurrent=registry['concurrent']
+    print(f"PASS first-level census: {registry['census_ids']} ids resolved in 11.0 or global "
+          f"({registry['census_added']} added by the census; {registry['absent']} ABSENT and "
+          f"{registry['unsupported']} UNSUPPORTED entries = the original 001FB9F0 over both captures "
+          f"({registry['silent_checked']} runs), UNSUPPORTED refused natively; "
+          + (f"all {registry['route_ids']} ids the original requested on the route exported)" if registry['route_ids']
+             else "no local route probe report, route check skipped)"))
+    if registry['reachable']:
+        functions,ids=registry['reachable']
+        print(f"PASS census completeness: all {ids} sound ids reachable from {functions} functions "
+              f"(route, callees, installed behaviors and tables, forwarders; constant or derived "
+              f"from original data) are exported for 11.0 or globally")
+    else:
+        print("SKIP census completeness: no local route census (../Extermination/build/s87/census)")
     print(f"PASS registry: {registry['area11_entries']} AREA11-playable entries x {len(REQUESTS)} requests "
           f"({registry['cases']} executed cases, {registry['voices_checked']} A0 voices: pitch/volume/address/ADSR words "
           f"= original 001FB9F0+001152D8+00115850 commands), {registry['spu_samples_checked']} samples = live SPU RAM "

@@ -2,8 +2,9 @@
 """Export the native SFX registry through the original A0 trigger path.
 
 Every id the port registry carries (tools/gen_sfx_registry.py presets in the
-decomp repo, plus the AREA11 panel pair) is resolved per scene area exactly
-as the original does it:
+decomp repo, plus the AREA11 panel pair, then its FIRST_LEVEL_GROUPS census
+of every id the first level can request, docs/SFX_REGISTRY_FIRST_LEVEL.md)
+is resolved per scene area exactly as the original does it:
 
   001FB9F0   id -> sound record (global tables or area remap/record tables)
   00119EA0   record -> registered bank handle -> trigger script
@@ -165,7 +166,15 @@ def area_bindings(elf):
         # rows), group2 bank0 -> handle 4 (chunk15), group4 all zero.
         # tools/test_area11_sfx_reference.py re-checks this binding.
         (11, 0): dict(groups={1: global_rows[1], 2: area11[2]},
-                      binding='AREA11 captures (D_00281D50/D_0027C6C0)'),
+                      binding='AREA11 captures (D_00281D50/D_0027C6C0)',
+                      # Slots no AREA11 bank registers but whose handle
+                      # 00119EA0 refuses (-1), so 001FB9F0 plays nothing:
+                      # group 3 bank 0 names handle 3 in both captures,
+                      # whose D_0027C6C0 header (0x1800030) has no SShd
+                      # magic at +0xC. The test re-checks the handle and
+                      # the magic and runs 001FB9F0 over both captures.
+                      refused={(3, 0): 'group 3 bank 0 = handle 3, header '
+                                       'without SShd magic in AREA11'}),
     }
     # Office has no capture: its region comes from the decomp soundmap's
     # script-coverage match (audio_export.match_area_regions).
@@ -328,8 +337,13 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
     base = dict(id=sound_id, scope=scope, record=[group, bank_index,
                 script_group, script_index], record_address=record)
     try:
-        banks = bindings[(area, sub)]['groups'].get(group, [])
+        binding = bindings[(area, sub)]
+        banks = binding['groups'].get(group, [])
         if not 0 <= bank_index < len(banks):
+            refused = binding.get('refused', {}).get((group, bank_index))
+            if refused:
+                return dict(base, state=STATE_ABSENT,
+                            note=f'00119EA0 returns -1 ({refused})')
             raise Unsupported('unbound bank', f'group {group} bank {bank_index}')
         bank = banks[bank_index]
         position = bank.script(script_group, script_index)
@@ -434,7 +448,18 @@ def volume_words(scalar, pan, left=0x1000, right=0x1000):
     return word(pan >> 8, left), word(pan & 0xFF, right)
 
 
-def scene_ids():
+def census_ids():
+    """The first-level sound census (gen_sfx_registry.FIRST_LEVEL_GROUPS):
+    every id the first level can request, in group order, and its scope
+    (docs/SFX_REGISTRY_FIRST_LEVEL.md)."""
+    registry = load_decomp_module('gen_sfx_registry')
+    area, sub = map(int, registry.FIRST_LEVEL_AREA.split('.'))
+    return (area, sub), list(registry.first_level_ids())
+
+
+def scene_ids(census=True):
+    """Per-scope ids in resolution order. The census ids come last, after
+    the presets, so every preset entry keeps its sample indices and bytes."""
     registry = load_decomp_module('gen_sfx_registry')
     scenes = {}
     for name, scene in registry.SCENES.items():
@@ -445,7 +470,30 @@ def scene_ids():
         if (area, sub) == (11, 0):
             ids += [i for i in AREA11_EXTRA_IDS if i not in ids]
         scenes[(area, sub)] = ids
+    if census:
+        scope, ids = census_ids()
+        scenes.setdefault(scope, [])
+        scenes[scope] += [i for i in ids if i not in scenes[scope]]
     return scenes
+
+
+def census_report(entries):
+    """Which census ids the presets already carried and which the census
+    added, with the state each resolves to under the census scope."""
+    scope, ids = census_ids()
+    presets = scene_ids(census=False)
+    anywhere = {i for scene in presets.values() for i in scene}
+    exported = {e['id']: e for e in entries
+                if e['scope'] in ([-1, -1], list(scope))}
+    # A preset id was already exported for this scope, or globally by
+    # another scope's preset (a global entry serves every area).
+    preset = {i for i in ids if i in presets.get(scope, []) or
+              (i in anywhere and exported[i]['scope'] == [-1, -1])}
+    rows = [dict(id=i, preset=i in preset, state=exported[i]['state'],
+                 scope=exported[i]['scope'], reason=exported[i].get('reason'))
+            for i in ids]
+    return dict(scope=list(scope), ids=len(ids),
+                added=[r['id'] for r in rows if not r['preset']], rows=rows)
 
 
 def export(out_dir: Path):
@@ -504,6 +552,9 @@ def export(out_dir: Path):
         elf_sha256=ELF_SHA, format='EMSR v2 (see docs/SFX_PITCH.md)',
         sequencer_tick=f'{A.SEQ_TICK} (0x1E0000/60), 8 delta units per tick',
         bindings={f'{a}.{s}': b['binding'] for (a, s), b in bindings.items()},
+        refused_slots={f'{a}.{s}': {f'{g}.{i}': why for (g, i), why
+                                    in b.get('refused', {}).items()}
+                       for (a, s), b in bindings.items() if b.get('refused')},
         ladder=dict(address=A.PITCH_LADDER, count=LADDER_COUNT),
         samples=[dict(index=s['index'], container=s['container'],
                       offset=s['offset'], adpcm_bytes=len(s['adpcm']),
@@ -511,6 +562,7 @@ def export(out_dir: Path):
                       source_frames=len(s['pcm']), loop_start=s['loop_start'])
                  for s in ordered],
         entries=entries,
+        census=census_report(entries),
         registry_sha256=hashlib.sha256(bytes(blob)).hexdigest(),
         boundaries=['SPU2 ADSR stepping is a documented-semantics hardware model',
                     'reverb routing (all SFX tracks set the effect mask) is dry',
