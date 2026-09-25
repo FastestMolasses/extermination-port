@@ -115,7 +115,8 @@ domain and fault (−1).
    - **Tools that use the opposite order.** Two existing tools use
      product − ACC:
      - `test_item_sdk_math_reference.Original` (`fn == 29`);
-     - the comment in `em_roger_trigger`.
+     - the comment in `em_roger_trigger` (deleted 2026-09-24, census L22:
+       Roger's trigger is `em_director_original_001B1EA0_bound`).
    - **Where the order changes a result.** For axis-aligned quads (Roger's
      0x82AB80 and the director's quads 0 and 2) the order does not change
      any result: every term changes sign together. For the irregular quad
@@ -126,14 +127,14 @@ domain and fault (−1).
      - product − ACC would give inside;
      - the oracle kills that mutant.
    - **Action.** This is outside this lane: the lead decides whether
-     `em_roger_trigger` and the SDK oracle change.
+     the SDK oracle changes (`em_roger_trigger` is gone).
 2. **`em_interaction_sdk_atan2` is not the guard-bit model.** It models
    add.s as plain truncation.
    - Against `em_director_original_0011C4C8`, which is bit-identical to the
      original instructions under the guard-bit model, it differs by an ulp
      on 70,569 of 200,000 random argument pairs in ±300.
-   - It is not used here. Its callers (the interaction candidates and
-     `em_roger_trigger`) inherit the difference. The lead decides; compare
+   - It is not used here. Its callers (the interaction candidates,
+     including `em_roger_candidate`) inherit the difference. The lead decides; compare
      AREA_SCRIPT.md section 5 on `em_item_sdk_sine`.
 3. **The decomp's `src/func_0011DBB8.c` (NEARMISS) swaps atanhi and
    atanlo.**
@@ -263,7 +264,14 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
 
 ## 6. Binding (for the coordinator)
 
-**Status (census L21, 2026-09-24): not bound; it waits on Roger (L22).**
+**Status (census L21, 2026-09-24): not bound. Unblocked by census L22
+(2026-09-24): Roger is bound (`em_area11_roger`; ROGER_ACTOR_ORIGINAL.md
+section 4) and runs his scripts on the script host; his alternate branch
+starts 0x828990 as soon as D_00810793 = 1 with D_00810813 = 0. The
+host's 00182BF0, 001B0C00 / 001B6250, 001B81D0 (the player face through
+the interaction host), D_00810758 / D_0081078F / D_008107D8 and op0C are
+live for Roger's 0x8283D0 (route 14 row for row). The history below is
+kept for the binding step.**
 The AREA11 script host is live since L19 / L23 (`em_area11_script_host`,
 AREA_SCRIPT.md section 6.1), but beat 0 cannot run faithfully without
 Roger's owner:
@@ -274,7 +282,7 @@ Roger's owner:
   D_00810793 = 1 with D_00810813 = 0, runs 0x828990 (its op15 conversation,
   line 0x7F) and D_00810813 becomes 1 at f3460; the director completes at
   f3508 (FIRST_LEVEL_ROUTE.md beat 10, steps 4..6).
-- Roger 008237E0 / 00823910 is unbound (WP-9, census L22). Bound alone, the
+- Roger 008237E0 / 00823910 was unbound until census L22. Bound alone, the
   director would hold the player in the scripted frame at 06/2 for ever
   where the legacy stand-in completes its beat: a live path that degrades
   play. So node #21 keeps `em_director.c` (kCineBeats) until L22 binds Roger
@@ -294,8 +302,10 @@ Roger's owner:
   001B6250 (op18 skip landing), 001B81D0's face attach (001CA700 / 001D06D0
   through the interaction host's face, with D_0081078F and the player's
   +0x2FF), op0D sub 2's 0018CBD0 / 0018D7B0 with cam +0x0C / +0xA0, the
-  flag and counter arrays D_00810758 / D_008107D8 (only slots 0x3A..0x3C and
-  0x3B are canonical), and op0C's lines through `em_message_live_op0c`.
+  flag and counter arrays D_00810758 / D_008107D8 (slots 0x3A..0x3C and
+  0x3B were canonical; census L22 added D_00810758 / D_008107D8 slots 0..1
+  and D_0081078F..D_00810795, em_scene_state.h), and op0C's lines through
+  `em_message_live_op0c`.
 
 **Node and stage.**
 - Pool node **#21** (record 12, callback `0x8253F0`) gets one behaviour

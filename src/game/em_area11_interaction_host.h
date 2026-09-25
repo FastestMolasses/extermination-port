@@ -100,6 +100,9 @@ int em_area11_interaction_host_bind_actor(uint32_t source_id, EmActor *actor);
  * its +0x01 and actor->drawn get the 001B1630 byte. 0 culled, 1 drawn, -1
  * fault (the host is not loaded, or a latched services fault). */
 int em_area11_interaction_host_offer_001B17A0(EmActor *actor, EmOwnerServicesOwner *view);
+/* Roger's pool record (census L22): the EMIS Roger record bound to its
+ * +0x00 / +0x02 / +0x0B, the record the owner token. 0, or -1. */
+int em_area11_interaction_host_bind_roger(EmActor *actor);
 /* Every AREA11 status screen (a pending request D_008106B0 != 0, or the
  * START/TRIANGLE hub): 0020E060 (open, 1 or -1), 0020CDC0 (page, 0 waiting
  * / 1 exit done / -1) and the status frames' draw. clear_route marks a

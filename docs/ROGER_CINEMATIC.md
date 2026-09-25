@@ -24,35 +24,30 @@ These checks establish resource decoding and camera sampling. Shared player
 ownership, clip binding and playback timing, camera mode transitions, messages,
 audio and the complete live encounter remain separate integration work.
 
-## Native player bank ownership
+## Native player bank ownership (census L22)
 
-The player pose host now accepts the original op0A/sub1 bank request through
-`player_pose_cinematic_request`. This borrows a verified compatible bank until
-release. The command publishes pending mode1, clip/rate and a cleared result;
-it does not initialize or advance channels. On the next player callback,
-`00183090` commits the requested clip at source0, changes mode1 to2 and returns1.
-The caller therefore advances by the requested rate on that same callback:
-Roger's first player sample is source0.5 with 690.5 frames remaining.
+The legacy request `player_pose_cinematic_request` (a borrowed decoded bank
+held off the record) is deleted. The live path is the original's: the
+script's op0A sub 1 (001B9A00, em_area_script) stores the bank
+D_0028A490[0x96] at the player record's +0x40, clip 1 at +0x1F2, the rate at
++0x1F4, +0x2F3 = 1 and +0x200 = 0; the AREA11 interaction host, while a script
+owner holds the player, runs 00183090 on the record every stage
+(`player_pose_commit_tick`: its initializer returns 1 and turns +0x2F3 to
+2, then 001C64F0 by +0x1F4 into +0x200) and 0015BCF0's animate step, which
+for +0x2F3 = 2 uses the identity owner matrix (001C6960): the palette is the
+world-positioned channel palette. Bank 0x96 is mapped read-only into the
+record's pose host from `roger/resources.emrs` at its EE address. The
+release takes 00182DF0's nonzero-+0x2F3 branch (`record_release_special`:
++0x40 = the default bank, +0x20C = D_00248A00[+0x235], 001C63E0), leaving 80
+frames before the next ordinary callback advances to 79.
 
-Mode2 uses the identity owner matrix (`001C6960`), so the host publishes its
-world-positioned channel palette without adding the ordinary player position
-and yaw. Hip mirrors come from that same palette. Release follows the original
-nonzero2F3 branch: restore the default bank and healthy idle0 directly, leaving
-80 frames before the next ordinary callback advances to79. Numeric clip IDs
-from the two banks must not be blended as though they shared a bank.
-
-`make test-player-cinematic-reference` executes the original request,
-initializer, animation clock and release. It compares 1,388 player callbacks,
-the first sample-call order, bank transitions and release state. The actual
-bank and shared ownership fixture passes ASan/UBSan, including 120 frozen
-status callbacks, world-palette/hip publication and the final consumed release
-callback. The original channel sampler is intercepted in this timing proof;
-the authored keys have the separate decoder proof above.
-
-Shared player-ready2 now requires an explicitly installed face/body worker.
-Status suppresses that whole worker, and a missing worker retains a fault.
-The fixture's face and frame side effects are boundaries; this checkpoint does
-not yet install the actual Dennis face, Roger camera or media into the scene.
+`make test-player-cinematic-reference` runs the original 001B9A00 /
+00183090 / 001C64F0 / 00182DF0 against that record path: 1,388 player
+callbacks, the first sample-call order and the release state; its ASan/UBSan
+fixture runs the record path under the shared runtime with 120 frozen status
+callbacks and the consumed release callback. The level smoke's `roger` phase
+compares the player record (+5, +1F0, +1F1, clip, clock, +0x2F3) with route 14
+row for row through the encounter and the release.
 
 ## Original encounter capture
 

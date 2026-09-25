@@ -52,6 +52,9 @@ extern "C" {
 
 /* The block in its original layout (EM_PAD_ACTUATOR_BLOCK_SIZE bytes). */
 uint8_t *em_pad_actuator_block(void);
+/* 001B6250(&D_00810E40), the actuator stop (001B6BF0's skip landing,
+ * census L22): 0, or -1 on a fault (reported). */
+int em_pad_actuator_001B6250(uint32_t address);
 /* Back to the start state above (game start). */
 void em_pad_actuator_reset(void);
 /* 001B61C0(big, small, duration, force) over the block (the player states'

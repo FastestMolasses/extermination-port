@@ -391,8 +391,8 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | #10–11 | fans 00827630 (r1/r2) | static (WP-1 stops the spin) | WP-11 |
 | #12–15 | crates 001551B0 | since census L25: each node its own original owner, `tick_box` → `em_area11_boxes_tick` (em_crate_original over the record) in both variants | — |
 | #16 | flame 008235F0 (r7) | `em_area11_effect_runtime_tick` | — |
-| #17 | Roger 008237E0 (r8) | UNBOUND (drawn statically as today) | WP-9: `em_roger_runtime_tick(rt, player, 1)` |
-| #18 | equipment 001C5C90 (r9) | UNBOUND | WP-9 |
+| #17 | Roger 008237E0 (r8) | since census L22 (WP-9): `tick_roger` → `em_area11_roger_tick` (em_roger_actor_008237E0_init at lifecycle 0, then em_roger_tick over the record; the scripts on em_area11_script_host) | — |
+| #18 | equipment 001C5C90 (r9) | since census L22 (WP-9): `em_area11_roger_equipment_tick` (em_roger_actor_001C5C90 over the record, parent Roger) | — |
 | #19 | opening controller 00823E80 (r10) | `em_opening_runtime_tick`; its camera is `em_opening_runtime_camera()` at the 0018B9C0 stage | WP-10 unifies it with em_script |
 | #20 | manager 00823CE0 (r11) | dormant no-op, traced (it waits on D_00810788) | — |
 | #21 | manager 008253F0 (r12) | legacy `director_tick` (em_director_original waits on Roger, L22: DIRECTOR_ORIGINAL.md section 6) | WP-10 after WP-9 |

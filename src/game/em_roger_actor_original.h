@@ -122,7 +122,7 @@ typedef struct EmRogerActorRecord {
 
 /* Canonical storage views. Each is required only on the path that reads or
  * writes it; the module keeps no copies. */
-typedef struct {
+typedef struct EmRogerActorWorld {
     int16_t *d00275BCC;          /* free bone-slot count (signed halfword) */
     uint32_t *d00275BD0;         /* slot-stack cursor (an address word) */
     uint32_t *slot_stack;        /* the words the cursor walks ... */

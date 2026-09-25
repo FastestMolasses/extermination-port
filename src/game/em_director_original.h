@@ -162,6 +162,15 @@ int em_director_original_001C4760_scene(EmSceneState *scene, int32_t a0, int32_t
  * translated domain: -1. */
 int em_director_original_001B1EA0(int32_t mode, const float *point, const float (*polygon)[4],
                                   int32_t count, const EmDirectorAtanTables *tables, int32_t *result);
+/* The same translation with its 0011E620 call as a worker (y, x, result;
+ * 0, or negative on a fault): the owners outside this module bind it to
+ * the one bound SDK atan2f (em_sdk_math_original, census 0011E620), so
+ * 001B1EA0 has one translation. em_director_original_001B1EA0 is this form
+ * over em_director_original_0011E620 and `tables`. */
+typedef int (*EmDirectorAtan2)(void *ctx, float y, float x, float *result);
+int em_director_original_001B1EA0_bound(int32_t mode, const float *point, const float (*polygon)[4],
+                                        int32_t count, EmDirectorAtan2 atan2, void *ctx,
+                                        int32_t *result);
 
 /* 0011E620(y, x), the SDK atan2f wrapper: it calls the kernel 0011C4C8 and,
  * because D_0026C5D0 != -1 (the ELF image and the captured RAM hold 1),

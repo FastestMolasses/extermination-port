@@ -30,7 +30,6 @@ void continue_reset_probe(ContinueResetProbe *out)
         .infection = 60.0f, .mag = 4, .mag_max = 30, .reserve = 120,
         .battery = 4, .battery_max = 6 };
     g.opening_complete = 0xFF;
-    g.opening_event_39 = 0xFF;
     /* D_0081084C (WP-4), D_00810CC3 (WP-6) and D_00810813 (HK) are canonical
      * D2 progress bytes: 001AF2C0's memset reaches them through
      * em_scene_progress_reset_001AF2C0 (called by em_pickup_reset in the
@@ -42,6 +41,8 @@ void continue_reset_probe(ContinueResetProbe *out)
     *power = 0x80;
     *key0 = 1;
     *step = 0x20;
+    uint8_t *event39 = em_scene_progress_at(&scene, 0x00810791u, 1); /* D2 since census L22 */
+    *event39 = 0xFF;
 
     game_state_new_game(&g);
     em_scene_progress_reset_001AF2C0(&scene);
@@ -53,7 +54,7 @@ void continue_reset_probe(ContinueResetProbe *out)
     out->battery = g.status.battery;
     out->battery_max = g.status.battery_max;
     out->opening_complete = g.opening_complete;
-    out->event_39 = g.opening_event_39;
+    out->event_39 = *event39;
     out->key_item_zero = *key0;
     out->director_step = *step;
     out->terminal_powered = (uint32_t)(*power >> 7);

@@ -11,6 +11,7 @@
 #include "em_model.h"
 #include "game/em_actor_collision.h"
 #include "game/em_area11_interaction_host.h"
+#include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
 #include "game/em_crate_original.h"
@@ -658,6 +659,10 @@ static Box *box_for(EmActor *actor)
 int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
 {
     (void)ctx;
+    /* Roger and the equipment node keep their +0x110 words in their own
+     * binder (census L22). */
+    int roger = em_area11_roger_001AF800(actor);
+    if (roger != 0) return roger < 0 ? -1 : 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         Box *b = &S.box[i];
         if (b->actor != actor || b->generation != actor->generation || b->freed) continue;
@@ -666,6 +671,12 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
         return 0;
     }
     return report("001AF800 on a record that holds no box bone slots");
+}
+
+const EmRogerActorWorld *em_area11_boxes_slot_world(void)
+{
+    if (!S.stack.world.d00275BCC) em_area11_boxes_reset();
+    return &S.stack.world;
 }
 
 int em_area11_boxes_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)

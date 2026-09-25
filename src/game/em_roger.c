@@ -140,21 +140,3 @@ int em_roger_candidate(const float descriptor[2], const float owner[3],
     return fabsf(wrap(sub(player->yaw,em_interaction_sdk_atan2(math,-dx,-dz))))<=
            0.785398185253143310546875f;
 }
-
-int em_roger_trigger(const EmInteractionMath *math, const float player[3],
-                       const float polygon[4][4])
-{
-    if (!math || !player || !polygon || !isfinite(player[0]) || !isfinite(player[2])) return -1;
-    float total=0;
-    for (unsigned i=0;i<4;++i) {
-        unsigned next=(i+1)&3;
-        if (!isfinite(polygon[i][0]) || !isfinite(polygon[i][2])) return -1;
-        float ax=sub(polygon[i][0],player[0]),az=sub(polygon[i][2],player[2]);
-        float bx=sub(polygon[next][0],player[0]),bz=sub(polygon[next][2],player[2]);
-        /* Original MSUB.S is product minus accumulator. */
-        float cross=sub(mul(bx,az),mul(bz,ax));
-        float dot=em_effect_float32((double)mul(bx,ax)+mul(bz,az));
-        total=em_effect_float32((double)total+em_interaction_sdk_atan2(math,cross,dot));
-    }
-    return fabsf(total)>3.1415927410125732421875f;
-}

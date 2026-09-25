@@ -99,6 +99,7 @@
 #include "game/em_bgm.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_roger.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_collision_world.h"
@@ -217,6 +218,8 @@ enum {
     UM_001FAD70,
     UM_0018D7B0,
     UM_0018C0D0_STATE4,
+    UM_001DA6A0,
+    UM_0021B9A0,
     UM_COUNT
 };
 
@@ -262,8 +265,8 @@ static const struct {
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
-    [UM_0015C1F0] = {0x0015C1F0u, "001B07C0: player model kind select and bind (+0x2FF, 001CA6E0); the "
-                                  "port draws its one exported player model"},
+    [UM_0015C1F0] = {0x0015C1F0u, "001B07C0: player model bind after the +0x2FF kind store (001CA6E0, "
+                                  "+0x0C, +0x96, 00200890); the port draws its one exported player model"},
     [UM_001B0460] = {0x001B0460u, "001B07C0: camera re-init from the spawn record; stood in by the legacy "
                                   "chase re-arm (em_game_legacy_camera_rearm) until translated"},
     [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
@@ -277,6 +280,12 @@ static const struct {
     [UM_0018C0D0_STATE4] = {0x0018C0D0u, "state 4 camera commit (a1 = 1); the re-armed legacy camera "
                                          "has no seated view until this tick's 0018B9C0 stage, which "
                                          "commits it (camera_commit)"},
+    [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
+                                  "no actor shadow (the player's own post-step is UM_0015C160, "
+                                  "docs/SHADOW_ORIGINAL.md)"},
+    [UM_0021B9A0] = {0x0021B9A0u, "fog / depth-range programmer on the render context (the scripted "
+                                  "timeline's restore, census L22); the port has no canonical "
+                                  "render-context block (FRAME_RENDER_HEADS.md section 4)"},
 };
 
 static uint64_t s_unmirrored_seen;     /* reached at least once */
@@ -328,10 +337,18 @@ static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
  * command, and no D_00282157 store (r_00282157 returns the constant 0).
  * Reached from 0x1AE040 state 1 (r == 2, the status open), 001AD360 step 0
  * (New Game and Continue) and the message service's 001FD470 bit 1. */
+/* D_00282178, the cue music channel 0 holds, as far as the port's two
+ * stream players carry it: the cue the lane-0 stand-in armed (001FA790) or
+ * the area cue 001FAE70 resumed; 0 after a release. 001FAE70(0) compares
+ * it (and D_00282154, the channel's busy byte, which the port models as a
+ * nonzero held cue: every release clears both). */
+static int32_t s_channel0_cue;
+
 static void stream_release_all(void)
 {
     em_bgm_stop(0);
     em_opening_media_stop();
+    s_channel0_cue = 0;
     *em_scene_req_at(&s_state, 0x008106F4u) = 0;
     s_state.req[EM_SCENE_REQ_F5] = 0;
 }
@@ -627,8 +644,8 @@ static void log_tick_end(int rc)
         const EmPlayerLiveActor *a = player_states_actor();
         uint32_t clock = em_live_u32(a, 0x3C);
         uint32_t ground = a->link_owner ? em_actor_pool_address(&s_pool, (const EmActor *)a->link_owner) : 0;
-        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
-                em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground);
+        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
+                em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground, em_live_u8(a, 0x2F3));
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */
@@ -644,6 +661,40 @@ static void log_tick_end(int rc)
             fprintf(f, ", [%u, %u, %u], ", truck_pos[0], truck_pos[1], truck_pos[2]);
             log_hex(f, truck_t2dc, sizeof truck_t2dc);
             fputc(']', f);
+        } else {
+            fputs("null", f);
+        }
+        /* Census L22, as the route rows sample them: the progress bytes
+         * D_008107D8 (Roger's story), D_00810758 (event 0), D_00810793 and
+         * D_00810813 (the director's step), and Roger's record (its
+         * address, +0x00..+0x0F, +0xB0 and the +0x1F0 script block), or
+         * null while no Roger node is live; then the equipment node's
+         * (address, +0x00..+0x0F, +0xB0: the rows' attach_r9) or null. */
+        const uint8_t *d7D8 = em_scene_progress_at(&s_state, 0x008107D8u, 1),
+                      *d758 = em_scene_progress_at(&s_state, 0x00810758u, 1),
+                      *d793 = em_scene_progress_at(&s_state, 0x00810793u, 1),
+                      *d813 = em_scene_progress_at(&s_state, 0x00810813u, 1);
+        fprintf(f, ", \"story\": [%d, %d, %d, %d], \"roger\": ", d7D8 ? *d7D8 : -1, d758 ? *d758 : -1,
+                d793 ? *d793 : -1, d813 ? *d813 : -1);
+        uint32_t roger_record, roger_pos[3];
+        uint8_t roger_head[16], roger_block[16];
+        float roger_xyz[3];
+        if (em_area11_roger_state(&roger_record, roger_head, roger_xyz, roger_block)) {
+            memcpy(roger_pos, roger_xyz, sizeof roger_pos);
+            fprintf(f, "[%u, ", roger_record);
+            log_hex(f, roger_head, sizeof roger_head);
+            fprintf(f, ", [%u, %u, %u], ", roger_pos[0], roger_pos[1], roger_pos[2]);
+            log_hex(f, roger_block, sizeof roger_block);
+            fputc(']', f);
+        } else {
+            fputs("null", f);
+        }
+        fputs(", \"equipment\": ", f);
+        if (em_area11_roger_equipment_state(&roger_record, roger_head, roger_xyz)) {
+            memcpy(roger_pos, roger_xyz, sizeof roger_pos);
+            fprintf(f, "[%u, ", roger_record);
+            log_hex(f, roger_head, sizeof roger_head);
+            fprintf(f, ", [%u, %u, %u]]", roger_pos[0], roger_pos[1], roger_pos[2]);
         } else {
             fputs("null", f);
         }
@@ -890,12 +941,30 @@ static void spawn_commit(const EmSpawnIo *io)
     memcpy(s_state.spad3B40, io->spad3B40, sizeof s_state.spad3B40);
 }
 
+/* 0015C1F0(player) (NEARMISS C, logic recovered; census L22 translates
+ * its first store): the model kind +0x2FF from the infection mode +0x234
+ * and the equipment status D_00810C60: mode 0 -> 0x3B, with status 2 ->
+ * 0x3F, 1 -> 0x3E; mode 1 -> 0x40, with status 2 -> 0x3F, 1 -> 0x3E; any
+ * other mode -> 0x3D. 001B81D0 (a script's player face attach) reads it.
+ * The rest (the D_0028A490[kind] model bind 001CA6E0, +0x0C, +0x96 = 0x28
+ * and 00200890) binds the model the port draws from its own export:
+ * reported (UM_0015C1F0). */
 static int spawn_w_0015C1F0(void *ctx, uint32_t player)
 {
     (void)ctx;
     bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_0015C1F0, player, 0, 0, 0);
-    if (player != D_PLAYER)
+    EmPlayerLiveActor *p = player_states_actor_mut();
+    if (player != D_PLAYER || !s_spawn_io || !p)
         return -1;
+    const uint8_t mode = s_spawn_io->player.b234, sel = s_spawn_io->d810C60;
+    uint8_t kind;
+    if (mode == 0)
+        kind = sel == 2 ? 0x3F : sel == 1 ? 0x3E : 0x3B;
+    else if (mode == 1)
+        kind = sel == 2 ? 0x3F : sel == 1 ? 0x3E : 0x40;
+    else
+        kind = 0x3D;
+    em_live_set_u8(p, 0x2FF, kind);
     return unmirrored(UM_0015C1F0);
 }
 
@@ -1644,6 +1713,7 @@ static int w_001FAE70(void *ctx, int a0)
     int fade = (int)((em_random_next() >> 16) & 0x7Fu) + 0x10E;
     em_bgm_stop(0);                            /* 001FAB50 */
     *em_scene_req_at(&s_state, 0x008106F4u) = 0;
+    s_channel0_cue = 0;
     cue &= 0x7F;
     if (cue == 0)
         return 0;
@@ -1651,7 +1721,10 @@ static int w_001FAE70(void *ctx, int a0)
         fprintf(stderr, "em_scene: 001FAE70: area cue %d has no exported stream\n", (int)cue);
         return -1;
     }
-    return em_opening_media_resume_music((unsigned)fade) == 0 ? 0 : -1;
+    if (em_opening_media_resume_music((unsigned)fade) != 0)
+        return -1;
+    s_channel0_cue = cue;
+    return 0;
 }
 
 /* The message service's stream workers (em_message_live.h, WP-8), reached
@@ -1665,6 +1738,139 @@ static int w_001FAE70(void *ctx, int a0)
  *     the opening's (tools/export_opening_media.py exports the row of line
  *     0x66 in AREA11), which em_opening_media plays as the lane-0 stand-in.
  *     Any other lane or cue faults. */
+/* 001FAE70(a0) for the script owners (census L22): a0 == 0 is the resume
+ * branch (Roger's encounter completion 0x823AB0.., 001B82D0 sub 4's aborted
+ * leave). The shared steps are w_001FAE70's (001FC280, the cue, the infected
+ * override, the rand() fade); then, cue & 0x7F == 0: 001FAB50 (the channel
+ * released); otherwise, when D_00282154 == 0 or D_00282178 != the cue:
+ * 001FAB50 and 001FABF0(0, cue, fade, 1). A channel still holding the cue
+ * keeps playing. a0 != 0 is the status close's branch (w_001FAE70). */
+static int fae70_resume(void *ctx)
+{
+    const uint8_t *record = NULL;
+    if (s_spawn_table_loaded) {
+        const uint8_t *table = em_spawn_table_read(
+            &s_spawn_table, EM_SPAWN_TABLE_ADDRESS + 4u * s_state.d810700, 4);
+        uint32_t rooms = table ? (uint32_t)table[0] | (uint32_t)table[1] << 8 |
+                                     (uint32_t)table[2] << 16 | (uint32_t)table[3] << 24
+                               : 0;
+        const uint8_t *room =
+            rooms ? em_spawn_table_read(&s_spawn_table, rooms + 4u * s_state.d810701, 4) : NULL;
+        uint32_t entries = room ? (uint32_t)room[0] | (uint32_t)room[1] << 8 |
+                                      (uint32_t)room[2] << 16 | (uint32_t)room[3] << 24
+                                : 0;
+        if (entries)
+            record = em_spawn_table_read(
+                &s_spawn_table, entries + EM_SPAWN_RECORD_SIZE * s_state.d810702 + 0x20u, 4);
+    }
+    const uint8_t *d788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
+    const uint8_t *d38 = em_scene_progress_at(&s_state, 0x00810D38u, 4);
+    if (!record || !d788 || !d38)
+        return -1;
+    int32_t loop = (int32_t)((uint32_t)record[2] | (uint32_t)record[3] << 8) << 16 >> 16;
+    if (s_state.d810700 == 0x0B && *d788 == 0xFF)
+        loop = 0x44E;
+    if (loop != -1) {
+        fprintf(stderr, "em_scene: 001FAE70: 001FC280 would start the area loop 0x%X, which "
+                        "the port does not have\n", (unsigned)loop);
+        return -1;
+    }
+    uint32_t lo = (uint32_t)record[0] | (uint32_t)record[1] << 8;
+    w_00119828(ctx, 0, (int)lo, (int)lo);
+    w_00119828(ctx, 1, (int)lo, (int)lo);
+    uint32_t c8 = (uint32_t)em_scene_req_u32(&s_state, EM_SCENE_REQ_C8);
+    int32_t bgm = (int32_t)((uint32_t)d38[0] | (uint32_t)d38[1] << 8 | (uint32_t)d38[2] << 16 |
+                            (uint32_t)d38[3] << 24);
+    int32_t cue = (int32_t)((c8 & 0xFF00u) >> 8);
+    if (bgm != 0) {
+        cue &= 0x80;
+        cue |= bgm;
+    }
+    if (s_state.d810700 != 0x15 && bgm != 0xB && bgm != 0xC && bgm != 0x17 &&
+        g.pd_infected == 1) {
+        fprintf(stderr, "em_scene: 001FAE70: the infected override starts cue 0x18, which "
+                        "has no exported stream\n");
+        return -1;
+    }
+    int fade = (int)((em_random_next() >> 16) & 0x7Fu) + 0x10E;
+    cue &= 0x7F;
+    if (cue == 0) {
+        stream_release_all();                  /* 001FAB50 */
+        return 0;
+    }
+    if (s_channel0_cue != 0 && s_channel0_cue == cue)
+        return 0;                              /* the channel still holds the cue */
+    if (cue != 25) {
+        fprintf(stderr, "em_scene: 001FAE70: area cue %d has no exported stream\n", (int)cue);
+        return -1;
+    }
+    stream_release_all();                      /* 001FAB50 */
+    *em_scene_req_at(&s_state, 0x008106F4u) = 0;
+    if (em_opening_media_resume_music((unsigned)fade) != 0)
+        return -1;
+    s_channel0_cue = cue;
+    return 0;
+}
+
+int em_scene_bindings_001FAE70(int a0)
+{
+    return a0 == 0 ? fae70_resume(NULL) : w_001FAE70(NULL, a0);
+}
+
+int em_scene_bindings_001FABB0(void)
+{
+    return w_001FABB0(NULL);
+}
+
+int em_scene_bindings_001FBC50(void)
+{
+    return w_001FBC50(NULL);
+}
+
+int em_scene_bindings_report_001DA6A0(void)
+{
+    return unmirrored(UM_001DA6A0);
+}
+
+/* 001B0250 (em_spawn_001B0250, byte-matched) for the scripted camera's
+ * restore (0022EEF0 / 001B7B30 sub 0 at the timeline's end) and 001B6BF0's
+ * skip landing: D_008106C8 = the spawn record's +0x1C (the area 0x0B mask
+ * with D_00810788). */
+int em_scene_bindings_001B0250(void)
+{
+    const uint8_t *e788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
+    if (!s_spawn_table_loaded || !e788)
+        return em_scene_fault(&s_state, EM_SPAWN_FN_001B0250, EM_SCENE_FAULT_NULL_WORKER);
+    EmSpawnIo io;
+    memset(&io, 0, sizeof io);
+    io.d810700 = s_state.d810700;
+    io.d810701 = s_state.d810701;
+    io.d810702 = s_state.d810702;
+    io.d810788 = *e788;
+    io.d8106C8 = (int32_t)em_scene_req_u32(&s_state, EM_SCENE_REQ_C8);
+    if (em_spawn_001B0250(&s_spawn_table, &io) < 0)
+        return em_scene_fault(&s_state, io.fault.address, (EmSceneFaultCode)io.fault.code);
+    em_scene_req_set_u32(&s_state, EM_SCENE_REQ_C8, (uint32_t)io.d8106C8);
+    return 0;
+}
+
+/* 001D2830(a0, a1): the display-list context registration; no port
+ * counterpart (reported, UM_001D2830). */
+int em_scene_bindings_report_001D2830(void)
+{
+    return unmirrored(UM_001D2830);
+}
+
+int em_scene_bindings_report_0021B9A0(void)
+{
+    return unmirrored(UM_0021B9A0);
+}
+
+int em_scene_bindings_report_001FAD70(void)
+{
+    return unmirrored(UM_001FAD70);
+}
+
 int em_scene_bindings_001FD470(void *ctx, int32_t mask)
 {
     if ((mask & 1) && w_001FBC50(ctx) < 0)
@@ -1683,12 +1889,18 @@ int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue)
 {
     (void)ctx;
     int32_t opening = em_message_live_stream_cue(0x0B, 0x66);
-    if (lane != 0 || opening < 0 || cue != opening) {
+    /* Roger's encounter (census L22): 001B82D0 sub 12's 001FD4C0(0) row. */
+    int32_t encounter = em_message_live_stream_cue(0x0B, 0);
+    if (lane != 0 || (opening < 0 && encounter < 0) || (cue != opening && cue != encounter)) {
         fprintf(stderr, "em_scene: 001FA790(%d, %d): no exported stream for this lane and cue\n",
                 lane, (int)cue);
         return 0;
     }
-    return em_opening_media_audio_start() == 0;
+    if (em_opening_media_audio_start_cue(cue == opening ? EM_OPENING_MEDIA_OPENING
+                                                        : EM_OPENING_MEDIA_ENCOUNTER) != 0)
+        return 0;
+    s_channel0_cue = cue;
+    return 1;
 }
 
 /* ------------------------------------------- the room move (S12b; design 5)

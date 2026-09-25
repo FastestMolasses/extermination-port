@@ -25,6 +25,14 @@ void em_opening_media_set_hold(uint8_t *hold);
 /* 001FA790(0, 63): arm the stream (prefill); not audible until the hold
  * byte is released. -1 when not prepared. */
 int em_opening_media_audio_start(void);
+/* The same lane-0 stand-in for the other stream an AREA11 stream-table row
+ * selects (census L22): Roger's encounter, cue 29 (001B82D0 sub 12's
+ * 001FD4C0(0)), from <scene_dir>/roger/encounter.wav
+ * (tools/export_roger_media.py), loaded on its first start. The opening's
+ * fade track does not apply to it (the encounter's fades are its script's
+ * op10s). -1 when not prepared or the file is missing. */
+enum { EM_OPENING_MEDIA_OPENING, EM_OPENING_MEDIA_ENCOUNTER };
+int em_opening_media_audio_start_cue(int stream);
 /* 001FAD70/001FA330: subtract 16383/ticks on each ordinary service. */
 void em_opening_media_fade_out(int ticks);
 int em_opening_media_resume_music(unsigned fade_ticks);

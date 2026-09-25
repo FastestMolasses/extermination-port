@@ -56,6 +56,14 @@ int em_area11_script_host_start(EmActor *actor, uint32_t entry);
  * aborted by the skip path. 0, or -1 on a fault (reported). */
 int em_area11_script_host_tick(EmActor *actor, int32_t *result);
 
+/* 0022EEF0(cam, 1), the camera stage's scripted timeline (0018B9C0 state 1
+ * with the camera's +0x04 == 3), for the timeline a script's 001B8FC0 kind
+ * 6 started (0022EC30; census L22: Roger's encounter, scene 1): the sample
+ * at the camera's +0x74, published to D_008105D0 / E0 (001DD980), the up
+ * vector and the zoom; at the end the three restores. 0, or -1 (reported;
+ * also when no timeline was started). */
+int em_area11_script_host_camera_0022EEF0(void);
+
 #ifdef __cplusplus
 }
 #endif

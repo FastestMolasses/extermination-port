@@ -33,6 +33,14 @@ static struct {
     uint8_t player_phase;
 } s;
 
+/* D_00810791 (event 0x39), canonical D2 progress since census L22: the
+ * script's op06 sub 0 stores 1 and its op07 sub 5 0xFF; Roger 008237E0
+ * reads it. */
+static uint8_t *event_39(void)
+{
+    return em_scene_progress_at(em_scene_state(), 0x00810791u, 1);
+}
+
 static void fail(const char *service)
 {
     if (!s.failed)
@@ -187,7 +195,7 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
         if (sub==5) {
             if (em_script_u32(record,0x14)!=0x39)
                 return EM_SCRIPT_UNSUPPORTED;
-            g.opening_event_39=0xFF;
+            *event_39()=0xFF;
             camera_restore();
             em_frame_screen_fade_start(-1,4);
             em_opening_media_stop();
@@ -215,7 +223,7 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
              * sub0 stores 1; the opening uses sub0 / event 0x39. */
         if (sub!=0 || em_script_u32(record,0x14)!=0x39)
             return EM_SCRIPT_UNSUPPORTED;
-        g.opening_event_39=1;
+        *event_39()=1;
         return EM_SCRIPT_ADVANCE;
     case 12: { /* 001B7D60 on the live message service; its handshake is the
                 * command's state byte (+4). The opening posts line 0x66 with
@@ -367,7 +375,7 @@ void em_opening_runtime_tick(void)
     if (s.actors_active) ++s.half_tick;
     if (em_scene_state()->spad3B8D && s.player_phase==0) s.player_phase=1;
     EmScriptResult result=em_area11_opening_tick(&s.controller,1,
-                          g.opening_event_39,resolve,execute,notify,NULL);
+                          *event_39(),resolve,execute,notify,NULL);
     if (result==EM_SCRIPT_FAULT) { fail("script command binding"); return; }
     if (s.failed) return;
     em_opening_media_tick();
@@ -392,7 +400,7 @@ void em_opening_runtime_tick(void)
         s.finished=1;
         fprintf(stderr,"opening: complete frame=%d pos=(%.6f,%.6f,%.6f) "
                 "yaw=%.8f event39=%u eventB9=%u key0=%u\n",g.frame_no,
-                g.pos[0],g.pos[1],g.pos[2],g.yaw,g.opening_event_39,
+                g.pos[0],g.pos[1],g.pos[2],g.yaw,*event_39(),
                 g.opening_complete,key0?*key0:0u);
     }
 }

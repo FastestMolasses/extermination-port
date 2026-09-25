@@ -11,8 +11,11 @@
  * the original routines (em_player_record_pose over em_pose_host_workers):
  * one clip clock, one set of node channels, one skeleton. This host keeps
  * only the port's own bookkeeping around it (the idle/walk callbacks'
- * state, the legacy holds, the takeover's acquired/script flags) and the
- * cinematic special bank, which is not on the record yet. */
+ * state, the legacy holds, the takeover's acquired/script flags). Since
+ * census L22 the special bank a script names (001B9A00 sub 1 / 4: +0x40,
+ * +0x1F2, +0x1F4, +0x2F3) is on the record as well: 00183090's commit and
+ * the advance by +0x1F4 run there, over the bank region the binder maps
+ * (player_pose_map_region). */
 static struct {
     EmPlayerRecordPose record;
     int valid;              /* the record holds an original pose */
@@ -20,14 +23,9 @@ static struct {
     int script_active;
     unsigned script_clip;
     unsigned flags;         /* the last advance result (the value 0015BA50 stores to +200) */
-    /* 00183090's special-bank path (+2F3) over a decoded foreign bank. The
-     * record keeps the default bank; this pose owns the channels while
-     * cinematic_mode == 2 (docs/PLAYER_CLIPS.md section 6). */
-    EmPlayerPose cinematic;
-    const EmPoseBank *cinematic_bank;
-    unsigned cinematic_clip;
-    uint8_t cinematic_mode; /* original player+2F3: pending1, active2 */
-    float cinematic_rate;
+    /* 00183090's 001D0C70 (0x70003B8F == 2): the attached face's tick,
+     * supplied by the takeover's special tick (player_pose_special_tick). */
+    int (*face_tick)(void);
     int started;
     int idle_phase;
     int idle_fidget;
@@ -58,11 +56,6 @@ static struct {
     const char *foot_fail; /* why the last foot-stop begin returned 0 */
 } source;
 
-static int cinematic_owned(void)
-{
-    return source.cinematic_mode == 2;
-}
-
 static int ordinary_source(void)
 {
     return source.started && source.valid && !source.legacy;
@@ -74,22 +67,17 @@ static int ordinary_source(void)
  * 0x8000). */
 static unsigned current_clip(void)
 {
-    return cinematic_owned() ? source.cinematic.playback.clip->id
-                             : em_player_record_pose_clip(&source.record);
+    return em_player_record_pose_clip(&source.record);
 }
 
 static int in_transition(void)
 {
-    return cinematic_owned() ? source.cinematic.transition.active
-                             : em_player_record_pose_transition(&source.record);
+    return em_player_record_pose_transition(&source.record);
 }
 
 /* +3C: the transition clock while +2C has 0x8000, else the clip clock. */
 static float current_remaining(void)
 {
-    if (cinematic_owned())
-        return source.cinematic.transition.active ? source.cinematic.transition.remaining
-                                                  : source.cinematic.playback.remaining;
     return em_player_record_pose_clock(&source.record);
 }
 
@@ -106,7 +94,6 @@ static int clip_frames(unsigned clip, float *frames)
  * (001C64F0's transition end). */
 static float playback_remaining(void)
 {
-    if (cinematic_owned()) return source.cinematic.playback.remaining;
     if (!in_transition()) return current_remaining();
     float frames;
     if (!clip_frames(current_clip(), &frames)) return 0;
@@ -117,7 +104,6 @@ static float playback_remaining(void)
 
 static float playback_duration(void)
 {
-    if (cinematic_owned()) return source.cinematic.playback.clip->duration;
     float frames;
     return clip_frames(current_clip(), &frames) ? frames : 0;
 }
@@ -233,8 +219,6 @@ int player_pose_load(const char *bank_path, const char *row0_path)
     em_player_record_pose_free(&source.record);
     source.started = source.valid = source.acquired = source.script_active = 0;
     source.hip_valid = source.saved_euler_valid = 0;
-    source.cinematic_bank = NULL;
-    source.cinematic_mode = 0;
     source.legacy = 0;
     source.legacy_owner = NULL;
     if (em_player_record_pose_load(&source.record, bank_path, row0_path) == 0) {
@@ -266,8 +250,6 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
 {
     int was_started = source.started && source.valid;
     source.started = source.valid = source.acquired = source.script_active = 0;
-    source.cinematic_bank = NULL;
-    source.cinematic_mode = 0;
     if (em_player_record_pose_attach(&source.record, actor, d8106F3, scene, globals) < 0 ||
         !record_default() || em_player_record_pose_skeleton(&source.record) < 0) {
         source.valid = 0;
@@ -312,8 +294,6 @@ void player_pose_invalidate(const char *reason)
 
 static int source_palette(float *palette)
 {
-    if (cinematic_owned())
-        return em_player_pose_palette(&source.cinematic, palette, g.model.bone_count);
     return record_palette(palette);
 }
 
@@ -389,8 +369,6 @@ static int legacy_reseed(void)
     }
     source.legacy = 0;
     source.legacy_owner = NULL;
-    source.cinematic_bank = NULL;
-    source.cinematic_mode = 0;
     reset_default_state();
     return 1;
 }
@@ -423,8 +401,6 @@ int player_pose_opening_release(void)
     /* Original external-bank release 182DF0 ->1C63E0; immutable state03
      * has idle0 remaining80 before the next ordinary player callback. */
     if (!record_default()) return 0;
-    source.cinematic_bank = NULL;
-    source.cinematic_mode = 0;
     source.acquired = source.script_active = 0;
     source.legacy = 0;
     source.legacy_owner = NULL;
@@ -510,16 +486,14 @@ int player_pose_stage_hook(void)
 int player_pose_animate(void)
 {
     /* 0015BCF0 evaluates the record after every player stage. Before the
-     * first pose (the opening release) there is nothing to evaluate, and the
-     * special bank does not live on the record yet. */
-    if (!source.started || !source.valid || cinematic_owned()) return 0;
+     * first pose (the opening release) there is nothing to evaluate. */
+    if (!source.started || !source.valid) return 0;
     return em_player_record_pose_animate(&source.record) < 0 ? -1 : 0;
 }
 
 int player_pose_display(void)
 {
-    if (!source.started || !source.valid || cinematic_owned() ||
-        g.model.bone_count != EM_PLAYER_POSE_PALETTE_BONES)
+    if (!source.started || !source.valid || g.model.bone_count != EM_PLAYER_POSE_PALETTE_BONES)
         return 0;
     float palette[22 * 16];
     if (em_player_record_pose_palette(&source.record, palette) < 0) return -1;
@@ -899,62 +873,89 @@ int player_pose_use_accepted_port(void)
 
 int player_pose_idle_tick(float *local_palette)
 {
-    if (source.cinematic_mode)
-        return player_pose_cinematic_tick(local_palette, 0);
     if (!source.acquired || source.script_active || current_clip() != 0 || !record_advance(1))
         return -1;
     return record_palette(local_palette) ? 1 : -1;
 }
 
-int player_pose_cinematic_request(const EmPoseBank *bank, unsigned clip, float rate)
+/* A read-only EE region for the record's pose host (the special bank a
+ * script's 001B9A00 names; census L22). 1, or 0. */
+int player_pose_map_region(uint32_t address, uint32_t size, const uint8_t *bytes)
 {
-    if (!source.started || !source.valid || !source.acquired || !bank ||
-        bank->bone_count != 21 || !bank->clips || !isfinite(rate) || rate < 0 || rate > 4 ||
-        clip > 32767 || source.script_active)
-        return 0;
-    int32_t parents[EM_PLAYER_POSE_NODES];
-    if (em_player_record_pose_parents(&source.record, 0, parents) < 0) return 0;
-    for (unsigned i = 0; i < 21; ++i)
-        if (bank->parents[i] != parents[i]) return 0;
-    unsigned index;
-    for (index = 0; index < bank->clip_count && bank->clips[index].id != clip; ++index) {}
-    if (index == bank->clip_count) return 0;
-    /* 001B9A00/sub1 publishes the request, mode1/rate and clears the last
-     * animation result. It does not initialize or advance any source channels. */
-    source.cinematic_bank = bank;
-    source.cinematic_clip = clip;
-    source.cinematic_rate = rate;
-    source.cinematic_mode = 1;
-    source.flags = 0;
+    return em_player_record_pose_map(&source.record, address, size, bytes) == 0;
+}
+
+/* The record's +0x2F3 (001B9A00 sub 1 writes 1, sub 4 writes 3; 00183090
+ * advances them to 2 / 4). */
+int player_pose_special_active(void)
+{
+    const EmPlayerLiveActor *a = source.record.actor;
+    return source.started && source.valid && a && a->bytes[0x2F3] != 0;
+}
+
+/* 00183090's 001D0C70 worker (context: the record's pose host). */
+static int stage_face_001D0C70(void *context)
+{
+    (void)context;
+    return source.face_tick && source.face_tick() ? 0 : -1;
+}
+
+/* 0015BA50's +4 = 4 path (+5 0 or 0x17) while the takeover holds the
+ * player for a script owner: 00183090 (em_player_stage_commit: with
+ * 0x70003B8F == 2 the face's 001D0C70 first; +0x2F3 1 / 3:
+ * bone_init_default_2(p, +0x1F2) over the record's +0x40 bank, +0x200 = 0,
+ * +0x2F3 += 1, then 1; +0x2F3 2 / 4: 1; +0x2F3 0: a +0x1F2 other than
+ * +0x20C becomes +0x20C with anim_clip_init(p, +0x20C, +0x1F8, 0.0) and
+ * +0x200 = 0, then 0, else 1) and, when it returns 1, 001C64F0(p, +0x1F4)
+ * into +0x200; then the palette of the record's skeleton (0015BCF0's
+ * animate step). 1, or -1 on a fault. */
+int player_pose_commit_tick(int (*face_tick)(void), float *local_palette)
+{
+    EmPlayerLiveActor *a = source.record.actor;
+    EmPlayerStageHost *host = em_player_record_pose_advance_host(&source.record);
+    if (!source.started || !source.valid || !source.acquired || !a || !host || !face_tick ||
+        !local_palette) {
+        fprintf(stderr, "player pose: 00183090 without an acquired record\n");
+        return -1;
+    }
+    source.face_tick = face_tick;
+    host->callees.w001D0C70 = stage_face_001D0C70;
+    int committed = 0;
+    int rc = em_player_stage_commit(host, a, &committed);
+    host->callees.w001D0C70 = NULL;
+    source.face_tick = NULL;
+    if (rc < 0) {
+        fprintf(stderr, "player pose: 00183090 faulted (+0x40 %08X, +0x1F2 %d, +0x2F3 %u)\n",
+                (unsigned)em_live_u32(a, 0x40), (int)(int16_t)em_live_u16(a, 0x1F2), a->bytes[0x2F3]);
+        return -1;
+    }
+    if (committed) {
+        float rate;
+        memcpy(&rate, a->bytes + 0x1F4, 4);
+        if (!record_advance(rate)) {
+            fprintf(stderr, "player pose: 001C64F0 faulted (rate %g)\n", (double)rate);
+            return -1;
+        }
+        em_live_set_u32(a, 0x200, source.flags);
+    } else {
+        source.flags = 0;
+    }
+    if (!record_palette(local_palette)) {
+        fprintf(stderr, "player pose: the record's skeleton faulted after 00183090\n");
+        return -1;
+    }
     return 1;
 }
 
-int player_pose_cinematic_tick(float *local_palette, int freeze_motion)
+/* The 16 bytes at `offset` of node `node` (the record's +0x110 word names
+ * it; 001B9A00 sub 5 reads node 1's +0xC0). 1, or 0. */
+int player_pose_node_quad(unsigned node, unsigned offset, float out[4])
 {
-    if (!source.started || !source.valid || !source.acquired ||
-        !source.cinematic_bank || !source.cinematic_mode || !local_palette)
-        return -1;
-    if (source.cinematic_mode == 1) {
-        EmPlayerPose next;
-        if (!em_player_pose_init(&next, source.cinematic_bank, source.cinematic_clip, 0))
-            return -1;
-        next.acquired = 1;
-        source.cinematic = next;
-        source.cinematic_mode = 2;
-        source.flags = 0;
-    }
-    /* 83090 returns1 after the special-bank initializer, so 5BA50 advances
-     * by the requested rate on this SAME callback. Ordinary changed requests
-     * return0 and do not advance; that separate path remains unchanged. */
-    if (!em_player_pose_advance(&source.cinematic, source.cinematic_rate, freeze_motion))
-        return -1;
-    source.flags = source.cinematic.flags;
-    return em_player_pose_palette(&source.cinematic, local_palette, g.model.bone_count) ? 1 : -1;
-}
-
-int player_pose_cinematic_active(void)
-{
-    return source.started && source.valid && source.cinematic_mode != 0;
+    if (!em_player_record_pose_ready(&source.record) || node >= EM_PLAYER_POSE_NODES ||
+        offset > EM_POSE_NODE_BYTES - 16u || !out)
+        return 0;
+    memcpy(out, source.record.nodes + EM_POSE_NODE_BYTES * node + offset, 16);
+    return 1;
 }
 
 /* The interaction runtime's per-tick check over the record: its temporal
@@ -964,7 +965,7 @@ int player_pose_cinematic_active(void)
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette)
 {
-    if (source.cinematic_mode) return 0;
+    if (player_pose_special_active()) return 0;
     if (!source.acquired || !animation || !animation->active || (result != 0 && result != 1) ||
         (animation->current_clip != 0x45 && animation->current_clip != 0x47 &&
          animation->current_clip != 0x15C &&
@@ -1011,16 +1012,32 @@ static int record_release(void)
     return 1;
 }
 
+/* 00182DF0's nonzero-+0x2F3 branch: +0x2F3 = 0, +0x40 = D_0028A580 (the
+ * default bank), +0x0C = 001C6150(+0x44) (the player model's 21 nodes, the
+ * count the record's attach wrote), +0x20C = D_00248A00[+0x235] and
+ * bone_init_default_2(p, +0x20C). No blend: the foreign bank's channels are
+ * not blended into an ordinary clip. */
+static int record_release_special(void)
+{
+    EmPlayerLiveActor *a = source.record.actor;
+    int16_t clip;
+    if (!source.valid || !source.acquired || !a ||
+        em_player_record_pose_table16(&source.record, UINT32_C(0x00248A00) + 2u * a->bytes[0x235], &clip) < 0)
+        return 0;
+    a->bytes[0x2F3] = 0;
+    em_live_set_u32(a, 0x40, EM_PLAYER_POSE_BANK_ADDRESS);
+    a->bytes[0x0C] = EM_PLAYER_POSE_NODES;
+    em_live_set_u16(a, 0x20C, (uint16_t)clip);
+    if (em_player_record_pose_default(&source.record, clip) < 0) return 0;
+    source.flags = 0;
+    source.acquired = source.script_active = 0;
+    return 1;
+}
+
 int player_pose_release(void)
 {
-    if (source.cinematic_mode) {
-        /* 182DF0's nonzero2F3 branch restores the default bank and initializes
-         * healthy row0 before releasing. It does not blend foreign channels
-         * into an ordinary clip with the same numeric ID. */
-        if (!source.acquired || !record_default()) return 0;
-        source.cinematic_bank = NULL;
-        source.cinematic_mode = 0;
-        source.acquired = source.script_active = 0;
+    if (source.record.actor && source.record.actor->bytes[0x2F3] != 0) {
+        if (!record_release_special()) return 0;
     } else if (!record_release()) return 0;
     reset_default_state();
     /* Release follows the consumed script/idle callback. Publish its default

@@ -225,13 +225,13 @@ static void run(int skip,int shutdown_after) {
         float pcm[1600]={0};
         assert(audio_callback);audio_callback(audio_user,pcm,800);
         for(unsigned i=0;i<1600;i++) assert(isfinite(pcm[i]));
-        if(g.opening_event_39==0xFF) marked_frame=g.frame_no;
+        if(*em_scene_progress_at(&scene,0x00810791u,1)==0xFF) marked_frame=g.frame_no;
         else assert(!g.opening_complete && !*key0());
     }
     assert(g.frame_no<2000 && marked_frame>=0 && commits && subtitles && look_up);
     assert(channel_mutes==2);
     assert(hold_seen==7);
-    assert(scene.spad3B8D==0 && scene.spad3B91==0 && g.opening_event_39==0xFF);
+    assert(scene.spad3B8D==0 && scene.spad3B91==0 && *em_scene_progress_at(&scene,0x00810791u,1)==0xFF);
     assert(cutscene_frames>0 && scene.d810750==g.frame_no); /* one variant per frame */
     assert(g.opening_complete==0xFF && *key0()==1);
     assert(g.pos[0]==250.8000030517578f && g.pos[1]==229.89999389648438f && g.pos[2]==209);

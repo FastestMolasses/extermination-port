@@ -47,8 +47,9 @@
  *   Overlay owners (no static code): ORIGINAL_FRAME_ORDER.md section 6
  *   measured, on the first world frame, 0x825940 (deferred g0.7) spawning a
  *   001C5680 child (+0xD 0x7A), 0x827B10 (area11[19]) spawning a 001C5760
- *   child at 0x827C20 (+0xD 0x10, +0xA 0), and Roger 0x8237E0 calling
- *   001BA8E0 -> 001F0120(Roger, 0x47). These three are INTERIM spawns.
+ *   child at 0x827C20 (+0xD 0x10, +0xA 0). These two are INTERIM spawns.
+ *   Roger 0x8237E0's 001BA8E0 -> 001F0120(Roger, 0x47) runs in its own
+ *   lifecycle 0 since census L22 (em_area11_roger).
  */
 #include "game/em_area11_bindings.h"
 
@@ -58,6 +59,7 @@
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
+#include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_director.h"
 #include "game/em_frame.h"
@@ -346,13 +348,22 @@ static int tick_effect(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* Roger: behaviour UNBOUND (WP-9). Its first tick's 001BA8E0 ->
- * 001F0120(Roger, 0x47) child is spawned (INTERIM). */
+/* Roger 008237E0 (area11[8]) and the equipment node 001C5C90 (area11[9])
+ * on their original owners (em_area11_roger, census L22;
+ * ROGER_ACTOR_ORIGINAL.md "Binding"), in both walk variants (class 0x0A
+ * and the equipment's class are walked by 001AFD70 modes 0 and 1). Roger's
+ * lifecycle 0 runs 001BA8E0, whose 001F0120(Roger, 0x47) spawns the head
+ * sprite node (em_area11_bindings_spawn_001F0120). */
 static int tick_roger(EmActor *actor, Node *node, const EmArea11World *world)
 {
+    (void)node;
     (void)world;
-    if (!node->ticked && spawn_001F0120(address_of(actor), 0x47, 1) < 0)
-        return -1;
+    int r = actor->callback == 0x008237E0u ? em_area11_roger_tick(actor, s_pool, s_scene)
+                                           : em_area11_roger_equipment_tick(actor, s_pool, s_scene);
+    if (r < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "Roger owner: a worker failed (em_area11_roger)");
     return 1;
 }
 
@@ -610,11 +621,10 @@ static const Binding k_bindings[] = {
     {0x00827630u, "fan: static", NULL, GROUP_NONE, NULL,
      "fan (area11[1]/[2]): no port behaviour; em_pickup draws it static (WP-11)"},
     {0x008235F0u, "flame: em_area11_effect_runtime_tick", NULL, GROUP_NONE, tick_effect, NULL},
-    {0x008237E0u, "Roger: UNBOUND", NULL, GROUP_NONE, tick_roger,
-     "Roger (area11[8]): behaviour UNBOUND, drawn statically (WP-9); only its 001F0120(0x47) "
-     "child is spawned"},
-    {0x001C5C90u, "equipment: UNBOUND", NULL, GROUP_NONE, NULL,
-     "001C5C90 (area11[9]): UNBOUND (WP-9)"},
+    {0x008237E0u, "Roger: em_roger_tick / em_roger_actor_original (em_area11_roger)", NULL, GROUP_NONE,
+     tick_roger, NULL},
+    {0x001C5C90u, "equipment: em_roger_actor_001C5C90 (em_area11_roger)", NULL, GROUP_NONE, tick_roger,
+     NULL},
     {0x00823E80u, "opening controller: em_opening_runtime_tick", NULL, GROUP_NONE, tick_opening, NULL},
     {0x00823CE0u, "manager: dormant", NULL, GROUP_NONE, NULL,
      "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
@@ -714,7 +724,9 @@ void em_area11_bindings_attach(EmActorPool *pool, EmSceneState *scene)
 {
     s_pool = pool;
     s_scene = scene;
-    /* 001AF800: the only records that hold bone slots (+0x09) are the boxes'. */
+    /* 001AF800: the records that hold bone slots (+0x09): the boxes' and
+     * (census L22) Roger's and the equipment node's, which the boxes' worker
+     * hands to em_area11_roger. */
     if (pool) {
         pool->w_001AF800 = em_area11_boxes_001AF800;
         pool->worker_ctx = NULL;
@@ -726,6 +738,7 @@ void em_area11_bindings_reset(void)
     memset(s_nodes, 0, sizeof s_nodes);
     memset(s_heads, 0, sizeof s_heads);
     em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
+    em_area11_roger_reset();
     /* The overlay scripts are mutated in place: fresh images per visit. */
     em_area11_script_host_reset(s_pool, s_scene);
 }
@@ -740,6 +753,13 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
     else if (spawned->source == EM_ROSTER_SOURCE_PLACEMENT)
         snprintf(record, sizeof record, "area11[%u]", (unsigned)spawned->index);
     return bind_node(actor, record[0] ? record : NULL);
+}
+
+int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key)
+{
+    if (key != 0x3B && key != 0x47)
+        return fault(0x001F0120u, EM_SCENE_FAULT_BAD_INDEX, "001F0120 with a key 001E2290 is not bound for");
+    return spawn_001F0120(owner_address, key, 0);
 }
 
 int em_area11_spawn_player_children_0015C420(void)

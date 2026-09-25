@@ -20,8 +20,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
-           src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c src/game/em_roger_assets.c \
-           src/game/em_roger_runtime.c src/game/em_face_model.c src/game/em_player_face_host.c \
+           src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
+           src/game/em_face_model.c src/game/em_player_face_host.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
            src/game/em_camera_probe.c src/game/em_camera_rotation.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
@@ -33,7 +33,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c \
            src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
-           src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c \
+           src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c src/game/em_area11_roger.c \
            src/game/em_roger_actor_original.c \
            src/game/em_message_service.c src/game/em_message_draw_original.c src/game/em_message_glyph_original.c \
            src/game/em_message_live.c \
@@ -242,12 +242,6 @@ test-pickup-items-reference:
 test-roger-reference:
 	python3 tools/test_roger_reference.py
 	python3 tools/test_roger_pose_reference.py
-
-.PHONY: test-roger-assets
-test-roger-assets: tests/roger_assets_test.c src/game/em_roger_assets.c
-	@mkdir -p build
-	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/roger_assets_test.c src/game/em_roger_assets.c src/em_model.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_script.c -o build/roger_assets_test
-	build/roger_assets_test
 
 .PHONY: test-door-original test-door-original-runtime
 test-door-original:
@@ -845,13 +839,6 @@ test-roger-encounter-capture:
 
 test-face-allocation-reference:
 	python3 tools/test_face_allocation_reference.py
-
-.PHONY: test-roger-runtime
-test-roger-runtime:
-	@mkdir -p build
-	python3 tools/test_roger_encounter_reference.py
-	$(CC) -std=c11 -O1 -ffp-contract=off -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/roger_runtime_test.c src/game/em_roger_runtime.c src/game/em_roger_assets.c src/game/em_roger.c src/game/em_face_model.c src/game/em_opening_face.c src/game/em_interaction_scene.c src/game/em_interaction_scan.c src/em_model.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_script.c -o build/roger_runtime_test
-	build/roger_runtime_test
 
 test-pickup-original: tests/pickup_original_test.c src/game/em_pickup.c $(PICKUP_ORIGINAL_TEST_SRC)
 	@mkdir -p build/pickup_owner_reference

@@ -268,6 +268,35 @@ def main():
         assert bytes(direction) == fold.read(0x5000c0,16), ('fold direction',case,list(direction),struct.unpack('<4f',fold.read(0x5000c0,16)))
         assert bytes(color) == fold.read(0x5000f0,16), ('fold color',case)
         folds += 1
+    # Tiny flicker angles (about 0x1.24p-16) where the rotation polynomial's
+    # 1 - cos^2 rounds just below zero: VU0 VSQRT takes the magnitude, so the
+    # sine is sqrt(|x|), never a NaN (found live in the Roger encounter's
+    # lighting, census L22). Random words of 2^30 add exactly zero.
+    tiny = [0x3790002b, 0x37920011, 0x37920031, 0x37928000, 0x37940000]
+    for case in range(len(tiny) * 2):
+        pool = Pool()
+        for index, light in enumerate(list(pool.active)+list(pool.pending)):
+            light.multiplier, light.adder, light.type, light.handle = 1, 0, 1, index
+            for lane in range(4):
+                light.color[lane] = 1.0 + lane
+                light.position[lane] = 0
+                light.angle[lane] = 0
+            word = tiny[(index + case) % len(tiny)]
+            light.angle[0] = number(word) * (-1 if case & 1 else 1)
+            light.angle[1] = number(tiny[(index + case + 1) % len(tiny)])
+        randoms = [0x40000000] * 64
+        oracle = Oracle(elf, randoms); oracle.load_pool(pool)
+        oracle.save(0x810700, 0x0b, 1); oracle.save(0x810701, 0, 1)
+        oracle.run(0x1d7c30)
+        values = iter(randoms)
+        @random_fn
+        def next_tiny(_):
+            return next(values)
+        native.em_point_light_tick(C.byref(pool), 0x0b00, next_tiny, None)
+        expected = oracle.pool_bytes()
+        assert bytes(pool) == expected, ('tiny angle', case, next(i for i,(a,b) in enumerate(zip(bytes(pool),expected)) if a != b))
+        assert all(math.isfinite(v) for light in pool.active for v in light.matrix), ('tiny angle NaN', case)
+        cases += 1
     # Room reset executes both original selectors and their actual lifecycle
     # calls. Key0B00 selects the secondary list at0025D5A0, omitted previously.
     reset = Oracle(elf); reset.load_pool(pool)

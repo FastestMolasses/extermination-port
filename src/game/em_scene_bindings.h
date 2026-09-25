@@ -65,6 +65,25 @@ int em_scene_request_area_change_001B0C60(int a, int b, int c);
 int em_scene_bindings_001FD470(void *ctx, int32_t mask);
 int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue);
 
+/* Census L22 (Roger's owner and scripts): 001FAE70(a0) (a0 == 0, the
+ * resume branch, translated here; a0 != 0 the status close's), the
+ * stream-release stand-in for 001FABB0 and 001FBC50 (the frame machine's
+ * bindings of the same names), and the report of 001DA6A0 from 001BA580
+ * (the actor drop shadow has no port counterpart: a reported no-effect
+ * binding, as the player's post-step). 0, or -1 on a fault. */
+int em_scene_bindings_001FAE70(int a0);
+int em_scene_bindings_001FABB0(void);
+int em_scene_bindings_001FBC50(void);
+int em_scene_bindings_report_001DA6A0(void);
+/* 001B0250 over the canonical D_008106C8 and the spawn table (0, or -1
+ * with the fault latched), and the reported 001D2830 (0). */
+int em_scene_bindings_001B0250(void);
+int em_scene_bindings_report_001D2830(void);
+/* The reported 0021B9A0 (the render-context fog programmer) and 001FAD70
+ * (a stream channel fade): no port counterpart (0). */
+int em_scene_bindings_report_0021B9A0(void);
+int em_scene_bindings_report_001FAD70(void);
+
 /* 00119828(ch, l, r), the IOP command 0x16 packer, for callers outside the
  * frame machine (the opening's 001B82D0 ops 9..12 phase 0). The port has no
  * 001157F0 sink yet (docs/STREAM_LANES.md "Still missing"): (0/1, 0x3FFF,

@@ -194,8 +194,9 @@ int em_director_original_0011E620(const EmDirectorAtanTables *t, float y, float 
     return 0;
 }
 
-int em_director_original_001B1EA0(int32_t mode, const float *point, const float (*polygon)[4],
-                                  int32_t count, const EmDirectorAtanTables *tables, int32_t *result)
+int em_director_original_001B1EA0_bound(int32_t mode, const float *point, const float (*polygon)[4],
+                                        int32_t count, EmDirectorAtan2 atan2, void *ctx,
+                                        int32_t *result)
 {
     if (!result)
         return -1;
@@ -211,7 +212,7 @@ int em_director_original_001B1EA0(int32_t mode, const float *point, const float 
         *result = 0;
         return 0;
     }
-    if (!point || !polygon || !tables || !isfinite(point[0]) || !isfinite(point[2]))
+    if (!point || !polygon || !atan2 || !isfinite(point[0]) || !isfinite(point[2]))
         return -1;
     float total = 0.0f;
     for (int32_t i = 0; i < count; ++i) {
@@ -229,8 +230,7 @@ int em_director_original_001B1EA0(int32_t mode, const float *point, const float 
         /* dot = ACC(bx * ax) + bz * az (issued in the call's delay slot). */
         float dot = pose_madd(pose_mul(bx, ax), bz, az);
         float angle;
-        if (!isfinite(cross) || !isfinite(dot) ||
-            em_director_original_0011E620(tables, cross, dot, &angle) < 0)   /* call at 0x1B1F6C */
+        if (!isfinite(cross) || !isfinite(dot) || atan2(ctx, cross, dot, &angle) < 0)   /* call at 0x1B1F6C */
             return -1;
         total = pose_add(total, angle);           /* total += angle */
         if (!isfinite(total))
@@ -242,6 +242,20 @@ int em_director_original_001B1EA0(int32_t mode, const float *point, const float 
     else
         *result = !(total <= f32(0x40490FDBu));
     return 0;
+}
+
+static int tables_atan2(void *ctx, float y, float x, float *result)
+{
+    return em_director_original_0011E620(ctx, y, x, result);
+}
+
+int em_director_original_001B1EA0(int32_t mode, const float *point, const float (*polygon)[4],
+                                  int32_t count, const EmDirectorAtanTables *tables, int32_t *result)
+{
+    if (mode == 0 && count >= 3 && !tables)
+        return -1;
+    return em_director_original_001B1EA0_bound(mode, point, polygon, count, tables_atan2,
+                                               (void *)(uintptr_t)tables, result);
 }
 
 int em_director_original_load_atan_tables(const uint8_t *elf, size_t size, EmDirectorAtanTables *out)

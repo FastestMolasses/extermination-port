@@ -393,9 +393,10 @@ one clock and one bank.
 anim_eval_skeleton for the player are `em_pose_host_workers` (and
 `em_player_stage_anim_advance`) over the player's own record, as section
 5.2 recommends. `em_player_pose` and `em_pose_chain` are no longer on the
-player's live path: `em_player_pose` still poses Roger, the status models
-and the cinematic special bank (not on the record yet, not reached live),
-and `em_pose_chain` stays a verified, unbound translation of the same
+player's live path: `em_player_pose` still poses the status models (the
+special bank runs on the record since census L22: 00183090 through
+`player_pose_commit_tick`; Roger runs on the same workers over his own
+record, em_area11_roger), and `em_pose_chain` stays a verified, unbound translation of the same
 routines over decoded channels.
 
 **The module.** `src/game/em_player_record_pose.c/.h` holds the storage
@@ -430,7 +431,9 @@ its port bookkeeping; every pose operation is now a record operation:
 | a request at frame 0 (`player_pose_request`, idle, acquire, Use, tier-2 stop) | 001749A0(p, clip, force, blend) |
 | a request at a source frame (walk entry, run stop, gait tier change) | 001749F0(p, clip, blend, frame) |
 | the stage advance, idle and script ticks | 001C64F0 (`em_player_stage_anim_advance`) |
-| the opening release, a legacy re-seed, the cinematic release | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 |
+| the opening release, a legacy re-seed | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 |
+| a script owner's takeover (census L22) | 00183090 (`em_player_stage_commit`: 001C63E0 for a +2F3 of 1 / 3, 001C67E0 for a +1F2 request), then 001C64F0 by +1F4 |
+| the special-bank release (census L22) | 00182DF0's nonzero-2F3 branch: +40 = the default bank, +20C = D_00248A00[+235], 001C63E0 |
 | the takeover release | 00182DF0: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16) |
 | the foot-stop begin | 0017B910's anim_eval_skeleton, nodes 17 / 18 at +C0 |
 | every published palette | 0015BCF0's animate step: the node world matrices +90, and the owner matrix +D0 in the model's trailing slot (the identity in actor space) |
@@ -500,10 +503,10 @@ and the scratchpad words:
 Every case in both runs compared exact; the capture re-evaluation is exact
 on all 16 images.
 
-**Not done here.** The port's idle/walk display (L12), the cinematic
-special bank on the record (00183090's 2F3 path; Roger lane), the
+**Not done here.** The port's idle/walk display (L12), the
 low-health row (+235's latch and 0017B490, L12), and the closure binder
-that engages FLOOR (L02) remain.
+that engages FLOOR (L02) remain (the special bank on the record is live
+since census L22).
 
 ## 7. Limits
 

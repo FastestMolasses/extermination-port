@@ -258,11 +258,11 @@ void em_opening_control_test_after_frame(void)
             /* D_00810CC3[0], the canonical key byte 00823E80's 001C4760(0, 1) adds to. */
             const uint8_t *key0=em_scene_progress_at(em_scene_state(),0x00810CC3u,1);
             if (test.locked_ticks<300 || em_scene_state()->spad3B8D!=0 ||
-                g.opening_event_39!=0xFF || g.opening_complete!=0xFF ||
+                *em_scene_progress_at(em_scene_state(),0x00810791u,1)!=0xFF || g.opening_complete!=0xFF ||
                 !key0 || *key0!=1) {
                 fprintf(stderr,"newgame control test: locked=%d selector=%u "
                         "event39=%u eventB9=%u key0=%u pad=(%u,%u)\n",
-                        test.locked_ticks,em_scene_state()->spad3B8D,g.opening_event_39,
+                        test.locked_ticks,em_scene_state()->spad3B8D,*em_scene_progress_at(em_scene_state(),0x00810791u,1),
                         g.opening_complete,key0?*key0:0u,input->lx,input->ly);
                 fail("opening completed without validated lock/story handoff");return;
             }

@@ -17,6 +17,7 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_roger.h"
 #include "game/em_game.h"
 #include <dirent.h>
 #include <stdio.h>
@@ -107,6 +108,9 @@ void render_chain_build(void)
 {
     g.chain_len           = 0;
     g.chain_test_triangle = 0;
+    /* The draw modules fill only the fields they own: every entry starts
+     * with no light-reference node, no camera-fill override and no face. */
+    memset(g.chain, 0, sizeof g.chain);
 
     if (!g.mesh && !g.n_scene) {
         g.chain_test_triangle = 1;
@@ -118,7 +122,7 @@ void render_chain_build(void)
         *cd = (ChainDraw){ g.scene[i].mesh,
                            g.scene[i].palette,
                            g.scene[i].model.bone_count,
-                           NULL };
+                           NULL, 0, 0, 0 };
     }
     /* ELEVATOR PLATFORM (the AREA-11 descent actor's own mesh, ov
      * 0x00828050 +0xB4). Drawn as a rigid prop whose pose elevator_tick
@@ -129,7 +133,7 @@ void render_chain_build(void)
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.elev_mesh, g.elev_palette,
-                               g.elev_model.bone_count, NULL };
+                               g.elev_model.bone_count, NULL, 0, 0, 0 };
     }
     /* AREA11's static power panel, original record18/model04. The legacy
      * manifest and struct field names retain the former grate label. */
@@ -137,7 +141,7 @@ void render_chain_build(void)
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.grate_mesh, g.grate_palette,
-                               g.grate_model.bone_count, NULL };
+                               g.grate_model.bone_count, NULL, 0, 0, 0 };
     }
     /* Interactive doors (actor draws — func_001BC300's publish). The
      * chain records palette POINTERS; em_door_update (the world-services
@@ -175,6 +179,18 @@ void render_chain_build(void)
             g.chain_len++;
         }
     }
+    /* AREA11 Roger 008237E0 and the equipment node 001C5C90 (census L22):
+     * the owners whose +0x4C (001CAA00) ran in their last owner call, at
+     * their node world matrices (em_area11_roger). */
+    for (int i = 0, n = em_area11_roger_draw_count(); i < n; i++) {
+        if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
+        ChainDraw *cd = &g.chain[g.chain_len];
+        if (em_area11_roger_draw(i, &cd->mesh, &cd->palette, &cd->bone_count, &cd->anchor_bone,
+                                 &cd->cam_fill, &cd->face)) {
+            cd->tint = NULL;
+            g.chain_len++;
+        }
+    }
     /* Pickups (the func_001C4820/func_0015AFA0 actor draws — rigid
      * props, pose baked at placement; func_001C6380). A collected slot
      * stops drawing the frame it frees (em_pickup_draw returns 0). */
@@ -192,7 +208,7 @@ void render_chain_build(void)
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.mesh, g.player_palette,
-                               g.model.bone_count, NULL };
+                               g.model.bone_count, NULL, 0, 0, 0 };
     }
 }
 
@@ -609,12 +625,17 @@ void frame_close_out(void)
              * rig anyway (baked vertex color — engine truth). */
             if (g.rig_on && i >= g.n_scene) {
                 EmGfxCharRig rig;
-                const float anchor[3] = { cd->palette[12],
-                                          cd->palette[13],
-                                          cd->palette[14] };
+                const float *node = cd->palette + 16u * cd->anchor_bone;
+                const float anchor[3] = { node[12], node[13], node[14] };
                 char_rig_build(&rig, anchor,
-                               cd->palette == g.player_palette, 1);
+                               cd->palette == g.player_palette || cd->cam_fill, 1);
                 em_gfx_char_rig(gfx, &rig);
+                if (cd->face) {
+                    /* Original face 001D88B0: camera fill on, owner NULL
+                     * (no dynamic lamps), as the opening's actors. */
+                    char_rig_build(&rig, NULL, 1, 0);
+                    em_gfx_char_face_rig(gfx, &rig);
+                }
             } else {
                 em_gfx_char_rig(gfx, NULL);
             }

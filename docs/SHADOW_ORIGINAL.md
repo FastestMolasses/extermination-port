@@ -686,6 +686,13 @@ baked frame.
 
 ## Limits and open items
 
+- Roger's drop shadow (census L22): Roger is live on his original owner
+  since 2026-09-24 and his 001BA580 reaches `001DA6A0` every frame (kind
+  0x29); the port reports it as a no-effect binding (UM_001DA6A0,
+  em_scene_bindings.c), as it does the player's post-step. The captured
+  runs all return at the clip test, but during the encounter Roger is on
+  screen, where the original may draw his shadow: no capture of that frame
+  has been checked.
 - The GS side is implemented in the Metal backend but not bound (Binding
   above). D3D12/Vulkan do not implement it.
 - The clip kernels are translated and kick for kick equal to the executed

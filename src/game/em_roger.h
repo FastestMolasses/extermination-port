@@ -47,9 +47,6 @@ int em_roger_tick(EmRoger *, EmRogerStory *, const EmRogerHooks *);
  * after radius success even when a later gate rejects. */
 int em_roger_candidate(const float descriptor[2], const float owner[3],
     const EmInteractionPlayer *, const EmInteractionMath *, float *score);
-/* Original1B1EA0 mode0/count4 winding-angle test; polygon is the original
- * four XYZW records at82AB80. It has no height gate. SDK zero-vector errno
- * effects do not change its numerical return and are outside this helper. */
-int em_roger_trigger(const EmInteractionMath *, const float player[3],
-                       const float polygon[4][4]);
+/* The EM_ROGER_TRIGGER hook is 001B1EA0(0, &D_00810350, 0x82AB80, 4):
+ * em_director_original_001B1EA0_bound (em_area11_roger.c, census L22). */
 #endif

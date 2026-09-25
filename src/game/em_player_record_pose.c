@@ -174,6 +174,30 @@ int em_player_record_pose_attach(EmPlayerRecordPose *pose, EmPlayerLiveActor *ac
     return 0;
 }
 
+int em_player_record_pose_map(EmPlayerRecordPose *pose, uint32_t address, uint32_t size,
+                              const uint8_t *bytes)
+{
+    if (!pose || !pose->attached || !bytes || size == 0 || address > UINT32_MAX - size) return -1;
+    EmPoseHost *h = &pose->host;
+    for (unsigned i = 0; i < h->region_count; ++i) {
+        const EmPoseRegion *r = &h->region[i];
+        if (r->address == address && r->size == size && r->bytes == bytes) return 0;
+        if (address < r->address + r->size && r->address < address + size) return -1;
+    }
+    if (h->region_count >= EM_POSE_REGION_MAX) return -1;
+    h->region[h->region_count++] = (EmPoseRegion){ address, size, (uint8_t *)(uintptr_t)bytes, 0 };
+    return 0;
+}
+
+int em_player_record_pose_table16(const EmPlayerRecordPose *pose, uint32_t address, int16_t *value)
+{
+    if (!pose || !pose->tables || !value || address < pose->tables_base ||
+        address - pose->tables_base > pose->tables_size - 2u)
+        return -1;
+    *value = (int16_t)rd16(pose->tables + (address - pose->tables_base));
+    return 0;
+}
+
 int em_player_record_pose_ready(const EmPlayerRecordPose *pose)
 {
     return pose && pose->loaded && pose->attached && pose->actor;

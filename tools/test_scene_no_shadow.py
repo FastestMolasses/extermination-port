@@ -151,18 +151,25 @@ REACHERS = {
                                        "before every player stage (w_load, L01)",
         "game/em_player_closure_live.c": "the +4 = 2 major2 states' pointer (EmPlayerMajor2Scene.d810707), bound by the "
                                           "closure binder (Boxes step)",
+        "game/em_area11_roger.c": "001C64F0 on Roger's record (em_player_stage_anim_advance, census L22): "
+                                  "the stage globals pointer the stage workers run with",
     },
     0x0081083C: {
         "game/em_player_stage_live.c": "0021C440's read (the +5 = 0xB reaction): the stage workers' "
                                        "per-stage view, loaded before every player stage (w_load, L01)",
         "game/em_player_closure_live.c": "0021F330's read (EmPlayerReactionScene.d81083C), refreshed from the canonical "
                                           "progress byte before every reaction state (Boxes step)",
+        "game/em_area11_script_host.c": "00182BF0's reads (0x182C10 / 0x182C74; em_script_host_workers, the "
+                                        "Roger scripts' op16, census L22): a pointer at the canonical byte",
     },
     0x00810813: {
         "game/em_director.c": "008253F0's beat step, legacy stand-in until WP-10: its state-1 dispatch "
                               "reads it, the beat completions store 0x10/0x20/0xFF",
         "game/em_level_smoke_test.c": "the driven director phases wait for the stand-in's step byte "
                                       "(census L09..L11; test instrumentation, never written)",
+        "game/em_area11_roger.c": "00823950 / 00823B70 (em_roger_tick, census L22): EmRogerStory.auxiliary "
+                                  "loaded before and stored after each owner call",
+        "game/em_scene_bindings.c": "the tick log's story sample (test instrumentation, never written)",
     },
     0x00810CC3: {
         "game/em_pickup.c": "001B6EA0's key take (em_pickup_owner_take adds to D_00810CC3[t]) and the "
@@ -179,6 +186,7 @@ REACHERS = {
     },
     0x00810CB6: {
         "game/em_player.c": "0015BA50's busy test: the stage scene's pointer (live_scene_load)",
+        "game/em_area11_roger.c": "001C64F0 on Roger's record (census L22): the stage scene's pointer",
     },
     0x008106F1: {
         "game/em_player.c": "0015BA50's busy test and 0021C270's store (the stage workers, bound "
@@ -186,6 +194,9 @@ REACHERS = {
         "game/em_player_closure_live.c": "the closure states that read D_008106F1 (recovery 001751A0, the reaction "
                                           "and major2 states, 00182B30's view): pointers at the "
                                           "canonical request byte (Boxes step)",
+        "game/em_area11_roger.c": "001C64F0 on Roger's record (census L22): the stage scene's pointer",
+        "game/em_area11_script_host.c": "00182BF0's read (0x182C90; em_script_host_workers, census L22): a "
+                                        "pointer at the canonical byte",
     },
     0x00810792: {
         "game/em_area11_boxes.c": "00823FF0 / 008251E0 (census L23): EmTruckWorld.story, the pointer "
@@ -194,7 +205,11 @@ REACHERS = {
         "game/em_level_smoke_test.c": "the truck phases' checks of D_00810792 (test instrumentation, "
                                       "never written)",
     },
-    0x00810793: {},   # no port reacher yet: em_director_original / em_roger are bound by WP-10 / WP-9
+    0x00810793: {
+        "game/em_area11_roger.c": "00823950's alternate branch (em_roger_tick, census L22): "
+                                  "EmRogerStory.alternate loaded before and stored after each owner call",
+        "game/em_scene_bindings.c": "the tick log's story sample (test instrumentation, never written)",
+    },
 }
 REACH_CALL = {0x00810CC3: re.compile(r"\bem_director_original_001C4760_scene\s*\(")}
 

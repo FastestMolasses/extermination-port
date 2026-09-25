@@ -80,7 +80,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 36 | `python3 tools/export_area11_sfx.py` | `sfx/area11/panel_sfx.*` | R | the panel cues (the host loads them) |
 | 37 | `python3 tools/export_sfx_registry.py` | `sfx/sfx_registry.emsr` | L | em_sfx |
 | 38 | `python3 tools/export_area11_scripts.py` | `area11_scripts/` | R (since census L23: the truck trigger's script start faults without it) | the AREA11 script host (em_area11_script_host: the truck preview 0x8292C0; the director scripts and quads wait on L21) |
-| 39 | `python3 tools/export_roger_resources.py`, `export_roger_encounter_actor.py`, `export_roger_cinematic.py`, `export_roger_media.py --iso /path/to/owned.iso` | `scene_snow/roger/` | T (WP-9, L22) | the Roger runtime and encounter |
+| 39 | `python3 tools/export_roger_resources.py`, `export_roger_encounter_actor.py`, `export_roger_cinematic.py`, `export_roger_media.py --iso /path/to/owned.iso` | `scene_snow/roger/` | R (since census L22: `roger.emdl`, `trigger.empg`, `programs.emsc`, `encounter_camera.emcc`, `camera_projection.emcp`, `encounter.wav`; the decoded `*.empc` banks are read only by tests) | em_area11_roger (mesh, trigger quad), em_area11_script_host (Roger's programs, the bank 0x96 camera track), em_opening_media (cue 29) |
 | 40 | `cd ../Extermination && python3 tools/export_level.py --background ../extermination-port/assets/scene_snow --area 11 --sub 0 --iso <owned.iso> --capture-ee ... --capture-gs ...` (BACKGROUND.md) | `background.embg`, manifest line | T (L31) | em_background_gs (the manifest line is not parsed yet) |
 | 41 | `cd ../Extermination && python3 tools/export_shadow_receivers.py --out ../extermination-port/assets/scene_snow/shadow_receivers.emsr` (SHADOW_ORIGINAL.md) | `shadow_receivers.emsr` | T (L29b) | em_shadow_original receiver passes |
 | 42 | `cd ../Extermination && python3 tools/export_shadow_proxy.py` (SHADOW_ORIGINAL.md) | `player_shadow.emdl` | T (L29) | the shadow silhouette |
@@ -88,6 +88,7 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 44 | `python3 tools/export_world_models.py` (OWNER_DRAW.md 4) | `scene_snow/world_models.emwm`, `world_models.json` | R (since census L25: the crates' and drums' first tick faults without it) | 001B0EA0's model bank *D_0028A59C (em_area11_boxes) |
 | 45 | `python3 tools/export_box_tables.py` (CRATES_DRUMS_ORIGINAL.md "Binding") | `scene_snow/box_tables.emrg` | R (since census L25) | D_002468B0 / D_00246A00 / D_00246A10 (em_area11_boxes) |
 | 46 | `python3 tools/export_pad_tables.py` (TRUCK_ORIGINAL.md "Binding") | `pad_rumble.emrg` | R (since census L23: the truck's arm rumble faults without it) | D_0024D6F0, 001B1E20's rumble records (em_pad_actuator) |
+| 47 | `python3 tools/export_roger_banks.py` (ROGER_ACTOR_ORIGINAL.md section 4; after step 39's decomp extract) | `scene_snow/roger/resources.emrs` | R (since census L22: Roger's lifecycle 0 faults without it) | D_0028A490's table, the clip banks 0x96 / 0x4A, model 0x47 and the equipment model 0x6B at their EE addresses (em_area11_roger; bank 0x96 also mapped into the player record's pose host) |
 
 Not read by the first level (X): `ui.emui`, `ui_page*.emui`, `messages.emsg`,
 `title.emui`, `gameover.emui` (decomp `export_ui.py` / `export_screen_modules.py`,

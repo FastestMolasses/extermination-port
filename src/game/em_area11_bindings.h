@@ -16,14 +16,15 @@
  *     ORIGINAL_FRAME_ORDER.md section 6), each named with its original
  *     spawner: 0018A880 (x7 from 0015C420/0015C310) and 001F0120 (0x3B) at the
  *     first player stage, 001C5570 children from the owners' first ticks,
- *     001F0120(Roger, 0x47), and the 001C1EA0 weather node;
+ *     001F0120(Roger, 0x47) (Roger's own lifecycle 0 since census L22,
+ *     em_area11_bindings_spawn_001F0120), and the 001C1EA0 weather node;
  *   - the one `legacy_world` node of a scene without an original roster
  *     (office, drawbridge), whose behaviour is the S10a legacy block, so
  *     those scenes keep their exact legacy call order.
  *
  * INTERIM spawns (design 4.3 "interim_spawn"): a spawn whose original call
- * site sits in overlay code the port cannot read (0x825940, 0x8237E0,
- * 0x827B10). (Since S12a 001C1EA0's input D_008106C8 is written by 001B0250
+ * site sits in overlay code the port cannot read (0x825940, 0x827B10).
+ * (Since S12a 001C1EA0's input D_008106C8 is written by 001B0250
  * from the spawn table, so the weather node is no longer interim.) Their timing
  * and argument bytes are the measured ones; they are flagged `interim` in
  * the binding name the trace records.
@@ -70,6 +71,11 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
  * 0015C310(player, 0) (0018A880 x3 plus the D_00810CA4 branch and the
  * D_00810CA6 == 4 extra), then 001F0120(player, 0x3B). Returns 0 or -1. */
 int em_area11_spawn_player_children_0015C420(void);
+
+/* 001F0120(owner, key) for the keys 001E2290 admits (0x3B, 0x47): the
+ * head-bone sprite node linked to `owner_address` (+0x24 = owner +0x14).
+ * 0 (also when the alloc is refused, as the original returns 0), or -1. */
+int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key);
 
 /* 001C1DC0 -> 001C1EA0 -> 001EFD20(0x80000017, D_00250F00/10/20): the
  * weather node chosen by the canonical D_008106C8 (see the .c). 0 or -1. */

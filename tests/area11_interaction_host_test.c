@@ -5,6 +5,7 @@
  * and the previous publication list are fixture inputs; this does not test
  * the outer game's Use-input/culling arbitration. */
 #include "game/em_area11_interaction_host.h"
+#include "game/em_area11_roger.h"
 #include "game/em_camera.h"
 #include "game/em_collision_world.h"
 #include "game/em_effect_color.h"
@@ -196,6 +197,16 @@ void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
     ++model_draws;
 }
 void em_gfx_char_rig(EmGfx *gfx, const EmGfxCharRig *rig) { assert(gfx); (void)rig; }
+/* No script owner claims the player here (Roger's takeover is proved by the
+ * level smoke's roger phase against route 14): his resource regions are
+ * never mapped. */
+int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t size, const uint8_t *bytes),
+                            void *ctx)
+{
+    (void)map; (void)ctx;
+    assert(!"a script owner's takeover in the host test");
+    return -1;
+}
 void em_gfx_fog_off(EmGfx *gfx) { assert(gfx); }
 int em_gfx_mesh_update_positions(EmGfx *gfx, EmGfxMesh *mesh, const float *positions,
                                   uint32_t count)
@@ -752,8 +763,6 @@ static void cinematic_face(int reject_update)
      * a reachable request state and the real battery page rejects it. */
     setup(0);
     assert(em_pickup_item_count(0x1B) == 1 && em_pickup_battery_charge() == 12);
-    EmPoseBank foreign = {0};
-    assert(em_pose_bank_load(&foreign, "assets/scene_snow/roger/encounter_player.empc"));
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
     static const unsigned owner_token = 0x8283D0;
     assert(player_pose_use_accepted_port());
@@ -774,13 +783,11 @@ static void cinematic_face(int reject_update)
     *em_scene_req_at(em_scene_state(), 0x008106D4u) = 0xA5; /* the mailbox D_008106D4 */
     assert(em_area11_interaction_host_face_talk(1));
     assert(em_area11_interaction_host_face_state()->talking == 1);
-    assert(!outer(0)); /* Face is active before the deferred foreign request. */
-    assert(face_update_body_remaining == remaining && !player_pose_cinematic_active());
+    assert(!outer(0)); /* 83090 ticks the attached face before the body. */
+    assert(face_update_body_remaining == remaining && !player_pose_special_active());
     assert(shared->frame->activity[0] == 0xA5);
     assert(player_pose_source(&clip, &remaining, &flags, &transition));
     memcpy(ordinary, g.player_palette, sizeof ordinary);
-    assert(player_pose_cinematic_request(&foreign, 1, .5f));
-    assert(!memcmp(ordinary, g.player_palette, sizeof ordinary));
     unsigned before = face_updates;
     fail_face_update = reject_update;
     if (reject_update) {
@@ -793,18 +800,16 @@ static void cinematic_face(int reject_update)
         assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == -1);
         fail_face_update = 0;
         teardown();
-        em_pose_bank_free(&foreign);
-        puts("AREA11 native host retained face failure before foreign-body bind PASS");
+        puts("AREA11 native host retained face failure before the body PASS");
         return;
     }
     assert(!outer(0));
     assert(face_updates == before + 1 && face_update_body_remaining == remaining);
-    assert(player_pose_source(&clip, &remaining, &flags, &transition));
-    assert(clip == 1 && remaining == 690.5f && player_pose_cinematic_active());
+    assert(player_pose_source(&clip, &remaining, &flags, &transition) && !player_pose_special_active());
     assert(em_area11_interaction_host_face_talk(0));
     assert(!em_area11_interaction_host_face_state()->talking && shared->frame->activity[0] == 0xA5);
 
-    /* Original status consumes the frame: neither face nor foreign body
+    /* Original status consumes the frame: neither face nor body
      * advances, even if their host service is accidentally queried. */
     EmOpeningFace paused = *em_area11_interaction_host_face_state();
     assert(em_status_runtime_pickup_request(em_area11_interaction_host_status(), 1, 0x1B));
@@ -824,18 +829,21 @@ static void cinematic_face(int reject_update)
     assert(em_interaction_runtime_frame(shared, &owner_token, &script, record) == EM_SCRIPT_ADVANCE);
     em_area11_interaction_host_camera_fields();
     assert(shared->frame->player_ready == 1 && !shared->frame->selector);
-    assert(shared->owner == &owner_token && player_pose_owned() && player_pose_cinematic_active());
+    assert(shared->owner == &owner_token && player_pose_owned() && !player_pose_special_active());
     assert(!em_area11_interaction_host_face_state());
     assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == 0);
     before = face_updates;
-    assert(!outer(0)); /* One final body tick, then original default-bank release. */
+    assert(!outer(0)); /* One final body tick, then the release. */
     assert(face_updates == before && !shared->owner && !player_pose_owned());
-    assert(!player_pose_cinematic_active() && shared->frame->player_ready == 0);
+    assert(!player_pose_special_active() && shared->frame->player_ready == 0);
     assert(player_pose_source(&clip, &remaining, &flags, &transition));
-    assert(clip == 0 && remaining == 80);
+    /* No special bank was ever on the record (+0x2F3 0): 00182DF0's zero
+     * branch keeps the running default clip 0 instead of re-initializing
+     * it (the nonzero branch, after Roger's encounter, is compared row for
+     * row by the level smoke's roger phase). */
+    assert(clip == 0 && remaining > 0 && remaining < 80);
     teardown();
-    em_pose_bank_free(&foreign);
-    puts("AREA11 native host face/deferred foreign request/status pause/frame4/default idle PASS");
+    puts("AREA11 native host face/status pause/frame4/default idle PASS");
 }
 
 /* A START/TRIANGLE screen (B0 == 0) on the host's page route (WP-5): the

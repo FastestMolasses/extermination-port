@@ -20,6 +20,7 @@
 #include "game/em_level_smoke_test.h"
 #include "em_input.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_roger.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_pad_actuator.h"
 #include "game/em_frame.h"
@@ -85,6 +86,8 @@ static int crevice_jump_frame(void);
 static void east_tower_climb_begin(void);
 static int east_tower_climb_frame(void);
 static int east_tower_frame(void);
+static void roger_begin(void);
+static int roger_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -143,7 +146,7 @@ static const Phase k_phases[] = {
      "WP-10 (director, census L21) with WP-8 (line 0x99)", director_begin, east_tower_frame, 1},
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
-     "WP-9 and the running jump (WP-15)", NULL, NULL, 0},
+     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -1769,6 +1772,126 @@ static int east_tower_climb_frame(void)
     fprintf(stderr, "level smoke: east_tower_climb: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0],
             g.pos[1], g.pos[2], g.yaw);
     return 1;
+}
+
+/* ---------------------------------------------------------------- roger
+ *
+ * Route beat 14 (route_capture.py beat_roger_encounter): goto(436, 190) at
+ * 0.6 stick (tolerance 0.8, a stop counts), settle 5, face -pi/2 (and settle
+ * 10, as face() does), then run toward (300, 190) at full stick until
+ * x <= 411.5 (f238), Cross for two frames with the stick kept; the stick
+ * stays on until +1F0 = 0x0C (the running jump, f241) and on until Roger's
+ * script block names 0x8283D0 (Roger 008237E0's ordinary branch: the
+ * player crossed into his quad 0x82AB80 in mid-air, f283), then neutral
+ * until the scripted frame opens (3B8D != 0) and until control is back
+ * (3B8D = 0, +1F0 = 0; f1758), then settle 60. In process: the script ran,
+ * the counter D_008107D8 holds bit 0 (0x823AB0) and the player stands at
+ * the script's 01/9 placement (338, 289.75, 192), heading -2.531.
+ * tools/test_level_smoke.py check_roger compares the encounter with the
+ * capture. */
+enum { ROGER_RUN_LIMIT = 200, ROGER_ENCOUNTER_LIMIT = 6000 };
+
+static uint32_t roger_script_pc(void)
+{
+    uint32_t record;
+    uint8_t header[16], block[16];
+    float position[3];
+    if (!em_area11_roger_state(&record, header, position, block))
+        return 0;
+    uint32_t pc;
+    memcpy(&pc, block + 8, 4);
+    return pc;
+}
+
+static void roger_begin(void) { nav_reset(); }
+
+static int roger_frame(void)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint8_t mode = em_live_u8(a, 0x1F0);
+    switch (t.step) {
+    case 0: NAV_STEP(nav_goto(436.0f, 190.0f, 0.8f, 0.6f, 1));
+    case 1: NAV_STEP(nav_settle(5));
+    case 2: NAV_STEP(nav_face(-1.5707963f));
+    case 3: NAV_STEP(nav_settle(10));
+    case 4:
+        if (g.pos[0] > 411.5f) {
+            nav_stick_toward(300.0f, 190.0f, 1.0f);
+            if (++t.nav_frames > ROGER_RUN_LIMIT)
+                fail("the run-up did not reach x 411.5");
+            return 0;
+        }
+        nav_reset();
+        ++t.step;
+        /* fall through: Cross with the stick kept */
+    case 5:
+        pad_apply(EM_PAD_CROSS, t.pad.lx, t.pad.ly);
+        if (++t.nav_frames >= 2) {
+            nav_reset();
+            ++t.step;
+        }
+        return 0;
+    case 6:
+        pad_apply(0, t.pad.lx, t.pad.ly);
+        if (mode == 0x0C) {
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > 10)
+            fail("Cross at the edge did not enter the running jump (+1F0 0x0C)");
+        return 0;
+    case 7:
+        pad_apply(0, t.pad.lx, t.pad.ly);
+        if (roger_script_pc() == 0x008283D0u) {
+            pad_apply(0, 0, 0);
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > 120)
+            fail("Roger's quad 0x82AB80 did not start script 0x8283D0");
+        return 0;
+    case 8:
+        pad_apply(0, 0, 0);
+        if (em_scene_state()->spad3B8D != 0) {
+            t.saw[0] = 1;
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > 60)
+            fail("the encounter did not open its scripted frame (3B8D)");
+        return 0;
+    case 9:
+        pad_apply(0, 0, 0);
+        if (em_scene_state()->spad3B8D == 0 && mode == 0 && in_control()) {
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > ROGER_ENCOUNTER_LIMIT)
+            fail("control did not return after the encounter");
+        return 0;
+    case 10: {
+        int r = nav_settle(60);
+        if (r <= 0)
+            return 0;
+        const uint8_t *story = em_scene_progress_at(em_scene_state(), 0x008107D8u, 1);
+        if (!story || !(*story & 1) || fabsf(g.pos[0] - 338.0f) > 0.01f || fabsf(g.pos[2] - 192.0f) > 0.01f ||
+            fabsf(g.pos[1] - 289.75f) > 0.01f || fabsf(g.yaw - -2.5307274f) > 0.001f) {
+            fprintf(stderr, "level smoke: roger: story %u at (%.3f, %.5f, %.3f) yaw %.5f\n", story ? *story : 0xEEu,
+                    g.pos[0], g.pos[1], g.pos[2], g.yaw);
+            fail("the encounter did not end at the script's placement with D_008107D8 bit 0 (route f1758)");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: roger: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f story=%u\n", g.pos[0],
+                g.pos[1], g.pos[2], g.yaw, *story);
+        return 1;
+    }
+    default:
+        return 0;
+    }
 }
 
 /* ------------------------------------------------------------- driver */

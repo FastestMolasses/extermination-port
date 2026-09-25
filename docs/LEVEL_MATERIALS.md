@@ -198,7 +198,7 @@ The captures also show classes that this work does not port:
     editing one JSON `test_1`, fails the test.
   - The report is written to `build/level_material_reference/report.json`.
 - These tests still pass: `make test-overlay-blend`,
-  `make test-area11-fog-reference`, `make test-roger-assets` and
+  `make test-area11-fog-reference`, `make test-roger-assets` (retired 2026-09-24, census L22) and
   `python3 tools/test_actor_lighting_reference.py`.
 - The headless `EM_STARTUP_TEST=newgame-control` run passes (displacement
   9.599989) with the same position before and after the change. The

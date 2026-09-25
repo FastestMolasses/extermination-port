@@ -18,7 +18,9 @@ enum {
     BASE_CLASS1 = 0x0028B020u,
     BASE_CLASS_D = 0x0028AFF0u,
     BASE_CLASS2 = 0x0028AF30u,
-    BASE_CLASS4 = 0x0028AE30u
+    BASE_CLASS4 = 0x0028AE30u,
+    BASE_CLASS7 = 0x0028AD30u,
+    BASE_FLAG80 = 0x0028AB30u
 };
 
 static struct {
@@ -83,18 +85,65 @@ static int load_soft_float(void)
  * entry's +0x34 behaviour, which is itself a fail-stop binding below. */
 static const uint8_t k_no_d24A740[1];
 
-/* EmCollListMemory.bytes. The live pool keeps native EmActor records, not
- * original-layout images of the pool, the player and the records their
- * +0x30 / +0x58 / +0x110 words name (docs/COLL_LIST_PASSES.md section 4 item
- * 4), so no range is available: a pass that reads a record faults. With the
- * AREA11 owners the port runs, the class-1, class-2 and class-0xD live lists
- * stay empty and the nine passes read only the globals. */
-static uint8_t *no_bytes(void *context, uint32_t address, uint32_t size)
+/* The owners that publish records the passes and the hull locks read
+ * (census L22: Roger 008237E0, class 0x0A, em_area11_roger). */
+static EmCollisionWorldOwners s_owners;
+
+/* The list arrays as original words: slot i of a list at base - 4(i + 1)
+ * (em_actor_class_lists_*), the entry's original record address, built at
+ * every close-out from the live lists. */
+static const uint32_t k_list_base[EM_ACTOR_LIST_COUNT] = {
+    [EM_ACTOR_LIST_CLASS1] = BASE_CLASS1, [EM_ACTOR_LIST_CLASS_D] = BASE_CLASS_D,
+    [EM_ACTOR_LIST_CLASS2] = BASE_CLASS2, [EM_ACTOR_LIST_CLASS4] = BASE_CLASS4,
+    [EM_ACTOR_LIST_CLASS7] = BASE_CLASS7, [EM_ACTOR_LIST_FLAG80] = BASE_FLAG80};
+static uint8_t s_list_words[EM_ACTOR_LIST_COUNT][EM_ACTOR_LIST_MAX * 4];
+/* The slots whose record no owner names an original address for: a pass
+ * that reads one faults (its word is not supplied). */
+static uint8_t s_list_unbound[EM_ACTOR_LIST_COUNT][EM_ACTOR_LIST_MAX];
+
+static void list_words_build(void)
+{
+    for (int k = 0; k < EM_ACTOR_LIST_COUNT; ++k) {
+        const EmActorClassList *l = &w.lists.list[k];
+        for (int i = 0; i < l->live; ++i) {
+            uint32_t a = s_owners.address_of ? s_owners.address_of(s_owners.context, l->slot[i]) : 0;
+            /* slot i at base - 4(i + 1): word index EM_ACTOR_LIST_MAX - 1 - i */
+            memcpy(&s_list_words[k][4u * (EM_ACTOR_LIST_MAX - 1 - (unsigned)i)], &a, 4);
+            s_list_unbound[k][EM_ACTOR_LIST_MAX - 1 - i] = a == 0;
+        }
+    }
+}
+
+/* EmCollListMemory.bytes: the list arrays (live slots only), then the
+ * records an owner supplies in the original layout (Roger's record and the
+ * resources its +0x58 names, census L22). Any other range: NULL, and the
+ * pass that reads it faults (docs/COLL_LIST_PASSES.md section 4 item 4:
+ * the pool keeps native EmActor records, so only the owners that publish
+ * onto the lists the passes walk supply their bytes). */
+static uint8_t *owner_bytes(void *context, uint32_t address, uint32_t size)
 {
     (void)context;
-    (void)address;
-    (void)size;
-    return NULL;
+    for (int k = 0; k < EM_ACTOR_LIST_COUNT; ++k) {
+        const uint32_t base = k_list_base[k];
+        const EmActorClassList *l = &w.lists.list[k];
+        const uint32_t low = base - 4u * (uint32_t)l->live;
+        if (address >= low && address < base) {
+            if (size > base - address) return NULL;
+            const uint32_t at = 4u * EM_ACTOR_LIST_MAX - (base - address);
+            for (uint32_t b = at / 4u; size && b <= (at + size - 1u) / 4u; ++b)
+                if (s_list_unbound[k][b]) return NULL;
+            return &s_list_words[k][at];
+        }
+    }
+    return s_owners.record_bytes ? s_owners.record_bytes(s_owners.context, address, size) : NULL;
+}
+
+void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners)
+{
+    if (owners) s_owners = *owners;
+    else memset(&s_owners, 0, sizeof s_owners);
+    w.hulls.context = s_owners.context;
+    w.hulls.chain = s_owners.chain;
 }
 
 static void bind_passes(void)
@@ -102,7 +151,7 @@ static void bind_passes(void)
     memset(&w.passes, 0, sizeof w.passes);
     w.data.d24A740 = k_no_d24A740;
     w.data.d24A740_size = 0;
-    w.passes.memory.bytes = no_bytes;
+    w.passes.memory.bytes = owner_bytes;
     w.passes.globals = &w.globals;
     w.passes.data = &w.data;
     w.passes.math = &w.math;
@@ -180,7 +229,7 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
      * em_coll_grid_hull) walk the published class-2 list, which no AREA11
      * owner the port runs publishes: no chain reader and no 001A7280 player
      * are bound, so a lock that would need one faults. */
-    w.hulls = (EmCollHullWorld){ NULL, NULL, NULL };
+    w.hulls = (EmCollHullWorld){ s_owners.context, s_owners.chain, NULL };
     w.seg = (EmCollSegment){ &w.probe, &w.math, &w.hulls, &w.state, &w.face };
     w.move = (EmCollMoveWorld){ &w.acw, &w.grid, &w.hulls, &w.math };
     bind_passes();
@@ -259,6 +308,7 @@ int em_collision_world_close_out_001AAD00(const EmSceneState *scene, int16_t d28
      * here, as above). */
     memset(g->s38A0, 0, sizeof g->s38A0);
     w.passes.fault = 0;
+    list_words_build();
     int result = em_coll_list_passes_001AAD00_hooks(&w.passes, EM_COLL_LIST_PLAYER);
     w.state.span_lo = g->s3B86;
     w.state.span_hi = g->s3B88;

@@ -116,6 +116,13 @@ static void bind(void)
     P.stop.callees.w_00111018 = actuator_00111018;
 }
 
+int em_pad_actuator_001B6250(uint32_t address)
+{
+    if (!P.initialised) em_pad_actuator_reset();
+    if (address != EM_PAD_ACTUATOR_BLOCK) return report("001B6250 on a block other than D_00810E40");
+    return em_script_host_001B6250(&P.stop, address) < 0 ? report("001B6250 faulted") : 0;
+}
+
 void em_pad_actuator_reset(void)
 {
     memset(P.block, 0, sizeof P.block);

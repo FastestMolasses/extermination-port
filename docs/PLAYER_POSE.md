@@ -5,8 +5,9 @@
 > the player record and are worked by `em_pose_host_workers` through
 > `em_player_record_pose` (PLAYER_CLIPS.md section 6); `em_player_pose_host.c`
 > keeps its API over the record. `em_player_pose` / `em_pose_bank` /
-> `em_pose_transition` still pose Roger (`em_roger_runtime.c`), the status
-> models and the cinematic special bank, and their tests keep running; the
+> `em_pose_transition` still pose the status models, and their tests keep
+> running (Roger and the special bank run on the original pose workers since
+> census L22: `em_area11_roger`, `player_pose_commit_tick`); the
 > player-specific entries below (acquire, idle tick, release, script tick,
 > gait base) are no longer on the player's live path. What follows is the
 > module's history and its remaining users' reference.

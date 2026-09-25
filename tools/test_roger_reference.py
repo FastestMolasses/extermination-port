@@ -109,16 +109,6 @@ def candidate(elf,native,math,position,yaw,action):
     assert (result,bits(score.value))==(original.r[2],original.load(0x70003b98))
 
 
-def trigger(elf,overlay,native,math,point):
-    original=RogerOracle(elf);polygon=0x940000;player=0x950000
-    raw=overlay[0x82ab80-0x823500:0x82abc0-0x823500]
-    original.write(polygon,raw);original.write(player,struct.pack('<4f',*point,1.))
-    original.run(0x1b1ea0,(0,player,polygon,4))
-    data=((C.c_float*4)*4).from_buffer_copy(raw)
-    result=native.em_roger_trigger(C.byref(math),(C.c_float*3)(*point),data)
-    assert result==original.r[2],dict(point=point,actual=result,expected=original.r[2])
-
-
 def main():
     elf=(DECOMP/'config/SCUS_971.12').read_bytes()
     overlay=(DECOMP/'extract/OVERLAY/AREA11.BIN').read_bytes()
@@ -131,7 +121,6 @@ def main():
     native=C.CDLL(str(library));native.em_roger_tick.argtypes=[C.POINTER(Roger),C.POINTER(Story),C.POINTER(Hooks)]
     native.em_roger_candidate.argtypes=[C.POINTER(C.c_float),C.POINTER(C.c_float),
         C.POINTER(Player),C.POINTER(Math),C.POINTER(C.c_float)]
-    native.em_roger_trigger.argtypes=[C.POINTER(Math),C.POINTER(C.c_float),C.POINTER(C.c_float*4)]
     math=Math.from_buffer_copy(elf[0x26c5d8-0x100000+0x300:0x26c5d8-0x100000+0x300+76])
     cases=0
     for lifecycle,phase,armed,progress,suppressed,alternate,auxiliary,triggered,done,visible in itertools.product(
@@ -145,19 +134,13 @@ def main():
     rng=random.Random(0x8237e0)
     for _ in range(500):
         candidate(elf,native,math,[rng.uniform(-15,15) for _ in range(3)],rng.uniform(-4,4),0);predicates+=1
-    polygon=struct.unpack_from('<16f',overlay,0x82ab80-0x823500)
-    points=[polygon[i*4:i*4+3] for i in range(4)]
-    for i in range(4):
-        for t in (.001,.25,.5,.75,.999):
-            points.append(tuple(points[i][a]+t*(points[(i+1)&3][a]-points[i][a]) for a in range(3)))
-    for _ in range(300):points.append((rng.uniform(280,360),rng.uniform(200,350),rng.uniform(170,250)))
-    for point in points:trigger(elf,overlay,native,math,point)
     report=dict(elf_sha256=ELF_SHA,overlay_sha256=hashlib.sha256(overlay).hexdigest(),
-        controller_cases=cases,predicate_cases=predicates,polygon_cases=len(points),
-        boundaries=['model initialization','script execution','controller uses injected polygon result; separate polygon oracle passes','pose/face workers',
+        controller_cases=cases,predicate_cases=predicates,
+        boundaries=['model initialization','script execution',
+                    'controller uses injected polygon result; 001B1EA0 over 0x82AB80 is test_director_original_reference part 2','pose/face workers',
                     'publication visibility','draw','audio','group removal'])
     (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
-    print(f'Original Roger: {cases} controller, {predicates} predicate, {len(points)} polygon cases PASS')
+    print(f'Original Roger: {cases} controller, {predicates} predicate cases PASS')
 
 
 if __name__=='__main__':main()

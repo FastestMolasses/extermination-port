@@ -3,10 +3,14 @@
 `src/game/em_area_script.{h,c}` runs the original event scripts of the AREA11
 owners: 001BA1A0 (start) / 001BA1F0 (poll) with the ftab_0024D880 command
 handlers those scripts use. Status: **live for the truck trigger 008251E0
-(0x8292C0) since census L19 / L23 (2026-09-24)** through the binder
-`em_area11_script_host` (section 6); the level smoke's `truck_preview` phase
-reproduces route 07 row for row. The director's scripts (L21) and Roger's
-(L22) are not bound: the director waits on Roger (DIRECTOR_ORIGINAL.md
+(0x8292C0) since census L19 / L23 (2026-09-24)** and **for Roger 008237E0
+(0x8283D0; 0x828990 and 0x828810 are bound, not on the route) since census
+L22 (2026-09-24)** through the
+binder `em_area11_script_host` (section 6); the level smoke's
+`truck_preview` phase reproduces route 07 and its `roger` phase route 14
+row for row. The director's scripts (L21) are not bound yet: Roger's
+alternate script 0x828990, which writes the D_00810813 = 1 the director's
+beat 0 waits for, now has every worker it needs (DIRECTOR_ORIGINAL.md
 section 6).
 
 ## 1. What it is
@@ -266,7 +270,7 @@ sides; it makes no timing claim about the original services.
 
 ## 6. Binding
 
-### 6.1 As built (census L19 / L23, 2026-09-24)
+### 6.1 As built (census L19 / L23 / L22, 2026-09-24)
 
 `src/game/em_area11_script_host.{h,c}` binds the host for the AREA11 overlay
 owners. Bound owner: the truck trigger 008251E0 (its 0x8292C0). At every
@@ -297,6 +301,45 @@ collision world's SDK context (the one bound SDK sine; `tests/area_script_test.c
 shows it equal to `em_area_script_sin_0011E2A8` on every ease argument
 pi * k/d - pi/2, d = 1..400). Every other worker is NULL (fail-stop).
 
+**Census L22 (Roger).** The images include `roger/programs.emsc`
+(0x8283D0..0x828BD0). A start checks every op06 / op07 sub 5 / sub 6 slot
+of the script's record chain against the canonical D2 bytes
+(`slots_canonical`; D_00810758[0] and [0x3B], D_008107D8[0] and [0x3B]
+are canonical since L22 / HK) and refuses any other. World additions: the
+flag and counter arrays D_00810758[] / D_008107D8[] and D_0081078F in the
+D2 region, D_008106F4 (the stream hold), the camera's +0x50 / +0x54 /
++0xA0 (g.cam y_lo / y_hi / tgt_soft) and the timeline fields +0x6E / +0x70 /
++0x74 / +0x78 (g.cam cine_scene / cine_track / cine_time / cine_head,
+added to the camera object), the live player record's +0x40, +0x1F2,
++0x1F4, +0x1F8, +0x200, +0x20C, +0x25C, +0x2F3, +0x2FF, and Roger's +0x40
+(em_area11_roger's record). Workers added:
+- 001AEDE0 / 001AEE10 / 001AED80 / 001AEDB0 → the transition fade
+  (em_fade.c through em_frame); 001AEB60 with any step → the bars;
+  001D25F0 with any zoom → g.cam.zoom;
+- 001FD4C0 → `em_message_live_stream_request`; 00119828 →
+  `em_scene_bindings_00119828`; 001B7D60 → `em_message_live_op0c`;
+  001FAE70 → `em_scene_bindings_001FAE70` (a0 == 0 translated: the resume);
+  001FBC50 / 001FABB0 → the scene bindings' stand-ins of the same names;
+- 001CA700 / 001D06D0 (001B81D0 on the player, row 0x18) → the
+  interaction host's face attach (`em_area11_interaction_host_face_attach`);
+- r_0028A490 → `em_area11_roger_table_word`; 001C6120 and r_track_head over
+  `roger/resources.emrs`; 0022EC30 → `em_cinematic_playback_start` over
+  `roger/encounter_camera.emcc` after checking that the camera's +0x70 is
+  bank 0x96's clip 0; the camera stage's 0022EEF0 is
+  `em_area11_script_host_camera_0022EEF0` (em_camera.c, top mode 3);
+- 001C67E0 on Roger → `em_area11_roger_clip_init`;
+- 001B0250 → `em_scene_bindings_001B0250`; 0021B9A0 and 001D2830 → reported
+  no-effect bindings (UM_0021B9A0, UM_001D2830: no canonical render-context
+  block);
+- 00182BF0, 001B1240, 001B12B0, 001B1380 (em_script_host_workers over the
+  live record and the collision world's SDK context), 001B1470
+  (em_player_001B1470 over its domain), 001B0C00 (001AEDE0 and the reported
+  001FAD70), 001B6250 (`em_pad_actuator_001B6250`), r_player_bone_C0 (the
+  record's node 1 +0xC0).
+Still NULL (fail-stop): op01 kinds 3 / 5's D_0024D8F0, op0D subs 1 to 5 (the
+director's 0018CBD0 / 0018D7B0 / 001B0460 and the camera's +0x0C), op0F's
+stream handshake bytes (Roger's departure 0x828A10, not in the first visit).
+
 The player takeover: after a tick whose op07 opened the scripted frame
 (3B8D != 0), the owner claims the interaction host's shared player runtime
 (`em_area11_interaction_host_claim_script`, the stand-in for 0015B130's
@@ -310,6 +353,23 @@ mirrors are not loaded over the record while the takeover holds the player,
 and the releasing stage writes 00182DF0's tail (+4 = 1, +5 = 0, +6 = 0,
 +1F0 = 0) (em_player.c `live_major1`, `player_states_stage`); route 07 shows
 exactly these values row for row.
+
+Since census L22 the token is the owner's pool record (the Use scan claims
+Roger with the same token for his armed talk 0x828810), the admission
+also runs 00182D70 on the record (`em_player_stage_scripted_notify`:
++0x1F2 = +0x20C, +0x1F4 = 1.0, +0x1F8 = 0, +0x2F3 = 0 and its clears), and
+every stage of a script owner's takeover runs 00183090 on the record
+(`player_pose_commit_tick`: the face's 001D0C70 when 3B8F = 2, the special
+bank of a nonzero +0x2F3 (001B9A00 sub 1 / 4: the bank at +0x40, here bank
+0x96 of `roger/resources.emrs`, mapped read-only into the record's pose
+host), a +0x1F2 request (op0A sub 0 / 7, op15), then 001C64F0 by +0x1F4 into
++0x200 when it returns 1) and 0015BCF0's animate step (001C6960 while
++0x2F3 is 2). The release takes 00182DF0's nonzero-+0x2F3 branch (+0x40 =
+D_0028A580, +0x20C = D_00248A00[+0x235], 001C63E0). The legacy decoded
+special bank (`player_pose_cinematic_*`, em_player_pose over
+encounter_player.empc) is deleted. Route 14 reproduces the player record
+(+5, +1F0, +1F1, the clip, the clock and +0x2F3) row for row through the
+encounter, the release and 60 rows after it.
 
 ### 6.2 The design binding (for the remaining owners)
 

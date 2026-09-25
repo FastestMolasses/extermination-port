@@ -433,76 +433,120 @@ This test runs under ASan and UBSan. It checks the fail-stop contract:
 
 The world in this test is synthetic bookkeeping, not original data.
 
-## 4. Binding (coordinator)
+## 4. Binding (as built, census L22, 2026-09-24)
 
-- **Roger node** (area11[8], record `007A8830`, callback `008237E0`):
-  - The behaviour calls `em_roger_actor_008237E0_init(&s, &rec)` when +0x04
-    == 0, and `em_roger_tick` otherwise. The original dispatch order is 3, 2,
-    1, 0; only case 0 is new.
-  - `EmRoger` and `EmRogerActorRecord` must share one canonical storage for
-    +0x00, +0x01, +0x02, +0x04 and +0x0D:
-    - status ↔ status;
-    - rendered ↔ drawn;
-    - class_flags ↔ cls;
-    - lifecycle ↔ lifecycle;
-    - model_kind ↔ kind.
-- **`EmRogerHooks.event`:**
-  - `EM_ROGER_FACE_UPDATE(arg)` → `em_roger_actor_001BA580(&s, &rec, arg)`;
-  - `EM_ROGER_RELEASE_FACE` → `em_roger_actor_001BA540(&s, &rec)`.
+`src/game/em_area11_roger.{h,c}` binds both nodes on the live path
+(em_area11_bindings `tick_roger`, both walk variants):
 
-  Map a 0 result to the hook's 1 and -1 to a fault.
-- **Equipment node** (area11[9], record `007A8B20`, callback `001C5C90`; the
-  row in em_area11_bindings.c is "equipment: UNBOUND"):
-  - The behaviour calls `em_roger_actor_001C5C90(&s, &equip, &roger_rec)`.
-  - `world.d00275B40` must be the current record's +0x110 words at the
-    call. That is `equip.bone`, as the walk's `001CB590` publishes it.
-- **Workers:**
-  - `w_001C63E0`: bone_init_default_2. **No port translation exists.** The
-    owner-services and status-scene modules only expose it as a worker.
-    Leave it NULL until it is translated; the init then faults, which is
-    correct under the fidelity rules.
-  - `w_001CB5B0`: the same anim_bone_array_setup worker owner services uses.
-  - `w_001F0120`: `em_head_sprite_original_spawn_001F0120(owner14 = rec.w14,
-    key)`. Once it is bound, remove the INTERIM first-tick spawn in
-    em_area11_bindings.c (`spawn_001F0120(..., 0x47, 1)`); the init makes
-    that call itself.
-  - `w_001DA6A0`: `em_shadow_original_001DA6A0` on Roger's record bytes, with
-    its node slots. The shadow oracle ran the player (kind 0x28). Roger's
-    kind 0x29 takes the "entry 3" anchor and the D_0028A490[0x29] proxy;
-    extend that oracle to 0x29 when binding.
-  - `w_001BA7F0`: untranslated and unreachable for kind 0x47. It stays NULL.
-  - `w_001D0720`: `em_opening_face_tick` over the face slot, which is
-    `EmOpeningFace` packing slot +0x40..+0x5F and +0x70..+0xA7, with the
-    shared 00122BB8 RNG. That kernel's oracle uses host IEEE float, not the
-    EE model (a limit of em_opening_face).
-  - `w_001B1020`: `em_owner_services_001B1020` as it is, on the
-    equipment's owner-services mirror; `*result` = its return value (0 or
-    1). Its own +0x04 stores may land in the record; 001C5C90 stores
-    +0x04 = 1 after the call either way.
-  - `w_draw`: `em_owner_services_001CAA00`. The module calls it only when
-    +0x4C == `001CAA00` (any other method faults BAD_RESULT first).
+- **Roger node** (area11[8], callback `008237E0`): `+0x04 == 0` runs
+  `em_roger_actor_008237E0_init`; any other lifecycle runs `em_roger_tick`
+  (em_roger.c: 00823910 / 00823950 / 00823B70 / 00823C40).
+- **Equipment node** (area11[9], callback `001C5C90`):
+  `em_roger_actor_001C5C90` with the parent at +0x18 (the pool's prev link,
+  checked to be Roger's record) and `world.d00275B40` = the equipment's own
+  +0x110 words.
+- **Storage.** The EmActor fields are the canonical record bytes they name
+  (+0x00..+0x1F, +0x2E..+0x33, +0x36, +0x52..+0x9A, +0x9C..+0x9E, +0xB0..+0xCF,
+  the +0x1F0 block); the binder keeps the record's other bytes (+0x20..+0x2D,
+  +0x38..+0x51, +0x9B, +0x9F..+0xAF, +0xD0..+0x1EF: +0x40, +0x44, +0x4C,
+  +0xA0, +0xD0, the +0x110 words) and syncs both ways around every owner call
+  and every hook that reaches another owner of the bytes (the script host,
+  the publication, the pool free). `EmRogerActorRecord` and em_roger's
+  `EmRoger` / `EmRogerStory` are views loaded before and stored after each
+  call: status +0x00, rendered +0x01, class +0x02, lifecycle +0x04, phase
+  +0x05, armed +0x0B, kind +0x0D, the animation result +0x1FE, yaw +0xC4;
+  the story bytes D_008107D8, D_00810791, D_00810793, D_00810813 are
+  canonical D2 progress (em_scene_state.h; D_00810758 / D_0081078F /
+  D_00810791 / D_008107D8 migrated in this step).
+- **Slots.** The node and face records are 0xD0-byte slots of the one
+  001AF710 arena and stack (`em_area11_boxes_slot_world`): 001AF780 /
+  001AF890 through this module's translations, 001AF800 (the pool's free)
+  pushes Roger's and the equipment's +0x110 words back
+  (`em_area11_roger_001AF800`).
+- **Resources.** `assets/scene_snow/roger/resources.emrs`
+  (`tools/export_roger_banks.py`): D_0028A490[0..0xC0), the bank file
+  chunk15/f12_id44 from +0x41000 (banks 0x96 and 0x4A, the +0x58 chain) at
+  its load address, chunk15/f18_id94 (model 0x47, face resource 0x88) and
+  the equipment's model 0x6B of chunk27/f01_id37 with D_0028A56C's table
+  head, each checked byte for byte against RAM in every AREA11 capture.
+- **Workers.**
+  - `w_001C63E0`, 001C67E0, 001C64F0, 001C68C0: `em_pose_host_workers` over
+    Roger's record (`em_pose_host_001C63E0 / _001C67E0 / _001C68C0` and
+    `em_player_stage_anim_advance` with the pose host's clip workers), the
+    banks mapped read-only at their addresses and the slot arena writable.
+  - `w_001CB5B0`: nothing to write (D_00275B40 is the view of the ticking
+    record's +0x110).
+  - `w_001F0120`: `em_area11_bindings_spawn_001F0120(owner, 0x47)` (the
+    head-bone sprite node; the former INTERIM first-tick spawn is deleted).
+  - `w_001DA6A0`: reported no-effect binding (UM_001DA6A0,
+    em_scene_bindings.c). The port draws no actor shadow; the player's own
+    post-step is reported the same way (UM_0015C160). All 11 captured runs of
+    001DA6A0 on Roger return at its clip test (SHADOW_ORIGINAL.md).
+  - `w_001D0720`: `em_opening_face_tick` over the face slot bytes
+    (+0x40..+0x5F, +0x70..+0xA7) with the shared 00122BB8 RNG, then the face
+    morph of the slot's weights on Roger's mesh (em_opening_face_position,
+    em_gfx_mesh_update_positions).
+  - `w_001BA7F0`: NULL (kind 0x61 in area 0x0D only).
+  - `w_001B1020`: `em_owner_services_001B1020` over the equipment's view,
+    D_0028A56C's table and model 0x6B from the export; the one slot its
+    001C62C0 fills is laid into the slot bytes.
+  - `w_draw` / Roger's `EM_ROGER_DRAW`: 001CAA00 → the port's actor draw
+    chain (`em_area11_roger_draw`): Roger's mesh (roger/roger.emdl with the
+    opening's face attached, em_face_model_attach) at the 21 node world
+    matrices (node +0x90) and the owner matrix +0xD0 for the exporter's
+    trailing slot; the equipment's mesh (opening/equipment_6b.emdl, whose
+    vertices all use node 0) at its bone-0 matrix. The light reference is
+    the record's +0x98 node (2 for Roger), with the camera fill of +0x02 bit
+    0x20 and the 001D88B0 face rig for the face vertices.
   - `w_001AFC10`: the actor pool free.
-- **Views:**
-  - The slot stack and slot arena must be the coordinator's single bone-slot
-    store. The actor pool does not model D_00275BD0/D_00275BCC yet; its
-    `w_001AF800` is the release.
-  - Owner services keeps bone slots as native `EmOwnerBone` structs. This
-    module addresses slots as original bytes (bone world matrix at +0x90;
-    face record at +0x40..+0xA7, +0x60 resource, +0x80/+0x81 bytes). The
-    coordinator needs one storage behind both, or an adapter.
-  - The resource view must return the model record at D_0028A490[0x47] (its
-    byte +0x08 is 21).
+- **em_roger hooks.** `script_start` / `script_tick` →
+  `em_area11_script_host_start` / `_tick` (AREA_SCRIPT.md 6.1);
+  `trigger` → `em_director_original_001B1EA0_bound(0, D_00810350 (g.pos),
+  the quad 0x82AB80 of roger/trigger.empg, 4)` with
+  `em_sdk_math_original_float_0011E620` over the collision world's SDK
+  context (one translation of 001B1EA0: em_roger_trigger is deleted);
+  `publish` → `em_area11_interaction_host_offer_001B17A0` (the class lists:
+  class 0x0A onto the class-2 list, bit 0x80 onto the interactive list);
+  `EM_ROGER_STOP_STREAMS` → `em_scene_bindings_001FABB0`;
+  `EM_ROGER_RESTORE_DEFAULT_BANK` → +0x40 = D_0028A5B8;
+  `EM_ROGER_RESUME_MUSIC` → `em_scene_bindings_001FAE70(0)`;
+  `EM_ROGER_FADE_IN` → 001AEE10(4, 0); `EM_ROGER_REMOVE_GROUP` →
+  `em_scene_request_area_change_001B0C60(1, 0, 4)`; the face, pose, draw,
+  release and free events as above.
+- **The collision world.** Roger's record and the chain his +0x58 names are
+  the collision world's owners' bytes (`em_collision_world_bind_owners`):
+  the close-out passes read the class-2 list (001A7870 marks his +0x50) and
+  the hull locks 001A6440 / 001A6AD0 test his +0x58 chain at his node
+  matrices.
+- **The Use scan.** Lifecycle 0 binds his EMIS record (source 0x82A500) to
+  the pool record (`em_area11_interaction_host_bind_roger`); the scan's
+  predicate is em_roger_candidate (00183EF0 selector 0, class 10), its
+  claim arms +0x0B, and the armed talk 0x828810 runs as a script owner.
+
+**Evidence.** The level smoke's `roger` phase (LEVEL_SMOKE.md) compares
+route 14 row for row from the scripted frame's opening (f288) to the end of
+the capture (f1818): Roger's +0x00..+0x0F, +0xB0 and script block, the
+equipment's +0x00..+0x0F and +0xB0 (001C5C90's vb from Roger's node 1),
+and the whole encounter (AREA_SCRIPT.md, ROGER_CINEMATIC.md).
 
 ## 5. Limits and open items
 
-- 001C63E0 (bone_init_default_2), 001D0720 (EE float), 001DA6A0 for kind
-  0x29, and 001BA7F0 are workers. Their fidelity belongs to their own
-  modules.
+- 001D0720's kernel (em_opening_face) uses host float, not the EE model
+  (a limit of em_opening_face). 001DA6A0 is a reported no-effect binding
+  (no actor shadow is drawn by the port). 001BA7F0 is unreachable.
 - Lifecycle 0 runs once, at area load, before any capture, so there is no
   capture from the frame the init ran. Its evidence is the unit oracle and
   the init route runs on every capture, with Roger returned to +0x04 = 0.
   Pass 2 and the store-visibility check prove that each init store is seen.
   The capture identity shows only what the original left behind; it does
   not check the native writes.
-- The ROGER_ORIGINAL.md auxiliary-kind claim, and the NEARMISS 001BA8E0 C in
-  the decomp, both need correcting by their owners.
+- The NEARMISS 001BA8E0 C in the decomp needs correcting by its owner (the
+  ROGER_ORIGINAL.md auxiliary-kind claim is corrected).
+- Paths bound but not on the route (no capture compares them): the armed
+  talk 0x828810 (Use on Roger: em_roger_candidate, the claim, the script
+  owner's 00183090), the free (001BA540, 001CA770, 001AF890 through
+  001AF800) and the alternate 0x828990, which needs the director's
+  D_00810793 (census L21). The departure 0x828A10 is not in the first
+  visit: its op0F stream handshake is still a fail-stop NULL worker.
+- The draws are the port's actor draw at the original node matrices (the
+  face through the 001D88B0 face rig); no GS capture of Roger is compared.

@@ -12,7 +12,9 @@ enum { MAX_FADE_VALUES = 64 };
 
 static struct {
     char resume_path[1024];
-    EmBgmWav wav; /* immutable between successful prepare and final shutdown */
+    char encounter_path[1024];
+    EmBgmWav opening_wav, encounter_wav; /* immutable between load and final shutdown */
+    int stream;   /* the armed stream: EM_OPENING_MEDIA_OPENING / _ENCOUNTER */
     float fade_values[MAX_FADE_VALUES];
     unsigned fade_count, fade_next, fade_mode;
     int prepared, armed, playing;
@@ -21,6 +23,8 @@ static struct {
     atomic_uint serial;
     atomic_int play;
     atomic_int audio_volume;
+    atomic_int play_stream;   /* published with the serial */
+    const EmBgmWav *audio_wav; /* callback-only: the stream taken at a serial */
     unsigned audio_serial;
     double audio_position;
     int audio_play;
@@ -58,16 +62,19 @@ int em_opening_media_prepare(const char *directory)
     if (snprintf(path, sizeof path, "%s/opening.emfx", directory) >= (int)sizeof path || read_fades(path))
         goto fail;
     if (snprintf(path, sizeof path, "%s/opening.wav", directory) >= (int)sizeof path ||
-        em_bgm_wav_read(path, &s.wav, "opening") || s.wav.rate != 48000 ||
-        s.wav.channels != 2 || s.wav.nframes <= 0) goto fail;
+        em_bgm_wav_read(path, &s.opening_wav, "opening") || s.opening_wav.rate != 48000 ||
+        s.opening_wav.channels != 2 || s.opening_wav.nframes <= 0) goto fail;
     if (em_bgm_device_ensure(48000)) goto fail;
-    if (snprintf(s.resume_path, sizeof s.resume_path, "%s/opening_resume.wav", directory) >= (int)sizeof s.resume_path)
+    if (snprintf(s.resume_path, sizeof s.resume_path, "%s/opening_resume.wav", directory) >= (int)sizeof s.resume_path ||
+        snprintf(s.encounter_path, sizeof s.encounter_path, "%s/roger/encounter.wav", directory) >=
+            (int)sizeof s.encounter_path)
         goto fail;
+    s.stream = EM_OPENING_MEDIA_OPENING;
     s.prepared = 1;
     return 0;
 fail:
     fprintf(stderr, "opening: missing or malformed media in %s\n", directory);
-    free(s.wav.pcm); memset(&s.wav, 0, sizeof s.wav);
+    free(s.opening_wav.pcm); memset(&s.opening_wav, 0, sizeof s.opening_wav);
     return -1;
 }
 
@@ -80,6 +87,7 @@ static void lane_service(void *context)
         *s.hold = 1;
     } else if (*s.hold == 0) {
         s.playing = 1;
+        atomic_store_explicit(&s.play_stream, s.stream, memory_order_relaxed);
         atomic_store_explicit(&s.play, 1, memory_order_relaxed);
         atomic_fetch_add_explicit(&s.serial, 1, memory_order_release);
     }
@@ -93,10 +101,27 @@ void em_opening_media_set_hold(uint8_t *hold)
 
 int em_opening_media_audio_start(void)
 {
+    return em_opening_media_audio_start_cue(EM_OPENING_MEDIA_OPENING);
+}
+
+int em_opening_media_audio_start_cue(int stream)
+{
     if (!s.prepared) return -1;
+    if (stream == EM_OPENING_MEDIA_ENCOUNTER && !s.encounter_wav.pcm &&
+        (em_bgm_wav_read(s.encounter_path, &s.encounter_wav, "encounter") || s.encounter_wav.rate != 48000 ||
+         s.encounter_wav.channels != 2 || s.encounter_wav.nframes <= 0)) {
+        fprintf(stderr, "opening media: missing or malformed %s (tools/export_roger_media.py)\n",
+                s.encounter_path);
+        free(s.encounter_wav.pcm);
+        memset(&s.encounter_wav, 0, sizeof s.encounter_wav);
+        return -1;
+    }
+    if (stream != EM_OPENING_MEDIA_OPENING && stream != EM_OPENING_MEDIA_ENCOUNTER) return -1;
     em_bgm_stop(0);
     em_sfx_stop_all();
     em_opening_media_stop();
+    /* The mixer takes the stream with the next play serial (lane_service). */
+    s.stream = stream;
     s.armed = 1;
     s.volume = 16383.0f;
     s.volume_step = 0.0f;
@@ -133,7 +158,7 @@ int em_opening_media_resume_music(unsigned fade_ticks)
 
 void em_opening_media_camera_tick(float time)
 {
-    if (!s.armed || s.fade_next >= s.fade_count) return;
+    if (!s.armed || s.stream != EM_OPENING_MEDIA_OPENING || s.fade_next >= s.fade_count) return;
     float value = s.fade_values[s.fade_next];
     if (value < 0) {
         if (value == -3) s.fade_mode = 0;
@@ -167,7 +192,9 @@ void em_opening_media_shutdown(void)
     em_opening_media_stop();
     s.audio_play = 0;
     s.audio_position = 0;
-    free(s.wav.pcm); memset(&s.wav, 0, sizeof s.wav);
+    free(s.opening_wav.pcm); memset(&s.opening_wav, 0, sizeof s.opening_wav);
+    free(s.encounter_wav.pcm); memset(&s.encounter_wav, 0, sizeof s.encounter_wav);
+    s.audio_wav = NULL;
     s.prepared = 0;
 }
 
@@ -177,16 +204,19 @@ void em_opening_media_mix(float *out, int frames, int rate)
     if (serial != s.audio_serial) {
         s.audio_serial = serial;
         s.audio_play = atomic_load_explicit(&s.play, memory_order_relaxed);
+        s.audio_wav = atomic_load_explicit(&s.play_stream, memory_order_relaxed) == EM_OPENING_MEDIA_ENCOUNTER
+                          ? &s.encounter_wav : &s.opening_wav;
         s.audio_position = 0;
     }
-    if (!s.audio_play || rate <= 0) return;
+    const EmBgmWav *wav = s.audio_wav;
+    if (!s.audio_play || rate <= 0 || !wav || !wav->pcm) return;
     float gain = atomic_load_explicit(&s.audio_volume, memory_order_relaxed) / 16383.0f;
-    double step = (double)s.wav.rate / rate;
+    double step = (double)wav->rate / rate;
     for (int i = 0; i < frames; i++) {
         long pos = (long)s.audio_position;
-        if (pos >= s.wav.nframes) { s.audio_play = 0; break; }
-        out[i * 2] += s.wav.pcm[pos * 2] / 32768.0f * gain;
-        out[i * 2 + 1] += s.wav.pcm[pos * 2 + 1] / 32768.0f * gain;
+        if (pos >= wav->nframes) { s.audio_play = 0; break; }
+        out[i * 2] += wav->pcm[pos * 2] / 32768.0f * gain;
+        out[i * 2 + 1] += wav->pcm[pos * 2 + 1] / 32768.0f * gain;
         s.audio_position += step;
     }
 }

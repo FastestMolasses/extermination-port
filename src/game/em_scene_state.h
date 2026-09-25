@@ -80,8 +80,8 @@ typedef enum {
  * The region is only as canonical as its migrated ranges. Every other byte of
  * it is RESERVED: it is still owned by a named EmSceneState field (the area
  * bytes D_00810700..702, D_00810730[] and the D_00810750 counter) or by a port
- * mirror that has not been migrated yet (for example g.opening_event_39 =
- * D_00810791, g.opening_complete = D_00810811, em_weapon's
+ * mirror that has not been migrated yet (for example g.opening_complete =
+ * D_00810811, em_weapon's
  * D_00810C61/C62/CB4). em_scene_progress_at() refuses
  * a reserved byte (NULL), so nothing can read or write a second copy through
  * it.
@@ -95,9 +95,21 @@ typedef enum {
  *                              by 001B07C0 into +0x234. Before HK the
  *                              port kept no copy (001B07C0 read the live
  *                              +0x234, g.pd_infected).
+ *   D_00810758           L22   event 0 (D_00810758[0]): Roger 008237E0's
+ *                              001BA1C0(Roger, 0) in its lifecycle 0 (0xFF
+ *                              keeps him out), set to 1 by the encounter
+ *                              script 0x8283D0's op06 sub 0; no port mirror.
  *   D_00810788           S10b  001B65C0 prime-pass mode (tested == 0xFF),
  *                              001B6660 case 6 via D_00810700[0x88]; no port
  *                              mirror existed.
+ *   D_0081078F           L22   event 0x37: 001B81D0 (the scripted player
+ *                              face attach) takes resource row 0x18 when it
+ *                              is 1; no port writer (0 on the route).
+ *   D_00810791           L22   event 0x39: the opening script 0x828FC0's
+ *                              op06 sub 0 (1) and its op07 sub 5 (0xFF)
+ *                              (em_opening_runtime.c), read by Roger
+ *                              008237E0 (1 suppresses him); migrated from
+ *                              g.opening_event_39.
  *   D_00810792           HK    event 0x3A (D_00810758[0x3A]): the truck
  *                              trigger 008251E0 stores 1 when its camera
  *                              script ends, the truck 00823FF0 stores 0xFF
@@ -114,6 +126,11 @@ typedef enum {
  *   D_00810794           S12a  event 0x3C (D_00810758[0x3C]), read by the
  *                              record-13 manager 008257A0 through 001BA1C0;
  *                              no port mirror, no port writer.
+ *   D_008107D8           L22   counter 0 (D_008107D8[0]): Roger's story
+ *                              progress (bit 0 after the encounter,
+ *                              0x823AB0; bit 0x80 starts his departure),
+ *                              also written by 001B82D0 sub 6; no port
+ *                              mirror.
  *   D_00810813           HK    counter 0x3B (D_008107D8[0x3B]), the
  *                              director's beat step: 008253F0's beat
  *                              completions store 0x10/0x20/0xFF (live
@@ -202,8 +219,11 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         uint32_t first, end;
     } migrated[] = {
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
+        {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
         {0x00810788u, 0x00810789u},
-        {0x00810792u, 0x00810795u}, /* events 0x3A, 0x3B (HK) and 0x3C (S12a) */
+        {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */
+        {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
+        {0x008107D8u, 0x008107D9u}, /* counter 0: Roger's story progress (L22) */
         {0x00810813u, 0x00810814u}, /* counter 0x3B, the director step (HK) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */

@@ -114,6 +114,16 @@ EmPoseHost *em_player_record_pose_host(EmPlayerRecordPose *pose);
  * em_player_stage_anim_advance (001C64F0) for the player record. */
 EmPlayerStageHost *em_player_record_pose_advance_host(EmPlayerRecordPose *pose);
 
+/* A read-only EE region the record's routines may read (the special bank a
+ * script's 001B9A00 sub 1 / 4 stores at +0x40; census L22). A region
+ * already mapped at the same address and size is kept (0); an overlap with
+ * another region, a full region table or no attach: -1. Attach drops it. */
+int em_player_record_pose_map(EmPlayerRecordPose *pose, uint32_t address, uint32_t size,
+                              const uint8_t *bytes);
+/* The signed halfword at `address` in the loaded table span
+ * (0x248740..0x248ACC, e.g. D_00248A00[row]): 0, or -1 outside it. */
+int em_player_record_pose_table16(const EmPlayerRecordPose *pose, uint32_t address, int16_t *value);
+
 /* ---- The original routines on the record (em_pose_host_workers) --------- */
 int em_player_record_pose_default(EmPlayerRecordPose *pose, int clip);                 /* 001C63E0 */
 int em_player_record_pose_request(EmPlayerRecordPose *pose, int clip, int flags, float blend,

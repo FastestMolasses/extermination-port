@@ -907,7 +907,10 @@ def check_crevice_jump(ticks, run, state):
     assert [rows[k]['f'] for k in r_entries] == [JUMP_WINDOW[0]], ('route 12 jump entry moved', r_entries)
     r0 = r_entries[0]
     start = max(state.get('cursor', 0), 1)
-    entries = state_entries(ticks, 6, start)
+    # The phase ends where the east tower's ledge climb (+5 = 2) begins;
+    # beat 14's tower jump (the roger phase) is a later running jump.
+    climbs = state_entries(ticks, 2, start)
+    entries = state_entries(ticks, 6, start, climbs[0] if climbs else None)
     assert len(entries) == 1, ('the run entered the running jump other than once', len(entries))
     e = entries[0]
     fall = fall_between(ticks, start, e, rows, 'crevice_jump')
@@ -948,6 +951,122 @@ def check_crevice_jump(ticks, run, state):
 # Route order (docs/FIRST_LEVEL_ROUTE.md section 3; em_level_smoke_test.c
 # k_phases). A later step that makes a phase live adds its capture check here
 # in the same commit as its runner.
+# ------------------------------------------------ Roger's encounter (census L22)
+
+ROGER_SCRIPT = 'd0838200'       # the script block's pc 0x008283D0 (little-endian)
+ROGER_CLIP_PC = 'd0858200'      # pc 0x008285D0: after the op0B sub 4 clip init
+
+
+def roger_view_port(tick):
+    r = tick['roger']
+    assert r is not None, ('no live Roger node in the tick', tick['tick'])
+    _record, head, pos, block = r
+    return {'h': head, 'pos': [round(f32(v), 5) for v in pos], 'block': block}
+
+
+def roger_view_orig(row):
+    r = row['roger_r8']
+    return {'h': r['h'], 'pos': r['pos'], 'block': r['s1F0']}
+
+
+def equipment_view_port(tick):
+    e = tick.get('equipment')
+    assert e is not None, ('no live equipment node in the tick', tick['tick'])
+    _record, head, pos = e
+    return {'h': head, 'pos': [round(f32(v), 5) for v in pos]}
+
+
+def equipment_view_orig(row):
+    r = row['attach_r9']
+    return {'h': r['h'], 'pos': r['pos']}
+
+
+def check_roger(ticks, run, state):
+    """Route 14: in mid-air the player crosses into Roger's quad 0x82AB80;
+    Roger 008237E0's ordinary branch starts 0x8283D0 (f283: +5 = 1, the
+    block active with pc 0x8283D0). Its op16 (00182BF0) holds until the
+    player lands (f288 in the original: the landing row follows the port's
+    own jump, navigation), then 001B82D0 sub 12 opens the scripted frame.
+    Two windows:
+    - the start: the port's first tick with the block at pc 0x8283D0 against
+      route f283 in Roger's +0x00..+0x0F, +0xB0 and block, and every tick
+      until the port's frame opens with the block still at the op16;
+    - from the first tick with 3B8D != 0 (route f288) every row to the end
+      of the capture (the release at f1758 and 60 rows): the spad bytes, the
+      camera byte, the letterbox, the fade block 0x28A9A0 (the next tick's
+      start sample), the message block, Roger's +0x00..+0x0F, +0xB0 and
+      block, the equipment node's +0x00..+0x0F and, from Roger's clip init
+      (op0B sub 4, f358; before it his idle clip's phase is the time since
+      the area load), its +0xB0 (001C5C90's copy of Roger's node 1),
+      D_008107D8 and D_00810813, the player record's +5,
+      +1F0, +1F1, clip, clock and +0x2F3, the camera eye / target while the camera byte is 3
+      (the bank 0x96 timeline, 0022EEF0) or the scripted frame holds a shot,
+      and the player position and heading from the 01/9 placement (f1756)
+      on."""
+    rows = route_rows('14_roger_encounter')
+    s0 = next(k for k in range(len(rows)) if rows[k]['roger_r8']['s1F0'][16:24] == ROGER_SCRIPT
+              and rows[k]['roger_r8']['s1F0'][:8] == '01000000')
+    assert rows[s0]['f'] == 283, ('route 14 script start moved', rows[s0]['f'])
+    f0 = next(k for k in range(s0, len(rows)) if selector(rows[k]['spad']) != '00')
+    assert rows[f0]['f'] == 288, ('route 14 frame moved', rows[f0]['f'])
+    start = max(state.get('cursor', 0), 1)
+    t0 = next(i for i in range(start, len(ticks)) if ticks[i].get('roger') is not None
+              and ticks[i]['roger'][3][16:24] == ROGER_SCRIPT and ticks[i]['roger'][3][:8] == '01000000')
+    i0 = next(i for i in range(t0, len(ticks)) if selector(port_view(ticks, i)['spad']) != '00')
+    got, want = roger_view_port(ticks[t0]), roger_view_orig(rows[s0])
+    assert got == want, ('roger script start', rows[s0]['f'], got, want)
+    for i in range(t0, i0):
+        got = roger_view_port(ticks[i])
+        assert got['block'] == want['block'] and got['h'] == want['h'], \
+            ('roger op16 wait', ticks[i]['tick'], got, want)
+    count = len(rows) - f0
+    assert i0 + count < len(ticks), ('the tick log ends inside the encounter window', len(ticks) - i0, count)
+    release = release_row(rows, f0)
+    # The equipment's +0xB0 is Roger's node 1 (001C5C90). Until the script's
+    # op0B sub 4 (001B8020 -> 001C67E0, pc 0x8285D0 at f358) re-initializes
+    # Roger's clip, his idle clip's phase is the time since the area load
+    # (the capture's save state vs the port's own walk): +0xB0 from there.
+    clip0 = next(k for k in range(count) if rows[f0 + k]['roger_r8']['s1F0'][16:24] == ROGER_CLIP_PC)
+    assert rows[f0 + clip0]['f'] == 358, ('route 14 Roger clip init moved', rows[f0 + clip0]['f'])
+    for k in range(count):
+        t, row = ticks[i0 + k], rows[f0 + k]
+        p, o = port_view(ticks, i0 + k), orig_view(row)
+        where = f'roger row f{row["f"]} (port tick {t["tick"]})'
+        for key in ('spad', 'cam', 'screen', 'power', 'msg'):
+            assert p[key] == o[key], (where, key, p[key], o[key])
+        assert ticks[i0 + k + 1]['fade8'] == row['fade'][:16], (where, 'fade block', ticks[i0 + k + 1]['fade8'],
+                                                                 row['fade'][:16])
+        got, want = roger_view_port(t), roger_view_orig(row)
+        assert got == want, (where, 'Roger +0x00..+0x0F, +0xB0, block', got, want)
+        d2 = bytes.fromhex(row['d2'])
+        assert (t['story'][0], t['story'][3]) == (d2[0], d2[0x3B]), (where, 'D_008107D8 / D_00810813',
+                                                                     t['story'], (d2[0], d2[0x3B]))
+        pl = t['player']
+        assert (pl[0], pl[1], pl[2], pl[3], pl[6]) == (row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['b2F3']), \
+            (where, 'player +5/+1F0/+1F1/clip/+0x2F3', pl, row)
+        assert round(f32(pl[4]), 3) == row['clock'], (where, 'player clock +0x3C', f32(pl[4]), row['clock'])
+        got, want = equipment_view_port(t), equipment_view_orig(row)
+        assert got['h'] == want['h'], (where, 'the equipment node (001C5C90) +0x00..+0x0F', got, want)
+        if k >= clip0:
+            assert got['pos'] == want['pos'], (where, 'the equipment node (001C5C90) +0xB0', got, want)
+        if selector(o['spad']) != '00' and (o['cam'] == '03' or row['f'] >= rows[release - 2]['f']):
+            assert (p['eye'], p['tgt']) == (o['eye'], o['tgt']), (where, 'camera eye/target', p['eye'], o['eye'],
+                                                                  p['tgt'], o['tgt'])
+        if row['f'] >= rows[release - 2]['f']:
+            assert (p['pos'], p['yaw']) == (o['pos'], o['yaw']), (where, 'player placement', p['pos'], o['pos'],
+                                                                  p['yaw'], o['yaw'])
+    cam3 = next(k for k in range(count) if rows[f0 + k]['cam_mode'][:2] == '03')
+    state['cursor'] = i0 + count
+    print(f'roger: PASS (the script start 0x8283D0 at port tick {ticks[t0]["tick"]} = route f{rows[s0]["f"]} in Roger\'s '
+          f'record and block, held at op16 until the landing ({i0 - t0} ticks in the port, {f0 - s0} rows in the '
+          f'original: the jump is navigation); port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 14 '
+          f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: the frame, the fade, the bars, the message, the bank 0x96 '
+          f'timeline from f{rows[f0 + cam3]["f"]} (camera eye/target), Roger\'s record and block, the equipment node (+0xB0 from f{rows[f0 + clip0]["f"]}), the player record '
+          f'(+0x2F3 = 2 at f{rows[f0 + next(k for k in range(count) if rows[f0 + k]["b2F3"] == 2)]["f"]}), the release at '
+          f'f{rows[release]["f"]} with D_008107D8 = 1 and the placement ({rows[release]["pos"]}, {rows[release]["yaw"]}), '
+          f'and {count - (release - f0)} rows after it)')
+
+
 PHASES = [
     ('first_control', check_first_control),
     ('status', check_status),
@@ -966,7 +1085,7 @@ PHASES = [
     ('crevice_jump', check_crevice_jump),
     ('east_tower_climb', check_east_tower_climb),
     ('east_tower', None),
-    ('roger', None),
+    ('roger', check_roger),
 ]
 
 

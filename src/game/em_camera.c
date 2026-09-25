@@ -11,6 +11,8 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_scene_bindings.h"
+#include "game/em_area11_script_host.h"
 #include "game/em_camera.h"
 #include "game/em_camera_rotation.h"
 #include "game/em_camera_probe.h"
@@ -2590,9 +2592,18 @@ void camera_update(void)
             camera_solve(cam);           /* func_0018D7B0, style 0 */
         }
     }
-    /* top modes 1/2 (frozen) reach the commit only; top mode 3 is the
-     * cutscene timeline camera func_0022EEF0 (em_cinematic_playback,
-     * not wired here — audit H4). */
+    /* top modes 1/2 (frozen) reach the commit only. Top mode 3 is the
+     * scripted timeline: 0018B9C0 state 1 runs 0022EEF0(cam, 1), then
+     * 0018C0D0(cam, 0) (census L22: the timeline a script's 001B8FC0 kind
+     * 6 started, em_area11_script_host_camera_0022EEF0 over
+     * em_cinematic_playback). A timeline that faults stops the scene. */
+    if (cam->top_mode == 3) {
+        if (em_area11_script_host_camera_0022EEF0() < 0)
+            em_scene_fault(em_scene_state(), 0x0022EEF0u, EM_SCENE_FAULT_WORKER_FAILED);
+        camera_commit_cinematic(cam);    /* func_0018C0D0(cam, 0) */
+        cam->timer++;
+        return;
+    }
     camera_commit(cam);              /* func_0018C0D0(cam, 1) */
     cam->timer++;
 }

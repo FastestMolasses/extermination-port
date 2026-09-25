@@ -910,6 +910,14 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
                 em_live_set_u8(a, 5, 0);
                 em_live_set_u8(a, 6, 0);
                 em_live_set_u8(a, 0x1F0, 0x41);
+                /* The admission's 00182D70 after 00174A50 (0015B130's
+                 * general branch; census L22): +0x1F2 = +0x20C, +0x1F4 =
+                 * 1.0, +0x1F8 = 0, +0x2F3 = 0 and its other clears, which a
+                 * script owner's 00183090 then reads (its +0x1F2 requests,
+                 * player_pose_commit_tick). */
+                if (!live.b.stage.scripted_notify ||
+                    live.b.stage.scripted_notify(live.b.stage.context, a) < 0)
+                    return -1;
             }
             live.consumed = 1;
             return 0;

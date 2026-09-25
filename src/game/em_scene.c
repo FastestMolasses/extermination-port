@@ -11,6 +11,7 @@
  * gameplay globals, now viewed from one more file. */
 
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_roger.h"
 #include "game/em_scene.h"
 
 #include "game/em_game_internal.h"
@@ -739,6 +740,7 @@ void scene_unload(EmGfx *gfx)
     em_enemy_shutdown(gfx);
     em_enemy_reset();
     em_area11_boxes_shutdown(gfx); /* the crate / drum meshes (census L25) */
+    em_area11_roger_shutdown(gfx); /* Roger's and the equipment's meshes (census L22) */
     em_pickup_scene_clear(gfx); /* instances only — the inventory and
                                  * the taken-bit set survive (engine
                                  * globals; that survival IS the pickup

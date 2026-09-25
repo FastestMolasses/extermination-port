@@ -1451,6 +1451,13 @@ typedef struct {
     const float *palette;
     uint32_t     bone_count;
     const float *tint;
+    /* Census L22 (Roger): the owner's light-reference node (its +0x98,
+     * 001D89D0's anchor; 0 = bone 0 as before), the camera fill of an
+     * owner whose +0x02 has bit 0x20 (001D8BF0), and a mesh with
+     * FACE_LIGHT vertices, which also takes the 001D88B0 face rig. */
+    uint8_t      anchor_bone;
+    uint8_t      cam_fill;
+    uint8_t      face;
 } ChainDraw;
 
 /* CAMERA state — the native mirror of the engine's camera struct at
@@ -1464,7 +1471,8 @@ typedef struct {
     uint8_t  sub_state;   /* +0x01: 0->1 ramp on first run frame (zeroes
                              the mode timer) */
     uint8_t  top_mode;    /* +0x04: 0 = normal play, 1/2 = frozen (commit
-                             only), 3 = scope/sniper func_0022EEF0 (TODO) */
+                             only), 3 = the timeline 0022EEF0 (the AREA11
+                             script host's, census L22) */
     uint8_t  table_sel;   /* +0x05: 0 = cut jtbl_0026D950, 1 = smooth
                              jtbl_0026D910 */
     uint8_t  mode;        /* +0x06: camera mode 0..15 — only mode 0
@@ -1511,6 +1519,13 @@ typedef struct {
     float    yaw;         /* +0x44: eye->target heading; the R1/L1
                              orient and the idle auto-orient steer it */
     /* func_0018DD20 solver state (decoded s61) */
+    /* +0x6E / +0x70 / +0x74 / +0x78: the scripted timeline (001B8FC0
+     * kind 6 writes them, 0022EEF0 advances +0x74 by 0.5 per tick, 001B7B30
+     * sub 0 compares +0x74 with +0x78; census L22). */
+    int16_t  cine_scene;  /* +0x6E: the timeline's scene id */
+    uint32_t cine_track;  /* +0x70: the track header (original address) */
+    float    cine_time;   /* +0x74: the timeline cursor */
+    float    cine_head;   /* +0x78: the track's first word (its duration) */
     float    y_lo;        /* +0x50: eye-Y lower bound (floor-under-eye +
                              17), re-probed every solve; init -200 */
     float    y_hi;        /* +0x54: eye-Y upper bound (ceiling-over-eye -
@@ -1611,7 +1626,6 @@ typedef struct {
 
     /* gameplay-frame state */
     int        frame_no;         /* gameplay frames run */
-    uint8_t    opening_event_39; /* D_00810791: automatic opening state */
     uint8_t    opening_complete; /* D_00810811 (event flag 0xB9): the
                                   * AREA11 opening controller 00823E80
                                   * stores 0xFF here when its script
@@ -2153,7 +2167,6 @@ static inline void game_state_new_game(EmGameState *s)
     s->status = (EmPlayerStatus){ .health = 100.0f, .health_max = 100.0f,
         .infection = 0.0f, .mag = 30, .mag_max = 30, .reserve = 60,
         .battery = 0, .battery_max = 0 };
-    s->opening_event_39      = 0;
     s->opening_complete      = 0;
 }
 
@@ -2202,18 +2215,24 @@ int player_pose_acquire(void);
  * ordinary one. */
 int player_pose_use_accepted_port(void);
 int player_pose_idle_tick(float *local_palette);
-/* Original0A/sub1 request and next-player-stage83090 special-bank commit.
- * Bank is borrowed until release/unload. Caller must tick its attached face
- * separately before this body worker when shared player-ready is2. */
-int player_pose_cinematic_request(const EmPoseBank *bank, unsigned clip, float rate);
-int player_pose_cinematic_tick(float *local_palette, int freeze_motion);
-int player_pose_cinematic_active(void);
+/* The special bank on the record (census L22): a read-only EE region for
+ * the record's pose host (the bank a script's 001B9A00 sub 1 / 4 names at
+ * +0x40), whether +0x2F3 is nonzero, and the takeover's stage for a
+ * script owner (00183090 with the face's 001D0C70 as `face_tick`, then
+ * 001C64F0 by +0x1F4 when it returns 1, and the record's palette; 1, or
+ * -1). player_pose_release takes 00182DF0's nonzero-+0x2F3 branch. */
+int player_pose_map_region(uint32_t address, uint32_t size, const uint8_t *bytes);
+int player_pose_special_active(void);
+int player_pose_commit_tick(int (*face_tick)(void), float *local_palette);
+/* 16 bytes of the record's node `node` at `offset` (1, or 0). */
+int player_pose_node_quad(unsigned node, unsigned offset, float out[4]);
 int player_pose_release(void);
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette);
-/* The source's palettes (idle_tick, script_tick, cinematic_tick, publish)
+/* The source's palettes (idle_tick, script_tick, special_tick, publish)
  * are world-space: the record's node world matrices (0015BCF0's evaluation
- * at the record's +B0 / +C4) or the special bank's channels. */
+ * at the record's +B0 / +C4, or the identity root of 001C6960 while
+ * +0x2F3 holds the special bank). */
 int player_pose_publish(const float *palette);
 int player_pose_hip(float out[3]);
 void player_pose_finish_palette(void);

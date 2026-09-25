@@ -135,6 +135,18 @@ int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, u
 void em_collision_world_bind_player_pose(int (*pose)(void *context, EmPlayerLiveActor *actor,
                                                      float blend),
                                          void *context, EmPlayerLiveActor *actor);
+/* The owners that publish records onto the lists the close-out passes
+ * and the hull locks walk (census L22: Roger 008237E0 publishes class 0x0A
+ * onto the class-2 list): the original bytes of their records and the
+ * records those name, their original addresses, and their +0x58 geometry
+ * chains. Kept across area builds; NULL unbinds. */
+typedef struct {
+    void *context;
+    uint8_t *(*record_bytes)(void *context, uint32_t address, uint32_t size);
+    uint32_t (*address_of)(void *context, const EmActor *actor);
+    int (*chain)(void *context, const EmActor *body, EmCollHullChain *out);
+} EmCollisionWorldOwners;
+void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners);
 const EmCollMoveWorld *em_collision_world_move(void);
 EmCollMoveScratch *em_collision_world_move_scratch(void);
 const EmCollSegment *em_collision_world_segment(void);

@@ -69,7 +69,10 @@ static void rotation(float angle, float *sine, float *cosine)
     float value = argument;
     for (unsigned i = 4; i > 0; --i) value = add(value, term[i-1]);
     *cosine = value;
-    *sine = em_effect_float32(sqrt((double)add(1.0f, -multiply(value, value))));
+    /* VU0 VSQRT takes |ft| (em_ee_float.h em_vu_sqrt_bits): the polynomial
+     * can round 1 - value * value just below zero for a tiny flicker angle,
+     * where the original's square root is of the magnitude, not a NaN. */
+    *sine = em_effect_float32(sqrt((double)fabsf(add(1.0f, -multiply(value, value)))));
     if (angle < 0.0f) *sine = -*sine;
 }
 

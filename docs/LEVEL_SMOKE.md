@@ -7,7 +7,8 @@ census L03 (the hill slide), census L23 / L19 (the truck preview and
 crossing on the truck's original owners and the AREA11 script host) and
 census L09 / L10 / L11 (the cage ladders, the tank and pipe-end climbs, the
 crevice jump and the east tower climb, with the director's beats driven
-through its legacy stand-in). The
+through its legacy stand-in) and census L22 (Roger's encounter on his
+original owner and scripts). The
 smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
@@ -24,9 +25,10 @@ A NOT-LIVE phase that a later live phase needs the state of is **driven**:
 its runner plays it through the owner's current port binding, the run reports
 `NOT-LIVE driven`, and the capture checker skips it. Since census L09..L11
 three phases are driven: `cage_roof`, `crevice_prompt` and `east_tower`, the
-director 008253F0's beats 0, 1 and 2. The director waits on Roger (census
-L21 / L22, DIRECTOR_ORIGINAL.md section 6), so node #21 still runs the
-legacy em_director.c, and the later climbs and the jump start from where its
+director 008253F0's beats 0, 1 and 2. The director is not bound yet
+(census L21; Roger, which it waited on, is live since census L22:
+DIRECTOR_ORIGINAL.md section 6), so node #21 still runs the legacy
+em_director.c, and the later climbs and the jump start from where its
 beats leave the player (none of the three original scripts moves the
 player).
 
@@ -99,13 +101,13 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | yes (census L23, L19) | — |
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
-| cage_roof | 10 (f1091..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 | no: driven through em_director.c | WP-10 (L21) after WP-9 (L22) |
+| cage_roof | 10 (f1091..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 | no: driven through em_director.c | WP-10 (L21; Roger is live since L22) |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
 | crevice_prompt | 11 (f707..) | director beat 1, script 0x829A40 (line 0x97) | no: driven through em_director.c | WP-10 (L21), WP-8 |
 | crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
 | east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
 | east_tower | 13 (f532..) | director beat 2, script 0x829CC0 (line 0x99) | no: driven through em_director.c | WP-10 (L21), WP-8 |
-| roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 | no | WP-9 (L22) |
+| roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
 
 ## What the live phases check
 
@@ -594,6 +596,43 @@ climb ends on y 289.75.
 **Against the capture** (`check_east_tower_climb`, route 13): f438..f531
 as for the crevice climbs. Measured: stance 0.004 from the original's, X/Z
 residual 0.0031, every other field equal.
+
+### roger
+
+Route beat 14: the running jump across the east tower's gap into Roger's
+quad and his encounter (census L22; ROGER_ACTOR_ORIGINAL.md section 4,
+AREA_SCRIPT.md 6.1, ROGER_CINEMATIC.md).
+
+**Runner.** route_capture.py's beat_roger_encounter: goto(436, 190) at 0.6
+stick (tolerance 0.8), settle 5, face -pi/2, settle 10, then run toward
+(300, 190) at full stick until x <= 411.5 (f238), Cross for two frames with
+the stick kept; the stick stays on until +1F0 = 0x0C (the running jump,
+f241) and until Roger's script block names 0x8283D0 (his 008237E0 ordinary
+branch: the player crossed into the quad 0x82AB80 in mid-air, f283), then
+neutral until the scripted frame opens (3B8D != 0) and until control is
+back (3B8D = 0, +1F0 = 0; f1758), then settle 60. **In process:** the
+script ran, D_008107D8 holds bit 0 and the player stands at the script's
+01/9 placement (338, 289.75, 192), heading -2.531.
+
+**Against the capture** (`check_roger`, route 14):
+- the script start: the port's first tick with Roger's block at pc
+  0x8283D0 against f283 in Roger's +0x00..+0x0F, +0xB0 and block, and every
+  tick until the port's frame opens with the block held at the op16
+  (00182BF0 waits for the landing: 4 ticks in the port, 5 rows in the
+  original; the jump itself is navigation);
+- from the first tick with 3B8D != 0 (f288) every row to the end of the
+  capture (f1818, 1531 rows): the spad bytes, the camera byte, the
+  letterbox, the message block, the fade block (the next tick's start
+  sample), Roger's +0x00..+0x0F, +0xB0 and script block, the equipment
+  node's +0x00..+0x0F and, from Roger's clip init at f358, its +0xB0
+  (before it his idle clip's phase is the time since the area load, which
+  the capture's save state and the port's walk do not share), D_008107D8
+  and D_00810813, the player record's +5, +1F0, +1F1, clip, clock and
+  +0x2F3, the camera eye / target while the camera byte is 3 (the bank
+  0x96 timeline, 0022EEF0, from f358) or near the release, and the
+  player's position and heading from the 01/9 placement (f1756) on.
+
+Measured: every compared field equal on every row.
 
 ### The step-offs (`check_fall`)
 

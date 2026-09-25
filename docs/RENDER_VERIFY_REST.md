@@ -274,7 +274,8 @@ build with both files added links with zero warnings.
   `em_message_draw_original.c`, neither in COMMON. The live panel message
   service reports 001FC9B0 as no-effect (um_001FC9B0). 001FCB90 is the
   stand-in row.
-- **L22**: all 24 rows are verified-unbound. Owners:
+- **L22** (live since census L22, 2026-09-24: FIRST_LEVEL_CENSUS.md section
+  1.10; below is the state before it): all 24 rows were verified-unbound. Owners:
   - `em_roger_actor_original.c` (not in COMMON): 008237E0, 001C5C90,
     001BA540..001BA8E0, 001CA5E0..001CA770, 001D0690..001D0C70,
     001B10B0, 001B1020, 001AF780, 001AF890, 001D8BF0.

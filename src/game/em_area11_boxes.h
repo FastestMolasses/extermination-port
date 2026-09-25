@@ -65,6 +65,13 @@
 #define EM_AREA11_BOX_TABLES_PATH "assets/scene_snow/box_tables.emrg"
 #define EM_AREA11_WORLD_MODELS_PATH "assets/scene_snow/world_models.emwm"
 
+/* The 001AF710 bone-slot stack and its 0xD0-byte slot arena as
+ * em_roger_actor_original views (D_00275BCC, D_00275BD0, D_007D4640[],
+ * D_007D5840..): the one storage the boxes and Roger's owner pop from and
+ * push to (census L22). Built on first use at the area build. */
+struct EmRogerActorWorld;
+const struct EmRogerActorWorld *em_area11_boxes_slot_world(void);
+
 /* One owner call of the node `actor` (callback 001551B0 or 00156620) in the
  * pool walk. 1, or -1 (a fault; a line on stderr names it). The owner may
  * free its own record (001AFC10) through `pool`. */

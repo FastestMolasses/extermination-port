@@ -141,11 +141,11 @@ main-loop counter. Each beat ends idle with control back: 3B8D=0 and action
 | 07 | `07_truck_preview` | 06 | 557 | 7142..7699 | trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1 | em_truck_original (trigger), script host |
 | 08 | `08_truck_crossing` | 07 | 239 | 7705..7944 | truck 0x823FF0 (r16): arm, shake, fall, D_00810792=0xFF | em_truck_original |
 | 09 | `09_fence_door` (side) | 08 | 532 | 7945..8477 | door 001BC350 (r0): script 0x24DE40/0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2 | em_door_original / _transit / _program |
-| 10 | `10_cage_roof_roger` | 08 | 3568 | 7956..11524 | two climbs on the x≈360 attribute-0x32 column; director 0x8253F0 (r12) beat 0 script 0x8294C0; Roger 0x8237E0 (r8) alternate script 0x828990 | em_player_ladder_entry / _climb (live since census L09 / L10); em_director (legacy); em_roger |
+| 10 | `10_cage_roof_roger` | 08 | 3568 | 7956..11524 | two climbs on the x≈360 attribute-0x32 column; director 0x8253F0 (r12) beat 0 script 0x8294C0; Roger 0x8237E0 (r8) alternate script 0x828990 | em_player_ladder_entry / _climb (live since census L09 / L10); em_director (legacy); em_area11_roger (live since census L22; the alternate script waits on the director, L21) |
 | 11 | `11_crevice_prompt` | 10 | 1260 | 11525..12785 | climb onto the tank; pipes; climb onto the pipe end; director beat 1, script 0x829A40 ("I have to jump that crevice.") | em_player_climb, em_player_fall; em_director (legacy) |
 | 12 | `12_crevice_jump` | 11 | 336 | 12794..13130 | running jump (+1F0 0x0C, state 6) across the crevice onto the 270 north block | em_player_running_jump (live since census L11) |
 | 13 | `13_east_tower` | 12 | 809 | 13131..13940 | high ledge climb onto the east tower top; director beat 2, script 0x829CC0 (line 0x99) | em_player_climb; em_director (legacy) |
-| 14 | `14_roger_encounter` | 13 | 1818 | 13941..15759 | running jump west to the west tower top; in mid-air Roger's quad 0x82AB80 starts script 0x8283D0 (bank 96); end 0x8107D8=1 | em_roger*, cinematic playback; no jump module |
+| 14 | `14_roger_encounter` | 13 | 1818 | 13941..15759 | running jump west to the west tower top; in mid-air Roger's quad 0x82AB80 starts script 0x8283D0 (bank 96); end 0x8107D8=1 | em_area11_roger (008237E0 / em_roger_tick, 001C5C90), em_area11_script_host, em_cinematic_playback (live since census L22; the level smoke's `roger` phase row for row); the jump em_player_running_jump (census L11) |
 
 The main line is 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 10 → 11 → 12 → 13
 → 14.

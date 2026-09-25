@@ -18,6 +18,8 @@
 #include "game/em_player_closure_live.h"
 #include "game/em_props.h"
 #include "game/em_random.h"
+#include "game/em_area11_roger.h"
+#include "game/em_roger.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 #include "game/em_status_background.h"
@@ -69,6 +71,13 @@ static struct {
     /* Census L07: the panel's and the terminal's pool records (bound by
      * their nodes), and the record 001B17A0's 001B1B70 is publishing. */
     EmActor *panel_actor, *elevator_actor, *publishing;
+    /* Census L22: Roger's pool record (bound by its lifecycle 0) and its
+     * EMIS record (00183EF0's selector-0 class-10 candidate). */
+    EmActor *roger_actor;
+    EmInteractionSceneOwner *roger_record;
+    /* The token of the script owner (em_area11_script_host) the shared
+     * takeover serves, or NULL: its stages run 00183090 on the record. */
+    const void *script_owner;
 } world;
 
 static int camera_publish(void *context);
@@ -89,9 +98,20 @@ static int acquire(void *context)
     return player_pose_acquire();
 }
 
+static int face_tick_001D0C70(void);
+static int map_special(void *context, uint32_t address, uint32_t size, const uint8_t *bytes);
+
+/* 00183090 with player-ready 1: a nonzero +0x2F3 (the special bank still
+ * on the record after 001B82D0 sub 4 detached the face, 0x70003B8F = 1)
+ * takes its special path on the stage that releases the player, as the
+ * original's +4 = 4 stage does before 00182DF0 (census L22). */
 static int idle(void *context, float *palette)
 {
     (void)context;
+    if (world.script_owner && world.shared.owner == world.script_owner) {
+        if (em_area11_roger_regions(map_special, NULL) < 0) return -1;
+        return player_pose_commit_tick(face_tick_001D0C70, palette);
+    }
     return player_pose_idle_tick(palette);
 }
 
@@ -120,13 +140,37 @@ static uint32_t face_random(void *context)
     return em_random_next();
 }
 
+/* 00183090's 001D0C70 (0x70003B8F == 2): the attached face's tick. */
+static int face_tick_001D0C70(void)
+{
+    return em_player_face_host_tick_before_body(&world.face);
+}
+
+/* The special bank on the record (census L22): the regions of Roger's
+ * resource export (bank 0x96 holds the player's encounter clip 1). */
+static int map_special(void *context, uint32_t address, uint32_t size, const uint8_t *bytes)
+{
+    (void)context;
+    return player_pose_map_region(address, size, bytes) ? 0 : -1;
+}
+
 static int cinematic_player(void *context, float *palette)
 {
     (void)context;
+    if (!world.face.attached) {
+        fprintf(stderr, "AREA11 interaction: player-ready 2 without the attached face\n");
+        return -1;
+    }
+    /* A script owner's takeover (em_area11_script_host): 00183090 on the
+     * record, its +0x2F3 special bank and its +0x1F2 requests, the face
+     * ticked inside it (player_pose_commit_tick). */
+    if (world.script_owner && world.shared.owner == world.script_owner) {
+        if (em_area11_roger_regions(map_special, NULL) < 0) return -1;
+        return player_pose_commit_tick(face_tick_001D0C70, palette);
+    }
     /*83090 advances the attached face before choosing a body request. A
      * prepared mesh alone is not an attached original face allocation. */
-    if (!world.face.attached || !em_player_face_host_tick_before_body(&world.face)) return -1;
-    if (player_pose_cinematic_active()) return player_pose_cinematic_tick(palette, 0);
+    if (!em_player_face_host_tick_before_body(&world.face)) return -1;
     if (world.shared.animation.active) {
         int result = em_interaction_animation_tick(&world.shared.animation, &g.model, palette);
         if (result < 0 || !player_pose_script_tick(&world.shared.animation, result, palette)) return -1;
@@ -401,6 +445,7 @@ static EmInteractionSceneOwner *owner_of_record(const EmActor *actor)
     if (!actor) return NULL;
     if (actor == world.panel_actor) return world.panel_record;
     if (actor == world.elevator_actor) return world.elevator_record;
+    if (actor == world.roger_actor) return world.roger_record;
     for (size_t i = 0; i < world.pickup_count; ++i)
         if (world.pickups[i].actor == actor) return world.pickups[i].record;
     return NULL;
@@ -637,6 +682,7 @@ int em_area11_interaction_host_claim_script(const void *owner)
     view_load();
     int claimed = em_interaction_runtime_claim_scripted(&world.shared, owner);
     view_store();
+    if (claimed) world.script_owner = owner;
     return claimed ? 1 : fail("scripted owner claim (the shared player is busy)");
 }
 
@@ -1244,7 +1290,16 @@ static int use_predicate(void *context, const EmInteractionCandidate *candidate,
         return em_interaction_pickup_candidate(&item, &player, &world.scene.math, pickup_ray, NULL,
                                                score);
     }
-    return -1; /* the door and Roger are not published yet (WP-7/WP-9) */
+    if (record == world.roger_record && world.roger_actor) {
+        /* 00183EF0's selector-0 class-10 branch (em_roger_candidate): the
+         * {10, 20} descriptor at +0x30 around Roger's +0xB0. */
+        EmInteractionPlayer player = {.yaw = g.yaw, .action = 0};
+        memcpy(player.position, g.pos, sizeof player.position);
+        memcpy(player.view_target, g.cam.tgt, sizeof player.view_target);
+        return em_roger_candidate(record->descriptor, world.roger_actor->pos, &player, &world.scene.math,
+                                  score);
+    }
+    return -1; /* the door is not published yet (WP-7) */
 }
 
 int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *actor, int *result)
@@ -1272,6 +1327,9 @@ int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *a
     const EmInteractionSceneOwner *record = world.scene.list.active[winner].owner;
     int claimed = em_interaction_runtime_claim(&world.shared, record->native_owner);
     view_store();
+    /* Roger's armed talk 0x828810 runs on the AREA11 script host: his
+     * takeover is a script owner's (00183090 on the record). */
+    if (claimed && record == world.roger_record) world.script_owner = record->native_owner;
     if (!claimed || scene->spad3B8D != 3) return fail("00184BA0 winner claim");
     *result = 1;
     return 0;
@@ -1345,6 +1403,28 @@ int em_area11_interaction_host_bind_actor(uint32_t source_id, EmActor *actor)
  * that already ran is a fault, not something to re-initialize. After
  * 001C6380 (0x827BF0) it re-transforms its collision cell (uid 4) with
  * 001A2370(self, +0xD0) (0x827C04), before the child spawn (census L07). */
+/* Roger 008237E0's record (area11[8]; em_area11_roger, census L22): its
+ * EMIS record (source 0x82A500) is bound to the pool record's +0x00,
+ * +0x02 and +0x0B (the arm 00184BA0 writes), the record itself being the
+ * owner token the scan's claim and the script host's takeover share. Its
+ * placement must be the EMIS placement. 0, or -1. */
+int em_area11_interaction_host_bind_roger(EmActor *actor)
+{
+    if (!world.loaded || world.failed) return -1;
+    EmInteractionSceneOwner *record = em_interaction_scene_role(&world.scene, EM_INTERACTION_ROGER);
+    if (!record || !actor || actor->self != actor) return fail("Roger pool record binding");
+    if (actor->pos[0] != record->position[0] || actor->pos[1] != record->position[1] ||
+        actor->pos[2] != record->position[2])
+        return fail("Roger's pool record placement differs from the EMIS record");
+    if (world.roger_actor && world.roger_actor != actor) return fail("Roger pool record bound twice");
+    if (!em_interaction_scene_bind(&world.scene, record->source_id, actor, &actor->status, &actor->cls,
+                                   &actor->u0A[1]))
+        return fail("Roger EMIS binding");
+    world.roger_actor = actor;
+    world.roger_record = record;
+    return 0;
+}
+
 int em_area11_interaction_host_elevator_state0(void)
 {
     if (!world.loaded || world.failed) return -1;
