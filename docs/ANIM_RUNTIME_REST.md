@@ -9,8 +9,24 @@ functions of census lane **L33-anim-runtime-rest**
 fifteen were verified-unbound.
 
 Code: `src/game/em_anim_runtime_rest.c/.h`. Oracle:
-`tools/test_anim_runtime_rest_reference.py`. **The module is built and
-tested but not wired.** Section 4 lists what the coordinator binds.
+`tools/test_anim_runtime_rest_reference.py`. Section 4 lists what the
+coordinator binds.
+
+**Status (2026-09-25, census L12 + L33).** 001C9D50 (with its 001C9E40) is
+live: the idle / walk states' tier cross-fade 0017B660 calls it for every
+node (em_locomotion_display over the player record, bound by
+em_player_closure_live.c `bind_loco`: one `EmAnimRest` whose `spad3760` is
+the record pose's, sqrt `em_anim_rest_sqrt_0011E748` over the collision
+world's SDK context, 0x700034C0 / D0 / E0 the closure's words). In the full
+level smoke 0017B660 ran 251 cross-fades, 5,271 calls of 001C9D50 (21 nodes
+each); the first-control record matches the original through the tier ramp
+(LOCOMOTION_DISPLAY.md section 4). The other routines stay unwired, each on
+a callee or a storage decision another lane owns: 001C7900 (001D88B0, L32),
+001CB2C0 (001CB3C0, L35), 001CAAC0 (001CB760, L39, and the effect manager
+001F6210, L26), 001CACB0 (the indicator draw 001CABA0, a renderer
+boundary) and 001CB5B0 (one canonical D_00275B40 / D_00275B48 for every
+host; today each host keeps its own node-array view, the player's being its
++110 by construction).
 
 ## 0. What already existed (checked first)
 
@@ -48,8 +64,8 @@ value.
 
 | Address | Decomp | Before | After | Module |
 |---|---|---|---|---|
-| 001C9E40 | AW | missing | verified-unbound | em_anim_runtime_rest |
-| 001C9D50 | BM | missing | verified-unbound | em_anim_runtime_rest |
+| 001C9E40 | AW | missing | live (inside 001C9D50) | em_anim_runtime_rest |
+| 001C9D50 | BM | missing | live (0017B660, census L12) | em_anim_runtime_rest |
 | 001C7900 | NM | missing | verified-unbound | em_anim_runtime_rest |
 | 001CB2C0 | NM | missing | verified-unbound | em_anim_runtime_rest |
 | 001CAAC0 | NM | missing | verified-unbound | em_anim_runtime_rest |
@@ -131,11 +147,10 @@ One `EmAnimRest` for the game.
 
 **Live call sites and stand-ins replaced:**
 
-- 001C9D50 has one route caller, anim_matrix_player 0017B660 (lane L12,
-  **stand-in** today: the legacy gait display). When L12 translates
-  0017B660, its 001C9D50 slot = `em_anim_rest_001C9D50`, with `out` = node i
-  +0x90, `a` / `b` = D_00288D40 / D_00287F40 + 0x40·i, and `blend` = player
-  +0x208 raw bits. It replaces nothing live by itself.
+- 001C9D50 has one route caller, anim_matrix_player 0017B660, live since
+  census L12 (em_locomotion_display calls `em_anim_rest_001C9D50` with `out`
+  = node i +0x90, `a` / `b` = D_00288D40 / D_00287F40 + 0x40·i, and `blend`
+  = player +0x208 raw bits).
 - 001C7900 and 001CB2C0 have one route caller, 001CB3C0 (Roger's attachment
   draw, reached through 001CAA00 when owner +0x90 is nonzero; the route's
   only such owner is Roger 0x7A8830, attachment 0x7D9530). 001CB3C0 is

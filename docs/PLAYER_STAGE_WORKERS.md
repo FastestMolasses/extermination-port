@@ -67,7 +67,7 @@ alone elsewhere. A missing
 | `commit`, `reaction`, `drain`, `heartbeat`, `scripted_check`, `scripted_notify`, `row_request`, `stop_sound` | the translations (`em_player_stage_workers_bind`) |
 | `major[4]` | `em_player_stage_0015B530` (bound but not reached while the interaction runtime owns the takeover; census verified-unbound): 001837A0 bound (the byte-matched C is empty); 00182DF0 (record side), 001837B0, 001838B0, 00183910 fail-stop (untranslated); 00162DB0 / 00163B40 fail-stop (FLOOR, L02) |
 | `major[6]` | `em_player_stage_0015D460` with the live 001AEDE0 (`em_frame_fade_start_colour(1, a0, a1)`) |
-| `major[1]` / `state[0]` / `state[1]` | set by em_player.c: 0015B130 behind the takeover stand-in (`live_major1`), and the port's idle/walk callbacks (`live_port_state`) until L12 |
+| `major[1]` / `state[0]` / `state[1]` | set by em_player.c: 0015B130 behind the takeover stand-in (`live_major1`); state[0] / state[1] are 00161020 / 001612D0 from the closure binder behind the port's stand-ins (`live_idle` / `live_walk`, census L12), or the legacy callbacks (`live_port_state`) in the scenes without an original world |
 | `takeover` | `player_pose_stage_hook()`: the AREA11 interaction runtime at 0015B130's prelude position (consumes the stage while it owns the player) |
 | `load` | before every stage: D_008106C8 (request word C8), D_00810701, D_0081083C and D_00810C7E (canonical progress bytes; D_0081083C migrated by L01) and the D_00810707 pointer. D_00810770 is not canonical (L19): the load refuses area 8 room 2, the only place 0021C3F0 reads it |
 
@@ -81,7 +81,7 @@ Callees (`host.callees`):
 | `cue` (001B61C0) | fail-stop (untranslated; 0015D000 at health <= 35, 0021C440's 0x3C path) |
 | `w001EFE00`, `w001F00A0`, `w001F0060` | fail-stop (the effect manager is not live, L26) |
 | `atan2`, `link20` | fail-stop (hit facing; the port keeps no +20 handle, census 7.2) |
-| `clip_lookup`, `request` | fail-stop (0017B490 / 001749A0 on the record: 00174A50 and 0017C370; L12) |
+| `clip_lookup`, `request` | 0017B490 on the record (`em_player_closure_live_0017B490`, em_locomotion_display's translation) and 001749A0 on the record (the pose host) |
 | `w0015C9D0` | fail-stop (untranslated; 0015D100's low-health latch) |
 | `link1C` | fail-stop (+1C is 0 in every route capture; the port keeps no +1C object) |
 | `clip_resolve`, `skeleton_frame`, `w001C8710`, `w001C87C0`, `sample_bones` | not bound (they serve only `em_player_stage_anim_advance`) |
@@ -338,8 +338,7 @@ part of the gap.
   - the effect and rumble binders;
   - the two object links (+20, +1C);
   - 0015C9D0, 00182DF0's record side, 001837B0, 001838B0 and 00183910,
-    which are untranslated;
-  - 001749A0 on the record for the idle / walk (L12).
+    which are untranslated.
 - **Bound but unreached (L01).** 00182B30, 00182D70, 0015B530 and 001837A0
   wait for the scripted takeover to move from the interaction runtime onto
   the stage (00182DF0's record side, the display's commit/advance).

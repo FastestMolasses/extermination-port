@@ -47,7 +47,8 @@ def main():
     library = folder / 'foot_stop.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-fPIC', '-shared', '-Isrc', 'src/game/em_player_foot_stop.c',
-                    'src/game/em_camera_rotation.c', '-lm', '-o', str(library)], cwd=ROOT, check=True)
+                    'src/game/em_camera_rotation.c', 'src/game/em_effect_original.c',
+                    'src/game/em_owner_services_original.c', '-lm', '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     native.em_player_foot_stop_begin.argtypes = [C.POINTER(Stop), C.c_uint, C.c_float] + [C.POINTER(C.c_float)] * 4
     native.em_player_foot_stop_tick.argtypes = [C.POINTER(Stop), C.c_uint, C.POINTER(C.c_float), C.POINTER(C.c_float)]

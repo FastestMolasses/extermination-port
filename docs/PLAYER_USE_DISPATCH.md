@@ -280,9 +280,9 @@ test-player-use-dispatch-reference:
 
 ## 6. Limits
 
-- The port's own idle / walk callbacks still poll (00161020 / 001612D0 are
-  translated but unbound, census L12). They poll at the positions the
-  instructions do.
+- In AREA11 00161020 / 001612D0 poll the dispatcher themselves (their
+  `ladder` worker, census L12); the legacy `player_use_poll` runs only in the
+  scenes without an original world.
 - The world replays run the original callees for every worker. They prove
   the dispatcher, the reset and the re-entry request in place. They do not
   prove the native translations of those callees; each has its own

@@ -214,12 +214,12 @@ class PoseCallees(C.Structure):
 
 
 class PoseHost(C.Structure):
-    _fields_ = [('region', Region * 8), ('region_count', C.c_uint), ('globals', C.POINTER(PoseGlobals)),
+    _fields_ = [('region', Region * 12), ('region_count', C.c_uint), ('globals', C.POINTER(PoseGlobals)),
                 ('callees', PoseCallees), ('events', C.c_int16 * 512)]
 
 
 class RestWorld(C.Structure):
-    _fields_ = [('region', Region * 8), ('region_count', C.c_uint), ('channel', VP), ('channel_count', U32),
+    _fields_ = [('region', Region * 12), ('region_count', C.c_uint), ('channel', VP), ('channel_count', U32),
                 ('scratch', VP), ('spad34C0', PU32), ('spad34D0', PU32), ('spad34E0', PU32),
                 ('spad3760', PU32), ('d275B40', PU32), ('d275B48', PU32)]
 

@@ -5,6 +5,30 @@ Original executable SHA-256:
 The native port is not assumed faithful. These changes use original instruction
 execution and a fresh original state 04 probe, not the earlier port's behavior.
 
+## Current state (census L12, 2026-09-25)
+
+Since census L12 the player's idle and walk states are the original
+00161020 / 001612D0 over the player record, with their display (0017C030,
+0017B660, 0017B5C0), the record-level 0017BC40 and 0017B910, and 00187350
+after every stage (LOCOMOTION_DISPLAY.md section 4). The sections below
+record how the first-control facts were found; the legacy walk they describe
+now runs only in the scenes without an original world.
+
+- `make test-first-control-reference`: the fixture below with the run-stop
+  interruption, 56 callbacks, the player record against the original's actor
+  bytes (collision_run_poll.json): pose source, locomotion state, step phase
+  and feet exact; the heading exact except 3 callbacks one callback after the
+  live camera's D_008106A0 differed by one ulp.
+- `EM_STARTUP_TEST=newgame-control`: 30 input ticks travel **9.599849**, the
+  original's; endpoint XZ (245.475342, 216.987808), the original's.
+- `EM_CONTROL_STOP_TEST=1`: 60 released ticks, total displacement
+  **18.649738**, the original's (the legacy walk: 18.649982).
+- `EM_CONTROL_REENTRY_TEST=1`: final XZ (238.753983, 226.391403) against the
+  original (238.753982, 226.391403).
+- `EM_CONTROL_LOW_GAIT=1` / `2`: 4.049941 / 14.349401 over 60 ticks, both
+  foot-placement stops return to the idle source (native only; no original
+  capture of these inputs).
+
 ## Matched-duration probe
 
 The isolated original state 04 starts at game frame 4083, player
@@ -215,18 +239,12 @@ original (238.753982,226.391403). The previous values were
 ## Footsteps (WP-15 P14/P15)
 
 Steps fire from the source clock through the translated 00187350
-(`PLAYER_FLOOR.md`). Over the re-entry fixture, the native step phase, mode,
-tier, clip and remaining clock match the original capture on all 48 frames
-4094-4141. That result needs the pending em_player_frame.c call site.
-
-Full native regression (`build/opening_control/panel_contact_run.log` and
-`panel_contact.png`) passed the ordinary opening,30 held input ticks,18 released
-ticks and8 re-entry ticks. The first30 ticks retain displacement9.599989;
-opening input remains locked for1,303 ticks with zero movement. Re-entry
-callbacks7/8 now report obstruction0x02 and displacements0.266091/0.306747.
-The final native XZ is(238.753937,226.391403), versus original frame4141
-(238.753982,226.391403): X differs by0.000046 and Z is identical. No speed,
-position or camera value was tuned to obtain this contact.
+(`PLAYER_FLOOR.md`), which runs on the record after every player stage's
+animate step since census L12 (`em_player_closure_live_footstep`). Over the
+first-control fixture the record's step phase +25E and wet timer +212 equal
+the original's on all 56 callbacks (test-first-control-reference); the step
+sounds are 00182430's, the surface effects go to the counted effect gap
+(census L26).
 
 ## Pad block and pose source after the input/pose lanes
 
@@ -269,37 +287,11 @@ snaps to the row default.
 
 ## Reversal skid (WP-15/H11)
 
-When the player is walking faster than 0.5 with gait 2 or 3, a stick reversal
-beyond 3π/4 no longer turns the body through the banded rate. The original
-00174AC0 gate arms `+1F0=7` instead: `+1F1=4` for a positive error and 3 for a
-negative one.
-
-The skid then runs as follows:
-
-- **Detection tick.** The port skips the turn. 0017C030 case 7 requests turn
-  clip 7 or 6 with blend 4 and plays 0x137. The callback still translates once
-  at the current speed, then enters walk state 2.
-- **State-2 ticks.** Each tick emits the 001612D0 surface effect every eighth
-  tick and decays speed by 0.05 (0017BC40 mode 6). It also writes animation
-  rate 0.75.
-- **Clip end.** At the end flag, the port requests follow-up clip 9 or 8 with
-  force 1 and blend 0. Speed and tier become zero and the body turns by π.
-- **Next callback.** With the stick held, the port resumes at tier `gait-1`.
-  Otherwise it hands off to idle through the existing stop phase 3.
-- **Use.** Use is not polled during state 2.
-
-Details, evidence and boundaries are in `PLAYER_REVERSAL.md`. The remaining
-items are:
-
-- the unbound 001EFD90 effect worker (a counted fault);
-- the missing 0x137 cue;
-- the pose-host idle gate on the exit tick;
-- the display hook;
-- the asset install.
-
-`EM_STARTUP_TEST=newgame-control` still reports displacement 9.599989. The
-stop, re-entry and low-gait variants report 18.649982, re-entry PASS,
-4.049953 and 14.350012. No native reversal input fixture exists yet.
+The skid is 00174AC0's gate (the record-level heading) and 0017C030 cases 6 /
+7 with 001612D0 case 2, live in AREA11 inside the idle / walk states since
+census L12 (PLAYER_REVERSAL.md). No route beat reverses the stick above speed
+0.5, so its evidence is instruction-level
+(test_locomotion_display_reference).
 
 ## Climbing and sliding (AREA11 crates and hill)
 

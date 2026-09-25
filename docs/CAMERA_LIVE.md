@@ -217,7 +217,11 @@ region since this step; nothing writes them in AREA11.
     within 0.28 of route 06's stance the entry is still 0.86 off, since the
     port's walk heading from the stick (L12) and the live camera's state at
     the stance (3 units from the capture's eye, it follows the port's own
-    walk history) set the path. One row returns once L12 is live.
+    walk history) set the path. With L12 live (2026-09-25; the first-control
+    record equals the original's, LOCOMOTION_DISPLAY.md section 4) the entry
+    is unchanged at 0.863: the smoke's own stick input and the camera state
+    it produces set it, not the walk translation. One row needs the route's
+    own input replayed from the capture's state.
   - **Roger** (route 14): his script block's halfword +0x0E (Roger's
     +0x1FE, the animation flags of his idle clip) is compared from his clip
     initialization (f358) on, like the equipment's +0xB0: before it the
@@ -226,7 +230,8 @@ region since this step; nothing writes them in AREA11.
     no longer shares with the capture's save state. Recorded next to the
     +0xB0 exemption as navigation-induced, to lift once the smoke's walk
     timing matches the capture's; pending lead review.
-- `EM_STARTUP_TEST=newgame-control`: 30 ticks travel 9.599989 (unchanged).
+- `EM_STARTUP_TEST=newgame-control`: 30 ticks travel 9.599989 (unchanged at
+  this step; 9.599849, the original's, since census L12).
 - The translated modules keep their own oracles, unchanged:
   test-camera-follow-original(-reference), test-camera-leftovers(-reference),
   test-camera-area11-specials-reference, test-census-standins-reference.

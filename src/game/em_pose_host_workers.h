@@ -71,7 +71,7 @@
  * clock, +40 bank, +60 scale, +B0 position, +C0 rotation, +D0 matrix,
  * +110 the node pointers. A record must hold at least this much. */
 #define EM_POSE_RECORD_MIN 0x114u
-#define EM_POSE_REGION_MAX 8
+#define EM_POSE_REGION_MAX 12
 /* D_008111F0 .. D_0081125B: the sampler's scratch channel record. */
 #define EM_POSE_SCRATCH_BYTES 0x6Cu
 /* The largest event table the clip_resolve adapter copies for the stage. */

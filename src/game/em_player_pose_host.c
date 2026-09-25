@@ -439,10 +439,11 @@ int player_pose_stage_advance(float step, uint32_t *flags)
     source.previous_foot = source.foot_stop.active;
     if (source.started && !source.acquired && source.valid) {
         /* 0015BA50 advances the record before every +4 = 1 / 2 / 5 state
-         * callback. A stage whose (+4, +5) is not the port's idle/walk
-         * belongs to a translated state callback: its clip advances
-         * whatever the port's own stand-ins hold (they own only the port's
-         * callbacks). */
+         * callback. A stage whose (+4, +5) is not idle/walk belongs to a
+         * translated state callback: its clip advances whatever the port's
+         * own stand-ins hold (they pre-empt only the idle/walk states). On
+         * idle/walk (00161020 / 001612D0, or the legacy callbacks) the
+         * record advances unless a stand-in holds the source. */
         const uint8_t *r = source.record.actor->bytes;
         int translated = r[4] != 1 || (r[5] != 0 && r[5] != 1);
         if (translated) {

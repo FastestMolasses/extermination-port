@@ -193,6 +193,7 @@ def main():
                         str(ROOT / 'src/game/em_pose_transition.c'),
                         str(ROOT / 'src/game/em_player_foot_stop.c'),
                         str(ROOT / 'src/game/em_camera_rotation.c'),
+                        str(ROOT / 'src/game/em_effect_original.c'),
                         *[str(ROOT / 'src/game' / (name + '.c')) for name in RECORD_POSE],
                         '-lm', '-o', str(library)], check=True)
         native = C.CDLL(str(library))

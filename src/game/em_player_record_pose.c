@@ -152,7 +152,8 @@ int em_player_record_pose_attach(EmPlayerRecordPose *pose, EmPlayerLiveActor *ac
     h->region[0] = (EmPoseRegion){ EM_PLAYER_POSE_BANK_ADDRESS, pose->bank_size, pose->bank, 0 };
     h->region[1] = (EmPoseRegion){ EM_PLAYER_POSE_NODE_ADDRESS, sizeof pose->nodes, pose->nodes, 1 };
     h->region[2] = (EmPoseRegion){ EM_PLAYER_POSE_RECORD_ADDRESS, EM_PLAYER_ACTOR_SIZE, actor->bytes, 1 };
-    h->region_count = 3;
+    h->region[3] = (EmPoseRegion){ UINT32_C(0x00287F40), sizeof pose->pose_buffers, pose->pose_buffers, 1 };
+    h->region_count = 4;
     if (pose->tables)
         h->region[h->region_count++] = (EmPoseRegion){ pose->tables_base, pose->tables_size,
                                                         pose->tables, 0 };

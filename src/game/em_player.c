@@ -16,10 +16,10 @@
 #include "game/em_player.h"
 #include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
+#include "game/em_player_closure_live.h"
 #include "game/em_player_floor.h"
 #include "game/em_player_heading.h"
 #include "game/em_player_motor.h"
-#include "game/em_player_reversal.h"
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
 
@@ -34,7 +34,6 @@ static const void *live_link_owner(void);
 static uint8_t live_link_type(void);
 static uint8_t live_state(void);
 static void port_park(void);
-static void footstep_surface_from_live(uint8_t surface);
 static void live_fault(const char *what);
 
 /* ---- WP-15 P16: 001764E0 radial probes over the port's collision -------
@@ -346,10 +345,21 @@ static struct {
     int busy_known;
     uint8_t loaded3B8F;           /* 3B8F as the scene view last loaded it */
     int consumed;                 /* this stage: the takeover stand-in owned it */
-    int port_ran;                 /* this stage: the port's idle/walk callback ran */
+    int port_ran;                 /* this stage: a port callback (legacy idle/walk or a stand-in) ran */
+    /* 00161020 / 001612D0 as the binder bound them (census L12; the closure
+     * binder over the original world): 0015B130's state[0] / state[1] run
+     * them through live_idle / live_walk. NULL in the scenes without an
+     * original world, where the legacy callbacks keep those states. */
+    EmPlayerStateCallback loco[2];
+    void *loco_context[2];
     unsigned faults;
     int reported;
 } live;
+
+static int loco_live(void)
+{
+    return live.bound && live.loco[0] && live.loco[1];
+}
 
 static EmPlayerStateCallback bound_state(const StateRef *r)
 {
@@ -515,6 +525,9 @@ void player_states_reset(void)
 
 static int live_major1(void *context, EmPlayerLiveActor *a);
 static int live_port_state(void *context, EmPlayerLiveActor *a);
+static int live_idle(void *context, EmPlayerLiveActor *a);
+static int live_walk(void *context, EmPlayerLiveActor *a);
+static int live_stance(void *context, EmPlayerLiveActor *a);
 
 void player_states_bind(const EmPlayerStatesBinding *binding)
 {
@@ -522,19 +535,38 @@ void player_states_bind(const EmPlayerStatesBinding *binding)
     if (binding) live.b = *binding;
     else memset(&live.b, 0, sizeof live.b);
     live.bound = binding != NULL;
+    live.loco[0] = live.loco[1] = NULL;
+    live.loco_context[0] = live.loco_context[1] = NULL;
     if (live.bound) {
         /* 0015BA50's +4 = 1 / 2 entries are the translated 0015B130 /
          * 0015B770 over this binding's tables (+4 = 1 behind the takeover
-         * stand-in, live_major1), and 0015B130's +5 = 0 / 1 entries are the
-         * port's own idle/walk callbacks until L12 binds 00161020 /
-         * 001612D0. */
+         * stand-in, live_major1). 0015B130's +5 = 0 / 1 entries are
+         * 00161020 / 001612D0 when the binder bound them (census L12, the
+         * original world), behind the port's stand-ins (live_idle /
+         * live_walk); otherwise the port's legacy idle/walk callbacks. */
         live.stage.scene = &live.scene;
         live.stage.workers = &live.b.stage;
         live.b.stage.major[1] = live_major1;
         live.b.stage.major_context[1] = &live.stage;
         live.b.stage.major[2] = em_player_stage_0015B770;
         live.b.stage.major_context[2] = &live.stage;
-        live.b.stage.state[0] = live.b.stage.state[1] = live_port_state;
+        if (binding->stage.state[0] && binding->stage.state[1]) {
+            for (unsigned i = 0; i < 2; ++i) {
+                live.loco[i] = binding->stage.state[i];
+                live.loco_context[i] = binding->stage.state_context[i];
+            }
+            live.b.stage.state[0] = live_idle;
+            live.b.stage.state[1] = live_walk;
+            /* The armed stances 001607D0 enters (+5 = 0x1D..0x22, census
+             * L28) run the port's stand-ins (em_weapon's aim, R2 and melee):
+             * their own workers are not bound. */
+            for (unsigned i = 0x1D; i <= 0x22; ++i) {
+                live.b.stage.state[i] = live_stance;
+                live.b.stage.state_context[i] = NULL;
+            }
+        } else {
+            live.b.stage.state[0] = live.b.stage.state[1] = live_port_state;
+        }
         live.b.stage.state_context[0] = live.b.stage.state_context[1] = NULL;
     }
     live.reported = 0;
@@ -752,6 +784,68 @@ int player_states_wall_probes(void *context, EmPlayerLiveActor *actor)
     return player_states_wall_probes_s1(context, actor, 1);
 }
 
+typedef struct {
+    const EmPlayerProbeWorkers *bound;
+    const EmPlayerProbeActor *probe;
+    EmPlayerLiveActor *actor;
+} ClearancePose;
+
+static int clearance_column(void *context, const float at[3], float height, EmPlayerProbeHit *hit)
+{
+    ClearancePose *c = context;
+    if (!c->bound->column) return -1;
+    return c->bound->column(c->bound->context, at, height, hit);
+}
+
+static int clearance_pose(void *context, float blend)
+{
+    ClearancePose *c = context;
+    em_live_set_u8(c->actor, 0x235, c->probe->row);
+    em_live_set_u8(c->actor, 0x236, c->probe->special);
+    if (!c->bound->pose) return -1;
+    return c->bound->pose(c->bound->context, blend);
+}
+
+/* 001756E0 over a live actor with the bound probe workers (its 00174A50 is
+ * the row request on the record, em_collision_world_bind_player_pose).
+ * *result is its return value (1 on the area-0x12 forced clearance). Writes
+ * +235 and +236. 0, or -1 on a worker fault. */
+int player_states_clearance_release(void *context, EmPlayerLiveActor *actor, int *result)
+{
+    (void)context;
+    if (!floor_engaged() || !actor) return -1;
+    if (live.b.sdk_fault) *live.b.sdk_fault = 0;
+    EmPlayerProbeActor p;
+    memset(&p, 0, sizeof p);
+    for (unsigned axis = 0; axis < 3; ++axis) p.position[axis] = em_live_f32(actor, 0xB0 + 4 * axis);
+    p.yaw = em_live_f32(actor, 0xC4);
+    p.speed = em_live_f32(actor, 0x38);
+    p.major = em_live_u8(actor, 4);
+    p.state = em_live_u8(actor, 5);
+    p.mode = em_live_u8(actor, 0x1F0);
+    p.variant = em_live_u8(actor, 0x1F1);
+    p.row = em_live_u8(actor, 0x235);
+    p.special = em_live_u8(actor, 0x236);
+    p.obstruction = em_live_u8(actor, 0x314);
+    p.contact = em_live_u8(actor, 0xA);
+    p.link = actor->link_owner != NULL;
+    p.link_type = actor->link_type;
+    EmPlayerProbeScene scene = { em_scene_state()->d810700, 1, probe.previous };
+    /* 001756E0 stores +236 and +235 before its 00174A50, which reads +235:
+     * the pose worker sees them on the record. */
+    ClearancePose pose = { probe_workers(), &p, actor };
+    EmPlayerProbeWorkers workers = *pose.bound;
+    workers.context = &pose;     /* the two workers 001756E0 reaches */
+    workers.column = clearance_column;
+    workers.pose = clearance_pose;
+    int r = em_player_clearance_release(&p, &scene, &workers);
+    if (r < 0 || probe_sdk_failed()) return -1;
+    em_live_set_u8(actor, 0x235, p.row);
+    em_live_set_u8(actor, 0x236, p.special);
+    if (result) *result = r;
+    return 0;
+}
+
 /* The mirror's view of the port's idle/walk callbacks (the port keeps these
  * bytes in g while its own callbacks own the player). */
 static void live_from_port(void)
@@ -804,13 +898,12 @@ static void live_tail(int walk)
         return;
     }
     port_from_live_position();
-    /* +23A for 00187350 comes from this service from now on. */
-    footstep_surface_from_live(em_live_u8(&live.a, 0x23A));
     uint8_t state = em_live_u8(&live.a, 5);
     if (state != 0 && state != 1) port_park();
 }
 
 static void player_move_callbacks(void);
+static int player_standin_callbacks(void);
 
 /* The port's view of the player's vitals: g.status / g.pd_* are the port's
  * only storage of +220 (health, also D_00810858's mirror), +224 (pending
@@ -849,8 +942,8 @@ static int port_family(void)
            (em_live_u8(&live.a, 5) == 0 || em_live_u8(&live.a, 5) == 1);
 }
 
-/* 0015B130's state[0] / state[1] (00161020 idle, 001612D0 walk): the port's
- * own callbacks until L12 binds the translations. The rest of 0015B130 and
+/* 0015B130's state[0] / state[1] in the scenes without an original world:
+ * the port's legacy idle/walk callbacks. The rest of 0015B130 and
  * 0015BA50's tail then read the record as the callbacks left the port. */
 static int live_port_state(void *context, EmPlayerLiveActor *a)
 {
@@ -861,18 +954,71 @@ static int live_port_state(void *context, EmPlayerLiveActor *a)
     return 0;
 }
 
+/* A port stand-in holds the player in place of the idle/walk states: its
+ * legacy body ran (player_standin_callbacks) and the port shows its display.
+ * The record waits in 00161020 case 0 (+5 = 0, +6 = 0, +1F0 = 0: the tail
+ * 00182DF0 writes when a scripted owner releases the player), so the idle
+ * state starts afresh when the stand-in lets go. The position and heading the
+ * stand-in moved are g.pos / g.yaw, which the next stage loads. */
+static void standin_hold(EmPlayerLiveActor *a)
+{
+    live.port_ran = 1;
+    em_live_set_u8(a, 5, 0);
+    em_live_set_u8(a, 6, 0);
+    em_live_set_u8(a, 0x1F0, 0);
+}
+
+/* 0015B130's state[0] / state[1]: 00161020 / 001612D0 (census L12), unless a
+ * port stand-in (the legacy door sequence, the examine and director locks,
+ * the armed stances) owns the player this stage. */
+static int live_idle(void *context, EmPlayerLiveActor *a)
+{
+    (void)context;
+    if (player_standin_callbacks()) {
+        standin_hold(a);
+        return 0;
+    }
+    return live.loco[0](live.loco_context[0], a);
+}
+
+static int live_walk(void *context, EmPlayerLiveActor *a)
+{
+    (void)context;
+    if (player_standin_callbacks()) {
+        standin_hold(a);
+        return 0;
+    }
+    return live.loco[1](live.loco_context[1], a);
+}
+
+/* +5 = 0x1D..0x22, which 001607D0 enters on the stance buttons: the port's
+ * stand-in (em_weapon's aim, R2 and melee) while it holds; once none holds,
+ * the record returns to idle (+5 = +6 = +1F0 = 0) and 00161020 runs. */
+static int live_stance(void *context, EmPlayerLiveActor *a)
+{
+    (void)context;
+    if (player_standin_callbacks()) {
+        standin_hold(a);
+        return 0;
+    }
+    em_live_set_u8(a, 5, 0);
+    em_live_set_u8(a, 6, 0);
+    em_live_set_u8(a, 0x1F0, 0);
+    return live.loco[0](live.loco_context[0], a);
+}
+
 /* 0015BA50's +4 = 1 entry. The AREA11 interaction runtime (through the pose
  * host, player_pose_stage_hook) stands in for the scripted takeover: while
  * it owns the player it consumes the stage at the position of 0015B130's
  * prelude (its acquire is 00174A50 + 00182D70 on the display, its per-stage
  * tick the +4 = 4 commit and advance, its release 00182DF0; census row
  * 0015B130's stand-in), and 0015B130 does not run.
- * Otherwise 0015B130 runs, except on the port's idle/walk under 0x70003B8D
+ * Otherwise 0015B130 runs, except on the idle/walk states under 0x70003B8D
  * without that owner (the area-change fade after 001B0C60): there the
- * prelude would admit the player (00182B30), force +4 = 4 and request
- * 00174A50(8.0), whose 0017B490(p, 0, +235, 0) row lookup over D_00248AB0 is
- * not bound yet (em_loco_0017B490, census L12), so the port's callbacks keep
- * those stages as before L01. */
+ * prelude would admit the player (00182B30) and force +4 = 4, whose 0015B530
+ * routines 001837B0 and the record's 00182DF0 release are not bound
+ * (em_player_stage_live.c), so the idle/walk states keep those stages as
+ * before L01. */
 static int live_major1(void *context, EmPlayerLiveActor *a)
 {
     if (live.b.takeover) {
@@ -925,7 +1071,10 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
             return 0;
         }
     }
-    if (live.scene.spad3B8D != 0 && port_family()) return live_port_state(NULL, a);
+    if (live.scene.spad3B8D != 0 && port_family()) {
+        if (!loco_live()) return live_port_state(NULL, a);
+        return em_live_u8(a, 5) == 0 ? live_idle(NULL, a) : live_walk(NULL, a);
+    }
     return em_player_stage_0015B130(context, a);
 }
 
@@ -948,7 +1097,7 @@ int player_states_stage(void)
      * the record is the scripted owner's: the port's idle/walk mirrors are
      * not loaded over +1F0 and its neighbours (the admission's +1F0 = 0x41
      * stays, route 07 f165..f526). */
-    const int port_owned = port_family() && !player_pose_owned();
+    const int port_owned = !loco_live() && port_family() && !player_pose_owned();
     vitals_load();
     if (port_owned) {
         live_from_port();
@@ -976,11 +1125,15 @@ int player_states_stage(void)
         live_fault("player stage worker or state callback fault");
         return 0;
     }
-    if (!live.consumed && !live.port_ran) {
+    if (!live.consumed && !live.port_ran && loco_live()) {
+        /* A translated routine owned the stage (00161020 / 001612D0 or
+         * another state callback, 0021C440's reaction, the +4 = 4 / 6
+         * handlers): the port takes its placement. */
+        port_from_live_position();
+    } else if (!live.consumed && !live.port_ran) {
         /* A translated routine owned the stage (a state callback, 0021C440's
          * reaction, the +4 = 4 / 6 handlers): the port takes its placement. */
         port_from_live_position();
-        footstep_surface_from_live(em_live_u8(&live.a, 0x23A));
         uint8_t major = em_live_u8(&live.a, 4), after = em_live_u8(&live.a, 5);
         if (!port_owned && major == 1 && after == 0) {
             /* +5 = 0 / +6 = 0: 00161020 case 0 runs next, as after the skid
@@ -1027,6 +1180,14 @@ int player_states_stage(void)
     em_live_set_f32(&live.a, 0xC4, g.yaw);
     if (player_pose_animate() < 0) {
         live_fault("0015BCF0 skeleton evaluation fault");
+        return 0;
+    }
+    /* 0015BCF0's 00187350 after the evaluation (its 0015CF90 runs in
+     * em_player_0015BCF0; neither reads what the other writes): the step
+     * sounds and surface effects from the record's clip clock, +1F0's
+     * mailbox and nodes 17 / 18 (census L12). */
+    if (loco_live() && em_player_closure_live_footstep(&live.a) < 0) {
+        live_fault("00187350 worker fault");
         return 0;
     }
     if (em_live_u8(&live.a, 4) != 1) port_park();
@@ -1236,58 +1397,6 @@ static float player_stick_desired_yaw(const EmFrameInput *in)
     return em_player_stick_heading(in->lx,in->ly,fx,fz);
 }
 
-/* ---- WP-15/H11 reversal skid (docs/PLAYER_REVERSAL.md) -------------------
- * 00174AC0 arms +1F0=7 when walking faster than 0.5 with gait >= 2 and a
- * wrapped heading error beyond 3pi/4. 0017C030 case 7 requests the turn
- * clip and plays 0x137; case 6 waits for the clip end, then requests the
- * follow-up clip and turns the body by pi. 001612D0 case 2 emits the
- * surface effect every eighth tick and resumes or returns to idle. The
- * pure logic is em_player_reversal.c; this block binds its workers to the
- * port's player source, audio and turn, and keeps the callback's +6/+28. */
-#define REVERSAL_DISPLAY_BONES 64
-
-static struct {
-    uint8_t walk_state;      /* +6: 2 while 001612D0 case 2 owns the callback */
-    uint16_t ticks;          /* +28 */
-    uint8_t expect_mode;     /* +1F0 left by the last reversal callback */
-    unsigned expect_clip;    /* source clip left by the last reversal callback */
-    int display;             /* the reversal clip owns the displayed pose */
-    unsigned display_blend;  /* 001749A0 blend of the displayed request */
-    unsigned requested_clip;
-    float requested_frame;
-    unsigned faults;
-    int display_bound;       /* em_player_frame calls player_reversal_palette */
-    int (*effect)(void *context, uint32_t id, const float position[3], float yaw);
-    void *effect_context;
-    float from[REVERSAL_DISPLAY_BONES * 16]; /* actor-space pose at the request */
-} reversal;
-
-void player_reversal_set_effect_worker(int (*worker)(void *context, uint32_t id,
-                                                      const float position[3], float yaw),
-                                       void *context)
-{
-    reversal.effect = worker;
-    reversal.effect_context = context;
-}
-
-void player_reversal_bind_display(int bound)
-{
-    reversal.display_bound = bound != 0;
-}
-
-/* The skid engages only once every original worker it reaches is bound:
- * the display stage (player_reversal_palette), the 001EFD90 surface-effect
- * worker, and the variant clips 6/7 used by 0017C030 case 7. Until then the
- * ordinary 00174AC0 turn runs, as before WP-15, instead of a live path that
- * faults on every reversal. The logic itself stays oracle-tested
- * (test-player-reversal-reference); binding is the coordinator's job. */
-static int reversal_ready(void)
-{
-    return reversal.display_bound && reversal.effect &&
-           em_model_clip_index(&g.model, 6) >= 0 &&
-           em_model_clip_index(&g.model, 7) >= 0;
-}
-
 /* A callback left the idle/walk family: the port's locomotion stops owning
  * the player (its +1F0 is the mirror's); the state callback runs next. */
 static void port_park(void)
@@ -1297,271 +1406,6 @@ static void port_park(void)
     g.loco_upt = g.move_speed = 0;
     g.loco_entry_ticks = 0;
     g.loco_stop.phase = g.loco_reentry.phase = 0;
-    reversal.walk_state = 0;
-    reversal.display = 0;
-}
-
-unsigned player_reversal_faults(void)
-{
-    return reversal.faults;
-}
-
-static int reversal_request_common(int clip, float frame, float blend, int force)
-{
-    /* The port's source request takes whole blend ticks (0/4 here). */
-    if (clip < 0 || !(blend >= 0.0f) || (float)(unsigned)blend != blend) return -1;
-    if ((unsigned)blend && g.model.bone_count <= REVERSAL_DISPLAY_BONES) {
-        /* Freeze the displayed pose in actor space, as the re-entry blend
-         * does in em_player_frame.c. Position and yaw are still the values
-         * the last display used: the skid request precedes translation. */
-        unsigned count = g.model.bone_count * 16;
-        memcpy(reversal.from, g.player_palette, count * sizeof(float));
-        for (unsigned bone = 0; bone < g.model.bone_count; ++bone)
-            for (unsigned axis = 0; axis < 3; ++axis)
-                reversal.from[bone * 16 + 12 + axis] -= g.pos[axis];
-        const float origin[3] = {0, 0, 0};
-        palette_apply_placement(reversal.from, g.model.bone_count, origin, -g.yaw);
-    }
-    player_pose_request((unsigned)clip, frame, (unsigned)blend, force);
-    unsigned current;
-    if (!player_pose_source(&current, NULL, NULL, NULL) || current != (unsigned)clip)
-        return -1;   /* e.g. the source bank lacks the clip (request invalidated it) */
-    reversal.display = 1;
-    reversal.display_blend = (unsigned)blend;
-    reversal.requested_clip = (unsigned)clip;
-    reversal.requested_frame = frame;
-    return 0;
-}
-
-static int reversal_request(void *context, int clip, int force, float blend)
-{
-    (void)context;
-    return reversal_request_common(clip, 0.0f, blend, force);   /* 001749A0 */
-}
-
-static int reversal_arbiter(void *context, int clip, float blend, float frame)
-{
-    (void)context;
-    return reversal_request_common(clip, frame, blend, 1);      /* 001749F0 */
-}
-
-static int reversal_clip_frames(void *context, int clip, int *frames)
-{
-    (void)context;
-    /* 001C61D0 reads the bank clip header length; the exported model clip
-     * carries the same frame count (walk 120, jog 45, run 40). */
-    int index = clip >= 0 ? em_model_clip_index(&g.model, (uint32_t)clip) : -1;
-    if (index < 0 || !frames) return -1;
-    *frames = (int)g.model.clips[index].frame_count;
-    return 0;
-}
-
-static int reversal_sound(void *context, unsigned id)
-{
-    (void)context;
-    /* 001FB9F0(id, 0x1000, 0x1000, 0x1000). The call is made; whether the
-     * cue is exported is the audio bank's state (WP-14), reported once. */
-    static int reported;
-    if (!reported && em_sfx_cue_state(id) == 0) {
-        reported = 1;
-        fprintf(stderr, "player reversal: sound 0x%X has no exported cue\n", id);
-    }
-    em_sfx_play(id);
-    return 0;
-}
-
-static int reversal_effect(void *context, uint32_t id)
-{
-    (void)context;
-    /* 001EFD90(id, +B0, +C0) spawns the class-0xC effect actor whose
-     * behaviour is 001EA240. No native worker exists yet: fault. */
-    if (!reversal.effect) return -1;
-    return reversal.effect(reversal.effect_context, id, g.pos, g.yaw);
-}
-
-static int reversal_turn(void *context, float desired)
-{
-    /* 00174AC0 arg1==1 turn: the port's banded rate (player_turn_rate) and
-     * 001B12B0 step, keyed on the scalar speed before this callback. */
-    EmPlayerReversalActor *actor = context;
-    float difference = em_player_reversal_wrap(desired - actor->yaw);
-    g.yaw = actor->yaw;
-    player_turn_toward(desired, player_turn_rate(actor->gait, actor->speed,
-                                                 fabsf(difference)));
-    actor->yaw = g.yaw;
-    return 0;
-}
-
-static void reversal_actor(EmPlayerReversalActor *actor, int gait)
-{
-    memset(actor, 0, sizeof *actor);
-    actor->speed = g.loco_upt;
-    actor->yaw = g.yaw;
-    actor->target = kLocoTierSpeed[gait & 3];
-    actor->rate = g.loco_rate;
-    actor->blend = g.loco_blend;
-    actor->player_state = 1;               /* only walk callbacks reach here */
-    actor->walk_state = reversal.walk_state ? reversal.walk_state : 1;
-    actor->ticks = reversal.ticks;
-    actor->mode = g.loco_mode;
-    actor->variant = g.loco_substate;
-    actor->tier = (uint8_t)g.loco_tier;
-    actor->gait = (uint8_t)gait;
-    /* +235 row: bit 0 is the low-health latch (health <= 35); bit 1 is the
-     * low clearance 001764E0/001756E0 keep with +236 (rows 2/3 have no
-     * exported clips, so the clip lookup refuses them). D_008106C8 bit 2
-     * (the 0017B490 row-4 override) is clear in every captured AREA11 state. */
-    actor->row = (uint8_t)((g.status.health <= PD_LOW_HEALTH ? 1 : 0) |
-                           (g.probe_low_clearance ? 2 : 0));
-    actor->special = g.probe_low_clearance;
-    actor->global_mode = 0;
-    /* +23A: the floor attribute 00175900 stores each callback (probed at
-     * the current position). +23C/+23D water depth states are untranslated
-     * (zero); they matter only off surfaces 5/6. */
-    actor->surface = footstep_floor_attr();
-    actor->obstruction = g.probe_block_mask;
-}
-
-static void reversal_commit(const EmPlayerReversalActor *actor)
-{
-    g.yaw = actor->yaw;
-    g.loco_upt = actor->speed;
-    g.loco_rate = actor->rate;
-    g.loco_blend = actor->blend;
-    g.loco_mode = actor->mode;
-    g.loco_substate = actor->variant;
-    g.loco_tier = actor->tier;
-    reversal.walk_state = actor->walk_state;
-    reversal.ticks = actor->ticks;
-    reversal.expect_mode = actor->mode;
-    reversal.expect_clip = reversal.requested_clip;
-}
-
-static const EmPlayerReversalWorkers kReversalWorkers = {
-    NULL, reversal_request, reversal_arbiter, reversal_clip_frames,
-    reversal_sound, reversal_effect, reversal_turn
-};
-
-static void reversal_fault(const char *where)
-{
-    /* A reached missing worker, or a source that cannot carry the skid
-     * clips. Visible and not simulated: the port abandons the skid and
-     * recovers through this file's unsupported-path hold. */
-    ++reversal.faults;
-    fprintf(stderr, "player reversal: worker fault at frame %d in %s\n",
-            g.frame_no, where);
-    reversal.walk_state = 0;
-    reversal.display = 0;
-    g.loco_mode = g.loco_substate = 0;
-    g.loco_tier = 0;
-    g.loco_upt = g.move_speed = 0;
-    player_pose_unsupported_hold("reversal skid worker fault");
-}
-
-/* The saved +6 is valid only while nothing else has rewritten the scalar
- * mode or the source clip since the last reversal callback (stand-ins,
- * hits, Use acceptance and releases reset both). */
-static int reversal_state2_live(void)
-{
-    if (reversal.walk_state != 2) return 0;
-    unsigned clip;
-    if (g.loco_mode == reversal.expect_mode &&
-        player_pose_source(&clip, NULL, NULL, NULL) && clip == reversal.expect_clip)
-        return 1;
-    reversal.walk_state = 0;
-    reversal.display = 0;
-    /* Another owner that reset +1F0 ended the skid, as its original state
-     * change does. A skid mode left behind without its clip cannot finish. */
-    if (g.loco_mode == 6 || g.loco_mode == 7)
-        reversal_fault("reversal state lost its source clip");
-    return 0;
-}
-
-int player_reversal_owns_walk(void)
-{
-    return reversal.walk_state == 2;
-}
-
-/* 001612D0 case 2 (after 001607D0; its 00184BA0 door scan is em_door's).
- * Returns 1 when the caller performs 00178B90(p,0) and the tail, 0 when a
- * fault already ended the callback. */
-static int reversal_state2_tick(const EmFrameInput *in, int gait)
-{
-    EmPlayerReversalActor actor;
-    reversal_actor(&actor, gait);
-    unsigned flags;
-    if (!player_pose_source(NULL, NULL, &flags, NULL)) {
-        reversal_fault("001612D0 case 2 (source clip flags unavailable)");
-        return 0;
-    }
-    actor.anim_flags = flags;
-    float desired = gait ? player_stick_desired_yaw(in) : 0.0f;
-    EmPlayerReversalWorkers workers = kReversalWorkers;
-    workers.context = &actor;
-    if (em_player_reversal_state2(&actor, desired, &workers) < 0) {
-        reversal_fault("001612D0 case 2");
-        return 0;
-    }
-    reversal_commit(&actor);
-    if (actor.player_state == 0) {
-        /* +5=0/+6=0: 00161020 case 0 requests idle on the next callback.
-         * The run-stop return models exactly that hand-off (phase 3). */
-        int index = em_model_clip_index(&g.model, reversal.requested_clip);
-        reversal.walk_state = 0;
-        reversal.display = 0;
-        if (index >= 0) {
-            g.loco_stop_clip = index;
-            g.loco_stop.frame = 0;
-        }
-        g.loco_stop.phase = 3;
-        g.loco_upt = g.move_speed = 0;
-    } else if (actor.walk_state == 1) {
-        /* Resumed walking at gait-1: the ordinary display continues from
-         * the requested source frame. 001612D0 keeps the 0017B490 clip id
-         * in $s1, which this tick's 001764E0 inherits. */
-        probe.inherited_s1 = (uint8_t)reversal.requested_clip;
-        int index = em_model_clip_index(&g.model, reversal.requested_clip);
-        reversal.walk_state = 0;
-        reversal.display = 0;
-        if (index >= 0) {
-            g.loco_clip = index;
-            g.walk_t = (double)reversal.requested_frame / g.model.clips[index].fps;
-        }
-        g.walk_w = 1;
-    }
-    g.loco_animation_step = 0;
-    return 1;
-}
-
-int player_reversal_palette(void)
-{
-    if (!reversal.display || reversal.walk_state != 2) return 0;
-    unsigned clip;
-    float remaining;
-    int transition;
-    /* A stand-in that froze the source owns the display instead. */
-    if (!player_pose_source(&clip, &remaining, NULL, &transition)) return 0;
-    int index = em_model_clip_index(&g.model, clip);
-    if (index < 0 || g.model.bone_count > REVERSAL_DISPLAY_BONES) return -1;
-    const EmModelClip *model_clip = &g.model.clips[index];
-    double frame = 0;
-    float weight = 1;
-    if (transition && reversal.display_blend) {
-        weight = 1.0f - remaining / (float)reversal.display_blend;
-    } else {
-        frame = (double)model_clip->frame_count - remaining;
-        if (frame < 0) frame = 0;
-        if (frame > model_clip->frame_count - 1) frame = model_clip->frame_count - 1;
-    }
-    em_model_palette_at(&g.model, (uint32_t)index, frame, g.player_palette);
-    if (weight < 1) {
-        unsigned count = g.model.bone_count * 16;
-        for (unsigned i = 0; i < count; ++i)
-            g.player_palette[i] = reversal.from[i] +
-                (g.player_palette[i] - reversal.from[i]) * weight;
-    }
-    palette_apply_placement(g.player_palette, g.model.bone_count, g.pos, g.yaw);
-    return 1;
 }
 
 /* Player movement (the port's first slice of the actor spine's physics
@@ -1580,13 +1424,15 @@ void player_move(void)
     player_move_callbacks();
 }
 
-static void player_move_callbacks(void)
+/* The port's stand-ins that own the player in place of original owners
+ * that are not bound yet: the legacy door sequence (L18), the examine
+ * sequence and the legacy director's lock (L21), the armed stances, R2 and
+ * melee (L28). Each runs its legacy body and returns 1 when it consumed the
+ * player's callback this stage; 0 when none holds the player (after the
+ * WP-2/H12 release re-seed of the pose source). */
+static int player_standin_callbacks(void)
 {
-    /* 0015BA50 advances animation with the previous +204 output, then
-     * resets that one-shot multiplier before the locomotion callback. */
-    g.loco_animation_step = g.loco_mode ? g.loco_rate : 0;
-    g.loco_rate = 1;
-    g.gait = 0;          /* re-quantized below; scripted paths leave 0 */
+    g.gait = 0;          /* re-quantized by the legacy locomotion; scripted paths leave 0 */
 
     /* DOOR TRANSIT (the engine's gameplay-frame selector 3, spad
      * 0x70003B8D, armed by the use scan): a scripted MOVE-TO carries
@@ -1615,7 +1461,7 @@ static void player_move_callbacks(void)
                 g.pos[0] += dx / len * step;
                 g.pos[2] += dz / len * step;
             }
-            return;
+            return 1;
         }
     }
 
@@ -1648,7 +1494,7 @@ static void player_move_callbacks(void)
             g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;           /* free-move ramp re-arms */
             g.pos[0] += sinf(wyaw) * wspeed * FRAME_DT;
             g.pos[2] += cosf(wyaw) * wspeed * FRAME_DT;
-            return;
+            return 1;
         }
     }
 
@@ -1674,7 +1520,7 @@ static void player_move_callbacks(void)
         g.loco_tier  = 0;          /* scripted mode exits locomotion:
                                     * re-entry re-arms the tier ramp */
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
-        return;
+        return 1;
     }
 
     /* EXAMINE SEQUENCE LOCK (em_examine.h): the examine script's op07
@@ -1694,7 +1540,7 @@ static void player_move_callbacks(void)
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
-        return;
+        return 1;
     }
 
     /* SCRIPTED INTERACT / ELEVATOR RIDE LOCK (CORRECTED two-terminal
@@ -1726,7 +1572,7 @@ static void player_move_callbacks(void)
         g.move_speed = 0.0f;
         g.loco_tier  = 0;
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
-        return;
+        return 1;
     }
 
     /* R2-HELD ARMED STANCE 0x1E (decoded 2026-06-11: the action machine
@@ -1932,7 +1778,7 @@ static void player_move_callbacks(void)
                 g.aim_yawb  = ly;
             }
         }
-        return;
+        return 1;
     }
 
     /* KNIFE / MELEE plant: the engine's melee modes 0x21/0x22 replace
@@ -1945,18 +1791,27 @@ static void player_move_callbacks(void)
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* melee modes replace locomotion */
         g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
-        return;
+        return 1;
     }
 
     /* WP-2/H12: every stand-in above has released this frame. Re-seed the
      * frozen source at its row default (00182DF0 via 001C63E0); the hit,
      * scripted-clip and low-health holds are rechecked by the host. */
     (void)player_pose_legacy_release();
+    return 0;
+}
 
-    /* WP-15/H11: while 001612D0 case 2 owns the callback (skid ticks and
-     * the resume/idle decision), 00160220 is not polled; only case 1 does. */
-    const int reversal_live = reversal_state2_live();
-    int used = reversal_live ? 0 : player_use_poll();
+/* The legacy idle / walk callbacks: the scenes without an original world
+ * only (EM_SCENE); in AREA11 00161020 / 001612D0 run (census L12). */
+static void player_move_callbacks(void)
+{
+    /* 0015BA50 advances animation with the previous +204 output, then
+     * resets that one-shot multiplier before the locomotion callback. */
+    g.loco_animation_step = g.loco_mode ? g.loco_rate : 0;
+    g.loco_rate = 1;
+    if (player_standin_callbacks()) return;
+
+    int used = player_use_poll();
     if (used != 0) {
         /* 00161020 / 001612D0 return at once when 00160220 takes the press:
          * no floor tail (the instructions, LOCOMOTION_DISPLAY.md "Where the
@@ -1978,8 +1833,7 @@ static void player_move_callbacks(void)
         return;
     }
 
-    if (!reversal_live &&
-        (player_pose_entry_return_tick() || player_pose_idle_state_wait())) {
+    if (player_pose_entry_return_tick() || player_pose_idle_state_wait()) {
         g.gait = 0;
         g.move_speed = 0;
         player_probe_tail(0);
@@ -1998,16 +1852,6 @@ static void player_move_callbacks(void)
     g.move_speed = 0.0f;
     unsigned translation_steps = 1;
 
-    if (reversal_live) {
-        /* 001612D0 case 2: 00174AC0, the surface effect / resume / idle
-         * decision, 0017BC40 and 0017C030, then 00178B90(p,0) and the tail. */
-        if (!reversal_state2_tick(in, gait)) {
-            player_probe_tail(1);
-            return;
-        }
-        goto locomotion_translate;
-    }
-
     if (player_pose_foot_stop_active()) {
         if (gait) {
             float desired = player_stick_desired_yaw(in);
@@ -2016,14 +1860,9 @@ static void player_move_callbacks(void)
             while (difference <= -EM_PI) difference += 2.0f * EM_PI;
             player_turn_toward(desired, player_turn_rate(gait, 0, fabsf(difference)));
         }
-        /* 0017C030 mode 5 ends with +1F0=0, +25C=0 and the step mailbox
-         * 0x81 (tier 1) or 0x82; 00187350 plays that step the same frame. */
-        unsigned stop_tier = g.loco_tier;
-        int stop_active = player_pose_foot_stop_tick();
-        if (stop_active < 0)
+        /* 0017C030 mode 5 (legacy form; AREA11 runs em_loco_0017C030). */
+        if (player_pose_foot_stop_tick() < 0)
             player_pose_invalidate("foot-placement stop callback failed");
-        else if (stop_active == 0)
-            player_footstep_post(stop_tier == 1 ? 0x81 : 0x82);
         player_probe_tail(1);
         return;
     }
@@ -2079,10 +1918,8 @@ static void player_move_callbacks(void)
         } else {
             unsigned before = g.loco_stop.phase;
             em_player_stop_tick(&g.loco_stop);
-            /* Phase 2 -> 3 is 0017C030 mode 4 seeing the end flag: +1F0=0,
-             * +25C=0 and the step mailbox 0x83. */
-            if (before == 2 && g.loco_stop.phase == 3)
-                player_footstep_post(0x83);
+            /* Phase 2 -> 3 is 0017C030 mode 4 seeing the end flag: +1F0=0
+             * and +25C=0. */
             g.loco_upt = g.move_speed = 0;
             g.loco_animation_step = 0;
             /* 0017C030 case 4 on the end flag writes +1F0 = 0 and +25C = 0,
@@ -2158,22 +1995,12 @@ static void player_move_callbacks(void)
      * heading work, including small analog nudges inside the deadzone. */
     if (gait) {
         float desired = player_stick_desired_yaw(in);
-        /* 00174AC0's reversal gate precedes the turn: speed > 0.5, gait >= 2
-         * and |wrap(desired - yaw)| > 3pi/4 arm +1F0=7 and skip the turn. */
-        EmPlayerReversalActor gate = {
-            .speed = g.loco_upt, .yaw = g.yaw, .player_state = 1,
-            .mode = g.loco_mode, .variant = g.loco_substate, .gait = (uint8_t)gait,
-        };
-        if (!reversal_ready() || em_player_reversal_heading(&gate, desired)) {
-            float diff = desired - g.yaw;
-            while (diff > EM_PI) diff -= 2.0f * EM_PI;
-            while (diff <= -EM_PI) diff += 2.0f * EM_PI;
-            player_turn_toward(desired,
-                              player_turn_rate(gait, g.loco_upt, fabsf(diff)));
-        } else if (gate.mode == 7) {
-            g.loco_mode = 7;
-            g.loco_substate = gate.variant;
-        }
+        /* The legacy walk has no reversal skid (00174AC0's +1F0 = 7 arm and
+         * 0017C030 cases 6 / 7 run only in the translated walk, AREA11). */
+        float diff = desired - g.yaw;
+        while (diff > EM_PI) diff -= 2.0f * EM_PI;
+        while (diff <= -EM_PI) diff += 2.0f * EM_PI;
+        player_turn_toward(desired, player_turn_rate(gait, g.loco_upt, fabsf(diff)));
     }
     EmPlayerMotor motor = {
         g.loco_upt, kLocoTierSpeed[gait], g.loco_rate, g.loco_blend,
@@ -2187,23 +2014,6 @@ static void player_move_callbacks(void)
     g.loco_upt = motor.speed;
     g.loco_rate = motor.rate;
     g.loco_blend = motor.blend;
-    if (motor.mode == 7) {
-        /* 0017BC40 leaves mode 7 alone; 0017C030 case 7 requests the turn
-         * clip (blend 4) and plays 0x137; 001612D0 case 1 then moves to +6=2
-         * with +28=0 after this callback's ordinary translation. */
-        EmPlayerReversalActor actor;
-        reversal_actor(&actor, gait);
-        actor.walk_state = 1;
-        EmPlayerReversalWorkers workers = kReversalWorkers;
-        workers.context = &actor;
-        if (em_player_reversal_animation(&actor, &workers) < 0) {
-            reversal_fault("0017C030 case 7");
-            player_probe_tail(1);
-            return;
-        }
-        em_player_reversal_walk_tail(&actor);
-        reversal_commit(&actor);
-    }
     if (motor.mode == 3) {
         /* 0017C030 mode 3 / tier 3 requests stop clip 5. Tiers 1/2 instead
          * execute the 0017B910 foot-placement solve against source nodes
@@ -2347,203 +2157,29 @@ void footstep_play(int tier)
     (void)em_player_step_sounds(&actor, (uint8_t)tier, &workers);
 }
 
-/* ---- WP-15 P14/P15: 00187350 footstep dispatch ---------------------------
- * The original triggers steps from the source animation clock, not from the
- * display: 0015BCF0 calls 00187350 once per player stage, after the state
- * callback and the skeleton evaluation. em_player_floor.c holds the
- * translation (test_player_footstep_reference.py). This binding supplies the
- * actor bytes the port keeps elsewhere and the workers:
- *   00179B90 -> footstep_rand5, 00122BB8 -> em_random_next,
- *   001FBD50(actor, id, 0, 300) -> em_sfx_play_at(id, feet, 300),
- *   001EFD90 / 001F0460 / 001E8B90 -> coordinator-bound workers.
- * An unbound effect/decal/wade worker is a counted fault (reported once);
- * the step state still advances, as the original does after those calls. */
+/* ---- 001EFD90 from the player's routines ---------------------------------
+ * The effect entity spawn has a translation (em_effect_original) but no live
+ * effect owner behind the player's spawns (census L26): the call is counted
+ * and reported once, nothing is spawned. The footstep dispatch 00187350 runs
+ * on the record (em_player_closure_live_footstep, census L12). */
 static struct {
-    uint8_t step;       /* +25E */
-    int16_t wet;        /* +212 */
-    uint8_t surface;    /* +23A as last written by the floor service */
-    int surface_valid;
     unsigned faults;
     int reported;
-    int (*effect)(void *context, uint32_t id, const float position[3],
-                  const float rotation[3]);
-    void *effect_context;
-    int (*decal)(void *context, const float position[3], float yaw, float pitch);
-    void *decal_context;
-    int (*wade)(void *context, const float position[3], float level);
-    void *wade_context;
-} footstep;
-
-void player_footstep_set_workers(
-    int (*effect)(void *context, uint32_t id, const float position[3],
-                  const float rotation[3]), void *effect_context,
-    int (*decal)(void *context, const float position[3], float yaw, float pitch),
-    void *decal_context,
-    int (*wade)(void *context, const float position[3], float level),
-    void *wade_context)
-{
-    footstep.effect = effect; footstep.effect_context = effect_context;
-    footstep.decal = decal; footstep.decal_context = decal_context;
-    footstep.wade = wade; footstep.wade_context = wade_context;
-}
-
-unsigned player_footstep_faults(void) { return footstep.faults; }
-
-void player_footstep_reset(void)
-{
-    footstep.step = 0;
-    footstep.wet = 0;
-    footstep.surface_valid = 0;
-}
-
-/* 0017C030 writes the step mailbox when a stop ends: mode 4 posts 0x83,
- * mode 5 posts 0x81 (tier 1) or 0x82. 00187350 consumes it that frame. */
-void player_footstep_post(uint8_t code)
-{
-    footstep.step = code;
-}
-
-uint8_t player_footstep_phase(void) { return footstep.step; }
-
-static void footstep_fault(const char *worker)
-{
-    ++footstep.faults;
-    if (!footstep.reported) {
-        footstep.reported = 1;
-        fprintf(stderr, "player footstep: %s worker is not bound (frame %d); "
-                "faults are counted by player_footstep_faults\n", worker, g.frame_no);
-    }
-}
-
-static int step_random5(void *context, unsigned *value)
-{
-    (void)context;
-    *value = footstep_rand5();
-    return 0;
-}
-
-static int step_random(void *context, uint32_t *value)
-{
-    (void)context;
-    *value = em_random_next();
-    return 0;
-}
-
-static int step_sound(void *context, unsigned id)
-{
-    (void)context;
-    /* 00182430 ignores 001FBD50's result (a culled source returns -1). */
-    em_sfx_play_at(id, g.pos, 300.0f);
-    return 0;
-}
-
-static int step_effect(void *context, uint32_t id, const float position[3],
-                       const float rotation[3])
-{
-    (void)context;
-    if (!footstep.effect) return player_effect_gap(id, position, rotation);
-    return footstep.effect(footstep.effect_context, id, position, rotation);
-}
+} effect_gap;
 
 int player_effect_gap(uint32_t id, const float position[3], const float rotation[3])
 {
     (void)id; (void)position; (void)rotation;
-    footstep_fault("001EFD90 effect (no live effect owner, census L26)");
+    ++effect_gap.faults;
+    if (!effect_gap.reported) {
+        effect_gap.reported = 1;
+        fprintf(stderr, "player: 001EFD90 effect (no live effect owner, census L26) at frame %d; "
+                "counted by player_effect_gap_count\n", g.frame_no);
+    }
     return 0;
 }
 
-static int step_decal(void *context, const float position[3], float yaw, float pitch)
-{
-    (void)context;
-    if (!footstep.decal) { footstep_fault("001F0460 decal"); return 0; }
-    return footstep.decal(footstep.decal_context, position, yaw, pitch);
-}
-
-static int step_wade(void *context, const float position[3], float level)
-{
-    (void)context;
-    if (!footstep.wade) { footstep_fault("001E8B90 wade"); return 0; }
-    return footstep.wade(footstep.wade_context, position, level);
-}
-
-/* The live floor service's +23A (live player states). */
-static void footstep_surface_from_live(uint8_t surface)
-{
-    footstep.surface = surface;
-    footstep.surface_valid = 1;
-}
-
-/* +23A for the dispatcher: the floor service's stored byte once it has run,
- * else the current floor probe (see footstep_floor_attr). */
-static uint8_t footstep_surface(void)
-{
-    return footstep.surface_valid ? footstep.surface : footstep_floor_attr();
-}
-
-int player_footstep_0187350(uint32_t frame, uint8_t area)
-{
-    EmPlayerStepActor actor;
-    memset(&actor, 0, sizeof actor);
-    memcpy(actor.position, g.pos, sizeof actor.position);
-    actor.rotation[1] = g.yaw;           /* the port's player has yaw only */
-    actor.speed = g.loco_upt;
-    actor.surface_y = g.pos[1];
-    actor.mode = (uint8_t)g.loco_mode;
-    actor.tier = (uint8_t)g.loco_tier;
-    actor.step = footstep.step;
-    actor.wet = footstep.wet;
-    actor.surface = footstep_surface();
-    actor.contact = 1;
-    actor.obstruction = g.probe_block_mask;
-    if (floor_engaged()) {
-        /* The live floor service's +A, +23C and +250 (live player states). */
-        const EmPlayerLiveActor *live_actor = player_states_actor();
-        actor.contact = em_live_u8(live_actor, 0xA);
-        actor.depth = em_live_u8(live_actor, 0x23C);
-        actor.surface_y = em_live_f32(live_actor, 0x250);
-    }
-    if (actor.mode == 0x01 || actor.mode == 0x02 || actor.mode == 0x2F || actor.mode == 0x41) {
-        unsigned clip, flags;
-        float remaining;
-        if (!player_pose_source(&clip, &remaining, &flags, NULL)) {
-            ++footstep.faults;
-            fprintf(stderr, "player footstep: locomotion mode %u without an original "
-                    "source clock at frame %d\n", actor.mode, g.frame_no);
-            return -1;
-        }
-        actor.clip = (int16_t)clip;
-        actor.clock = remaining;
-        actor.anim_flags = flags;
-    }
-    /* Skeleton nodes 17/18 (D_00275B40+0x44/+0x48, world translation +C0).
-     * The player stage's evaluated palette, as player_pose_finish_palette
-     * reads node 1 for the hip. */
-    const float *foot17 = NULL, *foot18 = NULL;
-    if (g.model.bone_count > 18) {
-        foot17 = g.player_palette + 17 * 16 + 12;
-        foot18 = g.player_palette + 18 * 16 + 12;
-    }
-    EmPlayerStepScene scene = { foot17, foot18, frame, area };
-    EmPlayerStepWorkers workers = {
-        NULL, step_random5, step_random, step_sound, step_effect, step_decal, step_wade
-    };
-    uint8_t step_before = actor.step;
-    int result = em_player_footstep_tick(&actor, &scene, &workers);
-    static int trace = -1;
-    if (trace < 0) trace = getenv("EM_STEP_TRACE") != NULL;
-    if (trace)
-        printf("footstep: frame %d mode %u clip %d clock %.3f flags 0x%X tier %u "
-               "surface %u step %u->%u\n", g.frame_no, actor.mode, actor.clip,
-               actor.clock, actor.anim_flags, actor.tier, actor.surface,
-               step_before, actor.step);
-    footstep.step = actor.step;
-    footstep.wet = actor.wet;
-    if (result < 0) {
-        ++footstep.faults;
-        fprintf(stderr, "player footstep: 00187350 fault at frame %d\n", g.frame_no);
-    }
-    return result;
-}
+unsigned player_effect_gap_count(void) { return effect_gap.faults; }
 
 /* Cyclic edge test: did the looping clip playhead cross `trig` going
  * prev -> cur (both in frames, cur may have wrapped past 0)? */

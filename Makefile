@@ -11,7 +11,7 @@ BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
-           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_player_reversal.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
+           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
@@ -415,13 +415,20 @@ test-crate-drum-original:
 	python3 tools/test_crate_original_reference.py
 	python3 tools/test_drum_original_reference.py
 
-.PHONY: test-player-reversal-reference
-test-player-reversal-reference:
-	python3 tools/test_player_reversal_reference.py
+# The first-control record against the original (census L12): the New Game
+# control fixture with the run-stop interruption, then 56 callbacks of the
+# player record compared with collision_run_poll.json (docs/FIRST_CONTROL.md).
+.PHONY: test-first-control-reference
+test-first-control-reference: $(BIN)
+	mkdir -p build/player_pose_channels
+	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-control EM_CONTROL_REENTRY_TEST=1 EM_CONTROL_TRACE=1 \
+	    $(BIN) > build/player_pose_channels/live_reentry.log 2>&1 || \
+	    (grep "newgame" build/player_pose_channels/live_reentry.log; false)
+	python3 tools/test_player_pose_live_reference.py
 
-.PHONY: test-player-reversal-host
-test-player-reversal-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_reversal_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c -lm -o build/player_reversal_host_test && ./build/player_reversal_host_test
+.PHONY: test-player-loco-workers-reference
+test-player-loco-workers-reference:
+	python3 tools/test_player_loco_workers_reference.py
 
 .PHONY: test-player-footstep-reference
 test-player-footstep-reference:
@@ -445,7 +452,7 @@ test-shadow-original-reference:
 
 .PHONY: test-player-states-host
 test-player-states-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_reversal.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_coll_probe_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_coll_probe_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
 
 .PHONY: test-ee-float-model
 test-ee-float-model:
@@ -919,7 +926,8 @@ test-player-pose-host:
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc \
 	    tests/player_pose_host_test.c src/game/em_player_pose_host.c src/game/em_player_pose.c \
 	    src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_fade.c \
-	    src/game/em_player_foot_stop.c src/game/em_camera_rotation.c $(PLAYER_RECORD_POSE_SRC) -lm \
+	    src/game/em_player_foot_stop.c src/game/em_camera_rotation.c src/game/em_effect_original.c \
+	    $(PLAYER_RECORD_POSE_SRC) -lm \
 	    -o build/player_pose_channels/player_pose_host_test
 	./build/player_pose_channels/player_pose_host_test
 

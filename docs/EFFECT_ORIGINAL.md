@@ -309,7 +309,7 @@ The coordinator owns one `EmEffectOriginal`:
 | footstep `decal` | 001F0460(1, M), M built by 00187EE0 (identity, 00102BB0 yaw, 00102B08 pitch, row 3 = position) | `em_effect_original_001F0460(e, 1, M)` |
 | climb `em_player_climb.h` `effect` (0x80000028) | 001EFD90(id, pos, p+C0) | same as footstep |
 | slide `em_player_slide.h` `effect` (0x80000065 every 8 ticks) | 001EFD90(id, p+B0, p+C0) | same |
-| reversal `em_player_reversal.h` `effect(id)` (0x80000033 / 0x80000012) | 001EFD90(id, actor+B0, actor+C0) | the adapter supplies actor +0xB0/+0xC0 |
+| the walk's skid `em_locomotion_display.h` `effect(id, p)` (0x80000033 / 0x80000012) | 001EFD90(id, p+B0, p+C0) | the binder supplies the record's +0xB0/+0xC0 (em_player_closure_live.c `lw_effect`) |
 | truck `em_truck_original.h` `effect` (0x80000049) | 001EFD20(id, pos) | `em_effect_original_001EFD20(e, id, pos4, &node)` |
 | drum `em_drum_original.h` `effect_matrix` (preset 4) / `effect` | 001F0460 / 001EFD20 | `_001F0460` / `_001EFD20` |
 | crate `em_crate_original.h` `effect` | 001EFD90(id, pos, rot) | `_001EFD90` |

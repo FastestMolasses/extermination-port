@@ -78,6 +78,9 @@ void player_pose_legacy_hold(const char *owner) { (void)owner; }
  * fixture's subject. */
 int32_t *em_area11_boxes_carry31F0(void) { static int32_t carry; return &carry; }
 int em_camleft_0015CBA0(EmPlayerLiveActor *p) { (void)p; return 0; }
+/* 0015BCF0's 00187350 on the record runs only when the closure binder bound
+ * 00161020 / 001612D0 (census L12); this fixture binds the legacy callbacks. */
+int em_player_closure_live_footstep(EmPlayerLiveActor *p) { (void)p; assert(!"footstep"); return -1; }
 /* No scripted takeover in this fixture (em_player.c reads it at every stage). */
 int player_pose_owned(void) { return 0; }
 int player_pose_legacy_release(void) { return 1; }

@@ -173,8 +173,30 @@ blocked):**
   its beat 0 waits at 06/2 until Roger's alternate script writes D_00810813
   = 1, and Roger is unbound (L22, WP-9); binding the director alone would
   hold the player in the scripted frame (DIRECTOR_ORIGINAL.md section 6).
-- **Open:** the truck's effects (L26) and sounds 0x454 / 0x455 (WP-14); the
-  player's walk across the truck is the legacy locomotion (L12).
+- **Open:** the truck's effects (L26) and sounds 0x454 / 0x455 (WP-14).
+
+**Status update (2026-09-25, census L12 + L33: the idle / walk states live):**
+- 0015B130's state[0] / state[1] are the original **00161020 / 001612D0**
+  over the player record in AREA11 (em_player_closure_live.c `bind_loco`;
+  LOCOMOTION_DISPLAY.md section 4), with the gait display 0017C030 /
+  0017B660 (001C9D50 per node) / 0017B5C0 / 00179D20 / 00179FF0, the
+  record-level **0017BC40** and **0017B910** (new; their oracle
+  test_player_loco_workers_reference), and **00187350** on the record after
+  every player stage. The display is the record's evaluated pose.
+- **Against the original:** `make test-first-control-reference` (new): 56
+  first-control callbacks of the record equal the original's actor bytes;
+  newgame-control travels 9.599849 and the stop fixture 18.649738, both the
+  original's; the level smoke's 15 live phases PASS with the translated walk
+  navigating every beat; frame order unchanged.
+- **Retired:** em_player_reversal and its glue, host test and oracle (a
+  second, partial translation; H11 is now this lane's), the mirror 00187350
+  dispatcher; the legacy idle cycle, eight-tick entry, gait blend, stop /
+  re-entry metadata and step clock no longer run in AREA11 (they stay for the
+  scenes without an original world).
+- **Open:** the port's stand-ins still pre-empt the idle/walk states with the
+  legacy callbacks and display: the door sequence (WP-7 / L18), the examine
+  and director locks (WP-10 / L21), the armed stances, R2 and melee (P24..P28,
+  L28). The skid's and the footstep's effects are the counted gap (L26).
 
 ---
 
@@ -497,6 +519,12 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   the grid nodes' +0x34..+0x3F axis, is in the EMCL since this step
   (STARTUP.md step 13). Beat 14's tower jump waits on the roger phase
   (WP-9).
+- **Status (2026-09-25, census L12):** H11 (the reversal skid), P12/P13 (the
+  ordinary idle/walk display: 0017C030 / 0017B660 over the record) and
+  P14/P15 (00187350 from the record's clip clock) are live in AREA11; the
+  first-control record equals the original's on 56 callbacks
+  (test-first-control-reference). Open: P24..P28 (the aim, R2, R1 and melee
+  states stay the port's stand-ins, L28).
 
 ### WP-16 Camera completeness
 - **Scope:**

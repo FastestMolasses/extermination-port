@@ -56,45 +56,7 @@ int player_pose_animate(void);
  * matrix word is not finite. */
 int player_pose_display(void);
 
-/* WP-15/H11 reversal skid (docs/PLAYER_REVERSAL.md).
- * player_reversal_palette: call in the player display stage right after
- * player_pose_foot_stop_palette(); returns 1 when it produced the palette
- * from the requested skid clip, 0 when the reversal does not own the
- * display, -1 when that clip is missing from the display model.
- * player_reversal_owns_walk: 1 while 001612D0 case 2 owns the callback
- * (its exit tick has +1F0=0 but is not the idle callback).
- * player_reversal_set_effect_worker binds 001EFD90 (surface effect ids
- * 0x80000033/0x80000012 at the player position and yaw); while unbound,
- * reaching the effect is a worker fault (counted by player_reversal_faults). */
-int player_reversal_palette(void);
-int player_reversal_owns_walk(void);
-void player_reversal_set_effect_worker(int (*worker)(void *context, uint32_t id,
-                                                      const float position[3], float yaw),
-                                       void *context);
-unsigned player_reversal_faults(void);
-/* The display stage declares that it calls player_reversal_palette. The skid
- * stays disengaged until display, effect worker and clips 6/7 are all bound. */
-void player_reversal_bind_display(int bound);
 
-/* WP-15 P14/P15 footsteps (docs/PLAYER_FLOOR.md). 0015BCF0 calls 00187350
- * once per player stage after the state callback and skeleton evaluation:
- * the player stage calls player_footstep_0187350(spad 3B68, D_00810700)
- * after actor_update. It replaces the display-clock step_crossed trigger
- * (step_crossed/footstep_play stay only until that call site is removed).
- * Returns 0, or -1 on a fault (reported, counted).
- * player_footstep_set_workers binds 001EFD90 (effect id, position, actor
- * Euler), 001F0460 (wet-floor decal: position, yaw, pitch) and 001E8B90
- * (wade level); a reached unbound worker is a counted fault.
- * player_footstep_post is the 0017C030/melee step mailbox (0x80|tier). */
-int player_footstep_0187350(uint32_t frame, uint8_t area);
-void player_footstep_set_workers(
-    int (*effect)(void *context, uint32_t id, const float position[3],
-                  const float rotation[3]), void *effect_context,
-    int (*decal)(void *context, const float position[3], float yaw, float pitch),
-    void *decal_context,
-    int (*wade)(void *context, const float position[3], float level),
-    void *wade_context);
-unsigned player_footstep_faults(void);
 /* 001EFD90 / 001EFE00 / 001EF9D0 from the player's own routines (the
  * footstep's surface effect, the climb's grab dust, the slide's spray, the
  * reactions' blood): the effect entity spawn has a translation
@@ -102,9 +64,7 @@ unsigned player_footstep_faults(void);
  * L27), so nothing is spawned; the call is counted and reported once, the
  * same gap the footstep's unbound effect worker records. Returns 0. */
 int player_effect_gap(uint32_t id, const float position[3], const float rotation[3]);
-void player_footstep_reset(void);
-void player_footstep_post(uint8_t code);
-uint8_t player_footstep_phase(void);
+unsigned player_effect_gap_count(void);
 
 /* WP-15 P16 (docs/PLAYER_FLOOR.md): player_wall_probes runs the translated
  * 001764E0 over the port's collision; unbound workers it reaches (00176180,
@@ -123,8 +83,10 @@ unsigned player_probe_faults(void);
  *     _end), 0015B130 and 0015BCF0's writes after it (em_player_stage_tail)
  *     run on every player stage, with the stage workers (0021C440, 0015D100,
  *     0015D000, the prelude, 0011A070, D_00248C98, the display's 001C64F0)
- *     and the +4 = 4 / 6 handlers. The port's own idle/walk callbacks are
- *     0015B130's state[0] / state[1] (until L12 binds 00161020 / 001612D0).
+ *     and the +4 = 4 / 6 handlers. 0015B130's state[0] / state[1] are
+ *     00161020 / 001612D0 where the closure binder bound them (AREA11,
+ *     census L12; the port's stand-ins pre-empt them while they hold the
+ *     player), else the port's legacy idle/walk callbacks.
  *   - FLOOR (and USE on top of it): the translated 00175900/001796C0
  *     (em_player_floor.c) replace the port's floor snap and
  *     PLAYER_FALL_ENTRY stand-in, and every other (+4, +5) the floor can
@@ -134,7 +96,8 @@ unsigned player_probe_faults(void);
  * The live actor is EmPlayerLiveActor (em_player_floor.h): the player record
  * in its original byte layout, shared by the stage, the floor service, the
  * fall check and every state callback. Its +B0/+C4 are the port's
- * g.pos/g.yaw while the port's own idle/walk callbacks own the player, and
+ * g.pos/g.yaw while a port callback (a stand-in or the legacy idle/walk)
+ * owns the player, and
  * its vitals (+220 health, +224 pending damage, +228 infection, +22C pending
  * infection, +234 infected latch, +20E post-hit countdown) are a per-stage
  * view of the port's storage for them (g.status / g.pd_*): loaded before
@@ -195,9 +158,11 @@ typedef struct EmPlayerStatesBinding {
      * phase13[] / phase14[] (0015B770's), stage.major[0/4/5/6] (0015C420,
      * 0015B530, 0015B610, 0015D460 -- em_player_stage_0015D460 with an
      * EmPlayerStageFade). major[1] and major[2] are set by player_states_bind
-     * to the translated 0015B130 / 0015B770 over this binding, and
-     * state[0] / state[1] to the port's own idle/walk callbacks; the
-     * binding's own values there are ignored. */
+     * to the translated 0015B130 / 0015B770 over this binding. The binding's
+     * state[0] / state[1] (00161020 / 001612D0, census L12) run behind the
+     * port's stand-ins (state[0x1D..0x22], the armed stances, become the
+     * stand-ins'); when the binding leaves them NULL the port's legacy
+     * idle/walk callbacks run instead. */
     EmPlayerStageWorkers stage;
     /* Before every stage: refresh the stage workers' views of the scene
      * bytes they read (the EmPlayerStageGlobals of their host). 0, or -1 (a
@@ -256,13 +221,13 @@ enum {
 /* Bind (or, with NULL, unbind) the live layer. The binding is copied. */
 void player_states_bind(const EmPlayerStatesBinding *binding);
 /* The display stage declares that it draws the source clip of every bound
- * state callback, advancing it by the stage's +34 (as
- * player_reversal_bind_display does for the skid). */
+ * state callback, advancing it by the stage's +34. */
 void player_states_bind_display(int bound);
 /* After player_states_stage: 1 when the record's pose is what this stage
  * displays (the display is bound, and the takeover consumed the stage or a
- * translated routine owned it), 0 when the port's idle/walk callbacks ran
- * (their legacy display, until L12). */
+ * translated routine owned it), 0 when a port callback ran (a stand-in, or
+ * the legacy idle/walk of a scene without an original world: their legacy
+ * display). */
 int player_states_record_display(void);
 /* The coordinator's use hook (00160220) declares that it continues past
  * 00184BA0 with 001AAC00, 0015D4C0, the trigger boxes, 0015DF10 x3,
@@ -306,6 +271,8 @@ int player_states_wall_probes(void *context, EmPlayerLiveActor *actor);
 /* The same with the caller's $s1 (the fall lane's EM_PLAYER_LAND_S1_*
  * sources, and the weapon / running-jump states' record address). */
 int player_states_wall_probes_s1(void *context, EmPlayerLiveActor *actor, uint32_t s1);
+/* 001756E0 over a live actor (writes +235 / +236; *result is its return). */
+int player_states_clearance_release(void *context, EmPlayerLiveActor *actor, int *result);
 /* Faults reached on the live path (a worker returned < 0). */
 unsigned player_states_faults(void);
 /* Area load: the mirror at 0015C420's values (+280 = (0, -13.8, 0), +4 = 1,

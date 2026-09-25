@@ -58,6 +58,11 @@ int em_player_closure_live_0017B490(void *context, EmPlayerLiveActor *actor, int
  * config 0, eight halfwords; word 6 is 0x70003B80). Zero until bound. */
 const uint16_t *em_player_closure_live_pad_config(void);
 
+/* 0015BCF0's 00187350 over the record (the footstep dispatch, census L12):
+ * reads the clip clock, +1F0, the step phase +25E and nodes 17 / 18, writes
+ * +25E and +212. 0, or -1 on a fault. */
+int em_player_closure_live_footstep(EmPlayerLiveActor *actor);
+
 /* Fail-stop workers reached (each is reported once on stderr). */
 unsigned em_player_closure_live_faults(void);
 

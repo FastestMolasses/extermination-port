@@ -74,33 +74,31 @@ The oracle checks:
   read from the player's node array (player+0x110, as 001CB590 /
   anim_bone_array_setup set D_00275B40).
 
-**Port binding** (`player_footstep_0187350` in em_player.c):
+**Port binding** (live since census L12: `em_player_closure_live_footstep`
+in em_player_closure_live.c, called by em_player.c `player_states_stage`
+after 0015BCF0's animate step, in AREA11):
 
-- The actor mirror comes from the pose source (`player_pose_source`: clip,
-  remaining clock, flags) and the port's loco state.
-- The foot nodes are the player stage's evaluated palette nodes 17/18. This
-  is the same palette `player_pose_finish_palette` reads node 1 from.
-- Sound goes to `em_sfx_play_at(id, feet, 300)`. The 001EFD90/001F0460/
-  001E8B90 workers are bound by the coordinator (`player_footstep_set_workers`).
-  While unbound, each reached call is a counted fault (`player_footstep_faults`,
-  reported once). The step state still advances, as it does in the original
-  after those calls.
-- 0017C030's mailbox writes are posted from `player_move`:
-  - stop phase 2 to 3 posts 0x83;
-  - the foot-placement stop end posts 0x81 or 0x82.
-- The port's player has yaw only: +C0/+C8 are passed as 0. 00175900 clears
-  +C0 on floor contact.
+- The actor fields come from the player record: +B0 (the feet at this
+  point), +C0, +3C, +38, +9C, +250, +200, +20C, +212, +1F0, +25C, +25E,
+  +23A, +23C, +A and +314; the step phase +25E and the wet timer +212 are
+  written back to the record. 0017C030's mailbox writes (0x83 on the stop
+  clip's end, 0x81 / 0x82 on the foot-placement stop's) are the record's
+  +25E, which em_locomotion_display writes.
+- The foot nodes are nodes 17 / 18 of the record's node array
+  (*(D_00275B40 + 0x44 / 0x48), +C0), as the animate step left them.
+- The frame counter is 0x70003B68 and the area D_00810700, from the scene
+  state.
+- Workers: 00179B90 / 00122BB8 the shared LCG, 001FBD50(p, id, 0, 300.0) at
+  the record, 001EFD90 the counted effect gap (census L26). The wet-feet
+  decal 001F0460 and the wading 001E8B90 have no live binding and fault if
+  reached (no floor on the route sets the wet timer or the water depth).
 
-**Pending integration (em_player_frame.c, coordinator-owned).** Call
-`player_footstep_0187350(spad 3B68, D_00810700)` in `em_player_0015BCF0`
-after `actor_update()`, and delete the `step_crossed`/`footstep_play` block.
-The proposed diff is `build/l1-locomotion/em_player_frame.patch` (local).
-
-A lane build with that diff was compared with the capture over the
-re-entry fixture (`EM_CONTROL_REENTRY_TEST=1`, native frame = original -
-2720). All 48 frames from 4094 to 4141 match in mode, tier, step phase,
-clip and remaining clock. The stop fixture posts 0x83 at the native frame
-of original 4144, where `first_control_poll.json` shows +1F0 4 to 0.
+Evidence: over the first-control fixture with the run-stop interruption
+(`make test-first-control-reference`) the record's +25E and +212 equal the
+original's on all 56 callbacks. The mirror-based `player_footstep_0187350`
+and the legacy display-clock trigger (`step_crossed` / `footstep_play`) no
+longer run in AREA11; the latter remains only in the legacy display of the
+stand-in frames and of the scenes without an original world.
 
 ## P16 radial probes: 001764E0 (with 001760C0, 00176390, 00176C80, 001756E0)
 

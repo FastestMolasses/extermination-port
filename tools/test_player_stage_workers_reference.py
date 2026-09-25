@@ -4,7 +4,7 @@
 docs/PLAYER_STAGE_WORKERS.md. The user's pinned ELF (and, for the captured
 cases, the captured AREA11 EE RAM images) supplies every instruction and
 table; none are embedded here. The shared bounded interpreter
-(test_player_reversal_reference.Reversal -> test_point_light_reference.Oracle)
+(player_callback_oracle.PlayerCallbackOracle -> test_point_light_reference.Oracle)
 runs the instructions; this file wraps it so that every COP1 instruction goes
 through tools/ee_float_model.py (docs/EE_FLOAT_MODEL.md) instead of the
 shared interpreter's truncating arithmetic, and runs its own fetch loop to
@@ -48,7 +48,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from test_player_reversal_reference import Reversal, ELF_SHA256  # noqa: E402
+from player_callback_oracle import PlayerCallbackOracle, ELF_SHA256  # noqa: E402
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
 
@@ -120,7 +120,7 @@ def s32(value):
 
 # ------------------------------------------------------------------ the oracle
 
-class EE(Reversal):
+class EE(PlayerCallbackOracle):
     """The shared interpreter with COP1 through ee_float_model and its own
     fetch loop (executed-address recording; branch-likely forms)."""
 

@@ -360,8 +360,8 @@ replay of section 4.
 4. **Camera.** 00191390 (the climb states' height row) and 00193EB0 (the
    per-area climb cinematics) are not bound: the follow camera is the
    legacy em_camera.c (WP-16).
-5. **Around the slide** the port's idle/walk callbacks are the legacy
-   locomotion (census L12). The hand-back from a translated state keeps the
+5. **Around the slide** the idle / walk states are the original's since
+   census L12. The hand-back from a translated state keeps the
    record's +1F1 (00161020 case 0 and 0017C030 do not write it; route 06
    f181..: +1F1 stays 1).
 6. The column table's n-gon owner cells (001A58B0) and the grid rank tables

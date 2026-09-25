@@ -198,7 +198,7 @@ class Callees(C.Structure):
 
 
 class Host(C.Structure):
-    _fields_ = [('region', Region * 8), ('region_count', C.c_uint), ('globals', C.POINTER(Globals)),
+    _fields_ = [('region', Region * 12), ('region_count', C.c_uint), ('globals', C.POINTER(Globals)),
                 ('callees', Callees), ('events', C.c_int16 * 512)]
 
 

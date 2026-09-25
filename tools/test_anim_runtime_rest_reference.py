@@ -146,7 +146,7 @@ SCRATCH_AT = (('s3400', 0x3400), ('s3440', 0x3440), ('s3480', 0x3480), ('s3AC0',
 
 
 class World(C.Structure):
-    _fields_ = [('region', Region * 8), ('region_count', C.c_uint), ('channel', C.POINTER(Channel)),
+    _fields_ = [('region', Region * 12), ('region_count', C.c_uint), ('channel', C.POINTER(Channel)),
                 ('channel_count', U32), ('scratch', C.POINTER(Scratch)), ('spad34C0', PU32),
                 ('spad34D0', PU32), ('spad34E0', PU32), ('spad3760', PU32), ('d275B40', PU32),
                 ('d275B48', PU32)]

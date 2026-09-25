@@ -163,7 +163,8 @@ def main():
     subprocess.run(['cc', '-std=c11', '-O2', '-ffp-contract=off', '-Wall', '-Wextra',
                     '-Werror', '-shared', '-fPIC', '-Isrc', str(bridge),
                     *['src/game/'+name+'.c' for name in ('em_player_pose', 'em_pose_bank',
-                       'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation') + RECORD_POSE],
+                       'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation',
+                       'em_effect_original') + RECORD_POSE],
                     '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     native.request.argtypes = [C.c_float]
@@ -247,7 +248,7 @@ def main():
                     *['src/game/'+name+'.c' for name in ('em_player_pose', 'em_pose_bank',
                        'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation',
                        'em_interaction_runtime', 'em_interaction_frame', 'em_interaction_animation',
-                       'em_script') + RECORD_POSE], 'src/em_model.c', '-o', str(executable)], cwd=ROOT, check=True)
+                       'em_script', 'em_effect_original') + RECORD_POSE], 'src/em_model.c', '-o', str(executable)], cwd=ROOT, check=True)
     subprocess.run([str(executable)], cwd=ROOT, check=True)
     report = {'original_request_checks': 1, 'original_player_clock_callbacks': comparisons,
               'original_release_checks': 1, 'world_palette_hip_publications': comparisons,

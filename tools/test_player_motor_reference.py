@@ -12,8 +12,11 @@ from pathlib import Path
 import random
 import struct
 import subprocess
+import sys
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'tools'))
+import ee_float_model as M  # noqa: E402  (the measured EE model, docs/EE_FLOAT_MODEL.md)
 ACTOR=0x600000
 RETURN=0xBADF00D
 
@@ -72,15 +75,15 @@ def oracle(elf,state):
             fs,fd,fn=rd,w>>6&31,w&63
             if rs==4:f[fs]=r[rt]
             elif rs==16:
-                x,y=number(f[fs]),number(f[rt])
-                if fn==0:f[fd]=bits(rtz(x+y))
-                elif fn==1:f[fd]=bits(rtz(x-y))
-                elif fn==2:f[fd]=bits(rtz(x*y))
-                elif fn==3:f[fd]=bits(rtz(x/y))
+                x,y=f[fs],f[rt]
+                if fn==0:f[fd]=M.ee_add(x,y)
+                elif fn==1:f[fd]=M.ee_sub(x,y)
+                elif fn==2:f[fd]=M.ee_mul(x,y)
+                elif fn==3:f[fd]=M.ee_div(x,y)
                 elif fn==6:f[fd]=f[fs]
-                elif fn==50:condition=x==y
-                elif fn==52:condition=x<y
-                elif fn==54:condition=x<=y
+                elif fn==50:condition=bool(M.ee_c_eq(x,y))
+                elif fn==52:condition=bool(M.ee_c_lt(x,y))
+                elif fn==54:condition=bool(M.ee_c_le(x,y))
                 else:raise AssertionError(('FPU',fn))
             else:raise AssertionError(('COP1',rs,fn))
         else:raise AssertionError(('opcode',op))

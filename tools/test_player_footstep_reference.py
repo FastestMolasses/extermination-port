@@ -2,8 +2,8 @@
 """Execute the original footstep dispatch and compare em_player_floor.c.
 
 WP-15 P14/P15. The user's pinned ELF supplies every instruction and table;
-none are embedded here. The bounded interpreter (test_player_reversal_reference
-Reversal, itself test_point_light_reference's Oracle) runs, unmodified:
+none are embedded here. The bounded interpreter (player_callback_oracle
+PlayerCallbackOracle, itself test_point_light_reference's Oracle) runs, unmodified:
 
   00187350  footstep dispatch, wet-feet timer and wade tail
   00187EE0  surface effect selection
@@ -33,7 +33,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from test_player_reversal_reference import Reversal, ELF_SHA256  # noqa: E402
+from player_callback_oracle import PlayerCallbackOracle, ELF_SHA256  # noqa: E402
 from test_player_floor_reference import ee_cop1_plain  # noqa: E402
 from test_point_light_reference import bits, number, signed  # noqa: E402
 
@@ -89,7 +89,7 @@ FIELDS = (
 )
 
 
-class Footstep(Reversal):
+class Footstep(PlayerCallbackOracle):
     def __init__(self, elf, ram=None):
         super().__init__(elf, b'')
         self.ram = ram

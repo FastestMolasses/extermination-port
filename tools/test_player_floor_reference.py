@@ -2,8 +2,8 @@
 """Execute the original floor/fall routines and compare em_player_floor.c.
 
 WP-15 P17/P18. The user's pinned ELF supplies every instruction; none are
-embedded here. The bounded interpreter (test_player_reversal_reference
-Reversal) runs, unmodified:
+embedded here. The bounded interpreter (player_callback_oracle
+PlayerCallbackOracle) runs, unmodified:
 
   001796C0  fall-state check        00179450  floor-table query
   00179680  fall-state entry        00175900  floor service
@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from test_player_reversal_reference import Reversal, ELF_SHA256  # noqa: E402
+from player_callback_oracle import PlayerCallbackOracle, ELF_SHA256  # noqa: E402
 import reference_mode  # noqa: E402
 import ee_float_model as M  # noqa: E402
 from test_point_light_reference import bits, number, signed, fp  # noqa: E402
@@ -150,7 +150,7 @@ def ee_cop1_plain(oracle, word, fallback):
     fallback(word)
 
 
-class Floor(Reversal):
+class Floor(PlayerCallbackOracle):
     def __init__(self, elf, ram=None):
         super().__init__(elf, b'')
         self.ram = ram

@@ -5,6 +5,8 @@
 #include "game/em_hud.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
+#include "game/em_camera_live.h"
+#include "game/em_player.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_spawn_table.h"
 #include <math.h>
@@ -29,6 +31,27 @@ static struct {
 } test;
 
 static void fail(const char *reason);
+
+/* The player record's bytes (census L12: 00161020 / 001612D0 own the
+ * player in AREA11, so the record, not the port's legacy mirrors, holds the
+ * locomotion state). */
+static float rec_f32(unsigned at) { return em_live_f32(player_states_actor(), at); }
+static unsigned rec_u8(unsigned at) { return em_live_u8(player_states_actor(), at); }
+
+/* EM_CONTROL_TRACE: the whole record after each player stage, for
+ * tools/test_player_pose_live_reference.py (the original's actor bytes in
+ * collision_run_poll.json). */
+static void record_sample(void)
+{
+    if (!getenv("EM_CONTROL_TRACE")) return;
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint32_t camera_yaw = 0;   /* D_008106A0, the heading input 00174AC0 reads */
+    const uint8_t *yaw = em_camera_live_bytes(0x008106A0u, 4);
+    if (yaw) memcpy(&camera_yaw, yaw, 4);
+    fprintf(stderr, "record sample: frame=%d camera_yaw=%08x hex=", g.frame_no, (unsigned)camera_yaw);
+    for (unsigned i = 0; i < EM_PLAYER_ACTOR_SIZE; ++i) fprintf(stderr, "%02x", a->bytes[i]);
+    fputc('\n', stderr);
+}
 
 /* S12a: the New Game census at first control (ORIGINAL_FRAME_ORDER.md
  * section 4: nodes #0..#48 with record 13 freed on the second world frame). */
@@ -240,6 +263,7 @@ void em_opening_control_test_after_frame(void)
         if (getenv("EM_CONTROL_TRACE"))
             fprintf(stderr, "pose sample: frame=%d clip=%u remaining=%.9g transition=%d flags=%08x\n",
                     g.frame_no, clip, remaining, transition, flags);
+        record_sample();
     }
     if (test.phase==1) {
         if (em_opening_runtime_busy()) {
@@ -277,15 +301,16 @@ void em_opening_control_test_after_frame(void)
         if (getenv("EM_CONTROL_TRACE")) {
             const EmCamera *c = &g.cam;
             fprintf(stderr, "control sample: tick=%d frame=%d speed=%.9g yaw=%.9g "
-                    "mode=%u sub=%u tier=%d entry=%d pos=(%.9g,%.9g,%.9g) "
+                    "mode=%u sub=%u tier=%u state6=%u pos=(%.9g,%.9g,%.9g) "
                     "eye=(%.9g,%.9g,%.9g) target=(%.9g,%.9g,%.9g) "
                     "forward=(%.9g,%.9g,%.9g) camyaw=%.9g hit=%u "
-                    "clip=%d clip_time=%.9g rate=%.9g blend=%.9g\n",
-                    test.moving_ticks,g.frame_no,g.loco_upt,g.yaw,
-                    g.loco_mode,g.loco_substate,g.loco_tier,g.loco_entry_ticks,
+                    "clip=%d remaining=%.9g rate=%.9g blend=%.9g\n",
+                    test.moving_ticks,g.frame_no,rec_f32(0x38),g.yaw,
+                    rec_u8(0x1F0),rec_u8(0x1F1),rec_u8(0x25C),rec_u8(6),
                     g.pos[0],g.pos[1],g.pos[2],c->eye[0],c->eye[1],c->eye[2],
                     c->tgt[0],c->tgt[1],c->tgt[2],c->fwd[0],c->fwd[1],c->fwd[2],
-                    c->yaw,c->hit,g.loco_clip,g.walk_t,g.loco_rate,g.loco_blend);
+                    c->yaw,c->hit,(int)em_live_u16(player_states_actor(),0x20C),
+                    (double)rec_f32(0x3C),rec_f32(0x204),rec_f32(0x208));
         }
         if (test.moving_ticks != (test.low_gait ? 60 : 30)) return;
         key(0);
@@ -297,7 +322,7 @@ void em_opening_control_test_after_frame(void)
         if (!test.low_gait && fabsf(distance-9.6f)>.01f) {
             fail("30 input ticks disagree with original first-control distance");return;
         }
-        if (test.low_gait && (g.loco_tier != test.low_gait || distance <= 0)) {
+        if (test.low_gait && (rec_u8(0x25C) != (unsigned)test.low_gait || distance <= 0)) {
             fail("low-gait fixture did not reach its requested movement tier");return;
         }
         float top[3]={g.pos[0],g.pos[1]+2.0f,g.pos[2]};
@@ -340,19 +365,21 @@ void em_opening_control_test_after_frame(void)
         room_move_after_frame();
     } else if (test.phase==5) {
         ++test.stop_ticks;
-        test.foot_stop_seen |= player_pose_foot_stop_active();
+        /* 0017C030 mode 5: the foot-placement stop 0017B910 entered. */
+        test.foot_stop_seen |= rec_u8(0x1F0) == 5;
         if (getenv("EM_CONTROL_TRACE"))
-            fprintf(stderr,"stop sample: tick=%d speed=%.9g mode=%u phase=%u "
-                    "blend=%u source=%u idle_timer=%d\n",test.stop_ticks,
-                    g.loco_upt,g.loco_mode,g.loco_stop.phase,
-                    g.loco_stop.blend_left,g.loco_stop.frame,g.idle_timer);
+            fprintf(stderr,"stop sample: tick=%d speed=%.9g mode=%u state5=%u state6=%u "
+                    "clip=%u remaining=%.9g idle_count=%u\n",test.stop_ticks,
+                    rec_f32(0x38),rec_u8(0x1F0),rec_u8(5),rec_u8(6),
+                    (unsigned)em_live_u16(player_states_actor(),0x20C),(double)rec_f32(0x3C),
+                    (unsigned)em_live_u16(player_states_actor(),0x28));
         if (test.low_gait) {
             if (test.stop_ticks < 100) return;
             unsigned clip;
             int transition;
-            if (!test.foot_stop_seen || player_pose_foot_stop_active() ||
+            if (!test.foot_stop_seen || rec_u8(0x1F0) == 5 ||
                 !player_pose_source(&clip, NULL, NULL, &transition) ||
-                clip != 0 || transition || g.loco_mode || g.loco_stop.phase) {
+                clip != 0 || transition || rec_u8(0x1F0) || rec_u8(5)) {
                 fail("low-gait foot stop did not return to a valid idle source");return;
             }
             fprintf(stderr, "newgame foot-stop test: PASS gait=%d release_ticks=%d "
@@ -372,35 +399,36 @@ void em_opening_control_test_after_frame(void)
         if (test.stop_ticks<60) return;
         float dx=g.pos[0]-test.move_start[0], dz=g.pos[2]-test.move_start[2];
         float distance=sqrtf(dx*dx+dz*dz);
-        if (fabsf(distance-18.65f)>.03f || g.loco_upt!=0 ||
-            g.loco_mode!=0 || g.loco_stop.phase!=0) {
+        if (fabsf(distance-18.65f)>.03f || rec_f32(0x38)!=0 ||
+            rec_u8(0x1F0)!=0 || rec_u8(5)!=0) {
             fail("run-stop timeline or final displacement disagrees with original");return;
         }
         fprintf(stderr,"newgame stop test: PASS release_ticks=%d "
-                "total_displacement=%.6f idle_timer=%d\n",
-                test.stop_ticks,distance,g.idle_timer);
+                "total_displacement=%.6f idle_count=%u\n",
+                test.stop_ticks,distance,(unsigned)em_live_u16(player_states_actor(),0x28));
         if (g.capture_path) em_gfx_request_capture(em_frame_gfx(),g.capture_path);
         test.phase=4;
         em_frame_request_quit();
     } else if (test.phase==6 && input->ly==0 && input->lx==0x80) {
+        /* The original's +38 per callback (interrupted_run_poll.json); the
+         * other record bytes of these callbacks are compared with the
+         * original actor bytes by tools/test_player_pose_live_reference.py. */
         static const float speeds[8]={.3f,.3f,.3f,.3f,.3f,.3f,.3625f,.425f};
-        static const unsigned phases[8]={1,1,1,1,2,0,0,0};
         unsigned tick=(unsigned)test.reentry_ticks++;
         float dx=g.pos[0]-test.reentry_previous[0];
         float dz=g.pos[2]-test.reentry_previous[2];
         float distance=sqrtf(dx*dx+dz*dz);
         memcpy(test.reentry_previous,g.pos,sizeof test.reentry_previous);
-        fprintf(stderr,"reentry sample: tick=%u speed=%.9g phase=%u blend=%u "
-                "tier=%d clip=%d source=%.9g displacement=%.9g "
+        fprintf(stderr,"reentry sample: tick=%u speed=%.9g mode=%u sub=%u "
+                "tier=%u clip=%u remaining=%.9g displacement=%.9g "
                 "blocked=%02x pos=(%.9g,%.9g,%.9g) yaw=%.9g\n",
-                tick+1,g.loco_upt,g.loco_reentry.phase,g.loco_reentry.blend_left,
-                g.loco_tier,g.loco_clip,g.walk_t*60.0,distance,g.probe_block_mask,
+                tick+1,rec_f32(0x38),rec_u8(0x1F0),rec_u8(0x1F1),
+                rec_u8(0x25C),(unsigned)em_live_u16(player_states_actor(),0x20C),
+                (double)rec_f32(0x3C),distance,rec_u8(0x314),
                 g.pos[0],g.pos[1],g.pos[2],g.yaw);
-        if (g.loco_upt!=speeds[tick] || g.loco_reentry.phase!=phases[tick] ||
-            g.loco_tier!=2 || g.loco_stop.phase ||
+        if (rec_f32(0x38)!=speeds[tick] || rec_u8(0x25C)!=2 ||
             (tick<6 && fabsf(distance-(tick==0?.6f:.3f))>.001f) ||
-            (tick>=6 && (g.probe_block_mask!=2 || distance>=g.loco_upt-.02f)) ||
-            (tick<5 && fabs(g.walk_t*60.0-27.0)>.00001)) {
+            (tick>=6 && (rec_u8(0x314)!=2 || distance>=rec_f32(0x38)-.02f))) {
             fail("run-stop interruption disagrees with original request/blend/ramp");return;
         }
         if (test.reentry_ticks==8) {

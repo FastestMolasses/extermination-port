@@ -3,7 +3,7 @@
 
 WP-15 P16. The user's pinned ELF supplies every instruction and table; none
 are embedded here. The bounded interpreter (test_player_floor_reference Floor,
-built on test_player_reversal_reference Reversal) runs, unmodified:
+built on player_callback_oracle PlayerCallbackOracle) runs, unmodified:
 
   001764E0  radial probes          00176390  probe response
   00176BE0  slide response         001762E0  area-2 target gate
@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_floor_reference import (Floor, ProbeHit, LIBC, ACTOR, NODE, ENTITY, LINK,  # noqa: E402
                                          DECOMP, REFERENCE)
-from test_player_reversal_reference import ELF_SHA256  # noqa: E402
+from player_callback_oracle import ELF_SHA256  # noqa: E402
 import ee_float_model as M  # noqa: E402
 from test_point_light_reference import bits, number, fp  # noqa: E402
 

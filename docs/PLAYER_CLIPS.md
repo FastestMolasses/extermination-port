@@ -446,10 +446,11 @@ the record's own field.
 **The display.** em_player.c runs the animate step after every stage
 (`player_pose_animate`, after 0015BCF0's tail writes). em_player_frame.c
 displays the record's matrices for a stage the takeover consumed or a
-translated routine owned (`player_states_record_display`); the port's own
-idle/walk callbacks keep their legacy baked display until census L12. A
-stage whose (+4, +5) is not the port's idle/walk advances the record by
-+34 whatever a port stand-in holds. em_player_stage_live.c binds the
+translated routine owned (`player_states_record_display`), which since
+census L12 includes the idle / walk states 00161020 / 001612D0; only a port
+stand-in's frames (and the scenes without an original world) keep the
+legacy baked display. A stage whose (+4, +5) is not idle/walk advances the
+record by +34 whatever a port stand-in holds. em_player_stage_live.c binds the
 stage's clip workers (bone_init, clip_init, clip_resolve, skeleton_frame,
 001C8710, 001C87C0, anim_sample_bones, request) to the record's
 `em_pose_host_stage_*` and declares `player_states_bind_display(1)`.
@@ -503,10 +504,9 @@ and the scratchpad words:
 Every case in both runs compared exact; the capture re-evaluation is exact
 on all 16 images.
 
-**Not done here.** The port's idle/walk display (L12), the
-low-health row (+235's latch and 0017B490, L12), and the closure binder
-that engages FLOOR (L02) remain (the special bank on the record is live
-since census L22).
+**Not done here.** The low-health row (+235's latch) remains; the idle/walk
+display is live since census L12, the closure binder since the Boxes step
+and the special bank on the record since census L22.
 
 ## 7. Limits
 

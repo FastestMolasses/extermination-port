@@ -12,7 +12,7 @@ oracle `tools/test_player_heading_record_reference.py` (make target
 
 Before this lane, 00174AC0 existed only as partial translations over mirrors:
 `em_player_heading.c` (the stick heading as a host trig model),
-`em_player_reversal.c` (the reversal gate without the pad/trig front end) and
+the reversal gate of a pure-logic skid module (retired with census L12) and
 the banded turn inside `em_player.c`. The FLOOR mechanism and every other
 player module that calls 00174AC0 name it as a worker over the raw record
 (`EmPlayerLiveActor.bytes`). The FLOOR step also needs its 0x70003A20 stores:
@@ -149,15 +149,17 @@ composition in two callers' oracles, each against the original with
   with `world.spad3A20` on the lane's scratch word and compares 0017C580,
   00162DB0 and 00163B40 (PLAYER_FALL.md section 3, "The bound heading").
 
-**What this does not replace yet.** The live turn in `em_player.c`
-(`player_turn_rate` / `player_turn_toward` / the reversal gate through
-`em_player_reversal.c`) and `em_player_heading.c` stay as they are: the live
-001612D0 is the legacy walk callback over mirrors (census row 0x001612D0,
-stand-in), so there is no record-level caller to bind this to on the live
-path. Retiring them is the binding chain's step once 001612D0 / 00161020 run
-over the record. `EmPlayerClimbWorkers.heading` (em_player_climb.h) still
-takes the mirror `EmPlayerClimbActor` and cannot take this routine until the
-climb module moves onto the record.
+**Live since census L12 (2026-09-25).** It is the `heading` worker of the
+idle / walk states 00161020 / 001612D0 over the record in AREA11
+(em_player_closure_live.c; LOCOMOTION_DISPLAY.md section 4), and the
+first-control record matches the original's +C4 on every callback whose
+camera heading input D_008106A0 matches (test-first-control-reference). The
+mirror turn in `em_player.c` (`player_turn_rate` / `player_turn_toward`) and
+`em_player_heading.c` remain only in the legacy callbacks of the scenes
+without an original world and in the examine stand-in's face step
+(em_game.c, census L21). `EmPlayerClimbWorkers.heading` (em_player_climb.h)
+still takes the mirror `EmPlayerClimbActor` and cannot take this routine
+until the climb module moves onto the record.
 
 ## 5. Verification
 

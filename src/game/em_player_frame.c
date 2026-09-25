@@ -95,13 +95,15 @@ static void actor_update(void)
         /* Census L01: the original player stage (em_player.c
          * player_states_stage): 0015BA50 advances the display source by
          * +34, the takeover stand-in may consume the stage at 0015B130's
-         * prelude position, 0015B130 runs 0021C440 / the port's idle/walk
-         * callbacks / the +20E countdown / 0015D100 / 0015D000, then
-         * 0015BA50's tail and 0015BCF0's -200 check, loop-sound stop and
-         * skeleton evaluation. A stage the takeover consumed or a
-         * translated routine owned displays the record's evaluated pose
-         * (player_states_record_display); the port's idle/walk callbacks
-         * keep the display below until L12. */
+         * prelude position, 0015B130 runs 0021C440 / the idle/walk states
+         * (00161020 / 001612D0 in AREA11 since census L12) / the +20E
+         * countdown / 0015D100 / 0015D000, then 0015BA50's tail and
+         * 0015BCF0's -200 check, loop-sound stop, skeleton evaluation and
+         * 00187350. A stage the takeover consumed or a translated routine
+         * owned displays the record's evaluated pose
+         * (player_states_record_display); a port stand-in (the legacy door,
+         * examine, director lock, aim, R2, melee) and the legacy callbacks
+         * of the scenes without an original world keep the display below. */
         int consumed = player_states_stage();
         if (player_states_record_display()) {
             if (player_pose_display() < 0)

@@ -23,12 +23,14 @@
 #include "game/em_player_closure_0e_18.h"
 #include "game/em_player_closure_10_12_19.h"
 #include "game/em_player_fall.h"
+#include "game/em_player_foot_stop.h"
 #include "game/em_player_hang.h"
 #include "game/em_player_heading_record.h"
 #include "game/em_player_ladder_climb.h"
 #include "game/em_player_ladder_entry.h"
 #include "game/em_player_major2.h"
 #include "game/em_player_misc_workers.h"
+#include "game/em_player_motor.h"
 #include "game/em_player_reaction.h"
 #include "game/em_player_record_helpers.h"
 #include "game/em_player_recovery.h"
@@ -134,7 +136,22 @@ static struct {
     int (*scan)(void *context, EmPlayerLiveActor *actor, int *result);
     void *scan_context;
     uint16_t pad_config[8];   /* 0x70003B74..0x70003B82 (001AF470, config 0) */
-    EmLocoHost loco;          /* 0017B490's host: its mode worker and the pose */
+    EmLocoHost loco;          /* 00161020 / 001612D0 and 0017B490's host */
+    /* The idle / walk states' scene words (refreshed before each call):
+     * D_0028A9A0 (the transition substate), D_00810E74 (pressed) and the
+     * caller's $s1 (0015B130 leaves 1). 0x70003B76 is pad_config[1]. */
+    int16_t loco_28A9A0;
+    uint16_t loco_810E74;
+    uint8_t loco_s1;
+    /* 001C9D50's host (em_anim_runtime_rest): 0x700034C0 / D0 / E0. */
+    EmAnimRest rest;
+    uint32_t s34C0[4], s34D0[4], s34E0[4];
+    /* 0017B910's workers and its scratch words without another reader on
+     * the route (0x70003A24..2C, 0x700036A0..DF, 0x700038B0..BF); 0x70003A20
+     * and 0x700038A0..AC are the one storage in `land`. */
+    EmPlayerFootStopWorkers foot_w;
+    EmPlayerFootStopScratch foot_s;
+    uint32_t foot_3A24[3], foot_36A0[16], foot_38B0[4];
 
     Slot state[EM_PLAYER_STATE1_COUNT];
     Slot state2[EM_PLAYER_STATE2_COUNT];
@@ -213,6 +230,8 @@ static int slot_run(void *context, EmPlayerLiveActor *actor)
                 (unsigned)L.sdk->fault);
         r = -1;
     }
+    if (r < 0 && slot->context == &L.loco && L.loco.fault)
+        fprintf(stderr, "player closure: %s faulted at 0x%08X\n", slot->name, (unsigned)L.loco.fault);
     return r < 0 ? -1 : 0;
 }
 
@@ -2528,6 +2547,205 @@ static void bind_running_jump(void)
     l->shared3A20 = &L.land.s3A20;
 }
 
+/* ---- The idle / walk states 00161020 / 001612D0 (census L12) --------------------
+ * LOCOMOTION_DISPLAY.md section 4: each worker is the verified translation
+ * over the record; the ones below adapt a shape. */
+
+/* 001607D0(p): the action machine over the weapon states' scene view (its
+ * pad masks and words; D_00810C61, which only its armed forwarding reads,
+ * stays em_weapon's, census L28). */
+static int lw_actions(void *c, EmPlayerLiveActor *a, int *result)
+{
+    (void)c;
+    EmPlayerWeaponScene *s = &L.wa_scene;
+    s->spad3B74 = L.pad_config[0];
+    s->spad3B76 = L.pad_config[1];
+    s->spad3B78 = L.pad_config[2];
+    s->spad3B7C = L.pad_config[4];
+    s->spad3B7E = L.pad_config[5];
+    s->d810E70 = scene()->d810E70;
+    s->d810E74 = scene()->d810E74;
+    const uint8_t mode = em_live_u8(a, 0x1F0);
+    if (mode == 0x31 || mode == 0x32 || mode == 0x34 || mode == 0x35) {
+        uint8_t c61;
+        if (progress_byte(0x00810C61u, &c61) < 0)
+            return unbound("D_00810C61 (001607D0's armed forwarding; em_weapon.c keeps it, census L28)");
+        s->d810C61 = c61;
+    }
+    s->spad3A20 = L.land.s3A20;
+    int r = em_player_weapon_001607D0(&L.wa, a, result);
+    L.land.s3A20 = s->spad3A20;
+    return r;
+}
+/* 00160220(p): the Use dispatcher over the record (the scene words were
+ * refreshed by the slot). */
+static int lw_ladder(void *c, EmPlayerLiveActor *a, int *result)
+{
+    (void)c;
+    return em_player_use_00160220(&L.use, a, result);
+}
+static int lw_probes(void *c, EmPlayerLiveActor *a, uint32_t s1)
+{
+    (void)c; IN3A20();
+    int r = player_states_wall_probes_s1(NULL, a, s1);
+    OUT3A20(); return r;
+}
+static int lw_clearance(void *c, EmPlayerLiveActor *a, int *result)
+{
+    (void)c; IN3A20();
+    int r = player_states_clearance_release(NULL, a, result);
+    OUT3A20(); return r;
+}
+/* An EE word through the record pose's regions (the exported D_00248740..
+ * span, the record, its node records). */
+static int lw_word(void *c, uint32_t address, uint32_t *word)
+{
+    (void)c;
+    return em_pose_host_node_word(L.pose, address, 0, word);
+}
+/* 0017BC40(p): the record-level translation over the exported tier tables. */
+static int lw_motor(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    return em_player_motor_0017BC40(a->bytes, lw_word, NULL, &L.land.s3A20);
+}
+/* 00184BA0(p, 1): the interaction host's scan (the original reads only its
+ * first argument). */
+static int lw_use_scan(void *c, EmPlayerLiveActor *a, int arg, int *result)
+{
+    (void)arg;
+    return use_scan(c, a, result);
+}
+static int lw_use_accepted(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    return em_player_use_001798D0(&L.use, a);
+}
+static int fs_select(void *c, EmPlayerLiveActor *a, int cmd, int idx, int tbl, int16_t *clip)
+{
+    return em_player_closure_live_0017B490(c, a, cmd, idx, tbl, clip);
+}
+static int fs_sqrt(void *c, uint32_t x, uint32_t *result)
+{
+    (void)c;
+    return em_anim_rest_sqrt_0011E748(L.sdk, x, result);
+}
+/* 0017B910(p): the record-level translation. */
+static int lw_foot_stop(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; IN3A20();
+    int r = em_player_foot_stop_0017B910(&L.foot_w, &L.foot_s, &L.d275B40, a);
+    OUT3A20(); return r;
+}
+static int lw_sound(void *c, int id, int a1, int a2, int a3)
+{
+    return x_sound_1FB9F0(c, id, a1, a2, a3);
+}
+/* 001EFD90(id, p + B0, p + C0): the one counted effect gap (census L26). */
+static int lw_effect(void *c, uint32_t id, EmPlayerLiveActor *a)
+{
+    (void)c;
+    const float at[3] = { em_live_f32(a, 0xB0), em_live_f32(a, 0xB4), em_live_f32(a, 0xB8) };
+    const float rot[3] = { em_live_f32(a, 0xC0), em_live_f32(a, 0xC4), em_live_f32(a, 0xC8) };
+    return player_effect_gap(id, at, rot);
+}
+static int lw_heading(void *c, EmPlayerLiveActor *a, int arg, int *result)
+{
+    return w_heading_result(c, a, arg, result);
+}
+static int lw_row_request(void *c, EmPlayerLiveActor *a, float blend) { return w_row_request(c, a, blend); }
+static int lw_request(void *c, EmPlayerLiveActor *a, int clip, int flags, float blend)
+{ return w_request(c, a, clip, flags, blend); }
+static int lw_arbiter(void *c, EmPlayerLiveActor *a, int clip, float blend, float frame)
+{ return w_arbiter(c, a, clip, blend, frame); }
+static int lw_clip_frames(void *c, uint32_t bank, int clip, int32_t *frames)
+{ return w_clip_frames(c, bank, clip, frames); }
+
+/* The slot's scene view: the words the states read, as this frame holds them. */
+static int loco_pre(void)
+{
+    L.loco_28A9A0 = (int16_t)em_frame_transition()->substate;   /* D_0028A9A0 */
+    L.loco_810E74 = scene()->d810E74;
+    L.loco_s1 = 1;
+    L.loco.fault = 0;
+    return 0;
+}
+
+static void bind_loco(void)
+{
+    EmLocoWorkers *w = &L.loco.workers;
+    memset(w, 0, sizeof *w);
+    w->actions = lw_actions; w->ladder = lw_ladder; w->heading = lw_heading;
+    w->row_request = lw_row_request; w->request = lw_request; w->arbiter = lw_arbiter;
+    w->clip_frames = lw_clip_frames; w->probes = lw_probes; w->floor = w_floor;
+    w->clearance = lw_clearance; w->fall_check = w_fall_check; w->motor = lw_motor;
+    w->translate = w_translate; w->use_scan = lw_use_scan; w->use_accepted = lw_use_accepted;
+    w->handoff = w_handoff; w->reentry = w_reentry; w->foot_stop = lw_foot_stop;
+    w->sound = lw_sound; w->effect = lw_effect; w->wrap = w_wrap_bits; w->mode = loco_mode;
+    L.loco.scene = (EmLocoScene){ &L.loco_28A9A0, &L.loco_810E74, &L.pad_config[1], &L.loco_s1 };
+    EmAnimRest *r = &L.rest;
+    memset(r, 0, sizeof *r);
+    r->world.spad34C0 = L.s34C0;
+    r->world.spad34D0 = L.s34D0;
+    r->world.spad34E0 = L.s34E0;
+    r->world.spad3760 = L.pose->globals->spad3760;
+    r->workers.sqrt_ctx = L.sdk;
+    r->workers.w_0011E748 = em_anim_rest_sqrt_0011E748;
+    L.loco.display.rest = r;
+    L.foot_w = (EmPlayerFootStopWorkers){ NULL, w_eval_skeleton, fs_select, w_clip_frames, w_request,
+                                          fs_sqrt, lw_word };
+    L.foot_s = (EmPlayerFootStopScratch){ &L.land.s3A20, L.foot_3A24, L.foot_36A0, L.land.s38A0,
+                                          L.foot_38B0 };
+}
+
+/* ---- 00187350: the footstep dispatch on the record (census L12) ----------------
+ * em_player_floor's translation over the record's fields. Its workers are
+ * the closure's: 00179B90 and 00122BB8 the shared LCG, 001FBD50(p, id, 0,
+ * 300) at the record, 001EFD90 the counted effect gap; the wet-feet decal
+ * 001F0460 and the wading 001E8B90 have no live binding (fail-stop; no
+ * AREA11 floor sets the wet timer or the water depth on the route). */
+static int fs_random(void *c, uint32_t *value) { (void)c; return em_player_misc_random(NULL, value); }
+static int fs_wade(void *c, const float position[3], float level)
+{
+    (void)c; (void)position; (void)level;
+    return unbound("001E8B90 (the wading ripple of 00187350)");
+}
+
+int em_player_closure_live_footstep(EmPlayerLiveActor *a)
+{
+    if (!L.bound || !a) return -1;
+    EmPlayerStepActor step;
+    memset(&step, 0, sizeof step);
+    for (unsigned k = 0; k < 3; ++k) {
+        step.position[k] = em_live_f32(a, 0xB0 + 4 * k);
+        step.rotation[k] = em_live_f32(a, 0xC0 + 4 * k);
+    }
+    step.clock = em_live_f32(a, 0x3C);
+    step.speed = em_live_f32(a, 0x38);
+    step.slope = em_live_f32(a, 0x9C);
+    step.surface_y = em_live_f32(a, 0x250);
+    step.anim_flags = em_live_u32(a, 0x200);
+    step.clip = (int16_t)em_live_u16(a, 0x20C);
+    step.wet = (int16_t)em_live_u16(a, 0x212);
+    step.mode = em_live_u8(a, 0x1F0);
+    step.tier = em_live_u8(a, 0x25C);
+    step.step = em_live_u8(a, 0x25E);
+    step.surface = em_live_u8(a, 0x23A);
+    step.depth = em_live_u8(a, 0x23C);
+    step.contact = em_live_u8(a, 0xA);
+    step.obstruction = em_live_u8(a, 0x314);
+    /* Nodes 17 / 18: *(D_00275B40 + 0x44 / 0x48), world translation +C0. */
+    float foot17[4], foot18[4];
+    FAULT(node_c0(17, foot17));
+    FAULT(node_c0(18, foot18));
+    EmPlayerStepScene sc = { foot17, foot18, (uint32_t)scene()->spad3B68, scene()->d810700 };
+    EmPlayerStepWorkers w = { a, x_step_random5, fs_random, x_step_sound, x_step_effect, x_decal, fs_wade };
+    int r = em_player_footstep_tick(&step, &sc, &w);
+    em_live_set_u8(a, 0x25E, step.step);
+    em_live_set_u16(a, 0x212, (uint16_t)step.wet);
+    return r;
+}
+
 /* ---- The Use chain's workers -------------------------------------------------------- */
 
 static void bind_use(void)
@@ -2641,7 +2859,6 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     L.heading.world = (EmPlayerHeadingRecordWorld){ &P.spad3B8D, &P.gait, &P.lx, &P.ly, &P.d8106A0,
                                                     &L.land.s3A20, L.sdk->tables, &L.sdk->world,
                                                     &L.sdk->workers };
-    L.loco.workers.mode = loco_mode;
     L.loco.display.pose = pose;
     L.loco.display.d275B40 = &L.d275B40;
 
@@ -2662,9 +2879,14 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     bind_weapon_b();
     bind_running_jump();
     bind_use();
+    bind_loco();
     if (!L.m2_scene.d8106F1 || !L.m2_scene.d810707) return -1;
 
-    /* 0015B130's table (FLOOR closure and the Use roots). */
+    /* 0015B130's table: the idle / walk states (census L12), the FLOOR
+     * closure and the Use roots. */
+    if (!em_loco_bound(&L.loco)) return -1;
+    set1(b, 0x00, em_loco_00161020, &L.loco, NULL, loco_pre, NULL, "00161020");
+    set1(b, 0x01, em_loco_001612D0, &L.loco, NULL, loco_pre, NULL, "001612D0");
     set1(b, 0x04, em_player_recovery_state4, &L.recovery, NULL, NULL, NULL, "00162A40");
     set1(b, 0x05, em_player_fall_state5, &L.fall, NULL, NULL, NULL, "00162DB0");
     set1(b, 0x07, em_player_fall_state7, &L.fall, NULL, NULL, NULL, "001639E0");

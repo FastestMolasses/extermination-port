@@ -662,8 +662,8 @@ def check_boxes(ticks, run, state):
 # (clips 0x60 / 0x65), the hand-back to state 0 (f181) and 12 idle rows.
 SLIDE_ROWS = 122
 # The entry point is where the port's walk (navigation input: the stick is
-# steered against the live camera's forward, and the idle / walk
-# callbacks are still the port's, L12) first meets a class-0x1000 node:
+# steered against the live camera's forward; the idle / walk states are the
+# original's since census L12) first meets a class-0x1000 node:
 # within SLIDE_ENTRY_XZ of the original's in X/Z. The slide then crosses the
 # authored nodes' boundaries (the downhill heading +218 and the slope +9C
 # change) and lands on the floor at the hill's foot (+1F0 0x30 -> 0) at rows
@@ -694,13 +694,15 @@ SLIDE_ROWS = 122
 # An entry further off fails. Every row between them still equals the
 # original's as described above.
 # PENDING LEAD REVIEW (the relaxation from one row): the offset is
-# navigation input, not a camera or slide routine. Tightening the approach
-# was tried (a run-up and a release lead onto route 06's stance, 2026-09-25)
-# and does not help: from within 0.28 of the stance the entry is still 0.86
-# off, because the heading the port's walk takes from the stick (census L12,
-# the idle / walk callbacks are still the port's) and the live camera's
-# state at the stance (it follows the port's own walk history, 3 units from
-# the capture's eye there) set the path. Restore one row once L12 is live.
+# navigation input, not a camera, walk or slide routine. Tightening the
+# approach was tried (a run-up and a release lead onto route 06's stance,
+# 2026-09-25) and does not help: from within 0.28 of the stance the entry is
+# still 0.86 off. With the idle / walk states the original's (census L12,
+# 2026-09-25; their first-control record equals the original's) the entry is
+# unchanged at 0.863: the smoke's own stick input and the live camera state
+# it produces (it follows the port's walk history, 3 units from the
+# capture's eye at the stance) set the path, not the walk translation. One
+# row needs the route's own input replayed from the capture's state.
 SLIDE_ENTRY_ROWS = ((0.6, 1), (0.9, 2))
 SLIDE_ENTRY_XZ = SLIDE_ENTRY_ROWS[-1][0]
 SLIDE_CROSSING_ROWS_MAX = SLIDE_ENTRY_ROWS[-1][1]
@@ -883,9 +885,9 @@ def check_truck_crossing(ticks, run, state):
     TRUCK_AFTER_REST rows after is compared: the truck record's
     +0x00..+0x0F, +0xB0 (to the capture's 5 decimals), +0x2DC..+0x2EF and
     D_00810792, and the player's ground on the arm row (the truck record).
-    The player's own walk off the truck is navigation (the legacy
-    locomotion, WP-15/L12); its end on the low ground is asserted in
-    process."""
+    The player's own walk off the truck is navigation (the smoke's stick
+    input; the idle / walk states are the original's since census L12); its
+    end on the low ground is asserted in process."""
     rows = route_rows('08_truck_crossing')
     shake = lambda t2dc: int.from_bytes(bytes.fromhex(t2dc)[16:20], 'little')
     r0 = next(k for k in range(len(rows)) if shake(rows[k]['truck_r16']['t2DC']) == 1)

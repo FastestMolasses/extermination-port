@@ -64,6 +64,10 @@ typedef struct EmPlayerRecordPose {
     /* Attached (em_player_record_pose_attach). */
     EmPlayerLiveActor *actor;
     uint8_t nodes[EM_PLAYER_POSE_NODES * EM_POSE_NODE_BYTES];
+    /* D_00287F40..D_00289B40: 0017B660's two pose buffers (the new tier's
+     * and the old tier's node matrices, 0x40 per node; .bss, zero at boot),
+     * mapped writable at their EE addresses. */
+    uint8_t pose_buffers[0x1C00];
     EmPoseHost host;
     EmPoseGlobals globals;
     uint32_t spad3400[16], spad3440[16], spad3600[4], spad3760[11];

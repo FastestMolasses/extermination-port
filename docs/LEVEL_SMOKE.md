@@ -425,8 +425,8 @@ rows before it are aligned on the entry, the rows from it on the landing:
   too; the landed Y within 0.02 of the original's.
 
 Why not the absolute positions: the port's walk down to the hill is
-navigation (its own locomotion, WP-15/L12, steered against the camera's
-forward), so the slide starts away from the original's entry in X/Z: 0.58
+navigation (the smoke's own stick input, steered against the camera's
+forward; the idle / walk states are the original's since census L12), so the slide starts away from the original's entry in X/Z: 0.58
 under the legacy follow camera, 0.86 since the live camera (census
 L13..L16). Where the slide crosses from one authored node to the next
 (new +218 and slope) then follows that entry point: a crossing earlier or
@@ -443,10 +443,12 @@ relaxation follows the navigation input, not a slide or camera routine, and
 is **pending lead review** (CAMERA_LIVE.md section 4). Tightening the
 approach instead was tried: a run-up and a release lead that bring the
 player within 0.28 of route 06's stance still enter the slide 0.86 off,
-because the heading the port's walk takes from the stick (census L12) and
-the live camera's state at the stance (it follows the port's own walk
-history; its eye is 3 units from the capture's there) set the path. Restore
-one row once L12 is live. The
+because the smoke's stick input and the live camera's state at the stance
+(it follows the port's own walk history; its eye is 3 units from the
+capture's there) set the path. With the idle / walk states the original's
+(census L12; their first-control record equals the original's) the entry
+is unchanged at 0.863, so the walk translation is not the cause; one row
+needs the route's own input replayed from the capture's state. The
 landing row's Y is the floor under the port's own X/Z (measured 0.0133 above
 the original's); every step after the landing is equal within 0.00002.
 Measured: every other compared field equal. A mutation (the entry speed 0.2
@@ -521,8 +523,8 @@ log gained `story792` and `truck` (the record address, +0x00..+0x0F, +0xB0
 and +0x2DC..+0x2EF). A tampered truck Y in a copy of the log fails at f89.
 
 What the smoke does not compare in beat 08: the player's own walk across
-and off the truck (the port's legacy locomotion, L12, steered against the
-live camera's forward; the original's walk got blocked on the truck
+and off the truck (navigation: the original idle / walk states since census
+L12, steered by the smoke's stick against the live camera's forward; the original's walk got blocked on the truck
 for 40 frames), the rumbles' timing (not in the capture rows), the truck's
 sounds 0x454 / 0x455 (not in the exported sfx registry, WP-14) and its
 effects (L26).
@@ -715,8 +717,8 @@ row earlier). Measured: beats 11 and 12 land on the original's rows; beat 10
 one row earlier; every compared field equal.
 
 What these phases do not compare: the walks between the climbs (the
-port's legacy idle / walk callbacks, L12, steered against the live
-camera's forward), the sounds (the ladder's 0x107 / 0x10E / 0x10F and
+original idle / walk states since census L12, steered by the smoke's stick
+against the live camera's forward), the sounds (the ladder's 0x107 / 0x10E / 0x10F and
 the landing ids are not in the exported sfx registry, WP-14; they reach
 em_sfx_play silently and are reported once), the effects (0017DEB0's and
 00187EE0's 001EFD90 spawns reach the counted effect gap, L26) and the
