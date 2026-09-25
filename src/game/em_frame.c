@@ -51,6 +51,8 @@ static struct {
     EmFrameMessageService message;    /* step F 001FCA10 presenter */
     int (*step_i)(void *);            /* step I 001B5B70 (em_pad_actuator) */
     void        *step_i_context;
+    int (*step_b)(void *, int32_t);   /* step B 001D1AE0 (em_render_context_live) */
+    void        *step_b_context;
     EmFrameSoundService sound;        /* the field and step H 001FB100 */
     bool         pace_initialized;
     bool         uncapped;
@@ -211,6 +213,15 @@ EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
 uint32_t  em_frame_counter(void)        { return s_frame.counter; }
 uint32_t  em_frame_parity(void)         { return s_frame.parity; }
+/* The low two bytes of the (little-endian) parity word are the halfword
+ * D_00810E80 (0 or 1). */
+uint8_t  *em_frame_d810E80(void)        { return (uint8_t *)&s_frame.parity; }
+
+void em_frame_set_step_b(int (*service)(void *context, int32_t index), void *context)
+{
+    s_frame.step_b = service;
+    s_frame.step_b_context = context;
+}
 
 /* EM_INPUT_TEST=1: one compact line per pad-state change. */
 static void input_test_print(const EmPadState *pad)
@@ -320,6 +331,11 @@ int em_frame_step(void)
     /* 001AB370 sets both sceGsDBuffDc clear colours (0x00811020/0x00811190)
      * to RGBA 0,0,0,0x80: the original draw buffer clears to black. */
     em_gfx_begin_frame(s_frame.gfx, 0.0f, 0.0f, 0.0f, 1.0f);
+    /* B: 001D1AE0(D_00810E80), the render context's buffer set-up; the
+     * blocking movie holds the original iteration, so not while it plays. */
+    if (!s_frame.movie_suspended && s_frame.step_b &&
+        s_frame.step_b(s_frame.step_b_context, (int32_t)(int16_t)s_frame.parity) < 0)
+        s_frame.quit = true;
     em_gamepad_poll();
     frame_input_read();
 

@@ -1915,6 +1915,17 @@ void em_gfx_fog(EmGfx *g, float near_z, float far_z, const float rgb[3])
     g->fog[6] = 0.0f;    g->fog[7] = 0.0f;
 }
 
+void em_gfx_fog_coefficients(EmGfx *g, const float coef[2], const float rgb[3])
+{
+    if (!g || !coef || !rgb) return;
+    g->fog[0] = em_fog_gs_color_unit(rgb[0]);
+    g->fog[1] = em_fog_gs_color_unit(rgb[1]);
+    g->fog[2] = em_fog_gs_color_unit(rgb[2]);
+    g->fog[3] = 1.0f;                                /* enable */
+    g->fog[4] = coef[0]; g->fog[5] = coef[1];
+    g->fog[6] = 0.0f;    g->fog[7] = 0.0f;
+}
+
 /* Disable distance fog for subsequent draws. Zeroing the enable makes the
  * shader skip the blend entirely, so fog-off frames run the exact pre-fog
  * arithmetic. */

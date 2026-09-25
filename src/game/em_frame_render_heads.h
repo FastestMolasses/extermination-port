@@ -2,6 +2,13 @@
  * L32-frame-render-heads). Docs: docs/FRAME_RENDER_HEADS.md.
  *
  * Hand translation of these original functions (boot ELF SCUS-97112):
+ *   001D1AE0  frame buffer set-up (main loop step B): context +0x9C = the
+ *             buffer index, the four channel cursors +0x10..+0x1C into the
+ *             arena D_0028F700, +0x50..+0x5C cleared, the REF tags
+ *             001D1F20(1), 001D2040(1, 0), 001D1FF0(1, 1), the chain start
+ *             001CB8A0(D_007635C0, 0, context, context + 4) and
+ *             001D2DE0(0, 0); its 001CBA40 is an empty routine (NEARMISS C;
+ *             the .s was followed)
  *   001D1C50  per-frame render head: fog/weather selection, the context
  *             display-list REF tag, the projection, the SPR copies, the
  *             point-light tick and the per-slot constant fill (NEARMISS C;
@@ -78,7 +85,8 @@ extern "C" {
 #define EM_FRH_D_00810700 UINT32_C(0x00810700) /* byte: area */
 #define EM_FRH_D_00810701 UINT32_C(0x00810701) /* byte: sub-area */
 #define EM_FRH_D_0028A56C UINT32_C(0x0028A56C) /* word: model bank for 001C6120 */
-#define EM_FRH_D_007635C0 UINT32_C(0x007635C0) /* only its address is used (001CB800 a0) */
+#define EM_FRH_D_007635C0 UINT32_C(0x007635C0) /* only its address is used (001CB800 / 001CB8A0 a0) */
+#define EM_FRH_D_0028F700 UINT32_C(0x0028F700) /* the packet arena the 001D1AE0 cursors point into */
 #define EM_FRH_D_00816440 UINT32_C(0x00816440) /* 14 skin records of 0x100 (2 slots of 0x80) */
 #define EM_FRH_D_002513E0 UINT32_C(0x002513E0) /* 64 bytes: 001D30A0 copy of spad 0x3AC0 */
 #define EM_FRH_SPR_3A40   UINT32_C(0x70003A40) /* 64 bytes: P copy */
@@ -179,6 +187,13 @@ typedef struct {
     int (*w_001D8690)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, int32_t a3);
     /* 001C6120(bank, id): the model table lookup; v0 -> *handle. */
     int (*w_001C6120)(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle);
+    /* 001D1AE0's REF tag builders (channel cursors context +0x10 + 4 chan)
+     * and the frame chain start 001CB8A0(a0, a1, a2, a3) (a2/a3 are
+     * original addresses the routine stores through; a0 is not read). */
+    int (*w_001D1F20)(void *ctx, int32_t chan);
+    int (*w_001D2040)(void *ctx, int32_t chan, int32_t a1);
+    int (*w_001D1FF0)(void *ctx, int32_t chan, int32_t a1);
+    int (*w_001CB8A0)(void *ctx, uint32_t a0, int32_t a1, uint32_t a2, uint32_t a3);
 } EmFrhWorkers;
 
 typedef struct {
@@ -190,6 +205,8 @@ typedef struct {
 } EmFrh;
 
 /* Every entry returns 0, or -1 when a fault is (or already was) latched. */
+/* 001D1AE0(a0): a0 = the buffer index (the main loop passes D_00810E80). */
+int em_frh_001D1AE0(EmFrh *h, int32_t index);
 int em_frh_001D1C50(EmFrh *h);
 int em_frh_001D1EA0(EmFrh *h, int32_t a0);
 int em_frh_001D1EF0(EmFrh *h);

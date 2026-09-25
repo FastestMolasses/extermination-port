@@ -1,4 +1,6 @@
 #include "game/em_opening_runtime.h"
+#include "game/em_render_context_live.h"
+#include "game/em_ee_float.h"
 
 #include "game/em_area11_opening.h"
 #include "em_gamepad.h"
@@ -119,7 +121,9 @@ static void skip_request_set(EmScript *script, uint8_t value)
 static void camera_restore(void)
 {
     s.camera_active=0;
-    g.cam.zoom=480.0f;
+    /* 001D25F0(480.0) on the render context (a fault latches there and
+     * stops the next frame head). */
+    (void)em_rcl_001D25F0(UINT32_C(0x43F00000));
     g.cam.up[0]=0;
     g.cam.up[1]=-1;
     g.cam.up[2]=0;
@@ -173,7 +177,8 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
                     /* 001B81D0 binds the player's cinematic skeleton.
                      * The original palette asset has already passed load. */
                     s.player_phase=2;
-                    g.cam.zoom=em_camera_scope_zoom(0.0f);
+                    /* 001D2610(0.0) on the render context. */
+                    if (em_rcl_001D2610(0)<0) {fail("001D2610"); return EM_SCRIPT_UNSUPPORTED;}
                     ++script->phase;
                 }
                 return EM_SCRIPT_WAIT;
@@ -448,7 +453,11 @@ int em_opening_runtime_camera_sample(void)
             g.cam.up[1]=-cosf(roll);
             g.cam.up[2]=-sinf(roll);
             float fov=fmaxf(0.5f,fminf(45.0f,frame.fov_degrees));
-            g.cam.zoom=224.0f/tanf((EM_PI*(fov/1.45f))/180.0f);
+            /* The stand-in's zoom (L33), stored through 001D25F0. */
+            if (em_rcl_001D25F0(em_ee_bits(224.0f/tanf((EM_PI*(fov/1.45f))/180.0f)))<0) {
+                fail("001D25F0");
+                return -1;
+            }
             s.camera_time+=0.5f;
         } else camera_restore();
     }

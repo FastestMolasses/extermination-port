@@ -72,7 +72,12 @@ void camera_commit_cinematic(EmCamera *camera) {
     assert(camera->top_mode==3);
     camera_commit(camera);
 }
-float em_camera_scope_zoom(float value) {assert(value==0);return 480;}
+/* The render context's zoom stores (em_render_context_live): the opening's
+ * 001D2610(0.0) and its finite, positive 001D25F0 zooms. */
+int em_rcl_001D2610(uint32_t x) {assert(x==0);return 0;}
+int em_rcl_001D25F0(uint32_t zoom) {
+    float f; memcpy(&f,&zoom,4); assert(isfinite(f) && f>0); return 0;
+}
 /* No live camera in this fixture: 001B8FC0 kind 0's w lanes have no bytes. */
 uint8_t *em_camera_live_bytes(uint32_t address,uint32_t size) {(void)address;(void)size;return NULL;}
 void em_gamepad_rumble(float big,float small,int frames) {

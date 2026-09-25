@@ -25,6 +25,7 @@
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_pad_actuator.h"
+#include "game/em_render_context_live.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -268,6 +269,8 @@ static int wav_load_pcm16(const char *path, AudioWavTest *wt)
 /* The stream lanes' hooks for the frame loop and the message service
  * (em_stream_live; the message workers return 1 ok, 0 fault). */
 static int stream_field(void *context) { (void)context; return em_stream_live_field(); }
+/* Main-loop step B: 001D1AE0(D_00810E80) on the render context. */
+static int rcl_step_b(void *context, int32_t index) { (void)context; return em_rcl_001D1AE0(index); }
 static int stream_step_h(void *context) { (void)context; return em_stream_live_step_h(); }
 static int stream_voice_push(void *context, int32_t cue)
 { (void)context; return em_stream_live_001FA5A0(cue) == 0; }
@@ -354,6 +357,19 @@ int main(void)
                                                  em_scene_bindings_001FA790, stream_voice_push,
                                                  stream_stop_lane, stream_active};
     em_message_live_set_streams(&streams);
+    /* The render context (census L32 / L30): its storage with the boot
+     * ELF's .data words and the boot zoom store, and main-loop step B
+     * 001D1AE0(D_00810E80) on it every iteration. Without the export the
+     * game cannot start (fail-stop). */
+    if (em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) != 0) {
+        em_frame_set_sound_service(NULL);
+        em_message_live_shutdown();
+        em_stream_live_shutdown();
+        em_gfx_destroy(gfx);
+        em_window_destroy(win);
+        return 1;
+    }
+    em_frame_set_step_b(rcl_step_b, NULL);
     /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
      * D_00810E40 (em_pad_actuator). */
     em_pad_actuator_reset();

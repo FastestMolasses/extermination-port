@@ -315,7 +315,8 @@ added to the camera object), the live player record's +0x40, +0x1F2,
 (em_area11_roger's record). Workers added:
 - 001AEDE0 / 001AEE10 / 001AED80 / 001AEDB0 → the transition fade
   (em_fade.c through em_frame); 001AEB60 with any step → the bars;
-  001D25F0 with any zoom → g.cam.zoom;
+  001D25F0 with any zoom → em_rcl_001D25F0 (the render context's +0x2468;
+  RENDER_CONTEXT.md section 8);
 - 001FD4C0 → `em_message_live_stream_request`; 00119828 →
   `em_scene_bindings_00119828`; 001B7D60 → `em_message_live_op0c`;
   001FAE70 → `em_scene_bindings_001FAE70` (a0 == 0 translated: the resume);
@@ -328,9 +329,10 @@ added to the camera object), the live player record's +0x40, +0x1F2,
   bank 0x96's clip 0; the camera stage's 0022EEF0 is
   `em_area11_script_host_camera_0022EEF0` (em_camera.c, top mode 3);
 - 001C67E0 on Roger → `em_area11_roger_clip_init`;
-- 001B0250 → `em_scene_bindings_001B0250`; 0021B9A0 and 001D2830 → reported
-  no-effect bindings (UM_0021B9A0, UM_001D2830: no canonical render-context
-  block);
+- 001B0250 → `em_scene_bindings_001B0250`; 0021B9A0 and 001D2830 → the render
+  context's translations (em_rcl_0021B9A0, em_rcl_001D2830; RENDER_CONTEXT.md
+  section 8; before the render context step they were reported no-effect
+  bindings);
 - 00182BF0, 001B1240, 001B12B0, 001B1380 (em_script_host_workers over the
   live record and the collision world's SDK context), 001B1470
   (em_player_001B1470 over its domain), 001B0C00 (001AEDE0 and the reported

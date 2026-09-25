@@ -9,6 +9,9 @@
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
+#include "game/em_render_context_live.h"
+#include "game/em_sdk_math_original.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 #include "game/em_hud.h"
 #include "game/em_pickup.h"
@@ -331,6 +334,58 @@ static void pickups_state0(void)
     }
 }
 
+static int rcl_sdk_sqrt(void *ctx, uint32_t x, uint32_t *out)
+{
+    (void)ctx;
+    EmSdkMathContext *m = em_collision_world_sdk();
+    float r;
+    uint32_t f = 0;
+    if (!m || em_sdk_math_original_0011E748(m->tables, &m->world, &m->workers, em_ee_float(x), &r, &f) < 0)
+        return -1;
+    *out = em_ee_bits(r);
+    return 0;
+}
+
+static int rcl_sdk_tan(void *ctx, uint32_t x, uint32_t *out)
+{
+    (void)ctx;
+    EmSdkMathContext *m = em_collision_world_sdk();
+    float r;
+    uint32_t f = 0;
+    if (!m || em_sdk_math_original_0011E398(m->tables, em_ee_float(x), &r, &f) < 0) return -1;
+    *out = em_ee_bits(r);
+    return 0;
+}
+
+/* The fixture runs no frame head and no area render init: reaching them
+ * is a failure. */
+static int rcl_unreached(void *ctx) { (void)ctx; return -1; }
+static int rcl_unreached_block(void *ctx, uint32_t block) { (void)ctx; (void)block; return -1; }
+
+static void rcl_bind_fixture(void)
+{
+    EmSceneState *scene = em_scene_state();
+    const EmRclExternal views[] = {
+        {0x00810610u, 0x40u, em_camera_live_bytes(0x00810610u, 0x40u)},
+        {0x008105E0u, 0x10u, em_camera_live_bytes(0x008105E0u, 0x10u)},
+        {EM_SCENE_REQ_BASE, EM_SCENE_REQ_SIZE, scene->req},
+        {0x00810700u, 3u, &scene->d810700},
+        {0x008101E4u, 1u, &scene->d8101E4},
+        {0x70003B8Du, 1u, &scene->spad3B8D},
+        {0x008102B0u, 0x320u, (uint8_t *)(uintptr_t)em_camera_live_player_bytes()},
+    };
+    static const EmRclWorkers workers = {NULL, rcl_unreached, rcl_sdk_sqrt, rcl_sdk_tan,
+                                         rcl_unreached_block, rcl_unreached};
+    assert(em_rcl_bind(views, sizeof views / sizeof views[0], &workers) == 0);
+}
+
+static float rcl_float(uint32_t offset)
+{
+    float v;
+    memcpy(&v, em_rcl_bytes(EM_RCL_CONTEXT + offset, 4), 4);
+    return v;
+}
+
 static void setup(int reset_inventory)
 {
     memset(&g, 0, sizeof g);
@@ -362,7 +417,14 @@ static void setup(int reset_inventory)
     g.cam.top_mode = ram[0x8101E4]; g.cam.mode = ram[0x8101E6];
     g.cam.y_lo = word(ram, 0x810230); g.cam.y_hi = word(ram, 0x810234);
     g.cam.var_5c = word(ram, 0x81023C); g.cam.overhead_y = word(ram, 0x810240);
-    g.cam.horiz_dist = word(ram, 0x810690); g.cam.zoom = 480;
+    g.cam.horiz_dist = word(ram, 0x810690);
+    /* The render context (census L32 / L30): the capture's zoom, the views
+     * and workers the game's binder gives it (em_scene_bindings.c
+     * rcl_bind): the host's zoom stores, 001D2610's fog pair and the
+     * 001DD980 publications land there. */
+    assert(em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) == 0);
+    assert(em_rcl_poke(EM_RCL_CONTEXT + 0x2468, ram + EM_RCL_CONTEXT + 0x2468, 4) == 0);
+    rcl_bind_fixture();
     /* The live camera over the area's collision world, its bytes the
      * capture's camera block and vector pool (the g.cam view follows). */
     assert(em_camera_live_bind(&camera_host) == 0);
@@ -589,7 +651,7 @@ static void first_battery(void)
     }
     assert(em_scene_state()->req[EM_SCENE_REQ_EF] == 70);
     assert(!em_status_runtime_ordinary_enabled(status) && shared->owner == owner);
-    assert(isfinite(em_area11_interaction_host_projection()->scale));
+    assert(isfinite(rcl_float(0x2460)));   /* 001DD950's +0x2460 */
     do { assert(!outer(0)); assert(++ticks < 520); } while (shared->owner);
     assert(!player_pose_owned() && owner->lifecycle == 3 && !powered());
     printf("AREA11 native host first battery: %u callbacks, status release70 PASS\n", ticks);
@@ -643,7 +705,7 @@ static void no_battery(void)
     do { assert(!outer(0)); assert(++ticks < 300); }
     while (em_area11_interaction_host_shared()->owner);
     assert(panel->owner.phase == 0 && panel->owner.status == 1 && !powered());
-    assert(!player_pose_owned() && g.cam.top_mode == 0 && g.cam.zoom == 480);
+    assert(!player_pose_owned() && g.cam.top_mode == 0 && em_rcl_zoom() == 480);
     printf("AREA11 native host no-battery: %u ordinary callbacks PASS\n", ticks);
     teardown();
 }
@@ -701,10 +763,11 @@ static void panel_menu(int discharge, int child_slot)
     assert(stream_stops == old_stops + 1 && channel_sets == old_channels + 2);
     assert(!em_status_runtime_ordinary_enabled(status));
     assert(shared->owner == panel && player_pose_owned());
-    const EmInteractionProjection *projection = em_area11_interaction_host_projection();
-    assert(!memcmp(projection->center, g.cam.tgt, 3 * sizeof(float)) && projection->scale > 0);
+    /* 001DD950 copied the camera target D_008105E0 to +0x2450. */
+    assert(!memcmp(em_rcl_bytes(EM_RCL_CONTEXT + 0x2450, 12), g.cam.tgt, 3 * sizeof(float)) &&
+           rcl_float(0x2460) > 0);
     do { assert(!outer(0)); assert(++ticks < 400); } while (shared->owner);
-    assert(!player_pose_owned() && g.cam.top_mode == 0 && g.cam.zoom == 480);
+    assert(!player_pose_owned() && g.cam.top_mode == 0 && em_rcl_zoom() == 480);
     assert(em_pickup_item_count(0x1B) == 1 && em_pickup_battery_capacity() == 12);
     assert(em_pickup_battery_charge() == (discharge ? 8 : 12));
     assert(powered() == discharge && indicators == old_indicators + (unsigned)discharge);

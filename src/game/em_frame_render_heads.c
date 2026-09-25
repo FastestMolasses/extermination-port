@@ -449,6 +449,61 @@ int em_frh_001D30A0(EmFrh *h)
     return copy_qw4(h, EM_FRH_D_002513E0, EM_FRH_SPR_3AC0);
 }
 
+/* ---- 001D1AE0 ------------------------------------------------------------- */
+
+/* 001D1AE0(a0) (NEARMISS C; followed from the .s). D_00275670 is
+ * re-read before every store; the cursors are the arena D_0028F700 plus
+ * a0 * 0x60800 + 8 + 0x7FF8 (+0x10), a0 * 0x95760 (low word of the MULT)
+ * + 0xC9000 (+0x14), a0 * 0x70000 + 0x1F3EC0 (+0x18) and (a0 << 20) +
+ * 0x2D3EC0 (+0x1C), all in 32-bit arithmetic. 001CBA40, called after the
+ * +0x54 store, is an empty routine. */
+int em_frh_001D1AE0(EmFrh *h, int32_t index)
+{
+    ENTER(0x001D1AE0u);
+    NEED(w_001D1F20, 0x001D1F20u);
+    NEED(w_001D2040, 0x001D2040u);
+    NEED(w_001D1FF0, 0x001D1FF0u);
+    NEED(w_001CB8A0, 0x001CB8A0u);
+    NEED(w_001D2DE0, 0x001D2DE0u);
+    TRY(need(h, EM_FRH_D_00275670, 4, 0));
+    uint32_t ctx;
+    TRY(context(h, &ctx));
+    TRY(need(h, ctx + EM_FRH_CTX_CURSOR, 0x10, 1));
+    TRY(need(h, ctx + 0x50u, 0x10, 1));
+    TRY(need(h, ctx + EM_FRH_CTX_SLOT, 4, 1));
+
+    const uint32_t a0 = (uint32_t)index;
+    TRY(sw(h, ctx + EM_FRH_CTX_SLOT, a0));                             /* 001D1B08 */
+    const uint32_t c10 = EM_FRH_D_0028F700 + (((((a0 << 1) + a0) << 6) + a0) << 11) + 8u + 0x7FF8u;
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + EM_FRH_CTX_CURSOR, c10));                          /* 001D1B20 */
+    const uint32_t c14 = EM_FRH_D_0028F700 + a0 * UINT32_C(0x95760) + UINT32_C(0xC9000);
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + EM_FRH_CTX_CURSOR + 4u, c14));                     /* 001D1B4C */
+    const uint32_t c18 = EM_FRH_D_0028F700 + (((a0 << 3) - a0) << 16) + UINT32_C(0x1F3EC0);
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + EM_FRH_CTX_CURSOR + 8u, c18));                     /* 001D1B88 */
+    const uint32_t c1c = EM_FRH_D_0028F700 + (a0 << 20) + UINT32_C(0x2D3EC0);
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + EM_FRH_CTX_CURSOR + 12u, c1c));                    /* 001D1B98 */
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + 0x50u, 0));                                        /* 001D1BA0 */
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + 0x5Cu, 0));                                        /* 001D1BA8 */
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + 0x58u, 0));                                        /* 001D1BB0 */
+    TRY(context(h, &ctx));
+    TRY(sw(h, ctx + 0x54u, 0));                                        /* 001D1BBC */
+    /* 001D1BB8: 001CBA40 is empty. */
+    WORK(w_001D1F20, 0x001D1F20u, 1);                                  /* 001D1BC0 */
+    WORK(w_001D2040, 0x001D2040u, 1, 0);                               /* 001D1BCC */
+    WORK(w_001D1FF0, 0x001D1FF0u, 1, 1);                               /* 001D1BD8 */
+    TRY(context(h, &ctx));                                             /* 001D1BE0 */
+    WORK(w_001CB8A0, 0x001CB8A0u, EM_FRH_D_007635C0, 0, ctx, ctx + 4u); /* 001D1BF0 */
+    WORK(w_001D2DE0, 0x001D2DE0u, 0, 0);                               /* 001D1BFC */
+    return 0;
+}
+
 /* ---- 001D1C50 ------------------------------------------------------------- */
 
 static int fog_flag(EmFrh *h, int *flag)

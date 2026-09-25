@@ -27,6 +27,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_render_context_live.h"
 #include "game/em_scene_state.h"
 #include "game/em_script_door_fan.h"
 #include "game/em_script_host_workers.h"
@@ -67,7 +68,6 @@ static struct {
     EmCamLeftScratch scratch;                     /* 0x700038A0..0x70003A3C */
     uint32_t s3400[16], s3600[4], s3630[4];        /* 0x70003400, 0x70003600, 0x70003630 */
     EmCamLeftHit hit;                             /* 0x700031B0.. and *0x700031D0 */
-    EmInteractionProjection projection;           /* *D_00275670 +0x2450 */
     uint32_t tables[TABLES_WORDS];
     int tables_loaded;
     /* ---- inputs loaded at each entry (not camera storage) ---- */
@@ -105,11 +105,13 @@ static int fail(uint32_t address)
 }
 
 uint32_t em_camera_live_fault(void) { return C.fault; }
+static void view_load(void);
 static void view_store(void);
 static void view_publish(void);
 void em_camera_live_view_publish(void) { view_store(); view_publish(); }
+void em_camera_live_adopt_view(void) { if (C.bound) view_load(); }
 int em_camera_live_bound(void) { return C.bound; }
-EmInteractionProjection *em_camera_live_projection(void) { return &C.projection; }
+const uint8_t *em_camera_live_player_bytes(void) { return C.player.bytes; }
 
 uint8_t *em_camera_live_bytes(uint32_t address, uint32_t size)
 {
@@ -206,13 +208,15 @@ static void view_store(void)
     memcpy(&c->horiz_dist, &C.pool[P_690], 4);
 }
 
-/* The renderer's view of D_00810610 and the projection (the zoom is the
- * render context's +0x2468, g.cam.zoom). */
+/* The native view of D_00810610 and its projection at the render
+ * context's +0x2468 zoom. The world frames draw with the frame head's view
+ * instead (em_rcl_frame_view, frame_close_out); this is the legacy g.cam
+ * view the other readers of g.cam keep. */
 static void view_publish(void)
 {
     em_cs_view_to_native(g.cam.view, &C.pool[P_VIEW]);
     float proj[16];
-    em_mat4_perspective_gs(proj, g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
+    em_mat4_perspective_gs(proj, em_rcl_zoom());
     em_mat4_mul(g.viewproj, proj, g.cam.view);
 }
 
@@ -580,13 +584,24 @@ static int lw_0022EEF0(void *ctx, EmCameraFollowRecord *cam, int a1)
     return rc < 0 ? -1 : 0;
 }
 
+/* 001DD980(eye, target): its distance math (em_interaction_projection),
+ * then its tail call 001DD950(&D_008105E0, 2 + 1.02 d, d) on the render
+ * context (em_rcl_001DD950: +0x2450 = the camera target quadword, +0x2460,
+ * +0x2464). */
+static int publish_001DD980(const float eye[3], const float target[3])
+{
+    uint32_t f12[2];
+    if (!em_interaction_projection_001DD980(eye, target, f12)) return -1;
+    return em_rcl_001DD950(0x008105E0u, f12[0], f12[1]) < 0 ? -1 : 0;
+}
+
 static int lw_001DD980(void *ctx, uint32_t *eye, uint32_t *target)
 {
     (void)ctx;
     float e[3], t[3];
     memcpy(e, eye, sizeof e);
     memcpy(t, target, sizeof t);
-    return em_interaction_projection_publish(&C.projection, e, t) ? 0 : -1;
+    return publish_001DD980(e, t);
 }
 
 /* Camera action 0 (00195130). While a legacy stand-in owns the camera
@@ -1099,7 +1114,7 @@ static int rw_0018C0D0(void *ctx, uint32_t camera, int32_t a1)
 static int rw_001DD980(void *ctx, const float eye[4], const float target[4])
 {
     (void)ctx;
-    return em_interaction_projection_publish(&C.projection, eye, target) ? 0 : -1;
+    return publish_001DD980(eye, target);
 }
 
 static int rw_001029C0(void *ctx, float m[16])

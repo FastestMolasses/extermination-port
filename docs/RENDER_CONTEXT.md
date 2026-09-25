@@ -1,14 +1,17 @@
 # Render context lane (census L30-render-context)
 
-Date: 2026-09-23. Module: `src/game/em_render_context.{h,c}`. Oracle:
-`tools/test_render_context_reference.py`. Sanitizer fixture:
-`tests/render_context_test.c`. Neither is in the Makefile yet (section 7
-gives the hunks); the module is built and tested but not bound.
+Date: 2026-09-23; bound live 2026-09-25 (section 8). Module:
+`src/game/em_render_context.{h,c}`. Oracle: `tools/test_render_context_reference.py`.
+Sanitizer fixture: `tests/render_context_test.c`. The live binding, the one
+canonical render context shared with lane L32 (docs/FRAME_RENDER_HEADS.md),
+is `src/game/em_render_context_live.{h,c}` with its own oracle
+`tools/test_render_context_live_reference.py` (section 8).
 
 This lane covers the 16 functions FIRST_LEVEL_CENSUS.md groups under
-L30-render-context. All 16 are translated from the original code and checked
-against the original instructions over captured RAM. None is live: binding
-belongs to the coordinator (section 3 names each call site).
+L30-render-context, plus 001D2730 and 001DEDE0 (added by the binding step).
+All are translated from the original code and checked against the original
+instructions over captured RAM. Sections 1..7 describe the translation;
+section 8 says which of them run live and why the others do not.
 
 Names used below describe what the instructions do. They are not claims
 about what the player sees ("a label is not evidence"). The decomp's
@@ -39,6 +42,8 @@ yet (the census status verified-unbound).
 | 001E1010 | BM | missing | verified-unbound | 16 x 16 records of 0x18 bytes at D_0081E0F0: +0 = (256 * j) / 16, +4 = (256 * i) / 16 (CVT.S.W, MUL.S, DIV.S), +8 = +0xC = 0; +0x10..+0x17 untouched |
 | 001D5370 | NM | missing | verified-unbound | the grid pass (2.5) |
 | 001D52E0 | BM | missing | verified-unbound | grid header: e = 001C6120(*D_0028A5A0, 0); context +0x144 = e[0], +0x148 = e[1], +0x150..+0x164 = e[2..7], +0x140 = e + 0x20 |
+| 001D2730 | NM | boundary | live (section 8) | flags 0..0x1F at context +0x0C: bit = 1 << (a0 & 31); for a0 = 0 only, a1 != 0 with the bit clear copies +0xC0 to +0xA0, a1 = 0 with the bit set copies +0xA0 to +0xC0 then +0x100 to +0xA0 (block_copy, 32 bytes); then the bit is set or cleared; returns the OLD bit |
+| 001DEDE0 | AW | not in the census (boot) | live (section 8) | the two 001DEEE0 records: for flag 2 then 9, record = 001DEDB0(flag) (+0x2490 for 9, else +0x2470), bytes +0, +3, +2, +1 = 0, word +8 = flag; then 001DEE80(flag, &D_0026E850) (three words to +0x10..+0x18) and 001DEEC0(flag, 0x60) (+4) for 2, then 9 |
 
 The module also translates seven helpers the lane functions reach. The census
 lists them as boundary (GS/VIF packet build). They are translated here
@@ -453,7 +458,9 @@ Mutation check, run by hand on a scratch copy and not kept:
 
 ## 6. Limits (honest)
 
-- **Nothing is bound.** Each stand-in named in section 3 still runs live.
+- **Bound in part.** Section 8 lists what runs live since 2026-09-25 and
+  what is still not bound (001D5370, 001D52E0, 001DD7B0 / 001DD940,
+  001E0C30 / 001E1010 at 001D19E0, 001E0DF0 / 001D21B0 at 001D2300).
 - **Replay workers.** In the test, 0015D2F0, 0022EBE0, 001B0070, 001026A0,
   001CB760, 001D2D20, 001026D0 and 001C6120 take their effects from the
   original. The test proves the calls and arguments, not those callees.
@@ -471,7 +478,7 @@ Mutation check, run by hand on a scratch copy and not kept:
 - **Unit cases** poke synthetic states into the opening capture. Only the
   capture cases are states the game really reached.
 
-## 7. Makefile hunks (for the lead)
+## 7. Makefile (applied)
 
 Test targets:
 
@@ -485,6 +492,144 @@ test-render-context:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/render_context_test.c src/game/em_render_context.c -o build/render_context_test && ./build/render_context_test
 ```
 
-Add `src/game/em_render_context.c` to COMMON when the first call site in
-section 3 is bound. It compiles with zero warnings in the private app build
+`src/game/em_render_context.c` is in COMMON since the binding step
+(section 8). It compiles with zero warnings in the private app build
 and under `-Wpedantic -Wconversion -Wshadow`.
+
+
+## 8. The live binding (census L30 with L32, 2026-09-25)
+
+### 8.1 One render context
+
+`src/game/em_render_context_live.{h,c}` owns the storage every routine of
+this lane and of lane L32 addresses, once, by original address:
+
+| Range | What |
+|---|---|
+| 0x0028F700..0x007635BF | the packet arena D_0028F700 the channel cursors +0x10..+0x1C point into |
+| 0x007635C0..0x0076B5BF | the chain table D_007635C0 (slot words, head words) |
+| 0x00811CC0..0x0081723F | the render context, the GS register blocks at D_00275674 (0x814220) and the 14 skin records at D_00816440 |
+| 0x70003A40..0x70003B3F, 0x70003B60 | the scratchpad the frame head copies P / K to, and the zoom copy |
+| .data | D_00241010 (8), D_00250F30..D_0025316F (the 001E2270 colour, D_002513E0, the room table D_00251C50), D_0026E510 (16), D_0026E850 (16), D_00275670..D_0027569F |
+
+The .data comes from the user's ELF through `tools/export_render_context.py`
+(`assets/render_context.emrc`, verified byte for byte against the opening
+capture and route beats 00..14, the run-time words excepted). Without it the
+game does not start (main.c, fail-stop). Every other byte the routines read
+is a view onto its owner, handed over by the binder (em_scene_bindings.c
+`rcl_bind`): D_00810E80 (em_frame's buffer index), D_00810610 and D_008105E0
+(the live camera's pool), the request block D_008106B0.., the area bytes
+D_00810700..702, D_008101E4 and 0x70003B8D (the scene state), and the
+player record D_008102B0 (the live camera's view of it, CAMERA_LIVE.md
+section 5: its +0xB0 is the pose host's hip, as 0015BCF0's tail would have
+written it). The lane modules are composed over this one storage; each
+worker of one is the translation of the other (the module adds no
+behaviour). The workers the port does not translate are the binder's: the
+point-light tick 001D7C30 (em_point_light), the SDK sqrtf / tanf of the
+area's collision world, 001C1DC0's weather spawn 001C1EA0 and the reported
+001D52E0. The four 001DDA00 effect callees the first level never reaches
+(001DF110, 001DE920, 001DDB70, 001DFF70) and every callee of the entries
+that are not bound are bound to a fault.
+
+### 8.2 What runs live, and where
+
+| Original | Live position | Replaces |
+|---|---|---|
+| 001D1AE0 | main-loop step B, every iteration the movie does not hold (em_frame_set_step_b, main.c) | nothing (em_gfx_begin_frame was the whole step) |
+| 001D1C50 (with 001D2830, 001D2730 / 001E0C80, 0021B9A0, 001D2960, 001D2D20, 001D30A0, 001D7C30) | both world variants and the status frame (w_001D1C50) | em_render_001D1C50 (the point-light tick only), which stays for a scene without the render context |
+| 001D1EA0 (001D2910, 001E0D70, 001DDA00 -> 001DEEE0, 001DDAA0, 001DDE10, and the kick 001CB800) | both world variants (a0 = 1) and the status frame (a0 = 0), before the renderer's presentation | nothing: frame_close_out was the whole close |
+| 001C1DC0 (the eight registrations, 001C1E70 -> 001D52E0 reported, 001C1E80 -> 001D8FD0, 001C1E90, 001C1EA0, 001C1F50) | 0x1AE040 states 0 and 4 (w_001C1DC0) | the weather spawn alone (UM_001C1DC0, kept for a scene without the render context) |
+| 001E0CC0 | the status close (w_001E0CC0) | UM_001E0CC0 |
+| 001D25F0, 001D2610 (001D2590, 0021B970) | the interaction host's ZOOM_DEFAULT, SCOPE_ZOOM_ZERO and CONFIGURE, the script host's op workers and Roger's timeline (0022EEF0) zoom, the opening runtime's zoom stores | `g.cam.zoom` (removed), `em_camera_scope_zoom` (removed), the hard-coded 0x43F02F4F |
+| 001DD950 | 001DD980's tail (the camera's 0018BC20 action 8 and 001B0460, the interaction host's and the script host's publications) | the EmInteractionProjection record in em_camera_live (removed) and its host-double quotient |
+| 0021B9A0 (0, 0, 0), 001D2830 (2, 0) | the script host's workers and the timeline's restores | the reported UM_0021B9A0 / UM_001D2830 of the script host |
+| the boot stores 001D25F0(480.0) and 001DEDE0 | em_rcl_init | nothing |
+
+Readers of the one context:
+- **The native world pass** (frame_close_out) draws with the frame head's view
+  and zoom: V at +0x2380 is the D_00810610 of the camera stage BEFORE this
+  frame's (001D2960 is its only writer and 001D1C50 its only caller, ahead of
+  0018B9C0 in 001AE5E0 / 001AE6B0). The captures hold +0x2380 != D_00810610
+  in every beat whose camera moved in its last frame (02, 04..07, 09, 10, 12);
+  the level smoke checks the lag on every tick. The skinned draws, the level
+  background, the pickup lights, the prop indicators, the snow and the AREA11
+  effect all use it.
+- **The world fog**: the (A, B) pair 001D30A0 copied into the skin records and
+  FOGCOL from the GS block 001D1C50 REFs (context +0xB0), through
+  em_gfx_fog_coefficients; the manifest's fog line serves only scenes without
+  the context.
+- **The snow and the AREA11 effect** take P (+0x2340), the 001CD370(0)
+  projection (+0x2240) and K (+0x23C0) from the context
+  (em_rcl_frame_matrices); `em_snow_projection_matrices`, a private copy of
+  those three, is deleted (the captured matrices equal what it computed, so
+  only the view source changed: the frame head's).
+- **The zoom** readers (the status models' UI projection, the legacy camera's
+  commit, the camera's native view) read +0x2468 (em_rcl_zoom).
+
+### 8.3 The boot, and what is not modelled from it
+
+The boot builder sub_EXTERMINATION (NEARMISS) is not translated. Two of its
+stores are read by a bound routine before anything else writes them, and
+em_rcl_init performs them through their translations: 001D25F0(480.0) and
+001DEDE0 (the records' flag numbers 2 / 9 steer 001DEEE0; with a zero record
+001DEEE0 would test flag 0, set in AREA11, and reach the untranslated
+001DF110). Its other context stores are rewritten by the area load before a
+bound reader: the flag registrations (001C1DC0), the fog pair and latches
+(001D8FD0), except the +0x100 copy, which only 001D2730(0, 0) reads (never on
+the route). Its arena fill (the 128-bit pattern at D_0026E3F0) and GS blocks
+reach only DMA packet bytes (001006D8's read-modify-write of three packet
+dwords, the bytes packets leave as they were): the port's arena starts zero.
+
+### 8.4 Not bound, and why
+
+| Original | Why not | What it needs |
+|---|---|---|
+| 001C1D00 (001E0CF0, 001D5370) | 001D5370 reads the static-object bank *D_0028A5A0 (0x1516F40 in every AREA11 capture), which is not exported, and its callees 001D4FB0 / 001D4B20 / 001D4DA0 / 001D5BD0 build the static world's packets (renderer boundary to decide); 001E0CF0 calls the background channel 001E1E60 / 001E1AD0 (lane L31) | an export of the bank (it lies in the chunk15 concatenation at 0x304000; 0x48D000 bytes equal the captures from there) and the boundary decision; em_render_001C1D00 stays the stand-in |
+| 001D52E0 (001C1DC0's 001C1E70) | the same bank | reported (UM_001D52E0); its only reader is 001D5370 |
+| 001D19E0 | its callees skin_arena_init, 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows, 001D7BB0 is em_point_light's | a decision on the skin arena (the records 001D30A0 fills) |
+| 001D1EF0 and the status / teardown / load-veil 001D2830 calls | 001D2830(3, 1) sets flag 3, which the main loop's step V 001D2300 clears; 001D2300 is not bound, so the flag would stay set | 001D2300 (lane L31, em_background_gs) |
+| 001D2580 (step W) | stores the field bit D_00810E88 at +0x98; the port has no field model | the vblank field (MAIN_LOOP_AND_GAP.md) |
+| 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |
+| 0021BAC0 / 0021BAE0, 0021B9A0(5, 0, 1e6) in the status page | the page's fog save and restore (CENSUS_UNVERIFIED.md 0020DFA0) | the page's CONFIGURE / END_PROJECTION binding |
+| 001D88B0 / 001D8C30, 001D8060 / 001D80B0, 001D9070 | lighting (em_lighting's stand-ins) and the fade weights | lanes L40, L33 |
+| the light slots +0x220..+0x121F | em_point_light keeps its own pool (g.point_lights); 001D7C30 runs on it | one storage for the slots |
+| the status pages' D_00810610 | 0020DFA0 sets D_00810610 to the UI view; em_status_models keeps that view in its own copy, so the status frames' 001D1C50 projects the camera pool's world view where the original projects the UI view. Nothing reads the context's matrices in a status frame (the page draws with its own view and the context's zoom), and state 5's 0018C0D0 restores the world view before the next world frame head in the original | one storage for D_00810610 (the status models over the camera pool) |
+
+### 8.5 Evidence
+
+- `tools/test_render_context_live_reference.py` (`make
+  test-render-context-live-reference`): the module the game links, from
+  each route beat's snapshot, against the original instructions: 001C1DC0,
+  per frame 001D1AE0 / 001D1C50 / three effect-style 0021B9A0 calls /
+  001D1EA0(1) with the step-W flip and a camera move between frames, the zoom
+  writers, 001DD950, a status frame and an opening-style frame. After every
+  entry the 5 MB arena and chain table, the context, the GS blocks, the skin
+  records, the .data and scratchpad blocks equal the original's RAM; the
+  recorded callees match. Default 3 beats x 3 frames (about 3 s);
+  EM_TEST_FULL=1 all 15 beats x 6 frames. Mutations checked by hand (a
+  001D1FF0 argument, the 001B0070 word, the 001E2270 source, the 001D7B30
+  record, the 0022EBE0 result) all fail it.
+- The level smoke (`check_render_context`, LEVEL_SMOKE.md): every gameplay
+  tick of the whole route holds the snapshots' flag words (0x43 / 3), fog
+  block +0xA0..+0xFF, the eased pair D_00275690 / 94 at its fixed point, the
+  widths 24 / 40 / 56 / 72 and the +0x2450 tail; every frame head projected
+  the previous tick's D_00810610; a sample of ticks' K and +0x2240 equal the
+  ORIGINAL 001D2960 executed over the logged view and zoom.
+- Measured on the live link line (a coverage build of the full-route smoke
+  plus side beat 00): 001D1AE0 / 001CB8A0 17,198 calls; 001D1C50, 001D1EA0,
+  001D2960, 001D30A0, 001CB800 14,641; 001DDA00, 001DDAA0, 001DDE10,
+  001E0D70, 001CB760 14,223; 001D2D20 58,564; 001D2830 29,323; 001D2730
+  29,307; 001DEEE0 28,446; 001D6B10 / 001D6930 / 001D6E60 / 001006D8 /
+  00100610 / 001D6BA0 / 001D6C90 56,892; 0021B9A0 5,662; 001DD950 4,318;
+  001D25F0 4,016; 001D2610 / 001D2590 15; 0021B970 17; 001C1DC0 / 001C1F50 /
+  001D8FD0 / 001D7B30 2; 001E0CC0 3; 001DEDE0 2 (one per process).
+- Oracles of the parts: test_frame_render_heads_reference (001D1AE0 added),
+  test_render_context_reference (001D2730, 001DEDE0 added),
+  test_packet_chain_reference (001CB800, 001CB8A0, 0021B970, 0021BA80,
+  001D8FD0 added), test_interaction_projection_reference (001DD980 up to its
+  001DD950 call).
+
+Makefile: the modules are in COMMON (em_frame_render_heads.c,
+em_render_context.c, em_render_context_live.c, em_load_veil_particles.c,
+em_actor_light_001D89D0.c, em_player_equipment.c); target
+`test-render-context-live-reference`.

@@ -39,7 +39,13 @@ SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/ga
            'src/game/em_actor_pool.c', 'src/game/em_coll_probe_original.c', 'src/game/em_coll_grid_hull.c',
            'src/game/em_coll_segment_walkers.c', 'src/game/em_coll_list_passes.c',
            'src/game/em_coll_list_passes_walkers.c', 'src/game/em_sdk_math_original.c',
-           'src/game/em_sdk_soft_float.c', 'src/game/em_effect_original.c']
+           'src/game/em_sdk_soft_float.c', 'src/game/em_effect_original.c',
+           # The render context (census L32 / L30): the zoom the camera's view
+           # publication reads, the 001DD950 store of its 001DD980 calls.
+           'src/game/em_render_context_live.c', 'src/game/em_frame_render_heads.c',
+           'src/game/em_render_context.c', 'src/game/em_packet_chain_original.c',
+           'src/game/em_status_ui_leftovers.c', 'src/game/em_load_veil_particles.c',
+           'src/game/em_actor_light_001D89D0.c', 'src/game/em_player_equipment.c']
 CAM, POOL = 0x8101E0, 0x8105D0
 # The camera block words the retarget writes (offset, size).
 WRITTEN = ((0x07, 1), (0x10, 12), (0x20, 12), (0x30, 12), (0x50, 4), (0x54, 4), (0x58, 2), (0x5A, 2),

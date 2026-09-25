@@ -1537,6 +1537,102 @@ PHASES = [
 ]
 
 
+# ------------------------------------------------------------ render context
+
+# The tick log's "rctx" (em_scene_bindings.c log_tick_end), in order.
+RCTX_FIELDS = ('flags0c', 'flags174', 'fog', 'zoom', 'v', 'k', 'alt0', 'bars', 'depth', 'eases', 'cam610')
+RCTX_CONTEXT = 0x811CC0
+RCTX_ORACLE_SAMPLES = 40
+
+
+def rctx(tick):
+    r = tick.get('rctx')
+    return dict(zip(RCTX_FIELDS, (bytes.fromhex(x) for x in r))) if r else None
+
+
+def rctx_reference():
+    """The camera-independent context bytes every in-scope route snapshot
+    (00..14) holds, asserted equal across them: the flag words, the fog
+    block with its presets and latches (+0xA0..+0xFF), the eased pair
+    D_00275690 / D_00275694 at its fixed point, and the four widths with the
+    +0x2510 word (+0x2500..+0x2513) and the +0x245C..+0x2467 tail of the
+    +0x2450 block that 001DDE10 leaves on its D_00810360 path."""
+    c, ref = RCTX_CONTEXT, None
+    for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15'):
+        m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        got = {'flags0c': m[c + 0xC:c + 0x10], 'flags174': m[c + 0x174:c + 0x178], 'fog': m[c + 0xA0:c + 0x100],
+               'eases': m[0x275690:0x275698], 'widths': m[c + 0x2500:c + 0x2514], 'tail': m[c + 0x245C:c + 0x2468]}
+        assert ref is None or got == ref, ('the route snapshots disagree on the render context', beat)
+        ref = got
+    return ref
+
+
+def check_render_context(ticks, state):
+    """The live render context (census L32 / L30, docs/RENDER_CONTEXT.md
+    section 8) over the whole run, from first control on:
+    - every gameplay tick (001AE5E0 ran, 3B8D == 0, D_008101E4 != 3, so
+      001DDE10 takes its D_00810360 path) holds the snapshots' flag words,
+      fog block, D_00275690 / D_00275694, widths and +0x2450 tail;
+    - every tick whose frame head ran (V changed) projected the camera pool's
+      D_00810610 of the END of the previous tick: the one-frame view lag of
+      the original (V at +0x2380 is written only by 001D2960, called only by
+      001D1C50, which runs before the camera stage);
+    - on a sample of ticks the ORIGINAL 001D2960, executed over a route
+      snapshot with the tick's V and zoom, writes the logged K and
+      001CD370(0) projection bit for bit."""
+    import test_frame_render_heads_reference as frh
+    from test_player_slide_reference import RETURN, read_elf
+    ref = rctx_reference()
+    first = state['first_control']
+    gameplay, lagged, moved, prev = 0, 0, 0, None
+    samples = []
+    for i in range(first, len(ticks)):
+        t, r = ticks[i], rctx(ticks[i])
+        if r is None:
+            prev = None
+            continue
+        sp = snap(t)
+        spad = bytes.fromhex(sp['spad'])
+        if sp['variant'] and spad[1] == 0 and tsr.get(bytes.fromhex(t['post']), 0x8101E4) != 3:
+            where = ('render context', 'port tick', t['tick'])
+            assert r['flags0c'] == ref['flags0c'] and r['flags174'] == ref['flags174'], (where, 'flags',
+                                                                                        r['flags0c'].hex())
+            assert r['fog'] == ref['fog'], (where, 'fog block +0xA0..+0xFF', r['fog'].hex())
+            assert r['eases'] == ref['eases'], (where, 'D_00275690 / D_00275694', r['eases'].hex())
+            assert r['bars'][0x10:] == ref['widths'], (where, 'widths +0x2500..+0x2513', r['bars'][0x10:].hex())
+            assert r['depth'][0xC:] == ref['tail'], (where, '+0x245C..+0x2467', r['depth'][0xC:].hex())
+            gameplay += 1
+            if gameplay % 200 == 1:
+                samples.append(r)
+        if prev is not None and r['v'] != prev['v']:
+            assert r['v'] == prev['cam610'], ('render context', 'port tick', t['tick'],
+                                              'V is not the previous tick\'s D_00810610')
+            lagged += 1
+            moved += prev['cam610'] != r['cam610']
+        prev = r
+    assert gameplay >= 100 and lagged >= 100 and moved >= 50, ('render context: too little exercised',
+                                                             gameplay, lagged, moved)
+    elf = read_elf()
+    leaf = frh.Leaf(elf)
+    image = (ROUTE / '05_boxes' / 'eeMemory.bin').read_bytes()
+    spad0 = (ROUTE / '05_boxes' / 'scratchpad.bin').read_bytes()
+    samples = samples[:RCTX_ORACLE_SAMPLES]
+    for r in samples:
+        ee = frh.FrhEE(elf, image, spad0)
+        ee.hooks[0x11E748] = lambda e: e.f.__setitem__(0, leaf(0x11E748, e.f[12] & 0xFFFFFFFF))
+        ee.write(0x810610, r['v'])
+        ee.write(RCTX_CONTEXT + 0x2468, r['zoom'])
+        ee.r[29], ee.r[4], ee.r[31] = 0x7F0F0000, 0x810610, RETURN
+        ee.run(0x1D2960)
+        assert ee.read(RCTX_CONTEXT + 0x2380, 0x40) == r['v']
+        assert ee.read(RCTX_CONTEXT + 0x23C0, 0x40) == r['k'], ('render context: K differs from the original 001D2960')
+        assert ee.read(RCTX_CONTEXT + 0x2240, 0x40) == r['alt0'], ('render context: +0x2240 differs from 001D2960')
+    print(f'render context: PASS ({gameplay} gameplay ticks hold the route snapshots\' flag words, fog block '
+          f'+0xA0..+0xFF, D_00275690/94, widths and +0x2450 tail; {lagged} frame heads projected the previous '
+          f'tick\'s D_00810610 ({moved} of them with the camera moving that frame: the original\'s one-frame '
+          f'view lag); {len(samples)} sampled ticks\' K and 001CD370(0) projection equal the original 001D2960)')
+
+
 SIDE = ('panel_no_battery', 'fence_door')
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
@@ -1571,6 +1667,8 @@ def main():
             side_named.append(name)
             if re.search(rf'^level smoke: {name}: side beat, not on the main line \(.*; NOT-LIVE:', run, re.M):
                 not_live.append(name)
+    if 'first_control' in checked:
+        check_render_context(ticks, state)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

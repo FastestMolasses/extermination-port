@@ -1,4 +1,5 @@
 #include "game/em_snow_runtime.h"
+#include "game/em_render_context_live.h"
 #include "game/em_snow.h"
 #include "game/em_snow_particles.h"
 #include "game/em_snow_projection.h"
@@ -115,12 +116,16 @@ void em_snow_runtime_draw(EmGfx *gfx, const float view[16], float zoom)
     projection.fog[1] = 2048.0f;
     projection.fog[2] = em_effect_float32(300.0 * slope);
     projection.fog[3] = -slope;
-    float original_view[16], native_projection[16];
-    for (unsigned column = 0; column < 4; ++column)
-        for (unsigned row = 0; row < 4; ++row)
-            original_view[column*4+row] =
-                (row == 1 || row == 2) ? -view[column*4+row] : view[column*4+row];
-    em_snow_projection_matrices(&projection, original_view, zoom);
+    /* P (+0x2340), the 001CD370(0) clip projection (+0x2240) and K (+0x23C0)
+     * of the render context, as this frame's head 001D1C50 built them (the
+     * matrices the original's VU packets carry). */
+    float native_projection[16];
+    uint32_t p[16], clip[16], k[16];
+    if (em_rcl_frame_matrices(p, clip, k) < 0) return;
+    memcpy(projection.extent_projection, p, sizeof p);
+    memcpy(projection.clip_from_world, clip, sizeof clip);
+    memcpy(projection.screen_from_world, k, sizeof k);
+    (void)view;
     em_mat4_perspective_gs(native_projection, zoom);
     unsigned count = 0;
     for (unsigned i = 0; i < snow.count; ++i) {

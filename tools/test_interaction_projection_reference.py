@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Check DD980 and DD950 with the original SDK square-root body."""
+"""Check 001DD980 (em_interaction_projection_001DD980) with the original SDK
+square-root body: the two float registers and the address it hands its tail
+call 001DD950 must equal the original's, bit for bit. 001DD950 itself is the
+render context's (em_render_context_001DD950, test_render_context_reference;
+bound live through em_rcl_001DD950, test_render_context_live_reference)."""
 import ctypes as C
 import hashlib
 import json
@@ -10,15 +14,10 @@ import subprocess
 
 from test_item_sdk_math_reference import Original
 from test_interaction_scan_reference import ELF_SHA
-from test_point_light_reference import CONTEXT
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 EYE, TARGET = 0x8105D0, 0x8105E0
-
-
-class Projection(C.Structure):
-    _fields_ = [('center', C.c_float * 4), ('scale', C.c_float), ('distance', C.c_float)]
 
 
 def main():
@@ -31,8 +30,8 @@ def main():
                     '-ffp-contract=off', '-shared', '-fPIC', '-Isrc',
                     'src/game/em_interaction_projection.c', 'src/game/em_item_sdk_math.c',
                     'src/game/em_interaction_scan.c', '-o', str(library)], cwd=ROOT, check=True)
-    native = C.CDLL(str(library)).em_interaction_projection_publish
-    native.argtypes = [C.POINTER(Projection), C.POINTER(C.c_float), C.POINTER(C.c_float)]
+    native = C.CDLL(str(library)).em_interaction_projection_001DD980
+    native.argtypes = [C.POINTER(C.c_float), C.POINTER(C.c_float), C.POINTER(C.c_uint32)]
     native.restype = C.c_int
     cases = [([0, 0, 0], [0, 0, 0]), ([1, 2, 3], [1, 2, 3])]
     captured = []
@@ -52,13 +51,20 @@ def main():
         original = Original(elf)
         original.write(EYE, bytes(eye) + struct.pack('<f', 1))
         original.write(TARGET, bytes(target) + struct.pack('<f', 1))
+        tail = []
+
+        def capture(o):
+            tail.append((o.r[4] & 0xFFFFFFFF, o.f[12] & 0xFFFFFFFF, o.f[13] & 0xFFFFFFFF))
+        original.calls[0x1DD950] = capture
         original.run(0x1DD980, (EYE, TARGET))
-        expected = original.read(CONTEXT + 0x2450, C.sizeof(Projection))
-        result = Projection()
-        assert native(C.byref(result), eye, target) == 1
-        assert bytes(result) == expected, (index, bytes(result).hex(), expected.hex())
-    report = {'original_DD980_DD950_cases': len(cases), 'saved_camera_pairs': len(captured),
-              'render_context_bytes_each': C.sizeof(Projection), 'scope': 'setter and SDK arithmetic; downstream depth rendering separate'}
+        assert len(tail) == 1 and tail[0][0] == TARGET, (index, tail)
+        result = (C.c_uint32 * 2)()
+        assert native(eye, target, result) == 1
+        assert (result[0], result[1]) == tail[0][1:], (index, [hex(v) for v in result],
+                                                       [hex(v) for v in tail[0][1:]])
+    report = {'original_DD980_cases': len(cases), 'saved_camera_pairs': len(captured),
+              'scope': '001DD980 up to its 001DD950(&D_008105E0, f12, f13) call (the SDK arithmetic); '
+                       '001DD950 is the render context\'s'}
     (folder / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print('interaction projection original reference PASS:', json.dumps(report))
 

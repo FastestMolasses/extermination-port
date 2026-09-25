@@ -81,14 +81,12 @@ EXPECTED = {
     '001C5760/live-init-stub': 'the live 001C22A0 bind always succeeds (no bone-slot model)',
     '001C5680/live-place-stub': 'the live 001C6380 placement is a no-op (the owner\'s palette places the draw)',
     '001C5760/live-place-stub': 'the live 001C6380 placement is a no-op (incl. the +0x0A re-run)',
-    '001CF470/missing': 'no port translation of 001CF470 (nor of its caller 001CE300)',
     # One key per CONFIGURE callee the port does not run, so a partial fix
     # retires exactly its own key.
     '0020DFA0/missing-0020E020': 'CONFIGURE does not reset the trail D_00821300/D_00275C90 (request-opened '
                                  'pages skip both port trail resets)',
     '0020DFA0/missing-0021BAC0': 'CONFIGURE does not save the fog block (0021BAC0(0))',
     '0020DFA0/missing-0021B9A0': 'CONFIGURE does not program the fog (0021B9A0(5, 0.0, 1e6); no translation)',
-    '0020DFA0/missing-0021B970': '001D2610\'s fog range 0021B970(ctx+0xF8, ctx+0xFC) is not re-set',
 }
 
 # 001CF470 reference (no port translation yet): the original's fan-size
@@ -930,11 +928,17 @@ def part_20dfa0(elf, L):
     assert o.load(ctx + 0x2468) == zoom
     host = source('game/em_area11_interaction_host.c')
     case = re.search(r'case EM_STATUS_PAGE_CONFIGURE:(.*?)\n    case ', host, re.S).group(1)
-    port_zoom = re.search(r'g\.cam\.zoom = (0x[0-9a-fA-F.p+-]+)f;', case)
-    if port_zoom and fbits(float.fromhex(port_zoom.group(1))) == zoom:
-        res.ok('001D2610(0.0) zoom (0x70003B60 / ctx+0x2468) == the host\'s g.cam.zoom constant')
+    # Since the render context step (census L32 / L30) the host runs the
+    # translation itself on the render context: em_rcl_001D2610(0), i.e.
+    # em_frh_001D2610 (test_frame_render_heads_reference executes the
+    # original 001D2610 against it; its zoom and its 0021B970 land in the
+    # one context block).
+    runs_2610 = bool(re.search(r'em_rcl_001D2610\(\s*0\s*\)', case))
+    if runs_2610:
+        res.ok('CONFIGURE runs 001D2610(0.0) on the render context (em_rcl_001D2610: its zoom %s and '
+               'its 0021B970 fog pair)' % hex(zoom))
     else:
-        res.diverge('0020DFA0/zoom', dict(original=hex(zoom), port=port_zoom and port_zoom.group(1)))
+        res.diverge('0020DFA0/zoom', dict(original=hex(zoom), port=None))
     assert fog == [(w32(ram, ctx + 0xF8), w32(ram, ctx + 0xFC))], fog
     # What the live CONFIGURE handler performs, read from its text.
     # The trail reset may also land in em_status_runtime.c page_worker, as a
@@ -946,12 +950,12 @@ def part_20dfa0(elf, L):
                             re.S)
     performed = {'001AFE60': 'em_status_models_clear' in case,
                  '001029C0-configure': 'em_status_models_configure' in case,
-                 '001D2610-zoom': 'g.cam.zoom' in case,
+                 '001D2610-zoom': runs_2610,
                  '0020E020': bool(re.search(r'trail_reset\s*\(|0020E020\w*\(', case)) or
                              bool(worker_case and 'em_item_trail_reset(' in worker_case.group(1)),
                  '0021BAC0': bool(re.search(r'0021BAC0\w*\(', case)),
                  '0021B9A0': bool(re.search(r'0021B9A0\w*\(', case)),
-                 '0021B970': bool(re.search(r'0021B970\w*\(', case))}
+                 '0021B970': bool(re.search(r'0021B970\w*\(', case)) or runs_2610}
     for callee, done in performed.items():
         if done:
             res.ok(f'CONFIGURE runs {callee}')

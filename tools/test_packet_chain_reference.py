@@ -8,7 +8,14 @@ registers and a chosen stack). It executes the original instructions of the
 pinned boot ELF (the user's config/SCUS_971.12):
 
   001CB5F0, 001CB6B0, 001CB760, 001CB900 with 001CB9B0, 0021B9A0 with its
-  jump table, 0021B920, 0021B900 and 00121870 (block_copy).
+  jump table, 0021B920, 0021B900 and 00121870 (block_copy); the frame
+  chain start 001CB8A0 and splice 001CB800; the fog setters 0021B970 and
+  0021BA80 (with 0021BA70); the area fog 001D8FD0 with everything it calls
+  (001D7B30 and its 001D2910 flag test, 001B0070, 0021B8E0) unhooked.
+
+The native 001D8FD0 takes 001D7B30 and 001B0070 as workers: the test
+answers them by executing the original routine over a copy of the native
+RAM at the moment of the call.
 
 COP1 arithmetic comes from tools/ee_float_model.py (docs/EE_FLOAT_MODEL.md).
 Memory is a captured route snapshot (../Extermination/build/s87/route/<beat>/
@@ -98,6 +105,13 @@ class Chain(C.Structure):
                 ('fault_function', C.c_uint32), ('fault_address', C.c_uint32)]
 
 
+RECORD_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_uint32))
+
+
+class AreaFogWorkers(C.Structure):
+    _fields_ = [('ctx', C.c_void_p), ('w_001D7B30', RECORD_FN), ('w_001B0070', RECORD_FN)]
+
+
 def build_lib():
     OUT.mkdir(parents=True, exist_ok=True)
     lib_path = OUT / 'packet_chain.dylib'
@@ -118,6 +132,11 @@ def build_lib():
     lib.em_packet_chain_0021B920.argtypes = [P(Chain), C.c_uint32, C.c_uint32]
     lib.em_packet_chain_0021B9A0.argtypes = [P(Chain), C.c_int32, C.c_uint32, C.c_uint32]
     lib.em_packet_chain_fog.argtypes = [P(Chain), P(C.c_uint32)]
+    lib.em_packet_chain_0021B970.argtypes = [P(Chain), C.c_uint32, C.c_uint32]
+    lib.em_packet_chain_0021BA80.argtypes = [P(Chain), C.c_int32, C.c_int32, C.c_int32]
+    lib.em_packet_chain_001D8FD0.argtypes = [P(Chain), P(AreaFogWorkers)]
+    lib.em_packet_chain_001CB8A0.argtypes = [P(Chain), C.c_int32, C.c_uint32, C.c_uint32]
+    lib.em_packet_chain_001CB800.argtypes = [P(Chain), C.c_uint32, C.c_int32, C.c_uint32, C.c_uint32]
     lib.em_packet_chain_w_001CB5F0.argtypes = [C.c_void_p, C.c_uint32, C.c_int32, C.c_int32, P(U8P)]
     lib.em_packet_chain_w_001CB6B0.argtypes = [C.c_void_p, C.c_uint32, C.c_int32, C.c_int32, C.c_uint32]
     lib.em_packet_chain_w_001CB760.argtypes = [C.c_void_p, C.c_uint32, C.c_int32, C.c_uint32]
@@ -145,6 +164,20 @@ class Native:
 
     def host_address(self, ptr):
         return C.cast(ptr, C.c_void_p).value - C.addressof(self.buf)
+
+    def area_workers(self):
+        """001D8FD0's two workers, answered by the ORIGINAL 001D7B30 and
+        001B0070 executed over a copy of this side's RAM when called."""
+        def original(entry):
+            def call(_ctx, out):
+                e = EM.Oracle(ELF_BYTES[0], bytearray(self.ram), bytearray(0x4000))
+                e.run(entry, (), stack=SPAD_STACK)
+                out[0] = e.r[2] & M32
+                return 0
+            return RECORD_FN(call)
+        self._keep = (original(0x1D7B30), original(0x1B0070))
+        self._workers = AreaFogWorkers(None, *self._keep)
+        return self._workers
 
 
 # ------------------------------------------------------------------ calls ---
@@ -175,6 +208,18 @@ def oracle_call(e, call):
         e.run(0x21B9A0, (a[0],), (a[1], a[2]), stack=SPAD_STACK)
     elif name == 'coef':
         e.run(0x21B920, (), (a[0], a[1]), stack=SPAD_STACK)
+    elif name == 'fogset':
+        e.run(0x21B970, (), (a[0], a[1]), stack=SPAD_STACK)
+    elif name == 'fogcol':
+        e.run(0x21BA80, (a[0], a[1], a[2]), stack=SPAD_STACK)
+    elif name == 'areafog':
+        e.run(0x1D8FD0, (), stack=SPAD_STACK)
+    elif name == 'start':
+        e.run(0x1CB8A0, (a[0], a[1], a[2], a[3]), stack=SPAD_STACK)
+    elif name == 'splice':
+        e.run(0x1CB800, (a[0], a[1], a[2], a[3]), stack=SPAD_STACK)
+    elif name == 'half':           # test setup: a halfword at an absolute address
+        e.store(a[0], a[1] & 0xFFFF, 2)
     elif name == 'poke':           # test setup: raw words into the context
         for off, v in a:
             e.store(ctx_of(e.ram) + off, v, 4)
@@ -242,6 +287,19 @@ def native_call(n, call, adapters=None):
             rc = lib.em_packet_chain_0021B9A0(ch, mode, f12, f13)
     elif name == 'coef':
         rc = lib.em_packet_chain_0021B920(ch, *a)
+    elif name == 'fogset':
+        rc = lib.em_packet_chain_0021B970(ch, *a)
+    elif name == 'fogcol':
+        rc = lib.em_packet_chain_0021BA80(ch, *a)
+    elif name == 'areafog':
+        rc = lib.em_packet_chain_001D8FD0(ch, C.byref(n.area_workers()))
+    elif name == 'start':
+        rc = lib.em_packet_chain_001CB8A0(ch, a[1], a[2] & M32, a[3] & M32)
+    elif name == 'splice':
+        rc = lib.em_packet_chain_001CB800(ch, a[0], a[1], a[2] & M32, a[3] & M32)
+    elif name == 'half':
+        struct.pack_into('<H', n.ram, a[0], a[1] & 0xFFFF)
+        rc = 0
     elif name == 'poke':
         for off, v in a:
             struct.pack_into('<I', n.ram, ctx_of(n.ram) + off, v)
@@ -259,6 +317,46 @@ def native_call(n, call, adapters=None):
 
 def ctx_of(ram):
     return struct.unpack_from('<I', ram, D_CTX_PTR)[0]
+
+
+ELF_BYTES = [None]
+FREE_WORDS = 0x01E00000           # plain RAM for the chain start / splice result words
+
+
+def frame_cases(ctx):
+    """The fog setters, the area fog and the frame chain start / splice."""
+    one, f150 = 0x3F800000, f32(150.0)
+    cases = []
+    for near, far in ((0xC3510000, 0x43980000), (0, 0x42DC0000), (0x43160000, 0x43160000),
+                      (0x7F800000, 0x3F800000), (0x7FC00000, 0x00000001), (0x80000000, 0x4B7F0000)):
+        cases.append(('fogset', [('fogset', (near, far))]))
+    for rgb in ((48, 48, 48), (0, 0, 0), (-1, 0, 0), (0x7FFFFFFF, -0x80000000, 5), (255, 128, -300),
+                (1, 2, 3)):
+        cases.append(('fogcol', [('fogcol', rgb)]))
+    # the area fog: the capture's own key and flags, flag word bit 0x80, the
+    # 0x0F00 override (render flag 8), other area keys and an unknown one
+    cases.append(('areafog', [('areafog', ())]))
+    cases.append(('areafog-80', [('mem', ((0x8106C8, 0x20081990),)), ('areafog', ())]))
+    cases.append(('areafog-flag8', [('poke', ((0xC, 0x143),)), ('areafog', ())]))
+    for key in (0x0100, 0x0800, 0x0B00, 0x0F00, 0x1500, 0x2A07):
+        cases.append(('areafog-key', [('mem', ((0x810700, (key >> 8) | (key & 0xFF) << 8 | 0x22 << 16),)),
+                                      ('areafog', ())]))
+    cases.append(('areafog-then-frame', [('areafog', ()), ('fog', (0, 0, 0)), ('fog', (2, one, f150)),
+                                         ('fog', (1, 0, 0))]))
+    # the chain start and splice, both buffers (and a negative index), with
+    # blocks appended in between so the splice walks and clears slots
+    for index in (0, 1, -1):
+        for a1 in (0, 1, 5):
+            for dest in ((ctx, ctx + 4), (FREE_WORDS, FREE_WORDS + 0x40)):
+                build = [('open', (TABLE, 0x5000, 2, 21)), ('ref', (TABLE, 0x5000, 9, 0x00233290)),
+                         ('call', (TABLE, 0xFFF000, 0x00400000)), ('open', (TABLE, 0x123456, 1, 22)),
+                         ('blend', (TABLE, 0, 2)), ('call', (TABLE, 0x5000, 0x00400100))]
+                cases.append(('frame-chain', [('half', (0x810E80, index)), ('start', (TABLE, a1) + dest)]
+                              + build + [('splice', (TABLE, a1) + dest)]))
+                cases.append(('splice-empty', [('half', (0x810E80, index)), ('splice', (TABLE, a1) + dest)]))
+    cases.append(('splice-alt', [('half', (0x810E80, 1)), ('open', (ALT_TABLE, 0x7000, 1, 23)),
+                                 ('splice', (ALT_TABLE, 0, FREE_WORDS, FREE_WORDS + 4))]))
+    return cases
 
 
 # ------------------------------------------------------------------ cases ---
@@ -427,6 +525,12 @@ def fault_checks(lib, pristine):
          lambda n: n.lib.em_packet_chain_001CB5F0(C.byref(n.chain), TABLE, 0, 3, C.byref(C.c_uint32()), None)),
         ('context', [(0, ctx + 0x80)],
          lambda n: n.lib.em_packet_chain_0021B9A0(C.byref(n.chain), 1, 0, 0)),
+        ('frame-index', [(0, 0x810E80), (0x810E82, RAM_SIZE - 0x810E82)],
+         lambda n: n.lib.em_packet_chain_001CB8A0(C.byref(n.chain), 0, ctx, ctx + 4)),
+        ('splice-index', [(0, 0x810E80), (0x810E82, RAM_SIZE - 0x810E82)],
+         lambda n: n.lib.em_packet_chain_001CB800(C.byref(n.chain), TABLE, 0, ctx, ctx + 4)),
+        ('splice-table', [(0, TABLE + 0x2000), (TABLE + 0x2004, RAM_SIZE - TABLE - 0x2004)],
+         lambda n: n.lib.em_packet_chain_001CB800(C.byref(n.chain), TABLE, 0, ctx, ctx + 4)),
         ('null-out', [(0, RAM_SIZE)],
          lambda n: n.lib.em_packet_chain_001CB5F0(C.byref(n.chain), TABLE, 0, 3, None, None)),
     ]
@@ -588,6 +692,7 @@ def replay_capture(lib, beat, ram):
 def main():
     elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA, 'boot ELF is not the pinned build'
+    ELF_BYTES[0] = elf
     lib = build_lib()
     base_cases = boundary_cases() + consumer_cases()
     rand = random_cases(pick(400, 60), 0xC4A1)
@@ -613,7 +718,7 @@ def main():
             continue
         pristine = bytes(ram)
         native_ram = bytearray(ram)
-        cases = (base_cases + alias_cases(ctx_of(ram))
+        cases = (base_cases + alias_cases(ctx_of(ram)) + frame_cases(ctx_of(ram))
                  + (rand if FULL else rng.sample(rand, min(len(rand), 20))))
         for case in cases:
             stats['bytes'] += run_case(lib, elf, ram, spad, pristine, native_ram, case)

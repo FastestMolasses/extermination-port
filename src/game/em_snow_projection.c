@@ -25,36 +25,6 @@ static void transform(float out[4], const float matrix[16], const float point[4]
     }
 }
 
-void em_snow_projection_matrices(EmSnowProjection *projection,
-                                const float original_view[16], float zoom)
-{
-    /* Original 001D2960 and its 001D2D20 variant selected by 001CD370(0).
-     * The 1280x560 clip projection is a guard band, not the GS raster size.
-     * Its scalar MUL.S/DIV.S rounding differs from the VU matrix products. */
-    float *screen = projection->extent_projection;
-    memset(screen, 0, sizeof(projection->extent_projection));
-    screen[0] = multiply(0.8f, zoom);
-    screen[5] = multiply(0.5f, zoom);
-    screen[8] = screen[9] = 2048.0f;
-    screen[10] = 0x1.cc9966p-1f; /* original literal 0x3F664CB3 */
-    screen[11] = 1.0f;
-    screen[14] = 0x1.999998p+20f; /* original literal 0x49CCCCCC */
-
-    float clip[16] = {0};
-    clip[0] = (float)((double)zoom / 640.0f);
-    clip[5] = (float)((double)zoom / 280.0f);
-    /* Fixed near0.1/far16711680 variant. Its captured depth pair is1/-0.2.
-     * Do not recompute far-near using the finite VU truncation helper:
-     * exponent alignment in the original EE scalar addition differs. */
-    clip[10] = 1.0f;
-    clip[11] = 1.0f;
-    clip[14] = -0.2f;
-    for (unsigned column = 0; column < 4; ++column) {
-        transform(projection->clip_from_world + column*4, clip, original_view + column*4);
-        transform(projection->screen_from_world + column*4, screen, original_view + column*4);
-    }
-}
-
 static uint32_t fixed4(float value)
 {
     double scaled = (double)value * 16.0;

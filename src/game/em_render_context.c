@@ -271,6 +271,91 @@ int em_render_context_001E0C80(S *s, int32_t a0, int32_t a1, uint32_t *result)
     return 0;
 }
 
+/* 001D2730(a0, a1) (NEARMISS C; the .s was followed): flags 0..0x1F at
+ * context +0x0C. bit = 1 << (a0 & 31) (SLLV), was = old & bit. For a0 == 0
+ * only, the 32-byte blocks move through block_copy (00121870, a forward
+ * copy; the blocks never overlap): a1 != 0 and the bit clear copies +0xC0
+ * to +0xA0; a1 == 0 and the bit set copies +0xA0 to +0xC0, then +0x100 to
+ * +0xA0 (D_00275670 re-read). The cases 1..4 and 0x20 skip the copies like
+ * every other a0. Then the flag word is stored with the bit set (a1 != 0)
+ * or cleared, and the result is was != 0. a1 is tested as a whole register
+ * (PADDUB copy, BEQZ). */
+static int block_copy32(S *s, u32 dst, u32 src)
+{
+    uint8_t *d = mem(s, dst, 0x20);
+    if (!d) return -1;
+    const uint8_t *from = mem(s, src, 0x20);
+    if (!from) return -1;
+    uint8_t q[0x20];
+    memcpy(q, from, sizeof q);
+    memcpy(d, q, sizeof q);
+    return 0;
+}
+
+int em_render_context_001D2730(S *s, int32_t a0, int32_t a1, uint32_t *result)
+{
+    if (!s || latched(s)) return -1;
+    const u32 ctx = s->world.ctx;
+    u32 old;
+    TRY(ld32(s, ctx + EM_RC_CTX_FLAGS_LO, &old));             /* 001D275C */
+    const u32 bit = 1u << ((u32)a0 & 31u);                     /* 001D2758 */
+    const u32 was = old & bit;                                 /* 001D2764 */
+    if (a0 == 0) {                                             /* 001D2794 */
+        TRY(span(s, ctx + 0xA0u, 0x20));
+        TRY(span(s, ctx + 0xC0u, 0x20));
+        TRY(span(s, ctx + 0x100u, 0x20));
+        if (a1 != 0) {                                         /* 001D27A4 */
+            if (was == 0) TRY(block_copy32(s, ctx + 0xA0u, ctx + 0xC0u));   /* 001D27B8 */
+        } else if (was != 0) {                                 /* 001D27C8 */
+            TRY(block_copy32(s, ctx + 0xC0u, ctx + 0xA0u));    /* 001D27D4 */
+            TRY(block_copy32(s, ctx + 0xA0u, ctx + 0x100u));   /* 001D27E8 */
+        }
+    }
+    const u32 now = a1 ? (old | bit) : (old & ~bit);           /* 001D27F0..001D2804 */
+    TRY(st32(s, ctx + EM_RC_CTX_FLAGS_LO, now));               /* 001D2810 */
+    if (result) *result = was != 0;                            /* 001D280C */
+    return 0;
+}
+
+/* 001DEDB0(a0) (asm words): a0 == 9 -> context +0x2490, any other value ->
+ * context +0x2470 (D_00275670 read in either arm). */
+static u32 ramp_record(S *s, int32_t a0)
+{
+    return s->world.ctx + (a0 == 9 ? EM_RC_CTX_RAMP_B : EM_RC_CTX_RAMP_A);
+}
+
+/* 001DEDE0 (a jump to 001DEDF0, asm words): the two ramp records' set-up.
+ * For flag 2, then flag 9: record = 001DEDB0(flag); bytes +0, +3, +2, +1 =
+ * 0 (in that order) and word +8 = flag. Then 001DEE80(2, &D_0026E850),
+ * 001DEEC0(2, 0x60), 001DEE80(9, &D_0026E850), 001DEEC0(9, 0x60): 001DEE80
+ * copies the three words at its a1 to the record's +0x10..+0x18, 001DEEC0
+ * stores its a1 at +4. */
+int em_render_context_001DEDE0(S *s)
+{
+    if (!s || latched(s)) return -1;
+    TRY(span(s, s->world.ctx + EM_RC_CTX_RAMP_A, 0x40));
+    TRY(span(s, EM_RC_D_0026E850, 12));
+    static const int32_t flags[2] = {2, 9};
+    for (int i = 0; i < 2; ++i) {
+        const u32 r = ramp_record(s, flags[i]);
+        TRY(st8(s, r + 0, 0));
+        TRY(st8(s, r + 3, 0));
+        TRY(st8(s, r + 2, 0));
+        TRY(st8(s, r + 1, 0));
+        TRY(st32(s, r + 8, (u32)flags[i]));
+    }
+    for (int i = 0; i < 2; ++i) {
+        u32 r = ramp_record(s, flags[i]), w;
+        for (u32 k = 0; k < 3; ++k) {                          /* 001DEE80 */
+            TRY(ld32(s, EM_RC_D_0026E850 + 4 * k, &w));
+            TRY(st32(s, r + 0x10 + 4 * k, w));
+        }
+        r = ramp_record(s, flags[i]);
+        TRY(st32(s, r + 4, 0x60));                              /* 001DEEC0 */
+    }
+    return 0;
+}
+
 int em_render_context_001D2E00(S *s, int32_t a0, uint32_t *result)
 {
     if (!s || latched(s)) return -1;

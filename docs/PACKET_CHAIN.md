@@ -7,13 +7,19 @@ Lane "packet-chain", 2026-09-24 (fix round the same day: per-call compares,
 every worker adapter exercised, aliasing and slot-bit cases; section 4). The
 translation and its oracle are done.
 
-**Status (Effects step, 2026-09-24).** The module is in COMMON (with
-em_status_ui_leftovers.c for 0021B900). **0021B920 is live**: the Metal world
-fog's em_fog_gs_coefficients is a call of em_packet_chain_0021B920, so the
-port has one translation of 0021B920 (section 5, "Required", done). The
-builders and 0021B9A0 are not called live. Every consumer also reads the
-render-context views, which no live code produces yet (EFFECT_MANAGER.md
-5.0). Section 5 lists what each consumer binds.
+**Status (render context step, 2026-09-25).** The module runs live on the
+one canonical render context (em_render_context_live, docs/RENDER_CONTEXT.md
+section 8): 001CB760 (001DDE10's and 001E0D70's), the frame chain's start
+001CB8A0 (001D1AE0, main-loop step B) and its splice 001CB800 (001D1EA0's
+kick, which clears the slot words every frame), the fog programmer 0021B9A0
+(001D1C50's mode 0 every world frame, the script host's), 0021B970 (001D2610,
+001D8FD0), 0021BA80 and the area fog 001D8FD0 (001C1DC0 at the area load);
+0021B920's body runs inside 0021B970 / 0021B9A0. The Metal world fog reads
+the coefficients from the context (em_gfx_fog_coefficients); em_fog_gs_coefficients
+serves only scenes without it. 001CB5F0, 001CB6B0 and 001CB900 still have no
+live caller: their consumers (the effects, the head sprite, the equipment
+sprite) are lanes L26 / L39 / L28, which the context no longer blocks.
+Section 5 lists what each consumer binds.
 
 Files:
 - `src/game/em_packet_chain_original.{h,c}`: the native translation.
@@ -33,6 +39,12 @@ Files:
 | 0021B9A0 fog programmer | NM | missing | verified-unbound | em_packet_chain_0021B9A0; oracle, from the .s and its jump table |
 | 0021B920 fog coefficients | BM | verified-unbound (em_fog_gs) | **live** since the Effects step: em_fog_gs_coefficients calls it (the old host formula was not bit-exact, 6.4) | em_packet_chain_0021B920; oracle + the fog block of every beat; test_area11_fog_reference checks the Metal helper against the EE model and every in-scope beat |
 | 0021B900 fog latch | BM | verified-unbound (em_sul_0021B900) | unchanged | reused, not translated again |
+| 0021B970 fog range | BM | verified-unbound (a worker slot only) | **live** (render context step) | em_packet_chain_0021B970; oracle (fog cases) |
+| 0021BA80 FOGCOL pack | AW | verified-unbound (a worker slot only) | **live** (render context step) | em_packet_chain_0021BA80 over em_sul_0021BA70; oracle |
+| 001D8FD0 area fog | BM | unverified (a worker slot only) | **live** (render context step) | em_packet_chain_001D8FD0 with 001D7B30 / 001B0070 as workers; oracle executes the whole original (001D7B30, 001B0070, 0021B8E0 unhooked) over the capture, flag 0x80, flag 8 and six area keys |
+| 001CB8A0 frame chain start | BM | boundary | **live** (render context step) | em_packet_chain_001CB8A0; oracle, buffers 0 / 1 / -1 |
+| 001CB800 frame chain splice | BM | boundary | **live** (render context step) | em_packet_chain_001CB800; oracle after appended blocks (the walk, the slot clear, the end link) and on an empty table |
+(At the time of the lane, the builders and 0021B9A0 were not called live; the rows above are the current state.)
 
 No row of this lane is left "missing".
 
@@ -101,6 +113,34 @@ passed in registers (not re-read). For modes 4, 5 (mode − 4 < 2, unsigned)
 and 0, 1 (mode < 2, unsigned) only, 0021B900 follows. It copies +0xA0..+0xBF
 to +0xC0..+0xDF through block_copy 00121870. The default path for other
 modes does not latch.
+
+### 0021B970, 0021BA80 and 001D8FD0 (added by the render context step)
+
+- **0021B970(near, far)**: +0xB8 = near, then (D_00275670 re-read) +0xBC =
+  far, then 0021B920(near, far) on the register values and 0021B900.
+- **0021BA80(a0, a1, a2)**: each argument sign-extended to 64 bits;
+  0021BA70(a0 | a1 << 8 | a2 << 16), which stores the doubleword +0xB0 (GS
+  FOGCOL) and tail-jumps to 0021B900 (em_sul_0021BA70).
+- **001D8FD0()**: rec = 001D7B30() first (the room entry of D_00251C50 for the
+  area key, or key 0xF00 while render flag 8 is set), then 001B0070(). With
+  flag word bit 0x80: 0021B970(0, 110), 0021BA80(0, 0, 0). Otherwise
+  0021B970(rec +4, rec +8) and 0021BA80(rec +0xC, rec +0x10, rec +0x14).
+  Then 0021B8E0 (+0xE0..+0xFF = +0xA0..+0xBF).
+
+### 001CB8A0 and 001CB800 (added by the render context step)
+
+Both read the buffer index D_00810E80 (lh) and address base = D_0028F700 +
+index * 0x70000 + 0x1F3EC0 + (a1 << 6).
+- **001CB8A0(a0, a1, a2, a3)**: a0 is not read. base +0 = 0x20000000, base +4
+  = (base + 0x20) & 0x0FFFFFFF, then *a2 = base & 0x0FFFFFFF and *a3 = (base +
+  0x20) & 0x0FFFFFFF (001D1AE0 passes the context and context + 4).
+- **001CB800(table, a1, a2, a3)**: base +0 = 0x20000000; the cursor starts at
+  base. For each of the 0x1000 slots in order, a nonzero slot word w gives
+  cursor +4 = w & 0x0FFFFFFF, the cursor becomes the slot's head word + 0x10,
+  and the slot word is cleared. Then cursor +4 = (base + 0x20) & 0x0FFFFFFF,
+  *a2 = base & 0x0FFFFFFF, *a3 = (base + 0x20) & 0x0FFFFFFF. The translation
+  resolves every address in a dry pass first, so an unmapped one faults with
+  nothing written.
 
 ### 0021B920(near, far)
 
@@ -298,11 +338,12 @@ faults; it cannot, because the block is mapped.
 The old host formula fails the model check at (−110, 330) (0x433F4000
 against 0x433F3FFF). The census 0021B920 row is live.
 
-What remains is the fog block itself. The Metal fog is still handed the
-scene manifest's (near, far) record pair. The original writes the context
-block through 0021B970 at the area load and 0021B9A0(0, 0, 0) at the frame
-head. Once the render-context block is canonical (L32 / L30), the renderer
-should read +0xA8/+0xAC from it.
+The fog block itself is live since the render context step: the area load
+writes it through 001D8FD0 (0021B970, 0021BA80, 0021B8E0), every world frame
+head re-programs it with 0021B9A0(0, 0, 0), and the Metal world fog reads
+the (A, B) pair 001D30A0 copied into the skin records and FOGCOL from the GS
+block (em_rcl_frame_fog, em_gfx_fog_coefficients). The level smoke checks the
+block against the route snapshots on every gameplay tick.
 
 **Scene order.** The fog programmer mutates shared state: +0xB8/+0xBC, +0xA0
 and the +0xC0 latch. Every consumer that reads the fog quadword must read it
@@ -356,9 +397,10 @@ and test_shadow_original_reference, link both files.
 
 ## 8. Limits
 
-- **001CB800** (the splice and slot clear) and **001CB8A0** are not
-  translated. They are renderer boundaries. The replay checks their
-  observable result over the captured chains, but no native 001CB800 exists.
+- **001CB800** (the splice and slot clear) and **001CB8A0** are translated
+  since the render context step (the capture replay still checks the spliced
+  chains independently). The native renderer does not read the spliced
+  chain: the DMA list stays the renderer boundary.
 - **The capture replay** re-sets the cursor before each block. Of 1,053
   blocks, 1,038 were contiguous, so no other cursor writer was observed
   between builder calls; the first block of each beat is not checked this

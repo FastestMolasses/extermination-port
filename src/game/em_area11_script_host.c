@@ -2,6 +2,8 @@
  * live path (census L19). See em_area11_script_host.h and
  * docs/AREA_SCRIPT.md section 6. */
 #include "game/em_area11_script_host.h"
+#include "game/em_ee_float.h"
+#include "game/em_render_context_live.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -153,23 +155,20 @@ static int w_001AEBA0(void *ctx, int16_t a0)
     return frame_event(EM_INTERACTION_BARS_LEAVE);
 }
 
+/* 001D2610(x) and 001D25F0(zoom) on the render context (census L32,
+ * em_render_context_live): the zoom at +0x2468 and 0x70003B60, and
+ * 001D2610's 0021B970 fog pair. The float argument register is passed as
+ * its bits. */
 static int w_001D2610(void *ctx, float a0)
 {
     (void)ctx;
-    if (a0 != 0.0f) return report("001D2610 with a nonzero argument is not bound");
-    return frame_event(EM_INTERACTION_SCOPE_ZOOM_ZERO);
+    return em_rcl_001D2610(em_ee_bits(a0)) < 0 ? report("001D2610 faulted") : 0;
 }
 
-/* 001D25F0(zoom): the projection zoom (render context +0x2468, the port's
- * g.cam.zoom); 480 through the interaction host's binding, the timeline's
- * restored zoom (001B7B30 sub 0) directly. */
 static int w_001D25F0(void *ctx, float a0)
 {
     (void)ctx;
-    if (a0 == 480.0f) return frame_event(EM_INTERACTION_ZOOM_DEFAULT);
-    if (!(a0 > 0.0f) || a0 != a0) return report("001D25F0 with a zoom that is not positive");
-    g.cam.zoom = a0;
-    return 0;
+    return em_rcl_001D25F0(em_ee_bits(a0)) < 0 ? report("001D25F0 faulted") : 0;
 }
 
 static int w_001CA770(void *ctx, uint32_t actor)
@@ -378,23 +377,19 @@ static int w_001B0250(void *ctx)
 }
 
 /* 0021B9A0(mode, scale, bias): the fog / depth-range programmer on the
- * render context; the port has no canonical render-context block
- * (FRAME_RENDER_HEADS.md section 4): reported (UM_0021B9A0). */
+ * render context (em_packet_chain_0021B9A0 through em_render_context_live;
+ * the floats are passed as their bits). */
 static int w_0021B9A0(void *ctx, int mode, float scale, float bias)
 {
     (void)ctx;
-    (void)mode;
-    (void)scale;
-    (void)bias;
-    return em_scene_bindings_report_0021B9A0();
+    return em_rcl_0021B9A0(mode, em_ee_bits(scale), em_ee_bits(bias)) < 0 ? report("0021B9A0 faulted") : 0;
 }
 
+/* 001D2830(a0, a1): the render flag registration on the render context. */
 static int w_001D2830(void *ctx, int a0, int a1)
 {
     (void)ctx;
-    (void)a0;
-    (void)a1;
-    return em_scene_bindings_report_001D2830();
+    return em_rcl_001D2830(a0, a1) < 0 ? report("001D2830 faulted") : 0;
 }
 
 /* 001FBC50 / 001FABB0: the scene bindings' SFX stop-all and the stream
@@ -868,9 +863,9 @@ static int camera_emit(void *context, EmCinematicPlaybackEvent event, const EmCi
     case EM_CINEMATIC_CAMERA_RESTORE_ROOM:
         return em_scene_bindings_001B0250() < 0 ? 0 : 1;
     case EM_CINEMATIC_CAMERA_EFFECT_OFF:
-        return em_scene_bindings_report_0021B9A0() < 0 ? 0 : 1;
+        return em_rcl_0021B9A0(0, 0, 0) < 0 ? 0 : 1;
     case EM_CINEMATIC_CAMERA_FLAG_OFF:
-        return em_scene_bindings_report_001D2830() < 0 ? 0 : 1;
+        return em_rcl_001D2830(2, 0) < 0 ? 0 : 1;
     }
     return 0;
 }
@@ -883,9 +878,10 @@ int em_area11_script_host_camera_0022EEF0(void)
     g.cam.cine_time = H.playback.time;
     if (rc < 0) return report("0022EEF0 faulted");
     /* D_008105F0 and the projection zoom: the sampled ones, or the
-     * restored (0, -1, 0, 1) and 480 at the end. */
+     * restored (0, -1, 0, 1) and 480 at the end; the zoom through
+     * 001D25F0 on the render context. */
     memcpy(g.cam.up, H.playback.up, sizeof g.cam.up);
-    g.cam.zoom = H.playback.zoom;
+    if (em_rcl_001D25F0(em_ee_bits(H.playback.zoom)) < 0) return report("0022EEF0: 001D25F0 faulted");
     if (rc == 1) {
         *em_scene_req_at(H.scene, 0x008106F3u) = H.playback.auxiliary;   /* the cut byte */
         H.d275BFC = H.playback.cut_counter;

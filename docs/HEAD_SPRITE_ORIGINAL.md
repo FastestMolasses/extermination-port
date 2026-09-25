@@ -209,7 +209,7 @@ The reference test checks this for all five.
 
 ## Binding (for the coordinator chain)
 
-**Blocked on the render-context views (Effects step, 2026-09-24).** The ramp
+**Blocked on the render-context views (Effects step, 2026-09-24).** **Resolved by the render context step (2026-09-25):** the canonical render context runs live (em_render_context_live, docs/RENDER_CONTEXT.md section 8): context +0x2240..+0x233F, +0xA0, the scratchpad 0x70003A40 / 0x70003AC0, the packet cursors and the chain table D_007635C0 (spliced and cleared by 001D1EA0's 001CB800 every frame) are produced every world frame; reach them through em_rcl_bytes and the module's views. Before that step: the ramp
 tick's 001CCF70 and 001CFBE0 read context +0x2240, +0xA0, the scratchpad
 0x70003A40 / 0x70003AC0 and the packet cursor, and no live code produces
 them (EFFECT_MANAGER.md 5.0). The packet-chain workers are translated

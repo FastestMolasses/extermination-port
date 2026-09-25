@@ -1,4 +1,5 @@
 #include "game/em_area11_interaction_host.h"
+#include "game/em_render_context_live.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
@@ -192,13 +193,12 @@ static int frame_event(void *context, EmInteractionFrameEvent event)
         em_frame_screen_fade_start(-1, 4);
         return 1;
     case EM_INTERACTION_SCOPE_ZOOM_ZERO:
-        /* Full001D2610(0)/001D2590/SDK tan path, bits43F02F4F.
-         * Its fog endpoints remain the unchanged current rig at input0. */
-        g.cam.zoom = 0x1.e05e9ep+8f;
-        return 1;
+        /* 001D2610(0.0) on the render context: the zoom through 001D2590 /
+         * the SDK tanf, then its 0021B970 fog pair (em_render_context_live). */
+        return em_rcl_001D2610(0) < 0 ? 0 : 1;
     case EM_INTERACTION_ZOOM_DEFAULT:
-        g.cam.zoom = 480;
-        return 1;
+        /* 001D25F0(480.0) on the render context. */
+        return em_rcl_001D25F0(UINT32_C(0x43F00000)) < 0 ? 0 : 1;
     case EM_INTERACTION_FADE_IN:
         em_frame_fade_start(-1, 4);
         return 1;
@@ -409,8 +409,8 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
         if (em_status_models_clear(world.models) != 1 ||
             em_status_models_configure(world.models) != 1) return 0;
         world.status_ui_context = 1;
-        g.cam.zoom = 0x1.e05e9ep+8f;
-        return 1;
+        /* 001D2610(0.0) on the render context (its zoom and 0021B970). */
+        return em_rcl_001D2610(0) < 0 ? 0 : 1;
     case EM_STATUS_PAGE_CLEAR_DRAW:
         /* 001AFEB0: every static record in use returns its bone slots.
          * The pool D_0028B020 is the status screens' own; the paused
@@ -607,7 +607,7 @@ static int hub_models(void *context, EmStatusHubEvent event, unsigned argument)
 static int hub_models_draw(void *context, EmGfx *gfx)
 {
     (void)context;
-    return em_status_models_render(world.models, gfx, g.cam.zoom) == 1;
+    return em_status_models_render(world.models, gfx, em_rcl_zoom()) == 1;
 }
 
 static EmStatusRuntimeHooks native_status_hooks(void)
@@ -645,9 +645,13 @@ static int camera_set(void *context, const float eye[3], const float target[3])
 static int camera_publish(void *context)
 {
     (void)context;
-    /* Original001DD980 publishes the render-context center/depth values,
-     * including the first camera command's yielding callback. */
-    return em_interaction_projection_publish(em_camera_live_projection(), g.cam.eye, g.cam.tgt);
+    /* Original 001DD980 publishes the render-context center/depth values,
+     * including the first camera command's yielding callback: its distance
+     * math, then 001DD950(&D_008105E0, ...) on the render context. */
+    uint32_t f12[2];
+    if (!em_interaction_projection_001DD980(g.cam.eye, g.cam.tgt, f12)) return 0;
+    em_camera_live_adopt_view();   /* g.cam.eye / tgt are D_008105D0 / E0 */
+    return em_rcl_001DD950(0x008105E0u, f12[0], f12[1]) < 0 ? 0 : 1;
 }
 
 int em_area11_interaction_host_camera_publish(void)
@@ -1096,7 +1100,7 @@ int em_area11_interaction_host_load(const char *directory,
     if (!em_camera_rotation_offset(world.panel_record->angles, 0, world.panel_world, unused))
         goto failed;
     memcpy(world.panel_world + 12, world.panel_record->position, 3 * sizeof(float));
-    world.frame.zoom = g.cam.zoom;
+    world.frame.zoom = em_rcl_zoom();
     world.frame.up[1] = -1;
     world.frame.up[3] = 1;
     EmInteractionRuntimeHooks shared = {NULL, acquire, idle, release, publish,
@@ -1178,8 +1182,6 @@ EmElevatorRuntime *em_area11_interaction_host_elevator(void) { return world.load
 EmStatusRuntime *em_area11_interaction_host_status(void) { return world.loaded ? world.status : NULL; }
 const EmStatusModels *em_area11_interaction_host_status_models(void)
 { return world.loaded ? world.models : NULL; }
-const EmInteractionProjection *em_area11_interaction_host_projection(void)
-{ return world.loaded ? em_camera_live_projection() : NULL; }
 int em_area11_interaction_host_failed(void) { return world.failed; }
 
 int em_area11_interaction_host_face_attach(void)

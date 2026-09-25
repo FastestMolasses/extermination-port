@@ -65,7 +65,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
            src/game/em_director_original.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
-           src/game/em_truck_original.c src/game/em_pad_actuator.c
+           src/game/em_truck_original.c src/game/em_pad_actuator.c \
+           src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c \
+           src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -673,6 +675,10 @@ test-render-context-reference:
 test-render-context:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/render_context_test.c src/game/em_render_context.c -o build/render_context_test && ./build/render_context_test
 
+.PHONY: test-render-context-live-reference
+test-render-context-live-reference:
+	python3 tools/test_render_context_live_reference.py
+
 .PHONY: test-anim-runtime-rest-reference
 test-anim-runtime-rest-reference:
 	python3 tools/test_anim_runtime_rest_reference.py
@@ -1120,7 +1126,7 @@ test-weather-reference:
 test-area11-effect-reference:
 	python3 tools/test_area11_effect_reference.py
 
-AREA11_EFFECT_TEST_SRC := tests/area11_effect_runtime_test.c src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c src/game/em_random.c src/game/em_snow_particles.c src/game/em_snow_projection.c
+AREA11_EFFECT_TEST_SRC := tests/area11_effect_runtime_test.c src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c src/game/em_random.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_frame_render_heads.c
 .PHONY: test-area11-effect-runtime test-area11-effect-reference
 test-area11-effect-runtime: $(AREA11_EFFECT_TEST_SRC)
 	@mkdir -p build
@@ -1162,7 +1168,8 @@ test-snow-particles:
 	build/test_snow_particles ../Extermination/config/SCUS_971.12
 
 SNOW_RUNTIME_TEST_SRC := tests/snow_runtime_test.c src/game/em_snow_runtime.c \
-    src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_random.c
+    src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_random.c \
+    src/game/em_frame_render_heads.c
 .PHONY: test-snow-runtime
 test-snow-runtime: $(SNOW_RUNTIME_TEST_SRC)
 	@mkdir -p build

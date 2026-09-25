@@ -150,6 +150,54 @@ int em_packet_chain_0021B9A0(EmPacketChain *pc, int32_t mode, uint32_t scale_bit
  * 0021B9A0. */
 int em_packet_chain_fog(EmPacketChain *pc, uint32_t out[4]);
 
+/* 0021B970(near, far), raw float bits (byte-matched C): context +0xB8 =
+ * near, +0xBC = far, then 0021B920(near, far) on the register values and
+ * 0021B900. */
+int em_packet_chain_0021B970(EmPacketChain *pc, uint32_t near_bits, uint32_t far_bits);
+
+/* 0021BA80(a0, a1, a2) (asm words): 0021BA70(a0 | a1 << 8 | a2 << 16),
+ * each argument sign-extended to 64 bits before its shift. 0021BA70 (the
+ * doubleword +0xB0, then 0021B900) is em_sul_0021BA70. */
+int em_packet_chain_0021BA80(EmPacketChain *pc, int32_t a0, int32_t a1, int32_t a2);
+
+/* 001D8FD0() (byte-matched C): the area fog. rec = 001D7B30() (an entry of
+ * the room table D_00251C50, which must be mapped); when 001B0070() & 0x80:
+ * 0021B970(0, 110) and 0021BA80(0, 0, 0); else 0021B970(rec +4, rec +8) and
+ * 0021BA80(rec +0xC, rec +0x10, rec +0x14); then 0021B8E0 (em_sul_0021B8E0:
+ * +0xE0..+0xFF = +0xA0..+0xBF). The two callees outside this module are
+ * workers; a NULL or failing worker latches EM_PACKET_CHAIN_FAULT_WORKER. */
+typedef struct {
+    void *ctx;
+    /* 001D7B30(): *record = the original address of the room entry. */
+    int (*w_001D7B30)(void *ctx, uint32_t *record);
+    /* 001B0070(): *flags = the area flag word. */
+    int (*w_001B0070)(void *ctx, uint32_t *flags);
+} EmPacketChainAreaFogWorkers;
+int em_packet_chain_001D8FD0(EmPacketChain *pc, const EmPacketChainAreaFogWorkers *w);
+
+/* ---- the frame chain start and splice ------------------------------------
+ * Both read the buffer index D_00810E80 (a signed halfword, which must be
+ * mapped) and address the arena D_0028F700: base = D_0028F700 + index *
+ * 0x70000 + 0x1F3EC0 + (a1 << 6). */
+#define EM_PACKET_CHAIN_ARENA 0x0028F700u  /* D_0028F700 */
+#define EM_PACKET_CHAIN_D_00810E80 0x00810E80u
+
+/* 001CB8A0(a0, a1, a2, a3) (byte-matched C; a0 is not read): base +0x00 =
+ * 0x20000000, base +0x04 = (base + 0x20) & 0x0FFFFFFF, then the word at the
+ * original address a2 = base & 0x0FFFFFFF and the word at a3 = (base +
+ * 0x20) & 0x0FFFFFFF, in that order. */
+int em_packet_chain_001CB8A0(EmPacketChain *pc, int32_t a1, uint32_t a2, uint32_t a3);
+
+/* 001CB800(table, a1, a2, a3) (byte-matched C): base +0x00 = 0x20000000
+ * and the cursor starts at base; for each of the 0x1000 slot words w of the
+ * table, in order, when w != 0: cursor +0x04 = w & 0x0FFFFFFF, the cursor
+ * becomes the slot's head word + 0x10, and the slot word is cleared (head
+ * words are never cleared). Then cursor +0x04 = (base + 0x20) & 0x0FFFFFFF,
+ * *a2 = base & 0x0FFFFFFF and *a3 = (base + 0x20) & 0x0FFFFFFF. Every
+ * address the walk touches is checked before the first store. */
+int em_packet_chain_001CB800(EmPacketChain *pc, uint32_t table, int32_t a1, uint32_t a2,
+                             uint32_t a3);
+
 /* ---- worker adapters ----------------------------------------------------
  * Drop-in worker functions for the consumers' worker tables; ctx must be
  * the EmPacketChain. Each returns 0 or -1 (the latched fault). Binding

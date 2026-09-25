@@ -284,7 +284,7 @@ values: x > |w| / x < −|w|.
 
 ## Binding (for the coordinator chain; nothing is wired)
 
-**Blocked on the render-context views (Effects step, 2026-09-24).** The
+**Blocked on the render-context views (Effects step, 2026-09-24).** **Resolved by the render context step (2026-09-25):** the canonical render context runs live (em_render_context_live, docs/RENDER_CONTEXT.md section 8): context +0x2240..+0x233F, +0xA0, the scratchpad 0x70003A40 / 0x70003AC0, the packet cursors and the chain table D_007635C0 (spliced and cleared by 001D1EA0's 001CB800 every frame) are produced every world frame; reach them through em_rcl_bytes and the module's views. Before that step: the
 `view` below has no live producer: the port has no canonical render-context
 block, and no live code writes 0x70003AC0 or context +0x2240. The driver
 calls 001CCF70 and the handler on every state-1 tick, so binding the spawns

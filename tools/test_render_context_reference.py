@@ -82,7 +82,8 @@ SIZES = {0x1DD7B0: 0x188, 0x1DD940: 0x8, 0x1DD950: 0x30, 0x1DDA00: 0x9C, 0x1DDAA
          0x1DDE10: 0xB08, 0x1DEEE0: 0x134, 0x1E0C30: 0x2C, 0x1E0C60: 0x1C, 0x1E0C80: 0x3C,
          0x1E0CC0: 0x30, 0x1E0D70: 0x7C, 0x1E0DF0: 0x8C, 0x1E1010: 0x88, 0x1D5370: 0x700,
          0x1D52E0: 0x90, 0x1D2910: 0x4C, 0x1D2710: 0x18, 0x1D2E00: 0x14, 0x1D2DE0: 0x14,
-         0x1D21B0: 0x2C, 0x1D6B10: 0x44, 0x1D6C90: 0x13C}
+         0x1D21B0: 0x2C, 0x1D6B10: 0x44, 0x1D6C90: 0x13C, 0x1D2730: 0x100,
+         0x1DEDE0: 0x8}
 LANE_FUNCS = [0x1DD7B0, 0x1DD940, 0x1DD950, 0x1DDA00, 0x1DDAA0, 0x1DDE10, 0x1DEEE0, 0x1E0C30,
               0x1E0C60, 0x1E0C80, 0x1E0CC0, 0x1E0D70, 0x1E0DF0, 0x1E1010, 0x1D5370, 0x1D52E0]
 
@@ -101,8 +102,11 @@ WORKERS = {
 }
 STUBS = [a for a, (k, _, _) in WORKERS.items() if k == STUB]
 # Callees the module translates inline where they are called (executed by
-# the oracle as part of the caller): 00102948, the quadword copy.
-INLINE = {0x102948}
+# the oracle as part of the caller): 00102948, the quadword copy, and
+# 00121870 (block_copy; 001D2730's 32-byte moves).
+# 001DEDE0's tail 001DEDF0 and its 001DEDB0 / 001DEE80 / 001DEEC0 are
+# translated inside em_render_context_001DEDE0.
+INLINE = {0x102948, 0x121870, 0x1DEDF0, 0x1DEDB0, 0x1DEE80, 0x1DEEC0}
 # Conditional branches no input reaches, with the reason (doc section 5).
 UNREACHABLE = {}
 for _site in (0x1DE160, 0x1DE2D8, 0x1DE418, 0x1DE548):
@@ -575,6 +579,8 @@ int rc_run(uint8_t *ram, uint8_t *spad, uint32_t fn, const uint32_t *a, const ui
     case 0x1E0C30u: rc = em_render_context_001E0C30(&s); break;
     case 0x1E0C60u: rc = em_render_context_001E0C60(&s, i[0], &res); break;
     case 0x1E0C80u: rc = em_render_context_001E0C80(&s, i[0], i[1], &res); break;
+    case 0x1D2730u: rc = em_render_context_001D2730(&s, i[0], i[1], &res); break;
+    case 0x1DEDE0u: rc = em_render_context_001DEDE0(&s); break;
     case 0x1E0CC0u: rc = em_render_context_001E0CC0(&s); break;
     case 0x1E0D70u: rc = em_render_context_001E0D70(&s); break;
     case 0x1E0DF0u: rc = em_render_context_001E0DF0(&s); break;
@@ -686,7 +692,7 @@ def restore(st, ranges):
             st['spad'][at:end] = sbase[at:end]
 
 
-RESULT_FUNCS = {0x1E0C60, 0x1E0C80, 0x1D2910, 0x1D2710, 0x1D2E00, 0x1D6B10, 0x1D6C90}
+RESULT_FUNCS = {0x1E0C60, 0x1E0C80, 0x1D2910, 0x1D2710, 0x1D2E00, 0x1D6B10, 0x1D6C90, 0x1D2730}
 
 
 def run_one(st, case):
@@ -825,6 +831,23 @@ def unit_cases(rng, scale):
                 old = rng.getrandbits(32) & ~bit | (bit if was else 0)
                 add('001E0C80 %d %d|#%d' % (a1, was, rep), 0x1E0C80, [a0, a1],
                     pokes=[(c + 0x174, w32(old))])
+    # 001D2730: every a0 case of its dispatch, both a1 senses and the old bit
+    # forced both ways; the three 32-byte blocks are random so each move is
+    # observable (one case per combination and repetition).
+    for rep in range(scale):
+        for a0 in (0, 1, 2, 3, 4, 5, 0x1F, 0x20, 0x21, -1):
+            for a1 in (0, 1, -1):
+                for was in (0, 1):
+                    bit = 1 << (a0 & 31)
+                    old = rng.getrandbits(32) & ~bit | (bit if was else 0)
+                    pokes = [(c + 0xC, w32(old))] + [(c + off, bytes(rng.getrandbits(8) for _ in range(0x20)))
+                                                     for off in (0xA0, 0xC0, 0x100)]
+                    add('001D2730 %d %d %d|#%d' % (a0, a1, was, rep), 0x1D2730, [a0, a1], pokes=pokes)
+    # 001DEDE0: both ramp records and the D_0026E850 colour words random
+    for k in range(2 * scale):
+        add('001DEDE0 #%d' % k, 0x1DEDE0,
+            pokes=[(c + 0x2470, bytes(rng.getrandbits(8) for _ in range(0x40))),
+                   (0x26E850, bytes(rng.getrandbits(8) for _ in range(12)))])
     # +0x2520 words, 001D21B0
     for k in range(6 * scale):
         a0 = rng.choice([0, 1, 2, -1])

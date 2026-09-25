@@ -1411,39 +1411,6 @@ typedef struct {
                              camera_mode_dispatch for the TODO list */
     uint8_t  hit;         /* +0x07: follow-solver result byte */
     uint16_t timer;       /* +0x08: mode timer */
-    float    zoom;        /* render-ctx +0x2468 zoom s — the projection
-                             scale (em_mat4_perspective_gs): default 480
-                             (ENGINE_CAM_ZOOM_S, set at camera init);
-                             the scope camera writes 224/tan(half-vfov)
-                             — nothing in the recovered corpus
-                             interpolates this field; every writer
-                             snaps it. WRITER CONFIRMED, re-verified
-                             2026-07-31: func_001D25F0 [byte-matched]
-                             is the one-line setter —
-                             `D_00275670[0x2468] = fa0` plus a spad
-                             mirror at 0x70003B60 — and func_001D2590
-                             [byte-matched, asm-void] is the pair
-                             setter, feeding arg1/2 to func_0011E398
-                             (the fov side).
-                             CORRECTED 2026-07-31: the old "NOTE the
-                             /2: the zoom func_001D2590 stores is HALF
-                             its first argument" was WRONG, and
-                             contradicted this header's own (correct)
-                             projection note above. func_001D2590 puts
-                             2.0 in $f0 and halves ONLY the second
-                             argument for the tan call; the SECOND
-                             divide reuses $f0 AFTER that call has
-                             overwritten it with the tan RESULT, so
-                             what reaches func_001D25F0 is
-                             arg0 / tan(arg1/2) — arg0 UNHALVED. ($f20,
-                             not $f0, is the register the routine
-                             bothers to save across the call: it is
-                             arg0 that must survive, not a constant.)
-                             That is exactly the 224/tan(half-vfov)
-                             scope form of ENGINE_CAM_ZOOM_SCOPE. The
-                             480 default itself is a LIVE read (s66),
-                             not a literal in either function —
-                             observed, not source-derived. */
     float    eye_des[3];  /* +0x10: desired EYE (world) */
     float    tgt_des[3];  /* +0x20: desired TARGET (world) */
     float    seed_euler[3]; /* +0x30: original interaction retarget rotation */
@@ -2192,9 +2159,10 @@ extern EmGameState g;
 int em_player_0015BCF0(void);   /* player actor update (gameplay only) */
 
 /* em_render_frame.c */
-int em_render_001D1C50(void);   /* per-frame point-light tick          */
+int em_render_001D1C50(void);   /* point-light tick (scenes without the render context) */
+int em_render_point_light_tick(void); /* 001D7C30 (the render context's worker) */
 int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
-int em_render_001D1EA0(int a0); /* today's close-out (flush, overlays) */
+int em_render_001D1EA0(int a0); /* the renderer's side of the kick (flush, overlays) */
 int em_render_001ABF90(void);   /* 001AD4E0's game-over screen packet  */
 int em_camera_0018B9C0(void);   /* camera_update + em_sfx_listener     */
 int em_camera_0018B9C0_opening(void); /* cutscene variant's camera stage */

@@ -89,6 +89,7 @@
  */
 #include "game/em_scene_bindings.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -103,6 +104,9 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
+#include "game/em_render_context_live.h"
+#include "game/em_ee_float.h"
+#include "game/em_sdk_math_original.h"
 #include "game/em_collision_world.h"
 #include "game/em_door.h"
 #include "game/em_game.h"
@@ -213,7 +217,7 @@ enum {
     UM_0021B1B0,
     UM_0021B500,
     UM_001DA6A0,
-    UM_0021B9A0,
+    UM_001D52E0,
     UM_COUNT
 };
 
@@ -246,8 +250,13 @@ static const struct {
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
     [UM_001AAD00] = {0x001AAD00u, "scene without an original roster: no collision world, so its "
                                   "nine list-pass hooks and class lists have no port counterpart"},
-    [UM_001D2830] = {0x001D2830u, "display-list context registration; no port counterpart"},
-    [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset; no port counterpart"},
+    [UM_001D2830] = {0x001D2830u, "the status / teardown / load-veil frames' render flag "
+                                  "registrations (3, 1) ...: not bound, because flag 3 is cleared "
+                                  "by the main loop's step V 001D2300, which is not bound "
+                                  "(RENDER_CONTEXT.md section 8); the frame heads' and the area "
+                                  "script's registrations run on the render context"},
+    [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset in a scene without the render "
+                                  "context (the first level runs em_rcl_001E0CC0)"},
     [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
@@ -259,9 +268,10 @@ static const struct {
     [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
                                   "no actor shadow (the player's own post-step is UM_0015C160, "
                                   "docs/SHADOW_ORIGINAL.md)"},
-    [UM_0021B9A0] = {0x0021B9A0u, "fog / depth-range programmer on the render context (the scripted "
-                                  "timeline's restore, census L22); the port has no canonical "
-                                  "render-context block (FRAME_RENDER_HEADS.md section 4)"},
+    [UM_001D52E0] = {0x001D52E0u, "001C1DC0's 001C1E70: the static-object grid header into render "
+                                  "context +0x140..+0x167; the bank *D_0028A5A0 is not exported and "
+                                  "its only reader 001D5370 (001C1D00) is not bound "
+                                  "(RENDER_CONTEXT.md section 8)"},
 };
 
 static uint64_t s_unmirrored_seen;     /* reached at least once */
@@ -336,7 +346,17 @@ static int s_00810D38(void *ctx, int32_t value)
 }
 
 static int um_001D2830(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001D2830); }
-static int um_001E0CC0(void *ctx) { (void)ctx; return unmirrored(UM_001E0CC0); }
+static int rcl_live(void);
+static int rcl_fault(void);
+
+/* 001E0CC0 (the status close): on the render context in the first level. */
+static int w_001E0CC0(void *ctx)
+{
+    (void)ctx;
+    if (rcl_live())
+        return em_rcl_001E0CC0() < 0 ? rcl_fault() : 0;
+    return unmirrored(UM_001E0CC0);
+}
 static int um_001D2880(void *ctx) { (void)ctx; return unmirrored(UM_001D2880); }
 static int w_001FA790(void *ctx, int a0, int a1) { (void)ctx; return em_stream_live_001FA790(a0, a1); }
 static int w_001FAB50(void *ctx) { (void)ctx; return em_stream_live_001FAB50(); }
@@ -601,6 +621,35 @@ static void log_tick_end(int rc)
                 fputs("null", f);
             }
         }
+        /* Census L32 / L30: the render context at the tick end (null without
+         * it): the flag words +0x0C / +0x174, the fog block +0xA0..+0xFF, the
+         * zoom +0x2468, V +0x2380, K +0x23C0, the 001CD370(0) projection
+         * +0x2240, the eased pairs +0x24F0..+0x2513, the +0x2450 block,
+         * D_00275690 / D_00275694, and the camera pool's D_00810610 (the view
+         * the NEXT frame head projects). tools/test_level_smoke.py
+         * check_render_context. */
+        {
+            static const struct { uint32_t offset, size; } k_rctx[] = {
+                {0x0C, 4}, {0x174, 4}, {0xA0, 0x60}, {0x2468, 4}, {0x2380, 0x40},
+                {0x23C0, 0x40}, {0x2240, 0x40}, {0x24F0, 0x24}, {0x2450, 0x18},
+            };
+            fputs(", \"rctx\": ", f);
+            const uint8_t *eases = em_rcl_bytes(0x00275690u, 8);
+            const uint8_t *view = em_camera_live_bound() ? em_camera_live_bytes(0x00810610u, 0x40) : NULL;
+            if (em_rcl_bound() && eases && view) {
+                fputc('[', f);
+                for (size_t i = 0; i < sizeof k_rctx / sizeof k_rctx[0]; ++i) {
+                    log_hex(f, em_rcl_bytes(EM_RCL_CONTEXT + k_rctx[i].offset, k_rctx[i].size), k_rctx[i].size);
+                    fputs(", ", f);
+                }
+                log_hex(f, eases, 8);
+                fputs(", ", f);
+                log_hex(f, view, 0x40);
+                fputc(']', f);
+            } else {
+                fputs("null", f);
+            }
+        }
         /* The live player record at the tick end, as the route rows sample
          * it (route_capture.py): +5, +1F0, +1F1, the clip +20C, the clock
          * +3C (float bits) and the ground owner +214 (its original record
@@ -777,6 +826,93 @@ static int camera_timeline(void *ctx)
 static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera_euler, camera_pad_config,
                                          NULL, camera_standins, camera_timeline};
 
+/* ------------------------------------------ the render context (L32 / L30)
+ *
+ * The one canonical render context (em_render_context_live,
+ * docs/RENDER_CONTEXT.md section 8), bound at the area load of a scene with
+ * the live camera (AREA11): the views of the bytes other modules own (the
+ * camera pool's D_00810610 and D_008105E0, the request block, the area
+ * bytes, D_008101E4 and 0x70003B8D of the scene state, the camera's view of
+ * the player record) and the workers it does not translate: the point-light
+ * tick 001D7C30 (em_point_light), the SDK sqrtf / tanf of the area's
+ * collision world, 001C1DC0's weather spawn 001C1EA0 and the reported
+ * 001D52E0. */
+static int rcl_point_light(void *ctx)
+{
+    (void)ctx;
+    return em_render_point_light_tick();
+}
+
+static int rcl_sqrt(void *ctx, uint32_t x, uint32_t *out)
+{
+    (void)ctx;
+    EmSdkMathContext *m = em_collision_world_sdk();
+    float r;
+    uint32_t f = 0;
+    if (!m || em_sdk_math_original_0011E748(m->tables, &m->world, &m->workers, em_ee_float(x), &r, &f) < 0)
+        return -1;
+    *out = em_ee_bits(r);
+    return 0;
+}
+
+static int rcl_tan(void *ctx, uint32_t x, uint32_t *out)
+{
+    (void)ctx;
+    EmSdkMathContext *m = em_collision_world_sdk();
+    float r;
+    uint32_t f = 0;
+    if (!m || em_sdk_math_original_0011E398(m->tables, em_ee_float(x), &r, &f) < 0)
+        return -1;
+    *out = em_ee_bits(r);
+    return 0;
+}
+
+static int rcl_weather(void *ctx, uint32_t block)
+{
+    (void)ctx;
+    if (block != EM_SCENE_D_008101D0 || s_pool_mode != POOL_ROSTER)
+        return -1;
+    return em_area11_spawn_weather_001C1EA0();
+}
+
+static int rcl_grid_header(void *ctx)
+{
+    (void)ctx;
+    return unmirrored(UM_001D52E0);
+}
+
+_Static_assert(offsetof(EmSceneState, d810702) == offsetof(EmSceneState, d810700) + 2,
+               "the area bytes D_00810700..702 are one view");
+
+static int rcl_bind(void)
+{
+    const EmRclExternal views[] = {
+        {0x00810610u, 0x40u, em_camera_live_bytes(0x00810610u, 0x40u)},
+        {0x008105E0u, 0x10u, em_camera_live_bytes(0x008105E0u, 0x10u)},
+        {EM_SCENE_REQ_BASE, EM_SCENE_REQ_SIZE, s_state.req},
+        {0x00810700u, 3u, &s_state.d810700},
+        {0x008101E4u, 1u, &s_state.d8101E4},
+        {0x70003B8Du, 1u, &s_state.spad3B8D},
+        /* Read only: the camera's view of D_008102B0 (CAMERA_LIVE.md 5). */
+        {0x008102B0u, 0x320u, (uint8_t *)(uintptr_t)em_camera_live_player_bytes()},
+    };
+    static const EmRclWorkers workers = {NULL, rcl_point_light, rcl_sqrt, rcl_tan, rcl_weather,
+                                         rcl_grid_header};
+    return em_rcl_bind(views, sizeof views / sizeof views[0], &workers);
+}
+
+/* The first level's frames run the render context's translations. */
+static int rcl_live(void)
+{
+    return em_rcl_bound() && em_camera_live_bound();
+}
+
+static int rcl_fault(void)
+{
+    uint32_t at = em_rcl_fault();
+    return em_scene_fault(&s_state, at ? at : 0x00275670u, EM_SCENE_FAULT_WORKER_FAILED);
+}
+
 static int roster_scene(void)
 {
     return strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0;
@@ -827,6 +963,10 @@ static int w_001AFCA0(void *ctx)
      * (its 0019A910 / 0019B7D0 and SDK context) and the ELF camera tables;
      * the legacy camera stays for a scene without an original world. */
     k_camera_host.carry31F0 = em_area11_boxes_carry31F0();
+    /* Census L32 / L30: the render context's views and workers (before the
+     * camera, whose 001DD980 publications store into it). */
+    if (roster_scene() && rcl_bind() < 0)
+        return em_scene_fault(&s_state, 0x001D1C50u, EM_SCENE_FAULT_NULL_WORKER);
     if (roster_scene() && em_camera_live_bind(&k_camera_host) < 0)
         return em_scene_fault(&s_state, 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
     if (!roster_scene()) {
@@ -1272,11 +1412,16 @@ static int w_001B6990(void *ctx)
     return rc;
 }
 
-/* 001C1DC0. AREA11: its 001C1EA0 pass spawns the weather node (interim,
- * em_area11_bindings.c); the rest of it has no port counterpart. */
+/* 001C1DC0. AREA11: the translation em_rvr_001C1DC0 on the render
+ * context (em_rcl_001C1DC0: the flag registrations, the area fog 001D8FD0,
+ * 001C1F50's TEX0 / colour / flags; its 001C1EA0 spawns the weather node
+ * through rcl_weather; its 001C1E70 -> 001D52E0 is reported). A scene
+ * without the render context keeps only the weather spawn. */
 static int w_001C1DC0(void *ctx)
 {
     (void)ctx;
+    if (s_pool_mode == POOL_ROSTER && rcl_live())
+        return em_rcl_001C1DC0() < 0 ? rcl_fault() : 0;
     unmirrored(UM_001C1DC0);
     if (s_pool_mode != POOL_ROSTER)
         return 0;
@@ -1335,8 +1480,9 @@ static int w_001AE6B0(void *ctx)
  *   0015BCF0(player)   5E0    em_player_0015BCF0
  *                      6B0    unmirrored (opening-player path, design risk 2)
  *   001CB5A0           both   empty leaf (src/func_001CB5A0.c)
- *   001D1C50           both   em_render_001D1C50
- *   001C1D00(0x8101D0) both   em_render_001C1D00
+ *   001D1C50           both   em_rcl_001D1C50 on the render context (census
+ *                             L32); em_render_001D1C50 without it
+ *   001C1D00(0x8101D0) both   em_render_001C1D00 (not bound: RENDER_CONTEXT.md 8.4)
  *   001AFD70(mode)     both   em_actor_pool_walk_001AFD70 (S10b): mode 0
  *                             in 5E0, modes 1 and 2 in 6B0
  *   0015C160           both   unmirrored
@@ -1346,7 +1492,8 @@ static int w_001AE6B0(void *ctx)
  *   001AAD00           both   em_collision_world_close_out_001AAD00 (the
  *                             nine list passes, then the list block; census
  *                             L07/L08); unmirrored without a roster
- *   001D1EA0(1)        both   em_render_001D1EA0(1)
+ *   001D1EA0(1)        both   em_rcl_001D1EA0(1) on the render context, then
+ *                             em_render_001D1EA0(1) (the presentation)
  */
 
 static int in_variant(void)
@@ -1418,7 +1565,13 @@ static int in_status_frame(void)
 static int w_001D1C50(void *ctx)
 {
     (void)ctx;
-    return in_variant() || in_status_frame() ? em_render_001D1C50() : -1;
+    if (!in_variant() && !in_status_frame())
+        return -1;
+    /* The first level: the translation on the render context (census L32);
+     * its 001D7C30 is the point-light tick. */
+    if (rcl_live())
+        return em_rcl_001D1C50() < 0 ? rcl_fault() : 0;
+    return em_render_001D1C50();
 }
 
 static int w_001C1D00(void *ctx, uint32_t a0)
@@ -1525,11 +1678,13 @@ static int w_001AAD00(void *ctx)
 static int w_001D1EA0(void *ctx, int a0)
 {
     (void)ctx;
-    if (in_variant() && a0 == 1)
-        return em_render_001D1EA0(1);
-    if (in_status_frame() && a0 == 0)
-        return em_render_001D1EA0(0);
-    return -1;
+    if (!(in_variant() && a0 == 1) && !(in_status_frame() && a0 == 0))
+        return -1;
+    /* The first level: the translation on the render context (its world
+     * flush pair and the kick 001CB800), then the renderer's presentation. */
+    if (rcl_live() && em_rcl_001D1EA0(a0) < 0)
+        return rcl_fault();
+    return em_render_001D1EA0(a0);
 }
 
 /* ------------------------------------ status screen (S11b; design 5)
@@ -1750,18 +1905,6 @@ int em_scene_bindings_001B0250(void)
         return em_scene_fault(&s_state, io.fault.address, (EmSceneFaultCode)io.fault.code);
     em_scene_req_set_u32(&s_state, EM_SCENE_REQ_C8, (uint32_t)io.d8106C8);
     return 0;
-}
-
-/* 001D2830(a0, a1): the display-list context registration; no port
- * counterpart (reported, UM_001D2830). */
-int em_scene_bindings_report_001D2830(void)
-{
-    return unmirrored(UM_001D2830);
-}
-
-int em_scene_bindings_report_0021B9A0(void)
-{
-    return unmirrored(UM_0021B9A0);
 }
 
 /* 001FAD70(lane, fade, release): the lane's fade-out (001B0C00's three
@@ -1999,7 +2142,7 @@ static void bindings_init(void)
     w->w_00119828 = w_00119828;
     w->w_001D2830 = um_001D2830;
     w->w_0020CDC0 = w_0020CDC0;
-    w->w_001E0CC0 = um_001E0CC0;
+    w->w_001E0CC0 = w_001E0CC0;
     w->w_001AEDB0 = w_001AEDB0;
     w->w_0018C0D0 = w_0018C0D0;
 

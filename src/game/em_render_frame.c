@@ -51,6 +51,8 @@
 #include "game/em_scene_bindings.h"
 #include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
+#include "game/em_render_context_live.h"
+#include "game/em_census_standins.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_level_smoke_test.h"
@@ -70,6 +72,14 @@ static void point_light_tick(void)
     if (g.point_lights_loaded)
         em_point_light_tick(&g.point_lights, g.point_lights_area_key,
                             point_light_random, NULL);
+}
+
+/* 001D7C30, the point-light tick, as the render context's worker (001D1C50
+ * calls it after the P / K copies). */
+int em_render_point_light_tick(void)
+{
+    point_light_tick();
+    return 0;
 }
 
 /* Reserve the next render-chain slot, or NULL if the chain is full.
@@ -601,6 +611,30 @@ void frame_close_out(void)
     } else if (g.chain_test_triangle) {
         em_gfx_draw_test_triangle(gfx);
     } else {
+        /* The frame's view. With the render context bound (the first
+         * level), every world draw of the original uses the matrices its
+         * frame head 001D1C50 built: V = the D_00810610 of the camera stage
+         * BEFORE this frame's (context +0x2380; the only writer of +0x2380 is
+         * 001D2960, called only from 001D1C50, which runs ahead of 0018B9C0 in
+         * 001AE5E0 / 001AE6B0) and the zoom its 001D2960 read. The captures
+         * hold +0x2380 != D_00810610 in every beat whose camera moved in the
+         * last frame (docs/RENDER_CONTEXT.md section 8). The native pass
+         * converts that view and zoom (em_cs_view_to_native,
+         * em_mat4_perspective_gs); without the context it keeps g.cam. */
+        const float *view = g.cam.view, *viewproj = g.viewproj;
+        float zoom = em_rcl_zoom();
+        float head_view[16], head_viewproj[16];
+        uint32_t head_words[16];
+        float head_zoom;
+        if (em_rcl_frame_view(head_words, &head_zoom) == 0) {
+            float proj[16];
+            em_cs_view_to_native(head_view, head_words);
+            em_mat4_perspective_gs(proj, head_zoom);
+            em_mat4_mul(head_viewproj, proj, head_view);
+            view = head_view;
+            viewproj = head_viewproj;
+            zoom = head_zoom;
+        }
         /* 001D2300: after the Z-only clear, the world frame CALLs render
          * channel 3 (001E1E60's grid, kernel 0x0023C990) before the level,
          * when D_008106C4 == 0, render flag 4 is clear (001D1C10 sets it
@@ -609,15 +643,19 @@ void frame_close_out(void)
          * writes colour only, over the whole field (docs/BACKGROUND.md). */
         if (em_gfx_background_ready(gfx) &&
             em_scene_state()->req[EM_SCENE_REQ_C4] == 0 && !em_frame_movie_active())
-            em_gfx_background_draw(gfx, g.cam.view,
-                g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
+            em_gfx_background_draw(gfx, view, zoom);
         /* LIGHTING — DISTANCE FOG for the world flush. Per-frame, per-
          * scene constant (the engine's per-area GS fog record), so set
          * once for the whole chain: it tints BOTH the LEVEL meshes and
          * the actor draws toward the fog color with view-space depth.
          * fog_on = 0 (no `fog` line, e.g. office/drawbridge) leaves it
          * OFF — those scenes render exactly as before. */
-        if (g.fog_on)
+        float fog_coef[2], fog_rgb[3];
+        if (em_rcl_frame_fog(fog_coef, fog_rgb) == 0)
+            /* The render context's fog: the coefficients 001D30A0 put in the
+             * skin records and FOGCOL from the GS block (census L32 / L30). */
+            em_gfx_fog_coefficients(gfx, fog_coef, fog_rgb);
+        else if (g.fog_on)
             em_gfx_fog(gfx, g.fog_near, g.fog_far, g.fog_rgb);
         else
             em_gfx_fog_off(gfx);
@@ -650,11 +688,11 @@ void frame_close_out(void)
                 em_gfx_char_rig(gfx, NULL);
             }
             if (cd->tint)         /* per-draw RGBA modulate (ChainDraw) */
-                em_gfx_draw_skinned_tinted(gfx, cd->mesh, g.viewproj,
+                em_gfx_draw_skinned_tinted(gfx, cd->mesh, viewproj,
                                            cd->palette, cd->bone_count,
                                            cd->tint);
             else
-                em_gfx_draw_skinned(gfx, cd->mesh, g.viewproj,
+                em_gfx_draw_skinned(gfx, cd->mesh, viewproj,
                                     cd->palette, cd->bone_count);
         }
         /* Original opening palettes already contain world placement.
@@ -682,17 +720,15 @@ void frame_close_out(void)
                         em_gfx_char_face_rig(gfx,&rig);
                     }
                 } else em_gfx_char_rig(gfx,NULL);
-                em_gfx_draw_skinned(gfx,mesh,g.viewproj,palette,bone_count);
+                em_gfx_draw_skinned(gfx,mesh,viewproj,palette,bone_count);
             }
         }
         /* Original pickup children use unlit additive drawing after the
          * opaque owner meshes, with the owner's current world matrix. */
-        em_pickup_lights_draw(gfx, g.viewproj);
-        em_props_indicators_draw(gfx, g.viewproj);
-        em_snow_runtime_draw(gfx, g.cam.view,
-            g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
-        em_area11_effect_runtime_draw(gfx, g.cam.view,
-            g.cam.zoom > 0.0f ? g.cam.zoom : ENGINE_CAM_ZOOM_S);
+        em_pickup_lights_draw(gfx, viewproj);
+        em_props_indicators_draw(gfx, viewproj);
+        em_snow_runtime_draw(gfx, view, zoom);
+        em_area11_effect_runtime_draw(gfx, view, zoom);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }
@@ -797,12 +833,12 @@ void frame_close_out(void)
 /* Stage functions (S5, docs/SCENE_COORDINATOR_DESIGN.md section 4.5)  */
 /* ------------------------------------------------------------------ */
 
-/* func_001D1C50 position (both world-frame variants). The original is
- * the per-frame GS/fog/display-list setup (src/func_001D1C50.c); among
- * its calls is 001D7C30, which the port runs as point_light_tick. That
- * tick is the only port code at this position: the fog is still applied
- * inside frame_close_out, and render_chain_build (a port-native draw-list
- * collector, not a translation) runs in the 001AFD70 legacy block. */
+/* func_001D1C50 position in a scene WITHOUT the render context (a scene
+ * without the live camera and collision world: not the first level). The
+ * first level runs the translation em_frh_001D1C50 on the render context
+ * (em_rcl_001D1C50, bound in em_scene_bindings.c), which calls the
+ * point-light tick through em_render_point_light_tick. Here that tick is
+ * the only port code at this position. */
 int em_render_001D1C50(void)
 {
     point_light_tick();
@@ -819,17 +855,13 @@ int em_render_001C1D00(void)
     return 0;
 }
 
-/* func_001D1EA0(a0) position: 001D1EA0(1) ends both world-frame variants
- * (status state 3 uses 001D1EA0(0)). The original (src/func_001D1EA0.c)
- * runs 001E0D70 and 001DDA00 only when a0 != 0 and 001D2910(4) == 0, then
- * always 001CB800. Wraps today's close-out unchanged: the world flush,
+/* The native presentation of the frame 001D1EA0(a0) closes: 001D1EA0(1)
+ * ends both world-frame variants, status state 3 uses 001D1EA0(0). In the
+ * first level the translation em_frh_001D1EA0 runs first on the render
+ * context (em_rcl_001D1EA0: when a0 != 0 and 001D2910(4) == 0, 001E0D70 and
+ * 001DDA00; always the kick 001CB800, which splices and clears the chain
+ * table); this is the renderer's side of that kick: the world flush,
  * overlays, the status screen, the capture hook and the frame counter.
- * frame_close_out does not yet distinguish a0, so the argument is
- * accepted and not consumed: in the status frame (state 3, a0 = 0; S11b)
- * it still redraws the frozen world chain (or the status UI scene) where
- * the original skips 001E0D70/001DDA00, as the legacy frozen frame did. */
-/* 001D1EA0(a0) (src/func_001D1EA0.c): a0 != 0 flushes the world
- * (001E0D70/001DDA00) before the overlay list; the status frames pass 0.
  * In AREA11 (since WP-4 for requests, WP-5 for every status screen) the
  * status frames draw the host's original page (the hub, ITEM or BATTERY)
  * with no world flush under it (s_request_status_frame, frame_close_out). */

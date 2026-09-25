@@ -1,6 +1,7 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_random.h"
 #include "em_math.h"
+#include "render_context_frame_stub.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -83,6 +84,7 @@ int main(void)
     const float up[3] = {0, 1, 0};
     float view[16];
     fixture_view(view, eye, forward, up);
+    fixture_frame_head(view, 480);
     em_snow_runtime_clear(NULL);
     em_snow_runtime_tick(eye, 0);
     em_snow_runtime_draw(NULL, view, 480);

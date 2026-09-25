@@ -4,7 +4,10 @@
 #include "game/em_snow_particles.h"
 
 /* Original VU6E..7C, in DMA upload order. The last qword is integer GIF
- * tag data. Matrices use column-major layout and original GS conventions. */
+ * tag data. Matrices use column-major layout and original GS conventions:
+ * extent_projection is the render context's P (+0x2340), clip_from_world
+ * its 001CD370(0) projection (+0x2240) and screen_from_world its K (+0x23C0),
+ * which the runtimes take from em_rcl_frame_matrices (one owner, 001D2960). */
 typedef struct EmSnowProjection {
     float extent_projection[16];
     float clip_from_world[16];
@@ -22,15 +25,6 @@ typedef struct EmSnowProjected {
     float st[2][2];             /* (0,0) at plus; (1,1) at minus. */
     float clip[4];              /* Original symmetric clip coordinates. */
 } EmSnowProjected;
-
-/* Rebuild the three frame matrices from original +Z-forward, Y-down view
- * coordinates and current camera zoom. Retains fog, depth_bias and gif_tag.
- * A native Y-up/-Z-forward view converts by negating rows1 and2. Scalar
- * construction uses EE rounded divisions and truncated products; matrix
- * composition uses VU truncation.
- */
-void em_snow_projection_matrices(EmSnowProjection *projection,
-                                const float original_view[16], float zoom);
 
 /* Translate 00233FC0..00234270 for one particle. Returns1 when submitted,
  * 0 when the original center clip test rejects it. The caller supplies

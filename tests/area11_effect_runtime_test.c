@@ -3,6 +3,7 @@
 #include "game/em_random.h"
 #include "game/em_effect_color.h"
 #include "em_math.h"
+#include "render_context_frame_stub.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -91,6 +92,7 @@ int main(void)
         if (expected_phase >= 2) expected_phase = em_effect_float32((double)expected_phase - 1);
         assert(owner->state == 1 && owner->phase == expected_phase && owner->flags == 1);
         assert(owner->sound_handle == -1 && owner->contact_cooldown == 0);
+        fixture_frame_head(view, 480.0f);
         em_area11_effect_runtime_draw(gfx, view, 480.0f);
     }
     assert(submissions > 20000 && draws > 300 && texture_sets == 1);

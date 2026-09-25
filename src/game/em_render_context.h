@@ -23,6 +23,9 @@
  *             channel 3 cursor, the 0x10-byte end tag and the 001CB760 call
  *             (byte-matched)
  *   001DEEE0  the 8-step ramp machine on a 0x20-byte record (byte-matched)
+ *   001DEDE0  the two 001DEEE0 ramp records' set-up: states and flag numbers
+ *             2 / 9, the D_0026E850 colour, the 0x60 limit (asm words, with
+ *             001DEDF0, 001DEDB0, 001DEE80 and 001DEEC0 inline)
  *   001E0C30  clears context +0x170..+0x177, then tail-jumps to 001E1010
  *             (byte-matched)
  *   001E0C60  context +0x174 bit test for flags 0x20..0x3F (byte-matched)
@@ -46,6 +49,9 @@
  *
  *   helpers the lane functions reach, translated here because they only
  *   read or write render-context words or packet bytes (census: boundary)
+ *   001D2730  flag set / clear for flags 0..0x1F, with the flag-0 moves of
+ *             the +0xA0 / +0xC0 / +0x100 blocks (NEARMISS C; the .s was
+ *             followed)
  *   001D2910 / 001D2710  flag query: a0 < 0x20 tests context +0x0C bit a0,
  *             0x20 <= a0 < 0x40 is 001E0C60, anything else returns 0
  *   001D2E00 / 001D2DE0  context word +0x2520 + 4 * a0 read / write
@@ -90,6 +96,7 @@ extern "C" {
 
 /* Original addresses the routines pass to workers or use as fixed data. */
 #define EM_RC_D_0026E510 0x0026E510u /* 001D6B10's t0 for 001D6930 */
+#define EM_RC_D_0026E850 0x0026E850u /* 001DEDE0's three ramp colour words */
 #define EM_RC_D_0027568C 0x0027568Cu /* word 001DD7B0 reads; 001DDE10 passes it on */
 #define EM_RC_D_00275690 0x00275690u /* 001DDE10's first eased float */
 #define EM_RC_D_00275694 0x00275694u /* 001DDE10's second eased float */
@@ -231,12 +238,19 @@ int em_render_context_001E0CC0(EmRenderContext *s);
 int em_render_context_001E0D70(EmRenderContext *s);
 int em_render_context_001E0DF0(EmRenderContext *s);
 int em_render_context_001E1010(EmRenderContext *s);
+/* 001DEDE0: the two ramp records' set-up (boot; 001DEDF0 and its 001DEDB0 /
+ * 001DEE80 / 001DEEC0 inline). */
+int em_render_context_001DEDE0(EmRenderContext *s);
 int em_render_context_001D5370(EmRenderContext *s);
 int em_render_context_001D52E0(EmRenderContext *s);
 
 /* ---- The helpers (same conventions). ---- */
 int em_render_context_001D2910(EmRenderContext *s, int32_t a0, uint32_t *result);
 int em_render_context_001D2710(EmRenderContext *s, int32_t a0, uint32_t *result);
+/* 001D2730(a0, a1): the flag set / clear for flags 0..0x1F at context +0x0C
+ * (the channel-0 fog block moves included); *result = 1 when the bit was set
+ * BEFORE. */
+int em_render_context_001D2730(EmRenderContext *s, int32_t a0, int32_t a1, uint32_t *result);
 int em_render_context_001D2E00(EmRenderContext *s, int32_t a0, uint32_t *result);
 int em_render_context_001D2DE0(EmRenderContext *s, int32_t a0, uint32_t a1);
 int em_render_context_001D21B0(EmRenderContext *s, uint32_t a0);

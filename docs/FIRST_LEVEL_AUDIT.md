@@ -513,6 +513,26 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   disc files are identified, docs/CENSUS_STANDINS.md: chunk00/f02_id02.bin,
   chunk00/f03_id03.bin, chunk03/f15_id17.bin; the exporter extension and the
   binding remain), 0021BAE0, and WP-8b.
+- **Render context step (2026-09-25, census L32 + L30; docs/RENDER_CONTEXT.md
+  section 8):** the one canonical render context runs live
+  (`em_render_context_live`): main-loop step B 001D1AE0, the frame head
+  001D1C50 (P / V / K, the four 001D2D20 projections, the planes, the P / K
+  scratchpad copies, 001D30A0's skin-record fills, the fog programmer's mode
+  0), the frame close 001D1EA0 (001E0D70, 001DDA00 with 001DDE10's four-sprite
+  packets, the kick 001CB800 that splices and clears the chain table), the area
+  render init 001C1DC0 (flags, the area fog 001D8FD0, 001C1F50), the zoom
+  writers 001D25F0 / 001D2610 and 001DD980's store 001DD950, all on one block
+  whose .data comes from the user's ELF (tools/export_render_context.py). The
+  world pass draws with the frame head's view and zoom (the original's
+  one-frame view lag, measured in the captures and checked every tick), the
+  Metal fog reads the context's coefficients and FOGCOL, and the snow and the
+  AREA11 effect take P / the 001CD370(0) projection / K from it. Removed:
+  `g.cam.zoom`, `em_camera_scope_zoom`, `em_snow_projection_matrices`, the
+  camera's EmInteractionProjection copy and the interaction host's hard-coded
+  zoom. Not bound: 001C1D00 (the static-object bank export and the static draw
+  boundary), 001D19E0, 001D1EF0 (flag 3 needs step V 001D2300), 001D2580,
+  the status page's fog save / restore; RENDER_CONTEXT.md 8.4. The effect
+  binding (L26 / L27 / L39) is no longer blocked on the context.
 
 ### WP-14 Audio
 - **Scope:**

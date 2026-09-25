@@ -247,7 +247,7 @@ bound.
 
 | Worker | Bind to | State |
 |---|---|---|
-| w001D1AE0, w001D1C10 | `em_gfx_begin_frame` (GS/VIF packet boundary) | 001D1C10 has no port code; its callees 001CB5C0 / 001F0310 / 001D2830 are render work |
+| w001D1AE0, w001D1C10 | 001D1AE0: `em_rcl_001D1AE0` at em_frame's step B (em_frame_set_step_b, main.c; the render context, RENDER_CONTEXT.md section 8), after `em_gfx_begin_frame`; 001D1C10 (step N, the movie frame) | 001D1AE0 live since 2026-09-25; 001D1C10 has no port code (its callees 001CB5C0 / 001F0310 / 001D2830 are render work) |
 | w001B57E0 | `em_slg_001B57E0` (L34) or the current `frame_input_read` | live stand-in reads the pad via `em_pad_unpack` (001B5940, verified) |
 | w001AEBE0, w001AEE70 | `em_screen_fade_tick` / `em_transition_fade_tick` + their draws | live, `test_fade_reference.py` |
 | w001AB6A0 | `em_task_dispatch` | live, unverified (census) |
@@ -260,7 +260,7 @@ bound.
 | w00203350 | the movie pump: the worker must run the whole movie before returning, pumping window events and presenting each movie frame itself (em_frame.c's suspension then goes away) | boundary (IOP movie service) |
 | w001AB4E0 | `em_slg_001AB4E0` (L34) | missing live; its output is the GS display environment (boundary) |
 | w001D2300 | `em_background_gs` (L31) | verified-unbound; 001D2300 also passes 1 - D_00810E88 and 0x70003B70/72 to 001015A8 / 00101810, so whatever binds it must read those from the shared storage (see "Data") |
-| w001D2580 | a store of the field into the render context word +0x98 | no port code |
+| w001D2580 | a store of the field into the render context word +0x98 (em_render_context_live owns the word) | no port code (the port has no field bit) |
 | io_store | no-op (timer 0 is never read) | boundary |
 | spin | deliver the pending ticks; if none, sleep to the next 59.94 Hz tick (the `frame_pace_ntsc` logic) and deliver it (see "Vblank delivery" below) | new |
 | cop0_di / cop0_ei | Status 0 / nothing | boundary |

@@ -152,6 +152,16 @@ void em_frame_set_message_service(const EmFrameMessageService *service);
  * uninstalls it. */
 void em_frame_set_step_i(int (*service)(void *context), void *context);
 
+/* Main-loop step B (0x1AAF34), 001D1AE0(D_00810E80): the frame buffer
+ * set-up of the render context (em_rcl_001D1AE0). It runs at the top of every
+ * main iteration, not while the blocking movie holds the iteration; `index`
+ * is the signed halfword D_00810E80. -1 is a fault (the frame quits). NULL
+ * uninstalls it. */
+void em_frame_set_step_b(int (*service)(void *context, int32_t index), void *context);
+/* The bytes of D_00810E80 (a halfword, 0 or 1; step W flips it), for the
+ * render context's view. */
+uint8_t *em_frame_d810E80(void);
+
 /* The sound service: `field` runs at the top of every em_frame_step (one
  * NTSC field: the vblank handler's D_00810E90 and the IOP's field work),
  * `step_h` at main-loop step H (0x1AAF64, 001FB100's lane service 001F9CF0),

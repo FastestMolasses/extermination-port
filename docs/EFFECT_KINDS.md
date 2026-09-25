@@ -346,8 +346,9 @@ Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
   - **w_001CFB50.** Bind it to `em_effect_kinds_001CFB50` (section 2.1a), with an `EmEffectKindsXfState` over
     the live D_00275670 and scratchpad 0x70003AC0, and a block that stands for D_0081F8F0. It has the same
     shape as the block `em_head_sprite_original_001CFA60` fills (`EmHeadSpriteOriginalXf`), but it is a
-    different function. **Blocked (Effects step, 2026-09-24):** no live code produces 0x70003AC0 or the
-    render-context block (EFFECT_MANAGER.md 5.0).
+    different function. **Blocked (Effects step, 2026-09-24):** no live code produced 0x70003AC0 or the
+    render-context block (EFFECT_MANAGER.md 5.0); since the render context step (2026-09-25) both exist
+    live (RENDER_CONTEXT.md section 8).
   - **w_001CFBE0.** Bind it to `em_head_sprite_original_001CFBE0` (verified-unbound). Pass the adapter's
     D_0081F8F0 block as `xf`, the source by address (D_00256700 / D_002568B0 / D_00256940 / D_002569D0 /
     D_002565E0 / D_00256670, 0x90 bytes each from the ELF), `kind` = 1 and `copy`, with the frame's packet

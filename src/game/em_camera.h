@@ -48,11 +48,6 @@ float cam_dot3(const float a[3], const float b[3]);
 float cam_wrap_pi(float a)               /* func_001B1470 */;
 void cam_norm3(float v[3])               /* func_00102760 */;
 
-/* Engine zoom curve: 224 / tan(radians(5 + 45*(1-t)) / 2), a 50-degree
- * vertical FOV at t = 0 narrowing to 5 at t = 1 (func_001D2610 /
- * func_001D2590). zoom(0) == 480, the resting default. */
-float em_camera_scope_zoom(float t);
-
 /* AREA11's legacy camera stand-ins that still pre-empt camera action 0
  * (00195130) of the live camera (em_camera_live.c): the examine cue (em_examine.c), the
  * fence door cinematic (em_door.c, census L18) and the port's aim camera

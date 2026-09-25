@@ -57,8 +57,8 @@ scratch copies of `src/` (the live tree was not touched):
 | 001B1190 | **verified** (areas 0..0x16, capture 00→01) | none | none needed for AREA11 |
 | 001C5680 | **verified**, live per node (em_indicator_child) | none: every child draws its 001F54E0 in walk order | the 0x7A child's own model draw (OWNER_DRAW.md P1) |
 | 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live | none (the arrow turns green once powered, as in route 04) | none |
-| 001CF470 | **missing**: no port translation exists | the actor-route decal is not drawn | translate 001CE300 + 001CF470 |
-| 0020DFA0 | D_00810610 writes and zoom **verified**; four callees not run (one key each) | trail reset on the request path; fog save/program | see the 0020DFA0 section |
+| 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired | the actor-route decal is not bound yet | bind the decal route |
+| 0020DFA0 | D_00810610 writes **verified**; 001D2610(0.0) runs on the render context (its zoom and its 0021B970) since the render context step; three callees not run (one key each) | trail reset on the request path; fog save/program | see the 0020DFA0 section |
 
 ## 0015AC00 (the 0015AFA0 owner's state 0)
 
@@ -289,7 +289,12 @@ note above (the bind always succeeds, the placement is the owner's palette,
 
 ## 001CF470 (the frustum clipper)
 
-**No port translation exists.** Nothing in `src/` defines it.
+**Since d85512e it is translated** (`em_shadow_decal_001CF470`,
+em_shadow_decal_original.c, checked by its own oracle); the test's
+`001CF470/missing` key is retired (the render context step, 2026-09-25). The
+reference below stays pinned. What follows is the state before d85512e.
+
+**No port translation existed.** Nothing in `src/` defined it.
 - em_shadow_actor_route only records its caller 001CE300 as a worker
   (`EmShadowActorRouteWorkers.submit`). SHADOW_ACTOR_ROUTE.md L1 says
   001CE300 is not translated.
@@ -329,18 +334,22 @@ packet work). Until then, the decal worker must keep faulting.
 - `em_status_models_configure` gives the same 16 words: the identity, with
   D_00810624 = -1.0.
 - 001D2610(0.0), run whole (0011E398 and 001B0070 included), stores the zoom
-  at 0x70003B60 and ctx+0x2468. The host's `g.cam.zoom = 0x1.e05e9ep+8f`
-  equals it bit for bit.
+  at 0x70003B60 and ctx+0x2468 (0x43F02F4F).
 - 001D2610 then calls 0021B970(ctx+0xF8, ctx+0xFC), which in beat 01 is
   (-209.0, 304.0).
+- Since the render context step (2026-09-25, docs/RENDER_CONTEXT.md section
+  8) the host's CONFIGURE case runs `em_rcl_001D2610(0)`: the translation
+  em_frh_001D2610 on the one render context, its zoom and its 0021B970 fog
+  pair included. The test asserts the call is there; the translation itself
+  is test_frame_render_heads_reference's.
 
 **Divergences**, one key per callee: `0020DFA0/missing-0020E020`,
-`0020DFA0/missing-0021BAC0`, `0020DFA0/missing-0021B9A0` and
-`0020DFA0/missing-0021B970`. A partial fix retires only its own key. The
-host's CONFIGURE case (em_area11_interaction_host.c `status_page_event`)
-runs only 001AFE60 (`em_status_models_clear`), the D_00810610 writes and the
-zoom; the test asserts those three are present. Nothing on the CONFIGURE
-path runs:
+`0020DFA0/missing-0021BAC0` and `0020DFA0/missing-0021B9A0` (the
+`0020DFA0/missing-0021B970` key is retired). A partial fix retires only its
+own key. The host's CONFIGURE case (em_area11_interaction_host.c
+`status_page_event`) runs 001AFE60 (`em_status_models_clear`), the
+D_00810610 writes and 001D2610(0.0); the test asserts those are present.
+Nothing on the CONFIGURE path runs:
 
 - **0020E020**, the trail D_00821300/D_00275C90 reset. The port resets the
   trail on the hub's first frame (phases 1/2, step 0) and in em_item_root's
@@ -357,13 +366,14 @@ path runs:
 - **0021BAC0(0)**, which saves the fog block ctx+0xA0 into slot 0 at
   ctx+0x120. A verified translation, `em_sul_0021BAC0`, exists but is
   unbound. The page's restore partner 0021BAE0 is a stand-in row.
-- **0021B9A0(5, 0.0, 1e6)**, the fog programmer. Its census row is missing:
-  there is no translation.
-- **0021B970(ctx+0xF8, ctx+0xFC)**, the fog range 001D2610 re-sets. A worker
-  exists in em_frame_render_heads.
+- **0021B9A0(5, 0.0, 1e6)**, the fog programmer. The translation
+  (em_packet_chain_0021B9A0) runs live on the render context since the
+  render context step, but not on this path.
 
-The status models draw with `em_gfx_fog_off`, which stands in for the last
-three.
+The status models draw with `em_gfx_fog_off`, which stands in for the fog
+state those two leave. After the page, the next world frame head's
+0021B9A0(0, 0, 0) reloads the fog block from the +0xF8 pair, which neither
+touches, so the world's fog is the original's again from that frame on.
 
 **Suggested census status:** live for the D_00810610 writes and the zoom
 constant, with a stand-in note for the four callees above. Its module column
@@ -382,5 +392,5 @@ should name the host's CONFIGURE case.
   the bind and placement workers; the cull).
 - 001C5760: unverified → live with a stand-in note (the bind and placement
   workers; the cull).
-- 0020DFA0: unverified → live with a stand-in note (0020E020, 0021BAC0,
-  0021B9A0 and 0021B970 not run).
+- 0020DFA0: unverified → live with a stand-in note (0020E020, 0021BAC0 and
+  0021B9A0 not run; 001D2610 with its 0021B970 runs on the render context).

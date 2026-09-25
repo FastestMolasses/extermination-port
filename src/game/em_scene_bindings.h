@@ -82,12 +82,8 @@ int em_scene_bindings_001FC280(void);
 int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release);
 int em_scene_bindings_report_001DA6A0(void);
 /* 001B0250 over the canonical D_008106C8 and the spawn table (0, or -1
- * with the fault latched), and the reported 001D2830 (0). */
+ * with the fault latched). */
 int em_scene_bindings_001B0250(void);
-int em_scene_bindings_report_001D2830(void);
-/* The reported 0021B9A0 (the render-context fog programmer): no port
- * counterpart (0). */
-int em_scene_bindings_report_0021B9A0(void);
 
 /* 00119828(ch, l, r), the IOP command 0x16 packer, for callers outside the
  * frame machine (the opening's 001B82D0 ops 9..12 phase 0, the scripts):

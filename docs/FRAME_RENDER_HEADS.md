@@ -12,8 +12,12 @@ render reset at area load, and the lighting-mode dispatch.
 - Translation: `src/game/em_frame_render_heads.c` / `.h`.
 - Oracle: `tools/test_frame_render_heads_reference.py`.
 
-The module is **built and tested but not wired**. Section 4 lists what the
-coordinator binds, and what each binding replaces.
+**Bound live since 2026-09-25** through the one canonical render context
+(`src/game/em_render_context_live.{h,c}`, docs/RENDER_CONTEXT.md section 8):
+001D1AE0 (main-loop step B), 001D1C50, 001D1EA0, 001D2830, 001D2960,
+001D2D20, 001D30A0 and the zoom helpers run live. 001C1D00, 001D19E0,
+001D1EF0, 001D9070 / 001D19D0, 001D8060 / 001D80B0 and 001D88B0 / 001D8C30
+do not; section 4 says why.
 
 The module contains no original code or data. It cites original addresses.
 Its constants are the values the original materialises: float bit patterns,
@@ -64,30 +68,48 @@ The oracle executes the original leaves.
 
 ## 2. Per function
 
-In the table, **Before** is the census status and **After** is the status once
-this lane is merged. **After** is "verified-unbound" for all 18 rows: an
-oracle checks each translation, and nothing live runs it yet (section 4).
+In the table, **Before** is the census status before this lane, **After**
+the status since the binding step (2026-09-25, section 4).
 
 | Function | Decomp | Before | After |
 |---|---|---|---|
-| 001D1C50 per-frame head | NM | stand-in | verified-unbound |
-| 001D1EA0 frame close | BM | stand-in | verified-unbound |
-| 001D30A0 per-slot fill | NM | stand-in | verified-unbound |
-| 001D2960 projection | BM | stand-in | verified-unbound |
-| 001D2D20 perspective matrix | BM | stand-in | verified-unbound |
-| 001D25F0 zoom store | BM | stand-in | verified-unbound |
-| 001D2590 zoom from angle | AI | unverified | verified-unbound |
-| 001D2610 scope zoom | BM | unverified | verified-unbound |
-| 001C1D00 render-env step | BM | stand-in | verified-unbound |
+| 001D1C50 per-frame head | NM | stand-in | live |
+| 001D1EA0 frame close | BM | stand-in | live |
+| 001D30A0 per-slot fill | NM | stand-in | live |
+| 001D2960 projection | BM | stand-in | live |
+| 001D2D20 perspective matrix | BM | stand-in | live |
+| 001D25F0 zoom store | BM | stand-in | live |
+| 001D2590 zoom from angle | AI | unverified | live |
+| 001D2610 scope zoom | BM | unverified | live |
+| 001C1D00 render-env step | BM | stand-in | verified-unbound (not bound: section 4) |
 | 001D1EF0 tear-down frame | BM | missing | verified-unbound |
 | 001D19E0 render reset | BM | missing | verified-unbound |
-| 001D2830 registration dispatch | AW | missing | verified-unbound |
+| 001D2830 registration dispatch | AW | missing | live (the frame head's, 001C1DC0's and the script host's calls) |
 | 001D9070 fade weights | NM | missing | verified-unbound |
 | 001D19D0 thunk | BM | missing | verified-unbound |
 | 001D8060 light-slot lookup | BM | missing | verified-unbound |
 | 001D80B0 light-slot release | BM | missing | verified-unbound |
 | 001D88B0 lighting dispatch | BM | unverified | verified-unbound |
 | 001D8C30 fixed-light fill | NM | unverified | verified-unbound |
+| 001D1AE0 frame buffer set-up | NM | boundary | live (added by the binding step) |
+
+### 001D1AE0(index): the frame buffer set-up (main-loop step B)
+
+NEARMISS C; the .s was followed. D_00275670 is re-read before every
+store.
+1. +0x9C = index.
+2. The four channel cursors: +0x10 = D_0028F700 + index * 0x60800 + 8 +
+   0x7FF8; +0x14 = D_0028F700 + index * 0x95760 (the low word of the MULT) +
+   0xC9000; +0x18 = D_0028F700 + index * 0x70000 + 0x1F3EC0; +0x1C =
+   D_0028F700 + (index << 20) + 0x2D3EC0.
+3. +0x50, +0x5C, +0x58, +0x54 = 0, in that order.
+4. 001CBA40, an empty routine; then 001D1F20(1), 001D2040(1, 0), 001D1FF0(1, 1)
+   (the REF tags, em_load_veil_particles), 001CB8A0(D_007635C0, 0, context,
+   context + 4) (the frame chain's start tag, em_packet_chain_original) and
+   001D2DE0(0, 0).
+
+The oracle runs it in the unit cases (index 0, 1, -1, 2, 0x7FFF, -0x8000)
+and first in each route pass.
 
 ### 001D1C50: the per-frame render head (S0 onward, every frame)
 
@@ -282,8 +304,8 @@ matters when the operands alias.
 ### Unit mode
 
 - **Coverage.** The default run is 700 of 6,000 cases in about 4 s.
-  `EM_TEST_FULL=1` runs all 6,000 (about 45 s). All 18 entries run, and all
-  eight 001D8C30 jump-table cases.
+  `EM_TEST_FULL=1` runs all 6,000 (about 45 s). All 19 entries run (001D1AE0 included), and
+  all eight 001D8C30 jump-table cases.
 - **Memory.** The base is the 01_battery capture, with seeded pokes: flags,
   area, slot index, zoom, the V matrix, light ids, synthetic 001D9070 models,
   and aliasing 001D8C30 operands. Float values include boundaries, NaN, Inf
@@ -293,7 +315,8 @@ matters when the operands alias.
   the ordered worker-call list with every argument, and the v0 of 001D2830
   and 001D8060.
 - **Callees.** The test asserts that the worker set is exactly the set of jal
-  targets of the translated routines (46 targets).
+  targets of the translated routines (51 targets; 001CBA40, the empty routine
+  001D1AE0 calls, counts as translated).
 - **Branch coverage.** Every conditional branch of the translated routines
   and leaves (42) is asserted both ways. Two outcomes are exempt as
   unreachable: the 001D9070 clamps (v = 1 − t with 0 ≤ t ≤ 0.3).
@@ -308,7 +331,8 @@ pick). `EM_TEST_FULL=1` runs all 15. `EM_TEST_WORLD=1` runs it alone.
 
 From each beat's snapshot the test runs, in order:
 
-- 001D1C50, 001C1D00(0x8101D0) and 001D1EA0(1), twice;
+- 001D1AE0(D_00810E80, flipped between the passes), 001D1C50,
+  001C1D00(0x8101D0) and 001D1EA0(1), twice;
 - 001D2610(0) and 001D2610(1);
 - 001D88B0 (lighting mode 0 on every beat).
 
@@ -360,7 +384,21 @@ VOPMSUB, plus the MMI PEXTLW and PEXTUW. All are handled in this file.
   matrices and the slots is not checked. The REF tag bytes are compared as
   memory.
 
-## 4. Binding (for the coordinator)
+## 4. Binding
+
+**Done (2026-09-25).** docs/RENDER_CONTEXT.md section 8 is the binding: the
+storage, the views, each worker, the positions and what each replaced
+(em_render_001D1C50 now serves only a scene without the render context;
+em_snow_projection_matrices, `g.cam.zoom`, `em_camera_scope_zoom`, the
+interaction host's 0x43F02F4F and the camera's EmInteractionProjection record
+are removed). The worker map below is kept as the reference it was written
+as; where it says "stand-in" the table in RENDER_CONTEXT.md 8.2 gives the
+current state. Not bound: 001C1D00 (its 001D5370 needs the static-object
+bank export, its 001E0CF0 the background channel), 001D19E0, 001D1EF0 (flag
+3 needs step V 001D2300), 001D19D0 / 001D9070, 001D8060 / 001D80B0 and the
+lighting pair (lanes L33, L40).
+
+### The binding as specified before it was done
 
 ### Storage the live side must provide as views
 
@@ -416,13 +454,5 @@ The three stand-ins that em_frh_001D2610 and em_frh_001D25F0 replace:
 
 ### Makefile
 
-Makefile target (report only; the lead edits the Makefile):
-
-```
-.PHONY: test-frame-render-heads-reference
-test-frame-render-heads-reference:
-	python3 tools/test_frame_render_heads_reference.py
-```
-
-When the lead binds the module, add `src/game/em_frame_render_heads.c` to
-COMMON.
+Target `test-frame-render-heads-reference`; `src/game/em_frame_render_heads.c`
+is in COMMON since the binding step.

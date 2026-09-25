@@ -116,13 +116,19 @@ int em_camera_live_001B0460(int a0, const EmCameraLiveRoom *room);
  * (after a direct write through em_camera_live_bytes, e.g. a fixture's
  * captured camera). */
 void em_camera_live_view_publish(void);
+/* The g.cam view -> the canonical bytes now (what every camera entry does
+ * first): for a writer of g.cam.eye / g.cam.tgt that calls an original
+ * reading D_008105D0 / D_008105E0 before the next camera entry (001DD980's
+ * 001DD950 copies D_008105E0). Nothing while unbound. */
+void em_camera_live_adopt_view(void);
 
 /* The canonical words, by original address (0x008101E0..0x008102AF and
  * 0x008105D0..0x008106A3), or NULL for any other address. */
 uint8_t *em_camera_live_bytes(uint32_t address, uint32_t size);
-/* The render-context projection record 001DD980 publishes (+0x2450..+0x2467
- * of *D_00275670); one storage for every publisher. */
-EmInteractionProjection *em_camera_live_projection(void);
+/* The camera's view of the player record D_008102B0 (0x320 bytes, with the
+ * +A0 / +B0 / +C4 substitutions of section 5), as its last entry loaded it;
+ * the render context reads D_00810360 / D_008104E0 through it. */
+const uint8_t *em_camera_live_player_bytes(void);
 
 /* 0, or the address of the first missing or failing callee of the last
  * failed call (for the fault report). */

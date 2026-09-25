@@ -9,7 +9,7 @@ they reach, which the module translates privately):
 
   001D1C50  001D1EA0  001D1EF0  001D19E0  001D19D0  001D9070  001D2830
   001D2960  001D2D20  001D25F0  001D2590  001D2610  001C1D00  001D30A0
-  001D8060  001D80B0  001D88B0  001D8C30
+  001D8060  001D80B0  001D88B0  001D8C30  001D1AE0 (with its empty 001CBA40)
   copy_qw4 (00102958), 00102948, 001026D0, 001029C0
 
 Memory: both sides see the whole 32 MB RAM image and the 16 KB scratchpad
@@ -27,8 +27,8 @@ the script supplies each worker's result (branch coverage of every
 conditional branch of the translated routines is asserted); sqrtf/tanf
 results come from the original 0011E748/0011E398 executed in a separate
 interpreter. The route mode follows (EM_TEST_WORLD=1 runs it alone): from each route beat's
-snapshot, two per-frame passes of the heads (001D1C50, 001C1D00(0x8101D0),
-001D1EA0(1)) plus 001D2610/001D88B0 run once all-original and once with the
+snapshot, two per-frame passes of the heads (001D1AE0(buffer), 001D1C50,
+001C1D00(0x8101D0), 001D1EA0(1)) plus 001D2610/001D88B0 run once all-original and once with the
 native translations operating directly on the second interpreter's memory,
 every worker executing the ORIGINAL callee in that interpreter (the GS/DMA
 kick 001CB800 and the world flush pair are recorded boundaries on both
@@ -219,8 +219,9 @@ SIZES = {
     0x1D1C50: 0x248, 0x1D1EA0: 0x50, 0x1D1EF0: 0x30, 0x1D19E0: 0xFC, 0x1D19D0: 0x8,
     0x1D9070: 0x124, 0x1D2830: 0x4C, 0x1D2960: 0x3C0, 0x1D2D20: 0xB4, 0x1D25F0: 0x14,
     0x1D2590: 0x58, 0x1D2610: 0x100, 0x1C1D00: 0xBC, 0x1D30A0: 0x724, 0x1D8060: 0x4C,
-    0x1D80B0: 0x30, 0x1D88B0: 0x118, 0x1D8C30: 0x394,
+    0x1D80B0: 0x30, 0x1D88B0: 0x118, 0x1D8C30: 0x394, 0x1D1AE0: 0x130,
     0x102958: 0x24, 0x102948: 0xC, 0x1026D0: 0x44, 0x1029C0: 0x28,     # SDK leaves
+    0x1CBA40: 0x8,                                                     # empty (001D1AE0)
 }
 TRANSLATED = set(SIZES)
 LANE_ROUTINES = {a for a in SIZES if a >= 0x1C0000}
@@ -247,6 +248,8 @@ WORKERS = (
     ('w_001E0380', 0x1E0380, ''),
     ('w_001D8130', 0x1D8130, 'iu'), ('w_001D8340', 0x1D8340, 'iuuiu'), ('w_001D8690', 0x1D8690, 'uuui'),
     ('w_001C6120', 0x1C6120, 'uu>u'),
+    ('w_001D1F20', 0x1D1F20, 'i'), ('w_001D2040', 0x1D2040, 'ii'), ('w_001D1FF0', 0x1D1FF0, 'ii'),
+    ('w_001CB8A0', 0x1CB8A0, 'uiuu'),
 )
 BY_ADDRESS = {address: (field, sig) for field, address, sig in WORKERS}
 
@@ -327,7 +330,7 @@ ENTRY_SIGNATURES = {
     'em_frh_001D25F0': [U32], 'em_frh_001D2590': [U32, U32], 'em_frh_001D2610': [U32],
     'em_frh_001C1D00': [U32], 'em_frh_001D30A0': [], 'em_frh_001D8060': [I32, C.POINTER(U32)],
     'em_frh_001D80B0': [I32], 'em_frh_001D88B0': [U32, U32, U32, U32],
-    'em_frh_001D8C30': [I32, U32, U32, U32],
+    'em_frh_001D8C30': [I32, U32, U32, U32], 'em_frh_001D1AE0': [I32],
 }
 
 
@@ -536,8 +539,8 @@ def rfloat(rng):
 
 
 ENTRIES = ('1C50', '1EA0', '1EF0', '19E0', '19D0', '9070', '2830', '2960', '2D20', '25F0', '2590',
-           '2610', '1C1D00', '30A0', '8060', '80B0', '88B0', '8C30')
-WEIGHTS = (6, 3, 2, 2, 1, 3, 3, 3, 3, 1, 2, 4, 3, 2, 3, 3, 4, 6)
+           '2610', '1C1D00', '30A0', '8060', '80B0', '88B0', '8C30', '1AE0')
+WEIGHTS = (6, 3, 2, 2, 1, 3, 3, 3, 3, 1, 2, 4, 3, 2, 3, 3, 4, 6, 2)
 
 
 def make_case(seed, ctx, slots):
@@ -576,7 +579,9 @@ def make_case(seed, ctx, slots):
     if rng.random() < 0.3:
         del knobs['flags']
     args = ()
-    if entry == '1EA0':
+    if entry == '1AE0':
+        args = (rng.choice((0, 1, 1, 0, -1, 2, 0x7FFF, -0x8000)),)
+    elif entry == '1EA0':
         args = (rng.choice((0, 1, 1, 5, -1)),)
     elif entry == '2830':
         args = (rng.choice((-5, 0, 3, 0x1F, 0x20, 0x24, 0x3F, 0x40, 0x7FFFFFFF, -0x80000000)),
@@ -632,7 +637,7 @@ ORIGINAL_ENTRY = {
     '1C50': 0x1D1C50, '1EA0': 0x1D1EA0, '1EF0': 0x1D1EF0, '19E0': 0x1D19E0, '19D0': 0x1D19D0,
     '9070': 0x1D9070, '2830': 0x1D2830, '2960': 0x1D2960, '2D20': 0x1D2D20, '25F0': 0x1D25F0,
     '2590': 0x1D2590, '2610': 0x1D2610, '1C1D00': 0x1C1D00, '30A0': 0x1D30A0, '8060': 0x1D8060,
-    '80B0': 0x1D80B0, '88B0': 0x1D88B0, '8C30': 0x1D8C30,
+    '80B0': 0x1D80B0, '88B0': 0x1D88B0, '8C30': 0x1D8C30, '1AE0': 0x1D1AE0,
 }
 FLOAT_ARGS = {'2D20': 5, '25F0': 1, '2590': 2, '2610': 1}
 
@@ -673,7 +678,7 @@ def run_native(native, h, entry, args, nram):
         for i in range(16):
             rw(nram, SCRATCH + 0x200 + 4 * i, m[i])
         return status, None
-    return fn(ref, *[a & MASK if isinstance(a, int) and a < 0 and entry not in ('1EA0', '80B0')
+    return fn(ref, *[a & MASK if isinstance(a, int) and a < 0 and entry not in ('1EA0', '80B0', '1AE0')
                      else a for a in args]), None
 
 
@@ -744,9 +749,10 @@ NEEDS = {
     '9070': ('w_001C6120',), '2960': ('w_0011E748',), '2590': ('w_0011E398',),
     '2610': ('w_0011E398', 'w_001B0070', 'w_0021B970'),
     '1C1D00': ('w_001D2910', 'w_001E2260', 'w_001E0CF0', 'w_001D5370'),
+    '1AE0': ('w_001D1F20', 'w_001D2040', 'w_001D1FF0', 'w_001CB8A0', 'w_001D2DE0'),
 }
 NEED_ARGS = {'1C50': (), '1EA0': (1,), '19E0': (), '9070': (), '2960': (0x810610,), '2590': (F(224.0), F(0.8)),
-             '2610': (F(0.5),), '1C1D00': (0x8101D0,)}
+             '2610': (F(0.5),), '1C1D00': (0x8101D0,), '1AE0': (1,)}
 
 
 def missing_worker_checks():
@@ -810,7 +816,11 @@ def route_beat(beat):
     h, alive = make_frh(nee.mem, nee.spad, workers)
     ref = C.byref(h)
     steps = []
+    index = oee.load(0x810E80) & 0xFFFF
     for n in range(ROUTE_PASSES):
+        # The main loop's step B, then the world frame's heads; step W flips
+        # D_00810E80 between frames.
+        steps.append(('1AE0', ((index + n) & 1,)))
         steps.append(('1C50', ()))
         steps.append(('1C1D00', (0x8101D0,)))
         steps.append(('1EA0', (1,)))

@@ -293,6 +293,158 @@ int em_packet_chain_0021B9A0(EmPacketChain *pc, int32_t mode, uint32_t scale_bit
     return 0;
 }
 
+/* 0021B970 (byte-matched): +0xB8 = the first float argument, D_00275670
+ * re-read, +0xBC = the second (stored in the delay slot of the 0021B920
+ * call), 0021B920 on the two argument values, then 0021B900. */
+int em_packet_chain_0021B970(EmPacketChain *pc, uint32_t near_bits, uint32_t far_bits)
+{
+    if (!pc || pc->fault) return -1;
+    uint8_t *c = context(pc, 0x0021B970u);
+    if (!c) return -1;
+    wr32(c + EM_PACKET_CHAIN_NEAR, near_bits);
+    wr32(c + EM_PACKET_CHAIN_NEAR + 4u, far_bits);
+    fog_coefficients(c, near_bits, far_bits);
+    EmSulWorkers w;
+    memset(&w, 0, sizeof w);
+    w.block_copy = latch_copy;
+    if (em_sul_0021B900(&w, c, EM_PACKET_CHAIN_CONTEXT_SPAN) < 0)
+        return fault(pc, EM_PACKET_CHAIN_FAULT_WORKER, 0x0021B900u, pc->d275670);
+    return 0;
+}
+
+/* 0021BA80 (asm words): each argument register is sign-extended from its
+ * low word (dsll32 / dsra32), a1 shifted left 8 and a2 left 16 as 64-bit
+ * values, OR-ed with a0, then a tail jump to 0021BA70. */
+int em_packet_chain_0021BA80(EmPacketChain *pc, int32_t a0, int32_t a1, int32_t a2)
+{
+    if (!pc || pc->fault) return -1;
+    uint8_t *c = context(pc, 0x0021BA80u);
+    if (!c) return -1;
+    const uint64_t value = (uint64_t)(int64_t)a0 | (uint64_t)(int64_t)a1 << 8 |
+                           (uint64_t)(int64_t)a2 << 16;
+    EmSulWorkers w;
+    memset(&w, 0, sizeof w);
+    w.block_copy = latch_copy;
+    if (em_sul_0021BA70(&w, c, EM_PACKET_CHAIN_CONTEXT_SPAN, value) < 0)
+        return fault(pc, EM_PACKET_CHAIN_FAULT_WORKER, 0x0021BA70u, pc->d275670);
+    return 0;
+}
+
+#define F_110 UINT32_C(0x42DC0000) /* 110.0 (001D8FF4) */
+
+/* 001D8FD0 (byte-matched): the record comes first (001D7B30), then the flag
+ * word (001B0070). The record words are loaded only on the else path. */
+int em_packet_chain_001D8FD0(EmPacketChain *pc, const EmPacketChainAreaFogWorkers *w)
+{
+    if (!pc || pc->fault) return -1;
+    if (!w || !w->w_001D7B30 || !w->w_001B0070)
+        return fault(pc, EM_PACKET_CHAIN_FAULT_WORKER, 0x001D8FD0u, 0);
+    if (!context(pc, 0x001D8FD0u)) return -1;
+    u32 record = 0, flags = 0;
+    if (w->w_001D7B30(w->ctx, &record) < 0)
+        return fault(pc, EM_PACKET_CHAIN_FAULT_WORKER, 0x001D7B30u, 0);
+    if (w->w_001B0070(w->ctx, &flags) < 0)
+        return fault(pc, EM_PACKET_CHAIN_FAULT_WORKER, 0x001B0070u, 0);
+    if (flags & 0x80u) {                                        /* 001D8FEC */
+        if (em_packet_chain_0021B970(pc, 0, F_110) < 0) return -1;
+        if (em_packet_chain_0021BA80(pc, 0, 0, 0) < 0) return -1;
+    } else {
+        const uint8_t *r = span(pc, (uint64_t)record + 4u, 0x14);
+        if (!r) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, 0x001D8FD0u, record + 4u);
+        const u32 near_bits = rd32(r + 0x00), far_bits = rd32(r + 0x04);
+        const u32 red = rd32(r + 0x08), green = rd32(r + 0x0C), blue = rd32(r + 0x10);
+        if (em_packet_chain_0021B970(pc, near_bits, far_bits) < 0) return -1;
+        if (em_packet_chain_0021BA80(pc, (int32_t)red, (int32_t)green, (int32_t)blue) < 0) return -1;
+    }
+    uint8_t *c = context(pc, 0x0021B8E0u);
+    if (!c) return -1;
+    EmSulWorkers sw;
+    memset(&sw, 0, sizeof sw);
+    sw.block_copy = latch_copy;
+    if (em_sul_0021B8E0(&sw, c, EM_PACKET_CHAIN_CONTEXT_SPAN) < 0)
+        return fault(pc, EM_PACKET_CHAIN_FAULT_WORKER, 0x0021B8E0u, pc->d275670);
+    return 0;
+}
+
+/* The start tag of buffer D_00810E80 (lh, sign-extended) at a1 << 6. */
+static int frame_base(EmPacketChain *pc, u32 function, int32_t a1, u32 *base)
+{
+    const uint8_t *e80 = span(pc, EM_PACKET_CHAIN_D_00810E80, 2);
+    if (!e80) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, function, EM_PACKET_CHAIN_D_00810E80);
+    const int32_t index = (int16_t)(uint16_t)(e80[0] | e80[1] << 8);
+    *base = EM_PACKET_CHAIN_ARENA + (u32)index * 0x70000u + 0x1F3EC0u + ((u32)a1 << 6);
+    return 0;
+}
+
+/* 001CB8A0 (byte-matched): the four stores in their original order. */
+int em_packet_chain_001CB8A0(EmPacketChain *pc, int32_t a1, uint32_t a2, uint32_t a3)
+{
+    if (!pc || pc->fault) return -1;
+    const u32 fn = 0x001CB8A0u;
+    u32 base;
+    if (frame_base(pc, fn, a1, &base) < 0) return -1;
+    if (!span(pc, base, 8)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, base);
+    if (!span(pc, a2, 4)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, a2);
+    if (!span(pc, a3, 4)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, a3);
+    const u32 next = (base + 0x20u) & LOW28;
+    wr32(span(pc, base, 4), 0x20000000u);
+    wr32(span(pc, base + 4u, 4), next);
+    wr32(span(pc, a2, 4), base & LOW28);
+    wr32(span(pc, a3, 4), next);
+    return 0;
+}
+
+/* 001CB800 (byte-matched). A dry pass resolves every address the walk
+ * reads or stores, so an unmapped one faults with nothing written; the
+ * walk then re-resolves each access (a store can change a later address
+ * only when the arena, the table and the heads alias). */
+int em_packet_chain_001CB800(EmPacketChain *pc, uint32_t table, int32_t a1, uint32_t a2,
+                             uint32_t a3)
+{
+    if (!pc || pc->fault) return -1;
+    const u32 fn = 0x001CB800u;
+    u32 base;
+    if (frame_base(pc, fn, a1, &base) < 0) return -1;
+    if (!span(pc, base, 8)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, base);
+    if (!span(pc, table, 0x4000)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, table);
+    u32 dry = base;
+    for (u32 i = 0; i < 0x1000u; ++i) {
+        const u32 slot = table + 4u * i;
+        if (rd32(span(pc, slot, 4)) == 0) continue;
+        if (!span(pc, dry + 4u, 4)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, dry + 4u);
+        const uint8_t *head = span(pc, (uint64_t)slot + EM_PACKET_CHAIN_HEADS, 4);
+        if (!head) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, slot + EM_PACKET_CHAIN_HEADS);
+        dry = rd32(head) + 0x10u;
+    }
+    if (!span(pc, dry + 4u, 4)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, dry + 4u);
+    if (!span(pc, a2, 4)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, a2);
+    if (!span(pc, a3, 4)) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, a3);
+
+    wr32(span(pc, base, 4), 0x20000000u);                       /* 001CB83C */
+    u32 cursor = base;
+    for (u32 i = 0; i < 0x1000u; ++i) {
+        const u32 slot = table + 4u * i;
+        uint8_t *s = span(pc, slot, 4);
+        if (!s) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, slot);
+        const u32 w = rd32(s);                                  /* 001CB844 */
+        if (w == 0) continue;
+        uint8_t *link = span(pc, cursor + 4u, 4);
+        if (!link) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, cursor + 4u);
+        wr32(link, w & LOW28);                                  /* 001CB858 */
+        const uint8_t *head = span(pc, (uint64_t)slot + EM_PACKET_CHAIN_HEADS, 4);
+        if (!head) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, slot + EM_PACKET_CHAIN_HEADS);
+        cursor = rd32(head) + 0x10u;                            /* 001CB85C, 001CB860 */
+        wr32(span(pc, slot, 4), 0);                             /* 001CB864 */
+    }
+    const u32 next = (base + 0x20u) & LOW28;
+    uint8_t *link = span(pc, cursor + 4u, 4);
+    if (!link) return fault(pc, EM_PACKET_CHAIN_FAULT_UNMAPPED, fn, cursor + 4u);
+    wr32(link, next);                                           /* 001CB888 */
+    wr32(span(pc, a2, 4), base & LOW28);                        /* 001CB890 */
+    wr32(span(pc, a3, 4), next);                                /* 001CB898 */
+    return 0;
+}
+
 int em_packet_chain_fog(EmPacketChain *pc, uint32_t out[4])
 {
     if (!pc || pc->fault) return -1;

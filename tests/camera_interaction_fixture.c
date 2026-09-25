@@ -1,3 +1,4 @@
+#include "game/em_render_context_live.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
@@ -88,8 +89,13 @@ static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, ca
  * camera's +0x0C, the refusal's sub 5 -20), then 0018D7B0(5), 0018D7B0(1)
  * and cam+A0 = 0x78. `out` receives the resulting camera block (0xD0 bytes)
  * and the pool D_008105D0..D_008106A3 (0xD4 bytes). */
+/* The render context (its boot zoom store; the camera's view publication
+ * reads its +0x2468). */
+static uint8_t s_d810E80[2];
+
 static int retarget(const char *ramfile,const char *world,const char *scratch,uint8_t *out,int refusal)
 {
+    if (em_rcl_init(EM_RCL_EXPORT_PATH,s_d810E80)!=0) return 0;
     unsigned char *ram=malloc(0x2000000);FILE *f=fopen(ramfile,"rb");
     if (!ram) return 0;
     if (!f) {free(ram);return 0;}
@@ -104,7 +110,6 @@ static int retarget(const char *ramfile,const char *world,const char *scratch,ui
     float rot[3];
     for (int i=0;i<3;i++) { g.pos[i]=word(ram,p+0xA0+i*4); rot[i]=word(ram,c+0x30+i*4); }
     g.yaw=word(ram,p+0xC4);
-    g.cam.zoom=480;
     int ok=em_camera_live_bind(&camera_host)==0;
     if (ok) {
         memcpy(em_camera_live_bytes(0x008101E0u,0xD0),ram+c,0xD0);

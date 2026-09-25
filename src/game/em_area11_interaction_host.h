@@ -40,7 +40,6 @@ EmStatusRuntime *em_area11_interaction_host_status(void);
 /* The hub's static actor pool and model draws (em_status_models), for the
  * level smoke. */
 const struct EmStatusModels *em_area11_interaction_host_status_models(void);
-const EmInteractionProjection *em_area11_interaction_host_projection(void);
 
 /* Original B81D0 and FD950 services. Return1 only on success; a required
  * failure latches host failure and retains the shared owner. Attach sets

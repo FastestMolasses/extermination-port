@@ -169,8 +169,12 @@ three matrices, fog, depth bias and GIF tag. The immutable opening EE dump
 contains this upload immediately before each snow descriptor packet. It is
 not inferred from the last effect left in VU memory, which is another kind.
 
-`em_snow_projection_matrices` accepts the original Y-down, +Z-forward view
-matrix and the current zoom. A native Y-up, -Z-forward view converts by
+Since the render context step the three matrices are the render context's
+(em_rcl_frame_matrices: P +0x2340, the 001CD370(0) projection +0x2240 and K
++0x23C0, as the frame head 001D1C50 built them); the private builder
+`em_snow_projection_matrices` described below is deleted (its output equalled
+the captured context bytes). As it was: it accepted the original Y-down,
++Z-forward view matrix and the current zoom. A native Y-up, -Z-forward view converts by
 negating its Y and Z rows. Original `001D2960` builds the extent projection
 with `P00=0.8f*zoom`, `P11=0.5f*zoom`, center `(2048,2048)`, depth coefficients
 `0x3F664CB3` and `0x49CCCCCC`, and W=forward depth. `001CD370(0)` selects the

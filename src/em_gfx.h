@@ -683,6 +683,14 @@ void em_gfx_char_face_rig(EmGfx *gfx, const EmGfxCharRig *rig);
  * stay byte-identical. Checked by tools/test_area11_fog_reference.py. */
 void em_gfx_fog(EmGfx *gfx, float near_z, float far_z, const float rgb[3]);
 
+/* The same fog from the coefficients themselves: coef = (A, B) as the
+ * render context holds them (+0xA8 / +0xAC, the pair 001D30A0 copies into
+ * the skin records the VU1 kernel reads) and rgb = FOGCOL in 0..255 GS units
+ * (context +0xB0, the GS block 001D1C50 REFs). The first level's world
+ * frames use this (em_rcl_frame_fog); em_gfx_fog stays for scenes without
+ * the render context. */
+void em_gfx_fog_coefficients(EmGfx *gfx, const float coef[2], const float rgb[3]);
+
 /* Disable distance fog again (begin_frame also resets to OFF). Fog-off
  * frames run the EXACT pre-fog shader arithmetic — byte-identical. */
 void em_gfx_fog_off(EmGfx *gfx);

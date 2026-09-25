@@ -804,6 +804,34 @@ the landing ids are not in the exported sfx registry, WP-14; they reach
 em_sfx_play silently and are reported once), the effects (0017DEB0's and
 00187EE0's 001EFD90 spawns reach the counted effect gap, L26).
 
+### The render context (`check_render_context`, census L32 / L30)
+
+Not a phase: after the phases, over every tick from first control to the
+end of the run (the full route, or side beat 00 in its own run). The tick
+log's `rctx` carries, at each tick's end, the render context's flag words
++0x0C / +0x174, the fog block +0xA0..+0xFF, the zoom +0x2468, V +0x2380, K
++0x23C0, the 001CD370(0) projection +0x2240, the eased pairs
++0x24F0..+0x2513, the +0x2450 block, D_00275690 / D_00275694 and the camera
+pool's D_00810610 (docs/RENDER_CONTEXT.md section 8). It checks:
+- every gameplay tick (001AE5E0 ran, 3B8D = 0, D_008101E4 != 3) holds the
+  route snapshots' values, which all 15 snapshots share: flags 0x43 / 3, the
+  whole fog block with presets and latches, D_00275690 / 94 at their fixed
+  point, the widths 24 / 40 / 56 / 72 with +0x2510 = 0, and the +0x245C..
+  +0x2467 tail 001DDE10's player path leaves;
+- every tick whose frame head ran (V changed) projected the D_00810610 of the
+  END of the previous tick: the original's one-frame view lag (+0x2380's
+  only writer is 001D2960, called only by 001D1C50, which runs before the
+  camera stage; the snapshots of the beats whose camera moved hold
+  +0x2380 != D_00810610);
+- on every 200th gameplay tick (at most 40), the ORIGINAL 001D2960,
+  executed over the 05_boxes snapshot with the tick's V and zoom
+  (test_frame_render_heads_reference's interpreter, its sqrtf the original
+  0011E748), writes the logged K and +0x2240 bit for bit.
+
+Measured (full route): 5,378 gameplay ticks, 6,882 frame heads (6,833 with
+the camera moving that frame), 27 sampled ticks. Side beat 00: 128, 124 and
+1.
+
 ## Adding a phase (the contract for WP-4 onward)
 
 In the commit that makes a phase's original owners live:

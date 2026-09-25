@@ -72,10 +72,16 @@ look-at. A missing worker faults before the first write.
 target, up, forward, the view and its transpose, D_00810690..D_008106A0),
 the camera's scratchpad words 0x700038A0..0x70003A3F, 0x70003400 (matrix),
 0x70003600, 0x70003630 and 0x700031B0 (the segment query's point, with the
-hit record's +0x1A halfword and +0x24 normal), and the render-context
-projection record 001DD980 publishes (+0x2450..+0x2467; the interaction
-host publishes into it too). `em_camera_live_bytes(address, size)` reads or
-writes any of the first two by original address.
+hit record's +0x1A halfword and +0x24 normal). The render-context words
+001DD980 publishes (+0x2450..+0x2467) are the render context's since
+2026-09-25 (em_render_context_live, RENDER_CONTEXT.md section 8): the camera's
+001DD980 calls run the distance math (em_interaction_projection_001DD980)
+and then 001DD950 on that one block. `em_camera_live_bytes(address, size)`
+reads or writes any of the first two by original address; the render
+context reads D_00810610 and D_008105E0 through it, and the player record
+through `em_camera_live_player_bytes` (the camera's view, section 5).
+`em_camera_live_adopt_view` loads the g.cam view into the bytes for a
+g.cam writer that calls 001DD980 before the next camera entry.
 
 **The module views.** The follow module (`EmCameraFollowScratch`) and the
 specials module (`EmCamSpecialsScratch`) each keep a struct view of these
@@ -99,9 +105,11 @@ original bytes first and stores them back after:
 | aim_h, wall_yaw, tgt_soft | +8C, +90, +A0 | eye, tgt, up | D_008105D0 / E0 / F0 (x/y/z) |
 
 The commit's outputs go out only: the forward D_00810600, D_00810690
-(`horiz_dist`) and the renderer's view (`em_cs_view_to_native` of
-D_00810610) with `g.viewproj` from the zoom (render context +0x2468,
-`g.cam.zoom`). The camera distance +0C, the preset +64, the w lanes, +2,
+(`horiz_dist`) and the native view (`em_cs_view_to_native` of D_00810610)
+with `g.viewproj` from the render context's zoom +0x2468 (em_rcl_zoom; the
+`g.cam.zoom` copy is gone). The first level's world frames draw with the
+frame head's view instead (the D_00810610 of the previous camera stage,
+RENDER_CONTEXT.md section 8.2). The camera distance +0C, the preset +64, the w lanes, +2,
 +8B, +94..+9C, +B0 and the timeline's +6C have no g.cam field: the block
 keeps them.
 

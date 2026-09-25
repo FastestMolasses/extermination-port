@@ -87,7 +87,7 @@ def main():
     p.add_argument('--reference-tiles',type=Path)
     p.add_argument('--report',type=Path)
     args=p.parse_args();original.ELF=(args.decomp_root/'config/SCUS_971.12').read_bytes()
-    cases=synthetic_cases();runtime_tiles=0;matrix_bytes=0;ram=None
+    cases=synthetic_cases();runtime_tiles=0;ram=None
     if args.reference_ee:
         ram=args.reference_ee.read_bytes()
         tiles_path=args.reference_tiles or args.decomp_root/'build/weather_reference/original_tiles.json'
@@ -119,17 +119,6 @@ def main():
         api=C.CDLL(str(lib));project=api.em_snow_project
         project.argtypes=[C.POINTER(Projection),C.POINTER(original.Particle),C.POINTER(Projected)]
         project.restype=C.c_int
-        build=api.em_snow_projection_matrices
-        build.argtypes=[C.POINTER(Projection),C.POINTER(C.c_float),C.c_float]
-        if ram:
-            context=struct.unpack_from('<I',ram,0x275670)[0]
-            view=(C.c_float*16).from_buffer_copy(ram[context+0x2380:context+0x23c0])
-            zoom=struct.unpack_from('<f',ram,context+0x2468)[0]
-            actual=Projection();build(C.byref(actual),view,zoom)
-            for field,offset in [('extent',0x2340),('clip',0x2240),('screen',0x23c0)]:
-                expected=ram[context+offset:context+offset+64]
-                assert bytes(getattr(actual,field))==expected,('matrix_constructor',field,list(getattr(actual,field)),struct.unpack('<16f',expected))
-                matrix_bytes+=64
         counts={};guardband_only=0;compared_bytes=0
         for index,(kind,state,item) in enumerate(cases):
             expected=oracle(state,item);actual=Projected()
@@ -148,12 +137,14 @@ def main():
                 x,y,_,w=actual.clip
                 guardband_only+=abs(x)>.5*abs(w) or abs(y)>.8*abs(w)
     report={'status':'PASS','original_projection_cases':len(cases),'cases':counts,
-            'runtime_tiles':runtime_tiles,'matrix_constructor_bytes_equal':matrix_bytes,
+            'runtime_tiles':runtime_tiles,
             'projection_bytes_equal':compared_bytes,'guard_band_only_original_submissions':guardband_only,
             'original_elf_sha256':hashlib.sha256(original.ELF).hexdigest(),
             'limitations':['Finite arithmetic only; no exceptional VU DIV/FTOI emulation.',
                            'Instruction comparison is not a GS raster-output comparison.',
-                           'Live native camera matrix construction remains a separate fidelity dependency.']}
+                           'The frame matrices (P, the 001CD370(0) clip projection, K) are the render '
+                           'context\'s (em_rcl_frame_matrices over 001D2960: test_frame_render_heads_reference, '
+                           'test_render_context_live_reference); this test takes them from the captured DMA.']}
     if args.report:
         args.report.parent.mkdir(parents=True,exist_ok=True);args.report.write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report))

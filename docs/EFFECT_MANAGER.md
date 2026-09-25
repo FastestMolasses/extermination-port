@@ -199,6 +199,17 @@ On the route it is reached through 001F5C20 → 001F5940 (lane L27).
 
 ### 5.0 Prerequisite: the render-context views (found by the Effects step, 2026-09-24)
 
+**Met since the render context step (2026-09-25, docs/RENDER_CONTEXT.md
+section 8).** The one canonical render context runs live: every world frame
+head builds P / V / K and the four 001D2D20 projections (+0x2240..+0x233F)
+from the camera pool's D_00810610, copies P to 0x70003A40 and K to
+0x70003AC0, and re-programs the fog block +0xA0 with 0021B9A0(0, 0, 0); the
+area load writes the fog presets (001D8FD0); main-loop step B sets the packet
+cursors (+0x18 among them) and 001D1EA0's 001CB800 splices and clears the
+chain table D_007635C0 each frame. The effect binding reaches all of them
+through em_rcl_bytes / the module's views (D_00810E80 is em_frame's). What
+follows is the finding as it was written.
+
 The Effects step tried to bind this module, em_effect_original, em_effect_kinds,
 em_head_sprite_original and em_player_equipment_sprite live, and stopped here.
 Every draw of theirs reads original render-context bytes that no live code
@@ -232,7 +243,7 @@ The binding therefore needs, first (lanes L32 and L30):
 2. **em_frh_001D2960 bound over the live view.** D_00810610 is the live
    camera's view in the original convention. em_snow_runtime already derives
    that form from the native view (rows 1 and 2 negated). Its
-   em_snow_projection_matrices is a private copy of 001D2960's P / K and of
+   em_snow_projection_matrices was a private copy (deleted since) of 001D2960's P / K and of
    the +0x2240 projection. It must become a reader of the one owner, so that
    one original keeps one translation.
 3. **The fog block written by the fog programmer**
