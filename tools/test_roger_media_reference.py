@@ -48,6 +48,7 @@ void em_frame_set_message_service(const EmFrameMessageService *service) {(void)s
 int em_hud_tall_glyph_cell(uint32_t index,EmHudGlyphCell *cell) {(void)index;(void)cell;return 1;}
 void em_hud_glyph_strip(EmGfx *gfx,const EmMessageGlyphFlush *flush) {(void)gfx;(void)flush;}
 static int face_talk(void *c,int on) {(void)c;if(talk_count<16) talks[talk_count++]=on;return 1;}
+static int idle_stop_lane(void *c,int lane) {(void)c;return lane==1 || lane==2;}
 int start(const char *path,int delay) {
     memset(&scene,0,sizeof scene);
     scene.d810700=0x0B; scene.spad3B8F=2;
@@ -55,6 +56,10 @@ int start(const char *path,int delay) {
     if(!em_message_live_install(path)) return 0;
     static const EmMessageLiveHost host={NULL,face_talk,NULL};
     em_message_live_set_host(&host);
+    /* The encounter's line has no voice: the voice lanes stay idle (the
+     * lanes' 001FAAC0 on an idle lane has no effect; they read inactive). */
+    static const EmMessageLiveStreams streams={NULL,NULL,NULL,NULL,idle_stop_lane,NULL};
+    em_message_live_set_streams(&streams);
     talk_count=0;
     return em_message_live_post(0,delay)==0;
 }

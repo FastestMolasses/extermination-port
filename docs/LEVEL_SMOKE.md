@@ -6,11 +6,11 @@ boxes: the Use chain's ledge climbs onto the crates' original owners),
 census L03 (the hill slide), census L23 / L19 (the truck preview and
 crossing on the truck's original owners and the AREA11 script host) and
 census L09 / L10 / L11 (the cage ladders, the tank and pipe-end climbs, the
-crevice jump and the east tower climb, with the director's beats driven
-through its legacy stand-in) and census L22 (Roger's encounter on his
-original owner and scripts), and by the full-route step of 2026-09-25 (side
-beat 00 live in its own run, side beat 09 named NOT-LIVE, the director's
-prepared binding checked up to its voice gap). The
+crevice jump and the east tower climb) and census L22 (Roger's encounter on
+his original owner and scripts), by the full-route step of 2026-09-25 (side
+beat 00 live in its own run, side beat 09 named NOT-LIVE) and by WP-8b (the
+stream lanes live; the director 008253F0's three beats and Roger's voiced
+conversation on their original scripts). The
 smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
@@ -25,34 +25,25 @@ been verified.
 
 A NOT-LIVE phase that a later live phase needs the state of is **driven**:
 its runner plays it through the owner's current port binding, the run reports
-`NOT-LIVE driven`, and the capture checker skips it. Since census L09..L11
-three phases are driven: `cage_roof`, `crevice_prompt` and `east_tower`, the
-director 008253F0's beats 0, 1 and 2. The director is not bound yet
-(census L21, DIRECTOR_ORIGINAL.md section 6): its binding is prepared and
-reproduces route 10 up to f1162 ("cage_roof prefix" below), where Roger's
-conversation 0x828990 presents the voiced line 0x7F; the director's own
-lines 0x97 / 0x99 are voiced as well. A voiced line needs the message
-service's 001FA5A0 and the voice lanes (WP-8b), which are not live, so node
-#21 still runs the legacy em_director.c, and the later climbs and the jump
-start from where its beats leave the player (none of the three original
-scripts moves the player).
+`NOT-LIVE driven`, and the capture checker skips it. No phase is driven since
+WP-8b: the director's beats `cage_roof`, `crevice_prompt` and `east_tower`
+run on the original owner (census L21, DIRECTOR_ORIGINAL.md section 6) with
+their voiced lines on the stream lanes (STREAM_LANES.md "Live binding").
 
 **Route coverage.** The checker ends with one `level smoke: route beats:`
 line naming every route beat 00..14 and the state of each of its phases
-(live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-25: beats
-01..08, 12 and 14 live; 10, 11 and 13 live except their director phases
-(driven); 00 live in its own run; 09 NOT-LIVE (the fence door 001BC350 is
-the legacy em_door_update, census L18; its room move is covered by
-`make test-room-move-reference`).
+(live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-25
+(WP-8b): beats 01..08 and 10..14 live; 00 live in its own run; 09 NOT-LIVE
+(the fence door 001BC350 is the legacy em_door_update, census L18; its room
+move is covered by `make test-room-move-reference`).
 
 ## Running it
 
 ```sh
 make test-level-smoke                  # through truck_crossing (about 11 s)
-make test-level-smoke-full             # the whole route through roger (about 26 s), then the two runs below (about 20 s)
+make test-level-smoke-full             # the whole route through roger (about 30 s), then the run below (about 4 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00: first control, then panel_no_battery (about 4 s)
-make test-level-smoke-director         # the director verification run through cage_roof (about 15 s)
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
@@ -134,12 +125,12 @@ is census L18); its room move has its own capture test,
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
 | fence_door (side) | 09 | door 001BC350, scripts 0x24DE40 / 0x24DC00, room move to entry 2 | no: legacy em_door_update | census L18 |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
-| cage_roof | 10 (f1091..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 | no: driven through em_director.c (the original: "cage_roof prefix") | L21 after WP-8b (Roger's voiced 0x7F) |
+| cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
-| crevice_prompt | 11 (f707..) | director beat 1, script 0x829A40 (line 0x97) | no: driven through em_director.c | L21 after WP-8b (the voiced 0x97) |
+| crevice_prompt | 11 (f706..) | director beat 1, script 0x829A40 (voiced line 0x97) | yes (census L21 with WP-8b) | — |
 | crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
 | east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
-| east_tower | 13 (f532..) | director beat 2, script 0x829CC0 (line 0x99) | no: driven through em_director.c | L21 after WP-8b (the voiced 0x99) |
+| east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
 | roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
 
 ## What the live phases check
@@ -365,12 +356,11 @@ service's ticks and its 001FC9B0 teardown.
   approach Y, not the capture's) and the scripted camera Y with that same
   offset; the prompt window between the
   request and the Yes press is not compared (the module load above).
-- *D_00282157 and the voice lanes D_00282155/156* read 0. D_00282157 is the
-  phase of 001FA0D0's asynchronous disc read (em_scene_bindings.c
-  r_00282157; the port's reads complete within their call), passed through
-  that reader to 0x1AE040 state 3 and to the status page input (which does
-  not read it). The voice lanes are not live (STREAM_LANES.md); no voice cue
-  is pushed on the route before Roger and both messages are text-only.
+- *D_00282157 and the voice lanes D_00282155/156* are the stream lanes'
+  (em_stream_live, WP-8b): D_00282157 is the phase of 001FA0D0's disc read,
+  read by 0x1AE040 state 3 and passed to the status page input (which does
+  not read it). No voice cue is pushed on the route before the director's
+  beat 0; the panel's and the terminal's messages are text-only.
 
 *The ground after the release* is no longer a divergence: with FLOOR
 engaged (00175900 over the original collision world) the port re-grounds on
@@ -599,48 +589,50 @@ Measured: every compared field equal; the lift within 7.2e-6. A mutation
 (the climb's 3.0 step in em_player_ladder_climb.c to 3.0156) passes in
 process and fails the capture check at f356.
 
-### cage_roof, crevice_prompt, east_tower (driven)
+### cage_roof, crevice_prompt, east_tower
 
-The director's beats (FIRST_LEVEL_ROUTE.md section 5). The runner holds
-the pad neutral until the legacy em_director.c has run its beat, stored its
-step byte D_00810813 (0x10, 0x20, 0xFF) and control is back, then settles
-30 frames. Reported `NOT-LIVE driven`; nothing is compared. The original's
-beat 0 also runs Roger's conversation 0x828990 and leaves D_00810813 = 0x11
-(Roger's ordinary branch); the stand-in leaves 0x10, which its own beat-1
-test accepts. Beats 1 and 2 show the lines 0x97 and 0x99 in the original;
-the stand-in shows none (DIRECTOR_ORIGINAL.md section 6).
+The director 008253F0's beats 0, 1 and 2 (FIRST_LEVEL_ROUTE.md section 5) on
+the original owner (em_director_original over em_area11_script_host, live
+since WP-8b): scripts 0x8294C0 (with Roger's 0x828990 and his voiced line
+0x7F, VOICE.DAT cues 143..148), 0x829A40 (line 0x97, cue 150) and 0x829CC0
+(line 0x99, cue 149).
 
-### cage_roof prefix (the director verification run)
+**Runner.** Each beat opens on its own when the previous phase leaves the
+player inside its quad. The pad stays neutral until the beat has stored its
+step byte D_00810813 (beat 0: the director's 0x10, then Roger's ordinary
+branch's 0x11 on the next frame; beats 1 and 2: 0x20 and 0xFF) and control
+is back, then settles 90 frames (each capture ends 60 rows after its
+release; a port whose line tears down early releases early). **In
+process:** the step byte and control.
 
-`make test-level-smoke-director` runs the main line through `cage_roof` with
-`EM_LEVEL_SMOKE_DIRECTOR=original`: the smoke calls
-`em_area11_bindings_select_director_original(1)`, so node #21 runs the
-original 008253F0 (em_director_original over em_area11_script_host, the
-prepared binding of census L21) instead of the stand-in, in both walk
-variants. cage_roof is then not driven: its runner waits for Roger's 0x11
-after the director's 0x10 and control (route 10 f3508 / f3509).
+**Against the capture** (`check_director_beat`, routes 10, 11, 13).
+Aligned on the director's frame (the first tick whose 3B8D leaves 0: route
+10 f1090, 11 f706, 13 f531), every row to the end of the capture: spad,
+camera byte, letterbox, power, the message block, the player's position
+(relative to the stance, which is navigation: 0 after the ladder in beat 0,
+0.27 / 0.05 and 0 / 0.003 in beats 1 and 2) and heading, the player record
+(+5, +1F0, +1F1, ground) and clip, D_008107D8 / D_00810793, D_00810813,
+the camera (the scripts' shots exactly; the follow camera before the
+frame's first shot is the walk's, not compared; from the release's restore
+row relative to the stance) and, in beat 0, Roger's record and script block
+and the follow camera after the release row for row.
 
-Today the run stops at route 10 f1163: Roger's 0x828990 (started at f1094
-inside the director's frame, under the takeover the director holds)
-presents the voiced line 0x7F, and the message service faults at 001FA5A0
-(`voice_push worker missing`; WP-8b). The binary's exit status is therefore
-not the verdict; `tools/test_level_smoke.py --director-prefix` is:
-
-- aligned on the director's frame (the last tick whose 3B8D leaves 0; route
-  10 f1090, one row after 001BA1A0 at f1089), every row until the run stops
-  equals the capture in spad, camera byte, letterbox, message, power, the
-  script's camera eye / target (compare_window), the player's position and
-  heading, the player record (+5, +1F0, +1F1, clip, ground), D_008107D8 /
-  D_00810793 (the op06 flag 0x3B at f1093) / D_00810813, and Roger's record
-  (+0x00..+0x0F, +0xB0) and script block (0x828990 from f1094);
-- the run must stop exactly on the row where the capture opens the voiced
-  line (f1163) with the 001FA5A0 fault.
-
-Measured 2026-09-25: port ticks 6141..6213 equal route 10 f1090..f1162.
-When WP-8b binds the voice lanes the stop assertion fails and the run goes
-on; the director then becomes the live binding and cage_roof /
-crevice_prompt / east_tower get capture checks (DIRECTOR_ORIGINAL.md
-section 6).
+**The voiced line's teardown (a known divergence).** A voiced line holds
+its teardown until the last voice lane's timer ends (D_00282155/156), and a
+voice's key-on waits for its prefill. The port's drive completes a read at
+its first poll (IOP_STREAM.md, the stated zero-latency drive); the
+original's takes hardware time, so the port's lines tear down early: 0x7F by
+8 rows (f3374 against f3382), 0x97 by 6 (f1037 / f1043), 0x99 by 6 (f740 /
+f746). The checker compares every field's sequence of values and requires
+each change on the capture's row, or, from the port's teardown on, exactly
+that many rows early (the changes that follow the teardown: the message
+block, and in beat 0 Roger's record, his D_00810813 = 1 and the player's
+clip back to idle; in beats 1 and 2 the whole frame, whose scripts hold the
+op0C). Everything else, including beat 0's camera shots and its release at
+f3508, keeps the capture's rows. Measured 2026-09-25: beat 0 822 changes on
+the capture's rows and 8 on the teardown's; beat 1 170 and 128; beat 2 70
+and 68. Pinning the drive's timing needs a new capture (FIRST_LEVEL_AUDIT.md
+WP-8b).
 
 ### panel_no_battery (side beat 00)
 
@@ -810,8 +802,7 @@ original idle / walk states since census L12, steered by the smoke's stick
 against the live camera's forward), the sounds (the ladder's 0x107 / 0x10E / 0x10F and
 the landing ids are not in the exported sfx registry, WP-14; they reach
 em_sfx_play silently and are reported once), the effects (0017DEB0's and
-00187EE0's 001EFD90 spawns reach the counted effect gap, L26) and the
-director's beats (driven, above).
+00187EE0's 001EFD90 spawns reach the counted effect gap, L26).
 
 ## Adding a phase (the contract for WP-4 onward)
 

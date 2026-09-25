@@ -152,6 +152,19 @@ void em_frame_set_message_service(const EmFrameMessageService *service);
  * uninstalls it. */
 void em_frame_set_step_i(int (*service)(void *context), void *context);
 
+/* The sound service: `field` runs at the top of every em_frame_step (one
+ * NTSC field: the vblank handler's D_00810E90 and the IOP's field work),
+ * `step_h` at main-loop step H (0x1AAF64, 001FB100's lane service 001F9CF0),
+ * after the transition (G) and before step I, skipped while D_00821058 == 1
+ * (em_frame_movie_active). The game installs em_stream_live's; -1 is a
+ * fault (the frame quits). NULL uninstalls it. */
+typedef struct {
+    int (*field)(void *context);
+    int (*step_h)(void *context);
+    void *context;
+} EmFrameSoundService;
+void em_frame_set_sound_service(const EmFrameSoundService *service);
+
 void em_frame_set_movie_active(int active);
 /* The D_00821058 == 1 mirror: the frame in which 00203350 plays (the
  * original then runs 001D1C10, which sets render flag 4). */

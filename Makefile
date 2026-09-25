@@ -11,7 +11,7 @@ BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
-           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_director.c src/game/em_area11_flow.c src/game/em_script.c src/game/em_area11_opening.c \
+           src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c \
            src/game/em_opening_actor.c src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
@@ -46,6 +46,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_player_stage_workers.c src/game/em_player_stage_live.c \
            src/game/em_player_record_pose.c src/game/em_pose_host_workers.c \
            src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_stream_lanes_original.c \
+           src/game/em_iop_stream.c src/game/em_stream_live.c \
            src/game/em_player_closure_live.c src/game/em_player_hang.c src/game/em_player_recovery.c \
            src/game/em_player_ladder_climb.c src/game/em_player_ladder_entry.c \
            src/game/em_player_closure_0e_18.c src/game/em_player_closure_10_12_19.c \
@@ -157,12 +158,6 @@ test-startup-audio: tests/startup_audio_test.c src/game/em_startup_audio.c src/g
 	./build/startup_audio_test
 
 # AREA11 event gates: no graphics/audio or disc data required.
-.PHONY: test-area11-flow
-test-area11-flow: tests/area11_flow_test.c src/game/em_area11_flow.c src/game/em_area11_flow.h
-	@mkdir -p build
-	$(CC) $(CFLAGS) -ffp-contract=off tests/area11_flow_test.c src/game/em_area11_flow.c -lm -o build/area11_flow_test
-	build/area11_flow_test
-
 # Distinct original segment, player-movement, and camera surface gates.
 .PHONY: test-collision
 test-collision: tests/collision_test.c src/game/em_collision.c src/game/em_collision.h
@@ -202,16 +197,11 @@ test-opening-face-reference:
 test-script-reference:
 	python3 tools/test_script_reference.py
 
-.PHONY: test-opening-media test-bgm-ticks
+.PHONY: test-opening-media
 test-opening-media: tests/opening_media_test.c src/game/em_opening_media.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) tests/opening_media_test.c src/game/em_opening_media.c -lm -o build/opening_media_test
 	build/opening_media_test
-
-test-bgm-ticks: tests/bgm_tick_test.c src/game/em_bgm.c
-	@mkdir -p build
-	$(CC) $(CFLAGS) tests/bgm_tick_test.c src/game/em_bgm.c -lm -o build/bgm_tick_test
-	build/bgm_tick_test
 
 OPENING_TEST_SRC := tests/opening_runtime_test.c src/game/em_opening_runtime.c \
     src/game/em_area11_opening.c src/game/em_script.c src/game/em_cinematic_camera.c \
@@ -219,7 +209,9 @@ OPENING_TEST_SRC := tests/opening_runtime_test.c src/game/em_opening_runtime.c \
     src/game/em_bgm.c src/game/em_random.c src/game/em_fade.c \
     src/game/em_scene_frame.c src/game/em_scene_classify.c src/game/em_status_frame.c \
     src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
-    src/game/em_message_glyph_original.c src/game/em_director_original.c
+    src/game/em_message_glyph_original.c src/game/em_director_original.c \
+    src/game/em_stream_live.c src/game/em_stream_lanes_original.c src/game/em_iop_stream.c \
+    src/game/em_sfx_bank.c
 .PHONY: test-opening-runtime
 test-opening-runtime: $(OPENING_TEST_SRC)
 	@mkdir -p build
@@ -369,8 +361,8 @@ test-collision-world-capture: $(BIN)
 
 # The default run stops after truck_crossing (about 11 s, docs/LEVEL_SMOKE.md
 # "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
-# the whole live route (about 26 s), then the side beat 00 run and the
-# director verification run (about 20 s more).
+# the whole live route (about 30 s), then the side beat 00 run (about 4 s
+# more).
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,truck_crossing)
 
 .PHONY: test-level-smoke
@@ -381,7 +373,7 @@ test-level-smoke: $(BIN)
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log
-	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side test-level-smoke-director)
+	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 
 .PHONY: test-level-smoke-full
 test-level-smoke-full: $(BIN)
@@ -397,22 +389,6 @@ test-level-smoke-side: $(BIN)
 	    $(BIN) > build/level_smoke_side/run.log 2>&1 || (grep "level smoke" build/level_smoke_side/run.log; false)
 	grep "level smoke:" build/level_smoke_side/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl --run-log build/level_smoke_side/run.log
-
-# The director verification run (census L21, LEVEL_SMOKE.md "cage_roof
-# prefix"; about 15 s): the original 008253F0 on node #21 through
-# cage_roof. Until the voice lanes are live (WP-8b) the run stops at the
-# first voiced line (route 10 f1163) with the message service's 001FA5A0
-# fault, so the binary's exit status is not the verdict: the checker
-# compares every row before that line and requires exactly that stop.
-.PHONY: test-level-smoke-director
-test-level-smoke-director: $(BIN)
-	mkdir -p build/level_smoke_director
-	-EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=cage_roof EM_LEVEL_SMOKE_DIRECTOR=original \
-	    EM_AREA_CHANGE_LOG=build/level_smoke_director/ticks.jsonl \
-	    $(BIN) > build/level_smoke_director/run.log 2>&1
-	grep "level smoke:\|message service: fault" build/level_smoke_director/run.log
-	python3 tools/test_level_smoke.py --director-prefix --log build/level_smoke_director/ticks.jsonl \
-	    --run-log build/level_smoke_director/run.log
 
 .PHONY: test-message-service
 test-message-service:

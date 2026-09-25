@@ -11,7 +11,6 @@
 #include "game/em_collision_world.h"
 #include "game/em_effect_color.h"
 #include "game/em_hud.h"
-#include "game/em_opening_media.h"
 #include "game/em_pickup.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
@@ -23,6 +22,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+static int idle_stop_lane(void *ctx, int lane) { (void)ctx; return lane == 1 || lane == 2; }
 
 EmGameState g;
 /* em_pickup keeps its taken bits and CA4..CA7 in the D2 progress region,
@@ -168,23 +169,21 @@ void em_sfx_play(unsigned cue) { assert(em_sfx_cue_state(cue)); ++sounds; }
 void em_sfx_play_at(unsigned cue, const float *position, float radius)
 { assert(position && radius > 0); em_sfx_play(cue); }
 void em_sfx_stop_all(void) {}
-void em_bgm_stop(int fade) { assert(fade == 0); }
-int em_bgm_device_ensure(int rate) { return rate == 48000 ? 0 : -1; }
-int em_bgm_play_ticks(const char *path, int loop, unsigned ticks)
+/* The stream calls the host's status frame and interaction frame make
+ * (em_scene_bindings.c binds them to the stream lanes, em_stream_live; the
+ * lanes have their own tests): the status open's 001FBC50, 001FABB0 and
+ * 00119828(0/1, 0x3FFF, 0x3FFF), the close's 001FAE70(1). */
+static unsigned stream_stops, channel_sets;
+int em_scene_bindings_001FBC50(void) { return 0; }
+int em_scene_bindings_001FABB0(void) { ++stream_stops; return 0; }
+int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)
 {
-    assert(strstr(path, "opening_resume.wav") && loop == 1 && ticks >= 270 && ticks <= 397);
-    FILE *file = fopen(path, "rb"); assert(file); fclose(file);
-    ++resumes;
+    (void)ctx;
+    assert((ch == 0 || ch == 1) && l == 0x3FFF && r == 0x3FFF);
+    ++channel_sets;
     return 0;
 }
-int em_bgm_wav_read(const char *path, EmBgmWav *wav, const char *tag)
-{
-    (void)tag;
-    /* Audio decoding/device output is a boundary, but require its asset. */
-    FILE *file = fopen(path, "rb"); assert(file); fclose(file);
-    *wav = (EmBgmWav){calloc(2, sizeof(int16_t)), 1, 2, 48000};
-    return wav->pcm ? 0 : -1;
-}
+int em_scene_bindings_001FAE70(int a0) { assert(a0 == 1); ++resumes; return 0; }
 /* 1: the +0x20 child existed and was stopped; 0: the slot was empty
  * (00159210 case 2 skips both stores when +0x20 == 0). */
 static int panel_child_slot = 1;
@@ -399,9 +398,12 @@ static void setup(int reset_inventory)
                               &stage_globals));
     assert(player_pose_opening_release());
     player_pose_finish_palette();
-    assert(em_opening_media_prepare("assets/scene_snow") == 0);
     /* The live message service (step F) the panel and terminal lines run on. */
     assert(em_message_live_install("assets/message/message_data.emmd"));
+    /* No voiced line here: the voice lanes stay idle (the lanes' 001FAAC0 on
+     * an idle lane has no effect; D_00282155/156 read 0). */
+    static const EmMessageLiveStreams idle_lanes = {NULL, NULL, NULL, NULL, idle_stop_lane, NULL};
+    em_message_live_set_streams(&idle_lanes);
     assert(em_message_live_reset() == 0);
     /* The placed items (em_scene's manifest pickups) the host binds; a
      * taken item is not placed (-2). */
@@ -432,7 +434,6 @@ static void teardown(void)
     em_message_live_shutdown();
     assert(!sfx_selected);
     assert(!em_area11_interaction_host_shared() && !player_pose_owned());
-    em_opening_media_shutdown();
     em_collision_world_unload();
     em_collision_free(&g.coll);
     em_model_free(&g.model);
@@ -670,6 +671,7 @@ static void panel_menu(int discharge, int child_slot)
     assert(em_panel_runtime_arm(panel));
     em_area11_interaction_host_camera_fields(); /* the arm's 3B8D = 3 */
     unsigned ticks = 0, old_resumes = resumes, old_indicators = indicators;
+    unsigned old_stops = stream_stops, old_channels = channel_sets;
     while (!outer(0)) assert(++ticks < 200);
     for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
     EmStatusRuntime *status = em_area11_interaction_host_status();
@@ -696,6 +698,7 @@ static void panel_menu(int discharge, int child_slot)
         assert(outer(0) == 1); assert(++consumed < 8);
     }
     assert(em_scene_state()->req[EM_SCENE_REQ_EF] == 70 && resumes == old_resumes + 1);
+    assert(stream_stops == old_stops + 1 && channel_sets == old_channels + 2);
     assert(!em_status_runtime_ordinary_enabled(status));
     assert(shared->owner == panel && player_pose_owned());
     const EmInteractionProjection *projection = em_area11_interaction_host_projection();

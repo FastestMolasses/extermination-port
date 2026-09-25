@@ -771,16 +771,4 @@ void scene_unload(EmGfx *gfx)
     grate_unload(gfx);          /* the AREA-11 static power-panel mesh
                                  * (re-installed from the new scene's
                                  * `grate` line) */
-    /* AREA-11 OPENING DIRECTOR — drop any in-flight beat at a scene
-     * change (belt-and-suspenders soft-lock guard: a beat can't actually
-     * be running across a switch, since the beat lock suppresses every
-     * use-scan that could trigger a goto door — but clearing here makes
-     * it impossible for a stale lock to survive into the next scene). The
-     * step byte re-arms to 0 in the scene-init state-0 arm; clear the
-     * transient now so the player is never locked between unload and arm. */
-    g.cine_active = 0;
-    g.cine_beat   = -1;
-    g.cine_kf     = 0;
-    g.cine_kf_t   = 0;
-    g.cine_was    = 0;
 }

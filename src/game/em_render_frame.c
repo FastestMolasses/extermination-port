@@ -41,7 +41,6 @@
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
 #include "game/em_random.h"
-#include "game/em_director.h"
 #include "game/em_player.h"
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
@@ -82,7 +81,7 @@ static void point_light_tick(void)
  * a bumped EM_ENEMY_MAX, a 16th scene part landing while all four single
  * draws are present, or a new single-slot draw added without widening the
  * array — would otherwise corrupt the trailing file-scope `g` members
- * (chain_test_triangle, bgm_path, …) with no diagnostic. Log once on a
+ * (chain_test_triangle, …) with no diagnostic. Log once on a
  * full chain instead, mirroring the loaders' overflow logs. */
 static ChainDraw *chain_push(void)
 {
@@ -743,27 +742,6 @@ void frame_close_out(void)
                                  * director §4.4). Independent of the
                                  * cinematic director; no-op once finished
                                  * or in non-AREA-11 scenes. */
-
-    /* AREA-11 OPENING DIRECTOR letterbox (the op07 ENTER / op18 EXIT
-     * cinematic bars — INVESTIGATION_area11_director §4.3 / §E, s81
-     * live capture: two full-width ~64-line alpha-blended black quads,
-     * top + bottom of the frame, fade in/out). Drawn UNDER the screen
-     * fade so the fade still owns the whole frame. Queues nothing
-     * outside a beat (director_letterbox_alpha == 0), so every non-beat
-     * frame stays byte-identical. FLAGGED: the exact opening staggered-
-     * fade frame counts are un-stopwatched (doc §F) — CINE_BAR_FADE is
-     * an approximation of the fade window. */
-    {
-        float ba = director_letterbox_alpha();
-        if (ba > 0.0f) {
-            const float bar[4] = { 0.0f, 0.0f, 0.0f, ba };
-            em_gfx_overlay_rect(gfx, 0.0f, 0.0f,
-                                EM_GFX_OVERLAY_W, CINE_BAR_LINES, bar);
-            em_gfx_overlay_rect(gfx, 0.0f,
-                                EM_GFX_OVERLAY_H - CINE_BAR_LINES,
-                                EM_GFX_OVERLAY_W, CINE_BAR_LINES, bar);
-        }
-    }
 
     /* GAME-OVER / CONTINUE screens — drawn BEFORE the fade rect so
      * the fade machine owns them exactly like the engine (the screen

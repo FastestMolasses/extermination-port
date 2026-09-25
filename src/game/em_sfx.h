@@ -376,6 +376,11 @@ void em_sfx_frame_snapshot(void);
  * the process-exit teardown and must not be used for it. */
 void em_sfx_stop_all(void);
 
+/* The voices the driver reserves for the streams (kind 3, never taken by a
+ * key-on): the mask em_stream_live's boot checks 001F9820's 0011A2B0 voices
+ * against (one storage of D_0027CCC0's stream records). */
+uint64_t em_sfx_stream_voices(void);
+
 /* Free the preloaded samples. Game thread, AFTER em_bgm_shutdown() (the
  * device-teardown guarantee is what makes the sample memory safe to
  * free). Prints the counters if any sound ever played. */

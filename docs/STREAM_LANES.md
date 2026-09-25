@@ -1,8 +1,8 @@
 # Stream lanes: the original EE side of music and voice streams
 
-Status: 2026-09-23. This covers the translation and its oracle. **Not wired**: nothing in the live game calls it
-yet. WP-8 bound the message service without it; the WP-8 fix round added 001F9820 (the lanes' initial state).
-What binding still needs is under "Binding notes" ("Still missing").
+Status: **live since WP-8b (2026-09-25)**: `src/game/em_stream_live.{h,c}` is the one owner of the lanes and the IOP
+backend (docs/IOP_STREAM.md) in the live game; every stream call of the first level runs here. The binding is
+under "Binding notes" ("Live binding"). This doc also covers the translation and its oracle.
 
 Files:
 - `src/game/em_stream_lanes_original.{h,c}`: the native translation.
@@ -294,53 +294,62 @@ start-up), never from a captured image. The clip rows come from the user's ELF (
 | 001FBC50 | `workers.w_001FBC50` | the SFX stop-all owner |
 | disc workers | `workers.w_00113280 / _00112610 / _00112D18 / _00113478` | the port's stream reader (which reads from local assets, never the disc at run time) |
 
-### Still missing (WP-8, 2026-09-23; state after the WP-8 fix round)
+### Live binding (WP-8b, 2026-09-25)
 
-The message service went live without the lanes. Its stream-facing workers are bound to what the port has, and
-none of them is this module:
-- 001FD470 -> `em_scene_bindings_001FD470`: bit 0 `w_001FBC50` (em_sfx_stop_all, then its two 00119828 calls), bit
-  1 `w_001FABB0`, the port's stream-release stand-in (it stops em_bgm and the opening stream and clears
-  `D_008106F4`/`D_008106F5`; it does no 001FA570 ring reset, no per-lane 001FAAC0 key-off and no `D_00282157`
-  store);
-- 001FA790 on lane 0 with the opening row's cue -> the opening stream (`em_opening_media`, a lane-0 stand-in that
-  moves `D_008106F4` from 2 to 1 on its first step H, i.e. an instant prefill, and starts its sound at 0);
-- 001FAAC0 on lanes 1/2 -> nothing (no voice lane is ever started); 001FA5A0 -> unbound (a voiced line faults);
-- 00119828 (0x16) -> a reported no-effect binding (`w_00119828`, also for the opening's (0/1, 0, 0) pair).
+`em_stream_live` holds one `EmStreamLanes`, one `EmIopStream` and the exported disc, and is the only caller of the
+lanes' entry points:
 
-Binding this module as the single lane owner (and deleting every stand-in above) needs:
-1. **Initial state: translated, not bound.** `em_stream_lanes_001F9820` (with 0011A4B8 / 0011A4E8 / 0011A658) runs
-   the original's boot set-up. Binding it needs its worker 0011A2B0 (NEARMISS EE code over the sequencer's voice
-   table `D_0027CCC0`; translate it with that table as canonical storage, or bind the sequencer owner) and the
-   three buffer words `D_00275B20/24/28`, which are IOP heap blocks (001FA6A0 -> 0010F8F8 at the IRX bring-up):
-   the audio backend's IOP-memory allocator must supply them.
-2. **The IOP stream driver in the audio backend** (the 001157F0 boundary; the driver, `SNDN2DRV.IRX`, was never
-   read). It must take commands 0x3C (init), 0x3E (a voice's stream configuration: voice, flags 0x20002 /
-   0x10000, IOP buffer, size 0x10000, SPU address, 0x4000), 0x40 (volume words?), 0x41 (probably pitch; 0xBB80 would be 48000 Hz),
-   0x42 / 0x43 (apparently key on / off — these IOP meanings are inferred from the EE side only; the driver SNDN2DRV.IRX was never read, so they are unverified) and 0x16 (from 001FBC50, 001FC280 and the opening), play the SPU ADPCM in the lane
-   buffers, and write `D_00281880[voice]`, which 0011A730 returns. What the captures fix about that word: in all
-   26 images every lane voice's word is 0, 0x4000, 0x8000 or 0xC000 (multiples of the configuration's last
-   word, 0x4000, inside the 0x10000 buffer); lane 0's two voices always report the same word; a lane in state 0
-   has half 1 when its word is 0x4000 and half 2 when it is 0x8000 or 0xC000, with its read address on the other
-   half (the EE refills the half the driver is not in); idle voices report 0. The word is therefore the driver's
-   block cursor in the buffer. When it advances relative to the sound (per transfer or per played block) is not
-   in any capture, so it has to be a stated backend model (rate: 28 samples per 16 bytes at 48000 Hz, which the
-   001FA790 constant 0.074666664 s per 2048-byte sector also encodes), advanced per game frame so that tests
-   stay deterministic.
-3. **The disc side.** `sub_O_STREAM_MUSIC_DAT_1` (writes `D_00282188`/`D_0028218C`, the start sectors of the two
-   stream files, through 00111C28) is not translated; the two stream files need a local exporter (from the
-   user's disc, never committed) and a sector reader bound to 00113280 / 00112610 / 00112D18 / 00113478 whose
-   reads land in the backend's IOP buffers. A zero-latency reader completes the prefill in the state machine's
-   minimum number of frames; the original's drive latency is hardware timing and is not modelled.
-4. **Step H.** 001FB100 (`em_slg_001FB100`, translated, not bound) calls 001F9CF0 when `D_00821058 != 1`; binding
-   it also binds its `D_0028215B`/`D_0081011C` volume commit (00119870, 0011A608) and its 001FC6E0 cue list
-   (001FB9F0, the SFX owner) and the `D_00281B70` copy.
-5. **Every legacy stream path replaced at once:** `em_opening_media` (lane-0 stand-in), em_bgm's cue-25 resume in
-   `w_001FAE70`, `stream_release_all` (`w_001FABB0`), `w_00119828`, the 001B0C00 fades (UM_001FAD70) and the game
-   over's 001FA790(0, 0x1B) / 001FAB50 (UM_001FA790 / UM_001FAB50).
-6. **Voice clips.** The VOICE.DAT cues 143..151 are reached only by the director's and Roger's lines (WP-10,
-   WP-9), which also need `voice_push` (001FA5A0) bound.
+- **Start-up** (`main.c`, 001AAE40's start-up): `em_stream_live_boot("assets/streams/streams.emst")` loads the export
+  (a missing or malformed file stops the boot: fail-stop, never silence), runs the IRX bring-up's buffers
+  (`em_iop_stream_boot_buffers` -> `D_00275B20/24/28`), `sub_O_STREAM_MUSIC_DAT_1` (`D_00282188/8C`), then
+  **001F9820** over a fresh `D_0027CCC0` view with the bound 0011A2B0. One storage for `D_0027CCC0`'s stream records:
+  the boot asserts that the four voices 001F9820 took (lane 0's two, lanes 1 and 2) are the SFX driver's reserved
+  stream voices (`em_sfx_stream_voices()`, voices 0..3) and faults otherwise.
+- **Time.** `em_frame_step` calls the field hook at the top of every presentation step (movie steps included):
+  `D_00810E90 += 1` (the vblank handler; the lanes' own storage), then `em_iop_stream_field` (001152D8's RPC 0x64
+  exchange and the driver ticks inside the field). The frame pacing is `frame_pace_ntsc` (59.94 Hz, 16683350 ns per
+  field), which the backend's 800.8 samples per field need. **Step H** runs `em_stream_lanes_001F9CF0` after the
+  transition (G) and before step I, skipped while `D_00821058 == 1` (a movie armed this frame), as 001FB100 does.
+  The rest of 001FB100 is not bound: the `D_0028215B` / `D_0081011C` output-mode commit (00119870, 0011A608; both bytes
+  are 0 in all 25 route and startup-reference images, so on the route the commit never fires; the lanes' `mono`
+  byte stays 0), the `D_00281B70` copy and 001FC6E0's delayed cues (the SFX
+  owner's; em_slg_001FB100 is translated, not bound).
+- **The globals view** is loaded from the canonical scene state before every entry (`D_008106C8` = req C8,
+  `D_00810D38` progress, `D_00810700`, `D_008104E4` = the player record's +0x234 via `g.pd_infected`, `D_008106F4`,
+  `D_008106F5`) and `D_008106F4` / `D_008106F5` / `D_00810D38` are stored back after it; a worker that re-enters the
+  lanes (001FC280's 00119828 pair inside 001FAE70, 001FBC50's inside 001FD470) runs inside the same view.
+- **Workers:** 00122BB8 = `em_random_next` (the one game LCG); 001FC280 = `em_scene_bindings_001FC280` (the spawn
+  record's ambient loop, then its two 00119828 calls back into the lanes; a loop id other than -1 faults, the
+  `D_00282160` cache is not modelled); 001FBC50 = `em_scene_bindings_001FBC50` (em_sfx_stop_all, then its two
+  00119828 calls); 001157F0, 0011A2B0 and the disc workers = the IOP backend.
+- **Callers** (every former stand-in replaced in the same change): the frame machine (`em_scene_bindings.c`:
+  001FABB0 at the status open and 001AD360 step 0, 00119828, 001FAE70(1) at the status close, the game over's
+  001FA790(0, 0x1B) / 001FAB50, `D_00282157` for 0x1AE040 state 3), the area change's 001B0C00(4) lane fades, the
+  script host (001FAE70, 001FABB0, 001FBC50, 00119828, 001B0C00's 001FAD70 x3), Roger (STOP_STREAMS 001FABB0,
+  RESUME_MUSIC 001FAE70(0)), the opening runtime (00823E80's 001FABB0 and 001FAE70(0), ops 9..12's 00119828 pair,
+  001B6BF0's 001B0C00(8) lane fades and its case-1 001FBC50 / 001FABB0), the frontend (001AC3B0's 001FBC50 /
+  001FABB0), the interaction host (the status frame's events, the aborted cinematic's 001FAE70(0)) and the message
+  service (001FD470, 001FA790, **001FA5A0** `voice_push` on the ring `D_00281CF0` / `D_00275B30`, **001FAAC0** on
+  lanes 1 and 2, and the busy bytes `D_00282155/156` read before every tick).
+- **Deleted stand-ins:** em_opening_media's lane-0 stream (the module keeps only its fade track), em_bgm's tracks
+  (`em_bgm_play*`, `em_bgm_stop`, `em_bgm_service`, the lane-service hook, the `EM_BGM` override: em_bgm is the
+  device and the mixer), the scene bindings' `stream_release_all`, the reported `w_00119828`, `UM_00119828`,
+  `UM_001FA790`, `UM_001FAB50`, `UM_001FAD70`.
+- **Mixer:** em_bgm's callback sums `em_stream_live_mix` (em_iop_stream_mix) with the SFX and startup voices; the
+  device opens at 48000 Hz (by the startup audio, or by the lanes at their first active lane).
+- **Still reported, not bound:** 0x1AE040's state-0 area-entry 001FAE70(1), the state-4 room move's 001FAE70(0),
+  state 2's r == 1 and state 6's (UM_001FAE70): the area-entry call draws one rand() and the whole-game RNG order is
+  unaudited.
 
-Items 1..5 are a work package of their own (an IOP-side audio backend plus its disc reader); the WP-8 fix round
-proposed splitting them out of WP-8 (docs/FIRST_LEVEL_AUDIT.md WP-8). Until they are bound, the module stays
-unwired (CLAUDE.md fidelity rules), and a voiced line (the director's cues 150/149, Roger's voiced 0x7F chain)
-faults at 001FA5A0 because `voice_push` is unbound.
+Verified live: the level smoke plays the whole route with the lanes (every phase's capture check, and the director's
+voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); `make test-opening-runtime` runs the opening over
+the real lanes (the hold protocol 0 -> 2 at 001FD4C0, 2 -> 1 at step H once lane 0's prefill is in, 1 -> 0 at step F,
+key-on at the next step H; cue 25 resumed at the end; the skip's stops); newgame-control and the full suite.
+
+**Drive latency (a known divergence).** The backend's drive completes a read at its first poll (the stated model,
+IOP_STREAM.md). The original's drive takes hardware time, which the captures show only indirectly: the opening's
+stream request (001FD4C0, newgame_samples frame 2642) reaches `D_008106F4 == 1` about 24 fields later (the ops-9..12
+fade-in 001AEE10(0x10) starts at 2667), the port's 4 fields later; the voiced lines tear down 8 (0x7F), 6 (0x97) and
+6 (0x99) rows later than the port's. Nothing else on the route depends on it (the level smoke compares everything
+else row for row). Pinning it needs a per-field capture of the lanes and the drive (see FIRST_LEVEL_AUDIT.md WP-8b).
+

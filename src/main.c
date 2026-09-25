@@ -20,6 +20,7 @@
 #include "game/em_message_live.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_startup_audio.h"
+#include "game/em_stream_live.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
@@ -48,7 +49,7 @@
  * Default behavior is BYTE-IDENTICAL: with EM_SCENE unset (or naming the
  * default directory) this function does nothing at all.
  *
- * Relative paths in EM_CAPTURE / EM_AUDIO_FILE / EM_BGM are absolutized
+ * Relative paths in EM_CAPTURE / EM_AUDIO_FILE are absolutized
  * against the original cwd first, so their files keep landing where the
  * caller expects despite the chdir. POSIX-only (mac/linux); the Windows
  * backend does not exist yet — revisit alongside it. */
@@ -81,7 +82,6 @@ static void scene_redirect(void)
 
     env_make_absolute("EM_CAPTURE", cwd);
     env_make_absolute("EM_AUDIO_FILE", cwd);
-    env_make_absolute("EM_BGM", cwd);
     env_make_absolute("EM_STARTUP_CAPTURE_DIR", cwd);
 
     char stage_tmpl[] = "/tmp/em_scene_XXXXXX";
@@ -265,8 +265,22 @@ static int wav_load_pcm16(const char *path, AudioWavTest *wt)
     return 0;
 }
 
+/* The stream lanes' hooks for the frame loop and the message service
+ * (em_stream_live; the message workers return 1 ok, 0 fault). */
+static int stream_field(void *context) { (void)context; return em_stream_live_field(); }
+static int stream_step_h(void *context) { (void)context; return em_stream_live_step_h(); }
+static int stream_voice_push(void *context, int32_t cue)
+{ (void)context; return em_stream_live_001FA5A0(cue) == 0; }
+static int stream_stop_lane(void *context, int lane)
+{ (void)context; return em_stream_live_001FAAC0(lane) == 0; }
+static int8_t stream_active(void *context, int lane) { (void)context; return em_stream_live_active(lane); }
+
 int main(void)
 {
+    /* Whole lines on stdout: the test drivers read stdout and stderr
+     * through one pipe, and a block-buffered flush in mid-line would split
+     * a stderr report line. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
     scene_redirect();   /* EM_SCENE — must precede every file open */
 
     EmWindow *win = em_window_create("Extermination (native port)", 960, 720);
@@ -318,11 +332,27 @@ int main(void)
     /* Engine bring-up: frame loop env + input + task table, then the boot
      * task into slot 0 (the engine init's func_001AB740(0, boot)). */
     em_frame_init(win, gfx);
+    /* 001AAE40's start-up: the SNDN2DRV.IRX bring-up's IOP buffers and the
+     * stream files' sectors, then 001F9820 (the stream lanes' initial
+     * state; em_stream_live, WP-8b). Without the stream export the game
+     * cannot start (fail-stop, never silence). The field (D_00810E90 and
+     * the IOP's field work) runs at the top of every frame, the lane
+     * service 001F9CF0 at step H. */
+    if (em_stream_live_boot("assets/streams/streams.emst") != 0) {
+        em_stream_live_shutdown();
+        em_gfx_destroy(gfx);
+        em_window_destroy(win);
+        return 1;
+    }
+    static const EmFrameSoundService sound = {stream_field, stream_step_h, NULL};
+    em_frame_set_sound_service(&sound);
     /* Main-loop step F: the message service 001FCA10 (WP-8), with the
-     * stream workers 001FD470 / 001FA790 its stream table reaches. */
+     * stream workers 001FD470 / 001FA790 / 001FA5A0 / 001FAAC0 and the
+     * voice lanes' active bytes its records reach. */
     em_message_live_install("assets/message/message_data.emmd");
     static const EmMessageLiveStreams streams = {NULL, em_scene_bindings_001FD470,
-                                                 em_scene_bindings_001FA790};
+                                                 em_scene_bindings_001FA790, stream_voice_push,
+                                                 stream_stop_lane, stream_active};
     em_message_live_set_streams(&streams);
     /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
      * D_00810E40 (em_pad_actuator). */
@@ -339,7 +369,10 @@ int main(void)
     em_frame_run();
 
     em_frontend_shutdown();
-    em_game_shutdown();
+    em_game_shutdown();         /* em_bgm_shutdown: the device no longer mixes */
+    em_frame_set_sound_service(NULL);
+    int stream_failed = em_stream_live_failed();
+    em_stream_live_shutdown();
     int message_failed = em_message_live_fault() != NULL;
     em_message_live_shutdown();
     em_startup_audio_shutdown();  /* shared device has stopped its callback */
@@ -361,6 +394,6 @@ int main(void)
     free((void *)audio_wav.pcm);
     em_gfx_destroy(gfx);
     em_window_destroy(win);
-    return em_frontend_failed() || em_opening_runtime_failed() || message_failed ||
+    return em_frontend_failed() || em_opening_runtime_failed() || message_failed || stream_failed ||
            em_opening_control_test_failed() || em_level_smoke_test_failed() ? 1 : 0;
 }

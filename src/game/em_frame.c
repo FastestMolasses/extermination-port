@@ -29,7 +29,6 @@
 #include <time.h>
 
 #include "em_input.h"
-#include "game/em_bgm.h"
 #include "game/em_task.h"
 
 static struct {
@@ -52,6 +51,7 @@ static struct {
     EmFrameMessageService message;    /* step F 001FCA10 presenter */
     int (*step_i)(void *);            /* step I 001B5B70 (em_pad_actuator) */
     void        *step_i_context;
+    EmFrameSoundService sound;        /* the field and step H 001FB100 */
     bool         pace_initialized;
     bool         uncapped;
     struct timespec next_deadline;
@@ -135,6 +135,14 @@ void em_frame_set_step_i(int (*service)(void *context), void *context)
 {
     s_frame.step_i = service;
     s_frame.step_i_context = context;
+}
+
+void em_frame_set_sound_service(const EmFrameSoundService *service)
+{
+    if (service)
+        s_frame.sound = *service;
+    else
+        memset(&s_frame.sound, 0, sizeof s_frame.sound);
 }
 
 void em_frame_set_message_service(const EmFrameMessageService *service)
@@ -301,6 +309,12 @@ static void frame_pace_ntsc(void)
 int em_frame_step(void)
 {
     if (s_frame.quit) return 0;
+    /* One NTSC field per step, movie steps included: the vblank handler's
+     * D_00810E90 and the IOP's field (em_stream_live_field). */
+    if (s_frame.sound.field && s_frame.sound.field(s_frame.sound.context) < 0) {
+        s_frame.quit = true;
+        return 0;
+    }
 
     /* B/C: native frame begin and the original input-unpack phase. */
     /* 001AB370 sets both sceGsDBuffDc clear colours (0x00811020/0x00811190)
@@ -321,14 +335,20 @@ int em_frame_step(void)
     /* F: 001FCA10, the message service, after every script worker. */
     if (s_frame.message.tick && s_frame.message.tick(s_frame.message.context) < 0)
         s_frame.quit = true;
-    em_bgm_service();
     /* Original message presentation overlays the already queued bars,
      * then the full-screen transition composites over the whole image. */
     if (s_frame.message.render)
         s_frame.message.render(s_frame.message.context, s_frame.gfx);
     s_frame.suspended_draw_transition =
         em_transition_fade_tick(&s_frame.transition) != 0;
-    /* I: 001B5B70, the rumble countdown (step H 001FB100 is not ported). */
+    /* H: 001FB100 runs the stream lanes' service 001F9CF0 unless
+     * D_00821058 == 1 (a movie armed this frame). The rest of 001FB100 (the
+     * D_0028215B output-mode commit, the D_00281B70 copy and 001FC6E0's
+     * delayed cues) is not bound (docs/STREAM_LANES.md "Binding"). */
+    if (!s_frame.movie_active && s_frame.sound.step_h &&
+        s_frame.sound.step_h(s_frame.sound.context) < 0)
+        s_frame.quit = true;
+    /* I: 001B5B70, the rumble countdown. */
     if (s_frame.step_i && s_frame.step_i(s_frame.step_i_context) < 0)
         s_frame.quit = true;
 

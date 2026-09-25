@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static int task_calls, audio_calls, movie_calls, presents;
+static int task_calls, audio_calls, field_calls, movie_calls, presents;
 static int arm_movie;
 static int frame_draws;
 static int expected_frame;
@@ -28,7 +28,6 @@ bool em_window_poll(EmWindow *window, EmEvent *out)
     return true;
 }
 void em_gamepad_poll(void) {}
-void em_bgm_service(void) { ++audio_calls; }
 void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
 {
     (void)gfx; (void)r; (void)g; (void)b; (void)a;
@@ -172,7 +171,7 @@ static int movie_pump(void *user)
 {
     assert(user == &movie_calls);
     ++movie_calls;
-    assert(task_calls == 1 && audio_calls == 1);
+    assert(task_calls == 1 && audio_calls == 0 && field_calls == movie_calls);
     assert(em_frame_counter() == 0 && em_frame_parity() == 0);
     assert(em_frame_transition()->level == 4); /* G ran just once */
     if (movie_calls == 2)
@@ -180,11 +179,19 @@ static int movie_pump(void *user)
     return movie_calls < 3;
 }
 
+/* The sound service: the field at the top of every presentation step, step
+ * H (001FB100's lane service) once per engine frame, skipped in the frame
+ * that arms a movie (001FB100 returns while D_00821058 == 1). */
+static int sound_field(void *ctx) { (void)ctx; ++field_calls; return 0; }
+static int sound_step_h(void *ctx) { (void)ctx; ++audio_calls; return 0; }
+
 static void reset_frame(void)
 {
-    task_calls = audio_calls = movie_calls = presents = frame_draws = 0;
+    static const EmFrameSoundService sound = {sound_field, sound_step_h, NULL};
+    task_calls = audio_calls = field_calls = movie_calls = presents = frame_draws = 0;
     arm_movie = expected_frame = event_pending = 0;
     em_frame_init(NULL, NULL);
+    em_frame_set_sound_service(&sound);
 }
 
 static void test_frame_phases(void)
@@ -192,7 +199,7 @@ static void test_frame_phases(void)
     reset_frame();
     em_task_register(0, frame_task);
     assert(em_frame_step());
-    assert(task_calls == 1 && audio_calls == 1 && presents == 1);
+    assert(task_calls == 1 && audio_calls == 1 && field_calls == 1 && presents == 1);
     assert(em_frame_transition()->level == 4); /* same-frame arm tick */
     assert(frame_draws == 1 && draws[0].add == 1);
     assert(!draws[0].before_text);
@@ -227,13 +234,13 @@ static void test_frame_phases(void)
     assert(movie_calls == 2 && presents == 2 && frame_draws == 0);
     em_frame_step();
     assert(movie_calls == 3 && presents == 3);
-    assert(task_calls == 1 && audio_calls == 1);
+    assert(task_calls == 1 && audio_calls == 0 && field_calls == 3);
     assert(em_frame_counter() == 1 && em_frame_parity() == 1);
     assert(em_frame_transition()->level == 8); /* completion tick O */
     assert(frame_draws == 1 && draws[0].add == 1);
     expected_frame = 1;
     em_frame_step();
-    assert(task_calls == 2 && audio_calls == 2 && movie_calls == 3);
+    assert(task_calls == 2 && audio_calls == 1 && field_calls == 4 && movie_calls == 3);
     assert(em_frame_transition()->level == 12);
     assert(em_frame_counter() == 2 && em_frame_parity() == 0);
     em_frame_request_quit();

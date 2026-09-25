@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
+static int idle_stop_lane(void *ctx, int lane) { (void)ctx; return lane == 1 || lane == 2; }
+
 typedef struct {
     EmInteractionFrame frame;
     EmInteractionRuntime interaction;
@@ -161,6 +163,10 @@ static void setup(Fixture *f, EmModel *model, const EmPoseBank *bank, unsigned c
     memset(&scene, 0, sizeof scene);
     scene.d810700 = 0x0B;
     assert(em_message_live_install("assets/message/message_data.emmd"));
+    /* No voiced line here: the voice lanes stay idle (the lanes' 001FAAC0 on
+     * an idle lane has no effect; D_00282155/156 read 0). */
+    static const EmMessageLiveStreams idle_lanes = {NULL, NULL, NULL, NULL, idle_stop_lane, NULL};
+    em_message_live_set_streams(&idle_lanes);
     assert(em_message_live_reset() == 0);
     EmInteractionRuntimeHooks shared = {f, acquire, idle, release, publish, event, camera};
     assert(em_interaction_runtime_init(&f->interaction, &f->frame, model, f->palette, &shared));

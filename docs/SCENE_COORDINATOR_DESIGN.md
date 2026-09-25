@@ -637,9 +637,9 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - WP-5: em_hud pages, Found, and the status_runtime shadow (landed 2026-09-23: pages, Found, the hover cue and the interim hub deleted in AREA11; the fixtures' runtime-frame path remains)
 - WP-6: pickup_trigger_scan and the countdown (landed 2026-09-23, with the flat inventory add, the ammo queue and the interact-clip lock)
 - WP-7: em_door walk/goto
-- WP-8: em_panel_message, the opening's dialogue clock and em_hud_subtitle (landed 2026-09-23; the stream lanes remain unbound)
+- WP-8: em_panel_message, the opening's dialogue clock and em_hud_subtitle (landed 2026-09-23); WP-8b: the stream lanes and the IOP backend live, every stream stand-in deleted (landed 2026-09-25)
 - WP-9: Roger
-- WP-10: kCineBeats (the level smoke drives its beats since census L09..L11; WP-10 waits on WP-9)
+- WP-10: kCineBeats (landed 2026-09-25 with WP-8b: node #21 runs em_director_original; em_director.c and em_area11_flow.c deleted)
 - WP-11: fan and the exit
 - WP-12: truck (landed 2026-09-24, census L23)
 

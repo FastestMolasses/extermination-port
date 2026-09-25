@@ -143,24 +143,24 @@ static const Phase k_phases[] = {
      cage_ladders_frame, 0, 0},
     {"cage_roof", "10_cage_roof_roger", 0x008253F0u,
      "director 0x8253F0 beat 0 script 0x8294C0 (260 <= Y <= 280, quad 0x82ABE0); Roger 0x8237E0 script "
-     "0x828990 (line 0x7F); D_00810813 0 -> 1 -> 0x10 -> 0x11",
-     "census L21 (the director; its binding is prepared, make test-level-smoke-director), blocked on WP-8b: "
-     "Roger's 0x828990 line 0x7F is voiced (001FA5A0 / the voice lanes 001F9CF0)", director_begin, cage_roof_frame, 1, 0},
+     "0x828990 (voiced line 0x7F, VOICE.DAT cues 143..148); D_00810813 0 -> 1 -> 0x10 -> 0x11",
+     "census L21 with WP-8b (the director on its original scripts, the voice lanes)", director_begin,
+     cage_roof_frame, 0, 0},
     {"crevice_climbs", "11_crevice_prompt", 0,
      "tank ledge climb (state 2, +1F0 8), the pipes (fall 5 / 0xB), pipe-end ledge climb",
      "the ledge climb and fall on the live record (census L04, L02)", crevice_climbs_begin,
      crevice_climbs_frame, 0, 0},
     {"crevice_prompt", "11_crevice_prompt", 0x008253F0u,
-     "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97); D_00810813 -> 0x20",
-     "census L21 after WP-8b (the voiced line 0x97, VOICE.DAT cue 150)", director_begin, crevice_prompt_frame, 1, 0},
+     "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97, VOICE.DAT cue 150); D_00810813 -> 0x20",
+     "census L21 with WP-8b", director_begin, crevice_prompt_frame, 0, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
      "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0},
     {"east_tower_climb", "13_east_tower", 0, "high ledge climb (state 2, +1F0 8) onto the east tower top",
      "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0, 0},
     {"east_tower", "13_east_tower", 0x008253F0u,
-     "director beat 2 script 0x829CC0 (Y >= 285, quad 0x82AC60; line 0x99); D_00810813 -> 0xFF",
-     "census L21 after WP-8b (the voiced line 0x99, VOICE.DAT cue 149)", director_begin, east_tower_frame, 1, 0},
+     "director beat 2 script 0x829CC0 (Y >= 285, quad 0x82AC60; line 0x99, VOICE.DAT cue 149); D_00810813 -> 0xFF",
+     "census L21 with WP-8b", director_begin, east_tower_frame, 0, 0},
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
      "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0},
@@ -194,7 +194,6 @@ static struct {
     float nav_hist[64][2];
     int32_t scan_variants; /* D_00810750 at the Use scan's tick (scan_accepted) */
     uint8_t saw[8];        /* per-phase observations (see each runner) */
-    int director_original; /* EM_LEVEL_SMOKE_DIRECTOR=original (the cage_roof prefix run) */
 } t;
 
 static void fail(const char *reason)
@@ -273,7 +272,7 @@ static void next_phase(void)
     if (colon && colon[1] && (size_t)(colon - pc) == strlen(done->name) &&
         strncmp(pc, done->name, (size_t)(colon - pc)) == 0)
         em_gfx_request_capture(em_frame_gfx(), colon + 1);
-    if (done->driven && !(t.director_original && done->owner == 0x008253F0u)) {
+    if (done->driven) {
         const char *binding = done->owner ? em_scene_bindings_pool_binding(done->owner) : NULL;
         fprintf(stderr, "level smoke: %s: NOT-LIVE driven (route beat %s; original: %s; port binding of "
                 "%08X: %s; lands with %s): driven through that binding only so the later phases start "
@@ -1649,27 +1648,26 @@ static int cage_ladders_frame(void)
     }
 }
 
-/* ------------------------------------------- the legacy director beats
+/* ------------------------------------------- the director's beats
  *
  * cage_roof, crevice_prompt and east_tower are the director 008253F0's
  * beats 0, 1 and 2 (FIRST_LEVEL_ROUTE.md section 5): scripts 0x8294C0,
- * 0x829A40 and 0x829CC0, and in beat 10 Roger's alternate script 0x828990.
- * The director is not bound (census L21, DIRECTOR_ORIGINAL.md section 6):
- * beat 0's 06/2 waits for the D_00810813 = 1 that Roger's 0x828990 writes
- * after its voiced line 0x7F, and beats 1 / 2 present the voiced lines
- * 0x97 / 0x99; a voiced line needs the message service's 001FA5A0 and the
- * voice lanes (WP-8b), which are not live. So node #21 runs the legacy
- * em_director.c. With EM_LEVEL_SMOKE_DIRECTOR=original (the verification
- * run, make test-level-smoke-director) node #21 runs the original instead
- * and cage_roof waits for its real completion; today that run stops at
- * route 10 f1163 and tools/test_level_smoke.py --director-prefix compares
- * the rows before it. These phases are driven through it (Phase.driven): the
- * pad stays neutral until the stand-in's beat has ended, stored its step
- * byte D_00810813 (0x10, 0x20, 0xFF) and control is back, so the later
- * live phases start from the place the original's beat leaves the player
- * (none of the three scripts moves the player: routes 10 f1089..f3508,
- * 11 f706..f1200 and 13 f531..f749 keep +B0..+B8). Nothing is verified. */
-enum { DIRECTOR_LIMIT = 6000 };
+ * 0x829A40 and 0x829CC0 on the original owner (em_director_original over
+ * em_area11_script_host, live since WP-8b), and in beat 10 Roger's
+ * alternate script 0x828990 with its voiced line 0x7F; beats 1 and 2 show
+ * the voiced lines 0x97 and 0x99. Each beat starts on its own when the
+ * previous phase leaves the player inside its quad. The pad stays neutral
+ * until the beat has stored its step byte D_00810813 (beat 0: the
+ * director's 0x10, then Roger's ordinary branch's 0x11 on the next frame,
+ * route 10 f3508 / f3509; beats 1 and 2: 0x20 and 0xFF) and control is
+ * back, then settles 90 frames (route_capture settle(); each of the three
+ * captures ends 60 rows after its release, and a port whose voiced line
+ * tore down early releases early: tools/test_level_smoke.py
+ * check_director_beat), so the capture checks compare the release and the
+ * follow camera to the capture's end. None of the three
+ * scripts moves the player (routes 10 f1089..f3508, 11 f706..f1200 and 13
+ * f531..f749 keep +B0..+B8). */
+enum { DIRECTOR_LIMIT = 6000, DIRECTOR_SETTLE = 90 };
 
 static uint8_t director_step(void)
 {
@@ -1677,50 +1675,30 @@ static uint8_t director_step(void)
     return b ? *b : 0xEE;
 }
 
-static int director_driven(uint8_t want)
+static int director_beat(uint8_t want)
 {
     pad_apply(0, 0, 0);
-    if (t.director_original) {
-        /* The verification run (EM_LEVEL_SMOKE_DIRECTOR=original): the
-         * original 008253F0 on node #21. Beat 0 ends with the director's
-         * 0x10 and Roger's ordinary branch's 0x11 on the next frame (route
-         * 10 f3508 / f3509); beats 1 and 2 with 0x20 and 0xFF. Until WP-8b
-         * binds the voice lanes the run stops at the first voiced line
-         * (the message service faults at 001FA5A0; LEVEL_SMOKE.md
-         * "cage_roof prefix"). */
-        if (want == 0x10)
-            want = 0x11;
+    if (!t.saw[0]) {
         if (director_step() != want || !in_control()) {
             if (++t.nav_frames > DIRECTOR_LIMIT)
-                fail("the original director's beat did not end");
-            return 0;
-        }
-        fprintf(stderr, "level smoke: %s: PASS (the original director 008253F0) D_00810813 = 0x%02X "
-                "player=(%.3f,%.5f,%.3f)\n", k_phases[t.current].name, director_step(), g.pos[0], g.pos[1],
-                g.pos[2]);
-        return 1;
-    }
-    if (!t.saw[0]) {
-        if (director_step() != want || g.cine_active) {
-            if (++t.nav_frames > DIRECTOR_LIMIT)
-                fail("the director's stand-in beat did not end");
+                fail("the director's beat did not end with its step byte and control");
             return 0;
         }
         t.saw[0] = 1;
         nav_reset();
     }
-    int r = nav_settle(30);
+    int r = nav_settle(DIRECTOR_SETTLE);
     if (r <= 0)
         return 0;
-    fprintf(stderr, "level smoke: %s: driven to D_00810813 = 0x%02X player=(%.3f,%.5f,%.3f)\n",
+    fprintf(stderr, "level smoke: %s: PASS D_00810813 = 0x%02X player=(%.3f,%.5f,%.3f)\n",
             k_phases[t.current].name, director_step(), g.pos[0], g.pos[1], g.pos[2]);
     return 1;
 }
 
 static void director_begin(void) { nav_reset(); }
-static int cage_roof_frame(void) { return director_driven(0x10); }
-static int crevice_prompt_frame(void) { return director_driven(0x20); }
-static int east_tower_frame(void) { return director_driven(0xFF); }
+static int cage_roof_frame(void) { return director_beat(0x11); }
+static int crevice_prompt_frame(void) { return director_beat(0x20); }
+static int east_tower_frame(void) { return director_beat(0xFF); }
 
 /* The ledge climbs of beats 11 and 13: with `fine` the stick first walks
  * to the route's stance before the press at 0.4 stick (navigation input,
@@ -2068,15 +2046,6 @@ void em_level_smoke_test_begin(void)
             fail("unknown phase");
             return;
         }
-    }
-    const char *director = getenv("EM_LEVEL_SMOKE_DIRECTOR");
-    if (director && strcmp(director, "original") == 0) {
-        /* Verification only: node #21 runs the original director (not the
-         * live binding, census L21; em_area11_bindings.h). */
-        t.director_original = 1;
-        em_area11_bindings_select_director_original(1);
-        fprintf(stderr, "level smoke: director: the original 008253F0 is selected on node #21 "
-                "(verification run; the live binding is the legacy stand-in until WP-8b)\n");
     }
     fprintf(stderr, "level smoke: New Game through %s\n", k_phases[t.until].name);
     t.last_live = -1;

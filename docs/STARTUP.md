@@ -63,10 +63,10 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 19 | `../Extermination/.venv/bin/python tools/export_area11_effect.py --ee ../Extermination/build/startup-reference/opening_ee.bin --gs ../Extermination/build/startup-reference/opening_gs.bin --vu ../Extermination/build/weather_reference/original_vu1.bin` | `area11_effect.emef/.emtx`, `scene.txt` | R | the 008235F0 effect owner |
 | 20 | `python3 tools/export_point_lights.py` | `point_lights.emlp` | R | em_point_light |
 | 21 | `python3 tools/export_snow.py --gs ../Extermination/build/startup-reference/opening_gs.bin --reference-ee ../Extermination/build/startup-reference/opening_ee.bin` | `snow.emsn`, `snow.emtx` | L | the weather node 001C1EA0 (em_snow_runtime) |
-| 22 | `python3 tools/export_area11_flow.py` | `area11_flow.emaf` | L | the legacy director stand-in's triggers (until WP-10) |
+| 22 | `python3 tools/export_streams.py [--iso /path/to/owned.iso]` (IOP_STREAM.md "Stream exporter") | `streams/streams.emst`, `streams.json` | R (since WP-8b: the boot stops without it, fail-stop) | em_stream_live: the stream lanes' clip rows and the IOP backend's disc sectors (music cues 13, 25, 29, 54, 63, 0x18, 0x1B; voice cues 143..151). (The former step 22, `export_area11_flow.py`, fed the legacy director stand-in, deleted with it in WP-8b.) |
 | 23 | `python3 tools/export_area11_opening.py` | `opening.emsc` | R | em_opening_runtime |
 | 24 | `python3 tools/export_opening_camera.py --source ../Extermination/extract/chunk15/f12_id44.bin --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc` | `opening_camera.emcc` | R | the opening camera |
-| 25 | `python3 tools/export_opening_media.py --decomp-root ../Extermination --iso /path/to/owned.iso --out assets/scene_snow` | `opening.wav`, `opening.emfx`, `opening_resume.wav` | R | em_opening_media, the resumed cue 25 |
+| 25 | `python3 tools/export_opening_media.py --decomp-root ../Extermination --iso /path/to/owned.iso --out assets/scene_snow` | `opening.wav`, `opening.emfx`, `opening_resume.wav` | R (`opening.emfx`); X (the two WAVs: the streams play from step 22 since WP-8b) | em_opening_media's fade track |
 | 26 | `cd ../Extermination && python3 tools/export_opening_actors.py --gs build/startup-reference/opening_gs.bin --reference-ee build/startup-reference/opening_ee.bin --out ../extermination-port/assets/scene_snow/opening --report build/area11_original/opening_export.json` (decomp OPENING_ACTORS.md) | `opening/player.emdl`, `roger.emdl`, `equipment_6b.emdl` | R | the opening actors |
 | 27 | `cd ../Extermination && python3 tools/export_opening_faces.py` with the same inputs (decomp OPENING_ACTORS.md) | `opening/*_face.emdl/.emfm` | R | the opening faces |
 | 28 | `python3 tools/export_area11_roster.py` | `roster.emro` | R | 001B6990 (the state-0 roster spawn) |
@@ -79,8 +79,8 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 35 | `python3 tools/export_pickup_programs.py` | `scene_snow/pickup_*.emsc` | R | the pickup owners 0015AFA0 / 00219550 |
 | 36 | `python3 tools/export_area11_sfx.py` | `sfx/area11/panel_sfx.*` | R | the panel cues (the host loads them) |
 | 37 | `python3 tools/export_sfx_registry.py` | `sfx/sfx_registry.emsr` | L | em_sfx |
-| 38 | `python3 tools/export_area11_scripts.py` | `area11_scripts/` | R (since census L23: the truck trigger's script start faults without it) | the AREA11 script host (em_area11_script_host: the truck preview 0x8292C0; the director scripts and quads wait on L21) |
-| 39 | `python3 tools/export_roger_resources.py`, `export_roger_encounter_actor.py`, `export_roger_cinematic.py`, `export_roger_media.py --iso /path/to/owned.iso` | `scene_snow/roger/` | R (since census L22: `roger.emdl`, `trigger.empg`, `programs.emsc`, `encounter_camera.emcc`, `camera_projection.emcp`, `encounter.wav`; the decoded `*.empc` banks are read only by tests) | em_area11_roger (mesh, trigger quad), em_area11_script_host (Roger's programs, the bank 0x96 camera track), em_opening_media (cue 29) |
+| 38 | `python3 tools/export_area11_scripts.py` | `area11_scripts/` | R (since census L23: the truck trigger's script start faults without it) | the AREA11 script host (em_area11_script_host: the truck preview 0x8292C0, Roger's scripts, and since WP-8b the director's scripts 0x8294C0 / 0x829A40 / 0x829CC0 and quads) |
+| 39 | `python3 tools/export_roger_resources.py`, `export_roger_encounter_actor.py`, `export_roger_cinematic.py`, `export_roger_media.py --iso /path/to/owned.iso` | `scene_snow/roger/` | R (since census L22: `roger.emdl`, `trigger.empg`, `programs.emsc`, `encounter_camera.emcc`, `camera_projection.emcp`; `encounter.wav` is not read since WP-8b (cue 29 plays on the stream lanes, step 22); the decoded `*.empc` banks are read only by tests) | em_area11_roger (mesh, trigger quad), em_area11_script_host (Roger's programs, the bank 0x96 camera track) |
 | 40 | `cd ../Extermination && python3 tools/export_level.py --background ../extermination-port/assets/scene_snow --area 11 --sub 0 --iso <owned.iso> --capture-ee ... --capture-gs ...` (BACKGROUND.md) | `background.embg`, manifest line | R (since the render + UI step: the AREA11 manifest load quits without it) | em_background_gs: the level background every world frame draws first (em_scene.c, em_render_frame.c) |
 | 41 | `cd ../Extermination && python3 tools/export_shadow_receivers.py --out ../extermination-port/assets/scene_snow/shadow_receivers.emsr` (SHADOW_ORIGINAL.md) | `shadow_receivers.emsr` | T (L29b) | em_shadow_original receiver passes |
 | 42 | `cd ../Extermination && python3 tools/export_shadow_proxy.py` (SHADOW_ORIGINAL.md) | `player_shadow.emdl` | T (L29) | the shadow silhouette |
@@ -258,15 +258,14 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
   `001FAE70(1)` at area entry. The opening controller stops streams when its
   script starts and resumes cue 25 at the end. The area-entry call is not
   mirrored yet: it also draws one `rand()`, and whole-game RNG order is
-  unaudited. The status close's `001FAE70(1)` (0x1AE040 state 5) is
-  translated since WP-5 (em_scene_bindings.c w_001FAE70), as is the stream
-  stop `001FABB0` at the status open and at 001AD360 step 0. The stream
-  volume is not matched: `001FBC50` (status open) and `001FC280` (status
-  close, the spawn record's +0x20 low half) set stream channels 0/1 to
-  0x1999 in AREA11, and the port's streams have no per-channel gain, so
-  those `00119828` calls are reported (UM_00119828) and the resumed cue 25
-  plays at full scale. `001FAE70`'s infected override (D_008104E4 == 1:
-  cue 0x18) faults. `EM_BGM` remains a debug-only override.
+  unaudited. Every other stream call runs on the original stream lanes
+  since WP-8b (em_stream_live over em_stream_lanes_original and the IOP
+  backend em_iop_stream; STREAM_LANES.md, IOP_STREAM.md): the status
+  close's `001FAE70(1)` (0x1AE040 state 5), the stream stop `001FABB0` at
+  the status open and at 001AD360 step 0, the `00119828` IOP commands 0x16
+  of `001FBC50` and `001FC280` (the driver's effect-return volume, kept but
+  inaudible without SPU2 reverb), and `001FAE70`'s infected override
+  (cue 0x18, exported). The former `EM_BGM` debug override is gone.
 
 ## Remaining fidelity work
 

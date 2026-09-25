@@ -204,21 +204,21 @@ translation's step list. The deviations are non-original behaviour to
 remove, so nothing pins them: the report fails (exit 1) only if the steps
 em_frame.c has run out of the original order, and exits 2 when the stubs or
 the call map no longer fit the current em_frame.c. Result on 2026-09-23
-(information, not an expectation):
+(information, not an expectation; the H line updated by WP-8b, 2026-09-25):
 
 - **Order**: the steps em_frame.c has are in the original order in all three
   scenarios.
-- **Missing steps** (ordinary frame): A (vblank flag), H (001FB100: sound
-  bookkeeping; `em_sfx_frame_snapshot`, its copy step, has no caller in src),
-  I (001B5B70), J (00100A60 and the reset block), K (001D7410), L (001AB590),
+- **Missing steps** (ordinary frame): A (vblank flag), I (001B5B70, in the
+  report's stubs only: the game installs it), J (00100A60 and the reset block), K (001D7410), L (001AB590),
   P (vblank wait: `frame_pace_ntsc` sleeps outside the step), T0, R (001AB4E0),
   S (001015A8, 00101810), T (0010BAA0), U (00100550), V (001D2300) and the
   001D2580 call of W. In the movie scenarios N (001D1C10) is missing too.
 - **Native-only calls** inside the step: `em_gamepad_poll`, `em_window_poll`,
-  `em_input_pad`, `em_pad_raw` (host input before C), `em_bgm_service` (after
-  F, before G: native BGM streaming with no step of its own in 0x1AAE40),
-  `em_opening_media_render` and the message render (drawing, before G), and
-  `em_gfx_end_frame` (present).
+  `em_input_pad`, `em_pad_raw` (host input before C), the field hook at the
+  top of every step (the vblank's D_00810E90 and the IOP stream backend's
+  field, em_stream_live; WP-8b), the message render (drawing, before G), and
+  `em_gfx_end_frame` (present). Since WP-8b step H runs 001FB100's lane
+  service 001F9CF0 after G (skipped while D_00821058 == 1).
 - **Repeated while a movie plays**: the original blocks inside 00203350 (M)
   and the loop runs nothing else until it returns. em_frame.c instead runs B
   (begin frame) and C (pad unpack) again on every presentation step of the
@@ -252,7 +252,7 @@ bound.
 | w001AEBE0, w001AEE70 | `em_screen_fade_tick` / `em_transition_fade_tick` + their draws | live, `test_fade_reference.py` |
 | w001AB6A0 | `em_task_dispatch` | live, unverified (census) |
 | w001FCA10 | the message-service tick | live (panel lines only, census) |
-| w001FB100 | `em_slg_001FB100` (L34) | missing live |
+| w001FB100 | since WP-8b its 001F9CF0 call (em_stream_live at step H, skipped while D_00821058 == 1); the rest of `em_slg_001FB100` (L34: the output-mode commit, the D_00281B70 copy, 001FC6E0) not bound | partly live |
 | w001B5B70 | the 001B5B70 translation in `em_owner_services_original` (L35) | verified-unbound |
 | w00100A60 | "path idle": return 0 (the native renderer has no VIF/GIF/VU1 path to stall) | boundary; the J-block workers are then never called but must still be bound (fail-stop): bind them to a fault, since reaching them natively would be a bug |
 | w001D7410, w001015A8, w00101810, w0010BAA0, w00100550 | the native renderer's frame submission / present (`em_gfx_end_frame`) | boundaries |

@@ -102,6 +102,7 @@ BRIDGE=r"""
 #include <string.h>
 static EmSceneState scene;
 static int strips, lane1, lane2;
+static int idle_stop_lane(void *ctx,int lane) {(void)ctx;return lane==1 || lane==2;}
 static int count_stop_lane(void *ctx,int lane) {
     if(lane==1) lane1++;
     else if(lane==2) lane2++;
@@ -115,13 +116,17 @@ int load(const char *path) {
     memset(&scene,0,sizeof scene);
     scene.d810700=0x0B;
     if(!em_message_live_install(path)) return 0;
+    /* The voice lanes are idle in this fixture (no voiced line): the lanes'
+     * 001FAAC0 on an idle lane has no effect, and they read inactive. */
+    static const EmMessageLiveStreams streams={NULL,NULL,NULL,NULL,idle_stop_lane,NULL};
+    em_message_live_set_streams(&streams);
     s.service.workers.stop_lane=count_stop_lane;
     return em_message_live_reset()==0;
 }
 void close_message(void) {em_message_live_shutdown();}
 int start(unsigned token,unsigned delay) {return em_message_live_post(token,(int)delay)==0;}
 void tick(int a,int b,int *result) {
-    (void)a;(void)b; /* D_00282155/156 read 0 in the live service: no voice lane runs */
+    (void)a;(void)b; /* D_00282155/156 read 0: the fixture's voice lanes are idle */
     EmMessageBlock *block=em_message_live_block();
     int frames=block->frames;
     strips=0;lane1=lane2=0;

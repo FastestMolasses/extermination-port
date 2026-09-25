@@ -293,6 +293,25 @@ static void test_reader_faults(const EmIopStreamDisc *disc)
     CHECK(em_iop_stream_00112D18(s, 1, &r) == 0 && r == 1);
     CHECK(em_iop_stream_00112D18(s, 1, &r) == 0 && r == 1);
     CHECK(em_iop_stream_00112D18(s, 1, &r) == 0 && r == 0);
+    /* A read left in flight (001FABB0's D_00282157 reset without the
+     * break) lands by the drive's next ready query when no latency is left;
+     * one still waiting for polls is outside the model (fault). */
+    em_iop_stream_set_disc_latency(s, 0);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 5, 1, 0xCDE00, mode, &r) == 0 && r == 1);
+    CHECK(em_iop_stream_00113280(s, 1, &r) == 0 && r == 2);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xCDE00, disc_data + 5 * 2048, 2048));
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 6, 1, 0xCDE00, mode, &r) == 0 && r == 1);
+    CHECK(em_iop_stream_00112D18(s, 1, &r) == 0 && r == 0);
+    {
+        EmIopStream *t = em_iop_stream_create();
+        em_iop_stream_attach_disc(t, disc);
+        em_iop_stream_set_disc_latency(t, 1);
+        CHECK(em_iop_stream_00112610(t, MUSIC_LSN, 1, 0xBDD00, mode, &r) == 0);
+        CHECK(em_iop_stream_00113280(t, 1, &r) == -1);
+        CHECK(em_iop_stream_fault(t)->code == EM_IOP_FAULT_UNSUPPORTED &&
+              em_iop_stream_fault(t)->address == 0x00113280);
+        em_iop_stream_destroy(t);
+    }
     CHECK(em_iop_stream_00112610(s, MUSIC_LSN + CUE_SECTORS, 1, 0xBDD00, mode, &r) == -1);
     CHECK(em_iop_stream_fault(s)->code == EM_IOP_FAULT_NOT_EXPORTED && em_iop_stream_fault(s)->address == 0x00112610);
     CHECK(em_iop_stream_field(s) == -1);   /* latched */

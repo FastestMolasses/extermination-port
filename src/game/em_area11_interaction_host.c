@@ -10,7 +10,6 @@
 #include "game/em_interaction_alignment.h"
 #include "game/em_item_device.h"
 #include "game/em_item_sdk_math.h"
-#include "game/em_opening_media.h"
 #include "game/em_message_live.h"
 #include "game/em_pickup.h"
 #include "game/em_pickup_items_original.h"
@@ -208,8 +207,9 @@ static int frame_event(void *context, EmInteractionFrameEvent event)
         em_player_face_host_detach(&world.face);
         return 1; /* The original frame core writes player_ready1 next. */
     case EM_INTERACTION_RESUME_MUSIC:
-        /* Aborted cinematic music remains a required separate binding. */
-        return 0;
+        /* 001B82D0 op 4 / 6's 001FAE70(0) on an aborted cinematic: the
+         * stream lanes (em_stream_live, WP-8b). */
+        return em_scene_bindings_001FAE70(0) == 0;
     }
     return 0;
 }
@@ -348,18 +348,14 @@ static int status_frame_event(void *context, EmStatusFrameEvent event,
     case EM_STATUS_RESET_UI:
         world.status_draw_context = world.status_ui_context = 0;
         return 1;
-    case EM_STATUS_RESET_SOUNDS:
-        em_sfx_stop_all();
-        return 1;
-    case EM_STATUS_STOP_STREAMS:
-        em_bgm_stop(0);
-        em_opening_media_stop();
-        return 1;
-    case EM_STATUS_CHANNEL_ZERO:
-    case EM_STATUS_CHANNEL_ONE:
-        /* Native decoded streams retain their full-scale PCM gain. Both
-         * stopped channels have no independent SPU gain to reset. */
-        return 1;
+    case EM_STATUS_RESET_SOUNDS:        /* 001FBC50 */
+        return em_scene_bindings_001FBC50() == 0;
+    case EM_STATUS_STOP_STREAMS:        /* 001FABB0 on the stream lanes */
+        return em_scene_bindings_001FABB0() == 0;
+    case EM_STATUS_CHANNEL_ZERO:        /* 00119828(0, 0x3FFF, 0x3FFF) */
+        return em_scene_bindings_00119828(NULL, 0, 0x3FFF, 0x3FFF) == 0;
+    case EM_STATUS_CHANNEL_ONE:         /* 00119828(1, 0x3FFF, 0x3FFF) */
+        return em_scene_bindings_00119828(NULL, 1, 0x3FFF, 0x3FFF) == 0;
     case EM_STATUS_BEGIN_FRAME:
         if (world.status_draw_context) return 0;
         world.status_draw_context = 1;
@@ -386,10 +382,8 @@ static int status_frame_event(void *context, EmStatusFrameEvent event,
     case EM_STATUS_CAMERA_COMMIT:
         camera_commit(&g.cam);
         return camera_publish(NULL);
-    case EM_STATUS_RESUME_MUSIC:
-        /* AREA11's initial music state resumes original cue25. Resource
-         * prepare owns that cue path; failure does not complete status. */
-        return em_opening_media_resume_music(270 + ((em_random_next() >> 16) & 127)) == 0;
+    case EM_STATUS_RESUME_MUSIC:        /* 001FAE70(1) on the stream lanes */
+        return em_scene_bindings_001FAE70(1) == 0;
     case EM_STATUS_FLASH:
         em_frame_fade_flash(32);
         return 1;

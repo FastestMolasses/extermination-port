@@ -698,12 +698,30 @@ void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next) { s->heap_next =
 
 /* ---- 4. the sector reader (libcdvd contract as the lanes use it) -------- */
 
+/* A read the EE left in flight (001FABB0 resets D_00282157 without the
+ * 00113478 break) is not lost: the drive finishes it on its own and its
+ * sectors land in IOP RAM. With no latency left (the default drive model)
+ * it has finished by the drive's next query; a read that still has polls
+ * to wait for is outside the model (the caller faults). */
+static void read_land(EmIopStream *s)
+{
+    uint32_t i;
+    for (i = 0; i < s->read.count; i++)
+        memcpy(s->iop_ram + s->read.addr + 2048u * i, disc_sector(s->disc, s->read.sector + i), 2048);
+    s->read.busy = 0;
+}
+
 /* 00113280(mode): 2 = the drive is ready (the value 001FA0D0 waits for). */
 int em_iop_stream_00113280(EmIopStream *s, int32_t mode, int32_t *result)
 {
     (void)mode;
     if (latched(s))
         return -1;
+    if (s->read.busy) {
+        if (s->read.polls)
+            return fault(s, 0x00113280u, EM_IOP_FAULT_UNSUPPORTED);
+        read_land(s);
+    }
     *result = 2;
     return 0;
 }
@@ -739,7 +757,6 @@ int em_iop_stream_00112610(EmIopStream *s, uint32_t sector, uint32_t count, uint
 /* 00112D18(1): 1 while the read is in flight, 0 once done (or idle). */
 int em_iop_stream_00112D18(EmIopStream *s, int32_t mode, int32_t *result)
 {
-    uint32_t i;
     (void)mode;
     if (latched(s))
         return -1;
@@ -748,11 +765,8 @@ int em_iop_stream_00112D18(EmIopStream *s, int32_t mode, int32_t *result)
         *result = 1;
         return 0;
     }
-    if (s->read.busy) {
-        for (i = 0; i < s->read.count; i++)
-            memcpy(s->iop_ram + s->read.addr + 2048u * i, disc_sector(s->disc, s->read.sector + i), 2048);
-        s->read.busy = 0;
-    }
+    if (s->read.busy)
+        read_land(s);
     *result = 0;
     return 0;
 }

@@ -96,7 +96,6 @@
 #include "game/em_actor_pool.h"
 #include "game/em_actor_roster.h"
 #include "game/em_player_closure_live.h"
-#include "game/em_bgm.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
@@ -115,7 +114,7 @@
 #include "game/em_level_smoke_test.h"
 #include "game/em_load_veil.h"
 #include "game/em_opening_control_test.h"
-#include "game/em_opening_media.h"
+#include "game/em_stream_live.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_pickup.h"
 #include "game/em_pickup_original.h"
@@ -205,18 +204,14 @@ enum {
     UM_0015C160,
     UM_001F0360,
     UM_001AAD00,
-    UM_00119828,
     UM_001D2830,
     UM_001E0CC0,
     UM_001D2880,
-    UM_001FA790,
-    UM_001FAB50,
     UM_00200830,
     UM_001D19D0,
     UM_0015C1F0,
     UM_0021B1B0,
     UM_0021B500,
-    UM_001FAD70,
     UM_001DA6A0,
     UM_0021B9A0,
     UM_COUNT
@@ -251,16 +246,9 @@ static const struct {
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
     [UM_001AAD00] = {0x001AAD00u, "scene without an original roster: no collision world, so its "
                                   "nine list-pass hooks and class lists have no port counterpart"},
-    [UM_00119828] = {0x00119828u, "IOP command 0x16 with values other than (0/1, 0x3FFF, "
-                                  "0x3FFF): 001FBC50 (status open) and 001FC280 (status close, "
-                                  "spawn record +0x20 low half, 0x1999 in AREA11) send channels "
-                                  "0/1 0x1999, the opening's 001B82D0 phase 0 sends (0/1, 0, 0); "
-                                  "the port has no 001157F0 sink, so nothing changes"},
     [UM_001D2830] = {0x001D2830u, "display-list context registration; no port counterpart"},
     [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset; no port counterpart"},
     [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
-    [UM_001FA790] = {0x001FA790u, "game-over stream cue 0x1B; the cue is not exported"},
-    [UM_001FAB50] = {0x001FAB50u, "music channel release (game over); not mirrored (H22, WP-5)"},
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
@@ -268,8 +256,6 @@ static const struct {
                                   "+0x0C, +0x96, 00200890); the port draws its one exported player model"},
     [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
     [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
-    [UM_001FAD70] = {0x001FAD70u, "001B0C00: stream channel volume fade (x3); the port's stream player "
-                                  "has no per-channel gain"},
     [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
                                   "no actor shadow (the player's own post-step is UM_0015C160, "
                                   "docs/SHADOW_ORIGINAL.md)"},
@@ -311,61 +297,29 @@ static int w_001FC9B0(void *ctx)
 static int um_001D19E0(void *ctx) { (void)ctx; return unmirrored(UM_001D19E0); }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
 static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
-/* 001FABB0 (src/func_001FABB0.c): 001FA570 (the voice queue D_00281CF0
- * memset to 0xFF, D_00275B30/B34 = 0), 001FAB50 (001FAAC0(0): release
- * stream channel 0, the music; D_008106F4 = 0), 001FAB80 (001FAAC0(1),
- * 001FAAC0(2): the other two stream channels; D_008106F5 = 0), then
- * D_00282157 = 0. This is NOT that translation: the stream lanes
- * (em_stream_lanes_original) are not live (WP-8's stream half,
- * docs/STREAM_LANES.md "Still missing"), and this is the port's
- * stream-release stand-in. It stops the port's two streams at once, em_bgm
- * (the resumed area cue) and the opening stream (em_opening_media, the
- * lane-0 stand-in), and clears D_008106F4 / D_008106F5 as 001FAB50 /
- * 001FAB80 do. It does not do the rest: no 001FA570 voice-ring reset (the
- * port has no ring: em_message_live's voice_push is unbound, so no voice
- * lane is ever started), no per-lane 001FAAC0 release and key-off
- * command, and no D_00282157 store (r_00282157 returns the constant 0).
- * Reached from 0x1AE040 state 1 (r == 2, the status open), 001AD360 step 0
- * (New Game and Continue) and the message service's 001FD470 bit 1. */
-/* D_00282178, the cue music channel 0 holds, as far as the port's two
- * stream players carry it: the cue the lane-0 stand-in armed (001FA790) or
- * the area cue 001FAE70 resumed; 0 after a release. 001FAE70(0) compares
- * it (and D_00282154, the channel's busy byte, which the port models as a
- * nonzero held cue: every release clears both). */
-static int32_t s_channel0_cue;
-
-static void stream_release_all(void)
-{
-    em_bgm_stop(0);
-    em_opening_media_stop();
-    s_channel0_cue = 0;
-    *em_scene_req_at(&s_state, 0x008106F4u) = 0;
-    s_state.req[EM_SCENE_REQ_F5] = 0;
-}
-
+/* The stream lanes (WP-8b): every stream call of the frame machine, the
+ * task chain and the scripts goes to the one live owner, em_stream_live
+ * (em_stream_lanes_original over the IOP side em_iop_stream;
+ * docs/STREAM_LANES.md, docs/IOP_STREAM.md "Binding").
+ *   001FABB0 (byte-matched): 001FA570 (the voice ring D_00281CF0 = -1,
+ *     D_00275B30/34 = 0), 001FAB50 (001FAAC0(0), D_008106F4 = 0), 001FAB80
+ *     (001FAAC0(1), 001FAAC0(2), D_008106F5 = 0), D_00282157 = 0. Reached
+ *     from 0x1AE040 state 1 (r == 2, the status open), 001AD360 step 0 (New
+ *     Game and Continue), 001FD470 bit 1 and the scripts' stops.
+ *   00119828(ch, l, r): the IOP command 0x16 (the driver's effect-return
+ *     volume of core ch, IOP_STREAM.md; kept by the backend, inaudible
+ *     without the SPU2 reverb, which the port does not model).
+ *   001FA790 / 001FAB50: the game over's cue 0x1B and its release. */
 static int w_001FABB0(void *ctx)
 {
     (void)ctx;
-    stream_release_all();
-    return 0;
+    return em_stream_live_001FABB0();
 }
 
-/* 00119828(ch, l, r) is the SPU driver command 0x16 (stream channel
- * volume). The status open (0x1AE040 r == 2) sets channels 0 and 1 to
- * 0x3FFF, the SPU's full scale, after 001FABB0 released them: the port's
- * decoded streams always play at full scale, so that call changes
- * nothing. Any other volume is reported (UM_00119828; the port has no
- * per-channel gain): 001FBC50 sets both channels to 0x1999 just before
- * (w_001FBC50), and the status close's 001FC280 sets them to the spawn
- * record's +0x20 low half, 0x1999 for every AREA11 record (w_001FAE70),
- * so after the close the original's music plays at 0x1999 while the
- * port's plays at full scale. */
 static int w_00119828(void *ctx, int a0, int a1, int a2)
 {
     (void)ctx;
-    if ((a0 == 0 || a0 == 1) && a1 == 0x3FFF && a2 == 0x3FFF)
-        return 0;
-    return unmirrored(UM_00119828);
+    return em_stream_live_00119828(a0, a1, a2);
 }
 
 /* D_00810D38, the current-BGM word: canonical D2 progress since WP-5
@@ -384,8 +338,8 @@ static int s_00810D38(void *ctx, int32_t value)
 static int um_001D2830(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001D2830); }
 static int um_001E0CC0(void *ctx) { (void)ctx; return unmirrored(UM_001E0CC0); }
 static int um_001D2880(void *ctx) { (void)ctx; return unmirrored(UM_001D2880); }
-static int um_001FA790(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001FA790); }
-static int um_001FAB50(void *ctx) { (void)ctx; return unmirrored(UM_001FAB50); }
+static int w_001FA790(void *ctx, int a0, int a1) { (void)ctx; return em_stream_live_001FA790(a0, a1); }
+static int w_001FAB50(void *ctx) { (void)ctx; return em_stream_live_001FAB50(); }
 
 /* ------------------------------------------------------------ readers */
 
@@ -396,14 +350,13 @@ static int16_t r_0028A9A0(void *ctx)
 }
 
 /* D_00282157: the phase byte of 001FA0D0's asynchronous disc-read
- * sequencer (src/func_001FA0D0.c; 001FABB0 clears it). It is nonzero only
- * while a read is in flight between frames. The port's readers complete
- * inside the call that starts them, so no read is ever in flight at a tick
- * boundary: phase 0. Read by 0x1AE040 state 3 sub-step 0 (and state 6). */
+ * sequencer (src/func_001FA0D0.c; 001FABB0 clears it), the stream lanes'
+ * own byte (em_stream_live). Read by 0x1AE040 state 3 sub-step 0 (and
+ * state 6). */
 static uint8_t r_00282157(void *ctx)
 {
     (void)ctx;
-    return 0;
+    return em_stream_live_read_phase();
 }
 
 static uint32_t r_00275B44(void *ctx)
@@ -1590,15 +1543,12 @@ static int w_001D1EA0(void *ctx, int a0)
  * states 3 and 5 (trace st14).
  *   0020E060, 0020CDC0 -> the host's status route in AREA11 (below; WP-5),
  *                the legacy em_hud screen elsewhere
- *   001FBC50  -> em_sfx_stop_all (its translation, em_sfx.h)
- *   001FABB0  -> w_001FABB0 (the port's stream-release stand-in, above;
- *                not a translation: the stream lanes are not live)
- *   00119828  -> w_00119828 (the full-scale volume, above; WP-5; the
- *                0x1999 volumes 001FBC50 and 001FC280 set are reported)
+ *   001FBC50  -> w_001FBC50 (em_sfx_stop_all, its translation in em_sfx.h,
+ *                then its two 00119828 calls)
+ *   001FABB0, 00119828, 001FAE70 -> the stream lanes (em_stream_live,
+ *                above; WP-8b)
  *   001AEDB0  -> em_frame_fade_full (001AEDB0's translation, em_fade.c)
  *   0018C0D0  -> camera_commit_original(&g.cam, a1) (em_camera.h)
- *   001FAE70  -> w_001FAE70 (001FAE70's cue selection, above; WP-5; the
- *                lane start itself is the port's em_bgm resume stand-in)
  *   001AEE40  -> em_frame_fade_flash (em_fade.c), in state 5 and (since
  *                S12a) in the state-0 rebuild
  *   001D2830, 001E0CC0, 001D1EF0: unmirrored (reported). */
@@ -1656,12 +1606,13 @@ static int w_0020CDC0(void *ctx)
 
 /* 001FBC50 (src/func_001FBC50.c): em_sfx_stop_all is its translation
  * (em_sfx.c), then it ends with 00119828(0, 0x1999, 0x1999) and
- * 00119828(1, 0x1999, 0x1999), which reach w_00119828 (reported). */
+ * 00119828(1, 0x1999, 0x1999), the IOP command 0x16 through the stream
+ * lanes (w_00119828). */
 static int w_001FBC50(void *ctx)
 {
     em_sfx_stop_all();
-    w_00119828(ctx, 0, 0x1999, 0x1999);
-    w_00119828(ctx, 1, 0x1999, 0x1999);
+    if (w_00119828(ctx, 0, 0x1999, 0x1999) < 0 || w_00119828(ctx, 1, 0x1999, 0x1999) < 0)
+        return -1;
     return 0;
 }
 
@@ -1699,37 +1650,17 @@ static int w_001AEE40(void *ctx, int16_t a0)
     return -1;
 }
 
-/* 001FAE70(a0) (byte-matched, src/func_001FAE70.c), the area music cue,
- * translated at its state-5 call (the status close, a0 = 1; H22). The
- * state-0 area entry (a0 = 1) and the state-4 room move (a0 = 0) stay
- * reported (UM_001FAE70). Its steps, in order:
- *   001FC280 (NEARMISS, body-correct): the area ambient loop. id = the
- *     high half of spawn record +0x20 (sra: 0xFFFF -> -1), or 0x44E in
- *     area 0x0B when D_00810788 == 0xFF; when id differs from the cached
- *     D_00282160 it stops the old loop and starts id. This status open's
- *     001FBC50 set the cache to -1, so -1 changes nothing; any other id
- *     needs a loop the port does not have: fault. (Every AREA11 record
- *     holds 0xFFFF1999, and the captured D_00810788 is 0.) It ends with
- *     00119828(0, lo, lo) and 00119828(1, lo, lo), lo = the record's low
- *     half (0x1999 in AREA11): w_00119828 reports them (UM_00119828).
- *   s0 = D_008106C8 bits 8..15; with D_00810D38 != 0, s0 = (s0 & 0x80) |
- *     D_00810D38.
- *   The infected override: area != 0x15, D_00810D38 not 0xB/0xC/0x17 and
- *     D_008104E4 == 1 (player record D_008102B0 +0x234, the infection
- *     latch 0021C270 sets; the port's copy is g.pd_infected) returns
- *     before rand(), starting cue 0x18 (001FAAC0(0, D38), 001FABF0(0,
- *     0x18, 0x40, 1)) unless D_00282178 already holds it. The port has
- *     no exported stream for cue 0x18: fault.
- *   s2 = (rand() >> 16) & 0x7F (00122BB8, em_random_next).
- *   a0 != 0: 001FAB50 releases channel 0 (em_bgm), then, when s0 & 0x7F
- *     is nonzero, 001FABF0(0, s0 & 0x7F, s2 + 270, 1) starts that cue with
- *     a 270 + s2 tick fade. The port has cue 25 only (AREA11's D_008106C8
- *     0x20081910 selects it; opening_resume.wav, export_opening_media.py):
- *     any other cue faults. */
-static int w_001FAE70(void *ctx, int a0)
+/* 001FC280 (NEARMISS, body-correct), the lanes' worker at the start of
+ * 001FAE70: the area ambient loop. id = the high half of spawn record +0x20
+ * (sra: 0xFFFF -> -1), or 0x44E in area 0x0B when D_00810788 == 0xFF; when
+ * id differs from the cached D_00282160 it stops the old loop and starts
+ * id. The cache is not modelled: an id of -1 changes nothing (the status
+ * open's 001FBC50 sets the cache to -1) and any other id needs a loop the
+ * port does not have: fault. (Every AREA11 record holds 0xFFFF1999, and the
+ * captured D_00810788 is 0.) It ends with 00119828(0, lo, lo) and
+ * 00119828(1, lo, lo), lo = the record's low half (0x1999 in AREA11). */
+int em_scene_bindings_001FC280(void)
 {
-    if (s_entry_state != 5 || a0 != 1)
-        return unmirrored(UM_001FAE70);
     const uint8_t *record = NULL;
     if (s_spawn_table_loaded) {
         const uint8_t *table = em_spawn_table_read(
@@ -1747,139 +1678,41 @@ static int w_001FAE70(void *ctx, int a0)
                 &s_spawn_table, entries + EM_SPAWN_RECORD_SIZE * s_state.d810702 + 0x20u, 4);
     }
     const uint8_t *d788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
-    const uint8_t *d38 = em_scene_progress_at(&s_state, 0x00810D38u, 4);
-    if (!record || !d788 || !d38)
+    if (!record || !d788)
         return -1;
     int32_t loop = (int32_t)((uint32_t)record[2] | (uint32_t)record[3] << 8) << 16 >> 16;
     if (s_state.d810700 == 0x0B && *d788 == 0xFF)
         loop = 0x44E;
     if (loop != -1) {
-        fprintf(stderr, "em_scene: 001FAE70: 001FC280 would start the area loop 0x%X, which "
-                        "the port does not have\n", (unsigned)loop);
+        fprintf(stderr, "em_scene: 001FC280 would start the area loop 0x%X, which the port does "
+                        "not have\n", (unsigned)loop);
         return -1;
     }
     uint32_t lo = (uint32_t)record[0] | (uint32_t)record[1] << 8;
-    w_00119828(ctx, 0, (int)lo, (int)lo);
-    w_00119828(ctx, 1, (int)lo, (int)lo);
-    uint32_t c8 = (uint32_t)em_scene_req_u32(&s_state, EM_SCENE_REQ_C8);
-    int32_t bgm = (int32_t)((uint32_t)d38[0] | (uint32_t)d38[1] << 8 | (uint32_t)d38[2] << 16 |
-                            (uint32_t)d38[3] << 24);
-    int32_t cue = (int32_t)((c8 & 0xFF00u) >> 8);
-    if (bgm != 0) {
-        cue &= 0x80;
-        cue |= bgm;
-    }
-    if (s_state.d810700 != 0x15 && bgm != 0xB && bgm != 0xC && bgm != 0x17 &&
-        g.pd_infected == 1) {
-        fprintf(stderr, "em_scene: 001FAE70: the infected override starts cue 0x18, which "
-                        "has no exported stream\n");
+    if (w_00119828(NULL, 0, (int)lo, (int)lo) < 0 || w_00119828(NULL, 1, (int)lo, (int)lo) < 0)
         return -1;
-    }
-    int fade = (int)((em_random_next() >> 16) & 0x7Fu) + 0x10E;
-    em_bgm_stop(0);                            /* 001FAB50 */
-    *em_scene_req_at(&s_state, 0x008106F4u) = 0;
-    s_channel0_cue = 0;
-    cue &= 0x7F;
-    if (cue == 0)
-        return 0;
-    if (cue != 25) {
-        fprintf(stderr, "em_scene: 001FAE70: area cue %d has no exported stream\n", (int)cue);
-        return -1;
-    }
-    if (em_opening_media_resume_music((unsigned)fade) != 0)
-        return -1;
-    s_channel0_cue = cue;
     return 0;
 }
 
-/* The message service's stream workers (em_message_live.h, WP-8), reached
- * through 001FD4C0 (the stream-table request of 001B82D0 ops 9..12).
- *   001FD470(mask) (byte-matched): bit 0 -> w_001FBC50 (em_sfx_stop_all,
- *     the port's counterpart of 001FBC50's voice stops, then its two
- *     00119828 calls), bit 1 -> w_001FABB0 (the stream-release stand-in
- *     above, not a translation of 001FABB0).
- *   001FA790(lane, cue): the stream lanes are not live (WP-8's stream
- *     half); the port's only exported stream a stream-table row selects is
- *     the opening's (tools/export_opening_media.py exports the row of line
- *     0x66 in AREA11), which em_opening_media plays as the lane-0 stand-in.
- *     Any other lane or cue faults. */
-/* 001FAE70(a0) for the script owners (census L22): a0 == 0 is the resume
- * branch (Roger's encounter completion 0x823AB0.., 001B82D0 sub 4's aborted
- * leave). The shared steps are w_001FAE70's (001FC280, the cue, the infected
- * override, the rand() fade); then, cue & 0x7F == 0: 001FAB50 (the channel
- * released); otherwise, when D_00282154 == 0 or D_00282178 != the cue:
- * 001FAB50 and 001FABF0(0, cue, fade, 1). A channel still holding the cue
- * keeps playing. a0 != 0 is the status close's branch (w_001FAE70). */
-static int fae70_resume(void *ctx)
+/* 001FAE70(a0) (byte-matched, src/func_001FAE70.c), the area music cue:
+ * em_stream_lanes_001FAE70 through em_stream_live (001FC280 above, the cue
+ * from D_008106C8 / D_00810D38, the infected override over D_008104E4, the
+ * 00122BB8 fade and the lane-0 restart). The frame machine binds its
+ * state-5 call (the status close, a0 = 1); the state-0 area entry (a0 = 1),
+ * the state-4 room move (a0 = 0), state 2's r == 1 and state 6 stay
+ * reported (UM_001FAE70: the area-entry call also draws one rand(), and the
+ * whole-game RNG order is unaudited). */
+static int w_001FAE70(void *ctx, int a0)
 {
-    const uint8_t *record = NULL;
-    if (s_spawn_table_loaded) {
-        const uint8_t *table = em_spawn_table_read(
-            &s_spawn_table, EM_SPAWN_TABLE_ADDRESS + 4u * s_state.d810700, 4);
-        uint32_t rooms = table ? (uint32_t)table[0] | (uint32_t)table[1] << 8 |
-                                     (uint32_t)table[2] << 16 | (uint32_t)table[3] << 24
-                               : 0;
-        const uint8_t *room =
-            rooms ? em_spawn_table_read(&s_spawn_table, rooms + 4u * s_state.d810701, 4) : NULL;
-        uint32_t entries = room ? (uint32_t)room[0] | (uint32_t)room[1] << 8 |
-                                      (uint32_t)room[2] << 16 | (uint32_t)room[3] << 24
-                                : 0;
-        if (entries)
-            record = em_spawn_table_read(
-                &s_spawn_table, entries + EM_SPAWN_RECORD_SIZE * s_state.d810702 + 0x20u, 4);
-    }
-    const uint8_t *d788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
-    const uint8_t *d38 = em_scene_progress_at(&s_state, 0x00810D38u, 4);
-    if (!record || !d788 || !d38)
-        return -1;
-    int32_t loop = (int32_t)((uint32_t)record[2] | (uint32_t)record[3] << 8) << 16 >> 16;
-    if (s_state.d810700 == 0x0B && *d788 == 0xFF)
-        loop = 0x44E;
-    if (loop != -1) {
-        fprintf(stderr, "em_scene: 001FAE70: 001FC280 would start the area loop 0x%X, which "
-                        "the port does not have\n", (unsigned)loop);
-        return -1;
-    }
-    uint32_t lo = (uint32_t)record[0] | (uint32_t)record[1] << 8;
-    w_00119828(ctx, 0, (int)lo, (int)lo);
-    w_00119828(ctx, 1, (int)lo, (int)lo);
-    uint32_t c8 = (uint32_t)em_scene_req_u32(&s_state, EM_SCENE_REQ_C8);
-    int32_t bgm = (int32_t)((uint32_t)d38[0] | (uint32_t)d38[1] << 8 | (uint32_t)d38[2] << 16 |
-                            (uint32_t)d38[3] << 24);
-    int32_t cue = (int32_t)((c8 & 0xFF00u) >> 8);
-    if (bgm != 0) {
-        cue &= 0x80;
-        cue |= bgm;
-    }
-    if (s_state.d810700 != 0x15 && bgm != 0xB && bgm != 0xC && bgm != 0x17 &&
-        g.pd_infected == 1) {
-        fprintf(stderr, "em_scene: 001FAE70: the infected override starts cue 0x18, which "
-                        "has no exported stream\n");
-        return -1;
-    }
-    int fade = (int)((em_random_next() >> 16) & 0x7Fu) + 0x10E;
-    cue &= 0x7F;
-    if (cue == 0) {
-        stream_release_all();                  /* 001FAB50 */
-        return 0;
-    }
-    if (s_channel0_cue != 0 && s_channel0_cue == cue)
-        return 0;                              /* the channel still holds the cue */
-    if (cue != 25) {
-        fprintf(stderr, "em_scene: 001FAE70: area cue %d has no exported stream\n", (int)cue);
-        return -1;
-    }
-    stream_release_all();                      /* 001FAB50 */
-    *em_scene_req_at(&s_state, 0x008106F4u) = 0;
-    if (em_opening_media_resume_music((unsigned)fade) != 0)
-        return -1;
-    s_channel0_cue = cue;
-    return 0;
+    (void)ctx;
+    if (s_entry_state != 5 || a0 != 1)
+        return unmirrored(UM_001FAE70);
+    return em_stream_live_001FAE70(a0);
 }
 
 int em_scene_bindings_001FAE70(int a0)
 {
-    return a0 == 0 ? fae70_resume(NULL) : w_001FAE70(NULL, a0);
+    return em_stream_live_001FAE70(a0);
 }
 
 int em_scene_bindings_001FABB0(void)
@@ -1931,18 +1764,22 @@ int em_scene_bindings_report_0021B9A0(void)
     return unmirrored(UM_0021B9A0);
 }
 
-int em_scene_bindings_report_001FAD70(void)
+/* 001FAD70(lane, fade, release): the lane's fade-out (001B0C00's three
+ * calls, lanes 0, 1, 2). */
+int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release)
 {
-    return unmirrored(UM_001FAD70);
+    return em_stream_live_001FAD70(lane, fade, release);
 }
 
+/* The message service's stream workers (em_message_live.h), reached
+ * through 001FD4C0 (the stream-table request of 001B82D0 ops 9..12):
+ * 001FD470(mask) (byte-matched; bit 0 w_001FBC50, bit 1 001FABB0) and
+ * 001FA790(lane, cue) on the lanes. 1 ok, 0 fault (the message worker
+ * contract). */
 int em_scene_bindings_001FD470(void *ctx, int32_t mask)
 {
-    if ((mask & 1) && w_001FBC50(ctx) < 0)
-        return 0;
-    if ((mask & 2) && w_001FABB0(ctx) < 0)
-        return 0;
-    return 1;
+    (void)ctx;
+    return em_stream_live_001FD470(mask) < 0 ? 0 : 1;
 }
 
 int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)
@@ -1953,19 +1790,7 @@ int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)
 int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue)
 {
     (void)ctx;
-    int32_t opening = em_message_live_stream_cue(0x0B, 0x66);
-    /* Roger's encounter (census L22): 001B82D0 sub 12's 001FD4C0(0) row. */
-    int32_t encounter = em_message_live_stream_cue(0x0B, 0);
-    if (lane != 0 || (opening < 0 && encounter < 0) || (cue != opening && cue != encounter)) {
-        fprintf(stderr, "em_scene: 001FA790(%d, %d): no exported stream for this lane and cue\n",
-                lane, (int)cue);
-        return 0;
-    }
-    if (em_opening_media_audio_start_cue(cue == opening ? EM_OPENING_MEDIA_OPENING
-                                                        : EM_OPENING_MEDIA_ENCOUNTER) != 0)
-        return 0;
-    s_channel0_cue = cue;
-    return 1;
+    return em_stream_live_001FA790(lane, cue) < 0 ? 0 : 1;
 }
 
 /* ------------------------------------------- the room move (S12b; design 5)
@@ -2186,10 +2011,10 @@ static void bindings_init(void)
     w->w_001D2880 = um_001D2880;
     w->w_001FF080 = w_001FF080;
     w->w_001AEE10 = w_001AEE10;
-    w->w_001FA790 = um_001FA790;
+    w->w_001FA790 = w_001FA790;
     w->w_001ABF90 = w_001ABF90;
     w->w_001AEDE0 = w_001AEDE0;
-    w->w_001FAB50 = um_001FAB50;
+    w->w_001FAB50 = w_001FAB50;
     w->s_00810D38 = s_00810D38;
     w->w_001AEBA0 = w_001AEBA0;
     w->w_001AB790 = w_001AB790;
@@ -2217,7 +2042,8 @@ int em_scene_request_area_change_001B0C60(int a, int b, int c)
     em_frame_fade_start_colour(1, 4, 0);
     for (uint32_t channel = 0; channel < 3; ++channel) {
         bind_trace(0x001B0C00u, 0x001FAD70u, channel, 4, 1, 0);
-        unmirrored(UM_001FAD70);
+        if (em_stream_live_001FAD70((int32_t)channel, 4, 1) < 0)
+            return em_scene_fault(&s_state, 0x001FAD70u, EM_SCENE_FAULT_WORKER_FAILED);
     }
     s_state.req[EM_SCENE_REQ_B8] = 1;
     s_state.req[EM_SCENE_REQ_B5] = (uint8_t)a;

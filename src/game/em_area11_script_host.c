@@ -244,8 +244,8 @@ static int w_001FD4C0(void *ctx, int32_t a0)
     return rc < 0 ? report("001FD4C0 faulted") : 0;
 }
 
-/* 00119828(ch, l, r): the scene bindings' (0/1, 0x3FFF, 0x3FFF changes
- * nothing; other values reported, UM_00119828). */
+/* 00119828(ch, l, r): the IOP command 0x16 on the stream lanes (the scene
+ * bindings' em_stream_live binding). */
 static int w_00119828(void *ctx, int a0, int a1, int a2)
 {
     return em_scene_bindings_00119828(ctx, a0, a1, a2) < 0 ? -1 : 0;
@@ -397,8 +397,8 @@ static int w_001D2830(void *ctx, int a0, int a1)
     return em_scene_bindings_report_001D2830();
 }
 
-/* 001FBC50 / 001FABB0: the scene bindings' voice-stop and stream-release
- * stand-in (docs/STREAM_LANES.md). */
+/* 001FBC50 / 001FABB0: the scene bindings' SFX stop-all and the stream
+ * lanes' stop-all (em_stream_live, WP-8b). */
 static int w_001FBC50(void *ctx)
 {
     (void)ctx;
@@ -483,8 +483,7 @@ static int w_001B1470(void *ctx, float a0, float *result)
 }
 
 /* 001B0C00(8) (001B6BF0's skip landing): 001AEDE0(a0, 0) and the three
- * stream channel fades 001FAD70, which the port's stream players do not
- * model (reported, UM_001FAD70). */
+ * lane fades 001FAD70 on the stream lanes (em_stream_live, WP-8b). */
 static int shw_001AEDE0(void *ctx, int32_t a0, int32_t a1)
 {
     (void)ctx;
@@ -495,10 +494,7 @@ static int shw_001AEDE0(void *ctx, int32_t a0, int32_t a1)
 static int shw_001FAD70(void *ctx, int32_t channel, int32_t a1, int32_t a2)
 {
     (void)ctx;
-    (void)channel;
-    (void)a1;
-    (void)a2;
-    return em_scene_bindings_report_001FAD70();
+    return em_scene_bindings_001FAD70(channel, a1, a2);
 }
 
 static int w_001B0C00(void *ctx, int a0)

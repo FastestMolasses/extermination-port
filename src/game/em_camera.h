@@ -54,8 +54,7 @@ void cam_norm3(float v[3])               /* func_00102760 */;
 float em_camera_scope_zoom(float t);
 
 /* AREA11's legacy camera stand-ins that still pre-empt camera action 0
- * (00195130) of the live camera (em_camera_live.c): the opening director's
- * beats (em_director.c, census L21), the examine cue (em_examine.c), the
+ * (00195130) of the live camera (em_camera_live.c): the examine cue (em_examine.c), the
  * fence door cinematic (em_door.c, census L18) and the port's aim camera
  * (census L28; its placement, then the translated 0018D7B0 style 0). They
  * write the g.cam view. Returns CAMERA_STANDIN_NONE when none owns the

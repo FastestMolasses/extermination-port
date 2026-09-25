@@ -33,9 +33,11 @@ OUT = ROOT / 'build' / LANE
 # em_frame.c call -> the original step it stands for (em_frame.c's own
 # comments and em_frame.h); a native-only call has no step of 0x1AAE40.
 AUDIT_MAP = {'begin': 'B', 'unpack': 'C', 'screen_fade_tick': 'D', 'task_dispatch': 'E',
-             'message_tick': 'F', 'transition_fade_tick': 'G', 'movie_pump': 'M',
+             'message_tick': 'F', 'transition_fade_tick': 'G', 'step_h': 'H', 'movie_pump': 'M',
              'parity^1': 'W:flip', 'counter+1': 'W:counter'}
-NATIVE_ONLY = ('poll', 'gamepad', 'input_pad', 'pad_raw', 'bgm_service', 'media_render',
+# 'field' is the vblank's work (D_00810E90 and the IOP's field), not a step
+# of the loop.
+NATIVE_ONLY = ('poll', 'gamepad', 'input_pad', 'pad_raw', 'field',
                'message_render', 'end', 'overlay')
 SCENARIOS = {0: 'ordinary frame', 1: 'movie arms and ends at once',
              2: 'movie plays two more presentation steps'}

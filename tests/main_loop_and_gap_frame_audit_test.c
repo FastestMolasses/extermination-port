@@ -23,10 +23,8 @@
 #include "em_gfx.h"
 #include "em_input.h"
 #include "em_platform.h"
-#include "game/em_bgm.h"
 #include "game/em_fade.h"
 #include "game/em_frame.h"
-#include "game/em_opening_media.h"
 #include "game/em_task.h"
 
 #include <stdio.h>
@@ -79,8 +77,6 @@ void em_task_dispatch(void)
     rec("task_dispatch");
     if (s_scenario != 0) em_frame_set_movie_active(1);
 }
-void em_bgm_service(void) { rec("bgm_service"); }
-void em_opening_media_render(EmGfx *gfx) { (void)gfx; rec("media_render"); }
 
 void em_transition_fade_init(EmTransitionFade *f) { memset(f, 0, sizeof *f); }
 void em_transition_fade_clear(EmTransitionFade *f, uint8_t c) { (void)f; (void)c; }
@@ -96,6 +92,8 @@ int em_screen_fade_tick(EmScreenFade *f, uint8_t r, uint8_t s)
 { (void)f; (void)r; (void)s; rec("screen_fade_tick"); return 0; }
 
 static int message_tick(void *ctx) { (void)ctx; rec("message_tick"); return 0; }
+static int sound_field(void *ctx) { (void)ctx; rec("field"); return 0; }
+static int sound_step_h(void *ctx) { (void)ctx; rec("step_h"); return 0; }
 static void message_render(void *ctx, EmGfx *gfx) { (void)ctx; (void)gfx; rec("message_render"); }
 
 static int movie_pump(void *user)
@@ -113,10 +111,12 @@ static int movie_pump(void *user)
 const char *mlg_audit_run(int scenario)
 {
     static EmFrameMessageService service = { message_tick, message_render, NULL };
+    static EmFrameSoundService sound = { sound_field, sound_step_h, NULL };
     s_scenario = scenario;
     s_movie_steps = scenario == 2 ? 2 : 0;
     em_frame_init(NULL, NULL);
     em_frame_set_message_service(&service);
+    em_frame_set_sound_service(&sound);
     em_frame_set_movie_pump(movie_pump, NULL);
     s_len = 0;                   /* em_frame_init's own pad read is not a step */
     s_log[0] = '\0';

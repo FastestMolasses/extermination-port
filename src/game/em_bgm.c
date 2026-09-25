@@ -1,33 +1,8 @@
-/* em_bgm.c — background-music service implementation. See em_bgm.h for
- * the engine model (D_00810D38 current-BGM + func_001FAE70 fade restart)
- * and the threading design.
- *
- * Lock-free publication scheme (single producer = game thread, single
- * consumer = the OS audio thread, per the em_audio.h contract):
- *
- *   game thread                          audio thread (callback)
- *   -----------                          -----------------------
- *   build BgmTrack (malloc + file I/O)
- *   store s.cur        (release)
- *   store s.serial     (release)  --->   load s.serial (acquire) each call;
- *                                        on mismatch, FADE OUT the track it
- *                                        is holding (~1 s), then adopt
- *                                        s.cur, reset pos, fade in, and
- *                                 <---   store s.ack = serial (release)
- *   service: free retired tracks
- *   whose replacing serial <= ack
- *
- * The audio thread keeps using its old track pointer for the whole
- * fade-out, so retirement is acknowledged-based, never timed: a retired
- * track is freed only after s.ack proves the audio thread adopted a
- * publication NEWER than the one that replaced it (it never reaches
- * backwards). The callback itself does no allocation, locking, or I/O —
- * it only reads the preloaded PCM and steps the gain ramp.
- */
+/* em_bgm.c — the shared audio output device and the WAV reader. See
+ * em_bgm.h. The callback only sums the producers' lock-free outputs; it
+ * does no allocation, locking or I/O. */
 #include "game/em_bgm.h"
 
-#include <stdatomic.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,134 +10,22 @@
 #include "em_audio.h"
 #include "game/em_sfx.h"
 #include "game/em_startup_audio.h"
-#include "game/em_opening_media.h"
-
-/* ~1 s fade, the shape of the engine's func_001FAE70(1) fade-out-then-
- * start transition (and the fade-in on the far side). */
-#define BGM_FADE_SECONDS 1.0f
-
-/* Retired tracks awaiting the audio thread's ack. BGM swaps are rare
- * (area changes); 8 in flight at once means something is very wrong. */
-#define BGM_PENDING_MAX 8
-
-typedef struct {
-    int16_t *pcm;      /* interleaved s16, audio thread reads only */
-    long     nframes;
-    int      channels; /* 1 or 2 */
-    int      rate;
-    int      loop;
-    int      tick_fade; /* immutable after publication */
-    float    volume, volume_step; /* game thread only, 0..16383 */
-    atomic_int volume_units; /* game thread -> callback */
-} BgmTrack;
+#include "game/em_stream_live.h"
 
 static struct {
-    /* game thread */
-    EmAudio  *audio;
-    int       device_rate;  /* set before em_audio_create */
-    float     fade_step;    /* gain delta per sample, set before create */
-    BgmTrack *published;    /* shadow of s.cur (game-side bookkeeping) */
-    struct {
-        BgmTrack *t;
-        unsigned  replaced_by;  /* serial of the publication that retired it */
-    } pending[BGM_PENDING_MAX];
-    int       n_pending;
-    int       started;      /* any track ever played -> exit stats line */
-
-    /* game -> audio */
-    _Atomic(BgmTrack *) cur;
-    atomic_uint serial;     /* bumped (release) after each cur store */
-    atomic_int  hard_cut;   /* next transition skips the fade-out */
-
-    /* audio -> game */
-    atomic_uint ack;        /* last serial the audio thread adopted */
-    atomic_long played;     /* WAV frames mixed (non-silent) */
-    atomic_long delivered;  /* device frames delivered */
-
-    /* audio thread only */
-    const BgmTrack *at_track;
-    unsigned  at_serial;
-    long      at_pos;
-    float     at_gain;
+    EmAudio *audio;
+    int device_rate; /* set before em_audio_create, constant while it exists */
 } s;
 
-/* ------------------------------------------------------------------ */
-/* Audio-thread side: the render callback (em_audio pull model)        */
-/* ------------------------------------------------------------------ */
-
+/* The render callback (audio thread): silence, then every producer adds. */
 static void bgm_render(void *user, float *out, int frames)
 {
     (void)user;
-    /* One publication snapshot per callback; a publish that lands
-     * mid-callback is picked up on the next one. */
-    const unsigned want = atomic_load_explicit(&s.serial,
-                                               memory_order_acquire);
-    const float step = s.fade_step;
-    long mixed = 0;
-
-    for (int i = 0; i < frames; i++) {
-        if (s.at_serial != want) {
-            /* Transition: fade the held track out, then adopt. */
-            int cut = atomic_load_explicit(&s.hard_cut,
-                                           memory_order_relaxed);
-            if (cut || !s.at_track || s.at_gain <= 0.0f) {
-                s.at_track  = atomic_load_explicit(&s.cur,
-                                                   memory_order_acquire);
-                s.at_serial = want;
-                s.at_pos    = 0;
-                s.at_gain   = s.at_track && s.at_track->tick_fade ? 1.0f : 0.0f;
-                if (cut)
-                    atomic_store_explicit(&s.hard_cut, 0,
-                                          memory_order_relaxed);
-                /* Old pointer dropped for good — let the game free it. */
-                atomic_store_explicit(&s.ack, want, memory_order_release);
-            } else {
-                s.at_gain -= step;
-                if (s.at_gain < 0.0f) s.at_gain = 0.0f;
-            }
-        } else if (s.at_gain < 1.0f) {
-            s.at_gain += step;                       /* fade-in */
-            if (s.at_gain > 1.0f) s.at_gain = 1.0f;
-        }
-
-        float l = 0.0f, r = 0.0f;
-        const BgmTrack *t = s.at_track;
-        if (t && s.at_pos < t->nframes) {
-            const int16_t *src = t->pcm + s.at_pos * t->channels;
-            l = (float)src[0] / 32768.0f;
-            r = (t->channels == 2) ? (float)src[1] / 32768.0f : l;
-            float gain = t->tick_fade ?
-                atomic_load_explicit(&t->volume_units, memory_order_relaxed) / 16383.0f * s.at_gain :
-                s.at_gain;
-            l *= gain;
-            r *= gain;
-            s.at_pos++;
-            mixed++;
-            if (s.at_pos >= t->nframes && t->loop)
-                s.at_pos = 0;                        /* seamless loop */
-        }
-        out[i * 2 + 0] = l;
-        out[i * 2 + 1] = r;
-    }
-
-    if (mixed)
-        atomic_fetch_add_explicit(&s.played, mixed, memory_order_relaxed);
-    atomic_fetch_add_explicit(&s.delivered, (long)frames,
-                              memory_order_relaxed);
-
-    /* One-shot SFX voices are SUMMED over the BGM in the same callback —
-     * em_bgm owns the only device (em_sfx.h "DEVICE OWNERSHIP"). A no-op
-     * while no voices are live, so BGM-only output is untouched.
-     * s.device_rate is written before em_audio_create and never changes
-     * while the device exists, so this read is race-free. */
+    memset(out, 0, sizeof(float) * 2u * (size_t)frames);
     em_sfx_mix(out, frames, s.device_rate);
     em_startup_audio_mix(out, frames, s.device_rate);
-    em_opening_media_mix(out, frames, s.device_rate);
+    em_stream_live_mix(out, frames, s.device_rate);
 }
-
-/* ------------------------------------------------------------------ */
-/* Game-thread side                                                    */
-/* ------------------------------------------------------------------ */
 
 /* Minimal RIFF/WAVE reader: PCM16 only, mono/stereo, zero dependencies.
  * The whole file is loaded so the audio thread never touches the disk.
@@ -233,164 +96,22 @@ int em_bgm_wav_read(const char *path, EmBgmWav *out, const char *tag)
     return 0;
 }
 
-static int bgm_wav_load(const char *path, BgmTrack *t)
-{
-    EmBgmWav w;
-    if (em_bgm_wav_read(path, &w, "bgm") != 0) return -1;
-    t->pcm      = w.pcm;
-    t->nframes  = w.nframes;
-    t->channels = w.channels;
-    t->rate     = w.rate;
-    return 0;
-}
-
-static void bgm_track_free(BgmTrack *t)
-{
-    if (!t) return;
-    free(t->pcm);
-    free(t);
-}
-
-/* Publish a new current track (or NULL = stop). The previously published
- * track is moved to the pending-retire list, freed by em_bgm_service once
- * the audio thread acks a newer serial. */
-static void bgm_reclaim(void);
-
-static void bgm_publish(BgmTrack *t, int cut)
-{
-    BgmTrack *old = s.published;
-    if (old) {
-        if (s.n_pending == BGM_PENDING_MAX)
-            bgm_reclaim();                  /* no extra volume-service tick */
-        if (s.n_pending == BGM_PENDING_MAX) {
-            /* The audio thread is impossibly far behind (or the device
-             * died). Leak rather than free under its feet. */
-            fprintf(stderr, "bgm: retire queue full — leaking one track\n");
-        } else {
-            s.pending[s.n_pending].t = old;
-            s.pending[s.n_pending].replaced_by =
-                atomic_load_explicit(&s.serial, memory_order_relaxed) + 1u;
-            s.n_pending++;
-        }
-    }
-    s.published = t;
-
-    atomic_store_explicit(&s.hard_cut, cut ? 1 : 0, memory_order_relaxed);
-    atomic_store_explicit(&s.cur, t, memory_order_release);
-    /* serial last: a callback that sees the new serial sees the new cur. */
-    atomic_fetch_add_explicit(&s.serial, 1u, memory_order_release);
-}
-
-/* Open the shared device once. Both fields must be set before create —
- * the callback may fire before create returns. */
-static int bgm_device_open(int rate)
+int em_bgm_device_ensure(int sample_rate)
 {
     if (s.audio) return 0;
-    s.device_rate = rate;
-    s.fade_step   = 1.0f / (BGM_FADE_SECONDS * (float)rate);
-    s.audio = em_audio_create(rate, bgm_render, NULL);
+    s.device_rate = sample_rate;
+    s.audio = em_audio_create(sample_rate, bgm_render, NULL);
     if (!s.audio) {
         fprintf(stderr, "bgm: audio device creation failed\n");
+        s.device_rate = 0;
         return -1;
     }
     return 0;
-}
-
-int em_bgm_device_ensure(int sample_rate)
-{
-    return bgm_device_open(sample_rate);
 }
 
 int em_bgm_device_rate(void)
 {
     return s.audio ? s.device_rate : 0;
-}
-
-static int bgm_play(const char *path, int loop, int tick_fade, unsigned fade_ticks)
-{
-    BgmTrack *t = calloc(1, sizeof *t);
-    if (!t) return -1;
-    if (bgm_wav_load(path, t) != 0) {
-        free(t);
-        return -1;
-    }
-    t->loop = loop ? 1 : 0;
-    t->tick_fade = tick_fade;
-    t->volume_step = fade_ticks ? 16383.0f / (float)fade_ticks : 16383.0f;
-    atomic_init(&t->volume_units, 0);
-
-    if (!s.audio) {
-        /* First play: open the device at the track's rate (the engine
-         * streams at 48 kHz; whatever the export used wins here). */
-        if (bgm_device_open(t->rate) != 0) {
-            bgm_track_free(t);
-            return -1;
-        }
-    } else if (t->rate != s.device_rate) {
-        fprintf(stderr, "bgm: %s is %d Hz but the device runs at %d Hz — "
-                        "no resampler yet\n", path, t->rate, s.device_rate);
-        bgm_track_free(t);
-        return -1;
-    }
-
-    printf("bgm: %s — %ld frames @ %d Hz, %d ch (%.1f s)%s\n", path,
-           t->nframes, t->rate, t->channels,
-           (double)t->nframes / t->rate, t->loop ? ", looping" : "");
-    bgm_publish(t, tick_fade); /* original restart cuts the old stream */
-    s.started = 1;
-    return 0;
-}
-
-int em_bgm_play(const char *path, int loop)
-{ return bgm_play(path, loop, 0, 0); }
-
-int em_bgm_play_ticks(const char *path, int loop, unsigned fade_ticks)
-{ return bgm_play(path, loop, 1, fade_ticks); }
-
-void em_bgm_stop(int fade)
-{
-    if (!s.published) return;
-    bgm_publish(NULL, fade ? 0 : 1);
-}
-
-static void bgm_reclaim(void)
-{
-    if (!s.n_pending) return;
-    unsigned ack = atomic_load_explicit(&s.ack, memory_order_acquire);
-    int kept = 0;
-    for (int i = 0; i < s.n_pending; i++) {
-        /* Freed only once the audio thread adopted a publication at or
-         * past the one that retired this track (serial-wrap safe). */
-        if ((int)(ack - s.pending[i].replaced_by) >= 0)
-            bgm_track_free(s.pending[i].t);
-        else
-            s.pending[kept++] = s.pending[i];
-    }
-    s.n_pending = kept;
-}
-
-static void (*s_lane_service)(void *);
-static void *s_lane_context;
-
-void em_bgm_set_lane_service(void (*service)(void *context), void *context)
-{
-    s_lane_service = service;
-    s_lane_context = service ? context : NULL;
-}
-
-void em_bgm_service(void)
-{
-    if (s_lane_service) s_lane_service(s_lane_context);
-    BgmTrack *t = s.published;
-    if (t && t->tick_fade && t->volume_step != 0.0f) {
-        t->volume += t->volume_step;
-        if (t->volume >= 16383.0f) {
-            t->volume = 16383.0f;
-            t->volume_step = 0.0f;
-        }
-        atomic_store_explicit(&t->volume_units, (int)t->volume, memory_order_relaxed);
-    }
-    bgm_reclaim();
 }
 
 void em_bgm_shutdown(void)
@@ -399,18 +120,5 @@ void em_bgm_shutdown(void)
         em_audio_destroy(s.audio);  /* blocks: no callback after this */
         s.audio = NULL;
     }
-    if (s.started)
-        printf("bgm: %ld wav frames played, %ld device frames delivered\n",
-               atomic_load_explicit(&s.played, memory_order_relaxed),
-               atomic_load_explicit(&s.delivered, memory_order_relaxed));
-
-    /* The audio thread is gone — everything is safe to free directly. */
-    for (int i = 0; i < s.n_pending; i++)
-        bgm_track_free(s.pending[i].t);
-    s.n_pending = 0;
-    bgm_track_free(s.published);
-    s.published = NULL;
-    atomic_store_explicit(&s.cur, NULL, memory_order_relaxed);
-    s.at_track = NULL;
-    s.started  = 0;
+    s.device_rate = 0;
 }

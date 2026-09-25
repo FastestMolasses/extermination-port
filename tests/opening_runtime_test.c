@@ -1,7 +1,9 @@
 /* End-to-end opening orchestration with user-exported original assets.
  * Graphics and the audio device are inert; loaders, script, camera,
- * animation, the message service (step F) with its glyph layout, fades and
- * the PCM mixer are the real native modules. */
+ * animation, the message service (step F) with its glyph layout, fades, the
+ * stream lanes with their IOP backend (em_stream_live over
+ * assets/streams/streams.emst: the field, step H) and the mixer are the real
+ * native modules. */
 #include "em_audio.h"
 #include "em_gfx.h"
 #include "em_input.h"
@@ -17,6 +19,7 @@
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_frame.h"
+#include "game/em_stream_live.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -80,7 +83,10 @@ EmAudio *em_audio_create(int rate,EmAudioCallback callback,void *user) {
     audio_callback=callback;audio_user=user;return (EmAudio *)&audio_callback;
 }
 void em_audio_destroy(EmAudio *audio) {(void)audio;assert(audio_callback);audio_callback=NULL;}
-void em_sfx_stop_all(void) {}
+static int sfx_stops;
+void em_sfx_stop_all(void) {sfx_stops++;}
+/* em_sfx_bank's reserved stream voices (em_sfx.c SFX_STREAM_VOICES). */
+uint64_t em_sfx_stream_voices(void) {return 0xF;}
 void em_sfx_mix(float *out,int frames,int rate) {(void)out;(void)frames;(void)rate;}
 void em_startup_audio_mix(float *out,int frames,int rate) {(void)out;(void)frames;(void)rate;}
 /* The message glyph boundary: every tall glyph exists; a strip flush is
@@ -103,21 +109,44 @@ static EmFrameMessageService step_f;
 void em_frame_set_message_service(const EmFrameMessageService *service) {
     if(service) step_f=*service; else memset(&step_f,0,sizeof step_f);
 }
-/* 001FD470 / 001FA790 as the scene bindings give them: the opening
- * stream's cue arms the lane-0 stand-in. */
-static int stream_stop(void *c,int32_t mask) {(void)c;assert(mask==-1);return 1;}
+/* The scene bindings' stream entries (em_scene_bindings.c), over the real
+ * stream lanes as the game binds them. 001FC280 (the room ambience, the
+ * lanes' worker inside 001FAE70) has no spawn table here: it sends the
+ * AREA11 records' low half, 0x1999, to both cores (STARTUP.md). */
+static int stream_stop(void *c,int32_t mask) {(void)c;assert(mask==-1);return em_stream_live_001FD470(mask)==0;}
+static int channel_calls;
 /* 001B82D0 ops 9..12 phase 0 ends with 00119828(0, 0, 0), 00119828(1, 0, 0),
  * after 001FD4C0 (the stream request has already set D_008106F4 = 2). */
 int em_scene_bindings_00119828(void *c,int32_t ch,int32_t l,int32_t r) {
     (void)c;
-    assert(ch==channel_mutes && l==0 && r==0 && *em_scene_req_at(&scene,0x008106F4u)==2);
-    channel_mutes++;return 0;
+    if(l==0 && r==0) {
+        assert(ch==channel_mutes && *em_scene_req_at(&scene,0x008106F4u)==2);
+        channel_mutes++;
+    }
+    channel_calls++;
+    return em_stream_live_00119828(ch,l,r);
 }
+int em_scene_bindings_001FC280(void) {
+    return em_scene_bindings_00119828(NULL,0,0x1999,0x1999)<0 ||
+           em_scene_bindings_00119828(NULL,1,0x1999,0x1999)<0 ? -1 : 0;
+}
+int em_scene_bindings_001FBC50(void) {
+    em_sfx_stop_all();
+    return em_scene_bindings_00119828(NULL,0,0x1999,0x1999)<0 ||
+           em_scene_bindings_00119828(NULL,1,0x1999,0x1999)<0 ? -1 : 0;
+}
+int em_scene_bindings_001FABB0(void) {return em_stream_live_001FABB0();}
+int em_scene_bindings_001FAE70(int a0) {return em_stream_live_001FAE70(a0);}
+int em_scene_bindings_001FAD70(int32_t lane,int32_t fade,int32_t release)
+{return em_stream_live_001FAD70(lane,fade,release);}
 static int stream_play(void *c,int lane,int32_t cue) {
     (void)c;
-    return lane==0 && cue==em_message_live_stream_cue(0x0B,0x66) &&
-           em_opening_media_audio_start()==0;
+    assert(lane==0 && cue==em_message_live_stream_cue(0x0B,0x66));
+    return em_stream_live_001FA790(lane,cue)==0;
 }
+static int voice_push(void *c,int32_t cue) {(void)c;return em_stream_live_001FA5A0(cue)==0;}
+static int stop_lane(void *c,int lane) {(void)c;return em_stream_live_001FAAC0(lane)==0;}
+static int8_t lane_active(void *c,int lane) {(void)c;return em_stream_live_active(lane);}
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx,const float *vertices,uint32_t vc,
         const uint32_t *indices,uint32_t ic,const EmGfxTexDesc *textures,
         uint32_t tc,const uint8_t *texels,uint32_t flags) {
@@ -177,29 +206,37 @@ static void start(const char *scene_dir) {
     memset(&g,0,sizeof g);memset(&input,0,sizeof input);
     memset(&scene,0,sizeof scene); /* 001AFCF0 at the area load */
     scene.d810700=0x0B;
+    /* D_008106C8 as 001B0250 leaves it for AREA11's entry (every AREA11
+     * capture: 0x20081910; bits 8..15 select cue 25). */
+    em_scene_req_set_u32(&scene,EM_SCENE_REQ_C8,0x20081910u);
+    assert(em_stream_live_boot("assets/streams/streams.emst")==0); /* 001AAE40's start-up */
     assert(em_message_live_install("assets/message/message_data.emmd"));
-    static const EmMessageLiveStreams streams={NULL,stream_stop,stream_play};
+    static const EmMessageLiveStreams streams={NULL,stream_stop,stream_play,voice_push,stop_lane,lane_active};
     em_message_live_set_streams(&streams);
     assert(em_message_live_reset()==0); /* 001AFCF0's 001FC9B0 */
     g.opencam_on=1;g.opencam_idle=100;
-    quit=subtitles=look_up=rumble=commits=pose_releases=channel_mutes=0;
+    quit=subtitles=look_up=rumble=commits=pose_releases=channel_mutes=channel_calls=sfx_stops=0;
     snprintf(g.scene_dir,sizeof g.scene_dir,"%s",scene_dir);
     em_transition_fade_init(&fade);em_transition_fade_full(&fade,0);
     em_screen_fade_init(&bars);em_random_seed(0x45);
     em_opening_runtime_request();em_opening_runtime_scene_ready();
 }
 static void end(void) {
-    em_bgm_shutdown();em_opening_runtime_shutdown();em_message_live_shutdown();
+    em_bgm_shutdown();em_opening_runtime_shutdown();em_message_live_shutdown();em_stream_live_shutdown();
     assert(!meshes && !audio_callback);
 }
 static void run(int skip,int shutdown_after) {
     start("assets/scene_snow");assert(!quit && meshes==3);
     unsigned actor_frames=0;
     int marked_frame=-1, skip_sent=0, cutscene_frames=0;
-    /* D_008106F4 across the run: 2 at 001FD4C0, 1 once the lane stand-in
-     * holds the prefill, 0 when line 0x66's stream row releases it. */
+    /* D_008106F4 across the run (the lane-0 hold of the opening's stream
+     * request): 2 at 001FD4C0 in the task, 1 at step H once lane 0's
+     * prefill is in (001F9CF0 parks it in state 2), 0 at step F when line
+     * 0x66's stream row releases it; the next step H keys the voice on. */
     unsigned hold_seen=0; uint8_t hold_prev=0;
+    int keyed=-1, cue63=0;
     for(g.frame_no=0;g.frame_no<2000 && em_opening_runtime_busy();g.frame_no++) {
+        assert(em_stream_live_field()==0); /* the frame's field */
         em_screen_fade_tick(&bars,0,0);
         /* Step C: D_00810E74 in the original layout (START = 0x0800). */
         scene.d810E74=0;scene.d810E50=4;
@@ -208,7 +245,11 @@ static void run(int skip,int shutdown_after) {
         uint8_t skip_before=scene.spad3B91;
         cutscene_frames+=scene.spad3B8D!=0;
         world_frame();
-        if(*em_scene_req_at(&scene,0x008106F4u)==2) hold_seen|=4; /* after the task */
+        uint8_t hold=*em_scene_req_at(&scene,0x008106F4u);
+        if(hold!=hold_prev) { /* after the task: 0 -> 2, the request */
+            assert(hold==2 && hold_prev==0 && em_stream_live_cue(0)==63 && em_stream_live_active(0)==1);
+            hold_seen|=4;hold_prev=hold;
+        }
         if(press) { /* 001AE6B0's promotion, never the runtime's */
             assert(skip_before==1 && scene.spad3B8D==2 && fade.substate==0);
             assert(scene.spad3B91==2 || !em_opening_runtime_busy());
@@ -222,26 +263,48 @@ static void run(int skip,int shutdown_after) {
             }
             actor_frames++;
         }
-        /* Step F, then the frame's draw and step H. */
+        /* Step F, then the frame's draw, G and step H. */
         assert(step_f.tick && step_f.tick(step_f.context)==0);
-        step_f.render(step_f.context,em_frame_gfx());
-        em_bgm_service();
-        uint8_t hold=*em_scene_req_at(&scene,0x008106F4u);
-        if(hold!=hold_prev) { /* after step H: 0 -> 1 (the request and the
-                               * port's instant prefill), 1 -> 0 (released) */
-            assert((hold==1 && hold_prev==0 && (hold_seen&4)) || (hold==0 && hold_prev==1));
-            hold_seen|=1u<<hold;hold_prev=hold;
+        hold=*em_scene_req_at(&scene,0x008106F4u);
+        if(hold!=hold_prev) { /* after step F: 1 -> 0, the release */
+            assert(hold==0 && hold_prev==1);
+            hold_seen|=1;hold_prev=hold;
         }
+        step_f.render(step_f.context,em_frame_gfx());
         em_transition_fade_tick(&fade);
-        float pcm[1600]={0};
-        assert(audio_callback);audio_callback(audio_user,pcm,800);
-        for(unsigned i=0;i<1600;i++) assert(isfinite(pcm[i]));
+        assert(em_stream_live_step_h()==0);
+        hold=*em_scene_req_at(&scene,0x008106F4u);
+        if(hold!=hold_prev) { /* after step H: 2 -> 1, the prefill is in */
+            assert(hold==1 && hold_prev==2 && em_stream_live_active(0)==1);
+            hold_seen|=2;hold_prev=hold;
+        }
+        if(em_stream_live_cue(0)==63 && em_stream_live_active(0)==2) {
+            if(keyed<0) {assert(hold_seen==7 && hold==0);keyed=g.frame_no;}
+            cue63++;
+        }
+        /* The shared device opens with the first active lane (no startup
+         * audio in this fixture): the mixer sums the IOP backend's field. */
+        assert(!em_stream_live_active(0) || audio_callback);
+        if(audio_callback) {
+            float pcm[1600]={0};
+            audio_callback(audio_user,pcm,800);
+            for(unsigned i=0;i<1600;i++) assert(isfinite(pcm[i]));
+        }
         if(*em_scene_progress_at(&scene,0x00810791u,1)==0xFF) marked_frame=g.frame_no;
         else assert(!g.opening_complete && !*key0());
     }
     assert(g.frame_no<2000 && marked_frame>=0 && commits && subtitles && look_up);
     assert(channel_mutes==2);
-    assert(hold_seen==7);
+    assert(hold_seen==7 && keyed>=0 && cue63>0);
+    /* 00823E80's 001FAE70(0) at the end: 001FC280's 00119828 pair, then
+     * lane 0 restarts on AREA11's cue 25 (D_008106C8 bits 8..15) with a
+     * fade-in; the skip's 001B6BF0 stops everything first (001FBC50,
+     * 001FABB0). */
+    assert(em_stream_live_cue(0)==25 && em_stream_live_active(0)!=0);
+    /* 00119828 calls: the request's 001FD470(-1) (bit 0: 001FBC50's pair),
+     * ops 9..12's two mutes, 001FC280's pair; the skip adds 001B6BF0's
+     * 001FBC50 pair. */
+    assert(channel_calls==(skip ? 8 : 6) && sfx_stops==(skip ? 2 : 1));
     assert(scene.spad3B8D==0 && scene.spad3B91==0 && *em_scene_progress_at(&scene,0x00810791u,1)==0xFF);
     assert(cutscene_frames>0 && scene.d810750==g.frame_no); /* one variant per frame */
     assert(g.opening_complete==0xFF && *key0()==1);

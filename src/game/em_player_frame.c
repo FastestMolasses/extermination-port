@@ -37,7 +37,6 @@
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
 #include "game/em_random.h"
-#include "game/em_director.h"
 #include "game/em_player.h"
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"

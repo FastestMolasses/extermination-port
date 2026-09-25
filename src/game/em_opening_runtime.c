@@ -2,8 +2,6 @@
 
 #include "game/em_area11_opening.h"
 #include "em_gamepad.h"
-#include "game/em_random.h"
-#include "game/em_bgm.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_cinematic_camera.h"
@@ -83,10 +81,8 @@ void em_opening_runtime_scene_ready(void)
         fail("original player/Roger/equipment meshes and animation"); return;
     }
     if (em_opening_media_prepare(g.scene_dir)!=0) {
-        fail("original opening audio"); return;
+        fail("original opening fade track"); return;
     }
-    /* The opening stream's lane stand-in follows D_008106F4 at step H. */
-    em_opening_media_set_hold(em_scene_req_at(em_scene_state(),0x008106F4u));
     em_area11_opening_init(&s.controller,s.image.entry);
     s.ready=1;
     fprintf(stderr,"opening: original AREA11 actor 0x00823E80 ready\n");
@@ -157,13 +153,14 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
                 if (em_message_live_stream_request(
                         (int32_t)em_script_u32(record,0x18))<0)
                     return EM_SCRIPT_UNSUPPORTED;
+                /* The fade track runs from the stream request on. */
+                em_opening_media_restart();
                 script->phase=1;
                 /* Then 00119828(0, 0, 0) and 00119828(1, 0, 0), the IOP
-                 * command 0x16 for channels 0 and 1: the port has no
-                 * 001157F0 sink yet, so both are reported no-effect
-                 * bindings (em_scene_bindings_00119828). */
-                em_scene_bindings_00119828(NULL,0,0,0);
-                em_scene_bindings_00119828(NULL,1,0,0);
+                 * command 0x16 for cores 0 and 1 on the stream lanes. */
+                if (em_scene_bindings_00119828(NULL,0,0,0)<0 ||
+                    em_scene_bindings_00119828(NULL,1,0,0)<0)
+                    return EM_SCRIPT_UNSUPPORTED;
                 return EM_SCRIPT_WAIT;
             case 1:
                 if (em_frame_transition()->substate==2) {
@@ -323,15 +320,21 @@ static EmScriptCommandResult execute(void *context, EmScript *script,
                 script->skip_phase=3;
                 return EM_SCRIPT_CONTINUE;
             }
-            em_frame_fade_start(1,8); /* 001B0C00(8), stream fade follows */
-            em_opening_media_fade_out(8);
+            /* 001B0C00(8): 001AEDE0(8, 0), then 001FAD70(lane, 8, 1) for
+             * lanes 0, 1, 2 on the stream lanes. */
+            em_frame_fade_start(1,8);
+            for (int lane=0; lane<3; ++lane)
+                if (em_scene_bindings_001FAD70(lane,8,1)<0)
+                    return EM_SCRIPT_UNSUPPORTED;
             script->phase=1;
             return EM_SCRIPT_WAIT;
         }
         if (script->phase==1) {
             if (em_frame_transition()->substate!=2) return EM_SCRIPT_WAIT;
+            /* 001B6BF0 case 1: 001FBC50, 001FABB0, then D_002821B4 = 2. */
+            if (em_scene_bindings_001FBC50()<0 || em_scene_bindings_001FABB0()<0)
+                return EM_SCRIPT_UNSUPPORTED;
             em_opening_media_stop();
-            /* 001B6BF0 case 1: D_002821B4 = 2 after the stream stops. */
             if (!em_message_live_block()) return EM_SCRIPT_UNSUPPORTED;
             em_message_live_block()->phase=2;
             camera_restore();
@@ -352,7 +355,9 @@ static void notify(void *context, EmOpeningEvent event)
 {
     (void)context;
     switch (event) {
-    case EM_OPENING_STOP_STREAM: em_bgm_stop(0); break;
+    case EM_OPENING_STOP_STREAM: /* 00823E80's 001FABB0 */
+        if (em_scene_bindings_001FABB0()<0) fail("001FABB0 (the stream lanes)");
+        break;
     case EM_OPENING_STOP_CHILD_ACTORS:
         /* Controller +0x2E becomes 0xFFFF. BB0E0 children stop drawing when
          * their next callback observes that mask; the controller prop stays.
@@ -368,9 +373,9 @@ static void notify(void *context, EmOpeningEvent event)
         if (em_director_original_001C4760_scene(em_scene_state(),0,1)<0)
             fail("001C4760 key byte D_00810CC3[0]");
         break;
-    case EM_OPENING_RESUME_MUSIC:
-        if (em_opening_media_resume_music(270+((em_random_next()>>16)&127)))
-            fail("original AREA11 ambient music");
+    case EM_OPENING_RESUME_MUSIC: /* 00823E80's 001FAE70(0) */
+        if (em_scene_bindings_001FAE70(0)<0)
+            fail("001FAE70 (the stream lanes)");
         break;
     case EM_OPENING_FADE_IN_FOUR: em_frame_fade_start(-1,4); break;
     }
@@ -390,7 +395,6 @@ void em_opening_runtime_tick(void)
                           *event_39(),resolve,execute,notify,NULL);
     if (result==EM_SCRIPT_FAULT) { fail("script command binding"); return; }
     if (s.failed) return;
-    em_opening_media_tick();
     if (s.actors_active) {
         /* 001BA580's activity bytes D_008106D4[0/1] (speaker slots 0/1 of
          * the message records, written by the message service's 001FD950
@@ -459,7 +463,6 @@ int em_opening_runtime_failed(void) {return s.failed;}
 
 void em_opening_runtime_shutdown(void)
 {
-    em_opening_media_set_hold(NULL);
     em_opening_media_shutdown();
     em_opening_actor_shutdown(em_frame_gfx());
     em_cinematic_camera_free(&s.camera);

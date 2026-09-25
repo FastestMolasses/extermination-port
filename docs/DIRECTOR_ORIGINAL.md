@@ -4,14 +4,15 @@ Module: `src/game/em_director_original.{h,c}`. Oracle and route replay:
 `tools/test_director_original_reference.py`. Sanitizer test:
 `tests/director_original_test.c`.
 
-**Status: built and verified; binding prepared, not wired (2026-09-25).** The
-adapter `tick_director_original` (em_area11_bindings.c) binds this module to
-pool node #21 over em_area11_script_host; it runs only in the level smoke's
-director verification run (`make test-level-smoke-director`), which
-reproduces route 10 f1090..f1162 row for row and then stops at the first
-voiced line (WP-8b). The live node keeps the legacy `em_director`
-(`kCineBeats`, FIRST_LEVEL_AUDIT H10) until the voice lanes are live. Section
-6 describes the binding.
+**Status: live since WP-8b (2026-09-25).** The adapter `tick_director_original`
+(em_area11_bindings.c) binds this module to pool node #21 over
+em_area11_script_host on the live path; the legacy `em_director.c`
+(`kCineBeats`), `em_area11_flow.c` and the `area11_flow.emaf` export are
+deleted. Its three beats and Roger's voiced conversation run on their
+original scripts, with the voiced lines 0x7F / 0x97 / 0x99 on the stream
+lanes (docs/STREAM_LANES.md "Live binding"); the level smoke's cage_roof,
+crevice_prompt and east_tower phases compare them with routes 10, 11 and 13
+(docs/LEVEL_SMOKE.md). Section 6 describes the binding.
 
 ## 1. The owner
 
@@ -268,79 +269,48 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
 
 ## 6. Binding (for the coordinator)
 
-**Status (census L21, 2026-09-25): binding prepared, blocked on WP-8b.**
-- **The adapter** (em_area11_bindings.c `tick_director_original`, selected by
-  `em_area11_bindings_select_director_original`, which only the level
-  smoke's director run calls): the node's +0 / +4 / +5 are EmActor.status /
+**Status (census L21 with WP-8b, 2026-09-25): live.**
+- **The adapter** (em_area11_bindings.c `tick_director_original`, the only
+  binding of node #21): the node's +0 / +4 / +5 are EmActor.status /
   u04[0] / u04[1]; D_00810813, D_00810793, D_00810CC3[] canonical D2 bytes;
   D_008106B0 / B1 the request block; D_00810350 = g.pos; the quads from
   `director_quads.emsc` through `em_area11_script_host_director_quads`;
   001B1EA0's 0011E620 is the one bound SDK atan2f (`EmDirectorOriginalWorld.atan2`,
-  new: em_sdk_math_original over the collision world's SDK context, as
-  Roger's trigger); 001BA1A0 / 001BA1F0 on em_area11_script_host; 001AFC10
-  the pool free. It ticks in both walk variants.
-- **Script host additions:** op0D sub 2's `w_0018CBD0` (the port's one seed,
-  `camera_script_seed_0018CBD0`, split out of the panel's retarget) and
-  `w_0018D7B0` (`em_camera_live_solve`), and the camera's +0x0C
-  (`em_camera_live_bytes(0x008101EC)`). A second script owner running inside a
-  frame another owner's script opened (Roger's 0x828990 inside the
-  director's 0x8294C0) runs under the takeover that owner holds (0015B130's
-  admission reads 0x70003B8D, not the owner).
-- **Verified:** the director verification run equals route 10 f1090..f1162
-  (spad, camera byte, bars, message, power, the camera shots, the player,
-  D_008107D8 / D_00810793 / D_00810813, Roger's record and script block;
-  LEVEL_SMOKE.md "cage_roof prefix").
-- **Blocker (WP-8b):** at f1163 Roger's 0x828990 presents the voiced line
-  0x7F (VOICE.DAT cues 143..). A voiced line waits in 001FD790 while
-  D_008106F5 is 2 until the voice lane service 001F9CF0 starts the voice,
-  and its end waits on the lanes' busy bytes D_00282155 / 156; 001FA5A0
-  (`voice_push`) and the stream lanes are not live (STREAM_LANES.md "Still
-  missing"), so the message service faults. Bound now, the director would
-  stop the level there, where the stand-in completes its beat. Beats 1 and 2
-  (lines 0x97 / 0x99, cues 150 / 149) have the same dependency.
-
-History (2026-09-24): not bound. Unblocked by census L22
-(2026-09-24): Roger is bound (`em_area11_roger`; ROGER_ACTOR_ORIGINAL.md
-section 4) and runs his scripts on the script host; his alternate branch
-starts 0x828990 as soon as D_00810793 = 1 with D_00810813 = 0. The
-host's 00182BF0, 001B0C00 / 001B6250, 001B81D0 (the player face through
-the interaction host), D_00810758 / D_0081078F / D_008107D8 and op0C are
-live for Roger's 0x8283D0 (route 14 row for row). The history below is
-kept for the binding step.**
-The AREA11 script host is live since L19 / L23 (`em_area11_script_host`,
-AREA_SCRIPT.md section 6.1), but beat 0 cannot run faithfully without
-Roger's owner:
-- 0x8294C0 opens the scripted frame (07/8), raises flag 0x3B (06/0: D_00810793
-  = 1), runs its camera shots, and then its 06/2 on counter 0x3B **waits
-  until D_00810813 != 0** (001BA080 sub 2).
-- On the route only Roger's alternate script writes that byte: Roger r8 sees
-  D_00810793 = 1 with D_00810813 = 0, runs 0x828990 (its op15 conversation,
-  line 0x7F) and D_00810813 becomes 1 at f3460; the director completes at
-  f3508 (FIRST_LEVEL_ROUTE.md beat 10, steps 4..6).
-- Roger 008237E0 / 00823910 was unbound until census L22. Bound alone, the
-  director would hold the player in the scripted frame at 06/2 for ever
-  where the legacy stand-in completes its beat: a live path that degrades
-  play. So node #21 keeps `em_director.c` (kCineBeats) until L22 binds Roger
-  and its line 0x7F; the voiced director lines 0x97 / 0x99 (beats 1 and 2)
-  need WP-8b's stream lanes as well.
-- Since census L09..L11 (2026-09-24) the level smoke plays routes 10..13's
-  climbs and jump live around the director: its `cage_roof`,
-  `crevice_prompt` and `east_tower` phases are driven through the stand-in
-  (reported NOT-LIVE driven, not compared; LEVEL_SMOKE.md). Binding this
-  module (with Roger) makes those three phases live; their capture checks
-  then compare the scripts' frames, bars, camera shots, the lines 0x7F /
-  0x97 / 0x99 through em_message_live's op0C, and D_00810813's 1 / 0x10 /
-  0x11 / 0x20 / 0xFF.
-- What the director's scripts need from the host beyond the truck preview's
-  workers: 00182BF0 (op16, `em_script_host_w_00182BF0` over the live record
-  and the canonical D_0081083C / D_008106BC / D_008106F1), 001B0C00 /
-  001B6250 (op18 skip landing), 001B81D0's face attach (001CA700 / 001D06D0
-  through the interaction host's face, with D_0081078F and the player's
-  +0x2FF), op0D sub 2's 0018CBD0 / 0018D7B0 with cam +0x0C / +0xA0, the
-  flag and counter arrays D_00810758 / D_008107D8 (slots 0x3A..0x3C and
-  0x3B were canonical; census L22 added D_00810758 / D_008107D8 slots 0..1
-  and D_0081078F..D_00810795, em_scene_state.h), and op0C's lines through
-  `em_message_live_op0c`.
+  em_sdk_math_original over the collision world's SDK context, as Roger's
+  trigger); 001BA1A0 / 001BA1F0 on em_area11_script_host; 001AFC10 the pool
+  free. It ticks in both walk variants.
+- **Script host:** op0D sub 2's `w_0018CBD0` (the port's one seed,
+  `camera_script_seed_0018CBD0`) and `w_0018D7B0` (`em_camera_live_solve`),
+  the camera's +0x0C (`em_camera_live_bytes(0x008101EC)`); a second script
+  owner running inside a frame another owner's script opened (Roger's
+  0x828990 inside the director's 0x8294C0) runs under the takeover that
+  owner holds.
+- **The voiced lines:** a voiced line waits in 001FD790 while D_008106F5 is
+  2 until the voice lane service 001F9CF0 has the voice's prefill in (then
+  1, and 0 when the message reaches the record), and its teardown waits on
+  the lanes' busy bytes D_00282155 / 156; the message service's 001FA5A0
+  pushes the cues (Roger's 0x7F: VOICE.DAT 143..148, alternating lanes 1
+  and 2; 0x97: 150; 0x99: 149). All of it is live on the stream lanes
+  (em_stream_live).
+- **Verified:** the level smoke's cage_roof (route 10 f1090..f3568),
+  crevice_prompt (route 11 f706..f1260) and east_tower (route 13
+  f531..f809) phases, row for row except the voiced lines' teardowns, which
+  come 8, 6 and 6 rows early in the port (the drive's read time: the
+  backend's zero-latency drive, STREAM_LANES.md "Drive latency"); the
+  changes that follow a teardown (the message block, beat 0's Roger record
+  and D_00810813 = 1, the player's clip; beats 1 and 2's whole frame, whose
+  scripts hold the op0C) keep that offset, everything else keeps the
+  capture's rows (LEVEL_SMOKE.md). Beat 0's D_00810813 reaches 0x10 then
+  0x11 (Roger's ordinary branch) on the capture's rows f3508 / f3509.
+- **Retired with the binding:** `em_director.c` (`director_tick`,
+  `kCineBeats`, `director_camera`, `director_letterbox_alpha`, the
+  `EM_CINE_TEST` self-test), `em_area11_flow.c` (`em_area11_trigger_contains`
+  with its host atan2f, `em_area11_step_after_beat`), `tests/area11_flow_test.c`
+  (`make test-area11-flow`: its module is deleted), `tools/export_area11_flow.py`
+  and `area11_flow.emaf`, the `g.cine_*` fields and `CineBeat`, the
+  `em_area11_bindings_select_director_original` switch and the level
+  smoke's director verification run (`make test-level-smoke-director`,
+  superseded by the live phases' capture checks).
 
 **Node and stage.**
 - Pool node **#21** (record 12, callback `0x8253F0`) gets one behaviour
@@ -367,12 +337,12 @@ int rc = em_director_original_tick(&n, &s_director_world, &s_director_workers, &
 
 | Pointer | Storage |
 |---|---|
-| `d810813` | `em_scene_progress_at(s, 0x00810813, 1)`, canonical since HK (`g.cine_step` is deleted). Until this module is bound, the legacy stand-in em_director.c reads and writes it there. Roger's translation writes the same byte (0x11, 0x823A04). |
+| `d810813` | `em_scene_progress_at(s, 0x00810813, 1)`, canonical since HK (`g.cine_step` is deleted). This module reads and writes it there. Roger's translation writes the same byte (0x11, 0x823A04). |
 | `d810793` | `em_scene_progress_at(s, 0x00810793, 1)`, canonical since HK. Written by the director scripts' op06 on flag 0x3B (`em_area_script`'s `d810758 + 0x3B`: the same storage once the script host's flag array is canonical, L19) and read by Roger. |
 | `d810CC3` | `em_scene_progress_at(s, 0x00810CC3, 2)`, canonical since WP-6 (`opening_key_item_zero` deleted in HK). The opening's `001C4760(0, 1)` and the legacy director's beat-0 `001C4760(1, 1)` already run `em_director_original_001C4760` on it through `em_director_original_001C4760_scene` (em_director_original.c is in COMMON for that). |
 | `d8106B0` / `d8106B1` | The request block (`EmSceneState.req[0]/[1]`). It is never reached from the director, because a0 = 1. |
 | `d810350` | The player's canonical `+0xA0` vector (x, y, z), the same pointer `EmTruckWorld.player_a0` uses. |
-| `quad[0..2]` | `em_director_original_load_quads` over the user's AREA11 overlay image (MWo3, 0x7800 bytes). The live path needs that image anyway for the director scripts (`EmScriptImage {overlay, 0x823500, …}`, as in `tests/area_script_test.c`). `area11_flow.emaf` holds only X/Z and is the legacy input; it is not used. |
+| `quad[0..2]` | `em_director_original_load_quads` over the user's AREA11 overlay image (MWo3, 0x7800 bytes). The live path needs that image anyway for the director scripts (`EmScriptImage {overlay, 0x823500, …}`, as in `tests/area_script_test.c`). (The legacy `area11_flow.emaf` is deleted.) |
 | `d26C5D8` | The 76 SDK table bytes at ELF 0x26C5D8. They have the same layout and bytes as `EmInteractionMath` (`interaction.emis`), so a `memcpy` into an `EmDirectorAtanTables` works, as does `em_director_original_load_atan_tables(elf)`. |
 
 **Workers.**
@@ -390,29 +360,13 @@ with:
 - an image that covers 0x8294C0..0x829E80 (the overlay);
 - the worker table of AREA_SCRIPT.md section 6.
 
-The records these scripts need are admitted by `em_area_script` except
-op16's predicate `00182BF0` and op18's skip landing
-`001B0C00`/`001B6250`, which are still untranslated there
-(AREA_SCRIPT.md section 5). Until those are bound, the director is not
-fully live. **Do not wire it with stand-ins.**
+The records these scripts need are admitted by `em_area_script`; op16's
+predicate `00182BF0` and op18's skip landing `001B0C00` / `001B6250` are
+bound through em_script_host_workers (census L22), and 001B0C00's three
+001FAD70 lane fades run on the stream lanes since WP-8b.
 
-**Retire when bound.**
-- `em_director.c` `director_tick`, `kCineBeats`, `cine_*` and the `g.cine_*`
-  fields (the step byte is already canonical: HK deleted `g.cine_step`).
-- `em_area11_flow.c` `em_area11_trigger_contains`, which uses host
-  `atan2f`, and `em_area11_step_after_beat`.
-- The `area11_flow.emaf` export, if nothing else reads it.
-- FIRST_LEVEL_AUDIT H10 and SCENE_COORDINATOR_DESIGN 4.4 row #21 then name
-  this module.
+**Retire when bound.** Done in WP-8b (above). FIRST_LEVEL_AUDIT H10 and
+SCENE_COORDINATOR_DESIGN 4.4 row #21 name this module.
 
-**Makefile hunk (for the lead):**
-
-```make
-.PHONY: test-director-original
-test-director-original:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/director_original_test.c src/game/em_director_original.c -lm -o build/director_original_test && ./build/director_original_test ../Extermination/extract/OVERLAY/AREA11.BIN ../Extermination/config/SCUS_971.12
-	python3 tools/test_director_original_reference.py
-```
-
-Add `src/game/em_director_original.c` to the app sources in the step that
-wires it.
+**Make target:** `make test-director-original` (the sanitizer test and the
+reference test); `src/game/em_director_original.c` is in the app sources.

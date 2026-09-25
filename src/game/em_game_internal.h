@@ -1323,75 +1323,6 @@ enum {
 #define LOCKCAM_EYE_BACK   13.0f
 #define LOCKCAM_EYE_UP     12.0f  /* door.y + 12 */
 
-/* ===================================================================== *
- * AREA11 event director. Milestone selection, polygon geometry and Y
- * gates are recovered from runtime 0x008253F0..0x008257A0 and loaded by
- * em_area11_flow. The three programs are triggered during traversal;
- * none is active at the New Game spawn. The old overlay symbol map was
- * shifted by 0x40, so use runtime addresses when consulting evidence.
- *
- * The camera-keyframe executor remains an approximation: it does not
- * implement every command in the original scripts. Correct triggers do
- * not establish that the resulting cutscenes are faithful.
- *
- * GATING / SAFETY: the director is DORMANT (cine_active == 0) outside a
- * beat — the camera (movement-v3 chase) and player movement run EXACTLY
- * as before. A beat starts only when the player walks into the beat's
- * XZ zone on the correct Y tier; while a beat runs, the camera is
- * overridden (director_camera) and the player is locked (cine_active
- * folds into em_game_player_interact_busy). On completion (or any
- * interruption) the lock drops, the camera does a one-shot chase
- * restore, and the step advances — NO soft-lock by construction
- * (control always returns: the beat ends when its keyframes run out).
- * ===================================================================== */
-#define CINE_STEP_BEAT0   0x00     /* D_00810813 milestones */
-#define CINE_STEP_BEAT1   0x10
-#define CINE_STEP_BEAT2   0x20
-#define CINE_STEP_DONE    0xFF
-/* op0C sub0 = 001B7D60, the message op: rec+0x14 is a message LINE word
- * (-> D_002821B8), not a sound or music cue. Lines 151/153. */
-#define CINE_MESSAGE_LINE_BEAT1 0x97
-#define CINE_MESSAGE_LINE_BEAT2 0x99
-/* TRANSITIONAL aliases for em_director.c (not this lane's file); drop them
- * once its two initializers and b->music read use the names above. */
-#define CINE_MUSIC_BEAT1  CINE_MESSAGE_LINE_BEAT1
-#define CINE_MUSIC_BEAT2  CINE_MESSAGE_LINE_BEAT2
-#define CINE_BAR_LINES    64.0f    /* s81: ~64-line top/bottom black bars */
-#define CINE_BAR_FADE     20       /* approximate raise/drop fade window
-                                    * (FLAGGED: exact opening staggered-
-                                    * fade count un-stopwatched, doc §F) */
-#define CINE_KF_MAX       15       /* longest beat (beat 0) = 15 keyframes
-                                    * (5 cuts + 5 blend/wait pairs) */
-
-/* One camera keyframe — a literal eye->target vector pair held/blended
- * for `dur` frames. `blend` = 0 HARD CUT (snap eye/tgt, hold dur
- * frames, op00 sub0), 1 BLEND from the live eye/tgt toward this one over
- * dur frames (op00 sub1/sub5). A `wait` keyframe (eye/tgt NaN-free but
- * blend = -1) just holds the current framing dur frames (op02 WAIT). */
-typedef struct {
-    int   blend;          /* 0 = cut, 1 = blend, -1 = wait (hold) */
-    int   dur;            /* frames (the record +0xC duration) */
-    float eye[3];
-    float tgt[3];
-} CineKey;
-
-/* Camera program plus descriptive bounds for logging/test placement.
- * Trigger inclusion uses the exported quadrilateral in em_area11_flow,
- * not these bounds; the second polygon is not axis-aligned. */
-typedef struct {
-    float   x0, x1, z0, z1;   /* trigger XZ AABB (world) */
-    float   ylo, yhi;         /* Y gate band [ylo, yhi] */
-    int     music;            /* MISNAMED: the op0C (001B7D60) message
-                               * line word at beat start, 0 = none — not
-                               * a sound or music cue. Rename to
-                               * message_line together with
-                               * em_director.c's `b->music` read. */
-    uint8_t next_step;        /* D_00810813 value on completion */
-    int     reg_keyitem;      /* func_1C4760(1) on completion (beat 0) */
-    int     n_key;
-    CineKey key[CINE_KF_MAX];
-} CineBeat;
-
 /* Engine projection — ADOPTED (2026-06-11; the old TODO(projection) is
  * closed). The world renders through em_mat4_perspective_gs (em_math.h
  * — the full derivation lives there): the engine's per-frame P from
@@ -1853,10 +1784,6 @@ typedef struct {
     int        chain_len;
     int        chain_test_triangle;
 
-    /* EM_BGM=<path.wav>: debug-only listening override (see boot task);
-     * not an original music path */
-    const char *bgm_path;
-
     /* SCENE MANIFEST (<scene_dir>/scene.txt) — per-scene boot config,
      * written by the exporters. Defaults = the office values, so a
      * missing manifest keeps the historical behavior bit-for-bit.
@@ -2067,13 +1994,6 @@ typedef struct {
     int         mt_fail;         /* melee test: failed checkpoints */
     int         mt_phase;        /* melee test: script phase */
     int         mt_mark;         /* melee test: phase anchor frame */
-    int         cine_test;       /* EM_CINE_TEST=1 — AREA-11 opening
-                                  * director self-test (teleport into a
-                                  * beat zone, verify trigger/lock/camera
-                                  * /completion/control-return/step) */
-    int         ct_fail;         /* director test: failed checkpoints */
-    int         ct_phase;        /* director test: script phase */
-    int         ct_mark;         /* director test: phase anchor frame */
     int         ct_locked_max;   /* director test: max frames seen locked */
     int         et_spawned;      /* test enemy placed at scene init */
     int         et_fail;         /* failed checkpoints */
@@ -2123,21 +2043,6 @@ typedef struct {
     float      *grate_palette;
     float       grate_pos[3];
     float       grate_yaw;
-
-    /* AREA-11 OPENING DIRECTOR (legacy stand-in for the manager
-     * 008253F0, whose translation is em_director_original.c, unbound
-     * until WP-10). Its persistent beat step is the canonical progress
-     * byte D_00810813 (em_scene_progress_at; migrated from the former
-     * g.cine_step, HK). These are the stand-in's per-beat transient
-     * (cleared when a beat ends or is interrupted). */
-    int         cine_active;     /* a beat is running (cinematic + lock) */
-    int         cine_beat;       /* index of the running beat (0/1/2) */
-    int         cine_kf;         /* current keyframe index */
-    int         cine_kf_t;       /* frames elapsed in the current keyframe */
-    float       cine_blend_eye[3];  /* a BLEND keyframe's live start eye */
-    float       cine_blend_tgt[3];  /* a BLEND keyframe's live start tgt */
-    int         cine_fade;       /* letterbox fade accumulator (0..FADE) */
-    int         cine_was;        /* a beat ran last frame (restore edge) */
 
     /* AREA-11 AREA-TITLE CARD ("FORT STEWART - REAR ENTRANCE", string table
      * 0x00273B80 idx1 — INVESTIGATION_area11_director.md §4.4. Rides the
@@ -2246,10 +2151,6 @@ int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *t
  * The camera's aim mode reads it to place the over-shoulder eye. */
 void aim_dir_get(float out[3]);
 
-/* Cinematic camera override (director lane, defined in em_game.c). Returns
- * non-zero when the director has taken the camera this frame. */
-int director_camera(EmCamera *cam);
-
 /* Settle the camera inside the room bounds (camera lane, still defined in
  * em_game.c because em_game.c also calls it; belongs in em_camera.c once the
  * player split moves its other caller out). */
@@ -2306,7 +2207,7 @@ void frame_close_out(void);
 /* Env-gated self-tests (em_game_selftest.c). em_game_selftest_pre_frame
  * runs every EM_*_TEST script and EM_CAPTURE_* injection at the head of
  * the gameplay variant (em_game_legacy_variant_head). move_test_inject is the synthetic key injection those
- * scripts use; em_director.c's cine_test_script uses it too. */
+ * scripts use. */
 void em_game_selftest_pre_frame(void);
 void move_test_inject(int key, int down);
 

@@ -1352,71 +1352,165 @@ def check_roger(ticks, run, state):
           f'and {count - (release - f0)} rows after it; {follow})')
 
 
-# ------------------------------- cage_roof prefix (census L21, verification)
+# ------------------------------- the director's beats (census L21, WP-8b)
 
-VOICE_PUSH_FAULT = 'message service: fault: 001FCA10; service: voice_push worker missing'
+# route beat -> (the director's frame row, the row the search for it starts at)
+DIRECTOR_BEATS = {'cage_roof': ('10_cage_roof_roger', 1090, 1000),
+                  'crevice_prompt': ('11_crevice_prompt', 706, 700),
+                  'east_tower': ('13_east_tower', 531, 500)}
 
 
-def check_cage_roof_prefix(ticks, run):
-    """The director verification run (EM_LEVEL_SMOKE_DIRECTOR=original,
-    LEVEL_SMOKE.md "cage_roof prefix"): node #21 runs the original 008253F0
-    over em_area11_script_host. Aligned on the director's frame (the last
-    tick whose 3B8D leaves 0; route 10 f1090, one row after 001BA1A0 at
-    f1089), every row until the run stops is compared: spad, camera byte,
-    letterbox, message, power and the scripts' camera eye / target
-    (compare_window), the player's position and heading, the player record
-    (+5, +1F0, +1F1, clip, ground), D_008107D8 / D_00810793 / D_00810813
-    (the script's op06 flag 0x3B at f1093) and Roger's record and script
-    block (his alternate 0x828990 from f1094). The run must stop exactly on
-    the row where the capture's message block opens Roger's voiced line 0x7F
-    (f1163), with the message service's 001FA5A0 fault: the voice lanes are
-    not live (WP-8b), which is what keeps the director unbound (census L21).
-    Returns the summary line."""
-    assert 'level smoke: director: the original 008253F0 is selected' in run, 'not a director verification run'
-    assert re.search(r'^level smoke: cage_ladders: PASS', run, re.M), 'the run did not reach cage_roof'
-    rows = route_rows('10_cage_roof_roger')
-    f0 = next(k for k in range(1000, len(rows)) if selector(rows[k]['spad']) != '00'
-              and selector(rows[k - 1]['spad']) == '00')
-    assert rows[f0]['f'] == 1090, ('route 10 director frame moved', rows[f0]['f'])
-    i0 = max(i for i in range(1, len(ticks)) if selector(port_view(ticks, i)['spad']) != '00'
-             and selector(port_view(ticks, i - 1)['spad']) == '00')
-    count = len(ticks) - 1 - i0
-    assert count > 0, 'no director frame in the tick log'
-    compare_window(ticks, i0, rows, f0, count, 'cage_roof prefix')
-    flag = None
-    for k in range(count):
-        t, row = ticks[i0 + k], rows[f0 + k]
-        where = f'cage_roof prefix f{row["f"]} (port tick {t["tick"]})'
-        p, o = port_view(ticks, i0 + k), orig_view(row)
-        assert (p['pos'], p['yaw']) == (o['pos'], o['yaw']), (where, 'player position / heading', p['pos'],
-                                                              p['yaw'], o['pos'], o['yaw'])
-        if k:
-            q = t['player']
-            got = (q[0], q[1], q[2], q[3], hex(q[5]))
-            want = (row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['ground'])
-            assert got == want, (where, 'player +5/+1F0/+1F1/clip/ground', got, want)
+# The fields the director beats' checks compare.
+DIRECTOR_FIELDS = ('spad', 'cam', 'screen', 'power', 'msg', 'pos', 'yaw', 'camera', 'record', 'clip', 'story',
+                   'd810813', 'roger')
+
+
+def director_view(p, row_or_tick, is_port, roger, stance, camera_kind):
+    """One row of the fields above, the port's (p = port_view) or the
+    original's (p = orig_view). `stance` is the port's X/Z offset from the
+    original's at the director's frame (navigation input): the port's
+    position and follow camera are compared relative to it."""
+    if is_port:
+        t = row_or_tick
+        q = t['player']
+        record, clip = (q[0], q[1], q[2], hex(q[5])), q[3]
+        story, step = (t['story'][0], t['story'][2]), t['story'][3]
+        rv = roger_view_port(t) if roger else None
+        dx, dz = stance
+    else:
+        row = row_or_tick
         d2, s790 = bytes.fromhex(row['d2']), bytes.fromhex(row['story790'])
-        got = (t['story'][0], t['story'][2], t['story'][3])
-        want = (d2[0], s790[3], d2[0x3B])
-        assert got == want, (where, 'D_008107D8 / D_00810793 / D_00810813', got, want)
-        if flag is None and want[1] == 1:
-            flag = row['f']
-        got, want = roger_view_port(t), roger_view_orig(row)
-        assert (got['h'], got['pos'], got['block']) == (want['h'], want['pos'], want['block']), \
-            (where, "Roger's record / block", got, want)
-    stop = rows[f0 + count]
-    assert struct.unpack('<3I', bytes.fromhex(stop['msg'])[:12])[0] != 0 and \
-        all(struct.unpack('<3I', bytes.fromhex(rows[f0 + k]['msg'])[:12])[0] == 0 for k in range(count)), \
-        ('the run did not stop on the capture row that opens the voiced line', stop['f'])
-    assert VOICE_PUSH_FAULT in run, 'the run stopped without the 001FA5A0 fault'
-    line = struct.unpack('<3I', bytes.fromhex(stop['msg'])[:12])[2]
-    return (f'cage_roof prefix: PASS (the original director 008253F0, verification run: port ticks '
-            f'{ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 10 f{rows[f0]["f"]}..'
-            f'f{rows[f0 + count - 1]["f"]}: 0x8294C0 from its frame, in spad, camera byte, letterbox, message, '
-            f'power, the camera shots, the player, D_008107D8 / D_00810793 (flag 0x3B at f{flag}) / D_00810813, '
-            f'Roger\'s record and block (0x828990 from f1094)); BLOCKED at f{stop["f"]}: the line {line:#x} is '
-            f'voiced and the message service\'s 001FA5A0 (voice_push) is not bound (the voice lanes, WP-8b), so '
-            f'the director stays unbound (census L21))')
+        record, clip = (row['p5'], row['m1F0'], row['m1F1'], row['ground']), row['clip']
+        story, step = (d2[0], s790[3]), d2[0x3B]
+        rv = roger_view_orig(row) if roger else None
+        dx, dz = 0.0, 0.0
+    # The camera (camera_kind): 'walk' before the frame's first shot (the
+    # follow camera of the approach, navigation: not compared); 'shot' the
+    # scripts' shots, absolute; 'follow' from the release's restore row on
+    # (the camera re-seats behind the player one row before 3B8D clears),
+    # relative to the stance.
+    shift = (dx, dz) if camera_kind == 'follow' else (0.0, 0.0)
+    camera = None if camera_kind == 'walk' else \
+        tuple(round(v[0] - shift[0], 4) for v in (p['eye'], p['tgt'])) + \
+        tuple(round(v[1], 4) for v in (p['eye'], p['tgt'])) + \
+        tuple(round(v[2] - shift[1], 4) for v in (p['eye'], p['tgt']))
+    return {'spad': p['spad'], 'cam': p['cam'], 'screen': p['screen'], 'power': p['power'], 'msg': p['msg'],
+            'pos': (round(p['pos'][0] - dx, 4), p['pos'][1], round(p['pos'][2] - dz, 4)), 'yaw': p['yaw'],
+            'camera': camera, 'record': record, 'clip': clip, 'story': story, 'd810813': step,
+            'roger': (rv['h'], rv['pos'], rv['block']) if roger else None}
+
+
+def check_director_beat(ticks, run, state, phase):
+    """A director beat on the original owner (008253F0 over
+    em_area11_script_host, live since WP-8b), aligned on the director's frame
+    (the first tick whose 3B8D leaves 0 after the previous phase; the
+    capture's row one after 001BA1A0), every row to the end of the capture
+    (the release and 60 rows after it): spad, camera byte, letterbox, power,
+    the message block, the player's position (relative to the stance, which
+    is navigation) and heading, the player record (+5, +1F0, +1F1, ground)
+    and clip, D_008107D8 / D_00810793, D_00810813, the camera (the scripts'
+    shots exactly; the follow camera relative to the stance, to 1e-4), and
+    in beat 0 Roger's record and block.
+
+    The voiced line's teardown: a voiced line holds its teardown (the
+    message block's phase 2) until the last voice lane's timer ends
+    (D_00282155/156), and the lane's key-on waits for its prefill, whose disc
+    read completes at the drive's first poll in the port (the stated
+    zero-latency drive, IOP_STREAM.md) where the original's drive takes its
+    hardware time. The port's line may therefore tear down s rows early
+    (s >= 0; a zero-latency drive cannot be late). The fields that follow the
+    teardown (TEARDOWN_FIELDS) are compared on its clock from the port's
+    teardown on (the port's row k against the capture's row k + s), and the
+    capture's s rows before its own teardown must hold the line's state
+    unchanged; every other field keeps the capture's own rows. s is
+    reported."""
+    beat, frame, search = DIRECTOR_BEATS[phase]
+    rows = route_rows(beat)
+    f0 = next(k for k in range(search, len(rows)) if selector(rows[k]['spad']) != '00'
+              and selector(rows[k - 1]['spad']) == '00')
+    assert rows[f0]['f'] == frame, (beat, 'the director frame moved', rows[f0]['f'])
+    # The previous phase's window may end on the director's frame itself
+    # (cage_ladders compares through f1090), so the search starts a few ticks
+    # before its cursor.
+    start = max(state.get('cursor', 0) - 4, 1)
+    i0 = next(i for i in range(start, len(ticks)) if selector(port_view(ticks, i)['spad']) != '00'
+              and selector(port_view(ticks, i - 1)['spad']) == '00')
+    roger = phase == 'cage_roof'
+    count = len(rows) - f0
+    assert i0 + count < len(ticks), (phase, 'the tick log ends inside the window', len(ticks) - i0, count)
+    e_orig = next(k for k in range(count) if orig_view(rows[f0 + k])['msg'][:2] == (2, 2))
+    e_port = next(k for k in range(count) if port_view(ticks, i0 + k)['msg'][:2] == (2, 2))
+    shift = e_orig - e_port
+    assert shift >= 0, (phase, 'the port\'s voiced line tears down after the original\'s (a zero-latency drive '
+                               'cannot be late)', e_port, e_orig)
+    p0, o0 = port_view(ticks, i0), orig_view(rows[f0])
+    stance = (p0['pos'][0] - o0['pos'][0], p0['pos'][2] - o0['pos'][2])
+    if phase == 'cage_roof':
+        # The ladder's dismount places the player exactly (check_cage_ladders).
+        assert stance == (0.0, 0.0), (phase, 'the stance after the ladder', p0['pos'], o0['pos'])
+    rp = next(k for k in range(1, count) if selector(port_view(ticks, i0 + k)['spad']) == '00')
+    ro = release_row(rows, f0) - f0
+    shot = next(k for k in range(count) if rows[f0 + k]['eye'] != rows[f0]['eye'])   # the frame's first shot
+    def kind(k, release):
+        return 'walk' if k < shot else 'follow' if k >= release - 1 else 'shot'
+    port = [director_view(port_view(ticks, i0 + k), ticks[i0 + k], True, roger, stance, kind(k, rp))
+            for k in range(count)]
+    orig = [director_view(orig_view(rows[f0 + k]), rows[f0 + k], False, roger, stance, kind(k, ro))
+            for k in range(count)]
+    clocks = {'frame': 0, 'teardown': 0}
+    for key in DIRECTOR_FIELDS:
+        if key == 'roger' and not roger:
+            continue
+        first = 1 if key in ('record', 'clip') else 0   # row 0: the previous phase's last walk step
+        pv = [(k, port[k][key]) for k in range(first, count) if k == first or port[k][key] != port[k - 1][key]]
+        ov = [(k, orig[k][key]) for k in range(first, count) if k == first or orig[k][key] != orig[k - 1][key]]
+        # On the teardown's clock the port's last `shift` rows run past the
+        # capture's end: the changes there have no capture row to meet.
+        while len(pv) > len(ov) and pv[-1][0] >= count - shift:
+            pv.pop()
+        assert [v for _, v in pv] == [v for _, v in ov], \
+            (phase, key, 'the sequence of values differs', [(rows[f0 + k]['f'], v) for k, v in pv][:12],
+             [(rows[f0 + k]['f'], v) for k, v in ov][:12])
+        for (kp, v), (ko, _) in zip(pv, ov):
+            where = f'{phase} {key} = {v} at port tick {ticks[i0 + kp]["tick"]}, capture f{rows[f0 + ko]["f"]}'
+            if kp == ko:
+                if kp > first:
+                    clocks['frame'] += 1
+            else:
+                assert kp == ko - shift and kp >= e_port, (where, 'a change on neither the frame\'s rows nor the '
+                                                           'teardown\'s (s = %d)' % shift)
+                clocks['teardown'] += 1
+    release = release_row(rows, f0)
+    follow = ''
+    if phase == 'cage_roof':
+        # Beat 0's camera is the director's (the absolute clock) and its
+        # stance is exact: the follow camera from the release row for row.
+        follow = '; ' + check_follow_after_release(ticks, i0, rows, f0, phase, 'exact')
+    state['cursor'] = i0 + count
+    step = bytes.fromhex(rows[-1]['d2'])[0x3B]
+    extra = ", Roger's record and block (0x828990)" if roger else ''
+    line = orig[e_orig]['msg'][2]
+    return (f'port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route {beat[:2]} '
+            f'f{rows[f0]["f"]}..f{rows[-1]["f"]} in spad, camera byte, letterbox, message, power, the camera '
+            f'(the scripts\' shots; the follow camera relative to the stance), the player (the stance '
+            f'({stance[0]:+.5f}, {stance[1]:+.5f}) off the capture\'s: navigation), D_008107D8 / D_00810793 / '
+            f'D_00810813 (0x{step:02X} at the end){extra}, the release at f{rows[release]["f"]}; the voiced line '
+            f'{line:#x} tears down {shift} row(s) earlier in the port (f{rows[f0 + e_port]["f"]} against '
+            f'f{rows[f0 + e_orig]["f"]}: the drive\'s read time, IOP_STREAM.md, zero-latency reads): '
+            f'{clocks["frame"]} changes on the capture\'s rows, {clocks["teardown"]} on the teardown\'s '
+            f's rows early{follow})')
+
+
+def check_cage_roof(ticks, run, state):
+    print(f'cage_roof: PASS ({check_director_beat(ticks, run, state, "cage_roof")})')
+
+
+def check_crevice_prompt(ticks, run, state):
+    print(f'crevice_prompt: PASS ({check_director_beat(ticks, run, state, "crevice_prompt")})')
+
+
+def check_east_tower(ticks, run, state):
+    print(f'east_tower: PASS ({check_director_beat(ticks, run, state, "east_tower")})')
 
 
 PHASES = [
@@ -1433,12 +1527,12 @@ PHASES = [
     ('truck_crossing', check_truck_crossing),
     ('fence_door', None),
     ('cage_ladders', check_cage_ladders),
-    ('cage_roof', None),
+    ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
-    ('crevice_prompt', None),
+    ('crevice_prompt', check_crevice_prompt),
     ('crevice_jump', check_crevice_jump),
     ('east_tower_climb', check_east_tower_climb),
-    ('east_tower', None),
+    ('east_tower', check_east_tower),
     ('roger', check_roger),
 ]
 
@@ -1456,16 +1550,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=Path, required=True, help='EM_AREA_CHANGE_LOG of a newgame-level run')
     parser.add_argument('--run-log', type=Path, required=True, help='stderr of the same run')
-    parser.add_argument('--director-prefix', action='store_true',
-                        help='the director verification run (EM_LEVEL_SMOKE_DIRECTOR=original): check the '
-                             'cage_roof prefix only')
     args = parser.parse_args()
     run = args.run_log.read_text()
     assert 'level smoke: FAIL' not in run, 'the run reported a failure'
     ticks = [json.loads(line) for line in args.log.open()]
-    if args.director_prefix:
-        print(check_cage_roof_prefix(ticks, run))
-        return 0
     assert re.search(r'^level smoke: PASS ', run, re.M), 'the run has no final PASS line'
     state = {}
     checked, not_live, driven, side_named = [], [], [], []

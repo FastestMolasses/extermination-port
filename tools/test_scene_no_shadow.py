@@ -59,6 +59,9 @@ WRITERS = {
         "game/em_area11_interaction_host.c": "WP-4: the host's frame view store (001B82D0 sub0/2/13 "
                                              "=2/1, sub4 =0; 00184BA0's winner claim =3) and "
                                              "002149F0's successful exit (=3)",
+        "game/em_status_page_record.c": "002149F0 record-level (d85512e, not bound): the owner's completion "
+                                        "(=3) through the caller's pointer view onto the canonical byte "
+                                        "(EmStatusPageRecord.spad3B8D)",
     },
     "spad3B91": {
         "game/em_area11_script_host.c": "L19: binds em_area_script's world pointer at the canonical byte "
@@ -163,24 +166,19 @@ REACHERS = {
                                         "Roger scripts' op16, census L22): a pointer at the canonical byte",
     },
     0x00810813: {
-        "game/em_director.c": "008253F0's beat step, legacy stand-in until WP-10: its state-1 dispatch "
-                              "reads it, the beat completions store 0x10/0x20/0xFF",
-        "game/em_level_smoke_test.c": "the driven director phases wait for the stand-in's step byte "
-                                      "(census L09..L11; test instrumentation, never written)",
+        "game/em_level_smoke_test.c": "the director phases wait for the beats' step byte "
+                                      "(census L21; test instrumentation, never written)",
         "game/em_area11_roger.c": "00823950 / 00823B70 (em_roger_tick, census L22): EmRogerStory.auxiliary "
                                   "loaded before and stored after each owner call",
         "game/em_scene_bindings.c": "the tick log's story sample (test instrumentation, never written)",
-        "game/em_area11_bindings.c": "008253F0 (em_director_original, census L21): EmDirectorOriginalWorld."
-                                     "d810813, the pointer its state-1 dispatch reads and the beat "
-                                     "completions write; selected only by the level smoke's director "
-                                     "verification run until WP-8b",
+        "game/em_area11_bindings.c": "008253F0 (em_director_original, census L21, live since WP-8b): "
+                                     "EmDirectorOriginalWorld.d810813, the pointer its state-1 dispatch "
+                                     "reads and the beat completions write",
     },
     0x00810CC3: {
         "game/em_pickup.c": "001B6EA0's key take (em_pickup_owner_take adds to D_00810CC3[t]) and the "
                             "key accessor em_pickup_keys",
         "game/em_opening_runtime.c": "00823E80's 001C4760(0, 1) (0x823F84) and its completion report",
-        "game/em_director.c": "008253F0 beat 0's 001C4760(1, 1) (0x8255CC..0x8255D4), legacy stand-in "
-                              "until WP-10",
         "game/em_opening_control_test.c": "reads D_00810CC3[0] to check the opening hand-off "
                                           "(test instrumentation, never written)",
         "game/em_director_original.c": "001C4760 (em_director_original_001C4760, byte-matched "
@@ -188,8 +186,7 @@ REACHERS = {
                                        "(em_director_original_001C4760_scene)",
         "game/em_director_original.h": "declares that binding",
         "game/em_area11_bindings.c": "008253F0 beat 0's 001C4760(1, 1) through em_director_original "
-                                     "(EmDirectorOriginalWorld.d810CC3, census L21; the director "
-                                     "verification run only until WP-8b)",
+                                     "(EmDirectorOriginalWorld.d810CC3, census L21, live since WP-8b)",
     },
     0x00810CB6: {
         "game/em_player.c": "0015BA50's busy test: the stage scene's pointer (live_scene_load)",
@@ -317,10 +314,6 @@ ALLOWED = [
      "reason": "a beat-table constant: the original address of the completion's store to D_00810813, "
                "not storage of the byte",
      "removed_by": "permanent (a constant)"},
-    {"file": "game/em_game_internal.h", "name": "next_step",
-     "reason": "CineBeat: the legacy director's beat-table constant (the D_00810813 value a "
-               "completion stores), not storage of the byte",
-     "removed_by": "WP-10 (L21): deleted with em_director.c's kCineBeats when 008253F0 is bound"},
 ]
 
 BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C",

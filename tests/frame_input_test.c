@@ -19,7 +19,6 @@ bool em_window_poll(EmWindow *window, EmEvent *out)
     return false;
 }
 void em_gamepad_poll(void) {}
-void em_bgm_service(void) {}
 void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
 {
     (void)gfx;

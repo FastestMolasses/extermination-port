@@ -55,40 +55,43 @@ void em_scene_bindings_fixture_loaded(EmTask *record);
 
 /* 001B0C60(a, b, c) (byte-matched): the area-change request of the fan exit
  * and Roger: spad 3B8D = 3, 001B0C00(4) (001AEDE0(4, 0), the three 001FAD70
- * stream fades, reported), then D_008106B8 = 1, B5 = a, B7 = c, B6 = b. The
- * frame machine then calls 001AD010 at fade substate 2 (area a, room b,
- * entry c; b = 0xFF takes the room from D_00810730[a]). 0. */
+ * lane fades on the stream lanes), then D_008106B8 = 1, B5 = a, B7 = c,
+ * B6 = b. The frame machine then calls 001AD010 at fade substate 2 (area a,
+ * room b, entry c; b = 0xFF takes the room from D_00810730[a]). 0, or -1
+ * with the scene fault latched. */
 int em_scene_request_area_change_001B0C60(int a, int b, int c);
 
 /* The message service's stream workers (em_message_live.h, WP-8):
- * 001FD470(mask) and 001FA790(lane, cue). 1 ok, 0 fault. */
+ * 001FD470(mask) and 001FA790(lane, cue) on the stream lanes
+ * (em_stream_live, WP-8b). 1 ok, 0 fault. */
 int em_scene_bindings_001FD470(void *ctx, int32_t mask);
 int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue);
 
-/* Census L22 (Roger's owner and scripts): 001FAE70(a0) (a0 == 0, the
- * resume branch, translated here; a0 != 0 the status close's), the
- * stream-release stand-in for 001FABB0 and 001FBC50 (the frame machine's
- * bindings of the same names), and the report of 001DA6A0 from 001BA580
- * (the actor drop shadow has no port counterpart: a reported no-effect
- * binding, as the player's post-step). 0, or -1 on a fault. */
+/* For the script owners, the opening and Roger: 001FAE70(a0) and 001FABB0
+ * on the stream lanes (em_stream_live, WP-8b), 001FBC50 (em_sfx_stop_all,
+ * then its two 00119828 calls on the lanes), 001FC280 (the lanes' worker
+ * inside 001FAE70: the area ambient loop over the spawn record, then its
+ * two 00119828 calls), 001FAD70(lane, fade, release) (001B0C00's lane
+ * fades), and the report of 001DA6A0 from 001BA580 (the actor drop shadow
+ * has no port counterpart: a reported no-effect binding, as the player's
+ * post-step). 0, or -1 on a fault. */
 int em_scene_bindings_001FAE70(int a0);
 int em_scene_bindings_001FABB0(void);
 int em_scene_bindings_001FBC50(void);
+int em_scene_bindings_001FC280(void);
+int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release);
 int em_scene_bindings_report_001DA6A0(void);
 /* 001B0250 over the canonical D_008106C8 and the spawn table (0, or -1
  * with the fault latched), and the reported 001D2830 (0). */
 int em_scene_bindings_001B0250(void);
 int em_scene_bindings_report_001D2830(void);
-/* The reported 0021B9A0 (the render-context fog programmer) and 001FAD70
- * (a stream channel fade): no port counterpart (0). */
+/* The reported 0021B9A0 (the render-context fog programmer): no port
+ * counterpart (0). */
 int em_scene_bindings_report_0021B9A0(void);
-int em_scene_bindings_report_001FAD70(void);
 
 /* 00119828(ch, l, r), the IOP command 0x16 packer, for callers outside the
- * frame machine (the opening's 001B82D0 ops 9..12 phase 0). The port has no
- * 001157F0 sink yet (docs/STREAM_LANES.md "Still missing"): (0/1, 0x3FFF,
- * 0x3FFF) changes nothing, any other value is a reported no-effect binding
- * (UM_00119828). 0 always. */
+ * frame machine (the opening's 001B82D0 ops 9..12 phase 0, the scripts):
+ * the stream lanes' packer (em_stream_live). 0, or -1 on a fault. */
 int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r);
 
 /* The number of live nodes in the actor pool (D_00275BC0 list length) when

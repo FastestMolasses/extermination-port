@@ -644,6 +644,11 @@ int em_sfx_stop_track(int track, int hard)
     return 0;
 }
 
+uint64_t em_sfx_stream_voices(void)
+{
+    return SFX_STREAM_VOICES;
+}
+
 void em_sfx_frame_snapshot(void)
 {
     memcpy(s.snapshot, s.requested, sizeof s.snapshot);
@@ -654,16 +659,11 @@ void em_sfx_frame_snapshot(void)
  * to -1. The port silences the stopped tracks' voices at the next
  * callback start; the audited panel-cue slots are killed there too.
  *
- * CALLERS: em_frontend.c (movie start, EM_STARTUP_AUDIO_STOP),
- * em_opening_media_audio_start, the scene bindings' w_001FBC50 (0x1AE040
- * state 1's status open, r == 2, and its r == 1 arm; with the translated
- * 001FABB0 stream stop and the state-5 001FAE70(1) resume the status audio
- * stops and resumes on the original's schedule, but 001FBC50's and
- * 001FC280's 00119828(0/1, 0x1999, 0x1999) stream volumes are only
- * reported (UM_00119828: the port's streams have no per-channel gain), so
- * H22/AM-06 stays partial, WP-5) and the
- * interaction host's EM_STATUS_RESET_SOUNDS handler (the fixtures' status
- * frame machine). Not wired at the death entry: that entry has just
+ * CALLERS: em_frontend.c (movie start), the scene bindings' w_001FBC50
+ * (0x1AE040 state 1's status open, r == 2, and its r == 1 arm; 001FD470
+ * bit 0; 001AC3B0's audio stop; the scripts' stops), which then sends
+ * 001FBC50's two 00119828(0/1, 0x1999, 0x1999) IOP commands through the
+ * stream lanes (em_stream_live, WP-8b). Not wired at the death entry: that entry has just
  * started the death voice and body cues.
  * Safe to call from the game thread. */
 void em_sfx_stop_all(void)

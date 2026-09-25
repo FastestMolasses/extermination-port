@@ -2402,11 +2402,11 @@ float em_camera_scope_zoom(float t)
 
 /* AREA11's legacy stand-ins in camera action 0's place (em_camera.h). The
  * same blocks camera_update runs for the scenes without the live camera,
- * in the same order: the director's beats, the examine cue, the door
- * cinematic, then the port's aim placement. */
+ * in the same order: the examine cue, the door cinematic, then the port's
+ * aim placement. (The director's beats run on their original scripts since
+ * WP-8b.) */
 int camera_area11_standins(EmCamera *cam)
 {
-    if (director_camera(cam)) return CAMERA_STANDIN_OWNS;
     {
         float exe[3], ext[3];
         if (em_examine_camera(exe, ext)) {
@@ -2513,23 +2513,6 @@ void camera_update(void)
      * post-warp re-seat still happens while the screen is black,
      * em_game_legacy_door_tick). */
     if (cam->top_mode == 0) {
-        /* AREA-11 OPENING DIRECTOR camera (highest priority): while an
-         * establishing-cutscene beat runs it OWNS the camera outright —
-         * the eye->target keyframes are scene DATA the port authors
-         * (director_camera + scene.txt), reconstructed from PCSX2
-         * capture; the overlay director that drives them natively is
-         * not among the recovered functions, so no source backs the
-         * keyframe values. Treat them as observed. It
-         * is dormant outside a beat (returns 0), so the normal chase and
-         * the examine/door cues below are untouched the rest of the
-         * time. On the frame the beat ends it does a one-shot chase
-         * restore inside director_camera (the op18/op07-sub4 shape) and
-         * returns 0, handing the camera back cleanly. */
-        if (director_camera(cam)) {
-            camera_commit(cam);   /* func_0018C0D0(cam, 1) */
-            cam->timer++;
-            return;
-        }
         /* EXAMINE camera cue (em_examine.h): the script's op00 fixed
          * cut — eye and target come from em_examine, which owns that
          * record's provenance; nothing in THIS file's recovered call

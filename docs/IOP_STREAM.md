@@ -1,9 +1,9 @@
 # IOP stream backend: the IOP side of the music and voice streams (WP-8b)
 
-Status: 2026-09-23. The module is built and tested, but **nothing in the live game calls it yet** (CLAUDE.md
-fidelity rules). This doc covers the IOP side that the stream lanes (`em_stream_lanes_original`,
-docs/STREAM_LANES.md) talk to through 001157F0 and 0011A730. The order in which it replaces the live stand-ins is
-under "Binding notes".
+Status: **live since WP-8b (2026-09-25)**: `em_stream_live` (docs/STREAM_LANES.md "Live binding") owns one
+backend and its exported disc; the field runs at the top of every frame and the mixer is summed by em_bgm's callback.
+This doc covers the IOP side that the stream lanes (`em_stream_lanes_original`, docs/STREAM_LANES.md) talk to
+through 001157F0 and 0011A730; "Binding notes" records how it was bound.
 
 Files:
 - `src/game/em_iop_stream.{h,c}`: the backend.
@@ -12,8 +12,7 @@ Files:
 - `tests/iop_stream_test.c`: the native contract test. It needs no assets.
 - `tools/test_iop_stream_reference.py`: the original-instruction oracles and the capture comparisons.
 
-Proposed make target: `test-iop-stream` (the Makefile hunk is in the lane report; this lane does not edit the
-Makefile).
+Make target: `test-iop-stream` (the contract test, then the reference test).
 
 ## What was read
 
@@ -118,7 +117,7 @@ derived from the captures.
 | Loop flags | bit 2 sets LSA at block start; bit 0 jumps to LSA; without bit 1 the voice stops with ENVX 0 | SPU2 register semantics |
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
 | IOP heap | first free block 0x85B00, 0x100-byte units | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00 |
-| Drive | 00113280 → 2; 00112610 accepts a read (fault when one is in flight or a sector is not exported); 00112D18 answers busy for `latency` polls (default 0), then lands the data; 00113478 drops the read | libcdvd contract as the lanes use it. The drive's real latency is hardware timing |
+| Drive | 00113280 → 2; 00112610 accepts a read (fault when one is in flight or a sector is not exported); 00112D18 answers busy for `latency` polls (default 0), then lands the data; 00113478 drops the read. A read the EE abandons without 00113478 (001FABB0 resets `D_00282157` while a read is in flight: the status open during a refill) is finished by the drive: with no latency left it lands by the next 00113280, and one still waiting for polls faults (outside the model) | libcdvd contract as the lanes use it. The drive's real latency is hardware timing: the live route shows it (the opening's prefill and the voiced lines' teardowns, STREAM_LANES.md "Drive latency"); the live binding runs latency 0 |
 
 ## Stream exporter
 
@@ -235,6 +234,12 @@ Last runs, 2026-09-23:
 - 001FB100 (step H, which calls 001F9CF0) is not bound here (docs/STREAM_LANES.md "Still missing" 4).
 
 ## Binding notes (for the coordinator chain)
+
+**Bound in WP-8b (2026-09-25)** exactly as listed below, by `em_stream_live` (docs/STREAM_LANES.md "Live binding").
+Pacing: `em_frame_step` paces fields at 59.94 Hz (`frame_pace_ntsc`); with `EM_UNCAPPED=1` (the tests) the ring
+overruns are counted and dropped, and the tests do not listen. The mixer hook is in em_bgm's callback (em_bgm is
+now only the device and the mixer). The forward sink stays unset: a command outside the stream set faults (none is
+sent from a fresh voice table). Step 7.7's 001FB100 is bound only as its 001F9CF0 call (see STREAM_LANES.md).
 
 **Clock domains (binding requirement).** The game thread renders exactly 800.8
 samples per `em_iop_stream_field` into a 16384-frame ring, and the audio

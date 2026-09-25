@@ -77,12 +77,20 @@ static int w_face_talk(void *ctx, int on)
     return s.host.face_talk(s.host.context, on) ? 1 : fail("001D06E0 face talk");
 }
 
-/* 001FAAC0 on voice lanes 1 and 2: it does nothing for an idle lane, and
- * no voice lane is ever active in the port (voice_push is not bound). */
+/* 001FAAC0 on voice lanes 1 and 2 (001FAB80 in the teardown) and 001FA5A0
+ * (the voice ring push of 001FD580 / 001FD6A0): the stream lanes. */
 static int w_stop_lane(void *ctx, int lane)
 {
     (void)ctx;
-    return lane == 1 || lane == 2 ? 1 : fail("001FAAC0 on a lane other than 1/2");
+    if (!s.streams.stop_lane) return fail("001FAAC0 has no binding");
+    return s.streams.stop_lane(s.streams.context, lane) ? 1 : fail("001FAAC0");
+}
+
+static int w_voice_push(void *ctx, int32_t cue)
+{
+    (void)ctx;
+    if (!s.streams.voice_push) return fail("001FA5A0 has no binding");
+    return s.streams.voice_push(s.streams.context, cue) ? 1 : fail("001FA5A0");
 }
 
 static int w_stream_stop(void *ctx, int32_t mask)
@@ -217,8 +225,8 @@ static int load(const char *path)
                              s.colors[0], rd32(b + 24)};
     s.draw_data = (EmMessageDrawData){{p, gbank}, {p + gbank, abank}, s.colors, 16,
                                       &s.line_config, &s.fallback, &s.style};
-    EmMessageWorkers workers = {NULL, w_draw_line, w_face_talk, NULL, w_stop_lane, w_stream_stop,
-                                w_stream_play, NULL, NULL, NULL, NULL};
+    EmMessageWorkers workers = {NULL, w_draw_line, w_face_talk, w_voice_push, w_stop_lane,
+                                w_stream_stop, w_stream_play, NULL, NULL, NULL, NULL};
     EmMessageDrawWorkers draw_workers = {NULL, w_glyph_advance, w_draw_text};
     EmMessageGlyphWorkers glyph_workers = {NULL, w_upload, w_flush};
     if (!em_message_init(&s.service, &s.data, &workers) ||
@@ -233,8 +241,10 @@ static int load(const char *path)
 static EmMessageShared shared(void)
 {
     EmSceneState *scene = em_scene_state();
-    /* D_00282155/156: the voice lanes' active bytes; no voice lane runs. */
-    EmMessageShared sh = {scene->d810700, scene->spad3B8F, 0, 0,
+    /* D_00282155/156: the voice lanes' active bytes (em_stream_live). */
+    int8_t busy155 = s.streams.active ? s.streams.active(s.streams.context, 1) : 0;
+    int8_t busy156 = s.streams.active ? s.streams.active(s.streams.context, 2) : 0;
+    EmMessageShared sh = {scene->d810700, scene->spad3B8F, busy155, busy156,
                           em_scene_req_at(scene, 0x008106F5u), em_scene_req_at(scene, 0x008106F4u),
                           em_scene_req_at(scene, 0x008106D4u)};
     return sh;

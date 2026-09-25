@@ -423,8 +423,9 @@ From script start to release the encounter takes 1475 frames.
   **Quad 0x82AC20 is not a rectangle.** Its (x, z) vertices, in order, are
   (452, 282), (500, 292), (500, 280), (462, 278). The "x 452–500, z 278–292"
   in beat 11 is only its bounding box. All three beats are on the route
-  (10, 11, 13). This replaces the legacy `em_director` kCineBeats
-  (FIRST_LEVEL_AUDIT H10).
+  (10, 11, 13). The port runs them on the original owner since WP-8b
+  (em_director_original; the legacy `em_director` kCineBeats is deleted,
+  FIRST_LEVEL_AUDIT H10).
 - **Roger r8 controller** (0x8237E0; the story-branch function is at
   runtime 0x823910, splat `func_overlay_AREA11_008238D0`, with the same 0x40
   label offset):

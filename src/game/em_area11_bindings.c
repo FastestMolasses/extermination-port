@@ -62,7 +62,6 @@
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
-#include "game/em_director.h"
 #include "game/em_director_original.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_effect_kinds.h"
@@ -448,24 +447,7 @@ static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 008253F0 (area11[12], #21): the director manager.
- *
- * NOT BOUND (census L21 blocked on WP-8b, DIRECTOR_ORIGINAL.md section 6):
- * beat 0's script waits on the D_00810813 = 1 that Roger's alternate
- * 0x828990 writes after its voiced conversation (line 0x7F, VOICE.DAT cues
- * 143..), and beats 1 / 2 present the voiced lines 0x97 / 0x99 (cues 150 /
- * 149). A voiced line waits in 001FD790 while D_008106F5 is 2 until the
- * voice lane service 001F9CF0 starts the voice, and its end waits on the
- * lane's busy bytes D_00282155 / 156; the message service's 001FA5A0
- * (voice_push) and the stream lanes are not live (STREAM_LANES.md "Still
- * missing"), so the original director would stop the level at route 10
- * f1163 (the message service faults at 001FA5A0) where the legacy stand-in
- * completes the beat. Node #21 therefore keeps em_director.c's
- * director_tick (the legacy cutscene block never ran it). The level smoke's
- * director verification run (LEVEL_SMOKE.md "cage_roof prefix") selects
- * the original through em_area11_bindings_select_director_original and
- * compares route 10 up to that line; when WP-8b binds the voice lanes the
- * row below switches to tick_director_original and em_director.c goes.
+/* 008253F0 (area11[12], #21): the director manager, live since WP-8b.
  *
  * The original adapter: em_director_original (census L21). Its +0 / +4 / +5 are
  * EmActor.status and u04[0..1]; D_00810813, D_00810793 and D_00810CC3[] are
@@ -512,13 +494,6 @@ static int director_001AFC10(void *ctx, uint32_t self)
     return 0;
 }
 
-static int s_director_original;
-
-void em_area11_bindings_select_director_original(int on)
-{
-    s_director_original = on != 0;
-}
-
 static int tick_director_original(EmActor *actor)
 {
     EmSdkMathContext *sdk = em_collision_world_sdk();
@@ -559,11 +534,8 @@ static int tick_director_original(EmActor *actor)
 static int tick_director(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
-    if (s_director_original)
-        return tick_director_original(actor);
-    if (!world->cutscene)
-        director_tick();
-    return 1;
+    (void)world;
+    return tick_director_original(actor);
 }
 
 /* The truck 00823FF0 (#24) and its camera trigger 008251E0 (#25) on their
@@ -874,7 +846,8 @@ static const Binding k_bindings[] = {
     {0x00823E80u, "opening controller: em_opening_runtime_tick", NULL, GROUP_NONE, tick_opening, NULL},
     {0x00823CE0u, "manager: dormant", NULL, GROUP_NONE, NULL,
      "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
-    {0x008253F0u, "manager: legacy director_tick", NULL, GROUP_NONE, tick_director, NULL},
+    {0x008253F0u, "director: em_director_original over em_area11_script_host", NULL, GROUP_NONE,
+     tick_director, NULL},
     {0x008257A0u, "record 13: em_manager_008257A0", NULL, GROUP_NONE, tick_manager_8257A0, NULL},
     {0x00823FF0u, "truck: em_truck_original (em_area11_boxes)", NULL, GROUP_NONE, tick_truck, NULL},
     {0x008251E0u, "truck trigger: em_truck_trigger_tick, script 0x8292C0 (em_area11_script_host)", NULL,

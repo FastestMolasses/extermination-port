@@ -56,10 +56,7 @@
  * from the SCENE MANIFEST assets/scene/scene.txt (exporter-written;
  * missing = office defaults). A manifest `bgm` key is accepted and
  * IGNORED: no original code starts music from scene data (area music is
- * 001FAE70's cue choice, not mirrored yet). EM_BGM=<path.wav> is a
- * debug-only listening override with no original counterpart: the
- * boot->game handoff loops that file through em_bgm. Without it, the
- * port plays no level music.
+ * 001FAE70's cue choice on the stream lanes, em_stream_live).
  */
 #ifndef EM_GAME_H
 #define EM_GAME_H
@@ -226,9 +223,9 @@ void  em_game_aim_dir(float out[3]);
  *   00828050 inside the host's elevator program. */
 int  em_game_terminal_powered(void);
 
-/* em_game_player_interact_busy — 1 while the legacy opening director
- *   beat (cine_active), the opening runtime or an acquired original player
- *   source (the interaction host's 0015B130 takeover) owns the player, so
+/* em_game_player_interact_busy — 1 while the opening runtime or an
+ *   acquired original player source (the interaction host's 0015B130
+ *   takeover) owns the player, so
  *   the legacy use scans (examine, doors) do not start a second
  *   interaction while one is in flight. (The legacy interact-clip lock of
  *   the legacy pickup take was deleted in WP-6.)

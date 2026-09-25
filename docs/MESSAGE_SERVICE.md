@@ -164,23 +164,17 @@ installs it at bring-up as the step-F frame service
     render by `em_hud_glyph_strip` (docs/MESSAGE_GLYPH.md).
   - `face_talk` (001D06E0 on the player, game mode 2, slot 0) -> the AREA11
     host's `em_area11_interaction_host_face_talk`; without a host it faults.
-  - `stop_lane` (001FAAC0 on lanes 1/2 from 001FAB80) -> nothing: 001FAAC0
-    does nothing for an idle lane, and no voice lane is ever started (see
-    `voice_push`).
-  - `voice_push` (001FA5A0) -> not bound: a voiced line faults. The stream
-    lanes (`em_stream_lanes_original`, docs/STREAM_LANES.md) are not live.
-  - `stream_stop` (001FD470) -> `em_scene_bindings_001FD470`: bit 0
-    `w_001FBC50` (em_sfx_stop_all, the port's SFX stop-all for 001FBC50's
-    track stops, then its two 00119828 calls); bit 1 `w_001FABB0`, the port's
-    stream-release stand-in, not a translation of 001FABB0: it stops em_bgm
-    and the opening stream and clears `D_008106F4`/`D_008106F5`, but does no
-    001FA570 voice-ring reset, no per-lane 001FAAC0 release and no
-    `D_00282157` store (the stream lanes are not live, docs/STREAM_LANES.md).
-  - `stream_play` (001FA790) -> `em_scene_bindings_001FA790`: lane 0 with
-    the cue of the AREA11 row of line 0x66 arms the opening stream
-    (`em_opening_media`, the lane-0 stand-in, which follows `D_008106F4` at
-    step H: 2 -> 1 at once, 0 starts the sound); any other lane or cue
-    faults.
+  - The stream workers come from the stream lanes (`em_stream_live`, WP-8b;
+    docs/STREAM_LANES.md "Live binding") through `EmMessageLiveStreams`
+    (main.c): `stop_lane` (001FAAC0 on lanes 1/2 from 001FAB80) and
+    `voice_push` (001FA5A0: `em_message_voice_ring_push` over the lanes' ring
+    `D_00281CF0` / `D_00275B30`) are the lanes'; `stream_stop` (001FD470) is
+    `em_stream_lanes_001FD470` (bit 0 001FBC50: em_sfx_stop_all and its two
+    00119828 calls; bit 1 001FABB0); `stream_play` (001FA790) is the lanes'
+    lane start; `active` gives the service the lanes' busy bytes
+    `D_00282155/156` before every tick. A fixture without the lanes supplies
+    its own hooks (the idle-lane ones in the panel and host tests); a
+    reached hook that is missing faults.
   - `mode3_present`, `help_draw`, `record_setup`, `record_draw` -> not bound
     (fault). While the AREA11 status page layer runs, its own page core
     presents the mode-4 lines from its own copy of the block, and the host's

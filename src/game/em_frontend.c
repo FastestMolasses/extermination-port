@@ -9,7 +9,6 @@
 #include "game/em_game.h"
 #include "game/em_hud.h"
 #include "game/em_task.h"
-#include "game/em_bgm.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 #include "em_input.h"
@@ -123,7 +122,6 @@ static void begin_movie(uint32_t serial, int new_game)
 {
     em_startup_audio_stop();
     em_sfx_stop_all();
-    em_bgm_stop(0);
     f.movie = em_movie_open("assets/startup/intro.mov");
     if (!f.movie) {
         fail("could not allocate the intro movie player");
@@ -267,9 +265,11 @@ static void notify(void *unused, const EmStartupEvent *event)
         em_frame_fade_start(1, event->value);
         return;
     case EM_STARTUP_AUDIO_STOP:
+        /* 001AC3B0 state 0: 001FBC50 (em_sfx_stop_all and its two 00119828
+         * calls) and 001FABB0 on the stream lanes. */
         em_startup_audio_stop();
-        em_sfx_stop_all();
-        em_bgm_stop(0);
+        if (em_scene_bindings_001FBC50() < 0 || em_scene_bindings_001FABB0() < 0)
+            fail("001FBC50 / 001FABB0 (the stream lanes)");
         return;
     case EM_STARTUP_AUDIO_LEVEL:
         /* PS2 master hardware gain is adapted by the native audio service. */

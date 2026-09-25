@@ -178,7 +178,6 @@
 #include "em_input.h"
 #include "em_math.h"
 #include "em_model.h"
-#include "game/em_bgm.h"
 #include "game/em_collision.h"
 #include "game/em_door.h"
 #include "game/em_enemy.h"
@@ -193,7 +192,6 @@
 #include "game/em_game_internal.h"
 #include "game/em_effect_color.h"
 #include "game/em_random.h"
-#include "game/em_director.h"
 #include "game/em_player.h"
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
@@ -720,17 +718,15 @@ int em_game_terminal_powered(void)
 }
 
 /* em_game_player_interact_busy — 1 while a port stand-in or an original
- * interaction owns the player: the legacy AREA-11 opening director
- * (cine_active; the player is frozen
- * for a beat), the opening runtime, or an acquired original player source
+ * interaction owns the player: the opening runtime, or an acquired original
+ * player source
  * (player_pose_owned: the AREA11 interaction host's 0015B130 takeover).
  * The legacy elevator ride that used to fold in here was retired in WP-4
  * with the examine terminal (the terminal is the original owner 00827B10
  * in the interaction host). */
 int em_game_player_interact_busy(void)
 {
-    return g.cine_active || em_opening_runtime_busy() ||
-           player_pose_owned();
+    return em_opening_runtime_busy() || player_pose_owned();
 }
 
 /* em_game_player_face_step — the examine op04 FACE pre-roll: turn the
@@ -1129,14 +1125,6 @@ void em_game_legacy_player_residue(void)
 void em_game_legacy_pool_gameplay(void)
 {
     em_game_legacy_collision_clears();
-    /* AREA-11 OPENING DIRECTOR (the D_00810813 step machine — record 12,
-     * ov 0x8253F0). The manager is a pool node, so since S10a it ticks
-     * here, AFTER the player stage, as in the original (001AE5E0: 0015BCF0
-     * at 0x1AE628, 001AFD70 at 0x1AE64C): a beat that arms on frame N
-     * locks the player (cine_active -> em_game_player_interact_busy) from
-     * frame N+1's player stage. Dormant outside a beat. No-op once the
-     * director reaches 0xFF. */
-    director_tick();
     /* Keep the original static panel transform; this model never slides.
      * grate_update is also the only binder of the panel's collision cell
      * (uid 18, em_props.c panel_cell) into g.coll; it registers no blocker
@@ -1239,20 +1227,6 @@ void em_game_legacy_state0(void)
     g.sa_clip        = -1;
     g.sa_req_hold    = 0;
     g.sa_hold        = 0;
-    /* AREA-11 OPENING DIRECTOR re-arm (legacy stand-in for the
-     * manager 0x8253F0, installed fresh at each area build). Only
-     * the stand-in's per-beat transient is cleared here, so a scene
-     * change cannot leave the player locked in a cinematic. The
-     * beat step D_00810813 is canonical progress (HK): no area
-     * build writes it in the original (001AF2C0's memset is its
-     * only clear), so it is not reset here. Outside AREA-11 the
-     * director never arms (no zone is ever entered). */
-    g.cine_active     = 0;
-    g.cine_beat       = -1;
-    g.cine_kf         = 0;
-    g.cine_kf_t       = 0;
-    g.cine_fade       = 0;
-    g.cine_was        = 0;
 }
 
 /* The scene manifest's spawn: the placement of a scene WITHOUT an original
@@ -1650,16 +1624,13 @@ int em_game_legacy_area_load(const char *dir)
 
     /* No music starts from scene data. In the original, area music is
      * chosen by 001FAE70 from D_008106C8 bits 8..15 (AREA11 captures:
-     * 0x20081910 -> cue 25); anim_frame_top_b state 0 calls
-     * 001FAE70(1) at area entry (0x001AE0C4), and on New Game the AREA11
+     * 0x20081910 -> cue 25) on the stream lanes (em_stream_live, WP-8b):
+     * anim_frame_top_b state 0 calls 001FAE70(1) at area entry
+     * (0x001AE0C4; reported, not bound: it also draws one rand() and the
+     * whole-game RNG order is unaudited), and on New Game the AREA11
      * opening controller 00823E80 stops streams (001FABB0) when its script
      * starts and resumes cue 25 via 001FAE70(0) when it ends
-     * (EM_OPENING_RESUME_MUSIC). The area-entry 001FAE70(1) call is not
-     * mirrored yet (it also draws one rand(); whole-game RNG order is
-     * unaudited). EM_BGM=<path.wav> remains a debug-only listening
-     * override with no original counterpart. */
-    if (g.bgm_path)
-        em_bgm_play(g.bgm_path, 1);
+     * (EM_OPENING_RESUME_MUSIC). */
     return 0;
 }
 
@@ -1693,7 +1664,6 @@ static void game_install_state(void)
                                  .infection = 60.0f, .mag = 4,
                                  .mag_max = 30, .reserve = 120,
                                  .battery = 4, .battery_max = 6 };
-    g.bgm_path     = getenv("EM_BGM");
     g.capture_path = getenv("EM_CAPTURE");
     const char *cf = getenv("EM_CAPTURE_FRAME");
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
@@ -1774,8 +1744,6 @@ static void game_install_state(void)
     g.aim_test     = at && at[0] == '1';
     const char *kt = getenv("EM_MELEE_TEST");
     g.melee_test   = kt && kt[0] == '1';
-    const char *ct = getenv("EM_CINE_TEST");
-    g.cine_test    = ct && ct[0] == '1';
     const char *gt = getenv("EM_DEATH_TEST");
     g.death_test   = gt && gt[0] == '1';
     const char *ik = getenv("EM_PICKUP_TEST");
@@ -1850,8 +1818,8 @@ void em_game_shutdown(void)
     em_area11_effect_runtime_clear(gfx);
     em_examine_reset();
     em_collision_free(&g.coll);
-    em_bgm_shutdown();  /* blocks out the audio thread, then frees + prints */
-    em_opening_runtime_shutdown(); /* PCM release after device teardown */
+    em_bgm_shutdown();  /* blocks out the audio thread */
+    em_opening_runtime_shutdown();
     em_sfx_shutdown();  /* AFTER em_bgm_shutdown — the device-teardown
                          * guarantee makes the sample memory freeable */
 }

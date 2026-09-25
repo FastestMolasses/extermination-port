@@ -12,11 +12,11 @@
  * EmSceneState.
  *
  * Boundaries, each stated where it is bound:
- * - The voice lanes (001F9CF0, WP-8's stream half) are not live: no voice
- *   is ever started, so D_00282155/156 read 0, 001FAAC0 on lanes 1 and 2
- *   has nothing to release, and a voice push (001FA5A0) faults.
- * - 001FD470 / 001FA790 / 001D06E0 come from the binder (hooks below);
- *   a reached hook that is missing faults.
+ * - The stream lanes (em_stream_live, WP-8b) supply 001FD470, 001FA790,
+ *   001FA5A0 (the voice ring push), 001FAAC0 on lanes 1 and 2 and the
+ *   lanes' active bytes D_00282155/156 through the streams hook below;
+ *   001D06E0 comes from the host hook. A reached hook that is missing
+ *   faults.
  * - The mode-3 and mode-4 presenters (001FD0E0, 001FCB90, 001FCF90,
  *   001FCF60) are not translated: reaching them faults. While a status page
  *   runs, the page layer presents its own mode-4 lines and the binder's gate
@@ -48,10 +48,18 @@ typedef struct {
     int (*gate)(void *context);
 } EmMessageLiveHost;
 
+/* The stream lanes' side of the service (em_stream_live, WP-8b). The
+ * workers return 1 ok, 0 fault; a NULL worker faults when it is reached.
+ * `active` reads the lanes' active byte D_00282154 + lane (lb): the service
+ * reads D_00282155 / D_00282156 (lanes 1 and 2) before every tick; NULL
+ * reads 0 (no voice lane exists). */
 typedef struct {
     void *context;
     int (*stream_stop)(void *context, int32_t mask);          /* 001FD470 */
     int (*stream_play)(void *context, int lane, int32_t cue); /* 001FA790 */
+    int (*voice_push)(void *context, int32_t cue);            /* 001FA5A0 */
+    int (*stop_lane)(void *context, int lane);                /* 001FAAC0 */
+    int8_t (*active)(void *context, int lane);                /* D_00282154 + lane */
 } EmMessageLiveStreams;
 
 /* Loads the data and installs the step-F service (em_frame). 1 ok; 0 when

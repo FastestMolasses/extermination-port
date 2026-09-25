@@ -289,7 +289,6 @@ stay the original's:
 
 | Stand-in | Owner it stands for | Lane |
 |---|---|---|
-| `director_camera` (em_director.c) | the director 008253F0's beat scripts | L21 |
 | `em_examine_camera` | an examine cue's op00 shot | (no AREA11 route beat) |
 | `camera_door_cinematic` | the fence door's op0D sub 5 / locked look | L18 |
 | `camera_mode1_aim` + 0018D7B0(0) | the aim camera 00197D20 / 00197870 | L28 |
