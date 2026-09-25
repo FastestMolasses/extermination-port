@@ -926,10 +926,34 @@ static int x_alloc(void *c, int cls, uint8_t **node)
     if (node) *node = NULL;
     return unbound("001AFA90 from 0016BAE0 (the crawl spawn)");
 }
+/* 00182430(p, tier) over the record: em_player_step_sounds (the footstep's
+ * one translation) with +23A / +23C, 00179B90 and 001FBD50(p, id, 0, 300)
+ * at the record (w_sound_300). The tier argument is compared as its low
+ * byte, as the original does. */
+static int x_step_random5(void *c, unsigned *value)
+{
+    (void)c;
+    *value = footstep_rand5();
+    return 0;
+}
+static int x_step_sound(void *c, unsigned id)
+{
+    return w_sound_300(NULL, (EmPlayerLiveActor *)c, (int)id);
+}
 static int x_surface_sound(void *c, EmPlayerLiveActor *a, int gait)
 {
-    (void)c; (void)a; (void)gait;
-    return unbound("00182430 as a standalone worker (translated inside the footstep only)");
+    (void)c;
+    if (!a) return -1;
+    EmPlayerStepActor step;
+    memset(&step, 0, sizeof step);
+    step.surface = em_live_u8(a, 0x23A);
+    step.depth = em_live_u8(a, 0x23C);
+    EmPlayerStepWorkers w;
+    memset(&w, 0, sizeof w);
+    w.context = a;
+    w.random5 = x_step_random5;
+    w.sound = x_step_sound;
+    return em_player_step_sounds(&step, (uint8_t)gait, &w);
 }
 static int x_place(void *c, EmPlayerLiveActor *a)
 {

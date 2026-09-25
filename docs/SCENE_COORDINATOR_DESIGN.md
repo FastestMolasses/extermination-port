@@ -573,6 +573,19 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
     - newgame-control PASS (9.599989).
     - compare_frame_order: the verdicts equal the pre-step build's; idle04
       PASSes at a gameplay window.
+- **Census L03: the hill slide (2026-09-24; live).**
+  - 0016C6A0 is 0015B130's state[0x1C] on the live record (bound since the
+    Boxes step, first reached here). Its standalone 00182430 worker is the
+    footstep's one translation (em_player_floor.c em_player_step_sounds,
+    over the record's +23A / +23C); em_player.c's footstep_play calls it
+    too, and its private mapper is deleted.
+  - The hand-back to the port's idle keeps +1F1 (em_player.c
+    player_states_stage and the legacy stop no longer zero it; 00161020
+    case 0 and 0017C030 do not write it).
+  - **Verified.** The level smoke passes eight live phases. Phase `slide`
+    equals route 06 from the entry through the idle return (LEVEL_SMOKE.md
+    "slide"); newgame-control PASS (9.599989); the newgame-control frame
+    trace is byte-identical to the pre-step build's.
 
 
 **After S13, WP-4…WP-12 each replace one binding row and delete the matching legacy code:**

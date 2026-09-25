@@ -945,8 +945,12 @@ int player_states_stage(void)
         uint8_t major = em_live_u8(&live.a, 4), after = em_live_u8(&live.a, 5);
         if (!port_owned && major == 1 && after == 0) {
             /* +5 = 0 / +6 = 0: 00161020 case 0 runs next, as after the skid
-             * (the stop hand-off phase 3 requests the idle row). */
-            g.loco_mode = g.loco_substate = g.loco_tier = 0;
+             * (the stop hand-off phase 3 requests the idle row). Neither
+             * 00161020 case 0 nor 0017C030 writes +1F1: it keeps the value
+             * the state left (route 06 f181..: +1F1 stays 1 after the
+             * slide's skid-out). */
+            g.loco_mode = g.loco_tier = 0;
+            g.loco_substate = em_live_u8(&live.a, 0x1F1);
             g.loco_upt = g.move_speed = 0;
             g.loco_stop.phase = 3;
         } else if (!port_owned && major == 1 && after == 1) {
@@ -2035,9 +2039,10 @@ static void player_move_callbacks(void)
                 player_footstep_post(0x83);
             g.loco_upt = g.move_speed = 0;
             g.loco_animation_step = 0;
+            /* 0017C030 case 4 on the end flag writes +1F0 = 0 and +25C = 0,
+             * 00161020 case 0 writes +25C = 0; neither writes +1F1. */
             if (g.loco_stop.phase >= 3) {
                 g.loco_mode = 0;
-                g.loco_substate = 0;
                 g.loco_tier = 0;
             }
             if (before == 4 && g.loco_stop.phase)
@@ -2231,7 +2236,7 @@ unsigned footstep_rand5(void)
  * player height-resolve probe walk: step past non-walkable crossings,
  * take the first FLOOR/SLOPE hit's attr (EmCollHit.attr — the native
  * mirror of the poly node's +0x1A). No collision world -> attr 0,
- * which footstep_block maps to the default block 0x10 anyway. (The
+ * which 00182430 maps to the default block 0x10 anyway. (The
  * movable-object override — standing on a crate forces attr 2/4 — and
  * the 0x5A/0x5B/0x5C first-contact one-shots are untranslated.) */
 static uint8_t footstep_floor_attr(void)
@@ -2255,50 +2260,45 @@ static uint8_t footstep_floor_attr(void)
     return 0;
 }
 
-/* BLOCK(attr) — func_00182430's compiled-in material bases (FINDINGS
- * table; stride 0x11 = 17 ids per material: 3 tier sub-bases x 5
- * variants + 2 spare landing/scuff slots). */
-static unsigned footstep_block(uint8_t attr)
+/* 00182430's two sounds for the legacy step clock below: the one
+ * translation, em_player_step_sounds (em_player_floor.c,
+ * test_player_footstep_reference.py), with +23A from the step-time probe
+ * above, +23C from the record (the floor service's water depth) and
+ * 001FBD50(p, id, 0, 300) at the feet. EM_STEP_TRACE=1 prints each id. */
+static int footstep_play_random5(void *context, unsigned *value)
 {
-    switch (attr) {
-    case 1:    return 0x21u;
-    case 2:    return 0x32u;
-    case 3:    return 0x43u;
-    case 4:    return 0x54u;
-    case 5:    return 0x65u;
-    case 6: case 7: return 0xA9u;
-    case 8:    return 0x87u;
-    case 0xD:  return 0xDCu;
-    case 0xE:  return 0xEDu;
-    case 0x5A: return 0x76u;  /* wet/puddle surface */
-    case 0x5B: return 0xBAu;  /* water SHALLOW; DEEP (0xCB) needs the
-                               * +0x23C depth state — untranslated */
-    case 0x5C: return 0x98u;
-    default:   return 0x10u;  /* attr 0 + any unmapped material — the
-                               * office floor (grid attr 0, FINDINGS
-                               * office cross-check) */
-    }
+    (void)context;
+    *value = footstep_rand5();
+    return 0;
+}
+
+static int footstep_play_sound(void *context, unsigned id)
+{
+    const int *trace = context;
+    if (*trace)
+        printf("step: f%d id 0x%03X\n", g.frame_no, id);
+    em_sfx_play_at(id, g.pos, 300.0f);
+    return 0;
 }
 
 /* One footstep at `tier` (the engine mapper's a1 = +0x25C; the locomotion paths
- * pass actor +0x25C, the melee impact gates a scripted 1..3).
- * EM_STEP_TRACE=1 prints each step's resolved attr/ids (debug). */
+ * pass actor +0x25C, the melee impact gates a scripted 1..3). */
 void footstep_play(int tier)
 {
-    uint8_t  attr = footstep_floor_attr();
-    unsigned sub  = tier == 3 ? 0xAu : tier == 2 ? 5u : 0u;
-    unsigned surf = footstep_block(attr) + sub + footstep_rand5();
-    unsigned gear = EM_SFX_STEP_GEAR_BASE + footstep_rand5();
     static int trace = -1;
     if (trace < 0) trace = getenv("EM_STEP_TRACE") != NULL;
+    EmPlayerStepActor actor;
+    memset(&actor, 0, sizeof actor);
+    actor.surface = footstep_floor_attr();
+    actor.depth = em_live_u8(player_states_actor(), 0x23C);
+    EmPlayerStepWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.context = &trace;
+    workers.random5 = footstep_play_random5;
+    workers.sound = footstep_play_sound;
     if (trace)
-        printf("step: f%d tier %d attr 0x%02X -> surface 0x%03X gear 0x%03X\n",
-               g.frame_no, tier, attr, surf, gear);
-    /* engine: positional play_sound(actor, id, 0) radius 300 for both
-     * layers (FINDINGS footstep decode) — source = the player, so the
-     * gains come out center/full by the play_sound math itself */
-    em_sfx_play_at(surf, g.pos, 300.0f);
-    em_sfx_play_at(gear, g.pos, 300.0f);
+        printf("step: f%d tier %d attr 0x%02X\n", g.frame_no, tier, actor.surface);
+    (void)em_player_step_sounds(&actor, (uint8_t)tier, &workers);
 }
 
 /* ---- WP-15 P14/P15: 00187350 footstep dispatch ---------------------------

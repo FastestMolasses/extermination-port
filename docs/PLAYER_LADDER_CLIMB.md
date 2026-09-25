@@ -276,7 +276,7 @@ instruction it translates.
   | heading | 00174AC0 | `em_player_heading_record_worker` (em_player_heading_record.h; direct, context an `EmPlayerHeadingRecord`); its `world.spad3A20` must be the one shared 0x70003A20 word this scene's `spad3A20[0]` stands for |
   | skeleton | 001C68C0 | `em_pose_host_skeleton` (em_pose_host_workers.h, *lane*; direct) over `em_pose_host_001C68C0` |
   | floor | 00175900 | `player_states_floor_service` |
-  | footstep | 00182430(p, 2) | untranslated (FINDINGS "FOOTSTEP SURFACE TABLE") |
+  | footstep | 00182430(p, 2) | `em_player_step_sounds` (em_player_floor.h), bound live by em_player_closure_live.c x_surface_sound since census L03 |
   | ground_effect | 00187EE0(p, p+B0, p+D0) | untranslated |
   | translate | 00178B90 | em_player_recovery.h |
   | reentry | 0017C440 | untranslated (the motor module) |

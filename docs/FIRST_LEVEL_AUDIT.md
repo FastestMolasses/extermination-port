@@ -123,6 +123,28 @@ Summary: the *pieces* are largely verified; the *wiring* and the *live scene coo
     the live view. That owner also replaces em_snow_projection's private
     001D2960 copy.
 
+**Status update (2026-09-24, census L03: the hill slide; live):**
+- The **slope slide** 0016C6A0 (with 0016C520, 0016C570, 0016CD70,
+  0017F5F0, 00174FD0, 001791D0 and 00224B80) runs on the live record in
+  AREA11: 00175CF0 meets the hill's authored class-0x1000 nodes, 001796C0
+  enters state 0x1C (em_player_closure_live.c; PLAYER_CLIMB_SLIDE.md
+  section 6). Its last fail-stop on the route, 00182430 as a standalone
+  worker, is bound to the footstep's one translation
+  (em_player_step_sounds); em_player.c's own copy of that mapper is
+  retired.
+- The hand-back from a translated state to the port's idle keeps the
+  record's +1F1 (00161020 case 0 and 0017C030 do not write it); route 06
+  f181.. shows +1F1 = 1 on idle.
+- The level smoke passes eight live phases: `slide` reproduces route 06
+  from the entry (f72) through the landing (f138), the skid-out, the
+  hand-back (f181) and 12 idle rows (+5, +1F0, +1F1, clip, clock, ground
+  exact; the heading's authored values in order, crossings within one row;
+  per-row motion within 0.0025; LEVEL_SMOKE.md "slide").
+- **Open:** the slide's puffs are the counted effect gap (L26); its loop
+  sound 0x12E and the step/landing ids are not in the exported registry
+  (WP-14), so +31B stays -1 and 0016CD70 re-requests 0x12E each tick; the
+  entry follows the port's legacy walk and camera (L12, WP-16).
+
 ---
 
 ## 2. Live call graph (normal run)

@@ -60,8 +60,7 @@ unsigned em_player_step_sound_base(uint8_t surface, uint8_t depth, uint8_t tier)
 }
 
 /* 00182430(actor, tier): surface layer, then the gear layer 0x138. */
-static int step_sounds(const EmPlayerStepActor *actor, uint8_t tier,
-                       const EmPlayerStepWorkers *w)
+int em_player_step_sounds(const EmPlayerStepActor *actor, uint8_t tier, const EmPlayerStepWorkers *w)
 {
     unsigned variant;
     if (!w->random5 || !w->sound) return -1;
@@ -115,13 +114,13 @@ int em_player_footstep_tick(EmPlayerStepActor *a, const EmPlayerStepScene *scene
         if (!em_player_step_frames(a->clip, &frame_a, &frame_b)) break;
         if (a->step == 0) {
             if (a->clock <= (float)frame_a) {
-                if (step_sounds(a, a->tier, w) < 0) return -1;
+                if (em_player_step_sounds(a, a->tier, w) < 0) return -1;
                 if (!scene->foot17 || step_effect(a, scene->foot17, w) < 0) return -1;
                 a->step = 1;
             }
         } else if (a->step == 1) {
             if (a->clock <= (float)frame_b) {
-                if (step_sounds(a, a->tier, w) < 0) return -1;
+                if (em_player_step_sounds(a, a->tier, w) < 0) return -1;
                 if (!scene->foot18 || step_effect(a, scene->foot18, w) < 0) return -1;
                 a->step = 2;
             }
@@ -135,14 +134,14 @@ int em_player_footstep_tick(EmPlayerStepActor *a, const EmPlayerStepScene *scene
     }
     case 0x36: case 0x37:
         if (a->step & 0x80) {
-            if (step_sounds(a, a->step & 0xF, w) < 0) return -1;
+            if (em_player_step_sounds(a, a->step & 0xF, w) < 0) return -1;
         }
         a->step = 0;
         break;
     default:
         /* The stop and foot-placement endings post 0x80|tier (0017C030). */
         if (a->step & 0x80) {
-            if (step_sounds(a, a->step & 0xF, w) < 0) return -1;
+            if (em_player_step_sounds(a, a->step & 0xF, w) < 0) return -1;
             if (step_effect(a, a->position, w) < 0) return -1;
         }
         a->step = 0;

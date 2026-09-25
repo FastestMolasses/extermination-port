@@ -70,6 +70,14 @@ int em_player_step_frames(int clip, int *frame_a, int *frame_b);
 
 /* 00182430 surface sound id before its 00179B90 variant is added. */
 unsigned em_player_step_sound_base(uint8_t surface, uint8_t depth, uint8_t tier);
+/* 00182430(actor, tier): the surface sound (base + 00179B90), then the gear
+ * sound 0x138 + 00179B90, each through `sound` (001FBD50(actor, id, 0,
+ * 300)). It reads only actor->surface (+23A) and actor->depth (+23C).
+ * Returns 0, or -1 on a worker fault. The one translation: the footstep
+ * dispatch below calls it, and the live record's standalone callers (the
+ * slide, the ladder climb, the closure states) bind it through
+ * em_player_closure_live.c. */
+int em_player_step_sounds(const EmPlayerStepActor *actor, uint8_t tier, const EmPlayerStepWorkers *workers);
 
 /* 00187350. Returns 0, or -1 on a worker fault (fields written before the
  * fault keep their values, as the original's order leaves them). */

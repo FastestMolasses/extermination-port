@@ -5,8 +5,9 @@ Original executable SHA-256:
 
 Lane "climb-slide". This document records which original routines climb the
 AREA11 crates and slide the player down the short snow hill, what triggers
-them, the evidence, the translations and what remains before they can run in
-the live player. Nothing here is wired into the live player yet.
+them, the evidence, the translations and how they run in the live player:
+the ledge climb since the Boxes step (census L04/L25) and the slope slide
+since census L03 (section 6).
 
 ## 1. What the original does
 
@@ -303,57 +304,68 @@ must change with it. Clips 0x5E and 0x73 are chained in the original bank
 (next 0x5F / 0x72 with a blend flag) and em_pose_bank.c rejects chained clips,
 so they are not exported.
 
-## 6. Not yet live: what binding needs
+## 6. Live binding
 
-**State adapters (lane "player-states-live").** `em_player_slide_live_state`
-(+5 0x1C) and `em_player_climb_live_state` (+5 2 and 3) run the translated
-callbacks over the live actor, and so does `em_player_climb_live_probe`
-(0015DF10 for the Use chain). They are `EmPlayerStateCallback`s for
-`EmPlayerStatesBinding.stage.state[]` (0015B130's table; the translated
-0015B130 wrapper in em_player_floor.c calls them):
+**State adapters.** `em_player_slide_live_state` (+5 0x1C) and
+`em_player_climb_live_state` (+5 2 and 3) run the translated callbacks over
+the live record; `em_player_climb_live_probe` runs 0015DF10 for the Use
+chain. em_player_closure_live.c binds them in 0015B130's table
+(`EmPlayerStatesBinding.stage.state[]`) with every other FLOOR closure
+state, since the Boxes step (climb) and census L03 (slide):
 
-- Each adapter keeps the module's worker table.
+- Each adapter keeps the module's worker table. Around every worker call it
+  stores the mirror into the record and reads it back, so a worker that
+  reads or writes the record sees what the original would.
 - The floor, fall and probe workers (00175900, 001796C0, 001764E0) run over
-  the live actor through `player_states_floor_service`,
-  `player_states_fall_check` and `player_states_wall_probes`.
-- A missing worker faults before the actor is touched.
-- Their mirrors (`em_player_*_actor_from_live` / `_to_live`) are checked by
-  both reference tests against the offset tables their original-instruction
-  comparisons use. The climb's `link_kind` comes from the +308 owner through
-  `em_actor_collision_player_link_kind`.
+  the record through `player_states_floor_service`,
+  `player_states_fall_check` and `player_states_wall_probes`; the move and
+  sweep walkers 0019AD00 / 0019AFE0 through em_coll_move (the original
+  walkers over the collision world, em_coll_grid_hull for 0019CB60 /
+  001A6440). The floor walkers report the grid nodes' authored class, so
+  the hill's class-0x1000 nodes enter the slide live.
+- The slide's record-level slots: 001749A0 / anim_clip_arbiter / 001C61D0
+  on the one pose owner (chained 0x5E -> 0x5F plays from PLAYER_CLIPS.md's
+  bank), 00178B90 (em_player_recovery), 00224B80
+  (em_player_recovery_react_00224B80_worker), 00224290 / 0017C580 /
+  0021D250 / 0021D2E0 (em_player_fall), 00182870 (em_player_reaction),
+  00182430 (em_player_floor.c em_player_step_sounds, the footstep's one
+  translation), 001FBD50 / 0011A070 (em_sfx tracks), 001B12B0
+  (em_script_host_001B12B0), 00174FD0 (em_player_record_00174FD0), the SDK
+  sine / cosine / atan2 (em_sdk_math_original).
+- A missing worker faults before the record is touched; the mirrors
+  (`em_player_*_actor_from_live` / `_to_live`) are checked by both reference
+  tests against their original-verified offset tables.
 
-FIRST_CONTROL.md "Live player states" has the gates. The items below are
-what they still wait for:
+**Live evidence.** The level smoke's `boxes` phase equals route 05's two
+climbs row for row and its `slide` phase equals route 06 from the slide
+entry through the idle return (LEVEL_SMOKE.md "boxes", "slide"). On the
+route the slide runs 109 native 0x1C callbacks, as in the world-mode
+replay of section 4.
 
-1. **Crate collision.** Publish crate cells uid 7..10 (compact type-0x2000
-   faces, same format as `panel_cell18.emcb`) from their owners each tick. The
-   port player currently walks through the crates.
-2. **Authored grid class.** The EMCL exporter must write grid node byte +0x1B
-   into the poly pad byte and set header flag 0x2
-   (`EM_COLL_FLAG_NODE_CLASS`). em_collision.c then reports the authored class
-   for grid hits (implemented, inactive until the asset carries the flag).
-   After regeneration the existing probe/camera results must be re-baselined:
-   the normal-derived class differs from the authored one on many nodes.
-3. **0019BC40 column table**: translated (`em_collision_column_table`); the
-   binder passes the published class-4 owners in list order. Still missing:
-   n-gon owner cells (001A58B0 and an EmCollCell n-gon form) and the rank
-   tables for the four level-edge exceptions.
-4. **The Use chain 00160220** in the idle/walk callbacks: 00184BA0 (interaction
-   host), 0015D4C0, 0015EC50 (running jump, state 6 001634A0) and 0015FDF0 are
-   untranslated; each reached untranslated routine must fault.
-5. **Floor service and fall check live** (PLAYER_FLOOR.md P17/P18): the slide
-   is entered from 00175CF0/001796C0, and the climb/slide callbacks run
-   00175900, 001796C0, 00178B90 and 001764E0 as workers.
-6. **Pose host**: clip requests (001749A0/anim_clip_arbiter) with chained
-   clips 0x5E/0x73, the 0x1000/0x8000 animation flags, the root/hip node
-   values (skeleton worker), and the installed clips.
-7. **Unported workers** reached on these paths: 00224B80/00224290/0017C580
-   (damage and landing reactions), 0021D250/0021D2E0 (surface 0x5D),
-   001EFD90 effects, 00182430/00182870 sounds, state 9 (001647D0, hang) and
-   state 7/8 callbacks entered on the failure exits.
-8. **Camera**: 00191390 gives climb states their own height row
-   (FINDINGS "per-state height table"); 00193EB0 routes climb states to
-   per-area cinematics.
+**Remaining gaps on these paths:**
+
+1. **Effects.** 001EFD90 (the slide's 0x80000065 every 8 ticks, the climb's
+   surface puff) goes to the counted effect gap (em_player.c
+   player_effect_gap) until the effect owner is live (census L26).
+2. **Sounds.** The slide loop 0x12E, the skid and landing steps and the
+   climb's 0x74 / 0x12B / 0xEC are not in the exported sfx registry
+   (tools/export_sfx_registry.py takes its ids from the decomp's scene
+   lists; WP-14). 001FBD50 then returns -1: the record's +31B stays -1 and
+   0016CD70 re-requests 0x12E on every motion tick (57 silent requests on
+   the route) where the original holds one track.
+3. **Not reached on the route:** the slide's airborne exits (sub-states
+   0x14 / 0x15: 00224290, 0017C580, clip 0x6D), 0021D250 / 0021D2E0
+   (surface 0x5D, sub-state 0x1E), the vault (state 3) and the hang
+   (state 9). They are bound; nothing live has exercised them.
+4. **Camera.** 00191390 (the climb states' height row) and 00193EB0 (the
+   per-area climb cinematics) are not bound: the follow camera is the
+   legacy em_camera.c (WP-16).
+5. **Around the slide** the port's idle/walk callbacks are the legacy
+   locomotion (census L12). The hand-back from a translated state keeps the
+   record's +1F1 (00161020 case 0 and 0017C030 do not write it; route 06
+   f181..: +1F1 stays 1).
+6. The column table's n-gon owner cells (001A58B0) and the grid rank tables
+   of section 3 are unchanged.
 
 ## 7. Attribute 0x32 columns (identified, not translated)
 

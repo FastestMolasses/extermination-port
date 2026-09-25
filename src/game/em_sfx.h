@@ -223,7 +223,7 @@ extern "C" {
  *
  * There is NO id table in the engine: the mapping is compiled-in
  * immediates in the func_00182430 mapper (the per-material 17-id BLOCK
- * bases live in em_game.c footstep_block; attr 0/unmapped -> 0x10, the
+ * bases are em_player_floor.c em_player_step_sound_base; attr 0/unmapped -> 0x10, the
  * office floor), GAIT_SUB is gait 3 -> +0xA, gait 2 -> +5, else +0,
  * and rand5 = (rand() & 7) with 5..7 folded to 0..2. The s29 "floor A
  * 0x15/0x16 vs floor B 0x1A/0x1B pairs, alternating L/R" were the SAME

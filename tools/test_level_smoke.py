@@ -69,6 +69,14 @@ panel
     compared: the port's status modules 0x1F/0x21 are resident, the
     original's ITEM root waits 25 frames on its load of module 0x21 (item
     state 3, route 03 f390..f414, a known WP-5 divergence).
+boxes
+    Both ledge climbs of route 05 row for row (check_boxes).
+slide
+    Route 06 from the slide entry (+5 = 0x1C, f72) through the landing, the
+    skid-out, the hand-back and 12 idle rows: +5, +1F0, +1F1, clip, clock
+    and ground row for row; the heading's values and order with node
+    crossings within one row; the per-row motion within 0.0025 off the
+    crossing rows; the landed Y within 0.02 (check_slide).
 """
 import argparse
 import json
@@ -475,6 +483,90 @@ def check_boxes(ticks, run, state):
           f'heading and Y (the lift relative to the stance): {"; ".join(notes)})')
 
 
+# ------------------------------------------------ slide (census L03)
+
+# Route 06: the first row with +5 = 0x1C (f72, entered by 001796C0 from the
+# hill's authored class-0x1000 grid nodes) through the slide (0016C6A0 with
+# clips 0x5E / 0x61), the landing (+1F0 0x30 -> 0, f138), the skid-out
+# (clips 0x60 / 0x65), the hand-back to state 0 (f181) and 12 idle rows.
+SLIDE_ROWS = 122
+# The entry point is where the port's walk (navigation input, and the
+# legacy follow camera the stick is steered against, WP-16) first meets a
+# class-0x1000 node: about 0.6 from the original's in X/Z. The slide then
+# crosses the authored nodes' boundaries (the downhill heading +218 and the
+# slope +9C change) at rows that follow that entry point, so:
+# - the heading takes the original's values in the original's order, each
+#   change within SLIDE_CROSSING_ROWS of the original's row;
+# - the per-row motion (the step from the previous row) equals the
+#   original's within SLIDE_STEP_TOLERANCE except on a crossing row (either
+#   run's heading changes there or on a neighbour) and on the landing row;
+#   a crossing one row early changes the speed gain of that row
+#   (0.01 sin(slope)), which is the constant residual after it;
+# - the landing row and every later step are exact in timing; the landed Y
+#   is the floor under the port's own X/Z, compared absolutely within
+#   SLIDE_LAND_Y_TOLERANCE.
+SLIDE_CROSSING_ROWS = 1
+SLIDE_STEP_TOLERANCE = 0.0025
+SLIDE_LAND_Y_TOLERANCE = 0.02
+
+
+def check_slide(ticks, run, state):
+    rows = route_rows('06_hill_slide')
+    live = [i for i in range(1, len(ticks)) if 'player' in ticks[i]]
+    entries = [i for i in live if ticks[i]['player'][0] == 0x1C and ticks[i - 1]['player'][0] != 0x1C]
+    assert len(entries) == 1, ('the run entered the slope slide other than once', len(entries))
+    e = entries[0]
+    r0 = next(k for k in range(1, len(rows)) if rows[k]['p5'] == 0x1C and rows[k - 1]['p5'] != 0x1C)
+    assert rows[r0]['f'] == 72, ('route 06 slide entry moved', rows[r0]['f'])
+    assert e + SLIDE_ROWS < len(ticks), ('the tick log ends inside the slide window', len(ticks) - e)
+    pos = [[f32(v) for v in ticks[e + k]['pos_post']] for k in range(SLIDE_ROWS)]
+    yaw = [round(f32(ticks[e + k]['yaw_post']), 5) for k in range(SLIDE_ROWS)]
+    orig = [rows[r0 + k] for k in range(SLIDE_ROWS)]
+    # State, action, +1F1, clip, ground: row for row; the clock from the row
+    # after the entry (the entry row's clock is the walk clip's, whose phase
+    # at the entry is navigation input).
+    for k in range(SLIDE_ROWS):
+        p, r = ticks[e + k]['player'], orig[k]
+        got = {'p5': p[0], 'm1F0': p[1], 'm1F1': p[2], 'clip': p[3], 'ground': hex(p[5])}
+        want = {'p5': r['p5'], 'm1F0': r['m1F0'], 'm1F1': r['m1F1'], 'clip': r['clip'], 'ground': r['ground']}
+        if k:
+            got['clock'], want['clock'] = round(f32(p[4]), 3), r['clock']
+        assert got == want, ('slide row', r['f'], k, got, want)
+    land = next(k for k in range(SLIDE_ROWS) if orig[k]['m1F0'] == 0)
+    back = next(k for k in range(SLIDE_ROWS) if orig[k]['p5'] == 0)
+    assert orig[land]['f'] == 138 and orig[back]['f'] == 181, ('route 06 landing / hand-back moved', land, back)
+    # Heading: from row 2 (0016C6A0 sub-state 1 turns +C4 onto +218 at
+    # 0.10471976 per tick; rows 0/1 carry the walk's heading).
+    def changes(seq):
+        return [(k, seq[k]) for k in range(3, len(seq)) if seq[k] != seq[k - 1]]
+    ours, theirs = changes(yaw[:land + 1]), changes([r['yaw'] for r in orig[:land + 1]])
+    assert yaw[2] == orig[2]['yaw'], ('slide heading after the turn', yaw[2], orig[2]['yaw'])
+    assert [v for _, v in ours] == [v for _, v in theirs], ('slide heading sequence', ours, theirs)
+    shift = max(abs(a - b) for (a, _), (b, _) in zip(ours, theirs)) if ours else 0
+    assert shift <= SLIDE_CROSSING_ROWS, ('slide node crossing moved', ours, theirs)
+    assert yaw[land:] == [r['yaw'] for r in orig[land:]], ('heading after the landing', yaw[land:])
+    crossing = {k + d for k, _ in ours + theirs for d in (-1, 0, 1)}
+    worst = 0.0
+    for k in range(1, SLIDE_ROWS):
+        if k in crossing or k == land:
+            continue
+        for a in range(3):
+            d = abs((pos[k][a] - pos[k - 1][a]) - (orig[k]['pos'][a] - orig[k - 1]['pos'][a]))
+            assert d <= SLIDE_STEP_TOLERANCE, ('slide step', orig[k]['f'], k, 'xyz'[a], d)
+            worst = max(worst, d)
+    land_dy = abs(pos[land][1] - orig[land]['pos'][1])
+    assert land_dy <= SLIDE_LAND_Y_TOLERANCE, ('landed Y', pos[land][1], orig[land]['pos'][1])
+    after = max(abs((pos[k][a] - pos[k - 1][a]) - (orig[k]['pos'][a] - orig[k - 1]['pos'][a]))
+                for k in range(land + 1, SLIDE_ROWS) for a in range(3))
+    entry_xz = max(abs(pos[0][a] - orig[0]['pos'][a]) for a in (0, 2))
+    print(f'slide: PASS (route 06 f{orig[0]["f"]}..f{orig[-1]["f"]} row for row in +5, +1F0, +1F1, clip, clock and '
+          f'ground: the entry at f72, clips 0x5E/0x61, the landing at f{orig[land]["f"]}, the skid-out 0x60/0x65, '
+          f'the hand-back at f{orig[back]["f"]} and the idle return; the heading takes the original values '
+          f'{[v for _, v in theirs]} with crossings within {shift} row(s); per-row motion within {worst:.5f} off the '
+          f'crossing rows (entry X/Z {entry_xz:.3f} from the original\'s), after the landing within {after:.5f}; '
+          f'landed Y {pos[land][1]:.5f} against {orig[land]["pos"][1]})')
+
+
 # Route order (docs/FIRST_LEVEL_ROUTE.md section 3; em_level_smoke_test.c
 # k_phases). A later step that makes a phase live adds its capture check here
 # in the same commit as its runner.
@@ -486,7 +578,7 @@ PHASES = [
     ('panel', check_panel),
     ('elevator', check_elevator),
     ('boxes', check_boxes),
-    ('slide', None),
+    ('slide', check_slide),
     ('truck_preview', None),
     ('truck_crossing', None),
     ('cage_roof', None),

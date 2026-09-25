@@ -1,8 +1,9 @@
 # Level smoke: the first level, live, phase by phase
 
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
-elevator refusal, the panel and the elevator ride) and census L25 (the
-boxes: the Use chain's ledge climbs onto the crates' original owners). The smoke plays the
+elevator refusal, the panel and the elevator ride), census L25 (the
+boxes: the Use chain's ledge climbs onto the crates' original owners) and
+census L03 (the hill slide). The smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
 
@@ -22,7 +23,7 @@ WP-6 (the battery pickup is live).
 ## Running it
 
 ```sh
-make test-level-smoke                  # the whole route (about 9 s today)
+make test-level-smoke                  # the whole route (about 11 s today)
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
@@ -80,7 +81,7 @@ The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. Side beats
 | panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
 | elevator | 04 | terminal 0x827B10, script 0x82A750, carry 0x828050 | yes (WP-4) | — |
 | boxes | 05 | Use dispatcher 00160220, ledge climb 0015DF10 / state 2 onto crates r4/r3 (001551B0) | yes (census L25) | — |
-| slide | 06 | slope slide 0016C6A0 | no | slide wiring (WP-15) |
+| slide | 06 | floor class 0x1000 -> 001796C0, slope slide 0016C6A0 (state 0x1C, +1F0 0x30) | yes (census L03) | — |
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | no | WP-12, WP-10 |
 | truck_crossing | 08 | truck 0x823FF0 | no | WP-12 |
 | cage_roof | 10 | ladder, director 0x8253F0 beat 0, Roger 0x8237E0 script 0x828990 | no | WP-15, WP-10, WP-9 |
@@ -336,6 +337,59 @@ idle return are compared row for row:
   follows the wall distance. The measured bound is 0.0062 and 0.0051.
 
 Both climbs land on the original's ground records (0x7A7C70, then 0x7A7980).
+
+### slide
+
+Route beat 06, live since census L03: the floor service's apply 00175CF0
+meets the hill's authored class-0x1000 grid nodes, 001796C0 enters state
+0x1C and 0016C6A0 runs the slide on the live record
+(em_player_closure_live.c binds em_player_slide_live_state as 0015B130's
+state[0x1C]; PLAYER_CLIMB_SLIDE.md section 6).
+
+**Runner.** From the boxes' end the player walks to route 06's start stance
+(219.594, 305.214; 0.4 stick to within 0.1), settles, faces -0.04141 and
+settles again. Then it plays route_capture.py's beat_hill_slide: the stick
+at full deflection toward (240, 312) until within 1.5, then toward
+(262, 356) without a stop until +1F0 = 0x30, and on until +1F0 leaves 0x30
+(the landing). The stick is then released and held neutral through the
+skid-out, the hand-back to state 0 and 60 frames of settle.
+**In process:**
+- walking down the hill enters the slide (+5 = 0x1C, +1F0 = 0x30);
+- the slide action ends in state 0x1C on the low ground (y below 186; route
+  f138 y 185.0);
+- control returns there (route f181: y 185.28).
+
+**Against the capture** (`check_slide`, route 06). The run's one slide entry
+(its first tick with +5 = 0x1C) is aligned on route 06's (f72). The
+122 rows through the landing (f138), the skid-out, the hand-back (f181)
+and 12 idle rows are compared:
+- +5, +1F0, +1F1, the clip, the clock (from the row after the entry; the
+  entry row's clock is the walk clip's) and the ground owner, exactly;
+- the heading from the row after 0016C6A0's turn onto +218: it takes the
+  original's authored downhill values in the original's order (0.4113,
+  0.404, 0.33419, 0.29289), each change within one row of the original's;
+  exact from the landing on;
+- the per-row motion (each row's step from the previous one) within 0.0025
+  in X, Y and Z, except on the node-crossing rows (and their neighbours)
+  and the landing row; the landed Y within 0.02 of the original's.
+
+Why not the absolute positions: the port's walk down to the hill is
+navigation (its own locomotion, WP-15/L12, steered against the legacy
+follow camera, WP-16), so the slide starts about 0.58 from the original's
+entry in X/Z. Where the slide crosses from one authored node to the next
+(new +218 and slope) then follows that entry point: a crossing one row
+earlier or later changes that row's speed gain (0.01 sin(slope)), and the
+constant step residual after it (measured at most 0.00184) is that one
+row's gain. The landing row's Y is the floor under the port's own X/Z
+(measured 0.0125 above the original's); every step after the landing is
+equal within 0.00004. Measured: every other compared field equal. A
+mutation (the entry speed 0.2 to 0.21 in em_player_slide.c) fails at f137
+(the landing one row early).
+
+What the smoke does not compare: the slide's sounds and effects (the loop
+0x12E and the skid/landing ids are not in the exported sfx registry, WP-14,
+and the 001EFD90 spawns go to the counted effect gap, L26); the camera
+(the legacy follow camera, WP-16).
 
 ## Adding a phase (the contract for WP-4 onward)
 

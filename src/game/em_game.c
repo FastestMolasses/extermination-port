@@ -537,7 +537,7 @@ const float kLocoTierSpeed[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
  *
  * There is NO per-surface id table in the engine — the mapping is
  * compiled-in immediates inside func_00182430: a 17-id block per floor
- * material (footstep_block below) + the tier sub-base (a1==3 -> +0xA,
+ * material (em_player_floor.c em_player_step_sound_base) + the tier sub-base (a1==3 -> +0xA,
  * a1==2 -> +5, else +0; a1 = actor +0x25C, the ramped locomotion
  * tier — run +0xA, jog +5, walk +0) + rand5 =
  * func_00179B90 = (rand() & 7) with 5..7 folded to 0..2 (0..4, the low

@@ -569,11 +569,14 @@ mechanism still lacks; in AREA11 it lacks nothing):
     0017F1C0 (hang, ledge and crawl helpers);
   - 00188570 / 590 / 5B0 / 610;
   - 0021C200, 00182AF0, 0015C1F0 (with 001CA6E0 / 001C6150 / 00200890 on
-    the player), 001FAFD0, 001B0460, 001AFA90, 00182430, 00187EE0, 001FB9F0,
+    the player), 001FAFD0, 001B0460, 001AFA90, 00187EE0, 001FB9F0,
     001CA6E0, 001C6150, 00200890, 001B1380, 001AAC00 (area 0x15);
   - the weapon stance handlers and the D_00275B8C target list (no AREA11
     owner publishes class 2);
   - the rumble 001B61C0 (no pad actuator block);
+  (00182430 is bound since census L03: em_player_floor.c
+  em_player_step_sounds over the record's +23A / +23C, PLAYER_CLIMB_SLIDE.md
+  section 6.)
   - a ladder / ledge action record (attribute 0x20..0x3D). The EMCL export
     lacks the grid node's +0x34..+0x3F axis that 0015D4C0's cases read.
 

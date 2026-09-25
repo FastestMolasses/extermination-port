@@ -59,11 +59,13 @@ def main():
         source = Path(folder) / 'bridge.c'
         source.write_text(BRIDGE)
         library = Path(folder) / 'player.dylib'
-        # Only footstep_play/footstep_rand5 run. Unrelated em_player.c callees
+        # Only footstep_play (through em_player_floor.c's 00182430,
+        # em_player_step_sounds) and footstep_rand5 run. Unrelated callees
         # get aborting stubs so a reached one fails loudly instead of linking.
         command = ['cc', '-std=c11', '-O2', '-ffp-contract=off', '-fPIC', '-shared',
                    '-I' + str(ROOT / 'src'), str(source),
-                   str(ROOT / 'src/game/em_player.c'), str(ROOT / 'src/game/em_random.c'),
+                   str(ROOT / 'src/game/em_player.c'), str(ROOT / 'src/game/em_player_floor.c'),
+                   str(ROOT / 'src/game/em_random.c'),
                    '-lm', '-o', str(library)]
         probe = subprocess.run(command, capture_output=True, text=True)
         missing = sorted(set(re.findall(r'"_(\w+)", referenced from', probe.stderr)))

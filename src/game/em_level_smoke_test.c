@@ -65,6 +65,8 @@ static void elevator_begin(void);
 static int elevator_frame(void);
 static void boxes_begin(void);
 static int boxes_frame(void);
+static void slide_begin(void);
+static int slide_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -90,7 +92,7 @@ static const Phase k_phases[] = {
     {"boxes", "05_boxes", 0x001551B0u, "ledge climb (state 2, +1F0 8) onto crates r4 and r3 (001551B0)",
      "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0},
     {"slide", "06_hill_slide", 0, "slope slide 0016C6A0 (state 0x1C, +1F0 0x30)",
-     "the slope slide wired to the player (em_player_slide; WP-15)", NULL, NULL, 0},
+     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "WP-12 (trigger) with the WP-10 script host", NULL, NULL, 0},
@@ -1037,6 +1039,93 @@ static int boxes_frame(void)
             return 0;
         }
         fprintf(stderr, "level smoke: boxes: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0], g.pos[1],
+                g.pos[2], g.yaw);
+        return 1;
+    }
+    default:
+        return 0;
+    }
+}
+
+/* --------------------------------------------------------------- slide
+ *
+ * Route beat 06 (route_capture.py beat_hill_slide): from the upper ledge
+ * the stick points at (240, 312) at full deflection until within 1.5, then
+ * at (262, 356) without a stop. The floor service's apply 00175CF0 meets
+ * the hill's authored class-0x1000 grid nodes and 001796C0 enters the
+ * slope slide (+5 = 0x1C, +1F0 = 0x30; route f72 at (251.1, 207.1,
+ * 328.1)); 0016C6A0 runs it with clips 0x5E / 0x61 while the stick stays
+ * on (262, 356). When +1F0 leaves 0x30 (route f138, on the low ground at
+ * y 185.0) the stick is released; the skid-out (clips 0x60 / 0x65) hands
+ * back to state 0 (f181) and the player idles at (265.7, 185.3, 373.7).
+ * In process: the slide is entered, its action ends on the low ground and
+ * control returns there; tools/test_level_smoke.py check_slide compares
+ * the slide with the capture row for row. */
+enum { SLIDE_ENTRY_LIMIT = 300, SLIDE_LIMIT = 400 };
+
+static void slide_begin(void)
+{
+    nav_reset();
+}
+
+static int slide_frame(void)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint8_t state = em_live_u8(a, 5), mode = em_live_u8(a, 0x1F0);
+    switch (t.step) {
+    case 0: NAV_STEP(nav_goto(219.594f, 305.214f, 0.1f, 0.4f, 1));
+    case 1: NAV_STEP(nav_settle(20));
+    case 2: NAV_STEP(nav_face(-0.04141f));
+    case 3: NAV_STEP(nav_settle(30));
+    case 4:
+        /* route_capture goto(240, 312, tol 1.5, stop=False). */
+        if (nav_stick_toward(240.0f, 312.0f, 1.0f) > 1.5f) {
+            if (++t.nav_frames > NAV_LIMIT)
+                fail("navigation did not reach the top of the hill");
+            return 0;
+        }
+        nav_reset();
+        ++t.step;
+        /* fall through: the stick turns to (262, 356) on this frame */
+    case 5:
+        nav_stick_toward(262.0f, 356.0f, 1.0f);
+        if (state == 0x1C && mode == 0x30) {
+            t.saw[0] = 1;
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > SLIDE_ENTRY_LIMIT)
+            fail("walking down the hill did not enter the slope slide (+5 = 0x1C, +1F0 = 0x30)");
+        return 0;
+    case 6:
+        if (mode == 0x30) {
+            nav_stick_toward(262.0f, 356.0f, 1.0f);
+            if (++t.nav_frames > SLIDE_LIMIT)
+                fail("the slide action did not end");
+            return 0;
+        }
+        pad_apply(0, 0, 0);
+        if (state != 0x1C || g.pos[1] > 186.0f) {
+            fprintf(stderr, "level smoke: slide: action ended at +5 %u y %.5f\n", state, g.pos[1]);
+            fail("the slide action did not end in state 0x1C on the low ground (route f138: y 185.0)");
+            return 0;
+        }
+        nav_reset();
+        ++t.step;
+        return 0;
+    case 7: {
+        /* Neutral through the skid-out, the hand-back (route f181) and past
+         * the idle return the capture check compares (12 rows). */
+        int r = nav_settle(60);
+        if (r <= 0)
+            return 0;
+        if (g.pos[1] > 186.0f) {
+            fprintf(stderr, "level smoke: slide: settled at y %.5f\n", g.pos[1]);
+            fail("the player did not settle on the low ground (route f181: y 185.28)");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: slide: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", g.pos[0], g.pos[1],
                 g.pos[2], g.yaw);
         return 1;
     }

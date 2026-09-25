@@ -296,7 +296,7 @@ em_player_closure_state13`, `state[0x14] = em_player_closure_state14`,
 | `ledge_move` | 001809B0 | `em_player_ladder_climb_001809B0` (lane ladder-climb) through an adapter |
 | `clip_FF80`, `clip_FC80` | 0017FF80, 0017FC80 | 0017FC80: `em_player_ladder_climb_0017FC80`; 0017FF80 untranslated |
 | `clip_DFB0`, `clip_E0D0`, `clip_E150`, `clip_E1D0` | 0017DFB0.. | untranslated (the hang lane has the same workers) |
-| `surface_sound` | 00182430 | checked inside the footstep oracle (`em_player_footstep_tick`, em_player_floor.h), not exported as its own routine |
+| `surface_sound` | 00182430 | `em_player_step_sounds` (em_player_floor.h; checked by the footstep oracle), bound live over the record's +23A / +23C by em_player_closure_live.c x_surface_sound since census L03 |
 | `sound_109` | 00182A70 | untranslated |
 | `land_sound` | 00182870 | `em_player_reaction_00182870` |
 | `floor` | 00175900 | `player_states_floor_service` |
@@ -361,6 +361,6 @@ it and hand its words by value to `transform`, `vadd`, `sweep`, `ground` and
 - **No route evidence** (section 4.3).
 - **Untranslated workers:** 00174FD0, 0017FF80, 0017DFB0, 0017E0D0,
   0017E150, 0017E1D0, 00182A70, 00178390, 001782A0, 00179B90, float_to_int,
-  and 00182430 / 00187EE0 as standalone routines, besides the animation,
+  and 00187EE0 as a standalone routine, besides the animation,
   sound and fade workers listed above.
 - **Table faults** (+23F > 3, +2F1 > 1) replace reads of neighbouring data.
