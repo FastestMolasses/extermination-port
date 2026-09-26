@@ -59,9 +59,30 @@
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_owner_draw_live.h"
+#include "game/em_shadow_live.h"
 
 /* See em_render_001D1EA0. */
 static int s_request_status_frame;
+
+/* 0015C160, the player post-step, bound (the first level: census L29): the
+ * player's own draw (its +0x4C method) is not collected into the chain; the
+ * post-step requests it (em_render_player_draw_0015C160, in the frame whose
+ * w_0015C160 passed the D_008102B1 gate) and frame_close_out makes it after
+ * the shadow's passes, where 001AE5E0 / 001AE6B0 call 0015C160: after the
+ * level and the walked actors (docs/SHADOW_ORIGINAL.md "Binding"). */
+static int s_player_post_step;
+static uint32_t s_player_draw_frame = UINT32_MAX;
+
+void em_render_player_post_step(int bound)
+{
+    s_player_post_step = bound != 0;
+    s_player_draw_frame = UINT32_MAX;
+}
+
+void em_render_player_draw_0015C160(void)
+{
+    s_player_draw_frame = em_frame_counter();
+}
 
 static uint32_t point_light_random(void *context)
 {
@@ -212,7 +233,7 @@ void render_chain_build(void)
             g.chain_len++;
         }
     }
-    if (g.mesh && !em_opening_runtime_actors_active()) {
+    if (g.mesh && !em_opening_runtime_actors_active() && !s_player_post_step) {
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.mesh, g.player_palette,
@@ -582,6 +603,45 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
     }
 }
 
+/* One recorded chain draw with its lighting (the flush loop's body; the
+ * player's own draw uses it too, at 0015C160's +0x4C position). */
+static void chain_draw(EmGfx *gfx, const ChainDraw *cd, int actor, const float *viewproj)
+{
+    /* LIGHTING — actor draws (everything after the scene
+     * meshes: doors, enemies, player — the chain-build order)
+     * take a freshly composed character rig, the engine's
+     * per-actor light-matrix rebuild (func_001D89D0 per draw
+     * publish). Anchor = the palette's bone-0 world
+     * translation (column-major [12..14] — the engine's node
+     * light-reference column +0xC0); the camera fill is the
+     * PLAYER draw's alone (decoded gating, char_rig_build).
+     * Scene meshes draw rig-less: the LEVEL path ignores the
+     * rig anyway (baked vertex color — engine truth). */
+    if (g.rig_on && actor) {
+        EmGfxCharRig rig;
+        const float *node = cd->palette + 16u * cd->anchor_bone;
+        const float anchor[3] = { node[12], node[13], node[14] };
+        char_rig_build(&rig, anchor,
+                       cd->palette == g.player_palette || cd->cam_fill, 1);
+        em_gfx_char_rig(gfx, &rig);
+        if (cd->face) {
+            /* Original face 001D88B0: camera fill on, owner NULL
+             * (no dynamic lamps), as the opening's actors. */
+            char_rig_build(&rig, NULL, 1, 0);
+            em_gfx_char_face_rig(gfx, &rig);
+        }
+    } else {
+        em_gfx_char_rig(gfx, NULL);
+    }
+    if (cd->tint)         /* per-draw RGBA modulate (ChainDraw) */
+        em_gfx_draw_skinned_tinted(gfx, cd->mesh, viewproj,
+                                   cd->palette, cd->bone_count,
+                                   cd->tint);
+    else
+        em_gfx_draw_skinned(gfx, cd->mesh, viewproj,
+                            cd->palette, cd->bone_count);
+}
+
 /* func_001CB5A0 / func_001AAD00 / func_001D1EA0(1) — close-out: flush the
  * recorded chain with the camera block applied (the native "kick"), then
  * advance clip time. EM_CAPTURE instrumentation lives here so its frame
@@ -657,42 +717,8 @@ void frame_close_out(void)
             em_gfx_fog(gfx, g.fog_near, g.fog_far, g.fog_rgb);
         else
             em_gfx_fog_off(gfx);
-        for (int i = 0; i < g.chain_len; i++) {
-            const ChainDraw *cd = &g.chain[i];
-            /* LIGHTING — actor draws (everything after the scene
-             * meshes: doors, enemies, player — the chain-build order)
-             * take a freshly composed character rig, the engine's
-             * per-actor light-matrix rebuild (func_001D89D0 per draw
-             * publish). Anchor = the palette's bone-0 world
-             * translation (column-major [12..14] — the engine's node
-             * light-reference column +0xC0); the camera fill is the
-             * PLAYER draw's alone (decoded gating, char_rig_build).
-             * Scene meshes draw rig-less: the LEVEL path ignores the
-             * rig anyway (baked vertex color — engine truth). */
-            if (g.rig_on && i >= g.n_scene) {
-                EmGfxCharRig rig;
-                const float *node = cd->palette + 16u * cd->anchor_bone;
-                const float anchor[3] = { node[12], node[13], node[14] };
-                char_rig_build(&rig, anchor,
-                               cd->palette == g.player_palette || cd->cam_fill, 1);
-                em_gfx_char_rig(gfx, &rig);
-                if (cd->face) {
-                    /* Original face 001D88B0: camera fill on, owner NULL
-                     * (no dynamic lamps), as the opening's actors. */
-                    char_rig_build(&rig, NULL, 1, 0);
-                    em_gfx_char_face_rig(gfx, &rig);
-                }
-            } else {
-                em_gfx_char_rig(gfx, NULL);
-            }
-            if (cd->tint)         /* per-draw RGBA modulate (ChainDraw) */
-                em_gfx_draw_skinned_tinted(gfx, cd->mesh, viewproj,
-                                           cd->palette, cd->bone_count,
-                                           cd->tint);
-            else
-                em_gfx_draw_skinned(gfx, cd->mesh, viewproj,
-                                    cd->palette, cd->bone_count);
-        }
+        for (int i = 0; i < g.chain_len; i++)
+            chain_draw(gfx, &g.chain[i], i >= g.n_scene, viewproj);
         /* The owner units the walk built this frame (001CAA00 of the
          * crates, drums, truck and fence door: em_owner_draw_live), through the object
          * kernel and its clip pass (em_gfx_object_unit). The frame's fog is
@@ -700,6 +726,19 @@ void frame_close_out(void)
         em_gfx_char_rig(gfx, NULL);
         if (em_owner_draw_live_flush(gfx) < 0)   /* reported; fail-stop */
             em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
+        /* 0015C160, the player post-step (001AE5E0 at 0x1AE654, 001AE6B0 at
+         * 0x1AE798): the shadow's passes (001DA6A0, recorded by
+         * em_shadow_live at the post-step), then the player's own +0x4C
+         * draw. */
+        if (s_player_post_step) {
+            if (em_shadow_live_flush(gfx, viewproj) < 0)   /* reported; fail-stop */
+                em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
+            if (s_player_draw_frame == em_frame_counter() && g.mesh &&
+                !em_opening_runtime_actors_active()) {
+                const ChainDraw player = { g.mesh, g.player_palette, g.model.bone_count, NULL, 0, 0, 0 };
+                chain_draw(gfx, &player, 1, viewproj);
+            }
+        }
         /* Original opening palettes already contain world placement.
          * They replace the ordinary player pose only while the script
          * owns the actors. The same scene lighting applies to each. */
@@ -734,6 +773,11 @@ void frame_close_out(void)
         em_props_indicators_draw(gfx, viewproj);
         em_snow_runtime_draw(gfx, view, zoom);
         em_area11_effect_runtime_draw(gfx, view, zoom);
+        /* Page D_007635C0 at 001D1EA0's splice (001CB800): slot 0 holds the
+         * 0015BF90 decal's fans (em_shadow_live). The page's other
+         * producers are not drawn from the page yet (SHADOW_DECAL.md). */
+        if (s_player_post_step && em_shadow_live_flush_decal(gfx) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }

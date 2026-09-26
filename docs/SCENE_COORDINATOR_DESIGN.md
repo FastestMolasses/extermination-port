@@ -642,6 +642,7 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - WP-10: kCineBeats (landed 2026-09-25 with WP-8b: node #21 runs em_director_original; em_director.c and em_area11_flow.c deleted)
 - WP-11: fan and the exit
 - WP-12: truck (landed 2026-09-24, census L23)
+- Census L29 / L29b: the player post-step 0015C160 and the drop shadow (landed 2026-09-26): `w_0015C160` runs 0015C160's gate, 001CB590 and route with em_shadow_live (001DA6A0, or 0015BF90's decal on an actor); the player's draw leaves the AREA11 draw list (`em_render_player_post_step`) and is made after the shadow's passes at 0015C160's +0x4C position. UM_0015C160 stays for the roster-less scenes; UM_0015C160_OPENING reports the post-step while the record does not hold the displayed pose (the opening, risk 2 below). SHADOW_ORIGINAL.md "Binding".
 
 A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses it. That is a user decision, because run_suite.sh is theirs. **WP-2 (H12) must land before WP-4.**
 

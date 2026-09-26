@@ -36,8 +36,7 @@
  * and fog oracles established). The GS side is described by the constants
  * below and is the draw workers' job. It reads only the original record
  * bytes named by offset. A reached NULL worker or view, a negative worker
- * result, an out-of-range node or grid read, the receiver bound, or the
- * untranslated 0015BF90 route (em_shadow_original_route_0015C160) latches a
+ * result, an out-of-range node or grid read or the receiver bound latches a
  * fault; the call returns -1 and every later call returns -1.
  *
  * The receiver data asset (em_shadow_receivers_*, below) is read with
@@ -71,9 +70,14 @@ enum {
     EM_SHADOW_FAULT_NULL_WORKER = 1,   /* reached worker or data view is NULL */
     EM_SHADOW_FAULT_WORKER_FAILED = 2, /* worker returned a negative value */
     EM_SHADOW_FAULT_BAD_INPUT = 3,     /* node/grid read outside the views */
-    EM_SHADOW_FAULT_OVERFLOW = 4,      /* receiver list over the native bound */
-    EM_SHADOW_FAULT_UNTRANSLATED = 5   /* 0015BF90 route (player+0x214 != 0);
-                                          raised by em_shadow_original_route_0015C160 */
+    EM_SHADOW_FAULT_OVERFLOW = 4       /* receiver list over the native bound */
+};
+
+/* em_shadow_original_route_0015C160's callee. */
+enum {
+    EM_SHADOW_ROUTE_NONE = 0,     /* no shadow call */
+    EM_SHADOW_ROUTE_001DA6A0 = 1, /* the projected shadow (this module) */
+    EM_SHADOW_ROUTE_0015BF90 = 2  /* the decal on an actor (em_shadow_actor_route) */
 };
 
 typedef struct {
@@ -85,14 +89,15 @@ typedef struct {
  * as original instructions with the three gate bytes patched:
  *   d8102B1 == 0             -> 0: nothing (no 001CB590, no +0x4C draw).
  *   d810771 == 1             -> 0: no shadow call; the +0x4C draw follows.
- *   player_214 == 0          -> 1: call em_shadow_original_001DA6A0 with the
- *                               player (0015C160 passes D_00275B44, which the
+ *   player_214 == 0          -> EM_SHADOW_ROUTE_001DA6A0: call
+ *                               em_shadow_original_001DA6A0 with the player
+ *                               (0015C160 passes D_00275B44, which the
  *                               001CB590(player) just before it set to the
  *                               player), then the +0x4C draw.
- *   player_214 != 0          -> 0015BF90 (a floor-raycast variant, never
- *                               taken in any capture) is not translated: it
- *                               latches EM_SHADOW_FAULT_UNTRANSLATED at
- *                               0x0015BF90 and returns -1.
+ *   player_214 != 0          -> EM_SHADOW_ROUTE_0015BF90: 0015BF90(player),
+ *                               the decal under a player standing on an actor
+ *                               (em_shadow_actor_route_0015BF90), then the
+ *                               +0x4C draw.
  * A fault already latched returns -1. */
 int em_shadow_original_route_0015C160(uint8_t d8102B1, uint8_t d810771,
                                       uint32_t player_214, EmShadowOriginalFault *fault);

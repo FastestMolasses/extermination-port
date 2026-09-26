@@ -109,6 +109,8 @@
 #include "game/em_camera_live.h"
 #include "game/em_render_context_live.h"
 #include "game/em_owner_draw_live.h"
+#include "game/em_shadow_live.h"
+#include "game/em_shadow_original.h"
 #include "game/em_ee_float.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_collision_world.h"
@@ -189,6 +191,15 @@ static int s_variant = VARIANT_NONE;
  * of 0015BCF0 and 0018B9C0. The handle is the original address. */
 static uint32_t s_current_actor;
 
+/* The last w_0015C160 (census L29): its frame counter, the gate bytes
+ * D_008102B1 / D_00810771, +0x214's record and the route, for the tick log. */
+static struct {
+    uint32_t frame;
+    uint8_t b1, d771;
+    uint32_t w214;
+    int route;
+} s_post_step = {UINT32_MAX, 0, 0, 0, 0};
+
 EmSceneState *em_scene_state(void)
 {
     return &s_state;
@@ -210,6 +221,7 @@ enum {
     UM_001CB590,
     UM_0015BCF0_CUTSCENE,
     UM_0015C160,
+    UM_0015C160_OPENING,
     UM_001F0360,
     UM_001AAD00,
     UM_001D2830,
@@ -251,8 +263,15 @@ static const struct {
                                   "counterpart (the port's bone palettes are per model)"},
     [UM_0015BCF0_CUTSCENE] = {0x0015BCF0u, "001AE6B0 player stage; the port poses the player through "
                                            "the opening runtime in the 001AFD70 block (design risk 2)"},
-    [UM_0015C160] = {0x0015C160u, "player post-step (001DA6A0 or 0015BF90, then the +0x4C draw method); "
-                                  "the port draws the player from its draw list"},
+    [UM_0015C160] = {0x0015C160u, "player post-step in a scene without the shadow binding (not the "
+                                  "first level, whose post-step is em_shadow_live): no shadow, and the "
+                                  "port draws the player from its draw list"},
+    [UM_0015C160_OPENING] = {0x0015C160u, "player post-step while the player record does not hold the "
+                                          "displayed pose (the opening runtime owns the displayed player, "
+                                          "design risk 2, or the pose source has not started or a port "
+                                          "stand-in holds it): no shadow is computed from the record and "
+                                          "the +0x4C draw is the port's own mesh draw (the opening's "
+                                          "actors while they are active)"},
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
     [UM_001AAD00] = {0x001AAD00u, "scene without an original roster: no collision world, so its "
                                   "nine list-pass hooks and class lists have no port counterpart"},
@@ -272,7 +291,8 @@ static const struct {
     [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
     [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
     [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
-                                  "no actor shadow (the player's own post-step is UM_0015C160, "
+                                  "no actor shadow: Roger's kind 0x29 proxy D_0028A490[0x29] is not "
+                                  "exported (the player's post-step is bound: em_shadow_live, "
                                   "docs/SHADOW_ORIGINAL.md)"},
     [UM_001D52E0] = {0x001D52E0u, "001C1DC0's 001C1E70: the static-object grid header into render "
                                   "context +0x140..+0x167; the bank *D_0028A5A0 is not exported and "
@@ -811,6 +831,73 @@ static void log_tick_end(int rc)
                     units[i].light_rig);
     }
     fputc(']', f);
+    /* Census L29: 0015C160 this tick (fresh, D_008102B1, D_00810771, +0x214's
+     * record, the route: -1 reported), the last shadow call
+     * (em_shadow_live_log) and, on sampled calls (the first, then every
+     * 100th 001DA6A0 and every 20th 0015BF90 call, at most 40 of each), its
+     * inputs and outputs for the original re-execution
+     * (tools/level_smoke_shadow.py). */
+    fputs(", \"shadow\": ", f);
+    if (em_shadow_live_bound()) {
+        EmShadowLiveLog l;
+        em_shadow_live_log(&l);
+        const uint32_t now = em_frame_counter();
+        fprintf(f, "[[%d, %u, %u, %u, %d], [%d, %d, %d, %d, %u, %u, %u, %u, %u, %u, %u, %u, %u], ",
+                s_post_step.frame == now, s_post_step.b1, s_post_step.d771, s_post_step.w214, s_post_step.route,
+                l.frame == now, l.route, l.drawn, l.kind, l.receivers, l.receivers_cls2, l.decal_fans,
+                l.decal_vertices, l.flushed, l.decal_flushed, l.calls, l.drawn_total, l.decal_total);
+        static uint32_t calls_route[2], samples_route[2];
+        const EmShadowLiveSample *sm = em_shadow_live_sample();
+        int emit = 0;
+        if (sm && l.frame == now && sm->frame == now) {
+            const int r = sm->route == EM_SHADOW_ROUTE_001DA6A0 ? 0 : 1;
+            emit = calls_route[r]++ % (r ? 20u : 100u) == 0 && samples_route[r] < 40;
+            samples_route[r] += emit;
+        }
+        if (emit) {
+            fprintf(f, "{\"route\": %d, \"player\": ", sm->route);
+            log_hex(f, sm->player, sizeof sm->player);
+            fputs(", \"nodes\": ", f);
+            log_hex(f, sm->nodes, sizeof sm->nodes);
+            const struct { const char *name; const uint32_t *w; } views[] = {
+                {"clip_2240", sm->clip_2240}, {"proj_2340", sm->proj_2340}, {"view_2380", sm->view_2380},
+                {"camera_3AC0", sm->camera_3AC0}, {"view_810610", sm->view_810610},
+            };
+            for (size_t i = 0; i < sizeof views / sizeof views[0]; ++i) {
+                fprintf(f, ", \"%s\": ", views[i].name);
+                log_hex(f, (const uint8_t *)views[i].w, 0x40);
+            }
+            fprintf(f, ", \"zoom_2468\": %u, \"fog_A0\": ", sm->zoom_2468);
+            log_hex(f, (const uint8_t *)sm->fog_A0, 16);
+            fprintf(f, ", \"area\": [%u, %u], \"spad3B8D\": %u, \"ff0\": ", sm->area_700, sm->sub_701,
+                    sm->spad3B8D);
+            log_hex(f, (const uint8_t *)sm->ff0_before, 16);
+            if (sm->route == EM_SHADOW_ROUTE_001DA6A0) {
+                fputs(", \"plan\": ", f);
+                log_hex(f, (const uint8_t *)sm->plan, sm->plan_bytes);
+            } else {
+                fprintf(f, ", \"segment\": [%d, ", sm->segment_result);
+                log_hex(f, (const uint8_t *)sm->segment_point, 16);
+                fputs(", ", f);
+                log_hex(f, (const uint8_t *)sm->segment_normal, 12);
+                fprintf(f, "], \"submit\": [%d, %d, ", sm->submitted, sm->submit_tag);
+                log_hex(f, (const uint8_t *)sm->submit_corners, 64);
+                fprintf(f, ", %u, \"%016llx\"], \"packets\": [", sm->submit_rgba,
+                        (unsigned long long)sm->submit_tex0);
+                for (uint32_t i = 0; i < sm->packet_count; ++i) {
+                    if (i) fputs(", ", f);
+                    log_hex(f, sm->packet[i], 16u * sm->packet_qwords[i]);
+                }
+                fputc(']', f);
+            }
+            fputc('}', f);
+        } else {
+            fputs("null", f);
+        }
+        fputc(']', f);
+    } else {
+        fputs("null", f);
+    }
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
     for (int i = 0; i < s_tick.ntrace; ++i)
@@ -1085,8 +1172,16 @@ static int w_001AFCA0(void *ctx)
         if (em_area11_bindings_effects_attach() < 0)
             return em_scene_fault(&s_state, em_effects_live_fault() ? em_effects_live_fault() : 0x001F0310u,
                                   EM_SCENE_FAULT_NULL_WORKER);
+        /* Census L29: 0015C160's shadow over the render context, the
+         * collision world and the player record (em_shadow_live); the
+         * player's own draw moves behind it (em_render_player_post_step). */
+        if (em_shadow_live_bind() < 0)
+            return em_scene_fault(&s_state, em_shadow_live_fault() ? em_shadow_live_fault() : 0x0015C160u,
+                                  EM_SCENE_FAULT_NULL_WORKER);
+        em_render_player_post_step(1);
     } else {
         em_effects_live_detach();
+        em_render_player_post_step(0);
     }
     s_pool_mode = POOL_NONE;
     s_state.spad31F4 = 0;
@@ -1187,9 +1282,11 @@ static void spawn_commit(const EmSpawnIo *io)
  * and the equipment status D_00810C60: mode 0 -> 0x3B, with status 2 ->
  * 0x3F, 1 -> 0x3E; mode 1 -> 0x40, with status 2 -> 0x3F, 1 -> 0x3E; any
  * other mode -> 0x3D. 001B81D0 (a script's player face attach) reads it.
- * The rest (the D_0028A490[kind] model bind 001CA6E0, +0x0C, +0x96 = 0x28
- * and 00200890) binds the model the port draws from its own export:
- * reported (UM_0015C1F0). */
+ * Census L29 adds its shadow-kind store: the halfword +0x96 = 0x28
+ * (0x15C2F4; em_player_misc_0015C1F0), which 001DA6A0 reads as the kind
+ * (0 draws no shadow). The rest (the D_0028A490[kind] model bind 001CA6E0,
+ * +0x0C and 00200890) binds the model the port draws from its own export:
+ * reported (UM_0015C1F0); +0x0C is the pose owner's (21, the same value). */
 static int spawn_w_0015C1F0(void *ctx, uint32_t player)
 {
     (void)ctx;
@@ -1206,6 +1303,7 @@ static int spawn_w_0015C1F0(void *ctx, uint32_t player)
     else
         kind = 0x3D;
     em_live_set_u8(p, 0x2FF, kind);
+    em_live_set_u16(p, 0x96, 0x28);   /* 0x15C2F4: the shadow kind (001DA6A0) */
     return unmirrored(UM_0015C1F0);
 }
 
@@ -1737,10 +1835,57 @@ static int walk_001AFD70(void *ctx, int mode)
     return 0;
 }
 
+/* 0015C160 (byte-matched src/func_0015C160.c), the player post-step. In the
+ * first level (census L29, docs/SHADOW_ORIGINAL.md "Binding"): with
+ * D_008102B1 (the player's +0x01, which 0015BA50 sets every stage and the
+ * 0x19 states clear) != 0, 001CB590(player, 0x320, player[9]) (w_001CB590:
+ * D_00275B44 = the player), then unless D_00810771 == 1 the shadow
+ * (em_shadow_live: 001DA6A0 with +0x214 == 0, 0015BF90 otherwise), then
+ * the +0x4C method: the player's own draw, which frame_close_out makes
+ * after the shadow's passes. While the record's nodes are not the displayed
+ * pose (the opening runtime owns the displayed player, design risk 2; the
+ * pose source not yet started; a port stand-in holding the display) the
+ * post-step is reported (UM_0015C160_OPENING) after its 001CB590 and the
+ * +0x4C request is the port's own mesh draw. A scene
+ * without the shadow binding keeps the reported no-effect binding. The gate
+ * bytes and the route are kept for the tick log (s_post_step). */
 static int w_0015C160(void *ctx)
 {
-    (void)ctx;
-    return in_variant() ? unmirrored(UM_0015C160) : -1;
+    if (!in_variant())
+        return -1;
+    if (s_pool_mode != POOL_ROSTER || !em_shadow_live_bound())
+        return unmirrored(UM_0015C160);
+    const EmPlayerLiveActor *p = player_states_actor();
+    const uint8_t *d771 = em_scene_progress_at(&s_state, 0x00810771u, 1);
+    if (!p || !d771)
+        return em_scene_fault(&s_state, 0x0015C160u, EM_SCENE_FAULT_NULL_WORKER);
+    s_post_step.frame = em_frame_counter();
+    s_post_step.b1 = em_live_u8(p, 0x01);
+    s_post_step.d771 = *d771;
+    s_post_step.w214 = p->link_owner ? em_actor_pool_address(&s_pool, (const EmActor *)p->link_owner) : 0;
+    s_post_step.route = 0;
+    if (p->link_owner && !s_post_step.w214)   /* +0x214 names no record the port knows */
+        return em_scene_fault(&s_state, 0x0015C160u, EM_SCENE_FAULT_BAD_RESULT);
+    if (s_post_step.b1 == 0)
+        return 0;   /* no 001CB590, no shadow, no +0x4C draw */
+    if (w_001CB590(ctx, D_PLAYER, 0x320, em_live_u8(p, 0x09), 0) < 0)
+        return -1;
+    if (em_opening_runtime_actors_active() || !player_pose_record_displayed()) {
+        s_post_step.route = -1;   /* the tick log's "reported" */
+        em_render_player_draw_0015C160();   /* the port's own +0x4C draw */
+        return unmirrored(UM_0015C160_OPENING);
+    }
+    EmShadowOriginalFault fault = {0, 0};
+    const int route = em_shadow_original_route_0015C160(s_post_step.b1, s_post_step.d771,
+                                                        s_post_step.w214, &fault);
+    if (route < 0)
+        return em_scene_fault(&s_state, 0x0015C160u, EM_SCENE_FAULT_BAD_RESULT);
+    s_post_step.route = route;
+    if (route != EM_SHADOW_ROUTE_NONE && em_shadow_live_0015C160(p, route) < 0)
+        return em_scene_fault(&s_state, em_shadow_live_fault() ? em_shadow_live_fault() : 0x0015C160u,
+                              EM_SCENE_FAULT_WORKER_FAILED);
+    em_render_player_draw_0015C160();   /* the +0x4C method */
+    return 0;
 }
 
 /* 001F0360, the effect barrel: em_effect_manager's translation over the

@@ -1007,10 +1007,10 @@ int em_game_legacy_door_tick(void)
      * self+0x214 == 0 or func_0015BF90(self), and finally dispatches
      * the hook pointer at self+0x4C. src/func_001F0360.c is a plain
      * subsystem-tick barrel (six subsystem calls then func_001F0720
-     * for ids 0,1,3,4,5,6) with no gameplay state of its own. The port
-     * runs no code at either position (em_scene_bindings.c reports both
-     * as reached without port code; docs/SCENE_COORDINATOR_DESIGN.md
-     * sections 2.4, 4.5 and 10.2 Q2). */
+     * for ids 0,1,3,4,5,6) with no gameplay state of its own. In the
+     * first level both run at their positions (em_scene_bindings.c:
+     * w_0015C160 with em_shadow_live, census L29; w_001F0360 with
+     * em_effects_live); this legacy block reports them. */
     em_door_update(&g.coll, g.pos, g.yaw, em_frame_input());
     /* GOTO-DOOR SCENE SWITCH (one-shot, at fade-out completion — screen
      * fully black): the runtime area/sub-state load. Free + reload the

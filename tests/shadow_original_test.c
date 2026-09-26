@@ -136,12 +136,15 @@ int main(void)
     CHECK(em_shadow_original_route_0015C160(1, 0, 0, &fault) == 1);
     CHECK(em_shadow_original_route_0015C160(1, 2, 0, &fault) == 1);
     CHECK(fault.code == EM_SHADOW_FAULT_NONE);
-    {   /* the untranslated 0015BF90 route faults and the fault latches */
-        EmShadowOriginalFault route_fault = {0, 0};
-        CHECK(em_shadow_original_route_0015C160(1, 0, 5, &route_fault) == -1);
-        CHECK(route_fault.code == EM_SHADOW_FAULT_UNTRANSLATED && route_fault.address == 0x0015BF90u);
-        CHECK(em_shadow_original_route_0015C160(1, 0, 0, &route_fault) == -1);
-        CHECK(em_shadow_original_route_0015C160(1, 0, 5, NULL) == -1);
+    /* +0x214 != 0: 0015BF90 (the decal route, em_shadow_actor_route) */
+    CHECK(em_shadow_original_route_0015C160(1, 0, 5, &fault) == EM_SHADOW_ROUTE_0015BF90);
+    CHECK(em_shadow_original_route_0015C160(2, 0xFF, 0x80000000u, &fault) == EM_SHADOW_ROUTE_0015BF90);
+    CHECK(em_shadow_original_route_0015C160(1, 0, 5, NULL) == EM_SHADOW_ROUTE_0015BF90);
+    CHECK(fault.code == EM_SHADOW_FAULT_NONE);
+    {   /* a latched fault refuses the routing */
+        EmShadowOriginalFault latched = {0x001DA6A0u, EM_SHADOW_FAULT_WORKER_FAILED};
+        CHECK(em_shadow_original_route_0015C160(1, 0, 0, &latched) == -1);
+        CHECK(em_shadow_original_route_0015C160(1, 0, 5, &latched) == -1);
     }
 
     /* the drawn path and the worker order */

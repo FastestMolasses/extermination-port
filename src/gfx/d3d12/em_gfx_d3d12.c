@@ -60,3 +60,28 @@ int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit)
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height)
 { (void)gfx; (void)tex0; (void)rgba; (void)width; (void)height; return -1; }
+/* Player drop shadow and its decal (em_gfx.h): not implemented on this
+ * backend; -1 is the contract's "cannot draw exactly" (the caller faults). */
+int em_gfx_shadow_alpha_clear(EmGfx *gfx) { (void)gfx; return -1; }
+int em_gfx_shadow_box(EmGfx *gfx, const EmGfxShadowStrips *model, const float world[16],
+                      const float clip[16], uint32_t rgbaq, const float viewproj[16])
+{ (void)gfx; (void)model; (void)world; (void)clip; (void)rgbaq; (void)viewproj; return -1; }
+int em_gfx_shadow_silhouette(EmGfx *gfx, const float *verts, uint32_t vert_count,
+                             const uint32_t *indices, uint32_t index_count,
+                             const float *nodes, uint32_t node_count, const float vp[16])
+{
+    (void)gfx; (void)verts; (void)vert_count; (void)indices; (void)index_count;
+    (void)nodes; (void)node_count; (void)vp;
+    return -1;
+}
+int em_gfx_shadow_receiver_begin(EmGfx *gfx, const float uv[16], const float camera[16],
+                                 const float viewproj[16])
+{ (void)gfx; (void)uv; (void)camera; (void)viewproj; return -1; }
+int em_gfx_shadow_receiver(EmGfx *gfx, const EmGfxShadowStrips *object, uint32_t cls)
+{ (void)gfx; (void)object; (void)cls; return -1; }
+int em_gfx_shadow_receiver_end(EmGfx *gfx) { (void)gfx; return -1; }
+int em_gfx_shadow_target_read(EmGfx *gfx, uint8_t *rgba) { (void)gfx; (void)rgba; return -1; }
+int em_gfx_shadow_decal_texture(EmGfx *gfx, const uint8_t *rgba, uint32_t width, uint32_t height)
+{ (void)gfx; (void)rgba; (void)width; (void)height; return -1; }
+int em_gfx_shadow_decal_fan(EmGfx *gfx, const EmGfxDecalVertex *v, uint32_t n, uint64_t tex0)
+{ (void)gfx; (void)v; (void)n; (void)tex0; return -1; }

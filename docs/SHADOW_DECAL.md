@@ -16,13 +16,13 @@ Files:
 - `tools/test_shadow_decal_reference.py`: the original-instruction oracle
   (section 3).
 
-Nothing is wired. Section 5 has the binding notes and the Makefile hunk.
+Live since census L29 (2026-09-26): section 5.
 
 ## 1. Census rows of this lane
 
 | Function | Decomp | Census now | After this lane | Evidence |
 |---|---|---|---|---|
-| 001CE300 decal packet | NM (.s read) | verified-unbound, but CENSUS_UNVERIFIED.md says it is really **missing** | verified-unbound | em_shadow_decal_001CE300; RAM + scratchpad byte-exact over 31 route cases and the unit sweep |
+| 001CE300 decal packet | NM (.s read) | verified-unbound, but CENSUS_UNVERIFIED.md says it is really **missing** | verified-unbound (live since census L29) | em_shadow_decal_001CE300; RAM + scratchpad byte-exact over 31 route cases and the unit sweep |
 | 001CF470 frustum clipper | hand-written asm | unverified ("em_shadow_actor_route", module not linked; CENSUS_UNVERIFIED.md: **missing**) | verified-unbound | em_shadow_decal_001CF470; census generator cases equal, digest = the census pin |
 | 001CF870 edge outcode | hand-written asm | boundary, in "resource / display-object registry" (a mislabel: it is a clipper leaf) | verified-unbound | em_shadow_decal_001CF870; leaf sweep + inside every clip |
 | 001CF970 plane crossing | hand-written asm | boundary, same group (same mislabel) | verified-unbound | em_shadow_decal_001CF970; leaf sweep + inside every clip |
@@ -150,8 +150,10 @@ Anything else the frame puts in slot 0 is interleaved by append time.
 
 ## 3. Verification
 
-`python3 tools/test_shadow_decal_reference.py`. The Makefile target is in
-section 5. The default run takes about 5 s. `EM_TEST_FULL=1` takes the time
+`python3 tools/test_shadow_decal_reference.py` (`make
+test-shadow-decal-reference`). The default run takes about 5 s on an idle
+machine (plus the Metal part's one-time library build, cached in
+build/shadow_decal_reference/). `EM_TEST_FULL=1` takes the time
 in section 3.1.
 
 The interpreter is the shadow-route EE: every COP1 and VU0 operation goes
@@ -206,6 +208,13 @@ and records branch outcomes at any call depth. No shared file is edited.
 - **Callee set.** The jal targets of the five routines are exactly 001CD370,
   001CF470, 001CB5F0, 001CB950, 001CB900, 0011DF78, 00121870, 001CF870 and
   001CF970.
+- **Metal (5 pixel cases, 2 refusals).** `em_gfx_shadow_decal_fan` in a
+  headless window: a fan covering a flat frame with constant ST / RGBA / F
+  gives, at the frame centre, the pixel of `gs_decal_pixel` (the GS
+  equation of section 4: bilinear through the CLUT with REPEAT, MODULATE,
+  fog, ALPHA 0x44 on the frame); a HIGHLIGHT TEX0 and a frame without fog
+  are refused (-1). The exported `shadow_decal.emdt` must equal the
+  capture's texture. Skipped (reported) without a Metal device.
 - **Faults (19 cases).**
   - Each worker, scratch pointer, stage, the worker table or the quad
     missing gives UNBOUND at 0x001CE300, with nothing written.
@@ -293,76 +302,59 @@ height fade in 001F8D30. The texel alpha times the vertex A, then
 `>> 7`, darkens the frame under the blob. The fog lane per vertex comes from
 the +0xA0 fog block, and FOGCOL is whatever the frame set.
 
-## 5. Binding notes
+## 5. Binding (live since 2026-09-26, census L29)
 
-Nothing is wired. The module is built only by its test.
+`src/game/em_shadow_decal_original.c` is in COMMON. em_shadow_live
+(src/game/em_shadow_live.c; SHADOW_ACTOR_ROUTE.md section 4) binds it as
+the route's `submit` (`em_shadow_decal_w_001CE300`, context = its
+`EmShadowDecal`):
 
-**Makefile (lead-owned).**
+- `stage`: the module's 640 words for D_008112C0..D_00811CBF, zero at start.
+- `scratch.s3600`: the module's one 0x70003600..0x7000363F block, the same
+  words as the route's `s3600` and its 001CD390's globals; `scratch.s3AC0`:
+  the render context's scratchpad camera.
+- `workers`: `em_shadow_decal_bind_packet_chain` over the render context's
+  packet chain (`em_rcl_packet_chain()`: the context, the packet arena, the
+  chain table D_007635C0), wrapped so that 001CB5F0 records each packet it
+  opens.
 
-```make
-.PHONY: test-shadow-decal-reference
-test-shadow-decal-reference:
-	python3 tools/test_shadow_decal_reference.py
-```
+**The draw.** After 001CE300 returns, the recorded packets are read back
+(the fans of pass 0 and pass 1, then the TEX0 packet): the TEX0 packet
+must be the TEX0_1 A+D write of `EM_SHADOW_DECAL_TEX0`, each fan the DIRECT
+code and GIF tag 001CE300 writes (NLOOP n, EOP, PRE, PRIM 0x7D, PACKED, REGS
+ST / RGBAQ / XYZF2) with no ADC vertex, and the tag must be 1; anything else
+faults (at 001CE300 / 001CB950), because the renderer draws exactly that
+form. `frame_close_out` draws them at the page splice (after the frame's
+world draws, `em_shadow_live_flush_decal`) in slot 0's execution order
+(newest first: the fans of pass 1, then pass 0) through
+`em_gfx_shadow_decal_fan`, a dedicated renderer entry (em_gfx.h) that takes
+the packet's words verbatim: X / Y 12.4 through the object units' GS-to-NDC
+mapping, Z through the object units' depth mapping (the GS Z order against
+the level), and per pixel the GS path of the mode-1 block: bilinear
+(4-bit weights, U - 0.5, REPEAT) through the CLUT, MODULATE with TCC 1,
+fog with the frame's FOGCOL, the alpha test NEVER with AFAIL RGB_ONLY (RGB
+written, no alpha, no Z), ALPHA 0x44 on the frame pixel (framebuffer fetch),
+COLCLAMP. The mode-1 block itself is not in the port's GS block storage
+(the boot builder that fills D_00275674's blocks is not translated,
+RENDER_CONTEXT.md 8.3): the level smoke asserts that every route capture's
+block holds exactly the writes the renderer implements.
 
-When bound, add `src/game/em_shadow_decal_original.c` to COMMON. Its
-dependencies `em_packet_chain_original.c`, `em_status_ui_leftovers.c` and
-`em_sdk_math_original.c` are already there.
+**The texture** is `assets/scene_snow/shadow_decal.emdt`
+(`tools/export_shadow_decal_texture.py`, STARTUP.md row 52): the 16 x 16
+texels through the CLUT (raw GS alpha), decoded from the route captures' GS
+memory and required to be identical in every capture; registered once by
+`em_gfx_shadow_decal_texture`. Its uploader is still not identified
+(section 4).
 
-**em_shadow_actor_route (the caller).** Its `submit` worker has exactly the
-signature of `em_shadow_decal_w_001CE300`:
-
-```c
-workers.submit  = em_shadow_decal_w_001CE300;
-workers.context = &b->decal;          /* an EmShadowDecal */
-```
-
-Tag 1, the corners, TEX0 and rgba pass through unchanged. The route test
-already verifies them. `EmShadowDecal` needs:
-- `stage`: 640 words the coordinator owns for D_008112C0..D_00811CBF.
-  Zero-initialise them once. The packet never depends on the stale words,
-  only the buffer bytes do. The route's other clip user, 001CDDC0, is not
-  on the first-level route.
-- `scratch.s3600`: the same pointer as `EmShadowActorRouteScratch.s3600` and
-  `EmEffectOriginalGlobals.spad3600`, the one scratchpad image. 001F8D30
-  writes P0 there, and 001CE300 overwrites the first 4 words right after.
-- `scratch.s3AC0`: the frame's camera rows (the same as the route's `s3AC0`).
-- `workers`: `em_shadow_decal_bind_packet_chain(&w, &chain)`. `chain` is
-  the frame's `EmPacketChain`. Its regions must map:
-  - the render context: +0x00..+0xFF for the cursor and the fog, and
-    +0x2240..+0x227F for the clip matrix;
-  - the packet buffer the +0x18 cursor walks;
-  - the page table D_007635C0 (0x8000 bytes).
-
-**The blocker is the same as the effects'.** **Resolved by the render context step (2026-09-25):** the canonical render context runs live (em_render_context_live, docs/RENDER_CONTEXT.md section 8): context +0x2240..+0x233F, +0xA0, the scratchpad 0x70003A40 / 0x70003AC0, the packet cursors and the chain table D_007635C0 (spliced and cleared by 001D1EA0's 001CB800 every frame) are produced every world frame; reach them through em_rcl_bytes and the module's views. (Before that step:) No live code produced the
-render-context views: the +0x2240 clip matrix, the +0xA0 fog, the packet
-cursor and the page table, nor a consumer of page D_007635C0
-(EFFECT_MANAGER.md 5.0, census lanes L32 / L30). Until the canonical
-render-context block and its page consumer exist:
-- keep `submit` **unbound**. The route then faults UNBOUND at 0x0015BF90
-  before any write (SHADOW_ACTOR_ROUTE.md section 4);
-- or bind it and let the missing regions fault at 0x001CD370.
-
-Never draw a stand-in blob.
-
-**The Metal shadow passes.** `em_gfx_shadow_*` (em_gfx.h, em_shadow_gs.h)
-are the GS side of 001DA6A0: the silhouette target and the receivers. They
-are not this route. The decal needs one of two things:
-- **a generic consumer of page D_007635C0** that plays the GS packets it
-  holds in slot order (A+D state blocks, TEX0 with CLUT load, PACKED
-  ST / RGBAQ / XYZF2 fans with PRE PRIM). The effects and the head sprite
-  need the same consumer, so this is the preferred shape;
-- or a dedicated `em_gfx_decal_fan(gfx, xyzf[], stq[], rgbaq[], n, tex0,
-  blend-state)` that takes the words this module writes, verbatim.
-
-Either way the renderer's inputs are exactly the packet words verified
-here. The renderer must:
-- rasterise the 12.4 XY and the integer Z with ZTST GEQUAL and no Z write;
-- sample the 16 × 16 PSMT8 texture bilinearly with REPEAT through the CLUT;
-- modulate, fog with F, and blend (Cs - Cd) · As >> 7 + Cd into RGB only.
-
-In the original frame the decal belongs where page D_007635C0's slot 0
-is spliced (001CB800), not in the 001DA6A0 pass order.
+**Evidence.** `test_shadow_decal_reference.py`'s Metal part: a fan over a
+flat frame gives, at the frame centre, the GS pixel of the documented
+state (five colour / alpha / fog / sample-point cases), and the renderer
+refuses a HIGHLIGHT TEX0 and a frame without fog; the exported texture
+equals the capture's. The level smoke's check_shadow (C): the original
+001CE300, run over the port's sampled inputs, writes the port's packets
+byte for byte into a cleared slot 0, with the mode-1 blend reference.
+Live frames by eye (route 04 end, build/captures/shadow_live/): the dark
+blob under the player on the elevator floor, as in the capture.
 
 ## 6. Limits and open items
 
@@ -378,16 +370,24 @@ is spliced (001CB800), not in the 001DA6A0 pass order.
   at 0x00811CC0. The translation faults instead. For a triangle, the
   |w| / sign · w mismatch allows at most 5 → 9 → 17 outputs in theory, so
   only a pathological quad could reach it. No generated case did.
-- **S3: the texture uploader** (section 4).
+- **S3: the texture uploader** (section 4). The live texture is exported
+  from the user's own route captures' GS memory; a machine without those
+  captures cannot produce it, and the AREA11 area build then faults at the
+  shadow's bind (fail-stop, no stand-in blob).
+- **S5: the page's other producers.** The renderer draws only this
+  decal's fans at the splice; the effects' packets in the same chain table
+  are not drawn from the page yet (EFFECT_MANAGER.md 8.4), so their
+  interleave with the decal in slot order is not reproduced.
+- **S6: rasterization.** Metal's float interpolation, floored with a 0.001
+  epsilon, stands for the GS DDA (as the object units and the receivers);
+  no GS dump of a drawn decal exists to compare pixels with.
 - **S4: VU0 registers.** As in SHADOW_ACTOR_ROUTE.md L4, the VU0 registers
   these routines leave behind (vf1..vf28, ACC, Q) are not modelled. Every
   later user on this path reloads them.
-- **Census.** Five rows change (section 1). `test_census_unverified_reference.py`
-  pins the divergence `001CF470/missing` and fails when a pinned divergence
-  disappears. Its function probe now finds `em_shadow_decal_001CF470`, so
-  that key must be removed from its `EXPECTED`, and CENSUS_UNVERIFIED.md's
-  001CF470 section updated (lead-owned files). Its CF470 reference
-  generator itself still passes. This test proves the translation
+- **Census.** The five rows of section 1 are live since census L29
+  (FIRST_LEVEL_CENSUS.md section 1.20); `test_census_unverified_reference.py`'s
+  `001CF470/missing` key was retired by the render context step, and its
+  CF470 reference generator still passes. This test proves the translation
   reproduces the pinned digest.
 
 ## 7. Results log

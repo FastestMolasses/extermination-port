@@ -2164,6 +2164,10 @@ int em_render_point_light_tick(void); /* 001D7C30 (the render context's worker) 
 int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
 int em_render_001D1EA0(int a0); /* the renderer's side of the kick (flush, overlays) */
 int em_render_001ABF90(void);   /* 001AD4E0's game-over screen packet  */
+/* 0015C160 bound (census L29): the player's draw leaves the chain and is
+ * made after the shadow, in the frames whose post-step requested it. */
+void em_render_player_post_step(int bound);
+void em_render_player_draw_0015C160(void); /* the +0x4C draw request */
 int em_camera_0018B9C0(void);   /* camera_update + em_sfx_listener     */
 int em_camera_0018B9C0_opening(void); /* cutscene variant's camera stage */
 

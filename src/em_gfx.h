@@ -837,6 +837,42 @@ int em_gfx_shadow_receiver_end(EmGfx *gfx);
  * (1984 + x, 1984 + y)). Returns 0, or -1 when no silhouette was drawn. */
 int em_gfx_shadow_target_read(EmGfx *gfx, uint8_t *rgba);
 
+/* --- The drop-shadow decal: 001CE300's triangle fans on the GS ----------
+ * The route 0015BF90 (player +0x214 != 0, docs/SHADOW_ACTOR_ROUTE.md) draws
+ * one textured quad through 001CE300 (docs/SHADOW_DECAL.md): per clipped
+ * triangle a PACKED GIF fan (PRIM 0x7D: fan, Gouraud, textured, fogged,
+ * blended, STQ) of ST / RGBAQ / XYZF2, after the TEX0_1 packet
+ * (EM_SHADOW_DECAL_TEX0: PSMT8 16 x 16, TCC 1, MODULATE) and the blend-state
+ * block of mode 1 (D_00275674 + 0x720: TEX1_1 0x60 bilinear, TEST_1 0x53001
+ * = alpha test NEVER with AFAIL RGB_ONLY and ZTST GEQUAL, ALPHA_1 0x44 =
+ * (Cs - Cd) * As >> 7 + Cd, CLAMP_1 0 = REPEAT, COLCLAMP 1). The vertex
+ * words are the packet's, verbatim: */
+typedef struct {
+    uint32_t s, t, q;      /* PACKED ST: S, T and Q (binary32 words) */
+    uint8_t rgba[4];       /* PACKED RGBAQ: R, G, B, A */
+    uint16_t x, y;         /* PACKED XYZF2: X, Y (12.4, primitive space) */
+    uint32_t z;            /* Z (24 bits) */
+    uint8_t f;             /* F */
+} EmGfxDecalVertex;
+
+/* The decal texture as the GS reads it through the CLUT: `width` x
+ * `height` raw CLUT entries (R, G, B, A bytes, A 0..255 as stored).
+ * Returns 0, or -1 (not a power-of-two size up to 1024). */
+int em_gfx_shadow_decal_texture(EmGfx *gfx, const uint8_t *rgba, uint32_t width,
+                                uint32_t height);
+
+/* One fan of `n` (3..) vertices with the TEX0 word `tex0` (its TW / TH
+ * must match the registered texture, TCC 1 and TFX MODULATE). Each pixel:
+ * the texture sampled bilinearly with the GS 4-bit weights and REPEAT,
+ * MODULATE (Cf = Ct * Cv >> 7, Af = At * Av >> 7), fog with the frame's
+ * FOGCOL, then written RGB only (no alpha, no depth) with the ALPHA 0x44
+ * blend against the frame (framebuffer fetch), where the frame's depth
+ * passes GEQUAL (Z through the same mapping as the object units'). The
+ * fan's triangles are (v0, vi, vi+1). Returns 0, or -1 when it cannot draw
+ * exactly that (outside a frame, no texture, another TEX0, the frame's fog
+ * not set, a GPU without framebuffer fetch). */
+int em_gfx_shadow_decal_fan(EmGfx *gfx, const EmGfxDecalVertex *v, uint32_t n, uint64_t tex0);
+
 /* --- Object units: the VU1 object kernel, its clip pass, the face morph -- */
 
 /* One draw unit (docs/OWNER_DRAW.md sections 3 and 7) as the VU1 receives

@@ -511,9 +511,11 @@ void player_states_report(FILE *out)
 void player_states_reset(void)
 {
     memset(&live.a, 0, sizeof live.a);
-    /* 0015C420 (byte-matched): +280 = (0, 0xC15CCCCD = -13.8, 0, 1.0); for
-     * the AREA11 spawn kind +4 = 1, +5 = 0, +6 = 0 (and +1F0 = 0, +204 =
-     * 1.0, +31B = -1, +31A = 0). */
+    /* 0015C420 (byte-matched): 001CA6F0(player, 1) first (+98 = 1: node 1 is
+     * the shadow's anchor node, 001DA6A0 for kind 0x28); +280 = (0,
+     * 0xC15CCCCD = -13.8, 0, 1.0); for the AREA11 spawn kind +4 = 1, +5 = 0,
+     * +6 = 0 (and +1F0 = 0, +204 = 1.0, +31B = -1, +31A = 0). */
+    em_live_set_u8(&live.a, 0x98, 1);
     em_live_set_f32(&live.a, 0x284, -13.8f);
     em_live_set_f32(&live.a, 0x28C, 1.0f);
     em_live_set_u8(&live.a, 4, 1);

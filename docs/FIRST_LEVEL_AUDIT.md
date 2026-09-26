@@ -539,8 +539,8 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   draws its 001F54E0 in walk order. Still open in this area: the object-unit
   draw P1/P2 for the owners not on it yet (docs/OWNER_DRAW.md section 11;
   the crates, drums, truck and fence door are on it since the object-unit
-  step below), the player drop shadow (docs/SHADOW_ORIGINAL.md
-  binding; blocked on the 0015BF90 route's 001CE300 / 001CF470), the
+  step below), the player drop shadow (live since the shadow step
+  below), the
   canonical render context (L32 / L30), the BATTERY page draw (needs a
   record-level 002149F0), the mode-3/4 presenters (their data containers'
   disc files are identified, docs/CENSUS_STANDINS.md: chunk00/f02_id02.bin,
@@ -598,6 +598,28 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   001C4820, the indicator children) until their owners are live, and
   Metal's rasterization (not the GS DDA; no GS framebuffer exists in the
   captures to compare with). OWNER_DRAW.md sections 11 and 12.
+- **Shadow step (2026-09-26, census L29 + L29b; docs/SHADOW_ORIGINAL.md
+  "Binding", SHADOW_ACTOR_ROUTE.md section 4, SHADOW_DECAL.md section 5):**
+  the player post-step 0015C160 runs at its two variant positions
+  (`w_0015C160`: the D_008102B1 gate, 001CB590, D_00810771 and the +0x214
+  route), and the player's drop shadow is live (`em_shadow_live`): with
+  +0x214 == 0 the projected shadow 001DA6A0 over the player record, its node
+  records and the render context, drawn by the Metal passes (alpha clear,
+  the two boxes, the 128 x 128 silhouette, the receivers with the 0023E8A0
+  re-pass) after the level and the walked actors; on an actor (the
+  elevator, a crate, the truck) the 0015BF90 decal (001F9100, 001F8D30,
+  001CE300 into page D_007635C0) drawn by `em_gfx_shadow_decal_fan` at the
+  page splice. The player's own draw moved behind the shadow (0015C160's
+  +0x4C). Evidence: the level smoke's check_shadow (every post-step's route,
+  every draw flushed, the first-control frame drawn; the original 001DA6A0
+  and 0015BF90 + 001CE300 re-executed over the port's sampled inputs give
+  the port's plan and packets), test_shadow_decal_reference's Metal pixel
+  check, newgame-control 9.599849 and the frame trace unchanged. Still open:
+  the post-step during the opening (reported: the opening runtime owns the
+  displayed player, design risk 2), Roger's 001DA6A0 (kind 0x29 proxy not
+  exported), the decal texture's uploader (exported from the route
+  captures' GS memory), and Metal's rasterization of the passes (SHADOW_ORIGINAL.md
+  "GS side").
 
 ### WP-14 Audio
 - **Scope:**

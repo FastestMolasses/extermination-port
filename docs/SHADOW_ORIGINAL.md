@@ -2,11 +2,12 @@
 
 The first-control screenshot (`original_area11_playable.png`) shows a dark
 shadow under the player. It has the silhouette of the legs and rifle, not a
-round blob. The port draws no shadow. This document records the original
-mechanism, the native module that reproduces its EE side
+round blob. Since census L29 (2026-09-26) the port draws it live from first
+control on ("Binding" below). This document records the original mechanism,
+the native module that reproduces its EE side
 (`src/game/em_shadow_original.{h,c}`), the translation of the two VU1 clip
-kernels (`src/game/em_vu1_shadow_clip.h`), the receiver data exporter, and
-how each was verified. Addresses
+kernels (`src/game/em_vu1_shadow_clip.h`), the receiver data exporter, the
+live binding (`src/game/em_shadow_live.{h,c}`), and how each was verified. Addresses
 are boot-ELF addresses. RAM/GS values come from the captures in
 `../Extermination/build/startup-reference/`.
 
@@ -30,10 +31,10 @@ volume mask:
   `D_00275B44`. It then calls `001DA6A0(D_00275B44)`, i.e. the player,
   when `D_00810771 != 1` and `player+0x214 == 0`. With `+0x214 != 0` it
   calls `0015BF90(player)` instead. `0015BF90` is a floor-raycast variant:
-  `0019A570` mode 6, then `001F9100`. It is not translated, and no capture
-  takes it. The `+0x4C` method (`001CAA00` in every capture) follows with
-  a0 = `D_00275B44`. `em_shadow_original_route_0015C160` encodes this
-  routing; the 0015BF90 route latches `EM_SHADOW_FAULT_UNTRANSLATED`. The
+  `0019A570` mode 6, then `001F9100`: the decal of SHADOW_ACTOR_ROUTE.md /
+  SHADOW_DECAL.md. The `+0x4C` method (`001CAA00` in every capture) follows
+  with a0 = `D_00275B44`. `em_shadow_original_route_0015C160` encodes this
+  routing (1: 001DA6A0, 2: 0015BF90, `EM_SHADOW_ROUTE_*`). The
   oracle executes `0015C160` itself over 36 patched gate combinations and
   checks the callee, its order and a0 against the native route.
 - **Stage:** gameplay `001AE5E0` calls it at 0x1AE654, after
@@ -174,8 +175,9 @@ original order:
 A missing worker or view, a negative worker result, a node or grid read
 outside its view, or more than 512 receivers latches a fault and returns
 -1. `em_shadow_original_route_0015C160(b1, d771, w214, fault)` returns 0
-(no shadow call) or 1 (call the module), and for the untranslated 0015BF90
-route latches `EM_SHADOW_FAULT_UNTRANSLATED` at 0x0015BF90 and returns -1.
+(no shadow call), `EM_SHADOW_ROUTE_001DA6A0` (1: call this module) or
+`EM_SHADOW_ROUTE_0015BF90` (2: em_shadow_actor_route), and -1 only when a
+fault is already latched.
 `em_shadow_original_receiver_vertex` is the kernel's (u, v, 1, a) slice.
 `em_shadow_receivers_*` load the receiver asset (Assets) and give the grid
 fields of the scene view, `w_object_bounds`, and each object's and box
@@ -244,7 +246,7 @@ model's VU1 vertex list.
   recorded and skipped. All 36 cases name the same callee and order as the
   native route, and every recorded a0 is the player 0x8102B0.
 - **Unit test.** `tests/shadow_original_test.c` (ASan/UBSan) covers
-  routing (including the latched 0015BF90 fault), the worker order,
+  routing (including the 0015BF90 route and a latched fault's refusal), the worker order,
   box/VP/UV geometry, alpha 39 at 16 below the light, clamps, the area and variant switch, the kinds, early returns,
   every NULL and failing worker, a missing node, the grid bounds and the
   overflow.
@@ -390,7 +392,7 @@ model's VU1 vertex list.
   shadow: no level lighting, props, elevator, crates or actors, so where
   the original's shadow lies on those or the lit colour differs, the
   metric cannot pass. This is the harness's rendering, not the live port:
-  the port draws no shadow until the binding lands.
+  the live frame is checked by the level smoke instead ("Binding" below).
 
 ## GS side (native)
 
@@ -529,85 +531,104 @@ Backend (`em_gfx_shadow_*`):
   points with its own projection and depth. Coplanar depth ties along the
   clipped triangles are therefore not the GS's (not checked against a GS
   dump). The clipped triangles are appended after the object's (box's)
-  own, as the GS draws them. -1 only when the translation faults (an FTOI
-  outside int32), a data word names a matrix other than dmem 0, a packet
-  does not decode, or a point cannot be unprojected.
+  own, as the GS draws them. A kicked triangle whose three vertices share
+  one GS X / Y (the kernel's collapse of a triangle wholly outside a
+  screen plane onto (2048, 2048)) has no area, so the GS draws no pixel of
+  it: the backend skips it without unprojecting (such a vertex near
+  w = 0.1 does not survive the binary32 round trip; first met live at
+  first control, in no captured or route batch). -1 only when the
+  translation faults (an FTOI outside int32), a data word names a matrix
+  other than dmem 0, a packet does not decode, or a point of a drawn
+  triangle cannot be unprojected.
 - The frame's alpha channel is the GS destination alpha; the CAMetalLayer
   is set opaque so it is never shown.
 
-### Binding (for the scene coordinator)
+### Binding (live since 2026-09-26, census L29 + L29b)
 
-**Render-stage call.** The coordinator's worker slot `w_0015C160`
-(`em_scene_workers.h`), called by `em_sf_001AE5E0` at 0x1AE654 (after
-`walk_001AFD70(0)`, before `w_001F0360`) and by `em_sf_001AE6B0` at
-0x1AE798 (after `walk_001AFD70(2)`, before `001CB590(&D_008101E0)`), is
-the whole of 0015C160 (byte-matched `src/func_0015C160.c`):
+**The post-step.** `w_0015C160` (src/game/em_scene_bindings.c), called by
+`em_sf_001AE5E0` at 0x1AE654 (after `walk_001AFD70(0)`, before
+`w_001F0360`) and by `em_sf_001AE6B0` at 0x1AE798 (after
+`walk_001AFD70(2)`, before `001CB590(&D_008101E0)`), is 0015C160
+(byte-matched `src/func_0015C160.c`) in the AREA11 roster scene:
 
-```c
-static int w_0015C160(void *ctx)          /* 0015C160, player post-step */
-{
-    Bind *b = ctx;
-    const uint8_t *pl = b->player;        /* D_008102B0 record, 0x320 bytes */
-    uint32_t w214;
-    if (b->d8102B1 == 0) return 0;        /* no 001CB590, no +0x4C draw */
-    /* 001CB590(player, 0x320, player[9]); a3 is not set up (src/func_0015C160.c) */
-    if (b->w_001CB590(b, 0x8102B0u, 0x320, pl[9], 0) < 0) return -1;  /* D_00275B44 = player */
-    memcpy(&w214, pl + 0x214, 4);
-    const int r = em_shadow_original_route_0015C160(b->d8102B1, b->d810771, w214,
-                                                    &b->shadow_fault);
-    if (r < 0) return -1;                 /* 0015BF90 route: fault, after 001CB590 */
-    if (r == 1 &&
-        em_shadow_original_001DA6A0(pl, b->player_nodes, b->player_node_slots,
-                                    &b->shadow_scene, &b->shadow_state,
-                                    &b->shadow_plan, &b->shadow_workers,
-                                    &b->shadow_fault) < 0)
-        return -1;
-    return b->draw_player(b);             /* the +0x4C method (001CAA00) */
-}
-```
+1. `D_008102B1` is the player record's +0x01 (0015BA50 sets it every stage,
+   the 0x19 states clear it); 0 returns with no 001CB590, no shadow and no
+   +0x4C draw.
+2. `001CB590(player, 0x320, player[9])` (`w_001CB590`: D_00275B44 = the
+   player).
+3. While the player record does not hold the displayed pose (the opening
+   runtime owns the displayed player, design risk 2; the pose source has not
+   started; a port stand-in holds the display: `player_pose_record_displayed`)
+   the post-step is reported (UM_0015C160_OPENING) and the port's own player
+   draw is requested; nothing is computed from the record.
+4. `em_shadow_original_route_0015C160(+0x01, D_00810771, +0x214)`:
+   D_00810771 is event 0x19 in the EmProgress region (migrated by this step;
+   0 on the route), +0x214 the record of the actor the player stands on.
+   Route 1 calls `em_shadow_live_0015C160` with 001DA6A0, route 2 with
+   0015BF90 (SHADOW_ACTOR_ROUTE.md section 4).
+5. The +0x4C method: `em_render_player_draw_0015C160` requests the player's
+   own draw for this frame.
 
-`draw_player` is the player's own draw, moved out of `frame_close_out`
-(today the last entry of its draw list): the shadow must come after the
-level and the walked actors and before the player. `player_nodes[i]` =
-the node record `*(player+0x110+4i)` (>= 0xD0 bytes; +0xC0 is read) for
-i < player+0x09. `shadow_state` persists across frames (D_00817FF0, zero at
-boot). `shadow_scene`: ctx+0x2240, +0x2340, +0x2380, D_70003AC0
-(ctx+0x23C0), D_00810610, ctx+0x2468, D_00810700/701 of the frame, and the
-grid fields from `em_shadow_receivers_scene(&receivers, &shadow_scene)`.
+**The player record's bytes** 001DA6A0 reads are the original writers':
++0x96 = 0x28 (0015C1F0 at 0x15C2F4, in `spawn_w_0015C1F0`), +0x98 = 1
+(0015C420's 001CA6F0(player, 1), `player_states_reset`) and +0x09 = +0x0C
+(0015C420 after the node allocation, `player_pose_attach`); the +0x110 words
+name the pose owner's node records (em_player_record_pose), which the
+binding resolves through the pose host's regions.
 
-**Workers** (`ctx` = the coordinator's binding; `gfx` the frame device;
-`vp` the frame's native P*V, the matrix the zones are drawn with;
-`receivers` = `em_shadow_receivers_load(&receivers,
-"assets/scene_snow/shadow_receivers.emsr")` once per area):
+**The call** (`em_shadow_live_0015C160`, src/game/em_shadow_live.c) runs
+`em_shadow_original_001DA6A0` over the live record, its 21 node records,
+and a scene view built from the canonical storage at the call:
+ctx+0x2240 / +0x2340 / +0x2380 / +0x2468 and the scratchpad camera
+0x70003AC0 from the render context (`em_rcl_bytes`), D_00810610 from the
+live camera, D_00810700 / 701 from the scene state, and the static-object
+grid of `assets/scene_snow/shadow_receivers.emsr`
+(`em_shadow_receivers_scene`; 001D52E0 is not bound). D_00817FF0 is the
+module's own BSS (zero at boot, never reset). The draw workers do not draw
+at the call: they record their arguments (the two boxes, the silhouette's
+VP and a copy of the 21 node +0x90 matrices as they stand at the call, the
+UV matrix and camera, the receivers with their classes) and check what can
+be checked there (a box model, a receiver object, kind 0x28 for the proxy);
+a failing check is the worker's -1, latched by em_shadow_original at its
+original address.
 
-```c
-w_object_bounds(ctx, id, lo, hi) -> em_shadow_receivers_bounds(&receivers, id, lo, hi)
-w_alpha_clear(ctx)               -> em_gfx_shadow_alpha_clear(gfx)
-w_box(ctx, box)                  -> m = em_shadow_receivers_box(&receivers, box->model);
-                                    EmGfxShadowStrips st = { m->qw3, 32 * m->batches };
-                                    em_gfx_shadow_box(gfx, &st, box->world, box->clip_pass,
-                                                      box->rgbaq, vp)
-w_silhouette(ctx, kind, sil_vp)  -> kind 0x28 only (else -1):
-                                    em_gfx_shadow_silhouette(gfx, proxy->verts, proxy->vert_count,
-                                        proxy->indices, proxy->index_count,
-                                        nodes /* node+0x90 of each player+0x110 node */,
-                                        player[0x0C] /* node count */, sil_vp)
-w_receiver_begin(ctx, uv)        -> em_gfx_shadow_receiver_begin(gfx, uv, shadow_scene.camera_3AC0, vp)
-w_receiver(ctx, r)               -> o = em_shadow_receivers_object(&receivers, r->id);
-                                    EmGfxShadowStrips st = { o->qw3, 32 * o->batches };
-                                    em_gfx_shadow_receiver(gfx, &st, r->cls)
-w_receiver_end(ctx)              -> em_gfx_shadow_receiver_end(gfx)
-```
+**The draw.** `frame_close_out` (em_render_frame.c) flushes the recorded
+passes in the original's order after the level, the walked actors and the
+owner units, with the frame's native P*V (`em_shadow_live_flush`):
 
-A NULL object or box model is -1 (fault). The receiver call covers the
-whole original sequence for its class (class 2: 0023C200, then 0023E8A0
-over the same strips) and `em_gfx_shadow_box` stands for 00237180 and
-00239C90 together; the worker passes `r->cls` unchanged. Every call
-returns -1 when it cannot draw what the original draws; the worker returns
-that and em_shadow_original latches the fault. `proxy` is
-`assets/player_shadow.emdl` (kind 0x28). `em_gfx_fog` must be set for the
-frame before the receivers (the world flush does). Only the Metal backend
-implements `em_gfx_shadow_*`.
+| Worker | Metal pass |
+|---|---|
+| w_alpha_clear | `em_gfx_shadow_alpha_clear` |
+| w_box (x2) | `em_gfx_shadow_box(model strips, W, (W x V) x P, RGBAQ, vp)` |
+| w_silhouette | `em_gfx_shadow_silhouette(assets/player_shadow.emdl, node +0x90 copies, 21, VP)` |
+| w_receiver_begin | `em_gfx_shadow_receiver_begin(uv, camera, vp)` |
+| w_receiver (each) | `em_gfx_shadow_receiver(object strips, class)` |
+| w_receiver_end | `em_gfx_shadow_receiver_end` |
+
+Then the player's own draw (the port's mesh with its rig), in the frames
+whose post-step requested it; in AREA11 the player no longer has a
+draw-list entry. A pass that cannot draw exactly returns -1: the module
+latches the pass's original address (001DA290, 001DA310, 001D9EE0,
+001D4CD0, 001D4FB0, 001D1FF0) and `frame_close_out` faults the scene. The
+0015BF90 decal is flushed at the page splice (SHADOW_DECAL.md section 5).
+
+**Assets** (docs/STARTUP.md rows 41, 42, 50, 52): the receivers, the proxy,
+the effect tables' D_0025DAE0 window and the decal texture; without any of
+them the AREA11 area build faults at the shadow's bind.
+
+**Evidence** (docs/LEVEL_SMOKE.md "The drop shadow", tools/level_smoke_shadow.py):
+every post-step of the route takes 0015C160's own route for its logged
+gate bytes, every drawn shadow is flushed, the first-control frame draws
+it, and on sampled calls the ORIGINAL 001CB590 + 001DA6A0, executed over
+route 01's RAM with the port's inputs patched in, write the port's light
+globals, ctx+0x24B0, silhouette VP, box uploads, UV upload and receiver
+sequence with its classes; the sampled views equal the render context's
+of the tick. Full route (EM_TEST_FULL=1): 10,631 001DA6A0 calls (9,364
+drawn), 40 samples re-executed. The first-control frame, by eye, against
+`original_area11_playable.png`: the same leg silhouette at the same
+darkness (the camera differs; kept under build/captures/shadow_live/).
+newgame-control stays 9.599849 and the frame trace is byte-identical to
+the build before this step.
 
 ## Assets
 
@@ -689,12 +710,17 @@ baked frame.
 - Roger's drop shadow (census L22): Roger is live on his original owner
   since 2026-09-24 and his 001BA580 reaches `001DA6A0` every frame (kind
   0x29); the port reports it as a no-effect binding (UM_001DA6A0,
-  em_scene_bindings.c), as it does the player's post-step. The captured
+  em_scene_bindings.c): the kind 0x29 proxy D_0028A490[0x29] is not
+  exported and the live module draws only kind 0x28. The captured
   runs all return at the clip test, but during the encounter Roger is on
   screen, where the original may draw his shadow: no capture of that frame
   has been checked.
-- The GS side is implemented in the Metal backend but not bound (Binding
-  above). D3D12/Vulkan do not implement it.
+- The GS side is bound in the Metal backend (Binding above); D3D12 and
+  Vulkan have stubs that return -1 (the caller faults).
+- The post-step during the opening is reported, not computed: the opening
+  runtime owns the displayed player and the record holds no original pose
+  (design risk 2). The opening capture's list holds the original's chain,
+  so the opening's shadow is a remaining gap.
 - The clip kernels are translated and kick for kick equal to the executed
   kernels on every batch the captures and route beats give them and on
   the synthetic sweep. The interpreter's timing model (stalls, flag and Q
@@ -726,8 +752,8 @@ baked frame.
 - handoff: the receiver section of the captured list differs from what
   the capture-time RAM produces (see A). The later step that moved the
   pose and view is not identified.
-- `0015BF90` (the `+0x214 != 0` route) and `001BA7F0` (area 0x0D NPC
-  route) are not translated.
+- `001BA7F0` (area 0x0D NPC route) is not translated. `0015BF90` (the
+  `+0x214 != 0` route) is translated and live (SHADOW_ACTOR_ROUTE.md).
 - The suppression list (frame variant not run, `D_008102B1 == 0`,
   `D_00810771 == 1`, kind 0, clip reject, area not listed) is what the code
   shows and what the nine captures agree with. It is not proven complete:

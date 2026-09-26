@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """export_effect_tables.py - the boot ELF data the live effects read.
 
-The effect originals bound live by src/game/em_effects_live.c and
+The effect originals bound live by src/game/em_effects_live.c,
 src/game/em_equipment_live.c (census lanes L26 / L27 / L28 / L39;
-docs/EFFECT_MANAGER.md section 8) read static .data of the boot ELF: the
+docs/EFFECT_MANAGER.md section 8) and src/game/em_shadow_live.c (census
+L29, the 0015BF90 decal route) read static .data of the boot ELF: the
 effect entity tables, the subtype step / handler pairs, the effect manager's
 windows, the glow-marker and point-light lists, the handlers' source blocks,
 the head sprite's entries and packet rows, and the equipment routines' offset
@@ -13,7 +14,8 @@ ignored asset; nothing is embedded here. The runtime places each block at its
 address in an otherwise empty ELF-sized image and hands that image to the
 translations' own table loaders (em_effect_original_load_tables,
 em_effect_manager_load_tables, em_effect_kinds_load_tables,
-em_head_sprite_original_load_tables), which read only these windows.
+em_head_sprite_original_load_tables, em_shadow_actor_route_load_tables),
+which read only these windows.
 
 Blocks (original address, bytes, what reads them):
   0x00257C90  0x2460  D_00259C70's entity records (001EF9D0), D_00259C70,
@@ -35,6 +37,9 @@ Blocks (original address, bytes, what reads them):
   0x0024A220  0x290   D_0024A220..D_0024A4AF (00188630 / 0018A1F0's rows)
   0x00248B98  8       D_00248B98's first halfword (00188B80)
   0x00248C78  8       D_00248C78's first halfword (00188B80)
+  0x0025DAE0  0x20    D_0025DAE0 / D_0025DAF0: the decal colour and facing
+                      001F9100 passes (em_shadow_live's 0015BF90 route,
+                      em_shadow_actor_route_load_tables)
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -63,7 +68,7 @@ DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x0026EB20, 0x90),
           (0x002565E0, 0x480), (0x002535F0, 0x110), (0x00251260, 0x80), (0x0024A220, 0x290),
-          (0x00248B98, 8), (0x00248C78, 8))
+          (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

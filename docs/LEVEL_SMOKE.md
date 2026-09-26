@@ -11,7 +11,8 @@ his original owner and scripts), by the full-route step of 2026-09-25 (side
 beat 00 live in its own run), by WP-8b (the stream lanes live; the director
 008253F0's three beats and Roger's voiced conversation on their original
 scripts) and by census L18 (side beat 09: the fence door on its original
-owner, 2026-09-25). The
+owner, 2026-09-25) and by census L29 (the player's drop shadow, checked
+after the phases: "The drop shadow" below, 2026-09-26). The
 smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
@@ -939,6 +940,48 @@ and:
 Measured (full route): 08: 3 units drawn in both; 10: 2 (the door and the
 truck), camera exact, positions equal; 11: 1; 12: 0; 13: 8; 14: 0 (all
 culled, as in the capture).
+
+### The drop shadow (`check_shadow`, census L29 / L29b; tools/level_smoke_shadow.py)
+
+Not a phase: after the phases, whenever first control was checked (every
+run). The tick log's `shadow` carries, per tick, the post-step
+(`w_0015C160`: whether it ran this tick, D_008102B1, D_00810771, the record
++0x214 names and the route: 0 none, 1 001DA6A0, 2 0015BF90, -1 reported
+while the player record does not hold the displayed pose), the last shadow
+call (em_shadow_live_log: its route, 001DA6A0's result, the kind, the
+receivers and class-2 receivers, the decal's fans and vertices, whether the
+passes were flushed) and, on sampled calls (the first, then every 100th
+001DA6A0 and every 20th 0015BF90 call, at most 40 each), the call's inputs
+and outputs in hex. It checks:
+- over the whole run: every post-step's route is 0015C160's own for its
+  gate bytes; every 001DA6A0 that drew was flushed, every decal with fans
+  was flushed, nothing else was drawn; the first-control tick draws the
+  shadow (the original's playable capture holds the chain);
+- sampled 001DA6A0 calls (quick: the first, the last and two between;
+  `EM_TEST_FULL=1`: all): the ORIGINAL 001CB590 + 001DA6A0, executed over
+  route 01's RAM with the port's inputs patched in (the player record, its
+  21 node records, ctx+0x2240 / +0x2340 / +0x2380 / +0x2468, 0x70003AC0,
+  D_00810610, the area bytes, D_00817FF0), write the port's light globals
+  D_00817F20..D_00817FF0, ctx+0x24B0, the silhouette VP, both box uploads,
+  the UV upload and the receiver sequence with its classes; the sample's
+  views equal the tick's render context (V, K, the +0x2240 projection, the
+  zoom);
+- sampled 0015BF90 calls (quick: three; full: all): the ORIGINAL 0015BF90 ->
+  001F9100 -> 001F8D30, executed over route 04's RAM with the port's record,
+  node records, 0x70003B8D, camera, fog and clip matrix and its 0019A570
+  answered with the port's hit, submits the port's quad (tag, corners, TEX0,
+  colour), and the ORIGINAL 001CE300 then writes the port's packets byte for
+  byte into a cleared page slot 0, behind the mode-1 blend reference;
+- the aligned route snapshots: the gate bytes and the route equal the
+  snapshot's (and the kind for route 1); every route capture's mode-1
+  blend block holds the writes the decal renderer implements.
+
+Measured (default run, through the fence door): 3,194 001DA6A0 calls, all
+drawn and flushed; 640 0015BF90 calls, 628 decals drawn; 1,302 reported
+post-steps (the opening); samples 4 of 32 and 3 of 32 re-executed. Full
+route: 10,631 001DA6A0 calls (9,364 drawn), 640 0015BF90 calls; all 40 and
+32 samples re-executed, all equal. Mutations of a node, the camera, the area
+byte, a packet byte and the segment answer each fail it.
 
 ## Adding a phase (the contract for WP-4 onward)
 

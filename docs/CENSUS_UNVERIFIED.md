@@ -57,7 +57,7 @@ scratch copies of `src/` (the live tree was not touched):
 | 001B1190 | **verified** (areas 0..0x16, capture 00→01) | none | none needed for AREA11 |
 | 001C5680 | **verified**, live per node (em_indicator_child) | none: every child draws its 001F54E0 in walk order | the 0x7A child's own model draw (OWNER_DRAW.md P1) |
 | 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live | none (the arrow turns green once powered, as in route 04) | none |
-| 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired | the actor-route decal is not bound yet | bind the decal route |
+| 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired; live since census L29 (em_shadow_live, FIRST_LEVEL_CENSUS.md section 1.20) | the decal draws on the route (beats 02, 04, 05, 08) | none |
 | 0020DFA0 | D_00810610 writes **verified**; 001D2610(0.0) runs on the render context (its zoom and its 0021B970) since the render context step; three callees not run (one key each) | trail reset on the request path; fog save/program | see the 0020DFA0 section |
 
 ## 0015AC00 (the 0015AFA0 owner's state 0)
@@ -322,8 +322,10 @@ digests are in report.json.
 
 A translation can be checked against the same cases.
 
-**Fix:** translate 001CE300 and 001CF470 (lane L29-shadow-route / its GS
-packet work). Until then, the decal worker must keep faulting.
+**Fix (done):** 001CE300 and 001CF470 are translated (d85512e) and bound
+live through em_shadow_live since census L29 (2026-09-26); the level smoke's
+check_shadow executes the original 001CE300 over the port's sampled inputs
+and compares the packets.
 
 ## 0020DFA0 (the status page CONFIGURE)
 

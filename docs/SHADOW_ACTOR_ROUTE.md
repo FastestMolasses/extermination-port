@@ -4,8 +4,9 @@ When the player stands on an actor (the elevator car in route beats 02 and
 04, a crate in 05, the truck in 08), the player word `+0x214` names that
 actor. In that state the player post-step 0015C160 does not call the
 projected shadow 001DA6A0 (docs/SHADOW_ORIGINAL.md). It calls 0015BF90
-instead. Until now `em_shadow_original_route_0015C160` latched
-`EM_SHADOW_FAULT_UNTRANSLATED` on that route.
+instead. `em_shadow_original_route_0015C160` names that route
+(`EM_SHADOW_ROUTE_0015BF90`), and since census L29 (2026-09-26) it runs live
+(section 4).
 
 This document covers:
 - what 0015BF90, 001F9100 and 001F8D30 do;
@@ -265,94 +266,80 @@ Mutation check (manual, this session): each of these makes the test fail:
 The `c.le.s` versus "> 1" rewrite survives. It is equivalent on the EE
 (total compare order), as section 1 says.
 
-## 4. Binding (for the scene coordinator)
+## 4. Binding (live since 2026-09-26, census L29)
 
-Nothing is wired. The module is built only by its test.
+`w_0015C160` (em_scene_bindings.c; SHADOW_ORIGINAL.md "Binding") takes this
+route when `em_shadow_original_route_0015C160` returns
+`EM_SHADOW_ROUTE_0015BF90` (player +0x214 != 0), and calls
+`em_shadow_live_0015C160` (src/game/em_shadow_live.c), which runs
+`em_shadow_actor_route_0015BF90` over the live player record with:
 
-**Makefile (lead-owned).** The test target:
+- **Tables:** D_0025DAE0 / D_0025DAF0 from the effect-table export
+  (tools/export_effect_tables.py's window 0x25DAE0, 0x20 bytes), placed in an
+  ELF-sized image for `em_shadow_actor_route_load_tables`.
+- **Scratch:** `s38A0` the module's own four words (every routine on this
+  path writes 0x700038A0 before reading it); `s38B0` and `s3A20` the player
+  pose host's words (EmPoseGlobals.spad38B0 / spad3A20, the stage's
+  0x70003A20); `s3600` the module's one 0x70003600..0x7000363F block, shared
+  with its 001CD390 (em_effect_original's globals) and 001CE300;
+  `s3B8D` the scene state's canonical byte; `s3AC0` the render context's
+  scratchpad camera.
+- **Workers** (the route passes one context to all: the EmShadowDecal):
+  - `node_c4`: the +0xC4 word of the node record the player word names
+    (+0x154 / +0x158), resolved in the pose owner's regions; a word other
+    than the player's own faults.
+  - `segment`: `em_coll_segment_0019A570(em_collision_world_segment(), ...)`;
+    on a hit `em_coll_segment_hit` gives the point and the record normal.
+    The point's fourth word is 0 (limit L2).
+  - `atan2`: `em_sdk_math_original_0011E620` over the collision world's SDK
+    context.
+  - `look_at`: `em_effect_original_001CD390` on the module's own effect
+    globals (the shared 0x70003600 block).
+  - `submit`: `em_shadow_decal_w_001CE300` (SHADOW_DECAL.md section 5).
 
-```make
-.PHONY: test-shadow-actor-route-reference
-test-shadow-actor-route-reference:
-	python3 tools/test_shadow_actor_route_reference.py
-```
+The call replaces 001DA6A0 at the same place: after 001CB590 and before the
++0x4C draw. `src/game/em_shadow_actor_route.c` is in COMMON.
 
-When the route is bound, add `src/game/em_shadow_actor_route.c` to the game
-sources. It calls into `em_owner_services_original.c`,
-`em_sdk_math_original.c` and `em_stream_lanes_original.c`. On 2026-09-23 the
-game sources list only `em_sdk_math_original.c`; add the other two unless
-another binding has added them already.
-
-**Route.** `em_shadow_original_route_0015C160` must stop latching
-`EM_SHADOW_FAULT_UNTRANSLATED` for `player_214 != 0`. Requested change
-(em_shadow_original.c, lead-owned): return a distinct value, e.g. 2, for
-that route. Then, in the coordinator's `w_0015C160` (SHADOW_ORIGINAL.md
-"Binding"):
-
-```c
-    if (r == 2 &&
-        em_shadow_actor_route_0015BF90(&b->actor_route, b->player_live) < 0)
-        return -1;                    /* 0015BF90, after 001CB590 */
-```
-
-`player_live` is the same `EmPlayerLiveActor` the stage uses (the record
-at 0x8102B0).
-
-**Tables.** Call `em_shadow_actor_route_load_tables(elf, size,
-&b->actor_route_tables)` once, where the other ELF tables are loaded.
-
-**Scratch.** Point every field at the coordinator's one scratchpad image:
-- `s38A0` / `s3A20`: the same words as `EmPlayerLandScratch.s38A0` /
-  `.s3A20` and `EmPlayerStageGlobals.spad3A20`;
-- `s3600`: `EmEffectOriginalGlobals.spad3600` (001CD390 writes the same
-  block just before);
-- `s3B8D`: `EmSceneState.spad3B8D`;
-- `s3AC0`: the camera rows `EmShadowOriginalScene.camera_3AC0` of the frame.
-
-**Workers:**
-- `node_c4`: the `+0xC4` float of the node record
-  `*(player + 0x110 + 4 * 17)` / `... 18` (the same node array
-  `player_nodes` the 001DA6A0 binding uses). Check that `word` is that slot's
-  pointer, and fault otherwise.
-- `segment`: `em_coll_segment_0019A570(&seg, from, to, 6, 0)` with the
-  frame's `EmCollSegment`. On a result other than 0, fill `point[0..2]`
-  and `normal` from `em_coll_segment_hit`. Fill `point[3]` from the
-  scratchpad word 0x700031BC. See limit L2.
-- `atan2`: `em_sdk_math_original_0011E620(tables, world, workers, y, x,
-  &r, &fault)`. This is verified above.
-- `look_at`: `em_effect_original_001CD390(&effect, out, v)` on the effect
-  module's context, so its spad3600 is the shared block. This is verified
-  above.
-- `submit`: **001CE300 is not translated** (limit L1). Until it is, leave
-  it unbound: the route then faults at 0x001CE300 (UNBOUND at 0x0015BF90,
-  before any write) instead of at 0x0015BF90 UNTRANSLATED.
-
-**Order in the frame.** The call replaces 001DA6A0 at the same place:
-after 001CB590 and before the `+0x4C` draw.
+**Evidence** (docs/LEVEL_SMOKE.md "The drop shadow"): on sampled 0015BF90
+calls of the route (beats 02, 04, 05, 08: the elevator, the crates, the
+truck) the ORIGINAL 0015BF90 -> 001F9100 -> 001F8D30 (0011E620 and 001CD390
+nested as original) executes over route 04's RAM with the port's player
+record, node records, 0x70003B8D, camera, fog and clip matrix patched in and
+its 0019A570 answered with the port's logged hit; its 001CE300 arguments
+equal the port's (tag, corners, TEX0, colour) and the original 001CE300 then
+writes the port's packets byte for byte (32 samples on the default and on
+the full route).
 
 ## 5. Limits and open items
 
-- **L1: 001CE300 is not translated.** It covers the frustum clip 001CF470,
-  the GIF fan and the display-list page calls 001CB5F0 / 001CB950 /
-  001CB900. The decal is not drawn until that lane exists. The texture at
-  TBP0 0x2469 (PSMT8, CLUT 0x2148) must be resident, which is also part of
-  that work. What this lane hands 001CE300 is verified exactly: tag,
-  corners, TEX0 and rgba.
+- **L1 (resolved): 001CE300** is translated (em_shadow_decal_original,
+  d85512e) and bound live (section 4); its fans are drawn by
+  `em_gfx_shadow_decal_fan` with the texture exported from the route
+  captures' GS memory (SHADOW_DECAL.md sections 4 and 5).
 - **L2: the fourth word of 0x700031B0.** 0015BF90 copies the whole
   quadword at 0x700031B0 into 0x700038A0. The segment walkers write only
   x/y/z (em_coll_segment_walkers.c copies three words), and
   `EmCollProbeState` does not keep the fourth word. It is 0 in every
   capture, and nothing in these routines reads it (00102918 adds xyz only,
-  and 001F8D30 reads point.y). It only reaches 0x700038AC. The binder
-  must supply it from the scratchpad image. If that image is not kept,
-  export the word from `EmCollProbeState` (a coll-segment-walkers change
-  for the lead).
+  and 001F8D30 reads point.y). It only reaches 0x700038AC, the module's
+  own word. The live binding supplies 0 (em_shadow_live's segment worker);
+  keeping the walkers' fourth word in `EmCollProbeState` would make it the
+  scratchpad's (a coll-segment-walkers change for the lead).
 - **L3: route coverage.** Only the end snapshots of beats 02 and 04 have
   `+0x214` set. Beats 05 and 08 end with the player off the crate and the
   truck. The oracle still runs 0015BF90 over their captured players,
   because 0015BF90 does not read +0x214, but a mid-beat frame on the crate
   or the truck is not captured. The 0x41 path is forced (+0x1F0 and 3B8D
-  patched) and appears in no capture.
+  patched) and appears in no capture. Live, the route runs on the
+  elevator, the crates and the truck (640 calls on the default smoke, 628
+  with a decal), and the smoke re-executes the original over sampled calls
+  (section 4); the mid-beat frames are still not compared with a capture.
+- **L5: private SDK leaves.** The module keeps its own 001026D0 and
+  00102900 (its oracle runs both as original); the codebase has other live
+  copies of these VU0 leaves (em_loco_001026D0, em_effect_manager's,
+  em_actor_light_001D89D0's, em_camera_leftovers'). One shared SDK VU0
+  module would leave one owner each; linking em_locomotion_display here
+  would drag its pose-host dependencies into this module's tests.
 - **L4: VU0 register state.** The native side does not model the VU0
   registers that 001F8D30 leaves behind (vf1, vf2, vf20..vf23, vf28..vf31,
   ACC, Q). 001CE300, the only later consumer on this path, reloads vf23 and

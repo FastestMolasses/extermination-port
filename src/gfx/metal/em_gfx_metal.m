@@ -204,6 +204,12 @@ struct EmGfx {
     bool                         shadowRecvOpen;
     float                        shadowUV[16], shadowCam[16], shadowVP[16];
     uint32_t                     shadowWarned;      /* reasons printed */
+    /* The 0015BF90 decal (em_gfx_shadow_decal_*): its pipeline (the GS
+     * pixel path of 001CE300's fans, framebuffer fetch, RGB write only)
+     * and its texture (raw CLUT entries, RGBA8Uint). */
+    id<MTLRenderPipelineState>   shadowDecalPipeline;
+    id<MTLTexture>               shadowDecalTex;
+    uint32_t                     shadowDecalW, shadowDecalH;
     /* Object units (em_gfx_object_unit / em_gfx_object_texture — em_gfx.h):
      * the TEX0 (CLD cleared) -> texture table, the pipeline of the GS
      * class-0 pixel path, the CPU kernels' result storage and the reasons
@@ -774,6 +780,8 @@ void em_gfx_destroy(EmGfx *g)
     for (unsigned i = 0; i < EM_GFX_SHADOW_TARGET_MAX; i++)
         [g->shadowTarget[i] release];
     [g->shadowLast release];
+    [g->shadowDecalPipeline release];
+    [g->shadowDecalTex release];
     for (uint32_t i = 0; i < g->objTexCount; i++)
         [g->objTex[i].tex release];
     [g->objPipeline release];
@@ -2713,13 +2721,25 @@ static int shadow_clip_batch(int kernel, const float cam[16], const float *st,
         return -1;
     if (em_vu1_shadow_clip_run(kernel, dmem, EM_SHADOW_GS_CLIP_TOP, res)) return -1;
     const int n = em_shadow_gs_clip_vertices(kernel, res, gv, cap);
-    if (n < 0) return -1;
-    for (int v = 0; v < n; ++v) {
-        if (!(gv[v].kq != 0.0f) || !isfinite(1.0f / gv[v].kq)) return -1;
-        if (em_shadow_gs_clip_unproject(cam, gv[v].x, gv[v].y, 1.0f / gv[v].kq, pos[v]))
-            return -1;
+    if (n < 0 || n % 3) return -1;
+    /* A triangle whose three kicked vertices share one GS X / Y (the
+     * kernel's collapse of a triangle wholly outside a screen plane onto
+     * (2048, 2048)) has no area: the GS draws no pixel of it, so it is not
+     * unprojected or drawn. */
+    int kept = 0;
+    for (int t = 0; t < n; t += 3) {
+        if (gv[t].x == gv[t + 1].x && gv[t].x == gv[t + 2].x &&
+            gv[t].y == gv[t + 1].y && gv[t].y == gv[t + 2].y)
+            continue;
+        for (int c = 0; c < 3; ++c) {
+            const EmShadowGsClipVertex v = gv[t + c];
+            if (!(v.kq != 0.0f) || !isfinite(1.0f / v.kq)) return -1;
+            if (em_shadow_gs_clip_unproject(cam, v.x, v.y, 1.0f / v.kq, pos[kept]))
+                return -1;
+            gv[kept++] = v;
+        }
     }
-    return n;
+    return kept;
 }
 
 int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
@@ -3318,6 +3338,143 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:3u * i vertexCount:3u * (j - i)];
         i = j;
     }
+    [vb release];
+    return 0;
+}
+
+/* --- The 0015BF90 decal (em_gfx_shadow_decal_* — em_gfx.h) --------------- */
+
+/* The GS pixel path of 001CE300's fans under the mode-1 blend block
+ * (docs/SHADOW_DECAL.md section 4). Vertices arrive in NDC with w = 1 (the
+ * packet's X / Y through em_background_gs_ndc, Z through object_depth), so
+ * RGBA, F and S, T, Q are screen-linear, as the GS interpolates them; the
+ * texture coordinate is divided per pixel (STQ). Texels are the raw CLUT
+ * entries, read with the GS bilinear rule (sample point U - 0.5 on the 1/16
+ * grid, 4-bit weights) and REPEAT (CLAMP_1 0). TFX MODULATE with TCC 1; fog
+ * (FGE); the alpha test NEVER fails every pixel and AFAIL RGB_ONLY still
+ * writes its RGB (the pipeline masks alpha, the depth state writes no Z);
+ * ALPHA 0x44 = (Cs - Cd) * As >> 7 + Cd with COLCLAMP, on the frame pixel
+ * (framebuffer fetch). k = (width, height, FOGCOL r | g << 8 | b << 16, 0).
+ * APPROXIMATION, as the object units': the per-pixel values come from
+ * Metal's float interpolation, floored with a 0.001 epsilon; the GS DDA
+ * stepping is not modelled and no GS dump of a drawn decal checks it. */
+static NSString *const kDecalShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct DVOut { float4 pos [[position]];\n"
+"               float4 rgba [[center_no_perspective]];\n"
+"               float4 stqf [[center_no_perspective]]; };\n"
+"vertex DVOut v_decal(uint vid [[vertex_id]], const device float4 *v [[buffer(0)]]) {\n"
+"    DVOut o; o.pos = v[3 * vid]; o.rgba = v[3 * vid + 1]; o.stqf = v[3 * vid + 2]; return o;\n"
+"}\n"
+"fragment float4 f_decal(DVOut in [[stage_in]], float4 dst [[color(0)]],\n"
+"                        texture2d<uint, access::read> tex [[texture(0)]],\n"
+"                        constant uint4 &k [[buffer(0)]]) {\n"
+"    int w = int(k.x), h = int(k.y);\n"
+"    float u = in.stqf.x / in.stqf.z, v = in.stqf.y / in.stqf.z;\n"
+"    int uu = int(floor(u * float(w) * 16.0)) - 8;\n"
+"    int vv = int(floor(v * float(h) * 16.0)) - 8;\n"
+"    int fu = uu & 15, fv = vv & 15;\n"
+"    int x0 = (uu >> 4) & (w - 1), x1 = ((uu >> 4) + 1) & (w - 1);\n"
+"    int y0 = (vv >> 4) & (h - 1), y1 = ((vv >> 4) + 1) & (h - 1);\n"
+"    uint4 t = (tex.read(uint2(x0, y0)) * uint((16 - fu) * (16 - fv)) +\n"
+"               tex.read(uint2(x1, y0)) * uint(fu * (16 - fv)) +\n"
+"               tex.read(uint2(x0, y1)) * uint((16 - fu) * fv) +\n"
+"               tex.read(uint2(x1, y1)) * uint(fu * fv)) >> 8;\n"
+"    uint4 cv = uint4(clamp(floor(in.rgba + 0.001), 0.0, 255.0));\n"
+"    /* TFX MODULATE, TCC 1. */\n"
+"    uint3 c = min((t.rgb * cv.rgb) >> 7, uint3(255));\n"
+"    uint as = min((t.a * cv.a) >> 7, 255u);\n"
+"    /* FGE: (C * F + FOGCOL * (255 - F)) >> 8. */\n"
+"    uint f = uint(clamp(floor(in.stqf.w + 0.001), 0.0, 255.0));\n"
+"    uint3 fc = uint3(k.z & 255u, (k.z >> 8) & 255u, (k.z >> 16) & 255u);\n"
+"    c = (c * f + fc * (255u - f)) >> 8;\n"
+"    /* ALPHA 0x44 on the frame pixel; COLCLAMP 1. */\n"
+"    int3 dc = int3(round(dst.rgb * 255.0));\n"
+"    float3 prod = float3((int3(c) - dc) * int(as));\n"
+"    int3 o = clamp(int3(floor(prod / 128.0)) + dc, 0, 255);\n"
+"    return float4(float3(o) / 255.0, dst.a);\n"
+"}\n";
+
+int em_gfx_shadow_decal_texture(EmGfx *g, const uint8_t *rgba, uint32_t width, uint32_t height)
+{
+    if (!g || !rgba) return shadow_fail(g, SHADOW_WARN_INPUT, "decal texture missing");
+    if (!width || !height || width > 1024u || height > 1024u || (width & (width - 1u)) ||
+        (height & (height - 1u)))
+        return shadow_fail(g, SHADOW_WARN_INPUT, "decal texture is not a power-of-two size");
+    MTLTextureDescriptor *td = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Uint
+                                     width:width height:height mipmapped:NO];
+    td.usage = MTLTextureUsageShaderRead;
+    id<MTLTexture> t = [g->device newTextureWithDescriptor:td];
+    if (!t) return shadow_fail(g, SHADOW_WARN_GPU, "decal texture allocation failed");
+    [t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
+           withBytes:rgba bytesPerRow:4u * width];
+    [g->shadowDecalTex release];
+    g->shadowDecalTex = t;
+    g->shadowDecalW = width;
+    g->shadowDecalH = height;
+    return 0;
+}
+
+int em_gfx_shadow_decal_fan(EmGfx *g, const EmGfxDecalVertex *v, uint32_t n, uint64_t tex0)
+{
+    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
+    if (!v || n < 3u) return shadow_fail(g, SHADOW_WARN_INPUT, "decal fan input missing");
+    if (!g->shadowDecalTex) return shadow_fail(g, SHADOW_WARN_INPUT, "no decal texture registered");
+    const uint32_t tw = (uint32_t)(tex0 >> 26) & 15u, th = (uint32_t)(tex0 >> 30) & 15u;
+    const uint32_t tcc = (uint32_t)(tex0 >> 34) & 1u, tfx = (uint32_t)(tex0 >> 35) & 3u;
+    /* The shader implements MODULATE with TCC 1 over the registered size;
+     * any other TEX0 is refused, not approximated. */
+    if (tw > 10u || th > 10u || g->shadowDecalW != (1u << tw) || g->shadowDecalH != (1u << th) ||
+        tcc != 1u || tfx != 0u)
+        return shadow_fail(g, SHADOW_WARN_INPUT, "decal TEX0 other than the registered MODULATE "
+                           "TCC 1 texture");
+    if (!(g->fog[3] > 0.0f))
+        return shadow_fail(g, SHADOW_WARN_FOG, "decal without the frame's fog (em_gfx_fog)");
+    if (![g->device supportsFamily:MTLGPUFamilyApple1])
+        return shadow_fail(g, SHADOW_WARN_FETCH, "the GPU has no framebuffer fetch (the GS blend)");
+    if (!g->shadowDecalPipeline)
+        g->shadowDecalPipeline = shadow_pipeline(g, kDecalShaderSrc, @"v_decal", @"f_decal",
+            g->layer.pixelFormat, true,
+            MTLColorWriteMaskRed | MTLColorWriteMaskGreen | MTLColorWriteMaskBlue);
+    if (!g->shadowDecalPipeline)
+        return shadow_fail(g, SHADOW_WARN_GPU, "decal pipeline unavailable");
+    ensure_depth_states(g);
+    const uint32_t tris = n - 2u;
+    float *out = malloc(sizeof(float) * 36u * tris);
+    if (!out) return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
+    for (uint32_t i = 0; i < tris; i++) {
+        const uint32_t idx[3] = { 0u, i + 1u, i + 2u };
+        for (unsigned c = 0; c < 3u; c++) {
+            const EmGfxDecalVertex *s = &v[idx[c]];
+            float *o = out + (size_t)(3u * i + c) * 12u;
+            const uint16_t xy[2] = { s->x, s->y };
+            em_background_gs_ndc(xy, o);
+            o[2] = object_depth(s->z);
+            o[3] = 1.0f;
+            for (unsigned k = 0; k < 4u; k++) o[4 + k] = (float)s->rgba[k];
+            o[8] = bits_f(s->s);
+            o[9] = bits_f(s->t);
+            o[10] = bits_f(s->q);
+            o[11] = (float)s->f;
+        }
+    }
+    id<MTLBuffer> vb = [g->device newBufferWithBytes:out length:sizeof(float) * 36u * tris
+                                             options:MTLResourceStorageModeShared];
+    free(out);
+    const uint32_t k[4] = { g->shadowDecalW, g->shadowDecalH,
+                            (uint32_t)lroundf(g->fog[0] * 255.0f) |
+                                (uint32_t)lroundf(g->fog[1] * 255.0f) << 8 |
+                                (uint32_t)lroundf(g->fog[2] * 255.0f) << 16,
+                            0u };
+    [g->enc setRenderPipelineState:g->shadowDecalPipeline];
+    [g->enc setDepthStencilState:g->depthGlow];      /* ZTST GEQUAL; AFAIL: no Z */
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBuffer:vb offset:0 atIndex:0];
+    [g->enc setFragmentTexture:g->shadowDecalTex atIndex:0];
+    [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3u * tris];
     [vb release];
     return 0;
 }

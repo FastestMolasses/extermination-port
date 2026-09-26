@@ -169,9 +169,8 @@ int em_shadow_original_route_0015C160(uint8_t d8102B1, uint8_t d810771, uint32_t
     if (fault && fault->code != EM_SHADOW_FAULT_NONE) return -1;
     if (d8102B1 == 0) return 0;
     if (d810771 == 1) return 0;
-    if (player_214 != 0)
-        return fail(fault, 0x0015BF90u, EM_SHADOW_FAULT_UNTRANSLATED);
-    return 1;
+    if (player_214 != 0) return EM_SHADOW_ROUTE_0015BF90;
+    return EM_SHADOW_ROUTE_001DA6A0;
 }
 
 /* ---- record views ----------------------------------------------------- */

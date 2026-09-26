@@ -99,6 +99,10 @@ typedef enum {
  *                              001BA1C0(Roger, 0) in its lifecycle 0 (0xFF
  *                              keeps him out), set to 1 by the encounter
  *                              script 0x8283D0's op06 sub 0; no port mirror.
+ *   D_00810771           L29   event 0x19 (D_00810758[0x19]): 0015C160 draws
+ *                              no shadow while it is 1 (src/func_0015C160.c;
+ *                              the post-step w_0015C160 reads it); no port
+ *                              writer (0 in every route capture).
  *   D_00810788           S10b  001B65C0 prime-pass mode (tested == 0xFF),
  *                              001B6660 case 6 via D_00810700[0x88]; no port
  *                              mirror existed.
@@ -227,6 +231,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
     } migrated[] = {
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
+        {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
         {0x00810788u, 0x00810789u},
         {0x0081078Bu, 0x0081078Cu}, /* event 0x33: 00191210's gate (L13) */
         {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */

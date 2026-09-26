@@ -250,8 +250,16 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
 {
     int was_started = source.started && source.valid;
     source.started = source.valid = source.acquired = source.script_active = 0;
-    if (em_player_record_pose_attach(&source.record, actor, d8106F3, scene, globals) < 0 ||
-        !record_default() || em_player_record_pose_skeleton(&source.record) < 0) {
+    if (em_player_record_pose_attach(&source.record, actor, d8106F3, scene, globals) < 0) {
+        source.valid = 0;
+        source.legacy = 0;
+        source.legacy_owner = NULL;
+        return 0;
+    }
+    /* 0015C420: +9 = +0xC once the node records are allocated (the node
+     * count 001CB590 publishes and 001DA6A0 reads). */
+    em_live_set_u8(actor, 0x09, em_live_u8(actor, 0x0C));
+    if (!record_default() || em_player_record_pose_skeleton(&source.record) < 0) {
         source.valid = 0;
         source.legacy = 0;
         source.legacy_owner = NULL;
@@ -269,6 +277,11 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
 int player_pose_record_ready(void)
 {
     return em_player_record_pose_ready(&source.record);
+}
+
+int player_pose_record_displayed(void)
+{
+    return ordinary_source();
 }
 
 EmPoseHost *player_pose_record_host(void)

@@ -1033,9 +1033,9 @@ def route_0015C160(elf, lib, report, stats):
                 executed = 1 if SHADOW in calls else (2 if ROUTE_ALT in calls else 0)
                 fault = Fault()
                 r = lib.em_shadow_original_route_0015C160(b1, d771, w214, C.byref(fault))
-                native = 2 if (r == -1 and fault.code == 5 and fault.address == ROUTE_ALT) else r
+                native = r      # 1 = 001DA6A0, 2 = 0015BF90 (EM_SHADOW_ROUTE_*)
                 assert native == executed, (b1, d771, w214, native, executed, calls)
-                assert r != -1 or native == 2, (b1, d771, w214, 'unexpected fault', fault.code)
+                assert fault.code == 0, (b1, d771, w214, 'unexpected fault', fault.code)
                 want = ([] if not b1 else ([SHADOW] if executed == 1 else [ROUTE_ALT] if executed == 2 else [])
                         + [method])
                 assert calls == want, (b1, d771, w214, [hex(c) for c in calls])
@@ -2376,14 +2376,18 @@ class Metal:
         import os
         os.environ['EM_HEADLESS'] = '1'
         lib_path = out/'gfx.dylib'
-        subprocess.run(['clang', '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(ROOT/'src'), '-shared',
-                        '-fPIC', str(ROOT/'src/gfx/metal/em_gfx_metal.m'), str(ROOT/'src/game/em_lighting.c'),
-                        str(ROOT/'src/platform/mac/em_platform_mac.m'), str(ROOT/'src/em_model.c'),
-                        str(ROOT/'src/game/em_packet_chain_original.c'),
-                        str(ROOT/'src/game/em_status_ui_leftovers.c'),
-                        str(ROOT/'src/game/em_object_unit.c'),
-                        '-framework', 'Cocoa', '-framework', 'Metal', '-framework', 'QuartzCore',
-                        '-o', str(lib_path)], check=True)
+        sources = [ROOT/'src/gfx/metal/em_gfx_metal.m', ROOT/'src/game/em_lighting.c',
+                   ROOT/'src/platform/mac/em_platform_mac.m', ROOT/'src/em_model.c',
+                   ROOT/'src/game/em_packet_chain_original.c', ROOT/'src/game/em_status_ui_leftovers.c',
+                   ROOT/'src/game/em_object_unit.c']
+        inputs = sources + list((ROOT/'src').glob('*.h')) + list((ROOT/'src/game').glob('*.h')) + \
+            list((ROOT/'src/gfx/metal').glob('*.h'))
+        # rebuilt only when a source or header is newer than the library
+        if not lib_path.exists() or max(q.stat().st_mtime for q in inputs) > lib_path.stat().st_mtime:
+            subprocess.run(['clang', '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(ROOT/'src'), '-shared',
+                            '-fPIC'] + [str(q) for q in sources] +
+                           ['-framework', 'Cocoa', '-framework', 'Metal', '-framework', 'QuartzCore',
+                            '-o', str(lib_path)], check=True)
         lib = self.lib = C.CDLL(str(lib_path))
         lib.em_window_create.restype = C.c_void_p
         lib.em_window_create.argtypes = [C.c_char_p, C.c_int, C.c_int]

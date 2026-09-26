@@ -44,6 +44,11 @@ struct EmPoseHost;
 int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStageScene *scene,
                        struct EmPlayerStageGlobals *globals);
 int player_pose_record_ready(void);
+/* 1 when the record holds the pose the port displays (the source started
+ * at the opening release, valid, and no port stand-in holds the display):
+ * only then are its node records the player's drawn pose (0015C160's
+ * shadow reads them, em_shadow_live). */
+int player_pose_record_displayed(void);
 /* The EmPoseHost of the record: the context every player-state pose worker
  * slot binds (em_pose_host_request / _arbiter / _clip_frames / ...). */
 struct EmPoseHost *player_pose_record_host(void);

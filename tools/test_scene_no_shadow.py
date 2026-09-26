@@ -100,6 +100,11 @@ WRITERS = {
 # Assignments to a same-named per-call view field (not a canonical write): the
 # file, the field, the exact line pattern, the reason and the step that removes it.
 VIEW_LOADS = [
+    {"file": "game/em_shadow_live.c", "field": "spad3B8D",
+     "pattern": r"s->spad3B8D\s*=\s*st->spad3B8D;",
+     "reason": "sample_common: the level smoke's sample of canonical 3B8D at the 0015C160 shadow call "
+               "(EmShadowLiveSample, test instrumentation for tools/level_smoke_shadow.py; never read back)",
+     "removed_by": "permanent (a per-call sample)"},
     {"file": "game/em_player.c", "field": "spad3B8D",
      "pattern": r"live\.scene\.spad3B8D\s*=\s*s->spad3B8D;",
      "reason": "live_scene_load: the player stage's per-stage view of canonical 3B8D (0015BA50 / "
@@ -156,6 +161,10 @@ REACHERS = {
                                           "closure binder (Boxes step)",
         "game/em_area11_roger.c": "001C64F0 on Roger's record (em_player_stage_anim_advance, census L22): "
                                   "the stage globals pointer the stage workers run with",
+    },
+    0x00810771: {
+        "game/em_scene_bindings.c": "0015C160 (w_0015C160, census L29): the shadow gate's read of event "
+                                    "0x19 (src/func_0015C160.c)",
     },
     0x0081083C: {
         "game/em_player_stage_live.c": "0021C440's read (the +5 = 0xB reaction): the stage workers' "
