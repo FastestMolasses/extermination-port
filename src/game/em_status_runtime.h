@@ -3,7 +3,10 @@
 #ifndef EM_STATUS_RUNTIME_H
 #define EM_STATUS_RUNTIME_H
 
+#include <stddef.h>
+
 #include "em_gfx.h"
+#include "game/em_battery_ui.h"
 #include "game/em_item_trail.h"
 #include "game/em_panel.h"
 #include "game/em_status_frame.h"
@@ -23,7 +26,38 @@ typedef struct {
     uint16_t pressed, held;   /* original D810E74 and held-button word */
     uint8_t stick_x, stick_y; /* original D810E64/E65 */
     uint8_t audio_busy;       /* actual D282157 worker gate */
+    uint16_t repeat;          /* D810E78: pressed with the D-pad auto-repeat */
 } EmStatusInput;
+
+/* One ITEM > BATTERY page call (002149F0, the ITEM root's child page 5),
+ * over the original records (docs/STATUS_PAGE_RECORD.md section 4):
+ *   ui           the one 0xA0-byte UI block D_00810130 (0020E060's memset
+ *                clears it); EmStatusPage / EmItemRoot are views of its
+ *                +0..+6, +8, +0xC, +0x10, +0x11, +0x15, +0x16, loaded before
+ *                the call and stored after it
+ *   b0 / b1 / c5 D_008106B0 / B1 / C5 (the page's request bytes)
+ *   d810C7F.. the inventory bytes C7F (3), CB2 (2), CB7 (1): a per-call
+ *                view of read_inventory; the runtime stores a changed charge
+ *                or capacity through write_charge / write_battery_capacity
+ *   d810E74      this frame's pressed word (2 bytes, little-endian)
+ *   held, repeat D_00810E70 / D_00810E78 (0020B0D0, 0020B210)
+ *   words        D_002821B0 / B4 / B8 / D_00282240 (the message view)
+ *   gauge        00209280's resident text (the hub's records)
+ *   draw         the page's 2D leaf calls, submitted by the render */
+typedef struct {
+    uint8_t *ui;
+    size_t ui_size;
+    uint8_t *b0;
+    const uint8_t *b1;
+    uint8_t *c5;
+    const uint8_t *d810C7F;
+    uint8_t *d810CB2, *d810CB7;
+    const uint8_t *d810E74;
+    uint16_t held, repeat;
+    int32_t *words[4];
+    const EmStatusBatteryData *gauge;
+    EmBatteryUI *draw;
+} EmStatusBatteryPage;
 
 typedef struct {
     void *context;
@@ -35,13 +69,12 @@ typedef struct {
     int (*frame_event)(void *, EmStatusFrameEvent, const EmStatusFrame *);
     int (*page_event)(void *, EmStatusPageEvent, unsigned argument);
     int (*sound)(void *, uint32_t cue); /* original4096 on all volume axes */
-    /*−1 failure,0 not eligible,1 the original185420 resolves this owner.
-     * Pickup browsing supplies NULL: return0 only for an actual empty
-     * lookup, and−1 for an eligible device not supported by this adapter. */
-    int (*owner_available)(void *, EmPanel *owner, unsigned item_id);
-    /* The original successful149F0 exit sets selector70003B8D=3 after the
-     * inventory/owner updates. This hook publishes that shared state. */
-    int (*battery_finished)(void *, EmPanel *owner);
+    /* The ITEM > BATTERY page 002149F0 (em_battery_page_live in the AREA11
+     * host, which adds D_008106D0, 0x70003B8D, 00185420 and the owner
+     * record). 1 accepted, anything else a fault. Required when the ITEM
+     * root reaches its child page 5; it needs the message view below and a
+     * bound hub (the gauge text). */
+    int (*battery_page)(void *, const EmStatusBatteryPage *);
     /* Adapter owns its parsed modules1F/21. Other actual module reloads
      * (e.g.32..35 on exit) require these workers: begin1 accepted;
      * ready−1 failure,0 pending,1 complete. */
@@ -72,6 +105,15 @@ typedef struct {
     int (*hub_display)(void *, EmStatusHubDisplay *);
     int (*hub_models)(void *, EmStatusHubEvent, unsigned argument);
     int (*hub_models_draw)(void *, EmGfx *);
+    /* The live message block's words the pages write (the live scene route
+     * only): words[0..3] = D_002821B0 (mode), D_002821B4 (phase),
+     * D_002821B8 (line) and D_00282240 (the mode-4 group). With it, the
+     * page's EmItemRoot message fields are a per-call view of those words
+     * (loaded before 0020CDC0, stored after), and step F's 001FCA10
+     * presents the lines (001FCB90); the runtime's own help-line
+     * presenters are not used. 1 bound. NULL keeps the private copy (the
+     * sanitizer fixtures' route). */
+    int (*message_words)(void *, int32_t *words[4]);
 } EmStatusRuntimeHooks;
 
 EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,

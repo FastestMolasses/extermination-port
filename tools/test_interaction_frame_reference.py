@@ -14,7 +14,13 @@ from pathlib import Path
 import struct
 import subprocess
 import sys
-from test_battery_reference import signed
+
+
+def signed(n, b=32):
+    """The two's-complement value of the low b bits of n."""
+    n &= (1 << b) - 1
+    return n - (1 << b) if n >> (b - 1) else n
+
 
 ROOT=Path(__file__).resolve().parents[1]
 STATE,RECORD,RETURN=0x900000,0x901000,0xbadf00d

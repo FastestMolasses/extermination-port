@@ -54,7 +54,7 @@ int start(const char *path,int delay) {
     scene.d810700=0x0B; scene.spad3B8F=2;
     *em_scene_req_at(&scene,0x008106F4u)=1;
     if(!em_message_live_install(path)) return 0;
-    static const EmMessageLiveHost host={NULL,face_talk,NULL};
+    static const EmMessageLiveHost host={NULL,face_talk};
     em_message_live_set_host(&host);
     /* The encounter's line has no voice: the voice lanes stay idle (the
      * lanes' 001FAAC0 on an idle lane has no effect; they read inactive). */

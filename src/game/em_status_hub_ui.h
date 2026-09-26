@@ -81,6 +81,11 @@ int em_status_hub_ui_bind(EmStatusHubUI *ui, EmGfx *gfx);
  * (tools/export_status_hub.py exports it). 1 found, 0 not in the atlas. */
 int em_status_hub_ui_tile(const EmStatusHubUI *ui, uint64_t tex0, float out[4]);
 
+/* The 00209280 gauge's resident text data (the white style, the label and
+ * the separator of the loaded records), for the other pages that call
+ * 00209280 (the BATTERY page's 0020AE40). NULL before a load. */
+const EmStatusBatteryData *em_status_hub_ui_battery_data(const EmStatusHubUI *ui);
+
 /* Read-only view of the prepared stream and the original help-line calls. */
 unsigned em_status_hub_ui_command_count(const EmStatusHubUI *ui);
 int em_status_hub_ui_command(const EmStatusHubUI *ui, unsigned index, EmStatusHubUICommand *out);

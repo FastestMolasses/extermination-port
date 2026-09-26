@@ -228,14 +228,29 @@ translation.
   `em_gfx_background_unload`. A `background <file>` line calls
   `em_gfx_background_load(gfx, "<scene_dir>/<file>")`; a failure is a
   required-asset fault (the game quits, naming STARTUP.md step 40). The line
-  stands in for render flag 0x20, which 001C1F50 arms for key 0x0B00: only
-  AREA11's manifest has it.
-- The world branch of `frame_close_out` (em_render_frame.c) calls
-  `em_gfx_background_draw(gfx, g.cam.view, zoom)` before the fog and every
-  other draw, when `D_008106C4 == 0` (the canonical request byte
-  `req[EM_SCENE_REQ_C4]`) and no movie played in the frame
-  (`em_frame_movie_active()`, the D_00821058 == 1 mirror: 001D1C10 sets
-  flag 4 only in such a frame, and 001D1C50 clears it at the next head).
+  only names the asset's file.
+- Whether a world frame draws it is the live render context's (since the
+  status UI step, 2026-09-26; em_render_frame.c `background_gate`): the
+  world branch of `frame_close_out` calls `em_gfx_background_draw(gfx, view,
+  zoom)` before the fog and every other draw when render flags 0x20 (the
+  001D2300 call of 001E0DF0) and 0x21 are set in the
+  context's +0x174 word (001C1F50 arms both for keys 0x0B00..0x1200 at the
+  area render init, em_render_context_live), flag 4 (+0x0C bit 4) is clear,
+  `D_008106C4 == 0` and no movie played in the frame (`em_frame_movie_active()`,
+  the D_00821058 == 1 mirror: 001D1C10 would set flag 4 only in such a frame
+  and is not bound). The loaded asset's TEX0 and RGBAQ must equal the
+  context's ctx+0x1D0 and int(128 * ctx+0x1C0..+0x1CC) (001E2260 / 001E2270's
+  stores, as 001E1E60's 001D6F60 / 001D7080 read them); flags armed with no
+  asset or another one fault (the game quits with the reason). The first
+  control frame still draws it (tools/test_background_reference.py
+  --native: 0 black samples in the sky box).
+- Why flag 0x21: 001E0DF0 CALLs the list only when ctx+0x1D8 is non-zero.
+  001C1D00 (state 1, every world frame) runs 001E0CF0, whose 001E0CC0
+  zeroes +0x1D8 before 001E1E60 rebuilds it under 0x20 and 0x21. 001C1D00
+  is not bound in the port (RENDER_CONTEXT.md section 8), so the word is
+  not built; the gate reads its build condition, flag 0x21, instead. With
+  0x20 set and 0x21 clear the original CALLs nothing, so the port draws
+  nothing (no fault).
 - The status-screen scenes (the hub, the request pages, the UI scene) do not
   draw it: the original hub frame has no background CALL.
 

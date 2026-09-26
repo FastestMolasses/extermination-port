@@ -8,6 +8,7 @@
 #include "game/em_render_context_live.h"
 
 #include "game/em_actor_light_001D89D0.h"
+#include "game/em_census_standins.h"
 #include "game/em_effect_original.h"
 #include "game/em_frame_render_heads.h"
 #include "game/em_load_veil_particles.h"
@@ -684,6 +685,41 @@ int em_rcl_0021B9A0(int32_t mode, uint32_t scale, uint32_t bias)
 {
     READY(0);
     return done(em_packet_chain_0021B9A0(&R.pc, mode, scale, bias), 0x0021B9A0u);
+}
+
+/* 00121870 block_copy inside the context for 0021BAC0 / 0021BAE0: the
+ * record +0xA0..+0xBF and the save slots +0x120 + 32 * slot never overlap
+ * for the slots the status page uses (0), so a forward copy is the
+ * original's result. */
+static int slot_copy(void *unused, uint8_t *block, uint32_t dst, uint32_t src, int32_t count)
+{
+    (void)unused;
+    if (!block || count < 0 || (dst < src ? src - dst : dst - src) < (u32)count) return -1;
+    for (int32_t i = 0; i < count; ++i)
+        block[dst + (u32)i] = block[src + (u32)i];
+    return 0;
+}
+
+int em_rcl_0021BAC0(int32_t slot)
+{
+    READY(0);
+    EmSulWorkers w;
+    memset(&w, 0, sizeof w);
+    w.block_copy = slot_copy;
+    return em_sul_0021BAC0(&w, (uint8_t *)s_ctx_words, EM_RCL_CONTEXT_SIZE, slot) < 0
+               ? fail(0x0021BAC0u, "fault")
+               : 0;
+}
+
+int em_rcl_0021BAE0(int32_t slot)
+{
+    READY(0);
+    EmSulWorkers w;
+    memset(&w, 0, sizeof w);
+    w.block_copy = slot_copy;
+    return em_cs_0021BAE0(&w, (uint8_t *)s_ctx_words, EM_RCL_CONTEXT_SIZE, slot) < 0
+               ? fail(0x0021BAE0u, "fault")
+               : 0;
 }
 
 int em_rcl_001DD950(uint32_t a0, uint32_t f12, uint32_t f13)

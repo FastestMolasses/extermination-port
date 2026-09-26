@@ -1,3 +1,4 @@
+#include "game/em_battery_page_live.h"
 #include "game/em_hud.h"
 #include "game/em_status_hub.h"
 #include "game/em_status_runtime.h"
@@ -9,9 +10,15 @@
 typedef struct {
     EmStatusInventory inventory;
     unsigned sounds[256], sound_count, triangle_count, upload_count;
-    unsigned finished, module, begins, ready, writes, frame_events, page_events;
-    int fail_write, available;
+    unsigned module, begins, ready, writes, frame_events, page_events;
+    int fail_write;
     unsigned hub_workers, hub_draws;
+    /* The BATTERY page's records and host (battery_page below). */
+    EmPanel *owner;
+    int32_t words[4];     /* D_002821B0 / B4 / B8, D_00282240 */
+    uint8_t spad3B8D;     /* 0x70003B8D */
+    uint32_t device;      /* what 00185420 returns */
+    unsigned units, presents, page_calls, sprites;
 } World;
 
 static World *drawing;
@@ -87,6 +94,7 @@ void em_gfx_overlay_sprite(EmGfx *g, float x, float y, float w, float h, float u
     (void)u1;
     (void)v1;
     (void)color;
+    ++drawing->sprites;
 }
 void em_gfx_overlay_sprite_blend(EmGfx *g, float x, float y, float w, float h, float u, float v,
                                  float u1, float v1, const float color[4], EmGfxOverlayBlend mode)
@@ -170,19 +178,6 @@ static int sound(void *c, uint32_t cue)
     world->sounds[world->sound_count++] = cue;
     return 1;
 }
-static int available(void *c, EmPanel *owner, unsigned item)
-{
-    (void)owner;
-    assert(item == 0x1B);
-    return ((World *)c)->available;
-}
-static int finished(void *c, EmPanel *owner)
-{
-    World *world = c;
-    assert(owner->charged == 1 && owner->armed == 5 && world->inventory.charge == 8);
-    ++world->finished;
-    return 1;
-}
 static int begin_module(void *c, unsigned module)
 {
     World *world = c;
@@ -195,6 +190,83 @@ static int ready_module(void *c, unsigned module)
     World *world = c;
     assert(module == world->module);
     return world->ready;
+}
+
+/* The ITEM > BATTERY page: the original 002149F0 with its bound draws
+ * (em_battery_page_live), as the AREA11 host binds it, over this fixture's
+ * records. The owner record is the fixture panel at the captured address
+ * 0x7AA590 (+3 type 0x24, +0x34 cost, +0xA / +0xB); 00185420 returns
+ * world->device. */
+#define PANEL_ADDRESS 0x7AA590u
+static int page_sound(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3)
+{
+    World *world = c;
+    assert(a1 == 0x1000 && a2 == 0x1000 && a3 == 0x1000 && id >= 0);
+    if (id == 6)
+        ++world->units;
+    return sound(c, (uint32_t)id) == 1 ? 0 : -1;
+}
+static int page_find(void *c, int32_t item, uint32_t *owner)
+{
+    assert(item == 0x1B);
+    *owner = ((World *)c)->device;
+    return 0;
+}
+static int page_read(void *c, uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
+{
+    World *world = c;
+    assert(owner == PANEL_ADDRESS && world->owner);
+    if (offset == 3 && size == 1) {
+        *value = 0x24;
+        return 0;
+    }
+    if (offset == 0x34 && size == 2) {
+        *value = (int16_t)world->owner->cost;
+        return 0;
+    }
+    return -1;
+}
+static int page_write(void *c, uint32_t owner, uint32_t offset, uint8_t value)
+{
+    World *world = c;
+    assert(owner == PANEL_ADDRESS && world->owner);
+    if (offset == 0xA)
+        world->owner->charged = value;
+    else if (offset == 0xB)
+        world->owner->armed = value;
+    else
+        return -1;
+    return 0;
+}
+static int page_present(void *c, int32_t x, int32_t y, int32_t group, int32_t line)
+{
+    (void)x;
+    (void)y;
+    (void)group;
+    (void)line;
+    ++((World *)c)->presents;
+    return 0;
+}
+static int battery_page(void *c, const EmStatusBatteryPage *p)
+{
+    World *world = c;
+    static const uint8_t d0[4] = {0x90, 0xA5, 0x7A, 0x00}; /* D_008106D0 = PANEL_ADDRESS */
+    const EmBatteryPageCall call = {
+        {p->ui, p->ui_size, p->b0, p->b1, p->c5, d0, p->d810C7F, p->d810CB2, p->d810CB7,
+         p->d810E74, p->words[0], p->words[1], p->words[2], p->words[3], &world->spad3B8D},
+        p->held, p->repeat, p->gauge, p->draw};
+    const EmBatteryPageHost host = {world, page_sound, page_find, page_read, page_write,
+                                    page_present};
+    EmSprFault fault;
+    ++world->page_calls;
+    return em_battery_page_live_tick(&host, &call, &fault) == 0 ? 1 : 0;
+}
+static int message_words(void *c, int32_t *words[4])
+{
+    World *world = c;
+    for (unsigned i = 0; i < 4; ++i)
+        words[i] = &world->words[i];
+    return 1;
 }
 
 static int hub_worker(void *context, EmStatusPage *page, EmStatusHubEvent event, unsigned argument)
@@ -223,12 +295,18 @@ static int hub_render(void *context, EmGfx *gfx, const EmStatusPage *page)
     return 1; /* Renderer is separately validated; do not invent a game host. */
 }
 
-static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery, const char *item,
-                               int pickup)
+static const char *const *asset_paths; /* battery.emba, item_root.emir, hub records, atlas */
+
+/* pickup: 0 the panel request 0x82, 1 the pickup request 1/0x1B, 2 the
+ * normal hub route. page: bind the original BATTERY page (battery_page,
+ * message_words and the hub's records for 00209280's gauge text). */
+static EmStatusRuntime *create(World *world, EmPanel *owner, int pickup, int page)
 {
     *world = (World){
         .inventory = {.battery_count = {1, 0, 0}, .charge = 12, .capacity = 12, .status = 1},
-        .available = 1};
+        .owner = owner,
+        .device = PANEL_ADDRESS,
+    };
     drawing = world;
     EmItemMath math = {NULL, sine, cosine, angle, root};
     EmStatusRuntimeHooks hooks = {.context = world,
@@ -237,8 +315,6 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery
                                   .frame_event = frame_event,
                                   .page_event = page_event,
                                   .sound = sound,
-                                  .owner_available = available,
-                                  .battery_finished = finished,
                                   .module_begin = begin_module,
                                   .module_ready = ready_module,
                                   .write_battery_capacity = write_capacity};
@@ -246,14 +322,21 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, const char *battery
         hooks.other_page_tick = hub_tick;
         hooks.other_page_render = hub_render;
     }
-    EmStatusRuntime *runtime = em_status_runtime_load(battery, item, &math, &hooks);
+    if (page) {
+        hooks.battery_page = battery_page;
+        hooks.message_words = message_words;
+    }
+    EmStatusRuntime *runtime =
+        em_status_runtime_load(asset_paths[0], asset_paths[1], &math, &hooks);
     assert(runtime);
+    if (page)
+        assert(em_status_runtime_bind_hub(
+            runtime, em_status_hub_ui_load(asset_paths[2], asset_paths[3], &math)));
     em_panel_init(owner, 0);
     if (pickup == 2) {
         assert(em_status_runtime_open(runtime));
         assert(!em_status_runtime_open(runtime));
     } else if (pickup) {
-        world->available = 0;
         world->inventory.status = 0;
         world->inventory.primary = 0xFF;
         assert(!em_status_runtime_pickup_request(runtime, 2, 0x1B));
@@ -274,6 +357,8 @@ static int tick(EmStatusRuntime *runtime, unsigned pressed, uint8_t x, uint8_t y
     return em_status_runtime_tick(runtime, &input);
 }
 
+/* The panel request's first frames: 002149F0 state 0 takes the request
+ * (B1 & 0x80) into the confirmation, state 4 with the cursor on No. */
 static void confirmation(EmStatusRuntime *runtime)
 {
     for (unsigned i = 0; i < 7; ++i) {
@@ -287,19 +372,27 @@ static void confirmation(EmStatusRuntime *runtime)
 
 int main(int argc, char **argv)
 {
-    assert(argc == 3);
+    assert(argc == 5);
+    asset_paths = (const char *const *)(argv + 1);
     World world;
     EmPanel owner;
-    EmStatusRuntime *runtime = create(&world, &owner, argv[1], argv[2], 0);
+
+    /* Yes: the discharge (units at 1 and 31), the owner's +0xA / +0xB, the
+     * mode byte 3 and the exit request, then the status frame's release. */
+    EmStatusRuntime *runtime = create(&world, &owner, 0, 1);
     confirmation(runtime);
+    /* State 4 draws the confirmation from its second call on. */
+    assert(tick(runtime, 0, 128, 128) == 1 && em_status_runtime_page(runtime)->item.step == 4);
+    assert(em_status_runtime_render(runtime, (EmGfx *)1) == 1 && world.sprites && world.presents);
     assert(tick(runtime, 0x8040, 128, 128) == 1);
     assert(em_status_runtime_page(runtime)->request == 1);
     for (unsigned i = 1; i <= 61; ++i) {
         assert(tick(runtime, 0, 128, 128) == 1);
         assert(world.inventory.charge == (i < 31 ? 10 : 8));
-        assert(world.finished == (i == 61));
+        assert(world.units == (i < 31 ? 1u : 2u));
+        assert(owner.charged == (i == 61) && owner.armed == (i == 61 ? 5 : 0));
     }
-    assert(world.writes == 2 && owner.charged && owner.armed == 5);
+    assert(world.writes == 2 && world.spad3B8D == 3);
     for (unsigned i = 0; i < 4; ++i) {
         assert(tick(runtime, 0, 128, 128) == 1);
         assert(!em_status_runtime_ordinary_enabled(runtime));
@@ -309,7 +402,10 @@ int main(int argc, char **argv)
     assert(!world.begins);
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2], 0);
+    /* Default No; Back into the ITEM root (its trail render), BATTERY
+     * again, No again, then Back out to the broader hub, whose missing
+     * display worker faults with ownership kept. */
+    runtime = create(&world, &owner, 0, 1);
     confirmation(runtime);
     assert(tick(runtime, 0x40, 128, 128) == 1); /* Default No. */
     assert(!owner.charged && world.inventory.charge == 12);
@@ -335,12 +431,14 @@ int main(int argc, char **argv)
     assert(tick(runtime, 0x20, 128, 128) == 1); /* Root Back -> broader hub. */
     assert(tick(runtime, 0, 128, 128) == 1);
     assert(tick(runtime, 0, 128, 128) == 1);
-    assert(tick(runtime, 0, 128, 128) == -1); /* Missing actual hub must fault. */
+    assert(tick(runtime, 0, 128, 128) == -1); /* No hub display worker: fault. */
     assert(em_status_runtime_page(runtime)->phase == 1 &&
            !em_status_runtime_ordinary_enabled(runtime));
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2], 0);
+    /* The outer exit with inventory +0xCA6 set reloads module 0x32 first:
+     * the page waits on it (50 pending frames), then releases. */
+    runtime = create(&world, &owner, 0, 1);
     confirmation(runtime);
     assert(tick(runtime, 0x40, 128, 128) == 1);
     world.inventory.secondary = 1; /* Original exit now requires module32. */
@@ -358,28 +456,36 @@ int main(int argc, char **argv)
     assert(tick(runtime, 0, 128, 128) == 0);
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2], 0);
+    /* A failing charge write during the discharge faults with ownership
+     * and the inventory kept. */
+    runtime = create(&world, &owner, 0, 1);
     confirmation(runtime);
     assert(tick(runtime, 0x8040, 128, 128) == 1);
     world.fail_write = 1;
     assert(tick(runtime, 0, 128, 128) == -1);
-    assert(!owner.charged && world.inventory.charge == 12 &&
+    assert(!owner.charged && world.inventory.charge == 12 && !world.writes &&
            !em_status_runtime_ordinary_enabled(runtime));
     em_status_runtime_free(runtime);
-    runtime = create(&world, &owner, argv[1], argv[2], 1);
+
+    /* The pickup request 1/0x1B: the acquisition writes charge and
+     * capacity, its notice, browse, the empty device lookup (0020CD80's
+     * cue 2) and the outer exit. */
+    runtime = create(&world, &owner, 1, 1);
+    world.device = 0;
+    world.inventory.charge = world.inventory.capacity = 0; /* no pack before the pickup */
     for (unsigned i = 0; i < 7; ++i)
         assert(tick(runtime, 0, 128, 128) == 1);
     assert(em_status_runtime_page(runtime)->item.step == 3);
-    assert(em_status_runtime_page(runtime)->item.message_group == 4);
+    assert(world.words[3] == 4);
     assert(world.writes == 1 && world.inventory.charge == 12 && world.inventory.capacity == 12);
-    assert(!world.finished && !owner.charged);
+    assert(!owner.charged);
     assert(tick(runtime, 0x40, 128, 128) == 1); /* Notice dismisses to browse. */
     assert(em_status_runtime_page(runtime)->item.step == 1);
-    assert(em_status_runtime_page(runtime)->item.message_group == 3);
+    assert(world.words[3] == 3);
     assert(tick(runtime, 0x40, 128, 128) == 1); /* Actual empty device lookup. */
     assert(em_status_runtime_page(runtime)->item.step == 8);
     assert(world.sounds[world.sound_count - 1] == 2);
-    assert(!world.finished && !owner.charged && world.inventory.charge == 12);
+    assert(!owner.charged && world.inventory.charge == 12);
     assert(tick(runtime, 0x10, 128, 128) == 1); /* Real outer Triangle exit. */
     unsigned consumed = 0;
     while (tick(runtime, 0, 128, 128) == 1) {
@@ -387,10 +493,11 @@ int main(int argc, char **argv)
         assert(++consumed < 8);
     }
     assert(consumed == 3 && em_status_runtime_ordinary_enabled(runtime));
-    assert(!world.finished && !world.begins);
+    assert(!world.begins);
     em_status_runtime_free(runtime);
 
-    runtime = create(&world, &owner, argv[1], argv[2], 1);
+    /* The pickup's capacity write fails: fault, inventory unchanged. */
+    runtime = create(&world, &owner, 1, 1);
     world.inventory.charge = 7;
     world.inventory.capacity = 11;
     world.fail_write = 1;
@@ -400,13 +507,24 @@ int main(int argc, char **argv)
     assert(!em_status_runtime_ordinary_enabled(runtime));
     assert(world.inventory.charge == 7 && world.inventory.capacity == 11 && !world.writes);
     em_status_runtime_free(runtime);
-    runtime = create(&world, &owner, argv[1], argv[2], 2);
+
+    /* Without a bound page, reaching the child page faults and keeps the
+     * status screen's ownership. */
+    runtime = create(&world, &owner, 1, 0);
     unsigned steps = 0;
+    int result;
+    while ((result = tick(runtime, 0, 128, 128)) == 1)
+        assert(++steps < 20);
+    assert(result == -1 && !em_status_runtime_ordinary_enabled(runtime));
+    assert(em_status_runtime_page(runtime)->item.state == 5 && !world.writes && !world.page_calls);
+    em_status_runtime_free(runtime);
+    runtime = create(&world, &owner, 2, 0);
+    steps = 0;
     while (em_status_runtime_page(runtime)->phase != 1 ||
            em_status_runtime_page(runtime)->step != 1) {
         assert(tick(runtime, 0, 128, 128) == 1 && ++steps < 20);
     }
-    assert(!world.finished && !world.writes && !world.begins);
+    assert(!world.writes && !world.begins);
     assert(tick(runtime, 0x40, 0, 128) == 1); /* Actual hub left sector -> ITEM. */
     assert(em_status_runtime_page(runtime)->phase == 3);
     assert(em_status_runtime_page(runtime)->item.screen == 0);
@@ -428,8 +546,9 @@ int main(int argc, char **argv)
         assert(!em_status_runtime_ordinary_enabled(runtime) && ++steps < 8);
     }
     assert(em_status_runtime_ordinary_enabled(runtime));
-    assert(world.hub_workers && !world.finished && !world.writes && !owner.charged);
+    assert(world.hub_workers && !world.writes && !owner.charged);
     em_status_runtime_free(runtime);
-    puts("PASS original status adapter: default No, Back/ITEM/reselect, real discharge/reload "
-         "gates, final-frame ownership and fault retention");
+    puts("PASS original status adapter on the bound 002149F0: Yes/discharge, default No, "
+         "Back/ITEM/reselect, module 0x32 reload gate, charge and capacity write faults, the "
+         "pickup notice and empty lookup, the hub route, final-frame ownership");
 }

@@ -54,6 +54,7 @@ extern "C" {
 #endif
 
 #define EM_RCL_CONTEXT 0x00811CC0u   /* the value of D_00275670 (checked at load) */
+#define EM_RCL_CONTEXT_SIZE 0x2580u  /* the context block +0x00..+0x257F */
 #define EM_RCL_EXPORT_PATH "assets/render_context.emrc"
 
 /* A byte range another module owns, by original address. */
@@ -104,6 +105,11 @@ int em_rcl_001D2610(uint32_t x);        /* scope zoom (bits) */
 int em_rcl_001D2830(int32_t a0, int32_t a1);
 int em_rcl_001E0CC0(void);              /* 001D2DE0(0, 0), +0x1D8 = +0x1E8 = 0 */
 int em_rcl_0021B9A0(int32_t mode, uint32_t scale, uint32_t bias);
+/* 0021BAC0(slot) / 0021BAE0(slot): the fog record +0xA0..+0xBF saved to /
+ * restored from +0x120 + 32 * slot (em_sul_0021BAC0 / em_cs_0021BAE0 on
+ * this context): the status screen's 0020DFA0 save and 0020E080 restore. */
+int em_rcl_0021BAC0(int32_t slot);
+int em_rcl_0021BAE0(int32_t slot);
 /* 001DD980's tail: 001DD950(&D_008105E0, 2 + 1.02 d, d), f12 / f13 bits. */
 int em_rcl_001DD950(uint32_t a0, uint32_t f12, uint32_t f13);
 

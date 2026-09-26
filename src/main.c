@@ -18,6 +18,7 @@
 #include "game/em_game.h"
 #include "game/em_frontend.h"
 #include "game/em_message_live.h"
+#include "game/em_message_presenters_live.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_startup_audio.h"
 #include "game/em_stream_live.h"
@@ -357,12 +358,16 @@ int main(void)
                                                  em_scene_bindings_001FA790, stream_voice_push,
                                                  stream_stop_lane, stream_active};
     em_message_live_set_streams(&streams);
+    /* Its mode-3 / mode-4 presenters (001FD0E0, 001FCB90, 001FCF90,
+     * 001FCF60) over the service's draw module. */
+    em_message_presenters_live_install(EM_MESSAGE_PRESENTERS_PATH);
     /* The render context (census L32 / L30): its storage with the boot
      * ELF's .data words and the boot zoom store, and main-loop step B
      * 001D1AE0(D_00810E80) on it every iteration. Without the export the
      * game cannot start (fail-stop). */
     if (em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) != 0) {
         em_frame_set_sound_service(NULL);
+        em_message_presenters_live_shutdown();
         em_message_live_shutdown();
         em_stream_live_shutdown();
         em_gfx_destroy(gfx);
@@ -390,6 +395,7 @@ int main(void)
     int stream_failed = em_stream_live_failed();
     em_stream_live_shutdown();
     int message_failed = em_message_live_fault() != NULL;
+    em_message_presenters_live_shutdown();
     em_message_live_shutdown();
     em_startup_audio_shutdown();  /* shared device has stopped its callback */
     if (audio) {

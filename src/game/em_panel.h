@@ -55,35 +55,8 @@ int em_panel_candidate(const EmPanel *panel, const float owner[3],
  * Returns B1; the UI owner keeps the panel association itself. */
 uint8_t em_panel_battery_request(EmPanel *panel);
 
-typedef enum {
-    EM_PANEL_MENU_BROWSE,
-    EM_PANEL_MENU_CONFIRM,
-    EM_PANEL_MENU_INSUFFICIENT,
-    EM_PANEL_MENU_DISCHARGE,
-    EM_PANEL_MENU_COMPLETE
-} EmPanelMenuPhase;
-
-typedef struct {
-    EmPanelMenuPhase phase;
-    uint8_t no_selected;  /* original page+6, initially1 */
-    int initial_charge;  /* page+12; internal half-units */
-    int timer;
-} EmPanelBatteryMenu;
-
-enum {
-    EM_PANEL_MENU_CURSOR = 1,
-    EM_PANEL_MENU_ACCEPT = 2,
-    EM_PANEL_MENU_CANCEL = 4,
-    EM_PANEL_MENU_UNIT_SOUND = 8,
-    EM_PANEL_MENU_FINISHED = 16
-};
-
-/* The type24 branch of002149F0 states4/5/6, after its real page has
- * opened. Button bits are original D00810E74 edges/repeats. This owns
- * neither drawing nor page transitions. Returning BROWSE means control
- * returns to the battery list; it does not silently close the menu. */
-void em_panel_battery_begin(EmPanelBatteryMenu *menu, int charge);
-unsigned em_panel_battery_step(EmPanel *panel, EmPanelBatteryMenu *menu,
-                                unsigned buttons, int *charge);
+/* The BATTERY page itself (002149F0, states 4/5/6 for this owner) is the
+ * one translation em_status_page_record, bound live by
+ * em_battery_page_live (docs/STATUS_PAGE_RECORD.md). */
 
 #endif

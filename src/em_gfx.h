@@ -716,6 +716,10 @@ void em_gfx_fog_off(EmGfx *gfx);
 int  em_gfx_background_load(EmGfx *gfx, const char *path);
 void em_gfx_background_unload(EmGfx *gfx);
 int  em_gfx_background_ready(EmGfx *gfx);
+/* The loaded asset's GS state (its TEX0 and RGBAQ colour word) for the
+ * caller's check against the render context (ctx+0x1D0 / ctx+0x1C0, which
+ * 001C1F50's 001E2260 / 001E2270 store). 1, or 0 when none is loaded. */
+int  em_gfx_background_state(EmGfx *gfx, uint64_t *tex0, uint32_t *rgbaq);
 
 /* Draw the loaded background immediately (no-op when none is loaded).
  * Call it once per world frame BEFORE any other 3D draw — the original

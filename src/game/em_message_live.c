@@ -17,6 +17,15 @@ enum {
     FRAME_UPLOADS = 1024       /* strip uploads kept per frame       */
 };
 
+/* The glyph passes of one frame, in draw order: the ones built during the
+ * task (a status page's own presenter call, 001FCF10 in 002149F0) come
+ * before the ones step F builds, as the original's packets do. */
+typedef struct {
+    EmMessageGlyphFlush flushes[FRAME_FLUSHES];
+    EmMessageGlyphUpload uploads[FRAME_UPLOADS];
+    uint32_t flush_count, upload_count;
+} FrameGlyphs;
+
 static struct {
     int installed, loaded;
     uint8_t *blob;
@@ -35,9 +44,11 @@ static struct {
     EmMessageService service;
     EmMessageLiveHost host;
     EmMessageLiveStreams streams;
-    EmMessageGlyphFlush flushes[FRAME_FLUSHES];
-    EmMessageGlyphUpload uploads[FRAME_UPLOADS];
-    uint32_t flush_count, upload_count;
+    /* The mode-3 / mode-4 presenters, bound by em_message_presenters_live
+     * on this service's EmMessageDraw. */
+    EmMessageLivePresenters presenters;
+    FrameGlyphs task, step;              /* see FrameGlyphs                   */
+    int in_step;                         /* 1 inside step F's tick            */
     const char *fault;
     int reported;
 } s;
@@ -139,14 +150,48 @@ static int w_upload(void *ctx, const EmMessageGlyphUpload *upload)
 static int w_flush(void *ctx, const EmMessageGlyphFlush *flush)
 {
     (void)ctx;
-    if (s.flush_count >= FRAME_FLUSHES || flush->upload_count > FRAME_UPLOADS - s.upload_count)
+    FrameGlyphs *g = s.in_step ? &s.step : &s.task;
+    if (g->flush_count >= FRAME_FLUSHES || flush->upload_count > FRAME_UPLOADS - g->upload_count)
         return fail("too many glyph passes in one frame");
-    EmMessageGlyphFlush *out = &s.flushes[s.flush_count++];
+    EmMessageGlyphFlush *out = &g->flushes[g->flush_count++];
     *out = *flush;
-    memcpy(&s.uploads[s.upload_count], flush->uploads, flush->upload_count * sizeof *flush->uploads);
-    out->uploads = &s.uploads[s.upload_count];
-    s.upload_count += flush->upload_count;
+    memcpy(&g->uploads[g->upload_count], flush->uploads, flush->upload_count * sizeof *flush->uploads);
+    out->uploads = &g->uploads[g->upload_count];
+    g->upload_count += flush->upload_count;
     return 1;
+}
+
+/* The presenters (em_message_presenters_live binds them): 001FD0E0 (mode
+ * 3), 001FCB90 (mode 4), 001FCF90 / 001FCF60 (mode 4, group 0x64). An
+ * unbound presenter that a request reaches faults. */
+static int w_mode3_present(void *ctx, EmMessageBlock *block)
+{
+    (void)ctx;
+    if (!s.presenters.mode3_present) return fail("001FD0E0 has no binding");
+    return s.presenters.mode3_present(s.presenters.context, block) ? 1 : fail("001FD0E0");
+}
+
+static int w_help_draw(void *ctx, int x, int y, int32_t group, uint32_t line)
+{
+    (void)ctx;
+    if (!s.presenters.help_draw) return fail("001FCB90 has no binding");
+    return s.presenters.help_draw(s.presenters.context, x, y, group, line) ? 1 : fail("001FCB90");
+}
+
+static int w_record_setup(void *ctx, uint32_t line, int32_t page, int32_t group, int32_t *result)
+{
+    (void)ctx;
+    if (!s.presenters.record_setup) return fail("001FCF90 has no binding");
+    return s.presenters.record_setup(s.presenters.context, line, page, group, result)
+               ? 1
+               : fail("001FCF90");
+}
+
+static int w_record_draw(void *ctx, uint32_t line, int x, int y)
+{
+    (void)ctx;
+    if (!s.presenters.record_draw) return fail("001FCF60 has no binding");
+    return s.presenters.record_draw(s.presenters.context, line, x, y) ? 1 : fail("001FCF60");
 }
 
 /* ------------------------------------------------------------ data */
@@ -225,8 +270,9 @@ static int load(const char *path)
                              s.colors[0], rd32(b + 24)};
     s.draw_data = (EmMessageDrawData){{p, gbank}, {p + gbank, abank}, s.colors, 16,
                                       &s.line_config, &s.fallback, &s.style};
-    EmMessageWorkers workers = {NULL, w_draw_line, w_face_talk, w_voice_push, w_stop_lane,
-                                w_stream_stop, w_stream_play, NULL, NULL, NULL, NULL};
+    EmMessageWorkers workers = {NULL,          w_draw_line,     w_face_talk,    w_voice_push,
+                                w_stop_lane,   w_stream_stop,   w_stream_play,  w_mode3_present,
+                                w_help_draw,   w_record_setup,  w_record_draw};
     EmMessageDrawWorkers draw_workers = {NULL, w_glyph_advance, w_draw_text};
     EmMessageGlyphWorkers glyph_workers = {NULL, w_upload, w_flush};
     if (!em_message_init(&s.service, &s.data, &workers) ||
@@ -235,6 +281,7 @@ static int load(const char *path)
         return 0;
     return 1;
 }
+
 
 /* ------------------------------------------------------------ the service */
 
@@ -278,14 +325,9 @@ static int ready(void)
 
 int em_message_live_tick(void)
 {
-    s.flush_count = s.upload_count = 0;
+    s.step.flush_count = s.step.upload_count = 0;
     if (!s.installed) return 0;
     if (s.fault) { report(); return -1; }
-    if (s.host.gate) {
-        int open = s.host.gate(s.host.context);
-        if (open < 0) { fail("message gate"); report(); return -1; }
-        if (!open) return 0;
-    }
     if (!s.loaded) {
         if (s.service.block.phase == 0) return 0;
         ready();
@@ -294,7 +336,9 @@ int em_message_live_tick(void)
     }
     EmMessageShared sh = shared();
     sentinel();
+    s.in_step = 1;
     int rc = em_message_tick(&s.service, &sh);
+    s.in_step = 0;
     sync_reset();
     if (rc < 0 || s.fault) {
         fail("001FCA10");
@@ -306,8 +350,11 @@ int em_message_live_tick(void)
 
 void em_message_live_render(EmGfx *gfx)
 {
-    for (uint32_t i = 0; i < s.flush_count; i++)
-        em_hud_glyph_strip(gfx, &s.flushes[i]);
+    for (uint32_t i = 0; i < s.task.flush_count; i++)
+        em_hud_glyph_strip(gfx, &s.task.flushes[i]);
+    for (uint32_t i = 0; i < s.step.flush_count; i++)
+        em_hud_glyph_strip(gfx, &s.step.flushes[i]);
+    s.task.flush_count = s.task.upload_count = 0;
 }
 
 static int frame_tick(void *ctx)
@@ -349,6 +396,17 @@ void em_message_live_set_host(const EmMessageLiveHost *host)
 {
     if (host) s.host = *host;
     else memset(&s.host, 0, sizeof s.host);
+}
+
+void em_message_live_set_presenters(const EmMessageLivePresenters *presenters)
+{
+    if (presenters) s.presenters = *presenters;
+    else memset(&s.presenters, 0, sizeof s.presenters);
+}
+
+EmMessageDraw *em_message_live_draw(void)
+{
+    return s.loaded ? &s.draw : NULL;
 }
 
 void em_message_live_set_streams(const EmMessageLiveStreams *streams)
@@ -402,6 +460,13 @@ int em_message_live_reset(void)
     s.style.color = s.service.text_color;
     s.style.glyph = s.service.text_glyph;
     s.style.flag = s.service.text_flag;
+    return 0;
+}
+
+int em_message_live_help_draw(int32_t x, int32_t y, int32_t group, int32_t line)
+{
+    if (!ready()) { report(); return -1; }
+    if (!w_help_draw(NULL, x, y, group, (uint32_t)line) || s.fault) { report(); return -1; }
     return 0;
 }
 

@@ -128,9 +128,8 @@ int em_area11_interaction_host_status_page(const EmStatusInput *input);
 int em_area11_interaction_host_status_render(EmGfx *gfx);
 void em_area11_interaction_host_status_clear_route(void);
 int em_area11_interaction_host_status_route(void);
-/* The live message service's host hooks (em_message_live.h, WP-8): the
- * step-F gate (held while the status page layer runs) and the slot-0 face
- * talk 001D06E0. */
+/* The live message service's host hook (em_message_live.h, WP-8): the
+ * slot-0 face talk 001D06E0. */
 const EmMessageLiveHost *em_area11_interaction_host_message_host(void);
 /* Store the shared frame view to its canonical storage after an owner
  * outside the host (the fixture's pickup adapter) wrote it directly. */

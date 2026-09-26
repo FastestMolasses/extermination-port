@@ -20,9 +20,9 @@ Files (all new; nothing existing was edited):
 | `src/game/em_status_page_record.h/.c` | `em_spr_002149F0`, `em_spr_0020CD80` (prefix `em_spr_`), with workers and fail-stop |
 | `tools/test_status_page_record_reference.py` | the original-instruction oracle (`make test-status-page-record-reference`, hunk in section 5) |
 
-The module is **built and tested but not bound**. The CLAUDE.md fidelity rule
-applies: an unfinished original module stays unwired until its workers are
-bound. A private build of HEAD with the module appended has zero warnings.
+**Bound live since the status UI step (2026-09-26):** section 7 says how.
+Sections 1..6 are the translation and its oracle; section 4's notes are the
+plan the binding followed.
 
 ## 1. Result
 
@@ -359,24 +359,13 @@ The `mem` of the `em_sul_*` calls:
 The sprites map TEX0 to the EMBA atlas records. `tools/export_panel.py`
 writes each record's TEX0 at +24; the current loader ignores it.
 
-**Retire when bound.** Retirement rule 4 applies: a stricter test
-supersedes these.
-- `em_battery_ui.c`'s tick, begin, phase and render. Keep only the EMBA
-  atlas load that the sprite lookup needs, or move it.
-- `em_panel_battery_begin` / `em_panel_battery_step`.
-- `battery_tick`'s synthesized message fields and capacities.
-- `tests/battery_ui_test.c`.
-- `tools/test_battery_reference.py`: it ignores the draws and checks a
-  reimplementation.
-- `tools/test_battery_pickup_reference.py`: it hooks the draws.
-- `tools/test_battery_ui_reference.py`: an unordered sprite set.
-- The Makefile targets of those three tests.
-
-When those go, the census rows change:
-- 002149F0 -> live;
-- 0020AE40 / 0020B0D0 / 0020B210 / 0020CCB0 / 0020CD40..A0 / 001FCF10 ->
-  live;
-- a new row for 0020CD80.
+**Retired with the binding** (rule 4; the list is under "Retired" below):
+the stand-in page in `em_battery_ui.c` (only the EMBA atlas and the leaf
+call list remain), `em_panel_battery_begin` / `_step`, `battery_tick`'s
+synthesized message fields and capacities, and the stand-in tests. The
+census rows 002149F0, 0020AE40 / 0020B0D0 / 0020B210 / 0020CCB0 /
+0020CD40..A0 / 001FCF10 are live (FIRST_LEVEL_CENSUS.md section 1.21);
+0020CD80 is bound but the route never reaches it (no census row).
 
 The level smoke's battery phase (the notice in route 01 f220..f459, the
 panel confirmation of route 03) then exercises the page.
@@ -409,3 +398,65 @@ When bound, add `src/game/em_status_page_record.c` to `COMMON`.
 - **Byte pointers into native fields.** The binding notes' byte pointers into
   native `uint16_t` fields (D_00810E74) assume a little-endian host. Every
   port target is little-endian.
+
+## 7. Live binding (status UI step, 2026-09-26)
+
+The ITEM root's child page 5 (`em_status_runtime.c` battery_tick) runs
+002149F0 through the runtime's `battery_page` hook, which the AREA11 host
+binds to `em_battery_page_live_tick` (src/game/em_battery_page_live.c).
+
+- **Records.** The runtime owns the one UI block D_00810130 (0xA0 bytes;
+  0020E060's RESET_UI clears it). EmStatusPage / EmItemRoot are views of its
+  +0..+6, +8, +0xC, +0x10, +0x11, +0x15, +0x16, loaded before the call and
+  stored after. D_008106B0 / B1 / C5 are the page's request bytes (the
+  canonical ones around the live page tick). D_00810C7F / CB2 / CB7 are a
+  per-call view of read_inventory; a changed charge or capacity is stored
+  through write_charge / write_battery_capacity (the acquisition writes
+  both). D_00810E74 is this frame's pressed word; D_00810E70 / D_00810E78
+  (the held and repeat words, `EmStatusInput.held` / `.repeat`) are the em_sul
+  memory regions. D_002821B0 / B4 / B8 / D_00282240 are the page's message
+  words, themselves the runtime's view of the live message block
+  (`message_words`; docs/MESSAGE_SERVICE.md "Binding"). D_008106D0
+  and 0x70003B8D come from the scene state in the host.
+- **Draws.** 0020A7A0 / 0020AE40 / 0020B210 / 0020B0D0 / 0020CCB0 and their
+  leaves (00207D00, 00207E40, 00207F80, 00209280's em_status_battery_draw
+  with the hub's resident text) record the frame's leaf calls in
+  `em_battery_ui` (the EMBA atlas and the ordered leaf list); the status
+  render submits them once, each sprite's TEX0 looked up in the atlas (a TEX0
+  it lacks fails the render). The tables D_00265C50 / D_00265CD0 are the
+  atlas records' TEX0 words in the ELF order (the exporter reads them from
+  the ELF). 001FCF10 presents through the live presenters
+  (`em_message_live_help_draw`); its glyph passes draw at the frame's step-F
+  render, before step F's own.
+- **Workers.** The cues 0020CD40 / 60 / A0 / 0020CD80 and the unit sound 6 go
+  to the status cue binding (silent until WP-14 exports the system set);
+  00185420 is the host's device lookup over the published list (only the
+  panel is a device owner: another device faults); the owner record is the
+  bound panel (+3 its record's type 0x24, +0x34 EmPanel.cost, +0xA / +0xB
+  EmPanel.charged / .armed). 0020BBE0 / 0020BC50 fault (unreachable here).
+- **Retired** (rule 4, superseded by this oracle and the level smoke):
+  em_battery_ui.c's page (tick, begin, phase, render, texts), the runtime's
+  synthesized message fields, `em_panel_battery_begin` / `_step` (a second
+  copy of states 4/5/6), the host's `battery_finished` / `owner_available`
+  hooks, tests/battery_ui_test.c, tools/test_battery_reference.py,
+  tools/test_battery_pickup_reference.py, tools/test_battery_ui_reference.py
+  and their targets. tests/status_runtime_test.c binds the page as the
+  AREA11 host does (em_battery_page_live_tick with fixture owner, device
+  lookup, cue and presenter workers, the message words and the hub's
+  gauge records) and runs the runtime-level scenarios on it: Yes with the
+  discharge (units at 1 and 31, charge 10 then 8, owner +0xA / +0xB, mode
+  byte 3) and the release; default No; Back into the ITEM root (its
+  512-triangle trail) and BATTERY again; the exit's module 0x32 reload
+  gate; a failing charge write during the discharge and a failing
+  capacity write on the pickup (both -1 with ownership and inventory
+  kept); the pickup's notice, the empty device lookup (0020CD80's cue 2)
+  and the outer exit; an unbound page faults. tests/panel_runtime_test.c
+  drives the translation for its discharge.
+- **Evidence.** The level smoke's battery phase (the 239-frame notice, then
+  the list) and panel phase (the confirmation, Yes, the discharge 12 -> 8
+  and the completion row for row against route 03), both on this page.
+  `EM_LEVEL_SMOKE_PAGE_CAPTURE=4:<file.bmp>` saves the confirmation frame:
+  it shows the original's layout of `startup-reference/panel/confirm.png`
+  (title, frame, gauge 06/06, the three-line confirmation and Yes / No with
+  the marker by No; ignored `build/captures/battery_page/after.png`).
+

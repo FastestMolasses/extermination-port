@@ -62,6 +62,7 @@
 
 #include "em_gfx.h"
 #include "game/em_actor_pool.h"
+#include "game/em_owner_services_original.h"
 #include "game/em_scene_state.h"
 
 #define EM_AREA11_BOX_TABLES_PATH "assets/scene_snow/box_tables.emrg"
@@ -122,6 +123,15 @@ int em_area11_boxes_door_draw(EmActor *actor, uint32_t record, const float *node
  * em_owner_draw_live's); also writes the EM_BOX_DUMP record dump when that
  * variable is set. Called once per frame by the render chain build. */
 int em_area11_boxes_draw_count(void);
+
+/* The exported world model bank *D_0028A59C for the other owners that bind
+ * on it (the terminal's indicator child, 001C22A0; em_indicator_bind_live):
+ * 001C6120(bank_word, id) (em_world_models_001C6120) and the model at a
+ * handle. Each loads the bank on first use. 0 / -1, or NULL. */
+int em_area11_boxes_world_001C6120(uint32_t bank_word, uint32_t id, uint32_t *handle);
+const EmOwnerModel *em_area11_boxes_world_model(uint32_t address);
+/* *D_0028A59C (the table address), or 0 when the bank is not loaded. */
+uint32_t em_area11_boxes_world_bank_word(void);
 
 /* Scene unload: the frame's draw state and the kept units. */
 void em_area11_boxes_shutdown(void);

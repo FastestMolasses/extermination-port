@@ -92,9 +92,11 @@ resets to30 and subtracts two half-units unless charge already equals the
 target. Type24 costs2 full units /4 half-units: discharge ticks1 and31
 subtract the two units, and tick61 completes. Original input mask870
 can finish this animation early. Completion marks owner+A=1, owner+B=5,
-and resumes scripted mode. `em_panel_battery_step` exposes this exact
-logical sequence and sound/selection events; it does not render a menu,
-invent text, or close the actual page on the host's behalf.
+and resumes scripted mode. Since the status UI step (2026-09-26) this is the
+one translation of the page, `em_spr_002149F0` (em_status_page_record),
+bound live by em_battery_page_live (docs/STATUS_PAGE_RECORD.md); the
+earlier second copy of states 4/5/6 (`em_panel_battery_begin` / `_step`)
+is retired.
 
 The owner resumes script247BE0 after menu discharge. It retargets the
 camera, starts player animation15C, waits with original opcode2 for10,
@@ -123,11 +125,11 @@ order is unchanged, and scene clears preserve the inventory.
 00157860 instructions from the local ELF and compares448 state/call-order
 cases against the host core. Script handlers, alignment and graphics are
 explicit external boundaries in that oracle. `tests/panel_interaction_test.c`
-checks the eligibility boundaries, refusal/cancellation/success paths,
-default No, insufficient-charge duration,61-tick discharge and early finish
-under ASan/UBSan. `tools/test_battery_reference.py` additionally executes
-original002149F0 over936 confirmation/discharge cases and compares phase,
-cursor, timers, charge, owner flags, completion and sound-call order.
+checks the eligibility boundaries and the refusal/cancellation/success
+paths under ASan/UBSan; the page itself is checked by
+tools/test_status_page_record_reference.py (the original 002149F0) and
+tests/panel_runtime_test.c runs the translation for the discharge (the
+retired test_battery_reference.py checked the old second copy).
 `test-pickup-lights` also checks
 the actual item1B take and charge/capacity persistence/refill/count wrapping.
 
@@ -158,16 +160,14 @@ the original untextured No-cursor rectangle inside the ordered native
 decor queue. It is not replacement game artwork. Source addresses/hashes
 remain in the ignored asset report.
 
-The standalone `em_battery_ui` module draws the original frame, labels,
-pack icon, arrows, half-unit meter and Yes/No cursor; uses actual text
-and color spans; and preserves No, Back, unavailable-device and discharge
-states. `tools/test_battery_ui_reference.py` verifies every one of its29
-confirmation decor/cursor submissions against the original EE GIF packet
-buffers: TEX0, RGBA and both XY endpoints match exactly. Its loader and
-flow test run with ASan/UBSan. Original text metrics264CD8+264CE0 resolve
-to24 canvas pixels per line in the captured page. Text glyph rasterization
-and shared background float/GS-color quantization are outside this packet
-comparison; no native framebuffer identity is claimed.
+The page is drawn by its original draw routines since the status UI step
+(2026-09-26): 0020AE40 / 0020B210 / 0020B0D0 / 0020CCB0 record their leaf
+calls in `em_battery_ui` (now only the EMBA atlas, looked up by TEX0, and the
+ordered leaf list), and the page's lines are the message service's
+presenters (001FCB90 at step F, 001FCF10 in the page). The hand-placed page
+and its unordered-sprite test (test_battery_ui_reference.py) are retired;
+STATUS_UI_LEFTOVERS.md 1.1 shows the leaf calls rebuild the captured
+packets byte for byte. The export's text records are no longer read.
 
 `em_panel_program` uses the shared original script sequencer and typed
 handlers for timer2, frame7, callback9, playerA, messageC and cameraD.

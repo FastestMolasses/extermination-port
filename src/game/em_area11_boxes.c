@@ -23,6 +23,7 @@
 #include "game/em_pad_actuator.h"
 #include "game/em_effects_live.h"
 #include "game/em_equipment_live.h"
+#include "game/em_indicator_bind_live.h"
 #include "game/em_player.h"
 #include "game/em_random.h"
 #include "game/em_roger_actor_original.h"
@@ -620,6 +621,9 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
     /* The player's equipment nodes keep theirs in em_equipment_live (L28). */
     int equipment = em_equipment_live_001AF800(actor);
     if (equipment != 0) return equipment < 0 ? -1 : 0;
+    /* The indicator children keep theirs in em_indicator_bind_live. */
+    int indicator = em_indicator_bind_live_001AF800(actor);
+    if (indicator != 0) return indicator < 0 ? -1 : 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         Box *b = &S.box[i];
         if (b->actor != actor || b->generation != actor->generation || b->freed) continue;
@@ -688,6 +692,24 @@ int em_area11_boxes_door_draw(EmActor *actor, uint32_t record, const float *node
     memcpy(rgb, actor->f80, sizeof rgb);        /* +0x80..+0x8F */
     if (em_owner_draw_live_001CAA00(&S.bank, v, rgb, record) < 0) return report("001CAA00 faulted (the door)");
     return 0;
+}
+
+int em_area11_boxes_world_001C6120(uint32_t bank_word, uint32_t id, uint32_t *handle)
+{
+    if (load_bank() < 0) return -1;
+    return em_world_models_001C6120(&S.bank, bank_word, id, handle) < 0 ? -1 : 0;
+}
+
+const EmOwnerModel *em_area11_boxes_world_model(uint32_t address)
+{
+    if (load_bank() < 0) return NULL;
+    const EmWorldModel *m = em_world_models_at(&S.bank, address);
+    return m ? &m->model : NULL;
+}
+
+uint32_t em_area11_boxes_world_bank_word(void)
+{
+    return load_bank() < 0 ? 0 : S.bank_word;
 }
 
 const EmRogerActorWorld *em_area11_boxes_slot_world(void)

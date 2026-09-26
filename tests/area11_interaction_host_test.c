@@ -14,6 +14,7 @@
 #include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 #include "game/em_hud.h"
+#include "game/em_message_presenters_live.h"
 #include "game/em_pickup.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
@@ -467,6 +468,8 @@ static void setup(int reset_inventory)
     static const EmMessageLiveStreams idle_lanes = {NULL, NULL, NULL, NULL, idle_stop_lane, NULL};
     em_message_live_set_streams(&idle_lanes);
     assert(em_message_live_reset() == 0);
+    /* Its mode-3 / mode-4 presenters (the status pages' lines, 001FCF10). */
+    assert(em_message_presenters_live_install(EM_MESSAGE_PRESENTERS_PATH));
     /* The placed items (em_scene's manifest pickups) the host binds; a
      * taken item is not placed (-2). */
     static EmInteractionScene placed;
@@ -493,6 +496,7 @@ static void teardown(void)
     em_pickup_scene_clear(NULL);
     em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
+    em_message_presenters_live_shutdown();
     em_message_live_shutdown();
     assert(!sfx_selected);
     assert(!em_area11_interaction_host_shared() && !player_pose_owned());

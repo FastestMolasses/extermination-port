@@ -27,7 +27,9 @@ Captured states:
     native 0020AE40 / 0020B210 / 0020B0D0 calls are replayed through the
     ORIGINAL 00207D00 / 00207E40 / 00209280 / 001281C0 into the captured
     render context; the packet bytes they build must equal, byte for byte,
-    both packet buffers the original built for its last two frames.
+    both packet buffers the original built for its last two frames; the
+    port's render of those leaves (em_battery_ui) must put each primitive
+    where the packets put it on the GS (render_mapping).
   * every route beat 00..14 (build/s87/route) plus the opening and playable
     snapshots: the live area-title node and the pickup node the capture
     holds, several frames each, and the render-context saves.
@@ -835,7 +837,7 @@ def panel_replay(elf, native):
     starts = packet_streams(ram)
     assert len(starts) == 2, [hex(s) for s in starts]
     values = Values(elf)
-    results = []
+    results, ends = [], []
     for start in starts:
         # (a) the original routines, re-executed over the capture with the
         #     real 00207D00 / 00207E40 / 00209280 / 001281C0.
@@ -874,7 +876,232 @@ def panel_replay(elf, native):
                                                      s32(o.load(0x282240)))
         sprites = sum(1 for c in nat.calls if c[0] == 'sprite')
         results.append((end - start, sprites, len(nat.calls)))
-    return results
+        ends.append(end)
+    rendered = render_mapping(ram, starts, ends)
+    return results, rendered
+
+
+# ======================================================================
+# The BATTERY page's render conversion against the captured packets
+# ======================================================================
+
+RENDER_PROBE = r"""
+#include <stdint.h>
+#include "em_gfx.h"
+#include "game/em_battery_ui.h"
+#include "game/em_hud.h"
+#include "game/em_status_background.h"
+typedef struct { float xywh[4], uv[4], rgba[4]; int mode, canvas; } Prim;
+static Prim prims[512];
+static int prim_count, canvas_w, canvas_h;
+int em_gfx_overlay_texture_set(EmGfx *g, int slot, const uint8_t *p, uint32_t w, uint32_t h)
+{ (void)g; (void)p; (void)w; (void)h; return slot == EM_GFX_OVERLAY_TEX_UI; }
+void em_hud_decor_invalidate(void) {}
+void em_gfx_overlay_canvas(EmGfx *g, float w, float h) { (void)g; canvas_w = (int)w; canvas_h = (int)h; }
+void em_status_background_frame(struct EmGfx *g) { (void)g; }
+int em_status_background_render(struct EmGfx *g, float u, float v, float w, float h)
+{ (void)g; (void)u; (void)v; (void)w; (void)h; return 0; }
+void em_hud_text_color(EmGfx *g, float x, float y, const char *s, EmHudTextStyle st, uint32_t c)
+{ (void)g; (void)x; (void)y; (void)s; (void)st; (void)c; prim_count = -1000; }
+void em_gfx_overlay_sprite_blend(EmGfx *g, float x, float y, float w, float h, float u0, float v0,
+                                 float u1, float v1, const float rgba[4], EmGfxOverlayBlend mode)
+{
+    (void)g;
+    if (prim_count < 0 || prim_count >= 512) { prim_count = -1000; return; }
+    Prim *p = &prims[prim_count++];
+    p->xywh[0] = x; p->xywh[1] = y; p->xywh[2] = w; p->xywh[3] = h;
+    p->uv[0] = u0; p->uv[1] = v0; p->uv[2] = u1; p->uv[3] = v1;
+    for (int i = 0; i < 4; ++i) p->rgba[i] = rgba[i];
+    p->mode = (int)mode;
+    p->canvas = canvas_w << 16 | canvas_h;
+}
+int probe_render(EmBatteryUI *ui) { prim_count = 0; return em_battery_ui_render(ui, (EmGfx *)1); }
+int probe_count(void) { return prim_count; }
+const Prim *probe_prim(int i) { return &prims[i]; }
+"""
+
+
+class Prim(C.Structure):
+    _fields_ = [('xywh', C.c_float * 4), ('uv', C.c_float * 4), ('rgba', C.c_float * 4),
+                ('mode', C.c_int), ('canvas', C.c_int)]
+
+
+def render_probe():
+    OUT.mkdir(parents=True, exist_ok=True)
+    source = OUT / 'battery_ui_render_probe.c'
+    source.write_text(RENDER_PROBE)
+    lib = OUT / ('battery_ui_render.dylib' if sys.platform == 'darwin' else 'battery_ui_render.so')
+    subprocess.run(['cc', '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
+                    '-shared', '-fPIC', '-Isrc', str(source), 'src/game/em_battery_ui.c', '-o', str(lib)],
+                   cwd=ROOT, check=True)
+    n = C.CDLL(str(lib))
+    n.em_battery_ui_load.restype = C.c_void_p
+    n.em_battery_ui_load.argtypes = [C.c_char_p]
+    for name in ('em_battery_ui_begin_frame', 'em_battery_ui_free'):
+        getattr(n, name).argtypes = [C.c_void_p]
+    n.em_battery_ui_blend.argtypes = [C.c_void_p, C.c_int32, C.c_int32]
+    n.em_battery_ui_sprite.argtypes = [C.c_void_p, C.c_int32, C.c_int32, C.c_int32, C.c_int32,
+                                       C.c_int32, C.c_uint32, C.c_uint64]
+    n.em_battery_ui_rectangle.argtypes = [C.c_void_p, C.c_int32, C.c_int32, C.c_int32, C.c_int32,
+                                          C.c_int32, C.c_uint32]
+    n.probe_render.argtypes = [C.c_void_p]
+    n.probe_prim.restype = C.POINTER(Prim)
+    return n
+
+
+def emba_records(path):
+    data = path.read_bytes()
+    assert data[:4] == b'EMBA' and struct.unpack_from('<I', data, 4)[0] == 2
+    count = struct.unpack_from('<I', data, 16)[0]
+    out = {}
+    for i in range(count):
+        index, u, v, w, h, _, tex0 = struct.unpack_from('<6IQ', data, 32 + 32 * i)
+        if tex0:
+            out[tex0] = (u, v, w, h)
+    return out
+
+
+def xyoffset_1(ram):
+    """XYOFFSET_1 (GS register 0x18) of the capture's field draw
+    environments: the A+D writes followed by SCISSOR_1 (register 0x40) =
+    0..511 x 0..223, the 512 x 224 field. There are two (the double-buffered
+    fields): the same X offset and Y offsets half a line (8) apart, the odd
+    field's lines landing between the even field's. Both give the frame
+    line (Y / 16 - oy_even) * 2 (odd: (Y / 16 - oy_even - 0.5) * 2 + 1), so
+    the canvas mapping uses the even field's offset."""
+    values, p = set(), -1
+    while (p := ram.find(struct.pack('<Q', 0x18), p + 1)) >= 0:
+        if p % 16 == 8 and struct.unpack_from('<QQ', ram, p + 8) == (0x00DF000001FF0000, 0x40):
+            values.add(struct.unpack_from('<Q', ram, p - 8)[0])
+    offsets = sorted(((v & 0xFFFF), (v >> 32 & 0xFFFF)) for v in values)
+    assert len(offsets) == 2 and offsets[0][0] == offsets[1][0] and \
+        offsets[1][1] - offsets[0][1] == 8, ('field XYOFFSET_1 writes', [hex(v) for v in values])
+    return offsets[0][0] / 16, offsets[0][1] / 16
+
+
+def decode_stream(ram, start, end, ref_base):
+    """The slot-1 stream's leaves as the GS receives them: 00207D00 (a REF
+    tag of 8 quadwords to D_00275674 + 0x720 / 0x7A0 / 0x820 / 0x6A0: modes
+    0..3), 00207E40
+    (GIFtag 0xA400000000008001 / REGLIST 0x8413413680) and 00207F80 (GIFtag
+    0x4400000000008001 / REGLIST 0x4410); anything else is counted."""
+    modes = {0x720: 0, 0x7A0: 1, 0x820: 2, 0x6A0: 3}
+    out, other, p = [], 0, start
+    while p < end:
+        tag = struct.unpack_from('<Q', ram, p)[0]
+        qwc, kind = tag & 0xFFFF, tag >> 28 & 7
+        if kind == 3:
+            if qwc == 8 and (tag >> 32) - ref_base in modes:
+                out.append(('blend', modes[(tag >> 32) - ref_base]))
+            else:
+                other += 1   # another routine's REF (the text path's GS state)
+            p += 16
+            continue
+        assert kind == 1, ('DMA tag', hex(p), hex(tag))
+        gif, regs = struct.unpack_from('<QQ', ram, p + 0x20)
+        q = lambda off: struct.unpack_from('<Q', ram, p + off)[0]
+        if qwc == 7 and (gif, regs) == (0xA400000000008001, 0x0000008413413680):
+            assert q(0x30) == 0x156 and q(0x48) == 0
+            xyz1, xyz2, uv = q(0x58) & M32, q(0x70) & M32, q(0x60) & M32
+            out.append(('sprite', q(0x40), q(0x50) & M32, (xyz1 & 0xFFFF, xyz1 >> 16),
+                        (xyz2 & 0xFFFF, xyz2 >> 16), (uv & 0xFFFF, uv >> 16)))
+        elif qwc == 4 and (gif, regs) == (0x4400000000008001, 0x4410):
+            assert q(0x30) == 0x146
+            a, b = q(0x40) & M32, q(0x48) & M32
+            out.append(('rect', q(0x38) & M32, (a & 0xFFFF, a >> 16), (b & 0xFFFF, b >> 16)))
+        else:
+            other += 1
+        p += 16 * (qwc + 1)
+    assert p == end, ('stream walk', hex(p), hex(end))
+    return out, other
+
+
+def marker_end(ram, end):
+    """The end of the 0020CCB0 marker's 00207F80 rectangle, the first
+    rectangle packet after the frame / list / arrows stream (the packets
+    between are the frame's text: 001FCF10's line and its REF state)."""
+    p = end
+    for _ in range(64):
+        tag = struct.unpack_from('<Q', ram, p)[0]
+        qwc, kind = tag & 0xFFFF, tag >> 28 & 7
+        assert kind in (1, 3), ('DMA tag', hex(p), hex(tag))
+        if kind == 3:
+            p += 16
+            continue
+        p += 16 * (qwc + 1)
+        if qwc == 4 and struct.unpack_from('<QQ', ram, p - 0x30) == (0x4400000000008001, 0x4410):
+            return p
+    raise AssertionError('no marker rectangle after the stream')
+
+
+def render_mapping(ram, starts, ends):
+    """Each captured stream's sprite / rectangle / blend leaves, fed to
+    em_battery_ui exactly as the page's leaf workers pass them, must render
+    at the GS window the packets address: X / 16 - XYOFFSET_1.x, (Y / 16 -
+    XYOFFSET_1.y) * 2 (the 224-line field shown on the 448-line canvas),
+    the full texture of the packet's TEX0 from the atlas record holding it
+    (the atlas rows are screen-oriented: the exporter undoes the stored
+    v-flip, so the vertex with V = 0 is the bottom edge), the RGBAQ scaled
+    as GS modulate (textured 128 = 1) and the 00207D00 mode."""
+    lib = render_probe()
+    atlas_path = ROOT / 'assets/scene_snow/panel/battery.emba'
+    records = emba_records(atlas_path)
+    ox, oy = xyoffset_1(ram)
+    ref_base = struct.unpack_from('<I', ram, 0x275674)[0]
+    checked = 0
+    kinds = {}
+    for start, end in zip(starts, ends):
+        leaves, other = decode_stream(ram, start, marker_end(ram, end), ref_base)
+        for leaf in leaves:
+            kinds[leaf[0]] = kinds.get(leaf[0], 0) + 1
+        ui = lib.em_battery_ui_load(str(atlas_path).encode())
+        assert ui, 'battery.emba missing (tools/export_panel.py)'
+        lib.em_battery_ui_begin_frame(ui)
+        want, mode = [], 0
+        for leaf in leaves:
+            if leaf[0] == 'blend':
+                mode = leaf[1]
+                assert lib.em_battery_ui_blend(ui, 1, mode) == 1
+                continue
+            if leaf[0] == 'sprite':
+                _, tex0, rgba, (x1, y1), (x2, y2), (tu, tv) = leaf
+                # 00207E40's own arguments back from its vertices.
+                assert (y1 - y2) % 8 == 0 and (x2 - x1) % 16 == 0
+                assert lib.em_battery_ui_sprite(ui, 1, x1, y2, (x2 - x1) // 16, (y1 - y2) // 8, rgba,
+                                                tex0) == 1
+                u, v, w, h = records[tex0]
+                tw, th = 1 << (tex0 >> 26 & 15), 1 << (tex0 >> 30 & 15)
+                assert (tu, tv) == (tw << 4, th << 4) and (w, h) == (tw, th), ('full texture', hex(tex0))
+                assert y1 > y2, 'V = 0 is not the bottom vertex'
+                top, bottom = min(y1, y2), max(y1, y2)
+                rect = (x1 / 16 - ox, (top / 16 - oy) * 2, (x2 - x1) / 16, (bottom - top) / 16 * 2)
+                uvs = (u, v, u + w, v + h)
+                colour = tuple((rgba >> 8 * c & 255) / 128 for c in range(4))
+            else:
+                _, rgba, (x1, y1), (x2, y2) = leaf
+                assert lib.em_battery_ui_rectangle(ui, 1, x1, y1, x2, y2, rgba) == 1
+                rect = (x1 / 16 - ox, (y1 / 16 - oy) * 2, (x2 - x1) / 16, (y2 - y1) / 16 * 2)
+                uvs = None
+                colour = tuple((rgba >> 8 * c & 255) / (255 if c < 3 else 128) for c in range(4))
+            want.append((leaf[0], rect, uvs, colour, mode))
+        assert lib.probe_render(ui) == 1
+        got = lib.probe_count()
+        assert got == len(want), ('primitives', got, len(want))
+        for i, (kind, rect, uvs, colour, mode) in enumerate(want):
+            prim = lib.probe_prim(i).contents
+            assert tuple(prim.xywh) == rect, (kind, i, tuple(prim.xywh), rect)
+            if uvs is not None:
+                assert tuple(prim.uv) == uvs, (kind, i, tuple(prim.uv), uvs)
+            else:
+                assert prim.uv[0] == prim.uv[2] and prim.uv[1] == prim.uv[3], ('untextured', i)
+            assert tuple(round(c, 6) for c in prim.rgba) == tuple(round(c, 6) for c in colour), \
+                (kind, i, tuple(prim.rgba), colour)
+            assert prim.mode == mode, (kind, i, prim.mode, mode)
+            assert prim.canvas == 512 << 16 | 448, ('the 512 x 448 status canvas', kind, i, hex(prim.canvas))
+            checked += 1
+        lib.em_battery_ui_free(ui)
+    assert kinds.get('rect') == len(starts) and kinds.get('sprite', 0) >= 16 * len(starts), kinds
+    return checked, (ox, oy)
 
 
 # ======================================================================
@@ -1015,7 +1242,7 @@ def main():
         fixture_run.stdout + fixture_run.stderr
 
     # Captured states.
-    packet = panel_replay(elf, native)
+    packet, (rendered, offset) = panel_replay(elf, native)
     JOB.update(elf=elf, native=native)
     beats = reference_mode.parallel_map(run_capture, captures())
     outcomes = set(oracle.outcomes) | set(ctx['title_oracle'].outcomes)
@@ -1037,6 +1264,7 @@ def main():
         'calls_compared': counts,
         'asan_ubsan_fixture': 'PASS',
         'battery_panel_packets': [{'bytes': b, 'sprites': s, 'calls': n} for b, s, n in packet],
+        'battery_panel_render': {'primitives': rendered, 'xyoffset_1': offset},
         'captures': [{'capture': label, 'title_nodes': t, 'pickup_nodes': p, 'checks': c}
                      for label, t, p, c, _ in beats],
     }

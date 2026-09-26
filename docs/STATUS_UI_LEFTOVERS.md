@@ -17,9 +17,11 @@ Files (all new; nothing existing was edited):
 | `tools/test_status_ui_leftovers_reference.py` | the original-instruction oracle (`make test-status-ui-leftovers-reference`, hunk below) |
 | `tests/status_ui_leftovers_test.c` | ASan/UBSan fixture for the fail-stop edges (built and run by the oracle) |
 
-The module is **built and tested but not bound** (CLAUDE.md fidelity rules:
-an unfinished original module stays unwired until its workers are bound).
-The binding notes below say exactly what each translation replaces.
+The BATTERY page draw (0020AE40 / 0020B0D0 / 0020B210 / 0020BEF0), the UI
+cues and 0021BAC0 are **bound live since the status UI step (2026-09-26)**:
+em_battery_page_live and em_rcl_0021BAC0 (docs/STATUS_PAGE_RECORD.md
+section 7). The area title 001C5930 / 001C5860 and 001C4820 are still
+unbound; the binding notes below say what they replace.
 
 ## 1. Result
 
@@ -79,9 +81,29 @@ packet buffers the original built for its last two frames. For each buffer:
    packets included), and the page bytes and D_002821B4 / D_002821B8 /
    D_00282240 equal the original's.
 
+3. **The render conversion** (em_battery_ui_render, the leaf-to-screen
+   step the port adds): each buffer's 00207D00 / 00207E40 / 00207F80
+   packets, from the stream start through the 0020CCB0 marker's rectangle,
+   are decoded back into their leaf arguments and fed to em_battery_ui,
+   whose render (with recording overlay stubs) must emit, in order, each
+   primitive at the GS window the packet addresses on the 512 x 448 status
+   canvas: X / 16 - 1792 and (Y / 16 - 1936) * 2. The offsets are read from
+   the capture's two field draw environments (the A+D XYOFFSET_1 writes
+   whose SCISSOR_1 is the 512 x 224 field: 0x7000 / 0x7900 and 0x7000 /
+   0x7908, the odd field half a line lower, which lands on the same frame
+   line). Sprites sample the full texture of their TEX0's atlas record (the
+   packet's far UV equals the texture size; its V = 0 vertex is the bottom
+   edge, and the atlas rows are screen-oriented, as tools/export_panel.py's
+   decoder undoes the stored v-flip); colours are GS modulate (textured
+   128 = 1, untextured RGB / 255, alpha / 128); the blend is the 00207D00
+   mode. 58 primitives over the two buffers (28 sprites and the marker
+   rectangle each). Mutations killed: rectangle height not doubled, a
+   half-pixel X shift, alpha over 255.
+
 So the draw stream this module produces is exactly the one that built the
-original frame. (The older `test_battery_ui_reference.py` only checks that
-each stand-in quad appears somewhere in the buffers, as an unordered set.)
+original frame, and em_battery_ui puts it where the GS put it. (The retired `test_battery_ui_reference.py` only checked
+that each stand-in quad appeared somewhere in the buffers, as an unordered
+set; it went with the stand-in page, STATUS_PAGE_RECORD.md section 4.)
 
 ## 2. Per function
 

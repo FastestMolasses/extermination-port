@@ -3,6 +3,7 @@
 #include "game/em_message_live.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_player_pose.h"
+#include "game/em_status_page_record.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -15,7 +16,8 @@ typedef struct {
     EmInteractionRuntime interaction;
     EmPanelRuntime panel;
     EmPlayerPose pose;
-    EmPanelBatteryMenu menu;
+    uint8_t page[EM_SPR_PAGE_SIZE]; /* D_00810130 of the BATTERY page 002149F0 */
+    unsigned units, finished;
     float palette[22 * 16];
     int tick, acquired, released, palettes, aligned, cameras, entered, left;
     int message_started, message_visible, menu_requested, status_active;
@@ -124,7 +126,7 @@ static int battery_open(void *context, EmPanel *owner, uint8_t request)
     assert(owner->status == 1 && !owner->armed && !owner->charged);
     if (f->failure == 5) return 0;
     ++f->menu_requested;
-    em_panel_battery_begin(&f->menu, f->charge);
+    memset(f->page, 0, sizeof f->page);
     f->status_active = 1;
     return 1;
 }
@@ -208,27 +210,91 @@ static int step(Fixture *f, int battery)
     return 0;
 }
 
+/* The BATTERY page is the original 002149F0 (em_status_page_record) over
+ * this fixture's records; its draws, cues and message line are this
+ * fixture's boundaries, and its owner record is the fixture panel at the
+ * captured address 0x7AA590 (+3 type 0x24, +0x34 cost, +0xA / +0xB). */
+#define PANEL_ADDRESS 0x7AA590u
+static int page_ok(void *c) { (void)c; return 0; }
+static int page_draw(void *c, uint8_t *page, uint32_t table, int32_t flags)
+{ (void)c; (void)page; (void)table; (void)flags; return 0; }
+static int page_background(void *c, uint64_t tex0) { (void)c; (void)tex0; return 0; }
+static int page_list(void *c, uint8_t *page, uint32_t table, uint64_t glyph, int32_t flags,
+                     int32_t *result)
+{ (void)c; (void)page; (void)table; (void)glyph; (void)flags; *result = 0; return 0; }
+static int page_arrows(void *c, uint8_t *page, uint32_t table)
+{ (void)c; (void)page; (void)table; return 0; }
+static int page_refill(void *c, uint8_t *page, int32_t n) { (void)c; (void)page; (void)n; return -1; }
+static int page_marker(void *c, uint8_t *page) { (void)c; (void)page; return 0; }
+static int page_blend(void *c, int32_t slot, int32_t mode) { (void)c; (void)slot; (void)mode; return 0; }
+static int page_sound(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3)
+{
+    Fixture *f = c;
+    assert(a1 == 0x1000 && a2 == 0x1000 && a3 == 0x1000);
+    if (id == 6) ++f->units;
+    return 0;
+}
+static int page_find(void *c, int32_t item, uint32_t *owner)
+{ (void)c; assert(item == 0x1B); *owner = PANEL_ADDRESS; return 0; }
+static int page_read(void *c, uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
+{
+    Fixture *f = c;
+    assert(owner == PANEL_ADDRESS);
+    if (offset == 3 && size == 1) { *value = 0x24; return 0; }
+    if (offset == 0x34 && size == 2) { *value = (int16_t)f->panel.owner.cost; return 0; }
+    return -1;
+}
+static int page_write(void *c, uint32_t owner, uint32_t offset, uint8_t value)
+{
+    Fixture *f = c;
+    assert(owner == PANEL_ADDRESS);
+    if (offset == 0xA) f->panel.owner.charged = value;
+    else if (offset == 0xB) f->panel.owner.armed = value;
+    else return -1;
+    return 0;
+}
+
+/* One 002149F0 frame with `buttons` (D_00810E74). */
+static int page_tick(Fixture *f, unsigned buttons, uint8_t *b0, uint8_t *c5, uint8_t *spad3B8D)
+{
+    static const uint8_t b1 = 0x82, counts[3] = {1, 0, 0}, d0[4] = {0x90, 0xA5, 0x7A, 0x00};
+    uint8_t charge[2] = {(uint8_t)f->charge, (uint8_t)(f->charge >> 8)}, capacity = 12;
+    uint8_t pressed[2] = {(uint8_t)buttons, (uint8_t)(buttons >> 8)};
+    int32_t mode = 4, phase = 0, line = 0, group = 0;
+    const EmSprRecords r = {f->page, sizeof f->page, b0, &b1, c5, d0, counts, charge, &capacity,
+                            pressed, &mode, &phase, &line, &group, spad3B8D};
+    const EmSprWorkers w = {f, page_background, page_draw, page_list, page_arrows, page_refill,
+                            page_list, page_marker, page_ok, page_ok, page_ok, page_ok, page_ok,
+                            page_blend, page_sound, page_find, page_read, page_write};
+    int rc = em_spr_002149F0(&w, &r, NULL);
+    f->charge = charge[0] | charge[1] << 8;
+    return rc;
+}
+
 static void menu(Fixture *f, int discharge)
 {
     assert(f->status_active && f->panel.owner.phase == 6);
     freeze(f, 1);
+    uint8_t b0 = 1, c5 = 0, spad3B8D = 0;
+    /* State 0 takes the request (B1 & 0x80: the confirmation, No). */
+    assert(page_tick(f, 0, &b0, &c5, &spad3B8D) == 0 && f->page[5] == 4 && f->page[6] == 1);
     if (!discharge) {
-        unsigned result = em_panel_battery_step(&f->panel.owner, &f->menu, 0x40, &f->charge);
-        assert(result == EM_PANEL_MENU_CANCEL && f->menu.phase == EM_PANEL_MENU_BROWSE);
-        assert(f->charge == 12 && !f->panel.owner.charged);
+        assert(page_tick(f, 0x40, &b0, &c5, &spad3B8D) == 0); /* No */
+        assert(f->page[5] == 1 && f->charge == 12 && !f->panel.owner.charged && !c5);
         /* The real status/root worker must continue to handle Back. This
          * fixture explicitly supplies its eventual completed-exit boundary. */
         freeze(f, 1);
     } else {
-        assert(em_panel_battery_step(&f->panel.owner, &f->menu, 0x8040, &f->charge) ==
-               (EM_PANEL_MENU_CURSOR | EM_PANEL_MENU_ACCEPT));
-        unsigned units = 0, finished = 0;
+        assert(page_tick(f, 0x8040, &b0, &c5, &spad3B8D) == 0); /* Yes */
+        assert(f->page[5] == 6 && b0 == 1);
         for (int i = 1; i <= 61; ++i) {
-            unsigned result = em_panel_battery_step(&f->panel.owner, &f->menu, 0, &f->charge);
-            if (result & EM_PANEL_MENU_UNIT_SOUND) { assert(i == 1 || i == 31); ++units; }
-            if (result & EM_PANEL_MENU_FINISHED) { assert(i == 61); ++finished; }
+            unsigned units = f->units;
+            assert(page_tick(f, 0, &b0, &c5, &spad3B8D) == 0);
+            if (f->units != units) assert(i == 1 || i == 31);
+            if (c5 == 0xFF && !f->finished) { assert(i == 61); f->finished = 1; }
         }
-        assert(units == 2 && finished == 1 && f->charge == 8 && f->panel.owner.armed == 5);
+        assert(f->units == 2 && f->finished == 1 && f->charge == 8 && f->panel.owner.armed == 5);
+        assert(f->panel.owner.charged == 1 && spad3B8D == 3);
     }
     assert(em_interaction_runtime_owns(&f->interaction, &f->panel));
     f->status_active = 0;

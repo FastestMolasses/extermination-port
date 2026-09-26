@@ -198,6 +198,7 @@ static struct {
     float nav_hist[64][2];
     int32_t scan_variants; /* D_00810750 at the Use scan's tick (scan_accepted) */
     uint8_t saw[8];        /* per-phase observations (see each runner) */
+    int page_capture_frames; /* EM_LEVEL_SMOKE_PAGE_CAPTURE (page_capture) */
 } t;
 
 static void fail(const char *reason)
@@ -2133,6 +2134,30 @@ void em_level_smoke_test_begin(void)
     k_phases[0].begin();
 }
 
+/* Verification aid (LEVEL_SMOKE.md "Frame captures"):
+ * EM_LEVEL_SMOKE_PAGE_CAPTURE=<state>:<path.bmp> saves the second status
+ * frame in a row whose ITEM > BATTERY page (UI+4 = 5, 002149F0) is at state
+ * <state> (UI+5; 3 the acquisition notice, 4 the confirmation), for a look
+ * beside the original's screenshot of that page. Once per run. */
+static void page_capture(void)
+{
+    const char *pc = getenv("EM_LEVEL_SMOKE_PAGE_CAPTURE");
+    const char *colon = pc ? strchr(pc, ':') : NULL;
+    if (!colon || !colon[1] || t.page_capture_frames < 0)
+        return;
+    const EmStatusRuntime *status = em_area11_interaction_host_status();
+    const EmStatusPage *page = status ? em_status_runtime_page(status) : NULL;
+    if (page && page->phase == 3 && page->item.state == 5 &&
+        page->item.step == (uint8_t)strtol(pc, NULL, 0)) {
+        if (++t.page_capture_frames == 2) {
+            em_gfx_request_capture(em_frame_gfx(), colon + 1);
+            t.page_capture_frames = -1;
+        }
+    } else {
+        t.page_capture_frames = 0;
+    }
+}
+
 void em_level_smoke_test_after_frame(void)
 {
     if (!t.active || t.failed)
@@ -2156,6 +2181,7 @@ void em_level_smoke_test_after_frame(void)
             fail("nonfinite player or camera");
             return;
         }
+    page_capture();
     if (k_phases[t.current].frame() == 1 && !t.failed)
         next_phase();
 }

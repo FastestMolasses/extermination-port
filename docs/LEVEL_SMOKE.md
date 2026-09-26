@@ -99,6 +99,19 @@ not a pixel test. For example, the elevator phase's end frame against
 (docs/CENSUS_UNVERIFIED.md, the indicator children). Keep such files under
 an ignored `build/<task>/` folder.
 
+`EM_LEVEL_SMOKE_PAGE_CAPTURE=<state>:<file.bmp>` saves the second status
+frame in a row whose ITEM > BATTERY page (002149F0, UI+4 = 5) is at state
+<state> (UI+5): 3 the acquisition notice (route 01), 4 the panel's
+confirmation (compare with `startup-reference/panel/confirm.png`). The page
+and its lines are the originals since the status UI step
+(docs/STATUS_PAGE_RECORD.md section 7).
+
+The terminal's arrow is red during the refusal (route 02's capture: level
++0x28 = 0) and green after the power (route 04). The elevator/refusal
+fixture's screenshot (used by tools/test_message_capture.py) shows it green
+because that fixture was seeded from a powered state (CENSUS_UNVERIFIED.md,
+"The terminal-screen colour").
+
 ## Phases
 
 The phases follow the main line of FIRST_LEVEL_ROUTE.md section 3. The side
@@ -865,6 +878,11 @@ pool's D_00810610 (docs/RENDER_CONTEXT.md section 8). It checks:
   only writer is 001D2960, called only by 001D1C50, which runs before the
   camera stage; the snapshots of the beats whose camera moved hold
   +0x2380 != D_00810610);
+- every tick after the first status screen's close (+B = 5) holds routes
+  01..14's fog record save slot 0 +0x120..+0x13F, which 0020DFA0's
+  0021BAC0(0) wrote at that screen's CONFIGURE (the status UI step; route
+  00's snapshot, taken before any status screen, holds an older save; a
+  build without the save fails at the close tick);
 - on every 200th gameplay tick (at most 40), the ORIGINAL 001D2960,
   executed over the 05_boxes snapshot with the tick's V and zoom
   (test_frame_render_heads_reference's interpreter, its sqrtf the original
@@ -883,6 +901,35 @@ Measured (full route): 5,378 gameplay ticks, 6,882 frame heads (6,833 with
 the camera moving that frame), 27 sampled ticks. Side beat 00: 128, 124 and
 1. Side beat 09 (its run): 2,370 gameplay ticks, 2,707 frame heads, one
 state-4 re-seat.
+
+### The indicator children (`check_indicator_children`, CENSUS_UNVERIFIED.md)
+
+Not a phase: after the phases, over every tick from first control on. The
+tick log's `children` lists every indicator child (001C5680 / 001C5760)
+whose bind ran (em_indicator_bind_live): its record address, +0x10, +0x04,
++0x09, +0x0C, +0x0D, +0x44, +0x4C, the slot words and the first slot's
++0x90 matrix. It checks:
+- each child's record fields equal the route snapshots' child at the same
+  record address (the snapshots agree), the model handles included;
+- its first slot's matrix (001C6380's placement) equals theirs bit for bit;
+  the terminal's 001C5760 child is compared with routes 00..03 only on the
+  ticks before the elevator phase's scan (state['ride_scan']); from the
+  scan on, the original copies the terminal's own node matrix into it every
+  frame (0x827E6C), which the port does not bind, so those ticks are
+  skipped and counted in the PASS line, never compared with a non-original
+  matrix;
+- the slot words are nonzero exactly up to +0x09 (their addresses are not
+  compared: the stack's history is not yet the original's);
+- at the aligned snapshot ticks (the effects' `snapshots`) the set of bound
+  children equals the snapshot's.
+
+Measured (full route): 9 children over 13,000 ticks (the five lights, the
+battery's light until its take, the husk's 0x7A child, the panel's child
+until the power, the terminal's: compared on 3,062 ticks before the
+elevator scan, 9,938 skipped after it) and the same set as the snapshot at
+all 6 aligned snapshots; the save slot of check_render_context over 11,599 ticks.
+Side beat 00 (no status screen in its run): 1,650 ticks; side beat 09:
+5,563 ticks, 1 snapshot.
 
 ### The effects (`check_effects`, census L26 / L27 / L28 / L39)
 

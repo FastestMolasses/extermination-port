@@ -100,6 +100,7 @@
 #include "game/em_area11_bindings.h"
 #include "game/em_effects_live.h"
 #include "game/em_equipment_live.h"
+#include "game/em_indicator_bind_live.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_door.h"
 #include "game/em_area11_roger.h"
@@ -669,13 +670,14 @@ static void log_tick_end(int rc)
          * it): the flag words +0x0C / +0x174, the fog block +0xA0..+0xFF, the
          * zoom +0x2468, V +0x2380, K +0x23C0, the 001CD370(0) projection
          * +0x2240, the eased pairs +0x24F0..+0x2513, the +0x2450 block,
-         * D_00275690 / D_00275694, and the camera pool's D_00810610 (the view
-         * the NEXT frame head projects). tools/test_level_smoke.py
-         * check_render_context. */
+         * the fog record's save slot 0 +0x120..+0x13F (the status screen's
+         * 0021BAC0(0)), D_00275690 / D_00275694, and the camera pool's
+         * D_00810610 (the view the NEXT frame head projects).
+         * tools/test_level_smoke.py check_render_context. */
         {
             static const struct { uint32_t offset, size; } k_rctx[] = {
                 {0x0C, 4}, {0x174, 4}, {0xA0, 0x60}, {0x2468, 4}, {0x2380, 0x40},
-                {0x23C0, 0x40}, {0x2240, 0x40}, {0x24F0, 0x24}, {0x2450, 0x18},
+                {0x23C0, 0x40}, {0x2240, 0x40}, {0x24F0, 0x24}, {0x2450, 0x18}, {0x120, 0x20},
             };
             fputs(", \"rctx\": ", f);
             const uint8_t *eases = em_rcl_bytes(0x00275690u, 8);
@@ -817,6 +819,32 @@ static void log_tick_end(int rc)
     } else {
         fputs("null", f);
     }
+    /* The indicator children 001C5680 / 001C5760 bound by
+     * em_indicator_bind_live (001C2360 / 001C22A0, 001C6380): record
+     * address, +0x10, +0x04, +0x09, +0x0C, +0x0D, +0x44, +0x4C, the slot
+     * words and the first slot's +0x90 matrix (float bits). A child whose
+     * bind has not run is not listed. tools/test_level_smoke.py
+     * check_indicator_children. */
+    fputs(", \"children\": [", f);
+    {
+        int n = 0;
+        for (const EmActor *a = s_pool.head; a; a = a->next) {
+            EmIndicatorBindRecord r;
+            if ((a->callback != 0x001C5680u && a->callback != 0x001C5760u) ||
+                !em_indicator_bind_live_record(a, &r))
+                continue;
+            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u, [%u, %u, %u, %u], [", n++ ? ", " : "", r.address,
+                    a->callback, a->u04[0], r.bones, r.count, a->param, r.model, r.method, r.slot[0], r.slot[1],
+                    r.slot[2], r.slot[3]);
+            for (int k = 0; k < 16; ++k) {
+                uint32_t bits;
+                memcpy(&bits, &r.world[k], 4);
+                fprintf(f, "%s%u", k ? ", " : "", bits);
+            }
+            fputs("]]", f);
+        }
+    }
+    fputc(']', f);
     /* The owner draws 001CAA00 of the last drawn frame (em_owner_draw_live):
      * record address, unit bytes, clip, and the colour / lighting-row /
      * position-row / point-light-slot / rig-lane digests. tools/test_level_smoke.py
@@ -2011,7 +2039,7 @@ static int w_0020CDC0(void *ctx)
          * disc-read phase, 0 at every tick boundary in the port: see
          * r_00282157). The page layer does not read it. */
         EmStatusInput input = {s_state.d810E74, s_state.d810E70, pad->lx, pad->ly,
-                               r_00282157(NULL)};
+                               r_00282157(NULL), pad->repeat};
         return em_area11_interaction_host_status_page(&input);
     }
     int closed = em_hud_status_tick(em_frame_input());

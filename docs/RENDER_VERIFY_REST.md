@@ -228,11 +228,10 @@ build with both files added links with zero warnings.
   calls it in place with 12.0 at 0x700038C0.
 - **001000E0**: `EmPlayerLandWorkers.test_001000E0` of em_player_fall
   (verified-unbound). See Findings 3: the worker must take uint64_t.
-- **001FCF10**: 002149F0 state 4 (the BATTERY page; live stand-in
-  `em_battery_ui.c` / `em_area11_interaction_host.c battery_finished`).
-  Worker 001FCB90 is the L20 stand-in row (`em_hud.c` legacy message
-  lookup). Its original body indexes the message bank D_0028A498 by group
-  a2 and calls 001FE070 (em_message_draw_original, verified-unbound).
+- **001FCF10**: 002149F0 state 4 (the BATTERY page). Live since the status
+  UI step (2026-09-26): em_battery_page_live binds it in the page, with
+  worker 001FCB90 = the live presenters' em_cs_001FCB90
+  (em_message_live_help_draw; docs/STATUS_PAGE_RECORD.md section 7).
 - **001D4B50**: em_shadow_original calls it through `w_receiver` for class-2
   receivers (the GS-side worker, Metal `em_gfx_shadow_*`). Its workers
   001D49D0 / 001D4B10 are census boundary (the clip-pass VIF packets; the

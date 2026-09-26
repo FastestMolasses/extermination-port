@@ -642,6 +642,68 @@ static void chain_draw(EmGfx *gfx, const ChainDraw *cd, int actor, const float *
                             cd->palette, cd->bone_count);
 }
 
+/* The level background's gate, from the live render context (census 1.13;
+ * docs/BACKGROUND.md "Wiring"): 001D2300 calls 001E0DF0 when D_008106C4 ==
+ * 0, render flag 4 is clear and flag 0x20 is set; 001E0DF0 (again under
+ * 0x20) CALLs the channel-3 list at ctx+0x1D8 when that word is non-zero.
+ * The word is rebuilt every frame by 001C1D00 (state 1) -> 001E0CF0: its
+ * 001E0CC0 zeroes +0x1D8, then 001E1E60 stores the list there only under
+ * flags 0x20 and 0x21. 001C1D00 is not bound in the port (RENDER_CONTEXT.md
+ * section 8), so +0x1D8 is not built; "+0x1D8 != 0" is therefore read as
+ * the condition that built it, flag 0x21 (with 0x20, already required).
+ * With 0x20 set and 0x21 clear the original CALLs nothing: a no-draw, not
+ * a fault. 001C1F50 arms both flags at the area render init for keys
+ * 0x0B00..0x1200 (AREA11 among them). Flags 0x00..0x1F are the word at context +0x0C,
+ * 0x20..0x3F the word at +0x174. 001D1C10 (step N) is not bound, so flag 4
+ * is never set in the port; the frame a movie played is the mirror
+ * em_frame_movie_active (D_00821058 == 1), in which 001D1C10 would set it.
+ * The list draws 001E1E60's TEX0 ctx+0x1D0 and RGBAQ int(128 *
+ * ctx+0x1C0..+0x1CC) (001D6F60 / 001D7080): the loaded asset
+ * (the manifest's `background` line names its file) must hold exactly
+ * those, and a gate with no asset or another one faults (fail-stop).
+ * 1 draw, 0 no draw, -1 a fault (reported). */
+static int background_gate(EmGfx *gfx)
+{
+    const uint8_t *lo = em_rcl_bytes(EM_RCL_CONTEXT + 0x0C, 4);
+    const uint8_t *hi = em_rcl_bytes(EM_RCL_CONTEXT + 0x174, 4);
+    if (!lo || !hi || !em_rcl_bound())
+        return 0; /* no render context: no channel 3 */
+    const int flag4 = (lo[0] >> 4) & 1, flag20 = hi[0] & 1, flag21 = (hi[0] >> 1) & 1;
+    /* 001D2300's call of 001E0DF0. */
+    if (em_scene_state()->req[EM_SCENE_REQ_C4] != 0 || flag4 || em_frame_movie_active() || !flag20)
+        return 0;
+    /* 001E0DF0's +0x1D8 != 0: built by 001E0CF0 under 0x20 and 0x21. */
+    if (!flag21)
+        return 0;
+    const uint8_t *tag = em_rcl_bytes(EM_RCL_CONTEXT + 0x1D0, 8);
+    const uint8_t *colour = em_rcl_bytes(EM_RCL_CONTEXT + 0x1C0, 16);
+    uint64_t tex0 = 0, want_tex0 = 0;
+    uint32_t rgbaq = 0, want_rgbaq = 0;
+    for (unsigned b = 0; tag && b < 8; ++b)
+        want_tex0 |= (uint64_t)tag[b] << (8 * b);
+    for (unsigned c = 0; colour && c < 4; ++c) {
+        float f;
+        memcpy(&f, colour + 4 * c, 4);
+        const float scaled = 128.0f * f;
+        if (!(scaled >= 0.0f && scaled < 256.0f))
+            break;
+        want_rgbaq |= (uint32_t)(int32_t)scaled << (8 * c);
+    }
+    static int reported;
+    if (!em_gfx_background_state(gfx, &tex0, &rgbaq) || tex0 != want_tex0 || rgbaq != want_rgbaq) {
+        if (!reported)
+            fprintf(stderr, "background: render flags 0x20 / 0x21 are armed (001C1F50) but the loaded "
+                    "background asset is %s (TEX0 %016llX RGBAQ %08X; the context holds TEX0 %016llX "
+                    "RGBAQ %08X; STARTUP.md step 40)\n",
+                    em_gfx_background_ready(gfx) ? "another one" : "missing",
+                    (unsigned long long)tex0, (unsigned)rgbaq, (unsigned long long)want_tex0,
+                    (unsigned)want_rgbaq);
+        reported = 1;
+        return -1;
+    }
+    return 1;
+}
+
 /* func_001CB5A0 / func_001AAD00 / func_001D1EA0(1) — close-out: flush the
  * recorded chain with the camera block applied (the native "kick"), then
  * advance clip time. EM_CAPTURE instrumentation lives here so its frame
@@ -694,13 +756,14 @@ void frame_close_out(void)
             zoom = head_zoom;
         }
         /* 001D2300: after the Z-only clear, the world frame CALLs render
-         * channel 3 (001E1E60's grid, kernel 0x0023C990) before the level,
-         * when D_008106C4 == 0, render flag 4 is clear (001D1C10 sets it
-         * only in a frame where 00203350 played: D_00821058 == 1) and flag
-         * 0x20 is set (the manifest's `background` line, AREA11). The draw
-         * writes colour only, over the whole field (docs/BACKGROUND.md). */
-        if (em_gfx_background_ready(gfx) &&
-            em_scene_state()->req[EM_SCENE_REQ_C4] == 0 && !em_frame_movie_active())
+         * channel 3 (001E1E60's grid, kernel 0x0023C990) before the level
+         * (docs/BACKGROUND.md "Wiring"); background_gate reads the gate
+         * from the render context. The draw writes colour only, over the
+         * whole field. */
+        const int background = background_gate(gfx);
+        if (background < 0)
+            em_frame_request_quit(); /* reported: the gate faulted */
+        else if (background)
             em_gfx_background_draw(gfx, view, zoom);
         /* LIGHTING — DISTANCE FOG for the world flush. Per-frame, per-
          * scene constant (the engine's per-area GS fog record), so set

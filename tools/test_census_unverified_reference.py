@@ -71,22 +71,17 @@ EXPECTED = {
                          'and a negative NaN pattern as a large negative number',
     '001B1190/area>0x16': 'taken_byte refuses areas past 0x16; the original writes D_00810860 + area*32 '
                           'for any D_00810700 (latent: not reachable in the first level)',
-    # The live binding's indicator workers (em_area11_bindings.c): the bind
-    # never refuses (the original stays in state 0 while 001C2360 /
-    # 001C22A0 return nonzero: bone slots exhausted), and the placement does
-    # nothing (the draw uses the owner's current palette; 001C5760 with
-    # +0x0A != 0 re-runs 001C6380 before each draw, latent: AREA11 spawns
-    # +0x0A 0).
-    '001C5680/live-init-stub': 'the live 001C2360 bind always succeeds (no bone-slot model)',
-    '001C5760/live-init-stub': 'the live 001C22A0 bind always succeeds (no bone-slot model)',
-    '001C5680/live-place-stub': 'the live 001C6380 placement is a no-op (the owner\'s palette places the draw)',
-    '001C5760/live-place-stub': 'the live 001C6380 placement is a no-op (incl. the +0x0A re-run)',
+    # The live binding's indicator workers (em_area11_bindings.c) are the
+    # translations since the status UI step (2026-09-26): the bind is
+    # em_rvr_001C2360 / em_rvr_001C22A0 and the placement
+    # em_owner_services_001C6380, both through em_indicator_bind_live; the
+    # stand-in keys '.../live-init-stub' and '.../live-place-stub' are
+    # retired (the level smoke's check_indicator_children compares the
+    # bound records and placements with the route snapshots).
     # One key per CONFIGURE callee the port does not run, so a partial fix
-    # retires exactly its own key.
-    '0020DFA0/missing-0020E020': 'CONFIGURE does not reset the trail D_00821300/D_00275C90 (request-opened '
-                                 'pages skip both port trail resets)',
-    '0020DFA0/missing-0021BAC0': 'CONFIGURE does not save the fog block (0021BAC0(0))',
-    '0020DFA0/missing-0021B9A0': 'CONFIGURE does not program the fog (0021B9A0(5, 0.0, 1e6); no translation)',
+    # retires exactly its own key. None left since the status UI step
+    # (2026-09-26): 0020E020 (em_status_runtime), 0021BAC0 / 0021B9A0 (the
+    # host, on the live render context) run on the CONFIGURE path.
 }
 
 # 001CF470 reference (no port translation yet): the original's fan-size
@@ -828,18 +823,23 @@ def part_children(elf, L):
                                                 'em_indicator_child_step (tick_indicator)')
     # The live binding's own workers (the harness above runs its own
     # refusing init, so it cannot see these): the bind 001C2360 / 001C22A0
-    # and the placement 001C6380 are stand-ins while no translation is bound.
-    def body(name):
-        m = re.search(r'static int ' + name + r'\(.*?\n\}\n', bindings, re.S)
+    # and the placement 001C6380 must reach their translations through
+    # em_indicator_bind_live (which calls em_rvr_001C2360 / em_rvr_001C22A0
+    # and em_owner_services_001C6380); anything else is a stand-in.
+    def body(name, text=None):
+        m = re.search(r'(?:static )?int ' + name + r'\(.*?\n\}\n', text or bindings, re.S)
         assert m, (name, 'the live indicator worker moved; update the extraction')
         return m.group(0)
     init, place = body('indicator_init'), body('indicator_place')
-    if not re.search(r'em_rvr_001C2360|em_rvr_001C22A0', init) and '*result = 0;' in init:
-        r80.diverge('001C5680/live-init-stub', 'indicator_init: the live 001C2360 bind always returns 0')
-        r60.diverge('001C5760/live-init-stub', 'indicator_init: the live 001C22A0 bind always returns 0')
-    if 'em_owner_services_001C6380' not in place and re.search(r'\{\s*\(void\)ctx;\s*return 0;\s*\}', place):
-        r80.diverge('001C5680/live-place-stub', 'indicator_place: the live 001C6380 is a no-op')
-        r60.diverge('001C5760/live-place-stub', 'indicator_place: the live 001C6380 is a no-op')
+    live = source('game/em_indicator_bind_live.c')
+    bind, placed = body('em_indicator_bind_live_bind', live), body('em_indicator_bind_live_place', live)
+    if 'em_indicator_bind_live_bind(' not in init or not re.search(r'em_rvr_001C2360\(', bind) or \
+            not re.search(r'em_rvr_001C22A0\(', bind):
+        r80.diverge('001C5680/live-init-stub', 'indicator_init does not run em_rvr_001C2360')
+        r60.diverge('001C5760/live-init-stub', 'indicator_init does not run em_rvr_001C22A0')
+    if 'em_indicator_bind_live_place(' not in place or 'em_owner_services_001C6380(' not in placed:
+        r80.diverge('001C5680/live-place-stub', 'indicator_place does not run em_owner_services_001C6380')
+        r60.diverge('001C5760/live-place-stub', 'indicator_place does not run em_owner_services_001C6380')
     return [r80, r60]
 
 
@@ -948,7 +948,25 @@ def part_20dfa0(elf, L):
     assert worker, 'em_status_runtime.c page_worker moved; update the probe'
     worker_case = re.search(r'case EM_STATUS_PAGE_CONFIGURE:(.*?)(?:\n    case |\n    default:)', worker.group(0),
                             re.S)
-    performed = {'001AFE60': 'em_status_models_clear' in case,
+    # 001AFE60 runs either in the host's CONFIGURE case or as the host's
+    # RESET_DRAW event (em_status_models_clear) the runtime issues first;
+    # the runtime's case must keep 0020DFA0's order: 001AFE60, 0020E020,
+    # then the host's rest.
+    reset_case = re.search(r'case EM_STATUS_PAGE_RESET_DRAW:(.*?)\n    case ', host, re.S)
+    wc = worker_case.group(1) if worker_case else ''
+    at_reset = wc.find('EM_STATUS_PAGE_RESET_DRAW')
+    at_trail = wc.find('em_item_trail_reset(')
+    at_rest = wc.find('page_event(runtime->hooks.context, event')
+    via_reset = (at_reset >= 0 and reset_case is not None and
+                 'em_status_models_clear' in reset_case.group(1))
+    if at_trail >= 0:
+        in_order = (via_reset and at_reset < at_trail < at_rest) or (
+            not via_reset and 'em_status_models_clear' in case)
+        if in_order and via_reset:
+            res.ok('CONFIGURE order 001AFE60, 0020E020, then the host\'s rest (runtime page_worker)')
+        elif not in_order:
+            res.diverge('0020DFA0/order', dict(runtime=wc.strip()[:200]))
+    performed = {'001AFE60': 'em_status_models_clear' in case or via_reset,
                  '001029C0-configure': 'em_status_models_configure' in case,
                  '001D2610-zoom': runs_2610,
                  '0020E020': bool(re.search(r'trail_reset\s*\(|0020E020\w*\(', case)) or

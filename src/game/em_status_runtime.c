@@ -25,7 +25,8 @@ struct EmStatusRuntime {
     EmItemMath math;
     EmItemTrail trail;
     EmPanel *owner;
-    EmBatteryUI *battery;
+    EmBatteryUI *battery;       /* the BATTERY page's atlas and leaf calls */
+    uint8_t ui[0xA0];           /* the UI block D_00810130 */
     EmItemUI *item;
     EmStatusHubUI *hub;
     EmStatusHubDisplay hub_display;
@@ -33,7 +34,8 @@ struct EmStatusRuntime {
     uint32_t ui_clock; /* UI+0x20 (D_00810150) */
     TrailTriangle triangles[512];
     unsigned triangle_count, draw_kind, draw_hover, slot_kind;
-    int draw_help, battery_kind, pending_module;
+    int draw_help, pending_module;
+    int message_view; /* the page tick runs over the live block's words */
     int queued, consumed, rendered, failed;
 };
 
@@ -72,7 +74,7 @@ static int begin_module(EmStatusRuntime *runtime, unsigned module)
      * already validated at load. No fake asynchronous timer is needed. */
     if (module == 0x1F || module == 0x21) {
         em_item_ui_deactivate(runtime->item);
-        em_battery_ui_close(runtime->battery);
+        em_battery_ui_deactivate(runtime->battery);
         runtime->page.item.asset_busy = 0;
         return 1;
     }
@@ -105,116 +107,86 @@ static int other_tick(EmStatusRuntime *runtime)
     return 1;
 }
 
+/* The UI block D_00810130 bytes EmStatusPage / EmItemRoot view. */
+static void ui_load(uint8_t *ui, const EmStatusPage *page)
+{
+    ui[0x00] = page->active;
+    ui[0x01] = page->phase;
+    ui[0x02] = page->step;
+    ui[0x03] = page->transition_step;
+    ui[0x04] = page->item.state;
+    ui[0x05] = page->item.step;
+    ui[0x06] = page->item.next_state;
+    for (unsigned b = 0; b < 4; ++b)
+        ui[0x08 + b] = (uint8_t)((uint32_t)page->saved_module >> (8 * b));
+    ui[0x0C] = page->saved_status;
+    ui[0x10] = page->item.screen;
+    ui[0x11] = page->item.hover;
+    ui[0x15] = page->item.selected;
+    ui[0x16] = page->item.module;
+}
+
+static void ui_store(const uint8_t *ui, EmStatusPage *page)
+{
+    page->active = ui[0x00];
+    page->phase = ui[0x01];
+    page->step = ui[0x02];
+    page->transition_step = ui[0x03];
+    page->item.state = ui[0x04];
+    page->item.step = ui[0x05];
+    page->item.next_state = ui[0x06];
+    page->saved_module = (int32_t)((uint32_t)ui[0x08] | (uint32_t)ui[0x09] << 8 |
+                                   (uint32_t)ui[0x0A] << 16 | (uint32_t)ui[0x0B] << 24);
+    page->saved_status = ui[0x0C];
+    page->item.screen = ui[0x10];
+    page->item.hover = ui[0x11];
+    page->item.selected = ui[0x15];
+    page->item.module = ui[0x16];
+}
+
+/* The ITEM root's child page 5: 002149F0 through the battery_page hook
+ * (em_battery_page_live), over the UI block, the request bytes, the
+ * inventory view and the message view. */
 static int battery_tick(EmStatusRuntime *runtime)
 {
     EmStatusPage *page = &runtime->page;
-    if (!page->item.step) {
-        runtime->battery_kind = -1;
-        for (int kind = 2; kind >= 0; --kind) {
-            if (runtime->inventory.battery_count[kind]) {
-                runtime->battery_kind = kind;
-                break;
-            }
-        }
-        if (runtime->battery_kind < 0)
-            return 0; /* No fabricated list row for an unsupported empty inventory. */
-        page->item.message_mode = 4;
-        page->item.message_phase = 0;
-        page->item.message_group = 3;
-        if (page->request) {
-            if (page->request == 1 && page->request_kind >= 0x1B && page->request_kind < 0x1E) {
-                static const uint8_t capacities[3] = {12, 36, 48};
-                int acquired_kind = page->request_kind - 0x1B;
-                uint8_t capacity = capacities[acquired_kind];
-                if (!runtime->hooks.write_battery_capacity ||
-                    !em_battery_ui_begin_pickup(runtime->battery, capacity, runtime->battery_kind,
-                                                acquired_kind) ||
-                    runtime->hooks.write_battery_capacity(runtime->hooks.context, capacity,
-                                                          capacity) != 1)
-                    return 0;
-                runtime->inventory.charge = runtime->inventory.capacity = capacity;
-                page->item.message_group = acquired_kind == runtime->battery_kind ? 4 : 3;
-                page->request = 0;
-                page->item.step = 3;
-                return 1;
-            }
-            if (!(page->request_kind & 0x80) ||
-                !em_battery_ui_begin(runtime->battery, runtime->owner, runtime->inventory.charge,
-                                     runtime->battery_kind))
-                return 0;
-            page->request = 0;
-            page->item.step = 4;
-            page->item.next_state = 1;
-            return 1; /* Original state0 request branch does not draw this callback. */
-        }
-        if (!em_battery_ui_begin_browse(runtime->battery, runtime->owner, runtime->inventory.charge,
-                                        runtime->battery_kind))
+    const EmStatusBatteryData *gauge = em_status_hub_ui_battery_data(runtime->hub);
+    if (!runtime->hooks.battery_page || !runtime->message_view || !gauge)
+        return 0;
+    ui_load(runtime->ui, page);
+    uint8_t counts[3], charge[2], capacity = runtime->inventory.capacity, pressed[2];
+    memcpy(counts, runtime->inventory.battery_count, sizeof counts);
+    charge[0] = (uint8_t)runtime->inventory.charge;
+    charge[1] = (uint8_t)(runtime->inventory.charge >> 8);
+    pressed[0] = (uint8_t)runtime->input.pressed;
+    pressed[1] = (uint8_t)(runtime->input.pressed >> 8);
+    const EmStatusBatteryPage call = {
+        runtime->ui, sizeof runtime->ui, &page->request, &page->request_kind,
+        &page->status_request, counts, charge, &capacity, pressed, runtime->input.held,
+        runtime->input.repeat,
+        {(int32_t *)(void *)&page->item.message_mode, (int32_t *)(void *)&page->item.message_phase,
+         (int32_t *)(void *)&page->item.message_line, (int32_t *)(void *)&page->item.message_group},
+        gauge, runtime->battery};
+    int accepted = runtime->hooks.battery_page(runtime->hooks.context, &call) == 1;
+    ui_store(runtime->ui, page);
+    /* The page's charge and capacity writes (the acquisition writes both,
+     * the discharge and recharge the charge). */
+    const uint16_t new_charge = (uint16_t)(charge[0] | charge[1] << 8);
+    if (capacity != runtime->inventory.capacity) {
+        if (!runtime->hooks.write_battery_capacity ||
+            runtime->hooks.write_battery_capacity(runtime->hooks.context, new_charge, capacity) !=
+                1)
             return 0;
-        page->item.step = 1;
-    }
-    unsigned before = em_battery_ui_original_step(runtime->battery);
-    int available = 1;
-    if (before == 1 && (runtime->input.pressed & 0x40) && !(runtime->input.pressed & 0x20)) {
-        available = runtime->hooks.owner_available(runtime->hooks.context, runtime->owner,
-                                                   0x1B + (unsigned)runtime->battery_kind);
-        if (available < 0 || available > 1)
-            return 0;
-        if (available && !runtime->owner)
-            return 0; /* A different eligible device requires its actual owner binding. */
-    }
-    int charge = runtime->inventory.charge;
-    unsigned events =
-        em_battery_ui_tick(runtime->battery, runtime->input.pressed, &charge, available);
-    if (events & EM_BATTERY_UNSUPPORTED_OWNER)
+    } else if (new_charge != runtime->inventory.charge &&
+               runtime->hooks.write_charge(runtime->hooks.context, new_charge) != 1) {
         return 0;
-    if (charge != runtime->inventory.charge) {
-        if (charge < 0 || charge > 255 ||
-            runtime->hooks.write_charge(runtime->hooks.context, (uint16_t)charge) != 1)
-            return 0;
-        runtime->inventory.charge = (uint16_t)charge;
     }
-    if ((events & EM_PANEL_MENU_CURSOR) && !sound(runtime, 4))
+    runtime->inventory.charge = new_charge;
+    runtime->inventory.capacity = capacity;
+    if (!accepted)
         return 0;
-    if ((events & EM_PANEL_MENU_UNIT_SOUND) && !sound(runtime, 6))
-        return 0;
-    if ((events & EM_PANEL_MENU_ACCEPT) && !sound(runtime, 0))
-        return 0;
-    if ((events & EM_PANEL_MENU_CANCEL) && !sound(runtime, 1))
-        return 0;
-    if ((events & EM_BATTERY_NO_DEVICE_SOUND) && !sound(runtime, 2))
-        return 0;
-    if (events & EM_BATTERY_BACK_TO_STATUS) {
-        page->item.message_phase = 2;
-        page->phase = 3;
-        page->step = page->transition_step = page->item.state = page->item.step = 0;
-        em_battery_ui_close(runtime->battery);
-        return 1;
-    }
-    runtime->draw_kind = DRAW_BATTERY;
-    page->item.step = (uint8_t)em_battery_ui_original_step(runtime->battery);
-    if (page->item.step == 6 && before == 4)
-        page->request = 1; /* Original confirmation protects the discharge from outer exit. */
-    if (page->item.step == 1 && before != 1) {
-        page->item.message_phase = before == 3 ? 1 : 0;
-        page->item.message_group = 3;
-    } else if (before == 6) {
-        page->item.message_phase = 0;
-    } else if (before == 3) {
-        page->item.message_phase = 1;
-        page->item.message_line = 27 + (unsigned)runtime->battery_kind;
-    } else {
-        page->item.message_phase = 1;
-        page->item.message_group = before == 1 ? 3 : 5;
-        page->item.message_line = before == 1   ? 27 + (unsigned)runtime->battery_kind
-                                  : before == 4 ? 8
-                                  : before == 5 ? 9
-                                                : 25;
-    }
-    if (events & EM_PANEL_MENU_FINISHED) {
-        page->status_request = 0xFF;
-        if (runtime->hooks.battery_finished(runtime->hooks.context, runtime->owner) != 1)
-            return 0;
-    }
+    if (em_battery_ui_count(runtime->battery))
+        runtime->draw_kind = DRAW_BATTERY;
     return 1;
 }
 
@@ -312,9 +284,11 @@ static int hub_tick(EmStatusRuntime *runtime)
     if (em_status_hub_tick(page, display.infection, runtime->input.pressed, &runtime->hub_stick,
                            hub_worker, runtime) != 0)
         return 0;
-    /* 001FCA10 mode 4 presents group 0's line while D_002821B4 == 1. */
-    runtime->draw_help = runtime->draw_kind == DRAW_HUB && page->item.message_mode == 4 &&
-                                 page->item.message_phase == 1 && page->item.message_group == 0
+    /* 001FCA10 mode 4 presents group 0's line while D_002821B4 == 1 (the
+     * live route: step F itself, over the block's words). */
+    runtime->draw_help = !runtime->message_view && runtime->draw_kind == DRAW_HUB &&
+                                 page->item.message_mode == 4 && page->item.message_phase == 1 &&
+                                 page->item.message_group == 0
                              ? (int)page->item.message_line
                              : -1;
     return 1;
@@ -335,11 +309,21 @@ static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent even
         return begin_module(runtime, argument);
     case EM_STATUS_PAGE_ITEM_TICK: {
         int result = em_item_root_tick(&page->item, runtime->input.pressed, item_worker, runtime);
-        runtime->draw_help = page->item.message_phase == 1 && page->item.message_group == 1
+        runtime->draw_help = !runtime->message_view && page->item.message_phase == 1 &&
+                                     page->item.message_group == 1
                                  ? (int)page->item.message_line
                                  : -1;
         return result == 0;
     }
+    case EM_STATUS_PAGE_CONFIGURE:
+        /* 0020DFA0 in the original order: 001AFE60 (the host's RESET_DRAW),
+         * then 0020E020 (the shared trail D_00821300 / D_00275C90, the
+         * runtime's), then the rest (001029C0, D_00810624, 0021BAC0,
+         * 0021B9A0, 001D2610: the host's CONFIGURE). */
+        if (runtime->hooks.page_event(runtime->hooks.context, EM_STATUS_PAGE_RESET_DRAW, 0) != 1)
+            return 0;
+        em_item_trail_reset(&runtime->trail);
+        return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
     case EM_STATUS_PAGE_HUB_TICK:
         if (runtime->hub)
             return hub_tick(runtime);
@@ -362,15 +346,43 @@ static int frame_worker(void *context, EmStatusFrameEvent event)
         page->saved_module = 0;
         page->item.state = page->item.step = page->item.next_state = 0;
         page->item.screen = page->item.hover = page->item.selected = page->item.module = 0;
+        memset(runtime->ui, 0, sizeof runtime->ui); /* 0020E060's 0xA0-byte memset */
         runtime->ui_clock = 0; /* UI+0x20 is inside 0020E060's 0xA0-byte memset */
     }
     return runtime->hooks.frame_event(runtime->hooks.context, event, &runtime->frame) == 1;
 }
 
+/* 0020CDC0 with the page's message words as a view of the binder's block
+ * (D_002821B0 / B4 / B8 / D_00282240), loaded before and stored after,
+ * when the binder supplies it (message_words); else the page's own copy. */
+static int viewed_page_tick(EmStatusRuntime *runtime)
+{
+    EmStatusPage *page = &runtime->page;
+    int32_t *words[4] = {NULL, NULL, NULL, NULL};
+    runtime->message_view = 0;
+    if (runtime->hooks.message_words) {
+        if (runtime->hooks.message_words(runtime->hooks.context, words) != 1 || !words[0] ||
+            !words[1] || !words[2] || !words[3])
+            return -1;
+        runtime->message_view = 1;
+        page->item.message_mode = (uint32_t)*words[0];
+        page->item.message_phase = (uint32_t)*words[1];
+        page->item.message_line = (uint32_t)*words[2];
+        page->item.message_group = (uint32_t)*words[3];
+    }
+    int result = em_status_page_tick(page, runtime->input.pressed, page_worker, runtime);
+    if (runtime->message_view) {
+        *words[0] = (int32_t)page->item.message_mode;
+        *words[1] = (int32_t)page->item.message_phase;
+        *words[2] = (int32_t)page->item.message_line;
+        *words[3] = (int32_t)page->item.message_group;
+    }
+    return result;
+}
+
 static int page_tick(void *context)
 {
-    EmStatusRuntime *runtime = context;
-    return em_status_page_tick(&runtime->page, runtime->input.pressed, page_worker, runtime);
+    return viewed_page_tick(context);
 }
 
 EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,
@@ -378,7 +390,7 @@ EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *it
 {
     if (!math || !math->sine || !math->cosine || !math->atan2 || !math->sqrt || !hooks ||
         !hooks->read_inventory || !hooks->write_charge || !hooks->frame_event ||
-        !hooks->page_event || !hooks->sound || !hooks->owner_available || !hooks->battery_finished)
+        !hooks->page_event || !hooks->sound)
         return NULL;
     EmStatusRuntime *runtime = calloc(1, sizeof *runtime);
     if (!runtime)
@@ -512,7 +524,7 @@ int em_status_runtime_tick(EmStatusRuntime *runtime, const EmStatusInput *input)
         return fail(runtime);
     if (result == 1) {
         release_slot(runtime);
-        em_battery_ui_close(runtime->battery);
+        em_battery_ui_deactivate(runtime->battery);
         em_item_ui_deactivate(runtime->item);
         em_status_hub_ui_deactivate(runtime->hub);
         runtime->owner = NULL;
@@ -551,7 +563,7 @@ int em_status_runtime_page_tick(EmStatusRuntime *runtime, const EmStatusInput *i
     page->request_kind = *b1;
     page->status_request = *c5;
     page->restore_textures = *cc;
-    int result = em_status_page_tick(page, input->pressed, page_worker, runtime);
+    int result = viewed_page_tick(runtime);
     *b0 = page->request;
     *b1 = page->request_kind;
     *c5 = page->status_request;
@@ -560,7 +572,7 @@ int em_status_runtime_page_tick(EmStatusRuntime *runtime, const EmStatusInput *i
         return fail(runtime);
     if (result == 1) {
         release_slot(runtime);
-        em_battery_ui_close(runtime->battery);
+        em_battery_ui_deactivate(runtime->battery);
         em_item_ui_deactivate(runtime->item);
         em_status_hub_ui_deactivate(runtime->hub);
         runtime->owner = NULL;
@@ -621,8 +633,7 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
         break;
     }
     case DRAW_BATTERY:
-        result = em_battery_ui_render(runtime->battery, gfx, runtime->inventory.capacity,
-                                      runtime->input.held);
+        result = em_battery_ui_render(runtime->battery, gfx);
         break;
     case DRAW_ITEM:
         result = em_item_ui_render(runtime->item, gfx, runtime->draw_hover, runtime->draw_help,

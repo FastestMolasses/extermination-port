@@ -18,13 +18,18 @@
  *   001D06E0 comes from the host hook. A reached hook that is missing
  *   faults.
  * - The mode-3 and mode-4 presenters (001FD0E0, 001FCB90, 001FCF90,
- *   001FCF60) are not translated: reaching them faults. While a status page
- *   runs, the page layer presents its own mode-4 lines and the binder's gate
- *   holds the service (see the gate hook). The gate is a port stand-in (the
- *   original 001FCA10 has none) that goes when those presenters are.
+ *   001FCF60) come from the presenters hook below: em_message_presenters_live
+ *   binds the translations of em_census_standins and the cue line walker
+ *   001FDDB0 (em_message_presenter_rest) on this service's own
+ *   EmMessageDraw (docs/CENSUS_STANDINS.md 3, docs/MESSAGE_PRESENTER_REST.md
+ *   3); an unbound presenter a request reaches faults. The status pages write their mode-4
+ *   requests into this block (em_status_runtime's view of D_002821B0 /
+ *   B4 / B8 / D_00282240) and step F presents them, as 001FCA10 does; the
+ *   port's step-F gate stand-in is deleted.
  *
- * Data: assets/message/message_data.emmd (tools/export_message_data.py,
- * from the user's ELF and disc). A request without that data faults. */
+ * Data: assets/message/message_data.emmd and, next to it,
+ * message_presenters.emmp (tools/export_message_data.py, from the user's
+ * ELF and disc). A request without that data faults. */
 #ifndef EM_MESSAGE_LIVE_H
 #define EM_MESSAGE_LIVE_H
 
@@ -32,6 +37,7 @@
 
 #include "em_gfx.h"
 #include "game/em_frame.h"
+#include "game/em_message_draw_original.h"
 #include "game/em_message_service.h"
 
 #ifdef __cplusplus
@@ -42,10 +48,6 @@ typedef struct {
     void *context;
     /* 001D06E0(&D_008102B0, on): the player face (game mode 2, slot 0). */
     int (*face_talk)(void *context, int on);
-    /* PORT STAND-IN (no original counterpart; see the header comment):
-     * 1 when step F runs the service this frame, 0 when a status page
-     * presents instead; -1 faults. NULL = 1 (the original's behaviour). */
-    int (*gate)(void *context);
 } EmMessageLiveHost;
 
 /* The stream lanes' side of the service (em_stream_live, WP-8b). The
@@ -62,6 +64,17 @@ typedef struct {
     int8_t (*active)(void *context, int lane);                /* D_00282154 + lane */
 } EmMessageLiveStreams;
 
+/* The mode-3 / mode-4 presenters. Each returns 1 ok, 0 fault; a NULL one
+ * faults when a request reaches it. */
+typedef struct {
+    void *context;
+    int (*mode3_present)(void *context, EmMessageBlock *block);                /* 001FD0E0 */
+    int (*help_draw)(void *context, int x, int y, int32_t group, uint32_t line); /* 001FCB90 */
+    int (*record_setup)(void *context, uint32_t line, int32_t page, int32_t group,
+                        int32_t *result);                                      /* 001FCF90 */
+    int (*record_draw)(void *context, uint32_t line, int x, int y);            /* 001FCF60 */
+} EmMessageLivePresenters;
+
 /* Loads the data and installs the step-F service (em_frame). 1 ok; 0 when
  * the data is missing or malformed: the service is still installed, idles
  * while the block is idle and faults on the first request or reset. */
@@ -70,6 +83,10 @@ void em_message_live_shutdown(void);
 
 void em_message_live_set_host(const EmMessageLiveHost *host);       /* NULL clears */
 void em_message_live_set_streams(const EmMessageLiveStreams *streams);
+void em_message_live_set_presenters(const EmMessageLivePresenters *presenters); /* NULL clears */
+/* The service's own draw module (001FE070's layout over the loaded banks and
+ * styles), for the presenters' binder; NULL before a successful install. */
+EmMessageDraw *em_message_live_draw(void);
 
 /* 001B7D60 (op0C) on the live block; the original 0/1, or -1 on a fault. */
 int em_message_live_op0c(uint8_t *handshake, const unsigned char *record);
@@ -81,6 +98,10 @@ int em_message_live_post(uint32_t line, int32_t delay);
 int em_message_live_stream_request(int32_t line);
 /* The cue of the stream-table row (area, line) of D_0026EC60, or -1. */
 int32_t em_message_live_stream_cue(int32_t area, int32_t line);
+/* 001FCB90(x, y, group, line) on the live presenters, for a caller that
+ * presents directly (002149F0's 001FCF10). Its glyph passes are drawn at
+ * this frame's step-F render, before step F's own. 0 ok, -1 fault. */
+int em_message_live_help_draw(int32_t x, int32_t y, int32_t group, int32_t line);
 /* 001FC9B0. 0 ok, -1 when the data is missing. */
 int em_message_live_reset(void);
 /* The block itself (D_002821B0): callers that store its words directly

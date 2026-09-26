@@ -65,7 +65,8 @@ EXPORT = ROOT / 'assets/render_context.emrc'
 SOURCES = ['em_render_context_live', 'em_frame_render_heads', 'em_render_context', 'em_packet_chain_original',
            'em_status_ui_leftovers', 'em_load_veil_particles', 'em_actor_light_001D89D0',
            'em_owner_services_original', 'em_effect_original', 'em_player_equipment',
-           'em_player_stage_workers', 'em_render_verify_rest', 'em_sdk_math_original', 'em_sdk_soft_float']
+           'em_player_stage_workers', 'em_render_verify_rest', 'em_sdk_math_original', 'em_sdk_soft_float',
+           'em_census_standins', 'em_message_draw_original']
 
 OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2250),
          (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x241010, 8), (0x26E510, 16),

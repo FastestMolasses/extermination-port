@@ -1,5 +1,5 @@
+/* em_battery_ui.c - see em_battery_ui.h. */
 #include "game/em_battery_ui.h"
-#include "game/em_effect_color.h"
 #include "game/em_hud.h"
 #include "game/em_status_background.h"
 
@@ -7,25 +7,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum { SPRITES = 28, WHITE = 27, CALLS = 256, ARENA = 1024 };
+enum { CALL_BACKGROUND = 1, CALL_BLEND, CALL_SPRITE, CALL_RECTANGLE, CALL_TEXT };
+
 typedef struct {
     uint32_t u, v, w, h;
+    uint64_t tex0;
 } Sprite;
+
 typedef struct {
-    char *string;
-    uint8_t *spans;
-    uint32_t count;
-} Text;
+    uint8_t kind, mode, proportional;
+    int32_t xy[4];
+    uint32_t rgba, text;
+    uint64_t tex0;
+} Call;
+
 struct EmBatteryUI {
     uint8_t *data, *pixels;
     uint32_t width, height;
-    Sprite sprites[28];
-    Text text[11];
-    EmPanel *owner;
-    EmPanelBatteryMenu menu;
-    EmPanelMenuPhase draw_phase;
-    int active, uploaded, kind, draw_charge, error_timer, draw_error;
-    unsigned text_count;
-    int notice_timer, notice_kind, draw_notice;
+    Sprite sprites[SPRITES];
+    Call calls[CALLS];
+    unsigned count, mode, arena_used;
+    char arena[ARENA];
+    int refused, uploaded;
 };
 
 static uint32_t u32(const uint8_t *p)
@@ -33,23 +37,30 @@ static uint32_t u32(const uint8_t *p)
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
+static uint64_t u64(const uint8_t *p)
+{
+    return (uint64_t)u32(p) | (uint64_t)u32(p + 4) << 32;
+}
+
+/* EMBA version 2 (tools/export_panel.py): a 32-byte header, 28 records
+ * {id, u, v, w, h, 0, TEX0}, the text records (not used: the page's lines
+ * are the message service's), the 96-byte background state and the RGBA8
+ * sheet. */
 EmBatteryUI *em_battery_ui_load(const char *path)
 {
     FILE *f = path ? fopen(path, "rb") : NULL;
     if (!f)
         return NULL;
     uint8_t header[32];
-    if (fread(header, 1, 32, f) != 32 || memcmp(header, "EMBA", 4) ||
-        !((u32(header + 4) == 1 && u32(header + 20) == 8) ||
-          (u32(header + 4) == 2 && u32(header + 20) == 11)) ||
-        u32(header + 16) != 28) {
+    if (fread(header, 1, 32, f) != 32 || memcmp(header, "EMBA", 4) || u32(header + 4) != 2 ||
+        u32(header + 16) != SPRITES || u32(header + 20) != 11) {
         fclose(f);
         return NULL;
     }
     uint32_t w = u32(header + 8), h = u32(header + 12), texts = u32(header + 24),
              size = u32(header + 28);
     if (!w || !h || w > 4096 || h > 4096 || texts > 16384 ||
-        (uint64_t)w * h * 4 + 28 * 32 + texts + 96 != size) {
+        (uint64_t)w * h * 4 + SPRITES * 32 + texts + 96 != size) {
         fclose(f);
         return NULL;
     }
@@ -67,226 +78,250 @@ EmBatteryUI *em_battery_ui_load(const char *path)
     fclose(f);
     ui->width = w;
     ui->height = h;
-    ui->text_count = u32(header + 20);
-    uint8_t *p = ui->data;
-    for (unsigned i = 0; i < 28; i++, p += 32) {
+    const uint8_t *p = ui->data;
+    for (unsigned i = 0; i < SPRITES; i++, p += 32) {
         Sprite *s = &ui->sprites[i];
         s->u = u32(p + 4);
         s->v = u32(p + 8);
         s->w = u32(p + 12);
         s->h = u32(p + 16);
+        s->tex0 = u64(p + 24);
         if (u32(p) != i || !s->w || !s->h || s->w > w || s->h > h || s->u > w - s->w ||
-            s->v > h - s->h)
-            goto invalid;
-    }
-    uint8_t *end = p + texts;
-    for (unsigned i = 0; i < ui->text_count; i++) {
-        if (end - p < 8)
-            goto invalid;
-        uint32_t length = u32(p), count = u32(p + 4);
-        p += 8;
-        if (!length || length > 1024 || count > 32 ||
-            (uint64_t)length + count * 8 > (uint64_t)(end - p))
-            goto invalid;
-        ui->text[i].spans = p;
-        ui->text[i].count = count;
-        p += count * 8;
-        ui->text[i].string = (char *)p;
-        if (p[length - 1] || memchr(p, 0, length - 1))
-            goto invalid;
-        for (uint32_t j = 0; j < count; j++) {
-            uint32_t at = u32(ui->text[i].spans + j * 8);
-            if (at >= length || (j && at < u32(ui->text[i].spans + (j - 1) * 8)))
-                goto invalid;
+            s->v > h - s->h || (i == WHITE) != (s->tex0 == 0)) {
+            em_battery_ui_free(ui);
+            return NULL;
         }
-        p += length;
     }
-    if (p != end)
-        goto invalid;
-    ui->pixels = end + 96;
+    ui->pixels = ui->data + SPRITES * 32 + texts + 96;
     return ui;
-invalid:
-    em_battery_ui_free(ui);
-    return NULL;
 }
 
 void em_battery_ui_free(EmBatteryUI *ui)
 {
     if (!ui)
         return;
-    em_battery_ui_close(ui);
+    em_battery_ui_deactivate(ui);
     free(ui->data);
     free(ui);
 }
 
-static int begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
+int em_battery_ui_tables(const EmBatteryUI *ui, uint8_t frame[EM_BATTERY_UI_FRAME_TABLE_SIZE],
+                         uint8_t rows[EM_BATTERY_UI_ROW_TABLE_SIZE])
 {
-    if (!ui || kind < 0 || kind > 2 || charge < 0 || charge > 255)
+    if (!ui || !frame || !rows)
         return 0;
-    ui->owner = owner;
-    ui->kind = kind;
-    ui->active = 1;
-    ui->uploaded = 0;
-    ui->error_timer = ui->draw_error = 0;
-    ui->notice_timer = ui->draw_notice = 0;
-    em_panel_battery_begin(&ui->menu, charge);
-    ui->draw_charge = charge;
-    ui->draw_phase = ui->menu.phase;
+    for (unsigned i = 0; i < 25; ++i) {
+        uint8_t *out = i < 16 ? frame + 8 * i : rows + 8 * (i - 16);
+        for (unsigned b = 0; b < 8; ++b)
+            out[b] = (uint8_t)(ui->sprites[i].tex0 >> (8 * b));
+    }
     return 1;
 }
 
-int em_battery_ui_begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
+void em_battery_ui_begin_frame(EmBatteryUI *ui)
 {
-    return owner && begin(ui, owner, charge, kind);
+    if (!ui)
+        return;
+    ui->count = ui->arena_used = 0;
+    ui->mode = 0;
+    ui->refused = 0;
 }
 
-unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int owner_available)
+static Call *append(EmBatteryUI *ui, unsigned kind)
 {
-    if (!ui || !ui->active || !charge)
-        return 0;
-    ui->draw_phase = ui->menu.phase;
-    ui->draw_charge = *charge;
-    ui->draw_error = ui->error_timer != 0;
-    ui->draw_notice = ui->notice_timer && ui->notice_kind == ui->kind;
-    if (ui->notice_timer) {
-        --ui->notice_timer;
-        if (buttons & 0x5060) {
-            ui->notice_timer = 0;
-            return EM_PANEL_MENU_CANCEL;
-        }
-        return 0;
+    if (!ui || ui->refused)
+        return NULL;
+    if (ui->count >= CALLS) {
+        ui->refused = 1;
+        return NULL;
     }
-    if (ui->error_timer) {
-        if (buttons & 0x60) {
-            ui->error_timer = 0;
-            return EM_PANEL_MENU_CANCEL;
-        }
-        --ui->error_timer;
-        return 0;
-    }
-    if (ui->menu.phase == EM_PANEL_MENU_BROWSE) {
-        if (buttons & 0x20)
-            return EM_BATTERY_BACK_TO_STATUS | EM_PANEL_MENU_CANCEL;
-        if (buttons & 0x40) {
-            /*00185420 may no longer find an eligible associated device. */
-            if (!owner_available) {
-                ui->error_timer = 240;
-                return EM_BATTERY_NO_DEVICE_SOUND;
-            }
-            if (!ui->owner)
-                return EM_BATTERY_UNSUPPORTED_OWNER;
-            em_panel_battery_begin(&ui->menu, *charge);
-            return EM_PANEL_MENU_ACCEPT;
-        }
-        return 0;
-    }
-    return em_panel_battery_step(ui->owner, &ui->menu, buttons, charge);
+    Call *c = &ui->calls[ui->count++];
+    memset(c, 0, sizeof *c);
+    c->kind = (uint8_t)kind;
+    c->mode = (uint8_t)ui->mode;
+    return c;
 }
 
-int em_battery_ui_begin_browse(EmBatteryUI *ui, EmPanel *owner, int charge, int kind)
+static int refuse(EmBatteryUI *ui)
 {
-    if (!begin(ui, owner, charge, kind))
+    if (ui)
+        ui->refused = 1;
+    return 0;
+}
+
+int em_battery_ui_background(EmBatteryUI *ui, uint64_t tex0)
+{
+    Call *c = append(ui, CALL_BACKGROUND);
+    if (!c)
         return 0;
-    ui->menu.phase = ui->draw_phase = EM_PANEL_MENU_BROWSE;
+    c->tex0 = tex0;
     return 1;
 }
 
-int em_battery_ui_begin_pickup(EmBatteryUI *ui, int charge, int selected_kind, int acquired_kind)
+int em_battery_ui_blend(EmBatteryUI *ui, int32_t slot, int32_t mode)
 {
-    if (!ui || ui->text_count != 11 || acquired_kind < 0 || acquired_kind > 2 ||
-        !em_battery_ui_begin_browse(ui, NULL, charge, selected_kind))
+    if (slot != 1 || mode < 0 || mode > 3)
+        return refuse(ui);
+    Call *c = append(ui, CALL_BLEND);
+    if (!c)
         return 0;
-    ui->notice_kind = acquired_kind;
-    ui->notice_timer = 240;
+    ui->mode = (unsigned)mode;
+    c->mode = (uint8_t)mode;
     return 1;
 }
 
-unsigned em_battery_ui_original_step(const EmBatteryUI *ui)
+int em_battery_ui_sprite(EmBatteryUI *ui, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                         uint32_t rgba, uint64_t tex0)
 {
-    if (!ui || !ui->active)
+    if (slot != 1 || w <= 0 || h <= 0 || w > 1024 || h > 1024)
+        return refuse(ui);
+    Call *c = append(ui, CALL_SPRITE);
+    if (!c)
         return 0;
-    if (ui->error_timer)
-        return 8;
-    if (ui->notice_timer)
-        return 3;
-    switch (ui->menu.phase) {
-    case EM_PANEL_MENU_BROWSE:
+    c->xy[0] = x;
+    c->xy[1] = y;
+    c->xy[2] = w;
+    c->xy[3] = h;
+    c->rgba = rgba;
+    c->tex0 = tex0;
+    return 1;
+}
+
+int em_battery_ui_rectangle(EmBatteryUI *ui, int32_t slot, int32_t x0, int32_t y0, int32_t x1,
+                            int32_t y1, uint32_t rgba)
+{
+    if (slot != 1)
+        return refuse(ui);
+    Call *c = append(ui, CALL_RECTANGLE);
+    if (!c)
+        return 0;
+    c->xy[0] = x0;
+    c->xy[1] = y0;
+    c->xy[2] = x1;
+    c->xy[3] = y1;
+    c->rgba = rgba;
+    return 1;
+}
+
+/* The glyph cells the original 001CBA50 / 001CC1E0 calls pass (the status
+ * hub's mapping, em_status_hub_ui.c). */
+static int text_style(int proportional, int32_t w, int32_t h, EmHudTextStyle *style)
+{
+    if (proportional) {
+        *style = EM_HUD_TEXT_TALL;
+        return w == 10 && h == 20;
+    }
+    if (w == 12 && h == 12)
+        *style = EM_HUD_TEXT_NUM12;
+    else if (w == 16 && h == 16)
+        *style = EM_HUD_TEXT_NUM16;
+    else
+        return 0;
+    return 1;
+}
+
+int em_battery_ui_text(EmBatteryUI *ui, int proportional, int32_t x, int32_t y, int32_t w,
+                       int32_t h, const char *text, uint64_t style)
+{
+    EmHudTextStyle unused;
+    size_t length = text ? strlen(text) + 1 : 0;
+    if (!text || !text_style(proportional, w, h, &unused) || !ui ||
+        length > ARENA - ui->arena_used)
+        return refuse(ui);
+    Call *c = append(ui, CALL_TEXT);
+    if (!c)
+        return 0;
+    c->proportional = (uint8_t)(proportional != 0);
+    c->xy[0] = x;
+    c->xy[1] = y;
+    c->xy[2] = w;
+    c->xy[3] = h;
+    c->tex0 = style;
+    c->text = ui->arena_used;
+    memcpy(ui->arena + ui->arena_used, text, length);
+    ui->arena_used += (unsigned)length;
+    return 1;
+}
+
+unsigned em_battery_ui_count(const EmBatteryUI *ui)
+{
+    return ui ? ui->count : 0;
+}
+
+static const Sprite *find_sprite(const EmBatteryUI *ui, uint64_t tex0)
+{
+    for (unsigned i = 0; i < SPRITES; ++i)
+        if (i != WHITE && ui->sprites[i].tex0 == tex0)
+            return &ui->sprites[i];
+    return NULL;
+}
+
+/* GS modulate uses 128 as unity; untextured RGB is the raw 0..255 value. */
+static void source_color(uint32_t rgba, int textured, float out[4])
+{
+    for (unsigned channel = 0; channel < 3; ++channel)
+        out[channel] = (float)((rgba >> (8 * channel)) & 255) / (textured ? 128.0f : 255.0f);
+    out[3] = (float)(rgba >> 24) / 128.0f;
+}
+
+static float canvas_x(float gs_x)
+{
+    return gs_x - 1792;
+}
+
+static float canvas_y(float gs_y)
+{
+    return (gs_y - 1936) * 2;
+}
+
+static int render_call(EmBatteryUI *ui, EmGfx *gfx, const Call *c)
+{
+    const Sprite *white = &ui->sprites[WHITE];
+    float u = white->u + 0.5f, v = white->v + 0.5f, color[4];
+    switch (c->kind) {
+    case CALL_BACKGROUND: {
+        /* 0020A7A0: the status frame's black, then the tile. */
+        const Sprite *tile = find_sprite(ui, c->tex0);
+        if (!tile)
+            return 0;
+        em_status_background_frame(gfx);
+        return em_status_background_render(gfx, (float)tile->u, (float)tile->v, (float)tile->w,
+                                           (float)tile->h);
+    }
+    case CALL_BLEND:
+        return 1; /* each call carries the mode in effect */
+    case CALL_SPRITE: {
+        const Sprite *s = find_sprite(ui, c->tex0);
+        if (!s)
+            return 0;
+        source_color(c->rgba, 1, color);
+        em_gfx_overlay_sprite_blend(gfx, canvas_x(c->xy[0] / 16.0f), canvas_y(c->xy[1] / 16.0f),
+                                    (float)c->xy[2], (float)c->xy[3], (float)s->u, (float)s->v,
+                                    (float)(s->u + s->w), (float)(s->v + s->h), color,
+                                    (EmGfxOverlayBlend)c->mode);
         return 1;
-    case EM_PANEL_MENU_CONFIRM:
-        return 4;
-    case EM_PANEL_MENU_INSUFFICIENT:
-        return 5;
-    case EM_PANEL_MENU_DISCHARGE:
-    case EM_PANEL_MENU_COMPLETE:
-        return 6;
+    }
+    case CALL_RECTANGLE:
+        source_color(c->rgba, 0, color);
+        em_gfx_overlay_sprite_blend(gfx, canvas_x(c->xy[0] / 16.0f), canvas_y(c->xy[1] / 16.0f),
+                                    (c->xy[2] - c->xy[0]) / 16.0f, (c->xy[3] - c->xy[1]) / 8.0f, u,
+                                    v, u, v, color, (EmGfxOverlayBlend)c->mode);
+        return 1;
+    case CALL_TEXT: {
+        EmHudTextStyle style;
+        if (!text_style(c->proportional, c->xy[2], c->xy[3], &style))
+            return 0;
+        em_hud_text_color(gfx, canvas_x((float)c->xy[0]), canvas_y((float)c->xy[1]),
+                          ui->arena + c->text, style, (uint32_t)c->tex0 & 0xFFFFFFu);
+        return 1;
+    }
     }
     return 0;
 }
 
-static void sprite(EmBatteryUI *ui, EmGfx *gfx, int id, float x, float y, float w, float h,
-                   uint32_t rgba)
+int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx)
 {
-    Sprite *s = &ui->sprites[id];
-    const float color[4] = {(rgba & 255) / 128.0f, ((rgba >> 8) & 255) / 128.0f,
-                            ((rgba >> 16) & 255) / 128.0f, ((rgba >> 24) & 255) / 128.0f};
-    em_gfx_overlay_sprite(gfx, x, y, w, h, s->u, s->v, s->u + s->w, s->v + s->h, color);
-}
-
-static void gs_sprite(EmBatteryUI *ui, EmGfx *gfx, int id, int x, int y, int w, int h,
-                      uint32_t rgba)
-{
-    sprite(ui, gfx, id, x / 16.0f - 1792, (y / 16.0f - 1936) * 2, w, h, rgba);
-}
-
-static void text(EmBatteryUI *ui, EmGfx *gfx, int index, float x, float y)
-{
-    Text *t = &ui->text[index];
-    uint32_t span = 0, color = 0x606060;
-    float pen = x;
-    for (unsigned i = 0; t->string[i]; i++) {
-        while (span < t->count && u32(t->spans + span * 8) == i) {
-            color = u32(t->spans + span * 8 + 4);
-            span++;
-        }
-        char c = t->string[i];
-        if (c == '\n') {
-            pen = x;
-            y += 24;
-            continue;
-        }
-        char glyph[2] = {c, 0};
-        em_hud_text_color(gfx, pen, y, glyph, EM_HUD_TEXT_TALL, color);
-        pen += em_hud_text_width(glyph, EM_HUD_TEXT_TALL);
-    }
-}
-
-static void battery(EmBatteryUI *ui, EmGfx *gfx, int capacity)
-{
-    char caption[16];
-    snprintf(caption, sizeof caption, "%02d/%02d", ui->draw_charge >> 1, capacity >> 1);
-    em_hud_text(gfx, 220, 260, caption, EM_HUD_TEXT_NUM16);
-    for (int row = 0; row < 4; row++) {
-        float color[4] = {163, 54, 160, 128};
-        const float goal[4] = {255, 230, 52, 128};
-        /* Literal IEEE words43230000/42580000/43200000 and
-         * 437F0000/43660000/42500000 in00209280, not stale comments. */
-        float delta[4];
-        for (int c = 0; c < 4; c++)
-            delta[c] = em_effect_float32((double)(goal[c] - color[c]) / 12.0);
-        for (int column = 0; column < 12 && row * 12 + column < ui->draw_charge; column++) {
-            uint32_t rgba = 0;
-            for (int c = 0; c < 4; c++)
-                rgba |= (uint32_t)(unsigned)color[c] << (c * 8);
-            sprite(ui, gfx, 14, 320 - column * 12 - (!(column & 1)), 202 + row * 12, 12, 12, rgba);
-            for (int c = 0; c < 4; c++)
-                color[c] = em_effect_float32((double)color[c] + delta[c]);
-        }
-    }
-}
-
-int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned held)
-{
-    if (!ui || !ui->active || !gfx)
+    if (!ui || !gfx || ui->refused)
         return 0;
     if (!ui->uploaded) {
         if (!em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI, ui->pixels, ui->width,
@@ -295,47 +330,12 @@ int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned hel
         em_hud_decor_invalidate();
         ui->uploaded = 1;
     }
-    em_gfx_overlay_canvas(gfx, 512, 448);
-    /* 0020A7A0 with the page's tile, over the status frame's black. */
-    Sprite *bg = &ui->sprites[26];
-    em_status_background_frame(gfx);
-    if (!em_status_background_render(gfx, bg->u, bg->v, bg->w, bg->h)) {
-        em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
-        return 0;
-    }
-    /* Original0020AE40 flags2 in call order. */
-    gs_sprite(ui, gfx, 0, 0x7000, 0x7B40, 256, 128, 0x40808080);
-    gs_sprite(ui, gfx, 2, 0x7000, 0x7F40, 256, 128, 0x40808080);
-    gs_sprite(ui, gfx, 1, 0x8000, 0x7B40, 256, 128, 0x40808080);
-    gs_sprite(ui, gfx, 3, 0x8000, 0x7F40, 256, 128, 0x40808080);
-    gs_sprite(ui, gfx, 4, 0x7000, 0x8300, 256, 128, 0x40808080);
-    gs_sprite(ui, gfx, 5, 0x8000, 0x8300, 256, 128, 0x40808080);
-    gs_sprite(ui, gfx, 15, 0x7800, 0x7E00, 256, 128, 0x80808080);
-    battery(ui, gfx, capacity);
-    gs_sprite(ui, gfx, 7, 0x7000, 0x8300, 128, 128, 0x80808080);
-    gs_sprite(ui, gfx, 6, 0x8780, 0x8300, 128, 128, 0x80808080);
-    gs_sprite(ui, gfx, 13, 0x7100, 0x7900, 256, 64, 0x80808080);
-    /*0020B210 flags402, the highest available pack is the only row. */
-    gs_sprite(ui, gfx, 16 + ui->kind * 3, 0x77F0, 0x7C50, 128, 64, 0x80808080);
-    gs_sprite(ui, gfx, 17 + ui->kind * 3, 0x7FF0, 0x7C50, 128, 64, 0x80808080);
-    gs_sprite(ui, gfx, 25, 0x77F0, 0x7C50, 256, 64, 0x20808080);
-    gs_sprite(ui, gfx, 18 + ui->kind * 3, 0x89F0, 0x83E0, 64, 64, 0x40808080);
-    gs_sprite(ui, gfx, (held & 0x1000) ? 11 : 9, 0x7800, 0x7B30, 32, 32, 0x80808080);
-    gs_sprite(ui, gfx, (held & 0x4000) ? 12 : 10, 0x7800, 0x8240, 32, 32, 0x80808080);
-    if (ui->draw_notice)
-        text(ui, gfx, 8 + ui->kind, 138, 336);
-    else if (ui->draw_error)
-        text(ui, gfx, 7, 138, 336);
-    else if (ui->draw_phase == EM_PANEL_MENU_CONFIRM) {
-        text(ui, gfx, 1, 138, 336);
-        text(ui, gfx, 0, 270, 408);
-        sprite(ui, gfx, 27, ui->menu.no_selected ? 335 : 253, 412, 12, 12, 0x80CE6000);
-    } else if (ui->draw_phase == EM_PANEL_MENU_INSUFFICIENT)
-        text(ui, gfx, 2, 138, 336);
-    else if (ui->draw_phase == EM_PANEL_MENU_BROWSE)
-        text(ui, gfx, 3 + ui->kind, 138, 336);
+    em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
+    int ok = 1;
+    for (unsigned i = 0; ok && i < ui->count; ++i)
+        ok = render_call(ui, gfx, &ui->calls[i]);
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
-    return 1;
+    return ok;
 }
 
 void em_battery_ui_deactivate(EmBatteryUI *ui)
@@ -344,23 +344,4 @@ void em_battery_ui_deactivate(EmBatteryUI *ui)
         em_hud_decor_invalidate();
         ui->uploaded = 0;
     }
-}
-
-void em_battery_ui_close(EmBatteryUI *ui)
-{
-    if (!ui)
-        return;
-    if (ui->uploaded)
-        em_hud_decor_invalidate();
-    ui->active = ui->uploaded = 0;
-    ui->owner = NULL;
-}
-
-EmPanelMenuPhase em_battery_ui_phase(const EmBatteryUI *ui)
-{
-    return ui ? ui->menu.phase : EM_PANEL_MENU_BROWSE;
-}
-const char *em_battery_ui_terminal_text(const EmBatteryUI *ui)
-{
-    return ui ? ui->text[6].string : NULL;
 }

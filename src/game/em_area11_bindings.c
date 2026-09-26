@@ -70,6 +70,7 @@
 #include "game/em_effect_kinds.h"
 #include "game/em_effects_live.h"
 #include "game/em_equipment_live.h"
+#include "game/em_indicator_bind_live.h"
 #include "game/em_indicator_child.h"
 #include "game/em_pickup.h"
 #include "game/em_player_closure_live.h"
@@ -701,26 +702,25 @@ typedef struct {
     Node *node;
 } IndicatorCall;
 
-/* 001C2360 / 001C22A0: the model and bone-slot bind. The port keeps no bone
- * slots for these children (their draw takes the owner's palette, below),
- * so the bind always succeeds; +0x4C becomes 001CACB0 (001CA5F0 mode 2). */
+/* 001C2360 / 001C22A0: the model and bone-slot bind, the translations
+ * em_rvr_001C2360 / em_rvr_001C22A0 over the child's record, its model bank
+ * (D_0028A56C / *D_0028A59C) and the one bone-slot stack
+ * (em_indicator_bind_live); +0x4C becomes 001CACB0 (001CA5F0 mode 2). A
+ * nonzero *result (the bone cap) keeps the child in state 0. */
 static int indicator_init(void *ctx, uint32_t fn, int32_t *result)
 {
-    (void)ctx;
-    (void)fn;
-    *result = 0;
-    return 0;
+    IndicatorCall *c = ctx;
+    return em_indicator_bind_live_bind(c->actor, fn, result);
 }
 
-/* 001C6380: the child's matrix from its +0xB0 / +0xC0, which the spawn
- * copied from the owner. The port's +0x4C draw places the child with the
- * owner's current palette (em_pickup / em_props), which is that matrix for
- * the standing owners; the moving terminal copies its node matrix to the
- * child in the original too. */
+/* 001C6380 over the child's +0xB0 / +0xC0 / +0x60 (the spawn copied the
+ * owner's) and its bound slots (em_indicator_bind_live). The port's +0x4C
+ * draw still submits the owner's indicator mesh with the owner's palette
+ * (indicator_draw below; OWNER_DRAW.md P1). */
 static int indicator_place(void *ctx)
 {
-    (void)ctx;
-    return 0;
+    IndicatorCall *c = ctx;
+    return em_indicator_bind_live_place(c->actor);
 }
 
 static int indicator_rand(void *ctx, int32_t *v0)
@@ -982,7 +982,7 @@ static int bind_spawned(EmActor *actor)
 int em_area11_bindings_effects_attach(void)
 {
     if (em_effects_live_attach(s_pool, s_scene, bind_spawned) < 0 ||
-        em_equipment_live_attach(s_pool, s_scene) < 0)
+        em_equipment_live_attach(s_pool, s_scene) < 0 || em_indicator_bind_live_attach(s_pool) < 0)
         return -1;
     em_equipment_live_set_spawn(equipment_spawn);
     em_area11_interaction_host_set_aura_draw(em_effects_live_aura_draw);

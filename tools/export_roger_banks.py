@@ -23,10 +23,13 @@ addresses, from the user's own extracted disc:
   * extract/chunk15/f18_id94.bin whole at D_0028A490[0x47] - 0x35000 (the
     model 0x47 at +0x35000 and the face resource 0x88 at +0x86000);
   * extract/chunk27/f01_id37.bin's table head (D_0028A56C = D_0028A490[0x37]:
-    the count word and the 126 entry words) and the equipment models it
-    indexes (header, blocks and skeleton records): 0x6B (Roger's 001C5C90)
-    and every id the player equipment's 0018A8D0 can bind (0x2F; 0x30,
-    0x40, 0x6D; 0x31..0x3D; 0x6A; em_equipment_live.c, census L28).
+    the count word and the 126 entry words) and the models it indexes that
+    the live owners bind (header, blocks and skeleton records): 0x6B
+    (Roger's 001C5C90), every id the player equipment's 0018A8D0 can bind
+    (0x2F; 0x30, 0x40, 0x6D; 0x31..0x3D; 0x6A; em_equipment_live.c, census
+    L28) and the indicator children's 001C2360 models (0x73 the pickup
+    light, 0x74 / 0x75 the panel's, 0x7A the husk's;
+    em_indicator_bind_live.c).
 
 Every region is checked byte for byte against RAM at its address in every
 AREA11 capture (default: playable_ee.bin and route beats 00..14).
@@ -60,10 +63,14 @@ BANK_4A_AT, BANK_96_AT, MODEL_AT, FACE_AT = 0x10E000, 0x41000, 0x35000, 0x86000
 GLOBAL_TABLE_INDEX = 0x37
 # Roger's equipment 001C5C90 (0x6B) and the ids 0018A8D0 maps (flavour, variant)
 # to: 0x2F; 0x30 / 0x40 / 0x6D; 0x32, 0x33, 0x34, 0x35, 0x36, 0x31, 0x37, 0x38 and
-# 0x39..0x3D; 0x6A. Each span is one region, from its first model's header to
-# its last model's skeleton end (the file bytes between are exported too and
-# checked like the rest).
-EQUIPMENT_SPANS = ((0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x6D))
+# 0x39..0x3D; 0x6A. The indicator children's 001C2360 models (001C5570's a2 and
+# 0x825940's inline spawn): 0x73, 0x74, 0x75, 0x7A, which extend the last span
+# (0x6A..0x7A: the models between are block models in file order too; one
+# region, so the record pose hosts that map these regions keep their count).
+# Each span is one region, from its first model's header to its last model's
+# skeleton end (the file bytes between are exported too and checked like the
+# rest).
+EQUIPMENT_SPANS = ((0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x7A))
 
 
 def u32(b, a): return struct.unpack_from('<I', b, a)[0]

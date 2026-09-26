@@ -28,21 +28,19 @@
  *   001FD0E0  mode-3 cue presenter (NEARMISS C; the .s was followed, and
  *             it differs from the C: a 0x0A byte ENDS the current line, one
  *             of four, instead of continuing it)
- *             Live stand-ins: em_message_live.c faults on modes 3/4, the
- *             binder's step-F gate holds the service while a status page
- *             runs, and em_area11_interaction_host.c presents the status
- *             page's mode-4 lines from its own copy of the request block.
+ *             Bound live since the status UI step (2026-09-26): the
+ *             presenters by em_message_presenters_live at step F.
  *
  *   0020CCB0  BATTERY page selection marker (byte-matched C): one
  *             00207F80(1, x0, 0x85E0, x1, 0x8640, 0x80CE6000) rectangle,
  *             x0 = float_to_int(16.0f * (float)(n + 0x700)), x1 the same
  *             with n + 0x70C, n = 0xFD when page byte +6 is 0, else 0x14F.
- *             Live stand-in: em_battery_ui.c draws a hand-placed sprite.
+ *             Bound live in the BATTERY page (em_battery_page_live).
  *
  *   0021BAE0  render-context record restore (byte-matched C):
  *             block_copy(context + 0xA0, context + 0x120 + 32 * slot, 0x20).
- *             Live stand-in: the status page END_PROJECTION event only
- *             clears world.status_ui_context.
+ *             Bound live at the status page's END_PROJECTION
+ *             (em_rcl_0021BAE0, em_render_context_live).
  *
  * Conventions (those of the modules the translations bind next to):
  *   - Every original callee that is not translated is an explicit worker

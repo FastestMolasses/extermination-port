@@ -1,4 +1,5 @@
 #include "game/em_area11_interaction_host.h"
+#include "game/em_battery_page_live.h"
 #include "game/em_door_candidate.h"
 #include "game/em_render_context_live.h"
 #include "game/em_area11_bindings.h"
@@ -406,15 +407,20 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
         em_frame_fade_clear(0);
         return 1;
     case EM_STATUS_PAGE_CONFIGURE:
-        /* 0020DFA0: 001AFE60 (the static pool D_0028B020), then
+        /* 0020DFA0 after its 001AFE60 (RESET_DRAW) and 0020E020 (the
+         * trail), which the status runtime runs first in that order:
          * 001029C0(D_00810610) and D_00810624 *= -1 (the models' UI view),
-         * and the UI projection (001D2610(0): zoom 224 / tan(25 deg)).
-         * Native status sprites and untextured triangles already use the
-         * original identity/Y-flip UI coordinate convention. Keep paused
-         * world camera vectors available for the final commit. */
-        if (em_status_models_clear(world.models) != 1 ||
-            em_status_models_configure(world.models) != 1) return 0;
+         * 0021BAC0(0) (the render context's fog record +0xA0 saved to slot
+         * 0, +0x120), 0021B9A0(5, 0.0, 1000000.0) (the fog programmer on
+         * that record) and the UI projection (001D2610(0): zoom 224 /
+         * tan(25 deg)). Native status sprites and untextured triangles
+         * already use the original identity/Y-flip UI coordinate
+         * convention. Keep paused world camera vectors available for the
+         * final commit. */
+        if (em_status_models_configure(world.models) != 1) return 0;
         world.status_ui_context = 1;
+        if (em_rcl_0021BAC0(0) < 0 || em_rcl_0021B9A0(5, 0x00000000u, 0x49742400u) < 0)
+            return 0;
         /* 001D2610(0.0) on the render context (its zoom and 0021B970). */
         return em_rcl_001D2610(0) < 0 ? 0 : 1;
     case EM_STATUS_PAGE_CLEAR_DRAW:
@@ -431,8 +437,10 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
          * overwrite the player's shared GS VRAM. Require actual residency. */
         return g.mesh && g.model.tex_count && g.model.texs;
     case EM_STATUS_PAGE_END_PROJECTION:
+        /* 0020E080's 0021BAE0(0): the fog record +0xA0 restored from slot
+         * 0, the one 0020DFA0 saved (docs/CENSUS_STANDINS.md 2.4). */
         world.status_ui_context = 0;
-        return 1;
+        return em_rcl_0021BAE0(0) < 0 ? 0 : 1;
     case EM_STATUS_PAGE_RESTORE_PLAYER:
         /* Equipment status1->2 requires its original player worker. The
          * initial AREA11 inventory has status0 and never takes this route. */
@@ -481,47 +489,6 @@ static int published_view(void)
             record, *record->live_status, *record->live_class_flags, record->live_armed};
     }
     return 0;
-}
-
-static int owner_available(void *context, EmPanel *panel, unsigned item_id)
-{
-    (void)context;
-    EmItemDevice devices[EM_INTERACTION_CAPACITY];
-    if (published_view() < 0) return -1;
-    const EmInteractionList *list = &world.scene.list;
-    if (list->active_count > EM_INTERACTION_CAPACITY) return -1;
-    for (size_t i = 0; i < list->active_count; ++i) {
-        EmInteractionSceneOwner *record = list->active[i].owner;
-        if (!record || !record->native_owner || !record->live_status ||
-            !record->live_class_flags || !record->live_armed) return -1;
-        EmItemDevice *device = &devices[i];
-        *device = (EmItemDevice){.owner = record == world.panel_record ?
-            (void *)&world.panel.owner : record->native_owner,
-            .status = *record->live_status, .class_flags = *record->live_class_flags,
-            .armed = *record->live_armed, .subtype = record->subtype,
-            .shape = record->selector, .yaw = record->angles[1]};
-        memcpy(device->position, record->position, sizeof device->position);
-        memcpy(device->parameters, record->descriptor, sizeof device->parameters);
-    }
-    void *selected = NULL;
-    int result = em_item_device_find(devices, list->active_count, item_id,
-        g.pos, g.yaw, &world.scene.math, &selected);
-    if (result <= 0) return result;
-    /* A different device requires its real confirmation owner. Treating
-     * it as no device would fabricate the original149F0 result. */
-    return panel && selected == panel ? 1 : -1;
-}
-
-/* 002149F0's successful exit writes 70003B8D = 3 after the inventory and
- * owner updates (em_status_runtime.h battery_finished). The status screen
- * freezes every owner, so the byte is written canonically here, not
- * through the shared frame view. */
-static int battery_finished(void *context, EmPanel *panel)
-{
-    (void)context;
-    if (panel != &world.panel.owner) return 0;
-    em_scene_state()->spad3B8D = 3;
-    return 1;
 }
 
 /* The status page's own cues (001FB9F0 with 0x0B open, 0x0D close, 0/1
@@ -617,14 +584,134 @@ static int hub_models_draw(void *context, EmGfx *gfx)
     return em_status_models_render(world.models, gfx, em_rcl_zoom()) == 1;
 }
 
+/* 00185420(item) over the published list (the collision world's, census
+ * L07): -1 failure, 0 no device, 1 found (*selected = its native owner). */
+static int device_lookup(unsigned item_id, void **selected)
+{
+    EmItemDevice devices[EM_INTERACTION_CAPACITY];
+    if (published_view() < 0) return -1;
+    const EmInteractionList *list = &world.scene.list;
+    if (list->active_count > EM_INTERACTION_CAPACITY) return -1;
+    for (size_t i = 0; i < list->active_count; ++i) {
+        EmInteractionSceneOwner *record = list->active[i].owner;
+        if (!record || !record->native_owner || !record->live_status ||
+            !record->live_class_flags || !record->live_armed) return -1;
+        EmItemDevice *device = &devices[i];
+        *device = (EmItemDevice){.owner = record == world.panel_record ?
+            (void *)&world.panel.owner : record->native_owner,
+            .status = *record->live_status, .class_flags = *record->live_class_flags,
+            .armed = *record->live_armed, .subtype = record->subtype,
+            .shape = record->selector, .yaw = record->angles[1]};
+        memcpy(device->position, record->position, sizeof device->position);
+        memcpy(device->parameters, record->descriptor, sizeof device->parameters);
+    }
+    *selected = NULL;
+    return em_item_device_find(devices, list->active_count, item_id,
+        g.pos, g.yaw, &world.scene.math, selected);
+}
+
+/* ---- 002149F0's host workers (em_battery_page_live) ---------------------- */
+
+/* 001FB9F0(id, 0x1000, 0x1000, 0x1000): the page's cues (0020CD40 / 60 /
+ * 80 / A0) and the unit sound 6, through the status cue binding. */
+static int page_sound(void *context, int32_t id, int32_t a1, int32_t a2, int32_t a3)
+{
+    if (id < 0 || a1 != 0x1000 || a2 != 0x1000 || a3 != 0x1000) return -1;
+    return status_sound(context, (uint32_t)id) == 1 ? 0 : -1;
+}
+
+/* 00185420(item): the record address of the device it finds. Only the
+ * panel is a published device owner in AREA11 (W22): another device is a
+ * fault, not "no device". */
+static int page_find_device(void *context, int32_t item, uint32_t *owner)
+{
+    (void)context;
+    void *selected = NULL;
+    int result = device_lookup((unsigned)item, &selected);
+    if (result < 0) return -1;
+    if (result == 0) { *owner = 0; return 0; }
+    if (selected != &world.panel.owner || !world.panel_address) return -1;
+    *owner = world.panel_address;
+    return 0;
+}
+
+/* The owner record D_008106D0 / 00185420 names: only the bound panel
+ * (0x7AA590 in the captures). +3 its type byte (the record's 0x24),
+ * +0x34 its cost; +0xA / +0xB are EmPanel.charged / .armed. */
+static int page_owner_read(void *context, uint32_t owner, uint32_t offset, uint32_t size,
+                           int32_t *value)
+{
+    (void)context;
+    if (!world.panel_address || owner != world.panel_address || !world.panel_record) return -1;
+    if (offset == 3 && size == 1) { *value = world.panel_record->subtype; return 0; }
+    if (offset == 0x34 && size == 2) { *value = (int16_t)world.panel.owner.cost; return 0; }
+    return -1;
+}
+
+static int page_owner_write(void *context, uint32_t owner, uint32_t offset, uint8_t value)
+{
+    (void)context;
+    if (!world.panel_address || owner != world.panel_address) return -1;
+    if (offset == 0xA) { world.panel.owner.charged = value; return 0; }
+    if (offset == 0xB) { world.panel.owner.armed = value; return 0; }
+    return -1;
+}
+
+/* 001FCF10's 001FCB90 on the live message presenters. */
+static int page_present(void *context, int32_t x, int32_t y, int32_t group, int32_t line)
+{
+    (void)context;
+    return em_message_live_help_draw(x, y, group, line);
+}
+
+/* The runtime's ITEM > BATTERY call: 002149F0 with D_008106D0 and the
+ * scratchpad mode byte 0x70003B8D (the page writes 3 on a completed
+ * discharge) from the scene state. */
+static int battery_page(void *context, const EmStatusBatteryPage *p)
+{
+    (void)context;
+    EmSceneState *scene = em_scene_state();
+    const uint8_t *d0 = em_scene_req_at(scene, 0x008106D0u);
+    if (!p || !d0) return 0;
+    const EmBatteryPageCall call = {
+        {p->ui, p->ui_size, p->b0, p->b1, p->c5, d0, p->d810C7F, p->d810CB2, p->d810CB7,
+         p->d810E74, p->words[0], p->words[1], p->words[2], p->words[3], &scene->spad3B8D},
+        p->held, p->repeat, p->gauge, p->draw};
+    static const EmBatteryPageHost host = {NULL, page_sound, page_find_device, page_owner_read,
+                                           page_owner_write, page_present};
+    EmSprFault fault;
+    if (em_battery_page_live_tick(&host, &call, &fault) < 0) {
+        if (!world.failed)
+            fprintf(stderr, "AREA11 interaction: the BATTERY page 002149F0 faulted at %08X "
+                    "(code %d)\n", (unsigned)fault.address, (int)fault.code);
+        return 0;
+    }
+    return 1;
+}
+
+/* The pages' message words: the live block D_002821B0 (+0x00 mode, +0x04
+ * phase, +0x08 line) and D_00282240 (+0x90), the one storage step F's
+ * 001FCA10 presents from. */
+static int message_words(void *context, int32_t *words[4])
+{
+    (void)context;
+    EmMessageBlock *block = em_message_live_block();
+    if (!block) return 0;
+    words[0] = &block->mode;
+    words[1] = &block->phase;
+    words[2] = (int32_t *)(void *)&block->line;
+    words[3] = &block->aux_mode;
+    return 1;
+}
+
 static EmStatusRuntimeHooks native_status_hooks(void)
 {
     return (EmStatusRuntimeHooks){.read_inventory = read_inventory,
         .write_charge = write_charge, .write_battery_capacity = write_capacity,
         .frame_event = status_frame_event, .page_event = status_page_event,
-        .sound = status_sound, .owner_available = owner_available,
-        .battery_finished = battery_finished, .hub_display = hub_display,
-        .hub_models = hub_models, .hub_models_draw = hub_models_draw};
+        .sound = status_sound, .battery_page = battery_page, .hub_display = hub_display,
+        .hub_models = hub_models, .hub_models_draw = hub_models_draw,
+        .message_words = message_words};
 }
 
 static int align_player(void *context, const float position[3])
@@ -1669,26 +1756,12 @@ void em_area11_interaction_host_set_panel_address(uint32_t panel)
     world.panel_address = panel;
 }
 
-/* The message service's host hooks (em_message_live.h).
- *
- * message_gate is a PORT STAND-IN, not original behaviour: the original
- * 001FCA10 runs at step F every frame with no gate. The port holds step F
- * while the AREA11 status page layer runs because that layer still presents
- * its mode-4 lines from its own copy of the request block (WP-5): the mode-4
- * presenters 001FD0E0 and 001FCB90 / 001FCF90 / 001FCF60 are not translated,
- * so the page's lines cannot go through the one block yet. Consequence while
- * a page is open: a mode-2 line's delay and timer are frozen instead of
- * running (or being replaced by the page's line, as in the original). The
- * gate goes when those presenters are translated; keeping it until then is
- * an open lead decision (docs/FIRST_LEVEL_AUDIT.md WP-8).
+/* The message service's host hooks (em_message_live.h). Step F runs
+ * 001FCA10 every frame, status frames included, as the original does: the
+ * status pages' mode-4 lines go through the one block (em_status_runtime's
+ * view) and its presenters (the step-F gate stand-in is deleted).
  *
  * Slot-0 talk in game mode 2 is 001D06E0 on the player face. */
-static int message_gate(void *context)
-{
-    (void)context;
-    if (!world.loaded || world.failed) return -1;
-    return em_status_runtime_ordinary_enabled(world.status) ? 1 : 0;
-}
 
 static int message_face_talk(void *context, int on)
 {
@@ -1698,6 +1771,6 @@ static int message_face_talk(void *context, int on)
 
 const EmMessageLiveHost *em_area11_interaction_host_message_host(void)
 {
-    static const EmMessageLiveHost host = {NULL, message_face_talk, message_gate};
+    static const EmMessageLiveHost host = {NULL, message_face_talk};
     return &host;
 }

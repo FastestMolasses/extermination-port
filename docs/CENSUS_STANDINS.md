@@ -10,9 +10,12 @@ MESSAGE_SERVICE.md and FIRST_LEVEL_AUDIT WP-8 decision (b): 001FD0E0,
 - Module: `src/game/em_census_standins.c/.h` (prefix `em_cs_`).
 - Oracle: `tools/test_census_standins_reference.py`. Quick mode takes about
   4 s and `EM_TEST_FULL=1` about 15 s. Both PASS.
-- **00102CD0 is bound** (census L13..L16). The other translations are not:
-  their stand-ins named below are still live, and the binding notes in
-  section 3 say exactly what replaces what.
+- **00102CD0 is bound** (census L13..L16). **All the others are bound since
+  the status UI step (2026-09-26, census section 1.21):** the presenters at
+  step F (em_message_presenters_live), 0020CCB0 in the BATTERY page
+  (em_battery_page_live) and 0021BAE0 at END_PROJECTION on the live render
+  context (em_rcl_0021BAE0). The stand-ins the table names are retired;
+  section 3 keeps the binding notes as the plan that was followed.
 
 ## 1. Results
 
@@ -147,6 +150,18 @@ oracle fail:
 - Bind it together with the em_status_ui_leftovers BATTERY page draw
   (0020AE40 / 0020B0D0 / 0020B210, lane L35). The rest of `em_battery_ui.c`
   is the same kind of stand-in.
+
+**Bound as planned (2026-09-26).** The presenters: em_message_presenters_live
+builds the EmCsPresenters and the line walker over `em_message_live_draw()`
+and installs them as the service's presenters hook; the gate, the page
+layer's copy (now a view of the live block, em_status_runtime
+`message_words`) and the BATTERY page's own text calls are gone. The hub's
+exported help records (`em_status_hub_ui_render`'s help_line) and the ITEM
+page's help text are no longer used on the live route (the runtime passes
+-1); the sanitizer fixtures still exercise them. The `em_hud.c` legacy lookup
+serves only the scenes without the AREA11 host. 0020CCB0: as below,
+through em_battery_page_live. 0021BAE0: as below, with 0020DFA0's
+0021BAC0(0) and 0021B9A0(5, 0.0, 1e6) bound on the CONFIGURE path.
 
 **0021BAE0 → `status_page_event` `EM_STATUS_PAGE_END_PROJECTION`.**
 - Call `em_cs_0021BAE0(&sul_workers, context, context_size, 0)` on the bytes

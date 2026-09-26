@@ -16,7 +16,10 @@ step-F gate stand-in (FIRST_LEVEL_AUDIT WP-8 decision (b)):
   `111c69ef…688c`).
 - Oracle: `tools/test_message_presenter_rest_reference.py`. Quick mode
   takes about 3 s, `EM_TEST_FULL=1` about 12 s. Both PASS.
-- **Not bound.** The binding notes are in section 3.
+- **Bound since the status UI step (2026-09-26):** section 3's notes, as
+  src/game/em_message_presenters_live.c does them (installed from main.c
+  after the service; its gate sound is em_sfx_play for 001FB9F0(id, 0x1000,
+  0x1000, 0x1000), anything else faults). The Makefile hunks are applied.
 
 ## 1. Results
 

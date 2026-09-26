@@ -54,25 +54,10 @@ int main(void)
     em_panel_tick(&panel,1,&hooks);
     assert(panel.phase==0 && panel.child_alive && !indicator_stops);
 
-    EmPanelBatteryMenu menu;
-    int charge=12;
-    em_panel_battery_begin(&menu,charge);
-    assert(em_panel_battery_step(&panel,&menu,0x40,&charge)==EM_PANEL_MENU_CANCEL);
-    assert(menu.phase==EM_PANEL_MENU_BROWSE && charge==12 && !panel.charged);
-    em_panel_battery_begin(&menu,charge);
-    assert(em_panel_battery_step(&panel,&menu,0xa000,&charge)==EM_PANEL_MENU_CURSOR);
-    assert(!menu.no_selected); /* Left takes precedence over Right */
-    assert(em_panel_battery_step(&panel,&menu,0x40,&charge)==EM_PANEL_MENU_ACCEPT);
-    assert(menu.phase==EM_PANEL_MENU_DISCHARGE && charge==12);
-    assert(em_panel_battery_step(&panel,&menu,0,&charge)==EM_PANEL_MENU_UNIT_SOUND);
-    assert(charge==10 && !panel.charged);
-    for (int i=0;i<29;++i) assert(em_panel_battery_step(&panel,&menu,0,&charge)==0);
-    assert(charge==10);
-    assert(em_panel_battery_step(&panel,&menu,0,&charge)==EM_PANEL_MENU_UNIT_SOUND);
-    assert(charge==8 && !panel.charged);
-    for (int i=0;i<29;++i) assert(em_panel_battery_step(&panel,&menu,0,&charge)==0);
-    assert(em_panel_battery_step(&panel,&menu,0,&charge)==EM_PANEL_MENU_FINISHED);
-    assert(panel.charged && panel.armed==5 && charge==8);
+    /* The BATTERY page between the request and phase 6 is the original
+     * 002149F0 (em_status_page_record, checked by its own oracle and in
+     * tests/panel_runtime_test.c); its completed discharge leaves: */
+    panel.charged=1; panel.armed=5;
     panel.phase=6; script_done=0;
     em_panel_tick(&panel,1,&hooks);
     assert(last_script==EM_PANEL_POWER_AFTER_MENU && panel.phase==2);
@@ -81,21 +66,7 @@ int main(void)
     em_panel_tick(&panel,1,&hooks);
     assert(panel.phase==3 && panel.status==2 && !panel.child_alive && indicator_stops==1);
 
-    em_panel_init(&panel,0); charge=2;
-    em_panel_battery_begin(&menu,charge);
-    em_panel_battery_step(&panel,&menu,0x8040,&charge);
-    assert(menu.phase==EM_PANEL_MENU_INSUFFICIENT && charge==2);
-    for (int i=0;i<239;++i) em_panel_battery_step(&panel,&menu,0,&charge);
-    assert(menu.phase==EM_PANEL_MENU_INSUFFICIENT);
-    em_panel_battery_step(&panel,&menu,0,&charge);
-    assert(menu.phase==EM_PANEL_MENU_BROWSE && !panel.charged);
-    charge=12;
-    em_panel_battery_begin(&menu,charge);
-    em_panel_battery_step(&panel,&menu,0x8040,&charge);
-    unsigned events=em_panel_battery_step(&panel,&menu,0x10,&charge);
-    assert(events==(EM_PANEL_MENU_UNIT_SOUND|EM_PANEL_MENU_ACCEPT|EM_PANEL_MENU_FINISHED));
-    assert(charge==8 && panel.charged && panel.armed==5);
     em_panel_init(&panel,1);
     assert(panel.phase==3 && !panel.child_alive);
-    puts("original panel gates, owner/script handshakes and BATTERY discharge: PASS");
+    puts("original panel gates and owner/script handshakes: PASS");
 }

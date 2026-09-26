@@ -55,10 +55,10 @@ scratch copies of `src/` (the live tree was not touched):
 | 0015AC00 | **verified** (scale switch, 001F1110 variant); two boundaries | none today | optional: 00219550 items keep scale 1.0 |
 | 0015CF90 | **verified** except the compare model | none reachable (denormal / negative-NaN health) | use `em_ee_c_le` |
 | 001B1190 | **verified** (areas 0..0x16, capture 00→01) | none | none needed for AREA11 |
-| 001C5680 | **verified**, live per node (em_indicator_child) | none: every child draws its 001F54E0 in walk order | the 0x7A child's own model draw (OWNER_DRAW.md P1) |
-| 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live | none (the arrow turns green once powered, as in route 04) | none |
+| 001C5680 | **verified**, live per node (em_indicator_child); its bind 001C2360 and placement 001C6380 are the translations since the status UI step (em_indicator_bind_live) | none: every child draws its 001F54E0 in walk order | the children's own model draw (OWNER_DRAW.md P1) |
+| 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live; bind 001C22A0 / placement as 001C5680 | none (red in the refusal, green once powered, as routes 02 and 04) | the terminal's 0x827E6C copy of its node matrix into the child's slot |
 | 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired; live since census L29 (em_shadow_live, FIRST_LEVEL_CENSUS.md section 1.20) | the decal draws on the route (beats 02, 04, 05, 08) | none |
-| 0020DFA0 | D_00810610 writes **verified**; 001D2610(0.0) runs on the render context (its zoom and its 0021B970) since the render context step; three callees not run (one key each) | trail reset on the request path; fog save/program | see the 0020DFA0 section |
+| 0020DFA0 | **verified**: every callee runs on the CONFIGURE path since the status UI step (2026-09-26) | none | none |
 
 ## 0015AC00 (the 0015AFA0 owner's state 0)
 
@@ -244,48 +244,65 @@ same inputs:
   fails the run.
 - The harness runs em_indicator_child_step with its own workers (including
   a refusing init), so it does not check the live binding's workers. A
-  second structural check reads them from em_area11_bindings.c and pins the
-  stand-ins below.
+  second structural check reads them from em_area11_bindings.c and
+  em_indicator_bind_live.c: the bind must reach em_rvr_001C2360 /
+  em_rvr_001C22A0 and the placement em_owner_services_001C6380; otherwise
+  `001C5680/live-init-stub` / `.../live-place-stub` (unpinned) fail the run.
 
-**Stand-ins (pinned).** The live binding's workers for two callees are not
-translations:
-- **001C2360 / 001C22A0, the bind:** `indicator_init` always returns 0. The
-  original returns nonzero when the bone slots are exhausted, and the child
-  then stays in state 0 and retries on its next call. The translations exist
-  (em_render_verify_rest `em_rvr_001C2360` / `em_rvr_001C22A0`,
-  verified-unbound), but binding them needs model bank D_0028A56C (for
-  001C2360; not exported, and em_area11_boxes faults on its 001C6120 rebind)
-  and a bone-slot model for the children. Pinned as
-  `001C5680/live-init-stub` and `001C5760/live-init-stub`.
-- **001C6380, the placement:** `indicator_place` does nothing. The draw
-  places the child mesh with the owner's current palette (em_pickup /
-  em_props). 001C5760 with +0x0A != 0 re-runs 001C6380 before every draw;
-  no AREA11 spawn sets +0x0A, so that path is latent. The translation is
-  live elsewhere (em_owner_services_001C6380, used by the boxes and the
-  status models), but it needs the bone slots above. Pinned as
-  `001C5680/live-place-stub` and `001C5760/live-place-stub`.
-- **The draw's cull:** 001CACB0 tail-calls 001CABA0, which calls 001CA7B0
-  (decomp src/func_001CABA0.c). The port's submit does not model that cull.
+**The bind and placement (live since the status UI step, 2026-09-26).**
+`indicator_init` runs em_indicator_bind_live_bind: the translation
+em_rvr_001C2360 (001C5680, bank D_0028A56C: the models 0x73 / 0x74 / 0x75 /
+0x7A, which tools/export_roger_banks.py now exports with the equipment
+models) or em_rvr_001C22A0 (001C5760, *D_0028A59C: the terminal's model
+0x10 in the world bank), whose workers are 001C6120 over that bank,
+001CA5E0 (+0x44 = the handle, 001CA5F0 kind 2: +0x4C = 001CACB0), 001C6150,
+001AF780 on the one bone-slot stack, 001CB5B0 (nothing to do) and
+001C62C0 (em_owner_services_001C62C0); a nonzero result (the bone cap)
+keeps the child in state 0, as the original. `indicator_place` runs
+em_owner_services_001C6380 over the child's +0xB0 / +0xC0 / +0x60 and its
+slots. The pool's 001AF800 returns a freed child's slots through 001AF890
+(em_area11_boxes_001AF800 dispatches to em_indicator_bind_live_001AF800).
+The stand-in pins `001C5680/live-init-stub`, `001C5760/live-init-stub`,
+`001C5680/live-place-stub` and `001C5760/live-place-stub` are retired.
 
-These pins fail the run when the workers change, so a binding that retires
-them must also update this section and EXPECTED.
+Evidence: the level smoke's check_indicator_children (LEVEL_SMOKE.md). On
+every tick, every bound child's +0x09 / +0x0C / +0x0D, the model handle
++0x44 (0xD115C0 for the lights, 0xD12840 the panel's, 0xD15540 the husk's,
+0x13A9FC0 the terminal's) and +0x4C equal the route snapshots' child at
+the same record, and its first slot's 001C6380 matrix equals theirs bit for
+bit (the smoke through the elevator: 9 children over 3,458 ticks; a
+placement shifted by one unit fails at the first tick).
 
-**Live proof.** The level smoke passes with the per-node children (all its
-capture checks row for row); the elevator phase's end frame
-(`EM_LEVEL_SMOKE_PHASE_CAPTURE=elevator:<file.bmp>`, LEVEL_SMOKE.md) shows the
-green arrow that route 04's original.png shows (it was red before).
+**Still not original:**
+- **The draw:** the +0x4C 001CACB0 submits the owner's indicator mesh
+  (em_pickup_light_submit / em_props_indicator_submit with the owner's
+  palette); the children's own models and their 001CABA0 / 001CA7B0 cull
+  wait on the object-unit draw (OWNER_DRAW.md P1).
+- **The terminal's copy:** 00827B10 copies its own node matrix into the
+  child's first slot every state-1 frame (0x827E6C, 00102958). The
+  terminal's own bone slots are not on the original path in the port (its
+  pose is the legacy elevator's), so the child's slot keeps its state-0
+  placement: the captures hold the terminal's y 190 there after the ride,
+  the port 230 (check_indicator_children compares the terminal child's
+  matrix with routes 00..03 only before the elevator scan, and skips and
+  counts its ticks from the scan on). The drawn arrow follows the ride (the
+  legacy draw reads the parent's node matrix).
+- **The slot addresses:** the stack's history before the children is not the
+  original's yet (other owners' slot use), so the +0x110 words differ from
+  the captures' (0x7D7C00.. against 0x7DA640..); nothing reads the
+  addresses.
 
-**Left:** the 0x7A child's own model draw. Model 0x7A (bank D_0028A56C) has
-no port mesh; its colour (0, 0, 0, 0.25) gives 1 / 128 of the texel through
-001D8C30 mode 1. Its 00122BB8 draw is made; the draw itself waits on the
-object-unit draw (OWNER_DRAW.md P1) and is reported once per session. The
-husk owner 0x825940 (census L24) rewrites the child's colour in its later
-states; the port's husk is still the legacy aggregate, so on the route the
-child keeps its spawn colour, as every captured beat shows.
+**The terminal-screen colour (2026-09-26).** The port draws the red arrow
+during the refusal. Route 02's capture (the real route: +0x28 = 0, +0xA0 =
+(1, 0, 0, 0.25)) shows red too. The green arrow in
+`startup-reference/elevator/refusal/original.png` comes from how that
+fixture was made (refusal_trace.json `seed`: a powered state with the
+power byte cleared and the owner armed): the level +0x28 decays from 128 by
+8 per frame, and it is 32 at the captured message frame. Nothing to change.
 
 **Census status:** 001C5680 live, 001C5760 live, both with the stand-in
-note above (the bind always succeeds, the placement is the owner's palette,
-001CABA0's 001CA7B0 cull is not modelled).
+note above (the draw, the cull, and for 001C5760 the terminal's copy);
+001C2360 / 001C22A0 live (FIRST_LEVEL_CENSUS.md section 1.21).
 
 ## 001CF470 (the frustum clipper)
 
@@ -345,10 +362,17 @@ and compares the packets.
   pair included. The test asserts the call is there; the translation itself
   is test_frame_render_heads_reference's.
 
-**Divergences**, one key per callee: `0020DFA0/missing-0020E020`,
-`0020DFA0/missing-0021BAC0` and `0020DFA0/missing-0021B9A0` (the
-`0020DFA0/missing-0021B970` key is retired). A partial fix retires only its
-own key. The host's CONFIGURE case (em_area11_interaction_host.c
+**Since the status UI step (2026-09-26) no key is left:** 0020E020 runs in
+em_status_runtime.c `page_worker`'s CONFIGURE case (the fix below), and the
+host's CONFIGURE case runs `em_rcl_0021BAC0(0)` and `em_rcl_0021B9A0(5,
+0.0, 1e6)` on the live render context before 001D2610; the level smoke's
+check_render_context compares the save slot +0x120..+0x13F with routes
+01..14 after the first status screen (the save's bytes), and 0020E080's
+0021BAE0(0) restores the record (`em_rcl_0021BAE0`). What follows is the
+state before that step. Divergences were, one key per callee:
+`0020DFA0/missing-0020E020`, `0020DFA0/missing-0021BAC0` and
+`0020DFA0/missing-0021B9A0` (the `0020DFA0/missing-0021B970` key is
+retired). A partial fix retires only its own key. The host's CONFIGURE case (em_area11_interaction_host.c
 `status_page_event`) runs 001AFE60 (`em_status_models_clear`), the
 D_00810610 writes and 001D2610(0.0); the test asserts those are present.
 Nothing on the CONFIGURE path runs:

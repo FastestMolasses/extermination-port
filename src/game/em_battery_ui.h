@@ -1,41 +1,69 @@
-/* Original BATTERY page002149F0, type24 panel and battery pickup paths.
- * The status dispatcher still owns entering/leaving the page. This module
- * never converts No/Back into a successful interaction. */
+/* The BATTERY page's 2D layer: the EMBA atlas and the ordered leaf draw
+ * calls of one 002149F0 frame (docs/STATUS_PAGE_RECORD.md section 4).
+ *
+ * The page logic and its draws are the original translations bound by
+ * em_battery_page_live (002149F0 em_status_page_record; 0020AE40 /
+ * 0020B210 / 0020B0D0 em_status_ui_leftovers; 0020CCB0 em_census_standins;
+ * 00209280 em_status_draw). Their leaves, the GS 2D layer boundary, are
+ * recorded here in the original call order and submitted once by the
+ * status runtime's render:
+ *   0020A7A0(tex0)                       the status background tile
+ *   00207D00(1, mode)                    the blend mode of the calls after it
+ *   00207E40(1, x, y, w, h, rgba, tex0)  a textured sprite (GS units)
+ *   00207F80(1, x0, y0, x1, y1, rgba)    an untextured rectangle
+ *   001CBA50 text                        00209280's gauge caption
+ * A sprite's TEX0 names its atlas record: assets/scene_snow/panel/
+ * battery.emba (tools/export_panel.py) holds every TEX0 of the page tables
+ * D_00265C50 / D_00265CD0, the list highlight, the page background and a
+ * white texel for the untextured rectangles. A TEX0 the atlas does not hold
+ * fails the render (fail-stop). The render's GS-to-canvas conversion is
+ * checked against the captured confirmation packets
+ * (tools/test_status_ui_leftovers_reference.py, STATUS_UI_LEFTOVERS.md 1.1
+ * step 3). */
 #ifndef EM_BATTERY_UI_H
 #define EM_BATTERY_UI_H
+
+#include <stddef.h>
+#include <stdint.h>
+
 #include "em_gfx.h"
-#include "game/em_panel.h"
 
 typedef struct EmBatteryUI EmBatteryUI;
-enum {
-    EM_BATTERY_BACK_TO_STATUS = 32,
-    EM_BATTERY_NO_DEVICE_SOUND = 64,   /* original0020CD80 -> sound2 */
-    EM_BATTERY_UNSUPPORTED_OWNER = 128 /* host fault, not an original sound */
-};
 
+/* Loads the EMBA atlas (version 2). NULL on a missing or malformed file. */
 EmBatteryUI *em_battery_ui_load(const char *path);
 void em_battery_ui_free(EmBatteryUI *ui);
-/* kind0/1/2 selects the highest available original battery item1B/1C/1D.
- * Returns0 for missing data/owner. Does not acquire the status dispatcher. */
-int em_battery_ui_begin(EmBatteryUI *ui, EmPanel *owner, int charge, int kind);
-/* Original149F0 state0 with no pending request falls through to browsing. */
-int em_battery_ui_begin_browse(EmBatteryUI *ui, EmPanel *owner, int charge, int kind);
-/* Original request1/item1B..1D: a240-callback acquisition notice, followed
- * by browsing. selected_kind is the highest owned pack, acquired_kind the
- * actual request. No panel owner is invented. Requires EMBA version2 text. */
-int em_battery_ui_begin_pickup(EmBatteryUI *ui, int charge, int selected_kind, int acquired_kind);
-unsigned em_battery_ui_original_step(const EmBatteryUI *ui);
-/* buttons are original D810E74. Returns EM_PANEL_MENU_* sound/finish
- * events, NO_DEVICE_SOUND and BACK_TO_STATUS. owner_available is the
- * original00185420 lookup result when reselecting the battery row.
- * The caller persists charge through the
- * inventory API and routes actual status transitions. */
-unsigned em_battery_ui_tick(EmBatteryUI *ui, unsigned buttons, int *charge, int owner_available);
-int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx, int capacity, unsigned held_buttons);
-void em_battery_ui_close(EmBatteryUI *ui);
-/* Another page replaced the shared UI texture slot: upload again on the
- * next render (the page state is kept). */
+
+/* The page tables' bytes as the atlas records carry them (their TEX0 words
+ * in the ELF order): D_00265C50 (0x80 bytes, records 0..15) and D_00265CD0
+ * (0x48 bytes, records 16..24). 1, or 0. */
+#define EM_BATTERY_UI_FRAME_TABLE_SIZE 0x80u
+#define EM_BATTERY_UI_ROW_TABLE_SIZE 0x48u
+int em_battery_ui_tables(const EmBatteryUI *ui, uint8_t frame[EM_BATTERY_UI_FRAME_TABLE_SIZE],
+                         uint8_t rows[EM_BATTERY_UI_ROW_TABLE_SIZE]);
+
+/* ---- the frame's leaf calls. Each returns 1, or 0 when the list is full or
+ * a call is outside what the renderer draws (slot other than 1, an unknown
+ * blend mode, a text cell size the glyph atlas has no style for); after a
+ * refusal the list refuses everything until the next begin. ---- */
+void em_battery_ui_begin_frame(EmBatteryUI *ui);
+int em_battery_ui_background(EmBatteryUI *ui, uint64_t tex0);
+int em_battery_ui_blend(EmBatteryUI *ui, int32_t slot, int32_t mode);
+int em_battery_ui_sprite(EmBatteryUI *ui, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                         uint32_t rgba, uint64_t tex0);
+int em_battery_ui_rectangle(EmBatteryUI *ui, int32_t slot, int32_t x0, int32_t y0, int32_t x1,
+                            int32_t y1, uint32_t rgba);
+/* 00209280's text (001CBA50 / 001CC1E0) in the current blend mode; style is
+ * the style record's colour word. */
+int em_battery_ui_text(EmBatteryUI *ui, int proportional, int32_t x, int32_t y, int32_t w,
+                       int32_t h, const char *text, uint64_t style);
+/* The number of calls recorded since the last begin (0: nothing drawn). */
+unsigned em_battery_ui_count(const EmBatteryUI *ui);
+
+/* Submits the recorded calls once on the 512x448 status canvas. 1, or 0
+ * (a refused call, a TEX0 outside the atlas, a renderer failure). */
+int em_battery_ui_render(EmBatteryUI *ui, EmGfx *gfx);
+/* Another page replaced the shared UI texture slot: upload again. */
 void em_battery_ui_deactivate(EmBatteryUI *ui);
-EmPanelMenuPhase em_battery_ui_phase(const EmBatteryUI *ui);
-const char *em_battery_ui_terminal_text(const EmBatteryUI *ui);
+
 #endif

@@ -489,13 +489,12 @@ void scene_manifest_load(void)
                                        (unsigned)gk))
                 fprintf(stderr, "manifest: original weather assets failed: %s", line);
         } else if (sscanf(line, "background %255s", name) == 1) {
-            /* The level background (docs/BACKGROUND.md): 001C1F50 arms
-             * render flags 0x20 / 0x21 for AREA11 (key 0x0B00) and
-             * 001E2260 / 001E2270 store its TEX0 and colour; the asset
-             * carries both, checked against the captures by
-             * tools/test_background_reference.py. The line stands in for
-             * flag 0x20: only AREA11's manifest has it. Required: the
-             * world frame draws it first (em_render_frame.c). */
+            /* The level background's asset (docs/BACKGROUND.md): its file.
+             * Whether the world frame draws it is the render context's
+             * flags 0x20 / 0x21 (001C1F50 arms them for AREA11, key
+             * 0x0B00), and its TEX0 and colour must equal the context's
+             * ctx+0x1D0 / +0x1C0 (001E2260 / 001E2270); em_render_frame.c
+             * background_gate checks both and faults otherwise. */
             char bpath[560];
             snprintf(bpath, sizeof bpath, "%s/%s", g.scene_dir, name);
             if (em_gfx_background_load(em_frame_gfx(), bpath) != 0) {

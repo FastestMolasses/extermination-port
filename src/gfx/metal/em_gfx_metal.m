@@ -1979,6 +1979,14 @@ int em_gfx_background_ready(EmGfx *g)
     return g && g->bgTexture ? 1 : 0;
 }
 
+int em_gfx_background_state(EmGfx *g, uint64_t *tex0, uint32_t *rgbaq)
+{
+    if (!g || !g->bgTexture || !tex0 || !rgbaq) return 0;
+    *tex0 = g->bgAsset.tex0;
+    *rgbaq = g->bgAsset.rgbaq;
+    return 1;
+}
+
 int em_gfx_background_load(EmGfx *g, const char *path)
 {
     if (!g || !g->device || !path) return -1;

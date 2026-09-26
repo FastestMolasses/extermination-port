@@ -622,6 +622,7 @@ def check_elevator(ticks, run, state):
     carried = [k for k in range(count) if rows[f0 + k]['pos'][1] < top - 0.1 and selector(rows[f0 + k]['spad']) != '00']
     assert len(carried) >= 150, ('the capture window holds no 150-call carry', len(carried))
     follow = check_follow_after_release(ticks, i0, rows, f0, 'elevator', 'exact')
+    state['ride_scan'] = i0   # check_indicator_children: the terminal child's last compared tick is before it
     print(f'elevator: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 04 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: powered 0x82A750 from the scan through the carry '
           f'(player Y f{rows[f0 + carried[0]]["f"]}..f{rows[f0 + carried[-1]]["f"]}, ending '
@@ -1609,7 +1610,8 @@ PHASES = [
 # ------------------------------------------------------------ render context
 
 # The tick log's "rctx" (em_scene_bindings.c log_tick_end), in order.
-RCTX_FIELDS = ('flags0c', 'flags174', 'fog', 'zoom', 'v', 'k', 'alt0', 'bars', 'depth', 'eases', 'cam610')
+RCTX_FIELDS = ('flags0c', 'flags174', 'fog', 'zoom', 'v', 'k', 'alt0', 'bars', 'depth', 'slot0', 'eases',
+               'cam610')
 RCTX_CONTEXT = 0x811CC0
 RCTX_ORACLE_SAMPLES = 40
 
@@ -1633,6 +1635,14 @@ def rctx_reference():
                'eases': m[0x275690:0x275698], 'widths': m[c + 0x2500:c + 0x2514], 'tail': m[c + 0x245C:c + 0x2468]}
         assert ref is None or got == ref, ('the route snapshots disagree on the render context', beat)
         ref = got
+    # The fog record's save slot 0 (+0x120..+0x13F): 0021BAC0(0) in 0020DFA0
+    # writes it at every status screen; routes 01..14 come after the first
+    # one (the battery notice) and agree; route 00 holds an older save.
+    slots = {(ROUTE / beat / 'eeMemory.bin').read_bytes()[c + 0x120:c + 0x140]
+             for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and
+                                '01' <= p.name[:2] < '15')}
+    assert len(slots) == 1, ('the route snapshots 01..14 disagree on the fog record save slot 0', slots)
+    ref['slot0'] = slots.pop()
     return ref
 
 
@@ -1654,12 +1664,24 @@ def check_render_context(ticks, state):
     ref = rctx_reference()
     first = state['first_control']
     gameplay, lagged, moved, reseats, prev = 0, 0, 0, 0, None
+    # The first status screen's close (0x1AE040 +B = 5): from there on the
+    # save slot 0 holds the record 0020DFA0's 0021BAC0(0) saved, as routes
+    # 01..14 do, and 0020E080's 0021BAE0(0) restored it (the gameplay ticks'
+    # fog block below).
+    opened = next((i for i in range(first, len(ticks)) if snap(ticks[i])['task'][2] == 3), None)
+    closed = next((i for i in range(opened, len(ticks)) if snap(ticks[i])['task'][2] == 5), None) \
+        if opened is not None else None
+    slot_ticks = 0
     samples = []
     for i in range(first, len(ticks)):
         t, r = ticks[i], rctx(ticks[i])
         if r is None:
             prev = None
             continue
+        if closed is not None and i >= closed:
+            assert r['slot0'] == ref['slot0'], ('render context', 'port tick', t['tick'],
+                                                'fog record save slot 0 +0x120', r['slot0'].hex())
+            slot_ticks += 1
         sp = snap(t)
         spad = bytes.fromhex(sp['spad'])
         if sp['variant'] and spad[1] == 0 and tsr.get(bytes.fromhex(t['post']), 0x8101E4) != 3:
@@ -1702,8 +1724,11 @@ def check_render_context(ticks, state):
         assert ee.read(RCTX_CONTEXT + 0x2380, 0x40) == r['v']
         assert ee.read(RCTX_CONTEXT + 0x23C0, 0x40) == r['k'], ('render context: K differs from the original 001D2960')
         assert ee.read(RCTX_CONTEXT + 0x2240, 0x40) == r['alt0'], ('render context: +0x2240 differs from 001D2960')
+    assert closed is None or slot_ticks >= 100, ('render context: the save slot too little exercised', slot_ticks)
     print(f'render context: PASS ({gameplay} gameplay ticks hold the route snapshots\' flag words, fog block '
-          f'+0xA0..+0xFF, D_00275690/94, widths and +0x2450 tail; {lagged} frame heads projected the previous '
+          f'+0xA0..+0xFF, D_00275690/94, widths and +0x2450 tail; {slot_ticks} ticks after the first status '
+          f'screen hold routes 01..14\' fog record save slot 0 +0x120..+0x13F (0020DFA0\'s 0021BAC0(0)); '
+          f'{lagged} frame heads projected the previous '
           f'tick\'s D_00810610 ({moved} of them with the camera moving that frame: the original\'s one-frame '
           f'view lag{f"; {reseats} state-4 re-seat tick(s) project the view 0018C0D0 built in the same tick" if reseats else ""}); '
           f'{len(samples)} sampled ticks\' K and 001CD370(0) projection equal the original 001D2960)')
@@ -1740,6 +1765,98 @@ def pool_nodes(beat):
             equipment.append((m[a:a + 16].hex(), u32(a + 0x44), u32(a + 0x4C)))
         a = u32(a + 0x1C)
     return drivers, heads, equipment
+
+
+# ------------------------------------ the indicator children (001C5680 / 001C5760)
+
+INDICATOR_CHILDREN = (0x1C5680, 0x1C5760)
+
+
+def captured_children():
+    """The indicator children of every in-scope route snapshot (00..14), by
+    record address: (+0x10, +0x04, +0x09, +0x0C, +0x0D, +0x44, +0x4C) and
+    the first slot's +0x90 matrix (16 words), per beat."""
+    out = {}
+    for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15'):
+        m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        u32 = lambda a: struct.unpack_from('<I', m, a)[0]
+        kids = {}
+        a = u32(0x275BC0)
+        while a:
+            if u32(a + 0x10) in INDICATOR_CHILDREN and m[a + 4] == 1 and m[a + 9]:
+                slot = u32(a + 0x110)
+                kids[a] = ((u32(a + 0x10), m[a + 4], m[a + 9], m[a + 0xC], m[a + 0xD], u32(a + 0x44),
+                            u32(a + 0x4C)), tuple(u32(slot + 0x90 + 4 * k) for k in range(16)))
+            a = u32(a + 0x1C)
+        out[beat] = kids
+    return out
+
+
+def check_indicator_children(ticks, state):
+    """The indicator children's bind and placement (001C2360 / 001C22A0 and
+    001C6380, em_indicator_bind_live; docs/CENSUS_UNVERIFIED.md "001C5680
+    and 001C5760"): on every tick of the run, every bound child's record
+    (+0x10, +0x04, +0x09, +0x0C, +0x0D, the model handle +0x44, the draw
+    method +0x4C) equals the route snapshots' child at the same record
+    address, and its first slot's +0x90 matrix (the 001C6380 placement)
+    equals theirs bit for bit. The terminal's 001C5760 child is compared
+    with routes 00..03 (its state-0 placement) only before the elevator
+    phase's scan: from then on 00827B10 copies the terminal's own node
+    matrix into the child's slot every frame (0x827E6C), which the port does
+    not bind yet (the terminal's own slots are not on the original path),
+    so those ticks are skipped and counted, never compared with a
+    non-original matrix. At the aligned snapshot ticks the set of bound
+    children equals the snapshot's. The slot addresses (+0x110) are not
+    compared: the stack's history before the children is not yet the
+    original's (other owners' slots)."""
+    caps = captured_children()
+    ref = {}
+    for beat, kids in caps.items():
+        for a, (fields, world) in kids.items():
+            if a in ref:
+                assert ref[a][0] == fields, ('indicator children: the snapshots disagree', beat, hex(a))
+            else:
+                ref[a] = (fields, world)
+    pre_ride = {a: w for a, (f, w) in caps['01_battery'].items()}
+    ride_scan = state.get('ride_scan', len(ticks))
+    seen, ticks_seen, terminal_compared, terminal_skipped = set(), 0, 0, 0
+    for i, t in enumerate(ticks):
+        kids = t.get('children')
+        if not kids:
+            continue
+        ticks_seen += 1
+        for addr, cb, st, b9, bc, bd, model, method, slots, world in kids:
+            where = ('indicator children', 'port tick', t['tick'], hex(addr))
+            assert addr in ref, (where, 'no captured child at this record')
+            fields, cworld = ref[addr]
+            assert (cb, st, b9, bc, bd, model, method) == fields, (where, (cb, st, b9, bc, bd, hex(model),
+                                                                         hex(method)), fields)
+            if cb == 0x1C5760:
+                if i >= ride_scan:
+                    terminal_skipped += 1   # 0x827E6C's copy is not bound (see the docstring)
+                    want = None
+                else:
+                    assert addr in pre_ride, (where, 'the terminal child is not in route 01')
+                    terminal_compared += 1
+                    want = pre_ride[addr]
+            else:
+                want = cworld
+            if want is not None:
+                assert tuple(world) == want, (where, 'the first slot +0x90 (001C6380)', world, want)
+            assert all(slots[k] for k in range(b9)) and not any(slots[b9:]), (where, 'slot words', slots)
+            seen.add(addr)
+    for beat, i in state.get('snapshots', []):
+        port = {c[0] for c in ticks[i].get('children', [])}
+        assert port == set(caps[beat]), ('indicator children', beat, 'port tick', ticks[i]['tick'],
+                                         sorted(map(hex, port)), sorted(map(hex, caps[beat])))
+    assert ticks_seen >= 100 and len(seen) >= 7, ('indicator children too little exercised', ticks_seen, seen)
+    assert terminal_compared >= 1, 'indicator children: the terminal child was never compared before the ride'
+    print(f'indicator children: PASS ({len(seen)} children over {ticks_seen} ticks: +0x09, +0x0C, +0x0D, the '
+          f'model handle +0x44 and the draw method 001CACB0 equal the route snapshots\' at the same record, and '
+          f'the first slot\'s 001C6380 matrix bit for bit (the terminal\'s child: its state-0 placement of '
+          f'routes 00..03 on {terminal_compared} tick(s) before the elevator scan; {terminal_skipped} tick(s) '
+          f'from the scan on skipped, its 0x827E6C copy not bound); '
+          f'{len(state.get("snapshots", []))} aligned snapshot(s) hold the same set of children)')
 
 
 LANES = (0, 1, 3, 4, 5, 6)   # 001F0360's 001F0720 calls
@@ -2007,6 +2124,7 @@ def main():
                 not_live.append(name)
     if 'first_control' in checked:
         check_render_context(ticks, state)
+        check_indicator_children(ticks, state)
     if state.get('snapshots'):
         check_effects(ticks, state)
         check_owner_units(ticks, state)

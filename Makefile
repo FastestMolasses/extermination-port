@@ -22,7 +22,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_model.c src/game/em_player_face_host.c \
-           src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
+           src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
            src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c \
            src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
@@ -35,12 +35,13 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c \
-           src/game/em_indicator_child.c src/game/em_effect_kinds.c \
+           src/game/em_indicator_child.c src/game/em_indicator_bind_live.c src/game/em_effect_kinds.c \
            src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
            src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c src/game/em_area11_roger.c \
            src/game/em_roger_actor_original.c \
            src/game/em_message_service.c src/game/em_message_draw_original.c src/game/em_message_glyph_original.c \
-           src/game/em_message_live.c \
+           src/game/em_message_live.c src/game/em_message_presenter_rest.c \
+           src/game/em_message_presenters_live.c \
            src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
            src/game/em_player_foot_stop.c src/game/em_player_floor.c \
            src/game/em_player_stage_workers.c src/game/em_player_stage_live.c \
@@ -905,13 +906,7 @@ test-pickup-original: tests/pickup_original_test.c tests/pickup_light_test.c src
 test-panel-reference:
 	python3 tools/test_panel_reference.py
 
-.PHONY: test-battery-reference test-battery-ui-reference test-panel-program
-test-battery-reference:
-	python3 tools/test_battery_reference.py
-
-test-battery-ui-reference:
-	python3 tools/test_battery_ui_reference.py
-
+.PHONY: test-panel-program
 .PHONY: test-camera-retarget-reference
 test-camera-retarget-reference:
 	python3 tools/test_camera_retarget_reference.py
@@ -1075,17 +1070,16 @@ test-status-models:
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c -lm -o build/status_models/status_models_test
 	build/status_models/status_models_test assets/status_models ../Extermination/build/startup-reference/status-hub/eeMemory.bin
 
-.PHONY: test-battery-pickup-reference test-item-device-reference
-test-battery-pickup-reference:
-	python3 tools/test_battery_pickup_reference.py
-
+.PHONY: test-item-device-reference
 test-item-device-reference:
 	python3 tools/test_item_device_reference.py
 
 test-status-runtime:
 	@mkdir -p build/status_page_reference
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c src/game/em_status_hub_ui.c src/game/em_status_draw.c src/game/em_item_geometry.c src/game/em_item_sdk_math.c -lm -o build/status_page_reference/status_runtime_test
-	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c src/game/em_status_hub_ui.c src/game/em_status_draw.c src/game/em_item_geometry.c src/game/em_item_sdk_math.c \
+	    src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_status_ui_leftovers.c src/game/em_census_standins.c src/game/em_render_verify_rest.c src/game/em_player_stage_workers.c -lm -o build/status_page_reference/status_runtime_test
+	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir \
+	    assets/scene_snow/panel/status_hub.emhs assets/scene_snow/panel/status_hub_atlas.emha
 
 .PHONY: test-panel-message-reference
 test-panel-message-reference:
@@ -1115,7 +1109,8 @@ test-panel-runtime:
 	    src/game/em_interaction_runtime.c src/game/em_interaction_animation.c src/game/em_interaction_frame.c \
 	    src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c \
 	    src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
-	    src/game/em_message_glyph_original.c src/game/em_script.c src/em_model.c -lm -o build/panel_runtime_test
+	    src/game/em_message_glyph_original.c src/game/em_script.c src/em_model.c \
+	    src/game/em_status_page_record.c -lm -o build/panel_runtime_test
 	build/panel_runtime_test
 
 .PHONY: test-elevator-reference

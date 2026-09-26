@@ -798,6 +798,11 @@ static void help_view(const Record *record, EmStatusHubUICommand *out)
     out->text = take_string(&text);
 }
 
+const EmStatusBatteryData *em_status_hub_ui_battery_data(const EmStatusHubUI *ui)
+{
+    return ui && ui->battery.label && ui->battery.separator ? &ui->battery : NULL;
+}
+
 int em_status_hub_ui_tile(const EmStatusHubUI *ui, uint64_t tex0, float out[4])
 {
     const Sprite *sprite = ui && out ? find_sprite(ui, tex0) : NULL;

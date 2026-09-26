@@ -175,15 +175,18 @@ installs it at bring-up as the step-F frame service
     `D_00282155/156` before every tick. A fixture without the lanes supplies
     its own hooks (the idle-lane ones in the panel and host tests); a
     reached hook that is missing faults.
-  - `mode3_present`, `help_draw`, `record_setup`, `record_draw` -> not bound
-    (fault). While the AREA11 status page layer runs, its own page core
-    presents the mode-4 lines from its own copy of the block, and the host's
-    gate holds step F (`em_status_runtime_ordinary_enabled`), as before WP-8.
-    The gate is a port stand-in: the original 001FCA10 runs every frame with
-    no gate, so while a page is open a mode-2 line's delay and timer freeze
-    here instead of running (or being replaced by the page's line). It goes
-    when 001FD0E0 and 001FCB90/001FCF90/001FCF60 are translated; keeping it
-    until then is an open lead decision (FIRST_LEVEL_AUDIT WP-8).
+  - `mode3_present`, `help_draw`, `record_setup`, `record_draw` -> the
+    presenters of em_census_standins (001FD0E0, 001FCB90, 001FCF90,
+    001FCF60) with the cue walker 001FDDB0 (em_message_presenter_rest),
+    bound by em_message_presenters_live over the service's own draw module
+    and `assets/message/message_presenters.emmp` (since the status UI step,
+    2026-09-26; docs/CENSUS_STANDINS.md 3, docs/MESSAGE_PRESENTER_REST.md
+    3). The status pages' message words are a per-call view of this block
+    (em_status_runtime `message_words`), so step F presents their mode-4
+    lines as the original 001FCA10 does; the port's step-F gate stand-in and
+    the page layer's own copy are deleted (WP-8 decision (b)). A glyph pass
+    built in the task (002149F0's 001FCF10) is drawn at this frame's step-F
+    render before step F's own.
 - **Requests routed into it:**
   - the opening (em_opening_runtime): op0C (001B7D60) on the live block; the
     001B82D0 op12 phase-0 stream request 001FD4C0(0x66) and its phase-3 wait
