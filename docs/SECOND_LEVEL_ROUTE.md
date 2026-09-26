@@ -61,7 +61,7 @@ runs only beats 00..14, and beat 15 stays opt-in; beats 00..15 are unchanged.
   | `npc_r36` | 0x7B0390 | overlay 0x825350, class 10 | table [36], (81, 0, -521), yaw -0.96 | the control-room NPC: both conversations run on it |
   | `r37_826CF0` | 0x7B0680 | overlay 0x826CF0, class 8 | [37] (table position 0, 0, 0) | above the NPC's console; its position moves within x 72.8..83.9, y 17.7..20.9, z -524.8..-518.8 on every beat; its header never changed |
   | `shaft_door_r12` | 0x7ABD10 | overlay 0x823580, class 5 | [12], (-35.5, -35, -1276.5), door id 0\|0x80 | the shaft door: locked try, then the exit |
-  | `r13_158D30` | 0x7AC000 | 00158D30, class 8 | [13], (-40, -13, -1277) | next to the shaft door; header byte +1 toggles 0/1 as the player moves, and +0xB became 1 at a01_05 f3930, the frame after D_008107D9 became 0x81 (meaning not identified) |
+  | `r13_158D30` | 0x7AC000 | 00158D30, class 8 | [13], (-40, -13, -1277) | next to the shaft door; header byte +1 toggles 0/1 as the player moves, and +0xB became 1 at a01_05 f3930, the frame after D_008107D9 became 0x81 (the shaft door 0x823580 stores it from D_008107D9 == 0x81; its +0x1C is this node) |
   | `door_r15` | 0x7AC5E0 | 001BC350, class 5 | [15], (60.5, 0.5, -559), id 2 | the control-room room-move door |
   | `doc_g0_1` | 0x7A5930 | 00219550 | deferred g0.1 (live slot 1), (12.5, -29, -984.5) | the DATA BASE pickup (item 0x48); after the take the node is freed and reused by a 0018A6B0 node (a01_s1 f367) |
   | `n7A70B0_826D40`, `n7A7690_826D40`, `n7A7C70_826D40` | as named | overlay 0x826D40 | deferred, (-45, -3, -1140), (-45, 37, -900), (30, 17, -1020) | header byte +1 toggles 0/1 as the player moves (meaning not identified); nothing else sampled changed |
@@ -124,10 +124,11 @@ otherwise.
     byte by name (a symbol search of the overlay; 0x825350 only reads it). On
     Use with D_008107D9 == 0x81 it runs the ordinary door kickoff and opens;
     with any other value it plays the locked-door program and then, when the
-    byte is 0 or 0x80, stores 0x80 and starts script 0x8298E0. Open lead: its
-    last block reads the byte again and, when it is 0x81, sets byte +0xB of
-    another node it was given to 1. That fits r13's +0xB
-    becoming 1 at a01_05 f3930, but that node being r13 is not proven.
+    byte is 0 or 0x80, stores 0x80 and starts script 0x8298E0. Its last block
+    reads the byte again and sets byte +0xB of the node at its own +0x1C to
+    (D_008107D9 == 0x81). That node is r13 (0x7AC000) in all 11 AREA01
+    captures (measured by the overlay lane, docs/AREA01_OVERLAY.md section 2),
+    which explains r13's +0xB becoming 1 at a01_05 f3930.
   - **0x81 at a01_05 f3929** comes with the end of the NPC's script 0x829FA0
     (its last record, 0x82A620, in the same frame) and D_00810759 = 0xFF in the
     same frame. The other overlay writer is the NPC's 0x80 branch 0x825590
