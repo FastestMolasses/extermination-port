@@ -1889,6 +1889,97 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
 
 
+OWNER_DRAWN = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00823FF0: 'truck', 0x001BC350: 'door'}
+
+
+def fnv_words(h, words):
+    for w in words:
+        for b in range(4):
+            h = ((h ^ ((w >> (8 * b)) & 0xFF)) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def check_owner_units(ticks, state):
+    """The live owner draws 001CAA00 (em_owner_draw_live: the crates, drums,
+    truck and fence door) against the route snapshots whose last row a
+    phase aligned a port tick with. For every such owner, the ORIGINAL
+    001CAA00 runs over the snapshot's RAM and scratchpad (the owner-draw
+    oracle, tools/test_owner_draw_reference.py) and its unit is compared
+    with the port's unit of the aligned tick (the tick log's owner_units):
+    - the colour matrix B (001D89D0 through 001C7420) and every node's
+      lighting rows' lanes y and z (C x A's columns 1 and 2, the room rig's
+      slots 1 and 2) digest-equal wherever both drew, and the whole
+      lighting rows (C x A) too wherever the
+      port's point-light slots (context +0x220, which 001D89D0's fold reads)
+      equal the snapshot's (neither depends on the camera; the slots' sway
+      angle and matrix follow rand() in 001D7C30, so they differ where the
+      port's rand() order does, and those rows are then counted, not
+      compared);
+    - in the beats whose camera equals the capture's (VIEW_EXACT), the set
+      of owners that drew, their byte counts, the clip pass and the
+      position rows (node x VP) too."""
+    import test_owner_draw_reference as tod
+    if not tod.ELF:
+        tod.ELF = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    done = []
+    for beat, i in state.get('snapshots', []):
+        assert i < len(ticks) and 'owner_units' in ticks[i], ('owner units: no log at the snapshot tick', beat)
+        port = {u[0]: u for u in ticks[i]['owner_units']}
+        ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        spr = (ROUTE / beat / 'scratchpad.bin').read_bytes()
+        u32 = lambda a: struct.unpack_from('<I', ram, a)[0]
+        ctx = u32(0x275670)
+        points = fnv_words(2166136261, struct.unpack_from('<1024I', ram, ctx + 0x220))
+        orig, a, seen = {}, u32(0x275BC0), set()
+        while a and a not in seen:
+            seen.add(a)
+            if u32(a + 0x4C) == tod.DRAW and u32(a + 0x10) in OWNER_DRAWN:
+                o, ctx = tod.original_draw(ram, spr, a)
+                used = o.load(ctx + 0x10) - tod.CAP_DL
+                unit = o.read(tod.CAP_DL, used) if used else b''
+                entry = [a, used, 0, 0, 0, 0, points, 0]
+                if used:
+                    colour = struct.unpack_from('<16I', unit, 0x20)
+                    nodes = ram[a + 0x0C]
+                    words = struct.unpack_from(f'<{32 * nodes}I', unit, 0x80)
+                    basis = 2166136261
+                    light = position = rig = basis
+                    for k in range(nodes):
+                        position = fnv_words(position, words[32 * k:32 * k + 16])
+                        light = fnv_words(light, words[32 * k + 16:32 * k + 32])
+                        for r in range(4):
+                            rig = fnv_words(rig, words[32 * k + 16 + 4 * r + 1:32 * k + 16 + 4 * r + 3])
+                    calls, q = [], 0
+                    while q < used:                   # the unit's DMA tags (CNT data inline)
+                        w0, addr = struct.unpack_from('<2I', unit, q)
+                        if (w0 >> 28) & 7 == 5: calls.append(addr)
+                        q += 16 + (16 * (w0 & 0xFFFF) if (w0 >> 28) & 7 == 1 else 0)
+                    entry = [a, used, int(0x2354A0 in calls), fnv_words(basis, colour), light, position, points,
+                             rig]
+                orig[a] = entry
+            a = u32(a + 0x1C)
+        where = ('owner units', beat, 'port tick', ticks[i]['tick'])
+        both = [r for r in orig if orig[r][1] and r in port and port[r][1]]
+        lit = [r for r in both if port[r][6] == orig[r][6]]
+        for r in both:
+            assert port[r][3] == orig[r][3], (where, hex(r), 'colour matrix B (001D89D0)')
+            assert port[r][7] == orig[r][7], (where, hex(r), 'lighting rows, lanes y and z (the rig slots)')
+        for r in lit:
+            assert port[r][4] == orig[r][4], (where, hex(r), 'lighting rows (C x A)')
+        if beat in VIEW_EXACT:
+            assert sorted(port) == sorted(orig), (where, 'owners that ran 001CAA00', sorted(port), sorted(orig))
+            for r in orig:
+                assert port[r][1:3] == orig[r][1:3], (where, hex(r), 'unit bytes / clip', port[r], orig[r])
+                assert port[r][5] == orig[r][5], (where, hex(r), 'position rows (node x VP)')
+        done.append(f'{beat[:2]} ({len(both)} drawn in both: colour and rig lanes equal; whole lighting rows '
+                    f'compared for {len(lit)}'
+                    f'{" (the point-light slots differ for the rest)" if len(lit) < len(both) else ""}'
+                    f'{", camera exact" if beat in VIEW_EXACT else ""})')
+    if done:
+        print('owner units: PASS (the port\'s 001CAA00 units equal the original\'s at the snapshot ticks: '
+              + '; '.join(done) + ')')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=Path, required=True, help='EM_AREA_CHANGE_LOG of a newgame-level run')
@@ -1918,6 +2009,7 @@ def main():
         check_render_context(ticks, state)
     if state.get('snapshots'):
         check_effects(ticks, state)
+        check_owner_units(ticks, state)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

@@ -918,6 +918,28 @@ Measured (full route): 12,573 barrel frames, 12,841 effect chains, none
 skipped; 08: 7 equipment nodes, 2 head sprites, 8 truck puffs; 10: packet
 4 and 5 glow-marker primitives; 14: packet 4.
 
+### The owner units (`check_owner_units`, OWNER_DRAW.md sections 9 and 10)
+
+Not a phase: at the same aligned snapshot ticks as check_effects. The tick
+log's `owner_units` carries, per 001CAA00 call of the last drawn frame (the
+crates, drums, truck and fence door on em_owner_draw_live), the owner's
+record address, the unit's byte count (0: culled), the clip pass and
+digests of the colour matrix B, the lighting rows, the position rows, the
+point-light slots and the lighting rows' lanes y and z. For every such
+owner the ORIGINAL 001CAA00 runs over the snapshot (the owner-draw oracle)
+and:
+- wherever both drew: B and the lighting rows' lanes y and z (the room
+  rig's slots 1 and 2) are equal;
+- the whole lighting rows only where the point-light slots are equal (the
+  slots' sway follows rand() in 001D7C30; so far they differ in every
+  snapshot, and the check says how many rows it compared);
+- in the camera-exact snapshots (10, 14): the owners that ran, their byte
+  counts, the clip pass and the position rows (node x VP) are equal.
+
+Measured (full route): 08: 3 units drawn in both; 10: 2 (the door and the
+truck), camera exact, positions equal; 11: 1; 12: 0; 13: 8; 14: 0 (all
+culled, as in the capture).
+
 ## Adding a phase (the contract for WP-4 onward)
 
 In the commit that makes a phase's original owners live:

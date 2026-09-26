@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "em_model.h"
 #include "game/em_actor_collision.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
@@ -18,6 +17,7 @@
 #include "game/em_drum_original.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_owner_draw_original.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_pad_actuator.h"
@@ -33,7 +33,6 @@
 enum {
     BOX_MAX = 10,                 /* four crates, two drums, the truck and the door */
     BONE_SLOTS = EM_SLG_BONE_SLOTS,
-    DRAW_BONES = 4,
     RATTLE_ROWS = 7
 };
 #define CRATE_CALLBACK 0x001551B0u
@@ -60,20 +59,10 @@ typedef struct {
     EmOwnerServicesOwner view;  /* +0x09, +0x0C, +0x44, +0x60, +0xD0, +0x110 */
     uint32_t method;      /* +0x4C: 001CA5F0 kind 0 = 001CAA00 */
     int drawn;            /* +0x4C ran in the last owner call */
-    float palette[DRAW_BONES * 16];
     EmActorPool *pool;
     EmSceneState *scene;
     int freed;
 } Box;
-
-/* A box's mesh: the legacy actor-draw EMDL (the P1/P2 object kernel stays
- * with RENDER, docs/OWNER_DRAW.md). */
-typedef struct {
-    int tried;
-    EmModel model;
-    EmGfxMesh *mesh;
-    float base[DRAW_BONES * 16];
-} BoxMesh;
 
 static struct {
     Box box[BOX_MAX];
@@ -100,7 +89,6 @@ static struct {
     int tables_tried, tables_loaded;
     float rattle[RATTLE_ROWS][4][3];
     float speed[4], lift[4];
-    BoxMesh crate_mesh, drum_mesh, truck_mesh;
     /* 0x700031F0: set to 1 by the truck's carry (00825014), cleared by the
      * player stage 0015BCF0 at its start, ORed into the camera block's +0x8B
      * by the camera frame 0018B9C0 (em_camera_live.c). */
@@ -188,56 +176,6 @@ static int load_tables(void)
     }
     S.tables_loaded = 1;
     return 0;
-}
-
-/* The legacy actor-draw mesh of a box kind: the scene's own
- * props/enemy_crate.emdl or assets/enemy_crate.emdl for the crates,
- * assets/enemy_egg.emdl for the drums (the paths em_enemy.c loads), and the
- * truck's props/area_truck.emdl (per-area model 9, the legacy static truck's
- * mesh). */
-static BoxMesh *mesh_of(const Box *b)
-{
-    return b->truck ? &S.truck_mesh : b->drum ? &S.drum_mesh : &S.crate_mesh;
-}
-
-static BoxMesh *mesh_for(const Box *b)
-{
-    BoxMesh *m = mesh_of(b);
-    if (m->mesh) return m;
-    if (m->tried) return NULL;
-    m->tried = 1;
-    static const char *const crate_paths[] = {"assets/scene_snow/props/enemy_crate.emdl",
-                                              "assets/enemy_crate.emdl"};
-    static const char *const drum_paths[] = {"assets/enemy_egg.emdl"};
-    static const char *const truck_paths[] = {EM_AREA11_TRUCK_MESH_PATH};
-    const int drum = b->drum;
-    const char *const *paths = b->truck ? truck_paths : drum ? drum_paths : crate_paths;
-    size_t count = b->truck || drum ? 1 : 2;
-    for (size_t i = 0; i < count; ++i) {
-        FILE *probe = fopen(paths[i], "rb");
-        if (!probe) continue;
-        fclose(probe);
-        if (em_model_load(&m->model, paths[i]) != 0) continue;
-        if (m->model.bone_count == 0 || m->model.bone_count > DRAW_BONES) {
-            em_model_free(&m->model);
-            continue;
-        }
-        EmGfx *gfx = em_frame_gfx();
-        m->mesh = gfx ? em_gfx_mesh_create(gfx, m->model.verts, m->model.vert_count, m->model.indices,
-                                           m->model.index_count, (const EmGfxTexDesc *)m->model.texs,
-                                           m->model.tex_count, m->model.texels, m->model.flags)
-                      : NULL;
-        if (!m->mesh) {
-            em_model_free(&m->model);
-            continue;
-        }
-        em_model_palette_at(&m->model, 0, 0.0, m->base);
-        return m;
-    }
-    fprintf(stderr, "em_area11 boxes: no %s mesh; the %s not drawn\n",
-            b->truck ? EM_AREA11_TRUCK_MESH_PATH : drum ? "assets/enemy_egg.emdl" : "enemy_crate.emdl",
-            b->truck ? "truck is" : drum ? "drums are" : "crates are");
-    return NULL;
 }
 
 /* ------------------------------------------- owner services workers */
@@ -430,6 +368,11 @@ static void view_sync(Box *b)
     const EmActor *a = b->actor;
     EmOwnerServicesOwner *v = &b->view;
     v->cls = a->cls;
+    /* 001CAA00 / 001C7420 / 001D89D0 read +0x90, +0x94 and +0x98 (the
+     * record's canonical bytes; 001AFA90 wrote 0, -1 and 0). */
+    v->attachment = a->w90;
+    v->collapsed_bone = a->h94;
+    v->pose_bone = a->b98;
     v->model_id = a->param;
     v->flags2 = a->flags2;
     memcpy(v->scale, a->f60, sizeof v->scale);
@@ -527,28 +470,18 @@ static int h_bone_matrix(void *ctx, const float world[16])
     return 0;
 }
 
-/* +0x4C: 001CAA00, drawn through the actor draw chain as the legacy crates
- * and drums were: the whole rigid EMDL (its rest palette carries the
- * per-node offsets) placed by the owner's root bone matrix (bone slot 0's
- * +0x90, which 001C9610 / the bone_matrix worker wrote), palette i = that
- * matrix times rest node i. */
+/* +0x4C: 001CAA00 (em_owner_draw_live): the original unit over the owner's
+ * bone world matrices (bone slot +0x90, which 001C9610 / the bone_matrix
+ * worker wrote), drawn by the object-unit renderer at the frame's end. */
 static int h_draw(void *ctx)
 {
     Box *b = ctx;
     if (b->method != METHOD_001CAA00) return report("+0x4C is not 001CAA00");
-    BoxMesh *m = mesh_for(b);
-    if (!m) return 0;
-    const EmOwnerBone *root = b->view.bone_count ? b->view.bone[0] : NULL;
-    if (!root) return report("+0x4C without a bone slot");
-    const float *w = root->world;
-    for (uint32_t i = 0; i < m->model.bone_count; ++i) {
-        const float *base = m->base + 16 * i;
-        float *out = b->palette + 16 * i;
-        for (unsigned col = 0; col < 4; ++col)
-            for (unsigned row = 0; row < 4; ++row)
-                out[col * 4 + row] = w[0 * 4 + row] * base[col * 4 + 0] + w[1 * 4 + row] * base[col * 4 + 1] +
-                                     w[2 * 4 + row] * base[col * 4 + 2] + w[3 * 4 + row] * base[col * 4 + 3];
-    }
+    view_sync(b);
+    uint32_t rgb[4];
+    memcpy(rgb, b->actor->f80, sizeof rgb);   /* +0x80..+0x8F */
+    if (em_owner_draw_live_001CAA00(&S.bank, &b->view, rgb, em_actor_pool_address(b->pool, b->actor)) < 0)
+        return report("001CAA00 faulted");
     b->drawn = 1;
     return 0;
 }
@@ -724,6 +657,36 @@ int em_area11_boxes_door_001B0EA0(EmActor *actor, int32_t *ret)
     actor->bones = v->bones_held;    /* +0x09 */
     actor->u0A[2] = v->bone_count;   /* +0x0C */
     *ret = r;
+    return 0;
+}
+
+int em_area11_boxes_door_draw(EmActor *actor, uint32_t record, const float *nodes, uint32_t count)
+{
+    if (!actor || !nodes || actor->callback != DOOR_CALLBACK) return -1;
+    Box *b = NULL;
+    for (unsigned i = 0; i < BOX_MAX && !b; ++i)
+        if (S.box[i].actor == actor && S.box[i].generation == actor->generation && !S.box[i].freed &&
+            S.box[i].door)
+            b = &S.box[i];
+    if (!b) return report("the door's +0x4C before its 001B0EA0");
+    EmOwnerServicesOwner *v = &b->view;
+    if (v->bone_count != count) return report("the door's node count differs from its model's");
+    /* The door runtime's palette is the nodes' +0x90 (the door runtime test
+     * compares all 32 words with the first-control capture): the slots the
+     * draw reads. */
+    for (uint32_t k = 0; k < count; ++k) {
+        if (!v->bone[k]) return report("the door's +0x4C without its bone slots");
+        memcpy(v->bone[k]->world, nodes + 16u * k, sizeof v->bone[k]->world);
+    }
+    v->cls = actor->cls;
+    v->kind = actor->model;
+    v->attachment = actor->w90;
+    v->collapsed_bone = actor->h94;
+    v->pose_bone = actor->b98;
+    memcpy(v->pos, actor->pos, sizeof v->pos);
+    uint32_t rgb[4];
+    memcpy(rgb, actor->f80, sizeof rgb);        /* +0x80..+0x8F */
+    if (em_owner_draw_live_001CAA00(&S.bank, v, rgb, record) < 0) return report("001CAA00 faulted (the door)");
     return 0;
 }
 
@@ -1087,27 +1050,9 @@ int em_area11_boxes_draw_count(void)
     return S.draw_count;
 }
 
-int em_area11_boxes_draw(int i, EmGfxMesh **mesh, const float **palette, uint32_t *bone_count)
-{
-    if (i < 0 || i >= S.draw_count) return 0;
-    const Box *b = &S.box[S.draw_order[i]];
-    const BoxMesh *m = mesh_of(b);
-    if (!m->mesh) return 0;
-    *mesh = m->mesh;
-    *palette = b->palette;
-    *bone_count = m->model.bone_count;
-    return 1;
-}
 
-void em_area11_boxes_shutdown(EmGfx *gfx)
+void em_area11_boxes_shutdown(void)
 {
-    BoxMesh *meshes[3] = {&S.crate_mesh, &S.drum_mesh, &S.truck_mesh};
-    for (unsigned i = 0; i < 3; ++i) {
-        if (meshes[i]->mesh) {
-            em_gfx_mesh_destroy(gfx, meshes[i]->mesh);
-            em_model_free(&meshes[i]->model);
-        }
-        memset(meshes[i], 0, sizeof *meshes[i]);
-    }
     S.draw_count = 0;
+    em_owner_draw_live_reset();
 }

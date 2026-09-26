@@ -2381,6 +2381,7 @@ class Metal:
                         str(ROOT/'src/platform/mac/em_platform_mac.m'), str(ROOT/'src/em_model.c'),
                         str(ROOT/'src/game/em_packet_chain_original.c'),
                         str(ROOT/'src/game/em_status_ui_leftovers.c'),
+                        str(ROOT/'src/game/em_object_unit.c'),
                         '-framework', 'Cocoa', '-framework', 'Metal', '-framework', 'QuartzCore',
                         '-o', str(lib_path)], check=True)
         lib = self.lib = C.CDLL(str(lib_path))

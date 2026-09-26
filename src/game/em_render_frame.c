@@ -58,6 +58,7 @@
 #include "game/em_area11_interaction_host.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
+#include "game/em_owner_draw_live.h"
 
 /* See em_render_001D1EA0. */
 static int s_request_status_frame;
@@ -178,30 +179,14 @@ void render_chain_build(void)
             g.chain_len++;
         }
     }
-    /* AREA11 crates, drums (census L25) and the truck (L23): the original
-     * owners whose +0x4C (001CAA00) ran in their last owner call, at their
-     * bone matrices (em_area11_boxes; the object kernel itself stays with
-     * RENDER). */
-    for (int i = 0, n = em_area11_boxes_draw_count(); i < n; i++) {
-        if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
-        ChainDraw *cd = &g.chain[g.chain_len];
-        if (em_area11_boxes_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
-            cd->tint = NULL;
-            g.chain_len++;
-        }
-    }
-    /* The AREA11 fence door 001BC350 (census L18): its +0x4C ran in its last
-     * owner call, at its runtime's node palette (em_area11_door). */
-    if (g.chain_len < CHAIN_CAP) {
-        ChainDraw *cd = &g.chain[g.chain_len];
-        if (em_area11_door_draw(&cd->mesh, &cd->palette, &cd->bone_count)) {
-            cd->tint = NULL;
-            cd->anchor_bone = 0;
-            cd->cam_fill = 0;
-            cd->face = 0;
-            g.chain_len++;
-        }
-    }
+    /* AREA11 crates, drums (census L25), the truck (L23) and the fence door
+     * (L18): their +0x4C
+     * (001CAA00) built the original units during the owner walk
+     * (em_owner_draw_live); frame_close_out draws them. The count keeps the
+     * EM_BOX_DUMP hook at its frame position. */
+    (void)em_area11_boxes_draw_count();
+    /* The AREA11 fence door 001BC350 (census L18) builds its unit the same
+     * way (em_area11_door h_draw -> em_area11_boxes_door_draw). */
     /* AREA11 Roger 008237E0 and the equipment node 001C5C90 (census L22):
      * the owners whose +0x4C (001CAA00) ran in their last owner call, at
      * their node world matrices (em_area11_roger). */
@@ -708,6 +693,13 @@ void frame_close_out(void)
                 em_gfx_draw_skinned(gfx, cd->mesh, viewproj,
                                     cd->palette, cd->bone_count);
         }
+        /* The owner units the walk built this frame (001CAA00 of the
+         * crates, drums, truck and fence door: em_owner_draw_live), through the object
+         * kernel and its clip pass (em_gfx_object_unit). The frame's fog is
+         * set above; the units carry their own lighting (001D89D0). */
+        em_gfx_char_rig(gfx, NULL);
+        if (em_owner_draw_live_flush(gfx) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
         /* Original opening palettes already contain world placement.
          * They replace the ordinary player pose only while the script
          * owns the actors. The same scene lighting applies to each. */

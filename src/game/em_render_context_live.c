@@ -11,6 +11,7 @@
 #include "game/em_effect_original.h"
 #include "game/em_frame_render_heads.h"
 #include "game/em_load_veil_particles.h"
+#include "game/em_skin_arena_init.h"
 #include "game/em_packet_chain_original.h"
 #include "game/em_player_equipment.h"
 #include "game/em_player_stage_workers.h"
@@ -33,7 +34,7 @@ typedef uint32_t u32;
 #define CTX_END     0x00817240u   /* context, GS blocks, skin records */
 #define D_241010    0x00241010u
 #define D_250F30    0x00250F30u
-#define D_250F30_SIZE 0x2240u
+#define D_250F30_SIZE 0x2250u   /* through D_00253170 (001D8340's fold seed) */
 #define D_26E510    0x0026E510u
 #define D_26E850    0x0026E850u
 #define D_275670    0x00275670u
@@ -243,6 +244,13 @@ static int w_tan(void *ctx, uint32_t x, uint32_t *result)
 {
     (void)ctx;
     return R.host.w_0011E398 ? R.host.w_0011E398(R.host.ctx, x, result) : -1;
+}
+
+int em_rcl_skin_arena_init(void);
+static int w_skin_arena_init(void *ctx)
+{
+    (void)ctx;
+    return em_rcl_skin_arena_init();
 }
 
 static int w_001D7C30(void *ctx)
@@ -460,7 +468,7 @@ static void wire(void)
     f->w_001D5370 = unbound;
     f->w_0011E748 = w_sqrt;
     f->w_0011E398 = w_tan;
-    f->w_skin_arena_init = unbound;   /* 001D19E0 (not bound: section 8) */
+    f->w_skin_arena_init = w_skin_arena_init;   /* 001D19E0 itself is not bound (section 8) */
     f->w_001D9720 = unbound;
     f->w_001DD940 = unbound;
     f->w_001E0C30 = unbound;
@@ -731,6 +739,36 @@ int em_rcl_frame_matrices(uint32_t p[16], uint32_t clip[16], uint32_t k[16])
 EmPacketChain *em_rcl_packet_chain(void)
 {
     return R.loaded && !R.fault ? &R.pc : NULL;
+}
+
+uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)
+{
+    uint8_t *p = R.loaded ? own(address, size) : NULL;
+    if (!p) return NULL;
+    for (unsigned x = 0; x < X_COUNT; ++x)
+        if (R.ext[x] && p >= R.ext[x] && p < R.ext[x] + k_external[x].size) return NULL;
+    if (p >= s_d241010 && p < s_d241010 + sizeof s_d241010) return NULL;
+    if (p >= s_d26E510 && p < s_d26E510 + sizeof s_d26E510) return NULL;
+    if (p >= s_d26E850 && p < s_d26E850 + sizeof s_d26E850) return NULL;
+    return p;
+}
+
+int em_rcl_skin_arena_init(void)
+{
+    if (!R.loaded || R.fault) return -1;
+    uint8_t *records = own(EM_SKIN_ARENA_RECORDS, 0x100u * EM_SKIN_ARENA_COUNT);
+    const uint8_t *source = own(EM_SKIN_ARENA_SOURCE, 0x80u * EM_SKIN_ARENA_COUNT);
+    if (!records || !source) return fail(0x001D2E20u, "skin arena views");
+    em_skin_arena_init_001D2E20(records, source);
+    return 0;
+}
+
+int em_rcl_001D1F80(int32_t a0, int32_t a1, int32_t a2)
+{
+    if (!R.bound || R.fault) return -1;
+    if (em_load_veil_particles_001D1F80(&R.veil, a0, a1, a2) < 0)
+        return fail(0x001D1F80u, "001D1F80 fault");
+    return 0;
 }
 
 int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size)

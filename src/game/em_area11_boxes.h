@@ -20,10 +20,11 @@
  *   0019AB20      em_actor_collision_owner_probe over the collision world
  *   001A2370      em_collision_world_retransform_001A2370
  *   00122BB8      em_random_next; 001FBD50 em_sfx_play_at
- *   +0x4C         001CAA00 (the only method 001CA6E0 installs): the node is
- *                 drawn this frame through the port's actor draw chain, the
- *                 legacy crate / drum EMDL meshes at the owner's bone world
- *                 matrices (the P1/P2 object kernel stays with RENDER)
+ *   +0x4C         001CAA00 (the only method 001CA6E0 installs):
+ *                 em_owner_draw_live builds the original unit (001CA7B0,
+ *                 001C7420 with 001D89D0, 001D1F80, 001CA940 over the bank)
+ *                 and the object-unit renderer draws it at the frame's end
+ *                 (docs/OWNER_DRAW.md "Binding")
  *
  * The workers reached only after a damage write (+0x36; no live code
  * writes it: CRATES_DRUMS_ORIGINAL.md "Status" item 7) and the nest-group
@@ -41,7 +42,7 @@
  * matrix, +0x2DC..+0x2EC; the fall counter +0x28, +0xD0 and the velocity
  * scratch 0x700038A0 live in the slot. Workers: 001B0FD0 / 001C6380 as
  * above, the bone-0 pose 00102958, the hull 001A2370 and its AABB header,
- * 001B1B70, +0x4C 001CAA00 (props/area_truck.emdl at the bone matrix),
+ * 001B1B70, +0x4C 001CAA00 (em_owner_draw_live, as above),
  * 001B1E20 (em_pad_actuator), 001FBD50 (em_sfx_play_at at the truck's
  * +0xB0) and 001AFC10. Its effect spawns 001EFD20 (0x80000049) run the
  * effect binder (em_effects_live, census L26), and are counted
@@ -81,7 +82,6 @@ int em_area11_boxes_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
 /* The truck 00823FF0 and its trigger 008251E0 (census L23): one owner call
  * each in the pool walk. 1 allocated, 0 the node freed itself, -1 a fault
  * (a line on stderr names it). */
-#define EM_AREA11_TRUCK_MESH_PATH "assets/scene_snow/props/area_truck.emdl"
 int em_area11_boxes_truck_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
 int em_area11_boxes_trigger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
 /* The truck record's owner fields for the tick log (the route rows'
@@ -112,13 +112,18 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor);
  * 0 allocated). 0, or -1 (reported). */
 int em_area11_boxes_door_001B0EA0(EmActor *actor, int32_t *ret);
 
-/* The actor draw chain: the boxes whose +0x4C ran in their last owner call.
- * em_area11_boxes_draw returns 1 and the mesh, palette and bone count of
- * draw i, or 0. */
-int em_area11_boxes_draw_count(void);
-int em_area11_boxes_draw(int i, EmGfxMesh **mesh, const float **palette, uint32_t *bone_count);
+/* The fence door's +0x4C (001CAA00; em_area11_door.c): `nodes` = its
+ * runtime's node +0x90 matrices (count of them, 16 floats each) go to its
+ * bone slots, then em_owner_draw_live builds its unit (`record` = the
+ * door's original record address, the log's key). 0, or -1 (reported). */
+int em_area11_boxes_door_draw(EmActor *actor, uint32_t record, const float *nodes, uint32_t count);
 
-/* Free the meshes and the model bank (scene unload). */
-void em_area11_boxes_shutdown(EmGfx *gfx);
+/* The boxes whose +0x4C ran in their last owner call (their units are
+ * em_owner_draw_live's); also writes the EM_BOX_DUMP record dump when that
+ * variable is set. Called once per frame by the render chain build. */
+int em_area11_boxes_draw_count(void);
+
+/* Scene unload: the frame's draw state and the kept units. */
+void em_area11_boxes_shutdown(void);
 
 #endif

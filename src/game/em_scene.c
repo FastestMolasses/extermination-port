@@ -369,9 +369,9 @@ void scene_manifest_load(void)
         } else if (strncmp(line, "truck ", 6) == 0) {
             /* AREA-11 truck (placement record 16): its original owner
              * 00823FF0 places and draws it from its own record
-             * (em_area11_boxes, census L23; props/area_truck.emdl at the
-             * owner's bone matrix). The manifest line's placement is not
-             * read. */
+             * (em_area11_boxes, census L23; its +0x4C builds the original
+             * unit of the bank's model 9, em_owner_draw_live). The manifest
+             * line's placement is not read. */
         } else if ((gn = sscanf(line, "grate %255s %f %f %f %f",
                                  name, &x, &y, &z, &yaw)) >= 4) {
             /* Legacy manifest name for AREA11's static power panel,
@@ -762,9 +762,9 @@ void scene_unload(EmGfx *gfx)
     em_door_scene_clear(gfx);   /* keeps the in-flight transit lock */
     em_enemy_shutdown(gfx);
     em_enemy_reset();
-    em_area11_boxes_shutdown(gfx); /* the crate / drum meshes (census L25) */
+    em_area11_boxes_shutdown(); /* the boxes' kept object units (OWNER_DRAW.md) */
     em_area11_roger_shutdown(gfx); /* Roger's and the equipment's meshes (census L22) */
-    em_area11_door_shutdown(gfx);  /* the fence door's mesh and resources (census L18) */
+    em_area11_door_shutdown();     /* the fence door's resources (census L18) */
     em_pickup_scene_clear(gfx); /* instances only — the inventory and
                                  * the taken-bit set survive (engine
                                  * globals; that survival IS the pickup

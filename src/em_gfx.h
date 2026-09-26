@@ -837,6 +837,73 @@ int em_gfx_shadow_receiver_end(EmGfx *gfx);
  * (1984 + x, 1984 + y)). Returns 0, or -1 when no silhouette was drawn. */
 int em_gfx_shadow_target_read(EmGfx *gfx, uint8_t *rgba);
 
+/* --- Object units: the VU1 object kernel, its clip pass, the face morph -- */
+
+/* One draw unit (docs/OWNER_DRAW.md sections 3 and 7) as the VU1 receives
+ * it: the pieces its DMA tags upload, taken from the unit itself
+ * (src/game/em_object_unit.h parses a unit into this form). A 001CA990 unit
+ * CALLs the object kernel 0x0023C750 (and, when `clip`, the clip program
+ * 0x002354A0 over the same blocks after it); a 001D3E40 face unit CALLs
+ * the face morph program 0x0023C480. The backend runs the ORIGINAL
+ * programs' translations on the CPU (src/game/em_vu1_object_kernel.h,
+ * em_vu1_object_clip.h, em_vu1_face_morph.h; em_object_unit_run) and
+ * rasterizes exactly the triangles they kick, in kick order:
+ *   position  the kicked XYZF2 X, Y (GS 12.4, field window XYOFFSET (1792,
+ *             1936)) mapped to NDC as em_background_gs_ndc does, and Z (24
+ *             bits) turned into the port's depth for the same view depth;
+ *   colour    the kicked RGBAQ bytes, Gouraud (screen-linear);
+ *   texture   S, T, Q screen-linear with the per-pixel divide (GS STQ),
+ *             the vertex's TEX0 through em_gfx_object_texture, GS bilinear
+ *             (TEX1 0x60) with REPEAT (CLAMP 0), TFX HIGHLIGHT with TCC 1:
+ *             Cv = min((Ct * Cf >> 7) + Af, 255), Av = min(At + Af, 255);
+ *   test      TEST 0x5000D: alpha GREATER than 0 (fail KEEP), depth GEQUAL
+ *             (the port's less-equal), depth written;
+ *   fog       F screen-linear, Cv = (F * Cv + (255 - F) * FOGCOL) >> 8 with
+ *             the frame's FOGCOL (em_gfx_fog / em_gfx_fog_coefficients);
+ *   blending  none (PRIM 0x03C / 0x03B, ABE 0); no face culling.
+ * The GS state these assume is the class-0 set the unit's REF 9 names
+ * (001D1F80(0, 1, 0): D_00815360, set 1 class 0 of 001D0F20's boot packets,
+ * whose bytes are that set in every AREA11 capture); em_object_unit_parse
+ * refuses a unit whose REF names another class.
+ *
+ * Returns 0, or -1 when it cannot draw exactly what the original draws
+ * (outside a frame, a missing or malformed piece, a kernel fault, a GIF
+ * template other than PRIM 0x03C, a TEX0 with no registered texture, no
+ * frame fog while a vertex has F < 255); the reason is printed once per
+ * reason. There is no stand-in: a caller turns -1 into its fault. */
+#define EM_GFX_OBJECT_KERNEL 0x0023C750u   /* the object kernel CALL target */
+#define EM_GFX_OBJECT_FACE   0x0023C480u   /* the face morph program CALL target */
+#define EM_GFX_OBJECT_TEX_MAX 512u         /* registered object textures */
+typedef struct {
+    uint32_t program;                /* EM_GFX_OBJECT_KERNEL or EM_GFX_OBJECT_FACE */
+    const uint32_t *color;           /* 16 words: dmem 1013..1016 (the colour CNT) */
+    const uint32_t *nodes;           /* 32 words per node: dmem 0 .. 8n-1 */
+    uint32_t node_count;
+    const uint32_t *weights;         /* face: 8 words, dmem 1011..1012 (001CB2C0's
+                                        morph weights); NULL for the object kernel */
+    const uint32_t *constants;       /* 28 words: dmem 1017..1023 (the skin record's
+                                        UNPACK; dmem 1021 already replaced by the
+                                        fog-off REF 2 row when the unit carries it) */
+    const uint32_t *clip_constants;  /* skin record 1 (28 words, same rule), or NULL */
+    const uint8_t *blocks;           /* the model REF target (model + 0x40, or the
+                                        face resource + 0x40): block_count blocks of
+                                        0x82 qwords (object) or 0x163 (face), VIF
+                                        codes included */
+    uint32_t block_count;
+    uint32_t clip;                   /* object only: 001CA7B0 flags & 1, the
+                                        0x002354A0 pass runs */
+} EmGfxObjectUnit;
+int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
+
+/* The TEX0 -> texture binding for object units. `tex0` is the register
+ * value with CLD (bits 61..63) ignored; `rgba` holds width x height texels,
+ * rows top-down, each the CLUT entry's four bytes as GS memory holds them
+ * (R, G, B and the GS alpha 0..0xFF, where 0x80 is 1.0: NOT rescaled). The
+ * sizes must be 2^TW x 2^TH of the TEX0. Registering a TEX0 again replaces
+ * its texture. Returns 0, or -1 (bad input, GPU allocation failure). */
+int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
+                          uint32_t width, uint32_t height);
+
 /* --- last skinned palette (the published bone matrices) ---------------- */
 
 /* The engine PUBLISHES bone world matrices for equipment consumers: the

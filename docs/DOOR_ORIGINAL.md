@@ -64,7 +64,7 @@ the advance flags; the door id +0x34 lives in the binder). Its hooks:
 | anim_advance_time / anim_clip_init / 001C68C0 | the runtime's source-bank playback and pose (`em_door_original_runtime_advance` / `_animation` / `_place`) |
 | 001BC150 | `em_door_transit_commit` with 001AEDE0(4, 0): B8 = 2, B7 = the destination row's side byte |
 | 001B1B30 | `em_sdf_001B1B30`: 001B1630 over the camera (`em_area11_interaction_host_visible_001B1630`), 001B1B70 onto the collision world's lists (class 0x85: the interactive list) |
-| +0x4C (001CAA00) | the actor draw chain draws the runtime's model at its node palette (`em_area11_door_draw`) |
+| +0x4C (001CAA00) | `em_area11_boxes_door_draw`: the runtime's node palette (the nodes' +0x90) goes to the door's bone slots, then `em_owner_draw_live_001CAA00` builds the original unit of the bank's model 0x14, drawn through `em_gfx_object_unit` (OWNER_DRAW.md sections 6..10) |
 | 001AFC10 | the pool free |
 
 The Use scan (00184BA0) sees the published door through the interaction
@@ -102,7 +102,7 @@ weather and title nodes) and the follow camera from the re-place.
   subtype 3.
 - The door id's bit 7 (001B0C00, a whole-area change) faults: the exported
   row is AREA11's room move.
-- The door's bone slots (+0x110) hold no pose: the runtime's palette is the
-  pose the draw uses (no port reader of the slots exists).
-- The draw is the port's actor draw of the model at the palette, as for the
-  boxes; the VU1 object kernel stays with RENDER (OWNER_DRAW.md).
+- The door's bone slots (+0x110) receive the runtime's palette at each
+  +0x4C (the nodes' +0x90, which the runtime test compares with the
+  first-control capture word for word); only the draw reads them. The
+  runtime's model is no longer uploaded as a mesh.

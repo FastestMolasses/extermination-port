@@ -67,7 +67,7 @@ SOURCES = ['em_render_context_live', 'em_frame_render_heads', 'em_render_context
            'em_owner_services_original', 'em_effect_original', 'em_player_equipment',
            'em_player_stage_workers', 'em_render_verify_rest', 'em_sdk_math_original', 'em_sdk_soft_float']
 
-OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2240),
+OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2250),
          (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x241010, 8), (0x26E510, 16),
          (0x26E850, 16))
 EXTERNAL = ((0x810610, 0x40), (0x8105E0, 0x10), (0x8106B0, 0x48), (0x810700, 3), (0x8101E4, 1),

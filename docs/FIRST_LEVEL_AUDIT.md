@@ -272,7 +272,7 @@ Original AREA11 inventory, for reference. Placement table 0x82A3C0 (21 records) 
 |---|---|---|
 | r0 | room-move door 001BC350 | the original owner since census L18 (em_area11_door: 001BC350, 001BBE40, the ELF program on the AREA11 script host, 001BC150, state 4's re-place) |
 | r1/r2 | fan pair 00827630 (hazard, AREA11 exit) | fabricated spin |
-| r3–6 | crates 001551B0 | since census L25: the original owner (em_area11_boxes.c over em_crate_original; records equal route 04) |
+| r3–6 | crates 001551B0 | since census L25: the original owner (em_area11_boxes.c over em_crate_original; records equal route 04); drawn by their own 001CAA00 units since the object-unit step (OWNER_DRAW.md) |
 | r7 | flame 008235F0 | visuals verified |
 | r8/r9 | Roger 008237E0 + equipment 001C5C90 | unwired |
 | r10 | opening controller 00823E80 | live |
@@ -537,7 +537,9 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   the indicator children run per node (docs/CENSUS_UNVERIFIED.md): the
   terminal arrow turns green once powered, as in route 04, and every child
   draws its 001F54E0 in walk order. Still open in this area: the object-unit
-  draw P1/P2 (docs/OWNER_DRAW.md), the player drop shadow (docs/SHADOW_ORIGINAL.md
+  draw P1/P2 for the owners not on it yet (docs/OWNER_DRAW.md section 11;
+  the crates, drums, truck and fence door are on it since the object-unit
+  step below), the player drop shadow (docs/SHADOW_ORIGINAL.md
   binding; blocked on the 0015BF90 route's 001CE300 / 001CF470), the
   canonical render context (L32 / L30), the BATTERY page draw (needs a
   record-level 002149F0), the mode-3/4 presenters (their data containers'
@@ -570,6 +572,32 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   section 1). Still open here: a renderer stage that draws the effect
   chains (the VU1 programs of table 0x231770 / 0x233290) and the equipment
   nodes' own 001CAA00 draw.
+- **Object-unit step (2026-09-25, OWNER_DRAW.md P1/P2; docs/OWNER_DRAW.md
+  sections 6..12):** the crates, drums, truck and fence door draw the
+  original's own units. Their +0x4C runs 001CAA00 live
+  (`em_owner_draw_live`: 001CA7B0, 001D8C20, 001C7420 with the bit-exact
+  001D89D0, 001D1F80 and 001CA940 over the AREA11 model bank, into the
+  render context's packet arena), and `em_gfx_object_unit` runs the object
+  kernel 0023C750 and its clip pass 002354A0 on the CPU
+  (`em_object_unit_run`) and rasterizes exactly the triangles they kick in
+  GS class 0 (HIGHLIGHT, bilinear, REPEAT, alpha test, fog), with the
+  textures decoded from GS memory (`tools/export_object_textures.py`: 137
+  TEX0, identical in all 15 route captures). Evidence: every triangle of
+  the 119 captured owner units and of the 60 captured face units equals the
+  original VU1 microcode's (tools/test_object_unit_reference.py); the Metal
+  output equals a model of the documented GS pixel path on 99.7 % of the
+  interior pixels of beat 03's 15 units (tools/test_object_unit_gpu.py); live, the
+  units' colour matrix and rig lighting lanes equal the route snapshots',
+  and in the camera-exact beat 10 so do the drawn set and the position rows
+  (LEVEL_SMOKE.md check_owner_units). skin_arena_init (001D2E20) runs at the
+  area load (the skin records' templates). Retired: the crate / drum /
+  truck EMDL meshes and the fence door's mesh upload. Still open: the
+  player (its model export, owner view and its equipment; em_weapon's bone
+  lookup), Roger (001CB3C0's face builders; the face program itself runs),
+  the legacy-drawn owners (elevator, panel, pickups, fan, husks, parachute,
+  001C4820, the indicator children) until their owners are live, and
+  Metal's rasterization (not the GS DDA; no GS framebuffer exists in the
+  captures to compare with). OWNER_DRAW.md sections 11 and 12.
 
 ### WP-14 Audio
 - **Scope:**

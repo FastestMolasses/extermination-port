@@ -164,7 +164,7 @@ Workers:
 | `hull` | `em_collision_world_retransform_001A2370` (cell uid 14) |
 | `hull_bounds` | `em_actor_collision_owner_hull_bounds` over the collision world |
 | `publish` | `em_collision_world_publish_001B1B70` (class 4: the player's floor service finds the truck's cell and stands on the record) |
-| `draw` | +0x4C 001CAA00: `assets/scene_snow/props/area_truck.emdl` at bone slot 0's matrix through the actor draw chain (the object kernel stays with RENDER, as for the boxes) |
+| `draw` | +0x4C 001CAA00: `em_owner_draw_live_001CAA00`, the original unit of the bank's model 0x09 at bone slot 0's +0x90, drawn through `em_gfx_object_unit` (OWNER_DRAW.md sections 6..10; the legacy `props/area_truck.emdl` is no longer loaded for it) |
 | `rumble` | `em_pad_actuator_001B1E20(effect, 0)`: 001B1E20 over the D_0024D6F0 records (`assets/pad_rumble.emrg`, `tools/export_pad_tables.py`), 001B61C0 on the pad block D_00810E40, the libpad write 00111018 at the platform boundary (`em_gamepad_rumble`); main-loop step I (001B5B70) counts the duration down and 001B6250 stops it |
 | `effect` | 001EFD20 over the live effect binder (em_effects_live, census L26, EFFECT_MANAGER.md section 8); `em_area11_boxes_effect_spawns` counts the calls; route 08's eight puffs equal the snapshot (LEVEL_SMOKE.md check_effects) |
 | `sound` | `em_sfx_play_at(id, +0xB0, radius)` (its result is not read); 0x454 / 0x455 are not in the exported AREA11 registry (WP-14), so they are silent |

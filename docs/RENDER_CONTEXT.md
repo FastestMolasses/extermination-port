@@ -284,8 +284,9 @@ uses a0 = 0).
   001CB800 are not in this lane.
 
 **001D19E0**, render init.
-- Today it is the no-effect binding `UM_001D19E0` in
-  `em_scene_bindings.c`.
+- Today its binding `um_001D19E0` in `em_scene_bindings.c` runs its first
+  callee skin_arena_init (`em_rcl_skin_arena_init`, section 8.2) and reports
+  the rest as a no-effect binding (`UM_001D19E0`).
 - It calls 001DD940 (at 001D19F8), 001E0C30 (at 001D1A00) and 001E0CC0 (at
   001D1A80) among other callees.
 - Bind `em_render_context_001DD940`, `_001E0C30` and `_001E0CC0` at those
@@ -510,7 +511,7 @@ this lane and of lane L32 addresses, once, by original address:
 | 0x007635C0..0x0076B5BF | the chain table D_007635C0 (slot words, head words) |
 | 0x00811CC0..0x0081723F | the render context, the GS register blocks at D_00275674 (0x814220) and the 14 skin records at D_00816440 |
 | 0x70003A40..0x70003B3F, 0x70003B60 | the scratchpad the frame head copies P / K to, and the zoom copy |
-| .data | D_00241010 (8), D_00250F30..D_0025316F (the 001E2270 colour, D_002513E0, the room table D_00251C50), D_0026E510 (16), D_0026E850 (16), D_00275670..D_0027569F |
+| .data | D_00241010 (8), D_00250F30..D_0025317F (the 001E2270 colour, D_002513E0, the skin record templates D_002514D0..D_00251BCF, the room table D_00251C50, the fold seed D_00253170), D_0026E510 (16), D_0026E850 (16), D_00275670..D_0027569F |
 
 The .data comes from the user's ELF through `tools/export_render_context.py`
 (`assets/render_context.emrc`, verified byte for byte against the opening
@@ -544,6 +545,8 @@ that are not bound are bound to a fault.
 | 001DD950 | 001DD980's tail (the camera's 0018BC20 action 8 and 001B0460, the interaction host's and the script host's publications) | the EmInteractionProjection record in em_camera_live (removed) and its host-double quotient |
 | 0021B9A0 (0, 0, 0), 001D2830 (2, 0) | the script host's workers and the timeline's restores | the reported UM_0021B9A0 / UM_001D2830 of the script host |
 | the boot stores 001D25F0(480.0) and 001DEDE0 | em_rcl_init | nothing |
+| skin_arena_init (001D2E20; em_skin_arena_init.h): the 14 skin records' templates from D_002514D0 (both halves) | 001D19E0's first call, at the area load (`um_001D19E0` -> `em_rcl_skin_arena_init`) | nothing: the records' qwords 0..4 (the VIF codes and the GIF tags dmem 1017..1020 receive) were zero; 001D30A0 fills qwords 5..7 every frame. The object units REF them (OWNER_DRAW.md section 10); tools/test_object_unit_reference.py finds these templates in every capture's records |
+| 001D1F80 for the owner draw | `em_rcl_001D1F80` (em_owner_draw_live's 001CA990 worker, over the context's cursor words) | nothing |
 
 Readers of the one context:
 - **The native world pass** (frame_close_out) draws with the frame head's view
@@ -566,6 +569,14 @@ Readers of the one context:
 - **The zoom** readers (the status models' UI projection, the legacy camera's
   commit, the camera's native view) read +0x2468 (em_rcl_zoom).
 
+**Writers other than the lane modules.** The owner draw (em_owner_draw_live,
+OWNER_DRAW.md section 10) appends its units at the channel-0 cursor
+(context +0x10) in the packet arena and advances it, writes context +0x50
+(the CALL target) and +0x246C (001D8C20's mode), and reads the view, the
+planes +0x2410, +0x0C, +0x9C, +0x2380, 0x70003AC0, D_00251C50 and
+D_00253170, as the original's 001CAA00 does; `em_rcl_bytes_mut` hands out
+the writable owned ranges for that.
+
 ### 8.3 The boot, and what is not modelled from it
 
 The boot builder sub_EXTERMINATION (NEARMISS) is not translated. Two of its
@@ -586,7 +597,7 @@ dwords, the bytes packets leave as they were): the port's arena starts zero.
 |---|---|---|
 | 001C1D00 (001E0CF0, 001D5370) | 001D5370 reads the static-object bank *D_0028A5A0 (0x1516F40 in every AREA11 capture), which is not exported, and its callees 001D4FB0 / 001D4B20 / 001D4DA0 / 001D5BD0 build the static world's packets (renderer boundary to decide); 001E0CF0 calls the background channel 001E1E60 / 001E1AD0 (lane L31) | an export of the bank (it lies in the chunk15 concatenation at 0x304000; 0x48D000 bytes equal the captures from there) and the boundary decision; em_render_001C1D00 stays the stand-in |
 | 001D52E0 (001C1DC0's 001C1E70) | the same bank | reported (UM_001D52E0); its only reader is 001D5370 |
-| 001D19E0 | its callees skin_arena_init, 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows, 001D7BB0 is em_point_light's | a decision on the skin arena (the records 001D30A0 fills) |
+| 001D19E0 (except skin_arena_init, 8.2) | its callees 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows, 001D7BB0 is em_point_light's; 001DD940, 001E0C30, 001E0CC0 and the flag registrations are translated but not bound here | a decision on those boundary rows; then the whole of 001D19E0 through em_frh_001D19E0 |
 | 001D1EF0 and the status / teardown / load-veil 001D2830 calls | 001D2830(3, 1) sets flag 3, which the main loop's step V 001D2300 clears; 001D2300 is not bound, so the flag would stay set | 001D2300 (lane L31, em_background_gs) |
 | 001D2580 (step W) | stores the field bit D_00810E88 at +0x98; the port has no field model | the vblank field (MAIN_LOOP_AND_GAP.md) |
 | 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |

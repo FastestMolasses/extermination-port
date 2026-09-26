@@ -34,7 +34,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
-           src/game/em_owner_services_original.c src/game/em_owner_draw_original.c \
+           src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c \
            src/game/em_indicator_child.c src/game/em_effect_kinds.c \
            src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
            src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c src/game/em_area11_roger.c \
@@ -740,6 +740,25 @@ test-owner-draw:
 .PHONY: test-owner-draw-reference
 test-owner-draw-reference:
 	python3 tools/test_owner_draw_reference.py
+
+# The object-unit path (docs/OWNER_DRAW.md P1/P2): the parser / runner
+# fixture, and the captured owner units against the original VU1 microcode.
+.PHONY: test-object-unit
+test-object-unit:
+	mkdir -p build/object_unit && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/object_unit_test.c src/game/em_object_unit.c -o build/object_unit/object_unit_test && ./build/object_unit/object_unit_test
+
+.PHONY: test-object-unit-reference
+test-object-unit-reference:
+	python3 tools/test_object_unit_reference.py
+
+# The Metal pixel path of em_gfx_object_unit over captured units, headless.
+.PHONY: test-object-unit-gpu
+test-object-unit-gpu:
+	python3 tools/test_object_unit_gpu.py
+
+.PHONY: export-object-textures
+export-object-textures:
+	python3 tools/export_object_textures.py
 
 .PHONY: test-player-heading-record-reference
 test-player-heading-record-reference:

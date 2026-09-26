@@ -1,8 +1,9 @@
 # Actor lighting driver 001D89D0: bit-exact translation
 
-Date: 2026-09-24. Lane `light-001D89D0`. **Not bound into the frame.** The
-binding chain owns em_owner_services' worker table, the scene coordinator and
-the canonical storage; section 6 is the recipe for it.
+Date: 2026-09-24. Lane `light-001D89D0`. **Bound since 2026-09-25** as the
+`w_001D89D0` of the live owner draw (`em_owner_draw_live`, OWNER_DRAW.md
+section 10): the crates, drums, truck and fence door. Section 6 records how
+the recipe was followed.
 
 `em_owner_services_001C7420` asks its `w_001D89D0` worker for two matrices:
 the light-direction matrix A (SPR 0x70003400) and the colour matrix B (SPR
@@ -256,7 +257,7 @@ The caught defects:
 - in the adapter: the node row, the +0xB0 position, caught by the adapter
   cases, and the radius.
 
-## 6. Binding recipe (for the chain; nothing edited here)
+## 6. Binding (live: em_owner_draw_live)
 
 1. Canonical storage for the views in section 3. The mode word must be the
    same storage the bound `w_001D8C20` writes, because 001CA990 sets mode 0
@@ -277,10 +278,17 @@ The caught defects:
    em_owner_services_original.c, which is already in COMMON, and
    em_ee_float.h.
 
-With this bound, OWNER_DRAW.md section 6 item 1 is closed on the EE side.
-The renderer still consumes the unit per OWNER_DRAW.md P1/P2.
+As bound: the mode word is context +0x246C of the render context (the
+storage its `w_001D8C20` writes); D_00275688 is the render context's
+D_00275670 block; D_00817BC0 is em_owner_draw_live's own storage; D_00251C50
+and D_00253170 come from `render_context.emrc` (its D_00250F30 block now
+ends at 0x00253180); the point-light slots are em_point_light's pool,
+copied per draw; D_00810700/701 and D_00810610 are the render context's
+external views; `w_owner_rgb` returns the pool record's +0x80 words. The
+level smoke compares B and the lighting rows' rig lanes with the route
+snapshots (OWNER_DRAW.md section 9).
 
-## 7. Makefile hunks (the Makefile is not edited here)
+## 7. Makefile targets
 
 ```make
 .PHONY: test-actor-light-001d89d0-reference

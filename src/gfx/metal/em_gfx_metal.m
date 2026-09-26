@@ -15,7 +15,9 @@
 #import <AppKit/AppKit.h>
 #include "em_gfx.h"
 #include "em_platform.h"
+#include "em_math.h"
 #include "game/em_lighting.h"
+#include "game/em_object_unit.h"
 #include "gfx/metal/em_fog_gs.h"
 #include "gfx/metal/em_background_gs.h"
 #include "gfx/metal/em_shadow_gs.h"
@@ -202,6 +204,19 @@ struct EmGfx {
     bool                         shadowRecvOpen;
     float                        shadowUV[16], shadowCam[16], shadowVP[16];
     uint32_t                     shadowWarned;      /* reasons printed */
+    /* Object units (em_gfx_object_unit / em_gfx_object_texture — em_gfx.h):
+     * the TEX0 (CLD cleared) -> texture table, the pipeline of the GS
+     * class-0 pixel path, the CPU kernels' result storage and the reasons
+     * already printed. */
+    struct EmGfxObjectTex {
+        uint64_t tex0;
+        uint32_t width, height;
+        id<MTLTexture> tex;
+    }                            objTex[EM_GFX_OBJECT_TEX_MAX];
+    uint32_t                     objTexCount;
+    id<MTLRenderPipelineState>   objPipeline;
+    EmObjectUnitResult           objResult;
+    uint32_t                     objWarned;
 };
 
 struct EmGfxMesh {
@@ -759,6 +774,10 @@ void em_gfx_destroy(EmGfx *g)
     for (unsigned i = 0; i < EM_GFX_SHADOW_TARGET_MAX; i++)
         [g->shadowTarget[i] release];
     [g->shadowLast release];
+    for (uint32_t i = 0; i < g->objTexCount; i++)
+        [g->objTex[i].tex release];
+    [g->objPipeline release];
+    em_object_unit_result_free(&g->objResult);
     free(g->bgFile);
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
         [g->beamTex[i] release];
@@ -3100,6 +3119,206 @@ int em_gfx_shadow_target_read(EmGfx *g, uint8_t *rgba)
     memcpy(rgba, buf.contents, row * EM_SHADOW_GS_TARGET_SIZE);
     [buf release];
     }
+    return 0;
+}
+
+/* --- Object units (em_gfx_object_unit — em_gfx.h "Object units") ------- */
+
+/* The GS pixel path of the object kernel's class-0 state. Vertices arrive
+ * in NDC with w = 1, so every attribute is screen-linear, as the GS
+ * interpolates RGBA, F and S, T, Q; the texture coordinate is divided per
+ * pixel (STQ). Texels are the raw CLUT entries (RGBA8Uint, GS alpha
+ * 0..0xFF), read with the GS bilinear rule (sample point U - 0.5 on the
+ * 1/16 grid, 4-bit weights, as f_shadow_receiver) and REPEAT wrap (CLAMP
+ * 0, power-of-two sizes). k = (width, height, FOGCOL r | g << 8 | b << 16,
+ * fog enabled). APPROXIMATION, not verified against a GS dump: the
+ * per-pixel values come from Metal's float interpolation, floored with a
+ * 0.001 epsilon; the GS DDA stepping is not modelled. */
+static NSString *const kObjectShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct OVOut { float4 pos [[position]];\n"
+"               float4 rgba [[center_no_perspective]];\n"
+"               float4 stqf [[center_no_perspective]]; };\n"
+"vertex OVOut v_object(uint vid [[vertex_id]], const device float4 *v [[buffer(0)]]) {\n"
+"    OVOut o; o.pos = v[3 * vid]; o.rgba = v[3 * vid + 1]; o.stqf = v[3 * vid + 2]; return o;\n"
+"}\n"
+"fragment float4 f_object(OVOut in [[stage_in]],\n"
+"                         texture2d<uint, access::read> tex [[texture(0)]],\n"
+"                         constant uint4 &k [[buffer(0)]]) {\n"
+"    int w = int(k.x), h = int(k.y);\n"
+"    float u = in.stqf.x / in.stqf.z, v = in.stqf.y / in.stqf.z;\n"
+"    int uu = int(floor(u * float(w) * 16.0)) - 8;\n"
+"    int vv = int(floor(v * float(h) * 16.0)) - 8;\n"
+"    int fu = uu & 15, fv = vv & 15;\n"
+"    int x0 = (uu >> 4) & (w - 1), x1 = ((uu >> 4) + 1) & (w - 1);\n"
+"    int y0 = (vv >> 4) & (h - 1), y1 = ((vv >> 4) + 1) & (h - 1);\n"
+"    uint4 t = (tex.read(uint2(x0, y0)) * uint((16 - fu) * (16 - fv)) +\n"
+"               tex.read(uint2(x1, y0)) * uint(fu * (16 - fv)) +\n"
+"               tex.read(uint2(x0, y1)) * uint((16 - fu) * fv) +\n"
+"               tex.read(uint2(x1, y1)) * uint(fu * fv)) >> 8;\n"
+"    uint4 cf = uint4(clamp(floor(in.rgba + 0.001), 0.0, 255.0));\n"
+"    /* TFX HIGHLIGHT, TCC 1 (COLCLAMP 1). */\n"
+"    uint3 c = min(((t.rgb * cf.rgb) >> 7) + cf.a, uint3(255));\n"
+"    uint a = min(t.a + cf.a, 255u);\n"
+"    /* TEST_1: ATE, ATST GREATER, AREF 0, AFAIL KEEP. */\n"
+"    if (a == 0u) discard_fragment();\n"
+"    if (k.w != 0u) {\n"
+"        uint f = uint(clamp(floor(in.stqf.w + 0.001), 0.0, 255.0));\n"
+"        uint3 fc = uint3(k.z & 255u, (k.z >> 8) & 255u, (k.z >> 16) & 255u);\n"
+"        c = (c * f + fc * (255u - f)) >> 8;\n"
+"    }\n"
+"    return float4(float3(c) / 255.0, float(a) / 255.0);\n"
+"}\n";
+
+enum {
+    OBJ_WARN_FRAME = 1u, OBJ_WARN_UNIT = 2u, OBJ_WARN_TEXTURE = 4u, OBJ_WARN_FOG = 8u,
+    OBJ_WARN_GPU = 16u, OBJ_WARN_INPUT = 32u,
+};
+
+static int object_fail(EmGfx *g, uint32_t why, const char *what, const char *detail)
+{
+    if (g && !(g->objWarned & why)) {
+        g->objWarned |= why;
+        fprintf(stderr, "gfx: object unit: %s%s%s — not drawn\n", what, detail ? ": " : "",
+                detail ? detail : "");
+    }
+    return -1;
+}
+
+static const struct EmGfxObjectTex *object_texture(const EmGfx *g, uint64_t tex0)
+{
+    const uint64_t key = tex0 & ~(UINT64_C(7) << 61);
+    for (uint32_t i = 0; i < g->objTexCount; i++)
+        if (g->objTex[i].tex0 == key) return &g->objTex[i];
+    return NULL;
+}
+
+int em_gfx_object_texture(EmGfx *g, uint64_t tex0, const uint8_t *rgba, uint32_t width,
+                          uint32_t height)
+{
+    if (!g || !rgba) return -1;
+    const uint64_t key = tex0 & ~(UINT64_C(7) << 61);
+    const uint32_t tw = (uint32_t)(key >> 26) & 15u, th = (uint32_t)(key >> 30) & 15u;
+    const uint32_t tcc = (uint32_t)(key >> 34) & 1u, tfx = (uint32_t)(key >> 35) & 3u;
+    /* The shader implements TFX HIGHLIGHT with TCC 1 and power-of-two
+     * REPEAT; anything else is refused, not approximated. */
+    if (tw > 10u || th > 10u || width != (1u << tw) || height != (1u << th) || tcc != 1u || tfx != 2u)
+        return object_fail(g, OBJ_WARN_INPUT, "texture registration", "not a HIGHLIGHT TCC 1 TEX0 of its size");
+    struct EmGfxObjectTex *slot = (struct EmGfxObjectTex *)object_texture(g, key);
+    if (!slot) {
+        if (g->objTexCount >= EM_GFX_OBJECT_TEX_MAX)
+            return object_fail(g, OBJ_WARN_INPUT, "texture registration", "EM_GFX_OBJECT_TEX_MAX reached");
+        slot = &g->objTex[g->objTexCount++];
+        memset(slot, 0, sizeof *slot);
+        slot->tex0 = key;
+    }
+    MTLTextureDescriptor *td = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Uint
+                                     width:width height:height mipmapped:NO];
+    td.usage = MTLTextureUsageShaderRead;
+    id<MTLTexture> t = [g->device newTextureWithDescriptor:td];
+    if (!t) return object_fail(g, OBJ_WARN_GPU, "texture registration", "allocation failed");
+    [t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
+           withBytes:rgba bytesPerRow:4u * width];
+    [slot->tex release];
+    slot->tex = t;
+    slot->width = width;
+    slot->height = height;
+    return 0;
+}
+
+/* GS depth -> the port's depth for the same view depth. The engine's
+ * projection gives Z = bz + az / w (em_math.h: az = 0.1 * (2^24 - 1),
+ * bz = 1 - az / 16711680), the port's em_mat4_perspective_gs gives
+ * d = F / (F - N) - N F / ((F - N) w) with N = 0.1, F = 16711680; with
+ * 1 / w = (Z - bz) / az and N / az = 1 / (2^24 - 1):
+ * d = F / (F - N) * (1 - (Z - bz) / (2^24 - 1)). Z is the kicked 24-bit
+ * value, so the depth order among object triangles is the GS's; against
+ * the level, which the port projects itself, it is the same function of
+ * the view depth. */
+static float bits_f(uint32_t b)
+{
+    float f;
+    memcpy(&f, &b, sizeof f);
+    return f;
+}
+
+static float object_depth(uint32_t z)
+{
+    const double bz = (double)bits_f(0x3F664CB3u);  /* em_math.h: the P z-row literal */
+    const double far_ = (double)EM_GS_FAR, near_ = (double)EM_GS_NEAR;
+    return (float)(far_ / (far_ - near_) * (1.0 - ((double)z - bz) / 16777215.0));
+}
+
+int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
+{
+    if (!g || !g->enc) return object_fail(g, OBJ_WARN_FRAME, "outside a frame", NULL);
+    if (!unit) return object_fail(g, OBJ_WARN_INPUT, "no unit", NULL);
+    if (em_object_unit_run(unit, &g->objResult))
+        return object_fail(g, OBJ_WARN_UNIT, "the VU1 programs refused the unit", g->objResult.why);
+    const EmObjectUnitResult *r = &g->objResult;
+    const bool fog = g->fog[3] > 0.0f;
+    const struct EmGfxObjectTex *seen = NULL;
+    uint64_t seen_tex0 = 0;
+    for (uint32_t i = 0; i < r->count; i++) {
+        if (!seen || r->tri[i].tex0 != seen_tex0) {
+            seen = object_texture(g, r->tri[i].tex0);
+            seen_tex0 = r->tri[i].tex0;
+        }
+        if (!seen)
+            return object_fail(g, OBJ_WARN_TEXTURE, "a TEX0 without a registered texture",
+                               "run tools/export_object_textures.py");
+        for (unsigned c = 0; c < 3u && !fog; c++)
+            if (r->tri[i].v[c].f != 255u)
+                return object_fail(g, OBJ_WARN_FOG, "fogged vertices without the frame's FOGCOL",
+                                   "em_gfx_fog_coefficients first");
+    }
+    if (!r->count) return 0;
+    if (!g->objPipeline)
+        g->objPipeline = build_pipeline(g, kObjectShaderSrc, @"v_object", @"f_object", EM_BLEND_OPAQUE);
+    if (!g->objPipeline) return object_fail(g, OBJ_WARN_GPU, "pipeline unavailable", NULL);
+    ensure_depth_states(g);
+    float *v = malloc(sizeof(float) * 36u * r->count);
+    if (!v) return object_fail(g, OBJ_WARN_INPUT, "out of memory", NULL);
+    for (uint32_t i = 0; i < r->count; i++) {
+        for (unsigned c = 0; c < 3u; c++) {
+            const EmObjectUnitVertex *s = &r->tri[i].v[c];
+            float *o = v + (size_t)(3u * i + c) * 12u;
+            const uint16_t xy[2] = { s->x, s->y };
+            em_background_gs_ndc(xy, o);
+            o[2] = object_depth(s->z);
+            o[3] = 1.0f;
+            for (unsigned k = 0; k < 4u; k++) o[4 + k] = (float)s->rgba[k];
+            o[8] = bits_f(s->s);
+            o[9] = bits_f(s->t);
+            o[10] = bits_f(s->q);
+            o[11] = (float)s->f;
+        }
+    }
+    id<MTLBuffer> vb = [g->device newBufferWithBytes:v length:sizeof(float) * 36u * r->count
+                                             options:MTLResourceStorageModeShared];
+    free(v);
+    const uint32_t fogcol = fog
+        ? (uint32_t)lroundf(g->fog[0] * 255.0f) | (uint32_t)lroundf(g->fog[1] * 255.0f) << 8 |
+          (uint32_t)lroundf(g->fog[2] * 255.0f) << 16
+        : 0u;
+    [g->enc setRenderPipelineState:g->objPipeline];
+    [g->enc setDepthStencilState:g->depthOn];        /* ZTST GEQUAL, ZMSK 0 */
+    [g->enc setCullMode:MTLCullModeNone];            /* the kernels never cull */
+    [g->enc setVertexBuffer:vb offset:0 atIndex:0];
+    /* One draw per run of triangles with the same texture, in kick order. */
+    for (uint32_t i = 0; i < r->count;) {
+        const struct EmGfxObjectTex *t = object_texture(g, r->tri[i].tex0);
+        uint32_t j = i + 1u;
+        while (j < r->count && ((r->tri[j].tex0 ^ r->tri[i].tex0) & ~(UINT64_C(7) << 61)) == 0) j++;
+        const uint32_t k[4] = { t->width, t->height, fogcol, fog ? 1u : 0u };
+        [g->enc setFragmentTexture:t->tex atIndex:0];
+        [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+        [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:3u * i vertexCount:3u * (j - i)];
+        i = j;
+    }
+    [vb release];
     return 0;
 }
 

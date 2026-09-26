@@ -22,6 +22,7 @@ def main():
         '-Isrc', 'tests/overlay_blend_test.c', 'src/gfx/metal/em_gfx_metal.m',
         'src/platform/mac/em_platform_mac.m', 'src/game/em_lighting.c',
         'src/game/em_packet_chain_original.c', 'src/game/em_status_ui_leftovers.c',
+        'src/game/em_object_unit.c',
         '-framework', 'Cocoa', '-framework', 'Metal', '-framework', 'QuartzCore',
         '-lm', '-o', str(binary)], cwd=ROOT, check=True)
     subprocess.run([str(binary), str(capture)], cwd=ROOT, check=True, timeout=30)

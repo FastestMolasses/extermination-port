@@ -108,6 +108,7 @@
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_render_context_live.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_ee_float.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_collision_world.h"
@@ -232,7 +233,9 @@ static const struct {
                                                "(em_game_legacy_manifest_spawn at 001AFCA0)"},
     [UM_001B6990_LEGACY_WORLD] = {0x001B6990u, "scene without an original roster: one legacy_world "
                                                "pool node runs the S10a legacy block"},
-    [UM_001D19E0] = {0x001D19E0u, "no port counterpart"},
+    [UM_001D19E0] = {0x001D19E0u, "its first callee skin_arena_init (001D2E20) runs on the render context; "
+                                  "001D9720, 001DD940, 001E0C30, 001D9060, 001D71F0, 001D7BB0 and the flag "
+                                  "registrations after them have no port counterpart here (RENDER_CONTEXT.md 8.4)"},
     [UM_001C1DC0] = {0x001C1DC0u, "its 001D2830 registrations and 001C1E70..001C1F50 passes have no "
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
@@ -307,7 +310,15 @@ static int w_001FC9B0(void *ctx)
     (void)ctx;
     return em_message_live_reset();
 }
-static int um_001D19E0(void *ctx) { (void)ctx; return unmirrored(UM_001D19E0); }
+/* 001D19E0 (the render reset at the area load): skin_arena_init, the one
+ * callee the object units need (the skin records' VIF codes and GIF tags,
+ * docs/OWNER_DRAW.md "Binding"); the rest stays unmirrored. */
+static int um_001D19E0(void *ctx)
+{
+    (void)ctx;
+    if (em_rcl_loaded() && em_rcl_skin_arena_init() < 0) return -1;
+    return unmirrored(UM_001D19E0);
+}
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
 static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
 /* The stream lanes (WP-8b): every stream call of the frame machine, the
@@ -786,6 +797,20 @@ static void log_tick_end(int rc)
     } else {
         fputs("null", f);
     }
+    /* The owner draws 001CAA00 of the last drawn frame (em_owner_draw_live):
+     * record address, unit bytes, clip, and the colour / lighting-row /
+     * position-row / point-light-slot / rig-lane digests. tools/test_level_smoke.py
+     * check_owner_units. */
+    fputs(", \"owner_units\": [", f);
+    {
+        EmOwnerDrawLiveLog units[EM_OWNER_DRAW_LIVE_UNITS];
+        const int nu = em_owner_draw_live_log(units, EM_OWNER_DRAW_LIVE_UNITS);
+        for (int i = 0; i < nu; ++i)
+            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u]", i ? ", " : "", units[i].record, units[i].bytes,
+                    units[i].clip, units[i].colour, units[i].light, units[i].position, units[i].points,
+                    units[i].light_rig);
+    }
+    fputc(']', f);
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
     for (int i = 0; i < s_tick.ntrace; ++i)

@@ -239,14 +239,15 @@ over idle04 at a gameplay window: PASS).
   section 7). 001A2370 is `em_collision_world_retransform_001A2370`.
 - **Sound and random.** 00122BB8 is `em_random_next`. 001FBD50 is
   `em_sfx_play_at`, as the items' take cue plays it.
-- **Draw (+0x4C = 001CAA00).** The node is drawn through the port's actor
-  draw chain (`render_chain_build`). It uses the legacy crate / drum EMDL
-  meshes (the scene's `props/enemy_crate.emdl` or `assets/enemy_crate.emdl`,
-  and `assets/enemy_egg.emdl`) placed by the owner's root bone matrix (bone
-  slot 0's +0x90, which 001C9610 or the crate's bone_matrix worker wrote).
-  This is the same draw the legacy crates had, now at the original's
-  matrix. The P1/P2 object kernel (001CA7B0 cull, 001C7420 upload,
-  001CA940 kernel) stays with RENDER (OWNER_DRAW.md).
+- **Draw (+0x4C = 001CAA00).** `em_owner_draw_live_001CAA00` (since
+  2026-09-25): the original unit (001CA7B0's cull, 001C7420 with 001D89D0,
+  001D1F80, 001CA940 over the bank's models 0xD and 0xE) at the owner's bone
+  slots' +0x90 (which 001C9610 or the crate's bone_matrix worker wrote),
+  drawn at the frame's end through `em_gfx_object_unit` (the object kernel
+  and its clip pass on the CPU, GS class 0). OWNER_DRAW.md sections 6..10;
+  the level smoke compares the units with the route snapshots
+  (check_owner_units). The legacy crate / drum EMDL meshes are no longer
+  loaded.
 - **Tables.** D_002468B0, D_00246A00 and D_00246A10 come from
   `assets/scene_snow/box_tables.emrg` (`tools/export_box_tables.py`, span
   0x2468B0..0x246A20 of the user's ELF).
@@ -299,9 +300,9 @@ over idle04 at a gameplay window: PASS).
   it yet. The count gates only the refusals (001AF780 below 31 free,
   001B0EA0 over the cap). The captures hold 1011-1035 free, so no refusal is
   reachable on the route.
-- **The draw.** The legacy EMDL meshes are drawn at the original matrix.
-  They are not the bank's model bytes drawn through the object kernel
-  (RENDER).
+- **The draw.** The bank's model bytes through the object kernel; its
+  limits (Metal's rasterization, the lighting rows compared live in two
+  lanes) are OWNER_DRAW.md section 12's.
 
 ## Legacy em_enemy.c on these records (retired in AREA11; kept for the record)
 

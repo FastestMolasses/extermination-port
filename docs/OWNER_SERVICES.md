@@ -270,7 +270,7 @@ or map it explicitly. It is unreachable unless the em_ee_float form table change
 | Truck | `.placement_matrix` | `_001C6380`, then copy the view's +0xD0 into `matrix`. The view needs the full +0xC0 and +0x60 from the record, not only `rotation_x`. |
 | Truck | `.pose` | `em_owner_services_copy_qw4_00102958(D_00275B40[0]->world, matrix)`. |
 | Truck | `.rumble` | `_001B1E20(effect, 0)` (live: `em_pad_actuator_001B1E20`, its 001B61C0 / 001B6250 over the pad block D_00810E40). |
-| Truck | `.draw` | `_001CAA00`. Live: the port's actor draw of `props/area_truck.emdl` at bone slot 0's matrix, as for the crates and drums (the object kernel stays with RENDER). |
+| Truck | `.draw` | `_001CAA00`. Live: `em_owner_draw_live_001CAA00` (OWNER_DRAW.md section 10). |
 | Crates 001551B0, drums 00156620 (both call 001B0FD0 in state 0; their modules split it) | `.allocate_model` | `_001B0EA0`, result 1/0. |
 | Crates, drums | `.bone_init` | `_001C62C0`. |
 | Crates, drums | `.place` | `_001C6380`, then copy +0xD0 out. |
@@ -290,13 +290,15 @@ em_area11_boxes.c binds these for 001551B0 / 00156620:
 - 001AF780 = `em_roger_actor_001AF780` over 001AF710's stack (`em_slg_001AF710`);
 - the drums' 001B17A0, through the interaction host's services.
 
-Their +0x4C draws through the port's actor draw chain, not 001CAA00's
-kernel (OWNER_DRAW.md section 6; CRATES_DRUMS_ORIGINAL.md "Binding").
+Their +0x4C, the truck's and the fence door's run 001CAA00, 001CA990 and
+001C7420 live since 2026-09-25 (`em_owner_draw_live`: 001CA7B0, 001D8C20,
+001D89D0, 001D1F80 and 001CA940 bound to their translations; OWNER_DRAW.md
+section 10). 001CB3C0 (the +0x90 attachment) is not bound: an owner with
++0x90 != 0 faults there.
 
-**Not ready for the other owners and the draw.** Several workers have no verified native translation yet:
-- 001D89D0 (bit-exact), 001CA7B0, 001CA940 (+ 001D38F0/001D3C30), 001D1F80, 001CB3C0, 001B1CE0;
-- bone_init_default_2 (the clip-variant owners);
-- 001B61C0/001B6250.
+**Not ready for the other owners.** Workers without a verified native translation:
+- 001CB3C0 (Roger's face) and 001B1CE0;
+- bone_init_default_2 (the clip-variant owners).
 
 Until they are bound, keep this module unwired, or bind only the pieces whose workers exist:
 - 001C6380 and 00102958 need no workers;

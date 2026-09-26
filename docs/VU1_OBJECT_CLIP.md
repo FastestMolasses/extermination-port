@@ -1,11 +1,11 @@
 # Object-kernel clip pass (VU1 program of 0x002354A0)
 
-Date: 2026-09-24. Lane `vu1-object-clip`. **Nothing here is bound into the
-frame.** This is proposal P2 of docs/OWNER_DRAW.md section 7: the guard-band
-clip pass an owner unit runs when 001CA7B0's flags have bit 0 set. The
-translation is header-only and verified kick for kick against the original
-microcode. Drawing its triangles is the binding chain's job (P1,
-`em_gfx_object_unit`).
+Date: 2026-09-24. Lane `vu1-object-clip`. **Bound since 2026-09-25:**
+`em_object_unit_run` runs this program after the object pass of every clip
+unit `em_gfx_object_unit` draws (docs/OWNER_DRAW.md sections 7..10). This is
+proposal P2: the guard-band clip pass an owner unit runs when 001CA7B0's
+flags have bit 0 set. The translation is header-only and verified kick for
+kick against the original microcode.
 
 This document holds addresses, field names, packet codes and counts only. It
 holds no original code, data or disassembly.
@@ -397,8 +397,6 @@ the run, and an injected signed overflow does fail it.
     between. That these 2-qword transfers finish in time is an assumption,
     not a measurement.
   - dmem 994 (the saved loop registers) lies outside every kicked packet.
-- **Not bound.** Drawing these triangles needs P1 (`em_gfx_object_unit`, GS
-  class 0 state), which belongs to the binding chain.
 - **GS rasterization is not checked.** No GS dump of a drawn clip triangle
   exists. The kicked words are exact; how the GS rasterizes them, including
   the zero-area collapsed triangles and the GS 16-bit X/Y of points just past
@@ -411,7 +409,7 @@ the run, and an injected signed overflow does fail it.
   writes TEX0 per vertex (REGS 0x4126). Whether any later draw depends on the
   leftover value was not traced.
 
-## 7. Makefile hunk (for the chain; the Makefile is not edited here)
+## 7. Makefile target
 
 ```make
 .PHONY: test-vu1-object-clip-reference

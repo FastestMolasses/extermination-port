@@ -36,8 +36,6 @@ static struct {
     int tried, loaded;
     uint32_t link;            /* the EMDO descriptor's +0x56 */
     EmDoorOriginalRuntime rt; /* rt.owner is the view of the record */
-    EmGfxMesh *mesh;
-    int mesh_tried;
     int drawn;                /* +0x4C ran in the last owner call */
     EmSdfFault sdf_fault;
     int freed;
@@ -346,11 +344,13 @@ static int h_publish(void *ctx, const float point[3])
     return rc < 0 ? report("001B1B30 faulted") : visible;
 }
 
-/* +0x4C (001CAA00): the port's actor draw of the runtime's model at its
- * node palette. */
+/* +0x4C (001CAA00): the original unit over the runtime's node matrices
+ * (em_area11_boxes_door_draw -> em_owner_draw_live). */
 static int h_draw(void *ctx)
 {
     (void)ctx;
+    if (em_area11_boxes_door_draw(D.actor, em_actor_pool_address(D.pool, D.actor), D.rt.palette, 2) < 0)
+        return report("001CAA00 faulted");
     D.drawn = 1;
     return 1;
 }
@@ -440,30 +440,8 @@ int em_area11_door_state(uint8_t header[16], uint8_t block[16])
     return 1;
 }
 
-int em_area11_door_draw(EmGfxMesh **mesh, const float **palette, uint32_t *bone_count)
+void em_area11_door_shutdown(void)
 {
-    if (!D.actor || D.freed || !D.drawn || !D.loaded) return 0;
-    if (!D.mesh && !D.mesh_tried) {
-        D.mesh_tried = 1;
-        EmGfx *gfx = em_frame_gfx();
-        const EmModel *m = &D.rt.model;
-        D.mesh = gfx ? em_gfx_mesh_create(gfx, m->verts, m->vert_count, m->indices, m->index_count,
-                                          (const EmGfxTexDesc *)m->texs, m->tex_count, m->texels, m->flags)
-                     : NULL;
-        if (!D.mesh) report("the door mesh could not be created; the door is not drawn");
-    }
-    if (!D.mesh) return 0;
-    *mesh = D.mesh;
-    *palette = D.rt.palette;
-    *bone_count = D.rt.model.bone_count;
-    return 1;
-}
-
-void em_area11_door_shutdown(EmGfx *gfx)
-{
-    if (D.mesh && gfx) em_gfx_mesh_destroy(gfx, D.mesh);
-    D.mesh = NULL;
-    D.mesh_tried = 0;
     if (D.loaded) em_door_original_runtime_free(&D.rt);
     D.loaded = 0;
     D.tried = 0;

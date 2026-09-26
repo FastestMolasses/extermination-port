@@ -133,6 +133,24 @@ int em_rcl_frame_matrices(uint32_t p[16], uint32_t clip[16], uint32_t k[16]);
  * sprite 001CD520). NULL before the load or after a fault. */
 struct EmPacketChain *em_rcl_packet_chain(void);
 
+/* Writable host bytes of [address, address + size) in this module's own
+ * writable storage (the arena, the context, the GS blocks, the skin
+ * records, D_00250F30.., D_00275670.., the scratchpad copies), or NULL
+ * (not loaded, an external view, a read-only .data block, outside). For
+ * the callers that write by original address as the original does: the
+ * owner draw 001CAA00 appends its unit at the context's channel cursor
+ * (em_owner_draw_live). */
+uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size);
+/* skin_arena_init (001D2E20; em_skin_arena_init.h): the 14 skin records
+ * templates from D_002514D0, as 001D19E0 runs it first at every area load.
+ * The frame machine's 001D19E0 binding calls it (the rest of 001D19E0 is
+ * not bound, docs/RENDER_CONTEXT.md 8.4). 0, or -1 (not loaded, a fault). */
+int em_rcl_skin_arena_init(void);
+/* 001D1F80(a0, a1, a2): the veil module's REF tags at the context's
+ * channel cursors (em_load_veil_particles over this storage). 0, or -1
+ * (not bound, or the fault latched here). */
+int em_rcl_001D1F80(int32_t a0, int32_t a1, int32_t a2);
+
 /* Test hook: copy original bytes into this module's own storage (only
  * ranges it owns). 0, or -1. */
 int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size);

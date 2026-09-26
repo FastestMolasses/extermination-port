@@ -66,9 +66,8 @@ int em_area11_door_clip_init(EmActor *actor, int16_t clip, float blend, float st
  * bytes (as the route rows' door_r0 "h") and the script block's first 16
  * (+0x1F0..+0x1FF, "s1F0"). 1 while a door node is bound, else 0. */
 int em_area11_door_state(uint8_t header[16], uint8_t block[16]);
-/* The actor draw chain: the door when its +0x4C ran in its last owner call. */
-int em_area11_door_draw(EmGfxMesh **mesh, const float **palette, uint32_t *bone_count);
-/* Free the mesh and the resources (scene unload). */
-void em_area11_door_shutdown(EmGfx *gfx);
+/* Free the resources (scene unload). The door's +0x4C builds its unit
+ * through em_area11_boxes_door_draw (em_owner_draw_live). */
+void em_area11_door_shutdown(void);
 
 #endif

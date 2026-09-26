@@ -1,7 +1,11 @@
 # The VU1 face morph program (CALL 0x0023C480): CPU translation and proof
 
-Date: 2026-09-24. Lane `vu1-face-morph`. **Nothing here is bound into the
-frame or the renderer.** This closes the gap docs/VU1_OBJECT_KERNEL.md
+Date: 2026-09-24. Lane `vu1-face-morph`. **The renderer runs it since
+2026-09-25:** `em_object_unit_run` draws a face unit (CALL 0x0023C480) with
+this header (docs/OWNER_DRAW.md section 7; 60 captured face units equal the
+original microcode, section 8 F). No live owner builds a face unit yet:
+001CB3C0's EE builders are not translated (OWNER_DRAW.md section 11). This
+closes the gap docs/VU1_OBJECT_KERNEL.md
 sections 2, 6 and 7 name: Roger's face (and Dennis's in the opening,
 handoff and roger-encounter captures) is issued to its own VU1 program, not
 to the object kernel. Addresses are boot-ELF addresses; micro addresses are
@@ -250,7 +254,7 @@ vertices and 11,776 synthetic ones.
 | E. TEX0/ST and the port's consumer | Every kicked TEX0 is the input qword. ST x/y equal s·Q and t·Q with the kicked Q, since qword 1 z is 1.0 on every captured vertex. ST w is the carried register. **`em_opening_face_position`** (src/game/em_opening_face.c, the host-float morph used by the current face path) differs from the exact morph on 10,033 of 77,920 vertices: 16,661 lanes (16,653 by 1 ulp, 4 by 2, 4 by 3). It rounds to nearest where the VU truncates. It is not the original morph. |
 | Defect injection (`--defects`) | 44 defects in a copy of the header; the quick run catches every one with a failed check (a build error does not count). Morph: delta order, base added first, six deltas, weight 1012 lane, weights 0/1 swapped. Arithmetic: position sum order, lighting clamp, lighting 2 lanes, colour cap, fog clamp order, fog ADC add, fog cap constant, ADC addend constant, fog B lane, guard lane, Q from z, previous-vertex Q, ftoi0. ADC: clip history 2 vertices, history kept across batches, data bit. Schedule: MSCNT keeps MSCAL constants, first stores skipped, rows read after the stores, last vertex not stored, template read before the last stores, XYZF2 not carried, ST w zero, ST from the next vertex, normal from qword 1. Layout: kick offset, store slot, TOP rule. State: MSCNT unchecked. Guard rows (caught only by "guardrow"): guard w lane skipped (g.w = c.w), fog times the guard w, Q = 1/g.w, guard lane y using lane x's scale and offset. Signed zeros: the morph sum started from +0 (caught by "signzero"), the lighting clamped at -0 (caught by "zerocolour"). The per-vertex record (the kicked packet is unchanged): why[] drops the data bit when CLIP is set (caught by the data-word check on captured playable data), why[] zeroed (caught against the program's ADC branch on captured opening data), the why[] clip bit from the current vertex's CLIP only (caught by the ADC-branch check on synthetic data), clip[] zeroed (caught against the CLIP's bits). Equivalent changes are not listed. These are the order of the look-ahead reads against the stores (inputs and outputs never overlap), and ignoring the position helper's fault flag (an exponent-255 morph input always reaches the position multiply as exponent 255, which faults there). |
 
-## 6. What this means for P1
+## 6. How P1 uses it (built: em_object_unit_run)
 
 The renderer should draw exactly what this header kicks.
 `em_opening_face_position` and the combined body+face asset path
@@ -303,7 +307,7 @@ non-original behaviour it should be retired or pointed at this header.
 - The two stale Dennis units are compared native against oracle. Their
   inputs are not what the hardware had.
 
-## 8. Makefile hunk (for the chain; the Makefile is not edited here)
+## 8. Makefile targets
 
 ```make
 .PHONY: test-vu1-face-morph-reference

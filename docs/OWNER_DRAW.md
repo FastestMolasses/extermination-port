@@ -1,19 +1,23 @@
 # World-owner draw (001CAA00): the original packets and the native path
 
-Date: 2026-09-24. Lane `owner-draw`. **Nothing here is bound into the frame.**
-The binding chain owns em_owner_services, the scene coordinator, em_gfx.h and
-the Metal backend; section 7 lists the exact changes proposed to it.
+Date: 2026-09-24; binding 2026-09-25 (step "GS-exact actor draw"). **Live**
+for the crates (001551B0), drums (00156620), truck (00823FF0) and fence
+door (001BC350): their +0x4C builds the original unit through the
+translations (section 10) and the renderer draws the triangles the
+original VU1 programs kick (section 7). The other owners this document
+names still draw through their legacy stand-ins (section 11).
 
-This document answers two questions for the AREA11 world owners: the crates
+This document answers three questions for the AREA11 world owners: the crates
 (001551B0), drums (00156620), fan (00827630), truck (00823FF0), elevator
 (00827B10) and husks (00825940, 00827490).
 
 1. What does the original draw for one owner? What goes to VU1 and the GS?
-2. How must the port reproduce it? What is already native and verified, and
-   what is still missing?
+2. How does the port reproduce it, and with what evidence?
+3. Which owners run the exact path, and what the others wait on.
 
 It contains addresses, field names and packet codes only. It holds no
 original code, data or disassembly.
+
 
 ## 1. Delivered
 
@@ -23,16 +27,26 @@ original code, data or disassembly.
 | `tools/export_world_models.py` | Writes `assets/scene_snow/world_models.emwm` and `.json` (ignored). These hold the table at `*D_0028A59C` and all 21 models it indexes. Each is checked byte for byte against 16 AREA11 captures. |
 | `tools/test_owner_draw_reference.py` | The original-instruction oracle. It also proves the native chain against the captured draw packets (section 5). |
 | `tests/owner_draw_test.c` | ASan/UBSan fixture. It pins the fail-stop contract, the packet layout, the bank refusals and the 001C6120 masking. |
+| `src/game/em_object_unit.{h,c}` | P1/P2 on the CPU (section 7): `em_object_unit_parse` reads a unit's DMA tags into the VU1 uploads (`EmGfxObjectUnit`, em_gfx.h), `em_object_unit_run` runs the object kernel (em_vu1_object_kernel.h) over every model block and, for a clip unit, the clip program (em_vu1_object_clip.h) after it, and returns every drawn triangle in GS terms and GS order. A face unit (001CB3C0's, CALL 0x0023C480) runs the face morph program (em_vu1_face_morph.h) the same way. |
+| `src/em_gfx.h`, `src/gfx/metal/em_gfx_metal.m` | `em_gfx_object_unit` / `em_gfx_object_texture`: the GS class-0 pixel path over those triangles (section 7). The D3D12 / Vulkan stubs return -1. |
+| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 137 TEX0 values of the bank's model blocks, decoded from the GS memory of every route capture and identical in all 15 (section 7.3). |
+| `src/game/em_owner_draw_live.{h,c}` | The binding (section 10): 001CAA00 with every worker bound to its translation over canonical storage, the unit parsed at once and drawn at the frame's end. |
+| `src/game/em_skin_arena_init.h` | skin_arena_init (001D2E20), the skin records' templates; run by the render context at every area load (section 10). |
+| `tools/test_object_unit_reference.py` | The object-unit path against the original VU1 microcode over every captured owner unit and every captured face unit (section 8). |
+| `tests/object_unit_test.c` | ASan/UBSan fixture: the parser's refusals, synthetic plain, clip and face units, the run's refusals. |
+| `tests/object_unit_gpu_test.c`, `tools/test_object_unit_gpu.py` | The Metal pixel path over captured units against a model of the documented GS pixel path (section 8.1). |
 
-With the three earlier modules, every draw worker of 001CAA00 now has a
-native translation except **001D89D0** (lighting) and **001CB3C0** (the
-+0x90 attachment). The earlier modules are:
+With the modules below, every draw worker of 001CAA00 has a native
+translation except **001CB3C0** (the +0x90 attachment, a face unit):
 
 - em_owner_services (001CAA00, 001CA990, 001C7420);
 - em_load_veil_particles (001D1F80);
+- em_actor_light_001D89D0 (001D89D0 and its callees; ACTOR_LIGHT_001D89D0.md);
 - em_owner_draw (this lane).
 
-None of the world owners has an attachment. Section 6 covers 001D89D0.
+None of the bound world owners has an attachment (+0x90 = 0 in every
+capture). Roger's is his face (section 11).
+
 
 ## 2. The original call chain for one owner
 
@@ -344,177 +358,244 @@ Two of the 24 first survived: the broadcast-add order and the negate. The
 When `assets/scene_snow/world_models.emwm` exists, the fixture also checks
 the owner ids and bone counts in it.
 
-## 6. The native draw path, and what is still missing
+## 6. The native draw path
 
-**Already native and verified (the packet side):**
+Per owner, in the owner walk's order (ORIGINAL_FRAME_ORDER.md):
 
-| Step | Native | Evidence |
+1. The behaviour's +0x4C worker runs `em_owner_draw_live_001CAA00`
+   (section 10): em_owner_services_001CAA00 with 001CA7B0, 001D8C20,
+   001D89D0, 001C7420's packets, 001D1F80 and 001CA940 all translated. The
+   unit is written at the render context's channel-0 cursor in its packet
+   arena, exactly where the original writes it, and the cursor advances.
+   A culled owner (001CA7B0 -1) writes nothing.
+2. The unit is parsed at once (`em_object_unit_parse`; REF targets from
+   the render context's storage and the bank) and its pieces are kept for
+   the frame.
+3. At the frame's end (`frame_close_out`, after the level and the legacy
+   actor chain, under the frame's fog), `em_owner_draw_live_flush` hands
+   each unit, in build order, to `em_gfx_object_unit`.
+4. The backend runs the kernels on the CPU and rasterizes the triangles they
+   kick (section 7). A -1 anywhere latches a scene fault at 001CAA00; no
+   stand-in draws instead.
+
+| Unit part | Reproduced by | Exact? |
 |---|---|---|
-| bank, 001C6120, model view | em_owner_draw (`em_world_models_*`) | this lane (C, D) |
-| 001B0EA0/001B0FD0 allocation, bone init, placement 001C6380 | em_owner_services | OWNER_SERVICES.md; 20/20 crates, 10 drums, 10 fans reproduced from captures |
-| 001CAA00, 001CA990, 001C7420 | em_owner_services | OWNER_SERVICES.md; this lane D (whole unit) |
-| 001CA7B0, 001CA940 | em_owner_draw | this lane A, B, D |
-| 001D1F80 | em_load_veil_particles | LOAD_VEIL_PARTICLES.md; this lane D |
-| 001D8C20 | context +0x246C = 0 (one store) | this lane D |
+| colour matrix B, per-node position and lighting rows | the translated 001C7420 / 001D89D0 | yes: the unit bytes (section 5 D, ACTOR_LIGHT_001D89D0.md); live against the captures (section 9) |
+| the cull (-1: no unit) | 001CA7B0 | yes (section 5 A); live: the owners that drew in the camera-exact route beat equal the capture's (section 9) |
+| the kicked XYZF2, RGBAQ, ST/Q, TEX0 of every vertex, the ADC drop | em_vu1_object_kernel.h through em_object_unit_run | yes: every triangle of every captured unit equals the original microcode's (section 8) |
+| the flags & 1 clip pass (0x002354A0) | em_vu1_object_clip.h through em_object_unit_run | yes, same test (14 clip units) |
+| a face unit (0x0023C480) | em_vu1_face_morph.h through em_object_unit_run | yes, same test (60 face units); no live owner builds one yet (section 11) |
+| the fog-off REF 2 | the parser replaces dmem 1021 with the REF's row | parsed and fixture-tested; no AREA11 capture carries it |
+| GS class 0 (TEST, TEX1, CLAMP, COLCLAMP, ZBUF, no blending) | the Metal pixel path | the Metal output equals a model of the formulas of section 7.2 on 99.7 % of the interior pixels (section 8.1); the formulas are the GS's, not compared with a GS framebuffer (section 12) |
+| texture: the vertex's TEX0 | object_textures.emot, decoded from GS memory | the decoded texels are identical in all 15 captures (section 7.3) |
+| rasterization (coverage, the per-pixel interpolation) | Metal | no: GPU float interpolation at the output resolution (section 12) |
 
-**Missing on the EE side:**
+## 7. The object-unit path (P1/P2/P3 as built)
 
-1. **001D89D0, bit-exact.** ACTOR_LIGHTING.md shows that the port's
-   recomposed rig equals the executed original for 14 actors on every colour
-   byte and normal lane, under its caller contract. That recomposition is not
-   a translation of the entry point, and no native routine writes A and B the
-   way 001C7420 consumes them. Lane D here borrows the original's A and B.
-   Before binding, a translation of 001D89D0 (001D8130, 001D7B30, 001D8340,
-   001D8270, 001D8690 and the VU0 helpers) must pass an oracle like lane D's.
-2. **The model binding.** The worker slots and what they need:
-   - `w_001C6120` → em_world_models_001C6120.
-   - `w_001CA6E0` → owner +0x44 = the bank view, and +0x4C = 001CAA00. That
-     is 001CA5F0 kind 0, already in em_roger_actor.
-   - `w_001AF780`: a node arena and the D_00275BD0 stack. em_roger_actor
-     models it for Roger only.
-   - `w_anim_bone_array_setup` → the side table's +0x110 slots.
+### 7.1 The contract (em_gfx.h "Object units")
 
-   These are the coordinator's (OWNER_SERVICES.md "Binding"). The bank
-   supplies every model byte they read.
+`EmGfxObjectUnit` holds what the unit uploads: the program (the object
+kernel or the face program), the colour CNT's 16 words (dmem 1013..1016),
+the node CNTs' 32 words per node (dmem 0..8n-1), a face unit's weights
+(dmem 1011..1012), skin record 0's 28 words (dmem 1017..1023, with dmem
+1021 replaced when the fog-off REF 2 was emitted: P3), skin record 1's for
+a clip unit, the model REF's blocks and the clip flag.
+`em_object_unit_parse_one` parses the first unit of a sequence (001CAA00
+appends 001CB3C0's face unit after the owner's own). `em_gfx_object_unit` returns 0, or -1 when
+it cannot draw exactly what the original draws; the reason is printed once.
+`em_gfx_object_texture` registers one TEX0's texels (CLD ignored).
 
-**The render side.** Since census L25 the crates and drums run their
-original owners (em_area11_boxes.c). Their +0x4C draws the same EMDL meshes
-the legacy em_enemy crates used, through `em_gfx_draw_skinned` at the
-owner's bone-slot-0 matrix (CRATES_DRUMS_ORIGINAL.md "Binding"). The EMDL comes from export_props over the same blocks,
-with texels from the GS freeze. The other owners have their own legacy
-draws. Measured against the unit above, `em_gfx_draw_skinned` is exact in
-some parts and not in others:
+### 7.2 What the backend does (em_object_unit_run + Metal)
 
-| Unit part | em_gfx today | Exact? |
+- **VU1.** One data-memory image per program built from the pieces (every
+  other qword zero: the kernel and the clip program read nothing the unit
+  does not upload, VU1_OBJECT_KERNEL.md 5 C and VU1_OBJECT_CLIP.md 5 A).
+  Block k is copied to `em_vu1_object_kernel_top(k)` and run with MSCAL
+  (k = 0) or MSCNT; the kicked packet must be the PRIM 0x03C
+  TEX0/ST/RGBAQ/XYZF2 form, and its strip triangles (vertex i >= 2 without
+  ADC) are kept with vertex i's TEX0. A clip unit then runs the clip
+  program over the same blocks (`em_vu1_object_clip_image` / `_batch` /
+  `_run` / `_triangles`; PRIM 0x03B). Order: the object pass block by
+  block, then the clip pass block by block, as the GS receives them. A face
+  unit's blocks (0x163 qwords: UNPACK 256 and 96 to TOPS, then MSCAL /
+  MSCNT) run on `em_vu1_face_morph_mscal` / `_mscnt` at
+  `em_vu1_face_morph_top(k)`; its kicks have the object kernel's layout.
+- **Position.** X, Y (12.4) map to NDC as the background does
+  (`em_background_gs_ndc`: field window 1792..2304 x 1936..2160, the
+  convention of the port's world projection). Z (24 bits) becomes the
+  port's depth for the same view depth: the engine's P gives
+  Z = bz + az / w (em_math.h) and em_mat4_perspective_gs gives
+  d = F / (F - N) - N F / ((F - N) w), so d = F / (F - N) (1 - (Z - bz) /
+  (2^24 - 1)). Vertices carry w = 1: every attribute is screen-linear.
+- **Pixel.** GS class 0 as the unit's GS state REF names it (TEST 0x5000D,
+  TEX1 0x60, CLAMP 0, COLCLAMP 1, ZBUF ZMSK 0, PRIM ABE 0):
+  u = S / Q, v = T / Q per pixel; bilinear with 4-bit weights at the sample
+  point U - 0.5 and REPEAT wrap (as the shadow receiver); TFX HIGHLIGHT
+  with TCC 1: Cv = min((Ct Cf >> 7) + Af, 255), Av = min(At + Af, 255);
+  alpha test Av > 0 (fail KEEP); fog Cv = (F Cv + (255 - F) FOGCOL) >> 8
+  with the frame's FOGCOL; depth less-equal with write (the GS GEQUAL on
+  its reversed Z); no culling, no blending.
+
+### 7.3 Textures (tools/export_object_textures.py)
+
+Every model block vertex's qword 0 is a TEX0 value. The bank's 21 models
+carry 137 distinct values (CLD ignored): 136 PSMT4 and one PSMT8, all
+CPSM PSMCT32, CSM1, CSA 0, TCC 1, TFX 2 (the exporter refuses any other
+form). Each is decoded from the GS local memory of every route capture
+00..14 with the decomp's GS memory readers, and the exporter fails unless
+all 15 decodes are identical: the textures are resident for the whole
+level. The texels are the CLUT entries' bytes with the raw GS alpha. The
+export is ignored (`assets/`), like every disc- or capture-derived asset.
+
+## 8. Proof of the CPU path (tools/test_object_unit_reference.py)
+
+For every owner with draw method 001CAA00 and a bank model in route beats
+00..14 (section 5 D's 255 owner-frames):
+
+1. The ORIGINAL 001CAA00 runs over the captured RAM and builds its unit.
+2. The unit's tags go through DMAC and VIF1 onto one VU1 data memory (CNT
+   inline, REF targets from RAM, the CALLed kernel packets' MPG blocks from
+   the ELF, STCYCL, BASE / OFFSET / TOPS, MSCAL / MSCNT). The object
+   kernel's batches run on VU1_OBJECT_KERNEL.md's interpreter (VU0 lane
+   rules), the clip program's on VU1_OBJECT_CLIP.md's; both execute the
+   ORIGINAL instructions. Every XGKICK is decoded independently in Python.
+3. `em_object_unit_parse` + `em_object_unit_run` over the same unit bytes.
+4. The triangle lists must be equal: count, order, pass, block, the whole
+   TEX0 and per vertex X, Y, Z, F, R, G, B, A, S, T, Q. The parsed pieces
+   must equal the unit's uploads (colour, nodes, both skin records, the
+   model REF).
+
+Also: the GS state REF's bytes (D_00815360) are the class-0 set, the arena
+qword is NOP NOP NOP FLUSH and D_00275674 = 0x00814220 in all 15 captures;
+13 refusals each break one rule: the colour UNPACK, node order, the GS
+state REF's class, the arena REF, the skin record's codes, the CALL target,
+a truncated unit, a foreign tag, a model REF qwc, and four GS-state byte
+forms (TEST, ZMSK, the GIF tag, the DIRECT code).
+
+**Face units (F).** Every distinct intact face unit in the display lists
+of route beats 00..14 (60: Roger's and Dennis's) runs the same way, the
+ORIGINAL face program on VU1_FACE_MORPH.md's interpreter against the native
+path, with the pieces checked against the unit (colour, node, skin record,
+face REF).
+
+| Run | Owner-frames | Units | Clip units | Triangles | Face units | Face triangles | Time (M1) |
+|---|---|---|---|---|---|---|---|
+| default | 40 of 255 (every behaviour and class, all clip units) | 26 | 14 | 5,911 | 2 of 60 (a drawing Roger, a Dennis) | 2,172 | ~5 s |
+| `EM_TEST_FULL=1` | 255 | 119 | 14 | 28,585 | 60 | 46,296 | ~43 s |
+
+Defect injection (2026-09-25): R and G swapped in the kicked colour, the
+clip pass skipped and the strip end index shifted are each caught; a TOP
+fixed at 0x1B0 for every block survives and is equivalent (each block's
+image is rebuilt, so the double-buffer TOP only moves where the same bytes
+are computed).
+
+### 8.1 The Metal pixel path (tools/test_object_unit_gpu.py)
+
+The headless fixture `tests/object_unit_gpu_test.c` draws every intact
+bank-model unit of a route capture's current display list (beat 03: 15
+units, the crates, drums, truck, panel, elevator and pickup; beat 07: the
+truck) through `em_object_unit_parse` and `em_gfx_object_unit`, with the
+capture's fog, and captures the frame. The test rasterizes the same units'
+triangles (em_object_unit_run) at the capture's pixel centres with the
+documented pixel path in Python and compares, away from triangle edges
+(1.5 output pixels) and depth ties:
+
+| Beat | Units | Triangles | Pixels compared | Exact | Within 2 |
+|---|---|---|---|---|---|
+| 03 (default run) | 15 | 3,724 | 153,163 | 99.73 % | 99.99 % |
+| 07 (`EM_TEST_FULL=1`) | 4 | 2,066 | 301,801 | 99.95 % | 100 % |
+
+Defects injected into the shader (2026-09-25): the bilinear sample point
+without its -0.5 texel offset (32 % exact) and the fog weight 256 - F (60 %
+exact) are both caught. The model is of the port's pixel path, not of the
+GS: it proves the shader implements section 7.2, not that the GS
+rasterizes the same.
+
+## 9. Proof live (the level smoke)
+
+The tick log's `owner_units` field records, per 001CAA00 call of the last
+drawn frame, the owner's record address, the unit's byte count, the clip
+pass and digests of B, of the lighting rows, of the position rows, of the
+point-light slots and of the lighting rows' lanes y and z.
+`check_owner_units` (tools/test_level_smoke.py) runs the ORIGINAL 001CAA00
+over each route snapshot a phase aligned (08, 10, 11, 12, 13, 14) and
+compares:
+
+- wherever both drew: B, and the lighting rows' lanes y and z (A's columns
+  1 and 2, the room rig's slots 1 and 2) — equal for all 14 such units;
+- the whole lighting rows only where the port's point-light slots equal the
+  snapshot's: in no snapshot so far. The slots' sway angle and matrix
+  follow rand() in 001D7C30, and the port's rand() order differs from the
+  original's (the known RNG audit, FIRST_LEVEL_CENSUS.md); position, colour
+  and weight of the one AREA11 light are equal;
+- in the camera-exact beats (10, 14): the set of owners that ran 001CAA00,
+  their byte counts and clip passes, and the position rows (node x VP) —
+  equal (the door and the truck in beat 10; all culled in 14).
+
+The smoke's phases all pass with the owners on this path (18 live phases
+through Roger, side beats 00 and 09).
+
+## 10. Binding (live)
+
+`src/game/em_owner_draw_live.{h,c}`; callers: `em_area11_boxes.c` (h_draw,
+the crates, drums and truck; `em_area11_boxes_door_draw` for the door,
+whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md).
+
+| Original | Binding |
+|---|---|
+| 001CAA00, 001CA990, 001C7420 | em_owner_services over the owner's view (+0x02, +0x03, +0x44, +0x80, +0x90, +0x94, +0x98, +0xB0 from the pool record, the +0x110 slots' +0x90) |
+| 001CA7B0 | em_owner_draw_001CA7B0: D_00810610 (the live camera's pool, the render context's external view) and context +0x2410 |
+| 001D8C20(0) | context +0x246C = 0 |
+| 001D89D0 | em_actor_light_w_001D89D0: D_00251C50 and D_00253170 (the render context's ELF .data, `render_context.emrc`; the block now runs through D_00253170), the rig record D_00817BC0 (this module's storage) and D_00275688, context +0x0C / +0x2380 / +0x246C, D_00810700, D_00810610, the point-light slots (em_point_light's pool, copied per draw), the owner's +0x80 words |
+| 001C7420's packets | the render context's channel-0 cursor (context +0x10) in its packet arena; 0x70003AC0 from its scratchpad copy |
+| 001D1F80(0, 1, 0) | `em_rcl_001D1F80` (the render context's veil module; the cursor word is handed over and taken back) |
+| 001CA940 | em_owner_draw_001CA940 over the AREA11 bank |
+| 001CB3C0 | not bound: an owner with +0x90 != 0 faults (Roger's face, section 11) |
+| skin_arena_init (001D2E20) | `em_rcl_skin_arena_init`, run by the frame machine's 001D19E0 binding at every area load (the rest of 001D19E0 stays unmirrored, RENDER_CONTEXT.md 8.4) |
+
+**The GS state and arena REFs are checked by address.** 001D0F20 builds
+the GS state packets (and the arena qword) at boot and is not translated,
+so the port's copy of those bytes is not built. The parser requires the
+REF 9 to name D_00815360 (set 1, class 0) and the REF 1 to name
+0x00814220; the reference test proves their bytes are the class-0 set and
+NOP NOP NOP FLUSH in every capture.
+
+**Assets.** `python3 tools/export_world_models.py`,
+`python3 tools/export_object_textures.py` and (block size changed)
+`python3 tools/export_render_context.py` (STARTUP.md). A missing texture
+export faults at the first drawn unit.
+
+**Retired stand-ins.** The legacy crate / drum / truck EMDL meshes
+(`props/enemy_crate.emdl`, `enemy_egg.emdl`, `props/area_truck.emdl`) are
+no longer loaded by em_area11_boxes, and the fence door's runtime model is
+no longer uploaded as a mesh: their +0x4C is the unit above.
+
+## 11. Owners not on this path yet
+
+| Owner | Draws today | Waits on |
 |---|---|---|
-| per-vertex colour (lighting matrix, B) | em_gfx_metal.m computes it on the CPU with em_lighting_matrices + em_lighting_vertex from the palette and `EmGfxCharRig` | yes, under the ACTOR_LIGHTING contract (verified per record for 14 actors) |
-| GS state class 0 (TEST, ALPHA, TEX1, CLAMP, template PRIM) | the opaque skinned state | yes (LEVEL_MATERIALS.md: 5,840 object-kernel kicks) |
-| fog row | `em_gfx_fog` | yes for the fog-on case. The fog-off REF 2 (context +0x0C bit 0 clear) has no em_gfx equivalent. |
-| positions: node × VP on the VU, ftoi4 | GPU float, palette × viewproj | **no**. Not bit-exact on the 12.4 grid. The silhouette path already does this step on the CPU bit for bit (`em_shadow_gs_bone` + `em_shadow_gs_object_batch`). |
-| guard-band ADC: 0023C750 never draws a triangle with a vertex outside the guard band | Metal clips such triangles and draws them | **no** |
-| the flags & 1 clip pass (0x002354A0) | none | **no**. The microprogram is not translated. em_vu1_shadow_clip.h translates the level clip kernels 00239C90 and 0023E8A0 only. |
-| the cull (-1: no unit at all) | em_enemy draws without 001CA7B0 | **no**, until the owners are bound to em_owner_services |
-| texture: the per-vertex TEX0 and ST·Q | the EMDL texture table (TEX0 → embedded RGBA8), bilinear | not verified per vertex. No test runs the object kernel's ST/Q path. The level path's texture set is verified (LEVEL_MATERIALS.md). |
+| player (0x8102B0; +0x4C = 001CAA00, 21 nodes, model at 0x00D1C1C0, 149 blocks) | the legacy player EMDL through em_gfx_draw_skinned | an export of the player's model bytes (verified against RAM like the bank); an owner view over the record pose's node records; the seven equipment nodes (0018A6B0) on the same path, since the legacy player mesh carries their models; em_weapon's bone lookup (em_gfx_last_skinned_bone reads the player's draw) moved to the record |
+| Roger (008237E0; +0x90 = his face) | roger.emdl with the opening face through em_gfx_draw_skinned | the face unit's EE builders: 001CB3C0 (and its 001026D0 / 001029C0), 001C7900 and 001CB2C0 (verified-unbound in em_anim_runtime_rest), 001D3F50 -> 001D3E40 (untranslated; the decomp's C is a NEARMISS), and the face state's weights from their original updater. The renderer side is ready: em_gfx_object_unit runs a face unit (section 8 F). Roger's body model (0x47) and the unit resolver for the Roger export's models are the binder's |
+| Roger's equipment 001C5C90 | opening/equipment_6b.emdl | a model resolver for the D_0028A56C library (the Roger export holds model 0x6B) |
+| elevator, panel, pickups, fan, husks, parachute, 001C4820, 001C5760, 001C5680 | their legacy meshes | each owner live on its original record with bone slots (their own census lanes) |
 
-**The draw path the port needs, step by step.** For each owner, in the
-owner walk's order, which is also the original list order (ORIGINAL_FRAME_ORDER.md):
+## 12. Limits
 
-1. The coordinator runs the behaviour. The behaviour's draw worker runs
-   em_owner_services_001CAA00 with the workers above. The result is the
-   original's unit bytes in a native display-list buffer, plus the flags.
-2. The renderer consumes the unit, not a stand-in:
-   - the colour matrix (tag 1);
-   - per node, the position matrix and the lighting matrix (tag 2);
-   - the fog row of the skin record, or the REF 2 row;
-   - the model's blocks, resolved from their REF address through the bank
-     (`em_world_models_at(address - 0x40)`).
-3. **Per vertex, on the CPU, as the silhouette path does:**
-   - position: c = p × M[slot], then XYZ = ftoi4(c.xyz / c.w);
-   - ADC: the data word's bit 15, or a guard-band clip flag on vertex
-     i-2..i;
-   - fog: F from the fog row;
-   - colour: em_lighting_vertex from the lighting matrix and B;
-   - texture: ST·Q and TEX0.
-4. Rasterize the kicked triangles (strip order, no culling) in GS state class
-   0 with the vertex's texture.
-5. When flags & 1, run the 0x002354A0 program's triangles after them.
-6. Show nothing for flags -1.
-
-## 7. Proposals for the chain (em_gfx.h / Metal; not edited here)
-
-**P1. A native object-unit draw that consumes the unit's contents.** Proposed
-text for em_gfx.h:
-
-```c
-/* The object kernel 0023C750 (and, when `clip`, the 0x002354A0 program) over
- * one 001CA990 unit, computed on the CPU bit for bit as the silhouette path
- * does (em_shadow_gs_bone / em_shadow_gs_object_batch for XYZ and ADC,
- * em_lighting_vertex for RGBAQ, the fog row for F), then rasterized in GS
- * class 0 (TEST 0x5000D, ALPHA off, TEX1 bilinear, CLAMP repeat) with no
- * face culling. Triangles with ADC set are not drawn. Returns 0, or -1 when
- * it cannot draw exactly what the original draws (a missing input, a TEX0
- * without a resolved texture, clip set while the 0x002354A0 program is
- * untranslated); the reason is printed once per session. */
-typedef struct {
-    const uint32_t *color;       /* 16 words: VU1 0x3F5..0x3F8 (unit tag 1 payload) */
-    const uint32_t *nodes;       /* 32 words per node: node x VP, then C x A (tag 2 payload) */
-    uint32_t node_count;
-    const uint32_t *constants;   /* 28 words: VU1 0x3F9..0x3FF (skin record 0 payload,
-                                    with 0x3FD replaced when the REF 2 was emitted) */
-    const uint32_t *clip_constants; /* skin record 1 payload, or NULL when !clip */
-    const uint8_t *blocks;       /* model + 0x40: block_count x 0x82 qwords */
-    uint32_t block_count;
-    uint32_t clip;               /* 001CA7B0 flags & 1 */
-} EmGfxObjectUnit;
-int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
-
-/* The TEX0 -> texture binding for object units: every TEX0 value a bank
- * model's vertices carry, mapped to an uploaded RGBA8 texture decoded from
- * GS memory (the same source the level's gsmat textures use). */
-int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
-                          uint32_t width, uint32_t height);
-```
-
-**Metal (em_gfx_metal.m).** The new function shares the silhouette code path:
-
-- CPU vertex transform with `em_shadow_gs_bone` / `em_shadow_gs_object_batch`
-  (the rows come from the unit, so no product is recomputed);
-- GS-window-to-NDC mapping for the 512x448 frame, as the receiver pass does;
-- per-vertex RGBAQ from em_lighting_vertex over the unit's lighting matrix;
-- F from the constants row.
-
-It draws into the frame's colour and depth with the class-0 pipeline that
-`em_gfx_draw_skinned` already uses, with the texture chosen by the vertex's
-TEX0.
-
-**P2. The clip program 0x002354A0.** Translate it as
-`src/game/em_vu1_object_clip.h` (new lane), on the pattern of
-em_vu1_shadow_clip.h (00239C90 / 0023E8A0). Its oracle runs the uploaded
-microprogram over the 14 captured clip units in section 5. Until it
-exists, `em_gfx_object_unit` returns -1 when `clip` is set. Under the
-fidelity rules, the owners stay unwired, because a near-plane crate would
-otherwise vanish.
-
-**P3. Fog-off.** In `EmGfxObjectUnit.constants`, the 0x3FD row after the REF 2
-(255, 2048, 255, 0) gives F = 255. No separate em_gfx_fog state is needed per
-draw.
-
-**P4. Until P1/P2 land.** Mapping owners onto `em_gfx_draw_skinned` has two
-known inexact parts: the GPU position rounding, and guard-band triangles
-drawn instead of dropped. The clip pass is missing as well. The palette is
-node +0x90, whose 16 floats in memory are already the column-major layout
-em_gfx wants. The viewproj is the port's P·V, not the unit's VP rows. That is
-not the Original profile, so this lane does not recommend it as the live path.
-
-## 8. Makefile hunks (for the chain; the Makefile is not edited here)
-
-```make
-.PHONY: test-owner-draw
-test-owner-draw:
-	mkdir -p build/owner_draw && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/owner_draw_test.c src/game/em_owner_draw_original.c -o build/owner_draw/owner_draw_test && ./build/owner_draw/owner_draw_test
-
-.PHONY: test-owner-draw-reference
-test-owner-draw-reference:
-	python3 tools/test_owner_draw_reference.py
-
-.PHONY: export-world-models
-export-world-models:
-	python3 tools/export_world_models.py
-```
-
-When the owners are bound, add `src/game/em_owner_draw_original.c` to COMMON
-next to `src/game/em_owner_services_original.c`. The module needs nothing
-else: it includes only em_owner_services_original.h and em_ee_float.h.
-
-## 9. Limits
-
-- **The unit, not the pixels.** Section 5 proves the EE output: the DMA unit,
-  byte for byte. No test here runs the object kernel's texture path. No GS
-  framebuffer comparison is made.
-- **001D89D0 is borrowed** in lane D. Section 6 item 1 names its lane.
-- **Placement address.** The table address 0x01335F40 is a RAM placement,
-  not a disc value. The exporter checks it in every capture. REF targets and
-  001C6120 handles are original addresses, which the renderer resolves
-  through the bank. Nothing dereferences them.
-- **Other captures.** Beat 15 (the level exit) is area 1, with its own table
-  at another address, and is out of scope.
+- **Rasterization is Metal's.** The kicked values are exact; coverage and
+  the per-pixel interpolation of RGBA, F, S, T, Q and depth are GPU float
+  at the output resolution, floored with a 0.001 epsilon, not the GS's DDA
+  (the shader is checked against a model of these formulas, section 8.1).
+  The captures' GS freezes hold no rendered frame (PCSX2's hardware
+  renderer keeps it on the GPU), so no framebuffer comparison is possible;
+  a screenshot comparison (the units of beats 03 and 07 through a Python
+  model of this pixel path, composited over `original.png`) was inspected
+  by eye: positions, shapes and textures agree where the owners are
+  visible. It is not a test.
+- **VU1 arithmetic** is the VU0 rule set, assumed (VU1_OBJECT_KERNEL.md 4).
+- **The lighting rows** are compared live only in lanes y and z (section
+  9) until the port's rand() order is the original's.
+- **The fog-off REF 2** has no AREA11 capture (context +0x0C bit 0 is set
+  in all of them).
+- **The model placement** (0x01335F40) is a RAM placement checked in every
+  capture (section 4).
+- **Beat 15** (the level exit) is out of scope.

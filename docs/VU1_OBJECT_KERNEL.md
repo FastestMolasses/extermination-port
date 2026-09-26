@@ -1,9 +1,11 @@
 # The VU1 object kernel (CALL 0x0023C750): CPU translation and proof
 
-Date: 2026-09-24. Lane `vu1-object-kernel`. **Nothing here is bound into the
-frame or the renderer.** This is proposal P1's core (docs/OWNER_DRAW.md
-section 7): the exact primitives the original draws for every world owner,
-the player, Roger and the other actors. Addresses are boot-ELF addresses;
+Date: 2026-09-24. Lane `vu1-object-kernel`. **Bound since 2026-09-25:**
+`em_object_unit_run` (src/game/em_object_unit.c) runs this header for every
+unit `em_gfx_object_unit` draws, live for the crates, drums, truck and fence
+door (docs/OWNER_DRAW.md sections 6..10). This is proposal P1's core: the
+exact primitives the original draws for every world owner, the player,
+Roger and the other actors. Addresses are boot-ELF addresses;
 micro addresses are instruction indices of the uploaded program (micro
 0x000 = ELF 0x0023C780). The document holds no original code, data or
 disassembly.
@@ -24,8 +26,8 @@ in-scope AREA11 capture: the six startup-reference EE images and route beats
 | CALL target | CALLs | What it is |
 |---|---|---|
 | **0x0023C750** | **950** | **The object kernel** (this lane). Every unit that 001C7420 and 001CA940/001D38A0 build. |
-| 0x002354A0 | 63 | The clip program of a unit whose sphere crosses the view-z plane (001CA7B0 flags & 1, docs/OWNER_DRAW.md). It always follows a 0x0023C750 pass of the same unit. By owner: parachute 20, player 9, husk partner 7, panel/001C4820 6, fan 4, Roger 4 (+1 with 001BB0E0), elevator 4, truck 2, 001C5760 2, crate 2, door 2. **Not translated** (P2). |
-| 0x0023C480 | 48 | **The face morph program** (1 node, 11-qword vertices whose position is the base plus seven weighted deltas; weights in dmem 1011/1012). Its CALL is appended by 001D3E40, reached as 001CAA00 → 001CB3C0 → 001D3F50 → 001D3E40 (the decomp repo's `func_001D3E40.c`, NEARMISS, and docs/OPENING_ACTORS.md). Every CALL's model REF is a face resource + 0x40: **Roger's face** (0x018C8740) in 41 CALLs, one in every list except `handoff_ee.bin` 0x00293700; **Dennis's face** (0x011749C0) in 7 CALLs of `opening_ee.bin`, `handoff_ee.bin` and `roger-encounter`, 2 of them in the stale tail past a list's write cursor. So this is a first-level actor draw (Roger's head in every frame). **Not translated here**: P1 cannot draw Roger's face exactly until it is. The test asserts the chain, the address build in 001D3E40 and the attribution (report `census.face_program`). |
+| 0x002354A0 | 63 | The clip program of a unit whose sphere crosses the view-z plane (001CA7B0 flags & 1, docs/OWNER_DRAW.md). It always follows a 0x0023C750 pass of the same unit. By owner: parachute 20, player 9, husk partner 7, panel/001C4820 6, fan 4, Roger 4 (+1 with 001BB0E0), elevator 4, truck 2, 001C5760 2, crate 2, door 2. Translated in em_vu1_object_clip.h (P2, VU1_OBJECT_CLIP.md). |
+| 0x0023C480 | 48 | **The face morph program** (1 node, 11-qword vertices whose position is the base plus seven weighted deltas; weights in dmem 1011/1012). Its CALL is appended by 001D3E40, reached as 001CAA00 → 001CB3C0 → 001D3F50 → 001D3E40 (the decomp repo's `func_001D3E40.c`, NEARMISS, and docs/OPENING_ACTORS.md). Every CALL's model REF is a face resource + 0x40: **Roger's face** (0x018C8740) in 41 CALLs, one in every list except `handoff_ee.bin` 0x00293700; **Dennis's face** (0x011749C0) in 7 CALLs of `opening_ee.bin`, `handoff_ee.bin` and `roger-encounter`, 2 of them in the stale tail past a list's write cursor. So this is a first-level actor draw (Roger's head in every frame). Translated in em_vu1_face_morph.h (VU1_FACE_MORPH.md); em_object_unit_run runs it. The test asserts the chain, the address build in 001D3E40 and the attribution (report `census.face_program`). |
 | 0x0023C990 | 42 | Inside a RAM-resident sub-list (two per list). Not an object unit. |
 | 0x00237180 / 0x00239C90, 0x0023C200 / 0x0023E8A0, 0x00233800, 0x00233290, 0x00231770 | 478 / 436, 166 / 123, 4,536, 252, 143 | Level, receiver and other programs (LEVEL_MATERIALS.md, SHADOW_ORIGINAL.md). |
 
@@ -288,9 +290,9 @@ run the counts are:
 | Clip-flag window | CLIP and the flag test are exactly 4 cycles apart on all 602,816 compared vertices (B, C and D). The test fails on any other distance (section 4). |
 | Defect injection (`--defects`) | 46 defects in a copy of the header. The quick run catches all of them with a failed check; a build error does not count as caught. Kernel (22): sum order, lighting clamp, colour cap, fog clamp order, fog ADC add, clip-history width, data bit, Q lane, ST w, MSCNT reloading constants, skipped first stores, ST read before the stores, look-ahead before the stores, ftoi0, kick offset, CLIP ≥, guard lane, lighting lane count, history kept across batches, fog w lane, the fog cap hard-coded to 255, the ADC addend hard-coded to 2048. Decode and triangles (24): F shifted by 5, R/B swapped, G from R, A from B, Z masked to 16 bits, Q from lane w, S from T, XYZ2 Z shifted, X from the Y word, Y from the X word, ADC from bit 14, TEX0 low word only, NLOOP > 32 accepted, EOP / FLG / NREG ignored, slot 0 or 3 unchecked, PRE ignored, XYZ2 taken as XYZF2, ST slot always set, triangles from i = 3, triangles ignoring ADC, triangles for any PRIM. (The stricter criterion showed that the earlier revision's "ST w zero" defect had only broken the build; it now compiles and is caught by the packet comparison.) Changing the order of the four final stores is equivalent (distinct addresses), so it is not listed. |
 
-## 6. What this means for P1 (the chain's decision)
+## 6. How P1 uses it (built: em_object_unit_run, OWNER_DRAW.md section 7)
 
-The renderer should draw exactly what this header kicks. It should not
+The renderer draws exactly what this header kicks. It should not
 recompute positions and colours with `em_shadow_gs_*` and
 `em_lighting_vertex`: those are exact on the captured drawing vertices but
 are not translations.
@@ -313,13 +315,16 @@ The recipe for one unit, without a VIF interpreter:
 3. The carried registers never reach a drawn GS field, so a fresh state per
    unit draws the same pixels. Only the undrawn ST w lane and the TOP +
    0x81..0x83 slots depend on them.
-4. When 001CA7B0 flags & 1, the unit also runs 0x002354A0 (P2, not
-   translated). Until then the unit cannot be drawn exactly and must stay
-   unwired (fail-stop).
+4. When 001CA7B0 flags & 1, the unit also runs 0x002354A0
+   (em_vu1_object_clip.h) over the same blocks after it.
 5. Roger's face (and Dennis's in the opening, handoff and roger-encounter
-   captures) is a separate CALL of 0x0023C480 from 001CB3C0 (section 2).
-   This header does not draw it. Until that program is translated, the face
-   must stay unwired.
+   captures) is a separate CALL of 0x0023C480 from 001CB3C0 (section 2),
+   run by em_vu1_face_morph.h. Its EE builders are not translated yet
+   (OWNER_DRAW.md section 11).
+
+tools/test_object_unit_reference.py runs this recipe (em_object_unit_run)
+over every captured owner unit against the original microcode, triangle
+for triangle (OWNER_DRAW.md section 8).
 
 Section 5 C shows this recipe's inputs are exactly the unit's own uploads.
 The recipe itself is the header's MSCAL/MSCNT API, checked in B and C
@@ -334,16 +339,14 @@ through the real VIF replay.
 - **The clip-flag latency** (4 cycles, so the drop window is i-2..i) is the
   interpreter's model and is not confirmed by an original capture
   (section 4).
-- **Not translated:** the clip program 0x002354A0 (P2) and the face morph
-  program 0x0023C480 (Roger's face, a first-level draw).
 - **No GS pixels.** This lane proves the kicked packets. Texel decoding
-  (TEX0 → texture) and rasterization are the renderer's (LEVEL_MATERIALS.md
-  covers the class-0 state).
+  (TEX0 → texture, tools/export_object_textures.py) and rasterization are
+  the renderer's (OWNER_DRAW.md section 7; its limits in section 12).
 - **Beat 15** (the level exit, area 1) is out of scope (`in_scope_beat`).
 - The 149 stale-unit batches of `opening_ee.bin` are compared oracle against
   native. Their inputs are not what the hardware had.
 
-## 8. Makefile hunk (for the chain; the Makefile is not edited here)
+## 8. Makefile targets
 
 ```make
 .PHONY: test-vu1-object-kernel-reference
