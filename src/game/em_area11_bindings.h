@@ -72,6 +72,16 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
  * D_00810CA6 == 4 extra), then 001F0120(player, 0x3B). Returns 0 or -1. */
 int em_area11_spawn_player_children_0015C420(void);
 
+/* At the area build (001AFCA0, after the pool reset): the effect and
+ * equipment binders over this pool (em_effects_live, em_equipment_live),
+ * then 001D0660's 001F0310. 0, or -1. */
+int em_area11_bindings_effects_attach(void);
+
+/* 0015C310(player, arg1): the equipment children (arg1 = 0: (0,0), (1,0),
+ * (1,0x10); both: the flavour-2 nodes of D_00810CA4..CA7 and, with
+ * D_00810CA6 == 4, (1,0x15)). 0, or -1. */
+int em_area11_spawn_player_equipment_0015C310(int32_t arg1);
+
 /* 001F0120(owner, key) for the keys 001E2290 admits (0x3B, 0x47): the
  * head-bone sprite node linked to `owner_address` (+0x24 = owner +0x14).
  * 0 (also when the alloc is refused, as the original returns 0), or -1. */

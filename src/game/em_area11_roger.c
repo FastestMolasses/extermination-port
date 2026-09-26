@@ -662,9 +662,8 @@ static int w_001D0720(void *ctx, EmRogerActorRecord *actor)
 
 /* ------------------------------------------- the equipment's services */
 
-static int e_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
+int em_area11_roger_001C6120(uint32_t bank, uint32_t id, uint32_t *handle)
 {
-    (void)ctx;
     const uint8_t *table = em_area11_roger_resource(bank, 4);
     uint32_t count = table ? rd32(table) : 0;
     uint32_t index = id & 0x7FFFu;
@@ -672,6 +671,12 @@ static int e_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
     if (!entry) return report("001C6120 over D_0028A56C: an id outside the exported table");
     *handle = bank + (uint32_t)(((int32_t)rd32(entry) >> 2) << 2);
     return 0;
+}
+
+static int e_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
+{
+    (void)ctx;
+    return em_area11_roger_001C6120(bank, id, handle);
 }
 
 /* 001CA6E0 = 001CA5E0(owner, handle, 0): +0x44, then 001CA5F0 kind 0:
@@ -1016,6 +1021,25 @@ static uint8_t *collision_record_bytes(void *context, uint32_t address, uint32_t
         return o->rec.bytes + (address - o->address);
     }
     return (uint8_t *)(uintptr_t)em_area11_roger_resource(address, size);
+}
+
+const uint8_t *em_area11_roger_record_bytes(uint32_t address, uint32_t size)
+{
+    Owner *o = &R.roger;
+    if (!o->actor || o->freed || o->actor->generation != o->generation || address < o->address ||
+        size > RECORD || address - o->address > RECORD - size)
+        return NULL;
+    sync_in(o);
+    return o->rec.bytes + (address - o->address);
+}
+
+const uint8_t *em_area11_roger_slot_bytes(uint32_t address, uint32_t size)
+{
+    const EmRogerActorWorld *w = em_area11_boxes_slot_world();   /* the one slot arena */
+    if (!w->slots || address < w->slots_base || size > w->slots_size ||
+        address - w->slots_base > w->slots_size - size)
+        return NULL;
+    return w->slots + (address - w->slots_base);
 }
 
 static uint32_t collision_address_of(void *context, const EmActor *actor)

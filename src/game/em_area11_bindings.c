@@ -12,16 +12,13 @@
  *             player's mode byte +4 is 0 (0015BA50 case 0), which the
  *             001AF5C0 wipe of state 0 leaves.
  *   001F0120  001E2290(b) (1 for 0x3B and 0x47) then 001EF9D0(0x80000010,
- *             0, 1.0); +0xD = b; +0x24 = owner +0x14.
- *   001EF9D0  NEARMISS (logic checked): the effect entity at
- *             *(D_00259C70) + (type & 0x7FFFFFFF) * 0x30; alloc(ent[0]);
- *             +3 = ent[4]; +0xD = ent[8]; +0x10 = ent[0xC]; +0x38 = 1. The
- *             entity bytes used here were read from the captured table
- *             (build/startup-reference/playable_ee.bin, table base
- *             0x257C90): type 0x10 = class 0x0C, +3 4, +0xD 0, 001E2560;
- *             type 0x17 = class 0x0C, +3 0x63, +0xD 0, 001E55F0.
+ *             0, 1.0); +0xD = b; +0x24 = owner +0x14. Since census L39 the
+ *             one translation (em_head_sprite_original over em_effects_live,
+ *             whose 001EF9D0 is em_effect_original's: the entity bytes come
+ *             from the user's ELF, assets/effect_tables.emet).
  *   001EFD20  byte-matched: 001EF9D0(type), +0xB0 = the argument vector,
- *             +0xC0..+0xCC = 0, +0xBC = 1.0.
+ *             +0xC0..+0xCC = 0, +0xBC = 1.0 (em_effect_original over
+ *             em_effects_live since census L26).
  *   001C1EA0  byte-matched: D_008106C8 & 0x02000010 -> 001EFD20(0x80000017,
  *             &D_00250F00); & 0x04000020 -> (.., &D_00250F10); & 0x08000040
  *             -> (.., &D_00250F20). D_00250F00/10/20 are zero vectors in the
@@ -50,6 +47,10 @@
  *   child at 0x827C20 (+0xD 0x10, +0xA 0). These two are INTERIM spawns.
  *   Roger 0x8237E0's 001BA8E0 -> 001F0120(Roger, 0x47) runs in its own
  *   lifecycle 0 since census L22 (em_area11_roger).
+ *   The nodes 001EF9D0 allocates (the puffs 001EA240, the head sprites
+ *   001E2560, the weather 001E55F0) are bound by their +0x10 through
+ *   bind_spawned (em_effects_live's hook); the equipment nodes 0018A6B0 run
+ *   em_equipment_live (census L28).
  */
 #include "game/em_area11_bindings.h"
 
@@ -65,6 +66,8 @@
 #include "game/em_director_original.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_effect_kinds.h"
+#include "game/em_effects_live.h"
+#include "game/em_equipment_live.h"
 #include "game/em_indicator_child.h"
 #include "game/em_pickup.h"
 #include "game/em_player_closure_live.h"
@@ -105,7 +108,6 @@ struct Node {
     char name[112];   /* binding name recorded in the trace */
     uint8_t ticked;   /* first behaviour call done */
     uint8_t head;     /* runs its group's port code */
-    uint32_t link;    /* original +0x24 (the owner of an effect child) */
     EmActor *child;   /* an owner's indicator child (00219550 +0x2EC,
                        * 00827B10 +0x2E4) until the owner stops it */
     /* Indicator children (001C5680 / 001C5760): their owner, and their
@@ -146,13 +148,6 @@ static int fault(uint32_t address, EmSceneFaultCode code, const char *why)
 /* ------------------------------------------------------- spawn helpers */
 
 static int bind_node(EmActor *actor, const char *record);
-
-/* Design 4.3 "interim_spawn": named in the trace's binding field. */
-static void mark_interim(Node *node)
-{
-    size_t len = strlen(node->name);
-    snprintf(node->name + len, sizeof node->name - len, " (interim spawn)");
-}
 
 /* The fields every indicator-child spawn writes. 001C5570 (byte-matched):
  * alloc(0xC); +0x9A = +3 = +0x2E = 0; +0xD = a2; +0xE = 0xFFFF; +0x54 =
@@ -205,47 +200,6 @@ static int spawn_001C5570_child(EmActor *owner, const float a1[4], uint8_t a2, i
     default:
         return fault(0x001C5570u, EM_SCENE_FAULT_BAD_INDEX, "001C5570 a3 outside 0..2");
     }
-}
-
-/* The 001EF9D0 entities the port spawns (bytes from the captured table,
- * see the file comment). */
-typedef struct {
-    uint32_t type;
-    uint8_t cls, model, param;
-    uint32_t callback;
-} EffectEntity;
-static const EffectEntity k_effect_0x10 = {0x80000010u, 0x0C, 0x04, 0x00, 0x001E2560u};
-static const EffectEntity k_effect_0x17 = {0x80000017u, 0x0C, 0x63, 0x00, 0x001E55F0u};
-
-/* 001EF9D0(type, 0, 1.0): none of the handled types is one of the
- * 0x80000026/2C/67 random-state ids, and a1 == 0 returns before the kind
- * dispatch. NULL when the alloc is refused (the original returns 0). */
-static EmActor *spawn_001EF9D0(const EffectEntity *entity)
-{
-    EmActor *p = em_actor_pool_alloc_001AFA90(s_pool, s_scene, entity->cls);
-    if (!p)
-        return NULL;
-    p->model = entity->model;
-    p->param = entity->param;
-    p->callback = entity->callback;
-    /* +0x38 = 1: EmActor has no field for it (not stored). */
-    return p;
-}
-
-/* 001F0120(owner, b) for b in {0x3B, 0x47} (001E2290 returns 1 for both). */
-static int spawn_001F0120(uint32_t owner_address, uint8_t b, int interim)
-{
-    EmActor *e = spawn_001EF9D0(&k_effect_0x10);
-    if (!e)
-        return 0;
-    e->param = b;
-    if (bind_node(e, NULL) < 0)
-        return -1;
-    Node *n = node_of(e);
-    n->link = owner_address; /* +0x24 = owner +0x14 (the owner's own address) */
-    if (interim)
-        mark_interim(n);
-    return 0;
 }
 
 /* 0018A880(a0, a1). */
@@ -649,6 +603,39 @@ static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
+/* 001EA240 (the puff driver) and 001E2560 (the head-bone sprite): the
+ * effect originals over the node's own record (em_effects_live, census L26 /
+ * L27 / L39), in every walk mode (class 0xC). A node that frees itself
+ * (state 2 / 3) returns through 001AFC10. */
+static int tick_effect_node(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)node;
+    (void)world;
+    if (em_effects_live_tick(actor) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(em_effects_live_fault() ? em_effects_live_fault() : actor->callback,
+                                                 EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "effect node: a translation faulted (em_effects_live)");
+    return 1;
+}
+
+/* 0018A6B0 x7, the player's equipment nodes (em_equipment_live, census
+ * L28), walked in mode 0 and, as class 1, in mode 2 of the cutscene
+ * variant. A node that frees itself (lifecycle 3) returns through
+ * 001AFC10. */
+static int tick_equipment(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)node;
+    (void)world;
+    if (em_equipment_live_tick(actor) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(em_equipment_live_fault() ? em_equipment_live_fault()
+                                                                           : actor->callback,
+                                                 EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "player equipment: a translation faulted (em_equipment_live)");
+    return 1;
+}
+
 /* Free the node's own actor from inside its behaviour (001AFC10(self)); the
  * pool walk continues with the next node it saved. */
 static int free_self_001AFC10(EmActor *actor)
@@ -669,6 +656,8 @@ static int tick_weather(EmActor *actor, Node *node, const EmArea11World *world)
     int released = em_snow_runtime_tick_actor(
         &node->weather, world->cutscene ? s_walk_eye : g.cam.eye, world->cutscene ? 1u : 0u,
         s_scene->req[EM_SCENE_REQ_B8], (unsigned)(int)em_frame_transition()->substate);
+    if (released < 0)
+        return fault(0x0021B9A0u, EM_SCENE_FAULT_WORKER_FAILED, "001E67C0's fog programmer faulted");
     return released ? free_self_001AFC10(actor) : 1;
 }
 
@@ -861,10 +850,12 @@ static const Binding k_bindings[] = {
      tick_weather, NULL},
     {0x001C5930u, "area title: lifecycle; the legacy em_hud card draws at the close-out", NULL,
      GROUP_NONE, tick_area_title, NULL},
-    {0x0018A6B0u, "player equipment: no port draw", NULL, GROUP_NONE, NULL,
-     "0018A6B0 x7 player attached equipment (D3, Q5): the port has no equipment-model draw"},
-    {0x001E2560u, "head-bone sprite effect: UNBOUND", NULL, GROUP_NONE, NULL,
-     "001E2560 head-bone sprite effect (Q5): UNBOUND"},
+    {0x0018A6B0u, "player equipment: em_player_equipment (em_equipment_live)", NULL, GROUP_NONE,
+     tick_equipment, NULL},
+    {0x001E2560u, "head-bone sprite: em_head_sprite_original (em_effects_live)", NULL, GROUP_NONE,
+     tick_effect_node, NULL},
+    {0x001EA240u, "effect: em_effect_original 001EA240 (em_effects_live)", NULL, GROUP_NONE,
+     tick_effect_node, NULL},
     {0x001C5680u, "indicator child: 001C5680 (em_indicator_child)", NULL, GROUP_NONE, tick_indicator, NULL},
     {0x001C5760u, "indicator child: 001C5760 (em_indicator_child)", NULL, GROUP_NONE, tick_indicator, NULL},
     {LEGACY_WORLD_CALLBACK, "legacy_world: S10a legacy block", NULL, GROUP_NONE, tick_legacy_world, NULL},
@@ -973,27 +964,45 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
     return bind_node(actor, record[0] ? record : NULL);
 }
 
-int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key)
+static int equipment_spawn(int32_t arg1);
+
+/* A node the effect binder's 001EF9D0 allocated: its behaviour by +0x10. */
+static int bind_spawned(EmActor *actor)
 {
-    if (key != 0x3B && key != 0x47)
-        return fault(0x001F0120u, EM_SCENE_FAULT_BAD_INDEX, "001F0120 with a key 001E2290 is not bound for");
-    return spawn_001F0120(owner_address, key, 0);
+    return bind_node(actor, NULL);
 }
 
-int em_area11_spawn_player_children_0015C420(void)
+int em_area11_bindings_effects_attach(void)
+{
+    if (em_effects_live_attach(s_pool, s_scene, bind_spawned) < 0 ||
+        em_equipment_live_attach(s_pool, s_scene) < 0)
+        return -1;
+    em_equipment_live_set_spawn(equipment_spawn);
+    em_area11_interaction_host_set_aura_draw(em_effects_live_aura_draw);
+    /* 001AFCA0's 001D0660: 001F0310, the effect pools' reset. */
+    return em_effects_live_001F0310();
+}
+
+int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key)
+{
+    if (em_effects_live_001F0120(owner_address, key) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(em_effects_live_fault() ? em_effects_live_fault() : 0x001F0120u,
+                                                 EM_SCENE_FAULT_WORKER_FAILED, "001F0120 faulted (em_effects_live)");
+    return 0;
+}
+
+int em_area11_spawn_player_equipment_0015C310(int32_t arg1)
 {
     if (em_scene_faulted(s_scene))
         return -1;
-    /* 0015C420: 0018A880(4, 0) -> player+0x18 (the player is not a pool
-     * record in the port; the handle is not kept). */
-    if (spawn_0018A880(4, 0) < 0)
-        return -1;
-    /* 0015C310(player, 0). */
     const uint8_t *ca = em_scene_progress_at(s_scene, 0x00810CA4u, 4);
     if (!ca)
         return fault(0x0015C310u, EM_SCENE_FAULT_BAD_INDEX, "D_00810CA4..CA7 not canonical");
     uint8_t ca4 = ca[0], ca5 = ca[1], ca6 = ca[2], ca7 = ca[3];
-    if (spawn_0018A880(0, 0) < 0 || spawn_0018A880(1, 0) < 0 || spawn_0018A880(1, 0x10) < 0)
+    /* 0015C310 (byte-matched): with a1 == 0 the (0,0) (player +0x20),
+     * (1,0) and (1,0x10) nodes first. */
+    if (arg1 == 0 && (spawn_0018A880(0, 0) < 0 || spawn_0018A880(1, 0) < 0 || spawn_0018A880(1, 0x10) < 0))
         return -1;
     int rc;
     if (ca4 == 2)
@@ -1008,8 +1017,27 @@ int em_area11_spawn_player_children_0015C420(void)
         return -1;
     if (ca6 == 4 && spawn_0018A880(1, 0x15) < 0)
         return -1;
+    return 0;
+}
+
+static int equipment_spawn(int32_t arg1)
+{
+    return em_area11_spawn_player_equipment_0015C310(arg1);
+}
+
+int em_area11_spawn_player_children_0015C420(void)
+{
+    if (em_scene_faulted(s_scene))
+        return -1;
+    /* 0015C420: 0018A880(4, 0) -> player+0x18 (the player is not a pool
+     * record in the port; the handle is not kept). */
+    if (spawn_0018A880(4, 0) < 0)
+        return -1;
+    /* 0015C310(player, 0). */
+    if (em_area11_spawn_player_equipment_0015C310(0) < 0)
+        return -1;
     /* 0015C420: 001F0120(player, 0x3B); +0x24 = player +0x14 = 0x008102B0. */
-    return spawn_001F0120(EM_SCENE_D_008102B0, 0x3B, 0);
+    return em_area11_bindings_spawn_001F0120(EM_SCENE_D_008102B0, 0x3B);
 }
 
 /* 001C1EA0 (byte-matched): v0 = 001B0070() = D_008106C8, the canonical
@@ -1027,13 +1055,15 @@ int em_area11_spawn_weather_001C1EA0(void)
     uint32_t flags = em_scene_req_u32(s_scene, EM_SCENE_REQ_C8);
     if (!(flags & 0x02000010u) && !(flags & 0x04000020u) && !(flags & 0x08000040u))
         return 0;
-    EmActor *p = spawn_001EF9D0(&k_effect_0x17);
-    if (!p)
-        return 0;
-    p->pos[0] = p->pos[1] = p->pos[2] = 0.0f; /* D_00250F00 */
-    p->rot[0] = p->rot[1] = p->rot[2] = p->rot[3] = 0.0f;
-    p->pos[3] = 1.0f;
-    return bind_node(p, NULL);
+    /* D_00250F00 / 10 / 20 (zero in the ELF data): em_effect_original's
+     * 001EFD20 over the effect table (entity 0x17: class 0x0C, +3 0x63,
+     * 001E55F0); the binder binds the node by its +0x10. */
+    static const float k_zero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    if (em_effects_live_001EFD20(0x80000017u, k_zero) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(em_effects_live_fault() ? em_effects_live_fault() : 0x001EFD20u,
+                                                 EM_SCENE_FAULT_WORKER_FAILED, "001C1EA0's 001EFD20 faulted");
+    return 0;
 }
 
 int em_area11_spawn_legacy_world(void)

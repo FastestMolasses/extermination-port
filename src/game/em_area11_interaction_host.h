@@ -32,6 +32,14 @@ int em_area11_interaction_host_load(const char *directory,
     const EmItemMath *item_math, const EmStatusRuntimeHooks *status_hooks);
 void em_area11_interaction_host_clear(void); /* whole-world teardown only */
 
+/* The map pickup aura's draw block (001F1180's 0x1F136C..0x1F1470) over the
+ * owner's +0xD0 matrix: em_effects_live_aura_draw, set by the bindings'
+ * effect attach (em_area11_bindings_effects_attach). Unset, a pickup aura
+ * that reaches its draw faults (a missing worker). 0, or -1. */
+typedef int (*EmArea11AuraDraw)(const float owner_d0[16], uint32_t record, uint32_t angle,
+                                uint32_t timer);
+void em_area11_interaction_host_set_aura_draw(EmArea11AuraDraw draw);
+
 EmInteractionScene *em_area11_interaction_host_scene(void);
 EmInteractionRuntime *em_area11_interaction_host_shared(void);
 EmPanelRuntime *em_area11_interaction_host_panel(void);

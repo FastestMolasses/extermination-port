@@ -57,15 +57,6 @@ int player_pose_animate(void);
 int player_pose_display(void);
 
 
-/* 001EFD90 / 001EFE00 / 001EF9D0 from the player's own routines (the
- * footstep's surface effect, the climb's grab dust, the slide's spray, the
- * reactions' blood): the effect entity spawn has a translation
- * (em_effect_original) but no live effect owner or handlers (census L26 /
- * L27), so nothing is spawned; the call is counted and reported once, the
- * same gap the footstep's unbound effect worker records. Returns 0. */
-int player_effect_gap(uint32_t id, const float position[3], const float rotation[3]);
-unsigned player_effect_gap_count(void);
-
 /* WP-15 P16 (docs/PLAYER_FLOOR.md): player_wall_probes runs the translated
  * 001764E0 over the port's collision; unbound workers it reaches (00176180,
  * 001762E0 shove, 00174A50 row request) are counted here. */

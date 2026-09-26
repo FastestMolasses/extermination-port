@@ -1476,8 +1476,8 @@ static int truck_crossing_frame(void)
         return 0;
     /* TRUCK_ORIGINAL.md: a whole set piece spawns 32 effects (12 in the
      * shake, 20 in the fall), counted at the gap (census L26). */
-    if (em_area11_boxes_effect_gap() != 32) {
-        fprintf(stderr, "level smoke: truck_crossing: %u effect spawns\n", em_area11_boxes_effect_gap());
+    if (em_area11_boxes_effect_spawns() != 32) {
+        fprintf(stderr, "level smoke: truck_crossing: %u effect spawns\n", em_area11_boxes_effect_spawns());
         fail("the truck did not spawn the set piece's 32 effects");
         return 0;
     }

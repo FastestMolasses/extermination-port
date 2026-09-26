@@ -43,9 +43,10 @@
  * above, the bone-0 pose 00102958, the hull 001A2370 and its AABB header,
  * 001B1B70, +0x4C 001CAA00 (props/area_truck.emdl at the bone matrix),
  * 001B1E20 (em_pad_actuator), 001FBD50 (em_sfx_play_at at the truck's
- * +0xB0) and 001AFC10. Its effect spawns 001EFD20 (0x80000049) reach no
- * live effect owner (census L26): each is counted
- * (em_area11_boxes_effect_gap), as the slide's player-side spawns are.
+ * +0xB0) and 001AFC10. Its effect spawns 001EFD20 (0x80000049) run the
+ * effect binder (em_effects_live, census L26), and are counted
+ * (em_area11_boxes_effect_spawns). The crates' 001EFD90 and the drums'
+ * 001F0460 / 001EFD20 (their damage paths) run it too.
  * The camera trigger 008251E0 (area11[17]) runs em_truck_trigger_tick over
  * its record (+0x04, +0x0B) with the camera script 0x8292C0 on the AREA11
  * script host (em_area11_script_host). Both read and write D_00810792
@@ -88,10 +89,9 @@ int em_area11_boxes_trigger_tick(EmActor *actor, EmActorPool *pool, EmSceneState
  * values when a truck node is live, 0 otherwise. */
 int em_area11_boxes_truck_state(uint32_t *record, uint8_t header[16], float position[3],
                                 uint8_t t2dc[20]);
-/* The truck's 001EFD20 effect spawns that reached the counted gap (no live
- * effect owner, census L26); a whole set piece spawns 32
- * (TRUCK_ORIGINAL.md). */
-unsigned em_area11_boxes_effect_gap(void);
+/* The truck's 001EFD20 effect spawns since the area build; a whole set
+ * piece spawns 32 (TRUCK_ORIGINAL.md). */
+unsigned em_area11_boxes_effect_spawns(void);
 
 /* 001AF710 (the bone-slot stack at every area build) and every node's
  * state dropped: called with the pool reset (001AFCA0). */

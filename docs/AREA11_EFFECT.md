@@ -62,10 +62,11 @@ test enabled and depth writes disabled. The separate texture occupies native
 particle slot1; snowfall retains slot0. Metal uses the quantized GS corners
 and maps depth to the native scene's existing convention.
 
-Effect fog comes from original AREA11 light-rig entry30: near−209,far304.
-Original DIV.S and MUL.S produce VU fog coefficients255/2048/151.1111145/
-−0.4970760345, matching the saved context. This does not repair the current
-manifest's separately missing world-fog line.
+Effect fog is the render context's +0xA0 quadword, copied at the owner's
+DRAW call (its walk position; 001D04B0 programs no fog, its 001CFBE0 copies
+the context's): with AREA11's light-rig entry 30 (near −209, far 304) the
+context holds 255 / 2048 / 151.1111145 / −0.4970760345, as the saved
+context does (EFFECT_MANAGER.md 8.2).
 
 ## Sound boundary
 

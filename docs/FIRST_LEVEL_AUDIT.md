@@ -197,6 +197,38 @@ blocked):**
   lock (the director's lock is gone since WP-8b), the armed stances, R2 and melee (P24..P28,
   L28). The skid's and the footstep's effects are the counted gap (L26).
 
+**Status update (2026-09-25, census L26 / L27 / L28 / L39: effects,
+equipment and head sprite live):**
+- With the render context live, `em_effects_live` binds the effect
+  translations over it (EFFECT_MANAGER.md section 8): the barrel 001F0360
+  (both world variants), 001F0310 at the area build, the spawns 001EF9D0 /
+  001EFD90 / 001EFD20 / 001F0460 (every player-side spawn with the record's
+  whole +0xC0 quadword, the truck's 32, the crates', drums' and weather
+  node's), the driver 001EA240 and the handlers 001EC1F0 / 001EC3F0 /
+  001EC470 / 001EBF10 on pool nodes, 001CFBE0 into em_packet_chain_original,
+  the head sprites 001F0120 / 001E2560 (the player's 0x3B, Roger's 0x47),
+  the pickup glint 001F0A60 and the glow markers' 001CD520. `em_equipment_live`
+  binds the seven 0018A6B0 nodes (0018A8D0 and the flavour bodies,
+  PLAYER_EQUIPMENT.md section 8) and the equipment change's 0015C310(p, 1).
+  The snow's and the AREA11 effect's fog come from 0021B9A0 on the context.
+- **Against the original:** the level smoke's check_effects (new) compares
+  the effect, head-sprite and equipment nodes and the barrel's lane packets
+  with routes 08, 10, 11, 12, 13 and 14 (route 08's eight truck puffs bit
+  for bit, route 12's four player footstep puffs; packet 4 and route 10's
+  glow-marker primitives where the camera equals the capture's); every
+  barrel frame emits 11 markers and 6 lanes and the route counts no effect
+  gap; newgame-control 9.599849 and the frame order unchanged.
+- **Retired:** em_player.c `player_effect_gap`, the truck's effect gap, the
+  bindings' own 001EF9D0 copy, the no-op aura draw, the snow's and the AREA11
+  effect's host fog coefficients.
+- **Open:** no renderer stage draws the effect chains (WP-13); the
+  equipment is still drawn by the player's baked mesh at its node slots 4 /
+  14 (the nodes' own 001CAA00 draw is the renderer's); the skid's two
+  untranslated handlers 001EAD70 / 001EC270 (reachable off the route,
+  checked to write nothing but their packets) are the binder's counted gap;
+  every other untranslated handler and 001EFE00 fault (none is reachable in
+  AREA11 in the port; EFFECT_MANAGER.md 8.2).
+
 ---
 
 ## 2. Live call graph (normal run)
@@ -533,6 +565,12 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   boundary), 001D19E0, 001D1EF0 (flag 3 needs step V 001D2300), 001D2580,
   the status page's fog save / restore; RENDER_CONTEXT.md 8.4. The effect
   binding (L26 / L27 / L39) is no longer blocked on the context.
+- **Effects step (2026-09-25, census L26 / L27 / L28 / L39):** the effect,
+  head-sprite and equipment originals run live over the context and build
+  their packets byte for byte into its chain table (status update in
+  section 1). Still open here: a renderer stage that draws the effect
+  chains (the VU1 programs of table 0x231770 / 0x233290) and the equipment
+  nodes' own 001CAA00 draw.
 
 ### WP-14 Audio
 - **Scope:**

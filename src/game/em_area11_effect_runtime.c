@@ -15,12 +15,17 @@ typedef struct EffectConfig {
     float position[3];
     float descriptor[9][4];
     float lookup[80];
-    float fog_range[2];
+    float fog_range[2];   /* the export's rig near / far: validated, not read (the
+                           * draw takes the render context's fog, as 001CFBE0) */
 } EffectConfig;
 
 static struct {
     EmArea11Effect owner;
     EffectConfig config;
+    /* The render context's +0xA0 fog quadword as the owner's draw 001D04B0
+     * (its 001CFBE0) copies it, at the owner's walk position. */
+    uint32_t fog[4];
+    int fog_read;
     float matrix[16];
     EmSnowParticle particles[EFFECT_PARTICLES];
     EmGfxParticle projected[EFFECT_PARTICLES];
@@ -115,6 +120,11 @@ static void effect_call(void *context, EmArea11EffectCall call,
         memcpy(effect.matrix + 12, effect.config.position, 3 * sizeof(float));
         break;
     case EM_AREA11_EFFECT_DRAW: {
+        /* 001D04B0 -> 001CFBE0 copies the context's +0xA0 into its packet at
+         * this call (it does not program the fog itself). */
+        const uint8_t *fog = em_rcl_bytes(EM_RCL_CONTEXT + 0xA0u, 16);
+        effect.fog_read = fog != NULL;
+        if (fog) memcpy(effect.fog, fog, sizeof effect.fog);
         float params[4] = {owner->phase, 1.0f, 0.000001f, owner->seed};
         int count = em_snow_particles_generate(effect.config.descriptor,
             effect.config.lookup, params, effect.matrix, effect.particles,
@@ -157,14 +167,14 @@ void em_area11_effect_runtime_tick(void)
 void em_area11_effect_runtime_draw(EmGfx *gfx, const float view[16], float zoom)
 {
     if (!effect.loaded || !effect.count || !gfx || !view) return;
+    if (!effect.fog_read) {
+        fprintf(stderr, "AREA11 effect: no render-context fog at the owner's draw; not drawn\n");
+        return;
+    }
+    /* The fog quadword the owner's draw read from the render context (the
+     * export's rig near / far, config.fog_range, is no longer read). */
     EmSnowProjection projection = {0};
-    const float *range = effect.config.fog_range;
-    float delta = em_effect_float32((double)range[1] - range[0]);
-    float slope = (float)(255.0 / delta);
-    projection.fog[0] = 255.0f;
-    projection.fog[1] = 2048.0f;
-    projection.fog[2] = em_effect_float32((double)range[1] * slope);
-    projection.fog[3] = -slope;
+    memcpy(projection.fog, effect.fog, sizeof projection.fog);
     /* The render context's P, 001CD370(0) clip projection and K, as this
      * frame's head 001D1C50 built them. */
     float native_projection[16];

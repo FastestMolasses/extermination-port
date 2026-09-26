@@ -2157,29 +2157,6 @@ void footstep_play(int tier)
     (void)em_player_step_sounds(&actor, (uint8_t)tier, &workers);
 }
 
-/* ---- 001EFD90 from the player's routines ---------------------------------
- * The effect entity spawn has a translation (em_effect_original) but no live
- * effect owner behind the player's spawns (census L26): the call is counted
- * and reported once, nothing is spawned. The footstep dispatch 00187350 runs
- * on the record (em_player_closure_live_footstep, census L12). */
-static struct {
-    unsigned faults;
-    int reported;
-} effect_gap;
-
-int player_effect_gap(uint32_t id, const float position[3], const float rotation[3])
-{
-    (void)id; (void)position; (void)rotation;
-    ++effect_gap.faults;
-    if (!effect_gap.reported) {
-        effect_gap.reported = 1;
-        fprintf(stderr, "player: 001EFD90 effect (no live effect owner, census L26) at frame %d; "
-                "counted by player_effect_gap_count\n", g.frame_no);
-    }
-    return 0;
-}
-
-unsigned player_effect_gap_count(void) { return effect_gap.faults; }
 
 /* Cyclic edge test: did the looping clip playhead cross `trig` going
  * prev -> cur (both in frames, cur may have wrapped past 0)? */

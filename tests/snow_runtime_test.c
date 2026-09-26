@@ -85,6 +85,9 @@ int main(void)
     float view[16];
     fixture_view(view, eye, forward, up);
     fixture_frame_head(view, 480);
+    fixture_fog_area(-209.0f, 304.0f);   /* AREA11's area fog (001D8FD0) */
+    uint8_t area_fog[0x20];
+    memcpy(area_fog, em_rcl_bytes(EM_RCL_CONTEXT + 0xA0u, 0x20), sizeof area_fog);
     em_snow_runtime_clear(NULL);
     em_snow_runtime_tick(eye, 0);
     em_snow_runtime_draw(NULL, view, 480);
@@ -96,6 +99,8 @@ int main(void)
         em_snow_runtime_draw(NULL, view, 480);
     }
     assert(draw_calls == 240 && particles_drawn > 0 && guard_band_particles > 0);
+    /* 001E67C0's 0021B9A0(1, 0, 0) leaves the mode-1 pair, the area's. */
+    assert(memcmp(area_fog, em_rcl_bytes(EM_RCL_CONTEXT + 0xA0u, 0x20), sizeof area_fog) == 0);
     unsigned previous_draws = draw_calls;
     assert(!em_snow_runtime_load(NULL, "assets/scene_snow", "snow.emsn",
                                  "snow.emtx", 0x20));

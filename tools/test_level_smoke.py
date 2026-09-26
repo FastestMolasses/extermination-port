@@ -949,6 +949,7 @@ def check_truck_crossing(ticks, run, state):
         if fell is None and o['h'][8:10] == '01':
             fell = k
     state['cursor'] = i0 + count
+    state.setdefault('snapshots', []).append(('08_truck_crossing', i0 + (len(rows) - 1 - r0)))
     print(f'truck_crossing: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 08 '
           f'f{rows[r0]["f"]}..f{rows[r0 + count - 1]["f"]} in the truck record (+0x00..+0x0F, +0xB0, +0x2DC..+0x2EF) '
           f'and D_00810792: armed from the truck top at f{rows[r0]["f"]}, falling from f{rows[r0 + fell]["f"]}, '
@@ -1214,6 +1215,9 @@ def check_crevice_jump(ticks, run, state):
                 free += 1
     assert free >= JUMP_MIN_FREE_ROWS, ('too few free-flight rows compared', free)
     state['cursor'] = e + count
+    # check_effects: the snapshot is route 12's last row (the player's four
+    # footstep puffs, subtype 5); tick e is row r0.
+    state.setdefault('snapshots', []).append(('12_crevice_jump', e + (len(rows) - 1 - r0)))
     print(f'crevice_jump: PASS (route 12 f{JUMP_WINDOW[0]}..f{JUMP_WINDOW[1]} row for row in +5, +1F0, +1F1, clip, '
           f'clock, ground and Y: the jump 6 / 0x0C (clips 0x69 / 0x6B), the landing 8 / 0xF at '
           f'f{rows[r0 + landing]["f"]} (clip 0x6E) and the hand-back; the step length equals the original\'s '
@@ -1342,6 +1346,7 @@ def check_roger(ticks, run, state):
     cam3 = next(k for k in range(count) if rows[f0 + k]['cam_mode'][:2] == '03')
     follow = check_follow_after_release(ticks, i0, rows, f0, 'roger', 'exact')
     state['cursor'] = i0 + count
+    state.setdefault('snapshots', []).append(('14_roger_encounter', i0 + count - 1))
     print(f'roger: PASS (the script start 0x8283D0 at port tick {ticks[t0]["tick"]} = route f{rows[s0]["f"]} in Roger\'s '
           f'record and block, held at op16 until the landing ({i0 - t0} ticks in the port, {f0 - s0} rows in the '
           f'original: the jump is navigation); port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 14 '
@@ -1487,6 +1492,7 @@ def check_director_beat(ticks, run, state, phase):
         # stance is exact: the follow camera from the release row for row.
         follow = '; ' + check_follow_after_release(ticks, i0, rows, f0, phase, 'exact')
     state['cursor'] = i0 + count
+    state.setdefault('snapshots', []).append((beat, i0 + count - 1))
     step = bytes.fromhex(rows[-1]['d2'])[0x3B]
     extra = ", Roger's record and block (0x828990)" if roger else ''
     line = orig[e_orig]['msg'][2]
@@ -1633,6 +1639,177 @@ def check_render_context(ticks, state):
           f'view lag); {len(samples)} sampled ticks\' K and 001CD370(0) projection equal the original 001D2960)')
 
 
+# ------------------------------------ effects, head sprites, equipment (L26..L39)
+
+EFFECT_DRIVER, HEAD_SPRITE, EQUIPMENT = 0x1EA240, 0x1E2560, 0x18A6B0
+GLOW_MARKERS = 11   # the AREA11 glow-marker list D_0025B590 (EFFECT_KINDS.md 2.4)
+# The snapshots whose last row the port's camera equals byte for byte (the
+# follow camera row for row after a scripted frame's release: route 10's
+# cage roof and route 14's encounter; 11 and 13 end on the stance offset,
+# 08 on the navigated walk off the truck).
+VIEW_EXACT = ('10_cage_roof_roger', '14_roger_encounter')
+
+
+def pool_nodes(beat):
+    """The route snapshot's pool (D_00275BC0 list): the effect nodes, head
+    sprites and equipment nodes, in the tick log's layout."""
+    m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+    u32 = lambda a: struct.unpack_from('<I', m, a)[0]
+    drivers, heads, equipment = [], [], []
+    a = u32(0x275BC0)
+    while a:
+        cb = u32(a + 0x10)
+        if cb == EFFECT_DRIVER:
+            drivers.append((m[a + 4], m[a + 0xD], tuple(u32(a + 0xB0 + 4 * k) for k in range(3)),
+                            tuple(u32(a + 0x100 + 4 * k) for k in range(3)), u32(a + 0x1F8), u32(a + 0x1FC),
+                            u32(a + 0x244)))
+        elif cb == HEAD_SPRITE:
+            heads.append((m[a + 4], m[a + 0xD], u32(a + 0x24), u32(a + 0x28),
+                          tuple(u32(a + 0xA0 + 4 * k) for k in range(3))))
+        elif cb == EQUIPMENT:
+            equipment.append((m[a:a + 16].hex(), u32(a + 0x44), u32(a + 0x4C)))
+        a = u32(a + 0x1C)
+    return drivers, heads, equipment
+
+
+LANES = (0, 1, 3, 4, 5, 6)   # 001F0360's 001F0720 calls
+
+
+def lane_digests(beat):
+    """The original's own 001F0720 packets of the snapshot's frame: the six
+    lanes' chain in the DMA buffer that holds the context's +0x18 cursor
+    (packet 2 tagged 0x01000101 / 0x6CC00020, the lanes 0xDD0 apart; packet
+    1 at -0x30, packet 3 at +0xC30, packet 4 at +0xCA0), as the tick log's
+    digests (em_effects_live_lane_digests)."""
+    import zlib
+    ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+    tag = struct.pack('<II', 0x01000101, 0x6CC00020)
+    hits, i = set(), 0
+    while True:
+        i = ram.find(tag, i + 1)
+        if i < 0:
+            break
+        hits.add(i - 8)
+    ctx = struct.unpack_from('<I', ram, 0x275670)[0]
+    cursor = struct.unpack_from('<I', ram, ctx + 0x18)[0]
+    # 001F0720's packet 1 (0x11000000, 0x14000000, 0x11000000, 0) opens
+    # every lane (the tag pattern also occurs inside other packets' data).
+    head = struct.pack('<4I', 0x11000000, 0x14000000, 0x11000000, 0)
+    chains = [h for h in sorted(hits) if all(h + k * 0xDD0 in hits and ram[h + k * 0xDD0 - 0x30:h + k * 0xDD0 - 0x20]
+                                             == head for k in range(6))
+              and h < cursor and cursor - h < 0x8000]
+    assert chains, ('effects', beat, 'no lane chain in the latest DMA buffer')
+    # A buffer can still hold an older frame's chain below the latest one:
+    # the latest frame's is the last before the cursor.
+    out = []
+    for k in range(6):
+        d2 = chains[-1] + k * 0xDD0
+        lane = bytearray(ram[d2:d2 + 0xC10])
+        params = b''.join(bytes(lane[0x10 + 0x60 * j + 0x40:0x10 + 0x60 * j + 0x50]) for j in range(32))
+        for j in range(32):
+            lane[0x10 + 0x60 * j + 0x40:0x10 + 0x60 * j + 0x50] = bytes(16)
+        out += [zlib.crc32(ram[d2 - 0x30:d2 - 0x20]), zlib.crc32(bytes(lane)), zlib.crc32(params),
+                zlib.crc32(ram[d2 + 0xC30:d2 + 0xC80]), zlib.crc32(ram[d2 + 0xCA0:d2 + 0xD40])]
+    return out, chains[-1], ram
+
+
+def marker_digests(ram, chain):
+    """The snapshot frame's glow markers: 001CD520's primitives (giftag
+    0x20045B0599421EF0) the barrel emitted just before its lane chain,
+    as em_effects_live_sprite_digests masks them."""
+    import zlib
+    tag = struct.pack('<Q', 0x20045B0599421EF0)
+    out, i = [], chain - 11 * 0xC0 - 1
+    while True:
+        i = ram.find(tag, i + 1)
+        if i < 0 or i >= chain:
+            break
+        q = bytearray(ram[i:i + 0x60])
+        q[0x08:0x20] = bytes(0x18)
+        q[0x2C:0x30] = bytes(4)
+        q[0x4C:0x50] = bytes(4)
+        out.append(zlib.crc32(bytes(q)))
+    return sorted(out)
+
+
+def port_nodes(tick):
+    e = tick['effects']
+    drivers = [(n[2], n[4], tuple(n[5:8]), tuple(n[8:11]), n[11], n[12], n[13]) for n in e[1]
+               if n[1] == EFFECT_DRIVER]
+    heads = [(n[2], n[4], n[5], n[6], tuple(n[7:10])) for n in e[1] if n[1] == HEAD_SPRITE]
+    equipment = [(q[1], q[2], q[3]) for q in e[2]]
+    return drivers, heads, equipment, e[2]
+
+
+def check_effects(ticks, state):
+    """The effect binder (census L26 / L27 / L39 / L28, em_effects_live,
+    em_equipment_live) against the route snapshots whose last row a phase
+    check aligned a port tick with (route 08's truck window, the director's
+    beats 10 / 11 / 13, route 12's crevice jump, Roger's encounter 14):
+    - the equipment nodes (0018A6B0): +0x00..+0x0F, +0x44 (the model's
+      original address) and +0x4C equal the snapshot's as a set, and every
+      one drew this tick at the player's node its mesh draws it at;
+    - the head sprites (001E2560): lifecycle, key, owner +0x24, bone +0x28
+      and offset +0xA0 equal (the sub-state +0x05 is not compared: it
+      flips when the wait +0x1F0 = 00122BB8() % 40 + 60 runs out, so it
+      follows rand() like the ramp +0x244 / +0x24C);
+    - the effect nodes (001EA240): state, subtype, step, limit and
+      accumulator equal as a set (route 12: the player's four footstep
+      puffs), and at route 08's end (the truck's eight puffs) the +0xB0
+      position and the +0x100 matrix row too;
+    - over the whole run: every barrel frame (001F0360) emitted the
+      11 glow markers (001CD520) and drew the six ring lanes (001F0720)."""
+    seen = [t for t in ticks if t.get('effects')]
+    assert seen, 'effects: no tick of the run carries the effect binder'
+    last = seen[-1]['effects'][0]
+    sprites, chains, skipped, lanes, frames, gaps = last
+    assert gaps == 0, ('effects: the route reached a packet-only handler\'s counted gap (001EAD70 / 001EC270)',
+                       last)
+    assert frames > 0 and sprites == GLOW_MARKERS * frames and lanes == 6 * frames, \
+        ('effects: the barrel frames', last)
+    done = []
+    for beat, i in state.get('snapshots', []):
+        assert i < len(ticks) and ticks[i].get('effects'), ('effects: no binder at the snapshot tick', beat)
+        pd, ph, pe, raw = port_nodes(ticks[i])
+        od, oh, oe = pool_nodes(beat)
+        where = ('effects', beat, 'port tick', ticks[i]['tick'])
+        assert sorted(pe) == sorted(oe), (where, 'equipment nodes', sorted(pe), sorted(oe))
+        assert all(q[4] == 1 and q[5] == 1 for q in raw), (where, 'equipment draws', raw)
+        assert sorted(ph) == sorted(oh), (where, 'head sprites', ph, oh)
+        exact = beat == '08_truck_crossing'
+        view = (lambda d: d) if exact else (lambda d: (d[0], d[1], d[4], d[5], d[6]))
+        assert sorted(map(view, pd)) == sorted(map(view, od)), (where, 'effect nodes', pd, od)
+        # The barrel's lane packets: packets 1 and 3 and the lanes are the
+        # original's byte for byte; the lane-3 parameter quadwords are not
+        # compared: 001F03D0 leaves each slot's +0x40 as it finds it, and
+        # lane 3's (ring 0x76D9C0) hold the same bytes (20 of 32 slots
+        # nonzero) in every capture from opening_ee.bin to route 14, so no
+        # routine of the level writes them; which earlier routine did is
+        # open (no capture before the AREA11 opening; EFFECT_MANAGER.md
+        # 8.4). Packet 4 carries the frame's view (+0x22C0, 0x70003AC0) and
+        # the fog, compared where the port's camera equals the capture's
+        # (VIEW_EXACT).
+        port_d = ticks[i]['effects'][3]
+        orig_d, chain, ram = lane_digests(beat)
+        views = 0
+        for k, lane in enumerate(LANES):
+            pk, ok = port_d[5 * k:5 * k + 5], orig_d[5 * k:5 * k + 5]
+            assert (pk[0], pk[1], pk[3]) == (ok[0], ok[1], ok[3]), (where, 'lane', lane, 'packets 1..3', pk, ok)
+            assert lane == 3 or pk[2] == ok[2], (where, 'lane', lane, 'parameter quadwords')
+            views += pk[4] == ok[4]
+        assert beat not in VIEW_EXACT or views == 6, (where, 'packet 4 (the view and fog)', views)
+        markers = marker_digests(ram, chain)
+        assert beat not in VIEW_EXACT or ticks[i]['effects'][4] == markers, \
+            (where, 'the glow markers\' primitives', ticks[i]['effects'][4], markers)
+        done.append(f'{beat[:2]} ({len(oe)} equipment, {len(oh)} head sprites, {len(od)} effect nodes'
+                    f'{" with their positions" if exact and od else ""}; lane packets 1..3'
+                    f'{", packet 4 and " + str(len(markers)) + " glow-marker primitive(s)" if views == 6 else ""})')
+    assert done, 'effects: no snapshot was aligned'
+    print(f'effects: PASS ({frames} barrel frames with {GLOW_MARKERS} glow markers and 6 ring lanes each; '
+          f'{chains} effect chains emitted, {skipped} skipped by the free-space guard; the route snapshots\' '
+          f'nodes equal the port\'s at their aligned ticks: {"; ".join(done)})')
+
+
 SIDE = ('panel_no_battery', 'fence_door')
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
@@ -1669,6 +1846,8 @@ def main():
                 not_live.append(name)
     if 'first_control' in checked:
         check_render_context(ticks, state)
+    if state.get('snapshots'):
+        check_effects(ticks, state)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

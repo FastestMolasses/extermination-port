@@ -4,8 +4,11 @@ Original executable SHA-256:
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
 
 Lane "effect-manager" (census lane L26-effect-manager), 2026-09-23. The
-translation and its oracle are done. The module is **built and tested but not
-wired**. Section 5 lists what the coordinator binds and what must exist first.
+translation and its oracle are done. **Live since 2026-09-25** (the effects
+step, census L26 / L27 / L39): `src/game/em_effects_live.{h,c}` binds this
+module with em_effect_original, em_effect_kinds, em_head_sprite_original and
+em_player_equipment_sprite over the one render context; section 8 is the
+live binding, section 5 the brief it followed.
 
 Files:
 - `src/game/em_effect_manager.{h,c}`: the native translation.
@@ -19,17 +22,17 @@ Files:
 
 | Function | Decomp | Census before | After this lane | Module / evidence |
 |---|---|---|---|---|
-| 001F0360 barrel | BM | missing (UM_001F0360) | verified-unbound | em_effect_manager; oracle on 15 beats + capture |
-| 001F6210 area model sprites | BM | missing | verified-unbound | em_effect_manager; oracle (AREA11 path + every list) |
-| 001F6BB0 area 0 / 0x1301 selector | NM | missing | verified-unbound | em_effect_manager; oracle, from the .s |
-| 001F6EB0 area 7 / 0x12 track switch | BM | missing | verified-unbound | em_effect_manager; oracle |
-| 001F40C0 entity sweep | BM | missing | verified-unbound | em_effect_manager; oracle |
-| 001F0720 ring-lane age + draw | NM | missing | verified-unbound | em_effect_manager; oracle, from the .s; capture: 24 packets per beat |
-| 001F0A60 glint sprite | AU | missing | verified-unbound | em_effect_manager; oracle, from the .s; capture: beats 03/05/13 |
-| 001F4D40 pulsed 001CD520 sprite | AI | missing | verified-unbound | em_effect_manager; oracle, from the .s |
+| 001F0360 barrel | BM | missing (UM_001F0360) | live (section 8) | em_effect_manager; oracle on 15 beats + capture |
+| 001F6210 area model sprites | BM | missing | live (section 8) | em_effect_manager; oracle (AREA11 path + every list) |
+| 001F6BB0 area 0 / 0x1301 selector | NM | missing | live (section 8) | em_effect_manager; oracle, from the .s |
+| 001F6EB0 area 7 / 0x12 track switch | BM | missing | live (section 8) | em_effect_manager; oracle |
+| 001F40C0 entity sweep | BM | missing | live (section 8) | em_effect_manager; oracle |
+| 001F0720 ring-lane age + draw | NM | missing | live (section 8) | em_effect_manager; oracle, from the .s; capture: 24 packets per beat |
+| 001F0A60 glint sprite | AU | missing | live (section 8) | em_effect_manager; oracle, from the .s; capture: beats 03/05/13 |
+| 001F4D40 pulsed 001CD520 sprite | AI | missing | live (section 8) | em_effect_manager; oracle, from the .s |
 | 001F1110 aura init | BM | missing | **live** (classification correction) | em_pickup_items_original, bound in em_area11_interaction_host.c; test_pickup_items_reference executes it |
-| 001F1180 aura step | NM | missing | **live**, except its draw block | em_pickup_items_original (live); the draw block 0x1F136C..0x1F1470 is the stand-in `aura_draw` (no-op) in em_area11_interaction_host.c; its translation `em_effect_manager_aura_draw` is verified-unbound |
-| 001EA240, 001EF940, 001EF9D0, 001EFD20, 001EFD90 | BM/NM | verified-unbound | verified-unbound (unchanged) | em_effect_original (docs/EFFECT_ORIGINAL.md); binding notes in section 5.4 |
+| 001F1180 aura step | NM | missing | **live**, its draw block too (section 8) | em_pickup_items_original (live); the draw block 0x1F136C..0x1F1470 is `em_effect_manager_aura_draw` through em_effects_live (the interaction host's aura-draw hook) |
+| 001EA240, 001EF940, 001EF9D0, 001EFD20, 001EFD90 | BM/NM | verified-unbound | live (section 8) | em_effect_original (docs/EFFECT_ORIGINAL.md); binding notes in section 5.4 |
 
 No census row of this lane is left "missing" or "unverified".
 
@@ -195,7 +198,7 @@ On the route it is reached through 001F5C20 → 001F5940 (lane L27).
    - 001F6BB0's header says the slot-0 guards must be 0xFF; they must not be.
    - 001F6210's header says "translate … scale"; the calls are rotate (00102C58) and translate (00102918).
 
-## 5. Binding (for the coordinator chain; nothing is wired)
+## 5. Binding (the brief; live since 2026-09-25, section 8)
 
 ### 5.0 Prerequisite: the render-context views (found by the Effects step, 2026-09-24)
 
@@ -259,7 +262,7 @@ others) and the transform block that em_effect_kinds_001CFB50 now fills.
 
 ### 5.1 The barrel
 
-- **Live call site:** `em_scene_bindings.c` `w_001F0360`, which today returns `unmirrored(UM_001F0360)` in the variant. It becomes `em_effect_manager_001F0360(&manager)`, mapping −1 to the scene fault.
+- **Live call site:** `em_scene_bindings.c` `w_001F0360`: `em_effects_live_001F0360()` in the roster scene, −1 mapped to the scene fault (section 8.2); `unmirrored(UM_001F0360)` remains only for a scene without the roster.
 - **The manager holds:**
   - `tables` from `em_effect_manager_load_tables(elf)`, the same ELF buffer the other original modules read;
   - `globals` mirrored per frame from em_scene_state: D_00810700/01/02, and the bytes D_0081075D/778/77B/79E. D_00275C44 is owned by this module and starts at 0 after 001F3FA0 (L27). The scratchpad words 0x70003400..7F, 3600..0F and 3A20 are module-local, since no other translated reader exists;
@@ -376,3 +379,154 @@ When bound, add `src/game/em_effect_manager.c src/game/em_effect_original.c` to 
   - 0021B9A0 and the packet sink 001CB5F0/001CB760/001CB900 are translated
     since afa091b (em_packet_chain_original, docs/PACKET_CHAIN.md), and
     001CFB50/001D0540 since the Effects step (em_effect_kinds).
+
+## 8. The live binding (census L26 / L27 / L39, 2026-09-25)
+
+### 8.1 One binder: em_effects_live
+
+`src/game/em_effects_live.{h,c}` adds no behaviour: it owns the storage the
+effect translations share and wires each one's workers to the other
+translations over the canonical render context (em_render_context_live,
+RENDER_CONTEXT.md section 8).
+
+| Storage (original) | Owner here |
+|---|---|
+| the effect entity tables, D_00255430, this module's windows, the lists 0x25AD80.., the handlers' sources D_002565E0.., D_002535F0 / D_00253670 / D_00251260 | `assets/effect_tables.emet` (`tools/export_effect_tables.py`: ten ELF windows, each checked equal in the opening, playable and route 00..14 captures), placed in an ELF-sized image the translations' own `*_load_tables` read |
+| the effect nodes (001AFA90 records) | the actor pool; the bytes beyond the pool's fields (+0xD0 matrix, +0x1F0 work block, the head sprite's +0x24.. fields) in one slot per pool record, synced into the pool record after every call |
+| the ring D_0028F700 + 0x4DBEC0 and D_0081F950 | one `EmEffectOriginalDecals` (001F0460, 001F0720, 001F03D0) |
+| D_007709C0 (0x80 particle records), D_00275C40 / D_00275C44 | em_effect_kinds' particles; 001F40C0's entity view and D_00275C44 are synced around the barrel (one word) |
+| D_0081F8F0, 0x700036A0.., 0x70003660.., 0x70003600.. | the binder (one copy each; 001CCF70's 0x70003600 / D_00275C04 are em_effect_original's for the puffs and the head sprites alike) |
+| the views (+0x2240, +0x22C0, +0xA0, 0x70003AC0, 0x70003A40, the +0x18 cursor, D_00810E80) | read from the render context at every entry; the fog copies after every 0021B9A0 |
+
+| Worker (original) | Bound to |
+|---|---|
+| 001AFA90 / 001AFC10 | em_actor_pool (the node is bound to its pool behaviour by its +0x10 after 001EF9D0 wrote it: em_area11_bindings `bind_spawned`) |
+| 00122BB8 | em_random_next (the one game rand) |
+| 0021B9A0 | em_rcl_0021B9A0 on the render context |
+| D_00255434[subtype] | em_effect_kinds_handler (001EC1F0, 001EC3F0, 001EC470, 001EBF10); of the handlers it does not translate, the two packet-only ones (001EAD70, 001EC270) are the counted gap and every other faults (8.2) |
+| 001CFB50 / 001CFBE0 | em_effect_kinds_001CFB50 / em_head_sprite_original_001CFBE0 (the cursor re-read at every call) |
+| 001CCF70, 001CD370, 001CFA60 | em_effect_original, the context's +0x2240 |
+| 001CB5F0 / 001CB6B0 / 001CB760 / 001CB900 | em_packet_chain_original's adapters on the render context's chain (em_rcl_packet_chain) |
+| 001F5C20 / 001F5CA0 / 001F5940 | em_effect_kinds; its 001F4D40 is this module's, whose 001CD520 is em_player_equipment_001CD520 (the marker position travels as the binder's handle for the stack quadword 001F5C20 builds) |
+| 0011E2A8, 0011DF78, 001281C0 | em_sdk_math_original (the collision world's SDK context), em_effect_original_float_to_int |
+| 001D7FA0 | em_point_light_register, the result dropped (EFFECT_ORIGINAL.md "Full point-light pool"; no route record has a light) |
+| 001FBF50 / 001FB9F0, 001F6210's list workers, the selectors' point-light workers, 001F3620 / 001F3E30 | NULL: a fault if reached (no first-level effect record carries a sound; AREA11's key has no model-sprite list; keys 0 / 0x1301 read latch bytes the port does not keep canonical and fault before the call) |
+
+### 8.2 Where each runs
+
+| Original | Live position |
+|---|---|
+| 001F0360 | w_001F0360 in both world variants (em_scene_bindings), after the walk, as 001AE5E0 / 001AE6B0 call it; the reported no-effect binding remains for a scene without the roster |
+| 001F0310 | w_001AFCA0's 001D0660, after the pool reset (the effect and equipment binders attach there); 001D1C10 (the movie frame) does not run |
+| 001EFD90 | the player closure's workers (the footsteps 00187EE0, the climb's 0017DEB0, the slide, the walk's skid 001612D0, the fall and reaction spawns), with the record's whole +0xC0 quadword; the crates' 001551B0 |
+| 001EFD20 | the truck 00823FF0's 32 spawns, the drums' 00156620, the weather node 001C1EA0 (0x80000017) |
+| 001F0120 | 0015C420 (the player's 0x3B), Roger's 001BA8E0 (0x47) |
+| 001EA240, 001E2560 | the pool walk 001AFD70, rows 0x1EA240 and 0x1E2560 of em_area11_bindings |
+| the draw block of 001F1180 (001F0A60) | the pickup owner's tick (em_area11_interaction_host `aura_draw`, the owner's +0xD0 matrix, through the hook `em_area11_interaction_host_set_aura_draw` the bindings' effect attach sets; unset it faults) |
+| 001E67C0's fog | em_snow_runtime's tick: 0021B9A0(2, 0, 0), (3, 0, 300) before the emission (its fog quadword is the one the draw uses), (1, 0, 0) after |
+| 001D04B0's fog (the AREA11 effect owner) | its DRAW call copies the context's +0xA0 at the owner's walk position (001CFBE0 copies it; the owner programs no fog) |
+
+**Untranslated handlers.** 001EA240 calls D_00255434[subtype]; the
+handlers em_effect_kinds does not translate split in two:
+
+- **Packet-only: the counted gap** (`effects_gap` in em_effects_live.c:
+  counted in the binder's counters, reported once per handler, returns 0;
+  the level smoke asserts the route counts none). Only the skid's two:
+  001EAD70 (0x80000033, subtype 1; decomp C byte-matched) and 001EC270
+  (0x80000012, subtype 0xB; its split listing). Each stores only the work
+  block's +0x1F4 (D_00275C34 + 4, the LCG, twice), which 001EA240 rewrites
+  from +0x1F0 before every handler call and reads nowhere else, and calls
+  only 001CFB50 (it rewrites D_0081F8F0 +0x00..+0x57 in full; in the port
+  that block's only reader is the 001CFBE0 each translated handler calls
+  right after its own 001CFB50) and 001CFBE0 (the packets). Skipping one
+  therefore loses only its packets; the node's ageing and free are exact.
+  The player reaches both off the route: the reversal skid (001612D0)
+  spawns 0x80000033 on surfaces 5 / 6 and 0x80000012 elsewhere (with +23C
+  and +23D clear), and the slide (0016CD70) spawns 0x80000012 on every
+  surface outside its list (5, 6, 7, 8, 0x5A..0x5C). A
+  scratch run reversing the stick every 45 frames for 900 frames after
+  first control counted both and played on (no fault).
+- **Everything else faults** (fail-stop at the handler's address, latched
+  by the binder; the scene coordinator stops the game task). None of them
+  is checked, and some do more than draw: 001EF510 (subtype 6) spawns
+  001EFD90(0x80000036) from inside the handler when the work block's +0x54
+  is 0. The same scratch run with one 001EFD90(0x80000009) (subtype 6)
+  added faulted at 001EF510 and stopped the game task. None is reachable in
+  AREA11 in the port:
+
+  | Handler (id) | Spawned by | Why AREA11 does not reach it |
+  |---|---|---|
+  | 001EAF00 (0x80000005), 001EB980 (0x68), 001EC5F0 (0x66), 001EC820 (0x67) | the footstep effect 00187EE0 on surfaces 6 / 7 / 8 / 0x5C; the slide 0016CD70 on 8 / 0x5C | the surfaces AREA11 can put in +23A are 0, 3, 4, 5, 0x5A, 0x5D (grid census) and 0, 3, 4, 0xB, 0xD (class-4 owners); surface 8 exists only as a static-cell kind, and AREA11's collision directory has no static cell (SFX_REGISTRY_FIRST_LEVEL.md, em_collision_world.c) |
+  | 001EAF80 (0x8000001D), 001EB020 (0x16) | 00187350's wading ripple (+23C set) and 00187EE0 on 0x5B; the climb grab 0017DEB0 with +23C set | +23C is set (1 / 2) only by 00175900 on surface 0x5B: the split listing's other stores to a +0x23C are 001647D0's clear and 001551B0's / 001D7BB0's words into their own records, and AREA11 has no 0x5B |
+  | 001ED450 (0x80000023) | the blast reaction 0021EAD0 / 0021EF30 (+5 0x12..0x14) | entered only from the hit requests +F 7 / 0xA / 0xB; no live port code writes +F (only clears it) |
+  | 001EBC30 (0x14), 001EBD20 (0x15), 001ED7A0 (0x07), 001EB600 (0x5F) | the crates' and drums' break and flight | reached only after a damage write to the owner's +0x36; no live port code writes it (CRATES_DRUMS_ORIGINAL.md) |
+  | 001EBBB0 (0x8000000E) | 001F0460's preset 0 | 001F0460 (the footstep decal) faults before it (below) |
+  | 001EF510 (0x09) and every other subtype | no first-level spawn site | — |
+
+**001EFE00** (em_player_misc_001EFE00; `w_attach` / `mw_spawn` in
+em_player_closure_live.c) faults as the stage's w001EFE00 already did
+(em_player_stage_live): its 001EF9D0 node view (+0x24, +0xB0, +0xC0) is not
+bound. Its callers are the hit and death paths (0021C120 0x80000040, 0021C200
+0x80000048, 0021CD9C 0x80000044 on +23B 0xA, major2's 0x80000051), none
+reachable while no live code writes a hit request, and the callbacks of all
+those ids (0022BBC0, 001F8350, 0021AE90) have no AREA11 binding row, so the
+node would fault in `bind_node` anyway.
+
+Not modelled on purpose (each faults when reached; none is reached on the
+route, route census `route_functions.json`): the footstep decal 001F0460
+(00187EE0 copies a stack word its 001031E0 never writes into the matrix's
+row 3), 001CD390's subtypes.
+
+### 8.3 What is not drawn
+
+The chains are built byte for byte in the context's chain table, which
+001D1EA0's 001CB800 splices every frame; no port renderer stage consumes the
+effect chains (the puffs, the head sprites' breath, the glint, the glow
+markers, the ring lanes). The AREA11 effect owner and the snow keep their
+own projection path (em_effect_sprite_project / em_snow_project over
+em_snow_particles_generate), now with the context's fog. Drawing the chains
+is the renderer's (the VU1 programs of table 0x231770 / 0x233290; WP-13).
+
+### 8.4 Evidence
+
+- **The captures** (`tools/test_level_smoke.py` check_effects, LEVEL_SMOKE.md):
+  at the port ticks the phase checks align with the last rows of routes 08,
+  10, 11, 12, 13 and 14, the effect nodes (state, subtype, step, limit,
+  accumulator; route 08's eight truck puffs with their +0xB0 and +0x100 bit
+  for bit, seven of them at the snapshot's pool addresses; route 12's four
+  player footstep puffs, subtype 5, from the player-side 001EFD90 spawns,
+  aligned by the crevice_jump phase at its entry row + the rows to the
+  capture's end), the head sprites (lifecycle, key, owner, bone, offset)
+  and the equipment nodes equal the snapshots; the barrel's 24 lane packets
+  equal the snapshot's latest DMA buffer (packets 1..3 in all six, the
+  lane-3 parameter quadwords excepted, see below; packet 4, the view and
+  fog, in 10 and 14 where the camera equals the capture's) and route 10's
+  five visible glow-marker primitives equal the snapshot's (colour
+  excepted: rand()). Over the whole run every barrel frame emitted the 11
+  markers and the six lanes, and no counted gap.
+- **Not compared, and why:**
+  - the head sprite's sub-state +0x05: it flips when the wait +0x1F0 =
+    00122BB8() % 40 + 60 runs out, so it follows rand() like the ramp
+    +0x244 / +0x24C; at the aligned ticks it differs in routes 08, 10, 11,
+    12 and 13 and agrees only in 14;
+  - the lane-3 parameter quadwords (+0x40 of each of lane 3's 32 slots,
+    ring 0x76D9C0): 001F03D0 leaves +0x40 as it finds it, and those bytes
+    (20 of 32 slots nonzero; lanes 0, 1, 4, 5 and 6 all zero) are identical
+    in opening_ee.bin, handoff_ee.bin, playable_ee.bin and every route
+    capture 00..14, so nothing during the level writes them. **Open:** no
+    capture from before the AREA11 opening exists, so which earlier routine
+    (title, New Game, the area load) wrote them is not shown; a title-screen
+    or New Game capture would decide it (a new capture for the lead).
+- **Coverage** (a `-fprofile-instr-generate` build of the live link line,
+  scratch, full-route smoke and side beat 00): 001F0360 14,223, 001EF9D0 131,
+  001EA240 7,231, the handlers 7,106, 001CFBE0 25,318, 001E2560 28,446,
+  001F0A60 1,067, 001CD520 156,453, 001F0310 2 (census 1.17).
+- **The oracles** of every bound translation are unchanged
+  (test_effect_manager_reference, test_effect_original_reference,
+  test_effect_kinds_reference, test_head_sprite_reference,
+  test_player_equipment_reference, test_packet_chain_reference).
+- **The fog stand-ins:** test-snow-runtime and test-area11-effect-runtime run
+  the real 0021B9A0 on a fixture context (tests/render_context_frame_stub.h);
+  the snow leaves the mode-1 pair (the area's) as 001E67C0 does. The level
+  smoke's check_render_context still holds the snapshots' fog block
+  +0xA0..+0xFF at every gameplay tick's end.

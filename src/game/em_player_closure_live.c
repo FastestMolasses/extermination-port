@@ -3,6 +3,7 @@
  * every routine reached is the verified translation named at its slot. */
 #include "game/em_camera_live.h"
 #include "game/em_player_closure_live.h"
+#include "game/em_effects_live.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -522,35 +523,58 @@ static int w_stop_sound(void *c, int handle)
     return em_sfx_stop_track(handle & 0x7FFF, (handle & 0x8000) != 0);
 }
 
-/* 001EFD90 / 001EFE00: the effect entity spawns have a translation
- * (em_effect_original) but no live effect owner or handlers (census L26 /
- * L27); every player-side spawn goes to the one counted gap the footstep's
- * surface effect already uses (em_player.c player_effect_gap): nothing is
- * spawned and the call is reported and counted. */
+/* 001EFD90(id, pos, rot): em_effect_original's spawn over the live effect
+ * binder (em_effects_live, census L26). 001EFD90 hands rot's fourth word to
+ * 001EF9D0 as f12, so the rotation is always a whole quadword: the callers'
+ * three-word rotations are the player record's +0xC0 (the slide's and the
+ * climb's actor mirror it), whose +0xCC completes it; pos's fourth word is
+ * overwritten with 1.0 by 001EFD90. */
+static int spawn_001EFD90(uint32_t id, const float pos[3], const float rot[4])
+{
+    const float at[4] = { pos[0], pos[1], pos[2], 1.0f };
+    if (em_effects_live_001EFD90(id, at, rot) < 0)
+        return unbound("001EFD90 (the effect binder faulted; em_effects_live)");
+    return 0;
+}
+static int spawn_record_rot(uint32_t id, const float pos[3], const float rot[3])
+{
+    const EmPlayerLiveActor *p = player_states_actor_mut();
+    if (!p) return unbound("001EFD90 without the player record");
+    const float quad[4] = { rot[0], rot[1], rot[2], em_live_f32(p, 0xCC) };
+    return spawn_001EFD90(id, pos, quad);
+}
 static int w_effect(void *c, uint32_t id, const float pos[3], const float rot[3])
 {
     (void)c;
-    return player_effect_gap(id, pos, rot);
+    return spawn_record_rot(id, pos, rot);
 }
 static int w_effect4(void *c, uint32_t id, const float pos[4], const float rot[4])
 {
     (void)c;
-    return player_effect_gap(id, pos, rot);
+    return spawn_001EFD90(id, pos, rot);
 }
 static int w_effect_bits(void *c, uint32_t id, const uint32_t point[4], const uint32_t at[4])
 {
     (void)c;
-    float p[3], r[3];
-    for (int i = 0; i < 3; ++i) { p[i] = bfloat(point[i]); r[i] = bfloat(at[i]); }
-    return player_effect_gap(id, p, r);
+    float p[4], r[4];
+    memcpy(p, point, sizeof p);   /* the words, bit for bit */
+    memcpy(r, at, sizeof r);
+    return spawn_001EFD90(id, p, r);
 }
+/* 001EFE00(id, actor): em_player_misc_001EFE00 is its translation; its
+ * 001EF9D0 node view (+0x24, +0xB0, +0xC0 of the spawned record) is not
+ * bound, so it faults (as the stage's w001EFE00 does, em_player_stage_live).
+ * Its callers are the hit and death paths: 0021C120 (0x80000040), 0021C200
+ * (0x80000048), 0021CD9C (0x80000044, surface mode +23B 0xA, which the AREA11
+ * grid census does not hold) and major2's 0x80000051. No live port code
+ * writes a hit request into +F (it is only cleared), and every one of those
+ * ids' callbacks (0022BBC0, 001F8350, 0021AE90) has no AREA11 binding row,
+ * so the node would fault in bind_node anyway (EFFECT_MANAGER.md 8.2). */
 static int w_attach(void *c, EmPlayerLiveActor *a, uint32_t id, uint32_t *handle)
 {
-    (void)c;
+    (void)c; (void)a; (void)id;
     if (handle) *handle = 0;
-    const float at[3] = { em_live_f32(a, 0xB0), em_live_f32(a, 0xB4), em_live_f32(a, 0xB8) };
-    const float rot[3] = { em_live_f32(a, 0xC0), em_live_f32(a, 0xC4), em_live_f32(a, 0xC8) };
-    return player_effect_gap(id, at, rot);
+    return unbound("001EFE00 (its 001EF9D0 node view is not bound)");
 }
 static int w_attach_plain(void *c, uint32_t id, EmPlayerLiveActor *a)
 {
@@ -980,17 +1004,24 @@ static int x_surface_sound(void *c, EmPlayerLiveActor *a, int gait)
     return em_player_step_sounds(&step, (uint8_t)gait, &w);
 }
 /* 00187EE0(p, p + B0, p + D0): em_player_floor.c's translation over the
- * record's fields, the foot being +B0. Its 001EFD90 spawns go to the one
- * counted effect gap (w_effect); the 001F0460 decal (surface 0 with the
- * wet-feet timer +212 set) has no live binding. */
+ * record's fields, the foot being +B0. Its 001EFD90 spawns run the effect
+ * binder with the record's whole +0xC0 quadword (the context is the
+ * record). The 001F0460 decal (surface 0 with the wet-feet timer +212 set)
+ * faults: 00187EE0 copies the whole stack quadword whose fourth word its
+ * 001031E0 (a three-word copy) never writes into the matrix's row 3, so
+ * the matrix is not determined by the original's inputs; no first-level
+ * route reaches it (route census). */
 static int x_decal(void *c, const float position[3], float yaw, float pitch)
 {
     (void)c; (void)position; (void)yaw; (void)pitch;
-    return unbound("001F0460 (the wet-feet decal of 00187EE0)");
+    return unbound("001F0460 (the wet-feet decal of 00187EE0: its row 3 w is an unwritten stack word)");
 }
 static int x_step_effect(void *c, uint32_t id, const float position[3], const float rotation[3])
 {
-    return w_effect(c, id, position, rotation);
+    const EmPlayerLiveActor *a = c;
+    if (!a) return -1;
+    const float quad[4] = { rotation[0], rotation[1], rotation[2], em_live_f32(a, 0xCC) };
+    return spawn_001EFD90(id, position, quad);
 }
 static int x_place(void *c, EmPlayerLiveActor *a)
 {
@@ -1892,13 +1923,15 @@ static int mw_bind_model(void *c, EmPlayerLiveActor *a, uint32_t handle)
 static int mw_bone_count(void *c, uint32_t model, uint8_t *count)
 { (void)c; (void)model; if (count) *count = 0; return unbound("001C6150 on the player (0015C1F0)"); }
 static int mw_00200890(void *c) { (void)c; return unbound("00200890 (0015C1F0)"); }
+/* 001EF9D0 from 001EFE00 (em_player_misc_001EFE00): its node view (+0x24,
+ * +0xB0, +0xC0 of the spawned record) is not bound, so it faults (w_attach
+ * above; no live caller reaches em_player_misc_001EFE00). */
 static int mw_spawn(void *c, uint32_t id, const float pos[4], float f12, uint32_t *node,
                     EmPlayerMiscEffectView *view)
 {
-    (void)c; (void)f12; (void)view;
+    (void)c; (void)id; (void)pos; (void)f12; (void)view;
     if (node) *node = 0;
-    const float zero[3] = { 0.0f, 0.0f, 0.0f };
-    return player_effect_gap(id, pos, zero);
+    return unbound("001EF9D0 from 001EFE00 (its node view is not bound)");
 }
 
 static int misc_scene_refresh(void)
@@ -2643,13 +2676,19 @@ static int lw_sound(void *c, int id, int a1, int a2, int a3)
 {
     return x_sound_1FB9F0(c, id, a1, a2, a3);
 }
-/* 001EFD90(id, p + B0, p + C0): the one counted effect gap (census L26). */
+/* 001EFD90(id, p + B0, p + C0): the effect binder (census L26). */
 static int lw_effect(void *c, uint32_t id, EmPlayerLiveActor *a)
 {
     (void)c;
-    const float at[3] = { em_live_f32(a, 0xB0), em_live_f32(a, 0xB4), em_live_f32(a, 0xB8) };
-    const float rot[3] = { em_live_f32(a, 0xC0), em_live_f32(a, 0xC4), em_live_f32(a, 0xC8) };
-    return player_effect_gap(id, at, rot);
+    if (!a) return -1;
+    float at[4], rot[4];
+    for (unsigned k = 0; k < 4; ++k) {
+        at[k] = em_live_f32(a, 0xB0 + 4 * k);
+        rot[k] = em_live_f32(a, 0xC0 + 4 * k);
+    }
+    if (em_effects_live_001EFD90(id, at, rot) < 0)
+        return unbound("001EFD90 (the effect binder faulted; em_effects_live)");
+    return 0;
 }
 static int lw_heading(void *c, EmPlayerLiveActor *a, int arg, int *result)
 {
@@ -2703,7 +2742,7 @@ static void bind_loco(void)
 /* ---- 00187350: the footstep dispatch on the record (census L12) ----------------
  * em_player_floor's translation over the record's fields. Its workers are
  * the closure's: 00179B90 and 00122BB8 the shared LCG, 001FBD50(p, id, 0,
- * 300) at the record, 001EFD90 the counted effect gap; the wet-feet decal
+ * 300) at the record, 001EFD90 the effect binder (em_effects_live); the wet-feet decal
  * 001F0460 and the wading 001E8B90 have no live binding (fail-stop; no
  * AREA11 floor sets the wet timer or the water depth on the route). */
 static int fs_random(void *c, uint32_t *value) { (void)c; return em_player_misc_random(NULL, value); }

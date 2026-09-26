@@ -176,6 +176,8 @@ int em_effect_kinds_001EC470(EmEffectKinds *k, const float matrix[16], int32_t d
                              EmEffectOriginalWork *work);
 int em_effect_kinds_001EBF10(EmEffectKinds *k, const float matrix[16], int32_t depth,
                              EmEffectOriginalWork *work);
+/* 1 when em_effect_kinds_handler translates `handler`, else 0. */
+int em_effect_kinds_translates(uint32_t handler);
 /* Dispatch by handler address; any other address faults (UNTRANSLATED). */
 int em_effect_kinds_handler(EmEffectKinds *k, uint32_t handler, const float matrix[16],
                             int32_t depth, EmEffectOriginalWork *work);

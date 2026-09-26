@@ -23,8 +23,10 @@ addresses, from the user's own extracted disc:
   * extract/chunk15/f18_id94.bin whole at D_0028A490[0x47] - 0x35000 (the
     model 0x47 at +0x35000 and the face resource 0x88 at +0x86000);
   * extract/chunk27/f01_id37.bin's table head (D_0028A56C = D_0028A490[0x37]:
-    the count word and the 126 entry words) and the equipment model 0x6B it
-    indexes (header, blocks and skeleton records).
+    the count word and the 126 entry words) and the equipment models it
+    indexes (header, blocks and skeleton records): 0x6B (Roger's 001C5C90)
+    and every id the player equipment's 0018A8D0 can bind (0x2F; 0x30,
+    0x40, 0x6D; 0x31..0x3D; 0x6A; em_equipment_live.c, census L28).
 
 Every region is checked byte for byte against RAM at its address in every
 AREA11 capture (default: playable_ee.bin and route beats 00..14).
@@ -55,7 +57,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 TABLE, TABLE_WORDS = 0x0028A490, 0xC0
 BANK_4A_AT, BANK_96_AT, MODEL_AT, FACE_AT = 0x10E000, 0x41000, 0x35000, 0x86000
-GLOBAL_TABLE_INDEX, EQUIPMENT_KIND = 0x37, 0x6B
+GLOBAL_TABLE_INDEX = 0x37
+# Roger's equipment 001C5C90 (0x6B) and the ids 0018A8D0 maps (flavour, variant)
+# to: 0x2F; 0x30 / 0x40 / 0x6D; 0x32, 0x33, 0x34, 0x35, 0x36, 0x31, 0x37, 0x38 and
+# 0x39..0x3D; 0x6A. Each span is one region, from its first model's header to
+# its last model's skeleton end (the file bytes between are exported too and
+# checked like the rest).
+EQUIPMENT_SPANS = ((0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x6D))
 
 
 def u32(b, a): return struct.unpack_from('<I', b, a)[0]
@@ -101,16 +109,23 @@ def main(argv=None) -> int:
         raise SystemExit("D_0028A490[0x88] is not the face resource of Roger's model file")
     global_table = table[GLOBAL_TABLE_INDEX]
     count = u32(f37, 0)
-    if not 0 < count < 0x400 or EQUIPMENT_KIND >= count:
+    if not 0 < count < 0x400 or max(last for _first, last in EQUIPMENT_SPANS) >= count:
         raise SystemExit(f'chunk27/f01_id37.bin: table word 0 = {count}')
-    equip_off = struct.unpack_from('<i', f37, 4 + 4 * EQUIPMENT_KIND)[0] >> 2 << 2
-    equip_size = block_model_size(f37, equip_off)
     regions = [
         (base12 + BANK_96_AT, f12[BANK_96_AT:]),
         (base18, f18),
         (global_table, f37[:4 + 4 * count]),
-        (global_table + equip_off, f37[equip_off:equip_off + equip_size]),
     ]
+    for first, last in EQUIPMENT_SPANS:
+        offsets = [struct.unpack_from('<i', f37, 4 + 4 * kind)[0] >> 2 << 2 for kind in range(first, last + 1)]
+        if offsets != sorted(offsets):
+            raise SystemExit(f'the equipment models {first:#x}..{last:#x} are not in file order')
+        start = offsets[0]
+        end = offsets[-1] + block_model_size(f37, offsets[-1])
+        for off in offsets:
+            if off + block_model_size(f37, off) > end:
+                raise SystemExit(f'the equipment model at +{off:#x} leaves its span')
+        regions.append((global_table + start, f37[start:end]))
     ordered = sorted(regions)
     for (a, da), (b, _db) in zip(ordered, ordered[1:]):
         if a + len(da) > b:

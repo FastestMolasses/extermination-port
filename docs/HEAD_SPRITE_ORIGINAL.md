@@ -1,7 +1,9 @@
 # Head sprite effect: 001E2560 (effect entry 0x10) and its helpers
 
-Status: 2026-09-23, lane `head-sprite-effect`. This covers the translation and its oracle. It is **not bound
-into the frame yet**.
+Status: 2026-09-23, lane `head-sprite-effect`. This covers the translation and its oracle. **Live since
+2026-09-25** (census L39): `em_effects_live` binds 001F0120 / 001E2560 (the player's key 0x3B at 0015C420,
+Roger's 0x47 at 001BA8E0) and every handler's 001CFBE0 over the canonical render context
+(docs/EFFECT_MANAGER.md section 8); the level smoke compares both head sprites with routes 08..14.
 
 Files:
 - `src/game/em_head_sprite_original.{h,c}`: the native translation.

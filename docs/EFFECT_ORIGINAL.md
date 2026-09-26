@@ -1,7 +1,8 @@
 # Effect spawn chain, generic puff driver 001EA240, ring decals 001F0460
 
-Status: 2026-09-23, lane `effect-puff-original`. The translation and its oracle are done. The module is **not
-wired** into the frame. The coordinator binds it (see "Binding").
+Status: 2026-09-23, lane `effect-puff-original`. The translation and its oracle are done. **Live since
+2026-09-25** (census L26 / L27 / L39 step): `em_effects_live` binds it over the canonical render context
+(docs/EFFECT_MANAGER.md section 8); "Binding" below was the brief.
 
 Files:
 - `src/game/em_effect_original.{h,c}`: the native translation.

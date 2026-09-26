@@ -21,6 +21,9 @@ static struct {
     unsigned count;
     unsigned flags;
     int loaded;
+    /* The render context's +0xA0 fog quadword as 001E67C0's 001CFFE0 reads
+     * it: after its 0021B9A0(2, 0, 0) and 0021B9A0(3, 0, 300.0). */
+    uint32_t fog[4];
 } snow;
 
 void em_snow_runtime_clear(EmGfx *gfx)
@@ -86,6 +89,18 @@ int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned 
         return 1;
     snow.count = 0;
     if (frame.draw != 1) return 0;
+    /* 001E67C0: the fog programmer (em_packet_chain_0021B9A0 on the one
+     * render context) moves the range to near 0, far 300 for the whole
+     * emission: 0021B9A0(2, 0.0, 0.0), then 0021B9A0(3, 0.0, 300.0); every
+     * tile's 001CFFE0 copies the context's +0xA0 quadword into its packet;
+     * 0021B9A0(1, 0.0, 0.0) restores the mode-1 pair at the end. */
+    const uint8_t *fog = NULL;
+    if (em_rcl_0021B9A0(2, 0, 0) < 0 || em_rcl_0021B9A0(3, 0, UINT32_C(0x43960000)) < 0 ||
+        !(fog = em_rcl_bytes(EM_RCL_CONTEXT + 0xA0u, 16))) {
+        fprintf(stderr, "snow: 001E67C0's 0021B9A0 faulted (the render context)\n");
+        return -1;
+    }
+    memcpy(snow.fog, fog, sizeof snow.fog);
     em_snow_tiles(weather, &snow.config, frame.strength, eye, snow.tiles);
     for (unsigned i = 0; i < EM_SNOW_TILE_COUNT; ++i) {
         const EmSnowTile *tile = &snow.tiles[i];
@@ -100,22 +115,21 @@ int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned 
         }
         snow.count += (unsigned)count;
     }
+    if (em_rcl_0021B9A0(1, 0, 0) < 0) {
+        fprintf(stderr, "snow: 001E67C0's 0021B9A0(1) faulted (the render context)\n");
+        return -1;
+    }
     return 0;
 }
 
 void em_snow_runtime_draw(EmGfx *gfx, const float view[16], float zoom)
 {
     if (!snow.loaded || !snow.count) return;
-    /* E67C0 sets fog near=0, far=300 through 0021B9A0. Its descriptor's
-     * sprite colors are attenuated by the VU before texture modulation. */
-    /* Original snow DMA's VU7A stores -0.8500000238 (rounded DIV.S),
-     * not the adjacent value produced by truncating this quotient. */
-    float slope = (float)(255.0 / 300.0);
+    /* The fog quadword 001E67C0's emission read from the render context
+     * (its descriptor's sprite colours are attenuated by the VU with it
+     * before texture modulation). */
     EmSnowProjection projection = {0};
-    projection.fog[0] = 255.0f;
-    projection.fog[1] = 2048.0f;
-    projection.fog[2] = em_effect_float32(300.0 * slope);
-    projection.fog[3] = -slope;
+    memcpy(projection.fog, snow.fog, sizeof projection.fog);
     /* P (+0x2340), the 001CD370(0) clip projection (+0x2240) and K (+0x23C0)
      * of the render context, as this frame's head 001D1C50 built them (the
      * matrices the original's VU packets carry). */

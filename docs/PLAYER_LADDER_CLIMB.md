@@ -279,7 +279,7 @@ instruction it translates.
   | skeleton | 001C68C0 | `em_pose_host_skeleton` (em_pose_host_workers.h, *lane*; direct) over `em_pose_host_001C68C0` |
   | floor | 00175900 | `player_states_floor_service` |
   | footstep | 00182430(p, 2) | `em_player_step_sounds` (em_player_floor.h), bound live by em_player_closure_live.c x_surface_sound since census L03 |
-  | ground_effect | 00187EE0(p, p+B0, p+D0) | `em_player_ground_effect_00187EE0` (em_player_floor.h, the footstep's one translation) over the record, foot = +B0 (x_place); its 001EFD90 spawns reach the counted effect gap (L26) |
+  | ground_effect | 00187EE0(p, p+B0, p+D0) | `em_player_ground_effect_00187EE0` (em_player_floor.h, the footstep's one translation) over the record, foot = +B0 (x_place); its 001EFD90 spawns run the live effect binder (em_effects_live, L26) |
   | translate | 00178B90 | em_player_recovery.h |
   | reentry | 0017C440 | untranslated (the motor module) |
   | handoff | 0017C540 | `em_pose_host_handoff` (em_pose_host_workers.h, *lane*; direct), or `em_player_reaction_0017C540` through an adapter |

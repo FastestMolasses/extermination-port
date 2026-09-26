@@ -21,6 +21,8 @@
 #include "game/em_owner_draw_original.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_pad_actuator.h"
+#include "game/em_effects_live.h"
+#include "game/em_equipment_live.h"
 #include "game/em_player.h"
 #include "game/em_random.h"
 #include "game/em_roger_actor_original.h"
@@ -101,8 +103,8 @@ static struct {
      * player stage 0015BCF0 at its start, ORed into the camera block's +0x8B
      * by the camera frame 0018B9C0 (em_camera_live.c). */
     int32_t carry31F0;
-    /* The truck's 001EFD20 spawns that reached the counted effect gap. */
-    unsigned effect_gap;
+    /* The truck's 001EFD20 spawns (the level smoke counts them). */
+    unsigned effect_spawns;
     int draw_order[BOX_MAX];
     int draw_count;
     unsigned reported;
@@ -586,8 +588,13 @@ static int h_hull(void *ctx, const float world[16])
 /* Reached only after a damage write or on a nest-group path (header). */
 static int h_sound(void *c, uint16_t id)
 { (void)c; (void)id; return unbound("001FC580 (the owner's sound)"); }
+/* 001EFD90(id, pos, rot): em_effect_original's spawn over the live effect
+ * binder (em_effects_live, census L26). */
 static int h_effect(void *c, uint32_t id, const float p[4], const float r[4])
-{ (void)c; (void)id; (void)p; (void)r; return unbound("001EFD90 (effect spawn)"); }
+{
+    (void)c;
+    return em_effects_live_001EFD90(id, p, r) < 0 ? report("001EFD90 faulted (em_effects_live)") : 0;
+}
 static int h_taken(void *c, uint8_t puid)
 { (void)c; (void)puid; return unbound("001B11E0 (the nest group's taken bits)"); }
 static int h_spawn(void *c, const EmCrateChild *child)
@@ -598,10 +605,17 @@ static int h_set_taken(void *c, uint8_t puid)
 { (void)c; (void)puid; return unbound("001B1190 (model 0x50 taken bit)"); }
 static int h_segment(void *c, const float f[3], const float t[3], int32_t mask, int32_t ex)
 { (void)c; (void)f; (void)t; (void)mask; (void)ex; return unbound("0019A570 (the drum's break test)"); }
+/* 001F0460(preset, M) and 001EFD20(id, pos) over the effect binder. */
 static int h_effect_matrix(void *c, int32_t preset, const float m[16])
-{ (void)c; (void)preset; (void)m; return unbound("001F0460 (effect preset)"); }
+{
+    (void)c;
+    return em_effects_live_001F0460(preset, m) < 0 ? report("001F0460 faulted (em_effects_live)") : 0;
+}
 static int h_effect_point(void *c, uint32_t id, const float p[4])
-{ (void)c; (void)id; (void)p; return unbound("001EFD20 (effect spawn)"); }
+{
+    (void)c;
+    return em_effects_live_001EFD20(id, p) < 0 ? report("001EFD20 faulted (em_effects_live)") : 0;
+}
 static int h_sweep(void *c, const float p[3], uint32_t mode)
 { (void)c; (void)p; (void)mode; return unbound("0019AD00 (the drum's flight sweep)"); }
 
@@ -667,6 +681,9 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
      * binder (census L22). */
     int roger = em_area11_roger_001AF800(actor);
     if (roger != 0) return roger < 0 ? -1 : 0;
+    /* The player's equipment nodes keep theirs in em_equipment_live (L28). */
+    int equipment = em_equipment_live_001AF800(actor);
+    if (equipment != 0) return equipment < 0 ? -1 : 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         Box *b = &S.box[i];
         if (b->actor != actor || b->generation != actor->generation || b->freed) continue;
@@ -830,18 +847,14 @@ static int t_rumble(void *ctx, int effect)
     return em_pad_actuator_001B1E20(effect, 0) < 0 ? -1 : 1;
 }
 
-/* 001EFD20(0x80000049, position): the effect entity spawn has a
- * translation (em_effect_original) but no live effect owner (census L26,
- * blocked on the render-context storage, EFFECT_MANAGER.md 5.0): nothing is
- * spawned; the call is reported once and counted. */
+/* 001EFD20(0x80000049, position): em_effect_original's spawn over the live
+ * effect binder (em_effects_live, census L26); the spawns are counted for
+ * the level smoke. */
 static int t_effect(void *ctx, uint32_t id, const float position[4])
 {
     (void)ctx;
-    (void)position;
-    if (id != EM_TRUCK_EFFECT_ID) return report("001EFD20 with an effect id other than 0x80000049");
-    if (S.effect_gap++ == 0)
-        fprintf(stderr, "em_area11 boxes: the truck's 001EFD20 (0x80000049) spawns reach no live effect owner "
-                        "(census L26); counted by em_area11_boxes_effect_gap\n");
+    if (em_effects_live_001EFD20(id, position) < 0) return report("001EFD20 faulted (em_effects_live)");
+    ++S.effect_spawns;
     return 1;
 }
 
@@ -960,9 +973,9 @@ int em_area11_boxes_trigger_tick(EmActor *actor, EmActorPool *pool, EmSceneState
     return 1;
 }
 
-unsigned em_area11_boxes_effect_gap(void)
+unsigned em_area11_boxes_effect_spawns(void)
 {
-    return S.effect_gap;
+    return S.effect_spawns;
 }
 
 int em_area11_boxes_truck_state(uint32_t *record, uint8_t header[16], float position[3], uint8_t t2dc[20])

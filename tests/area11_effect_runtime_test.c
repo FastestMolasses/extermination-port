@@ -77,6 +77,7 @@ int main(void)
     assert(!em_area11_effect_runtime_load(gfx, directory, "missing.emef", "area11_effect.emtx"));
     assert(!em_area11_effect_runtime_state() && !texture_live);
     em_random_seed(0x1278);
+    fixture_fog_area(-209.0f, 304.0f);   /* AREA11's area fog (001D8FD0): the owner's draw reads +0xA0 */
     assert(em_area11_effect_runtime_load(gfx, directory, "area11_effect.emef", "area11_effect.emtx"));
     const EmArea11Effect *owner = em_area11_effect_runtime_state();
     assert(owner && owner->state == 0 && texture_live);

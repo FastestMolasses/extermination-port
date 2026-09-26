@@ -7,25 +7,26 @@ Lane "player-equipment" (census gap lane **L28-player-equipment**,
 docs/FIRST_LEVEL_CENSUS.md section 5). This document covers what the
 original routines do, the translations `src/game/em_player_equipment.c/.h`
 and `src/game/em_player_equipment_sprite.c/.h`, how they bind, and the
-evidence. The modules are **built and tested but not wired**; section 4 is
-the binding brief for the coordinator.
+evidence. **Live since 2026-09-25** (census L26 / L27 / L28 / L39 step):
+`em_equipment_live` binds the seven nodes and `em_effects_live` binds
+001CD520 (section 4 is the binding, section 8 the live evidence).
 
 ## 1. The lane's census rows
 
 | Function | Decomp | Census before | After this lane | Where |
 |---|---|---|---|---|
-| 0018A6B0 node behaviour | BM | missing | translated, verified (unbound) | `em_player_equipment_tick` |
-| 0018A8D0 node init | BM | missing | translated, verified (unbound) | `em_player_equipment_0018A8D0` |
-| 00188630 flavour 0 | BM | stand-in (em_weapon.c `em_weapon_update`) | translated, verified (unbound) | `em_player_equipment_00188630` |
-| 00188A50 flavour 1 dispatch | BM | missing | translated, verified (unbound) | `em_player_equipment_00188A50` |
-| 00188AC0 flavour 1 variant 0 | BM | missing | translated, verified (unbound) | `em_player_equipment_00188AC0` |
-| 00188B80 flavour 1 variant 0x10 | BM | missing | translated, verified (unbound) | `em_player_equipment_00188B80` |
-| 00188DF0 flavour 2 dispatch | BM | missing | translated, verified (unbound) | `em_player_equipment_00188DF0` |
-| 00188ED0 flavour 2 variant 0 | BM | stand-in (em_weapon.c lamp gate + em_gfx spot term) | translated, verified (unbound) | `em_player_equipment_00188ED0` |
-| 0018A1F0 flavour 4 | BM | missing | translated, verified (unbound) | `em_player_equipment_0018A1F0` |
-| 00189D30 flavour 4 effect step | BM | missing | translated, verified (unbound) | `em_player_equipment_00189D30` |
-| 0015D2F0 camera-mode code | BM | stand-in (em_weapon.c assumes variant 0) | translated, verified (unbound) | `em_player_equipment_0015D2F0` |
-| 001CD520 depth-faded sprite | NEARMISS (21.9%) | unverified (em_status_models.c `w_001CD520`, a fault) | translated from the listing, verified (unbound) | `em_player_equipment_001CD520` |
+| 0018A6B0 node behaviour | BM | missing | translated, live | `em_player_equipment_tick` |
+| 0018A8D0 node init | BM | missing | translated, live | `em_player_equipment_0018A8D0` |
+| 00188630 flavour 0 | BM | stand-in (em_weapon.c `em_weapon_update`) | translated, live | `em_player_equipment_00188630` |
+| 00188A50 flavour 1 dispatch | BM | missing | translated, live | `em_player_equipment_00188A50` |
+| 00188AC0 flavour 1 variant 0 | BM | missing | translated, live | `em_player_equipment_00188AC0` |
+| 00188B80 flavour 1 variant 0x10 | BM | missing | translated, live | `em_player_equipment_00188B80` |
+| 00188DF0 flavour 2 dispatch | BM | missing | translated, live | `em_player_equipment_00188DF0` |
+| 00188ED0 flavour 2 variant 0 | BM | stand-in (em_weapon.c lamp gate + em_gfx spot term) | translated, live | `em_player_equipment_00188ED0` |
+| 0018A1F0 flavour 4 | BM | missing | translated, live | `em_player_equipment_0018A1F0` |
+| 00189D30 flavour 4 effect step | BM | missing | translated, live | `em_player_equipment_00189D30` |
+| 0015D2F0 camera-mode code | BM | stand-in (em_weapon.c assumes variant 0) | translated, live | `em_player_equipment_0015D2F0` |
+| 001CD520 depth-faded sprite | NEARMISS (21.9%) | unverified (em_status_models.c `w_001CD520`, a fault) | translated from the listing, live | `em_player_equipment_001CD520` |
 | 001607D0 action machine | BM | verified-unbound | unchanged: binding notes only (section 4.6) | `em_player_weapon_001607D0` (em_player_weapon_states_a) |
 
 "Verified" means: `tools/test_player_equipment_reference.py` executes the
@@ -225,88 +226,72 @@ Read from the split listing; the NEARMISS C is not followed (section 5).
   under its real form, and 0.5·w / 0.5·h through `em_ee_mul_bits`. Its clip
   test is not in the measured model (see section 7).
 
-## 4. Binding (for the coordinator)
+## 4. Binding (live since 2026-09-25: em_equipment_live)
 
-**Not bound in the Effects step (2026-09-24).** The equipment nodes need
-more than the packet chain:
-- the owner draw 001CAA00 (L35), whose 001C7420 reads 0x70003AC0;
-- 001CD520's 0x70003AC0 and the render-context block (EFFECT_MANAGER.md
-  5.0);
-- canonical storage for D_008106C6 / C7 / CC (section 4.3).
-
-The packet-chain workers of 4.5 are translated (em_packet_chain_original).
+`src/game/em_equipment_live.{h,c}` binds the translation; it adds no
+behaviour of its own.
 
 ### 4.1 The node callback
 
-`em_area11_bindings.c` currently registers 0x0018A6B0 as "player equipment:
-no port draw" with no tick (the D3 row). Replace that NULL tick with an
-adapter that, for each of the seven nodes, keeps an `EmPlayerEquipmentNode`
-beside the pool `EmActor` (status +0x00, +0x01, +0x03 = `model` byte,
-+0x0D = `param`, +0x14 = the record) and calls `em_player_equipment_tick`
-at the node's walk position. The walk must publish the node's +0x110 slots
-as `d00275B40` before the call (001AFD70 does this through 001CB590).
-0018A6B0's own spawn path 0018A880 is already in `spawn_0018A880`; that
-adapter must also set node +0x14 = self and hand the node struct to the
-tick.
+em_area11_bindings' row 0x0018A6B0 ticks `em_equipment_live_tick` at the
+node's walk position (001AFD70). The binder keeps one
+`EmPlayerEquipmentNode` beside each pool `EmActor` (status +0x00, +0x01,
++0x03 = the `model` byte, +0x0D = `param`, +0x14 = the record), republishes
+the node's bone slots as D_00275B40 before the call (001CB590's publication)
+and writes the node's bytes back after it. 0015C310's spawn 0018A880 is
+the bindings' `spawn_0018A880`; 001AFC10's 001AF800 on one of these nodes
+pushes its slots back (`em_equipment_live_001AF800`, 001AF890).
 
-### 4.2 Workers and the translations that exist
+### 4.2 Workers
 
-| Worker | Bind to | Status |
-|---|---|---|
-| w_001AFC10 | `em_actor_pool_free_001AFC10` | live |
-| w_method (0x001CAA00) | `em_owner_services_001CAA00` (fault on any other address) | verified-unbound (L35) |
-| w_001C6120, w_001C6150, w_001CA6E0, w_001AF780, w_anim_bone_array_setup, w_bone_init_default_1 | em_owner_services_original / em_pose_host_workers / em_roger_actor_original workers of the same addresses | verified-unbound (L33, L22) |
-| w_001026A0, w_001026D0, w_001028B8, w_001028D0, w_00102760, w_001029C0, w_00102BB0 | the em_ee_float.h VU0 forms already used by em_owner_services_original (001029C0, 00102BB0) and em_status_scene_original (001026A0, 001026D0) | live |
-| w_001C9610 | em_owner_services_original's 001C9610 | live |
-| w_001B0070 | em_player_stage_workers (returns D_008106C8) | verified-unbound (L01) |
-| w_0015C310 | em_area11_bindings' 0015C310 spawn (with arg1 = 1: no (0,0)/(1,0)/(1,0x10) nodes) | live for arg1 = 0 only; arg1 = 1 needs the adapter |
-| w_001B61C0 | em_player_ladder_entry's 001B61C0 | verified-unbound (L09) |
-| w_0019A570 | `em_coll_segment_query_result` | verified-unbound (L06b) |
-| w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0, w_001EFEB0, w_001F4010, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20, w_00187780, w_001AA840, w_0019B2C0, w_00189EC0, w_001F00A0, w_0018A180, w_00189FE0, w_001EFF10 | **not translated**: bind as faulting stubs | none of them ran in any census label |
+| Worker | Bound to |
+|---|---|
+| w_001AFC10 | `em_actor_pool_free_001AFC10` |
+| w_method (0x001CAA00) | the renderer's boundary: the seven models are drawn by the player's mesh at its node slots 4 and 14 (the export's attachments); the method records that the node drew and whether its bone 0 is the node that mesh draws it at (section 8) |
+| w_001C6120 / w_001C6150 | `em_area11_roger_001C6120` over D_0028A56C (the Roger export's global table 0x37 and the equipment models, `tools/export_roger_banks.py`), the model's +0x08 |
+| w_001CA6E0, w_anim_bone_array_setup | `em_roger_actor_001CA6E0` over the parsed model and skeleton |
+| w_001AF780 | `em_roger_actor_001AF780` on the one 001AF710 bone-slot stack (em_area11_boxes' world) |
+| w_bone_init_default_1, w_001C9610 | `em_owner_services_001C62C0`, `em_owner_services_001C9610` |
+| w_001026A0, w_00102760, w_001026D0, w_001028B8, w_001028D0, w_001029C0, w_00102BB0 | em_effect_original's 001026A0 / 00102760, `em_loco_001026D0`, `em_player_hang_vadd`, VSUB.xyzw (em_ee_float.h), em_owner_services' identity / rotate-y |
+| w_001B0070 | D_008106C8 (the request block) |
+| w_0015C310 | the bindings' 0015C310 (`em_area11_spawn_player_equipment_0015C310`; arg1 = 1 from the equipment change D_008106CC, which the status page writes) |
+| w_001B61C0, w_0019A570 and every untranslated callee: w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0, w_001EFEB0, w_001F4010, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20, w_00187780, w_001AA840, w_0019B2C0, w_00189EC0, w_001F00A0, w_0018A180, w_00189FE0, w_001EFF10 | faults (none ran in any census label; 001B61C0 / 0019A570 are reached only from the untranslated ones) |
 
-The census (route_functions.json) records none of the untranslated workers
-on the route: 001854E0/00185760 never ran (the aim selector never
-passed), 00187780 never ran and D_008106C7 = 0 in every capture (the lamp
-is off), 001AA840 never ran (the knife node's status bit 0 is never set),
-and the camera mode is 0 with the flavour-0 node's +0x2E clear in every
-capture. So faulting stubs keep the route running and stop the
-game where an untranslated path would start.
+None of the faulting callees can run in the port today: the aim selector
+needs the armed stances, which the port's stand-ins still own (L28,
+P24..P28); the lamp 00187780 needs D_008106C7, which only the port's
+em_weapon.c raises in its own storage (the request block's byte stays 0,
+as in every capture); the knife's bit 0 and a camera mode other than 0 are
+not reachable on the idle / walk states.
 
-### 4.3 Data the binder must supply
+### 4.3 Data
 
-- The ELF window D_0024A220..D_0024A4AF (0xA4 words) and the halfwords
-  D_00248B98, D_00248C78: exported locally from the user's ELF (no exporter
-  exists yet; the test reads them from the ELF).
-- D_008106C6, D_008106C7, D_008106CC: no canonical port storage yet (not in
-  EmProgress); they need one owner (lead decision D2 pattern).
-- D_00810CA4/CA6: EmProgress (D2).
-- The player record image and its bone slots; D_00275BCC / D_0028A56C: the
-  pool/anim owners.
+- The ELF window D_0024A220..D_0024A4AF and the halfwords D_00248B98 /
+  D_00248C78: `assets/effect_tables.emet` (`tools/export_effect_tables.py`,
+  read through `em_effects_live_elf`).
+- D_008106C6 / C7 / CC: the scene state's request block
+  (`em_scene_req_at`); D_00810CA4 / CA6: its progress block.
+- The player record image (`player_states_actor_mut`) and its bone world
+  matrices (the record pose's node records, copied every tick); D_00275BCC
+  and the bone-slot stack: em_area11_boxes' 001AF710 world.
 
-### 4.4 What the stand-ins are replaced by
+### 4.4 Stand-ins still in place
 
-- **00188630** (census stand-in: `em_weapon_update`, called from em_game.c
-  in the player stage): the legacy code's laser gate (em_weapon.c, the
-  "LASER SIGHT refresh" block) stands in for 00188630's
-  001854E0/00185760 selector. Binding the flavour-0 node replaces the
-  selector itself; the two drawers stay faulting stubs until translated, so
-  em_weapon.c's laser and muzzle code can be retired only with them.
-- **00188ED0** (census stand-in: em_weapon.c lamp gate + `em_gfx_spot_light`):
-  the node's lamp gate and +0xB0 point are this translation; the lamp itself
-  is 00187780 (not translated; its light matrix goes to 001D9530).
-- **0015D2F0** (census stand-in: em_weapon.c assumes variant 0): its
-  callers in the decomp are 001D1C50 (at 0x1D1D88 on gameplay frames),
-  00187CC0, 001DDA00 and 001DDE10; each binds
-  `em_player_equipment_0015D2F0(player_image, &code)`.
+- **00188630** (em_weapon.c's laser gate): the flavour-0 node runs, but its
+  selector 001854E0 / 00185760 needs the armed stances the port does not
+  run yet; em_weapon.c's laser and muzzle code stay until they do.
+- **00188ED0** (em_weapon.c lamp + `em_gfx_spot_light`): the node's lamp
+  gate runs over the request block's D_008106C7; the lamp itself is 00187780
+  (not translated).
+- **0015D2F0**: the node calls it live; 001D1C50's, 00187CC0's, 001DDA00's
+  and 001DDE10's calls are their own lanes'.
 
 ### 4.5 001CD520
 
-`em_status_models.c`'s `w_001CD520` (a fault today) can call
-`em_player_equipment_001CD520` through an adapter: `position` → the 16 bytes
-at that address, rgb → rgba, the three floats → their bits, with the
-chain/packet workers bound to em_head_sprite_original's 001CD370, 001CB5F0,
-001CB6B0 and 001CB900 (all verified-unbound, L39). The effect manager
-001F4D40 (lane L26), the route's caller, binds the same way.
+`em_effects_live` binds `em_player_equipment_001CD520` as 001F4D40's sprite
+(the glow markers) over the render context's packet chain
+(EFFECT_MANAGER.md section 8). em_status_models' `w_001CD520` still faults
+(no status-model caller reaches it).
 
 ### 4.6 001607D0
 
@@ -388,6 +373,27 @@ Default run: about 5 s (quick mode: 1,000 unit cases). `EM_TEST_FULL=1`:
   ticked from those states, not replayed through the beat. No capture has
   the lamp on, a knife hit, an equipment change or a camera mode other
   than 0.
-- The untranslated callees in section 4.2 have no port code; binding them
-  as faulting stubs is safe on the route only because the census shows
-  none of them running there.
+- The untranslated callees in section 4.2 have no port code; they are
+  faulting stubs, safe because neither the route nor any state the port
+  can enter today reaches them (4.2).
+- The nodes' own draw (001CAA00 over each model) is not the port's: the
+  player's baked mesh draws the equipment at its node slots 4 and 14.
+
+## 8. Live evidence (2026-09-25)
+
+- **Captures** (the level smoke's check_effects, LEVEL_SMOKE.md): at the
+  ticks aligned with the last rows of routes 08, 10, 11, 13 and 14 the seven
+  nodes' bytes +0x00..+0x0F (the flavours (0,0), (1,0), (1,0x10), (2,0),
+  (2,5), (2,7), (4,0)), their +0x44 model and +0x4C method equal the
+  snapshots; the tick log carries each node's drew / at-node flags and its
+  bone 0 row 3, and at those ticks every node drew at the player's node
+  its mesh draws it at.
+- **Coverage** (a `-fprofile-instr-generate` build of the live link line,
+  scratch, full-route smoke and side beat 00): the node tick 99,570,
+  0018A8D0 23, 0015C310(p, 1) 3, 001C9610 28,430, 001CD520 156,453.
+- **Draw position:** the method reports once when a node draws with a
+  bone 0 that is not the player's node the mesh uses; the only case seen is
+  a flavour-2 node in the tick it frees itself (the equipment change): the
+  byte-matched tick calls the method with the node's last matrix in that
+  tick.
+- The oracle `make test-player-equipment-reference` is unchanged.

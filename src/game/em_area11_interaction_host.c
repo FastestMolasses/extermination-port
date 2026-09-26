@@ -937,21 +937,20 @@ static int32_t aura_rand(void *context)
     return (int32_t)em_random_next();
 }
 
-/* The aura's draw block (0011E2A8, the sprite record, 001026A0, 001F0A60)
- * is not translated: the sprite is not drawn. Its countdown, rand() draws
- * and facing test (the state em_pickup_aura_001F1180 keeps) are. */
+/* The aura's draw block (0x1F136C..0x1F1470: 0011E2A8, the sprite record,
+ * 001026A0 and the glint 001F0A60): em_effect_manager_aura_draw over the
+ * render context (em_effects_live, census L26), through the hook the
+ * bindings set. `context` is the owner's +0xD0 matrix (the pickup slot's). */
+static EmArea11AuraDraw s_aura_draw;
+
+void em_area11_interaction_host_set_aura_draw(EmArea11AuraDraw draw) { s_aura_draw = draw; }
+
 static int aura_draw(void *context, uint32_t record, uint32_t angle, uint32_t timer)
 {
-    (void)context;
-    (void)angle;
-    (void)timer;
-    static int reported;
-    if (!reported) {
-        reported = 1;
-        fprintf(stderr, "AREA11 interaction: the map pickup's aura sprite (001F1180's draw block, "
-                "001F0A60, record %06X) is not translated; not drawn\n", (unsigned)record);
-    }
-    return 0;
+    const float *d0 = context;
+    if (!d0) return -1;
+    if (!s_aura_draw) return fail("001F1180's draw block (no aura draw bound)");
+    return s_aura_draw(d0, record, angle, timer) < 0 ? -1 : 0;
 }
 
 /* 001B1630 on g.cam.eye / g.cam.fwd (D_008105D0 / D_00810600). */
@@ -992,7 +991,7 @@ static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent ev
          * this tick's script step (the view is current). */
         if (world.frame.ready) return 1;
         const float eye[4] = {g.cam.eye[0], g.cam.eye[1], g.cam.eye[2], 1.0f};
-        const EmPickupAuraWorkers workers = {NULL, aura_rand, aura_draw};
+        const EmPickupAuraWorkers workers = {slot->world, aura_rand, aura_draw};
         return em_pickup_aura_001F1180(&slot->aura, slot->world, eye, em_scene_state()->d810700,
                                        &workers) == 0 ? 1 : -1;
     }
@@ -1505,7 +1504,7 @@ int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, 
     case 0: variant = param == 0x34 ? 5 : 0; break;
     default: variant = 0; break;
     }
-    const EmPickupAuraWorkers workers = {NULL, aura_rand, aura_draw};
+    const EmPickupAuraWorkers workers = {slot->world, aura_rand, aura_draw};
     return em_pickup_aura_001F1110(&slot->aura, variant, &workers) == 0 ? 0 : fail("001F1110");
 }
 

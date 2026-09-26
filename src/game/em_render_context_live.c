@@ -728,6 +728,11 @@ int em_rcl_frame_matrices(uint32_t p[16], uint32_t clip[16], uint32_t k[16])
     return 0;
 }
 
+EmPacketChain *em_rcl_packet_chain(void)
+{
+    return R.loaded && !R.fault ? &R.pc : NULL;
+}
+
 int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size)
 {
     uint8_t *p = R.loaded ? own(address, size) : NULL;

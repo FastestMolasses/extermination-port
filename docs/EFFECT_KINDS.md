@@ -1,8 +1,9 @@
 # Effect kinds, glow markers, effect colour, pool resets and room point-light lists
 
 Status: 2026-09-23, lane `effect-kinds` (census lane **L27-effect-kinds**, plus the truck handler 001EBF10 of
-**L23-truck**). The translation and its oracle are done. The module is **not wired**; the coordinator binds it
-(section 4).
+**L23-truck**). The translation and its oracle are done. **Live since 2026-09-25** (census L26 / L27 / L39
+step): `em_effects_live` binds it over the canonical render context (docs/EFFECT_MANAGER.md section 8); section 4
+was the binding brief. The room point-light list rows stay verified-unbound (the offline stand-in, critic 7.2).
 
 Files (all new, owned by this lane):
 - `src/game/em_effect_kinds.{h,c}`: the native translation.
@@ -14,24 +15,24 @@ This document names addresses and describes behaviour. It contains no original c
 ## 1. Scope and census status
 
 "Before" is the census row of `docs/FIRST_LEVEL_CENSUS.md` (2026-09-23). "After" is the status this lane
-delivers. No row is live yet: every row is **verified-unbound** until the coordinator binds it.
+delivers; the rows the effects step made live say so (census section 1.17).
 
 | Function | Decomp | Translated from | Census before | After | First beat |
 |---|---|---|---|---|---|
-| 001EC1F0 subtype 0x0A handler | NM | the .s | missing | verified-unbound | 05 |
-| 001EC3F0 subtype 0x05 handler (0x80000028) | NM | the .s | missing | verified-unbound | 00 |
-| 001EC470 subtype 0x24 handler (0x80000065) | NM | the .s | missing | verified-unbound | 06 |
-| 001EBF10 subtype 0x20 handler (0x80000049, L23) | NM | the .s (the NEARMISS C has two wrong constants) | missing | verified-unbound | 08 |
-| 001CFB50 the handlers' transform block (added by the Effects step, 2026-09-24) | BM | C | boundary | verified-unbound | 00 |
-| 001D0540 its depth scale (added by the Effects step) | NM | the .s | boundary | verified-unbound | 00 |
+| 001EC1F0 subtype 0x0A handler | NM | the .s | missing | live | 05 |
+| 001EC3F0 subtype 0x05 handler (0x80000028) | NM | the .s | missing | live | 00 |
+| 001EC470 subtype 0x24 handler (0x80000065) | NM | the .s | missing | live | 06 |
+| 001EBF10 subtype 0x20 handler (0x80000049, L23) | NM | the .s (the NEARMISS C has two wrong constants) | missing | live | 08 |
+| 001CFB50 the handlers' transform block (added by the Effects step, 2026-09-24) | BM | C | boundary | live | 00 |
+| 001D0540 its depth scale (added by the Effects step) | NM | the .s | boundary | live | 00 |
 | 001F54E0 effect colour | AW | the .s | unverified (em_effect_color.h) | **live** since the render + UI step (2026-09-25): the indicator children's one colour (section 4.5); the old header copy is deleted | S2 |
-| 001F5640 glow-marker list selector | BM | C | missing | verified-unbound | S2 |
-| 001F5940 one glow marker | BM | C, float order from the .s | missing | verified-unbound | S2 |
-| 001F5C20 glow-marker walker | BM | C | missing | verified-unbound | S2 |
-| 001F5CA0 FX-record list selector | BM | C | missing | verified-unbound | S2 |
-| 001F0310 effect-pool reset barrel | BM | C | missing | verified-unbound | S0 |
-| 001F03D0 ring-decal lane reset | BM | C | missing | verified-unbound | S0 |
-| 001F3FA0 particle pool reset | NM | the .s | missing | verified-unbound | S0 |
+| 001F5640 glow-marker list selector | BM | C | missing | live | S2 |
+| 001F5940 one glow marker | BM | C, float order from the .s | missing | live | S2 |
+| 001F5C20 glow-marker walker | BM | C | missing | live | S2 |
+| 001F5CA0 FX-record list selector | BM | C | missing | live | S2 |
+| 001F0310 effect-pool reset barrel | BM | C | missing | live | S0 |
+| 001F03D0 ring-decal lane reset | BM | C | missing | live | S0 |
+| 001F3FA0 particle pool reset | NM | the .s | missing | live | S0 |
 | 001F6760 primary point-light list selector | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
 | 001F6D60 auxiliary point-light list selector | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
 | 001F6640 point-light list registration | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
@@ -355,15 +356,16 @@ Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
     cursor.
 - **Globals.** `globals->spad36A0` is the scratchpad matrix 001EBF10 writes. Nothing else on the route reads it
   between frames.
-- **What it replaces.** `em_effect_original` currently has no live handler binding, and the census rows were
-  missing. The truck's live `em_truck_original` effect hook (`EM_TRUCK_EFFECT_ID`) spawns only. It draws once
-  the driver and these handlers are bound (L26 then L23).
+- **What it replaced.** `em_effect_original` had no live handler binding, and the census rows were missing;
+  em_effects_live binds the four handlers; of the others, the skid's packet-only 001EAD70 / 001EC270 are its
+  counted gap and every other faults at its address (none is reachable in AREA11; EFFECT_MANAGER.md 8.2). The truck's `em_truck_original` effect hook (`EM_TRUCK_EFFECT_ID`) spawns through em_effects_live;
+  the driver runs 001EBF10 on its nodes (their packets are built; no renderer stage draws them yet).
 
 ### 4.2 Glow markers → the effect barrel 001F0360 (L26)
 
-The barrel calls, in order: 001F6210, 001F5C20, 001F6BB0, 001F6EB0, 001F40C0, then 001F0720 ×6. Its live stand-in
-is the reported no-effect binding `UM_001F0360` in `em_scene_bindings.c`. When L26 translates the barrel, its
-second call is `em_effect_kinds_001F5C20(k)`, with `globals->d810700/701` and `spad3B68` from the scene state.
+The barrel calls, in order: 001F6210, 001F5C20, 001F6BB0, 001F6EB0, 001F40C0, then 001F0720 ×6. It runs live
+(em_effects_live_001F0360, docs/EFFECT_MANAGER.md section 8); its second call is `em_effect_kinds_001F5C20(k)`,
+with `globals->d810700/701` and `spad3B68` from the scene state.
 - **w_001F4D40.** L26 (asm-inline, missing). It is the only worker AREA11 reaches: kinds 4 and 5 are mode 0.
 - **w_0011DF78.** Bind to `sdk_0011DF78` (`em_sdk_math_original.c`, live).
 - **w_001281C0.** Bind to `em_effect_original_float_to_int`.

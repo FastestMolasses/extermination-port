@@ -120,7 +120,10 @@ local to the call. The renderer supplies the original scene tables and the
 camera eye from before that frame's camera update.
 
 The previous readable decompilation labeled this function as an explosion and
-sound spawner. Its `0021B9A0` calls actually configure fog, and its arguments to
+sound spawner. Its `0021B9A0` calls actually configure fog (live: em_snow_runtime's
+tick runs 0021B9A0(2, 0, 0) and (3, 0, 300.0) on the render context before the
+emission, draws with the context's +0xA0 quadword they leave, and restores mode 1
+after it; EFFECT_MANAGER.md 8.2), and its arguments to
 `001CFAE0` were wrong. The actual submission is phase, random fraction plus
 0.0001, color multiplier 1, and fade interval 0.000001; that helper packs them
 into the VU parameter order documented above.

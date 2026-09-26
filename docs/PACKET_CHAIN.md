@@ -16,10 +16,13 @@ kick, which clears the slot words every frame), the fog programmer 0021B9A0
 001D8FD0), 0021BA80 and the area fog 001D8FD0 (001C1DC0 at the area load);
 0021B920's body runs inside 0021B970 / 0021B9A0. The Metal world fog reads
 the coefficients from the context (em_gfx_fog_coefficients); em_fog_gs_coefficients
-serves only scenes without it. 001CB5F0, 001CB6B0 and 001CB900 still have no
-live caller: their consumers (the effects, the head sprite, the equipment
-sprite) are lanes L26 / L39 / L28, which the context no longer blocks.
-Section 5 lists what each consumer binds.
+serves only scenes without it. Since the effects step (2026-09-25, census
+L26 / L27 / L39) 001CB5F0, 001CB6B0 and 001CB900 run live too: the effects,
+the head sprites, the glow markers' 001CD520 and the barrel's lanes build
+their packets through `em_rcl_packet_chain()` (em_effects_live,
+docs/EFFECT_MANAGER.md section 8), and the effect handlers' 0021B9A0 calls
+and the snow's 001E67C0 fog run on the context. Section 5 lists what each
+consumer binds.
 
 Files:
 - `src/game/em_packet_chain_original.{h,c}`: the native translation.
@@ -31,12 +34,12 @@ Files:
 
 | Function | Decomp | Census before (recount 2026-09-24) | After this lane | Module / evidence |
 |---|---|---|---|---|
-| 001CB5F0 open a packet | BM | missing | verified-unbound | em_packet_chain_001CB5F0; oracle + capture replay |
-| 001CB6B0 reference block | BM | missing | verified-unbound | em_packet_chain_001CB6B0; oracle + capture replay |
-| 001CB760 call block | BM | missing | verified-unbound | em_packet_chain_001CB760; oracle + capture replay |
-| 001CB900 blend-state block | BM | missing | verified-unbound | em_packet_chain_001CB900; oracle + capture replay |
-| 001CB9B0 blend-state address | (C leaves the default unset) | boundary ("GS/VIF packet build (sprites, flush)") | verified-unbound | em_packet_chain_001CB9B0; oracle over every mode; 177 captured blend blocks replay through it |
-| 0021B9A0 fog programmer | NM | missing | verified-unbound | em_packet_chain_0021B9A0; oracle, from the .s and its jump table |
+| 001CB5F0 open a packet | BM | missing | live | em_packet_chain_001CB5F0; oracle + capture replay |
+| 001CB6B0 reference block | BM | missing | live | em_packet_chain_001CB6B0; oracle + capture replay |
+| 001CB760 call block | BM | missing | live | em_packet_chain_001CB760; oracle + capture replay |
+| 001CB900 blend-state block | BM | missing | live | em_packet_chain_001CB900; oracle + capture replay |
+| 001CB9B0 blend-state address | (C leaves the default unset) | boundary ("GS/VIF packet build (sprites, flush)") | live | em_packet_chain_001CB9B0; oracle over every mode; 177 captured blend blocks replay through it |
+| 0021B9A0 fog programmer | NM | missing | live | em_packet_chain_0021B9A0; oracle, from the .s and its jump table |
 | 0021B920 fog coefficients | BM | verified-unbound (em_fog_gs) | **live** since the Effects step: em_fog_gs_coefficients calls it (the old host formula was not bit-exact, 6.4) | em_packet_chain_0021B920; oracle + the fog block of every beat; test_area11_fog_reference checks the Metal helper against the EE model and every in-scope beat |
 | 0021B900 fog latch | BM | verified-unbound (em_sul_0021B900) | unchanged | reused, not translated again |
 | 0021B970 fog range | BM | verified-unbound (a worker slot only) | **live** (render context step) | em_packet_chain_0021B970; oracle (fog cases) |

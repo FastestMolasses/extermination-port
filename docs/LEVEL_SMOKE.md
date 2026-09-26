@@ -480,7 +480,8 @@ per-row step, 0.0040 off in X; measured 2026-09-25).
 
 What the smoke does not compare: the slide's sounds and effects (the loop
 0x12E and the skid/landing ids are not in the exported sfx registry, WP-14,
-and the 001EFD90 spawns go to the counted effect gap, L26); the camera
+and the 001EFD90 spawns are the live effect binder's, compared at the
+effect beats by check_effects, L26); the camera
 rows (the live camera follows the port's own entry point; route 06 has no
 release to align it on).
 
@@ -532,7 +533,7 @@ stands on the truck record.
 for D_00810792 = 0xFF and settles. **In process:** the player stood on the
 truck record (its +0x214), the truck armed (+0x2EC), fell (state 1) and
 rests in state 2 with D_00810792 = 0xFF; the set piece spawned its 32
-effects (TRUCK_ORIGINAL.md; counted at the effect gap, census L26); the
+effects (TRUCK_ORIGINAL.md; live effect nodes, check_effects, census L26); the
 pad block's actuator ran (001B61C0) and step I's countdown stopped it
 again (+0x16 and +0x28 are 0, as in route 08's end snapshot); the player
 is on the low ground north of the pit.
@@ -802,7 +803,8 @@ original idle / walk states since census L12, steered by the smoke's stick
 against the live camera's forward), the sounds (the ladder's 0x107 / 0x10E / 0x10F and
 the landing ids are not in the exported sfx registry, WP-14; they reach
 em_sfx_play silently and are reported once), the effects (0017DEB0's and
-00187EE0's 001EFD90 spawns reach the counted effect gap, L26).
+00187EE0's 001EFD90 spawns run the live effect binder, L26; its nodes are
+compared at the effect beats only).
 
 ### The render context (`check_render_context`, census L32 / L30)
 
@@ -831,6 +833,41 @@ pool's D_00810610 (docs/RENDER_CONTEXT.md section 8). It checks:
 Measured (full route): 5,378 gameplay ticks, 6,882 frame heads (6,833 with
 the camera moving that frame), 27 sampled ticks. Side beat 00: 128, 124 and
 1.
+
+### The effects (`check_effects`, census L26 / L27 / L28 / L39)
+
+Not a phase: after the phases, when a phase check aligned a port tick with
+the last row of a route snapshot (truck_crossing with 08, cage_roof /
+crevice_prompt / east_tower with 10 / 11 / 13, crevice_jump with 12 (its
+entry tick plus the rows from route 12's entry row to its end), roger with
+14). The tick
+log's `effects` carries the effect binder's counters, its pool nodes, the
+equipment nodes and the last barrel's lane-packet and glow-marker digests
+(em_effects_live / em_equipment_live; docs/EFFECT_MANAGER.md section 8).
+It checks:
+- over the whole run: every barrel frame (001F0360) emitted the 11 glow
+  markers and drew the six ring lanes, and no counted effect gap (the
+  skid's two packet-only handlers 001EAD70 / 001EC270; EFFECT_MANAGER.md
+  8.2) was reached;
+- at each aligned tick, against the snapshot's pool list (D_00275BC0): the
+  equipment nodes' +0x00..+0x0F, +0x44 and +0x4C as a set, each drawn this
+  tick at the player's node its mesh draws it at; the head sprites'
+  lifecycle, key, owner, bone and offset (not the sub-state +0x05: it
+  follows rand()); the effect nodes' state, subtype, step, limit and
+  accumulator (route 08: with the truck puffs' +0xB0 and +0x100 rows, bit
+  for bit; route 12: the player's four footstep puffs);
+- the barrel's 001F0720 packets against the original's own in the
+  snapshot's DMA buffer (the chain before the context's +0x18 cursor):
+  packets 1..3 of all six lanes (lane 3's parameter quadwords excepted:
+  identical in every capture from opening_ee.bin to route 14, so no routine
+  of the level writes them; their earlier writer is open,
+  EFFECT_MANAGER.md 8.4), and packet 4 and
+  the visible glow markers' primitives (their rand() colour masked) where
+  the port's camera equals the capture's (10 and 14).
+
+Measured (full route): 12,573 barrel frames, 12,841 effect chains, none
+skipped; 08: 7 equipment nodes, 2 head sprites, 8 truck puffs; 10: packet
+4 and 5 glow-marker primitives; 14: packet 4.
 
 ## Adding a phase (the contract for WP-4 onward)
 

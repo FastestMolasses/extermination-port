@@ -98,6 +98,8 @@
 #include "game/em_actor_roster.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_area11_bindings.h"
+#include "game/em_effects_live.h"
+#include "game/em_equipment_live.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
@@ -712,6 +714,51 @@ static void log_tick_end(int rc)
             fputs("null", f);
         }
     }
+    /* Census L26 / L27 / L39 / L28: the effect binder's cumulative counters
+     * (001CD520 sprites, 001CFBE0 chains emitted / skipped, 001F0720 lanes,
+     * barrel frames, counted gaps), its live nodes (address, +0x10, +0x04, +0x05, +0x0D
+     * and the record words em_effects_live_nodes lists) and the equipment
+     * nodes (address, +0x00..+0x0F, +0x44, +0x4C, drew, drawn at the
+     * player's node, bone 0's row 3) and the last barrel's lane-packet and
+     * glow-marker digests (em_effects_live_lane_digests / _sprite_digests),
+     * or
+     * null without the binder. tools/test_level_smoke.py check_effects. */
+    fputs(", \"effects\": ", f);
+    if (em_effects_live_attached()) {
+        EmEffectsLiveCounters c;
+        em_effects_live_counters(&c);
+        fprintf(f, "[[%u, %u, %u, %u, %u, %u], [", c.sprites, c.chains, c.chains_skipped, c.lanes, c.frames,
+                c.gaps);
+        static EmEffectsLiveNode nodes[EM_ACTOR_POOL_CAPACITY];
+        int n = em_effects_live_nodes(nodes, EM_ACTOR_POOL_CAPACITY);
+        for (int i = 0; i < n; ++i) {
+            const EmEffectsLiveNode *e = &nodes[i];
+            fprintf(f, "%s[%u, %u, %u, %u, %u", i ? ", " : "", e->address, e->callback, e->state, e->sub, e->key);
+            for (int k = 0; k < 9; ++k) fprintf(f, ", %u", e->w[k]);
+            fputc(']', f);
+        }
+        fputs("], [", f);
+        static EmEquipmentLiveNode equip[16];
+        int m = em_equipment_live_nodes(equip, 16);
+        for (int i = 0; i < m; ++i) {
+            const EmEquipmentLiveNode *e = &equip[i];
+            fprintf(f, "%s[%u, ", i ? ", " : "", e->address);
+            log_hex(f, e->head, sizeof e->head);
+            fprintf(f, ", %u, %u, %u, %u, [%u, %u, %u]]", e->model, e->method, e->drew, e->at_node, e->bone0[12],
+                    e->bone0[13], e->bone0[14]);
+        }
+        fputs("], [", f);
+        uint32_t digests[EM_EFFECTS_LIVE_LANE_DIGESTS];
+        em_effects_live_lane_digests(digests);
+        for (int i = 0; i < EM_EFFECTS_LIVE_LANE_DIGESTS; ++i) fprintf(f, "%s%u", i ? ", " : "", digests[i]);
+        fputs("], [", f);
+        uint32_t sprites[16];
+        int ns = em_effects_live_sprite_digests(sprites);
+        for (int i = 0; i < ns; ++i) fprintf(f, "%s%u", i ? ", " : "", sprites[i]);
+        fputs("]]", f);
+    } else {
+        fputs("null", f);
+    }
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);
     for (int i = 0; i < s_tick.ntrace; ++i)
@@ -978,6 +1025,17 @@ static int w_001AFCA0(void *ctx)
     em_actor_pool_reset_001AF8E0(&s_pool);
     em_collision_world_lists_reset_001AF8E0(); /* 001AF8E0's class-list half */
     em_area11_bindings_reset();
+    /* 001D0660: 001F0310, the effect pools (census L26 / L27), with the
+     * effect and equipment binders over the new pool (the first level: its
+     * effects draw on the render context); its 001E7780 (the overlay module
+     * dispatch) is the loader's boundary. */
+    if (roster_scene()) {
+        if (em_area11_bindings_effects_attach() < 0)
+            return em_scene_fault(&s_state, em_effects_live_fault() ? em_effects_live_fault() : 0x001F0310u,
+                                  EM_SCENE_FAULT_NULL_WORKER);
+    } else {
+        em_effects_live_detach();
+    }
     s_pool_mode = POOL_NONE;
     s_state.spad31F4 = 0;
     return 0;
@@ -1633,10 +1691,21 @@ static int w_0015C160(void *ctx)
     return in_variant() ? unmirrored(UM_0015C160) : -1;
 }
 
+/* 001F0360, the effect barrel: em_effect_manager's translation over the
+ * render context in the first level (em_effects_live, census L26); a scene
+ * without it keeps the reported no-effect binding. */
 static int w_001F0360(void *ctx)
 {
     (void)ctx;
-    return in_variant() ? unmirrored(UM_001F0360) : -1;
+    if (!in_variant())
+        return -1;
+    if (s_pool_mode == POOL_ROSTER && em_effects_live_attached()) {
+        if (em_effects_live_001F0360() < 0)
+            return em_scene_fault(&s_state, em_effects_live_fault() ? em_effects_live_fault() : 0x001F0360u,
+                                  EM_SCENE_FAULT_WORKER_FAILED);
+        return 0;
+    }
+    return unmirrored(UM_001F0360);
 }
 
 static int w_0018B9C0(void *ctx, uint32_t actor)

@@ -345,8 +345,8 @@ replay of section 4.
 **Remaining gaps on these paths:**
 
 1. **Effects.** 001EFD90 (the slide's 0x80000065 every 8 ticks, the climb's
-   surface puff) goes to the counted effect gap (em_player.c
-   player_effect_gap) until the effect owner is live (census L26).
+   surface puff) runs the live effect binder (em_effects_live, census L26);
+   the chains it builds are not drawn yet (EFFECT_MANAGER.md 8.3).
 2. **Sounds.** The slide loop 0x12E, the skid and landing steps and the
    climb's 0x74 / 0x12B / 0xEC are not in the exported sfx registry
    (tools/export_sfx_registry.py takes its ids from the decomp's scene

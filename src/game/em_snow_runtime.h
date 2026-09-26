@@ -16,7 +16,9 @@ void em_snow_runtime_tick(const float eye[3], unsigned selector);
  * frees the actor (001AFC10) and draws nothing: the caller frees its node.
  * A drawing call replaces this frame's snow particles; a releasing call
  * leaves them to the other weather actor. em_snow_runtime_tick is this over
- * the module's own EmWeather with transition 0 (the non-roster scenes). */
+ * the module's own EmWeather with transition 0 (the non-roster scenes).
+ * A drawing call runs 001E67C0's fog programmer calls on the render context
+ * (em_rcl_0021B9A0); -1 when they fault. */
 int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned selector,
                                unsigned transition, unsigned fade_state);
 void em_snow_runtime_draw(EmGfx *gfx, const float view[16], float zoom);

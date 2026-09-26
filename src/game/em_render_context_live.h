@@ -126,6 +126,13 @@ int em_rcl_frame_view(uint32_t view[16], float *zoom);
  * (+0x2240, 001CD370(0)) and K (+0x23C0), as the frame head left them. */
 int em_rcl_frame_matrices(uint32_t p[16], uint32_t clip[16], uint32_t k[16]);
 
+/* The packet chain over this module's storage (the context, the arena, the
+ * chain table D_007635C0, the GS blocks and the scratchpad copies), as the
+ * chain workers of the effect binders take it (em_effects_live: 001CB5F0,
+ * 001CB6B0, 001CB760, 001CB900 of the effects, the head sprite and the
+ * sprite 001CD520). NULL before the load or after a fault. */
+struct EmPacketChain *em_rcl_packet_chain(void);
+
 /* Test hook: copy original bytes into this module's own storage (only
  * ranges it owns). 0, or -1. */
 int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size);

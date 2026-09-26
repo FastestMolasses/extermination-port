@@ -243,8 +243,8 @@ Steps fire from the source clock through the translated 00187350
 animate step since census L12 (`em_player_closure_live_footstep`). Over the
 first-control fixture the record's step phase +25E and wet timer +212 equal
 the original's on all 56 callbacks (test-first-control-reference); the step
-sounds are 00182430's, the surface effects go to the counted effect gap
-(census L26).
+sounds are 00182430's, the surface effects spawn through the live effect
+binder (em_effects_live, census L26).
 
 ## Pad block and pose source after the input/pose lanes
 
@@ -575,8 +575,11 @@ mechanism still lacks; in AREA11 it lacks nothing):
     census L09, STARTUP.md step 13; the probe state carries no cell
     record's).
 
-  Effects the closure spawns (001EFD90) go through the counted effect gap
-  (`player_effect_gap`, no live effect owner, census L26).
+  Effects the closure spawns (001EFD90) run the live effect binder
+  (em_effects_live, census L26; EFFECT_MANAGER.md section 8). The attach
+  001EFE00 (the reaction's and major2's `attach` / `w001EFE00`) faults: its
+  001EF9D0 node view is not bound, and only the hit and death paths call it
+  (EFFECT_MANAGER.md 8.2).
 - **Stand-ins that remain.**
   - D_008106A0 (the camera heading the misc lane reads) is the SDK atan2 of
     the port camera's forward (L13, the camera lane).

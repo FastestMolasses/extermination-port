@@ -67,7 +67,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
            src/game/em_truck_original.c src/game/em_pad_actuator.c \
            src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c \
-           src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c
+           src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c \
+           src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
+           src/game/em_effects_live.c src/game/em_equipment_live.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -1126,7 +1128,8 @@ test-weather-reference:
 test-area11-effect-reference:
 	python3 tools/test_area11_effect_reference.py
 
-AREA11_EFFECT_TEST_SRC := tests/area11_effect_runtime_test.c src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c src/game/em_random.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_frame_render_heads.c
+AREA11_EFFECT_TEST_SRC := tests/area11_effect_runtime_test.c src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c src/game/em_random.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_frame_render_heads.c \
+    src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c
 .PHONY: test-area11-effect-runtime test-area11-effect-reference
 test-area11-effect-runtime: $(AREA11_EFFECT_TEST_SRC)
 	@mkdir -p build
@@ -1169,7 +1172,7 @@ test-snow-particles:
 
 SNOW_RUNTIME_TEST_SRC := tests/snow_runtime_test.c src/game/em_snow_runtime.c \
     src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_random.c \
-    src/game/em_frame_render_heads.c
+    src/game/em_frame_render_heads.c src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c
 .PHONY: test-snow-runtime
 test-snow-runtime: $(SNOW_RUNTIME_TEST_SRC)
 	@mkdir -p build

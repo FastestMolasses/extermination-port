@@ -304,6 +304,12 @@ int em_effect_kinds_001CFB50(EmEffectKinds *k, EmEffectKindsXfState *s, EmEffect
     return 0;
 }
 
+int em_effect_kinds_translates(uint32_t handler)
+{
+    return handler == EM_EFFECT_KINDS_H_001EC1F0 || handler == EM_EFFECT_KINDS_H_001EC3F0 ||
+           handler == EM_EFFECT_KINDS_H_001EC470 || handler == EM_EFFECT_KINDS_H_001EBF10;
+}
+
 int em_effect_kinds_handler(EmEffectKinds *k, uint32_t handler, const float matrix[16],
                             int32_t depth, EmEffectOriginalWork *work)
 {

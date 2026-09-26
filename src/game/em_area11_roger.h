@@ -81,6 +81,19 @@ const uint8_t *em_area11_roger_resource(uint32_t address, uint32_t size);
 int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t size, const uint8_t *bytes),
                             void *ctx);
 
+/* 001C6120(D_0028A56C, id) over the exported table (the equipment models'
+ * lookup; the player equipment binder's model binds use it too): 0, or -1
+ * for an id outside the exported table. */
+int em_area11_roger_001C6120(uint32_t bank, uint32_t id, uint32_t *handle);
+/* Roger's record bytes (its original layout, the owner fields synced in)
+ * when [address, address + size) lies in it, else NULL: the head sprite's
+ * owner view (001E2560 reads Roger's +0x01, +0x02, +0x04, +0x0C, +0x110
+ * words, +0xC0 and +0x220; census L39). */
+const uint8_t *em_area11_roger_record_bytes(uint32_t address, uint32_t size);
+/* Bytes of the bone-slot arena [address, address + size) (the node records
+ * the +0x110 words name), or NULL. */
+const uint8_t *em_area11_roger_slot_bytes(uint32_t address, uint32_t size);
+
 /* The draw list: the owners whose +0x4C ran in their last owner call. */
 int em_area11_roger_draw_count(void);
 /* anchor_bone: the owner's +0x98 light-reference node; cam_fill: its +0x02

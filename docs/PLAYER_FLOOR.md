@@ -89,7 +89,7 @@ after 0015BCF0's animate step, in AREA11):
 - The frame counter is 0x70003B68 and the area D_00810700, from the scene
   state.
 - Workers: 00179B90 / 00122BB8 the shared LCG, 001FBD50(p, id, 0, 300.0) at
-  the record, 001EFD90 the counted effect gap (census L26). The wet-feet
+  the record, 001EFD90 the live effect binder (em_effects_live, census L26). The wet-feet
   decal 001F0460 and the wading 001E8B90 have no live binding and fault if
   reached (no floor on the route sets the wet timer or the water depth).
 
