@@ -70,7 +70,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c \
            src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c \
            src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
-           src/game/em_effects_live.c src/game/em_equipment_live.c \
+           src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
            src/game/em_shadow_live.c
 

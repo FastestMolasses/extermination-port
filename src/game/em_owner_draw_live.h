@@ -20,9 +20,12 @@
  *   001CA940           em_owner_draw_001CA940 over the AREA11 model bank
  *   001CB3C0           not bound: an owner with +0x90 != 0 faults
  * The unit it appends to the arena is parsed at once (em_object_unit_parse:
- * REF targets from the render context's storage and the bank) and kept for
- * the frame. em_owner_draw_live_flush draws the frame's units in the order
- * they were built (the owner walk's order) through em_gfx_object_unit.
+ * REF targets from the render context's storage and the bank: a world model
+ * bank, or a table-less one such as the player's model or the equipment
+ * models) and kept for the frame. em_owner_draw_live_flush_walk draws the
+ * walk's units in the order they were built (the owner walk's order),
+ * em_owner_draw_live_flush the post-step's (the player's) after the
+ * shadow's passes, through em_gfx_object_unit.
  *
  * Fail-stop: any fault (a worker, a view, the parse, the draw) is reported
  * with the original address and returned as -1; the caller turns it into its
@@ -44,8 +47,9 @@ extern "C" {
 #define EM_OWNER_DRAW_LIVE_UNITS 32u              /* units kept per frame */
 #define EM_OWNER_DRAW_LIVE_TEXTURES "assets/scene_snow/object_textures.emot"
 
-/* 001CAA00(owner). `bank` is the AREA11 world model bank the owner's +0x44
- * points into; `rgb` the owner's +0x80..+0x8F words; `record` the owner's
+/* 001CAA00(owner). `bank` is the model bank the owner's +0x44 points into
+ * (the AREA11 world model bank, the player's model or the equipment
+ * models); `rgb` the owner's +0x80..+0x8F words; `record` the owner's
  * original record address (the log's key). 0, or -1 (reported). */
 int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                 const uint32_t rgb[4], uint32_t record);
@@ -58,16 +62,32 @@ int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner 
  * their position rows (node x VP, qwords 0..3), of the point-light slots
  * (context +0x220, the 32 x 0x80 bytes 001D89D0's fold read) and of the
  * lighting rows' lanes y and z alone (A's columns 1 and 2: the room rig's
- * slots 1 and 2, which the point-light fold does not touch). */
+ * slots 1 and 2, which the point-light fold does not touch); then the
+ * point 001CAA00 culled and lit the owner at (owner +0xB0, or its node
+ * +0x98's +0xC0: three float bit patterns) and a digest of the pose it
+ * drew (every node's +0x90..+0xCF world matrix), for the owners that move
+ * (the player and its equipment). */
 typedef struct {
     uint32_t record, bytes, clip;
     uint32_t colour, light, position, points, light_rig;
+    uint32_t point[3], pose;
 } EmOwnerDrawLiveLog;
 int em_owner_draw_live_log(EmOwnerDrawLiveLog *out, int capacity);
 
-/* Draw this frame's units (em_frame_counter) in build order, then forget
- * every kept unit. The first call of a session registers the object
- * textures (EM_OWNER_DRAW_LIVE_TEXTURES, tools/export_object_textures.py).
+/* The post-step 0015C160 starts: the units built from here on in this frame
+ * (the player's +0x4C) are drawn after the shadow's passes, as the original
+ * orders them (docs/OWNER_DRAW.md section 10). */
+void em_owner_draw_live_post_step(void);
+
+/* Draw this frame's units (em_frame_counter) that the owner walk built,
+ * i.e. those before the frame's em_owner_draw_live_post_step (all of them
+ * without one), in build order. 0, or -1 (as em_owner_draw_live_flush). */
+int em_owner_draw_live_flush_walk(EmGfx *gfx);
+
+/* Draw this frame's remaining units in build order, then forget every kept
+ * unit and keep the frame's calls as the last drawn frame's log. The first
+ * draw of a session registers the object textures
+ * (EM_OWNER_DRAW_LIVE_TEXTURES, tools/export_object_textures.py).
  * 0, or -1 (reported: a missing export, an em_gfx_object_unit refusal). */
 int em_owner_draw_live_flush(EmGfx *gfx);
 

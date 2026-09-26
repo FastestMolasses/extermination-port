@@ -11,7 +11,9 @@
 #include "game/em_effect_original.h"
 #include "game/em_effects_live.h"
 #include "game/em_locomotion_display.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_player.h"
 #include "game/em_player_equipment.h"
 #include "game/em_player_hang.h"
@@ -37,8 +39,6 @@ typedef struct {
     uint32_t word[MODEL_BONES_MAX];        /* their original slot addresses */
     unsigned held;
     uint32_t model_address;                /* +0x44 as the original holds it */
-    EmOwnerModel model;
-    EmOwnerSkeletonRecord skeleton[MODEL_BONES_MAX];
     uint8_t drew, at_node;
 } Slot;
 
@@ -68,7 +68,12 @@ static struct {
     /* 001C62C0 / 001C9610 */
     EmOwnerServices services;
     EmOwnerServicesScratch scratch;
-    unsigned reported;
+    /* The equipment models the nodes bound (001CA6E0), each at its original
+     * address in the global library D_0028A56C: a table-less bank whose
+     * views are the Roger export's bytes. The node's +0x44 view and the
+     * draw's REF target both come from it. */
+    EmWorldModels models;
+    EmOwnerServicesOwner view;               /* 001CAA00's owner view */
 } S;
 
 static int fail(u32 address, const char *what)
@@ -190,13 +195,16 @@ static int w_001AFC10(void *ctx, EmPEN *node)
     return 0;
 }
 
-/* +0x4C (001CAA00): the port renderer's boundary. The player's mesh draws
- * the equipment models at its node slots 4 and 14 of the current frame;
- * the method records the draw and whether the node's first bone is that
- * matrix. A node whose behaviour did not place its bones this tick (the
- * flavour-2 nodes in the tick D_008106CC frees them, which still draw) draws
- * at its previous matrix in the original; the player's mesh cannot, so the
- * first such frame is reported. */
+/* +0x4C (001CAA00): em_owner_draw_live over the node's owner view (the
+ * record's +0x02, +0x03, +0x0C, +0x0D, +0x44, +0x80..+0x8F, +0x90, +0x94,
+ * +0x98, +0xB0 and its bone slots +0x110, which the behaviour placed), as
+ * the world owners draw; the unit is drawn with the walk's units. The
+ * method also records the draw and whether the node's first bone is the
+ * player's node 4 (the knife: 14) for the tick log.
+ * In a frame whose player record is not the displayed pose (the opening's
+ * hand-off, em_scene_bindings_player_record_drawn) the port's own player
+ * mesh displays the pose and carries the equipment models at those nodes:
+ * the unit is not built then. */
 static int w_method(void *ctx, EmPEN *node, u32 method)
 {
     (void)ctx;
@@ -206,12 +214,29 @@ static int w_method(void *ctx, EmPEN *node, u32 method)
     const unsigned at = node->flavour == 4 ? 14u : 4u;
     s->at_node = node->bone_count && node->bone[0] &&
                  memcmp(node->bone[0]->world, S.player_bone[at].world, sizeof node->bone[0]->world) == 0;
-    if (!s->at_node && !(S.reported & 1u)) {
-        S.reported |= 1u;
-        fprintf(stderr, "player equipment: node (%u, %#x) draws at a matrix other than the player's node %u "
-                "this frame; the player's mesh draws it at the node (001CAA00 is the renderer's)\n",
-                (unsigned)node->flavour, (unsigned)node->variant, at);
-    }
+    if (!em_scene_bindings_player_record_drawn()) return 0;
+    const EmActor *a = actor_of(s);
+    const EmWorldModel *m = em_world_models_at(&S.models, s->model_address);
+    if (!m || node->model != &m->model || node->bone_count > EM_OWNER_SERVICES_MAX_BONES)
+        return fail(0x001CAA00u, "the node's +0x44 is not a bound equipment model");
+    EmOwnerServicesOwner *v = &S.view;
+    memset(v, 0, sizeof *v);
+    v->drawn = node->drawn;
+    v->cls = a->cls;
+    v->kind = node->flavour;                    /* +0x03 */
+    v->bones_held = node->bones_held;
+    v->bone_count = node->bone_count;
+    v->model_id = node->variant;                /* +0x0D */
+    v->model = &m->model;
+    v->attachment = a->w90;
+    v->collapsed_bone = a->h94;
+    v->pose_bone = a->b98;
+    memcpy(v->pos, node->vB0, sizeof v->pos);   /* +0xB0 (the translation's) */
+    for (unsigned k = 0; k < node->bone_count; ++k) v->bone[k] = node->bone[k];
+    uint32_t rgb[4];
+    memcpy(rgb, a->f80, sizeof rgb);            /* +0x80..+0x8F */
+    if (em_owner_draw_live_001CAA00(&S.models, v, rgb, em_actor_pool_address(S.pool, a)) < 0)
+        return fail(0x001CAA00u, "001CAA00 faulted (an equipment node)");
     return 0;
 }
 
@@ -222,8 +247,9 @@ static int w_001C6120(void *ctx, u32 bank, u32 id, u32 *handle)
 }
 
 /* 001CA6E0 = 001CA5E0(node, handle, 0): +0x44 and +0x4C
- * (em_roger_actor_001CA6E0); the model view is the handle's header and
- * skeleton records in the Roger export. */
+ * (em_roger_actor_001CA6E0); the model view is the handle's model in the
+ * Roger export (header, blocks and skeleton records), added to the
+ * equipment bank at its original address. */
 static int w_001CA6E0(void *ctx, EmPEN *node, u32 handle)
 {
     (void)ctx;
@@ -235,30 +261,22 @@ static int w_001CA6E0(void *ctx, EmPEN *node, u32 handle)
     const uint8_t *m = em_area11_roger_resource(handle, 0x40);
     if (!m) return -1;
     const u32 bones = rd32(m + 8), skeleton = rd32(m + 0xC);
-    if (bones == 0 || bones > MODEL_BONES_MAX) return -1;
-    const uint8_t *k = em_area11_roger_resource(handle + skeleton, 0x50u * bones);
-    if (!k) return -1;
-    memset(&s->model, 0, sizeof s->model);
-    s->model.bone_count = (uint8_t)bones;
-    memcpy(&s->model.radius, m + 0x20, 4);
-    for (u32 i = 0; i < bones; ++i) {
-        s->skeleton[i].parent = (int16_t)(uint16_t)(k[0x50 * i + 4] | k[0x50 * i + 5] << 8);
-        memcpy(s->skeleton[i].bind, k + 0x50 * i + 0x10, 64);
-    }
-    s->model.skeleton = s->skeleton;
-    s->model.skeleton_records = bones;
+    if (bones == 0 || bones > MODEL_BONES_MAX || skeleton > 0x01000000u) return -1;
+    const u32 size = skeleton + 0x50u * bones;
+    const uint8_t *all = em_area11_roger_resource(handle, size);
+    const EmWorldModel *entry = NULL;
+    if (!all || em_world_models_add(&S.models, handle, all, size, &entry) < 0) return -1;
     s->model_address = r.model;
-    node->model = &s->model;       /* +0x44 */
+    node->model = &entry->model;   /* +0x44 */
     node->method = r.draw;         /* +0x4C */
     return 0;
 }
 
+/* 001C6150: em_owner_services_001C6150 over the node's model view. */
 static int w_001C6150(void *ctx, const void *model, uint8_t *count)
 {
     (void)ctx;
-    if (!model) return -1;
-    *count = ((const EmOwnerModel *)model)->bone_count;   /* model +0x08 */
-    return 0;
+    return em_owner_services_001C6150(&S.services, (const EmOwnerModel *)model, count) < 0 ? -1 : 0;
 }
 
 /* 001AF780: the slot at the stack cursor (em_roger_actor_001AF780 on the
@@ -410,10 +428,10 @@ int em_equipment_live_attach(EmActorPool *pool, EmSceneState *scene)
     const EmRogerActorWorld *slots = em_area11_boxes_slot_world();
     if (!slots || !slots->d00275BCC) return -1;
     memset(S.slot, 0, sizeof S.slot);
+    memset(&S.models, 0, sizeof S.models);
     S.pool = pool;
     S.scene = scene;
     S.fault = 0;
-    S.reported = 0;
     memcpy(S.table, t, sizeof S.table);
     S.d00248B98 = (int16_t)(uint16_t)(b98[0] | b98[1] << 8);
     S.d00248C78 = (int16_t)(uint16_t)(c78[0] | c78[1] << 8);
@@ -454,16 +472,8 @@ int em_equipment_live_attach(EmActorPool *pool, EmSceneState *scene)
  * records the player's +0x110 words name). */
 static int player_bones(const uint8_t *player)
 {
-    const EmPoseHost *h = player_pose_record_host();
-    if (!h) return -1;
     for (unsigned i = 0; i < PLAYER_NODES; ++i) {
-        const u32 node = rd32(player + 0x110 + 4 * i) + 0x90u;
-        const uint8_t *m = NULL;
-        for (unsigned k = 0; k < h->region_count && !m; ++k) {
-            const EmPoseRegion *r = &h->region[k];
-            if (r->bytes && node >= r->address && 0x40u <= r->size && node - r->address <= r->size - 0x40u)
-                m = r->bytes + (node - r->address);
-        }
+        const uint8_t *m = player_pose_record_bytes(rd32(player + 0x110 + 4 * i) + 0x90u, 0x40);
         if (!m) return -1;
         memcpy(S.player_bone[i].world, m, 0x40);
     }

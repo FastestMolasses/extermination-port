@@ -161,22 +161,25 @@ asserts this on every case.
 ## 4. Coverage in the captures
 
 The 255 owner-frames are every owner with draw method 001CAA00 and a bank
-model, in route beats 00..14.
+model, in route beats 00..14. Since the player step (2026-09-26) the tests
+also run the player (15 owner-frames, +0x02 bit 0x20 set: the camera fill)
+and its seven equipment nodes (105) of the same beats; the table counts
+the 255 world owner-frames.
 
 | Property | Owner-frames |
 |---|---|
 | light point is a node (+0x98 ≠ 0xFF) | 255 |
 | fold gate passes | 195 |
 | fold with at least one point light of weight > 0 | 195 |
-| camera fill (+0x02 bit 0x20) | 0 |
+| camera fill (+0x02 bit 0x20) | 0 (the player's 15 owner-frames have it) |
 | glow (+0x02 bit 0x40) | 0 |
 | context +0x0C bit 8 (key 0x0F00) | 0 |
 | D_00253170 nonzero | 0 |
 
 The captures therefore exercise the room rig, the slot rotations, the
 non-fill slot 0, the fold with live point lights, 001D8690 and the node
-point. The following are proven by the synthetic sweep only:
-- the camera fill (and 00102798);
+point, and, over the player's owner-frames, the camera fill and 00102798.
+The following are proven by the synthetic sweep only:
 - the glow;
 - the 0x0F00 key;
 - modes other than 0;
@@ -188,9 +191,11 @@ point. The following are proven by the synthetic sweep only:
 the default run takes 3.1 s and `EM_TEST_FULL=1` takes 10.0 s.
 
 The oracle is test_owner_services_reference's EE interpreter, with float
-arithmetic from ee_float_model. This test adds the four MMI lane interleaves
-of 00102798. Before use, the test checks that the extension turns a known
-matrix into its transpose. The route captures' code ranges (001D89D0..
+arithmetic from ee_float_model. The interpreter models the four MMI lane
+interleaves of 00102798 (moved there from this test by the player step, so
+the owner-draw and object-unit oracles run the player's camera fill too).
+Before use, the test checks that they turn a known matrix into its
+transpose. The route captures' code ranges (001D89D0..
 001D8FD0, 001D8130.., 001D7B30, 001D2710..001D2960, the SDK routines and
 the jump table) are asserted equal to the pinned ELF.
 
@@ -200,8 +205,8 @@ the jump table) are asserted equal to the pinned ELF.
 | A. boundary: fold weight +0, -0, ±denormal, smallest normal and 1.0 at d² = 1, 0.25 and 4, with a -0 accumulator | 18 | 18 |
 | A. direct 001D8C30: modes 0..8, 100, -1, INT_MIN, with exponent-edge inputs | 96 | 720 |
 | A. binding adapter over an EmOwnerServicesOwner | 120 | 1,200 |
-| B. captured 001D89D0 after 001D8C20(0), all owner-frames | 255 | 255 |
-| C. owner draw chain with the adapter bound, all owner-frames | 255 (119 drawn) | 255 (119 drawn) |
+| B. captured 001D89D0 after 001D8C20(0), all owner-frames | 375 (255 world, 15 player, 105 equipment) | 375 |
+| C. owner draw chain with the adapter bound, all owner-frames | 375 (119 world, 15 player and 105 equipment units drawn) | 375 |
 | D. fail-stop checks | 21 | 21 |
 
 **A and B.** In every case A, B (both prefilled with a pattern), the whole
@@ -214,8 +219,10 @@ this module's C entry point as `w_001D89D0`. The Python callback is only the
 and a recorded 001D8C20 that writes the module's mode word. The captured
 mode word starts in place, so the chain must write 0.
 
-For all **119 drawn units**, every byte of the native display-list window
-equals the original 001CAA00 run. It follows that:
+For all **119 drawn world units**, and since the player step the 15 player
+units (21 nodes, the camera fill) and the 105 equipment units (their models
+in a table-less bank built from the capture's bytes at +0x44), every byte
+of the native display-list window equals the original 001CAA00 run. It follows that:
 - **B** equals the colour CNT payload for VU1 0x3F5;
 - **A** equals SPR 0x70003400 after the original run;
 - SPR 0x70003440, the rig record and D_00275688 are equal as well.
@@ -309,9 +316,10 @@ When the worker is bound, add to COMMON next to
   translation assumes that A, B, arg3, the owner, the rig record and the
   tables do not overlap. The original callers pass the scratchpad, the
   owner and D_00817BC0, which do not overlap.
-- **The captures do not reach the fill or the glow.** The camera fill, the
-  glow, the 0x0F00 key and modes ≠ 0 are proven against the original
-  instructions on synthetic states only (section 4).
+- **The captures do not reach the glow.** The glow, the 0x0F00 key and
+  modes ≠ 0 are proven against the original instructions on synthetic
+  states only (section 4); the camera fill is captured on the player since
+  the player step.
 - **em_lighting is unchanged.** Its recomposition (ACTOR_LIGHTING.md) stays
   the renderer's contract. This module produces what 001C7420 packs. It does
   not feed `EmGfxCharRig`.

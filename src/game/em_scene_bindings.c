@@ -138,6 +138,10 @@
 #include "game/em_spawn_table.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_live.h"
+#include "game/em_player_draw_live.h"
+#include "game/em_player_misc_workers.h"
+#include "game/em_roger_actor_original.h"
+#include "game/em_startup_load_gaps.h"
 
 /* ------------------------------------------------------------ storage */
 
@@ -230,7 +234,6 @@ enum {
     UM_001D2880,
     UM_00200830,
     UM_001D19D0,
-    UM_0015C1F0,
     UM_0021B1B0,
     UM_0021B500,
     UM_001DA6A0,
@@ -287,8 +290,6 @@ static const struct {
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
-    [UM_0015C1F0] = {0x0015C1F0u, "001B07C0: player model bind after the +0x2FF kind store (001CA6E0, "
-                                  "+0x0C, +0x96, 00200890); the port draws its one exported player model"},
     [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
     [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
     [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
@@ -846,17 +847,19 @@ static void log_tick_end(int rc)
     }
     fputc(']', f);
     /* The owner draws 001CAA00 of the last drawn frame (em_owner_draw_live):
-     * record address, unit bytes, clip, and the colour / lighting-row /
-     * position-row / point-light-slot / rig-lane digests. tools/test_level_smoke.py
+     * record address, unit bytes, clip, the colour / lighting-row /
+     * position-row / point-light-slot / rig-lane digests, the owner's point
+     * (float bits) and its pose digest. tools/test_level_smoke.py
      * check_owner_units. */
     fputs(", \"owner_units\": [", f);
     {
         EmOwnerDrawLiveLog units[EM_OWNER_DRAW_LIVE_UNITS];
         const int nu = em_owner_draw_live_log(units, EM_OWNER_DRAW_LIVE_UNITS);
         for (int i = 0; i < nu; ++i)
-            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u]", i ? ", " : "", units[i].record, units[i].bytes,
-                    units[i].clip, units[i].colour, units[i].light, units[i].position, units[i].points,
-                    units[i].light_rig);
+            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u, [%u, %u, %u], %u]", i ? ", " : "", units[i].record,
+                    units[i].bytes, units[i].clip, units[i].colour, units[i].light, units[i].position,
+                    units[i].points, units[i].light_rig, units[i].point[0], units[i].point[1], units[i].point[2],
+                    units[i].pose);
     }
     fputc(']', f);
     /* Census L29: 0015C160 this tick (fresh, D_008102B1, D_00810771, +0x214's
@@ -1132,6 +1135,36 @@ static int roster_scene(void)
     return strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0;
 }
 
+/* 001D8BF0(player, a1) for 001AF5C0: +0x02 bit 0x20 set / cleared
+ * (em_roger_actor_001D8BF0, the one translation, over the record's +0x02). */
+static int wipe_001D8BF0(void *ctx, uint8_t *player, int32_t a1)
+{
+    (void)ctx;
+    EmRogerActor actor;
+    EmRogerActorRecord record;
+    memset(&actor, 0, sizeof actor);
+    memset(&record, 0, sizeof record);
+    record.cls = player[0x02];
+    if (em_roger_actor_001D8BF0(&actor, &record, a1) < 0) return -1;
+    player[0x02] = record.cls;
+    return 0;
+}
+
+/* 001AF5C0 (byte-matched; em_slg_001AF5C0) over the player record image. */
+static int player_wipe_001AF5C0(void)
+{
+    EmPlayerLiveActor *p = player_states_actor_mut();
+    if (!p) return -1;
+    EmSlgState0Workers w;
+    EmSlgState0 st;
+    memset(&w, 0, sizeof w);
+    memset(&st, 0, sizeof st);
+    w.w_001D8BF0 = wipe_001D8BF0;
+    st.player = p->bytes;
+    st.player_self = D_PLAYER;                 /* D_008102C4 = D_008102B0 */
+    return em_slg_001AF5C0(&w, &st);
+}
+
 /* 0x1AE040 state 0, first callee. 001AFCA0 is 001AF5C0 (player wipe),
  * 001AF690, 001AF710, 001AF8E0 (pool reset), 001D0660, then spad 31F4 = 0
  * (design 2.3). The port's native re-arm stands in for the player wipe;
@@ -1165,12 +1198,20 @@ static int w_001AFCA0(void *ctx)
     } else {
         em_collision_world_unload();
     }
-    /* 001AF5C0 wipes the player record; the first stage's 0015C420 then
-     * sets its spawn values (+4 = 1, +280, +204, +31B; player_states_reset
-     * writes both), and the stage runs with its workers from the first
-     * gameplay stage on (census L01, em_player_stage_live.h). Without the
-     * D_00248C98 export the stage cannot run: fault. */
+    /* 001AF5C0 wipes the player record (em_slg_001AF5C0 over the record
+     * image: the memset, then +0x14 = the record, +0x02 = 0, the scale
+     * +0x60..+0x6C and the colour words +0x80..+0x8C = 1.0, +0x70 / +0x74 =
+     * 0, +0x78 / +0x7C = 1.0, +0x94 = -1, +0x96 = 0x3D, then 001D8BF0(player,
+     * 1): +0x02 bit 0x20), after player_states_reset has cleared the port's
+     * pointers beside it; the first stage's 0015C420 then sets its spawn
+     * values (+4 = 1, +280, +204, +31B: player_states_spawn_values, fields
+     * the wipe does not write), and the stage runs with its workers from the
+     * first gameplay stage on (census L01, em_player_stage_live.h). Without
+     * the D_00248C98 export the stage cannot run: fault. */
     player_states_reset();
+    if (player_wipe_001AF5C0() < 0)
+        return em_scene_fault(&s_state, 0x001AF5C0u, EM_SCENE_FAULT_WORKER_FAILED);
+    player_states_spawn_values();
     if (em_player_stage_live_bind() < 0)
         return em_scene_fault(&s_state, 0x0015BA50u, EM_SCENE_FAULT_NULL_WORKER);
     /* Census L13..L16: the live camera over the area's collision world
@@ -1261,12 +1302,16 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     stays the port's only copy of it
  *   D_00810C60        em_pickup's equipment status; C7D/C7E its item counts
  *                     0x19/0x1A
- *   +0x0E, +0x60..+0x8C, +0x230   written, no port storage and no port reader
+ *   +0x60..+0x6C, +0x80..+0x8C     the record image (spawn_commit; 001CAA00
+ *                     of the player reads +0x80, em_player_draw_live)
+ *   +0x0E, +0x230     written, no port storage and no port reader
  *   +0x1C, +0x304     no port object at these offsets (0): the stores through
  *                     them and 001EFE00 (reached only with D_008106C8 & 4 and
  *                     & 0x60, i.e. AREA11 after event 0x30) have no worker:
  *                     reaching them faults
- *   0015C1F0          reported no-port-code (the port's one player model)
+ *   0015C1F0          em_player_misc_0015C1F0 over the record image (the
+ *                     model bind: 001CA6E0, 001C6150 over the player model
+ *                     export; 00200890 the boundary)
  *   001B0460          the live camera's translation (em_camera_live_001B0460,
  *                     census L13), after the placed pose is committed to g
  *   +0x224/+0x22C     g.pd_pend_hp/g.pd_pend_inf (arg0 1 drops them)
@@ -1288,6 +1333,11 @@ static EmSpawnIo *s_spawn_io; /* the placement in progress (for 001B0460) */
 
 static void spawn_commit(const EmSpawnIo *io)
 {
+    EmPlayerLiveActor *rec = player_states_actor_mut();
+    for (unsigned i = 0; rec && i < 4u; ++i) {
+        em_live_set_f32(rec, 0x60 + 4 * i, io->player.f060[i]);   /* 001B07C0's scale words */
+        em_live_set_f32(rec, 0x80 + 4 * i, io->player.f080[i]);   /* ... and colour words */
+    }
     g.pos[0] = io->player.f0B0[0];
     g.pos[1] = io->player.f0B0[1];
     g.pos[2] = io->player.f0B0[2];
@@ -1305,16 +1355,54 @@ static void spawn_commit(const EmSpawnIo *io)
     memcpy(s_state.spad3B40, io->spad3B40, sizeof s_state.spad3B40);
 }
 
-/* 0015C1F0(player) (NEARMISS C, logic recovered; census L22 translates
- * its first store): the model kind +0x2FF from the infection mode +0x234
- * and the equipment status D_00810C60: mode 0 -> 0x3B, with status 2 ->
- * 0x3F, 1 -> 0x3E; mode 1 -> 0x40, with status 2 -> 0x3F, 1 -> 0x3E; any
- * other mode -> 0x3D. 001B81D0 (a script's player face attach) reads it.
- * Census L29 adds its shadow-kind store: the halfword +0x96 = 0x28
- * (0x15C2F4; em_player_misc_0015C1F0), which 001DA6A0 reads as the kind
- * (0 draws no shadow). The rest (the D_0028A490[kind] model bind 001CA6E0,
- * +0x0C and 00200890) binds the model the port draws from its own export:
- * reported (UM_0015C1F0); +0x0C is the pose owner's (21, the same value). */
+/* 0015C1F0(player) (NEARMISS C, logic recovered): em_player_misc_0015C1F0
+ * over the player record image, the one translation. It picks the model
+ * kind +0x2FF from the infection mode +0x234 and D_00810C60 (mode 0 -> 0x3B,
+ * with status 2 -> 0x3F, 1 -> 0x3E; mode 1 -> 0x40 / 0x3F / 0x3E; other
+ * modes 0x3D; 001B81D0 reads the kind), binds D_0028A490[kind] with 001CA6E0
+ * (+0x44, and +0x4C = 001CAA00 through 001CA5F0 kind 0), stores +0x0C =
+ * 001C6150(+0x44) and the shadow kind +0x96 = 0x28 (001DA6A0 reads it), then
+ * calls 00200890. Workers:
+ *   001CA6E0   em_roger_actor_001CA6E0 (the one translation), its +0x44 and
+ *              +0x4C written to the record image
+ *   001C6150   the byte at model +0x08 of the exported player model
+ *              (em_player_draw_live: resource 0x3B; any other kind's model
+ *              is not exported and faults)
+ *   00200890   the module loader's DMA of the player's texture packet
+ *              (00200830 over D_0028A4B0..C0): the boundary; the textures
+ *              it uploads are the resident ones tools/export_object_
+ *              textures.py decodes from the captures
+ * The routine reads D_00810C60 as 001B07C0 left it (s_spawn_io) and the
+ * record's +0x234, which 001B07C0 stored just before the call; the spawn
+ * works on its own image of the record (EmSpawnIo.player), so that byte is
+ * carried into the record image first. D_0028A490 is the Roger export's
+ * table (em_area11_roger_table_word). */
+static int c1f0_bind_model(void *ctx, EmPlayerLiveActor *actor, uint32_t handle)
+{
+    (void)ctx;
+    EmRogerActor ra;
+    EmRogerActorRecord record;
+    memset(&ra, 0, sizeof ra);
+    memset(&record, 0, sizeof record);
+    if (em_roger_actor_001CA6E0(&ra, &record, handle) < 0)
+        return -1;
+    em_live_set_u32(actor, 0x44, record.model);
+    em_live_set_u32(actor, 0x4C, record.draw);
+    return 0;
+}
+
+static int c1f0_bone_count(void *ctx, uint32_t model, uint8_t *count)
+{
+    (void)ctx;
+    return em_player_draw_live_001C6150(model, count);
+}
+
+static int c1f0_00200890(void *ctx)
+{
+    (void)ctx;
+    return 0;   /* the boundary (see above) */
+}
+
 static int spawn_w_0015C1F0(void *ctx, uint32_t player)
 {
     (void)ctx;
@@ -1322,17 +1410,23 @@ static int spawn_w_0015C1F0(void *ctx, uint32_t player)
     EmPlayerLiveActor *p = player_states_actor_mut();
     if (player != D_PLAYER || !s_spawn_io || !p)
         return -1;
-    const uint8_t mode = s_spawn_io->player.b234, sel = s_spawn_io->d810C60;
-    uint8_t kind;
-    if (mode == 0)
-        kind = sel == 2 ? 0x3F : sel == 1 ? 0x3E : 0x3B;
-    else if (mode == 1)
-        kind = sel == 2 ? 0x3F : sel == 1 ? 0x3E : 0x40;
-    else
-        kind = 0x3D;
-    em_live_set_u8(p, 0x2FF, kind);
-    em_live_set_u16(p, 0x96, 0x28);   /* 0x15C2F4: the shadow kind (001DA6A0) */
-    return unmirrored(UM_0015C1F0);
+    static uint32_t table[0xC0];                  /* D_0028A490 */
+    for (uint32_t i = 0; i < sizeof table / sizeof table[0]; ++i)
+        if (em_area11_roger_table_word(0x0028A490u + 4u * i, &table[i]) < 0)
+            return em_scene_fault(&s_state, 0x0028A490u, EM_SCENE_FAULT_NULL_WORKER);
+    EmPlayerMiscWorkers w;
+    EmPlayerMiscScene sc;
+    memset(&w, 0, sizeof w);
+    memset(&sc, 0, sizeof sc);
+    w.bind_model = c1f0_bind_model;
+    w.bone_count = c1f0_bone_count;
+    w.w00200890 = c1f0_00200890;
+    sc.d810C60 = s_spawn_io->d810C60;
+    sc.d28A490 = table;
+    sc.d28A490_count = sizeof table / sizeof table[0];
+    EmPlayerMiscHost host = {&w, &sc, NULL};
+    em_live_set_u8(p, 0x234, s_spawn_io->player.b234);   /* 001B07C0's +0x234 = D_00810707 */
+    return em_player_misc_0015C1F0(&host, p);
 }
 
 /* 001B0460(a0). Its only a0 test (0x1B0460 .. block_14) is "a0 != 0 and
@@ -1863,20 +1957,35 @@ static int walk_001AFD70(void *ctx, int mode)
     return 0;
 }
 
+/* 1 when the player record's node records are the pose the port displays
+ * this frame: the opening runtime's actors are not drawn, the record pose
+ * source holds the display (player_pose_record_displayed) and this frame's
+ * 0015BCF0 posed the record (it is reported, UM_0015BCF0_CUTSCENE, while
+ * the opening runtime owns the cutscene variant: the port then displays the
+ * opening's hand-off pose, not the record's). */
+int em_scene_bindings_player_record_drawn(void)
+{
+    if (em_opening_runtime_actors_active() || !player_pose_record_displayed())
+        return 0;
+    return !(s_variant == VARIANT_CUTSCENE && em_opening_runtime_busy());
+}
+
 /* 0015C160 (byte-matched src/func_0015C160.c), the player post-step. In the
  * first level (census L29, docs/SHADOW_ORIGINAL.md "Binding"): with
  * D_008102B1 (the player's +0x01, which 0015BA50 sets every stage and the
  * 0x19 states clear) != 0, 001CB590(player, 0x320, player[9]) (w_001CB590:
  * D_00275B44 = the player), then unless D_00810771 == 1 the shadow
  * (em_shadow_live: 001DA6A0 with +0x214 == 0, 0015BF90 otherwise), then
- * the +0x4C method: the player's own draw, which frame_close_out makes
- * after the shadow's passes. While the record's nodes are not the displayed
- * pose (the opening runtime owns the displayed player, design risk 2; the
- * pose source not yet started; a port stand-in holding the display) the
- * post-step is reported (UM_0015C160_OPENING) after its 001CB590 and the
- * +0x4C request is the port's own mesh draw. A scene
- * without the shadow binding keeps the reported no-effect binding. The gate
- * bytes and the route are kept for the tick log (s_post_step). */
+ * the +0x4C method: 001CAA00(player) (em_player_draw_live through
+ * em_owner_draw_live), whose unit frame_close_out draws after the shadow's
+ * passes (em_owner_draw_live_post_step). While the record's nodes are not
+ * the displayed pose (em_scene_bindings_player_record_drawn: the opening
+ * runtime owns the displayed player, design risk 2; the pose source not yet
+ * started; a port stand-in holding the display) the post-step is reported
+ * (UM_0015C160_OPENING) after its 001CB590 and the +0x4C request is the
+ * port's own mesh draw of the displayed pose. A scene without the shadow
+ * binding keeps the reported no-effect binding. The gate bytes and the
+ * route are kept for the tick log (s_post_step). */
 static int w_0015C160(void *ctx)
 {
     if (!in_variant())
@@ -1898,7 +2007,7 @@ static int w_0015C160(void *ctx)
         return 0;   /* no 001CB590, no shadow, no +0x4C draw */
     if (w_001CB590(ctx, D_PLAYER, 0x320, em_live_u8(p, 0x09), 0) < 0)
         return -1;
-    if (em_opening_runtime_actors_active() || !player_pose_record_displayed()) {
+    if (!em_scene_bindings_player_record_drawn()) {
         s_post_step.route = -1;   /* the tick log's "reported" */
         em_render_player_draw_0015C160();   /* the port's own +0x4C draw */
         return unmirrored(UM_0015C160_OPENING);
@@ -1912,7 +2021,10 @@ static int w_0015C160(void *ctx)
     if (route != EM_SHADOW_ROUTE_NONE && em_shadow_live_0015C160(p, route) < 0)
         return em_scene_fault(&s_state, em_shadow_live_fault() ? em_shadow_live_fault() : 0x0015C160u,
                               EM_SCENE_FAULT_WORKER_FAILED);
-    em_render_player_draw_0015C160();   /* the +0x4C method */
+    /* hook(D_00275B44): the +0x4C method 001CAA00(player). */
+    em_owner_draw_live_post_step();
+    if (em_player_draw_live_001CAA00() < 0)
+        return em_scene_fault(&s_state, 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
     return 0;
 }
 

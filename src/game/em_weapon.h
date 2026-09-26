@@ -469,9 +469,10 @@
  * the table is indexed BY THE CAMERA MODE). The port is camera mode 0,
  * manual aim -> row 7 = (6.0, 1.088, 0, 1). Because both points share
  * the row's y and z = 0, the fire direction is exactly the hand bone's
- * local +X axis. The hand matrix is the player palette's node-4 matrix
- * (the rifle attach node), published by the gfx layer
- * (em_gfx_last_skinned_bone — one frame of latency by construction).
+ * local +X axis. The hand matrix is the player's node 4 (the rifle
+ * node 00188630 reads: +0x90 of the node record the player's +0x110
+ * word 4 names), read from the player record while it is the displayed
+ * pose (em_player_draw_live_node_world).
  * Fallback when the loaded player EMDL lacks the weapon clips: the old
  * flagged chest-height/yaw stand-in.
  *   BEAM-DRAW ORIGIN DOWNGRADED: gun+0x1F0, where the beam starts, is

@@ -289,6 +289,17 @@ EmPoseHost *player_pose_record_host(void)
     return em_player_record_pose_host(&source.record);
 }
 
+const uint8_t *player_pose_record_bytes(uint32_t address, uint32_t size)
+{
+    const EmPoseHost *h = em_player_record_pose_host(&source.record);
+    for (unsigned k = 0; h && k < h->region_count; ++k) {
+        const EmPoseRegion *r = &h->region[k];
+        if (r->bytes && address >= r->address && size <= r->size && address - r->address <= r->size - size)
+            return r->bytes + (address - r->address);
+    }
+    return NULL;
+}
+
 void player_pose_unload(void)
 {
     em_player_record_pose_free(&source.record);

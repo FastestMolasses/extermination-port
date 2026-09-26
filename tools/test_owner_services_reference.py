@@ -252,6 +252,19 @@ class EE:
                 x, y = self.r[rs], self.r[rt]
                 self.set128(rd, sum(((x >> 8 * i & 255) + (y >> 8 * i & 255) & 255) << 8 * i
                                     for i in range(16)))
+            elif w & 63 == 8 and (w >> 6 & 31) == 0x12:  # pextlw: rt.w0, rs.w0, rt.w1, rs.w1
+                x, y = self.r[rs], self.r[rt]
+                self.set128(rd, (y & M32) | (x & M32) << 32 | (y >> 32 & M32) << 64 | (x >> 32 & M32) << 96)
+            elif w & 63 == 40 and (w >> 6 & 31) == 0x12:  # pextuw: rt.w2, rs.w2, rt.w3, rs.w3
+                x, y = self.r[rs], self.r[rt]
+                self.set128(rd, (y >> 64 & M32) | (x >> 64 & M32) << 32 | (y >> 96 & M32) << 64 |
+                            (x >> 96 & M32) << 96)
+            elif w & 63 == 9 and (w >> 6 & 31) == 0x0E:   # pcpyld: rt.d0, rs.d0
+                x, y = self.r[rs], self.r[rt]
+                self.set128(rd, (y & M64) | (x & M64) << 64)
+            elif w & 63 == 41 and (w >> 6 & 31) == 0x0E:  # pcpyud: rs.d1, rt.d1
+                x, y = self.r[rs], self.r[rt]
+                self.set128(rd, (x >> 64 & M64) | (y >> 64 & M64) << 64)
             else: raise Unmodelled(('mmi', hex(pc), hex(w)))
         elif op == 30: self.set128(rt, self.load(a & ~15, 16))
         elif op == 31: self.store(a & ~15, self.r[rt], 16)

@@ -29,6 +29,15 @@ Also: the parsed pieces equal the unit's own uploads (colour, nodes, skin
 records, model REF), and every refusal path of the parser fires on a unit
 mutated to break exactly its rule.
 
+P. The player (D_008102B0, 0015C160's +0x4C: 001CAA00 over the model
+   0x00D1C1C0, 21 nodes, 149 blocks; docs/OWNER_DRAW.md section 10) and its
+   seven equipment nodes (callback 0018A6B0, +0x4C 001CAA00, models of the
+   global library D_0028A56C) in every route beat, run the same way:
+   D_00275B40 = the owner's +0x110, as 001CB590 publishes it before the
+   post-step's and the walk's calls. The default run takes a player unit of
+   each draw class the captures hold and equipment units covering every
+   model and class; EM_TEST_FULL=1 all.
+
 F. The face units (001CB3C0's, CALL 0x0023C480: Roger's and Dennis's faces,
    docs/VU1_FACE_MORPH.md): every distinct intact face unit in the display
    lists of the route beats 00..14 (the colour, node and weights CNTs, the
@@ -63,6 +72,7 @@ OUT = ROOT / 'build/object_unit_reference'
 ELF_SHA = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 KERNEL, CLIP_KERNEL, FACE_KERNEL = 0x23C750, 0x2354A0, 0x23C480
 FACES = {0x018C8740: 'Roger', 0x011749C0: 'Dennis'}     # face resources (VU1_FACE_MORPH.md)
+PLAYER, EQUIPMENT = tod.PLAYER, tod.EQUIPMENT
 ARENA = (0x28F700, 0x7635C0)
 MAX_TRIS = 20000
 
@@ -272,7 +282,8 @@ def case(item):
     ram, spr = CAP[name]
     o, ctx = tod.original_draw(ram, spr, owner)
     used = o.load(ctx + 0x10) - tod.CAP_DL
-    res = dict(capture=name, owner=hex(owner), behaviour=hex(u32(ram, owner + 0x10)), unit=used)
+    res = dict(capture=name, owner=hex(owner), behaviour='player' if owner == PLAYER else hex(u32(ram, owner + 0x10)),
+               unit=used)
     if not used:
         return res
     unit = o.read(tod.CAP_DL, used)
@@ -430,8 +441,27 @@ def main():
     def behaviour(i): return u32(CAP[i[0]][0], i[1] + 0x10)
     chosen = select(owners, 40, 0x0B7E, axes=(behaviour, lambda i: (behaviour(i), classes[i])),
                     keep=lambda _i, it: classes[it] == 'clip')
-    results = parallel_map(case, chosen, cost=lambda it: 3 if classes[it] == 'clip' else 1)
+    # P: the player and its equipment nodes
+    extra = [o for beat in CAP for o in tod.player_owners(beat)]
+    assert sum(o[1] == PLAYER for o in extra) == len(CAP), 'a route beat without the player drawing'
+    for beat in CAP:
+        ram = CAP[beat][0]
+        assert u32(ram, PLAYER + 0x44) == 0x00D1C1C0 and ram[PLAYER + 0x0C] == 21, (beat, 'the player model')
+    classes.update(zip(extra, parallel_map(tod.flag_class, extra)))
+    players = [o for o in extra if o[1] == PLAYER]
+    equipment = [o for o in extra if o[1] != PLAYER]
+    assert len(equipment) == 7 * len(CAP), ('seven equipment nodes per beat', len(equipment))
+
+    def model(i): return u32(CAP[i[0]][0], i[1] + 0x44)
+    chosen_p = select(players, 1, 0x8102, axes=(lambda i: classes[i],))
+    chosen_e = select(equipment, 3, 0x18A6, axes=(model, lambda i: (model(i), classes[i])))
+    chosen = chosen + chosen_p + chosen_e
+    results = parallel_map(case, chosen,
+                           cost=lambda it: (8 if it[1] == PLAYER else 1) * (3 if classes[it] == 'clip' else 1))
     drawn = [r for r in results if r['unit']]
+    drawn_player = [r for r in drawn if int(r['owner'], 16) == PLAYER]
+    drawn_equipment = [r for r in drawn if r['behaviour'] == hex(EQUIPMENT)]
+    assert drawn_player and drawn_equipment, 'no drawn player or equipment unit'
     for it, r in zip(chosen, results):
         want = 'culled' if not r['unit'] else ('clip' if r.get('clip') else 'plain')
         assert want == classes[it], ('001CA7B0 class and parsed unit disagree', r['capture'], r['owner'])
@@ -453,8 +483,10 @@ def main():
         t['clip_units'] += r['clip']
         t['triangles'] += r['triangles']
         t['clip_triangles'] += r['clip_triangles']
-    line = banner(part(len(chosen), len(owners), 'captured owner draws'),
-                  f"{len(drawn)} units ({sum(r['clip'] for r in drawn)} clip), "
+    line = banner(part(len(chosen), len(owners) + len(extra), 'captured owner draws'),
+                  f"{len(drawn)} units ({sum(r['clip'] for r in drawn)} clip; the player "
+                  f"{len(drawn_player)} of {len(players)} owner-frames, the equipment {len(drawn_equipment)} of "
+                  f"{len(equipment)}), "
                   f"{sum(r['triangles'] for r in drawn)} triangles equal the original microcode's",
                   f'{len(refused)} parser refusals',
                   part(len(face_results), len(faces), 'face units') +

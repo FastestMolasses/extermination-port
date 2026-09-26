@@ -643,6 +643,7 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - WP-11: fan and the exit
 - WP-12: truck (landed 2026-09-24, census L23)
 - Census L29 / L29b: the player post-step 0015C160 and the drop shadow (landed 2026-09-26): `w_0015C160` runs 0015C160's gate, 001CB590 and route with em_shadow_live (001DA6A0, or 0015BF90's decal on an actor); the player's draw leaves the AREA11 draw list (`em_render_player_post_step`) and is made after the shadow's passes at 0015C160's +0x4C position. UM_0015C160 stays for the roster-less scenes; UM_0015C160_OPENING reports the post-step while the record does not hold the displayed pose (the opening, risk 2 below). SHADOW_ORIGINAL.md "Binding".
+- The player step (landed 2026-09-26): 0015C160's +0x4C is 001CAA00(player) (em_player_draw_live through em_owner_draw_live), the seven equipment nodes' +0x4C their 001CAA00 units; 0015C1F0's model bind and 001AF5C0's wipe of the record are live. OWNER_DRAW.md section 10.
 
 A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses it. That is a user decision, because run_suite.sh is theirs. **WP-2 (H12) must land before WP-4.**
 
@@ -680,7 +681,7 @@ A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses 
   E50 is written as 4 (analog DualShock) per S11a. Faulting would end the session on a single button
   press; withholding adds no invented behaviour (the button is inert and says so). Remove the mask in
   the step that ports 0022A650.
-- **Q2.** Where the player's final palette is produced: 0015BCF0, or player+0x4C = 001CAA00 via 0015C160 after the walk. Settle by reading 001CAA00 → 001CA990 writes, and by a palette-write watchpoint against 001AFD70.
+- **Q2.** Where the player's final palette is produced: 0015BCF0, or player+0x4C = 001CAA00 via 0015C160 after the walk. **Settled (the player step, 2026-09-26):** 001CAA00 draws from the node records' +0x90 matrices (001C7420 reads them for every node); the port draws the record's nodes as 0015BCF0's animate step left them, and the player's unit equals the original's in the camera-exact snapshots 10 and 14 (check_owner_units). OWNER_DRAW.md section 10.
 - **Q3.** Record 13: which call frees it, and when. Settle with a breakpoint on 001AFC10 with a0=0x7A96E0 from state 0 until the opening spawns.
 - **Q4.** The spawners of 001E55F0, 001E2560 and 001EA240 (the table near 0x24CCC8). Settle with a breakpoint on 001AFA90 returning those nodes during state 0 and the first frames.
 - **Q5.** The identity and effect of 0018A6B0 ×7 (read 0018A880 and 0015C420) and of 001E2560 (its label "turret AI" is unverified).

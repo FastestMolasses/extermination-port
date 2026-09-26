@@ -52,7 +52,9 @@ Every float operation goes through `em_ee_float.h`:
 
 `em_player_stage_live_bind()` (em_player_stage_live.c) runs at every area
 build, at 001AF5C0's position in the scene bindings' w_001AFCA0, right after
-`player_states_reset()` (001AF5C0's wipe and 0015C420's record values). It
+`player_states_reset()`, `em_slg_001AF5C0` over the record (001AF5C0's wipe,
+live since the player step) and `player_states_spawn_values()` (0015C420's
+record values). It
 fills the host below. Where the original collision world is loaded
 (AREA11) it also binds the floor workers (`em_collision_world_bind_player`)
 and the closure and Use chain (`em_player_closure_live_bind`). It then calls

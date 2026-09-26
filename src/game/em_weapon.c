@@ -15,6 +15,7 @@
 #include "em_model.h"
 #include "game/em_enemy.h"
 #include "game/em_game.h"
+#include "game/em_player_draw_live.h"
 #include "game/em_random.h"
 #include "game/em_sfx.h"
 
@@ -106,7 +107,7 @@
  *   2. dist(PLAYER pos +0xA0, aim point func_00183C40) < 260;
  *   3. SCREEN CONE: aim point projected by the spad camera matrix
  *      0x70003AC0 (port: em_gfx_last_viewproj — one frame stale, the
- *      bone-publish staleness class). The engine's GS mapping:
+ *      fire-event mailbox's staleness class). The engine's GS mapping:
  *      sx = x'/w - 2048, sy = 1.5*(y'/w - 2048) — GS pixels off the
  *      screen center (half-width 256; half-height 112, *1.5 = 168
  *      after the y scale). In the port's NDC: sx = 256*ndc_x,
@@ -480,9 +481,9 @@ enum {
  * different — do not cite this as decoded. The RAY itself does run
  * from the (-3, 1.088, 0) origin (func_00185760 probes
  * func_0019A570(gun+0xA0, gun+0xA0 + dir*260, 7, 0x20)).
- * The hand matrix reaches em_weapon
- * through em_gfx_last_skinned_bone (the gfx-side bone publish — one
- * frame of latency by construction, see em_gfx.h). */
+ * The hand matrix is the player's node 4 (+0x90 of the node record
+ * the player's +0x110 word 4 names), read from the player record
+ * (em_player_draw_live_node_world, see weapon_hand_matrix). */
 #define WPN_HAND_NODE   4u      /* rifle attach node (s9 attach decode)  */
 #define WPN_MUZ_Y       1.088f  /* D_0024A220[7].y                       */
 #define WPN_MUZ_X_RAY  -3.0f    /* ray-origin local x (func_00188630)    */
@@ -740,9 +741,8 @@ static struct {
     int      laser_rnd5;   /* 00185760 dot draw: (rand >> 15) & 0x1F       */
     float    laser_phase;  /* 001E2BA0 beam phase: rand / 2^31 * 2pi       */
 
-    EmGfx   *gfx;          /* cached each em_weapon_render call: the
-                            * update stage reads the published hand-bone
-                            * matrix through em_gfx_last_skinned_bone     */
+    EmGfx   *gfx;          /* cached each em_weapon_render call (the
+                            * camera publish and the spot light)          */
 } w;
 
 /* KNIFE / MELEE state (engine player modes 0x21/0x22 — see the header
@@ -1024,18 +1024,17 @@ static void hand_point(const float m[16], float x, float y, float z,
     out[2] = m[2] * x + m[6] * y + m[10] * z + m[14];
 }
 
-/* Fetch the published hand-bone matrix (the engine's player +0x90; the
- * port reads the player palette's node-4 matrix recorded by the gfx
- * layer — see the MUZZLE/HAND-FRAME block above). Trust it only when
- * the loaded player EMDL actually carries the weapon clips: that
- * guarantees the player model is loaded and is the render chain's LAST
- * skinned draw (the recorded palette is the player's). Returns 0 (use
- * the flagged fallback) otherwise. */
+/* Fetch the hand-bone matrix: the player's node 4 world matrix (+0x90 of
+ * the node record the player's +0x110 word 4 names), which the gun node
+ * 00188630 reads as its bone 0, read from the player record
+ * (em_player_draw_live_node_world) while the record is the displayed pose.
+ * Trust it only when the loaded player EMDL also carries the weapon clips
+ * (the stances this module plays). Returns 0 (use the flagged fallback)
+ * otherwise. */
 static int weapon_hand_matrix(float m[16])
 {
-    if (!w.gfx) return 0;
     if (em_game_anim_frames(WPN_ANIM_AIM) <= 0) return 0;
-    return em_gfx_last_skinned_bone(w.gfx, WPN_HAND_NODE, m);
+    return em_player_draw_live_node_world(WPN_HAND_NODE, m);
 }
 
 /* Muzzle ray = the engine's two-table-point form (func_00188630):
@@ -2256,7 +2255,7 @@ void em_weapon_update(const EmCollision *coll, const float player_pos[3],
      * the close-out's skinned draws haven't — so the term lights THIS
      * frame's draws. w.gfx is the device cached by em_weapon_render
      * (NULL only before the first rendered frame — one unlit frame,
-     * same staleness class as the bone publish). */
+     * the fire-event mailbox's staleness class). */
     w.light_live = (w.light_on && w.laser_on);
     if (w.light_live) {
         float lmuz[3], tip[3];
@@ -2503,10 +2502,9 @@ static void flash_render(EmGfx *gfx)
 void em_weapon_render(EmGfx *gfx)
 {
     if (!gfx) return;
-    /* Cache the device for the update stage's hand-bone reads
-     * (em_gfx_last_skinned_bone — see weapon_hand_matrix), and load
-     * the FX sprite sheets once (no draw — the registration alone
-     * never touches the frame). */
+    /* Cache the device for the update stage's camera reads and spot
+     * light, and load the FX sprite sheets once (no draw — the
+     * registration alone never touches the frame). */
     w.gfx = gfx;
     fx_load(gfx);
 

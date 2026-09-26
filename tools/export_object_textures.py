@@ -9,13 +9,22 @@ TBP0 through the CLUT at CBP. The object textures are not uploaded per draw:
 they are resident in GS local memory for the whole level.
 
 This exporter takes every TEX0 value (CLD, bits 61..63, ignored: it only
-controls the CLUT cache) of every model block of the AREA11 world model bank
-(tools/export_world_models.py build(), from the user's extract), and decodes
+controls the CLUT cache) of every model block of
+  * the AREA11 world model bank (tools/export_world_models.py build());
+  * the player's model, resource 0x3B (tools/export_player_model.py
+    build(): 0015C1F0's D_0028A490[0x3B], drawn by 0015C160's +0x4C);
+  * the player equipment models, the ids 0018A8D0 can bind from the global
+    library D_0028A56C (extract/chunk27/f01_id37.bin's table: 0x2F; 0x30,
+    0x40, 0x6D; 0x31..0x3D; 0x6A; docs/PLAYER_EQUIPMENT.md section 2),
+all from the user's extract, and decodes
 each from the GS local memory of every AREA11 route capture (beats 00..14:
 ../Extermination/build/s87/route/<beat>/gs.bin, the user's own PCSX2
 captures). It fails unless:
   * every TEX0 has PSM PSMT8 or PSMT4, CPSM PSMCT32, CSM1, CSA 0, TCC 1 and
-    TFX 2 (HIGHLIGHT): the one form the renderer reproduces;
+    TFX 2 (HIGHLIGHT): the one form the renderer reproduces. The one
+    exception is an equipment model the route never binds: its other forms
+    are left out and listed ("not_exported"; equipment 0x36 kicks TEX0 0 on
+    four vertices of block 13), so a unit that kicks one faults;
   * the decoded texels and CLUT are identical in every capture (residency:
     the texture a draw samples does not depend on the frame).
 The texels are the CLUT entries' four bytes as GS memory holds them: R, G, B
@@ -51,6 +60,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 sys.path.insert(0, str(DECOMP / 'tools'))
 
+import export_player_model as epm  # noqa: E402
 import export_world_models as ewm  # noqa: E402
 
 CLD_MASK = ~(7 << 61) & (2 ** 64 - 1)
@@ -65,16 +75,43 @@ def tex0_fields(t: int) -> dict:
                 cpsm=(t >> 51) & 0xF, csm=(t >> 55) & 1, csa=(t >> 56) & 0x1F)
 
 
+# The ids 0018A8D0 binds for the player's equipment nodes (flavour 0: 0x2F;
+# flavour 1: 0x30 / 0x40 / 0x6D; flavour 2: 0x32..0x36, 0x31, 0x37, 0x38,
+# 0x39..0x3D; flavour 4: 0x6A), in the global library D_0028A56C.
+EQUIPMENT_IDS = (0x2F, 0x30, 0x40, 0x6D, *range(0x31, 0x3E), 0x6A)
+
+
+def block_tex0(data: bytes, off: int, blocks: int, label: str, out: dict):
+    """Every vertex TEX0 (CLD cleared) of the `blocks` blocks of the model at
+    `off` in `data`, into {TEX0: set of labels}."""
+    for b in range(blocks):
+        block = off + 0x40 + 16 * BLOCK_QWORDS * b
+        for i in range(32):
+            t = struct.unpack_from('<Q', data, block + 16 + 64 * i)[0] & CLD_MASK
+            out.setdefault(t, set()).add(label)
+
+
 def model_tex0(x) -> dict:
-    """{TEX0 (CLD cleared): set of model ids} over every vertex of every block."""
+    """{TEX0 (CLD cleared): set of model labels} over every vertex of every
+    block of the world model bank."""
     out, span = {}, x['span']
     for m in x['models']:
-        for b in range(m['blocks']):
-            block = m['offset'] + 0x40 + 16 * BLOCK_QWORDS * b
-            for i in range(32):
-                t = struct.unpack_from('<Q', span, block + 16 + 64 * i)[0] & CLD_MASK
-                out.setdefault(t, set()).add(m['id'])
+        block_tex0(span, m['offset'], m['blocks'], f"{m['id']:#x}", out)
     return out
+
+
+def player_tex0(extract: Path, out: dict):
+    """The player's model (resource 0x3B) and the equipment models."""
+    p = epm.build(extract)
+    block_tex0(p['model'], 0, p['blocks'], 'player 0x3b', out)
+    library = (extract / 'chunk27/f01_id37.bin').read_bytes()
+    count = struct.unpack_from('<I', library, 0)[0]
+    for ident in EQUIPMENT_IDS:
+        if ident >= count:
+            raise SystemExit(f'chunk27/f01_id37.bin: equipment id {ident:#x} outside the table ({count})')
+        off = struct.unpack_from('<i', library, 4 + 4 * ident)[0] >> 2 << 2
+        blocks = ewm.model_record(library, off, ident)[0]
+        block_tex0(library, off, blocks, f'equipment {ident:#x}', out)
 
 
 def decode(lm: bytes, t: int) -> bytes:
@@ -107,11 +144,19 @@ def main(argv=None) -> int:
     import gs_vram
     x = ewm.build(args.extract)
     texes = model_tex0(x)
-    for t in texes:
+    player_tex0(args.extract, texes)
+    left_out = {}
+    for t in list(texes):
         f = tex0_fields(t)
         if f['psm'] not in (PSMT8, PSMT4) or f['cpsm'] or f['csm'] or f['csa'] or f['tcc'] != 1 or f['tfx'] != 2 \
                 or not (0 < f['tw'] <= 10 and 0 < f['th'] <= 10):
-            raise SystemExit(f'TEX0 {t:#018x}: {f} is not the PSMT8/PSMT4 CSM1 HIGHLIGHT form')
+            # Only an equipment model the route never binds may carry another
+            # form (equipment 0x36, flavour 2 variant 4: four vertices of
+            # block 13 with TEX0 0). It is left out: a unit that kicks it
+            # faults in em_gfx_object_unit (no registered texture).
+            if any(not m.startswith('equipment ') for m in texes[t]):
+                raise SystemExit(f'TEX0 {t:#018x}: {f} is not the PSMT8/PSMT4 CSM1 HIGHLIGHT form')
+            left_out[t] = texes.pop(t)
     captures = args.gs if args.gs is not None else default_captures()
     if not captures:
         raise SystemExit('no captured gs.bin (../Extermination/build/s87/route/<beat>/gs.bin)')
@@ -133,15 +178,17 @@ def main(argv=None) -> int:
         entries += struct.pack('<Q4I', t, w, h, offset + len(blob), 0)
         blob += texels[t]
         index.append(dict(tex0=hex(t), width=w, height=h, psm=hex(f['psm']),
-                          models=sorted(hex(m) for m in texes[t]),
+                          models=sorted(texes[t]),
                           sha256=hashlib.sha256(texels[t]).hexdigest()[:16]))
     data = head + entries + blob
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(data)
     args.out.with_suffix('.json').write_text(json.dumps(dict(
         count=len(order), bytes=len(data), captures=[str(p.parent.name) for p in captures],
-        textures=index), indent=1) + '\n')
-    print(f'wrote {args.out}: {len(order)} textures, {len(data)} bytes; identical in {len(captures)} captures')
+        textures=index, not_exported=[dict(tex0=hex(t), models=sorted(m)) for t, m in sorted(left_out.items())]),
+        indent=1) + '\n')
+    print(f'wrote {args.out}: {len(order)} textures, {len(data)} bytes; identical in {len(captures)} captures'
+          + ''.join(f'; not exported: TEX0 {t:#x} ({", ".join(sorted(m))})' for t, m in sorted(left_out.items())))
     return 0
 
 

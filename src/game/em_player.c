@@ -511,6 +511,11 @@ void player_states_report(FILE *out)
 void player_states_reset(void)
 {
     memset(&live.a, 0, sizeof live.a);
+    player_states_spawn_values();
+}
+
+void player_states_spawn_values(void)
+{
     /* 0015C420 (byte-matched): 001CA6F0(player, 1) first (+98 = 1: node 1 is
      * the shadow's anchor node, 001DA6A0 for kind 0x28); +280 = (0,
      * 0xC15CCCCD = -13.8, 0, 1.0); for the AREA11 spawn kind +4 = 1, +5 = 0,

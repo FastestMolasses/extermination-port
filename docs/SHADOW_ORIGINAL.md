@@ -558,16 +558,18 @@ Backend (`em_gfx_shadow_*`):
    player).
 3. While the player record does not hold the displayed pose (the opening
    runtime owns the displayed player, design risk 2; the pose source has not
-   started; a port stand-in holds the display: `player_pose_record_displayed`)
-   the post-step is reported (UM_0015C160_OPENING) and the port's own player
-   draw is requested; nothing is computed from the record.
+   started; a port stand-in holds the display; a frame whose 0015BCF0 was
+   reported: `em_scene_bindings_player_record_drawn`) the post-step is
+   reported (UM_0015C160_OPENING) and the port's own player mesh draw is
+   requested; nothing is computed from the record.
 4. `em_shadow_original_route_0015C160(+0x01, D_00810771, +0x214)`:
    D_00810771 is event 0x19 in the EmProgress region (migrated by this step;
    0 on the route), +0x214 the record of the actor the player stands on.
    Route 1 calls `em_shadow_live_0015C160` with 001DA6A0, route 2 with
    0015BF90 (SHADOW_ACTOR_ROUTE.md section 4).
-5. The +0x4C method: `em_render_player_draw_0015C160` requests the player's
-   own draw for this frame.
+5. The +0x4C method, 001CAA00(player): `em_owner_draw_live_post_step`, then
+   `em_player_draw_live_001CAA00` builds the player's original unit
+   (OWNER_DRAW.md section 10, since the player step 2026-09-26).
 
 **The player record's bytes** 001DA6A0 reads are the original writers':
 +0x96 = 0x28 (0015C1F0 at 0x15C2F4, in `spawn_w_0015C1F0`), +0x98 = 1
@@ -605,9 +607,9 @@ owner units, with the frame's native P*V (`em_shadow_live_flush`):
 | w_receiver (each) | `em_gfx_shadow_receiver(object strips, class)` |
 | w_receiver_end | `em_gfx_shadow_receiver_end` |
 
-Then the player's own draw (the port's mesh with its rig), in the frames
-whose post-step requested it; in AREA11 the player no longer has a
-draw-list entry. A pass that cannot draw exactly returns -1: the module
+Then the player's +0x4C: its 001CAA00 unit (`em_owner_draw_live_flush`,
+after the walk's units and these passes), or the port's mesh in the frames
+whose post-step was reported; in AREA11 the player has no draw-list entry. A pass that cannot draw exactly returns -1: the module
 latches the pass's original address (001DA290, 001DA310, 001D9EE0,
 001D4CD0, 001D4FB0, 001D1FF0) and `frame_close_out` faults the scene. The
 0015BF90 decal is flushed at the page splice (SHADOW_DECAL.md section 5).

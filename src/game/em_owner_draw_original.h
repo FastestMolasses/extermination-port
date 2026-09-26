@@ -121,6 +121,27 @@ int em_world_models_parse(EmWorldModels *bank, const uint8_t *data, size_t size)
  * result is not the start of an exported model. */
 int em_world_models_001C6120(const EmWorldModels *bank, uint32_t bank_word, uint32_t id,
                              uint32_t *handle);
+/* A bank without a table: models placed at their original addresses one by
+ * one (the player's model, D_0028A490[0x3B]; the equipment models of the
+ * global library D_0028A56C). The bank starts zeroed (memset); `bytes` is
+ * kept as a view. em_world_models_add checks the model like the parser
+ * (header, block codes, skeleton range within `room`) and appends it (id =
+ * its index); a model already added at `address` is returned again.
+ * *out = the entry. 0, or -1 (a malformed model, a full bank, an address
+ * already holding different bytes; nothing is added). 001C6120 refuses a
+ * table-less bank (count 0). */
+int em_world_models_add(EmWorldModels *bank, uint32_t address, const uint8_t *bytes, uint32_t room,
+                        const EmWorldModel **out);
+/* Parse an EMOM file (tools/export_player_model.py: 'EMOM', version 1,
+ * the address, the size S, four zero words, then S model bytes) into a
+ * table-less bank of that one model (a view into `data`). 0, or -1 (the
+ * bank is left zeroed). */
+#define EM_OBJECT_MODEL_MAGIC 0x4D4F4D45u /* "EMOM" */
+#define EM_OBJECT_MODEL_VERSION 1u
+int em_object_model_parse(EmWorldModels *bank, const uint8_t *data, size_t size);
+/* The bytes at an original address inside one of the bank's models (the
+ * table span, or a table-less model), or NULL. */
+const uint8_t *em_world_models_bytes(const EmWorldModels *bank, uint32_t address, uint32_t bytes);
 /* The model at an original address (a 001C6120 handle), or NULL. */
 const EmWorldModel *em_world_models_at(const EmWorldModels *bank, uint32_t address);
 /* The model whose owner-services view is `model`, or NULL. */

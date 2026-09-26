@@ -44,6 +44,10 @@ static struct {
     EmOwnerDrawLiveLog log[EM_OWNER_DRAW_LIVE_UNITS], last[EM_OWNER_DRAW_LIVE_UNITS];
     uint32_t log_count, last_count;
     uint32_t unit_frame;
+    /* The frame's units drawn so far (em_owner_draw_live_flush_walk), and
+     * the first unit the post-step 0015C160 built (post_frame's). */
+    uint32_t drawn;
+    uint32_t post_first, post_frame;
     const EmWorldModels *bank;
     int textures_loaded, textures_tried;
 } L;
@@ -206,11 +210,8 @@ static int bind_views(const EmWorldModels *bank)
 
 static const uint8_t *resolve(void *ctx, uint32_t address, uint32_t bytes)
 {
-    const EmWorldModels *bank = ctx;
-    if (bank && address >= bank->table_address && bytes <= bank->span_size &&
-        address - bank->table_address <= bank->span_size - bytes)
-        return bank->span + (address - bank->table_address);
-    return em_rcl_bytes(address, bytes);
+    const uint8_t *p = em_world_models_bytes(ctx, address, bytes);
+    return p ? p : em_rcl_bytes(address, bytes);
 }
 
 static uint32_t fnv(uint32_t h, const uint32_t *w, uint32_t n)
@@ -232,12 +233,23 @@ int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner 
         L.unit_frame = frame;
         L.unit_count = 0;
         L.log_count = 0;
+        L.drawn = 0;
     }
     if (L.log_count >= EM_OWNER_DRAW_LIVE_UNITS)
         return report(0x001CAA00u, "more 001CAA00 calls in one frame than EM_OWNER_DRAW_LIVE_UNITS");
     EmOwnerDrawLiveLog *log = &L.log[L.log_count++];
     memset(log, 0, sizeof *log);
     log->record = record;
+    {
+        const float *point = owner->pos;          /* 001CAA00's position */
+        if (owner->pose_bone != 0xFF && owner->pose_bone < owner->bone_count && owner->bone[owner->pose_bone])
+            point = owner->bone[owner->pose_bone]->world + 12;
+        memcpy(log->point, point, sizeof log->point);
+        log->pose = 2166136261u;
+        for (uint32_t k = 0; k < owner->bone_count && k < EM_OWNER_SERVICES_MAX_BONES; ++k)
+            if (owner->bone[k])
+                log->pose = fnv(log->pose, (const uint32_t *)(const void *)owner->bone[k]->world, 16);
+    }
 
     static EmActorLightBinding binding;
     binding.light = &L.light;
@@ -337,25 +349,49 @@ static int load_textures(EmGfx *gfx)
     return 0;
 }
 
-int em_owner_draw_live_flush(EmGfx *gfx)
+void em_owner_draw_live_post_step(void)
+{
+    const uint32_t frame = em_frame_counter();
+    L.post_frame = frame;
+    L.post_first = L.unit_frame == frame ? L.unit_count : 0;
+}
+
+/* Draw the kept units [L.drawn, end) of this frame in build order. */
+static int draw_units(EmGfx *gfx, uint32_t end)
 {
     const uint32_t frame = em_frame_counter();
     if (L.unit_frame != frame) {                   /* units of an earlier frame are never drawn */
         L.unit_count = 0;
         L.log_count = 0;
+        L.drawn = 0;
     }
+    if (end > L.unit_count) end = L.unit_count;
+    int rc = 0;
+    if (L.drawn < end) {
+        if (!gfx) rc = report(0, "no graphics device");
+        else if (load_textures(gfx) < 0) rc = -1;
+        for (uint32_t i = L.drawn; !rc && i < end; ++i)
+            if (em_gfx_object_unit(gfx, &L.units[i].unit) < 0)
+                rc = report(L.units[i].model_address, "em_gfx_object_unit refused a unit (reason above)");
+        L.drawn = end;
+    }
+    return rc;
+}
+
+int em_owner_draw_live_flush_walk(EmGfx *gfx)
+{
+    const uint32_t frame = em_frame_counter();
+    return draw_units(gfx, L.post_frame == frame && L.unit_frame == frame ? L.post_first : UINT32_MAX);
+}
+
+int em_owner_draw_live_flush(EmGfx *gfx)
+{
+    const int rc = draw_units(gfx, UINT32_MAX);
     memcpy(L.last, L.log, sizeof L.log[0] * L.log_count);
     L.last_count = L.log_count;
     L.log_count = 0;
-    int rc = 0;
-    if (L.unit_count) {
-        if (!gfx) rc = report(0, "no graphics device");
-        else if (load_textures(gfx) < 0) rc = -1;
-        for (uint32_t i = 0; !rc && i < L.unit_count; ++i)
-            if (em_gfx_object_unit(gfx, &L.units[i].unit) < 0)
-                rc = report(L.units[i].model_address, "em_gfx_object_unit refused a unit (reason above)");
-    }
     L.unit_count = 0;
+    L.drawn = 0;
     return rc;
 }
 
@@ -381,5 +417,7 @@ void em_owner_draw_live_reset(void)
     L.unit_count = 0;
     L.log_count = L.last_count = 0;
     L.unit_frame = 0;
+    L.drawn = 0;
+    L.post_frame = L.post_first = 0;
     L.bank = NULL;
 }

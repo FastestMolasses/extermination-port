@@ -222,8 +222,8 @@ equipment and head sprite live):**
   bindings' own 001EF9D0 copy, the no-op aura draw, the snow's and the AREA11
   effect's host fog coefficients.
 - **Open:** no renderer stage draws the effect chains (WP-13); the
-  equipment is still drawn by the player's baked mesh at its node slots 4 /
-  14 (the nodes' own 001CAA00 draw is the renderer's); the skid's two
+  equipment's own 001CAA00 draw (done by the player step, 2026-09-26: the
+  nodes draw their original units); the skid's two
   untranslated handlers 001EAD70 / 001EC270 (reachable off the route,
   checked to write nothing but their packets) are the binder's counted gap;
   every other untranslated handler and 001EFE00 fault (none is reachable in
@@ -254,6 +254,40 @@ equipment and head sprite live):**
 - New original captures needed (for the lead): the stream / voice lanes
   around the voiced lines (the VOICE step's list). Without them the
   teardown shift stays an allowed divergence.
+
+**Status update (2026-09-26, the player step: the player and its equipment
+on the object-unit draw; OWNER_DRAW.md section 10, census 1.23):**
+- The player's +0x4C (0015C160, after its shadow) and the seven equipment
+  nodes' +0x4C (0018A6B0, in the walk) run the original 001CAA00 through
+  `em_owner_draw_live`; the renderer draws the units' triangles as for the
+  crates. The player's model is exported (`tools/export_player_model.py`,
+  0x00D1C1C0, checked against RAM in 16 captures) and the object textures
+  now include the player's and the equipment's (291 TEX0, resident in all
+  15 route captures). The record's draw fields come from their original
+  writers, now live: 0015C1F0's model bind (+0x44, +0x4C, +0x0C) and
+  001AF5C0's wipe (+0x02 bit 0x20, +0x80.., +0x94 = -1).
+- The legacy player mesh no longer draws as the player's +0x4C from the
+  hand-off on, and no longer carries the equipment there; it remains for
+  the opening's 1,302 reported post-steps (design risk 2) and the status
+  screen's menu player. em_weapon reads the hand node from the record; the
+  gfx bone publish (`em_gfx_last_skinned_bone`) is retired.
+- Evidence: every triangle of the 15 captured player units and 105
+  equipment units equals the original microcode's
+  (test_object_unit_reference); the native 001CAA00 chain, with the native
+  001D89D0's camera fill, equals the original unit byte for byte over the
+  same 120 owner-frames (test_actor_light_001d89d0_reference C); live, all
+  16 owners of the camera-exact snapshots 10 and 14, the player and its
+  equipment included, equal the original's unit bytes, clip pass, position
+  rows and colour / rig lanes (check_owner_units). newgame-control
+  9.599849, compare_frame_order idle04 / walk04 / st03 / cut02 / cut15 PASS.
+- Still open: the opening's player on the record pose (design risk 2);
+  Roger's face units (001CB3C0); the legacy-drawn owners; the other player
+  model kinds (0x3D..0x40) and equipment 0x36's TEX0 0, which fault if
+  reached (not on the route; variant 4 is not reachable in AREA11 at all,
+  PLAYER_EQUIPMENT.md section 7). The smoke now fails if the player's or an
+  equipment node's live unit differs in the camera-exact snapshots 10 / 14,
+  and if the walk's and the post-step's player draw gate disagree in any
+  tick (LEVEL_SMOKE.md).
 
 ---
 
@@ -618,8 +652,9 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   (LEVEL_SMOKE.md check_owner_units). skin_arena_init (001D2E20) runs at the
   area load (the skin records' templates). Retired: the crate / drum /
   truck EMDL meshes and the fence door's mesh upload. Still open: the
-  player (its model export, owner view and its equipment; em_weapon's bone
-  lookup), Roger (001CB3C0's face builders; the face program itself runs),
+  player (done by the player step, 2026-09-26: its model, owner view and
+  equipment on this path; em_weapon's bone lookup on the record),
+  Roger (001CB3C0's face builders; the face program itself runs),
   the legacy-drawn owners (elevator, panel, pickups, fan, husks, parachute,
   001C4820, the indicator children) until their owners are live, and
   Metal's rasterization (not the GS DDA; no GS framebuffer exists in the

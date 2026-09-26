@@ -145,12 +145,6 @@ struct EmGfx {
     id<MTLRenderPipelineState>   beamTexPipeline;  /* additive, textured */
     id<MTLTexture>               particleTexture[EM_GFX_PARTICLE_TEX_MAX];
     id<MTLRenderPipelineState>   particlePipeline;
-    /* Last skinned draw's leading bone matrices (em_gfx_last_skinned_bone
-     * — the native bone-publish; the chain draws the player LAST, so this
-     * is the player palette between frames). COPIED at draw time: palette
-     * buffers may be freed by scene switches. */
-    float                        lastBones[EM_GFX_TRACK_BONES * 16];
-    uint32_t                     lastBoneCount;    /* bones recorded     */
     /* Per-frame flashlight spot (em_gfx_spot_light — em_gfx.h). Four
      * float4 rows bound as fragment buffer 2 of every skinned draw:
      *   [0] = pos.xyz, w = enable (0 = off, the begin_frame reset)
@@ -1203,14 +1197,6 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     memcpy(g->lastViewProj, viewproj, sizeof(g->lastViewProj));
     g->hasViewProj  = true;
     g->everViewProj = true;
-    /* Record the leading bone matrices — the native bone-publish for
-     * equipment consumers (em_gfx.h "last skinned palette"). */
-    if (!additive) {
-        g->lastBoneCount = bone_count < EM_GFX_TRACK_BONES ? bone_count
-                                                           : EM_GFX_TRACK_BONES;
-        memcpy(g->lastBones, palette,
-               (size_t)g->lastBoneCount * 16 * sizeof(float));
-    }
     /* Opaque (tint alpha >= 1, non-additive) draws are the decoded GS
      * class 0: blending off (PRIM ABE 0) and the per-slice TEST_1 alpha
      * test (mode bit 3). The translucent tint path keeps the alpha
@@ -1669,15 +1655,6 @@ void em_gfx_beam(EmGfx *g, const float a[3], const float b[3], float width,
     r->dot  = 0;
     r->tex  = -1;
     r->roll = 0.0f;
-}
-
-/* Copy one recorded bone matrix of the last skinned draw (em_gfx.h —
- * the native bone-publish; the gameplay chain draws the player LAST). */
-int em_gfx_last_skinned_bone(EmGfx *g, uint32_t bone, float out16[16])
-{
-    if (!g || !out16 || bone >= g->lastBoneCount) return 0;
-    memcpy(out16, g->lastBones + (size_t)bone * 16, 16 * sizeof(float));
-    return 1;
 }
 
 /* Copy the last skinned draw's P*V (em_gfx.h — the camera-matrix

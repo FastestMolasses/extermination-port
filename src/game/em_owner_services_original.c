@@ -344,11 +344,17 @@ static int worker_result(EmOwnerServices *s, u32 address, int result)
  * ==================================================================== */
 
 /* 001C6150(model): model +0x08. */
+int em_owner_services_001C6150(EmOwnerServices *s, const EmOwnerModel *model, uint8_t *count)
+{
+    if (!s) return -1;
+    if (!model || !count) return fault(s, 0x001C6150u, EM_OWNER_FAULT_BAD_INDEX);
+    *count = model->bone_count;
+    return 0;
+}
+
 static int model_bone_count(EmOwnerServices *s, const EmOwnerServicesOwner *o, uint8_t *count)
 {
-    if (!o->model) return fault(s, 0x001C6150u, EM_OWNER_FAULT_BAD_INDEX);
-    *count = o->model->bone_count;
-    return 0;
+    return em_owner_services_001C6150(s, o->model, count);
 }
 
 /* The shared tail of 001B0EA0 and 001B0DC0, from the +0x0C store. */

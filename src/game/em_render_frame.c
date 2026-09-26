@@ -65,11 +65,14 @@
 static int s_request_status_frame;
 
 /* 0015C160, the player post-step, bound (the first level: census L29): the
- * player's own draw (its +0x4C method) is not collected into the chain; the
- * post-step requests it (em_render_player_draw_0015C160, in the frame whose
- * w_0015C160 passed the D_008102B1 gate) and frame_close_out makes it after
- * the shadow's passes, where 001AE5E0 / 001AE6B0 call 0015C160: after the
- * level and the walked actors (docs/SHADOW_ORIGINAL.md "Binding"). */
+ * player's own draw (its +0x4C method) is not collected into the chain.
+ * The post-step builds its 001CAA00 unit (em_player_draw_live) or, in a
+ * frame whose post-step is reported (the record not the displayed pose:
+ * the opening's hand-off), requests the port's own mesh draw
+ * (em_render_player_draw_0015C160); frame_close_out makes either after the
+ * shadow's passes, where 001AE5E0 / 001AE6B0 call 0015C160: after the
+ * level and the walked actors (docs/SHADOW_ORIGINAL.md "Binding",
+ * docs/OWNER_DRAW.md section 10). */
 static int s_player_post_step;
 static uint32_t s_player_draw_frame = UINT32_MAX;
 
@@ -783,16 +786,19 @@ void frame_close_out(void)
         for (int i = 0; i < g.chain_len; i++)
             chain_draw(gfx, &g.chain[i], i >= g.n_scene, viewproj);
         /* The owner units the walk built this frame (001CAA00 of the
-         * crates, drums, truck and fence door: em_owner_draw_live), through the object
-         * kernel and its clip pass (em_gfx_object_unit). The frame's fog is
-         * set above; the units carry their own lighting (001D89D0). */
+         * crates, drums, truck, fence door and the player's equipment
+         * nodes: em_owner_draw_live), through the object kernel and its
+         * clip pass (em_gfx_object_unit). The frame's fog is set above; the
+         * units carry their own lighting (001D89D0). */
         em_gfx_char_rig(gfx, NULL);
-        if (em_owner_draw_live_flush(gfx) < 0)   /* reported; fail-stop */
+        if (em_owner_draw_live_flush_walk(gfx) < 0)   /* reported; fail-stop */
             em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
         /* 0015C160, the player post-step (001AE5E0 at 0x1AE654, 001AE6B0 at
          * 0x1AE798): the shadow's passes (001DA6A0, recorded by
-         * em_shadow_live at the post-step), then the player's own +0x4C
-         * draw. */
+         * em_shadow_live at the post-step), then the player's +0x4C: its
+         * 001CAA00 unit (below), or, in a frame whose post-step was
+         * reported (the record not the displayed pose), the port's own
+         * mesh of the displayed pose. */
         if (s_player_post_step) {
             if (em_shadow_live_flush(gfx, viewproj) < 0)   /* reported; fail-stop */
                 em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
@@ -802,6 +808,9 @@ void frame_close_out(void)
                 chain_draw(gfx, &player, 1, viewproj);
             }
         }
+        em_gfx_char_rig(gfx, NULL);
+        if (em_owner_draw_live_flush(gfx) < 0)   /* the post-step's units; reported; fail-stop */
+            em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
         /* Original opening palettes already contain world placement.
          * They replace the ordinary player pose only while the script
          * owns the actors. The same scene lighting applies to each. */

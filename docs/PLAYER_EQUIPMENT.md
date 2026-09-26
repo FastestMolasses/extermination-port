@@ -247,9 +247,9 @@ pushes its slots back (`em_equipment_live_001AF800`, 001AF890).
 | Worker | Bound to |
 |---|---|
 | w_001AFC10 | `em_actor_pool_free_001AFC10` |
-| w_method (0x001CAA00) | the renderer's boundary: the seven models are drawn by the player's mesh at its node slots 4 and 14 (the export's attachments); the method records that the node drew and whether its bone 0 is the node that mesh draws it at (section 8) |
-| w_001C6120 / w_001C6150 | `em_area11_roger_001C6120` over D_0028A56C (the Roger export's global table 0x37 and the equipment models, `tools/export_roger_banks.py`), the model's +0x08 |
-| w_001CA6E0, w_anim_bone_array_setup | `em_roger_actor_001CA6E0` over the parsed model and skeleton |
+| w_method (0x001CAA00) | em_owner_draw_live over the node's owner view (OWNER_DRAW.md section 10; since the player step 2026-09-26): the unit is drawn with the walk's units. In a frame whose player record is not the displayed pose (the opening's reported frames) the port's player mesh carries the models and no unit is built. The method also records that the node drew and whether its bone 0 is the player's node 4 (the knife: 14) (section 8) |
+| w_001C6120 / w_001C6150 | `em_area11_roger_001C6120` over D_0028A56C (the Roger export's global table 0x37 and the equipment models, `tools/export_roger_banks.py`); `em_owner_services_001C6150` (the model's +0x08) |
+| w_001CA6E0, w_anim_bone_array_setup | `em_roger_actor_001CA6E0`; the model (header, blocks, skeleton records from the Roger export) is added at its library address to the equipment bank (`em_world_models_add`), which gives the +0x44 view and the draw's model REF |
 | w_001AF780 | `em_roger_actor_001AF780` on the one 001AF710 bone-slot stack (em_area11_boxes' world) |
 | w_bone_init_default_1, w_001C9610 | `em_owner_services_001C62C0`, `em_owner_services_001C9610` |
 | w_001026A0, w_00102760, w_001026D0, w_001028B8, w_001028D0, w_001029C0, w_00102BB0 | em_effect_original's 001026A0 / 00102760, `em_loco_001026D0`, `em_player_hang_vadd`, VSUB.xyzw (em_ee_float.h), em_owner_services' identity / rotate-y |
@@ -376,8 +376,43 @@ Default run: about 5 s (quick mode: 1,000 unit cases). `EM_TEST_FULL=1`:
 - The untranslated callees in section 4.2 have no port code; they are
   faulting stubs, safe because neither the route nor any state the port
   can enter today reaches them (4.2).
-- The nodes' own draw (001CAA00 over each model) is not the port's: the
-  player's baked mesh draws the equipment at its node slots 4 and 14.
+- The nodes' own draw (001CAA00 over each model) is the port's since the
+  player step, except in the opening's reported frames (the port's player
+  mesh carries the models there, OWNER_DRAW.md section 10). Equipment 0x36
+  (flavour 2, variant 4) would fault at its draw: one of its TEX0 values
+  (0) is not exported (OWNER_DRAW.md section 7.3). **Variant 4 is not
+  reachable in AREA11** (checked 2026-09-26 from the original writers):
+  - 0015C310 spawns the flavour-2 nodes from D_00810CA4..CA7: variants
+    0xA / 0xB / 0xC for D_00810CA4 = 0 / 1 / 2, otherwise D_00810CA5,
+    D_00810CA6 and D_00810CA7. Their only writers set CA5 to 5 + a slot
+    table entry (00217090), CA7 to 7 + an entry (00218640), CA5 / CA7 to
+    5 / 7 or 0xFF (001AF2C0, 00218D90, 002177B0), and CA6 to 0 or 0xFF
+    (001AF2C0, 00217090, 00218640, 002177B0), 3 (001AD740, the area-0xB
+    special start), 1 or 4 (anim_frame_top_a, only in its demo seeds, which
+    set D_00810700 to 3 or 0xD, never 0xB) or a slot of the equipment menu
+    (00218D90, case 0 lists the indices i in 0..4 whose D_00810C64 + i is
+    non-zero, the pending request D_008106B1 only choosing among them).
+  - So CA6 = 4 in AREA11 needs D_00810C68 != 0. Its direct writers (the
+    functions naming D_00810C64..C68; no function stores through a
+    D_00810700 + 0x564 offset) are 001AF2C0
+    (the new game zero-fill, then D_00810C64 = 1), anim_frame_top_a (the
+    area-0xD demo seed), 001C47E0 (a decrement) and 001C40B0(type, n) with
+    type 4. 001C40B0's callers pass 0x10 (001AF2C0), 0x10 / 0x1E..0x22 / 3
+    (001AD740) or the take's item type (001C47A0 from 001B6EA0 with take
+    family +0x03 == 0, type = +0x2E). The AREA11 overlay references none of
+    these globals or functions. The stores to D_00810CA6 were re-read in
+    the original instructions (constant zero in 00217090 / 00218640 /
+    001AF2C0, the menu slot in 00218D90), not only in the NEARMISS C.
+  - AREA11's item owners (00219550 / 0015AFA0, all seven in route capture
+    00) are take family 0 with types 0x1B, 0x1E, 0x1F, 0x1E, 0x10, family
+    2 with 0x32 and family 1 with 0x08; no family-0 type 4. Its crates and
+    drums (0x001551B0 / 0x00156620) all hold link -1 in captures 00..14, so
+    their break spawns no nest group (CRATES_DRUMS_ORIGINAL.md). Every
+    capture 00..15 holds D_00810C64..C68 = 1, 0, 0, 0, 0 and D_00810CA4..CA7
+    = 0xFF, 5, 0, 7.
+  - The fault is therefore a fail-stop for a state AREA11 cannot enter
+    (the area-0xD demo, or an item 4 taken in a later area), not a
+    degradation of the first level.
 
 ## 8. Live evidence (2026-09-25)
 
@@ -391,9 +426,11 @@ Default run: about 5 s (quick mode: 1,000 unit cases). `EM_TEST_FULL=1`:
 - **Coverage** (a `-fprofile-instr-generate` build of the live link line,
   scratch, full-route smoke and side beat 00): the node tick 99,570,
   0018A8D0 23, 0015C310(p, 1) 3, 001C9610 28,430, 001CD520 156,453.
-- **Draw position:** the method reports once when a node draws with a
-  bone 0 that is not the player's node the mesh uses; the only case seen is
-  a flavour-2 node in the tick it frees itself (the equipment change): the
-  byte-matched tick calls the method with the node's last matrix in that
-  tick.
+- **Draw (since the player step, 2026-09-26):** every node's +0x4C builds
+  its 001CAA00 unit over its own bone slots, so a flavour-2 node in the tick
+  it frees itself draws at its last matrix as the original's does. Offline,
+  the 105 captured equipment owner-frames' units equal the original's
+  (test_object_unit_reference, test_actor_light_001d89d0_reference C);
+  live, the seven units equal the snapshots' in the camera-exact beats 10
+  and 14 (check_owner_units, keyed by flavour and variant).
 - The oracle `make test-player-equipment-reference` is unchanged.

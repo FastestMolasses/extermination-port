@@ -142,8 +142,8 @@ void em_enemy_damage(int i, int16_t code)
         stub_seq[stub_seq_n++] = i;
 }
 
-int em_gfx_last_skinned_bone(EmGfx *gfx, uint32_t bone, float out16[16])
-{ (void)gfx; (void)bone; (void)out16; return 0; }
+int em_player_draw_live_node_world(unsigned node, float out16[16])
+{ (void)node; (void)out16; return 0; }
 
 /* Camera publish for the screen-cone test: an engine-shaped projection
  * from the muzzle height looking down +Z — clip.x = 1.5*x (= the

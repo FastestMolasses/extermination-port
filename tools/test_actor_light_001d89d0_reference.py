@@ -3,8 +3,8 @@
 with the original code, and prove it bound as the owner draw's w_001D89D0.
 
 The oracle is the owner-services EE interpreter (128-bit GPRs, COP1, VU0
-macro mode; float arithmetic = tools/ee_float_model.py), extended here with
-the four MMI lane interleaves 00102798 uses. It executes the ORIGINAL
+macro mode, the four MMI lane interleaves 00102798 uses; float arithmetic =
+tools/ee_float_model.py). It executes the ORIGINAL
 instructions of the pinned SCUS-97112 boot ELF: 001D89D0, 001D8C30 (and its
 jump table), 001D8130, 001D7B30, 001D2910, 001D2710, 001D8340, 001D8270,
 001D8690 and the SDK VU0 routines they call.
@@ -74,31 +74,10 @@ P32 = C.POINTER(C.c_uint32)
 
 # ---------------------------------------------------------------- oracle
 
-class EE(osr.EE):
-    """The owner-services interpreter plus the MMI lane interleaves of the
-    4x4 transpose 00102798 (parallel extend lower/upper word, copy lower/upper
-    doubleword)."""
-
-    def plain(self, w, pc):
-        if w >> 26 == 28 and w & 63 in (0x08, 0x09, 0x28, 0x29):
-            rs, rt, rd, sub = w >> 21 & 31, w >> 16 & 31, w >> 11 & 31, w >> 6 & 31
-            x, y = self.r[rs] & M128, self.r[rt] & M128
-            lane = lambda v, i: v >> 32 * i & M32
-            fn = w & 63
-            if fn == 0x08 and sub == 0x12:       # extend lower words: rt0, rs0, rt1, rs1
-                out = [lane(y, 0), lane(x, 0), lane(y, 1), lane(x, 1)]
-            elif fn == 0x28 and sub == 0x12:     # extend upper words: rt2, rs2, rt3, rs3
-                out = [lane(y, 2), lane(x, 2), lane(y, 3), lane(x, 3)]
-            elif fn == 0x09 and sub == 0x0E:     # lower doublewords: rt.lo, rs.lo
-                out = [lane(y, 0), lane(y, 1), lane(x, 0), lane(x, 1)]
-            elif fn == 0x29 and sub == 0x0E:     # upper doublewords: rs.hi, rt.hi
-                out = [lane(x, 2), lane(x, 3), lane(y, 2), lane(y, 3)]
-            else:
-                return super().plain(w, pc)
-            self.set128(rd, sum(v << 32 * i for i, v in enumerate(out)))
-            self.r[0] = 0
-            return
-        return super().plain(w, pc)
+# The owner-services interpreter models the MMI lane interleaves of the 4x4
+# transpose 00102798 (parallel extend lower/upper word, copy lower/upper
+# doubleword); main() checks them as a transpose before use.
+EE = osr.EE
 
 
 # ---------------------------------------------------------------- native side
@@ -517,12 +496,18 @@ def case_chain(item):
         setattr(ow, field, int.from_bytes(ram[owner + off:owner + off + size], 'little'))
     for field, off, n in OWNER_FLOATS:
         C.memmove(C.addressof(getattr(ow, field)), ram[owner + off:owner + off + 4 * n], 4 * n)
-    handle = C.c_uint32(0)
-    assert LIB.em_world_models_001C6120(C.byref(tod.BANK), u32(ram, 0x28A59C), ram[owner + 0x0D],
-                                        C.byref(handle)) == 0
-    assert handle.value == u32(ram, owner + 0x44), ('bank handle', hex(handle.value))
-    entry = next(i for i in range(tod.BANK.model_count) if tod.BANK.models[i].address == handle.value)
-    ow.model = C.pointer(tod.BANK.models[entry].model)
+    if (name, owner) in tod.player_owners(name):
+        # The player (D_0028A490[0x3B]) and its equipment (D_0028A56C): a
+        # table-less bank of the one model (the exporters prove its bytes).
+        bank, entry = tod.model_bank(LIB, ram, owner)
+    else:
+        handle = C.c_uint32(0)
+        assert LIB.em_world_models_001C6120(C.byref(tod.BANK), u32(ram, 0x28A59C), ram[owner + 0x0D],
+                                            C.byref(handle)) == 0
+        assert handle.value == u32(ram, owner + 0x44), ('bank handle', hex(handle.value))
+        bank, entry = tod.BANK, next(i for i in range(tod.BANK.model_count)
+                                     if tod.BANK.models[i].address == handle.value)
+    ow.model = C.pointer(bank.models[entry].model)
     for i in range(count):
         node = u32(ram, owner + 0x110 + 4 * i)
         b = bones[i]
@@ -550,7 +535,7 @@ def case_chain(item):
     d.world.ctx_0C, d.world.ctx_9C, d.world.d00275674 = C.cast(c0c, P32), C.cast(c9c, P32), C.cast(arena, P32)
     d.world.channel, d.world.channel_count = C.cast(ch, C.POINTER(Channel)), 1
     d.world.ctx_50, d.world.ctx_50_count = C.cast(c50, P32), 1
-    d.world.models = C.pointer(tod.BANK)
+    d.world.models = C.pointer(bank)
     veil = tod.Veil()
     vcur = words(bytes(4))
     veil.world.cursor, veil.world.cursor_count = C.cast(vcur, P32), 1
@@ -714,7 +699,7 @@ def main():
     tod.ELF, tod.LIB, tod.CAP = ELF, LIB, CAP
     counts = {}
 
-    # The oracle's MMI extension must reproduce 00102798 as a transpose.
+    # The oracle's MMI lane interleaves must reproduce 00102798 as a transpose.
     o = EE(ELF)
     m = list(range(1, 17))
     o.put(0x500000, struct.pack('<16I', *m))
@@ -753,9 +738,13 @@ def main():
     items = [(m, k) for m in (0, 1, 2, 3, 4, 5, 6, 7, 8, 100, -1, -0x80000000) for k in range(pick(60, 8))]
     counts['001D8C30_direct'] = len(parallel_map(case_8c30, items))
 
-    # B/C. captures
+    # B/C. captures: the world owners, then the player and its equipment
     tod.load_bank()
-    owners = [o for beat in CAP for o in tod.capture_owners(beat)]
+    world = [o for beat in CAP for o in tod.capture_owners(beat)]
+    extra = [o for beat in CAP for o in tod.player_owners(beat)]
+    assert sum(o[1] == tod.PLAYER for o in extra) == len(CAP) and len(extra) == 8 * len(CAP), \
+        ('the player and seven equipment nodes in every beat', len(extra))
+    owners = world + extra
     lit = parallel_map(case_capture_light, owners)
     counts['captured_owner_frames'] = len(lit)
     counts['captured_fold'] = sum(r['fold'] for r in lit)
@@ -764,11 +753,15 @@ def main():
     counts['captured_fill'] = sum(r['fill'] for r in lit)
     counts['captured_glow'] = sum(r['glow'] for r in lit)
     # Every captured owner-frame runs the chain in both modes (about 1 s).
-    chain = parallel_map(case_chain, owners)
+    chain = parallel_map(case_chain, owners, cost=lambda it: 8 if it[1] == tod.PLAYER else 1)
     counts['chain_owner_frames'] = len(chain)
-    counts['chain_units_drawn'] = sum(1 for r in chain if r['unit'])
+    counts['chain_units_drawn'] = sum(1 for r in chain[:len(world)] if r['unit'])
     counts['chain_units_in_captured_list'] = sum(1 for r in chain if r['in_list'])
     assert counts['chain_units_drawn'] == 119, counts['chain_units_drawn']
+    counts['chain_player_units_drawn'] = sum(1 for r in chain if r['unit'] and int(r['owner'], 16) == tod.PLAYER)
+    counts['chain_equipment_units_drawn'] = sum(1 for r in chain[len(world):] if r['unit']) - \
+        counts['chain_player_units_drawn']
+    assert counts['captured_fill'] >= 1 and counts['chain_player_units_drawn'] >= 1, counts
 
     # D. faults
     counts['fault_checks'] = fault_contract()
@@ -778,7 +771,8 @@ def main():
                   part(len(binding_seeds), 1200, 'binding adapter cases'),
                   f"{len(lit)} captured owner-frames (001D89D0 alone)",
                   f"{len(chain)} owner draw chains" +
-                  f" ({counts['chain_units_drawn']} units drawn)",
+                  f" ({counts['chain_units_drawn']} world units, {counts['chain_player_units_drawn']} player units "
+                  f"(camera fill), {counts['chain_equipment_units_drawn']} equipment units drawn)",
                   f"{counts['fault_checks']} fault checks")
     report = dict(status='PASS', mode=line, elf_sha256=ELF_SHA, counts=counts,
                   seconds=round(time.time() - started, 1))

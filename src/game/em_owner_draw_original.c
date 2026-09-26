@@ -314,6 +314,81 @@ bad:
     return -1;
 }
 
+int em_world_models_add(EmWorldModels *bank, u32 address, const uint8_t *bytes, u32 room,
+                        const EmWorldModel **out)
+{
+    if (!bank || !bytes || bank->count) return -1;       /* a table bank is the parser's */
+    const EmWorldModel *had = em_world_models_at(bank, address);
+    if (had) {
+        if (had->bytes != bytes) return -1;
+        if (out) *out = had;
+        return 0;
+    }
+    u32 size;
+    if (bank->model_count >= EM_WORLD_MODELS_MAX || !model_ok(bytes, room, &size)) return -1;
+    if ((uint64_t)address + size > UINT64_C(0x100000000)) return -1;
+    const u32 bones = get32(bytes + 8);
+    if (bank->record_count + bones > EM_WORLD_MODELS_MAX_RECORDS) return -1;
+    EmWorldModel *m = &bank->models[bank->model_count];
+    memset(m, 0, sizeof *m);
+    m->id = bank->model_count;
+    m->address = address;
+    m->blocks = get32(bytes);
+    m->w04 = get32(bytes + 4);
+    m->size = size;
+    m->bytes = bytes;
+    m->model.bone_count = (uint8_t)bones;
+    const u32 radius = get32(bytes + 0x20);
+    memcpy(&m->model.radius, &radius, sizeof radius);
+    m->model.skeleton = &bank->records[bank->record_count];
+    m->model.skeleton_records = bones;
+    const uint8_t *r = bytes + get32(bytes + 0xC);
+    for (u32 k = 0; k < bones; ++k, r += 0x50) {
+        EmOwnerSkeletonRecord *rec = &bank->records[bank->record_count++];
+        rec->parent = (int16_t)(uint16_t)(r[4] | r[5] << 8);
+        for (int j = 0; j < 16; ++j) {
+            u32 word = get32(r + 0x10 + 4 * j);
+            memcpy(&rec->bind[j], &word, sizeof word);
+        }
+    }
+    ++bank->model_count;
+    if (out) *out = m;
+    return 0;
+}
+
+int em_object_model_parse(EmWorldModels *bank, const uint8_t *data, size_t size)
+{
+    if (!bank) return -1;
+    memset(bank, 0, sizeof *bank);
+    if (!data || size < HEADER_BYTES) return -1;
+    const u32 address = get32(data + 8), bytes = get32(data + 0xC);
+    if (get32(data) != EM_OBJECT_MODEL_MAGIC || get32(data + 4) != EM_OBJECT_MODEL_VERSION ||
+        get32(data + 0x10) || get32(data + 0x14) || get32(data + 0x18) || get32(data + 0x1C) ||
+        (size_t)bytes != size - HEADER_BYTES) {
+        return -1;
+    }
+    const EmWorldModel *m = NULL;
+    if (em_world_models_add(bank, address, data + HEADER_BYTES, bytes, &m) < 0 || m->size != bytes) {
+        memset(bank, 0, sizeof *bank);
+        return -1;
+    }
+    return 0;
+}
+
+const uint8_t *em_world_models_bytes(const EmWorldModels *bank, u32 address, u32 bytes)
+{
+    if (!bank) return NULL;
+    if (bank->span && address >= bank->table_address && bytes <= bank->span_size &&
+        address - bank->table_address <= bank->span_size - bytes)
+        return bank->span + (address - bank->table_address);
+    for (u32 i = 0; i < bank->model_count; ++i) {
+        const EmWorldModel *m = &bank->models[i];
+        if (address >= m->address && bytes <= m->size && address - m->address <= m->size - bytes)
+            return m->bytes + (address - m->address);
+    }
+    return NULL;
+}
+
 const EmWorldModel *em_world_models_at(const EmWorldModels *bank, u32 address)
 {
     if (!bank) return NULL;

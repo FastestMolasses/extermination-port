@@ -1,9 +1,11 @@
 # World-owner draw (001CAA00): the original packets and the native path
 
-Date: 2026-09-24; binding 2026-09-25 (step "GS-exact actor draw"). **Live**
-for the crates (001551B0), drums (00156620), truck (00823FF0) and fence
-door (001BC350): their +0x4C builds the original unit through the
-translations (section 10) and the renderer draws the triangles the
+Date: 2026-09-24; binding 2026-09-25 (step "GS-exact actor draw"); the
+player and its equipment 2026-09-26 (the player step). **Live** for the
+crates (001551B0), drums (00156620), truck (00823FF0), fence door
+(001BC350), the player (D_008102B0, 0015C160's +0x4C) and its seven
+equipment nodes (0018A6B0): their +0x4C builds the original unit through
+the translations (section 10) and the renderer draws the triangles the
 original VU1 programs kick (section 7). The other owners this document
 names still draw through their legacy stand-ins (section 11).
 
@@ -29,8 +31,10 @@ original code, data or disassembly.
 | `tests/owner_draw_test.c` | ASan/UBSan fixture. It pins the fail-stop contract, the packet layout, the bank refusals and the 001C6120 masking. |
 | `src/game/em_object_unit.{h,c}` | P1/P2 on the CPU (section 7): `em_object_unit_parse` reads a unit's DMA tags into the VU1 uploads (`EmGfxObjectUnit`, em_gfx.h), `em_object_unit_run` runs the object kernel (em_vu1_object_kernel.h) over every model block and, for a clip unit, the clip program (em_vu1_object_clip.h) after it, and returns every drawn triangle in GS terms and GS order. A face unit (001CB3C0's, CALL 0x0023C480) runs the face morph program (em_vu1_face_morph.h) the same way. |
 | `src/em_gfx.h`, `src/gfx/metal/em_gfx_metal.m` | `em_gfx_object_unit` / `em_gfx_object_texture`: the GS class-0 pixel path over those triangles (section 7). The D3D12 / Vulkan stubs return -1. |
-| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 137 TEX0 values of the bank's model blocks, decoded from the GS memory of every route capture and identical in all 15 (section 7.3). |
-| `src/game/em_owner_draw_live.{h,c}` | The binding (section 10): 001CAA00 with every worker bound to its translation over canonical storage, the unit parsed at once and drawn at the frame's end. |
+| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 291 TEX0 values of the bank's, the player's and the equipment models' blocks, decoded from the GS memory of every route capture and identical in all 15 (section 7.3). |
+| `src/game/em_owner_draw_live.{h,c}` | The binding (section 10): 001CAA00 with every worker bound to its translation over canonical storage, the unit parsed at once and drawn at the frame's end (the walk's units, then the post-step's after the shadow). |
+| `src/game/em_player_draw_live.{h,c}` | The player (section 10): its model (`player_model.emom`, a table-less bank), 001C6150 over it for 0015C1F0, and 0015C160's +0x4C: 001CAA00's owner view over the player record and its node records. |
+| `tools/export_player_model.py` | Writes `assets/scene_snow/player_model.emom` / `.json` (ignored): the player's model, resource 0x3B (`chunk28/f00_id3b.bin`, 0x4C170 bytes), placed at D_0028A490[0x3B] = 0x00D1C1C0 and checked byte for byte against RAM in 16 captures, with the player record's +0x2FF, +0x44, +0x4C, +0x0C, +0x09 and slots. |
 | `src/game/em_skin_arena_init.h` | skin_arena_init (001D2E20), the skin records' templates; run by the render context at every area load (section 10). |
 | `tools/test_object_unit_reference.py` | The object-unit path against the original VU1 microcode over every captured owner unit and every captured face unit (section 8). |
 | `tests/object_unit_test.c` | ASan/UBSan fixture: the parser's refusals, synthetic plain, clip and face units, the run's refusals. |
@@ -441,7 +445,13 @@ it cannot draw exactly what the original draws; the reason is printed once.
 Every model block vertex's qword 0 is a TEX0 value. The bank's 21 models
 carry 137 distinct values (CLD ignored): 136 PSMT4 and one PSMT8, all
 CPSM PSMCT32, CSM1, CSA 0, TCC 1, TFX 2 (the exporter refuses any other
-form). Each is decoded from the GS local memory of every route capture
+form). The player's model (51 values) and the equipment models 0018A8D0
+can bind (0x2F; 0x30, 0x40, 0x6D; 0x31..0x3D; 0x6A) bring the export to
+291 values. One equipment model carries another form: 0x36 (flavour 2,
+variant 4, which no capture binds) kicks TEX0 0 on four vertices of block
+13; that value is left out and listed in the JSON, so a unit of that model
+faults at em_gfx_object_unit (no registered texture). Variant 4 cannot be
+bound in AREA11 (PLAYER_EQUIPMENT.md section 7 has the writers). Each is decoded from the GS local memory of every route capture
 00..14 with the decomp's GS memory readers, and the exporter fails unless
 all 15 decodes are identical: the textures are resident for the whole
 level. The texels are the CLUT entries' bytes with the raw GS alpha. The
@@ -472,6 +482,20 @@ state REF's class, the arena REF, the skin record's codes, the CALL target,
 a truncated unit, a foreign tag, a model REF qwc, and four GS-state byte
 forms (TEST, ZMSK, the GIF tag, the DIRECT code).
 
+**The player and its equipment (P).** The player (0x8102B0: 21 nodes, the
+model 0x00D1C1C0, 149 blocks) in all 15 beats and its seven equipment
+nodes (callback 0018A6B0, one node each, models of the global library
+D_0028A56C) run the same way: the ORIGINAL 001CAA00 over the captured RAM
+with D_00275B40 = the owner's +0x110 (001CB590's publication before the
+post-step's and the walk's calls), its unit through the ORIGINAL VU1
+programs, against the native parse and run. The player's path reaches
+001D89D0's camera fill (+0x02 bit 0x20), whose 4x4 transpose 00102798
+needs the EE interpreter's MMI lane interleaves (now in
+test_owner_services_reference's EE). The native 001CAA00 chain itself is
+compared over the same 120 owner-frames by
+test_actor_light_001d89d0_reference (C: every unit byte, the native
+001D89D0 bound).
+
 **Face units (F).** Every distinct intact face unit in the display lists
 of route beats 00..14 (60: Roger's and Dennis's) runs the same way, the
 ORIGINAL face program on VU1_FACE_MORPH.md's interpreter against the native
@@ -480,8 +504,8 @@ face REF).
 
 | Run | Owner-frames | Units | Clip units | Triangles | Face units | Face triangles | Time (M1) |
 |---|---|---|---|---|---|---|---|
-| default | 40 of 255 (every behaviour and class, all clip units) | 26 | 14 | 5,911 | 2 of 60 (a drawing Roger, a Dennis) | 2,172 | ~5 s |
-| `EM_TEST_FULL=1` | 255 | 119 | 14 | 28,585 | 60 | 46,296 | ~43 s |
+| default | 49 of 375 (every world behaviour and class, all world clip units; a player unit per class, equipment covering every model and class) | 35 | 15 | 12,777 | 2 of 60 (a drawing Roger, a Dennis) | 2,172 | ~8 s |
+| `EM_TEST_FULL=1` | 375 (255 world, 15 player, 105 equipment) | 239 | 16 | 84,025 | 60 | 46,296 | ~34 s (8 workers) |
 
 Defect injection (2026-09-25): R and G swapped in the kicked colour, the
 clip pass skipped and the strip end index shifted are each caught; a TOP
@@ -518,28 +542,47 @@ drawn frame, the owner's record address, the unit's byte count, the clip
 pass and digests of B, of the lighting rows, of the position rows, of the
 point-light slots and of the lighting rows' lanes y and z.
 `check_owner_units` (tools/test_level_smoke.py) runs the ORIGINAL 001CAA00
-over each route snapshot a phase aligned (08, 10, 11, 12, 13, 14) and
-compares:
+over each route snapshot a phase aligned (08, 10, 11, 12, 13, 14): the
+world owners, the seven equipment nodes (keyed by flavour +0x03 and
+variant +0x0D: the port's pool places the respawned flavour-2 nodes at
+other records, whose bytes check_effects compares) and the player (after
+the walk, 0015C160's +0x4C). The log also carries each call's point (the
+position 001CAA00 culls and lights at) and a digest of its nodes'
+matrices. It compares:
 
 - wherever both drew: B, and the lighting rows' lanes y and z (A's columns
-  1 and 2, the room rig's slots 1 and 2) — equal for all 14 such units;
+  1 and 2, the room rig's slots 1 and 2); for the player and the equipment
+  only where the port's point equals the snapshot's (both depend on it
+  through the point-light fold; the player's placement at a snapshot tick
+  follows the navigation's timing): at 10 and 14 all eight are compared,
+  at 08, 11, 12 and 13 none (the player stands elsewhere than in the
+  capture at that tick);
 - the whole lighting rows only where the port's point-light slots equal the
   snapshot's: in no snapshot so far. The slots' sway angle and matrix
   follow rand() in 001D7C30, and the port's rand() order differs from the
   original's (the known RNG audit, FIRST_LEVEL_CENSUS.md); position, colour
   and weight of the one AREA11 light are equal;
 - in the camera-exact beats (10, 14): the set of owners that ran 001CAA00,
-  their byte counts and clip passes, and the position rows (node x VP) —
-  equal (the door and the truck in beat 10; all culled in 14).
+  their byte counts and clip passes, and the position rows (node x VP),
+  the player and the equipment wherever their point and pose equal the
+  snapshot's — equal for all 16 owners in both beats (the door, the truck,
+  the player and its equipment in 10; the player and its equipment in 14,
+  the rest culled).
 
 The smoke's phases all pass with the owners on this path (18 live phases
 through Roger, side beats 00 and 09).
+
+`EM_STARTUP_TEST=newgame-control` still travels 9.599849 in its 30 input
+ticks, and the frame order (compare_frame_order idle04 / walk04 / st03 at
+native index 1330, cut02 / cut15) passes event for event.
 
 ## 10. Binding (live)
 
 `src/game/em_owner_draw_live.{h,c}`; callers: `em_area11_boxes.c` (h_draw,
 the crates, drums and truck; `em_area11_boxes_door_draw` for the door,
-whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md).
+whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md),
+`em_equipment_live.c` (w_method, the equipment nodes) and
+`em_player_draw_live.c` (the player, from w_0015C160).
 
 | Original | Binding |
 |---|---|
@@ -553,6 +596,50 @@ whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md).
 | 001CB3C0 | not bound: an owner with +0x90 != 0 faults (Roger's face, section 11) |
 | skin_arena_init (001D2E20) | `em_rcl_skin_arena_init`, run by the frame machine's 001D19E0 binding at every area load (the rest of 001D19E0 stays unmirrored, RENDER_CONTEXT.md 8.4) |
 
+**The player (em_player_draw_live).** Its record's draw fields are the
+original's:
+- 001AF5C0 wipes the record at w_001AFCA0's position (em_slg_001AF5C0 over
+  the record image, its 001D8BF0 em_roger_actor_001D8BF0): +0x02 bit 0x20
+  (001D89D0's camera fill), the colour words +0x80..+0x8C = 1.0, +0x94 = -1
+  (no collapsed bone), +0x60..+0x6C, +0x14, +0x96 = 0x3D;
+- 0015C1F0 at the spawn (spawn_w_0015C1F0 runs em_player_misc_0015C1F0, the
+  one translation): +0x2FF = 0x3B, 001CA6E0(player, D_0028A490[0x3B]) = +0x44
+  0x00D1C1C0 and +0x4C 001CAA00 (em_roger_actor_001CA6E0), +0x0C =
+  001C6150 = 21 (em_owner_services_001C6150 over the exported model),
+  +0x96 = 0x28; its 00200890 (the DMA of the player's texture packet) is the
+  boundary: the textures it uploads are the resident ones section 7.3
+  decodes. Only kind 0x3B's model is exported: the other kinds (the other
+  infection / suit variants) fault at 001C6150;
+- 0015C160 (w_0015C160), after its shadow: `em_owner_draw_live_post_step`,
+  then `em_player_draw_live_001CAA00`: the owner view is the record's +0x01,
+  +0x02, +0x03, +0x0C, +0x0D, +0x44 (must be the exported model), +0x90,
+  +0x94, +0x98 (1: node 1 +0xC0 is the cull and light point), +0xB0 and the
+  +0x80 words, and the node records the +0x110 words name (their
+  +0x90..+0xCF, read through the record pose's storage) as D_00275B40.
+- Draw order: `frame_close_out` draws the walk's units
+  (`em_owner_draw_live_flush_walk`), then the shadow's passes, then the
+  post-step's unit (`em_owner_draw_live_flush`), as 0015C160 orders its
+  001DA6A0 before its +0x4C.
+- While the record is not the displayed pose
+  (`em_scene_bindings_player_record_drawn`: the opening runtime's actors
+  drawn, the pose source not started or held by a stand-in, or a frame whose
+  0015BCF0 was reported) the post-step stays reported (UM_0015C160_OPENING)
+  and the port's player mesh draws the displayed pose, carrying the
+  equipment models (design risk 2). On the route that is the opening's 1,302
+  post-steps only.
+- em_weapon reads the player's node 4 (the gun node 00188630's bone 0) from
+  the record (`em_player_draw_live_node_world`); the gfx layer's bone
+  publish (`em_gfx_last_skinned_bone`) is retired.
+
+**The equipment (em_equipment_live).** Each node's 001CA6E0 worker adds its
+model (the Roger export's bytes at the original library address) to a
+table-less bank (`em_world_models_add`); the node's +0x44 view and the
+unit's model REF both come from it. The +0x4C worker `w_method` runs
+001CAA00 over the node's owner view (its pool record's +0x02, +0x80,
++0x90, +0x94, +0x98, the translation's +0x03, +0x0C, +0x0D, +0xB0 and bone
+slots) whenever the player record is the displayed pose; the units are
+drawn with the walk's.
+
 **The GS state and arena REFs are checked by address.** 001D0F20 builds
 the GS state packets (and the arena qword) at boot and is not translated,
 so the port's copy of those bytes is not built. The parser requires the
@@ -561,20 +648,26 @@ REF 9 to name D_00815360 (set 1, class 0) and the REF 1 to name
 NOP NOP NOP FLUSH in every capture.
 
 **Assets.** `python3 tools/export_world_models.py`,
-`python3 tools/export_object_textures.py` and (block size changed)
-`python3 tools/export_render_context.py` (STARTUP.md). A missing texture
-export faults at the first drawn unit.
+`python3 tools/export_player_model.py`,
+`python3 tools/export_object_textures.py` (again: the player's and the
+equipment's textures), `python3 tools/export_roger_banks.py` (the equipment
+models) and (block size changed) `python3 tools/export_render_context.py`
+(STARTUP.md). A missing texture export faults at the first drawn unit; a
+missing player model at the spawn's 0015C1F0.
 
 **Retired stand-ins.** The legacy crate / drum / truck EMDL meshes
 (`props/enemy_crate.emdl`, `enemy_egg.emdl`, `props/area_truck.emdl`) are
 no longer loaded by em_area11_boxes, and the fence door's runtime model is
-no longer uploaded as a mesh: their +0x4C is the unit above.
+no longer uploaded as a mesh: their +0x4C is the unit above. The player
+step retires the legacy player mesh as 0015C160's +0x4C (and with it the
+equipment models it carried) from the hand-off on; the mesh stays loaded
+for the opening's reported frames and the status screen's menu player.
 
 ## 11. Owners not on this path yet
 
 | Owner | Draws today | Waits on |
 |---|---|---|
-| player (0x8102B0; +0x4C = 001CAA00, 21 nodes, model at 0x00D1C1C0, 149 blocks) | the legacy player EMDL through em_gfx_draw_skinned, requested by 0015C160's +0x4C position (w_0015C160) and made after the shadow's passes since census L29 (SHADOW_ORIGINAL.md "Binding") | an export of the player's model bytes (verified against RAM like the bank); an owner view over the record pose's node records; the seven equipment nodes (0018A6B0) on the same path, since the legacy player mesh carries their models; em_weapon's bone lookup (em_gfx_last_skinned_bone reads the player's draw) moved to the record |
+| the player during the opening (design risk 2) | the opening runtime's actors, then the legacy player EMDL in the reported hand-off frames (the record is not the displayed pose) | the opening player on the record pose |
 | Roger (008237E0; +0x90 = his face) | roger.emdl with the opening face through em_gfx_draw_skinned | the face unit's EE builders: 001CB3C0 (and its 001026D0 / 001029C0), 001C7900 and 001CB2C0 (verified-unbound in em_anim_runtime_rest), 001D3F50 -> 001D3E40 (untranslated; the decomp's C is a NEARMISS), and the face state's weights from their original updater. The renderer side is ready: em_gfx_object_unit runs a face unit (section 8 F). Roger's body model (0x47) and the unit resolver for the Roger export's models are the binder's |
 | Roger's equipment 001C5C90 | opening/equipment_6b.emdl | a model resolver for the D_0028A56C library (the Roger export holds model 0x6B) |
 | elevator, panel, pickups, fan, husks, parachute, 001C4820, 001C5760, 001C5680 | their legacy meshes | each owner live on its original record with bone slots (their own census lanes) |
@@ -598,4 +691,26 @@ no longer uploaded as a mesh: their +0x4C is the unit above.
   in all of them).
 - **The model placement** (0x01335F40) is a RAM placement checked in every
   capture (section 4).
+- **The player and the equipment move.** Live, their units are compared
+  in full only at the snapshots whose tick holds the capture's point and
+  pose (10 and 14); elsewhere the player's placement at the aligned tick
+  follows the navigation's timing and B / the rig lanes / the rows are
+  counted, not compared (section 9). The offline oracles cover all 120
+  captured player / equipment owner-frames (section 8).
+- **Only the player's kind 0x3B model is exported.** 0015C1F0's other kinds
+  (0x3D, 0x3E, 0x3F, 0x40: the infected and suit variants) fault at
+  001C6150; equipment 0x36's TEX0 0 is not exported (section 7.3). Neither
+  occurs on the first level's route, and variant 4 (model 0x36) cannot be
+  bound anywhere in AREA11 (PLAYER_EQUIPMENT.md section 7).
+- **The opening.** The player's 1,302 reported post-steps (the opening
+  runtime owns the displayed player, design risk 2) keep the port's player
+  mesh, which carries the equipment models there.
+- **Pixels.** The first-control frame with the player's unit
+  (build/captures/player_unit/first_control.png, `EM_STARTUP_TEST=
+  newgame-control EM_CAPTURE_FRAME=1340`) was inspected by eye against
+  route 01's original.png (a different camera moment): the model and its
+  textures look like the original's, and the equipment units sit at the
+  player's nodes (the back, the thigh); the legacy mesh showed a rifle in
+  the hands at first control, the original's player holds none. It is not
+  a test.
 - **Beat 15** (the level exit) is out of scope.

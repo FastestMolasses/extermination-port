@@ -222,6 +222,15 @@ normal 0x70003060 and matrix 0x70003070.
 5. Stores the halfword +96 = 0x28.
 6. Calls 00200890().
 
+**Live (the player step, 2026-09-26):** the spawn's `spawn_w_0015C1F0`
+(em_scene_bindings.c) runs `em_player_misc_0015C1F0` over the player record
+image with `bind_model` = em_roger_actor_001CA6E0 (+0x44, +0x4C = 001CAA00),
+`bone_count` = em_owner_services_001C6150 over the exported player model
+(em_player_draw_live; only kind 0x3B is exported) and `w00200890` the
+boundary (the DMA of the player's texture packet); the scene gives
+D_00810C60 as 001B07C0 left it and the Roger export's D_0028A490 table. The
+spawn's inline copy of the kind choice is gone (OWNER_DRAW.md section 10).
+
 ### 001EFE00(id, p): an effect at the actor
 
 1. Copies +B0 to the stack. For id 0x80000027, it adds 10 to y.

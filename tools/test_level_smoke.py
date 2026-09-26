@@ -2006,7 +2006,9 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
 
 
-OWNER_DRAWN = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00823FF0: 'truck', 0x001BC350: 'door'}
+EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
+OWNER_DRAWN = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00823FF0: 'truck', 0x001BC350: 'door',
+               EQUIPMENT_NODE: 'equipment'}   # and the player D_008102B0 (0015C160's +0x4C)
 
 
 def fnv_words(h, words):
@@ -2018,8 +2020,12 @@ def fnv_words(h, words):
 
 def check_owner_units(ticks, state):
     """The live owner draws 001CAA00 (em_owner_draw_live: the crates, drums,
-    truck and fence door) against the route snapshots whose last row a
-    phase aligned a port tick with. For every such owner, the ORIGINAL
+    truck and fence door, the player's equipment nodes 0018A6B0 and the
+    player D_008102B0, 0015C160's +0x4C) against the route snapshots whose
+    last row a phase aligned a port tick with. The equipment nodes are keyed
+    by their flavour +0x03 and variant +0x0D (the port's pool places the
+    respawned flavour-2 nodes at other records; check_effects compares their
+    bytes), the other owners by their record. For every such owner, the ORIGINAL
     001CAA00 runs over the snapshot's RAM and scratchpad (the owner-draw
     oracle, tools/test_owner_draw_reference.py) and its unit is compared
     with the port's unit of the aligned tick (the tick log's owner_units):
@@ -2034,27 +2040,51 @@ def check_owner_units(ticks, state):
       compared);
     - in the beats whose camera equals the capture's (VIEW_EXACT), the set
       of owners that drew, their byte counts, the clip pass and the
-      position rows (node x VP) too."""
+      position rows (node x VP) too;
+    - the movers (the player and its equipment): in the VIEW_EXACT beats
+      their lighting point and pose (node records +0x90) must equal the
+      snapshot's and they are then compared in full; elsewhere a mover at
+      the snapshot's point must hold the snapshot's pose and its B and rig
+      lanes are compared (one elsewhere is counted); a run with a
+      VIEW_EXACT snapshot must compare the player and all seven equipment
+      nodes in full in at least one of them."""
     import test_owner_draw_reference as tod
     if not tod.ELF:
         tod.ELF = (DECOMP / 'config/SCUS_971.12').read_bytes()
-    done = []
+    done, complete = [], []
     for beat, i in state.get('snapshots', []):
         assert i < len(ticks) and 'owner_units' in ticks[i], ('owner units: no log at the snapshot tick', beat)
-        port = {u[0]: u for u in ticks[i]['owner_units']}
         ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
         spr = (ROUTE / beat / 'scratchpad.bin').read_bytes()
         u32 = lambda a: struct.unpack_from('<I', ram, a)[0]
+        # the equipment nodes' keys: (flavour, variant) from the tick's node
+        # list (the port) and the snapshot's records (the original)
+        port_key = {e[0]: ('equipment', bytes.fromhex(e[1])[3], bytes.fromhex(e[1])[0x0D])
+                    for e in ticks[i]['effects'][2]}
+        port = {port_key.get(u[0], u[0]): u for u in ticks[i]['owner_units']}
         ctx = u32(0x275670)
         points = fnv_words(2166136261, struct.unpack_from('<1024I', ram, ctx + 0x220))
-        orig, a, seen = {}, u32(0x275BC0), set()
+        orig, a, seen, walk = {}, u32(0x275BC0), set(), []
         while a and a not in seen:
             seen.add(a)
-            if u32(a + 0x4C) == tod.DRAW and u32(a + 0x10) in OWNER_DRAWN:
+            walk.append(a)
+            a = u32(a + 0x1C)
+        if ram[PLAYER + 1] and u32(PLAYER + 0x4C) == tod.DRAW:
+            walk.append(PLAYER)                   # 0015C160's +0x4C, after the walk
+        for a in walk:
+            behaviour = u32(a + 0x10)
+            if u32(a + 0x4C) == tod.DRAW and (behaviour in OWNER_DRAWN or a == PLAYER):
+                key = ('equipment', ram[a + 3], ram[a + 0x0D]) if behaviour == EQUIPMENT_NODE and a != PLAYER else a
                 o, ctx = tod.original_draw(ram, spr, a)
                 used = o.load(ctx + 0x10) - tod.CAP_DL
                 unit = o.read(tod.CAP_DL, used) if used else b''
-                entry = [a, used, 0, 0, 0, 0, points, 0]
+                sub = ram[a + 0x98]
+                at = a + 0xB0 if sub == 0xFF else u32(a + 0x110 + 4 * sub) + 0xC0
+                point = list(struct.unpack_from('<3I', ram, at))
+                pose = 2166136261
+                for k in range(ram[a + 0x0C]):
+                    pose = fnv_words(pose, struct.unpack_from('<16I', ram, u32(a + 0x110 + 4 * k) + 0x90))
+                entry = [a, used, 0, 0, 0, 0, points, 0, point, pose]
                 if used:
                     colour = struct.unpack_from('<16I', unit, 0x20)
                     nodes = ram[a + 0x0C]
@@ -2072,29 +2102,111 @@ def check_owner_units(ticks, state):
                         if (w0 >> 28) & 7 == 5: calls.append(addr)
                         q += 16 + (16 * (w0 & 0xFFFF) if (w0 >> 28) & 7 == 1 else 0)
                     entry = [a, used, int(0x2354A0 in calls), fnv_words(basis, colour), light, position, points,
-                             rig]
-                orig[a] = entry
-            a = u32(a + 0x1C)
+                             rig, point, pose]
+                orig[key] = entry
         where = ('owner units', beat, 'port tick', ticks[i]['tick'])
+        hex = lambda r: r if isinstance(r, tuple) else f'{r:#x}'
+        # The player and its equipment move with the player: their colour
+        # matrix B and rig lanes depend on the point 001CAA00 lights them at
+        # (the fold's distances), their position rows on the pose. In the
+        # camera-exact beats (VIEW_EXACT) the port's player stands where the
+        # snapshot's does, so every mover's point AND pose must equal the
+        # snapshot's there and the mover is then compared in full like the
+        # world owners (a wrong owner view, node mapping or +0x110 word in
+        # em_player_draw_live / em_equipment_live fails here). In the other
+        # beats the player's placement at the aligned tick follows the
+        # route's navigation timing (compared phase by phase, not at every
+        # snapshot tick): a mover at the snapshot's point must also hold its
+        # pose, and its B and rig lanes are compared; one elsewhere is
+        # counted.
+        moving = lambda r: r == PLAYER or isinstance(r, tuple)
         both = [r for r in orig if orig[r][1] and r in port and port[r][1]]
-        lit = [r for r in both if port[r][6] == orig[r][6]]
-        for r in both:
+        if beat in VIEW_EXACT:
+            assert sorted(port, key=str) == sorted(orig, key=str), \
+                (where, 'owners that ran 001CAA00', sorted(port, key=str), sorted(orig, key=str))
+            for r in orig:
+                if moving(r):
+                    assert port[r][8] == orig[r][8], (where, hex(r), 'the point 001CAA00 lights the mover at',
+                                                      port[r][8], orig[r][8])
+                    assert port[r][9] == orig[r][9], (where, hex(r), 'the pose (node records +0x90)')
+        placed = [r for r in both if not moving(r) or port[r][8] == orig[r][8]]
+        for r in placed:
+            if moving(r):
+                assert port[r][9] == orig[r][9], (where, hex(r), 'the pose at the snapshot point')
+        lit = [r for r in placed if port[r][6] == orig[r][6]]
+        for r in placed:
             assert port[r][3] == orig[r][3], (where, hex(r), 'colour matrix B (001D89D0)')
             assert port[r][7] == orig[r][7], (where, hex(r), 'lighting rows, lanes y and z (the rig slots)')
         for r in lit:
             assert port[r][4] == orig[r][4], (where, hex(r), 'lighting rows (C x A)')
+        posed = []
         if beat in VIEW_EXACT:
-            assert sorted(port) == sorted(orig), (where, 'owners that ran 001CAA00', sorted(port), sorted(orig))
             for r in orig:
+                posed.append(r)
                 assert port[r][1:3] == orig[r][1:3], (where, hex(r), 'unit bytes / clip', port[r], orig[r])
                 assert port[r][5] == orig[r][5], (where, hex(r), 'position rows (node x VP)')
-        done.append(f'{beat[:2]} ({len(both)} drawn in both: colour and rig lanes equal; whole lighting rows '
-                    f'compared for {len(lit)}'
-                    f'{" (the point-light slots differ for the rest)" if len(lit) < len(both) else ""}'
-                    f'{", camera exact" if beat in VIEW_EXACT else ""})')
+            full = {r for r in posed if orig[r][1] and moving(r)}
+            complete.append((beat, PLAYER in full, len({r for r in full if isinstance(r, tuple)})))
+        movers = [r for r in both if moving(r)]
+        done.append(f'{beat[:2]} ({len(both)} drawn in both: colour and rig lanes equal for {len(placed)}'
+                    f'{f" ({len(movers)} player / equipment units, {sum(r in placed for r in movers)} at the snapshot point)" if movers else ""}'
+                    f'; whole lighting rows compared for {len(lit)}'
+                    f'{" (the point-light slots differ for the rest)" if len(lit) < len(placed) else ""}'
+                    f'{f", camera exact: all {len(posed)} compared in full, movers with their point and pose" if beat in VIEW_EXACT else ""})')
+    # The live player binding (0015C160's +0x4C over em_player_draw_live's
+    # owner view) and the seven equipment nodes (0018A6B0's +0x4C in
+    # em_equipment_live) must each be compared in full, with a unit, in at
+    # least one camera-exact snapshot of a run that reached one.
+    if complete:
+        assert any(p and n == 7 for _, p, n in complete), \
+            ('owner units: no camera-exact snapshot compared the player and all seven equipment nodes in full',
+             complete)
     if done:
         print('owner units: PASS (the port\'s 001CAA00 units equal the original\'s at the snapshot ticks: '
               + '; '.join(done) + ')')
+
+
+def check_player_draw_gate(ticks):
+    """em_scene_bindings_player_record_drawn() is read twice a frame: by the
+    equipment nodes' +0x4C in the walk (em_equipment_live: their 001CAA00
+    units, or none while the port's mesh carries the models) and by
+    0015C160's post-step (em_player_draw_live's unit, or the reported
+    UM_0015C160_OPENING with the port's mesh). Both reads must agree in
+    every tick, or a frame draws the equipment twice or not at all: a
+    reported post-step (the tick log's shadow route -1) builds no player and
+    no equipment unit, a live post-step that reaches the +0x4C (D_008102B1
+    != 0, route not -1) builds the player's unit, and a player unit only
+    comes from such a post-step. Only ticks whose post-step ran in the
+    logged frame are judged: in the others (the status screen's frames, where
+    the scene does not step) the tick log's owner_units is the last flushed
+    frame's, not this one's."""
+    live = reported = held = 0
+    for t in ticks:
+        sh, units = t.get('shadow'), t.get('owner_units')
+        if not isinstance(sh, list) or not sh or not isinstance(sh[0], list) or units is None:
+            continue
+        fresh, b1, _, _, route = sh[0]
+        if not fresh:
+            held += 1
+            continue
+        effects = t.get('effects')
+        nodes = {e[0] for e in effects[2]} if isinstance(effects, list) and len(effects) > 2 else set()
+        player = any(u[0] == PLAYER for u in units)
+        equipment = [u[0] for u in units if u[0] in nodes]
+        where = ('player draw gate', 'port tick', t['tick'])
+        if route == -1:
+            reported += 1
+            assert not player and not equipment, \
+                (where, 'a reported post-step with player / equipment units', player, equipment)
+        if b1 and route != -1:
+            live += 1
+            assert player, (where, 'a live post-step without the player\'s unit')
+        if player:
+            assert b1 and route != -1, (where, 'a player unit without a live post-step', sh[0])
+    if live or reported:
+        print(f'player draw gate: PASS ({live} live post-steps each built the player\'s unit; {reported} reported '
+              f'post-steps built no player or equipment unit; {held} ticks without a post-step in their frame '
+              f'not judged)')
 
 
 def main():
@@ -2132,6 +2244,7 @@ def main():
     if state.get('snapshots'):
         check_effects(ticks, state)
         check_owner_units(ticks, state)
+    check_player_draw_gate(ticks)
     if 'first_control' in checked:
         import level_smoke_shadow   # census L29 / L29b (em_shadow_live)
         level_smoke_shadow.check_shadow(ticks, state)

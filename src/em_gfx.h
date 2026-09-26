@@ -944,29 +944,7 @@ int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height);
 
-/* --- last skinned palette (the published bone matrices) ---------------- */
-
-/* The engine PUBLISHES bone world matrices for equipment consumers: the
- * gun tick func_00188630 reads the player's hand-bone matrix (player
- * +0x90) to derive the muzzle point and fire direction every frame (the
- * s8 "equipment draw matrix == bone matrix" mechanism). The port's
- * native equivalent: every em_gfx_draw_skinned(_tinted) call records the
- * leading EM_GFX_TRACK_BONES bone matrices of its palette (a 64-byte
- * copy per tracked bone — palette buffers may be freed by scene loads,
- * so the record COPIES rather than aliasing). The gameplay render chain
- * draws the PLAYER LAST every frame (em_game render_chain_build appends
- * it after scene/doors/enemies), so between one frame's close-out flush
- * and the next frame's draws this holds the player's evaluated palette
- * of the previous frame — placement applied, world space.
- *
- * em_gfx_last_skinned_bone copies the recorded column-major 4x4 of
- * `bone` into out16 and returns 1; returns 0 (out untouched) when no
- * skinned draw has run yet or bone >= min(bone_count, tracked). One
- * frame of latency by construction — the same order of staleness as the
- * engine's own fire-event mailbox; consumers (em_weapon's muzzle/laser
- * anchoring) accept it. */
-#define EM_GFX_TRACK_BONES 16
-int em_gfx_last_skinned_bone(EmGfx *gfx, uint32_t bone, float out16[16]);
+/* --- the last skinned draw's camera ------------------------------------ */
 
 /* em_gfx_last_viewproj copies the column-major P*V of the LAST skinned
  * draw into out16 and returns 1; returns 0 (out untouched) before any
@@ -975,9 +953,8 @@ int em_gfx_last_skinned_bone(EmGfx *gfx, uint32_t bone, float out16[16]);
  * camera-matrix reads (the spad 0x70003AC0 matrix func_00199220
  * projects target aim points through for the screen-space acquisition
  * cone; em_weapon is the consumer). One frame of latency by
- * construction, like the bone publish above — the cone test runs
- * against the previous frame's camera, the same staleness class as the
- * fire-event mailbox. */
+ * construction — the cone test runs against the previous frame's
+ * camera, the same staleness class as the fire-event mailbox. */
 int em_gfx_last_viewproj(EmGfx *gfx, float out16[16]);
 
 /* End the frame: flush the queued world-space beams, then the overlay

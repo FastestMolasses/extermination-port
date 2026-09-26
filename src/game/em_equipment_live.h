@@ -28,11 +28,15 @@
  * the slot count D_00275BCC, and the ELF windows D_0024A220.., D_00248B98 /
  * D_00248C78 (assets/effect_tables.emet, em_effects_live).
  *
- * The draw method +0x4C (001CAA00) is the port renderer's boundary here, as
- * for the crates and drums: the seven equipment models are drawn by the
- * player's mesh at its node slots 4 and 14 (the export's attachments), and
- * the method records that the node drew and whether its bone matrix is the
- * one that mesh draws it with (the first frame that is not is reported).
+ * The draw method +0x4C (001CAA00) is em_owner_draw_live over the node's
+ * owner view (its record bytes and bone slots), with the model from the
+ * equipment bank (the Roger export's models at their original addresses,
+ * bound by the 001CA6E0 worker); the units are drawn with the walk's
+ * units. In a frame whose player record is not the displayed pose (the
+ * opening's hand-off, em_scene_bindings_player_record_drawn) the port's
+ * own player mesh carries the equipment models and no unit is built. The
+ * method also records that the node drew and whether its bone 0 is the
+ * player's node 4 (the knife: 14) for the tick log.
  *
  * Every callee the route never reaches (the aim drawers 001854E0 / 00185760,
  * the one-shots 001861C0 / 001869A0 / 00186A60 / 001872C0 / 00187CC0 and
@@ -79,8 +83,8 @@ typedef struct {
     uint32_t method;            /* +0x4C */
     uint32_t bone0[16];         /* the first bone slot's world matrix (bits) */
     uint8_t drew;               /* the method ran in its last tick */
-    uint8_t at_node;            /* ... with bone 0 = the player's node the mesh
-                                 * draws it at (slot 4, the knife 14) */
+    uint8_t at_node;            /* ... with bone 0 = the player's node 4
+                                 * (the knife: 14) */
 } EmEquipmentLiveNode;
 int em_equipment_live_nodes(EmEquipmentLiveNode *out, int max);
 

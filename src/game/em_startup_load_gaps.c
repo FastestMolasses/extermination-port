@@ -180,10 +180,11 @@ static int state0_bound(const EmSlgState0Workers *w, const EmSlgState0 *s)
 }
 
 /* 001AF5C0: memset the player record, then the named fields, then
- * 001D8BF0(player, 1). */
+ * 001D8BF0(player, 1). It reads only the player record and 001D8BF0
+ * (001AFCA0 checks the rest of the state before calling it). */
 int em_slg_001AF5C0(const EmSlgState0Workers *w, EmSlgState0 *s)
 {
-    if (!state0_bound(w, s)) return -1;
+    if (!w || !s || !s->player || !w->w_001D8BF0) return -1;
     uint8_t *p = s->player;
     memset(p, 0, EM_SLG_PLAYER_SIZE);                              /* 00121A28(D_008102B0, 0, 0x320) */
     wr32(p, 0x14, s->player_self);                                 /* D_008102C4 = D_008102B0 */

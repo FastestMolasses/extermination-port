@@ -132,6 +132,8 @@ def build_library():
     lib.em_owner_draw_001CA940_bytes.restype = C.c_uint32
     lib.em_world_models_parse.argtypes = [C.POINTER(WorldModels), C.c_void_p, C.c_size_t]
     lib.em_world_models_001C6120.argtypes = [C.POINTER(WorldModels), C.c_uint32, C.c_uint32, P32]
+    lib.em_world_models_add.argtypes = [C.POINTER(WorldModels), C.c_uint32, C.c_void_p, C.c_uint32,
+                                        C.POINTER(C.c_void_p)]
     lib.em_owner_services_001CAA00.argtypes = [C.POINTER(Services), C.POINTER(Owner)]
     lib.em_load_veil_particles_001D1F80.argtypes = [C.POINTER(Veil), C.c_int32, C.c_int32, C.c_int32]
     return lib
@@ -371,6 +373,47 @@ def capture_owners(name):
             out.append((name, a))
         a = u32(ram, a + 0x1C)
     return out
+
+
+PLAYER, EQUIPMENT = 0x8102B0, 0x18A6B0     # D_008102B0; the player equipment nodes' callback 0018A6B0
+
+
+def player_owners(name):
+    """The player (when its +0x01 gate lets 0015C160 call its +0x4C) and
+    every equipment node with the draw method 001CAA00 in one capture: the
+    owners whose models are not in the world bank (the player's model
+    D_0028A490[0x3B], the equipment models of the global library
+    D_0028A56C; docs/OWNER_DRAW.md section 10)."""
+    ram = CAP[name][0]
+    out = []
+    if ram[PLAYER + 1] and u32(ram, PLAYER + 0x4C) == DRAW and u32(ram, PLAYER + 0x44):
+        out.append((name, PLAYER))
+    a, seen = u32(ram, 0x275BC0), set()
+    while a and a not in seen:
+        seen.add(a)
+        if u32(ram, a + 0x10) == EQUIPMENT and u32(ram, a + 0x4C) == DRAW and u32(ram, a + 0x44):
+            out.append((name, a))
+        a = u32(ram, a + 0x1C)
+    return out
+
+
+def model_bank(lib, ram, owner):
+    """(bank, entry) for the owner's +0x44: the world bank's entry, or a
+    table-less bank of the one model at +0x44 built from the capture's
+    bytes (em_world_models_add; the exporters prove those bytes equal the
+    player / equipment exports)."""
+    handle = u32(ram, owner + 0x44)
+    for i in range(BANK.model_count):
+        if BANK.models[i].address == handle:
+            return BANK, i
+    blocks, qwc, bones, skel = struct.unpack_from('<4I', ram, handle)
+    size = skel + 0x50 * bones
+    data = (C.c_uint8 * size).from_buffer_copy(ram[handle:handle + size])
+    bank = WorldModels()
+    bank._keep = data
+    out = C.c_void_p()
+    assert lib.em_world_models_add(C.byref(bank), handle, data, size, C.byref(out)) == 0, ('model', hex(handle))
+    return bank, 0
 
 
 def tag_bytes(unit):

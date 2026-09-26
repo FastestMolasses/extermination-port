@@ -231,6 +231,11 @@ int em_owner_services_001B1020(EmOwnerServices *s, EmOwnerServicesOwner *o,
 /* 001B0DC0(owner, a1, a2): 1 over the bone cap (+0x04 = 3), else 0. */
 int em_owner_services_001B0DC0(EmOwnerServices *s, EmOwnerServicesOwner *o,
                                uint32_t a1, int32_t a2);
+/* 001C6150(model): *count = the byte at model +0x08 (the view's
+ * bone_count). 0, or -1 (a NULL model faults at 001C6150). The one
+ * translation the owners' model binds call (001B0EA0 / 001B0DC0 here, the
+ * player's 0015C1F0, the equipment's 0018A8D0). */
+int em_owner_services_001C6150(EmOwnerServices *s, const EmOwnerModel *model, uint8_t *count);
 /* bone_init_default_1 (001C62C0). Returns 0. */
 int em_owner_services_001C62C0(EmOwnerServices *s, EmOwnerServicesOwner *o);
 

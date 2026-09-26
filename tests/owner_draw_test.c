@@ -287,6 +287,65 @@ static void test_bank(void)
     free(f);
 }
 
+/* A table-less bank (the player's model, the equipment models): models
+ * added at their own addresses, the EMOM parse, and the refusals. */
+static void test_tableless(void)
+{
+    size_t size;
+    uint8_t *f = synthetic(&size);
+    const uint8_t *t = f + 0x20;
+    const uint32_t m0 = rd32(t + 4) & ~3u, m1 = rd32(t + 8);
+    const uint32_t m0_size = 0x40 + 0x82 * 16 + 0x50, m1_size = 0x40 + 2 * 0x82 * 16 + 2 * 0x50;
+    static EmWorldModels bank;
+    memset(&bank, 0, sizeof bank);
+    const EmWorldModel *a = NULL, *b = NULL, *again = NULL;
+    CHECK(em_world_models_add(&bank, 0x00C07240u, t + m1, m1_size, &a) == 0);
+    CHECK(em_world_models_add(&bank, 0x00D1C1C0u, t + m0, m0_size, &b) == 0);
+    CHECK(a && b && bank.model_count == 2 && bank.record_count == 3 && bank.count == 0 && !bank.span);
+    CHECK(em_world_models_add(&bank, 0x00C07240u, t + m1, m1_size, &again) == 0 && again == a);
+    CHECK(bank.model_count == 2);
+    CHECK(em_world_models_add(&bank, 0x00C07240u, t + m0, m0_size, NULL) == -1);   /* other bytes there */
+    CHECK(em_world_models_add(&bank, 0x00E00000u, t + m1, m1_size - 1, NULL) == -1); /* skeleton cut */
+    CHECK(bank.model_count == 2);
+    CHECK(a && a->model.bone_count == 2 && a->w04 == 0x104 && a->model.skeleton[0].parent == -1);
+    CHECK(b && em_world_models_at(&bank, 0x00D1C1C0u) == b && em_world_models_of(&bank, &b->model) == b);
+    CHECK(em_world_models_bytes(&bank, 0x00C07240u + 0x40u, 0x104u * 16u) == t + m1 + 0x40);
+    CHECK(em_world_models_bytes(&bank, 0x00C07240u + m1_size - 4u, 8) == NULL);
+    uint32_t h = 0;
+    CHECK(em_world_models_001C6120(&bank, 0, 0, &h) == -1);          /* no table */
+    /* The draw worker REFs the model's blocks at its own address. */
+    EmOwnerDraw d;
+    reset(&d, 0x43, 0, WINDOW);
+    d.world.models = &bank;
+    CHECK(b && em_owner_draw_001CA940(&d, 0, &b->model) == 0 && d.fault.code == 0);
+    tag_is(3, 0x30, 0x82, 0x00D1C1C0u + 0x40u);
+    /* A table bank is the parser's: no model is added to it. */
+    static EmWorldModels table;
+    CHECK(em_world_models_parse(&table, f, size) == 0);
+    CHECK(em_world_models_add(&table, 0x00D1C1C0u, t + m0, m0_size, NULL) == -1);
+
+    /* EMOM: the header, then the model. */
+    uint8_t *e = calloc(1, 0x20 + m0_size);
+    if (!e) exit(2);
+    memcpy(e, "EMOM", 4);
+    wr32(e + 4, 1);
+    wr32(e + 8, 0x00D1C1C0u);
+    wr32(e + 0xC, m0_size);
+    memcpy(e + 0x20, t + m0, m0_size);
+    CHECK(em_object_model_parse(&bank, e, 0x20 + m0_size) == 0);
+    CHECK(bank.model_count == 1 && bank.models[0].address == 0x00D1C1C0u && bank.models[0].size == m0_size);
+    const uint32_t bad[][2] = {{0x00, 0x4D4F4D46u}, {0x04, 2}, {0x0C, m0_size - 1}, {0x10, 1}, {0x1C, 1}};
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; ++i) {
+        const uint32_t keep = rd32(e + bad[i][0]);
+        wr32(e + bad[i][0], bad[i][1]);
+        CHECK(em_object_model_parse(&bank, e, 0x20 + m0_size) == -1 && bank.model_count == 0);
+        wr32(e + bad[i][0], keep);
+    }
+    CHECK(em_object_model_parse(&bank, e, 0x20 + m0_size - 1) == -1);   /* truncated */
+    free(e);
+    free(f);
+}
+
 static void test_asset(void)
 {
     const char *path = getenv("EM_WORLD_MODELS");
@@ -316,6 +375,26 @@ static void test_asset(void)
         CHECK(m && m->id == owned[i].id && m->model.bone_count == owned[i].bones);
     }
     free(data);
+
+    /* The player's model (tools/export_player_model.py): resource 0x3B at
+     * 0x00D1C1C0, 149 blocks, 21 bones. */
+    const char *player = getenv("EM_PLAYER_MODEL");
+    if (!player) player = "assets/scene_snow/player_model.emom";
+    fp = fopen(player, "rb");
+    if (!fp) {
+        printf("owner_draw_test: %s absent (tools/export_player_model.py); player check skipped\n", player);
+        return;
+    }
+    fseek(fp, 0, SEEK_END);
+    n = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    data = malloc((size_t)n);
+    if (!data || fread(data, 1, (size_t)n, fp) != (size_t)n) exit(2);
+    fclose(fp);
+    CHECK(em_object_model_parse(&bank, data, (size_t)n) == 0);
+    const EmWorldModel *m = em_world_models_at(&bank, 0x00D1C1C0u);
+    CHECK(m && m->blocks == 149 && m->model.bone_count == 21 && m->size == 0x4C170u);
+    free(data);
 }
 
 int main(void)
@@ -323,6 +402,7 @@ int main(void)
     test_cull();
     test_kernel_submit();
     test_bank();
+    test_tableless();
     test_asset();
     if (failures) {
         fprintf(stderr, "owner_draw_test: %d failure(s)\n", failures);

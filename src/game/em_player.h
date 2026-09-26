@@ -52,6 +52,10 @@ int player_pose_record_displayed(void);
 /* The EmPoseHost of the record: the context every player-state pose worker
  * slot binds (em_pose_host_request / _arbiter / _clip_frames / ...). */
 struct EmPoseHost *player_pose_record_host(void);
+/* `size` bytes at the EE address `address` in the record's mapped storage
+ * (the node records the player's +0x110 words name, the record itself, the
+ * banks), or NULL when no mapped region holds them all. */
+const uint8_t *player_pose_record_bytes(uint32_t address, uint32_t size);
 /* 0015BCF0's animate step on the record after the player stage: 0, or -1 on
  * a pose-routine fault. Nothing to do before the first pose. */
 int player_pose_animate(void);
@@ -271,9 +275,14 @@ int player_states_wall_probes_s1(void *context, EmPlayerLiveActor *actor, uint32
 int player_states_clearance_release(void *context, EmPlayerLiveActor *actor, int *result);
 /* Faults reached on the live path (a worker returned < 0). */
 unsigned player_states_faults(void);
-/* Area load: the mirror at 0015C420's values (+280 = (0, -13.8, 0), +4 = 1,
- * +5 = 0, link cleared). */
+/* Area load: the record cleared (port pointers too), then 0015C420's
+ * values (player_states_spawn_values). */
 void player_states_reset(void);
+/* 0015C420's record values the port writes at the area load (+0x98 = 1,
+ * +280 = (0, -13.8, 0, 1.0), +4 = 1, +204 = 1.0, +31B = -1). The scene
+ * bindings' w_001AFCA0 re-applies them after its 001AF5C0 wipe of the
+ * record image (the two sets of fields are disjoint). */
+void player_states_spawn_values(void);
 
 /* Called from the gameplay frame in em_game.c as well as from this module. */
 int  aim_ladder_eval(double t);

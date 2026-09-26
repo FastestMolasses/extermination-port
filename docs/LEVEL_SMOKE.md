@@ -978,23 +978,60 @@ skipped; 08: 7 equipment nodes, 2 head sprites, 8 truck puffs; 10: packet
 
 Not a phase: at the same aligned snapshot ticks as check_effects. The tick
 log's `owner_units` carries, per 001CAA00 call of the last drawn frame (the
-crates, drums, truck and fence door on em_owner_draw_live), the owner's
-record address, the unit's byte count (0: culled), the clip pass and
-digests of the colour matrix B, the lighting rows, the position rows, the
-point-light slots and the lighting rows' lanes y and z. For every such
-owner the ORIGINAL 001CAA00 runs over the snapshot (the owner-draw oracle)
-and:
+crates, drums, truck and fence door, the seven player equipment nodes and
+the player on em_owner_draw_live), the owner's record address, the unit's
+byte count (0: culled), the clip pass, digests of the colour matrix B, the
+lighting rows, the position rows, the point-light slots and the lighting
+rows' lanes y and z, the point 001CAA00 culled and lit the owner at (three
+float bit patterns) and a digest of its nodes' +0x90 matrices. For every
+such owner the ORIGINAL 001CAA00 runs over the snapshot (the owner-draw
+oracle; the player after the walk, as 0015C160 calls its +0x4C). The
+equipment nodes are matched by their flavour +0x03 and variant +0x0D (the
+port's pool places the respawned flavour-2 nodes at other records;
+check_effects compares their bytes), the other owners by their record.
+Then:
 - wherever both drew: B and the lighting rows' lanes y and z (the room
-  rig's slots 1 and 2) are equal;
+  rig's slots 1 and 2) are equal; for the player and the equipment (the
+  movers) only where the port's point equals the snapshot's (both depend
+  on it through the point-light fold), and a mover at the snapshot's point
+  must also hold the snapshot's pose (its nodes' +0x90 digest);
 - the whole lighting rows only where the point-light slots are equal (the
   slots' sway follows rand() in 001D7C30; so far they differ in every
   snapshot, and the check says how many rows it compared);
-- in the camera-exact snapshots (10, 14): the owners that ran, their byte
-  counts, the clip pass and the position rows (node x VP) are equal.
+- in the camera-exact snapshots (10, 14): the owners that ran, and every
+  owner's byte count, clip pass and position rows (node x VP). There every
+  mover's point AND pose must equal the snapshot's (the port's player
+  stands where the capture's does), so the player's and the equipment's
+  units are compared in full, never skipped: a wrong owner view, node
+  record or +0x110 mapping in em_player_draw_live / em_equipment_live
+  fails the smoke;
+- a run with a camera-exact snapshot must have compared the player and all
+  seven equipment nodes in full (with a unit) in at least one of them.
 
-Measured (full route): 08: 3 units drawn in both; 10: 2 (the door and the
-truck), camera exact, positions equal; 11: 1; 12: 0; 13: 8; 14: 0 (all
-culled, as in the capture).
+The player draw gate (`check_player_draw_gate`, every tick whose post-step
+0015C160 ran in the logged frame): em_scene_bindings_player_record_drawn()
+is read by the equipment nodes' +0x4C in the walk and again by the
+post-step, so the two reads must agree: a reported post-step (route -1)
+builds no player and no equipment unit, a live post-step that reaches its
++0x4C builds the player's unit, and a player unit comes only from such a
+post-step. Ticks without a post-step in their frame (the status screen's,
+where the scene does not step and the log holds the last flushed frame's
+units) are counted, not judged. Full route: 11,271 live post-steps, 1,302
+reported (the opening, with the seven equipment nodes listed in every one),
+428 ticks not judged.
+
+Measured (full route, the player step): 08: 11 units drawn in both, B and
+the rig lanes compared for the 3 world owners (the player stands elsewhere
+at that tick); 10: 10, all compared, camera exact with all 16 owners (the
+door, the truck, the player and its seven equipment nodes) equal in bytes,
+clip and position rows; 11: 9 (1 compared); 12: 8 (0); 13: 16 (8, the world
+owners); 14: 8, all compared, camera exact with all 16 owners equal (the
+player and its equipment drawn, the rest culled as in the capture). In 10
+and 14 the player and all seven equipment nodes stand at the snapshot's
+point with its pose. A scratch mutation of the tick log (the player's pose,
+point or rows, and one equipment node's pose, in 10 and 14; an equipment
+unit in a reported tick; a live post-step without the player's unit) fails
+each of these assertions.
 
 ### The drop shadow (`check_shadow`, census L29 / L29b; tools/level_smoke_shadow.py)
 
@@ -1053,8 +1090,9 @@ never silently skipped. What removes each:
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
 | check_indicator_children | the terminal child's matrix after the elevator scan (9,938 ticks skipped and counted) | 0x827E6C, the terminal's copy of its node matrix into the child's slot, is not bound: the terminal's pose is still the legacy elevator's | the terminal owner's node on original slots (CENSUS_UNVERIFIED.md) |
 | check_owner_units | the whole lighting rows (compared for 0 units; the colour matrix and the rig lanes are compared) | the point-light slots' sway follows rand() (001D7C30), and the port's rand() order is not yet the original's | the RNG order audit |
+| check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
-| check_shadow | 1,302 post-steps during the opening are reported, not drawn | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
+| check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
 
 Not compared at all: the sounds (WP-14), the pixels (the renderer compares
 by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`),

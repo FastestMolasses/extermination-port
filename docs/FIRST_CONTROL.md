@@ -657,8 +657,11 @@ the captures):
   +214 during and after the player stage; the next stage's 0015BA50 moves
   it to +308.
 - **Area load.** `player_states_reset()` runs in the scene bindings'
-  w_001AFCA0 at 001AF5C0's position (L01). It writes 0015C420's +280 =
-  (0, -13.8, 0, 1), +4 = 1, +5 = 0, +204 = 1.0 and +31B = -1. Then
+  w_001AFCA0 at 001AF5C0's position (L01), then 001AF5C0 itself over the
+  record (em_slg_001AF5C0, since the player step: +0x02 bit 0x20, +0x60..,
+  +0x80.. = 1.0, +0x94 = -1, +0x96 = 0x3D) and `player_states_spawn_values()`:
+  0015C420's +280 = (0, -13.8, 0, 1), +4 = 1, +5 = 0, +204 = 1.0 and
+  +31B = -1. Then
   em_player_stage_live_bind attaches the record pose (`player_pose_attach`):
   0015C420's pose half (+C = 21, +40 = the default bank, +60 = 1.0, the
   +110 node words, +20C = D_00248A00[+235] = 0, bone_init_default_2 and
