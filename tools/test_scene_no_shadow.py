@@ -161,6 +161,9 @@ REACHERS = {
                                           "closure binder (Boxes step)",
         "game/em_area11_roger.c": "001C64F0 on Roger's record (em_player_stage_anim_advance, census L22): "
                                   "the stage globals pointer the stage workers run with",
+        "game/em_area01_sys.c": "001A8840's read (AREA01 level-2 lane, not bound): the module reads original "
+                                "memory through its own EE view; the AREA01 binding (phase 3) maps that view "
+                                "onto the canonical byte",
     },
     0x00810771: {
         "game/em_scene_bindings.c": "0015C160 (w_0015C160, census L29): the shadow gate's read of event "
