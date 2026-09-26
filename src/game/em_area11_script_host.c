@@ -10,6 +10,7 @@
 
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
+#include "game/em_area11_door.h"
 #include "game/em_cinematic_playback.h"
 #include "game/em_pad_actuator.h"
 #include "game/em_scene_bindings.h"
@@ -23,8 +24,9 @@
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
 #include "game/em_script_host_workers.h"
+#include "game/em_sfx.h"
 
-enum { OWNERS = 4 };
+enum { OWNERS = 6 };
 
 typedef struct {
     EmActor *actor;          /* the script owner's pool record */
@@ -38,6 +40,11 @@ static struct {
     EmSceneState *scene;
     EmArea11Scripts images;
     int images_loaded, images_tried;
+    /* The ELF's ordinary-door program 0x24DBC0..0x24DF80 (entry 0x24DE40;
+     * tools/export_door_program.py), which 001BBE40 patches in place before
+     * each start (census L18). */
+    EmScriptImage door_program;
+    int door_program_tried;
     Owner owner[OWNERS];
     EmAreaScriptWorkers workers;
     /* The four-lane views (see the header) and the bytes with no port
@@ -355,18 +362,39 @@ static int w_0022EC30(void *ctx, uint32_t camera)
     return 0;
 }
 
-/* The owner's 001C67E0 (op0B sub 4, op15): Roger's record. */
+static Owner *owner_at(uint32_t actor)
+{
+    for (unsigned i = 0; i < OWNERS; ++i)
+        if (H.owner[i].actor && em_actor_pool_address(H.pool, H.owner[i].actor) == actor) return &H.owner[i];
+    return NULL;
+}
+
+/* The owner's 001C67E0 (op0B subs 0 / 4 / 6, op15): Roger's record, or the
+ * fence door's (census L18: its program's 0x24DC40, the door clip over the
+ * door's own bank). */
 static int w_001C67E0(void *ctx, uint32_t actor, int16_t clip, float a, float b)
 {
     (void)ctx;
-    Owner *o = NULL;
-    for (unsigned i = 0; i < OWNERS; ++i)
-        if (H.owner[i].actor && em_actor_pool_address(H.pool, H.owner[i].actor) == actor) o = &H.owner[i];
-    if (!o || o->actor->callback != 0x008237E0u) return report("001C67E0 on an owner other than Roger");
+    Owner *o = owner_at(actor);
+    if (!o || (o->actor->callback != 0x008237E0u && o->actor->callback != EM_AREA11_DOOR_CALLBACK))
+        return report("001C67E0 on an owner other than Roger or the fence door");
     if (view_store() < 0) return -1;
-    int rc = em_area11_roger_clip_init(o->actor, clip, a, b);
+    int rc = o->actor->callback == EM_AREA11_DOOR_CALLBACK ? em_area11_door_clip_init(o->actor, clip, a, b)
+                                                           : em_area11_roger_clip_init(o->actor, clip, a, b);
     view_load();
     return rc;
+}
+
+/* 001FBD50(owner, id, 0, radius) (op0B sub 6): the positional cue at the
+ * owner's +0xB0 (the play path every live owner's 001FBD50 takes). The
+ * flat cue (a2 != 0) is not reached by the admitted scripts. */
+static int w_001FBD50(void *ctx, uint32_t actor, int32_t id, int32_t a2, float radius)
+{
+    (void)ctx;
+    Owner *o = owner_at(actor);
+    if (!o || a2 != 0 || id < 0 || id > 0xFFFF) return report("001FBD50 other than an owner's positional cue");
+    em_sfx_play_at((unsigned)id, o->actor->pos, radius);
+    return 0;
 }
 
 /* 001B0250: the scene bindings' (D_008106C8 from the spawn record). */
@@ -629,6 +657,8 @@ static void workers_bind(void)
     /* Census L21: the director's beats 1 and 2 (op0D sub 2). */
     H.workers.w_0018CBD0 = w_0018CBD0;
     H.workers.w_0018D7B0 = w_0018D7B0;
+    /* Census L18: the fence door's program (op0B sub 6). */
+    H.workers.w_001FBD50 = w_001FBD50;
 }
 
 static void world_bind(Owner *o)
@@ -747,6 +777,7 @@ static Owner *owner_for(EmActor *actor, int create)
 void em_area11_script_host_reset(EmActorPool *pool, EmSceneState *scene)
 {
     if (H.images_loaded) em_area11_scripts_free(&H.images);
+    em_script_image_free(&H.door_program);
     memset(&H, 0, sizeof H);
     H.pool = pool;
     H.scene = scene;
@@ -765,6 +796,21 @@ static int images_ready(void)
                       " (export them with tools/export_area11_scripts.py and tools/export_roger_resources.py)");
     H.images_loaded = 1;
     return 0;
+}
+
+EmScriptImage *em_area11_script_host_door_program(void)
+{
+    if (H.door_program.bytes) return &H.door_program;
+    if (H.door_program_tried) return NULL;
+    H.door_program_tried = 1;
+    if (!em_script_image_load(&H.door_program, EM_AREA11_DOOR_PROGRAM_PATH) ||
+        H.door_program.base != EM_AREA11_DOOR_PROGRAM_BASE || H.door_program.entry != 0x0024DE40u ||
+        H.door_program.length != EM_AREA11_DOOR_PROGRAM_END - EM_AREA11_DOOR_PROGRAM_BASE) {
+        em_script_image_free(&H.door_program);
+        report("no valid " EM_AREA11_DOOR_PROGRAM_PATH " (tools/export_door_program.py)");
+        return NULL;
+    }
+    return &H.door_program;
 }
 
 /* The D2 bytes a script's op06 (001BA080) and op07 subs 5 / 6 (001B82D0)
@@ -797,8 +843,13 @@ static int slots_canonical(EmScriptImage *image, uint32_t entry)
 int em_area11_script_host_start(EmActor *actor, uint32_t entry)
 {
     if (!actor || !H.pool || !H.scene) return report("001BA1A0 before the AREA11 build");
-    if (images_ready() < 0) return -1;
-    EmScriptImage *image = em_area11_scripts_image(&H.images, entry);
+    EmScriptImage *image;
+    if (entry >= EM_AREA11_DOOR_PROGRAM_BASE && entry < EM_AREA11_DOOR_PROGRAM_END) {
+        image = em_area11_script_host_door_program();
+    } else {
+        if (images_ready() < 0) return -1;
+        image = em_area11_scripts_image(&H.images, entry);
+    }
     Owner *o = owner_for(actor, 1);
     if (!image || !o) return report("001BA1A0: no image holds the entry, or no owner slot");
     if (slots_canonical(image, entry) < 0) return -1;

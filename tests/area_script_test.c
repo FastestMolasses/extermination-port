@@ -106,6 +106,7 @@ W(w_001B1470)(void *c, float a, float *r) { (void)c; FAILS(0x1B1470); *r = a; re
 W(w_00182BF0)(void *c, uint32_t a, int32_t *r) { (void)c; (void)a; FAILS(0x182BF0); *r = 0; return 0; }
 W(w_001B0C00)(void *c, int a) { (void)c; assert(a == 8); FAILS(0x1B0C00); fx.fade = 2; return 0; }
 W(w_001B6250)(void *c, uint32_t a) { (void)c; assert(a == EM_AREA_SCRIPT_D_00810E40); FAILS(0x1B6250); return 0; }
+W(w_001FBD50)(void *c, uint32_t a, int32_t id, int32_t f, float r) { (void)c; (void)a; (void)id; assert(f == 0 && r == 300.0f); FAILS(0x1FBD50); return 0; }
 
 static EmAreaScriptWorkers all_workers(void)
 {
@@ -118,7 +119,7 @@ static EmAreaScriptWorkers all_workers(void)
     B(c_record); B(w_001B7D60); B(w_001C67E0); B(w_001B0250); B(w_0021B9A0);
     B(w_001D2830); B(w_0018CBD0); B(w_0018D7B0); B(w_001B0460); B(w_001FBC50);
     B(w_001FABB0); B(w_001AED80); B(w_001AEDB0); B(w_001B1380); B(w_001B1470);
-    B(w_00182BF0); B(w_001B0C00); B(w_001B6250);
+    B(w_00182BF0); B(w_001B0C00); B(w_001B6250); B(w_001FBD50);
 #undef B
     return k;
 }

@@ -105,6 +105,13 @@ int32_t *em_area11_boxes_carry31F0(void);
  * for a record that is not a box. */
 int em_area11_boxes_001AF800(void *ctx, EmActor *actor);
 
+/* The fence door 001BC350's 001B0EA0 (called by 001B0F60 in its 001BBDA0;
+ * census L18, em_area11_door.c): the boxes' allocation over the exported
+ * bank and the shared bone-slot stack. Writes the record's +0x04 (3 when the
+ * bone cap refused), +0x09 and +0x0C; *ret = the original result (1 refused,
+ * 0 allocated). 0, or -1 (reported). */
+int em_area11_boxes_door_001B0EA0(EmActor *actor, int32_t *ret);
+
 /* The actor draw chain: the boxes whose +0x4C ran in their last owner call.
  * em_area11_boxes_draw returns 1 and the mesh, palette and bone count of
  * draw i, or 0. */

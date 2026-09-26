@@ -25,7 +25,8 @@ int em_interaction_runtime_init(EmInteractionRuntime *runtime, EmInteractionFram
 int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owner)
 {
     if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||
-        runtime->frame->selector || runtime->frame->ready || runtime->frame->player_ready)
+        runtime->frame->selector || runtime->frame->ready || runtime->frame->player_ready ||
+        runtime->acquired)
         return 0;
     runtime->owner = owner;
     runtime->frame->selector = 3;
@@ -35,7 +36,7 @@ int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owne
 int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner)
 {
     if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||
-        !runtime->frame->selector || runtime->frame->player_ready)
+        !runtime->frame->selector || runtime->frame->player_ready || runtime->acquired)
         return 0;
     runtime->owner = owner;
     return 1;
@@ -131,7 +132,7 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
         return 0;
     EmInteractionFrame *frame = runtime->frame;
     EmInteractionRuntimeHooks *hooks = &runtime->hooks;
-    if (!frame->player_ready) {
+    if (!frame->player_ready && !runtime->acquired) {
         if (!frame->selector || !hooks->acquire_player)
             return fault(runtime);
         int acquired = hooks->acquire_player(hooks->context);
@@ -140,14 +141,19 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
         if (!acquired)
             return 0;
         frame->player_ready = 1;
+        runtime->acquired = 1;
         /*0015B130 acquires after the ordinary advance on this callback.
          * Advancing the newly acquired default clip here would add a tick. */
         return 1;
     }
-    if (frame->player_ready != 1 && frame->player_ready != 2)
+    /* 0015BA50's +4 == 4 runs 00183090, which reads 3B8F only for == 2;
+     * with 3B8F cleared under the held player (001AFCF0) it is the plain
+     * tick, and 0015B530 releases on the cleared 3B8D below. */
+    const unsigned ready = frame->player_ready ? frame->player_ready : 1;
+    if (ready != 1 && ready != 2)
         return fault(runtime);
     int palette_result;
-    if (frame->player_ready == 2) {
+    if (ready == 2) {
         /* The face attachment has its own required update before body
          * animation. Absence of that worker cannot fall back to ordinary idle. */
         if (!runtime->cinematic_player_worker)
@@ -162,7 +168,7 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
         return fault(runtime);
     if (palette_result < 0 || palette_result > 1)
         return fault(runtime);
-    if (frame->player_ready == 1 && runtime->animation.active && runtime->pose_worker &&
+    if (ready == 1 && runtime->animation.active && runtime->pose_worker &&
         runtime->pose_worker(hooks->context, &runtime->animation, palette_result,
                              runtime->local_palette) != 1)
         return fault(runtime);
@@ -173,6 +179,7 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
         if (!hooks->release_player || hooks->release_player(hooks->context) != 1)
             return fault(runtime);
         frame->player_ready = 0;
+        runtime->acquired = 0;
         em_interaction_animation_clear(&runtime->animation);
         runtime->owner = NULL;
     }

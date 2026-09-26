@@ -1,8 +1,6 @@
 #include "game/em_opening_control_test.h"
 #include "em_input.h"
-#include "game/em_door.h"
 #include "game/em_frame.h"
-#include "game/em_hud.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_camera_live.h"
@@ -25,9 +23,6 @@ static struct {
     int census;
     /* EM_AREA_CHANGE_TEST: after first control, 001B0C60(0x0B, 0, 0) (S12a). */
     int area_change, area_frames, area_last_frame;
-    /* EM_ROOM_MOVE_TEST: after first control, the AREA11 door commits a
-     * room move (S12b). */
-    int room_move, room_side, room_frames, room_placed;
 } test;
 
 static void fail(const char *reason);
@@ -110,73 +105,6 @@ static void area_change_before_frame(void)
     em_frame_request_quit();
 }
 
-static void fail(const char *reason);
-
-/* EM_ROOM_MOVE_TEST (S12b): at first control the AREA11 door (its original
- * 001BC350 is bound to the manifest door, em_door.c) is put into its commit
- * state on side 0, as its open script leaves it; its next tick runs the
- * 001BC240/001BC150 commit: 001AEDE0(4, 0), B8 = 2, B7 = the row's side-0
- * byte (entry 2). The world keeps ticking under the fade; at D_0028A9A0 == 2
- * the 001AD010 core sets D_00810702 = 2 and +B = 4; the next tick 0x1AE040
- * state 4 re-places the player with 001B07C0(1) and falls into state 1.
- * Checked here at the end: the player at spawn entry 2 (position and heading
- * bits of the exported record), no walk-out (entry 2's +0x14 byte is 0) and
- * the movement lock released (EM_ROOM_MOVE_TEST=side1: side 1, entry 1,
- * whose +0x14 byte 1 arms the walk-out; checked when it has released the
- * lock, the position then being the walk-out's end, so only the heading), the door closed by 001BC290, the request block
- * clear, one weather node and one area-title node (the old ones left, their
- * successors were spawned by state 4) with the card showing again, and no
- * fault. The tick-by-tick sequence against the original route capture and
- * the executed 001AD010/0018AB00 are tools/test_room_move_reference.py
- * (EM_AREA_CHANGE_LOG). */
-static void room_move_after_frame(void)
-{
-    EmSceneState *s = em_scene_state();
-    if (em_scene_faulted(s)) {fail("room move: the scene coordinator faulted");return;}
-    if (++test.room_frames > 400) {fail("room move did not complete within 400 frames");return;}
-    if (!test.room_placed) {
-        if (s->req[EM_SCENE_REQ_B8] != 0 || s->d810702 != (test.room_side ? 1 : 2)) return;
-        test.room_placed = test.room_frames;
-    }
-    if (em_frame_transition()->substate != 0 || em_door_movement_locked()) return;
-    EmSpawnTable table;
-    if (em_spawn_table_load(&table, EM_SPAWN_TABLE_PATH) != 0) {fail("spawn table missing");return;}
-    const uint8_t *t11 = em_spawn_table_read(&table, EM_SPAWN_TABLE_ADDRESS + 4u * 0x0B, 4);
-    uint32_t rooms = t11 ? (uint32_t)(t11[0] | t11[1] << 8 | t11[2] << 16 | (uint32_t)t11[3] << 24) : 0;
-    const uint8_t *r0 = em_spawn_table_read(&table, rooms, 4);
-    uint32_t entries = r0 ? (uint32_t)(r0[0] | r0[1] << 8 | r0[2] << 16 | (uint32_t)r0[3] << 24) : 0;
-    unsigned entry = test.room_side ? 1u : 2u;
-    const uint8_t *rec = em_spawn_table_read(&table, entries + entry * EM_SPAWN_RECORD_SIZE, 0x18);
-    float want[4] = {0};
-    uint8_t walkout = rec ? rec[0x14] : 0xFF;
-    if (rec) memcpy(want, rec, sizeof want);
-    em_spawn_table_free(&table);
-    int weather = em_scene_bindings_pool_count(0x001E55F0u);
-    int title = em_scene_bindings_pool_count(0x001C5930u);
-    int placed = test.room_side ? walkout == 1
-                                : walkout == 0 && memcmp(&g.pos[0], &want[0], 4) == 0 &&
-                                      memcmp(&g.pos[2], &want[2], 4) == 0;
-    int ok = rec && placed && memcmp(&g.yaw, &want[3], 4) == 0 &&
-             s->d810700 == 0x0B && s->d810701 == 0 && s->d810702 == entry &&
-             s->req[EM_SCENE_REQ_B7] == 0 && s->req[EM_SCENE_REQ_B8] == 0 &&
-             s->spad3B8D == 0 && em_door_state(0) == EM_DOOR_CLOSED &&
-             !em_door_movement_locked() && weather == 1 && title == 1 &&
-             em_hud_area_title_active();
-    if (!ok) {
-        fprintf(stderr, "room move test: area=%02x/%u/%u B7=%u B8=%u pos=(%.6f,%.6f,%.6f) yaw=%.8f "
-                "door=%d locked=%d weather=%d title=%d card=%d walkout=%u\n", s->d810700, s->d810701,
-                s->d810702, s->req[EM_SCENE_REQ_B7], s->req[EM_SCENE_REQ_B8], g.pos[0], g.pos[1],
-                g.pos[2], g.yaw, em_door_state(0), em_door_movement_locked(), weather, title,
-                em_hud_area_title_active(), walkout);
-        fail("room move did not re-place the player at the side's spawn entry");return;
-    }
-    fprintf(stderr, "room move test: PASS placed_after=%d frames fade_clear_after=%d frames "
-            "placed=(%.6f,%.6f,%.6f) yaw=%.8f weather=%d title=%d\n", test.room_placed,
-            test.room_frames, g.pos[0], g.pos[1], g.pos[2], g.yaw, weather, title);
-    test.phase = 4;
-    em_frame_request_quit();
-}
-
 static void key(int down)
 {
     EmEvent event={0};
@@ -203,8 +131,6 @@ void em_opening_control_test_begin(void)
     const char *value=getenv("EM_STARTUP_TEST");
     test.active=value && strcmp(value,"newgame-control")==0;
     test.area_change = getenv("EM_AREA_CHANGE_TEST") != NULL;
-    test.room_move = getenv("EM_ROOM_MOVE_TEST") != NULL;
-    test.room_side = test.room_move && strcmp(getenv("EM_ROOM_MOVE_TEST"), "side1") == 0;
     const char *gait = getenv("EM_CONTROL_LOW_GAIT");
     if (gait && (strcmp(gait, "1") == 0 || strcmp(gait, "2") == 0))
         test.low_gait = atoi(gait);
@@ -250,9 +176,7 @@ void em_opening_control_test_after_frame(void)
         if (!isfinite(g.pos[axis]) || !isfinite(g.cam.eye[axis]) ||
             !isfinite(g.cam.tgt[axis])) {fail("nonfinite player/camera");return;}
     const EmFrameInput *input=em_frame_input();
-    /* Phase 12 (the room move) runs the legacy door sequence, which holds
-     * the player pose as a named legacy source (em_player.c, WP-7). */
-    if (test.phase >= 2 && test.phase != 4 && test.phase != 12) {
+    if (test.phase >= 2 && test.phase != 4) {
         unsigned clip, flags;
         float remaining;
         int transition;
@@ -344,15 +268,6 @@ void em_opening_control_test_after_frame(void)
             fprintf(stderr, "area change test: 001B0C60(0x0B, 0, 0) posted at first control\n");
             return;
         }
-        if (test.room_move) {
-            if (em_door_room_move_request_test(test.room_side) < 0) {
-                fail("no door bound to an original room move");return;
-            }
-            test.phase = 12;
-            fprintf(stderr, "room move test: the AREA11 door commits on side %d at first control\n",
-                    test.room_side);
-            return;
-        }
         if (test.low_gait || getenv("EM_CONTROL_STOP_TEST") || getenv("EM_CONTROL_REENTRY_TEST")) {
             test.phase=5;
             fprintf(stderr,"newgame control test: released W; validating original run-stop\n");
@@ -361,8 +276,6 @@ void em_opening_control_test_after_frame(void)
         if (g.capture_path) em_gfx_request_capture(em_frame_gfx(),g.capture_path);
         test.phase=4;
         em_frame_request_quit(); /* end_frame still services the queued capture */
-    } else if (test.phase==12) {
-        room_move_after_frame();
     } else if (test.phase==5) {
         ++test.stop_ticks;
         /* 0017C030 mode 5: the foot-placement stop 0017B910 entered. */

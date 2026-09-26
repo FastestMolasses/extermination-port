@@ -630,6 +630,69 @@ def check_elevator(ticks, run, state):
           f'eye/target; {follow})')
 
 
+# ----------------------------------------------------- fence door (census L18)
+
+def door_view_port(tick):
+    rec = tick.get('doorrec')
+    return (rec[0], rec[1]) if rec else None
+
+
+def check_fence_door(ticks, run, state):
+    """Route beat 09 from the Use scan (f309: 00184BA0 armed the door and its
+    001BBE40 ran in the same frame) through the room move to the capture's
+    end, row for row: spad, camera byte, letterbox, message and
+    power (compare_window); the player's X / Z, Y and heading from the scan
+    (001BBE40's 00182F90 alignment and +0xC4, then 001B07C0(1)'s entry 2);
+    the player record's +5, +1F0, +1F1, clip and clock; the door record's
+    +0x00..+0x0F and script block +0x1F0..+0x1FF (the route rows' door_r0
+    "h" and "s1F0": phases 3, 4, 5 and 0, the program's pc, phase and skip
+    byte, the anim flags +0x1FE); then, through tools/test_room_move_reference.py,
+    B5..B9 and the fade block from the B8 = 2 row, the re-place, 001AD010
+    against the executed original, the nine state-4 calls and the weather /
+    title nodes; and the follow camera from the re-place to the capture's
+    end (f532) row for row."""
+    import test_room_move_reference as trm
+    i0, rows, f0 = scan_alignment(ticks, run, 'fence_door', '09_fence_door', state.get('cursor', 0))
+    r = release_row(rows, f0)
+    count = len(rows) - f0    # to the capture's end, 60 rows after the re-place
+    compare_window(ticks, i0, rows, f0, count, 'fence_door', req=True)
+    # The player's clock is compared from the program's clip 0x45 on (f313):
+    # before it the idle clip's clock counts from the press stance the
+    # navigation reached, which is test input.
+    scripted = next(k for k in range(count) if rows[f0 + k]['clip'] == 0x45)
+    for k in range(count):
+        t, row = ticks[i0 + k], rows[f0 + k]
+        where = f'fence_door row f{row["f"]} (port tick {t["tick"]})'
+        p = port_view(ticks, i0 + k)
+        assert p['pos'] == [round(v, 5) for v in row['pos']] or \
+            (p['pos'][0], p['pos'][2]) == (row['pos'][0], row['pos'][2]) and abs(p['pos'][1] - row['pos'][1]) <= 1e-5, \
+            (where, 'player position', p['pos'], row['pos'])
+        assert p['yaw'] == round(row['yaw'], 5), (where, 'heading', p['yaw'], row['yaw'])
+        pl = t['player']
+        got = (pl[0], pl[1], pl[2], pl[3], round(f32(pl[4]), 5) if k >= scripted else None)
+        want = (row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['clock'] if k >= scripted else None)
+        assert got == want, (where, 'player +5/+1F0/+1F1/clip/clock', got, want)
+        door = door_view_port(t)
+        assert door is not None, (where, 'no door record in the tick log')
+        assert door == (row['door_r0']['h'], row['door_r0']['s1F0']), \
+            (where, 'door +0x00..+0x0F / +0x1F0..+0x1FF', door, row['door_r0']['h'], row['door_r0']['s1F0'])
+    elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    sub = ticks[i0:]
+    c, place, span, f_commit, f_place = trm.check_capture_sequence(sub, rows)
+    s4_tick, _ = trm.check_state4(elf, sub, c, place)
+    trm.check_nodes_and_door(sub, c, place)
+    follow = check_follow_after_release(ticks, i0, rows, f0, 'fence_door', 'exact')
+    state['cursor'] = i0 + count
+    print(f'fence_door: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 09 '
+          f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: the scan and 001BBE40 at f{rows[f0]["f"]} (the '
+          f'alignment and heading), the program 0x24DE40 (clip 0x45, door clip 2, the 90-tick wait), '
+          f'001BC150 at f{f_commit}, the re-place at f{f_place} and the {count - (r - f0)} rows after it, in spad, camera '
+          f'byte, letterbox, message, power, B0/B1, placement, heading, the player record and the door record '
+          f'+0x00..+0x0F / +0x1F0..+0x1FF; the room move: {span} rows of B5..B9 and the fade block from the '
+          f'B8 = 2 row, 001AD010 against the executed original, state 4 at tick {s4_tick} with its nine calls, '
+          f'one weather and one title node before and after; {follow})')
+
+
 # ----------------------------------------------------- boxes (census L25)
 
 # Route 05's two climbs: the first row with +5 = 2 (f175 onto crate r4
@@ -1531,7 +1594,7 @@ PHASES = [
     ('slide', check_slide),
     ('truck_preview', check_truck_preview),
     ('truck_crossing', check_truck_crossing),
-    ('fence_door', None),
+    ('fence_door', check_fence_door),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
@@ -1590,7 +1653,7 @@ def check_render_context(ticks, state):
     from test_player_slide_reference import RETURN, read_elf
     ref = rctx_reference()
     first = state['first_control']
-    gameplay, lagged, moved, prev = 0, 0, 0, None
+    gameplay, lagged, moved, reseats, prev = 0, 0, 0, 0, None
     samples = []
     for i in range(first, len(ticks)):
         t, r = ticks[i], rctx(ticks[i])
@@ -1610,7 +1673,13 @@ def check_render_context(ticks, state):
             gameplay += 1
             if gameplay % 200 == 1:
                 samples.append(r)
-        if prev is not None and r['v'] != prev['v']:
+        if prev is not None and r['v'] != prev['v'] and bytes.fromhex(t['pre'])[3] == 4:
+            # 0x1AE040 state 4 (the room move) re-seats the camera with
+            # 0018D7B0 / 0018C0D0 (which builds D_00810610) and falls into
+            # state 1 in the same tick: that tick's frame head projects the
+            # re-seated view, not the previous tick's.
+            reseats += 1
+        elif prev is not None and r['v'] != prev['v']:
             assert r['v'] == prev['cam610'], ('render context', 'port tick', t['tick'],
                                               'V is not the previous tick\'s D_00810610')
             lagged += 1
@@ -1636,7 +1705,8 @@ def check_render_context(ticks, state):
     print(f'render context: PASS ({gameplay} gameplay ticks hold the route snapshots\' flag words, fog block '
           f'+0xA0..+0xFF, D_00275690/94, widths and +0x2450 tail; {lagged} frame heads projected the previous '
           f'tick\'s D_00810610 ({moved} of them with the camera moving that frame: the original\'s one-frame '
-          f'view lag); {len(samples)} sampled ticks\' K and 001CD370(0) projection equal the original 001D2960)')
+          f'view lag{f"; {reseats} state-4 re-seat tick(s) project the view 0018C0D0 built in the same tick" if reseats else ""}); '
+          f'{len(samples)} sampled ticks\' K and 001CD370(0) projection equal the original 001D2960)')
 
 
 # ------------------------------------ effects, head sprites, equipment (L26..L39)
@@ -1857,7 +1927,7 @@ def main():
     for name in not_live:
         status[name] = 'NOT-LIVE driven' if name in driven else 'NOT-LIVE'
     for name in side_named:
-        status.setdefault(name, 'live (its own run: make test-level-smoke-side)')
+        status.setdefault(name, f'live (its own run: EM_LEVEL_SMOKE_UNTIL={name}, make test-level-smoke-side)')
     beats = '; '.join(f'{beat} ' + ', '.join(f'{p} {status.get(p, "not reached")}' for p in phases)
                       for beat, phases in BEATS)
     print(f'level smoke: route beats: {beats}')

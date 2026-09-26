@@ -4,7 +4,6 @@
 #define EM_DOOR_TRANSIT_H
 
 #include "game/em_door_original.h"
-#include "game/em_interaction_scan.h"
 
 typedef struct {
     uint32_t script_entry;
@@ -13,10 +12,24 @@ typedef struct {
     int locked;
 } EmDoorTransitPlan;
 
-/* Pure geometry/patch selection for a finite normalized owner yaw. */
+/* 001BBE40's callees for its geometry. Each returns 0, or -1 (a fault):
+ *   bearing  001B1240(origin, x, z): wrap(atan2(x - origin.x, z - origin.z))
+ *   wrap     001B1470(x)
+ *   sine     0011E2A8, cosine 0011DE90 (the SDK sinf / cosf).
+ * The arithmetic between them is the EE COP1 model (em_ee_float.h). */
+typedef struct {
+    void *context;
+    int (*bearing)(void *, const float origin[3], float x, float z, float *result);
+    int (*wrap)(void *, float x, float *result);
+    int (*sine)(void *, float x, float *result);
+    int (*cosine)(void *, float x, float *result);
+} EmDoorTransitMath;
+
+/* The geometry/patch selection for a finite owner yaw (|yaw| <= pi). 1, or 0
+ * (invalid input or a failed worker). */
 int em_door_transit_prepare(EmDoorTransitPlan *, const float origin[3], float yaw,
     const float player_position[3], const uint16_t sounds[2], int locked,
-    const EmInteractionMath *math);
+    const EmDoorTransitMath *math);
 
 typedef struct {
     void *context;
@@ -34,7 +47,7 @@ typedef struct {
  * finished result does not change the kickoff return value. */
 int em_door_transit_kickoff(EmDoorOriginal *, float yaw,
     const float player_position[3], const uint16_t sounds[2], int locked,
-    const EmInteractionMath *, const EmDoorTransitHooks *);
+    const EmDoorTransitMath *, const EmDoorTransitHooks *);
 
 typedef struct {
     uint8_t area, sub_area, entry, kind; /*D8106B5..B8*/

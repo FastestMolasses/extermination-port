@@ -298,11 +298,19 @@ stay the original's:
 | Stand-in | Owner it stands for | Lane |
 |---|---|---|
 | `em_examine_camera` | an examine cue's op00 shot | (no AREA11 route beat) |
-| `camera_door_cinematic` | the fence door's op0D sub 5 / locked look | L18 |
 | `camera_mode1_aim` + 0018D7B0(0) | the aim camera 00197D20 / 00197870 | L28 |
 
 The +4 == 3 timeline is the opening runtime's track while it owns the
 camera, and otherwise the AREA11 script host's 0022EEF0 (census L22).
+
+Since census L18 the fence door's camera is its program's op0D sub 5 on the
+AREA11 script host (0018CBD0 with -20, 0018D7B0(5) and (1)) and 0x1AE040
+state 4's re-seat (D_008101E4 = 0 stored to this block's +0x04 at its
+0018D7B0 call, then 0018D7B0(1) / 0018C0D0(1)); `camera_door_cinematic` no
+longer stands in for AREA11 (it stays in `camera_update` for the scenes
+without the live camera). Route 09's scripted camera and the follow camera
+from the re-place equal the capture row for row (LEVEL_SMOKE.md
+"fence_door").
 
 ## 7. Retired in this step
 

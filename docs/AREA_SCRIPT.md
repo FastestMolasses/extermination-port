@@ -34,7 +34,8 @@ section 6).
 - Translated here (decomp C, checked against the original instructions by the
   oracle): 001B8FC0 op00 kinds 0–7, 9, 10 (sine ease on kind 1); 001B94F0 op01
   kinds 0–7, 9, 10; 001B9BA0 op02; 001B9C10 op04; 001BA080 op06; 001B99F0 op09
-  (record callback); 001B9A00 op0A subs 0–7; 001B8020 op0B sub4; 001B7B30 op0D
+  (record callback); 001B9A00 op0A subs 0–7; 001B8020 op0B subs 0, 4 and 6 (sub 6's
+  001FBD50 cue falls into sub 0's clip init; census L18); 001B7B30 op0D
   subs 1–8; 001B7A30 op0F; 001B7840 op10; 001B6FA0 op15; 001B6E40 op16;
   001B6BF0 op18; 001B81D0 (face attach, inline, with 001CA700/001D06D0 workers).
 - Also translated here, from the original instructions (0011E2A8, 0011D770 and
@@ -44,7 +45,7 @@ section 6).
 - **Not admitted (fault):** opcodes 03, 05, 08, 0E, 11–14, 17, 19, 1A; op00/op01
   kind 8 (settle/orbit: 0018C6A0/0018C4B0/0011DE90; `em_pickup_camera_settle`
   is the module to delegate op00 kind 8 to when a script needs it); op0A sub8
-  (001798D0); op0B subs other than 4; out-of-range kinds. Of the AREA11
+  (001798D0); op0B subs other than 0, 4 and 6; out-of-range kinds. Of the AREA11
   first-visit scripts only the pickup grab programs use them (op0E sub1 and
   op00 kind 8; the battery runs 0x266620, section 2). Those programs stay on
   `em_pickup_program`, which translates both. op14 (001BAC00 spawn) is used only
@@ -351,6 +352,24 @@ the director's 0x8294C0, route 10 f1094) does not claim it again
 0x70003B8D, not the owner. `em_area11_script_host_director_quads` hands the
 director its three quads. Only the director verification run reaches these
 today (the director is not bound until WP-8b).
+
+**Census L18 (the fence door 001BC350, 2026-09-25; DOOR_ORIGINAL.md
+"Binding").** The host resolves starts in 0x24DBC0..0x24DF80 to the ELF's
+ordinary-door program (`door_original/program.emsc`,
+`em_area11_script_host_door_program`), the image 001BBE40 patches before
+each start; it is dropped at every area build with the overlay images (the
+kickoff rewrites every patched word). Workers added: op0B's 001C67E0 on the
+door → `em_area11_door_clip_init` (the door's source bank, blend and start
+0), and op0B sub 6's 001FBD50(owner, id, 0, 300) → `em_sfx_play_at` at the
+owner's +0xB0 (a flat cue, a2 != 0, faults). The door's takeover is the
+scan's claim (00184BA0, the door record as token). 0x1AE040 state 4's
+001AFCF0 clears 3B8D and 3B8F under the held player: the shared runtime
+keeps the hold (`EmInteractionRuntime.acquired`, the original's +4 == 4) and
+its next stage runs 00183090 and releases on the cleared 3B8D (0015BA50 /
+0015B530 / 00182DF0). `test_area_script_reference.py` replays 0x24DE40 over
+route 09 (the door record 0x7A70B0, the patched words from the beat's end
+snapshot) with no difference, and its synthetic 'owner clip' script covers
+op0B subs 6 and 0 against the executed 001B8020.
 
 Still NULL (fail-stop): op01 kinds 3 / 5's D_0024D8F0, op0D sub 1 (001B0460),
 op0F's stream handshake bytes (Roger's departure 0x828A10, not in the first

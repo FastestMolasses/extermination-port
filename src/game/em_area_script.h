@@ -173,6 +173,10 @@ typedef struct EmAreaScriptWorkers {
     /* 001B6BF0 (op18). */
     int (*w_001B0C00)(void *ctx, int a0);
     int (*w_001B6250)(void *ctx, uint32_t address);
+
+    /* 001B8020 (op0B) sub 6: 001FBD50(owner, id, a2, radius), the sound
+     * before the clip init (census L18: the door program's 0x24DC40). */
+    int (*w_001FBD50)(void *ctx, uint32_t actor, int32_t id, int32_t a2, float radius);
 } EmAreaScriptWorkers;
 
 struct EmAreaScript {

@@ -636,7 +636,7 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
 - WP-4: grate, elevator_tick and the examine terminal (landed 2026-09-23)
 - WP-5: em_hud pages, Found, and the status_runtime shadow (landed 2026-09-23: pages, Found, the hover cue and the interim hub deleted in AREA11; the fixtures' runtime-frame path remains)
 - WP-6: pickup_trigger_scan and the countdown (landed 2026-09-23, with the flat inventory add, the ammo queue and the interact-clip lock)
-- WP-7: em_door walk/goto
+- WP-7: em_door walk/goto (landed 2026-09-25 for AREA11, census L18: node #0 runs em_area11_door; the manifest door, em_door.c's S12b adapter and the AREA11 door camera are deleted; em_door stays for the roster-less scenes and the side-1 walk-out)
 - WP-8: em_panel_message, the opening's dialogue clock and em_hud_subtitle (landed 2026-09-23); WP-8b: the stream lanes and the IOP backend live, every stream stand-in deleted (landed 2026-09-25)
 - WP-9: Roger
 - WP-10: kCineBeats (landed 2026-09-25 with WP-8b: node #21 runs em_director_original; em_director.c and em_area11_flow.c deleted)
@@ -655,7 +655,7 @@ A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses 
 4. **Migrating shadows.** These must each be deleted in the step that moves them:
    - g.frame_selector (deleted in S11a)
    - em_hud s_menu_inhibit (deleted in S11b: B3 is canonical; interim writer at the player stage)
-   - em_door locks
+   - em_door locks (gone from AREA11 since census L18: the fence door's takeover is the shared runtime's)
    - em_status_runtime frame/queued
    - the host's recovery_lock versus EF
    - em_opening_runtime.c `s.cinematic_ready`, the private stand-in for spad 3B92 (deleted in S11b per D5, with the phase-0 `sh 3B84=0` at 0x1B8610 added and 3B92 in test_scene_no_shadow's WRITERS/BYTE_TOKEN)

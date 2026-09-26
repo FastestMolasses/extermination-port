@@ -303,7 +303,10 @@ typedef struct {
     uint8_t d275BD8; /* 001ADF50/001AD4E0 set 1 and wait for 0; 0x1AE040 states 1, 6 test it */
     uint8_t d275BDC; /* set to 1 by 001ADF00 */
     uint8_t d275BE0; /* 001ACEC0 +8=0 branch; set to 1 by 0x1AE040 state 2 r==2 */
-    uint8_t d8101E4; /* cleared by 0x1AE040 state 4 */
+    uint8_t d8101E4; /* 0x1AE040 state 4's store (0x1AE0BC): the frame core's view of
+                      * the camera block's +0x04, stored to its one storage
+                      * (g.cam.top_mode) at the next worker boundary, 0018D7B0
+                      * (em_scene_bindings.c); every reader reads g.cam.top_mode */
 
     /* Input in the ORIGINAL layout (step C, 001B57E0): the original halfword
      * values, not a remapped native mask. Design 3.2 pad map: START 0x800,

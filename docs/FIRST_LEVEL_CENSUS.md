@@ -662,6 +662,52 @@ the equipment models from the Roger export's D_0028A56C spans
 Result: live 573, verified-unbound 142, unverified 6, stand-in 3, missing 0,
 boundary 460.
 
+### 1.18 Update (2026-09-25, census L18: the fence door on its original owner)
+
+The fence door (roster record 0, callback 001BC350) runs on its original
+owner, `em_area11_door` (DOOR_ORIGINAL.md "Binding"): `em_door_original_tick`
+over the pool record, 001BBDA0's 001B0F60 with 001B0EA0's bone slots,
+001BBE40 (`em_door_transit`, now on the EE float model), the ELF program
+0x24DE40 on the AREA11 script host (op0B subs 6 / 0 newly admitted in
+em_area_script), 001BC150's room move, 001BC300's pose, publication
+(001B1B30) and draw. The Use scan publishes and selects it (00183EF0's
+class-5 branch, em_door_candidate). Side beat 09 is a live phase of the level
+smoke (the default run).
+
+- **Moved to live (10 rows):** 001BC350, 001BBDA0, 001BBE40, 001BC0E0,
+  001BC240, 001BC290, 001BC300, 001BBD60 (section 3.12: all nine rows live
+  now, with 001BC150), 001B1B30 and 001B0F60.
+- **Fidelity fixes found on the way:** (1) 001BBE40's geometry ran with
+  truncating host arithmetic, and its oracle on an IEEE interpreter: both put
+  the alignment point one ULP off route 09's f309; on the EE float model
+  (native and oracle) it is the capture's bit for bit. (2) D_008101E4 had two
+  storages: the scene state's byte (written only by 0x1AE040 state 4, read by
+  the effects' 001EF940 gate, the render context and the tick log) and the
+  live camera's +0x04 (written by the scripts and the camera). State 4's
+  clear now reaches the camera byte (at its 0018D7B0 call) and every reader
+  reads the camera's. (3) 001AFCF0 clears 3B8F with 3B8D under a held player;
+  the shared runtime keeps the hold and releases on the cleared 3B8D, as
+  0015BA50 / 0015B530 / 00182DF0 do.
+- **Stand-ins retired:** the legacy em_door in AREA11 (the manifest door,
+  its scan, the H13 walk-to, its open script and door camera, the S12b room
+  move adapter in em_door.c), `camera_area11_standins`' door cinematic,
+  state 4's `g.doorcam = 3`, `EM_ROOM_MOVE_TEST`; duplicate handler copies of
+  em_door_program (the program's op07 / op0A / op0B / op0D / op02) with
+  their tests `test_door_program_reference.py`, `test_door_program_runtime.py`
+  and `tests/door_program_test.c` (the script host's handlers are the one
+  bound translation).
+- **Against the capture:** the level smoke's `fence_door` equals route 09
+  f309..f532 row for row (LEVEL_SMOKE.md); `test_area_script_reference.py`
+  replays the program over route 09 with no difference; the render context
+  and effects checks pass over the run (one state-4 re-seat tick counted).
+- **Not moved:** side 1 (entry 1: no capture; its walk-out is still the
+  legacy walk-out), the locked program (subtype 0x15) and the door id's bit
+  7 fault; em_sdf_001BC240 / em_sdf_001BC290 stay unbound standalone copies
+  of em_door_original's inline phases.
+
+Result: live 583, verified-unbound 132, unverified 6, stand-in 3, missing 0,
+boundary 460.
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -681,15 +727,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 573 | 74,176 | 535 (71,323) | 38 (2,853) |
-| verified-unbound | 142 | 12,582 | 104 (10,040) | 38 (2,542) |
+| live | 583 | 74,654 | 543 (71,736) | 40 (2,918) |
+| verified-unbound | 132 | 12,104 | 96 (9,627) | 36 (2,477) |
 | unverified | 6 | 543 | 5 (410) | 1 (133) |
 | stand-in | 3 | 56 | 3 (56) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
 | boundary | 460 | 24,407 | 181 (10,950) | 279 (13,457) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 724 non-boundary functions, 573 (79.1%) are live and verified; by instructions 74,176 of 87,357 (84.9%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 142 functions (12,582 instructions, 14.4%) are verified translations the live app does not run. Only 9 functions (599 instructions) have no verified translation on the live path: 3 stand-ins (001FCB90, 0020CCB0, 0021BAE0; em_census_standins translates them, unbound) and 6 unverified (0015AC00, 0015CF90, 001B1190, 001CF470, 0020DFA0, and since WP-8b 001FC280, section 1.15); no row is missing. The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-25, sections 1.14, 1.15, 1.16 and 1.17) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 724 non-boundary functions, 583 (80.5%) are live and verified; by instructions 74,654 of 87,357 (85.5%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 132 functions (12,104 instructions, 13.9%) are verified translations the live app does not run. Only 9 functions (599 instructions) have no verified translation on the live path: 3 stand-ins (001FCB90, 0020CCB0, 0021BAE0; em_census_standins translates them, unbound) and 6 unverified (0015AC00, 0015CF90, 001B1190, 001CF470, 0020DFA0, and since WP-8b 001FC280, section 1.15); no row is missing. The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-25, sections 1.14..1.18) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -699,46 +745,45 @@ Of the 724 non-boundary functions, 573 (79.1%) are live and verified; by instruc
 |---|---|---|
 | S0_title | 64 / 17 / 0 / 0 / 0 / 391 | 64 / 17 / 0 / 0 / 0 / 391 |
 | S1_newgame_load | 138 / 45 / 1 / 0 / 0 / 95 | 86 / 34 / 1 / 0 / 0 / 19 |
-| S2_opening | 360 / 80 / 3 / 0 / 0 / 137 | 258 / 66 / 2 / 0 / 0 / 37 |
-| S3_first_control_idle | 277 / 64 / 1 / 0 / 0 / 129 | 11 / 1 / 0 / 0 / 0 / 0 |
-| 00_panel_no_battery | 342 / 66 / 1 / 0 / 0 / 109 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 374 / 77 / 4 / 2 / 0 / 166 | 21 / 7 / 2 / 2 / 0 / 5 |
-| 02_elevator_refusal | 348 / 71 / 2 / 0 / 0 / 114 | 6 / 5 / 1 / 0 / 0 / 5 |
-| 03_panel_power | 397 / 86 / 4 / 3 / 0 / 140 | 16 / 4 / 0 / 1 / 0 / 1 |
-| 04_elevator_ride | 341 / 71 / 2 / 0 / 0 / 146 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 345 / 66 / 2 / 0 / 0 / 109 | 22 / 1 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 318 / 61 / 1 / 0 / 0 / 109 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 07_truck_preview | 325 / 68 / 1 / 0 / 0 / 127 | 0 / 1 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 309 / 68 / 2 / 0 / 0 / 144 | 1 / 1 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 361 / 75 / 2 / 0 / 0 / 117 | 4 / 5 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 400 / 74 / 1 / 0 / 0 / 152 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 397 / 72 / 1 / 0 / 0 / 149 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 334 / 64 / 1 / 0 / 0 / 105 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 374 / 70 / 1 / 0 / 0 / 148 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 392 / 76 / 2 / 0 / 0 / 117 | 2 / 0 / 0 / 0 / 0 / 0 |
+| S2_opening | 366 / 74 / 3 / 0 / 0 / 137 | 264 / 60 / 2 / 0 / 0 / 37 |
+| S3_first_control_idle | 281 / 60 / 1 / 0 / 0 / 129 | 11 / 1 / 0 / 0 / 0 / 0 |
+| 00_panel_no_battery | 346 / 62 / 1 / 0 / 0 / 109 | 32 / 0 / 0 / 0 / 0 / 0 |
+| 01_battery | 378 / 73 / 4 / 2 / 0 / 166 | 21 / 7 / 2 / 2 / 0 / 5 |
+| 02_elevator_refusal | 352 / 67 / 2 / 0 / 0 / 114 | 6 / 5 / 1 / 0 / 0 / 5 |
+| 03_panel_power | 401 / 82 / 4 / 3 / 0 / 140 | 16 / 4 / 0 / 1 / 0 / 1 |
+| 04_elevator_ride | 345 / 67 / 2 / 0 / 0 / 146 | 2 / 0 / 0 / 0 / 0 / 2 |
+| 05_boxes | 349 / 62 / 2 / 0 / 0 / 109 | 22 / 1 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 322 / 57 / 1 / 0 / 0 / 109 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 07_truck_preview | 329 / 64 / 1 / 0 / 0 / 127 | 0 / 1 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 313 / 64 / 2 / 0 / 0 / 144 | 1 / 1 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 369 / 67 / 2 / 0 / 0 / 117 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 404 / 70 / 1 / 0 / 0 / 152 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 401 / 68 / 1 / 0 / 0 / 149 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 338 / 60 / 1 / 0 / 0 / 105 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 378 / 66 / 1 / 0 / 0 / 148 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 396 / 72 / 2 / 0 / 0 / 117 | 2 / 0 / 0 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
-State at the recount of 2026-09-25 (sections 1.14, 1.15, 1.16 and 1.17).
+State at the recount of 2026-09-25 (sections 1.14..1.18).
 
-- **Live and verified: 573 of 724 non-boundary functions (84.9% by instructions).** Every main-line route phase the
+- **Live and verified: 583 of 724 non-boundary functions (85.5% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; the voiced lines tear down 8 / 6 / 6 rows early, the
-  drive's read time), the tank and pipe climbs, the crevice jump, the east-tower climb and Roger's encounter; side beat
-  00 (the panel without the battery) in its own run.
-- **What still stands in on the route:** the fence door 001BC350 (side beat 09, L18: the legacy em_door_update; its
-  room move has its own capture test); the camera stand-ins that pre-empt action 0 for the examine, door cinematic and
-  aim (L18, L28); the mode-4 presenters 001FCB90 / 0020CCB0 / 0021BAE0 (stand-ins, translated in
+  drive's read time), the tank and pipe climbs, the crevice jump, the east-tower climb and Roger's encounter; the side beats
+  00 (the panel without the battery) and 09 (the fence door and its room move, since section 1.18), each in its own
+  run.
+- **What still stands in on the route:** the camera stand-ins that pre-empt action 0 for the examine and the aim
+  (L28); the mode-4 presenters 001FCB90 / 0020CCB0 / 0021BAE0 (stand-ins, translated in
   em_census_standins, unbound); the pixels of the effect chains and the equipment's +0x4C draw (the renderer: the
   effects, the head sprites and the equipment run live since section 1.17 and build their packets exactly);
   001C1D00 (em_render_001C1D00, the empty render-env step: its 001D5370 needs the static-object bank); 001FC280's body
   (unverified since WP-8b: the D_00282160 cache is not modelled).
-- **Verified but not run live: 142 functions (12,582 instructions).** The largest groups are the lighting, shadow and
+- **Verified but not run live: 132 functions (12,104 instructions).** The largest groups are the lighting, shadow and
   unbound render heads (section 3.16: 31), the anim runtime leaves (3.14: 13), the effects' room point-light lists
   (3.18: 8), the render context's unbound rows and weather (3.17: 7), the sound-side rows of 3.19 (11: the sound-bank loader, 001FB100's rest,
-  001FBC50, 001FC6E0, the positional voice), the door (3.12: 8) and the AREA11 overlay owners (3.23: 5: the door,
-  the husks, the fan).
+  001FBC50, 001FC6E0, the positional voice) and the AREA11 overlay rows (3.23: 5: the overlay init, the husks' manager and pair, the fan).
 - **No verified translation:** 9 functions (599 instructions): 3 stand-ins and 6 unverified rows (section 2.1). No row
   is missing.
 
@@ -816,8 +861,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B07C0 | — | BM | live | em_spawn_table, em_scene_bindings — test_spawn_place_reference.py | reads D_00810707 from the canonical progress byte (HK) | S1_newgame_load |
 | 0x001B0B50 | — | BM | live | em_player_closure_10_12_19, em_script_host_workers — test_player_closure_10_12_19_reference.py, test_script_host_workers_reference.py; test_level_smoke.py (first_control seat row) | live since census L13..L16 as 001B0460's worker (1 call) | S1_newgame_load |
 | 0x001B0DC0 | — | BM | live | em_owner_services_original — test_owner_services_reference.py | recount 2026-09-25: em_owner_services_001B0DC0 executed on the live path (6 calls over the five measured runs) | S2_opening* |
-| 0x001B0EA0 | — | NM | live | em_owner_services_original (the boxes' allocation over the exported bank, em_area11_boxes.c) — test_owner_services_reference.py; test_collision_world_capture.py (+0x09 / +0x0C / +0x44 bound) |  | S2_opening* |
-| 0x001B0F60 | — | BM | verified-unbound | em_startup_load_gaps em_slg_001B0F60 — test_startup_load_gaps_reference | not bound | S2_opening* |
+| 0x001B0EA0 | — | NM | live | em_owner_services_original (the boxes' allocation over the exported bank, em_area11_boxes.c; the fence door's through em_area11_boxes_door_001B0EA0, census L18) — test_owner_services_reference.py; test_collision_world_capture.py (+0x09 / +0x0C / +0x44 bound); test_level_smoke.py fence_door |  | S2_opening* |
+| 0x001B0F60 | — | BM | live | em_startup_load_gaps em_slg_001B0F60 in the fence door's 001BBDA0 (em_area11_door; census L18) — test_startup_load_gaps_reference; test_level_smoke.py fence_door (the door header's +0x09 / +0x0C) |  | S2_opening* |
 | 0x001B0FD0 | — | BM | live | em_crate_original / em_drum_original state 0 (001B0EA0, bone_init, +4 += 1); the truck 00823FF0 state 0 (em_owner_services_001B0FD0 via em_area11_boxes, census L23) — test_crate_original_reference.py, test_drum_original_reference.py, test_owner_services_reference.py; test_level_smoke.py (truck_crossing: the truck header +0x09 / +0x0C) |  | S2_opening* |
 
 ### 3.3 Input block and roster spawn (0x1B5000..0x1B6BEF)
@@ -867,7 +912,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0015EC50 | — | NM | live | em_player_running_jump — test_player_running_jump_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (em_player_closure_live: 00160220's running-jump probe); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x00160220 | — | BM | live | em_player_use_dispatch em_player_use_00160220 over the live record (em_player_closure_live, scan = the host's 00184BA0) — test_player_use_dispatch_reference; test_level_smoke.py (01..05) |  | S3_first_control_idle |
 | 0x001607D0 | — | BM | live | em_player_weapon_states_a em_player_weapon_001607D0 (the idle / walk states' `actions`, census L12) — test_player_weapon_states_a_reference | the stances it enters (+5 = 0x1D..0x22) run the port's stand-ins (em_weapon aim / R2 / melee, L28); D_00810C61 (its armed forwarding) is em_weapon's | S3_first_control_idle |
-| 0x00161020 | — | NM | live | em_locomotion_display em_loco_00161020 over the record (0015B130 state[0], em_player_closure_live.c bind_loco; census L12) — test_locomotion_display_reference; test-first-control-reference (56 callbacks, the record against collision_run_poll.json); test_level_smoke.py | the port's stand-ins (legacy door, examine / director lock, stance / R2 / melee: L18, L21, L28) pre-empt it while they hold the player; the legacy idle callback remains only in the scenes without an original world | S2_opening |
+| 0x00161020 | — | NM | live | em_locomotion_display em_loco_00161020 over the record (0015B130 state[0], em_player_closure_live.c bind_loco; census L12) — test_locomotion_display_reference; test-first-control-reference (56 callbacks, the record against collision_run_poll.json); test_level_smoke.py | the port's stand-ins (examine / director lock, stance / R2 / melee: L21, L28; the legacy door no longer runs in AREA11 since census L18) pre-empt it while they hold the player; the legacy idle callback remains only in the scenes without an original world | S2_opening |
 | 0x001612D0 | — | NM | live | em_locomotion_display em_loco_001612D0 over the record (0015B130 state[1]; census L12) — test_locomotion_display_reference; test-first-control-reference (newgame-control travels 9.599849, the original's); test_level_smoke.py | as 00161020 (stand-ins pre-empt; legacy walk only without an original world) | 00_panel_no_battery |
 | 0x00161690 | — | BM | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x00161790 | — | BM | live | em_player_climb (state 2, em_player_closure_live) — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) |  | 05_boxes |
@@ -954,8 +999,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00182F90 | — | BM | live | em_player_pose_host.c player_pose_align — test_player_pose_host_reference; test_interaction_alignment_reference |  | S2_opening |
 | 0x00183090 | — | BM | live | em_player_stage_workers em_player_stage_commit via player_pose_commit_tick (a script owner's takeover, census L22); em_player_pose.c / em_interaction_animation.c commit for the other takeovers — test_player_cinematic_reference (1388 callbacks against the original 00183090 / 001C64F0); test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001837A0 | — | BM | verified-unbound | em_player_stage_live.c w_001837A0 (0015B530's +5 = 0 routine, bound by L01 but unreached) — the byte-matched src/func_001837A0.c is an empty function; test_player_stage_workers_reference hooks it as 0015B530's target | as 0015B530: the interaction runtime (player_pose_acquire / the takeover tick / player_pose_release) stands in for the takeover, so 0015B530 and its routines are not entered. Reached once the takeover moves onto the stage | S2_opening |
-| 0x00183EF0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_door.c legacy scan for the unpublished door; the published interactive list (the collision world's, census L07) holds the panel, the terminal, the items and Roger (selector 0 class 10: em_roger_candidate, census L22) | 00_panel_no_battery |
-| 0x00184BA0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | em_door.c / Roger legacy scans for the unpublished owners; the published interactive list (the collision world's, census L07) holds the panel, the terminal and the items (W22) | 00_panel_no_battery |
+| 0x00183EF0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | the published interactive list (the collision world's, census L07) holds the panel, the terminal, the items, Roger (selector 0 class 10: em_roger_candidate, census L22) and the fence door (selector 0 class 5: em_door_candidate, census L18; test_door_candidate_reference, test_level_smoke.py fence_door) | 00_panel_no_battery |
+| 0x00184BA0 | — | BM | live | em_interaction_scan.c via em_area11_interaction_host use — test_interaction_scan_reference; test_level_smoke.py (routes 02-04) | the published interactive list (the collision world's, census L07) holds the panel, the terminal, the items, Roger (census L22) and the fence door (census L18): W22 closed | 00_panel_no_battery |
 | 0x00187350 | — | BM | live | em_player_floor em_player_footstep_tick over the record after 0015BCF0's animate step (em_player_closure_live_footstep, census L12) — test_player_footstep_reference; test-first-control-reference (+25E / +212 exact on 56 callbacks) | its 001EFD90 spawns run em_effects_live (census L26); the decal 001F0460 (its matrix's row 3 w is an unwritten stack word) and wading 001E8B90 are fail-stop (not reached on the route) | S2_opening |
 | 0x00187DC0 | — | BM | verified-unbound | em_player_floor.c first contact (gated) — test_player_floor_reference | bound since the Boxes step (FLOOR engaged); first reached at 08_truck_crossing, beyond the live smoke | 08_truck_crossing |
 | 0x00187EE0 | — | BM | live | em_player_floor — test_player_footstep_reference; test_level_smoke.py check_cage_ladders | inside 00187350 on every step since census L12, and as the ladder dismount's 00187EE0(p, p + B0, p + D0) (x_place, census L10); its 001EFD90 spawns run em_effects_live (census L26) | 00_panel_no_battery |
@@ -1102,7 +1147,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B15D0 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference.py |  | S2_opening |
 | 0x001B1630 | — | NM | live | em_interaction_scan (em_interaction_visible) — test_interaction_pickup_reference.py, test_owner_services_reference.py | 001B17A0's gate for the panel, the terminal and the items (g.cam.eye / fwd) | S2_opening |
 | 0x001B17A0 | — | BM | live | em_owner_services_original — test_owner_services_reference | the one 001B17A0 of the panel, the terminal, the items and Roger (census L22; the host's duplicate em_interaction_scene_offer is retired); the drums and the fan tail wait on their owners | S2_opening |
-| 0x001B1B30 | — | BM | verified-unbound | em_script_door_fan em_sdf_001B1B30 — test_script_door_fan_reference | em_door.c (legacy door) | S2_opening |
+| 0x001B1B30 | — | BM | live | em_script_door_fan em_sdf_001B1B30 in em_area11_door's publish hook (census L18) — test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row): the door published for the scan |  | S2_opening |
 | 0x001B1B70 | — | BM | live | em_actor_collision (em_actor_class_publish_001B1B70) — test_actor_collision_reference.py, test_owner_services_reference.py, test_collision_world_capture.py | 001B17A0's worker for the panel, the terminal and the items (their pool records); the crates and drums since L25 and the truck since L23 publish directly; the prop waits on L35 | S2_opening |
 | 0x001B1CA0 | — | BM | verified-unbound | em_actor_collision (001B1B70's class 2/0xA push) — test_actor_collision_reference.py | bound in the live 001B1B70; no owner the port runs publishes class 2/0xA yet (Roger 008237E0, L22) | 03_panel_power |
 | 0x001B1D20 | — | BM | live | em_actor_collision (001B1B70's class-4 push; em_actor_class_push4_001B1D20) — test_actor_collision_reference.py, test_collision_world_capture.py | the cells of the panel, the terminal and the items; the crates, drums and truck wait on L25/L23 | S2_opening |
@@ -1128,11 +1173,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B7B30 | — | BM | live | em_area_script op0D via em_area11_script_host (census L22), em_cinematic_playback — test_cinematic_playback_reference; test_script_door_fan_reference (part 1); test_level_smoke.py (roger: route 14 row for row) | em_camera.c retarget/chase hooks (cases 3/5; level smoke routes 02-04) | S2_opening |
 | 0x001B7D60 | — | BM | live | em_message_service em_message_op0c via em_message_live (the opening's op0C; the AREA11 host's panel/terminal lines; since WP-8b the director's and Roger's voiced lines 0x7F / 0x97 / 0x99) — test_message_service_reference, test_panel_message_reference; test_level_smoke.py (the director beats) | | S2_opening |
 | 0x001B7F90 | — | BM | live | em_pickup_motion em_pickup_turn via the interaction host — test_pickup_motion_reference.py (executes 001B7F90) |  | 01_battery |
-| 0x001B8020 | — | BM | live | em_area_script op0B (sub 4 admitted) via em_area11_script_host (Roger's 0x8283D0; census L22) — test_area_script_reference; test_level_smoke.py (roger: route 14 row for row) |  | 09_fence_door |
+| 0x001B8020 | — | BM | live | em_area_script op0B (subs 0, 4, 6 admitted) via em_area11_script_host (Roger's 0x8283D0, census L22; the fence door's 0x24DC40, census L18) — test_area_script_reference (synthetic subs 6 / 0; route 09); test_level_smoke.py (roger: route 14; fence_door: route 09 row for row) |  | 09_fence_door |
 | 0x001B81D0 | — | BM | live | em_area_script face_attach via em_area11_script_host (census L22) — test_script_door_fan_reference (part 1); test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001B82D0 | — | BM | live | em_script.c / em_opening_runtime.c execute; em_area_script op07 via em_area11_script_host (the truck and Roger's scripts, census L19 / L22) — test_interaction_frame_reference; test_script_reference; test_area_script_reference; test_level_smoke.py (roger: route 14 row for row) | op subset used by the opening, panel and elevator scripts | S2_opening |
 | 0x001B8FC0 | — | BM | live | em_area_script op00 (kinds 0, 1, 2 live in 0x8292C0; census L19) — test_area_script_reference (route 07 replay); test_level_smoke.py (truck_preview: every camera shot row for row) | the opening camera track is em_opening_runtime.c + em_cinematic_camera.c; em_elevator_program runs its own op00 sub0 (one bound owner per handler is open, AREA_SCRIPT.md 5); the pickup grab program's op00 camera settle runs live as em_pickup_motion em_pickup_camera_settle (test_pickup_motion_reference executes 001B8FC0 for that case) | S2_opening |
-| 0x001B94F0 | — | BM | live | em_area_script op01 (kind 1 live in 0x8292C0: 00182F90 through the pose host; census L19) — test_area_script_reference; test_level_smoke.py (truck_preview placement) | em_door.c legacy walk-to (H13); em_elevator_program runs its own op01 sub1 (AREA_SCRIPT.md 5) | S2_opening |
+| 0x001B94F0 | — | BM | live | em_area_script op01 (kind 1 live in 0x8292C0: 00182F90 through the pose host; census L19) — test_area_script_reference; test_level_smoke.py (truck_preview placement) | em_elevator_program runs its own op01 sub1 (AREA_SCRIPT.md 5) | S2_opening |
 | 0x001B99F0 | — | NM | live | em_panel_program.c / em_opening_runtime.c op 9 — test_player_cinematic_reference; test_area_script_reference |  | 01_battery |
 | 0x001B9BA0 | — | BM | live | em_panel_program.c / em_elevator_program.c op 2 — test_level_smoke.py (routes 02-04) |  | 03_panel_power |
 | 0x001B9C10 | — | BM | live | em_player_pose_host.c player_pose_face — test_player_pose_host_reference |  | 02_elevator_refusal |
@@ -1150,19 +1195,19 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.12 Door (0x1BBD60..0x1BC3FF)
 
-9 functions, 492 instructions: live 1, verified-unbound 8 (recount 2026-09-25).
+9 functions, 492 instructions: live 9 (census L18, 2026-09-25).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001BBD60 | — | BM | verified-unbound | em_script_door_fan em_sdf_001BBD60 — test_script_door_fan_reference | em_door.c legacy door sound patch | 09_fence_door |
-| 0x001BBDA0 | — | BM | verified-unbound | em_door_original — test_door_original_reference | em_door.c legacy door | S2_opening* |
-| 0x001BBE40 | — | BM | verified-unbound | em_door_transit — test_door_transit_reference | em_door.c legacy walk-to at 15 u/s (H13) | S2_opening |
-| 0x001BC0E0 | — | BM | verified-unbound | em_door_original — test_door_original_reference | em_door.c legacy door | 09_fence_door |
-| 0x001BC150 | — | BM | live | em_door.c door_commit_001BC150 -> em_door_transit_commit — test_door_transit_reference; test_room_move_reference |  | 09_fence_door |
-| 0x001BC240 | — | BM | verified-unbound | em_script_door_fan em_sdf_001BC240; em_door_original phase 4 inline — test_script_door_fan_reference, test_door_original_reference | em_door.c (legacy door sub 4/5) | 09_fence_door |
-| 0x001BC290 | — | BM | verified-unbound | em_script_door_fan em_sdf_001BC290; em_door_original phase 5 inline — test_script_door_fan_reference, test_door_original_reference | em_door.c (legacy door sub 4/5) | 09_fence_door |
-| 0x001BC300 | — | BM | verified-unbound | em_door_original — test_door_original_reference | em_door.c legacy door | S2_opening |
-| 0x001BC350 | — | BM | verified-unbound | em_door_original — test_door_original_reference | em_door.c legacy em_door_update (node tick_door) | S2_opening |
+| 0x001BBD60 | — | BM | live | em_script_door_fan em_sdf_001BBD60 in em_area11_door's 001BBE40 patch (census L18) — test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row): the patched program's cue 0x401 |  | 09_fence_door |
+| 0x001BBDA0 | — | BM | live | em_door_original lifecycle 0 via em_area11_door (001B0F60 em_slg_001B0F60, 001B0EA0 through em_area11_boxes; census L18) — test_door_original_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row): +0x09 / +0x0C / +0x2E / +0x80 in the door header |  | S2_opening* |
+| 0x001BBE40 | — | BM | live | em_door_transit em_door_transit_kickoff (EE float model) via em_area11_door (census L18) — test_door_transit_reference (on FallEE; route 09's f309 alignment); test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | S2_opening |
+| 0x001BC0E0 | — | BM | live | em_door_original phases 1..3 over the AREA11 script host (em_area11_door; census L18) — test_door_original_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row): the door's block and +0x1FE |  | 09_fence_door |
+| 0x001BC150 | — | BM | live | em_door_transit_commit via em_area11_door's transition hook (census L18) — test_door_transit_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) with test_room_move_reference's sequence checks |  | 09_fence_door |
+| 0x001BC240 | — | BM | live | em_door_original phase 4 inline via em_area11_door (census L18; em_sdf_001BC240 is an unbound standalone copy) — test_door_original_reference, test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | 09_fence_door |
+| 0x001BC290 | — | BM | live | em_door_original phase 5 inline via em_area11_door (census L18; em_sdf_001BC290 is an unbound standalone copy) — test_door_original_reference, test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | 09_fence_door |
+| 0x001BC300 | — | BM | live | em_door_original via em_area11_door (the runtime's pose, 001B1B30, the actor draw; census L18) — test_door_original_reference, test_door_original_runtime; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | S2_opening |
+| 0x001BC350 | — | BM | live | em_door_original em_door_original_tick via em_area11_door (node tick_door; census L18) — test_door_original_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | S2_opening |
 
 ### 3.13 Area services, child spawns, area title (0x1BC400..0x1C5FFF)
 
@@ -1772,12 +1817,12 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 17 | **L11-running-jump-recovery**: Bind the running jump and recovery (0015EC50, 001634A0, 0017C860). **Live 2026-09-24 (census L11, section 1.9):** the crevice jump of route 12 row for row (check_crevice_jump: states, clips, clocks and the arc's Y exact; the step length within 1e-4 on the free-flight rows); the landing's 0017DEB0 is em_player_climb's translation over the record; beat 14's tower jump waits on the roger phase | bind | 2,297 | 6 (live 6) | 12 (crevice jump), 14 | L02, L09 |
 | 18 | **L13-camera-follow**: Bind em_camera_follow_original (follow core) in place of em_camera.c camera_update. **Recount 2026-09-24:** em_camera_leftovers translates 0018B9C0 (the camera frame), 0018C0C0, 0018C5A0, 00190F20, 001914A0, 00191580; every row except 0019B7D0 (live) is verified-unbound. **Live 2026-09-25 (census L13..L16, section 1.11):** em_camera_live binds the follow core, the frame and every solver on the canonical camera words; the legacy camera_update runs only for scenes without an original roster | bind | 1,587 | 15 (live 15) | every frame from first control | L06b (camera queries) |
 | 19 | **L14-camera-solver-dd20**: Bind 0018DD20 (desired-eye solver) and retire the unverified duplicate. **Recount 2026-09-24:** both are translated (em_camera_leftovers_solver em_camleft_0018DD20 / _0018CE60); em_camera.c cam_solver_0018DD20 and em_game.c cam_bounds_settle_0018CE60 are the live duplicates to retire. **Live 2026-09-25 (section 1.11):** both translations run in AREA11; the two duplicates are reached only by the legacy camera of scenes without an original roster (0 calls in the full smoke) | bind | 2,051 | 2 (live 2) | every frame from first control | L13 |
-| 20 | **L15-camera-actions**: Bind the camera action dispatch 0018BC20 and em_camera_area11_specials (001921D0, 00193EB0). **Recount 2026-09-24:** 0018BC20 and 00191000 are em_camera_leftovers translations. **Live 2026-09-25 (section 1.11)**; the director, examine, door-cinematic and aim owners still pre-empt action 0 through named stand-ins (CAMERA_LIVE.md section 6; L21 / L18 / L28) | bind | 1,951 | 5 (live 5) | every frame from first control | L13 |
+| 20 | **L15-camera-actions**: Bind the camera action dispatch 0018BC20 and em_camera_area11_specials (001921D0, 00193EB0). **Recount 2026-09-24:** 0018BC20 and 00191000 are em_camera_leftovers translations. **Live 2026-09-25 (section 1.11)**; the examine and aim owners still pre-empt action 0 through named stand-ins (CAMERA_LIVE.md section 6; L28; the door cinematic retired with census L18) | bind | 1,951 | 5 (live 5) | every frame from first control | L13 |
 | 21 | **L16-camera-area11-walk**: Bind 00195130 (AREA11 walking specials), 001916C0 and the 0015CBA0 state map. **Recount 2026-09-24:** 0015CBA0 and 001916C0 are translated (em_camera_leftovers). **Live 2026-09-25 (section 1.11)** | bind | 1,843 | 3 (live 3) | every frame from first control (AREA11 walking specials) | L15 |
-| 22 | **L12-locomotion-display**: Replace the legacy idle/walk callbacks and gait display with 00161020/001612D0/0017B660 and their verified workers. **Live 2026-09-25 (section 1.12):** 00161020 / 001612D0 are 0015B130's state[0] / state[1] over the record in AREA11 (behind the port's stand-ins, L18 / L21 / L28), with 0017C030, 0017B660, 0017B5C0, 00179D20, 00179FF0, 0017B490 / 0017B460, 00178B90, 00187350 / 00187EE0 and the new record-level 0017BC40 / 0017B910; 00182D40 stays verified-unbound (its caller 00182DF0 is not on the record); 00187DC0 unchanged | bind | 1,742 | 15 (live 13, verified-unbound 2) | every frame from first control (idle/walk look and footsteps) | L01 |
+| 22 | **L12-locomotion-display**: Replace the legacy idle/walk callbacks and gait display with 00161020/001612D0/0017B660 and their verified workers. **Live 2026-09-25 (section 1.12):** 00161020 / 001612D0 are 0015B130's state[0] / state[1] over the record in AREA11 (behind the port's stand-ins, L21 / L28), with 0017C030, 0017B660, 0017B5C0, 00179D20, 00179FF0, 0017B490 / 0017B460, 00178B90, 00187350 / 00187EE0 and the new record-level 0017BC40 / 0017B910; 00182D40 stays verified-unbound (its caller 00182DF0 is not on the record); 00187DC0 unchanged | bind | 1,742 | 15 (live 13, verified-unbound 2) | every frame from first control (idle/walk look and footsteps) | L01 |
 | 23 | **L24-fan-husk**: WP-11: bind the fan pair and the husk pair. **Recount 2026-09-24:** the husk creature 00825940 (lifecycles 1 and 4 fault), its partner 00827490 and the manager 00823CE0 are translated in em_script_door_fan_husk | bind | 1,924 | 4 (verified-unbound 4) | every frame (husk pair), level exit (fan) | L07 |
 | 24 | **L25-crates-drums**: WP-18: bind crates and drums in place of em_enemy. **Live 2026-09-24 (Boxes step):** em_area11_boxes.c runs both owners over their roster nodes (CRATES_DRUMS_ORIGINAL.md "Binding"); the legacy AREA11 copies are retired; the damage paths are fail-stop (no live +0x36 writer; their effect spawns run em_effects_live since section 1.17) | bind | 1,885 | 2 (live 2) | every frame; 05 | L07 |
-| 25 | **L18-door-original**: WP-7: bind the original door runtime/program/transit. **Recount 2026-09-24:** 001B1B30, 001BC240, 001BC290, 001BBD60 and 001B0080 are em_script_door_fan translations; every row is verified-unbound | bind | 881 | 11 (verified-unbound 11) | 09 (fence door, side beat) | L17 (Use arbitration) |
+| 25 | **L18-door-original**: WP-7: bind the original door runtime/program/transit. **Recount 2026-09-24:** 001B1B30, 001BC240, 001BC290, 001BBD60 and 001B0080 are em_script_door_fan translations; every row is verified-unbound. **Live 2026-09-25 (section 1.18):** em_area11_door; route 09 row for row | bind | 881 | 11 (live 11) | 09 (fence door, side beat) | L17 (Use arbitration) |
 | 26 | **L28-player-equipment**: Bind the player equipment/weapon actors (0018A6B0 nodes) and the gun tick. **Recount 2026-09-24:** em_player_equipment translates all 13 rows (3824c6f); the em_weapon.c gun tick, lamp gate and camera-code stand-ins go when bound **Render context step 2026-09-25:** 0015D2F0 runs live through the render context's calls (001D1C50, 001DDE10) **Live 2026-09-25 (effects step, section 1.17):** the seven 0018A6B0 nodes run em_player_equipment through em_equipment_live (models from the Roger export's D_0028A56C spans, slots from the one stack, the equipment change's respawn after a status screen); the records equal the route snapshots 08 / 10 / 11 / 13 / 14 (check_effects); the +0x4C draw is the renderer's (the player mesh's nodes 4 / 14), and the em_weapon.c armed-stance stand-ins stay until the aim drawers are translated | bind | 2,101 | 13 (live 13) | every frame (rifle/knife children, gun tick, aim) | L01 |
 | 27 | **L26-effect-manager**: Bind the effect manager barrel (em_effect_manager) and em_effect_original. **Recount 2026-09-24:** the barrel 001F0360 and its lanes are translated (3824c6f); 001F1110 / 001F1180 moved to live (the pickup aura, 81414be) and left this lane's count; 001F1180's draw block (001F0A60 here) is the no-op stand-in aura_draw. **Effects step 2026-09-24 (blocked):** every effect draw reads the render-context views (the +0x2240 / +0x22C0 clip matrices through 001CD370, the 0x70003AC0 / 0x70003A40 matrices, the +0xA0 fog), and no live code produces them; binding the spawns and the 001EA240 walk without them would fault on the first footstep (EFFECT_MANAGER.md 5.0) **Render context step 2026-09-25:** its prerequisite is met: the canonical render context runs live (section 1.16; EFFECT_MANAGER.md 5.0) **Live 2026-09-25 (effects step, section 1.17):** em_effects_live binds the barrel (w_001F0360), the spawns (every player-side 001EFD90, the truck's, the crates' and drums' and the weather node's 001EFD20), the driver 001EA240 on the pool nodes and the pickup glint; the old counted gaps are deleted (only the skid's two packet-only handlers 001EAD70 / 001EC270 are a counted gap; every other untranslated handler and 001EFE00 fault); the eight truck puffs, route 12's four footstep puffs, the lanes' packets and route 10's glow-marker primitives equal the snapshots (check_effects); the chains are not drawn (the renderer) | bind | 2,342 | 15 (live 15) | every frame (effects) | nothing |
 | 28 | **L27-effect-kinds**: Bind the effect kinds/tables and the effect colour (em_effect_kinds). **Recount 2026-09-24:** every row is translated (3824c6f); the point-light list rows replace the offline tools/export_point_lights.py resolution. **Effects step 2026-09-24:** the handlers' 001CFB50 and its 001D0540 are translated in em_effect_kinds (boundary rows moved to section 3.15). **Render + UI step 2026-09-25 (section 1.13):** 001F54E0 is live (the indicator children's colour); em_effect_color.h's own copy is deleted **Live 2026-09-25 (effects step, section 1.17):** the handlers (001EC1F0, 001EC3F0, 001EC470, 001EBF10), the glow markers (001F5640 / 001F5940 / 001F5C20), 001F5CA0 and the resets (001F0310 at 001AFCA0's 001D0660); the room point-light lists (001F6640..001F6E40) stay the offline stand-in (critic 7.2) | bind | 1,251 | 18 (live 11, verified-unbound 7) | every frame (effects); 00, 05, 06 (footstep and slide effects) | L26 |

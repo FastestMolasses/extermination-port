@@ -40,6 +40,17 @@ typedef struct {
 int em_door_original_runtime_load(EmDoorOriginalRuntime *, const char *scene_dir,
     const EmInteractionSceneOwner *, const EmDoorOriginalRuntimeHooks *);
 int em_door_original_runtime_tick(EmDoorOriginalRuntime *, uint8_t transition_pending);
+/* The resources only (model, bank, descriptor, destination row, D_0024DB80
+ * sound pair), with owner.lifecycle 0: the live binder (em_area11_door.c)
+ * runs 001BC350's lifecycle 0 on the pool node's first tick itself. 1, or 0. */
+int em_door_original_runtime_open(EmDoorOriginalRuntime *, const char *scene_dir,
+    const EmInteractionSceneOwner *, const EmDoorOriginalRuntimeHooks *);
+/* anim_advance_time(door, 1.0) over the source bank: *flags = the 001C64F0
+ * result. 1, or -1. */
+int em_door_original_runtime_advance(EmDoorOriginalRuntime *, int16_t *flags);
+/* 001C68C0 (001BC300's first call): the owner TRS and the current node
+ * channels into matrix/palette. 1, or -1. */
+int em_door_original_runtime_place(EmDoorOriginalRuntime *);
 /* Bind owner.status/class_flags/armed and runtime itself to the EMIS source.
  * A canonical scan sets the armed bit; this helper supports direct callers. */
 int em_door_original_runtime_arm(EmDoorOriginalRuntime *);

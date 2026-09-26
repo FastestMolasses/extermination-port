@@ -58,6 +58,8 @@
 #include <string.h>
 
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_door.h"
+#include "game/em_door.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
@@ -304,18 +306,22 @@ static int tick_enemy_00825940(EmActor *actor, Node *node, const EmArea11World *
     return tick_enemies(actor, node, world);
 }
 
-/* 001BC350, the room-move door. AREA11's only door is a room-move door
- * (assets/scene_snow/scene.txt), so a goto switch here would be a scene
- * change the original routes through B5..B8 and 001AD010 (S12a/S12b):
- * fail-stop. The legacy cutscene block never ran the door. */
+/* 001BC350, the fence door (census L18): its original owner
+ * (em_area11_door: 001BC350 with 001BBE40 and the ELF program 0x24DE40 on
+ * the AREA11 script host, 001BC150's room move through B8) in both walk
+ * variants (class 5 is walked by 001AFD70 modes 0 and 1). The side-1
+ * arrival's walk-out (001B07C0(1) writes 5/1/0 at entry 1; route beat 09 is
+ * side 0) is still the port's legacy walk-out, ticked here where the legacy
+ * door ticked it (em_door_legacy_walkout_tick). */
 static int tick_door(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
-    if (world->cutscene)
-        return 1;
-    if (em_game_legacy_door_tick())
-        return fault(actor->callback, EM_SCENE_FAULT_BAD_RESULT,
-                     "legacy goto scene switch from the AREA11 roster pool (S12b routes it through B8)");
+    (void)world;
+    if (em_area11_door_tick(actor) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "fence door owner: a worker failed (em_area11_door)");
+    em_door_legacy_walkout_tick();
     return 1;
 }
 
@@ -824,7 +830,7 @@ static const Binding k_bindings[] = {
      tick_enemies, NULL},
     {0x001551B0u, "crate: em_crate_original (em_area11_boxes)", NULL, GROUP_NONE, tick_box, NULL},
     {0x00156620u, "drum: em_drum_original (em_area11_boxes)", NULL, GROUP_NONE, tick_box, NULL},
-    {0x001BC350u, "door: legacy em_door_update", NULL, GROUP_NONE, tick_door, NULL},
+    {0x001BC350u, "door: 001BC350 (em_area11_door)", NULL, GROUP_NONE, tick_door, NULL},
     {0x00827630u, "fan: static", NULL, GROUP_NONE, NULL,
      "fan (area11[1]/[2]): no port behaviour; em_pickup draws it static (WP-11)"},
     {0x008235F0u, "flame: em_area11_effect_runtime_tick", NULL, GROUP_NONE, tick_effect, NULL},
@@ -948,6 +954,7 @@ void em_area11_bindings_reset(void)
     s_panel_child = NULL;
     em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
     em_area11_roger_reset();
+    em_area11_door_reset(s_pool, s_scene);
     /* The overlay scripts are mutated in place: fresh images per visit. */
     em_area11_script_host_reset(s_pool, s_scene);
 }

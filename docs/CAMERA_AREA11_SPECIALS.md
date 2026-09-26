@@ -556,7 +556,7 @@ Bound since census L13..L16 by `src/game/em_camera_live.c`
 ## 5. Limits and open items
 
 - **Bound** (section 4). While a legacy stand-in owns the camera
-  (the director's beats, the fence door, an examine cue, the port's aim) it
+  (an examine cue, the port's aim) it
   runs in 00195130's place (CAMERA_LIVE.md section 6).
 - **Untranslated workers** (section 4): 00197870, 00198440, 001912B0 and
   001B0300 (the aim family), and the other areas' arms. They are faults

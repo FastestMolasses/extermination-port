@@ -5,8 +5,9 @@
  * section 6, docs/SCRIPT_HOST_WORKERS.md section 3).
  *
  * Bound owners: the truck trigger 008251E0 (0x8292C0, census L23), Roger
- * 008237E0 (census L22) and the director 008253F0 (0x8294C0 / 0x829A40 /
- * 0x829CC0, census L21).
+ * 008237E0 (census L22), the director 008253F0 (0x8294C0 / 0x829A40 /
+ * 0x829CC0, census L21) and the fence door 001BC350 (the ELF program
+ * 0x24DE40, census L18).
  *
  * Storage. Every byte a handler reaches is one pointer of EmAreaScriptWorld
  * into its canonical storage: the scratchpad bytes and the request block in
@@ -43,6 +44,7 @@
 
 #include "game/em_actor_pool.h"
 #include "game/em_scene_state.h"
+#include "game/em_script.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +59,15 @@ int em_area11_script_host_start(EmActor *actor, uint32_t entry);
 /* 001BA1F0(actor): *result = 0 running, 1 finished (or not active), 3
  * aborted by the skip path. 0, or -1 on a fault (reported). */
 int em_area11_script_host_tick(EmActor *actor, int32_t *result);
+
+/* The ELF's ordinary-door program (census L18): 0x24DBC0..0x24DF80 of the
+ * user's ELF, entry 0x24DE40, exported by tools/export_door_program.py. The
+ * host resolves the fence door's starts there; 001BBE40's patch writes into
+ * the same image (em_area11_door.c). NULL (reported) when it is missing. */
+#define EM_AREA11_DOOR_PROGRAM_PATH "assets/scene_snow/door_original/program.emsc"
+#define EM_AREA11_DOOR_PROGRAM_BASE 0x0024DBC0u
+#define EM_AREA11_DOOR_PROGRAM_END  0x0024DF80u
+EmScriptImage *em_area11_script_host_door_program(void);
 
 /* The director 008253F0's three quads 0x82ABE0 / 0x82AC20 / 0x82AC60 from
  * the visit's director_quads.emsc (loaded with the scripts). 0, or -1

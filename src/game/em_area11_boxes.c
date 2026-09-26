@@ -31,7 +31,7 @@
 #include "game/em_truck_original.h"
 
 enum {
-    BOX_MAX = 8,                  /* AREA11 places four crates and two drums */
+    BOX_MAX = 10,                 /* four crates, two drums, the truck and the door */
     BONE_SLOTS = EM_SLG_BONE_SLOTS,
     DRAW_BONES = 4,
     RATTLE_ROWS = 7
@@ -40,6 +40,7 @@ enum {
 #define DRUM_CALLBACK 0x00156620u
 #define TRUCK_CALLBACK 0x00823FF0u
 #define TRIGGER_CALLBACK 0x008251E0u
+#define DOOR_CALLBACK 0x001BC350u
 #define METHOD_001CAA00 0x001CAA00u
 #define TABLES_BASE 0x002468B0u
 #define TABLES_SIZE 0x170u
@@ -52,6 +53,7 @@ typedef struct {
     uint32_t generation;  /* the record's generation when the slot was taken */
     int drum;
     int truck;            /* 00823FF0 (census L23) */
+    int door;             /* 001BC350: only its 001B0EA0 slots (census L18) */
     EmCrateOriginal crate;
     EmDrumOriginal drum_state;
     EmTruckOriginal truck_state;
@@ -671,6 +673,7 @@ static Box *box_for(EmActor *actor)
     free_slot->generation = actor->generation;
     free_slot->drum = actor->callback == DRUM_CALLBACK;
     free_slot->truck = actor->callback == TRUCK_CALLBACK;
+    free_slot->door = actor->callback == DOOR_CALLBACK;
     return free_slot;
 }
 
@@ -692,6 +695,36 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
         return 0;
     }
     return report("001AF800 on a record that holds no box bone slots");
+}
+
+/* The fence door 001BC350's 001BBDA0 -> 001B0F60 -> 001B0EA0 (census L18,
+ * em_area11_door.c): the same allocation over the same bank and bone-slot
+ * stack as the boxes (+0x44 and +0x4C by the 001CA6E0 worker, +0x09 the slots
+ * taken, +0x0C = 001C6150(model)). The door's pose itself is its runtime's
+ * (em_door_original_runtime); its slots go back through 001AF800 above. */
+int em_area11_boxes_door_001B0EA0(EmActor *actor, int32_t *ret)
+{
+    if (!actor || !ret || actor->callback != DOOR_CALLBACK) return -1;
+    if (!S.stack.world.d00275BCC) em_area11_boxes_reset();
+    if (load_bank() < 0) return -1;
+    Box *b = box_for(actor);
+    if (!b) return report("more AREA11 owners than box slots (the door)");
+    EmOwnerServicesOwner *v = &b->view;
+    v->cls = actor->cls;
+    v->kind = actor->model;
+    v->lifecycle = actor->u04[0];
+    v->model_id = actor->param;
+    v->flags2 = actor->flags2;
+    memcpy(v->scale, actor->f60, sizeof v->scale);
+    memcpy(v->pos, actor->pos, sizeof v->pos);
+    memcpy(v->rot, actor->rot, sizeof v->rot);
+    int r = em_owner_services_001B0EA0(&S.services, v);
+    if (r < 0 || services_fault("001B0EA0 (the door)") < 0) return -1;
+    actor->u04[0] = v->lifecycle;    /* 3 over the bone cap */
+    actor->bones = v->bones_held;    /* +0x09 */
+    actor->u0A[2] = v->bone_count;   /* +0x0C */
+    *ret = r;
+    return 0;
 }
 
 const EmRogerActorWorld *em_area11_boxes_slot_world(void)

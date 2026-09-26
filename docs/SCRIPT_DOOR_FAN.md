@@ -14,8 +14,9 @@ unverified. For the verified-unbound rows it adds binding notes only.
 - Sanitizer fixture: `tests/script_door_fan_test.c` (ASan/UBSan, 55 checks, no
   game data).
 
-**Status: built and oracle-verified, not wired.** No live file includes
-either module. Section 5 gives the binding, and section 7 lists the changes to
+**Status:** `em_script_door_fan.c` is in the game build; its 001B0080 is live
+(census L13..L16) and its 001B1B30 / 001BBD60 are live on the fence door
+(census L18). The husk module is built and oracle-verified, not wired. Section 5 gives the binding, and section 7 lists the changes to
 existing files that only the lead or coordinator may make.
 
 Addresses are original runtime addresses. Overlay functions are cited at
@@ -425,46 +426,23 @@ codes are listed in each header.
 
 ### 5.2 L18
 
-- **001B0080.** Bind `EmScriptHostWorkers.w_001B0080(ctx, camera, a1)` to an
-  adapter:
-  - `camera` must be 0x8101E0. The `EmSdfSeat` view is camera +0x0C,
-    +0x10..+0x3C (the same storage as `EmAreaScriptWorld.cam_0C/cam_10/
-    cam_20` and the rotation quad).
-  - The `EmSdfSeatWorld` fields are: `d810700`/`d810702` =
-    `EmSceneState.d810700/d810702`; `d810350` = the player +0xA0 quad;
-    `spad3B50` = scratchpad 0x70003B50; `d8105D0`/`d8105E0` = the camera
-    working eye/target; `spad3400`/`spad3600` = scratchpad.
-  - The workers are `w_001B1470` = `em_player_001B1470` (its |x| < 4096
-    domain; the angles here are far inside it) and the VU0 leaves 001029C0,
-    00102C58 and 001026A0 (the same leaves `em_camera_area11_specials` and
-    `em_camera_follow_original` take).
-  - It replaces the legacy door camera re-seat (CAM-07) and
-    `em_game_legacy_camera_rearm`, which is reported as `UM_001B0460`.
-- **001B1B30.** In the `em_door_original` publish hook
-  (`EmDoorOriginalHooks.publish(ctx, point)`), call
-  `em_sdf_001B1B30(&door->visible, point[0], point[1], point[2], w, fault)`.
-  Its workers are 001B1630 (the in-cone test, L35) and 001B1B70. The hook
-  returns +1. The call must also run 001B1B70, which the hook contract did
-  not name before.
-- **001BC240 / 001BC290.** `em_door_original` phases 4 and 5 already
-  translate them inline (verified). The standalone functions are for callers
-  that keep the original call shape. Nothing more to bind.
-- **001BBD60.** In `EmDoorTransitHooks.patch` (the 001BBE40 script patch of
-  0x24DC40), write the record's +0x18 (0x24DC58) with
-  `em_sdf_001BBD60(door +0x56, door +0x2E, &word, w, fault)`.
-  - `r_0024DB80` reads the user's ELF halfword. `em_door_original_runtime`
-    today carries an offline copy of the pair (metadata + 68) that
-    `em_door_transit_prepare` indexes by side.
-  - This replaces that offline export and em_door.c's legacy door sound
-    patch. The route-09 capture pins the result (0x401 for link 0x400,
-    side 0).
-- **Verified-unbound rows.**
-  - 001BC350/001BBDA0/001BC0E0/001BC300 → `em_door_original_tick`, in place
-    of `em_area11_bindings.c` `tick_door` (legacy `em_game_legacy_door_tick`).
-  - 001BBE40 → `em_door_transit_kickoff`, in place of em_door.c's walk-to at
-    15 u/s (audit H13).
-  - 001B94F0 → `em_area_script` op01.
-  - DOOR_ORIGINAL.md gives the runtime resources.
+- **001B0080** is live since census L13..L16 (001B0460's worker).
+- **Bound since census L18 (2026-09-25; DOOR_ORIGINAL.md "Binding"):**
+  - 001B1B30: `em_sdf_001B1B30` in the door's publish hook
+    (`em_area11_door.c`), with 001B1630 over the camera and 001B1B70 onto
+    the collision world's lists.
+  - 001BBD60: `em_sdf_001BBD60` in the 001BBE40 patch hook; `r_0024DB80`
+    answers the two halfwords of the door's D_0024DB80 row that
+    `source.emdo` carries (read from the user's ELF by
+    tools/export_door_original.py) and faults on any other. em_door.c's
+    legacy sound patch no longer runs in AREA11.
+  - 001BC350 / 001BBDA0 / 001BC0E0 / 001BC300 (with 001BC240 / 001BC290
+    inline) through `em_door_original_tick`, 001BBE40 through
+    `em_door_transit_kickoff`: the fence door's node (`tick_door`).
+- **Unbound copies:** `em_sdf_001BC240` / `em_sdf_001BC290` are standalone
+  translations of what `em_door_original` phases 4 and 5 run inline (the
+  bound owner); they stay for the oracle's call-shape cases.
+- 001B94F0 (op01) is em_area_script's; the door program does not use it.
 
 ### 5.3 L24
 

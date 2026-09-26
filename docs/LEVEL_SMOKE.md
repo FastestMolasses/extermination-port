@@ -8,9 +8,10 @@ crossing on the truck's original owners and the AREA11 script host) and
 census L09 / L10 / L11 (the cage ladders, the tank and pipe-end climbs, the
 crevice jump and the east tower climb) and census L22 (Roger's encounter on
 his original owner and scripts), by the full-route step of 2026-09-25 (side
-beat 00 live in its own run, side beat 09 named NOT-LIVE) and by WP-8b (the
-stream lanes live; the director 008253F0's three beats and Roger's voiced
-conversation on their original scripts). The
+beat 00 live in its own run), by WP-8b (the stream lanes live; the director
+008253F0's three beats and Roger's voiced conversation on their original
+scripts) and by census L18 (side beat 09: the fence door on its original
+owner, 2026-09-25). The
 smoke plays the
 port's first level headless from New Game along the original route and checks
 each phase twice:
@@ -33,17 +34,16 @@ their voiced lines on the stream lanes (STREAM_LANES.md "Live binding").
 **Route coverage.** The checker ends with one `level smoke: route beats:`
 line naming every route beat 00..14 and the state of each of its phases
 (live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-25
-(WP-8b): beats 01..08 and 10..14 live; 00 live in its own run; 09 NOT-LIVE
-(the fence door 001BC350 is the legacy em_door_update, census L18; its room
-move is covered by `make test-room-move-reference`).
+(census L18): beats 01..14 live, the side beats 00 and 09 each in its own
+run.
 
 ## Running it
 
 ```sh
-make test-level-smoke                  # through truck_crossing (about 11 s)
-make test-level-smoke-full             # the whole route through roger (about 30 s), then the run below (about 4 s)
+make test-level-smoke                  # through truck_crossing, then side beat 09 fence_door (about 16 s)
+make test-level-smoke-full             # the whole route through roger (about 30 s), then the side runs below (about 20 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00: first control, then panel_no_battery (about 4 s)
+make test-level-smoke-side             # side beat 00 (about 4 s), then side beat 09 (about 16 s), each its own run
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
@@ -59,7 +59,7 @@ The make target does the following:
 3. It runs `tools/test_level_smoke.py` over the run log and the tick log.
 
 `EM_LEVEL_SMOKE_UNTIL` takes a phase name from the table below. The binary's
-default is the last phase; the make target's default is `truck_crossing`
+default is the last phase; the make target's default is `fence_door` (the main line through `truck_crossing`, then side beat 09)
 (rule 4 of "Adding a phase"), and `EM_TEST_FULL=1` or
 `test-level-smoke-full` lifts it. An unknown name fails and lists the phases. The run stops
 at the first NOT-LIVE phase, because every later beat starts from the state
@@ -105,10 +105,9 @@ beats 00 and 09 are side phases (`Phase.side`): the main line names them
 (`side beat, not on the main line`) and does not run them, because each
 starts from its own snapshot in the route. `EM_LEVEL_SMOKE_UNTIL=<side
 phase>` runs the main line up to it and then only it: `panel_no_battery`
-(beat 00, from first control) is live in its own run
-(`make test-level-smoke-side`); `fence_door` (beat 09) is NOT-LIVE (the door
-is census L18); its room move has its own capture test,
-`make test-room-move-reference`.
+(beat 00, from first control) and `fence_door` (beat 09, from the truck
+crossing's end; the default `make test-level-smoke` run) are live, each in
+its own run (`make test-level-smoke-side` runs both).
 
 | Phase | Route beat | Original owners | Live | Waits on |
 |---|---|---|---|---|
@@ -123,7 +122,7 @@ is census L18); its room move has its own capture test,
 | slide | 06 | floor class 0x1000 -> 001796C0, slope slide 0016C6A0 (state 0x1C, +1F0 0x30) | yes (census L03) | — |
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | yes (census L23, L19) | — |
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
-| fence_door (side) | 09 | door 001BC350, scripts 0x24DE40 / 0x24DC00, room move to entry 2 | no: legacy em_door_update | census L18 |
+| fence_door (side) | 09 | door 001BC350 (001BBE40, the ELF program 0x24DE40 on the AREA11 script host, 001BC150), room move to entry 2 (0x1AE040 state 4) | yes, its own run (census L18) | — |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
 | cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
@@ -659,6 +658,46 @@ five-decimal rounding per row (1e-5 plus the binary representation of the
 rounded decimals); before, 0.00023 after 0.00022 failed on the float
 representation of 1e-5.
 
+### fence_door (side beat 09, census L18)
+
+The runner (`fence_door_frame`) starts at the truck crossing's end: the
+stick walks the route's path to the fence door ((386, 348), (395, 340),
+(402, 317), (413, 296); tolerance 1.5; the fence stops the walk at
+(414.9, 292.8) as at route f135), then to the press stance (417.786,
+293.837; f255) at 0.4 stick within 0.1, faces 2.4073 and presses Cross (f306),
+navigation input only. It then waits, with the pad neutral, for the door's
+phases 3, 4 and 5, B8 = 2, the door back in phase 0, D_00810702 = 2 and
+control, and settles 70 frames (the capture ends 60 rows after the
+re-place).
+
+**In process:** the scan (3B8D != 0), the door's phases 3 / 4 / 5 and 0 with
+its armed byte clear, B8 = 2 seen, the player re-placed in room 2.
+
+**Against the capture** (`check_fence_door`), aligned on the scan (the
+first tick with 3B8D != 0, route f309, where 00184BA0 armed the door and
+its 001BBE40 ran in the same frame), row for row to the capture's end (f532,
+224 rows):
+- spad, the camera byte, the letterbox, the message block, power and
+  B0 / B1 (`compare_window`), the script's camera eye / target while the
+  frame is open;
+- the player's position (X / Z exact, Y within 1e-5) and heading on every
+  row: 001BBE40's 00182F90 alignment and +0xC4 at f309 (bit-exact only on the
+  EE float model, DOOR_ORIGINAL.md), then 001B07C0(1)'s entry 2 at f472;
+- the player record's +5, +1F0, +1F1 and clip on every row, its clock from
+  the program's clip 0x45 on (f313; before it the idle clock counts from the
+  stance the navigation reached);
+- the door record's +0x00..+0x0F and script block +0x1F0..+0x1FF (the route
+  rows' door_r0 "h" and "s1F0"): phases 3 (f309), 4 (f406), 5 (f407) and 0
+  (f472), the program's pc / phase / skip byte and the advance flags
+  +0x1FE (clip 2's end bit from f464), +0x09 / +0x0C (001B0EA0's slots);
+- the room move through `tools/test_room_move_reference.py`'s checks over
+  the phase's tick log: B5..B9 and the fade block from the B8 = 2 row for 70
+  rows, the re-place row's position and heading, 001AD010 against the
+  executed original, the state-4 tick's nine calls then 001AE7E0 /
+  001AE5E0, one weather and one title node before and after;
+- the follow camera from the re-place to f532, exact (eye, target, the
+  block's +0x10 / +0x20 and +4..+7).
+
 ### crevice_climbs
 
 Route beat 11 up to director beat 1: the tank climb and the pipe-end climb
@@ -830,9 +869,19 @@ pool's D_00810610 (docs/RENDER_CONTEXT.md section 8). It checks:
   (test_frame_render_heads_reference's interpreter, its sqrtf the original
   0011E748), writes the logged K and +0x2240 bit for bit.
 
+The one exception: 0x1AE040 state 4 (the room move) re-seats the camera
+with 0018D7B0 / 0018C0D0, which builds D_00810610, and falls into state 1 in
+the same tick, so that tick's frame head projects the re-seated view (the
+check counts it separately).
+
+The check reads D_008101E4 as the camera block's +0x04 (the live camera's
+one storage of it); before census L18 the tick log and the render context
+read a scene-state copy that nothing but state 4 wrote.
+
 Measured (full route): 5,378 gameplay ticks, 6,882 frame heads (6,833 with
 the camera moving that frame), 27 sampled ticks. Side beat 00: 128, 124 and
-1.
+1. Side beat 09 (its run): 2,370 gameplay ticks, 2,707 frame heads, one
+state-4 re-seat.
 
 ### The effects (`check_effects`, census L26 / L27 / L28 / L39)
 

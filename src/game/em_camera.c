@@ -2373,9 +2373,10 @@ static void camera_door_cinematic(EmCamera *cam)
  * 60 Hz math. */
 /* AREA11's legacy stand-ins in camera action 0's place (em_camera.h). The
  * same blocks camera_update runs for the scenes without the live camera,
- * in the same order: the examine cue, the door cinematic, then the port's
- * aim placement. (The director's beats run on their original scripts since
- * WP-8b.) */
+ * in the same order: the examine cue, then the port's aim placement. (The
+ * director's beats run on their original scripts since WP-8b; the fence
+ * door's camera is its program's op0D sub 5 and 0x1AE040 state 4's re-seat
+ * since census L18, so the door cinematic no longer stands in here.) */
 int camera_area11_standins(EmCamera *cam)
 {
     {
@@ -2400,20 +2401,6 @@ int camera_area11_standins(EmCamera *cam)
             memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
         }
     }
-    if (em_door_movement_locked() && g.doorcam != 3) {
-        camera_door_cinematic(cam);
-        return CAMERA_STANDIN_OWNS;
-    }
-    if (g.doorcam == 4 && !em_door_movement_locked()) {
-        cam->tgt_soft = 0;
-        cam->tgt_des[0] = g.pos[0];
-        cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
-        cam->tgt_des[2] = g.pos[2];
-        camera_desired_eye(cam);
-        memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
-        memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
-    }
-    if (!em_door_movement_locked()) g.doorcam = 0;
     if (em_weapon_is_aiming() || g.r2_aim) {
         camera_mode1_aim(cam);
         return CAMERA_STANDIN_AIM;

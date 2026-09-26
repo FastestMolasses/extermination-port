@@ -21,6 +21,7 @@
 #include "em_input.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_door.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_pad_actuator.h"
@@ -82,6 +83,9 @@ static void truck_preview_begin(void);
 static int truck_preview_frame(void);
 static void truck_crossing_begin(void);
 static int truck_crossing_frame(void);
+static void fence_door_begin(void);
+static int fence_door_frame(void);
+static int walk_path(const float (*path)[2], int count, float tol);
 static void cage_ladders_begin(void);
 static int cage_ladders_frame(void);
 static void director_begin(void);
@@ -135,8 +139,8 @@ static const Phase k_phases[] = {
      "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0},
     {"fence_door", "09_fence_door (side, from 08)", 0x001BC350u,
      "door 001BC350 (r0): scripts 0x24DE40 / 0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2",
-     "census L18 (the door's original owner; the room move has its own capture test, "
-     "make test-room-move-reference)", NULL, NULL, 0, 1},
+     "the fence door's original owner and the ELF program on the AREA11 script host (census L18)",
+     fence_door_begin, fence_door_frame, 0, 1},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
@@ -1503,6 +1507,83 @@ static int truck_crossing_frame(void)
     fprintf(stderr, "level smoke: truck_crossing: PASS player=(%.3f,%.5f,%.3f) truck_y=%.5f story792=%u\n",
             g.pos[0], g.pos[1], g.pos[2], truck_pos[1], story_792());
     return 1;
+}
+
+/* ---------------------------------------------------------- fence_door
+ *
+ * Route beat 09 (a side beat from the truck crossing's end, route_capture.py
+ * beat_fence_door): the stick walks to the fence door along the route's
+ * path (tolerance 1.5; the fence stops the walk at (414.9, 292.8), f135),
+ * then to the route's press stance (417.786, 293.837; f255) at 0.4 stick
+ * (navigation input, within 0.1, as the other presses), faces its heading
+ * 2.4073 and presses Cross (f306). 00184BA0 selects the door (00183EF0's
+ * class-5 branch) and arms +0x0B bit 2; the door's 001BBE40 runs in the same
+ * frame (f309: +5 = 3, the player aligned and facing the door, the program
+ * 0x24DE40 started): the frame, the camera retarget (op0D sub 5), clip 0x45
+ * (f313), the door clip 2 with cue 0x401 and the 90-tick wait; its end
+ * (f406) takes the door to +5 = 4: 001BC150 (fade, B8 = 2, B7 = 2; f407),
+ * then +5 = 5 until 0x1AE040 state 4 re-places the player at entry 2
+ * (f472) and 001BC290 closes the door. In process: the scan, the door's
+ * phases 3, 4 and 5, the room move to D_00810702 = 2 and control back.
+ * tools/test_level_smoke.py check_fence_door compares the capture row for
+ * row. */
+enum { FENCE_DOOR_LIMIT = 900 };
+static const float k_fence_path[4][2] = {{386.0f, 348.0f}, {395.0f, 340.0f}, {402.0f, 317.0f}, {413.0f, 296.0f}};
+
+static void fence_door_begin(void)
+{
+    nav_reset();
+    if (em_scene_state()->d810700 != 0x0B || em_scene_state()->d810702 != 0)
+        fail("the fence door starts in AREA11 room 0 (route beat 09 from 08)");
+}
+
+static int fence_door_frame(void)
+{
+    uint8_t head[16], block[16];
+    int door = em_area11_door_state(head, block);
+    if (door && head[5] == 3) t.saw[0] = 1;
+    if (door && head[5] == 4) t.saw[1] = 1;
+    if (door && head[5] == 5) t.saw[2] = 1;
+    if (em_scene_state()->req[EM_SCENE_REQ_B8] == 2) t.saw[3] = 1;
+    switch (t.step) {
+    case 0: NAV_STEP(walk_path(k_fence_path, 4, 1.5f));
+    case 1: NAV_STEP(nav_settle(5));
+    case 2: NAV_STEP(nav_goto(417.786f, 293.837f, 0.1f, 0.4f, 1));
+    case 3: NAV_STEP(nav_settle(20));
+    case 4: NAV_STEP(nav_face(2.4073f));
+    case 5: NAV_STEP(nav_settle(30));
+    case 6:
+        (void)scan_accepted();
+        NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 7:
+        (void)scan_accepted();
+        pad_apply(0, 0, 0);
+        if (!(door && t.saw[2] && head[5] == 0 && em_scene_state()->d810702 == 2 && in_control())) {
+            if (++t.nav_frames > FENCE_DOOR_LIMIT)
+                fail(t.saw[0] ? "the door's room move did not end with the player re-placed at entry 2"
+                              : "Cross at the fence door did not start the door (+5 = 3)");
+            return 0;
+        }
+        nav_reset();
+        ++t.step;
+        return 0;
+    default: {
+        /* 70 frames: the capture ends 60 rows after the re-place (f532), and
+         * the follow camera is compared to its end. */
+        int r = nav_settle(70);
+        if (r <= 0)
+            return 0;
+        if (!t.saw[7] || !t.saw[0] || !t.saw[1] || !t.saw[2] || !t.saw[3] || head[0x0B] != 0) {
+            fprintf(stderr, "level smoke: fence_door: scan %u phases 3/4/5 %u/%u/%u B8=2 %u armed %02X\n", t.saw[7],
+                    t.saw[0], t.saw[1], t.saw[2], t.saw[3], head[0x0B]);
+            fail("the door did not run its phases 3, 4, 5 and the room move from the Use scan");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: fence_door: PASS scan_d810750=%d player=(%.3f,%.5f,%.3f) yaw=%.5f room=%u\n",
+                (int)t.scan_variants, g.pos[0], g.pos[1], g.pos[2], g.yaw, em_scene_state()->d810702);
+        return 1;
+    }
+    }
 }
 
 /* -------------------------------------------------------- cage_ladders

@@ -50,6 +50,11 @@ typedef struct {
     EmInteractionCinematicPlayerWorker cinematic_player_worker;
     float *local_palette;
     int failed;
+    /* The player is held (the original's record +0x04 == 4 after 0015B130's
+     * admission). 0x70003B8F is its published byte, but 0x1AE040 state 4's
+     * 001AFCF0 clears 3B8F with 3B8D under a held player (the fence door's
+     * room move): the takeover's tick and release then still run. */
+    int acquired;
 } EmInteractionRuntime;
 
 /* local_palette has at least model->bone_count*16 floats and belongs to

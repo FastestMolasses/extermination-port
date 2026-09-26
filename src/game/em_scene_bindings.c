@@ -101,6 +101,7 @@
 #include "game/em_effects_live.h"
 #include "game/em_equipment_live.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_door.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_area11_interaction_host.h"
@@ -485,7 +486,7 @@ static void log_snapshot(uint8_t out[LOG_SNAP])
     *p++ = s_state.d275BD8;
     *p++ = s_state.d275BDC;
     *p++ = s_state.d275BE0;
-    *p++ = s_state.d8101E4;
+    *p++ = g.cam.top_mode; /* D_008101E4: the camera block's +0x04 (its one storage) */
     put_le(&p, s_state.d810E74, 2);
     put_le(&p, s_state.d810E70, 2);
     *p++ = s_state.d810E50;
@@ -538,9 +539,19 @@ static void log_tick_begin(void)
     memcpy(&s_tick.yaw, &g.yaw, sizeof s_tick.yaw);
     s_tick.weather = em_scene_bindings_pool_count(0x001E55F0u);
     s_tick.title = em_scene_bindings_pool_count(0x001C5930u);
-    s_tick.door[0] = em_door_count() > 0 ? em_door_state(0) : -1;
-    s_tick.door[1] = em_door_movement_locked();
-    s_tick.door[2] = em_door_menu_locked();
+    /* The door: in AREA11 the fence door 001BC350's record (census L18):
+     * +0x05 (the phase), +0x0B (the armed bits) and +0x04; elsewhere the
+     * legacy door's state and its two locks. */
+    uint8_t door_head[16], door_block[16];
+    if (em_area11_door_state(door_head, door_block)) {
+        s_tick.door[0] = door_head[5];
+        s_tick.door[1] = door_head[0x0B];
+        s_tick.door[2] = door_head[4];
+    } else {
+        s_tick.door[0] = em_door_count() > 0 ? em_door_state(0) : -1;
+        s_tick.door[1] = em_door_movement_locked();
+        s_tick.door[2] = em_door_menu_locked();
+    }
     /* The message block after the previous tick's step F (001FCA10 runs
      * after the task), the route rows' post-frame sample of it: D_002821B0,
      * B4 and B8 of the live message service. */
@@ -668,6 +679,22 @@ static void log_tick_end(int rc)
         uint32_t truck_record, truck_pos[3];
         uint8_t truck_head[16], truck_t2dc[20];
         float truck_xyz[3];
+        /* Census L18, as the route rows' door_r0 samples it: the fence
+         * door's +0x00..+0x0F and its script block +0x1F0..+0x1FF, or null
+         * while no door node is bound. */
+        {
+            uint8_t head[16], block[16];
+            fputs(", \"doorrec\": ", f);
+            if (em_area11_door_state(head, block)) {
+                fputc('[', f);
+                log_hex(f, head, sizeof head);
+                fputs(", ", f);
+                log_hex(f, block, sizeof block);
+                fputc(']', f);
+            } else {
+                fputs("null", f);
+            }
+        }
         fprintf(f, ", \"story792\": %d, \"truck\": ", story ? *story : -1);
         if (em_area11_boxes_truck_state(&truck_record, truck_head, truck_xyz, truck_t2dc)) {
             memcpy(truck_pos, truck_xyz, sizeof truck_pos);
@@ -880,7 +907,7 @@ static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera
  * the live camera (AREA11): the views of the bytes other modules own (the
  * camera pool's D_00810610 and D_008105E0, the request block, the area
  * bytes, D_008101E4 and 0x70003B8D of the scene state, the camera's view of
- * the player record) and the workers it does not translate: the point-light
+ * the player record; D_008101E4 is the live camera's +0x04) and the workers it does not translate: the point-light
  * tick 001D7C30 (em_point_light), the SDK sqrtf / tanf of the area's
  * collision world, 001C1DC0's weather spawn 001C1EA0 and the reported
  * 001D52E0. */
@@ -938,7 +965,7 @@ static int rcl_bind(void)
         {0x008105E0u, 0x10u, em_camera_live_bytes(0x008105E0u, 0x10u)},
         {EM_SCENE_REQ_BASE, EM_SCENE_REQ_SIZE, s_state.req},
         {0x00810700u, 3u, &s_state.d810700},
-        {0x008101E4u, 1u, &s_state.d8101E4},
+        {0x008101E4u, 1u, &g.cam.top_mode},   /* the camera block's +0x04 */
         {0x70003B8Du, 1u, &s_state.spad3B8D},
         /* Read only: the camera's view of D_008102B0 (CAMERA_LIVE.md 5). */
         {0x008102B0u, 0x320u, (uint8_t *)(uintptr_t)em_camera_live_player_bytes()},
@@ -1260,13 +1287,13 @@ static int w_001B07C0(void *ctx, int a0)
         em_game_legacy_state0_fixtures();
         return 0;
     }
-    /* State 4: the player state 001B07C0 wrote (5/1/0 = the walk-out) and
-     * the end of the door sequence; 0x1AE040 clears the cinematic byte
-     * D_008101E4 below (0x1AE0BC), which the legacy camera keeps as
-     * g.doorcam: 3 = the door cinematic is over (the legacy warp's value). */
+    /* State 4: the player state 001B07C0 wrote (5/1/0 = the walk-out at
+     * entry 1: still the legacy walk-out, em_door.c; route beat 09's entry 2
+     * has none). The door and its program are the original owner's since
+     * census L18 (em_area11_door); 0x1AE040 clears the camera byte
+     * D_008101E4 below (0x1AE0BC, stored at w_0018D7B0). */
     em_door_room_move_arrival(io.player.b004 == 5 && io.player.b005 == 1 && io.player.b006 == 0,
                               g.yaw);
-    g.doorcam = 3;
     return 0;
 }
 
@@ -2034,6 +2061,12 @@ static int w_0018D7B0(void *ctx, uint32_t a0, int a1)
     (void)ctx;
     if (a0 != D_CAMERA || a1 != 1 || s_entry_state != 4 || !em_camera_live_bound())
         return -1;
+    /* State 4 stores D_008101E4 = 0 just before this call (0x1AE0BC). The
+     * frame core's byte is its view of the camera block's +0x04, whose one
+     * storage is the live camera's (g.cam.top_mode, em_camera_live): the
+     * view is stored at this, the first worker boundary after the store
+     * (census L18: the fence door's program leaves it at 2). */
+    g.cam.top_mode = s_state.d8101E4;
     return em_camera_live_solve(1);
 }
 

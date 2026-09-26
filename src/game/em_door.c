@@ -120,10 +120,8 @@
 
 #include "em_input.h"   /* EM_PAD_CROSS — the frame input button mask */
 #include "em_model.h"
-#include "game/em_door_transit.h" /* 001BC150 commit (S12b room move) */
 #include "game/em_frame.h"
 #include "game/em_game.h"   /* scripted player anim (op 0x0A sub 0) */
-#include "game/em_scene_bindings.h" /* em_scene_state(): B7/B8 (S12b) */
 #include "game/em_hud.h"    /* em_hud_radio — the locked "VO" text */
 #include "game/em_sfx.h"
 
@@ -572,15 +570,6 @@ typedef struct {
     float    goto_pos[3];    /* arrival spawn record: pos */
     float    goto_yaw;       /*                       exit yaw */
     int      did_warp;       /* sub 5: re-place already posted this transit */
-    /* ORIGINAL ROOM MOVE (S12b; door_bind_original below): the door id
-     * (+0x34) and the four-byte destination row D_0024E140[D_00810700] +
-     * 4 * (id & 0x7F) of the original door this manifest door stands for.
-     * Set: the commit is 001BC150 (fade 001AEDE0(4, 0), B8 = 2, B7 =
-     * row[side]) and sub 5 is 001BC290 (close when B8 clears); the re-place
-     * is 0x1AE040 state 4's 001B07C0(1), not the legacy warp. */
-    int      room_move;
-    int16_t  door_id;
-    uint8_t  destination[4];
     float    aabb_lo[3];     /* world AABB of the CLOSED door (hull box) */
     float    aabb_hi[3];
     float    palette[DOOR_BONE_MAX * 16];
@@ -819,79 +808,6 @@ static int door_model_get(EmGfx *gfx, const char *scene_dir,
     return s.n_models++;
 }
 
-/* S12b: bind a manifest door to its original door when the scene carries
- * the exported descriptor <scene>/door_original/source.emdo
- * (tools/export_door_original.py: the source record 0082A3C0 of callback
- * 001BC350, its door id and its destination row D_0024E140[0x0B] + 4 * (id &
- * 0x7F), read from the user's own ELF/RAM). The door it describes is the one
- * whose placement (+0xB0 x/y/z) the manifest line repeats (to the manifest's
- * one decimal). Only a door id with bit 7 clear is bound: that is 001BC150's
- * same-area room move (B8 = 2), the only arm with a port consumer (0x1AE040
- * state 4); bit 7 (001B0C00, B8 = 1) keeps the legacy path. */
-static void door_bind_original(Door *d, const char *scene_dir)
-{
-    char path[512];
-    unsigned char metadata[72];
-    uint32_t header[8];
-    float position[3];
-    if (snprintf(path, sizeof path, "%s/door_original/source.emdo", scene_dir) >=
-        (int)sizeof path)
-        return;
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return;
-    int valid = fread(metadata, sizeof metadata, 1, f) == 1 && fgetc(f) == EOF;
-    fclose(f);
-    memcpy(header, metadata, sizeof header);
-    memcpy(position, metadata + 32, sizeof position);
-    if (!valid || memcmp(metadata, "EMDO", 4) || header[1] != 1 ||
-        header[3] != 0x001BC350u) {
-        fprintf(stderr, "door: %s is not a valid original door descriptor\n", path);
-        return;
-    }
-    for (int k = 0; k < 3; k++)
-        if (!(fabsf(position[k] - d->pos[k]) <= 0.05f))
-            return; /* a different door */
-    if (header[6] & 0x80u)
-        return;
-    d->room_move = 1;
-    d->door_id = (int16_t)header[6];
-    memcpy(d->destination, metadata + 64, sizeof d->destination);
-    printf("door %d: original door %06X (001BC350), id %u: room move to entry %u (side 0) / "
-           "%u (side 1) through B8 = 2\n", s.n_doors, (unsigned)header[2],
-           (unsigned)header[6], d->destination[0], d->destination[1]);
-}
-
-/* 001BC150's fade: 001AEDE0(4, 0) for the room move (em_fade.c, its
- * translation). 001B0C00 (door id bit 7) is never bound here (above). */
-static int door_fade_001BC150(void *ctx, int whole_area, int ticks)
-{
-    (void)ctx;
-    if (whole_area)
-        return 0;
-    em_frame_fade_start_colour(1, ticks, 0);
-    return 1;
-}
-
-/* 001BC240 -> 001BC150 for a bound door (the caller advanced the clip
- * first, as 001BC240 does): the side latch (+0x2E: 0 = the side the door
- * faces, the legacy `front`) selects the destination byte. */
-static void door_commit_001BC150(Door *d)
-{
-    EmDoorDestination request = {0};
-    EmSceneState *scene = em_scene_state();
-    if (em_door_transit_commit(&request, d->door_id, d->front ? 0 : 1, d->destination,
-                               door_fade_001BC150, NULL) != 1) {
-        fprintf(stderr, "door: 001BC150 refused (door id %d)\n", d->door_id);
-        em_scene_fault(scene, 0x001BC150u, EM_SCENE_FAULT_WORKER_FAILED);
-        return;
-    }
-    scene->req[EM_SCENE_REQ_B8] = request.kind;
-    scene->req[EM_SCENE_REQ_B7] = request.entry;
-    printf("door: 001BC150 room move: B8 = %u, B7 = %u\n", (unsigned)request.kind,
-           (unsigned)request.entry);
-}
-
 int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
                 const float pos[3], float yaw, float radius)
 {
@@ -948,7 +864,6 @@ int em_door_add(EmGfx *gfx, const char *scene_dir, const char *file,
     /* Closed pose now: a door added mid-frame (scene switch while black)
      * is draw-recorded before its first em_door_update pass. */
     door_build_palette(d);
-    door_bind_original(d, scene_dir);
 
     printf("door %d: %s at (%.1f, %.1f, %.1f) yaw %.3f r %.1f center "
            "(%.1f, %.1f)%s — hull (%.1f, %.1f, %.1f)..(%.1f, %.1f, %.1f)\n",
@@ -1697,10 +1612,7 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
              * fade audio; the port models the room-move branch. */
             if (d->clip_t < door_clip_total(d))
                 d->clip_t += 1.0f;
-            if (d->room_move)
-                door_commit_001BC150(d);   /* S12b: fade, B8 = 2, B7 */
-            else
-                em_frame_fade_start(1, DOOR_FADE_SPEED);
+            em_frame_fade_start(1, DOOR_FADE_SPEED);
             d->state = EM_DOOR_CLOSING;
             break;
         case EM_DOOR_CLOSING:      /* engine sub 5: transition pending */
@@ -1715,17 +1627,7 @@ void em_door_update(const EmCollision *coll, const float player_pos[3],
                 }
                 break;
             }
-            if (d->room_move) {
-                /* S12b: src/func_001BC290.c (byte-matched) on every sub-5
-                 * call: anim_advance_time(self, 1.0f), then, once
-                 * D_008106B8 is clear (0x1AE040 state 4's 001AFCF0), the
-                 * snap below. The re-place is state 4's 001B07C0(1)
-                 * (em_door_room_move_arrival). */
-                if (d->clip_t < door_clip_total(d))
-                    d->clip_t += 1.0f;
-                if (em_scene_state()->req[EM_SCENE_REQ_B8] != 0)
-                    break;
-            } else if (!d->did_warp) {
+            if (!d->did_warp) {
                 /* func_001BC290 (byte-matched) runs EVERY sub-5 frame
                  * and its first act is anim_advance_time(self, 1.0f) —
                  * the door keeps opening FORWARD while the transition
@@ -1907,24 +1809,9 @@ int em_door_walkout_active(float *out_yaw, float *out_speed)
     return 1;
 }
 
-int em_door_room_move_request_test(int side)
+void em_door_legacy_walkout_tick(void)
 {
-    for (int i = 0; i < s.n_doors; i++) {
-        Door *d = &s.doors[i];
-        if (!d->room_move || d->slider || d->state != EM_DOOR_CLOSED)
-            continue;
-        d->front        = side == 0;
-        d->open_wait    = d->front ? DOOR_WAIT_FRONT : DOOR_WAIT_BACK;
-        d->transit      = 0;
-        d->anim_started = 1;
-        d->did_warp     = 0;
-        d->armed        = 0;
-        d->state        = EM_DOOR_OPEN;
-        s.lock_move     = 1;   /* the kickoff's locks (THE TWO LOCKS) */
-        s.lock_menu     = 1;
-        return i;
-    }
-    return -1;
+    walkout_tick();
 }
 
 void em_door_room_move_arrival(int walkout, float exit_yaw)

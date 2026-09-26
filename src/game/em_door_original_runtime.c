@@ -161,7 +161,31 @@ static int path(char out[1024], const char *scene, const char *name)
     return length > 0 && length < 1024;
 }
 
+int em_door_original_runtime_advance(EmDoorOriginalRuntime *r, int16_t *flags)
+{
+    if (!r || !r->loaded || r->failed || !flags) return -1;
+    return advance(r, flags) == 1 ? 1 : -1;
+}
+
+int em_door_original_runtime_place(EmDoorOriginalRuntime *r)
+{
+    if (!r || !r->loaded || r->failed) return -1;
+    return place(r) == 1 ? 1 : -1;
+}
+
 int em_door_original_runtime_load(EmDoorOriginalRuntime *r, const char *scene,
+    const EmInteractionSceneOwner *source, const EmDoorOriginalRuntimeHooks *hooks)
+{
+    if (!em_door_original_runtime_open(r, scene, source, hooks)) return 0;
+    if (em_door_original_runtime_tick(r, 0) != 1 || place(r) != 1) {
+        em_door_original_runtime_free(r);
+        r->error = "missing or inconsistent original AREA11 door resource";
+        return 0;
+    }
+    return 1;
+}
+
+int em_door_original_runtime_open(EmDoorOriginalRuntime *r, const char *scene,
     const EmInteractionSceneOwner *source, const EmDoorOriginalRuntimeHooks *hooks)
 {
     if (!r || !scene || !source || !hooks || !hooks->publish || !hooks->draw ||
@@ -212,7 +236,6 @@ int em_door_original_runtime_load(EmDoorOriginalRuntime *r, const char *scene,
     memcpy(r->destination, metadata + 64, 4);
     memcpy(r->sounds, metadata + 68, 4);
     r->loaded = 1;
-    if (em_door_original_runtime_tick(r, 0) != 1 || place(r) != 1) goto fail;
     return 1;
 fail:
     em_door_original_runtime_free(r);

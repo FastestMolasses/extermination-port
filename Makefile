@@ -19,7 +19,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
-           src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_bgm.c \
+           src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_model.c src/game/em_player_face_host.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_camera_retarget.c \
@@ -338,19 +338,13 @@ test-area-load-reference: $(BIN)
 	grep -q "area change test: PASS" build/area_load_reference/run.log
 	python3 tools/test_area_load_reference.py --log build/area_load_reference/ticks.jsonl
 
-# S12b: the room move. 0018AB00 against the executed original, and a headless
-# New Game whose AREA11 door commits a room move at first control
-# (EM_ROOM_MOVE_TEST): its ticks (EM_AREA_CHANGE_LOG) are compared with the
-# original route capture 09_fence_door and 001AD010 is replayed through the
-# executed original.
+# S12b: the room move's 0018AB00 against the executed original. The live room
+# move (the fence door's commit, B8 = 2, state 4's re-place) is compared with
+# route 09 by the level smoke's fence_door phase (census L18), which runs this
+# script's sequence checks over its tick log.
 .PHONY: test-room-move-reference
-test-room-move-reference: $(BIN)
-	mkdir -p build/room_move_reference
-	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-control EM_ROOM_MOVE_TEST=1 \
-	    EM_AREA_CHANGE_LOG=build/room_move_reference/ticks.jsonl $(BIN) > build/room_move_reference/run.log 2>&1
-	grep -q "newgame control test: PASS" build/room_move_reference/run.log
-	grep -q "room move test: PASS" build/room_move_reference/run.log
-	python3 tools/test_room_move_reference.py --log build/room_move_reference/ticks.jsonl
+test-room-move-reference:
+	python3 tools/test_room_move_reference.py
 
 # S13: the live first-level smoke. A headless New Game walks the route of
 # docs/FIRST_LEVEL_ROUTE.md phase by phase (EM_LEVEL_SMOKE_UNTIL, default
@@ -363,11 +357,12 @@ test-room-move-reference: $(BIN)
 test-collision-world-capture: $(BIN)
 	python3 tools/test_collision_world_capture.py
 
-# The default run stops after truck_crossing (about 11 s, docs/LEVEL_SMOKE.md
+# The default run plays the main line through truck_crossing and then the
+# side beat 09 from its end, fence_door (about 16 s, docs/LEVEL_SMOKE.md
 # "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
-# the whole live route (about 30 s), then the side beat 00 run (about 4 s
-# more).
-LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,truck_crossing)
+# the whole live route (about 30 s), then the side-beat runs 00 and 09
+# (about 20 s more).
+LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,fence_door)
 
 .PHONY: test-level-smoke
 test-level-smoke: $(BIN)
@@ -383,16 +378,20 @@ test-level-smoke: $(BIN)
 test-level-smoke-full: $(BIN)
 	$(MAKE) test-level-smoke EM_TEST_FULL=1
 
-# Route beat 00 (a side beat from slot 04): first control, then the panel
-# without the battery (LEVEL_SMOKE.md "panel_no_battery"; about 4 s).
+# The side beats, each in its own run: 00 (from slot 04: first control, then
+# the panel without the battery; about 4 s) and 09 (the main line through
+# truck_crossing, then the fence door; about 16 s). LEVEL_SMOKE.md.
 .PHONY: test-level-smoke-side
 test-level-smoke-side: $(BIN)
 	mkdir -p build/level_smoke_side
-	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=panel_no_battery \
-	    EM_AREA_CHANGE_LOG=build/level_smoke_side/ticks.jsonl \
-	    $(BIN) > build/level_smoke_side/run.log 2>&1 || (grep "level smoke" build/level_smoke_side/run.log; false)
-	grep "level smoke:" build/level_smoke_side/run.log
-	python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl --run-log build/level_smoke_side/run.log
+	for side in panel_no_battery fence_door; do \
+	    EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$$side \
+	        EM_AREA_CHANGE_LOG=build/level_smoke_side/ticks.jsonl \
+	        $(BIN) > build/level_smoke_side/run.log 2>&1 || { grep "level smoke" build/level_smoke_side/run.log; exit 1; }; \
+	    grep "level smoke:" build/level_smoke_side/run.log; \
+	    python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl \
+	        --run-log build/level_smoke_side/run.log || exit 1; \
+	done
 
 .PHONY: test-message-service
 test-message-service:
@@ -1207,18 +1206,10 @@ test-area11-sfx-reference:
 test-area11-sfx:
 	python3 tools/test_area11_sfx_runtime.py
 
-# Original door transit and shared-player program.
+# Original door transit (001BBE40 on the EE float model, 001BC150).
 .PHONY: test-door-transit
 test-door-transit:
 	python3 tools/test_door_transit_reference.py
-
-.PHONY: test-door-program
-test-door-program:
-	python3 tools/test_door_program_reference.py
-
-.PHONY: test-door-program-runtime
-test-door-program-runtime:
-	python3 tools/test_door_program_runtime.py
 
 .PHONY: test-player-face-host
 test-player-face-host:

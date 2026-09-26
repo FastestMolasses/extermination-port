@@ -767,12 +767,26 @@ static EmScriptCommandResult op0A(Op *o)
     return EM_SCRIPT_ADVANCE;
 }
 
-/* 001B8020 (ftab_0024D880[11]): owner animation. Only sub4 is admitted. */
+/* 001B8020 (ftab_0024D880[11]): owner animation. Subs 6, 0 and 4 are
+ * admitted (byte-matched src/func_001B8020.c): sub 6 plays 001FBD50(owner,
+ * rec +0x18, 0, 300.0) and falls into sub 0, anim_clip_init(owner, (short)
+ * rec +0x14, rec +0x0C, 0.0) with st +0x0E = 0 (census L18: the ordinary
+ * door program's 0x24DC40); sub 4 binds D_0028A490[rec +0x1C] at the owner's
+ * +0x40 first and passes 0.0 for both floats. The other subs fault. */
 static EmScriptCommandResult op0B(Op *o)
 {
     const EmAreaScriptWorld *w = o->w;
     uint32_t bank;
     switch (u32(o->rec, 8)) {
+    case 6:
+        WORKER(w_001FBD50, 0x001FBD50u);
+        CALL(0x001FBD50u, o->k->w_001FBD50(o->ctx, w->self, s32(o->rec, 0x18), 0, 300.0f));
+        /* fall through */
+    case 0:
+        WORKER(w_001C67E0, 0x001C67E0u);
+        CALL(0x001C67E0u, o->k->w_001C67E0(o->ctx, w->self, s16(o->rec, 0x14), f32(o->rec, 0x0C), 0.0f));
+        o->h->st_0E = 0;
+        return EM_SCRIPT_ADVANCE;
     case 4:
         NEED(w->s040, 0x1B802000u);
         WORKER(r_0028A490, EM_AREA_SCRIPT_D_0028A490);

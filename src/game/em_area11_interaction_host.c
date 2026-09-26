@@ -1,4 +1,5 @@
 #include "game/em_area11_interaction_host.h"
+#include "game/em_door_candidate.h"
 #include "game/em_render_context_live.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_camera.h"
@@ -76,6 +77,11 @@ static struct {
      * EMIS record (00183EF0's selector-0 class-10 candidate). */
     EmActor *roger_actor;
     EmInteractionSceneOwner *roger_record;
+    /* Census L18: the fence door 001BC350's pool record (bound by its node's
+     * first call, em_area11_door.c) and its EMIS record (00183EF0's
+     * selector-0 class-5 candidate, em_door_candidate). */
+    EmActor *door_actor;
+    EmInteractionSceneOwner *door_record;
     /* The token of the script owner (em_area11_script_host) the shared
      * takeover serves, or NULL: its stages run 00183090 on the record. */
     const void *script_owner;
@@ -443,6 +449,7 @@ static EmInteractionSceneOwner *owner_of_record(const EmActor *actor)
     if (actor == world.panel_actor) return world.panel_record;
     if (actor == world.elevator_actor) return world.elevator_record;
     if (actor == world.roger_actor) return world.roger_record;
+    if (actor == world.door_actor) return world.door_record;
     for (size_t i = 0; i < world.pickup_count; ++i)
         if (world.pickups[i].actor == actor) return world.pickups[i].record;
     return NULL;
@@ -1301,7 +1308,17 @@ static int use_predicate(void *context, const EmInteractionCandidate *candidate,
         return em_roger_candidate(record->descriptor, world.roger_actor->pos, &player, &world.scene.math,
                                   score);
     }
-    return -1; /* the door is not published yet (WP-7) */
+    if (record == world.door_record && world.door_actor) {
+        /* 00183EF0's selector-0 class-5 branch (em_door_candidate, subtype
+         * 3): the doorway descriptor at +0x30 around the owner's +0xB0 and
+         * +0xC4. */
+        EmInteractionPlayer player = {.yaw = g.yaw, .action = 0};
+        memcpy(player.position, g.pos, sizeof player.position);
+        memcpy(player.view_target, g.cam.tgt, sizeof player.view_target);
+        return em_door_candidate(record->descriptor, world.door_actor->pos, world.door_actor->rot[1],
+                                 world.door_actor->model, &player, &world.scene.math, score);
+    }
+    return -1;
 }
 
 int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *actor, int *result)
@@ -1331,7 +1348,8 @@ int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *a
     view_store();
     /* Roger's armed talk 0x828810 runs on the AREA11 script host: his
      * takeover is a script owner's (00183090 on the record). */
-    if (claimed && record == world.roger_record) world.script_owner = record->native_owner;
+    if (claimed && (record == world.roger_record || record == world.door_record))
+        world.script_owner = record->native_owner;
     if (!claimed || scene->spad3B8D != 3) return fail("00184BA0 winner claim");
     *result = 1;
     return 0;
@@ -1425,6 +1443,37 @@ int em_area11_interaction_host_bind_roger(EmActor *actor)
     world.roger_actor = actor;
     world.roger_record = record;
     return 0;
+}
+
+/* The fence door 001BC350's record (census L18, em_area11_door.c): its EMIS
+ * record (source 0x82A3C0) bound to the pool record's +0x00, +0x02 and +0x0B
+ * (the arm 00184BA0 writes), the record itself being the owner token of the
+ * scan's claim and of the script host's takeover. Its placement must be the
+ * EMIS placement. The EMIS record is returned through *source (the door
+ * runtime's resource check). 0, or -1. */
+int em_area11_interaction_host_bind_door(EmActor *actor, const EmInteractionSceneOwner **source)
+{
+    if (!world.loaded || world.failed) return -1;
+    EmInteractionSceneOwner *record = em_interaction_scene_role(&world.scene, EM_INTERACTION_DOOR);
+    if (!record || !actor || actor->self != actor) return fail("door pool record binding");
+    if (actor->pos[0] != record->position[0] || actor->pos[1] != record->position[1] ||
+        actor->pos[2] != record->position[2] || actor->rot[1] != record->angles[1])
+        return fail("the door's pool record placement differs from the EMIS record");
+    if (world.door_actor && world.door_actor != actor) return fail("door pool record bound twice");
+    if (!em_interaction_scene_bind(&world.scene, record->source_id, actor, &actor->status, &actor->cls,
+                                   &actor->u0A[1]))
+        return fail("door EMIS binding");
+    world.door_actor = actor;
+    world.door_record = record;
+    if (source) *source = record;
+    return 0;
+}
+
+/* 001B1630 on g.cam.eye / g.cam.fwd (D_008105D0 / D_00810600), for owners
+ * outside the host (the door's 001B1B30). */
+int em_area11_interaction_host_visible_001B1630(const float position[3])
+{
+    return em_interaction_visible(position, g.cam.eye, g.cam.fwd);
 }
 
 int em_area11_interaction_host_elevator_state0(void)

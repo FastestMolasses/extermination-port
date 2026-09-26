@@ -1,5 +1,5 @@
 #include "game/em_door_original.h"
-#include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 static int advance(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
 {
@@ -99,8 +99,7 @@ int em_door_original_tick(EmDoorOriginal *door, int unlocked,
         /*001BC300 always runs after a lifecycle1 phase, including an
          * unknown phase. Its position comes from actor+B0, not A0.*/
         if (!hooks->place || hooks->place(hooks->context) != 1) return -1;
-        float point[3] = {door->origin[0],
-            em_effect_float32((double)door->origin[1] + 10.0), door->origin[2]};
+        float point[3] = {door->origin[0], em_ee_add(10.0f, door->origin[1]), door->origin[2]}; /* add.s */
         if (!hooks->publish) return -1;
         result = hooks->publish(hooks->context, point);
         if (result < 0 || result > 255) return -1;

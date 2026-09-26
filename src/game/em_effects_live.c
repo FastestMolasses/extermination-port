@@ -268,7 +268,7 @@ static void fog_refresh(void)
 static void globals_refresh(void)
 {
     const EmPlayerLiveActor *p = player_states_actor_mut();
-    S.eglobals.d8101E4 = S.scene->d8101E4;
+    S.eglobals.d8101E4 = g.cam.top_mode;   /* the camera block's +0x04 (em_camera_live) */
     S.eglobals.d810700 = S.scene->d810700;
     S.eglobals.spad3B68 = S.scene->spad3B68;
     S.eglobals.d8102E8 = p ? bfloat(rd32(p->bytes + 0x38)) : 0.0f;   /* D_008102E8: the player's +0x38 */

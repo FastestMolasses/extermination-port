@@ -9,9 +9,11 @@ against the executed original and the original route capture.
    CA7, every CA7 in {7, 8, 9, 10} with every CA4, plus a fixed-seed sample;
    EM_TEST_FULL=1: all 65,536 pairs).
 
-2. Live run (--log, the EM_AREA_CHANGE_LOG of an EM_ROOM_MOVE_TEST run, see
-   em_opening_control_test.c). The log holds one line per slot-0 task tick
-   with the state at the tick start, the original's main-loop-top sample.
+2. Live run (--log, an EM_AREA_CHANGE_LOG from the fence door's room move;
+   since census L18 the level smoke's fence_door phase runs these checks,
+   tools/test_level_smoke.py check_fence_door, over its own tick log from the
+   Use scan on). The log holds one line per slot-0 task tick with the state
+   at the tick start, the original's main-loop-top sample.
    a. Tick sequence (design row S12b): the rows from the first one with
       B8 = 2 (the door's 001BC150 ran in the tick before) must match the
       original route capture 09_fence_door (../Extermination/build/s87/route,
@@ -34,8 +36,9 @@ against the executed original and the original route capture.
       with fade 2; state 4 spawned their successors), no title node between
       (it leaves on B8 and state 4 respawns it). The capture's snapshot after
       the room move also has exactly one of each.
-   d. The door is closed (001BC290 saw B8 clear) and the movement lock is
-      released at the re-place row (entry 2's walk-out byte is 0).
+   d. The door is back in phase 0 with its armed byte clear at the re-place
+      row (001BC290 saw B8 clear; the tick log's "door" is the door record's
+      +0x05, +0x0B and +0x04).
    e. D_008106C8 after state 4 equals the capture's (001B0250 over entry 2),
       and D_008106C6 equals it too (0018AB00).
 
@@ -228,7 +231,7 @@ def capture_nodes_and_flags():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--log', type=Path, help='EM_AREA_CHANGE_LOG file of an EM_ROOM_MOVE_TEST run')
+    parser.add_argument('--log', type=Path, help='EM_AREA_CHANGE_LOG of a run through the fence door\'s room move')
     args = parser.parse_args()
     elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA256
@@ -237,7 +240,7 @@ def main():
     reference_mode.banner(f'{n} of {total} 0018AB00 cases')
     print(f'0018AB00: PASS ({n} CA4/CA7 pairs: D_008106C6 and the lone store identical to the executed original)')
     if not args.log:
-        print('room move reference: PASS (0018AB00 only; pass --log for the live run)')
+        print('room move reference: PASS (0018AB00; the live room move is the level smoke\'s fence_door phase)')
         return 0
     assert (ROUTE / 'trace.json').exists(), f'route capture missing: {ROUTE} (docs/FIRST_LEVEL_ROUTE.md)'
     rows = json.loads((ROUTE / 'trace.json').read_text())['rows']

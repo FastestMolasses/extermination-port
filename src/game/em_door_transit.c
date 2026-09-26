@@ -1,47 +1,41 @@
 #include "game/em_door_transit.h"
-#include "game/em_effect_color.h"
-#include "game/em_item_sdk_math.h"
+#include "game/em_ee_float.h"
 
+#include <math.h>
 #include <string.h>
 
-static float add(float a, float b)
-{
-    return em_effect_float32((double)a + b);
-}
+#define PI_F 0x1.921fb6p+1f     /* 3.1415927f */
+#define HALF_PI_F 0x1.921fb6p+0f /* 1.5707964f */
 
-static float subtract(float a, float b)
-{
-    return em_effect_float32((double)a - b);
-}
-
-static float multiply(float a, float b)
-{
-    return em_effect_float32((double)a * b);
-}
-
-static float wrap(float angle)
-{
-    while (angle > 0x1.921fb6p+1f) angle = subtract(angle, 0x1.921fb6p+2f);
-    while (angle <= -0x1.921fb6p+1f) angle = add(angle, 0x1.921fb6p+2f);
-    return angle;
-}
-
+/* 001BBE40's geometry (byte-matched src/func_001BBE40.c), with every FPU
+ * operation on the EE model:
+ *   side    = fabsf(001B1470(001B1240(door +0xB0, player x, player z)
+ *             - door yaw)) <= pi/2 ? 0 : 1 (0011DF78; c.le.s)
+ *   yaw'    = 001B1470(pi + door yaw) (side 0) or 001B1470(door yaw)
+ *   point   = (door.x - 5 cosf(door yaw), player y, door.z + 5 sinf(door yaw), 1)
+ *   point.x -= 5 sinf(yaw'), point.z -= 5 cosf(yaw')
+ * The patch words (clips, wait and the sound pair's side) are the
+ * program's (0x24DC14 / 0x24DC54 / 0x24DC8C, or 0x24DCD4 / 0x24DD14). */
 int em_door_transit_prepare(EmDoorTransitPlan *out, const float origin[3], float yaw,
     const float player[3], const uint16_t sounds[2], int locked,
-    const EmInteractionMath *math)
+    const EmDoorTransitMath *math)
 {
-    if (!out || !origin || !player || !sounds || !math || !isfinite(yaw) ||
-        fabsf(yaw) > 0x1.921fb6p+1f || (locked != 0 && locked != 1))
+    if (!out || !origin || !player || !sounds || !math || !math->bearing || !math->wrap ||
+        !math->sine || !math->cosine || !isfinite(yaw) || fabsf(yaw) > PI_F ||
+        (locked != 0 && locked != 1))
         return 0;
     for (unsigned axis = 0; axis < 3; ++axis)
         if (!isfinite(origin[axis]) || !isfinite(player[axis])) return 0;
-    float bearing = em_interaction_sdk_atan2(math,
-        subtract(player[0], origin[0]), subtract(player[2], origin[2]));
-    if (!isfinite(bearing)) return 0;
+    void *c = math->context;
+    float bearing, relative, value;
+    if (math->bearing(c, origin, player[0], player[2], &bearing) < 0 ||
+        math->wrap(c, em_ee_sub(bearing, yaw), &relative) < 0)
+        return 0;
+    const uint32_t magnitude = em_ee_bits(relative) & UINT32_C(0x7FFFFFFF);   /* 0011DF78 */
     EmDoorTransitPlan plan = {0};
     plan.locked = locked;
-    plan.side = fabsf(wrap(subtract(bearing, yaw))) <= 0x1.921fb6p+0f ? 0 : 1;
-    plan.player_yaw = wrap(plan.side ? yaw : add(0x1.921fb6p+1f, yaw));
+    plan.side = em_ee_c_le_bits(magnitude, em_ee_bits(HALF_PI_F)) ? 0 : 1;
+    if (math->wrap(c, plan.side ? yaw : em_ee_add(PI_F, yaw), &plan.player_yaw) < 0) return 0;
     if (locked) {
         plan.script_entry = 0x24dec0;
         plan.player_clip = plan.side ? 0x44 : 0x46;
@@ -53,19 +47,23 @@ int em_door_transit_prepare(EmDoorTransitPlan *out, const float origin[3], float
         plan.wait_ticks = plan.side ? 70 : 90;
         plan.sound = sounds[plan.side];
     }
-    plan.position[0] = subtract(origin[0], multiply(5, em_item_sdk_cosine(yaw)));
+    if (math->cosine(c, yaw, &value) < 0) return 0;
+    plan.position[0] = em_ee_sub(origin[0], em_ee_mul(5.0f, value));
     plan.position[1] = player[1];
-    plan.position[2] = add(origin[2], multiply(5, em_item_sdk_sine(yaw)));
+    if (math->sine(c, yaw, &value) < 0) return 0;
+    plan.position[2] = em_ee_add(origin[2], em_ee_mul(5.0f, value));
     plan.position[3] = 1;
-    plan.position[0] = subtract(plan.position[0], multiply(5, em_item_sdk_sine(plan.player_yaw)));
-    plan.position[2] = subtract(plan.position[2], multiply(5, em_item_sdk_cosine(plan.player_yaw)));
+    if (math->sine(c, plan.player_yaw, &value) < 0) return 0;
+    plan.position[0] = em_ee_sub(plan.position[0], em_ee_mul(5.0f, value));
+    if (math->cosine(c, plan.player_yaw, &value) < 0) return 0;
+    plan.position[2] = em_ee_sub(plan.position[2], em_ee_mul(5.0f, value));
     *out = plan;
     return 1;
 }
 
 int em_door_transit_kickoff(EmDoorOriginal *door, float yaw,
     const float player[3], const uint16_t sounds[2], int locked,
-    const EmInteractionMath *math, const EmDoorTransitHooks *hooks)
+    const EmDoorTransitMath *math, const EmDoorTransitHooks *hooks)
 {
     if (!door) return -1;
     if (!(door->armed & 4)) return 0;

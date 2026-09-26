@@ -18,6 +18,7 @@
 
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
+#include "game/em_area11_door.h"
 #include "game/em_game.h"
 #include <dirent.h>
 #include <stdio.h>
@@ -186,6 +187,18 @@ void render_chain_build(void)
         ChainDraw *cd = &g.chain[g.chain_len];
         if (em_area11_boxes_draw(i, &cd->mesh, &cd->palette, &cd->bone_count)) {
             cd->tint = NULL;
+            g.chain_len++;
+        }
+    }
+    /* The AREA11 fence door 001BC350 (census L18): its +0x4C ran in its last
+     * owner call, at its runtime's node palette (em_area11_door). */
+    if (g.chain_len < CHAIN_CAP) {
+        ChainDraw *cd = &g.chain[g.chain_len];
+        if (em_area11_door_draw(&cd->mesh, &cd->palette, &cd->bone_count)) {
+            cd->tint = NULL;
+            cd->anchor_bone = 0;
+            cd->cam_fill = 0;
+            cd->face = 0;
             g.chain_len++;
         }
     }

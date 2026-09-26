@@ -53,6 +53,7 @@ BUILD = ROOT/'build/area_script_reference'
 
 OVERLAY = (0x823500, 0x82AD00)       # AREA11 overlay arena (scripts 0x8283D0..)
 PANEL = (0x246F20, 0x247E20)         # ELF panel script arena
+DOOR_PROGRAM = (0x24DBC0, 0x24DF80)  # ELF ordinary-door program 0x24DE40 (001BBE40)
 STACK_TOP = 0x01F00000
 TRACK = 0x01E80000                   # 001C6120 result (worker-owned)
 SCRATCH = 0x01E90000                 # scratch execution area for math workers
@@ -291,6 +292,7 @@ WORKERS = [
     ('w_001B1380', 0x1B1380, 'vvf', 'io'), ('w_001B1470', 0x1B1470, 'f', 'fo'),
     ('w_00182BF0', 0x182BF0, 'a', 'io'),
     ('w_001B0C00', 0x1B0C00, 'i', ''), ('w_001B6250', 0x1B6250, 'a', ''),
+    ('w_001FBD50', 0x1FBD50, 'aiif', ''),
 ]
 PASSTHROUGH = {0x11E2A8, 0x1B1240, 0x1B12B0, 0x1B1380, 0x1B1470, 0x182F90, 0x1B7D60}
 KIND_CTYPE = {'i': C.c_int, 'h': C.c_int16, 'b': C.c_uint8, 'a': C.c_uint32, 'f': C.c_float,
@@ -731,6 +733,11 @@ def synthetic_arena():
                          rec(0x18), rec(0, 0, v20=V1, v30=V2), rec(7, 4, END)])
     here = base+len(data)
     script('jump', [rec(2, flags=JUMP, jump=here+128, f0c=1.), rec(0x7FF), rec(7, 4, END)])
+    # op0B sub 6 (001FBD50, then sub 0's clip init) and sub 0 on their own:
+    # the shape of the ordinary door program's 0x24DC40 (census L18).
+    script('owner clip', [rec(7, 0, w14=1), rec(0x0B, 6, f0c=0., w14=2, w18=0x401),
+                          rec(0x0B, 0, f0c=0.5, w14=3), rec(0x0B, 6, f0c=1., w14=0, w18=0x402),
+                          rec(7, 4, END)])
     script('unported opcode', [rec(7, 0, w14=1), rec(0x14), rec(7, 4, END)])
     script('unadmitted kind', [rec(7, 0, w14=1), rec(0, 8, f0c=3.), rec(7, 4, END)])
     return scripts, bytes(data)
@@ -810,7 +817,7 @@ def scenarios():
 # ---------------------------------------------------------------- route captures
 ROUTE = DECOMP/'build/s87/route'     # docs/FIRST_LEVEL_ROUTE.md (pad-only play)
 ROUTE_OWNERS = {'trigger_r17': 0x7AA2A0, 'elevator_r19': 0x7AA880, 'roger_r8': 0x7A8830,
-                'director_r12': 0x7A93F0, 'panel_r18': 0x7AA590}
+                'director_r12': 0x7A93F0, 'panel_r18': 0x7AA590, 'door_r0': 0x7A70B0}
 CAMERA_WORKERS = ('w_0018CBD0', 'w_0018D7B0', 'w_0022EC30', 'c_record')
 # (label, beat, seed, scripts, owner record patches).
 #   seed: the route snapshot the beat was played from ('playable' for beat 00,
@@ -846,6 +853,12 @@ ROUTE_CASES = [
      [('director_r12', 0x829CC0, [(0x810813, 0xFF, 'set')])], ()),
     ('Roger encounter 8283D0', '14_roger_encounter', '13_east_tower',
      [('roger_r8', 0x8283D0, [(0x8107D8, 1, 'or')])], ()),
+    # The fence door 001BC350 (census L18): 001BBE40 patches the program's
+    # player clip, door clip, sound and wait words before its 001BA1A0, so
+    # the seed takes them from the beat's own end snapshot.
+    ('fence door 24DE40', '09_fence_door', '08_truck_crossing',
+     [('door_r0', 0x24DE40, [])], [(0x24DC14, '09_fence_door'), (0x24DC54, '09_fence_door'),
+                                   (0x24DC58, '09_fence_door'), (0x24DC8C, '09_fence_door')]),
 ]
 
 
@@ -950,7 +963,8 @@ def capture_case(case):
     env = RouteEnv()
     hosts = []
     for owner, entry, finish in scripts:
-        base, end = OVERLAY if entry >= OVERLAY[0] else PANEL
+        base, end = (OVERLAY if entry >= OVERLAY[0] else
+                     DOOR_PROGRAM if DOOR_PROGRAM[0] <= entry < DOOR_PROGRAM[1] else PANEL)
         n = Native(lib, elf, ram, spad, ROUTE_OWNERS[owner], (base, end), ram[base:end], {}, env,
                    mem=mem)
         hosts.append(dict(owner=owner, entry=entry, finish=finish, n=n, base=base, end=end,

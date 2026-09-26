@@ -12,6 +12,7 @@
 
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
+#include "game/em_area11_door.h"
 #include "game/em_scene.h"
 
 #include "game/em_game_internal.h"
@@ -271,7 +272,11 @@ void scene_manifest_load(void)
                     memmove(lt, lt + 7, strlen(lt + 7) + 1);
                 }
             }
-            if (em_door_add(em_frame_gfx(), g.scene_dir, name, p, yaw, r)) {
+            if (strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0) {
+                /* AREA11's fence door is the roster's 001BC350 node on its
+                 * original owner (census L18, em_area11_door): no legacy
+                 * em_door copy is placed. */
+            } else if (em_door_add(em_frame_gfx(), g.scene_dir, name, p, yaw, r)) {
                 printf("manifest: door line failed to load: %s", line);
             } else if (((locked
                              ? (void)em_door_set_locked(em_door_count() - 1)
@@ -759,6 +764,7 @@ void scene_unload(EmGfx *gfx)
     em_enemy_reset();
     em_area11_boxes_shutdown(gfx); /* the crate / drum meshes (census L25) */
     em_area11_roger_shutdown(gfx); /* Roger's and the equipment's meshes (census L22) */
+    em_area11_door_shutdown(gfx);  /* the fence door's mesh and resources (census L18) */
     em_pickup_scene_clear(gfx); /* instances only — the inventory and
                                  * the taken-bit set survive (engine
                                  * globals; that survival IS the pickup

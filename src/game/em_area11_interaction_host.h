@@ -110,6 +110,14 @@ int em_area11_interaction_host_offer_001B17A0(EmActor *actor, EmOwnerServicesOwn
 /* Roger's pool record (census L22): the EMIS Roger record bound to its
  * +0x00 / +0x02 / +0x0B, the record the owner token. 0, or -1. */
 int em_area11_interaction_host_bind_roger(EmActor *actor);
+/* The fence door 001BC350's pool record (census L18): the EMIS door record
+ * (source 0x82A3C0) bound to its +0x00 / +0x02 / +0x0B, the record the owner
+ * token of the Use scan's claim and of the script host's takeover; *source
+ * receives the EMIS record. 0, or -1. */
+int em_area11_interaction_host_bind_door(EmActor *actor, const EmInteractionSceneOwner **source);
+/* 001B1630(x, y, z): the camera cone / range gate over D_008105D0 /
+ * D_00810600 (g.cam.eye / g.cam.fwd), the byte 001B17A0 and 001B1B30 store. */
+int em_area11_interaction_host_visible_001B1630(const float position[3]);
 /* Every AREA11 status screen (a pending request D_008106B0 != 0, or the
  * START/TRIANGLE hub): 0020E060 (open, 1 or -1), 0020CDC0 (page, 0 waiting
  * / 1 exit done / -1) and the status frames' draw. clear_route marks a

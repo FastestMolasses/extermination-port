@@ -292,8 +292,9 @@ on 8 workers. The 06 route slice is the longest item.
    class-2 list is empty in AREA11 until Roger, L22, publishes), each with its
    oracle extended from this test's worker harness, then the bindings of item
    3. The port's player keeps `em_collision_move_probe` (em_player.c
-   `probe_move` / `probe_sweep`) until then; the fence door's hull (mask bit 0)
-   is the port's `em_door_probe` there.
+   `probe_move` / `probe_sweep`) in the scenes without the original world; the
+   legacy `em_door_probe` hull is not placed in AREA11 (the fence door is its
+   original owner since census L18: class 5, no class list).
 3. **Player stage (w_0015BCF0), context `EmCollMovePlayer`** = { world,
    scratch, `player_states_actor()` (the live record: +0x00, +0x02, +0x52),
    self = that same live pointer }.
