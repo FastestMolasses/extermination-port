@@ -34,9 +34,10 @@ their voiced lines on the stream lanes (STREAM_LANES.md "Live binding").
 
 **Route coverage.** The checker ends with one `level smoke: route beats:`
 line naming every route beat 00..14 and the state of each of its phases
-(live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-25
-(census L18): beats 01..14 live, the side beats 00 and 09 each in its own
-run.
+(live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-26: beats
+01..14 live on the main line (18 phases), the side beats 00 and 09 each in
+its own run, and `make test-level-smoke-full` requires all of them
+(`--require-through`, "Running it").
 
 ## Running it
 
@@ -57,7 +58,14 @@ The make target does the following:
    - The frontend drives the title menu and the movie skip, as it does for
      `newgame-control`.
 2. It prints the run's `level smoke:` lines.
-3. It runs `tools/test_level_smoke.py` over the run log and the tick log.
+3. It runs `tools/test_level_smoke.py` over the run log and the tick log,
+   with `--require-through <phase>`: the phase the run was asked to reach
+   (`last` for the whole main line). The checker then fails unless every
+   phase the run had to play was checked live against its capture: the main
+   line up to that phase, and the side phase itself for a side run. A phase
+   that stopped the run as NOT-LIVE, was driven, or was never reached fails
+   the target instead of passing with a shorter route (full-route step,
+   2026-09-26). The side runs pass their own phase.
 
 `EM_LEVEL_SMOKE_UNTIL` takes a phase name from the table below. The binary's
 default is the last phase; the make target's default is `fence_door` (the main line through `truck_crossing`, then side beat 09)
@@ -1029,6 +1037,39 @@ post-steps (the opening); samples 4 of 32 and 3 of 32 re-executed. Full
 route: 10,631 001DA6A0 calls (9,364 drawn), 640 0015BF90 calls; all 40 and
 32 samples re-executed, all equal. Mutations of a node, the camera, the area
 byte, a packet byte and the segment answer each fail it.
+
+## What the full route does not yet compare (2026-09-26)
+
+`make test-level-smoke-full` plays route beats 01..14 on the main line and 00
+and 09 in their own runs, and every phase reproduces its capture. These are
+the places where a check is still relaxed. Each is reported by its phase,
+never silently skipped. What removes each:
+
+| Where | What is relaxed | Why | What removes it |
+|---|---|---|---|
+| panel (03) | the prompt window between the request and the Yes press: the port's page takes 7 ticks, the original's 30 | the ITEM root's module-0x21 load takes 24 loader dispatches in the original; the port's load is instant (H7) | the module loader's dispatch count (FIRST_LEVEL_AUDIT.md WP-5) |
+| cage_roof, crevice_prompt, east_tower (10, 11, 13) | the voiced line's teardown and what follows it land 8 / 6 / 6 rows early; the checker allows exactly that shift | the port's IOP stream drive completes a read at its first poll | a new capture of the stream / voice lanes (FIRST_LEVEL_AUDIT.md WP-8b; the VOICE step's capture list) |
+| roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
+| slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
+| check_indicator_children | the terminal child's matrix after the elevator scan (9,938 ticks skipped and counted) | 0x827E6C, the terminal's copy of its node matrix into the child's slot, is not bound: the terminal's pose is still the legacy elevator's | the terminal owner's node on original slots (CENSUS_UNVERIFIED.md) |
+| check_owner_units | the whole lighting rows (compared for 0 units; the colour matrix and the rig lanes are compared) | the point-light slots' sway follows rand() (001D7C30), and the port's rand() order is not yet the original's | the RNG order audit |
+| check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
+| check_shadow | 1,302 post-steps during the opening are reported, not drawn | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
+
+Not compared at all: the sounds (WP-14), the pixels (the renderer compares
+by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`),
+the walks between the scripted and climbing windows (navigation).
+
+**Frame order.** `tools/compare_frame_order.py` must be given a
+post-control window of a newgame-control trace (`--native-index`), as
+LOCOMOTION_DISPLAY.md does. Without it the comparator aligns idle04 / walk04
+/ st03 on the first native window with the same machine state, which is the
+three selector-0 ticks at the opening's end, where record 13 (008257A0)
+still ticks. The report then shows "drum area11[14] against 008257A0
+area11[13]". That is an alignment artefact, not a node-order divergence:
+from native index 1330 (counter 2587, after first control) idle04, walk04
+and st03 PASS event for event, and cut02 / cut15 PASS on their own windows
+(2026-09-26, port HEAD 097fbd9).
 
 ## Adding a phase (the contract for WP-4 onward)
 

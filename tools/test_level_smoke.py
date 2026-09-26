@@ -2101,6 +2101,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=Path, required=True, help='EM_AREA_CHANGE_LOG of a newgame-level run')
     parser.add_argument('--run-log', type=Path, required=True, help='stderr of the same run')
+    parser.add_argument('--require-through', metavar='PHASE',
+                        help='fail unless every phase the run was asked to play (the main line up to PHASE, '
+                             'then PHASE itself when it is a side phase; "last" for the whole main line) '
+                             'was checked live against its capture')
     args = parser.parse_args()
     run = args.run_log.read_text()
     assert 'level smoke: FAIL' not in run, 'the run reported a failure'
@@ -2144,6 +2148,14 @@ def main():
     beats = '; '.join(f'{beat} ' + ', '.join(f'{p} {status.get(p, "not reached")}' for p in phases)
                       for beat, phases in BEATS)
     print(f'level smoke: route beats: {beats}')
+    if args.require_through:
+        names = [p[0] for p in PHASES]
+        until = main_line[-1] if args.require_through == 'last' else args.require_through
+        assert until in names, ('--require-through: unknown phase', until, names)
+        required = [p for p in names[:names.index(until)] if p not in SIDE] + [until]
+        missing = [p for p in required if p not in checked]
+        assert not missing, ('level smoke: phases the run had to play were not checked live against their '
+                             'captures (NOT-LIVE, driven or not reached)', missing)
     print(f'level smoke: PASS ({len(checked)} live phase(s) checked against the captures: '
           f'{", ".join(checked)}; NOT-LIVE: {", ".join(not_live) if not_live else "none"})')
     return 0

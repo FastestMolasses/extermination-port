@@ -364,7 +364,9 @@ test-collision-world-capture: $(BIN)
 # side beat 09 from its end, fence_door (about 16 s, docs/LEVEL_SMOKE.md
 # "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
 # the whole live route (about 30 s), then the side-beat runs 00 and 09
-# (about 20 s more).
+# (about 20 s more). Every run's checker requires each phase the run was
+# asked to play to be checked live against its capture (--require-through:
+# a NOT-LIVE, driven or unreached phase fails the target).
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,fence_door)
 
 .PHONY: test-level-smoke
@@ -374,7 +376,8 @@ test-level-smoke: $(BIN)
 	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl \
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
-	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log
+	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log \
+	    --require-through $${EM_LEVEL_SMOKE_UNTIL:-$(or $(LEVEL_SMOKE_UNTIL),last)}
 	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 
 .PHONY: test-level-smoke-full
@@ -393,7 +396,7 @@ test-level-smoke-side: $(BIN)
 	        $(BIN) > build/level_smoke_side/run.log 2>&1 || { grep "level smoke" build/level_smoke_side/run.log; exit 1; }; \
 	    grep "level smoke:" build/level_smoke_side/run.log; \
 	    python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl \
-	        --run-log build/level_smoke_side/run.log || exit 1; \
+	        --run-log build/level_smoke_side/run.log --require-through $$side || exit 1; \
 	done
 
 .PHONY: test-message-service

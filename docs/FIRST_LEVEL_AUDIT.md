@@ -229,6 +229,32 @@ equipment and head sprite live):**
   every other untranslated handler and 001EFE00 fault (none is reachable in
   AREA11 in the port; EFFECT_MANAGER.md 8.2).
 
+**Status update (2026-09-26, full-route smoke and census re-classification):**
+- At port HEAD 097fbd9 the level smoke plays route beats 01..14 on the main
+  line (18 phases) and the side beats 00 and 09 in their own runs, and every
+  phase reproduces its capture. `make test-level-smoke-full` now requires
+  that: the checker's `--require-through` fails the target when a phase the
+  run had to play is NOT-LIVE, driven or not reached, instead of passing
+  with a shorter route (LEVEL_SMOKE.md "Running it").
+- The checks that are still relaxed are listed in LEVEL_SMOKE.md "What the
+  full route does not yet compare". Each has a named cause and remover: the
+  module-0x21 load (H7), the voice drive's latency (a new capture), Roger's
+  idle phase before f358 (navigation), the slide / step-off stance
+  (navigation), the terminal's 0x827E6C copy, the rand() order in the
+  point-light sway, lane 3's parameters, and the opening's post-step.
+- Census (FIRST_LEVEL_CENSUS.md 1.22): liveness was measured again over the
+  whole route. Live 640 of 733 non-boundary functions (90.8% by
+  instructions), verified-unbound 87, unverified 5, missing 1, stand-in 0.
+  Six rows were upgraded to live: 00102948, 0011D878, 001AF890, 001B1380,
+  001B6F80 and 001C6150. 00187DC0 moved to unverified: its live handler is
+  a copy that no oracle executes.
+- Frame order: the reported idle04 / walk04 failure at HEAD is an alignment
+  artefact of running the comparator without `--native-index`. On a
+  post-control window every frame passes (LEVEL_SMOKE.md "Frame order").
+- New original captures needed (for the lead): the stream / voice lanes
+  around the voiced lines (the VOICE step's list). Without them the
+  teardown shift stays an allowed divergence.
+
 ---
 
 ## 2. Live call graph (normal run)
